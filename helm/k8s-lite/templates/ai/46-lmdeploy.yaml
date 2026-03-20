@@ -1,0 +1,42 @@
+# LMDeploy (LLM Inference)
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: lmdeploy
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lmdeploy
+  namespace: lmdeploy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: lmdeploy
+  template:
+    metadata:
+      labels:
+        app: lmdeploy
+    spec:
+      containers:
+      - name: lmdeploy
+        image: gentoofoo/lmdeploy:latest
+        ports:
+        - containerPort: 8000
+        env:
+        - name: ENV
+          value: "production"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: lmdeploy
+  namespace: lmdeploy
+spec:
+  selector:
+    app: lmdeploy
+  ports:
+  - protocol: TCP
+    port: 8000
+    targetPort: 8000

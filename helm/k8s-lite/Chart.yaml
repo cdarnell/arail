@@ -1,0 +1,5 @@
+apiVersion: v2
+name: k8s-lite
+version: 0.1.0
+description: Nucleus Academy core stack (single-node, Linkerd mesh, all AI/infra components)
+type: application

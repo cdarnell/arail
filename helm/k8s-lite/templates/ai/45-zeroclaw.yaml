@@ -1,29 +1,29 @@
-# Phoenix (LLM Observability)
+# ZeroClaw (Agent Router)
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: phoenix
+  name: zeroclaw
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: phoenix
-  namespace: phoenix
+  name: zeroclaw
+  namespace: zeroclaw
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: phoenix
+      app: zeroclaw
   template:
     metadata:
       labels:
-        app: phoenix
+        app: zeroclaw
     spec:
       containers:
-      - name: phoenix
-        image: gentoofoo/phoenix:latest
+      - name: zeroclaw
+        image: gentoofoo/zeroclaw:latest
         ports:
-        - containerPort: 6006
+        - containerPort: 9000
         env:
         - name: ENV
           value: "production"
@@ -31,12 +31,12 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: phoenix
-  namespace: phoenix
+  name: zeroclaw
+  namespace: zeroclaw
 spec:
   selector:
-    app: phoenix
+    app: zeroclaw
   ports:
   - protocol: TCP
-    port: 6006
-    targetPort: 6006
+    port: 9000
+    targetPort: 9000

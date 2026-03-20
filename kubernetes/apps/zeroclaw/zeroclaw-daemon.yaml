@@ -1,0 +1,51 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: zeroclaw-sre
+  annotations:
+    linkerd.io/inject: enabled # Auto-inject Linkerd proxy
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: zeroclaw-daemon
+  namespace: zeroclaw-sre
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: zeroclaw-sre
+  template:
+    metadata:
+      labels:
+        app: zeroclaw-sre
+    spec:
+      containers:
+      - name: zeroclaw
+        image: ghcr.io/zeroclaw-labs/zeroclaw:latest
+        args: ["daemon"]
+        env:
+        - name: ZEROCLAW_MODE
+          value: "SRE"
+        - name: PROMETHEUS_URL
+          value: "http://prometheus.monitoring.svc.cluster.local:9090"
+        resources:
+          limits:
+            memory: "128Mi"
+            cpu: "200m"
+          requests:
+            memory: "32Mi"
+            cpu: "50m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: zeroclaw-sre-svc
+  namespace: zeroclaw-sre
+spec:
+  selector:
+    app: zeroclaw-sre
+  ports:
+    - protocol: TCP
+      port: 42617
+      targetPort: 42617

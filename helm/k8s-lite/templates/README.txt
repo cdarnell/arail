@@ -1,0 +1,1 @@
+Place your Kubernetes manifest templates here (e.g., zeroclaw.yaml, phoenix.yaml, etc.). Use Helm templating for values like replicaCount, image, resources, etc.

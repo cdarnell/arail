@@ -1,0 +1,33 @@
+{{- if .Values.components.reactDashboard.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: react-dashboard
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: react-dashboard
+  template:
+    metadata:
+      labels:
+        app: react-dashboard
+    spec:
+      containers:
+      - name: react-dashboard
+        image: yourdockerhub/react-dashboard:latest
+        ports:
+        - containerPort: 3000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: react-dashboard
+spec:
+  selector:
+    app: react-dashboard
+  ports:
+  - protocol: TCP
+    port: 3000
+    targetPort: 3000
+{{- end }}

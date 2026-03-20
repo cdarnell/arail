@@ -1,0 +1,24 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "url": "http://prometheus.local:9090/api/v1/query",
+        "options": {},
+        "queryParameters": {
+          "query": "avg_over_time(nvidia_gpu_power_usage_watts[1m])"
+        }
+      },
+      "name": "Get GPU Wattage",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const watts = items[0].json.data.result[0].value[1];\nconst durationHours = 0.5; // Example: 30 min task\nconst kwh = (watts * durationHours) / 1000;\nconst localCost = kwh * 0.10;\nconst cloudCost = 1.50; // Example GPT-4o cost for same task\n\nreturn {\n  watts: parseFloat(watts).toFixed(2),\n  local_cost_usd: localCost.toFixed(4),\n  cloud_savings_usd: (cloudCost - localCost).toFixed(2),\n  is_local_cheaper: localCost < cloudCost\n};"
+      },
+      "name": "Calculate Efficiency",
+      "type": "n8n-nodes-base.code",
+      "position": [450, 300]
+    }
+  ]
+}

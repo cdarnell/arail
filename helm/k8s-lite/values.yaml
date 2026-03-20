@@ -1,0 +1,34 @@
+replicaCount: 1
+linkerd:
+  enabled: true
+components:
+  zeroclaw:
+    enabled: true
+  opencodeGateway:
+    enabled: true
+  ollama:
+    enabled: true
+  phoenix:
+    enabled: true
+  jupyterlab:
+    enabled: true
+  n8n:
+    enabled: true
+  langchain:
+    enabled: true
+  lmdeploy:
+    enabled: true
+  redpanda:
+    enabled: true
+  openNotebook:
+    enabled: true
+  reactDashboard:
+    enabled: true
+  grafana:
+    enabled: true
+  prometheus:
+    enabled: true
+  loki:
+    enabled: true
+  tempo:
+    enabled: true

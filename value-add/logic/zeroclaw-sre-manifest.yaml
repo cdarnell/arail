@@ -1,0 +1,53 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: zeroclaw-sre
+  annotations:
+    linkerd.io/inject: enabled
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: zeroclaw-janitor
+  namespace: zeroclaw-sre
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: zeroclaw-janitor
+  template:
+    metadata:
+      labels:
+        app: zeroclaw-janitor
+    spec:
+      containers:
+      - name: zeroclaw
+        image: ghcr.io/zeroclaw-labs/zeroclaw:latest
+        args: ["janitor"]
+        env:
+        - name: ZEROCLAW_MODE
+          value: "JANITOR"
+        - name: LINKERD_TAP_URL
+          value: "http://linkerd-viz.linkerd.svc.cluster.local:8080/api/tap"
+        - name: PROMETHEUS_URL
+          value: "http://prometheus.monitoring.svc.cluster.local:9090"
+        resources:
+          limits:
+            memory: "128Mi"
+            cpu: "200m"
+          requests:
+            memory: "32Mi"
+            cpu: "50m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: zeroclaw-janitor-svc
+  namespace: zeroclaw-sre
+spec:
+  selector:
+    app: zeroclaw-janitor
+  ports:
+    - protocol: TCP
+      port: 42617
+      targetPort: 42617

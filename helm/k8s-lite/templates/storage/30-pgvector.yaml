@@ -1,0 +1,39 @@
+# PGVector (Vector Store)
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: pgvector
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pgvector
+  namespace: pgvector
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pgvector
+  template:
+    metadata:
+      labels:
+        app: pgvector
+    spec:
+      containers:
+      - name: pgvector
+        image: ankane/pgvector:latest
+        ports:
+        - containerPort: 5432
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pgvector
+  namespace: pgvector
+spec:
+  selector:
+    app: pgvector
+  ports:
+  - protocol: TCP
+    port: 5432
+    targetPort: 5432

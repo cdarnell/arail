@@ -1,0 +1,7 @@
+# Linkerd Service Mesh
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: linkerd
+---
+# Add Linkerd CRDs and control plane manifests as needed

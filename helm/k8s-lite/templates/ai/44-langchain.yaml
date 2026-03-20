@@ -1,0 +1,42 @@
+# LangChain (Cognitive Router)
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: langchain
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: langchain
+  namespace: langchain
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: langchain
+  template:
+    metadata:
+      labels:
+        app: langchain
+    spec:
+      containers:
+      - name: langchain
+        image: gentoofoo/langchain:latest
+        ports:
+        - containerPort: 8500
+        env:
+        - name: ENV
+          value: "production"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: langchain
+  namespace: langchain
+spec:
+  selector:
+    app: langchain
+  ports:
+  - protocol: TCP
+    port: 8500
+    targetPort: 8500
