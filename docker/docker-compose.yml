@@ -1,0 +1,82 @@
+version: '3.8'
+services:
+  lmdeploy:
+    image: lmdeploy:latest
+    build: ../lmdeploy-setup
+    ports:
+      - "8000:8000"
+      - "9000:9000"
+    environment:
+      - CUDA_VISIBLE_DEVICES=0
+    networks:
+      - ai-mesh
+
+  opencode-gateway:
+    image: opencode-gateway:latest
+    build: ../opencode-gateway
+    ports:
+      - "8080:8080"
+    depends_on:
+      - lmdeploy
+    networks:
+      - ai-mesh
+
+  zeroclaw:
+    image: zeroclaw:latest
+    ports:
+      - "8500:8500"
+    networks:
+      - ai-mesh
+
+  n8n:
+    image: n8nio/n8n:latest
+    ports:
+      - "5678:5678"
+    networks:
+      - ai-mesh
+
+  kafka:
+    image: bitnami/kafka:latest
+    ports:
+      - "9092:9092"
+    environment:
+      - KAFKA_CFG_ZOOKEEPER_CONNECT=zookeeper:2181
+      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092
+    networks:
+      - ai-mesh
+
+  zookeeper:
+    image: bitnami/zookeeper:latest
+    ports:
+      - "2181:2181"
+    networks:
+      - ai-mesh
+
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ../observability/prometheus-deployment.yaml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+    networks:
+      - ai-mesh
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    networks:
+      - ai-mesh
+
+  jupyter:
+    image: jupyter/base-notebook:latest
+    ports:
+      - "8888:8888"
+    volumes:
+      - ../notebooks:/home/jovyan/work
+    networks:
+      - ai-mesh
+
+networks:
+  ai-mesh:
+    driver: bridge

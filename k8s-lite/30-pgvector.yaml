@@ -1,0 +1,53 @@
+# Postgres with pgvector extension
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: pgvector
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: pgvector
+  namespace: pgvector
+spec:
+  serviceName: pgvector
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pgvector
+  template:
+    metadata:
+      labels:
+        app: pgvector
+    spec:
+      containers:
+      - name: pgvector
+        image: ankane/pgvector:latest
+        env:
+        - name: POSTGRES_DB
+          value: ai_lab
+        - name: POSTGRES_USER
+          value: aiuser
+        - name: POSTGRES_PASSWORD
+          value: aipassword
+        ports:
+        - containerPort: 5432
+        volumeMounts:
+        - name: data
+          mountPath: /var/lib/postgresql/data
+      volumes:
+      - name: data
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pgvector
+  namespace: pgvector
+spec:
+  selector:
+    app: pgvector
+  ports:
+  - protocol: TCP
+    port: 5432
+    targetPort: 5432

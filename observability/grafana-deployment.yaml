@@ -1,0 +1,54 @@
+# Grafana deployment for Kubernetes
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: grafana
+  namespace: observability
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: observability
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+  template:
+    metadata:
+      labels:
+        app: grafana
+    spec:
+      serviceAccountName: grafana
+      containers:
+        - name: grafana
+          image: grafana/grafana:latest
+          env:
+            - name: GF_SERVER_ROOT_URL
+              value: "https://grafana.gentoofoo.com"
+            - name: GF_SERVER_DOMAIN
+              value: "grafana.gentoofoo.com"
+            - name: GF_SERVER_HTTP_PORT
+              value: "3000"
+          ports:
+            - containerPort: 3000
+          volumeMounts:
+            - name: grafana-storage
+              mountPath: /var/lib/grafana
+      volumes:
+        - name: grafana-storage
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+  namespace: observability
+spec:
+  type: ClusterIP
+  ports:
+    - port: 3000
+      targetPort: 3000
+  selector:
+    app: grafana

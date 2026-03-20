@@ -1,0 +1,59 @@
+# Kafka (Redpanda-backed, Kafka-compatible)
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kafka
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: kafka
+  namespace: kafka
+spec:
+  serviceName: kafka
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kafka
+  template:
+    metadata:
+      labels:
+        app: kafka
+    spec:
+      containers:
+      - name: kafka
+        image: vectorized/redpanda:v23.1.2
+        args:
+          - redpanda
+          - start
+          - --smp 1
+          - --memory 1G
+          - --reserve-memory 0M
+          - --overprovisioned
+          - --node-id 0
+          - --check=false
+        ports:
+        - containerPort: 9092
+        - containerPort: 9644
+        volumeMounts:
+        - name: data
+          mountPath: /var/lib/redpanda/data
+      volumes:
+      - name: data
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka
+  namespace: kafka
+spec:
+  selector:
+    app: kafka
+  ports:
+  - protocol: TCP
+    port: 9092
+    targetPort: 9092
+  - protocol: TCP
+    port: 9644
+    targetPort: 9644

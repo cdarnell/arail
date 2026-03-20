@@ -1,0 +1,174 @@
+{
+  "dashboard": {
+    "id": null,
+    "uid": null,
+    "title": "Minimalist AI Lab - Unified Observability",
+    "tags": ["phoenix", "linkerd", "redpanda", "kubernetes", "llm"],
+    "timezone": "browser",
+    "schemaVersion": 38,
+    "version": 1,
+    "refresh": "30s",
+    "panels": [
+      {
+        "type": "row",
+        "title": "Phoenix LLM Evaluation",
+        "collapsed": false,
+        "panels": [
+          {
+            "type": "timeseries",
+            "title": "LLM Trace Count",
+            "datasource": "Prometheus",
+            "targets": [
+              {
+                "expr": "phoenix_traces_total",
+                "legendFormat": "Traces"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "unit": "short"
+              }
+            }
+          },
+          {
+            "type": "timeseries",
+            "title": "LLM Evaluation Score",
+            "datasource": "Prometheus",
+            "targets": [
+              {
+                "expr": "phoenix_evaluation_score",
+                "legendFormat": "Score"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "unit": "short"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "type": "row",
+        "title": "Linkerd Service Mesh",
+        "collapsed": false,
+        "panels": [
+          {
+            "type": "timeseries",
+            "title": "Linkerd Request Volume",
+            "datasource": "Prometheus",
+            "targets": [
+              {
+                "expr": "sum(rate(request_total[1m])) by (deployment)",
+                "legendFormat": "{{deployment}}"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "unit": "ops"
+              }
+            }
+          },
+          {
+            "type": "timeseries",
+            "title": "Linkerd Success Rate",
+            "datasource": "Prometheus",
+            "targets": [
+              {
+                "expr": "sum(rate(response_total{classification=\"success\"}[1m])) by (deployment) / sum(rate(response_total[1m])) by (deployment)",
+                "legendFormat": "{{deployment}}"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "unit": "percent"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "type": "row",
+        "title": "Redpanda Event Bus",
+        "collapsed": false,
+        "panels": [
+          {
+            "type": "timeseries",
+            "title": "Redpanda Messages In/Out",
+            "datasource": "Prometheus",
+            "targets": [
+              {
+                "expr": "sum(rate(redpanda_kafka_messages_in_total[1m]))",
+                "legendFormat": "In"
+              },
+              {
+                "expr": "sum(rate(redpanda_kafka_messages_out_total[1m]))",
+                "legendFormat": "Out"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "unit": "ops"
+              }
+            }
+          },
+          {
+            "type": "timeseries",
+            "title": "Redpanda Partition Count",
+            "datasource": "Prometheus",
+            "targets": [
+              {
+                "expr": "sum(redpanda_kafka_partition_count)",
+                "legendFormat": "Partitions"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "unit": "short"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "type": "row",
+        "title": "Kubernetes Node & Pod Health",
+        "collapsed": false,
+        "panels": [
+          {
+            "type": "timeseries",
+            "title": "Node CPU Usage",
+            "datasource": "Prometheus",
+            "targets": [
+              {
+                "expr": "instance:node_cpu_utilisation:rate1m",
+                "legendFormat": "{{instance}}"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "unit": "percent"
+              }
+            }
+          },
+          {
+            "type": "timeseries",
+            "title": "Pod Restarts",
+            "datasource": "Prometheus",
+            "targets": [
+              {
+                "expr": "sum(kube_pod_container_status_restarts_total) by (pod)",
+                "legendFormat": "{{pod}}"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "unit": "short"
+              }
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

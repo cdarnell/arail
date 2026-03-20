@@ -1,0 +1,8 @@
+# Linkerd install manifest (use linkerd CLI for production)
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: linkerd
+---
+# For air-gapped, use pre-pulled images and linkerd CLI to generate full manifests
+# See: https://linkerd.io/2.14/tasks/install-helm/

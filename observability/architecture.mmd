@@ -1,0 +1,186 @@
+graph TD
+%% Minimalist Observability Stack - K3s + Linkerd + OpenTelemetry + Prometheus + Grafana + Redpanda
+%% Render with Mermaid.js
+
+
+    subgraph K3s Node (Single Node)
+                subgraph ci-cd
+                    GHA[GitHub Actions (CI/CD)]
+                    HELM[Helm Chart Render]
+                end
+            GHA-->|Push/PR triggers|HELM
+            HELM-->|Renders manifests|K3s
+            GHA-->|kubectl apply|K3s
+            classDef ci fill:#e3f2fd,stroke:#1976d2,stroke-width:2px;
+            class GHA,HELM ci;
+        direction TB
+        subgraph kube-system
+            K3s[K3s Control Plane]
+        end
+        subgraph linkerd-system
+            LINKERD[Linkerd Control Plane (Rust, mTLS, Viz)]
+            PROXY[Linkerd Rust Proxy (mTLS)]
+        end
+        subgraph observability
+            Prom[Prometheus]
+            Graf[Grafana]
+            Loki[Loki]
+            Tempo[Tempo/Jaeger]
+            Alert[Alertmanager]
+            OTelC[OpenTelemetry Collector]
+        end
+        subgraph opencode
+            OGW[Opencode Gateway<br/>(OpenTelemetry SDK, W3C headers)]
+            AGENTS[IDE Agents<br/>(OpenTelemetry SDK, W3C headers)]
+        end
+        subgraph lmdeploy
+            LMD[LMDeploy<br/>(OpenTelemetry SDK, W3C headers)]
+        end
+        subgraph ollama
+            OLLAMA[Ollama<br/>(LLM Service)]
+        end
+        subgraph langchain
+            LANGCHAIN[LangChain<br/>(Orchestration)]
+        end
+        subgraph n8n
+            N8N[n8n<br/>(Automation)]
+        end
+        subgraph app
+            APP[Your App(s)<br/>(OpenTelemetry SDK, W3C headers)]
+            LEARN[Learning Agent & UI<br/>(learning.gentoofoo.local)]
+        end
+            %% Learning Agent
+            LEARN-->|Guidance, explanations, suggestions|APP
+            LEARN-->|Lab onboarding, value, how-to|U1
+            LEARN-->|Knows user goals, recommends workflows|N8N
+            LEARN-->|Explains orchestration|LANGCHAIN
+            LEARN-->|Describes memory, ingestion, distillation|MS
+        subgraph eventbus
+            REDPANDA[Redpanda<br/>(Kafka-compatible Event Bus)]
+        end
+        subgraph memoryflow["Memory & Knowledge Flow"]
+            IG[Ingestion API Service]
+            US[Unstructured Service]
+            ES[Enrichment Service]
+            EMB[Embedding Service]
+            MS[Memory Service (pgvector/Postgres)]
+            DS[Distillation Service]
+            INF[LMDeploy Inference Service]
+            MF[MLflow Service]
+        end
+        subgraph storage["Storage Layer"]
+            PG[Postgres + pgvector]
+            OBJ[Object Store (S3/MinIO)]
+        end
+        subgraph models["Models & Registry"]
+            MLF[MLflow Registry]
+            HF[Hugging Face Hub]
+        end
+    end
+
+    %% Metrics
+    APP-->|/metrics|Prom
+    OGW-->|/metrics|Prom
+    AGENTS-->|/metrics|Prom
+    LMD-->|/metrics|Prom
+    OLLAMA-->|/metrics|Prom
+    LANGCHAIN-->|/metrics|Prom
+    N8N-->|/metrics|Prom
+    PROXY-->|Proxy stats|Prom
+
+    %% Memory & Knowledge Flow
+    APP-->|HTTP/gRPC|IG
+    OGW-->|HTTP/gRPC|IG
+    IG-->|produce|REDPANDA
+    REDPANDA-->|consume|US
+    US-->|produce|REDPANDA
+    US-->|store raw/parsed|OBJ
+    REDPANDA-->|consume|ES
+    ES-->|produce|REDPANDA
+    REDPANDA-->|consume|EMB
+    EMB-->|produce vectors|REDPANDA
+    EMB-->|produce distill candidates|REDPANDA
+    REDPANDA-->|consume|MS
+    MS-->|write vectors + core metadata|PG
+    REDPANDA-->|consume|DS
+    DS-->|train/distill|MF
+    DS-->|push models/datasets|HF
+    DS-->|deploy models|INF
+    INF-->|query context|MS
+    MS-->|vector search|PG
+    MS-->|version_refs|MF
+    DS-->|log runs|MF
+    APP-->|Memory APIs|MS
+    APP-->|Lineage APIs|MF
+
+    %% Tracing
+    APP-->|Traces (W3C)|OTelC
+    OGW-->|Traces (W3C)|OTelC
+    AGENTS-->|Traces (W3C)|OTelC
+    LMD-->|Traces (W3C)|OTelC
+    OLLAMA-->|Traces (W3C)|OTelC
+    LANGCHAIN-->|Traces (W3C)|OTelC
+    N8N-->|Traces (W3C)|OTelC
+    PROXY-->|Proxy traces|OTelC
+    OTelC-->|Traces|Tempo
+    OTelC-->|Traces|Jaeger
+    OTelC-->|Metrics|Prom
+
+    %% Logs
+    Loki-->|Logs|Graf
+
+    %% Dashboards & Alerts
+    Prom-->|Dashboards|Graf
+    Tempo-->|Traces|Graf
+    Prom-->|Alerts|Alert
+
+    %% Service Mesh
+    LINKERD-->|Manages|PROXY
+    PROXY-->|mTLS|APP
+    PROXY-->|mTLS|OGW
+    PROXY-->|mTLS|AGENTS
+    PROXY-->|mTLS|LMD
+    PROXY-->|mTLS|OLLAMA
+    PROXY-->|mTLS|LANGCHAIN
+    PROXY-->|mTLS|N8N
+
+    %% Event Bus (Redpanda)
+    APP-->|Events|REDPANDA
+    OGW-->|Events|REDPANDA
+    AGENTS-->|Events|REDPANDA
+    LMD-->|Events|REDPANDA
+    OLLAMA-->|Events|REDPANDA
+    LANGCHAIN-->|Events|REDPANDA
+    N8N-->|Events|REDPANDA
+
+    %% Failure Events
+    APP-->|Failure Event|REDPANDA
+    OGW-->|Failure Event|REDPANDA
+    AGENTS-->|Failure Event|REDPANDA
+    LMD-->|Failure Event|REDPANDA
+    OLLAMA-->|Failure Event|REDPANDA
+    LANGCHAIN-->|Failure Event|REDPANDA
+    N8N-->|Failure Event|REDPANDA
+
+    REDPANDA-->|Failure Topic|SRE
+
+    %% SRE Agentic Workflow
+    SRE-->|Query|SRELLM
+    SRELLM-->|Solution/Action|SRE
+    SRE-->|Auto-Heal/Notify|OGW
+
+    %% Emphasize tracing as key integration
+    classDef tracing fill:#ffe082,stroke:#ffb300,stroke-width:2px;
+    class OTelC,Tempo,Jaeger tracing;
+
+    %% Service mesh style
+    classDef mesh fill:#e0f7fa,stroke:#00acc1,stroke-width:2px;
+    class LINKERD,PROXY mesh;
+
+    %% Event bus style
+    classDef eventbus fill:#f3e5f5,stroke:#8e24aa,stroke-width:2px;
+    class REDPANDA eventbus;
+
+    %% SRE agent style
+    classDef sre fill:#e1f5fe,stroke:#0277bd,stroke-width:2px;
+    class SRE,SRELLM sre;

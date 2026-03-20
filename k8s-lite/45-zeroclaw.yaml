@@ -1,0 +1,42 @@
+# ZeroClaw (Agent Router)
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: zeroclaw
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: zeroclaw
+  namespace: zeroclaw
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: zeroclaw
+  template:
+    metadata:
+      labels:
+        app: zeroclaw
+    spec:
+      containers:
+      - name: zeroclaw
+        image: gentoofoo/zeroclaw:latest
+        ports:
+        - containerPort: 9000
+        env:
+        - name: ENV
+          value: "production"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: zeroclaw
+  namespace: zeroclaw
+spec:
+  selector:
+    app: zeroclaw
+  ports:
+  - protocol: TCP
+    port: 9000
+    targetPort: 9000

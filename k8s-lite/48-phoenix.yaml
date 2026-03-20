@@ -1,0 +1,42 @@
+# Phoenix (LLM Observability)
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: phoenix
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: phoenix
+  namespace: phoenix
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: phoenix
+  template:
+    metadata:
+      labels:
+        app: phoenix
+    spec:
+      containers:
+      - name: phoenix
+        image: gentoofoo/phoenix:latest
+        ports:
+        - containerPort: 6006
+        env:
+        - name: ENV
+          value: "production"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: phoenix
+  namespace: phoenix
+spec:
+  selector:
+    app: phoenix
+  ports:
+  - protocol: TCP
+    port: 6006
+    targetPort: 6006

@@ -1,0 +1,116 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "AI Lab Observability",
+    "tags": ["ai-lab", "performance", "usage", "infrastructure"],
+    "timezone": "browser",
+    "schemaVersion": 38,
+    "version": 1,
+    "refresh": "10s",
+    "panels": [
+      {
+        "type": "stat",
+        "title": "LMDeploy Token Usage",
+        "datasource": "Prometheus",
+        "targets": [{
+          "expr": "sum(rate(lmdeploy_tokens_total[1m]))",
+          "legendFormat": "Tokens/sec"
+        }],
+        "gridPos": {"x": 0, "y": 0, "w": 6, "h": 4}
+      },
+      {
+        "type": "stat",
+        "title": "LMDeploy Latency (p95)",
+        "datasource": "Prometheus",
+        "targets": [{
+          "expr": "histogram_quantile(0.95, sum(rate(lmdeploy_request_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p95 Latency (s)"
+        }],
+        "gridPos": {"x": 6, "y": 0, "w": 6, "h": 4}
+      },
+      {
+        "type": "stat",
+        "title": "LMDeploy Throughput",
+        "datasource": "Prometheus",
+        "targets": [{
+          "expr": "sum(rate(lmdeploy_requests_total[1m]))",
+          "legendFormat": "Req/sec"
+        }],
+        "gridPos": {"x": 12, "y": 0, "w": 6, "h": 4}
+      },
+      {
+        "type": "stat",
+        "title": "Opencode Agent Activity",
+        "datasource": "Prometheus",
+        "targets": [{
+          "expr": "sum(rate(opencode_agent_requests_total[1m]))",
+          "legendFormat": "Agent Req/sec"
+        }],
+        "gridPos": {"x": 0, "y": 4, "w": 6, "h": 4}
+      },
+      {
+        "type": "stat",
+        "title": "ZeroClaw Routing Metrics",
+        "datasource": "Prometheus",
+        "targets": [{
+          "expr": "sum(rate(zeroclaw_routing_total[1m]))",
+          "legendFormat": "Routes/sec"
+        }],
+        "gridPos": {"x": 6, "y": 4, "w": 6, "h": 4}
+      },
+      {
+        "type": "stat",
+        "title": "Kafka Consumer Lag",
+        "datasource": "Prometheus",
+        "targets": [{
+          "expr": "sum(kafka_consumer_lag)",
+          "legendFormat": "Lag"
+        }],
+        "gridPos": {"x": 12, "y": 4, "w": 6, "h": 4}
+      },
+      {
+        "type": "stat",
+        "title": "Mesh Traffic (Istio Ambient)",
+        "datasource": "Prometheus",
+        "targets": [{
+          "expr": "sum(rate(istio_requests_total[1m]))",
+          "legendFormat": "Mesh Req/sec"
+        }],
+        "gridPos": {"x": 0, "y": 8, "w": 6, "h": 4}
+      },
+      {
+        "type": "graph",
+        "title": "LMDeploy Latency Over Time",
+        "datasource": "Prometheus",
+        "targets": [{
+          "expr": "histogram_quantile(0.95, sum(rate(lmdeploy_request_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p95 Latency"
+        }],
+        "gridPos": {"x": 6, "y": 8, "w": 12, "h": 8}
+      },
+      {
+        "type": "graph",
+        "title": "LMDeploy Throughput Over Time",
+        "datasource": "Prometheus",
+        "targets": [{
+          "expr": "sum(rate(lmdeploy_requests_total[1m]))",
+          "legendFormat": "Req/sec"
+        }],
+        "gridPos": {"x": 0, "y": 16, "w": 12, "h": 8}
+      },
+      {
+        "type": "graph",
+        "title": "Kafka Consumer Lag Over Time",
+        "datasource": "Prometheus",
+        "targets": [{
+          "expr": "sum(kafka_consumer_lag)",
+          "legendFormat": "Lag"
+        }],
+        "gridPos": {"x": 12, "y": 16, "w": 6, "h": 8}
+      }
+    ],
+    "templating": {"list": []},
+    "annotations": {"list": []},
+    "time": {"from": "now-1h", "to": "now"}
+  }
+}

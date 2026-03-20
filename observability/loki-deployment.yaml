@@ -1,0 +1,49 @@
+# Loki deployment for Kubernetes
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: loki
+  namespace: observability
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loki
+  namespace: observability
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: loki
+  template:
+    metadata:
+      labels:
+        app: loki
+    spec:
+      serviceAccountName: loki
+      containers:
+        - name: loki
+          image: grafana/loki:2.9.3
+          args:
+            - -config.file=/etc/loki/local-config.yaml
+          ports:
+            - containerPort: 3100
+          volumeMounts:
+            - name: loki-config
+              mountPath: /etc/loki
+      volumes:
+        - name: loki-config
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: loki
+  namespace: observability
+spec:
+  type: ClusterIP
+  ports:
+    - port: 3100
+      targetPort: 3100
+  selector:
+    app: loki

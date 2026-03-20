@@ -1,0 +1,56 @@
+{
+  "name": "LLM Power Consumption vs API Cost",
+  "nodes": [
+    {
+      "parameters": {
+        "url": "http://prometheus:9090/api/v1/query",
+        "options": {},
+        "queryParameters": [
+          {
+            "name": "query",
+            "value": "sum(rate(container_cpu_usage_seconds_total{container=\"llm-inference\",namespace=\"ai-lab\"}[1m])) * 65"
+          }
+        ]
+      },
+      "id": "Prometheus_Request",
+      "name": "Get Current Wattage (Prometheus)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [300, 200]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            { "name": "inference_duration_seconds", "value": "{{ $json[\"inference_duration_seconds\"] || 10 }}" },
+            { "name": "tokens_generated", "value": "{{ $json[\"tokens_generated\"] || 1000 }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "Set_Inputs",
+      "name": "Set Inputs",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [500, 200]
+    },
+    {
+      "parameters": {
+        "functionCode": "const duration = $json[\"inference_duration_seconds\"];\nconst wattage = $items(0)[0].json.data.result[0].value[1] || 65;\nconst tokens = $json[\"tokens_generated\"];\nconst electricity_rate = 0.12; // USD per kWh\nconst power_consumed_wh = (wattage * duration) / 3600;\nconst power_cost_usd = (power_consumed_wh / 1000) * electricity_rate;\nconst api_cost_usd = (tokens / 1000) * 0.03;\nreturn [{\n  json: {\n    power_consumed_wh,\n    power_cost_usd,\n    api_cost_usd,\n    cheaper_local: power_cost_usd < api_cost_usd\n  }\n}];"
+      },
+      "id": "Calc_Power_Cost",
+      "name": "Calculate Power & Compare",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [700, 200]
+    }
+  ],
+  "connections": {
+    "Get Current Wattage (Prometheus)": {
+      "main": [ [ { "node": "Set Inputs", "type": "main", "index": 0 } ] ]
+    },
+    "Set Inputs": {
+      "main": [ [ { "node": "Calculate Power & Compare", "type": "main", "index": 0 } ] ]
+    }
+  }
+}

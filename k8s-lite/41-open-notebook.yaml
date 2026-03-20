@@ -1,0 +1,42 @@
+# Open Notebook (Jupyter-compatible)
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: notebook
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: open-notebook
+  namespace: notebook
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: open-notebook
+  template:
+    metadata:
+      labels:
+        app: open-notebook
+    spec:
+      containers:
+      - name: open-notebook
+        image: gentoofoo/open-notebook:latest
+        ports:
+        - containerPort: 8888
+        env:
+        - name: ENV
+          value: "production"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: open-notebook
+  namespace: notebook
+spec:
+  selector:
+    app: open-notebook
+  ports:
+  - protocol: TCP
+    port: 8888
+    targetPort: 8888

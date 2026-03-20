@@ -1,0 +1,42 @@
+# JupyterLab
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: jupyterlab
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jupyterlab
+  namespace: jupyterlab
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: jupyterlab
+  template:
+    metadata:
+      labels:
+        app: jupyterlab
+    spec:
+      containers:
+      - name: jupyterlab
+        image: jupyter/base-notebook:latest
+        ports:
+        - containerPort: 8888
+        env:
+        - name: ENV
+          value: "production"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: jupyterlab
+  namespace: jupyterlab
+spec:
+  selector:
+    app: jupyterlab
+  ports:
+  - protocol: TCP
+    port: 8888
+    targetPort: 8888
