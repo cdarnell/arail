@@ -1,4 +1,24 @@
+
 # Minimalist AI Lab: Setup & Installation Guide
+
+
+## Pre-requisites: Automated Pre-Installation (Ubuntu/WSL)
+
+To automate all pre-installation steps (system update, K3s, kubectl symlink, Helm), use the provided script:
+
+```sh
+sudo ./k8s-lite/preinstall-minimalist.sh
+```
+
+This script will:
+- Update your system and install required dependencies
+- Install K3s (if not already installed) and start it with systemd
+- Ensure `kubectl` is available and symlinked to `/usr/local/bin/kubectl`
+- Install Helm (if not already installed)
+- Validate your cluster and toolchain
+
+After running the script, you should see your node in the Ready state with `kubectl get nodes` and Helm version output with `helm version`.
+
 
 ## Local DNS Setup (/etc/hosts)
 For local development, add the following entries to your `/etc/hosts` file to map internal service URLs:
@@ -17,8 +37,8 @@ For local development, add the following entries to your `/etc/hosts` file to ma
 
 ## Prerequisites
 - Ubuntu 22.04 LTS (recommended)
-- K3s or microk8s (single node)
-- kubectl, helm, and kustomize installed
+- K3s (single node, systemd-managed)
+- kubectl (bundled with K3s), helm, and kustomize installed
 - GitHub account and access to this repository
 - (Optional) Linkerd CLI for mesh diagnostics
 
@@ -33,7 +53,9 @@ cd minimalist
 - Edit manifests in `k8s-lite/` for storage class, resource limits, and domains
 - (Optional) Configure secrets for your environment
 
+
 ## 3. Deploy the Stack (Manual)
+Once K3s is running and kubectl is working, deploy all manifests:
 ```sh
 kubectl apply -f k8s-lite/
 ```

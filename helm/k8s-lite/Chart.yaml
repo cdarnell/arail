@@ -1,5 +1,10 @@
 apiVersion: v2
 name: k8s-lite
-version: 0.1.0
-description: Nucleus Academy core stack (single-node, Linkerd mesh, all AI/infra components)
+version: 0.2.0
+description: |
+	Nucleus Academy core stack (single-node, Linkerd mesh, all AI/infra components)
+	- Observability for everything: Prometheus, Grafana, ServiceMonitors, dashboards
+	- Linkerd service mesh: automatic proxy injection, telemetry, and golden metrics
+	- All services mesh-ready and metrics-enabled out of the box
+	- Built for learning, experimentation, and production visibility
 type: application

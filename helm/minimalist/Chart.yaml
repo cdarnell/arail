@@ -1,0 +1,11 @@
+apiVersion: v2
+name: minimalist
+description: |
+	Minimalist Nucleus AI Lab Helm chart.
+	- Level up your install with built-in observability (Prometheus, Grafana, dashboards for all services)
+	- Linkerd service mesh enabled by default for zero-trust, telemetry, and golden metrics
+	- All workloads annotated for mesh and metrics scraping
+	- Designed for rapid onboarding, learning, and production-grade visibility
+type: application
+version: 0.2.0
+appVersion: "1.16.0"
