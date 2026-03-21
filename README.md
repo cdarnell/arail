@@ -37,22 +37,11 @@ A lab is only as smart as its memory. The Nucleus manages its own cognitive load
 
 ### 🎓 Self-Teaching Environment (The Academy)
 
-The lab is your instructor. Through the **Nucleus Academy**, the environment grows with you:
+The lab is ultimately your instructor.  Through the **Nucleus AI Lab**, the environment grows with you.  The Teacher gives you advice, use cases and techniques to achieve the goal you define.  
 
 	* **Contextual Suggestions:** The [Resident Mentor](https://github.com/cdarnell/minimalist-blueprint/blob/main/ide-agents/IDE_AGENTS_REFERENCE.md) suggests the next logical step based on your current progress.
 	* **User Progression:** As you master a topic, the lab "unlocks" more complex infrastructure, scaling the challenge to your skill level.
 
------
 
-> ## "This is the closest thing to a living AI ecosystem you can build today."
 
-**The Nucleus** is more than the sum of its parts. It is a curated start that turns into a self-managed, ever-refining journey toward **The Goal**.
-
------
-
-### Why this "Marketing" spin works:
-
-1.  **The Goal as Gravity:** By putting "The Goal" at the top, you validate the user's intent immediately.
-2.  **Doing the Needful:** This phrase (your favorite!) implies that the agents are proactive partners, not passive scripts.
-3.  **The Lifecycle:** It moves from "Curated" (Ease of Use) to "Self-Managed" (Power) to "Refining" (Longevity).
 
