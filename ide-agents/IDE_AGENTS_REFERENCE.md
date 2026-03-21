@@ -2,7 +2,7 @@
     # Project Schoolhouse — IDE Agents Reference
     
     ## Executive Summary
-    The Nucleus Academy is a "Lab-in-a-Box" for AI learning and experimentation, designed for high-efficiency local deployment. Its core value is the presence of AI instructors—**Resident Mentor Agents**—who live within the lab as peer microservices. These agents provide contextual guidance, workflow suggestions, and hands-on learning, turning a standard VM into a guided "Schoolhouse" environment.
+    The Nucleus is a "AI Lab-in-a-Box" for learning and experimentation, designed for high-efficiency local deployment. Its core value is the presence of AI instructors—**Resident Mentor Agents**—who live within the lab as peer microservices. These agents provide contextual guidance, workflow suggestions, and hands-on learning, turning a standard VM into a guided "Schoolhouse" environment.
     
     ## Plan for Opencode-Powered IDE Agents
     * **Mesh Integration:** All IDE agents are instrumented with the **OpenTelemetry SDK (W3C header propagation)** and run within the **Linkerd mesh**. This ensures all traffic is secured via mTLS and fully observable.
