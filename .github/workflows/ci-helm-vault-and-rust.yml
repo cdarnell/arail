@@ -39,3 +39,35 @@ jobs:
       - name: Build agent_escalator
         working-directory: sdk
         run: cargo build --bin agent_escalator --release
+
+  integration-test:
+    name: Integration — run agent against test Vault
+    runs-on: ubuntu-latest
+    needs: build-agent
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start Vault dev server (Docker)
+        run: |
+          docker run -d --rm --name vault-test -e 'VAULT_DEV_ROOT_TOKEN_ID=root' -p 8200:8200 hashicorp/vault:1.14.1 server -dev -dev-root-token-id=root
+      - name: Wait for Vault to be ready
+        run: |
+          for i in {1..30}; do
+            if curl -sSf http://127.0.0.1:8200/v1/sys/health >/dev/null 2>&1; then
+              echo "Vault ready"
+              break
+            fi
+            echo "Waiting for vault..."
+            sleep 1
+          done
+      - name: Seed test secret (KV v2)
+        run: |
+          export VAULT_ADDR="http://127.0.0.1:8200"
+          export VAULT_TOKEN="root"
+          curl -s --request POST --header "X-Vault-Token: $VAULT_TOKEN" --data '{"data":{"test":"value"}}' $VAULT_ADDR/v1/kv/data/test || true
+      - name: Run built agent_escalator against test Vault
+        run: |
+          ls -lah sdk/target/release
+          sdk/target/release/agent_escalator --vault-addr http://127.0.0.1:8200 --vault-token root --vault-kv kv/test || (echo "agent_escalator failed" && exit 2)
+      - name: Stop Vault
+        if: always()
+        run: docker stop vault-test || true
