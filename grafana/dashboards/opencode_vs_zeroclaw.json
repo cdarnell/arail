@@ -1,0 +1,89 @@
+{
+  "dashboard": {
+    "id": null,
+    "uid": "opencode-zeroclaw",
+    "title": "Opencode vs ZeroClaw - Remediation Metrics",
+    "tags": ["agents", "escalation"],
+    "timezone": "browser",
+    "schemaVersion": 18,
+    "version": 1,
+    "panels": [
+      {
+        "type": "graph",
+        "id": 1,
+        "title": "Managed Invocations (rate)",
+        "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "sum by (manager) (rate(managed_invocations_total[5m]))",
+            "legendFormat": "{{manager}}",
+            "refId": "A",
+            "datasource": "Prometheus"
+          }
+        ]
+      },
+      {
+        "type": "stat",
+        "id": 2,
+        "title": "Total Managed Invocations",
+        "gridPos": {"x": 12, "y": 0, "w": 6, "h": 4},
+        "targets": [
+          {
+            "expr": "sum by (manager) (managed_invocations_total)",
+            "legendFormat": "{{manager}}",
+            "refId": "A",
+            "datasource": "Prometheus"
+          }
+        ]
+      },
+      {
+        "type": "graph",
+        "id": 3,
+        "title": "Escalations by Level (recommended metric)",
+        "gridPos": {"x": 0, "y": 8, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "sum by (level, manager) (rate(escalations_total[5m]))",
+            "legendFormat": "{{level}} - {{manager}}",
+            "refId": "A",
+            "datasource": "Prometheus"
+          }
+        ],
+        "description": "Requires `escalations_total{level,manager}` metric to be exported by agents."
+      },
+      {
+        "type": "graph",
+        "id": 4,
+        "title": "Recoveries by Manager (recommended metric)",
+        "gridPos": {"x": 12, "y": 4, "w": 6, "h": 4},
+        "targets": [
+          {
+            "expr": "sum by (manager) (rate(recoveries_total[5m]))",
+            "legendFormat": "{{manager}}",
+            "refId": "A",
+            "datasource": "Prometheus"
+          }
+        ],
+        "description": "Requires `recoveries_total{manager}` metric to be exported by agents."
+      },
+      {
+        "type": "table",
+        "id": 5,
+        "title": "Recent Escalation Banners (logs)",
+        "gridPos": {"x": 0, "y": 16, "w": 18, "h": 6},
+        "targets": [
+          {
+            "expr": "{job=\"agent_escalator\"}",
+            "refId": "A",
+            "datasource": "Loki"
+          }
+        ],
+        "description": "Show log lines with banners: `escalation_id`, `level`, `managed_by`. Requires Loki datasource configured."
+      }
+    ],
+    "annotations": {"list": []},
+    "templating": {"list": []},
+    "time": {"from": "now-1h", "to": "now"}
+  },
+  "overwrite": true
+}

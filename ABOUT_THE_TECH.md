@@ -2,7 +2,7 @@
 # About the Tech: Lean & Mean AI Lab
 
 ## Why Minimalist?
-The Nucleus Academy is designed for maximum efficiency and performance. Every technology choice was made to keep your cluster fast, secure, and focused on AI workloads—not on heavy, legacy infrastructure. 
+The Nucleus Lab is designed for maximum efficiency and performance. Every technology choice was made to keep your cluster fast, secure, and focused on AI workloads—not on heavy, legacy infrastructure. 
 
 ## Philosophy - PerDaDarnell
 - Simplicity and Standards everywhere
@@ -16,6 +16,9 @@ The Nucleus Academy is designed for maximum efficiency and performance. Every te
 - **Service Mesh: Linkerd (Rust):**
   - Ultra-light, secure, and zero-config.
   - All traffic is encrypted (mTLS) by default. Provide On/Off switch.
+
+- **Downward API + Kubernetes-native Auth:**
+  - By leveraging the Downward API and Kubernetes-native Auth, you strip away the "sidecar tax" (saving ~64MB+ RAM per pod) while maintaining enterprise-grade security. Agents discover pod metadata and perform in-cluster Vault authentication without extra sidecars.
 
 - **Redpanda (C++ Kafka):**
   - Kafka-compatible event streaming, but written in blazing-fast C++.

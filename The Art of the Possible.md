@@ -23,7 +23,7 @@ Because now you can build:
 - semantic clustering
 
 ### Self‑teaching environment
-- Nucleus Academy
+- Nucleus Lab
 - contextual suggestions
 - user progression
 

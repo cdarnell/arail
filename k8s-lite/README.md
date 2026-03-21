@@ -262,3 +262,7 @@ This stack provides a fully local, air-gapped AI lab with observability, event-d
 ---
 
 *Update this README as the stack evolves or if you add more exporters, dashboards, or integrations.*
+
+## See also
+
+- [Value Add: generated-values & bootstrap](../helm/k8s-lite/VALUE_ADD.md) — explains `bootstrap-nucleus.sh` and the `values.generated.yaml` workflow for adaptive host-driven Helm values.

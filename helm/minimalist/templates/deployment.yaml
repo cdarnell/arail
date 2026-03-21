@@ -54,6 +54,7 @@ spec:
               value: {{ .Values.kafka.topics.sre_alerts | quote }}
             - name: OPENAPI_SPEC_PATH
               value: {{ .Values.openapi.specPath | quote }}
+            {{- include "nucleus.downwardAPI.env" . | nindent 12 }}
 
           ports:
             - name: http
@@ -81,9 +82,13 @@ spec:
           volumeMounts:
             {{- toYaml . | nindent 12 }}
           {{- end }}
+          {{- include "nucleus.downwardAPI.volumeMount" . | nindent 12 }}
       {{- with .Values.volumes }}
       volumes:
         {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.agentEscalator.downwardAPI.enabled }}
+      {{- include "nucleus.downwardAPI.volume" . | nindent 6 }}
       {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:

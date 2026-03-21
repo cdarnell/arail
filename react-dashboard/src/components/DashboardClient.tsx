@@ -4,6 +4,7 @@ import ChatWidget from './ChatWidget';
 import ZeroClawPanel from './ZeroClawPanel';
 import ResearchPanel from './ResearchPanel';
 import WireframeBoundary from './WireframeBoundary';
+import VaultGoalPanel from './VaultGoalPanel';
 
   const [rawMode, setRawMode] = React.useState(false);
   const [showModal, setShowModal] = React.useState(false);
@@ -170,6 +171,7 @@ import WireframeBoundary from './WireframeBoundary';
           )}
           <ServiceHealth />
           <ChatWidget />
+          <VaultGoalPanel />
           <ZeroClawPanel />
           <ResearchPanel />
         </div>

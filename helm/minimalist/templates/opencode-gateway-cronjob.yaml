@@ -1,0 +1,48 @@
+{{- if and .Values.opencodeGateway.enabled .Values.opencodeGateway.cron.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "minimalist.fullname" . }}-opencode-gateway-validate
+  labels:
+    app: {{ include "minimalist.fullname" . }}-opencode-gateway-validate
+spec:
+  schedule: "{{ .Values.opencodeGateway.cron.schedule }}"
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            app: {{ include "minimalist.fullname" . }}-opencode-gateway-validate
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: validate
+              image: "{{ .Values.opencodeGateway.cron.image.repository }}:{{ .Values.opencodeGateway.cron.image.tag }}"
+              imagePullPolicy: {{ .Values.opencodeGateway.cron.image.pullPolicy }}
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  set -e
+                  URL="http://{{ include "minimalist.fullname" . }}-opencode-gateway:{{ .Values.opencodeGateway.service.port }}{{ .Values.opencodeGateway.cron.path }}"
+                  echo "Validating: $URL"
+                  http_status=$(curl -s -o /dev/stderr -w "%{http_code}" -X GET "$URL" || true)
+                  echo "HTTP status: $http_status"
+                  if [ "$http_status" != "200" ]; then
+                    echo "Validation failed: $http_status"
+                    exit 2
+                  fi
+          {{- with .Values.opencodeGateway.nodeSelector }}
+          nodeSelector:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.opencodeGateway.tolerations }}
+          tolerations:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.opencodeGateway.affinity }}
+          affinity:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+{{- end }}

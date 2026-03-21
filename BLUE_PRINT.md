@@ -58,7 +58,7 @@ Use this prompt to instruct your agent to build the automated update pipeline:
 
 ## Core Product Logic
 
-See [value-add](value-add/) for the main logic, workflows, and agent instructions powering Nucleus Academy.
+See [value-add](value-add/) for the main logic, workflows, and agent instructions powering Nucleus Lab.
 
 ### Key Logic Files
 - [Power Consumption Logic](value-add/logic/power-consumption-logic.md)
@@ -90,7 +90,7 @@ python .\scripts\preinstall\hardware_probe.py --output helm/k8s-lite/values.gene
 ```
 
 Integration notes:
-- The probe feeds the `value-add` curriculum and Nucleus School of AI so lab exercises adapt to your host (GPU labs enabled only when GPUs are detected).
+ - The probe feeds the `value-add` curriculum and Nucleus Lab of AI so lab exercises adapt to your host (GPU labs enabled only when GPUs are detected).
 - Recommendations are conservative; edit `values.generated.yaml` before applying if you prefer different allocations.
 
 ## Operational Security (OPSEC)
@@ -120,3 +120,12 @@ Integration notes:
 - **Panic:** Use for critical events—expect total silence from all agents, bots, and telemetry. Document the reason for activation and steps for safe recovery.
 
 > **Note:** Halting the environment with Panic disables all mesh, security, and observability. AirGap keeps the lab running but blocks all external communication and verifies the air-gap is intact.
+
+## Agent Tagging & Managed Invocation
+
+- Always include a `managed_by` provenance label on any automated remediation or agent-invoked action. Examples: `managed_by=zeroclaw` or `managed_by=opencode`.
+- Record a short `escalation_id` (UUID), `level` (small|medium|large), and `managed_by` in logs and emitted events so every remediation attempt is auditable and traceable.
+- Metrics: export `managed_invocations_total{manager="..."}` and `escalations_total{level="...",manager="..."}`; wire these into Grafana to compare coverage and effectiveness between `opencode` and `zeroclaw`.
+- Banner/visibility: remediation actors should emit a short banner (stdout/log) that includes `escalation_id`, `level`, and `managed_by` so dashboards and incident timelines can surface which tier handled the remediation.
+
+See `value-add/agent_escalator_workflow.md` for recommended wiring (n8n), a sample workflow JSON, systemd and Kubernetes Job examples, and visualization tips for Tiering Triage Administrators.

@@ -24,11 +24,11 @@
 
 ---
 
-# The Nucleus Academy (Linkerd Edition)
+# The Nucleus Lab (Linkerd Edition)
 # Project Schoolhouse — Observability Stack Configuration
 
 ## Executive Summary
-The Nucleus Academy is a "Lab-in-a-Box" for AI learning and experimentation, designed for high-efficiency local deployment. Its core value is the presence of AI instructors—resident mentor agents—who help you LEVEL UP by providing contextual guidance, workflow suggestions, and hands-on learning. Autoresearch and simulated spend are value-add features, but the real differentiator is the Academy’s focus on continuous skill development and AI-powered mentorship.
+The Nucleus Lab is a "Lab-in-a-Box" for AI learning and experimentation, designed for high-efficiency local deployment. Its core value is the presence of AI instructors—resident mentor agents—who help you LEVEL UP by providing contextual guidance, workflow suggestions, and hands-on learning. Autoresearch and simulated spend are value-add features, but the real differentiator is the Lab’s focus on continuous skill development and AI-powered mentorship.
 
 ---
 
@@ -95,4 +95,4 @@ All APIs must be documented with OpenAPI. Example Learning API endpoints (to be 
 
 ---
 
-Update this README as the stack evolves or if you add more exporters, dashboards, integrations, or APIs. **All new services must provide an OpenAPI spec, expose /healthz and /metrics, and use the OpenTelemetry SDK for W3C header propagation and correlated spans to Grafana (Tempo/Jaeger).** The Nucleus Academy’s core value is the AI-powered learning experience—autoresearch and simulated spend are value-add, but the resident mentor agent is the differentiator.
+Update this README as the stack evolves or if you add more exporters, dashboards, integrations, or APIs. **All new services must provide an OpenAPI spec, expose /healthz and /metrics, and use the OpenTelemetry SDK for W3C header propagation and correlated spans to Grafana (Tempo/Jaeger).** The Nucleus Lab’s core value is the AI-powered learning experience—autoresearch and simulated spend are value-add, but the resident mentor agent is the differentiator.

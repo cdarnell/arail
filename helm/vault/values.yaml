@@ -1,0 +1,17 @@
+# Minimal sample values for deploying HashiCorp Vault via Helm
+server:
+  ha:
+    enabled: true
+  dataStorage:
+    enabled: true
+  extraEnvironmentVars:
+    VAULT_LOG_LEVEL: info
+ui:
+  enabled: true
+injector:
+  enabled: true
+serviceAccount:
+  create: true
+  name: vault-server-sa
+# TLS, storage and auto-unseal should be configured for production
+# Override these values in your environment-specific values file.

@@ -31,6 +31,13 @@ spec:
                   key: GLOBAL_CONTEXT
             - name: PGVECTOR_DSN
               value: "{{ .Values.postgres.dsn | default "postgresql://postgres:password@postgres:5432/pg" }}"
+            - name: LM_STUDIO_URL
+              value: "{{ .Values.lmStudio.url }}"
+            - name: LM_STUDIO_API_TOKEN
+              value: "{{ .Values.lmStudio.apiToken | default "" }}"
+            {{- include "nucleus.downwardAPI.env" . | nindent 12 }}
+          volumeMounts:
+            {{- include "nucleus.downwardAPI.volumeMount" . | nindent 12 }}
           resources:
             requests:
               cpu: {{ .Values.autoResearch.resources.requests.cpu | quote }}
@@ -44,4 +51,5 @@ spec:
       {{- if .Values.linkerd.enabled }}
       tolerations: []
       {{- end }}
+      {{- include "nucleus.downwardAPI.volume" . | nindent 6 }}
 {{- end }}

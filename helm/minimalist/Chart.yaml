@@ -1,22 +1,22 @@
 apiVersion: v2
 name: minimalist
 description: |
-	Minimalist Nucleus AI Lab. A high-efficiency Schoolhouse for AI research.
-	- Zero-Trust via Linkerd
-	- Event-Driven via Kafka
-	- Vector Storage via PostgreSQL/pgvector
-	- Self-Healing via ZeroClaw SRE
+  Minimalist Nucleus AI Lab. A high-efficiency Schoolhouse for AI research.
+  - Zero-Trust via Linkerd
+  - Event-Driven via Kafka
+  - Vector Storage via PostgreSQL/pgvector
+  - Self-Healing via ZeroClaw SRE
 type: application
 version: 0.2.0
 appVersion: "1.16.0"
 
 # --- Infrastructure Faculty ---
 dependencies:
-	- name: kafka
-		version: "26.x.x"
-		repository: "https://charts.bitnami.com/bitnami"
-		condition: kafka.enabled
-	- name: postgresql
-		version: "15.x.x"
-		repository: "https://charts.bitnami.com/bitnami"
-		condition: postgresql.enabled
+  - name: kafka
+    version: "26.x.x"
+    repository: "https://charts.bitnami.com/bitnami"
+    condition: kafka.enabled
+  - name: postgresql
+    version: "15.x.x"
+    repository: "https://charts.bitnami.com/bitnami"
+    condition: postgresql.enabled

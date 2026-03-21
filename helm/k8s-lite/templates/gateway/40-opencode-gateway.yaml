@@ -4,30 +4,6 @@ kind: Namespace
 metadata:
   name: opencode
 ---
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: opencode-gateway
-  namespace: opencode
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: opencode-gateway
-  template:
-    metadata:
-      labels:
-        app: opencode-gateway
-    spec:
-      containers:
-      - name: opencode-gateway
-        image: gentoofoo/opencode-gateway:latest
-        ports:
-        - containerPort: 8000
-        env:
-        - name: ENV
-          value: "production"
----
 apiVersion: v1
 kind: Service
 metadata:
@@ -40,3 +16,29 @@ spec:
   - protocol: TCP
     port: 8000
     targetPort: 8000
+metadata:
+  name: opencode-gateway
+  namespace: opencode
+spec:
+  selector:
+    app: opencode-gateway
+  ports:
+  - protocol: TCP
+    port: 8000
+    targetPort: 8000
+  {{- if .Values.opencodeGateway.downwardAPI.enabled }}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: opencode-gateway-downwardapi-helper
+  namespace: opencode
+spec:
+  {{- include "k8s.downwardAPI.volume" (dict "Values" .Values "Component" "opencodeGateway") | nindent 2 }}
+  containers:
+    - name: pause
+      image: k8s.gcr.io/pause:3.6
+      command: ["/pause"]
+      volumeMounts:
+{{- include "k8s.downwardAPI.volumeMount" (dict "Values" .Values "Component" "opencodeGateway") | nindent 8 }}
+{{- end }}

@@ -262,3 +262,64 @@ lmStudio:
   tolerations: []
   serviceAccountName: ""
   # monitoring annotations will be injected by templates
+  url: "http://lmstudio.lm.svc.cluster.local:8080"
+  apiToken: ""
+
+# Opencode Gateway (API surface for UI + webhooks)
+opencodeGateway:
+  enabled: true
+  image:
+    repository: gentoofoo/opencode-gateway
+    tag: latest
+    pullPolicy: IfNotPresent
+  replicaCount: 1
+  service:
+    port: 8080
+  resources: {}
+  env:
+    VAULT_ADDR: ""
+    VAULT_TOKEN: ""
+    VAULT_SECRET_PATH: "secret/data/gentoofoo"
+    WEBHOOK_BASE_URL: ""
+    LM_STUDIO_WEBHOOK_SECRET: "changeme"
+    LM_STUDIO_URL: ""
+  # Secrets are provided via Helm values and rendered into a Kubernetes Secret.
+  secrets:
+    vaultToken: ""      # DO NOT set literal secrets here in repository
+    lmStudioWebhookSecret: ""
+  # Scheduled validation (CronJob) configuration
+  cron:
+    enabled: true
+    # default: every 6 hours
+    schedule: "0 */6 * * *"
+    # image to run the cron job (uses curl image by default)
+    image:
+      repository: curlimages/curl
+      tag: 8.1.0
+      pullPolicy: IfNotPresent
+    # service path to hit inside the cluster
+    path: "/api/validate"
+
+# Kafka defaults to avoid nil-pointer rendering when kafka is not configured
+kafka:
+  enabled: false
+  brokers: ""
+  schemaRegistry: ""
+  topics:
+    inferences: ""
+    sre_alerts: ""
+
+# Agent Escalator / downward API defaults
+agentEscalator:
+  downwardAPI:
+    enabled: true
+    labelsPath: /etc/podinfo/labels
+    mountPath: /etc/podinfo
+
+# Ground State security posture
+vault:
+  enabled: true
+  auth_path: kubernetes
+
+# Global agent safety defaults
+safe_mode: true

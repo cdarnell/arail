@@ -1,0 +1,8 @@
+# Global mesh/DNS settings for Nucleus Core
+mesh:
+  enabled: true
+  provider: linkerd
+  dns_suffix: svc.cluster.local
+observability:
+  otel_enabled: true
+  trace_headers: [traceparent]

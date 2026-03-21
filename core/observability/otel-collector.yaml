@@ -1,0 +1,23 @@
+# OpenTelemetry Collector configuration for W3C correlation
+# (Stub - customize as needed for your stack)
+apiVersion: opentelemetry.io/v1alpha1
+kind: OpenTelemetryCollector
+metadata:
+  name: otel-collector
+spec:
+  mode: deployment
+  config:
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+          http:
+    exporters:
+      prometheus:
+        endpoint: ":8889"
+      logging:
+    service:
+      pipelines:
+        metrics:
+          receivers: [otlp]
+          exporters: [prometheus, logging]

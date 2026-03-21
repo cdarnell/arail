@@ -1,0 +1,41 @@
+name: CI — Helm Validate & Build Rust agent
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  helm-validate:
+    name: Helm Validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Helm
+        uses: azure/setup-helm@v1
+      - name: Run helm validator
+        run: bash scripts/ci/helm-validate.sh
+
+  build-agent:
+    name: Build agent_escalator (Rust)
+    runs-on: ubuntu-latest
+    needs: helm-validate
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+      - name: Build agent_escalator
+        working-directory: sdk
+        run: cargo build --bin agent_escalator --release

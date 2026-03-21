@@ -1,4 +1,4 @@
-# Nucleus Academy Architecture Overview
+# Nucleus Lab Architecture Overview
 
 ## Infrastructure Pivot
 - Environment: Kubernetes Lite (k3s)

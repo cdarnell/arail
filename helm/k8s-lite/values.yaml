@@ -1,34 +1,43 @@
 replicaCount: 1
+
+# --- GLOBAL NUCLEUS SETTINGS ---
+# These are overridden programmatically by bootstrap-nucleus.sh
+global:
+  major: "nlp"          # Default academic focus
+  gpuEnabled: false     # Auto-detected by bootstrap
+  openrouterKey: ""     # Injected via --set secret.openrouterKey
+
+# --- MESH & OBSERVABILITY ---
 linkerd:
   enabled: true
+  
+# --- COMPONENT DEFAULTS ---
+# Use a common block for Downward API to avoid repeating it for every app
+agentEscalator:
+  downwardAPI:
+    enabled: true
+    mountPath: /etc/podinfo
+
+# --- SERVICES ---
+# Each component only needs to toggle 'enabled' or specific overrides
 components:
   zeroclaw:
     enabled: true
   opencodeGateway:
     enabled: true
-  ollama:
-    enabled: true
-  phoenix:
-    enabled: true
-  jupyterlab:
-    enabled: true
-  n8n:
-    enabled: true
-  langchain:
-    enabled: true
   lmdeploy:
     enabled: true
-  redpanda:
-    enabled: true
-  openNotebook:
-    enabled: true
-  reactDashboard:
-    enabled: true
-  grafana:
-    enabled: true
-  prometheus:
-    enabled: true
-  loki:
-    enabled: true
-  tempo:
-    enabled: true
+    # Example: Override only if GPU is present
+    resources:
+      limits:
+        nvidia.com/gpu: 0 # bootstrap-nucleus.sh will change this if needed
+  ollama: { enabled: true }
+  phoenix: { enabled: true }
+  jupyterlab: { enabled: true }
+  n8n: { enabled: true }
+  langchain: { enabled: true }
+  redpanda: { enabled: true }
+  grafana: { enabled: true }
+  prometheus: { enabled: true }
+  loki: { enabled: true }
+  tempo: { enabled: true }

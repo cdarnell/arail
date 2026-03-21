@@ -1,6 +1,6 @@
 # Terraform Module: k3s-single-node
 
-This module provisions a single-node k3s Kubernetes cluster (with optional GPU support) for Nucleus Academy.
+This module provisions a single-node k3s Kubernetes cluster (with optional GPU support) for Nucleus Lab.
 
 ## Usage
 

@@ -1,9 +1,9 @@
-
-# The Nucleus Academy (Linkerd Edition)
+# AI Lab In a Box
+# The Nucleus Lab (Linkerd Edition)
 # Project Schoolhouse — Service Inventory & Observability
 
 ## Executive Summary
-The Nucleus Academy is a "Lab-in-a-Box" for AI learning and experimentation, designed for high-efficiency local deployment. Its core value is the presence of AI instructors—resident mentor agents—that help you LEVEL UP by providing contextual guidance, workflow suggestions, and hands-on learning. Autoresearch and simulated spend are value-add features, but the real differentiator is the Academy’s focus on continuous skill development and AI-powered mentorship.
+The Nucleus Lab is a "Lab-in-a-Box" for AI learning and experimentation, designed for high-efficiency local deployment. Its core value is the presence of AI instructors—resident mentor agents—that help you LEVEL UP by providing contextual guidance, workflow suggestions, and hands-on learning. Autoresearch and simulated spend are value-add features, but the real differentiator is the Lab’s focus on continuous skill development and AI-powered mentorship.
 
 
 | Service           | Core Function                                      | Example Endpoint / Usage                | OpenAPI Spec Path                      | /healthz | /metrics |
@@ -20,7 +20,7 @@ The Nucleus Academy is a "Lab-in-a-Box" for AI learning and experimentation, des
 | Learning Agent    | Personalized learning, guidance, feedback          | GET /learning/suggestions, POST /learning/feedback | /openapi/learning.yaml                 | Yes      | Yes      |
 
 ## How It Ties Together & API Standardization
-- **Resident Mentor Agents (AI Instructors):** The core of the Academy. These agents observe your actions, understand the architecture, and proactively guide you to higher skill levels. They are always present, adapting to your goals and teaching you how to use AI by showing you how to use the lab itself.
+- **Resident Mentor Agents (AI Instructors):** The core of the Lab. These agents observe your actions, understand the architecture, and proactively guide you to higher skill levels. They are always present, adapting to your goals and teaching you how to use AI by showing you how to use the lab itself.
 - **Opencode Agents** (LangChain, custom): Expose APIs via Opencode Gateway, interact with LLMs, emit events to Kafka, expose metrics for Prometheus, and integrate with the mentor system. **All APIs must be documented with OpenAPI for discoverability and integration.**
 - **n8n:** Listens to Kafka, triggers workflows, can call Opencode or LMDeploy, automates lab tasks, and supports learning workflows.
 - **ZeroClaw:** Agent framework for routing and load balancing, integrates with Linkerd mesh for observability and security.
@@ -39,7 +39,7 @@ The Nucleus Academy is a "Lab-in-a-Box" for AI learning and experimentation, des
 
 ---
 
-*Update this inventory as new services, integrations, or APIs are added. All new APIs must provide an OpenAPI spec. The Nucleus Academy’s core value is the AI-powered learning experience—autoresearch and simulated spend are value-add, but the resident mentor agent is the differentiator.*
+*Update this inventory as new services, integrations, or APIs are added. All new APIs must provide an OpenAPI spec. The Nucleus Lab’s core value is the AI-powered learning experience—autoresearch and simulated spend are value-add, but the resident mentor agent is the differentiator.*
 # Observability Inventory & Mapping (gentoofoo.com)
 
 - Ollama (default LLM hosting, simple setup)

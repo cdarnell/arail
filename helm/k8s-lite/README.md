@@ -1,5 +1,7 @@
 # Kubernetes Primitives, Lifecycle & Hot Updates
 
+See [Value Add: generated-values & bootstrap](VALUE_ADD.md) for details on how `bootstrap-nucleus.sh` generates `values.generated.yaml` and how to safely apply generated overrides.
+
 ## I. Kubernetes Manifest Definitions & Roles
 In Kubernetes, a YAML manifest is a Declarative State Definition. You are not telling the system how to build; you are telling it what must exist.
 
@@ -53,3 +55,16 @@ Use this prompt to instruct your agent to build the automated update pipeline:
 > Connectivity Toggle: Define a Terraform variable internet_egress_enabled. When false, apply NetworkPolicies that strictly air-gap all opencode namespaces, cutting off all external egress except to the internal registry."
 
 Place your Kubernetes manifest templates here (e.g., zeroclaw.yaml, phoenix.yaml, etc.). Use Helm templating for values like replicaCount, image, resources, etc.
+
+Developer convention: Downward API helper
+---------------------------------------
+When adding new templates that need pod metadata, prefer the centralized helpers in `_helpers.tpl`.
+Examples:
+
+- Include env + mounts for component `zeroclaw`:
+	`{{- include "k8s.downwardAPI.env" (dict "Values" .Values "Component" "zeroclaw") | nindent 8 }}`
+	`{{- include "k8s.downwardAPI.volumeMount" (dict "Values" .Values "Component" "zeroclaw") | nindent 8 }}`
+- Include the downwardAPI volume for the pod spec:
+	`{{- include "k8s.downwardAPI.volume" (dict "Values" .Values "Component" "zeroclaw") | nindent 6 }}`
+
+This keeps mount paths and parsing logic in one place and prevents duplication across templates.

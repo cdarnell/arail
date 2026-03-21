@@ -1,6 +1,6 @@
-# The Story: The Academy as a Mastery Engine
+# The Story: The Lab as a Mastery Engine
 
-The Academy is not a static toolset; it is a Mastery Engine—an evolving, intelligent system designed to help you achieve your Overarching Goal.
+The Lab is not a static toolset; it is a Mastery Engine—an evolving, intelligent system designed to help you achieve your Overarching Goal.
 
 ## How It Works
 

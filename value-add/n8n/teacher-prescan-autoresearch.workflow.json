@@ -48,14 +48,28 @@
     },
     {
       "parameters": {
-        "repository": "./auto-research",
-        "command": "docker run --gpus all --rm -v "." + process.cwd() + ":/work karpathy/auto-research:latest /bin/bash -c \"./run_experiment.sh --target '{{ $json[\"dna_goal\"] }}'\"",
-        "workingDirectory": ""
+        "url": "={{$json[\"lmStudioUrl\"] || 'http://lmstudio.lm.svc.cluster.local:8080/api/experiments'}}",
+        "method": "POST",
+        "body": "={{{\n  {\n    target: $json[\"dna_goal\"] || ($json[\"dna\"] && $json[\"dna\"].goal) || $json[\"dna\"],\n    prescan: $json,\n    callback_url: ($env.WEBHOOK_BASE_URL || 'http://lab.example.com') + '/webhook/lmstudio',\n    callback_secret: $env.LM_STUDIO_WEBHOOK_SECRET || 'changeme'\n  }\n}}}",
+        "options": {}
       },
-      "name": "Launch AutoResearch",
-      "type": "n8n-nodes-base.executeCommand",
+      "name": "Create LMStudio Experiment",
+      "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 1,
       "position": [1050, 250]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "lmstudio",
+        "responseMode": "onReceived",
+        "responseCode": 200,
+        "options": {}
+      },
+      "name": "LMStudio Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [1050, 450]
     },
     {
       "parameters": {
@@ -105,34 +119,46 @@
       "main": [
         [
           {
-            "node": "Store Prescan",
+            "node": "Store Prescan (pgvector)",
             "type": "main",
             "index": 0
           },
           {
-            "node": "Launch AutoResearch",
+            "node": "Create LMStudio Experiment",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Launch AutoResearch": {
+    "Create LMStudio Experiment": {
       "main": [
         [
           {
-            "node": "Store AutoResearch Result",
+            "node": "Store AutoResearch Result (pgvector)",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Store AutoResearch Result": {
+    "Store AutoResearch Result (pgvector)": {
       "main": [
         [
           {
             "node": "Deploy Adapter (Helm)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+    ,
+    "LMStudio Webhook": {
+      "main": [
+        [
+          {
+            "node": "Store AutoResearch Result (pgvector)",
             "type": "main",
             "index": 0
           }

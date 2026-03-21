@@ -1,0 +1,18 @@
+{{- /* Adds downward API env vars and labels volume for pods that want pod info */ -}}
+{{- if .Values.agentEscalator.downwardAPI.enabled }}
+# Downward API for agent-escalator pods
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ include "minimalist.fullname" . }}-agent-escalator-downwardapi-sample
+spec:
+  containers:
+    - name: agent-escalator
+      image: "alpine:3.18"
+      command: ["/bin/sh","-c","sleep 3600"]
+      env:
+{{- include "nucleus.downwardAPI.env" . | nindent 8 }}
+      volumeMounts:
+{{- include "nucleus.downwardAPI.volumeMount" . | nindent 8 }}
+  {{- include "nucleus.downwardAPI.volume" . | nindent 2 }}
+{{- end }}

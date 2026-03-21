@@ -1,0 +1,17 @@
+# Resource profiles for Nucleus Core
+small:
+  ram: 4Gi
+  features:
+    - disable_traefik
+    - disable_metrics_server
+    - prometheus_retention: 2h
+medium:
+  ram: 8Gi
+  features:
+    - enable_hubble
+    - prometheus_retention: 12h
+large:
+  ram: 16Gi
+  features:
+    - enable_hubble
+    - prometheus_retention: 24h
