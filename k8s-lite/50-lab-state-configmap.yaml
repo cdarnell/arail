@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: lab-state
+  namespace: opencode
+data:
+  internet: "Enabled" # Change to "Air-Gapped" to trigger the workflow

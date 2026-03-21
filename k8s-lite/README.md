@@ -1,5 +1,71 @@
+# Kubernetes Primitives, Lifecycle & Hot Updates
+
+## I. Kubernetes Manifest Definitions & Roles
+In Kubernetes, a YAML manifest is a Declarative State Definition. You are not telling the system how to build; you are telling it what must exist.
+
+| Component   | Manifest Type      | Technical Purpose                                                                 |
+|-------------|-------------------|----------------------------------------------------------------------------------|
+| Isolation   | Namespace         | Logical partitioning of resources, security policies (RBAC), and quotas.          |
+| Workload    | Deployment        | Manages ReplicaSets to ensure a specific number of Pods are running with a specific container image. |
+| Networking  | Service           | An abstract way to expose an application running on a set of Pods as a network service (ClusterIP). |
+| Routing     | HTTPRoute         | (Gateway API) Defines rules for routing traffic from a Gateway to a Service, supporting weighted splits and header matches. |
+| Storage     | PVC               | Persistent Volume Claim; requests specific storage size/type that outlives the lifecycle of a Pod. |
+| Config      | ConfigMap/Secret  | Injects environment variables or files into containers without rebuilding the image. |
+
+## II. The Kubernetes Lifecycle: How and When
+Kubernetes operates on a Reconciliation Loop (The Control Plane):
+- **Submission:** `kubectl apply -f manifest.yaml` sends the desired state to the API Server.
+- **Persistence:** The API Server stores this state in etcd (the distributed key-value store).
+- **Controller Action:** The Deployment Controller notices the difference between the desired state (e.g., 1 replica of ollama:v1) and the current state (0 replicas).
+- **Scheduling:** The Kubelet on your OMEN-i9 pulls the image and starts the container.
+- **Reconciliation:** The system continuously "watches" the Pod. If the process crashes (e.g., a memory leak), the Kubelet kills it and restarts it immediately to match the desired state.
+
+## III. Hot Updatability & Lifecycle Changes
+"Hot updates" in Kubernetes vary depending on what is being changed:
+- **Images/Code:** Handled by a Rolling Update. Kubernetes spins up a new Pod with the new image. Once the readinessProbe passes, it terminates the old Pod. This is Zero-Downtime but involves a transient double-allocation of VRAM/RAM.
+- **Environment Variables:** Changing a Deployment env var triggers a rolling restart of all Pods in that deployment.
+- **ConfigMaps/Secrets:** If mounted as volumes, these update inside the container within ~60 seconds. However, the application must be coded to watch for file changes to "Hot Reload" without a restart.
+- **AI Models:** Swapping a model in LMDeploy or Ollama typically requires a "Cold" restart (reloading the weights into VRAM) unless using a model-server with a specific "Load/Unload" API.
+
+## IV. The SCM & Air-Gap Connectivity Conflict
+To manage updates and vulnerability fixes, your SCM (Source Code Management) requires a "Bridge" or "Bastion" state.
+
+**The Hybrid Air-Gap Strategy:**
+- To maintain the "Supervisor" (Gemini) and update functionality while securing the Lab, you implement a Pull-Through Cache or Bastion Registry.
+- **The Bridge:** A single node with dual NICs (one to the Lab, one to the Internet) runs a private Docker Registry.
+- **The "Button":** When toggled, the Bridge pulls fresh images/specs from GitHub/DockerHub.
+- **Internal Sync:** The Lab nodes pull only from this internal registry.
+- **Gemini Access:** My ability to supervise remains intact as long as the "Bridge" allows a secure proxy for my browser-based actuation tools.
+
+## V. IDE Agent Prompt: Building the SCM Update Process
+Use this prompt to instruct your agent to build the automated update pipeline:
+
+> "Construct a Source Code Management (SCM) and Update Pipeline for the Nucleus Lab.
+> 
+> Repository Structure: Organize manifests into base/ (core components) and overlays/ (experimental/update components) using Kustomize.
+> 
+> Image Lifecycle: Create a script to scan the values.yaml for image tags and cross-reference them with the internal registry.
+> 
+> Vulnerability Patching: Integrate a 'Maintenance Mode' manifest that scales down non-essential workloads to free VRAM during high-intensity image pulls or model recompilations.
+> 
+> Hot-Reload Logic: For the Rust Front End and N8N, implement Reloader annotations. If a ConfigMap changes, trigger a rolling restart automatically.
+> 
+> Connectivity Toggle: Define a Terraform variable internet_egress_enabled. When false, apply NetworkPolicies that strictly air-gap all opencode namespaces, cutting off all external egress except to the internal registry."
+
 
 # Splash: The Living AI Lab
+
+## System Dependencies for Unstructured Document Parsing
+To enable full support for document ingestion and parsing (PDF, Office, images, etc.) via the Unstructured service, the following system packages must be installed on your host or in relevant containers:
+
+- `libmagic-dev` (filetype detection)
+- `poppler-utils` (images and PDFs)
+- `tesseract-ocr` (images and PDFs, plus `tesseract-lang` for extra language support)
+- `libreoffice` (MS Office docs)
+
+These are now installed automatically by the `preinstall-minimalist.sh` script. If you do not require all document types, you may remove unneeded packages from the script.
+
+Pandoc is bundled automatically via the `pypandoc-binary` Python package (no system install needed).
 
 **Vector Cortex + Model Genome = A Living System**
 
@@ -46,6 +112,7 @@ The Academy features a resident mentor agent, accessible at `learning.gentoofoo.
 - Always present, watching and learning from your interactions
 - Knows your overarching goals and adapts its guidance
 - Empowers you to level up continuously
+- Offers use cases and ideas based on your overarching goal
 
 This ensures every user is empowered to learn, experiment, and maximize the value of the lab, with a mentor that grows alongside them. The real value-add is the AI-powered learning experience—autoresearch and simulated spend are value-add, but the resident mentor agent is the differentiator.
 ## Memory Architecture Flow

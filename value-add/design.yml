@@ -1,0 +1,184 @@
+name: Nucleus Distillation Engine Design
+version: 1.0
+description: >-
+  Machine-readable design manifest describing the lab components, prescan checks,
+  capacity tiers, and enforcement rules so agents can configure the environment
+  to fit cores, disk, memory and VRAM constraints.
+
+components:
+  - id: dna-focus-box
+    name: DNA Focus Box
+    type: ui
+    purpose: Global mission vector injected as GLOBAL_CONTEXT into agents and jobs
+  - id: n8n-teacher
+    name: n8n Teacher
+    type: orchestration
+    purpose: harvest, synthesize, trigger AutoResearch and training jobs
+  - id: unstructured
+    name: Unstructured Extractor
+    type: extractor
+    purpose: convert raw artifacts into structured examples
+  - id: pgvector
+    name: pgvector store
+    type: vector-db
+    purpose: store embeddings, metadata, provenance
+  - id: distill-pod
+    name: Distillation Pod
+    type: training
+    purpose: run QLoRA/LoRA jobs, produce adapters
+  - id: lmdeploy
+    name: LMDeploy
+    type: inference
+    purpose: serve quantized local models (GGUF/EXL2)
+  - id: lmstudio
+    name: LM Studio
+    type: model-ops
+    purpose: Local model development, evaluation, and fine-tuning UI — considered a core service for the lab
+  - id: inspector
+    name: Inspector (Phoenix)
+    type: evaluation
+    purpose: benchmark student vs teacher and enforce SLA
+  - id: janitor
+    name: Janitor (ZeroClaw)
+    type: ops
+    purpose: enforce VRAM/CPU throttles, pause inference for training
+  - id: monitoring
+    name: Monitoring Heatmap
+    type: observability
+    purpose: provide an at-a-glance heatmap of running services, tracing and metrics; expose kill action for operators
+  - id: ollama
+    name: Ollama
+    type: external-inference
+    purpose: Optional frontier-style local API adapter; NOTE: Ollama does not expose fine-grained GPU telemetry to the cluster, so treat it as a convenience bridge — not a source of node-level GPU metrics.
+
+prescan:
+  description: "Checks to run before enabling distillation loops on a node"
+  checks:
+    - id: gpu_count
+      name: GPU count and model
+      required: true
+      note: "detect model (3090/4090/Tesla) and VRAM per GPU"
+    - id: nvidia_driver
+      name: NVIDIA driver + container toolkit
+      required: true
+    - id: disk_space
+      name: Disk availability
+      threshold_gb: 200
+    - id: cpu_cores
+      name: CPU cores available
+      threshold: 8
+    - id: memory_gb
+      name: Host RAM
+      threshold_gb: 32
+    - id: kubernetes
+      name: K8s nodes and schedulable resources
+      required: true
+    - id: storageclass
+      name: PersistentVolume storageclass
+      note: "fast SSD recommended for datasets and swap"
+
+tiers:
+  small:
+    description: "Single workstation lab (example: OMEN i9 + 3090)"
+    nodes: 1
+    cores_per_node: 8
+    memory_per_node_gb: 32
+    disk_gb: 500
+    total_vram_gb: 24
+    recommended_models: ["3B","8B"]
+    allowed_workloads:
+      - inference_low
+      - qlora_small
+  medium:
+    description: "Dual-GPU / small server"
+    nodes: 1
+    cores_per_node: 16
+    memory_per_node_gb: 64
+    disk_gb: 1000
+    total_vram_gb: 48
+    recommended_models: ["8B","14B"]
+    allowed_workloads:
+      - inference_medium
+      - qlora_medium
+  large:
+    description: "Small cluster / multi-GPU"
+    nodes: 3
+    cores_per_node: 32
+    memory_per_node_gb: 256
+    disk_gb: 2000
+    total_vram_gb: 128
+    recommended_models: ["14B","32B"]
+    allowed_workloads:
+      - inference_heavy
+      - qlora_large
+
+enforcement:
+  admission_controller: |
+    - When a training job is requested the Janitor validates the node tier and reserves VRAM.
+    - Jobs must declare `dna_id`, `requested_vram_gb`, `priority`.
+    - Janitor may pause non-critical inference services when training requires reserved VRAM.
+    - Monitoring Heatmap exposes a `kill_button` flag that operators can use to send a SIGKILL to pod replicas (use with RBAC control).
+  agent_behaviour:
+    - agents must run a `prescan` and declare `lab_tier` before scheduling heavy jobs.
+    - n8n workflows include `dry_run` for new pipelines to estimate resource cost.
+
+monitoring:
+  heatmap:
+    description: "Front-and-center visual showing running services colored by service time / latency. Hover reveals kill -9 control and quick metrics snapshot."
+    metrics:
+      - service_time_ms
+      - p50_latency_ms
+      - p95_latency_ms
+      - tokens_used
+      - inference_time_ms
+      - requests_per_minute
+    actions:
+      - kill_button: true
+      - open_traces: true
+      - view_metrics: true
+    storage: prometheus+loki+tempo
+    ui_notes: "Heatmap should be embedded in the Lungs frontpage; clicking a cell opens service detail; hover exposes Kill -9 with confirmation and RBAC check."
+  power_cost:
+    description: "Live tally of GPU power consumption and cost at $0.10 per kWh for the main dashboard."
+    assumptions:
+      - power_metric: "node_gpu_power_watts or DCGM exporter metric"
+      - sampling: "1m average"
+      - cost_per_kwh_usd: 0.10
+    prometheus_queries:
+      - name: gpu_power_total_watts
+        query: "sum(node_gpu_power_watts)"
+      - name: gpu_energy_kwh_per_hour
+        query: "sum_over_time(node_gpu_power_watts[1h]) / 3600"
+      - name: cost_per_hour_usd
+        query: "(sum_over_time(node_gpu_power_watts[1h]) / 3600) * 0.10"
+    ui_notes: "Show current watts, rolling 1h kWh, and cost/hour + accumulated cost since build/start. Agents should emit build/start timestamp to calculate accumulated cost."
+
+presets:
+  - name: developer
+    tier: small
+    training_window: "overnight"
+    max_parallel_jobs: 1
+  - name: team
+    tier: medium
+    training_window: "scheduled"
+    max_parallel_jobs: 2
+  - name: research
+    tier: large
+    training_window: "scheduled+burst"
+    max_parallel_jobs: 8
+
+remote_hosting:
+  description: "Simulated presets for remote hosted model cost estimation"
+  presets:
+    light-hosted-model:
+      cost_per_token_usd: 0.000005
+      instance_hourly_usd: 0.10
+      bandwidth_per_gb_usd: 0.08
+    medium-hosted-model:
+      cost_per_token_usd: 0.00002
+      instance_hourly_usd: 0.50
+      bandwidth_per_gb_usd: 0.08
+    heavy-hosted-model:
+      cost_per_token_usd: 0.00005
+      instance_hourly_usd: 2.00
+      bandwidth_per_gb_usd: 0.08

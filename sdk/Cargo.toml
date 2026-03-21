@@ -1,0 +1,9 @@
+[package]
+name = "nucleus_sdk"
+version = "0.1.0"
+edition = "2021"
+
+description = "Elite SDK for Minimalist AI Lab: control, monitor, and optimize your lab from Rust."
+
+[dependencies]
+# Add dependencies as needed

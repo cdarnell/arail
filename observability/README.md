@@ -1,3 +1,28 @@
+# Observability Constitution (Mandatory)
+
+> **No service shall be deployed 'Dark.'**
+
+### 1. Instrument the Lungs
+- Every service manifest (n8n, LMDeploy, etc.) **must** include:
+   - `prometheus.io/scrape: "true"`
+   - `linkerd.io/inject: enabled`
+   (Add as annotations to every Deployment/Service.)
+
+### 2. Standardize the Syllabus
+- Every component **must** expose:
+   - `/healthz` (health check endpoint)
+   - `/metrics` (Prometheus metrics endpoint)
+   (If missing, deployment is a failure.)
+
+### 3. The Janitor's Vision
+- ZeroClaw must alert the Zellij Heart terminal if any service success rate drops below 99%.
+   - Configure Prometheus Alertmanager and ZeroClaw integration for this.
+
+### 4. Textbook Standard
+- Every API **must** serve an `openapi.json` spec at a discoverable endpoint.
+   - This is required for Supervisor automation and integration.
+
+---
 
 # The Nucleus Academy (Linkerd Edition)
 # Project Schoolhouse — Observability Stack Configuration
@@ -11,7 +36,7 @@ The Nucleus Academy is a "Lab-in-a-Box" for AI learning and experimentation, des
 
 See `architecture.mmd` (Mermaid diagram) for a visual overview. Render with Mermaid.js or VS Code Mermaid extension.
 
-## Key Requirements
+## Key Requirements (Technical)
 - **Service Mesh**: Linkerd (Rust-based, mTLS, zero-config security, built-in Viz dashboard)
 - **Tracing**: All services must use the OpenTelemetry SDK with W3C header propagation for correlated spans. Tracing is a key integration point.
 - **Collectors**: OpenTelemetry Collectors must send traces to both Prometheus and Tempo/Jaeger.
@@ -70,4 +95,4 @@ All APIs must be documented with OpenAPI. Example Learning API endpoints (to be 
 
 ---
 
-Update this README as the stack evolves or if you add more exporters, dashboards, integrations, or APIs. **All new services must provide an OpenAPI spec and use the OpenTelemetry SDK for W3C header propagation and correlated spans to Grafana (Tempo/Jaeger).** The Nucleus Academy’s core value is the AI-powered learning experience—autoresearch and simulated spend are value-add, but the resident mentor agent is the differentiator.
+Update this README as the stack evolves or if you add more exporters, dashboards, integrations, or APIs. **All new services must provide an OpenAPI spec, expose /healthz and /metrics, and use the OpenTelemetry SDK for W3C header propagation and correlated spans to Grafana (Tempo/Jaeger).** The Nucleus Academy’s core value is the AI-powered learning experience—autoresearch and simulated spend are value-add, but the resident mentor agent is the differentiator.

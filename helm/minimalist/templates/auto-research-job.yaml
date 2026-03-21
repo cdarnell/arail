@@ -1,0 +1,47 @@
+{{- if .Values.autoResearch.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "minimalist.fullname" . }}-auto-research
+  labels:
+    app.kubernetes.io/name: {{ include "minimalist.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  backoffLimit: {{ .Values.autoResearch.backoffLimit }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "minimalist.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      serviceAccountName: {{ default "" .Values.autoResearch.serviceAccountName }}
+      restartPolicy: {{ .Values.autoResearch.restartPolicy }}
+      nodeSelector: {{ toYaml .Values.autoResearch.nodeSelector | nindent 8 }}
+      tolerations: {{ toYaml .Values.autoResearch.tolerations | nindent 8 }}
+      containers:
+        - name: auto-research
+          image: "{{ .Values.autoResearch.image.repository }}:{{ .Values.autoResearch.image.tag }}"
+          imagePullPolicy: {{ .Values.autoResearch.image.pullPolicy }}
+          command: ["/bin/sh","-c","{{ .Values.autoResearch.command }}"]
+          env:
+            - name: HYPOTHESIS_TARGET
+              valueFrom:
+                configMapKeyRef:
+                  name: nucleus-dna
+                  key: GLOBAL_CONTEXT
+            - name: PGVECTOR_DSN
+              value: "{{ .Values.postgres.dsn | default "postgresql://postgres:password@postgres:5432/pg" }}"
+          resources:
+            requests:
+              cpu: {{ .Values.autoResearch.resources.requests.cpu | quote }}
+              memory: {{ .Values.autoResearch.resources.requests.memory | quote }}
+            limits:
+              cpu: {{ .Values.autoResearch.resources.limits.cpu | quote }}
+              memory: {{ .Values.autoResearch.resources.limits.memory | quote }}
+{{- if .Values.autoResearch.gpu.enabled }}
+              nvidia.com/gpu: {{ .Values.autoResearch.gpu.count }}
+{{- end }}
+      {{- if .Values.linkerd.enabled }}
+      tolerations: []
+      {{- end }}
+{{- end }}

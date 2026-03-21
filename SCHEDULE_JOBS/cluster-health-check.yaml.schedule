@@ -1,0 +1,6 @@
+# Example: Cluster Health Check
+schedule: "*/10 * * * *" # Every 10 minutes
+job: cluster-health-check
+component: all
+notes: |
+  Run a full health check on all pods, nodes, and services. Alert if any are not Ready or have restart loops.

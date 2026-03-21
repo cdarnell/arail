@@ -1,0 +1,143 @@
+{
+  "name": "Teacher - Prescan + AutoResearch Trigger",
+  "nodes": [
+    {
+      "parameters": {
+        "triggerTimes": {
+          "item": [
+            {
+              "hour": 0,
+              "minute": 30
+            }
+          ]
+        }
+      },
+      "name": "Cron Trigger",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [250, 250]
+    },
+    {
+      "parameters": {
+        "functionCode": "// prescan: detect GPU, VRAM, cores, memory, disk\nconst os = require('os');\nconst execSync = require('child_process').execSync;\nlet gpuInfo = 'unknown';\ntry { gpuInfo = execSync('nvidia-smi --query-gpu=name,memory.total --format=csv,noheader').toString(); } catch(e) { gpuInfo = 'nvidia-smi not available'; }\n\nreturn [{ json: { gpu: gpuInfo, cpus: os.cpus().length, totalMemGB: Math.round(os.totalmem()/1024/1024/1024), freeDiskGB: null } }];"
+      },
+      "name": "Prescan",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [450, 250]
+    },
+    {
+      "parameters": {
+        "url": "={{$json[\"dnaApiUrl\"] || 'http://localhost:8080/api/dna'}}",
+        "options": {}
+      },
+      "name": "Fetch DNA",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [650, 250]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO prescan (dna, prescan_json, ts) VALUES ('{{$json[\"dna\"] || ''}}', '{{{ $json | json }}}', NOW());"
+      },
+      "name": "Store Prescan (pgvector)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 1,
+      "position": [850, 250]
+    },
+    {
+      "parameters": {
+        "repository": "./auto-research",
+        "command": "docker run --gpus all --rm -v "." + process.cwd() + ":/work karpathy/auto-research:latest /bin/bash -c \"./run_experiment.sh --target '{{ $json[\"dna_goal\"] }}'\"",
+        "workingDirectory": ""
+      },
+      "name": "Launch AutoResearch",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [1050, 250]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO auto_research_results (dna, result_json, val_bpb, commit_sha, ts) VALUES ('{{$json[\"dna\"] || ''}}', '{{{ $json | json }}}', {{$json[\"val_bpb\"] || 'NULL'}}, '{{{$json[\"commit\"] || ''}}}', NOW());"
+      },
+      "name": "Store AutoResearch Result (pgvector)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 1,
+      "position": [1250, 250]
+    },
+    {
+      "parameters": {
+        "operation": "runCommand",
+        "command": "helm upgrade --install stadium ./charts/stadium -f ./charts/stadium/values-dna.yaml --set model.adapter=adapters/{{ $json[\"adapter_name\"] }}"
+      },
+      "name": "Deploy Adapter (Helm)",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [1450, 250]
+    }
+  ],
+  "connections": {
+    "Cron Trigger": {
+      "main": [
+        [
+          {
+            "node": "Prescan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prescan": {
+      "main": [
+        [
+          {
+            "node": "Fetch DNA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch DNA": {
+      "main": [
+        [
+          {
+            "node": "Store Prescan",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Launch AutoResearch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Launch AutoResearch": {
+      "main": [
+        [
+          {
+            "node": "Store AutoResearch Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store AutoResearch Result": {
+      "main": [
+        [
+          {
+            "node": "Deploy Adapter (Helm)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

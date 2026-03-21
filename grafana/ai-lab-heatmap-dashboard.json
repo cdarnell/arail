@@ -1,0 +1,89 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "gnetId": null,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "type": "heatmap",
+      "title": "Service Heatmap (service_time_ms)",
+      "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8},
+      "id": 1,
+      "targets": [
+        {
+          "expr": "sum by (service) (rate(service_request_duration_seconds_sum[5m]))",
+          "format": "time_series",
+          "legendFormat": "{{service}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Total GPU Power (W)",
+      "gridPos": {"x": 12, "y": 0, "w": 6, "h": 4},
+      "id": 2,
+      "targets": [
+        {"expr": "sum(node_gpu_power_watts)", "legendFormat": "Total GPU Watts"}
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Estimated Cost / hour (USD)",
+      "gridPos": {"x": 18, "y": 0, "w": 6, "h": 4},
+      "id": 3,
+      "targets": [
+        {
+          "expr": "(sum_over_time(node_gpu_power_watts[1h]) / 3600) * 0.10",
+          "instant": false
+        }
+      ]
+    },
+    {
+      "type": "trace",
+      "title": "Trace Samples (Tempo)",
+      "gridPos": {"x": 12, "y": 4, "w": 12, "h": 8},
+      "id": 4,
+      "datasource": "Tempo"
+    },
+    {
+      "type": "logs",
+      "title": "Service Logs (Loki)",
+      "gridPos": {"x": 0, "y": 8, "w": 12, "h": 8},
+      "id": 5,
+      "targets": [{"expr": "{app=~\".*\"}", "refId": "A"}]
+    },
+    {
+      "type": "table",
+      "title": "Remote Hosting Cost (simulated)",
+      "gridPos": {"x": 12, "y": 12, "w": 12, "h": 4},
+      "id": 6,
+      "options": {"showHeader": true},
+      "targets": [
+        {"expr": "0", "refId": "A"}
+      ]
+    },
+    {
+      "type": "text",
+      "title": "Quick Actions",
+      "gridPos": {"x": 0, "y": 16, "w": 24, "h": 4},
+      "id": 7,
+      "options": {
+        "content": "## Quick Access\n\n[Open AAG Access Page](http://aag.example.local)  \n[Toggle Back to Lab Frontpage](/)\n\n**Kill -9:** Hover any heatmap cell to reveal Kill action (requires RBAC).",
+        "mode": "markdown"
+      }
+    }
+  ],
+  "refresh": "5s",
+  "schemaVersion": 36,
+  "style": "dark",
+  "tags": ["ai-lab","observability"],
+  "templating": {"list": []},
+  "time": {"from": "now-1h", "to": "now"},
+  "timepicker": {"refresh_intervals": ["5s","10s","30s","1m","5m","15m","30m","1h"]},
+  "timezone": "browser",
+  "title": "AI Lab — Heatmap & Metrics",
+  "uid": "ai-lab-heatmap",
+  "version": 1
+}

@@ -1,3 +1,12 @@
+## 6. Observability Constitution Enforcement Checklist
+
+- [ ] All service manifests have `prometheus.io/scrape: "true"` and `linkerd.io/inject: enabled` annotations
+- [ ] Every service exposes `/healthz` and `/metrics` endpoints (test with curl or browser)
+- [ ] Every API exposes a valid `openapi.json` at a discoverable endpoint
+- [ ] ZeroClaw alerting is configured: triggers Zellij Heart terminal if any service success rate < 99%
+- [ ] Supervisor automation is able to discover and use all OpenAPI specs
+
+**If any of these fail, the deployment is non-compliant.**
 ## 5. API Standardization & OpenAPI Troubleshooting
 
 - **Validate OpenAPI Specs:**

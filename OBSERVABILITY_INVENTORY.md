@@ -6,18 +6,18 @@
 The Nucleus Academy is a "Lab-in-a-Box" for AI learning and experimentation, designed for high-efficiency local deployment. Its core value is the presence of AI instructors—resident mentor agents—that help you LEVEL UP by providing contextual guidance, workflow suggestions, and hands-on learning. Autoresearch and simulated spend are value-add features, but the real differentiator is the Academy’s focus on continuous skill development and AI-powered mentorship.
 
 
-| Service           | Core Function                                      | Example Endpoint / Usage                | OpenAPI Spec Path                      |
-|-------------------|---------------------------------------------------|-----------------------------------------|----------------------------------------|
-| LMDeploy          | LLM inference, token usage, metrics (advanced/optional) | POST /generate, GET /metrics            | /openapi/lmdeploy.yaml                 |
-| Ollama            | Default LLM hosting (simple setup)                 | POST /api/generate, GET /api/tags       | /openapi/ollama.yaml                   |
-| Opencode Gateway  | Core agent framework (opencode.ai), LLM proxy, metrics, mTLS, mesh | POST /agent, GET /metrics               | /openapi/opencode-gateway.yaml         |
-| ZeroClaw          | Agent framework, routing, load balancing, mesh integration (Linkerd) | POST /route, GET /routes                | /openapi/zeroclaw.yaml                 |
-| n8n               | Event-driven automation, workflow orchestration    | POST /webhook, UI on :5678              | /openapi/n8n.yaml                      |
-| Kafka             | Event streaming, pub/sub backbone                  | Broker on :9092, topics for events      | /openapi/kafka.yaml                    |
-| Prometheus        | Metrics scraping, time-series DB                   | GET /metrics, UI on :9090               | /openapi/prometheus.yaml               |
-| Grafana           | Dashboards, visualization                          | UI on :3000, import dashboard JSON      | /openapi/grafana.yaml                  |
-| Jupyter           | Notebooks, data science, code execution            | UI on :8888, /api/contents, /api/sessions| /openapi/jupyter.yaml                  |
-| Learning Agent    | Personalized learning, guidance, feedback          | GET /learning/suggestions, POST /learning/feedback | /openapi/learning.yaml                 |
+| Service           | Core Function                                      | Example Endpoint / Usage                | OpenAPI Spec Path                      | /healthz | /metrics |
+|-------------------|---------------------------------------------------|-----------------------------------------|----------------------------------------|----------|----------|
+| LMDeploy          | LLM inference, token usage, metrics (advanced/optional) | POST /generate, GET /metrics            | /openapi/lmdeploy.yaml                 | Yes      | Yes      |
+| Ollama            | Default LLM hosting (simple setup)                 | POST /api/generate, GET /api/tags       | /openapi/ollama.yaml                   | Yes      | Yes      |
+| Opencode Gateway  | Core agent framework (opencode.ai), LLM proxy, metrics, mTLS, mesh | POST /agent, GET /metrics               | /openapi/opencode-gateway.yaml         | Yes      | Yes      |
+| ZeroClaw          | Agent framework, routing, load balancing, mesh integration (Linkerd) | POST /route, GET /routes                | /openapi/zeroclaw.yaml                 | Yes      | Yes      |
+| n8n               | Event-driven automation, workflow orchestration    | POST /webhook, UI on :5678              | /openapi/n8n.yaml                      | Yes      | Yes      |
+| Kafka             | Event streaming, pub/sub backbone                  | Broker on :9092, topics for events      | /openapi/kafka.yaml                    | Yes      | Yes      |
+| Prometheus        | Metrics scraping, time-series DB                   | GET /metrics, UI on :9090               | /openapi/prometheus.yaml               | Yes      | Yes      |
+| Grafana           | Dashboards, visualization                          | UI on :3000, import dashboard JSON      | /openapi/grafana.yaml                  | Yes      | Yes      |
+| Jupyter           | Notebooks, data science, code execution            | UI on :8888, /api/contents, /api/sessions| /openapi/jupyter.yaml                  | Yes      | Yes      |
+| Learning Agent    | Personalized learning, guidance, feedback          | GET /learning/suggestions, POST /learning/feedback | /openapi/learning.yaml                 | Yes      | Yes      |
 
 ## How It Ties Together & API Standardization
 - **Resident Mentor Agents (AI Instructors):** The core of the Academy. These agents observe your actions, understand the architecture, and proactively guide you to higher skill levels. They are always present, adapting to your goals and teaching you how to use AI by showing you how to use the lab itself.

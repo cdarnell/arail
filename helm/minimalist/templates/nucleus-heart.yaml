@@ -1,0 +1,32 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nucleus-heart
+  annotations:
+    linkerd.io/inject: enabled # The Heart is the most secure part of the mesh
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nucleus-heart
+  template:
+    metadata:
+      labels:
+        app: nucleus-heart
+    spec:
+      containers:
+      - name: zellij-terminal
+        image: {{ .Values.nucleusHeart.image }}
+        env:
+          - name: ZELLIJ_CONFIG_DIR
+            value: "/etc/zellij"
+          - name: HISTSIZE
+            value: "1000000" # The 100MB Buffer logic
+        resources:
+{{ toYaml .Values.nucleusHeart.resources | indent 10 }}
+        ports:
+        - containerPort: 7681 # Web terminal port
+      volumes:
+      - name: history-storage
+        persistentVolumeClaim:
+          claimName: nucleus-history-pvc

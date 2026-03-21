@@ -1,0 +1,83 @@
+{
+  "name": "Air-Gap Connectivity Check",
+  "nodes": [
+    {
+      "parameters": {
+        "resource": "ConfigMap",
+        "operation": "watch",
+        "namespace": "opencode",
+        "name": "lab-state"
+      },
+      "id": "ConfigMap Watch",
+      "type": "kubernetes",
+      "typeVersion": 1,
+      "position": [100, 100]
+    },
+    {
+      "parameters": {
+        "url": "https://google.com",
+        "options": {
+          "timeout": 2
+        }
+      },
+      "id": "HTTPRequest",
+      "type": "httpRequest",
+      "typeVersion": 1,
+      "position": [300, 100]
+    },
+    {
+      "parameters": {
+        "command": "echo 'Outpost Secured' > /dev/ttyS0"
+      },
+      "id": "Zellij Heart Log",
+      "type": "executeCommand",
+      "typeVersion": 1,
+      "position": [500, 50]
+    },
+    {
+      "parameters": {
+        "topic": "airgap.breach",
+        "message": "Air-gap breach detected! Forcing egress gateway deletion.",
+        "broker": "redpanda:9092"
+      },
+      "id": "Redpanda Alert",
+      "type": "kafka",
+      "typeVersion": 1,
+      "position": [500, 150]
+    }
+  ],
+  "connections": {
+    "ConfigMap Watch": {
+      "main": [
+        [
+          {
+            "node": "HTTPRequest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTPRequest": {
+      "main": [
+        [
+          {
+            "node": "Redpanda Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Zellij Heart Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {},
+  "id": "airgap-connectivity-check"
+}
