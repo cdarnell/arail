@@ -43,5 +43,30 @@ The lab is ultimately your instructor.  Through the **Nucleus AI Lab**, the envi
 	* **User Progression:** As you master a topic, the lab "unlocks" more complex infrastructure, scaling the challenge to your skill level.
 
 
+# Privacy Manifesto: The State of Hybrid Sovereignty
+
+## The Philosophy
+This project is built on the principle of **Hybrid Sovereignty**. We believe that digital independence should not require technical isolation. Our architecture is designed to give you the "Feature of Freedom"—the agency to choose exactly when to keep your data private and when to leverage the power of the global cloud.
+
+## The Classroom Analogy
+To understand how your data is handled, we distinguish between two primary states:
+
+1. **The Private Classroom (Sovereign State):**
+   - **Environment:** Your local hardware.
+   - **Privacy:** One-on-one instruction within secure walls. No cameras, no recordings, and no external oversight.
+   - **Usage:** This is where your "Secret Notebook" (private data, identity, and sensitive logic) lives. It never leaves the room.
+
+2. **The Recorded Lecture Hall (Hybrid State):**
+   - **Environment:** External LLM Cloud Providers (via API).
+   - **Privacy:** A global stage. Interactions are often recorded, logged, and used for external training. 
+   - **Usage:** We use this state only when a task requires "World Knowledge" or compute power that exceeds our local walls.
+
+## The Feature of Freedom
+In this blueprint, connectivity is a **choice**, not a requirement. You are the Principal of this digital school. You have the authority to:
+- **Acknowledge Limitations:** Recognize where local hardware reaches its ceiling.
+- **Explore the Cloud:** Selectively "plug in" to frontier models for complex reasoning.
+- **Understand the Sacrifice:** Intentionally trade a sliver of context for a surge in capability, always knowing you can "log out" and return to the safety of your private classroom at any time.
+
+
 
 
