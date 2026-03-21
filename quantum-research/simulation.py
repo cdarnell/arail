@@ -1,4 +1,7 @@
+import json
+import time
 import numpy as np
+import os
 from sklearn.metrics.pairwise import cosine_similarity
 
 # Quantum Synchronicity — "Vibrational Correlation" engine
@@ -30,10 +33,14 @@ def calculate_synchronicity(stream, threshold=0.95):
     similarities = cosine_similarity([INTENT_VECTOR], stream)[0]
     synchronicities = np.where(similarities > threshold)[0]
 
+    alignment = float(np.mean(similarities))
+    coincidence_count = int(len(synchronicities))
+    entropy = float(-np.sum(similarities * np.log(similarities + 1e-9)) / len(similarities))
+
     return {
-        "alignment_score": float(np.mean(similarities)),
-        "coincidence_count": int(len(synchronicities)),
-        "entropy": float(-np.sum(similarities * np.log(similarities + 1e-9)) / len(similarities))
+        "alignment_score": alignment,
+        "coincidence_count": coincidence_count,
+        "entropy": entropy,
     }
 
 
@@ -58,15 +65,42 @@ def auto_tune_intent(step=0.01, iterations=50, seed=None):
     return best, best_score
 
 
+def _vibrational_frequency_from_alignment(alignment_score: float) -> float:
+    """Derive a human-friendly vibrational frequency (Hz) from alignment score.
+
+    This is a heuristic mapping to produce a stable numeric field for visualization.
+    """
+    base = 440.0  # A4 reference
+    # Map alignment [0,1] to frequency range [110, 880] with small jitter
+    freq = 110.0 + (alignment_score * (880.0 - 110.0))
+    jitter = (np.random.rand() - 0.5) * 2.0  # +/-1 Hz jitter
+    return float(freq + jitter)
+
+
 if __name__ == "__main__":
     print("NC-LOG: Initiating Quantum Synchronicity Simulation...")
-    reality = generate_reality_stream()
-    results = calculate_synchronicity(reality)
 
-    print("--- EXPERIMENT RESULTS ---")
-    print(f"Average Vibrational Resonance: {results['alignment_score']:.4f}")
-    print(f"Observed Synchronicities: {results['coincidence_count']}")
-    print(f"System Entropy: {results['entropy']:.4f}")
+    # Live loop that emits structured JSON logs consumable by Loki
+    sleep_seconds = int(os.environ.get("QR_SLEEP", 5))
+    sample_count = int(os.environ.get("QR_SAMPLES", 500))
 
-    if results['coincidence_count'] > 5:
-        print("SIGNAL DETECTED: Pattern alignment exceeds random noise probability.")
+    while True:
+        stream = generate_reality_stream(samples=sample_count)
+        results = calculate_synchronicity(stream)
+        alignment = results["alignment_score"]
+        coincidence_count = results["coincidence_count"]
+        entropy = results["entropy"]
+        vibrational_frequency = _vibrational_frequency_from_alignment(alignment)
+
+        payload = {
+            "alignment_score": alignment,
+            "coincidence_count": coincidence_count,
+            "entropy": entropy,
+            "vibrational_frequency": vibrational_frequency,
+            "timestamp": int(time.time())
+        }
+
+        # Prefix required by Loki parsing pipeline
+        print("QUANTUM_METRIC:" + json.dumps(payload), flush=True)
+
+        time.sleep(sleep_seconds)

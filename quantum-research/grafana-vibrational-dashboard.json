@@ -1,0 +1,76 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "gnetId": null,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "datasource": "Loki",
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {"h": 6, "w": 6, "x": 0, "y": 0},
+      "id": 1,
+      "title": "Current Vibrational Alignment",
+      "type": "stat",
+      "options": {
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": ""},
+        "orientation": "auto",
+        "colorMode": "value",
+        "graphMode": "area"
+      },
+      "targets": [
+        {
+          "expr": "{app=\"quantum-research\"} | json | unwrap alignment_score",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "datasource": "Loki",
+      "fieldConfig": {"defaults": {}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 6, "y": 0},
+      "id": 2,
+      "title": "Synchronicity Spikes",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "{app=\"quantum-research\"} | json | unwrap coincidence_count",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "datasource": "Loki",
+      "fieldConfig": {"defaults": {}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "id": 3,
+      "title": "System Entropy vs. Intent (Heatmap)",
+      "type": "heatmap",
+      "targets": [
+        {
+          "expr": "{app=\"quantum-research\"} | json | unwrap entropy",
+          "refId": "A"
+        }
+      ]
+    }
+  ],
+  "refresh": "5s",
+  "schemaVersion": 27,
+  "style": "dark",
+  "tags": ["quantum", "synchronicity", "vibrational"],
+  "templating": {"list": []},
+  "time": {"from": "now-1h", "to": "now"},
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Vibrational Resonance",
+  "uid": "vibrational-resonance",
+  "version": 1
+}

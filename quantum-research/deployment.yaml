@@ -1,0 +1,103 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: quantum-simulation-script
+  labels:
+    app: quantum-research
+    component: synchronicity-engine
+data:
+  simulation.py: |
+    import json
+    import time
+    import numpy as np
+    import os
+    from sklearn.metrics.pairwise import cosine_similarity
+
+    INTENT_VECTOR = np.array([0.9, 0.8, 0.4, 0.1])
+
+    def generate_reality_stream(samples=1000, dim=4, seed=None):
+        if seed is not None:
+            np.random.seed(seed)
+        return np.random.rand(samples, dim)
+
+    def calculate_synchronicity(stream, threshold=0.95):
+        similarities = cosine_similarity([INTENT_VECTOR], stream)[0]
+        synchronicities = np.where(similarities > threshold)[0]
+        alignment = float(np.mean(similarities))
+        coincidence_count = int(len(synchronicities))
+        entropy = float(-np.sum(similarities * np.log(similarities + 1e-9)) / len(similarities))
+        return {
+            "alignment_score": alignment,
+            "coincidence_count": coincidence_count,
+            "entropy": entropy,
+        }
+
+    def _vibrational_frequency_from_alignment(alignment_score: float) -> float:
+        freq = 110.0 + (alignment_score * (880.0 - 110.0))
+        jitter = (np.random.rand() - 0.5) * 2.0
+        return float(freq + jitter)
+
+    if __name__ == "__main__":
+        sleep_seconds = int(os.environ.get("QR_SLEEP", 5))
+        sample_count = int(os.environ.get("QR_SAMPLES", 500))
+        while True:
+            stream = generate_reality_stream(samples=sample_count)
+            results = calculate_synchronicity(stream)
+            alignment = results["alignment_score"]
+            coincidence_count = results["coincidence_count"]
+            entropy = results["entropy"]
+            vibrational_frequency = _vibrational_frequency_from_alignment(alignment)
+            payload = {
+                "alignment_score": alignment,
+                "coincidence_count": coincidence_count,
+                "entropy": entropy,
+                "vibrational_frequency": vibrational_frequency,
+                "timestamp": int(time.time())
+            }
+            print("QUANTUM_METRIC:" + json.dumps(payload), flush=True)
+            time.sleep(sleep_seconds)
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: quantum-research
+  labels:
+    app: quantum-research
+    component: synchronicity-engine
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: quantum-research
+  template:
+    metadata:
+      labels:
+        app: quantum-research
+        component: synchronicity-engine
+      annotations:
+        linkerd.io/inject: "enabled"
+        prometheus.io/scrape: "true"
+    spec:
+      containers:
+        - name: synchronicity-engine
+          image: python:3.11-slim
+          imagePullPolicy: IfNotPresent
+          command: ["bash", "-lc"]
+          args:
+            - pip install --no-cache-dir numpy scikit-learn && python -u /app/simulation.py
+          env:
+            - name: QR_SLEEP
+              value: "5"
+            - name: QR_SAMPLES
+              value: "500"
+          volumeMounts:
+            - name: script
+              mountPath: /app/simulation.py
+              subPath: simulation.py
+      restartPolicy: Always
+      volumes:
+        - name: script
+          configMap:
+            name: quantum-simulation-script
+            defaultMode: 0755
