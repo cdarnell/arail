@@ -13,34 +13,13 @@ spec:
       {{- include "minimalist.selectorLabels" . | nindent 6 }}
   template:
     metadata:
+      {{- with .Values.podAnnotations }}
       annotations:
-        {{- if .Values.linkerd.enabled }}
-        linkerd.io/inject: "enabled"
-        {{- end }}
-        {{- if .Values.metrics.enabled }}
-        prometheus.io/scrape: "true"
-        prometheus.io/port: "{{ .Values.metrics.port }}"
-        prometheus.io/path: "{{ .Values.metrics.path }}"
-        {{- end }}
-        {{- if .Values.tracing.enabled }}
-        tempo.io/trace: "true"
-        tempo.io/endpoint: "{{ .Values.tracing.endpoint }}"
-        {{- end }}
-        {{- if .Values.logging.enabled }}
-        loki.io/logs: "true"
-        loki.io/format: "{{ .Values.logging.format }}"
-        {{- end }}
-        {{- if .Values.openapi.enabled }}
-        openapi/enabled: "true"
-        openapi/specPath: "{{ .Values.openapi.specPath }}"
-        {{- end }}
-        {{- with .Values.podAnnotations }}
-        {{- toYaml . | nindent 8 }}
-        {{- end }}
+        # This 'tpl' call is the fix! It renders any templates found inside your values.
+        {{- tpl (toYaml .) $ | nindent 8 }}
+      {{- end }}
       labels:
-        {{- include "minimalist.labels" . | nindent 8 }}
-        mesh: "linkerd"
-        telemetry: "enabled"
+        {{- include "minimalist.selectorLabels" . | nindent 8 }}
         {{- with .Values.podLabels }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -62,22 +41,42 @@ spec:
           {{- end }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+
+          # --- Kafka & EDA Environment Variables ---
+          env:
+            - name: KAFKA_BROKERS
+              value: {{ .Values.kafka.brokers | quote }}
+            - name: KAFKA_SCHEMA_REGISTRY
+              value: {{ .Values.kafka.schemaRegistry | quote }}
+            - name: TOPIC_INFERENCE
+              value: {{ .Values.kafka.topics.inferences | quote }}
+            - name: TOPIC_SRE_ALERTS
+              value: {{ .Values.kafka.topics.sre_alerts | quote }}
+            - name: OPENAPI_SPEC_PATH
+              value: {{ .Values.openapi.specPath | quote }}
+
           ports:
             - name: http
               containerPort: {{ .Values.service.port }}
               protocol: TCP
-          {{- with .Values.livenessProbe }}
+            - name: metrics
+              containerPort: {{ .Values.metrics.port }}
+              protocol: TCP
+
+          # --- Probes (Optimized for Heavy AI Models) ---
+          {{- if .Values.startupProbe }}
+          startupProbe:
+            {{- toYaml .Values.startupProbe | nindent 12 }}
+          {{- end }}
           livenessProbe:
-            {{- toYaml . | nindent 12 }}
-          {{- end }}
-          {{- with .Values.readinessProbe }}
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
           readinessProbe:
-            {{- toYaml . | nindent 12 }}
-          {{- end }}
-          {{- with .Values.resources }}
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+
+          # --- GPU & Hardware Resources ---
           resources:
-            {{- toYaml . | nindent 12 }}
-          {{- end }}
+            {{- toYaml .Values.resources | nindent 12 }}
+
           {{- with .Values.volumeMounts }}
           volumeMounts:
             {{- toYaml . | nindent 12 }}

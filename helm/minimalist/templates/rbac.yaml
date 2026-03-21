@@ -1,0 +1,25 @@
+{{- if .Values.serviceAccount.create -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "minimalist.fullname" . }}-janitor
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "services", "configmaps", "events"]
+    verbs: ["get", "list", "watch", "patch", "delete"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "patch"] # Required for rolling restarts
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "minimalist.fullname" . }}-janitor-binding
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "minimalist.serviceAccountName" . }}
+roleRef:
+  kind: Role
+  name: {{ include "minimalist.fullname" . }}-janitor
+  apiGroup: rbac.authorization.k8s.io
+{{- end }}

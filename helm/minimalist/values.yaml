@@ -1,3 +1,13 @@
+# --- Interactive Surfaces ---
+# We've removed Jupyter to save ~1GB of RAM for LLM weights.
+terminal:
+  enabled: true
+  type: "rust-workshop"
+  image: "gentoofoo/rust-workshop:latest" # evcxr + ttyd
+  port: 7681
+  auth:
+    enabled: true
+    secretName: "workshop-creds"
 # Default values for minimalist.
 # This is a YAML-formatted file.
 # Declare variables to be passed into your templates.
