@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from routes.vault import router as vault_router
+from routes.kibd import router as kibd_router
 
 app = FastAPI()
 
@@ -19,5 +20,6 @@ app.add_middleware(
 
 # Mount Vault / runbook handlers
 app.include_router(vault_router)
+app.include_router(kibd_router)
 
 # TODO: Add mTLS authentication, Prometheus metrics, LMDeploy integration

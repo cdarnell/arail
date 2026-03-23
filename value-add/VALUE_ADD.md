@@ -37,7 +37,7 @@ This simulator quantifies the cost of running local LLM inference versus using c
 Mastra AI & Pydantic Integration
 - **Overview:** This repository now includes an agent orchestration pattern using Mastra AI as the control plane and Pydantic (pydantic-ai) as the pre-execution validation layer. The control plane validates requests (schema, resource limits, allowed libs) to reject invalid work before provisioning transient pods.
 - **Execution Strategy:** Models are pre-warmed into a host-backed shared location on single-node Linux clusters. Transient worker pods mmap weights for sub-second startup and zero redundant RAM usage.
-- **Service Mesh:** Design assumes Linkerd Ambient mode to avoid sidecar CPU/RAM tax while providing mTLS and eBPF telemetry.
+ - **Service Mesh:** Design assumes Linkerd (sidecar-based) to provide mTLS and proxy-level telemetry via `linkerd2-proxy` sidecars while keeping overhead low.
 - **Observability:** Mastra Studio monitors logical flows (validation → handoff); Grafana/Tempo capture node-level and eBPF telemetry.
 
 See `helm/k8s-lite` for chart-level templates and the sample Mastra manifests added under `helm/k8s-lite/templates/ai/`.
@@ -45,7 +45,7 @@ See `helm/k8s-lite` for chart-level templates and the sample Mastra manifests ad
 Shared-Memory mmap Pattern (Transient Python Workers)
 - **Core Idea:** Use an `emptyDir` volume with `medium: Memory` to host pre-warmed model weights on the node. A one-time loader populates this memory-backed volume; transient Python pods mount it and access weights via `mmap`, achieving zero-copy, instant model access.
 - **Gold Image:** Build a minimal, precompiled Python base image (distroless or slim) containing precompiled `.pyc` files and required C-extensions (PyTorch / llama-cpp-python). Avoid `pip install` at runtime.
-- **Service Mesh:** Linkerd Ambient is required to provide mTLS and eBPF-level observability without sidecar overhead or startup delay.
+ - **Service Mesh:** Linkerd (sidecar-based) provides mTLS and proxy-level telemetry; per-pod sidecar injection is used instead of Istio-style Ambient sidecarless operation.
 - **Validation & Dispatch:** Mastra performs Pydantic validation; only valid tasks trigger transient pods via the Kubernetes API.
 
 Minimal Pod YAML example (mounts shared memory-backed model store):
