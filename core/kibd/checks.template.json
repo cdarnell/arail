@@ -1,0 +1,213 @@
+[
+  {
+    "id": "kibd-crit-001",
+    "name": "API Server Reachable",
+    "severity": "critical",
+    "description": "Kubernetes API server responds to basic discovery requests.",
+    "probe": { "type": "kubernetes_api", "endpoint": "/api/v1" }
+  },
+  {
+    "id": "kibd-crit-002",
+    "name": "All Nodes Ready",
+    "severity": "critical",
+    "description": "Cluster nodes report Ready condition.",
+    "probe": { "type": "kubernetes_api", "resource": "nodes" }
+  },
+  {
+    "id": "kibd-crit-003",
+    "name": "Control Plane Pods Running",
+    "severity": "critical",
+    "description": "Control plane (e.g., linkerd, kube-system) pods are in Running state.",
+    "probe": { "type": "kubernetes_api", "namespace": "kube-system" }
+  },
+  {
+    "id": "kibd-crit-004",
+    "name": "ServiceAccount Token Projection",
+    "severity": "critical",
+    "description": "Downward API service account token projection is available for pods.",
+    "probe": { "type": "pod_file_check", "path": "/var/run/secrets/kubernetes.io/serviceaccount/token" }
+  },
+  {
+    "id": "kibd-crit-005",
+    "name": "Linkerd Sidecar Injection",
+    "severity": "critical",
+    "description": "Pods in instrumented namespaces have `linkerd-proxy` sidecars injected.",
+    "probe": { "type": "kubernetes_label_check", "label": "linkerd.io/inject" }
+  },
+  {
+    "id": "kibd-crit-006",
+    "name": "Prometheus Scrape Targets Healthy",
+    "severity": "critical",
+    "description": "Prometheus reports active scrape targets and no prolonged failures.",
+    "probe": { "type": "prometheus_query", "query": "up==0" }
+  },
+  {
+    "id": "kibd-crit-007",
+    "name": "Grafana Connectable",
+    "severity": "critical",
+    "description": "Grafana UI endpoint responds (basic HTTPS 200).",
+    "probe": { "type": "http", "url": "https://{{NUCLEUS}}.grafana:3000/" }
+  },
+  {
+    "id": "kibd-crit-008",
+    "name": "Vault Connectivity",
+    "severity": "critical",
+    "description": "Vault (if configured) accepts health/read requests over TLS.",
+    "probe": { "type": "http", "url": "https://{{NUCLEUS}}.vault:8200/v1/sys/health" }
+  },
+  {
+    "id": "kibd-crit-009",
+    "name": "PodRestartRate",
+    "severity": "critical",
+    "description": "No unexpected crashloop or elevated restart rates detected.",
+    "probe": { "type": "prometheus_query", "query": "sum(rate(container_restart_count[1h])) by (pod) > 0" }
+  },
+  {
+    "id": "kibd-crit-010",
+    "name": "Control Plane Latency",
+    "severity": "critical",
+    "description": "API server request latencies are within acceptable bounds.",
+    "probe": { "type": "prometheus_query", "query": "histogram_quantile(0.99, sum(rate(apiserver_request_duration_seconds_bucket[5m])) by (le))" }
+  },
+  {
+    "id": "kibd-crit-011",
+    "name": "DNS Resolution",
+    "severity": "critical",
+    "description": "CoreDNS resolves cluster service names correctly.",
+    "probe": { "type": "dns_lookup", "name": "kubernetes.default.svc.cluster.local" }
+  },
+  {
+    "id": "kibd-crit-012",
+    "name": "Control Plane Certificate Validity",
+    "severity": "critical",
+    "description": "TLS certs used by control plane are not expired.",
+    "probe": { "type": "tls_check", "host": "kubernetes.default.svc" }
+  },
+  {
+    "id": "kibd-crit-013",
+    "name": "Node Disk Pressure",
+    "severity": "critical",
+    "description": "No nodes report DiskPressure condition.",
+    "probe": { "type": "kubernetes_node_condition", "condition": "DiskPressure" }
+  },
+  {
+    "id": "kibd-crit-014",
+    "name": "API Authz Basic Check",
+    "severity": "critical",
+    "description": "A known namespace and pod can be listed by the current credentials.",
+    "probe": { "type": "kubernetes_api", "resource": "namespaces" }
+  },
+  {
+    "id": "kibd-crit-015",
+    "name": "Control Plane Pod Logs Accessible",
+    "severity": "critical",
+    "description": "Able to fetch recent logs from control-plane pods.",
+    "probe": { "type": "kubernetes_pod_logs", "namespace": "kube-system" }
+  },
+  {
+    "id": "kibd-crit-016",
+    "name": "Secret Mounts Accessible",
+    "severity": "critical",
+    "description": "Secrets are mountable and readable by expected service accounts.",
+    "probe": { "type": "kubernetes_secret_check" }
+  },
+  {
+    "id": "kibd-crit-017",
+    "name": "Time Skew",
+    "severity": "critical",
+    "description": "Node and control-plane time skew is within acceptable limits.",
+    "probe": { "type": "time_skew_check" }
+  },
+  {
+    "id": "kibd-crit-018",
+    "name": "CRI Runtime Healthy",
+    "severity": "critical",
+    "description": "Container runtime on nodes (containerd/dockerd) reports healthy.",
+    "probe": { "type": "node_service_check", "service": "containerd" }
+  },
+  {
+    "id": "kibd-crit-019",
+    "name": "Network Policy Enforcement",
+    "severity": "critical",
+    "description": "Network policies are enforced and deny-by-default rules exist where expected.",
+    "probe": { "type": "network_policy_check" }
+  },
+  {
+    "id": "kibd-crit-020",
+    "name": "Ingress/Egress Connectivity",
+    "severity": "critical",
+    "description": "Cluster can reach required external services and ingress responds.",
+    "probe": { "type": "http", "url": "https://{{NUCLEUS}}.external/" }
+  },
+
+  {
+    "id": "kibd-rec-001",
+    "name": "Etcd Member Health",
+    "severity": "recommended",
+    "description": "Etcd cluster members report healthy status.",
+    "probe": { "type": "etcd_health" }
+  },
+  {
+    "id": "kibd-rec-002",
+    "name": "ImagePullBackOffs",
+    "severity": "recommended",
+    "description": "Detect ImagePullBackOff occurrences across namespaces.",
+    "probe": { "type": "kubernetes_event_check", "reason": "ImagePullBackOff" }
+  },
+  {
+    "id": "kibd-rec-003",
+    "name": "PersistentVolumeCapacity",
+    "severity": "recommended",
+    "description": "Monitor PV capacity and warn when usage is high.",
+    "probe": { "type": "prometheus_query", "query": "(kube_persistentvolumeclaim_storage_capacity_bytes - kube_persistentvolumeclaim_storage_used_bytes) / kube_persistentvolumeclaim_storage_capacity_bytes" }
+  },
+  {
+    "id": "kibd-rec-004",
+    "name": "PodDisruptionBudgets",
+    "severity": "recommended",
+    "description": "PDBs exist for critical workloads.",
+    "probe": { "type": "kubernetes_resource_check", "resource": "poddisruptionbudgets" }
+  },
+  {
+    "id": "kibd-rec-005",
+    "name": "TLS Cipher Strength",
+    "severity": "recommended",
+    "description": "Control plane endpoints use modern TLS ciphers.",
+    "probe": { "type": "tls_cipher_check" }
+  },
+  {
+    "id": "kibd-rec-006",
+    "name": "APIServer Audit Logs",
+    "severity": "recommended",
+    "description": "Audit logs are being written and rotated.",
+    "probe": { "type": "file_presence", "path": "/var/log/kubernetes/audit.log" }
+  },
+  {
+    "id": "kibd-rec-007",
+    "name": "Prometheus TSDB Retention",
+    "severity": "recommended",
+    "description": "Prometheus retention configured and disk usage healthy.",
+    "probe": { "type": "prometheus_query", "query": "prometheus_tsdb_head_series" }
+  },
+  {
+    "id": "kibd-rec-008",
+    "name": "Sidecar Proxy Versions",
+    "severity": "recommended",
+    "description": "Ensure `linkerd2-proxy` versions are within supported range.",
+    "probe": { "type": "kubernetes_container_version_check", "container": "linkerd-proxy" }
+  },
+  {
+    "id": "kibd-rec-009",
+    "name": "Image Vulnerability Scan",
+    "severity": "recommended",
+    "description": "Spot-check images for known vulnerabilities if scanner available.",
+    "probe": { "type": "external_scanner_integration" }
+  },
+  {
+    "id": "kibd-rec-010",
+    "name": "Node CPU Saturation",
+    "severity": "recommended",
+    "description": "Detect nodes with sustained high CPU usage.",
+    "probe": { "type": "prometheus_query", "query": "avg_over_time(node_cpu_seconds_total[5m])" }
+  }
+]

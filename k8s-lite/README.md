@@ -121,6 +121,15 @@ This ensures every user is empowered to learn, experiment, and maximize the valu
 The bootstrap script `k8s-lite/bootstrap-nucleus.sh` will prompt you for a short "Nucleus" hostname (default: `gentoofoo`) and will append helpful `/etc/hosts` entries so service hostnames such as `https://<nucleus>.grafana:3000` and `https://<nucleus>.vault:8200` resolve to your host (typically `127.0.0.1`). This makes it easy to use consistent HTTPS hostnames for local testing of dashboards and probes.
 
 Note: Modifying `/etc/hosts` requires `sudo`. The script creates a timestamped backup before editing.
+
+### Deployment Modes
+
+`bootstrap-nucleus.sh` now supports three deploy modes selected interactively during the bootstrap:
+- `full`: Full redeploy. Destructive — may recreate resources and remove local images. Requires typing the confirmation token `REDEPLOY` to proceed.
+- `incremental`: Safe update path that applies Helm upgrades / resource changes without destructive recreation.
+- `skip`: Do not perform any deployment; only prepare generated values and templates.
+
+The script renders `core/kibd/checks.json` from `core/kibd/checks.template.json` using the chosen Nucleus hostname so probes point at the correct HTTPS hostnames for local testing.
 ## Memory Architecture Flow
 
 The following diagram illustrates the memory and knowledge ingestion architecture, showing how unstructured data is processed, enriched, vectorized, and made available for LLM inference and agent workflows:

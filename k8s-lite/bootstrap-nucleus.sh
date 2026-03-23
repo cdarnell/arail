@@ -425,6 +425,55 @@ echo "/etc/hosts updated with: $HOSTS_ENTRY"
 
 export NUCLEUS_HOSTNAME
 
+# -------------------------
+# Render KibD checks.json from template (if present)
+# -------------------------
+TEMPLATE_PATH="$(pwd)/core/kibd/checks.template.json"
+TARGET_PATH="$(pwd)/core/kibd/checks.json"
+if [ -f "$TEMPLATE_PATH" ]; then
+  echo "Rendering KibD checks from template: $TEMPLATE_PATH -> $TARGET_PATH"
+  # Use sed substitution to replace {{NUCLEUS}} placeholder. Escape slashes in hostname if any.
+  SAFE_HOSTNAME=$(printf '%s' "$NUCLEUS_HOSTNAME" | sed 's/[\/&]/\\&/g')
+  sed "s/{{NUCLEUS}}/$SAFE_HOSTNAME/g" "$TEMPLATE_PATH" > "$TARGET_PATH"
+  echo "Wrote $TARGET_PATH"
+else
+  echo "No KibD template found at $TEMPLATE_PATH; skipping render."
+fi
+
+# -------------------------
+# Deployment mode selection
+# -------------------------
+echo "Choose deployment action:";
+echo "  1) Full redeploy (destructive - will recreate resources; requires confirmation)";
+echo "  2) Incremental update (safe - apply/upgrade only)";
+echo "  3) Skip deployment (only prepare values and templates)";
+read -p "Choice [1/2/3] (default: 2): " DEPLOY_CHOICE
+DEPLOY_CHOICE=${DEPLOY_CHOICE:-2}
+case "$DEPLOY_CHOICE" in
+  1)
+    read -p "You selected FULL REDEPLOY. This may remove local images and recreate resources. Type REDEPLOY to confirm: " CONFIRM
+    if [ "$CONFIRM" = "REDEPLOY" ]; then
+      DEPLOY_MODE="full"
+      echo "Full redeploy confirmed.";
+    else
+      echo "Confirmation failed; switching to incremental update.";
+      DEPLOY_MODE="incremental"
+    fi
+    ;;
+  2)
+    DEPLOY_MODE="incremental";
+    ;;
+  3)
+    DEPLOY_MODE="skip";
+    ;;
+  *)
+    DEPLOY_MODE="incremental";
+    ;;
+esac
+
+export DEPLOY_MODE
+echo "Deployment mode: $DEPLOY_MODE"
+
 # quick network check (used to decide whether pulling external repos / APIs is possible)
 NETWORK_OK=false
 if command -v curl >/dev/null 2>&1; then
