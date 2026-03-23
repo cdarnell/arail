@@ -385,6 +385,46 @@ fi
 # - Detects airgapped/network-less environments and disables external fetches
 # -------------------------
 
+# -------------------------
+# Nucleus Hostname & /etc/hosts mapping
+# Prompts the operator for a short hostname (default: gentoofoo) and
+# appends helpful /etc/hosts entries so local probes and browser hostnames
+# like https://<nucleus>.grafana resolve to the chosen host IP (usually localhost).
+# This requires sudo to modify /etc/hosts; a backup is created first.
+# -------------------------
+read -p "Enter the Nucleus hostname to use for local hostnames (default: gentoofoo): " NUCLEUS_HOSTNAME
+NUCLEUS_HOSTNAME=${NUCLEUS_HOSTNAME:-gentoofoo}
+
+# Determine a sensible host IP to map hostnames to (prefer primary IP, fallback to localhost)
+HOST_IP=""
+if command -v hostname >/dev/null 2>&1; then
+  HOST_IP=$(hostname -I 2>/dev/null | awk '{print $1}') || true
+fi
+if [ -z "$HOST_IP" ] && command -v ip >/dev/null 2>&1; then
+  HOST_IP=$(ip route get 1.1.1.1 2>/dev/null | awk '/src/ {for(i=1;i<=NF;i++) if($i=="src") {print $(i+1); exit}}') || true
+fi
+if [ -z "$HOST_IP" ]; then
+  HOST_IP=127.0.0.1
+fi
+
+echo "Configuring local host entries for nucleus '$NUCLEUS_HOSTNAME' -> $HOST_IP"
+if [ $(id -u) -ne 0 ]; then
+  echo "Updating /etc/hosts requires root privileges; will use sudo to append entries."
+fi
+
+# Backup /etc/hosts
+sudo cp /etc/hosts /etc/hosts.minimalist.bak.$(date +%s) || true
+
+# Add hostnames used by services (grafana, vault, registry, external) so probes can use stable names
+HOSTS_ENTRY="$HOST_IP $NUCLEUS_HOSTNAME.grafana $NUCLEUS_HOSTNAME.vault $NUCLEUS_HOSTNAME.registry $NUCLEUS_HOSTNAME.external $NUCLEUS_HOSTNAME"
+
+# Avoid duplicate entries: remove any existing matching nucleus entries before appending
+sudo sed -i.bak "/${NUCLEUS_HOSTNAME//./\.}/d" /etc/hosts || true
+echo "$HOSTS_ENTRY" | sudo tee -a /etc/hosts >/dev/null || true
+echo "/etc/hosts updated with: $HOSTS_ENTRY"
+
+export NUCLEUS_HOSTNAME
+
 # quick network check (used to decide whether pulling external repos / APIs is possible)
 NETWORK_OK=false
 if command -v curl >/dev/null 2>&1; then

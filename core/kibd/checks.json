@@ -45,15 +45,15 @@
     "id": "kibd-crit-007",
     "name": "Grafana Connectable",
     "severity": "critical",
-    "description": "Grafana UI endpoint responds (basic HTTP 200).",
-    "probe": { "type": "http", "url": "http://grafana:3000/" }
+    "description": "Grafana UI endpoint responds (basic HTTPS 200).",
+    "probe": { "type": "http", "url": "https://gentoofoo.grafana:3000/" }
   },
   {
     "id": "kibd-crit-008",
     "name": "Vault Connectivity",
     "severity": "critical",
-    "description": "Vault (if configured) accepts health/read requests.",
-    "probe": { "type": "http", "url": "http://vault:8200/v1/sys/health" }
+    "description": "Vault (if configured) accepts health/read requests over TLS.",
+    "probe": { "type": "http", "url": "https://gentoofoo.vault:8200/v1/sys/health" }
   },
   {
     "id": "kibd-crit-009",
@@ -137,7 +137,7 @@
     "name": "Ingress/Egress Connectivity",
     "severity": "critical",
     "description": "Cluster can reach required external services and ingress responds.",
-    "probe": { "type": "http", "url": "https://example.com/" }
+    "probe": { "type": "http", "url": "https://gentoofoo.external/" }
   },
 
   {

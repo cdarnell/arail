@@ -115,6 +115,12 @@ The Academy features a resident mentor agent, accessible at `learning.gentoofoo.
 - Offers use cases and ideas based on your overarching goal
 
 This ensures every user is empowered to learn, experiment, and maximize the value of the lab, with a mentor that grows alongside them. The real value-add is the AI-powered learning experience—autoresearch and simulated spend are value-add, but the resident mentor agent is the differentiator.
+
+### Local Hostname / DNS mapping
+
+The bootstrap script `k8s-lite/bootstrap-nucleus.sh` will prompt you for a short "Nucleus" hostname (default: `gentoofoo`) and will append helpful `/etc/hosts` entries so service hostnames such as `https://<nucleus>.grafana:3000` and `https://<nucleus>.vault:8200` resolve to your host (typically `127.0.0.1`). This makes it easy to use consistent HTTPS hostnames for local testing of dashboards and probes.
+
+Note: Modifying `/etc/hosts` requires `sudo`. The script creates a timestamped backup before editing.
 ## Memory Architecture Flow
 
 The following diagram illustrates the memory and knowledge ingestion architecture, showing how unstructured data is processed, enriched, vectorized, and made available for LLM inference and agent workflows:
