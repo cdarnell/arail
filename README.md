@@ -1,58 +1,39 @@
 
-# The Art of the Possible: The Living Ecosystem
 
-### One Goal. Infinite Evolution.
+# THE NUCLEUS — School of Over Engineering AI
 
-The Nucleus isn’t just a blueprint; it is a **self-refining engine** designed to orbit around a single point of gravity: **Your Goal.** Whether you are mastering NLP, architecting SRE resilience, or building the next generation of Vision models, the ecosystem does the "needful" so you can stay in the flow.
+### One Goal. Measured Relentlessly.
 
------
-
-## 🏗️ Curated for Day One. Built for Day Infinity.
-
-We ship a complete, high-fidelity environment out of the box. But the moment you hit "Install," the Nucleus begins to learn. It doesn't just sit there—it **refines**.
-
-### 🛠️ Self-Healing Infrastructure (Resilience)
-
-The lab watches itself so you don't have to. Using the [Linkerd Service Mesh](https://www.google.com/search?q=https://github.com/cdarnell/minimalist-blueprint/blob/main/k8s-lite/10-linkerd.yaml), our agents:
-
-	* **Detect & Recover:** Instantly identify failing services and restart pods.
-	* **Traffic Mastery:** Reroute requests around bottlenecks automatically.
-	* **Dynamic Config:** Regenerate and apply configurations in real-time to maintain the "Ground State."
-
-### 🧠 Self-Improving Models (Intelligence)
-
-Your AI doesn't stay static. Through [Autoresearch Loops](https://github.com/cdarnell/minimalist-blueprint/blob/main/autoresearch-GOALS.md), the system evolves:
-
-	* **The Research Loop:** Agents hunt for new data and papers to refine their own knowledge.
-	* **Lineage-Aware Distillation:** Models learn to "teach" smaller, faster versions of themselves.
-	* **Performance Evolution:** The ecosystem tracks inference latency and accuracy, tuning itself to your hardware's sweet spot.
-
-### 📚 Self-Curating Memory (Context)
-
-A lab is only as smart as its memory. The Nucleus manages its own cognitive load:
-
-	* **Semantic Clustering:** Automatically groups related concepts for faster retrieval.
-	* **Smart Pruning:** Compresses and prunes redundant data to keep the "Nucleus" lean.
-	* **Enrichment:** Metadata is constantly "stamped" onto every interaction, creating a rich, traceable history.
-
-### 🎓 Self-Teaching Environment (The Academy)
-
-The lab is your instructor. Through the **Nucleus Academy**, the environment grows with you:
-
-	* **Contextual Suggestions:** The [Resident Mentor](https://github.com/cdarnell/minimalist-blueprint/blob/main/ide-agents/IDE_AGENTS_REFERENCE.md) suggests the next logical step based on your current progress.
-	* **User Progression:** As you master a topic, the lab "unlocks" more complex infrastructure, scaling the challenge to your skill level.
+THE NUCLEUS is more than a blueprint; it is an intentionally over-engineered lab that treats your declared Goal as the single signal to optimize. It ships ready-to-run, and on first boot `bootstrap-nucleus.sh` prompts you for a Goal and environment options, then begins a background Auto-Discovery Probe and the Autoresearcher loop by default.
 
 -----
 
-> ## "This is the closest thing to a living AI ecosystem you can build today."
+## 🏗️ Opinionated, Measured, and Over‑Engineered
 
-**The Nucleus** is more than the sum of its parts. It is a curated start that turns into a self-managed, ever-refining journey toward **The Goal**.
+We prefer solutions that are observable, reproducible, and high-performance. If a simpler approach is chosen, document the trade-offs—THE NUCLEUS demands measurement.
+
+### Boot & Modes
+
+- `bootstrap-nucleus.sh`: prompts for Goal, mode (single‑function vs full lab), and other configuration. It can reprovision a fresh environment and reset the Goal.
+- Auto-Discovery Probe: enumerates on-network APIs, on-host services, and integration points—surfacing opportunities in the Learning Center for consented action.
+- Autoresearcher: continuously investigates Goal‑derived metrics and runs experiments until paused.
+
+### Why Over‑Engineer?
+
+Because you asked for a lab that prioritizes performance, observability, and safe automation. THE NUCLEUS prefers robust designs and instrumentation so results are measurable and defensible.
 
 -----
 
-### Why this "Marketing" spin works:
+## Quickstart
 
-1.  **The Goal as Gravity:** By putting "The Goal" at the top, you validate the user's intent immediately.
-2.  **Doing the Needful:** This phrase (your favorite!) implies that the agents are proactive partners, not passive scripts.
-3.  **The Lifecycle:** It moves from "Curated" (Ease of Use) to "Self-Managed" (Power) to "Refining" (Longevity).
+1. Clone the repo.
+2. Run the bootstrap script and answer prompts.
+
+```bash
+./bootstrap-nucleus.sh
+```
+
+3. Review discoveries and experiments in the Learning Center UI or logs.
+
+If you want to scale the thermostat down from "over-engineered" to "practical," the bootstrap allows you to select lighter modes.
 

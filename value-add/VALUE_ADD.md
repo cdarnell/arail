@@ -33,3 +33,45 @@ This simulator quantifies the cost of running local LLM inference versus using c
 ## Next Steps
 - Add new goals and workflows as Markdown files in this directory.
 - Document agent instructions for each value-add goal.
+
+Mastra AI & Pydantic Integration
+- **Overview:** This repository now includes an agent orchestration pattern using Mastra AI as the control plane and Pydantic (pydantic-ai) as the pre-execution validation layer. The control plane validates requests (schema, resource limits, allowed libs) to reject invalid work before provisioning transient pods.
+- **Execution Strategy:** Models are pre-warmed into a host-backed shared location on single-node Linux clusters. Transient worker pods mmap weights for sub-second startup and zero redundant RAM usage.
+- **Service Mesh:** Design assumes Linkerd Ambient mode to avoid sidecar CPU/RAM tax while providing mTLS and eBPF telemetry.
+- **Observability:** Mastra Studio monitors logical flows (validation → handoff); Grafana/Tempo capture node-level and eBPF telemetry.
+
+See `helm/k8s-lite` for chart-level templates and the sample Mastra manifests added under `helm/k8s-lite/templates/ai/`.
+
+Shared-Memory mmap Pattern (Transient Python Workers)
+- **Core Idea:** Use an `emptyDir` volume with `medium: Memory` to host pre-warmed model weights on the node. A one-time loader populates this memory-backed volume; transient Python pods mount it and access weights via `mmap`, achieving zero-copy, instant model access.
+- **Gold Image:** Build a minimal, precompiled Python base image (distroless or slim) containing precompiled `.pyc` files and required C-extensions (PyTorch / llama-cpp-python). Avoid `pip install` at runtime.
+- **Service Mesh:** Linkerd Ambient is required to provide mTLS and eBPF-level observability without sidecar overhead or startup delay.
+- **Validation & Dispatch:** Mastra performs Pydantic validation; only valid tasks trigger transient pods via the Kubernetes API.
+
+Minimal Pod YAML example (mounts shared memory-backed model store):
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+   name: python-transient-worker
+spec:
+   containers:
+   - name: worker
+      image: gentoofoo/python-base:latest
+      volumeMounts:
+      - name: model-store
+         mountPath: /models
+      resources:
+         limits:
+            memory: "2Gi" # Limit for the logic, not the model
+   volumes:
+   - name: model-store
+      emptyDir:
+         medium: Memory # This maps directly to your host's RAM
+```
+
+Benefits
+- Zero Duplication: Multiple transient pods share the same physical RAM holding the model weights.
+- Sub-second Starts: Removing the sidecar and model-load phases yields near-instant execution.
+- Low Complexity: No need for heavyweight model servers — standard Kubernetes volumes and mmap suffice for efficient transient execution.

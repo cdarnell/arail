@@ -1,0 +1,36 @@
+## Linkerd values for Ambient (sidecarless) mode
+## Usage: `linkerd install --values linkerd-values-ambient.yaml | kubectl apply -f -`
+# NOTE: Use the Linkerd CLI to render a release for your exact linkerd version.
+# Replace image tags with the exact version you want (do not rely on floating tags in prod).
+## Linkerd example values (NOT ambient/sidecarless)
+## NOTE: Linkerd is a sidecar-based mesh using per-pod `linkerd2-proxy` sidecars.
+## The term "Ambient" (sidecarless) refers to Istio's Ambient mode and is NOT provided
+## by Linkerd. Use the Linkerd CLI to render a release for your exact linkerd version.
+## Replace image tags with the exact version you want (do not rely on floating tags in prod).
+
+global:
+  # Enable CNI-based interception (required for node-level eBPF interceptors)
+  cniEnabled: true
+  # Example: CNI-related fields (Linkerd itself uses sidecar injection).
+  # Linkerd does not provide an Istio-style ambient/node dataplane. Configure
+  # per-pod sidecar injection with Linkerd CLI or Helm as documented by Linkerd.
+  # (This file is retained for historical/reference purposes.)
+
+identity:
+  # For external CA setups (cert-manager, Vault, etc.) set this to true.
+  externalCA: true
+
+# Image repository recommendations (example only). Use the Linkerd CLI defaults
+# or override with your air-gapped registry. Replace `stable` with the exact
+# release tag you require (e.g. `stable-2.14.0` or a pinned digest).
+image:
+  registry: ghcr.io/linkerd
+  # Example component overrides (optional)
+  components:
+    controller:
+      repository: ghcr.io/linkerd/controller
+      tag: stable
+
+# Additional ambient-specific tuning can go here, e.g. waypoint replicas,
+# proxyInit disabled for sidecar injection paths, and CNI configuration.
+# See Linkerd docs for the version you install for exact field names.

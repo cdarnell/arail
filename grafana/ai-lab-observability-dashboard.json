@@ -70,10 +70,10 @@
       },
       {
         "type": "stat",
-        "title": "Mesh Traffic (Istio Ambient)",
+        "title": "Mesh Traffic (Linkerd)",
         "datasource": "Prometheus",
         "targets": [{
-          "expr": "sum(rate(istio_requests_total[1m]))",
+          "expr": "sum(rate(linkerd_proxy_http_requests_total[1m]))",
           "legendFormat": "Mesh Req/sec"
         }],
         "gridPos": {"x": 0, "y": 8, "w": 6, "h": 4}

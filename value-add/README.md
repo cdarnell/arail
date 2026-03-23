@@ -78,6 +78,42 @@ The `value-add` directory is for user-defined goals that drive deterministic wor
   - Suggest what could be done
   - Explain why things are done this way
 
+Mastra & Pydantic (Agent Orchestration)
+- We recommend treating Mastra as the orchestration control plane. Before spawning transient pods, Mastra runs static validation via Pydantic schemas (pydantic-ai) to enforce allowed inputs and resource constraints.
+- For single-node Linux clusters the recommended model pre-warm approach uses a hostPath-backed directory (see `helm/k8s-lite/templates/ai/82-model-prewarm-job.yaml`). Replace with shared storage for multi-node setups.
+- Observability: wire Mastra Studio traces to your logical monitoring and keep Grafana/Tempo for physical telemetry (Linkerd eBPF + node metrics).
+
+Shared-Memory mmap Pattern (Transient Python Workers)
+- Use an `emptyDir` volume with `medium: Memory` to host pre-warmed model weights on the node. A loader process writes model weights into the memory-backed volume once; transient pods mount it and `mmap` the weights for zero-copy access.
+- Gold Image: Build a distroless or highly optimized Python base image with precompiled `.pyc` files and necessary C-extensions; avoid runtime installs.
+- Linkerd (sidecar-based): Linkerd provides mTLS and proxy-level telemetry via per-pod `linkerd2-proxy` sidecars; it does not provide Istio-style Ambient sidecarless operation.
+- Minimal Pod YAML example:
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: python-transient-worker
+spec:
+  containers:
+  - name: worker
+    image: gentoofoo/python-base:latest
+    volumeMounts:
+    - name: model-store
+      mountPath: /models
+    resources:
+      limits:
+        memory: "2Gi"
+  volumes:
+  - name: model-store
+    emptyDir:
+      medium: Memory
+```
+
+Local Image Registry
+- A tiny in-cluster registry is provided for single-node labs. It binds to the host's port 5000 so you can push/pull using `localhost:5000`.
+- To seed the registry after bootstrapping, run `scripts/registry/refresh-registry.ps1` (requires Docker). The script pulls a list of public images and pushes them into `localhost:5000` for offline use.
+
 ---
 
 ## Preinstall Hardware Probe

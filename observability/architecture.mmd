@@ -1,6 +1,18 @@
 graph TD
 %% Minimalist Observability Stack - K3s + Linkerd + OpenTelemetry + Prometheus + Grafana + Redpanda
 %% Render with Mermaid.js
+%%
+%% Linkerd design principles (operator-focused):
+%%  - Keep it simple: explicit, introspectable control-plane components.
+%%  - Minimize resources: Linkerd2-proxy (Rust) is a tiny, low-memory data-plane proxy.
+%%  - Just work: automatic L7 detection and minimal config to get running.
+%%
+%% Why we use a service mesh:
+%%  The mesh supplies observability, security (mTLS/identity), and reliability
+%%  (retries, routing) as an infrastructure layer so AI apps and agents do not
+%%  need to implement these features themselves. This enables a pluggable,
+%%  standardized Nucleus where services can focus on logic while the mesh
+%%  enforces contracts (OpenAPI → HTTPRoute), telemetry, and identity.
 
 
     subgraph K3s Node (Single Node)
@@ -17,9 +29,17 @@ graph TD
         subgraph kube-system
             K3s[K3s Control Plane]
         end
+        subgraph secrets
+            VAULT[Vault\n(KV v2, auth/kubernetes)]
+            GHA3[GitHub Actions (Onboard + Bootstrap)]
+        end
+        %% Authentication flow (Downward API -> Kubernetes JWT -> Vault k8s auth)
+        AGENTS-->|ServiceAccount JWT (via Downward API)|VAULT
+        GHA3-->|Bootstraps roles/policies|VAULT
+        K3s-->|ServiceAccount token review|VAULT
         subgraph linkerd-system
             LINKERD[Linkerd Control Plane (Rust, mTLS, Viz)]
-            PROXY[Linkerd Rust Proxy (mTLS)]
+            PROXY[linkerd2-proxy (per-pod sidecar, Rust)\n(lightweight data-plane, mTLS & proxy metrics)]
         end
         subgraph observability
             Prom[Prometheus]
@@ -136,13 +156,15 @@ graph TD
 
     %% Service Mesh
     LINKERD-->|Manages|PROXY
-    PROXY-->|mTLS|APP
+    PROXY-->|mTLS (L4)|APP
     PROXY-->|mTLS|OGW
     PROXY-->|mTLS|AGENTS
     PROXY-->|mTLS|LMD
     PROXY-->|mTLS|OLLAMA
     PROXY-->|mTLS|LANGCHAIN
     PROXY-->|mTLS|N8N
+    %% L7 routing & OpenAPI: use API Gateway / HTTPRoute semantics; Linkerd does per-pod sidecar routing
+    %% For path-based routing/contract validation, translate OpenAPI into HTTPRoute or gateway rules and enforce at the gateway/ingress level.
 
     %% Event Bus (Redpanda)
     APP-->|Events|REDPANDA

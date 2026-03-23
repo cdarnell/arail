@@ -250,17 +250,200 @@ else
 fi
 
 # -------------------------
-# Step 5: Intelligence & Major Selection (Operator Inputs)
+# Registry secrets & values generation
+# - Create self-signed cert and htpasswd secret if not present
+# - Emit helm/k8s-lite/values.registry.generated.yaml to enable registry in Helm
 # -------------------------
+function create_registry_secrets() {
+  if ! command -v kubectl >/dev/null 2>&1; then
+    echo "kubectl not available; skipping registry secret creation.";
+    return
+  fi
+
+  REG_TLS_SECRET=${REG_TLS_SECRET:-registry-tls}
+  REG_HTPASS_SECRET=${REG_HTPASS_SECRET:-registry-htpasswd}
+  VALUES_OUT="$(pwd)/helm/k8s-lite/values.registry.generated.yaml"
+
+  # Create TLS secret if missing
+  if ! kubectl get secret "$REG_TLS_SECRET" -n "$NAMESPACE" >/dev/null 2>&1; then
+    echo "Creating self-signed TLS certificate for registry (secret: $REG_TLS_SECRET)"
+    openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+      -subj "/CN=localhost" -keyout /tmp/registry-tls.key -out /tmp/registry-tls.crt >/dev/null 2>&1 || true
+    kubectl create secret tls "$REG_TLS_SECRET" --cert=/tmp/registry-tls.crt --key=/tmp/registry-tls.key -n "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f - >/dev/null 2>&1 || true
+    rm -f /tmp/registry-tls.key /tmp/registry-tls.crt
+  else
+    echo "TLS secret $REG_TLS_SECRET already exists; skipping cert generation."
+  fi
+
+  # Create htpasswd secret if missing (default admin:changeme)
+  if ! kubectl get secret "$REG_HTPASS_SECRET" -n "$NAMESPACE" >/dev/null 2>&1; then
+    echo "Creating htpasswd secret for registry (secret: $REG_HTPASS_SECRET)"
+    # Use openssl APR1 hash to create htpasswd entry without requiring apache2-utils
+    HTPASS_HASH=$(openssl passwd -apr1 "changeme")
+    echo "admin:$HTPASS_HASH" >/tmp/registry-htpasswd
+    kubectl create secret generic "$REG_HTPASS_SECRET" --from-file=htpasswd=/tmp/registry-htpasswd -n "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f - >/dev/null 2>&1 || true
+    rm -f /tmp/registry-htpasswd
+  else
+    echo "htpasswd secret $REG_HTPASS_SECRET already exists; skipping htpasswd creation."
+  fi
+
+  # Emit a small values file to enable registry in Helm
+  cat > "$VALUES_OUT" <<EOF
+registry:
+  enabled: true
+  storage:
+    type: hostPath
+    hostPath: /var/lib/minimalist/registry
+  access:
+    hostPortEnabled: true
+    hostPort: 5000
+  tls:
+    enabled: true
+    secretName: $REG_TLS_SECRET
+  auth:
+    enabled: true
+    htpasswdSecret: $REG_HTPASS_SECRET
+    defaultUser: admin
+EOF
+
+  echo "Wrote registry values to $VALUES_OUT"
+}
+
+# Create registry secrets and values by default (can be skipped by setting SKIP_REGISTRY_SETUP=1)
+if [ "${SKIP_REGISTRY_SETUP:-0}" != "1" ]; then
+  echo "Ensuring local registry TLS + auth secrets exist (admin/changeme)."
+  create_registry_secrets
+else
+  echo "Skipping registry secret creation (SKIP_REGISTRY_SETUP=1)."
+fi
+
+# Rotate / change registry password flow (interactive, but supports env overrides)
+function rotate_registry_password() {
+  if ! command -v kubectl >/dev/null 2>&1; then
+    echo "kubectl not available; cannot rotate registry password.";
+    return
+  fi
+
+  REG_HTPASS_SECRET=${REG_HTPASS_SECRET:-registry-htpasswd}
+  VALUES_OUT="$(pwd)/helm/k8s-lite/values.registry.generated.yaml"
+
+  # If env vars provided, run non-interactively
+  if [ -n "${REG_DEFAULT_USER:-}" ] && [ -n "${REG_DEFAULT_PASS:-}" ]; then
+    USERNAME="$REG_DEFAULT_USER"
+    PASSWORD="$REG_DEFAULT_PASS"
+  else
+    read -p "Change registry admin username (default: admin): " USERNAME
+    USERNAME=${USERNAME:-admin}
+    echo -n "Enter new password for $USERNAME: "; read -s PASSWORD; echo
+    echo -n "Confirm password: "; read -s PASSWORD2; echo
+    if [ "$PASSWORD" != "$PASSWORD2" ]; then
+      echo "Passwords do not match. Aborting password change."; return 1
+    fi
+  fi
+
+  HTPASS_HASH=$(openssl passwd -apr1 "$PASSWORD")
+  echo "$USERNAME:$HTPASS_HASH" >/tmp/registry-htpasswd
+  kubectl create secret generic "$REG_HTPASS_SECRET" --from-file=htpasswd=/tmp/registry-htpasswd -n "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f - >/dev/null 2>&1 || true
+  rm -f /tmp/registry-htpasswd
+  echo "Updated htpasswd secret: $REG_HTPASS_SECRET"
+
+  # Update generated values to include defaultUser for downstream docs/consumers
+  if [ -f "$VALUES_OUT" ]; then
+    python3 - <<PYCODE || true
+import sys,yaml
+f='''$(cat <<'YAML'
+$(cat "$VALUES_OUT")
+YAML
+)'''
+try:
+    obj=yaml.safe_load(f)
+    obj.setdefault('registry',{}).setdefault('auth',{})['defaultUser']='''$(echo "$USERNAME")'''
+    open('''$VALUES_OUT''','w').write(yaml.safe_dump(obj))
+except Exception as e:
+    print('WARN: failed to update values file',e)
+PYCODE
+  fi
+}
+
+# Prompt to rotate password unless non-interactive override provided
+if [ "${SKIP_REGISTRY_SETUP:-0}" != "1" ]; then
+  if [ -n "${REG_DEFAULT_USER:-}" ] && [ -n "${REG_DEFAULT_PASS:-}" ]; then
+    echo "Non-interactive registry credentials provided via env; rotating password now."
+    rotate_registry_password || true
+  else
+    read -p "Would you like to change the default registry admin password now? (y/N): " CHANGE_REG_PASS
+    case "$CHANGE_REG_PASS" in
+      [Yy]* ) rotate_registry_password || true;;
+      * ) echo "Keeping default registry password (admin/changeme).";;
+    esac
+  fi
+fi
+
+# -------------------------
+# Step 5: Intelligence & Major Selection (Operator Inputs)
+# - Interactive prompts for external API keys and optional git pulls
+# - Detects airgapped/network-less environments and disables external fetches
+# -------------------------
+
+# quick network check (used to decide whether pulling external repos / APIs is possible)
+NETWORK_OK=false
+if command -v curl >/dev/null 2>&1; then
+  if curl -s --head https://www.google.com >/dev/null 2>&1; then
+    NETWORK_OK=true
+  fi
+fi
+if [ "$NETWORK_OK" = false ]; then
+  echo "WARNING: Network appears unavailable (airgapped). External pulls and API integrations will be skipped unless provided locally."
+fi
+
+# OpenRouter / experiment API Key (positional arg supported for backward compatibility)
 if [ -z "${1:-}" ]; then
   read -p "Enter OpenRouter / experiment API Key (optional): " API_KEY
 else
   API_KEY=$1
 fi
 
+# WhatsApp / Nanobot integration
+read -p "Enter WhatsApp / Nanobot API key (leave blank to skip): " WHATSAPP_API_KEY
+if [ -n "$WHATSAPP_API_KEY" ] && [ "$NETWORK_OK" = false ]; then
+  echo "Note: WhatsApp integration provided but network is unavailable; runtime connectivity will be required for outbound messaging."
+fi
+
+# GitHub API token (used by some operator flows)
+read -p "Enter GitHub API token (leave blank to skip): " GITHUB_API_KEY
+
 echo "Select your Lab Focus: (nlp / vision / sre)"
 read -p "Focus: " MAJOR
 MAJOR=${MAJOR:-nlp}
+
+# Optional: Autoresearch repo pull (interactive)
+read -p "Autoresearch repo URL to clone/pull (leave blank to skip): " AUTORESEARCH_REPO
+if [ -n "$AUTORESEARCH_REPO" ]; then
+  if [ "$NETWORK_OK" = true ]; then
+    DEST_DIR="$(pwd)/opencode/third_party/autoresearch"
+    mkdir -p "$(dirname "$DEST_DIR")"
+    if [ -d "$DEST_DIR/.git" ]; then
+      echo "Updating existing autoresearch at $DEST_DIR"
+      git -C "$DEST_DIR" pull || echo "git pull failed; please inspect network or credentials"
+    else
+      echo "Cloning autoresearch into $DEST_DIR"
+      git clone "$AUTORESEARCH_REPO" "$DEST_DIR" || echo "git clone failed; please inspect network or credentials"
+    fi
+    AUTORESEARCH_ENABLED=true
+  else
+    echo "Skipping autoresearch clone: network unavailable (airgapped). You can populate $DEST_DIR manually."
+    AUTORESEARCH_ENABLED=false
+  fi
+else
+  AUTORESEARCH_ENABLED=false
+fi
+
+# Optional: enable Nanobot runtime wiring
+read -p "Enable Nanobot-WhatsApp integration in Helm (y/N)? " NANOBOT_YN
+case "$NANOBOT_YN" in
+  [Yy]* ) NANOBOT_ENABLED=true;;
+  * ) NANOBOT_ENABLED=false;;
+esac
 
 # -------------------------
 # Final: Summary + Helm command hint (operator will run helm install)
@@ -279,6 +462,33 @@ if [ -n "${API_KEY-}" ]; then
   HELM_CMD+=("--set" "secret.openrouterKey=$API_KEY")
 else
   HELM_CMD+=("--set" "secret.openrouterKey=<YOUR_API_KEY_HERE>")
+fi
+
+# Inject WhatsApp / Nanobot key into Helm values (or placeholder)
+if [ -n "${WHATSAPP_API_KEY-}" ]; then
+  HELM_CMD+=("--set" "secret.whatsappKey=$WHATSAPP_API_KEY")
+elif [ "$NANOBOT_ENABLED" = true ]; then
+  HELM_CMD+=("--set" "secret.whatsappKey=<YOUR_WHATSAPP_KEY_HERE>")
+fi
+
+# Inject GitHub token if provided
+if [ -n "${GITHUB_API_KEY-}" ]; then
+  HELM_CMD+=("--set" "secret.githubToken=$GITHUB_API_KEY")
+fi
+
+# Nanobot enable flag
+if [ "$NANOBOT_ENABLED" = true ]; then
+  HELM_CMD+=("--set" "integrations.nanobot.enabled=true")
+else
+  HELM_CMD+=("--set" "integrations.nanobot.enabled=false")
+fi
+
+# Autoresearch integration flags
+if [ "${AUTORESEARCH_ENABLED:-false}" = true ]; then
+  HELM_CMD+=("--set" "integrations.autoresearch.enabled=true")
+  HELM_CMD+=("--set" "integrations.autoresearch.repo=${AUTORESEARCH_REPO}")
+else
+  HELM_CMD+=("--set" "integrations.autoresearch.enabled=false")
 fi
 
 if [ -f "$GENERATED_VALUES" ]; then

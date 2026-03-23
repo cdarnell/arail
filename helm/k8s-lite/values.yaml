@@ -41,3 +41,43 @@ components:
   prometheus: { enabled: true }
   loki: { enabled: true }
   tempo: { enabled: true }
+
+# --- LOCAL REGISTRY ---
+registry:
+  enabled: true
+  # storage.type: hostPath | pvc | emptyDir
+  storage:
+    type: hostPath
+    hostPath: /var/lib/minimalist/registry
+    pvc:
+      storageClassName: "local-path"
+      size: 5Gi
+  # How the registry is exposed for local pushes
+  access:
+    # hostPort exposes registry on the node at this port (useful for single-node Linux)
+    hostPortEnabled: true
+    hostPort: 5000
+    # nodePort fallback for environments where hostPort is unavailable
+    nodePort: 30500
+  # Security options
+  tls:
+    enabled: false
+    # Secret name containing tls.crt and tls.key (kubernetes tls secret)
+    secretName: registry-tls
+    # When true the bootstrap will auto-generate a self-signed cert if no TLS
+    # secret exists. Set to false to require user-provided certs.
+    generateSelfSignedIfMissing: true
+  auth:
+    enabled: false
+    # Secret name containing htpasswd file at key 'htpasswd'
+    htpasswdSecret: registry-htpasswd
+    # Default credentials to bootstrap with (NOT recommended for production)
+    # These values are used by the bootstrap script when generating an initial
+    # htpasswd secret. You can override them via environment variables or by
+    # creating your own secrets and disabling bootstrap generation.
+    defaultUser: admin
+    defaultPassword: changeme
+  # When true the bootstrap will auto-generate a self-signed cert if no TLS
+  # secret exists. Set to false to require user-provided certs.
+  tls:
+    generateSelfSignedIfMissing: true

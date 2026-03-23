@@ -1,0 +1,150 @@
+{{- if .Values.registry.enabled }}
+{{- if .Values.registry.enabled }}
+{{- $authEnabled := .Values.registry.auth.enabled }}
+{{- $tlsEnabled := .Values.registry.tls.enabled }}
+
+{{- if or $authEnabled $tlsEnabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: minimalist-registry-config
+data:
+  config.yml: |
+    version: 0.1
+    storage:
+      filesystem:
+        rootdirectory: /var/lib/registry
+    http:
+      addr: :5000
+{{- if $tlsEnabled }}
+      tls:
+        certificate: /certs/tls.crt
+        key: /certs/tls.key
+{{- end }}
+{{- if $authEnabled }}
+    auth:
+      htpasswd:
+        realm: basic-realm
+        path: /auth/htpasswd
+{{- end }}
+---
+{{- end }}
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minimalist-local-registry
+  labels:
+    app: minimalist-local-registry
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: minimalist-local-registry
+  template:
+    metadata:
+      labels:
+        app: minimalist-local-registry
+    spec:
+      containers:
+      - name: registry
+        image: registry:2
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 5000
+{{- if .Values.registry.access.hostPortEnabled }}
+          hostPort: {{ .Values.registry.access.hostPort }}
+{{- end }}
+        env:
+        - name: REGISTRY_STORAGE_FILESYSTEM_ROOTDIRECTORY
+          value: /var/lib/registry
+        volumeMounts:
+        - name: registry-storage
+          mountPath: /var/lib/registry
+{{- if or $authEnabled $tlsEnabled }}
+        - name: registry-config
+          mountPath: /etc/docker/registry
+          readOnly: true
+{{- end }}
+{{- if $tlsEnabled }}
+        - name: registry-certs
+          mountPath: /certs
+          readOnly: true
+{{- end }}
+{{- if $authEnabled }}
+        - name: registry-auth
+          mountPath: /auth
+          readOnly: true
+{{- end }}
+      volumes:
+      - name: registry-storage
+{{- if eq .Values.registry.storage.type "hostPath" }}
+        hostPath:
+          path: {{ .Values.registry.storage.hostPath }}
+          type: DirectoryOrCreate
+{{- else if eq .Values.registry.storage.type "pvc" }}
+        emptyDir: {} # PVC attachment is left as an exercise for Helm release-time PVC
+{{- else }}
+        emptyDir: {}
+{{- end }}
+{{- if or $authEnabled $tlsEnabled }}
+      - name: registry-config
+        configMap:
+          name: minimalist-registry-config
+{{- end }}
+{{- if $tlsEnabled }}
+      - name: registry-certs
+        secret:
+          secretName: {{ .Values.registry.tls.secretName }}
+          items:
+          - key: tls.crt
+            path: tls.crt
+          - key: tls.key
+            path: tls.key
+{{- end }}
+{{- if $authEnabled }}
+      - name: registry-auth
+        secret:
+          secretName: {{ .Values.registry.auth.htpasswdSecret }}
+          items:
+          - key: htpasswd
+            path: htpasswd
+{{- end }}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: minimalist-local-registry
+  labels:
+    app: minimalist-local-registry
+spec:
+  type: ClusterIP
+  ports:
+  - port: 5000
+    targetPort: 5000
+    protocol: TCP
+    name: registry
+  selector:
+    app: minimalist-local-registry
+{{- if not .Values.registry.access.hostPortEnabled }}
+---
+# Optional NodePort to expose registry on nodes when hostPort isn't available
+apiVersion: v1
+kind: Service
+metadata:
+  name: minimalist-local-registry-nodeport
+  labels:
+    app: minimalist-local-registry
+spec:
+  type: NodePort
+  ports:
+  - port: 5000
+    targetPort: 5000
+    nodePort: {{ .Values.registry.access.nodePort }}
+    protocol: TCP
+    name: registry-nodeport
+  selector:
+    app: minimalist-local-registry
+{{- end }}
+{{- end }}

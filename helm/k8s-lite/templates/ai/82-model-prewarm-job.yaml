@@ -1,0 +1,32 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: mastra-model-prewarm
+  labels:
+    app: mastra-model-prewarm
+spec:
+  template:
+    metadata:
+      labels:
+        app: mastra-model-prewarm
+    spec:
+      # This Job is intended for single-node Linux clusters. It writes
+      # model weights to a hostPath location that consumer transient pods
+      # can mmap. Replace hostPath with a proper shared-volume solution
+      # for multi-node clusters.
+      restartPolicy: OnFailure
+      containers:
+      - name: prewarm
+        image: ghcr.io/gentoofoo/model-prewarm:latest
+        imagePullPolicy: IfNotPresent
+        command: ["/bin/sh","-c","/usr/local/bin/prewarm --target /var/lib/minimalist/models && sleep 5"]
+        volumeMounts:
+        - name: models
+          mountPath: /var/lib/minimalist/models
+      volumes:
+      - name: models
+        hostPath:
+          path: /var/lib/minimalist/models
+          type: DirectoryOrCreate
+
+  backoffLimit: 2

@@ -13,27 +13,30 @@ The Nucleus Lab is designed for maximum efficiency and performance. Every techno
 
 ## Key Technology Choices
 
-- **Service Mesh: Linkerd (Rust):**
-  - Ultra-light, secure, and zero-config.
-  - All traffic is encrypted (mTLS) by default. Provide On/Off switch.
+**Service Mesh: Linkerd (sidecar-based):**
+- Ultra-light, secure, and zero-config; Linkerd uses a per-pod sidecar model via `linkerd2-proxy` (Rust-based) injected into workloads to provide mTLS, routing, and telemetry.
+- Linkerd uses the Linkerd2-proxy written in Rust (memory-safe), not Envoy; this reduces attack surface and avoids many classes of memory-safety CVEs.
+- All traffic is encrypted (mTLS) by default. Provide On/Off switch.
 
 - **Downward API + Kubernetes-native Auth:**
-  - By leveraging the Downward API and Kubernetes-native Auth, you strip away the "sidecar tax" (saving ~64MB+ RAM per pod) while maintaining enterprise-grade security. Agents discover pod metadata and perform in-cluster Vault authentication without extra sidecars.
+  - By leveraging the Downward API and Kubernetes-native authentication, THE NUCLEUS avoids the sidecar tax (~64MB+ RAM per pod) while preserving enterprise-grade security.
+  - Agents read pod metadata and perform in-cluster Vault authentication (service account tokens / projected volumes) without injecting extra sidecars.
+  - This pattern reduces per-pod memory overhead and accelerates transient workloads while keeping authentication auditable and Kubernetes-native.
 
 - **Redpanda (C++ Kafka):**
-  - Kafka-compatible event streaming, but written in blazing-fast C++.
-  - Lower memory and CPU usage than Java-based Kafka.
-  - No JVM, no Zookeeper, no bloat—just pure event-driven power.
+  - Kafka-compatible event streaming implemented in C++ for low memory and CPU overhead.
+  - No JVM, no Zookeeper, minimal operational burden—fast tail-latency and predictable resource use.
+  - Streaming pipelines can enrich, cleanse, and roll up datasets in-stream for downstream indexing, analytics, and autoresearch workflows.
 
 - **Rust Workshop (evcxr + ttyd):**
-  - Modern, browser-based terminal and Rust REPL.
-  - Uses 99% less memory than Jupyter/Python stacks.
-  - Leaves more RAM for your LLMs and vector DBs.
+  - Lightweight, browser-accessible Rust REPL and terminal stack with a much lower memory footprint than typical Jupyter/Python stacks.
+  - Frees RAM for LLMs and vector DBs while offering an interactive, reproducible development experience.
 
 - **Transient Python (On-Demand):**
-  - If you need to run a Python snippet (e.g., for a LangChain tool), the Teacher Agent (n8n) spins up a transient Python Job.
-  - The job executes, returns results, and terminates—no idle kernels, no memory leaks.
-  - Keeps your cluster clean and your Janitor (ZeroClaw) focused on real SRE work.
+  - For ephemeral Python tasks (LangChain tools, quick scripts), THE NUCLEUS spins up transient jobs that execute and exit—no long-running kernels or idle notebooks.
+  - Transient pods mount a shared memory `emptyDir` (or host-backed shm) containing pre-warmed model weights.
+  - Python processes use memory-mapping (e.g., `numpy.memmap`, or C-level `mmap` in `llama-cpp-python`) to reference model weights zero-copy.
+  - Multiple concurrent transient pods can attach to the same physical RAM-backed weights with negligible additional RAM/VRAM per task, enabling fast, low-footprint parallelism.
 
 - **ZeroClaw Janitor Agent:**
   - Monitors, heals, and cleans up your cluster.

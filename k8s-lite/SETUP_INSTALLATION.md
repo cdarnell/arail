@@ -91,3 +91,61 @@ kubectl apply -f k8s-lite/
 ---
 
 Keep this guide updated as the stack evolves. For advanced automation, extend the GitHub Actions workflow and Helm chart as needed.
+
+## 9. Included Manifests / External Integrations (critical)
+
+The lab can optionally integrate several external agent-building and orchestration projects. These are referenced here so operators know what external pieces may be pulled or configured during bootstrap/deploy.
+
+- **Mastra (Agent Building Frameworks / React UI)**: https://github.com/mastra-ai/mastra — recommended as a dedicated React page / UI for agent building (Mastra Studio). We include this as a referenced integration; operators may host a Mastra frontend in the `react-dashboard` or as a separate service behind the Opencode gateway.
+- **Pydantic AI**: https://github.com/pydantic/pydantic-ai — useful for schema/AI validation in agent workflows. Add as a Python dependency where agent services require strong typed inputs/outputs.
+- **LangGraph**: https://github.com/langchain-ai/langgraph — graph-based orchestration primitives for agents; include connectors in `opencode` and `langchain`-enabled services.
+- **Nanobot (WhatsApp connector)**: https://github.com/HKUDS/nanobot — target connector for WhatsApp. To enable it, operators must provide WhatsApp API credentials (see bootstrap notes below).
+- **Autoresearch (lab sync)**: Autoresearch is typically pulled into the lab runtime (for example into `opencode/third_party/autoresearch` or `/opt/autoresearch`) via a `git pull` during bootstrap. By default we treat this as an optional network fetch; see the bootstrap script for an interactive option to clone/pull the repo.
+
+Notes:
+- These integrations require outbound network access. If your environment is airgapped, external pulling and live API integrations will not function — they must be provided as pre-baked images, local tarballs, or manually mirrored into the environment. The bootstrap will detect lack of network and warn the operator.
+- We do not ship or vendor third-party code in this repository. Operators must agree to each project's license before pulling or running their code.
+
+Airgap mirroring example:
+
+If you operate in an airgapped environment, mirror repositories and packages from a networked machine, then transfer the artifacts into the airgapped lab. Example workflow:
+
+1. On a networked host, mirror the repo and create tarballs:
+
+```sh
+# mirror git repository (bare mirror)
+git clone --mirror https://github.com/your-org/autoresearch.git autoresearch.git.bundle
+tar -czf autoresearch.git.bundle.tar.gz autoresearch.git.bundle
+
+# optionally mirror other repos (mastra, langgraph, nanobot)
+git clone --mirror https://github.com/mastra-ai/mastra mastra.git.bundle
+tar -czf mastra.git.bundle.tar.gz mastra.git.bundle
+```
+
+2. Transfer artifacts into the airgapped environment (USB, secure transfer, or internal scp):
+
+```sh
+scp autoresearch.git.bundle.tar.gz user@airgapped-host:/opt/mirrors/
+```
+
+3. On the airgapped host, unpack and populate a local repo or filesystem path expected by the bootstrap:
+
+```sh
+cd /opt/mirrors
+tar -xzf autoresearch.git.bundle.tar.gz
+git clone autoresearch.git.bundle /opt/autoresearch
+# or place into repo layout expected by bootstrap: opencode/third_party/autoresearch
+mkdir -p /srv/minimalist/opencode/third_party
+cp -r /opt/autoresearch /srv/minimalist/opencode/third_party/autoresearch
+```
+
+4. Adjust the bootstrap or Helm values to point at the local path (or set `integrations.autoresearch.enabled` to `false` and run local workloads manually).
+
+Notes:
+- For Python packages, create a local PyPI mirror (e.g., `bandersnatch` or `devpi`) and configure pip to use it.
+- For container images, pull images in a networked environment, save them with `docker save`/`podman save`, transfer, and load with `docker load` on the airgapped host; optionally push them into an internal registry created above.
+- Keep a documented list of mirrored artifact versions and checksums to ensure reproducibility and license compliance.
+
+---
+
+For operational guidance on enabling these integrations via the bootstrap, see `k8s-lite/bootstrap-nucleus.sh` which now prompts interactively for API keys, git-pull choices, and airgapped checks.

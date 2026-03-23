@@ -1,0 +1,56 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mastra-controlplane
+  labels:
+    app: mastra-controlplane
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mastra-controlplane
+  template:
+    metadata:
+      labels:
+        app: mastra-controlplane
+      annotations:
+        # Cluster is expected to run Linkerd Ambient mode for sidecarless mTLS/observability
+        linkerd.io/ambientEnabled: "true"
+    spec:
+      containers:
+      - name: mastra-controlplane
+        # Placeholder image: replace with official Mastra image from your registry
+        image: ghcr.io/mastra/mastra-controlplane:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8080
+        env:
+        - name: BUN_ENV
+          value: "production"
+        - name: MAStra_CONFIG
+          value: "/etc/mastra/validation.yaml"
+        volumeMounts:
+        - name: mastra-config
+          mountPath: /etc/mastra
+          readOnly: true
+      volumes:
+      - name: mastra-config
+        configMap:
+          name: mastra-validation
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mastra-controlplane
+  labels:
+    app: mastra-controlplane
+spec:
+  type: ClusterIP
+  ports:
+  - port: 80
+    targetPort: 8080
+    protocol: TCP
+    name: http
+  selector:
+    app: mastra-controlplane

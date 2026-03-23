@@ -1,0 +1,31 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mastra-validation
+  labels:
+    app: mastra-controlplane
+data:
+  # Pydantic rules/config reference. This is a lightweight pointer to the
+  # validation rules used by the Mastra control plane. Populate with
+  # pydantic-ai-compatible schema definitions or include via a mounted
+  # secret/config in production.
+  validation.yaml: |
+    # Example: a simple pydantic-style rule set (pseudo-format)
+    # Replace with concrete pydantic-ai schema definitions.
+    schemas:
+      - name: simple-task
+        description: "Minimal task schema: inputs, resources, allowed-libs"
+        fields:
+          - name: prompt
+            type: str
+            max_length: 4096
+          - name: model
+            type: str
+            allowed: ["local-mmap-llm", "small-llm"]
+          - name: cpu_limit
+            type: int
+            max: 4
+    # Resource constraints and denial rules
+    policy:
+      deny_on_missing_fields: true
+      max_runtime_seconds: 300

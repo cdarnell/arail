@@ -6,3 +6,19 @@ metadata:
 ---
 # For air-gapped, use pre-pulled images and linkerd CLI to generate full manifests
 # See: https://linkerd.io/2.14/tasks/install-helm/
+
+# Recommended: generate Linkerd manifests with the Linkerd CLI and supply an
+# ambient-mode values file (see kubernetes/base/linkerd/linkerd-values-ambient.yaml).
+# Minimal example values to enable Ambient (sidecarless) dataplane (Linkerd2-proxy, Rust)
+# and CNI:
+#
+# global:
+#   cniEnabled: true
+#   enableAmbient: true
+# identity:
+#   externalCA: true
+#
+# Image repository (examples):
+# - Official images are published to GitHub Container Registry: ghcr.io/linkerd
+# - For air-gapped installs, pre-pull these images to your local registry and
+#   set `image.pullPolicy` / `image.repository` accordingly in the values file.

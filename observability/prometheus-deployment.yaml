@@ -1,4 +1,4 @@
-# Prometheus deployment for Kubernetes (Istio/Envoy compatible)
+# Prometheus deployment for Kubernetes (Linkerd compatible)
 apiVersion: v1
 kind: Namespace
 metadata:
