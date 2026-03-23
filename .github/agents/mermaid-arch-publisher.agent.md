@@ -18,6 +18,7 @@ triggers:
 restrictions:
   - Only edits architecture.mmd and related docs
   - No destructive actions
+commit_author_email: "7727611+cdarnell@users.noreply.github.com"
 ---
 
 # Mermaid Architecture Publisher Agent
@@ -32,3 +33,13 @@ This agent ensures the Minimalist stack's architecture diagram is always up to d
 ## Customization
 - Update the workflow to add new sources or destinations
 - Integrate with CI/CD or dashboard as needed
+
+## Contributor note
+To avoid push rejections that expose a private email, please configure local commits for any automated or manual edits to use the repository noreply address: 7727611+cdarnell@users.noreply.github.com. For example:
+
+```
+git config user.email 7727611+cdarnell@users.noreply.github.com
+git config user.name "cdarnell"
+```
+
+This repository also prefers commits authored with the `commit_author_email` frontmatter key when agents perform automated commits.
