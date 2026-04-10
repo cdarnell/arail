@@ -19,6 +19,7 @@ from oglab.agents.researcher import researcher
 from oglab.plugins.manager import PluginManager
 from oglab.skills.goal_parser import GoalParser
 from oglab.skills.experiment_tracker import ExperimentTracker
+from oglab.router.backends import BACKEND_MAP
 
 app = FastAPI(title="OGLab", docs_url="/api/docs")
 
@@ -272,3 +273,103 @@ async def revoke_domain(request: Request):
     consent_store.remove_domain(domain)
     activity_log.emit("consent", f"Revoked domain: {domain}", "warn")
     return {"status": "revoked"}
+
+
+# ── System Graph ─────────────────────────────────────────────────────────
+
+@app.get("/graph", response_class=HTMLResponse)
+async def graph_page(request: Request):
+    return templates.TemplateResponse(request, "graph.html")
+
+
+@app.get("/api/system/graph")
+async def system_graph():
+    """Return the full system connectivity graph with live status."""
+    import os, shutil, platform
+
+    active_backend = os.getenv("MODEL_BACKEND", "auto").lower()
+    if active_backend == "auto":
+        if platform.system() == "Darwin" and platform.machine() == "arm64":
+            active_backend = "mlx"
+        elif shutil.which("nvidia-smi"):
+            active_backend = "cuda"
+        else:
+            active_backend = "cpu"
+
+    nodes = [
+        {"id": "portal", "label": "Portal", "group": "core", "type": "service",
+         "desc": "FastAPI dashboard — SSE activity, goals, experiments",
+         "status": "active", "port": 8080},
+        {"id": "router", "label": "Model Router", "group": "core", "type": "service",
+         "desc": f"Inference gateway — active backend: {active_backend}",
+         "status": "active"},
+        {"id": "activity", "label": "Activity Log", "group": "core", "type": "bus",
+         "desc": f"Event bus — {len(activity_log.recent(200))} events, SSE fanout",
+         "status": "active"},
+        {"id": "researcher", "label": "Researcher", "group": "agent", "type": "agent",
+         "desc": f"Auto-research agent — {researcher.status}",
+         "status": researcher.status if researcher.status != "idle" else "standby"},
+        {"id": "curator", "label": "Curator", "group": "agent", "type": "agent",
+         "desc": "Source vetting — proposes URLs, enforces consent",
+         "status": "standby"},
+        {"id": "consent", "label": "Consent Store", "group": "agent", "type": "store",
+         "desc": f"{len(consent_store.list_allowed())} allowed, {len(consent_store.list_pending())} pending",
+         "status": "active"},
+        {"id": "goal_parser", "label": "Goal Parser", "group": "skill", "type": "skill",
+         "desc": "NLP goal decomposition — domain, objectives, timeline",
+         "status": "active"},
+        {"id": "experiment_tracker", "label": "Experiments", "group": "skill", "type": "skill",
+         "desc": f"{len(tracker.list_all())} experiments tracked",
+         "status": "active"},
+        {"id": "goal_store", "label": "Goal Store", "group": "skill", "type": "store",
+         "desc": "Goal persistence — progress, history, reports",
+         "status": "active"},
+        {"id": "plugin_mgr", "label": "Plugins", "group": "plugin", "type": "service",
+         "desc": f"GitHub plugin system — {len(plugin_mgr.list_plugins())} installed",
+         "status": "active"},
+        {"id": "ttyd", "label": "Terminal", "group": "service", "type": "service",
+         "desc": "ttyd WebSocket terminal", "status": "external", "port": 7681},
+        {"id": "jupyter", "label": "Jupyter", "group": "service", "type": "service",
+         "desc": "Notebook environment", "status": "external", "port": 8888},
+    ]
+
+    backend_labels = {
+        "mlx": "MLX", "cuda": "CUDA", "cpu": "CPU",
+        "openai_compat": "OpenAI-Compat", "huggingface": "HuggingFace",
+        "openrouter": "OpenRouter", "claude": "Claude",
+    }
+    for name in BACKEND_MAP:
+        is_active = name == active_backend
+        locality = "local" if name in ("mlx", "cuda", "cpu") else "cloud"
+        nodes.append({
+            "id": f"backend_{name}", "label": backend_labels.get(name, name),
+            "group": "backend", "type": "backend",
+            "desc": f"{'LOCAL' if locality == 'local' else 'CLOUD'} — {'ACTIVE' if is_active else 'available'}",
+            "status": "active" if is_active else "available",
+            "locality": locality,
+        })
+
+    edges = [
+        {"source": "portal", "target": "activity", "label": "SSE stream", "type": "data"},
+        {"source": "portal", "target": "goal_store", "label": "goal CRUD", "type": "data"},
+        {"source": "portal", "target": "experiment_tracker", "label": "experiments", "type": "data"},
+        {"source": "portal", "target": "consent", "label": "approve/deny", "type": "control"},
+        {"source": "portal", "target": "researcher", "label": "start/stop", "type": "control"},
+        {"source": "portal", "target": "plugin_mgr", "label": "install/toggle", "type": "control"},
+        {"source": "portal", "target": "ttyd", "label": "iframe", "type": "embed"},
+        {"source": "portal", "target": "jupyter", "label": "iframe", "type": "embed"},
+        {"source": "portal", "target": "goal_parser", "label": "parse", "type": "data"},
+        {"source": "researcher", "target": "router", "label": "LLM calls", "type": "data"},
+        {"source": "researcher", "target": "goal_store", "label": "progress", "type": "data"},
+        {"source": "researcher", "target": "experiment_tracker", "label": "experiments", "type": "data"},
+        {"source": "researcher", "target": "curator", "label": "sources", "type": "control"},
+        {"source": "researcher", "target": "activity", "label": "events", "type": "data"},
+        {"source": "curator", "target": "consent", "label": "proposals", "type": "control"},
+        {"source": "goal_parser", "target": "goal_store", "label": "parsed goal", "type": "data"},
+        {"source": "router", "target": f"backend_{active_backend}", "label": "active", "type": "active"},
+    ]
+    for name in BACKEND_MAP:
+        if name != active_backend:
+            edges.append({"source": "router", "target": f"backend_{name}", "label": "", "type": "available"})
+
+    return {"nodes": nodes, "edges": edges}
