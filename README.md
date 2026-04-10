@@ -161,17 +161,55 @@ replaces it.  If you know `apt install foo`, the Gentoo equivalent is
 ```bash
 git clone https://github.com/cdarnell/minimalist-blueprint.git oglab
 cd oglab
-./setup.sh                    # detects your OS + GPU, installs everything
-source .venv/bin/activate
-python3 examples/peanut_farmer/run.py
+./bootstrap.sh
 ```
 
-`setup.sh` will:
-1. Detect your platform (Gentoo / macOS / WSL / Linux)
-2. Create a Python venv
-3. Install the right accelerator (MLX, CUDA, or CPU fallback)
-4. Download a starter model
-5. Write your `.env`
+The bootstrap walks you through everything:
+
+```
+━━━ 1/8  Detecting hardware
+  Platform:    gentoo (x86_64)
+  CPUs:        16
+  Memory:      64 GB
+  Disk free:   200 GB
+  Accelerator: cuda
+  GPU:         NVIDIA RTX 4090 (24564 MB VRAM)
+
+━━━ 2/8  Resource allocation
+  Your machine has 16 CPUs, 64 GB RAM, 200 GB disk free.
+  How much should the lab use?
+? CPUs for the lab [14]:
+? Memory for the lab (GB) [48]:
+? Model size [medium]:
+
+━━━ 3/8  System packages        ← emerge / apt / brew
+━━━ 4/8  Python environment     ← venv + pip
+━━━ 5/8  Lab services           ← portal, jupyter, ttyd, code-server
+━━━ 6/8  AI model               ← download based on your GPU + size choice
+━━━ 7/8  Configuration          ← .env + lab.conf
+━━━ 8/8  Start script           ← generates ./start.sh
+
+✓ Bootstrap complete!
+```
+
+Then launch everything:
+
+```bash
+source .venv/bin/activate
+./start.sh
+```
+
+Four services come up:
+
+| Service | URL | What |
+|---------|-----|------|
+| **Dashboard** | http://127.0.0.1:8080 | Goal tracking, experiments, agents, activity feed |
+| **Terminal** | http://127.0.0.1:7681 | Full shell in browser (ttyd) |
+| **Notebook** | http://127.0.0.1:8888 | Jupyter Lab |
+| **IDE** | http://127.0.0.1:8443 | VS Code in browser (code-server, always free) |
+
+Edit `lab.conf` to change ports or resource limits.
+Edit `.env` to change model backend or API keys.
 
 **Platform-specific guides:** [Gentoo](docs/GENTOO.md) · [macOS](docs/MACOS.md) · [WSL/Windows](docs/WSL.md)
 
@@ -185,22 +223,32 @@ oglab/
 │   ├── router/               # Model router (MLX / CUDA / CPU / cloud)
 │   │   ├── backends.py       # All backend implementations
 │   │   └── core.py           # ModelRouter class
-│   └── skills/               # Pluggable lab skills
-│       ├── goal_parser/      # Natural language → structured goals
-│       └── experiment_tracker/# Hypothesis → test → results
+│   ├── skills/               # Pluggable lab skills
+│   │   ├── goal_parser/      # Natural language → structured goals
+│   │   └── experiment_tracker/# Hypothesis → test → results
+│   ├── agents/               # Autonomous agents
+│   │   ├── consent.py        # Network consent / allowlist
+│   │   ├── curator.py        # Source curation
+│   │   └── researcher.py     # Background auto-research agent
+│   ├── plugins/              # Plugin manager (GitHub → install)
+│   ├── activity.py           # Event bus (SSE streaming)
+│   └── goals.py              # Goal persistence + history
+│
+├── portal/                   # Web dashboard (FastAPI + htmx)
+│   ├── app.py                # Routes (30 endpoints)
+│   ├── static/style.css      # 1337 design system
+│   └── templates/            # dashboard, plugins, terminal, notebook
 │
 ├── examples/
 │   └── peanut_farmer/        # Complete working example
 │
-├── platform/                 # Platform-specific configs (Gentoo ebuilds, etc.)
-├── scripts/                  # Utility scripts
+├── platform/                 # Platform-specific configs
 ├── docs/                     # Setup guides per platform
-│   ├── GENTOO.md
-│   ├── MACOS.md
-│   └── WSL.md
 │
-├── setup.sh                  # One-command setup
-├── .env.example              # Configuration template
+├── bootstrap.sh              # ← One-command full setup
+├── start.sh                  # ← Generated: starts all services
+├── lab.conf                  # ← Generated: resource allocation + ports
+├── .env                      # ← Generated: model backend + API keys
 ├── pyproject.toml            # Python package definition
 └── requirements.txt          # Core dependencies
 ```
