@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OGLab</title>
+<script src="https://unpkg.com/htmx.org@2.0.4"></script>
+<style>
+  :root {
+    --bg: #0d1117; --surface: #161b22; --border: #30363d;
+    --text: #e6edf3; --muted: #8b949e; --accent: #58a6ff;
+    --green: #3fb950; --red: #f85149; --yellow: #d29922;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'SF Mono', 'Fira Code', monospace; background: var(--bg); color: var(--text); }
+
+  /* ── Nav ── */
+  nav { display: flex; align-items: center; gap: 1.5rem; padding: 0.75rem 1.5rem;
+        background: var(--surface); border-bottom: 1px solid var(--border); }
+  nav .logo { font-size: 1.2rem; font-weight: 700; color: var(--accent); }
+  nav a { color: var(--muted); text-decoration: none; font-size: 0.85rem; }
+  nav a:hover, nav a.active { color: var(--text); }
+  nav .mode { margin-left: auto; font-size: 0.75rem; padding: 0.25rem 0.6rem;
+              border-radius: 999px; background: var(--green); color: #000; font-weight: 600; }
+  nav .mode.hybrid { background: var(--yellow); }
+
+  /* ── Layout ── */
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; padding: 1.5rem; }
+  .card { background: var(--surface); border: 1px solid var(--border);
+          border-radius: 8px; padding: 1.25rem; }
+  .card h2 { font-size: 0.9rem; color: var(--muted); margin-bottom: 1rem;
+             text-transform: uppercase; letter-spacing: 0.05em; }
+  .full { grid-column: 1 / -1; }
+
+  /* ── Goal input ── */
+  .goal-form { display: flex; gap: 0.5rem; }
+  .goal-form input { flex: 1; padding: 0.6rem 1rem; background: var(--bg);
+                     border: 1px solid var(--border); border-radius: 6px;
+                     color: var(--text); font-family: inherit; font-size: 0.95rem; }
+  .goal-form input:focus { outline: none; border-color: var(--accent); }
+  .btn { padding: 0.6rem 1.2rem; border: none; border-radius: 6px;
+         background: var(--accent); color: #000; font-weight: 600;
+         cursor: pointer; font-family: inherit; font-size: 0.85rem; }
+  .btn:hover { opacity: 0.9; }
+  .btn-sm { padding: 0.3rem 0.7rem; font-size: 0.75rem; }
+  .btn-green { background: var(--green); }
+  .btn-red { background: var(--red); color: #fff; }
+  .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text); }
+
+  /* ── Tables ── */
+  table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+  th { text-align: left; color: var(--muted); font-weight: 500;
+       padding: 0.5rem 0; border-bottom: 1px solid var(--border); }
+  td { padding: 0.5rem 0; border-bottom: 1px solid var(--border); }
+  .status { font-size: 0.75rem; padding: 0.15rem 0.5rem; border-radius: 999px; }
+  .status.completed { background: rgba(63,185,80,.15); color: var(--green); }
+  .status.in_progress { background: rgba(210,153,34,.15); color: var(--yellow); }
+  .status.planning { background: rgba(139,148,158,.15); color: var(--muted); }
+  .status.pending { background: rgba(210,153,34,.15); color: var(--yellow); }
+
+  /* ── Consent requests ── */
+  .consent-item { display: flex; align-items: center; gap: 1rem;
+                  padding: 0.75rem; border: 1px solid var(--border);
+                  border-radius: 6px; margin-bottom: 0.5rem; background: var(--bg); }
+  .consent-item .info { flex: 1; }
+  .consent-item .domain { color: var(--accent); font-weight: 600; }
+  .consent-item .reason { color: var(--muted); font-size: 0.8rem; margin-top: 0.25rem; }
+  .consent-item .actions { display: flex; gap: 0.4rem; align-items: center; }
+  .consent-item label { font-size: 0.75rem; color: var(--muted); }
+
+  .empty { color: var(--muted); font-size: 0.85rem; font-style: italic; }
+
+  /* ── Iframe panels ── */
+  .embed-frame { width: 100%; height: 500px; border: 1px solid var(--border);
+                 border-radius: 6px; background: #000; }
+</style>
+</head>
+<body>
+
+<nav>
+  <span class="logo">&#x1f9ea; OGLab</span>
+  <a href="/" class="active">Dashboard</a>
+  <a href="/terminal">Terminal</a>
+  <a href="/notebook">Notebook</a>
+  <span class="mode">AIRGAPPED</span>
+</nav>
+
+<div class="grid">
+
+  <!-- ── Goal ── -->
+  <div class="card full">
+    <h2>Set Your Goal</h2>
+    <form class="goal-form" hx-post="/api/goal" hx-target="#goal-result"
+          hx-headers='{"Content-Type": "application/json"}'
+          hx-vals="js:{goal: document.getElementById('goal-input').value}"
+          hx-swap="innerHTML">
+      <input id="goal-input" type="text"
+             placeholder='e.g. "I want to grow the best peanuts in Georgia"'
+             autocomplete="off" />
+      <button class="btn" type="submit">Parse Goal</button>
+    </form>
+    <div id="goal-result" style="margin-top:1rem;"></div>
+  </div>
+
+  <!-- ── Experiments ── -->
+  <div class="card">
+    <h2>Experiments</h2>
+    {% if experiments %}
+    <table>
+      <tr><th>ID</th><th>Hypothesis</th><th>Status</th></tr>
+      {% for e in experiments %}
+      <tr>
+        <td><code>{{ e.id }}</code></td>
+        <td>{{ e.hypothesis[:60] }}{% if e.hypothesis|length > 60 %}&hellip;{% endif %}</td>
+        <td><span class="status {{ e.status }}">{{ e.status }}</span></td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% else %}
+    <p class="empty">No experiments yet. Set a goal to get started.</p>
+    {% endif %}
+  </div>
+
+  <!-- ── Agent Consent ── -->
+  <div class="card">
+    <h2>Agent Network Requests</h2>
+    {% if pending_requests %}
+      {% for req in pending_requests %}
+      <div class="consent-item">
+        <div class="info">
+          <div class="domain">{{ req.domain }}</div>
+          <div class="reason">{{ req.reason }}</div>
+        </div>
+        <div class="actions">
+          <button class="btn btn-sm btn-green"
+                  hx-post="/api/consent/approve"
+                  hx-headers='{"Content-Type": "application/json"}'
+                  hx-vals='{"id": "{{ req.id }}", "remember_domain": false}'
+                  hx-swap="outerHTML"
+                  hx-target="closest .consent-item">Approve</button>
+          <button class="btn btn-sm btn-green btn-outline"
+                  hx-post="/api/consent/approve"
+                  hx-headers='{"Content-Type": "application/json"}'
+                  hx-vals='{"id": "{{ req.id }}", "remember_domain": true}'
+                  hx-swap="outerHTML"
+                  hx-target="closest .consent-item">+ Domain</button>
+          <button class="btn btn-sm btn-red"
+                  hx-post="/api/consent/deny"
+                  hx-headers='{"Content-Type": "application/json"}'
+                  hx-vals='{"id": "{{ req.id }}"}'
+                  hx-swap="outerHTML"
+                  hx-target="closest .consent-item">Deny</button>
+        </div>
+      </div>
+      {% endfor %}
+    {% else %}
+    <p class="empty">No pending requests. Agents are running locally.</p>
+    {% endif %}
+
+    {% if allowed_domains %}
+    <h2 style="margin-top:1.5rem;">Allowed Domains</h2>
+    <table>
+      <tr><th>Domain</th><th></th></tr>
+      {% for d in allowed_domains %}
+      <tr>
+        <td>{{ d }}</td>
+        <td><button class="btn btn-sm btn-red btn-outline">Revoke</button></td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% endif %}
+  </div>
+
+</div>
+</body>
+</html>
