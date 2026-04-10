@@ -119,6 +119,29 @@
     {% endif %}
   </div>
 
+  <!-- ═══ Cost Tracking ═══ -->
+  <div class="card" id="cost-card">
+    <h2><span class="indicator"></span> Cost Savings</h2>
+    <div class="cost-grid">
+      <div class="cost-stat">
+        <span class="cost-label">Cloud Equivalent</span>
+        <span class="cost-value" id="cost-cloud">$0.00</span>
+      </div>
+      <div class="cost-stat">
+        <span class="cost-label">Actual Energy</span>
+        <span class="cost-value energy" id="cost-energy">$0.00</span>
+      </div>
+      <div class="cost-stat">
+        <span class="cost-label">Net Savings</span>
+        <span class="cost-value savings" id="cost-savings">$0.00</span>
+      </div>
+      <div class="cost-stat">
+        <span class="cost-label">Inferences</span>
+        <span class="cost-value" id="cost-count">0</span>
+      </div>
+    </div>
+  </div>
+
   <!-- ═══ Activity Feed ═══ -->
   <div class="card">
     <h2><span class="indicator"></span> Activity Feed</h2>
@@ -321,6 +344,21 @@ function esc(s) {
   d.textContent = s;
   return d.innerHTML;
 }
+
+// ── Cost Tracking ──
+async function refreshCosts() {
+  try {
+    const r = await fetch('/api/system/costs');
+    const d = await r.json();
+    const s = d.summary;
+    document.getElementById('cost-cloud').textContent = '$' + s.total_cloud_equivalent_usd.toFixed(2);
+    document.getElementById('cost-energy').textContent = '$' + s.total_energy_cost_usd.toFixed(4);
+    document.getElementById('cost-savings').textContent = '$' + s.total_savings_usd.toFixed(2);
+    document.getElementById('cost-count').textContent = s.total_inferences;
+  } catch(e) { /* endpoint not available yet */ }
+}
+refreshCosts();
+setInterval(refreshCosts, 15000);
 </script>
 </body>
 </html>

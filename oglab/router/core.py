@@ -6,6 +6,7 @@ import os
 from typing import Dict
 
 from oglab.router.backends import BACKEND_MAP, BaseBackend, ModelResponse
+from oglab.costs import cost_tracker
 
 
 class ModelRouter:
@@ -40,7 +41,17 @@ class ModelRouter:
     # ------------------------------------------------------------------
     def complete(self, prompt: str, max_tokens: int = 512,
                  temperature: float = 0.7) -> ModelResponse:
-        return self._backend.complete(prompt, max_tokens, temperature)
+        response = self._backend.complete(prompt, max_tokens, temperature)
+        # Track cost — estimate input tokens from prompt length
+        tokens_in = max(len(prompt) // 4, 1)
+        cost_tracker.track(
+            backend=response.backend,
+            model=response.model,
+            tokens_in=tokens_in,
+            tokens_out=response.tokens_used,
+            latency_ms=response.latency_ms,
+        )
+        return response
 
     def health_check(self) -> Dict[str, bool]:
         return {self.backend_name: self._backend.health_check()}

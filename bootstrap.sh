@@ -54,7 +54,7 @@ EOF
 
 # ── 1. Hardware Detection ────────────────────────────────────────────────
 detect_hardware() {
-    step "1/9  Detecting hardware"
+    step "1/10  Detecting hardware"
 
     OS="$(uname -s)"
     ARCH="$(uname -m)"
@@ -117,38 +117,33 @@ detect_hardware() {
     [[ -n "${GPU_NAME:-}" ]] && info "GPU:         ${BOLD}${GPU_NAME}${RESET} (${GPU_MEM} MB VRAM)"
 }
 
-# ── Minimum Spec Table ────────────────────────────────────────────────
-# These are the minimum requirements per tier.
-#   tier     | CPUs | RAM(GB) | Disk(GB) | Notes
-#   minimum  |  2   |   4     |    8     | CPU-only, small (1-3B) model
-#   standard |  4   |   8     |   20     | 7B model, all services
-#   full     |  4   |  16     |   40     | 13B+ model, full stack
+# ── Build Profile Constants ───────────────────────────────────────────
 MIN_CPUS=2
 MIN_RAM_GB=4
 MIN_DISK_GB=8
 
-# ── 2. Preflight Check ──────────────────────────────────────────────────
-preflight_check() {
-    step "2/9  Preflight — minimum spec check"
+# SLM — always loaded in RAM (Phi-3.5-mini, best sub-4B on the market)
+SLM_MLX_ID="mlx-community/Phi-3.5-mini-instruct-4bit"
+SLM_GGUF_ID="microsoft/Phi-3.5-mini-instruct-GGUF"
+SLM_HF_ID="microsoft/Phi-3.5-mini-instruct"
 
-    local fails=0
+# Deep engine — AirLLM 70B+ from disk
+DEEP_MODEL_ID="meta-llama/Llama-3.1-70B-Instruct"
 
-    # CPU check
+# ── 2. Build Profile (discovery-driven) ─────────────────────────────────
+compute_build_profile() {
+    step "2/10  Computing build profile"
+
+    # ── Preflight gates ──
     if (( CPUS < MIN_CPUS )); then
         error "Need at least ${MIN_CPUS} CPUs — detected ${CPUS}."
     fi
-
-    # RAM check
     if (( TOTAL_MEM_GB < MIN_RAM_GB )); then
         error "Need at least ${MIN_RAM_GB} GB RAM — detected ${TOTAL_MEM_GB} GB."
     fi
-
-    # Disk check
     if (( DISK_FREE_GB < MIN_DISK_GB )); then
         error "Need at least ${MIN_DISK_GB} GB free disk — detected ${DISK_FREE_GB} GB."
     fi
-
-    # Python check
     if ! command -v python3 &>/dev/null; then
         error "python3 not found. Install Python 3.10+ first."
     fi
@@ -157,92 +152,148 @@ preflight_check() {
     if (( pyver < 10 )); then
         error "Python 3.10+ required — detected 3.${pyver}."
     fi
-
-    # Git check
     if ! command -v git &>/dev/null; then
         error "git not found. Install git first."
     fi
 
-    # Recommend tier
-    local tier="minimum"
-    if (( TOTAL_MEM_GB >= 16 && DISK_FREE_GB >= 40 )); then
-        tier="full"
-    elif (( TOTAL_MEM_GB >= 8 && DISK_FREE_GB >= 20 )); then
-        tier="standard"
-    fi
-
-    echo ""
-    info "Preflight passed."
-    echo ""
-    echo -e "  ${BOLD}Spec tier: ${GREEN}${tier}${RESET}"
-    echo ""
-    echo -e "  ┌────────────┬──────┬─────────┬──────────┬──────────────────────────┐"
-    echo -e "  │ Tier       │ CPUs │ RAM     │ Disk     │ What you get             │"
-    echo -e "  ├────────────┼──────┼─────────┼──────────┼──────────────────────────┤"
-    if [[ "$tier" == "minimum" ]]; then
-    echo -e "  │ ${BOLD}▶ minimum${RESET}  │ 2+   │ 4+ GB   │ 8+ GB    │ CPU, small (1-3B) model  │"
-    else
-    echo -e "  │   minimum  │ 2+   │ 4+ GB   │ 8+ GB    │ CPU, small (1-3B) model  │"
-    fi
-    if [[ "$tier" == "standard" ]]; then
-    echo -e "  │ ${BOLD}▶ standard${RESET} │ 4+   │ 8+ GB   │ 20+ GB   │ 7B model, all services   │"
-    else
-    echo -e "  │   standard │ 4+   │ 8+ GB   │ 20+ GB   │ 7B model, all services   │"
-    fi
-    if [[ "$tier" == "full" ]]; then
-    echo -e "  │ ${BOLD}▶ full${RESET}     │ 4+   │ 16+ GB  │ 40+ GB   │ 13B+, full lab stack     │"
-    else
-    echo -e "  │   full     │ 4+   │ 16+ GB  │ 40+ GB   │ 13B+, full lab stack     │"
-    fi
-    echo -e "  └────────────┴──────┴─────────┴──────────┴──────────────────────────┘"
-    echo ""
-
-    # Auto-select model size based on tier
-    case "$tier" in
-        minimum)  DEFAULT_MODEL_SIZE="small" ;;
-        standard) DEFAULT_MODEL_SIZE="medium" ;;
-        full)     DEFAULT_MODEL_SIZE="large" ;;
+    # ── NVMe / SSD detection ──
+    DISK_TYPE="HDD"
+    case "$OS" in
+        Darwin)
+            if diskutil info / 2>/dev/null | grep -qi "Solid State.*Yes"; then
+                DISK_TYPE="SSD"
+            elif diskutil info / 2>/dev/null | grep -qi "Protocol.*NVMe"; then
+                DISK_TYPE="NVMe"
+            fi
+            ;;
+        Linux)
+            local root_dev
+            root_dev="$(lsblk -no PKNAME "$(findmnt -n -o SOURCE /)" 2>/dev/null | head -1)" || root_dev=""
+            if [[ -n "$root_dev" ]]; then
+                local rota
+                rota="$(lsblk -dno ROTA "/dev/${root_dev}" 2>/dev/null)" || rota="1"
+                if [[ "$rota" == "0" ]]; then
+                    if [[ -d "/sys/block/${root_dev}/device" ]] && \
+                       grep -qi nvme <<< "$root_dev" 2>/dev/null; then
+                        DISK_TYPE="NVMe"
+                    else
+                        DISK_TYPE="SSD"
+                    fi
+                fi
+            fi
+            ;;
     esac
 
-    SPEC_TIER="$tier"
+    # ── Tier computation — zero user input ──
+    DEEP_ENABLED="false"
+    if (( DISK_FREE_GB >= 80 )) && [[ "$DISK_TYPE" != "HDD" ]]; then
+        SPEC_TIER="deep"
+        DEEP_ENABLED="true"
+        MODEL_SIZE="small"  # SLM for interactive, AirLLM for research
+    elif (( DISK_FREE_GB >= 80 )) && [[ "$DISK_TYPE" == "HDD" ]]; then
+        # HDD: deep is possible but slow; warn and enable anyway
+        SPEC_TIER="deep"
+        DEEP_ENABLED="true"
+        MODEL_SIZE="small"
+    elif (( TOTAL_MEM_GB >= 16 && DISK_FREE_GB >= 40 )); then
+        SPEC_TIER="full"
+        MODEL_SIZE="large"
+    elif (( TOTAL_MEM_GB >= 8 && DISK_FREE_GB >= 20 )); then
+        SPEC_TIER="standard"
+        MODEL_SIZE="medium"
+    else
+        SPEC_TIER="minimum"
+        MODEL_SIZE="small"
+    fi
+
+    # ── Resource allocation — computed, not asked ──
+    LAB_CPUS=$(( CPUS > 4 ? CPUS - 2 : CPUS ))
+    LAB_MEM_GB=$(( TOTAL_MEM_GB * 3 / 4 ))
+    (( LAB_MEM_GB < 2 )) && LAB_MEM_GB=2
+
+    # ── SLM selection (always installed) ──
+    case "$ACCEL" in
+        mlx)  SLM_ID="$SLM_MLX_ID" ; SLM_DIR="Phi-3.5-mini-instruct-4bit" ; SLM_SIZE="~2 GB" ;;
+        cpu)  SLM_ID="$SLM_GGUF_ID" ; SLM_DIR="Phi-3.5-mini-instruct-GGUF" ; SLM_SIZE="~2 GB" ;;
+        cuda) SLM_ID="$SLM_HF_ID" ; SLM_DIR="Phi-3.5-mini-instruct" ; SLM_SIZE="~2 GB" ;;
+        *)    SLM_ID="$SLM_GGUF_ID" ; SLM_DIR="Phi-3.5-mini-instruct-GGUF" ; SLM_SIZE="~2 GB" ;;
+    esac
+
+    # ── Fast model selection (beyond SLM, for standard / full tiers) ──
+    FAST_MODEL_ID="" ; FAST_DIR="" ; FAST_SIZE=""
+    case "${ACCEL}:${MODEL_SIZE}" in
+        mlx:medium)  FAST_MODEL_ID="mlx-community/Mistral-7B-Instruct-v0.3-4bit" ;  FAST_DIR="Mistral-7B-Instruct-v0.3-4bit" ; FAST_SIZE="~4 GB" ;;
+        mlx:large)   FAST_MODEL_ID="mlx-community/Mixtral-8x7B-Instruct-v0.1-4bit" ; FAST_DIR="Mixtral-8x7B-Instruct-v0.1-4bit" ; FAST_SIZE="~8 GB" ;;
+        cuda:medium) FAST_MODEL_ID="mistralai/Mistral-7B-Instruct-v0.2" ;            FAST_DIR="Mistral-7B-Instruct-v0.2" ; FAST_SIZE="~4 GB" ;;
+        cuda:large)  FAST_MODEL_ID="mistralai/Mixtral-8x7B-Instruct-v0.1" ;           FAST_DIR="Mixtral-8x7B-Instruct-v0.1" ; FAST_SIZE="~8 GB" ;;
+        cpu:medium)  FAST_MODEL_ID="TheBloke/Mistral-7B-Instruct-v0.2-GGUF" ;         FAST_DIR="Mistral-7B-Instruct-v0.2-GGUF" ; FAST_SIZE="~4 GB" ;;
+        cpu:large)   FAST_MODEL_ID="TheBloke/Mixtral-8x7B-Instruct-v0.1-GGUF" ;       FAST_DIR="Mixtral-8x7B-Instruct-v0.1-GGUF" ; FAST_SIZE="~8 GB" ;;
+    esac
+
+    # ── Deep model (AirLLM) ──
+    DEEP_DIR="Llama-3.1-70B-Instruct"
+    DEEP_SIZE="~40 GB"
 }
 
-# ── 3. Resource Allocation ───────────────────────────────────────────────
-ask_resources() {
-    step "3/9  Resource allocation"
+# ── 3. Build Manifest ───────────────────────────────────────────────────
+show_build_manifest() {
+    step "3/10  Build manifest"
+
+    local disk_badge="${DISK_TYPE}"
+    [[ "$DISK_TYPE" == "NVMe" ]] && disk_badge="${GREEN}NVMe SSD ✓${RESET}"
+    [[ "$DISK_TYPE" == "SSD" ]]  && disk_badge="${GREEN}SSD ✓${RESET}"
+    [[ "$DISK_TYPE" == "HDD" ]]  && disk_badge="${YELLOW}HDD (slow for deep)${RESET}"
+
+    local tier_color="${GREEN}"
+    [[ "$SPEC_TIER" == "minimum" ]]  && tier_color="${YELLOW}"
+    [[ "$SPEC_TIER" == "standard" ]] && tier_color="${CYAN}"
+    [[ "$SPEC_TIER" == "deep" ]]     && tier_color="${BOLD}${GREEN}"
 
     echo ""
-    echo -e "  Your machine has ${BOLD}${CPUS} CPUs${RESET}, ${BOLD}${TOTAL_MEM_GB} GB RAM${RESET}, ${BOLD}${DISK_FREE_GB} GB disk free${RESET}."
-    echo -e "  How much should the lab use?"
+    echo -e "  ┌─── BUILD MANIFEST ──────────────────────────────────────────────┐"
+    echo -e "  │                                                                 │"
+    printf  "  │  Tier:          ${tier_color}▶ %-8s${RESET}                                   │\n" "$SPEC_TIER"
+    printf  "  │  Platform:      %-43s  │\n" "${PLATFORM} ${ARCH} (${ACCEL})"
+    printf  "  │  Disk:          %-3s GB free (%b)%*s│\n" "$DISK_FREE_GB" "$disk_badge" $((24 - ${#DISK_TYPE})) ""
+    echo -e "  │                                                                 │"
+    echo -e "  │  ┌─ ENGINES ─────────────────────────────────────────────┐      │"
+    printf  "  │  │  ⚡ SLM (always on)   %-20s  %s  │      │\n" "${SLM_DIR}" "${SLM_SIZE}"
+    if [[ -n "$FAST_MODEL_ID" ]]; then
+    printf  "  │  │  🚀 Fast engine       %-20s  %s  │      │\n" "${FAST_DIR}" "${FAST_SIZE}"
+    fi
+    if [[ "$DEEP_ENABLED" == "true" ]]; then
+    printf  "  │  │  🔬 Deep research     %-20s %s │      │\n" "${DEEP_DIR}" "${DEEP_SIZE}"
+    echo -e "  │  │     via AirLLM · 4-bit · layer-by-layer from disk     │      │"
+    fi
+    echo -e "  │  └───────────────────────────────────────────────────────┘      │"
+    echo -e "  │                                                                 │"
+    printf  "  │  Resources:     %s CPUs · %s GB RAM · all services%*s│\n" "$LAB_CPUS" "$LAB_MEM_GB" $((15 - ${#LAB_CPUS} - ${#LAB_MEM_GB})) ""
+    echo -e "  │  Cost tracking: cloud-equivalent savings + \$0.13/kWh energy     │"
+    if [[ "$DEEP_ENABLED" == "true" ]]; then
+    echo -e "  │  Research:      deep async (70B AirLLM) + fast interactive      │"
+    else
+    echo -e "  │  Research:      fast interactive (SLM + local model)             │"
+    fi
+    echo -e "  │                                                                 │"
+    echo -e "  └─────────────────────────────────────────────────────────────────┘"
     echo ""
 
-    # CPUs — default to all-but-two (leave headroom for OS), minimum 2
-    local default_cpus=$(( CPUS > 4 ? CPUS - 2 : CPUS ))
-    ask "CPUs for the lab" "$default_cpus"
-    LAB_CPUS="$REPLY"
+    if [[ "$DEEP_ENABLED" == "true" && "$DISK_TYPE" == "HDD" ]]; then
+        warn "Your disk is a spinning HDD. Deep inference will work but expect"
+        warn "significantly slower layer loading. NVMe/SSD recommended."
+        echo ""
+    fi
 
-    # Memory — default to 75% of total
-    local default_mem=$(( TOTAL_MEM_GB * 3 / 4 ))
-    (( default_mem < 2 )) && default_mem=2
-    ask "Memory for the lab (GB)" "$default_mem"
-    LAB_MEM_GB="$REPLY"
-
-    # Model size preference
-    echo ""
-    echo -e "  Model size (larger = smarter, needs more RAM/VRAM):"
-    echo -e "    ${BOLD}small${RESET}   — 1-3B params, ~2 GB  (fast, low quality)"
-    echo -e "    ${BOLD}medium${RESET}  — 7-8B params, ~4 GB  (good balance)"
-    echo -e "    ${BOLD}large${RESET}   — 13-14B params, ~8 GB (best quality)"
-    echo ""
-    ask "Model size" "${DEFAULT_MODEL_SIZE:-medium}"
-    MODEL_SIZE="$REPLY"
-
-    info "Allocation: ${LAB_CPUS} CPUs, ${LAB_MEM_GB} GB RAM, model=${MODEL_SIZE}"
+    ask "Build this lab?" "Y"
+    if [[ ! "$REPLY" =~ ^[Yy] ]]; then
+        info "Cancelled. Run bootstrap.sh again when ready."
+        exit 0
+    fi
 }
 
 # ── 3. System Packages ──────────────────────────────────────────────────
 install_system_deps() {
-    step "4/9  System packages"
+    step "4/10  System packages"
 
     case "$PLATFORM" in
         gentoo)
@@ -302,7 +353,7 @@ install_system_deps() {
 
 # ── 4. Python Environment ───────────────────────────────────────────────
 setup_python() {
-    step "5/9  Python environment"
+    step "5/10  Python environment"
 
     if ! command -v python3 &>/dev/null; then
         error "Python 3 not found. Install it and re-run."
@@ -341,11 +392,17 @@ setup_python() {
 
     # Always install the requests library (used by openai_compat backend)
     pip install -q requests
+
+    # AirLLM for deep research tier
+    if [[ "${DEEP_ENABLED:-false}" == "true" ]]; then
+        info "Installing AirLLM (deep research — layer-by-layer inference)…"
+        pip install -q airllm
+    fi
 }
 
 # ── 5. Lab Services ─────────────────────────────────────────────────────
 install_services() {
-    step "6/9  Lab services"
+    step "6/10  Lab services"
 
     # --- Portal (FastAPI) ---
     info "Portal dependencies…"
@@ -394,47 +451,66 @@ install_services() {
     fi
 }
 
-# ── 6. Download Model ───────────────────────────────────────────────────
+# ── 6. Download Models ──────────────────────────────────────────────────
 download_model() {
-    step "7/9  AI model"
+    step "7/10  AI models"
 
     local model_dir="./models"
-    mkdir -p "$model_dir"
+    mkdir -p "$model_dir" "$model_dir/airllm_cache"
 
-    # Determine model by size preference and accelerator
-    case "${ACCEL}:${MODEL_SIZE}" in
-        mlx:small)   MODEL_ID="mlx-community/Qwen2.5-1.5B-Instruct-4bit" ; MODEL_DIR_NAME="Qwen2.5-1.5B-Instruct-4bit" ;;
-        mlx:medium)  MODEL_ID="mlx-community/Mistral-7B-Instruct-v0.3-4bit" ; MODEL_DIR_NAME="Mistral-7B-Instruct-v0.3-4bit" ;;
-        mlx:large)   MODEL_ID="mlx-community/Mixtral-8x7B-Instruct-v0.1-4bit" ; MODEL_DIR_NAME="Mixtral-8x7B-Instruct-v0.1-4bit" ;;
-        cuda:small)  MODEL_ID="Qwen/Qwen2.5-1.5B-Instruct" ; MODEL_DIR_NAME="Qwen2.5-1.5B-Instruct" ;;
-        cuda:medium) MODEL_ID="mistralai/Mistral-7B-Instruct-v0.2" ; MODEL_DIR_NAME="Mistral-7B-Instruct-v0.2" ;;
-        cuda:large)  MODEL_ID="mistralai/Mixtral-8x7B-Instruct-v0.1" ; MODEL_DIR_NAME="Mixtral-8x7B-Instruct-v0.1" ;;
-        cpu:small)   MODEL_ID="TheBloke/Qwen-1_8B-Chat-GGUF" ; MODEL_DIR_NAME="Qwen-1.8B-Chat-GGUF" ;;
-        cpu:medium)  MODEL_ID="TheBloke/Mistral-7B-Instruct-v0.2-GGUF" ; MODEL_DIR_NAME="Mistral-7B-Instruct-v0.2-GGUF" ;;
-        cpu:large)   MODEL_ID="TheBloke/Mixtral-8x7B-Instruct-v0.1-GGUF" ; MODEL_DIR_NAME="Mixtral-8x7B-Instruct-v0.1-GGUF" ;;
-        *)           MODEL_ID="mlx-community/Mistral-7B-Instruct-v0.3-4bit" ; MODEL_DIR_NAME="Mistral-7B-Instruct-v0.3-4bit" ;;
-    esac
+    pip install -q huggingface-hub
 
-    if [[ -d "${model_dir}/${MODEL_DIR_NAME}" ]]; then
-        info "Model already downloaded: ${MODEL_DIR_NAME}"
+    # ── Always download SLM (Phi-3.5-mini — fast, always in RAM) ──
+    info "SLM engine: ${SLM_ID}"
+    if [[ -d "${model_dir}/${SLM_DIR}" ]]; then
+        info "SLM already downloaded: ${SLM_DIR}"
     else
-        ask "Download model ${MODEL_ID}? (requires internet)" "y"
-        if [[ "$REPLY" =~ ^[Yy] ]]; then
-            info "Downloading ${MODEL_ID}…"
-            pip install -q huggingface-hub
+        info "Downloading SLM (${SLM_SIZE})…"
+        python3 -c "
+from huggingface_hub import snapshot_download
+snapshot_download('${SLM_ID}', local_dir='${model_dir}/${SLM_DIR}')
+" || warn "SLM download failed — you can download manually later."
+    fi
+    MODEL_ID="$SLM_ID"
+    MODEL_DIR_NAME="$SLM_DIR"
+
+    # ── Download fast model (standard/full tiers get a bigger model too) ──
+    if [[ -n "$FAST_MODEL_ID" ]]; then
+        info "Fast engine: ${FAST_MODEL_ID}"
+        if [[ -d "${model_dir}/${FAST_DIR}" ]]; then
+            info "Fast model already downloaded: ${FAST_DIR}"
+        else
+            info "Downloading fast model (${FAST_SIZE})…"
             python3 -c "
 from huggingface_hub import snapshot_download
-snapshot_download('${MODEL_ID}', local_dir='${model_dir}/${MODEL_DIR_NAME}')
-" || warn "Download failed — you can download manually later."
+snapshot_download('${FAST_MODEL_ID}', local_dir='${model_dir}/${FAST_DIR}')
+" || warn "Fast model download failed — you can download manually later."
+        fi
+        # Use the bigger model as primary
+        MODEL_ID="$FAST_MODEL_ID"
+        MODEL_DIR_NAME="$FAST_DIR"
+    fi
+
+    # ── Deep model (AirLLM 70B — downloaded for deep-tier systems) ──
+    if [[ "$DEEP_ENABLED" == "true" ]]; then
+        echo ""
+        info "Deep research engine: ${DEEP_MODEL_ID}"
+        info "This is a large download (~40 GB). AirLLM will load it layer-by-layer from disk."
+        if [[ -d "${model_dir}/${DEEP_DIR}" ]]; then
+            info "Deep model already downloaded: ${DEEP_DIR}"
         else
-            info "Skipping model download. You can download later or use an external API."
+            info "Downloading deep model (${DEEP_SIZE})… this will take a while."
+            python3 -c "
+from huggingface_hub import snapshot_download
+snapshot_download('${DEEP_MODEL_ID}', local_dir='${model_dir}/${DEEP_DIR}')
+" || warn "Deep model download failed — you can download manually or run bootstrap again."
         fi
     fi
 }
 
 # ── 7. Write Configuration ──────────────────────────────────────────────
 write_config() {
-    step "8/9  Configuration"
+    step "8/10  Configuration"
 
     # .env
     if [[ ! -f .env ]]; then
@@ -452,8 +528,19 @@ write_config() {
             sed -i.bak "s|^MODEL_NAME=.*|MODEL_NAME=${MODEL_ID}|" .env
         fi
 
+        # AirLLM deep research config
+        if [[ "$DEEP_ENABLED" == "true" ]]; then
+            sed -i.bak "s|^AIRLLM_MODEL=.*|AIRLLM_MODEL=${DEEP_MODEL_ID}|" .env
+            sed -i.bak 's/^AIRLLM_RESEARCH=.*/AIRLLM_RESEARCH=true/' .env
+        else
+            sed -i.bak 's/^AIRLLM_RESEARCH=.*/AIRLLM_RESEARCH=false/' .env
+        fi
+
+        # Energy rate
+        sed -i.bak 's/^ENERGY_RATE_KWH=.*/ENERGY_RATE_KWH=0.13/' .env
+
         rm -f .env.bak
-        info ".env created (backend=${ACCEL}, model=${MODEL_ID:-auto})"
+        info ".env created (backend=${ACCEL}, model=${MODEL_ID:-auto}, deep=${DEEP_ENABLED})"
     else
         info ".env already exists — keeping current config"
     fi
@@ -466,6 +553,9 @@ write_config() {
 LAB_CPUS=${LAB_CPUS}
 LAB_MEM_GB=${LAB_MEM_GB}
 MODEL_SIZE=${MODEL_SIZE}
+SPEC_TIER=${SPEC_TIER}
+DEEP_ENABLED=${DEEP_ENABLED}
+DISK_TYPE=${DISK_TYPE}
 
 # Service ports
 PORTAL_PORT=8080
@@ -496,9 +586,37 @@ YAML
     mkdir -p data/goals data/goals/history data/consent data/experiments plugins models
 }
 
-# ── 8. Generate start.sh ────────────────────────────────────────────────
+# ── 8a. Research Goal ───────────────────────────────────────────────────
+ask_goal() {
+    echo ""
+    echo -e "  ${BOLD}Almost done.${RESET} One last thing — what should this lab work on?"
+    echo -e "  ${DIM}(Your goal drives the researcher agent. You can change it later.)${RESET}"
+    echo ""
+    ask "What do you want to research?" ""
+
+    if [[ -n "$REPLY" ]]; then
+        # Save bootstrap goal
+        mkdir -p data/goals
+        python3 -c "
+import json, pathlib
+goal = {
+    'goal': '''${REPLY}''',
+    'source': 'bootstrap',
+    'status': 'active'
+}
+pathlib.Path('data/goals/bootstrap_goal.json').write_text(json.dumps(goal, indent=2))
+"
+        BOOTSTRAP_GOAL="$REPLY"
+        info "Goal saved: ${REPLY}"
+    else
+        BOOTSTRAP_GOAL=""
+        info "No goal set. You can set one from the portal dashboard."
+    fi
+}
+
+# ── 9. Generate start.sh ───────────────────────────────────────────────
 write_start_script() {
-    step "9/9  Start script"
+    step "9/10  Start script"
 
     cat > start.sh << 'STARTSCRIPT'
 #!/usr/bin/env bash
@@ -603,6 +721,19 @@ summary() {
     echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
     echo -e "  ${BOLD}${GREEN}✓ Bootstrap complete!${RESET}"
     echo ""
+    echo -e "  ${BOLD}Tier:${RESET}       ${SPEC_TIER} (${DISK_TYPE})"
+    echo -e "  ${BOLD}SLM:${RESET}        ${SLM_DIR} (always in RAM)"
+    if [[ -n "${FAST_MODEL_ID:-}" ]]; then
+    echo -e "  ${BOLD}Fast model:${RESET} ${FAST_DIR}"
+    fi
+    if [[ "$DEEP_ENABLED" == "true" ]]; then
+    echo -e "  ${BOLD}Deep:${RESET}       ${DEEP_DIR} via AirLLM (70B from disk)"
+    fi
+    echo -e "  ${BOLD}Costs:${RESET}      Cloud-equivalent tracking + \$0.13/kWh energy"
+    if [[ -n "${BOOTSTRAP_GOAL:-}" ]]; then
+    echo -e "  ${BOLD}Goal:${RESET}       ${BOOTSTRAP_GOAL}"
+    fi
+    echo ""
     echo -e "  ${BOLD}To start the lab:${RESET}"
     echo -e "    source .venv/bin/activate"
     echo -e "    ./start.sh"
@@ -612,9 +743,6 @@ summary() {
     echo -e "    Terminal   http://127.0.0.1:7681   — Full shell in browser"
     echo -e "    Notebook   http://127.0.0.1:8888   — Jupyter Lab"
     echo -e "    IDE        http://127.0.0.1:8443   — VS Code (code-server)"
-    echo ""
-    echo -e "  ${BOLD}Quick test:${RESET}"
-    echo -e "    python3 examples/peanut_farmer/run.py"
     echo ""
 
     if [[ "$PLATFORM" == "gentoo" ]]; then
@@ -637,13 +765,14 @@ summary() {
 main() {
     banner
     detect_hardware
-    preflight_check
-    ask_resources
+    compute_build_profile
+    show_build_manifest
     install_system_deps
     setup_python
     install_services
     download_model
     write_config
+    ask_goal
     write_start_script
     summary
 }
@@ -651,7 +780,13 @@ main() {
 PIDS=()
 GPU_NAME=""
 GPU_MEM=""
-DEFAULT_MODEL_SIZE=""
 SPEC_TIER=""
 DISK_FREE_GB=0
+DISK_TYPE="HDD"
+DEEP_ENABLED="false"
+BOOTSTRAP_GOAL=""
+SLM_ID=""
+SLM_DIR=""
+FAST_MODEL_ID=""
+FAST_DIR=""
 main "$@"

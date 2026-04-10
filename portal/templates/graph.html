@@ -170,6 +170,7 @@
   .tier-minimum  { background: rgba(255,176,0,.15); color: #ffb000; border: 1px solid rgba(255,176,0,.3); }
   .tier-standard { background: rgba(0,212,255,.15); color: #00d4ff; border: 1px solid rgba(0,212,255,.3); }
   .tier-full     { background: rgba(0,255,65,.15); color: #00ff41; border: 1px solid rgba(0,255,65,.3); }
+  .tier-deep     { background: rgba(255,176,0,.15); color: #ffb000; border: 1px solid rgba(255,176,0,.5); box-shadow: 0 0 12px rgba(255,176,0,.2); }
   .health-row {
     display: flex;
     justify-content: space-between;
@@ -469,7 +470,12 @@ function drawNode(n) {
   const icons = {
     core: '◈', agent: '◉', skill: '◇', backend: '⬡', plugin: '⊕', service: '▣',
   };
-  ctx.fillText(icons[n.group] || '●', s.x, s.y);
+  // AirLLM gets a special icon
+  if (n.id === 'backend_airllm') {
+    ctx.fillText('🔬', s.x, s.y);
+  } else {
+    ctx.fillText(icons[n.group] || '●', s.x, s.y);
+  }
 
   // Label
   if (camera.zoom > 0.4) {
@@ -751,6 +757,9 @@ async function refreshHealth() {
     html += `<div class="health-row"><span class="health-label">Model</span><span class="health-value" style="max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h.model}</span></div>`;
     if (h.gpu) {
       html += `<div class="health-row"><span class="health-label">GPU</span><span class="health-value">${h.gpu.name}</span></div>`;
+    }
+    if (h.deep_enabled) {
+      html += `<div class="health-row"><span class="health-label">Deep</span><span class="health-value" style="color:#ffb000">AirLLM ✓</span></div>`;
     }
     html += `<div class="health-row" style="border-bottom:none"><span class="health-label">Services</span><span class="health-value">`;
     for (const [name, up] of Object.entries(h.services)) {

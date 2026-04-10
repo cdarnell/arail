@@ -338,6 +338,100 @@ class OpenAICompatBackend(BaseBackend):
 
 
 # ---------------------------------------------------------------------------
+# AirLLM  (layer-by-layer from disk — 70B+ on minimal RAM)
+# ---------------------------------------------------------------------------
+class AirLLMBackend(BaseBackend):
+    """Run massive models (70B-405B) from disk via AirLLM.
+
+    Layer-by-layer inference: only one transformer layer is loaded into
+    memory at a time.  Slow (seconds-per-token) but lets you run models
+    that would normally need 48+ GB VRAM on a 4 GB machine.
+    """
+
+    def __init__(self) -> None:
+        try:
+            from airllm import AutoModel  # type: ignore[import-untyped]
+            self._AutoModel = AutoModel
+        except ImportError:
+            raise ImportError(
+                "AirLLM not installed. Run: pip install airllm"
+            )
+
+        self.model_name = os.getenv(
+            "AIRLLM_MODEL", "meta-llama/Llama-3.1-70B-Instruct"
+        )
+        compression = os.getenv("AIRLLM_COMPRESSION", "4bit") or None
+        if compression == "none":
+            compression = None
+
+        models_dir = os.getenv("OGLAB_MODELS_DIR", "./models")
+        cache_dir = os.path.join(models_dir, "airllm_cache")
+        os.makedirs(cache_dir, exist_ok=True)
+
+        # Check for local download first, fall back to hub ID
+        local_dir = os.path.join(models_dir, self.model_name.split("/")[-1])
+        model_path = local_dir if os.path.isdir(local_dir) else self.model_name
+
+        self.model = self._AutoModel.from_pretrained(
+            model_path,
+            compression=compression,
+            layer_shards_saving_path=cache_dir,
+        )
+        self._max_length = int(os.getenv("AIRLLM_MAX_LENGTH", "512"))
+
+    def complete(self, prompt: str, max_tokens: int = 512,
+                 temperature: float = 0.7) -> ModelResponse:
+        start = time.time()
+
+        input_tokens = self.model.tokenizer(
+            [prompt],
+            return_tensors="pt",
+            return_attention_mask=False,
+            truncation=True,
+            max_length=self._max_length,
+            padding=False,
+        )
+
+        generation = self.model.generate(
+            input_tokens["input_ids"].cuda()
+            if __import__("torch").cuda.is_available()
+            else input_tokens["input_ids"],
+            max_new_tokens=max_tokens,
+            use_cache=True,
+            return_dict_in_generate=True,
+        )
+        text = self.model.tokenizer.decode(
+            generation.sequences[0], skip_special_tokens=True
+        )
+        # Strip the input prompt from the output
+        if text.startswith(prompt):
+            text = text[len(prompt):]
+        text = text.strip()
+
+        tokens_used = len(generation.sequences[0]) - len(input_tokens["input_ids"][0])
+
+        return ModelResponse(
+            text=text,
+            model=self.model_name,
+            tokens_used=max(tokens_used, 0),
+            backend="airllm",
+            latency_ms=(time.time() - start) * 1000,
+            cost_usd=0.0,
+        )
+
+    def health_check(self) -> bool:
+        # Full generation is too slow for a health check.
+        # Verify the model object and tokenizer are loaded.
+        try:
+            return (
+                self.model is not None
+                and self.model.tokenizer is not None
+            )
+        except Exception:
+            return False
+
+
+# ---------------------------------------------------------------------------
 # Registry used by ModelRouter
 # ---------------------------------------------------------------------------
 BACKEND_MAP: dict[str, type[BaseBackend]] = {
@@ -348,4 +442,5 @@ BACKEND_MAP: dict[str, type[BaseBackend]] = {
     "huggingface": HuggingFaceBackend,
     "openrouter": OpenRouterBackend,
     "claude": ClaudeBackend,
+    "airllm": AirLLMBackend,
 }

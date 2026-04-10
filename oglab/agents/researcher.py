@@ -30,6 +30,22 @@ def _get_router():
         return None
 
 
+def _get_deep_router():
+    """Lazy-load a second ModelRouter wired to AirLLM for deep research.
+
+    Returns None when AirLLM is not installed or AIRLLM_RESEARCH is false.
+    """
+    import os
+    if os.getenv("AIRLLM_RESEARCH", "true").lower() in ("0", "false", "no"):
+        return None
+    try:
+        from oglab.router.core import ModelRouter
+        router = ModelRouter(backend="airllm")
+        return router
+    except Exception:
+        return None
+
+
 def _llm_complete(router, prompt: str, max_tokens: int = 512) -> str | None:
     """Call the LLM and return text, or None on failure."""
     if router is None:
@@ -41,6 +57,25 @@ def _llm_complete(router, prompt: str, max_tokens: int = 512) -> str | None:
         return None
 
 
+def _deep_complete(deep_router, fast_router, prompt: str,
+                   max_tokens: int = 512) -> str | None:
+    """Try deep (AirLLM) inference first, fall back to fast router.
+
+    Emits an activity event so the dashboard shows deep inference is active.
+    """
+    if deep_router is not None:
+        activity_log.emit("researcher",
+                          "Deep inference — 70B+ model from disk, this takes time…",
+                          "info", {"mode": "deep"})
+        result = _llm_complete(deep_router, prompt, max_tokens)
+        if result:
+            return result
+        activity_log.emit("researcher",
+                          "Deep engine unavailable, falling back to fast model.",
+                          "warn")
+    return _llm_complete(fast_router, prompt, max_tokens)
+
+
 class ResearcherAgent:
     """Autonomous research agent that drives experiments toward a goal."""
 
@@ -49,6 +84,7 @@ class ResearcherAgent:
         self.tracker = ExperimentTracker()
         self.curator = CuratorAgent()
         self._router = _get_router()
+        self._deep_router = _get_deep_router()
         self._task: Optional[asyncio.Task] = None
         self._paused = False
         self._status = "idle"  # idle | running | paused | completed | error
@@ -209,7 +245,7 @@ class ResearcherAgent:
             f"Sub-objectives: {', '.join(sub_objectives) if sub_objectives else 'none'}\n\n"
             f"Hypotheses:"
         )
-        llm_text = _llm_complete(self._router, prompt, max_tokens=400)
+        llm_text = _deep_complete(self._deep_router, self._router, prompt, max_tokens=400)
         if llm_text:
             # Parse numbered list from LLM output
             lines = [l.strip().lstrip("0123456789.-) ") for l in llm_text.split("\n") if l.strip()]
@@ -274,7 +310,7 @@ class ResearcherAgent:
             f"confidence_score (0-1), data_points (int), conclusion (string), success (bool).\n"
             f"JSON:"
         )
-        llm_text = _llm_complete(self._router, prompt, max_tokens=200)
+        llm_text = _deep_complete(self._deep_router, self._router, prompt, max_tokens=200)
         if llm_text:
             try:
                 # Try to extract JSON from response
@@ -318,7 +354,7 @@ class ResearcherAgent:
             f"Include: Summary, Key Findings, Recommendations.\n"
             f"Keep it under 300 words.\n\nReport:"
         )
-        llm_text = _llm_complete(self._router, prompt, max_tokens=600)
+        llm_text = _deep_complete(self._deep_router, self._router, prompt, max_tokens=600)
         if llm_text and len(llm_text) > 50:
             return llm_text
 

@@ -538,8 +538,47 @@ code {
   color: var(--text);
 }
 
+/* ── Cost Tracking Widget ──────────────────────────────────────── */
+.cost-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1rem;
+  margin-top: 0.8rem;
+}
+.cost-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+}
+.cost-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  margin-bottom: 0.3rem;
+}
+.cost-value {
+  font-size: 1.3rem;
+  font-weight: 600;
+  color: var(--green);
+  font-family: 'JetBrains Mono', monospace;
+}
+.cost-value.energy { color: var(--amber); }
+.cost-value.savings { color: var(--blue); text-shadow: var(--glow-blue); }
+
+/* ── Deep tier badge ──────────────────────────────────────────── */
+.tier-deep {
+  color: var(--amber);
+  text-shadow: var(--glow-amber);
+}
+
 /* ── Responsive ────────────────────────────────────────────────── */
 @media (max-width: 900px) {
   .grid { grid-template-columns: 1fr; }
   nav { flex-wrap: wrap; gap: 0.5rem; }
+  .cost-grid { grid-template-columns: repeat(2, 1fr); }
 }

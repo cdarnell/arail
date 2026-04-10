@@ -336,7 +336,7 @@ async def system_graph():
     backend_labels = {
         "mlx": "MLX", "cuda": "CUDA", "cpu": "CPU",
         "openai_compat": "OpenAI-Compat", "huggingface": "HuggingFace",
-        "openrouter": "OpenRouter", "claude": "Claude",
+        "openrouter": "OpenRouter", "claude": "Claude", "airllm": "AirLLM",
     }
     for name in BACKEND_MAP:
         is_active = name == active_backend
@@ -435,7 +435,10 @@ async def system_health():
 
     # Spec tier
     tier = "minimum"
-    if ram_total_gb >= 16 and disk_free_gb >= 40:
+    deep_enabled = os.getenv("AIRLLM_RESEARCH", "false").lower() == "true"
+    if deep_enabled:
+        tier = "deep"
+    elif ram_total_gb >= 16 and disk_free_gb >= 40:
         tier = "full"
     elif ram_total_gb >= 8 and disk_free_gb >= 20:
         tier = "standard"
@@ -473,5 +476,26 @@ async def system_health():
         "model": model_name,
         "gpu": gpu_info,
         "tier": tier,
+        "deep_enabled": deep_enabled,
+        "airllm_model": os.getenv("AIRLLM_MODEL", ""),
         "services": services,
+    }
+
+
+@app.get("/api/system/costs")
+async def system_costs():
+    """Return cost tracking summary — cloud-equivalent spend and energy costs."""
+    from oglab.costs import cost_tracker
+    summary = cost_tracker.get_summary()
+    last = cost_tracker.get_last_record()
+    return {
+        "summary": summary,
+        "last_record": {
+            "backend": last.backend,
+            "model_class": last.model_class,
+            "cloud_cost_usd": last.cloud_cost_usd,
+            "energy_cost_usd": last.energy_cost_usd,
+            "tokens_in": last.tokens_in,
+            "tokens_out": last.tokens_out,
+        } if last else None,
     }
