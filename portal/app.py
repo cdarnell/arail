@@ -373,3 +373,105 @@ async def system_graph():
             edges.append({"source": "router", "target": f"backend_{name}", "label": "", "type": "available"})
 
     return {"nodes": nodes, "edges": edges}
+
+
+@app.get("/api/system/health")
+async def system_health():
+    """Return live system specs, resource usage, and service health."""
+    import os, sys, shutil, platform
+
+    # CPU
+    cpu_count = os.cpu_count() or 0
+
+    # Memory
+    try:
+        import psutil
+        mem = psutil.virtual_memory()
+        ram_total_gb = round(mem.total / (1024**3), 1)
+        ram_used_gb = round(mem.used / (1024**3), 1)
+        ram_pct = mem.percent
+        disk = psutil.disk_usage(str(Path.cwd()))
+        disk_total_gb = round(disk.total / (1024**3), 1)
+        disk_free_gb = round(disk.free / (1024**3), 1)
+        disk_pct = disk.percent
+    except ImportError:
+        # Fallback without psutil
+        ram_total_gb = 0
+        ram_used_gb = 0
+        ram_pct = 0
+        disk_total_gb = 0
+        disk_free_gb = 0
+        disk_pct = 0
+        if platform.system() == "Darwin":
+            try:
+                import subprocess
+                ram_total_gb = round(int(subprocess.check_output(
+                    ["sysctl", "-n", "hw.memsize"]).strip()) / (1024**3), 1)
+                df_out = subprocess.check_output(["df", "-g", "."]).decode().split("\n")[1].split()
+                disk_total_gb = int(df_out[1])
+                disk_free_gb = int(df_out[3])
+                disk_pct = round((1 - disk_free_gb / disk_total_gb) * 100, 1) if disk_total_gb else 0
+            except Exception:
+                pass
+
+    # Active backend
+    active_backend = os.getenv("MODEL_BACKEND", "auto").lower()
+    model_name = os.getenv("MODEL_NAME", "none")
+
+    # GPU
+    gpu_info = None
+    if shutil.which("nvidia-smi"):
+        try:
+            import subprocess
+            name = subprocess.check_output(
+                ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
+                timeout=5).decode().strip().split("\n")[0]
+            vram = subprocess.check_output(
+                ["nvidia-smi", "--query-gpu=memory.total", "--format=csv,noheader,nounits"],
+                timeout=5).decode().strip().split("\n")[0]
+            gpu_info = {"name": name, "vram_mb": int(vram)}
+        except Exception:
+            pass
+
+    # Spec tier
+    tier = "minimum"
+    if ram_total_gb >= 16 and disk_free_gb >= 40:
+        tier = "full"
+    elif ram_total_gb >= 8 and disk_free_gb >= 20:
+        tier = "standard"
+
+    # Python
+    py_version = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+
+    # Services status  (quick check via ports)
+    import socket
+    def port_open(port: int) -> bool:
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=0.3):
+                return True
+        except (OSError, ConnectionRefusedError):
+            return False
+
+    services = {
+        "portal": True,  # we're running
+        "ttyd": port_open(int(os.getenv("TTYD_PORT", "7681"))),
+        "jupyter": port_open(int(os.getenv("JUPYTER_PORT", "8888"))),
+    }
+
+    return {
+        "platform": platform.system(),
+        "arch": platform.machine(),
+        "cpu_count": cpu_count,
+        "ram_total_gb": ram_total_gb,
+        "ram_used_gb": ram_used_gb,
+        "ram_pct": ram_pct,
+        "disk_total_gb": disk_total_gb,
+        "disk_free_gb": disk_free_gb,
+        "disk_pct": disk_pct,
+        "python": py_version,
+        "backend": active_backend,
+        "model": model_name,
+        "gpu": gpu_info,
+        "tier": tier,
+        "services": services,
+    }

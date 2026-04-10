@@ -54,7 +54,7 @@ EOF
 
 # ── 1. Hardware Detection ────────────────────────────────────────────────
 detect_hardware() {
-    step "1/8  Detecting hardware"
+    step "1/9  Detecting hardware"
 
     OS="$(uname -s)"
     ARCH="$(uname -m)"
@@ -117,9 +117,99 @@ detect_hardware() {
     [[ -n "${GPU_NAME:-}" ]] && info "GPU:         ${BOLD}${GPU_NAME}${RESET} (${GPU_MEM} MB VRAM)"
 }
 
-# ── 2. Resource Allocation ───────────────────────────────────────────────
+# ── Minimum Spec Table ────────────────────────────────────────────────
+# These are the minimum requirements per tier.
+#   tier     | CPUs | RAM(GB) | Disk(GB) | Notes
+#   minimum  |  2   |   4     |    8     | CPU-only, small (1-3B) model
+#   standard |  4   |   8     |   20     | 7B model, all services
+#   full     |  4   |  16     |   40     | 13B+ model, full stack
+MIN_CPUS=2
+MIN_RAM_GB=4
+MIN_DISK_GB=8
+
+# ── 2. Preflight Check ──────────────────────────────────────────────────
+preflight_check() {
+    step "2/9  Preflight — minimum spec check"
+
+    local fails=0
+
+    # CPU check
+    if (( CPUS < MIN_CPUS )); then
+        error "Need at least ${MIN_CPUS} CPUs — detected ${CPUS}."
+    fi
+
+    # RAM check
+    if (( TOTAL_MEM_GB < MIN_RAM_GB )); then
+        error "Need at least ${MIN_RAM_GB} GB RAM — detected ${TOTAL_MEM_GB} GB."
+    fi
+
+    # Disk check
+    if (( DISK_FREE_GB < MIN_DISK_GB )); then
+        error "Need at least ${MIN_DISK_GB} GB free disk — detected ${DISK_FREE_GB} GB."
+    fi
+
+    # Python check
+    if ! command -v python3 &>/dev/null; then
+        error "python3 not found. Install Python 3.10+ first."
+    fi
+    local pyver
+    pyver="$(python3 -c 'import sys; print(sys.version_info.minor)')" 2>/dev/null || pyver=0
+    if (( pyver < 10 )); then
+        error "Python 3.10+ required — detected 3.${pyver}."
+    fi
+
+    # Git check
+    if ! command -v git &>/dev/null; then
+        error "git not found. Install git first."
+    fi
+
+    # Recommend tier
+    local tier="minimum"
+    if (( TOTAL_MEM_GB >= 16 && DISK_FREE_GB >= 40 )); then
+        tier="full"
+    elif (( TOTAL_MEM_GB >= 8 && DISK_FREE_GB >= 20 )); then
+        tier="standard"
+    fi
+
+    echo ""
+    info "Preflight passed."
+    echo ""
+    echo -e "  ${BOLD}Spec tier: ${GREEN}${tier}${RESET}"
+    echo ""
+    echo -e "  ┌────────────┬──────┬─────────┬──────────┬──────────────────────────┐"
+    echo -e "  │ Tier       │ CPUs │ RAM     │ Disk     │ What you get             │"
+    echo -e "  ├────────────┼──────┼─────────┼──────────┼──────────────────────────┤"
+    if [[ "$tier" == "minimum" ]]; then
+    echo -e "  │ ${BOLD}▶ minimum${RESET}  │ 2+   │ 4+ GB   │ 8+ GB    │ CPU, small (1-3B) model  │"
+    else
+    echo -e "  │   minimum  │ 2+   │ 4+ GB   │ 8+ GB    │ CPU, small (1-3B) model  │"
+    fi
+    if [[ "$tier" == "standard" ]]; then
+    echo -e "  │ ${BOLD}▶ standard${RESET} │ 4+   │ 8+ GB   │ 20+ GB   │ 7B model, all services   │"
+    else
+    echo -e "  │   standard │ 4+   │ 8+ GB   │ 20+ GB   │ 7B model, all services   │"
+    fi
+    if [[ "$tier" == "full" ]]; then
+    echo -e "  │ ${BOLD}▶ full${RESET}     │ 4+   │ 16+ GB  │ 40+ GB   │ 13B+, full lab stack     │"
+    else
+    echo -e "  │   full     │ 4+   │ 16+ GB  │ 40+ GB   │ 13B+, full lab stack     │"
+    fi
+    echo -e "  └────────────┴──────┴─────────┴──────────┴──────────────────────────┘"
+    echo ""
+
+    # Auto-select model size based on tier
+    case "$tier" in
+        minimum)  DEFAULT_MODEL_SIZE="small" ;;
+        standard) DEFAULT_MODEL_SIZE="medium" ;;
+        full)     DEFAULT_MODEL_SIZE="large" ;;
+    esac
+
+    SPEC_TIER="$tier"
+}
+
+# ── 3. Resource Allocation ───────────────────────────────────────────────
 ask_resources() {
-    step "2/8  Resource allocation"
+    step "3/9  Resource allocation"
 
     echo ""
     echo -e "  Your machine has ${BOLD}${CPUS} CPUs${RESET}, ${BOLD}${TOTAL_MEM_GB} GB RAM${RESET}, ${BOLD}${DISK_FREE_GB} GB disk free${RESET}."
@@ -144,7 +234,7 @@ ask_resources() {
     echo -e "    ${BOLD}medium${RESET}  — 7-8B params, ~4 GB  (good balance)"
     echo -e "    ${BOLD}large${RESET}   — 13-14B params, ~8 GB (best quality)"
     echo ""
-    ask "Model size" "medium"
+    ask "Model size" "${DEFAULT_MODEL_SIZE:-medium}"
     MODEL_SIZE="$REPLY"
 
     info "Allocation: ${LAB_CPUS} CPUs, ${LAB_MEM_GB} GB RAM, model=${MODEL_SIZE}"
@@ -152,7 +242,7 @@ ask_resources() {
 
 # ── 3. System Packages ──────────────────────────────────────────────────
 install_system_deps() {
-    step "3/8  System packages"
+    step "4/9  System packages"
 
     case "$PLATFORM" in
         gentoo)
@@ -212,7 +302,7 @@ install_system_deps() {
 
 # ── 4. Python Environment ───────────────────────────────────────────────
 setup_python() {
-    step "4/8  Python environment"
+    step "5/9  Python environment"
 
     if ! command -v python3 &>/dev/null; then
         error "Python 3 not found. Install it and re-run."
@@ -255,7 +345,7 @@ setup_python() {
 
 # ── 5. Lab Services ─────────────────────────────────────────────────────
 install_services() {
-    step "5/8  Lab services"
+    step "6/9  Lab services"
 
     # --- Portal (FastAPI) ---
     info "Portal dependencies…"
@@ -306,7 +396,7 @@ install_services() {
 
 # ── 6. Download Model ───────────────────────────────────────────────────
 download_model() {
-    step "6/8  AI model"
+    step "7/9  AI model"
 
     local model_dir="./models"
     mkdir -p "$model_dir"
@@ -344,7 +434,7 @@ snapshot_download('${MODEL_ID}', local_dir='${model_dir}/${MODEL_DIR_NAME}')
 
 # ── 7. Write Configuration ──────────────────────────────────────────────
 write_config() {
-    step "7/8  Configuration"
+    step "8/9  Configuration"
 
     # .env
     if [[ ! -f .env ]]; then
@@ -408,7 +498,7 @@ YAML
 
 # ── 8. Generate start.sh ────────────────────────────────────────────────
 write_start_script() {
-    step "8/8  Start script"
+    step "9/9  Start script"
 
     cat > start.sh << 'STARTSCRIPT'
 #!/usr/bin/env bash
@@ -547,6 +637,7 @@ summary() {
 main() {
     banner
     detect_hardware
+    preflight_check
     ask_resources
     install_system_deps
     setup_python
@@ -560,4 +651,7 @@ main() {
 PIDS=()
 GPU_NAME=""
 GPU_MEM=""
+DEFAULT_MODEL_SIZE=""
+SPEC_TIER=""
+DISK_FREE_GB=0
 main "$@"
