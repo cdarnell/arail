@@ -25,73 +25,133 @@ your own machine.
 
 Works for farming, ML research, cooking, business — any domain.
 
-## Platforms
-
-| Platform | Accelerator | How |
-|----------|-------------|-----|
-| **Gentoo Linux** | Nvidia CUDA / AMD ROCm / CPU | Full compile-from-source stack |
-| **macOS (Apple Silicon)** | MLX | Native Metal acceleration |
-| **Windows** | Nvidia via WSL2 | GPU passthrough to Linux |
-| **Any Linux** | CUDA / CPU | Standard pip install |
-
-### GPU abstraction
-
-GPU drivers vary wildly across platforms — CUDA on Linux, Metal/MLX on
-Mac, the WSL2 `/dev/dxg` bridge on Windows.  **The model router
-abstracts all of this.**  Your code calls `router.complete()` and the
-router dispatches to whatever accelerator is available on the host.
-Gentoo serves as the lab environment and orchestration layer; it does
-not need to own the GPU driver on every platform.
-
-```
-Mac host  ──→  MLX (native Metal, no VM needed)
-WSL2      ──→  CUDA via Windows GPU bridge
-Linux box ──→  CUDA / ROCm via Gentoo portage
-Any host  ──→  Local inference server (LM Studio / Ollama / DeployLM)
-Any host  ──→  CPU fallback (llama.cpp)
-Any host  ──→  External API (free tier, bring your own token)
-```
-
-One codebase, zero `if platform ==` branches in user code.
-
-### Local inference servers
-
-Don't want to wire up raw CUDA or MLX? Point the router at a local
-inference server instead.  These run on your GPU and expose an
-OpenAI-compatible API on localhost:
-
-| Server | Best for | GPU support |
-|--------|----------|-------------|
-| [LM Studio](https://lmstudio.ai) | Desktop GUI, one-click models | CUDA, Metal, Vulkan |
-| [Ollama](https://ollama.com) | CLI-first, `ollama run` simplicity | CUDA, Metal |
-| [DeployLM](https://deploylm.com) | Production serving, multi-model | CUDA |
-
-Set `MODEL_BACKEND=openai_compat` and `MODEL_API_BASE=http://localhost:1234/v1`
-in your `.env`.  The router talks to it like any other backend.
-
 ## Two Modes
 
-- **Airgapped** (default) — zero network calls. Local model, local data. Flip a switch after setup.
+- **Airgapped** (default) — zero network calls. Local model, local data.
 - **Hybrid** — local-first with optional cloud fallback (HuggingFace free tier, OpenRouter, Claude).
 
 ---
 
-## The Operating System — Gentoo Linux
+# Section 1 — Mac (Apple Silicon)
 
-OGLab runs on Gentoo.  Not because it's trendy — because it gives you
-full control over every package compiled on your machine.  No black-box
-binaries, no distro opinions about what you can install.
+> Native Metal acceleration via MLX. No VM, no Docker, no fuss.
 
-### Why Gentoo
+### What you get
 
-- **Portage** compiles packages from source with your USE flags.  You
-  decide what's linked, what's stripped, what GPU support is baked in.
-- Rolling release — always current, no version-upgrade cliffs.
-- Minimal base.  You install only what the lab needs.
+| Component | How it works on Mac |
+|-----------|-------------------|
+| **GPU** | Apple Metal via MLX — native, no drivers to install |
+| **Model router** | `MODEL_BACKEND=mlx` (auto-detected) |
+| **Packages** | Homebrew + pip in a venv |
+| **OS** | Your existing macOS — nothing to replace |
+
+### Quick start
+
+```bash
+git clone https://github.com/cdarnell/minimalist-blueprint.git oglab
+cd oglab
+./bootstrap.sh
+```
+
+The bootstrap detects your Mac automatically:
+
+```
+━━━ 1/8  Detecting hardware
+  Platform:    macos (arm64)
+  CPUs:        10
+  Memory:      32 GB
+  Disk free:   400 GB
+  Accelerator: mlx
+```
+
+It asks how much of your machine to dedicate, then installs everything:
+
+```
+? CPUs for the lab [8]:
+? Memory for the lab (GB) [24]:
+? Model size [medium]:
+
+━━━ 3/8  System packages        ← brew install python git curl tmux cmake
+━━━ 4/8  Python environment     ← venv + mlx + mlx-lm
+━━━ 5/8  Lab services           ← portal, jupyter, ttyd, code-server
+━━━ 6/8  AI model               ← MLX-quantized model download
+━━━ 7/8  Configuration          ← .env + lab.conf
+━━━ 8/8  Start script           ← ./start.sh
+
+✓ Bootstrap complete!
+```
+
+Then:
+
+```bash
+source .venv/bin/activate
+./start.sh
+```
+
+### Mac services
+
+| Service | URL | What |
+|---------|-----|------|
+| **Dashboard** | http://127.0.0.1:8080 | Goal tracking, experiments, agents |
+| **Terminal** | http://127.0.0.1:7681 | Shell in browser (ttyd) |
+| **Notebook** | http://127.0.0.1:8888 | Jupyter Lab |
+| **IDE** | http://127.0.0.1:8443 | VS Code in browser (code-server) |
+
+### Mac inference options
+
+MLX is the default and best choice for Apple Silicon.  Alternatives:
+
+| Option | `.env` setting | Notes |
+|--------|---------------|-------|
+| **MLX** (default) | `MODEL_BACKEND=mlx` | Native Metal, fastest on Mac |
+| **LM Studio** | `MODEL_BACKEND=openai_compat`<br>`MODEL_API_BASE=http://localhost:1234/v1` | GUI app, download models with one click |
+| **Ollama** | `MODEL_BACKEND=openai_compat`<br>`MODEL_API_BASE=http://localhost:11434/v1` | CLI-first, `ollama run mistral` |
+| **CPU fallback** | `MODEL_BACKEND=cpu` | llama.cpp, slower but works on Intel Macs too |
+
+### Mac notes
+
+- No Gentoo needed on Mac — MLX runs natively on macOS.
+- GPU passthrough to a VM doesn't work on Apple Silicon. Don't try.
+- If you want Gentoo for the experience, run it in UTM (QEMU) for
+  dev/orchestration — but GPU work stays on the macOS host via MLX.
+
+---
+
+# Section 2 — Windows (WSL2 + Gentoo)
+
+> Nvidia GPU passthrough into a Gentoo Linux environment via WSL2.
+
+### What you get
+
+| Component | How it works on Windows |
+|-----------|------------------------|
+| **GPU** | Nvidia CUDA via WSL2 `/dev/dxg` bridge — Windows driver, Linux userspace |
+| **Model router** | `MODEL_BACKEND=cuda` (auto-detected) |
+| **Packages** | Gentoo Portage (`emerge`) — compile from source |
+| **OS** | Gentoo Linux running inside WSL2 |
+
+### Prerequisites
+
+1. **Windows 10 (21H2+) or Windows 11**
+2. **WSL2 enabled** — `wsl --install` from PowerShell (admin)
+3. **Nvidia GPU driver** installed on Windows (≥ 525.x) — this is the
+   *Windows* driver, not a Linux driver. WSL2 projects it into Linux
+   automatically.
+
+### Install Gentoo in WSL2
+
+```powershell
+# PowerShell (admin)
+# Download a Gentoo stage3 tarball and import it:
+wsl --import Gentoo C:\Gentoo C:\Downloads\stage3-amd64-*.tar.xz
+wsl -d Gentoo
+```
+
+Or use an existing Gentoo WSL image from the community.
 
 ### Default user
 
-The lab ships with a single user pre-configured:
+Once inside Gentoo WSL:
 
 | | |
 |---|---|
@@ -105,58 +165,7 @@ The lab ships with a single user pre-configured:
 > passwd
 > ```
 
-### Package management
-
-Gentoo uses `emerge` (Portage).  Standard Linux package operations all work:
-
-```bash
-# Search for a package
-emerge --search numpy
-
-# Install a package
-sudo emerge -av dev-python/numpy
-
-# Update everything
-sudo emerge --update --deep --newuse @world
-
-# Remove a package
-sudo emerge --depclean dev-python/numpy
-
-# Check installed packages
-qlist -Iv
-```
-
-USE flags let you compile exactly what you need:
-
-```bash
-# See USE flags for a package
-equery uses dev-libs/opencv
-
-# Set flags in /etc/portage/package.use
-echo "dev-libs/opencv cuda python" | sudo tee -a /etc/portage/package.use/oglab
-sudo emerge -av dev-libs/opencv    # rebuilds with CUDA + Python bindings
-```
-
-### Common lab packages
-
-```bash
-# Python ML stack
-sudo emerge -av dev-python/numpy dev-python/scipy dev-python/pandas
-
-# CUDA toolkit (if you have an Nvidia GPU)
-sudo emerge -av dev-util/nvidia-cuda-toolkit
-
-# System tools
-sudo emerge -av app-misc/tmux net-misc/curl app-editors/vim
-```
-
-Everything is a normal Linux system.  `apt` doesn't exist — `emerge`
-replaces it.  If you know `apt install foo`, the Gentoo equivalent is
-`emerge -av foo` (search first with `emerge -s foo`).
-
----
-
-## Quick Start
+### Quick start (inside WSL2 Gentoo)
 
 ```bash
 git clone https://github.com/cdarnell/minimalist-blueprint.git oglab
@@ -164,54 +173,125 @@ cd oglab
 ./bootstrap.sh
 ```
 
-The bootstrap walks you through everything:
+The bootstrap detects WSL + Nvidia automatically:
 
 ```
 ━━━ 1/8  Detecting hardware
-  Platform:    gentoo (x86_64)
+  Platform:    wsl (x86_64)
   CPUs:        16
   Memory:      64 GB
   Disk free:   200 GB
   Accelerator: cuda
   GPU:         NVIDIA RTX 4090 (24564 MB VRAM)
+```
 
-━━━ 2/8  Resource allocation
-  Your machine has 16 CPUs, 64 GB RAM, 200 GB disk free.
-  How much should the lab use?
+It asks resource allocation, then installs everything:
+
+```
 ? CPUs for the lab [14]:
 ? Memory for the lab (GB) [48]:
 ? Model size [medium]:
 
-━━━ 3/8  System packages        ← emerge / apt / brew
-━━━ 4/8  Python environment     ← venv + pip
+━━━ 3/8  System packages        ← emerge -av python gcc cmake ...
+━━━ 4/8  Python environment     ← venv + vllm + torch (CUDA)
 ━━━ 5/8  Lab services           ← portal, jupyter, ttyd, code-server
-━━━ 6/8  AI model               ← download based on your GPU + size choice
+━━━ 6/8  AI model               ← CUDA-optimized model download
 ━━━ 7/8  Configuration          ← .env + lab.conf
-━━━ 8/8  Start script           ← generates ./start.sh
+━━━ 8/8  Start script           ← ./start.sh
 
 ✓ Bootstrap complete!
 ```
 
-Then launch everything:
+Then:
 
 ```bash
 source .venv/bin/activate
 ./start.sh
 ```
 
-Four services come up:
+Services are accessible from your Windows browser at the same URLs.
+
+### Windows services
 
 | Service | URL | What |
 |---------|-----|------|
-| **Dashboard** | http://127.0.0.1:8080 | Goal tracking, experiments, agents, activity feed |
-| **Terminal** | http://127.0.0.1:7681 | Full shell in browser (ttyd) |
+| **Dashboard** | http://127.0.0.1:8080 | Goal tracking, experiments, agents |
+| **Terminal** | http://127.0.0.1:7681 | Shell in browser (ttyd) |
 | **Notebook** | http://127.0.0.1:8888 | Jupyter Lab |
-| **IDE** | http://127.0.0.1:8443 | VS Code in browser (code-server, always free) |
+| **IDE** | http://127.0.0.1:8443 | VS Code in browser (code-server) |
+
+### Gentoo package management
+
+Gentoo uses `emerge` (Portage) instead of `apt`.  It compiles from source:
+
+```bash
+# Search
+emerge --search numpy
+
+# Install
+sudo emerge -av dev-python/numpy
+
+# Update everything
+sudo emerge --update --deep --newuse @world
+
+# Remove
+sudo emerge --depclean dev-python/numpy
+```
+
+USE flags let you compile with exactly the features you need:
+
+```bash
+# Enable CUDA + Python bindings for OpenCV
+echo "dev-libs/opencv cuda python" | sudo tee -a /etc/portage/package.use/oglab
+sudo emerge -av dev-libs/opencv
+```
+
+Common lab packages:
+
+```bash
+sudo emerge -av dev-python/numpy dev-python/scipy dev-python/pandas
+sudo emerge -av dev-util/nvidia-cuda-toolkit    # CUDA
+sudo emerge -av app-misc/tmux net-misc/curl app-editors/vim
+```
+
+### Windows inference options
+
+| Option | `.env` setting | Notes |
+|--------|---------------|-------|
+| **CUDA / vLLM** (default) | `MODEL_BACKEND=cuda` | Direct GPU, fastest |
+| **LM Studio** (on Windows host) | `MODEL_BACKEND=openai_compat`<br>`MODEL_API_BASE=http://host.docker.internal:1234/v1` | Run LM Studio on Windows, call from WSL |
+| **Ollama** (in WSL) | `MODEL_BACKEND=openai_compat`<br>`MODEL_API_BASE=http://localhost:11434/v1` | Runs inside WSL with CUDA |
+| **CPU fallback** | `MODEL_BACKEND=cpu` | llama.cpp, no GPU needed |
+
+### Windows notes
+
+- The Nvidia driver is installed on **Windows only**. WSL2 bridges it
+  via `/dev/dxg`. Do NOT install nvidia-drivers inside Gentoo WSL.
+- AMD ROCm on WSL2 is experimental. Stick with Nvidia for now.
+- WSL2 uses Microsoft's kernel, not a Gentoo kernel. That's fine — the
+  GPU bridge requires it.
+- You're running a real Gentoo userspace. `emerge`, USE flags, and
+  everything else works normally.
+
+---
+
+# Shared — Both Platforms
+
+Everything below applies identically on Mac and Windows.  Your code
+never sees the platform difference — the model router abstracts it.
+
+```
+Mac host  ──→  MLX (native Metal)
+WSL2      ──→  CUDA via Windows GPU bridge
+Either    ──→  LM Studio / Ollama / DeployLM (OpenAI-compat API)
+Either    ──→  External API (free tier, bring your own token)
+Either    ──→  CPU fallback (llama.cpp)
+```
+
+One codebase, zero `if platform ==` branches.
 
 Edit `lab.conf` to change ports or resource limits.
 Edit `.env` to change model backend or API keys.
-
-**Platform-specific guides:** [Gentoo](docs/GENTOO.md) · [macOS](docs/MACOS.md) · [WSL/Windows](docs/WSL.md)
 
 ---
 
