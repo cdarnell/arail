@@ -1,0 +1,11 @@
+# Core
+python-dotenv>=1.0.0
+requests>=2.31.0
+pydantic>=2.6.0
+huggingface-hub>=0.23.0
+
+# Optional cloud backends (uncomment when OGLAB_MODE=hybrid)
+# anthropic>=0.31.0
+
+# Dev / test
+pytest>=7.4.0
