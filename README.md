@@ -76,6 +76,86 @@ in your `.env`.  The router talks to it like any other backend.
 
 ---
 
+## The Operating System — Gentoo Linux
+
+OGLab runs on Gentoo.  Not because it's trendy — because it gives you
+full control over every package compiled on your machine.  No black-box
+binaries, no distro opinions about what you can install.
+
+### Why Gentoo
+
+- **Portage** compiles packages from source with your USE flags.  You
+  decide what's linked, what's stripped, what GPU support is baked in.
+- Rolling release — always current, no version-upgrade cliffs.
+- Minimal base.  You install only what the lab needs.
+
+### Default user
+
+The lab ships with a single user pre-configured:
+
+| | |
+|---|---|
+| **User** | `gentoofoo` |
+| **Password** | `gentoofoo` |
+| **Sudo** | Full access (passwordless) |
+| **Home** | `/home/gentoofoo` |
+
+> **Change your password on first login:**
+> ```bash
+> passwd
+> ```
+
+### Package management
+
+Gentoo uses `emerge` (Portage).  Standard Linux package operations all work:
+
+```bash
+# Search for a package
+emerge --search numpy
+
+# Install a package
+sudo emerge -av dev-python/numpy
+
+# Update everything
+sudo emerge --update --deep --newuse @world
+
+# Remove a package
+sudo emerge --depclean dev-python/numpy
+
+# Check installed packages
+qlist -Iv
+```
+
+USE flags let you compile exactly what you need:
+
+```bash
+# See USE flags for a package
+equery uses dev-libs/opencv
+
+# Set flags in /etc/portage/package.use
+echo "dev-libs/opencv cuda python" | sudo tee -a /etc/portage/package.use/oglab
+sudo emerge -av dev-libs/opencv    # rebuilds with CUDA + Python bindings
+```
+
+### Common lab packages
+
+```bash
+# Python ML stack
+sudo emerge -av dev-python/numpy dev-python/scipy dev-python/pandas
+
+# CUDA toolkit (if you have an Nvidia GPU)
+sudo emerge -av dev-util/nvidia-cuda-toolkit
+
+# System tools
+sudo emerge -av app-misc/tmux net-misc/curl app-editors/vim
+```
+
+Everything is a normal Linux system.  `apt` doesn't exist — `emerge`
+replaces it.  If you know `apt install foo`, the Gentoo equivalent is
+`emerge -av foo` (search first with `emerge -s foo`).
+
+---
+
 ## Quick Start
 
 ```bash
