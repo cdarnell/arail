@@ -141,7 +141,7 @@ class CPUBackend(BaseBackend):
             else:
                 raise FileNotFoundError(
                     f"No .gguf model found in {models_dir}. "
-                    "Download one — see docs/SETUP.md"
+                    "Download one — see README.md"
                 )
         self.model_name = os.path.basename(model_path)
         self.llm = Llama(model_path=model_path, n_ctx=4096, verbose=False)

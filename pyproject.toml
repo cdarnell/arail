@@ -1,6 +1,6 @@
 [build-system]
 requires = ["setuptools>=68.0", "wheel"]
-build-backend = "setuptools.backends._legacy:_Backend"
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "oglab"
@@ -12,7 +12,6 @@ requires-python = ">=3.10"
 dependencies = [
     "python-dotenv>=1.0.0",
     "requests>=2.31.0",
-    "pydantic>=2.6.0",
     "huggingface-hub>=0.23.0",
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.30.0",

@@ -20,6 +20,27 @@ from oglab.skills.experiment_tracker import ExperimentTracker
 from oglab.skills.goal_parser import infer_domain, DOMAIN_KEYWORDS
 
 
+def _get_router():
+    """Lazy-load ModelRouter — returns None if no backend is available."""
+    try:
+        from oglab.router.core import ModelRouter
+        router = ModelRouter()
+        return router
+    except Exception:
+        return None
+
+
+def _llm_complete(router, prompt: str, max_tokens: int = 512) -> str | None:
+    """Call the LLM and return text, or None on failure."""
+    if router is None:
+        return None
+    try:
+        resp = router.complete(prompt, max_tokens=max_tokens, temperature=0.7)
+        return resp.text.strip() if resp.text else None
+    except Exception:
+        return None
+
+
 class ResearcherAgent:
     """Autonomous research agent that drives experiments toward a goal."""
 
@@ -27,6 +48,7 @@ class ResearcherAgent:
         self.goal_store = GoalStore()
         self.tracker = ExperimentTracker()
         self.curator = CuratorAgent()
+        self._router = _get_router()
         self._task: Optional[asyncio.Task] = None
         self._paused = False
         self._status = "idle"  # idle | running | paused | completed | error
@@ -76,7 +98,7 @@ class ResearcherAgent:
             hypotheses = self._plan_research(parsed_goal)
             activity_log.emit("researcher",
                               f"Generated {len(hypotheses)} research hypotheses.",
-                              "info", {"hypotheses": hypotheses})
+                              "info", {"hypotheses": hypotheses, "progress": 0.1})
             self.goal_store.update_progress(0.1)
 
             # Step 2: Design experiments for each hypothesis
@@ -90,6 +112,7 @@ class ResearcherAgent:
                                   f"Created experiment {exp['id']}: {exp['hypothesis'][:80]}",
                                   "info", {"experiment_id": exp["id"]})
                 await asyncio.sleep(0.5)  # pacing for UX
+            activity_log.emit("researcher", "Experiments designed.", "info", {"progress": 0.3})
             self.goal_store.update_progress(0.3)
 
             # Step 3: Gather sources via Curator
@@ -113,6 +136,7 @@ class ResearcherAgent:
                 activity_log.emit("researcher",
                                   "No external sources needed — running fully local.",
                                   "info")
+            activity_log.emit("researcher", "Source gathering complete.", "info", {"progress": 0.5})
             self.goal_store.update_progress(0.5)
 
             # Step 4: Simulate running experiments
@@ -130,6 +154,7 @@ class ResearcherAgent:
                                   f"Observation logged for {exp['id']}: {observation[:80]}",
                                   "info")
                 await asyncio.sleep(0.5)
+            activity_log.emit("researcher", "Experiments complete.", "info", {"progress": 0.7})
             self.goal_store.update_progress(0.7)
 
             # Step 5: Analyze and complete experiments
@@ -144,6 +169,7 @@ class ResearcherAgent:
                                   f"Experiment {exp['id']} completed — {'supported' if success else 'not supported'}.",
                                   "success" if success else "warn")
                 await asyncio.sleep(0.5)
+            activity_log.emit("researcher", "Analysis complete.", "info", {"progress": 0.9})
             self.goal_store.update_progress(0.9)
 
             # Step 6: Generate report
@@ -153,7 +179,7 @@ class ResearcherAgent:
             self.goal_store.update_progress(1.0)
             activity_log.emit("researcher",
                               "Research complete. Report generated.",
-                              "success", {"report_preview": report[:200]})
+                              "success", {"report_preview": report[:200], "progress": 1.0})
             self._status = "completed"
 
         except asyncio.CancelledError:
@@ -167,21 +193,37 @@ class ResearcherAgent:
         while self._paused:
             await asyncio.sleep(0.5)
 
-    # ── Research methods (heuristic — LLM upgrade later) ─────────────
+    # ── Research methods (LLM-enhanced with heuristic fallback) ────
 
     def _plan_research(self, parsed_goal: Dict[str, Any]) -> List[str]:
-        """Generate hypotheses from the goal.  Heuristic for now."""
+        """Generate hypotheses from the goal.  Uses LLM if available."""
         goal_text = parsed_goal.get("goal", "")
         domain = parsed_goal.get("domain", "general")
         sub_objectives = parsed_goal.get("sub_objectives", [])
 
+        # Try LLM first
+        prompt = (
+            f"You are a research assistant. Given the goal below, generate 3-5 "
+            f"testable hypotheses as a numbered list.\n\n"
+            f"Goal: {goal_text}\nDomain: {domain}\n"
+            f"Sub-objectives: {', '.join(sub_objectives) if sub_objectives else 'none'}\n\n"
+            f"Hypotheses:"
+        )
+        llm_text = _llm_complete(self._router, prompt, max_tokens=400)
+        if llm_text:
+            # Parse numbered list from LLM output
+            lines = [l.strip().lstrip("0123456789.-) ") for l in llm_text.split("\n") if l.strip()]
+            hypotheses = [l for l in lines if len(l) > 10][:5]
+            if hypotheses:
+                return hypotheses
+
+        # Heuristic fallback
         hypotheses = []
         if sub_objectives:
             for obj in sub_objectives[:5]:
                 hypotheses.append(
                     f"Optimizing '{obj}' will contribute to: {goal_text}")
         else:
-            # Generate from domain keywords
             domain_kws = DOMAIN_KEYWORDS.get(domain, [])
             relevant = [kw for kw in domain_kws if kw.lower() in goal_text.lower()]
             if relevant:
@@ -193,7 +235,6 @@ class ResearcherAgent:
                     f"A systematic approach to '{goal_text}' will yield measurable results",
                     f"Iterative experimentation will identify optimal parameters for: {goal_text}",
                 ]
-
         return hypotheses
 
     def _design_experiment(self, hypothesis: str, domain: str) -> Dict[str, Any]:
@@ -209,14 +250,48 @@ class ResearcherAgent:
         )
 
     def _generate_observation(self, exp: Dict[str, Any], domain: str) -> str:
-        """Generate a simulated observation."""
+        """Generate an observation — LLM-enhanced with fallback."""
+        prompt = (
+            f"You are running an experiment about: {exp['hypothesis'][:100]}\n"
+            f"Domain: {domain}\n"
+            f"Write a single concise observation (1-2 sentences) from initial data collection."
+        )
+        llm_text = _llm_complete(self._router, prompt, max_tokens=100)
+        if llm_text:
+            return llm_text[:200]
         return (
             f"Initial data collection for '{exp['hypothesis'][:50]}...' shows "
             f"promising patterns. Baseline metrics established."
         )
 
     def _analyze_experiment(self, exp: Dict[str, Any], domain: str) -> Dict[str, Any]:
-        """Analyze experiment results.  Returns results dict."""
+        """Analyze experiment results — LLM-enhanced with fallback."""
+        prompt = (
+            f"You are analyzing an experiment.\n"
+            f"Hypothesis: {exp['hypothesis'][:100]}\n"
+            f"Domain: {domain}\n"
+            f"Provide a JSON object with keys: improvement_rate (0-1), "
+            f"confidence_score (0-1), data_points (int), conclusion (string), success (bool).\n"
+            f"JSON:"
+        )
+        llm_text = _llm_complete(self._router, prompt, max_tokens=200)
+        if llm_text:
+            try:
+                # Try to extract JSON from response
+                import re
+                match = re.search(r'\{[^}]+\}', llm_text)
+                if match:
+                    parsed = json.loads(match.group())
+                    # Ensure required keys
+                    return {
+                        "improvement_rate": float(parsed.get("improvement_rate", 0.15)),
+                        "confidence_score": float(parsed.get("confidence_score", 0.72)),
+                        "data_points": int(parsed.get("data_points", 24)),
+                        "conclusion": str(parsed.get("conclusion", "See results.")),
+                        "success": bool(parsed.get("success", True)),
+                    }
+            except (json.JSONDecodeError, ValueError):
+                pass
         return {
             "improvement_rate": 0.15,
             "confidence_score": 0.72,
@@ -227,11 +302,27 @@ class ResearcherAgent:
 
     def _generate_report(self, parsed_goal: Dict[str, Any],
                          experiments: List[Dict[str, Any]]) -> str:
-        """Generate a markdown research report."""
+        """Generate a markdown research report — LLM-enhanced with fallback."""
         goal_text = parsed_goal.get("goal", "")
         domain = parsed_goal.get("domain", "general")
         n = len(experiments)
 
+        # Try LLM for a richer report
+        exp_summaries = "\n".join(
+            f"- {exp['hypothesis'][:80]}" for exp in experiments
+        )
+        prompt = (
+            f"Write a concise research report in Markdown.\n\n"
+            f"Goal: {goal_text}\nDomain: {domain}\n"
+            f"Experiments ({n}):\n{exp_summaries}\n\n"
+            f"Include: Summary, Key Findings, Recommendations.\n"
+            f"Keep it under 300 words.\n\nReport:"
+        )
+        llm_text = _llm_complete(self._router, prompt, max_tokens=600)
+        if llm_text and len(llm_text) > 50:
+            return llm_text
+
+        # Heuristic fallback
         report_lines = [
             f"# Research Report",
             f"",

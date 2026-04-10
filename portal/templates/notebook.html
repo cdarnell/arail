@@ -22,7 +22,26 @@
 </nav>
 <div class="container">
   <p class="hint">Jupyter Lab — start with: <code>jupyter lab --no-browser --port 8888</code></p>
-  <iframe class="embed-frame" src="http://localhost:8888" title="Jupyter Lab"></iframe>
+  <iframe class="embed-frame" id="nb-frame" src="http://localhost:8888" title="Jupyter Lab"></iframe>
+  <div id="fallback" style="display:none;" class="card">
+    <h2><span class="indicator"></span> Notebook Not Running</h2>
+    <p>Jupyter Lab is not available on port 8888. Start it with:</p>
+    <pre style="margin:1rem 0;padding:0.75rem;background:var(--surface);border-radius:var(--radius);color:var(--green)">jupyter lab --no-browser --port 8888</pre>
+    <p class="hint">Or run <code>./start.sh</code> to launch all services at once.</p>
+  </div>
 </div>
+<script>
+document.getElementById('nb-frame').addEventListener('error', () => {
+  document.getElementById('nb-frame').style.display = 'none';
+  document.getElementById('fallback').style.display = '';
+});
+setTimeout(() => {
+  const f = document.getElementById('nb-frame');
+  try { if (!f.contentWindow.document.body.innerHTML) throw 0; } catch(e) {
+    f.style.display = 'none';
+    document.getElementById('fallback').style.display = '';
+  }
+}, 3000);
+</script>
 </body>
 </html>

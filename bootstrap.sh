@@ -431,6 +431,8 @@ BIND="${BIND_ADDR:-127.0.0.1}"
 # Activate venv
 source .venv/bin/activate
 
+PIDS=()
+
 echo ""
 echo -e "${CYAN}${BOLD}⟨OGLab⟩ Starting lab services…${RESET}"
 echo ""

@@ -36,6 +36,15 @@ plugin_mgr = PluginManager()
 @app.on_event("startup")
 async def _startup():
     activity_log.emit("system", "OGLab portal started.", "success")
+    # First-run welcome — only if no goal has been set yet
+    current = goal_store.get_current()
+    if not current:
+        activity_log.emit("system",
+            "Welcome to OGLab. Type a goal above to begin — the researcher agent will take it from there.",
+            "info")
+        activity_log.emit("system",
+            "Tip: Goals can be anything — 'grow peanuts in zone 7', 'build a trading bot', 'learn Rust'.",
+            "info")
 
 
 # ── Pages ────────────────────────────────────────────────────────────────
@@ -100,12 +109,18 @@ async def activity_recent(n: int = 30):
 async def set_goal(request: Request):
     body = await request.json()
     goal_text = body.get("goal", "")
+    auto_start = body.get("auto_start", True)
     try:
         parsed = parser.parse(goal_text)
     except Exception:
         parsed = parser.parse_offline(goal_text)
     record = goal_store.set_goal(parsed)
     activity_log.emit("goal", f"New goal set: {goal_text}", "info")
+    # Auto-start research unless explicitly disabled
+    if auto_start and researcher.status in ("idle", "completed", "error"):
+        researcher.start(parsed)
+        activity_log.emit("researcher",
+            "Auto-starting research on your new goal…", "info")
     return record
 
 
@@ -199,7 +214,7 @@ async def uninstall_plugin(name: str):
     try:
         plugin_mgr.uninstall(name)
         return {"status": "removed"}
-    except KeyError:
+    except ValueError:
         return {"error": f"Plugin '{name}' not found"}
 
 

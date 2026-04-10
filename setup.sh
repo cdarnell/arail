@@ -90,6 +90,7 @@ ensure_python() {
 install_core_deps() {
     info "Installing core dependencies…"
     pip install -q -r requirements.txt
+    pip install -q -e .
 }
 
 # -----------------------------------------------------------------------------

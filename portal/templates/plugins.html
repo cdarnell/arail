@@ -4,7 +4,6 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>OGLab — Plugins</title>
-<script src="https://unpkg.com/htmx.org@2.0.4"></script>
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
@@ -86,7 +85,7 @@ document.getElementById('install-form').addEventListener('submit', async (e) => 
       status.innerHTML = `<span style="color:var(--green)">✓ Installed ${data.name || 'plugin'}</span>`;
       setTimeout(() => location.reload(), 1000);
     } else {
-      status.innerHTML = `<span style="color:var(--red)">✗ ${data.detail || 'Install failed'}</span>`;
+      status.innerHTML = `<span style="color:var(--red)">✗ ${data.error || 'Install failed'}</span>`;
     }
   } catch (err) {
     status.innerHTML = `<span style="color:var(--red)">✗ ${err.message}</span>`;

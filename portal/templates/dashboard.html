@@ -4,7 +4,6 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>OGLab</title>
-<script src="https://unpkg.com/htmx.org@2.0.4"></script>
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
@@ -197,6 +196,8 @@ document.getElementById('goal-form').addEventListener('submit', async (e) => {
   });
   const data = await resp.json();
   renderGoalBreakdown(data);
+  // Auto-started research — show running state
+  showResearchButtons('running');
 });
 
 function renderGoalBreakdown(data) {
@@ -296,7 +297,7 @@ evtSource.onmessage = (e) => {
   }
 
   // Update research status on completion
-  if (event.source === 'researcher' && event.message.includes('complete')) {
+  if (event.source === 'researcher' && event.message === 'Research complete. Report generated.') {
     showResearchButtons('completed');
     setTimeout(() => location.reload(), 2000);
   }

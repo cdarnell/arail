@@ -367,6 +367,7 @@ code {
 .status.planning { background: rgba(85,94,112,.15); color: var(--muted); border: 1px solid var(--border); }
 .status.pending { background: rgba(255,176,0,.1); color: var(--amber); border: 1px solid rgba(255,176,0,.2); }
 .status.active { background: rgba(0,255,65,.1); color: var(--green); border: 1px solid rgba(0,255,65,.2); }
+.status.inactive { background: rgba(85,94,112,.15); color: var(--muted); border: 1px solid var(--border); }
 .status.running { background: rgba(0,212,255,.1); color: var(--blue); border: 1px solid rgba(0,212,255,.2); animation: pulse-blue 2s infinite; }
 
 @keyframes pulse-blue {

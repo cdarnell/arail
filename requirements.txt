@@ -1,7 +1,6 @@
 # Core
 python-dotenv>=1.0.0
 requests>=2.31.0
-pydantic>=2.6.0
 huggingface-hub>=0.23.0
 
 # Portal

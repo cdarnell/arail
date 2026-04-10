@@ -22,7 +22,26 @@
 </nav>
 <div class="container">
   <p class="hint">WezTerm via ttyd — full local shell. Start ttyd: <code>ttyd -W -p 7681 zsh</code></p>
-  <iframe class="embed-frame" src="http://localhost:7681" title="Terminal"></iframe>
+  <iframe class="embed-frame" id="term-frame" src="http://localhost:7681" title="Terminal"></iframe>
+  <div id="fallback" style="display:none;" class="card">
+    <h2><span class="indicator"></span> Terminal Not Running</h2>
+    <p>ttyd is not available on port 7681. Start it with:</p>
+    <pre style="margin:1rem 0;padding:0.75rem;background:var(--surface);border-radius:var(--radius);color:var(--green)">ttyd -W -p 7681 zsh</pre>
+    <p class="hint">Or run <code>./start.sh</code> to launch all services at once.</p>
+  </div>
 </div>
+<script>
+document.getElementById('term-frame').addEventListener('error', () => {
+  document.getElementById('term-frame').style.display = 'none';
+  document.getElementById('fallback').style.display = '';
+});
+setTimeout(() => {
+  const f = document.getElementById('term-frame');
+  try { if (!f.contentWindow.document.body.innerHTML) throw 0; } catch(e) {
+    f.style.display = 'none';
+    document.getElementById('fallback').style.display = '';
+  }
+}, 3000);
+</script>
 </body>
 </html>
