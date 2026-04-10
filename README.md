@@ -47,10 +47,27 @@ not need to own the GPU driver on every platform.
 Mac host  ──→  MLX (native Metal, no VM needed)
 WSL2      ──→  CUDA via Windows GPU bridge
 Linux box ──→  CUDA / ROCm via Gentoo portage
+Any host  ──→  Local inference server (LM Studio / Ollama / DeployLM)
 Any host  ──→  CPU fallback (llama.cpp)
+Any host  ──→  External API (free tier, bring your own token)
 ```
 
 One codebase, zero `if platform ==` branches in user code.
+
+### Local inference servers
+
+Don't want to wire up raw CUDA or MLX? Point the router at a local
+inference server instead.  These run on your GPU and expose an
+OpenAI-compatible API on localhost:
+
+| Server | Best for | GPU support |
+|--------|----------|-------------|
+| [LM Studio](https://lmstudio.ai) | Desktop GUI, one-click models | CUDA, Metal, Vulkan |
+| [Ollama](https://ollama.com) | CLI-first, `ollama run` simplicity | CUDA, Metal |
+| [DeployLM](https://deploylm.com) | Production serving, multi-model | CUDA |
+
+Set `MODEL_BACKEND=openai_compat` and `MODEL_API_BASE=http://localhost:1234/v1`
+in your `.env`.  The router talks to it like any other backend.
 
 ## Two Modes
 
@@ -125,6 +142,7 @@ print(response.text)
 | MLX (Mac) | `mlx` | Apple Silicon | Free |
 | CUDA (Nvidia) | `cuda` | Nvidia GPU + vLLM | Free |
 | CPU (llama.cpp) | `cpu` | Any machine | Free |
+| **LM Studio / Ollama / DeployLM** | `openai_compat` | Local server running | Free |
 | HuggingFace | `huggingface` | API key | Free tier |
 | OpenRouter | `openrouter` | API key | Free tier |
 | Claude | `claude` | API key | Paid |

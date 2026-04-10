@@ -291,12 +291,60 @@ class ClaudeBackend(BaseBackend):
 
 
 # ---------------------------------------------------------------------------
+# OpenAI-compatible local server  (LM Studio / Ollama / DeployLM)
+# ---------------------------------------------------------------------------
+class OpenAICompatBackend(BaseBackend):
+    """Talks to any server that exposes the OpenAI /v1/chat/completions
+    endpoint on localhost.  Works with LM Studio, Ollama, DeployLM, etc."""
+
+    def __init__(self) -> None:
+        import requests
+        self._session = requests.Session()
+        self.base_url = os.getenv("MODEL_API_BASE",
+                                   "http://localhost:1234/v1").rstrip("/")
+        self.model_name = os.getenv("MODEL_NAME", "default")
+        self.api_key = os.getenv("MODEL_API_KEY", "not-needed")
+
+    def complete(self, prompt: str, max_tokens: int = 512,
+                 temperature: float = 0.7) -> ModelResponse:
+        start = time.time()
+        resp = self._session.post(
+            f"{self.base_url}/chat/completions",
+            headers={"Authorization": f"Bearer {self.api_key}",
+                     "Content-Type": "application/json"},
+            json={"model": self.model_name,
+                  "messages": [{"role": "user", "content": prompt}],
+                  "temperature": temperature,
+                  "max_tokens": max_tokens},
+            timeout=120,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        return ModelResponse(
+            text=data["choices"][0]["message"]["content"],
+            model=data.get("model", self.model_name),
+            tokens_used=data.get("usage", {}).get("completion_tokens", 0),
+            backend="openai_compat",
+            latency_ms=(time.time() - start) * 1000,
+            cost_usd=0.0,
+        )
+
+    def health_check(self) -> bool:
+        try:
+            r = self._session.get(f"{self.base_url}/models", timeout=5)
+            return r.status_code == 200
+        except Exception:
+            return False
+
+
+# ---------------------------------------------------------------------------
 # Registry used by ModelRouter
 # ---------------------------------------------------------------------------
 BACKEND_MAP: dict[str, type[BaseBackend]] = {
     "mlx": MLXBackend,
     "cuda": CUDABackend,
     "cpu": CPUBackend,
+    "openai_compat": OpenAICompatBackend,
     "huggingface": HuggingFaceBackend,
     "openrouter": OpenRouterBackend,
     "claude": ClaudeBackend,
