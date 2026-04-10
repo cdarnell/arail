@@ -5,157 +5,162 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>OGLab</title>
 <script src="https://unpkg.com/htmx.org@2.0.4"></script>
-<style>
-  :root {
-    --bg: #0d1117; --surface: #161b22; --border: #30363d;
-    --text: #e6edf3; --muted: #8b949e; --accent: #58a6ff;
-    --green: #3fb950; --red: #f85149; --yellow: #d29922;
-  }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: 'SF Mono', 'Fira Code', monospace; background: var(--bg); color: var(--text); }
-
-  /* ── Nav ── */
-  nav { display: flex; align-items: center; gap: 1.5rem; padding: 0.75rem 1.5rem;
-        background: var(--surface); border-bottom: 1px solid var(--border); }
-  nav .logo { font-size: 1.2rem; font-weight: 700; color: var(--accent); }
-  nav a { color: var(--muted); text-decoration: none; font-size: 0.85rem; }
-  nav a:hover, nav a.active { color: var(--text); }
-  nav .mode { margin-left: auto; font-size: 0.75rem; padding: 0.25rem 0.6rem;
-              border-radius: 999px; background: var(--green); color: #000; font-weight: 600; }
-  nav .mode.hybrid { background: var(--yellow); }
-
-  /* ── Layout ── */
-  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; padding: 1.5rem; }
-  .card { background: var(--surface); border: 1px solid var(--border);
-          border-radius: 8px; padding: 1.25rem; }
-  .card h2 { font-size: 0.9rem; color: var(--muted); margin-bottom: 1rem;
-             text-transform: uppercase; letter-spacing: 0.05em; }
-  .full { grid-column: 1 / -1; }
-
-  /* ── Goal input ── */
-  .goal-form { display: flex; gap: 0.5rem; }
-  .goal-form input { flex: 1; padding: 0.6rem 1rem; background: var(--bg);
-                     border: 1px solid var(--border); border-radius: 6px;
-                     color: var(--text); font-family: inherit; font-size: 0.95rem; }
-  .goal-form input:focus { outline: none; border-color: var(--accent); }
-  .btn { padding: 0.6rem 1.2rem; border: none; border-radius: 6px;
-         background: var(--accent); color: #000; font-weight: 600;
-         cursor: pointer; font-family: inherit; font-size: 0.85rem; }
-  .btn:hover { opacity: 0.9; }
-  .btn-sm { padding: 0.3rem 0.7rem; font-size: 0.75rem; }
-  .btn-green { background: var(--green); }
-  .btn-red { background: var(--red); color: #fff; }
-  .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text); }
-
-  /* ── Tables ── */
-  table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
-  th { text-align: left; color: var(--muted); font-weight: 500;
-       padding: 0.5rem 0; border-bottom: 1px solid var(--border); }
-  td { padding: 0.5rem 0; border-bottom: 1px solid var(--border); }
-  .status { font-size: 0.75rem; padding: 0.15rem 0.5rem; border-radius: 999px; }
-  .status.completed { background: rgba(63,185,80,.15); color: var(--green); }
-  .status.in_progress { background: rgba(210,153,34,.15); color: var(--yellow); }
-  .status.planning { background: rgba(139,148,158,.15); color: var(--muted); }
-  .status.pending { background: rgba(210,153,34,.15); color: var(--yellow); }
-
-  /* ── Consent requests ── */
-  .consent-item { display: flex; align-items: center; gap: 1rem;
-                  padding: 0.75rem; border: 1px solid var(--border);
-                  border-radius: 6px; margin-bottom: 0.5rem; background: var(--bg); }
-  .consent-item .info { flex: 1; }
-  .consent-item .domain { color: var(--accent); font-weight: 600; }
-  .consent-item .reason { color: var(--muted); font-size: 0.8rem; margin-top: 0.25rem; }
-  .consent-item .actions { display: flex; gap: 0.4rem; align-items: center; }
-  .consent-item label { font-size: 0.75rem; color: var(--muted); }
-
-  .empty { color: var(--muted); font-size: 0.85rem; font-style: italic; }
-
-  /* ── Iframe panels ── */
-  .embed-frame { width: 100%; height: 500px; border: 1px solid var(--border);
-                 border-radius: 6px; background: #000; }
-</style>
+<link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
 
 <nav>
-  <span class="logo">&#x1f9ea; OGLab</span>
+  <span class="logo">⟨OGLab⟩</span>
   <a href="/" class="active">Dashboard</a>
   <a href="/terminal">Terminal</a>
   <a href="/notebook">Notebook</a>
-  <span class="mode">AIRGAPPED</span>
+  <a href="/plugins">Plugins</a>
+  <span class="mode-badge airgapped" id="mode-badge">⬤ Airgapped</span>
 </nav>
 
 <div class="grid">
 
-  <!-- ── Goal ── -->
-  <div class="card full">
-    <h2>Set Your Goal</h2>
-    <form class="goal-form" hx-post="/api/goal" hx-target="#goal-result"
-          hx-headers='{"Content-Type": "application/json"}'
-          hx-vals="js:{goal: document.getElementById('goal-input').value}"
-          hx-swap="innerHTML">
+  <!-- ═══ Goal Panel ═══ -->
+  <div class="card full" id="goal-card">
+    <h2><span class="indicator"></span> Mission Objective</h2>
+    <form class="goal-form" id="goal-form">
+      <span class="prompt-prefix">oglab:~$</span>
       <input id="goal-input" type="text"
-             placeholder='e.g. "I want to grow the best peanuts in Georgia"'
-             autocomplete="off" />
-      <button class="btn" type="submit">Parse Goal</button>
+             placeholder="describe your goal — what do you want to build, grow, learn, or research?"
+             autocomplete="off"
+             value="{{ current_goal.goal_text if current_goal else '' }}" />
+      <button class="btn btn-primary" type="submit">Parse</button>
     </form>
-    <div id="goal-result" style="margin-top:1rem;"></div>
+
+    <!-- Goal breakdown (populated after parse) -->
+    <div id="goal-result">
+      {% if current_goal %}
+      <div class="goal-breakdown">
+        <div class="field">
+          <div class="field-label">Domain</div>
+          <div class="field-value"><span class="status active">{{ current_goal.parsed.domain }}</span></div>
+        </div>
+        <div class="field">
+          <div class="field-label">Primary Objective</div>
+          <div class="field-value">{{ current_goal.parsed.primary_objective }}</div>
+        </div>
+        {% if current_goal.parsed.sub_objectives %}
+        <div class="field">
+          <div class="field-label">Sub-Objectives</div>
+          <ul class="sub-obj-list">
+            {% for obj in current_goal.parsed.sub_objectives %}
+            <li>{{ obj }}</li>
+            {% endfor %}
+          </ul>
+        </div>
+        {% endif %}
+      </div>
+      {% endif %}
+    </div>
+
+    <!-- Research controls -->
+    <div class="research-controls">
+      <button class="btn btn-sm btn-primary" id="btn-research-start"
+              onclick="startResearch()">▶ Start Research</button>
+      <button class="btn btn-sm btn-ghost" id="btn-research-pause"
+              onclick="controlResearch('pause')" style="display:none">⏸ Pause</button>
+      <button class="btn btn-sm btn-ghost" id="btn-research-resume"
+              onclick="controlResearch('resume')" style="display:none">▶ Resume</button>
+      <span class="research-status" id="research-status">
+        {% if research_status == 'running' %}
+        <span class="status running">● Researching</span>
+        {% elif research_status == 'paused' %}
+        <span class="status pending">● Paused</span>
+        {% elif research_status == 'completed' %}
+        <span class="status completed">● Complete</span>
+        {% else %}
+        idle
+        {% endif %}
+      </span>
+    </div>
   </div>
 
-  <!-- ── Experiments ── -->
+  <!-- ═══ Mission Status ═══ -->
   <div class="card">
-    <h2>Experiments</h2>
+    <h2><span class="indicator"></span> Mission Status</h2>
+
+    <!-- Progress Ring -->
+    <div class="progress-ring">
+      <svg viewBox="0 0 100 100">
+        <circle class="ring-bg" cx="50" cy="50" r="40"/>
+        <circle class="ring-fill" cx="50" cy="50" r="40"
+                id="progress-ring-fill"
+                style="stroke-dashoffset: {{ 251.2 - (251.2 * (current_goal.progress if current_goal else 0)) }}"/>
+      </svg>
+      <div class="ring-label" id="progress-label">{{ ((current_goal.progress if current_goal else 0) * 100)|int }}%</div>
+    </div>
+
+    <!-- Experiments summary -->
+    <h2 style="margin-top:1rem;">Experiments</h2>
     {% if experiments %}
     <table>
       <tr><th>ID</th><th>Hypothesis</th><th>Status</th></tr>
       {% for e in experiments %}
       <tr>
         <td><code>{{ e.id }}</code></td>
-        <td>{{ e.hypothesis[:60] }}{% if e.hypothesis|length > 60 %}&hellip;{% endif %}</td>
+        <td>{{ e.hypothesis[:55] }}{% if e.hypothesis|length > 55 %}&hellip;{% endif %}</td>
         <td><span class="status {{ e.status }}">{{ e.status }}</span></td>
       </tr>
       {% endfor %}
     </table>
     {% else %}
-    <p class="empty">No experiments yet. Set a goal to get started.</p>
+    <p class="empty">No experiments yet. Set a goal to begin.</p>
+    {% endif %}
+
+    <!-- Report preview -->
+    {% if current_goal and current_goal.report %}
+    <h2 style="margin-top:1.5rem;">Research Report</h2>
+    <div class="report">{{ current_goal.report }}</div>
     {% endif %}
   </div>
 
-  <!-- ── Agent Consent ── -->
+  <!-- ═══ Activity Feed ═══ -->
   <div class="card">
-    <h2>Agent Network Requests</h2>
+    <h2><span class="indicator"></span> Activity Feed</h2>
+    <div class="activity-feed" id="activity-feed">
+      {% for event in recent_activity %}
+      <div class="activity-event {{ event.level }}">
+        <span class="ts">{{ event.ts[11:19] }}</span>
+        <span class="src">{{ event.source }} ›</span>
+        <span class="msg">{{ event.message }}</span>
+      </div>
+      {% endfor %}
+      {% if not recent_activity %}
+      <p class="empty">Waiting for activity…<span class="cursor-blink"></span></p>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- ═══ Agent Consent ═══ -->
+  <div class="card full">
+    <h2><span class="indicator"></span> Agent Network Requests</h2>
+    <div id="consent-list">
     {% if pending_requests %}
       {% for req in pending_requests %}
-      <div class="consent-item">
+      <div class="consent-item" id="consent-{{ req.id }}">
         <div class="info">
           <div class="domain">{{ req.domain }}</div>
           <div class="reason">{{ req.reason }}</div>
         </div>
         <div class="actions">
-          <button class="btn btn-sm btn-green"
-                  hx-post="/api/consent/approve"
-                  hx-headers='{"Content-Type": "application/json"}'
-                  hx-vals='{"id": "{{ req.id }}", "remember_domain": false}'
-                  hx-swap="outerHTML"
-                  hx-target="closest .consent-item">Approve</button>
-          <button class="btn btn-sm btn-green btn-outline"
-                  hx-post="/api/consent/approve"
-                  hx-headers='{"Content-Type": "application/json"}'
-                  hx-vals='{"id": "{{ req.id }}", "remember_domain": true}'
-                  hx-swap="outerHTML"
-                  hx-target="closest .consent-item">+ Domain</button>
+          <button class="btn btn-sm btn-primary"
+                  onclick="consentAction('approve', '{{ req.id }}', false)">Approve</button>
+          <button class="btn btn-sm btn-ghost"
+                  onclick="consentAction('approve', '{{ req.id }}', true)">+ Domain</button>
           <button class="btn btn-sm btn-red"
-                  hx-post="/api/consent/deny"
-                  hx-headers='{"Content-Type": "application/json"}'
-                  hx-vals='{"id": "{{ req.id }}"}'
-                  hx-swap="outerHTML"
-                  hx-target="closest .consent-item">Deny</button>
+                  onclick="consentAction('deny', '{{ req.id }}')">Deny</button>
         </div>
       </div>
       {% endfor %}
     {% else %}
     <p class="empty">No pending requests. Agents are running locally.</p>
     {% endif %}
+    </div>
 
     {% if allowed_domains %}
     <h2 style="margin-top:1.5rem;">Allowed Domains</h2>
@@ -164,7 +169,7 @@
       {% for d in allowed_domains %}
       <tr>
         <td>{{ d }}</td>
-        <td><button class="btn btn-sm btn-red btn-outline">Revoke</button></td>
+        <td><button class="btn btn-sm btn-red" onclick="revokeDomain('{{ d }}')">Revoke</button></td>
       </tr>
       {% endfor %}
     </table>
@@ -172,5 +177,148 @@
   </div>
 
 </div>
+
+<script>
+/* ═══════════════════════════════════════════════════════════════
+   OGLab Dashboard — vanilla JS, no framework
+   ═══════════════════════════════════════════════════════════════ */
+
+// ── Goal submission ──
+document.getElementById('goal-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const input = document.getElementById('goal-input');
+  const goal = input.value.trim();
+  if (!goal) return;
+
+  const resp = await fetch('/api/goal', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({goal})
+  });
+  const data = await resp.json();
+  renderGoalBreakdown(data);
+});
+
+function renderGoalBreakdown(data) {
+  const container = document.getElementById('goal-result');
+  const parsed = data.parsed || data;
+  let html = '<div class="goal-breakdown">';
+  html += field('Domain', `<span class="status active">${parsed.domain || 'general'}</span>`);
+  html += field('Primary Objective', parsed.primary_objective || parsed.goal || '');
+  if (parsed.sub_objectives && parsed.sub_objectives.length) {
+    html += '<div class="field"><div class="field-label">Sub-Objectives</div><ul class="sub-obj-list">';
+    parsed.sub_objectives.forEach(o => { html += `<li>${esc(o)}</li>`; });
+    html += '</ul></div>';
+  }
+  if (parsed.timeline && parsed.timeline !== 'unspecified') {
+    html += field('Timeline', parsed.timeline);
+  }
+  if (parsed.confidence !== undefined) {
+    html += field('Confidence', `${Math.round(parsed.confidence * 100)}%`);
+  }
+  html += '</div>';
+  container.innerHTML = html;
+}
+
+function field(label, value) {
+  return `<div class="field"><div class="field-label">${esc(label)}</div><div class="field-value">${value}</div></div>`;
+}
+
+// ── Research controls ──
+async function startResearch() {
+  await fetch('/api/research/start', {method: 'POST'});
+  showResearchButtons('running');
+}
+
+async function controlResearch(action) {
+  await fetch(`/api/research/${action}`, {method: 'POST'});
+  showResearchButtons(action === 'pause' ? 'paused' : 'running');
+}
+
+function showResearchButtons(state) {
+  const start = document.getElementById('btn-research-start');
+  const pause = document.getElementById('btn-research-pause');
+  const resume = document.getElementById('btn-research-resume');
+  const status = document.getElementById('research-status');
+  start.style.display = state === 'idle' || state === 'completed' ? '' : 'none';
+  pause.style.display = state === 'running' ? '' : 'none';
+  resume.style.display = state === 'paused' ? '' : 'none';
+  const labels = {
+    running: '<span class="status running">● Researching</span>',
+    paused: '<span class="status pending">● Paused</span>',
+    completed: '<span class="status completed">● Complete</span>',
+    idle: 'idle'
+  };
+  status.innerHTML = labels[state] || 'idle';
+}
+
+// ── Consent actions ──
+async function consentAction(action, id, rememberDomain) {
+  const body = action === 'deny' ? {id} : {id, remember_domain: !!rememberDomain};
+  await fetch(`/api/consent/${action}`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body)
+  });
+  const el = document.getElementById(`consent-${id}`);
+  if (el) el.remove();
+}
+
+async function revokeDomain(domain) {
+  await fetch('/api/consent/revoke', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({domain})
+  });
+  location.reload();
+}
+
+// ── SSE Activity Feed ──
+const feed = document.getElementById('activity-feed');
+const evtSource = new EventSource('/api/activity/stream');
+
+evtSource.onmessage = (e) => {
+  const event = JSON.parse(e.data);
+  // Remove empty placeholder
+  const empty = feed.querySelector('.empty');
+  if (empty) empty.remove();
+
+  const div = document.createElement('div');
+  div.className = `activity-event ${event.level || 'info'}`;
+  const ts = event.ts ? event.ts.substring(11, 19) : '';
+  div.innerHTML = `<span class="ts">${ts}</span><span class="src">${esc(event.source)} ›</span><span class="msg">${esc(event.message)}</span>`;
+  feed.appendChild(div);
+  feed.scrollTop = feed.scrollHeight;
+
+  // Auto-update progress if included
+  if (event.data && event.data.progress !== undefined) {
+    updateProgress(event.data.progress);
+  }
+
+  // Update research status on completion
+  if (event.source === 'researcher' && event.message.includes('complete')) {
+    showResearchButtons('completed');
+    setTimeout(() => location.reload(), 2000);
+  }
+};
+
+evtSource.onerror = () => {
+  // Will auto-reconnect
+};
+
+function updateProgress(p) {
+  const fill = document.getElementById('progress-ring-fill');
+  const label = document.getElementById('progress-label');
+  if (fill) fill.style.strokeDashoffset = 251.2 - (251.2 * p);
+  if (label) label.textContent = Math.round(p * 100) + '%';
+}
+
+// ── Utility ──
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+</script>
 </body>
 </html>

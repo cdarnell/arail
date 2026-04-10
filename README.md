@@ -34,6 +34,24 @@ Works for farming, ML research, cooking, business — any domain.
 | **Windows** | Nvidia via WSL2 | GPU passthrough to Linux |
 | **Any Linux** | CUDA / CPU | Standard pip install |
 
+### GPU abstraction
+
+GPU drivers vary wildly across platforms — CUDA on Linux, Metal/MLX on
+Mac, the WSL2 `/dev/dxg` bridge on Windows.  **The model router
+abstracts all of this.**  Your code calls `router.complete()` and the
+router dispatches to whatever accelerator is available on the host.
+Gentoo serves as the lab environment and orchestration layer; it does
+not need to own the GPU driver on every platform.
+
+```
+Mac host  ──→  MLX (native Metal, no VM needed)
+WSL2      ──→  CUDA via Windows GPU bridge
+Linux box ──→  CUDA / ROCm via Gentoo portage
+Any host  ──→  CPU fallback (llama.cpp)
+```
+
+One codebase, zero `if platform ==` branches in user code.
+
 ## Two Modes
 
 - **Airgapped** (default) — zero network calls. Local model, local data. Flip a switch after setup.
