@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+MACHINE_NAME="oglab-gentoo-lab"
+AUTO_CONFIRM="false"
+ARCHIVE_PATH="/tmp/oglab-orbstack-bootstrap.tgz"
+
+usage() {
+    echo "Usage: scripts/oglab-orbstack-destroy [--machine NAME] [--yes]"
+    echo ""
+    echo "Deletes the dedicated OrbStack OGLab machine and its stored files."
+}
+
+while (($# > 0)); do
+    case "$1" in
+        --machine)
+            MACHINE_NAME="${2:-}"
+            shift 2
+            ;;
+        --yes|-y)
+            AUTO_CONFIRM="true"
+            shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            usage
+            exit 1
+            ;;
+    esac
+done
+
+if ! command -v orbctl >/dev/null 2>&1; then
+    echo "orbctl is required to destroy the OrbStack machine." >&2
+    exit 1
+fi
+
+if ! orbctl info "$MACHINE_NAME" >/dev/null 2>&1; then
+    echo "Machine '$MACHINE_NAME' does not exist."
+    rm -f "$ARCHIVE_PATH"
+    exit 0
+fi
+
+if [[ "$AUTO_CONFIRM" != "true" ]]; then
+    echo "This permanently deletes the OrbStack machine '$MACHINE_NAME' and all files inside it."
+    read -r -p "Confirm machine destruction? [y/N] " yn
+    case "$yn" in
+        [Yy]*) ;;
+        *) echo "Cancelled."; exit 0 ;;
+    esac
+fi
+
+orbctl delete -f "$MACHINE_NAME"
+rm -f "$ARCHIVE_PATH"
+
+echo "Destroyed OrbStack machine '$MACHINE_NAME'."

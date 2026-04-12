@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OGLab — Plugins</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<nav>
+  <span class="logo">⟨OGLab⟩</span>
+  <a href="/">Dashboard</a>
+  <a href="/knowledge">Knowledge</a>
+  <a href="/terminal">Terminal</a>
+  <a href="/notebook">Notebook</a>
+  <a href="/plugins" class="active">Plugins</a>
+  <a href="/graph">Graph</a>
+  <span class="mode-badge airgapped">⬤ Airgapped</span>
+</nav>
+
+<div class="grid">
+
+  <!-- ═══ Install Plugin ═══ -->
+  <div class="card full">
+    <h2><span class="indicator"></span> Install from GitHub</h2>
+    <form class="install-form" id="install-form">
+      <span class="prompt-prefix">git clone</span>
+      <input id="plugin-url" type="text"
+             placeholder="https://github.com/owner/repo"
+             autocomplete="off" />
+      <button class="btn btn-blue" type="submit">Install</button>
+    </form>
+    <div id="install-status" style="margin-top:0.75rem;"></div>
+  </div>
+
+  <!-- ═══ Installed Plugins ═══ -->
+  <div class="card full">
+    <h2><span class="indicator"></span> Installed Plugins</h2>
+    <div id="plugin-list">
+      {% if plugins %}
+        {% for p in plugins %}
+        <div class="plugin-card" id="plugin-{{ p.name | replace('/', '-') }}">
+          <div class="plugin-info">
+            <div class="plugin-name">{{ p.name }}</div>
+            <div class="plugin-desc">{{ p.description or 'No description' }}</div>
+          </div>
+          <span class="plugin-type">{{ p.type }}</span>
+          <span class="status {{ p.status }}">{{ p.status }}</span>
+          <div class="plugin-actions">
+            {% if p.status == 'active' %}
+            <button class="btn btn-sm btn-ghost"
+                    onclick="togglePlugin('{{ p.name }}', false)">Disable</button>
+            {% else %}
+            <button class="btn btn-sm btn-primary"
+                    onclick="togglePlugin('{{ p.name }}', true)">Enable</button>
+            {% endif %}
+            <button class="btn btn-sm btn-red"
+                    onclick="uninstallPlugin('{{ p.name }}')">Remove</button>
+          </div>
+        </div>
+        {% endfor %}
+      {% else %}
+      <p class="empty">No plugins installed. Paste a GitHub URL above to add one.</p>
+      {% endif %}
+    </div>
+  </div>
+
+</div>
+
+<script>
+document.getElementById('install-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const url = document.getElementById('plugin-url').value.trim();
+  if (!url) return;
+  const status = document.getElementById('install-status');
+  status.innerHTML = '<span style="color:var(--blue)">Cloning and installing…</span>';
+
+  try {
+    const resp = await fetch('/api/plugins/install', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({github_url: url})
+    });
+    const data = await resp.json();
+    if (resp.ok) {
+      status.innerHTML = `<span style="color:var(--green)">✓ Installed ${data.name || 'plugin'}</span>`;
+      setTimeout(() => location.reload(), 1000);
+    } else {
+      status.innerHTML = `<span style="color:var(--red)">✗ ${data.error || 'Install failed'}</span>`;
+    }
+  } catch (err) {
+    status.innerHTML = `<span style="color:var(--red)">✗ ${err.message}</span>`;
+  }
+});
+
+async function togglePlugin(name, active) {
+  await fetch(`/api/plugins/${encodeURIComponent(name)}/toggle`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({active})
+  });
+  location.reload();
+}
+
+async function uninstallPlugin(name) {
+  if (!confirm(`Remove plugin "${name}"?`)) return;
+  await fetch(`/api/plugins/${encodeURIComponent(name)}`, {method: 'DELETE'});
+  location.reload();
+}
+</script>
+</body>
+</html>

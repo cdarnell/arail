@@ -1,0 +1,781 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OGLab — System Graph</title>
+<link rel="stylesheet" href="/static/style.css">
+<style>
+  body { overflow: hidden; }
+  .graph-wrap {
+    position: relative;
+    width: 100%;
+    height: calc(100vh - 48px);
+    background: var(--bg);
+  }
+  canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    cursor: grab;
+  }
+  canvas:active { cursor: grabbing; }
+
+  /* ─── Detail panel ─── */
+  .detail-panel {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    width: 320px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem 1.2rem;
+    font-size: 0.82rem;
+    display: none;
+    z-index: 10;
+    box-shadow: 0 4px 24px rgba(0,0,0,.5);
+  }
+  .detail-panel.visible { display: block; }
+  .detail-panel h3 {
+    margin: 0 0 0.5rem;
+    font-size: 1rem;
+    color: var(--green);
+    text-shadow: var(--glow-green);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .detail-panel .close-btn {
+    margin-left: auto;
+    background: none;
+    border: none;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 1.1rem;
+    padding: 0 4px;
+  }
+  .detail-panel .close-btn:hover { color: var(--red); }
+  .detail-panel .detail-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 0.35rem 0;
+    border-bottom: 1px solid var(--border);
+    color: var(--text);
+  }
+  .detail-panel .detail-row:last-child { border-bottom: none; }
+  .detail-panel .detail-label { color: var(--muted); }
+  .detail-panel .detail-value { text-align: right; }
+  .detail-panel .connections-list {
+    margin-top: 0.5rem;
+    padding: 0;
+    list-style: none;
+  }
+  .detail-panel .connections-list li {
+    padding: 0.2rem 0;
+    color: var(--text);
+    font-size: 0.78rem;
+  }
+  .detail-panel .connections-list li .arrow { color: var(--muted); margin: 0 0.3rem; }
+  .detail-panel .connections-list li .edge-label { color: var(--blue); }
+
+  /* ─── Legend ─── */
+  .legend {
+    position: absolute;
+    bottom: 12px;
+    left: 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.6rem 1rem;
+    font-size: 0.72rem;
+    color: var(--muted);
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+    z-index: 10;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+  }
+  .legend-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  /* ─── Controls ─── */
+  .graph-controls {
+    position: absolute;
+    bottom: 12px;
+    right: 12px;
+    display: flex;
+    gap: 4px;
+    z-index: 10;
+  }
+  .graph-controls button {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 1rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .graph-controls button:hover {
+    border-color: var(--green);
+    color: var(--green);
+  }
+
+  /* ─── Health panel ─── */
+  .health-panel {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    width: 260px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.7rem 1rem;
+    font-size: 0.78rem;
+    color: var(--text);
+    z-index: 10;
+    box-shadow: 0 4px 24px rgba(0,0,0,.5);
+  }
+  .health-panel h4 {
+    margin: 0 0 0.5rem;
+    font-size: 0.85rem;
+    color: var(--green);
+    text-shadow: var(--glow-green);
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  .health-panel .tier-badge {
+    display: inline-block;
+    padding: 0.1rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .tier-minimum  { background: rgba(255,176,0,.15); color: #ffb000; border: 1px solid rgba(255,176,0,.3); }
+  .tier-standard { background: rgba(0,212,255,.15); color: #00d4ff; border: 1px solid rgba(0,212,255,.3); }
+  .tier-full     { background: rgba(0,255,65,.15); color: #00ff41; border: 1px solid rgba(0,255,65,.3); }
+  .tier-deep     { background: rgba(255,176,0,.15); color: #ffb000; border: 1px solid rgba(255,176,0,.5); box-shadow: 0 0 12px rgba(255,176,0,.2); }
+  .health-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 0.25rem 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .health-row:last-child { border-bottom: none; }
+  .health-label { color: var(--muted); }
+  .health-value { text-align: right; font-family: 'JetBrains Mono', monospace; }
+  .health-bar {
+    width: 100%;
+    height: 4px;
+    background: var(--border);
+    border-radius: 2px;
+    margin-top: 0.15rem;
+    overflow: hidden;
+  }
+  .health-bar-fill {
+    height: 100%;
+    border-radius: 2px;
+    transition: width 0.6s ease;
+  }
+  .svc-dot {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    margin-right: 4px;
+  }
+  .svc-on  { background: #00ff41; box-shadow: 0 0 4px #00ff41; }
+  .svc-off { background: #555e70; }
+</style>
+</head>
+<body>
+
+<nav>
+  <span class="logo">⟨OGLab⟩</span>
+  <a href="/">Dashboard</a>
+  <a href="/knowledge">Knowledge</a>
+  <a href="/terminal">Terminal</a>
+  <a href="/notebook">Notebook</a>
+  <a href="/plugins">Plugins</a>
+  <a href="/graph" class="active">Graph</a>
+  <span class="mode-badge airgapped">⬤ Airgapped</span>
+</nav>
+
+<div class="graph-wrap">
+  <canvas id="graph-canvas"></canvas>
+
+  <div class="detail-panel" id="detail-panel">
+    <h3>
+      <span id="detail-icon"></span>
+      <span id="detail-title"></span>
+      <button class="close-btn" onclick="closeDetail()">&times;</button>
+    </h3>
+    <div id="detail-body"></div>
+  </div>
+
+  <div class="legend" id="legend"></div>
+
+  <div class="health-panel" id="health-panel">
+    <h4>⬡ System Health</h4>
+    <div id="health-body"><span style="color:var(--muted)">Loading...</span></div>
+  </div>
+
+  <div class="graph-controls">
+    <button onclick="zoomIn()" title="Zoom in">+</button>
+    <button onclick="zoomOut()" title="Zoom out">−</button>
+    <button onclick="resetView()" title="Reset view">⌂</button>
+  </div>
+</div>
+
+<script>
+/* ═══════════════════════════════════════════════════════════════
+   OGLab System Graph — Canvas force-directed visualization
+   Zero dependencies.  Matches the 1337 terminal aesthetic.
+   ═══════════════════════════════════════════════════════════════ */
+
+const canvas = document.getElementById('graph-canvas');
+const ctx = canvas.getContext('2d');
+let W, H, dpr;
+
+// ── Color palette ──
+const COLORS = {
+  core:    '#00ff41',
+  agent:   '#00d4ff',
+  skill:   '#b48eff',
+  backend: '#ffb000',
+  plugin:  '#ff3355',
+  service: '#555e70',
+};
+const STATUS_GLOW = {
+  active:    'rgba(0,255,65,0.4)',
+  running:   'rgba(0,212,255,0.6)',
+  standby:   'rgba(85,94,112,0.3)',
+  available: 'rgba(255,176,0,0.15)',
+  external:  'rgba(85,94,112,0.2)',
+  paused:    'rgba(255,176,0,0.4)',
+  completed: 'rgba(0,255,65,0.4)',
+  error:     'rgba(255,51,85,0.4)',
+};
+const EDGE_COLORS = {
+  data:      'rgba(0,255,65,0.3)',
+  control:   'rgba(0,212,255,0.3)',
+  embed:     'rgba(85,94,112,0.2)',
+  active:    'rgba(255,176,0,0.6)',
+  available: 'rgba(85,94,112,0.1)',
+};
+
+// ── State ──
+let nodes = [], edges = [], nodeMap = {};
+let camera = { x: 0, y: 0, zoom: 1 };
+let dragging = null, dragNode = null, hoveredNode = null;
+let mouseX = 0, mouseY = 0;
+let selectedNode = null;
+let animFrame;
+
+function resize() {
+  dpr = window.devicePixelRatio || 1;
+  W = canvas.parentElement.clientWidth;
+  H = canvas.parentElement.clientHeight;
+  canvas.width = W * dpr;
+  canvas.height = H * dpr;
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+window.addEventListener('resize', () => { resize(); draw(); });
+
+// ── Force simulation ──
+const SIM = {
+  repulsion: 8000,
+  attraction: 0.003,
+  damping: 0.85,
+  idealLen: 180,
+  centerGravity: 0.01,
+};
+
+function initPositions() {
+  // Place groups in rough zones
+  const zones = {
+    core:    { cx: 0, cy: -80 },
+    agent:   { cx: -200, cy: 0 },
+    skill:   { cx: 200, cy: 0 },
+    backend: { cx: 0, cy: 250 },
+    plugin:  { cx: 300, cy: -150 },
+    service: { cx: -300, cy: -150 },
+  };
+  nodes.forEach(n => {
+    const z = zones[n.group] || { cx: 0, cy: 0 };
+    n.x = z.cx + (Math.random() - 0.5) * 150;
+    n.y = z.cy + (Math.random() - 0.5) * 150;
+    n.vx = 0;
+    n.vy = 0;
+    n.radius = n.group === 'backend' ? 18 : (n.group === 'core' ? 26 : 22);
+  });
+}
+
+function simulate() {
+  // Repulsion between all nodes
+  for (let i = 0; i < nodes.length; i++) {
+    for (let j = i + 1; j < nodes.length; j++) {
+      const a = nodes[i], b = nodes[j];
+      let dx = b.x - a.x, dy = b.y - a.y;
+      let dist = Math.sqrt(dx * dx + dy * dy) || 1;
+      let force = SIM.repulsion / (dist * dist);
+      let fx = (dx / dist) * force;
+      let fy = (dy / dist) * force;
+      a.vx -= fx; a.vy -= fy;
+      b.vx += fx; b.vy += fy;
+    }
+  }
+  // Attraction along edges
+  edges.forEach(e => {
+    const a = nodeMap[e.source], b = nodeMap[e.target];
+    if (!a || !b) return;
+    let dx = b.x - a.x, dy = b.y - a.y;
+    let dist = Math.sqrt(dx * dx + dy * dy) || 1;
+    let force = (dist - SIM.idealLen) * SIM.attraction;
+    // Weaker pull for available/embed edges
+    if (e.type === 'available' || e.type === 'embed') force *= 0.3;
+    let fx = (dx / dist) * force;
+    let fy = (dy / dist) * force;
+    a.vx += fx; a.vy += fy;
+    b.vx -= fx; b.vy -= fy;
+  });
+  // Center gravity
+  nodes.forEach(n => {
+    n.vx -= n.x * SIM.centerGravity;
+    n.vy -= n.y * SIM.centerGravity;
+  });
+  // Integrate
+  let totalV = 0;
+  nodes.forEach(n => {
+    if (n === dragNode) return;
+    n.vx *= SIM.damping;
+    n.vy *= SIM.damping;
+    n.x += n.vx;
+    n.y += n.vy;
+    totalV += Math.abs(n.vx) + Math.abs(n.vy);
+  });
+  return totalV;
+}
+
+// ── Coordinate transforms ──
+function toScreen(x, y) {
+  return {
+    x: (x - camera.x) * camera.zoom + W / 2,
+    y: (y - camera.y) * camera.zoom + H / 2,
+  };
+}
+function toWorld(sx, sy) {
+  return {
+    x: (sx - W / 2) / camera.zoom + camera.x,
+    y: (sy - H / 2) / camera.zoom + camera.y,
+  };
+}
+
+// ── Drawing ──
+function drawEdge(e) {
+  const a = nodeMap[e.source], b = nodeMap[e.target];
+  if (!a || !b) return;
+  const sa = toScreen(a.x, a.y), sb = toScreen(b.x, b.y);
+
+  ctx.beginPath();
+  ctx.moveTo(sa.x, sa.y);
+  ctx.lineTo(sb.x, sb.y);
+  ctx.strokeStyle = EDGE_COLORS[e.type] || EDGE_COLORS.data;
+  ctx.lineWidth = e.type === 'active' ? 2.5 : (e.type === 'available' ? 0.5 : 1.2);
+  if (e.type === 'available') ctx.setLineDash([4, 6]);
+  else ctx.setLineDash([]);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Arrow
+  if (e.type !== 'available') {
+    const dx = sb.x - sa.x, dy = sb.y - sa.y;
+    const len = Math.sqrt(dx * dx + dy * dy) || 1;
+    const ux = dx / len, uy = dy / len;
+    const tr = b.radius * camera.zoom;
+    const ax = sb.x - ux * tr, ay = sb.y - uy * tr;
+    const arrowSize = 6 * camera.zoom;
+    ctx.beginPath();
+    ctx.moveTo(ax, ay);
+    ctx.lineTo(ax - ux * arrowSize + uy * arrowSize * 0.5, ay - uy * arrowSize - ux * arrowSize * 0.5);
+    ctx.lineTo(ax - ux * arrowSize - uy * arrowSize * 0.5, ay - uy * arrowSize + ux * arrowSize * 0.5);
+    ctx.closePath();
+    ctx.fillStyle = EDGE_COLORS[e.type] || EDGE_COLORS.data;
+    ctx.fill();
+  }
+
+  // Edge label
+  if (e.label && camera.zoom > 0.6) {
+    const mx = (sa.x + sb.x) / 2, my = (sa.y + sb.y) / 2;
+    ctx.font = `${9 * camera.zoom}px JetBrains Mono, monospace`;
+    ctx.fillStyle = 'rgba(85,94,112,0.6)';
+    ctx.textAlign = 'center';
+    ctx.fillText(e.label, mx, my - 4 * camera.zoom);
+  }
+}
+
+function drawNode(n) {
+  const s = toScreen(n.x, n.y);
+  const r = n.radius * camera.zoom;
+  const isHovered = n === hoveredNode;
+  const isSelected = n === selectedNode;
+
+  // Glow
+  const glowColor = STATUS_GLOW[n.status] || STATUS_GLOW.standby;
+  if (isHovered || isSelected || n.status === 'active' || n.status === 'running') {
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, r + (isHovered ? 12 : 6) * camera.zoom, 0, Math.PI * 2);
+    const grad = ctx.createRadialGradient(s.x, s.y, r * 0.5, s.x, s.y, r + 12 * camera.zoom);
+    grad.addColorStop(0, glowColor);
+    grad.addColorStop(1, 'transparent');
+    ctx.fillStyle = grad;
+    ctx.fill();
+  }
+
+  // Node circle
+  ctx.beginPath();
+  ctx.arc(s.x, s.y, r, 0, Math.PI * 2);
+  ctx.fillStyle = isSelected ? '#1a2230' : '#0f1118';
+  ctx.fill();
+  ctx.strokeStyle = isHovered
+    ? '#ffffff'
+    : (COLORS[n.group] || '#555e70');
+  ctx.lineWidth = isSelected ? 2.5 : (isHovered ? 2 : 1.2);
+  ctx.stroke();
+
+  // Icon/letter
+  const iconSize = Math.max(10, r * 0.55);
+  ctx.font = `${iconSize}px JetBrains Mono, monospace`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = COLORS[n.group] || '#555e70';
+
+  const icons = {
+    core: '◈', agent: '◉', skill: '◇', backend: '⬡', plugin: '⊕', service: '▣',
+  };
+  // AirLLM gets a special icon
+  if (n.id === 'backend_airllm') {
+    ctx.fillText('🔬', s.x, s.y);
+  } else {
+    ctx.fillText(icons[n.group] || '●', s.x, s.y);
+  }
+
+  // Label
+  if (camera.zoom > 0.4) {
+    const labelSize = Math.max(9, 11 * camera.zoom);
+    ctx.font = `500 ${labelSize}px JetBrains Mono, monospace`;
+    ctx.fillStyle = isHovered || isSelected ? '#e8ecf4' : '#c8cdd8';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillText(n.label, s.x, s.y + r + 4 * camera.zoom);
+  }
+
+  // Status indicator dot
+  const dotColors = {
+    active: '#00ff41', running: '#00d4ff', standby: '#555e70',
+    available: '#ffb000', external: '#555e70', paused: '#ffb000',
+    completed: '#00ff41', error: '#ff3355',
+  };
+  ctx.beginPath();
+  ctx.arc(s.x + r * 0.7, s.y - r * 0.7, 3.5 * camera.zoom, 0, Math.PI * 2);
+  ctx.fillStyle = dotColors[n.status] || '#555e70';
+  ctx.fill();
+}
+
+function draw() {
+  ctx.clearRect(0, 0, W, H);
+
+  // Grid dots
+  if (camera.zoom > 0.3) {
+    const gridSize = 40;
+    ctx.fillStyle = 'rgba(30,34,48,0.4)';
+    const tl = toWorld(0, 0), br = toWorld(W, H);
+    const startX = Math.floor(tl.x / gridSize) * gridSize;
+    const startY = Math.floor(tl.y / gridSize) * gridSize;
+    for (let gx = startX; gx < br.x; gx += gridSize) {
+      for (let gy = startY; gy < br.y; gy += gridSize) {
+        const sp = toScreen(gx, gy);
+        ctx.fillRect(sp.x, sp.y, 1, 1);
+      }
+    }
+  }
+
+  // Scanlines
+  ctx.fillStyle = 'rgba(0,0,0,0.03)';
+  for (let y = 0; y < H; y += 3) {
+    ctx.fillRect(0, y, W, 1);
+  }
+
+  edges.forEach(drawEdge);
+  nodes.forEach(drawNode);
+}
+
+// ── Hit testing ──
+function hitTest(sx, sy) {
+  const w = toWorld(sx, sy);
+  for (let i = nodes.length - 1; i >= 0; i--) {
+    const n = nodes[i];
+    const dx = w.x - n.x, dy = w.y - n.y;
+    if (dx * dx + dy * dy < n.radius * n.radius * 1.5) return n;
+  }
+  return null;
+}
+
+// ── Detail panel ──
+function showDetail(node) {
+  selectedNode = node;
+  const panel = document.getElementById('detail-panel');
+  const icons = { core: '◈', agent: '◉', skill: '◇', backend: '⬡', plugin: '⊕', service: '▣' };
+  document.getElementById('detail-icon').textContent = icons[node.group] || '●';
+  document.getElementById('detail-title').textContent = node.label;
+
+  let html = '';
+  html += row('Status', statusBadge(node.status));
+  html += row('Group', node.group);
+  html += row('Type', node.type);
+  if (node.port) html += row('Port', node.port);
+  if (node.locality) html += row('Locality', node.locality.toUpperCase());
+  html += `<div class="detail-row" style="border:none;padding-top:0.5rem"><div style="color:var(--text)">${esc(node.desc)}</div></div>`;
+
+  // Find connections
+  const incoming = edges.filter(e => e.target === node.id && e.type !== 'available');
+  const outgoing = edges.filter(e => e.source === node.id && e.type !== 'available');
+
+  if (incoming.length) {
+    html += '<div style="margin-top:0.6rem;color:var(--muted);font-size:0.72rem">INCOMING</div>';
+    html += '<ul class="connections-list">';
+    incoming.forEach(e => {
+      const src = nodeMap[e.source];
+      html += `<li>${esc(src?.label || e.source)}<span class="arrow">→</span>${esc(node.label)}`;
+      if (e.label) html += ` <span class="edge-label">${esc(e.label)}</span>`;
+      html += '</li>';
+    });
+    html += '</ul>';
+  }
+  if (outgoing.length) {
+    html += '<div style="margin-top:0.6rem;color:var(--muted);font-size:0.72rem">OUTGOING</div>';
+    html += '<ul class="connections-list">';
+    outgoing.forEach(e => {
+      const tgt = nodeMap[e.target];
+      html += `<li>${esc(node.label)}<span class="arrow">→</span>${esc(tgt?.label || e.target)}`;
+      if (e.label) html += ` <span class="edge-label">${esc(e.label)}</span>`;
+      html += '</li>';
+    });
+    html += '</ul>';
+  }
+
+  document.getElementById('detail-body').innerHTML = html;
+  panel.classList.add('visible');
+}
+
+function closeDetail() {
+  selectedNode = null;
+  document.getElementById('detail-panel').classList.remove('visible');
+  draw();
+}
+
+function row(label, value) {
+  return `<div class="detail-row"><div class="detail-label">${label}</div><div class="detail-value">${value}</div></div>`;
+}
+
+function statusBadge(s) {
+  const colors = {
+    active: 'var(--green)', running: 'var(--blue)', standby: 'var(--muted)',
+    available: 'var(--amber)', external: 'var(--muted)', paused: 'var(--amber)',
+    completed: 'var(--green)', error: 'var(--red)',
+  };
+  return `<span style="color:${colors[s] || 'var(--muted)'}">● ${s}</span>`;
+}
+
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+// ── Legend ──
+function buildLegend() {
+  const items = [
+    { label: 'Core', color: COLORS.core },
+    { label: 'Agent', color: COLORS.agent },
+    { label: 'Skill', color: COLORS.skill },
+    { label: 'Backend', color: COLORS.backend },
+    { label: 'Plugin', color: COLORS.plugin },
+    { label: 'Service', color: COLORS.service },
+  ];
+  const el = document.getElementById('legend');
+  el.innerHTML = items.map(i =>
+    `<div class="legend-item"><div class="legend-dot" style="background:${i.color}"></div>${i.label}</div>`
+  ).join('') + '<div class="legend-item" style="margin-left:0.5rem;color:var(--text)">Click nodes for details</div>';
+}
+
+// ── Input handling ──
+let panStart = null;
+
+canvas.addEventListener('mousedown', (e) => {
+  const rect = canvas.getBoundingClientRect();
+  const sx = e.clientX - rect.left, sy = e.clientY - rect.top;
+  const node = hitTest(sx, sy);
+
+  if (node) {
+    dragNode = node;
+    dragging = { ox: node.x, oy: node.y, sx: e.clientX, sy: e.clientY };
+  } else {
+    panStart = { x: e.clientX, y: e.clientY, cx: camera.x, cy: camera.y };
+  }
+});
+
+canvas.addEventListener('mousemove', (e) => {
+  const rect = canvas.getBoundingClientRect();
+  mouseX = e.clientX - rect.left;
+  mouseY = e.clientY - rect.top;
+
+  if (dragNode && dragging) {
+    dragNode.x = dragging.ox + (e.clientX - dragging.sx) / camera.zoom;
+    dragNode.y = dragging.oy + (e.clientY - dragging.sy) / camera.zoom;
+    dragNode.vx = 0; dragNode.vy = 0;
+    draw();
+  } else if (panStart) {
+    camera.x = panStart.cx - (e.clientX - panStart.x) / camera.zoom;
+    camera.y = panStart.cy - (e.clientY - panStart.y) / camera.zoom;
+    draw();
+  } else {
+    const prev = hoveredNode;
+    hoveredNode = hitTest(mouseX, mouseY);
+    canvas.style.cursor = hoveredNode ? 'pointer' : 'grab';
+    if (prev !== hoveredNode) draw();
+  }
+});
+
+canvas.addEventListener('mouseup', (e) => {
+  if (dragNode && dragging) {
+    const dx = Math.abs(e.clientX - dragging.sx);
+    const dy = Math.abs(e.clientY - dragging.sy);
+    if (dx < 4 && dy < 4) {
+      showDetail(dragNode);
+      draw();
+    }
+  }
+  dragNode = null;
+  dragging = null;
+  panStart = null;
+});
+
+canvas.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  const factor = e.deltaY > 0 ? 0.9 : 1.1;
+  const rect = canvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+  const wp = toWorld(mx, my);
+  camera.zoom = Math.min(4, Math.max(0.2, camera.zoom * factor));
+  // Keep mouse position stable
+  camera.x = wp.x - (mx - W / 2) / camera.zoom;
+  camera.y = wp.y - (my - H / 2) / camera.zoom;
+  draw();
+}, { passive: false });
+
+function zoomIn() { camera.zoom = Math.min(4, camera.zoom * 1.3); draw(); }
+function zoomOut() { camera.zoom = Math.max(0.2, camera.zoom / 1.3); draw(); }
+function resetView() { camera = { x: 0, y: 0, zoom: 1 }; draw(); }
+
+// ── Main ──
+async function init() {
+  resize();
+  buildLegend();
+
+  const resp = await fetch('/api/system/graph');
+  const data = await resp.json();
+  nodes = data.nodes;
+  edges = data.edges;
+
+  nodeMap = {};
+  nodes.forEach(n => { nodeMap[n.id] = n; });
+
+  initPositions();
+
+  // Run simulation
+  let steps = 0;
+  function tick() {
+    const energy = simulate();
+    draw();
+    steps++;
+    if (steps < 300 && energy > 0.5) {
+      animFrame = requestAnimationFrame(tick);
+    }
+  }
+  tick();
+
+  // Periodic refresh for live status
+  setInterval(async () => {
+    try {
+      const r = await fetch('/api/system/graph');
+      const d = await r.json();
+      // Update status/desc without resetting positions
+      d.nodes.forEach(fresh => {
+        const existing = nodeMap[fresh.id];
+        if (existing) {
+          existing.status = fresh.status;
+          existing.desc = fresh.desc;
+        }
+      });
+      draw();
+    } catch(e) {}
+  }, 5000);
+}
+
+// ── Health panel ──
+async function refreshHealth() {
+  try {
+    const r = await fetch('/api/system/health');
+    const h = await r.json();
+    const body = document.getElementById('health-body');
+    const barColor = (pct) => pct > 85 ? '#ff3355' : pct > 60 ? '#ffb000' : '#00ff41';
+    const ramPct = h.ram_total_gb ? Math.round(h.ram_used_gb / h.ram_total_gb * 100) : 0;
+
+    let html = `<div style="margin-bottom:0.4rem"><span class="tier-badge tier-${h.tier}">${h.tier}</span></div>`;
+    html += `<div class="health-row"><span class="health-label">Platform</span><span class="health-value">${h.platform} ${h.arch}</span></div>`;
+    html += `<div class="health-row"><span class="health-label">CPUs</span><span class="health-value">${h.cpu_count}</span></div>`;
+    html += `<div class="health-row"><span class="health-label">RAM</span><span class="health-value">${h.ram_used_gb}/${h.ram_total_gb} GB</span></div>`;
+    html += `<div class="health-bar"><div class="health-bar-fill" style="width:${ramPct}%;background:${barColor(ramPct)}"></div></div>`;
+    html += `<div class="health-row"><span class="health-label">Disk free</span><span class="health-value">${h.disk_free_gb}/${h.disk_total_gb} GB</span></div>`;
+    html += `<div class="health-bar"><div class="health-bar-fill" style="width:${h.disk_pct}%;background:${barColor(h.disk_pct)}"></div></div>`;
+    html += `<div class="health-row"><span class="health-label">Python</span><span class="health-value">${h.python}</span></div>`;
+    html += `<div class="health-row"><span class="health-label">Backend</span><span class="health-value">${h.backend}</span></div>`;
+    html += `<div class="health-row"><span class="health-label">Model</span><span class="health-value" style="max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h.model}</span></div>`;
+    if (h.gpu) {
+      html += `<div class="health-row"><span class="health-label">GPU</span><span class="health-value">${h.gpu.name}</span></div>`;
+    }
+    if (h.deep_enabled) {
+      html += `<div class="health-row"><span class="health-label">Deep</span><span class="health-value" style="color:#ffb000">AirLLM ✓</span></div>`;
+    }
+    html += `<div class="health-row" style="border-bottom:none"><span class="health-label">Services</span><span class="health-value">`;
+    for (const [name, up] of Object.entries(h.services)) {
+      html += `<span class="svc-dot ${up ? 'svc-on' : 'svc-off'}"></span>${name} `;
+    }
+    html += `</span></div>`;
+    body.innerHTML = html;
+  } catch(e) {
+    document.getElementById('health-body').innerHTML = '<span style="color:var(--red)">Offline</span>';
+  }
+}
+refreshHealth();
+setInterval(refreshHealth, 5000);
+
+init();
+</script>
+</body>
+</html>

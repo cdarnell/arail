@@ -1,0 +1,131 @@
+#!/usr/bin/env python3
+"""pkm-browse — Browse and search the knowledge base.
+
+Usage:
+  pkm-browse              Show overview of all sections
+  pkm-browse search TERM  Search across all files
+  pkm-browse recent       Show recent additions
+  pkm-browse tags         Show all tags
+"""
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+
+from oglab.pkm import browse, search, compile_index
+
+BOLD = "\033[1m"
+GREEN = "\033[0;32m"
+CYAN = "\033[0;36m"
+YELLOW = "\033[0;33m"
+DIM = "\033[2m"
+RESET = "\033[0m"
+
+SECTION_ICONS = {
+    "inbox": "📥",
+    "sources": "📚",
+    "agents": "🤖",
+    "notes": "📝",
+    "inference": "🧠",
+    "compiled": "📦",
+}
+
+
+def cmd_overview():
+    """Show the full knowledge base overview."""
+    data = browse()
+    if not data["exists"]:
+        print(f"  {DIM}PKM not found at {data['root']}{RESET}")
+        print(f"  {DIM}Run bootstrap.sh or: python3 -c 'from oglab.pkm import scaffold; scaffold()'{RESET}")
+        return
+
+    total = sum(s["count"] for s in data["sections"].values())
+    print(f"  {DIM}Root: {data['root']}{RESET}")
+    print(f"  {BOLD}{total} file(s){RESET} across {len(data['sections'])} sections\n")
+
+    for name, section in data["sections"].items():
+        icon = SECTION_ICONS.get(name, "📁")
+        count = section["count"]
+        bar = "█" * min(count, 20) + f" {count}" if count else f"{DIM}empty{RESET}"
+        print(f"  {icon} {BOLD}{name:12s}{RESET} {bar}")
+
+        # Show recent items (up to 5)
+        for item in section["items"][:5]:
+            print(f"     {DIM}{item['modified']}{RESET}  {item['name']}")
+        if len(section["items"]) > 5:
+            print(f"     {DIM}… and {len(section['items']) - 5} more{RESET}")
+    print()
+
+
+def cmd_search(query: str):
+    """Search across all knowledge base files."""
+    results = search(query)
+    if not results:
+        print(f"  {DIM}No results for '{query}'{RESET}")
+        return
+
+    print(f"  Found {BOLD}{len(results)}{RESET} file(s) matching '{CYAN}{query}{RESET}':\n")
+    for r in results[:20]:
+        print(f"  {GREEN}•{RESET} {BOLD}{r['path']}{RESET}  ({r['match_count']} match{'es' if r['match_count'] > 1 else ''})")
+        for snippet in r["snippets"][:2]:
+            # Highlight matches
+            highlighted = snippet.replace(query, f"{YELLOW}{query}{RESET}")
+            for line in highlighted.splitlines()[:3]:
+                print(f"    {DIM}{line[:120]}{RESET}")
+        print()
+
+
+def cmd_recent():
+    """Show recently modified items."""
+    data = browse()
+    if not data["exists"]:
+        print(f"  {DIM}PKM not found.{RESET}")
+        return
+
+    all_items = []
+    for name, section in data["sections"].items():
+        for item in section["items"]:
+            item["section"] = name
+            all_items.append(item)
+
+    all_items.sort(key=lambda x: x["modified"], reverse=True)
+    print(f"  {BOLD}Recent additions:{RESET}\n")
+    for item in all_items[:20]:
+        icon = SECTION_ICONS.get(item["section"], "📁")
+        print(f"  {item['modified']}  {icon} {item['section']:10s}  {item['name']}")
+    print()
+
+
+def cmd_tags():
+    """Show all tags found in the knowledge base."""
+    result = compile_index()
+    if not result["tags"]:
+        print(f"  {DIM}No tags found. Use #hashtags anywhere in your markdown files.{RESET}")
+        return
+    print(f"  {BOLD}{len(result['tags'])} tag(s) found:{RESET}\n")
+    for tag in result["tags"]:
+        print(f"  {CYAN}#{tag}{RESET}")
+    print()
+
+
+def main():
+    print(f"\n{GREEN}⟨OGLab⟩{RESET} {BOLD}PKM Browse{RESET}\n")
+
+    args = sys.argv[1:]
+
+    if not args:
+        cmd_overview()
+    elif args[0] == "search" and len(args) > 1:
+        cmd_search(" ".join(args[1:]))
+    elif args[0] == "recent":
+        cmd_recent()
+    elif args[0] == "tags":
+        cmd_tags()
+    else:
+        print(f"  Usage: pkm-browse [search TERM | recent | tags]")
+        print()
+
+
+if __name__ == "__main__":
+    main()

@@ -2,6 +2,7 @@
 .env
 .env.local
 .env.*.local
+lab.conf
 
 # Python
 __pycache__/
@@ -15,19 +16,18 @@ build/
 venv/
 env/
 
-# Models (large files — download via setup.sh)
-models/
+# Runtime state (generated at setup/run time, never committed)
+lab/data/
+lab/models/
+lab/pkm/inbox/*
+!lab/pkm/inbox/.gitkeep
 *.gguf
 *.bin
 *.safetensors
 
-# Experiments output
-experiments/
+# Notebooks
 notebooks/*.ipynb
 !notebooks/.gitkeep
-
-# Node
-node_modules/
 
 # OS
 .DS_Store

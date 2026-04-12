@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+# =============================================================================
+#  oglab — unified entry point
+#  Usage: ./oglab <command> [args]
+#    setup    provision venv, deps, model, lab/ scaffolding (first-time setup)
+#    start    launch portal + terminal + notebook + IDE
+#    stop     stop running lab services
+#    reset    wipe models/data/env/plugins (see: ./oglab reset help)
+#    status   show what's running and where
+#    doctor   validate the environment end-to-end
+#    pkm      knowledge base ops: ingest | compile | browse
+#    help     show this message
+# =============================================================================
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$REPO_ROOT"
+
+BOLD="\033[1m"; GREEN="\033[0;32m"; CYAN="\033[0;36m"; YELLOW="\033[0;33m"; RED="\033[0;31m"; RESET="\033[0m"
+say()  { echo -e "${GREEN}[oglab]${RESET} $*"; }
+warn() { echo -e "${YELLOW}[oglab]${RESET} $*"; }
+die()  { echo -e "${RED}[oglab]${RESET} $*" >&2; exit 1; }
+
+usage() {
+    cat <<EOF
+
+  $(printf '\033[1m')oglab$(printf '\033[0m') — local AI research lab
+
+  Usage: ./oglab <command> [args]
+
+  Commands:
+    setup         provision everything (venv, deps, model, lab/ dirs)
+    start         launch portal + terminal + notebook + IDE
+    stop          stop running lab services
+    status        show what's running
+    doctor        validate the environment end-to-end
+    reset [mode]  wipe state — models|data|plugins|env|full|destroy
+    pkm <op>      ingest | compile | browse — knowledge base ops
+    help          this message
+
+  Quick start:   ./oglab setup && ./oglab start
+
+EOF
+}
+
+cmd="${1:-help}"; shift || true
+
+case "$cmd" in
+    setup)   exec bash "$REPO_ROOT/scripts/setup.sh" "$@" ;;
+    start)   exec bash "$REPO_ROOT/scripts/start.sh" "$@" ;;
+    stop)    exec bash "$REPO_ROOT/scripts/reset.sh" stop ;;
+    reset)   exec bash "$REPO_ROOT/scripts/reset.sh" "$@" ;;
+    status)  exec bash "$REPO_ROOT/scripts/status.sh" "$@" 2>/dev/null || bash "$REPO_ROOT/scripts/reset.sh" stop --dry-run 2>/dev/null || { warn "status not implemented — showing pgrep"; pgrep -lf "uvicorn|ttyd|jupyter-lab|code-server" || say "no oglab services running"; } ;;
+    doctor)
+        say "Checking environment…"
+        [[ -d .venv ]] || { warn "missing .venv — run ./oglab setup"; exit 1; }
+        # shellcheck disable=SC1091
+        source .venv/bin/activate
+        python -c "import oglab; from oglab.portal.app import app; from oglab.pkm import _pkm_root; print('python: OK'); print('pkm root:', _pkm_root())" \
+            || die "import check failed"
+        for bin in uvicorn jupyter; do command -v "$bin" >/dev/null || warn "missing: $bin"; done
+        for bin in ttyd code-server; do command -v "$bin" >/dev/null || warn "optional missing: $bin"; done
+        say "doctor: OK"
+        ;;
+    pkm)
+        op="${1:-}"; shift || true
+        case "$op" in
+            ingest)  exec "$REPO_ROOT/scripts/pkm-ingest" "$@" ;;
+            compile) exec "$REPO_ROOT/scripts/pkm-compile" "$@" ;;
+            browse)  exec "$REPO_ROOT/scripts/pkm-browse" "$@" ;;
+            *) die "pkm op must be one of: ingest | compile | browse" ;;
+        esac
+        ;;
+    help|-h|--help|"") usage ;;
+    *) usage; die "unknown command: $cmd" ;;
+esac

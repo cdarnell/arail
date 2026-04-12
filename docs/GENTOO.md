@@ -85,9 +85,10 @@ pip install llama-cpp-python
 
 # Download a GGUF model
 huggingface-cli download \
-  TheBloke/Mistral-7B-Instruct-v0.2-GGUF \
-  mistral-7b-instruct-v0.2.Q4_K_M.gguf \
-  --local-dir ./models
+  Qwen/Qwen3-8B-GGUF \
+  --include 'Q4_K_M*' \
+  --local-dir ./models/Qwen3-8B-GGUF \
+  --local-dir-use-symlinks False
 ```
 
 ## 5. OGLab Setup

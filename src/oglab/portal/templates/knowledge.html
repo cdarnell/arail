@@ -1,0 +1,625 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OGLab — Knowledge Base</title>
+<link rel="stylesheet" href="/static/style.css">
+<style>
+/* ═══ Knowledge Base Styles ═══ */
+
+.kb-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.kb-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.kb-search {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+.kb-search input {
+  flex: 1;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-hi);
+  font-family: var(--font);
+  font-size: 0.85rem;
+  padding: 0.5rem 0.75rem;
+}
+.kb-search input:focus {
+  outline: none;
+  border-color: var(--green);
+  box-shadow: var(--glow-green);
+}
+
+.kb-stats {
+  display: flex;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 1.5rem;
+}
+.kb-stat {
+  text-align: center;
+}
+.kb-stat .value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--green);
+}
+.kb-stat .label {
+  font-size: 0.7rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* Section grid */
+.kb-sections {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.kb-section {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem;
+  cursor: pointer;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.kb-section:hover {
+  border-color: var(--green-dim);
+  box-shadow: var(--glow-green);
+}
+.kb-section.active {
+  border-color: var(--green);
+  box-shadow: var(--glow-green);
+}
+
+.kb-section-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+.kb-section-icon {
+  font-size: 1.3rem;
+}
+.kb-section-name {
+  font-weight: 600;
+  color: var(--text-hi);
+  text-transform: capitalize;
+}
+.kb-section-count {
+  margin-left: auto;
+  background: var(--surface2);
+  color: var(--green);
+  font-size: 0.75rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  font-weight: 600;
+}
+.kb-section-desc {
+  font-size: 0.75rem;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+/* File list */
+.kb-files {
+  margin-top: 1rem;
+}
+
+.kb-file {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.kb-file:hover {
+  background: var(--surface2);
+}
+.kb-file:last-child {
+  border-bottom: none;
+}
+
+.kb-file-icon {
+  color: var(--muted);
+  font-size: 0.85rem;
+  flex-shrink: 0;
+  width: 1.2rem;
+  text-align: center;
+}
+.kb-file-name {
+  flex: 1;
+  color: var(--text-hi);
+  font-size: 0.8rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.kb-file-meta {
+  font-size: 0.7rem;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+/* File viewer */
+.kb-viewer {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.25rem;
+  margin-top: 1rem;
+  min-height: 200px;
+  max-height: 70vh;
+  overflow-y: auto;
+  font-size: 0.8rem;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+.kb-viewer h1, .kb-viewer h2, .kb-viewer h3 {
+  color: var(--green);
+  margin: 1rem 0 0.5rem 0;
+}
+.kb-viewer h1 { font-size: 1.1rem; }
+.kb-viewer h2 { font-size: 0.95rem; }
+.kb-viewer h3 { font-size: 0.85rem; }
+.kb-viewer-path {
+  font-size: 0.7rem;
+  color: var(--muted);
+  margin-bottom: 0.5rem;
+}
+
+/* Search results */
+.kb-result {
+  padding: 0.75rem;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.kb-result:hover {
+  background: var(--surface2);
+}
+.kb-result-path {
+  font-size: 0.8rem;
+  color: var(--blue);
+  font-weight: 600;
+}
+.kb-result-matches {
+  font-size: 0.7rem;
+  color: var(--muted);
+  margin-left: 0.5rem;
+}
+.kb-result-snippet {
+  font-size: 0.75rem;
+  color: var(--text);
+  margin-top: 0.25rem;
+  padding: 0.25rem 0.5rem;
+  background: var(--bg);
+  border-radius: 3px;
+  white-space: pre-wrap;
+  max-height: 4rem;
+  overflow: hidden;
+}
+
+.kb-empty {
+  text-align: center;
+  padding: 3rem;
+  color: var(--muted);
+}
+.kb-empty-icon {
+  font-size: 2rem;
+  margin-bottom: 0.5rem;
+}
+.kb-empty-hint {
+  font-size: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+/* Inbox drop zone styling */
+.kb-inbox-hint {
+  background: var(--surface2);
+  border: 1px dashed var(--border-hi);
+  border-radius: var(--radius);
+  padding: 0.75rem 1rem;
+  font-size: 0.75rem;
+  color: var(--muted);
+  text-align: center;
+  margin-top: 0.5rem;
+}
+.kb-inbox-hint code {
+  color: var(--green);
+}
+
+/* Activity indicator */
+.kb-pulse {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  background: var(--green);
+  border-radius: 50%;
+  box-shadow: var(--glow-green);
+  animation: kb-pulse 2s ease-in-out infinite;
+}
+@keyframes kb-pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+</style>
+</head>
+<body>
+
+<nav>
+  <span class="logo">⟨OGLab⟩</span>
+  <a href="/">Dashboard</a>
+  <a href="/knowledge" class="active">Knowledge</a>
+  <a href="/terminal">Terminal</a>
+  <a href="/notebook">Notebook</a>
+  <a href="/plugins">Plugins</a>
+  <a href="/graph">Graph</a>
+  <span class="mode-badge airgapped" id="mode-badge">⬤ Airgapped</span>
+</nav>
+
+<div class="grid">
+
+  <!-- ═══ Knowledge Header ═══ -->
+  <div class="card full">
+    <div class="kb-header">
+      <h2><span class="indicator"></span> Knowledge Base</h2>
+      <div class="kb-actions">
+        <button class="btn btn-sm btn-ghost" onclick="runIngest()">📥 Ingest Inbox</button>
+        <button class="btn btn-sm btn-ghost" onclick="runCompile()">📦 Compile Index</button>
+      </div>
+    </div>
+
+    <!-- Search -->
+    <div class="kb-search">
+      <span class="prompt-prefix">search:~$</span>
+      <input id="kb-search-input" type="text"
+             placeholder="search across all files — papers, notes, agent findings…"
+             autocomplete="off" />
+    </div>
+
+    <!-- Stats bar -->
+    <div class="kb-stats" id="kb-stats">
+      {% set total = 0 %}
+      {% for name, section in pkm.sections.items() %}
+        {% set total = total + section.count %}
+      {% endfor %}
+      <div class="kb-stat">
+        <div class="value" id="stat-total">{{ total }}</div>
+        <div class="label">Total Items</div>
+      </div>
+      {% for name, section in pkm.sections.items() %}
+      {% if section.count > 0 %}
+      <div class="kb-stat">
+        <div class="value">{{ section.count }}</div>
+        <div class="label">{{ name }}</div>
+      </div>
+      {% endif %}
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- ═══ Section Cards ═══ -->
+  <div class="card full">
+    <div class="kb-sections" id="kb-sections">
+
+      <div class="kb-section" onclick="showSection('inbox')">
+        <div class="kb-section-header">
+          <span class="kb-section-icon">📥</span>
+          <span class="kb-section-name">Inbox</span>
+          <span class="kb-section-count">{{ pkm.sections.inbox.count if pkm.sections.inbox else 0 }}</span>
+        </div>
+        <div class="kb-section-desc">Drop anything here. The ingest script sorts it.</div>
+      </div>
+
+      <div class="kb-section" onclick="showSection('sources')">
+        <div class="kb-section-header">
+          <span class="kb-section-icon">📚</span>
+          <span class="kb-section-name">Sources</span>
+          <span class="kb-section-count">{{ pkm.sections.sources.count if pkm.sections.sources else 0 }}</span>
+        </div>
+        <div class="kb-section-desc">Papers, articles, datasets, bookmarks — raw material.</div>
+      </div>
+
+      <div class="kb-section" onclick="showSection('agents')">
+        <div class="kb-section-header">
+          <span class="kb-section-icon">🤖</span>
+          <span class="kb-section-name">Agent Work</span>
+          <span class="kb-section-count">{{ pkm.sections.agents.count if pkm.sections.agents else 0 }}</span>
+        </div>
+        <div class="kb-section-desc">Research, experiments, synthesis, recommendations — built by AI.</div>
+      </div>
+
+      <div class="kb-section" onclick="showSection('notes')">
+        <div class="kb-section-header">
+          <span class="kb-section-icon">📝</span>
+          <span class="kb-section-name">Notes</span>
+          <span class="kb-section-count">{{ pkm.sections.notes.count if pkm.sections.notes else 0 }}</span>
+        </div>
+        <div class="kb-section-desc">Your journal, ideas, scratch — write freely.</div>
+      </div>
+
+      <div class="kb-section" onclick="showSection('inference')">
+        <div class="kb-section-header">
+          <span class="kb-section-icon">🧠</span>
+          <span class="kb-section-name">Inference</span>
+          <span class="kb-section-count">{{ pkm.sections.inference.count if pkm.sections.inference else 0 }}</span>
+        </div>
+        <div class="kb-section-desc">Saved prompts, completions, reasoning chains.</div>
+      </div>
+
+      <div class="kb-section" onclick="showSection('compiled')">
+        <div class="kb-section-header">
+          <span class="kb-section-icon">📦</span>
+          <span class="kb-section-name">Compiled</span>
+          <span class="kb-section-count">{{ pkm.sections.compiled.count if pkm.sections.compiled else 0 }}</span>
+        </div>
+        <div class="kb-section-desc">Polished reports, summaries, exports — the good stuff.</div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ═══ File Browser + Viewer ═══ -->
+  <div class="card" id="file-list-card" style="display:none">
+    <h2 id="file-list-title">Files</h2>
+    <div class="kb-files" id="file-list"></div>
+  </div>
+
+  <div class="card" id="file-viewer-card" style="display:none">
+    <h2 id="viewer-title">Viewer</h2>
+    <div class="kb-viewer-path" id="viewer-path"></div>
+    <div class="kb-viewer" id="viewer-content"></div>
+  </div>
+
+  <!-- ═══ Search Results ═══ -->
+  <div class="card full" id="search-results-card" style="display:none">
+    <h2>Search Results</h2>
+    <div id="search-results"></div>
+  </div>
+
+</div>
+
+<script>
+/* ═══════════════════════════════════════════════════════════════
+   OGLab Knowledge Base — vanilla JS
+   ═══════════════════════════════════════════════════════════════ */
+
+const pkmData = {{ pkm | tojson }};
+
+// Section icons lookup
+const SECTION_ICONS = {
+  inbox: '📥', sources: '📚', agents: '🤖',
+  notes: '📝', inference: '🧠', compiled: '📦'
+};
+
+// File type icons
+function fileIcon(name) {
+  const ext = name.split('.').pop().toLowerCase();
+  const map = {
+    md: '📄', txt: '📄', rst: '📄', pdf: '📕',
+    csv: '📊', json: '📊', jsonl: '📊', parquet: '📊',
+    html: '🌐', htm: '🌐', py: '🐍', sh: '⚙️',
+  };
+  return map[ext] || '📄';
+}
+
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+// ── Show files for a section ──
+function showSection(name) {
+  // Highlight active section
+  document.querySelectorAll('.kb-section').forEach(el => el.classList.remove('active'));
+  event.currentTarget.classList.add('active');
+
+  const section = pkmData.sections[name];
+  const listCard = document.getElementById('file-list-card');
+  const viewerCard = document.getElementById('file-viewer-card');
+  const searchCard = document.getElementById('search-results-card');
+  searchCard.style.display = 'none';
+  listCard.style.display = '';
+  viewerCard.style.display = 'none';
+
+  const icon = SECTION_ICONS[name] || '📁';
+  document.getElementById('file-list-title').textContent = `${icon} ${name.charAt(0).toUpperCase() + name.slice(1)}`;
+
+  const list = document.getElementById('file-list');
+
+  if (!section || section.count === 0) {
+    if (name === 'inbox') {
+      list.innerHTML = `<div class="kb-empty">
+        <div class="kb-empty-icon">📥</div>
+        <div>Inbox is empty</div>
+        <div class="kb-inbox-hint">
+          Drop files here: <code>cp file.pdf ~/lab_pkm/inbox/</code><br>
+          Quick note: <code>echo "idea" >> ~/lab_pkm/inbox/quick.txt</code><br>
+          Save URLs: <code>echo "URL — desc" >> ~/lab_pkm/inbox/links.txt</code>
+        </div>
+      </div>`;
+    } else {
+      list.innerHTML = `<div class="kb-empty">
+        <div class="kb-empty-icon">${icon}</div>
+        <div>No files yet</div>
+        <div class="kb-empty-hint">
+          ${name === 'agents' ? 'Set a goal and start research — the AI will fill this.' :
+            name === 'sources' ? 'Drop material in inbox/ then run Ingest.' :
+            name === 'notes' ? 'Start writing: ~/lab_pkm/notes/journal.md' :
+            name === 'compiled' ? 'Run Compile to build reports from your material.' :
+            name === 'inference' ? 'Save prompts and completions worth keeping here.' :
+            'Content will appear as your lab grows.'}
+        </div>
+      </div>`;
+    }
+    return;
+  }
+
+  let html = '';
+  section.items.forEach(item => {
+    html += `<div class="kb-file" onclick="viewFile('${esc(item.path)}')">
+      <span class="kb-file-icon">${fileIcon(item.name)}</span>
+      <span class="kb-file-name">${esc(item.name)}</span>
+      <span class="kb-file-meta">${item.modified} · ${formatSize(item.size)}</span>
+    </div>`;
+  });
+  list.innerHTML = html;
+}
+
+// ── View a file ──
+async function viewFile(relPath) {
+  const viewerCard = document.getElementById('file-viewer-card');
+  const title = document.getElementById('viewer-title');
+  const pathEl = document.getElementById('viewer-path');
+  const content = document.getElementById('viewer-content');
+
+  viewerCard.style.display = '';
+  title.textContent = relPath.split('/').pop();
+  pathEl.textContent = relPath;
+  content.textContent = 'Loading…';
+
+  try {
+    const r = await fetch(`/api/pkm/file?path=${encodeURIComponent(relPath)}`);
+    const data = await r.json();
+    if (data.error) {
+      content.textContent = `Error: ${data.error}`;
+      return;
+    }
+    // Simple Markdown rendering (headers, bold, code)
+    content.innerHTML = renderMarkdown(data.content);
+  } catch (e) {
+    content.textContent = `Failed to load: ${e.message}`;
+  }
+}
+
+// ── Search ──
+let searchTimeout;
+document.getElementById('kb-search-input').addEventListener('input', (e) => {
+  clearTimeout(searchTimeout);
+  const q = e.target.value.trim();
+  if (q.length < 2) {
+    document.getElementById('search-results-card').style.display = 'none';
+    return;
+  }
+  searchTimeout = setTimeout(() => runSearch(q), 300);
+});
+
+async function runSearch(q) {
+  const card = document.getElementById('search-results-card');
+  const container = document.getElementById('search-results');
+  card.style.display = '';
+
+  // Hide file browser while searching
+  document.getElementById('file-list-card').style.display = 'none';
+  document.getElementById('file-viewer-card').style.display = 'none';
+
+  try {
+    const r = await fetch(`/api/pkm/search?q=${encodeURIComponent(q)}`);
+    const results = await r.json();
+
+    if (results.length === 0) {
+      container.innerHTML = `<div class="kb-empty">
+        <div>No results for "${esc(q)}"</div>
+        <div class="kb-empty-hint">Try broader terms or check different sections</div>
+      </div>`;
+      return;
+    }
+
+    let html = '';
+    results.forEach(r => {
+      html += `<div class="kb-result" onclick="viewFile('${esc(r.path)}')">
+        <span class="kb-result-path">${esc(r.path)}</span>
+        <span class="kb-result-matches">${r.match_count} match${r.match_count > 1 ? 'es' : ''}</span>`;
+      if (r.snippets && r.snippets.length) {
+        html += `<div class="kb-result-snippet">${esc(r.snippets[0])}</div>`;
+      }
+      html += `</div>`;
+    });
+    container.innerHTML = html;
+  } catch (e) {
+    container.innerHTML = `<div class="kb-empty">Search failed: ${e.message}</div>`;
+  }
+}
+
+// ── Ingest / Compile ──
+async function runIngest() {
+  try {
+    const r = await fetch('/api/pkm/ingest', {method: 'POST'});
+    const data = await r.json();
+    if (data.moved || data.urls_fetched) {
+      alert(`Ingested ${data.moved} file(s), ${data.urls_fetched} URL(s)`);
+      location.reload();
+    } else {
+      alert('Inbox is empty. Drop files into ~/lab_pkm/inbox/ first.');
+    }
+  } catch (e) {
+    alert(`Ingest failed: ${e.message}`);
+  }
+}
+
+async function runCompile() {
+  try {
+    const r = await fetch('/api/pkm/compile', {method: 'POST'});
+    const data = await r.json();
+    alert(`Compiled index: ${data.total} items, ${data.tags.length} tags`);
+    location.reload();
+  } catch (e) {
+    alert(`Compile failed: ${e.message}`);
+  }
+}
+
+// ── Utilities ──
+
+function formatSize(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+function renderMarkdown(text) {
+  // Simple markdown → HTML (just the essentials for readability)
+  let html = esc(text);
+  // Headers
+  html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+  html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+  html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+  // Bold
+  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  // Italic
+  html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+  // Inline code
+  html = html.replace(/`([^`]+)`/g, '<code style="background:var(--surface2);padding:0.1rem 0.3rem;border-radius:3px;color:var(--green)">$1</code>');
+  // Horizontal rules
+  html = html.replace(/^---$/gm, '<hr style="border:none;border-top:1px solid var(--border);margin:1rem 0">');
+  // List items
+  html = html.replace(/^- (.+)$/gm, '• $1');
+  // Star markers
+  html = html.replace(/⭐/g, '<span style="color:var(--amber)">⭐</span>');
+  // Tags
+  html = html.replace(/#(\w[\w-]*)/g, '<span style="color:var(--blue)">#$1</span>');
+  return html;
+}
+</script>
+</body>
+</html>
