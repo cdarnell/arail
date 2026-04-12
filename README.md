@@ -43,7 +43,7 @@ and auto-configures everything. Got an NVMe drive with 80 GB free?
 You qualify for deep research. The build manifest tells you exactly
 what you're getting:
 
-```
+```text
   ┌─── BUILD MANIFEST ──────────────────────────────────────────────┐
   │                                                                 │
   │  Tier:          ▶ deep                                          │
@@ -123,7 +123,7 @@ start` brings up all four services. Run `./oglab help` for the rest.
 Four services come online:
 
 | Service | URL | What |
-|---------|-----|------|
+| --------- | ----- | ------ |
 | **Dashboard** | http://127.0.0.1:8080 | Goal tracking, cost savings, experiments, agents |
 | **Terminal** | http://127.0.0.1:7681 | Shell in browser (ttyd) |
 | **Notebook** | http://127.0.0.1:8888 | Jupyter Lab |
@@ -136,6 +136,22 @@ Four services come online:
 
 ---
 
+## Platform Support
+
+OGLab is **platform-neutral by design**. The model router ([src/oglab/router/backends.py](src/oglab/router/backends.py)) has one class per accelerator (MLX / CUDA / CPU / AirLLM / OpenAI-compat / HuggingFace / OpenRouter / Claude), auto-detected from hardware, swappable via a single `.env` line. The Python code and the portal never ask what OS they're on.
+
+The only thing that actually differs per platform is the package manager in [`./oglab setup`](scripts/setup.sh) — and that's where the recommendations below matter.
+
+| Platform | Recommended path | Why |
+| --- | --- | --- |
+| **macOS (Apple Silicon)** | Native + MLX | **Blessed path.** Unified memory means a base-model M-series with 32 GB can run a 70B model via AirLLM layer-streaming that would need a ~48 GB discrete GPU. MLX is Apple's first-party Metal framework — no drivers, no VM, no CUDA toolkit. |
+| **Windows (any GPU)** | WSL2 Ubuntu + CUDA | Nvidia ships full CUDA-in-WSL2 support (`/dev/dxg` bridge, Windows driver ≥ 525.x). `wsl --install` gets you Ubuntu in one command. This gets you real Linux userspace on Windows hardware without dual-booting. |
+| **Linux (native)** | Your distro, your rules | The blueprint runs on any Linux with Python 3.10+ and a supported backend. Our [`setup.sh`](scripts/setup.sh) knows Homebrew, apt, and emerge — if you're on Arch/Fedora/NixOS/whatever, the fastest path is to **"vibe integrate"**: point an agent at [docs/LINUX.md](docs/LINUX.md) and `setup.sh` and let it port the 20 lines of package-manager calls. See [docs/LINUX.md](docs/LINUX.md) for the recipe. |
+
+**Intel Mac / no GPU / curious?** CPU fallback via llama.cpp works everywhere — set `MODEL_BACKEND=cpu` and expect slower tokens/sec but full functionality.
+
+---
+
 ## Three Tiers of Inference
 
 The lab always keeps a small, fast model in RAM (Phi-3.5-mini, ~2 GB).
@@ -144,7 +160,7 @@ That handles interactive work — goal parsing, quick questions, observations.
 Anything heavier goes elsewhere:
 
 | Tier | What fires | When |
-|------|-----------|------|
+| ------ | ----------- | ------ |
 | **SLM** (always on) | Phi-3.5-mini in RAM | Instant — every fast task |
 | **AirLLM** (deep) | 70B model from disk, layer by layer | Research planning, analysis, reports |
 | **Cloud** (opt-in) | HuggingFace / OpenRouter / Claude | When you choose to open the door |
@@ -155,20 +171,20 @@ this — the dual router handles it.
 
 ---
 
-# Section 1 — Mac (Apple Silicon)
+## Section 1 — Mac (Apple Silicon)
 
 > Native Metal acceleration via MLX. No VM, no Docker, no fuss.
 
-### What you get
+### What you get on Mac
 
 | Component | How it works on Mac |
-|-----------|-------------------|
+| ----------- | ------------------- |
 | **GPU** | Apple Metal via MLX — native, no drivers to install |
 | **Model router** | `MODEL_BACKEND=mlx` (auto-detected) |
 | **Packages** | Homebrew + pip in a venv |
 | **OS** | Your existing macOS — nothing to replace |
 
-### Quick start
+### Quick start on Mac
 
 ```bash
 git clone https://github.com/cdarnell/minimalist-blueprint.git oglab
@@ -178,7 +194,7 @@ cd oglab
 
 The setup detects your Mac automatically:
 
-```
+```text
 ━━━ 1/10  Detecting hardware
   Platform:    macos (arm64)
   CPUs:        10
@@ -189,7 +205,7 @@ The setup detects your Mac automatically:
 
 It computes your build profile, shows the manifest, and asks one question — your research goal:
 
-```
+```text
 ━━━ 2/10  Computing build profile
 ━━━ 3/10  Build manifest
 
@@ -226,7 +242,7 @@ Then:
 MLX is the default and best choice for Apple Silicon.  Alternatives:
 
 | Option | `.env` setting | Notes |
-|--------|---------------|-------|
+| -------- | --------------- | ------- |
 | **MLX** (default) | `MODEL_BACKEND=mlx` | Native Metal, fastest on Mac |
 | **LM Studio** | `MODEL_BACKEND=openai_compat`<br>`MODEL_API_BASE=http://localhost:1234/v1` | GUI app, download models with one click |
 | **Ollama** | `MODEL_BACKEND=openai_compat`<br>`MODEL_API_BASE=http://localhost:11434/v1` | CLI-first, `ollama run mistral` |
@@ -241,65 +257,49 @@ MLX is the default and best choice for Apple Silicon.  Alternatives:
 
 ---
 
-# Section 2 — Windows (WSL2 + Gentoo)
+## Section 2 — Windows (WSL2 + Ubuntu + CUDA)
 
-> Nvidia GPU passthrough into a Gentoo Linux environment via WSL2.
+> Real Linux userspace on your Windows machine, with full Nvidia GPU
+> passthrough. No dual-boot, no VM GPU drama.
 
-### What you get
+### What you get on Windows
 
 | Component | How it works on Windows |
-|-----------|------------------------|
+| --- | --- |
 | **GPU** | Nvidia CUDA via WSL2 `/dev/dxg` bridge — Windows driver, Linux userspace |
 | **Model router** | `MODEL_BACKEND=cuda` (auto-detected) |
-| **Packages** | Gentoo Portage (`emerge`) — compile from source |
-| **OS** | Gentoo Linux running inside WSL2 |
+| **Packages** | `apt` (Ubuntu default) — fast, predictable |
+| **OS** | Ubuntu 22.04 LTS or 24.04 LTS running inside WSL2 |
 
 ### Prerequisites
 
 1. **Windows 10 (21H2+) or Windows 11**
-2. **WSL2 enabled** — `wsl --install` from PowerShell (admin)
-3. **Nvidia GPU driver** installed on Windows (≥ 525.x) — this is the
-   *Windows* driver, not a Linux driver. WSL2 projects it into Linux
-   automatically.
+2. **Nvidia GPU driver** installed on Windows (≥ 525.x). This is the
+   *Windows* driver, not a Linux driver — WSL2 projects it into Linux
+   automatically. Do **not** install `nvidia-drivers` inside WSL.
 
-### Install Gentoo in WSL2
+### Install WSL2 + Ubuntu
 
 ```powershell
-# PowerShell (admin)
-# Download a Gentoo stage3 tarball and import it:
-wsl --import Gentoo C:\Gentoo C:\Downloads\stage3-amd64-*.tar.xz
-wsl -d Gentoo
+# PowerShell (admin) — installs WSL2 and Ubuntu in one step
+wsl --install
 ```
 
-Or use an existing Gentoo WSL image from the community.
+Reboot when prompted, then launch **Ubuntu** from the Start menu and
+set your username/password. That's it — you're in a real Linux shell
+with GPU access.
 
-### Default user
-
-Once inside Gentoo WSL:
-
-| | |
-|---|---|
-| **User** | `gentoofoo` |
-| **Password** | `gentoofoo` |
-| **Sudo** | Full access (passwordless) |
-| **Home** | `/home/gentoofoo` |
-
-> **Change your password on first login:**
-> ```bash
-> passwd
-> ```
-
-### Quick start (inside WSL2 Gentoo)
+### Quick start (inside Ubuntu WSL)
 
 ```bash
 git clone https://github.com/cdarnell/minimalist-blueprint.git oglab
 cd oglab
-./bootstrap.sh
+./oglab setup && ./oglab start
 ```
 
-The bootstrap detects WSL + Nvidia automatically:
+The setup detects WSL + Nvidia automatically:
 
-```
+```text
 ━━━ 1/10  Detecting hardware
   Platform:    wsl (x86_64)
   CPUs:        16
@@ -310,7 +310,7 @@ The bootstrap detects WSL + Nvidia automatically:
 
 ━━━ 2/10  Computing build profile
 ━━━ 3/10  Build manifest         ← tier, engines, resources
-━━━ 4/10  System packages        ← emerge -av python gcc cmake ...
+━━━ 4/10  System packages        ← apt install python3 git build-essential cmake ...
 ━━━ 5/10  Python environment     ← venv + vllm + torch (CUDA)
 ━━━ 6/10  Lab services           ← portal, jupyter, ttyd, code-server
 ━━━ 7/10  AI models              ← SLM + tier-appropriate model
@@ -329,44 +329,10 @@ Then:
 
 Services are accessible from your Windows browser at the same URLs.
 
-### Gentoo package management
-
-Gentoo uses `emerge` (Portage) instead of `apt`.  It compiles from source:
-
-```bash
-# Search
-emerge --search numpy
-
-# Install
-sudo emerge -av dev-python/numpy
-
-# Update everything
-sudo emerge --update --deep --newuse @world
-
-# Remove
-sudo emerge --depclean dev-python/numpy
-```
-
-USE flags let you compile with exactly the features you need:
-
-```bash
-# Enable CUDA + Python bindings for OpenCV
-echo "dev-libs/opencv cuda python" | sudo tee -a /etc/portage/package.use/oglab
-sudo emerge -av dev-libs/opencv
-```
-
-Common lab packages:
-
-```bash
-sudo emerge -av dev-python/numpy dev-python/scipy dev-python/pandas
-sudo emerge -av dev-util/nvidia-cuda-toolkit    # CUDA
-sudo emerge -av app-misc/tmux net-misc/curl app-editors/vim
-```
-
 ### Windows inference options
 
 | Option | `.env` setting | Notes |
-|--------|---------------|-------|
+| -------- | --------------- | ------- |
 | **CUDA / vLLM** (default) | `MODEL_BACKEND=cuda` | Direct GPU, fastest |
 | **LM Studio** (on Windows host) | `MODEL_BACKEND=openai_compat`<br>`MODEL_API_BASE=http://host.docker.internal:1234/v1` | Run LM Studio on Windows, call from WSL |
 | **Ollama** (in WSL) | `MODEL_BACKEND=openai_compat`<br>`MODEL_API_BASE=http://localhost:11434/v1` | Runs inside WSL with CUDA |
@@ -375,27 +341,85 @@ sudo emerge -av app-misc/tmux net-misc/curl app-editors/vim
 ### Windows notes
 
 - The Nvidia driver is installed on **Windows only**. WSL2 bridges it
-  via `/dev/dxg`. Do NOT install nvidia-drivers inside Gentoo WSL.
+  via `/dev/dxg`. Do NOT install `nvidia-drivers` inside WSL.
 - AMD ROCm on WSL2 is experimental. Stick with Nvidia for now.
-- WSL2 uses Microsoft's kernel, not a Gentoo kernel. That's fine — the
-  GPU bridge requires it.
-- You're running a real Gentoo userspace. `emerge`, USE flags, and
-  everything else works normally.
+- Prefer **Ubuntu 22.04 / 24.04 LTS** — it's what Nvidia tests against
+  and what `./oglab setup` expects for apt package names.
+- Other distros (Debian, Arch-WSL, Gentoo-WSL) work too, but you're in
+  the [native Linux](#section-3--linux-native-bring-your-own-distro)
+  path below — `setup.sh` won't know your package names automatically.
 
 ---
 
-# Shared — Both Platforms
+## Section 3 — Linux (native, bring your own distro)
 
-Everything below applies identically on Mac and Windows.  Your code
+> The blueprint is distro-neutral. The only 20 lines that care about
+> your OS are the package-manager calls in [`scripts/setup.sh`](scripts/setup.sh).
+
+### What you get on Linux
+
+| Component | How it works on Linux |
+| --- | --- |
+| **GPU** | CUDA (Nvidia) or CPU fallback (llama.cpp). ROCm is experimental. |
+| **Model router** | `MODEL_BACKEND=cuda` or `cpu` (auto-detected) |
+| **Packages** | Whatever your distro uses — `apt`, `dnf`, `pacman`, `emerge`, `nix` |
+| **OS** | Any Linux with Python ≥ 3.10 |
+
+### The vibe-integrate approach
+
+`./oglab setup` has branches for macOS (Homebrew), Debian/Ubuntu (apt),
+and Gentoo (emerge). If you're on Arch, Fedora, NixOS, Alpine, or
+anything else, the fastest path is to **point an agent at the blueprint
+and let it port the setup script to your distro**:
+
+```bash
+# 1. Clone
+git clone https://github.com/cdarnell/minimalist-blueprint.git oglab
+cd oglab
+
+# 2. Try setup — it'll tell you what's missing
+./oglab setup
+```
+
+When `setup.sh` doesn't recognize your distro, hand your agent the
+two files it needs ([scripts/setup.sh](scripts/setup.sh) and
+[docs/LINUX.md](docs/LINUX.md)) and ask it to add a branch for your
+package manager. The rest of the blueprint — the Python package, the
+portal, the router, the agents — doesn't care what installed CUDA.
+
+Because OGLab is small and coherent by design, this port is usually a
+single function in `setup.sh` plus a one-line entry in a case
+statement. See [docs/LINUX.md](docs/LINUX.md) for the recipe and a
+worked example (Arch Linux).
+
+### Linux notes
+
+- **Gentoo users**: [scripts/gentoo-bootstrap.sh](scripts/gentoo-bootstrap.sh)
+  provides OpenRC service files and USE-flag suggestions.
+- **Nvidia**: install the CUDA toolkit via your distro (don't mix
+  pip-installed CUDA with system CUDA). Kernel modules must match
+  the driver version.
+- **ROCm**: AMD GPUs work in theory via `rocBLAS` + `hip-python`; not
+  in the blessed path, but the router has a CUDA backend that will
+  fall through to ROCm if `HIP_VISIBLE_DEVICES` is set.
+- **Headless servers**: pass `OGLAB_NO_BROWSER=1 ./oglab start` to
+  skip the auto-open step.
+
+---
+
+## Shared — All Platforms
+
+Everything below applies identically on every platform. Your code
 never sees the platform difference — the model router abstracts it.
 
-```
-Mac host  ──→  MLX (native Metal)
-WSL2      ──→  CUDA via Windows GPU bridge
-Either    ──→  AirLLM (70B from disk, layer-by-layer)
-Either    ──→  LM Studio / Ollama / DeployLM (OpenAI-compat API)
-Either    ──→  External API (free tier, bring your own token)
-Either    ──→  CPU fallback (llama.cpp)
+```text
+Mac host     ──→  MLX (native Metal)
+WSL2         ──→  CUDA via Windows GPU bridge
+Linux native ──→  CUDA (Nvidia) / ROCm (AMD, experimental) / CPU
+Any platform ──→  AirLLM (70B from disk, layer-by-layer)
+Any platform ──→  LM Studio / Ollama / DeployLM (OpenAI-compat API)
+Any platform ──→  External API (free tier, bring your own token)
+Any platform ──→  CPU fallback (llama.cpp)
 ```
 
 One codebase, zero `if platform ==` branches.
@@ -407,7 +431,7 @@ Edit `.env` to change model backend or API keys.
 
 ## Project Structure
 
-```
+```text
 oglab/
 ├── oglab                     # ← unified CLI: setup | start | stop | reset | pkm | doctor
 ├── src/oglab/                # Python package
@@ -455,7 +479,7 @@ print(response.text)
 ```
 
 | Backend | Env value | Needs | Cost |
-|---------|-----------|-------|------|
+| --------- | ----------- | ------- | ------ |
 | MLX (Mac) | `mlx` | Apple Silicon | Free |
 | CUDA (Nvidia) | `cuda` | Nvidia GPU + vLLM | Free |
 | CPU (llama.cpp) | `cpu` | Any machine | Free |
@@ -495,7 +519,7 @@ tracker.complete(
 ## Sharing
 
 Share this repo link:
-```
+```text
 https://github.com/cdarnell/minimalist-blueprint
 ```
 
