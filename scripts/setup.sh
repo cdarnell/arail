@@ -284,12 +284,102 @@ download_model() {
 }
 
 # -----------------------------------------------------------------------------
+# Capture intent + goal (interactive; writes bootstrap_goal.json)
+# -----------------------------------------------------------------------------
+capture_goal() {
+    # Skip if non-interactive (CI, Docker, pipe)
+    if [[ ! -t 0 ]] || [[ "${OGLAB_NONINTERACTIVE:-0}" == "1" ]]; then
+        info "Non-interactive shell — skipping goal capture. Set LAB_INTENT + goal via portal later."
+        return
+    fi
+
+    local goal_path="lab/data/goals/bootstrap_goal.json"
+    if [[ -f "$goal_path" ]]; then
+        info "Bootstrap goal already set — skipping. (Delete $goal_path to re-capture.)"
+        return
+    fi
+
+    echo ""
+    echo -e "${BOLD}━━━ Lab intent${RESET}"
+    echo ""
+    echo "  What kind of lab is this?"
+    echo ""
+    echo "    1) ai         — AI engineering, models, inference, toolchains"
+    echo "    2) ml         — Machine learning, training, datasets, benchmarks"
+    echo "    3) farming    — Crop science, soil, regional growing"
+    echo "    4) business   — Market research, unit economics, competitive intel"
+    echo "    5) education  — Learning science, curriculum, mastery"
+    echo "    6) health     — Exercise, nutrition, sleep, wellness protocols"
+    echo "    7) culinary   — Cooking technique, flavor chemistry, recipe dev"
+    echo ""
+    read -rp "  Choice [1-7, default 1]: " choice
+    local intent intent_name
+    case "${choice:-1}" in
+        1|"") intent=ai;        intent_name="AI Engineer" ;;
+        2)    intent=ml;        intent_name="ML Researcher" ;;
+        3)    intent=farming;   intent_name="Farmer" ;;
+        4)    intent=business;  intent_name="Analyst" ;;
+        5)    intent=education; intent_name="Educator" ;;
+        6)    intent=health;    intent_name="Health Researcher" ;;
+        7)    intent=culinary;  intent_name="Culinary Scientist" ;;
+        *)    intent=ai;        intent_name="AI Engineer" ;;
+    esac
+
+    echo ""
+    echo -e "${BOLD}━━━ Research goal${RESET}"
+    echo ""
+    echo "  What do you want the lab to research? One sentence is fine."
+    echo "  Examples:"
+    echo "    • Find the best 8B model for code generation on a 32 GB Mac"
+    echo "    • Grow peanuts in USDA zone 7 with minimal irrigation"
+    echo "    • Master French pastry lamination technique"
+    echo ""
+    read -rp "  Goal: " goal
+    if [[ -z "${goal// }" ]]; then
+        warn "Empty goal — skipping capture. You can set one from the dashboard after ./oglab start."
+        return
+    fi
+
+    mkdir -p "$(dirname "$goal_path")"
+    python3 - "$goal_path" "$goal" "$intent" "$intent_name" <<'PY'
+import json, sys, datetime
+path, goal, intent, intent_name = sys.argv[1:5]
+payload = {
+    "goal": goal,
+    "intent": intent,
+    "intent_name": intent_name,
+    "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+}
+with open(path, "w") as f:
+    json.dump(payload, f, indent=2)
+PY
+
+    # Persist intent to .env so the researcher agent picks it up on every run.
+    if [[ -f .env ]]; then
+        if grep -q '^LAB_INTENT=' .env; then
+            sed -i.bak "s|^LAB_INTENT=.*|LAB_INTENT=${intent}|" .env
+        else
+            echo "LAB_INTENT=${intent}" >> .env
+        fi
+        if grep -q '^LAB_INTENT_NAME=' .env; then
+            sed -i.bak "s|^LAB_INTENT_NAME=.*|LAB_INTENT_NAME=${intent_name}|" .env
+        else
+            echo "LAB_INTENT_NAME=${intent_name}" >> .env
+        fi
+        rm -f .env.bak
+    fi
+
+    info "Goal saved → $goal_path"
+    info "Researcher will auto-start when you run ${BOLD}./oglab start${RESET}"
+}
+
+# -----------------------------------------------------------------------------
 # Verify
 # -----------------------------------------------------------------------------
 verify() {
     info "Running smoke tests…"
     python3 -c "from oglab.router import ModelRouter; import oglab.portal.app; from oglab.pkm import scaffold; scaffold(); print('OK')" >/dev/null 2>&1 \
-        && info "Setup complete!" \
+        && info "Smoke tests passed." \
         || warn "Smoke test failed — inspect the environment and re-run: pip install -e ."
 }
 
@@ -315,8 +405,11 @@ main() {
 
     echo ""
     verify
+    capture_goal
+
     echo ""
-    info "Next step:  ./oglab start"
+    echo -e "${BOLD}✓ Setup complete.${RESET}"
+    info "Next step:  ${BOLD}./oglab start${RESET}  — portal + agents come online together"
     echo ""
 }
 

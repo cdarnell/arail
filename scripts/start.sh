@@ -72,6 +72,21 @@ echo -e "  IDE:        ${BOLD}http://${BIND}:${IDE_PORT:-8443}${RESET}  (passwor
 echo ""
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
 
+# Auto-open the dashboard unless suppressed or headless.
+if [[ "${OGLAB_NO_BROWSER:-0}" != "1" ]] && [[ -t 1 ]]; then
+    dashboard_url="http://${BIND}:${PORTAL_PORT:-8080}"
+    (
+        # Give uvicorn a moment to bind the port before opening the browser.
+        for _ in 1 2 3 4 5 6 7 8 9 10; do
+            if curl -sf -o /dev/null "$dashboard_url" 2>/dev/null; then break; fi
+            sleep 0.5
+        done
+        if command -v open >/dev/null; then open "$dashboard_url"
+        elif command -v xdg-open >/dev/null; then xdg-open "$dashboard_url" >/dev/null 2>&1
+        fi
+    ) &
+fi
+
 cleanup() {
     echo ""
     info "Shutting down…"
