@@ -239,7 +239,7 @@ Then:
 
 ### Mac inference options
 
-MLX is the default and best choice for Apple Silicon.  Alternatives:
+MLX is the default and top choice for Apple Silicon.
 
 | Option | `.env` setting | Notes |
 | -------- | --------------- | ------- |
@@ -250,9 +250,9 @@ MLX is the default and best choice for Apple Silicon.  Alternatives:
 
 ### Mac notes
 
-- No Gentoo needed on Mac — MLX runs natively on macOS.
+- No Gentoo Linux needed on Mac — MLX runs natively on macOS.
 - GPU passthrough to a VM doesn't work on Apple Silicon. Don't try.
-- If you want Gentoo for the experience, run it in UTM (QEMU) for
+- If you must run Linux, run it in UTM (QEMU) for
   dev/orchestration — but GPU work stays on the macOS host via MLX.
 
 ---
