@@ -11,12 +11,12 @@ Local-first. Airgapped by default. Your models, your data, your hardware.
 
 You tell it what you care about. It builds a lab around that.
 
-Small agents — a researcher, a curator, an experiment tracker — start
-working toward your goal the moment the lab comes online. They explore,
-they test hypotheses, they write findings. You sleep; they don't.
+Simple python agents include a researcher, curator, an experiment tracker.  
+Each agent begins working toward your goal the moment the lab comes online. They explore,
+they test hypotheses, look for good change, they write findings.  You sleep, they don't.
 
 Everything runs on your machine. No accounts. No API keys required.
-No telemetry. No one watching.
+No telemetry leaves, 100% as private as you need it to be.
 
 ---
 
@@ -24,24 +24,26 @@ No telemetry. No one watching.
 
 ### Airgapped by Default
 
+The best security is digging a hole and taking your language model with you while cutting the internet cord.
 Zero network calls out of the box. Your models run locally. Your data
 stays local. The lab doesn't phone home, ping analytics, or reach for
 the cloud unless you explicitly open the door.
 
-Hybrid mode exists — HuggingFace free tier, OpenRouter, Claude — but
-you opt in. The default is silence on the wire.
+### Hybrid mode does exist. 
+
+Start with free tier options before you buy, try HuggingFace, OpenRouter, Nvidia.
+Remember, you opt in. The default is silence on the wire.
 
 ### Host Out-of-Reach LLMs on Disk
 
-Most people can't run a 70-billion-parameter model. Not enough RAM.
-OGLab ships **AirLLM** — it loads models layer by layer from your SSD,
-one slice at a time. A 70B model that would need 40 GB of RAM runs in
-4 GB. Slow, yes. But it runs. And it's *yours*.
+OGLab ships **AirLLM**  Host LLM's on disk, layer by layer from your SSD,
+one slice at a time. A 70B model that would need 40 GB of RAM can run w/
+4 GB of RAm and 40GB of space. Slow, yes. But perfect for agent's research or special COT scenarios.  
 
-The bootstrap scans your hardware — CPU, RAM, disk size, disk type —
-and auto-configures everything. Got an NVMe drive with 80 GB free?
+The bootstrap scans your hardware for CPU, RAM, disk size, disk type
+and attempts to auto-configure the basics. Got an NVMe drive with 80 GB free?
 You qualify for deep research. The build manifest tells you exactly
-what you're getting:
+what you qualify for.
 
 ```text
   ┌─── BUILD MANIFEST ──────────────────────────────────────────────┐
@@ -63,7 +65,7 @@ what you're getting:
   └─────────────────────────────────────────────────────────────────┘
 ```
 
-No menus. No tier selection. Discovery determines 100% of what you get.
+No menus. No tier selection. Discovery can determine 100% of what you get.
 
 ### Simulate Your Spend
 
