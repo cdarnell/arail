@@ -1,0 +1,48 @@
+# ─────────────────────────────────────────────────────────────────
+#  Open Notebook — self-hosted NotebookLM alternative
+#  https://github.com/lfnovo/open-notebook
+#
+#  Bring up:   docker compose -f compose/open-notebook.yml up -d
+#  Tear down:  docker compose -f compose/open-notebook.yml down
+#
+#  UI:  http://127.0.0.1:${OPEN_NOTEBOOK_PORT:-8502}
+#  API: http://127.0.0.1:${OPEN_NOTEBOOK_API_PORT:-5055}/docs
+#
+#  Bound to 127.0.0.1 on purpose — "open" means open-source, not
+#  public. Change the bind prefix only behind an auth proxy.
+#
+#  Host LM Studio / Ollama are reachable at host.docker.internal.
+#  Configure providers in the UI under Settings → API Keys after
+#  first start-up; credentials are encrypted with the key below.
+# ─────────────────────────────────────────────────────────────────
+
+services:
+  open-notebook-db:
+    image: surrealdb/surrealdb:v2
+    container_name: oglab-open-notebook-db
+    command: start --log info --user root --pass root rocksdb:/mydata/mydatabase.db
+    user: root
+    volumes:
+      - ./open-notebook/surreal:/mydata
+    restart: unless-stopped
+
+  open-notebook:
+    image: lfnovo/open_notebook:v1-latest
+    container_name: oglab-open-notebook
+    depends_on:
+      - open-notebook-db
+    ports:
+      - "127.0.0.1:${OPEN_NOTEBOOK_PORT:-8502}:8502"
+      - "127.0.0.1:${OPEN_NOTEBOOK_API_PORT:-5055}:5055"
+    environment:
+      OPEN_NOTEBOOK_ENCRYPTION_KEY: ${OPEN_NOTEBOOK_ENCRYPTION_KEY:?set OPEN_NOTEBOOK_ENCRYPTION_KEY in .env}
+      SURREAL_URL: ws://open-notebook-db:8000/rpc
+      SURREAL_USER: root
+      SURREAL_PASSWORD: root
+      SURREAL_NAMESPACE: open_notebook
+      SURREAL_DATABASE: open_notebook
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./open-notebook/data:/app/data
+    restart: unless-stopped

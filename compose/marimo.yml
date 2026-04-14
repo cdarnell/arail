@@ -1,0 +1,42 @@
+# ─────────────────────────────────────────────────────────────────
+#  Marimo — reactive, AI-native Python notebooks
+#  https://marimo.io
+#
+#  Bring up:   docker compose -f compose/marimo.yml up -d
+#  Tear down:  docker compose -f compose/marimo.yml down
+#
+#  UI: http://127.0.0.1:${MARIMO_PORT:-2718}
+#
+#  Notebooks live on the host at lab/notebooks/ — edit from Marimo
+#  or your IDE, they're plain .py files. Bound to 127.0.0.1 because
+#  a notebook server with kernel access is effectively a shell.
+#
+#  Host LM Studio / Ollama are reachable at host.docker.internal.
+# ─────────────────────────────────────────────────────────────────
+
+services:
+  marimo:
+    image: python:3.11-slim
+    container_name: oglab-marimo
+    working_dir: /notebooks
+    command: >
+      bash -lc "
+        pip install --quiet --no-cache-dir 'marimo[recommended]' &&
+        marimo edit
+          --host 0.0.0.0
+          --port 2718
+          --headless
+          --no-token
+          /notebooks
+      "
+    ports:
+      - "127.0.0.1:${MARIMO_PORT:-2718}:2718"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ../lab/notebooks:/notebooks
+      - marimo-pip-cache:/root/.cache/pip
+    restart: unless-stopped
+
+volumes:
+  marimo-pip-cache:

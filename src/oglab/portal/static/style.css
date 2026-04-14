@@ -103,7 +103,6 @@ nav a:hover { color: var(--text); background: var(--surface2); text-shadow: none
 nav a.active { color: var(--green); background: rgba(0,255,65,.06); }
 
 .mode-badge {
-  margin-left: auto;
   font-size: 0.65rem;
   font-weight: 700;
   padding: 0.2rem 0.7rem;
@@ -112,15 +111,32 @@ nav a.active { color: var(--green); background: rgba(0,255,65,.06); }
   letter-spacing: 0.08em;
 }
 .mode-badge.airgapped {
+  margin-left: auto;
   background: rgba(0,255,65,.12);
   color: var(--green);
   border: 1px solid rgba(0,255,65,.25);
   animation: pulse-green 3s ease-in-out infinite;
 }
 .mode-badge.hybrid {
+  margin-left: auto;
   background: rgba(255,176,0,.12);
   color: var(--amber);
   border: 1px solid rgba(255,176,0,.25);
+}
+.mode-badge.window-active {
+  background: rgba(255,176,0,.10);
+  color: var(--amber);
+  border: 1px solid rgba(255,176,0,.22);
+}
+.mode-badge.window-heavy {
+  background: rgba(112,122,255,.12);
+  color: #8c99ff;
+  border: 1px solid rgba(112,122,255,.28);
+}
+.mode-badge.window-idle {
+  background: rgba(128,128,128,.12);
+  color: #999;
+  border: 1px solid rgba(128,128,128,.22);
 }
 
 @keyframes pulse-green {
@@ -574,6 +590,55 @@ code {
 .tier-deep {
   color: var(--amber);
   text-shadow: var(--glow-amber);
+}
+
+/* ── Add-on surfaces (Curate card) ────────────────────────────── */
+.addons-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+.addon {
+  display: block;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface2);
+  text-decoration: none;
+  color: var(--text);
+  transition: border-color 120ms, background 120ms;
+}
+.addon.alive {
+  border-color: var(--green-dim);
+  background: rgba(0, 255, 65, 0.04);
+}
+.addon.alive:hover {
+  border-color: var(--green);
+  background: rgba(0, 255, 65, 0.08);
+}
+.addon.dead {
+  opacity: 0.55;
+  cursor: default;
+}
+.addon-name {
+  font-weight: 600;
+  color: var(--text-hi);
+  font-size: 0.95rem;
+}
+.addon-tag {
+  font-size: 0.78rem;
+  color: var(--muted);
+  margin-top: 0.1rem;
+}
+.addon-state {
+  font-size: 0.72rem;
+  color: var(--muted);
+  margin-top: 0.35rem;
+  font-family: inherit;
+}
+.addon.alive .addon-state {
+  color: var(--green-dim);
 }
 
 /* ── Responsive ────────────────────────────────────────────────── */

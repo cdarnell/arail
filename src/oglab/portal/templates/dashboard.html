@@ -17,6 +17,11 @@
   <a href="/plugins">Plugins</a>
   <a href="/graph">Graph</a>
   <span class="mode-badge airgapped" id="mode-badge">⬤ Airgapped</span>
+  <span class="mode-badge" id="window-badge" title="Current work window">⋯</span>
+  <button class="btn btn-sm btn-red" id="btn-halt"
+          title="Cancel all running jobs — portal stays up">⏸ Halt jobs</button>
+  <button class="btn btn-sm btn-primary" id="btn-resume" style="display:none"
+          title="Resume scheduler">▶ Resume</button>
 </nav>
 
 <div class="grid">
@@ -145,6 +150,15 @@
     </div>
   </div>
 
+  <!-- ═══ Curate (add-on surfaces) ═══ -->
+  <div class="card" id="addons-card">
+    <h2><span class="indicator"></span> Curate</h2>
+    <p class="empty" id="addons-hint" style="margin-top:.25rem;">
+      Optional notebook surfaces — start them with <code>docker compose -f compose/&lt;file&gt;.yml up -d</code>.
+    </p>
+    <div class="addons-list" id="addons-list"></div>
+  </div>
+
   <!-- ═══ Activity Feed ═══ -->
   <div class="card">
     <h2><span class="indicator"></span> Activity Feed</h2>
@@ -208,6 +222,37 @@
 /* ═══════════════════════════════════════════════════════════════
    OGLab Dashboard — vanilla JS, no framework
    ═══════════════════════════════════════════════════════════════ */
+
+// ── Job scheduler mode + halt/resume ──
+async function refreshJobsState() {
+  try {
+    const r = await fetch('/api/jobs/state');
+    const s = await r.json();
+    const badge = document.getElementById('window-badge');
+    badge.textContent = s.label;
+    badge.className = 'mode-badge window-' + s.window;
+    const halt = document.getElementById('btn-halt');
+    const resume = document.getElementById('btn-resume');
+    if (s.halted) {
+      halt.style.display = 'none';
+      resume.style.display = '';
+    } else {
+      halt.style.display = '';
+      resume.style.display = 'none';
+    }
+  } catch (e) { /* portal may be mid-restart */ }
+}
+document.getElementById('btn-halt').addEventListener('click', async () => {
+  if (!confirm('Halt all running jobs? The portal and services stay up — this cancels agent work only.')) return;
+  await fetch('/api/jobs/halt', {method: 'POST'});
+  refreshJobsState();
+});
+document.getElementById('btn-resume').addEventListener('click', async () => {
+  await fetch('/api/jobs/resume', {method: 'POST'});
+  refreshJobsState();
+});
+refreshJobsState();
+setInterval(refreshJobsState, 15000);
 
 // ── Goal submission ──
 document.getElementById('goal-form').addEventListener('submit', async (e) => {
@@ -385,6 +430,28 @@ async function refreshCosts() {
 }
 refreshCosts();
 setInterval(refreshCosts, 15000);
+
+// ── Add-on status (Marimo, Open Notebook) ──
+async function refreshAddons() {
+  try {
+    const r = await fetch('/api/addons/status');
+    const d = await r.json();
+    const list = document.getElementById('addons-list');
+    list.innerHTML = d.addons.map(a => {
+      const cls = a.alive ? 'addon alive' : 'addon dead';
+      const inner = `
+        <div class="addon-name">${esc(a.name)}</div>
+        <div class="addon-tag">${esc(a.tagline)}</div>
+        <div class="addon-state">${a.alive ? '● live · ' + esc(a.url) : '○ not running'}</div>
+      `;
+      return a.alive
+        ? `<a class="${cls}" href="${esc(a.url)}" target="_blank" rel="noopener">${inner}</a>`
+        : `<div class="${cls}">${inner}</div>`;
+    }).join('');
+  } catch(e) { /* endpoint unavailable */ }
+}
+refreshAddons();
+setInterval(refreshAddons, 10000);
 </script>
 </body>
 </html>

@@ -128,13 +128,32 @@ Four services come online:
 | --------- | ----- | ------ |
 | **Dashboard** | http://127.0.0.1:8080 | Goal tracking, cost savings, experiments, agents |
 | **Terminal** | http://127.0.0.1:7681 | Shell in browser (ttyd) |
-| **Notebook** | http://127.0.0.1:8888 | Jupyter Lab |
+| **Notebook** | http://127.0.0.1:8888 | Jupyter Lab (classic option — swap for Marimo below) |
 | **IDE** | http://127.0.0.1:8443 | VS Code in browser (code-server) |
+
+### Curate insight — optional add-ons
+
+Two docker-compose overlays let you curate what the lab (or your agents) pulls in, without coupling to the host-native services above. Both bind to `127.0.0.1` by default.
+
+| Add-on | URL | What |
+| --------- | ----- | ------ |
+| **Marimo** | http://127.0.0.1:2718 | Reactive, AI-native Python notebooks. Notebooks are plain `.py` files in [lab/notebooks/](lab/notebooks/). |
+| **Open Notebook** | http://127.0.0.1:8502 | Self-hosted NotebookLM alternative — ingest PDFs/video/audio, chat with sources, generate podcasts. REST API on `:5055`. |
+
+```bash
+# Marimo — the "experiment" surface
+docker compose -f compose/marimo.yml up -d
+
+# Open Notebook — the "curate" surface (needs OPEN_NOTEBOOK_ENCRYPTION_KEY in .env)
+docker compose -f compose/open-notebook.yml up -d
+```
+
+Both reach host-side LM Studio / Ollama at `host.docker.internal`, so they inherit your existing local model stack with no double-inference cost. Prefer classic Jupyter? It's still wired into `./oglab start` on `:8888` — use whichever surface fits the task.
 
 ## Two Modes
 
 - **Airgapped** (default) — zero network calls. Local model, local data.
-- **Hybrid** — local-first with optional cloud fallback (HuggingFace free tier, OpenRouter, Claude).
+- **Hybrid** — local-first with optional cloud fallback. Start on free tiers — **NVIDIA NIM** (`build.nvidia.com`, free credits, Llama 3.3 / Nemotron / DeepSeek-R1), **HuggingFace Inference**, **OpenRouter** — then graduate to paid tiers (Claude, OpenAI, Groq) once you know what your spend actually looks like.
 
 ---
 
@@ -486,9 +505,21 @@ print(response.text)
 | CUDA (Nvidia) | `cuda` | Nvidia GPU + vLLM | Free |
 | CPU (llama.cpp) | `cpu` | Any machine | Free |
 | **LM Studio / Ollama / DeployLM** | `openai_compat` | Local server running | Free |
+| **NVIDIA NIM** (build.nvidia.com) | `openai_compat` | `nvapi-…` key | **Free credits** |
 | HuggingFace | `huggingface` | API key | Free tier |
 | OpenRouter | `openrouter` | API key | Free tier |
 | Claude | `claude` | API key | Paid |
+
+**NVIDIA NIM setup** — the "test the waters" path. Sign up at [build.nvidia.com](https://build.nvidia.com), grab an `nvapi-…` key, then in `.env`:
+
+```bash
+MODEL_BACKEND=openai_compat
+MODEL_API_BASE=https://integrate.api.nvidia.com/v1
+MODEL_API_KEY=nvapi-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+MODEL_NAME=meta/llama-3.3-70b-instruct
+```
+
+That's it — you're running Llama 3.3 70B (or Nemotron, DeepSeek-R1, etc.) through the same router that talks to your local MLX/CUDA stack. Swap `MODEL_NAME` to browse. Because NIM speaks OpenAI's protocol, no dedicated backend class is needed — the generic `openai_compat` path handles it.
 
 ## Adding Your Own Domain
 
