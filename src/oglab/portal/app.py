@@ -20,6 +20,9 @@ from oglab.agents.consent import ConsentStore
 from oglab.goals import GoalStore
 from oglab.agents.researcher import researcher
 from oglab.plugins.manager import PluginManager
+from oglab.scheduler import (halt_all_jobs, jobs_halted, resume_all_jobs,
+                              startup_delay_seconds)
+from oglab.scheduler import state as scheduler_state
 from oglab.skills.goal_parser import GoalParser
 from oglab.skills.experiment_tracker import ExperimentTracker
 from oglab.router.backends import BACKEND_MAP
@@ -63,10 +66,13 @@ async def _startup():
                     goal_store.set_goal(parsed)
                     activity_log.emit("system",
                         f"Bootstrap goal loaded: {goal_text[:80]}", "info")
-                    # Auto-start research
+                    # Auto-start research — scheduler applies the courtesy delay.
                     researcher.start(parsed)
+                    delay = startup_delay_seconds()
                     activity_log.emit("researcher",
-                        "Auto-starting research on bootstrap goal…", "info")
+                        f"Auto-starting research in {delay}s (courtesy delay). "
+                        f"Use 'Halt jobs' to cancel.",
+                        "info")
             except (json.JSONDecodeError, OSError):
                 pass
 
@@ -164,11 +170,21 @@ async def get_goal():
 # ── Research API ─────────────────────────────────────────────────────────
 
 @app.post("/api/research/start")
-async def research_start():
+async def research_start(request: Request):
     current = goal_store.get_current()
     if not current:
         return {"error": "No active goal. Set a goal first."}
-    researcher.start(current["parsed"])
+    if jobs_halted():
+        return {"error": "Jobs are halted. Resume from the dashboard first."}
+    # Allow the caller to skip the startup courtesy delay for an explicit
+    # "run now" click.
+    body = {}
+    try:
+        body = await request.json()
+    except Exception:
+        pass
+    delay = 0 if body.get("now") else None
+    researcher.start(current["parsed"], delay=delay)
     return {"status": researcher.status}
 
 
@@ -198,6 +214,37 @@ async def research_status():
         "progress": current["progress"] if current else 0,
         "report": current.get("report") if current else None,
     }
+
+
+# ── Jobs / Scheduler API ─────────────────────────────────────────────────
+# Halt = soft emergency stop: cancels running work but keeps the portal
+# and services up, unlike `./oglab stop` which tears down everything.
+
+@app.get("/api/jobs/state")
+async def jobs_state():
+    s = scheduler_state()
+    s["researcher_status"] = researcher.status
+    return s
+
+
+@app.post("/api/jobs/halt")
+async def jobs_halt():
+    halt_all_jobs()
+    researcher.stop()
+    activity_log.emit("system",
+                      "Halt requested — all running jobs cancelled. "
+                      "Resume from the dashboard when ready.",
+                      "warn")
+    return {"halted": True, "researcher_status": researcher.status}
+
+
+@app.post("/api/jobs/resume")
+async def jobs_resume():
+    resume_all_jobs()
+    activity_log.emit("system",
+                      "Jobs resumed. New work will honor the current window.",
+                      "info")
+    return {"halted": False}
 
 
 # ── Experiment API ───────────────────────────────────────────────────────
@@ -535,6 +582,52 @@ async def system_costs():
             "tokens_out": last.tokens_out,
         } if last else None,
     }
+
+
+@app.get("/api/addons/status")
+async def addons_status():
+    """Probe optional compose-based add-ons (Marimo, Open Notebook).
+
+    Returns a list of add-ons with a live flag — the dashboard uses this to
+    light up chips when the services are running. TCP connect only; we never
+    hit the actual HTTP endpoints.
+    """
+    bind = os.getenv("BIND_ADDR", "127.0.0.1")
+    addons = [
+        {
+            "id": "marimo",
+            "name": "Marimo",
+            "tagline": "reactive notebook — experiment",
+            "port": int(os.getenv("MARIMO_PORT", "2718")),
+            "url": f"http://{bind}:{os.getenv('MARIMO_PORT', '2718')}",
+        },
+        {
+            "id": "open-notebook",
+            "name": "Open Notebook",
+            "tagline": "NotebookLM alternative — curate",
+            "port": int(os.getenv("OPEN_NOTEBOOK_PORT", "8502")),
+            "url": f"http://{bind}:{os.getenv('OPEN_NOTEBOOK_PORT', '8502')}",
+        },
+    ]
+
+    async def _alive(port: int) -> bool:
+        try:
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(bind, port), timeout=0.3
+            )
+            writer.close()
+            try:
+                await writer.wait_closed()
+            except Exception:
+                pass
+            return True
+        except Exception:
+            return False
+
+    results = await asyncio.gather(*(_alive(a["port"]) for a in addons))
+    for addon, alive in zip(addons, results):
+        addon["alive"] = alive
+    return {"addons": addons}
 
 
 @app.post("/api/system/destroy")

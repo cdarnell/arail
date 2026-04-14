@@ -22,6 +22,8 @@ from oglab.activity import activity_log
 from oglab.goals import GoalStore
 from oglab.agents.consent import ConsentStore
 from oglab.agents.curator import CuratorAgent
+from oglab.scheduler import (current_window, jobs_halted,
+                              startup_delay_seconds, window_label)
 from oglab.skills.experiment_tracker import ExperimentTracker
 from oglab.skills.goal_parser import infer_domain, DOMAIN_KEYWORDS
 
@@ -168,12 +170,13 @@ class ResearcherAgent:
 
     # ── Control ──────────────────────────────────────────────────────
 
-    def start(self, parsed_goal: Dict[str, Any]) -> None:
+    def start(self, parsed_goal: Dict[str, Any], *, delay: int | None = None) -> None:
         if self._task and not self._task.done():
             self._task.cancel()
         self._paused = False
         self._status = "running"
-        self._task = asyncio.create_task(self._run(parsed_goal))
+        delay_sec = startup_delay_seconds() if delay is None else max(0, delay)
+        self._task = asyncio.create_task(self._run(parsed_goal, delay_sec))
 
     def pause(self) -> None:
         self._paused = True
@@ -194,7 +197,7 @@ class ResearcherAgent:
 
     # ── Core loop ────────────────────────────────────────────────────
 
-    async def _run(self, parsed_goal: Dict[str, Any]) -> None:
+    async def _run(self, parsed_goal: Dict[str, Any], delay_sec: int = 0) -> None:
         goal_text = parsed_goal.get("goal", parsed_goal.get("primary_objective", ""))
         domain = parsed_goal.get("domain", "general")
         intent = parsed_goal.get("intent", _get_lab_intent())
@@ -202,6 +205,21 @@ class ResearcherAgent:
                                        os.getenv("LAB_INTENT_NAME", "AI Engineer"))
 
         try:
+            if delay_sec:
+                activity_log.emit("researcher",
+                                  f"Queued — starting in {delay_sec}s "
+                                  f"({window_label()}). Halt anytime from the dashboard.",
+                                  "info")
+                slept = 0
+                while slept < delay_sec:
+                    if jobs_halted():
+                        activity_log.emit("researcher",
+                                          "Halted before start.", "warn")
+                        self._status = "idle"
+                        return
+                    await asyncio.sleep(min(1, delay_sec - slept))
+                    slept += 1
+
             activity_log.emit("researcher",
                               f"Starting research ({intent_name}): {goal_text}",
                               "success")
@@ -328,8 +346,20 @@ class ResearcherAgent:
             self._status = "error"
 
     async def _wait_if_paused(self) -> None:
+        if jobs_halted():
+            raise asyncio.CancelledError("halted")
         while self._paused:
+            if jobs_halted():
+                raise asyncio.CancelledError("halted")
             await asyncio.sleep(0.5)
+
+    def _active_deep_router(self):
+        """Return the deep router only if we're in the heavy window.
+        During active hours we force the fast SLM path so the lab stays
+        responsive for interactive use."""
+        if current_window() == "active":
+            return None
+        return self._deep_router
 
     # ── Research methods (LLM-enhanced with heuristic fallback) ────
 
@@ -351,7 +381,7 @@ class ResearcherAgent:
             f"Sub-objectives: {', '.join(sub_objectives) if sub_objectives else 'none'}\n\n"
             f"Hypotheses:"
         )
-        llm_text = _deep_complete(self._deep_router, self._router, prompt, max_tokens=400)
+        llm_text = _deep_complete(self._active_deep_router(), self._router, prompt, max_tokens=400)
         if llm_text:
             # Parse numbered list from LLM output
             lines = [l.strip().lstrip("0123456789.-) ") for l in llm_text.split("\n") if l.strip()]
@@ -422,7 +452,7 @@ class ResearcherAgent:
             f"confidence_score (0-1), data_points (int), conclusion (string), success (bool).\n"
             f"JSON:"
         )
-        llm_text = _deep_complete(self._deep_router, self._router, prompt, max_tokens=200)
+        llm_text = _deep_complete(self._active_deep_router(), self._router, prompt, max_tokens=200)
         if llm_text:
             try:
                 # Try to extract JSON from response
@@ -469,7 +499,7 @@ class ResearcherAgent:
             f"Include: Summary, Key Findings, Recommendations.\n"
             f"Keep it under 300 words.\n\nReport:"
         )
-        llm_text = _deep_complete(self._deep_router, self._router, prompt, max_tokens=600)
+        llm_text = _deep_complete(self._active_deep_router(), self._router, prompt, max_tokens=600)
         if llm_text and len(llm_text) > 50:
             return llm_text
 
