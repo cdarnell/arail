@@ -50,7 +50,7 @@ case "$cmd" in
     start)   exec bash "$REPO_ROOT/scripts/start.sh" "$@" ;;
     stop)    exec bash "$REPO_ROOT/scripts/reset.sh" stop ;;
     reset)   exec bash "$REPO_ROOT/scripts/reset.sh" "$@" ;;
-    status)  exec bash "$REPO_ROOT/scripts/status.sh" "$@" 2>/dev/null || bash "$REPO_ROOT/scripts/reset.sh" stop --dry-run 2>/dev/null || { warn "status not implemented — showing pgrep"; pgrep -lf "uvicorn|ttyd|jupyter-lab|code-server" || say "no oglab services running"; } ;;
+    status)  exec bash "$REPO_ROOT/scripts/status.sh" "$@" ;;
     doctor)
         say "Checking environment…"
         [[ -d .venv ]] || { warn "missing .venv — run ./oglab setup"; exit 1; }

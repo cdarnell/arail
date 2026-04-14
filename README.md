@@ -173,6 +173,32 @@ The only thing that actually differs per platform is the package manager in [`./
 
 ---
 
+## Work Windows — don't burn the GPU while you're using the lab
+
+OGLab's scheduler splits the day into **active** and **heavy** windows so the lab stays responsive while you're engaged and hammers the hardware while you're away. The researcher agent checks the current window on every tick and picks its weight accordingly.
+
+| Window | Default | What fires | Why |
+| --- | --- | --- | --- |
+| **☀ Active** | `08:00-22:00` | SLM only — observations, planning, note synthesis, PKM compile | Lab stays responsive for interactive use |
+| **🌙 Heavy** | `22:00-08:00` | AirLLM experiments, deep synthesis, full report generation | GPU hammering while you sleep |
+| **◦ Idle** | any gap | Queued work drains | Catch-up |
+
+On boot, the researcher applies a **5-minute courtesy delay** before its first tick so the UI loads clean. Override with `LAB_STARTUP_DELAY_SEC=0` for instant start, or click "Run now" in the dashboard.
+
+**Soft kill switch.** The dashboard has a **Halt jobs** button (or `POST /api/jobs/halt`) that cancels every running agent task *without* taking the portal down. Resume with one click. Use this when you want to reclaim the GPU for interactive work without restarting the lab.
+
+Configure in `.env`:
+
+```bash
+LAB_ACTIVE_HOURS=08:00-22:00   # light work window
+LAB_HEAVY_HOURS=22:00-08:00    # heavy GPU burn window (24h local)
+LAB_STARTUP_DELAY_SEC=300      # courtesy delay before first tick (seconds)
+```
+
+Or answer the two questions at the end of `./oglab setup` and they'll be written for you.
+
+---
+
 ## Three Tiers of Inference
 
 The lab always keeps a small, fast model in RAM (Phi-3.5-mini, ~2 GB).
@@ -192,7 +218,7 @@ this — the dual router handles it.
 
 ---
 
-## Section 1 — Mac (Apple Silicon)
+## macOS — Apple Silicon
 
 > Native Metal acceleration via MLX. No VM, no Docker, no fuss.
 
@@ -278,7 +304,7 @@ MLX is the default and top choice for Apple Silicon.
 
 ---
 
-## Section 2 — Windows (WSL2 + Ubuntu + CUDA)
+## Windows — WSL2 + Ubuntu + CUDA
 
 > Real Linux userspace on your Windows machine, with full Nvidia GPU
 > passthrough. No dual-boot, no VM GPU drama.
@@ -367,12 +393,12 @@ Services are accessible from your Windows browser at the same URLs.
 - Prefer **Ubuntu 22.04 / 24.04 LTS** — it's what Nvidia tests against
   and what `./oglab setup` expects for apt package names.
 - Other distros (Debian, Arch-WSL, Gentoo-WSL) work too, but you're in
-  the [native Linux](#section-3--linux-native-bring-your-own-distro)
-  path below — `setup.sh` won't know your package names automatically.
+  the [native Linux](#linux--native-bring-your-own-distro) path below
+  — `./oglab setup` won't know your package names automatically.
 
 ---
 
-## Section 3 — Linux (native, bring your own distro)
+## Linux — Native (Bring Your Own Distro)
 
 > The blueprint is distro-neutral. The only 20 lines that care about
 > your OS are the package-manager calls in [`scripts/setup.sh`](scripts/setup.sh).

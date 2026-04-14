@@ -96,10 +96,11 @@ huggingface-cli download \
 ```bash
 git clone https://github.com/cdarnell/minimalist-blueprint.git oglab
 cd oglab
-./setup.sh          # auto-detects Gentoo + GPU
-source .venv/bin/activate
-python3 examples/peanut_farmer/run.py
+./oglab setup       # auto-detects Gentoo + GPU, captures your goal
+./oglab start       # launches portal + terminal + notebook + IDE
 ```
+
+`./oglab setup` provisions the venv, installs the detected accelerator stack (CUDA/ROCm/CPU), downloads a starter model, and captures your research goal and work windows. `./oglab start` brings up the dashboard at <http://127.0.0.1:8080> along with Jupyter Lab, an in-browser terminal (ttyd), and VS Code Server.
 
 ## 6. Airgapped Operation
 
@@ -115,23 +116,9 @@ ss -tunap | grep python   # should show only localhost
 
 ## 7. Running as a Service (OpenRC)
 
-Create `/etc/init.d/oglab`:
+> **Warning — loopback only.** The portal has no built-in auth beyond the code-server password. If you expose it beyond `127.0.0.1`, put a real auth proxy in front of it. See [SECURITY.md](../SECURITY.md).
 
-```bash
-#!/sbin/openrc-run
-
-name="oglab"
-description="OGLab AI inference server"
-command="/path/to/oglab/.venv/bin/python3"
-command_args="-m vllm.entrypoints.openai.api_server --model ./models/Mistral-7B --port 8000"
-directory="/path/to/oglab"
-pidfile="/run/${RC_SVCNAME}.pid"
-command_background="yes"
-
-depend() {
-    need net
-}
-```
+A working service file for the OGLab portal lives at [scripts/gentoo-bootstrap.sh](../scripts/gentoo-bootstrap.sh). It binds to `127.0.0.1:8080` by default. If you want the rest of your LAN to reach it, terminate TLS + auth on a reverse proxy and point it at `127.0.0.1:8080`.
 
 ```bash
 chmod +x /etc/init.d/oglab

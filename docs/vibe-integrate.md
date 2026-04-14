@@ -24,7 +24,7 @@ Progress ring animates from 0% → 100%
 Step 1: Hypotheses generated (LLM if available, heuristic fallback)
 Step 2: Experiments created and linked to goal
 Step 3: Curator proposes data sources → consent system
-Step 4: Experiments run (simulated until real integrations)
+Step 4: Experiments executed (heuristic today; LLM-driven via router)
 Step 5: Analysis with improvement/confidence metrics
 Step 6: Markdown report generated
     ↓
@@ -66,10 +66,14 @@ The activity feed messages are the agent's voice. They should feel:
 - **Terminal-native** — Matches the 1337 aesthetic (no emoji, no exclamation marks)
 - **Progressional** — Each message shows forward movement
 
-## What's Next
+## Roadmap
 
-- [ ] Real data collection via approved URLs (Curator fetch)
-- [ ] Experiment templates per domain (agriculture, ML, web dev, etc.)
-- [ ] Goal history with comparison across runs
-- [ ] Plugin marketplace (curated list of community plugins)
-- [ ] Multi-agent collaboration (specialist agents per domain)
+Planned extensions, in rough priority order:
+
+1. **Real data collection via approved URLs** — the Curator proposes sources today; the next step is fetching and caching content through the consent gate.
+2. **Domain-specific experiment templates** — agriculture, ML, web dev, culinary. Each template seeds hypotheses, metrics, and a fallback heuristic.
+3. **Goal history with cross-run comparison** — compare outcomes across repeated research runs on the same goal.
+4. **Plugin marketplace** — a curated list of community plugins installable from the dashboard.
+5. **Multi-agent collaboration** — specialist agents per domain coordinating through the shared activity log.
+
+Contributions that tackle any of these are welcome; see [../CONTRIBUTING.md](../CONTRIBUTING.md).

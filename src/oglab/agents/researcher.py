@@ -122,13 +122,26 @@ def _get_deep_router():
 
 
 def _llm_complete(router, prompt: str, max_tokens: int = 512) -> str | None:
-    """Call the LLM and return text, or None on failure."""
+    """Call the LLM and return text, or None on failure.
+
+    Failures are logged to activity_log at `warn` level so the dashboard
+    reveals when heuristic fallbacks are masking a real inference problem.
+    """
     if router is None:
         return None
     try:
         resp = router.complete(prompt, max_tokens=max_tokens, temperature=0.7)
-        return resp.text.strip() if resp.text else None
-    except Exception:
+        text = resp.text.strip() if resp.text else None
+        if not text:
+            activity_log.emit("researcher",
+                              "LLM returned empty response — using heuristic fallback.",
+                              "warn")
+        return text
+    except Exception as e:
+        activity_log.emit("researcher",
+                          f"LLM call failed ({type(e).__name__}: {str(e)[:80]}) "
+                          f"— using heuristic fallback.",
+                          "warn")
         return None
 
 
@@ -330,8 +343,11 @@ class ResearcherAgent:
                 activity_log.emit("researcher",
                                   "Results written to knowledge base (lab/pkm/agents/).",
                                   "info")
-            except Exception:
-                pass  # PKM write is best-effort
+            except Exception as e:
+                activity_log.emit("researcher",
+                                  f"PKM write failed ({type(e).__name__}: {str(e)[:80]}). "
+                                  f"Report is still in lab/data/goals/current.json.",
+                                  "warn")
 
             activity_log.emit("researcher",
                               "Research complete. Report generated.",

@@ -73,8 +73,11 @@ async def _startup():
                         f"Auto-starting research in {delay}s (courtesy delay). "
                         f"Use 'Halt jobs' to cancel.",
                         "info")
-            except (json.JSONDecodeError, OSError):
-                pass
+            except (json.JSONDecodeError, OSError) as e:
+                activity_log.emit("system",
+                    f"Failed to load bootstrap goal: {type(e).__name__}: {e}. "
+                    f"Set a goal from the dashboard instead.",
+                    "error")
 
     if not goal_store.get_current():
         activity_log.emit("system",

@@ -1,3 +1,4 @@
+
 #!/usr/bin/env bash
 # =============================================================================
 # OGLab — Gentoo System Bootstrap
@@ -133,11 +134,18 @@ info "Creating OGLab services…"
 # Portal service
 cat > /etc/init.d/oglab-portal <<'INITEOF'
 #!/sbin/openrc-run
+# OGLab portal — binds to 127.0.0.1 by default.
+#
+# WARNING: moving off 127.0.0.1 is explicit opt-out of the security model.
+# The portal has no built-in auth beyond the code-server password. If you
+# want to expose it beyond the local machine, terminate TLS + auth on a
+# reverse proxy (nginx, caddy, traefik) and point it at 127.0.0.1:8080.
+# See SECURITY.md.
 
 name="oglab-portal"
 description="OGLab AI Lab Portal (FastAPI)"
 command="/opt/oglab/.venv/bin/uvicorn"
-command_args="oglab.portal.app:app --host 0.0.0.0 --port 8080"
+command_args="oglab.portal.app:app --host 127.0.0.1 --port 8080"
 directory="/opt/oglab"
 pidfile="/run/${RC_SVCNAME}.pid"
 command_background="yes"

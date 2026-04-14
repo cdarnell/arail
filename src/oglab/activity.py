@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import time
 from collections import deque
 from datetime import datetime, timezone
@@ -18,6 +19,7 @@ from typing import Any, AsyncGenerator, Dict, List, Optional
 from oglab.config import DATA_DIR
 
 LOG_FILE = DATA_DIR / "activity.jsonl"
+_log = logging.getLogger(__name__)
 
 
 class ActivityLog:
@@ -42,8 +44,8 @@ class ActivityLog:
                 for line in LOG_FILE.read_text().strip().split("\n")[-200:]:
                     if line:
                         self._buffer.append(json.loads(line))
-            except Exception:
-                pass
+            except (OSError, json.JSONDecodeError) as e:
+                _log.warning("activity log replay failed: %s", e)
 
     def emit(self, source: str, message: str,
              level: str = "info", data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -59,12 +61,13 @@ class ActivityLog:
 
         self._buffer.append(event)
 
-        # Persist
+        # Persist (never re-emit here — we'd recurse into this same handler
+        # if emit() fails. Log to stdlib so it surfaces in uvicorn's log.)
         try:
             with open(LOG_FILE, "a") as f:
                 f.write(json.dumps(event, default=str) + "\n")
-        except Exception:
-            pass
+        except OSError as e:
+            _log.warning("activity log write failed: %s", e)
 
         # Fan-out to SSE subscribers
         dead: list[asyncio.Queue] = []
