@@ -1,0 +1,130 @@
+{
+  "built_at": "2026-04-14T22:44:24.522619+00:00",
+  "pkm_root": "lab/pkm",
+  "pages": {
+    "readme": {
+      "slug": "readme",
+      "title": "Lab PKM \u2014 Personal Knowledge Management",
+      "path": "lab/pkm/README.md",
+      "section": "README.md",
+      "tags": [
+        "topic"
+      ],
+      "aliases": [],
+      "outgoing": [],
+      "backlinks": [],
+      "source_ref": null,
+      "body_md": "# Lab PKM \u2014 Personal Knowledge Management\n\nYour lab's brain. Everything the AI discovers, everything you capture, everything\nyou learn \u2014 organized and searchable from one place.\n\n## Folder Structure\n\n```\nlab_pkm/\n\u251c\u2500\u2500 inbox/              \u2190 Drop anything here. PDFs, URLs, notes, images.\n\u2502                         The ingest script picks it up and files it.\n\u2502\n\u251c\u2500\u2500 sources/            \u2190 Raw material. Fetched papers, articles, datasets.\n\u2502   \u251c\u2500\u2500 papers/         \u2190 Research papers (PDF, text extracts)\n\u2502   \u251c\u2500\u2500 articles/       \u2190 Web articles, blog posts, reference material\n\u2502   \u251c\u2500\u2500 datasets/       \u2190 CSV, JSON, raw data files\n\u2502   \u2514\u2500\u2500 bookmarks.md    \u2190 Quick-save URLs with one-line descriptions\n\u2502\n\u251c\u2500\u2500 agents/             \u2190 What the AI built. Hands off \u2014 agents write here.\n\u2502   \u251c\u2500\u2500 research/       \u2190 Researcher agent findings, reports, hypotheses\n\u2502   \u251c\u2500\u2500 experiments/    \u2190 Experiment logs, observations, analysis\n\u2502   \u251c\u2500\u2500 synthesis/      \u2190 Cross-experiment insights, patterns the AI found\n\u2502   \u2514\u2500\u2500 recommendations/\u2190 Actionable suggestions from the AI\n\u2502\n\u251c\u2500\u2500 notes/              \u2190 Your notes. Write freely.\n\u2502   \u251c\u2500\u2500 journal.md      \u2190 Running lab journal \u2014 date-stamped entries\n\u2502   \u251c\u2500\u2500 ideas.md        \u2190 Quick ideas, hunches, what-ifs\n\u2502   \u2514\u2500\u2500 scratch/        \u2190 Throwaway working notes\n\u2502\n\u251c\u2500\u2500 compiled/           \u2190 Polished outputs. The good stuff.\n\u2502   \u251c\u2500\u2500 reports/        \u2190 Final research reports (Markdown)\n\u2502   \u251c\u2500\u2500 summaries/      \u2190 Topic summaries compiled from sources + agent work\n\u2502   \u2514\u2500\u2500 exports/        \u2190 Ready-to-share artifacts (HTML, PDF)\n\u2502\n\u251c\u2500\u2500 inference/          \u2190 Karpathy-style model workspace.\n\u2502   \u251c\u2500\u2500 prompts/        \u2190 Your saved prompts \u2014 what worked, what didn't\n\u2502   \u251c\u2500\u2500 completions/    \u2190 Raw model outputs worth keeping\n\u2502   \u2514\u2500\u2500 chains/         \u2190 Multi-step reasoning traces\n\u2502\n\u2514\u2500\u2500 index.md            \u2190 Auto-generated knowledge map (updated by compile)\n```\n\n## Quick Start\n\n### Drop something in the inbox\n```bash\n# Copy a file\ncp ~/Downloads/interesting-paper.pdf ~/lab_pkm/inbox/\n\n# Save a URL\necho \"https://example.com/great-article \u2014 crop rotation study\" >> ~/lab_pkm/inbox/links.txt\n\n# Quick note\necho \"$(date +%Y-%m-%d) Thought: try lower nitrogen ratio\" >> ~/lab_pkm/inbox/quick.txt\n```\n\n### Ingest (process inbox \u2192 sources)\n```bash\n./scripts/pkm-ingest\n```\nMoves files from `inbox/` into the right subfolder in `sources/`, extracts\ntext from PDFs, fetches URLs and saves readable content, timestamps everything.\n\n### Compile (sources + agents \u2192 compiled)\n```bash\n./scripts/pkm-compile\n```\nScans `sources/`, `agents/`, and `notes/` to build:\n- An updated `index.md` (full knowledge map with links)\n- Topic summaries in `compiled/summaries/`\n- Merges agent research with your notes into coherent reports\n\n### Browse (see what you have)\n```bash\n./scripts/pkm-browse\n```\nInteractive terminal viewer. Shows your knowledge tree, recent additions,\nagent activity, and lets you search across everything.\n\n## How Agents Use This\n\nThe researcher agent writes to `agents/` automatically:\n- After each research cycle \u2192 `agents/research/{goal_id}_report.md`\n- Experiment logs \u2192 `agents/experiments/{exp_id}.md`\n- Cross-cutting insights \u2192 `agents/synthesis/`\n- \"You should try this\" \u2192 `agents/recommendations/`\n\n**You own the PKM.** Agents can write to `agents/` but never touch your\n`notes/`, `sources/`, or `compiled/` folders. The compile step merges\neverything together.\n\n## Tips\n\n- **Journal daily.** Even one line. `echo \"$(date +%Y-%m-%d) ...\" >> notes/journal.md`\n- **Tag with hashtags.** Use `#topic` anywhere \u2014 the compile script indexes them.\n- **Star important items.** Prefix lines with `\u2b50` to mark key findings.\n- **Review `agents/recommendations/`** \u2014 that's where the AI tells you what to do next.\n- **The inbox is forgiving.** Throw anything in. The ingest script figures out where it goes.\n",
+      "modified": 1775905081.5567899
+    },
+    "index": {
+      "slug": "index",
+      "title": "Knowledge Index",
+      "path": "lab/pkm/index.md",
+      "section": "index.md",
+      "tags": [],
+      "aliases": [],
+      "outgoing": [],
+      "backlinks": [],
+      "source_ref": null,
+      "body_md": "# Knowledge Index\n\n*Auto-generated by `pkm-compile` \u2014 2026-04-10 21:37:31 UTC*\n\n**Total items:** 3  \n**Sources:** 1 \u00b7 **Agent work:** 0 \u00b7 **Notes:** 2 \u00b7 **Inference:** 0 \u00b7 **Compiled:** 0\n\n## Recent\n\n- `2026-04-10 21:30` **sources/** [bookmarks](lab_pkm/sources/bookmarks.md)\n- `2026-04-10 21:30` **notes/** [ideas](lab_pkm/notes/ideas.md)\n- `2026-04-10 21:30` **notes/** [journal](lab_pkm/notes/journal.md)\n\n## Sources\n\n- [bookmarks](lab_pkm/sources/bookmarks.md) \u2014 5 lines \n\n## Notes\n\n- [ideas](lab_pkm/notes/ideas.md) \u2014 6 lines \n- [journal](lab_pkm/notes/journal.md) \u2014 8 lines \n",
+      "modified": 1775857051.993006
+    },
+    "notes/ideas": {
+      "slug": "notes/ideas",
+      "title": "Ideas",
+      "path": "lab/pkm/notes/ideas.md",
+      "section": "notes",
+      "tags": [],
+      "aliases": [],
+      "outgoing": [],
+      "backlinks": [],
+      "source_ref": null,
+      "body_md": "# Ideas\n\nQuick captures. Hunches. What-ifs. No pressure \u2014 just write.\n\n- \n",
+      "modified": 1775905081.5568066
+    },
+    "notes/journal": {
+      "slug": "notes/journal",
+      "title": "Lab Journal",
+      "path": "lab/pkm/notes/journal.md",
+      "section": "notes",
+      "tags": [],
+      "aliases": [],
+      "outgoing": [],
+      "backlinks": [],
+      "source_ref": null,
+      "body_md": "# Lab Journal\n\nA running log of what happened, what you learned, and what you're thinking.\nNewest entries at the top.\n\n---\n",
+      "modified": 1776173705.956068
+    },
+    "sources/bookmarks": {
+      "slug": "sources/bookmarks",
+      "title": "Bookmarks",
+      "path": "lab/pkm/sources/bookmarks.md",
+      "section": "sources",
+      "tags": [],
+      "aliases": [],
+      "outgoing": [],
+      "backlinks": [],
+      "source_ref": null,
+      "body_md": "# Bookmarks\n# Save URLs with a one-line description. One per line.\n# Format: URL \u2014 description\n# Example: https://arxiv.org/abs/2401.00001 \u2014 attention is all you need, revisited\nhttps://arxiv.org/abs/1706.03762 \u2014 Attention Is All You Need\n",
+      "modified": 1775857069.0638654
+    }
+  },
+  "graph": {
+    "nodes": [
+      {
+        "id": "readme",
+        "label": "Lab PKM \u2014 Personal Knowledge Management",
+        "group": "README.md",
+        "type": "note",
+        "size": 8,
+        "tags": [
+          "topic"
+        ],
+        "desc": "# Lab PKM \u2014 Personal Knowledge Management  Your lab's brain. Everything the AI discovers, everything you capture, everything you learn \u2014 organized and searchabl\u2026",
+        "status": "active"
+      },
+      {
+        "id": "index",
+        "label": "Knowledge Index",
+        "group": "index.md",
+        "type": "note",
+        "size": 8,
+        "tags": [],
+        "desc": "# Knowledge Index  *Auto-generated by `pkm-compile` \u2014 2026-04-10 21:37:31 UTC*  **Total items:** 3   **Sources:** 1 \u00b7 **Agent work:** 0 \u00b7 **Notes:** 2 \u00b7 **Infer\u2026",
+        "status": "active"
+      },
+      {
+        "id": "notes/ideas",
+        "label": "Ideas",
+        "group": "notes",
+        "type": "note",
+        "size": 8,
+        "tags": [],
+        "desc": "# Ideas  Quick captures. Hunches. What-ifs. No pressure \u2014 just write.  -\u2026",
+        "status": "active"
+      },
+      {
+        "id": "notes/journal",
+        "label": "Lab Journal",
+        "group": "notes",
+        "type": "note",
+        "size": 8,
+        "tags": [],
+        "desc": "# Lab Journal  A running log of what happened, what you learned, and what you're thinking. Newest entries at the top.  ---\u2026",
+        "status": "active"
+      },
+      {
+        "id": "sources/bookmarks",
+        "label": "Bookmarks",
+        "group": "sources",
+        "type": "note",
+        "size": 8,
+        "tags": [],
+        "desc": "# Bookmarks # Save URLs with a one-line description. One per line. # Format: URL \u2014 description # Example: https://arxiv.org/abs/2401.00001 \u2014 attention is all yo\u2026",
+        "status": "active"
+      }
+    ],
+    "edges": []
+  }
+}
