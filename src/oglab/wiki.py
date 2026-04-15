@@ -237,7 +237,8 @@ def build_page_index(pkm_root: Path) -> dict[str, Page]:
             continue
 
         meta, body = parse_frontmatter(text)
-        section = md.relative_to(pkm_root).parts[0] if md != pkm_root else "root"
+        rel_parts = md.relative_to(pkm_root).parts
+        section = rel_parts[0] if len(rel_parts) > 1 else "root"
 
         slug = str(meta.get("slug") or _slug_from_path(pkm_root, md))
 

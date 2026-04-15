@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ page.title }} — OGLab Wiki</title>
+<link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/static/wiki.css">
+</head>
+<body>
+
+<nav>
+  <span class="logo">⟨OGLab⟩</span>
+  <a href="/">Dashboard</a>
+  <a href="/knowledge">Knowledge</a>
+  <a href="/wiki" class="active">Wiki</a>
+  <a href="/terminal">Terminal</a>
+  <a href="/notebook">Notebook</a>
+  <a href="/plugins">Plugins</a>
+  <a href="/graph">Graph</a>
+  <span class="mode-badge airgapped">⬤ Airgapped</span>
+</nav>
+
+<div class="wiki-page">
+
+  <aside class="wiki-sidebar">
+    <div class="sidebar-section">
+      <div class="sidebar-label">Section</div>
+      <div class="sidebar-value"><a href="/wiki#{{ page.section }}">{{ page.section }}</a></div>
+    </div>
+
+    {% if page.source_ref %}
+    <div class="sidebar-section">
+      <div class="sidebar-label">Source</div>
+      <div class="sidebar-value"><code>{{ page.source_ref }}</code></div>
+    </div>
+    {% endif %}
+
+    {% if page.tags %}
+    <div class="sidebar-section">
+      <div class="sidebar-label">Tags</div>
+      <div class="sidebar-tags">
+        {% for tag in page.tags %}
+        <a class="tag-pill" href="/wiki/tag/{{ tag }}">#{{ tag }}</a>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    {% if page.backlinks %}
+    <div class="sidebar-section">
+      <div class="sidebar-label">Referenced by</div>
+      <ul class="sidebar-backlinks">
+        {% for bl in backlinks %}
+        <li><a href="/wiki/{{ bl.slug }}">{{ bl.title }}</a></li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+
+    {% if page.outgoing %}
+    <div class="sidebar-section">
+      <div class="sidebar-label">Links to</div>
+      <ul class="sidebar-outgoing">
+        {% for out in outgoing %}
+        <li><a href="/wiki/{{ out.slug }}">{{ out.title }}</a></li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+  </aside>
+
+  <main class="wiki-main">
+    <nav class="wiki-breadcrumbs">
+      <a href="/wiki">Wiki</a>
+      <span class="sep">/</span>
+      <span>{{ page.section }}</span>
+      <span class="sep">/</span>
+      <span>{{ page.title }}</span>
+    </nav>
+
+    <article class="wiki-content">
+      {{ rendered_html | safe }}
+    </article>
+
+    {% if neighborhood_nodes %}
+    <section class="wiki-neighborhood">
+      <h3>Graph neighborhood</h3>
+      <p class="neighborhood-hint">{{ neighborhood_nodes | length }} pages within 1 hop of this one.</p>
+      <ul class="neighborhood-list">
+        {% for n in neighborhood_nodes %}
+        <li>
+          <a href="/wiki/{{ n.id }}">{{ n.label }}</a>
+          <span class="section-badge">{{ n.group }}</span>
+        </li>
+        {% endfor %}
+      </ul>
+      <a class="btn btn-ghost btn-sm" href="/wiki/graph?focus={{ page.slug }}">Open in full graph →</a>
+    </section>
+    {% endif %}
+  </main>
+</div>
+
+</body>
+</html>

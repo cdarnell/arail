@@ -26,8 +26,10 @@ from oglab.scheduler import state as scheduler_state
 from oglab.skills.goal_parser import GoalParser
 from oglab.skills.experiment_tracker import ExperimentTracker
 from oglab.router.backends import BACKEND_MAP
+from oglab.portal.wiki_routes import router as wiki_router
 
 app = FastAPI(title="OGLab", docs_url="/api/docs")
+app.include_router(wiki_router)
 
 PORTAL_DIR = Path(__file__).parent
 app.mount("/static", StaticFiles(directory=PORTAL_DIR / "static"), name="static")

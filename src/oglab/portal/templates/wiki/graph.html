@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OGLab — Knowledge Graph</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<nav>
+  <span class="logo">⟨OGLab⟩</span>
+  <a href="/">Dashboard</a>
+  <a href="/knowledge">Knowledge</a>
+  <a href="/wiki" class="active">Wiki</a>
+  <a href="/terminal">Terminal</a>
+  <a href="/notebook">Notebook</a>
+  <a href="/plugins">Plugins</a>
+  <a href="/graph">System Graph</a>
+  <span class="mode-badge airgapped">⬤ Airgapped</span>
+</nav>
+
+{% set graph_api  = "/api/wiki/graph" %}
+{% set show_health = False %}
+{% set color_map = {
+  "sources":  "#00d4ff",
+  "agents":   "#00ff41",
+  "notes":    "#b48eff",
+  "compiled": "#ffb000",
+  "docs":     "#ff3355",
+  "inference":"#555e70"
+} %}
+{% set icon_map = {
+  "sources":  "◉",
+  "agents":   "◈",
+  "notes":    "◇",
+  "compiled": "▣",
+  "docs":     "⬡",
+  "inference":"⊕"
+} %}
+{% set legend_groups = [
+  {"label": "Sources",  "color": "#00d4ff"},
+  {"label": "Agents",   "color": "#00ff41"},
+  {"label": "Notes",    "color": "#b48eff"},
+  {"label": "Compiled", "color": "#ffb000"},
+  {"label": "Docs",     "color": "#ff3355"},
+  {"label": "Inference","color": "#555e70"}
+] %}
+{% include "_graph_canvas.html" %}
+
+</body>
+</html>

@@ -21,6 +21,7 @@ lab/data/
 lab/models/
 lab/pkm/inbox/*
 !lab/pkm/inbox/.gitkeep
+lab/pkm/.wiki-cache/
 *.gguf
 *.bin
 *.safetensors

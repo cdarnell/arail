@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OGLab — Wiki</title>
+<link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/static/wiki.css">
+</head>
+<body>
+
+<nav>
+  <span class="logo">⟨OGLab⟩</span>
+  <a href="/">Dashboard</a>
+  <a href="/knowledge">Knowledge</a>
+  <a href="/wiki" class="active">Wiki</a>
+  <a href="/terminal">Terminal</a>
+  <a href="/notebook">Notebook</a>
+  <a href="/plugins">Plugins</a>
+  <a href="/graph">Graph</a>
+  <span class="mode-badge airgapped">⬤ Airgapped</span>
+</nav>
+
+<div class="wiki-landing">
+
+  <header class="wiki-hero">
+    <h1>Knowledge Wiki</h1>
+    <p class="subtitle">
+      {{ page_count }} pages · {{ link_count }} links · {{ tag_count }} tags
+      {% if built_at %}· rebuilt {{ built_at }}{% endif %}
+    </p>
+    <form class="wiki-search" action="/wiki/search" method="get">
+      <input name="q" type="text" placeholder="search titles, tags, and content…" autocomplete="off">
+      <button type="submit" class="btn btn-primary">Search</button>
+      <button type="button" class="btn btn-ghost" id="wiki-rebuild">Rebuild</button>
+    </form>
+  </header>
+
+  <div class="wiki-grid">
+
+    <div class="card">
+      <h2><span class="indicator"></span> Sections</h2>
+      <ul class="wiki-section-list">
+        {% for section, count in sections.items() %}
+        <li>
+          <span class="section-name">{{ section }}</span>
+          <span class="section-count">{{ count }}</span>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+
+    <div class="card">
+      <h2><span class="indicator"></span> Recent pages</h2>
+      <ul class="wiki-recent-list">
+        {% for p in recent_pages %}
+        <li>
+          <a href="/wiki/{{ p.slug }}">{{ p.title }}</a>
+          <span class="section-badge">{{ p.section }}</span>
+        </li>
+        {% else %}
+        <li class="empty">No pages yet. Drop a markdown file in <code>lab/pkm/notes/</code> and click Rebuild.</li>
+        {% endfor %}
+      </ul>
+    </div>
+
+    <div class="card full">
+      <h2><span class="indicator"></span> Tag cloud</h2>
+      <div class="wiki-tag-cloud">
+        {% for tag, count in tags %}
+        <a class="tag-pill" href="/wiki/tag/{{ tag }}" data-count="{{ count }}">
+          #{{ tag }} <span class="tag-count">{{ count }}</span>
+        </a>
+        {% else %}
+        <p class="empty">No tags yet.</p>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="card full">
+      <h2><span class="indicator"></span> Knowledge graph</h2>
+      <p class="empty" style="margin:.3rem 0 .8rem">Visual map of every page and every wikilink.</p>
+      <a class="btn btn-primary" href="/wiki/graph">Open full-screen graph →</a>
+    </div>
+
+  </div>
+</div>
+
+<script>
+document.getElementById('wiki-rebuild').addEventListener('click', async () => {
+  const btn = document.getElementById('wiki-rebuild');
+  btn.disabled = true;
+  btn.textContent = 'Rebuilding…';
+  try {
+    const r = await fetch('/api/wiki/rebuild', { method: 'POST' });
+    const d = await r.json();
+    btn.textContent = `✓ ${d.page_count} pages, ${d.link_count} links`;
+    setTimeout(() => location.reload(), 900);
+  } catch (e) {
+    btn.textContent = 'Error';
+    btn.disabled = false;
+  }
+});
+</script>
+
+</body>
+</html>
