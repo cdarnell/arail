@@ -155,7 +155,33 @@ async def terminal_page(request: Request):
 
 @app.get("/notebook", response_class=HTMLResponse)
 async def notebook_page(request: Request):
-    return templates.TemplateResponse(request, "notebook.html")
+    """Serve the Jupyter Lab iframe if jupyter is running, otherwise
+    show install help. Same three-state pattern as /terminal so the
+    two services feel consistent."""
+    import shutil, platform
+    jupyter_installed = shutil.which("jupyter") is not None
+    jupyter_running = False
+    if jupyter_installed:
+        try:
+            port = int(os.getenv("NOTEBOOK_PORT", "8888"))
+            bind = os.getenv("BIND_ADDR", "127.0.0.1")
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(bind, port), timeout=0.3
+            )
+            writer.close()
+            try:
+                await writer.wait_closed()
+            except Exception:
+                pass
+            jupyter_running = True
+        except Exception:
+            jupyter_running = False
+    return templates.TemplateResponse(request, "notebook.html", {
+        "jupyter_installed": jupyter_installed,
+        "jupyter_running": jupyter_running,
+        "notebook_port": int(os.getenv("NOTEBOOK_PORT", "8888")),
+        "system": platform.system(),
+    })
 
 
 @app.get("/plugins", response_class=HTMLResponse)

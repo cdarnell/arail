@@ -6,9 +6,58 @@
 <title>{{ brand.name }} — Notebook</title>
 <link rel="stylesheet" href="/static/style.css">
 <style>
-  .container { padding: 1rem; height: calc(100vh - 50px); }
-  .hint { color: var(--muted); font-size: 0.8rem; padding: 0.5rem 0; }
-  .hint code { background: var(--surface2); padding: 0.15rem 0.4rem; border-radius: 3px; }
+  .nb-wrap { padding: 0.8rem 1rem; height: calc(100vh - 52px); display: flex; flex-direction: column; gap: 0.6rem; }
+  .nb-hint { color: var(--muted); font-size: 0.75rem; }
+  .nb-hint code {
+    background: var(--surface);
+    padding: 0.1rem 0.4rem;
+    border-radius: 3px;
+    color: var(--amber);
+  }
+  .nb-frame {
+    flex: 1;
+    width: 100%;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: #0a0c14;
+  }
+  .nb-install {
+    flex: 1;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 2rem 2.5rem;
+    max-width: 780px;
+    margin: 0 auto;
+    color: var(--text);
+    overflow-y: auto;
+  }
+  .nb-install h1 { color: var(--green); text-shadow: var(--glow-green); margin-top: 0; }
+  .nb-install h3 { color: var(--blue); margin-top: 1.6rem; }
+  .nb-install pre {
+    background: #0a0c14;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1rem 1.2rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    color: var(--amber);
+    white-space: pre-wrap;
+    overflow-x: auto;
+  }
+  .nb-install .status-pill {
+    display: inline-block;
+    padding: 0.2rem 0.6rem;
+    border-radius: 999px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-right: 0.5rem;
+  }
+  .status-installed { background: rgba(0,255,65,0.08); color: var(--green); border: 1px solid rgba(0,255,65,0.25); }
+  .status-missing { background: rgba(255,51,85,0.08); color: var(--red); border: 1px solid rgba(255,51,85,0.25); }
+  .status-notrun { background: rgba(255,176,0,0.08); color: var(--amber); border: 1px solid rgba(255,176,0,0.25); }
 </style>
 </head>
 <body>
@@ -22,28 +71,72 @@
   <a href="/wiki/graph">Graph</a>
   <span class="mode-badge airgapped">⬤ Airgapped</span>
 </nav>
-<div class="container">
-  <p class="hint">Jupyter Lab — start with: <code>jupyter lab --no-browser --port 8888</code></p>
-  <iframe class="embed-frame" id="nb-frame" src="http://localhost:8888" title="Jupyter Lab"></iframe>
-  <div id="fallback" style="display:none;" class="card">
-    <h2><span class="indicator"></span> Notebook Not Running</h2>
-    <p>Jupyter Lab is not available on port 8888. Start it with:</p>
-    <pre style="margin:1rem 0;padding:0.75rem;background:var(--surface);border-radius:var(--radius);color:var(--green)">jupyter lab --no-browser --port 8888</pre>
-    <p class="hint">Or run <code>./start.sh</code> to launch all services at once.</p>
+
+<div class="nb-wrap">
+  {% if jupyter_running %}
+  <p class="nb-hint">
+    Jupyter Lab via Python kernel on port {{ notebook_port }}.
+    Notebooks live in <code>lab/pkb/inference/</code> by default.
+    Export outputs to markdown and drop them in the knowledge base inbox
+    to keep research reproducible.
+  </p>
+  <iframe class="nb-frame" src="http://127.0.0.1:{{ notebook_port }}/lab" title="Jupyter Lab"></iframe>
+
+  {% elif jupyter_installed %}
+  <div class="nb-install">
+    <h1>⚠ Jupyter Lab not running</h1>
+    <p>
+      <span class="status-pill status-installed">✓ installed</span>
+      <span class="status-pill status-notrun">○ not running</span>
+    </p>
+    <p>
+      Jupyter is installed but isn't listening on port {{ notebook_port }}.
+      It should start automatically with <code>./oglab start</code> — try
+      bouncing the lab:
+    </p>
+    <pre>./oglab stop
+./oglab start</pre>
+    <p>
+      Or start it manually in a terminal tab:
+    </p>
+    <pre>jupyter lab --no-browser --ip=127.0.0.1 --port={{ notebook_port }} \
+  --NotebookApp.token="" --NotebookApp.password=""</pre>
+    <p>
+      Then reload this page.
+    </p>
   </div>
+
+  {% else %}
+  <div class="nb-install">
+    <h1>Install Jupyter Lab to enable the Notebook tab</h1>
+    <p>
+      <span class="status-pill status-missing">✗ not installed</span>
+    </p>
+    <p>
+      The <strong>Notebook</strong> tab embeds
+      <a href="https://jupyter.org/" target="_blank" rel="noopener">Jupyter Lab</a>
+      — the same IDE you'd run locally, but inside the portal so
+      notebooks live next to your PKB and the model router. It ships as
+      part of the lab's core Python deps.
+    </p>
+    <h3>Install</h3>
+    <p>From the repo root, activate the venv and install:</p>
+    <pre>source .venv/bin/activate
+pip install -e .</pre>
+    <p>
+      Or bounce <code>./oglab setup</code> which does this for you:
+    </p>
+    <pre>./oglab setup</pre>
+    <h3>Airgapped / minimal install</h3>
+    <p>If you only want notebooks without the rest of the lab:</p>
+    <pre>pip install jupyterlab</pre>
+    <p class="nb-hint">
+      Once installed, restart the lab (<code>./oglab stop &amp;&amp; ./oglab start</code>)
+      and this page will flip to the full Jupyter interface automatically.
+    </p>
+  </div>
+  {% endif %}
 </div>
-<script>
-document.getElementById('nb-frame').addEventListener('error', () => {
-  document.getElementById('nb-frame').style.display = 'none';
-  document.getElementById('fallback').style.display = '';
-});
-setTimeout(() => {
-  const f = document.getElementById('nb-frame');
-  try { if (!f.contentWindow.document.body.innerHTML) throw 0; } catch(e) {
-    f.style.display = 'none';
-    document.getElementById('fallback').style.display = '';
-  }
-}, 3000);
-</script>
+
 </body>
 </html>
