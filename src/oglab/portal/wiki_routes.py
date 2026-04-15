@@ -18,6 +18,7 @@ from fastapi.templating import Jinja2Templates
 
 from oglab import wiki
 from oglab.activity import activity_log
+from oglab.brand import load_brand
 from oglab.config import PKB_ROOT
 
 _log = logging.getLogger(__name__)
@@ -26,6 +27,8 @@ router = APIRouter()
 
 _PORTAL_DIR = Path(__file__).parent
 _templates = Jinja2Templates(directory=_PORTAL_DIR / "templates")
+# Every wiki template gets the same brand object the main app uses.
+_templates.env.globals["brand"] = load_brand()
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────

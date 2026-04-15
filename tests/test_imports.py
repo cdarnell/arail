@@ -15,6 +15,7 @@ import pytest
 CORE_MODULES = [
     "oglab",
     "oglab.config",
+    "oglab.brand",
     "oglab.scheduler",
     "oglab.activity",
     "oglab.goals",

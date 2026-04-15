@@ -28,12 +28,19 @@ from oglab.skills.experiment_tracker import ExperimentTracker
 from oglab.router.backends import BACKEND_MAP
 from oglab.portal.wiki_routes import router as wiki_router
 
-app = FastAPI(title="OGLab", docs_url="/api/docs")
+from oglab.brand import load_brand
+
+_BRAND = load_brand()
+
+app = FastAPI(title=_BRAND.name, docs_url="/api/docs")
 app.include_router(wiki_router)
 
 PORTAL_DIR = Path(__file__).parent
 app.mount("/static", StaticFiles(directory=PORTAL_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=PORTAL_DIR / "templates")
+# Expose the brand to every Jinja template — so `{{ brand.name }}` works
+# everywhere without each route having to pass it explicitly.
+templates.env.globals["brand"] = _BRAND
 
 consent_store = ConsentStore()
 goal_store = GoalStore()
@@ -46,7 +53,9 @@ plugin_mgr = PluginManager()
 async def _startup():
     import os
     intent_name = os.getenv("LAB_INTENT_NAME", "AI Engineer")
-    activity_log.emit("system", f"OGLab portal started — {intent_name} lab.", "success")
+    activity_log.emit("system",
+                      f"{_BRAND.name} portal started — {intent_name} lab.",
+                      "success")
 
     # Load bootstrap goal if no active goal exists
     current = goal_store.get_current()
@@ -461,6 +470,13 @@ async def system_graph():
             edges.append({"source": "router", "target": f"backend_{name}", "label": "", "type": "available"})
 
     return {"nodes": nodes, "edges": edges}
+
+
+@app.get("/api/brand")
+async def api_brand():
+    """Return the current brand (name, tagline, logo, version).
+    Lets dashboard JS personalize UI strings without hardcoding."""
+    return _BRAND.to_dict()
 
 
 @app.get("/api/system/health")

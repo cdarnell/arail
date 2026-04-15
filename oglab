@@ -17,15 +17,22 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$REPO_ROOT"
 
+# Load .env so LAB_NAME / LAB_TAGLINE reach the help banner.
+# shellcheck disable=SC1091
+[[ -f .env ]] && set -a && source .env && set +a
+LAB_NAME="${LAB_NAME:-OGLab}"
+LAB_SHORT_NAME="${LAB_SHORT_NAME:-oglab}"
+LAB_TAGLINE="${LAB_TAGLINE:-AI Lab Blueprint}"
+
 BOLD="\033[1m"; GREEN="\033[0;32m"; CYAN="\033[0;36m"; YELLOW="\033[0;33m"; RED="\033[0;31m"; RESET="\033[0m"
-say()  { echo -e "${GREEN}[oglab]${RESET} $*"; }
-warn() { echo -e "${YELLOW}[oglab]${RESET} $*"; }
-die()  { echo -e "${RED}[oglab]${RESET} $*" >&2; exit 1; }
+say()  { echo -e "${GREEN}[${LAB_SHORT_NAME}]${RESET} $*"; }
+warn() { echo -e "${YELLOW}[${LAB_SHORT_NAME}]${RESET} $*"; }
+die()  { echo -e "${RED}[${LAB_SHORT_NAME}]${RESET} $*" >&2; exit 1; }
 
 usage() {
     cat <<EOF
 
-  $(printf '\033[1m')oglab$(printf '\033[0m') — local AI research lab
+  $(printf '\033[1m')${LAB_NAME}$(printf '\033[0m') — ${LAB_TAGLINE}
 
   Usage: ./oglab <command> [args]
 

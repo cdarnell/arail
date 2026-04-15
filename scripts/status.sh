@@ -11,11 +11,14 @@ warn() { echo -e "  ${YELLOW}⚠${RESET} $*"; }
 dim()  { echo -e "  ${DIM}$*${RESET}"; }
 
 # shellcheck disable=SC1091
+[[ -f .env ]] && set -a && source .env && set +a
+# shellcheck disable=SC1091
 source lab.conf 2>/dev/null || true
 BIND="${BIND_ADDR:-127.0.0.1}"
+LAB_NAME="${LAB_NAME:-OGLab}"
 
 echo ""
-echo -e "${BOLD}OGLab — Status${RESET}"
+echo -e "${BOLD}${LAB_NAME} — Status${RESET}"
 echo ""
 
 # ── venv + install ────────────────────────────────────────────────

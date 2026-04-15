@@ -5,10 +5,19 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
 GREEN="\033[0;32m"; CYAN="\033[0;36m"; BOLD="\033[1m"; RESET="\033[0m"
-info() { echo -e "${GREEN}[oglab]${RESET} $*"; }
 
+# Load .env first (for LAB_NAME and friends) before anything else.
+# shellcheck disable=SC1091
+[[ -f .env ]] && set -a && source .env && set +a
 # shellcheck disable=SC1091
 source lab.conf 2>/dev/null || true
+
+LAB_NAME="${LAB_NAME:-OGLab}"
+LAB_SHORT_NAME="${LAB_SHORT_NAME:-oglab}"
+LAB_LOGO="${LAB_LOGO:-⟨${LAB_NAME}⟩}"
+
+info() { echo -e "${GREEN}[${LAB_SHORT_NAME}]${RESET} $*"; }
+
 export PATH="$HOME/.local/bin:$PATH"
 BIND="${BIND_ADDR:-127.0.0.1}"
 
@@ -19,7 +28,7 @@ source .venv/bin/activate
 PIDS=()
 
 echo ""
-echo -e "${CYAN}${BOLD}⟨OGLab⟩ Starting lab services…${RESET}"
+echo -e "${CYAN}${BOLD}${LAB_LOGO} Starting lab services…${RESET}"
 echo ""
 
 info "Portal     → http://${BIND}:${PORTAL_PORT:-8080}"

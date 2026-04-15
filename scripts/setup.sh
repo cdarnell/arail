@@ -160,6 +160,48 @@ wsl_notes() {
 }
 
 # -----------------------------------------------------------------------------
+# Brand — name your lab. Captured once, persisted to .env, every future run
+# reuses it. Fork → rename → you have your own product.
+# -----------------------------------------------------------------------------
+capture_brand() {
+    # If .env already has a LAB_NAME we respect it and move on.
+    if [[ -f .env ]] && grep -q '^LAB_NAME=' .env; then
+        local existing
+        existing="$(grep -E '^LAB_NAME=' .env | head -n1 | cut -d= -f2- | tr -d '"')"
+        if [[ -n "$existing" ]]; then
+            LAB_NAME="$existing"
+            info "Lab name: ${BOLD}${LAB_NAME}${RESET} (from .env)"
+            return
+        fi
+    fi
+
+    if [[ ! -t 0 ]] || [[ "${OGLAB_NONINTERACTIVE:-0}" == "1" ]]; then
+        LAB_NAME="OGLab"
+        info "Non-interactive — using default lab name: OGLab"
+        return
+    fi
+
+    echo ""
+    echo -e "${BOLD}━━━ Name your lab${RESET}"
+    echo ""
+    echo "  This is how the dashboard, portal, wiki, and every banner will"
+    echo "  refer to your lab. Pick something that feels like yours —"
+    echo "  ${BOLD}PeanutLab${RESET}, ${BOLD}Atlas${RESET}, ${BOLD}Workshop${RESET}, or keep the default."
+    echo ""
+    read -rp "  Lab name [OGLab]: " LAB_NAME
+    LAB_NAME="${LAB_NAME:-OGLab}"
+
+    # Lowercase short name for info tags and process titles.
+    LAB_SHORT_NAME="$(echo "$LAB_NAME" | tr '[:upper:]' '[:lower:]' | tr -s '[:space:]' '-' | tr -cd 'a-z0-9-')"
+
+    echo ""
+    read -rp "  One-line tagline [AI Lab Blueprint]: " LAB_TAGLINE
+    LAB_TAGLINE="${LAB_TAGLINE:-AI Lab Blueprint}"
+
+    info "Lab name: ${BOLD}${LAB_NAME}${RESET}"
+}
+
+# -----------------------------------------------------------------------------
 # Unified password — one secret for IDE + Open Notebook + future auth
 # -----------------------------------------------------------------------------
 capture_password() {
@@ -232,6 +274,13 @@ setup_env() {
     # Idempotent — safe to re-run on an existing .env.
     _set_env_var OGLAB_PASSWORD "$OGLAB_PASSWORD"
     _set_env_var OPEN_NOTEBOOK_ENCRYPTION_KEY "$OGLAB_PASSWORD"
+
+    # Persist brand fields so every subsequent run reads the user's choice.
+    if [[ -n "${LAB_NAME:-}" ]]; then
+        _set_env_var LAB_NAME "$LAB_NAME"
+        _set_env_var LAB_SHORT_NAME "${LAB_SHORT_NAME:-$(echo "$LAB_NAME" | tr '[:upper:]' '[:lower:]')}"
+        _set_env_var LAB_TAGLINE "${LAB_TAGLINE:-AI Lab Blueprint}"
+    fi
 }
 
 # Set KEY=VALUE in .env, replacing (or uncommenting) any existing entry.
@@ -477,6 +526,9 @@ verify() {
 main() {
     echo ""
     echo -e "${BOLD}🧪 OGLab — AI Lab Blueprint Setup${RESET}"
+    echo ""
+    echo "  Local-first AI lab. Pick a name, capture a goal, start researching."
+    echo ""
     echo "============================================="
     echo ""
 
@@ -484,6 +536,7 @@ main() {
     ensure_python
     install_core_deps
     install_accel_deps
+    capture_brand
     capture_password
     setup_env
     setup_runtime_files

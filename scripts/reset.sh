@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  OGLab Reset — Clean wipe / selective reset
+#  ${LAB_NAME} Reset — Clean wipe / selective reset
 # =============================================================================
 set -euo pipefail
 
@@ -19,9 +19,13 @@ AUTO_CONFIRM="false"
 DESTROY_LOG="/tmp/oglab-destroy.log"
 cd "$REPO_ROOT"
 
+# shellcheck disable=SC1091
+[[ -f .env ]] && set -a && source .env && set +a
+LAB_NAME="${LAB_NAME:-OGLab}"
+
 # ── Stop running services ────────────────────────────────────────────
 stop_services() {
-    info "Stopping OGLab services..."
+    info "Stopping ${LAB_NAME} services..."
     local pids=()
     for proc in "uvicorn" "ttyd" "jupyter-lab" "jupyter-lab-script" "code-server"; do
         local p
@@ -150,7 +154,7 @@ EOF
 # ── Usage / menu ─────────────────────────────────────────────────────
 usage() {
     echo ""
-    echo -e "  ${BOLD}OGLab Reset${RESET}"
+    echo -e "  ${BOLD}${LAB_NAME} Reset${RESET}"
     echo ""
     echo "  Usage: ./oglab reset [mode] [--yes]"
     echo ""
@@ -169,7 +173,7 @@ usage() {
 
 interactive_menu() {
     echo ""
-    echo -e "  ${BOLD}OGLab Reset${RESET}"
+    echo -e "  ${BOLD}${LAB_NAME} Reset${RESET}"
     echo ""
 
     # Show sizes
