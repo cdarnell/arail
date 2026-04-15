@@ -117,7 +117,10 @@
   <div class="card full" id="chat-card">
     <h2>
       <span class="indicator"></span> Chat with the lab
-      <span class="chat-backend" id="chat-backend" title="Active backend"></span>
+      <span class="chat-backend" id="chat-backend" title="Active backend">—</span>
+      <span class="chat-model"    id="chat-model"   title="Model tag" hidden></span>
+      <span class="chat-tokens"   id="chat-session-tokens"
+            title="Tokens used in this chat session">session: 0 tok</span>
     </h2>
     <div class="chat-hint">
       <span>Ask how the lab works, what it can do, or for help shaping a goal.
@@ -184,27 +187,12 @@
     {% endif %}
   </div>
 
-  <!-- ═══ Cost Tracking ═══ -->
-  <div class="card" id="cost-card">
-    <h2><span class="indicator"></span> Cost Savings</h2>
-    <div class="cost-grid">
-      <div class="cost-stat">
-        <span class="cost-label">Cloud Equivalent</span>
-        <span class="cost-value" id="cost-cloud">$0.00</span>
-      </div>
-      <div class="cost-stat">
-        <span class="cost-label">Actual Energy</span>
-        <span class="cost-value energy" id="cost-energy">$0.00</span>
-      </div>
-      <div class="cost-stat">
-        <span class="cost-label">Net Savings</span>
-        <span class="cost-value savings" id="cost-savings">$0.00</span>
-      </div>
-      <div class="cost-stat">
-        <span class="cost-label">Inferences</span>
-        <span class="cost-value" id="cost-count">0</span>
-      </div>
-    </div>
+  <!-- ═══ Lifetime token counter — fixed corner chip ═══ -->
+  <div class="lifetime-chip" id="lifetime-chip"
+       title="Total tokens this lab has processed across all backends — pulled from the cost tracker.">
+    <span class="lifetime-icon">⟐</span>
+    <span class="lifetime-label">lab lifetime</span>
+    <span class="lifetime-value" id="lifetime-tokens">—</span>
   </div>
 
   <!-- ═══ Curate (add-on surfaces + wiki) ═══ -->
@@ -533,6 +521,12 @@ async function refreshCosts() {
         : _topBackend(s.calls_by_backend);
       q('meter-backend').textContent = label;
     }
+
+    // Lifetime token chip (fixed corner)
+    if (q('lifetime-tokens')) {
+      const total = s.total_tokens ?? 0;
+      q('lifetime-tokens').textContent = fmtTokens(total) + ' tok';
+    }
   } catch(e) { /* endpoint not available yet */ }
 }
 refreshCosts();
@@ -610,8 +604,23 @@ refreshWikiStatus();
 setInterval(refreshWikiStatus, 15000);
 
 // ── Chat with the lab ──
-const CHAT_STATE = { history: [] };
+const CHAT_STATE = { history: [], sessionTokens: 0 };
 const CHAT_STORAGE = 'oglab.chat.history.v1';
+
+function fmtTokens(n) {
+  if (n == null || isNaN(n)) return '0';
+  if (n < 1000) return String(n);
+  if (n < 10000) return (n / 1000).toFixed(2) + 'k';
+  if (n < 1_000_000) return (n / 1000).toFixed(1) + 'k';
+  return (n / 1_000_000).toFixed(2) + 'M';
+}
+function updateSessionTokens() {
+  const el = document.getElementById('chat-session-tokens');
+  if (!el) return;
+  el.textContent = 'session: ' + fmtTokens(CHAT_STATE.sessionTokens) + ' tok';
+  el.classList.add('bump');
+  setTimeout(() => el.classList.remove('bump'), 450);
+}
 
 function chatEscape(s) {
   const d = document.createElement('div');
@@ -704,6 +713,16 @@ async function chatSend(text) {
       if (d.backend && backendBadge) {
         backendBadge.textContent = d.backend;
       }
+      const modelBadge = document.getElementById('chat-model');
+      if (d.model && modelBadge) {
+        modelBadge.textContent = d.model;
+        modelBadge.title = 'Model: ' + d.model;
+        modelBadge.hidden = false;
+      }
+      if (typeof d.tokens_used === 'number') {
+        CHAT_STATE.sessionTokens += d.tokens_used;
+        updateSessionTokens();
+      }
     }
   } catch (e) {
     chatAppend('assistant', 'Network error: ' + e.message);
@@ -726,6 +745,8 @@ document.getElementById('chat-form').addEventListener('submit', async (e) => {
 document.getElementById('chat-clear').addEventListener('click', () => {
   if (!confirm('Clear chat history?')) return;
   CHAT_STATE.history = [];
+  CHAT_STATE.sessionTokens = 0;
+  updateSessionTokens();
   chatSaveHistory();
   document.getElementById('chat-log').innerHTML =
     '<div class="chat-msg chat-msg-system"><div class="chat-role">LAB</div>' +
@@ -733,11 +754,19 @@ document.getElementById('chat-clear').addEventListener('click', () => {
 });
 
 chatLoadHistory();
+updateSessionTokens();
 
-// Show the current backend in the chat card header.
+// Populate the current backend + model in the chat card header on load,
+// before the user has sent a single message.
 fetch('/api/system/health').then(r => r.json()).then(h => {
-  const el = document.getElementById('chat-backend');
-  if (el && h.backend) el.textContent = h.backend;
+  const bEl = document.getElementById('chat-backend');
+  if (bEl && h.backend) bEl.textContent = h.backend;
+  const mEl = document.getElementById('chat-model');
+  if (mEl && h.model && h.model !== 'none') {
+    mEl.textContent = h.model;
+    mEl.title = 'Model: ' + h.model;
+    mEl.hidden = false;
+  }
 }).catch(() => {});
 </script>
 </body>
