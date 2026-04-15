@@ -192,6 +192,16 @@ async def plugins_page(request: Request):
     })
 
 
+@app.get("/research", response_class=HTMLResponse)
+async def research_page(request: Request):
+    """Research cockpit — goal + experiments + live researcher activity.
+
+    All the live state is populated client-side via /api/goal,
+    /api/experiments, /api/research/status, and the SSE activity stream.
+    The page just needs to render an empty shell."""
+    return templates.TemplateResponse(request, "research.html", {})
+
+
 # ── SSE Activity Stream ─────────────────────────────────────────────────
 
 @app.get("/api/activity/stream")

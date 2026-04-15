@@ -1,0 +1,700 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ brand.name }} — Research</title>
+<link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/static/research.css">
+</head>
+<body>
+
+<nav>
+  <span class="logo">{{ brand.logo }}</span>
+  <a href="/">Dashboard</a>
+  <a href="/knowledge">Knowledge</a>
+  <a href="/research" class="active">Research</a>
+  <a href="/wiki/graph">Graph</a>
+  <a href="/terminal">Terminal</a>
+  <a href="/notebook">Notebook</a>
+  <a href="/plugins">Plugins</a>
+  <span class="mode-badge airgapped">⬤ Airgapped</span>
+</nav>
+
+<!-- ═══ Cockpit strip (top) ═══ -->
+<section class="rx-cockpit" id="rx-cockpit" hidden>
+  <div class="rx-cockpit-left">
+    <div class="rx-goal-row">
+      <div class="rx-goal-title" id="rx-goal-title">No active goal</div>
+      <span class="rx-chip domain" id="rx-goal-domain" hidden></span>
+      <span class="rx-pill idle" id="rx-status-pill">idle</span>
+    </div>
+    <div class="rx-progress">
+      <div class="rx-progress-bar"><div class="rx-progress-bar-fill" id="rx-progress-fill"></div></div>
+      <span class="rx-progress-label" id="rx-progress-label">0%</span>
+    </div>
+    <div class="rx-steps" id="rx-steps">
+      <!-- Six step dots + labels, filled in by JS -->
+    </div>
+  </div>
+  <div class="rx-cockpit-right">
+    <button class="rx-btn primary" id="rx-btn-run"    title="Start research on the current goal">▶ Run</button>
+    <button class="rx-btn"         id="rx-btn-pause"  title="Pause the running researcher">⏸ Pause</button>
+    <button class="rx-btn"         id="rx-btn-resume" title="Resume after pause">▶ Resume</button>
+    <button class="rx-btn danger"  id="rx-btn-stop"   title="Stop the researcher">■ Stop</button>
+    <button class="rx-btn"         id="rx-btn-new"    title="Replace the active goal">+ New Goal</button>
+  </div>
+</section>
+
+<!-- ═══ 3-pane layout (shown when a goal exists) ═══ -->
+<div class="rx-layout" id="rx-layout" hidden>
+
+  <!-- LEFT: Brief ────────────────────────────────────────────── -->
+  <aside class="rx-pane">
+    <header class="rx-pane-head">
+      <span class="rx-pane-title">📋 Research Brief</span>
+      <span id="rx-brief-meta"></span>
+    </header>
+    <div class="rx-pane-body rx-brief" id="rx-brief">
+      <div class="rx-brief-empty">Loading…</div>
+    </div>
+  </aside>
+
+  <!-- MIDDLE: Experiments ────────────────────────────────────── -->
+  <main class="rx-pane">
+    <header class="rx-pane-head">
+      <span class="rx-pane-title">🧪 Experiments</span>
+      <span id="rx-exp-meta">—</span>
+    </header>
+    <div class="rx-pane-body" id="rx-experiments">
+      <div class="rx-brief-empty">Loading…</div>
+    </div>
+  </main>
+
+  <!-- RIGHT: Activity + Report ───────────────────────────────── -->
+  <aside class="rx-pane">
+    <div class="rx-split">
+      <section>
+        <header class="rx-pane-head">
+          <span class="rx-pane-title">⚡ Live Activity</span>
+          <span id="rx-activity-meta">—</span>
+        </header>
+        <div class="rx-pane-body">
+          <ul class="rx-activity" id="rx-activity">
+            <li class="rx-brief-empty">waiting for events…</li>
+          </ul>
+        </div>
+      </section>
+      <section>
+        <header class="rx-pane-head">
+          <span class="rx-pane-title">📄 Report</span>
+          <a href="#" id="rx-report-link" class="rx-btn" hidden>view full ↗</a>
+        </header>
+        <div class="rx-pane-body">
+          <article class="rx-report" id="rx-report">
+            <div class="rx-report-empty">Report will appear here when research completes.</div>
+          </article>
+        </div>
+      </section>
+    </div>
+  </aside>
+</div>
+
+<!-- ═══ Empty state (no goal) ═══ -->
+<section class="rx-empty-state" id="rx-empty-state" hidden>
+  <div class="rx-empty-card">
+    <h1>Welcome to the lab.</h1>
+    <p>This is where research lives — goals you set, experiments the agent designs and runs,
+       observations it logs, and the reports it writes back to your knowledge base.
+       Tell me what you want to explore and I'll get to work.</p>
+    <form class="rx-empty-form" id="rx-empty-form">
+      <textarea id="rx-empty-textarea"
+                placeholder="e.g. Find the best scheduler strategy for a 3-person team"
+                autofocus></textarea>
+      <button type="submit" class="rx-btn primary">▶ Start Research</button>
+    </form>
+    <div class="rx-empty-examples" id="rx-empty-examples">
+      <div class="rx-example" data-example="Find the best scheduler strategy for small teams">Find the best scheduler strategy for small teams</div>
+      <div class="rx-example" data-example="Compare local LLM inference engines for code tasks">Compare local LLM inference engines for code tasks</div>
+      <div class="rx-example" data-example="Identify which RAG chunk sizes work best for technical docs">Identify which RAG chunk sizes work best for technical docs</div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ New-goal modal ═══ -->
+<div class="rx-modal" id="rx-modal" hidden>
+  <div class="rx-modal-card">
+    <h2>Start a new research goal</h2>
+    <p>The current goal will be archived. The researcher will start on the new one right away.</p>
+    <textarea id="rx-modal-textarea"
+              placeholder="e.g. Which scheduler strategy works best for a 3-person team?"></textarea>
+    <div class="rx-modal-actions">
+      <button class="rx-btn" id="rx-modal-cancel">Cancel</button>
+      <button class="rx-btn primary" id="rx-modal-submit">▶ Start</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ═══════════════════════════════════════════════════════════════
+   /research — Research Cockpit
+   - Goal:     GET/POST /api/goal
+   - Research: POST /api/research/start|pause|resume|stop
+   - Exps:     GET /api/experiments
+   - Activity: SSE /api/activity/stream
+   ═══════════════════════════════════════════════════════════════ */
+
+const RESEARCH = {
+  goal: null,           // full goal record or null
+  experiments: [],      // list from /api/experiments
+  status: 'idle',       // researcher status
+  progress: 0,          // 0..1
+  es: null,             // EventSource
+  activity: [],         // ring buffer (newest first)
+  expanded: new Set(),  // expanded experiment ids
+  expRefreshTimer: null,
+};
+
+const STEP_DEFS = [
+  { key: 'plan',    label: 'Plan',    threshold: 0.1 },
+  { key: 'design',  label: 'Design',  threshold: 0.3 },
+  { key: 'gather',  label: 'Gather',  threshold: 0.5 },
+  { key: 'run',     label: 'Run',     threshold: 0.7 },
+  { key: 'analyze', label: 'Analyze', threshold: 0.9 },
+  { key: 'report',  label: 'Report',  threshold: 1.0 },
+];
+
+// ── Utilities ─────────────────────────────────────────────────
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = s == null ? '' : String(s);
+  return d.innerHTML;
+}
+function hhmmss(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  return d.toTimeString().slice(0, 8);
+}
+function shortDate(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  return d.toISOString().slice(0, 10);
+}
+
+// Minimal markdown renderer — same approach as /knowledge's fallback.
+function renderMarkdown(text) {
+  if (!text) return '';
+  let html = esc(text);
+  html = html.replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>');
+  html = html.replace(/^#### (.+)$/gm, '<h4>$1</h4>');
+  html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+  html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+  html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+  html = html.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+  html = html.replace(/^\s*[-*]\s+(.+)$/gm, '<li>$1</li>');
+  html = html.replace(/(<li>[\s\S]+?<\/li>)(?!\s*<li>)/g, '<ul>$1</ul>');
+  html = html.replace(/\n\n+/g, '</p><p>');
+  return '<p>' + html + '</p>';
+}
+
+// ── Fetch helpers ─────────────────────────────────────────────
+async function fetchGoal() {
+  try {
+    const r = await fetch('/api/goal');
+    if (!r.ok) return null;
+    const data = await r.json();
+    return data && Object.keys(data).length ? data : null;
+  } catch (e) { return null; }
+}
+async function fetchExperiments() {
+  try {
+    const r = await fetch('/api/experiments');
+    if (!r.ok) return [];
+    return await r.json();
+  } catch (e) { return []; }
+}
+async function fetchStatus() {
+  try {
+    const r = await fetch('/api/research/status');
+    if (!r.ok) return { status: 'idle', progress: 0 };
+    return await r.json();
+  } catch (e) { return { status: 'idle', progress: 0 }; }
+}
+
+// ── Cockpit rendering ─────────────────────────────────────────
+function renderCockpit() {
+  const goal = RESEARCH.goal;
+  const hasGoal = !!goal;
+  document.getElementById('rx-cockpit').hidden  = !hasGoal;
+  document.getElementById('rx-layout').hidden   = !hasGoal;
+  document.getElementById('rx-empty-state').hidden = hasGoal;
+  if (!hasGoal) return;
+
+  const parsed = goal.parsed || {};
+  document.getElementById('rx-goal-title').textContent =
+    goal.goal_text || parsed.goal || parsed.primary_objective || '(untitled goal)';
+
+  const domainEl = document.getElementById('rx-goal-domain');
+  const domain = parsed.domain || '';
+  if (domain) {
+    domainEl.textContent = domain;
+    domainEl.hidden = false;
+  } else {
+    domainEl.hidden = true;
+  }
+
+  const pill = document.getElementById('rx-status-pill');
+  pill.className = 'rx-pill ' + RESEARCH.status;
+  pill.textContent = RESEARCH.status;
+
+  const pct = Math.round((RESEARCH.progress || 0) * 100);
+  document.getElementById('rx-progress-fill').style.width = pct + '%';
+  document.getElementById('rx-progress-label').textContent = pct + '%';
+
+  renderSteps();
+  renderControls();
+}
+
+function renderSteps() {
+  const el = document.getElementById('rx-steps');
+  const p = RESEARCH.progress || 0;
+  const running = RESEARCH.status === 'running';
+  const parts = [];
+  STEP_DEFS.forEach((step, i) => {
+    const done = p >= step.threshold;
+    // Active step: the first threshold we haven't reached yet, only while running.
+    const prevT = i === 0 ? 0 : STEP_DEFS[i-1].threshold;
+    const active = running && !done && p >= prevT;
+    const cls = done ? 'done' : (active ? 'active' : '');
+    parts.push(
+      `<span class="rx-step ${cls}">
+         <span class="rx-step-dot"></span>
+         <span class="rx-step-label">${step.label}</span>
+       </span>`
+    );
+    if (i < STEP_DEFS.length - 1) {
+      parts.push(`<span class="rx-step-sep ${done ? 'done' : ''}"></span>`);
+    }
+  });
+  el.innerHTML = parts.join('');
+}
+
+function renderControls() {
+  const st = RESEARCH.status;
+  const has = !!RESEARCH.goal;
+  const b = id => document.getElementById(id);
+  b('rx-btn-run').disabled    = !has || st === 'running' || st === 'paused';
+  b('rx-btn-pause').disabled  = st !== 'running';
+  b('rx-btn-resume').disabled = st !== 'paused';
+  b('rx-btn-stop').disabled   = !(st === 'running' || st === 'paused');
+  b('rx-btn-new').disabled    = false;
+}
+
+// ── Brief rendering ───────────────────────────────────────────
+function renderBrief() {
+  const el = document.getElementById('rx-brief');
+  const goal = RESEARCH.goal;
+  if (!goal) {
+    el.innerHTML = '<div class="rx-brief-empty">No active research goal.</div>';
+    document.getElementById('rx-brief-meta').textContent = '';
+    return;
+  }
+  const p = goal.parsed || {};
+  const parts = [];
+
+  parts.push(`<h1>${esc(goal.goal_text || p.goal || '(untitled)')}</h1>`);
+
+  if (p.primary_objective) {
+    parts.push(`<h2>Primary Objective</h2>`);
+    parts.push(`<p>${esc(p.primary_objective)}</p>`);
+  }
+  if (Array.isArray(p.sub_objectives) && p.sub_objectives.length) {
+    parts.push(`<h2>Sub-Objectives</h2><ul>`);
+    p.sub_objectives.forEach(s => parts.push(`<li>${esc(s)}</li>`));
+    parts.push(`</ul>`);
+  }
+  if (p.success_metrics && typeof p.success_metrics === 'object' &&
+      !Array.isArray(p.success_metrics) && Object.keys(p.success_metrics).length) {
+    parts.push(`<h2>Success Metrics</h2>`);
+    Object.entries(p.success_metrics).forEach(([k, v]) => {
+      parts.push(
+        `<div class="rx-kv">
+           <span class="rx-kv-key">${esc(k)}</span>
+           <span class="rx-kv-val">${esc(String(v))}</span>
+         </div>`
+      );
+    });
+  } else if (Array.isArray(p.success_metrics) && p.success_metrics.length) {
+    parts.push(`<h2>Success Metrics</h2><ul>`);
+    p.success_metrics.forEach(s => parts.push(`<li>${esc(s)}</li>`));
+    parts.push(`</ul>`);
+  }
+  if (p.timeline) {
+    parts.push(`<h2>Timeline</h2><p>${esc(p.timeline)}</p>`);
+  }
+  if (Array.isArray(p.constraints) && p.constraints.length) {
+    parts.push(`<h2>Constraints</h2><ul>`);
+    p.constraints.forEach(c => parts.push(`<li>${esc(c)}</li>`));
+    parts.push(`</ul>`);
+  }
+  if (Array.isArray(p.resources_needed) && p.resources_needed.length) {
+    parts.push(`<h2>Resources Needed</h2><ul>`);
+    p.resources_needed.forEach(r => parts.push(`<li>${esc(r)}</li>`));
+    parts.push(`</ul>`);
+  }
+
+  // Always show meta footer (created/updated/id)
+  parts.push(`<h2>Meta</h2>`);
+  parts.push(
+    `<div class="rx-kv"><span class="rx-kv-key">id</span><span class="rx-kv-val">${esc(goal.id || '—')}</span></div>`
+  );
+  if (goal.created_at) {
+    parts.push(
+      `<div class="rx-kv"><span class="rx-kv-key">created</span><span class="rx-kv-val">${esc(shortDate(goal.created_at))}</span></div>`
+    );
+  }
+  if (goal.updated_at) {
+    parts.push(
+      `<div class="rx-kv"><span class="rx-kv-key">updated</span><span class="rx-kv-val">${esc(shortDate(goal.updated_at))}</span></div>`
+    );
+  }
+  if (typeof goal.progress === 'number') {
+    parts.push(
+      `<div class="rx-kv"><span class="rx-kv-key">progress</span><span class="rx-kv-val">${Math.round(goal.progress * 100)}%</span></div>`
+    );
+  }
+
+  el.innerHTML = parts.join('');
+  const expCount = (goal.experiments || []).length;
+  document.getElementById('rx-brief-meta').textContent = expCount + ' exp';
+}
+
+// ── Experiments rendering ─────────────────────────────────────
+function renderExperiments() {
+  const el = document.getElementById('rx-experiments');
+  const exps = RESEARCH.experiments || [];
+  if (!exps.length) {
+    el.innerHTML =
+      '<div class="rx-brief-empty">No experiments yet. Start a research run and experiments will stream in here.</div>';
+    document.getElementById('rx-exp-meta').textContent = '0';
+    return;
+  }
+
+  const running = exps.filter(e => e.status === 'in_progress' || e.status === 'planning');
+  const done = exps.filter(e => e.status === 'completed');
+  document.getElementById('rx-exp-meta').textContent =
+    `${running.length} active · ${done.length} done`;
+
+  const parts = [];
+  if (running.length) {
+    parts.push(`<div class="rx-group running">
+      <div class="rx-group-head">
+        <span>Running</span>
+        <span class="rx-count">${running.length}</span>
+      </div>`);
+    running.forEach(e => parts.push(renderExperimentCard(e)));
+    parts.push(`</div>`);
+  }
+  if (done.length) {
+    parts.push(`<div class="rx-group">
+      <div class="rx-group-head">
+        <span>Completed</span>
+        <span class="rx-count">${done.length}</span>
+      </div>`);
+    done.forEach(e => parts.push(renderExperimentCard(e)));
+    parts.push(`</div>`);
+  }
+  el.innerHTML = parts.join('');
+
+  // Wire click-to-expand
+  el.querySelectorAll('.rx-exp').forEach(card => {
+    card.addEventListener('click', () => {
+      const id = card.dataset.id;
+      if (RESEARCH.expanded.has(id)) RESEARCH.expanded.delete(id);
+      else RESEARCH.expanded.add(id);
+      renderExperiments();
+    });
+  });
+}
+
+function renderExperimentCard(exp) {
+  const isExpanded = RESEARCH.expanded.has(exp.id);
+  const status = exp.status || 'planning';
+  const running = status === 'in_progress';
+
+  const head = `
+    <div class="rx-exp-head">
+      <div class="rx-exp-hyp">${esc(exp.hypothesis || '(no hypothesis)')}</div>
+      <div class="rx-exp-id">${esc(exp.id || '')}</div>
+    </div>
+    <div class="rx-exp-meta">
+      <span class="rx-exp-status ${status}"><span class="rx-dot"></span>${esc(status.replace('_', ' '))}</span>
+      ${exp.domain ? `<span class="rx-chip">${esc(exp.domain)}</span>` : ''}
+      ${exp.start_date ? `<span>${esc(exp.start_date)}${exp.end_date && exp.end_date !== exp.start_date ? ' → ' + esc(exp.end_date) : ''}</span>` : ''}
+      ${exp.hypothesis_supported === true  ? '<span class="rx-exp-badge supported">supported</span>' : ''}
+      ${exp.hypothesis_supported === false ? '<span class="rx-exp-badge not-supported">not supported</span>' : ''}
+    </div>
+  `;
+
+  let body = '';
+  if (isExpanded) {
+    const partsB = [];
+    if (exp.methodology) {
+      partsB.push(`<h4>Methodology</h4><p>${esc(exp.methodology)}</p>`);
+    }
+    if (exp.variables && Object.keys(exp.variables).length) {
+      partsB.push(`<h4>Variables</h4>`);
+      Object.entries(exp.variables).forEach(([k, v]) => {
+        partsB.push(
+          `<div class="rx-kv">
+             <span class="rx-kv-key">${esc(k)}</span>
+             <span class="rx-kv-val">${esc(typeof v === 'object' ? JSON.stringify(v) : String(v))}</span>
+           </div>`
+        );
+      });
+    }
+    if (exp.results && typeof exp.results === 'object' && Object.keys(exp.results).length) {
+      partsB.push(`<h4>Results</h4><div class="rx-metrics">`);
+      Object.entries(exp.results).forEach(([k, v]) => {
+        const num = typeof v === 'number';
+        const display = num ? (v < 1 && v > -1 ? v.toFixed(2) : String(v)) : String(v);
+        partsB.push(
+          `<div class="rx-metric">
+             <span class="rx-metric-val">${esc(display)}</span>
+             <span class="rx-metric-key">${esc(k)}</span>
+           </div>`
+        );
+      });
+      partsB.push(`</div>`);
+    }
+    if (Array.isArray(exp.observations) && exp.observations.length) {
+      partsB.push(`<h4>Observations</h4>`);
+      exp.observations.forEach(o => {
+        partsB.push(
+          `<div class="rx-obs">
+             <span class="rx-obs-date">${esc(o.date || '')}</span>
+             ${esc(o.observation || '')}
+           </div>`
+        );
+      });
+    }
+    if (exp.conclusion) {
+      partsB.push(`<h4>Conclusion</h4><div class="rx-conclusion">${esc(exp.conclusion)}</div>`);
+    }
+    body = `<div class="rx-exp-body">${partsB.join('') || '<p>No details yet.</p>'}</div>`;
+  }
+
+  const cls = ['rx-exp'];
+  if (running) cls.push('running');
+  if (isExpanded) cls.push('expanded');
+
+  return `<div class="${cls.join(' ')}" data-id="${esc(exp.id || '')}">${head}${body}</div>`;
+}
+
+// ── Activity + Report ─────────────────────────────────────────
+function renderActivity() {
+  const el = document.getElementById('rx-activity');
+  const events = RESEARCH.activity;
+  if (!events.length) {
+    el.innerHTML = '<li class="rx-brief-empty">waiting for events…</li>';
+    document.getElementById('rx-activity-meta').textContent = '—';
+    return;
+  }
+  document.getElementById('rx-activity-meta').textContent = events.length + ' recent';
+  el.innerHTML = events.map((ev, i) => {
+    const cls = 'rx-event ' + (ev.level || 'info') + (i === 0 && ev._new ? ' new' : '');
+    return `<li class="${cls}">
+      <span class="rx-event-ts">${esc(hhmmss(ev.ts))}</span>
+      <span class="rx-event-msg">${esc(ev.message || '')}</span>
+    </li>`;
+  }).join('');
+}
+
+function renderReport() {
+  const el = document.getElementById('rx-report');
+  const link = document.getElementById('rx-report-link');
+  const report = RESEARCH.goal && RESEARCH.goal.report;
+  if (!report) {
+    el.innerHTML = '<div class="rx-report-empty">Report will appear here when research completes.</div>';
+    link.hidden = true;
+    return;
+  }
+  el.innerHTML = renderMarkdown(report);
+  // Link to the generated wiki report, if present.
+  link.hidden = true; // We don't know the exact filename deterministically here; leave off for v1.
+}
+
+// ── Control actions ───────────────────────────────────────────
+async function startResearch() {
+  await fetch('/api/research/start', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ now: true }),
+  });
+  await refreshAll();
+}
+async function pauseResearch()  { await fetch('/api/research/pause',  { method: 'POST' }); await refreshStatus(); }
+async function resumeResearch() { await fetch('/api/research/resume', { method: 'POST' }); await refreshStatus(); }
+async function stopResearch()   { await fetch('/api/research/stop',   { method: 'POST' }); await refreshStatus(); }
+
+async function setNewGoal(text) {
+  if (!text || !text.trim()) return;
+  const r = await fetch('/api/goal', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ goal: text.trim(), auto_start: true }),
+  });
+  if (!r.ok) return;
+  await refreshAll();
+}
+
+// ── Refresh orchestration ─────────────────────────────────────
+async function refreshStatus() {
+  const s = await fetchStatus();
+  RESEARCH.status = s.status || 'idle';
+  if (typeof s.progress === 'number') RESEARCH.progress = s.progress;
+  renderCockpit();
+}
+
+async function refreshAll() {
+  const [goal, exps, status] = await Promise.all([
+    fetchGoal(), fetchExperiments(), fetchStatus(),
+  ]);
+  RESEARCH.goal = goal;
+  RESEARCH.experiments = exps;
+  RESEARCH.status = status.status || 'idle';
+  RESEARCH.progress = (typeof status.progress === 'number') ? status.progress
+                    : (goal && typeof goal.progress === 'number' ? goal.progress : 0);
+  renderCockpit();
+  renderBrief();
+  renderExperiments();
+  renderReport();
+}
+
+function scheduleExpRefresh() {
+  clearTimeout(RESEARCH.expRefreshTimer);
+  RESEARCH.expRefreshTimer = setTimeout(async () => {
+    const [exps, goal] = await Promise.all([fetchExperiments(), fetchGoal()]);
+    RESEARCH.experiments = exps;
+    if (goal) RESEARCH.goal = goal;
+    renderBrief();
+    renderExperiments();
+    renderReport();
+  }, 400);
+}
+
+// ── SSE stream ────────────────────────────────────────────────
+function connectStream() {
+  if (RESEARCH.es) { try { RESEARCH.es.close(); } catch (e) {} }
+  const es = new EventSource('/api/activity/stream');
+  RESEARCH.es = es;
+  es.onmessage = (m) => {
+    try {
+      const ev = JSON.parse(m.data);
+      const src = ev.source || '';
+      // Filter: everything researcher/goal/pkb related is interesting here.
+      if (!['researcher', 'goal', 'pkb', 'system'].includes(src)) return;
+
+      // Ring buffer, newest first.
+      ev._new = true;
+      RESEARCH.activity.unshift(ev);
+      if (RESEARCH.activity.length > 60) RESEARCH.activity.length = 60;
+
+      // Pull progress hints from event data.
+      if (ev.data && typeof ev.data.progress === 'number') {
+        RESEARCH.progress = ev.data.progress;
+      }
+
+      // Status hints: the researcher emits specific messages at boundaries.
+      const msg = (ev.message || '').toLowerCase();
+      if (msg.includes('starting research'))    { RESEARCH.status = 'running'; }
+      else if (msg.includes('research paused')) { RESEARCH.status = 'paused';  }
+      else if (msg.includes('research resumed')){ RESEARCH.status = 'running'; }
+      else if (msg.includes('research stopped')){ RESEARCH.status = 'idle';    }
+      else if (msg.includes('research cancelled')){ RESEARCH.status = 'idle';  }
+      else if (msg.includes('research complete')){ RESEARCH.status = 'completed'; RESEARCH.progress = 1; }
+      else if (msg.startsWith('research error')){ RESEARCH.status = 'error';   }
+
+      renderCockpit();
+      renderActivity();
+
+      // Mark the freshest event stale after a tick so the flash animation only plays once.
+      setTimeout(() => {
+        RESEARCH.activity.forEach(e => { e._new = false; });
+      }, 500);
+
+      // Refresh experiments + goal when the researcher touches them.
+      if (src === 'researcher' || src === 'goal') {
+        scheduleExpRefresh();
+      }
+    } catch (e) { /* ignore bad event */ }
+  };
+  es.onerror = () => {
+    // Browser auto-reconnects; nothing to do.
+  };
+}
+
+// ── Modal ─────────────────────────────────────────────────────
+function openModal() {
+  const modal = document.getElementById('rx-modal');
+  modal.hidden = false;
+  const ta = document.getElementById('rx-modal-textarea');
+  ta.value = '';
+  setTimeout(() => ta.focus(), 0);
+}
+function closeModal() {
+  document.getElementById('rx-modal').hidden = true;
+}
+
+// ── Wiring ────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  // Buttons
+  document.getElementById('rx-btn-run').addEventListener('click',    startResearch);
+  document.getElementById('rx-btn-pause').addEventListener('click',  pauseResearch);
+  document.getElementById('rx-btn-resume').addEventListener('click', resumeResearch);
+  document.getElementById('rx-btn-stop').addEventListener('click',   stopResearch);
+  document.getElementById('rx-btn-new').addEventListener('click',    openModal);
+
+  // Modal
+  document.getElementById('rx-modal-cancel').addEventListener('click', closeModal);
+  document.getElementById('rx-modal-submit').addEventListener('click', async () => {
+    const text = document.getElementById('rx-modal-textarea').value;
+    if (!text.trim()) return;
+    closeModal();
+    await setNewGoal(text);
+  });
+  document.getElementById('rx-modal-textarea').addEventListener('keydown', (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+      e.preventDefault();
+      document.getElementById('rx-modal-submit').click();
+    }
+    if (e.key === 'Escape') closeModal();
+  });
+
+  // Empty state
+  document.getElementById('rx-empty-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const text = document.getElementById('rx-empty-textarea').value;
+    await setNewGoal(text);
+  });
+  document.getElementById('rx-empty-examples').addEventListener('click', (e) => {
+    const card = e.target.closest('.rx-example');
+    if (!card) return;
+    document.getElementById('rx-empty-textarea').value = card.dataset.example;
+    document.getElementById('rx-empty-textarea').focus();
+  });
+
+  // Global Esc closes modal
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeModal();
+  });
+
+  // Boot
+  refreshAll().then(connectStream);
+});
+</script>
+</body>
+</html>
