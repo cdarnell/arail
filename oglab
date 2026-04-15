@@ -9,6 +9,7 @@
 #    status   show what's running and where
 #    doctor   validate the environment end-to-end
 #    pkm      knowledge base ops: ingest | compile | browse
+#    wiki     documentation-as-code: build | info | new <title>
 #    help     show this message
 # =============================================================================
 set -euo pipefail
@@ -36,6 +37,7 @@ usage() {
     doctor        validate the environment end-to-end
     reset [mode]  wipe state — models|data|plugins|env|full|destroy
     pkm <op>      ingest | compile | browse — knowledge base ops
+    wiki <op>     build | info | new <title> — documentation-as-code
     help          this message
 
   Quick start:   ./oglab setup && ./oglab start
@@ -69,6 +71,47 @@ case "$cmd" in
             compile) exec "$REPO_ROOT/scripts/pkm-compile" "$@" ;;
             browse)  exec "$REPO_ROOT/scripts/pkm-browse" "$@" ;;
             *) die "pkm op must be one of: ingest | compile | browse" ;;
+        esac
+        ;;
+    wiki)
+        op="${1:-build}"; shift || true
+        [[ -d .venv ]] || die "missing .venv — run ./oglab setup"
+        # shellcheck disable=SC1091
+        source .venv/bin/activate
+        case "$op" in
+            build)
+                exec python -m oglab.wiki build --repo-root "$REPO_ROOT" "$@"
+                ;;
+            info)
+                exec python -m oglab.wiki info "$@"
+                ;;
+            serve)
+                exec bash "$REPO_ROOT/scripts/start.sh"
+                ;;
+            new)
+                title="${*:-untitled}"
+                slug=$(python -c "from oglab.wiki import slugify; import sys; print(slugify(sys.argv[1]))" "$title")
+                dest="$REPO_ROOT/lab/pkm/notes/${slug}.md"
+                if [[ -e "$dest" ]]; then die "already exists: $dest"; fi
+                mkdir -p "$(dirname "$dest")"
+                now=$(python -c "import datetime; print(datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d'))")
+                cat > "$dest" <<TEMPLATE
+---
+title: ${title}
+section: notes
+tags: []
+aliases: []
+created: ${now}
+---
+
+# ${title}
+
+Write your page here. Link other pages with [[double-brackets]].
+Tags inline with #hashtag are also picked up.
+TEMPLATE
+                say "created: $dest"
+                ;;
+            *) die "wiki op must be one of: build | info | new <title> | serve" ;;
         esac
         ;;
     help|-h|--help|"") usage ;;

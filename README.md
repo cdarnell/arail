@@ -130,12 +130,11 @@ for the full user guide.
 ```bash
 git clone https://github.com/cdarnell/minimalist-blueprint.git oglab
 cd oglab
-./oglab setup && ./oglab start
+./oglab setup     # detects your hardware, installs deps, downloads model
+./oglab start     # launches the portal, terminal, notebook, and IDE
 ```
 
-One entry point. `./oglab setup` detects your hardware, installs
-dependencies, downloads your model, and scaffolds `lab/`. `./oglab
-start` brings up all four services. Run `./oglab help` for the rest.
+**Two commands.** `setup` is a first-time thing: it detects your GPU (or falls back to CPU), installs Python deps in a local `.venv`, downloads a starter model, and creates the `lab/` directory where your data, models, and knowledge base will live. `start` launches the four services listed below and auto-opens the dashboard in your browser. Run `./oglab help` any time to see every subcommand.
 
 Four services come online:
 

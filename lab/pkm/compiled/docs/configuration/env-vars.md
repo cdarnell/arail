@@ -4,7 +4,7 @@ section: docs
 tags: [configuration, env, reference]
 aliases: [env-vars, configuration]
 source: .env.example
-generated: 2026-04-15T00:51:55Z
+generated: 2026-04-15T01:06:26Z
 ---
 
 # Configuration reference
@@ -48,6 +48,16 @@ SCHEDULER — when the lab does light vs heavy work. active hours → SLM only, 
 ### `LAB_STARTUP_DELAY_SEC`
 
 **Default:** `300`
+
+### `LAB_WIKI_AUTO_REBUILD`
+
+WIKI — documentation-as-code auto-rebuild behavior.  The researcher agent and dashboard can trigger wiki recompiles. Agents typically fire several PKM writes in a row during a run, so rebuilds are debounced: the first request schedules a task, subsequent requests reset the timer, and the actual compile happens once the agent quiets down for LAB_WIKI_REBUILD_DEBOUNCE_SEC seconds.  Set LAB_WIKI_AUTO_REBUILD=false to disable auto-rebuilds entirely — the wiki only refreshes when you click Rebuild on the dashboard or run `./oglab wiki build` manually.
+
+**Default:** `true`
+
+### `LAB_WIKI_REBUILD_DEBOUNCE_SEC`
+
+**Default:** `30`
 
 ### `AIRLLM_MODEL`
 

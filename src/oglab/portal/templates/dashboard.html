@@ -151,10 +151,22 @@
     </div>
   </div>
 
-  <!-- ═══ Curate (add-on surfaces) ═══ -->
+  <!-- ═══ Curate (add-on surfaces + wiki) ═══ -->
   <div class="card" id="addons-card">
     <h2><span class="indicator"></span> Curate</h2>
-    <p class="empty" id="addons-hint" style="margin-top:.25rem;">
+
+    <div id="wiki-status" class="wiki-status">
+      <div class="wiki-status-head">
+        <span class="wiki-status-title">📚 Wiki</span>
+        <span class="wiki-status-meta" id="wiki-status-meta">loading…</span>
+      </div>
+      <div class="wiki-status-actions">
+        <a class="btn btn-sm btn-primary" href="/wiki">Open wiki →</a>
+        <button class="btn btn-sm btn-ghost" id="btn-wiki-rebuild">Rebuild</button>
+      </div>
+    </div>
+
+    <p class="empty" id="addons-hint" style="margin-top:.75rem;">
       Optional notebook surfaces — start them with <code>docker compose -f compose/&lt;file&gt;.yml up -d</code>.
     </p>
     <div class="addons-list" id="addons-list"></div>
@@ -453,6 +465,55 @@ async function refreshAddons() {
 }
 refreshAddons();
 setInterval(refreshAddons, 10000);
+
+// ── Wiki status (Curate card) ──
+function _fmtAge(iso) {
+  if (!iso) return 'not built';
+  const then = new Date(iso).getTime();
+  if (!isFinite(then)) return 'recent';
+  const secs = Math.max(0, Math.floor((Date.now() - then) / 1000));
+  if (secs < 60)   return secs + 's ago';
+  if (secs < 3600) return Math.floor(secs / 60) + 'm ago';
+  if (secs < 86400) return Math.floor(secs / 3600) + 'h ago';
+  return Math.floor(secs / 86400) + 'd ago';
+}
+async function refreshWikiStatus() {
+  try {
+    const r = await fetch('/api/wiki/status');
+    const s = await r.json();
+    const el = document.getElementById('wiki-status-meta');
+    if (s.error) {
+      el.textContent = 'error — click Rebuild';
+      return;
+    }
+    const parts = [
+      `${s.page_count} pages`,
+      `${s.link_count} links`,
+    ];
+    if (s.auto_docs) parts.push(`${s.auto_docs} auto-docs`);
+    parts.push(_fmtAge(s.built_at));
+    el.textContent = parts.join(' · ');
+  } catch(e) { /* portal may be mid-rebuild */ }
+}
+document.getElementById('btn-wiki-rebuild').addEventListener('click', async () => {
+  const btn = document.getElementById('btn-wiki-rebuild');
+  btn.disabled = true;
+  const orig = btn.textContent;
+  btn.textContent = 'Rebuilding…';
+  try {
+    const r = await fetch('/api/wiki/rebuild', { method: 'POST' });
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+    btn.textContent = `✓ ${d.page_count}p ${d.elapsed_ms}ms`;
+    refreshWikiStatus();
+    setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 1500);
+  } catch (e) {
+    btn.textContent = 'error';
+    setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 1500);
+  }
+});
+refreshWikiStatus();
+setInterval(refreshWikiStatus, 15000);
 </script>
 </body>
 </html>

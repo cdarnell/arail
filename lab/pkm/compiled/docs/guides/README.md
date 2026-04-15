@@ -4,7 +4,7 @@ section: docs
 tags: [guide]
 aliases: [README]
 source: README.md
-generated: 2026-04-15T00:51:55Z
+generated: 2026-04-15T01:10:10Z
 ---
 # OGLab — AI Lab Blueprint
 
@@ -116,6 +116,21 @@ full-text across all files, view any document. The AI builds knowledge
 in its area; you build knowledge in yours. The compile step merges
 them together into polished reports.
 
+#### Documentation as code — the wiki layer
+
+On top of the PKM tree, OGLab runs a **self-curating wiki** at
+<http://127.0.0.1:8080/wiki>. It renders every markdown file with
+`[[wikilinks]]`, backlinks, tags, and frontmatter; ships a
+force-directed knowledge graph at `/wiki/graph`; and **auto-generates
+wiki pages from the repo's own source** — every Python module via
+`ast` (no runtime imports), every shell script's header comment,
+every compose overlay, every hand-written guide, and the
+`.env.example` reference. Write a better docstring, rebuild, get
+better docs. Auto-generated pages live under
+`lab/pkm/compiled/docs/` so they never touch your notes, and the
+markdown is fully Obsidian-compatible. See [docs/wiki.md](docs/wiki.md)
+for the full user guide.
+
 ---
 
 ## Quick Start
@@ -123,12 +138,11 @@ them together into polished reports.
 ```bash
 git clone https://github.com/cdarnell/minimalist-blueprint.git oglab
 cd oglab
-./oglab setup && ./oglab start
+./oglab setup     # detects your hardware, installs deps, downloads model
+./oglab start     # launches the portal, terminal, notebook, and IDE
 ```
 
-One entry point. `./oglab setup` detects your hardware, installs
-dependencies, downloads your model, and scaffolds `lab/`. `./oglab
-start` brings up all four services. Run `./oglab help` for the rest.
+**Two commands.** `setup` is a first-time thing: it detects your GPU (or falls back to CPU), installs Python deps in a local `.venv`, downloads a starter model, and creates the `lab/` directory where your data, models, and knowledge base will live. `start` launches the four services listed below and auto-opens the dashboard in your browser. Run `./oglab help` any time to see every subcommand.
 
 Four services come online:
 
@@ -401,8 +415,8 @@ Services are accessible from your Windows browser at the same URLs.
 - Prefer **Ubuntu 22.04 / 24.04 LTS** — it's what Nvidia tests against
   and what `./oglab setup` expects for apt package names.
 - Other distros (Debian, Arch-WSL, Gentoo-WSL) work too, but you're in
-  the [native Linux](#linux--native-bring-your-own-distro) path below
-  — `./oglab setup` won't know your package names automatically.
+  the [native Linux](#section-3--linux-native-bring-your-own-distro)
+  path below — `setup.sh` won't know your package names automatically.
 
 ---
 

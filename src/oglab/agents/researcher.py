@@ -349,6 +349,14 @@ class ResearcherAgent:
                                   f"Report is still in lab/data/goals/current.json.",
                                   "warn")
 
+            # Kick the wiki to recompile — debounced so a burst of
+            # write_agent_* calls only triggers one rebuild.
+            try:
+                from oglab import wiki as _wiki
+                _wiki.schedule_rebuild()
+            except Exception:  # pragma: no cover
+                pass
+
             activity_log.emit("researcher",
                               "Research complete. Report generated.",
                               "success", {"report_preview": report[:200], "progress": 1.0})

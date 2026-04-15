@@ -18,8 +18,10 @@ Exposes a CLI entry point: ``python -m oglab.wiki build``.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import os
 import re
 import time
 import unicodedata
@@ -523,6 +525,107 @@ def load_manifest(pkm_root: Optional[Path] = None) -> dict[str, Any]:
 def _pkm_root_default() -> Path:
     from oglab.config import PKM_ROOT
     return PKM_ROOT
+
+
+def _repo_root_default() -> Optional[Path]:
+    """Walk up from this file looking for pyproject.toml. Returns None
+    if not found so docgen stays optional."""
+    here = Path(__file__).resolve()
+    for parent in here.parents:
+        if (parent / "pyproject.toml").exists():
+            return parent
+    return None
+
+
+# ── Debounced auto-rebuild ──────────────────────────────────────────────
+# Any agent that writes to the PKM tree can call schedule_rebuild() to
+# enqueue a wiki build. Multiple calls inside the debounce window
+# collapse into a single rebuild after the last request.
+
+_rebuild_task: Optional[asyncio.Task] = None
+_last_request_ts: float = 0.0
+
+
+def _auto_rebuild_enabled() -> bool:
+    return os.getenv("LAB_WIKI_AUTO_REBUILD", "true").lower() not in ("0", "false", "no")
+
+
+def _debounce_seconds() -> int:
+    try:
+        return max(1, int(os.getenv("LAB_WIKI_REBUILD_DEBOUNCE_SEC", "30")))
+    except ValueError:
+        return 30
+
+
+def schedule_rebuild(
+    pkm_root: Optional[Path] = None,
+    repo_root: Optional[Path] = None,
+) -> bool:
+    """Enqueue a debounced wiki rebuild. Safe to call from any async
+    context (researcher, portal endpoints). Returns True if a rebuild
+    task was scheduled, False if auto-rebuild is disabled or no event
+    loop is running.
+    """
+    global _rebuild_task, _last_request_ts
+    if not _auto_rebuild_enabled():
+        return False
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return False
+    _last_request_ts = time.monotonic()
+    if _rebuild_task and not _rebuild_task.done():
+        return True
+    resolved_pkm = pkm_root or _pkm_root_default()
+    resolved_repo = repo_root if repo_root is not None else _repo_root_default()
+    _rebuild_task = loop.create_task(
+        _deferred_rebuild(resolved_pkm, resolved_repo)
+    )
+    return True
+
+
+async def _deferred_rebuild(pkm_root: Path, repo_root: Optional[Path]) -> None:
+    """Wait until the request stream goes quiet, then rebuild.
+
+    Debounce loop: sleep the configured interval and re-check; if
+    another ``schedule_rebuild`` call landed during the sleep, loop
+    again; otherwise fire the compile.
+    """
+    global _rebuild_task, _last_request_ts
+    try:
+        debounce = _debounce_seconds()
+        while True:
+            await asyncio.sleep(debounce)
+            if time.monotonic() - _last_request_ts >= debounce:
+                break
+        result = compile_wiki(pkm_root, repo_root)
+        # Announce on the activity log when available.
+        try:
+            from oglab.activity import activity_log
+            activity_log.emit(
+                "wiki",
+                f"Wiki rebuilt: {result.page_count} pages, "
+                f"{result.link_count} links, "
+                f"{result.tag_count} tags ({result.elapsed_ms} ms)",
+                "info",
+            )
+        except Exception:  # pragma: no cover
+            pass
+    except asyncio.CancelledError:
+        pass
+    except Exception as e:  # noqa: BLE001
+        _log.warning("deferred wiki rebuild failed: %s", e)
+    finally:
+        _rebuild_task = None
+
+
+def cancel_pending_rebuild() -> None:
+    """Test helper — cancels any pending rebuild task."""
+    global _rebuild_task, _last_request_ts
+    if _rebuild_task and not _rebuild_task.done():
+        _rebuild_task.cancel()
+    _rebuild_task = None
+    _last_request_ts = 0.0
 
 
 # ── CLI entry point ──────────────────────────────────────────────────────

@@ -4,7 +4,7 @@ section: docs
 tags: [python, module]
 aliases: [wiki_routes, wiki_routes.py]
 source: src/oglab/portal/wiki_routes.py
-generated: 2026-04-15T00:51:55Z
+generated: 2026-04-15T01:06:26Z
 ---
 
 # wiki_routes module
@@ -35,6 +35,10 @@ one include line.
 ### `api_page(slug)`
 
 ### `api_graph()`
+
+### `api_status()`
+
+Compact summary for the dashboard Curate card.
 
 ### `api_search(q)`
 

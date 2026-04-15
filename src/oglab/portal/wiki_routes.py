@@ -222,6 +222,26 @@ async def api_graph():
     return manifest.get("graph", {"nodes": [], "edges": []})
 
 
+@router.get("/api/wiki/status")
+async def api_status():
+    """Compact summary for the dashboard Curate card."""
+    try:
+        manifest = _load_or_build()
+    except Exception as e:  # noqa: BLE001
+        return {"error": str(e), "page_count": 0, "link_count": 0, "built_at": None}
+    pages = manifest.get("pages", {})
+    link_count = sum(len(p.get("outgoing", [])) for p in pages.values())
+    auto_docs = sum(
+        1 for p in pages.values() if p.get("source_ref")
+    )
+    return {
+        "page_count": len(pages),
+        "link_count": link_count,
+        "auto_docs": auto_docs,
+        "built_at": manifest.get("built_at"),
+    }
+
+
 @router.get("/api/wiki/search")
 async def api_search(q: str = ""):
     manifest = _load_or_build()

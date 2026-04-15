@@ -4,7 +4,7 @@ section: docs
 tags: [shell, script]
 aliases: [oglab, oglab]
 source: oglab
-generated: 2026-04-15T00:51:55Z
+generated: 2026-04-15T01:06:26Z
 ---
 
 # oglab (shell)
@@ -23,6 +23,7 @@ reset    wipe models/data/env/plugins (see: ./oglab reset help)
 status   show what's running and where
 doctor   validate the environment end-to-end
 pkm      knowledge base ops: ingest | compile | browse
+wiki     documentation-as-code: build | info | new <title>
 help     show this message
 =============================================================================
 
@@ -43,6 +44,7 @@ cat <<EOF
     doctor        validate the environment end-to-end
     reset [mode]  wipe state — models|data|plugins|env|full|destroy
     pkm <op>      ingest | compile | browse — knowledge base ops
+    wiki <op>     build | info | new <title> — documentation-as-code
     help          this message
 
   Quick start:   ./oglab setup && ./oglab start

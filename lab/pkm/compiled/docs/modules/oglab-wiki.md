@@ -4,7 +4,7 @@ section: docs
 tags: [python, module]
 aliases: [wiki, wiki.py]
 source: src/oglab/wiki.py
-generated: 2026-04-15T01:00:48Z
+generated: 2026-04-15T01:06:26Z
 ---
 
 # wiki module
@@ -113,3 +113,14 @@ under ``pkm_root`` is compiled.
 ### `load_manifest(pkm_root)`
 
 Load the cached manifest, rebuilding once if absent.
+
+### `schedule_rebuild(pkm_root, repo_root)`
+
+Enqueue a debounced wiki rebuild. Safe to call from any async
+context (researcher, portal endpoints). Returns True if a rebuild
+task was scheduled, False if auto-rebuild is disabled or no event
+loop is running.
+
+### `cancel_pending_rebuild()`
+
+Test helper — cancels any pending rebuild task.

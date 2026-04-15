@@ -592,6 +592,35 @@ code {
   text-shadow: var(--glow-amber);
 }
 
+/* ── Wiki status (inside Curate card) ─────────────────────────── */
+.wiki-status {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface2);
+  padding: 0.6rem 0.75rem;
+  margin-top: 0.25rem;
+}
+.wiki-status-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+}
+.wiki-status-title {
+  font-weight: 600;
+  color: var(--text);
+  font-size: 0.85rem;
+}
+.wiki-status-meta {
+  color: var(--muted);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.72rem;
+}
+.wiki-status-actions {
+  display: flex;
+  gap: 0.4rem;
+}
+
 /* ── Add-on surfaces (Curate card) ────────────────────────────── */
 .addons-list {
   display: flex;

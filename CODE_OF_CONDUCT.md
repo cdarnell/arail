@@ -4,7 +4,7 @@ OGLab is a blueprint meant to be forked, adapted, and shared. Everyone who contr
 
 ## Our pledge
 
-We pledge to make participation a harassment-free experience for everyone, regardless of age, body size, visible or invisible disability, ethnicity, sex characteristics, gender identity and expression, level of experience, education, socio-economic status, nationality, personal appearance, race, religion, or sexual identity and orientation.
+No doubt this is a shared platform and pledge to make participation a harassment-free experience for everyone, regardless of age, body size, visible or invisible disability, ethnicity, sex characteristics, gender identity and expression, level of experience, education, socio-economic status, nationality, personal appearance, race, religion, or sexual identity and orientation.
 
 ## Our standards
 
@@ -16,23 +16,11 @@ Examples of behavior that helps the project thrive:
 - Focusing on what is best for the community
 - Showing empathy toward other community members
 
-Examples of unacceptable behavior:
-
-- The use of sexualized language or imagery, and unwelcome sexual attention or advances
-- Trolling, insulting/derogatory comments, and personal or political attacks
-- Public or private harassment
-- Publishing others' private information — physical or electronic address — without explicit permission
-- Other conduct which could reasonably be considered inappropriate in a professional setting
 
 ## Scope
 
 This Code of Conduct applies within project spaces (the repository, issue tracker, pull requests, discussions) and in public spaces when an individual is representing the project.
 
-## Enforcement
-
-Instances of abusive, harassing, or otherwise unacceptable behavior may be reported to the project maintainers. All complaints will be reviewed and investigated promptly and fairly. Maintainers are obligated to respect the privacy and security of the reporter of any incident.
-
-Maintainers who do not follow or enforce the Code of Conduct in good faith may face temporary or permanent consequences as determined by other members of the project's leadership.
 
 ## Attribution
 
