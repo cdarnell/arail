@@ -1,0 +1,43 @@
+#!/usr/bin/env python3
+"""pkb-ingest — Process inbox into the knowledge base.
+
+Drop files into lab/pkb/inbox/ then run this.
+PDFs → sources/papers, CSVs → sources/datasets, text → sources/articles.
+links.txt → bookmarks.md, quick.txt → journal.md.
+"""
+
+import sys
+from pathlib import Path
+
+# Allow running without `pip install -e .` by adding src/ to sys.path.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+
+from oglab.pkb import ingest
+
+BOLD = "\033[1m"
+GREEN = "\033[0;32m"
+DIM = "\033[2m"
+RESET = "\033[0m"
+
+
+def main():
+    print(f"\n{GREEN}⟨OGLab⟩{RESET} {BOLD}PKB Ingest{RESET}\n")
+    result = ingest()
+
+    if result["moved"] == 0 and result["urls_fetched"] == 0:
+        print(f"  {DIM}Inbox is empty. Drop files into lab/pkb/inbox/ first.{RESET}")
+        print(f"  {DIM}Tip: cp ~/Downloads/paper.pdf lab/pkb/inbox/{RESET}")
+        return
+
+    if result["moved"]:
+        print(f"  {GREEN}✓{RESET} Moved {result['moved']} file(s) to sources/")
+    if result["urls_fetched"]:
+        print(f"  {GREEN}✓{RESET} Added {result['urls_fetched']} URL(s) to bookmarks")
+    if result["errors"]:
+        for err in result["errors"]:
+            print(f"  ⚠ {err}")
+    print()
+
+
+if __name__ == "__main__":
+    main()

@@ -410,8 +410,8 @@ async def system_graph():
         {"id": "plugin_mgr", "label": "Plugins", "group": "plugin", "type": "service",
          "desc": f"GitHub plugin system — {len(plugin_mgr.list_plugins())} installed",
          "status": "active"},
-        {"id": "pkm", "label": "Knowledge Base", "group": "core", "type": "store",
-         "desc": "Personal knowledge management — sources, notes, agent findings",
+        {"id": "pkb", "label": "Knowledge Base", "group": "core", "type": "store",
+         "desc": "Personal knowledge base — sources, notes, agent findings",
          "status": "active"},
         {"id": "ttyd", "label": "Terminal", "group": "service", "type": "service",
          "desc": "ttyd WebSocket terminal", "status": "external", "port": 7681},
@@ -450,8 +450,8 @@ async def system_graph():
         {"source": "researcher", "target": "experiment_tracker", "label": "experiments", "type": "data"},
         {"source": "researcher", "target": "curator", "label": "sources", "type": "control"},
         {"source": "researcher", "target": "activity", "label": "events", "type": "data"},
-        {"source": "researcher", "target": "pkm", "label": "findings", "type": "data"},
-        {"source": "portal", "target": "pkm", "label": "browse/search", "type": "data"},
+        {"source": "researcher", "target": "pkb", "label": "findings", "type": "data"},
+        {"source": "portal", "target": "pkb", "label": "browse/search", "type": "data"},
         {"source": "curator", "target": "consent", "label": "proposals", "type": "control"},
         {"source": "goal_parser", "target": "goal_store", "label": "parsed goal", "type": "data"},
         {"source": "router", "target": f"backend_{active_backend}", "label": "active", "type": "active"},
@@ -660,61 +660,67 @@ async def system_destroy():
     return {"status": "destroy-scheduled"}
 
 
-# ── PKM (Knowledge Base) API ────────────────────────────────────────────
+# ── PKB (Personal Knowledge Base) API ──────────────────────────────────
+# Legacy /api/pkm/* routes are aliased below for one release of backwards
+# compatibility — they delegate to the new handlers and emit a deprecation
+# note on the activity log.
 
-from oglab.pkm import (
-    browse as pkm_browse,
-    search as pkm_search,
-    ingest as pkm_ingest,
-    compile_index as pkm_compile,
-    write_agent_research as pkm_write_research,
+from oglab.pkb import (
+    browse as pkb_browse,
+    search as pkb_search,
+    ingest as pkb_ingest,
+    compile_index as pkb_compile,
+    write_agent_research as pkb_write_research,
 )
 
 
 @app.get("/knowledge", response_class=HTMLResponse)
 async def knowledge_page(request: Request):
-    data = pkm_browse()
+    data = pkb_browse()
     return templates.TemplateResponse(request, "knowledge.html", {
+        "pkb": data,
+        # Legacy context key so the existing template doesn't need to change
+        # in this commit; knowledge.html will be updated in a follow-up.
         "pkm": data,
     })
 
 
-@app.get("/api/pkm/browse")
-async def api_pkm_browse():
-    return pkm_browse()
+@app.get("/api/pkb/browse")
+async def api_pkb_browse():
+    return pkb_browse()
 
 
-@app.get("/api/pkm/search")
-async def api_pkm_search(q: str = ""):
+@app.get("/api/pkb/search")
+async def api_pkb_search(q: str = ""):
     if not q.strip():
         return []
-    return pkm_search(q.strip())
+    return pkb_search(q.strip())
 
 
-@app.post("/api/pkm/ingest")
-async def api_pkm_ingest():
-    result = pkm_ingest()
+@app.post("/api/pkb/ingest")
+async def api_pkb_ingest():
+    result = pkb_ingest()
     if result["moved"] or result["urls_fetched"]:
-        activity_log.emit("pkm",
+        activity_log.emit("pkb",
             f"Ingested {result['moved']} file(s), {result['urls_fetched']} URL(s)",
             "success")
     return result
 
 
-@app.post("/api/pkm/compile")
-async def api_pkm_compile():
-    result = pkm_compile()
-    activity_log.emit("pkm",
+@app.post("/api/pkb/compile")
+async def api_pkb_compile():
+    result = pkb_compile()
+    activity_log.emit("pkb",
         f"Index compiled — {result['total']} items, {len(result['tags'])} tags",
         "info")
     return result
 
 
-@app.get("/api/pkm/file")
-async def api_pkm_file(path: str = ""):
-    """Read a file from the PKM (relative to pkm root). Returns text content."""
-    from oglab.pkm import _pkm_root
-    root = _pkm_root()
+@app.get("/api/pkb/file")
+async def api_pkb_file(path: str = ""):
+    """Read a file from the PKB (relative to pkb root). Returns text content."""
+    from oglab.pkb import _pkb_root
+    root = _pkb_root()
     # Sanitize: no traversal
     clean = Path(path).as_posix()
     if ".." in clean or clean.startswith("/"):
@@ -729,3 +735,30 @@ async def api_pkm_file(path: str = ""):
         return {"path": clean, "content": content, "size": target.stat().st_size}
     except OSError:
         return {"error": "Could not read file"}
+
+
+# ── Legacy /api/pkm/* aliases (deprecated, kept for one release) ──────
+
+@app.get("/api/pkm/browse")
+async def api_pkm_browse_legacy():
+    return await api_pkb_browse()
+
+
+@app.get("/api/pkm/search")
+async def api_pkm_search_legacy(q: str = ""):
+    return await api_pkb_search(q=q)
+
+
+@app.post("/api/pkm/ingest")
+async def api_pkm_ingest_legacy():
+    return await api_pkb_ingest()
+
+
+@app.post("/api/pkm/compile")
+async def api_pkm_compile_legacy():
+    return await api_pkb_compile()
+
+
+@app.get("/api/pkm/file")
+async def api_pkm_file_legacy(path: str = ""):
+    return await api_pkb_file(path=path)

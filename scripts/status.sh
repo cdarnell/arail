@@ -54,7 +54,7 @@ fi
 # ── lab/ state ────────────────────────────────────────────────────
 echo ""
 echo -e "  ${BOLD}Runtime state${RESET}"
-for d in lab/data lab/models lab/pkm; do
+for d in lab/data lab/models lab/pkb; do
     if [[ -d "$d" ]]; then
         sz=$(du -sh "$d" 2>/dev/null | awk '{print $1}')
         dim "${d}  ${sz}"

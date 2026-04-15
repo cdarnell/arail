@@ -81,7 +81,7 @@ def fake_repo(tmp_path: Path) -> Path:
 
 @pytest.fixture()
 def fake_pkm(tmp_path: Path) -> Path:
-    """Empty PKM scaffold for docgen to write into."""
+    """Empty PKB scaffold for docgen to write into."""
     root = tmp_path / "pkm"
     for sub in ("compiled/docs", "inbox", "notes"):
         (root / sub).mkdir(parents=True)
@@ -188,7 +188,7 @@ def test_idempotent_regeneration_skips_unchanged(fake_repo: Path, fake_pkm: Path
 def test_generated_pages_integrate_into_wiki_index(fake_repo: Path, fake_pkm: Path):
     # Generate docs.
     docgen.generate_all(fake_repo, fake_pkm)
-    # Compile the wiki index over the PKM tree that contains them.
+    # Compile the wiki index over the PKB tree that contains them.
     pages = wiki.build_page_index(fake_pkm)
     # At least the shell + compose + guides + env pages should be present.
     slugs = list(pages.keys())

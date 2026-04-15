@@ -19,7 +19,7 @@ CORE_MODULES = [
     "oglab.activity",
     "oglab.goals",
     "oglab.costs",
-    "oglab.pkm",
+    "oglab.pkb",
     "oglab.agents.consent",
     "oglab.agents.curator",
     "oglab.agents.researcher",

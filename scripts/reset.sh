@@ -174,7 +174,7 @@ interactive_menu() {
 
     # Show sizes
     echo -e "  Current footprint:"
-    for dir in lab/models lab/data lab/pkm .venv; do
+    for dir in lab/models lab/data lab/pkb .venv; do
         if [[ -d "$dir" ]]; then
             echo -e "    ${dir}/  $(report_size "$dir")"
         fi

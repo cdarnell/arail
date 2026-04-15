@@ -2,7 +2,7 @@
 
 OGLab ships with a **self-curating wiki** that lives at
 <http://127.0.0.1:8080/wiki> once the portal is running. Dump a file,
-drop a note, let an agent run — the wiki compiles the PKM tree into
+drop a note, let an agent run — the wiki compiles the PKB tree into
 a navigable knowledge base with wikilinks, backlinks, tags, and a
 knowledge graph.
 
@@ -16,8 +16,8 @@ the lab that the lab wrote about itself.
 
 | Kind | Where | How it got there |
 | --- | --- | --- |
-| **User content** | `lab/pkm/{notes,sources,agents,compiled,inference}/` | You wrote it, ingested it, or an agent produced it |
-| **Auto-generated docs** | `lab/pkm/compiled/docs/` | Rebuilt from the repo source by `oglab.docgen` |
+| **User content** | `lab/pkb/{notes,sources,agents,compiled,inference}/` | You wrote it, ingested it, or an agent produced it |
+| **Auto-generated docs** | `lab/pkb/compiled/docs/` | Rebuilt from the repo source by `oglab.docgen` |
 
 Auto-generated pages are **always** confined to `compiled/docs/`. The
 docgen step will never overwrite files in `notes/`, `sources/`, or
@@ -136,16 +136,16 @@ wiki page.
 ## Obsidian compatibility
 
 The wiki markdown is fully Obsidian-compatible (frontmatter +
-`[[wikilinks]]` + `#tags`), so power-users can open the `lab/pkm/`
+`[[wikilinks]]` + `#tags`), so power-users can open the `lab/pkb/`
 folder directly in Obsidian and get the same graph, same links,
-same tags. OGLab writes to `lab/pkm/` and Obsidian reads it — no
+same tags. OGLab writes to `lab/pkb/` and Obsidian reads it — no
 import step.
 
 ## Where files live
 
 ```text
-lab/pkm/
-├── inbox/                     # drop zone — pkm-ingest sorts from here
+lab/pkb/
+├── inbox/                     # drop zone — pkb-ingest sorts from here
 ├── sources/                   # sorted user-ingested material
 │   ├── papers/ articles/ datasets/
 │   └── bookmarks.md
@@ -163,7 +163,7 @@ lab/pkm/
 │       ├── guides/            # hand-written docs (README, CONTRIBUTING, docs/*.md)
 │       └── configuration/     # .env.example reference
 ├── inference/                 # saved prompts, completions, chains
-├── index.md                   # legacy flat index from oglab.pkm.compile_index
+├── index.md                   # legacy flat index from oglab.pkb.compile_index
 └── .wiki-cache/
     └── manifest.json          # compiled wiki state, not committed
 ```
@@ -172,7 +172,7 @@ lab/pkm/
 
 - **Video/audio ingest.** That's [Open Notebook](../compose/open-notebook.yml)'s
   job — run the compose overlay, let it transcribe, and drop the
-  markdown exports into `lab/pkm/inbox/`. The wiki picks them up
+  markdown exports into `lab/pkb/inbox/`. The wiki picks them up
   from there.
 - **In-browser editing.** Edit pages in your IDE (code-server is
   right there in the lab) and click Rebuild. The wiki is a reader,

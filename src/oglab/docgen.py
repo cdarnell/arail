@@ -1,7 +1,7 @@
 """OGLab docgen — turn the repo's own source into wiki pages.
 
 Walks a repo root and emits markdown pages into
-``{pkm_root}/compiled/docs/`` for:
+``{pkb_root}/compiled/docs/`` for:
 
 - **Python modules** (``src/oglab/**/*.py``) — parsed via ``ast`` to
   extract the module docstring, the public classes and functions, and
@@ -457,14 +457,14 @@ def _env_example_to_markdown(source_path: Path, rel_to_repo: str) -> str:
 
 # ── Top-level driver ───────────────────────────────────────────────────
 
-def generate_all(repo_root: Path, pkm_root: Path) -> dict[str, int]:
+def generate_all(repo_root: Path, pkb_root: Path) -> dict[str, int]:
     """Generate the full ``compiled/docs/`` tree from ``repo_root``.
 
     Returns a dict of counts: ``{"python": N, "shell": N, "compose": N,
     "guide": N, "env": N, "written": N}``. The ``written`` count is
     lower than the sum when files were already up-to-date and skipped.
     """
-    out_base = pkm_root / "compiled" / "docs"
+    out_base = pkb_root / "compiled" / "docs"
     counts = {"python": 0, "shell": 0, "compose": 0, "guide": 0, "env": 0, "written": 0}
 
     # 1. Python modules under src/oglab

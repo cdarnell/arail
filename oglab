@@ -8,7 +8,7 @@
 #    reset    wipe models/data/env/plugins (see: ./oglab reset help)
 #    status   show what's running and where
 #    doctor   validate the environment end-to-end
-#    pkm      knowledge base ops: ingest | compile | browse
+#    pkb      knowledge base ops: ingest | compile | browse
 #    wiki     documentation-as-code: build | info | new <title>
 #    help     show this message
 # =============================================================================
@@ -36,7 +36,7 @@ usage() {
     status        show what's running
     doctor        validate the environment end-to-end
     reset [mode]  wipe state — models|data|plugins|env|full|destroy
-    pkm <op>      ingest | compile | browse — knowledge base ops
+    pkb <op>      ingest | compile | browse — knowledge base ops
     wiki <op>     build | info | new <title> — documentation-as-code
     help          this message
 
@@ -58,19 +58,29 @@ case "$cmd" in
         [[ -d .venv ]] || { warn "missing .venv — run ./oglab setup"; exit 1; }
         # shellcheck disable=SC1091
         source .venv/bin/activate
-        python -c "import oglab; from oglab.portal.app import app; from oglab.pkm import _pkm_root; print('python: OK'); print('pkm root:', _pkm_root())" \
+        python -c "import oglab; from oglab.portal.app import app; from oglab.pkb import _pkb_root; print('python: OK'); print('pkb root:', _pkb_root())" \
             || die "import check failed"
         for bin in uvicorn jupyter; do command -v "$bin" >/dev/null || warn "missing: $bin"; done
         for bin in ttyd code-server; do command -v "$bin" >/dev/null || warn "optional missing: $bin"; done
         say "doctor: OK"
         ;;
-    pkm)
+    pkb)
         op="${1:-}"; shift || true
         case "$op" in
-            ingest)  exec "$REPO_ROOT/scripts/pkm-ingest" "$@" ;;
-            compile) exec "$REPO_ROOT/scripts/pkm-compile" "$@" ;;
-            browse)  exec "$REPO_ROOT/scripts/pkm-browse" "$@" ;;
-            *) die "pkm op must be one of: ingest | compile | browse" ;;
+            ingest)  exec "$REPO_ROOT/scripts/pkb-ingest" "$@" ;;
+            compile) exec "$REPO_ROOT/scripts/pkb-compile" "$@" ;;
+            browse)  exec "$REPO_ROOT/scripts/pkb-browse" "$@" ;;
+            *) die "pkb op must be one of: ingest | compile | browse" ;;
+        esac
+        ;;
+    pkm)
+        warn "'./oglab pkm' is deprecated — use './oglab pkb' (Personal Knowledge Base)"
+        op="${1:-}"; shift || true
+        case "$op" in
+            ingest)  exec "$REPO_ROOT/scripts/pkb-ingest" "$@" ;;
+            compile) exec "$REPO_ROOT/scripts/pkb-compile" "$@" ;;
+            browse)  exec "$REPO_ROOT/scripts/pkb-browse" "$@" ;;
+            *) die "pkb op must be one of: ingest | compile | browse" ;;
         esac
         ;;
     wiki)
@@ -91,7 +101,7 @@ case "$cmd" in
             new)
                 title="${*:-untitled}"
                 slug=$(python -c "from oglab.wiki import slugify; import sys; print(slugify(sys.argv[1]))" "$title")
-                dest="$REPO_ROOT/lab/pkm/notes/${slug}.md"
+                dest="$REPO_ROOT/lab/pkb/notes/${slug}.md"
                 if [[ -e "$dest" ]]; then die "already exists: $dest"; fi
                 mkdir -p "$(dirname "$dest")"
                 now=$(python -c "import datetime; print(datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d'))")

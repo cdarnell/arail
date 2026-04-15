@@ -15,7 +15,7 @@ Read these before sending a PR. If your change fights one of them, we'll probabl
 
 ## Your docstrings become wiki pages
 
-OGLab's wiki compiler ([src/oglab/docgen.py](src/oglab/docgen.py)) scans the repo on every rebuild and turns each Python module, shell script, compose overlay, and guide into a page under `lab/pkm/compiled/docs/`. The page content comes from:
+OGLab's wiki compiler ([src/oglab/docgen.py](src/oglab/docgen.py)) scans the repo on every rebuild and turns each Python module, shell script, compose overlay, and guide into a page under `lab/pkb/compiled/docs/`. The page content comes from:
 
 - **Python** — the module-level docstring + each public class/function's docstring, extracted via `ast` (no runtime import, so optional deps don't block the scan).
 - **Shell** — the header comment block + `usage()` body + top-level function names.

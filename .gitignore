@@ -19,9 +19,9 @@ env/
 # Runtime state (generated at setup/run time, never committed)
 lab/data/
 lab/models/
-lab/pkm/inbox/*
-!lab/pkm/inbox/.gitkeep
-lab/pkm/.wiki-cache/
+lab/pkb/inbox/*
+!lab/pkb/inbox/.gitkeep
+lab/pkb/.wiki-cache/
 *.gguf
 *.bin
 *.safetensors

@@ -290,15 +290,15 @@ YAML
 # -----------------------------------------------------------------------------
 # Personal knowledge management scaffold
 # -----------------------------------------------------------------------------
-setup_pkm() {
-    local pkm_root="lab/pkm"
-    mkdir -p "$pkm_root"/{inbox,sources/{papers,articles,datasets},agents/{research,experiments,synthesis,recommendations},notes/scratch,compiled/{reports,summaries,exports},inference/{prompts,completions,chains}}
-    [[ -f "$pkm_root/sources/bookmarks.md" ]] || cat > "$pkm_root/sources/bookmarks.md" << 'BOOKMARKS'
+setup_pkb() {
+    local pkb_root="lab/pkb"
+    mkdir -p "$pkb_root"/{inbox,sources/{papers,articles,datasets},agents/{research,experiments,synthesis,recommendations},notes/scratch,compiled/{reports,summaries,exports},inference/{prompts,completions,chains}}
+    [[ -f "$pkb_root/sources/bookmarks.md" ]] || cat > "$pkb_root/sources/bookmarks.md" << 'BOOKMARKS'
 # Bookmarks
 # Save URLs with a one-line description. One per line.
 # Format: URL — description
 BOOKMARKS
-    [[ -f "$pkm_root/notes/journal.md" ]] || cat > "$pkm_root/notes/journal.md" << JOURNAL
+    [[ -f "$pkb_root/notes/journal.md" ]] || cat > "$pkb_root/notes/journal.md" << JOURNAL
 # Lab Journal
 
 A running log of what happened, what you learned, and what you're thinking.
@@ -310,14 +310,14 @@ Newest entries at the top.
 
 Lab initialized with setup.sh.
 JOURNAL
-    [[ -f "$pkm_root/notes/ideas.md" ]] || cat > "$pkm_root/notes/ideas.md" << 'IDEAS'
+    [[ -f "$pkb_root/notes/ideas.md" ]] || cat > "$pkb_root/notes/ideas.md" << 'IDEAS'
 # Ideas
 
 Quick captures. Hunches. What-ifs. No pressure — just write.
 
 - 
 IDEAS
-    info "PKM ready at $pkm_root"
+    info "PKB ready at $pkb_root"
 }
 
 # -----------------------------------------------------------------------------
@@ -466,7 +466,7 @@ PY
 # -----------------------------------------------------------------------------
 verify() {
     info "Running smoke tests…"
-    python3 -c "from oglab.router import ModelRouter; import oglab.portal.app; from oglab.pkm import scaffold; scaffold(); print('OK')" >/dev/null 2>&1 \
+    python3 -c "from oglab.router import ModelRouter; import oglab.portal.app; from oglab.pkb import scaffold; scaffold(); print('OK')" >/dev/null 2>&1 \
         && info "Smoke tests passed." \
         || warn "Smoke test failed — inspect the environment and re-run: pip install -e ."
 }
@@ -487,7 +487,7 @@ main() {
     capture_password
     setup_env
     setup_runtime_files
-    setup_pkm
+    setup_pkb
     gentoo_notes
     wsl_notes
     download_model

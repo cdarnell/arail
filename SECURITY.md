@@ -5,7 +5,7 @@
 OGLab is a **local-first AI lab blueprint**. The default posture is:
 
 - Every service (portal, terminal, notebook, IDE) binds to `127.0.0.1`.
-- Local model weights, local PKM, local agents. No outbound network without explicit per-domain consent.
+- Local model weights, local PKB, local agents. No outbound network without explicit per-domain consent.
 - The unified `OGLAB_PASSWORD` set during `./oglab setup` gates every login surface.
 
 The security model assumes **the loopback interface is trusted** and the user is the only operator on the machine. Moving any service off `127.0.0.1` — even to a LAN address, even behind a VPN — is **explicit opt-out** of that model and requires the operator to put their own auth layer in front. See `README.md` for the exposure warning.

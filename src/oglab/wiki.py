@@ -6,7 +6,7 @@ can serve wiki pages fast.
 
 Design:
 - Pure functions, no async, no portal coupling — unit-testable.
-- Extends ``oglab.pkm`` rather than replacing it; ``pkm.compile_index``
+- Extends ``oglab.pkb`` rather than replacing it; ``pkm.compile_index``
   still produces the flat index for users who don't want a wiki.
 - Frontmatter is optional on user pages, required on auto-generated
   pages from :mod:`oglab.docgen`.
@@ -111,9 +111,9 @@ def slugify(text: str) -> str:
     return text
 
 
-def _slug_from_path(pkm_root: Path, path: Path) -> str:
+def _slug_from_path(pkb_root: Path, path: Path) -> str:
     """Compute a slug from a file path relative to the PKM root."""
-    rel = path.relative_to(pkm_root).with_suffix("")
+    rel = path.relative_to(pkb_root).with_suffix("")
     return slugify(str(rel))
 
 
@@ -230,19 +230,19 @@ def _collect_hashtags(body: str) -> list[str]:
 
 # ── Page index + backlink resolution ─────────────────────────────────────
 
-def build_page_index(pkm_root: Path) -> dict[str, Page]:
+def build_page_index(pkb_root: Path) -> dict[str, Page]:
     """Walk the PKM tree, parse every ``*.md`` file, return slug→Page.
 
     Hidden files, the ``.wiki-cache`` directory, and the ``inbox/`` are
     excluded.
     """
     pages: dict[str, Page] = {}
-    if not pkm_root.exists():
+    if not pkb_root.exists():
         return pages
 
     skip_dirs = {".wiki-cache", "inbox"}
 
-    for md in sorted(pkm_root.rglob("*.md")):
+    for md in sorted(pkb_root.rglob("*.md")):
         if any(part in skip_dirs or part.startswith(".") for part in md.parts):
             continue
         try:
@@ -252,10 +252,10 @@ def build_page_index(pkm_root: Path) -> dict[str, Page]:
             continue
 
         meta, body = parse_frontmatter(text)
-        rel_parts = md.relative_to(pkm_root).parts
+        rel_parts = md.relative_to(pkb_root).parts
         section = rel_parts[0] if len(rel_parts) > 1 else "root"
 
-        slug = str(meta.get("slug") or _slug_from_path(pkm_root, md))
+        slug = str(meta.get("slug") or _slug_from_path(pkb_root, md))
 
         title = str(
             meta.get("title")
@@ -459,16 +459,16 @@ def render_page(page: Page, pages: dict[str, Page]) -> str:
 
 # ── Compile + cache ──────────────────────────────────────────────────────
 
-def compile_wiki(pkm_root: Optional[Path] = None,
+def compile_wiki(pkb_root: Optional[Path] = None,
                  repo_root: Optional[Path] = None) -> WikiBuildResult:
     """Top-level compile: parse, resolve, graph, optionally generate from
     source, and write the cache manifest.
 
     ``repo_root`` enables the docgen pass. When omitted, only user content
-    under ``pkm_root`` is compiled.
+    under ``pkb_root`` is compiled.
     """
     start = time.monotonic()
-    root = pkm_root or _pkm_root_default()
+    root = pkb_root or _pkb_root_default()
     cache_dir = root / ".wiki-cache"
     cache_dir.mkdir(parents=True, exist_ok=True)
 
@@ -488,7 +488,7 @@ def compile_wiki(pkm_root: Optional[Path] = None,
 
     manifest = {
         "built_at": datetime.now(timezone.utc).isoformat(),
-        "pkm_root": str(root),
+        "pkb_root": str(root),
         "pages": {slug: p.to_dict() for slug, p in pages.items()},
         "graph": {"nodes": graph.nodes, "edges": graph.edges},
     }
@@ -508,9 +508,9 @@ def compile_wiki(pkm_root: Optional[Path] = None,
     )
 
 
-def load_manifest(pkm_root: Optional[Path] = None) -> dict[str, Any]:
+def load_manifest(pkb_root: Optional[Path] = None) -> dict[str, Any]:
     """Load the cached manifest, rebuilding once if absent."""
-    root = pkm_root or _pkm_root_default()
+    root = pkb_root or _pkb_root_default()
     path = root / ".wiki-cache" / "manifest.json"
     if not path.exists():
         compile_wiki(root)
@@ -522,9 +522,9 @@ def load_manifest(pkm_root: Optional[Path] = None) -> dict[str, Any]:
         return json.loads(path.read_text())
 
 
-def _pkm_root_default() -> Path:
-    from oglab.config import PKM_ROOT
-    return PKM_ROOT
+def _pkb_root_default() -> Path:
+    from oglab.config import PKB_ROOT
+    return PKB_ROOT
 
 
 def _repo_root_default() -> Optional[Path]:
@@ -558,7 +558,7 @@ def _debounce_seconds() -> int:
 
 
 def schedule_rebuild(
-    pkm_root: Optional[Path] = None,
+    pkb_root: Optional[Path] = None,
     repo_root: Optional[Path] = None,
 ) -> bool:
     """Enqueue a debounced wiki rebuild. Safe to call from any async
@@ -576,7 +576,7 @@ def schedule_rebuild(
     _last_request_ts = time.monotonic()
     if _rebuild_task and not _rebuild_task.done():
         return True
-    resolved_pkm = pkm_root or _pkm_root_default()
+    resolved_pkm = pkb_root or _pkb_root_default()
     resolved_repo = repo_root if repo_root is not None else _repo_root_default()
     _rebuild_task = loop.create_task(
         _deferred_rebuild(resolved_pkm, resolved_repo)
@@ -584,7 +584,7 @@ def schedule_rebuild(
     return True
 
 
-async def _deferred_rebuild(pkm_root: Path, repo_root: Optional[Path]) -> None:
+async def _deferred_rebuild(pkb_root: Path, repo_root: Optional[Path]) -> None:
     """Wait until the request stream goes quiet, then rebuild.
 
     Debounce loop: sleep the configured interval and re-check; if
@@ -598,7 +598,7 @@ async def _deferred_rebuild(pkm_root: Path, repo_root: Optional[Path]) -> None:
             await asyncio.sleep(debounce)
             if time.monotonic() - _last_request_ts >= debounce:
                 break
-        result = compile_wiki(pkm_root, repo_root)
+        result = compile_wiki(pkb_root, repo_root)
         # Announce on the activity log when available.
         try:
             from oglab.activity import activity_log
@@ -636,23 +636,28 @@ def _cli() -> None:
     sub = parser.add_subparsers(dest="cmd")
 
     build = sub.add_parser("build", help="Compile the wiki manifest.")
-    build.add_argument("--pkm-root", type=Path, default=None)
+    build.add_argument("--pkb-root", dest="pkb_root", type=Path, default=None)
+    # Legacy alias — one release of backward compatibility.
+    build.add_argument("--pkm-root", dest="pkb_root", type=Path, default=None,
+                       help=argparse.SUPPRESS)
     build.add_argument("--repo-root", type=Path, default=None,
                        help="Enable docgen: scan this repo root for source files.")
 
     info = sub.add_parser("info", help="Show the cached manifest summary.")
-    info.add_argument("--pkm-root", type=Path, default=None)
+    info.add_argument("--pkb-root", dest="pkb_root", type=Path, default=None)
+    info.add_argument("--pkm-root", dest="pkb_root", type=Path, default=None,
+                      help=argparse.SUPPRESS)
 
     args = parser.parse_args()
     if args.cmd == "build":
-        result = compile_wiki(args.pkm_root, args.repo_root)
+        result = compile_wiki(args.pkb_root, args.repo_root)
         print(f"wiki built: {result.page_count} pages, "
               f"{result.link_count} links, "
               f"{result.tag_count} tags "
               f"({result.elapsed_ms} ms)")
         print(f"manifest: {result.manifest_path}")
     elif args.cmd == "info":
-        m = load_manifest(args.pkm_root)
+        m = load_manifest(args.pkb_root)
         print(f"built_at: {m.get('built_at')}")
         print(f"pages:    {len(m.get('pages', {}))}")
         print(f"nodes:    {len(m.get('graph', {}).get('nodes', []))}")

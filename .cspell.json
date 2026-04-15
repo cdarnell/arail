@@ -18,10 +18,10 @@
     "dedupes",
     "deduping",
     "dispatcher",
-    "doctype",
     "docgen",
     "docstring",
     "docstrings",
+    "doctype",
     "dotenv",
     "emerge",
     "fastapi",
@@ -60,9 +60,10 @@
     "ollama",
     "openai",
     "openapi",
-    "openrouter",
     "openrc",
+    "openrouter",
     "openweight",
+    "pkb",
     "pkgs",
     "pkm",
     "portage",
@@ -86,9 +87,9 @@
     "sqlalchemy",
     "sse",
     "stdlib",
+    "subclasses",
     "subcommand",
     "subcommands",
-    "subclasses",
     "subprocess",
     "systemctl",
     "systemd",
@@ -123,5 +124,12 @@
     "/https?:\\/\\/[^\\s)]+/",
     "/`[^`]+`/"
   ],
-  "dictionaries": ["en_US", "softwareTerms", "python", "html", "css", "fonts"]
+  "dictionaries": [
+    "en_US",
+    "softwareTerms",
+    "python",
+    "html",
+    "css",
+    "fonts"
+  ]
 }

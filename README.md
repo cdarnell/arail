@@ -100,7 +100,7 @@ Everything the lab discovers lives in `lab/pkb/` — your personal
 knowledge base folder. Drop raw material in `inbox/`, run
 `./oglab pkb ingest`, and it gets sorted into `sources/`. The AI
 agents write research findings, experiment logs, and recommendations
-to `agents/`. Your notes go in `notes/`. Run `./oglab pkm compile` to
+to `agents/`. Your notes go in `notes/`. Run `./oglab pkb compile` to
 build a searchable index across everything.
 
 The dashboard has a **Knowledge** page — browse by section, search
@@ -110,7 +110,7 @@ them together into polished reports.
 
 #### Documentation as code — the wiki layer
 
-On top of the PKM tree, OGLab runs a **self-curating wiki** at
+On top of the PKB tree, OGLab runs a **self-curating wiki** at
 <http://127.0.0.1:8080/wiki>. It renders every markdown file with
 `[[wikilinks]]`, backlinks, tags, and frontmatter; ships a
 force-directed knowledge graph at `/wiki/graph`; and **auto-generates
@@ -119,7 +119,7 @@ wiki pages from the repo's own source** — every Python module via
 every compose overlay, every hand-written guide, and the
 `.env.example` reference. Write a better docstring, rebuild, get
 better docs. Auto-generated pages live under
-`lab/pkm/compiled/docs/` so they never touch your notes, and the
+`lab/pkb/compiled/docs/` so they never touch your notes, and the
 markdown is fully Obsidian-compatible. See [docs/wiki.md](docs/wiki.md)
 for the full user guide.
 
@@ -193,7 +193,7 @@ OGLab's scheduler splits the day into **active** and **heavy** windows so the la
 
 | Window | Default | What fires | Why |
 | --- | --- | --- | --- |
-| **☀ Active** | `08:00-22:00` | SLM only — observations, planning, note synthesis, PKM compile | Lab stays responsive for interactive use |
+| **☀ Active** | `08:00-22:00` | SLM only — observations, planning, note synthesis, PKB compile | Lab stays responsive for interactive use |
 | **🌙 Heavy** | `22:00-08:00` | AirLLM experiments, deep synthesis, full report generation | GPU hammering while you sleep |
 | **◦ Idle** | any gap | Queued work drains | Catch-up |
 
@@ -494,14 +494,14 @@ Edit `.env` to change model backend or API keys.
 
 ```text
 oglab/
-├── oglab                     # ← unified CLI: setup | start | stop | reset | pkm | doctor
+├── oglab                     # ← unified CLI: setup | start | stop | reset | pkb | doctor
 ├── src/oglab/                # Python package
 │   ├── router/               # Model router (MLX / CUDA / CPU / AirLLM / cloud)
 │   ├── skills/               # goal_parser, experiment_tracker
 │   ├── agents/               # consent, curator, researcher
 │   ├── plugins/              # Plugin manager (GitHub → install)
 │   ├── portal/               # FastAPI dashboard (app.py + templates/ + static/)
-│   ├── pkm.py                # Knowledge base engine
+│   ├── pkb.py                # Knowledge base engine
 │   ├── costs.py              # CostTracker
 │   ├── activity.py           # Event bus (SSE streaming)
 │   ├── goals.py              # Goal persistence
@@ -510,13 +510,13 @@ oglab/
 ├── lab/                      # runtime state (gitignored, created by setup)
 │   ├── data/                 # activity.jsonl, goals/, consent/, experiments/
 │   ├── models/               # downloaded model weights
-│   └── pkm/                  # knowledge base — inbox, sources, agents, notes, compiled
+│   └── pkb/                  # knowledge base — inbox, sources, agents, notes, compiled
 │
 ├── scripts/                  # delegates for ./oglab
 │   ├── setup.sh              # provision venv + deps + model + lab/
 │   ├── start.sh              # launch portal + terminal + notebook + IDE
 │   ├── reset.sh              # wipe models/data/env/plugins
-│   ├── pkm-{ingest,compile,browse}
+│   ├── pkb-{ingest,compile,browse}
 │   └── gentoo-bootstrap.sh
 │
 ├── docs/                     # MACOS.md, WSL.md, GENTOO.md, vibe-integrate.md

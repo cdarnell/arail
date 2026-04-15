@@ -18,7 +18,7 @@ from fastapi.templating import Jinja2Templates
 
 from oglab import wiki
 from oglab.activity import activity_log
-from oglab.config import PKM_ROOT
+from oglab.config import PKB_ROOT
 
 _log = logging.getLogger(__name__)
 
@@ -32,7 +32,7 @@ _templates = Jinja2Templates(directory=_PORTAL_DIR / "templates")
 
 def _load_or_build() -> dict[str, Any]:
     """Load the manifest, kicking off a build if it's missing."""
-    return wiki.load_manifest(PKM_ROOT)
+    return wiki.load_manifest(PKB_ROOT)
 
 
 def _repo_root() -> Path | None:
@@ -273,7 +273,7 @@ async def api_search(q: str = ""):
 async def api_rebuild():
     try:
         repo = _repo_root()
-        result = wiki.compile_wiki(PKM_ROOT, repo_root=repo)
+        result = wiki.compile_wiki(PKB_ROOT, repo_root=repo)
     except Exception as e:  # noqa: BLE001
         _log.exception("wiki rebuild failed")
         activity_log.emit("wiki", f"Rebuild failed: {e}", "error")

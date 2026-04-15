@@ -324,7 +324,7 @@ class ResearcherAgent:
 
             # Write results to PKM
             try:
-                from oglab.pkm import (write_agent_research,
+                from oglab.pkb import (write_agent_research,
                                         write_agent_experiment,
                                         write_agent_recommendation)
                 goal_id = parsed_goal.get("id", domain)[:40]
