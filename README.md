@@ -1,4 +1,4 @@
-# OGLab — AI Lab Blueprint
+# OGLab — AI Lab Blueprint for the ultimate AI Slick Deal
 
 A shareable blueprint for building your own AI research lab.
 Local-first. Airgapped by default. Your models, your data, your hardware.
@@ -94,11 +94,11 @@ The progress bar moved. New experiments ran. New findings landed.
 
 The lab is alive. It grows toward what you asked for.
 
-### Structured Knowledge Base
+### Structured (PKB) Knowledge Base
 
-Everything the lab discovers lives in `lab/pkm/` — your personal
-knowledge management folder. Drop raw material in `inbox/`, run
-`./oglab pkm ingest`, and it gets sorted into `sources/`. The AI
+Everything the lab discovers lives in `lab/pkb/` — your personal
+knowledge base folder. Drop raw material in `inbox/`, run
+`./oglab pkb ingest`, and it gets sorted into `sources/`. The AI
 agents write research findings, experiment logs, and recommendations
 to `agents/`. Your notes go in `notes/`. Run `./oglab pkm compile` to
 build a searchable index across everything.
