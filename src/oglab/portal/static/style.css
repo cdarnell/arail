@@ -144,6 +144,130 @@ nav a.active { color: var(--green); background: rgba(0,255,65,.06); }
   50% { box-shadow: 0 0 12px rgba(0,255,65,.4); }
 }
 
+/* ── Chat card ────────────────────────────────────────────────── */
+.chat-backend {
+  display: inline-block;
+  margin-left: 0.6rem;
+  padding: 0.1rem 0.5rem;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  border-radius: 999px;
+  background: rgba(0,212,255,0.08);
+  color: var(--blue);
+  border: 1px solid rgba(0,212,255,0.25);
+  vertical-align: middle;
+}
+.chat-hint {
+  font-size: 0.72rem;
+  color: var(--muted);
+  display: flex;
+  gap: 0.7rem;
+  align-items: center;
+  margin: -0.2rem 0 0.6rem;
+}
+.chat-inspect {
+  color: var(--muted);
+  text-decoration: underline dotted;
+  white-space: nowrap;
+}
+.chat-inspect:hover { color: var(--green); }
+
+.chat-log {
+  max-height: 360px;
+  overflow-y: auto;
+  padding: 0.5rem 0.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+}
+.chat-msg {
+  display: flex;
+  gap: 0.6rem;
+  padding: 0.2rem 0.6rem;
+}
+.chat-msg-user { flex-direction: row-reverse; }
+.chat-role {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  min-width: 32px;
+  padding-top: 0.35rem;
+  text-align: center;
+}
+.chat-msg-user .chat-role { color: var(--blue); }
+.chat-msg-assistant .chat-role,
+.chat-msg-system .chat-role { color: var(--green); }
+
+.chat-bubble {
+  flex: 1;
+  max-width: 90%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.55rem 0.85rem;
+  font-size: 0.85rem;
+  line-height: 1.55;
+  color: var(--text);
+  white-space: normal;
+}
+.chat-msg-user .chat-bubble {
+  background: rgba(0,212,255,0.06);
+  border-color: rgba(0,212,255,0.25);
+}
+.chat-msg-system .chat-bubble { color: var(--muted); font-style: italic; }
+.chat-bubble code {
+  background: rgba(0,0,0,0.35);
+  padding: 0.05rem 0.3rem;
+  border-radius: 3px;
+  font-size: 0.78em;
+  color: var(--amber);
+}
+.chat-bubble pre {
+  background: #0a0c14;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 0.6rem 0.85rem;
+  overflow-x: auto;
+  font-size: 0.75rem;
+  margin: 0.4rem 0;
+}
+.chat-bubble pre code { background: none; color: var(--text); padding: 0; }
+.chat-meta {
+  margin-top: 0.4rem;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.6rem;
+  color: var(--muted);
+  opacity: 0.7;
+}
+
+.chat-form {
+  display: flex;
+  gap: 0.4rem;
+  margin-top: 0.7rem;
+}
+.chat-form input {
+  flex: 1;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 0.55rem 0.8rem;
+  border-radius: 4px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.85rem;
+}
+.chat-form input:focus {
+  outline: none;
+  border-color: var(--green);
+  box-shadow: 0 0 0 2px rgba(0,255,65,0.08);
+}
+
 /* ── Cost meter bar (under nav, above grid) ─────────────────── */
 .meter-bar {
   display: flex;

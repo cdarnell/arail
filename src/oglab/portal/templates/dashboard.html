@@ -113,6 +113,38 @@
     </div>
   </div>
 
+  <!-- ═══ Chat — talk to the local model with full lab awareness ═══ -->
+  <div class="card full" id="chat-card">
+    <h2>
+      <span class="indicator"></span> Chat with the lab
+      <span class="chat-backend" id="chat-backend" title="Active backend"></span>
+    </h2>
+    <div class="chat-hint">
+      <span>Ask how the lab works, what it can do, or for help shaping a goal.
+      The model sees the full capabilities reference + current state.</span>
+      <a class="chat-inspect" href="/api/chat/system-prompt"
+         target="_blank" rel="noopener">view system prompt</a>
+    </div>
+    <div class="chat-log" id="chat-log">
+      <div class="chat-msg chat-msg-system">
+        <div class="chat-role">LAB</div>
+        <div class="chat-bubble">
+          Hi — I'm the local model. I know about this lab's router,
+          scheduler, PKB, wiki, agents, and CLI. Ask me anything.
+          Try "What commands can I run?" or "Where do agent reports land?"
+        </div>
+      </div>
+    </div>
+    <form class="chat-form" id="chat-form">
+      <input id="chat-input" type="text"
+             placeholder="ask the lab anything…"
+             autocomplete="off" />
+      <button class="btn btn-primary" type="submit" id="chat-send">Send</button>
+      <button class="btn btn-ghost btn-sm" type="button" id="chat-clear"
+              title="Clear conversation">×</button>
+    </form>
+  </div>
+
   <!-- ═══ Mission Status ═══ -->
   <div class="card">
     <h2><span class="indicator"></span> Mission Status</h2>
@@ -576,6 +608,137 @@ document.getElementById('btn-wiki-rebuild').addEventListener('click', async () =
 });
 refreshWikiStatus();
 setInterval(refreshWikiStatus, 15000);
+
+// ── Chat with the lab ──
+const CHAT_STATE = { history: [] };
+const CHAT_STORAGE = 'oglab.chat.history.v1';
+
+function chatEscape(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+function chatRenderMarkdown(text) {
+  // Minimal — just escape then bold/italic/code so model responses
+  // don't render as literal ticks and asterisks.
+  let html = chatEscape(text);
+  html = html.replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>');
+  html = html.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+  html = html.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/\*([^*\n]+)\*/g, '<em>$1</em>');
+  html = html.replace(/\n/g, '<br>');
+  return html;
+}
+
+function chatAppend(role, text, meta) {
+  const log = document.getElementById('chat-log');
+  const wrap = document.createElement('div');
+  wrap.className = 'chat-msg chat-msg-' + role;
+  const label =
+    role === 'user' ? 'YOU' : role === 'assistant' ? 'LAB' : 'LAB';
+  wrap.innerHTML =
+    `<div class="chat-role">${label}</div>` +
+    `<div class="chat-bubble">${chatRenderMarkdown(text)}` +
+    (meta ? `<div class="chat-meta">${chatEscape(meta)}</div>` : '') +
+    `</div>`;
+  log.appendChild(wrap);
+  log.scrollTop = log.scrollHeight;
+}
+
+function chatLoadHistory() {
+  try {
+    const raw = localStorage.getItem(CHAT_STORAGE);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return;
+    CHAT_STATE.history = parsed.slice(-20);
+    for (const t of CHAT_STATE.history) {
+      chatAppend(t.role, t.content);
+    }
+  } catch (e) { /* corrupt — ignore */ }
+}
+
+function chatSaveHistory() {
+  try {
+    localStorage.setItem(CHAT_STORAGE,
+      JSON.stringify(CHAT_STATE.history.slice(-20)));
+  } catch (e) { /* quota — ignore */ }
+}
+
+async function chatSend(text) {
+  if (!text.trim()) return;
+  chatAppend('user', text);
+  CHAT_STATE.history.push({ role: 'user', content: text });
+  chatSaveHistory();
+
+  const sendBtn = document.getElementById('chat-send');
+  const input = document.getElementById('chat-input');
+  sendBtn.disabled = true;
+  input.disabled = true;
+  const orig = sendBtn.textContent;
+  sendBtn.textContent = '…';
+
+  try {
+    const r = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message: text,
+        history: CHAT_STATE.history.slice(0, -1),  // exclude the message we just pushed
+      }),
+    });
+    const d = await r.json();
+    if (d.error && !d.reply) {
+      chatAppend('assistant', 'Error: ' + d.error);
+    } else {
+      const meta = d.backend
+        ? `${d.backend}${d.model ? ' · ' + d.model : ''}` +
+          (d.latency_ms != null ? ` · ${Math.round(d.latency_ms)} ms` : '') +
+          (d.tokens_used != null ? ` · ${d.tokens_used} tok` : '')
+        : null;
+      chatAppend('assistant', d.reply || '(empty response)', meta);
+      CHAT_STATE.history.push({ role: 'assistant', content: d.reply || '' });
+      chatSaveHistory();
+      const backendBadge = document.getElementById('chat-backend');
+      if (d.backend && backendBadge) {
+        backendBadge.textContent = d.backend;
+      }
+    }
+  } catch (e) {
+    chatAppend('assistant', 'Network error: ' + e.message);
+  } finally {
+    sendBtn.textContent = orig;
+    sendBtn.disabled = false;
+    input.disabled = false;
+    input.focus();
+  }
+}
+
+document.getElementById('chat-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const input = document.getElementById('chat-input');
+  const v = input.value;
+  input.value = '';
+  await chatSend(v);
+});
+
+document.getElementById('chat-clear').addEventListener('click', () => {
+  if (!confirm('Clear chat history?')) return;
+  CHAT_STATE.history = [];
+  chatSaveHistory();
+  document.getElementById('chat-log').innerHTML =
+    '<div class="chat-msg chat-msg-system"><div class="chat-role">LAB</div>' +
+    '<div class="chat-bubble">History cleared. Ask me anything.</div></div>';
+});
+
+chatLoadHistory();
+
+// Show the current backend in the chat card header.
+fetch('/api/system/health').then(r => r.json()).then(h => {
+  const el = document.getElementById('chat-backend');
+  if (el && h.backend) el.textContent = h.backend;
+}).catch(() => {});
 </script>
 </body>
 </html>

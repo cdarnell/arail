@@ -16,6 +16,7 @@ CORE_MODULES = [
     "oglab",
     "oglab.config",
     "oglab.brand",
+    "oglab.lab_brain",
     "oglab.scheduler",
     "oglab.activity",
     "oglab.goals",

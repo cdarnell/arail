@@ -479,6 +479,121 @@ async def api_brand():
     return _BRAND.to_dict()
 
 
+# ── Chat API ───────────────────────────────────────────────────────────
+# A lab-aware chat channel to the local model. Every turn includes the
+# full lab_brain system prompt so the model answers in terms of this
+# lab's capabilities, current state, and configured intent.
+
+_CHAT_HISTORY_LIMIT = 20
+
+
+@app.post("/api/chat")
+async def api_chat(request: Request):
+    """Send one user message to the local model with full lab context.
+
+    Request JSON:
+        {
+          "message": "What commands can I run?",
+          "history": [{"role": "user"|"assistant", "content": "..."}]
+        }
+
+    Response JSON:
+        {
+          "reply": "…",
+          "backend": "mlx",
+          "latency_ms": 245.3,
+          "tokens_used": 118,
+          "error": null
+        }
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    message = (body.get("message") or "").strip()
+    history = body.get("history") or []
+    if not message:
+        return {"error": "message required"}
+    if not isinstance(history, list):
+        history = []
+    # Keep history bounded so token cost stays predictable.
+    history = history[-_CHAT_HISTORY_LIMIT:]
+
+    from oglab import lab_brain
+    from oglab.router import ModelRouter
+
+    prompt = lab_brain.build_chat_prompt(message, history)
+
+    try:
+        router = ModelRouter()
+    except Exception as e:  # noqa: BLE001
+        activity_log.emit("chat",
+                          f"Router unavailable: {type(e).__name__}: {e}",
+                          "error")
+        return {
+            "reply": (
+                "The local model router isn't available yet. Run "
+                "`./oglab setup` to install the backend for your "
+                "hardware, or set MODEL_BACKEND in `.env` to point at "
+                "an OpenAI-compatible local server (LM Studio, Ollama, "
+                "NVIDIA NIM)."
+            ),
+            "backend": None,
+            "error": str(e),
+        }
+
+    try:
+        response = router.complete(
+            prompt,
+            max_tokens=int(body.get("max_tokens") or 512),
+            temperature=float(body.get("temperature") or 0.7),
+        )
+    except Exception as e:  # noqa: BLE001
+        activity_log.emit("chat",
+                          f"Inference failed: {type(e).__name__}: {str(e)[:120]}",
+                          "error")
+        return {
+            "reply": f"Inference failed: {e}",
+            "backend": router.backend_name,
+            "error": str(e),
+        }
+
+    reply = (response.text or "").strip()
+    if not reply:
+        reply = "(model returned no text — try rephrasing)"
+
+    activity_log.emit("chat",
+                      f"Chat turn ({response.tokens_used} tokens, "
+                      f"{response.latency_ms:.0f} ms)",
+                      "info")
+
+    return {
+        "reply": reply,
+        "backend": response.backend,
+        "model": response.model,
+        "latency_ms": response.latency_ms,
+        "tokens_used": response.tokens_used,
+        "error": None,
+    }
+
+
+@app.get("/api/chat/system-prompt")
+async def api_chat_system_prompt():
+    """Return the currently-rendered system prompt.
+
+    Useful for debugging, for transparency ("what does the model know?"),
+    and for the upcoming lab-tutor feature where the user can inspect and
+    edit the prompt before sending a goal.
+    """
+    from oglab import lab_brain
+    return {
+        "prompt": lab_brain.build_system_prompt(
+            include_capabilities=True,
+            include_state=True,
+        ),
+    }
+
+
 @app.get("/api/system/health")
 async def system_health():
     """Return live system specs, resource usage, and service health."""

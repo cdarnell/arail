@@ -48,6 +48,14 @@ class MLXBackend(BaseBackend):
         except ImportError:
             raise ImportError("MLX not installed. Run: pip install mlx mlx-lm")
 
+        # New-style sampler factory is preferred; fall back to the old
+        # `temp=` kwarg if we're on a pre-0.19 mlx-lm.
+        try:
+            from mlx_lm.sample_utils import make_sampler  # type: ignore[import-untyped]
+            self._make_sampler = make_sampler
+        except ImportError:  # pragma: no cover — only on old mlx-lm
+            self._make_sampler = None
+
         self.model_name = os.getenv("MODEL_NAME",
                                      "mlx-community/Qwen3-8B-4bit")
         # Allow local path first, fallback to hub name
@@ -59,9 +67,26 @@ class MLXBackend(BaseBackend):
     def complete(self, prompt: str, max_tokens: int = 512,
                  temperature: float = 0.7) -> ModelResponse:
         start = time.time()
-        text = self._generate(self.model, self.tokenizer,
-                              prompt=prompt, max_tokens=max_tokens,
-                              temp=temperature, verbose=False)
+        # mlx-lm ≥ 0.19 removed the `temp=` kwarg on generate(); you now
+        # build a sampler via make_sampler(temp=...) and pass it as
+        # `sampler=`. Old versions still accept `temp=` directly.
+        if self._make_sampler is not None:
+            sampler = self._make_sampler(temp=temperature)
+            text = self._generate(
+                self.model, self.tokenizer,
+                prompt=prompt,
+                max_tokens=max_tokens,
+                sampler=sampler,
+                verbose=False,
+            )
+        else:
+            text = self._generate(
+                self.model, self.tokenizer,
+                prompt=prompt,
+                max_tokens=max_tokens,
+                temp=temperature,
+                verbose=False,
+            )
         return ModelResponse(
             text=text,
             model=self.model_name,
