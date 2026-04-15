@@ -144,6 +144,54 @@ nav a.active { color: var(--green); background: rgba(0,255,65,.06); }
   50% { box-shadow: 0 0 12px rgba(0,255,65,.4); }
 }
 
+/* ── Cost meter bar (under nav, above grid) ─────────────────── */
+.meter-bar {
+  display: flex;
+  gap: 1.25rem;
+  justify-content: center;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 0.5rem 1.25rem;
+  max-width: 1400px;
+  margin: 0.25rem auto 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-family: 'JetBrains Mono', monospace;
+  box-shadow: 0 1px 0 rgba(0,255,65,0.04);
+}
+.meter-bar .meter {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+  min-width: 88px;
+  padding: 0.15rem 0.6rem;
+  border-right: 1px solid var(--border);
+}
+.meter-bar .meter:last-child { border-right: none; }
+.meter-bar .meter-label {
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+.meter-bar .meter-value {
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--text);
+}
+.meter-bar .meter-value.energy   { color: var(--amber); }
+.meter-bar .meter-value.savings  { color: var(--green); text-shadow: var(--glow-green); }
+.meter-bar .meter-hero .meter-label { color: var(--green); }
+.meter-bar .meter-hero .meter-value { font-size: 1.1rem; }
+@media (max-width: 720px) {
+  .meter-bar { gap: 0.6rem; padding: 0.4rem 0.6rem; }
+  .meter-bar .meter { min-width: 62px; padding: 0.1rem 0.3rem; }
+  .meter-bar .meter-value { font-size: 0.8rem; }
+  .meter-bar .meter-hero .meter-value { font-size: 0.95rem; }
+}
+
 /* ── Layout grid ───────────────────────────────────────────────── */
 .grid {
   display: grid;
