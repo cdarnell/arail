@@ -885,6 +885,43 @@ def _safe_pkb_path(rel: str) -> Path | None:
     return target
 
 
+@app.get("/api/pkb/raw")
+async def api_pkb_raw(path: str = ""):
+    """Serve a PKB file as raw bytes with the correct Content-Type.
+
+    Used by the knowledge viewer to render images (PNG/JPG/…) and PDFs
+    inline. Text files fall through to the existing ``/api/pkb/file``
+    JSON endpoint, so raw is strictly for binary + image surfaces.
+
+    Path is sanitized the same way every other PKB endpoint does it
+    (no traversal, must resolve inside the PKB root).
+    """
+    import mimetypes
+    from fastapi.responses import FileResponse, JSONResponse
+
+    if not path:
+        return JSONResponse({"error": "path required"}, status_code=400)
+    target = _safe_pkb_path(path)
+    if target is None:
+        return JSONResponse({"error": "invalid path"}, status_code=400)
+    if not target.exists() or not target.is_file():
+        return JSONResponse({"error": "not found"}, status_code=404)
+
+    media_type, _ = mimetypes.guess_type(target.name)
+    if not media_type:
+        media_type = "application/octet-stream"
+    return FileResponse(
+        target,
+        media_type=media_type,
+        filename=target.name,
+        headers={
+            # Short cache so edits appear on refresh; long enough to
+            # avoid re-fetching on every scroll.
+            "Cache-Control": "private, max-age=60",
+        },
+    )
+
+
 @app.put("/api/pkb/file")
 async def api_pkb_file_save(request: Request):
     """Save (or create) a text file under the PKB root.

@@ -47,6 +47,17 @@ _EXT_MAP = {
     ".html": "articles",
     ".htm":  "articles",
     ".rst":  "articles",
+    # Images — screenshots, diagrams, scans — land in sources/images so
+    # the reader can render them inline instead of choking on the bytes.
+    ".png":  "images",
+    ".jpg":  "images",
+    ".jpeg": "images",
+    ".gif":  "images",
+    ".webp": "images",
+    ".svg":  "images",
+    ".bmp":  "images",
+    ".avif": "images",
+    ".heic": "images",
 }
 
 
@@ -399,7 +410,7 @@ def scaffold(pkb_root: Path | None = None) -> Path:
     root = pkb_root or _pkb_root()
     dirs = [
         "inbox",
-        "sources/papers", "sources/articles", "sources/datasets",
+        "sources/papers", "sources/articles", "sources/datasets", "sources/images",
         "agents/research", "agents/experiments", "agents/synthesis",
         "agents/recommendations",
         "notes/scratch",

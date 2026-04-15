@@ -368,6 +368,52 @@
 .kb-rendered pre { background: #0a0c14; border: 1px solid var(--border); border-radius: 4px; padding: 0.8rem; overflow-x: auto; }
 .kb-rendered code { background: rgba(0,0,0,0.35); padding: 0.05rem 0.35rem; border-radius: 3px; color: var(--amber); }
 
+/* ── Inline media (images, PDFs) ───────────────────────────────── */
+.kb-media {
+  margin: 0.8rem 0;
+}
+.kb-media figcaption {
+  margin-top: 0.45rem;
+  font-size: 0.72rem;
+  color: var(--muted);
+  text-align: center;
+}
+.kb-media figcaption a {
+  color: var(--blue);
+  text-decoration: underline dotted;
+}
+.kb-image {
+  text-align: center;
+}
+.kb-image a {
+  display: inline-block;
+  cursor: zoom-in;
+}
+.kb-image img {
+  max-width: 100%;
+  max-height: 72vh;
+  object-fit: contain;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: #0a0c14;
+  padding: 0.35rem;
+  display: block;
+  margin: 0 auto;
+  transition: box-shadow 0.15s;
+}
+.kb-image a:hover img {
+  box-shadow: 0 0 24px rgba(0,255,65,0.15);
+  border-color: rgba(0,255,65,0.3);
+}
+.kb-pdf-embed {
+  width: 100%;
+  height: 72vh;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: #0a0c14;
+  display: block;
+}
+
 /* ── Backlinks / graph context panel ───────────────────────────── */
 .kb-context {
   font-size: 0.75rem;

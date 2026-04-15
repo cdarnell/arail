@@ -255,6 +255,18 @@ function prettyBytes(n) {
   return (n / 1024 / 1024).toFixed(1) + 'M';
 }
 
+// ── Media-type detection (extension-based) ───────────────────────────
+const IMAGE_EXTS = new Set([
+  '.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp', '.avif', '.heic'
+]);
+const PDF_EXTS = new Set(['.pdf']);
+function fileExt(path) {
+  const m = path.match(/(\.[^./]+)$/);
+  return m ? m[1].toLowerCase() : '';
+}
+function isImage(path) { return IMAGE_EXTS.has(fileExt(path)); }
+function isPdf(path)   { return PDF_EXTS.has(fileExt(path)); }
+
 // ── File view (reader) ─────────────────────────────────────────────────
 async function openFile(path) {
   if (KB.dirty) {
@@ -269,6 +281,15 @@ async function openFile(path) {
   document.getElementById('kb-viewer').hidden = false;
   document.getElementById('kb-editor').hidden = true;
 
+  // Disable text-only actions for binary surfaces.
+  const isBinary = isImage(path) || isPdf(path);
+  const editBtn = document.getElementById('kb-btn-edit');
+  const vimBtn = document.getElementById('kb-btn-vim');
+  editBtn.disabled = isBinary;
+  vimBtn.disabled = isBinary;
+  editBtn.title = isBinary ? 'Binary file — edit in native app' : 'Edit (Cmd/Ctrl+E)';
+  vimBtn.title = isBinary ? 'Binary file — open in native app' : 'Open in terminal with vim';
+
   // Mark active in sidebar
   document.querySelectorAll('.kb-file').forEach(li => {
     li.classList.toggle('active', li.dataset.path === path);
@@ -281,6 +302,12 @@ async function openFile(path) {
         ? `<span class="kb-bc-current">${esc(p)}</span>`
         : `<span class="kb-bc-part">${esc(p)}</span>`;
     }).join('<span class="kb-bc-sep">/</span>');
+
+  // Binary surfaces (images, PDFs) get inline media rendering —
+  // neither the wiki index nor the raw-text fallback would show
+  // anything useful.
+  if (isImage(path)) { renderImageFile(path); return; }
+  if (isPdf(path))   { renderPdfFile(path);   return; }
 
   // Prefer wiki's rendered HTML when the file has been compiled. Fall
   // back to the raw file content with a minimal client-side renderer.
@@ -295,6 +322,48 @@ async function openFile(path) {
     } catch (e) { /* fall through */ }
   }
   await renderRawFile(path);
+}
+
+function renderImageFile(path) {
+  // Full-size served by /api/pkb/raw, visually capped by CSS so a
+  // 4000px screenshot still fits the reader pane. Click → open raw
+  // URL in a new tab for a full-resolution look.
+  const rawUrl = '/api/pkb/raw?path=' + encodeURIComponent(path);
+  const name = path.split('/').pop();
+  document.getElementById('kb-rendered').innerHTML = `
+    <figure class="kb-media kb-image">
+      <a href="${rawUrl}" target="_blank" rel="noopener"
+         title="Open full-size in new tab">
+        <img src="${rawUrl}" alt="${esc(name)}"
+             loading="lazy" decoding="async">
+      </a>
+      <figcaption>${esc(name)} — click to open full-size</figcaption>
+    </figure>`;
+  document.getElementById('kb-viewer-meta').innerHTML = `
+    <span class="kb-meta-pill">image</span>
+    <span class="kb-meta-pill">${esc(fileExt(path).slice(1).toUpperCase())}</span>`;
+  document.getElementById('kb-backlinks').innerHTML =
+    '<li class="empty">images don\'t have backlinks</li>';
+  document.getElementById('kb-outgoing').innerHTML = '';
+}
+
+function renderPdfFile(path) {
+  const rawUrl = '/api/pkb/raw?path=' + encodeURIComponent(path);
+  const name = path.split('/').pop();
+  document.getElementById('kb-rendered').innerHTML = `
+    <figure class="kb-media kb-pdf">
+      <embed src="${rawUrl}" type="application/pdf"
+             class="kb-pdf-embed">
+      <figcaption>
+        ${esc(name)} —
+        <a href="${rawUrl}" target="_blank" rel="noopener">open in new tab</a>
+      </figcaption>
+    </figure>`;
+  document.getElementById('kb-viewer-meta').innerHTML = `
+    <span class="kb-meta-pill">pdf</span>`;
+  document.getElementById('kb-backlinks').innerHTML =
+    '<li class="empty">PDFs don\'t have backlinks yet</li>';
+  document.getElementById('kb-outgoing').innerHTML = '';
 }
 
 async function renderWikiPage(slug, rawPath) {
