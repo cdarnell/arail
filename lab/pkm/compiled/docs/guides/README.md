@@ -1,3 +1,11 @@
+---
+title: Readme
+section: docs
+tags: [guide]
+aliases: [README]
+source: README.md
+generated: 2026-04-15T00:51:55Z
+---
 # OGLab — AI Lab Blueprint
 
 A shareable blueprint for building your own AI research lab.
@@ -107,21 +115,6 @@ The dashboard has a **Knowledge** page — browse by section, search
 full-text across all files, view any document. The AI builds knowledge
 in its area; you build knowledge in yours. The compile step merges
 them together into polished reports.
-
-#### Documentation as code — the wiki layer
-
-On top of the PKM tree, OGLab runs a **self-curating wiki** at
-<http://127.0.0.1:8080/wiki>. It renders every markdown file with
-`[[wikilinks]]`, backlinks, tags, and frontmatter; ships a
-force-directed knowledge graph at `/wiki/graph`; and **auto-generates
-wiki pages from the repo's own source** — every Python module via
-`ast` (no runtime imports), every shell script's header comment,
-every compose overlay, every hand-written guide, and the
-`.env.example` reference. Write a better docstring, rebuild, get
-better docs. Auto-generated pages live under
-`lab/pkm/compiled/docs/` so they never touch your notes, and the
-markdown is fully Obsidian-compatible. See [docs/wiki.md](docs/wiki.md)
-for the full user guide.
 
 ---
 
@@ -408,8 +401,8 @@ Services are accessible from your Windows browser at the same URLs.
 - Prefer **Ubuntu 22.04 / 24.04 LTS** — it's what Nvidia tests against
   and what `./oglab setup` expects for apt package names.
 - Other distros (Debian, Arch-WSL, Gentoo-WSL) work too, but you're in
-  the [native Linux](#section-3--linux-native-bring-your-own-distro)
-  path below — `setup.sh` won't know your package names automatically.
+  the [native Linux](#linux--native-bring-your-own-distro) path below
+  — `./oglab setup` won't know your package names automatically.
 
 ---
 

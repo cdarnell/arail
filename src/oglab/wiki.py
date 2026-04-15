@@ -33,6 +33,14 @@ _log = logging.getLogger(__name__)
 _WIKILINK_RE = re.compile(r"\[\[([^\[\]\n]+?)\]\]")
 _HASHTAG_RE = re.compile(r"(?<!\w)#(\w[\w-]*)")
 _H1_RE = re.compile(r"^#\s+(.+?)\s*$", re.MULTILINE)
+_FENCED_RE = re.compile(r"```[\s\S]*?```|`[^`\n]+`")
+
+
+def _strip_code_blocks(body: str) -> str:
+    """Remove fenced/inline code from body so wikilink/hashtag parsing
+    doesn't pick up example syntax. Replacement is a same-length run of
+    spaces so regex span offsets stay usable."""
+    return _FENCED_RE.sub(lambda m: " " * len(m.group(0)), body)
 
 
 # ── Data shapes ──────────────────────────────────────────────────────────
@@ -188,9 +196,13 @@ def parse_wikilinks(body: str) -> list[WikiRef]:
       - ``[[target]]``
       - ``[[target|alias]]``
       - ``[[target#heading]]`` (anchor also combines with alias)
+
+    Skips fenced and inline code blocks so code examples that
+    *mention* wikilinks don't get parsed as real ones.
     """
+    stripped = _strip_code_blocks(body)
     refs: list[WikiRef] = []
-    for m in _WIKILINK_RE.finditer(body):
+    for m in _WIKILINK_RE.finditer(stripped):
         inner = m.group(1)
         alias: Optional[str] = None
         anchor: Optional[str] = None
@@ -210,7 +222,8 @@ def parse_wikilinks(body: str) -> list[WikiRef]:
 
 
 def _collect_hashtags(body: str) -> list[str]:
-    return sorted(set(m.group(1) for m in _HASHTAG_RE.finditer(body)))
+    stripped = _strip_code_blocks(body)
+    return sorted(set(m.group(1) for m in _HASHTAG_RE.finditer(stripped)))
 
 
 # ── Page index + backlink resolution ─────────────────────────────────────

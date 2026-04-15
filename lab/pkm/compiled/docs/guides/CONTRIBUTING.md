@@ -1,3 +1,11 @@
+---
+title: Contributing
+section: docs
+tags: [guide]
+aliases: [CONTRIBUTING]
+source: CONTRIBUTING.md
+generated: 2026-04-15T00:57:17Z
+---
 # Contributing to OGLab
 
 Thanks for being here. OGLab is a blueprint, not a product — it's meant to be forked, vibe-integrated, and re-shaped for your own platform. Contributions that strengthen the blueprint itself are welcome.
