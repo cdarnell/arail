@@ -124,6 +124,45 @@ install_accel_deps() {
 }
 
 # -----------------------------------------------------------------------------
+# Optional services — the embedded browser terminal.
+# ttyd powers /terminal on the portal. Without it, the terminal tab shows
+# install instructions instead of a broken iframe. We try to install it
+# opportunistically using whatever package manager is available; failures
+# are logged and the rest of setup continues.
+# -----------------------------------------------------------------------------
+install_services() {
+    if command -v ttyd &>/dev/null; then
+        info "ttyd already installed ($(ttyd --version 2>&1 | head -1))"
+        return
+    fi
+
+    case "$PLATFORM" in
+        macos)
+            if command -v brew &>/dev/null; then
+                info "Installing ttyd via Homebrew…"
+                brew install ttyd 2>&1 | tail -5 || warn "ttyd install failed — /terminal will show install help instead."
+            else
+                warn "Homebrew not found — skipping ttyd. Install later: brew install ttyd"
+            fi
+            ;;
+        wsl|ubuntu|debian)
+            if command -v apt &>/dev/null; then
+                info "Installing ttyd via apt…"
+                sudo apt-get install -y -q ttyd 2>&1 | tail -5 || warn "ttyd install failed — install later: sudo apt install ttyd"
+            fi
+            ;;
+        gentoo)
+            if command -v emerge &>/dev/null; then
+                info "ttyd on Gentoo: sudo emerge -av www-apps/ttyd"
+            fi
+            ;;
+        *)
+            warn "Unknown platform — install ttyd manually for browser terminal support."
+            ;;
+    esac
+}
+
+# -----------------------------------------------------------------------------
 # Gentoo-specific guidance
 # -----------------------------------------------------------------------------
 gentoo_notes() {
@@ -536,6 +575,7 @@ main() {
     ensure_python
     install_core_deps
     install_accel_deps
+    install_services
     capture_brand
     capture_password
     setup_env

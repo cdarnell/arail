@@ -119,7 +119,38 @@ async def dashboard(request: Request):
 
 @app.get("/terminal", response_class=HTMLResponse)
 async def terminal_page(request: Request):
-    return templates.TemplateResponse(request, "terminal.html")
+    """Serve the terminal iframe if ttyd is running, otherwise show
+    install help so the user can get unblocked without leaving the UI."""
+    import shutil, platform
+    ttyd_installed = shutil.which("ttyd") is not None
+    ttyd_running = False
+    if ttyd_installed:
+        try:
+            port = int(os.getenv("TTYD_PORT", "7681"))
+            bind = os.getenv("BIND_ADDR", "127.0.0.1")
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(bind, port), timeout=0.3
+            )
+            writer.close()
+            try:
+                await writer.wait_closed()
+            except Exception:
+                pass
+            ttyd_running = True
+        except Exception:
+            ttyd_running = False
+    install_cmd = {
+        "Darwin": "brew install ttyd",
+        "Linux": "sudo apt install ttyd  # Debian/Ubuntu\n"
+                 "sudo dnf install ttyd  # Fedora\n"
+                 "sudo pacman -S ttyd    # Arch\n"
+                 "sudo emerge -av www-apps/ttyd  # Gentoo",
+    }.get(platform.system(), "https://github.com/tsl0922/ttyd#installation")
+    return templates.TemplateResponse(request, "terminal.html", {
+        "ttyd_installed": ttyd_installed,
+        "ttyd_running": ttyd_running,
+        "install_cmd": install_cmd,
+    })
 
 
 @app.get("/notebook", response_class=HTMLResponse)

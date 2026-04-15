@@ -6,43 +6,133 @@
 <title>{{ brand.name }} — Terminal</title>
 <link rel="stylesheet" href="/static/style.css">
 <style>
-  .container { padding: 1rem; height: calc(100vh - 50px); }
-  .hint { color: var(--muted); font-size: 0.8rem; padding: 0.5rem 0; }
-  .hint code { background: var(--surface2); padding: 0.15rem 0.4rem; border-radius: 3px; }
+  .term-wrap { padding: 0.8rem 1rem; height: calc(100vh - 52px); display: flex; flex-direction: column; gap: 0.6rem; }
+  .term-hint { color: var(--muted); font-size: 0.75rem; }
+  .term-hint code {
+    background: var(--surface);
+    padding: 0.1rem 0.4rem;
+    border-radius: 3px;
+    color: var(--amber);
+  }
+  .term-frame {
+    flex: 1;
+    width: 100%;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: #0a0c14;
+  }
+  .term-install {
+    flex: 1;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 2rem 2.5rem;
+    max-width: 780px;
+    margin: 0 auto;
+    color: var(--text);
+  }
+  .term-install h1 { color: var(--green); text-shadow: var(--glow-green); margin-top: 0; }
+  .term-install h3 { color: var(--blue); margin-top: 1.6rem; }
+  .term-install pre {
+    background: #0a0c14;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1rem 1.2rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    color: var(--amber);
+    white-space: pre-wrap;
+    overflow-x: auto;
+  }
+  .term-install .status-pill {
+    display: inline-block;
+    padding: 0.2rem 0.6rem;
+    border-radius: 999px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-right: 0.5rem;
+  }
+  .status-installed { background: rgba(0,255,65,0.08); color: var(--green); border: 1px solid rgba(0,255,65,0.25); }
+  .status-missing { background: rgba(255,51,85,0.08); color: var(--red); border: 1px solid rgba(255,51,85,0.25); }
+  .status-notrun { background: rgba(255,176,0,0.08); color: var(--amber); border: 1px solid rgba(255,176,0,0.25); }
 </style>
 </head>
 <body>
 <nav>
   <span class="logo">{{ brand.logo }}</span>
   <a href="/">Dashboard</a>
+  <a href="/knowledge">Knowledge</a>
   <a href="/terminal" class="active">Terminal</a>
   <a href="/notebook">Notebook</a>
   <a href="/plugins">Plugins</a>
   <a href="/wiki/graph">Graph</a>
   <span class="mode-badge airgapped">⬤ Airgapped</span>
 </nav>
-<div class="container">
-  <p class="hint">WezTerm via ttyd — full local shell. Start ttyd: <code>ttyd -W -p 7681 zsh</code></p>
-  <iframe class="embed-frame" id="term-frame" src="http://localhost:7681" title="Terminal"></iframe>
-  <div id="fallback" style="display:none;" class="card">
-    <h2><span class="indicator"></span> Terminal Not Running</h2>
-    <p>ttyd is not available on port 7681. Start it with:</p>
-    <pre style="margin:1rem 0;padding:0.75rem;background:var(--surface);border-radius:var(--radius);color:var(--green)">ttyd -W -p 7681 zsh</pre>
-    <p class="hint">Or run <code>./start.sh</code> to launch all services at once.</p>
+
+<div class="term-wrap">
+  {% if ttyd_running %}
+  <p class="term-hint">
+    Full local shell via <strong>ttyd</strong> on port 7681.
+    Copy commands from the reader into this pane for quick runs.
+    Close the tab to disconnect — ttyd keeps the session alive.
+  </p>
+  <iframe class="term-frame" src="http://127.0.0.1:7681" title="Terminal"></iframe>
+
+  {% elif ttyd_installed %}
+  <div class="term-install">
+    <h1>⚠ Terminal service not running</h1>
+    <p>
+      <span class="status-pill status-installed">✓ installed</span>
+      <span class="status-pill status-notrun">○ not running</span>
+    </p>
+    <p>
+      ttyd is installed but isn't listening on port 7681. It should start
+      automatically with <code>./oglab start</code> — try stopping and
+      restarting the lab:
+    </p>
+    <pre>./oglab stop
+./oglab start</pre>
+    <p>
+      Or start it manually in a terminal:
+    </p>
+    <pre>ttyd -W -p 7681 -i 127.0.0.1 "${SHELL:-zsh}"</pre>
+    <p>
+      Then reload this page.
+    </p>
   </div>
+
+  {% else %}
+  <div class="term-install">
+    <h1>Install ttyd to enable the browser terminal</h1>
+    <p>
+      <span class="status-pill status-missing">✗ not installed</span>
+    </p>
+    <p>
+      The <strong>Terminal</strong> tab embeds a real local shell via
+      <a href="https://github.com/tsl0922/ttyd" target="_blank" rel="noopener">ttyd</a>
+      — an open-source WebSocket terminal (&lt;1 MB, zero config).
+      Install it with one command for your platform, then run
+      <code>./oglab start</code> again:
+    </p>
+    <h3>macOS</h3>
+    <pre>brew install ttyd</pre>
+    <h3>Linux</h3>
+    <pre>sudo apt install ttyd           # Debian / Ubuntu / WSL
+sudo dnf install ttyd           # Fedora
+sudo pacman -S ttyd             # Arch
+sudo emerge -av www-apps/ttyd   # Gentoo</pre>
+    <h3>Build from source</h3>
+    <pre>git clone https://github.com/tsl0922/ttyd
+cd ttyd && mkdir build && cd build && cmake .. && make && sudo make install</pre>
+    <p class="term-hint">
+      Once installed, restart the lab and this page will flip to the
+      full terminal automatically.
+    </p>
+  </div>
+  {% endif %}
 </div>
-<script>
-document.getElementById('term-frame').addEventListener('error', () => {
-  document.getElementById('term-frame').style.display = 'none';
-  document.getElementById('fallback').style.display = '';
-});
-setTimeout(() => {
-  const f = document.getElementById('term-frame');
-  try { if (!f.contentWindow.document.body.innerHTML) throw 0; } catch(e) {
-    f.style.display = 'none';
-    document.getElementById('fallback').style.display = '';
-  }
-}, 3000);
-</script>
+
 </body>
 </html>

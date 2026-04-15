@@ -42,7 +42,20 @@ if command -v ttyd &>/dev/null; then
     ttyd -W -p "${TERMINAL_PORT:-7681}" -i "$BIND" "${SHELL:-bash}" &
     PIDS+=($!)
 else
-    info "Terminal   → (ttyd not installed — skipping)"
+    platform_hint=""
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        platform_hint="  brew install ttyd"
+    elif command -v apt >/dev/null 2>&1; then
+        platform_hint="  sudo apt install ttyd"
+    elif command -v dnf >/dev/null 2>&1; then
+        platform_hint="  sudo dnf install ttyd"
+    elif command -v pacman >/dev/null 2>&1; then
+        platform_hint="  sudo pacman -S ttyd"
+    elif command -v emerge >/dev/null 2>&1; then
+        platform_hint="  sudo emerge -av www-apps/ttyd"
+    fi
+    info "Terminal   → (ttyd not installed — /terminal shows install help)"
+    [[ -n "$platform_hint" ]] && info "             install: ${platform_hint}"
 fi
 
 if command -v jupyter &>/dev/null; then
