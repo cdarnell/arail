@@ -131,35 +131,56 @@ install_accel_deps() {
 # are logged and the rest of setup continues.
 # -----------------------------------------------------------------------------
 install_services() {
-    if command -v ttyd &>/dev/null; then
+    # ttyd — the browser terminal.
+    if ! command -v ttyd &>/dev/null; then
+        case "$PLATFORM" in
+            macos)
+                if command -v brew &>/dev/null; then
+                    info "Installing ttyd via Homebrew…"
+                    brew install ttyd 2>&1 | tail -3 || warn "ttyd install failed — /terminal will show install help instead."
+                else
+                    warn "Homebrew not found — skipping ttyd. Install later: brew install ttyd"
+                fi
+                ;;
+            wsl|ubuntu|debian)
+                if command -v apt &>/dev/null; then
+                    info "Installing ttyd via apt…"
+                    sudo apt-get install -y -q ttyd 2>&1 | tail -3 || warn "ttyd install failed — install later: sudo apt install ttyd"
+                fi
+                ;;
+            gentoo)
+                command -v emerge &>/dev/null && info "ttyd on Gentoo: sudo emerge -av www-apps/ttyd"
+                ;;
+            *)
+                warn "Unknown platform — install ttyd manually for browser terminal support."
+                ;;
+        esac
+    else
         info "ttyd already installed ($(ttyd --version 2>&1 | head -1))"
-        return
     fi
 
-    case "$PLATFORM" in
-        macos)
-            if command -v brew &>/dev/null; then
-                info "Installing ttyd via Homebrew…"
-                brew install ttyd 2>&1 | tail -5 || warn "ttyd install failed — /terminal will show install help instead."
-            else
-                warn "Homebrew not found — skipping ttyd. Install later: brew install ttyd"
-            fi
-            ;;
-        wsl|ubuntu|debian)
-            if command -v apt &>/dev/null; then
-                info "Installing ttyd via apt…"
-                sudo apt-get install -y -q ttyd 2>&1 | tail -5 || warn "ttyd install failed — install later: sudo apt install ttyd"
-            fi
-            ;;
-        gentoo)
-            if command -v emerge &>/dev/null; then
-                info "ttyd on Gentoo: sudo emerge -av www-apps/ttyd"
-            fi
-            ;;
-        *)
-            warn "Unknown platform — install ttyd manually for browser terminal support."
-            ;;
-    esac
+    # tmux — terminal persistence. Without it, the browser terminal
+    # iframe loses scrollback on every nav click. With it, ttyd attaches
+    # to a named tmux session that survives reconnects.
+    if ! command -v tmux &>/dev/null; then
+        case "$PLATFORM" in
+            macos)
+                command -v brew &>/dev/null && info "Installing tmux via Homebrew…" \
+                    && brew install tmux 2>&1 | tail -3 \
+                    || warn "tmux not installed — terminal scrollback won't persist across iframe reloads."
+                ;;
+            wsl|ubuntu|debian)
+                command -v apt &>/dev/null && info "Installing tmux via apt…" \
+                    && sudo apt-get install -y -q tmux 2>&1 | tail -3 \
+                    || warn "tmux not installed — install later: sudo apt install tmux"
+                ;;
+            *)
+                warn "tmux not installed — terminal sessions won't persist across reloads."
+                ;;
+        esac
+    else
+        info "tmux already installed ($(tmux -V 2>&1))"
+    fi
 }
 
 # -----------------------------------------------------------------------------

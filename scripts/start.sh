@@ -39,7 +39,21 @@ PIDS+=($!)
 
 if command -v ttyd &>/dev/null; then
     info "Terminal   → http://${BIND}:${TERMINAL_PORT:-7681}"
-    ttyd -W -p "${TERMINAL_PORT:-7681}" -i "$BIND" "${SHELL:-bash}" &
+    # Terminal persistence: when tmux is available we attach every ttyd
+    # connection to a named session ("oglab") so closing the browser
+    # tab, navigating away, or reloading the iframe doesn't nuke the
+    # user's scrollback, pwd, running jobs, or env. New connections
+    # reattach to the same session (`-A` = attach or create).
+    if command -v tmux &>/dev/null; then
+        TMUX_SHELL="${SHELL:-/bin/bash}"
+        ttyd -W -p "${TERMINAL_PORT:-7681}" -i "$BIND" \
+            tmux new-session -A -s "${LAB_SHORT_NAME:-oglab}" \
+                "$TMUX_SHELL" &
+    else
+        warn "tmux not installed — terminal scrollback won't survive iframe reloads"
+        warn "install: brew install tmux (mac) · sudo apt install tmux (linux)"
+        ttyd -W -p "${TERMINAL_PORT:-7681}" -i "$BIND" "${SHELL:-bash}" &
+    fi
     PIDS+=($!)
 else
     platform_hint=""

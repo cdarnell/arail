@@ -6,7 +6,7 @@
 <title>{{ brand.name }} — Terminal</title>
 <link rel="stylesheet" href="/static/style.css">
 <style>
-  .term-wrap { padding: 0.8rem 1rem; height: calc(100vh - 52px); display: flex; flex-direction: column; gap: 0.6rem; }
+  .term-topbar { display: flex; align-items: center; gap: 0.8rem; justify-content: space-between; } .term-topbar .term-hint { margin: 0; flex: 1; } .term-wrap { padding: 0.8rem 1rem; height: calc(100vh - 52px); display: flex; flex-direction: column; gap: 0.6rem; }
   .term-hint { color: var(--muted); font-size: 0.75rem; }
   .term-hint code {
     background: var(--surface);
@@ -73,12 +73,29 @@
 
 <div class="term-wrap">
   {% if ttyd_running %}
-  <p class="term-hint">
-    Full local shell via <strong>ttyd</strong> on port 7681.
-    Copy commands from the reader into this pane for quick runs.
-    Close the tab to disconnect — ttyd keeps the session alive.
-  </p>
+  <div class="term-topbar">
+    <p class="term-hint">
+      Full local shell via <strong>ttyd</strong> on port 7681,
+      attached to a persistent <code>tmux</code> session named
+      <code>{{ brand.short_name }}</code>. Scrollback, pwd, and running
+      jobs survive nav clicks and iframe reloads.
+    </p>
+    <button class="btn btn-sm btn-ghost" id="term-popout"
+            title="Open in its own window so nav clicks don't reload it">
+      ⇱ Pop out
+    </button>
+  </div>
   <iframe class="term-frame" src="http://127.0.0.1:7681" title="Terminal"></iframe>
+  <script>
+  document.getElementById('term-popout').addEventListener('click', () => {
+    // Named window — reclicking reuses the same popup.
+    window.open(
+      'http://127.0.0.1:7681',
+      '{{ brand.short_name }}-terminal',
+      'width=1200,height=800,noopener'
+    );
+  });
+  </script>
 
   {% elif ttyd_installed %}
   <div class="term-install">

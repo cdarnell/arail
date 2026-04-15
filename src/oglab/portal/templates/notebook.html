@@ -6,7 +6,7 @@
 <title>{{ brand.name }} — Notebook</title>
 <link rel="stylesheet" href="/static/style.css">
 <style>
-  .nb-wrap { padding: 0.8rem 1rem; height: calc(100vh - 52px); display: flex; flex-direction: column; gap: 0.6rem; }
+  .nb-topbar { display: flex; align-items: center; gap: 0.8rem; justify-content: space-between; } .nb-topbar .nb-hint { margin: 0; flex: 1; } .nb-wrap { padding: 0.8rem 1rem; height: calc(100vh - 52px); display: flex; flex-direction: column; gap: 0.6rem; }
   .nb-hint { color: var(--muted); font-size: 0.75rem; }
   .nb-hint code {
     background: var(--surface);
@@ -74,13 +74,28 @@
 
 <div class="nb-wrap">
   {% if jupyter_running %}
-  <p class="nb-hint">
-    Jupyter Lab via Python kernel on port {{ notebook_port }}.
-    Notebooks live in <code>lab/pkb/inference/</code> by default.
-    Export outputs to markdown and drop them in the knowledge base inbox
-    to keep research reproducible.
-  </p>
+  <div class="nb-topbar">
+    <p class="nb-hint">
+      Jupyter Lab via Python kernel on port {{ notebook_port }}.
+      Notebooks live in <code>lab/pkb/inference/</code> by default.
+      Export outputs to markdown and drop them in the knowledge base inbox
+      to keep research reproducible.
+    </p>
+    <button class="btn btn-sm btn-ghost" id="nb-popout"
+            title="Open in its own window so nav clicks don't reload it">
+      ⇱ Pop out
+    </button>
+  </div>
   <iframe class="nb-frame" src="http://127.0.0.1:{{ notebook_port }}/lab" title="Jupyter Lab"></iframe>
+  <script>
+  document.getElementById('nb-popout').addEventListener('click', () => {
+    window.open(
+      'http://127.0.0.1:{{ notebook_port }}/lab',
+      '{{ brand.short_name }}-notebook',
+      'width=1400,height=900,noopener'
+    );
+  });
+  </script>
 
   {% elif jupyter_installed %}
   <div class="nb-install">
