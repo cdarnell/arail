@@ -868,6 +868,170 @@ async def api_pkb_file(path: str = ""):
         return {"error": "Could not read file"}
 
 
+def _safe_pkb_path(rel: str) -> Path | None:
+    """Resolve ``rel`` under the PKB root, rejecting traversal."""
+    from oglab.pkb import _pkb_root
+    root = _pkb_root()
+    clean = Path(rel).as_posix()
+    if ".." in clean or clean.startswith("/"):
+        return None
+    target = root / clean
+    try:
+        resolved = target.resolve()
+    except OSError:
+        return None
+    if not str(resolved).startswith(str(root.resolve())):
+        return None
+    return target
+
+
+@app.put("/api/pkb/file")
+async def api_pkb_file_save(request: Request):
+    """Save (or create) a text file under the PKB root.
+
+    Body: ``{"path": "notes/foo.md", "content": "...new body..."}``
+    Returns: ``{"path", "size", "bytes_written"}`` or ``{"error"}``
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        return {"error": "invalid JSON body"}
+    path = (body.get("path") or "").strip()
+    content = body.get("content")
+    if not path:
+        return {"error": "path required"}
+    if content is None:
+        return {"error": "content required"}
+    target = _safe_pkb_path(path)
+    if target is None:
+        return {"error": "invalid path"}
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content)
+        size = target.stat().st_size
+    except OSError as e:
+        return {"error": f"write failed: {e}"}
+
+    activity_log.emit("pkb", f"Saved {path} ({size} bytes)", "success")
+
+    # Trigger a debounced wiki rebuild so the edit shows up in search +
+    # backlinks without the user having to click Rebuild.
+    try:
+        from oglab import wiki
+        wiki.schedule_rebuild()
+    except Exception:
+        pass
+
+    return {"path": path, "size": size, "bytes_written": len(content)}
+
+
+@app.delete("/api/pkb/file")
+async def api_pkb_file_delete(path: str = ""):
+    """Delete a file under the PKB root. No directory removal — files only."""
+    if not path:
+        return {"error": "path required"}
+    target = _safe_pkb_path(path)
+    if target is None:
+        return {"error": "invalid path"}
+    if not target.exists():
+        return {"error": "not found"}
+    if not target.is_file():
+        return {"error": "not a file"}
+    try:
+        target.unlink()
+    except OSError as e:
+        return {"error": f"delete failed: {e}"}
+    activity_log.emit("pkb", f"Deleted {path}", "warn")
+    try:
+        from oglab import wiki
+        wiki.schedule_rebuild()
+    except Exception:
+        pass
+    return {"path": path, "deleted": True}
+
+
+@app.post("/api/pkb/upload")
+async def api_pkb_upload(request: Request):
+    """Accept multipart file uploads and drop them into ``lab/pkb/inbox/``.
+
+    Form fields:
+      * ``files``: one or more file parts (multipart/form-data)
+      * ``auto_ingest``: ``"true"`` (default) runs ``pkb.ingest()`` after
+        the files land so they get sorted into ``sources/`` immediately.
+
+    Returns ``{uploaded: N, paths: [...], ingest: {moved, errors}}``.
+    """
+    from oglab.pkb import _pkb_root, ingest as run_ingest
+    root = _pkb_root()
+    inbox = root / "inbox"
+    inbox.mkdir(parents=True, exist_ok=True)
+
+    try:
+        form = await request.form()
+    except Exception as e:
+        return {"error": f"invalid multipart body: {e}"}
+
+    files = form.getlist("files") if hasattr(form, "getlist") else []
+    if not files:
+        # starlette's FormData keeps all entries — collect anything
+        # that smells like a file.
+        files = [v for v in form.values() if hasattr(v, "filename")]
+    if not files:
+        return {"error": "no files in request"}
+
+    auto_ingest = str(form.get("auto_ingest", "true")).lower() != "false"
+
+    saved: list[str] = []
+    for upload in files:
+        name = getattr(upload, "filename", None)
+        if not name:
+            continue
+        # Strip any directory components from the client side — we never
+        # let the browser pick the destination directory.
+        safe_name = Path(name).name
+        if not safe_name or safe_name.startswith("."):
+            continue
+        # De-dupe by appending a numeric suffix if the file already exists.
+        dest = inbox / safe_name
+        i = 1
+        stem, suffix = Path(safe_name).stem, Path(safe_name).suffix
+        while dest.exists():
+            dest = inbox / f"{stem}-{i}{suffix}"
+            i += 1
+        try:
+            data = await upload.read()
+            dest.write_bytes(data)
+            saved.append(dest.relative_to(root).as_posix())
+        except (OSError, ValueError) as e:
+            activity_log.emit("pkb", f"Upload failed ({safe_name}): {e}", "error")
+
+    if not saved:
+        return {"error": "no valid files saved"}
+
+    activity_log.emit("pkb",
+                      f"Uploaded {len(saved)} file(s) to inbox/",
+                      "success")
+
+    result: dict[str, Any] = {"uploaded": len(saved), "paths": saved}
+    if auto_ingest:
+        try:
+            ingest_result = run_ingest()
+            result["ingest"] = ingest_result
+            if ingest_result.get("moved"):
+                activity_log.emit("pkb",
+                                  f"Auto-ingested {ingest_result['moved']} "
+                                  f"file(s) from inbox → sources",
+                                  "success")
+        except Exception as e:
+            result["ingest_error"] = str(e)
+    try:
+        from oglab import wiki
+        wiki.schedule_rebuild()
+    except Exception:
+        pass
+    return result
+
+
 # ── Legacy /api/pkm/* aliases (deprecated, kept for one release) ──────
 
 @app.get("/api/pkm/browse")

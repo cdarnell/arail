@@ -3,266 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{ brand.name }} — Knowledge Base</title>
+<title>{{ brand.name }} — Knowledge</title>
 <link rel="stylesheet" href="/static/style.css">
-<style>
-/* ═══ Knowledge Base Styles ═══ */
-
-.kb-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  flex-wrap: wrap;
-}
-
-.kb-actions {
-  display: flex;
-  gap: 0.5rem;
-}
-
-.kb-search {
-  display: flex;
-  gap: 0.5rem;
-  margin-bottom: 1rem;
-}
-.kb-search input {
-  flex: 1;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  color: var(--text-hi);
-  font-family: var(--font);
-  font-size: 0.85rem;
-  padding: 0.5rem 0.75rem;
-}
-.kb-search input:focus {
-  outline: none;
-  border-color: var(--green);
-  box-shadow: var(--glow-green);
-}
-
-.kb-stats {
-  display: flex;
-  gap: 1.5rem;
-  flex-wrap: wrap;
-  margin-bottom: 1.5rem;
-}
-.kb-stat {
-  text-align: center;
-}
-.kb-stat .value {
-  font-size: 1.5rem;
-  font-weight: 700;
-  color: var(--green);
-}
-.kb-stat .label {
-  font-size: 0.7rem;
-  color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-/* Section grid */
-.kb-sections {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 1rem;
-  margin-bottom: 1.5rem;
-}
-
-.kb-section {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 1rem;
-  cursor: pointer;
-  transition: border-color 0.2s, box-shadow 0.2s;
-}
-.kb-section:hover {
-  border-color: var(--green-dim);
-  box-shadow: var(--glow-green);
-}
-.kb-section.active {
-  border-color: var(--green);
-  box-shadow: var(--glow-green);
-}
-
-.kb-section-header {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin-bottom: 0.5rem;
-}
-.kb-section-icon {
-  font-size: 1.3rem;
-}
-.kb-section-name {
-  font-weight: 600;
-  color: var(--text-hi);
-  text-transform: capitalize;
-}
-.kb-section-count {
-  margin-left: auto;
-  background: var(--surface2);
-  color: var(--green);
-  font-size: 0.75rem;
-  padding: 0.15rem 0.5rem;
-  border-radius: 999px;
-  font-weight: 600;
-}
-.kb-section-desc {
-  font-size: 0.75rem;
-  color: var(--muted);
-  line-height: 1.4;
-}
-
-/* File list */
-.kb-files {
-  margin-top: 1rem;
-}
-
-.kb-file {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 0.5rem 0.75rem;
-  border-bottom: 1px solid var(--border);
-  cursor: pointer;
-  transition: background 0.15s;
-}
-.kb-file:hover {
-  background: var(--surface2);
-}
-.kb-file:last-child {
-  border-bottom: none;
-}
-
-.kb-file-icon {
-  color: var(--muted);
-  font-size: 0.85rem;
-  flex-shrink: 0;
-  width: 1.2rem;
-  text-align: center;
-}
-.kb-file-name {
-  flex: 1;
-  color: var(--text-hi);
-  font-size: 0.8rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.kb-file-meta {
-  font-size: 0.7rem;
-  color: var(--muted);
-  flex-shrink: 0;
-}
-
-/* File viewer */
-.kb-viewer {
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 1.25rem;
-  margin-top: 1rem;
-  min-height: 200px;
-  max-height: 70vh;
-  overflow-y: auto;
-  font-size: 0.8rem;
-  line-height: 1.7;
-  white-space: pre-wrap;
-  word-wrap: break-word;
-}
-.kb-viewer h1, .kb-viewer h2, .kb-viewer h3 {
-  color: var(--green);
-  margin: 1rem 0 0.5rem 0;
-}
-.kb-viewer h1 { font-size: 1.1rem; }
-.kb-viewer h2 { font-size: 0.95rem; }
-.kb-viewer h3 { font-size: 0.85rem; }
-.kb-viewer-path {
-  font-size: 0.7rem;
-  color: var(--muted);
-  margin-bottom: 0.5rem;
-}
-
-/* Search results */
-.kb-result {
-  padding: 0.75rem;
-  border-bottom: 1px solid var(--border);
-  cursor: pointer;
-  transition: background 0.15s;
-}
-.kb-result:hover {
-  background: var(--surface2);
-}
-.kb-result-path {
-  font-size: 0.8rem;
-  color: var(--blue);
-  font-weight: 600;
-}
-.kb-result-matches {
-  font-size: 0.7rem;
-  color: var(--muted);
-  margin-left: 0.5rem;
-}
-.kb-result-snippet {
-  font-size: 0.75rem;
-  color: var(--text);
-  margin-top: 0.25rem;
-  padding: 0.25rem 0.5rem;
-  background: var(--bg);
-  border-radius: 3px;
-  white-space: pre-wrap;
-  max-height: 4rem;
-  overflow: hidden;
-}
-
-.kb-empty {
-  text-align: center;
-  padding: 3rem;
-  color: var(--muted);
-}
-.kb-empty-icon {
-  font-size: 2rem;
-  margin-bottom: 0.5rem;
-}
-.kb-empty-hint {
-  font-size: 0.75rem;
-  margin-top: 0.5rem;
-}
-
-/* Inbox drop zone styling */
-.kb-inbox-hint {
-  background: var(--surface2);
-  border: 1px dashed var(--border-hi);
-  border-radius: var(--radius);
-  padding: 0.75rem 1rem;
-  font-size: 0.75rem;
-  color: var(--muted);
-  text-align: center;
-  margin-top: 0.5rem;
-}
-.kb-inbox-hint code {
-  color: var(--green);
-}
-
-/* Activity indicator */
-.kb-pulse {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  background: var(--green);
-  border-radius: 50%;
-  box-shadow: var(--glow-green);
-  animation: kb-pulse 2s ease-in-out infinite;
-}
-@keyframes kb-pulse {
-  0%, 100% { opacity: 0.4; }
-  50% { opacity: 1; }
-}
-</style>
+<link rel="stylesheet" href="/static/wiki.css">
+<link rel="stylesheet" href="/static/knowledge.css">
 </head>
 <body>
 
@@ -270,357 +14,942 @@
   <span class="logo">{{ brand.logo }}</span>
   <a href="/">Dashboard</a>
   <a href="/knowledge" class="active">Knowledge</a>
-  <a href="/wiki">Wiki</a>
+  <a href="/wiki/graph">Graph</a>
   <a href="/terminal">Terminal</a>
   <a href="/notebook">Notebook</a>
   <a href="/plugins">Plugins</a>
-  <a href="/graph">Graph</a>
   <span class="mode-badge airgapped" id="mode-badge">⬤ Airgapped</span>
 </nav>
 
-<div class="grid">
+<!-- Full-page drop overlay (shows on drag-over) -->
+<div class="kb-drop-overlay" id="kb-drop-overlay">
+  <div class="kb-drop-message">
+    <div class="kb-drop-icon">📥</div>
+    <div class="kb-drop-title">Drop to ingest</div>
+    <div class="kb-drop-hint">Files land in <code>lab/pkb/inbox/</code> then auto-sort into <code>sources/</code></div>
+  </div>
+</div>
 
-  <!-- ═══ Knowledge Header ═══ -->
-  <div class="card full">
-    <div class="kb-header">
-      <h2><span class="indicator"></span> Knowledge Base</h2>
-      <div class="kb-actions">
-        <button class="btn btn-sm btn-ghost" onclick="runIngest()">📥 Ingest Inbox</button>
-        <button class="btn btn-sm btn-ghost" onclick="runCompile()">📦 Compile Index</button>
+<!-- Top toolbar -->
+<div class="kb-toolbar">
+  <form class="kb-search" id="kb-search-form">
+    <input id="kb-search-input" type="text"
+           placeholder="search titles, tags, and content…"
+           autocomplete="off" />
+  </form>
+  <button class="btn btn-sm btn-ghost" id="kb-upload-btn" title="Upload files to inbox">
+    📤 Upload
+  </button>
+  <input type="file" id="kb-upload-input" multiple style="display:none" />
+  <button class="btn btn-sm btn-ghost" id="kb-rebuild-btn" title="Rebuild wiki index + auto-docs">
+    🔨 Rebuild
+  </button>
+  <a class="btn btn-sm btn-ghost" href="/wiki/graph" title="Knowledge graph">🕸 Graph</a>
+  <span class="kb-meter" id="kb-meter">— pages</span>
+</div>
+
+<div class="kb-layout">
+
+  <!-- ═══ Left sidebar: section tree ═══ -->
+  <aside class="kb-sidebar">
+    <div class="kb-sidebar-scroll" id="kb-tree">
+      <div class="kb-empty-sidebar">Loading…</div>
+    </div>
+  </aside>
+
+  <!-- ═══ Main pane: reader / editor ═══ -->
+  <main class="kb-main">
+
+    <!-- Welcome state (shown when no file is open) -->
+    <div class="kb-welcome" id="kb-welcome">
+      <h1>Your Knowledge Base</h1>
+      <p>Click any file in the sidebar to read it. Drag files from
+      your desktop anywhere on this page to ingest. Use
+      <kbd>Cmd/Ctrl</kbd>+<kbd>E</kbd> to edit the open file,
+      <kbd>Cmd/Ctrl</kbd>+<kbd>S</kbd> to save.</p>
+
+      <div class="kb-quick-actions">
+        <button class="kb-quick-btn" id="kb-quick-upload">
+          <span class="kb-quick-icon">📥</span>
+          <span class="kb-quick-label">Upload to inbox</span>
+          <span class="kb-quick-hint">or drag-drop anywhere</span>
+        </button>
+        <button class="kb-quick-btn" id="kb-quick-new-note">
+          <span class="kb-quick-icon">📝</span>
+          <span class="kb-quick-label">New note</span>
+          <span class="kb-quick-hint">creates in notes/</span>
+        </button>
+        <a class="kb-quick-btn" href="/wiki/graph">
+          <span class="kb-quick-icon">🕸</span>
+          <span class="kb-quick-label">Knowledge graph</span>
+          <span class="kb-quick-hint">visual map</span>
+        </a>
+        <button class="kb-quick-btn" id="kb-quick-rebuild">
+          <span class="kb-quick-icon">🔨</span>
+          <span class="kb-quick-label">Rebuild wiki</span>
+          <span class="kb-quick-hint">regenerate auto-docs</span>
+        </button>
+      </div>
+
+      <!-- Recent pages live-populated from /api/wiki/pages -->
+      <h3 class="kb-welcome-sub">Recent pages</h3>
+      <ul class="kb-recent" id="kb-recent">
+        <li class="kb-empty">Loading…</li>
+      </ul>
+
+      <!-- Tag cloud live-populated -->
+      <h3 class="kb-welcome-sub">Tags</h3>
+      <div class="kb-tags" id="kb-tag-cloud">
+        <span class="kb-empty">No tags yet.</span>
       </div>
     </div>
 
-    <!-- Search -->
-    <div class="kb-search">
-      <span class="prompt-prefix">search:~$</span>
-      <input id="kb-search-input" type="text"
-             placeholder="search across all files — papers, notes, agent findings…"
-             autocomplete="off" />
+    <!-- Reader state (shown when a file is open, editor hidden) -->
+    <div class="kb-viewer" id="kb-viewer" hidden>
+      <div class="kb-viewer-header">
+        <div class="kb-breadcrumbs" id="kb-breadcrumbs"></div>
+        <div class="kb-viewer-actions">
+          <button class="btn btn-sm btn-ghost" id="kb-btn-edit" title="Edit (Cmd/Ctrl+E)">✏️ Edit</button>
+          <button class="btn btn-sm btn-ghost" id="kb-btn-vim" title="Open in terminal with vim">⌨ Vim</button>
+          <button class="btn btn-sm btn-ghost" id="kb-btn-delete" title="Delete file">🗑</button>
+          <button class="btn btn-sm btn-ghost" id="kb-btn-close" title="Close (Esc)">×</button>
+        </div>
+      </div>
+      <div class="kb-viewer-meta" id="kb-viewer-meta"></div>
+      <article class="kb-rendered wiki-content" id="kb-rendered"></article>
+
+      <!-- Backlinks + graph neighborhood panel (collapsible) -->
+      <aside class="kb-context" id="kb-context">
+        <div class="kb-context-section" id="kb-backlinks-wrap">
+          <h4>Referenced by</h4>
+          <ul id="kb-backlinks"></ul>
+        </div>
+        <div class="kb-context-section" id="kb-outgoing-wrap">
+          <h4>Links to</h4>
+          <ul id="kb-outgoing"></ul>
+        </div>
+      </aside>
     </div>
 
-    <!-- Stats bar -->
-    <div class="kb-stats" id="kb-stats">
-      {% set total = 0 %}
-      {% for name, section in pkm.sections.items() %}
-        {% set total = total + section.count %}
-      {% endfor %}
-      <div class="kb-stat">
-        <div class="value" id="stat-total">{{ total }}</div>
-        <div class="label">Total Items</div>
+    <!-- Editor state (shown when editing) -->
+    <div class="kb-editor" id="kb-editor" hidden>
+      <div class="kb-editor-header">
+        <div class="kb-breadcrumbs">
+          <span id="kb-editor-path"></span>
+          <span class="kb-editor-dirty" id="kb-editor-dirty" hidden>● unsaved</span>
+        </div>
+        <div class="kb-viewer-actions">
+          <label class="kb-vim-toggle">
+            <input type="checkbox" id="kb-editor-vim">
+            <span>vim-lite</span>
+          </label>
+          <button class="btn btn-sm btn-primary" id="kb-btn-save" title="Save (Cmd/Ctrl+S)">💾 Save</button>
+          <button class="btn btn-sm btn-ghost" id="kb-btn-cancel" title="Cancel (Esc)">Cancel</button>
+        </div>
       </div>
-      {% for name, section in pkm.sections.items() %}
-      {% if section.count > 0 %}
-      <div class="kb-stat">
-        <div class="value">{{ section.count }}</div>
-        <div class="label">{{ name }}</div>
+      <div class="kb-editor-hint" id="kb-editor-hint">
+        <kbd>Cmd/Ctrl</kbd>+<kbd>S</kbd> save · <kbd>Esc</kbd> cancel ·
+        toggle <strong>vim-lite</strong> for hjkl/i/Esc/dd/yy keybindings
       </div>
-      {% endif %}
-      {% endfor %}
+      <textarea id="kb-editor-ta" class="kb-editor-ta"
+                spellcheck="false" autocomplete="off"></textarea>
+      <div class="kb-editor-status" id="kb-editor-status">—</div>
     </div>
-  </div>
 
-  <!-- ═══ Section Cards ═══ -->
-  <div class="card full">
-    <div class="kb-sections" id="kb-sections">
-
-      <div class="kb-section" onclick="showSection('inbox')">
-        <div class="kb-section-header">
-          <span class="kb-section-icon">📥</span>
-          <span class="kb-section-name">Inbox</span>
-          <span class="kb-section-count">{{ pkm.sections.inbox.count if pkm.sections.inbox else 0 }}</span>
-        </div>
-        <div class="kb-section-desc">Drop anything here. The ingest script sorts it.</div>
-      </div>
-
-      <div class="kb-section" onclick="showSection('sources')">
-        <div class="kb-section-header">
-          <span class="kb-section-icon">📚</span>
-          <span class="kb-section-name">Sources</span>
-          <span class="kb-section-count">{{ pkm.sections.sources.count if pkm.sections.sources else 0 }}</span>
-        </div>
-        <div class="kb-section-desc">Papers, articles, datasets, bookmarks — raw material.</div>
-      </div>
-
-      <div class="kb-section" onclick="showSection('agents')">
-        <div class="kb-section-header">
-          <span class="kb-section-icon">🤖</span>
-          <span class="kb-section-name">Agent Work</span>
-          <span class="kb-section-count">{{ pkm.sections.agents.count if pkm.sections.agents else 0 }}</span>
-        </div>
-        <div class="kb-section-desc">Research, experiments, synthesis, recommendations — built by AI.</div>
-      </div>
-
-      <div class="kb-section" onclick="showSection('notes')">
-        <div class="kb-section-header">
-          <span class="kb-section-icon">📝</span>
-          <span class="kb-section-name">Notes</span>
-          <span class="kb-section-count">{{ pkm.sections.notes.count if pkm.sections.notes else 0 }}</span>
-        </div>
-        <div class="kb-section-desc">Your journal, ideas, scratch — write freely.</div>
-      </div>
-
-      <div class="kb-section" onclick="showSection('inference')">
-        <div class="kb-section-header">
-          <span class="kb-section-icon">🧠</span>
-          <span class="kb-section-name">Inference</span>
-          <span class="kb-section-count">{{ pkm.sections.inference.count if pkm.sections.inference else 0 }}</span>
-        </div>
-        <div class="kb-section-desc">Saved prompts, completions, reasoning chains.</div>
-      </div>
-
-      <div class="kb-section" onclick="showSection('compiled')">
-        <div class="kb-section-header">
-          <span class="kb-section-icon">📦</span>
-          <span class="kb-section-name">Compiled</span>
-          <span class="kb-section-count">{{ pkm.sections.compiled.count if pkm.sections.compiled else 0 }}</span>
-        </div>
-        <div class="kb-section-desc">Polished reports, summaries, exports — the good stuff.</div>
-      </div>
-
-    </div>
-  </div>
-
-  <!-- ═══ File Browser + Viewer ═══ -->
-  <div class="card" id="file-list-card" style="display:none">
-    <h2 id="file-list-title">Files</h2>
-    <div class="kb-files" id="file-list"></div>
-  </div>
-
-  <div class="card" id="file-viewer-card" style="display:none">
-    <h2 id="viewer-title">Viewer</h2>
-    <div class="kb-viewer-path" id="viewer-path"></div>
-    <div class="kb-viewer" id="viewer-content"></div>
-  </div>
-
-  <!-- ═══ Search Results ═══ -->
-  <div class="card full" id="search-results-card" style="display:none">
-    <h2>Search Results</h2>
-    <div id="search-results"></div>
-  </div>
-
+  </main>
 </div>
 
 <script>
 /* ═══════════════════════════════════════════════════════════════
-   OGLab Knowledge Base — vanilla JS
+   Unified Knowledge Base
+   - Browse:  /api/pkb/browse
+   - Read:    /api/pkb/file?path=
+   - Save:    PUT /api/pkb/file
+   - Delete:  DELETE /api/pkb/file?path=
+   - Upload:  POST /api/pkb/upload (multipart)
+   - Wiki:    /api/wiki/pages, /api/wiki/page/<slug>, /api/wiki/rebuild
    ═══════════════════════════════════════════════════════════════ */
 
-const pkmData = {{ pkm | tojson }};
-
-// Section icons lookup
-const SECTION_ICONS = {
-  inbox: '📥', sources: '📚', agents: '🤖',
-  notes: '📝', inference: '🧠', compiled: '📦'
+const KB = {
+  tree: null,         // flat section→files map
+  openPath: null,     // currently-viewed file path
+  editing: false,
+  dirty: false,
+  vimMode: false,
+  wikiPagesByPath: {},  // map of PKB path → wiki page metadata
 };
 
-// File type icons
-function fileIcon(name) {
-  const ext = name.split('.').pop().toLowerCase();
-  const map = {
-    md: '📄', txt: '📄', rst: '📄', pdf: '📕',
-    csv: '📊', json: '📊', jsonl: '📊', parquet: '📊',
-    html: '🌐', htm: '🌐', py: '🐍', sh: '⚙️',
-  };
-  return map[ext] || '📄';
-}
-
+// ── Utilities ──────────────────────────────────────────────────────────
 function esc(s) {
   const d = document.createElement('div');
-  d.textContent = s;
+  d.textContent = s == null ? '' : String(s);
   return d.innerHTML;
 }
 
-// ── Show files for a section ──
-function showSection(name) {
-  // Highlight active section
-  document.querySelectorAll('.kb-section').forEach(el => el.classList.remove('active'));
-  event.currentTarget.classList.add('active');
+function iconForSection(name) {
+  return {
+    inbox: '📥', sources: '📚', agents: '🤖',
+    notes: '📝', compiled: '📦', inference: '🧪',
+  }[name] || '📄';
+}
 
-  const section = pkmData.sections[name];
-  const listCard = document.getElementById('file-list-card');
-  const viewerCard = document.getElementById('file-viewer-card');
-  const searchCard = document.getElementById('search-results-card');
-  searchCard.style.display = 'none';
-  listCard.style.display = '';
-  viewerCard.style.display = 'none';
-
-  const icon = SECTION_ICONS[name] || '📁';
-  document.getElementById('file-list-title').textContent = `${icon} ${name.charAt(0).toUpperCase() + name.slice(1)}`;
-
-  const list = document.getElementById('file-list');
-
-  if (!section || section.count === 0) {
-    if (name === 'inbox') {
-      list.innerHTML = `<div class="kb-empty">
-        <div class="kb-empty-icon">📥</div>
-        <div>Inbox is empty</div>
-        <div class="kb-inbox-hint">
-          Drop files here: <code>cp file.pdf ~/lab_pkm/inbox/</code><br>
-          Quick note: <code>echo "idea" >> ~/lab_pkm/inbox/quick.txt</code><br>
-          Save URLs: <code>echo "URL — desc" >> ~/lab_pkm/inbox/links.txt</code>
-        </div>
-      </div>`;
-    } else {
-      list.innerHTML = `<div class="kb-empty">
-        <div class="kb-empty-icon">${icon}</div>
-        <div>No files yet</div>
-        <div class="kb-empty-hint">
-          ${name === 'agents' ? 'Set a goal and start research — the AI will fill this.' :
-            name === 'sources' ? 'Drop material in inbox/ then run Ingest.' :
-            name === 'notes' ? 'Start writing: ~/lab_pkm/notes/journal.md' :
-            name === 'compiled' ? 'Run Compile to build reports from your material.' :
-            name === 'inference' ? 'Save prompts and completions worth keeping here.' :
-            'Content will appear as your lab grows.'}
-        </div>
-      </div>`;
-    }
-    return;
+// ── Tree (left sidebar) ────────────────────────────────────────────────
+async function loadTree() {
+  try {
+    const r = await fetch('/api/pkb/browse');
+    const d = await r.json();
+    KB.tree = d.sections || {};
+    renderTree();
+  } catch (e) {
+    document.getElementById('kb-tree').innerHTML =
+      '<div class="kb-empty-sidebar">Failed to load — reload page.</div>';
   }
+}
 
-  let html = '';
-  section.items.forEach(item => {
-    html += `<div class="kb-file" onclick="viewFile('${esc(item.path)}')">
-      <span class="kb-file-icon">${fileIcon(item.name)}</span>
-      <span class="kb-file-name">${esc(item.name)}</span>
-      <span class="kb-file-meta">${item.modified} · ${formatSize(item.size)}</span>
-    </div>`;
+function renderTree() {
+  const el = document.getElementById('kb-tree');
+  if (!KB.tree) return;
+  const order = ['inbox', 'sources', 'notes', 'agents', 'compiled', 'inference'];
+  const sections = order.filter(n => KB.tree[n]);
+  const html = sections.map(name => {
+    const section = KB.tree[name];
+    if (section.count === 0) {
+      return `<details class="kb-section-node">
+        <summary><span class="kb-sec-icon">${iconForSection(name)}</span>
+          <span class="kb-sec-name">${name}</span>
+          <span class="kb-sec-count">0</span>
+        </summary>
+        <div class="kb-sec-empty">empty</div>
+      </details>`;
+    }
+    const isOpen = ['notes', 'agents', 'compiled', 'sources'].includes(name);
+    const items = section.items.map(f => {
+      const cls = f.path === KB.openPath ? 'kb-file active' : 'kb-file';
+      const leaf = f.name;
+      return `<li class="${cls}" data-path="${esc(f.path)}" title="${esc(f.path)}">
+        <span class="kb-file-name">${esc(leaf)}</span>
+        <span class="kb-file-size">${prettyBytes(f.size)}</span>
+      </li>`;
+    }).join('');
+    return `<details class="kb-section-node" ${isOpen ? 'open' : ''}>
+      <summary>
+        <span class="kb-sec-icon">${iconForSection(name)}</span>
+        <span class="kb-sec-name">${name}</span>
+        <span class="kb-sec-count">${section.count}</span>
+      </summary>
+      <ul class="kb-file-list">${items}</ul>
+    </details>`;
+  }).join('');
+  el.innerHTML = html || '<div class="kb-empty-sidebar">Empty — drop files to start.</div>';
+
+  // Wire file clicks
+  el.querySelectorAll('.kb-file').forEach(li => {
+    li.addEventListener('click', () => openFile(li.dataset.path));
   });
-  list.innerHTML = html;
 }
 
-// ── View a file ──
-async function viewFile(relPath) {
-  const viewerCard = document.getElementById('file-viewer-card');
-  const title = document.getElementById('viewer-title');
-  const pathEl = document.getElementById('viewer-path');
-  const content = document.getElementById('viewer-content');
-
-  viewerCard.style.display = '';
-  title.textContent = relPath.split('/').pop();
-  pathEl.textContent = relPath;
-  content.textContent = 'Loading…';
-
-  try {
-    const r = await fetch(`/api/pkm/file?path=${encodeURIComponent(relPath)}`);
-    const data = await r.json();
-    if (data.error) {
-      content.textContent = `Error: ${data.error}`;
-      return;
-    }
-    // Simple Markdown rendering (headers, bold, code)
-    content.innerHTML = renderMarkdown(data.content);
-  } catch (e) {
-    content.textContent = `Failed to load: ${e.message}`;
-  }
+function prettyBytes(n) {
+  if (n == null) return '';
+  if (n < 1024) return n + 'B';
+  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + 'K';
+  return (n / 1024 / 1024).toFixed(1) + 'M';
 }
 
-// ── Search ──
-let searchTimeout;
-document.getElementById('kb-search-input').addEventListener('input', (e) => {
-  clearTimeout(searchTimeout);
-  const q = e.target.value.trim();
-  if (q.length < 2) {
-    document.getElementById('search-results-card').style.display = 'none';
-    return;
+// ── File view (reader) ─────────────────────────────────────────────────
+async function openFile(path) {
+  if (KB.dirty) {
+    if (!confirm('Unsaved changes. Discard?')) return;
   }
-  searchTimeout = setTimeout(() => runSearch(q), 300);
-});
+  KB.openPath = path;
+  KB.editing = false;
+  KB.dirty = false;
 
-async function runSearch(q) {
-  const card = document.getElementById('search-results-card');
-  const container = document.getElementById('search-results');
-  card.style.display = '';
+  // Hide welcome, show viewer, hide editor
+  document.getElementById('kb-welcome').hidden = true;
+  document.getElementById('kb-viewer').hidden = false;
+  document.getElementById('kb-editor').hidden = true;
 
-  // Hide file browser while searching
-  document.getElementById('file-list-card').style.display = 'none';
-  document.getElementById('file-viewer-card').style.display = 'none';
+  // Mark active in sidebar
+  document.querySelectorAll('.kb-file').forEach(li => {
+    li.classList.toggle('active', li.dataset.path === path);
+  });
 
-  try {
-    const r = await fetch(`/api/pkm/search?q=${encodeURIComponent(q)}`);
-    const results = await r.json();
+  // Breadcrumbs
+  document.getElementById('kb-breadcrumbs').innerHTML =
+    path.split('/').map((p, i, arr) => {
+      return i === arr.length - 1
+        ? `<span class="kb-bc-current">${esc(p)}</span>`
+        : `<span class="kb-bc-part">${esc(p)}</span>`;
+    }).join('<span class="kb-bc-sep">/</span>');
 
-    if (results.length === 0) {
-      container.innerHTML = `<div class="kb-empty">
-        <div>No results for "${esc(q)}"</div>
-        <div class="kb-empty-hint">Try broader terms or check different sections</div>
-      </div>`;
-      return;
-    }
-
-    let html = '';
-    results.forEach(r => {
-      html += `<div class="kb-result" onclick="viewFile('${esc(r.path)}')">
-        <span class="kb-result-path">${esc(r.path)}</span>
-        <span class="kb-result-matches">${r.match_count} match${r.match_count > 1 ? 'es' : ''}</span>`;
-      if (r.snippets && r.snippets.length) {
-        html += `<div class="kb-result-snippet">${esc(r.snippets[0])}</div>`;
+  // Prefer wiki's rendered HTML when the file has been compiled. Fall
+  // back to the raw file content with a minimal client-side renderer.
+  const wikiPage = findWikiPage(path);
+  if (wikiPage) {
+    try {
+      const r = await fetch('/api/wiki/page/' + wikiPage.slug);
+      if (r.ok) {
+        await renderWikiPage(wikiPage.slug, path);
+        return;
       }
-      html += `</div>`;
-    });
-    container.innerHTML = html;
-  } catch (e) {
-    container.innerHTML = `<div class="kb-empty">Search failed: ${e.message}</div>`;
+    } catch (e) { /* fall through */ }
   }
+  await renderRawFile(path);
 }
 
-// ── Ingest / Compile ──
-async function runIngest() {
+async function renderWikiPage(slug, rawPath) {
+  // Fetch rendered HTML via the wiki.page endpoint. That endpoint
+  // returns the manifest entry as JSON; we also want the rendered HTML,
+  // so we fetch the /wiki/<slug> HTML and extract its article.
   try {
-    const r = await fetch('/api/pkm/ingest', {method: 'POST'});
-    const data = await r.json();
-    if (data.moved || data.urls_fetched) {
-      alert(`Ingested ${data.moved} file(s), ${data.urls_fetched} URL(s)`);
-      location.reload();
-    } else {
-      alert('Inbox is empty. Drop files into ~/lab_pkm/inbox/ first.');
+    const r = await fetch('/wiki/' + slug);
+    if (!r.ok) throw new Error();
+    const html = await r.text();
+    const tmp = document.createElement('div');
+    tmp.innerHTML = html;
+    const article = tmp.querySelector('.wiki-content');
+    document.getElementById('kb-rendered').innerHTML =
+      article ? article.innerHTML : '';
+
+    // Sidebar panels (backlinks, outgoing) from the /api/wiki/page JSON
+    const r2 = await fetch('/api/wiki/page/' + slug);
+    if (r2.ok) {
+      const page = await r2.json();
+      populateContext(page);
+      document.getElementById('kb-viewer-meta').innerHTML =
+        metaLine(page, rawPath);
     }
   } catch (e) {
-    alert(`Ingest failed: ${e.message}`);
+    await renderRawFile(rawPath);
   }
 }
 
-async function runCompile() {
+async function renderRawFile(path) {
   try {
-    const r = await fetch('/api/pkm/compile', {method: 'POST'});
-    const data = await r.json();
-    alert(`Compiled index: ${data.total} items, ${data.tags.length} tags`);
-    location.reload();
+    const r = await fetch('/api/pkb/file?path=' + encodeURIComponent(path));
+    const d = await r.json();
+    if (d.error) {
+      document.getElementById('kb-rendered').innerHTML =
+        `<p class="empty">${esc(d.error)}</p>`;
+      return;
+    }
+    document.getElementById('kb-rendered').innerHTML = renderRawMd(d.content);
+    document.getElementById('kb-viewer-meta').innerHTML =
+      `<span class="kb-meta-pill">${prettyBytes(d.size)}</span>
+       <span class="kb-meta-pill">raw</span>`;
+    document.getElementById('kb-backlinks').innerHTML =
+      '<li class="empty">not in wiki index yet — click Rebuild</li>';
+    document.getElementById('kb-outgoing').innerHTML = '';
   } catch (e) {
-    alert(`Compile failed: ${e.message}`);
+    document.getElementById('kb-rendered').innerHTML =
+      '<p class="empty">Could not load file.</p>';
   }
 }
 
-// ── Utilities ──
+function populateContext(page) {
+  const bl = page.backlinks || [];
+  const out = page.outgoing || [];
+  document.getElementById('kb-backlinks').innerHTML = bl.length
+    ? bl.map(s => `<li><a href="#" data-slug="${esc(s)}">${esc(slugToLabel(s))}</a></li>`).join('')
+    : '<li class="empty">no backlinks</li>';
+  document.getElementById('kb-outgoing').innerHTML = out.length
+    ? out.map(s => `<li><a href="#" data-slug="${esc(s)}">${esc(slugToLabel(s))}</a></li>`).join('')
+    : '<li class="empty">no outgoing links</li>';
 
-function formatSize(bytes) {
-  if (bytes < 1024) return bytes + ' B';
-  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  // Wire slug-based clicks to openFile using the manifest lookup
+  document.querySelectorAll('#kb-backlinks a, #kb-outgoing a').forEach(a => {
+    a.addEventListener('click', e => {
+      e.preventDefault();
+      const slug = a.dataset.slug;
+      const target = Object.values(KB.wikiPagesByPath).find(p => p.slug === slug);
+      if (target) openFile(target.pkb_path);
+    });
+  });
 }
 
-function renderMarkdown(text) {
-  // Simple markdown → HTML (just the essentials for readability)
+function slugToLabel(slug) {
+  const p = Object.values(KB.wikiPagesByPath).find(x => x.slug === slug);
+  return p ? p.title : slug;
+}
+
+function metaLine(page, path) {
+  const tags = (page.tags || []).map(t => `<span class="kb-meta-pill tag">#${esc(t)}</span>`).join('');
+  return `
+    <span class="kb-meta-pill">${esc(page.section || '')}</span>
+    ${tags}
+    ${page.source_ref
+      ? `<span class="kb-meta-pill source">source: <code>${esc(page.source_ref)}</code></span>`
+      : ''}
+  `;
+}
+
+function renderRawMd(text) {
+  // Minimal fallback renderer for files not yet in the wiki manifest.
   let html = esc(text);
-  // Headers
+  html = html.replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>');
+  html = html.replace(/^#### (.+)$/gm, '<h4>$1</h4>');
   html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
   html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
   html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
-  // Bold
-  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-  // Italic
-  html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
-  // Inline code
-  html = html.replace(/`([^`]+)`/g, '<code style="background:var(--surface2);padding:0.1rem 0.3rem;border-radius:3px;color:var(--green)">$1</code>');
-  // Horizontal rules
-  html = html.replace(/^---$/gm, '<hr style="border:none;border-top:1px solid var(--border);margin:1rem 0">');
-  // List items
-  html = html.replace(/^- (.+)$/gm, '• $1');
-  // Star markers
-  html = html.replace(/⭐/g, '<span style="color:var(--amber)">⭐</span>');
-  // Tags
-  html = html.replace(/#(\w[\w-]*)/g, '<span style="color:var(--blue)">#$1</span>');
-  return html;
+  html = html.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+  html = html.replace(/\n\n/g, '</p><p>');
+  return '<p>' + html + '</p>';
 }
+
+function findWikiPage(pkbPath) {
+  // Match PKB relative path to a wiki page whose manifest points at it.
+  const slug = pkbPath.replace(/\.[^.]+$/, '').replace(/[^a-z0-9/]+/gi, '-')
+    .toLowerCase().replace(/^-+|-+$/g, '');
+  return KB.wikiPagesByPath[pkbPath] || KB.wikiPagesByPath[slug];
+}
+
+// ── Wiki page manifest (for rich rendering lookups) ────────────────────
+async function loadWikiPages() {
+  try {
+    const r = await fetch('/api/wiki/pages');
+    const pages = await r.json();
+    const idx = {};
+    pages.forEach(p => {
+      idx[p.slug] = p;
+      if (p.path) {
+        const rel = p.path.split('/lab/pkb/')[1];
+        if (rel) { p.pkb_path = rel; idx[rel] = p; }
+      }
+    });
+    KB.wikiPagesByPath = idx;
+    document.getElementById('kb-meter').textContent = pages.length + ' pages';
+  } catch (e) { /* wiki not yet built */ }
+}
+
+// ── Close / cancel ─────────────────────────────────────────────────────
+function closeViewer() {
+  if (KB.dirty && !confirm('Unsaved changes. Discard?')) return;
+  KB.openPath = null;
+  KB.editing = false;
+  KB.dirty = false;
+  document.getElementById('kb-viewer').hidden = true;
+  document.getElementById('kb-editor').hidden = true;
+  document.getElementById('kb-welcome').hidden = false;
+  document.querySelectorAll('.kb-file.active').forEach(el => el.classList.remove('active'));
+}
+
+// ── Edit mode ──────────────────────────────────────────────────────────
+async function openEditor() {
+  if (!KB.openPath) return;
+  try {
+    const r = await fetch('/api/pkb/file?path=' + encodeURIComponent(KB.openPath));
+    const d = await r.json();
+    if (d.error) {
+      alert(d.error);
+      return;
+    }
+    KB.editing = true;
+    KB.dirty = false;
+    document.getElementById('kb-viewer').hidden = true;
+    document.getElementById('kb-editor').hidden = false;
+    document.getElementById('kb-editor-path').textContent = KB.openPath;
+    const ta = document.getElementById('kb-editor-ta');
+    ta.value = d.content;
+    ta.focus();
+    ta.setSelectionRange(0, 0);
+    setDirty(false);
+    updateEditorStatus();
+  } catch (e) {
+    alert('Failed to load file for editing.');
+  }
+}
+
+function cancelEdit() {
+  if (KB.dirty && !confirm('Unsaved changes. Discard?')) return;
+  KB.editing = false;
+  KB.dirty = false;
+  document.getElementById('kb-editor').hidden = true;
+  document.getElementById('kb-viewer').hidden = false;
+  // Re-render the current file so the user sees the saved state.
+  if (KB.openPath) openFile(KB.openPath);
+}
+
+function setDirty(flag) {
+  KB.dirty = flag;
+  document.getElementById('kb-editor-dirty').hidden = !flag;
+}
+
+function updateEditorStatus() {
+  const ta = document.getElementById('kb-editor-ta');
+  const text = ta.value;
+  const lines = text.split('\n').length;
+  const chars = text.length;
+  const mode = KB.vimMode ? (vim.mode || 'normal').toUpperCase() : 'TEXT';
+  document.getElementById('kb-editor-status').textContent =
+    `${mode} · ${lines} lines · ${chars} chars`;
+}
+
+async function saveFile() {
+  if (!KB.openPath) return;
+  const content = document.getElementById('kb-editor-ta').value;
+  const btn = document.getElementById('kb-btn-save');
+  btn.disabled = true;
+  const orig = btn.textContent;
+  btn.textContent = 'saving…';
+  try {
+    const r = await fetch('/api/pkb/file', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: KB.openPath, content }),
+    });
+    const d = await r.json();
+    if (d.error) {
+      alert('Save failed: ' + d.error);
+      return;
+    }
+    setDirty(false);
+    btn.textContent = '✓ saved';
+    setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 900);
+    // Refresh the tree to pick up size changes
+    loadTree();
+  } catch (e) {
+    alert('Save failed: ' + e.message);
+    btn.disabled = false;
+    btn.textContent = orig;
+  }
+}
+
+async function deleteFile() {
+  if (!KB.openPath) return;
+  if (!confirm(`Delete ${KB.openPath}?`)) return;
+  try {
+    const r = await fetch('/api/pkb/file?path=' + encodeURIComponent(KB.openPath),
+                          { method: 'DELETE' });
+    const d = await r.json();
+    if (d.error) {
+      alert('Delete failed: ' + d.error);
+      return;
+    }
+    closeViewer();
+    loadTree();
+  } catch (e) {
+    alert('Delete failed: ' + e.message);
+  }
+}
+
+// ── Minimal vim-lite keybindings for the textarea ──────────────────────
+// Not real vim. Supports the subset users actually hit for a "quick
+// edit": i/a (insert), Esc (normal), h/j/k/l (movement by 1), 0/$
+// (line ends), dd (delete line), yy (yank), p (paste), :w (save),
+// :q (close). Good enough; honest about what it is.
+const vim = {
+  mode: 'insert',  // insert | normal | command
+  buffer: '',      // yank/paste buffer
+  cmdBuf: '',
+};
+
+function vimSetMode(newMode) {
+  vim.mode = newMode;
+  const ta = document.getElementById('kb-editor-ta');
+  ta.classList.toggle('kb-vim-normal', newMode === 'normal');
+  ta.classList.toggle('kb-vim-command', newMode === 'command');
+  updateEditorStatus();
+}
+
+function vimHandleKey(e) {
+  if (!KB.vimMode) return false;
+  const ta = document.getElementById('kb-editor-ta');
+
+  // Always respect Cmd/Ctrl + S for save (works in any mode).
+  if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+    e.preventDefault(); saveFile(); return true;
+  }
+
+  if (vim.mode === 'insert') {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      vimSetMode('normal');
+      return true;
+    }
+    return false;  // let textarea handle typing
+  }
+
+  if (vim.mode === 'normal') {
+    const text = ta.value;
+    const pos = ta.selectionStart;
+    // Movement
+    if (e.key === 'h') { e.preventDefault(); ta.setSelectionRange(Math.max(0, pos - 1), Math.max(0, pos - 1)); return true; }
+    if (e.key === 'l') { e.preventDefault(); ta.setSelectionRange(Math.min(text.length, pos + 1), Math.min(text.length, pos + 1)); return true; }
+    if (e.key === 'j') {
+      e.preventDefault();
+      const eol = text.indexOf('\n', pos);
+      if (eol >= 0) {
+        const col = pos - text.lastIndexOf('\n', pos - 1) - 1;
+        const nextLineStart = eol + 1;
+        const nextLineEnd = text.indexOf('\n', nextLineStart);
+        const lineLen = (nextLineEnd < 0 ? text.length : nextLineEnd) - nextLineStart;
+        const newPos = nextLineStart + Math.min(col, lineLen);
+        ta.setSelectionRange(newPos, newPos);
+      }
+      return true;
+    }
+    if (e.key === 'k') {
+      e.preventDefault();
+      const lineStart = text.lastIndexOf('\n', pos - 1);
+      if (lineStart < 0) return true;
+      const prevLineStart = text.lastIndexOf('\n', lineStart - 1) + 1;
+      const col = pos - lineStart - 1;
+      const prevLineLen = lineStart - prevLineStart;
+      const newPos = prevLineStart + Math.min(col, prevLineLen);
+      ta.setSelectionRange(newPos, newPos);
+      return true;
+    }
+    if (e.key === '0') { e.preventDefault(); const ls = text.lastIndexOf('\n', pos - 1) + 1; ta.setSelectionRange(ls, ls); return true; }
+    if (e.key === '$') { e.preventDefault(); let eol = text.indexOf('\n', pos); if (eol < 0) eol = text.length; ta.setSelectionRange(eol, eol); return true; }
+    if (e.key === 'i') { e.preventDefault(); vimSetMode('insert'); return true; }
+    if (e.key === 'a') { e.preventDefault(); ta.setSelectionRange(pos + 1, pos + 1); vimSetMode('insert'); return true; }
+    if (e.key === 'o') {
+      e.preventDefault();
+      let eol = text.indexOf('\n', pos);
+      if (eol < 0) eol = text.length;
+      ta.value = text.slice(0, eol) + '\n' + text.slice(eol);
+      setDirty(true);
+      ta.setSelectionRange(eol + 1, eol + 1);
+      vimSetMode('insert');
+      return true;
+    }
+    if (e.key === 'x') {
+      e.preventDefault();
+      if (pos < text.length && text[pos] !== '\n') {
+        ta.value = text.slice(0, pos) + text.slice(pos + 1);
+        setDirty(true);
+        ta.setSelectionRange(pos, pos);
+      }
+      return true;
+    }
+    // dd — delete line; 'd' starts a pending; second 'd' completes
+    if (e.key === 'd') {
+      e.preventDefault();
+      if (vim.cmdBuf === 'd') {
+        const ls = text.lastIndexOf('\n', pos - 1) + 1;
+        let le = text.indexOf('\n', pos);
+        if (le < 0) le = text.length; else le += 1;
+        vim.buffer = text.slice(ls, le);
+        ta.value = text.slice(0, ls) + text.slice(le);
+        setDirty(true);
+        ta.setSelectionRange(ls, ls);
+        vim.cmdBuf = '';
+      } else {
+        vim.cmdBuf = 'd';
+      }
+      return true;
+    }
+    // yy — yank line
+    if (e.key === 'y') {
+      e.preventDefault();
+      if (vim.cmdBuf === 'y') {
+        const ls = text.lastIndexOf('\n', pos - 1) + 1;
+        let le = text.indexOf('\n', pos);
+        if (le < 0) le = text.length; else le += 1;
+        vim.buffer = text.slice(ls, le);
+        vim.cmdBuf = '';
+      } else {
+        vim.cmdBuf = 'y';
+      }
+      return true;
+    }
+    if (e.key === 'p') {
+      e.preventDefault();
+      if (vim.buffer) {
+        let eol = text.indexOf('\n', pos);
+        if (eol < 0) eol = text.length;
+        const insertAt = eol + (eol < text.length ? 1 : 0);
+        ta.value = text.slice(0, insertAt) + vim.buffer + text.slice(insertAt);
+        setDirty(true);
+        ta.setSelectionRange(insertAt, insertAt);
+      }
+      return true;
+    }
+    if (e.key === ':') {
+      e.preventDefault();
+      vim.cmdBuf = ':';
+      vimSetMode('command');
+      updateEditorStatus();
+      return true;
+    }
+    // Any other key in normal mode: swallow to prevent typing
+    if (e.key.length === 1) { e.preventDefault(); return true; }
+    return false;
+  }
+
+  if (vim.mode === 'command') {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const cmd = vim.cmdBuf.slice(1);
+      vim.cmdBuf = '';
+      if (cmd === 'w') { saveFile(); vimSetMode('normal'); }
+      else if (cmd === 'q') { cancelEdit(); }
+      else if (cmd === 'wq') { saveFile(); setTimeout(() => cancelEdit(), 150); }
+      else { vimSetMode('normal'); }
+      return true;
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      vim.cmdBuf = '';
+      vimSetMode('normal');
+      return true;
+    }
+    if (e.key === 'Backspace') {
+      e.preventDefault();
+      vim.cmdBuf = vim.cmdBuf.slice(0, -1);
+      if (!vim.cmdBuf) vimSetMode('normal');
+      updateEditorStatus();
+      return true;
+    }
+    if (e.key.length === 1) {
+      e.preventDefault();
+      vim.cmdBuf += e.key;
+      updateEditorStatus();
+      return true;
+    }
+  }
+  return false;
+}
+
+document.getElementById('kb-editor-vim').addEventListener('change', e => {
+  KB.vimMode = e.target.checked;
+  vim.mode = 'insert';
+  vim.cmdBuf = '';
+  vimSetMode('insert');
+});
+
+// ── Upload (button + drag-drop) ────────────────────────────────────────
+async function uploadFiles(fileList) {
+  if (!fileList || !fileList.length) return;
+  const form = new FormData();
+  for (const f of fileList) form.append('files', f);
+  try {
+    const r = await fetch('/api/pkb/upload', { method: 'POST', body: form });
+    const d = await r.json();
+    if (d.error) {
+      alert('Upload failed: ' + d.error);
+      return;
+    }
+    loadTree();
+    loadWikiPages();
+  } catch (e) {
+    alert('Upload failed: ' + e.message);
+  }
+}
+
+document.getElementById('kb-upload-btn').addEventListener('click', () => {
+  document.getElementById('kb-upload-input').click();
+});
+document.getElementById('kb-upload-input').addEventListener('change', e => {
+  uploadFiles(e.target.files);
+  e.target.value = '';
+});
+document.getElementById('kb-quick-upload').addEventListener('click', () => {
+  document.getElementById('kb-upload-input').click();
+});
+
+// Drag overlay — full page
+const overlay = document.getElementById('kb-drop-overlay');
+let dragCounter = 0;
+window.addEventListener('dragenter', e => {
+  e.preventDefault();
+  if (e.dataTransfer && Array.from(e.dataTransfer.types).includes('Files')) {
+    dragCounter++;
+    overlay.classList.add('visible');
+  }
+});
+window.addEventListener('dragleave', e => {
+  dragCounter = Math.max(0, dragCounter - 1);
+  if (dragCounter === 0) overlay.classList.remove('visible');
+});
+window.addEventListener('dragover', e => { e.preventDefault(); });
+window.addEventListener('drop', e => {
+  e.preventDefault();
+  dragCounter = 0;
+  overlay.classList.remove('visible');
+  if (e.dataTransfer && e.dataTransfer.files.length) {
+    uploadFiles(e.dataTransfer.files);
+  }
+});
+
+// ── Toolbar buttons ────────────────────────────────────────────────────
+async function rebuildWiki() {
+  const btn = document.getElementById('kb-rebuild-btn');
+  btn.disabled = true;
+  const orig = btn.textContent;
+  btn.textContent = 'rebuilding…';
+  try {
+    const r = await fetch('/api/wiki/rebuild', { method: 'POST' });
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+    btn.textContent = `✓ ${d.page_count}p`;
+    await loadWikiPages();
+    await loadTree();
+    setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 1500);
+  } catch (e) {
+    btn.textContent = 'error';
+    setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 1500);
+  }
+}
+document.getElementById('kb-rebuild-btn').addEventListener('click', rebuildWiki);
+document.getElementById('kb-quick-rebuild').addEventListener('click', rebuildWiki);
+
+document.getElementById('kb-quick-new-note').addEventListener('click', async () => {
+  const title = prompt('New note title:');
+  if (!title) return;
+  const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  const path = 'notes/' + slug + '.md';
+  const content = `---\ntitle: ${title}\nsection: notes\ntags: []\n---\n\n# ${title}\n\n`;
+  await fetch('/api/pkb/file', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path, content }),
+  });
+  await loadTree();
+  await openFile(path);
+  openEditor();
+});
+
+// ── Search (top bar) ───────────────────────────────────────────────────
+document.getElementById('kb-search-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const q = document.getElementById('kb-search-input').value.trim();
+  if (!q) return;
+  try {
+    const r = await fetch('/api/wiki/search?q=' + encodeURIComponent(q));
+    const results = await r.json();
+    renderSearchResults(q, results);
+  } catch (err) { /* ignore */ }
+});
+
+function renderSearchResults(q, results) {
+  document.getElementById('kb-welcome').hidden = true;
+  document.getElementById('kb-viewer').hidden = false;
+  document.getElementById('kb-editor').hidden = true;
+  document.getElementById('kb-breadcrumbs').innerHTML =
+    `<span class="kb-bc-part">search</span>
+     <span class="kb-bc-sep">/</span>
+     <span class="kb-bc-current">${esc(q)}</span>`;
+  document.getElementById('kb-viewer-meta').innerHTML =
+    `<span class="kb-meta-pill">${results.length} hits</span>`;
+  const body = document.getElementById('kb-rendered');
+  if (!results.length) {
+    body.innerHTML = '<p class="empty">No matches.</p>';
+    return;
+  }
+  body.innerHTML = '<ul class="kb-search-results">' +
+    results.map(r => `
+      <li>
+        <a href="#" data-slug="${esc(r.slug)}"><strong>${esc(r.title)}</strong></a>
+        <span class="kb-meta-pill">${esc(r.section)}</span>
+        <span class="kb-meta-pill">score ${r.score}</span>
+      </li>
+    `).join('') + '</ul>';
+  body.querySelectorAll('[data-slug]').forEach(a => {
+    a.addEventListener('click', e => {
+      e.preventDefault();
+      const target = Object.values(KB.wikiPagesByPath).find(p => p.slug === a.dataset.slug);
+      if (target && target.pkb_path) openFile(target.pkb_path);
+    });
+  });
+  document.getElementById('kb-backlinks').innerHTML = '';
+  document.getElementById('kb-outgoing').innerHTML = '';
+}
+
+// ── Welcome recent pages + tag cloud ───────────────────────────────────
+async function populateWelcome() {
+  try {
+    const r = await fetch('/api/wiki/pages');
+    const pages = await r.json();
+    if (!Array.isArray(pages)) return;
+
+    // Recent pages
+    const ul = document.getElementById('kb-recent');
+    if (!pages.length) {
+      ul.innerHTML = '<li class="empty">No pages yet.</li>';
+    } else {
+      ul.innerHTML = pages.slice(0, 10).map(p =>
+        `<li><a href="#" data-slug="${esc(p.slug)}">${esc(p.title)}</a>
+             <span class="kb-meta-pill">${esc(p.section)}</span></li>`
+      ).join('');
+      ul.querySelectorAll('a').forEach(a => {
+        a.addEventListener('click', e => {
+          e.preventDefault();
+          const target = KB.wikiPagesByPath[a.dataset.slug] || Object.values(KB.wikiPagesByPath).find(p => p.slug === a.dataset.slug);
+          if (target && target.pkb_path) openFile(target.pkb_path);
+        });
+      });
+    }
+
+    // Tag cloud
+    const tagCounts = {};
+    pages.forEach(p => (p.tags || []).forEach(t => { tagCounts[t] = (tagCounts[t] || 0) + 1; }));
+    const sorted = Object.entries(tagCounts).sort((a, b) => b[1] - a[1]).slice(0, 30);
+    const cloud = document.getElementById('kb-tag-cloud');
+    if (!sorted.length) {
+      cloud.innerHTML = '<span class="kb-empty">No tags yet.</span>';
+    } else {
+      cloud.innerHTML = sorted.map(([tag, count]) =>
+        `<a class="tag-pill" href="#" data-tag="${esc(tag)}">#${esc(tag)} <span class="tag-count">${count}</span></a>`
+      ).join('');
+    }
+  } catch (e) { /* wiki not built yet */ }
+}
+
+// ── Global shortcuts ───────────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  // Save in any mode that has the textarea
+  if (KB.editing && (e.metaKey || e.ctrlKey) && e.key === 's') {
+    e.preventDefault();
+    saveFile();
+    return;
+  }
+  // Enter edit mode from viewer
+  if (!KB.editing && KB.openPath && (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'e') {
+    e.preventDefault();
+    openEditor();
+    return;
+  }
+  // Escape: if editing, cancel; if viewing, close
+  if (e.key === 'Escape' && !KB.vimMode) {
+    if (KB.editing) { cancelEdit(); return; }
+    if (KB.openPath) { closeViewer(); return; }
+  }
+});
+
+// Textarea-scoped keydown for vim handling
+document.getElementById('kb-editor-ta').addEventListener('keydown', e => {
+  if (vimHandleKey(e)) return;
+  // Mark dirty on content-producing keys
+  if (!e.metaKey && !e.ctrlKey && (e.key.length === 1 || e.key === 'Backspace' || e.key === 'Enter')) {
+    setDirty(true);
+  }
+});
+document.getElementById('kb-editor-ta').addEventListener('input', () => {
+  setDirty(true);
+  updateEditorStatus();
+});
+
+// ── Viewer action buttons ──────────────────────────────────────────────
+document.getElementById('kb-btn-edit').addEventListener('click', openEditor);
+document.getElementById('kb-btn-close').addEventListener('click', closeViewer);
+document.getElementById('kb-btn-delete').addEventListener('click', deleteFile);
+document.getElementById('kb-btn-save').addEventListener('click', saveFile);
+document.getElementById('kb-btn-cancel').addEventListener('click', cancelEdit);
+document.getElementById('kb-btn-vim').addEventListener('click', () => {
+  if (!KB.openPath) return;
+  alert(
+    `Open in terminal:\n\nvim lab/pkb/${KB.openPath}\n\n` +
+    `Command copied to clipboard. Paste into the Terminal tab.`
+  );
+  navigator.clipboard.writeText('vim lab/pkb/' + KB.openPath).catch(() => {});
+  window.open('/terminal', '_blank');
+});
+
+// ── Boot ───────────────────────────────────────────────────────────────
+loadWikiPages().then(populateWelcome);
+loadTree();
 </script>
 </body>
 </html>

@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from oglab import wiki
@@ -51,7 +51,16 @@ def _repo_root() -> Path | None:
 
 # ── HTML pages ──────────────────────────────────────────────────────────
 
-@router.get("/wiki", response_class=HTMLResponse)
+@router.get("/wiki")
+async def wiki_root_redirect():
+    """The unified /knowledge page absorbed the wiki landing. Keep the
+    old URL alive with a 302 redirect so bookmarks don't break. The
+    per-page reader (/wiki/<slug>) and the graph (/wiki/graph) still
+    live below for deep-link access."""
+    return RedirectResponse(url="/knowledge", status_code=302)
+
+
+@router.get("/wiki/_legacy_landing", response_class=HTMLResponse)
 async def wiki_landing(request: Request):
     manifest = _load_or_build()
     pages = manifest.get("pages", {})
