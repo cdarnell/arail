@@ -43,6 +43,10 @@
     <span class="meter-label">Inferences</span>
     <span class="meter-value" id="meter-count">—</span>
   </div>
+  <div class="meter" title="Total tokens this lab has processed across all backends — lifetime count from the cost tracker.">
+    <span class="meter-label">Lifetime tokens</span>
+    <span class="meter-value" id="meter-tokens">—</span>
+  </div>
   <div class="meter">
     <span class="meter-label">Backend</span>
     <span class="meter-value" id="meter-backend">—</span>
@@ -187,12 +191,21 @@
     {% endif %}
   </div>
 
-  <!-- ═══ Lifetime token counter — fixed corner chip ═══ -->
-  <div class="lifetime-chip" id="lifetime-chip"
-       title="Total tokens this lab has processed across all backends — pulled from the cost tracker.">
-    <span class="lifetime-icon">⟐</span>
-    <span class="lifetime-label">lab lifetime</span>
-    <span class="lifetime-value" id="lifetime-tokens">—</span>
+  <!-- ═══ Activity Feed — paired with Mission Status ═══ -->
+  <div class="card">
+    <h2><span class="indicator"></span> Activity Feed</h2>
+    <div class="activity-feed" id="activity-feed">
+      {% for event in recent_activity %}
+      <div class="activity-event {{ event.level }}">
+        <span class="ts">{{ event.ts[11:19] }}</span>
+        <span class="src">{{ event.source }} ›</span>
+        <span class="msg">{{ event.message }}</span>
+      </div>
+      {% endfor %}
+      {% if not recent_activity %}
+      <p class="empty">Waiting for activity…<span class="cursor-blink"></span></p>
+      {% endif %}
+    </div>
   </div>
 
   <!-- ═══ Curate (add-on surfaces + wiki) ═══ -->
@@ -214,23 +227,6 @@
       Optional notebook surfaces — start them with <code>docker compose -f compose/&lt;file&gt;.yml up -d</code>.
     </p>
     <div class="addons-list" id="addons-list"></div>
-  </div>
-
-  <!-- ═══ Activity Feed ═══ -->
-  <div class="card">
-    <h2><span class="indicator"></span> Activity Feed</h2>
-    <div class="activity-feed" id="activity-feed">
-      {% for event in recent_activity %}
-      <div class="activity-event {{ event.level }}">
-        <span class="ts">{{ event.ts[11:19] }}</span>
-        <span class="src">{{ event.source }} ›</span>
-        <span class="msg">{{ event.message }}</span>
-      </div>
-      {% endfor %}
-      {% if not recent_activity %}
-      <p class="empty">Waiting for activity…<span class="cursor-blink"></span></p>
-      {% endif %}
-    </div>
   </div>
 
   <!-- ═══ Agent Consent ═══ -->
@@ -522,10 +518,10 @@ async function refreshCosts() {
       q('meter-backend').textContent = label;
     }
 
-    // Lifetime token chip (fixed corner)
-    if (q('lifetime-tokens')) {
+    // Lifetime tokens — surfaced in the top meter bar
+    if (q('meter-tokens')) {
       const total = s.total_tokens ?? 0;
-      q('lifetime-tokens').textContent = fmtTokens(total) + ' tok';
+      q('meter-tokens').textContent = fmtTokens(total);
     }
   } catch(e) { /* endpoint not available yet */ }
 }

@@ -2,6 +2,45 @@
    /research — the OGLab Research Cockpit
    ═══════════════════════════════════════════════════════════════════ */
 
+/* ── Lab tagline banner (under the nav, always visible) ──────── */
+.rx-tagline {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.55rem 1.25rem;
+  background:
+    linear-gradient(90deg, rgba(0,255,65,.06), rgba(0,212,255,.04) 60%, transparent);
+  border-bottom: 1px solid var(--border);
+  font-size: 0.72rem;
+  color: var(--text);
+  line-height: 1.45;
+}
+.rx-tagline-icon {
+  color: var(--green);
+  font-size: 0.85rem;
+  text-shadow: var(--glow-green);
+  flex: 0 0 auto;
+}
+.rx-tagline-text strong {
+  color: var(--green);
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  margin-right: 0.35rem;
+}
+.rx-tagline-text {
+  color: var(--muted);
+}
+
+/* Motto line on the empty-state card */
+.rx-empty-motto {
+  color: var(--green) !important;
+  font-size: 0.9rem !important;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  margin-bottom: 1rem !important;
+  text-shadow: var(--glow-green);
+}
+
 /* ── Cockpit strip ─────────────────────────────────────────────── */
 .rx-cockpit {
   display: grid;
