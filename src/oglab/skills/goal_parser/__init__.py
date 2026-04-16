@@ -103,15 +103,38 @@ class GoalParser:
 
     # ------------------------------------------------------------------
     def _heuristic(self, goal_text: str) -> Dict[str, Any]:
+        domain = infer_domain(goal_text)
+
+        # Split on common conjunctions / punctuation to extract sub-goals
+        parts = re.split(r"[;,]\s*|\band\b|\bor\b|\bthen\b", goal_text, flags=re.IGNORECASE)
+        parts = [p.strip() for p in parts if len(p.strip()) > 8]
+        if len(parts) > 1:
+            primary = parts[0]
+            sub_objectives = parts[1:]
+        else:
+            primary = goal_text
+            sub_objectives = []
+
+        # Infer resources from domain
+        resource_hints: Dict[str, list[str]] = {
+            "ml-research": ["local LLM", "GPU or AirLLM", "research papers"],
+            "farming": ["weather data", "soil data", "crop databases"],
+            "culinary": ["recipe databases", "ingredient sources"],
+            "business": ["market data", "analytics tools"],
+            "health": ["health metrics", "fitness tracking"],
+            "education": ["learning materials", "practice exercises"],
+        }
+        resources = resource_hints.get(domain, ["local knowledge base"])
+
         return {
             "goal": goal_text,
-            "domain": infer_domain(goal_text),
-            "primary_objective": goal_text,
-            "sub_objectives": [],
-            "success_metrics": {},
-            "timeline": "unspecified",
-            "constraints": [],
-            "resources_needed": [],
+            "domain": domain,
+            "primary_objective": primary,
+            "sub_objectives": sub_objectives,
+            "success_metrics": {"research_cycles": "≥ 1 complete", "findings": "actionable"},
+            "timeline": "ongoing",
+            "constraints": ["local-first", "airgapped by default"],
+            "resources_needed": resources,
             "parsing_method": "heuristic",
         }
 

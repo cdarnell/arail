@@ -4,7 +4,7 @@ section: docs
 tags: [python, module]
 aliases: [backends, backends.py]
 source: src/oglab/router/backends.py
-generated: 2026-04-15T11:48:11Z
+generated: 2026-04-16T11:07:31Z
 ---
 
 # backends module
@@ -85,8 +85,9 @@ endpoint on localhost.  Works with LM Studio, Ollama, DeployLM, etc.
 
 ### `AirLLMBackend`
 
-Run massive models (70B-405B) from disk via AirLLM.
+Run massive models (100B-405B) from disk via AirLLM.
 
+Default: Qwen3-235B-A22B — a 235B MoE model (22B active per token).
 Layer-by-layer inference: only one transformer layer is loaded into
 memory at a time.  Slow (seconds-per-token) but lets you run models
 that would normally need 48+ GB VRAM on a 4 GB machine.

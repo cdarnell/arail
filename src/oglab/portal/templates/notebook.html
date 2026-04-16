@@ -65,12 +65,14 @@
   <span class="logo">{{ brand.logo }}</span>
   <a href="/">Dashboard</a>
   <a href="/knowledge">Knowledge</a>
+  <a href="/open-notebook">Open Notebook</a>
   <a href="/research">Research</a>
   <a href="/terminal">Terminal</a>
   <a href="/notebook" class="active">Notebook</a>
   <a href="/plugins">Plugins</a>
-  <a href="/wiki/graph">Graph</a>
-  <span class="mode-badge airgapped">⬤ Airgapped</span>
+  <a href="/admin">Admin</a>
+  <span class="nav-clock" id="nav-clock"></span>
+  <span class="mode-badge airgapped" id="mode-badge">⬤ Airgapped</span>
 </nav>
 
 <div class="nb-wrap">
@@ -82,10 +84,14 @@
       Export outputs to markdown and drop them in the knowledge base inbox
       to keep research reproducible.
     </p>
-    <button class="btn btn-sm btn-ghost" id="nb-popout"
-            title="Open in its own window so nav clicks don't reload it">
-      ⇱ Pop out
-    </button>
+    <div style="display:flex;gap:0.5rem;">
+      <button class="btn btn-sm btn-ghost" id="nb-restart" title="Restart Jupyter">↻ Restart</button>
+      <button class="btn btn-sm btn-ghost" id="nb-stop" title="Stop Jupyter" style="color:var(--red);">■ Stop</button>
+      <button class="btn btn-sm btn-ghost" id="nb-popout"
+              title="Open in its own window so nav clicks don't reload it">
+        ⇱ Pop out
+      </button>
+    </div>
   </div>
   <iframe class="nb-frame" src="http://127.0.0.1:{{ notebook_port }}/lab" title="Jupyter Lab"></iframe>
   <script>
@@ -95,6 +101,19 @@
       '{{ brand.short_name }}-notebook',
       'width=1400,height=900,noopener'
     );
+  });
+  document.getElementById('nb-stop').addEventListener('click', async () => {
+    if (!confirm('Stop Jupyter Lab?')) return;
+    await fetch('/api/notebook/stop', {method: 'POST'});
+    location.reload();
+  });
+  document.getElementById('nb-restart').addEventListener('click', async () => {
+    const btn = document.getElementById('nb-restart');
+    btn.textContent = '↻ Restarting…';
+    btn.disabled = true;
+    await fetch('/api/notebook/stop', {method: 'POST'});
+    await fetch('/api/notebook/start', {method: 'POST'});
+    location.reload();
   });
   </script>
 
@@ -107,8 +126,24 @@
     </p>
     <p>
       Jupyter is installed but isn't listening on port {{ notebook_port }}.
-      It should start automatically with <code>./oglab start</code> — try
-      bouncing the lab:
+    </p>
+    <p>
+      <button class="btn btn-sm" id="nb-start"
+              style="background:var(--green);color:#000;font-weight:700;padding:0.4rem 1.2rem;cursor:pointer;">
+        ▶ Start Jupyter
+      </button>
+    </p>
+    <script>
+    document.getElementById('nb-start').addEventListener('click', async () => {
+      const btn = document.getElementById('nb-start');
+      btn.textContent = '⏳ Starting…';
+      btn.disabled = true;
+      await fetch('/api/notebook/start', {method: 'POST'});
+      location.reload();
+    });
+    </script>
+    <p style="margin-top:1rem;color:var(--muted);font-size:0.8rem;">
+      Or bounce the lab manually:
     </p>
     <pre>./oglab stop
 ./oglab start</pre>
@@ -116,7 +151,8 @@
       Or start it manually in a terminal tab:
     </p>
     <pre>jupyter lab --no-browser --ip=127.0.0.1 --port={{ notebook_port }} \
-  --NotebookApp.token="" --NotebookApp.password=""</pre>
+  --NotebookApp.token="" --NotebookApp.password="" \
+  --ServerApp.tornado_settings='{"headers":{"Content-Security-Policy":"frame-ancestors '\''self'\'' http://127.0.0.1:* http://localhost:*"}}'</pre>
     <p>
       Then reload this page.
     </p>
@@ -154,5 +190,6 @@ pip install -e .</pre>
   {% endif %}
 </div>
 
+<script src="/static/nav.js"></script>
 </body>
 </html>

@@ -12,12 +12,14 @@
   <span class="logo">{{ brand.logo }}</span>
   <a href="/" class="active">Dashboard</a>
   <a href="/knowledge">Knowledge</a>
+  <a href="/open-notebook">Open Notebook</a>
   <a href="/research">Research</a>
   <a href="/terminal">Terminal</a>
   <a href="/notebook">Notebook</a>
   <a href="/plugins">Plugins</a>
-  <a href="/wiki/graph">Graph</a>
-  <span class="mode-badge airgapped" id="mode-badge">⬤ Airgapped</span>
+  <a href="/admin">Admin</a>
+  <span class="nav-clock" id="nav-clock"></span>
+  <span class="mode-badge airgapped" id="mode-badge" title="Click to toggle internet access" style="cursor:pointer;">⬤ Airgapped</span>
   <span class="mode-badge" id="window-badge" title="Current work window">⋯</span>
   <button class="btn btn-sm btn-red" id="btn-halt"
           title="Cancel all running jobs — portal stays up">⏸ Halt jobs</button>
@@ -64,7 +66,18 @@
              placeholder="describe your goal — what do you want to build, grow, learn, or research?"
              autocomplete="off"
              value="{{ current_goal.goal_text if current_goal else '' }}" />
-      <button class="btn btn-primary" type="submit">Parse</button>
+      <div class="parse-btn-wrap">
+        <button class="btn btn-primary" type="submit" id="btn-parse">Parse</button>
+        <div class="parse-tooltip">
+          <strong>Parse</strong> is the ignition switch for your lab.
+          <ul>
+            <li>Decomposes your goal into domain, sub-goals, metrics, timeline</li>
+            <li>Auto-starts the researcher agent (hypotheses → experiments → analysis → report)</li>
+            <li>Persists across restarts — agents keep working toward it</li>
+          </ul>
+          Type what you care about. Hit Parse. The lab starts working.
+        </div>
+      </div>
     </form>
 
     <!-- Goal breakdown (populated after parse) -->
@@ -93,16 +106,16 @@
       {% endif %}
     </div>
 
-    <!-- Research controls -->
+    <!-- Research controls — inline with Parse -->
     <div class="research-controls">
       <button class="btn btn-sm btn-primary" id="btn-research-start"
-              onclick="startResearch()">▶ Start Research</button>
+              onclick="startResearch()">▶ Run Research</button>
       <button class="btn btn-sm btn-ghost" id="btn-research-pause"
               onclick="controlResearch('pause')" style="display:none">⏸ Pause</button>
       <button class="btn btn-sm btn-ghost" id="btn-research-resume"
               onclick="controlResearch('resume')" style="display:none">▶ Resume</button>
-          <button class="btn btn-sm btn-red" id="btn-destroy-lab"
-            onclick="destroyLab()">Destroy Lab</button>
+      <button class="btn btn-sm btn-ghost" id="btn-research-reset"
+              onclick="resetResearch()" style="color:var(--amber);">↺ Reset</button>
       <span class="research-status" id="research-status">
         {% if research_status == 'running' %}
         <span class="status running">● Researching</span>
@@ -311,37 +324,63 @@ setInterval(refreshJobsState, 15000);
 document.getElementById('goal-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const input = document.getElementById('goal-input');
+  const btn = document.getElementById('btn-parse');
   const goal = input.value.trim();
   if (!goal) return;
 
-  const resp = await fetch('/api/goal', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({goal})
-  });
-  const data = await resp.json();
-  renderGoalBreakdown(data);
-  // Auto-started research — show running state
-  showResearchButtons('running');
+  btn.textContent = 'Parsing…';
+  btn.disabled = true;
+  input.disabled = true;
+
+  try {
+    const resp = await fetch('/api/goal', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({goal})
+    });
+    const data = await resp.json();
+    renderGoalBreakdown(data);
+    showResearchButtons('running');
+  } catch (err) {
+    document.getElementById('goal-result').innerHTML =
+      '<p style="color:var(--red);">Failed to parse — check if the portal is running.</p>';
+  } finally {
+    btn.textContent = 'Parse';
+    btn.disabled = false;
+    input.disabled = false;
+  }
 });
 
 function renderGoalBreakdown(data) {
   const container = document.getElementById('goal-result');
   const parsed = data.parsed || data;
   let html = '<div class="goal-breakdown">';
-  html += field('Domain', `<span class="status active">${parsed.domain || 'general'}</span>`);
-  html += field('Primary Objective', parsed.primary_objective || parsed.goal || '');
+  html += field('Domain', `<span class="status active">${esc(parsed.domain || 'general')}</span>`);
+  html += field('Primary Objective', esc(parsed.primary_objective || parsed.goal || ''));
   if (parsed.sub_objectives && parsed.sub_objectives.length) {
     html += '<div class="field"><div class="field-label">Sub-Objectives</div><ul class="sub-obj-list">';
     parsed.sub_objectives.forEach(o => { html += `<li>${esc(o)}</li>`; });
     html += '</ul></div>';
   }
+  if (parsed.success_metrics && Object.keys(parsed.success_metrics).length) {
+    let metrics = '';
+    for (const [k, v] of Object.entries(parsed.success_metrics)) {
+      metrics += `<li><strong>${esc(k)}</strong>: ${esc(String(v))}</li>`;
+    }
+    html += '<div class="field"><div class="field-label">Success Metrics</div><ul class="sub-obj-list">' + metrics + '</ul></div>';
+  }
   if (parsed.timeline && parsed.timeline !== 'unspecified') {
-    html += field('Timeline', parsed.timeline);
+    html += field('Timeline', esc(parsed.timeline));
+  }
+  if (parsed.resources_needed && parsed.resources_needed.length) {
+    html += field('Resources', esc(parsed.resources_needed.join(', ')));
   }
   if (parsed.confidence !== undefined) {
-    html += field('Confidence', `${Math.round(parsed.confidence * 100)}%`);
+    const pct = Math.round(parsed.confidence * 100);
+    const color = pct >= 60 ? 'var(--green)' : pct >= 40 ? 'var(--amber)' : 'var(--red)';
+    html += field('Confidence', `<span style="color:${color};font-weight:600;">${pct}%</span>`);
   }
+  html += field('Status', '<span class="status running">● Researcher started</span>');
   html += '</div>';
   container.innerHTML = html;
 }
@@ -397,6 +436,14 @@ async function revokeDomain(domain) {
     body: JSON.stringify({domain})
   });
   location.reload();
+}
+
+async function resetResearch() {
+  if (!confirm('Reset research? The current goal will be archived and research stopped.')) return;
+  await fetch('/api/research/reset', {method: 'POST'});
+  document.getElementById('goal-input').value = '';
+  document.getElementById('goal-result').innerHTML = '';
+  showResearchButtons('idle');
 }
 
 async function destroyLab() {
@@ -765,5 +812,6 @@ fetch('/api/system/health').then(r => r.json()).then(h => {
   }
 }).catch(() => {});
 </script>
+<script src="/static/nav.js"></script>
 </body>
 </html>

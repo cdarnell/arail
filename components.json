@@ -1,0 +1,213 @@
+{
+  "meta": {
+    "schema_version": 1,
+    "description": "OGLab component manifest. Single source of truth for all installable components, versions, update strategies, and known breaking changes. Readable by humans, the CLI, and AI agents."
+  },
+  "components": [
+    {
+      "name": "oglab",
+      "type": "git",
+      "description": "The lab itself \u2014 portal, router, agents, PKB, wiki, scheduler",
+      "current_version": "0.1.0",
+      "source_url": "https://github.com/cdarnell/oglab",
+      "changelog_url": "https://github.com/cdarnell/oglab/releases",
+      "version_cmd": ".venv/bin/python3 -c \"import oglab; print(oglab.__version__)\"",
+      "check_cmd": "git fetch origin main 2>/dev/null; LOCAL=$(git rev-parse HEAD 2>/dev/null); REMOTE=$(git rev-parse origin/main 2>/dev/null); if [ \"$LOCAL\" != \"$REMOTE\" ] && [ -n \"$REMOTE\" ]; then AHEAD=$(git rev-list HEAD..origin/main --count 2>/dev/null); echo \"${AHEAD:-?} commits behind origin/main\"; fi",
+      "update_cmd": "git pull origin main",
+      "post_update_cmd": ".venv/bin/pip install -q -e '.[dev]'",
+      "requires_venv": false,
+      "optional": false,
+      "platforms": [
+        "macos",
+        "linux",
+        "wsl"
+      ],
+      "breaking_changes": []
+    },
+    {
+      "name": "python-deps",
+      "type": "pip",
+      "description": "Core Python dependencies from pyproject.toml (FastAPI, MLX, etc.)",
+      "current_version": "147 packages",
+      "source_url": null,
+      "changelog_url": null,
+      "version_cmd": ".venv/bin/python3 -c \"import subprocess; r=subprocess.run(['.venv/bin/pip','list'],capture_output=True,text=True); n=len(r.stdout.strip().split(chr(10)))-2; print(f'{n} packages')\"",
+      "check_cmd": ".venv/bin/python3 -c \"import subprocess,json;r=subprocess.run(['.venv/bin/pip','list','--outdated','--format=json'],capture_output=True,text=True);d=json.loads(r.stdout) if r.stdout.strip() else [];names=[p['name'] for p in d[:5]];rest=len(d)-5;s=', '.join(names)+(' +'+str(rest)+' more' if rest>0 else '');print(f'{len(d)} outdated: {s}') if d else None\"",
+      "update_cmd": ".venv/bin/pip install -q --upgrade -e '.[dev]'",
+      "post_update_cmd": null,
+      "requires_venv": true,
+      "optional": false,
+      "platforms": [
+        "macos",
+        "linux",
+        "wsl"
+      ],
+      "breaking_changes": [
+        {
+          "version_range": "fastapi>=1.0.0",
+          "note": "FastAPI v1 removes deprecated Starlette re-exports; portal templates may need path updates",
+          "severity": "major"
+        }
+      ]
+    },
+    {
+      "name": "ttyd",
+      "type": "system",
+      "description": "Browser terminal \u2014 powers /terminal in the portal",
+      "current_version": "ttyd version 1.7.7-unknown",
+      "source_url": "https://github.com/tsl0922/ttyd",
+      "changelog_url": "https://github.com/tsl0922/ttyd/releases",
+      "version_cmd": "ttyd --version 2>&1 | head -1",
+      "check_cmd": null,
+      "update_cmd": {
+        "macos": "brew upgrade ttyd",
+        "linux": "sudo apt-get install --only-upgrade -y ttyd",
+        "gentoo": "sudo emerge -avu www-apps/ttyd"
+      },
+      "post_update_cmd": null,
+      "requires_venv": false,
+      "optional": true,
+      "platforms": [
+        "macos",
+        "linux",
+        "gentoo"
+      ],
+      "breaking_changes": []
+    },
+    {
+      "name": "tmux",
+      "type": "system",
+      "description": "Terminal multiplexer \u2014 session persistence for /terminal",
+      "current_version": "tmux 3.6a",
+      "source_url": "https://github.com/tmux/tmux",
+      "changelog_url": "https://github.com/tmux/tmux/releases",
+      "version_cmd": "tmux -V 2>&1",
+      "check_cmd": null,
+      "update_cmd": {
+        "macos": "brew upgrade tmux",
+        "linux": "sudo apt-get install --only-upgrade -y tmux"
+      },
+      "post_update_cmd": null,
+      "requires_venv": false,
+      "optional": true,
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "breaking_changes": []
+    },
+    {
+      "name": "ollama",
+      "type": "system",
+      "description": "Local LLM server \u2014 OpenAI-compatible API for Open Notebook and agent-browser",
+      "current_version": "ollama version is 0.20.5",
+      "source_url": "https://github.com/ollama/ollama",
+      "changelog_url": "https://github.com/ollama/ollama/releases",
+      "version_cmd": "ollama --version 2>&1 | head -1",
+      "check_cmd": null,
+      "update_cmd": {
+        "macos": "brew upgrade ollama",
+        "linux": "curl -fsSL https://ollama.com/install.sh | sh"
+      },
+      "post_update_cmd": null,
+      "requires_venv": false,
+      "optional": true,
+      "platforms": [
+        "macos",
+        "linux",
+        "wsl"
+      ],
+      "breaking_changes": []
+    },
+    {
+      "name": "agent-browser",
+      "type": "npm",
+      "description": "Web research agent \u2014 browser automation for the Knowledge tab",
+      "current_version": "agent-browser 0.25.5",
+      "source_url": "https://github.com/vercel-labs/agent-browser",
+      "changelog_url": "https://github.com/vercel-labs/agent-browser/releases",
+      "version_cmd": "agent-browser --version 2>/dev/null || echo 'not installed'",
+      "check_cmd": "npm outdated -g agent-browser --json 2>/dev/null | python3 -c \"import sys,json;d=json.load(sys.stdin);ab=d.get('agent-browser',{});print(ab.get('latest','')) if ab.get('latest') and ab.get('latest')!=ab.get('current') else None\"",
+      "update_cmd": "npm update -g agent-browser",
+      "post_update_cmd": "agent-browser install 2>/dev/null || true",
+      "requires_venv": false,
+      "optional": true,
+      "platforms": [
+        "macos",
+        "linux",
+        "wsl"
+      ],
+      "breaking_changes": []
+    },
+    {
+      "name": "open-notebook",
+      "type": "docker",
+      "description": "Self-hosted NotebookLM alternative \u2014 research curation surface",
+      "current_version": "v1-latest  (built 2026-04-09 11:24:21 -0400 EDT)",
+      "source_url": "https://github.com/lfnovo/open-notebook",
+      "changelog_url": "https://github.com/lfnovo/open-notebook/releases",
+      "github_repo": "lfnovo/open-notebook",
+      "compose_file": "compose/open-notebook.yml",
+      "version_cmd": "docker images lfnovo/open_notebook --format '{{.Tag}}  (built {{.CreatedAt}})' 2>/dev/null | head -1 || echo 'not pulled'",
+      "check_cmd": "curl -sf https://api.github.com/repos/lfnovo/open-notebook/releases/latest 2>/dev/null | python3 -c \"import sys,json;d=json.load(sys.stdin);print(d['tag_name'])\"",
+      "update_cmd": "docker compose -f compose/open-notebook.yml pull",
+      "post_update_cmd": "docker compose -f compose/open-notebook.yml up -d",
+      "requires_venv": false,
+      "optional": true,
+      "platforms": [
+        "macos",
+        "linux",
+        "wsl"
+      ],
+      "breaking_changes": [
+        {
+          "version_range": "v2",
+          "note": "Open Notebook v2 changes the database schema and migrates from Streamlit to Next.js. See the release notes for migration steps.",
+          "severity": "major"
+        }
+      ]
+    },
+    {
+      "name": "marimo",
+      "type": "docker",
+      "description": "Reactive AI-native Python notebooks (Docker service)",
+      "current_version": "3.11-slim",
+      "source_url": "https://github.com/marimo-team/marimo",
+      "changelog_url": "https://github.com/marimo-team/marimo/releases",
+      "github_repo": "marimo-team/marimo",
+      "compose_file": "compose/marimo.yml",
+      "version_cmd": "docker images python --format '{{.Tag}}' 2>/dev/null | head -1 || echo 'not pulled'",
+      "check_cmd": "curl -sf https://api.github.com/repos/marimo-team/marimo/releases/latest 2>/dev/null | python3 -c \"import sys,json;d=json.load(sys.stdin);print(d['tag_name'])\"",
+      "update_cmd": "docker compose -f compose/marimo.yml pull",
+      "post_update_cmd": "docker compose -f compose/marimo.yml up -d",
+      "requires_venv": false,
+      "optional": true,
+      "platforms": [
+        "macos",
+        "linux",
+        "wsl"
+      ],
+      "breaking_changes": []
+    },
+    {
+      "name": "jupyterlab",
+      "type": "pip",
+      "description": "Notebook environment \u2014 powers /notebook in the portal",
+      "current_version": "4.5.6",
+      "source_url": "https://github.com/jupyterlab/jupyterlab",
+      "changelog_url": "https://github.com/jupyterlab/jupyterlab/releases",
+      "version_cmd": ".venv/bin/jupyter lab --version 2>/dev/null || echo 'not installed'",
+      "check_cmd": ".venv/bin/pip list --outdated --format=json 2>/dev/null | python3 -c \"import sys,json; [print(p['name'],p['version'],'\u2192',p['latest_version']) for p in json.load(sys.stdin) if p['name']=='jupyterlab']\"",
+      "update_cmd": ".venv/bin/pip install -q --upgrade jupyterlab",
+      "post_update_cmd": null,
+      "requires_venv": true,
+      "optional": false,
+      "platforms": [
+        "macos",
+        "linux",
+        "wsl"
+      ],
+      "breaking_changes": []
+    }
+  ]
+}

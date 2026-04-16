@@ -380,8 +380,9 @@ class OpenAICompatBackend(BaseBackend):
 # AirLLM  (layer-by-layer from disk — 70B+ on minimal RAM)
 # ---------------------------------------------------------------------------
 class AirLLMBackend(BaseBackend):
-    """Run massive models (70B-405B) from disk via AirLLM.
+    """Run massive models (100B-405B) from disk via AirLLM.
 
+    Default: Qwen3-235B-A22B — a 235B MoE model (22B active per token).
     Layer-by-layer inference: only one transformer layer is loaded into
     memory at a time.  Slow (seconds-per-token) but lets you run models
     that would normally need 48+ GB VRAM on a 4 GB machine.
@@ -397,7 +398,7 @@ class AirLLMBackend(BaseBackend):
             )
 
         self.model_name = os.getenv(
-            "AIRLLM_MODEL", "Qwen/Qwen3-8B"
+            "AIRLLM_MODEL", "Qwen/Qwen3-235B-A22B"
         )
         compression = os.getenv("AIRLLM_COMPRESSION", "4bit") or None
         if compression == "none":

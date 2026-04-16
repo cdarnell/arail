@@ -4,7 +4,7 @@ section: docs
 tags: [compose, docker, add-on]
 aliases: [open-notebook, open-notebook.yml]
 source: compose/open-notebook.yml
-generated: 2026-04-15T11:48:11Z
+generated: 2026-04-16T03:11:04Z
 ---
 
 # open-notebook (compose overlay)

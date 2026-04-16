@@ -5,9 +5,13 @@
 #    setup    provision venv, deps, model, lab/ scaffolding (first-time setup)
 #    start    launch portal + terminal + notebook + IDE
 #    stop     stop running lab services
+#    restart  stop then start
+#    update   check for and apply component updates
+#    version  show installed component versions
 #    reset    wipe models/data/env/plugins (see: ./oglab reset help)
 #    status   show what's running and where
 #    doctor   validate the environment end-to-end
+#    logs     tail activity log — filter by component
 #    pkb      knowledge base ops: ingest | compile | browse
 #    wiki     documentation-as-code: build | info | new <title>
 #    help     show this message
@@ -40,8 +44,12 @@ usage() {
     setup         provision everything (venv, deps, model, lab/ dirs)
     start         launch portal + terminal + notebook + IDE
     stop          stop running lab services
+    restart       stop then start (quick bounce)
+    update        check for and apply component updates
+    version       show installed component versions
     status        show what's running
     doctor        validate the environment end-to-end
+    logs [comp]   tail activity log — filter by component
     reset [mode]  wipe state — models|data|plugins|env|full|destroy
     pkb <op>      ingest | compile | browse — knowledge base ops
     wiki <op>     build | info | new <title> — documentation-as-code
@@ -58,8 +66,114 @@ case "$cmd" in
     setup)   exec bash "$REPO_ROOT/scripts/setup.sh" "$@" ;;
     start)   exec bash "$REPO_ROOT/scripts/start.sh" "$@" ;;
     stop)    exec bash "$REPO_ROOT/scripts/reset.sh" stop ;;
+    restart) bash "$REPO_ROOT/scripts/reset.sh" stop && exec bash "$REPO_ROOT/scripts/start.sh" "$@" ;;
+    update)  exec bash "$REPO_ROOT/scripts/update.sh" "$@" ;;
+    version) exec bash "$REPO_ROOT/scripts/update.sh" --version-only ;;
     reset)   exec bash "$REPO_ROOT/scripts/reset.sh" "$@" ;;
     status)  exec bash "$REPO_ROOT/scripts/status.sh" "$@" ;;
+    logs)
+        LOG_FILE="$REPO_ROOT/lab/data/activity.jsonl"
+        COMP="${1:-all}"; shift || true
+        LINES="${1:-50}"; shift || true
+        if [[ ! -f "$LOG_FILE" ]]; then
+            die "No activity log yet — start the lab first: ./oglab start"
+        fi
+        case "$COMP" in
+            all)
+                say "Tailing all activity (last $LINES lines, Ctrl-C to stop)…"
+                echo ""
+                tail -n "$LINES" "$LOG_FILE" | python3 -c "
+import sys, json
+for line in sys.stdin:
+    try:
+        e = json.loads(line.strip())
+        ts = e.get('ts','')[:19].replace('T',' ')
+        src = e.get('source','?').ljust(12)
+        lvl = e.get('level','info')
+        msg = e.get('message','')
+        colors = {'info':'\033[0m','success':'\033[0;32m','warn':'\033[0;33m','error':'\033[0;31m'}
+        c = colors.get(lvl, '\033[0m')
+        print(f'{c}{ts}  {src}  {msg}\033[0m')
+    except: pass
+"
+                echo ""
+                say "Live tail:"
+                tail -f "$LOG_FILE" | python3 -c "
+import sys, json
+for line in sys.stdin:
+    try:
+        e = json.loads(line.strip())
+        ts = e.get('ts','')[:19].replace('T',' ')
+        src = e.get('source','?').ljust(12)
+        lvl = e.get('level','info')
+        msg = e.get('message','')
+        colors = {'info':'\033[0m','success':'\033[0;32m','warn':'\033[0;33m','error':'\033[0;31m'}
+        c = colors.get(lvl, '\033[0m')
+        print(f'{c}{ts}  {src}  {msg}\033[0m', flush=True)
+    except: pass
+"
+                ;;
+            browser|system|researcher|goal|wiki|pkb|chat|consent)
+                say "Tailing $COMP events (last $LINES, Ctrl-C to stop)…"
+                echo ""
+                grep "\"source\":.*\"$COMP\"" "$LOG_FILE" | tail -n "$LINES" | python3 -c "
+import sys, json
+for line in sys.stdin:
+    try:
+        e = json.loads(line.strip())
+        ts = e.get('ts','')[:19].replace('T',' ')
+        lvl = e.get('level','info')
+        msg = e.get('message','')
+        colors = {'info':'\033[0m','success':'\033[0;32m','warn':'\033[0;33m','error':'\033[0;31m'}
+        c = colors.get(lvl, '\033[0m')
+        print(f'{c}{ts}  {msg}\033[0m')
+    except: pass
+"
+                echo ""
+                say "Live tail ($COMP only):"
+                tail -f "$LOG_FILE" | grep --line-buffered "\"source\":.*\"$COMP\"" | python3 -c "
+import sys, json
+for line in sys.stdin:
+    try:
+        e = json.loads(line.strip())
+        ts = e.get('ts','')[:19].replace('T',' ')
+        lvl = e.get('level','info')
+        msg = e.get('message','')
+        colors = {'info':'\033[0m','success':'\033[0;32m','warn':'\033[0;33m','error':'\033[0;31m'}
+        c = colors.get(lvl, '\033[0m')
+        print(f'{c}{ts}  {msg}\033[0m', flush=True)
+    except: pass
+"
+                ;;
+            help|-h)
+                cat <<LOGSEOF
+
+  Usage: ./oglab logs [component] [lines]
+
+  Components:
+    all          all events (default)
+    browser      web research / agent-browser actions
+    system       portal startup, mode changes, health
+    researcher   research agent — experiments, LLM calls
+    goal         goal set/reset events
+    wiki         wiki rebuild operations
+    pkb          knowledge base ingest, uploads
+    chat         chat API calls, inference
+    consent      domain approval/denial
+
+  Examples:
+    ./oglab logs                # tail all, last 50
+    ./oglab logs browser        # browser agent only
+    ./oglab logs researcher 100 # last 100 researcher events
+    ./oglab logs system 20      # last 20 system events
+
+LOGSEOF
+                ;;
+            *)
+                die "Unknown component: $COMP — run ./oglab logs help for options"
+                ;;
+        esac
+        ;;
     doctor)
         say "Checking environment…"
         [[ -d .venv ]] || { warn "missing .venv — run ./oglab setup"; exit 1; }

@@ -64,12 +64,14 @@
   <span class="logo">{{ brand.logo }}</span>
   <a href="/">Dashboard</a>
   <a href="/knowledge">Knowledge</a>
+  <a href="/open-notebook">Open Notebook</a>
   <a href="/research">Research</a>
   <a href="/terminal" class="active">Terminal</a>
   <a href="/notebook">Notebook</a>
   <a href="/plugins">Plugins</a>
-  <a href="/wiki/graph">Graph</a>
-  <span class="mode-badge airgapped">⬤ Airgapped</span>
+  <a href="/admin">Admin</a>
+  <span class="nav-clock" id="nav-clock"></span>
+  <span class="mode-badge airgapped" id="mode-badge">⬤ Airgapped</span>
 </nav>
 
 <div class="term-wrap">
@@ -152,5 +154,6 @@ cd ttyd && mkdir build && cd build && cmake .. && make && sudo make install</pre
   {% endif %}
 </div>
 
+<script src="/static/nav.js"></script>
 </body>
 </html>

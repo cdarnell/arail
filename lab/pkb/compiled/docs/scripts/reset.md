@@ -4,7 +4,7 @@ section: docs
 tags: [shell, script]
 aliases: [reset, reset.sh]
 source: scripts/reset.sh
-generated: 2026-04-15T11:48:11Z
+generated: 2026-04-15T17:33:38Z
 ---
 
 # reset.sh (shell)
@@ -14,14 +14,14 @@ generated: 2026-04-15T11:48:11Z
 ## Overview
 
 =============================================================================
-OGLab Reset — Clean wipe / selective reset
+${LAB_NAME} Reset — Clean wipe / selective reset
 =============================================================================
 
 ## Usage
 
 ```text
 echo ""
-    echo -e "  ${BOLD}OGLab Reset${RESET}"
+    echo -e "  ${BOLD}${LAB_NAME} Reset${RESET}"
     echo ""
     echo "  Usage: ./oglab reset [mode] [--yes]"
     echo ""

@@ -67,7 +67,11 @@ class CuratorAgent:
         """Given a parsed goal, return a list of proposed source fetches.
 
         Each entry is a consent request the portal will show to the user.
+        Blocked entirely in airgapped mode.
         """
+        import os
+        if os.getenv("OGLAB_MODE", "airgapped").lower() == "airgapped":
+            return []
         domain = parsed_goal.get("domain", "general")
         proposals: List[Dict[str, Any]] = []
 
@@ -99,7 +103,11 @@ class CuratorAgent:
         return results
 
     def fetch_approved(self, request_id: str, url: str) -> Optional[str]:
-        """Fetch a URL that has been approved.  Caches the result."""
+        """Fetch a URL that has been approved.  Caches the result.
+        Hard-blocked in airgapped mode regardless of approval."""
+        import os
+        if os.getenv("OGLAB_MODE", "airgapped").lower() == "airgapped":
+            return None
         # Check cache first
         cached = self._cache_path(url)
         if cached.exists():

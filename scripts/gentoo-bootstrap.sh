@@ -167,7 +167,7 @@ cat > /etc/init.d/oglab-terminal <<'INITEOF'
 name="oglab-terminal"
 description="OGLab browser terminal (ttyd + zsh)"
 command="/usr/bin/ttyd"
-command_args="-W -p 7681 /bin/zsh"
+command_args="-W -p 7681 -t scrollBar=true /bin/zsh"
 pidfile="/run/${RC_SVCNAME}.pid"
 command_background="yes"
 command_user="oglab"

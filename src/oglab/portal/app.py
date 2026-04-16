@@ -184,6 +184,130 @@ async def notebook_page(request: Request):
     })
 
 
+@app.post("/api/notebook/start")
+async def notebook_start():
+    """Start Jupyter Lab as a background process."""
+    import shutil
+    if not shutil.which("jupyter"):
+        return {"ok": False, "error": "jupyter not installed"}
+    bind = os.getenv("BIND_ADDR", "127.0.0.1")
+    port = int(os.getenv("NOTEBOOK_PORT", "8888"))
+    csp = (
+        '{"headers":{"Content-Security-Policy":'
+        '"frame-ancestors \'self\' http://127.0.0.1:* http://localhost:*"}}'
+    )
+    subprocess.Popen(
+        [
+            "jupyter", "lab",
+            "--no-browser",
+            f"--ip={bind}",
+            f"--port={port}",
+            "--NotebookApp.token=",
+            "--NotebookApp.password=",
+            f"--ServerApp.tornado_settings={csp}",
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    # Give it a moment to bind
+    await asyncio.sleep(1.5)
+    return {"ok": True}
+
+
+@app.post("/api/notebook/stop")
+async def notebook_stop():
+    """Stop any Jupyter Lab process listening on the notebook port."""
+    port = int(os.getenv("NOTEBOOK_PORT", "8888"))
+    try:
+        result = subprocess.run(
+            ["lsof", "-ti", f":{port}"],
+            capture_output=True, text=True,
+        )
+        pids = result.stdout.strip().split()
+        for pid in pids:
+            subprocess.run(["kill", pid])
+        return {"ok": True, "killed": pids}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+
+
+# ── Open Notebook (Docker-based NotebookLM alternative) ──────────
+
+def _docker_available() -> bool:
+    try:
+        return subprocess.run(
+            ["docker", "info"], capture_output=True, timeout=5,
+        ).returncode == 0
+    except Exception:
+        return False
+
+
+def _onb_container_running() -> bool:
+    """Check if the open-notebook container is up and healthy."""
+    try:
+        result = subprocess.run(
+            ["docker", "ps", "--filter", "name=oglab-open-notebook",
+             "--filter", "status=running", "--format", "{{.Names}}"],
+            capture_output=True, text=True, timeout=5,
+        )
+        return "oglab-open-notebook" in result.stdout
+    except Exception:
+        return False
+
+
+_COMPOSE_FILE = str(Path(__file__).resolve().parents[3] / "compose" / "open-notebook.yml")
+
+
+@app.get("/open-notebook", response_class=HTMLResponse)
+async def open_notebook_page(request: Request):
+    """First-class page for Open Notebook — 3-state UI like terminal/notebook."""
+    docker_ok = _docker_available()
+    running = _onb_container_running() if docker_ok else False
+    encryption_key_set = bool(os.getenv("OPEN_NOTEBOOK_ENCRYPTION_KEY"))
+    ui_port = int(os.getenv("OPEN_NOTEBOOK_PORT", "8502"))
+    api_port = int(os.getenv("OPEN_NOTEBOOK_API_PORT", "5055"))
+    return templates.TemplateResponse(request, "open-notebook.html", {
+        "docker_available": docker_ok,
+        "container_running": running,
+        "encryption_key_set": encryption_key_set,
+        "ui_port": ui_port,
+        "api_port": api_port,
+    })
+
+
+@app.post("/api/open-notebook/start")
+async def open_notebook_start():
+    """Bring up Open Notebook via docker compose, then seed with lab content."""
+    if not _docker_available():
+        return {"ok": False, "error": "Docker not available"}
+    if not os.getenv("OPEN_NOTEBOOK_ENCRYPTION_KEY"):
+        return {"ok": False, "error": "OPEN_NOTEBOOK_ENCRYPTION_KEY not set — run ./oglab setup"}
+    result = subprocess.run(
+        ["docker", "compose", "-f", _COMPOSE_FILE, "up", "-d"],
+        capture_output=True, text=True, timeout=120,
+    )
+    if result.returncode != 0:
+        return {"ok": False, "error": result.stderr[-500:] if result.stderr else "unknown"}
+    # Seed with lab content in the background (non-blocking)
+    import threading
+    from oglab.open_notebook_seed import seed as seed_onb
+    api_port = int(os.getenv("OPEN_NOTEBOOK_API_PORT", "5055"))
+    threading.Thread(target=seed_onb, args=(api_port,), daemon=True).start()
+    return {"ok": True}
+
+
+@app.post("/api/open-notebook/stop")
+async def open_notebook_stop():
+    """Tear down Open Notebook containers."""
+    result = subprocess.run(
+        ["docker", "compose", "-f", _COMPOSE_FILE, "down"],
+        capture_output=True, text=True, timeout=60,
+    )
+    if result.returncode != 0:
+        return {"ok": False, "error": result.stderr[-500:] if result.stderr else "unknown"}
+    return {"ok": True}
+
+
 @app.get("/plugins", response_class=HTMLResponse)
 async def plugins_page(request: Request):
     plugins = plugin_mgr.list_plugins()
@@ -285,6 +409,15 @@ async def research_resume():
 async def research_stop():
     researcher.stop()
     return {"status": researcher.status}
+
+
+@app.post("/api/research/reset")
+async def research_reset():
+    """Stop research and clear the current goal (archives it)."""
+    researcher.stop()
+    goal_store.clear_current()
+    activity_log.emit("researcher", "Research reset — goal archived, ready for a new one.", "info")
+    return {"status": "idle"}
 
 
 @app.get("/api/research/status")
@@ -439,6 +572,76 @@ async def revoke_domain(request: Request):
 @app.get("/graph", response_class=HTMLResponse)
 async def graph_page(request: Request):
     return templates.TemplateResponse(request, "graph.html")
+
+
+@app.get("/admin", response_class=HTMLResponse)
+async def admin_page(request: Request):
+    """Lab administration — services, components, updates, help."""
+    health = {}
+    try:
+        health = (await system_health())
+    except Exception:
+        pass
+    return templates.TemplateResponse(request, "admin.html", {
+        "health": health,
+    })
+
+
+@app.get("/api/admin/components")
+async def admin_components():
+    """Read components.json and resolve current versions."""
+    import subprocess as sp
+    manifest_path = Path.cwd() / "components.json"
+    if not manifest_path.exists():
+        return {"components": []}
+    manifest = json.loads(manifest_path.read_text())
+    out = []
+    for c in manifest.get("components", []):
+        ver = None
+        vcmd = c.get("version_cmd")
+        if vcmd:
+            try:
+                r = sp.run(vcmd, shell=True, capture_output=True, text=True, timeout=10)
+                ver = r.stdout.strip().split("\n")[0] if r.returncode == 0 else None
+            except Exception:
+                pass
+        out.append({
+            "name": c["name"],
+            "type": c.get("type", ""),
+            "description": c.get("description", ""),
+            "version": ver or c.get("current_version") or "—",
+            "source_url": c.get("source_url"),
+            "changelog_url": c.get("changelog_url"),
+        })
+    return {"components": out}
+
+
+@app.get("/api/admin/check-updates")
+async def admin_check_updates():
+    """Quick remote update check for all components."""
+    mode = os.getenv("OGLAB_MODE", "airgapped")
+    if mode == "airgapped":
+        return {"airgapped": True, "updates_available": 0, "summary": "Airgapped — switch to Hybrid to check."}
+    import subprocess as sp
+    manifest_path = Path.cwd() / "components.json"
+    if not manifest_path.exists():
+        return {"updates_available": 0, "summary": "No components.json found."}
+    manifest = json.loads(manifest_path.read_text())
+    updates = 0
+    names = []
+    for c in manifest.get("components", []):
+        ccmd = c.get("check_cmd")
+        if not ccmd:
+            continue
+        try:
+            r = sp.run(ccmd, shell=True, capture_output=True, text=True, timeout=30)
+            if r.stdout.strip() and "up to date" not in r.stdout:
+                updates += 1
+                names.append(c["name"])
+        except Exception:
+            pass
+    summary = f"{updates} update(s) available" + (f": {', '.join(names)}" if names else "") if updates else "All components up to date."
+    return {"airgapped": False, "updates_available": updates, "summary": summary, "components": names}
 
 
 @app.get("/api/system/graph")
@@ -765,7 +968,46 @@ async def system_health():
         "deep_enabled": deep_enabled,
         "airllm_model": os.getenv("AIRLLM_MODEL", ""),
         "services": services,
+        "mode": os.getenv("OGLAB_MODE", "airgapped"),
     }
+
+
+@app.get("/api/system/mode")
+async def get_mode():
+    return {"mode": os.getenv("OGLAB_MODE", "airgapped")}
+
+
+@app.post("/api/system/mode")
+async def set_mode(request: Request):
+    """Toggle between airgapped and hybrid mode.  Writes to .env and
+    updates the running process environment."""
+    body = await request.json()
+    new_mode = body.get("mode", "").lower()
+    if new_mode not in ("airgapped", "hybrid"):
+        return {"ok": False, "error": "mode must be 'airgapped' or 'hybrid'"}
+    old_mode = os.getenv("OGLAB_MODE", "airgapped")
+    os.environ["OGLAB_MODE"] = new_mode
+    # Persist to .env
+    env_path = Path.cwd() / ".env"
+    if env_path.exists():
+        lines = env_path.read_text().splitlines()
+        out, replaced = [], False
+        for line in lines:
+            if line.startswith("OGLAB_MODE="):
+                out.append(f"OGLAB_MODE={new_mode}")
+                replaced = True
+            else:
+                out.append(line)
+        if not replaced:
+            out.append(f"OGLAB_MODE={new_mode}")
+        env_path.write_text("\n".join(out) + "\n")
+    activity_log.emit(
+        "system",
+        f"Mode switched: {old_mode} → {new_mode}"
+        + (" — agents can now reach the internet" if new_mode == "hybrid" else " — all network access disabled"),
+        "info",
+    )
+    return {"ok": True, "mode": new_mode}
 
 
 @app.get("/api/system/costs")
@@ -875,12 +1117,76 @@ from oglab.pkb import (
 @app.get("/knowledge", response_class=HTMLResponse)
 async def knowledge_page(request: Request):
     data = pkb_browse()
+    current_goal = goal_store.get_current()
     return templates.TemplateResponse(request, "knowledge.html", {
         "pkb": data,
-        # Legacy context key so the existing template doesn't need to change
-        # in this commit; knowledge.html will be updated in a follow-up.
         "pkm": data,
+        "mode": os.getenv("OGLAB_MODE", "airgapped"),
+        "current_goal": current_goal,
     })
+
+
+# ── Browser Agent API ────────────────────────────────────────────────
+
+@app.post("/api/browse")
+async def browse_url_endpoint(request: Request):
+    """Browse a URL via agent-browser, capture screenshot + text."""
+    from oglab.agents.browser import browse_url
+    body = await request.json()
+    url = body.get("url", "").strip()
+    if not url:
+        return {"success": False, "error": "No URL provided"}
+    result = browse_url(url)
+    return result
+
+
+@app.post("/api/browse/chat")
+async def browse_chat_endpoint(request: Request):
+    """Natural-language browser task via agent-browser chat."""
+    from oglab.agents.browser import chat as ab_chat
+    body = await request.json()
+    instruction = body.get("instruction", "").strip()
+    if not instruction:
+        return {"success": False, "error": "No instruction provided"}
+    result = ab_chat(instruction)
+    return result
+
+
+@app.get("/api/browse/suggestions")
+async def browse_suggestions():
+    """Generate goal-driven browse suggestions from credible sources."""
+    from oglab.agents.browser import generate_suggestions
+    current = goal_store.get_current()
+    if not current:
+        return {"suggestions": [], "message": "Set a goal first to get targeted suggestions."}
+    goal_text = current.get("goal_text", "")
+    domain = current.get("parsed", {}).get("domain", "general")
+    suggestions = generate_suggestions(goal_text, domain)
+    return {
+        "suggestions": suggestions,
+        "goal": goal_text,
+        "mode": os.getenv("OGLAB_MODE", "airgapped"),
+    }
+
+
+@app.get("/api/browse/file")
+async def browse_file(path: str = ""):
+    """Serve a browser agent capture (screenshot or extract)."""
+    from fastapi.responses import FileResponse, JSONResponse
+    if not path:
+        return JSONResponse({"error": "path required"}, status_code=400)
+    target = Path(path)
+    # Must be inside the browser data dir
+    browser_dir = DATA_DIR / "browser"
+    try:
+        target.resolve().relative_to(browser_dir.resolve())
+    except ValueError:
+        return JSONResponse({"error": "invalid path"}, status_code=403)
+    if not target.exists() or not target.is_file():
+        return JSONResponse({"error": "not found"}, status_code=404)
+    import mimetypes
+    mt = mimetypes.guess_type(str(target))[0] or "application/octet-stream"
+    return FileResponse(str(target), media_type=mt)
 
 
 @app.get("/api/pkb/browse")

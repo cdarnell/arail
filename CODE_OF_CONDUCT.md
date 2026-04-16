@@ -1,10 +1,10 @@
 # Contributor Code of Conduct
 
-OGLab is a blueprint meant to be forked, adapted, and shared. Everyone who contributes — via code, issues, docs, or discussion — agrees to the expectations below.
+OGLab is a blueprint meant to be forked, adapted, and shared.  Everyone who contributes — via code, issues, docs, or discussion — agrees to the expectations below.
 
 ## Our pledge
 
-No doubt this is a shared platform and pledge to make participation a harassment-free experience for everyone, regardless of age, body size, visible or invisible disability, ethnicity, sex characteristics, gender identity and expression, level of experience, education, socio-economic status, nationality, personal appearance, race, religion, or sexual identity and orientation.
+No doubt this is just a starting point platform to share with friends and family.  A platform and pledge to make participation a harassment-free experience for everyone, regardless of age, body size, visible or invisible disability, ethnicity, sex characteristics, gender identity and expression, level of experience, education, socio-economic status, nationality, personal appearance, race, religion, or sexual identity and orientation.
 
 ## Our standards
 

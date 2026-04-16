@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ brand.name }} — Admin</title>
+<link rel="stylesheet" href="/static/style.css">
+<style>
+  .admin-wrap { padding: 1.25rem 1.5rem; max-width: 960px; }
+  .admin-wrap h1 { color: var(--green); text-shadow: var(--glow-green); margin-bottom: 0.25rem; font-size: 1.1rem; }
+  .admin-wrap .subtitle { color: var(--muted); font-size: 0.8rem; margin-bottom: 1.5rem; }
+
+  .admin-section { margin-bottom: 2rem; }
+  .admin-section h2 {
+    font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.1em;
+    color: var(--muted); margin-bottom: 0.75rem;
+    padding-bottom: 0.4rem; border-bottom: 1px solid var(--border);
+  }
+
+  .admin-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 0.6rem;
+  }
+  .admin-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 0.9rem 1rem; cursor: pointer;
+    transition: all 0.12s;
+  }
+  .admin-card:hover { border-color: var(--green); }
+  .admin-card .ac-title { font-weight: 600; font-size: 0.85rem; color: var(--text-hi); }
+  .admin-card .ac-desc { font-size: 0.72rem; color: var(--muted); margin-top: 0.2rem; }
+
+  /* Component table */
+  .comp-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+  .comp-table th {
+    text-align: left; font-size: 0.68rem; text-transform: uppercase;
+    letter-spacing: 0.08em; color: var(--muted); padding: 0.4rem 0.6rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .comp-table td { padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--border); }
+  .comp-table tr:last-child td { border-bottom: none; }
+  .comp-table .comp-name { font-weight: 600; color: var(--text-hi); }
+  .comp-table .comp-ver { color: var(--blue); font-family: var(--font); }
+  .comp-table .comp-type {
+    font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--muted);
+  }
+  .comp-table a { color: var(--muted); text-decoration: none; }
+  .comp-table a:hover { color: var(--green); }
+
+  /* Status indicators */
+  .svc-status { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+  .svc-chip {
+    display: inline-flex; align-items: center; gap: 0.35rem;
+    padding: 0.3rem 0.7rem; border-radius: 999px; font-size: 0.72rem;
+    border: 1px solid var(--border); background: var(--surface);
+  }
+  .svc-chip .svc-dot { width: 6px; height: 6px; border-radius: 50%; }
+  .svc-chip .svc-dot.up { background: var(--green); box-shadow: 0 0 4px rgba(0,255,65,.4); }
+  .svc-chip .svc-dot.down { background: var(--red); }
+
+  /* Help section */
+  .help-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+  .help-block { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.8rem 1rem; }
+  .help-block h3 { color: var(--blue); font-size: 0.82rem; margin-bottom: 0.4rem; }
+  .help-block pre {
+    background: var(--bg); border: 1px solid var(--border); border-radius: 4px;
+    padding: 0.6rem 0.8rem; font-size: 0.75rem; color: var(--amber);
+    margin: 0.3rem 0; white-space: pre-wrap;
+  }
+  .help-block p { font-size: 0.78rem; color: var(--text); line-height: 1.6; margin: 0.3rem 0; }
+
+  #admin-log { margin-top: 0.5rem; font-size: 0.78rem; color: var(--muted); min-height: 1.2rem; }
+  #admin-log.success { color: var(--green); }
+  #admin-log.error { color: var(--red); }
+</style>
+</head>
+<body>
+
+<nav>
+  <span class="logo">{{ brand.logo }}</span>
+  <a href="/">Dashboard</a>
+  <a href="/knowledge">Knowledge</a>
+  <a href="/open-notebook">Open Notebook</a>
+  <a href="/research">Research</a>
+  <a href="/terminal">Terminal</a>
+  <a href="/notebook">Notebook</a>
+  <a href="/plugins">Plugins</a>
+  <a href="/admin" class="active">Admin</a>
+  <span class="nav-clock" id="nav-clock"></span>
+  <span class="mode-badge airgapped" id="mode-badge">⬤ Airgapped</span>
+</nav>
+
+<div class="admin-wrap">
+  <h1>Lab Administration</h1>
+  <p class="subtitle">{{ brand.name }} v{{ brand.version }} — manage services, check updates, get help</p>
+
+  <!-- ═══ Quick Actions ═══ -->
+  <div class="admin-section">
+    <h2>Quick Actions</h2>
+    <div class="admin-grid">
+      <div class="admin-card" onclick="adminAction('/api/system/health', 'GET', 'Health check')">
+        <div class="ac-title">Health Check</div>
+        <div class="ac-desc">CPU, RAM, disk, GPU, services</div>
+      </div>
+      <div class="admin-card" onclick="if(confirm('Restart all lab services?')) adminAction('/api/system/restart', 'POST', 'Restarting…')">
+        <div class="ac-title">Restart Lab</div>
+        <div class="ac-desc">Stop + start all services</div>
+      </div>
+      <div class="admin-card" onclick="window.open('/graph', '_blank')">
+        <div class="ac-title">System Graph</div>
+        <div class="ac-desc">Visual architecture map</div>
+      </div>
+      <div class="admin-card" onclick="checkUpdates()">
+        <div class="ac-title">Check Updates</div>
+        <div class="ac-desc">Scan components for new versions</div>
+      </div>
+    </div>
+    <div id="admin-log"></div>
+  </div>
+
+  <!-- ═══ Services ═══ -->
+  <div class="admin-section">
+    <h2>Service Status</h2>
+    <div class="svc-status" id="svc-status">loading…</div>
+  </div>
+
+  <!-- ═══ Components ═══ -->
+  <div class="admin-section">
+    <h2>Installed Components</h2>
+    <table class="comp-table">
+      <thead><tr><th>Component</th><th>Version</th><th>Type</th><th>Source</th></tr></thead>
+      <tbody id="comp-tbody"><tr><td colspan="4" style="color:var(--muted)">loading…</td></tr></tbody>
+    </table>
+  </div>
+
+  <!-- ═══ Activity Log ═══ -->
+  <div class="admin-section">
+    <h2>Activity Log</h2>
+    <div style="display:flex; gap:0.5rem; align-items:center; margin-bottom:0.5rem; flex-wrap:wrap;">
+      <select id="log-source" style="background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:0.25rem 0.4rem;font-size:0.75rem;">
+        <option value="">all sources</option>
+        <option value="system">system</option>
+        <option value="browser">browser</option>
+        <option value="researcher">researcher</option>
+        <option value="goal">goal</option>
+        <option value="wiki">wiki</option>
+        <option value="pkb">pkb</option>
+        <option value="chat">chat</option>
+        <option value="consent">consent</option>
+      </select>
+      <select id="log-level" style="background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:0.25rem 0.4rem;font-size:0.75rem;">
+        <option value="">all levels</option>
+        <option value="error">error</option>
+        <option value="warn">warn</option>
+        <option value="info">info</option>
+        <option value="success">success</option>
+      </select>
+      <button onclick="loadLogs()" style="background:var(--surface);color:var(--green);border:1px solid var(--border);border-radius:4px;padding:0.25rem 0.6rem;font-size:0.75rem;cursor:pointer;">Refresh</button>
+      <label style="font-size:0.7rem;color:var(--muted);margin-left:auto;">
+        <input type="checkbox" id="log-live" checked> Live tail
+      </label>
+      <span style="font-size:0.68rem;color:var(--muted);">CLI: <code style="color:var(--amber);">./oglab logs [component]</code></span>
+    </div>
+    <div id="log-viewer" style="background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:0.5rem 0.75rem;max-height:300px;overflow-y:auto;font-family:var(--font);font-size:0.72rem;line-height:1.6;">
+      loading…
+    </div>
+  </div>
+
+  <!-- ═══ Help / Reference ═══ -->
+  <div class="admin-section">
+    <h2>Help &amp; Reference</h2>
+    <div class="help-grid">
+      <div class="help-block">
+        <h3>Common Commands</h3>
+        <pre>./oglab start       # launch all services
+./oglab stop        # stop all services
+./oglab restart     # quick bounce
+./oglab update      # check &amp; apply updates
+./oglab version     # show component versions
+./oglab status      # what's running
+./oglab logs        # tail activity log (all)
+./oglab logs browser    # browser events only
+./oglab logs researcher # research events only</pre>
+      </div>
+      <div class="help-block">
+        <h3>Setup &amp; Configuration</h3>
+        <pre>./oglab setup       # first-time setup
+./oglab doctor      # validate environment
+./oglab reset full  # factory reset (careful!)
+./oglab pkb compile # rebuild knowledge base</pre>
+      </div>
+      <div class="help-block">
+        <h3>Environment</h3>
+        <p>All configuration lives in <strong>.env</strong> at the repo root.
+        Key settings: MODEL_BACKEND, MODEL_NAME, OGLAB_MODE,
+        LAB_ACTIVE_HOURS, LAB_HEAVY_HOURS.</p>
+        <p>Edit in the terminal tab or directly in your editor.</p>
+      </div>
+      <div class="help-block">
+        <h3>Updating Components</h3>
+        <p>Run <strong>./oglab update</strong> to check all components.
+        Use <strong>--check</strong> for a dry run. Update a single
+        component with <strong>--component open-notebook</strong>.</p>
+        <p>Components are tracked in <strong>components.json</strong>.</p>
+      </div>
+      <div class="help-block">
+        <h3>Airgapped vs Hybrid</h3>
+        <p>Click the mode badge in the nav to toggle.
+        <strong>Airgapped:</strong> zero network calls, fully local.
+        <strong>Hybrid:</strong> agents can browse the web (with your approval per domain).</p>
+      </div>
+      <div class="help-block">
+        <h3>AI Models</h3>
+        <p><strong>Fast SLM:</strong> {{ health.model or 'loading…' }} (always on)<br>
+        <strong>Deep AirLLM:</strong> {{ health.airllm_model or 'not configured' }} (heavy window only)<br>
+        <strong>Ollama:</strong> local API server for Open Notebook + browser agent</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function adminLog(msg, cls) {
+  const el = document.getElementById('admin-log');
+  el.textContent = msg;
+  el.className = cls || '';
+}
+
+async function adminAction(url, method, label) {
+  adminLog(label + '…');
+  try {
+    const r = await fetch(url, {method: method || 'GET'});
+    const d = await r.json();
+    if (d.error) { adminLog(d.error, 'error'); return; }
+    adminLog(label + ' — done', 'success');
+    // If health check, show a summary
+    if (url.includes('health')) {
+      adminLog(`CPU: ${d.cpu_count} cores | RAM: ${d.ram_used_gb}/${d.ram_total_gb} GB (${d.ram_pct}%) | Disk: ${d.disk_free_gb} GB free | Backend: ${d.backend} | Model: ${d.model}`, 'success');
+    }
+  } catch(e) { adminLog('Failed: ' + e.message, 'error'); }
+}
+
+async function checkUpdates() {
+  adminLog('Checking for updates… (this may take a moment)');
+  try {
+    const r = await fetch('/api/admin/check-updates');
+    const d = await r.json();
+    if (d.airgapped) { adminLog('Airgapped — switch to Hybrid to check remote updates.', 'error'); return; }
+    adminLog(d.summary || 'Check complete.', d.updates_available > 0 ? '' : 'success');
+  } catch(e) { adminLog('Failed: ' + e.message, 'error'); }
+}
+
+// Load service status
+fetch('/api/system/health').then(r => r.json()).then(d => {
+  const el = document.getElementById('svc-status');
+  const svcs = d.services || {};
+  el.innerHTML = Object.entries(svcs).map(([name, up]) =>
+    `<span class="svc-chip"><span class="svc-dot ${up ? 'up' : 'down'}"></span>${name}</span>`
+  ).join('');
+}).catch(() => {
+  document.getElementById('svc-status').textContent = 'Could not reach health API.';
+});
+
+// Load components from manifest
+fetch('/api/admin/components').then(r => r.json()).then(data => {
+  const tbody = document.getElementById('comp-tbody');
+  tbody.innerHTML = data.components.map(c =>
+    `<tr>
+      <td class="comp-name">${c.name}</td>
+      <td class="comp-ver">${c.version || '—'}</td>
+      <td class="comp-type">${c.type}</td>
+      <td>${c.source_url ? `<a href="${c.source_url}" target="_blank" rel="noopener">${c.source_url.replace('https://github.com/','')}</a>` : '—'}</td>
+    </tr>`
+  ).join('');
+}).catch(() => {
+  document.getElementById('comp-tbody').innerHTML = '<tr><td colspan="4" style="color:var(--red)">Failed to load components</td></tr>';
+});
+
+// ── Activity Log Viewer ──────────────────────────────────────────────
+const logViewer = document.getElementById('log-viewer');
+const logSource = document.getElementById('log-source');
+const logLevel = document.getElementById('log-level');
+const logLive = document.getElementById('log-live');
+const levelColors = {info: 'var(--text)', success: 'var(--green)', warn: 'var(--amber)', error: 'var(--red)'};
+
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+function renderEvent(e) {
+  const ts = (e.ts || '').substring(0, 19).replace('T', ' ');
+  const color = levelColors[e.level] || 'var(--text)';
+  const src = (e.source || '?').padEnd(12);
+  return `<div style="color:${color}"><span style="color:var(--muted)">${esc(ts)}</span>  <span style="color:var(--blue)">${esc(src)}</span>  ${esc(e.message || '')}</div>`;
+}
+
+function loadLogs() {
+  fetch('/api/activity/recent?n=100').then(r => r.json()).then(events => {
+    const src = logSource.value;
+    const lvl = logLevel.value;
+    const filtered = events.filter(e =>
+      (!src || e.source === src) && (!lvl || e.level === lvl)
+    );
+    logViewer.innerHTML = filtered.length
+      ? filtered.map(renderEvent).join('')
+      : '<span style="color:var(--muted)">No matching events.</span>';
+    logViewer.scrollTop = logViewer.scrollHeight;
+  }).catch(() => { logViewer.innerHTML = '<span style="color:var(--red)">Failed to load activity log.</span>'; });
+}
+
+// Live tail via SSE
+let logSSE = null;
+function startLogSSE() {
+  if (logSSE) logSSE.close();
+  logSSE = new EventSource('/api/activity/stream');
+  logSSE.onmessage = (ev) => {
+    if (!logLive.checked) return;
+    try {
+      const e = JSON.parse(ev.data);
+      const src = logSource.value;
+      const lvl = logLevel.value;
+      if (src && e.source !== src) return;
+      if (lvl && e.level !== lvl) return;
+      logViewer.insertAdjacentHTML('beforeend', renderEvent(e));
+      logViewer.scrollTop = logViewer.scrollHeight;
+    } catch {}
+  };
+}
+
+logSource.addEventListener('change', loadLogs);
+logLevel.addEventListener('change', loadLogs);
+loadLogs();
+startLogSSE();
+</script>
+<script src="/static/nav.js"></script>
+</body>
+</html>

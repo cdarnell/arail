@@ -92,6 +92,14 @@ class GoalStore:
             current["updated_at"] = _now()
             self._save_current(current)
 
+    def clear_current(self) -> None:
+        """Archive and remove the current goal."""
+        current = self.get_current()
+        if current:
+            self._archive(current)
+        if CURRENT_FILE.exists():
+            CURRENT_FILE.unlink()
+
     def list_history(self) -> List[Dict[str, Any]]:
         history = []
         for f in sorted(HISTORY_DIR.glob("*.json"), reverse=True):

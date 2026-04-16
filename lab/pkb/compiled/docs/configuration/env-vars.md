@@ -4,12 +4,26 @@ section: docs
 tags: [configuration, env, reference]
 aliases: [env-vars, configuration]
 source: .env.example
-generated: 2026-04-15T11:48:11Z
+generated: 2026-04-16T11:07:31Z
 ---
 
 # Configuration reference
 
 Auto-generated from `.env.example`. Copy that file to `.env` and edit the values you need; the lab reads env vars at startup via `python-dotenv`.
+
+### `LAB_NAME`
+
+BRAND — make this lab your own. Every user-facing string (portal title, dashboard logo, activity log, status banner, wiki landing page) reads LAB_NAME at runtime. The Python package stays `oglab` so imports and the ./oglab CLI don't change, but everything the user *sees* can be rebranded with one .env edit. `./oglab setup` prompts for these on first run.
+
+**Default:** `OGLab`
+
+### `LAB_SHORT_NAME`
+
+**Default:** `oglab`
+
+### `LAB_TAGLINE`
+
+**Default:** `"AI Lab Blueprint"`
 
 ### `OGLAB_MODE`
 
@@ -63,7 +77,7 @@ WIKI — documentation-as-code auto-rebuild behavior.  The researcher agent and 
 
 AIRLLM  (deeper async work — smaller open model compressed from disk) Set MODEL_BACKEND=airllm or let the researcher agent use it automatically.
 
-**Default:** `Qwen/Qwen3-8B`
+**Default:** `Qwen/Qwen3-235B-A22B`
 
 ### `AIRLLM_COMPRESSION`
 

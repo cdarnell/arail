@@ -4,7 +4,7 @@ section: docs
 tags: [python, module]
 aliases: [goals, goals.py]
 source: src/oglab/goals.py
-generated: 2026-04-15T11:48:11Z
+generated: 2026-04-16T11:30:32Z
 ---
 
 # goals module
@@ -30,4 +30,6 @@ Manages the active goal and archives old ones.
 - `add_finding(self, finding)`
 - `set_report(self, report)`
 - `update_progress(self, progress)`
+- `clear_current(self)`
+    - Archive and remove the current goal.
 - `list_history(self)`

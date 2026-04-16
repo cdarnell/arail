@@ -4,7 +4,7 @@ section: docs
 tags: [shell, script]
 aliases: [setup, setup.sh]
 source: scripts/setup.sh
-generated: 2026-04-15T11:48:11Z
+generated: 2026-04-15T23:58:08Z
 ---
 
 # setup.sh (shell)
@@ -21,6 +21,7 @@ Detects your platform, installs dependencies, downloads a starter model.
 ## Functions
 
 - `_set_env_var()`
+- `capture_brand()`
 - `capture_goal()`
 - `capture_password()`
 - `detect_platform()`
@@ -31,6 +32,7 @@ Detects your platform, installs dependencies, downloads a starter model.
 - `info()`
 - `install_accel_deps()`
 - `install_core_deps()`
+- `install_services()`
 - `main()`
 - `setup_env()`
 - `setup_pkb()`

@@ -18,7 +18,7 @@ error() { echo -e "${RED}[oglab]${RESET} $*"; exit 1; }
 MODEL_MLX_ID="mlx-community/Qwen3-8B-4bit"
 MODEL_HF_ID="Qwen/Qwen3-8B"
 MODEL_GGUF_ID="Qwen/Qwen3-8B-GGUF"
-AIRLLM_MODEL_ID="Qwen/Qwen3-8B"
+AIRLLM_MODEL_ID="Qwen/Qwen3-235B-A22B"
 
 # Unified password — set by capture_password() below. One secret covers:
 #   - code-server (IDE) login
@@ -181,6 +181,52 @@ install_services() {
     else
         info "tmux already installed ($(tmux -V 2>&1))"
     fi
+
+    # agent-browser — web research agent for the Knowledge tab.
+    if ! command -v agent-browser &>/dev/null; then
+        if command -v npm &>/dev/null; then
+            info "Installing agent-browser…"
+            npm install -g agent-browser 2>&1 | tail -3 || warn "agent-browser install failed — Knowledge tab browse will be unavailable."
+            command -v agent-browser &>/dev/null && agent-browser install 2>&1 | tail -3 || true
+        else
+            warn "npm not found — skipping agent-browser. Install Node.js to enable web research."
+        fi
+    else
+        info "agent-browser already installed"
+    fi
+
+    # Ollama — local LLM server. Required for Open Notebook AI features
+    # and agent-browser chat. Provides an OpenAI-compatible API that
+    # Docker containers can reach at host.docker.internal:11434.
+    if ! command -v ollama &>/dev/null; then
+        case "$PLATFORM" in
+            macos)
+                if command -v brew &>/dev/null; then
+                    info "Installing Ollama…"
+                    brew install ollama 2>&1 | tail -3 || warn "Ollama install failed — Open Notebook AI features will require manual setup."
+                else
+                    warn "Homebrew not found — install Ollama manually: https://ollama.com"
+                fi
+                ;;
+            *)
+                info "Install Ollama for local AI features: https://ollama.com"
+                ;;
+        esac
+    else
+        info "Ollama already installed ($(ollama --version 2>&1 | head -1))"
+    fi
+
+    # Pull a default model for Ollama if none exist
+    if command -v ollama &>/dev/null; then
+        local model_count
+        model_count=$(ollama list 2>/dev/null | tail -n +2 | wc -l | tr -d ' ') || model_count="0"
+        if [[ "$model_count" == "0" ]]; then
+            info "Pulling default Ollama model (qwen3:8b) — this may take a few minutes…"
+            ollama pull qwen3:8b 2>&1 | tail -5 || warn "Model pull failed — run manually: ollama pull qwen3:8b"
+        else
+            info "Ollama has $model_count model(s) available"
+        fi
+    fi
 }
 
 # -----------------------------------------------------------------------------
@@ -262,16 +308,16 @@ capture_brand() {
 }
 
 # -----------------------------------------------------------------------------
-# Unified password — one secret for IDE + Open Notebook + future auth
+# Unified passphrase — one secret for IDE + Open Notebook + future auth
 # -----------------------------------------------------------------------------
 capture_password() {
-    # Reuse an existing password if one is already stored in .env.
+    # Reuse an existing passphrase if one is already stored in .env.
     if [[ -f .env ]]; then
         local existing
         existing="$(grep -E '^OGLAB_PASSWORD=' .env | head -n1 | cut -d= -f2-)"
         if [[ -n "$existing" && "$existing" != "change-me" ]]; then
             OGLAB_PASSWORD="$existing"
-            info "Reusing existing OGLAB_PASSWORD from .env"
+            info "Reusing existing passphrase from .env"
             return
         fi
     fi
@@ -282,24 +328,31 @@ capture_password() {
     # Non-interactive path — just use the generated value.
     if [[ ! -t 0 ]] || [[ "${OGLAB_NONINTERACTIVE:-0}" == "1" ]]; then
         OGLAB_PASSWORD="$generated"
-        info "Generated OGLAB_PASSWORD (non-interactive). See .env after setup."
+        info "Generated passphrase (non-interactive). See .env after setup."
         return
     fi
 
     echo ""
-    echo -e "${BOLD}━━━ Lab password${RESET}"
+    echo -e "${BOLD}━━━ Lab passphrase${RESET}"
     echo ""
-    echo "  One password covers every login surface in the lab:"
+    echo "  One passphrase secures every surface in the lab:"
     echo "    • code-server IDE  (http://127.0.0.1:8443)"
-    echo "    • Open Notebook    (encrypts your research data)"
+    echo "    • Open Notebook    (encrypts your research data at rest)"
     echo ""
     echo "  Press Enter to accept a generated value, or type your own."
     echo ""
-    read -rsp "  Password [generated]: " typed
-    echo ""
+    read -rp "  Passphrase [generated]: " typed || typed=""
     OGLAB_PASSWORD="${typed:-$generated}"
     if [[ -z "$typed" ]]; then
-        info "Using generated password — saved to .env and lab.conf."
+        info "Using generated passphrase — saved to .env and lab.conf."
+    else
+        info "Passphrase set."
+    fi
+
+    # Belt-and-suspenders: verify the variable is non-empty.
+    if [[ -z "$OGLAB_PASSWORD" ]]; then
+        OGLAB_PASSWORD="$generated"
+        warn "Passphrase was empty — using generated value."
     fi
 }
 
@@ -330,10 +383,15 @@ setup_env() {
         info ".env already exists — preserving model settings."
     fi
 
-    # Password + add-on keys: always ensure they match OGLAB_PASSWORD.
+    # Passphrase + add-on keys: always ensure they match OGLAB_PASSWORD.
     # Idempotent — safe to re-run on an existing .env.
-    _set_env_var OGLAB_PASSWORD "$OGLAB_PASSWORD"
-    _set_env_var OPEN_NOTEBOOK_ENCRYPTION_KEY "$OGLAB_PASSWORD"
+    if [[ -n "$OGLAB_PASSWORD" ]]; then
+        _set_env_var OGLAB_PASSWORD "$OGLAB_PASSWORD"
+        _set_env_var OPEN_NOTEBOOK_ENCRYPTION_KEY "$OGLAB_PASSWORD"
+        info "Passphrase written to .env (OGLAB_PASSWORD + OPEN_NOTEBOOK_ENCRYPTION_KEY)"
+    else
+        warn "OGLAB_PASSWORD is empty — passphrase not written. Re-run ./oglab setup."
+    fi
 
     # Persist brand fields so every subsequent run reads the user's choice.
     if [[ -n "${LAB_NAME:-}" ]]; then

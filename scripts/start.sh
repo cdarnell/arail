@@ -44,15 +44,22 @@ if command -v ttyd &>/dev/null; then
     # tab, navigating away, or reloading the iframe doesn't nuke the
     # user's scrollback, pwd, running jobs, or env. New connections
     # reattach to the same session (`-A` = attach or create).
+    # -t disableLeaveAlert=true suppresses ttyd's built-in
+    # "Are you sure you want to leave?" prompt that used to fire on
+    # every nav click. tmux already keeps the session alive, so the
+    # warning is noise — not protection — inside the portal.
+    TTYD_OPTS=(-W -p "${TERMINAL_PORT:-7681}" -i "$BIND"
+               -t disableLeaveAlert=true
+               -t scrollBar=true)
     if command -v tmux &>/dev/null; then
         TMUX_SHELL="${SHELL:-/bin/bash}"
-        ttyd -W -p "${TERMINAL_PORT:-7681}" -i "$BIND" \
+        ttyd "${TTYD_OPTS[@]}" \
             tmux new-session -A -s "${LAB_SHORT_NAME:-oglab}" \
                 "$TMUX_SHELL" &
     else
         warn "tmux not installed — terminal scrollback won't survive iframe reloads"
         warn "install: brew install tmux (mac) · sudo apt install tmux (linux)"
-        ttyd -W -p "${TERMINAL_PORT:-7681}" -i "$BIND" "${SHELL:-bash}" &
+        ttyd "${TTYD_OPTS[@]}" "${SHELL:-bash}" &
     fi
     PIDS+=($!)
 else
@@ -79,7 +86,8 @@ if command -v jupyter &>/dev/null; then
         --ip="$BIND" \
         --port="${NOTEBOOK_PORT:-8888}" \
         --NotebookApp.token="" \
-        --NotebookApp.password="" &
+        --NotebookApp.password="" \
+        --ServerApp.tornado_settings='{"headers":{"Content-Security-Policy":"frame-ancestors '\''self'\'' http://127.0.0.1:* http://localhost:*"}}' &
     PIDS+=($!)
 else
     info "Notebook   → (jupyter not installed — skipping)"

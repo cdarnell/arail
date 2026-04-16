@@ -4,7 +4,7 @@ section: docs
 tags: [shell, script]
 aliases: [oglab, oglab]
 source: oglab
-generated: 2026-04-15T11:48:11Z
+generated: 2026-04-16T11:07:31Z
 ---
 
 # oglab (shell)
@@ -19,6 +19,7 @@ Usage: ./oglab <command> [args]
 setup    provision venv, deps, model, lab/ scaffolding (first-time setup)
 start    launch portal + terminal + notebook + IDE
 stop     stop running lab services
+restart  stop then start
 reset    wipe models/data/env/plugins (see: ./oglab reset help)
 status   show what's running and where
 doctor   validate the environment end-to-end
@@ -32,7 +33,7 @@ help     show this message
 ```text
 cat <<EOF
 
-  $(printf '\033[1m')oglab$(printf '\033[0m') — local AI research lab
+  $(printf '\033[1m')${LAB_NAME}$(printf '\033[0m') — ${LAB_TAGLINE}
 
   Usage: ./oglab <command> [args]
 
@@ -40,6 +41,7 @@ cat <<EOF
     setup         provision everything (venv, deps, model, lab/ dirs)
     start         launch portal + terminal + notebook + IDE
     stop          stop running lab services
+    restart       stop then start (quick bounce)
     status        show what's running
     doctor        validate the environment end-to-end
     reset [mode]  wipe state — models|data|plugins|env|full|destroy

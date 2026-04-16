@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ brand.name }} — Open Notebook</title>
+<link rel="stylesheet" href="/static/style.css">
+<style>
+  .onb-topbar { display: flex; align-items: center; gap: 0.8rem; justify-content: space-between; } .onb-topbar .onb-hint { margin: 0; flex: 1; } .onb-wrap { padding: 0.8rem 1rem; height: calc(100vh - 52px); display: flex; flex-direction: column; gap: 0.6rem; }
+  .onb-hint { color: var(--muted); font-size: 0.75rem; }
+  .onb-hint code {
+    background: var(--surface);
+    padding: 0.1rem 0.4rem;
+    border-radius: 3px;
+    color: var(--amber);
+  }
+  .onb-frame {
+    flex: 1;
+    width: 100%;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: #0a0c14;
+    /* Force dark appearance — inverts ON's light theme to match the lab.
+       hue-rotate(180deg) corrects color inversion so greens/blues stay true. */
+    filter: invert(0.88) hue-rotate(180deg);
+  }
+  .onb-install {
+    flex: 1;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 2rem 2.5rem;
+    max-width: 780px;
+    margin: 0 auto;
+    color: var(--text);
+    overflow-y: auto;
+  }
+  .onb-install h1 { color: var(--green); text-shadow: var(--glow-green); margin-top: 0; }
+  .onb-install h3 { color: var(--blue); margin-top: 1.6rem; }
+  .onb-install pre {
+    background: #0a0c14;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1rem 1.2rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    color: var(--amber);
+    white-space: pre-wrap;
+    overflow-x: auto;
+  }
+  .onb-install .status-pill {
+    display: inline-block;
+    padding: 0.2rem 0.6rem;
+    border-radius: 999px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-right: 0.5rem;
+  }
+  .status-installed { background: rgba(0,255,65,0.08); color: var(--green); border: 1px solid rgba(0,255,65,0.25); }
+  .status-missing { background: rgba(255,51,85,0.08); color: var(--red); border: 1px solid rgba(255,51,85,0.25); }
+  .status-notrun { background: rgba(255,176,0,0.08); color: var(--amber); border: 1px solid rgba(255,176,0,0.25); }
+</style>
+</head>
+<body>
+<nav>
+  <span class="logo">{{ brand.logo }}</span>
+  <a href="/">Dashboard</a>
+  <a href="/knowledge">Knowledge</a>
+  <a href="/open-notebook" class="active">Open Notebook</a>
+  <a href="/research">Research</a>
+  <a href="/terminal">Terminal</a>
+  <a href="/notebook">Notebook</a>
+  <a href="/plugins">Plugins</a>
+  <a href="/admin">Admin</a>
+  <span class="nav-clock" id="nav-clock"></span>
+  <span class="mode-badge airgapped" id="mode-badge">⬤ Airgapped</span>
+</nav>
+
+<div class="onb-wrap">
+  {% if container_running %}
+  <div class="onb-topbar">
+    <p class="onb-hint">
+      <strong>Open Notebook</strong> — self-hosted NotebookLM alternative.
+      Organize PDFs, videos, audio &amp; web pages. Generate podcasts, chat
+      with your sources, search across everything.
+      API docs at <code>:{{ api_port }}/docs</code>.
+    </p>
+    <div style="display:flex;gap:0.5rem;">
+      <button class="btn btn-sm btn-ghost" id="onb-restart" title="Restart containers">↻ Restart</button>
+      <button class="btn btn-sm btn-ghost" id="onb-stop" title="Stop containers" style="color:var(--red);">■ Stop</button>
+      <button class="btn btn-sm btn-ghost" id="onb-popout"
+              title="Open in its own window">
+        ⇱ Pop out
+      </button>
+    </div>
+  </div>
+  <iframe class="onb-frame" src="http://127.0.0.1:{{ ui_port }}" title="Open Notebook"></iframe>
+  <script>
+  document.getElementById('onb-popout').addEventListener('click', () => {
+    window.open(
+      'http://127.0.0.1:{{ ui_port }}',
+      '{{ brand.short_name }}-open-notebook',
+      'width=1400,height=900,noopener'
+    );
+  });
+  document.getElementById('onb-stop').addEventListener('click', async () => {
+    if (!confirm('Stop Open Notebook containers?')) return;
+    const btn = document.getElementById('onb-stop');
+    btn.textContent = '■ Stopping…';
+    btn.disabled = true;
+    await fetch('/api/open-notebook/stop', {method: 'POST'});
+    location.reload();
+  });
+  document.getElementById('onb-restart').addEventListener('click', async () => {
+    const btn = document.getElementById('onb-restart');
+    btn.textContent = '↻ Restarting…';
+    btn.disabled = true;
+    await fetch('/api/open-notebook/stop', {method: 'POST'});
+    await fetch('/api/open-notebook/start', {method: 'POST'});
+    location.reload();
+  });
+  </script>
+
+  {% elif docker_available and encryption_key_set %}
+  <div class="onb-install">
+    <h1>Open Notebook not running</h1>
+    <p>
+      <span class="status-pill status-installed">✓ docker</span>
+      <span class="status-pill status-installed">✓ encryption key</span>
+      <span class="status-pill status-notrun">○ not running</span>
+    </p>
+    <p>
+      Docker is available and the encryption key is configured. Start
+      Open Notebook with one click — your lab's research, experiments,
+      and documentation will be pre-loaded automatically.
+    </p>
+    <p>
+      <button class="btn btn-sm" id="onb-start"
+              style="background:var(--green);color:#000;font-weight:700;padding:0.4rem 1.2rem;cursor:pointer;">
+        ▶ Start Open Notebook
+      </button>
+    </p>
+    <script>
+    document.getElementById('onb-start').addEventListener('click', async () => {
+      const btn = document.getElementById('onb-start');
+      btn.textContent = '⏳ Starting containers + seeding lab content…';
+      btn.disabled = true;
+      const res = await fetch('/api/open-notebook/start', {method: 'POST'});
+      const data = await res.json();
+      if (data.ok) {
+        // Give containers + seed time to become responsive
+        setTimeout(() => location.reload(), 8000);
+      } else {
+        btn.textContent = '✗ ' + (data.error || 'Failed');
+        btn.style.background = 'var(--red)';
+      }
+    });
+    </script>
+    <p style="margin-top:1rem;color:var(--muted);font-size:0.8rem;">
+      Or start manually:
+    </p>
+    <pre>docker compose -f compose/open-notebook.yml up -d</pre>
+  </div>
+
+  {% elif docker_available and not encryption_key_set %}
+  <div class="onb-install">
+    <h1>Open Notebook — passphrase needed</h1>
+    <p>
+      <span class="status-pill status-installed">✓ docker</span>
+      <span class="status-pill status-missing">✗ passphrase</span>
+    </p>
+    <p>
+      Open Notebook encrypts stored API keys and research data at rest.
+      Run <code>./oglab setup</code> to set a lab passphrase (it derives
+      the encryption key automatically), or add it manually:
+    </p>
+    <pre># .env
+OPEN_NOTEBOOK_ENCRYPTION_KEY=your-passphrase-here</pre>
+    <p>Then reload this page.</p>
+  </div>
+
+  {% else %}
+  <div class="onb-install">
+    <h1>Install Docker to enable Open Notebook</h1>
+    <p>
+      <span class="status-pill status-missing">✗ docker not found</span>
+    </p>
+    <p>
+      <strong>Open Notebook</strong> is a self-hosted
+      <a href="https://github.com/lfnovo/open-notebook" target="_blank" rel="noopener">NotebookLM alternative</a>
+      that runs as a Docker service. It lets you:
+    </p>
+    <ul style="line-height:1.8;">
+      <li>Organize multi-modal research content (PDFs, videos, audio, web pages)</li>
+      <li>Generate professional multi-speaker podcasts from your sources</li>
+      <li>AI-powered chat grounded in your research</li>
+      <li>Intelligent search across all your materials</li>
+      <li>18+ AI provider support (OpenAI, Anthropic, Ollama, and more)</li>
+    </ul>
+    <h3>Install Docker</h3>
+    <pre>brew install --cask docker     # macOS
+# or visit https://docs.docker.com/get-docker/</pre>
+    <h3>Then set up the lab</h3>
+    <pre>./oglab setup                  # generates encryption key
+./oglab start                  # or just reload this page and click Start</pre>
+  </div>
+  {% endif %}
+</div>
+
+<script src="/static/nav.js"></script>
+</body>
+</html>

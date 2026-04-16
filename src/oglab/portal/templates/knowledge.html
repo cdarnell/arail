@@ -14,11 +14,13 @@
   <span class="logo">{{ brand.logo }}</span>
   <a href="/">Dashboard</a>
   <a href="/knowledge" class="active">Knowledge</a>
+  <a href="/open-notebook">Open Notebook</a>
   <a href="/research">Research</a>
-  <a href="/wiki/graph">Graph</a>
   <a href="/terminal">Terminal</a>
   <a href="/notebook">Notebook</a>
   <a href="/plugins">Plugins</a>
+  <a href="/admin">Admin</a>
+  <span class="nav-clock" id="nav-clock"></span>
   <span class="mode-badge airgapped" id="mode-badge">⬤ Airgapped</span>
 </nav>
 
@@ -90,6 +92,40 @@
           <span class="kb-quick-label">Rebuild wiki</span>
           <span class="kb-quick-hint">regenerate auto-docs</span>
         </button>
+      </div>
+
+      <!-- ═══ Web Research Agent ═══ -->
+      <div class="kb-browse-section" id="browse-section">
+        <h3 class="kb-welcome-sub">
+          Web Research
+          {% if mode == "airgapped" %}
+          <span class="browse-blocked-badge">airgapped — enable Hybrid mode to browse</span>
+          {% endif %}
+        </h3>
+
+        {% if mode != "airgapped" %}
+        <div class="browse-input-row">
+          <input type="text" id="browse-chat" class="browse-input"
+                 placeholder="tell the agent what to find — e.g. &quot;Go to arxiv.org and find papers about chain-of-thought reasoning&quot;" />
+          <button class="btn btn-sm btn-primary" id="btn-chat">Research</button>
+        </div>
+        <div class="browse-input-row" style="margin-top:0.25rem;">
+          <input type="text" id="browse-url" class="browse-input" style="font-size:0.75rem;padding:0.4rem 0.8rem;"
+                 placeholder="or paste a direct URL to capture" />
+          <button class="btn btn-sm btn-ghost" id="btn-browse" style="font-size:0.72rem;">Capture</button>
+        </div>
+
+        <div id="browse-examples" class="browse-suggestions" style="margin-top:0.6rem;"></div>
+        <div id="browse-suggestions" class="browse-suggestions"></div>
+        <div id="browse-result" class="browse-result" style="display:none;"></div>
+        {% else %}
+        <p class="browse-blocked-msg">
+          The browser agent is disabled while the lab is airgapped.
+          Click the <strong>Airgapped</strong> badge in the nav bar to switch to
+          <strong>Hybrid</strong> mode and enable web research.
+          Your approval is required for every domain the agent visits.
+        </p>
+        {% endif %}
       </div>
 
       <!-- Recent pages live-populated from /api/wiki/pages -->
@@ -1017,9 +1053,175 @@ document.getElementById('kb-btn-vim').addEventListener('click', () => {
   window.open('/terminal', '_blank');
 });
 
+// ── Web Research Agent ─────────────────────────────────────────────────
+(function () {
+  const chatBtn = document.getElementById('btn-chat');
+  const chatInput = document.getElementById('browse-chat');
+  const browseBtn = document.getElementById('btn-browse');
+  const browseInput = document.getElementById('browse-url');
+  const resultDiv = document.getElementById('browse-result');
+  const sugDiv = document.getElementById('browse-suggestions');
+  const exDiv = document.getElementById('browse-examples');
+
+  if (!chatBtn) return; // airgapped — elements don't exist
+
+  function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+  function showResult(html) {
+    resultDiv.style.display = 'block';
+    resultDiv.innerHTML = html;
+  }
+
+  // ── Goal-driven example commands ──
+  fetch('/api/browse/suggestions')
+    .then(r => r.json())
+    .then(data => {
+      if (data.mode === 'airgapped') return;
+      const goal = data.goal || '';
+
+      // Generate natural-language example commands from goal + credible sources
+      const examples = [];
+      if (goal) {
+        const short = goal.length > 60 ? goal.substring(0, 60) + '…' : goal;
+        examples.push(
+          {cmd: `Go to arxiv.org and find the 5 most recent papers about "${short}"`, label: 'arXiv search'},
+          {cmd: `Search scholar.google.com for "${short}" and list the top results with citation counts`, label: 'Scholar'},
+          {cmd: `Go to news.ycombinator.com, search for "${short}", and summarize the top 3 discussions`, label: 'HN discussions'},
+          {cmd: `Visit slashdot.org, find articles related to "${short}", and list titles with links`, label: 'Slashdot'},
+          {cmd: `Go to wikipedia.org and get an overview of "${short}"`, label: 'Wikipedia'},
+        );
+      } else {
+        examples.push(
+          {cmd: 'Go to arxiv.org and list the 5 most recent AI papers', label: 'arXiv latest'},
+          {cmd: 'Visit news.ycombinator.com and summarize the top 5 stories', label: 'HN top stories'},
+        );
+      }
+
+      exDiv.innerHTML = '<span style="color:var(--muted);font-size:0.68rem;margin-right:0.3rem;">try:</span>' +
+        examples.map(e =>
+          `<span class="browse-chip" data-cmd="${esc(e.cmd)}">${esc(e.label)}</span>`
+        ).join('');
+      exDiv.querySelectorAll('.browse-chip').forEach(chip => {
+        chip.addEventListener('click', () => {
+          chatInput.value = chip.dataset.cmd;
+          chatInput.focus();
+        });
+      });
+
+      // URL suggestions below
+      if (data.suggestions && data.suggestions.length) {
+        sugDiv.innerHTML = '<span style="color:var(--muted);font-size:0.68rem;margin-right:0.3rem;">quick capture:</span>' +
+          data.suggestions.map(s =>
+            `<span class="browse-chip" data-url="${esc(s.url)}" title="${esc(s.reason)}">` +
+            `<span class="chip-tier ${s.tier}">${s.tier === 'tier1' ? '◆' : s.tier === 'tier2' ? '◇' : '○'}</span>` +
+            `${esc(s.title)}</span>`
+          ).join('');
+        sugDiv.querySelectorAll('.browse-chip').forEach(chip => {
+          chip.addEventListener('click', () => {
+            browseInput.value = chip.dataset.url;
+            browseInput.focus();
+          });
+        });
+      }
+    }).catch(() => {});
+
+  // ── Chat (natural language) ──
+  async function doChat() {
+    const instruction = chatInput.value.trim();
+    if (!instruction) return;
+    chatBtn.textContent = 'Researching…';
+    chatBtn.disabled = true;
+    chatInput.disabled = true;
+    showResult('<p style="color:var(--muted);">Local model is planning browser actions… then executing. This may take a minute.</p>');
+
+    try {
+      const resp = await fetch('/api/browse/chat', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({instruction})
+      });
+      const data = await resp.json();
+      if (data.success) {
+        let html = '<h4>Research Complete</h4>';
+
+        // Show executed commands so users can see exactly what happened
+        if (data.commands_executed && data.commands_executed.length) {
+          html += '<details class="browse-commands"><summary>Commands executed (' + data.commands_executed.length + ' steps)</summary><pre>';
+          data.commands_executed.forEach(c => {
+            const icon = c.success ? '✓' : '✗';
+            const color = c.success ? 'var(--green)' : 'var(--red)';
+            html += `<span style="color:${color}">${icon}</span> <code>${esc(c.command)}</code>\n`;
+            if (c.error) html += `  <span style="color:var(--red)">→ ${esc(c.error)}</span>\n`;
+          });
+          html += '</pre></details>';
+        }
+
+        if (data.screenshot_path) {
+          html += `<img src="/api/browse/file?path=${encodeURIComponent(data.screenshot_path)}" alt="Screenshot" />`;
+        }
+        html += `<div class="browse-text">${esc(data.output || '(no output)')}</div>`;
+        html += '<p style="margin-top:0.5rem;font-size:0.72rem;color:var(--green);">Saved to PKB — check browser/extracts/</p>';
+        showResult(html);
+      } else {
+        showResult(`<p style="color:var(--${data.airgapped ? 'amber' : 'red'});">${esc(data.error)}</p>`);
+      }
+    } catch (e) {
+      showResult(`<p style="color:var(--red);">Request failed: ${esc(e.message)}</p>`);
+    } finally {
+      chatBtn.textContent = 'Research';
+      chatBtn.disabled = false;
+      chatInput.disabled = false;
+    }
+  }
+
+  chatBtn.addEventListener('click', doChat);
+  chatInput.addEventListener('keydown', e => { if (e.key === 'Enter') doChat(); });
+
+  // ── Direct URL capture ──
+  async function doBrowse() {
+    const url = browseInput.value.trim();
+    if (!url) return;
+    browseBtn.textContent = 'Capturing…';
+    browseBtn.disabled = true;
+    showResult('<p style="color:var(--muted);">Navigating, capturing screenshot, extracting text…</p>');
+
+    try {
+      const resp = await fetch('/api/browse', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({url})
+      });
+      const data = await resp.json();
+      if (data.success) {
+        let html = `<h4>${esc(data.title || url)}</h4>`;
+        html += `<div class="browse-meta">${esc(data.url)} — captured ${data.timestamp || 'now'}</div>`;
+        if (data.screenshot_path) {
+          html += `<img src="/api/browse/file?path=${encodeURIComponent(data.screenshot_path)}" alt="Screenshot" />`;
+        }
+        if (data.text) {
+          html += `<div class="browse-text">${esc(data.text.substring(0, 3000))}</div>`;
+        }
+        html += '<p style="margin-top:0.5rem;font-size:0.72rem;color:var(--green);">Saved to PKB — check browser/extracts/</p>';
+        showResult(html);
+      } else {
+        showResult(`<p style="color:var(--${data.airgapped ? 'amber' : 'red'});">${esc(data.error)}</p>`);
+      }
+    } catch (e) {
+      showResult(`<p style="color:var(--red);">Request failed: ${esc(e.message)}</p>`);
+    } finally {
+      browseBtn.textContent = 'Capture';
+      browseBtn.disabled = false;
+    }
+  }
+
+  browseBtn.addEventListener('click', doBrowse);
+  browseInput.addEventListener('keydown', e => { if (e.key === 'Enter') doBrowse(); });
+})();
+
 // ── Boot ───────────────────────────────────────────────────────────────
 loadWikiPages().then(populateWelcome);
 loadTree();
 </script>
+<script src="/static/nav.js"></script>
 </body>
 </html>

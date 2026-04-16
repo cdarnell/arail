@@ -16,8 +16,9 @@
   <a href="/terminal">Terminal</a>
   <a href="/notebook">Notebook</a>
   <a href="/plugins">Plugins</a>
-  <a href="/graph">Arch</a>
-  <span class="mode-badge airgapped">⬤ Airgapped</span>
+  <a href="/admin">Admin</a>
+  <span class="nav-clock" id="nav-clock"></span>
+  <span class="mode-badge airgapped" id="mode-badge">⬤ Airgapped</span>
 </nav>
 
 {% set graph_api  = "/api/wiki/graph" %}
@@ -48,5 +49,6 @@
 ] %}
 {% include "_graph_canvas.html" %}
 
+<script src="/static/nav.js"></script>
 </body>
 </html>

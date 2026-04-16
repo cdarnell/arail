@@ -13,7 +13,7 @@
   --border-hi: #2a3040;
   --text:      #c8cdd8;
   --text-hi:   #e8ecf4;
-  --muted:     #555e70;
+  --muted:     #78839a;
 
   /* Accents */
   --green:     #00ff41;
@@ -35,7 +35,7 @@
 
 /* ── Reset ─────────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-html { font-size: 14px; }
+html { font-size: 15px; }
 body {
   font-family: var(--font);
   background: var(--bg);
@@ -142,6 +142,15 @@ nav a.active { color: var(--green); background: rgba(0,255,65,.06); }
 @keyframes pulse-green {
   0%, 100% { box-shadow: 0 0 4px rgba(0,255,65,.2); }
   50% { box-shadow: 0 0 12px rgba(0,255,65,.4); }
+}
+
+.nav-clock {
+  font-size: 0.75rem;
+  font-weight: 300;
+  color: var(--muted);
+  letter-spacing: 0.05em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 /* ── Chat card ────────────────────────────────────────────────── */
@@ -274,7 +283,6 @@ nav a.active { color: var(--green); background: rgba(0,255,65,.06); }
   font-family: 'JetBrains Mono', monospace;
   font-size: 0.6rem;
   color: var(--muted);
-  opacity: 0.7;
 }
 
 .chat-form {
@@ -414,6 +422,35 @@ nav a.active { color: var(--green); background: rgba(0,255,65,.06); }
   color: var(--muted);
   font-style: italic;
 }
+
+/* Parse button tooltip */
+.parse-btn-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+.parse-tooltip {
+  display: none;
+  position: absolute;
+  top: calc(100% + 0.5rem);
+  right: 0;
+  width: 340px;
+  padding: 0.9rem 1rem;
+  background: var(--surface2);
+  border: 1px solid var(--border-hi);
+  border-radius: var(--radius);
+  font-size: 0.78rem;
+  line-height: 1.65;
+  color: var(--text);
+  z-index: 100;
+  box-shadow: 0 4px 20px rgba(0,0,0,.5);
+}
+.parse-btn-wrap:hover .parse-tooltip { display: block; }
+.parse-tooltip ul {
+  margin: 0.3rem 0 0.3rem 1.1rem;
+  padding: 0;
+}
+.parse-tooltip li { margin-bottom: 0.2rem; }
+.parse-tooltip strong { color: var(--green); }
 
 /* ── Buttons ───────────────────────────────────────────────────── */
 .btn {
@@ -660,7 +697,9 @@ code {
   display: flex;
   gap: 0.5rem;
   align-items: center;
-  margin-top: 1rem;
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border);
 }
 .research-status {
   font-size: 0.75rem;
