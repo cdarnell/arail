@@ -382,11 +382,249 @@ learn from each turn.
 """
 
 
+_UNDERSTANDING_PRECISION = """---
+title: Understanding precision — INT vs FP, high vs low
+id: understanding-precision
+name: Precision Primer
+domain: ai
+version: 1.0.0
+tags: [skill, precision, quantization, int, fp, airllm]
+when_to_use:
+  - When planning or analyzing a quantization experiment
+  - When comparing model variants (FP16 vs INT8 vs INT4)
+  - When explaining why a model's disk footprint shrank at the cost of quality
+when_not_to_use:
+  - For questions about training precision (this is inference-focused)
+---
+
+# Understanding precision
+
+Procedural knowledge for reasoning about numerical precision in
+model weights. Critical skill for anyone optimizing AirLLM or
+picking a quantization strategy.
+
+## Two representations
+
+**Floating-point (FP)** stores a number in three pieces:
+- **Sign bit** — positive or negative
+- **Exponent** — how big or small (scale)
+- **Mantissa** — the significant digits
+
+FP16 is 1 sign + 5 exponent + 10 mantissa = 16 bits. Represents
+values from ~1e-5 to ~65,000. Graceful with weird distributions.
+
+**Integer (INT)** is just a bitfield. INT8 is -128 to +127.
+Fast on most hardware, half the size of FP at the same bit count,
+but no decimals and no dynamic range. To use INT for a weight
+that's actually fractional, multiply by a per-block **scale factor**
+so the weight range fits inside the integer range.
+
+## The ladder
+
+| Format | Bits | Bytes/weight | 70B model | Quality loss |
+|---|---|---|---|---|
+| FP32 | 32 | 4 | 280 GB | none |
+| BF16 | 16 | 2 | 140 GB | none for inference |
+| FP16 | 16 | 2 | 140 GB | ~none |
+| FP8  |  8 | 1 |  70 GB | trace (emerging) |
+| INT8 |  8 | 1 |  70 GB | trace |
+| INT4 |  4 | 0.5 | 35 GB | small chat / noticeable math |
+| INT2-3 | 2-3 | 0.25-0.4 | <25 GB | only for "does it fit" |
+
+## Three axes of precision (independent knobs)
+
+1. **Bits** — 4 vs 8 vs 16. Halves directly translate to disk +
+   load time.
+2. **Type** — FP vs INT. FP keeps dynamic range; INT is smaller
+   and usually faster per-bit but needs calibration.
+3. **Granularity** — per-tensor / per-channel / per-block scale
+   factors. Finer = better quality at low bits, more metadata.
+
+## Why this matters for AirLLM
+
+AirLLM reads every layer from disk on every token. Layer size
+scales with precision. Halving bits halves read time.
+
+- 400B FP16 = 800 GB → 800 GB/token of disk read
+- 400B INT4 =  200 GB → 4× faster tokens, same model
+- Mixed precision (attention FP16, FFN INT4) = near-INT4 speed,
+  near-FP16 quality
+
+## The sensitivity rule
+
+Not all layers are equally sensitive to precision loss. Empirically:
+
+- **Attention Q/K/V/O projections** — mildly sensitive. INT8 is
+  usually safe; INT4 starts to wobble on math.
+- **FFN up/down projections** — very robust. INT4 or INT2-3 often
+  fine.
+- **Embeddings + LM head** — most sensitive. Keep at FP16 / INT8.
+- **LayerNorm / RMSNorm** — scalars, keep at FP32.
+
+Mixed-precision schemes exploit this: put the sensitive parts at
+high precision and the robust parts at low precision. End result
+is near-INT4 size + near-FP16 quality.
+
+## Measuring precision-quality tradeoffs
+
+1. Pick the validation metric from `prepare.py`. Never change it
+   between quantization experiments.
+2. Run the baseline model at FP16 and record the score.
+3. Swap to your candidate quantization (e.g., INT4 per-block, 64-
+   weight groups). Re-run the same evals.
+4. Report as a delta: "INT4 per-block-64: +0.3% loss vs FP16,
+   -4× disk, -3.5× AirLLM tokens-per-minute."
+5. A quality delta under 0.5% on relevant benchmarks is usually
+   indistinguishable from run-to-run noise. Anything over 2% is
+   user-visible.
+
+## Practical defaults for OGLab
+
+- **MLX fast path (laptop)** — INT4 per-block. Great chat
+  throughput, acceptable quality.
+- **AirLLM deep path (frontier)** — INT4 per-block is the ceiling
+  you can run on a MacBook's disk. Mixed precision is the next
+  lever (candidate #4 in the AirLLM fork guide).
+- **Training** — FP32 or BF16 exclusively. Don't train at INT.
+
+## Source links
+
+- llama.cpp's GGUF spec — https://github.com/ggerganov/ggml/blob/master/docs/gguf.md
+- AWQ (activation-aware quantization) paper — https://arxiv.org/abs/2306.00978
+- GPTQ paper — https://arxiv.org/abs/2210.17323
+"""
+
+
+_OPTIMIZE_AIRLLM = """---
+title: Optimize AirLLM — research program
+id: optimize-airllm
+name: Optimize AirLLM
+domain: research
+version: 1.0.0
+tags: [skill, airllm, optimization, research-methodology, frontier-models]
+when_to_use:
+  - When the lab's goal is improving AirLLM performance
+  - When designing an experiment that measures AirLLM tokens/minute
+  - When deciding which optimization to try next
+when_not_to_use:
+  - For questions unrelated to layer-streamed inference
+  - For general model evaluation (see evaluate-llm instead)
+---
+
+# Optimize AirLLM — research program
+
+This is the research-methodology skill for the lab's signature goal:
+make AirLLM noticeably faster on our hardware, then contribute the
+wins back upstream.
+
+## The metric
+
+**Primary:** tokens-per-minute (t/min) on a fixed model with a
+fixed prompt length. Captured automatically by the portal in
+`lab/data/airllm-bench.jsonl` for every deep-model call.
+
+**Secondary:** quality delta vs a FP16 baseline, measured on a
+held-out task set from `prepare.py`. An optimization that gains
+30% throughput but loses 3% on HumanEval is a trade, not a win.
+
+## The five candidates (graded by effort/impact)
+
+See `docs/airllm-fork-guide.md` for the full write-up.
+
+1. **Layer prefetch** — moderate effort, 15-40% gain. Start loading
+   layer N+1 while computing layer N. Most hardware is disk-bound,
+   not compute-bound, so double-buffering hides most I/O.
+2. **Persistent KV cache** — high effort, 3-10× on conversational
+   use. Cache per-layer K/V on disk keyed by prompt prefix hash;
+   follow-up messages skip most re-compute.
+3. **Speculative decoding with the fast SLM** — hard, 3-5× gain.
+   The 8B already loaded in RAM drafts tokens; AirLLM validates
+   in batch. Lab-specific advantage — nobody else has a fast + slow
+   model coexisting in one process.
+4. **Mixed-precision per-layer** — easy, 30-50% disk shrink (→ same
+   throughput gain). Attention at INT8/FP16, FFN at INT4. Uses the
+   "sensitivity rule" from the precision primer.
+5. **Chunked flash-attention** — hard, 2-4× on long context. Custom
+   kernel work inside each layer forward pass.
+
+Pick one per research cycle. Trying multiple at once confounds
+measurement.
+
+## Research-cycle shape
+
+Each cycle is 5-10 experiments over roughly a week. The researcher
+agent decomposes the lab goal into this structure automatically.
+
+1. **Baseline.** Wipe `airllm-bench.jsonl` (or filter by date).
+   Run 10+ messages through the current AirLLM. Capture median
+   t/min + quality scores.
+2. **Hypothesis.** "Implementing layer prefetch with a
+   double-buffered async load will increase t/min on
+   Qwen3-235B-A22B by ≥ 20%."
+3. **Falsify first.** Before coding: what observation would change
+   my mind? List three alternatives (maybe compute dominates on my
+   SSD; maybe prefetch thrashes the page cache; maybe CPU cores
+   saturate). Design the experiment to distinguish.
+4. **Implement.** Ship the change in the AirLLM fork. Rebuild via
+   `./oglab setup && ./oglab restart`.
+5. **Measure.** Run the same 10+ messages. Compare against baseline.
+6. **Write up.** One markdown file under
+   `lab/pkb/agents/research/` with baseline, delta, side-effects,
+   and a recommendation (ship upstream / keep experimental / drop).
+
+## Where to look for bottlenecks
+
+Before optimizing, measure. Three questions:
+
+1. **Is it disk-bound or compute-bound?** Time one full token. If
+   layer-load time > layer-compute time, optimizations #1 and #4
+   are the winners. If compute dominates, #3 and #5 matter more.
+2. **Is memory pressure a factor?** Watch `psutil.virtual_memory`
+   during a run. Layer swapping via the OS page cache has its own
+   cost that shows up as "pause" time between tokens.
+3. **Where's wallclock going?** Instrument the forward loop with
+   timestamps. Often one surprising step dominates (e.g., Python
+   dict lookups on weight keys).
+
+## Reading for the week
+
+Before claiming a throughput win, understand why it's true. Pre-work:
+
+- [frontier-local-models](../frontier-local-models/SKILL.md) — what
+  models are worth targeting and why.
+- [understanding-precision](../understanding-precision/SKILL.md) —
+  the quantization math that candidate #4 uses.
+- [falsify-hypothesis](../falsify-hypothesis/SKILL.md) — the
+  methodology for "did my change actually help or am I fooling
+  myself."
+- [evaluate-llm](../evaluate-llm/SKILL.md) — how to measure quality
+  delta rigorously.
+- AirLLM source at https://github.com/lyogavin/airllm
+  (or your fork). Read the layer iterator first.
+
+## Contribution pathway
+
+Every validated optimization goes through this gate before the
+researcher writes a "ship it" recommendation:
+
+- Measurement delta reproduced across ≥ 3 separate runs.
+- Quality delta under 0.5% on benchmark tasks.
+- Description of the change fits in 500 words.
+- A human would understand the before/after by looking at the
+  graph in the research report.
+
+If all four pass: open a PR upstream with the numbers attached. If
+only 1-3 pass: keep it in the fork as an experiment and revisit.
+"""
+
+
 _SKILLS: Dict[str, Dict[str, Any]] = {
-    "observe-lab":             {"content": _OBSERVE_LAB},
-    "evaluate-llm":            {"content": _EVALUATE_LLM},
-    "falsify-hypothesis":      {"content": _FALSIFY_HYPOTHESIS},
-    "frontier-local-models":   {"content": _FRONTIER_LOCAL},
+    "observe-lab":               {"content": _OBSERVE_LAB},
+    "evaluate-llm":              {"content": _EVALUATE_LLM},
+    "falsify-hypothesis":        {"content": _FALSIFY_HYPOTHESIS},
+    "frontier-local-models":     {"content": _FRONTIER_LOCAL},
+    "understanding-precision":   {"content": _UNDERSTANDING_PRECISION},
+    "optimize-airllm":           {"content": _OPTIMIZE_AIRLLM},
 }
 
 

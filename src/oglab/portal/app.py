@@ -130,6 +130,21 @@ async def _startup():
         activity_log.emit("pkb",
             f"Skill seeding failed: {type(e).__name__}: {e}", "error")
 
+    # Research program seed — the lab ships with "optimize AirLLM"
+    # pre-loaded so a fresh install has a meaningful research goal
+    # the moment the portal comes up. User edits program.md to steer
+    # the researcher elsewhere.
+    try:
+        from oglab.agents.builtin_seed import ensure_research_files
+        r = ensure_research_files()
+        if r.get("written"):
+            activity_log.emit("pkb",
+                f"Seeded research program: {', '.join(r['written'])}",
+                "info")
+    except Exception as e:  # noqa: BLE001
+        activity_log.emit("pkb",
+            f"Research program seeding failed: {type(e).__name__}: {e}", "error")
+
     # Agent loader — discover every lab/pkb/agents/<name>/AGENT.md,
     # instantiate each, start the ones that opt in via their
     # auto_start_env, register dream-capable ones with the daemon.

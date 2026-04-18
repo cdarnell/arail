@@ -744,14 +744,32 @@ capture_goal() {
     echo ""
     echo -e "  ${BOLD}─── Research goal ───${RESET}"
     echo ""
-    echo "  What do you want the lab to research? One sentence is fine."
-    echo "  Examples:"
-    echo "    • Find the best 8B model for code generation on a 32 GB Mac"
-    echo "    • Grow peanuts in USDA zone 7 with minimal irrigation"
-    echo "    • Master French pastry lamination technique"
+
+    # For the AI Engineer intent we ship a signature goal —
+    # "optimize AirLLM" — pre-filled as the default. Press Enter to
+    # accept it; otherwise type a custom goal. Other intents still
+    # get the free-form prompt.
+    local default_goal=""
+    if [[ "$intent" == "ai" ]]; then
+        default_goal="Optimize AirLLM's tokens-per-minute on frontier-scale open models (Qwen3-235B, DeepSeek-V3, GLM-5.1) running locally. Measure baseline, ship layer prefetch + mixed-precision optimizations, compare before/after, contribute wins upstream."
+        echo "  Press Enter to accept the lab's signature research goal —"
+        echo "  ${BOLD}Optimize AirLLM${RESET} (find + improve the frontier-model"
+        echo "  inference engine), or type a custom one."
+        echo ""
+        echo "  See lab/pkb/research/program.md for the full plan."
+    else
+        echo "  What do you want the lab to research? One sentence is fine."
+        echo "  Examples:"
+        echo "    • Find the best 8B model for code generation on a 32 GB Mac"
+        echo "    • Grow peanuts in USDA zone 7 with minimal irrigation"
+        echo "    • Master French pastry lamination technique"
+    fi
     echo ""
-    read -rp "  Goal: " goal
-    if [[ -z "${goal// }" ]]; then
+    read -rp "  Goal${default_goal:+ [Enter for default]}: " goal
+    if [[ -z "${goal// }" && -n "$default_goal" ]]; then
+        goal="$default_goal"
+        info "Using the lab's signature research goal (optimize AirLLM)."
+    elif [[ -z "${goal// }" ]]; then
         warn "Empty goal — skipping capture. You can set one from the dashboard after ./oglab start."
         return
     fi
