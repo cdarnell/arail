@@ -60,7 +60,13 @@
       Export outputs to markdown and drop them in the knowledge base inbox
       to keep research reproducible.
     </p>
-    <div style="display:flex;gap:0.5rem;">
+    <div style="display:flex;gap:0.5rem;align-items:center;">
+      <a href="https://notebooklm.google.com" target="_blank" rel="noopener"
+         class="btn btn-sm btn-ghost"
+         title="Generate audio overviews, mind maps, and study guides from your PKB markdown. Upload lab/pkb/<topic>.md to Google NotebookLM."
+         style="color:var(--amber);white-space:nowrap;text-decoration:none;">
+        ↗ Send to NotebookLM
+      </a>
       <button class="btn btn-sm btn-ghost" id="nb-restart" title="Restart Jupyter">↻ Restart</button>
       <button class="btn btn-sm btn-ghost" id="nb-stop" title="Stop Jupyter" style="color:var(--red);">■ Stop</button>
       <button class="btn btn-sm btn-ghost" id="nb-popout"
@@ -161,6 +167,61 @@ pip install -e .</pre>
     <p class="nb-hint">
       Once installed, restart the lab (<code>./oglab stop &amp;&amp; ./oglab start</code>)
       and this page will flip to the full Jupyter interface automatically.
+    </p>
+  </div>
+  {% endif %}
+
+  {# ── Google NotebookLM bridge ─────────────────────────────────────
+     Shown whenever the Jupyter surface isn't filling the screen.
+     NotebookLM is a perfect adjunct: upload any lab/pkb/*.md and you
+     get back an audio overview, mind map, or study guide. No API or
+     OAuth — we're just giving the user the fastest path to it. #}
+  {% if not jupyter_running %}
+  <div class="nb-install" style="margin-top:1rem;">
+    <h1 style="color:var(--amber);text-shadow:none;">🎧 Generate media with Google NotebookLM</h1>
+    <p style="color:var(--muted);font-size:0.85rem;">
+      NotebookLM turns your PKB markdown into audio overviews,
+      mind maps, and study guides — a generative layer on top of
+      whatever you've already captured in the lab.
+    </p>
+
+    <h3>Three-step workflow</h3>
+    <p>
+      1. Pick any file under <code>lab/pkb/</code> — a research report,
+      a synthesis, a teacher Q&amp;A:
+    </p>
+    <pre>lab/pkb/agents/research/2026-04-18_*.md
+lab/pkb/agents/synthesis/*.md
+lab/pkb/teacher/*.md</pre>
+
+    <p>
+      2. Open <a href="https://notebooklm.google.com" target="_blank"
+                 rel="noopener" style="color:var(--amber);">notebooklm.google.com</a>
+      and drag the markdown file(s) into a new notebook. Or paste the
+      raw text. You can mix multiple PKB files — NotebookLM will
+      synthesize across them.
+    </p>
+
+    <p>
+      3. Ask for an <strong>Audio Overview</strong>, <strong>Mind Map</strong>,
+      or <strong>Briefing Doc</strong>. Save the output back to
+      <code>lab/pkb/media/</code> so the lab remembers what was produced.
+    </p>
+
+    <p style="margin-top:1.4rem;">
+      <a href="https://notebooklm.google.com" target="_blank" rel="noopener"
+         class="btn btn-sm"
+         style="background:var(--amber);color:#000;font-weight:700;
+                padding:0.4rem 1.2rem;text-decoration:none;
+                border-radius:4px;">
+        ↗ Open NotebookLM
+      </a>
+    </p>
+
+    <p class="nb-hint" style="margin-top:1.2rem;">
+      Tip: NotebookLM handles up to 50 sources per notebook. For big
+      PKB sweeps, drop an entire <code>agents/research/</code> folder —
+      the synthesis across reports is often better than one at a time.
     </p>
   </div>
   {% endif %}

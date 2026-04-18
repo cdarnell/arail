@@ -4,7 +4,7 @@ section: docs
 tags: [guide]
 aliases: [CONTRIBUTING]
 source: CONTRIBUTING.md
-generated: 2026-04-15T11:48:11Z
+generated: 2026-04-17T11:08:09Z
 ---
 # Contributing to OGLab
 
@@ -58,6 +58,17 @@ python -m pytest      # if you added tests (there aren't many yet — help wante
 - [ ] If you added a new env var, it's documented in `.env.example`.
 - [ ] If you added a dependency, it's justified in the PR description (we prefer stdlib).
 - [ ] The commit message explains the *why*, not just the *what*. We use conventional prefixes (`feat:`, `fix:`, `docs:`, `refactor:`, `chore:`) loosely.
+
+## Porting to new distros
+
+OGLab's "vibe integrate" flow lets you hand the blueprint to a coding
+agent and get a port for a new platform in one shot. See
+[AGENTS.md](AGENTS.md) for the agent-facing manifest (three entry
+points, test recipe, contract to preserve) and [docs/LINUX.md](docs/LINUX.md)
+for the long-form guide with Arch and Fedora worked examples.
+
+If you want to upstream a port, the PR checklist is in
+[AGENTS.md](AGENTS.md#pull-request-checklist-for-a-port).
 
 ## Reporting security issues
 

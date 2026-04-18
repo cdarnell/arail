@@ -4,7 +4,7 @@ section: docs
 tags: [shell, script]
 aliases: [oglab, oglab]
 source: oglab
-generated: 2026-04-16T11:07:31Z
+generated: 2026-04-17T11:08:09Z
 ---
 
 # oglab (shell)
@@ -20,9 +20,12 @@ setup    provision venv, deps, model, lab/ scaffolding (first-time setup)
 start    launch portal + terminal + notebook + IDE
 stop     stop running lab services
 restart  stop then start
+update   check for and apply component updates
+version  show installed component versions
 reset    wipe models/data/env/plugins (see: ./oglab reset help)
 status   show what's running and where
 doctor   validate the environment end-to-end
+logs     tail activity log — filter by component
 pkb      knowledge base ops: ingest | compile | browse
 wiki     documentation-as-code: build | info | new <title>
 help     show this message
@@ -42,8 +45,11 @@ cat <<EOF
     start         launch portal + terminal + notebook + IDE
     stop          stop running lab services
     restart       stop then start (quick bounce)
+    update        check for and apply component updates
+    version       show installed component versions
     status        show what's running
     doctor        validate the environment end-to-end
+    logs [comp]   tail activity log — filter by component
     reset [mode]  wipe state — models|data|plugins|env|full|destroy
     pkb <op>      ingest | compile | browse — knowledge base ops
     wiki <op>     build | info | new <title> — documentation-as-code

@@ -4,7 +4,7 @@ section: docs
 tags: [guide]
 aliases: [SECURITY]
 source: SECURITY.md
-generated: 2026-04-15T11:48:11Z
+generated: 2026-04-17T11:08:09Z
 ---
 # Security Policy
 
@@ -50,7 +50,7 @@ If you need to disclose publicly before a fix is available (e.g. the vulnerabili
 
 The following are **known trade-offs**, not vulnerabilities, and will be closed without action:
 
-- **Portal, terminal, notebook, or IDE bound to `127.0.0.1` being reachable from other processes on the same machine.** The blueprint assumes a single-user workstation. If you need multi-tenant isolation, this is not the right tool.
+- **Portal, terminal, notebook, or IDE bound to `127.0.0.1` being reachable from other processes on the same machine.** The blueprint assumes a single-user workstation. If you need multi-tenant isolation, this is not the right tool. **Do not deploy on a shared school lab machine without adding your own auth proxy in front of the portal** — the unified passphrase authenticates the IDE but not the dashboard. See [docs/PRIVACY.md](docs/PRIVACY.md) for the recommended deployment posture on shared hardware (run per-user under each student's Unix account).
 - **Plugin install cloning arbitrary GitHub repos and running `pip install -r requirements.txt`.** The plugin system is explicitly a "bring your own code" surface; the auth layer exists to make sure only the operator can trigger it, not to sandbox what the operator installs. Treat every plugin the same way you'd treat `pip install <untrusted-package>`.
 - **Consent approvals persisting across runs.** If you approve `arxiv.org` today, it remains approved until you revoke it from the dashboard. This is a UX choice, not a bug.
 - **Local LLM backends leaking prompt content to the model weights on disk.** By design — that's where the model lives.

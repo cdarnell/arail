@@ -4,7 +4,7 @@ section: docs
 tags: [configuration, env, reference]
 aliases: [env-vars, configuration]
 source: .env.example
-generated: 2026-04-16T11:07:31Z
+generated: 2026-04-17T11:08:09Z
 ---
 
 # Configuration reference
@@ -33,9 +33,9 @@ MODE: "airgapped" (default) or "hybrid" airgapped = local models only, zero netw
 
 ### `MODEL_BACKEND`
 
-MODEL BACKEND (auto-detected by setup.sh, but you can override) Options: mlx | cuda | cpu | airllm | openai_compat | huggingface | openrouter | claude
+MODEL BACKEND `./oglab setup` detects your hardware and overwrites this line with the matching backend (mlx | cuda | cpu). Ships as "cpu" so a user who pokes at imports before running setup gets a working fallback, not a KeyError. Options: mlx | cuda | cpu | airllm | openai_compat | huggingface | openrouter | claude
 
-**Default:** `auto`
+**Default:** `cpu`
 
 ### `MODEL_NAME`
 

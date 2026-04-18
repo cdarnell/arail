@@ -1,0 +1,301 @@
+# OGLab — AutoAir (MLX / Apple Silicon tunables)
+#
+# THIS FILE IS THE AUTOAIR LOOP'S SURFACE AREA.
+# The autoresearch agent, when running with backend="mlx", can only
+# propose changes to knobs listed in the schema below. Everything
+# else in the repo is off-limits. Same safety rail as tuning.yml —
+# different knob surface because Apple's architecture is not CUDA's.
+#
+# Model philosophy (MLX track):
+#   - ONE "research model" sized to fit the user's unified memory.
+#     MLX's premise is not disk-streaming — it's running a model that
+#     barely fits, and squeezing throughput out of KV-cache quant and
+#     prompt-chunk scheduling.
+#   - SMALL models are listed for the fast interactive path; they are
+#     not tuned here.
+#
+# Why the knob set differs from AirLLM:
+#   - No bitsandbytes on Apple — quantization is baked into the model
+#     download (model name encodes it), not a runtime knob.
+#   - No PCIe transfer — unified memory — so no pinned-memory knob.
+#   - MLX's real runtime tunables are KV-cache quantization,
+#     max KV size, prefill chunk size, prompt caching.
+
+# ── The tune target (sized for 24 GB unified memory) ─────────────────
+# This is the model the loop benchmarks. Must actually fit in the
+# target machine's unified memory with headroom for OS + app.
+research_model:
+  name: "InferenceIllusionist/gpt-oss-20b-MLX-4bit"
+  # Selection rationale:
+  #   20B dense at 4-bit quant = ~11 GB on disk and ~11-13 GB resident
+  #   during generation on a 24 GB M5. Largest model on the user's
+  #   machine as of Apr 2026 — real stress test for KV-cache knobs
+  #   without swap. Swap to gpt-oss-20b-MLX-8bit (21 GB) if the host
+  #   has 32+ GB of unified memory.
+  precision: "q4"                   # q2, q4, q6, q8, fp16
+  expected_disk_gb: 11
+  family: "dense"                   # moe | dense
+  active_params_b: 20
+  total_params_b: 20
+  huggingface_id: "InferenceIllusionist/gpt-oss-20b-MLX-4bit"
+
+# ── Small models (fast path — NOT tuned here) ────────────────────────
+# Apple-resident MLX models that don't need tuning.
+small_models:
+  - name: "Qwen3-8B-4bit"
+    purpose: "fast chat"
+    backend: "mlx"
+  - name: "Falcon-H1R-7B-4bit"
+    purpose: "alternative 7B"
+    backend: "mlx"
+  - name: "Qwen2.5-3B-Instruct-4bit"
+    purpose: "draft tokens (speculative decoding)"
+    backend: "mlx"
+  - name: "Qwen2.5-Coder-1.5B-Instruct-4bit"
+    purpose: "quick code completion"
+    backend: "mlx"
+
+# ── Baseline capture (set by the 'Capture baseline' button) ──────────
+#
+# Two baselines travel in parallel:
+#
+#   - baseline_metrics        — small, stable reference. ALWAYS the
+#                                20B 4-bit research_model above. Pinned
+#                                on purpose: it's the constant ruler we
+#                                measure everything else against.
+#   - frontier_baselines      — per-frontier-model metrics, keyed by
+#                                huggingface_id. Populated when (and
+#                                only when) the MLX streaming layer can
+#                                actually load the model. Until then
+#                                these rows record the honest failure
+#                                (see docs/mlx-streaming-plan.md).
+#
+# Keeping them separate is deliberate: a 20B-4bit bench and a 671B-q4
+# bench live on completely different throughput axes. Forcing them into
+# one baseline field would destroy the signal in both.
+baseline_commit: null
+baseline_metrics: null
+frontier_baselines: {}
+baseline_prompt: "Summarize the second law of thermodynamics in one paragraph."
+baseline_max_tokens: 64
+
+# ── Frontier challenge set ───────────────────────────────────────────
+#
+# Models that EXCEED every single-GPU memory ceiling available today.
+# The point is NOT that they run — none of them run on a 24 GB M5, and
+# most of them don't run on an H200 either. The point is that this
+# section gives OGLab a concrete performance envelope to push against.
+#
+# GPU fit ceilings (April 2026):
+#   H100-80GB  ✗  every entry below
+#   H200-141GB ✗  every entry below
+#   B200-192GB ✗  every entry below (4-bit still ≥ 200 GB for 405B)
+#
+# The loop will ATTEMPT a bench against each of these during baseline
+# capture. Until the MLX streaming layer exists, every attempt records
+# a BenchRun with status="error" and a structured reason — which is
+# the whole point. We build the error-feedback loop FIRST so the
+# streaming work has measurements to compare against on day one.
+#
+# See docs/mlx-streaming-plan.md for the engineering path.
+frontier_models:
+  - name: "DeepSeek-V3 671B (4-bit)"
+    huggingface_id: "mlx-community/DeepSeek-V3-4bit"
+    family: "moe"
+    active_params_b: 37
+    total_params_b: 671
+    precision: "q4"
+    expected_disk_gb: 335
+    streaming_required: true
+    gpu_fit:
+      h100_80gb: false
+      h200_141gb: false
+      b200_192gb: false
+    rationale: |
+      Mainstream frontier MoE. 671B total / 37B active. At 4-bit the
+      weight shards total ~335 GB — exceeds every single-GPU memory
+      ceiling in 2026. First real target for MLX layer streaming.
+
+  - name: "DeepSeek-R1 671B (4-bit)"
+    huggingface_id: "mlx-community/DeepSeek-R1-4bit"
+    family: "moe"
+    active_params_b: 37
+    total_params_b: 671
+    precision: "q4"
+    expected_disk_gb: 335
+    streaming_required: true
+    gpu_fit:
+      h100_80gb: false
+      h200_141gb: false
+      b200_192gb: false
+    rationale: |
+      Reasoning-tuned sibling of V3. Same footprint, different
+      activation pattern under long chain-of-thought prompts — useful
+      for comparing KV-cache knob sensitivity at the frontier.
+
+  - name: "Kimi K2 (1T MoE, 4-bit)"
+    huggingface_id: "mlx-community/Kimi-K2-4bit"
+    family: "moe"
+    active_params_b: 32
+    total_params_b: 1000
+    precision: "q4"
+    expected_disk_gb: 500
+    streaming_required: true
+    gpu_fit:
+      h100_80gb: false
+      h200_141gb: false
+      b200_192gb: false
+    rationale: |
+      Trillion-parameter MoE — the "doesn't fit anywhere" target. Even
+      a B200 at 192 GB can't hold the 4-bit weights. If MLX streaming
+      works on Kimi K2, it works on anything of this class.
+
+  - name: "Llama 3.1 405B (4-bit)"
+    huggingface_id: "mlx-community/Meta-Llama-3.1-405B-Instruct-4bit"
+    family: "dense"
+    active_params_b: 405
+    total_params_b: 405
+    precision: "q4"
+    expected_disk_gb: 200
+    streaming_required: true
+    gpu_fit:
+      h100_80gb: false
+      h200_141gb: false
+      b200_192gb: false     # 200 GB barely exceeds B200's 192 GB
+    rationale: |
+      Largest dense frontier model. Exercises different streaming
+      paths than MoE — every layer is always hot, no expert-level
+      sparsity to exploit. Good stress test for pure layer-streaming
+      cadence.
+
+  - name: "GLM 4.5 355B (4-bit)"
+    huggingface_id: "mlx-community/GLM-4.5-355B-4bit"
+    family: "moe"
+    active_params_b: 32
+    total_params_b: 355
+    precision: "q4"
+    expected_disk_gb: 180
+    streaming_required: true
+    gpu_fit:
+      h100_80gb: false      # 180 > 80
+      h200_141gb: false     # 180 > 141
+      b200_192gb: true      # 180 < 192  — B200 CAN hold it
+    rationale: |
+      GLM-4.5 MoE, Zhipu AI's mid-frontier model. Listed as a less
+      extreme stepping stone: its 4-bit weights actually fit a
+      single B200, so a B200 baseline exists as a sanity check if
+      we ever get cloud access. On the 24 GB M5 the streaming path
+      is still required.
+      NOTE: correct the sizes when the actual checkpoint on
+      HuggingFace is confirmed — these are estimates.
+
+  - name: "GLM-4.6 ~750B (4-bit — target)"
+    huggingface_id: "mlx-community/GLM-4.6-4bit"
+    family: "moe"
+    active_params_b: 40
+    total_params_b: 750
+    precision: "q4"
+    expected_disk_gb: 375
+    streaming_required: true
+    gpu_fit:
+      h100_80gb: false
+      h200_141gb: false
+      b200_192gb: false
+    rationale: |
+      The headline target: a 750B-class GLM frontier MoE. Exceeds
+      every single-GPU memory ceiling. This is the "closest thing
+      to AI's god on commodity hardware" bet — if the MLX streaming
+      layer can finish one knowledge-inference query against THIS
+      model on a 24 GB / 2 TB laptop, the academic point is made.
+      Model ID is provisional until Zhipu ships the MLX-quantized
+      weights; swap when the real artifact is available on HF.
+
+# ── Whitelisted knobs the autoresearch agent can edit ────────────────
+knobs:
+  kv_bits:
+    current: "fp16"
+    schema:
+      type: string
+      choices: ["fp16", "8bit", "4bit"]
+      rationale: |
+        KV-cache quantization level. MLX supports online KV cache
+        quantization — trades decode quality for GPU memory. fp16 is
+        baseline; 8bit is usually free; 4bit bites on long contexts.
+        This is THE biggest throughput knob on Apple for long-context
+        work because it doubles/quadruples effective context window.
+  quantized_kv_start:
+    current: 0
+    schema:
+      type: int
+      min: 0
+      max: 8192
+      rationale: |
+        Token index at which to start quantizing the KV cache. 0 =
+        quantize from token 0 (max memory savings, quality hit up
+        front). Higher = keep the first N tokens in fp16 for quality,
+        quantize the tail. 2048 is a common "quality-preserving"
+        default.
+  max_kv_size:
+    current: 4096
+    schema:
+      type: int
+      min: 512
+      max: 32768
+      rationale: |
+        Hard cap on the KV cache length. When exceeded, MLX drops
+        the oldest tokens. Lower = less memory, shorter effective
+        context. On a 24 GB box this matters more than on a 128 GB
+        Studio — it's what keeps you from swapping.
+  prefill_step_size:
+    current: 512
+    schema:
+      type: int
+      min: 128
+      max: 4096
+      rationale: |
+        Chunk size for prompt prefill. Larger chunks = higher GPU
+        utilization = faster prefill, but can exhaust memory on
+        long prompts. Sweet spot on M-series is usually 256–1024.
+  prompt_cache_enabled:
+    current: false
+    schema:
+      type: bool
+      rationale: |
+        Reuse KV cache across generate() calls that share a prompt
+        prefix. Huge win for chat-like workloads with a stable
+        system prompt; zero benefit for independent one-shot bench
+        prompts (which is what autoair's default bench prompt is).
+  model_quant_variant:
+    current: "InferenceIllusionist/gpt-oss-20b-MLX-4bit"
+    schema:
+      type: string
+      choices:
+        - "InferenceIllusionist/gpt-oss-20b-MLX-4bit"
+        - "lmstudio-community/gpt-oss-20b-MLX-8bit"
+        # Add more variants here as they get downloaded. The agent
+        # may only swap to choices present in this list.
+      rationale: |
+        Which quantization of the research model to run against.
+        MLX model quantization is baked in at download time, so
+        swapping "quant level" means swapping model identity. 8bit
+        is ~21 GB and doesn't fit on a 24 GB box — listed only so
+        the loop refuses it gracefully rather than OOM'ing.
+  bench_runs_per_config:
+    current: 3
+    schema:
+      type: int
+      min: 1
+      max: 20
+      rationale: |
+        How many times to run the benchmark per configuration.
+        More = tighter confidence intervals, longer experiments.
+  improvement_threshold_pct:
+    current: 5
+    schema:
+      type: int
+      min: 1
+      max: 100
+      rationale: |
+        Percent improvement in tokens/sec over baseline required
+        before autoair commits a variant. Smaller = more commits,
+        noisier; larger = fewer, more confident commits.

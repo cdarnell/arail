@@ -1,0 +1,142 @@
+# OGLab — Disk-streamed inference tunables
+#
+# THIS FILE IS THE AUTORESEARCH LOOP'S SURFACE AREA.
+# The autoresearch agent can only propose changes to knobs listed in
+# the schema below. Everything else in the repo is off-limits to the
+# agent. This is the safety rail.
+#
+# Model philosophy:
+#   - ONE large "research model" (≥1 TB on disk) is the tune target.
+#     AirLLM streams it off NVMe layer-by-layer. Every bench the
+#     autoresearch loop runs goes through this model.
+#   - A handful of SMALLER models serve the fast interactive path
+#     (chat, embedding, draft tokens for speculative decoding). They
+#     are NOT tuned here — they're just listed so the UI knows what's
+#     available.
+
+# ── The one and only tune target ─────────────────────────────────────
+# Must be a model whose FP16 weights are ≥ 1 TB. That's what makes
+# disk-streaming interesting — the model cannot fit in any single
+# node's RAM/VRAM, so layer/expert offload off NVMe is the only path.
+research_model:
+  name: "deepseek-ai/DeepSeek-R1"
+  # Selection rationale:
+  #   DeepSeek-R1 is a 671B-parameter MoE model (37B active per token).
+  #   FP16 weights are ~1.3 TB on disk. MoE means the autoresearch
+  #   loop has meaningful expert-caching knobs to turn. If you prefer
+  #   a dense 1 TB target, swap for "meta-llama/Meta-Llama-3.1-405B"
+  #   (FP16 ~810 GB; go to FP32 to exceed 1 TB).
+  precision: "fp16"                 # one of: fp32, fp16, fp8, int8, int4
+  expected_disk_gb: 1340
+  family: "moe"                     # moe | dense
+  active_params_b: 37
+  total_params_b: 671
+  huggingface_id: "deepseek-ai/DeepSeek-R1"
+  # Any model here overrides AIRLLM_MODEL at bench time.
+
+# ── Small models (fast path — NOT tuned here) ────────────────────────
+# These are the "several smaller models" used for chat, embeddings,
+# and draft-token generation for speculative-decoding experiments.
+small_models:
+  - name: "Qwen3-0.6B"
+    purpose: "fast chat"
+    backend: "mlx"                  # or cpu / cuda depending on platform
+  - name: "Phi-3.5-mini"
+    purpose: "draft tokens (speculative decoding)"
+    backend: "mlx"
+  - name: "nomic-embed-text"
+    purpose: "embeddings for PKB"
+    backend: "cpu"
+
+# ── Baseline capture (set by the 'Capture baseline' button) ──────────
+baseline_commit: null
+baseline_metrics: null
+baseline_prompt: "Summarize the second law of thermodynamics in one paragraph."
+baseline_max_tokens: 64
+
+# ── Whitelisted knobs the autoresearch agent can edit ────────────────
+knobs:
+  airllm_package:
+    current: "airllm"
+    schema:
+      type: string
+      choices:
+        - "airllm"
+        - "airllm==2.10.0"
+        - "airllm==2.11.0"
+        # Fork URLs must be added explicitly here. Agent cannot
+        # invent them. Example:
+        #   - "git+https://github.com/cdarnell/airllm@prefetch-v2"
+      rationale: |
+        Which AirLLM build to install. Swapping to a fork is the
+        biggest lever — real code changes live in the fork. The
+        agent is allowed to pick from this list only.
+  airllm_compression:
+    current: "4bit"
+    schema:
+      type: string
+      choices: ["none", "8bit", "4bit"]
+      rationale: |
+        Quantization level for on-disk layer shards. Lower =
+        smaller footprint = faster layer loads off NVMe. Quality
+        degradation varies by model; for a 671B MoE, 4-bit is the
+        accepted floor for usable quality.
+  airllm_max_length:
+    current: 512
+    schema:
+      type: int
+      min: 128
+      max: 4096
+      rationale: |
+        Tokenizer truncation ceiling. Smaller context shrinks KV
+        cache; each halving roughly halves per-token memory.
+        Doesn't change weight-streaming cost but does change
+        total memory pressure.
+  prefetch_enabled:
+    current: true
+    schema:
+      type: bool
+      rationale: |
+        Whether AirLLM prefetches layer N+1 while computing layer N.
+        ~10% throughput on NVMe; zero benefit on SATA. Off for a
+        clean baseline.
+  prefetch_lookahead:
+    current: 1
+    schema:
+      type: int
+      min: 0
+      max: 4
+      rationale: |
+        How many layers to prefetch ahead. Higher needs more RAM
+        but hides more I/O. Values > 1 require an AirLLM fork —
+        stock airllm caps at 1.
+  expert_cache_size_mb:
+    current: 0
+    schema:
+      type: int
+      min: 0
+      max: 65536
+      rationale: |
+        For MoE models: how much host DRAM to reserve as hot-expert
+        cache. 0 disables explicit cache (OS page cache alone hits
+        ~71% naturally). Larger pushes the hit rate up at DRAM cost.
+  bench_runs_per_config:
+    current: 3
+    schema:
+      type: int
+      min: 1
+      max: 20
+      rationale: |
+        How many times to run the benchmark per configuration.
+        More = tighter confidence intervals, longer experiments.
+  improvement_threshold_pct:
+    current: 5
+    schema:
+      type: int
+      min: 1
+      max: 100
+      rationale: |
+        Percent improvement in tokens/sec over baseline required
+        before the autoresearch loop commits a variant. Smaller =
+        more commits, noisier; larger = fewer, more confident
+        commits.

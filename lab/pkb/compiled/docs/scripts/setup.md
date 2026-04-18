@@ -4,7 +4,7 @@ section: docs
 tags: [shell, script]
 aliases: [setup, setup.sh]
 source: scripts/setup.sh
-generated: 2026-04-15T23:58:08Z
+generated: 2026-04-17T11:08:09Z
 ---
 
 # setup.sh (shell)
@@ -24,6 +24,8 @@ Detects your platform, installs dependencies, downloads a starter model.
 - `capture_brand()`
 - `capture_goal()`
 - `capture_password()`
+- `check_ports()`
+- `check_sudo()`
 - `detect_platform()`
 - `download_model()`
 - `ensure_python()`
@@ -37,6 +39,8 @@ Detects your platform, installs dependencies, downloads a starter model.
 - `setup_env()`
 - `setup_pkb()`
 - `setup_runtime_files()`
+- `step()`
+- `validate_env()`
 - `verify()`
 - `warn()`
 - `wsl_notes()`

@@ -2,8 +2,8 @@
   Shared top-nav partial. Every page includes this with:
       {% include "_nav.html" with context %}
   ...after setting an `active` variable to one of:
-      dashboard | knowledge | notebooks | research | agents
-      terminal  | plugins   | admin
+      dashboard | knowledge | notebooks | research | tuning
+      teacher   | agents    | terminal  | plugins  | admin
   The variable defaults to empty when unset (no link highlighted).
 
   Dashboard needs extra elements (halt button, window badge) after the
@@ -17,6 +17,9 @@
   <a href="/knowledge"{% if active == 'knowledge' %} class="active"{% endif %}>Knowledge</a>
   <a href="/notebooks"{% if active == 'notebooks' %} class="active"{% endif %}>Notebooks</a>
   <a href="/research"{% if active == 'research' %} class="active"{% endif %}>Research</a>
+  <a href="/tuning"{% if active == 'tuning' %} class="active"{% endif %}>Tuning</a>
+  <a href="/teacher"{% if active == 'teacher' %} class="active"{% endif %}
+     title="Consult the Deep Teacher — AirLLM-backed frontier model. Slow, profound.">Teacher</a>
   <a href="/agents"{% if active == 'agents' %} class="active"{% endif %}>Agents</a>
   <a href="/terminal"{% if active == 'terminal' %} class="active"{% endif %}>Terminal</a>
   <a href="/plugins"{% if active == 'plugins' %} class="active"{% endif %}>Plugins</a>

@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ brand.name }} — The Deep Teacher</title>
+<link rel="stylesheet" href="/static/style.css">
+<style>
+  /* The Teacher is a slow, reverent surface. Layout is deliberately
+     calmer than the dashboard: one big input, one big response column,
+     a quiet history below. Dark gold accents to distinguish it from
+     the green tuning cockpit and blue terminal.
+
+     Every interaction here routes through AirLLM (the deep backend).
+     Expect minutes, not seconds. The UI should make that wait feel
+     considered, not frozen — hence the patience banner and live
+     token-count + elapsed timer. */
+  :root { --teach-gold: #d4af6a; --teach-gold-dim: #6a5a3a; }
+  .t-wrap { max-width: 920px; margin: 20px auto; padding: 0 20px; }
+  .t-hero { margin: 14px 0 6px; display:flex; align-items:baseline; gap:10px; }
+  .t-hero h1 { margin: 0; font-size: 24px; color: var(--teach-gold); font-weight: 600; }
+  .t-hero .sub { color: var(--muted, #888); font-size: 13px; }
+
+  .t-chip-row { display:flex; gap:8px; flex-wrap:wrap; margin:8px 0 20px; font-size:12px; }
+  .t-chip { background: #181410; border:1px solid var(--teach-gold-dim); color: var(--teach-gold);
+            padding: 3px 9px; border-radius: 12px; }
+  .t-chip.dim { color: #8a7a5a; }
+
+  .t-patience { background: #1a140a; border: 1px solid var(--teach-gold-dim);
+                border-left: 3px solid var(--teach-gold); color: #d4c29a;
+                padding: 12px 16px; border-radius: 6px; font-size: 12px;
+                line-height: 1.55; margin-bottom: 20px; }
+  .t-patience strong { color: var(--teach-gold); }
+
+  .t-ask { margin-bottom: 22px; }
+  .t-ask label { display:block; font-size:12px; color: var(--muted,#888);
+                 text-transform: uppercase; letter-spacing:0.08em; margin-bottom:6px; }
+  .t-ask textarea { width:100%; min-height: 110px; background: #0f0d0a;
+                    color: #e8e0d0; border: 1px solid #2a241a;
+                    border-radius: 6px; padding: 12px 14px; font-family: inherit;
+                    font-size: 14px; line-height: 1.5; resize: vertical; }
+  .t-ask textarea:focus { outline: none; border-color: var(--teach-gold-dim); }
+
+  .t-controls { display:flex; gap:8px; margin-top:10px; align-items:center; flex-wrap:wrap; }
+  .t-btn { background: var(--teach-gold); color: #181410; border:0;
+           padding: 9px 18px; border-radius: 4px; cursor:pointer;
+           font-size: 13px; font-weight: 600; letter-spacing: 0.03em; }
+  .t-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .t-btn.sec { background: #2a241a; color: #d4c29a; }
+
+  .t-preset-row { display:flex; gap:4px; flex-wrap:wrap; margin:4px 0 12px; }
+  .t-preset { background: transparent; color: var(--teach-gold-dim);
+              border: 1px solid #2a241a; padding: 3px 9px; border-radius: 12px;
+              font-size: 11px; cursor: pointer; }
+  .t-preset:hover { color: var(--teach-gold); border-color: var(--teach-gold-dim); }
+
+  .t-ans { background: #110f0c; border:1px solid #2a241a; border-radius:8px;
+           padding: 20px; min-height: 140px; font-size: 14px; line-height: 1.65;
+           color: #e8e0d0; white-space: pre-wrap; margin-bottom: 22px; }
+  .t-ans.thinking { border-style: dashed; color: #8a7a5a; font-style: italic; }
+  .t-ans .meta { font-size: 11px; color: var(--muted,#888); margin-top:14px;
+                 padding-top:10px; border-top:1px dashed #2a241a; font-style: normal; }
+
+  .t-timer { font-size: 12px; color: var(--teach-gold-dim); font-variant-numeric: tabular-nums; }
+  .t-timer strong { color: var(--teach-gold); }
+
+  .t-sec h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em;
+              color: var(--muted, #888); margin: 28px 0 12px; font-weight: 500; }
+
+  .t-log-entry { background: #0f0d0a; border: 1px solid #2a241a; border-radius: 6px;
+                 padding: 12px 14px; margin-bottom: 10px; font-size: 13px; }
+  .t-log-entry .ts { font-size: 11px; color: var(--muted, #888);
+                     margin-bottom: 4px; font-variant-numeric: tabular-nums; }
+  .t-log-entry .q { color: #d4c29a; margin-bottom: 6px; }
+  .t-log-entry .a { color: #b8b0a0; max-height: 80px; overflow: hidden;
+                    position: relative; line-height: 1.5; }
+  .t-log-entry details summary { cursor: pointer; color: var(--teach-gold-dim);
+                                 font-size: 11px; margin-top: 6px; }
+  .t-log-entry details[open] .a { max-height: none; }
+
+  .t-empty { color: var(--muted, #888); font-style: italic; font-size: 12px; }
+</style>
+</head>
+<body>
+
+{% set active = 'teacher' %}{% include "_nav.html" %}
+
+<div class="t-wrap">
+
+  <div class="t-hero">
+    <h1>🧙 The Deep Teacher</h1>
+    <span class="sub">Frontier models via AirLLM — slow, profound, layer-streamed off NVMe.</span>
+  </div>
+
+  <div class="t-chip-row">
+    <span class="t-chip" id="t-model">loading…</span>
+    <span class="t-chip dim" id="t-size">—</span>
+    <span class="t-chip dim" id="t-tps" title="Average tok/s across recent runs">— tok/s</span>
+    <span class="t-chip dim" title="Every answer saves to lab/pkb/teacher/">auto-saved to PKB</span>
+  </div>
+
+  <div class="t-patience">
+    <strong>A note on patience.</strong>
+    The Teacher runs on a 100B–750B parameter model streamed layer-by-layer
+    from disk. A single answer typically takes <strong>2–10 minutes</strong>
+    depending on your prompt and the running knob set on
+    <a href="/tuning" style="color:var(--teach-gold);">/tuning</a>.
+    This page is for <em>depth</em> — strategic reasoning, research
+    framing, long-form synthesis. For quick questions use the
+    <a href="/" style="color:var(--teach-gold);">dashboard chat</a>.
+    Every Q&amp;A is saved to
+    <code style="color:var(--teach-gold);background:#1a140a;padding:1px 5px;border-radius:3px;">lab/pkb/teacher/</code>
+    so wisdom compounds across sessions.
+  </div>
+
+  <!-- ── Ask ─────────────────────────────────────────────────────── -->
+  <div class="t-ask">
+    <label for="t-input">Consult the Teacher</label>
+    <div class="t-preset-row" id="t-presets">
+      <button class="t-preset" data-preset="strategy">Strategic framing</button>
+      <button class="t-preset" data-preset="research">Research direction</button>
+      <button class="t-preset" data-preset="tradeoffs">Tradeoff analysis</button>
+      <button class="t-preset" data-preset="firstprinciples">First principles</button>
+      <button class="t-preset" data-preset="critique">Critique this plan</button>
+    </div>
+    <textarea id="t-input" placeholder="Pose a question that deserves depth. The Teacher will sit with it for a few minutes and answer."></textarea>
+    <div class="t-controls">
+      <button class="t-btn" id="t-ask-btn">Ask the Teacher</button>
+      <button class="t-btn sec" id="t-cancel" style="display:none;">Cancel</button>
+      <span class="t-timer" id="t-timer"></span>
+    </div>
+  </div>
+
+  <!-- ── Current answer ──────────────────────────────────────────── -->
+  <div class="t-ans" id="t-ans">
+    Ask a question above to begin.
+  </div>
+
+  <!-- ── Recent consultations (session log) ──────────────────────── -->
+  <div class="t-sec">
+    <h2>Previous consultations (from PKB)</h2>
+    <div id="t-log"><div class="t-empty">No consultations yet.</div></div>
+  </div>
+
+</div>
+
+<script>
+(function () {
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+
+  const PRESETS = {
+    strategy:
+      "Think strategically. I want you to reason about second-order " +
+      "effects and stakeholder incentives, not just first-order " +
+      "correctness. Here is the situation: ",
+    research:
+      "I want your help framing a research direction. Identify the " +
+      "highest-leverage question, the cheapest falsifying experiment, " +
+      "and one adjacent area I'm probably underweighting. Here's what " +
+      "I'm looking at: ",
+    tradeoffs:
+      "Give me a rigorous tradeoff analysis — list the real costs " +
+      "(not just the obvious ones), name the assumption each cost " +
+      "depends on, and rank by which assumption is most likely to " +
+      "break. Here's the decision: ",
+    firstprinciples:
+      "Reason from first principles. Start by stating what must be " +
+      "true for this to work at all, then build up. Here is the " +
+      "claim I want examined: ",
+    critique:
+      "Critique this plan the way a skeptical senior would. Find the " +
+      "weakest assumption, the most likely failure mode, and one " +
+      "thing that's probably over-engineered. Plan: ",
+  };
+
+  document.querySelectorAll(".t-preset").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const p = PRESETS[btn.dataset.preset] || "";
+      const ta = $("t-input");
+      ta.value = p + (ta.value.startsWith(p) ? ta.value.slice(p.length) : ta.value);
+      ta.focus();
+      ta.setSelectionRange(ta.value.length, ta.value.length);
+    });
+  });
+
+  // Populate the model chip + running tok/s average from /api/airllm/bench
+  // so the user knows what they're waiting on before they hit ask.
+  async function loadModelInfo() {
+    let deepName = "";
+    try {
+      const models = await fetch("/api/chat/models").then(r => r.json());
+      // /api/chat/models returns {deep: {model, installed, param_hint,
+      // spec: {params, context, ...}}, ...}. Fall back to param_hint
+      // when the full spec isn't registered yet.
+      const d = models.deep || {};
+      deepName = d.model || "";
+      if (deepName) $("t-model").textContent = deepName;
+      const spec = d.spec || {};
+      const params = spec.params || d.param_hint || "";
+      const ctx = spec.context ? (" · " + spec.context + " ctx") : "";
+      const chip = (params + ctx).trim();
+      if (chip) $("t-size").textContent = chip;
+    } catch (e) { /* leave defaults */ }
+    try {
+      // /api/airllm/bench returns {bench: {<model>: {avg_tokens_per_sec,
+      // ...}}, total_runs, platform}. Pull the active model's entry;
+      // fall back to the first entry if the name doesn't match exactly.
+      const j = await fetch("/api/airllm/bench").then(r => r.json());
+      const benchMap = (j && j.bench) || {};
+      const keys = Object.keys(benchMap);
+      if (keys.length) {
+        const preferred = keys.find(k => deepName && k.includes(deepName))
+                       || keys.find(k => deepName && deepName.includes(k))
+                       || keys[0];
+        const tps = benchMap[preferred] && benchMap[preferred].avg_tokens_per_sec;
+        if (tps) $("t-tps").textContent = Number(tps).toFixed(2) + " tok/s avg";
+      }
+    } catch (e) { /* no bench yet */ }
+  }
+
+  // Timer ticks while the Teacher thinks. Helps calibrate patience.
+  let timerHandle = null, timerStart = 0;
+  function startTimer() {
+    timerStart = Date.now();
+    $("t-timer").innerHTML = "<strong>thinking…</strong> 0s";
+    timerHandle = setInterval(() => {
+      const s = Math.round((Date.now() - timerStart) / 1000);
+      const mm = Math.floor(s / 60), ss = s % 60;
+      const txt = mm > 0 ? (mm + "m " + ss + "s") : (ss + "s");
+      $("t-timer").innerHTML = "<strong>thinking…</strong> " + txt;
+    }, 500);
+  }
+  function stopTimer() {
+    if (timerHandle) { clearInterval(timerHandle); timerHandle = null; }
+  }
+
+  let inflight = null;
+  async function ask() {
+    const q = $("t-input").value.trim();
+    if (!q) { $("t-input").focus(); return; }
+    $("t-ask-btn").disabled = true;
+    $("t-cancel").style.display = "inline-block";
+    $("t-ans").classList.add("thinking");
+    $("t-ans").textContent = "The Teacher is reading your question. This will take a while — see the timer.";
+    startTimer();
+
+    const controller = new AbortController();
+    inflight = controller;
+    try {
+      const resp = await fetch("/api/teacher/ask", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({message: q}),
+        signal: controller.signal,
+      });
+      const data = await resp.json();
+      stopTimer();
+      const elapsed = ((Date.now() - timerStart) / 1000).toFixed(1);
+      $("t-ans").classList.remove("thinking");
+      if (data.error) {
+        $("t-ans").textContent = "⚠️  " + data.reply + "\n\nDetails: " + data.error;
+      } else {
+        const meta =
+          "Model: " + (data.model || "—") +
+          " · tok/s: " + (data.tokens_per_sec || "—") +
+          " · elapsed: " + elapsed + "s" +
+          (data.saved_to ? "\nSaved to: " + data.saved_to : "");
+        $("t-ans").textContent = (data.reply || "(no reply)") + "\n\n" + meta;
+      }
+      loadHistory();
+    } catch (e) {
+      stopTimer();
+      $("t-ans").classList.remove("thinking");
+      $("t-ans").textContent = "Request cancelled or failed: " + e.message;
+    } finally {
+      inflight = null;
+      $("t-ask-btn").disabled = false;
+      $("t-cancel").style.display = "none";
+      $("t-timer").innerHTML = "";
+    }
+  }
+
+  function cancel() {
+    if (inflight) inflight.abort();
+  }
+
+  async function loadHistory() {
+    try {
+      const j = await fetch("/api/teacher/history").then(r => r.json());
+      const wrap = $("t-log");
+      const items = j.items || [];
+      if (!items.length) {
+        wrap.innerHTML = '<div class="t-empty">No consultations yet.</div>';
+        return;
+      }
+      wrap.innerHTML = "";
+      for (const it of items) {
+        const div = document.createElement("div");
+        div.className = "t-log-entry";
+        const ts = (it.ts || "").replace("T", " ").slice(0, 16);
+        div.innerHTML =
+          '<div class="ts">' + ts + " · " + (it.model || "—") + "</div>" +
+          '<div class="q"><strong>Q:</strong> ' + escapeHtml(it.question || "") + "</div>" +
+          "<details><summary>Show answer</summary>" +
+          '<div class="a">' + escapeHtml(it.answer || "") + "</div>" +
+          "</details>";
+        wrap.appendChild(div);
+      }
+    } catch (e) { /* fine, empty */ }
+  }
+
+  function escapeHtml(s) {
+    return (s || "")
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+
+  $("t-ask-btn").addEventListener("click", ask);
+  $("t-cancel").addEventListener("click", cancel);
+  $("t-input").addEventListener("keydown", (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") ask();
+  });
+
+  loadModelInfo();
+  loadHistory();
+})();
+</script>
+
+</body>
+</html>

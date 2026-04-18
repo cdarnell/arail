@@ -4,7 +4,7 @@ section: docs
 tags: [python, module]
 aliases: [app, app.py]
 source: src/oglab/portal/app.py
-generated: 2026-04-16T11:30:32Z
+generated: 2026-04-17T11:08:09Z
 ---
 
 # app module
@@ -112,6 +112,34 @@ Stop research and clear the current goal (archives it).
 
 ### `graph_page(request)`
 
+### `admin_page(request)`
+
+Lab administration — services, components, updates, help.
+
+### `agents_page(request)`
+
+Agent Control Center — monitor, instruct, and inspect all agents.
+
+### `agents_status()`
+
+Aggregated status of all three agents.
+
+### `agents_prompts(agent, limit)`
+
+Return recent prompt-trace events for the Prompt Inspector.
+
+### `agents_instruct(request)`
+
+Send an ad-hoc instruction to an agent.
+
+### `admin_components()`
+
+Read components.json and resolve current versions.
+
+### `admin_check_updates()`
+
+Quick remote update check for all components.
+
 ### `system_graph()`
 
 Return the full system connectivity graph with live status.
@@ -176,6 +204,22 @@ hit the actual HTTP endpoints.
 Schedule a local lab destroy from inside the running environment.
 
 ### `knowledge_page(request)`
+
+### `browse_url_endpoint(request)`
+
+Browse a URL via agent-browser, capture screenshot + text.
+
+### `browse_chat_endpoint(request)`
+
+Natural-language browser task via agent-browser chat.
+
+### `browse_suggestions()`
+
+Generate goal-driven browse suggestions from credible sources.
+
+### `browse_file(path)`
+
+Serve a browser agent capture (screenshot or extract).
 
 ### `api_pkb_browse()`
 

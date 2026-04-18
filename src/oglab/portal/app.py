@@ -1299,48 +1299,33 @@ async def api_brand():
 _CHAT_HISTORY_LIMIT = 20
 
 
-@app.post("/api/chat")
-async def api_chat(request: Request):
-    """Send one user message to the local model with full lab context.
+async def _run_chat_completion(
+    *,
+    message: str,
+    history: list,
+    backend_override: str | None,
+    model_override: str | None,
+    temperature: float,
+    top_p: float | None,
+    max_tokens: int,
+) -> dict:
+    """Shared core of /api/chat and /api/teacher/ask.
 
-    Request JSON:
-        {
-          "message": "What commands can I run?",
-          "history": [{"role": "user"|"assistant", "content": "..."}]
-        }
-
-    Response JSON:
-        {
-          "reply": "…",
-          "backend": "mlx",
-          "latency_ms": 245.3,
-          "tokens_used": 118,
-          "error": null
-        }
-    """
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    message = (body.get("message") or "").strip()
-    history = body.get("history") or []
-    if not message:
-        return {"error": "message required"}
-    if not isinstance(history, list):
-        history = []
-    # Keep history bounded so token cost stays predictable.
-    history = history[-_CHAT_HISTORY_LIMIT:]
-
+    Returns the same dict the /api/chat endpoint emits so both surfaces
+    look identical to the UI layer: {reply, backend, model, latency_ms,
+    tokens_used, tokens_per_sec, cloud_cost_usd, energy_cost_usd,
+    deep, error}. On failure the dict carries a user-readable ``reply``
+    plus an ``error`` string — callers never need to catch."""
     from oglab import lab_brain
     from oglab.router import ModelRouter
 
+    if not isinstance(history, list):
+        history = []
+    history = history[-_CHAT_HISTORY_LIMIT:]
+
     prompt = lab_brain.build_chat_prompt(message, history)
 
-    # Deep-backend override — lets the user opt into AirLLM for one
-    # message without flipping MODEL_BACKEND in .env. First call
-    # takes minutes (model loads layer-by-layer from disk); we cache
-    # the instance so subsequent "deep" calls reuse it.
-    wants_deep = str(body.get("backend") or "").strip().lower() == "airllm"
+    wants_deep = str(backend_override or "").strip().lower() == "airllm"
     deep_backend = None
     if wants_deep:
         try:
@@ -1379,12 +1364,7 @@ async def api_chat(request: Request):
             "error": str(e),
         }
 
-    # Per-request model override — lets the dashboard Tuning row pick
-    # a different model without a portal restart. Single-model backends
-    # (MLX, llama.cpp, AirLLM) ignore it; network backends (openai_compat,
-    # openrouter, huggingface, claude) temporarily swap `model_name`
-    # for the duration of one call.
-    override_model = (body.get("model") or "").strip() or None
+    override_model = (model_override or "").strip() or None
     previous_model = None
     active_backend = deep_backend if deep_backend is not None else router._backend
     if override_model and hasattr(active_backend, "model_name"):
@@ -1392,31 +1372,13 @@ async def api_chat(request: Request):
             previous_model = active_backend.model_name
             active_backend.model_name = override_model
 
-    # top_p is optional — only sent when a preset explicitly sets it or
-    # the user flips an advanced slider. Backends silently drop it when
-    # they don't support it.
-    tp_raw = body.get("top_p")
     try:
-        top_p = float(tp_raw) if tp_raw is not None and tp_raw != "" else None
-    except (TypeError, ValueError):
-        top_p = None
-
-    max_tokens = int(body.get("max_tokens") or 512)
-    temperature = float(body.get("temperature") or 0.7)
-
-    try:
-        # When wants_deep, bypass the router and call AirLLM directly
-        # so we don't tangle the MLX instance with the AirLLM one.
-        # Cost tracker still records (via the same pathway below).
         if deep_backend is not None:
             import asyncio as _aio
             response = await _aio.to_thread(
                 deep_backend.complete,
                 prompt, max_tokens, temperature, top_p,
             )
-            # AirLLM path bypasses router.complete() which is where
-            # cost tracking normally happens — track manually so the
-            # dashboard meter stays accurate.
             from oglab.costs import cost_tracker
             cost_tracker.track(
                 backend=response.backend,
@@ -1425,9 +1387,6 @@ async def api_chat(request: Request):
                 tokens_out=response.tokens_used,
                 latency_ms=response.latency_ms,
             )
-            # Persist a benchmark record — feeds the "measured on
-            # your hardware" section of the Spec Sheet. See
-            # /api/airllm/bench for the aggregation endpoint.
             _record_airllm_bench(
                 model=response.model,
                 tokens_out=response.tokens_used,
@@ -1453,8 +1412,6 @@ async def api_chat(request: Request):
             "error": str(e),
         }
     finally:
-        # Restore the original model on every exit path — success,
-        # exception, return — so the override is truly per-call.
         if previous_model is not None and hasattr(active_backend, "model_name"):
             active_backend.model_name = previous_model
 
@@ -1462,9 +1419,6 @@ async def api_chat(request: Request):
     if not reply:
         reply = "(model returned no text — try rephrasing)"
 
-    # Metrics — surface what the reply cost so the UI can show it.
-    # The cost tracker just updated its history; pull the record we
-    # just wrote rather than recomputing.
     latency_sec = max(response.latency_ms / 1000.0, 0.001)
     tokens_per_sec = round(response.tokens_used / latency_sec, 1)
     cloud_cost_usd = None
@@ -1494,6 +1448,46 @@ async def api_chat(request: Request):
         "deep": bool(wants_deep),
         "error": None,
     }
+
+
+@app.post("/api/chat")
+async def api_chat(request: Request):
+    """Send one user message to the local model with full lab context.
+
+    Request JSON:
+        {
+          "message": "What commands can I run?",
+          "history": [{"role": "user"|"assistant", "content": "..."}],
+          "backend": "airllm" (optional),
+          "model": "model-name" (optional, network backends only),
+          "temperature": 0.7, "top_p": 0.9, "max_tokens": 512
+        }
+
+    Response JSON: see ``_run_chat_completion`` for shape. Errors are
+    returned as a well-formed dict with ``error`` set — never raised."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    message = (body.get("message") or "").strip()
+    if not message:
+        return {"error": "message required"}
+
+    tp_raw = body.get("top_p")
+    try:
+        top_p = float(tp_raw) if tp_raw is not None and tp_raw != "" else None
+    except (TypeError, ValueError):
+        top_p = None
+
+    return await _run_chat_completion(
+        message=message,
+        history=body.get("history") or [],
+        backend_override=body.get("backend"),
+        model_override=body.get("model"),
+        temperature=float(body.get("temperature") or 0.7),
+        top_p=top_p,
+        max_tokens=int(body.get("max_tokens") or 512),
+    )
 
 
 # Deep-backend cache — AirLLM init loads the whole model layer-by-
@@ -2500,3 +2494,339 @@ async def api_pkm_compile_legacy():
 @app.get("/api/pkm/file")
 async def api_pkm_file_legacy(path: str = ""):
     return await api_pkb_file(path=path)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# /tuning — single-page view for the research models.
+#
+# The page shows Baseline vs Champion, a full bench history with git
+# context, and controls that fire the autoresearch loop for either
+# backend (AirLLM/CUDA or AutoAir/MLX). Every endpoint accepts a
+# ?backend=airllm|mlx query param; default is "airllm" for back-compat.
+#
+#   GET  /api/tuning/config                  — hydrated tuning config
+#   GET  /api/tuning/runs                    — bench history + git SHA
+#   POST /api/tuning/baseline                — measure current HEAD
+#   POST /api/tuning/autoresearch/start      — kick off the loop
+#   GET  /api/tuning/autoresearch/status     — poll loop state
+#   POST /api/tuning/autoresearch/start_forever
+#   POST /api/tuning/autoresearch/stop
+#
+# Safety note: the POST /autoresearch/* endpoints refuse unless
+# OGLAB_AUTORESEARCH_ENABLED is set in the environment. This keeps
+# an accidental click from making commits.
+# ═══════════════════════════════════════════════════════════════════════
+
+_VALID_BACKENDS = {"airllm", "mlx"}
+
+
+def _normalize_backend(backend: str | None) -> str:
+    b = (backend or "airllm").lower()
+    if b not in _VALID_BACKENDS:
+        b = "airllm"
+    return b
+
+
+@app.get("/tuning", response_class=HTMLResponse)
+async def tuning_page(request: Request):
+    return templates.TemplateResponse(request, "tuning.html", {})
+
+
+@app.get("/api/tuning/config")
+async def api_tuning_config(backend: str = "airllm"):
+    """Return the hydrated tuning config for the selected backend.
+    Safe to poll."""
+    from oglab.experiments.autoresearch import _config_path
+    from oglab.experiments.tuning import load_tuning
+    b = _normalize_backend(backend)
+    try:
+        cfg = load_tuning(_config_path(b))
+    except FileNotFoundError:
+        return {"error": f"tuning config missing for backend={b}"}
+    except Exception as exc:
+        return {"error": f"{type(exc).__name__}: {exc}"}
+    return {
+        "backend": b,
+        "research_model": {
+            "name": cfg.research_model.name,
+            "precision": cfg.research_model.precision,
+            "expected_disk_gb": cfg.research_model.expected_disk_gb,
+            "family": cfg.research_model.family,
+            "active_params_b": cfg.research_model.active_params_b,
+            "total_params_b": cfg.research_model.total_params_b,
+            "huggingface_id": cfg.research_model.huggingface_id,
+        },
+        "small_models": cfg.small_models,
+        "baseline_commit": cfg.baseline_commit,
+        "baseline_metrics": cfg.baseline_metrics,
+        "baseline_prompt": cfg.baseline_prompt,
+        "baseline_max_tokens": cfg.baseline_max_tokens,
+        "knobs": {
+            n: {
+                "current": k.current,
+                "type": k.schema_type,
+                "choices": k.choices,
+                "min": k.min_value,
+                "max": k.max_value,
+                "rationale": k.rationale,
+            }
+            for n, k in cfg.knobs.items()
+        },
+        # Frontier strip — 670B-750B class "doesn't fit any single
+        # GPU" targets. Only populated for the MLX backend; the
+        # AirLLM config leaves this empty.
+        "frontier_models": [
+            {
+                "name": fm.name,
+                "huggingface_id": fm.huggingface_id,
+                "family": fm.family,
+                "active_params_b": fm.active_params_b,
+                "total_params_b": fm.total_params_b,
+                "precision": fm.precision,
+                "expected_disk_gb": fm.expected_disk_gb,
+                "streaming_required": fm.streaming_required,
+                "gpu_fit": dict(fm.gpu_fit),
+                "rationale": fm.rationale,
+            }
+            for fm in cfg.frontier_models
+        ],
+        "frontier_baselines": dict(cfg.frontier_baselines),
+    }
+
+
+@app.get("/api/tuning/runs")
+async def api_tuning_runs(backend: str = "airllm", limit: int = 200):
+    """Return recent bench rows with git context for the selected
+    backend. Enriches each row with a `diff_url` pointing at GitHub
+    if a remote is configured."""
+    from oglab.experiments.bench import load_runs
+    from oglab.experiments.git_ops import diff_url
+    b = _normalize_backend(backend)
+    if b == "mlx":
+        from oglab.experiments.mlx_backend import mlx_bench_file
+        rows = load_runs(limit=max(1, min(limit, 2000)), path=mlx_bench_file())
+    else:
+        rows = load_runs(limit=max(1, min(limit, 2000)))
+    for r in rows:
+        sha = r.get("git_sha")
+        if sha:
+            r["diff_url"] = diff_url(sha)
+    return {"backend": b, "runs": rows, "count": len(rows)}
+
+
+@app.post("/api/tuning/baseline")
+async def api_tuning_baseline(backend: str = "airllm"):
+    """Run the benchmark `bench_runs_per_config` times on the current
+    HEAD and persist the median into the backend's tuning config as
+    the new baseline. Runs synchronously in a worker thread — expect
+    a long response for big models. The page shows a spinner during this.
+
+    We allow this without the autoresearch env flag because it
+    doesn't create branches or new commits, just a baseline snapshot."""
+    from oglab.experiments.autoresearch import run_autoresearch
+    b = _normalize_backend(backend)
+
+    def _baseline_only():
+        return run_autoresearch(
+            backend=b, require_env_flag=False, candidates=[]
+        )
+    result = await asyncio.to_thread(_baseline_only)
+    return result.to_dict()
+
+
+@app.post("/api/tuning/autoresearch/start")
+async def api_tuning_autoresearch_start(backend: str = "airllm"):
+    """Kick off the full autoresearch loop in a background task for
+    the selected backend. Returns immediately; poll /status?backend=
+    for progress."""
+    from oglab.experiments.autoresearch import (
+        current_state, run_autoresearch,
+    )
+    b = _normalize_backend(backend)
+    state = current_state(b)
+    if state.phase in ("baseline", "variant"):
+        return {"ok": False, "error": "loop already running",
+                "state": state.to_dict()}
+
+    # Preflight the safety rail at the endpoint so the UI gets a
+    # clear "no" instead of a silent background error.
+    if not os.getenv("OGLAB_AUTORESEARCH_ENABLED"):
+        return {
+            "ok": False,
+            "error": (
+                "OGLAB_AUTORESEARCH_ENABLED is not set. Export it "
+                "(e.g. in .env) to arm the loop — this flag exists "
+                "so an accidental click can't make commits."
+            ),
+        }
+
+    async def _bg():
+        await asyncio.to_thread(run_autoresearch, backend=b)
+    asyncio.create_task(_bg())
+    return {"ok": True, "state": current_state(b).to_dict()}
+
+
+@app.get("/api/tuning/autoresearch/status")
+async def api_tuning_autoresearch_status(backend: str = "airllm"):
+    from oglab.experiments.autoresearch import current_state
+    b = _normalize_backend(backend)
+    return current_state(b).to_dict()
+
+
+@app.post("/api/tuning/autoresearch/start_forever")
+async def api_tuning_autoresearch_start_forever(backend: str = "airllm"):
+    """Kick off the continuous supervisor for the selected backend —
+    sweeps every candidate, pauses, sweeps again, forever, until /stop
+    is called. Returns immediately; poll /status for progress +
+    pass_number."""
+    from oglab.experiments.autoresearch import (
+        current_state, run_autoresearch_forever,
+    )
+    b = _normalize_backend(backend)
+    state = current_state(b)
+    if state.phase in ("baseline", "variant") or state.continuous:
+        return {"ok": False, "error": "loop already running",
+                "state": state.to_dict()}
+    if not os.getenv("OGLAB_AUTORESEARCH_ENABLED"):
+        return {
+            "ok": False,
+            "error": (
+                "OGLAB_AUTORESEARCH_ENABLED is not set. Export it "
+                "(e.g. in .env) to arm the loop — this flag exists "
+                "so an accidental click can't make commits."
+            ),
+        }
+
+    async def _bg():
+        await asyncio.to_thread(run_autoresearch_forever, backend=b)
+    asyncio.create_task(_bg())
+    return {"ok": True, "state": current_state(b).to_dict()}
+
+
+@app.post("/api/tuning/autoresearch/stop")
+async def api_tuning_autoresearch_stop(backend: str = "airllm"):
+    """Signal the continuous supervisor for the selected backend to
+    stop after the current pass. Safe to call whether or not a loop
+    is running."""
+    from oglab.experiments.autoresearch import current_state, request_stop
+    b = _normalize_backend(backend)
+    request_stop(b)
+    return {"ok": True, "state": current_state(b).to_dict()}
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# /teacher — AirLLM-backed deep consultation surface.
+#
+# Every Q&A routes through AirLLM (multi-minute answers from a frontier
+# model) and auto-saves to lab/pkb/teacher/<ts>.md so wisdom compounds
+# across sessions. The page is deliberately slow and calm — see
+# templates/teacher.html for the UX.
+#
+#   GET  /teacher                 — page
+#   POST /api/teacher/ask         — one question; returns answer + saved_to
+#   GET  /api/teacher/history     — recent consultations from PKB
+# ═══════════════════════════════════════════════════════════════════════
+
+@app.get("/teacher", response_class=HTMLResponse)
+async def teacher_page(request: Request):
+    return templates.TemplateResponse(request, "teacher.html", {})
+
+
+@app.post("/api/teacher/ask")
+async def api_teacher_ask(request: Request):
+    """One consultation with the Deep Teacher. Forces backend=airllm so
+    the user never accidentally hits the fast path from this surface.
+    Saves the Q&A to PKB on success."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    message = (body.get("message") or "").strip()
+    if not message:
+        return {"error": "message required", "reply": ""}
+
+    result = await _run_chat_completion(
+        message=message,
+        history=[],
+        backend_override="airllm",
+        model_override=None,
+        temperature=0.7,
+        top_p=None,
+        max_tokens=int(body.get("max_tokens") or 1024),
+    )
+    if not result.get("error") and result.get("reply"):
+        try:
+            from oglab.pkb import write_teacher_qa
+            path = write_teacher_qa(
+                message, result["reply"], result.get("model") or "airllm",
+            )
+            try:
+                result["saved_to"] = str(
+                    path.relative_to(Path.cwd().resolve())
+                )
+            except ValueError:
+                result["saved_to"] = str(path)
+        except Exception as exc:  # noqa: BLE001
+            activity_log.emit(
+                "teacher",
+                f"PKB save failed: {type(exc).__name__}: {exc}",
+                "warn",
+            )
+            result["saved_to"] = None
+    return result
+
+
+@app.get("/api/teacher/history")
+async def api_teacher_history(limit: int = 25):
+    """Return recent Teacher consultations from lab/pkb/teacher/, newest
+    first. Files are small (one Q&A each) and there will rarely be more
+    than a few dozen, so we just read them all and sort."""
+    from oglab.pkb import _pkb_root
+    teacher_dir = _pkb_root() / "teacher"
+    items: list[dict] = []
+    if teacher_dir.is_dir():
+        paths = sorted(teacher_dir.glob("*.md"), reverse=True)[
+            : max(1, min(limit, 200))
+        ]
+        for p in paths:
+            try:
+                text = p.read_text()
+            except Exception:
+                continue
+            # Parse the frontmatter + "## Question" / "## Answer" sections
+            # that write_teacher_qa produces. Keep it lenient in case a
+            # user hand-edited the file.
+            model = ""
+            ts = ""
+            q_body = ""
+            a_body = ""
+            if text.startswith("---\n"):
+                end = text.find("\n---\n", 4)
+                if end > 0:
+                    fm = text[4:end]
+                    for line in fm.splitlines():
+                        if line.startswith("title:"):
+                            ts = line.split(":", 1)[1].strip()
+                    text_body = text[end + 5 :]
+                else:
+                    text_body = text
+            else:
+                text_body = text
+            for line in text_body.splitlines()[:4]:
+                if line.lower().startswith("**model:**"):
+                    model = line.split("**", 2)[-1].strip(" *:")
+                if line.lower().startswith("**asked:**"):
+                    ts = line.split("**", 2)[-1].strip(" *:")
+            q_idx = text_body.find("## Question")
+            a_idx = text_body.find("## Answer")
+            if q_idx >= 0 and a_idx > q_idx:
+                q_body = text_body[q_idx + len("## Question") : a_idx].strip()
+                a_body = text_body[a_idx + len("## Answer") :].strip()
+            items.append({
+                "ts": ts or p.stem,
+                "model": model or "—",
+                "question": q_body,
+                "answer": a_body,
+                "path": str(p),
+            })
+    return {"items": items, "count": len(items)}
