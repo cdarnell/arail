@@ -58,6 +58,21 @@ _EXT_MAP = {
     ".bmp":  "images",
     ".avif": "images",
     ".heic": "images",
+    # Video — screencasts, recorded demos. Raw bytes served by
+    # /api/pkb/raw; inline playback still needs a <video> element in
+    # the reader, which is a follow-up.
+    ".mp4":  "videos",
+    ".mov":  "videos",
+    ".webm": "videos",
+    ".mkv":  "videos",
+    ".m4v":  "videos",
+    # Audio — interviews, podcasts, voice memos.
+    ".mp3":  "audio",
+    ".wav":  "audio",
+    ".m4a":  "audio",
+    ".ogg":  "audio",
+    ".flac": "audio",
+    ".aac":  "audio",
 }
 
 
@@ -276,7 +291,10 @@ def browse(pkb_root: Path | None = None) -> dict[str, Any]:
         return {"exists": False, "root": str(root)}
 
     sections = {}
-    for name in ("inbox", "sources", "agents", "notes", "inference", "compiled"):
+    # Order matters — this is the sidebar tree order on /knowledge.
+    # `research` promoted above `sources` so the cockpit contract
+    # files are easy to spot.
+    for name in ("inbox", "research", "sources", "agents", "notes", "inference", "compiled"):
         folder = root / name
         if not folder.exists():
             sections[name] = {"count": 0, "items": []}
@@ -411,9 +429,19 @@ def scaffold(pkb_root: Path | None = None) -> Path:
     dirs = [
         "inbox",
         "sources/papers", "sources/articles", "sources/datasets", "sources/images",
+        # Videos and audio ride beside papers/articles — same treatment
+        # (served as raw bytes, renderable when the frontend learns
+        # <video>/<audio> inline playback).
+        "sources/videos", "sources/audio",
+        # Seeds — curated starter packs (one subdir per pack, e.g.
+        # sources/seeds/model-building/). Populated by pkb_seed.
+        "sources/seeds",
         "agents/research", "agents/experiments", "agents/synthesis",
         "agents/recommendations",
         "notes/scratch",
+        # Research contract files: program.md + prepare.py + any
+        # human-authored research notes the agent consults.
+        "research",
         "compiled/reports", "compiled/summaries", "compiled/exports",
         "inference/prompts", "inference/completions", "inference/chains",
     ]

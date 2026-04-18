@@ -661,3 +661,150 @@
   line-height: 1.5;
   font-size: 0.7rem;
 }
+
+/* ── Mission hero (carries the active goal onto the knowledge page) ── */
+.kb-mission {
+  margin: 1rem 0 1.5rem;
+  padding: 1rem 1.1rem;
+  background: linear-gradient(180deg,
+    rgba(0, 212, 255, 0.06) 0%,
+    rgba(0, 212, 255, 0.02) 100%);
+  border: 1px solid rgba(0, 212, 255, 0.28);
+  border-radius: var(--radius);
+  box-shadow: 0 0 24px rgba(0, 212, 255, 0.05);
+}
+.kb-mission-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.3rem;
+}
+.kb-mission-kicker {
+  color: var(--blue);
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.kb-mission-edit {
+  color: var(--muted);
+  font-size: 0.68rem;
+  text-decoration: none;
+}
+.kb-mission-edit:hover { color: var(--green); }
+.kb-mission-goal {
+  color: var(--text-hi);
+  font-size: 1.05rem;
+  font-weight: 500;
+  line-height: 1.35;
+  margin-bottom: 0.5rem;
+}
+.kb-mission-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-bottom: 0.6rem;
+}
+.kb-mission-chip {
+  font-size: 0.65rem;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.15rem 0.55rem;
+}
+.kb-mission-chip.progress {
+  color: var(--green);
+  border-color: rgba(0, 255, 65, 0.25);
+  background: rgba(0, 255, 65, 0.06);
+}
+.kb-mission-agents {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-bottom: 0.7rem;
+}
+.kb-mission-agents-label {
+  color: var(--muted);
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  margin-right: 0.25rem;
+}
+.kb-agent-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.68rem;
+  font-weight: 500;
+  padding: 0.18rem 0.55rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+.kb-agent-pill.researcher { color: var(--green); border-color: rgba(0, 255, 65, 0.3); }
+.kb-agent-pill.curator    { color: var(--amber); border-color: rgba(255, 176, 0, 0.3); }
+.kb-agent-pill.browser    { color: var(--blue);  border-color: rgba(0, 212, 255, 0.3); }
+.kb-agent-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 6px currentColor;
+  animation: kb-agent-pulse 2.2s ease-in-out infinite;
+}
+@keyframes kb-agent-pulse {
+  0%, 100% { opacity: 0.45; }
+  50%      { opacity: 1; }
+}
+.kb-mission-feed-head {
+  color: var(--muted);
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  margin-bottom: 0.35rem;
+}
+.kb-mission-feed {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.18rem;
+  max-height: 160px;
+  overflow-y: auto;
+  font-size: 0.72rem;
+}
+.kb-mission-feed .kb-empty {
+  color: var(--muted);
+  font-style: italic;
+  padding: 0.3rem 0;
+}
+.kb-mission-event {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  gap: 0.5rem;
+  align-items: baseline;
+  padding: 0.15rem 0;
+  border-bottom: 1px dashed rgba(255, 255, 255, 0.04);
+}
+.kb-mission-event:last-child { border-bottom: none; }
+.kb-mf-ts {
+  color: var(--muted);
+  font-size: 0.65rem;
+  font-variant-numeric: tabular-nums;
+}
+.kb-mf-src {
+  font-size: 0.63rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text);
+}
+.kb-mission-event.src-researcher .kb-mf-src { color: var(--green); }
+.kb-mission-event.src-curator    .kb-mf-src { color: var(--amber); }
+.kb-mission-event.src-browser    .kb-mf-src { color: var(--blue); }
+.kb-mission-event.src-goal       .kb-mf-src { color: var(--purple); }
+.kb-mf-msg { color: var(--text); line-height: 1.35; }

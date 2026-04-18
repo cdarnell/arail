@@ -15,6 +15,10 @@ info()  { echo -e "${GREEN}[oglab]${RESET} $*"; }
 warn()  { echo -e "${YELLOW}[oglab]${RESET} $*"; }
 error() { echo -e "${RED}[oglab]${RESET} $*"; exit 1; }
 
+# Numbered checkpoint banner — every major section prints one so the
+# user has a visible progress spine ("━━━ 3/10  Python environment").
+step()  { echo ""; echo -e "${BOLD}━━━ $*${RESET}"; echo ""; }
+
 MODEL_MLX_ID="mlx-community/Qwen3-8B-4bit"
 MODEL_HF_ID="Qwen/Qwen3-8B"
 MODEL_GGUF_ID="Qwen/Qwen3-8B-GGUF"
@@ -30,6 +34,15 @@ OGLAB_PASSWORD=""
 # Detect OS / platform
 # -----------------------------------------------------------------------------
 detect_platform() {
+    step "1/10  Detecting hardware"
+
+    # Guard: PowerShell / Git-Bash / MSYS shells running on Windows itself.
+    # These aren't supported — users must install WSL2 Ubuntu and run from
+    # there. Detect via environment variables those shells set.
+    if [[ -n "${MSYSTEM:-}" ]] || [[ -n "${WT_SESSION:-}" && "$(uname -s)" == MINGW* ]]; then
+        error "Windows native shell detected. Install WSL2 + Ubuntu (wsl --install in PowerShell), then run ./oglab setup from inside the Ubuntu app."
+    fi
+
     local os kernel
     os="$(uname -s)"
     kernel="$(uname -r)"
@@ -42,15 +55,25 @@ detect_platform() {
                 ACCEL="mlx"
             else
                 ACCEL="cpu"
+                warn "Intel Mac detected — using CPU backend (slower inference). MLX requires Apple Silicon."
             fi
             ;;
         Linux)
             # Check if running inside WSL
             if grep -qiE '(microsoft|wsl)' /proc/version 2>/dev/null; then
                 PLATFORM="wsl"
+                # WSL1 is unsupported — the kernel lacks /dev/dxg and
+                # several syscalls pip + torch need.
+                if ! grep -qi 'WSL2' /proc/version 2>/dev/null; then
+                    error "WSL1 detected — OGLab requires WSL2. From PowerShell (admin):  wsl --set-version Ubuntu 2"
+                fi
             # Check for Gentoo
             elif [[ -f /etc/gentoo-release ]]; then
                 PLATFORM="gentoo"
+            elif [[ -f /etc/fedora-release ]]; then
+                PLATFORM="fedora"
+            elif [[ -f /etc/arch-release ]]; then
+                PLATFORM="arch"
             else
                 PLATFORM="linux"
             fi
@@ -58,33 +81,101 @@ detect_platform() {
             # GPU detection
             if command -v nvidia-smi &>/dev/null && nvidia-smi &>/dev/null; then
                 ACCEL="cuda"
+                # WSL-specific: flag if the user installed the Linux
+                # Nvidia driver inside WSL instead of relying on the
+                # Windows-side driver.
+                if [[ "$PLATFORM" == "wsl" ]] && [[ ! -f /usr/lib/wsl/lib/libcuda.so && ! -f /usr/lib/wsl/lib/libcuda.so.1 ]]; then
+                    warn "CUDA detected but /usr/lib/wsl/lib/libcuda.so* is missing."
+                    warn "If you installed 'nvidia-drivers' inside WSL, remove them —"
+                    warn "WSL gets CUDA from the Windows-side driver only."
+                fi
             else
                 ACCEL="cpu"
             fi
             ;;
         *)
-            error "Unsupported OS: $os  (Linux, macOS, or WSL required)"
+            error "Unsupported OS: $os. See docs/LINUX.md for the 'vibe integrate' recipe — point an AI agent at scripts/setup.sh and it'll port the 20 lines that matter."
             ;;
     esac
 
     info "Platform: ${BOLD}${PLATFORM}${RESET}  |  Accelerator: ${BOLD}${ACCEL}${RESET}"
+
+    # Port-conflict pre-flight — warns if any lab port is already bound.
+    check_ports
+    # Sudo-cache pre-flight for platforms that need it — warns only, so
+    # the user doesn't get surprised by a password prompt 90 seconds in.
+    check_sudo
+    # Homebrew guard — on macOS, every install_services call needs brew.
+    if [[ "$PLATFORM" == "macos" ]] && ! command -v brew &>/dev/null; then
+        error "Homebrew is required on macOS. Install it, then re-run:
+  /bin/bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""
+    fi
+}
+
+# Lightweight port-conflict pre-flight. Warns (not errors) so users can
+# still complete setup even with conflicting services; the fix lives in
+# lab.conf and is spelled out in the warning.
+check_ports() {
+    local ports=(8080 7681 8888 8443 11434)
+    local in_use=()
+    for p in "${ports[@]}"; do
+        if command -v lsof &>/dev/null; then
+            if lsof -iTCP:"$p" -sTCP:LISTEN -P -n &>/dev/null; then
+                in_use+=("$p")
+            fi
+        elif command -v ss &>/dev/null; then
+            if ss -ltn "sport = :$p" 2>/dev/null | tail -n +2 | grep -q .; then
+                in_use+=("$p")
+            fi
+        fi
+    done
+    if (( ${#in_use[@]} > 0 )); then
+        warn "Ports already in use: ${in_use[*]}"
+        warn "Edit lab.conf (PORTAL_PORT / TERMINAL_PORT / NOTEBOOK_PORT / IDE_PORT) before ./oglab start."
+    fi
+}
+
+# Sudo-cache warning — brew/apt/dnf branches in install_services all
+# call sudo. Tell the user up front so the password prompt in the
+# middle of a long install doesn't surprise them.
+check_sudo() {
+    case "$PLATFORM" in
+        linux|wsl|fedora|arch|gentoo)
+            if ! sudo -v -n 2>/dev/null; then
+                warn "sudo cache is empty — setup may prompt for your password mid-run."
+            fi
+            ;;
+    esac
 }
 
 # -----------------------------------------------------------------------------
 # Python environment
 # -----------------------------------------------------------------------------
 ensure_python() {
+    step "3/10  Python environment (.venv + core deps)"
     if ! command -v python3 &>/dev/null; then
         case "$PLATFORM" in
-            gentoo)  error "Install Python: emerge -av dev-lang/python" ;;
-            macos)   error "Install Python: brew install python@3.11" ;;
-            *)       error "Install Python 3.10+ and re-run." ;;
+            gentoo)  error "Install Python, then re-run ./oglab setup:  emerge -av dev-lang/python" ;;
+            macos)   error "Install Python, then re-run ./oglab setup:  brew install python@3.11" ;;
+            *)       error "Install Python 3.10+ and re-run ./oglab setup." ;;
         esac
     fi
 
-    local pyver
+    local pyver pymajor pyminor
     pyver="$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
+    pymajor="${pyver%.*}"
+    pyminor="${pyver#*.}"
     info "Python $pyver found"
+
+    # Version gate: too old (< 3.10) fails hard; too new (>= 3.13) warns
+    # since some accelerator wheels (mlx, vllm, torch) lag behind.
+    if (( pymajor < 3 )) || (( pymajor == 3 && pyminor < 10 )); then
+        error "Python $pyver is too old. Install Python 3.10-3.12 and re-run ./oglab setup."
+    fi
+    if (( pymajor == 3 && pyminor >= 13 )); then
+        warn "Python $pyver is newer than we test (3.10-3.12)."
+        warn "If pip installs fail, install python@3.11 and delete .venv before re-running."
+    fi
 
     if [[ ! -d ".venv" ]]; then
         info "Creating virtual environment…"
@@ -99,8 +190,14 @@ ensure_python() {
 # Install core Python deps
 # -----------------------------------------------------------------------------
 install_core_deps() {
-    info "Installing core dependencies…"
-    pip install -q -e ".[dev]"
+    info "Installing ~60 Python packages (one-time, ~90 s)…"
+    local log="${REPO_ROOT:-$PWD}/setup.log"
+    pip install -q -e ".[dev]" 2>>"$log" || {
+        warn "Core deps install failed. Last 20 lines of setup.log:"
+        tail -n 20 "$log" | sed 's/^/    /' >&2
+        error "pip install failed. See setup.log, then re-run: ./oglab setup"
+    }
+    info "Core dependencies installed."
 }
 
 # -----------------------------------------------------------------------------
@@ -121,6 +218,27 @@ install_accel_deps() {
             pip install -q llama-cpp-python
             ;;
     esac
+
+    # AirLLM — optional "deep" backend. Loads giant models (70B+)
+    # layer-by-layer from disk so they fit in tiny RAM. Slow
+    # (seconds/token) but lets a MacBook chat with Qwen3-235B if it
+    # has the disk space. The dashboard chat card has a toggle that
+    # routes one message through AirLLM at a time.
+    #
+    # Opt-out with OGLAB_SKIP_AIRLLM=1 — it's a several-hundred-MB
+    # install (torch + transformers) if your accel didn't already
+    # pull those in.
+    if [[ "${OGLAB_SKIP_AIRLLM:-0}" != "1" ]]; then
+        info "Installing AirLLM (deep-model layer streaming) — this takes a minute…"
+        if pip install -q airllm 2>&1 | tail -5; then
+            info "AirLLM ready. Dashboard chat card has a 'Deep model' toggle."
+        else
+            warn "AirLLM install failed (non-fatal). The Deep toggle on the chat card will show an install hint."
+            warn "Skip this step next time: OGLAB_SKIP_AIRLLM=1 ./oglab setup"
+        fi
+    else
+        info "Skipping AirLLM (OGLAB_SKIP_AIRLLM=1)."
+    fi
 }
 
 # -----------------------------------------------------------------------------
@@ -131,6 +249,7 @@ install_accel_deps() {
 # are logged and the rest of setup continues.
 # -----------------------------------------------------------------------------
 install_services() {
+    step "2/10  System packages (ttyd, tmux, agent-browser, ollama)"
     # ttyd — the browser terminal.
     if ! command -v ttyd &>/dev/null; then
         case "$PLATFORM" in
@@ -216,13 +335,21 @@ install_services() {
         info "Ollama already installed ($(ollama --version 2>&1 | head -1))"
     fi
 
-    # Pull a default model for Ollama if none exist
+    # Pull a default model for Ollama if none exist. Skippable for
+    # slow networks or locked-down school machines via OGLAB_SKIP_OLLAMA=1.
     if command -v ollama &>/dev/null; then
+        if [[ "${OGLAB_SKIP_OLLAMA:-0}" == "1" ]]; then
+            warn "OGLAB_SKIP_OLLAMA=1 — skipping qwen3:8b pull. Run later: ollama pull qwen3:8b"
+            return
+        fi
         local model_count
         model_count=$(ollama list 2>/dev/null | tail -n +2 | wc -l | tr -d ' ') || model_count="0"
         if [[ "$model_count" == "0" ]]; then
-            info "Pulling default Ollama model (qwen3:8b) — this may take a few minutes…"
-            ollama pull qwen3:8b 2>&1 | tail -5 || warn "Model pull failed — run manually: ollama pull qwen3:8b"
+            info "Pulling default Ollama model (qwen3:8b, ~5 GB) — this may take 2-5 minutes…"
+            info "Skip next time with OGLAB_SKIP_OLLAMA=1 if bandwidth is tight."
+            if ! timeout 900 ollama pull qwen3:8b 2>&1 | tail -5; then
+                warn "Model pull failed or timed out. Run manually: ollama pull qwen3:8b"
+            fi
         else
             info "Ollama has $model_count model(s) available"
         fi
@@ -287,9 +414,7 @@ capture_brand() {
         return
     fi
 
-    echo ""
-    echo -e "${BOLD}━━━ Name your lab${RESET}"
-    echo ""
+    step "4/10  Name your lab"
     echo "  This is how the dashboard, portal, wiki, and every banner will"
     echo "  refer to your lab. Pick something that feels like yours —"
     echo "  ${BOLD}PeanutLab${RESET}, ${BOLD}Atlas${RESET}, ${BOLD}Workshop${RESET}, or keep the default."
@@ -308,58 +433,94 @@ capture_brand() {
 }
 
 # -----------------------------------------------------------------------------
-# Unified passphrase — one secret for IDE + Open Notebook + future auth
+# Unified passphrase — one secret for IDE + Open Notebook + future auth.
+#
+# Contract:
+#   - Interactive TTY + no existing passphrase → silent prompt w/ confirm
+#   - Interactive TTY + existing passphrase     → ask "keep or rotate"
+#   - Non-TTY / OGLAB_NONINTERACTIVE=1          → auto-generate, warn loudly
+#   - Empty final value                         → hard-fail (caller aborts)
+#
+# The generated token and the final OGLAB_PASSWORD are echoed in the
+# end-of-setup banner so users never have to grep .env to find it.
 # -----------------------------------------------------------------------------
 capture_password() {
-    # Reuse an existing passphrase if one is already stored in .env.
+    local existing=""
     if [[ -f .env ]]; then
-        local existing
         existing="$(grep -E '^OGLAB_PASSWORD=' .env | head -n1 | cut -d= -f2-)"
-        if [[ -n "$existing" && "$existing" != "change-me" ]]; then
+        # Guard against the placeholder from .env.example.
+        if [[ "$existing" == "change-me" ]]; then existing=""; fi
+    fi
+
+    # Reuse path — ask the user explicitly instead of silent reuse.
+    if [[ -n "$existing" ]]; then
+        if [[ ! -t 0 ]] || [[ "${OGLAB_NONINTERACTIVE:-0}" == "1" ]]; then
             OGLAB_PASSWORD="$existing"
-            info "Reusing existing passphrase from .env"
+            info "Reusing existing passphrase from .env (non-interactive)."
             return
         fi
+        step "5/10  Lab passphrase"
+        echo "  An existing passphrase is already configured in .env."
+        echo "  Press Enter to keep it, or type ${BOLD}new${RESET} to rotate it."
+        echo ""
+        local choice
+        read -rp "  Keep existing? [Y/new]: " choice || choice=""
+        case "${choice,,}" in
+            ""|y|yes|keep)
+                OGLAB_PASSWORD="$existing"
+                info "Keeping existing passphrase."
+                return
+                ;;
+            *)
+                info "Rotating passphrase — you'll set a new one now."
+                ;;
+        esac
     fi
 
     local generated
     generated="$(python3 -c 'import secrets; print(secrets.token_urlsafe(18))')"
 
-    # Non-interactive path — just use the generated value.
+    # Non-interactive path — auto-generate, but warn loudly so the line
+    # survives terminal scrollback. The final banner echoes the value.
     if [[ ! -t 0 ]] || [[ "${OGLAB_NONINTERACTIVE:-0}" == "1" ]]; then
         OGLAB_PASSWORD="$generated"
-        info "Generated passphrase (non-interactive). See .env after setup."
+        warn "Non-interactive shell — passphrase auto-generated."
+        warn "The final setup banner will print the value — do not miss it."
         return
     fi
 
-    echo ""
-    echo -e "${BOLD}━━━ Lab passphrase${RESET}"
-    echo ""
+    step "5/10  Lab passphrase"
     echo "  One passphrase secures every surface in the lab:"
-    echo "    • code-server IDE  (http://127.0.0.1:8443)"
-    echo "    • Open Notebook    (encrypts your research data at rest)"
+    echo "    • code-server IDE   (http://127.0.0.1:8443)"
+    echo "    • Open Notebook     (encrypts your research data at rest)"
+    echo "    • any future auth   (portal, wiki, agents)"
     echo ""
     echo "  Press Enter to accept a generated value, or type your own."
+    echo "  ${BOLD}Input is hidden.${RESET} You will be asked to confirm."
     echo ""
-    read -rp "  Passphrase [generated]: " typed || typed=""
-    OGLAB_PASSWORD="${typed:-$generated}"
-    if [[ -z "$typed" ]]; then
-        info "Using generated passphrase — saved to .env and lab.conf."
-    else
-        info "Passphrase set."
-    fi
-
-    # Belt-and-suspenders: verify the variable is non-empty.
-    if [[ -z "$OGLAB_PASSWORD" ]]; then
-        OGLAB_PASSWORD="$generated"
-        warn "Passphrase was empty — using generated value."
-    fi
+    local typed="" confirm=""
+    while true; do
+        read -rsp "  Passphrase [generated]: " typed; echo
+        if [[ -z "$typed" ]]; then
+            OGLAB_PASSWORD="$generated"
+            info "Using generated passphrase."
+            return
+        fi
+        read -rsp "  Confirm passphrase      : " confirm; echo
+        if [[ "$typed" == "$confirm" ]]; then
+            OGLAB_PASSWORD="$typed"
+            info "Passphrase set."
+            return
+        fi
+        warn "Passphrases did not match — try again (or press Enter to accept generated)."
+    done
 }
 
 # -----------------------------------------------------------------------------
 # .env file
 # -----------------------------------------------------------------------------
 setup_env() {
+    step "6/10  Configuration files (.env + lab.conf)"
     if [[ ! -f .env ]]; then
         cp .env.example .env
         # Patch detected backend
@@ -385,13 +546,12 @@ setup_env() {
 
     # Passphrase + add-on keys: always ensure they match OGLAB_PASSWORD.
     # Idempotent — safe to re-run on an existing .env.
-    if [[ -n "$OGLAB_PASSWORD" ]]; then
-        _set_env_var OGLAB_PASSWORD "$OGLAB_PASSWORD"
-        _set_env_var OPEN_NOTEBOOK_ENCRYPTION_KEY "$OGLAB_PASSWORD"
-        info "Passphrase written to .env (OGLAB_PASSWORD + OPEN_NOTEBOOK_ENCRYPTION_KEY)"
-    else
-        warn "OGLAB_PASSWORD is empty — passphrase not written. Re-run ./oglab setup."
+    if [[ -z "$OGLAB_PASSWORD" ]]; then
+        error "Passphrase capture failed — OGLAB_PASSWORD is empty. Re-run: ./oglab setup"
     fi
+    _set_env_var OGLAB_PASSWORD "$OGLAB_PASSWORD"
+    _set_env_var OPEN_NOTEBOOK_ENCRYPTION_KEY "$OGLAB_PASSWORD"
+    info "Passphrase written to .env (OGLAB_PASSWORD + OPEN_NOTEBOOK_ENCRYPTION_KEY)"
 
     # Persist brand fields so every subsequent run reads the user's choice.
     if [[ -n "${LAB_NAME:-}" ]]; then
@@ -431,7 +591,8 @@ PY
 # -----------------------------------------------------------------------------
 setup_runtime_files() {
     cat > lab.conf << CONF
-# OGLab runtime config — generated by setup.sh
+# OGLab runtime config — regenerated by ./oglab setup on every run.
+# To change values, edit .env instead (this file is overwritten).
 PORTAL_PORT=8080
 TERMINAL_PORT=7681
 NOTEBOOK_PORT=8888
@@ -442,8 +603,16 @@ CONF
     info "lab.conf written"
 
     local cs_dir="${HOME}/.config/code-server"
+    local cs_cfg="${cs_dir}/config.yaml"
     mkdir -p "$cs_dir"
-    cat > "${cs_dir}/config.yaml" << YAML
+    if [[ -f "$cs_cfg" ]]; then
+        local prev
+        prev="$(grep -E '^password:' "$cs_cfg" | head -n1 | cut -d' ' -f2- || true)"
+        if [[ -n "$prev" && "$prev" != "$OGLAB_PASSWORD" ]]; then
+            warn "Overwriting existing code-server password in $cs_cfg"
+        fi
+    fi
+    cat > "$cs_cfg" << YAML
 bind-addr: 127.0.0.1:8443
 auth: password
 password: ${OGLAB_PASSWORD}
@@ -458,6 +627,7 @@ YAML
 # Personal knowledge management scaffold
 # -----------------------------------------------------------------------------
 setup_pkb() {
+    step "7/10  Knowledge base scaffold (lab/pkb/)"
     local pkb_root="lab/pkb"
     mkdir -p "$pkb_root"/{inbox,sources/{papers,articles,datasets},agents/{research,experiments,synthesis,recommendations},notes/scratch,compiled/{reports,summaries,exports},inference/{prompts,completions,chains}}
     [[ -f "$pkb_root/sources/bookmarks.md" ]] || cat > "$pkb_root/sources/bookmarks.md" << 'BOOKMARKS'
@@ -495,6 +665,7 @@ IDEAS
 # Download starter model (airgapped prep)
 # -----------------------------------------------------------------------------
 download_model() {
+    step "8/10  AI models (starter model for ${ACCEL})"
     if [[ "${OGLAB_SKIP_MODEL_DOWNLOAD:-0}" == "1" ]]; then
         warn "Skipping model download because OGLAB_SKIP_MODEL_DOWNLOAD=1"
         return
@@ -536,9 +707,7 @@ capture_goal() {
         return
     fi
 
-    echo ""
-    echo -e "${BOLD}━━━ Lab intent${RESET}"
-    echo ""
+    step "9/10  Lab intent & first research goal"
     echo "  What kind of lab is this?"
     echo ""
     echo "    1) ai         — AI engineering, models, inference, toolchains"
@@ -563,7 +732,7 @@ capture_goal() {
     esac
 
     echo ""
-    echo -e "${BOLD}━━━ Research goal${RESET}"
+    echo -e "  ${BOLD}─── Research goal ───${RESET}"
     echo ""
     echo "  What do you want the lab to research? One sentence is fine."
     echo "  Examples:"
@@ -578,7 +747,7 @@ capture_goal() {
     fi
 
     echo ""
-    echo -e "${BOLD}━━━ Work windows${RESET}"
+    echo -e "  ${BOLD}─── Work windows ───${RESET}"
     echo ""
     echo "  The lab scheduler has two modes:"
     echo "    ☀  active — light work only, lab stays responsive"
@@ -607,21 +776,13 @@ with open(path, "w") as f:
 PY
 
     # Persist intent + work windows to .env so the researcher honors them
-    # on every run.
+    # on every run. Uses the file-scope _set_env_var (Python-backed,
+    # handles commented forms and arbitrary values correctly).
     if [[ -f .env ]]; then
-        _set_env_var() {
-            local key="$1" val="$2"
-            if grep -q "^${key}=" .env; then
-                sed -i.bak "s|^${key}=.*|${key}=${val}|" .env
-            else
-                echo "${key}=${val}" >> .env
-            fi
-        }
         _set_env_var LAB_INTENT "${intent}"
         _set_env_var LAB_INTENT_NAME "${intent_name}"
         _set_env_var LAB_ACTIVE_HOURS "${active_hours}"
         _set_env_var LAB_HEAVY_HOURS "${heavy_hours}"
-        rm -f .env.bak
     fi
 
     info "Goal saved → $goal_path"
@@ -629,13 +790,52 @@ PY
 }
 
 # -----------------------------------------------------------------------------
+# validate_env — sanity-check the .env we just wrote. Catches the exact
+# failure mode the user reported: a stale .env missing OGLAB_PASSWORD,
+# or a divergent IDE_PASSWORD in lab.conf. Called from main() after
+# setup_env + setup_runtime_files.
+# -----------------------------------------------------------------------------
+validate_env() {
+    local missing=()
+    local required=(MODEL_BACKEND OGLAB_PASSWORD OPEN_NOTEBOOK_ENCRYPTION_KEY LAB_NAME)
+    for key in "${required[@]}"; do
+        if ! grep -q "^${key}=" .env 2>/dev/null; then
+            missing+=("$key")
+        fi
+    done
+    if (( ${#missing[@]} > 0 )); then
+        error "Missing required keys in .env: ${missing[*]}. Re-run: ./oglab setup"
+    fi
+
+    # Detect passphrase drift between .env and lab.conf — the current
+    # user's case (IDE_PASSWORD=Austin34$, OPEN_NOTEBOOK_ENCRYPTION_KEY=Auatin34$).
+    local env_pw conf_pw
+    env_pw="$(grep -E '^OGLAB_PASSWORD=' .env | head -n1 | cut -d= -f2-)"
+    if [[ -f lab.conf ]]; then
+        conf_pw="$(grep -E '^IDE_PASSWORD=' lab.conf | head -n1 | cut -d= -f2-)"
+        if [[ -n "$env_pw" && -n "$conf_pw" && "$env_pw" != "$conf_pw" ]]; then
+            warn "Passphrase drift detected between .env and lab.conf — resyncing."
+            sed -i.bak "s|^IDE_PASSWORD=.*|IDE_PASSWORD=${env_pw}|" lab.conf
+            rm -f lab.conf.bak
+        fi
+    fi
+    info "Environment validated."
+}
+
+# -----------------------------------------------------------------------------
 # Verify
 # -----------------------------------------------------------------------------
 verify() {
+    step "10/10  Verification"
     info "Running smoke tests…"
-    python3 -c "from oglab.router import ModelRouter; import oglab.portal.app; from oglab.pkb import scaffold; scaffold(); print('OK')" >/dev/null 2>&1 \
-        && info "Smoke tests passed." \
-        || warn "Smoke test failed — inspect the environment and re-run: pip install -e ."
+    local log="${REPO_ROOT:-$PWD}/setup.log"
+    if python3 -c "from oglab.router import ModelRouter; import oglab.portal.app; from oglab.pkb import scaffold; scaffold(); print('OK')" >>"$log" 2>&1; then
+        info "Smoke tests passed."
+    else
+        warn "Smoke test failed. Last 20 lines of setup.log:"
+        tail -n 20 "$log" | sed 's/^/    /' >&2
+        error "Inspect setup.log and re-run: ./oglab setup"
+    fi
 }
 
 # =============================================================================
@@ -650,27 +850,55 @@ main() {
     echo "============================================="
     echo ""
 
+    # Ordering matches the 1/10 → 10/10 banner sequence:
+    #   1/10 detect_platform
+    #   2/10 install_services     (OS packages — needs brew/apt, no python)
+    #   3/10 ensure_python + install_core_deps + install_accel_deps
+    #   4/10 capture_brand
+    #   5/10 capture_password
+    #   6/10 setup_env + setup_runtime_files + validate_env
+    #   7/10 setup_pkb
+    #   8/10 download_model
+    #   9/10 capture_goal
+    #  10/10 verify
     detect_platform
+    install_services
     ensure_python
     install_core_deps
     install_accel_deps
-    install_services
     capture_brand
     capture_password
     setup_env
     setup_runtime_files
+    validate_env
     setup_pkb
     gentoo_notes
     wsl_notes
     download_model
-
-    echo ""
-    verify
     capture_goal
 
     echo ""
-    echo -e "${BOLD}✓ Setup complete.${RESET}"
-    info "Next step:  ${BOLD}./oglab start${RESET}  — portal + agents come online together"
+    verify
+
+    echo ""
+    echo -e "${BOLD}━━━ ✓ Setup complete${RESET}"
+    echo ""
+    echo "  Next steps:"
+    echo -e "    1) Start the lab:      ${BOLD}./oglab start${RESET}"
+    echo -e "    2) Open the dashboard: ${BOLD}http://127.0.0.1:${PORTAL_PORT:-8080}${RESET}"
+    echo -e "    3) Type your goal and click ${BOLD}Run Research${RESET}"
+    echo ""
+    echo "  Your lab passphrase (unlocks the IDE at :${IDE_PORT:-8443}"
+    echo "  and encrypts Open Notebook data):"
+    echo ""
+    echo -e "        ${BOLD}${OGLAB_PASSWORD}${RESET}"
+    echo ""
+    echo "  Also saved in:"
+    echo "    .env        →  OGLAB_PASSWORD, OPEN_NOTEBOOK_ENCRYPTION_KEY"
+    echo "    lab.conf    →  IDE_PASSWORD"
+    echo ""
+    echo "  Treat it like any password — don't commit .env to git."
+    echo "  To rotate later: ./oglab setup  (answer 'new' when prompted)"
     echo ""
 }
 

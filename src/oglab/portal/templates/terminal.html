@@ -60,19 +60,7 @@
 </style>
 </head>
 <body>
-<nav>
-  <span class="logo">{{ brand.logo }}</span>
-  <a href="/">Dashboard</a>
-  <a href="/knowledge">Knowledge</a>
-  <a href="/open-notebook">Open Notebook</a>
-  <a href="/research">Research</a>
-  <a href="/terminal" class="active">Terminal</a>
-  <a href="/notebook">Notebook</a>
-  <a href="/plugins">Plugins</a>
-  <a href="/admin">Admin</a>
-  <span class="nav-clock" id="nav-clock"></span>
-  <span class="mode-badge airgapped" id="mode-badge">⬤ Airgapped</span>
-</nav>
+{% set active = 'terminal' %}{% include "_nav.html" %}
 
 <div class="term-wrap">
   {% if ttyd_running %}

@@ -45,35 +45,11 @@
     white-space: pre-wrap;
     overflow-x: auto;
   }
-  .nb-install .status-pill {
-    display: inline-block;
-    padding: 0.2rem 0.6rem;
-    border-radius: 999px;
-    font-size: 0.7rem;
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    margin-right: 0.5rem;
-  }
-  .status-installed { background: rgba(0,255,65,0.08); color: var(--green); border: 1px solid rgba(0,255,65,0.25); }
-  .status-missing { background: rgba(255,51,85,0.08); color: var(--red); border: 1px solid rgba(255,51,85,0.25); }
-  .status-notrun { background: rgba(255,176,0,0.08); color: var(--amber); border: 1px solid rgba(255,176,0,0.25); }
+  /* .status-pill* hoisted to static/style.css (shared w/ open-notebook + marimo). */
 </style>
 </head>
 <body>
-<nav>
-  <span class="logo">{{ brand.logo }}</span>
-  <a href="/">Dashboard</a>
-  <a href="/knowledge">Knowledge</a>
-  <a href="/open-notebook">Open Notebook</a>
-  <a href="/research">Research</a>
-  <a href="/terminal">Terminal</a>
-  <a href="/notebook" class="active">Notebook</a>
-  <a href="/plugins">Plugins</a>
-  <a href="/admin">Admin</a>
-  <span class="nav-clock" id="nav-clock"></span>
-  <span class="mode-badge airgapped" id="mode-badge">⬤ Airgapped</span>
-</nav>
+{% set active = 'notebooks' %}{% include "_nav.html" %}
 
 <div class="nb-wrap">
   {% if jupyter_running %}

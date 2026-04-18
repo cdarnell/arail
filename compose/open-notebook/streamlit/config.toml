@@ -1,0 +1,23 @@
+# Open Notebook runs on Streamlit. This config forces dark mode so the
+# iframe + popout match the rest of the OGLab portal (terminal-green on
+# near-black). Mounted into the container at /app/.streamlit/config.toml
+# via compose/open-notebook.yml.
+#
+# Palette values match src/oglab/portal/static/style.css :root.
+
+[theme]
+base = "dark"
+primaryColor = "#00ff41"
+backgroundColor = "#0a0a0f"
+secondaryBackgroundColor = "#0f1118"
+textColor = "#c8cdd8"
+font = "monospace"
+
+[browser]
+gatherUsageStats = false
+
+[server]
+headless = true
+# Open Notebook lives behind the OGLab portal — disable the "view
+# recommended on mobile" prompt and the "rerun on save" noise.
+runOnSave = false

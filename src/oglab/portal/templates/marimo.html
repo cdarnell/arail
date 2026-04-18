@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ brand.name }} — Marimo</title>
+<link rel="stylesheet" href="/static/style.css">
+<style>
+  .mar-topbar { display: flex; align-items: center; gap: 0.8rem; justify-content: space-between; }
+  .mar-topbar .mar-hint { margin: 0; flex: 1; }
+  .mar-wrap { padding: 0.8rem 1rem; height: calc(100vh - 52px); display: flex; flex-direction: column; gap: 0.6rem; }
+  .mar-hint { color: var(--muted); font-size: 0.75rem; }
+  .mar-hint code {
+    background: var(--surface);
+    padding: 0.1rem 0.4rem;
+    border-radius: 3px;
+    color: var(--amber);
+  }
+  .mar-frame {
+    flex: 1;
+    width: 100%;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: #0a0a0f;
+    /* Marimo ships a dark theme toggle per-notebook; no invert filter needed. */
+  }
+  .mar-install {
+    flex: 1;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 2rem 2.5rem;
+    max-width: 780px;
+    margin: 0 auto;
+    color: var(--text);
+    overflow-y: auto;
+  }
+  .mar-install h1 { color: var(--green); text-shadow: var(--glow-green); margin-top: 0; }
+  .mar-install h3 { color: var(--blue); margin-top: 1.6rem; }
+  .mar-install pre {
+    background: #0a0c14;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1rem 1.2rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    color: var(--amber);
+    white-space: pre-wrap;
+    overflow-x: auto;
+  }
+</style>
+</head>
+<body>
+{% set active = 'notebooks' %}{% include "_nav.html" %}
+
+<div class="mar-wrap">
+  {% if container_running %}
+  <div class="mar-topbar">
+    <p class="mar-hint">
+      <strong>Marimo</strong> — reactive Python notebooks. Cells re-run
+      automatically when their dependencies change; no hidden state.
+      Notebooks live at <code>lab/notebooks/</code> as plain <code>.py</code> files.
+    </p>
+    <div style="display:flex;gap:0.5rem;">
+      <button class="btn btn-sm btn-ghost" id="mar-restart" title="Restart container">↻ Restart</button>
+      <button class="btn btn-sm btn-ghost" id="mar-stop" title="Stop container" style="color:var(--red);">■ Stop</button>
+      <button class="btn btn-sm btn-ghost" id="mar-popout"
+              title="Open in its own window">
+        ⇱ Pop out
+      </button>
+    </div>
+  </div>
+  <iframe class="mar-frame"
+          src="http://127.0.0.1:{{ ui_port }}?access_token={{ password }}"
+          title="Marimo"></iframe>
+  <script>
+  const MARIMO_URL = 'http://127.0.0.1:{{ ui_port }}?access_token={{ password }}';
+  document.getElementById('mar-popout').addEventListener('click', () => {
+    window.open(MARIMO_URL, '{{ brand.short_name }}-marimo',
+                'width=1400,height=900,noopener');
+  });
+  document.getElementById('mar-stop').addEventListener('click', async () => {
+    if (!confirm('Stop the Marimo container?')) return;
+    const btn = document.getElementById('mar-stop');
+    btn.textContent = '■ Stopping…';
+    btn.disabled = true;
+    await fetch('/api/marimo/stop', {method: 'POST'});
+    location.reload();
+  });
+  document.getElementById('mar-restart').addEventListener('click', async () => {
+    const btn = document.getElementById('mar-restart');
+    btn.textContent = '↻ Restarting…';
+    btn.disabled = true;
+    await fetch('/api/marimo/stop', {method: 'POST'});
+    await fetch('/api/marimo/start', {method: 'POST'});
+    location.reload();
+  });
+  </script>
+
+  {% elif docker_available %}
+  <div class="mar-install">
+    <h1>Marimo not running</h1>
+    <p>
+      <span class="status-pill status-installed">✓ docker</span>
+      <span class="status-pill status-notrun">○ not running</span>
+    </p>
+    <p>
+      Docker is available. Start Marimo with one click — it spins up a
+      container, installs dependencies on first run (~30 s cold start),
+      and serves notebooks from <code>lab/notebooks/</code>.
+    </p>
+    <p>
+      <button class="btn btn-sm" id="mar-start"
+              style="background:var(--green);color:#000;font-weight:700;padding:0.4rem 1.2rem;cursor:pointer;">
+        ▶ Start Marimo
+      </button>
+    </p>
+    <script>
+    document.getElementById('mar-start').addEventListener('click', async () => {
+      const btn = document.getElementById('mar-start');
+      btn.textContent = '⏳ Starting container + installing Marimo…';
+      btn.disabled = true;
+      const res = await fetch('/api/marimo/start', {method: 'POST'});
+      const data = await res.json();
+      if (data.ok) {
+        // First boot installs marimo[recommended] — give it time.
+        setTimeout(() => location.reload(), 20000);
+      } else {
+        btn.textContent = '✗ ' + (data.error || 'Failed');
+        btn.style.background = 'var(--red)';
+      }
+    });
+    </script>
+    <p style="margin-top:1rem;color:var(--muted);font-size:0.8rem;">
+      Or start manually:
+    </p>
+    <pre>docker compose --env-file .env -f compose/marimo.yml up -d</pre>
+  </div>
+
+  {% else %}
+  <div class="mar-install">
+    <h1>Install Docker to enable Marimo</h1>
+    <p>
+      <span class="status-pill status-missing">✗ docker not found</span>
+    </p>
+    <p>
+      <strong>Marimo</strong> is a reactive Python notebook — notebooks
+      run as plain <code>.py</code> files, cells re-run when their
+      dependencies change, and there's no hidden state. Great for
+      dashboards and production-grade notebooks.
+      Learn more at <a href="https://marimo.io" target="_blank" rel="noopener">marimo.io</a>.
+    </p>
+    <h3>Install Docker</h3>
+    <pre>brew install --cask docker     # macOS
+# or visit https://docs.docker.com/get-docker/</pre>
+    <h3>Then reload this page and click Start.</h3>
+  </div>
+  {% endif %}
+</div>
+
+<script src="/static/nav.js"></script>
+</body>
+</html>

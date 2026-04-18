@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from typing import Dict
+from typing import Dict, Optional
 
 from oglab.router.backends import BACKEND_MAP, BaseBackend, ModelResponse
 from oglab.costs import cost_tracker
@@ -40,8 +40,11 @@ class ModelRouter:
 
     # ------------------------------------------------------------------
     def complete(self, prompt: str, max_tokens: int = 512,
-                 temperature: float = 0.7) -> ModelResponse:
-        response = self._backend.complete(prompt, max_tokens, temperature)
+                 temperature: float = 0.7,
+                 top_p: Optional[float] = None) -> ModelResponse:
+        response = self._backend.complete(
+            prompt, max_tokens, temperature, top_p=top_p
+        )
         # Track cost — estimate input tokens from prompt length
         tokens_in = max(len(prompt) // 4, 1)
         cost_tracker.track(

@@ -86,6 +86,26 @@ reset_plugins() {
     fi
 }
 
+reset_pkb() {
+    # Wipes the central knowledge base — every user upload, agent-written
+    # report, note, and seed-pack file. The wiki cache goes too so the
+    # wiki rebuild starts clean. On next `./oglab start` the starter
+    # packs re-seed automatically.
+    local pkb_dir="lab/pkb"
+    local cache_dir="lab/pkb/.wiki-cache"
+    if [[ ! -d "$pkb_dir" ]]; then
+        info "No lab/pkb/ directory."
+        return
+    fi
+    local sz
+    sz=$(report_size "$pkb_dir")
+    warn "Removing ${pkb_dir}/ (${sz})..."
+    warn "This wipes every note, upload, agent finding, and seeded primer."
+    rm -rf "$pkb_dir"
+    rm -rf "$cache_dir" 2>/dev/null || true
+    info "Knowledge base removed. Starter packs will re-seed on next ./oglab start."
+}
+
 reset_env() {
     for f in .env lab.conf; do
         if [[ -f "$f" ]]; then
@@ -161,9 +181,12 @@ usage() {
     echo "  Modes:"
     echo "    models    Remove downloaded models only"
     echo "    data      Remove experiments and data"
+    echo "    pkb       Remove the knowledge base (all notes, uploads,"
+    echo "              agent findings, seed packs). Re-seeds on next start."
     echo "    plugins   Remove installed plugins"
     echo "    env       Remove .venv, .env, lab.conf"
-    echo "    full      Complete wipe (everything except source code)"
+    echo "    full      Complete wipe — keeps the knowledge base safe."
+    echo "              Chain with 'pkb' if you truly want everything gone."
     echo "    destroy   Delete the entire local lab copy and app data"
     echo "    stop      Just stop running services"
     echo ""
@@ -189,23 +212,25 @@ interactive_menu() {
     echo ""
     echo "    1) Models only"
     echo "    2) Data & experiments"
-    echo "    3) Plugins"
-    echo "    4) Environment (.venv, .env, configs)"
-    echo "    5) Full wipe (all of the above)"
-    echo "    6) Destroy this lab copy entirely"
-    echo "    7) Just stop services"
+    echo "    3) Knowledge base (notes, uploads, agent findings)"
+    echo "    4) Plugins"
+    echo "    5) Environment (.venv, .env, configs)"
+    echo "    6) Full wipe (preserves the knowledge base)"
+    echo "    7) Destroy this lab copy entirely"
+    echo "    8) Just stop services"
     echo "    0) Cancel"
     echo ""
-    read -rp "  Choice [0-7]: " choice
+    read -rp "  Choice [0-8]: " choice
 
     case "${choice}" in
         1) confirm_and_run "models" reset_models ;;
         2) confirm_and_run "data & experiments" reset_data ;;
-        3) confirm_and_run "plugins" reset_plugins ;;
-        4) confirm_and_run "environment" reset_env ;;
-        5) confirm_and_run "FULL WIPE" full_wipe ;;
-        6) confirm_and_run "DESTROY LAB" destroy_lab ;;
-        7) stop_services ;;
+        3) confirm_and_run "KNOWLEDGE BASE" reset_pkb ;;
+        4) confirm_and_run "plugins" reset_plugins ;;
+        5) confirm_and_run "environment" reset_env ;;
+        6) confirm_and_run "FULL WIPE" full_wipe ;;
+        7) confirm_and_run "DESTROY LAB" destroy_lab ;;
+        8) stop_services ;;
         0|"") echo "  Cancelled."; exit 0 ;;
         *) error "Invalid choice."; exit 1 ;;
     esac
@@ -243,6 +268,7 @@ done
 case "${MODE:-}" in
     models)  confirm_and_run "models" reset_models ;;
     data)    confirm_and_run "data & experiments" reset_data ;;
+    pkb)     confirm_and_run "KNOWLEDGE BASE" reset_pkb ;;
     plugins) confirm_and_run "plugins" reset_plugins ;;
     env)     confirm_and_run "environment" reset_env ;;
     full)    confirm_and_run "FULL WIPE" full_wipe ;;

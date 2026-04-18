@@ -28,7 +28,15 @@ class ModelResponse:
 class BaseBackend(ABC):
     @abstractmethod
     def complete(self, prompt: str, max_tokens: int = 512,
-                 temperature: float = 0.7) -> ModelResponse:
+                 temperature: float = 0.7,
+                 top_p: Optional[float] = None) -> ModelResponse:
+        """Run one completion.
+
+        ``top_p`` is optional. When None, the backend uses its default
+        sampling policy. Preset buttons on the dashboard set it to
+        specific values (0.9 for Factual, 0.95 for Code, etc.).
+        Backends that don't support top_p ignore it silently.
+        """
         ...
 
     @abstractmethod
@@ -65,13 +73,17 @@ class MLXBackend(BaseBackend):
         self.model, self.tokenizer = self._load(path)
 
     def complete(self, prompt: str, max_tokens: int = 512,
-                 temperature: float = 0.7) -> ModelResponse:
+                 temperature: float = 0.7,
+                 top_p: Optional[float] = None) -> ModelResponse:
         start = time.time()
         # mlx-lm ≥ 0.19 removed the `temp=` kwarg on generate(); you now
         # build a sampler via make_sampler(temp=...) and pass it as
         # `sampler=`. Old versions still accept `temp=` directly.
         if self._make_sampler is not None:
-            sampler = self._make_sampler(temp=temperature)
+            sampler_kwargs = {"temp": temperature}
+            if top_p is not None:
+                sampler_kwargs["top_p"] = top_p
+            sampler = self._make_sampler(**sampler_kwargs)
             text = self._generate(
                 self.model, self.tokenizer,
                 prompt=prompt,
@@ -80,6 +92,7 @@ class MLXBackend(BaseBackend):
                 verbose=False,
             )
         else:
+            # Pre-0.19 mlx-lm has no top_p support; silently drop it.
             text = self._generate(
                 self.model, self.tokenizer,
                 prompt=prompt,
@@ -116,12 +129,16 @@ class CUDABackend(BaseBackend):
                                      "Qwen/Qwen3-8B")
 
     def complete(self, prompt: str, max_tokens: int = 512,
-                 temperature: float = 0.7) -> ModelResponse:
+                 temperature: float = 0.7,
+                 top_p: Optional[float] = None) -> ModelResponse:
         start = time.time()
+        body: dict = {"prompt": prompt, "max_tokens": max_tokens,
+                      "temperature": temperature}
+        if top_p is not None:
+            body["top_p"] = top_p
         resp = self._session.post(
             f"http://localhost:{self.port}/v1/completions",
-            json={"prompt": prompt, "max_tokens": max_tokens,
-                  "temperature": temperature},
+            json=body,
             timeout=60,
         )
         resp.raise_for_status()
@@ -186,9 +203,13 @@ class CPUBackend(BaseBackend):
         self.llm = Llama(model_path=model_path, n_ctx=4096, verbose=False)
 
     def complete(self, prompt: str, max_tokens: int = 512,
-                 temperature: float = 0.7) -> ModelResponse:
+                 temperature: float = 0.7,
+                 top_p: Optional[float] = None) -> ModelResponse:
         start = time.time()
-        out = self.llm(prompt, max_tokens=max_tokens, temperature=temperature)
+        kwargs: dict = {"max_tokens": max_tokens, "temperature": temperature}
+        if top_p is not None:
+            kwargs["top_p"] = top_p
+        out = self.llm(prompt, **kwargs)
         text = out["choices"][0]["text"]  # type: ignore[index]
         return ModelResponse(
             text=text,
@@ -222,12 +243,16 @@ class HuggingFaceBackend(BaseBackend):
         )
 
     def complete(self, prompt: str, max_tokens: int = 512,
-                 temperature: float = 0.7) -> ModelResponse:
+                 temperature: float = 0.7,
+                 top_p: Optional[float] = None) -> ModelResponse:
         start = time.time()
-        text = self.client.text_generation(
-            prompt=prompt, max_new_tokens=max_tokens,
-            temperature=temperature, model=self.model_name
-        )
+        kwargs: dict = {
+            "prompt": prompt, "max_new_tokens": max_tokens,
+            "temperature": temperature, "model": self.model_name,
+        }
+        if top_p is not None:
+            kwargs["top_p"] = top_p
+        text = self.client.text_generation(**kwargs)
         return ModelResponse(
             text=text,
             model=self.model_name,
@@ -260,16 +285,20 @@ class OpenRouterBackend(BaseBackend):
         )
 
     def complete(self, prompt: str, max_tokens: int = 512,
-                 temperature: float = 0.7) -> ModelResponse:
+                 temperature: float = 0.7,
+                 top_p: Optional[float] = None) -> ModelResponse:
         start = time.time()
+        payload: dict = {"model": self.model_name,
+                         "messages": [{"role": "user", "content": prompt}],
+                         "temperature": temperature,
+                         "max_tokens": max_tokens}
+        if top_p is not None:
+            payload["top_p"] = top_p
         resp = self._session.post(
             "https://openrouter.ai/api/v1/chat/completions",
             headers={"Authorization": f"Bearer {self.api_key}",
                      "Content-Type": "application/json"},
-            json={"model": self.model_name,
-                  "messages": [{"role": "user", "content": prompt}],
-                  "temperature": temperature,
-                  "max_tokens": max_tokens},
+            json=payload,
             timeout=30,
         )
         resp.raise_for_status()
@@ -304,14 +333,18 @@ class ClaudeBackend(BaseBackend):
         self.model_name = os.getenv("MODEL_NAME", "claude-sonnet-4-20250514")
 
     def complete(self, prompt: str, max_tokens: int = 512,
-                 temperature: float = 0.7) -> ModelResponse:
+                 temperature: float = 0.7,
+                 top_p: Optional[float] = None) -> ModelResponse:
         start = time.time()
-        resp = self.client.messages.create(
-            model=self.model_name,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            messages=[{"role": "user", "content": prompt}],
-        )
+        kwargs: dict = {
+            "model": self.model_name,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "messages": [{"role": "user", "content": prompt}],
+        }
+        if top_p is not None:
+            kwargs["top_p"] = top_p
+        resp = self.client.messages.create(**kwargs)
         return ModelResponse(
             text=resp.content[0].text,
             model=self.model_name,
@@ -345,16 +378,20 @@ class OpenAICompatBackend(BaseBackend):
         self.api_key = os.getenv("MODEL_API_KEY", "not-needed")
 
     def complete(self, prompt: str, max_tokens: int = 512,
-                 temperature: float = 0.7) -> ModelResponse:
+                 temperature: float = 0.7,
+                 top_p: Optional[float] = None) -> ModelResponse:
         start = time.time()
+        payload: dict = {"model": self.model_name,
+                         "messages": [{"role": "user", "content": prompt}],
+                         "temperature": temperature,
+                         "max_tokens": max_tokens}
+        if top_p is not None:
+            payload["top_p"] = top_p
         resp = self._session.post(
             f"{self.base_url}/chat/completions",
             headers={"Authorization": f"Bearer {self.api_key}",
                      "Content-Type": "application/json"},
-            json={"model": self.model_name,
-                  "messages": [{"role": "user", "content": prompt}],
-                  "temperature": temperature,
-                  "max_tokens": max_tokens},
+            json=payload,
             timeout=120,
         )
         resp.raise_for_status()
@@ -420,7 +457,8 @@ class AirLLMBackend(BaseBackend):
         self._max_length = int(os.getenv("AIRLLM_MAX_LENGTH", "512"))
 
     def complete(self, prompt: str, max_tokens: int = 512,
-                 temperature: float = 0.7) -> ModelResponse:
+                 temperature: float = 0.7,
+                 top_p: Optional[float] = None) -> ModelResponse:
         start = time.time()
 
         input_tokens = self.model.tokenizer(
@@ -432,13 +470,25 @@ class AirLLMBackend(BaseBackend):
             padding=False,
         )
 
+        # Transformers .generate() accepts top_p + temperature directly.
+        # Guarding on do_sample=True ensures temperature/top_p actually
+        # take effect (defaults to greedy otherwise).
+        gen_kwargs: dict = {
+            "max_new_tokens": max_tokens,
+            "use_cache": True,
+            "return_dict_in_generate": True,
+        }
+        if temperature != 1.0 or top_p is not None:
+            gen_kwargs["do_sample"] = True
+            gen_kwargs["temperature"] = temperature
+            if top_p is not None:
+                gen_kwargs["top_p"] = top_p
+
         generation = self.model.generate(
             input_tokens["input_ids"].cuda()
             if __import__("torch").cuda.is_available()
             else input_tokens["input_ids"],
-            max_new_tokens=max_tokens,
-            use_cache=True,
-            return_dict_in_generate=True,
+            **gen_kwargs,
         )
         text = self.model.tokenizer.decode(
             generation.sequences[0], skip_special_tokens=True

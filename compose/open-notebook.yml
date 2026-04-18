@@ -26,11 +26,21 @@ services:
       - ./open-notebook/surreal:/mydata
     restart: unless-stopped
 
+  speaches:
+    image: ghcr.io/speaches-ai/speaches:latest-cpu
+    container_name: oglab-speaches
+    ports:
+      - "127.0.0.1:${SPEACHES_PORT:-8969}:8000"
+    volumes:
+      - ./open-notebook/speaches-cache:/root/.cache
+    restart: unless-stopped
+
   open-notebook:
     image: lfnovo/open_notebook:v1-latest
     container_name: oglab-open-notebook
     depends_on:
       - open-notebook-db
+      - speaches
     ports:
       - "127.0.0.1:${OPEN_NOTEBOOK_PORT:-8502}:8502"
       - "127.0.0.1:${OPEN_NOTEBOOK_API_PORT:-5055}:5055"
@@ -45,4 +55,8 @@ services:
       - "host.docker.internal:host-gateway"
     volumes:
       - ./open-notebook/data:/app/data
+      # Force dark theme so the Open Notebook UI matches the lab.
+      # Without this, Streamlit picks up the OS preference and most
+      # demos show up light. See streamlit/config.toml for palette.
+      - ./open-notebook/streamlit/config.toml:/app/.streamlit/config.toml:ro
     restart: unless-stopped

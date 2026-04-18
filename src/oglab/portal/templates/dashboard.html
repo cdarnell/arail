@@ -8,24 +8,7 @@
 </head>
 <body>
 
-<nav>
-  <span class="logo">{{ brand.logo }}</span>
-  <a href="/" class="active">Dashboard</a>
-  <a href="/knowledge">Knowledge</a>
-  <a href="/open-notebook">Open Notebook</a>
-  <a href="/research">Research</a>
-  <a href="/terminal">Terminal</a>
-  <a href="/notebook">Notebook</a>
-  <a href="/plugins">Plugins</a>
-  <a href="/admin">Admin</a>
-  <span class="nav-clock" id="nav-clock"></span>
-  <span class="mode-badge airgapped" id="mode-badge" title="Click to toggle internet access" style="cursor:pointer;">⬤ Airgapped</span>
-  <span class="mode-badge" id="window-badge" title="Current work window">⋯</span>
-  <button class="btn btn-sm btn-red" id="btn-halt"
-          title="Cancel all running jobs — portal stays up">⏸ Halt jobs</button>
-  <button class="btn btn-sm btn-primary" id="btn-resume" style="display:none"
-          title="Resume scheduler">▶ Resume</button>
-</nav>
+{% set active = 'dashboard' %}{% include "_nav.html" %}
 
 <!-- ═══ Cost meter (top strip — simulation of what this lab would cost in the cloud) ═══ -->
 <div class="meter-bar" id="meter-bar">
@@ -57,6 +40,238 @@
 
 <div class="grid">
 
+  <!-- ═══ Chat — primary dashboard surface ═══
+       Moved to position 1 because it's the fastest way into the lab
+       for a new user: pick a brain mode (preset), ask anything, get a
+       local answer. The goal-setting card lives below it. -->
+  <div class="card full chat-card-focal" id="chat-card">
+    <h2>
+      <span class="indicator"></span> Chat with the lab
+      <span class="chat-backend" id="chat-backend" title="Active backend">—</span>
+      <span class="chat-model"    id="chat-model"   title="Model tag" hidden></span>
+      <!-- Frontier deep-model chip. Always visible when AirLLM is
+           installed — the whole point is to show the user that a
+           giant model is available on demand, not hidden behind a
+           toggle. Hovering opens a full Spec Sheet with strengths,
+           benchmark comparisons, and license info. Click jumps
+           to the tuning row where the toggle lives. -->
+      <span class="chat-frontier-wrap" id="chat-frontier-wrap" hidden>
+        <a class="chat-frontier" id="chat-frontier" href="#chat-tuning">
+          <span class="cf-icon">⚡</span>
+          <span class="cf-label">Frontier</span>
+          <span class="cf-model" id="cf-model">loading…</span>
+        </a>
+        <!-- Spec sheet popover — appears on hover over the chip.
+             Populated from /api/chat/models deep.spec. Details edit-
+             able in src/oglab/model_specs.py so users can extend the
+             registry without touching runtime code. -->
+        <div class="chat-spec-popover" id="chat-spec-popover" aria-hidden="true">
+          <div class="csp-head">
+            <span class="csp-label">Spec Sheet</span>
+            <span class="csp-model" id="csp-model">—</span>
+          </div>
+          <div class="csp-body" id="csp-body">loading…</div>
+          <div class="csp-footer">
+            <span>Flip the <strong>Deep model</strong> toggle below to route your next message through this.</span>
+          </div>
+        </div>
+      </span>
+      <span class="chat-tokens"   id="chat-session-tokens"
+            title="Tokens used in this chat session">session: 0 tok</span>
+    </h2>
+    <div class="chat-hint">
+      <span>Ask how the lab works, what it can do, or for help shaping a goal.
+      The model sees the full capabilities reference + current state.</span>
+      <a class="chat-inspect" href="/api/chat/system-prompt"
+         target="_blank" rel="noopener">view system prompt</a>
+    </div>
+
+    <!-- Preset row — click the mode that matches your task. The
+         numbers underneath each mode translate into temperature and
+         top_p behind the scenes, but nobody needs to know that to
+         use it. Advanced sliders in the details below let tinkerers
+         poke at the raw knobs. -->
+    <div class="chat-presets" role="radiogroup" aria-label="Brain mode">
+      <button type="button" class="chat-preset" data-preset="default"
+              title="Balanced mix of accuracy and variety. Good first pick.">
+        <span class="cp-icon">⚖</span>
+        <span class="cp-label">Default</span>
+        <span class="cp-meta">balanced, good for most chat</span>
+      </button>
+      <button type="button" class="chat-preset" data-preset="factual"
+              title="Stick to the facts. Short, confident answers.">
+        <span class="cp-icon">🎯</span>
+        <span class="cp-label">Factual</span>
+        <span class="cp-meta">precise answers, fewer flourishes</span>
+      </button>
+      <button type="button" class="chat-preset" data-preset="code"
+              title="Maximum determinism. Structured output, minimal drift.">
+        <span class="cp-icon">&lt;/&gt;</span>
+        <span class="cp-label">Code</span>
+        <span class="cp-meta">structured output, for code or JSON</span>
+      </button>
+      <button type="button" class="chat-preset" data-preset="creative"
+              title="Let the model wander. More variety, more flair, more risk.">
+        <span class="cp-icon">✨</span>
+        <span class="cp-label">Creative</span>
+        <span class="cp-meta">brainstorming, variations, wander</span>
+      </button>
+    </div>
+
+    <div class="chat-log" id="chat-log">
+      <div class="chat-msg chat-msg-system">
+        <div class="chat-role">LAB</div>
+        <div class="chat-bubble">
+          Hi — I'm the local model. Pick a brain mode above, then ask
+          anything. I know this lab's router, scheduler, PKB, wiki,
+          agents, and CLI. Try "What commands can I run?" or "Where
+          do agent reports land?"
+        </div>
+      </div>
+    </div>
+    <form class="chat-form" id="chat-form">
+      <input id="chat-input" type="text"
+             placeholder="ask the lab anything…"
+             autocomplete="off" />
+      <button class="btn btn-primary" type="submit" id="chat-send">Send</button>
+      <button class="btn btn-ghost btn-sm" type="button" id="chat-clear"
+              title="Clear conversation">×</button>
+    </form>
+
+    <!-- Advanced tuning — for users who want finer control than the
+         presets. Each slider shows a plain-language label of where
+         you are in the range, plus a tiny zone strip below so you
+         can see ALL the stops at a glance without dragging first. -->
+    <details class="chat-tuning" id="chat-tuning">
+      <summary>
+        <span>⚙ Advanced tuning</span>
+        <span class="chat-tuning-summary" id="chat-tuning-summary">
+          Default mode · balanced · paragraph reply
+        </span>
+      </summary>
+      <div class="chat-tuning-grid">
+
+        <!-- Temperature -->
+        <label class="chat-tuning-field">
+          <span class="chat-tuning-label">
+            How much creativity?
+            <span class="chat-tuning-hint">
+              low = same answer every time · high = surprising answers
+            </span>
+          </span>
+          <div class="chat-tuning-slider-row">
+            <input type="range" id="chat-temp"
+                   min="0" max="2" step="0.1" value="0.7" />
+            <output id="chat-temp-val" class="chat-tuning-readout">
+              <span class="readout-word">Balanced</span>
+              <span class="readout-num">0.7</span>
+            </output>
+          </div>
+          <div class="chat-tuning-zones" data-scale="temperature">
+            <span data-zone="strict">Strict</span>
+            <span data-zone="focused">Focused</span>
+            <span data-zone="balanced">Balanced</span>
+            <span data-zone="open">Open</span>
+            <span data-zone="wild">Wild</span>
+          </div>
+        </label>
+
+        <!-- Top-p -->
+        <label class="chat-tuning-field">
+          <span class="chat-tuning-label">
+            How many word choices?
+            <span class="chat-tuning-hint">
+              off = only the most likely next word · wide = pick from many plausible ones
+            </span>
+          </span>
+          <div class="chat-tuning-slider-row">
+            <input type="range" id="chat-top-p"
+                   min="0" max="1" step="0.05" value="0" />
+            <output id="chat-top-p-val" class="chat-tuning-readout">
+              <span class="readout-word">Off</span>
+              <span class="readout-num">—</span>
+            </output>
+          </div>
+          <div class="chat-tuning-zones" data-scale="topP">
+            <span data-zone="off">Off</span>
+            <span data-zone="narrow">Narrow</span>
+            <span data-zone="moderate">Moderate</span>
+            <span data-zone="wide">Wide</span>
+          </div>
+        </label>
+
+        <!-- Max tokens -->
+        <label class="chat-tuning-field">
+          <span class="chat-tuning-label">
+            How long should the reply be?
+            <span class="chat-tuning-hint">
+              shorter = faster · longer = more detail (and more waiting)
+            </span>
+          </span>
+          <div class="chat-tuning-slider-row">
+            <input type="range" id="chat-max-tokens"
+                   min="64" max="4096" step="64" value="512" />
+            <output id="chat-max-tokens-val" class="chat-tuning-readout">
+              <span class="readout-word">Paragraph</span>
+              <span class="readout-num">512 tok</span>
+            </output>
+          </div>
+          <div class="chat-tuning-zones" data-scale="maxTokens">
+            <span data-zone="oneline">One line</span>
+            <span data-zone="paragraph">Paragraph</span>
+            <span data-zone="essay">Essay</span>
+            <span data-zone="long">Long reply</span>
+          </div>
+        </label>
+
+        <!-- Model -->
+        <label class="chat-tuning-field chat-tuning-model">
+          <span class="chat-tuning-label">
+            Which brain?
+            <span class="chat-tuning-hint" id="chat-model-hint">loading…</span>
+          </span>
+          <select id="chat-model-select">
+            <option value="">(current)</option>
+          </select>
+          <!-- Install-help drawer. Shown only when the backend is
+               a local single-model kind (MLX, CPU, AirLLM, CUDA)
+               where the user can't live-switch but CAN install new
+               models on disk for the next restart. Populated by
+               applyToInputs() from /api/chat/models install_hint. -->
+          <details class="chat-model-help" id="chat-model-help" hidden>
+            <summary>💡 Install more models</summary>
+            <div class="chat-model-help-body" id="chat-model-help-body"></div>
+          </details>
+        </label>
+
+        <!-- Deep-model (AirLLM) escape hatch — routes this message
+             through a much bigger model loaded layer-by-layer from
+             disk. First use takes minutes; subsequent calls are
+             still seconds-per-token. We gate it behind a prominent
+             warning because if you toggle it and hit Send without
+             reading, you think the chat broke. -->
+        <label class="chat-tuning-field chat-deep-toggle">
+          <span class="chat-tuning-label">
+            Deep model (AirLLM)
+            <span class="chat-tuning-hint">
+              ⚠ 30-120 seconds per reply · first use takes minutes to load
+            </span>
+          </span>
+          <label class="chat-deep-switch">
+            <input type="checkbox" id="chat-deep-enable" />
+            <span class="chat-deep-track"></span>
+            <span class="chat-deep-text" id="chat-deep-text">off — using the fast model above</span>
+          </label>
+        </label>
+
+        <button class="btn btn-ghost btn-sm" type="button" id="chat-tuning-reset"
+                title="Snap back to Default preset (balanced, paragraph reply)">
+          ↺ Reset to Default
+        </button>
+      </div>
+    </details>
+  </div>
+
   <!-- ═══ Goal Panel ═══ -->
   <div class="card full" id="goal-card">
     <h2><span class="indicator"></span> Mission Objective</h2>
@@ -67,15 +282,16 @@
              autocomplete="off"
              value="{{ current_goal.goal_text if current_goal else '' }}" />
       <div class="parse-btn-wrap">
-        <button class="btn btn-primary" type="submit" id="btn-parse">Parse</button>
+        <button class="btn btn-primary" type="submit" id="btn-parse">▶ Run Research</button>
         <div class="parse-tooltip">
-          <strong>Parse</strong> is the ignition switch for your lab.
+          <strong>Run Research</strong> is the ignition switch for your lab.
           <ul>
             <li>Decomposes your goal into domain, sub-goals, metrics, timeline</li>
-            <li>Auto-starts the researcher agent (hypotheses → experiments → analysis → report)</li>
+            <li>Starts the researcher agent (hypotheses → experiments → analysis → report)</li>
+            <li>Curator + Browser agents pick it up and carry it across every tab</li>
             <li>Persists across restarts — agents keep working toward it</li>
           </ul>
-          Type what you care about. Hit Parse. The lab starts working.
+          Type what you care about. Hit Run. The lab starts working.
         </div>
       </div>
     </form>
@@ -106,10 +322,11 @@
       {% endif %}
     </div>
 
-    <!-- Research controls — inline with Parse -->
+    <!-- Research controls — secondary actions on the already-running goal.
+         The primary "Run Research" button lives inline with the goal input
+         (hitting Enter or clicking it sets the goal AND kicks off every
+         agent). These controls only manage the lifecycle from there. -->
     <div class="research-controls">
-      <button class="btn btn-sm btn-primary" id="btn-research-start"
-              onclick="startResearch()">▶ Run Research</button>
       <button class="btn btn-sm btn-ghost" id="btn-research-pause"
               onclick="controlResearch('pause')" style="display:none">⏸ Pause</button>
       <button class="btn btn-sm btn-ghost" id="btn-research-resume"
@@ -130,40 +347,7 @@
     </div>
   </div>
 
-  <!-- ═══ Chat — talk to the local model with full lab awareness ═══ -->
-  <div class="card full" id="chat-card">
-    <h2>
-      <span class="indicator"></span> Chat with the lab
-      <span class="chat-backend" id="chat-backend" title="Active backend">—</span>
-      <span class="chat-model"    id="chat-model"   title="Model tag" hidden></span>
-      <span class="chat-tokens"   id="chat-session-tokens"
-            title="Tokens used in this chat session">session: 0 tok</span>
-    </h2>
-    <div class="chat-hint">
-      <span>Ask how the lab works, what it can do, or for help shaping a goal.
-      The model sees the full capabilities reference + current state.</span>
-      <a class="chat-inspect" href="/api/chat/system-prompt"
-         target="_blank" rel="noopener">view system prompt</a>
-    </div>
-    <div class="chat-log" id="chat-log">
-      <div class="chat-msg chat-msg-system">
-        <div class="chat-role">LAB</div>
-        <div class="chat-bubble">
-          Hi — I'm the local model. I know about this lab's router,
-          scheduler, PKB, wiki, agents, and CLI. Ask me anything.
-          Try "What commands can I run?" or "Where do agent reports land?"
-        </div>
-      </div>
-    </div>
-    <form class="chat-form" id="chat-form">
-      <input id="chat-input" type="text"
-             placeholder="ask the lab anything…"
-             autocomplete="off" />
-      <button class="btn btn-primary" type="submit" id="chat-send">Send</button>
-      <button class="btn btn-ghost btn-sm" type="button" id="chat-clear"
-              title="Clear conversation">×</button>
-    </form>
-  </div>
+  <!-- (Chat card moved to the top of the grid — it's the focal surface now.) -->
 
   <!-- ═══ Mission Status ═══ -->
   <div class="card">
@@ -221,25 +405,68 @@
     </div>
   </div>
 
-  <!-- ═══ Curate (add-on surfaces + wiki) ═══ -->
-  <div class="card" id="addons-card">
-    <h2><span class="indicator"></span> Curate</h2>
+  <!-- ═══ Knowledge Base — central repository, source for wiki +
+       notebooks + agents. Full-width hero so it reads as a pillar,
+       not a side card. Counts + recent list populated client-side. -->
+  <div class="card full kb-hero" id="kb-hero-card">
+    <h2>
+      <span class="indicator"></span> Knowledge Base
+      <span class="kb-hero-tagline">one tree — source for wiki, notebooks, and agents</span>
+      <span class="kb-hero-meta" id="kb-hero-meta">loading…</span>
+    </h2>
 
-    <div id="wiki-status" class="wiki-status">
-      <div class="wiki-status-head">
-        <span class="wiki-status-title">📚 Wiki</span>
-        <span class="wiki-status-meta" id="wiki-status-meta">loading…</span>
+    <!-- Five type tiles with live counts. Clicking a tile opens
+         the Knowledge page scoped to that section. -->
+    <div class="kb-type-row" id="kb-type-row">
+      <a class="kb-type-tile" href="/knowledge" data-kind="articles">
+        <span class="kb-type-icon">📄</span>
+        <span class="kb-type-count" data-count="articles">—</span>
+        <span class="kb-type-label">Articles</span>
+      </a>
+      <a class="kb-type-tile" href="/knowledge" data-kind="images">
+        <span class="kb-type-icon">🖼</span>
+        <span class="kb-type-count" data-count="images">—</span>
+        <span class="kb-type-label">Images</span>
+      </a>
+      <a class="kb-type-tile" href="/knowledge" data-kind="videos">
+        <span class="kb-type-icon">🎥</span>
+        <span class="kb-type-count" data-count="videos">—</span>
+        <span class="kb-type-label">Videos</span>
+      </a>
+      <a class="kb-type-tile" href="/knowledge" data-kind="audio">
+        <span class="kb-type-icon">🎧</span>
+        <span class="kb-type-count" data-count="audio">—</span>
+        <span class="kb-type-label">Audio</span>
+      </a>
+      <a class="kb-type-tile" href="/knowledge" data-kind="agents">
+        <span class="kb-type-icon">🤖</span>
+        <span class="kb-type-count" data-count="agents">—</span>
+        <span class="kb-type-label">Agent findings</span>
+      </a>
+    </div>
+
+    <div class="kb-hero-split">
+      <div class="kb-hero-recent">
+        <div class="kb-hero-subhead">Recently added</div>
+        <ul class="kb-recent-list" id="kb-recent-list">
+          <li class="kb-recent-empty">loading…</li>
+        </ul>
       </div>
-      <div class="wiki-status-actions">
-        <a class="btn btn-sm btn-primary" href="/knowledge">Open knowledge →</a>
-        <button class="btn btn-sm btn-ghost" id="btn-wiki-rebuild">Rebuild</button>
+      <div class="kb-hero-wiki">
+        <div class="kb-hero-subhead">Wiki</div>
+        <div class="kb-wiki-meta" id="wiki-status-meta">loading…</div>
       </div>
     </div>
 
-    <p class="empty" id="addons-hint" style="margin-top:.75rem;">
-      Optional notebook surfaces — start them with <code>docker compose -f compose/&lt;file&gt;.yml up -d</code>.
-    </p>
-    <div class="addons-list" id="addons-list"></div>
+    <div class="kb-hero-actions">
+      <a class="btn btn-sm btn-primary" href="/knowledge">Open knowledge →</a>
+      <button class="btn btn-sm btn-ghost" id="kb-hero-seed"
+              title="Install the model-building starter pack (9 primers)">
+        ⚡ Install starter pack
+      </button>
+      <button class="btn btn-sm btn-ghost" id="btn-wiki-rebuild">↻ Rebuild wiki</button>
+      <a class="btn btn-sm btn-ghost" href="/notebooks">Open notebooks →</a>
+    </div>
   </div>
 
   <!-- ═══ Agent Consent ═══ -->
@@ -328,7 +555,7 @@ document.getElementById('goal-form').addEventListener('submit', async (e) => {
   const goal = input.value.trim();
   if (!goal) return;
 
-  btn.textContent = 'Parsing…';
+  btn.textContent = 'Launching agents…';
   btn.disabled = true;
   input.disabled = true;
 
@@ -345,7 +572,7 @@ document.getElementById('goal-form').addEventListener('submit', async (e) => {
     document.getElementById('goal-result').innerHTML =
       '<p style="color:var(--red);">Failed to parse — check if the portal is running.</p>';
   } finally {
-    btn.textContent = 'Parse';
+    btn.textContent = '▶ Run Research';
     btn.disabled = false;
     input.disabled = false;
   }
@@ -390,22 +617,18 @@ function field(label, value) {
 }
 
 // ── Research controls ──
-async function startResearch() {
-  await fetch('/api/research/start', {method: 'POST'});
-  showResearchButtons('running');
-}
-
+// The primary action (Run Research) is the goal-form submit — setting a
+// goal and starting research are one act. These helpers just drive the
+// lifecycle afterward (pause/resume/reset).
 async function controlResearch(action) {
   await fetch(`/api/research/${action}`, {method: 'POST'});
   showResearchButtons(action === 'pause' ? 'paused' : 'running');
 }
 
 function showResearchButtons(state) {
-  const start = document.getElementById('btn-research-start');
   const pause = document.getElementById('btn-research-pause');
   const resume = document.getElementById('btn-research-resume');
   const status = document.getElementById('research-status');
-  start.style.display = state === 'idle' || state === 'completed' ? '' : 'none';
   pause.style.display = state === 'running' ? '' : 'none';
   resume.style.display = state === 'paused' ? '' : 'none';
   const labels = {
@@ -575,27 +798,8 @@ async function refreshCosts() {
 refreshCosts();
 setInterval(refreshCosts, 15000);
 
-// ── Add-on status (Marimo, Open Notebook) ──
-async function refreshAddons() {
-  try {
-    const r = await fetch('/api/addons/status');
-    const d = await r.json();
-    const list = document.getElementById('addons-list');
-    list.innerHTML = d.addons.map(a => {
-      const cls = a.alive ? 'addon alive' : 'addon dead';
-      const inner = `
-        <div class="addon-name">${esc(a.name)}</div>
-        <div class="addon-tag">${esc(a.tagline)}</div>
-        <div class="addon-state">${a.alive ? '● live · ' + esc(a.url) : '○ not running'}</div>
-      `;
-      return a.alive
-        ? `<a class="${cls}" href="${esc(a.url)}" target="_blank" rel="noopener">${inner}</a>`
-        : `<div class="${cls}">${inner}</div>`;
-    }).join('');
-  } catch(e) { /* endpoint unavailable */ }
-}
-refreshAddons();
-setInterval(refreshAddons, 10000);
+// The old refreshAddons() poll has moved to /notebooks (/api/notebooks/status).
+// Curate card now just deep-links to /notebooks — no polling from here.
 
 // ── Wiki status (Curate card) ──
 function _fmtAge(iso) {
@@ -645,6 +849,140 @@ document.getElementById('btn-wiki-rebuild').addEventListener('click', async () =
 });
 refreshWikiStatus();
 setInterval(refreshWikiStatus, 15000);
+
+// ── Knowledge Base hero (counts + recent + starter pack) ──
+// Three backend hits — /api/pkb/browse for counts by section,
+// /api/pkb/recent for the "Recently added" list, /api/pkb/seeds for
+// the Install button state. All three refresh on a 20s cadence.
+function fmtRelativeTime(mtime) {
+  if (!mtime) return '';
+  const secs = Math.max(0, (Date.now() / 1000) - mtime);
+  if (secs < 60)   return Math.round(secs) + 's ago';
+  if (secs < 3600) return Math.round(secs / 60) + 'm ago';
+  if (secs < 86400) return Math.round(secs / 3600) + 'h ago';
+  return Math.round(secs / 86400) + 'd ago';
+}
+function iconForSection(section) {
+  return {
+    inbox: '📥', sources: '📚', research: '🧪',
+    notes: '📝', agents: '🤖', compiled: '📦', inference: '⚙',
+  }[section] || '📄';
+}
+
+async function refreshKbHero() {
+  try {
+    const [browse, recent] = await Promise.all([
+      fetch('/api/pkb/browse').then(r => r.json()),
+      fetch('/api/pkb/recent?n=5').then(r => r.json()),
+    ]);
+
+    // Counts by bucket — walk sources/ subdirs for articles/images/videos/audio,
+    // agents/ for agent findings. Fall back to 0 when a section is missing.
+    const sections = browse.sections || {};
+    const countByPathPrefix = (sec, prefix) => {
+      const items = (sections[sec] && sections[sec].items) || [];
+      return items.filter(it => it.path.startsWith(prefix)).length;
+    };
+    const counts = {
+      articles: countByPathPrefix('sources', 'sources/articles/') +
+                countByPathPrefix('sources', 'sources/papers/') +
+                countByPathPrefix('sources', 'sources/seeds/'),
+      images:   countByPathPrefix('sources', 'sources/images/'),
+      videos:   countByPathPrefix('sources', 'sources/videos/'),
+      audio:    countByPathPrefix('sources', 'sources/audio/'),
+      agents:   (sections.agents && sections.agents.count) || 0,
+    };
+    document.querySelectorAll('[data-count]').forEach(el => {
+      el.textContent = counts[el.dataset.count] ?? 0;
+    });
+
+    const totalFiles = Object.values(sections)
+      .reduce((sum, s) => sum + (s.count || 0), 0);
+
+    // Wiki status line — pull pages/tags count alongside total files.
+    try {
+      const ws = await fetch('/api/wiki/status').then(r => r.json());
+      const metaEl = document.getElementById('kb-hero-meta');
+      if (metaEl) {
+        metaEl.textContent =
+          `${totalFiles} files · ${ws.page_count || 0} wiki pages · ${(ws.tags || []).length} tags`;
+      }
+    } catch (e) {
+      const metaEl = document.getElementById('kb-hero-meta');
+      if (metaEl) metaEl.textContent = `${totalFiles} files`;
+    }
+
+    // Recent list
+    const list = document.getElementById('kb-recent-list');
+    const items = recent.recent || [];
+    if (!items.length) {
+      list.innerHTML =
+        '<li class="kb-recent-empty">No content yet — upload a file, run a research cycle, or install the starter pack.</li>';
+    } else {
+      list.innerHTML = items.map(it =>
+        `<li class="kb-recent-item">
+          <span class="kb-recent-icon">${iconForSection(it.section)}</span>
+          <a class="kb-recent-name" href="/knowledge" title="${esc(it.path)}">${esc(it.name)}</a>
+          <span class="kb-recent-age">${esc(fmtRelativeTime(it.mtime))}</span>
+        </li>`
+      ).join('');
+    }
+  } catch (e) { /* silent — leave last render on the page */ }
+}
+
+async function refreshKbSeedButton() {
+  try {
+    const r = await fetch('/api/pkb/seeds');
+    const d = await r.json();
+    const btn = document.getElementById('kb-hero-seed');
+    if (!btn) return;
+    const pack = (d.packs || []).find(p => p.id === 'model-building');
+    if (pack && pack.installed) {
+      btn.textContent = `✓ Starter pack installed (${pack.files} files)`;
+      btn.title = 'Re-install to overwrite any edits — otherwise keep your changes';
+      btn.dataset.state = 'installed';
+    } else {
+      btn.textContent = '⚡ Install starter pack';
+      btn.dataset.state = 'uninstalled';
+    }
+  } catch (e) { /* endpoint unavailable */ }
+}
+
+document.getElementById('kb-hero-seed').addEventListener('click', async () => {
+  const btn = document.getElementById('kb-hero-seed');
+  const orig = btn.textContent;
+  const force = btn.dataset.state === 'installed';
+  if (force && !confirm('Re-install the starter pack? Your edits to those files will be overwritten.')) {
+    return;
+  }
+  btn.disabled = true;
+  btn.textContent = '⏳ installing…';
+  try {
+    const r = await fetch('/api/pkb/seed', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pack: 'model-building', force: force }),
+    });
+    const d = await r.json();
+    if (d.ok) {
+      btn.textContent = `✓ ${d.written} added · ${d.skipped} kept`;
+      refreshKbHero();
+      refreshKbSeedButton();
+      setTimeout(() => { btn.disabled = false; }, 1500);
+    } else {
+      btn.textContent = '✗ ' + (d.error || 'failed');
+      setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 2000);
+    }
+  } catch (e) {
+    btn.textContent = '✗ error';
+    setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 2000);
+  }
+});
+
+refreshKbHero();
+refreshKbSeedButton();
+setInterval(refreshKbHero, 20000);
+setInterval(refreshKbSeedButton, 30000);
 
 // ── Chat with the lab ──
 const CHAT_STATE = { history: [], sessionTokens: 0 };
@@ -732,23 +1070,42 @@ async function chatSend(text) {
   sendBtn.textContent = '…';
 
   try {
+    const tuning = CHAT_TUNING.get();
+    const useDeep = document.getElementById('chat-deep-enable').checked;
     const r = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         message: text,
         history: CHAT_STATE.history.slice(0, -1),  // exclude the message we just pushed
+        temperature: tuning.temperature,
+        top_p: tuning.topP > 0 ? tuning.topP : undefined,
+        max_tokens: tuning.maxTokens,
+        model: tuning.model || undefined,
+        backend: useDeep ? 'airllm' : undefined,
       }),
     });
     const d = await r.json();
     if (d.error && !d.reply) {
       chatAppend('assistant', 'Error: ' + d.error);
     } else {
-      const meta = d.backend
-        ? `${d.backend}${d.model ? ' · ' + d.model : ''}` +
-          (d.latency_ms != null ? ` · ${Math.round(d.latency_ms)} ms` : '') +
-          (d.tokens_used != null ? ` · ${d.tokens_used} tok` : '')
-        : null;
+      // Build the meta-line shown under each reply. Now includes
+      // throughput (tokens/sec) and cost estimates when available —
+      // small and muted so it's informative, not noisy.
+      const parts = [];
+      if (d.backend) parts.push(d.backend);
+      if (d.model) parts.push(d.model);
+      if (d.latency_ms != null) parts.push(Math.round(d.latency_ms) + ' ms');
+      if (d.tokens_used != null) parts.push(d.tokens_used + ' tok');
+      if (d.tokens_per_sec) parts.push(d.tokens_per_sec + ' t/s');
+      if (d.deep) parts.push('⚡ deep');
+      let meta = parts.length ? parts.join(' · ') : null;
+      if (d.cloud_cost_usd != null || d.energy_cost_usd != null) {
+        const cloud = d.cloud_cost_usd != null ? `$${d.cloud_cost_usd.toFixed(4)}` : '—';
+        const energy = d.energy_cost_usd != null ? `$${d.energy_cost_usd.toFixed(4)}` : '—';
+        meta = (meta ? meta + '\n' : '') +
+          `~ ${cloud} cloud-equiv · ${energy} energy`;
+      }
       chatAppend('assistant', d.reply || '(empty response)', meta);
       CHAT_STATE.history.push({ role: 'assistant', content: d.reply || '' });
       chatSaveHistory();
@@ -796,8 +1153,429 @@ document.getElementById('chat-clear').addEventListener('click', () => {
     '<div class="chat-bubble">History cleared. Ask me anything.</div></div>';
 });
 
+// ── Chat tuning + presets ────────────────────────────────────────
+// Presets are the focal UX — one click sets a known-good (temperature,
+// top_p) combo. Advanced sliders below let power users fine-tune —
+// each slider has a plain-language zone label that updates live, so
+// the user never has to know what "0.7" means on its own.
+const CHAT_TUNING = (() => {
+  const LS_KEY = 'oglab.chat.tuning';
+  const DEFAULTS = {
+    preset: 'default',
+    temperature: 0.7,
+    topP: 0,
+    maxTokens: 512,
+    model: '',
+  };
+  const PRESETS = {
+    default:  { temperature: 0.7, topP: 0 },
+    factual:  { temperature: 0.2, topP: 0.9 },
+    code:     { temperature: 0.1, topP: 0.95 },
+    creative: { temperature: 1.2, topP: 0.95 },
+  };
+
+  // Value → plain-language zone. Each slider has a mapping that
+  // returns both a short label (for the zone strip) and a longer
+  // descriptor (for the readout). Tuned so presets land cleanly on
+  // named zones rather than the cracks between them.
+  const ZONES = {
+    temperature(v) {
+      if (v <= 0.15) return { zone: 'strict',   word: 'Strict'   };
+      if (v <= 0.45) return { zone: 'focused',  word: 'Focused'  };
+      if (v <= 0.9)  return { zone: 'balanced', word: 'Balanced' };
+      if (v <= 1.3)  return { zone: 'open',     word: 'Open'     };
+      return                 { zone: 'wild',    word: 'Wild'     };
+    },
+    topP(v) {
+      if (v <= 0.001) return { zone: 'off',       word: 'Off'       };
+      if (v <= 0.6)   return { zone: 'narrow',    word: 'Narrow'    };
+      if (v <= 0.9)   return { zone: 'moderate',  word: 'Moderate'  };
+      return                  { zone: 'wide',     word: 'Wide'      };
+    },
+    maxTokens(v) {
+      if (v <= 128)  return { zone: 'oneline',   word: 'One line'   };
+      if (v <= 700)  return { zone: 'paragraph', word: 'Paragraph'  };
+      if (v <= 1800) return { zone: 'essay',     word: 'Essay'      };
+      return                 { zone: 'long',     word: 'Long reply' };
+    },
+  };
+
+  function load() {
+    try {
+      return Object.assign({}, DEFAULTS,
+        JSON.parse(localStorage.getItem(LS_KEY) || '{}'));
+    } catch (e) { return { ...DEFAULTS }; }
+  }
+  function save(t) {
+    try { localStorage.setItem(LS_KEY, JSON.stringify(t)); } catch (e) { /* quota */ }
+  }
+
+  const state = load();
+  const tempInput = document.getElementById('chat-temp');
+  const tempVal = document.getElementById('chat-temp-val');
+  const topPInput = document.getElementById('chat-top-p');
+  const topPVal = document.getElementById('chat-top-p-val');
+  const maxTokInput = document.getElementById('chat-max-tokens');
+  const maxTokVal = document.getElementById('chat-max-tokens-val');
+  const modelSelect = document.getElementById('chat-model-select');
+  const modelHint = document.getElementById('chat-model-hint');
+  const summary = document.getElementById('chat-tuning-summary');
+  const resetBtn = document.getElementById('chat-tuning-reset');
+  const presetBtns = document.querySelectorAll('.chat-preset');
+
+  // Highlight the active zone in a zone strip by adding .active to
+  // the matching child <span>.
+  function highlightZone(scale, zoneId) {
+    const strip = document.querySelector(`.chat-tuning-zones[data-scale="${scale}"]`);
+    if (!strip) return;
+    strip.querySelectorAll('[data-zone]').forEach(el => {
+      el.classList.toggle('active', el.dataset.zone === zoneId);
+    });
+  }
+
+  // Update an output element's word + number in one call.
+  function paintReadout(outEl, word, num) {
+    if (!outEl) return;
+    outEl.querySelector('.readout-word').textContent = word;
+    outEl.querySelector('.readout-num').textContent = num;
+  }
+
+  function detectPreset() {
+    for (const [id, p] of Object.entries(PRESETS)) {
+      if (Math.abs(p.temperature - state.temperature) < 0.001 &&
+          Math.abs(p.topP - state.topP) < 0.001) {
+        return id;
+      }
+    }
+    return 'custom';
+  }
+
+  // Plain-English summary for the collapsed Advanced row.
+  function updateSummary() {
+    const modeLabel = state.preset === 'custom' ? 'Custom' :
+      state.preset[0].toUpperCase() + state.preset.slice(1);
+    const tempZone = ZONES.temperature(state.temperature).word.toLowerCase();
+    const lenZone = ZONES.maxTokens(state.maxTokens).word.toLowerCase();
+    const mdl = state.model ? ` · ${state.model.split('/').pop()}` : '';
+    summary.textContent =
+      `${modeLabel} mode · ${tempZone} · ${lenZone} reply${mdl}`;
+  }
+
+  function updatePresetHighlight() {
+    const active = detectPreset();
+    state.preset = active;
+    presetBtns.forEach(b => {
+      b.classList.toggle('active', b.dataset.preset === active);
+    });
+  }
+
+  function applyToInputs() {
+    // Temperature
+    tempInput.value = state.temperature;
+    const t = ZONES.temperature(state.temperature);
+    paintReadout(tempVal, t.word, state.temperature.toFixed(1));
+    highlightZone('temperature', t.zone);
+
+    // Top-p
+    topPInput.value = state.topP;
+    const tp = ZONES.topP(state.topP);
+    paintReadout(topPVal, tp.word, state.topP > 0 ? state.topP.toFixed(2) : '—');
+    highlightZone('topP', tp.zone);
+
+    // Max tokens
+    maxTokInput.value = state.maxTokens;
+    const mt = ZONES.maxTokens(state.maxTokens);
+    paintReadout(maxTokVal, mt.word, `${state.maxTokens} tok`);
+    highlightZone('maxTokens', mt.zone);
+
+    if (state.model) {
+      const opt = Array.from(modelSelect.options).find(o => o.value === state.model);
+      modelSelect.value = opt ? state.model : '';
+    }
+    updatePresetHighlight();
+    updateSummary();
+  }
+
+  // Preset click → snap to the preset's values.
+  presetBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const id = btn.dataset.preset;
+      const p = PRESETS[id];
+      if (!p) return;
+      state.temperature = p.temperature;
+      state.topP = p.topP;
+      state.preset = id;
+      save(state);
+      applyToInputs();
+    });
+  });
+
+  // Manual slider nudges — recompute zone + preset on every frame.
+  tempInput.addEventListener('input', () => {
+    state.temperature = parseFloat(tempInput.value);
+    save(state);
+    applyToInputs();
+  });
+  topPInput.addEventListener('input', () => {
+    state.topP = parseFloat(topPInput.value);
+    save(state);
+    applyToInputs();
+  });
+  maxTokInput.addEventListener('input', () => {
+    const v = parseInt(maxTokInput.value, 10);
+    if (!isNaN(v)) {
+      state.maxTokens = v;
+      save(state);
+      applyToInputs();
+    }
+  });
+  modelSelect.addEventListener('change', () => {
+    state.model = modelSelect.value;
+    save(state);
+    updateSummary();
+  });
+  resetBtn.addEventListener('click', () => {
+    Object.assign(state, DEFAULTS);
+    save(state);
+    applyToInputs();
+  });
+
+  // Populate model dropdown from /api/chat/models
+  fetch('/api/chat/models').then(r => r.json()).then(d => {
+    modelSelect.innerHTML = '';
+    const defaultOpt = document.createElement('option');
+    defaultOpt.value = '';
+    defaultOpt.textContent = d.current
+      ? `(current · ${d.current.split('/').pop()})`
+      : '(current)';
+    modelSelect.appendChild(defaultOpt);
+
+    (d.models || []).forEach(m => {
+      if (m === d.current) return;
+      const opt = document.createElement('option');
+      opt.value = m;
+      opt.textContent = m;
+      modelSelect.appendChild(opt);
+    });
+
+    // Populate the frontier chip (always-on header signal) and
+    // the deep toggle label. Both read AIRLLM_MODEL so the user
+    // sees *which* giant model is wired up, not an abstract toggle.
+    const frontierWrap = document.getElementById('chat-frontier-wrap');
+    const frontierEl = document.getElementById('chat-frontier');
+    const cfModelEl = document.getElementById('cf-model');
+    const deepText = document.getElementById('chat-deep-text');
+    const deep = d.deep || {};
+    if (frontierWrap && frontierEl && cfModelEl && deep.model) {
+      const short = deep.model.split('/').pop();
+      const paramTag = deep.param_hint ? ` · ${deep.param_hint}` : '';
+      cfModelEl.textContent = `${short}${paramTag}`;
+      frontierWrap.hidden = false;
+      frontierEl.classList.toggle('not-installed', !deep.installed);
+      if (!deep.installed) {
+        frontierEl.title =
+          `AirLLM not installed on this lab. Run ./oglab setup to enable, ` +
+          `or pip install airllm manually.`;
+      }
+      renderSpecPopover(deep);
+    }
+    if (deepText && deep.model) {
+      const short = deep.model.split('/').pop();
+      const paramTag = deep.param_hint ? ` (${deep.param_hint})` : '';
+      // Preserve the on/off state text the toggle wiring manages
+      // but bake the model name into the default "off" copy.
+      const cb = document.getElementById('chat-deep-enable');
+      if (cb && !cb.checked) {
+        deepText.textContent = `off — toggle to use ${short}${paramTag} via AirLLM`;
+      }
+      // Also rewrite the toggle's field hint so the "⚠ 30-120s" line
+      // reflects the model's actual size class.
+      const toggleHint = document.querySelector('.chat-deep-toggle .chat-tuning-hint');
+      if (toggleHint) {
+        const warning = _deepLatencyHint(deep.param_hint);
+        toggleHint.innerHTML = `⚠ ${warning} · first use takes minutes to load`;
+      }
+    }
+
+    // Populate the install-help drawer for local single-model
+    // backends. Shows the models dir, a copy-pastable install
+    // command, any models already on disk, and the "requires
+    // restart" caveat. Hidden for switchable backends.
+    const helpEl = document.getElementById('chat-model-help');
+    const helpBody = document.getElementById('chat-model-help-body');
+    if (!d.switchable && d.install_hint && helpEl && helpBody) {
+      const hint = d.install_hint;
+      const others = (d.local_models || []).filter(m => {
+        const currentTail = (d.current || '').split('/').pop();
+        return m !== d.current && m !== currentTail;
+      });
+      helpBody.innerHTML = `
+        <p class="cmh-line">Models live in <code>${esc(hint.dir)}/</code>.
+           Each subfolder is a candidate — restart picks it up when
+           you point <code>MODEL_NAME</code> at it.</p>
+        <p class="cmh-line cmh-label">Example — download a smaller model:</p>
+        <pre class="cmh-cmd"><code>${esc(hint.example_command)}</code></pre>
+        <button type="button" class="cmh-copy btn btn-ghost btn-sm"
+                data-copy="${esc(hint.example_command)}">Copy command</button>
+        <p class="cmh-line cmh-caveat">${esc(hint.restart_note)}</p>
+        ${others.length ? `
+          <p class="cmh-line cmh-label">Already installed (${others.length}):</p>
+          <ul class="cmh-list">${others.map(m =>
+            `<li><code>${esc(m)}</code></li>`).join('')}</ul>
+        ` : '<p class="cmh-line cmh-empty">No other models installed yet.</p>'}
+      `;
+      helpEl.hidden = false;
+      const copyBtn = helpBody.querySelector('.cmh-copy');
+      if (copyBtn) {
+        copyBtn.addEventListener('click', () => {
+          navigator.clipboard.writeText(copyBtn.dataset.copy).then(() => {
+            const orig = copyBtn.textContent;
+            copyBtn.textContent = '✓ copied';
+            setTimeout(() => copyBtn.textContent = orig, 1500);
+          }).catch(() => {});
+        });
+      }
+    } else if (helpEl) {
+      helpEl.hidden = true;
+    }
+
+    if (!d.switchable) {
+      modelSelect.disabled = true;
+      modelHint.textContent =
+        `${d.backend || 'backend'} — single-model (click below for install help)`;
+    } else {
+      modelHint.textContent = `${(d.models || []).length} available · ${d.backend}`;
+    }
+    applyToInputs();
+  }).catch(() => {
+    modelHint.textContent = 'unavailable';
+    modelSelect.disabled = true;
+    applyToInputs();
+  });
+
+  applyToInputs();
+
+  return {
+    get() { return { ...state }; },
+  };
+})();
+
 chatLoadHistory();
 updateSessionTokens();
+
+// Render the Frontier chip's hover Spec Sheet. Populates from the
+// `deep.spec` blob returned by /api/chat/models. Falls back to a
+// "unknown model — edit model_specs.py to add" message when the
+// configured AIRLLM_MODEL isn't in the registry yet.
+function renderSpecPopover(deep) {
+  const body = document.getElementById('csp-body');
+  const modelEl = document.getElementById('csp-model');
+  if (!body || !modelEl) return;
+  const spec = deep.spec;
+  modelEl.textContent = deep.model.split('/').pop();
+  if (!spec) {
+    body.innerHTML = `
+      <p class="csp-unknown">
+        ${chatEscape(deep.model)} isn't in the spec registry yet.<br>
+        Add an entry in
+        <code>src/oglab/model_specs.py</code> to document strengths,
+        benchmarks, and license — it shows up here on the next page
+        load with no restart needed.
+      </p>
+    `;
+    return;
+  }
+  const rows = [];
+  if (spec.params)   rows.push(['Params', spec.params]);
+  if (spec.license)  rows.push(['License', spec.license]);
+  if (spec.context)  rows.push(['Context', spec.context]);
+  const meta = rows.map(([k, v]) =>
+    `<div class="csp-row"><span class="csp-k">${chatEscape(k)}</span>
+     <span class="csp-v">${chatEscape(v)}</span></div>`
+  ).join('');
+
+  const strengths = (spec.strengths || []).map(s =>
+    `<li>${chatEscape(s)}</li>`
+  ).join('');
+
+  const benches = (spec.benchmarks || []).map(b => {
+    const [bench, score, compared] = Array.isArray(b) ? b : [b, '', ''];
+    return `
+      <tr>
+        <td class="csp-bench">${chatEscape(bench)}</td>
+        <td class="csp-score">${chatEscape(score)}</td>
+        <td class="csp-compare">${chatEscape(compared || '')}</td>
+      </tr>`;
+  }).join('');
+
+  body.innerHTML = `
+    <div class="csp-meta">${meta}</div>
+    ${strengths ? `
+      <div class="csp-section">
+        <div class="csp-section-label">Strengths</div>
+        <ul class="csp-strengths">${strengths}</ul>
+      </div>` : ''}
+    ${benches ? `
+      <div class="csp-section">
+        <div class="csp-section-label">Benchmarks · snapshot</div>
+        <table class="csp-bench-table">
+          <thead><tr><th>Test</th><th>Score</th><th>vs others</th></tr></thead>
+          <tbody>${benches}</tbody>
+        </table>
+        <div class="csp-bench-caveat">Numbers are community snapshots, not a fresh eval. Edit <code>model_specs.py</code> to refine.</div>
+      </div>` : ''}
+    ${spec.notes ? `
+      <div class="csp-section">
+        <div class="csp-section-label">Notes</div>
+        <p class="csp-notes">${chatEscape(spec.notes)}</p>
+      </div>` : ''}
+    ${spec.source ? `
+      <div class="csp-section">
+        <a class="csp-source" href="${chatEscape(spec.source)}" target="_blank" rel="noopener">Model card →</a>
+      </div>` : ''}
+  `;
+}
+
+// Honest latency framing by model size. At 100B+ via AirLLM you're
+// waiting seconds per token; above ~400B you're into minutes per
+// reply. Tell the user what to expect before they click Send and
+// think the chat froze.
+function _deepLatencyHint(paramHint) {
+  if (!paramHint) return '30-120 seconds per reply';
+  const m = paramHint.match(/^(\d+(?:\.\d+)?)([BMK])/i);
+  if (!m) return '30-120 seconds per reply';
+  const n = parseFloat(m[1]);
+  const unit = m[2].toUpperCase();
+  // Treat anything measured in millions/thousands as tiny (fast).
+  if (unit !== 'B') return '10-30 seconds per reply';
+  if (n < 15)   return '10-30 seconds per reply';
+  if (n < 70)   return '30-90 seconds per reply';
+  if (n < 200)  return '1-3 minutes per reply';
+  if (n < 500)  return '3-8 minutes per reply';
+  return '5-15 minutes per reply · true frontier territory';
+}
+
+// Deep-model (AirLLM) toggle state. Persists to localStorage so
+// flipping it back on is a one-click operation. When on, the chat
+// POST includes backend:"airllm" and replies take minutes.
+(function wireDeepToggle() {
+  const DEEP_KEY = 'oglab.chat.deep';
+  const cb = document.getElementById('chat-deep-enable');
+  const label = document.getElementById('chat-deep-text');
+  if (!cb || !label) return;
+  function render() {
+    label.textContent = cb.checked
+      ? '⚡ ON — next reply routes through AirLLM (slow but smart)'
+      : 'off — using the fast model above';
+    label.classList.toggle('deep-on', cb.checked);
+  }
+  try { cb.checked = localStorage.getItem(DEEP_KEY) === '1'; } catch (e) {}
+  cb.addEventListener('change', () => {
+    try { localStorage.setItem(DEEP_KEY, cb.checked ? '1' : '0'); } catch (e) {}
+    render();
+  });
+  render();
+})();
 
 // Populate the current backend + model in the chat card header on load,
 // before the user has sent a single message.

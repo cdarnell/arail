@@ -1,9 +1,40 @@
-# OGLab — AI Lab Blueprint for the ultimate AI Slick Deal
+# OGLab — AI Lab Blueprint
 
-A shareable blueprint for building your own AI research lab.
 Local-first. Airgapped by default. Your models, your data, your hardware.
+A shareable blueprint you fork, customize, and own — not a product.
 
-**Not a product. A blueprint you fork, customize, and own.**
+---
+
+## 3-step Quickstart
+
+```bash
+# 1) Clone
+git clone https://github.com/cdarnell/minimalist-blueprint.git oglab
+cd oglab
+
+# 2) Setup — detects hardware, installs deps, generates a passphrase,
+#    captures your first research goal
+./oglab setup
+
+# 3) Start — portal, terminal, notebook, and IDE come online together
+./oglab start
+```
+
+That's it. The dashboard opens at <http://127.0.0.1:8080>. Type your
+goal, click **Run Research**, and the agents begin researching it —
+locally, privately, on your hardware.
+
+**Works on:** macOS (Apple Silicon), Windows 10/11 (WSL2 + Ubuntu),
+any Linux with Python ≥ 3.10. Per-platform prereqs below.
+
+**First-time friendly.** Setup walks through 10 numbered checkpoints
+(hardware → Python → passphrase → models → goal) and prints the
+passphrase + next three steps when it's done. Nothing hidden in a file.
+
+**Sharing this with friends, family, or a classroom?** See
+[docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) for the top five
+first-run gotchas and [docs/PRIVACY.md](docs/PRIVACY.md) for what the
+lab does and does not send over the network.
 
 ---
 
@@ -29,7 +60,7 @@ Zero network calls out of the box. Your models run locally. Your data
 stays local. The lab doesn't phone home, ping analytics, or reach for
 the cloud unless you explicitly open the door.
 
-### Hybrid mode does exist. 
+### Hybrid mode does exist
 
 Start with free tier options before you buy, try HuggingFace, OpenRouter, Nvidia.
 Remember, you opt in. The default is silence on the wire.
@@ -125,25 +156,21 @@ for the full user guide.
 
 ---
 
-## Quick Start
+## What you get after `./oglab start`
 
-```bash
-git clone https://github.com/cdarnell/minimalist-blueprint.git oglab
-cd oglab
-./oglab setup     # detects your hardware, installs deps, downloads model
-./oglab start     # launches the portal, terminal, notebook, and IDE
-```
-
-**Two commands.** `setup` is a first-time thing: it detects your GPU (or falls back to CPU), installs Python deps in a local `.venv`, downloads a starter model, and creates the `lab/` directory where your data, models, and knowledge base will live. `start` launches the four services listed below and auto-opens the dashboard in your browser. Run `./oglab help` any time to see every subcommand.
-
-Four services come online:
+Four services come online on localhost. Everything binds to `127.0.0.1`
+by default — nothing is reachable from the network unless you change that
+in `lab.conf`.
 
 | Service | URL | What |
 | --------- | ----- | ------ |
-| **Dashboard** | http://127.0.0.1:8080 | Goal tracking, cost savings, experiments, agents |
-| **Terminal** | http://127.0.0.1:7681 | Shell in browser (ttyd) |
-| **Notebook** | http://127.0.0.1:8888 | Jupyter Lab (classic option — swap for Marimo below) |
-| **IDE** | http://127.0.0.1:8443 | VS Code in browser (code-server) |
+| **Dashboard** | <http://127.0.0.1:8080> | Goal tracking, cost savings, experiments, agents |
+| **Terminal** | <http://127.0.0.1:7681> | Shell in browser (ttyd) |
+| **Notebook** | <http://127.0.0.1:8888> | Jupyter Lab (classic option — swap for Marimo below) |
+| **IDE** | <http://127.0.0.1:8443> | VS Code in browser (code-server) — passphrase from setup unlocks it |
+
+Run `./oglab help` any time to see every subcommand (`setup`, `start`,
+`stop`, `restart`, `doctor`, `logs`, `reset`, `pkb`, `wiki`).
 
 ### Curate insight — optional add-ons
 
@@ -151,8 +178,8 @@ Two docker-compose overlays let you curate what the lab (or your agents) pulls i
 
 | Add-on | URL | What |
 | --------- | ----- | ------ |
-| **Marimo** | http://127.0.0.1:2718 | Reactive, AI-native Python notebooks. Notebooks are plain `.py` files in [lab/notebooks/](lab/notebooks/). |
-| **Open Notebook** | http://127.0.0.1:8502 | Self-hosted NotebookLM alternative — ingest PDFs/video/audio, chat with sources, generate podcasts. REST API on `:5055`. |
+| **Marimo** | <http://127.0.0.1:2718> | Reactive, AI-native Python notebooks. Notebooks are plain `.py` files in [lab/notebooks/](lab/notebooks/). |
+| **Open Notebook** | <http://127.0.0.1:8502> | Self-hosted NotebookLM alternative — ingest PDFs/video/audio, chat with sources, generate podcasts. REST API on `:5055`. |
 
 ```bash
 # Marimo — the "experiment" surface

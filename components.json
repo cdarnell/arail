@@ -123,7 +123,7 @@
       "name": "agent-browser",
       "type": "npm",
       "description": "Web research agent \u2014 browser automation for the Knowledge tab",
-      "current_version": "agent-browser 0.25.5",
+      "current_version": "agent-browser 0.26.0",
       "source_url": "https://github.com/vercel-labs/agent-browser",
       "changelog_url": "https://github.com/vercel-labs/agent-browser/releases",
       "version_cmd": "agent-browser --version 2>/dev/null || echo 'not installed'",

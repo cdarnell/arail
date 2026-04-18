@@ -14,7 +14,9 @@ functions. Out of the box those know:
 | macOS | Homebrew | blessed path |
 | Debian / Ubuntu (incl. WSL2) | `apt` | blessed path |
 | Gentoo | `emerge` | supported, see [GENTOO.md](GENTOO.md) |
-| Arch / Fedora / openSUSE / NixOS / Alpine / … | whatever | **vibe-integrate it** |
+| Arch | `pacman` | worked example below |
+| Fedora | `dnf` | worked example below |
+| openSUSE / NixOS / Alpine / … | whatever | **vibe-integrate it** (see [AGENTS.md](../AGENTS.md)) |
 
 If `./oglab setup` doesn't recognize your distro, you have two options:
 either port the setup script yourself (~20 lines), or hand the
@@ -73,6 +75,50 @@ That's it. After those three stanzas, `./oglab setup` on Arch behaves
 identically to Ubuntu or macOS — it creates the venv, installs the
 Python package, downloads a model, captures your goal, and hands off
 to `./oglab start`.
+
+## Worked example — Fedora Workstation
+
+Fedora 39+ ships Python 3.12 and has solid Nvidia support via rpmfusion.
+High-impact because of the student demographic on Fedora Workstation /
+AI Boxes.
+
+```bash
+# scripts/setup.sh — inside detect_platform()
+elif [[ -f /etc/fedora-release ]]; then
+    PLATFORM=fedora
+
+# scripts/setup.sh — inside install_services()
+fedora)
+    if command -v dnf &>/dev/null; then
+        info "Installing ttyd via dnf…"
+        sudo dnf install -y ttyd 2>&1 | tail -3 || \
+            warn "ttyd install failed — /terminal will show install help."
+    fi
+    ;;
+
+# scripts/setup.sh — inside install_accel_deps()
+# The cuda branch already handles Fedora once CUDA is installed via rpmfusion.
+# If CUDA isn't present, the user falls back to the cpu branch automatically.
+```
+
+Prerequisites a Fedora user handles themselves (setup won't do it):
+
+```bash
+# Enable rpmfusion for proprietary drivers (Nvidia only)
+sudo dnf install -y \
+    https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm \
+    https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-$(rpm -E %fedora).noarch.rpm
+
+# Nvidia driver + CUDA
+sudo dnf install -y akmod-nvidia xorg-x11-drv-nvidia-cuda
+
+# Reboot, then verify
+nvidia-smi
+```
+
+After that, `./oglab setup` detects CUDA automatically and uses the
+existing cuda branch. The Fedora-specific work is just the three-line
+port above.
 
 ## What if my distro has no Nvidia support at all?
 

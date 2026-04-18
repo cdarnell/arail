@@ -251,10 +251,25 @@ def chat(instruction: str) -> dict[str, Any]:
         return result
 
     # ── Phase 1: Figure out where to go ──────────────────────────────
+    import time as _time
     prompt = _NAVIGATE_PROMPT.format(instruction=instruction)
     try:
+        t0 = _time.monotonic()
         resp = router.complete(prompt, max_tokens=256, temperature=0.2)
+        elapsed = (_time.monotonic() - t0) * 1000
         nav_text = resp.text.strip()
+
+        activity_log.emit("browser",
+                          f"Navigation plan ({int(elapsed)}ms)",
+                          "info", {
+                              "prompt_trace": {
+                                  "prompt": prompt[:3000],
+                                  "response": nav_text[:2000],
+                                  "max_tokens": 256,
+                                  "latency_ms": round(elapsed, 1),
+                              }
+                          })
+
         # Extract JSON
         start = nav_text.find("{")
         end = nav_text.rfind("}") + 1
@@ -296,8 +311,21 @@ def chat(instruction: str) -> dict[str, Any]:
             snapshot=snapshot_text[:4000],
         )
         try:
+            t1 = _time.monotonic()
             interact_resp = router.complete(interact_prompt, max_tokens=256, temperature=0.2)
+            elapsed2 = (_time.monotonic() - t1) * 1000
             interact_text = interact_resp.text.strip()
+
+            activity_log.emit("browser",
+                              f"Interaction plan ({int(elapsed2)}ms)",
+                              "info", {
+                                  "prompt_trace": {
+                                      "prompt": interact_prompt[:3000],
+                                      "response": interact_text[:2000],
+                                      "max_tokens": 256,
+                                      "latency_ms": round(elapsed2, 1),
+                                  }
+                              })
             start = interact_text.find("[")
             end = interact_text.rfind("]") + 1
             if start >= 0 and end > start:

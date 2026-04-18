@@ -19,6 +19,7 @@ from oglab.activity import activity_log
 from oglab.agents.consent import ConsentStore
 from oglab.goals import GoalStore
 from oglab.agents.researcher import researcher
+from oglab.agents.pip import pip
 from oglab.plugins.manager import PluginManager
 from oglab.scheduler import (halt_all_jobs, jobs_halted, resume_all_jobs,
                               startup_delay_seconds)
@@ -98,6 +99,67 @@ async def _startup():
             "Tip: Goals can be anything — 'grow peanuts in zone 7', 'build a trading bot', 'learn Rust'.",
             "info")
 
+    # Starter-pack seeding — idempotent. On a fresh lab this populates
+    # lab/pkb/sources/seeds/model-building/ with 9 curated primers so
+    # the researcher + curator have something to read on their first
+    # tick. On every subsequent start it's a no-op.
+    try:
+        from oglab.pkb_seed import seed_all_on_startup
+        seed_summary = seed_all_on_startup()
+        if seed_summary.get("installed_packs"):
+            activity_log.emit("pkb",
+                f"Seeded starter pack(s): {', '.join(seed_summary['installed_packs'])}",
+                "info")
+        for err in seed_summary.get("errors", []):
+            activity_log.emit("pkb", f"Seed error: {err}", "warn")
+    except Exception as e:  # noqa: BLE001
+        activity_log.emit("pkb",
+            f"Starter-pack seeding failed: {type(e).__name__}: {e}", "error")
+
+    # Skill seed — shipped procedural-knowledge starters under
+    # lab/pkb/skills/. Idempotent. Agents that list these skills in
+    # their AGENT.md pick them up on the next LLM call.
+    try:
+        from oglab.skill_seed import ensure_starter_skills
+        skill_summary = ensure_starter_skills()
+        if skill_summary.get("installed"):
+            activity_log.emit("pkb",
+                f"Seeded starter skills: {', '.join(skill_summary['installed'])}",
+                "info")
+    except Exception as e:  # noqa: BLE001
+        activity_log.emit("pkb",
+            f"Skill seeding failed: {type(e).__name__}: {e}", "error")
+
+    # Agent loader — discover every lab/pkb/agents/<name>/AGENT.md,
+    # instantiate each, start the ones that opt in via their
+    # auto_start_env, register dream-capable ones with the daemon.
+    # This subsumes the old "start Pip explicitly" path and works
+    # for every future agent the user forges.
+    try:
+        from oglab.agents.loader import load_all, start_all_auto
+        agents = load_all()
+        activity_log.emit(
+            "agents",
+            f"Agent loader discovered {len(agents)}: {', '.join(agents) or 'none'}",
+            "info",
+        )
+        start_all_auto(agents)
+    except Exception as e:  # noqa: BLE001
+        activity_log.emit("agents",
+            f"Agent loader failed: {type(e).__name__}: {e}", "error")
+
+    # Dream daemon — nightly reflection loop. The loader above
+    # already registered every dream-capable agent; here we just
+    # flip the scheduler on (or off via LAB_DREAMS=off).
+    if os.getenv("LAB_DREAMS", "on").lower() not in ("off", "0", "false", "no"):
+        try:
+            from oglab.agents.dream_daemon import dream_daemon
+            dream_daemon.start()
+        except Exception as e:  # noqa: BLE001
+            activity_log.emit("dream",
+                f"Dream daemon failed to start: {type(e).__name__}: {e}",
+                "warn")
+
 
 # ── Pages ────────────────────────────────────────────────────────────────
 
@@ -125,20 +187,10 @@ async def terminal_page(request: Request):
     ttyd_installed = shutil.which("ttyd") is not None
     ttyd_running = False
     if ttyd_installed:
-        try:
-            port = int(os.getenv("TTYD_PORT", "7681"))
-            bind = os.getenv("BIND_ADDR", "127.0.0.1")
-            reader, writer = await asyncio.wait_for(
-                asyncio.open_connection(bind, port), timeout=0.3
-            )
-            writer.close()
-            try:
-                await writer.wait_closed()
-            except Exception:
-                pass
-            ttyd_running = True
-        except Exception:
-            ttyd_running = False
+        ttyd_running = await _port_open(
+            os.getenv("BIND_ADDR", "127.0.0.1"),
+            int(os.getenv("TTYD_PORT", "7681")),
+        )
     install_cmd = {
         "Darwin": "brew install ttyd",
         "Linux": "sudo apt install ttyd  # Debian/Ubuntu\n"
@@ -162,20 +214,10 @@ async def notebook_page(request: Request):
     jupyter_installed = shutil.which("jupyter") is not None
     jupyter_running = False
     if jupyter_installed:
-        try:
-            port = int(os.getenv("NOTEBOOK_PORT", "8888"))
-            bind = os.getenv("BIND_ADDR", "127.0.0.1")
-            reader, writer = await asyncio.wait_for(
-                asyncio.open_connection(bind, port), timeout=0.3
-            )
-            writer.close()
-            try:
-                await writer.wait_closed()
-            except Exception:
-                pass
-            jupyter_running = True
-        except Exception:
-            jupyter_running = False
+        jupyter_running = await _port_open(
+            os.getenv("BIND_ADDR", "127.0.0.1"),
+            int(os.getenv("NOTEBOOK_PORT", "8888")),
+        )
     return templates.TemplateResponse(request, "notebook.html", {
         "jupyter_installed": jupyter_installed,
         "jupyter_running": jupyter_running,
@@ -190,6 +232,20 @@ async def notebook_start():
     import shutil
     if not shutil.which("jupyter"):
         return {"ok": False, "error": "jupyter not installed"}
+    # Ensure Dark High Contrast theme as project default
+    try:
+        import jupyterlab
+        settings_dir = Path(jupyterlab.__file__).parent.parent.parent.parent / "share" / "jupyter" / "lab" / "settings"
+        settings_dir.mkdir(parents=True, exist_ok=True)
+        overrides = settings_dir / "overrides.json"
+        if not overrides.exists():
+            overrides.write_text(json.dumps({
+                "@jupyterlab/apputils-extension:themes": {
+                    "theme": "JupyterLab Dark High Contrast"
+                }
+            }, indent=2))
+    except Exception:
+        pass
     bind = os.getenv("BIND_ADDR", "127.0.0.1")
     port = int(os.getenv("NOTEBOOK_PORT", "8888"))
     csp = (
@@ -242,20 +298,55 @@ def _docker_available() -> bool:
         return False
 
 
-def _onb_container_running() -> bool:
-    """Check if the open-notebook container is up and healthy."""
+def _container_running(name: str) -> bool:
+    """True when a Docker container matching ``name`` is up.
+
+    Shared by Open Notebook + Marimo + any future docker-backed
+    service. Name is matched against ``docker ps --filter name=…``
+    (substring match, so ``oglab-marimo`` matches ``oglab-marimo``
+    but not ``oglab-marimo-db``).
+    """
     try:
         result = subprocess.run(
-            ["docker", "ps", "--filter", "name=oglab-open-notebook",
+            ["docker", "ps", "--filter", f"name={name}",
              "--filter", "status=running", "--format", "{{.Names}}"],
             capture_output=True, text=True, timeout=5,
         )
-        return "oglab-open-notebook" in result.stdout
+        return name in result.stdout
+    except Exception:
+        return False
+
+
+# Back-compat alias — the old name reads nicer at call sites that
+# only ever check this one container. Dropping it would touch too
+# many call sites for zero real benefit.
+def _onb_container_running() -> bool:
+    return _container_running("oglab-open-notebook")
+
+
+async def _port_open(host: str, port: int, timeout: float = 0.3) -> bool:
+    """Lightweight TCP probe — True if the port accepts a connection.
+
+    Replaces a block duplicated across /terminal, /notebook,
+    /api/addons/status, and the new /api/notebooks/status. Never
+    raises — any failure (refused, timeout, DNS) returns False.
+    """
+    try:
+        reader, writer = await asyncio.wait_for(
+            asyncio.open_connection(host, port), timeout=timeout
+        )
+        writer.close()
+        try:
+            await writer.wait_closed()
+        except Exception:
+            pass
+        return True
     except Exception:
         return False
 
 
 _COMPOSE_FILE = str(Path(__file__).resolve().parents[3] / "compose" / "open-notebook.yml")
+_MARIMO_COMPOSE = str(Path(__file__).resolve().parents[3] / "compose" / "marimo.yml")
 
 
 @app.get("/open-notebook", response_class=HTMLResponse)
@@ -275,6 +366,13 @@ async def open_notebook_page(request: Request):
     })
 
 
+def _repo_env_file() -> str:
+    """Absolute path to the repo-root .env so docker compose can
+    resolve OPEN_NOTEBOOK_ENCRYPTION_KEY (compose defaults to looking
+    next to the yml file, which is compose/.env — the wrong place)."""
+    return str(Path(_COMPOSE_FILE).resolve().parents[1] / ".env")
+
+
 @app.post("/api/open-notebook/start")
 async def open_notebook_start():
     """Bring up Open Notebook via docker compose, then seed with lab content."""
@@ -283,7 +381,8 @@ async def open_notebook_start():
     if not os.getenv("OPEN_NOTEBOOK_ENCRYPTION_KEY"):
         return {"ok": False, "error": "OPEN_NOTEBOOK_ENCRYPTION_KEY not set — run ./oglab setup"}
     result = subprocess.run(
-        ["docker", "compose", "-f", _COMPOSE_FILE, "up", "-d"],
+        ["docker", "compose", "--env-file", _repo_env_file(),
+         "-f", _COMPOSE_FILE, "up", "-d"],
         capture_output=True, text=True, timeout=120,
     )
     if result.returncode != 0:
@@ -300,7 +399,124 @@ async def open_notebook_start():
 async def open_notebook_stop():
     """Tear down Open Notebook containers."""
     result = subprocess.run(
-        ["docker", "compose", "-f", _COMPOSE_FILE, "down"],
+        ["docker", "compose", "--env-file", _repo_env_file(),
+         "-f", _COMPOSE_FILE, "down"],
+        capture_output=True, text=True, timeout=60,
+    )
+    if result.returncode != 0:
+        return {"ok": False, "error": result.stderr[-500:] if result.stderr else "unknown"}
+    return {"ok": True}
+
+
+# ── Notebooks picker + status ──────────────────────────────────────
+
+@app.get("/notebooks", response_class=HTMLResponse)
+async def notebooks_page(request: Request):
+    """Picker page — three cards (Jupyter / Marimo / Open Notebook).
+
+    All state is pulled client-side from /api/notebooks/status, so this
+    route is a pure template render.
+    """
+    return templates.TemplateResponse(request, "notebooks.html", {})
+
+
+@app.get("/api/notebooks/status")
+async def notebooks_status():
+    """One-shot liveness probe for every notebook surface.
+
+    Drives the picker page's status dots. Checks:
+      - Jupyter: ``jupyter`` binary on PATH + TCP probe on NOTEBOOK_PORT.
+      - Marimo: Docker available + oglab-marimo container running.
+      - Open Notebook: Docker available + oglab-open-notebook container running.
+    """
+    import shutil
+    bind = os.getenv("BIND_ADDR", "127.0.0.1")
+    password = os.getenv("OGLAB_PASSWORD", "oglab")
+    jupyter_port = int(os.getenv("NOTEBOOK_PORT", "8888"))
+    marimo_port = int(os.getenv("MARIMO_PORT", "2718"))
+    on_port = int(os.getenv("OPEN_NOTEBOOK_PORT", "8502"))
+
+    docker_ok = _docker_available()
+    # Kick off TCP probes concurrently — they each cost ~300ms on miss.
+    jup_alive, mar_alive, on_alive = await asyncio.gather(
+        _port_open(bind, jupyter_port),
+        _port_open(bind, marimo_port),
+        _port_open(bind, on_port),
+    )
+    return {
+        "notebooks": [
+            {
+                "id": "jupyter",
+                "name": "Jupyter Lab",
+                "installed": shutil.which("jupyter") is not None,
+                "alive": jup_alive,
+                "url_internal": "/notebook",
+                "url_external": f"http://{bind}:{jupyter_port}/lab",
+            },
+            {
+                "id": "marimo",
+                "name": "Marimo",
+                "installed": docker_ok,
+                "alive": mar_alive and _container_running("oglab-marimo"),
+                "url_internal": "/marimo",
+                "url_external": f"http://{bind}:{marimo_port}?access_token={password}",
+            },
+            {
+                "id": "open-notebook",
+                "name": "Open Notebook",
+                "installed": docker_ok,
+                "alive": on_alive and _container_running("oglab-open-notebook"),
+                "url_internal": "/open-notebook",
+                "url_external": f"http://{bind}:{on_port}",
+            },
+        ],
+    }
+
+
+# ── Marimo — reactive Python notebooks (compose-backed) ─────────────
+
+@app.get("/marimo", response_class=HTMLResponse)
+async def marimo_page(request: Request):
+    """3-state Marimo page: docker missing / not running / running.
+
+    When running, shows the Marimo iframe with the token baked into the
+    URL (same ``?access_token=<OGLAB_PASSWORD>`` contract Marimo itself
+    prints on startup). When not running, shows a one-click Start button
+    that calls /api/marimo/start.
+    """
+    docker_ok = _docker_available()
+    running = _container_running("oglab-marimo") if docker_ok else False
+    password = os.getenv("OGLAB_PASSWORD", "oglab")
+    ui_port = int(os.getenv("MARIMO_PORT", "2718"))
+    return templates.TemplateResponse(request, "marimo.html", {
+        "docker_available": docker_ok,
+        "container_running": running,
+        "ui_port": ui_port,
+        "password": password,
+    })
+
+
+@app.post("/api/marimo/start")
+async def marimo_start():
+    """Bring up the Marimo container via docker compose."""
+    if not _docker_available():
+        return {"ok": False, "error": "Docker not available"}
+    result = subprocess.run(
+        ["docker", "compose", "--env-file", _repo_env_file(),
+         "-f", _MARIMO_COMPOSE, "up", "-d"],
+        capture_output=True, text=True, timeout=120,
+    )
+    if result.returncode != 0:
+        return {"ok": False, "error": result.stderr[-500:] if result.stderr else "unknown"}
+    return {"ok": True}
+
+
+@app.post("/api/marimo/stop")
+async def marimo_stop():
+    """Tear down the Marimo container."""
+    result = subprocess.run(
+        ["docker", "compose", "--env-file", _repo_env_file(),
+         "-f", _MARIMO_COMPOSE, "down"],
         capture_output=True, text=True, timeout=60,
     )
     if result.returncode != 0:
@@ -428,6 +644,101 @@ async def research_status():
         "progress": current["progress"] if current else 0,
         "report": current.get("report") if current else None,
     }
+
+
+# ── Research program files (prepare.py + program.md) ─────────────────────
+# Two files define the research contract:
+#   • prepare.py  — fixed environment: datasets + validation metric.
+#                   Read-only for the agent (cheat-proof scoring).
+#   • program.md  — natural-language instructions / meta-program.
+#                   The "what to optimize" half of the contract.
+# These live under the PKB at lab/pkb/research/ so they're one tree
+# with the rest of the knowledge base — appearing in /knowledge, the
+# wiki, and discoverable by agents via the existing PKB reading path.
+# The /research cockpit links to both so they're one click from the goal.
+
+_RESEARCH_DIR = Path(__file__).resolve().parents[3] / "lab" / "pkb" / "research"
+_RESEARCH_FILES = {
+    "prepare.py": {
+        "kind": "fixed-environment",
+        "title": "prepare.py — Fixed Environment File",
+        "blurb": "Data prep + validation metric. Read-only for the agent.",
+    },
+    "program.md": {
+        "kind": "instructions",
+        "title": "program.md — Research Instructions",
+        "blurb": "Natural-language goal & constraints. The agent's meta-program.",
+    },
+}
+
+
+@app.get("/api/research/files")
+async def research_files():
+    """List the research program files + any human-authored notes.
+
+    ``files`` = the two curated contract files (program.md, prepare.py).
+    ``notes`` = every other markdown file dropped under
+    lab/pkb/research/ — humans can leave references, observations,
+    cost budgets, and the researcher reads them via the wiki.
+    """
+    out = []
+    for name, meta in _RESEARCH_FILES.items():
+        path = _RESEARCH_DIR / name
+        entry = {"name": name, **meta, "exists": path.exists()}
+        if entry["exists"]:
+            stat = path.stat()
+            entry["size"] = stat.st_size
+            entry["mtime"] = stat.st_mtime
+        out.append(entry)
+
+    notes = []
+    if _RESEARCH_DIR.exists():
+        for p in sorted(_RESEARCH_DIR.glob("*.md")):
+            if p.name in _RESEARCH_FILES:
+                continue  # already in `files`
+            try:
+                stat = p.stat()
+                notes.append({
+                    "name": p.name,
+                    "size": stat.st_size,
+                    "mtime": stat.st_mtime,
+                })
+            except OSError:
+                continue
+    return {"files": out, "notes": notes, "dir": str(_RESEARCH_DIR)}
+
+
+@app.get("/api/research/file")
+async def research_file(name: str = ""):
+    """Read a research file.
+
+    Accepts the two curated files (prepare.py, program.md) OR any
+    .md note that lives directly under lab/pkb/research/. Rejects
+    anything with a path separator to prevent traversal.
+    """
+    if not name or "/" in name or ".." in name:
+        return {"error": "invalid name"}
+    path = _RESEARCH_DIR / name
+    if not path.exists() or not path.is_file():
+        return {"error": f"{name} not found at {path}"}
+    # Permit only curated files + .md notes in the research dir.
+    if name not in _RESEARCH_FILES and not name.endswith(".md"):
+        return {"error": "only .md notes are readable via this endpoint"}
+
+    try:
+        meta = _RESEARCH_FILES.get(name, {
+            "kind": "note",
+            "title": name,
+            "blurb": "Human-authored research note.",
+        })
+        return {
+            "name": name,
+            "content": path.read_text(errors="replace"),
+            "size": path.stat().st_size,
+            **meta,
+        }
+    except OSError as e:
+        return {"error": str(e)}
 
 
 # ── Jobs / Scheduler API ─────────────────────────────────────────────────
@@ -585,6 +896,214 @@ async def admin_page(request: Request):
     return templates.TemplateResponse(request, "admin.html", {
         "health": health,
     })
+
+
+# ── Agents tab ──────────────────────────────────────────────────────
+
+@app.get("/agents", response_class=HTMLResponse)
+async def agents_page(request: Request):
+    """Agent Control Center — monitor, instruct, and inspect all agents."""
+    return templates.TemplateResponse(request, "agents.html", {})
+
+
+@app.get("/api/agents/status")
+async def agents_status():
+    """Aggregated status of all three agents."""
+    from oglab.agents.browser import EXTRACT_DIR
+
+    # Researcher
+    goal = goal_store.get_current()
+    r_status = {
+        "status": researcher.status,
+        "progress": goal.get("progress", 0) if goal else 0,
+        "experiments": len(goal.get("experiments", [])) if goal else 0,
+        "current_task": None,
+    }
+    # Grab the last researcher event as current_task
+    for ev in reversed(activity_log.recent(50)):
+        if ev.get("source") == "researcher" and ev.get("level") in ("info", "success"):
+            r_status["current_task"] = ev["message"][:80]
+            break
+    # Count tokens from prompt traces
+    tok = 0
+    for ev in activity_log.recent(200):
+        if ev.get("source") == "researcher" and ev.get("data", {}).get("prompt_trace"):
+            tok += ev["data"]["prompt_trace"].get("max_tokens", 0)
+    r_status["tokens"] = tok
+
+    # Curator
+    c_status = {
+        "pending": len(consent_store.list_pending()),
+        "allowed": len(consent_store.list_allowed()),
+    }
+
+    # Browser
+    captures = len(list(EXTRACT_DIR.glob("*.md"))) if EXTRACT_DIR.exists() else 0
+    last_task = None
+    for ev in reversed(activity_log.recent(50)):
+        if ev.get("source") == "browser":
+            last_task = ev["message"][:60]
+            break
+    b_status = {
+        "captures": captures,
+        "last_task": last_task,
+    }
+
+    return {"researcher": r_status, "curator": c_status, "browser": b_status}
+
+
+@app.get("/api/agents/prompts")
+async def agents_prompts(agent: str = "", limit: int = 30):
+    """Return recent prompt-trace events for the Prompt Inspector."""
+    traces = []
+    for ev in reversed(activity_log.recent(200)):
+        if agent and ev.get("source") != agent:
+            continue
+        if ev.get("data", {}).get("prompt_trace"):
+            traces.append(ev)
+            if len(traces) >= limit:
+                break
+    return list(reversed(traces))
+
+
+@app.post("/api/agents/instruct")
+async def agents_instruct(request: Request):
+    """Send an ad-hoc instruction to an agent."""
+    body = await request.json()
+    agent_name = body.get("agent", "")
+    instruction = body.get("instruction", "").strip()
+    if not instruction:
+        return {"error": "instruction required"}
+    activity_log.emit(
+        agent_name or "user",
+        f"Instruction: {instruction}",
+        "info",
+        {"instruction": True, "target_agent": agent_name},
+    )
+    return {"ok": True, "queued": True}
+
+
+# ── Agent Forge + skills picker endpoints ────────────────────────
+# /api/skills/list feeds the Forge UI's skill multi-select.
+# /api/agents/list returns everything the loader currently knows —
+#   used by the Forge to prevent id collisions before Deploy.
+# /api/agents/forge is the Deploy button's backend.
+
+@app.get("/api/skills/list")
+async def api_skills_list():
+    """Return every installed skill so the Forge can show toggles."""
+    from oglab.skills_loader import list_installed_skills
+    skills = list_installed_skills()
+    return {
+        "skills": [
+            {
+                "id": s.id,
+                "name": s.name,
+                "domain": s.domain,
+                "version": s.version,
+                # First ~200 chars of the body for a preview tooltip.
+                "preview": (s.body or "")[:200],
+            }
+            for s in skills
+        ]
+    }
+
+
+@app.get("/api/agents/list")
+async def api_agents_list():
+    """Return the agents the loader currently knows about."""
+    from oglab.agents.loader import discover
+    out = []
+    for agent_id, folder, fm in discover():
+        out.append({
+            "id": agent_id,
+            "name": str(fm.get("name") or agent_id),
+            "emoji": str(fm.get("emoji") or ""),
+            "folder": str(folder),
+        })
+    return {"agents": out}
+
+
+@app.post("/api/agents/forge")
+async def api_agents_forge(request: Request):
+    """Deploy a new agent from a Forge form submission.
+
+    Body shape::
+
+        {
+          "name": "Owl",
+          "emoji": "🦉",
+          "voice": "Wise, patient, long view.",
+          "tick_interval_sec": 120,
+          "global_cooldown_sec": 600,
+          "dream": true,
+          "skills": ["observe-lab", "falsify-hypothesis"],
+          "role": "research pacer"
+        }
+
+    Returns the forge deployment status dict — see ``forge.deploy``.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        return {"ok": False, "error": "invalid JSON body"}
+    from oglab.agents.forge import deploy
+    result = deploy(body)
+    if result.get("ok"):
+        activity_log.emit(
+            "agents",
+            f"🛠 Forged new agent: {result['agent_id']} "
+            f"(hot-loaded={result['hot_loaded']}, started={result['started']})",
+            "success",
+            data=result,
+        )
+    else:
+        activity_log.emit(
+            "agents",
+            f"Forge failed: {result.get('error')}",
+            "warn",
+        )
+    return result
+
+
+@app.get("/api/agents/forge/preview")
+async def api_agents_forge_preview(name: str = "", emoji: str = "",
+                                    voice: str = "", tick: int = 90,
+                                    cooldown: int = 300, dream: bool = False,
+                                    skills: str = ""):
+    """Server-side preview of what Deploy would write.
+
+    Takes the same fields as /api/agents/forge but via querystring
+    and returns the generated AGENT.md + .py as strings — used by
+    the UI for the right-panel preview when the user wants a
+    canonical mirror of what the backend will generate.
+    """
+    from oglab.agents.forge import (
+        generate_agent_md, generate_agent_py, slugify, validate
+    )
+    skills_list = [s.strip() for s in (skills or "").split(",") if s.strip()]
+    form = {
+        "name": name,
+        "emoji": emoji,
+        "voice": voice,
+        "tick_interval_sec": tick,
+        "global_cooldown_sec": cooldown,
+        "dream": dream,
+        "skills": skills_list,
+    }
+    # Soft validation — preview shouldn't 400; surface errors inline.
+    err = validate(form)
+    try:
+        agent_md = generate_agent_md(form)
+        agent_py = generate_agent_py(form)
+    except Exception as e:  # noqa: BLE001
+        return {"error": f"{type(e).__name__}: {e}"}
+    return {
+        "agent_id": slugify(name),
+        "agent_md": agent_md,
+        "agent_py": agent_py,
+        "validation_error": err,
+    }
 
 
 @app.get("/api/admin/components")
@@ -794,6 +1313,31 @@ async def api_chat(request: Request):
 
     prompt = lab_brain.build_chat_prompt(message, history)
 
+    # Deep-backend override — lets the user opt into AirLLM for one
+    # message without flipping MODEL_BACKEND in .env. First call
+    # takes minutes (model loads layer-by-layer from disk); we cache
+    # the instance so subsequent "deep" calls reuse it.
+    wants_deep = str(body.get("backend") or "").strip().lower() == "airllm"
+    deep_backend = None
+    if wants_deep:
+        try:
+            deep_backend = _get_deep_backend()
+        except Exception as e:  # noqa: BLE001
+            activity_log.emit(
+                "chat",
+                f"AirLLM init failed: {type(e).__name__}: {e}",
+                "warn",
+            )
+            return {
+                "reply": (
+                    "AirLLM isn't ready on this lab. Install it "
+                    "(`pip install airllm`) and ensure AIRLLM_MODEL in "
+                    f".env points at a downloaded model.\n\nError: {e}"
+                ),
+                "backend": "airllm",
+                "error": str(e),
+            }
+
     try:
         router = ModelRouter()
     except Exception as e:  # noqa: BLE001
@@ -812,29 +1356,97 @@ async def api_chat(request: Request):
             "error": str(e),
         }
 
+    # Per-request model override — lets the dashboard Tuning row pick
+    # a different model without a portal restart. Single-model backends
+    # (MLX, llama.cpp, AirLLM) ignore it; network backends (openai_compat,
+    # openrouter, huggingface, claude) temporarily swap `model_name`
+    # for the duration of one call.
+    override_model = (body.get("model") or "").strip() or None
+    previous_model = None
+    active_backend = deep_backend if deep_backend is not None else router._backend
+    if override_model and hasattr(active_backend, "model_name"):
+        if override_model != active_backend.model_name:
+            previous_model = active_backend.model_name
+            active_backend.model_name = override_model
+
+    # top_p is optional — only sent when a preset explicitly sets it or
+    # the user flips an advanced slider. Backends silently drop it when
+    # they don't support it.
+    tp_raw = body.get("top_p")
     try:
-        response = router.complete(
-            prompt,
-            max_tokens=int(body.get("max_tokens") or 512),
-            temperature=float(body.get("temperature") or 0.7),
-        )
+        top_p = float(tp_raw) if tp_raw is not None and tp_raw != "" else None
+    except (TypeError, ValueError):
+        top_p = None
+
+    max_tokens = int(body.get("max_tokens") or 512)
+    temperature = float(body.get("temperature") or 0.7)
+
+    try:
+        # When wants_deep, bypass the router and call AirLLM directly
+        # so we don't tangle the MLX instance with the AirLLM one.
+        # Cost tracker still records (via the same pathway below).
+        if deep_backend is not None:
+            import asyncio as _aio
+            response = await _aio.to_thread(
+                deep_backend.complete,
+                prompt, max_tokens, temperature, top_p,
+            )
+            # AirLLM path bypasses router.complete() which is where
+            # cost tracking normally happens — track manually so the
+            # dashboard meter stays accurate.
+            from oglab.costs import cost_tracker
+            cost_tracker.track(
+                backend=response.backend,
+                model=response.model,
+                tokens_in=max(len(prompt) // 4, 1),
+                tokens_out=response.tokens_used,
+                latency_ms=response.latency_ms,
+            )
+        else:
+            response = router.complete(
+                prompt,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                top_p=top_p,
+            )
     except Exception as e:  # noqa: BLE001
         activity_log.emit("chat",
                           f"Inference failed: {type(e).__name__}: {str(e)[:120]}",
                           "error")
         return {
             "reply": f"Inference failed: {e}",
-            "backend": router.backend_name,
+            "backend": (deep_backend.backend_name if wants_deep
+                        else router.backend_name),
             "error": str(e),
         }
+    finally:
+        # Restore the original model on every exit path — success,
+        # exception, return — so the override is truly per-call.
+        if previous_model is not None and hasattr(active_backend, "model_name"):
+            active_backend.model_name = previous_model
 
     reply = (response.text or "").strip()
     if not reply:
         reply = "(model returned no text — try rephrasing)"
 
+    # Metrics — surface what the reply cost so the UI can show it.
+    # The cost tracker just updated its history; pull the record we
+    # just wrote rather than recomputing.
+    latency_sec = max(response.latency_ms / 1000.0, 0.001)
+    tokens_per_sec = round(response.tokens_used / latency_sec, 1)
+    cloud_cost_usd = None
+    energy_cost_usd = None
+    try:
+        from oglab.costs import cost_tracker
+        last = cost_tracker.get_last_record() or {}
+        cloud_cost_usd = last.get("cloud_cost_usd")
+        energy_cost_usd = last.get("energy_cost_usd")
+    except Exception:
+        pass
+
     activity_log.emit("chat",
-                      f"Chat turn ({response.tokens_used} tokens, "
-                      f"{response.latency_ms:.0f} ms)",
+                      f"Chat turn · {response.tokens_used} tokens · "
+                      f"{response.latency_ms:.0f} ms · {tokens_per_sec} t/s",
                       "info")
 
     return {
@@ -843,8 +1455,206 @@ async def api_chat(request: Request):
         "model": response.model,
         "latency_ms": response.latency_ms,
         "tokens_used": response.tokens_used,
+        "tokens_per_sec": tokens_per_sec,
+        "cloud_cost_usd": cloud_cost_usd,
+        "energy_cost_usd": energy_cost_usd,
+        "deep": bool(wants_deep),
         "error": None,
     }
+
+
+# Deep-backend cache — AirLLM init loads the whole model layer-by-
+# layer from disk (expensive). Cache the instance so subsequent
+# "deep" chat calls reuse it. Lazy: never instantiated unless the
+# user actually opts in via the UI.
+_DEEP_BACKEND_CACHE = None
+
+
+def _get_deep_backend():
+    global _DEEP_BACKEND_CACHE
+    if _DEEP_BACKEND_CACHE is None:
+        from oglab.router.backends import AirLLMBackend
+        _DEEP_BACKEND_CACHE = AirLLMBackend()
+        # Give the AirLLM instance the same interface as other
+        # backends so cost tracking + error handling above treat it
+        # uniformly.
+        _DEEP_BACKEND_CACHE.backend_name = "airllm"
+    return _DEEP_BACKEND_CACHE
+
+
+@app.get("/api/chat/models")
+async def api_chat_models():
+    """Return the model catalog for the current backend.
+
+    For OpenAI-compatible backends (LM Studio, Ollama, NVIDIA NIM,
+    OpenRouter), we query the server's ``/v1/models`` endpoint and
+    list every model it advertises. For single-model backends
+    (MLX, llama.cpp, AirLLM, Claude, HF Inference), we return just
+    the configured ``MODEL_NAME`` so the dropdown still renders.
+
+    The dashboard Tuning row uses this to populate its Model picker.
+    """
+    from oglab.router import ModelRouter
+    try:
+        router = ModelRouter()
+    except Exception as e:  # noqa: BLE001
+        return {"backend": None, "current": None, "models": [], "error": str(e)}
+
+    backend_name = router.backend_name
+    be = router._backend
+    current = getattr(be, "model_name", None) or os.getenv("MODEL_NAME", "default")
+    models: list[str] = []
+
+    # Only these backends have a useful /models listing today.
+    if backend_name == "openai_compat":
+        try:
+            import requests
+            base = getattr(be, "base_url", "").rstrip("/")
+            key = getattr(be, "api_key", "not-needed")
+            r = requests.get(
+                f"{base}/models",
+                headers={"Authorization": f"Bearer {key}"},
+                timeout=5,
+            )
+            if r.status_code == 200:
+                data = r.json()
+                # OpenAI shape: {data: [{id, ...}, ...]}. Ollama uses
+                # the same shape. LM Studio too.
+                models = [m.get("id") for m in data.get("data", []) if m.get("id")]
+        except Exception:
+            models = []
+    elif backend_name == "openrouter":
+        try:
+            import requests
+            key = getattr(be, "api_key", "")
+            r = requests.get(
+                "https://openrouter.ai/api/v1/models",
+                headers={"Authorization": f"Bearer {key}"},
+                timeout=5,
+            )
+            if r.status_code == 200:
+                data = r.json()
+                models = [m.get("id") for m in data.get("data", []) if m.get("id")]
+        except Exception:
+            models = []
+
+    # Always include the currently-loaded model — even if /models
+    # listed it, keeping it first signals "you're using this one."
+    if current and current not in models:
+        models.insert(0, current)
+    if not models and current:
+        models = [current]
+
+    # For single-model local backends, scan the on-disk models dir
+    # so the help block under the dropdown can tell the user:
+    # "here's where they live, here's what's already installed, and
+    # here's the command to add more."
+    local_models: list[str] = []
+    install_hint: dict | None = None
+    if backend_name in ("mlx", "cpu", "airllm", "cuda"):
+        models_dir = Path(os.getenv("OGLAB_MODELS_DIR", "lab/models"))
+        if models_dir.exists():
+            try:
+                local_models = sorted(
+                    p.name for p in models_dir.iterdir()
+                    if p.is_dir()
+                    and not p.name.startswith(".")
+                    and not p.name.startswith("_")
+                    # Skip cache dirs (airllm_cache, hf_cache, etc.) —
+                    # they're shards, not loadable models.
+                    and "_cache" not in p.name
+                )
+            except OSError:
+                local_models = []
+
+        # Backend-specific "download a new one" example. MLX uses
+        # mlx-community/ repos; CPU uses GGUF; CUDA uses full-precision
+        # Hugging Face weights. The hint surfaces in the dashboard.
+        if backend_name == "mlx":
+            example = (
+                "huggingface-cli download mlx-community/Llama-3.2-3B-Instruct-4bit "
+                f"--local-dir {models_dir}/Llama-3.2-3B-Instruct-4bit"
+            )
+        elif backend_name == "cpu":
+            example = (
+                "huggingface-cli download Qwen/Qwen3-1.7B-GGUF "
+                f"--local-dir {models_dir}/Qwen3-1.7B-GGUF"
+            )
+        elif backend_name == "cuda":
+            example = (
+                "huggingface-cli download Qwen/Qwen3-8B "
+                f"--local-dir {models_dir}/Qwen3-8B"
+            )
+        else:  # airllm
+            example = (
+                "huggingface-cli download Qwen/Qwen3-235B-A22B "
+                f"--local-dir {models_dir}/Qwen3-235B-A22B"
+            )
+
+        install_hint = {
+            "dir": str(models_dir),
+            "example_command": example,
+            "docs_anchor": "sources/seeds/model-building/03-huggingface-models.md",
+            "restart_note": (
+                "After downloading, set MODEL_NAME in .env to match the "
+                "folder name, then ./oglab restart. Live in-session swap "
+                "isn't supported on local backends — the model has to be "
+                "loaded into memory, which takes seconds to minutes."
+            ),
+        }
+
+    # Deep-model info — independent of the active backend. Tells
+    # the UI what giant model is wired up behind the "Deep model"
+    # toggle. Separate field because users can flip that toggle
+    # regardless of which primary backend they're on.
+    deep_model_name = os.getenv("AIRLLM_MODEL", "Qwen/Qwen3-235B-A22B")
+    # Look up the spec sheet so the Frontier chip hover can show
+    # strengths, benchmarks, and license at a glance. Registry lives
+    # in src/oglab/model_specs.py — users edit it to add new models.
+    from oglab.model_specs import lookup as _spec_lookup
+    spec = _spec_lookup(deep_model_name)
+
+    deep_info = {
+        "model": deep_model_name,
+        # Whether the airllm package is importable. When False, the
+        # UI can swap the toggle for an install hint.
+        "installed": _is_airllm_installed(),
+        # Rough size hint the UI can render in the chip. We extract
+        # a parameter count from the model name when present
+        # (e.g. "Qwen3-235B-A22B" → "235B"); the user-entered
+        # AIRLLM_MODEL decides what shows.
+        "param_hint": _extract_param_hint(deep_model_name),
+        # Spec sheet — populated from the registry. Null when the
+        # configured model isn't known; the UI shows a "click to
+        # document this model" placeholder in that case.
+        "spec": spec,
+    }
+
+    return {
+        "backend": backend_name,
+        "current": current,
+        "models": models,
+        "switchable": backend_name in ("openai_compat", "openrouter"),
+        "local_models": local_models,
+        "install_hint": install_hint,
+        "deep": deep_info,
+    }
+
+
+def _is_airllm_installed() -> bool:
+    """airllm is optional — check without importing since the import
+    itself is heavy (drags torch)."""
+    import importlib.util
+    return importlib.util.find_spec("airllm") is not None
+
+
+def _extract_param_hint(model_name: str) -> str:
+    """Parse '235B', '70B', '754B' etc. out of a HF repo name."""
+    import re as _re
+    match = _re.search(r"(\d+(?:\.\d+)?)([BMK])\b", model_name, _re.IGNORECASE)
+    if match:
+        return f"{match.group(1)}{match.group(2).upper()}"
+    return ""
 
 
 @app.get("/api/chat/system-prompt")
@@ -1015,64 +1825,32 @@ async def system_costs():
     """Return cost tracking summary — cloud-equivalent spend and energy costs."""
     from oglab.costs import cost_tracker
     summary = cost_tracker.get_summary()
+    # get_last_record() returns a dict (see oglab.costs.CostTracker),
+    # so pull fields with .get() — the history schema is stable but
+    # missing keys shouldn't throw.
     last = cost_tracker.get_last_record()
     return {
         "summary": summary,
         "last_record": {
-            "backend": last.backend,
-            "model_class": last.model_class,
-            "cloud_cost_usd": last.cloud_cost_usd,
-            "energy_cost_usd": last.energy_cost_usd,
-            "tokens_in": last.tokens_in,
-            "tokens_out": last.tokens_out,
+            "backend": last.get("backend"),
+            "model_class": last.get("model_class"),
+            "cloud_cost_usd": last.get("cloud_cost_usd"),
+            "energy_cost_usd": last.get("energy_cost_usd"),
+            "tokens_in": last.get("tokens_in"),
+            "tokens_out": last.get("tokens_out"),
         } if last else None,
     }
 
 
 @app.get("/api/addons/status")
 async def addons_status():
-    """Probe optional compose-based add-ons (Marimo, Open Notebook).
+    """Probe optional compose-based add-ons.
 
-    Returns a list of add-ons with a live flag — the dashboard uses this to
-    light up chips when the services are running. TCP connect only; we never
-    hit the actual HTTP endpoints.
+    Marimo and Open Notebook moved to /api/notebooks/status when the
+    /notebooks picker landed — this endpoint stays as an empty-but-live
+    contract for future non-notebook add-ons (ComfyUI, vector DBs, etc.).
     """
-    bind = os.getenv("BIND_ADDR", "127.0.0.1")
-    addons = [
-        {
-            "id": "marimo",
-            "name": "Marimo",
-            "tagline": "reactive notebook — experiment",
-            "port": int(os.getenv("MARIMO_PORT", "2718")),
-            "url": f"http://{bind}:{os.getenv('MARIMO_PORT', '2718')}",
-        },
-        {
-            "id": "open-notebook",
-            "name": "Open Notebook",
-            "tagline": "NotebookLM alternative — curate",
-            "port": int(os.getenv("OPEN_NOTEBOOK_PORT", "8502")),
-            "url": f"http://{bind}:{os.getenv('OPEN_NOTEBOOK_PORT', '8502')}",
-        },
-    ]
-
-    async def _alive(port: int) -> bool:
-        try:
-            reader, writer = await asyncio.wait_for(
-                asyncio.open_connection(bind, port), timeout=0.3
-            )
-            writer.close()
-            try:
-                await writer.wait_closed()
-            except Exception:
-                pass
-            return True
-        except Exception:
-            return False
-
-    results = await asyncio.gather(*(_alive(a["port"]) for a in addons))
-    for addon, alive in zip(addons, results):
-        addon["alive"] = alive
-    return {"addons": addons}
+    return {"addons": []}
 
 
 @app.post("/api/system/destroy")
@@ -1218,6 +1996,124 @@ async def api_pkb_compile():
         f"Index compiled — {result['total']} items, {len(result['tags'])} tags",
         "info")
     return result
+
+
+@app.get("/api/pkb/seeds")
+async def api_pkb_seeds():
+    """List starter packs + installed status.
+
+    Drives the dashboard Knowledge hero + /knowledge Install button.
+    """
+    from oglab.pkb_seed import list_packs
+    return {"packs": list_packs()}
+
+
+@app.post("/api/pkb/seed")
+async def api_pkb_seed(request: Request):
+    """Install (or re-install) a starter pack.
+
+    Body: ``{"pack": "model-building", "force": false}``.
+    Idempotent unless ``force=true``; missing files are filled in,
+    user-edited files stay put (they only get overwritten on force).
+    """
+    from oglab.pkb_seed import install_pack
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    pack = body.get("pack", "")
+    force = bool(body.get("force", False))
+    result = install_pack(pack, force=force)
+    if result.get("ok"):
+        activity_log.emit("pkb",
+            f"Seed pack '{pack}' installed — {result['written']} file(s) written, "
+            f"{result['skipped']} kept",
+            "info")
+    return result
+
+
+@app.post("/api/pkb/upload-url")
+async def api_pkb_upload_url(request: Request):
+    """Append a URL to sources/bookmarks.md.
+
+    The existing ingest pipeline accepts URLs via ``inbox/links.txt``;
+    this is the one-shot HTTP equivalent the Knowledge ingest-hero
+    "URL" tile calls when a user types a link.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        return {"ok": False, "error": "invalid JSON"}
+    url = (body.get("url") or "").strip()
+    if not url or not (url.startswith("http://") or url.startswith("https://")):
+        return {"ok": False, "error": "not a valid http(s) URL"}
+    note = (body.get("note") or "").strip()
+
+    from oglab.pkb import _pkb_root
+    from datetime import datetime, timezone
+    root = _pkb_root()
+    bookmarks = root / "sources" / "bookmarks.md"
+    bookmarks.parent.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    line = f"- [{stamp}] {url}"
+    if note:
+        line += f" — {note}"
+    line += "\n"
+    try:
+        if bookmarks.exists():
+            existing = bookmarks.read_text()
+            if url in existing:
+                return {"ok": True, "duplicate": True, "url": url}
+            bookmarks.write_text(existing.rstrip("\n") + "\n" + line)
+        else:
+            bookmarks.write_text(f"# Bookmarks\n\n{line}")
+    except OSError as e:
+        return {"ok": False, "error": str(e)}
+    activity_log.emit("pkb", f"Bookmark added: {url}", "info")
+    return {"ok": True, "url": url}
+
+
+@app.get("/api/pkb/recent")
+async def api_pkb_recent(n: int = 8):
+    """Return the N most recently modified files across the PKB.
+
+    Drives the dashboard Knowledge hero's "Recently added" list.
+    """
+    from oglab.pkb import _pkb_root
+    root = _pkb_root()
+    if not root.exists():
+        return {"recent": []}
+
+    n = max(1, min(50, n))
+    candidates: list[tuple[float, Path]] = []
+    for p in root.rglob("*"):
+        if not p.is_file():
+            continue
+        if p.name.startswith(".") or p.name.startswith("_"):
+            continue
+        # Skip the wiki cache dir — it's derived, not content.
+        if ".wiki-cache" in p.parts:
+            continue
+        try:
+            candidates.append((p.stat().st_mtime, p))
+        except OSError:
+            continue
+
+    candidates.sort(key=lambda t: t[0], reverse=True)
+    out = []
+    for mtime, p in candidates[:n]:
+        try:
+            rel = p.relative_to(root)
+            out.append({
+                "path": str(rel),
+                "name": p.name,
+                "section": rel.parts[0] if rel.parts else "",
+                "mtime": mtime,
+                "size": p.stat().st_size,
+            })
+        except (OSError, ValueError):
+            continue
+    return {"recent": out}
 
 
 @app.get("/api/pkb/file")

@@ -1,0 +1,846 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ brand.name }} — Agents</title>
+<link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/static/agents.css">
+</head>
+<body>
+
+{% set active = 'agents' %}{% include "_nav.html" %}
+
+<div class="agents-wrap">
+  <h1>Agent Control Center</h1>
+  <p class="subtitle">
+    Monitor, instruct, and understand every agent in the lab.
+    <a class="ag-learn-link"
+       href="https://github.com/cdarnell/minimalist-blueprint/blob/main/docs/agents-explained.md"
+       target="_blank" rel="noopener"
+       title="How agents work — 5-minute read">
+      How do agents work? →
+    </a>
+  </p>
+
+  <!-- ═══ Agent Cards ═══ -->
+  <div class="ag-cards">
+
+    <!-- Researcher -->
+    <div class="ag-card" id="card-researcher">
+      <div class="ag-card-header">
+        <span class="ag-pulse"></span>
+        <a href="https://github.com/cdarnell/minimalist-blueprint/blob/main/src/oglab/agents/researcher.py" target="_blank" rel="noopener" class="ag-card-name researcher" title="View source: src/oglab/agents/researcher.py">Researcher</a>
+        <span class="ag-pill idle" id="pill-researcher">idle</span>
+      </div>
+      <div class="ag-card-task" id="task-researcher">Waiting for a goal&hellip;</div>
+      <div class="ag-card-stats">
+        <span class="ag-stat">tokens <span class="ag-stat-val" id="stat-researcher-tok">0</span></span>
+        <span class="ag-stat">exps <span class="ag-stat-val" id="stat-researcher-exp">0</span></span>
+        <span class="ag-stat">progress <span class="ag-stat-val" id="stat-researcher-pct">0%</span></span>
+      </div>
+      <div class="ag-card-controls" id="ctrl-researcher">
+        <button onclick="agentAction('start')" id="btn-r-start">Run</button>
+        <button onclick="agentAction('pause')" id="btn-r-pause" disabled>Pause</button>
+        <button onclick="agentAction('resume')" id="btn-r-resume" disabled>Resume</button>
+        <button onclick="agentAction('stop')" id="btn-r-stop" class="danger" disabled>Stop</button>
+      </div>
+    </div>
+
+    <!-- Curator -->
+    <div class="ag-card" id="card-curator">
+      <div class="ag-card-header">
+        <span class="ag-pulse"></span>
+        <a href="https://github.com/cdarnell/minimalist-blueprint/blob/main/src/oglab/agents/curator.py" target="_blank" rel="noopener" class="ag-card-name curator" title="View source: src/oglab/agents/curator.py">Curator</a>
+        <span class="ag-pill standby" id="pill-curator">standby</span>
+      </div>
+      <div class="ag-card-task" id="task-curator">Source vetting &amp; consent gating</div>
+      <div class="ag-card-stats">
+        <span class="ag-stat">pending <span class="ag-stat-val" id="stat-curator-pending">0</span></span>
+        <span class="ag-stat">approved <span class="ag-stat-val" id="stat-curator-approved">0</span></span>
+      </div>
+      <div class="ag-card-controls">
+        <button onclick="switchTab('consent')">Manage Consent</button>
+        <span class="ag-badge" id="badge-curator" style="display:none">0 pending</span>
+      </div>
+    </div>
+
+    <!-- Browser -->
+    <div class="ag-card" id="card-browser">
+      <div class="ag-card-header">
+        <span class="ag-pulse"></span>
+        <a href="https://github.com/cdarnell/minimalist-blueprint/blob/main/src/oglab/agents/browser.py" target="_blank" rel="noopener" class="ag-card-name browser" title="View source: src/oglab/agents/browser.py">Browser</a>
+        <span class="ag-pill idle" id="pill-browser">idle</span>
+      </div>
+      <div class="ag-card-task" id="task-browser">Ready for web research tasks</div>
+      <div class="ag-card-stats">
+        <span class="ag-stat">captures <span class="ag-stat-val" id="stat-browser-captures">0</span></span>
+        <span class="ag-stat">last <span class="ag-stat-val" id="stat-browser-last">&mdash;</span></span>
+      </div>
+      <div class="ag-card-controls">
+        <button onclick="focusInstruction('browser')">New Task</button>
+      </div>
+    </div>
+
+    <!-- Pip — the lab buddy. Fourth core agent. First "personality"
+         agent — notices things, never drives goals. Template shape
+         for the Agent Forge. -->
+    <div class="ag-card" id="card-pip">
+      <div class="ag-card-header">
+        <span class="ag-pulse"></span>
+        <a href="https://github.com/cdarnell/minimalist-blueprint/blob/main/src/oglab/agents/_builtin_pip.py" target="_blank" rel="noopener" class="ag-card-name pip" title="View canonical source (your editable copy lives at lab/pkb/agents/pip/pip.py)">🐧 Pip</a>
+        <span class="ag-pill idle" id="pill-pip">idle</span>
+      </div>
+      <div class="ag-card-task" id="task-pip">Your lab buddy — watches quietly, chimes in when something's worth noting.</div>
+      <div class="ag-card-stats">
+        <span class="ag-stat">utterances <span class="ag-stat-val" id="stat-pip-utterances">0</span></span>
+        <span class="ag-stat">last <span class="ag-stat-val" id="stat-pip-last">&mdash;</span></span>
+      </div>
+      <div class="ag-card-controls">
+        <button onclick="setFilter('pip')">Show posts</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ Tabbed Detail Panel ═══ -->
+  <div class="ag-tabs">
+    <button class="ag-tab active" data-tab="feed" onclick="switchTab('feed')">Live Feed</button>
+    <button class="ag-tab" data-tab="prompts" onclick="switchTab('prompts')">Prompt Inspector</button>
+    <button class="ag-tab" data-tab="consent" onclick="switchTab('consent')">Consent</button>
+    <button class="ag-tab" data-tab="memory" onclick="switchTab('memory')">Agent Memory</button>
+  </div>
+
+  <div class="ag-detail">
+    <!-- ── Live Feed ── -->
+    <div class="ag-tab-content active" id="tab-feed">
+      <div class="ag-filters">
+        <button class="ag-filter active" data-f="all" onclick="setFilter('all')">All</button>
+        <button class="ag-filter" data-f="researcher" onclick="setFilter('researcher')">Researcher</button>
+        <button class="ag-filter" data-f="curator" onclick="setFilter('curator')">Curator</button>
+        <button class="ag-filter" data-f="browser" onclick="setFilter('browser')">Browser</button>
+        <button class="ag-filter" data-f="pip" onclick="setFilter('pip')">🐧 Pip</button>
+        <button class="ag-filter" data-f="consent" onclick="setFilter('consent')">Consent</button>
+        <button class="ag-filter" data-f="system" onclick="setFilter('system')">System</button>
+      </div>
+      <div id="feed-list"></div>
+    </div>
+
+    <!-- ── Prompt Inspector ── -->
+    <div class="ag-tab-content" id="tab-prompts">
+      <div class="ag-callout">
+        <strong>Prompt Inspector</strong> &mdash; Every agent decision starts with a prompt.
+        Watch how the researcher constructs hypotheses, how the browser plans navigation.
+        This is prompt engineering in action.
+      </div>
+      <div class="ag-filters">
+        <button class="ag-filter active" data-pf="all" onclick="setPromptFilter('all')">All Agents</button>
+        <button class="ag-filter" data-pf="researcher" onclick="setPromptFilter('researcher')">Researcher</button>
+        <button class="ag-filter" data-pf="browser" onclick="setPromptFilter('browser')">Browser</button>
+      </div>
+      <div id="prompt-list"></div>
+    </div>
+
+    <!-- ── Consent Queue ── -->
+    <div class="ag-tab-content" id="tab-consent">
+      <div class="ag-section-title">Pending Approval</div>
+      <div id="consent-pending"><span class="ag-empty">No pending requests.</span></div>
+      <div class="ag-section-title">Allowed Domains</div>
+      <div id="consent-allowlist"><span class="ag-empty">No domains approved yet.</span></div>
+    </div>
+
+    <!-- ── Agent Memory ── -->
+    <div class="ag-tab-content" id="tab-memory">
+      <div class="ag-section-title">Current Goal</div>
+      <div id="mem-goal"><span class="ag-empty">No active goal.</span></div>
+      <div class="ag-section-title">Experiments</div>
+      <div id="mem-experiments"><span class="ag-empty">No experiments.</span></div>
+      <div class="ag-section-title">Browser Captures</div>
+      <div id="mem-captures"><span class="ag-empty">No captures yet.</span></div>
+    </div>
+  </div>
+
+  <!-- ═══ Agent Forge ═══
+       Two-panel editor. Form on the left drives AGENT.md + .py
+       generation; preview on the right regenerates live via the
+       /api/agents/forge/preview endpoint. Deploy posts the form,
+       writes the folder, tries a hot-load. -->
+  <details class="ag-forge" id="ag-forge">
+    <summary class="ag-forge-summary">
+      <span class="ag-forge-title">+ Forge an agent</span>
+      <span class="ag-forge-hint">Two-panel editor · AGENT.md ↔ generated Python · Deploy without a restart</span>
+    </summary>
+
+    <div class="ag-forge-grid">
+      <!-- LEFT: the form -->
+      <form class="ag-forge-form" id="ag-forge-form" autocomplete="off">
+        <label class="ag-field">
+          <span class="ag-field-label">Name</span>
+          <span class="ag-field-hint">how the agent introduces itself</span>
+          <input type="text" id="fg-name" required placeholder="Owl" />
+        </label>
+
+        <div class="ag-field-row">
+          <label class="ag-field ag-field-narrow">
+            <span class="ag-field-label">Emoji</span>
+            <span class="ag-field-hint">one symbol</span>
+            <input type="text" id="fg-emoji" maxlength="4" placeholder="🦉" />
+          </label>
+          <label class="ag-field">
+            <span class="ag-field-label">Short role</span>
+            <span class="ag-field-hint">one-line descriptor for the file docstring</span>
+            <input type="text" id="fg-role" placeholder="research pacer" />
+          </label>
+        </div>
+
+        <label class="ag-field">
+          <span class="ag-field-label">Voice — the personality prompt</span>
+          <span class="ag-field-hint">
+            ~40 words, second person ("You are…"). Every utterance gets paraphrased through this.
+          </span>
+          <textarea id="fg-voice" rows="4" required
+            placeholder="You are Owl, wise and patient. You speak in one short sentence, take the long view, and never use emoji or markdown. Keep it under 20 words."></textarea>
+        </label>
+
+        <div class="ag-field-row">
+          <label class="ag-field">
+            <span class="ag-field-label">Tick every (seconds)</span>
+            <span class="ag-field-hint">how often the loop wakes. 30-3600.</span>
+            <input type="number" id="fg-tick" min="30" max="3600" value="90" />
+          </label>
+          <label class="ag-field">
+            <span class="ag-field-label">Cooldown (seconds)</span>
+            <span class="ag-field-hint">min gap between two utterances.</span>
+            <input type="number" id="fg-cooldown" min="60" max="86400" value="300" />
+          </label>
+        </div>
+
+        <label class="ag-field-inline">
+          <input type="checkbox" id="fg-dream" checked />
+          <span>
+            <strong>Dream nightly</strong> —
+            reflect on the day once per heavy work window; yesterday's dream
+            feeds today's prompt as memory.
+          </span>
+        </label>
+
+        <fieldset class="ag-skills">
+          <legend>Skills to load</legend>
+          <p class="ag-skills-hint">
+            Each checked skill appends its SKILL.md body to this agent's
+            system prompt on every LLM call. Edits to skill files take
+            effect on the next utterance.
+          </p>
+          <div id="fg-skills-list" class="ag-skills-list">loading…</div>
+        </fieldset>
+
+        <div class="ag-forge-actions">
+          <button type="button" class="ag-forge-btn primary" id="fg-deploy">▶ Deploy</button>
+          <span class="ag-forge-status" id="fg-status"></span>
+        </div>
+      </form>
+
+      <!-- RIGHT: live preview -->
+      <aside class="ag-forge-preview">
+        <div class="ag-preview-tabs">
+          <button type="button" class="ag-preview-tab active" data-preview="py">pip.py</button>
+          <button type="button" class="ag-preview-tab" data-preview="md">AGENT.md</button>
+          <span class="ag-preview-meta" id="fg-preview-meta">—</span>
+        </div>
+        <pre class="ag-preview-body" id="fg-preview">type a name to start previewing…</pre>
+      </aside>
+    </div>
+  </details>
+</div>
+
+<!-- ═══ Instruction Bar ═══ -->
+<div class="ag-instruction-bar">
+  <select id="instruct-agent">
+    <option value="researcher">Researcher</option>
+    <option value="browser">Browser</option>
+  </select>
+  <input type="text" id="instruct-input" placeholder="Instruct the agent&hellip;" />
+  <button onclick="sendInstruction()" id="instruct-btn">Send</button>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════
+//  Agents Tab — JavaScript
+// ═══════════════════════════════════════════════════════════════════
+
+const AG = {
+  filter: 'all',
+  promptFilter: 'all',
+  activeTab: 'feed',
+  feed: [],           // ring buffer of events
+  promptTraces: [],   // extracted prompt traces
+  es: null,           // EventSource
+  feedAutoScroll: true,
+};
+
+const AGENT_SOURCES = new Set(['researcher', 'curator', 'browser', 'pip', 'consent', 'goal', 'system']);
+
+// Pip stats — derived from the feed. Pip is event-only (no /api/agents/status
+// entry), so we count its utterances client-side and show the most recent
+// message as the card's "task" line.
+const PIP_STATS = { utterances: 0, last: null };
+
+function updatePipCard() {
+  const tEl = document.getElementById('task-pip');
+  const uEl = document.getElementById('stat-pip-utterances');
+  const lEl = document.getElementById('stat-pip-last');
+  const pill = document.getElementById('pill-pip');
+  if (uEl) uEl.textContent = PIP_STATS.utterances;
+  if (lEl) lEl.textContent = PIP_STATS.last
+    ? PIP_STATS.last.substring(11, 19) : '—';
+  if (pill) {
+    pill.className = 'ag-pill ' + (PIP_STATS.utterances > 0 ? 'active' : 'idle');
+    pill.textContent = PIP_STATS.utterances > 0 ? 'watching' : 'idle';
+  }
+  if (tEl && PIP_STATS.lastMessage) {
+    tEl.textContent = PIP_STATS.lastMessage;
+  }
+}
+
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+// ── Tab Switching ────────────────────────────────────────────────
+function switchTab(tab) {
+  AG.activeTab = tab;
+  document.querySelectorAll('.ag-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
+  document.querySelectorAll('.ag-tab-content').forEach(c => c.classList.toggle('active', c.id === 'tab-' + tab));
+  if (tab === 'prompts') loadPrompts();
+  if (tab === 'consent') loadConsent();
+  if (tab === 'memory') loadMemory();
+}
+
+// ── Filter ───────────────────────────────────────────────────────
+function setFilter(f) {
+  AG.filter = f;
+  document.querySelectorAll('#tab-feed .ag-filter').forEach(b => b.classList.toggle('active', b.dataset.f === f));
+  renderFeed();
+}
+function setPromptFilter(f) {
+  AG.promptFilter = f;
+  document.querySelectorAll('#tab-prompts .ag-filter').forEach(b => b.classList.toggle('active', b.dataset.pf === f));
+  renderPrompts();
+}
+
+// ── Agent Status Polling ─────────────────────────────────────────
+async function pollStatus() {
+  try {
+    const r = await fetch('/api/agents/status');
+    const d = await r.json();
+
+    // Researcher card
+    const rs = d.researcher || {};
+    const rStatus = rs.status || 'idle';
+    const rCard = document.getElementById('card-researcher');
+    rCard.className = 'ag-card ' + rStatus;
+    document.getElementById('pill-researcher').className = 'ag-pill ' + rStatus;
+    document.getElementById('pill-researcher').textContent = rStatus;
+    document.getElementById('stat-researcher-pct').textContent = Math.round((rs.progress || 0) * 100) + '%';
+    document.getElementById('stat-researcher-exp').textContent = rs.experiments || '0';
+    document.getElementById('stat-researcher-tok').textContent = rs.tokens ? (rs.tokens > 1000 ? (rs.tokens / 1000).toFixed(1) + 'k' : rs.tokens) : '0';
+    if (rs.current_task) document.getElementById('task-researcher').textContent = rs.current_task;
+
+    // Researcher controls
+    const isRunning = rStatus === 'running';
+    const isPaused = rStatus === 'paused';
+    document.getElementById('btn-r-start').disabled = isRunning || isPaused;
+    document.getElementById('btn-r-pause').disabled = !isRunning;
+    document.getElementById('btn-r-resume').disabled = !isPaused;
+    document.getElementById('btn-r-stop').disabled = rStatus === 'idle';
+
+    // Curator card
+    const cs = d.curator || {};
+    const pending = cs.pending || 0;
+    document.getElementById('stat-curator-pending').textContent = pending;
+    document.getElementById('stat-curator-approved').textContent = cs.allowed || '0';
+    const badge = document.getElementById('badge-curator');
+    if (pending > 0) {
+      badge.style.display = 'inline';
+      badge.textContent = pending + ' pending';
+    } else {
+      badge.style.display = 'none';
+    }
+    // Curator is active when researcher is running
+    const cStatus = isRunning ? 'active' : 'standby';
+    document.getElementById('card-curator').className = 'ag-card' + (isRunning ? ' running' : '');
+    document.getElementById('pill-curator').textContent = cStatus;
+
+    // Browser card
+    const bs = d.browser || {};
+    document.getElementById('stat-browser-captures').textContent = bs.captures || '0';
+    if (bs.last_task) {
+      document.getElementById('stat-browser-last').textContent = bs.last_task.substring(0, 25);
+      document.getElementById('task-browser').textContent = bs.last_task;
+    }
+  } catch (e) { /* silent */ }
+}
+
+async function agentAction(action) {
+  try { await fetch('/api/research/' + action, {method: 'POST'}); pollStatus(); } catch (e) { /* */ }
+}
+
+// ── SSE Live Feed ────────────────────────────────────────────────
+function connectSSE() {
+  if (AG.es) AG.es.close();
+  AG.es = new EventSource('/api/activity/stream');
+  AG.es.onmessage = (ev) => {
+    try {
+      const e = JSON.parse(ev.data);
+      if (!AGENT_SOURCES.has(e.source)) return;
+      AG.feed.push(e);
+      if (AG.feed.length > 300) AG.feed.shift();
+
+      // Extract prompt traces
+      if (e.data && e.data.prompt_trace) {
+        AG.promptTraces.push(e);
+        if (AG.promptTraces.length > 100) AG.promptTraces.shift();
+        if (AG.activeTab === 'prompts') renderPrompts();
+      }
+
+      if (AG.activeTab === 'feed') appendFeedEvent(e);
+
+      // Pip speaks via the activity stream — count + remember so
+      // the card updates without a polling endpoint.
+      if (e.source === 'pip') {
+        PIP_STATS.utterances += 1;
+        PIP_STATS.last = e.ts;
+        PIP_STATS.lastMessage = e.message || '';
+        updatePipCard();
+      }
+
+      // Refresh status on key events
+      if (e.source === 'researcher' || e.source === 'goal') pollStatus();
+    } catch (err) { /* */ }
+  };
+}
+
+function renderFeed() {
+  const list = document.getElementById('feed-list');
+  const filtered = AG.filter === 'all' ? AG.feed : AG.feed.filter(e => e.source === AG.filter);
+  list.innerHTML = filtered.length ? filtered.map(renderEvent).join('') : '<div class="ag-empty">No events yet. Set a goal or run a browser task to see agent activity.</div>';
+  if (AG.feedAutoScroll) list.scrollTop = list.scrollHeight;
+}
+
+function appendFeedEvent(e) {
+  if (AG.filter !== 'all' && e.source !== AG.filter) return;
+  const list = document.getElementById('feed-list');
+  // Remove empty state
+  const empty = list.querySelector('.ag-empty');
+  if (empty) empty.remove();
+  list.insertAdjacentHTML('beforeend', renderEvent(e));
+  if (AG.feedAutoScroll) {
+    const detail = document.querySelector('.ag-detail');
+    detail.scrollTop = detail.scrollHeight;
+  }
+}
+
+function renderEvent(e) {
+  const ts = (e.ts || '').substring(11, 19);
+  const lvlClass = e.level === 'warn' ? ' warn' : e.level === 'error' ? ' error' : e.level === 'success' ? ' success' : '';
+  let html = `<div class="ag-event">`;
+  html += `<span class="ag-event-ts">${esc(ts)}</span>`;
+  html += `<span class="ag-event-src ${e.source || ''}">${esc(e.source || '?')}</span>`;
+  html += `<span class="ag-event-msg${lvlClass}">${esc(e.message || '')}</span>`;
+
+  // If has prompt_trace, add expand toggle
+  if (e.data && e.data.prompt_trace) {
+    const id = 'trace-' + Math.random().toString(36).substring(2, 8);
+    html += `<span class="ag-trace-toggle" onclick="toggleTrace('${id}')">[prompt]</span>`;
+    html += `</div>`;
+    html += `<div id="${id}" style="display:none" class="ag-prompt-block">`;
+    html += `<div class="ag-prompt-label sent">Prompt Sent</div>`;
+    html += `<div class="ag-prompt-text">${esc(e.data.prompt_trace.prompt || '(empty)')}</div>`;
+    html += `<div class="ag-prompt-label received">Model Response (${e.data.prompt_trace.latency_ms || '?'}ms)</div>`;
+    html += `<div class="ag-prompt-text">${esc(e.data.prompt_trace.response || '(empty)')}</div>`;
+    html += `</div>`;
+  } else {
+    html += `</div>`;
+  }
+  return html;
+}
+
+function toggleTrace(id) {
+  const el = document.getElementById(id);
+  if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
+// ── Prompt Inspector ─────────────────────────────────────────────
+async function loadPrompts() {
+  try {
+    const r = await fetch('/api/agents/prompts?limit=30');
+    const data = await r.json();
+    AG.promptTraces = data;
+    renderPrompts();
+  } catch (e) {
+    document.getElementById('prompt-list').innerHTML = '<div class="ag-empty">Failed to load prompt traces.</div>';
+  }
+}
+
+function renderPrompts() {
+  const list = document.getElementById('prompt-list');
+  const filtered = AG.promptFilter === 'all' ? AG.promptTraces : AG.promptTraces.filter(e => e.source === AG.promptFilter);
+
+  if (!filtered.length) {
+    list.innerHTML = '<div class="ag-empty">No prompt traces yet. Run the researcher or a browser task to see prompts appear here.</div>';
+    return;
+  }
+
+  list.innerHTML = filtered.map((e, i) => {
+    const t = e.data.prompt_trace;
+    const ts = (e.ts || '').substring(0, 19).replace('T', ' ');
+    const id = 'pc-' + i;
+    return `<div class="ag-trace-card" id="${id}">
+      <div class="ag-trace-header" onclick="document.getElementById('${id}').classList.toggle('open')">
+        <span class="ag-trace-arrow">&#9656;</span>
+        <span class="ag-trace-agent ag-event-src ${e.source}">${esc(e.source)}</span>
+        <span>${esc(e.message || 'LLM call')}</span>
+        <span class="ag-trace-meta">${esc(ts)} &middot; ${t.latency_ms || '?'}ms &middot; max ${t.max_tokens || '?'} tok</span>
+      </div>
+      <div class="ag-trace-body">
+        <div class="ag-prompt-label sent">Prompt Sent</div>
+        <div class="ag-prompt-text">${esc(t.prompt || '(empty)')}</div>
+        <div class="ag-prompt-label received">Model Response</div>
+        <div class="ag-prompt-text">${esc(t.response || '(empty)')}</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ── Consent Tab ──────────────────────────────────────────────────
+async function loadConsent() {
+  try {
+    const [pRes, aRes] = await Promise.all([
+      fetch('/api/consent/pending').then(r => r.json()),
+      fetch('/api/consent/allowlist').then(r => r.json()),
+    ]);
+
+    // Pending
+    const pDiv = document.getElementById('consent-pending');
+    if (pRes.length) {
+      pDiv.innerHTML = pRes.map(req =>
+        `<div class="ag-consent-item">
+          <span class="ag-consent-domain">${esc(req.domain || '')}</span>
+          <span class="ag-consent-reason">${esc(req.reason || '')}</span>
+          <span class="ag-consent-agent">${esc(req.agent || '')}</span>
+          <div class="ag-consent-actions">
+            <button class="approve" onclick="consentApprove('${esc(req.id)}', false)">Approve</button>
+            <button class="approve" onclick="consentApprove('${esc(req.id)}', true)">+ Remember</button>
+            <button class="deny" onclick="consentDeny('${esc(req.id)}')">Deny</button>
+          </div>
+        </div>`
+      ).join('');
+    } else {
+      pDiv.innerHTML = '<span class="ag-empty">No pending requests.</span>';
+    }
+
+    // Allowlist
+    const aDiv = document.getElementById('consent-allowlist');
+    if (aRes.length) {
+      aDiv.innerHTML = aRes.map(domain =>
+        `<div class="ag-consent-item">
+          <span class="ag-consent-domain">${esc(domain)}</span>
+          <span class="ag-consent-reason" style="flex:1"></span>
+          <div class="ag-consent-actions">
+            <button class="revoke" onclick="consentRevoke('${esc(domain)}')">Revoke</button>
+          </div>
+        </div>`
+      ).join('');
+    } else {
+      aDiv.innerHTML = '<span class="ag-empty">No domains approved yet.</span>';
+    }
+  } catch (e) { /* */ }
+}
+
+async function consentApprove(id, remember) {
+  await fetch('/api/consent/approve', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({id, remember_domain: remember})});
+  loadConsent(); pollStatus();
+}
+async function consentDeny(id) {
+  await fetch('/api/consent/deny', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({id})});
+  loadConsent();
+}
+async function consentRevoke(domain) {
+  await fetch('/api/consent/revoke', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({domain})});
+  loadConsent();
+}
+
+// ── Agent Memory Tab ─────────────────────────────────────────────
+async function loadMemory() {
+  try {
+    const [goalRes, expRes] = await Promise.all([
+      fetch('/api/goal').then(r => r.json()),
+      fetch('/api/experiments').then(r => r.json()),
+    ]);
+
+    // Goal
+    const goalDiv = document.getElementById('mem-goal');
+    if (goalRes && goalRes.goal_text) {
+      const p = goalRes.parsed || {};
+      goalDiv.innerHTML = `<div class="ag-mem-block">
+        <h4>${esc(goalRes.goal_text)}</h4>
+        <p><strong>Domain:</strong> ${esc(p.domain || '?')} &middot;
+           <strong>Progress:</strong> ${Math.round((goalRes.progress || 0) * 100)}%</p>
+        ${p.sub_objectives ? '<p><strong>Objectives:</strong> ' + p.sub_objectives.map(o => esc(o)).join(' &middot; ') + '</p>' : ''}
+      </div>`;
+    } else {
+      goalDiv.innerHTML = '<span class="ag-empty">No active goal.</span>';
+    }
+
+    // Experiments
+    const expDiv = document.getElementById('mem-experiments');
+    if (expRes && expRes.length) {
+      expDiv.innerHTML = expRes.map(exp =>
+        `<div class="ag-mem-exp">
+          <span class="ag-pill ${exp.status || 'planning'}">${esc(exp.status || 'planning')}</span>
+          <span style="color:var(--text)">${esc(exp.hypothesis || '?')}</span>
+        </div>`
+      ).join('');
+    } else {
+      expDiv.innerHTML = '<span class="ag-empty">No experiments.</span>';
+    }
+
+    // Browser captures
+    const capDiv = document.getElementById('mem-captures');
+    try {
+      const bStatus = await fetch('/api/agents/status').then(r => r.json());
+      const caps = (bStatus.browser || {}).captures || 0;
+      if (caps > 0) {
+        capDiv.innerHTML = `<div class="ag-mem-block"><p>${caps} web pages captured. View in <a href="/knowledge">Knowledge</a> &rarr; browser/extracts/</p></div>`;
+      } else {
+        capDiv.innerHTML = '<span class="ag-empty">No captures yet. Use the Browser agent to research the web.</span>';
+      }
+    } catch (e) {
+      capDiv.innerHTML = '<span class="ag-empty">Could not load capture count.</span>';
+    }
+  } catch (e) { /* */ }
+}
+
+// ── Instruction Bar ──────────────────────────────────────────────
+function focusInstruction(agent) {
+  document.getElementById('instruct-agent').value = agent;
+  document.getElementById('instruct-input').focus();
+}
+
+async function sendInstruction() {
+  const agent = document.getElementById('instruct-agent').value;
+  const input = document.getElementById('instruct-input');
+  const instruction = input.value.trim();
+  if (!instruction) return;
+
+  input.disabled = true;
+  document.getElementById('instruct-btn').disabled = true;
+  try {
+    await fetch('/api/agents/instruct', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({agent, instruction}),
+    });
+    input.value = '';
+    // If browser instruction, also trigger a browse chat
+    if (agent === 'browser') {
+      fetch('/api/browse/chat', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({instruction}),
+      });
+    }
+  } catch (e) { /* */ }
+  input.disabled = false;
+  document.getElementById('instruct-btn').disabled = false;
+  input.focus();
+}
+
+document.getElementById('instruct-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') sendInstruction();
+});
+
+// ── Agent Forge ──────────────────────────────────────────────────
+// Two-panel editor. Form on the left drives AGENT.md + .py generation
+// (the server is authoritative via /api/agents/forge/preview); the
+// right panel shows whichever file the user has tabbed to. Deploy
+// posts to /api/agents/forge which writes the folder and hot-loads.
+const FORGE = {
+  activeTab: 'py',         // 'py' | 'md'
+  lastPreview: null,
+  previewTimer: null,
+};
+
+function forgeFormData() {
+  const skills = Array.from(document.querySelectorAll('#fg-skills-list input:checked'))
+    .map(cb => cb.value);
+  return {
+    name: document.getElementById('fg-name').value.trim(),
+    emoji: document.getElementById('fg-emoji').value.trim(),
+    role: document.getElementById('fg-role').value.trim(),
+    voice: document.getElementById('fg-voice').value.trim(),
+    tick_interval_sec: parseInt(document.getElementById('fg-tick').value) || 90,
+    global_cooldown_sec: parseInt(document.getElementById('fg-cooldown').value) || 300,
+    dream: document.getElementById('fg-dream').checked,
+    skills,
+  };
+}
+
+async function forgePreview() {
+  const data = forgeFormData();
+  if (!data.name || !data.voice) {
+    document.getElementById('fg-preview').textContent = 'type a name and voice to preview…';
+    document.getElementById('fg-preview-meta').textContent = '—';
+    return;
+  }
+  const params = new URLSearchParams({
+    name: data.name,
+    emoji: data.emoji,
+    voice: data.voice,
+    tick: data.tick_interval_sec,
+    cooldown: data.global_cooldown_sec,
+    dream: data.dream,
+    skills: data.skills.join(','),
+  });
+  try {
+    const r = await fetch('/api/agents/forge/preview?' + params);
+    const d = await r.json();
+    FORGE.lastPreview = d;
+    renderForgePreview();
+    const meta = document.getElementById('fg-preview-meta');
+    meta.textContent = d.validation_error
+      ? '⚠ ' + d.validation_error
+      : `will deploy as lab/pkb/agents/${d.agent_id}/`;
+    meta.classList.toggle('warn', !!d.validation_error);
+  } catch (e) {
+    document.getElementById('fg-preview').textContent = 'preview unavailable — is the portal running?';
+  }
+}
+
+function renderForgePreview() {
+  if (!FORGE.lastPreview) return;
+  const body = FORGE.activeTab === 'py'
+    ? FORGE.lastPreview.agent_py
+    : FORGE.lastPreview.agent_md;
+  document.getElementById('fg-preview').textContent = body || '';
+}
+
+function debouncedForgePreview() {
+  if (FORGE.previewTimer) clearTimeout(FORGE.previewTimer);
+  FORGE.previewTimer = setTimeout(forgePreview, 250);
+}
+
+async function loadSkillsIntoForge() {
+  try {
+    const r = await fetch('/api/skills/list');
+    const d = await r.json();
+    const list = document.getElementById('fg-skills-list');
+    if (!d.skills || !d.skills.length) {
+      list.innerHTML = '<span class="ag-skills-empty">No skills installed yet. Check the starter pack under /knowledge.</span>';
+      return;
+    }
+    list.innerHTML = d.skills.map(s => `
+      <label class="ag-skill-option" title="${esc(s.preview || '')}">
+        <input type="checkbox" value="${esc(s.id)}" />
+        <span class="ag-skill-name">${esc(s.name)}</span>
+        <span class="ag-skill-domain">${esc(s.domain)}</span>
+      </label>
+    `).join('');
+    list.querySelectorAll('input').forEach(cb => cb.addEventListener('change', debouncedForgePreview));
+  } catch (e) {
+    document.getElementById('fg-skills-list').innerHTML =
+      '<span class="ag-skills-empty">Skill list unavailable.</span>';
+  }
+}
+
+async function deployForgedAgent() {
+  const btn = document.getElementById('fg-deploy');
+  const status = document.getElementById('fg-status');
+  const data = forgeFormData();
+  btn.disabled = true;
+  const orig = btn.textContent;
+  btn.textContent = '⏳ deploying…';
+  status.textContent = '';
+  status.classList.remove('ok', 'warn');
+  try {
+    const r = await fetch('/api/agents/forge', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(data),
+    });
+    const d = await r.json();
+    if (d.ok) {
+      status.textContent = d.hot_loaded
+        ? `✓ deployed as '${d.agent_id}' — live (no restart needed)`
+        : `✓ deployed as '${d.agent_id}' — restart to activate`;
+      status.classList.add('ok');
+      btn.textContent = '✓ deployed';
+      // Reset form fields so the user can forge another.
+      setTimeout(() => {
+        btn.disabled = false;
+        btn.textContent = orig;
+      }, 2500);
+    } else {
+      status.textContent = '✗ ' + (d.error || 'deploy failed');
+      status.classList.add('warn');
+      btn.disabled = false;
+      btn.textContent = orig;
+    }
+  } catch (e) {
+    status.textContent = '✗ network error: ' + e.message;
+    status.classList.add('warn');
+    btn.disabled = false;
+    btn.textContent = orig;
+  }
+}
+
+// Wire up the form. All inputs trigger debounced preview refresh.
+['fg-name', 'fg-emoji', 'fg-role', 'fg-voice',
+ 'fg-tick', 'fg-cooldown', 'fg-dream'].forEach(id => {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const evt = el.type === 'checkbox' ? 'change' : 'input';
+  el.addEventListener(evt, debouncedForgePreview);
+});
+document.querySelectorAll('.ag-preview-tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    FORGE.activeTab = tab.dataset.preview;
+    document.querySelectorAll('.ag-preview-tab').forEach(t =>
+      t.classList.toggle('active', t === tab));
+    renderForgePreview();
+  });
+});
+document.getElementById('fg-deploy').addEventListener('click', deployForgedAgent);
+loadSkillsIntoForge();
+
+// ── Initial Load ─────────────────────────────────────────────────
+(async function boot() {
+  // Load recent activity into the feed
+  try {
+    const events = await fetch('/api/activity/recent?n=100').then(r => r.json());
+    AG.feed = events.filter(e => AGENT_SOURCES.has(e.source));
+    AG.promptTraces = AG.feed.filter(e => e.data && e.data.prompt_trace);
+    // Seed Pip card stats from history so the page isn't blank on load.
+    const pipHistory = AG.feed.filter(e => e.source === 'pip');
+    PIP_STATS.utterances = pipHistory.length;
+    if (pipHistory.length) {
+      const last = pipHistory[pipHistory.length - 1];
+      PIP_STATS.last = last.ts;
+      PIP_STATS.lastMessage = last.message || '';
+    }
+    updatePipCard();
+    renderFeed();
+  } catch (e) { /* */ }
+
+  // Start polling + SSE
+  pollStatus();
+  setInterval(pollStatus, 5000);
+  connectSSE();
+
+  // Sticky-bottom detection for feed
+  const detail = document.querySelector('.ag-detail');
+  detail.addEventListener('scroll', () => {
+    AG.feedAutoScroll = (detail.scrollTop + detail.clientHeight >= detail.scrollHeight - 30);
+  });
+})();
+</script>
+<script src="/static/nav.js"></script>
+</body>
+</html>

@@ -77,19 +77,7 @@
 </head>
 <body>
 
-<nav>
-  <span class="logo">{{ brand.logo }}</span>
-  <a href="/">Dashboard</a>
-  <a href="/knowledge">Knowledge</a>
-  <a href="/open-notebook">Open Notebook</a>
-  <a href="/research">Research</a>
-  <a href="/terminal">Terminal</a>
-  <a href="/notebook">Notebook</a>
-  <a href="/plugins">Plugins</a>
-  <a href="/admin" class="active">Admin</a>
-  <span class="nav-clock" id="nav-clock"></span>
-  <span class="mode-badge airgapped" id="mode-badge">⬤ Airgapped</span>
-</nav>
+{% set active = 'admin' %}{% include "_nav.html" %}
 
 <div class="admin-wrap">
   <h1>Lab Administration</h1>

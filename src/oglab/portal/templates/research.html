@@ -9,19 +9,7 @@
 </head>
 <body>
 
-<nav>
-  <span class="logo">{{ brand.logo }}</span>
-  <a href="/">Dashboard</a>
-  <a href="/knowledge">Knowledge</a>
-  <a href="/open-notebook">Open Notebook</a>
-  <a href="/research" class="active">Research</a>
-  <a href="/terminal">Terminal</a>
-  <a href="/notebook">Notebook</a>
-  <a href="/plugins">Plugins</a>
-  <a href="/admin">Admin</a>
-  <span class="nav-clock" id="nav-clock"></span>
-  <span class="mode-badge airgapped" id="mode-badge">⬤ Airgapped</span>
-</nav>
+{% set active = 'research' %}{% include "_nav.html" %}
 
 <!-- ═══ Lab tagline — always visible ═══ -->
 <div class="rx-tagline">
@@ -41,6 +29,25 @@
       <span class="rx-chip domain" id="rx-goal-domain" hidden></span>
       <span class="rx-pill idle" id="rx-status-pill">idle</span>
     </div>
+
+    <!-- Research program files — the two-file contract the researcher
+         runs against. program.md = goal in natural language,
+         prepare.py = fixed environment + validation metric. -->
+    <div class="rx-program-files" id="rx-program-files">
+      <span class="rx-pf-label">Contract</span>
+      <a class="rx-pf-chip" href="#" data-file="program.md"
+         title="Natural-language goal + constraints (edit to steer the agent)">
+        <span class="rx-pf-icon">📘</span>
+        <span class="rx-pf-name">program.md</span>
+        <span class="rx-pf-tag">instructions</span>
+      </a>
+      <a class="rx-pf-chip readonly" href="#" data-file="prepare.py"
+         title="Fixed environment: datasets + validation metric (read-only for the agent)">
+        <span class="rx-pf-icon">🔒</span>
+        <span class="rx-pf-name">prepare.py</span>
+        <span class="rx-pf-tag">fixed environment</span>
+      </a>
+    </div>
     <div class="rx-progress">
       <div class="rx-progress-bar"><div class="rx-progress-bar-fill" id="rx-progress-fill"></div></div>
       <span class="rx-progress-label" id="rx-progress-label">0%</span>
@@ -57,6 +64,44 @@
     <button class="rx-btn"         id="rx-btn-new"    title="Replace the active goal">+ New Goal</button>
   </div>
 </section>
+
+<!-- ═══ Program panel — inline program.md + human research notes ═══
+     The research cockpit is the right place to see and edit what the
+     agent's working toward. Collapsed by default to keep the goal row
+     tight, but one click shows the markdown + the human-authored
+     notes dropped alongside it. -->
+<details class="rx-program-panel" id="rx-program-panel">
+  <summary class="rx-program-summary">
+    <span class="rx-program-kicker">📘 Research instructions</span>
+    <span class="rx-program-title" id="rx-program-title">program.md</span>
+    <span class="rx-program-hint">click to expand · edit to steer the agent</span>
+  </summary>
+
+  <div class="rx-program-body">
+    <div class="rx-program-actions">
+      <select class="rx-program-select" id="rx-program-select"
+              title="Choose which file to view">
+        <!-- populated by JS: program.md + any .md notes under research/ -->
+      </select>
+      <a class="rx-btn" href="/knowledge" id="rx-program-edit-knowledge"
+         title="Open this file in the Knowledge editor">✎ Edit in knowledge</a>
+      <button class="rx-btn" type="button" id="rx-program-copy-vim"
+              title="Copy `vim lab/pkb/research/…` to clipboard and open Terminal">
+        ⌨ Edit in vim
+      </button>
+    </div>
+
+    <article class="rx-program-render wiki-content" id="rx-program-render">
+      <div class="rx-brief-empty">loading…</div>
+    </article>
+
+    <p class="rx-program-path">
+      On disk: <code id="rx-program-path-val">lab/pkb/research/program.md</code>
+      · drop additional <code>.md</code> notes in that directory
+      and they'll appear in the dropdown on the next page load.
+    </p>
+  </div>
+</details>
 
 <!-- ═══ 3-pane layout (shown when a goal exists) ═══ -->
 <div class="rx-layout" id="rx-layout" hidden>
@@ -133,6 +178,23 @@
     </div>
   </div>
 </section>
+
+<!-- ═══ Research-file viewer modal (prepare.py / program.md) ═══ -->
+<div class="rx-modal" id="rx-pf-modal" hidden>
+  <div class="rx-modal-card rx-pf-card">
+    <div class="rx-pf-head">
+      <h2 id="rx-pf-title">—</h2>
+      <span class="rx-pf-kind" id="rx-pf-kind"></span>
+      <div class="rx-pf-spacer"></div>
+      <button class="rx-btn" id="rx-pf-close">Close</button>
+    </div>
+    <p class="rx-pf-blurb" id="rx-pf-blurb"></p>
+    <pre class="rx-pf-body" id="rx-pf-body">loading…</pre>
+    <p class="rx-pf-path">
+      Edit on disk: <code id="rx-pf-path">—</code>
+    </p>
+  </div>
+</div>
 
 <!-- ═══ New-goal modal ═══ -->
 <div class="rx-modal" id="rx-modal" hidden>
@@ -705,9 +767,151 @@ document.addEventListener('DOMContentLoaded', () => {
     if (e.key === 'Escape') closeModal();
   });
 
+  // Research file chips — prepare.py + program.md
+  document.querySelectorAll('.rx-pf-chip').forEach(chip => {
+    chip.addEventListener('click', async (e) => {
+      e.preventDefault();
+      await openProgramFile(chip.dataset.file);
+    });
+  });
+  document.getElementById('rx-pf-close').addEventListener('click', closeProgramFile);
+  document.getElementById('rx-pf-modal').addEventListener('click', (e) => {
+    if (e.target.id === 'rx-pf-modal') closeProgramFile();
+  });
+
+  // Program panel — inline renderer for program.md + notes.
+  wireProgramPanel();
+
   // Boot
   refreshAll().then(connectStream);
 });
+
+async function openProgramFile(name) {
+  const modal = document.getElementById('rx-pf-modal');
+  const body = document.getElementById('rx-pf-body');
+  const title = document.getElementById('rx-pf-title');
+  const kind = document.getElementById('rx-pf-kind');
+  const blurb = document.getElementById('rx-pf-blurb');
+  const pathEl = document.getElementById('rx-pf-path');
+  body.textContent = 'loading…';
+  title.textContent = name;
+  kind.textContent = '';
+  blurb.textContent = '';
+  modal.hidden = false;
+  try {
+    const r = await fetch('/api/research/file?name=' + encodeURIComponent(name));
+    const d = await r.json();
+    if (d.error) {
+      body.textContent = d.error;
+      return;
+    }
+    title.textContent = d.title || name;
+    kind.textContent = d.kind || '';
+    blurb.textContent = d.blurb || '';
+    body.textContent = d.content || '(empty file)';
+    pathEl.textContent = 'lab/pkb/research/' + name;
+  } catch (e) {
+    body.textContent = 'Failed to load: ' + e.message;
+  }
+}
+function closeProgramFile() {
+  document.getElementById('rx-pf-modal').hidden = true;
+}
+
+// ── Inline program panel ─────────────────────────────────────────
+// Shows program.md (and any other .md notes dropped under
+// lab/pkb/research/) rendered as markdown inside the cockpit. The
+// dropdown lets the user flip between them; the render uses the
+// same minimal markdown pass as research brief.
+async function wireProgramPanel() {
+  const select = document.getElementById('rx-program-select');
+  const render = document.getElementById('rx-program-render');
+  const title = document.getElementById('rx-program-title');
+  const pathVal = document.getElementById('rx-program-path-val');
+  const editKnow = document.getElementById('rx-program-edit-knowledge');
+  const copyVim = document.getElementById('rx-program-copy-vim');
+  if (!select || !render) return;
+
+  let filesIndex = {};
+
+  async function loadIndex() {
+    try {
+      const r = await fetch('/api/research/files');
+      const d = await r.json();
+      select.innerHTML = '';
+
+      // Curated files first (program.md is what the user wants to edit).
+      (d.files || []).forEach(f => {
+        if (!f.exists) return;
+        const opt = document.createElement('option');
+        opt.value = f.name;
+        opt.textContent = f.name + (f.kind === 'instructions' ? '  ·  (primary)' : '');
+        select.appendChild(opt);
+        filesIndex[f.name] = f;
+      });
+      // Then human-authored notes.
+      (d.notes || []).forEach(n => {
+        const opt = document.createElement('option');
+        opt.value = n.name;
+        opt.textContent = n.name + '  ·  (note)';
+        select.appendChild(opt);
+        filesIndex[n.name] = n;
+      });
+      if (!select.options.length) {
+        const opt = document.createElement('option');
+        opt.value = '';
+        opt.textContent = 'No research files found';
+        select.appendChild(opt);
+        render.innerHTML = '<div class="rx-brief-empty">No research files at lab/pkb/research/. Drop a .md there to start.</div>';
+        return;
+      }
+
+      // Default to program.md when present, else the first option.
+      if (filesIndex['program.md']) select.value = 'program.md';
+      await loadFile(select.value);
+    } catch (e) {
+      render.innerHTML = '<div class="rx-brief-empty">Failed to load research files.</div>';
+    }
+  }
+
+  async function loadFile(name) {
+    if (!name) return;
+    title.textContent = name;
+    pathVal.textContent = 'lab/pkb/research/' + name;
+    editKnow.href = '/knowledge';  // Knowledge editor — user navigates to the file in the tree.
+    render.innerHTML = '<div class="rx-brief-empty">loading…</div>';
+    try {
+      const r = await fetch('/api/research/file?name=' + encodeURIComponent(name));
+      const d = await r.json();
+      if (d.error) {
+        render.innerHTML = '<div class="rx-brief-empty">' + esc(d.error) + '</div>';
+        return;
+      }
+      // .py files render as a code block; .md files through the
+      // minimal markdown pass (renderMarkdown is defined earlier).
+      if (name.endsWith('.py')) {
+        render.innerHTML = '<pre><code>' + esc(d.content || '') + '</code></pre>';
+      } else {
+        render.innerHTML = renderMarkdown(d.content || '');
+      }
+    } catch (e) {
+      render.innerHTML = '<div class="rx-brief-empty">Failed to load: ' + esc(e.message) + '</div>';
+    }
+  }
+
+  select.addEventListener('change', () => loadFile(select.value));
+
+  copyVim.addEventListener('click', () => {
+    const name = select.value;
+    if (!name) return;
+    const cmd = 'vim lab/pkb/research/' + name;
+    navigator.clipboard.writeText(cmd).catch(() => {});
+    alert('Copied: ' + cmd + '\n\nOpening Terminal — paste there.');
+    window.open('/terminal', '_blank');
+  });
+
+  loadIndex();
+}
 </script>
 <script src="/static/nav.js"></script>
 </body>

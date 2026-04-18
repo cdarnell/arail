@@ -81,6 +81,18 @@ fi
 
 if command -v jupyter &>/dev/null; then
     info "Notebook   → http://${BIND}:${NOTEBOOK_PORT:-8888}"
+    # Ensure Dark High Contrast theme is the default
+    _jl_settings="$(python3 -c 'import jupyterlab,os;print(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(jupyterlab.__file__)))),"share","jupyter","lab","settings"))' 2>/dev/null || echo "")"
+    if [[ -n "$_jl_settings" ]]; then
+        mkdir -p "$_jl_settings"
+        cat > "$_jl_settings/overrides.json" <<'JLTHEME'
+{
+  "@jupyterlab/apputils-extension:themes": {
+    "theme": "JupyterLab Dark High Contrast"
+  }
+}
+JLTHEME
+    fi
     jupyter lab \
         --no-browser \
         --ip="$BIND" \

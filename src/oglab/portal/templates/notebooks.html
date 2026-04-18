@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ brand.name }} — Notebooks</title>
+<link rel="stylesheet" href="/static/style.css">
+<style>
+  .nbp-header {
+    max-width: 1280px;
+    margin: 1.25rem auto 0;
+    padding: 0 1.5rem;
+  }
+  .nbp-header h1 {
+    color: var(--text-hi);
+    font-size: 1.15rem;
+    font-weight: 600;
+  }
+  .nbp-header p {
+    color: var(--muted);
+    font-size: 0.85rem;
+    margin-top: 0.3rem;
+  }
+  /* Card status label ("live" / "installed, not running" / "needs install") */
+  .nc-status-label {
+    font-size: 0.65rem;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+</style>
+</head>
+<body>
+
+{% set active = 'notebooks' %}{% include "_nav.html" %}
+
+<header class="nbp-header">
+  <h1>Notebooks</h1>
+  <p>
+    Three ways to work with notebooks in the lab. Pick the one that fits
+    the task — you can always switch; they share the same filesystem.
+  </p>
+</header>
+
+<div class="notebook-grid" id="notebook-grid">
+  <!-- Jupyter ── -->
+  <div class="notebook-card" data-id="jupyter">
+    <div class="nc-header">
+      <span class="nc-glyph">📓</span>
+      <div class="nc-title-block">
+        <h3>Jupyter Lab</h3>
+        <div class="nc-tagline">classic · exploration · <code>.ipynb</code></div>
+      </div>
+      <span class="status-dot missing" data-dot></span>
+    </div>
+    <p class="nc-blurb">
+      The notebook you already know. Rich widgets, matplotlib, the
+      entire Python data-science ecosystem at your fingertips.
+    </p>
+    <ul class="nc-features">
+      <li><strong>Best for</strong> interactive data exploration, teaching, and notebooks others can open without setup.</li>
+      <li><strong>Shareable</strong> — <code>.ipynb</code> files render natively on GitHub, Kaggle, Colab.</li>
+      <li><strong>Ecosystem</strong> — ipywidgets, Plotly, Jupyter AI, and 10,000+ extensions.</li>
+      <li><strong>Dark High Contrast</strong> theme pre-selected on first launch.</li>
+    </ul>
+    <div class="nc-meta">
+      <span>Storage · <code>lab/pkb/inference/</code></span>
+      <span>Port · <code>:8888</code></span>
+    </div>
+    <div class="nc-status-label" data-status>checking…</div>
+    <div class="nc-actions">
+      <a class="btn btn-primary btn-sm" href="/notebook">Open here</a>
+      <button class="btn btn-ghost btn-sm" data-popout>⇱ Pop out</button>
+    </div>
+  </div>
+
+  <!-- Marimo ── -->
+  <div class="notebook-card" data-id="marimo">
+    <div class="nc-header">
+      <span class="nc-glyph">⚡</span>
+      <div class="nc-title-block">
+        <h3>Marimo</h3>
+        <div class="nc-tagline">reactive · reproducible · <code>.py</code></div>
+      </div>
+      <span class="status-dot missing" data-dot></span>
+    </div>
+    <p class="nc-blurb">
+      A modern, reactive notebook that runs as plain Python files.
+      Cells re-run when their dependencies change — no stale state,
+      no "did I run this in the right order" confusion.
+    </p>
+    <ul class="nc-features">
+      <li><strong>Best for</strong> reproducible work, dashboards, and notebooks you'll commit to git.</li>
+      <li><strong>Git-friendly</strong> — notebooks are <code>.py</code>, diffs are readable.</li>
+      <li><strong>Reactive</strong> — change one cell, dependents re-run automatically.</li>
+      <li><strong>App mode</strong> — export any notebook as a standalone web app.</li>
+    </ul>
+    <div class="nc-meta">
+      <span>Storage · <code>lab/notebooks/</code></span>
+      <span>Port · <code>:2718</code></span>
+    </div>
+    <div class="nc-status-label" data-status>checking…</div>
+    <div class="nc-actions">
+      <a class="btn btn-primary btn-sm" href="/marimo">Open here</a>
+      <button class="btn btn-ghost btn-sm" data-popout>⇱ Pop out</button>
+    </div>
+  </div>
+
+  <!-- Open Notebook ── -->
+  <div class="notebook-card" data-id="open-notebook">
+    <div class="nc-header">
+      <span class="nc-glyph">📚</span>
+      <div class="nc-title-block">
+        <h3>Open Notebook</h3>
+        <div class="nc-tagline">multi-modal · synthesis · RAG</div>
+      </div>
+      <span class="status-dot missing" data-dot></span>
+    </div>
+    <p class="nc-blurb">
+      Self-hosted NotebookLM alternative. Ingest PDFs, audio, video,
+      and web pages; chat with your sources; generate multi-speaker
+      podcasts from research piles you haven't read yet.
+    </p>
+    <ul class="nc-features">
+      <li><strong>Best for</strong> synthesizing knowledge across many documents — "read 40 papers, tell me what they agree on."</li>
+      <li><strong>Multi-modal ingest</strong> — PDFs, audio, video, URLs, and plain text.</li>
+      <li><strong>Podcast mode</strong> — turn a source pile into a multi-speaker audio briefing.</li>
+      <li><strong>Encrypted at rest</strong> with the unified lab passphrase.</li>
+    </ul>
+    <div class="nc-meta">
+      <span>Storage · <code>compose/open-notebook/data/</code></span>
+      <span>Port · <code>:8502</code> · API <code>:5055</code></span>
+    </div>
+    <div class="nc-status-label" data-status>checking…</div>
+    <div class="nc-actions">
+      <a class="btn btn-primary btn-sm" href="/open-notebook">Open here</a>
+      <button class="btn btn-ghost btn-sm" data-popout>⇱ Pop out</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Status polling ────────────────────────────────────────────────
+// Single fetch every 5s drives all three dots + status labels + popout URLs.
+// Kept deliberately small — no framework, reuses the dashboard chip's
+// proven pattern.
+
+const POPOUT_URLS = {};  // populated from /api/notebooks/status
+
+function setCard(id, nb) {
+  const card = document.querySelector(`.notebook-card[data-id="${id}"]`);
+  if (!card) return;
+  const dot = card.querySelector('[data-dot]');
+  const label = card.querySelector('[data-status]');
+  dot.classList.remove('alive', 'standby', 'missing');
+  if (nb.alive) {
+    dot.classList.add('alive');
+    label.textContent = 'live · ' + nb.url_external.replace(/\?.*$/, '');
+  } else if (nb.installed) {
+    dot.classList.add('standby');
+    label.textContent = 'installed — not running';
+  } else {
+    dot.classList.add('missing');
+    label.textContent = 'needs install — click "Open here" for setup';
+  }
+  POPOUT_URLS[id] = nb.url_external;
+}
+
+async function refreshStatus() {
+  try {
+    const r = await fetch('/api/notebooks/status');
+    const d = await r.json();
+    (d.notebooks || []).forEach(nb => setCard(nb.id, nb));
+  } catch (e) { /* silent — page stays in last known state */ }
+}
+
+// Wire pop-out buttons — defer URL resolution to click-time so we
+// always use the freshest value from the last status poll.
+document.querySelectorAll('[data-popout]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const id = btn.closest('.notebook-card').dataset.id;
+    const url = POPOUT_URLS[id];
+    if (!url) {
+      alert('Not running yet — click "Open here" to start it.');
+      return;
+    }
+    window.open(url, '{{ brand.short_name }}-' + id,
+                'width=1400,height=900,noopener');
+  });
+});
+
+refreshStatus();
+setInterval(refreshStatus, 5000);
+</script>
+<script src="/static/nav.js"></script>
+</body>
+</html>

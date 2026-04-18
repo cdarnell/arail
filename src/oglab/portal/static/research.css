@@ -784,3 +784,100 @@
   }
   .rx-pane { min-height: 320px; }
 }
+
+/* ── Research program files (prepare.py + program.md) ───────────── */
+.rx-program-files {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+  margin-top: 0.5rem;
+}
+.rx-pf-label {
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+  margin-right: 0.2rem;
+}
+.rx-pf-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.6rem;
+  font-size: 0.7rem;
+  background: rgba(0, 212, 255, 0.05);
+  border: 1px solid rgba(0, 212, 255, 0.3);
+  border-radius: 999px;
+  color: var(--blue);
+  text-decoration: none;
+  transition: all 0.15s;
+}
+.rx-pf-chip:hover {
+  background: rgba(0, 212, 255, 0.12);
+  border-color: rgba(0, 212, 255, 0.6);
+  box-shadow: 0 0 8px rgba(0, 212, 255, 0.3);
+}
+.rx-pf-chip.readonly {
+  background: rgba(255, 176, 0, 0.05);
+  border-color: rgba(255, 176, 0, 0.3);
+  color: var(--amber);
+}
+.rx-pf-chip.readonly:hover {
+  background: rgba(255, 176, 0, 0.12);
+  border-color: rgba(255, 176, 0, 0.6);
+  box-shadow: 0 0 8px rgba(255, 176, 0, 0.3);
+}
+.rx-pf-icon { font-size: 0.8rem; }
+.rx-pf-name { font-weight: 600; }
+.rx-pf-tag { color: var(--muted); font-size: 0.62rem; }
+.rx-pf-chip.readonly .rx-pf-tag { color: rgba(255, 176, 0, 0.6); }
+
+.rx-pf-card { max-width: min(960px, 92vw); width: min(960px, 92vw); }
+.rx-pf-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.4rem;
+}
+.rx-pf-head h2 { margin: 0; font-size: 1rem; color: var(--text-hi); }
+.rx-pf-kind {
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--blue);
+  background: rgba(0, 212, 255, 0.08);
+  border: 1px solid rgba(0, 212, 255, 0.25);
+  border-radius: 999px;
+  padding: 0.1rem 0.5rem;
+}
+.rx-pf-spacer { flex: 1; }
+.rx-pf-blurb {
+  color: var(--muted);
+  font-size: 0.8rem;
+  margin: 0 0 0.6rem;
+}
+.rx-pf-body {
+  background: #0a0a0f;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.9rem 1rem;
+  max-height: 62vh;
+  overflow: auto;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.8rem;
+  color: var(--text);
+  white-space: pre;
+  margin: 0;
+}
+.rx-pf-path {
+  margin: 0.5rem 0 0;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+.rx-pf-path code {
+  color: var(--amber);
+  background: var(--surface);
+  padding: 0.1rem 0.4rem;
+  border-radius: 3px;
+}

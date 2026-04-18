@@ -126,12 +126,27 @@ def _llm_complete(router, prompt: str, max_tokens: int = 512) -> str | None:
 
     Failures are logged to activity_log at `warn` level so the dashboard
     reveals when heuristic fallbacks are masking a real inference problem.
+    Every call emits a prompt_trace for the Agents tab Prompt Inspector.
     """
     if router is None:
         return None
     try:
+        import time as _time
+        t0 = _time.monotonic()
         resp = router.complete(prompt, max_tokens=max_tokens, temperature=0.7)
+        elapsed = (_time.monotonic() - t0) * 1000
         text = resp.text.strip() if resp.text else None
+
+        activity_log.emit("researcher",
+                          f"LLM call completed ({int(elapsed)}ms)",
+                          "info", {
+                              "prompt_trace": {
+                                  "prompt": prompt[:3000],
+                                  "response": text[:2000] if text else None,
+                                  "max_tokens": max_tokens,
+                                  "latency_ms": round(elapsed, 1),
+                              }
+                          })
         if not text:
             activity_log.emit("researcher",
                               "LLM returned empty response — using heuristic fallback.",
@@ -283,21 +298,39 @@ class ResearcherAgent:
             activity_log.emit("researcher", "Source gathering complete.", "info", {"progress": 0.5})
             self.goal_store.update_progress(0.5)
 
-            # Step 4: Simulate running experiments
+            # Step 4: Run experiments — each one simulates meaningful
+            # work over LAB_EXP_RUNTIME_SEC seconds (default 60s), emitting
+            # several intermediate observations so the UI shows a running
+            # process, not a blink. Budget × N experiments = total runtime.
+            # Users can shorten for demos with LAB_EXP_RUNTIME_SEC=5.
             await self._wait_if_paused()
+            exp_runtime = max(1, int(os.getenv("LAB_EXP_RUNTIME_SEC", "60")))
+            # 4 observations per experiment feels "alive" without being noisy.
+            obs_per_exp = 4
+            slice_sec = max(1, exp_runtime // obs_per_exp)
             for exp in experiments:
                 self.tracker.start(exp["id"])
                 activity_log.emit("researcher",
-                                  f"Running experiment {exp['id']}...", "info")
-                await asyncio.sleep(1)
-
-                # Add an observation
-                observation = self._generate_observation(exp, domain, intent)
-                self.tracker.observe(exp["id"], observation)
-                activity_log.emit("researcher",
-                                  f"Observation logged for {exp['id']}: {observation[:80]}",
-                                  "info")
-                await asyncio.sleep(0.5)
+                                  f"Running experiment {exp['id']} "
+                                  f"({exp_runtime}s budget)…", "info")
+                for k in range(obs_per_exp):
+                    # Cooperatively wait — respects pause/halt in <1s granules.
+                    waited = 0
+                    while waited < slice_sec:
+                        if jobs_halted():
+                            activity_log.emit("researcher",
+                                              f"Halted during experiment {exp['id']}.",
+                                              "warn")
+                            self._status = "idle"
+                            return
+                        await self._wait_if_paused()
+                        await asyncio.sleep(min(1, slice_sec - waited))
+                        waited += 1
+                    observation = self._generate_observation(exp, domain, intent)
+                    self.tracker.observe(exp["id"], observation)
+                    activity_log.emit("researcher",
+                                      f"[{exp['id']} · {k + 1}/{obs_per_exp}] {observation[:80]}",
+                                      "info")
             activity_log.emit("researcher", "Experiments complete.", "info", {"progress": 0.7})
             self.goal_store.update_progress(0.7)
 
