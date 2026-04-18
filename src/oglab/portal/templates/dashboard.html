@@ -275,6 +275,16 @@
   <!-- ═══ Goal Panel ═══ -->
   <div class="card full" id="goal-card">
     <h2><span class="indicator"></span> Mission Objective</h2>
+    {% if lab_theme %}
+    <!-- Lab theme — permanent north-star framing above the concrete
+         goal. Sourced from LAB_THEME env var. Swap the env var to
+         reframe the whole lab's focus; the specific goal below is
+         where current-week work lives. -->
+    <div class="lab-theme" title="Set LAB_THEME in .env to change the lab's north-star research area.">
+      <span class="lab-theme-label">Lab theme</span>
+      <span class="lab-theme-text">{{ lab_theme }}</span>
+    </div>
+    {% endif %}
     <form class="goal-form" id="goal-form">
       <span class="prompt-prefix">oglab:~$</span>
       <input id="goal-input" type="text"

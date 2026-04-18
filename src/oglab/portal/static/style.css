@@ -2098,3 +2098,33 @@ code {
   line-height: 1.45;
 }
 .csp-footer strong { color: var(--amber); }
+
+/* ── Lab theme line (Mission Objective card) ─────────────────────
+   Permanent north-star framing above the specific goal. Subtle but
+   always-visible — this is the lab's identity, not a passing
+   interest. Purple accent (like Pip's card color) because theme is
+   personality-layer, not operational. */
+.lab-theme {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  margin: 0.3rem 0 0.8rem;
+  padding: 0.4rem 0.75rem;
+  background: rgba(180, 142, 255, 0.05);
+  border: 1px solid rgba(180, 142, 255, 0.2);
+  border-radius: var(--radius);
+}
+.lab-theme-label {
+  color: var(--purple);
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+.lab-theme-text {
+  color: var(--text);
+  font-size: 0.78rem;
+  line-height: 1.45;
+  font-style: italic;
+}

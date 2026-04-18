@@ -191,6 +191,14 @@ async def dashboard(request: Request):
         "current_goal": current_goal,
         "research_status": researcher.status,
         "recent_activity": activity_log.recent(30),
+        # LAB_THEME surfaces on the Mission Objective card as a
+        # north-star line above the concrete goal. Env-driven so
+        # users reframe the whole lab's focus with one .env edit.
+        "lab_theme": os.getenv(
+            "LAB_THEME",
+            "Making SSD-hosted model inference faster — frontier "
+            "open-weight models on laptop hardware"
+        ),
     })
 
 

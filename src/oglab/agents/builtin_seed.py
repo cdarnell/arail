@@ -173,19 +173,29 @@ Forge.
 # scale models. Users override by editing program.md from /knowledge.
 
 _RESEARCH_PROGRAM_MD = """---
-title: Optimize AirLLM — lab research program
+title: SSD-hosted model inference — lab research program
 section: research
-tags: [meta, agent-instructions, airllm, optimization]
+tags: [meta, agent-instructions, airllm, ssd-inference, optimization]
+lab_theme: Making SSD-hosted model inference faster
 auto_goal: Optimize AirLLM's tokens-per-minute on frontier-scale models
 ---
 
-# Optimize AirLLM — the lab's signature research goal
+# SSD-hosted model inference — the lab's signature research area
 
-AirLLM runs frontier-scale language models (100B-750B+) on laptop
-hardware by streaming one transformer layer at a time from disk.
-It works, but it's slow — tokens-per-minute at the big end. The
-lab's research goal is to make it noticeably faster on YOUR
-hardware, measure the wins, and contribute them upstream.
+**Lab theme (overwrite via `LAB_THEME` in `.env`):** making
+SSD-hosted model inference faster — running frontier open-weight
+models on laptop hardware at usable speeds.
+
+This is the long-running research area. Specific goals come and go
+(today it's "optimize AirLLM's tokens-per-minute"); the theme is
+the north star that outlasts any single goal.
+
+**Today's concrete goal.** AirLLM runs frontier-scale language
+models (100B-750B+) on laptop hardware by streaming one transformer
+layer at a time from disk. It works, but it's slow —
+tokens-per-minute at the big end. The lab's research goal is to
+make it noticeably faster on YOUR hardware, measure the wins, and
+contribute them upstream.
 
 ## Goal
 
