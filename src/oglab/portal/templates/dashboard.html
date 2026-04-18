@@ -1467,12 +1467,68 @@ updateSessionTokens();
 // `deep.spec` blob returned by /api/chat/models. Falls back to a
 // "unknown model — edit model_specs.py to add" message when the
 // configured AIRLLM_MODEL isn't in the registry yet.
-function renderSpecPopover(deep) {
+async function _fetchMeasured(modelName) {
+  // Pull hardware-measured stats for the given model. Returns
+  // null when no bench records exist yet.
+  try {
+    const r = await fetch('/api/airllm/bench');
+    const d = await r.json();
+    return { entry: (d.bench || {})[modelName] || null, platform: d.platform };
+  } catch (e) {
+    return null;
+  }
+}
+
+function _renderMeasuredBlock(measured) {
+  if (!measured || !measured.entry) {
+    return `
+      <div class="csp-section">
+        <div class="csp-section-label">Measured on your hardware</div>
+        <p class="csp-unknown">
+          No AirLLM runs yet for this model. Flip the Deep toggle,
+          send a message, and stats appear here on the next page load.
+        </p>
+      </div>`;
+  }
+  const e = measured.entry;
+  const latencySec = (e.median_latency_ms / 1000).toFixed(1);
+  const latencyLabel = latencySec > 60
+    ? `${(latencySec / 60).toFixed(1)} min`
+    : `${latencySec} s`;
+  return `
+    <div class="csp-section">
+      <div class="csp-section-label">Measured on your hardware · ${e.runs} run${e.runs === 1 ? '' : 's'}</div>
+      <div class="csp-meta">
+        <div class="csp-row">
+          <span class="csp-k">Avg throughput</span>
+          <span class="csp-v">${e.avg_tokens_per_min} tokens/min · ${e.avg_tokens_per_sec} t/s</span>
+        </div>
+        <div class="csp-row">
+          <span class="csp-k">Median latency</span>
+          <span class="csp-v">${latencyLabel}</span>
+        </div>
+        <div class="csp-row">
+          <span class="csp-k">Total tokens</span>
+          <span class="csp-v">${e.total_tokens}</span>
+        </div>
+        ${measured.platform ? `
+        <div class="csp-row">
+          <span class="csp-k">Platform</span>
+          <span class="csp-v">${chatEscape(measured.platform)}</span>
+        </div>` : ''}
+      </div>
+    </div>`;
+}
+
+async function renderSpecPopover(deep) {
   const body = document.getElementById('csp-body');
   const modelEl = document.getElementById('csp-model');
   if (!body || !modelEl) return;
   const spec = deep.spec;
   modelEl.textContent = deep.model.split('/').pop();
+  // Fetch measured stats in parallel with rendering literature
+  // numbers — they show up in their own section once available.
+  const measuredPromise = _fetchMeasured(deep.model);
   if (!spec) {
     body.innerHTML = `
       <p class="csp-unknown">
@@ -1483,6 +1539,11 @@ function renderSpecPopover(deep) {
         load with no restart needed.
       </p>
     `;
+    // Still show measured stats when available — a model without a
+    // registry entry can still be benched.
+    measuredPromise.then(measured => {
+      body.innerHTML = _renderMeasuredBlock(measured) + body.innerHTML;
+    });
     return;
   }
   const rows = [];
@@ -1534,6 +1595,14 @@ function renderSpecPopover(deep) {
         <a class="csp-source" href="${chatEscape(spec.source)}" target="_blank" rel="noopener">Model card →</a>
       </div>` : ''}
   `;
+
+  // Measured stats arrive async — inject into a dedicated section
+  // once we have data. Placeholder slot at the top of body so the
+  // user sees it even before literature numbers render.
+  measuredPromise.then(measured => {
+    const current = body.innerHTML;
+    body.innerHTML = _renderMeasuredBlock(measured) + current;
+  });
 }
 
 // Honest latency framing by model size. At 100B+ via AirLLM you're

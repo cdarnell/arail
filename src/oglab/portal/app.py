@@ -1402,6 +1402,16 @@ async def api_chat(request: Request):
                 tokens_out=response.tokens_used,
                 latency_ms=response.latency_ms,
             )
+            # Persist a benchmark record — feeds the "measured on
+            # your hardware" section of the Spec Sheet. See
+            # /api/airllm/bench for the aggregation endpoint.
+            _record_airllm_bench(
+                model=response.model,
+                tokens_out=response.tokens_used,
+                latency_ms=response.latency_ms,
+                prompt_chars=len(prompt),
+                max_tokens=max_tokens,
+            )
         else:
             response = router.complete(
                 prompt,
@@ -1480,6 +1490,110 @@ def _get_deep_backend():
         # uniformly.
         _DEEP_BACKEND_CACHE.backend_name = "airllm"
     return _DEEP_BACKEND_CACHE
+
+
+# ── AirLLM bench capture ────────────────────────────────────────
+# Every deep-call through AirLLM appends one JSON line to
+# lab/data/airllm-bench.jsonl. The /api/airllm/bench endpoint
+# aggregates by model so the dashboard can show "on your machine,
+# X tokens/min averaged over N calls." This is the proof-ground
+# for any AirLLM optimizations you ship in a fork — before/after
+# numbers land in this file.
+
+def _airllm_bench_file() -> Path:
+    from oglab.config import DATA_DIR
+    return DATA_DIR / "airllm-bench.jsonl"
+
+
+def _record_airllm_bench(*, model: str, tokens_out: int, latency_ms: float,
+                         prompt_chars: int, max_tokens: int) -> None:
+    """Append one bench record. Never raises — a bench-log failure
+    shouldn't break a user's chat reply."""
+    try:
+        from datetime import datetime, timezone
+        path = _airllm_bench_file()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        # Include hardware hint so benches from different machines
+        # stay comparable when this file gets synced between labs.
+        import platform
+        record = {
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "model": model,
+            "tokens_out": int(tokens_out or 0),
+            "latency_ms": float(latency_ms or 0),
+            "tokens_per_sec": round((tokens_out or 0) / max(latency_ms / 1000, 0.001), 2),
+            "prompt_chars": int(prompt_chars or 0),
+            "max_tokens": int(max_tokens or 0),
+            "platform": platform.platform(),
+            "cpu": platform.processor() or platform.machine(),
+        }
+        with open(path, "a") as f:
+            f.write(json.dumps(record, default=str) + "\n")
+    except Exception:
+        pass
+
+
+@app.get("/api/airllm/bench")
+async def api_airllm_bench():
+    """Return aggregated AirLLM throughput stats per model.
+
+    Shape::
+
+        {
+          "bench": {
+            "Qwen/Qwen3-235B-A22B": {
+              "runs": 4,
+              "avg_tokens_per_sec": 0.17,
+              "avg_tokens_per_min": 10.2,
+              "median_latency_ms": 582340,
+              "total_tokens": 248,
+              "last_ts": "2026-04-18T14:02:11Z"
+            }
+          },
+          "total_runs": 4,
+          "platform": "Darwin 25.4.0 arm64"
+        }
+    """
+    path = _airllm_bench_file()
+    if not path.exists():
+        return {"bench": {}, "total_runs": 0, "platform": None}
+
+    import platform, statistics
+    by_model: dict[str, list[dict]] = {}
+    try:
+        for line in path.read_text().splitlines():
+            if not line.strip():
+                continue
+            try:
+                r = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            model = r.get("model") or "unknown"
+            by_model.setdefault(model, []).append(r)
+    except OSError:
+        return {"bench": {}, "total_runs": 0, "platform": None}
+
+    out: dict[str, Any] = {}
+    total = 0
+    for model, rows in by_model.items():
+        total += len(rows)
+        tps = [r.get("tokens_per_sec", 0) for r in rows if r.get("tokens_per_sec")]
+        lat = [r.get("latency_ms", 0) for r in rows if r.get("latency_ms")]
+        avg_tps = round(sum(tps) / len(tps), 3) if tps else 0
+        out[model] = {
+            "runs": len(rows),
+            "avg_tokens_per_sec": avg_tps,
+            "avg_tokens_per_min": round(avg_tps * 60, 1),
+            "median_latency_ms": round(statistics.median(lat), 0) if lat else 0,
+            "total_tokens": sum(int(r.get("tokens_out") or 0) for r in rows),
+            "last_ts": rows[-1].get("ts"),
+        }
+
+    return {
+        "bench": out,
+        "total_runs": total,
+        "platform": platform.platform(),
+    }
 
 
 @app.get("/api/chat/models")

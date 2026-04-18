@@ -228,10 +228,20 @@ install_accel_deps() {
     # Opt-out with OGLAB_SKIP_AIRLLM=1 — it's a several-hundred-MB
     # install (torch + transformers) if your accel didn't already
     # pull those in.
+    #
+    # Research fork? Point AIRLLM_PACKAGE at a git URL (your fork)
+    # instead of the PyPI release, and we'll install from there:
+    #     AIRLLM_PACKAGE=git+https://github.com/cdarnell/airllm-lab@main
+    # That's the whole fork-swap — pip handles the rest. See
+    # docs/airllm-fork-guide.md for the full research recipe.
     if [[ "${OGLAB_SKIP_AIRLLM:-0}" != "1" ]]; then
-        info "Installing AirLLM (deep-model layer streaming) — this takes a minute…"
-        if pip install -q airllm 2>&1 | tail -5; then
+        local airllm_pkg="${AIRLLM_PACKAGE:-airllm}"
+        info "Installing AirLLM (${airllm_pkg}) — this takes a minute…"
+        if pip install -q "$airllm_pkg" 2>&1 | tail -5; then
             info "AirLLM ready. Dashboard chat card has a 'Deep model' toggle."
+            if [[ "$airllm_pkg" != "airllm" ]]; then
+                info "Using custom AIRLLM_PACKAGE: $airllm_pkg"
+            fi
         else
             warn "AirLLM install failed (non-fatal). The Deep toggle on the chat card will show an install hint."
             warn "Skip this step next time: OGLAB_SKIP_AIRLLM=1 ./oglab setup"
