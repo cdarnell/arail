@@ -45,16 +45,16 @@ For a **1 TB dense model** reading every byte per token, the best-case ceiling i
 
 ---
 
-## 3. Layer-wise streaming for dense models (AeroLLM, and prior art)
+## 3. Layer-wise streaming for dense models (AeroLLM)
 
-The canonical approach — implemented by AeroLLM and historically demonstrated by AirLLM — is structural, not clever. Shard the checkpoint into per-layer files (80–100 shards for a 70B model) and run a strict sequence per token:
+The canonical approach — the one AeroLLM implements — is structural, not clever. Shard the checkpoint into per-layer files (80–100 shards for a 70B model) and run a strict sequence per token:
 
 ```
 for layer in 0..N:
     load layer N from NVMe -> GPU
     compute activations
     free layer N
-    prefetch layer N+1        # AeroLLM runs this multi-threaded; AirLLM historically overlapped ~10%
+    prefetch layer N+1        # AeroLLM runs this multi-threaded
 ```
 
 **Observed performance:**
@@ -173,8 +173,6 @@ Tie the feature work to the teaching mission — every optimization should surfa
 ## Sources
 
 - [AeroLLM (OGLab's Rust runtime — MLX + CUDA)](https://github.com/cdarnell/aerollm)
-- [AirLLM (historical prior art for layer streaming)](https://github.com/lyogavin/airllm)
-- [AirLLM: Run 70B Models on 4GB GPUs — hype vs reality](https://nerdleveltech.com/airllm-run-70b-llm-single-4gb-gpu)
 - [Expert Offloading to CPU or NVMe (apxml)](https://apxml.com/courses/mixture-of-experts-advanced-implementation/chapter-4-efficient-moe-inference/expert-offloading)
 - [Flash-MoE: 397 B on a 48 GB MacBook](https://lilting.ch/en/articles/flash-moe-qwen35-397b-metal-inference)
 - [Flash-MoE benchmarks & quality tradeoffs (2026)](https://www.buildmvpfast.com/blog/flash-moe-weight-streaming-benchmarks-quality-tradeoffs-2026)

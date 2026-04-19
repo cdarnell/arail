@@ -53,6 +53,6 @@ def test_portal_app_has_routes():
 def test_backend_map_covers_expected_backends():
     from oglab.router.backends import BACKEND_MAP
     expected = {"mlx", "cuda", "cpu", "openai_compat",
-                "huggingface", "openrouter", "claude", "airllm"}
+                "huggingface", "openrouter", "claude", "aerollm"}
     assert expected.issubset(BACKEND_MAP.keys()), \
         f"missing backends: {expected - set(BACKEND_MAP.keys())}"
