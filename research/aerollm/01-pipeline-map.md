@@ -29,7 +29,7 @@ The dominant cost. For a 70B model at 4-bit, each layer is ~1–2 GB; N=80 layer
 |-------------------|----------------------------------------------------------------------|-----------------------------------------------------------------|
 | What happens      | `torch.load` / `safetensors.safe_open` on layer N shard              | `mx.load(shard, stream=true)` via mmap; zero-copy-ish on Apple  |
 | Tech / method     | Sharded safetensors, blocking reads, one layer at a time             | mmap + lazy materialization; layer-level still to be built       |
-| Knobs             | AeroLLM's `compression` (bitsandbytes 4/8bit), `prefetching` (on/off) | (MLX streaming layer not shipped yet — see `mlx-streaming-plan.md`) |
+| Knobs             | AeroLLM's `compression` (bitsandbytes 4/8bit), `prefetching` (on/off) | (MLX streaming layer not shipped yet) |
 | Batch-amortizable | **YES** — one load serves all N batched prompts on this layer       | **YES** — same                                                  |
 | Dominant factor   | NVMe read bandwidth: ceiling of ~`sum(layer_bytes) / read_GB_s`      | Unified NVMe: ~17.5 GB/s on M4 Pro/Max                          |
 
@@ -154,7 +154,7 @@ Expected first rows from memory (to be verified):
 - verdagon bench on 70B bs=1 (consumer laptop, 16 GB): ~35,350 ms/token
 - verdagon bench on 70B bs=500: ~4,852 ms/token per prompt
 - OGLab gpt-oss-20B-MLX-4bit bs=1 on 24 GB M5: single-digit ms/token (fits in memory — no streaming)
-- DeepSeek-V3 671B bs=1 on 24 GB M5: still at Gate-1 status (does-it-load) per `mlx-streaming-plan.md`
+- DeepSeek-V3 671B bs=1 on 24 GB M5: still at Gate-1 status (does it load)
 
 ---
 

@@ -510,7 +510,7 @@ def test_mlx_config_declares_frontier_models():
     assert len(cfg.frontier_models) >= 5, (
         "MLX config should declare the 5+ frontier challenge models "
         "(DeepSeek-V3, DeepSeek-R1, Kimi K2, Llama 3.1 405B, GLM-4.6 "
-        "target — see docs/mlx-streaming-plan.md for rationale)"
+        "target — see the MLX streaming rationale in repo docs)"
     )
 
     # Every frontier entry is streaming-required AND declares how big

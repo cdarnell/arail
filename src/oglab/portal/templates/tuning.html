@@ -399,8 +399,8 @@
        a non-empty frontier_models list (MLX only today).
 
        Each card shows: gpu_fit badges (H100/H200/B200 with ✗ or ✓),
-       disk footprint, current status ("streaming required — waiting
-       on mlx-streaming-plan.md" until the streaming layer lands),
+      disk footprint, current status ("streaming required — waiting
+      on the MLX streaming layer" until the streaming layer lands),
        and the most recent frontier_baselines entry if present.
 
        The point of this strip is honesty: until we actually run one
@@ -412,8 +412,7 @@
     <div class="tn-meta" style="margin:-4px 0 10px;font-size:12px;line-height:1.5;">
       Models that <strong>exceed every single-GPU memory ceiling</strong> in 2026
       (H100 80 GB / H200 141 GB / B200 192 GB). Until the MLX
-      streaming layer lands (see
-      <code>docs/mlx-streaming-plan.md</code>) these rows record
+      streaming layer lands these rows record
       <em>streaming_required</em> — the honest failure. The binary
       goal isn't speed; it's "did the model produce an answer at all
       on a 24 GB / 2 TB laptop".
@@ -616,9 +615,9 @@
   // any yet), the wrap stays hidden — keeping that tab visually clean.
   //
   // Each card's status comes from cfg.frontier_baselines[huggingface_id]:
-  //   - missing entry          → "streaming_required — waiting on
-  //                              docs/mlx-streaming-plan.md" (the honest
-  //                              failure; Gate 0 of the plan).
+  //   - missing entry          → "streaming_required — waiting on the
+  //                              MLX streaming layer" (the honest
+  //                              failure before the first bench lands).
   //   - status === "error"     → render the structured reason + ts.
   //   - status === "ok"        → render ttft/decode/tokens_out, the
   //                              first real datapoint against the model.
@@ -674,7 +673,7 @@
           '<div style="padding:8px 10px;border-radius:4px;' +
           'background:#332417;color:#f0c080;font-size:11px;line-height:1.5;">' +
           '<strong>streaming_required</strong> — waiting on ' +
-          '<code>docs/mlx-streaming-plan.md</code>. No bench attempt has ' +
+          'the MLX streaming layer. No bench attempt has ' +
           "been recorded yet against this model on this host." +
           "</div>";
       } else if (bench.status === "error") {

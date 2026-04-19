@@ -68,7 +68,7 @@ small_models:
 #                                only when) the MLX streaming layer can
 #                                actually load the model. Until then
 #                                these rows record the honest failure
-#                                (see docs/mlx-streaming-plan.md).
+#                                while the streaming work is pending.
 #
 # Keeping them separate is deliberate: a 20B-4bit bench and a 671B-q4
 # bench live on completely different throughput axes. Forcing them into
@@ -96,8 +96,6 @@ baseline_max_tokens: 64
 # a BenchRun with status="error" and a structured reason — which is
 # the whole point. We build the error-feedback loop FIRST so the
 # streaming work has measurements to compare against on day one.
-#
-# See docs/mlx-streaming-plan.md for the engineering path.
 frontier_models:
   - name: "DeepSeek-V3 671B (4-bit)"
     huggingface_id: "mlx-community/DeepSeek-V3-4bit"

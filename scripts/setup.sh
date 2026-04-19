@@ -378,7 +378,7 @@ gentoo_notes() {
     echo "    emerge -av dev-util/nvidia-cuda-toolkit  # if Nvidia GPU"
     echo ""
     echo "  Kernel: enable CONFIG_DRM, CONFIG_DRM_NOUVEAU or nvidia-drivers."
-    echo "  See docs/GENTOO.md for full walkthrough."
+    echo "  See docs/LINUX.md for Gentoo notes."
     echo ""
 }
 

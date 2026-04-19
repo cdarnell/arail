@@ -45,7 +45,6 @@ Economic translation: at 4.85 s/token × batch 500 = ~100 tokens/sec aggregate. 
 ## Related docs
 
 - [`github.com/cdarnell/aerollm`](https://github.com/cdarnell/aerollm) — upstream AeroLLM repo: Rust runtime, MLX + CUDA backends, optimization roadmap
-- [`docs/mlx-streaming-plan.md`](../../docs/mlx-streaming-plan.md) — Phase B design for MLX layer streaming, the staged load-→-token-→-coherent gates
 - [`docs/tuning-loop.md`](../../docs/tuning-loop.md) — autoresearch supervisor loop
 - [`research/1tb-inference-streaming.md`](../1tb-inference-streaming.md) — 1 TB-class model feasibility analysis (dense vs MoE, bandwidth ceilings, 20+ citations)
 - [`config/tuning.yml`](../../config/tuning.yml) / [`config/tuning-mlx.yml`](../../config/tuning-mlx.yml) — the autoresearch-editable knob schemas
@@ -56,7 +55,7 @@ Economic translation: at 4.85 s/token × batch 500 = ~100 tokens/sec aggregate. 
 
 Things this workbench is designed to answer. Each is a candidate experiment; measurements land in `04-measurement-log.md`. Since MLX is the primary track, MLX-shaped questions are listed first.
 
-1. **Can AeroLLM load one frontier model at all on MLX?** The binary gate from `docs/mlx-streaming-plan.md`. Until `mlx_lm.load(...)` returns without OOM on DeepSeek-V3 / Kimi K2 / GLM-4.6 on a 24 GB M5, every other MLX question is hypothetical.
+1. **Can AeroLLM load one frontier model at all on MLX?** This is the first binary gate for the MLX streaming track. Until `mlx_lm.load(...)` returns without OOM on DeepSeek-V3 / Kimi K2 / GLM-4.6 on a 24 GB M5, every other MLX question is hypothetical.
 2. **On MLX (unified memory), does the batching math change?** No PCIe transfer. Does disk→unified remain the bottleneck so batching still wins, or does the load cost collapse and make batching less critical?
 3. **What's the batch-size sweet spot on 16 / 24 / 96 / 512 GB unified memory?** Bounded above by KV cache + activation memory per prompt × N. Bounded below by where the per-token amortization curve flattens. For distillation, we want the highest N that doesn't crash — latency is free.
 4. **Does AeroLLM's native CUDA code support concurrent prompts in a single layer pass?** (CUDA track.) Single-prompt per layer → a one-line forward-loop patch unlocks the full batching win. Multi-prompt-capable → what's the practical N limit? Answering this also tells us whether the batching scheduler is orthogonal to the backend, or whether each backend needs its own batching work.

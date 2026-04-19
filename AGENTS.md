@@ -123,7 +123,7 @@ worked, add `X` to `install_services()` so the next user doesn't.
 - **Write a `docs/<PLATFORM>.md`** only when your platform needs
   prerequisites that can't be auto-installed (kernel flags, BIOS
   settings, proprietary driver downloads). See
-  [docs/GENTOO.md](docs/GENTOO.md) for the template.
+   [docs/LINUX.md](docs/LINUX.md) for the template.
 
 ## Pull-request checklist for a port
 

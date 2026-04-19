@@ -244,7 +244,7 @@ def run_mlx_bench(
 # ── Frontier bench (the "doesn't fit any GPU" envelope) ──────────────
 #
 # Every frontier_models entry gets benched during baseline capture.
-# Until the streaming layer (see docs/mlx-streaming-plan.md) exists,
+# Until the streaming layer exists,
 # mlx_lm.load() on a 335 GB-500 GB model will fail on ANY 24 GB host
 # — either with an out-of-memory error or because the repo isn't
 # actually downloaded. Both outcomes are legitimate data points for
@@ -264,7 +264,7 @@ def run_mlx_bench(
 FRONTIER_ERROR_PREFIX = {
     "streaming_required":
         "streaming_required: this model's 4-bit weights exceed the "
-        "host's physical memory. Waiting on docs/mlx-streaming-plan.md.",
+        "host's physical memory. Waiting on the MLX streaming layer.",
     "mlx_lm_missing":
         "mlx_lm_missing: not running on Apple Silicon / mlx-lm not "
         "installed. Frontier bench is a no-op on this host.",

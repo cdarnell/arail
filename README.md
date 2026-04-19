@@ -548,7 +548,7 @@ oglab/
 │   ├── pkb-{ingest,compile,browse}
 │   └── gentoo-bootstrap.sh
 │
-├── docs/                     # MACOS.md, WSL.md, GENTOO.md, vibe-integrate.md
+├── docs/                     # MACOS.md, WSL.md, LINUX.md, vibe-integrate.md
 ├── examples/peanut_farmer/   # Complete working example
 │
 ├── pyproject.toml            # Single source of truth for deps (src layout)

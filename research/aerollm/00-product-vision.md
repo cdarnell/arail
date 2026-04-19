@@ -195,7 +195,7 @@ Back-of-envelope, using the verdagon.dev numbers as anchors (70B model, 16 GB co
 
 Stated in priority order, so we don't fool ourselves.
 
-1. **M1 — Frontier teacher runs at all.** At least one of {DeepSeek-V3, Kimi K2, Llama 3.1 405B, GLM-4.6} produces a `status=ok` BenchRun with `tokens_out>0` on a 24 GB M5. This is Gate 3 from `docs/mlx-streaming-plan.md`. Binary pass/fail. Without this, nothing else matters.
+1. **M1 — Frontier teacher runs at all.** At least one of {DeepSeek-V3, Kimi K2, Llama 3.1 405B, GLM-4.6} produces a `status=ok` BenchRun with `tokens_out>0` on a 24 GB M5. This is the first meaningful success gate for the MLX streaming track. Binary pass/fail. Without this, nothing else matters.
 2. **M2 — Batched teacher throughput is measured.** We know the tokens/sec/watt curve at batch sizes {1, 10, 50, 100, 500} on the target hardware. This replaces the "guess" above with numbers.
 3. **M3 — End-to-end pipeline produces one valid training example.** Seed → teacher → swarm → corpus, all the way through, for a single real prompt, with swarm rejection logs showing the filter worked.
 4. **M4 — 1k-example corpus generated overnight.** First real distillation run. Proves throughput is sustainable.
@@ -212,7 +212,7 @@ Failure modes that should kill or pivot the project:
 ## Roadmap (Now / Next / Later)
 
 **Now (Q2 2026) — MLX-first.**
-- Land MLX streaming for one frontier family (DeepSeek-V3 first — see `docs/mlx-streaming-plan.md`). This is gate 1. Nothing else on the MLX track starts until the model loads.
+- Land MLX streaming for one frontier family (DeepSeek-V3 first). This is gate 1. Nothing else on the MLX track starts until the model loads.
 - Build the static-batch offline scheduler as an application layer on top of MLX inference (works regardless of whether streaming is ready yet — can be proven on gpt-oss-20B first).
 - First end-to-end dry run on MLX: one seed prompt → AeroLLM teacher → swarm → one training example.
 - Reproduce the verdagon.dev batching curve on MLX with a non-streaming model (gpt-oss-20B) as a validation of the batching math before we apply it to streamed frontier models.

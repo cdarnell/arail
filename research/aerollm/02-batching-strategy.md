@@ -151,7 +151,7 @@ Each one is a row in `04-measurement-log.md`. Each produces a number that replac
 - **Kill criterion:** if aggregate tokens/sec plateaus before N=10, AeroLLM's forward loop isn't actually batching internally and we know where to patch.
 - **Why it's #4 and not #1:** CUDA is the reference track, not the primary track. This experiment validates the batching scheduler shape we *also* use on MLX, and gives us a sanity-check baseline for the economic claims in `00-product-vision.md`. It does not block anything on the MLX track.
 
-After these four land, the next round is "sweep the same grid on DeepSeek-V3 via the MLX streaming layer," assuming streaming is working by then (gated on `docs/mlx-streaming-plan.md` Phase B).
+After these four land, the next round is "sweep the same grid on DeepSeek-V3 via the MLX streaming layer," assuming streaming is working by then.
 
 ---
 

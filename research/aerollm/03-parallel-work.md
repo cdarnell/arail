@@ -9,7 +9,7 @@ This doc has two halves:
 
 OGLab's product sits at the intersection. No one public (as of April 2026) has combined a layer-streamed frontier teacher with an adversarial-agent distillation swarm on a single consumer box. Each half of the stack has 2–5 serious competitors; the *combination* is the novel lane.
 
-**Note on track-level novelty.** Within Half A, the CUDA lane is already crowded — AeroLLM, KTransformers, vLLM, and llama.cpp all address some version of the problem. The **MLX lane is nearly empty**: SwiftLM is the only published adjacent effort, and it doesn't ship batching or autoresearch. That's why AeroLLM prioritizes MLX — the marginal public-good contribution is higher there, and the engineering risk is real but bounded (the design is explicit in `docs/mlx-streaming-plan.md`). The CUDA track in AeroLLM is not trying to out-invent AeroLLM; it's carrying a proven baseline along so the distillation product works on both consumer-Apple and consumer-NVIDIA hardware.
+**Note on track-level novelty.** Within Half A, the CUDA lane is already crowded — AeroLLM, KTransformers, vLLM, and llama.cpp all address some version of the problem. The **MLX lane is nearly empty**: SwiftLM is the only published adjacent effort, and it doesn't ship batching or autoresearch. That's why AeroLLM prioritizes MLX — the marginal public-good contribution is higher there, and the engineering risk is real but bounded. The CUDA track in AeroLLM is not trying to out-invent AeroLLM; it's carrying a proven baseline along so the distillation product works on both consumer-Apple and consumer-NVIDIA hardware.
 
 ---
 
@@ -74,7 +74,7 @@ OGLab's product sits at the intersection. No one public (as of April 2026) has c
 **Paper/blog:** SwiftLM (MLX NVMe streaming, late 2025 / early 2026).
 **What it does:** layer streaming on Apple Silicon via NVMe. Reports ~10× speedup on 122B+ MoE models when NVMe read is overlapped with Metal kernel execution.
 **This is the single most relevant piece of parallel work to AeroLLM.**
-**Overlap:** near-total on the *mechanism* — mmap + async prefetch + Metal compute, exactly what `docs/mlx-streaming-plan.md` describes.
+**Overlap:** near-total on the *mechanism* — mmap + async prefetch + Metal compute, exactly the direction the MLX streaming work requires.
 **How we differ:**
 - SwiftLM is inference-engine. Our agenda is *distillation product on top of inference*. Different scope.
 - SwiftLM reports speedup vs a "no streaming" baseline that doesn't fit on the hardware at all — those numbers are against an impossible baseline. Useful for intuition, not for our throughput-per-watt-per-dollar target.

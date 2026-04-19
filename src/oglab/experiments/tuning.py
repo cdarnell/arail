@@ -88,7 +88,7 @@ class FrontierModel:
     """A model that exceeds every single-GPU memory ceiling available
     today (H100 / H200 / B200). The loop attempts to bench it; until
     the MLX streaming layer is built, every attempt records an honest
-    status="error" row. See docs/mlx-streaming-plan.md.
+    status="error" row.
 
     `gpu_fit` is a dict keyed by GPU tier (e.g. "h100_80gb"). Values
     are bools — True means the model's 4-bit weights fit resident on
