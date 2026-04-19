@@ -1,7 +1,7 @@
 """Tests for the oglab.experiments autoresearch loop.
 
 Focused on the safety rails. The actual benchmark path depends on
-AirLLM + a 1 TB model being present, so we stub the backend and
+AeroLLM + a 1 TB model being present, so we stub the backend and
 drive the loop end-to-end in-process.
 """
 
@@ -39,12 +39,12 @@ def _mk_cfg():
         baseline_commit=None, baseline_metrics=None,
         baseline_prompt="hello", baseline_max_tokens=8,
         knobs={
-            "airllm_compression": Knob(
-                "airllm_compression", "4bit", "string",
+            "aerollm_compression": Knob(
+                "aerollm_compression", "4bit", "string",
                 ["none", "8bit", "4bit"], None, None, "",
             ),
-            "airllm_max_length": Knob(
-                "airllm_max_length", 512, "int",
+            "aerollm_max_length": Knob(
+                "aerollm_max_length", 512, "int",
                 None, 128, 4096, "",
             ),
             "prefetch_enabled": Knob(
@@ -57,18 +57,18 @@ def _mk_cfg():
 
 def test_string_knob_rejects_off_schema():
     cfg = _mk_cfg()
-    ok, reason = validate_knob_value(cfg, "airllm_compression", "2bit")
+    ok, reason = validate_knob_value(cfg, "aerollm_compression", "2bit")
     assert not ok
     assert "choices" in reason.lower()
 
 
 def test_int_knob_enforces_range():
     cfg = _mk_cfg()
-    ok, reason = validate_knob_value(cfg, "airllm_max_length", 64)
+    ok, reason = validate_knob_value(cfg, "aerollm_max_length", 64)
     assert not ok and "minimum" in reason
-    ok, reason = validate_knob_value(cfg, "airllm_max_length", 99999)
+    ok, reason = validate_knob_value(cfg, "aerollm_max_length", 99999)
     assert not ok and "maximum" in reason
-    ok, _ = validate_knob_value(cfg, "airllm_max_length", 1024)
+    ok, _ = validate_knob_value(cfg, "aerollm_max_length", 1024)
     assert ok
 
 
@@ -92,13 +92,13 @@ def test_unknown_knob_rejected():
 
 def test_allowed_writable_files_is_small():
     # The whole security model depends on this set staying tiny.
-    # Two backends live here (AirLLM CUDA + AutoAir MLX), each with a
+    # Two backends live here (AeroLLM CUDA + AeroLLM MLX), each with a
     # config file and a bench log — exactly four entries, no more.
     # Adding a third backend means justifying two more entries in a PR.
     assert ALLOWED_WRITABLE_FILES == {
         "config/tuning.yml",
         "config/tuning-mlx.yml",
-        "lab/data/airllm-bench.jsonl",
+        "lab/data/aerollm-bench.jsonl",
         "lab/data/mlx-bench.jsonl",
     }
     # And just to make the intent load-bearing: if this set ever grows
@@ -116,18 +116,18 @@ def test_tuning_yaml_roundtrip(tmp_path):
     reloaded = load_tuning(p)
     assert reloaded.research_model.name == "fake/model"
     assert set(reloaded.knobs.keys()) == set(cfg.knobs.keys())
-    assert reloaded.knobs["airllm_compression"].choices == [
+    assert reloaded.knobs["aerollm_compression"].choices == [
         "none", "8bit", "4bit"
     ]
 
 
 def test_real_tuning_yml_parses():
     # The config/tuning.yml that ships in-repo must always be valid.
-    # This is the AirLLM / CUDA track — its whole point is disk-streamed
+    # This is the AeroLLM / CUDA track — its whole point is disk-streamed
     # big models, so the ≥ 1 TB rail stays.
     cfg = load_tuning()
     assert cfg.research_model.expected_disk_gb >= 1000, (
-        "AirLLM research_model must be >= 1 TB — this is the point "
+        "AeroLLM research_model must be >= 1 TB — this is the point "
         "of the disk-streaming loop"
     )
     # Every knob's `current` value must pass its own schema.
@@ -137,7 +137,7 @@ def test_real_tuning_yml_parses():
 
 
 def test_real_mlx_tuning_yml_parses():
-    # The MLX / AutoAir track has a different physical constraint: the
+    # The MLX / AeroLLM track has a different physical constraint: the
     # research model must FIT in unified memory, not stream off disk.
     # So the rail is "big enough to stress KV knobs but small enough
     # to fit on an M-series Mac with headroom" — 5 GB floor, 200 GB
@@ -189,7 +189,7 @@ def _mk_run(tps: float, variant: str = "baseline", status: str = "ok"):
         decode_tok_per_sec=tps,
         bytes_read=1024,
         peak_rss_mb=100.0,
-        knob_values={"airllm_compression": "4bit"},
+        knob_values={"aerollm_compression": "4bit"},
         variant_label=variant,
         status=status,
     )
@@ -276,7 +276,7 @@ def test_autoresearch_refuses_invalid_candidate(monkeypatch, tmp_path):
     # Invalid candidate: 2bit compression isn't in the schema
     state = ar.run_autoresearch(
         require_env_flag=False,
-        candidates=[("evil variant", {"airllm_compression": "2bit"})],
+        candidates=[("evil variant", {"aerollm_compression": "2bit"})],
     )
     assert state.phase == "done"
     assert len(state.variants) == 1
@@ -284,7 +284,7 @@ def test_autoresearch_refuses_invalid_candidate(monkeypatch, tmp_path):
     assert "invalid variant" in (state.variants[0].error or "").lower()
 
 
-# ── MLX / AutoAir backend ──────────────────────────────────────
+# ── MLX / AeroLLM backend ──────────────────────────────────────
 #
 # The MLX track is a parallel loop with its own config, bench log,
 # candidate list, and LoopState. These tests exercise the backend
@@ -305,14 +305,14 @@ def test_unknown_backend_raises():
 
 def test_config_and_commit_paths_per_backend():
     from oglab.experiments.autoresearch import _config_path, _commit_files
-    airllm_cfg = _config_path("airllm")
+    aerollm_cfg = _config_path("aerollm")
     mlx_cfg = _config_path("mlx")
-    assert airllm_cfg.name == "tuning.yml"
+    assert aerollm_cfg.name == "tuning.yml"
     assert mlx_cfg.name == "tuning-mlx.yml"
-    assert airllm_cfg != mlx_cfg
+    assert aerollm_cfg != mlx_cfg
     # Commit files must be in the whitelist — else commit_experiment
     # would refuse them at runtime.
-    for f in _commit_files("airllm"):
+    for f in _commit_files("aerollm"):
         assert f in ALLOWED_WRITABLE_FILES
     for f in _commit_files("mlx"):
         assert f in ALLOWED_WRITABLE_FILES
@@ -335,12 +335,12 @@ def test_mlx_per_state_isolation():
         current_state, request_stop, _STATES,
     )
     # Starting fresh per-backend
-    _STATES["airllm"].stop_requested = False
+    _STATES["aerollm"].stop_requested = False
     _STATES["mlx"].stop_requested = False
     request_stop("mlx")
-    # Only the MLX state flipped — AirLLM must be untouched.
+    # Only the MLX state flipped — AeroLLM must be untouched.
     assert current_state("mlx").stop_requested is True
-    assert current_state("airllm").stop_requested is False
+    assert current_state("aerollm").stop_requested is False
     # Clean up so later tests start fresh.
     _STATES["mlx"].stop_requested = False
 
@@ -416,7 +416,7 @@ def test_mlx_backend_handles_missing_mlx_lm(monkeypatch):
     assert run.git_short_sha == "bbbbbbb"
 
 
-def test_mlx_backend_file_sibling_of_airllm():
+def test_mlx_backend_file_sibling_of_aerollm():
     # The two bench logs must live side-by-side in the same DATA_DIR
     # so a cleanup script that deletes one reaches the other too.
     from oglab.experiments.mlx_backend import mlx_bench_file
@@ -489,8 +489,8 @@ def test_autoresearch_mlx_uses_mlx_config_and_bench(monkeypatch):
 
 # ── Frontier-model schema + backward compat ────────────────────────
 
-def test_airllm_config_has_no_frontier_models():
-    # AirLLM's config predates the frontier_models schema. It should
+def test_aerollm_config_has_no_frontier_models():
+    # AeroLLM's config predates the frontier_models schema. It should
     # still parse cleanly, and the frontier list should come back
     # empty — no spurious entries, no crashes. This is the
     # backward-compat rail: adding the field to the dataclass must
@@ -546,14 +546,14 @@ def test_mlx_config_declares_frontier_models():
 
 def test_frontier_model_roundtrips_through_yaml(tmp_path):
     # save_tuning must only emit frontier_models when they're present
-    # (AirLLM's config stays clean), AND must round-trip without loss
+    # (AeroLLM's config stays clean), AND must round-trip without loss
     # when they are present (MLX's config survives edit-save cycles).
     from oglab.experiments.tuning import FrontierModel
 
     # Case 1: no frontier models → no frontier keys in output.
-    cfg_airllm = _mk_cfg()
-    out_air = tmp_path / "airllm.yml"
-    save_tuning(cfg_airllm, out_air)
+    cfg_aerollm = _mk_cfg()
+    out_air = tmp_path / "aerollm.yml"
+    save_tuning(cfg_aerollm, out_air)
     text_air = out_air.read_text()
     assert "frontier_models" not in text_air
     assert "frontier_baselines" not in text_air
@@ -654,7 +654,7 @@ def test_load_tuning_skips_malformed_frontier_entries(tmp_path):
 
 def test_api_tuning_config_exposes_frontier_fields():
     # The /api/tuning/config serializer must expose the frontier
-    # fields for BOTH backends — AirLLM should return empty lists
+    # fields for BOTH backends — AeroLLM should return empty lists
     # (not omit the keys) so the JS can safely `.length`-check
     # without a "key not in object" branch.
     from fastapi.testclient import TestClient
@@ -662,7 +662,7 @@ def test_api_tuning_config_exposes_frontier_fields():
     client = TestClient(app)
 
     for backend, expect_frontier in (
-        ("airllm", False),  # empty
+        ("aerollm", False),  # empty
         ("mlx",    True),   # non-empty
     ):
         r = client.get(f"/api/tuning/config?backend={backend}")
