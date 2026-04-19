@@ -1,6 +1,6 @@
 # Disk-Streamed Inference for 1 TB-Class Models
 
-**Scope:** Can we serve a 1 TB model from NVMe using AirLLM-style layer streaming and MoE expert offload? How fast is "fast enough," and what should the oglab overlays measure?
+**Scope:** Can we serve a 1 TB model from NVMe using layer streaming and MoE expert offload (the approach AeroLLM implements)? How fast is "fast enough," and what should the oglab overlays measure?
 
 **Date:** 2026-04-17
 
@@ -45,16 +45,16 @@ For a **1 TB dense model** reading every byte per token, the best-case ceiling i
 
 ---
 
-## 3. AirLLM: layer-wise streaming for dense models
+## 3. Layer-wise streaming for dense models (AeroLLM, and prior art)
 
-AirLLM's approach is structural, not clever. It shards the checkpoint into per-layer files (80–100 shards for a 70B model) and runs a strict sequence per token:
+The canonical approach — implemented by AeroLLM and historically demonstrated by AirLLM — is structural, not clever. Shard the checkpoint into per-layer files (80–100 shards for a 70B model) and run a strict sequence per token:
 
 ```
 for layer in 0..N:
     load layer N from NVMe -> GPU
     compute activations
     free layer N
-    prefetch layer N+1        # (since v2.5, overlaps ~10% of load time)
+    prefetch layer N+1        # AeroLLM runs this multi-threaded; AirLLM historically overlapped ~10%
 ```
 
 **Observed performance:**
@@ -66,7 +66,7 @@ for layer in 0..N:
 
 **Why it's slow for dense at 1 TB:** every token re-reads every layer. Prefetching one layer ahead hides ~10% of I/O, not 90%. You are stuck at the bandwidth ceiling above.
 
-**Where AirLLM shines:** batch or offline workloads where latency is irrelevant, or as a teaching artifact — the architecture is easy to reason about and instrument.
+**Where layer streaming shines:** batch or offline workloads where latency is irrelevant, and as a teaching artifact — the architecture is easy to reason about and instrument. AeroLLM's multi-threaded prefetch push pushes the latency ceiling down but doesn't change the structural story.
 
 ---
 
@@ -116,7 +116,7 @@ All four are compatible with NVMe as the cold tier — they change *which* exper
 
 Assume oglab wants to demo "interactive-feeling" inference on a 1 TB model on a single workstation. Three scenarios:
 
-**Scenario A — Dense 500 B FP16 via AirLLM, PCIe 4 NVMe (7 GB/s)**
+**Scenario A — Dense 500 B FP16 via AeroLLM, PCIe 4 NVMe (7 GB/s)**
 
 - Per-token read: ~1 TB (every layer, every token)
 - Ceiling: ~7 seconds per token
@@ -165,16 +165,16 @@ Tie the feature work to the teaching mission — every optimization should surfa
 
 - **Pick one sparse model family** for the "big model" showcase (DeepSeek-V3 / Qwen3-MoE / Mixtral descendants). Maintaining both a 405 B dense streaming path AND a 671 B MoE path is expensive; the MoE path teaches more and runs faster.
 - **Prefer KTransformers over a hand-rolled streamer.** It already does expert-cache, CPU-GPU scheduling, and 3-tier (GPU/CPU/disk) prefix cache reuse. Your value-add is the overlay layer, not a competing runtime.
-- **Keep AirLLM as the "teaching toy"** — include it explicitly for the dense path and don't try to make it fast. The contrast with MoE is pedagogical gold.
+- **Use AeroLLM for the dense path** — don't try to make it fast per-prompt. The contrast with MoE is pedagogical gold; concurrent-prompt batching is where AeroLLM wins back throughput.
 - **Make the storage tier a pluggable config,** not a code path. SATA / PCIe 4 / PCIe 5 / tmpfs should be a single config knob so students can observe the bandwidth ceiling move.
 
 ---
 
 ## Sources
 
-- [AirLLM GitHub (layer-wise streaming internals)](https://github.com/lyogavin/airllm)
+- [AeroLLM (OGLab's Rust runtime — MLX + CUDA)](https://github.com/cdarnell/aerollm)
+- [AirLLM (historical prior art for layer streaming)](https://github.com/lyogavin/airllm)
 - [AirLLM: Run 70B Models on 4GB GPUs — hype vs reality](https://nerdleveltech.com/airllm-run-70b-llm-single-4gb-gpu)
-- [AirLLM deep-dive on the on-disk engine](https://repo-explainer.com/lyogavin/airllm/)
 - [Expert Offloading to CPU or NVMe (apxml)](https://apxml.com/courses/mixture-of-experts-advanced-implementation/chapter-4-efficient-moe-inference/expert-offloading)
 - [Flash-MoE: 397 B on a 48 GB MacBook](https://lilting.ch/en/articles/flash-moe-qwen35-397b-metal-inference)
 - [Flash-MoE benchmarks & quality tradeoffs (2026)](https://www.buildmvpfast.com/blog/flash-moe-weight-streaming-benchmarks-quality-tradeoffs-2026)

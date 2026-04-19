@@ -141,7 +141,7 @@ when the lab is brand new.
 - **03** — Hugging Face Hub (model cards, licensing, downloads)
 - **04** — Quantization basics (4/8/16-bit tradeoffs)
 - **05** — Qwen3 family (our default model series)
-- **06** — AirLLM (layer-by-layer streaming for giant models)
+- **06** — AeroLLM (multi-threaded prefetched layer streaming for giant models)
 - **07** — Prompt engineering fundamentals
 - **08** — Local vs hosted inference (cost, latency, privacy)
 
@@ -350,7 +350,7 @@ a wide size range so you can pick one that matches your hardware.
 | Qwen3-1.5B | 1.5B | 4 GB RAM | Mobile, edge, fast drafts |
 | Qwen3-8B | 8B | 8-16 GB RAM | **Default** — most laptops |
 | Qwen3-32B | 32B | 24-48 GB RAM | Workstations |
-| Qwen3-235B-A22B | 235B MoE | 48+ GB | AirLLM layer-streaming |
+| Qwen3-235B-A22B | 235B MoE | 48+ GB | AeroLLM layer-streaming |
 
 ## Why we default to it
 
@@ -365,38 +365,42 @@ a wide size range so you can pick one that matches your hardware.
 
 `MODEL_NAME=mlx-community/Qwen3-8B-4bit` (MLX default).
 `MODEL_NAME=Qwen/Qwen3-8B` (CUDA / HuggingFace default).
-`AIRLLM_MODEL=Qwen/Qwen3-235B-A22B` (AirLLM deep-research default).
+`AEROLLM_MODEL=Qwen/Qwen3-235B-A22B` (AeroLLM deep-research default).
 
 Source: <https://qwenlm.github.io/blog/qwen3/>
 """
 
 
-_AIRLLM_PRIMER = """---
-title: AirLLM — layer-by-layer streaming for giant models
+_AEROLLM_PRIMER = """---
+title: AeroLLM — multi-threaded prefetched layer streaming for giant models
 section: seeds
-tags: [seed, airllm, large-models, disk-streaming]
-source_ref: https://github.com/lyogavin/Anima/tree/main/air_llm
-aliases: [airllm, layer-streaming]
+tags: [seed, aerollm, large-models, disk-streaming]
+source_ref: https://github.com/cdarnell/aerollm
+aliases: [aerollm, layer-streaming]
 ---
 
-# AirLLM
+# AeroLLM
 
 Runs models that would normally need 48+ GB of GPU memory on a
-laptop with 4 GB of RAM. The trick: load one transformer layer at
-a time, keep it in memory long enough to compute, then swap it out
-for the next layer.
+laptop with 4 GB of RAM. The trick: stream transformer blocks from
+disk with a prefetch worker overlapping the next block's load
+against the current block's compute. "Aerodynamic" — overlap I/O
+and compute so concurrent prompts don't serialize on disk
+bandwidth.
 
 ## The tradeoff
 
-- **Memory:** tiny — one layer of a 70B model is ~1-2 GB.
-- **Speed:** seconds-per-token (not tokens-per-second). ~30-120s for
-  a one-paragraph reply on a good SSD.
+- **Memory:** small — a working set of a few blocks of a 70B model.
+- **Speed:** seconds-per-token (not tokens-per-second), but better
+  than serial streaming and scales near-linearly with concurrent
+  prompts.
 - **Disk:** needs the full weight file on local storage (~40 GB for
   a 70B 4-bit quant).
 
 ## When it makes sense
 
 - **Heavy research tasks** the researcher agent runs overnight.
+- **Distillation workloads** where many prompts share a layer pass.
 - **Complex reasoning** where token count is small but quality
   matters.
 - **Machines with small GPUs** where you'd otherwise be stuck with
@@ -404,17 +408,17 @@ for the next layer.
 
 ## Never use it for
 
-- Interactive chat. The latency ruins it.
+- Interactive single-turn chat. The per-prompt latency ruins it.
 - Short observations the researcher makes mid-experiment.
 
 ## How we use it
 
 OGLab keeps a fast SLM (Qwen3-8B) always loaded for interactive work,
-and loads AirLLM on demand for "deep research" steps during the
+and loads AeroLLM on demand for "deep research" steps during the
 heavy work window (default 22:00-08:00 local). See
-`src/oglab/router/backends.py:AirLLMBackend`.
+`src/oglab/router/backends.py:AeroLLMBackend`.
 
-Source: <https://github.com/lyogavin/Anima/tree/main/air_llm>
+Source: <https://github.com/cdarnell/aerollm>
 """
 
 
@@ -525,7 +529,7 @@ _PACKS: dict[str, dict[str, Any]] = {
             ("03-huggingface-models.md", _HF_HUB_PRIMER),
             ("04-quantization-basics.md", _QUANTIZATION_PRIMER),
             ("05-qwen3-family.md", _QWEN3_PRIMER),
-            ("06-airllm-layer-streaming.md", _AIRLLM_PRIMER),
+            ("06-aerollm-layer-streaming.md", _AEROLLM_PRIMER),
             ("07-prompt-engineering.md", _PROMPT_ENG_PRIMER),
             ("08-local-vs-hosted.md", _LOCAL_VS_HOSTED_PRIMER),
         ],

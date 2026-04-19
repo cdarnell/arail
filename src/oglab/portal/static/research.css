@@ -675,6 +675,39 @@
   background: rgba(0,255,65,.04);
 }
 
+/* ── Loading feedback for Start / Update / Run buttons ──────────
+   The /api/goal + /api/research/start calls can take several seconds
+   while the parser runs and the agent boots. This spinner + status
+   line makes it obvious the click landed. */
+.rx-spin {
+  display: inline-block;
+  animation: rx-spin 1.2s linear infinite;
+}
+@keyframes rx-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+.rx-empty-status {
+  margin-top: 0.75rem;
+  padding: 0.55rem 0.8rem;
+  background: rgba(0, 255, 65, 0.05);
+  border: 1px solid var(--green);
+  border-radius: var(--radius);
+  color: var(--green);
+  font-size: 0.8rem;
+  text-align: left;
+  line-height: 1.5;
+}
+.rx-empty-status.error {
+  background: rgba(255, 64, 64, 0.06);
+  border-color: var(--red);
+  color: var(--red);
+}
+.rx-btn[data-loading="1"] {
+  opacity: 0.88;
+  cursor: progress;
+}
+
 /* ── New-goal modal ───────────────────────────────────────────── */
 .rx-modal {
   position: fixed;

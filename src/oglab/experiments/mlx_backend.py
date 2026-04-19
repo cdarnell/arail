@@ -1,13 +1,13 @@
-"""oglab.experiments.mlx_backend — AutoAir bench runner for MLX.
+"""oglab.experiments.mlx_backend — AeroLLM MLX bench runner.
 
 Apple-native analog of `bench.py`. The BenchRun shape, JSONL format,
-and git-snapshot behavior are all identical to AirLLM's so the
+and git-snapshot behavior match the AeroLLM CUDA runner so the
 dashboard can render either dataset without a branch in the UI.
 
 What's different:
 
   - Backend construction calls `mlx_lm.load(...)` and `mlx_lm.generate(...)`
-    directly. There's no AIRLLM_MODEL env-var shim — mlx-lm takes
+    directly. There's no AEROLLM_MODEL env-var shim — mlx-lm takes
     its config as function arguments, so we pass them explicitly.
   - Knob translation happens in Python, not in the environment.
     `kv_bits`, `max_kv_size`, `prefill_step_size`, etc. are
@@ -39,8 +39,8 @@ from oglab.experiments.bench import (
 # ── File / path helpers ──────────────────────────────────────────────
 
 def mlx_bench_file() -> Path:
-    """The JSONL log for MLX bench runs. Parallel to AirLLM's
-    airllm-bench.jsonl so both backends can coexist."""
+    """The JSONL log for MLX bench runs. Parallel to AeroLLM's
+    aerollm-bench.jsonl so both backends can coexist."""
     from oglab.config import DATA_DIR
     return DATA_DIR / "mlx-bench.jsonl"
 
@@ -107,7 +107,7 @@ def run_mlx_bench(
     _mlx_lm: Any = None,  # dependency injection for tests
 ) -> BenchRun:
     """Run the MLX research model once and return a BenchRun. The
-    shape matches AirLLM's run_bench exactly so the dashboard can
+    shape matches the AeroLLM run_bench exactly so the dashboard can
     treat them interchangeably.
 
     If mlx_lm is not importable on this host, returns a BenchRun with
@@ -124,13 +124,23 @@ def run_mlx_bench(
     gen_kwargs = _build_generate_kwargs(knob_values)
     prompt_cache_enabled = bool(knob_values.get("prompt_cache_enabled", False))
 
+    # Stage timers. Using perf_counter (monotonic, high-resolution) for
+    # stage deltas while keeping time.time() for the ISO timestamp on
+    # the record. Four perf_counter reads total — ~80ns overhead per
+    # run — so this is well below any threshold that could affect
+    # tokens/sec measurements. If future instrumentation threatens to
+    # change that, gate it on knob_values.get("trace_enabled") and
+    # sweep both states in autoresearch to catch regression.
     t0 = time.time()
+    p_start = time.perf_counter()
     io_start = _read_io_bytes() or 0
     tokens_out = 0
     status = "ok"
     error: Optional[str] = None
     ttft_ms: Optional[float] = None
     decode_tps: Optional[float] = None
+    load_ms: Optional[float] = None
+    decode_ms: Optional[float] = None
 
     try:
         mlx_lm = _mlx_lm
@@ -145,10 +155,12 @@ def run_mlx_bench(
                 ) from ie
 
         model, tokenizer = mlx_lm.load(model_id)
+        p_loaded = time.perf_counter()
+        load_ms = (p_loaded - p_start) * 1000.0
 
         # TTFT approximation: single-token generation with the same
-        # prompt. Same strategy as AirLLM's bench — sub-token precision
-        # isn't needed for a relative-improvement loop.
+        # prompt. Same strategy as the AeroLLM bench — sub-token
+        # precision isn't needed for a relative-improvement loop.
         t_warm = time.time()
         _ = mlx_lm.generate(
             model, tokenizer, prompt=prompt, max_tokens=1,
@@ -157,6 +169,7 @@ def run_mlx_bench(
                if k in {"kv_bits", "quantized_kv_start"}},
         )
         ttft_ms = (time.time() - t_warm) * 1000.0
+        p_prefilled = time.perf_counter()
 
         # Full run.
         text = mlx_lm.generate(
@@ -164,6 +177,8 @@ def run_mlx_bench(
             verbose=False,
             **gen_kwargs,
         )
+        p_decoded = time.perf_counter()
+        decode_ms = (p_decoded - p_prefilled) * 1000.0
         # mlx_lm.generate returns the generated text; we approximate
         # tokens_out by encoding the text back. Not exact but stable
         # within a single tokenizer.
@@ -177,6 +192,23 @@ def run_mlx_bench(
         error = f"{type(exc).__name__}: {exc}"
 
     total_ms = (time.time() - t0) * 1000.0
+
+    # Assemble the stage dict only from fields we actually measured.
+    # On failure partway through, whichever stages completed are
+    # retained so the UI can show "died during decode" rather than
+    # "no data".
+    stages: Optional[Dict[str, float]] = None
+    if load_ms is not None or ttft_ms is not None or decode_ms is not None:
+        stages = {}
+        if load_ms is not None:
+            stages["load_ms"] = round(load_ms, 2)
+        if ttft_ms is not None:
+            # Prefill is the TTFT call — one-token warmup. Name it
+            # "prefill" in the stages dict for clarity; the top-level
+            # ttft_ms field stays for backward-compat with the UI.
+            stages["prefill_ms"] = round(ttft_ms, 2)
+        if decode_ms is not None:
+            stages["decode_ms"] = round(decode_ms, 2)
     if tokens_out > 1 and ttft_ms is not None and total_ms > ttft_ms:
         decode_tps = round(
             (tokens_out - 1) / ((total_ms - ttft_ms) / 1000.0), 3
@@ -205,6 +237,7 @@ def run_mlx_bench(
         variant_label=variant_label,
         status=status,
         error=error,
+        stages=stages,
     )
 
 

@@ -282,9 +282,9 @@ id: frontier-local-models
 name: Frontier Local Models
 domain: ai
 version: 1.0.0
-tags: [skill, frontier, airllm, local-inference, open-models]
+tags: [skill, frontier, aerollm, local-inference, open-models]
 when_to_use:
-  - When reasoning about which deep model to pick for AirLLM
+  - When reasoning about which deep model to pick for AeroLLM
   - When the task deserves frontier-tier intelligence and can tolerate slow throughput
   - When documenting a result that came from a specific deep model
 when_not_to_use:
@@ -295,23 +295,24 @@ when_not_to_use:
 # Frontier models, running locally
 
 OGLab can run models up to and beyond 700B parameters on a laptop
-via AirLLM — layer-by-layer streaming from disk, one transformer
-block loaded at a time. Throughput at that scale is tokens-per-
-minute, not per-second, but the model itself is frontier-class.
-This skill covers the mental model and which deep model to pick
-for what.
+via AeroLLM — multi-threaded, prefetched layer streaming off disk
+that overlaps I/O and compute across concurrent prompts.
+Throughput at that scale is tokens-per-minute, not per-second, but
+the model itself is frontier-class. This skill covers the mental
+model and which deep model to pick for what.
 
-## The AirLLM trick in one sentence
+## The AeroLLM trick in one sentence
 
-Instead of loading all of a model's layers into RAM, AirLLM loads
-one layer from disk, computes through it, unloads, loads the
-next. RAM use is tiny (one layer); disk use equals the whole
-model (~100-800 GB depending on size and quantization); time per
-token scales with the number of layers.
+Instead of loading all of a model's layers into RAM, AeroLLM
+streams transformer blocks from disk with a prefetch worker
+overlapping the next block's load against the current block's
+compute — so RAM use stays small (a working set of blocks) while
+time-per-token approaches the compute ceiling instead of sitting
+at disk latency.
 
 ## Open models worth knowing about
 
-All run on OGLab via AirLLM by setting `AIRLLM_MODEL=` in `.env`
+All run on OGLab via AeroLLM by setting `AEROLLM_MODEL=` in `.env`
 to the HuggingFace repo ID. Dashboard's Frontier chip shows the
 Spec Sheet for the currently-configured one.
 
@@ -322,7 +323,7 @@ Spec Sheet for the currently-configured one.
 - **DeepSeek-V3** — 671B MoE, 37B active. MIT license. Rivals
   GPT-4o on code and math. Incredible cost-efficiency.
 - **Llama-3.1-405B** — Meta's dense flagship. Solid across the
-  board, widely supported, slower via AirLLM because dense.
+  board, widely supported, slower via AeroLLM because dense.
 
 ### Code + agent specialists
 - **GLM-4.6** (Zhipu AI) — ~357B MoE. Strives to be declarative,
@@ -330,13 +331,13 @@ Spec Sheet for the currently-configured one.
   Near-frontier HumanEval scores at open-weight license.
 - **GLM-5.1** — Zhipu's 2025+ flagship line. Scales up to
   ~754B MoE variants aiming at GPT-4-class capability while
-  staying open-weight. Fits on any disk via AirLLM.
+  staying open-weight. Fits on any disk via AeroLLM.
 - **DeepSeek-R1** — reasoning-tuned derivative of V3. Shows its
   chain-of-thought. Rivals o1 on AIME + MATH-500 benchmarks.
 
 ### Smaller "deep" options
 - **Qwen3-32B** / **Llama-3.1-70B** — still MoE or dense
-  heavyweights, but small enough that AirLLM is seconds-per-token
+  heavyweights, but small enough that AeroLLM is seconds-per-token
   rather than minutes.
 
 ## Choosing the right deep model
@@ -354,11 +355,11 @@ Three questions:
    Qwen3-235B or Llama-3.1-70B.
 3. **How patient are you?** MoE routes cheaper per token than
    dense at the same total params. A 400B MoE (37B active) is
-   ~11× faster than 400B dense through AirLLM.
+   ~11× faster than 400B dense through AeroLLM.
 
 ## Workflow for a deep-model research run
 
-1. Configure: set `AIRLLM_MODEL=<repo-id>` in `.env`, restart.
+1. Configure: set `AEROLLM_MODEL=<repo-id>` in `.env`, restart.
 2. Frame the question. Deep runs are expensive — write down the
    exact question you want answered before you send the chat.
 3. Use the dashboard's **Deep model** toggle to flip for one
@@ -372,7 +373,7 @@ Three questions:
 
 Frontier-grade intelligence used to live behind expensive APIs.
 Open-weight releases from Qwen, Zhipu, DeepSeek, and Meta closed
-the gap. AirLLM made the hardware barrier vanish. The only thing
+the gap. AeroLLM made the hardware barrier vanish. The only thing
 stopping a determined user from running GPT-4-class inference on
 a MacBook is disk space — and that's a solvable problem.
 
@@ -388,7 +389,7 @@ id: understanding-precision
 name: Precision Primer
 domain: ai
 version: 1.0.0
-tags: [skill, precision, quantization, int, fp, airllm]
+tags: [skill, precision, quantization, int, fp, aerollm]
 when_to_use:
   - When planning or analyzing a quantization experiment
   - When comparing model variants (FP16 vs INT8 vs INT4)
@@ -400,7 +401,7 @@ when_not_to_use:
 # Understanding precision
 
 Procedural knowledge for reasoning about numerical precision in
-model weights. Critical skill for anyone optimizing AirLLM or
+model weights. Critical skill for anyone optimizing AeroLLM or
 picking a quantization strategy.
 
 ## Two representations
@@ -440,9 +441,9 @@ so the weight range fits inside the integer range.
 3. **Granularity** — per-tensor / per-channel / per-block scale
    factors. Finer = better quality at low bits, more metadata.
 
-## Why this matters for AirLLM
+## Why this matters for AeroLLM
 
-AirLLM reads every layer from disk on every token. Layer size
+AeroLLM reads every layer from disk on every token. Layer size
 scales with precision. Halving bits halves read time.
 
 - 400B FP16 = 800 GB → 800 GB/token of disk read
@@ -473,7 +474,7 @@ is near-INT4 size + near-FP16 quality.
 3. Swap to your candidate quantization (e.g., INT4 per-block, 64-
    weight groups). Re-run the same evals.
 4. Report as a delta: "INT4 per-block-64: +0.3% loss vs FP16,
-   -4× disk, -3.5× AirLLM tokens-per-minute."
+   -4× disk, -3.5× AeroLLM tokens-per-minute."
 5. A quality delta under 0.5% on relevant benchmarks is usually
    indistinguishable from run-to-run noise. Anything over 2% is
    user-visible.
@@ -482,9 +483,9 @@ is near-INT4 size + near-FP16 quality.
 
 - **MLX fast path (laptop)** — INT4 per-block. Great chat
   throughput, acceptable quality.
-- **AirLLM deep path (frontier)** — INT4 per-block is the ceiling
+- **AeroLLM deep path (frontier)** — INT4 per-block is the ceiling
   you can run on a MacBook's disk. Mixed precision is the next
-  lever (candidate #4 in the AirLLM fork guide).
+  lever in the AeroLLM optimization ladder.
 - **Training** — FP32 or BF16 exclusively. Don't train at INT.
 
 ## Source links
@@ -495,33 +496,33 @@ is near-INT4 size + near-FP16 quality.
 """
 
 
-_OPTIMIZE_AIRLLM = """---
-title: Optimize AirLLM — research program
-id: optimize-airllm
-name: Optimize AirLLM
+_OPTIMIZE_AEROLLM = """---
+title: Optimize AeroLLM — research program
+id: optimize-aerollm
+name: Optimize AeroLLM
 domain: research
 version: 1.0.0
-tags: [skill, airllm, optimization, research-methodology, frontier-models]
+tags: [skill, aerollm, optimization, research-methodology, frontier-models]
 when_to_use:
-  - When the lab's goal is improving AirLLM performance
-  - When designing an experiment that measures AirLLM tokens/minute
+  - When the lab's goal is improving AeroLLM performance
+  - When designing an experiment that measures AeroLLM tokens/minute
   - When deciding which optimization to try next
 when_not_to_use:
   - For questions unrelated to layer-streamed inference
   - For general model evaluation (see evaluate-llm instead)
 ---
 
-# Optimize AirLLM — research program
+# Optimize AeroLLM — research program
 
 This is the research-methodology skill for the lab's signature goal:
-make AirLLM noticeably faster on our hardware, then contribute the
-wins back upstream.
+make AeroLLM noticeably faster on our hardware, then contribute the
+wins back upstream at github.com/cdarnell/aerollm.
 
 ## The metric
 
 **Primary:** tokens-per-minute (t/min) on a fixed model with a
 fixed prompt length. Captured automatically by the portal in
-`lab/data/airllm-bench.jsonl` for every deep-model call.
+`lab/data/aerollm-bench.jsonl` for every deep-model call.
 
 **Secondary:** quality delta vs a FP16 baseline, measured on a
 held-out task set from `prepare.py`. An optimization that gains
@@ -529,23 +530,23 @@ held-out task set from `prepare.py`. An optimization that gains
 
 ## The five candidates (graded by effort/impact)
 
-See `docs/airllm-fork-guide.md` for the full write-up.
-
-1. **Layer prefetch** — moderate effort, 15-40% gain. Start loading
-   layer N+1 while computing layer N. Most hardware is disk-bound,
-   not compute-bound, so double-buffering hides most I/O.
+1. **Prefetch lookahead tuning** — low effort, 15-40% gain. More
+   layers in flight hides more disk I/O until memory pressure flips
+   the curve. AeroLLM's prefetcher is the baseline; we're looking
+   for the knee on each hardware profile.
 2. **Persistent KV cache** — high effort, 3-10× on conversational
    use. Cache per-layer K/V on disk keyed by prompt prefix hash;
    follow-up messages skip most re-compute.
 3. **Speculative decoding with the fast SLM** — hard, 3-5× gain.
-   The 8B already loaded in RAM drafts tokens; AirLLM validates
+   The 8B already loaded in RAM drafts tokens; AeroLLM validates
    in batch. Lab-specific advantage — nobody else has a fast + slow
    model coexisting in one process.
 4. **Mixed-precision per-layer** — easy, 30-50% disk shrink (→ same
    throughput gain). Attention at INT8/FP16, FFN at INT4. Uses the
    "sensitivity rule" from the precision primer.
-5. **Chunked flash-attention** — hard, 2-4× on long context. Custom
-   kernel work inside each layer forward pass.
+5. **Concurrent-prompt batching depth** — AeroLLM's reason for
+   existing. Push N up and measure where the per-prompt latency
+   curve flattens on your hardware.
 
 Pick one per research cycle. Trying multiple at once confounds
 measurement.
@@ -555,18 +556,18 @@ measurement.
 Each cycle is 5-10 experiments over roughly a week. The researcher
 agent decomposes the lab goal into this structure automatically.
 
-1. **Baseline.** Wipe `airllm-bench.jsonl` (or filter by date).
-   Run 10+ messages through the current AirLLM. Capture median
+1. **Baseline.** Wipe `aerollm-bench.jsonl` (or filter by date).
+   Run 10+ messages through the current AeroLLM. Capture median
    t/min + quality scores.
-2. **Hypothesis.** "Implementing layer prefetch with a
-   double-buffered async load will increase t/min on
-   Qwen3-235B-A22B by ≥ 20%."
+2. **Hypothesis.** "Increasing prefetch lookahead from 1 to 3 on
+   Qwen3-235B-A22B will increase t/min by ≥ 20% without blowing the
+   memory budget."
 3. **Falsify first.** Before coding: what observation would change
    my mind? List three alternatives (maybe compute dominates on my
-   SSD; maybe prefetch thrashes the page cache; maybe CPU cores
-   saturate). Design the experiment to distinguish.
-4. **Implement.** Ship the change in the AirLLM fork. Rebuild via
-   `./oglab setup && ./oglab restart`.
+   SSD; maybe deeper prefetch thrashes the page cache; maybe CPU
+   cores saturate). Design the experiment to distinguish.
+4. **Implement.** Ship the change against the AeroLLM clone.
+   Rebuild via `./oglab setup && ./oglab restart`.
 5. **Measure.** Run the same 10+ messages. Compare against baseline.
 6. **Write up.** One markdown file under
    `lab/pkb/agents/research/` with baseline, delta, side-effects,
@@ -580,11 +581,11 @@ Before optimizing, measure. Three questions:
    layer-load time > layer-compute time, optimizations #1 and #4
    are the winners. If compute dominates, #3 and #5 matter more.
 2. **Is memory pressure a factor?** Watch `psutil.virtual_memory`
-   during a run. Layer swapping via the OS page cache has its own
-   cost that shows up as "pause" time between tokens.
+   during a run. Prefetch depth × layer size determines working
+   set; over-provisioning thrashes the OS page cache.
 3. **Where's wallclock going?** Instrument the forward loop with
    timestamps. Often one surprising step dominates (e.g., Python
-   dict lookups on weight keys).
+   dict lookups on weight keys, or a lock on the prefetch queue).
 
 ## Reading for the week
 
@@ -599,8 +600,8 @@ Before claiming a throughput win, understand why it's true. Pre-work:
   myself."
 - [evaluate-llm](../evaluate-llm/SKILL.md) — how to measure quality
   delta rigorously.
-- AirLLM source at https://github.com/lyogavin/airllm
-  (or your fork). Read the layer iterator first.
+- AeroLLM source at https://github.com/cdarnell/aerollm. Read the
+  layer iterator and the prefetch worker first.
 
 ## Contribution pathway
 
@@ -614,7 +615,8 @@ researcher writes a "ship it" recommendation:
   graph in the research report.
 
 If all four pass: open a PR upstream with the numbers attached. If
-only 1-3 pass: keep it in the fork as an experiment and revisit.
+only 1-3 pass: keep it in a local branch as an experiment and
+revisit.
 """
 
 
@@ -624,7 +626,7 @@ _SKILLS: Dict[str, Dict[str, Any]] = {
     "falsify-hypothesis":        {"content": _FALSIFY_HYPOTHESIS},
     "frontier-local-models":     {"content": _FRONTIER_LOCAL},
     "understanding-precision":   {"content": _UNDERSTANDING_PRECISION},
-    "optimize-airllm":           {"content": _OPTIMIZE_AIRLLM},
+    "optimize-aerollm":          {"content": _OPTIMIZE_AEROLLM},
 }
 
 

@@ -103,6 +103,10 @@
         <div class="ac-title">Check Updates</div>
         <div class="ac-desc">Scan components for new versions</div>
       </div>
+      <div class="admin-card" onclick="window.location='/plugins'">
+        <div class="ac-title">Plugins</div>
+        <div class="ac-desc">Install / enable / disable plugins</div>
+      </div>
     </div>
     <div id="admin-log"></div>
   </div>
@@ -201,7 +205,7 @@
       <div class="help-block">
         <h3>AI Models</h3>
         <p><strong>Fast SLM:</strong> {{ health.model or 'loading…' }} (always on)<br>
-        <strong>Deep AirLLM:</strong> {{ health.airllm_model or 'not configured' }} (heavy window only)<br>
+        <strong>Deep AeroLLM:</strong> {{ health.aerollm_model or 'not configured' }} (heavy window only)<br>
         <strong>Ollama:</strong> local API server for Open Notebook + browser agent</p>
       </div>
     </div>

@@ -4,7 +4,7 @@ section: docs
 tags: [shell, script]
 aliases: [reset, reset.sh]
 source: scripts/reset.sh
-generated: 2026-04-15T17:33:38Z
+generated: 2026-04-18T17:11:40Z
 ---
 
 # reset.sh (shell)
@@ -28,9 +28,12 @@ echo ""
     echo "  Modes:"
     echo "    models    Remove downloaded models only"
     echo "    data      Remove experiments and data"
+    echo "    pkb       Remove the knowledge base (all notes, uploads,"
+    echo "              agent findings, seed packs). Re-seeds on next start."
     echo "    plugins   Remove installed plugins"
     echo "    env       Remove .venv, .env, lab.conf"
-    echo "    full      Complete wipe (everything except source code)"
+    echo "    full      Complete wipe — keeps the knowledge base safe."
+    echo "              Chain with 'pkb' if you truly want everything gone."
     echo "    destroy   Delete the entire local lab copy and app data"
     echo "    stop      Just stop running services"
     echo ""
@@ -50,6 +53,7 @@ echo ""
 - `reset_data()`
 - `reset_env()`
 - `reset_models()`
+- `reset_pkb()`
 - `reset_plugins()`
 - `stop_services()`
 - `usage()`

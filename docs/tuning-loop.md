@@ -50,7 +50,7 @@ load-bearing.
 - **Only two files are ever writable by the loop.** Enforced in
   `git_ops.ALLOWED_WRITABLE_FILES`:
   - `config/tuning.yml`
-  - `lab/data/airllm-bench.jsonl`
+  - `lab/data/aerollm-bench.jsonl`
   If the agent somehow proposes a different edit, `commit_experiment`
   raises `GitSafetyError` before anything is staged.
 - **Schema validator rejects off-schema knob values.** Each knob
@@ -72,7 +72,7 @@ load-bearing.
   captured by the "Capture baseline" action. Sets the denominator
   for Δ%.
 - **Champion** — the best `decode_tok_per_sec` observed across
-  all runs in `airllm-bench.jsonl`, with a link to its commit.
+  all runs in `aerollm-bench.jsonl`, with a link to its commit.
 - **Throughput over time** — sparkline of every successful run's
   `decode_tok_per_sec`, ordered by timestamp. Winning commits
   lift the line visibly.
@@ -83,9 +83,9 @@ load-bearing.
 
 ## The candidate list
 
-`autoresearch.CANDIDATES` is a hand-curated list of 8 variants
-mirroring the sections of `docs/airllm-fork-guide.md`. Adding a
-new candidate requires two edits:
+`autoresearch.CANDIDATES` is a hand-curated list of variants
+mirroring the knobs AeroLLM exposes. Adding a new candidate
+requires two edits:
 
 1. `config/tuning.yml` — if the variant needs a new knob or a new
    allowed `choices` value.
@@ -97,21 +97,22 @@ the maintainer's back. Agents that propose variants at runtime
 must pass them via the `candidates` parameter; they cannot extend
 `CANDIDATES` in-place.
 
-## Extending with fork-level optimizations
+## Extending with upstream AeroLLM knobs
 
-The stock AirLLM package only honors two of our knobs at runtime
-(`AIRLLM_COMPRESSION` and `AIRLLM_MAX_LENGTH`). The other four —
+Today `AeroLLMBackend` honors two env-var knobs directly:
+`AEROLLM_COMPRESSION` and `AEROLLM_MAX_LENGTH`. The other four —
 `prefetch_enabled`, `prefetch_lookahead`, `expert_cache_size_mb`,
-and `airllm_package` — exist to support an AirLLM fork (see
-`docs/airllm-fork-guide.md`). The workflow is:
+and `aerollm_package` — land when the upstream Rust runtime at
+[github.com/cdarnell/aerollm](https://github.com/cdarnell/aerollm)
+exposes them. The workflow to wire a new one:
 
-1. Fork and modify AirLLM to read the new env vars (e.g.
-   `AIRLLM_PREFETCH_LOOKAHEAD`).
-2. Add the fork's pip target to `airllm_package.schema.choices`
-   in `config/tuning.yml`.
-3. Update `bench._apply_knob_env` to translate the new knobs to
-   the env vars the fork reads.
-4. Let the loop run. Now your fork is under experimental control.
+1. Land the knob upstream in the Rust runtime (or a branch of it)
+   so it's read at engine init.
+2. Add the install ref to `aerollm_package.schema.choices` in
+   `config/tuning.yml` if the knob ships on a non-main branch.
+3. Update `bench._apply_knob_env` to translate the new knob into
+   whatever the runtime reads (env var, CLI flag, or config blob).
+4. Let the loop run. The knob is now under experimental control.
 
 ## Tests
 

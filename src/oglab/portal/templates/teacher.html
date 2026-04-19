@@ -11,7 +11,7 @@
      a quiet history below. Dark gold accents to distinguish it from
      the green tuning cockpit and blue terminal.
 
-     Every interaction here routes through AirLLM (the deep backend).
+     Every interaction here routes through AeroLLM (the deep backend).
      Expect minutes, not seconds. The UI should make that wait feel
      considered, not frozen — hence the patience banner and live
      token-count + elapsed timer. */
@@ -89,7 +89,7 @@
 
   <div class="t-hero">
     <h1>🧙 The Deep Teacher</h1>
-    <span class="sub">Frontier models via AirLLM — slow, profound, layer-streamed off NVMe.</span>
+    <span class="sub">Frontier models via AeroLLM — slow, profound, layer-streamed off NVMe.</span>
   </div>
 
   <div class="t-chip-row">
@@ -97,6 +97,10 @@
     <span class="t-chip dim" id="t-size">—</span>
     <span class="t-chip dim" id="t-tps" title="Average tok/s across recent runs">— tok/s</span>
     <span class="t-chip dim" title="Every answer saves to lab/pkb/teacher/">auto-saved to PKB</span>
+    <a href="/tuning" class="t-chip" style="text-decoration:none;"
+       title="Benchmark + tune the deep model — AeroLLM MLX sweeps, knob variants, stage timings.">
+      ⚙ Tuning cockpit →
+    </a>
   </div>
 
   <div class="t-patience">
@@ -184,7 +188,7 @@
     });
   });
 
-  // Populate the model chip + running tok/s average from /api/airllm/bench
+  // Populate the model chip + running tok/s average from /api/aerollm/bench
   // so the user knows what they're waiting on before they hit ask.
   async function loadModelInfo() {
     let deepName = "";
@@ -203,10 +207,10 @@
       if (chip) $("t-size").textContent = chip;
     } catch (e) { /* leave defaults */ }
     try {
-      // /api/airllm/bench returns {bench: {<model>: {avg_tokens_per_sec,
+      // /api/aerollm/bench returns {bench: {<model>: {avg_tokens_per_sec,
       // ...}}, total_runs, platform}. Pull the active model's entry;
       // fall back to the first entry if the name doesn't match exactly.
-      const j = await fetch("/api/airllm/bench").then(r => r.json());
+      const j = await fetch("/api/aerollm/bench").then(r => r.json());
       const benchMap = (j && j.bench) || {};
       const keys = Object.keys(benchMap);
       if (keys.length) {

@@ -4,7 +4,7 @@ section: docs
 tags: [python, module]
 aliases: [backends, backends.py]
 source: src/oglab/router/backends.py
-generated: 2026-04-16T11:07:31Z
+generated: 2026-04-19T13:28:23Z
 ---
 
 # backends module
@@ -21,7 +21,8 @@ Backend implementations for every supported accelerator / cloud service.
 
 **Methods:**
 
-- `complete(self, prompt, max_tokens, temperature)`
+- `complete(self, prompt, max_tokens, temperature, top_p)`
+    - Run one completion.
 - `health_check(self)`
 
 ### `MLXBackend`
@@ -29,7 +30,7 @@ Backend implementations for every supported accelerator / cloud service.
 **Methods:**
 
 - `__init__(self)`
-- `complete(self, prompt, max_tokens, temperature)`
+- `complete(self, prompt, max_tokens, temperature, top_p)`
 - `health_check(self)`
 
 ### `CUDABackend`
@@ -37,7 +38,7 @@ Backend implementations for every supported accelerator / cloud service.
 **Methods:**
 
 - `__init__(self)`
-- `complete(self, prompt, max_tokens, temperature)`
+- `complete(self, prompt, max_tokens, temperature, top_p)`
 - `health_check(self)`
 
 ### `CPUBackend`
@@ -45,7 +46,7 @@ Backend implementations for every supported accelerator / cloud service.
 **Methods:**
 
 - `__init__(self)`
-- `complete(self, prompt, max_tokens, temperature)`
+- `complete(self, prompt, max_tokens, temperature, top_p)`
 - `health_check(self)`
 
 ### `HuggingFaceBackend`
@@ -53,7 +54,7 @@ Backend implementations for every supported accelerator / cloud service.
 **Methods:**
 
 - `__init__(self)`
-- `complete(self, prompt, max_tokens, temperature)`
+- `complete(self, prompt, max_tokens, temperature, top_p)`
 - `health_check(self)`
 
 ### `OpenRouterBackend`
@@ -61,7 +62,7 @@ Backend implementations for every supported accelerator / cloud service.
 **Methods:**
 
 - `__init__(self)`
-- `complete(self, prompt, max_tokens, temperature)`
+- `complete(self, prompt, max_tokens, temperature, top_p)`
 - `health_check(self)`
 
 ### `ClaudeBackend`
@@ -69,7 +70,7 @@ Backend implementations for every supported accelerator / cloud service.
 **Methods:**
 
 - `__init__(self)`
-- `complete(self, prompt, max_tokens, temperature)`
+- `complete(self, prompt, max_tokens, temperature, top_p)`
 - `health_check(self)`
 
 ### `OpenAICompatBackend`
@@ -80,20 +81,20 @@ endpoint on localhost.  Works with LM Studio, Ollama, DeployLM, etc.
 **Methods:**
 
 - `__init__(self)`
-- `complete(self, prompt, max_tokens, temperature)`
+- `complete(self, prompt, max_tokens, temperature, top_p)`
 - `health_check(self)`
 
-### `AirLLMBackend`
+### `AeroLLMBackend`
 
-Run massive models (100B-405B) from disk via AirLLM.
+Run massive models (100B-405B) from disk via AeroLLM.
 
 Default: Qwen3-235B-A22B — a 235B MoE model (22B active per token).
-Layer-by-layer inference: only one transformer layer is loaded into
-memory at a time.  Slow (seconds-per-token) but lets you run models
-that would normally need 48+ GB VRAM on a 4 GB machine.
+Multi-threaded layer streaming with prefetch: overlaps disk I/O and
+compute so concurrent prompts share layer passes instead of
+serializing on bandwidth. Developed at github.com/cdarnell/aerollm.
 
 **Methods:**
 
 - `__init__(self)`
-- `complete(self, prompt, max_tokens, temperature)`
+- `complete(self, prompt, max_tokens, temperature, top_p)`
 - `health_check(self)`

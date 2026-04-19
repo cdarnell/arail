@@ -20,9 +20,10 @@ Contract (two backends, identical shape):
 
 Backends:
 
-    - "airllm"  — CUDA track, disk-streamed 1 TB models via AirLLM.
-                  Uses config/tuning.yml + lab/data/airllm-bench.jsonl.
-    - "mlx"     — AutoAir track, Apple Silicon unified memory via
+    - "aerollm" — CUDA track, multi-threaded prefetched layer streaming
+                  via AeroLLM. Uses config/tuning.yml +
+                  lab/data/aerollm-bench.jsonl.
+    - "mlx"     — AeroLLM MLX track, Apple Silicon unified memory via
                   mlx_lm. Uses config/tuning-mlx.yml +
                   lab/data/mlx-bench.jsonl.
 
@@ -51,7 +52,7 @@ import os
 import statistics
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
@@ -77,16 +78,12 @@ from oglab.experiments.tuning import (
 Candidate = tuple[str, Dict[str, Any]]
 
 
-# ── Candidate variants (AirLLM / CUDA track) ───────────────────────
-# Each candidate is (label, {knob: value}). Labels mirror the
-# sections of docs/airllm-fork-guide.md so the dashboard can link
-# runs back to the explainer.
-#
-# We keep this list short and hand-curated. New entries require a
-# human PR to tuning.yml's schema (e.g. adding a choice to
-# airllm_package) AND this file. Two-file discipline makes it hard
-# for an agent to expand the search space behind the maintainer's
-# back.
+# ── Candidate variants (AeroLLM / CUDA track) ──────────────────────
+# Each candidate is (label, {knob: value}). We keep this list short
+# and hand-curated. New entries require a human PR to tuning.yml's
+# schema (e.g. adding a choice to aerollm_package) AND this file.
+# Two-file discipline makes it hard for an agent to expand the search
+# space behind the maintainer's back.
 CANDIDATES: List[Candidate] = [
     (
         "prefetch-off (baseline comparison)",
@@ -98,19 +95,19 @@ CANDIDATES: List[Candidate] = [
     ),
     (
         "compression-4bit (default)",
-        {"airllm_compression": "4bit"},
+        {"aerollm_compression": "4bit"},
     ),
     (
         "compression-8bit (quality over speed)",
-        {"airllm_compression": "8bit"},
+        {"aerollm_compression": "8bit"},
     ),
     (
         "context-256 (smaller KV cache)",
-        {"airllm_max_length": 256},
+        {"aerollm_max_length": 256},
     ),
     (
         "context-1024 (standard chat window)",
-        {"airllm_max_length": 1024},
+        {"aerollm_max_length": 1024},
     ),
     (
         "expert-cache-2GB (MoE warm set)",
@@ -123,7 +120,7 @@ CANDIDATES: List[Candidate] = [
 ]
 
 
-# ── Candidate variants (MLX / Apple track — "AutoAir") ─────────────
+# ── Candidate variants (MLX / Apple track — AeroLLM MLX) ───────────
 # Knobs here exercise the three levers that actually move on Apple:
 #   - KV-cache quantization (kv_bits + quantized_kv_start)
 #   - KV size cap (max_kv_size)
@@ -183,7 +180,7 @@ class VariantResult:
 
 @dataclass
 class LoopState:
-    backend: str = "airllm"           # "airllm" | "mlx"
+    backend: str = "aerollm"          # "aerollm" | "mlx"
     started_at: Optional[str] = None
     finished_at: Optional[str] = None
     phase: str = "idle"               # idle | baseline | variant | done | error
@@ -199,6 +196,11 @@ class LoopState:
     continuous: bool = False
     stop_requested: bool = False
     pass_number: int = 0
+    # Schedule status — computed fresh on each supervisor tick so the
+    # /tuning page can show "running" vs "waiting for 22:00" without a
+    # second API call. Empty dict means "schedule not yet evaluated"
+    # (only happens during the brief first-tick window).
+    schedule: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -227,6 +229,7 @@ class LoopState:
             "continuous": self.continuous,
             "stop_requested": self.stop_requested,
             "pass_number": self.pass_number,
+            "schedule": dict(self.schedule) if self.schedule else {},
         }
 
 
@@ -235,17 +238,17 @@ class LoopState:
 # passes an unknown backend we raise — better than silently creating
 # a third track.
 _STATES: Dict[str, LoopState] = {
-    "airllm": LoopState(backend="airllm"),
+    "aerollm": LoopState(backend="aerollm"),
     "mlx": LoopState(backend="mlx"),
 }
 
 
-def current_state(backend: str = "airllm") -> LoopState:
+def current_state(backend: str = "aerollm") -> LoopState:
     _require_known_backend(backend)
     return _STATES[backend]
 
 
-def request_stop(backend: str = "airllm") -> None:
+def request_stop(backend: str = "aerollm") -> None:
     """Signal the continuous supervisor to exit after the current pass.
     A single pass can still have variants in flight; those finish, then
     the supervisor returns. Never interrupts a variant mid-bench."""
@@ -253,12 +256,165 @@ def request_stop(backend: str = "airllm") -> None:
     _STATES[backend].stop_requested = True
 
 
+# ── Schedule (user-controllable gate for the continuous supervisor) ─
+#
+# Persisted to lab/data/autoresearch-schedule.json so the user's choice
+# survives portal restarts. Three modes:
+#
+#   - "anytime" (default) — run continuously, no time gate
+#   - "window"             — only run during [window_start .. window_end]
+#                            in local time. Supports overnight windows
+#                            (e.g. 22:00-06:00) by handling the wrap.
+#   - "paused"             — don't run at all. Supervisor polls the
+#                            schedule periodically so the user can
+#                            resume without a restart.
+#
+# We deliberately keep the schema tiny — more modes can land later, but
+# the UI should stay "Anytime / Off-hours only / Paused" until the user
+# asks for finer control (per-day schedules, cron strings, etc).
+
+_DEFAULT_SCHEDULE: Dict[str, Any] = {
+    "mode": "anytime",
+    "window_start": "22:00",
+    "window_end": "06:00",
+}
+
+
+def _schedule_path() -> Path:
+    from oglab.config import DATA_DIR
+    return DATA_DIR / "autoresearch-schedule.json"
+
+
+def load_schedule() -> Dict[str, Any]:
+    """Read the persisted schedule. Returns the default on missing file
+    or malformed content — never raises, so supervisor tick logic stays
+    simple."""
+    path = _schedule_path()
+    if not path.exists():
+        return dict(_DEFAULT_SCHEDULE)
+    try:
+        import json
+        data = json.loads(path.read_text())
+    except Exception:
+        return dict(_DEFAULT_SCHEDULE)
+    merged = dict(_DEFAULT_SCHEDULE)
+    if isinstance(data, dict):
+        for k in ("mode", "window_start", "window_end"):
+            if k in data and isinstance(data[k], str):
+                merged[k] = data[k]
+    if merged["mode"] not in ("anytime", "window", "paused"):
+        merged["mode"] = "anytime"
+    return merged
+
+
+def save_schedule(sched: Dict[str, Any]) -> Dict[str, Any]:
+    """Write the schedule to disk after normalizing. Returns the
+    written value (same shape as load_schedule). Invalid mode values
+    are coerced to the default instead of raising so the API surface
+    is resilient to UI bugs."""
+    import json
+    merged = dict(_DEFAULT_SCHEDULE)
+    if isinstance(sched, dict):
+        mode = str(sched.get("mode", "anytime")).strip().lower()
+        if mode not in ("anytime", "window", "paused"):
+            mode = "anytime"
+        merged["mode"] = mode
+        for k in ("window_start", "window_end"):
+            v = sched.get(k)
+            if isinstance(v, str) and _parse_hhmm(v) is not None:
+                merged[k] = v
+    path = _schedule_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(merged, indent=2))
+    return merged
+
+
+def _parse_hhmm(s: str) -> Optional[tuple[int, int]]:
+    """Parse "HH:MM" → (hour, minute) or None on malformed input."""
+    try:
+        h, m = s.split(":", 1)
+        hh, mm = int(h), int(m)
+        if 0 <= hh < 24 and 0 <= mm < 60:
+            return hh, mm
+    except (ValueError, AttributeError):
+        pass
+    return None
+
+
+def schedule_status(sched: Optional[Dict[str, Any]] = None,
+                    now: Optional[datetime] = None) -> Dict[str, Any]:
+    """Compute live status for the current schedule.
+
+    Returns:
+        {
+          "mode": <str>,
+          "window_start": "HH:MM",
+          "window_end": "HH:MM",
+          "allowed_now": <bool>,                 # supervisor may run now
+          "seconds_until_open": <int>|None,      # None if already open or paused
+          "next_open_at": "HH:MM"|None,          # formatted for the UI
+        }
+
+    Semantics:
+      - "anytime" → allowed_now=True, seconds_until_open=None
+      - "paused"  → allowed_now=False, seconds_until_open=None
+                    (no automatic re-open; user must flip the toggle)
+      - "window"  → compute the next open edge. Wrap handled so
+                    22:00-06:00 works overnight.
+    """
+    sched = sched if sched is not None else load_schedule()
+    now = now or datetime.now()
+    out: Dict[str, Any] = {
+        "mode": sched["mode"],
+        "window_start": sched["window_start"],
+        "window_end": sched["window_end"],
+        "allowed_now": True,
+        "seconds_until_open": None,
+        "next_open_at": None,
+    }
+    mode = sched["mode"]
+    if mode == "anytime":
+        return out
+    if mode == "paused":
+        out["allowed_now"] = False
+        return out
+    # window
+    start = _parse_hhmm(sched["window_start"]) or (22, 0)
+    end = _parse_hhmm(sched["window_end"]) or (6, 0)
+    cur = (now.hour, now.minute)
+    def _m(t): return t[0] * 60 + t[1]
+    s_m, e_m, c_m = _m(start), _m(end), _m(cur)
+    if s_m == e_m:
+        # Degenerate — zero-width window. Treat as always disallowed.
+        out["allowed_now"] = False
+    elif s_m < e_m:
+        # Same-day window
+        out["allowed_now"] = s_m <= c_m < e_m
+    else:
+        # Overnight window (e.g. 22:00-06:00)
+        out["allowed_now"] = c_m >= s_m or c_m < e_m
+    if not out["allowed_now"]:
+        # Compute seconds until the next start edge.
+        today_start = now.replace(
+            hour=start[0], minute=start[1], second=0, microsecond=0,
+        )
+        if today_start <= now:
+            # Window already started earlier today (only possible for
+            # same-day windows where we've passed the end); next open
+            # is tomorrow at the same HH:MM.
+            today_start = today_start + timedelta(days=1)
+        delta = int((today_start - now).total_seconds())
+        out["seconds_until_open"] = max(delta, 1)
+        out["next_open_at"] = today_start.strftime("%Y-%m-%d %H:%M")
+    return out
+
+
 # ── Backend dispatch ────────────────────────────────────────────────
 
 def _require_known_backend(backend: str) -> None:
-    if backend not in ("airllm", "mlx"):
+    if backend not in ("aerollm", "mlx"):
         raise ValueError(
-            f"unknown backend: {backend!r} (expected 'airllm' or 'mlx')"
+            f"unknown backend: {backend!r} (expected 'aerollm' or 'mlx')"
         )
 
 
@@ -279,7 +435,7 @@ def _commit_files(backend: str) -> List[str]:
     _require_known_backend(backend)
     if backend == "mlx":
         return ["config/tuning-mlx.yml", "lab/data/mlx-bench.jsonl"]
-    return ["config/tuning.yml", "lab/data/airllm-bench.jsonl"]
+    return ["config/tuning.yml", "lab/data/aerollm-bench.jsonl"]
 
 
 def _default_candidates(backend: str) -> List[Candidate]:
@@ -292,11 +448,13 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _median(xs: List[float]) -> Optional[float]:
-    xs = [x for x in xs if x is not None]
-    if not xs:
+def _median(xs: List[Optional[float]]) -> Optional[float]:
+    """Median of a list that may contain None (we filter). Returns
+    None if no real numbers are present."""
+    clean = [x for x in xs if x is not None]
+    if not clean:
         return None
-    return round(statistics.median(xs), 3)
+    return round(statistics.median(clean), 3)
 
 
 def _run_n(
@@ -332,7 +490,7 @@ def _run_n(
                 knob_values=cfg.knob_values(),
                 variant_label=label,
             )
-            append_run(run)  # defaults to airllm-bench.jsonl
+            append_run(run)  # defaults to aerollm-bench.jsonl
             runs.append(run)
     return runs
 
@@ -382,7 +540,7 @@ def _build_commit_message(
 
 def run_autoresearch(
     *,
-    backend: str = "airllm",
+    backend: str = "aerollm",
     require_env_flag: bool = True,
     candidates: Optional[List[Candidate]] = None,
     progress: Optional[Callable[[LoopState], None]] = None,
@@ -412,6 +570,10 @@ def run_autoresearch(
         state.continuous = prev.continuous
         state.stop_requested = prev.stop_requested
         state.pass_number = prev.pass_number + 1
+        # Carry the supervisor's last-known schedule snapshot across
+        # passes so the UI doesn't blink back to "unknown" while the
+        # loop is actively running.
+        state.schedule = dict(prev.schedule) if prev.schedule else {}
 
     config_path = _config_path(backend)
     commit_files = _commit_files(backend)
@@ -593,16 +755,16 @@ def _slug(label: str) -> str:
 
 # ── "don't stop, won't stop" supervisor ─────────────────────────────
 #
-# AirLLM is the product under test (https://github.com/lyogavin/airllm).
-# AutoAir is the MLX analog. This lab is their performance-engineering
-# partner: we keep sweeping the whitelisted knob space, pass after pass,
-# committing wins to autoresearch/<id> branches so humans can review +
-# cherry-pick. Nothing here forks either upstream — it just measures
-# them relentlessly on whatever hardware the lab happens to be on.
+# AeroLLM is the product under test (github.com/cdarnell/aerollm). This
+# lab is its performance-engineering partner: we keep sweeping the
+# whitelisted knob space, pass after pass, committing wins to
+# autoresearch/<id> branches so humans can review + cherry-pick.
+# Nothing here forks the upstream — it just measures it relentlessly on
+# whatever hardware the lab happens to be on.
 
 def run_autoresearch_forever(
     *,
-    backend: str = "airllm",
+    backend: str = "aerollm",
     require_env_flag: bool = True,
     candidates: Optional[List[Candidate]] = None,
     progress: Optional[Callable[[LoopState], None]] = None,
@@ -620,10 +782,34 @@ def run_autoresearch_forever(
     state.continuous = True
     state.stop_requested = False
     state.pass_number = 0
+    state.schedule = schedule_status()
     first = True
+    # While waiting for the schedule window we poll in short slices so
+    # stop_requested + schedule edits take effect without the user
+    # having to wait for the full until-next-open delta.
+    WAIT_TICK_SEC = 30
     while True:
         if _STATES[backend].stop_requested:
             break
+
+        # Re-read the schedule on every iteration so the UI toggle
+        # takes effect without a restart. Cheap — one JSON read.
+        info = schedule_status()
+        state.schedule = info
+        if not info["allowed_now"]:
+            phase_label = "paused" if info["mode"] == "paused" else "waiting"
+            state.phase = phase_label
+            state.current_variant = None
+            if progress:
+                progress(state)
+            # Sleep a bounded slice so stop_requested / schedule edits
+            # are picked up quickly. For paused mode there's no target
+            # wake-up time, so we just tick every WAIT_TICK_SEC. For
+            # window mode we sleep min(seconds_until_open, tick).
+            wait = info.get("seconds_until_open") or WAIT_TICK_SEC
+            time.sleep(max(1, min(wait, WAIT_TICK_SEC)))
+            continue
+
         run_autoresearch(
             backend=backend,
             require_env_flag=require_env_flag,

@@ -4,7 +4,7 @@ section: docs
 tags: [configuration, env, reference]
 aliases: [env-vars, configuration]
 source: .env.example
-generated: 2026-04-17T11:08:09Z
+generated: 2026-04-19T13:28:47Z
 ---
 
 # Configuration reference
@@ -33,7 +33,7 @@ MODE: "airgapped" (default) or "hybrid" airgapped = local models only, zero netw
 
 ### `MODEL_BACKEND`
 
-MODEL BACKEND `./oglab setup` detects your hardware and overwrites this line with the matching backend (mlx | cuda | cpu). Ships as "cpu" so a user who pokes at imports before running setup gets a working fallback, not a KeyError. Options: mlx | cuda | cpu | airllm | openai_compat | huggingface | openrouter | claude
+MODEL BACKEND `./oglab setup` detects your hardware and overwrites this line with the matching backend (mlx | cuda | cpu). Ships as "cpu" so a user who pokes at imports before running setup gets a working fallback, not a KeyError. Options: mlx | cuda | cpu | aerollm | openai_compat | huggingface | openrouter | claude
 
 **Default:** `cpu`
 
@@ -49,9 +49,15 @@ Local inference port (for vLLM / llama.cpp server)
 
 **Default:** `8000`
 
+### `LAB_THEME`
+
+LAB THEME — the lab's north-star research area. Appears in the dashboard Mission Objective card as permanent context above whatever specific goal is active. Swap it to reframe the whole lab's focus.  Default theme: make SSD-hosted model inference faster. AeroLLM is the reference implementation — every experiment either improves its throughput, reduces its memory footprint, or extends what models it can host.
+
+**Default:** `"Making SSD-hosted model inference faster — frontier open-weight models on laptop hardware"`
+
 ### `LAB_ACTIVE_HOURS`
 
-SCHEDULER — when the lab does light vs heavy work. active hours → SLM only, stays responsive for interactive use heavy  hours → AirLLM experiments + full GPU burn Ranges are 24h local time. Heavy takes precedence when ranges overlap. LAB_STARTUP_DELAY_SEC is the courtesy delay on boot before the researcher's first tick, so the UI loads clean before agents start working. Set by `./oglab setup` — uncomment + edit here to override.
+SCHEDULER — when the lab does light vs heavy work. active hours → SLM only, stays responsive for interactive use heavy  hours → AeroLLM experiments + full GPU burn Ranges are 24h local time. Heavy takes precedence when ranges overlap. LAB_STARTUP_DELAY_SEC is the courtesy delay on boot before the researcher's first tick, so the UI loads clean before agents start working. Set by `./oglab setup` — uncomment + edit here to override.
 
 **Default:** `08:00-22:00`
 
@@ -73,23 +79,29 @@ WIKI — documentation-as-code auto-rebuild behavior.  The researcher agent and 
 
 **Default:** `30`
 
-### `AIRLLM_MODEL`
+### `AEROLLM_MODEL`
 
-AIRLLM  (deeper async work — smaller open model compressed from disk) Set MODEL_BACKEND=airllm or let the researcher agent use it automatically.
+AEROLLM — frontier models, multi-threaded prefetched layer streaming  AeroLLM streams transformer blocks from disk with a prefetch worker that overlaps the next block's load against the current block's compute — aerodynamic, so simultaneous prompts share each layer pass instead of serializing on disk bandwidth. That's how a MacBook chats with a 235B+ model. Throughput is tokens-per-minute at that scale, not per-second — but the model itself is frontier-class, and concurrency scales near-linearly with prompt count.  Dashboard has a "Deep model" toggle on the chat card that routes one message through AeroLLM without switching MODEL_BACKEND. Hover the FRONTIER chip in the chat card header for a Spec Sheet with strengths + benchmark comparisons (registry lives at src/oglab/model_specs.py — edit to add more models).  Source: https://github.com/cdarnell/aerollm
 
 **Default:** `Qwen/Qwen3-235B-A22B`
 
-### `AIRLLM_COMPRESSION`
+### `AEROLLM_COMPRESSION`
 
 **Default:** `4bit       # Options: 4bit | 8bit | none`
 
-### `AIRLLM_MAX_LENGTH`
+### `AEROLLM_MAX_LENGTH`
 
 **Default:** `512`
 
-### `AIRLLM_RESEARCH`
+### `AEROLLM_RESEARCH`
 
-**Default:** `true           # Auto-use AirLLM for deep research tasks`
+**Default:** `true          # Auto-use AeroLLM for deep research tasks`
+
+### `AEROLLM_PACKAGE`
+
+Install source. `./oglab setup` pip-installs this. AeroLLM has no PyPI release yet; installation is from the git URL below. Override to point at a branch or a local editable checkout during dev.
+
+**Default:** `git+https://github.com/cdarnell/aerollm@main`
 
 ### `ENERGY_RATE_KWH`
 

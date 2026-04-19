@@ -54,6 +54,10 @@ Thumbs.db
 *.swp
 *.swo
 
+# Sandbox can't unlink certain files; we mv them into .graveyard/ pending
+# a human-run `rm -rf .graveyard/` on the host.
+.graveyard/
+
 # mypy / pytest
 .mypy_cache/
 .pytest_cache/

@@ -130,7 +130,7 @@ async def _startup():
         activity_log.emit("pkb",
             f"Skill seeding failed: {type(e).__name__}: {e}", "error")
 
-    # Research program seed — the lab ships with "optimize AirLLM"
+    # Research program seed — the lab ships with "optimize AeroLLM"
     # pre-loaded so a fresh install has a meaningful research goal
     # the moment the portal comes up. User edits program.md to steer
     # the researcher elsewhere.
@@ -1243,7 +1243,7 @@ async def system_graph():
     backend_labels = {
         "mlx": "MLX", "cuda": "CUDA", "cpu": "CPU",
         "openai_compat": "OpenAI-Compat", "huggingface": "HuggingFace",
-        "openrouter": "OpenRouter", "claude": "Claude", "airllm": "AirLLM",
+        "openrouter": "OpenRouter", "claude": "Claude", "aerollm": "AeroLLM",
     }
     for name in BACKEND_MAP:
         is_active = name == active_backend
@@ -1325,7 +1325,7 @@ async def _run_chat_completion(
 
     prompt = lab_brain.build_chat_prompt(message, history)
 
-    wants_deep = str(backend_override or "").strip().lower() == "airllm"
+    wants_deep = str(backend_override or "").strip().lower() == "aerollm"
     deep_backend = None
     if wants_deep:
         try:
@@ -1333,16 +1333,17 @@ async def _run_chat_completion(
         except Exception as e:  # noqa: BLE001
             activity_log.emit(
                 "chat",
-                f"AirLLM init failed: {type(e).__name__}: {e}",
+                f"AeroLLM init failed: {type(e).__name__}: {e}",
                 "warn",
             )
             return {
                 "reply": (
-                    "AirLLM isn't ready on this lab. Install it "
-                    "(`pip install airllm`) and ensure AIRLLM_MODEL in "
-                    f".env points at a downloaded model.\n\nError: {e}"
+                    "AeroLLM isn't ready on this lab. Install it "
+                    "(`pip install git+https://github.com/cdarnell/aerollm@main`) "
+                    f"and ensure AEROLLM_MODEL in .env points at a downloaded "
+                    f"model.\n\nError: {e}"
                 ),
-                "backend": "airllm",
+                "backend": "aerollm",
                 "error": str(e),
             }
 
@@ -1387,7 +1388,7 @@ async def _run_chat_completion(
                 tokens_out=response.tokens_used,
                 latency_ms=response.latency_ms,
             )
-            _record_airllm_bench(
+            _record_aerollm_bench(
                 model=response.model,
                 tokens_out=response.tokens_used,
                 latency_ms=response.latency_ms,
@@ -1458,7 +1459,7 @@ async def api_chat(request: Request):
         {
           "message": "What commands can I run?",
           "history": [{"role": "user"|"assistant", "content": "..."}],
-          "backend": "airllm" (optional),
+          "backend": "aerollm" (optional),
           "model": "model-name" (optional, network backends only),
           "temperature": 0.7, "top_p": 0.9, "max_tokens": 512
         }
@@ -1490,7 +1491,7 @@ async def api_chat(request: Request):
     )
 
 
-# Deep-backend cache — AirLLM init loads the whole model layer-by-
+# Deep-backend cache — AeroLLM init loads the whole model layer-by-
 # layer from disk (expensive). Cache the instance so subsequent
 # "deep" chat calls reuse it. Lazy: never instantiated unless the
 # user actually opts in via the UI.
@@ -1500,35 +1501,34 @@ _DEEP_BACKEND_CACHE = None
 def _get_deep_backend():
     global _DEEP_BACKEND_CACHE
     if _DEEP_BACKEND_CACHE is None:
-        from oglab.router.backends import AirLLMBackend
-        _DEEP_BACKEND_CACHE = AirLLMBackend()
-        # Give the AirLLM instance the same interface as other
+        from oglab.router.backends import AeroLLMBackend
+        _DEEP_BACKEND_CACHE = AeroLLMBackend()
+        # Give the AeroLLM instance the same interface as other
         # backends so cost tracking + error handling above treat it
         # uniformly.
-        _DEEP_BACKEND_CACHE.backend_name = "airllm"
+        _DEEP_BACKEND_CACHE.backend_name = "aerollm"
     return _DEEP_BACKEND_CACHE
 
 
-# ── AirLLM bench capture ────────────────────────────────────────
-# Every deep-call through AirLLM appends one JSON line to
-# lab/data/airllm-bench.jsonl. The /api/airllm/bench endpoint
+# ── AeroLLM bench capture ───────────────────────────────────────
+# Every deep-call through AeroLLM appends one JSON line to
+# lab/data/aerollm-bench.jsonl. The /api/aerollm/bench endpoint
 # aggregates by model so the dashboard can show "on your machine,
 # X tokens/min averaged over N calls." This is the proof-ground
-# for any AirLLM optimizations you ship in a fork — before/after
-# numbers land in this file.
+# for any AeroLLM optimizations — before/after numbers land here.
 
-def _airllm_bench_file() -> Path:
+def _aerollm_bench_file() -> Path:
     from oglab.config import DATA_DIR
-    return DATA_DIR / "airllm-bench.jsonl"
+    return DATA_DIR / "aerollm-bench.jsonl"
 
 
-def _record_airllm_bench(*, model: str, tokens_out: int, latency_ms: float,
-                         prompt_chars: int, max_tokens: int) -> None:
+def _record_aerollm_bench(*, model: str, tokens_out: int, latency_ms: float,
+                          prompt_chars: int, max_tokens: int) -> None:
     """Append one bench record. Never raises — a bench-log failure
     shouldn't break a user's chat reply."""
     try:
         from datetime import datetime, timezone
-        path = _airllm_bench_file()
+        path = _aerollm_bench_file()
         path.parent.mkdir(parents=True, exist_ok=True)
         # Include hardware hint so benches from different machines
         # stay comparable when this file gets synced between labs.
@@ -1550,9 +1550,9 @@ def _record_airllm_bench(*, model: str, tokens_out: int, latency_ms: float,
         pass
 
 
-@app.get("/api/airllm/bench")
-async def api_airllm_bench():
-    """Return aggregated AirLLM throughput stats per model.
+@app.get("/api/aerollm/bench")
+async def api_aerollm_bench():
+    """Return aggregated AeroLLM throughput stats per model.
 
     Shape::
 
@@ -1571,7 +1571,7 @@ async def api_airllm_bench():
           "platform": "Darwin 25.4.0 arm64"
         }
     """
-    path = _airllm_bench_file()
+    path = _aerollm_bench_file()
     if not path.exists():
         return {"bench": {}, "total_runs": 0, "platform": None}
 
@@ -1620,7 +1620,7 @@ async def api_chat_models():
     For OpenAI-compatible backends (LM Studio, Ollama, NVIDIA NIM,
     OpenRouter), we query the server's ``/v1/models`` endpoint and
     list every model it advertises. For single-model backends
-    (MLX, llama.cpp, AirLLM, Claude, HF Inference), we return just
+    (MLX, llama.cpp, AeroLLM, Claude, HF Inference), we return just
     the configured ``MODEL_NAME`` so the dropdown still renders.
 
     The dashboard Tuning row uses this to populate its Model picker.
@@ -1682,7 +1682,7 @@ async def api_chat_models():
     # here's the command to add more."
     local_models: list[str] = []
     install_hint: dict | None = None
-    if backend_name in ("mlx", "cpu", "airllm", "cuda"):
+    if backend_name in ("mlx", "cpu", "aerollm", "cuda"):
         models_dir = Path(os.getenv("OGLAB_MODELS_DIR", "lab/models"))
         if models_dir.exists():
             try:
@@ -1691,7 +1691,7 @@ async def api_chat_models():
                     if p.is_dir()
                     and not p.name.startswith(".")
                     and not p.name.startswith("_")
-                    # Skip cache dirs (airllm_cache, hf_cache, etc.) —
+                    # Skip cache dirs (aerollm_cache, hf_cache, etc.) —
                     # they're shards, not loadable models.
                     and "_cache" not in p.name
                 )
@@ -1716,7 +1716,7 @@ async def api_chat_models():
                 "huggingface-cli download Qwen/Qwen3-8B "
                 f"--local-dir {models_dir}/Qwen3-8B"
             )
-        else:  # airllm
+        else:  # aerollm
             example = (
                 "huggingface-cli download Qwen/Qwen3-235B-A22B "
                 f"--local-dir {models_dir}/Qwen3-235B-A22B"
@@ -1738,7 +1738,7 @@ async def api_chat_models():
     # the UI what giant model is wired up behind the "Deep model"
     # toggle. Separate field because users can flip that toggle
     # regardless of which primary backend they're on.
-    deep_model_name = os.getenv("AIRLLM_MODEL", "Qwen/Qwen3-235B-A22B")
+    deep_model_name = os.getenv("AEROLLM_MODEL", "Qwen/Qwen3-235B-A22B")
     # Look up the spec sheet so the Frontier chip hover can show
     # strengths, benchmarks, and license at a glance. Registry lives
     # in src/oglab/model_specs.py — users edit it to add new models.
@@ -1747,13 +1747,13 @@ async def api_chat_models():
 
     deep_info = {
         "model": deep_model_name,
-        # Whether the airllm package is importable. When False, the
+        # Whether the aerollm package is importable. When False, the
         # UI can swap the toggle for an install hint.
-        "installed": _is_airllm_installed(),
+        "installed": _is_aerollm_installed(),
         # Rough size hint the UI can render in the chip. We extract
         # a parameter count from the model name when present
         # (e.g. "Qwen3-235B-A22B" → "235B"); the user-entered
-        # AIRLLM_MODEL decides what shows.
+        # AEROLLM_MODEL decides what shows.
         "param_hint": _extract_param_hint(deep_model_name),
         # Spec sheet — populated from the registry. Null when the
         # configured model isn't known; the UI shows a "click to
@@ -1772,11 +1772,11 @@ async def api_chat_models():
     }
 
 
-def _is_airllm_installed() -> bool:
-    """airllm is optional — check without importing since the import
+def _is_aerollm_installed() -> bool:
+    """aerollm is optional — check without importing since the import
     itself is heavy (drags torch)."""
     import importlib.util
-    return importlib.util.find_spec("airllm") is not None
+    return importlib.util.find_spec("aerollm") is not None
 
 
 def _extract_param_hint(model_name: str) -> str:
@@ -1865,7 +1865,7 @@ async def system_health():
 
     # Spec tier
     tier = "minimum"
-    deep_enabled = os.getenv("AIRLLM_RESEARCH", "false").lower() == "true"
+    deep_enabled = os.getenv("AEROLLM_RESEARCH", "false").lower() == "true"
     if deep_enabled:
         tier = "deep"
     elif ram_total_gb >= 16 and disk_free_gb >= 40:
@@ -1907,7 +1907,7 @@ async def system_health():
         "gpu": gpu_info,
         "tier": tier,
         "deep_enabled": deep_enabled,
-        "airllm_model": os.getenv("AIRLLM_MODEL", ""),
+        "aerollm_model": os.getenv("AEROLLM_MODEL", ""),
         "services": services,
         "mode": os.getenv("OGLAB_MODE", "airgapped"),
     }
@@ -2501,8 +2501,8 @@ async def api_pkm_file_legacy(path: str = ""):
 #
 # The page shows Baseline vs Champion, a full bench history with git
 # context, and controls that fire the autoresearch loop for either
-# backend (AirLLM/CUDA or AutoAir/MLX). Every endpoint accepts a
-# ?backend=airllm|mlx query param; default is "airllm" for back-compat.
+# backend (AeroLLM CUDA or AeroLLM MLX). Every endpoint accepts a
+# ?backend=aerollm|mlx query param; default is "aerollm".
 #
 #   GET  /api/tuning/config                  — hydrated tuning config
 #   GET  /api/tuning/runs                    — bench history + git SHA
@@ -2517,13 +2517,13 @@ async def api_pkm_file_legacy(path: str = ""):
 # an accidental click from making commits.
 # ═══════════════════════════════════════════════════════════════════════
 
-_VALID_BACKENDS = {"airllm", "mlx"}
+_VALID_BACKENDS = {"aerollm", "mlx"}
 
 
 def _normalize_backend(backend: str | None) -> str:
-    b = (backend or "airllm").lower()
+    b = (backend or "aerollm").lower()
     if b not in _VALID_BACKENDS:
-        b = "airllm"
+        b = "aerollm"
     return b
 
 
@@ -2533,7 +2533,7 @@ async def tuning_page(request: Request):
 
 
 @app.get("/api/tuning/config")
-async def api_tuning_config(backend: str = "airllm"):
+async def api_tuning_config(backend: str = "aerollm"):
     """Return the hydrated tuning config for the selected backend.
     Safe to poll."""
     from oglab.experiments.autoresearch import _config_path
@@ -2574,7 +2574,7 @@ async def api_tuning_config(backend: str = "airllm"):
         },
         # Frontier strip — 670B-750B class "doesn't fit any single
         # GPU" targets. Only populated for the MLX backend; the
-        # AirLLM config leaves this empty.
+        # CUDA AeroLLM config leaves this empty.
         "frontier_models": [
             {
                 "name": fm.name,
@@ -2595,7 +2595,7 @@ async def api_tuning_config(backend: str = "airllm"):
 
 
 @app.get("/api/tuning/runs")
-async def api_tuning_runs(backend: str = "airllm", limit: int = 200):
+async def api_tuning_runs(backend: str = "aerollm", limit: int = 200):
     """Return recent bench rows with git context for the selected
     backend. Enriches each row with a `diff_url` pointing at GitHub
     if a remote is configured."""
@@ -2615,7 +2615,7 @@ async def api_tuning_runs(backend: str = "airllm", limit: int = 200):
 
 
 @app.post("/api/tuning/baseline")
-async def api_tuning_baseline(backend: str = "airllm"):
+async def api_tuning_baseline(backend: str = "aerollm"):
     """Run the benchmark `bench_runs_per_config` times on the current
     HEAD and persist the median into the backend's tuning config as
     the new baseline. Runs synchronously in a worker thread — expect
@@ -2635,7 +2635,7 @@ async def api_tuning_baseline(backend: str = "airllm"):
 
 
 @app.post("/api/tuning/autoresearch/start")
-async def api_tuning_autoresearch_start(backend: str = "airllm"):
+async def api_tuning_autoresearch_start(backend: str = "aerollm"):
     """Kick off the full autoresearch loop in a background task for
     the selected backend. Returns immediately; poll /status?backend=
     for progress."""
@@ -2667,14 +2667,14 @@ async def api_tuning_autoresearch_start(backend: str = "airllm"):
 
 
 @app.get("/api/tuning/autoresearch/status")
-async def api_tuning_autoresearch_status(backend: str = "airllm"):
+async def api_tuning_autoresearch_status(backend: str = "aerollm"):
     from oglab.experiments.autoresearch import current_state
     b = _normalize_backend(backend)
     return current_state(b).to_dict()
 
 
 @app.post("/api/tuning/autoresearch/start_forever")
-async def api_tuning_autoresearch_start_forever(backend: str = "airllm"):
+async def api_tuning_autoresearch_start_forever(backend: str = "aerollm"):
     """Kick off the continuous supervisor for the selected backend —
     sweeps every candidate, pauses, sweeps again, forever, until /stop
     is called. Returns immediately; poll /status for progress +
@@ -2704,7 +2704,7 @@ async def api_tuning_autoresearch_start_forever(backend: str = "airllm"):
 
 
 @app.post("/api/tuning/autoresearch/stop")
-async def api_tuning_autoresearch_stop(backend: str = "airllm"):
+async def api_tuning_autoresearch_stop(backend: str = "aerollm"):
     """Signal the continuous supervisor for the selected backend to
     stop after the current pass. Safe to call whether or not a loop
     is running."""
@@ -2714,10 +2714,35 @@ async def api_tuning_autoresearch_stop(backend: str = "airllm"):
     return {"ok": True, "state": current_state(b).to_dict()}
 
 
+@app.get("/api/tuning/autoresearch/schedule")
+async def api_tuning_autoresearch_schedule_get():
+    """Return the persisted schedule + live status (allowed_now, next
+    open time). Safe to poll; cheap (one JSON read from disk)."""
+    from oglab.experiments.autoresearch import load_schedule, schedule_status
+    sched = load_schedule()
+    return {"schedule": sched, "status": schedule_status(sched)}
+
+
+@app.post("/api/tuning/autoresearch/schedule")
+async def api_tuning_autoresearch_schedule_set(request: Request):
+    """Update the schedule. Body shape:
+        {"mode": "anytime"|"window"|"paused",
+         "window_start": "HH:MM", "window_end": "HH:MM"}
+    Invalid values are coerced to defaults rather than rejected so the
+    UI never has to choreograph error handling."""
+    from oglab.experiments.autoresearch import save_schedule, schedule_status
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    sched = save_schedule(body or {})
+    return {"schedule": sched, "status": schedule_status(sched)}
+
+
 # ═══════════════════════════════════════════════════════════════════════
-# /teacher — AirLLM-backed deep consultation surface.
+# /teacher — AeroLLM-backed deep consultation surface.
 #
-# Every Q&A routes through AirLLM (multi-minute answers from a frontier
+# Every Q&A routes through AeroLLM (multi-minute answers from a frontier
 # model) and auto-saves to lab/pkb/teacher/<ts>.md so wisdom compounds
 # across sessions. The page is deliberately slow and calm — see
 # templates/teacher.html for the UX.
@@ -2734,7 +2759,7 @@ async def teacher_page(request: Request):
 
 @app.post("/api/teacher/ask")
 async def api_teacher_ask(request: Request):
-    """One consultation with the Deep Teacher. Forces backend=airllm so
+    """One consultation with the Deep Teacher. Forces backend=aerollm so
     the user never accidentally hits the fast path from this surface.
     Saves the Q&A to PKB on success."""
     try:
@@ -2748,7 +2773,7 @@ async def api_teacher_ask(request: Request):
     result = await _run_chat_completion(
         message=message,
         history=[],
-        backend_override="airllm",
+        backend_override="aerollm",
         model_override=None,
         temperature=0.7,
         top_p=None,
@@ -2758,7 +2783,7 @@ async def api_teacher_ask(request: Request):
         try:
             from oglab.pkb import write_teacher_qa
             path = write_teacher_qa(
-                message, result["reply"], result.get("model") or "airllm",
+                message, result["reply"], result.get("model") or "aerollm",
             )
             try:
                 result["saved_to"] = str(

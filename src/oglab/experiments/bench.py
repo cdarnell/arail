@@ -1,10 +1,10 @@
 """oglab.experiments.bench — Benchmark runner for the 1 TB
 research model.
 
-We run a fixed prompt through AirLLM N times, capture a BenchRun
+We run a fixed prompt through AeroLLM N times, capture a BenchRun
 per call (TTFT, decode tok/s, bytes read from disk, peak RSS), and
 append each run as a line of JSONL to
-`lab/data/airllm-bench.jsonl`.
+`lab/data/aerollm-bench.jsonl`.
 
 This file extends the existing bench capture in portal/app.py with
 two things the autoresearch loop needs:
@@ -17,7 +17,7 @@ two things the autoresearch loop needs:
 
 The measurement loop is deliberately conservative:
 
-  - We don't assume AirLLM exposes a streaming generator, so TTFT
+  - We don't assume AeroLLM exposes a streaming generator, so TTFT
     and decode-rate are approximated by splitting the total call
     into a small "prefill-and-one-token" warmup and the remaining
     generation. Sub-token precision isn't needed for an optimization
@@ -68,12 +68,22 @@ class BenchRun:
     knob_values: Dict[str, Any] = field(default_factory=dict)
 
     # Free-form label for the UI; agent populates this with the
-    # candidate name from docs/airllm-fork-guide.md
+    # candidate variant name from the active autoresearch config.
     variant_label: Optional[str] = None
 
     # Status + notes for rows that failed
     status: str = "ok"
     error: Optional[str] = None
+
+    # Per-stage timings in ms. Optional — backends that don't
+    # instrument individual stages leave this None. The MLX backend
+    # populates {load_ms, prefill_ms, decode_ms}; future backends can
+    # extend with additional keys without breaking the UI (rendering
+    # is generic over whatever keys are present). Cost of populating
+    # this is four ``time.perf_counter()`` calls per run — O(10ns)
+    # per call — so it's effectively free relative to a multi-minute
+    # inference.
+    stages: Optional[Dict[str, float]] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -83,9 +93,9 @@ class BenchRun:
 
 def _bench_file() -> Path:
     # We intentionally point at the same file portal/app.py uses so
-    # the existing /api/airllm/bench endpoint keeps working.
+    # the /api/aerollm/bench endpoint keeps working.
     from oglab.config import DATA_DIR
-    return DATA_DIR / "airllm-bench.jsonl"
+    return DATA_DIR / "aerollm-bench.jsonl"
 
 
 def _now() -> str:
@@ -124,13 +134,13 @@ def _peak_rss_mb() -> Optional[float]:
 
 def _apply_knob_env(knob_values: Dict[str, Any]) -> None:
     """Translate the knob names in tuning.yml into the environment
-    variables the AirLLMBackend actually reads. Keeping the mapping
+    variables the AeroLLMBackend actually reads. Keeping the mapping
     centralized here means the agent never has to know the env-var
     names — it just writes to tuning.yml and this function does the
     translation before the backend is constructed."""
     mapping = {
-        "airllm_compression": "AIRLLM_COMPRESSION",
-        "airllm_max_length":  "AIRLLM_MAX_LENGTH",
+        "aerollm_compression": "AEROLLM_COMPRESSION",
+        "aerollm_max_length":  "AEROLLM_MAX_LENGTH",
     }
     for knob, env_key in mapping.items():
         if knob in knob_values:
@@ -159,9 +169,9 @@ def run_bench(
     # pinnable to a SHA even if the call later crashes.
     gs = git_state()
 
-    # Point the backend at the research model. AirLLMBackend reads
-    # AIRLLM_MODEL on construction.
-    os.environ["AIRLLM_MODEL"] = research_model_name
+    # Point the backend at the research model. AeroLLMBackend reads
+    # AEROLLM_MODEL on construction.
+    os.environ["AEROLLM_MODEL"] = research_model_name
     _apply_knob_env(knob_values)
 
     t0 = time.time()
@@ -176,8 +186,8 @@ def run_bench(
     try:
         backend = _backend
         if backend is None:
-            from oglab.router.backends import AirLLMBackend
-            backend = AirLLMBackend()
+            from oglab.router.backends import AeroLLMBackend
+            backend = AeroLLMBackend()
         # Warmup call: 1 token to approximate TTFT. We do a real
         # short call rather than instrumenting .generate(), which
         # would require a fork. Sub-token precision isn't needed.

@@ -87,42 +87,36 @@
        selected backend is threaded through every fetch as a query
        param. Persists to localStorage so a refresh keeps the tab. -->
   <div class="tn-tabs" role="tablist" style="display:flex;gap:4px;margin:14px 0 10px;border-bottom:1px solid var(--border,#222);">
-    <button class="tn-tab active" data-backend="airllm" role="tab"
+    <button class="tn-tab active" data-backend="aerollm" role="tab"
             style="background:transparent;border:0;border-bottom:2px solid #7ee0a0;color:#d4e8d8;padding:8px 14px;cursor:pointer;font-size:13px;">
-      AirLLM <span style="color:#8faf97;font-size:11px;">· CUDA · 1 TB class</span>
+      AeroLLM <span style="color:#8faf97;font-size:11px;">· CUDA · 1 TB class</span>
     </button>
     <button class="tn-tab" data-backend="mlx" role="tab"
             style="background:transparent;border:0;border-bottom:2px solid transparent;color:#8faf97;padding:8px 14px;cursor:pointer;font-size:13px;">
-      AutoAir MLX <span style="color:#6a8a72;font-size:11px;">· Apple silicon · unified memory</span>
+      AeroLLM MLX <span style="color:#6a8a72;font-size:11px;">· Apple silicon · unified memory</span>
     </button>
   </div>
 
-  <!-- ── AirLLM credit / framing ──────────────────────────────────────
-       Honest division of labor:
-         - lyogavin/airllm invented the layer-by-layer-off-disk pattern
-           and shipped the CUDA-first reference implementation.
-         - Their MLX story today is ONE file (airllm_llama_mlx.py) that
-           covers Llama only. Every other family (Qwen, Mistral, Mixtral,
-           ChatGLM, DeepSeek…) falls back to the CUDA/PyTorch base.
-         - This lab is pushing the MLX path to the rest of the zoo on
-           Apple silicon + NVMe. That's new work, not a repackage.
-       So: credit the idea, claim the port. -->
+  <!-- ── AeroLLM framing ─────────────────────────────────────────────
+       AeroLLM is the lab's deep-inference runtime: multi-threaded
+       prefetched layer streaming optimized for concurrent research
+       prompts. Both tabs below measure it — one on CUDA, one on
+       Apple silicon unified memory. Measurements land in
+       lab/data/aerollm-bench.jsonl regardless of tab. -->
   <div class="tn-card" style="margin-bottom:16px;background:#0f1a14;border-color:#1e3a2a;">
     <div style="display:flex;gap:10px;align-items:flex-start;">
       <span style="font-size:20px;line-height:1;">🧪</span>
       <div class="tn-meta" style="color:#b8d0bf;font-size:12px;line-height:1.55;margin:0;">
-        <strong style="color:#d4e8d8;">OGLab MLX streaming — built on AirLLM's idea.</strong>
-        The pattern of layer-by-layer NVMe streaming comes from
-        <a href="https://github.com/lyogavin/airllm" target="_blank"
-           rel="noopener" style="color:#7ee0a0;">lyogavin/airllm</a>
-        (CUDA-first). Their MLX path ships as one Llama-only file; this
-        lab extends the streaming idea to Qwen, Mistral, Mixtral,
-        ChatGLM, DeepSeek &amp; friends on Apple silicon.
+        <strong style="color:#d4e8d8;">AeroLLM — aerodynamic layer streaming.</strong>
+        Multi-threaded prefetch overlaps I/O and compute so
+        simultaneous prompts share each layer pass instead of
+        serializing on disk bandwidth. Developed at
+        <a href="https://github.com/cdarnell/aerollm" target="_blank"
+           rel="noopener" style="color:#7ee0a0;">cdarnell/aerollm</a>.
         <br>
         <span style="color:#8faf97;">Measurements land in
-          <code>lab/data/airllm-bench.jsonl</code>. Wins on MLX become
-          upstream contributions or a sibling project, depending on how
-          far the port drifts from the reference.</span>
+          <code>lab/data/aerollm-bench.jsonl</code>. Wins on either
+          tab feed into the upstream repo.</span>
       </div>
     </div>
   </div>
@@ -237,7 +231,7 @@
       <path id="tn-m-e5" class="tn-edge dashed" d="M 620 350 L 760 350 L 760 315" marker-end="url(#tn-arr)"/>
       <text class="tn-elab" x="700" y="340">prefix reuse</text>
 
-      <!-- The PCIe hop that AirLLM needs but MLX doesn't (strikethrough) -->
+      <!-- The PCIe hop that CUDA AeroLLM needs but MLX doesn't (strikethrough) -->
       <path class="tn-edge strike" d="M 400 275 L 660 155" />
       <text class="tn-elab strike" x="530" y="262">✕ no PCIe copy</text>
       <text class="tn-note"        x="530" y="252" style="fill:#a06060;">(collapsed by unified memory)</text>
@@ -266,8 +260,8 @@
       </g>
     </svg>
 
-    <!-- ── AirLLM reference diagram (the 3-tier CUDA flow) ─────── -->
-    <svg id="tn-arch-airllm" class="tn-arch-svg"
+    <!-- ── AeroLLM CUDA reference diagram (the 3-tier flow) ────── -->
+    <svg id="tn-arch-aerollm" class="tn-arch-svg"
          viewBox="0 0 1000 520"
          style="width:100%;height:auto;background:#0d0f12;border:1px solid #2a3238;border-radius:6px;display:none;">
       <defs>
@@ -433,8 +427,8 @@
     <button class="tn-btn" id="tn-run-auto">Run one sweep</button>
     <button class="tn-btn" id="tn-run-forever"
             style="background:#7a2;"
-            title="AutoAirLLM — sweeps every candidate, pauses, sweeps again, forever.">
-      ▶ AutoAirLLM — don't stop, won't stop
+            title="AeroLLM autoresearch — sweeps every candidate, pauses, sweeps again, forever.">
+      ▶ AeroLLM — don't stop, won't stop
     </button>
     <button class="tn-btn" id="tn-stop"
             style="background:#a33;display:none;">
@@ -446,6 +440,31 @@
       <span id="tn-phase-detail"></span>
       <span id="tn-pass-chip" style="display:none;margin-left:8px;padding:2px 6px;border-radius:3px;background:#1e3a2a;color:#7ee0a0;">pass #<span id="tn-pass-num">0</span></span>
     </span>
+  </div>
+
+  <!-- ── Schedule widget ─────────────────────────────────────────────
+       Controls when the continuous supervisor runs. Persists to
+       lab/data/autoresearch-schedule.json; the supervisor re-reads
+       it every tick so changes take effect without a restart.
+       Hidden when the backend has never entered continuous mode
+       (no reason to clutter the first-time UX). -->
+  <div class="tn-controls" style="margin-top:4px;font-size:12px;color:var(--muted,#888);align-items:center;">
+    <label style="display:flex;align-items:center;gap:6px;">
+      <span style="letter-spacing:0.05em;text-transform:uppercase;font-size:11px;">Schedule</span>
+      <select id="tn-sched-mode" style="background:#111;color:#d4e8d8;border:1px solid #333;border-radius:3px;padding:3px 6px;font-size:12px;">
+        <option value="anytime">Anytime</option>
+        <option value="window">Off-hours only</option>
+        <option value="paused">Paused</option>
+      </select>
+    </label>
+    <span id="tn-sched-window" style="display:none;gap:6px;align-items:center;">
+      <input type="time" id="tn-sched-start" value="22:00"
+             style="background:#111;color:#d4e8d8;border:1px solid #333;border-radius:3px;padding:2px 6px;font-size:12px;">
+      <span>to</span>
+      <input type="time" id="tn-sched-end" value="06:00"
+             style="background:#111;color:#d4e8d8;border:1px solid #333;border-radius:3px;padding:2px 6px;font-size:12px;">
+    </span>
+    <span id="tn-sched-status" style="color:#8faf97;"></span>
   </div>
 
   <!-- ── Variants from the last loop ───────────────────────────────── -->
@@ -477,11 +496,12 @@
           <th>tok/s</th>
           <th>TTFT (ms)</th>
           <th>Tokens</th>
+          <th title="Per-stage timings (MLX only for now) — load / prefill / decode in ms">Stages</th>
           <th>Commit</th>
           <th>Branch</th>
         </tr>
       </thead>
-      <tbody id="tn-history"><tr><td colspan="7" class="tn-empty">No bench records yet.</td></tr></tbody>
+      <tbody id="tn-history"><tr><td colspan="8" class="tn-empty">No bench records yet.</td></tr></tbody>
     </table>
   </div>
 
@@ -500,13 +520,13 @@
   const $ = (id) => document.getElementById(id);
   const fmt = (n, d = 3) => (n == null ? "—" : Number(n).toFixed(d));
 
-  // Backend selection — airllm or mlx. Persisted so a refresh keeps
+  // Backend selection — aerollm or mlx. Persisted so a refresh keeps
   // the tab the user was on. Used by qurl() to append ?backend=... to
   // every endpoint that cares (which is all of them).
-  const BACKENDS = ["airllm", "mlx"];
+  const BACKENDS = ["aerollm", "mlx"];
   function currentBackend() {
-    const v = localStorage.getItem("oglab.tuning.backend") || "airllm";
-    return BACKENDS.includes(v) ? v : "airllm";
+    const v = localStorage.getItem("oglab.tuning.backend") || "aerollm";
+    return BACKENDS.includes(v) ? v : "aerollm";
   }
   function setBackend(b) {
     if (!BACKENDS.includes(b)) return;
@@ -520,10 +540,10 @@
     // Swap which architecture diagram is visible + its caption.
     const mlxOn = b === "mlx";
     document.getElementById("tn-arch-mlx").style.display = mlxOn ? "block" : "none";
-    document.getElementById("tn-arch-airllm").style.display = mlxOn ? "none" : "block";
+    document.getElementById("tn-arch-aerollm").style.display = mlxOn ? "none" : "block";
     document.getElementById("tn-arch-title").textContent = mlxOn
-      ? "Architecture — MLX unified-memory streaming (our design)"
-      : "Architecture — AirLLM 3-tier CUDA streaming (reference)";
+      ? "Architecture — MLX unified-memory streaming"
+      : "Architecture — AeroLLM CUDA 3-tier streaming";
     document.getElementById("tn-arch-blurb").innerHTML = mlxOn
       ? ("Layers live on NVMe. A <em>rotating window</em> of the current "
        + "layer is mmap'd into unified memory; MLX kernels read it "
@@ -592,8 +612,8 @@
   // ── Frontier challenge strip ────────────────────────────────────────
   //
   // Renders a card per entry in cfg.frontier_models. If the backend has
-  // no frontier_models (AirLLM's tuning.yml doesn't declare any yet),
-  // the wrap stays hidden — keeping the AirLLM tab visually clean.
+  // no frontier_models (the CUDA AeroLLM tuning.yml doesn't declare
+  // any yet), the wrap stays hidden — keeping that tab visually clean.
   //
   // Each card's status comes from cfg.frontier_baselines[huggingface_id]:
   //   - missing entry          → "streaming_required — waiting on
@@ -703,10 +723,30 @@
     }
   }
 
+  function fmtStages(stages) {
+    // Stage render: compact one-liner like "load 1.2s · prefill 300 · decode 58s".
+    // Returns "—" when stages is absent (CUDA rows, old rows, or
+    // failed runs that never recorded a stage). Generic over keys so
+    // new stages render automatically if a future backend adds them.
+    if (!stages || typeof stages !== "object") return "—";
+    const fmtMs = (v) => {
+      if (v == null) return "—";
+      if (v >= 1000) return (v / 1000).toFixed(1) + "s";
+      return Math.round(v) + "ms";
+    };
+    // Preferred ordering so the eye scans left→right in the right
+    // order. Any key we don't know about renders last in alpha order.
+    const order = ["load_ms", "tokenize_ms", "prefill_ms", "decode_ms"];
+    const keys = order.filter(k => k in stages)
+      .concat(Object.keys(stages).filter(k => !order.includes(k)).sort());
+    const label = (k) => k.replace(/_ms$/, "");
+    return keys.map(k => label(k) + " " + fmtMs(stages[k])).join(" · ");
+  }
+
   function paintHistory(rows) {
     const tbody = $("tn-history");
     if (!rows.length) {
-      tbody.innerHTML = '<tr><td colspan="7" class="tn-empty">No bench records yet.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="8" class="tn-empty">No bench records yet.</td></tr>';
       return;
     }
     tbody.innerHTML = "";
@@ -720,6 +760,8 @@
         "<td>" + fmt(r.decode_tok_per_sec) + "</td>" +
         "<td>" + fmt(r.ttft_ms, 0) + "</td>" +
         "<td>" + (r.tokens_out || 0) + "</td>" +
+        '<td style="font-family:ui-monospace,monospace;font-size:11px;color:#8faf97;">' +
+          fmtStages(r.stages) + "</td>" +
         "<td><code>" + (r.git_short_sha || "—") + "</code></td>" +
         "<td>" + (r.git_branch || "—") + "</td>";
       tbody.appendChild(tr);
@@ -788,7 +830,7 @@
       : (state.error ? " — " + state.error : "");
 
     // Continuous loop UI: show the pass chip + swap start/stop
-    // buttons so it's obvious AutoAirLLM is alive between sweeps.
+    // buttons so it's obvious the autoresearch loop is alive between sweeps.
     const running = state.continuous === true &&
       (state.phase === "baseline" || state.phase === "variant" ||
        state.stop_requested !== true);
@@ -879,17 +921,17 @@
 
   async function runForever() {
     if (!confirm(
-      "AutoAirLLM — don't stop, won't stop.\n\n" +
+      "AeroLLM autoresearch — don't stop, won't stop.\n\n" +
       "This sweeps every candidate, pauses briefly, then sweeps the " +
       "whole thing again — forever, until you click Stop. Winning " +
       "variants get committed to autoresearch/* branches for human " +
-      "review.\n\nAirLLM's binary is untouched; this only measures.\n\n" +
+      "review.\n\nThe AeroLLM binary is untouched; this only measures.\n\n" +
       "Continue?"
     )) return;
     try {
       await jpost("/api/tuning/autoresearch/start_forever");
     } catch (e) {
-      alert("AutoAirLLM failed to start: " + e.message);
+      alert("AeroLLM autoresearch failed to start: " + e.message);
       return;
     }
     // Poll while continuous. 4s cadence matches the one-shot loop.
@@ -921,10 +963,69 @@
   document.querySelectorAll(".tn-tab").forEach(el => {
     el.addEventListener("click", () => setBackend(el.dataset.backend));
   });
+  // ── Schedule widget ─────────────────────────────────────────────
+  // Reads /api/tuning/autoresearch/schedule on load, reflects mode +
+  // window in the three inputs, and POSTs changes back. The server
+  // persists to lab/data/autoresearch-schedule.json; the supervisor
+  // re-reads each tick. No form/submit — every change is live.
+  async function loadSchedule() {
+    try {
+      const j = await fetch("/api/tuning/autoresearch/schedule").then(r => r.json());
+      const s = j.schedule || {};
+      const st = j.status || {};
+      $("tn-sched-mode").value = s.mode || "anytime";
+      $("tn-sched-start").value = s.window_start || "22:00";
+      $("tn-sched-end").value = s.window_end || "06:00";
+      $("tn-sched-window").style.display = s.mode === "window" ? "inline-flex" : "none";
+      paintScheduleStatus(st);
+    } catch (e) { /* leave defaults */ }
+  }
+  function paintScheduleStatus(st) {
+    const el = $("tn-sched-status");
+    if (!st || !st.mode) { el.textContent = ""; return; }
+    if (st.mode === "anytime") {
+      el.textContent = "· always on";
+      el.style.color = "#7ee0a0";
+    } else if (st.mode === "paused") {
+      el.textContent = "· paused (no runs)";
+      el.style.color = "#c8a060";
+    } else if (st.mode === "window") {
+      if (st.allowed_now) {
+        el.textContent = "· in window (running)";
+        el.style.color = "#7ee0a0";
+      } else {
+        el.textContent = "· next open at " + (st.next_open_at || "—");
+        el.style.color = "#8faf97";
+      }
+    }
+  }
+  async function saveSchedule() {
+    const body = {
+      mode: $("tn-sched-mode").value,
+      window_start: $("tn-sched-start").value,
+      window_end: $("tn-sched-end").value,
+    };
+    $("tn-sched-window").style.display = body.mode === "window" ? "inline-flex" : "none";
+    try {
+      const j = await fetch("/api/tuning/autoresearch/schedule", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(body),
+      }).then(r => r.json());
+      paintScheduleStatus(j.status || {});
+    } catch (e) { /* silent — user can retry */ }
+  }
+  ["tn-sched-mode", "tn-sched-start", "tn-sched-end"].forEach(id => {
+    const el = $(id);
+    if (el) el.addEventListener("change", saveSchedule);
+  });
+
   // Reflect the persisted backend in the tab bar, then load data.
   setBackend(currentBackend());
-  // Soft auto-refresh so users see live updates during a loop
-  setInterval(refresh, 15000);
+  loadSchedule();
+  // Soft auto-refresh so users see live updates during a loop. Also
+  // refreshes the schedule status so "next open at" ticks forward.
+  setInterval(() => { refresh(); loadSchedule(); }, 15000);
 })();
 </script>
 

@@ -1742,7 +1742,7 @@ code {
 
 /* ── "Which brain?" install-help drawer ────────────────────────
    Shown under the disabled model dropdown on single-model
-   backends (MLX, CPU, AirLLM, CUDA). Expands to show where models
+   backends (MLX, CPU, AeroLLM, CUDA). Expands to show where models
    live, a copy-pastable install command, and anything already on
    disk. Keeps the whole story in one place so the user doesn't go
    hunting the README. */
@@ -1832,7 +1832,7 @@ code {
   color: var(--green-dim);
 }
 
-/* ── Deep-model (AirLLM) toggle ─────────────────────────────────
+/* ── Deep-model (AeroLLM) toggle ────────────────────────────────
    Big obvious switch because flipping it changes response time
    from milliseconds to minutes. The "on" state is amber (warning
    color) not green — this is powerful, not default. */

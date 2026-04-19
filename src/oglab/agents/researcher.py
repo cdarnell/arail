@@ -106,16 +106,16 @@ def _get_router():
 
 
 def _get_deep_router():
-    """Lazy-load a second ModelRouter wired to AirLLM for deep research.
+    """Lazy-load a second ModelRouter wired to AeroLLM for deep research.
 
-    Returns None when AirLLM is not installed or AIRLLM_RESEARCH is false.
+    Returns None when AeroLLM is not installed or AEROLLM_RESEARCH is false.
     """
     import os
-    if os.getenv("AIRLLM_RESEARCH", "true").lower() in ("0", "false", "no"):
+    if os.getenv("AEROLLM_RESEARCH", "true").lower() in ("0", "false", "no"):
         return None
     try:
         from oglab.router.core import ModelRouter
-        router = ModelRouter(backend="airllm")
+        router = ModelRouter(backend="aerollm")
         return router
     except Exception:
         return None
@@ -162,7 +162,7 @@ def _llm_complete(router, prompt: str, max_tokens: int = 512) -> str | None:
 
 def _deep_complete(deep_router, fast_router, prompt: str,
                    max_tokens: int = 512) -> str | None:
-    """Try deep (AirLLM) inference first, fall back to fast router.
+    """Try deep (AeroLLM) inference first, fall back to fast router.
 
     Emits an activity event so the dashboard shows deep inference is active.
     """

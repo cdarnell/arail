@@ -1,6 +1,6 @@
-# OGLab — AutoAir (MLX / Apple Silicon tunables)
+# OGLab — AeroLLM MLX (Apple Silicon tunables)
 #
-# THIS FILE IS THE AUTOAIR LOOP'S SURFACE AREA.
+# THIS FILE IS THE AeroLLM MLX LOOP'S SURFACE AREA.
 # The autoresearch agent, when running with backend="mlx", can only
 # propose changes to knobs listed in the schema below. Everything
 # else in the repo is off-limits. Same safety rail as tuning.yml —
@@ -14,7 +14,7 @@
 #   - SMALL models are listed for the fast interactive path; they are
 #     not tuned here.
 #
-# Why the knob set differs from AirLLM:
+# Why the knob set differs from the CUDA AeroLLM config:
 #   - No bitsandbytes on Apple — quantization is baked into the model
 #     download (model name encodes it), not a runtime knob.
 #   - No PCIe transfer — unified memory — so no pinned-memory knob.
@@ -264,7 +264,7 @@ knobs:
         Reuse KV cache across generate() calls that share a prompt
         prefix. Huge win for chat-like workloads with a stable
         system prompt; zero benefit for independent one-shot bench
-        prompts (which is what autoair's default bench prompt is).
+        prompts (which is what the default AeroLLM bench prompt is).
   model_quant_variant:
     current: "InferenceIllusionist/gpt-oss-20b-MLX-4bit"
     schema:
@@ -297,5 +297,5 @@ knobs:
       max: 100
       rationale: |
         Percent improvement in tokens/sec over baseline required
-        before autoair commits a variant. Smaller = more commits,
+        before AeroLLM autoresearch commits a variant. Smaller = more commits,
         noisier; larger = fewer, more confident commits.

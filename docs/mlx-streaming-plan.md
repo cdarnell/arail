@@ -1,15 +1,15 @@
 # MLX Layer-Streaming Plan — running 671B+ on a 24 GB Mac
 
 *Status: DESIGN — not yet implemented.*
-*Scope owner: AutoAir (MLX track).*
-*Sister doc: `docs/airllm-fork-guide.md` (CUDA reference implementation).*
+*Scope owner: AeroLLM (MLX backend).*
+*Sister track: AeroLLM CUDA (see [github.com/cdarnell/aerollm](https://github.com/cdarnell/aerollm)).*
 
 ---
 
 ## The thesis
 
-OGLab's AutoAir track claims something simpler and more honest than
-beating the clock:
+OGLab's AeroLLM MLX track claims something simpler and more honest
+than beating the clock:
 
 > **A 670B-750B-parameter GLM-class frontier model can respond to
 > a real knowledge-inference query on a 24 GB M5 with a 2 TB NVMe.
@@ -52,9 +52,9 @@ MLX's native assumption is the whole model fits in unified memory.
 
 To run any of these on a 24 GB box we have to stream layers from the
 2 TB NVMe into unified memory, compute, evict — the exact pattern
-AirLLM invented for CUDA.
+AeroLLM's CUDA backend implements.
 
-## What AirLLM does on CUDA (for reference)
+## What AeroLLM does on CUDA (for reference)
 
 1. mmap the weight shards off NVMe
 2. For each transformer block, in order:
@@ -67,8 +67,8 @@ AirLLM invented for CUDA.
 
 The latency is dominated by disk bandwidth. NVMe at ~6 GB/s and a
 335 GB model means **~56 s of pure weight transfer per forward pass**
-if no caching. AirLLM trims that with prefetch, pinned memory, and
-8-bit block-resident quantization.
+if no caching. AeroLLM trims that with a multi-threaded prefetcher,
+pinned memory, and 8-bit block-resident quantization.
 
 ## What MLX gives us for free (and what it doesn't)
 
@@ -241,8 +241,9 @@ Each step is gated by tests + the same safety rails: clean tree,
 
 ## Why this is worth building
 
-AirLLM proved the pattern works on CUDA. Nobody has shipped the
-equivalent for Apple Silicon. Doing so on a 24 GB consumer machine —
+The layer-streaming pattern is well-established on CUDA. AeroLLM's
+MLX backend is how OGLab ports it to Apple Silicon. Doing so on a
+24 GB consumer machine —
 and proving it with autoresearch-driven measurement rather than
 hand-tuning — is both a genuine technical contribution and the exact
 kind of story OGLab exists to tell. The logs, metrics, and info

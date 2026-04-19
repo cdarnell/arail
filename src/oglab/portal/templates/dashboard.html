@@ -49,7 +49,7 @@
       <span class="indicator"></span> Chat with the lab
       <span class="chat-backend" id="chat-backend" title="Active backend">—</span>
       <span class="chat-model"    id="chat-model"   title="Model tag" hidden></span>
-      <!-- Frontier deep-model chip. Always visible when AirLLM is
+      <!-- Frontier deep-model chip. Always visible when AeroLLM is
            installed — the whole point is to show the user that a
            giant model is available on demand, not hidden behind a
            toggle. Hovering opens a full Spec Sheet with strengths,
@@ -234,7 +234,7 @@
             <option value="">(current)</option>
           </select>
           <!-- Install-help drawer. Shown only when the backend is
-               a local single-model kind (MLX, CPU, AirLLM, CUDA)
+               a local single-model kind (MLX, CPU, AeroLLM, CUDA)
                where the user can't live-switch but CAN install new
                models on disk for the next restart. Populated by
                applyToInputs() from /api/chat/models install_hint. -->
@@ -244,7 +244,7 @@
           </details>
         </label>
 
-        <!-- Deep-model (AirLLM) escape hatch — routes this message
+        <!-- Deep-model (AeroLLM) escape hatch — routes this message
              through a much bigger model loaded layer-by-layer from
              disk. First use takes minutes; subsequent calls are
              still seconds-per-token. We gate it behind a prominent
@@ -252,7 +252,7 @@
              reading, you think the chat broke. -->
         <label class="chat-tuning-field chat-deep-toggle">
           <span class="chat-tuning-label">
-            Deep model (AirLLM)
+            Deep model (AeroLLM)
             <span class="chat-tuning-hint">
               ⚠ 30-120 seconds per reply · first use takes minutes to load
             </span>
@@ -1092,7 +1092,7 @@ async function chatSend(text) {
         top_p: tuning.topP > 0 ? tuning.topP : undefined,
         max_tokens: tuning.maxTokens,
         model: tuning.model || undefined,
-        backend: useDeep ? 'airllm' : undefined,
+        backend: useDeep ? 'aerollm' : undefined,
       }),
     });
     const d = await r.json();
@@ -1369,7 +1369,7 @@ const CHAT_TUNING = (() => {
     });
 
     // Populate the frontier chip (always-on header signal) and
-    // the deep toggle label. Both read AIRLLM_MODEL so the user
+    // the deep toggle label. Both read AEROLLM_MODEL so the user
     // sees *which* giant model is wired up, not an abstract toggle.
     const frontierWrap = document.getElementById('chat-frontier-wrap');
     const frontierEl = document.getElementById('chat-frontier');
@@ -1384,8 +1384,8 @@ const CHAT_TUNING = (() => {
       frontierEl.classList.toggle('not-installed', !deep.installed);
       if (!deep.installed) {
         frontierEl.title =
-          `AirLLM not installed on this lab. Run ./oglab setup to enable, ` +
-          `or pip install airllm manually.`;
+          `AeroLLM not installed on this lab. Run ./oglab setup to enable, ` +
+          `or pip install git+https://github.com/cdarnell/aerollm@main manually.`;
       }
       renderSpecPopover(deep);
     }
@@ -1396,7 +1396,7 @@ const CHAT_TUNING = (() => {
       // but bake the model name into the default "off" copy.
       const cb = document.getElementById('chat-deep-enable');
       if (cb && !cb.checked) {
-        deepText.textContent = `off — toggle to use ${short}${paramTag} via AirLLM`;
+        deepText.textContent = `off — toggle to use ${short}${paramTag} via AeroLLM`;
       }
       // Also rewrite the toggle's field hint so the "⚠ 30-120s" line
       // reflects the model's actual size class.
@@ -1476,12 +1476,12 @@ updateSessionTokens();
 // Render the Frontier chip's hover Spec Sheet. Populates from the
 // `deep.spec` blob returned by /api/chat/models. Falls back to a
 // "unknown model — edit model_specs.py to add" message when the
-// configured AIRLLM_MODEL isn't in the registry yet.
+// configured AEROLLM_MODEL isn't in the registry yet.
 async function _fetchMeasured(modelName) {
   // Pull hardware-measured stats for the given model. Returns
   // null when no bench records exist yet.
   try {
-    const r = await fetch('/api/airllm/bench');
+    const r = await fetch('/api/aerollm/bench');
     const d = await r.json();
     return { entry: (d.bench || {})[modelName] || null, platform: d.platform };
   } catch (e) {
@@ -1495,7 +1495,7 @@ function _renderMeasuredBlock(measured) {
       <div class="csp-section">
         <div class="csp-section-label">Measured on your hardware</div>
         <p class="csp-unknown">
-          No AirLLM runs yet for this model. Flip the Deep toggle,
+          No AeroLLM runs yet for this model. Flip the Deep toggle,
           send a message, and stats appear here on the next page load.
         </p>
       </div>`;
@@ -1615,7 +1615,7 @@ async function renderSpecPopover(deep) {
   });
 }
 
-// Honest latency framing by model size. At 100B+ via AirLLM you're
+// Honest latency framing by model size. At 100B+ via AeroLLM you're
 // waiting seconds per token; above ~400B you're into minutes per
 // reply. Tell the user what to expect before they click Send and
 // think the chat froze.
@@ -1634,9 +1634,9 @@ function _deepLatencyHint(paramHint) {
   return '5-15 minutes per reply · true frontier territory';
 }
 
-// Deep-model (AirLLM) toggle state. Persists to localStorage so
+// Deep-model (AeroLLM) toggle state. Persists to localStorage so
 // flipping it back on is a one-click operation. When on, the chat
-// POST includes backend:"airllm" and replies take minutes.
+// POST includes backend:"aerollm" and replies take minutes.
 (function wireDeepToggle() {
   const DEEP_KEY = 'oglab.chat.deep';
   const cb = document.getElementById('chat-deep-enable');
@@ -1644,7 +1644,7 @@ function _deepLatencyHint(paramHint) {
   if (!cb || !label) return;
   function render() {
     label.textContent = cb.checked
-      ? '⚡ ON — next reply routes through AirLLM (slow but smart)'
+      ? '⚡ ON — next reply routes through AeroLLM (slow but smart)'
       : 'off — using the fast model above';
     label.classList.toggle('deep-on', cb.checked);
   }

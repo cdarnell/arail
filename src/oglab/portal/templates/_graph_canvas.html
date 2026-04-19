@@ -237,7 +237,7 @@ function drawNode(n) {
   ctx.textBaseline = 'middle';
   ctx.fillStyle = COLORS[n.group] || '#555e70';
 
-  if (n.id === 'backend_airllm') {
+  if (n.id === 'backend_aerollm') {
     ctx.fillText('🔬', s.x, s.y);
   } else {
     ctx.fillText(ICONS[n.group] || '●', s.x, s.y);
@@ -511,7 +511,7 @@ async function refreshHealth() {
       html += `<div class="health-row"><span class="health-label">GPU</span><span class="health-value">${h.gpu.name}</span></div>`;
     }
     if (h.deep_enabled) {
-      html += `<div class="health-row"><span class="health-label">Deep</span><span class="health-value" style="color:#ffb000">AirLLM ✓</span></div>`;
+      html += `<div class="health-row"><span class="health-label">Deep</span><span class="health-value" style="color:#ffb000">AeroLLM ✓</span></div>`;
     }
     html += `<div class="health-row" style="border-bottom:none"><span class="health-label">Services</span><span class="health-value">`;
     for (const [name, up] of Object.entries(h.services)) {

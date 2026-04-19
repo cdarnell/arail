@@ -4,7 +4,7 @@ section: docs
 tags: [shell, script]
 aliases: [oglab, oglab]
 source: oglab
-generated: 2026-04-17T11:08:09Z
+generated: 2026-04-18T17:11:40Z
 ---
 
 # oglab (shell)
@@ -50,7 +50,7 @@ cat <<EOF
     status        show what's running
     doctor        validate the environment end-to-end
     logs [comp]   tail activity log — filter by component
-    reset [mode]  wipe state — models|data|plugins|env|full|destroy
+    reset [mode]  wipe state — models|data|pkb|plugins|env|full|destroy
     pkb <op>      ingest | compile | browse — knowledge base ops
     wiki <op>     build | info | new <title> — documentation-as-code
     help          this message

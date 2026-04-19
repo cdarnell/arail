@@ -7,7 +7,7 @@ only:
   - reads current state (SHA, branch, dirty flag)
   - creates experiment branches under autoresearch/
   - writes ONE file (config/tuning.yml)
-  - commits that file + lab/data/airllm-bench.jsonl with a
+  - commits that file + lab/data/aerollm-bench.jsonl with a
     structured message that includes the baseline/variant numbers
   - never pushes, never force-anything, never touches main
 
@@ -35,8 +35,8 @@ AUTORESEARCH_BRANCH_PREFIX = "autoresearch/"
 # commit is refused.
 #
 # Two backends live here side-by-side:
-#   - AirLLM (CUDA, 1 TB disk-streamed models): tuning.yml + airllm-bench
-#   - AutoAir / MLX (Apple, unified memory):   tuning-mlx.yml + mlx-bench
+#   - AeroLLM (CUDA, 1 TB disk-streamed models): tuning.yml + aerollm-bench
+#   - AeroLLM MLX (Apple, unified memory):       tuning-mlx.yml + mlx-bench
 #
 # Adding a third backend means adding exactly two more entries here,
 # with loud justification in the commit message. This set is load-bearing
@@ -44,7 +44,7 @@ AUTORESEARCH_BRANCH_PREFIX = "autoresearch/"
 ALLOWED_WRITABLE_FILES = {
     "config/tuning.yml",
     "config/tuning-mlx.yml",
-    "lab/data/airllm-bench.jsonl",
+    "lab/data/aerollm-bench.jsonl",
     "lab/data/mlx-bench.jsonl",
 }
 

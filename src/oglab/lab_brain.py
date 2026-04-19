@@ -48,7 +48,7 @@ One interface, pluggable backends, picks automatically from env:
 - **MLX** (Apple Silicon) — native Metal via mlx/mlx-lm
 - **CUDA** (Nvidia) — via vLLM + torch
 - **CPU** — via llama-cpp-python, works anywhere
-- **AirLLM** — deep tier, layer-streams 70B+ models from disk
+- **AeroLLM** — deep tier, multi-threaded prefetched layer streaming for 70B+ models from disk
 - **OpenAI-compat** — LM Studio, Ollama, NVIDIA NIM, any /v1/chat/completions
 - **HuggingFace / OpenRouter / Claude** — cloud, opt-in only in hybrid mode
 
@@ -62,7 +62,7 @@ user is engaged:
 
 - **Active window** (default 08:00–22:00) — light SLM work only,
   lab stays responsive.
-- **Heavy window** (default 22:00–08:00) — AirLLM experiments and
+- **Heavy window** (default 22:00–08:00) — AeroLLM experiments and
   full-send GPU burns happen here.
 - **Halt jobs** button in the dashboard nav cancels all running
   agent work without taking the portal down. Resume with one click.

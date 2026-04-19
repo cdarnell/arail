@@ -7,8 +7,8 @@
 #
 # Model philosophy:
 #   - ONE large "research model" (≥1 TB on disk) is the tune target.
-#     AirLLM streams it off NVMe layer-by-layer. Every bench the
-#     autoresearch loop runs goes through this model.
+#     AeroLLM streams it off NVMe with a multi-threaded prefetcher.
+#     Every bench the autoresearch loop runs goes through this model.
 #   - A handful of SMALLER models serve the fast interactive path
 #     (chat, embedding, draft tokens for speculative decoding). They
 #     are NOT tuned here — they're just listed so the UI knows what's
@@ -32,7 +32,7 @@ research_model:
   active_params_b: 37
   total_params_b: 671
   huggingface_id: "deepseek-ai/DeepSeek-R1"
-  # Any model here overrides AIRLLM_MODEL at bench time.
+  # Any model here overrides AEROLLM_MODEL at bench time.
 
 # ── Small models (fast path — NOT tuned here) ────────────────────────
 # These are the "several smaller models" used for chat, embeddings,
@@ -56,22 +56,19 @@ baseline_max_tokens: 64
 
 # ── Whitelisted knobs the autoresearch agent can edit ────────────────
 knobs:
-  airllm_package:
-    current: "airllm"
+  aerollm_package:
+    current: "git+https://github.com/cdarnell/aerollm@main"
     schema:
       type: string
       choices:
-        - "airllm"
-        - "airllm==2.10.0"
-        - "airllm==2.11.0"
-        # Fork URLs must be added explicitly here. Agent cannot
-        # invent them. Example:
-        #   - "git+https://github.com/cdarnell/airllm@prefetch-v2"
+        - "git+https://github.com/cdarnell/aerollm@main"
+        # Add specific branch/tag refs here when sweeping between
+        # AeroLLM versions. Agent cannot invent URLs.
       rationale: |
-        Which AirLLM build to install. Swapping to a fork is the
-        biggest lever — real code changes live in the fork. The
+        Which AeroLLM build to install. Swapping refs is the biggest
+        lever — real code changes live in the upstream repo. The
         agent is allowed to pick from this list only.
-  airllm_compression:
+  aerollm_compression:
     current: "4bit"
     schema:
       type: string
@@ -81,7 +78,7 @@ knobs:
         smaller footprint = faster layer loads off NVMe. Quality
         degradation varies by model; for a 671B MoE, 4-bit is the
         accepted floor for usable quality.
-  airllm_max_length:
+  aerollm_max_length:
     current: 512
     schema:
       type: int
@@ -97,9 +94,9 @@ knobs:
     schema:
       type: bool
       rationale: |
-        Whether AirLLM prefetches layer N+1 while computing layer N.
-        ~10% throughput on NVMe; zero benefit on SATA. Off for a
-        clean baseline.
+        Whether AeroLLM's prefetch worker runs. On hides disk latency
+        behind compute; off forces serial layer loading for a clean
+        baseline.
   prefetch_lookahead:
     current: 1
     schema:
@@ -108,8 +105,8 @@ knobs:
       max: 4
       rationale: |
         How many layers to prefetch ahead. Higher needs more RAM
-        but hides more I/O. Values > 1 require an AirLLM fork —
-        stock airllm caps at 1.
+        but hides more I/O. The knee depends on layer size + RAM
+        headroom — this sweep finds it.
   expert_cache_size_mb:
     current: 0
     schema:

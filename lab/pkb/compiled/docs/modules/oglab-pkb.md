@@ -4,7 +4,7 @@ section: docs
 tags: [python, module]
 aliases: [pkb, pkb.py]
 source: src/oglab/pkb.py
-generated: 2026-04-15T11:48:11Z
+generated: 2026-04-19T13:28:23Z
 ---
 
 # pkb module
@@ -53,6 +53,16 @@ Write a synthesis document to agents/synthesis/.
 ### `write_agent_recommendation(content, pkb_root)`
 
 Write a recommendation to agents/recommendations/.
+
+### `write_teacher_qa(question, answer, model, pkb_root)`
+
+Write one Q&A from the Deep Teacher (/teacher) to teacher/.
+
+The Teacher routes every question through AeroLLM — these files
+are expensive to produce (multi-minute answers from a frontier
+model), so every one of them is preserved under the PKB where the
+wiki indexer picks them up. One file per consultation so history
+is easy to browse and cite.
 
 ### `scaffold(pkb_root)`
 

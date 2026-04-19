@@ -22,7 +22,7 @@ step()  { echo ""; echo -e "${BOLD}━━━ $*${RESET}"; echo ""; }
 MODEL_MLX_ID="mlx-community/Qwen3-8B-4bit"
 MODEL_HF_ID="Qwen/Qwen3-8B"
 MODEL_GGUF_ID="Qwen/Qwen3-8B-GGUF"
-AIRLLM_MODEL_ID="Qwen/Qwen3-235B-A22B"
+AEROLLM_MODEL_ID="Qwen/Qwen3-235B-A22B"
 
 # Unified password — set by capture_password() below. One secret covers:
 #   - code-server (IDE) login
@@ -219,35 +219,31 @@ install_accel_deps() {
             ;;
     esac
 
-    # AirLLM — optional "deep" backend. Loads giant models (70B+)
-    # layer-by-layer from disk so they fit in tiny RAM. Slow
-    # (seconds/token) but lets a MacBook chat with Qwen3-235B if it
-    # has the disk space. The dashboard chat card has a toggle that
-    # routes one message through AirLLM at a time.
+    # AeroLLM — "deep" backend. Multi-threaded prefetched layer
+    # streaming; loads giant models (70B+) block-by-block from disk
+    # so they fit in modest RAM. The dashboard chat card has a toggle
+    # that routes one message through AeroLLM at a time.
     #
-    # Opt-out with OGLAB_SKIP_AIRLLM=1 — it's a several-hundred-MB
+    # Opt-out with OGLAB_SKIP_AEROLLM=1 — it's a several-hundred-MB
     # install (torch + transformers) if your accel didn't already
     # pull those in.
     #
-    # Research fork? Point AIRLLM_PACKAGE at a git URL (your fork)
-    # instead of the PyPI release, and we'll install from there:
-    #     AIRLLM_PACKAGE=git+https://github.com/cdarnell/airllm-lab@main
-    # That's the whole fork-swap — pip handles the rest. See
-    # docs/airllm-fork-guide.md for the full research recipe.
-    if [[ "${OGLAB_SKIP_AIRLLM:-0}" != "1" ]]; then
-        local airllm_pkg="${AIRLLM_PACKAGE:-airllm}"
-        info "Installing AirLLM (${airllm_pkg}) — this takes a minute…"
-        if pip install -q "$airllm_pkg" 2>&1 | tail -5; then
-            info "AirLLM ready. Dashboard chat card has a 'Deep model' toggle."
-            if [[ "$airllm_pkg" != "airllm" ]]; then
-                info "Using custom AIRLLM_PACKAGE: $airllm_pkg"
-            fi
+    # Install source is AEROLLM_PACKAGE (default: the main branch of
+    # github.com/cdarnell/aerollm). Failure to install is FATAL —
+    # without AeroLLM the Teacher + Deep toggle + /api/aerollm/bench
+    # all break silently, and that's worse than exiting loudly.
+    if [[ "${OGLAB_SKIP_AEROLLM:-0}" != "1" ]]; then
+        local aerollm_pkg="${AEROLLM_PACKAGE:-git+https://github.com/cdarnell/aerollm@main}"
+        info "Installing AeroLLM (${aerollm_pkg}) — this takes a minute…"
+        if pip install -q "$aerollm_pkg" 2>&1 | tail -5; then
+            info "AeroLLM ready. Dashboard chat card has a 'Deep model' toggle."
+            info "Using AEROLLM_PACKAGE: $aerollm_pkg"
         else
-            warn "AirLLM install failed (non-fatal). The Deep toggle on the chat card will show an install hint."
-            warn "Skip this step next time: OGLAB_SKIP_AIRLLM=1 ./oglab setup"
+            echo -e "${RED}[oglab]${RESET} To bypass: OGLAB_SKIP_AEROLLM=1 ./oglab setup" >&2
+            error "AeroLLM install failed — check AEROLLM_PACKAGE=$aerollm_pkg"
         fi
     else
-        info "Skipping AirLLM (OGLAB_SKIP_AIRLLM=1)."
+        info "Skipping AeroLLM (OGLAB_SKIP_AEROLLM=1)."
     fi
 }
 
@@ -546,7 +542,7 @@ setup_env() {
             cpu)  sed -i.bak "s|^MODEL_NAME=.*|MODEL_NAME=${MODEL_GGUF_ID}|" .env ;;
         esac
 
-        sed -i.bak "s|^AIRLLM_MODEL=.*|AIRLLM_MODEL=${AIRLLM_MODEL_ID}|" .env
+        sed -i.bak "s|^AEROLLM_MODEL=.*|AEROLLM_MODEL=${AEROLLM_MODEL_ID}|" .env
 
         rm -f .env.bak
         info ".env created with MODEL_BACKEND=${ACCEL}"
@@ -746,14 +742,14 @@ capture_goal() {
     echo ""
 
     # For the AI Engineer intent we ship a signature goal —
-    # "optimize AirLLM" — pre-filled as the default. Press Enter to
+    # "optimize AeroLLM" — pre-filled as the default. Press Enter to
     # accept it; otherwise type a custom goal. Other intents still
     # get the free-form prompt.
     local default_goal=""
     if [[ "$intent" == "ai" ]]; then
-        default_goal="Optimize AirLLM's tokens-per-minute on frontier-scale open models (Qwen3-235B, DeepSeek-V3, GLM-5.1) running locally. Measure baseline, ship layer prefetch + mixed-precision optimizations, compare before/after, contribute wins upstream."
+        default_goal="Optimize AeroLLM's tokens-per-minute on frontier-scale open models (Qwen3-235B, DeepSeek-V3, GLM-5.1) running locally. Measure baseline, sweep prefetch + mixed-precision knobs, compare before/after, contribute wins upstream."
         echo "  Press Enter to accept the lab's signature research goal —"
-        echo "  ${BOLD}Optimize AirLLM${RESET} (find + improve the frontier-model"
+        echo "  ${BOLD}Optimize AeroLLM${RESET} (tune the frontier-model"
         echo "  inference engine), or type a custom one."
         echo ""
         echo "  See lab/pkb/research/program.md for the full plan."
@@ -768,7 +764,7 @@ capture_goal() {
     read -rp "  Goal${default_goal:+ [Enter for default]}: " goal
     if [[ -z "${goal// }" && -n "$default_goal" ]]; then
         goal="$default_goal"
-        info "Using the lab's signature research goal (optimize AirLLM)."
+        info "Using the lab's signature research goal (optimize AeroLLM)."
     elif [[ -z "${goal// }" ]]; then
         warn "Empty goal — skipping capture. You can set one from the dashboard after ./oglab start."
         return

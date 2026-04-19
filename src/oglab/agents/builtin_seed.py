@@ -169,15 +169,15 @@ Forge.
 
 # ── Research program template ─────────────────────────────────────
 # First-boot seed for lab/pkb/research/. Ships with the lab's
-# signature research goal baked in: optimize AirLLM on frontier-
+# signature research goal baked in: optimize AeroLLM on frontier-
 # scale models. Users override by editing program.md from /knowledge.
 
 _RESEARCH_PROGRAM_MD = """---
 title: SSD-hosted model inference — lab research program
 section: research
-tags: [meta, agent-instructions, airllm, ssd-inference, optimization]
+tags: [meta, agent-instructions, aerollm, ssd-inference, optimization]
 lab_theme: Making SSD-hosted model inference faster
-auto_goal: Optimize AirLLM's tokens-per-minute on frontier-scale models
+auto_goal: Optimize AeroLLM's tokens-per-minute on frontier-scale models
 ---
 
 # SSD-hosted model inference — the lab's signature research area
@@ -187,23 +187,25 @@ SSD-hosted model inference faster — running frontier open-weight
 models on laptop hardware at usable speeds.
 
 This is the long-running research area. Specific goals come and go
-(today it's "optimize AirLLM's tokens-per-minute"); the theme is
+(today it's "optimize AeroLLM's tokens-per-minute"); the theme is
 the north star that outlasts any single goal.
 
-**Today's concrete goal.** AirLLM runs frontier-scale language
-models (100B-750B+) on laptop hardware by streaming one transformer
-layer at a time from disk. It works, but it's slow —
-tokens-per-minute at the big end. The lab's research goal is to
-make it noticeably faster on YOUR hardware, measure the wins, and
+**Today's concrete goal.** AeroLLM runs frontier-scale language
+models (100B-750B+) on laptop hardware by streaming transformer
+layers from disk with a multi-threaded prefetcher that overlaps
+I/O and compute across concurrent prompts. It works, but there's
+room to push further — throughput per watt, per dollar, per
+simultaneous prompt. The lab's research goal is to make it
+noticeably faster on YOUR hardware, measure the wins, and
 contribute them upstream.
 
 ## Goal
 
-**Increase AirLLM throughput on frontier-scale models by at least
+**Increase AeroLLM throughput on frontier-scale models by at least
 2× without sacrificing more than 0.5% quality on a held-out eval.**
 
 Primary metric: tokens-per-minute (t/min), captured automatically
-to `lab/data/airllm-bench.jsonl` on every deep-model chat reply.
+to `lab/data/aerollm-bench.jsonl` on every deep-model chat reply.
 
 Secondary metric: quality delta vs a FP16 baseline on the
 validation set defined in [prepare.py](prepare.py).
@@ -211,31 +213,30 @@ validation set defined in [prepare.py](prepare.py).
 ## Why this matters
 
 Frontier-class intelligence used to cost $20+/month in API fees.
-Open-weight models from Qwen, GLM, DeepSeek, Meta closed that gap.
-AirLLM closed the hardware gap. The remaining gap is speed — and
-it's the kind of gap that clever engineering (not scaling laws)
-can close.
+Open-weight models from Qwen, GLM, DeepSeek, Meta closed the
+knowledge gap. Layer-streaming runtimes closed the hardware gap.
+The remaining gap is speed — and it's the kind of gap clever
+engineering (not scaling laws) can close.
 
 ## Hypotheses worth testing
 
 Ordered by estimated effort/impact ratio. Pick one per cycle.
 
-1. **Layer prefetch** — double-buffering layer loads hides ~30% of
-   disk I/O on NVMe. Moderate effort; likely win.
+1. **Prefetch lookahead tuning** — more layers in flight hides more
+   disk I/O on NVMe, until memory pressure flips the curve.
+   Moderate effort; likely win.
 2. **Mixed-precision per-layer** — attention at INT8/FP16, FFN at
    INT4. ~30-50% disk shrink with minimal quality loss. Easy win
    once you've measured per-layer sensitivity.
 3. **Speculative decoding with the lab's fast SLM** — the 8B model
-   already loaded in RAM drafts tokens; AirLLM validates in batch.
+   already loaded in RAM drafts tokens; AeroLLM validates in batch.
    Hard to implement, 3-5× potential. Lab-specific advantage.
 4. **Persistent KV cache** — cache per-layer K/V to disk keyed by
    prompt prefix hash so follow-up messages skip most work.
    Huge on conversational use cases.
-5. **Chunked flash-attention inside each layer** — hardest, best
-   long-context gains. Save for last.
-
-See [docs/airllm-fork-guide.md](../../../../docs/airllm-fork-guide.md)
-for the full write-up of each and the fork workflow.
+5. **Concurrent-prompt batching** — AeroLLM's raison d'être; keep
+   pushing N up and measure where the per-prompt latency curve
+   flattens on your hardware.
 
 ## Success criteria
 
@@ -247,8 +248,8 @@ A candidate optimization "ships" when:
 - A human can look at before/after t/min graph and see it.
 
 Anything that clears those bars → PR to
-[github.com/lyogavin/airllm](https://github.com/lyogavin/airllm).
-Anything that doesn't → stays in our fork as an experiment.
+[github.com/cdarnell/aerollm](https://github.com/cdarnell/aerollm).
+Anything that doesn't → stays in the lab's branch as an experiment.
 
 ## Constraints
 
@@ -265,7 +266,7 @@ Anything that doesn't → stays in our fork as an experiment.
 The researcher agent reads these procedural knowledge files on
 every LLM call — edit them to sharpen the agent's approach:
 
-- [optimize-airllm](../skills/optimize-airllm/SKILL.md) — the
+- [optimize-aerollm](../skills/optimize-aerollm/SKILL.md) — the
   methodology for this specific goal.
 - [understanding-precision](../skills/understanding-precision/SKILL.md) —
   INT vs FP, quantization bit-counts, sensitivity per layer.
@@ -280,15 +281,14 @@ every LLM call — edit them to sharpen the agent's approach:
 
 - **Training** — this lab doesn't train models. Quantization means
   post-training quantization only.
-- **Alternative inference engines** — no vLLM, no TGI, no MLX
-  porting. The goal is specifically to improve AirLLM.
+- **Alternative inference engines** — no vLLM, no TGI, no separate
+  MLX port. The goal is specifically to improve AeroLLM.
 - **New model architectures** — we use whatever Qwen/GLM/DeepSeek
   ships. Research is on the inference stack, not the models.
 
 ## Background / prior art
 
-- [AirLLM source](https://github.com/lyogavin/airllm)
-- [airllm-fork-guide.md](../../../../docs/airllm-fork-guide.md)
+- [AeroLLM source](https://github.com/cdarnell/aerollm)
 - Model primers in [lab/pkb/sources/seeds/model-building/](../sources/seeds/model-building/)
 - The existing [evaluate-llm](../skills/evaluate-llm/SKILL.md)
   and [falsify-hypothesis](../skills/falsify-hypothesis/SKILL.md)
@@ -296,11 +296,11 @@ every LLM call — edit them to sharpen the agent's approach:
 """
 
 
-_RESEARCH_PREPARE_PY = '''"""prepare.py — validation substrate for the AirLLM research goal.
+_RESEARCH_PREPARE_PY = '''"""prepare.py — validation substrate for the AeroLLM research goal.
 
 This is the cheat-proof side of the research contract: the
 researcher agent CANNOT modify this file. If it wants a better
-throughput number, it has to write faster AirLLM code, not
+throughput number, it has to write faster AeroLLM code, not
 redefine what "good" means.
 
 See program.md for the natural-language side.
@@ -336,7 +336,7 @@ def throughput_metric(model_name: str, duration_sec: float,
     """Measure inference throughput in tokens per minute.
 
     Higher is better. Captured automatically by the portal for every
-    deep-model call; aggregates live at /api/airllm/bench.
+    deep-model call; aggregates live at /api/aerollm/bench.
     """
     if duration_sec <= 0:
         return 0.0
@@ -379,7 +379,7 @@ if __name__ == "__main__":
 
 
 def ensure_research_files(pkb_root: Path | None = None) -> dict:
-    """Materialize lab/pkb/research/ with the AirLLM research plan.
+    """Materialize lab/pkb/research/ with the AeroLLM research plan.
 
     Idempotent — writes only when files are missing so user edits
     survive subsequent boots. Users who want to swap the goal can

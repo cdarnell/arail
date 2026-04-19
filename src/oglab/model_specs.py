@@ -1,6 +1,6 @@
 """Model spec-sheet registry.
 
-When a user points ``AIRLLM_MODEL`` at a HuggingFace repo, the
+When a user points ``AEROLLM_MODEL`` at a HuggingFace repo, the
 dashboard's Frontier chip should tell them *why* that model matters:
 what it's good at, how big it is, where it sits against other open
 and closed models on the benchmarks people care about.
@@ -38,7 +38,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 
 # Ordered most-specific first so the lookup pass picks the tightest
-# match. Case-insensitive substring match on AIRLLM_MODEL.
+# match. Case-insensitive substring match on AEROLLM_MODEL.
 _SPECS: List[Tuple[str, Dict[str, Any]]] = [
     # ── Qwen3 family (Alibaba / Qwen team, Apache 2.0) ────────────────
     ("Qwen3-235B-A22B", {
@@ -120,7 +120,7 @@ _SPECS: List[Tuple[str, Dict[str, Any]]] = [
             "Code generation — flagship-tier on HumanEval + SWE-Bench",
             "Declarative reasoning",
             "Strong chain-of-thought + planning",
-            "Open-weight — runs fully local via AirLLM",
+            "Open-weight — runs fully local via AeroLLM",
         ],
         "benchmarks": [
             ("HumanEval",   "high", "beats most open competitors including GPT-OSS"),
@@ -131,7 +131,7 @@ _SPECS: List[Tuple[str, Dict[str, Any]]] = [
             "Zhipu AI's 2025+ flagship line. The bigger variants "
             "(~754B MoE) aim squarely at GPT-4-class capability while "
             "staying open-weight. Fits on any machine with enough disk "
-            "via AirLLM layer streaming — the speed is tokens-per-minute "
+            "via AeroLLM layer streaming — the speed is tokens-per-minute "
             "at that scale, but the model itself is frontier class. "
             "Edit this entry in src/oglab/model_specs.py with the "
             "precise benchmark scores when you find them."
@@ -156,7 +156,7 @@ _SPECS: List[Tuple[str, Dict[str, Any]]] = [
         ],
         "notes": (
             "Meta's flagship open. Dense (not MoE), so inference is "
-            "expensive per token — meaningful on AirLLM at ~1 TB disk "
+            "expensive per token — meaningful on AeroLLM at ~1 TB disk "
             "for a 4-bit quant. Strong generalist; newer MoE models "
             "match or exceed it on many benchmarks at lower cost."
         ),

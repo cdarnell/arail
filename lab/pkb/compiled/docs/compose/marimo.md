@@ -4,7 +4,7 @@ section: docs
 tags: [compose, docker, add-on]
 aliases: [marimo, marimo.yml]
 source: compose/marimo.yml
-generated: 2026-04-15T11:48:11Z
+generated: 2026-04-18T17:11:40Z
 ---
 
 # marimo (compose overlay)
@@ -34,6 +34,7 @@ Host LM Studio / Ollama are reachable at host.docker.internal.
 - **ports:**
     - `127.0.0.1:${MARIMO_PORT:-2718}:2718`
     - `host.docker.internal:host-gateway`
+    - `OGLAB_PASSWORD=${OGLAB_PASSWORD:-oglab}`
     - `../lab/notebooks:/notebooks`
     - `marimo-pip-cache:/root/.cache/pip`
 

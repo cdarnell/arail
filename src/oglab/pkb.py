@@ -425,11 +425,11 @@ def write_teacher_qa(question: str, answer: str, model: str,
                      pkb_root: Path | None = None) -> Path:
     """Write one Q&A from the Deep Teacher (/teacher) to teacher/.
 
-    The Teacher routes every question through AirLLM — these files are
-    expensive to produce (multi-minute answers from a frontier model),
-    so every one of them is preserved under the PKB where the wiki
-    indexer picks them up. One file per consultation so history is
-    easy to browse and cite."""
+    The Teacher routes every question through AeroLLM — these files
+    are expensive to produce (multi-minute answers from a frontier
+    model), so every one of them is preserved under the PKB where the
+    wiki indexer picks them up. One file per consultation so history
+    is easy to browse and cite."""
     root = pkb_root or _pkb_root()
     dest = root / "teacher"
     dest.mkdir(parents=True, exist_ok=True)
@@ -439,7 +439,7 @@ def write_teacher_qa(question: str, answer: str, model: str,
         f"---\n"
         f"title: Teacher — {ts.strftime('%Y-%m-%d %H:%M')}\n"
         f"section: teacher\n"
-        f"tags: [teacher, airllm]\n"
+        f"tags: [teacher, aerollm]\n"
         f"---\n\n"
         f"**Model:** {model}\n"
         f"**Asked:** {ts.isoformat()}\n\n"

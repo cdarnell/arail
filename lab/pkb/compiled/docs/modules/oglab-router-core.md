@@ -4,7 +4,7 @@ section: docs
 tags: [python, module]
 aliases: [core, core.py]
 source: src/oglab/router/core.py
-generated: 2026-04-15T11:48:11Z
+generated: 2026-04-18T17:11:40Z
 ---
 
 # core module
@@ -23,6 +23,6 @@ uniform ``complete()`` interface.
 **Methods:**
 
 - `__init__(self, backend)`
-- `complete(self, prompt, max_tokens, temperature)`
+- `complete(self, prompt, max_tokens, temperature, top_p)`
 - `health_check(self)`
 - `switch_backend(self, name)`

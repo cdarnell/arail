@@ -61,7 +61,7 @@
     <button class="rx-btn"         id="rx-btn-pause"  title="Pause the running researcher">⏸ Pause</button>
     <button class="rx-btn"         id="rx-btn-resume" title="Resume after pause">▶ Resume</button>
     <button class="rx-btn danger"  id="rx-btn-stop"   title="Stop the researcher">■ Stop</button>
-    <button class="rx-btn"         id="rx-btn-new"    title="Replace the active goal">+ New Goal</button>
+    <button class="rx-btn"         id="rx-btn-new"    title="Replace the active goal with a new one">↻ Update Goal</button>
   </div>
 </section>
 
@@ -169,8 +169,12 @@
       <textarea id="rx-empty-textarea"
                 placeholder="e.g. Find the best scheduler strategy for a 3-person team"
                 autofocus></textarea>
-      <button type="submit" class="rx-btn primary">▶ Start Research</button>
+      <button type="submit" class="rx-btn primary" id="rx-empty-submit">▶ Start Research</button>
     </form>
+    <!-- Live feedback slot — click latency on /api/goal can be seconds
+         while the parser runs, and users can't tell if the click landed.
+         Filled in by the form submit handler with a spinning dot + status. -->
+    <div id="rx-empty-status" class="rx-empty-status" style="display:none;"></div>
     <div class="rx-empty-examples" id="rx-empty-examples">
       <div class="rx-example" data-example="Find the best scheduler strategy for small teams">Find the best scheduler strategy for small teams</div>
       <div class="rx-example" data-example="Compare local LLM inference engines for code tasks">Compare local LLM inference engines for code tasks</div>
@@ -603,27 +607,74 @@ function renderReport() {
 }
 
 // ── Control actions ───────────────────────────────────────────
+
+// Loading helper — the first click on Start/Run/Update takes multiple
+// seconds (parser + agent init) so we need obvious immediate feedback.
+// Mutates a button to show "⏳ <msg>", disables it, returns a restore
+// fn the caller invokes when the work completes (success or failure).
+function beginLoading(btn, msg) {
+  if (!btn) return () => {};
+  const original = btn.innerHTML;
+  const wasDisabled = btn.disabled;
+  btn.disabled = true;
+  btn.dataset.loading = "1";
+  btn.innerHTML = '<span class="rx-spin">⏳</span> ' + msg;
+  return () => {
+    btn.disabled = wasDisabled;
+    delete btn.dataset.loading;
+    btn.innerHTML = original;
+  };
+}
+function showEmptyStatus(msg, kind) {
+  const el = document.getElementById('rx-empty-status');
+  if (!el) return;
+  el.style.display = 'block';
+  el.className = 'rx-empty-status' + (kind ? ' ' + kind : '');
+  el.innerHTML = '<span class="rx-spin">⏳</span> ' + msg;
+}
+function hideEmptyStatus() {
+  const el = document.getElementById('rx-empty-status');
+  if (el) el.style.display = 'none';
+}
+
 async function startResearch() {
-  await fetch('/api/research/start', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ now: true }),
-  });
-  await refreshAll();
+  const btn = document.getElementById('rx-btn-run');
+  const done = beginLoading(btn, 'Starting…');
+  try {
+    await fetch('/api/research/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ now: true }),
+    });
+    await refreshAll();
+  } finally { done(); }
 }
 async function pauseResearch()  { await fetch('/api/research/pause',  { method: 'POST' }); await refreshStatus(); }
 async function resumeResearch() { await fetch('/api/research/resume', { method: 'POST' }); await refreshStatus(); }
 async function stopResearch()   { await fetch('/api/research/stop',   { method: 'POST' }); await refreshStatus(); }
 
-async function setNewGoal(text) {
-  if (!text || !text.trim()) return;
-  const r = await fetch('/api/goal', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ goal: text.trim(), auto_start: true }),
-  });
-  if (!r.ok) return;
-  await refreshAll();
+async function setNewGoal(text, opts) {
+  if (!text || !text.trim()) return false;
+  opts = opts || {};
+  const btn = opts.button || null;
+  const statusSlot = opts.statusSlot || false;
+  const restore = beginLoading(btn, 'Loading goal into the system…');
+  if (statusSlot) showEmptyStatus('Received — loading your goal into the system…');
+  try {
+    const r = await fetch('/api/goal', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ goal: text.trim(), auto_start: true }),
+    });
+    if (!r.ok) {
+      if (statusSlot) showEmptyStatus('Server rejected the goal ('+r.status+'). Try again.', 'error');
+      return false;
+    }
+    if (statusSlot) showEmptyStatus('Goal accepted. Loading the cockpit…');
+    await refreshAll();
+    if (statusSlot) hideEmptyStatus();
+    return true;
+  } finally { restore(); }
 }
 
 // ── Refresh orchestration ─────────────────────────────────────
@@ -735,11 +786,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Modal
   document.getElementById('rx-modal-cancel').addEventListener('click', closeModal);
-  document.getElementById('rx-modal-submit').addEventListener('click', async () => {
+  document.getElementById('rx-modal-submit').addEventListener('click', async (ev) => {
     const text = document.getElementById('rx-modal-textarea').value;
     if (!text.trim()) return;
+    await setNewGoal(text, { button: ev.currentTarget });
     closeModal();
-    await setNewGoal(text);
   });
   document.getElementById('rx-modal-textarea').addEventListener('keydown', (e) => {
     if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
@@ -749,11 +800,18 @@ document.addEventListener('DOMContentLoaded', () => {
     if (e.key === 'Escape') closeModal();
   });
 
-  // Empty state
+  // Empty state — capture the submit button so we can give the user
+  // immediate feedback (disable + spinner). The /api/goal call can
+  // run for several seconds while the parser extracts structure from
+  // the prose; without this feedback users think the click dropped.
   document.getElementById('rx-empty-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const text = document.getElementById('rx-empty-textarea').value;
-    await setNewGoal(text);
+    if (!text.trim()) return;
+    await setNewGoal(text, {
+      button: document.getElementById('rx-empty-submit'),
+      statusSlot: true,
+    });
   });
   document.getElementById('rx-empty-examples').addEventListener('click', (e) => {
     const card = e.target.closest('.rx-example');

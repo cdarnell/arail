@@ -4,7 +4,7 @@ section: docs
 tags: [guide]
 aliases: [README]
 source: README.md
-generated: 2026-04-17T11:08:09Z
+generated: 2026-04-19T13:28:23Z
 ---
 # OGLab — AI Lab Blueprint
 
@@ -75,9 +75,11 @@ Remember, you opt in. The default is silence on the wire.
 
 ### Host Out-of-Reach LLMs on Disk
 
-OGLab ships **AirLLM**  Host LLM's on disk, layer by layer from your SSD,
-one slice at a time. A 70B model that would need 40 GB of RAM can run w/
-4 GB of RAm and 40GB of space. Slow, yes. But perfect for agent's research or special COT scenarios.  
+OGLab ships **AeroLLM** — a Rust runtime with MLX and CUDA backends,
+multi-threaded prefetched layer streaming off your SSD. A 70B model
+that would need 40 GB of RAM runs in ~4 GB of RAM and 40 GB of disk.
+Slow per-prompt, yes — but concurrent prompts share each layer pass,
+so research / CoT batch workloads scale near-linearly in N.
 
 The bootstrap scans your hardware for CPU, RAM, disk size, disk type
 and attempts to auto-configure the basics. Got an NVMe drive with 80 GB free?
@@ -94,12 +96,12 @@ what you qualify for.
   │  ┌─ ENGINES ─────────────────────────────────────────────┐      │
   │  │  ⚡ SLM (always on)   Phi-3.5-mini-instruct    ~2 GB  │      │
   │  │  🔬 Deep research     Qwen3-8B               ~16 GB │      │
-  │  │     via AirLLM · 4-bit · layer-by-layer from disk     │      │
+  │  │     via AeroLLM · 4-bit · prefetched layer streaming  │      │
   │  └───────────────────────────────────────────────────────┘      │
   │                                                                 │
   │  Resources:     8 CPUs · 24 GB RAM · all services               │
   │  Cost tracking: cloud-equivalent savings + $0.13/kWh energy     │
-  │  Research:      deep async (Qwen3-8B AirLLM) + fast interactive │
+  │  Research:      deep async (Qwen3-8B AeroLLM) + fast interactive│
   │                                                                 │
   └─────────────────────────────────────────────────────────────────┘
 ```
@@ -208,13 +210,13 @@ Both reach host-side LM Studio / Ollama at `host.docker.internal`, so they inher
 
 ## Platform Support
 
-OGLab is **platform-neutral by design**. The model router ([src/oglab/router/backends.py](src/oglab/router/backends.py)) has one class per accelerator (MLX / CUDA / CPU / AirLLM / OpenAI-compat / HuggingFace / OpenRouter / Claude), auto-detected from hardware, swappable via a single `.env` line. The Python code and the portal never ask what OS they're on.
+OGLab is **platform-neutral by design**. The model router ([src/oglab/router/backends.py](src/oglab/router/backends.py)) has one class per accelerator (MLX / CUDA / CPU / AeroLLM / OpenAI-compat / HuggingFace / OpenRouter / Claude), auto-detected from hardware, swappable via a single `.env` line. The Python code and the portal never ask what OS they're on.
 
 The only thing that actually differs per platform is the package manager in [`./oglab setup`](scripts/setup.sh) — and that's where the recommendations below matter.
 
 | Platform | Recommended path | Why |
 | --- | --- | --- |
-| **macOS (Apple Silicon)** | Native + MLX | **Blessed path.** Unified memory means a base-model M-series with 32 GB can run a 70B model via AirLLM layer-streaming that would need a ~48 GB discrete GPU. MLX is Apple's first-party Metal framework — no drivers, no VM, no CUDA toolkit. |
+| **macOS (Apple Silicon)** | Native + MLX | **Blessed path.** Unified memory means a base-model M-series with 32 GB can run a 70B model via AeroLLM's MLX-backed prefetched layer streaming that would need a ~48 GB discrete GPU. MLX is Apple's first-party Metal framework — no drivers, no VM, no CUDA toolkit. |
 | **Windows (any GPU)** | WSL2 Ubuntu + CUDA | Nvidia ships full CUDA-in-WSL2 support (`/dev/dxg` bridge, Windows driver ≥ 525.x). `wsl --install` gets you Ubuntu in one command. This gets you real Linux userspace on Windows hardware without dual-booting. |
 | **Linux (native)** | Your distro, your rules | The blueprint runs on any Linux with Python 3.10+ and a supported backend. Our [`setup.sh`](scripts/setup.sh) knows Homebrew, apt, and emerge — if you're on Arch/Fedora/NixOS/whatever, the fastest path is to **"vibe integrate"**: point an agent at [docs/LINUX.md](docs/LINUX.md) and `setup.sh` and let it port the 20 lines of package-manager calls. See [docs/LINUX.md](docs/LINUX.md) for the recipe. |
 
@@ -229,7 +231,7 @@ OGLab's scheduler splits the day into **active** and **heavy** windows so the la
 | Window | Default | What fires | Why |
 | --- | --- | --- | --- |
 | **☀ Active** | `08:00-22:00` | SLM only — observations, planning, note synthesis, PKB compile | Lab stays responsive for interactive use |
-| **🌙 Heavy** | `22:00-08:00` | AirLLM experiments, deep synthesis, full report generation | GPU hammering while you sleep |
+| **🌙 Heavy** | `22:00-08:00` | AeroLLM experiments, deep synthesis, full report generation | GPU hammering while you sleep |
 | **◦ Idle** | any gap | Queued work drains | Catch-up |
 
 On boot, the researcher applies a **5-minute courtesy delay** before its first tick so the UI loads clean. Override with `LAB_STARTUP_DELAY_SEC=0` for instant start, or click "Run now" in the dashboard.
@@ -258,11 +260,11 @@ Anything heavier goes elsewhere:
 | Tier | What fires | When |
 | ------ | ----------- | ------ |
 | **SLM** (always on) | Phi-3.5-mini in RAM | Instant — every fast task |
-| **AirLLM** (deep) | 70B model from disk, layer by layer | Research planning, analysis, reports |
+| **AeroLLM** (deep) | 70B+ model from disk via prefetched layer streaming | Research planning, analysis, reports |
 | **Cloud** (opt-in) | HuggingFace / OpenRouter / Claude | When you choose to open the door |
 
 The researcher agent uses both: fast SLM for observations and quick
-reasoning, deep AirLLM for the heavy thinking. You don't configure
+reasoning, deep AeroLLM for the heavy thinking. You don't configure
 this — the dual router handles it.
 
 ---
@@ -308,14 +310,14 @@ It computes your build profile, shows the manifest, and asks one question — yo
   ┌─── BUILD MANIFEST ────────────────────────────────────────────┐
   │  Tier:          ▶ deep                                        │
   │  Platform:      macos arm64 (mlx)                             │
-  │  Engines:       ⚡ Phi-3.5-mini + 🔬 Llama-3.1-70B (AirLLM)  │
+  │  Engines:       ⚡ Phi-3.5-mini + 🔬 Llama-3.1-70B (AeroLLM) │
   │  Cost tracking: cloud-equivalent + $0.13/kWh                  │
   └───────────────────────────────────────────────────────────────┘
 
   ? Build this lab? [Y]:
 
 ━━━ 4/10  System packages        ← brew install python git curl tmux cmake
-━━━ 5/10  Python environment     ← venv + mlx + mlx-lm + airllm
+━━━ 5/10  Python environment     ← venv + mlx + mlx-lm + aerollm
 ━━━ 6/10  Lab services           ← portal, jupyter, ttyd, code-server
 ━━━ 7/10  AI models              ← SLM (Phi-3.5-mini) + deep (70B)
 ━━━ 8/10  Configuration          ← .env + lab.conf
@@ -512,7 +514,7 @@ never sees the platform difference — the model router abstracts it.
 Mac host     ──→  MLX (native Metal)
 WSL2         ──→  CUDA via Windows GPU bridge
 Linux native ──→  CUDA (Nvidia) / ROCm (AMD, experimental) / CPU
-Any platform ──→  AirLLM (70B from disk, layer-by-layer)
+Any platform ──→  AeroLLM (70B+ from disk, prefetched layer streaming)
 Any platform ──→  LM Studio / Ollama / DeployLM (OpenAI-compat API)
 Any platform ──→  External API (free tier, bring your own token)
 Any platform ──→  CPU fallback (llama.cpp)
@@ -531,7 +533,7 @@ Edit `.env` to change model backend or API keys.
 oglab/
 ├── oglab                     # ← unified CLI: setup | start | stop | reset | pkb | doctor
 ├── src/oglab/                # Python package
-│   ├── router/               # Model router (MLX / CUDA / CPU / AirLLM / cloud)
+│   ├── router/               # Model router (MLX / CUDA / CPU / AeroLLM / cloud)
 │   ├── skills/               # goal_parser, experiment_tracker
 │   ├── agents/               # consent, curator, researcher
 │   ├── plugins/              # Plugin manager (GitHub → install)

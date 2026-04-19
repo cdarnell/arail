@@ -111,8 +111,8 @@ class FrontierModel:
 class TuningConfig:
     """The full tunables document, hydrated from disk.
 
-    Two baseline stores travel in parallel (MLX track only — AirLLM's
-    config keeps frontier_baselines empty):
+    Two baseline stores travel in parallel (MLX track only — the
+    CUDA AeroLLM config keeps frontier_baselines empty):
 
       - baseline_metrics    : 1 stable reference (the research_model).
       - frontier_baselines  : dict keyed by huggingface_id. Each value
@@ -183,8 +183,9 @@ def load_tuning(path: Path | None = None) -> TuningConfig:
             rationale=(schema.get("rationale") or "").strip(),
         )
 
-    # Frontier models — optional. AirLLM's config doesn't include them;
-    # the MLX config lists the "doesn't fit any single GPU" targets.
+    # Frontier models — optional. The CUDA AeroLLM config doesn't
+    # include them; the MLX config lists "doesn't fit any single GPU"
+    # targets.
     frontier_raw = raw.get("frontier_models") or []
     frontier_models: List[FrontierModel] = []
     for entry in frontier_raw:
@@ -259,7 +260,8 @@ def save_tuning(cfg: TuningConfig, path: Path | None = None) -> None:
         },
     }
     # Only emit the frontier block when it's actually present in the
-    # config — keeps the AirLLM YAML free of Apple-specific fields.
+    # config — keeps the CUDA AeroLLM YAML free of Apple-specific
+    # fields.
     if cfg.frontier_models:
         doc["frontier_models"] = [
             {

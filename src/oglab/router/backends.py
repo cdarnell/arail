@@ -414,35 +414,36 @@ class OpenAICompatBackend(BaseBackend):
 
 
 # ---------------------------------------------------------------------------
-# AirLLM  (layer-by-layer from disk — 70B+ on minimal RAM)
+# AeroLLM  (multi-threaded prefetched layer streaming — 70B+ on minimal RAM)
 # ---------------------------------------------------------------------------
-class AirLLMBackend(BaseBackend):
-    """Run massive models (100B-405B) from disk via AirLLM.
+class AeroLLMBackend(BaseBackend):
+    """Run massive models (100B-405B) from disk via AeroLLM.
 
     Default: Qwen3-235B-A22B — a 235B MoE model (22B active per token).
-    Layer-by-layer inference: only one transformer layer is loaded into
-    memory at a time.  Slow (seconds-per-token) but lets you run models
-    that would normally need 48+ GB VRAM on a 4 GB machine.
+    Multi-threaded layer streaming with prefetch: overlaps disk I/O and
+    compute so concurrent prompts share layer passes instead of
+    serializing on bandwidth. Developed at github.com/cdarnell/aerollm.
     """
 
     def __init__(self) -> None:
         try:
-            from airllm import AutoModel  # type: ignore[import-untyped]
+            from aerollm import AutoModel  # type: ignore[import-untyped]
             self._AutoModel = AutoModel
         except ImportError:
             raise ImportError(
-                "AirLLM not installed. Run: pip install airllm"
+                "AeroLLM not installed. Run: pip install "
+                "git+https://github.com/cdarnell/aerollm@main"
             )
 
         self.model_name = os.getenv(
-            "AIRLLM_MODEL", "Qwen/Qwen3-235B-A22B"
+            "AEROLLM_MODEL", "Qwen/Qwen3-235B-A22B"
         )
-        compression = os.getenv("AIRLLM_COMPRESSION", "4bit") or None
+        compression = os.getenv("AEROLLM_COMPRESSION", "4bit") or None
         if compression == "none":
             compression = None
 
         models_dir = os.getenv("OGLAB_MODELS_DIR", "lab/models")
-        cache_dir = os.path.join(models_dir, "airllm_cache")
+        cache_dir = os.path.join(models_dir, "aerollm_cache")
         os.makedirs(cache_dir, exist_ok=True)
 
         # Check for local download first, fall back to hub ID
@@ -454,7 +455,7 @@ class AirLLMBackend(BaseBackend):
             compression=compression,
             layer_shards_saving_path=cache_dir,
         )
-        self._max_length = int(os.getenv("AIRLLM_MAX_LENGTH", "512"))
+        self._max_length = int(os.getenv("AEROLLM_MAX_LENGTH", "512"))
 
     def complete(self, prompt: str, max_tokens: int = 512,
                  temperature: float = 0.7,
@@ -504,7 +505,7 @@ class AirLLMBackend(BaseBackend):
             text=text,
             model=self.model_name,
             tokens_used=max(tokens_used, 0),
-            backend="airllm",
+            backend="aerollm",
             latency_ms=(time.time() - start) * 1000,
             cost_usd=0.0,
         )
@@ -532,5 +533,5 @@ BACKEND_MAP: dict[str, type[BaseBackend]] = {
     "huggingface": HuggingFaceBackend,
     "openrouter": OpenRouterBackend,
     "claude": ClaudeBackend,
-    "airllm": AirLLMBackend,
+    "aerollm": AeroLLMBackend,
 }

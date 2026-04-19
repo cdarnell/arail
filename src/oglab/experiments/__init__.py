@@ -8,12 +8,12 @@ Module layout:
                       to touch).
     git_ops.py        Safe git primitives: current SHA, dirty check,
                       experiment branches, structured commits.
-    bench.py          Benchmark runner. Wraps the existing AirLLM
-                      backend, measures TTFT + decode tok/s + disk
-                      bytes read, records with git context.
+    bench.py          Benchmark runner. Wraps the AeroLLM backend,
+                      measures TTFT + decode tok/s + disk bytes read,
+                      records with git context.
     autoresearch.py   The loop: snapshot baseline → propose variants
-                      (from docs/airllm-fork-guide.md candidates) →
-                      apply → bench → commit if beats threshold.
+                      from the hand-curated candidate list → apply →
+                      bench → commit if beats threshold.
 
 Everything here assumes a 1 TB-class research model is configured
 in tuning.yml (DeepSeek-R1 / Llama-3.1-405B / Kimi-K2). The
