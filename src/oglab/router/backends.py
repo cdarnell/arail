@@ -657,6 +657,104 @@ class OpenAICompatBackend(BaseBackend):
 
 
 # ---------------------------------------------------------------------------
+# AirLLM  (layer-streaming baseline — 70B on constrained hardware)
+# ---------------------------------------------------------------------------
+class AirLLMBackend(BaseBackend):
+    """Run large Hugging Face models via AirLLM's layer streaming path."""
+
+    def __init__(self) -> None:
+        try:
+            from airllm import AutoModel  # type: ignore
+            self._AutoModel = AutoModel
+        except ImportError:
+            raise ImportError("AirLLM not installed. Run: pip install airllm")
+
+        self.model_name = os.getenv(
+            "AIRLLM_MODEL",
+            os.getenv("AEROLLM_MODEL", "meta-llama/Llama-3.1-70B"),
+        )
+        compression = os.getenv("AIRLLM_COMPRESSION", "4bit") or None
+        if compression == "none":
+            compression = None
+
+        models_dir = os.getenv("OGLAB_MODELS_DIR", "lab/models")
+        cache_dir = os.path.join(models_dir, "airllm_cache")
+        os.makedirs(cache_dir, exist_ok=True)
+
+        local_dir = os.path.join(models_dir, self.model_name.split("/")[-1])
+        model_path = local_dir if os.path.isdir(local_dir) else self.model_name
+
+        load_kwargs: dict[str, Any] = {
+            "compression": compression,
+            "layer_shards_saving_path": cache_dir,
+        }
+        hf_token = os.getenv("HF_TOKEN")
+        if hf_token:
+            load_kwargs["hf_token"] = hf_token
+
+        self.model = self._AutoModel.from_pretrained(model_path, **load_kwargs)
+        self._max_length = int(os.getenv("AIRLLM_MAX_LENGTH", "512"))
+
+    def complete(self, prompt: str, max_tokens: int = 512,
+                 temperature: float = 0.7,
+                 top_p: Optional[float] = None) -> ModelResponse:
+        start = time.time()
+
+        input_tokens = self.model.tokenizer(
+            [prompt],
+            return_tensors="pt",
+            return_attention_mask=False,
+            truncation=True,
+            max_length=self._max_length,
+            padding=False,
+        )
+
+        gen_kwargs: dict[str, Any] = {
+            "max_new_tokens": max_tokens,
+            "use_cache": True,
+            "return_dict_in_generate": True,
+        }
+        if temperature != 1.0 or top_p is not None:
+            gen_kwargs["do_sample"] = True
+            gen_kwargs["temperature"] = temperature
+            if top_p is not None:
+                gen_kwargs["top_p"] = top_p
+
+        input_ids = input_tokens["input_ids"]
+        torch = __import__("torch")
+        if torch.cuda.is_available():
+            input_ids = input_ids.cuda()
+
+        generation = self.model.generate(input_ids, **gen_kwargs)
+        text = self.model.tokenizer.decode(
+            generation.sequences[0], skip_special_tokens=True
+        )
+        if text.startswith(prompt):
+            text = text[len(prompt):]
+        text = text.strip()
+
+        tokens_used = len(generation.sequences[0]) - len(input_tokens["input_ids"][0])
+
+        return ModelResponse(
+            text=text,
+            model=self.model_name,
+            tokens_used=max(tokens_used, 0),
+            backend="airllm",
+            latency_ms=(time.time() - start) * 1000,
+            cost_usd=0.0,
+        )
+
+    def health_check(self) -> bool:
+        try:
+            return (
+                self.model is not None
+                and self.model.tokenizer is not None
+            )
+        except Exception:
+            return False
+
+
+# ---------------------------------------------------------------------------
 # AeroLLM  (multi-threaded prefetched layer streaming — 70B+ on minimal RAM)
 # ---------------------------------------------------------------------------
 class AeroLLMBackend(BaseBackend):
@@ -772,6 +870,7 @@ BACKEND_MAP: dict[str, type[BaseBackend]] = {
     "mlx": MLXBackend,
     "cuda": CUDABackend,
     "cpu": CPUBackend,
+    "airllm": AirLLMBackend,
     "openai_compat": OpenAICompatBackend,
     "huggingface": HuggingFaceBackend,
     "openrouter": OpenRouterBackend,

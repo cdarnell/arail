@@ -42,6 +42,7 @@ PLATFORM_WATTS: Dict[str, float] = {
     "mlx":          20.0,    # Apple Silicon unified memory
     "cuda":        250.0,    # Nvidia discrete GPU
     "cpu":          65.0,    # Desktop / server CPU
+    "airllm":       30.0,    # Mostly disk I/O + light CPU
     "aerollm":      30.0,    # Mostly disk I/O + light CPU
     "openai_compat": 10.0,   # Idle — server does the work
     "huggingface":   5.0,    # Network only
@@ -69,11 +70,11 @@ def _classify_model(backend: str, model_name: str) -> str:
         if "7b" in lower or "8b" in lower:
             return "7b"
         return "cloud_sm"
-    if backend == "aerollm":
+    if backend in ("airllm", "aerollm"):
         lower = model_name.lower()
         if "405b" in lower or "400b" in lower:
             return "405b"
-        return "70b"   # default assumption for AeroLLM
+        return "70b"   # default assumption for layer-streaming backends
     # Local backends — classify by model name
     lower = model_name.lower()
     if any(k in lower for k in ("phi", "qwen2.5-1", "qwen-1", "1.5b", "1b", "2b", "3b")):

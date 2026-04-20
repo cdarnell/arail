@@ -1569,36 +1569,20 @@ def _prepare_chat_context(
     history = history[-_CHAT_HISTORY_LIMIT:]
     messages = lab_brain.build_chat_messages(message, history)
 
-    wants_deep = str(backend_override or "").strip().lower() == "aerollm"
+    optional_backend_name = str(backend_override or "").strip().lower() or None
+    wants_deep = optional_backend_name in _OPTIONAL_CHAT_BACKEND_CONFIG
     deep_backend = None
     if wants_deep:
         try:
-            deep_backend = _get_deep_backend()
+            assert optional_backend_name is not None
+            deep_backend = _get_optional_chat_backend(optional_backend_name)
         except Exception as e:  # noqa: BLE001
-            deep_model = os.getenv("AEROLLM_MODEL", "meta-llama/Llama-3.1-70B")
-            gated_hint = ""
-            if deep_model.lower().startswith("meta-llama/"):
-                gated_hint = (
-                    " Accept the model license on Hugging Face first, then run "
-                    "huggingface-cli login or export HF_TOKEN before downloading it."
-                )
             activity_log.emit(
                 "chat",
-                f"AeroLLM init failed: {type(e).__name__}: {e}",
+                f"{optional_backend_name} init failed: {type(e).__name__}: {e}",
                 "warn",
             )
-            return {
-                "error_result": {
-                    "reply": (
-                        "AeroLLM isn't ready on this lab. Install it "
-                        "(`pip install git+https://github.com/cdarnell/aerollm@main`) "
-                        f"and ensure AEROLLM_MODEL in .env points at a downloaded "
-                        f"model.{gated_hint}\n\nError: {e}"
-                    ),
-                    "backend": "aerollm",
-                    "error": str(e),
-                }
-            }
+            return {"error_result": _optional_backend_error_result(optional_backend_name, e)}
 
     router = None
     if deep_backend is None:
@@ -1642,6 +1626,7 @@ def _prepare_chat_context(
         "active_backend": active_backend,
         "previous_model": previous_model,
         "prompt": prompt,
+        "optional_backend_name": optional_backend_name,
         "wants_deep": wants_deep,
     }
 
@@ -1704,6 +1689,7 @@ async def _run_chat_completion_stream(
         return
 
     wants_deep = bool(context["wants_deep"])
+    optional_backend_name = context.get("optional_backend_name")
     prompt = str(context["prompt"])
     deep_backend = context.get("deep_backend")
     router = context.get("router")
@@ -1733,13 +1719,14 @@ async def _run_chat_completion_stream(
                 tokens_out=response.tokens_used,
                 latency_ms=response.latency_ms,
             )
-            _record_aerollm_bench(
-                model=response.model,
-                tokens_out=response.tokens_used,
-                latency_ms=response.latency_ms,
-                prompt_chars=len(prompt),
-                max_tokens=max_tokens,
-            )
+            if response.backend == "aerollm":
+                _record_aerollm_bench(
+                    model=response.model,
+                    tokens_out=response.tokens_used,
+                    latency_ms=response.latency_ms,
+                    prompt_chars=len(prompt),
+                    max_tokens=max_tokens,
+                )
             clean_reply = _clean_chat_reply(response.text)
             if clean_reply:
                 yield {"type": "delta", "delta": clean_reply}
@@ -1792,7 +1779,7 @@ async def _run_chat_completion_stream(
             "type": "final",
             "reply": f"Inference failed: {e}",
             "backend": (
-                getattr(deep_backend, "backend_name", "aerollm")
+                getattr(deep_backend, "backend_name", optional_backend_name)
                 if wants_deep
                 else getattr(router, "backend_name", None)
             ),
@@ -1830,6 +1817,7 @@ async def _run_chat_completion(
         return error_result
 
     wants_deep = bool(context["wants_deep"])
+    optional_backend_name = context.get("optional_backend_name")
     deep_backend = context.get("deep_backend")
     router = context.get("router")
     prompt = str(context["prompt"])
@@ -1849,13 +1837,14 @@ async def _run_chat_completion(
                 tokens_out=response.tokens_used,
                 latency_ms=response.latency_ms,
             )
-            _record_aerollm_bench(
-                model=response.model,
-                tokens_out=response.tokens_used,
-                latency_ms=response.latency_ms,
-                prompt_chars=len(prompt),
-                max_tokens=max_tokens,
-            )
+            if response.backend == "aerollm":
+                _record_aerollm_bench(
+                    model=response.model,
+                    tokens_out=response.tokens_used,
+                    latency_ms=response.latency_ms,
+                    prompt_chars=len(prompt),
+                    max_tokens=max_tokens,
+                )
         else:
             assert router is not None
             response = router.complete(
@@ -1871,7 +1860,7 @@ async def _run_chat_completion(
         return {
             "reply": f"Inference failed: {e}",
             "backend": (
-                getattr(deep_backend, "backend_name", "aerollm")
+                getattr(deep_backend, "backend_name", optional_backend_name)
                 if wants_deep
                 else getattr(router, "backend_name", None)
             ),
@@ -1960,23 +1949,70 @@ async def api_chat_stream(request: Request):
     )
 
 
-# Deep-backend cache — AeroLLM init loads the whole model layer-by-
-# layer from disk (expensive). Cache the instance so subsequent
-# "deep" chat calls reuse it. Lazy: never instantiated unless the
-# user actually opts in via the UI.
-_DEEP_BACKEND_CACHE = None
+# Optional heavy-backend cache — AirLLM and AeroLLM both need slow,
+# disk-heavy model init. Cache whichever one the user picks so later
+# chat turns reuse the loaded instance.
+_OPTIONAL_CHAT_BACKEND_CACHE: dict[str, Any] = {}
+
+_OPTIONAL_CHAT_BACKEND_CONFIG: dict[str, dict[str, str]] = {
+    "airllm": {
+        "label": "AirLLM",
+        "class_name": "AirLLMBackend",
+        "install_command": "pip install airllm",
+        "model_env": "AIRLLM_MODEL",
+        "default_model": "meta-llama/Llama-3.1-70B",
+    },
+    "aerollm": {
+        "label": "AeroLLM",
+        "class_name": "AeroLLMBackend",
+        "install_command": (
+            "pip install "
+            + os.getenv("AEROLLM_PACKAGE", "git+https://github.com/cdarnell/aerollm@main")
+        ),
+        "model_env": "AEROLLM_MODEL",
+        "default_model": "meta-llama/Llama-3.1-70B",
+    },
+}
 
 
-def _get_deep_backend():
-    global _DEEP_BACKEND_CACHE
-    if _DEEP_BACKEND_CACHE is None:
-        from oglab.router.backends import AeroLLMBackend
-        _DEEP_BACKEND_CACHE = AeroLLMBackend()
-        # Give the AeroLLM instance the same interface as other
-        # backends so cost tracking + error handling above treat it
-        # uniformly.
-        _DEEP_BACKEND_CACHE.backend_name = "aerollm"
-    return _DEEP_BACKEND_CACHE
+def _get_optional_chat_backend(name: str):
+    config = _OPTIONAL_CHAT_BACKEND_CONFIG.get(name)
+    if config is None:
+        raise ValueError(f"Unknown optional chat backend: {name}")
+    backend = _OPTIONAL_CHAT_BACKEND_CACHE.get(name)
+    if backend is None:
+        from oglab.router import backends as router_backends
+
+        backend_cls = getattr(router_backends, config["class_name"])
+        backend = backend_cls()
+        backend.backend_name = name
+        _OPTIONAL_CHAT_BACKEND_CACHE[name] = backend
+    return backend
+
+
+def _optional_backend_error_result(name: str | None, error: Exception) -> dict[str, Any]:
+    backend_name = name or "optional-backend"
+    config = _OPTIONAL_CHAT_BACKEND_CONFIG.get(backend_name, {})
+    label = config.get("label", backend_name)
+    model_env = config.get("model_env", "MODEL_NAME")
+    default_model = config.get("default_model", "meta-llama/Llama-3.1-70B")
+    model_name = os.getenv(model_env, default_model)
+    gated_hint = ""
+    if model_name.lower().startswith("meta-llama/"):
+        gated_hint = (
+            " Accept the model license on Hugging Face first, then run "
+            "huggingface-cli login or export HF_TOKEN before downloading it."
+        )
+    return {
+        "reply": (
+            f"{label} isn't ready on this lab. Install it "
+            f"(`{config.get('install_command', 'pip install ' + backend_name)}`) "
+            f"and ensure {model_env} in .env points at a downloaded model."
+            f"{gated_hint}\n\nError: {error}"
+        ),
+        "backend": backend_name,
+        "error": str(error),
+    }
 
 
 # ── AeroLLM bench capture ───────────────────────────────────────
@@ -2150,7 +2186,7 @@ async def api_chat_models():
     # here's the command to add more."
     local_models: list[str] = []
     install_hint: dict | None = None
-    if backend_name in ("mlx", "cpu", "aerollm", "cuda"):
+    if backend_name in ("mlx", "cpu", "airllm", "aerollm", "cuda"):
         models_dir = Path(os.getenv("OGLAB_MODELS_DIR", "lab/models"))
         if models_dir.exists():
             try:
@@ -2183,6 +2219,11 @@ async def api_chat_models():
             example = (
                 "huggingface-cli download Qwen/Qwen3-8B "
                 f"--local-dir {models_dir}/Qwen3-8B"
+            )
+        elif backend_name == "airllm":
+            example = (
+                "huggingface-cli download meta-llama/Llama-3.1-70B "
+                f"--local-dir {models_dir}/Llama-3.1-70B --local-dir-use-symlinks False"
             )
         else:  # aerollm
             example = (
@@ -2242,6 +2283,43 @@ async def api_chat_models():
             "huggingface-cli login or export HF_TOKEN before downloading."
         )
 
+    air_model_name = os.getenv("AIRLLM_MODEL", deep_model_name)
+    optional_backends = [
+        {
+            "id": "airllm",
+            "label": "AirLLM",
+            "model": air_model_name,
+            "installed": _is_airllm_installed(),
+            "param_hint": _extract_param_hint(air_model_name),
+            "gated": air_model_name.lower().startswith("meta-llama/"),
+            "install_command": "pip install airllm",
+            "description": "Original layer-streaming backend for large local models.",
+        },
+        {
+            "id": "aerollm",
+            "label": "AeroLLM",
+            "model": deep_model_name,
+            "installed": bool(deep_info["installed"]),
+            "param_hint": deep_info["param_hint"],
+            "gated": bool(deep_info["gated"]),
+            "install_command": (
+                "pip install "
+                + os.getenv("AEROLLM_PACKAGE", "git+https://github.com/cdarnell/aerollm@main")
+            ),
+            "description": "Prefetched production rewrite; preferred deep-chat backend when available.",
+        },
+    ]
+    for entry in optional_backends:
+        if entry["gated"]:
+            entry["auth_hint"] = (
+                "Accept the Hugging Face license for this model, then run "
+                "huggingface-cli login or export HF_TOKEN before downloading."
+            )
+
+    default_optional_backend = "aerollm"
+    if not deep_info["installed"] and _is_airllm_installed():
+        default_optional_backend = "airllm"
+
     return {
         "backend": backend_name,
         "current": current,
@@ -2249,6 +2327,8 @@ async def api_chat_models():
         "switchable": backend_name in ("openai_compat", "openrouter"),
         "local_models": local_models,
         "install_hint": install_hint,
+        "optional_backends": optional_backends,
+        "default_optional_backend": default_optional_backend,
         "deep": deep_info,
     }
 
@@ -2258,6 +2338,11 @@ def _is_aerollm_installed() -> bool:
     itself is heavy (drags torch)."""
     import importlib.util
     return importlib.util.find_spec("aerollm") is not None
+
+
+def _is_airllm_installed() -> bool:
+    import importlib.util
+    return importlib.util.find_spec("airllm") is not None
 
 
 def _extract_param_hint(model_name: str) -> str:

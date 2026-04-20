@@ -252,11 +252,16 @@
              reading, you think the chat broke. -->
         <label class="chat-tuning-field chat-deep-toggle">
           <span class="chat-tuning-label">
-            Deep model (AeroLLM)
-            <span class="chat-tuning-hint">
+            Deep route
+            <span class="chat-tuning-hint" id="chat-optional-backend-hint">
               ⚠ 30-120 seconds per reply · first use takes minutes to load
             </span>
           </span>
+          <select id="chat-deep-backend-select">
+            <option value="aerollm">AeroLLM</option>
+            <option value="airllm">AirLLM</option>
+          </select>
+          <div class="chat-tuning-hint" id="chat-optional-backend-install" hidden></div>
           <label class="chat-deep-switch">
             <input type="checkbox" id="chat-deep-enable" />
             <span class="chat-deep-track"></span>
@@ -1113,6 +1118,7 @@ async function chatSend(text) {
   try {
     const tuning = CHAT_TUNING.get();
     const useDeep = document.getElementById('chat-deep-enable').checked;
+    const selectedOptionalBackend = tuning.optionalBackend || 'aerollm';
     const r = await fetch('/api/chat/stream', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1122,8 +1128,8 @@ async function chatSend(text) {
         temperature: tuning.temperature,
         top_p: tuning.topP > 0 ? tuning.topP : undefined,
         max_tokens: tuning.maxTokens,
-        model: tuning.model || undefined,
-        backend: useDeep ? 'aerollm' : undefined,
+        model: useDeep ? undefined : (tuning.model || undefined),
+        backend: useDeep ? selectedOptionalBackend : undefined,
       }),
     });
     if (!r.ok || !r.body) {
@@ -1240,6 +1246,7 @@ const CHAT_TUNING = (() => {
     topP: 0,
     maxTokens: 512,
     model: '',
+    optionalBackend: '',
   };
   const PRESETS = {
     default:  { temperature: 0.7, topP: 0 },
@@ -1293,9 +1300,13 @@ const CHAT_TUNING = (() => {
   const maxTokVal = document.getElementById('chat-max-tokens-val');
   const modelSelect = document.getElementById('chat-model-select');
   const modelHint = document.getElementById('chat-model-hint');
+  const backendSelect = document.getElementById('chat-deep-backend-select');
+  const backendHint = document.getElementById('chat-optional-backend-hint');
+  const backendInstall = document.getElementById('chat-optional-backend-install');
   const summary = document.getElementById('chat-tuning-summary');
   const resetBtn = document.getElementById('chat-tuning-reset');
   const presetBtns = document.querySelectorAll('.chat-preset');
+  const optionalBackends = new Map();
 
   // Highlight the active zone in a zone strip by adding .active to
   // the matching child <span>.
@@ -1335,6 +1346,63 @@ const CHAT_TUNING = (() => {
       `${modeLabel} mode · ${tempZone} · ${lenZone} reply${mdl}`;
   }
 
+  function currentOptionalBackend() {
+    const backendId = backendSelect && backendSelect.value
+      ? backendSelect.value
+      : state.optionalBackend;
+    return optionalBackends.get(backendId) || null;
+  }
+
+  function renderOptionalBackendState() {
+    const entry = currentOptionalBackend();
+    if (!backendSelect || !entry) return;
+    backendSelect.value = entry.id;
+    state.optionalBackend = entry.id;
+    if (backendHint) {
+      const short = entry.model ? entry.model.split('/').pop() : entry.label;
+      const size = entry.param_hint ? ` · ${entry.param_hint}` : '';
+      backendHint.textContent = entry.installed
+        ? `${short}${size} · ready when you toggle it on`
+        : `${short}${size} · optional install`;
+    }
+    if (backendInstall) {
+      if (entry.installed) {
+        backendInstall.hidden = true;
+        backendInstall.textContent = '';
+      } else {
+        const auth = entry.auth_hint ? ` ${entry.auth_hint}` : '';
+        backendInstall.hidden = false;
+        backendInstall.textContent = `Install with ${entry.install_command}.${auth}`;
+      }
+    }
+    window.__oglabGetSelectedOptionalBackendInfo = () => ({ ...entry });
+    if (typeof window.__oglabRenderDeepToggle === 'function') {
+      window.__oglabRenderDeepToggle();
+    }
+  }
+
+  function populateOptionalBackends(entries, defaultBackend) {
+    if (!backendSelect) return;
+    optionalBackends.clear();
+    backendSelect.innerHTML = '';
+    (entries || []).forEach(entry => {
+      optionalBackends.set(entry.id, entry);
+      const short = entry.model ? entry.model.split('/').pop() : entry.label;
+      const opt = document.createElement('option');
+      opt.value = entry.id;
+      opt.textContent = `${entry.label} · ${short}${entry.installed ? '' : ' · install required'}`;
+      backendSelect.appendChild(opt);
+    });
+    const firstId = entries && entries.length ? entries[0].id : '';
+    if (!state.optionalBackend || !optionalBackends.has(state.optionalBackend)) {
+      state.optionalBackend = optionalBackends.has(defaultBackend)
+        ? defaultBackend
+        : firstId;
+      save(state);
+    }
+    renderOptionalBackendState();
+  }
+
   function updatePresetHighlight() {
     const active = detectPreset();
     state.preset = active;
@@ -1365,6 +1433,9 @@ const CHAT_TUNING = (() => {
     if (state.model) {
       const opt = Array.from(modelSelect.options).find(o => o.value === state.model);
       modelSelect.value = opt ? state.model : '';
+    }
+    if (backendSelect && state.optionalBackend && optionalBackends.has(state.optionalBackend)) {
+      backendSelect.value = state.optionalBackend;
     }
     updatePresetHighlight();
     updateSummary();
@@ -1408,10 +1479,18 @@ const CHAT_TUNING = (() => {
     save(state);
     updateSummary();
   });
+  if (backendSelect) {
+    backendSelect.addEventListener('change', () => {
+      state.optionalBackend = backendSelect.value;
+      save(state);
+      renderOptionalBackendState();
+    });
+  }
   resetBtn.addEventListener('click', () => {
     Object.assign(state, DEFAULTS);
     save(state);
     applyToInputs();
+    renderOptionalBackendState();
   });
 
   // Populate model dropdown from /api/chat/models
@@ -1443,6 +1522,7 @@ const CHAT_TUNING = (() => {
     if (typeof window.__oglabSetDeepToggleDefault === 'function') {
       window.__oglabSetDeepToggleDefault(!!deep.default_enabled);
     }
+    populateOptionalBackends(d.optional_backends || [], d.default_optional_backend || 'aerollm');
     if (frontierWrap && frontierEl && cfModelEl && deep.model) {
       const short = deep.model.split('/').pop();
       const paramTag = deep.param_hint ? ` · ${deep.param_hint}` : '';
@@ -1466,13 +1546,6 @@ const CHAT_TUNING = (() => {
       const cb = document.getElementById('chat-deep-enable');
       if (cb && !cb.checked) {
         deepText.textContent = `off — toggle to use ${short}${paramTag} via AeroLLM`;
-      }
-      // Also rewrite the toggle's field hint so the "⚠ 30-120s" line
-      // reflects the model's actual size class.
-      const toggleHint = document.querySelector('.chat-deep-toggle .chat-tuning-hint');
-      if (toggleHint) {
-        const warning = _deepLatencyHint(deep.param_hint);
-        toggleHint.innerHTML = `⚠ ${warning} · first use takes minutes to load`;
       }
     }
 
@@ -1532,6 +1605,7 @@ const CHAT_TUNING = (() => {
   }).catch(() => {
     modelHint.textContent = 'unavailable';
     modelSelect.disabled = true;
+    if (backendSelect) backendSelect.disabled = true;
     applyToInputs();
   });
 
@@ -1718,9 +1792,20 @@ function _deepLatencyHint(paramHint) {
     try { return localStorage.getItem(DEEP_KEY) !== null; } catch (e) { return false; }
   }
   function render() {
+    const selected = typeof window.__oglabGetSelectedOptionalBackendInfo === 'function'
+      ? window.__oglabGetSelectedOptionalBackendInfo()
+      : null;
+    const labelName = selected && selected.label ? selected.label : 'AeroLLM';
+    const warning = _deepLatencyHint(selected && selected.param_hint ? selected.param_hint : '');
+    const hintEl = document.getElementById('chat-optional-backend-hint');
+    if (hintEl) {
+      hintEl.textContent = selected && selected.installed === false
+        ? `${warning} · install required before first use`
+        : `${warning} · first use takes minutes to load`;
+    }
     label.textContent = cb.checked
-      ? '⚡ ON — next reply routes through AeroLLM (slow but smart)'
-      : 'off — using the fast model above';
+      ? `⚡ ON — next reply routes through ${labelName}${selected && selected.installed === false ? ' (install required)' : ' (slow but smart)'}`
+      : `off — using the fast model above · toggle to use ${labelName}`;
     label.classList.toggle('deep-on', cb.checked);
   }
   function setServerDefault(enabled) {
@@ -1735,6 +1820,7 @@ function _deepLatencyHint(paramHint) {
   });
   render();
   window.__oglabSetDeepToggleDefault = setServerDefault;
+  window.__oglabRenderDeepToggle = render;
 })();
 
 // Populate the current backend + model in the chat card header on load,
