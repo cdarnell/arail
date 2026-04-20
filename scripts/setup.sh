@@ -22,7 +22,7 @@ step()  { echo ""; echo -e "${BOLD}━━━ $*${RESET}"; echo ""; }
 MODEL_MLX_ID="mlx-community/Qwen3-8B-4bit"
 MODEL_HF_ID="Qwen/Qwen3-8B"
 MODEL_GGUF_ID="Qwen/Qwen3-8B-GGUF"
-AEROLLM_MODEL_ID="Qwen/Qwen3-235B-A22B"
+AEROLLM_MODEL_ID="meta-llama/Llama-3.1-70B"
 
 # Unified password — set by capture_password() below. One secret covers:
 #   - code-server (IDE) login
@@ -232,6 +232,10 @@ install_accel_deps() {
     # github.com/cdarnell/aerollm). Failure to install is FATAL —
     # without AeroLLM the Teacher + Deep toggle + /api/aerollm/bench
     # all break silently, and that's worse than exiting loudly.
+    #
+    # Default deep model is Meta's gated Llama 3.1 70B. Setup does not
+    # auto-download it: users must accept the HF license and authenticate
+    # first, then pull the weights explicitly.
     if [[ "${OGLAB_SKIP_AEROLLM:-0}" != "1" ]]; then
         local aerollm_pkg="${AEROLLM_PACKAGE:-git+https://github.com/cdarnell/aerollm@main}"
         info "Installing AeroLLM (${aerollm_pkg}) — this takes a minute…"
@@ -695,6 +699,12 @@ download_model() {
         warn "For CPU, download a GGUF model with:"
         echo "  huggingface-cli download ${MODEL_GGUF_ID} --include 'Q4_K_M*' --local-dir lab/models/Qwen3-8B-GGUF --local-dir-use-symlinks False"
     fi
+
+    echo ""
+    warn "Optional deep-chat model for AeroLLM: ${AEROLLM_MODEL_ID}"
+    warn "Meta Llama is gated — accept the Hugging Face license first, then authenticate with huggingface-cli login or HF_TOKEN."
+    echo "  huggingface-cli download ${AEROLLM_MODEL_ID} --local-dir lab/models/Llama-3.1-70B --local-dir-use-symlinks False"
+    echo "  # then set AEROLLM_MODEL=meta-llama/Llama-3.1-70B in .env and run ./oglab restart"
 }
 
 # -----------------------------------------------------------------------------

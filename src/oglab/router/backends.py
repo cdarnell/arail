@@ -6,7 +6,7 @@ import os
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any, Iterator, Optional
 
 
 # ---------------------------------------------------------------------------
@@ -20,6 +20,31 @@ class ModelResponse:
     backend: str
     latency_ms: float
     cost_usd: Optional[float] = None
+
+
+StreamResult = str | ModelResponse
+
+
+def _coerce_stream_text(item: Any, current_text: str) -> tuple[str, str]:
+    """Normalize backend-specific stream items into ``(full, delta)``."""
+    raw: Any
+    if isinstance(item, str):
+        raw = item
+    else:
+        raw = getattr(item, "text", None)
+        if raw is None:
+            raw = getattr(item, "token", None)
+        if raw is None:
+            raw = getattr(item, "content", None)
+        if raw is None:
+            raw = str(item)
+
+    text = str(raw or "")
+    if not text:
+        return current_text, ""
+    if current_text and text.startswith(current_text):
+        return text, text[len(current_text):]
+    return current_text + text, text
 
 
 # ---------------------------------------------------------------------------
@@ -39,6 +64,16 @@ class BaseBackend(ABC):
         """
         ...
 
+    def stream_complete(self, prompt: str, max_tokens: int = 512,
+                        temperature: float = 0.7,
+                        top_p: Optional[float] = None) -> Iterator[StreamResult]:
+        """Yield text deltas and finish with a ``ModelResponse``.
+
+        Backends that do not support native streaming fall back to one
+        blocking completion and yield the final response as a single item.
+        """
+        yield self.complete(prompt, max_tokens, temperature, top_p=top_p)
+
     @abstractmethod
     def health_check(self) -> bool:
         ...
@@ -51,8 +86,10 @@ class MLXBackend(BaseBackend):
     def __init__(self) -> None:
         try:
             from mlx_lm import load, generate  # type: ignore[import-untyped]
+            import mlx_lm as _mlx_lm  # type: ignore[import-untyped]
             self._load = load
             self._generate = generate
+            self._stream_generate = getattr(_mlx_lm, "stream_generate", None)
         except ImportError:
             raise ImportError("MLX not installed. Run: pip install mlx mlx-lm")
 
@@ -116,6 +153,43 @@ class MLXBackend(BaseBackend):
         except Exception:
             return False
 
+    def stream_complete(self, prompt: str, max_tokens: int = 512,
+                        temperature: float = 0.7,
+                        top_p: Optional[float] = None) -> Iterator[StreamResult]:
+        if self._stream_generate is None:
+            yield self.complete(prompt, max_tokens, temperature, top_p=top_p)
+            return
+
+        start = time.time()
+        sampler = None
+        if self._make_sampler is not None:
+            sampler_kwargs = {"temp": temperature}
+            if top_p is not None:
+                sampler_kwargs["top_p"] = top_p
+            sampler = self._make_sampler(**sampler_kwargs)
+
+        kwargs: dict[str, Any] = {
+            "prompt": prompt,
+            "max_tokens": max_tokens,
+        }
+        if sampler is not None:
+            kwargs["sampler"] = sampler
+
+        full_text = ""
+        for item in self._stream_generate(self.model, self.tokenizer, **kwargs):
+            full_text, delta = _coerce_stream_text(item, full_text)
+            if delta:
+                yield delta
+
+        yield ModelResponse(
+            text=full_text,
+            model=self.model_name,
+            tokens_used=len(self.tokenizer.encode(full_text)),
+            backend="mlx",
+            latency_ms=(time.time() - start) * 1000,
+            cost_usd=0.0,
+        )
+
 
 # ---------------------------------------------------------------------------
 # CUDA  (Linux / WSL — local Nvidia GPU via vLLM OpenAI-compat server)
@@ -159,6 +233,59 @@ class CUDABackend(BaseBackend):
             return r.status_code == 200
         except Exception:
             return False
+
+    def stream_complete(self, prompt: str, max_tokens: int = 512,
+                        temperature: float = 0.7,
+                        top_p: Optional[float] = None) -> Iterator[StreamResult]:
+        start = time.time()
+        body: dict[str, Any] = {
+            "prompt": prompt,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "stream": True,
+        }
+        if top_p is not None:
+            body["top_p"] = top_p
+
+        full_text = ""
+        tokens_used = 0
+        with self._session.post(
+            f"http://localhost:{self.port}/v1/completions",
+            json=body,
+            timeout=120,
+            stream=True,
+        ) as resp:
+            resp.raise_for_status()
+            for line in resp.iter_lines(decode_unicode=True):
+                if not line:
+                    continue
+                line = line.strip()
+                if not line.startswith("data:"):
+                    continue
+                payload = line[5:].strip()
+                if payload == "[DONE]":
+                    break
+                try:
+                    data = __import__("json").loads(payload)
+                except Exception:
+                    continue
+                choice = (data.get("choices") or [{}])[0]
+                delta = choice.get("text") or ""
+                if delta:
+                    full_text += delta
+                    yield delta
+                usage = data.get("usage") or {}
+                if usage.get("completion_tokens") is not None:
+                    tokens_used = int(usage["completion_tokens"])
+
+        yield ModelResponse(
+            text=full_text,
+            model=self.model_name,
+            tokens_used=tokens_used or len(full_text.split()),
+            backend="cuda",
+            latency_ms=(time.time() - start) * 1000,
+            cost_usd=0.0,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -319,6 +446,64 @@ class OpenRouterBackend(BaseBackend):
         except Exception:
             return False
 
+    def stream_complete(self, prompt: str, max_tokens: int = 512,
+                        temperature: float = 0.7,
+                        top_p: Optional[float] = None) -> Iterator[StreamResult]:
+        start = time.time()
+        payload: dict[str, Any] = {
+            "model": self.model_name,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "stream": True,
+        }
+        if top_p is not None:
+            payload["top_p"] = top_p
+
+        full_text = ""
+        tokens_used = 0
+        with self._session.post(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers={"Authorization": f"Bearer {self.api_key}",
+                     "Content-Type": "application/json"},
+            json=payload,
+            timeout=120,
+            stream=True,
+        ) as resp:
+            resp.raise_for_status()
+            for line in resp.iter_lines(decode_unicode=True):
+                if not line:
+                    continue
+                line = line.strip()
+                if not line.startswith("data:"):
+                    continue
+                payload_line = line[5:].strip()
+                if payload_line == "[DONE]":
+                    break
+                try:
+                    data = __import__("json").loads(payload_line)
+                except Exception:
+                    continue
+                choice = (data.get("choices") or [{}])[0]
+                delta = (((choice.get("delta") or {}).get("content"))
+                         or choice.get("text")
+                         or "")
+                if delta:
+                    full_text += delta
+                    yield delta
+                usage = data.get("usage") or {}
+                if usage.get("completion_tokens") is not None:
+                    tokens_used = int(usage["completion_tokens"])
+
+        yield ModelResponse(
+            text=full_text,
+            model=self.model_name,
+            tokens_used=tokens_used or len(full_text.split()),
+            backend="openrouter",
+            latency_ms=(time.time() - start) * 1000,
+            cost_usd=0.0,
+        )
+
 
 # ---------------------------------------------------------------------------
 # Anthropic Claude  (cloud — paid)
@@ -412,6 +597,64 @@ class OpenAICompatBackend(BaseBackend):
         except Exception:
             return False
 
+    def stream_complete(self, prompt: str, max_tokens: int = 512,
+                        temperature: float = 0.7,
+                        top_p: Optional[float] = None) -> Iterator[StreamResult]:
+        start = time.time()
+        payload: dict[str, Any] = {
+            "model": self.model_name,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "stream": True,
+        }
+        if top_p is not None:
+            payload["top_p"] = top_p
+
+        full_text = ""
+        tokens_used = 0
+        with self._session.post(
+            f"{self.base_url}/chat/completions",
+            headers={"Authorization": f"Bearer {self.api_key}",
+                     "Content-Type": "application/json"},
+            json=payload,
+            timeout=120,
+            stream=True,
+        ) as resp:
+            resp.raise_for_status()
+            for line in resp.iter_lines(decode_unicode=True):
+                if not line:
+                    continue
+                line = line.strip()
+                if not line.startswith("data:"):
+                    continue
+                payload_line = line[5:].strip()
+                if payload_line == "[DONE]":
+                    break
+                try:
+                    data = __import__("json").loads(payload_line)
+                except Exception:
+                    continue
+                choice = (data.get("choices") or [{}])[0]
+                delta = (((choice.get("delta") or {}).get("content"))
+                         or choice.get("text")
+                         or "")
+                if delta:
+                    full_text += delta
+                    yield delta
+                usage = data.get("usage") or {}
+                if usage.get("completion_tokens") is not None:
+                    tokens_used = int(usage["completion_tokens"])
+
+        yield ModelResponse(
+            text=full_text,
+            model=self.model_name,
+            tokens_used=tokens_used or len(full_text.split()),
+            backend="openai_compat",
+            latency_ms=(time.time() - start) * 1000,
+            cost_usd=0.0,
+        )
+
 
 # ---------------------------------------------------------------------------
 # AeroLLM  (multi-threaded prefetched layer streaming — 70B+ on minimal RAM)
@@ -436,7 +679,7 @@ class AeroLLMBackend(BaseBackend):
             )
 
         self.model_name = os.getenv(
-            "AEROLLM_MODEL", "Qwen/Qwen3-235B-A22B"
+            "AEROLLM_MODEL", "meta-llama/Llama-3.1-70B"
         )
         compression = os.getenv("AEROLLM_COMPRESSION", "4bit") or None
         if compression == "none":

@@ -1575,6 +1575,13 @@ def _prepare_chat_context(
         try:
             deep_backend = _get_deep_backend()
         except Exception as e:  # noqa: BLE001
+            deep_model = os.getenv("AEROLLM_MODEL", "meta-llama/Llama-3.1-70B")
+            gated_hint = ""
+            if deep_model.lower().startswith("meta-llama/"):
+                gated_hint = (
+                    " Accept the model license on Hugging Face first, then run "
+                    "huggingface-cli login or export HF_TOKEN before downloading it."
+                )
             activity_log.emit(
                 "chat",
                 f"AeroLLM init failed: {type(e).__name__}: {e}",
@@ -1586,7 +1593,7 @@ def _prepare_chat_context(
                         "AeroLLM isn't ready on this lab. Install it "
                         "(`pip install git+https://github.com/cdarnell/aerollm@main`) "
                         f"and ensure AEROLLM_MODEL in .env points at a downloaded "
-                        f"model.\n\nError: {e}"
+                        f"model.{gated_hint}\n\nError: {e}"
                     ),
                     "backend": "aerollm",
                     "error": str(e),
@@ -2020,7 +2027,7 @@ async def api_aerollm_bench():
 
         {
           "bench": {
-            "Qwen/Qwen3-235B-A22B": {
+                        "meta-llama/Llama-3.1-70B": {
               "runs": 4,
               "avg_tokens_per_sec": 0.17,
               "avg_tokens_per_min": 10.2,
@@ -2179,8 +2186,8 @@ async def api_chat_models():
             )
         else:  # aerollm
             example = (
-                "huggingface-cli download Qwen/Qwen3-235B-A22B "
-                f"--local-dir {models_dir}/Qwen3-235B-A22B"
+                "huggingface-cli download meta-llama/Llama-3.1-70B "
+                f"--local-dir {models_dir}/Llama-3.1-70B --local-dir-use-symlinks False"
             )
 
         install_hint = {
@@ -2199,7 +2206,7 @@ async def api_chat_models():
     # the UI what giant model is wired up behind the "Deep model"
     # toggle. Separate field because users can flip that toggle
     # regardless of which primary backend they're on.
-    deep_model_name = os.getenv("AEROLLM_MODEL", "Qwen/Qwen3-235B-A22B")
+    deep_model_name = os.getenv("AEROLLM_MODEL", "meta-llama/Llama-3.1-70B")
     # Look up the spec sheet so the Frontier chip hover can show
     # strengths, benchmarks, and license at a glance. Registry lives
     # in src/oglab/model_specs.py — users edit it to add new models.
@@ -2220,7 +2227,20 @@ async def api_chat_models():
         # configured model isn't known; the UI shows a "click to
         # document this model" placeholder in that case.
         "spec": spec,
+        # Server-side default for the dashboard deep toggle. The UI
+        # still lets the browser override this after first render.
+        "default_enabled": os.getenv("OGLAB_CHAT_DEEP_DEFAULT", "false").lower() == "true",
+        # Meta Llama and similar repos require a HF login/token before
+        # download. Surface the caveat so the dashboard can show it in
+        # install/help copy instead of failing generically.
+        "gated": deep_model_name.lower().startswith("meta-llama/"),
     }
+
+    if deep_info["gated"]:
+        deep_info["auth_hint"] = (
+            "Accept the Hugging Face license for this model, then run "
+            "huggingface-cli login or export HF_TOKEN before downloading."
+        )
 
     return {
         "backend": backend_name,

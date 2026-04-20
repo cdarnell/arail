@@ -365,7 +365,7 @@ a wide size range so you can pick one that matches your hardware.
 
 `MODEL_NAME=mlx-community/Qwen3-8B-4bit` (MLX default).
 `MODEL_NAME=Qwen/Qwen3-8B` (CUDA / HuggingFace default).
-`AEROLLM_MODEL=Qwen/Qwen3-235B-A22B` (AeroLLM deep-research default).
+`AEROLLM_MODEL=meta-llama/Llama-3.1-70B` (AeroLLM deep-research default).
 
 Source: <https://qwenlm.github.io/blog/qwen3/>
 """

@@ -1046,6 +1046,37 @@ function chatAppend(role, text, meta) {
   log.scrollTop = log.scrollHeight;
 }
 
+function chatBeginStreaming(role) {
+  const log = document.getElementById('chat-log');
+  const wrap = document.createElement('div');
+  wrap.className = 'chat-msg chat-msg-' + role;
+  const label =
+    role === 'user' ? 'YOU' : role === 'assistant' ? 'LAB' : 'LAB';
+  wrap.innerHTML =
+    `<div class="chat-role">${label}</div>` +
+    `<div class="chat-bubble"></div>`;
+  log.appendChild(wrap);
+  const bubble = wrap.querySelector('.chat-bubble');
+  let streamedText = '';
+
+  function scroll() {
+    log.scrollTop = log.scrollHeight;
+  }
+
+  return {
+    append(delta) {
+      streamedText += delta || '';
+      bubble.textContent = streamedText;
+      scroll();
+    },
+    finalize(text, meta) {
+      bubble.innerHTML = chatRenderMarkdown(text || streamedText || '(empty response)') +
+        (meta ? `<div class="chat-meta">${chatEscape(meta)}</div>` : '');
+      scroll();
+    },
+  };
+}
+
 function chatLoadHistory() {
   try {
     const raw = localStorage.getItem(CHAT_STORAGE);
@@ -1082,7 +1113,7 @@ async function chatSend(text) {
   try {
     const tuning = CHAT_TUNING.get();
     const useDeep = document.getElementById('chat-deep-enable').checked;
-    const r = await fetch('/api/chat', {
+    const r = await fetch('/api/chat/stream', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1095,13 +1126,22 @@ async function chatSend(text) {
         backend: useDeep ? 'aerollm' : undefined,
       }),
     });
-    const d = await r.json();
-    if (d.error && !d.reply) {
-      chatAppend('assistant', 'Error: ' + d.error);
-    } else {
-      // Build the meta-line shown under each reply. Now includes
-      // throughput (tokens/sec) and cost estimates when available —
-      // small and muted so it's informative, not noisy.
+    if (!r.ok || !r.body) {
+      const fallback = await r.text();
+      throw new Error(fallback || ('HTTP ' + r.status));
+    }
+
+    const assistant = chatBeginStreaming('assistant');
+    const reader = r.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let finalEvent = null;
+
+    function applyFinal(d) {
+      if (d.error && !d.reply) {
+        assistant.finalize('Error: ' + d.error, null);
+        return;
+      }
       const parts = [];
       if (d.backend) parts.push(d.backend);
       if (d.model) parts.push(d.model);
@@ -1116,7 +1156,7 @@ async function chatSend(text) {
         meta = (meta ? meta + '\n' : '') +
           `~ ${cloud} cloud-equiv · ${energy} energy`;
       }
-      chatAppend('assistant', d.reply || '(empty response)', meta);
+      assistant.finalize(d.reply || '(empty response)', meta);
       CHAT_STATE.history.push({ role: 'assistant', content: d.reply || '' });
       chatSaveHistory();
       const backendBadge = document.getElementById('chat-backend');
@@ -1133,6 +1173,30 @@ async function chatSend(text) {
         CHAT_STATE.sessionTokens += d.tokens_used;
         updateSessionTokens();
       }
+    }
+
+    while (true) {
+      const { value, done } = await reader.read();
+      buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+      let newlineIndex;
+      while ((newlineIndex = buffer.indexOf('\n')) >= 0) {
+        const line = buffer.slice(0, newlineIndex).trim();
+        buffer = buffer.slice(newlineIndex + 1);
+        if (!line) continue;
+        const event = JSON.parse(line);
+        if (event.type === 'delta') {
+          assistant.append(event.delta || '');
+        } else if (event.type === 'final') {
+          finalEvent = event;
+        }
+      }
+      if (done) break;
+    }
+
+    if (finalEvent) {
+      applyFinal(finalEvent);
+    } else {
+      assistant.finalize('(stream ended without a final reply)', null);
     }
   } catch (e) {
     chatAppend('assistant', 'Network error: ' + e.message);
@@ -1376,6 +1440,9 @@ const CHAT_TUNING = (() => {
     const cfModelEl = document.getElementById('cf-model');
     const deepText = document.getElementById('chat-deep-text');
     const deep = d.deep || {};
+    if (typeof window.__oglabSetDeepToggleDefault === 'function') {
+      window.__oglabSetDeepToggleDefault(!!deep.default_enabled);
+    }
     if (frontierWrap && frontierEl && cfModelEl && deep.model) {
       const short = deep.model.split('/').pop();
       const paramTag = deep.param_hint ? ` · ${deep.param_hint}` : '';
@@ -1383,9 +1450,11 @@ const CHAT_TUNING = (() => {
       frontierWrap.hidden = false;
       frontierEl.classList.toggle('not-installed', !deep.installed);
       if (!deep.installed) {
-        frontierEl.title =
-          `AeroLLM not installed on this lab. Run ./oglab setup to enable, ` +
-          `or pip install git+https://github.com/cdarnell/aerollm@main manually.`;
+        frontierEl.title = deep.gated
+          ? (deep.auth_hint
+              ? `AeroLLM is optional on this lab. ${deep.auth_hint} Then download ${short}.`
+              : `AeroLLM is optional on this lab. Install the package, accept the Hugging Face Meta Llama license, authenticate, then download ${short}.`)
+          : `AeroLLM not installed on this lab. Run ./oglab setup to enable, or pip install git+https://github.com/cdarnell/aerollm@main manually.`;
       }
       renderSpecPopover(deep);
     }
@@ -1427,6 +1496,9 @@ const CHAT_TUNING = (() => {
         <pre class="cmh-cmd"><code>${esc(hint.example_command)}</code></pre>
         <button type="button" class="cmh-copy btn btn-ghost btn-sm"
                 data-copy="${esc(hint.example_command)}">Copy command</button>
+        ${d.deep && d.deep.gated ? `
+          <p class="cmh-line cmh-caveat">${esc(d.deep.auth_hint || 'Accept the model license on Hugging Face first, then run huggingface-cli login or export HF_TOKEN.')}</p>
+        ` : ''}
         <p class="cmh-line cmh-caveat">${esc(hint.restart_note)}</p>
         ${others.length ? `
           <p class="cmh-line cmh-label">Already installed (${others.length}):</p>
@@ -1642,11 +1714,19 @@ function _deepLatencyHint(paramHint) {
   const cb = document.getElementById('chat-deep-enable');
   const label = document.getElementById('chat-deep-text');
   if (!cb || !label) return;
+  function hasStoredPreference() {
+    try { return localStorage.getItem(DEEP_KEY) !== null; } catch (e) { return false; }
+  }
   function render() {
     label.textContent = cb.checked
       ? '⚡ ON — next reply routes through AeroLLM (slow but smart)'
       : 'off — using the fast model above';
     label.classList.toggle('deep-on', cb.checked);
+  }
+  function setServerDefault(enabled) {
+    if (hasStoredPreference()) return;
+    cb.checked = !!enabled;
+    render();
   }
   try { cb.checked = localStorage.getItem(DEEP_KEY) === '1'; } catch (e) {}
   cb.addEventListener('change', () => {
@@ -1654,6 +1734,7 @@ function _deepLatencyHint(paramHint) {
     render();
   });
   render();
+  window.__oglabSetDeepToggleDefault = setServerDefault;
 })();
 
 // Populate the current backend + model in the chat card header on load,
