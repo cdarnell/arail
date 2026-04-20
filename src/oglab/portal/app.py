@@ -5,10 +5,12 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import subprocess
 import sys
+import threading
 from pathlib import Path
-from typing import Any
+from typing import Any, AsyncIterator, Iterator, cast
 
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
@@ -30,6 +32,7 @@ from oglab.router.backends import BACKEND_MAP
 from oglab.portal.wiki_routes import router as wiki_router
 
 from oglab.brand import load_brand
+from oglab.router.backends import ModelResponse
 
 _BRAND = load_brand()
 
@@ -38,6 +41,33 @@ app.include_router(wiki_router)
 
 PORTAL_DIR = Path(__file__).parent
 app.mount("/static", StaticFiles(directory=PORTAL_DIR / "static"), name="static")
+# Mount integrations frontend (core/knowledge-canvas/frontend) if present.
+KC_FRONTEND_DIR = Path(__file__).resolve().parents[3] / "core" / "knowledge-canvas" / "frontend"
+KC_FRONTEND_DIST_DIR = KC_FRONTEND_DIR / "dist"
+KC_BACKEND_DIR = Path(__file__).resolve().parents[3] / "core" / "knowledge-canvas" / "backend"
+knowledge_canvas_app: Any = None
+_knowledge_canvas_store = None
+if KC_FRONTEND_DIST_DIR.exists() or KC_FRONTEND_DIR.exists():
+    kc_static_dir = KC_FRONTEND_DIST_DIR if KC_FRONTEND_DIST_DIR.exists() else KC_FRONTEND_DIR
+    app.mount("/_integrations/knowledge-canvas",
+              StaticFiles(directory=kc_static_dir),
+              name="integrations_kc_static")
+
+# Optional: mount imported knowledge-canvas backend under /knowledge-canvas
+# so its native graph/source/nlq routes are available without replacing
+# OGLab's own API surface.
+if KC_BACKEND_DIR.exists():
+    try:
+        kc_backend = str(KC_BACKEND_DIR)
+        if kc_backend not in sys.path:
+            sys.path.insert(0, kc_backend)
+        from app.main import app as knowledge_canvas_app  # type: ignore
+        app.mount("/knowledge-canvas", cast(Any, knowledge_canvas_app))
+    except Exception as e:  # noqa: BLE001
+        activity_log.emit("system",
+                          f"Knowledge Canvas backend mount skipped: {type(e).__name__}: {e}",
+                          "warn")
+
 templates = Jinja2Templates(directory=PORTAL_DIR / "templates")
 # Expose the brand to every Jinja template — so `{{ brand.name }}` works
 # everywhere without each route having to pass it explicitly.
@@ -53,10 +83,38 @@ plugin_mgr = PluginManager()
 @app.on_event("startup")
 async def _startup():
     import os
+    global _knowledge_canvas_store
     intent_name = os.getenv("LAB_INTENT_NAME", "AI Engineer")
     activity_log.emit("system",
                       f"{_BRAND.name} portal started — {intent_name} lab.",
                       "success")
+
+    if knowledge_canvas_app is not None and not hasattr(knowledge_canvas_app.state, "store"):
+        try:
+            from app.routers import ws as kc_ws  # type: ignore
+            from app.services.graph_store import GraphStore  # type: ignore
+
+            _knowledge_canvas_store = GraphStore(
+                lance_path=os.getenv("LANCE_PATH", "./data/lance"),
+                neo4j_uri=os.getenv("NEO4J_URI", "bolt://localhost:7687"),
+                neo4j_auth=(
+                    os.getenv("NEO4J_USER", "neo4j"),
+                    os.getenv("NEO4J_PASSWORD", "changeme-please"),
+                ),
+            )
+            await _knowledge_canvas_store.init()
+            knowledge_canvas_app.state.store = _knowledge_canvas_store
+            knowledge_canvas_app.state.ws_broadcaster = kc_ws.broadcaster
+            activity_log.emit("system", "Knowledge Canvas backend ready.", "info")
+        except Exception as e:  # noqa: BLE001
+            _knowledge_canvas_store = None
+            activity_log.emit(
+                "system",
+                f"Knowledge Canvas startup skipped: {type(e).__name__}: {e}",
+                "warn",
+            )
+
+    asyncio.create_task(_warm_primary_router())
 
     # Load bootstrap goal if no active goal exists
     current = goal_store.get_current()
@@ -174,6 +232,16 @@ async def _startup():
             activity_log.emit("dream",
                 f"Dream daemon failed to start: {type(e).__name__}: {e}",
                 "warn")
+
+
+@app.on_event("shutdown")
+async def _shutdown():
+    global _knowledge_canvas_store
+    if _knowledge_canvas_store is not None:
+        try:
+            await _knowledge_canvas_store.close()
+        finally:
+            _knowledge_canvas_store = None
 
 
 # ── Pages ────────────────────────────────────────────────────────────────
@@ -386,6 +454,18 @@ async def open_notebook_page(request: Request):
         "encryption_key_set": encryption_key_set,
         "ui_port": ui_port,
         "api_port": api_port,
+    })
+
+
+@app.get("/integrations/knowledge-canvas", response_class=HTMLResponse)
+async def integrations_knowledge_canvas(request: Request):
+    """Integration landing page for the knowledge-canvas frontend.
+
+    Embeds the canvas frontend if it's installed under `core/knowledge-canvas/frontend`.
+    """
+    has_frontend = KC_FRONTEND_DIST_DIR.exists() or KC_FRONTEND_DIR.exists()
+    return templates.TemplateResponse(request, "integrations/knowledge_canvas.html", {
+        "has_frontend": has_frontend,
     })
 
 
@@ -905,7 +985,10 @@ async def revoke_domain(request: Request):
 
 @app.get("/graph", response_class=HTMLResponse)
 async def graph_page(request: Request):
-    return templates.TemplateResponse(request, "graph.html")
+    preview = request.query_params.get("preview", "0") in {"1", "true", "yes"}
+    return templates.TemplateResponse(request, "graph.html", {
+        "preview": preview,
+    })
 
 
 @app.get("/admin", response_class=HTMLResponse)
@@ -926,7 +1009,10 @@ async def admin_page(request: Request):
 @app.get("/agents", response_class=HTMLResponse)
 async def agents_page(request: Request):
     """Agent Control Center — monitor, instruct, and inspect all agents."""
-    return templates.TemplateResponse(request, "agents.html", {})
+    return templates.TemplateResponse(request, "agents.html", {
+        "current_goal": goal_store.get_current(),
+        "mode": os.getenv("LAB_NETWORK_MODE", "hybrid").lower(),
+    })
 
 
 @app.get("/api/agents/status")
@@ -1132,29 +1218,92 @@ async def api_agents_forge_preview(name: str = "", emoji: str = "",
 @app.get("/api/admin/components")
 async def admin_components():
     """Read components.json and resolve current versions."""
+    import re
     import subprocess as sp
+    from importlib import metadata as importlib_metadata
+
+    def _pkg_version(name: str) -> str | None:
+        try:
+            return importlib_metadata.version(name)
+        except importlib_metadata.PackageNotFoundError:
+            return None
+        except Exception:
+            return None
+
+    def _neo4j_image_from_canvas_compose() -> str | None:
+        compose_path = Path.cwd() / "core" / "knowledge-canvas" / "docker-compose.yml"
+        if not compose_path.exists():
+            return None
+        try:
+            lines = compose_path.read_text().splitlines()
+        except Exception:
+            return None
+
+        in_neo4j = False
+        for line in lines:
+            if re.match(r"^\s{2}neo4j:\s*$", line):
+                in_neo4j = True
+                continue
+            if in_neo4j and re.match(r"^\s{2}[a-zA-Z0-9_-]+:\s*$", line):
+                break
+            if in_neo4j:
+                m = re.match(r"^\s{4}image:\s*(\S+)\s*$", line)
+                if m:
+                    return m.group(1)
+        return None
+
     manifest_path = Path.cwd() / "components.json"
-    if not manifest_path.exists():
-        return {"components": []}
-    manifest = json.loads(manifest_path.read_text())
     out = []
-    for c in manifest.get("components", []):
-        ver = None
-        vcmd = c.get("version_cmd")
-        if vcmd:
-            try:
-                r = sp.run(vcmd, shell=True, capture_output=True, text=True, timeout=10)
-                ver = r.stdout.strip().split("\n")[0] if r.returncode == 0 else None
-            except Exception:
-                pass
-        out.append({
-            "name": c["name"],
-            "type": c.get("type", ""),
-            "description": c.get("description", ""),
-            "version": ver or c.get("current_version") or "—",
-            "source_url": c.get("source_url"),
-            "changelog_url": c.get("changelog_url"),
-        })
+
+    if manifest_path.exists():
+        manifest = json.loads(manifest_path.read_text())
+        for c in manifest.get("components", []):
+            ver = None
+            vcmd = c.get("version_cmd")
+            if vcmd:
+                try:
+                    r = sp.run(vcmd, shell=True, capture_output=True, text=True, timeout=10)
+                    ver = r.stdout.strip().split("\n")[0] if r.returncode == 0 else None
+                except Exception:
+                    pass
+            out.append({
+                "name": c["name"],
+                "type": c.get("type", ""),
+                "description": c.get("description", ""),
+                "version": ver or c.get("current_version") or "—",
+                "source_url": c.get("source_url"),
+                "changelog_url": c.get("changelog_url"),
+                "image": c.get("image") or "",
+                "package": c.get("package") or "",
+            })
+
+    # Canvas components are important enough to surface even when not tracked
+    # in the top-level component manifest yet.
+    neo4j_pkg_ver = _pkg_version("neo4j")
+    lancedb_pkg_ver = _pkg_version("lancedb")
+    neo4j_image = _neo4j_image_from_canvas_compose() or "neo4j:5-community"
+
+    out.append({
+        "name": "knowledge-canvas-neo4j",
+        "type": "docker+python",
+        "description": "Graph relationship store for Knowledge Canvas",
+        "version": neo4j_pkg_ver or "package not installed",
+        "source_url": "https://neo4j.com/",
+        "changelog_url": "https://github.com/neo4j/neo4j/releases",
+        "image": neo4j_image,
+        "package": f"neo4j {neo4j_pkg_ver}" if neo4j_pkg_ver else "neo4j (missing)",
+    })
+    out.append({
+        "name": "knowledge-canvas-lancedb",
+        "type": "python",
+        "description": "Vector index for semantic associations",
+        "version": lancedb_pkg_ver or "package not installed",
+        "source_url": "https://github.com/lancedb/lancedb",
+        "changelog_url": "https://github.com/lancedb/lancedb/releases",
+        "image": "",
+        "package": f"lancedb {lancedb_pkg_ver}" if lancedb_pkg_ver else "lancedb (missing)",
+    })
+
     return {"components": out}
 
 
@@ -1297,129 +1446,84 @@ async def api_brand():
 # lab's capabilities, current state, and configured intent.
 
 _CHAT_HISTORY_LIMIT = 20
+_ROUTER_CACHE = None
+_ROUTER_CACHE_SIGNATURE = None
+_ROUTER_CACHE_LOCK = threading.Lock()
 
 
-async def _run_chat_completion(
-    *,
-    message: str,
-    history: list,
-    backend_override: str | None,
-    model_override: str | None,
-    temperature: float,
-    top_p: float | None,
-    max_tokens: int,
-) -> dict:
-    """Shared core of /api/chat and /api/teacher/ask.
+def _router_signature() -> tuple[str | None, ...]:
+    return (
+        os.getenv("MODEL_BACKEND"),
+        os.getenv("MODEL_NAME"),
+        os.getenv("MODEL_API_BASE"),
+        os.getenv("MODEL_API_KEY"),
+        os.getenv("LOCAL_API_PORT"),
+    )
 
-    Returns the same dict the /api/chat endpoint emits so both surfaces
-    look identical to the UI layer: {reply, backend, model, latency_ms,
-    tokens_used, tokens_per_sec, cloud_cost_usd, energy_cost_usd,
-    deep, error}. On failure the dict carries a user-readable ``reply``
-    plus an ``error`` string — callers never need to catch."""
-    from oglab import lab_brain
+
+def _get_primary_router():
     from oglab.router import ModelRouter
 
-    if not isinstance(history, list):
-        history = []
-    history = history[-_CHAT_HISTORY_LIMIT:]
+    global _ROUTER_CACHE, _ROUTER_CACHE_SIGNATURE
+    signature = _router_signature()
+    with _ROUTER_CACHE_LOCK:
+        if _ROUTER_CACHE is None or _ROUTER_CACHE_SIGNATURE != signature:
+            _ROUTER_CACHE = ModelRouter()
+            _ROUTER_CACHE_SIGNATURE = signature
+    return _ROUTER_CACHE
 
-    prompt = lab_brain.build_chat_prompt(message, history)
 
-    wants_deep = str(backend_override or "").strip().lower() == "aerollm"
-    deep_backend = None
-    if wants_deep:
+async def _warm_primary_router() -> None:
+    try:
+        await asyncio.to_thread(_get_primary_router)
+        activity_log.emit("chat", "Primary chat model is loaded and ready.", "info")
+    except Exception as e:  # noqa: BLE001
+        activity_log.emit(
+            "chat",
+            f"Primary chat preload skipped: {type(e).__name__}: {e}",
+            "warn",
+        )
+
+
+def _render_messages_for_backend(messages: list[dict[str, str]], backend: Any) -> str:
+    tokenizer = getattr(backend, "tokenizer", None)
+    if tokenizer is None:
+        model = getattr(backend, "model", None)
+        tokenizer = getattr(model, "tokenizer", None)
+
+    if tokenizer is not None and hasattr(tokenizer, "apply_chat_template"):
         try:
-            deep_backend = _get_deep_backend()
-        except Exception as e:  # noqa: BLE001
-            activity_log.emit(
-                "chat",
-                f"AeroLLM init failed: {type(e).__name__}: {e}",
-                "warn",
-            )
-            return {
-                "reply": (
-                    "AeroLLM isn't ready on this lab. Install it "
-                    "(`pip install git+https://github.com/cdarnell/aerollm@main`) "
-                    f"and ensure AEROLLM_MODEL in .env points at a downloaded "
-                    f"model.\n\nError: {e}"
-                ),
-                "backend": "aerollm",
-                "error": str(e),
+            model_name = str(getattr(backend, "model_name", "") or "").lower()
+            kwargs = {
+                "tokenize": False,
+                "add_generation_prompt": True,
             }
-
-    try:
-        router = ModelRouter()
-    except Exception as e:  # noqa: BLE001
-        activity_log.emit("chat",
-                          f"Router unavailable: {type(e).__name__}: {e}",
-                          "error")
-        return {
-            "reply": (
-                "The local model router isn't available yet. Run "
-                "`./oglab setup` to install the backend for your "
-                "hardware, or set MODEL_BACKEND in `.env` to point at "
-                "an OpenAI-compatible local server (LM Studio, Ollama, "
-                "NVIDIA NIM)."
-            ),
-            "backend": None,
-            "error": str(e),
-        }
-
-    override_model = (model_override or "").strip() or None
-    previous_model = None
-    active_backend = deep_backend if deep_backend is not None else router._backend
-    if override_model and hasattr(active_backend, "model_name"):
-        if override_model != active_backend.model_name:
-            previous_model = active_backend.model_name
-            active_backend.model_name = override_model
-
-    try:
-        if deep_backend is not None:
-            import asyncio as _aio
-            response = await _aio.to_thread(
-                deep_backend.complete,
-                prompt, max_tokens, temperature, top_p,
+            if "qwen" in model_name:
+                kwargs["enable_thinking"] = False
+            rendered = tokenizer.apply_chat_template(
+                messages,
+                **kwargs,
             )
-            from oglab.costs import cost_tracker
-            cost_tracker.track(
-                backend=response.backend,
-                model=response.model,
-                tokens_in=max(len(prompt) // 4, 1),
-                tokens_out=response.tokens_used,
-                latency_ms=response.latency_ms,
-            )
-            _record_aerollm_bench(
-                model=response.model,
-                tokens_out=response.tokens_used,
-                latency_ms=response.latency_ms,
-                prompt_chars=len(prompt),
-                max_tokens=max_tokens,
-            )
-        else:
-            response = router.complete(
-                prompt,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                top_p=top_p,
-            )
-    except Exception as e:  # noqa: BLE001
-        activity_log.emit("chat",
-                          f"Inference failed: {type(e).__name__}: {str(e)[:120]}",
-                          "error")
-        return {
-            "reply": f"Inference failed: {e}",
-            "backend": (deep_backend.backend_name if wants_deep
-                        else router.backend_name),
-            "error": str(e),
-        }
-    finally:
-        if previous_model is not None and hasattr(active_backend, "model_name"):
-            active_backend.model_name = previous_model
+            if isinstance(rendered, str) and rendered.strip():
+                return rendered
+        except Exception:
+            pass
 
-    reply = (response.text or "").strip()
+    from oglab import lab_brain
+
+    return lab_brain.render_chat_transcript(messages)
+
+
+def _clean_chat_reply(text: str) -> str:
+    reply = (text or "").strip()
+    reply = re.sub(r"<think>.*?</think>", "", reply, flags=re.DOTALL).strip()
     if not reply:
         reply = "(model returned no text — try rephrasing)"
+    return reply
 
+
+def _build_chat_result(response: ModelResponse, *, wants_deep: bool) -> dict[str, Any]:
+    reply = _clean_chat_reply(response.text or "")
     latency_sec = max(response.latency_ms / 1000.0, 0.001)
     tokens_per_sec = round(response.tokens_used / latency_sec, 1)
     cloud_cost_usd = None
@@ -1449,6 +1553,327 @@ async def _run_chat_completion(
         "deep": bool(wants_deep),
         "error": None,
     }
+
+
+def _prepare_chat_context(
+    *,
+    message: str,
+    history: list,
+    backend_override: str | None,
+    model_override: str | None,
+) -> dict[str, Any]:
+    from oglab import lab_brain
+
+    if not isinstance(history, list):
+        history = []
+    history = history[-_CHAT_HISTORY_LIMIT:]
+    messages = lab_brain.build_chat_messages(message, history)
+
+    wants_deep = str(backend_override or "").strip().lower() == "aerollm"
+    deep_backend = None
+    if wants_deep:
+        try:
+            deep_backend = _get_deep_backend()
+        except Exception as e:  # noqa: BLE001
+            activity_log.emit(
+                "chat",
+                f"AeroLLM init failed: {type(e).__name__}: {e}",
+                "warn",
+            )
+            return {
+                "error_result": {
+                    "reply": (
+                        "AeroLLM isn't ready on this lab. Install it "
+                        "(`pip install git+https://github.com/cdarnell/aerollm@main`) "
+                        f"and ensure AEROLLM_MODEL in .env points at a downloaded "
+                        f"model.\n\nError: {e}"
+                    ),
+                    "backend": "aerollm",
+                    "error": str(e),
+                }
+            }
+
+    router = None
+    if deep_backend is None:
+        try:
+            router = _get_primary_router()
+        except Exception as e:  # noqa: BLE001
+            activity_log.emit("chat",
+                              f"Router unavailable: {type(e).__name__}: {e}",
+                              "error")
+            return {
+                "error_result": {
+                    "reply": (
+                        "The local model router isn't available yet. Run "
+                        "`./oglab setup` to install the backend for your "
+                        "hardware, or set MODEL_BACKEND in `.env` to point at "
+                        "an OpenAI-compatible local server (LM Studio, Ollama, "
+                        "NVIDIA NIM)."
+                    ),
+                    "backend": None,
+                    "error": str(e),
+                }
+            }
+
+    override_model = (model_override or "").strip() or None
+    if deep_backend is not None:
+        active_backend = deep_backend
+    else:
+        assert router is not None
+        active_backend = router._backend
+    prompt = _render_messages_for_backend(messages, active_backend)
+
+    previous_model = None
+    if override_model and hasattr(active_backend, "model_name"):
+        if override_model != active_backend.model_name:
+            previous_model = active_backend.model_name
+            active_backend.model_name = override_model
+
+    return {
+        "router": router,
+        "deep_backend": deep_backend,
+        "active_backend": active_backend,
+        "previous_model": previous_model,
+        "prompt": prompt,
+        "wants_deep": wants_deep,
+    }
+
+
+def _restore_chat_context(context: dict[str, Any]) -> None:
+    active_backend = context.get("active_backend")
+    previous_model = context.get("previous_model")
+    if (
+        previous_model is not None
+        and active_backend is not None
+        and hasattr(active_backend, "model_name")
+    ):
+        active_backend.model_name = previous_model
+
+
+async def _stream_sync_iterator(iterator: Iterator[Any]) -> AsyncIterator[Any]:
+    loop = asyncio.get_running_loop()
+    queue: asyncio.Queue[Any] = asyncio.Queue()
+    sentinel = object()
+
+    def _worker() -> None:
+        try:
+            for item in iterator:
+                loop.call_soon_threadsafe(queue.put_nowait, item)
+        except Exception as exc:  # noqa: BLE001
+            loop.call_soon_threadsafe(queue.put_nowait, exc)
+        finally:
+            loop.call_soon_threadsafe(queue.put_nowait, sentinel)
+
+    threading.Thread(target=_worker, daemon=True).start()
+
+    while True:
+        item = await queue.get()
+        if item is sentinel:
+            break
+        if isinstance(item, Exception):
+            raise item
+        yield item
+
+
+async def _run_chat_completion_stream(
+    *,
+    message: str,
+    history: list,
+    backend_override: str | None,
+    model_override: str | None,
+    temperature: float,
+    top_p: float | None,
+    max_tokens: int,
+) -> AsyncIterator[dict[str, Any]]:
+    context = _prepare_chat_context(
+        message=message,
+        history=history,
+        backend_override=backend_override,
+        model_override=model_override,
+    )
+    error_result = context.get("error_result")
+    if error_result is not None:
+        yield {"type": "final", **error_result}
+        return
+
+    wants_deep = bool(context["wants_deep"])
+    prompt = str(context["prompt"])
+    deep_backend = context.get("deep_backend")
+    router = context.get("router")
+    active_backend = context.get("active_backend")
+
+    yield {
+        "type": "start",
+        "backend": getattr(active_backend, "backend_name", None) or getattr(router, "backend_name", None),
+        "model": getattr(active_backend, "model_name", None),
+        "deep": wants_deep,
+    }
+
+    try:
+        if deep_backend is not None:
+            response = await asyncio.to_thread(
+                deep_backend.complete,
+                prompt,
+                max_tokens,
+                temperature,
+                top_p,
+            )
+            from oglab.costs import cost_tracker
+            cost_tracker.track(
+                backend=response.backend,
+                model=response.model,
+                tokens_in=max(len(prompt) // 4, 1),
+                tokens_out=response.tokens_used,
+                latency_ms=response.latency_ms,
+            )
+            _record_aerollm_bench(
+                model=response.model,
+                tokens_out=response.tokens_used,
+                latency_ms=response.latency_ms,
+                prompt_chars=len(prompt),
+                max_tokens=max_tokens,
+            )
+            clean_reply = _clean_chat_reply(response.text)
+            if clean_reply:
+                yield {"type": "delta", "delta": clean_reply}
+            yield {"type": "final", **_build_chat_result(response, wants_deep=wants_deep)}
+            return
+
+        final_response: ModelResponse | None = None
+        accumulated = ""
+        if router is None:
+            yield {
+                "type": "final",
+                "reply": "The model router is not available for streaming.",
+                "backend": None,
+                "error": "router unavailable",
+            }
+            return
+        async for item in _stream_sync_iterator(
+            router.stream_complete(
+                prompt,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                top_p=top_p,
+            )
+        ):
+            if isinstance(item, ModelResponse):
+                final_response = item
+                continue
+            delta = str(item or "")
+            if not delta:
+                continue
+            accumulated += delta
+            yield {"type": "delta", "delta": delta}
+
+        if final_response is None:
+            final_response = ModelResponse(
+                text=accumulated,
+                model=str(getattr(active_backend, "model_name", "unknown")),
+                tokens_used=max(len(accumulated.split()), 0),
+                backend=str(getattr(router, "backend_name", "unknown")),
+                latency_ms=0.0,
+                cost_usd=0.0,
+            )
+
+        yield {"type": "final", **_build_chat_result(final_response, wants_deep=wants_deep)}
+    except Exception as e:  # noqa: BLE001
+        activity_log.emit("chat",
+                          f"Inference failed: {type(e).__name__}: {str(e)[:120]}",
+                          "error")
+        yield {
+            "type": "final",
+            "reply": f"Inference failed: {e}",
+            "backend": (
+                getattr(deep_backend, "backend_name", "aerollm")
+                if wants_deep
+                else getattr(router, "backend_name", None)
+            ),
+            "error": str(e),
+        }
+    finally:
+        _restore_chat_context(context)
+
+
+async def _run_chat_completion(
+    *,
+    message: str,
+    history: list,
+    backend_override: str | None,
+    model_override: str | None,
+    temperature: float,
+    top_p: float | None,
+    max_tokens: int,
+) -> dict:
+    """Shared core of /api/chat and /api/teacher/ask.
+
+    Returns the same dict the /api/chat endpoint emits so both surfaces
+    look identical to the UI layer: {reply, backend, model, latency_ms,
+    tokens_used, tokens_per_sec, cloud_cost_usd, energy_cost_usd,
+    deep, error}. On failure the dict carries a user-readable ``reply``
+    plus an ``error`` string — callers never need to catch."""
+    context = _prepare_chat_context(
+        message=message,
+        history=history,
+        backend_override=backend_override,
+        model_override=model_override,
+    )
+    error_result = context.get("error_result")
+    if error_result is not None:
+        return error_result
+
+    wants_deep = bool(context["wants_deep"])
+    deep_backend = context.get("deep_backend")
+    router = context.get("router")
+    prompt = str(context["prompt"])
+
+    try:
+        if deep_backend is not None:
+            import asyncio as _aio
+            response = await _aio.to_thread(
+                deep_backend.complete,
+                prompt, max_tokens, temperature, top_p,
+            )
+            from oglab.costs import cost_tracker
+            cost_tracker.track(
+                backend=response.backend,
+                model=response.model,
+                tokens_in=max(len(prompt) // 4, 1),
+                tokens_out=response.tokens_used,
+                latency_ms=response.latency_ms,
+            )
+            _record_aerollm_bench(
+                model=response.model,
+                tokens_out=response.tokens_used,
+                latency_ms=response.latency_ms,
+                prompt_chars=len(prompt),
+                max_tokens=max_tokens,
+            )
+        else:
+            assert router is not None
+            response = router.complete(
+                prompt,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                top_p=top_p,
+            )
+    except Exception as e:  # noqa: BLE001
+        activity_log.emit("chat",
+                          f"Inference failed: {type(e).__name__}: {str(e)[:120]}",
+                          "error")
+        return {
+            "reply": f"Inference failed: {e}",
+            "backend": (
+                getattr(deep_backend, "backend_name", "aerollm")
+                if wants_deep
+                else getattr(router, "backend_name", None)
+            ),
+            "error": str(e),
+        }
+    finally:
+        _restore_chat_context(context)
+
+    return _build_chat_result(response, wants_deep=wants_deep)
 
 
 @app.post("/api/chat")
@@ -1488,6 +1913,43 @@ async def api_chat(request: Request):
         temperature=float(body.get("temperature") or 0.7),
         top_p=top_p,
         max_tokens=int(body.get("max_tokens") or 512),
+    )
+
+
+@app.post("/api/chat/stream")
+async def api_chat_stream(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    message = (body.get("message") or "").strip()
+    if not message:
+        async def _empty() -> AsyncIterator[str]:
+            yield json.dumps({"type": "final", "error": "message required"}) + "\n"
+        return StreamingResponse(_empty(), media_type="application/x-ndjson")
+
+    tp_raw = body.get("top_p")
+    try:
+        top_p = float(tp_raw) if tp_raw is not None and tp_raw != "" else None
+    except (TypeError, ValueError):
+        top_p = None
+
+    async def _generate() -> AsyncIterator[str]:
+        async for event in _run_chat_completion_stream(
+            message=message,
+            history=body.get("history") or [],
+            backend_override=body.get("backend"),
+            model_override=body.get("model"),
+            temperature=float(body.get("temperature") or 0.7),
+            top_p=top_p,
+            max_tokens=int(body.get("max_tokens") or 512),
+        ):
+            yield json.dumps(event, default=str) + "\n"
+
+    return StreamingResponse(
+        _generate(),
+        media_type="application/x-ndjson",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
 
@@ -1625,9 +2087,8 @@ async def api_chat_models():
 
     The dashboard Tuning row uses this to populate its Model picker.
     """
-    from oglab.router import ModelRouter
     try:
-        router = ModelRouter()
+        router = _get_primary_router()
     except Exception as e:  # noqa: BLE001
         return {"backend": None, "current": None, "models": [], "error": str(e)}
 
@@ -1808,6 +2269,7 @@ async def api_chat_system_prompt():
 @app.get("/api/system/health")
 async def system_health():
     """Return live system specs, resource usage, and service health."""
+    import importlib.util
     import os, sys, shutil, platform
 
     # CPU
@@ -1876,19 +2338,84 @@ async def system_health():
     # Python
     py_version = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
 
-    # Services status  (quick check via ports)
-    import socket
-    def port_open(port: int) -> bool:
-        try:
-            with socket.create_connection(("127.0.0.1", port), timeout=0.3):
-                return True
-        except (OSError, ConnectionRefusedError):
-            return False
+    bind = os.getenv("BIND_ADDR", "127.0.0.1")
+    notebook_port = int(os.getenv("NOTEBOOK_PORT", "8888"))
+    ttyd_port = int(os.getenv("TTYD_PORT", "7681"))
+    ollama_port = int(os.getenv("OLLAMA_PORT", "11434"))
+    marimo_port = int(os.getenv("MARIMO_PORT", "2718"))
+    open_notebook_port = int(os.getenv("OPEN_NOTEBOOK_PORT", "8502"))
+    neo4j_bolt_port = int(os.getenv("NEO4J_BOLT_PORT", "7687"))
+
+    portal_up, ttyd_up, notebook_up, ollama_up, marimo_up, open_notebook_up, neo4j_up = await asyncio.gather(
+        _port_open(bind, int(os.getenv("PORTAL_PORT", "8080"))),
+        _port_open(bind, ttyd_port),
+        _port_open(bind, notebook_port),
+        _port_open(bind, ollama_port),
+        _port_open(bind, marimo_port),
+        _port_open(bind, open_notebook_port),
+        _port_open(bind, neo4j_bolt_port),
+    )
+
+    docker_ok = _docker_available()
+    activity_file = Path.cwd() / "lab" / "data" / "activity.jsonl"
+    current_goal = goal_store.get_current()
+    current_model_path = os.getenv("OGLAB_MODELS_DIR", str(Path.cwd() / "models"))
+    from oglab.config import DATA_DIR, PKB_ROOT
+
+    def add_check(
+        check_id: str,
+        name: str,
+        ok: bool,
+        detail: str,
+        *,
+        required: bool = True,
+        category: str = "service",
+    ) -> dict[str, Any]:
+        return {
+            "id": check_id,
+            "name": name,
+            "ok": ok,
+            "detail": detail,
+            "required": required,
+            "category": category,
+        }
+
+    service_checks = [
+        add_check("portal", "Portal HTTP", portal_up, f"http://{bind}:{os.getenv('PORTAL_PORT', '8080')}", category="service"),
+        add_check("activity_log", "Activity Log", activity_file.exists(), str(activity_file), category="storage"),
+        add_check("pkb_root", "Knowledge Base Root", PKB_ROOT.exists(), str(PKB_ROOT), category="storage"),
+        add_check("lab_data", "Lab Data Directory", DATA_DIR.exists(), str(DATA_DIR), category="storage"),
+        add_check("model_backend", "Model Backend Selected", bool(active_backend and active_backend != "auto"), active_backend, category="config"),
+        add_check("model_name", "Model Name Configured", bool(model_name and model_name != "none"), model_name or "unset", category="config"),
+        add_check("models_dir", "Models Directory", Path(current_model_path).exists(), current_model_path, category="storage"),
+        add_check("goal_store", "Goal Store", current_goal is not None or (DATA_DIR / "goals").exists(), str(DATA_DIR / 'goals'), category="storage"),
+        add_check("ttyd", "ttyd Terminal", ttyd_up, f"port {ttyd_port}", required=False, category="service"),
+        add_check("notebook", "Notebook", notebook_up, f"port {notebook_port}", required=False, category="service"),
+        add_check("docker", "Docker Engine", docker_ok, "compose-backed services", required=False, category="service"),
+        add_check("marimo", "Marimo", marimo_up and _container_running("oglab-marimo"), f"port {marimo_port}", required=False, category="service"),
+        add_check("open_notebook", "Open Notebook", open_notebook_up and _container_running("oglab-open-notebook"), f"port {open_notebook_port}", required=False, category="service"),
+        add_check("ollama_binary", "Ollama Installed", shutil.which("ollama") is not None, "ollama CLI", required=False, category="dependency"),
+        add_check("ollama_api", "Ollama API", ollama_up, f"port {ollama_port}", required=False, category="service"),
+        add_check("kc_frontend", "Knowledge Canvas Frontend", KC_FRONTEND_DIST_DIR.exists() or KC_FRONTEND_DIR.exists(), str(KC_FRONTEND_DIST_DIR if KC_FRONTEND_DIST_DIR.exists() else KC_FRONTEND_DIR), required=False, category="association"),
+        add_check("kc_backend", "Knowledge Canvas Store", _knowledge_canvas_store is not None or (knowledge_canvas_app is not None and hasattr(knowledge_canvas_app.state, "store")), "mounted at /knowledge-canvas", required=False, category="association"),
+        add_check("lancedb", "LanceDB Package", importlib.util.find_spec("lancedb") is not None, os.getenv("LANCE_PATH", "./data/lance"), required=False, category="association"),
+        add_check("neo4j_pkg", "Neo4j Driver", importlib.util.find_spec("neo4j") is not None, os.getenv("NEO4J_URI", "bolt://localhost:7687"), required=False, category="association"),
+        add_check("neo4j_bolt", "Neo4j Bolt", neo4j_up, f"port {neo4j_bolt_port}", required=False, category="association"),
+    ]
+
+    required_checks = [c for c in service_checks if c["required"]]
+    passing_required = sum(1 for c in required_checks if c["ok"])
+    passing_total = sum(1 for c in service_checks if c["ok"])
 
     services = {
-        "portal": True,  # we're running
-        "ttyd": port_open(int(os.getenv("TTYD_PORT", "7681"))),
-        "jupyter": port_open(int(os.getenv("JUPYTER_PORT", "8888"))),
+        "portal": portal_up,
+        "ttyd": ttyd_up,
+        "notebook": notebook_up,
+        "marimo": marimo_up and _container_running("oglab-marimo"),
+        "open-notebook": open_notebook_up and _container_running("oglab-open-notebook"),
+        "ollama": ollama_up,
+        "knowledge-canvas": _knowledge_canvas_store is not None or (knowledge_canvas_app is not None and hasattr(knowledge_canvas_app.state, "store")),
+        "neo4j": neo4j_up,
     }
 
     return {
@@ -1909,6 +2436,13 @@ async def system_health():
         "deep_enabled": deep_enabled,
         "aerollm_model": os.getenv("AEROLLM_MODEL", ""),
         "services": services,
+        "service_checks": service_checks,
+        "health_summary": {
+            "passing_required": passing_required,
+            "required_total": len(required_checks),
+            "passing_total": passing_total,
+            "total": len(service_checks),
+        },
         "mode": os.getenv("OGLAB_MODE", "airgapped"),
     }
 
@@ -2757,6 +3291,31 @@ async def teacher_page(request: Request):
     return templates.TemplateResponse(request, "teacher.html", {})
 
 
+def _save_teacher_result(message: str, result: dict[str, Any]) -> dict[str, Any]:
+    if result.get("error") or not result.get("reply"):
+        return result
+
+    saved = dict(result)
+    try:
+        from oglab.pkb import write_teacher_qa
+
+        path = write_teacher_qa(
+            message, saved["reply"], saved.get("model") or "aerollm",
+        )
+        try:
+            saved["saved_to"] = str(path.relative_to(Path.cwd().resolve()))
+        except ValueError:
+            saved["saved_to"] = str(path)
+    except Exception as exc:  # noqa: BLE001
+        activity_log.emit(
+            "teacher",
+            f"PKB save failed: {type(exc).__name__}: {exc}",
+            "warn",
+        )
+        saved["saved_to"] = None
+    return saved
+
+
 @app.post("/api/teacher/ask")
 async def api_teacher_ask(request: Request):
     """One consultation with the Deep Teacher. Forces backend=aerollm so
@@ -2779,26 +3338,42 @@ async def api_teacher_ask(request: Request):
         top_p=None,
         max_tokens=int(body.get("max_tokens") or 1024),
     )
-    if not result.get("error") and result.get("reply"):
-        try:
-            from oglab.pkb import write_teacher_qa
-            path = write_teacher_qa(
-                message, result["reply"], result.get("model") or "aerollm",
-            )
-            try:
-                result["saved_to"] = str(
-                    path.relative_to(Path.cwd().resolve())
-                )
-            except ValueError:
-                result["saved_to"] = str(path)
-        except Exception as exc:  # noqa: BLE001
-            activity_log.emit(
-                "teacher",
-                f"PKB save failed: {type(exc).__name__}: {exc}",
-                "warn",
-            )
-            result["saved_to"] = None
-    return result
+    return _save_teacher_result(message, result)
+
+
+@app.post("/api/teacher/stream")
+async def api_teacher_stream(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    message = (body.get("message") or "").strip()
+    if not message:
+        async def _empty() -> AsyncIterator[str]:
+            yield json.dumps(
+                {"type": "final", "error": "message required", "reply": ""}
+            ) + "\n"
+        return StreamingResponse(_empty(), media_type="application/x-ndjson")
+
+    async def _generate() -> AsyncIterator[str]:
+        async for event in _run_chat_completion_stream(
+            message=message,
+            history=[],
+            backend_override="aerollm",
+            model_override=None,
+            temperature=0.7,
+            top_p=None,
+            max_tokens=int(body.get("max_tokens") or 1024),
+        ):
+            if event.get("type") == "final":
+                event = _save_teacher_result(message, event)
+            yield json.dumps(event, default=str) + "\n"
+
+    return StreamingResponse(
+        _generate(),
+        media_type="application/x-ndjson",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.get("/api/teacher/history")
