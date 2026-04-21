@@ -90,6 +90,81 @@ def test_build_chat_prompt_handles_empty_history():
     assert prompt.rstrip().endswith("Assistant:")
 
 
+def test_build_chat_messages_includes_system_and_user(monkeypatch):
+    monkeypatch.setattr(lab_brain, "retrieve_chat_context", lambda *_args, **_kwargs: [])
+    messages = lab_brain.build_chat_messages("What can you do?", [{"role": "assistant", "content": "Hi"}])
+    assert messages[0]["role"] == "system"
+    assert messages[1] == {"role": "assistant", "content": "Hi"}
+    assert messages[-1] == {"role": "user", "content": "What can you do?"}
+
+
+def test_build_chat_messages_appends_pkb_context(monkeypatch):
+    monkeypatch.setattr(
+        lab_brain,
+        "retrieve_chat_context",
+        lambda *_args, **_kwargs: [{
+            "path": "notes/test.md",
+            "snippets": ["Important local fact"],
+            "match_count": 2,
+        }],
+    )
+    messages = lab_brain.build_chat_messages("Use local knowledge", None)
+    assert "Retrieved knowledge base context" in messages[0]["content"]
+    assert "notes/test.md" in messages[0]["content"]
+    assert "Important local fact" in messages[0]["content"]
+
+
+def test_retrieve_chat_context_prefers_exact_phrase(monkeypatch):
+    import oglab.pkb as pkb
+
+    def fake_search(term):
+        if term == "vector index":
+            return [{
+                "path": "notes/vector-index.md",
+                "name": "vector-index.md",
+                "match_count": 1,
+                "snippets": ["Vector index design notes"],
+            }]
+        if term == "vector":
+            return [{
+                "path": "notes/vector.md",
+                "name": "vector.md",
+                "match_count": 3,
+                "snippets": ["Generic vector notes"],
+            }]
+        if term == "index":
+            return [{
+                "path": "notes/index.md",
+                "name": "index.md",
+                "match_count": 3,
+                "snippets": ["Generic index notes"],
+            }]
+        return []
+
+    monkeypatch.setattr(pkb, "search", fake_search)
+    results = lab_brain.retrieve_chat_context("vector index", max_results=3)
+    assert results[0]["path"] == "notes/vector-index.md"
+
+
+def test_retrieve_chat_context_reorders_snippets_by_token_coverage(monkeypatch):
+    import oglab.pkb as pkb
+
+    def fake_search(_term):
+        return [{
+            "path": "notes/retrieval.md",
+            "name": "retrieval.md",
+            "match_count": 1,
+            "snippets": [
+                "This line is generic.",
+                "Retriever cache invalidation and ranking behavior.",
+            ],
+        }]
+
+    monkeypatch.setattr(pkb, "search", fake_search)
+    results = lab_brain.retrieve_chat_context("retriever ranking", max_results=1)
+    assert results[0]["snippets"][0] == "Retriever cache invalidation and ranking behavior."
+
+
 def test_state_block_includes_backend(monkeypatch):
     monkeypatch.setenv("MODEL_BACKEND", "mlx")
     monkeypatch.setenv("MODEL_NAME", "mlx-community/Qwen3-8B-4bit")

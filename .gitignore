@@ -58,6 +58,9 @@ Thumbs.db
 # a human-run `rm -rf .graveyard/` on the host.
 .graveyard/
 
+# Do not track aerollm subtree in this repository
+/aerollm/
+
 # mypy / pytest
 .mypy_cache/
 .pytest_cache/

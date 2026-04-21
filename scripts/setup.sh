@@ -22,7 +22,7 @@ step()  { echo ""; echo -e "${BOLD}━━━ $*${RESET}"; echo ""; }
 MODEL_MLX_ID="mlx-community/Qwen3-8B-4bit"
 MODEL_HF_ID="Qwen/Qwen3-8B"
 MODEL_GGUF_ID="Qwen/Qwen3-8B-GGUF"
-AEROLLM_MODEL_ID="meta-llama/Llama-3.1-70B"
+AEROLLM_MODEL_ID="zai-org/GLM-5.1"
 
 # Unified password — set by capture_password() below. One secret covers:
 #   - code-server (IDE) login
