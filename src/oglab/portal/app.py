@@ -1468,7 +1468,7 @@ def _get_primary_router():
     signature = _router_signature()
     with _ROUTER_CACHE_LOCK:
         if _ROUTER_CACHE is None or _ROUTER_CACHE_SIGNATURE != signature:
-            _ROUTER_CACHE = ModelRouter()
+            _ROUTER_CACHE = ModelRouter(billing_source="ui")
             _ROUTER_CACHE_SIGNATURE = signature
     return _ROUTER_CACHE
 
@@ -1718,6 +1718,7 @@ async def _run_chat_completion_stream(
                 tokens_in=max(len(prompt) // 4, 1),
                 tokens_out=response.tokens_used,
                 latency_ms=response.latency_ms,
+                source="ui",
             )
             if response.backend == "aerollm":
                 _record_aerollm_bench(
@@ -1836,6 +1837,7 @@ async def _run_chat_completion(
                 tokens_in=max(len(prompt) // 4, 1),
                 tokens_out=response.tokens_used,
                 latency_ms=response.latency_ms,
+                source="ui",
             )
             if response.backend == "aerollm":
                 _record_aerollm_bench(
@@ -1970,7 +1972,7 @@ _OPTIONAL_CHAT_BACKEND_CONFIG: dict[str, dict[str, str]] = {
             + os.getenv("AEROLLM_PACKAGE", "git+https://github.com/cdarnell/aerollm@main")
         ),
         "model_env": "AEROLLM_MODEL",
-        "default_model": "meta-llama/Llama-3.1-70B",
+        "default_model": "zai-org/GLM-5.1",
     },
 }
 
@@ -2247,7 +2249,7 @@ async def api_chat_models():
     # the UI what giant model is wired up behind the "Deep model"
     # toggle. Separate field because users can flip that toggle
     # regardless of which primary backend they're on.
-    deep_model_name = os.getenv("AEROLLM_MODEL", "meta-llama/Llama-3.1-70B")
+    deep_model_name = os.getenv("AEROLLM_MODEL", "zai-org/GLM-5.1")
     # Look up the spec sheet so the Frontier chip hover can show
     # strengths, benchmarks, and license at a glance. Registry lives
     # in src/oglab/model_specs.py — users edit it to add new models.
@@ -2283,7 +2285,7 @@ async def api_chat_models():
             "huggingface-cli login or export HF_TOKEN before downloading."
         )
 
-    air_model_name = os.getenv("AIRLLM_MODEL", deep_model_name)
+    air_model_name = os.getenv("AIRLLM_MODEL", "meta-llama/Llama-3.1-70B")
     optional_backends = [
         {
             "id": "airllm",

@@ -59,7 +59,7 @@ log = logging.getLogger(__name__)
 # These auto-seed their PKB folder on first boot and fall back to
 # the builtin if the PKB copy is broken. User-forged agents don't
 # appear here — they have no fallback.
-_SHIPPED: set[str] = {"pip"}
+_SHIPPED: set[str] = {"pip", "sre"}
 
 # Singleton cache. Key = agent_id, value = agent instance (or the
 # sentinel _BROKEN if loading failed this session).
@@ -109,13 +109,18 @@ def discover(pkb_root: Path | None = None) -> List[Tuple[str, Path, Dict[str, An
 
 def _seed_if_shipped(agent_id: str) -> None:
     """For shipped agents, make sure the folder exists on disk."""
-    if agent_id != "pip":
-        return  # only Pip has a seed helper today
-    try:
-        from oglab.agents.builtin_seed import ensure_pip_folder
-        ensure_pip_folder()
-    except Exception as e:  # noqa: BLE001
-        log.warning("ensure_pip_folder failed: %s", e)
+    if agent_id == "pip":
+        try:
+            from oglab.agents.builtin_seed import ensure_pip_folder
+            ensure_pip_folder()
+        except Exception as e:  # noqa: BLE001
+            log.warning("ensure_pip_folder failed: %s", e)
+    elif agent_id == "sre":
+        try:
+            from oglab.agents.builtin_seed import ensure_sre_folder
+            ensure_sre_folder()
+        except Exception as e:  # noqa: BLE001
+            log.warning("ensure_sre_folder failed: %s", e)
 
 
 def _import_from_path(py_file: Path, unique_name: str) -> Optional[Any]:

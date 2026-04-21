@@ -1,7 +1,10 @@
-# OGLab — AI Lab Blueprint
+# OGLab
 
-Local-first. Airgapped by default. Your models, your data, your hardware.
-A shareable blueprint you fork, customize, and own — not a product.
+An AI lab that runs on your own machine.
+
+You set a goal. Agents start working on it. They research, summarize, test, and write findings while you sleep. Nothing phones home unless you tell it to.
+
+OGLab is a blueprint. Fork it. Keep what works. Replace what doesn't. There is no one right way to run a lab. See [BLUEPRINTS.md](BLUEPRINTS.md) for how blueprints work.
 
 ---
 
@@ -12,24 +15,24 @@ A shareable blueprint you fork, customize, and own — not a product.
 git clone https://github.com/cdarnell/minimalist-blueprint.git oglab
 cd oglab
 
-# 2) Setup — detects hardware, installs deps, generates a passphrase,
+# 2) Setup: detects hardware, installs deps, generates a passphrase,
 #    captures your first research goal
 ./oglab setup
 
-# 3) Start — portal, terminal, notebook, and IDE come online together
+# 3) Start: portal, terminal, notebook, and IDE come online together
 ./oglab start
 ```
 
 That's it. The dashboard opens at <http://127.0.0.1:8080>. Type your
-goal, click **Run Research**, and the agents begin researching it —
+goal, click **Run Research**, and the agents begin working on it
 locally, privately, on your hardware.
 
 **Works on:** macOS (Apple Silicon), Windows 10/11 (WSL2 + Ubuntu),
 any Linux with Python ≥ 3.10. Per-platform prereqs below.
 
 **First-time friendly.** Setup walks through 10 numbered checkpoints
-(hardware → Python → passphrase → models → goal) and prints the
-passphrase + next three steps when it's done. Nothing hidden in a file.
+(hardware, Python, passphrase, models, goal) and prints the
+passphrase and next three steps when it's done. Nothing hidden in a file.
 
 **Sharing this with friends, family, or a classroom?** See
 [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) for the top five
@@ -42,12 +45,9 @@ lab does and does not send over the network.
 
 You tell it what you care about. It builds a lab around that.
 
-Simple python agents include a researcher, curator, an experiment tracker.  
-Each agent begins working toward your goal the moment the lab comes online. They explore,
-they test hypotheses, look for good change, they write findings.  You sleep, they don't.
+A handful of simple Python agents come along for the ride: a researcher, a curator, an experiment tracker. They start working the moment the lab comes online. They explore. They test ideas. They write findings. You sleep, they don't.
 
-Everything runs on your machine. No accounts. No API keys required.
-No telemetry leaves, 100% as private as you need it to be.
+Everything runs on your machine. No accounts, no API keys required, no telemetry leaving the box. As private as you need it to be.
 
 ---
 
@@ -67,11 +67,11 @@ Remember, you opt in. The default is silence on the wire.
 
 ### Host Out-of-Reach LLMs on Disk
 
-OGLab ships **AeroLLM** — a Rust runtime with MLX and CUDA backends,
+OGLab ships **AeroLLM**, a Rust runtime with MLX and CUDA backends and
 multi-threaded prefetched layer streaming off your SSD. A 70B model
 that would need 40 GB of RAM runs in ~4 GB of RAM and 40 GB of disk.
-Slow per-prompt, yes — but concurrent prompts share each layer pass,
-so research / CoT batch workloads scale near-linearly in N.
+Slow per-prompt, yes, but concurrent prompts share each layer pass,
+so research and CoT batch workloads scale near-linearly in N.
 
 The bootstrap scans your hardware for CPU, RAM, disk size, disk type
 and attempts to auto-configure the basics. Got an NVMe drive with 80 GB free?
@@ -104,18 +104,18 @@ No menus. No tier selection. Discovery can determine 100% of what you get.
 
 Every inference the lab runs gets priced two ways:
 
-- **Cloud equivalent** — what that same call would cost on a commercial
+- **Cloud equivalent**: what that same call would cost on a commercial
   API (GPT-4-class pricing, Claude pricing, per-million-token rates).
-- **Actual energy** — real watts × real time × your electricity rate
+- **Actual energy**: real watts × real time × your electricity rate
   (default $0.13/kWh, national average).
 
 The dashboard shows a running total. Over weeks of research, you watch
-the gap widen — hundreds of dollars in cloud-equivalent work, pennies
+the gap widen. Hundreds of dollars in cloud-equivalent work, pennies
 in electricity. That's the point.
 
 ### Organically Growing Toward Your Goal
 
-State a goal at bootstrap — or change it any time from the dashboard.
+State a goal at bootstrap, or change it any time from the dashboard.
 The lab doesn't just store it. It *works on it*.
 
 A **researcher agent** plans experiments, runs them, analyzes results,
@@ -129,25 +129,25 @@ The lab is alive. It grows toward what you asked for.
 
 ### Structured (PKB) Knowledge Base
 
-Everything the lab discovers lives in `lab/pkb/` — your personal
+Everything the lab discovers lives in `lab/pkb/`, your personal
 knowledge base folder. Drop raw material in `inbox/`, run
-`./oglab pkb ingest`, and it gets sorted into `sources/`. The AI
+`./oglab pkb ingest`, and it gets sorted into `sources/`. The
 agents write research findings, experiment logs, and recommendations
 to `agents/`. Your notes go in `notes/`. Run `./oglab pkb compile` to
 build a searchable index across everything.
 
-The dashboard has a **Knowledge** page — browse by section, search
-full-text across all files, view any document. The AI builds knowledge
-in its area; you build knowledge in yours. The compile step merges
+The dashboard has a **Knowledge** page: browse by section, search
+full-text across all files, view any document. The agents build knowledge
+in their area; you build knowledge in yours. The compile step merges
 them together into polished reports.
 
-#### Documentation as code — the wiki layer
+#### Documentation as code: the wiki layer
 
 On top of the PKB tree, OGLab runs a **self-curating wiki** at
 <http://127.0.0.1:8080/wiki>. It renders every markdown file with
 `[[wikilinks]]`, backlinks, tags, and frontmatter; ships a
 force-directed knowledge graph at `/wiki/graph`; and **auto-generates
-wiki pages from the repo's own source** — every Python module via
+wiki pages from the repo's own source**: every Python module via
 `ast` (no runtime imports), every shell script's header comment,
 every compose overlay, every hand-written guide, and the
 `.env.example` reference. Write a better docstring, rebuild, get
@@ -161,42 +161,42 @@ for the full user guide.
 ## What you get after `./oglab start`
 
 Four services come online on localhost. Everything binds to `127.0.0.1`
-by default — nothing is reachable from the network unless you change that
+by default. Nothing is reachable from the network unless you change that
 in `lab.conf`.
 
 | Service | URL | What |
 | --------- | ----- | ------ |
 | **Dashboard** | <http://127.0.0.1:8080> | Goal tracking, cost savings, experiments, agents |
 | **Terminal** | <http://127.0.0.1:7681> | Shell in browser (ttyd) |
-| **Notebook** | <http://127.0.0.1:8888> | Jupyter Lab (classic option — swap for Marimo below) |
-| **IDE** | <http://127.0.0.1:8443> | VS Code in browser (code-server) — passphrase from setup unlocks it |
+| **Notebook** | <http://127.0.0.1:8888> | Jupyter Lab (classic option, swap for Marimo below) |
+| **IDE** | <http://127.0.0.1:8443> | VS Code in browser (code-server). Passphrase from setup unlocks it |
 
 Run `./oglab help` any time to see every subcommand (`setup`, `start`,
 `stop`, `restart`, `doctor`, `logs`, `reset`, `pkb`, `wiki`).
 
-### Curate insight — optional add-ons
+### Curate insight: optional add-ons
 
 Two docker-compose overlays let you curate what the lab (or your agents) pulls in, without coupling to the host-native services above. Both bind to `127.0.0.1` by default.
 
 | Add-on | URL | What |
 | --------- | ----- | ------ |
-| **Marimo** | <http://127.0.0.1:2718> | Reactive, AI-native Python notebooks. Notebooks are plain `.py` files in [lab/notebooks/](lab/notebooks/). |
-| **Open Notebook** | <http://127.0.0.1:8502> | Self-hosted NotebookLM alternative — ingest PDFs/video/audio, chat with sources, generate podcasts. REST API on `:5055`. |
+| **Marimo** | <http://127.0.0.1:2718> | Reactive Python notebooks. Notebooks are plain `.py` files in [lab/notebooks/](lab/notebooks/). |
+| **Open Notebook** | <http://127.0.0.1:8502> | Self-hosted NotebookLM alternative. Ingest PDFs/video/audio, chat with sources, generate podcasts. REST API on `:5055`. |
 
 ```bash
-# Marimo — the "experiment" surface
+# Marimo: the "experiment" surface
 docker compose -f compose/marimo.yml up -d
 
-# Open Notebook — the "curate" surface (needs OPEN_NOTEBOOK_ENCRYPTION_KEY in .env)
+# Open Notebook: the "curate" surface (needs OPEN_NOTEBOOK_ENCRYPTION_KEY in .env)
 docker compose -f compose/open-notebook.yml up -d
 ```
 
-Both reach host-side LM Studio / Ollama at `host.docker.internal`, so they inherit your existing local model stack with no double-inference cost. Prefer classic Jupyter? It's still wired into `./oglab start` on `:8888` — use whichever surface fits the task.
+Both reach host-side LM Studio / Ollama at `host.docker.internal`, so they inherit your existing local model stack with no double-inference cost. Prefer classic Jupyter? It's still wired into `./oglab start` on `:8888`. Use whichever surface fits the task.
 
 ## Two Modes
 
-- **Airgapped** (default) — zero network calls. Local model, local data.
-- **Hybrid** — local-first with optional cloud fallback. Start on free tiers — **NVIDIA NIM** (`build.nvidia.com`, free credits, Llama 3.3 / Nemotron / DeepSeek-R1), **HuggingFace Inference**, **OpenRouter** — then graduate to paid tiers (Claude, OpenAI, Groq) once you know what your spend actually looks like.
+- **Airgapped** (default): zero network calls. Local model, local data.
+- **Hybrid**: local-first with optional cloud fallback. Start on free tiers (**NVIDIA NIM** at `build.nvidia.com` for free credits on Llama 3.3 / Nemotron / DeepSeek-R1, **HuggingFace Inference**, **OpenRouter**) and graduate to paid tiers (Claude, OpenAI, Groq) once you know what your spend actually looks like.
 
 ---
 
@@ -204,25 +204,25 @@ Both reach host-side LM Studio / Ollama at `host.docker.internal`, so they inher
 
 OGLab is **platform-neutral by design**. The model router ([src/oglab/router/backends.py](src/oglab/router/backends.py)) has one class per accelerator (MLX / CUDA / CPU / AeroLLM / OpenAI-compat / HuggingFace / OpenRouter / Claude), auto-detected from hardware, swappable via a single `.env` line. The Python code and the portal never ask what OS they're on.
 
-The only thing that actually differs per platform is the package manager in [`./oglab setup`](scripts/setup.sh) — and that's where the recommendations below matter.
+The only thing that actually differs per platform is the package manager in [`./oglab setup`](scripts/setup.sh), and that's where the recommendations below matter.
 
 | Platform | Recommended path | Why |
 | --- | --- | --- |
-| **macOS (Apple Silicon)** | Native + MLX | **Blessed path.** Unified memory means a base-model M-series with 32 GB can run a 70B model via AeroLLM's MLX-backed prefetched layer streaming that would need a ~48 GB discrete GPU. MLX is Apple's first-party Metal framework — no drivers, no VM, no CUDA toolkit. |
+| **macOS (Apple Silicon)** | Native + MLX | **Blessed path.** Unified memory means a base-model M-series with 32 GB can run a 70B model via AeroLLM's MLX-backed prefetched layer streaming that would otherwise need a ~48 GB discrete GPU. MLX is Apple's first-party Metal framework. No drivers, no VM, no CUDA toolkit. |
 | **Windows (any GPU)** | WSL2 Ubuntu + CUDA | Nvidia ships full CUDA-in-WSL2 support (`/dev/dxg` bridge, Windows driver ≥ 525.x). `wsl --install` gets you Ubuntu in one command. This gets you real Linux userspace on Windows hardware without dual-booting. |
-| **Linux (native)** | Your distro, your rules | The blueprint runs on any Linux with Python 3.10+ and a supported backend. Our [`setup.sh`](scripts/setup.sh) knows Homebrew, apt, and emerge — if you're on Arch/Fedora/NixOS/whatever, the fastest path is to **"vibe integrate"**: point an agent at [docs/LINUX.md](docs/LINUX.md) and `setup.sh` and let it port the 20 lines of package-manager calls. See [docs/LINUX.md](docs/LINUX.md) for the recipe. |
+| **Linux (native)** | Your distro, your rules | The blueprint runs on any Linux with Python 3.10+ and a supported backend. Our [`setup.sh`](scripts/setup.sh) knows Homebrew, apt, and emerge. If you're on Arch/Fedora/NixOS/whatever, the fastest path is to **"vibe integrate"**: point an agent at [docs/LINUX.md](docs/LINUX.md) and `setup.sh` and let it port the 20 lines of package-manager calls. See [docs/LINUX.md](docs/LINUX.md) for the recipe. |
 
-**Intel Mac / no GPU / curious?** CPU fallback via llama.cpp works everywhere — set `MODEL_BACKEND=cpu` and expect slower tokens/sec but full functionality.
+**Intel Mac / no GPU / curious?** CPU fallback via llama.cpp works everywhere. Set `MODEL_BACKEND=cpu` and expect slower tokens/sec but full functionality.
 
 ---
 
-## Work Windows — don't burn the GPU while you're using the lab
+## Work Windows: don't burn the GPU while you're using the lab
 
 OGLab's scheduler splits the day into **active** and **heavy** windows so the lab stays responsive while you're engaged and hammers the hardware while you're away. The researcher agent checks the current window on every tick and picks its weight accordingly.
 
 | Window | Default | What fires | Why |
 | --- | --- | --- | --- |
-| **☀ Active** | `08:00-22:00` | SLM only — observations, planning, note synthesis, PKB compile | Lab stays responsive for interactive use |
+| **☀ Active** | `08:00-22:00` | SLM only. Observations, planning, note synthesis, PKB compile | Lab stays responsive for interactive use |
 | **🌙 Heavy** | `22:00-08:00` | AeroLLM experiments, deep synthesis, full report generation | GPU hammering while you sleep |
 | **◦ Idle** | any gap | Queued work drains | Catch-up |
 
@@ -245,23 +245,23 @@ Or answer the two questions at the end of `./oglab setup` and they'll be written
 ## Three Tiers of Inference
 
 The lab always keeps a small, fast model in RAM (Phi-3.5-mini, ~2 GB).
-That handles interactive work — goal parsing, quick questions, observations.
+That handles interactive work: goal parsing, quick questions, observations.
 
 Anything heavier goes elsewhere:
 
 | Tier | What fires | When |
 | ------ | ----------- | ------ |
-| **SLM** (always on) | Phi-3.5-mini in RAM | Instant — every fast task |
+| **SLM** (always on) | Phi-3.5-mini in RAM | Instant. Every fast task |
 | **AeroLLM** (deep) | 70B+ model from disk via prefetched layer streaming | Research planning, analysis, reports |
 | **Cloud** (opt-in) | HuggingFace / OpenRouter / Claude | When you choose to open the door |
 
 The researcher agent uses both: fast SLM for observations and quick
 reasoning, deep AeroLLM for the heavy thinking. You don't configure
-this — the dual router handles it.
+this. The dual router handles it.
 
 ---
 
-## macOS — Apple Silicon
+## macOS: Apple Silicon
 
 > Native Metal acceleration via MLX. No VM, no Docker, no fuss.
 
@@ -269,10 +269,10 @@ this — the dual router handles it.
 
 | Component | How it works on Mac |
 | ----------- | ------------------- |
-| **GPU** | Apple Metal via MLX — native, no drivers to install |
+| **GPU** | Apple Metal via MLX. Native, no drivers to install |
 | **Model router** | `MODEL_BACKEND=mlx` (auto-detected) |
 | **Packages** | Homebrew + pip in a venv |
-| **OS** | Your existing macOS — nothing to replace |
+| **OS** | Your existing macOS. Nothing to replace |
 
 ### Quick start on Mac
 
@@ -293,7 +293,7 @@ The setup detects your Mac automatically:
   Accelerator: mlx
 ```
 
-It computes your build profile, shows the manifest, and asks one question — your research goal:
+It computes your build profile, shows the manifest, and asks one question: your research goal.
 
 ```text
 ━━━ 2/10  Computing build profile
@@ -340,14 +340,14 @@ MLX is the default and top choice for Apple Silicon.
 
 ### Mac notes
 
-- No Gentoo Linux needed on Mac — MLX runs natively on macOS.
+- No Gentoo Linux needed on Mac. MLX runs natively on macOS.
 - GPU passthrough to a VM doesn't work on Apple Silicon. Don't try.
 - If you must run Linux, run it in UTM (QEMU) for
-  dev/orchestration — but GPU work stays on the macOS host via MLX.
+  dev/orchestration. GPU work stays on the macOS host via MLX.
 
 ---
 
-## Windows — WSL2 + Ubuntu + CUDA
+## Windows: WSL2 + Ubuntu + CUDA
 
 > Real Linux userspace on your Windows machine, with full Nvidia GPU
 > passthrough. No dual-boot, no VM GPU drama.
@@ -356,27 +356,27 @@ MLX is the default and top choice for Apple Silicon.
 
 | Component | How it works on Windows |
 | --- | --- |
-| **GPU** | Nvidia CUDA via WSL2 `/dev/dxg` bridge — Windows driver, Linux userspace |
+| **GPU** | Nvidia CUDA via WSL2 `/dev/dxg` bridge. Windows driver, Linux userspace |
 | **Model router** | `MODEL_BACKEND=cuda` (auto-detected) |
-| **Packages** | `apt` (Ubuntu default) — fast, predictable |
+| **Packages** | `apt` (Ubuntu default). Fast, predictable |
 | **OS** | Ubuntu 22.04 LTS or 24.04 LTS running inside WSL2 |
 
 ### Prerequisites
 
 1. **Windows 10 (21H2+) or Windows 11**
 2. **Nvidia GPU driver** installed on Windows (≥ 525.x). This is the
-   *Windows* driver, not a Linux driver — WSL2 projects it into Linux
+   *Windows* driver, not a Linux driver. WSL2 projects it into Linux
    automatically. Do **not** install `nvidia-drivers` inside WSL.
 
 ### Install WSL2 + Ubuntu
 
 ```powershell
-# PowerShell (admin) — installs WSL2 and Ubuntu in one step
+# PowerShell (admin): installs WSL2 and Ubuntu in one step
 wsl --install
 ```
 
 Reboot when prompted, then launch **Ubuntu** from the Start menu and
-set your username/password. That's it — you're in a real Linux shell
+set your username/password. That's it. You're in a real Linux shell
 with GPU access.
 
 ### Quick start (inside Ubuntu WSL)
@@ -433,15 +433,15 @@ Services are accessible from your Windows browser at the same URLs.
 - The Nvidia driver is installed on **Windows only**. WSL2 bridges it
   via `/dev/dxg`. Do NOT install `nvidia-drivers` inside WSL.
 - AMD ROCm on WSL2 is experimental. Stick with Nvidia for now.
-- Prefer **Ubuntu 22.04 / 24.04 LTS** — it's what Nvidia tests against
+- Prefer **Ubuntu 22.04 / 24.04 LTS**. It's what Nvidia tests against
   and what `./oglab setup` expects for apt package names.
 - Other distros (Debian, Arch-WSL, Gentoo-WSL) work too, but you're in
   the [native Linux](#section-3--linux-native-bring-your-own-distro)
-  path below — `setup.sh` won't know your package names automatically.
+  path below, and `setup.sh` won't know your package names automatically.
 
 ---
 
-## Linux — Native (Bring Your Own Distro)
+## Linux: Native (Bring Your Own Distro)
 
 > The blueprint is distro-neutral. The only 20 lines that care about
 > your OS are the package-manager calls in [`scripts/setup.sh`](scripts/setup.sh).
@@ -452,7 +452,7 @@ Services are accessible from your Windows browser at the same URLs.
 | --- | --- |
 | **GPU** | CUDA (Nvidia) or CPU fallback (llama.cpp). ROCm is experimental. |
 | **Model router** | `MODEL_BACKEND=cuda` or `cpu` (auto-detected) |
-| **Packages** | Whatever your distro uses — `apt`, `dnf`, `pacman`, `emerge`, `nix` |
+| **Packages** | Whatever your distro uses. `apt`, `dnf`, `pacman`, `emerge`, `nix` |
 | **OS** | Any Linux with Python ≥ 3.10 |
 
 ### The vibe-integrate approach
@@ -467,15 +467,15 @@ and let it port the setup script to your distro**:
 git clone https://github.com/cdarnell/minimalist-blueprint.git oglab
 cd oglab
 
-# 2. Try setup — it'll tell you what's missing
+# 2. Try setup: it'll tell you what's missing
 ./oglab setup
 ```
 
 When `setup.sh` doesn't recognize your distro, hand your agent the
 two files it needs ([scripts/setup.sh](scripts/setup.sh) and
 [docs/LINUX.md](docs/LINUX.md)) and ask it to add a branch for your
-package manager. The rest of the blueprint — the Python package, the
-portal, the router, the agents — doesn't care what installed CUDA.
+package manager. The rest of the blueprint (the Python package, the
+portal, the router, the agents) doesn't care what installed CUDA.
 
 Because OGLab is small and coherent by design, this port is usually a
 single function in `setup.sh` plus a one-line entry in a case
@@ -497,10 +497,10 @@ worked example (Arch Linux).
 
 ---
 
-## Shared — All Platforms
+## Shared: All Platforms
 
 Everything below applies identically on every platform. Your code
-never sees the platform difference — the model router abstracts it.
+never sees the platform difference. The model router abstracts it.
 
 ```text
 Mac host     ──→  MLX (native Metal)
@@ -539,7 +539,7 @@ oglab/
 ├── lab/                      # runtime state (gitignored, created by setup)
 │   ├── data/                 # activity.jsonl, goals/, consent/, experiments/
 │   ├── models/               # downloaded model weights
-│   └── pkb/                  # knowledge base — inbox, sources, agents, notes, compiled
+│   └── pkb/                  # knowledge base: inbox, sources, agents, notes, compiled
 │
 ├── scripts/                  # delegates for ./oglab
 │   ├── setup.sh              # provision venv + deps + model + lab/
@@ -579,7 +579,7 @@ print(response.text)
 | OpenRouter | `openrouter` | API key | Free tier |
 | Claude | `claude` | API key | Paid |
 
-**NVIDIA NIM setup** — the "test the waters" path. Sign up at [build.nvidia.com](https://build.nvidia.com), grab an `nvapi-…` key, then in `.env`:
+**NVIDIA NIM setup**, the "test the waters" path. Sign up at [build.nvidia.com](https://build.nvidia.com), grab an `nvapi-…` key, then in `.env`:
 
 ```bash
 MODEL_BACKEND=openai_compat
@@ -588,7 +588,7 @@ MODEL_API_KEY=nvapi-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 MODEL_NAME=meta/llama-3.3-70b-instruct
 ```
 
-That's it — you're running Llama 3.3 70B (or Nemotron, DeepSeek-R1, etc.) through the same router that talks to your local MLX/CUDA stack. Swap `MODEL_NAME` to browse. Because NIM speaks OpenAI's protocol, no dedicated backend class is needed — the generic `openai_compat` path handles it.
+That's it. You're running Llama 3.3 70B (or Nemotron, DeepSeek-R1, etc.) through the same router that talks to your local MLX/CUDA stack. Swap `MODEL_NAME` to browse. Because NIM speaks OpenAI's protocol, no dedicated backend class is needed. The generic `openai_compat` path handles it.
 
 ## Adding Your Own Domain
 
@@ -633,4 +633,4 @@ configuration beyond `./oglab setup`.
 
 ## License
 
-MIT — use it, change it, share it.
+MIT. Use it, change it, share it.

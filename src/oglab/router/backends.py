@@ -130,13 +130,25 @@ class MLXBackend(BaseBackend):
             )
         else:
             # Pre-0.19 mlx-lm has no top_p support; silently drop it.
-            text = self._generate(
-                self.model, self.tokenizer,
-                prompt=prompt,
-                max_tokens=max_tokens,
-                temp=temperature,
-                verbose=False,
-            )
+            # Some mid-version mlx-lm builds removed `temp=` but also lack
+            # make_sampler — guard with a fallback to avoid the repeated
+            # "unexpected keyword argument 'temp'" crash.
+            try:
+                text = self._generate(
+                    self.model, self.tokenizer,
+                    prompt=prompt,
+                    max_tokens=max_tokens,
+                    temp=temperature,
+                    verbose=False,
+                )
+            except TypeError:
+                # Newer generate() that dropped temp= but predates make_sampler.
+                text = self._generate(
+                    self.model, self.tokenizer,
+                    prompt=prompt,
+                    max_tokens=max_tokens,
+                    verbose=False,
+                )
         return ModelResponse(
             text=text,
             model=self.model_name,
@@ -671,7 +683,7 @@ class AirLLMBackend(BaseBackend):
 
         self.model_name = os.getenv(
             "AIRLLM_MODEL",
-            os.getenv("AEROLLM_MODEL", "meta-llama/Llama-3.1-70B"),
+            "meta-llama/Llama-3.1-70B",
         )
         compression = os.getenv("AIRLLM_COMPRESSION", "4bit") or None
         if compression == "none":
@@ -777,7 +789,7 @@ class AeroLLMBackend(BaseBackend):
             )
 
         self.model_name = os.getenv(
-            "AEROLLM_MODEL", "meta-llama/Llama-3.1-70B"
+            "AEROLLM_MODEL", "zai-org/GLM-5.1"
         )
         compression = os.getenv("AEROLLM_COMPRESSION", "4bit") or None
         if compression == "none":

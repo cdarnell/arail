@@ -450,3 +450,72 @@ def ensure_pip_folder(pkb_root: Path | None = None) -> dict:
         "readme": wrote_readme,
         "path": str(pip_dir),
     }
+
+
+# ── SRE Watch templates ──────────────────────────────────────────────
+_SRE_AGENT_MD = """---
+title: SRE Watch — Crash Monitor
+name: SRE
+emoji: 🔥
+section: agents/sre
+tags: [agent, sre, monitoring, builtin]
+voice: "Terse incident reporter. One sentence, clinical precision. No emojis. State error type, location, count."
+tick_interval_sec: 120
+global_cooldown_sec: 180
+dream: false
+auto_start_env: LAB_SRE
+skills: []
+---
+
+# SRE Watch — the crash monitor
+
+SRE Watch is a reliability agent. It reads `lab/data/activity.jsonl`
+on every tick and surfaces errors and crash recurrences in the
+activity feed — so you notice them without having to tail a log file.
+
+## What SRE Watch monitors
+
+| Watcher | Severity | Cooldown | Fires when |
+|---|---|---|---|
+| `recent-errors` | warn | 10 min per fingerprint | A new error/warn pattern appeared in the last 5 min |
+| `crash-recurrence` | warn | 15 min per fingerprint | Same error pattern hit 3+ times in 30 min |
+| `service-health` | warn | 10 min | Portal `/api/jobs/state` is unreachable |
+
+## Editing SRE Watch
+
+- Add new watchers → add a function to `WATCHERS` in `sre.py`.
+- Tune cooldowns → env vars `LAB_SRE_INTERVAL_SEC`, `LAB_SRE_COOLDOWN_SEC`.
+- Mute → set `LAB_SRE=off` in `.env`.
+- Wipe memory → delete `state.json`.
+
+## Companion files
+
+- [sre.py](sre.py) — watchers + loop
+- [state.json](state.json) — persisted fingerprint memory + cooldowns
+"""
+
+
+def ensure_sre_folder(pkb_root: Path | None = None) -> dict:
+    """Materialize lab/pkb/agents/sre/ if missing.
+
+    Idempotent: if the folder exists AND ``sre.py`` is present inside,
+    do nothing. Otherwise write AGENT.md and copy _builtin_sre.py.
+    """
+    root = pkb_root or _pkb_root()
+    sre_dir = root / "agents" / "sre"
+
+    sre_py = sre_dir / "sre.py"
+    if sre_py.exists():
+        return {"ok": True, "created": False}
+
+    sre_dir.mkdir(parents=True, exist_ok=True)
+
+    builtin = Path(__file__).parent / "_builtin_sre.py"
+    shutil.copy(builtin, sre_py)
+    (sre_dir / "AGENT.md").write_text(_SRE_AGENT_MD)
+
+    return {
+        "ok": True,
+        "created": True,
+        "path": str(sre_dir),
+    }
