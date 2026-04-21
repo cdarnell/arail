@@ -9,6 +9,144 @@
 .agents-wrap h1 { color: var(--green); text-shadow: var(--glow-green); margin-bottom: 0.15rem; font-size: 1.1rem; }
 .agents-wrap .subtitle { color: var(--muted); font-size: 0.78rem; margin-bottom: 1.25rem; }
 
+/* ── Mission Block ─────────────────────────────────────────────── */
+.ag-mission {
+  background: linear-gradient(145deg, rgba(0,255,65,0.08), rgba(0,212,255,0.04) 38%, rgba(20,24,36,0.95));
+  border: 1px solid rgba(0,255,65,0.2);
+  border-radius: var(--radius);
+  padding: 0.85rem 1rem;
+  margin-bottom: 1rem;
+}
+
+.ag-mission-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+.ag-mission-kicker {
+  font-size: 0.62rem;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--green);
+  text-shadow: var(--glow-green);
+  font-weight: 600;
+}
+
+.ag-mission-edit {
+  font-size: 0.67rem;
+  color: var(--blue);
+  text-decoration: none;
+}
+
+.ag-mission-edit:hover { text-decoration: underline; }
+
+.ag-mission-goal {
+  margin-top: 0.35rem;
+  color: var(--text-hi);
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.ag-mission-meta {
+  margin-top: 0.55rem;
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.ag-mission-chip {
+  font-size: 0.63rem;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  background: rgba(6,8,14,0.55);
+  border-radius: 999px;
+  padding: 0.14rem 0.48rem;
+}
+
+.ag-mission-chip.progress {
+  color: var(--green);
+  border-color: rgba(0,255,65,0.24);
+  background: rgba(0,255,65,0.08);
+}
+
+.ag-mission-agents {
+  margin-top: 0.55rem;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.ag-mission-agents-label {
+  font-size: 0.61rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-right: 0.3rem;
+}
+
+.ag-agent-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.1rem 0.45rem;
+  font-size: 0.64rem;
+  color: var(--text);
+  background: rgba(255,255,255,0.02);
+}
+
+.ag-agent-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.ag-agent-pill.researcher .ag-agent-dot { background: var(--green); box-shadow: 0 0 6px rgba(0,255,65,0.5); }
+.ag-agent-pill.curator .ag-agent-dot { background: var(--blue); box-shadow: 0 0 6px rgba(0,212,255,0.45); }
+.ag-agent-pill.browser .ag-agent-dot { background: var(--amber); box-shadow: 0 0 6px rgba(255,176,0,0.45); }
+
+.ag-mission-feed-head {
+  margin-top: 0.65rem;
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.ag-mission-feed {
+  list-style: none;
+  margin: 0.35rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.3rem;
+}
+
+.ag-mission-event {
+  display: grid;
+  grid-template-columns: 3.9rem 4.4rem 1fr;
+  gap: 0.4rem;
+  align-items: baseline;
+  font-size: 0.7rem;
+  border-bottom: 1px solid rgba(30,34,48,0.45);
+  padding-bottom: 0.24rem;
+}
+
+.ag-mf-ts { color: var(--muted); font-variant-numeric: tabular-nums; }
+.ag-mf-src { color: var(--blue); text-transform: uppercase; letter-spacing: 0.07em; font-size: 0.58rem; }
+.ag-mf-msg { color: var(--text); }
+
+@media (max-width: 700px) {
+  .ag-mission-event {
+    grid-template-columns: 3.6rem 3.9rem 1fr;
+    gap: 0.3rem;
+  }
+}
+
 /* ── Agent Cards ────────────────────────────────────────────────── */
 .ag-cards {
   display: grid;

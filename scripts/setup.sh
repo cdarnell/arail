@@ -15,6 +15,11 @@ info()  { echo -e "${GREEN}[oglab]${RESET} $*"; }
 warn()  { echo -e "${YELLOW}[oglab]${RESET} $*"; }
 error() { echo -e "${RED}[oglab]${RESET} $*"; exit 1; }
 
+ollama_default_enabled() {
+    [[ "$PLATFORM" == "macos" && "$ACCEL" == "mlx" ]] && return 1
+    return 0
+}
+
 # Numbered checkpoint banner — every major section prints one so the
 # user has a visible progress spine ("━━━ 3/10  Python environment").
 step()  { echo ""; echo -e "${BOLD}━━━ $*${RESET}"; echo ""; }
@@ -197,6 +202,9 @@ install_core_deps() {
         tail -n 20 "$log" | sed 's/^/    /' >&2
         error "pip install failed. See setup.log, then re-run: ./oglab setup"
     }
+    if ! pip install -q -e ".[vector]" 2>>"$log"; then
+        warn "Optional vector deps unavailable — semantic wiki associations will stay disabled until: pip install -e '.[vector]'"
+    fi
     info "Core dependencies installed."
 }
 
@@ -259,7 +267,7 @@ install_accel_deps() {
 # are logged and the rest of setup continues.
 # -----------------------------------------------------------------------------
 install_services() {
-    step "2/10  System packages (ttyd, tmux, agent-browser, ollama)"
+    step "2/10  System packages (ttyd, tmux, agent-browser, optional ollama)"
     # ttyd — the browser terminal.
     if ! command -v ttyd &>/dev/null; then
         case "$PLATFORM" in
@@ -324,9 +332,25 @@ install_services() {
         info "agent-browser already installed"
     fi
 
-    # Ollama — local LLM server. Required for Open Notebook AI features
-    # and agent-browser chat. Provides an OpenAI-compatible API that
-    # Docker containers can reach at host.docker.internal:11434.
+    # Ollama — optional local OpenAI-compatible LLM server. On Apple
+    # Silicon, OGLab's primary local inference path is direct MLX via
+    # mlx-lm, so we skip Ollama by default unless explicitly enabled.
+    # It remains useful for surfaces that want an HTTP API, like Open
+    # Notebook or other OpenAI-compatible tools.
+    local ollama_enabled=1
+    if ! ollama_default_enabled && [[ "${OGLAB_ENABLE_OLLAMA:-0}" != "1" ]]; then
+        ollama_enabled=0
+        info "Apple Silicon detected — MLX/mlx-lm is the default local runtime."
+        info "Skipping Ollama install by default. Enable it with OGLAB_ENABLE_OLLAMA=1 if you want a local OpenAI-compatible API too."
+    fi
+
+    if [[ "$ollama_enabled" == "0" ]]; then
+        if command -v ollama &>/dev/null; then
+            info "Ollama already installed ($(ollama --version 2>&1 | head -1))"
+        fi
+        return
+    fi
+
     if ! command -v ollama &>/dev/null; then
         case "$PLATFORM" in
             macos)
@@ -607,6 +631,7 @@ PORTAL_PORT=8080
 TERMINAL_PORT=7681
 NOTEBOOK_PORT=8888
 IDE_PORT=8443
+MLX_OPENAI_PORT=11435
 IDE_PASSWORD=${OGLAB_PASSWORD}
 BIND_ADDR=127.0.0.1
 CONF

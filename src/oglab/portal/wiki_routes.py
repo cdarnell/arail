@@ -90,8 +90,10 @@ async def wiki_landing(request: Request):
 
 
 @router.get("/wiki/graph", response_class=HTMLResponse)
-async def wiki_graph_page(request: Request):
-    return _templates.TemplateResponse(request, "wiki/graph.html")
+async def wiki_graph_page(request: Request, embed: int = 0):
+    return _templates.TemplateResponse(request, "wiki/graph.html", {
+        "embed": bool(embed),
+    })
 
 
 @router.get("/wiki/tag/{tag}", response_class=HTMLResponse)

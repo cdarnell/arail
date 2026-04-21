@@ -28,6 +28,7 @@ mlx   = ["mlx>=0.4.0", "mlx-lm>=0.8.0"]
 cuda  = ["vllm>=0.5.0", "torch>=2.3.0"]
 cpu   = ["llama-cpp-python>=0.2.0"]
 cloud = ["anthropic>=0.31.0"]
+vector = ["lancedb>=0.6.0"]
 # AeroLLM installs via scripts/setup.sh from the git URL in
 # AEROLLM_PACKAGE. It's intentionally not an extra here — git URLs
 # in pyproject extras are a smell, and the installer is the single

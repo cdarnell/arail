@@ -5,10 +5,18 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{ brand.name }} — Knowledge Graph</title>
 <link rel="stylesheet" href="/static/style.css">
+{% if embed %}
+<style>
+  body { margin: 0; }
+  .graph-wrap { height: 100vh; }
+</style>
+{% endif %}
 </head>
 <body>
 
+{% if not embed %}
 {% set active = '' %}{% include "_nav.html" %}
+{% endif %}
 
 {% set graph_api  = "/api/wiki/graph" %}
 {% set show_health = False %}
@@ -38,6 +46,8 @@
 ] %}
 {% include "_graph_canvas.html" %}
 
+{% if not embed %}
 <script src="/static/nav.js"></script>
+{% endif %}
 </body>
 </html>

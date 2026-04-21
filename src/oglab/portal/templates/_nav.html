@@ -2,10 +2,10 @@
   Shared top-nav partial. Every page includes this with:
       {% include "_nav.html" with context %}
   ...after setting an `active` variable to one of:
-      dashboard | knowledge | notebooks | research | teacher
+      dashboard | knowledge | notebooks | research | chat
       agents    | terminal  | admin
   Sub-surfaces reached from their parent page:
-      /tuning   — linked from /teacher (speed work for the deep model)
+      /tuning   — linked from /chat (speed work for the deep model)
       /plugins  — linked from /admin  (one tap away from core lab config)
   The variable defaults to empty when unset (no link highlighted).
 
@@ -20,10 +20,9 @@
   <a href="/knowledge"{% if active == 'knowledge' %} class="active"{% endif %}>Knowledge</a>
   <a href="/notebooks"{% if active == 'notebooks' %} class="active"{% endif %}>Notebooks</a>
   <a href="/research"{% if active == 'research' %} class="active"{% endif %}>Research</a>
-  <a href="/teacher"{% if active in ['teacher', 'tuning'] %} class="active"{% endif %}
-     title="Consult the Deep Teacher — AeroLLM-backed frontier model. Tuning lives here too.">Teacher</a>
+    <a href="/chat"{% if active in ['chat', 'teacher', 'tuning'] %} class="active"{% endif %}
+      title="Unified Chat — fast local chat with built-in Deep Teacher comparison.">Chat</a>
   <a href="/agents"{% if active == 'agents' %} class="active"{% endif %}>Agents</a>
-  <a href="/terminal"{% if active == 'terminal' %} class="active"{% endif %}>Terminal</a>
   <a href="/admin"{% if active in ['admin', 'plugins'] %} class="active"{% endif %}>Admin</a>
   <span class="nav-clock" id="nav-clock"></span>
   {% if active == 'dashboard' %}

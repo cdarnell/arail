@@ -8,13 +8,18 @@
 </head>
 <body>
 
+{% set preview = preview|default(False) %}
+{% if not preview %}
 {% set active = '' %}{% include "_nav.html" %}
+{% endif %}
 
 {% set graph_api  = "/api/system/graph" %}
 {% set health_api = "/api/system/health" %}
-{% set show_health = True %}
+{% set show_health = not preview %}
 {% include "_graph_canvas.html" %}
 
+{% if not preview %}
 <script src="/static/nav.js"></script>
+{% endif %}
 </body>
 </html>

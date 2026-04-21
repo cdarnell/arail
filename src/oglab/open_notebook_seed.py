@@ -12,6 +12,7 @@ from __future__ import annotations
 import glob
 import logging
 import os
+import platform
 import time
 from pathlib import Path
 
@@ -139,11 +140,12 @@ def _find_lab_root() -> Path:
 
 
 def _setup_ai_provider(port: int) -> None:
-    """Configure Ollama as the default AI provider in Open Notebook.
+    """Configure a local AI provider in Open Notebook.
 
-    Connects to the host's Ollama instance, discovers available models,
-    registers them, and sets the first language model as default for
-    chat, transformation, and tools.
+    On Apple Silicon, prefers OGLab's MLX-backed OpenAI-compatible
+    server. Falls back to Ollama when that server is unavailable.
+    Registers discovered models and sets the first language model as
+    default for chat, transformation, and tools.
     """
     base = _api(port)
 
@@ -158,49 +160,71 @@ def _setup_ai_provider(port: int) -> None:
     except Exception:
         return
 
-    # Check if Ollama is reachable on the host
+    # Prefer the built-in MLX-backed OpenAI-compatible server on
+    # Apple Silicon. It keeps the host's primary runtime on mlx-lm
+    # without requiring Ollama just to satisfy an HTTP integration.
     import shutil
-    ollama_url = "http://host.docker.internal:11434"
-    if not shutil.which("ollama"):
-        log.info("Ollama not installed — skipping AI provider setup.")
-        log.info("Install Ollama (brew install ollama) to enable AI features in Open Notebook.")
-        return
+    provider = "ollama"
+    credential_name = "Local Ollama"
+    base_url = "http://host.docker.internal:11434"
+    model_names: list[str] = []
 
-    # Detect available Ollama models from the HOST side
-    try:
-        host_r = httpx.get("http://localhost:11434/api/tags", timeout=5.0)
-        if host_r.status_code != 200:
-            log.warning("Ollama not responding — skipping AI setup.")
-            return
-        host_models = host_r.json().get("models", [])
-        if not host_models:
-            log.warning("No Ollama models found. Pull one: ollama pull qwen3:8b")
-            return
-        model_names = [m["name"] for m in host_models]
-        log.info("Found Ollama models: %s", ", ".join(model_names))
-    except Exception as e:
-        log.warning("Cannot reach Ollama: %s", e)
-        return
+    use_mlx_server = platform.system() == "Darwin" and platform.machine() == "arm64"
+    if use_mlx_server:
+        mlx_port = int(os.getenv("MLX_OPENAI_PORT", "11435"))
+        try:
+            host_r = httpx.get(f"http://localhost:{mlx_port}/v1/models", timeout=5.0)
+            if host_r.status_code == 200:
+                data = host_r.json().get("data", [])
+                model_names = [m.get("id") for m in data if m.get("id")]
+                if model_names:
+                    provider = "openai"
+                    credential_name = "Local MLX"
+                    base_url = f"http://host.docker.internal:{mlx_port}/v1"
+                    log.info("Found MLX API models: %s", ", ".join(model_names))
+        except Exception as e:
+            log.info("MLX API not reachable for Open Notebook setup: %s", e)
 
-    # Create the Ollama credential in Open Notebook
+    if not model_names:
+        if not shutil.which("ollama"):
+            log.info("No local OpenAI-compatible provider detected — skipping AI provider setup.")
+            log.info("Start the MLX API with ./oglab start on Apple Silicon, or install Ollama for the compatibility path.")
+            return
+
+        try:
+            host_r = httpx.get("http://localhost:11434/api/tags", timeout=5.0)
+            if host_r.status_code != 200:
+                log.warning("Ollama not responding — skipping AI setup.")
+                return
+            host_models = host_r.json().get("models", [])
+            if not host_models:
+                log.warning("No Ollama models found. Pull one: ollama pull qwen3:8b")
+                return
+            model_names = [m["name"] for m in host_models]
+            log.info("Found Ollama models: %s", ", ".join(model_names))
+        except Exception as e:
+            log.warning("Cannot reach Ollama: %s", e)
+            return
+
+    # Create the credential in Open Notebook
     try:
         r = httpx.post(
             f"{base}/credentials",
             json={
-                "name": "Local Ollama",
-                "provider": "ollama",
+                "name": credential_name,
+                "provider": provider,
                 "api_key": "not-needed",
-                "base_url": ollama_url,
+                "base_url": base_url,
             },
             auth=AUTH,
             timeout=TIMEOUT,
         )
         if r.status_code not in (200, 201):
-            log.warning("Failed to create Ollama credential: %s", r.text[:200])
+            log.warning("Failed to create %s credential: %s", provider, r.text[:200])
             return
         cred_data = r.json()
         cred_id = cred_data.get("id")
-        log.info("Created Ollama credential: %s", cred_id)
+        log.info("Created %s credential: %s", provider, cred_id)
     except Exception as e:
         log.warning("Failed to create credential: %s", e)
         return
@@ -213,7 +237,7 @@ def _setup_ai_provider(port: int) -> None:
                 f"{base}/models",
                 json={
                     "name": model_name,
-                    "provider": "ollama",
+                    "provider": provider,
                     "credential_id": cred_id,
                     "type": "language",
                 },

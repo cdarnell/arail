@@ -37,6 +37,14 @@ uvicorn oglab.portal.app:app \
     --log-level warning &
 PIDS+=($!)
 
+if [[ "${MODEL_BACKEND:-auto}" == "mlx" ]]; then
+    info "MLX API    → http://${BIND}:${MLX_OPENAI_PORT:-11435}/v1"
+    uvicorn oglab.mlx_openai_server:app \
+        --host "$BIND" --port "${MLX_OPENAI_PORT:-11435}" \
+        --log-level warning &
+    PIDS+=($!)
+fi
+
 if command -v ttyd &>/dev/null; then
     info "Terminal   → http://${BIND}:${TERMINAL_PORT:-7681}"
     # Terminal persistence: when tmux is available we attach every ttyd
@@ -122,6 +130,7 @@ echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━�
 echo -e "  ${BOLD}All services running.${RESET}  Press Ctrl+C to stop."
 echo ""
 echo -e "  Dashboard:  ${BOLD}http://${BIND}:${PORTAL_PORT:-8080}${RESET}"
+echo -e "  MLX API:    ${BOLD}http://${BIND}:${MLX_OPENAI_PORT:-11435}/v1${RESET}"
 echo -e "  Terminal:   ${BOLD}http://${BIND}:${TERMINAL_PORT:-7681}${RESET}"
 echo -e "  Notebook:   ${BOLD}http://${BIND}:${NOTEBOOK_PORT:-8888}${RESET}"
 echo -e "  IDE:        ${BOLD}http://${BIND}:${IDE_PORT:-8443}${RESET}  (password in ${BOLD}lab.conf${RESET})"

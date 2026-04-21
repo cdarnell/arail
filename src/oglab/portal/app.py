@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any, AsyncIterator, Iterator, cast
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -270,15 +270,21 @@ async def dashboard(request: Request):
     })
 
 
-@app.get("/terminal", response_class=HTMLResponse)
-async def terminal_page(request: Request):
-    """Serve the terminal iframe if ttyd is running, otherwise show
-    install help so the user can get unblocked without leaving the UI."""
+@app.get("/chat", response_class=HTMLResponse)
+async def chat_page(request: Request):
+    embed = request.query_params.get("embed", "").lower() in {
+        "1", "true", "yes", "on"
+    }
+    return templates.TemplateResponse(request, "chat.html", {"embed": embed})
+
+
+async def _ttyd_context() -> dict:
+    """Compute ttyd availability for use in any route that needs it."""
     import shutil, platform
-    ttyd_installed = shutil.which("ttyd") is not None
-    ttyd_running = False
-    if ttyd_installed:
-        ttyd_running = await _port_open(
+    installed = shutil.which("ttyd") is not None
+    running = False
+    if installed:
+        running = await _port_open(
             os.getenv("BIND_ADDR", "127.0.0.1"),
             int(os.getenv("TTYD_PORT", "7681")),
         )
@@ -289,11 +295,20 @@ async def terminal_page(request: Request):
                  "sudo pacman -S ttyd    # Arch\n"
                  "sudo emerge -av www-apps/ttyd  # Gentoo",
     }.get(platform.system(), "https://github.com/tsl0922/ttyd#installation")
-    return templates.TemplateResponse(request, "terminal.html", {
-        "ttyd_installed": ttyd_installed,
-        "ttyd_running": ttyd_running,
+    return {
+        "ttyd_installed": installed,
+        "ttyd_running": running,
+        "ttyd_port": int(os.getenv("TTYD_PORT", "7681")),
         "install_cmd": install_cmd,
-    })
+    }
+
+
+@app.get("/terminal", response_class=HTMLResponse)
+async def terminal_page(request: Request):
+    """Serve the terminal iframe if ttyd is running, otherwise show
+    install help so the user can get unblocked without leaving the UI."""
+    ctx = await _ttyd_context()
+    return templates.TemplateResponse(request, "terminal.html", ctx)
 
 
 @app.get("/notebook", response_class=HTMLResponse)
@@ -999,8 +1014,10 @@ async def admin_page(request: Request):
         health = (await system_health())
     except Exception:
         pass
+    ttyd = await _ttyd_context()
     return templates.TemplateResponse(request, "admin.html", {
         "health": health,
+        **ttyd,
     })
 
 
@@ -2318,9 +2335,7 @@ async def api_chat_models():
                 "huggingface-cli login or export HF_TOKEN before downloading."
             )
 
-    default_optional_backend = "aerollm"
-    if not deep_info["installed"] and _is_airllm_installed():
-        default_optional_backend = "airllm"
+    default_optional_backend = _default_teacher_backend()
 
     return {
         "backend": backend_name,
@@ -2345,6 +2360,10 @@ def _is_aerollm_installed() -> bool:
 def _is_airllm_installed() -> bool:
     import importlib.util
     return importlib.util.find_spec("airllm") is not None
+
+
+def _default_teacher_backend() -> str:
+    return "airllm" if _is_airllm_installed() else "aerollm"
 
 
 def _extract_param_hint(model_name: str) -> str:
@@ -3170,7 +3189,12 @@ def _normalize_backend(backend: str | None) -> str:
 
 @app.get("/tuning", response_class=HTMLResponse)
 async def tuning_page(request: Request):
-    return templates.TemplateResponse(request, "tuning.html", {})
+    aerollm_model = os.getenv("AEROLLM_MODEL", "")
+    airllm_model = os.getenv("AIRLLM_MODEL", "meta-llama/Llama-3.1-70B")
+    return templates.TemplateResponse(request, "tuning.html", {
+        "aerollm_model": aerollm_model,
+        "airllm_model": airllm_model,
+    })
 
 
 @app.get("/api/tuning/config")
@@ -3393,9 +3417,10 @@ async def api_tuning_autoresearch_schedule_set(request: Request):
 #   GET  /api/teacher/history     — recent consultations from PKB
 # ═══════════════════════════════════════════════════════════════════════
 
-@app.get("/teacher", response_class=HTMLResponse)
+@app.get("/teacher")
 async def teacher_page(request: Request):
-    return templates.TemplateResponse(request, "teacher.html", {})
+    # /teacher now aliases the unified Chat surface.
+    return RedirectResponse(url="/chat", status_code=307)
 
 
 def _save_teacher_result(message: str, result: dict[str, Any]) -> dict[str, Any]:
@@ -3438,9 +3463,9 @@ async def api_teacher_ask(request: Request):
 
     result = await _run_chat_completion(
         message=message,
-        history=[],
-        backend_override="aerollm",
-        model_override=None,
+        history=body.get("history") or [],
+        backend_override=body.get("backend") or _default_teacher_backend(),
+        model_override=body.get("model"),
         temperature=0.7,
         top_p=None,
         max_tokens=int(body.get("max_tokens") or 1024),
@@ -3465,9 +3490,9 @@ async def api_teacher_stream(request: Request):
     async def _generate() -> AsyncIterator[str]:
         async for event in _run_chat_completion_stream(
             message=message,
-            history=[],
-            backend_override="aerollm",
-            model_override=None,
+            history=body.get("history") or [],
+            backend_override=body.get("backend") or _default_teacher_backend(),
+            model_override=body.get("model"),
             temperature=0.7,
             top_p=None,
             max_tokens=int(body.get("max_tokens") or 1024),

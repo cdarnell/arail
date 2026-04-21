@@ -331,11 +331,15 @@ Then:
 
 MLX is the default and top choice for Apple Silicon.
 
+On Apple Silicon, `./oglab setup` now favors native MLX / `mlx-lm` and
+does not auto-install Ollama unless you explicitly opt in with
+`OGLAB_ENABLE_OLLAMA=1`.
+
 | Option | `.env` setting | Notes |
 | -------- | --------------- | ------- |
 | **MLX** (default) | `MODEL_BACKEND=mlx` | Native Metal, fastest on Mac |
 | **LM Studio** | `MODEL_BACKEND=openai_compat`<br>`MODEL_API_BASE=http://localhost:1234/v1` | GUI app, download models with one click |
-| **Ollama** | `MODEL_BACKEND=openai_compat`<br>`MODEL_API_BASE=http://localhost:11434/v1` | CLI-first, `ollama run mistral` |
+| **Ollama** (optional) | `MODEL_BACKEND=openai_compat`<br>`MODEL_API_BASE=http://localhost:11434/v1` | CLI-first, useful when you specifically want a local OpenAI-compatible API |
 | **CPU fallback** | `MODEL_BACKEND=cpu` | llama.cpp, slower but works on Intel Macs too |
 
 ### Mac notes

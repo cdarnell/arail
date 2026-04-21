@@ -1,0 +1,51 @@
+version: "3.9"
+
+# Canvas-scoped services. Runs alongside the rest of the lab — the
+# backend reuses the lab's model_router via Python import (see
+# services/llm_router.py), so there's no LLM container here by default.
+# If your lab routes to Ollama, the existing lab-level compose handles it.
+
+services:
+  neo4j:
+    image: neo4j:5-community
+    container_name: canvas-neo4j
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    environment:
+      - NEO4J_AUTH=neo4j/${NEO4J_PASSWORD:-changeme-please}
+      - NEO4J_PLUGINS=["apoc"]
+      - NEO4J_dbms_memory_heap_max__size=1G
+    volumes:
+      - canvas_neo4j_data:/data
+    restart: unless-stopped
+
+  backend:
+    build: ./backend
+    container_name: canvas-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - LANCE_PATH=/data/lance
+      - NEO4J_URI=bolt://neo4j:7687
+      - NEO4J_USER=neo4j
+      - NEO4J_PASSWORD=${NEO4J_PASSWORD:-changeme-please}
+      # Feed the lab's model_router
+      - ROUTER_BACKEND=${ROUTER_BACKEND:-ollama}
+      - ROUTER_MODEL=${ROUTER_MODEL:-llama3.1:8b}
+      - EMBEDDING_BACKEND=${EMBEDDING_BACKEND:-local}
+      - OLLAMA_URL=${OLLAMA_URL:-http://host.docker.internal:11434}
+    volumes:
+      # The lab root is mounted so llm_router.py can import model_router
+      - ../../:/lab:ro
+      - canvas_lance_data:/data/lance
+    depends_on:
+      - neo4j
+    restart: unless-stopped
+    extra_hosts:
+      # Lets the container reach a host-running Ollama
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  canvas_neo4j_data:
+  canvas_lance_data:

@@ -251,6 +251,9 @@ def build_page_index(pkb_root: Path) -> dict[str, Page]:
             _log.warning("wiki: cannot read %s: %s", md, e)
             continue
 
+        if _is_low_signal_experiment_page(pkb_root, md, text):
+            continue
+
         meta, body = parse_frontmatter(text)
         rel_parts = md.relative_to(pkb_root).parts
         section = rel_parts[0] if len(rel_parts) > 1 else "root"
@@ -301,6 +304,28 @@ def build_page_index(pkb_root: Path) -> dict[str, Page]:
     return pages
 
 
+def _is_low_signal_experiment_page(pkb_root: Path, md: Path, text: str) -> bool:
+    """Suppress old low-information experiment stubs from wiki graph/page index."""
+    try:
+        rel = str(md.relative_to(pkb_root)).replace("\\", "/")
+    except Exception:
+        return False
+    if not rel.startswith("agents/experiments/"):
+        return False
+    if md.name == "_rollup.md":
+        return False
+    t = text.lower()
+    has_signal = (
+        "## results" in t or
+        "**outcome:**" in t or
+        "**conclusion" in t or
+        "improvement_rate" in t or
+        "confidence_score" in t or
+        "## what was measured" in t
+    )
+    return (not has_signal) and len(t.strip()) < 420
+
+
 def resolve_links(pages: dict[str, Page]) -> None:
     """Resolve outgoing wikilink targets to slugs and invert into backlinks.
 
@@ -341,13 +366,27 @@ def resolve_links(pages: dict[str, Page]) -> None:
 
 # ── Graph builder ────────────────────────────────────────────────────────
 
-def build_link_graph(pages: dict[str, Page]) -> WikiGraph:
+def build_link_graph(
+    pages: dict[str, Page],
+    pkb_root: Optional[Path] = None,
+    include_semantic: bool = False,
+) -> WikiGraph:
     """Build the knowledge graph from resolved pages.
 
     Node shape matches ``/api/system/graph`` so the existing Canvas
     renderer can draw it with no changes.
     """
     graph = WikiGraph()
+
+    def _path_display(path: Path) -> str:
+        # Prefer PKB-relative display when possible (e.g. sources/foo.md)
+        # while still providing a stable fallback for unusual layouts.
+        norm = str(path).replace("\\", "/")
+        marker = "/pkb/"
+        if marker in norm:
+            return norm.split(marker, 1)[1]
+        return norm
+
     for slug, page in pages.items():
         graph.nodes.append({
             "id": slug,
@@ -357,6 +396,8 @@ def build_link_graph(pages: dict[str, Page]) -> WikiGraph:
             "size": 8 + min(len(page.backlinks), 12),
             "tags": page.tags,
             "desc": (page.body_md[:160].replace("\n", " ").strip() + "…") if page.body_md else "",
+            "path": _path_display(page.path),
+            "source_ref": page.source_ref,
             "status": "active",
         })
     seen_edges: set[tuple[str, str]] = set()
@@ -372,6 +413,25 @@ def build_link_graph(pages: dict[str, Page]) -> WikiGraph:
                 "type": "link",
                 "label": "",
             })
+
+    # Optional vector associations via LanceDB. This is additive and only
+    # enabled when requested by caller and available in the environment.
+    if include_semantic and pkb_root is not None:
+        try:
+            from oglab.wiki_vectors import semantic_edges_for_pages
+
+            graph.edges.extend(
+                semantic_edges_for_pages(
+                    pages,
+                    pkb_root,
+                    k=int(os.getenv("WIKI_SEMANTIC_K", "3")),
+                    min_score=float(os.getenv("WIKI_SEMANTIC_MIN_SCORE", "0.22")),
+                    max_edges=int(os.getenv("WIKI_SEMANTIC_MAX_EDGES", "300")),
+                )
+            )
+        except Exception as e:  # noqa: BLE001
+            _log.debug("wiki: semantic edge generation skipped (%s)", e)
+
     return graph
 
 
@@ -484,7 +544,11 @@ def compile_wiki(pkb_root: Optional[Path] = None,
 
     pages = build_page_index(root)
     resolve_links(pages)
-    graph = build_link_graph(pages)
+    graph = build_link_graph(
+        pages,
+        pkb_root=root,
+        include_semantic=True,
+    )
 
     manifest = {
         "built_at": datetime.now(timezone.utc).isoformat(),

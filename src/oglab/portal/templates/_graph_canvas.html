@@ -68,6 +68,7 @@ const EDGE_COLORS = {
   control:   'rgba(0,212,255,0.3)',
   embed:     'rgba(85,94,112,0.2)',
   link:      'rgba(180,142,255,0.35)',
+  semantic:  'rgba(0,212,255,0.46)',
   active:    'rgba(255,176,0,0.6)',
   available: 'rgba(85,94,112,0.1)',
 };
@@ -309,6 +310,8 @@ function showDetail(node) {
   html += row('Status', statusBadge(node.status));
   html += row('Group', node.group);
   if (node.type) html += row('Type', node.type);
+  if (node.path) html += row('Path', `<code>${esc(node.path)}</code>`);
+  if (node.source_ref) html += row('Source', `<code>${esc(node.source_ref)}</code>`);
   if (node.port) html += row('Port', node.port);
   if (node.locality) html += row('Locality', node.locality.toUpperCase());
   if (node.desc) {

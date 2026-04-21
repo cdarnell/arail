@@ -337,11 +337,13 @@ class ResearcherAgent:
             # Step 5: Analyze and complete experiments
             await self._wait_if_paused()
             activity_log.emit("researcher", "Analyzing results...", "info")
+            completed_experiments: list[dict[str, Any]] = []
             for exp in experiments:
                 results = self._analyze_experiment(exp, domain, intent)
                 conclusion = results.pop("conclusion", "See results.")
                 success = results.pop("success", True)
-                self.tracker.complete(exp["id"], results, conclusion, success)
+                completed = self.tracker.complete(exp["id"], results, conclusion, success)
+                completed_experiments.append(completed)
                 activity_log.emit("researcher",
                                   f"Experiment {exp['id']} completed — {'supported' if success else 'not supported'}.",
                                   "success" if success else "warn")
@@ -351,26 +353,24 @@ class ResearcherAgent:
 
             # Step 6: Generate report
             await self._wait_if_paused()
-            report = self._generate_report(parsed_goal, experiments)
+            report = self._generate_report(parsed_goal, completed_experiments)
             self.goal_store.set_report(report)
             self.goal_store.update_progress(1.0)
 
             # Write results to PKM
             try:
-                from oglab.pkb import (write_agent_research,
-                                        write_agent_experiment,
-                                        write_agent_recommendation)
+                from oglab import pkb as pkb_mod
                 goal_id = parsed_goal.get("id", domain)[:40]
-                write_agent_research(goal_id, report)
-                for exp in experiments:
-                    exp_md = (f"# Experiment {exp['id']}\n\n"
-                              f"**Hypothesis:** {exp['hypothesis']}\n"
-                              f"**Domain:** {domain}\n"
-                              f"**Status:** completed\n")
-                    write_agent_experiment(exp["id"], exp_md)
-                write_agent_recommendation(
+                pkb_mod.write_agent_research(goal_id, report)
+                for exp in completed_experiments:
+                    exp_md = self._experiment_markdown(exp)
+                    pkb_mod.write_agent_experiment(exp["id"], exp_md)
+                rollup_writer = getattr(pkb_mod, "write_agent_experiment_rollup", None)
+                if callable(rollup_writer):
+                    rollup_writer(completed_experiments, domain=domain)
+                pkb_mod.write_agent_recommendation(
                     f"# Recommendations — {domain}\n\n"
-                    f"Based on {len(experiments)} experiments for: {goal_text}\n\n"
+                    f"Based on {len(completed_experiments)} experiments for: {goal_text}\n\n"
                     f"Review the full report in agents/research/\n"
                 )
                 activity_log.emit("researcher",
@@ -534,6 +534,54 @@ class ResearcherAgent:
             "conclusion": f"Experiment supports the hypothesis with moderate confidence.",
             "success": True,
         }
+
+    def _experiment_markdown(self, exp: Dict[str, Any]) -> str:
+        """Render a high-signal experiment entry for the PKB.
+
+        Keeps core facts (hypothesis, metrics, outcome) visible so
+        /knowledge isn't filled with opaque ID-only stubs.
+        """
+        results = exp.get("results") or {}
+        metrics = exp.get("metrics") or []
+        observations = exp.get("observations") or []
+        supported = bool(exp.get("hypothesis_supported", False))
+        outcome = "supported" if supported else "not supported"
+        badge = "positive" if supported else "negative"
+
+        lines = [
+            f"# Experiment {exp['id']}",
+            "",
+            f"**Outcome:** {outcome} ({badge})",
+            f"**Domain:** {exp.get('domain', 'general')}",
+            f"**Status:** {exp.get('status', 'completed')}",
+            f"**Hypothesis:** {exp.get('hypothesis', '')}",
+            f"**Methodology:** {exp.get('methodology', '')}",
+            "",
+            "## What was measured",
+            "",
+        ]
+
+        if metrics:
+            for m in metrics:
+                lines.append(f"- {m}")
+        else:
+            lines.append("- improvement_rate")
+            lines.append("- confidence_score")
+            lines.append("- data_points")
+
+        if results:
+            lines.extend(["", "## Results", ""])
+            for k, v in results.items():
+                lines.append(f"- **{k}**: {v}")
+
+        lines.extend(["", "## Conclusion", "", str(exp.get("conclusion", "See results."))])
+
+        if observations:
+            lines.extend(["", "## Observations", ""])
+            for ob in observations[-5:]:
+                lines.append(f"- {ob.get('date', '')}: {ob.get('observation', '')}")
+
+        return "\n".join(lines) + "\n"
 
     def _generate_report(self, parsed_goal: Dict[str, Any],
                          experiments: List[Dict[str, Any]]) -> str:

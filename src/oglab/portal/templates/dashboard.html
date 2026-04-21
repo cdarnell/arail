@@ -79,12 +79,7 @@
       <span class="chat-tokens"   id="chat-session-tokens"
             title="Tokens used in this chat session">session: 0 tok</span>
     </h2>
-    <div class="chat-hint">
-      <span>Ask how the lab works, what it can do, or for help shaping a goal.
-      The model sees the full capabilities reference + current state.</span>
-      <a class="chat-inspect" href="/api/chat/system-prompt"
-         target="_blank" rel="noopener">view system prompt</a>
-    </div>
+
 
     <!-- Preset row — click the mode that matches your task. The
          numbers underneath each mode translate into temperature and
@@ -244,12 +239,9 @@
           </details>
         </label>
 
-        <!-- Deep-model (AeroLLM) escape hatch — routes this message
-             through a much bigger model loaded layer-by-layer from
-             disk. First use takes minutes; subsequent calls are
-             still seconds-per-token. We gate it behind a prominent
-             warning because if you toggle it and hit Send without
-             reading, you think the chat broke. -->
+           <!-- Deep-route escape hatch — lets the user send one message
+             through the selected heavy backend without switching the
+             lab's primary fast model. -->
         <label class="chat-tuning-field chat-deep-toggle">
           <span class="chat-tuning-label">
             Deep route
@@ -275,6 +267,20 @@
         </button>
       </div>
     </details>
+  </div>
+
+  <!-- ═══ Lab Shortcuts ═══ -->
+  <div class="card full" id="shortcuts-card" style="padding:14px 20px;">
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+      <a href="/tuning"
+         style="display:inline-flex;align-items:center;gap:6px;padding:7px 14px;border-radius:6px;background:#0f1a14;border:1px solid #1e3a2a;color:#7ee0a0;text-decoration:none;font-size:13px;">
+        <span style="font-size:15px;">🧪</span> Tuning
+      </a>
+      <a href="/terminal"
+         style="display:inline-flex;align-items:center;gap:6px;padding:7px 14px;border-radius:6px;background:#0d1117;border:1px solid #222;color:#8faf97;text-decoration:none;font-size:13px;">
+        <span style="font-size:15px;">⌨️</span> Terminal
+      </a>
+    </div>
   </div>
 
   <!-- ═══ Goal Panel ═══ -->
@@ -1118,7 +1124,9 @@ async function chatSend(text) {
   try {
     const tuning = CHAT_TUNING.get();
     const useDeep = document.getElementById('chat-deep-enable').checked;
-    const selectedOptionalBackend = tuning.optionalBackend || 'aerollm';
+    const selectedOptionalBackend = document.getElementById('chat-deep-backend-select')?.value
+      || tuning.optionalBackend
+      || 'aerollm';
     const r = await fetch('/api/chat/stream', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1511,9 +1519,9 @@ const CHAT_TUNING = (() => {
       modelSelect.appendChild(opt);
     });
 
-    // Populate the frontier chip (always-on header signal) and
-    // the deep toggle label. Both read AEROLLM_MODEL so the user
-    // sees *which* giant model is wired up, not an abstract toggle.
+    // Populate the frontier chip (always-on header signal) for the
+    // AeroLLM path and populate the optional-backend selector with
+    // each backend's own configured model.
     const frontierWrap = document.getElementById('chat-frontier-wrap');
     const frontierEl = document.getElementById('chat-frontier');
     const cfModelEl = document.getElementById('cf-model');
@@ -1538,15 +1546,8 @@ const CHAT_TUNING = (() => {
       }
       renderSpecPopover(deep);
     }
-    if (deepText && deep.model) {
-      const short = deep.model.split('/').pop();
-      const paramTag = deep.param_hint ? ` (${deep.param_hint})` : '';
-      // Preserve the on/off state text the toggle wiring manages
-      // but bake the model name into the default "off" copy.
-      const cb = document.getElementById('chat-deep-enable');
-      if (cb && !cb.checked) {
-        deepText.textContent = `off — toggle to use ${short}${paramTag} via AeroLLM`;
-      }
+    if (typeof window.__oglabRenderDeepToggle === 'function') {
+      window.__oglabRenderDeepToggle();
     }
 
     // Populate the install-help drawer for local single-model
@@ -1620,9 +1621,9 @@ chatLoadHistory();
 updateSessionTokens();
 
 // Render the Frontier chip's hover Spec Sheet. Populates from the
-// `deep.spec` blob returned by /api/chat/models. Falls back to a
-// "unknown model — edit model_specs.py to add" message when the
-// configured AEROLLM_MODEL isn't in the registry yet.
+// AeroLLM-specific `deep.spec` blob returned by /api/chat/models.
+// Falls back to a registry hint when the configured AEROLLM_MODEL
+// is not in model_specs.py yet.
 async function _fetchMeasured(modelName) {
   // Pull hardware-measured stats for the given model. Returns
   // null when no bench records exist yet.
@@ -1641,7 +1642,7 @@ function _renderMeasuredBlock(measured) {
       <div class="csp-section">
         <div class="csp-section-label">Measured on your hardware</div>
         <p class="csp-unknown">
-          No AeroLLM runs yet for this model. Flip the Deep toggle,
+          No AeroLLM runs yet for this model. Flip the Deep route on,
           send a message, and stats appear here on the next page load.
         </p>
       </div>`;
@@ -1761,7 +1762,7 @@ async function renderSpecPopover(deep) {
   });
 }
 
-// Honest latency framing by model size. At 100B+ via AeroLLM you're
+// Honest latency framing by model size. At 100B+ via a layer-streamed
 // waiting seconds per token; above ~400B you're into minutes per
 // reply. Tell the user what to expect before they click Send and
 // think the chat froze.
@@ -1780,9 +1781,9 @@ function _deepLatencyHint(paramHint) {
   return '5-15 minutes per reply · true frontier territory';
 }
 
-// Deep-model (AeroLLM) toggle state. Persists to localStorage so
+// Deep-route toggle state. Persists to localStorage so
 // flipping it back on is a one-click operation. When on, the chat
-// POST includes backend:"aerollm" and replies take minutes.
+// POST includes the selected optional backend and replies take minutes.
 (function wireDeepToggle() {
   const DEEP_KEY = 'oglab.chat.deep';
   const cb = document.getElementById('chat-deep-enable');

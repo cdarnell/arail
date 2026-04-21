@@ -303,6 +303,8 @@ def browse(pkb_root: Path | None = None) -> dict[str, Any]:
         for p in sorted(folder.rglob("*")):
             if p.is_file() and not p.name.startswith("."):
                 try:
+                    if _is_low_signal_experiment_file(root, p):
+                        continue
                     stat = p.stat()
                     items.append({
                         "path": str(p.relative_to(root)),
@@ -320,6 +322,31 @@ def browse(pkb_root: Path | None = None) -> dict[str, Any]:
         "root": str(root),
         "sections": sections,
     }
+
+
+def _is_low_signal_experiment_file(root: Path, p: Path) -> bool:
+    """Hide stale low-information experiment stubs from /knowledge tree."""
+    rel = str(p.relative_to(root)).replace("\\", "/")
+    if not rel.startswith("agents/experiments/"):
+        return False
+    if p.name == "_rollup.md":
+        return False
+    if p.suffix.lower() not in {".md", ".txt", ".rst"}:
+        return False
+    try:
+        text = p.read_text(errors="replace")
+    except OSError:
+        return False
+    t = text.lower()
+    has_signal = (
+        "## results" in t or
+        "**outcome:**" in t or
+        "**conclusion" in t or
+        "improvement_rate" in t or
+        "confidence_score" in t or
+        "## what was measured" in t
+    )
+    return (not has_signal) and len(t.strip()) < 420
 
 
 def search(query: str, pkb_root: Path | None = None) -> list[dict[str, Any]]:
@@ -390,6 +417,50 @@ def write_agent_experiment(exp_id: str, content: str,
     dest.mkdir(parents=True, exist_ok=True)
     path = dest / f"{_date_prefix()}_{exp_id}.md"
     path.write_text(content)
+    return path
+
+
+def write_agent_experiment_rollup(experiments: list[dict[str, Any]],
+                                  domain: str = "general",
+                                  pkb_root: Path | None = None) -> Path:
+    """Write/refresh a compact rollup for recent experiment outcomes."""
+    root = pkb_root or _pkb_root()
+    dest = root / "agents" / "experiments"
+    dest.mkdir(parents=True, exist_ok=True)
+    path = dest / "_rollup.md"
+
+    done = [e for e in experiments if e.get("status") == "completed"]
+    positives = sum(1 for e in done if e.get("hypothesis_supported") is True)
+    negatives = sum(1 for e in done if e.get("hypothesis_supported") is False)
+
+    lines = [
+        "# Experiment Rollup",
+        "",
+        f"*Updated: {_ts()} UTC*",
+        "",
+        f"- **Domain:** {domain}",
+        f"- **Completed:** {len(done)}",
+        f"- **Positive:** {positives}",
+        f"- **Negative:** {negatives}",
+        "",
+        "## Recent experiments",
+        "",
+    ]
+
+    for e in done[:20]:
+        eid = e.get("id", "unknown")
+        outcome = "positive" if e.get("hypothesis_supported") else "negative"
+        metrics = e.get("results") or {}
+        metric_bits = []
+        for k in ("improvement_rate", "confidence_score", "data_points"):
+            if k in metrics:
+                metric_bits.append(f"{k}: {metrics[k]}")
+        metric_str = " · ".join(metric_bits) if metric_bits else "no metrics"
+        lines.append(f"- `{eid}` **{outcome}** — {e.get('hypothesis', '')[:90]}")
+        lines.append(f"  - {metric_str}")
+        lines.append(f"  - conclusion: {str(e.get('conclusion', 'n/a'))[:180]}")
+
+    path.write_text("\n".join(lines) + "\n")
     return path
 
 

@@ -23,142 +23,6 @@
     </a>
   </p>
 
-  <!-- ═══ Agent Cards ═══ -->
-  <div class="ag-cards">
-
-    <!-- Researcher -->
-    <div class="ag-card" id="card-researcher">
-      <div class="ag-card-header">
-        <span class="ag-pulse"></span>
-        <a href="https://github.com/cdarnell/minimalist-blueprint/blob/main/src/oglab/agents/researcher.py" target="_blank" rel="noopener" class="ag-card-name researcher" title="View source: src/oglab/agents/researcher.py">Researcher</a>
-        <span class="ag-pill idle" id="pill-researcher">idle</span>
-      </div>
-      <div class="ag-card-task" id="task-researcher">Waiting for a goal&hellip;</div>
-      <div class="ag-card-stats">
-        <span class="ag-stat">tokens <span class="ag-stat-val" id="stat-researcher-tok">0</span></span>
-        <span class="ag-stat">exps <span class="ag-stat-val" id="stat-researcher-exp">0</span></span>
-        <span class="ag-stat">progress <span class="ag-stat-val" id="stat-researcher-pct">0%</span></span>
-      </div>
-      <div class="ag-card-controls" id="ctrl-researcher">
-        <button onclick="agentAction('start')" id="btn-r-start">Run</button>
-        <button onclick="agentAction('pause')" id="btn-r-pause" disabled>Pause</button>
-        <button onclick="agentAction('resume')" id="btn-r-resume" disabled>Resume</button>
-        <button onclick="agentAction('stop')" id="btn-r-stop" class="danger" disabled>Stop</button>
-      </div>
-    </div>
-
-    <!-- Curator -->
-    <div class="ag-card" id="card-curator">
-      <div class="ag-card-header">
-        <span class="ag-pulse"></span>
-        <a href="https://github.com/cdarnell/minimalist-blueprint/blob/main/src/oglab/agents/curator.py" target="_blank" rel="noopener" class="ag-card-name curator" title="View source: src/oglab/agents/curator.py">Curator</a>
-        <span class="ag-pill standby" id="pill-curator">standby</span>
-      </div>
-      <div class="ag-card-task" id="task-curator">Source vetting &amp; consent gating</div>
-      <div class="ag-card-stats">
-        <span class="ag-stat">pending <span class="ag-stat-val" id="stat-curator-pending">0</span></span>
-        <span class="ag-stat">approved <span class="ag-stat-val" id="stat-curator-approved">0</span></span>
-      </div>
-      <div class="ag-card-controls">
-        <button onclick="switchTab('consent')">Manage Consent</button>
-        <span class="ag-badge" id="badge-curator" style="display:none">0 pending</span>
-      </div>
-    </div>
-
-    <!-- Browser -->
-    <div class="ag-card" id="card-browser">
-      <div class="ag-card-header">
-        <span class="ag-pulse"></span>
-        <a href="https://github.com/cdarnell/minimalist-blueprint/blob/main/src/oglab/agents/browser.py" target="_blank" rel="noopener" class="ag-card-name browser" title="View source: src/oglab/agents/browser.py">Browser</a>
-        <span class="ag-pill idle" id="pill-browser">idle</span>
-      </div>
-      <div class="ag-card-task" id="task-browser">Ready for web research tasks</div>
-      <div class="ag-card-stats">
-        <span class="ag-stat">captures <span class="ag-stat-val" id="stat-browser-captures">0</span></span>
-        <span class="ag-stat">last <span class="ag-stat-val" id="stat-browser-last">&mdash;</span></span>
-      </div>
-      <div class="ag-card-controls">
-        <button onclick="focusInstruction('browser')">New Task</button>
-      </div>
-    </div>
-
-    <!-- Pip — the lab buddy. Fourth core agent. First "personality"
-         agent — notices things, never drives goals. Template shape
-         for the Agent Forge. -->
-    <div class="ag-card" id="card-pip">
-      <div class="ag-card-header">
-        <span class="ag-pulse"></span>
-        <a href="https://github.com/cdarnell/minimalist-blueprint/blob/main/src/oglab/agents/_builtin_pip.py" target="_blank" rel="noopener" class="ag-card-name pip" title="View canonical source (your editable copy lives at lab/pkb/agents/pip/pip.py)">🐧 Pip</a>
-        <span class="ag-pill idle" id="pill-pip">idle</span>
-      </div>
-      <div class="ag-card-task" id="task-pip">Your lab buddy — watches quietly, chimes in when something's worth noting.</div>
-      <div class="ag-card-stats">
-        <span class="ag-stat">utterances <span class="ag-stat-val" id="stat-pip-utterances">0</span></span>
-        <span class="ag-stat">last <span class="ag-stat-val" id="stat-pip-last">&mdash;</span></span>
-      </div>
-      <div class="ag-card-controls">
-        <button onclick="setFilter('pip')">Show posts</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- ═══ Tabbed Detail Panel ═══ -->
-  <div class="ag-tabs">
-    <button class="ag-tab active" data-tab="feed" onclick="switchTab('feed')">Live Feed</button>
-    <button class="ag-tab" data-tab="prompts" onclick="switchTab('prompts')">Prompt Inspector</button>
-    <button class="ag-tab" data-tab="consent" onclick="switchTab('consent')">Consent</button>
-    <button class="ag-tab" data-tab="memory" onclick="switchTab('memory')">Agent Memory</button>
-  </div>
-
-  <div class="ag-detail">
-    <!-- ── Live Feed ── -->
-    <div class="ag-tab-content active" id="tab-feed">
-      <div class="ag-filters">
-        <button class="ag-filter active" data-f="all" onclick="setFilter('all')">All</button>
-        <button class="ag-filter" data-f="researcher" onclick="setFilter('researcher')">Researcher</button>
-        <button class="ag-filter" data-f="curator" onclick="setFilter('curator')">Curator</button>
-        <button class="ag-filter" data-f="browser" onclick="setFilter('browser')">Browser</button>
-        <button class="ag-filter" data-f="pip" onclick="setFilter('pip')">🐧 Pip</button>
-        <button class="ag-filter" data-f="consent" onclick="setFilter('consent')">Consent</button>
-        <button class="ag-filter" data-f="system" onclick="setFilter('system')">System</button>
-      </div>
-      <div id="feed-list"></div>
-    </div>
-
-    <!-- ── Prompt Inspector ── -->
-    <div class="ag-tab-content" id="tab-prompts">
-      <div class="ag-callout">
-        <strong>Prompt Inspector</strong> &mdash; Every agent decision starts with a prompt.
-        Watch how the researcher constructs hypotheses, how the browser plans navigation.
-        This is prompt engineering in action.
-      </div>
-      <div class="ag-filters">
-        <button class="ag-filter active" data-pf="all" onclick="setPromptFilter('all')">All Agents</button>
-        <button class="ag-filter" data-pf="researcher" onclick="setPromptFilter('researcher')">Researcher</button>
-        <button class="ag-filter" data-pf="browser" onclick="setPromptFilter('browser')">Browser</button>
-      </div>
-      <div id="prompt-list"></div>
-    </div>
-
-    <!-- ── Consent Queue ── -->
-    <div class="ag-tab-content" id="tab-consent">
-      <div class="ag-section-title">Pending Approval</div>
-      <div id="consent-pending"><span class="ag-empty">No pending requests.</span></div>
-      <div class="ag-section-title">Allowed Domains</div>
-      <div id="consent-allowlist"><span class="ag-empty">No domains approved yet.</span></div>
-    </div>
-
-    <!-- ── Agent Memory ── -->
-    <div class="ag-tab-content" id="tab-memory">
-      <div class="ag-section-title">Current Goal</div>
-      <div id="mem-goal"><span class="ag-empty">No active goal.</span></div>
-      <div class="ag-section-title">Experiments</div>
-      <div id="mem-experiments"><span class="ag-empty">No experiments.</span></div>
-      <div class="ag-section-title">Browser Captures</div>
-      <div id="mem-captures"><span class="ag-empty">No captures yet.</span></div>
-    </div>
-  </div>
-
   <!-- ═══ Agent Forge ═══
        Two-panel editor. Form on the left drives AGENT.md + .py
        generation; preview on the right regenerates live via the
@@ -250,6 +114,176 @@
       </aside>
     </div>
   </details>
+
+  <!-- ═══ Agent Cards ═══ -->
+  <div class="ag-cards">
+
+    <!-- Researcher -->
+    <div class="ag-card" id="card-researcher">
+      <div class="ag-card-header">
+        <span class="ag-pulse"></span>
+        <a href="https://github.com/cdarnell/minimalist-blueprint/blob/main/src/oglab/agents/researcher.py" target="_blank" rel="noopener" class="ag-card-name researcher" title="View source: src/oglab/agents/researcher.py">Researcher</a>
+        <span class="ag-pill idle" id="pill-researcher">idle</span>
+      </div>
+      <div class="ag-card-task" id="task-researcher">Waiting for a goal&hellip;</div>
+      <div class="ag-card-stats">
+        <span class="ag-stat">tokens <span class="ag-stat-val" id="stat-researcher-tok">0</span></span>
+        <span class="ag-stat">exps <span class="ag-stat-val" id="stat-researcher-exp">0</span></span>
+        <span class="ag-stat">progress <span class="ag-stat-val" id="stat-researcher-pct">0%</span></span>
+      </div>
+      <div class="ag-card-controls" id="ctrl-researcher">
+        <button onclick="agentAction('start')" id="btn-r-start">Run</button>
+        <button onclick="agentAction('pause')" id="btn-r-pause" disabled>Pause</button>
+        <button onclick="agentAction('resume')" id="btn-r-resume" disabled>Resume</button>
+        <button onclick="agentAction('stop')" id="btn-r-stop" class="danger" disabled>Stop</button>
+      </div>
+    </div>
+
+    <!-- Curator -->
+    <div class="ag-card" id="card-curator">
+      <div class="ag-card-header">
+        <span class="ag-pulse"></span>
+        <a href="https://github.com/cdarnell/minimalist-blueprint/blob/main/src/oglab/agents/curator.py" target="_blank" rel="noopener" class="ag-card-name curator" title="View source: src/oglab/agents/curator.py">Curator</a>
+        <span class="ag-pill standby" id="pill-curator">standby</span>
+      </div>
+      <div class="ag-card-task" id="task-curator">Source vetting &amp; consent gating</div>
+      <div class="ag-card-stats">
+        <span class="ag-stat">pending <span class="ag-stat-val" id="stat-curator-pending">0</span></span>
+        <span class="ag-stat">approved <span class="ag-stat-val" id="stat-curator-approved">0</span></span>
+      </div>
+      <div class="ag-card-controls">
+        <button onclick="switchTab('consent')">Manage Consent</button>
+        <span class="ag-badge" id="badge-curator" style="display:none">0 pending</span>
+      </div>
+    </div>
+
+    <!-- Browser -->
+    <div class="ag-card" id="card-browser">
+      <div class="ag-card-header">
+        <span class="ag-pulse"></span>
+        <a href="https://github.com/cdarnell/minimalist-blueprint/blob/main/src/oglab/agents/browser.py" target="_blank" rel="noopener" class="ag-card-name browser" title="View source: src/oglab/agents/browser.py">Browser</a>
+        <span class="ag-pill idle" id="pill-browser">idle</span>
+      </div>
+      <div class="ag-card-task" id="task-browser">Ready for web research tasks</div>
+      <div class="ag-card-stats">
+        <span class="ag-stat">captures <span class="ag-stat-val" id="stat-browser-captures">0</span></span>
+        <span class="ag-stat">last <span class="ag-stat-val" id="stat-browser-last">&mdash;</span></span>
+      </div>
+      <div class="ag-card-controls">
+        <button onclick="focusInstruction('browser')">New Task</button>
+      </div>
+    </div>
+
+    <!-- Pip — the lab buddy. Fourth core agent. First "personality"
+         agent — notices things, never drives goals. Template shape
+         for the Agent Forge. -->
+    <div class="ag-card" id="card-pip">
+      <div class="ag-card-header">
+        <span class="ag-pulse"></span>
+        <a href="https://github.com/cdarnell/minimalist-blueprint/blob/main/src/oglab/agents/_builtin_pip.py" target="_blank" rel="noopener" class="ag-card-name pip" title="View canonical source (your editable copy lives at lab/pkb/agents/pip/pip.py)">🐧 Pip</a>
+        <span class="ag-pill idle" id="pill-pip">idle</span>
+      </div>
+      <div class="ag-card-task" id="task-pip">Your lab buddy — watches quietly, chimes in when something's worth noting.</div>
+      <div class="ag-card-stats">
+        <span class="ag-stat">utterances <span class="ag-stat-val" id="stat-pip-utterances">0</span></span>
+        <span class="ag-stat">last <span class="ag-stat-val" id="stat-pip-last">&mdash;</span></span>
+      </div>
+      <div class="ag-card-controls">
+        <button onclick="setFilter('pip')">Show posts</button>
+      </div>
+    </div>
+  </div>
+
+  {% if current_goal and current_goal.goal_text %}
+  <section class="ag-mission" aria-label="Current mission">
+    <div class="ag-mission-head">
+      <span class="ag-mission-kicker">◎ Current Mission</span>
+      <a class="ag-mission-edit" href="/" title="Edit mission on the dashboard">edit →</a>
+    </div>
+    <div class="ag-mission-goal">{{ current_goal.goal_text }}</div>
+    {% if current_goal.parsed and current_goal.parsed.domain %}
+    <div class="ag-mission-meta">
+      <span class="ag-mission-chip">domain · {{ current_goal.parsed.domain }}</span>
+      {% if current_goal.parsed.primary_objective %}
+      <span class="ag-mission-chip">objective · {{ current_goal.parsed.primary_objective }}</span>
+      {% endif %}
+      <span class="ag-mission-chip progress">
+        progress · {{ ((current_goal.progress or 0) * 100)|int }}%
+      </span>
+    </div>
+    {% endif %}
+    <div class="ag-mission-agents">
+      <span class="ag-mission-agents-label">Agents on the job</span>
+      <span class="ag-agent-pill researcher"><span class="ag-agent-dot"></span>Researcher</span>
+      <span class="ag-agent-pill curator"><span class="ag-agent-dot"></span>Curator</span>
+      {% if mode != "airgapped" %}
+      <span class="ag-agent-pill browser"><span class="ag-agent-dot"></span>Browser</span>
+      {% endif %}
+    </div>
+    <div class="ag-mission-feed-head">What the agents are saying right now</div>
+    <ul class="ag-mission-feed" id="ag-mission-feed">
+      <li class="ag-empty">No activity yet — agents will start chatting here as soon as they do.</li>
+    </ul>
+  </section>
+  {% endif %}
+
+  <!-- ═══ Tabbed Detail Panel ═══ -->
+  <div class="ag-tabs">
+    <button class="ag-tab active" data-tab="feed" onclick="switchTab('feed')">Live Feed</button>
+    <button class="ag-tab" data-tab="prompts" onclick="switchTab('prompts')">Prompt Inspector</button>
+    <button class="ag-tab" data-tab="consent" onclick="switchTab('consent')">Consent</button>
+    <button class="ag-tab" data-tab="memory" onclick="switchTab('memory')">Agent Memory</button>
+  </div>
+
+  <div class="ag-detail">
+    <!-- ── Live Feed ── -->
+    <div class="ag-tab-content active" id="tab-feed">
+      <div class="ag-filters">
+        <button class="ag-filter active" data-f="all" onclick="setFilter('all')">All</button>
+        <button class="ag-filter" data-f="researcher" onclick="setFilter('researcher')">Researcher</button>
+        <button class="ag-filter" data-f="curator" onclick="setFilter('curator')">Curator</button>
+        <button class="ag-filter" data-f="browser" onclick="setFilter('browser')">Browser</button>
+        <button class="ag-filter" data-f="pip" onclick="setFilter('pip')">🐧 Pip</button>
+        <button class="ag-filter" data-f="consent" onclick="setFilter('consent')">Consent</button>
+        <button class="ag-filter" data-f="system" onclick="setFilter('system')">System</button>
+      </div>
+      <div id="feed-list"></div>
+    </div>
+
+    <!-- ── Prompt Inspector ── -->
+    <div class="ag-tab-content" id="tab-prompts">
+      <div class="ag-callout">
+        <strong>Prompt Inspector</strong> &mdash; Every agent decision starts with a prompt.
+        Watch how the researcher constructs hypotheses, how the browser plans navigation.
+        This is prompt engineering in action.
+      </div>
+      <div class="ag-filters">
+        <button class="ag-filter active" data-pf="all" onclick="setPromptFilter('all')">All Agents</button>
+        <button class="ag-filter" data-pf="researcher" onclick="setPromptFilter('researcher')">Researcher</button>
+        <button class="ag-filter" data-pf="browser" onclick="setPromptFilter('browser')">Browser</button>
+      </div>
+      <div id="prompt-list"></div>
+    </div>
+
+    <!-- ── Consent Queue ── -->
+    <div class="ag-tab-content" id="tab-consent">
+      <div class="ag-section-title">Pending Approval</div>
+      <div id="consent-pending"><span class="ag-empty">No pending requests.</span></div>
+      <div class="ag-section-title">Allowed Domains</div>
+      <div id="consent-allowlist"><span class="ag-empty">No domains approved yet.</span></div>
+    </div>
+
+    <!-- ── Agent Memory ── -->
+    <div class="ag-tab-content" id="tab-memory">
+      <div class="ag-section-title">Current Goal</div>
+      <div id="mem-goal"><span class="ag-empty">No active goal.</span></div>
+      <div class="ag-section-title">Experiments</div>
+      <div id="mem-experiments"><span class="ag-empty">No experiments.</span></div>
+      <div class="ag-section-title">Browser Captures</div>
+      <div id="mem-captures"><span class="ag-empty">No captures yet.</span></div>
+    </div>
+  </div>
+
 </div>
 
 <!-- ═══ Instruction Bar ═══ -->
@@ -302,6 +336,26 @@ function updatePipCard() {
 }
 
 function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+// ── Mission Feed (moved from Knowledge tab) ─────────────────────
+function renderMissionFeed() {
+  const feed = document.getElementById('ag-mission-feed');
+  if (!feed) return;
+  const missionSources = new Set(['researcher', 'curator', 'browser', 'goal']);
+  const hits = AG.feed.filter(e => missionSources.has(e.source)).slice(-6);
+  if (!hits.length) {
+    feed.innerHTML = '<li class="ag-empty">No activity yet — agents will start chatting here as soon as they do.</li>';
+    return;
+  }
+  feed.innerHTML = hits.map(e => {
+    const ts = (e.ts || '').substring(11, 19);
+    return `<li class="ag-mission-event src-${esc(e.source || 'system')}">`
+      + `<span class="ag-mf-ts">${esc(ts)}</span>`
+      + `<span class="ag-mf-src">${esc(e.source || '?')}</span>`
+      + `<span class="ag-mf-msg">${esc(e.message || '')}</span>`
+      + `</li>`;
+  }).join('');
+}
 
 // ── Tab Switching ────────────────────────────────────────────────
 function switchTab(tab) {
@@ -401,6 +455,7 @@ function connectSSE() {
       }
 
       if (AG.activeTab === 'feed') appendFeedEvent(e);
+      renderMissionFeed();
 
       // Pip speaks via the activity stream — count + remember so
       // the card updates without a polling endpoint.
@@ -827,6 +882,7 @@ loadSkillsIntoForge();
     }
     updatePipCard();
     renderFeed();
+    renderMissionFeed();
   } catch (e) { /* */ }
 
   // Start polling + SSE

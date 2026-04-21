@@ -226,6 +226,83 @@
   color: var(--green);
 }
 
+.kb-graph-mini {
+  margin: 0 0 1rem;
+  display: grid;
+  gap: 0.45rem;
+}
+.kb-graph-mini-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.kb-graph-sub {
+  margin: 0;
+}
+.kb-graph-mini-iframe {
+  position: relative;
+  width: 100%;
+  height: 180px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: block;
+  background: #0c1118;
+}
+
+.kb-graph-mini-iframe:hover {
+  border-color: var(--green);
+}
+
+/* Legacy spotlight styles retained intentionally for compatibility with
+   cached templates that may still reference these classes. */
+.kb-graph-spotlight {
+  margin: 1rem auto 1.2rem;
+  max-width: 760px;
+  display: grid;
+  gap: 0.55rem;
+}
+.kb-graph-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.kb-graph-card {
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: #0c1118;
+  padding: 0;
+  cursor: zoom-in;
+  text-align: left;
+  box-shadow: inset 0 0 0 1px rgba(0, 255, 65, 0.05);
+}
+.kb-graph-card:hover {
+  border-color: var(--green);
+}
+.kb-graph-iframe {
+  width: 100%;
+  height: 260px;
+  border: 0;
+  display: block;
+  pointer-events: none;
+}
+.kb-graph-overlay {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 2;
+  font-size: 0.78rem;
+  letter-spacing: 0.02em;
+  color: var(--text);
+  background: rgba(10, 15, 22, 0.85);
+  border: 1px solid rgba(0, 255, 65, 0.35);
+  padding: 0.45rem 0.8rem;
+  border-radius: 999px;
+  text-shadow: var(--glow-green);
+}
+
 .kb-quick-actions {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));

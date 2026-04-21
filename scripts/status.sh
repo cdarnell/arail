@@ -39,6 +39,7 @@ check() {
 }
 
 check "Portal   " "${PORTAL_PORT:-8080}"   "uvicorn.*oglab\.portal\.app"
+check "MLX API  " "${MLX_OPENAI_PORT:-11435}" "uvicorn.*oglab\.mlx_openai_server"
 check "Notebook " "${NOTEBOOK_PORT:-8888}" "jupyter-lab"
 check "Terminal " "${TERMINAL_PORT:-7681}" "ttyd"
 check "IDE      " "${IDE_PORT:-8443}"      "code-server"

@@ -2,8 +2,12 @@
 .env
 .env.local
 .env.*.local
+.gh-token
 lab.conf
 setup.log
+portal_restart.log
+compile_stderr.txt
+output.txt
 
 # Python
 __pycache__/
@@ -18,6 +22,8 @@ venv/
 env/
 
 # Runtime state (generated at setup/run time, never committed)
+.transfer/
+models/
 lab/data/
 lab/models/
 lab/pkb/inbox/*

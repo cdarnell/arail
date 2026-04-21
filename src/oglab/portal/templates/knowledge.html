@@ -35,7 +35,7 @@
   <button class="btn btn-sm btn-ghost" id="kb-rebuild-btn" title="Rebuild wiki index + auto-docs">
     🔨 Rebuild
   </button>
-  <a class="btn btn-sm btn-ghost" href="/wiki/graph" title="Knowledge graph">🕸 Graph</a>
+  <a class="btn btn-sm btn-ghost" href="/integrations/knowledge-canvas" title="Knowledge graph">🕸 Graph</a>
   <span class="kb-meter" id="kb-meter">— pages</span>
 </div>
 
@@ -100,40 +100,6 @@
     <div class="kb-welcome" id="kb-welcome">
       <h1>Your Knowledge Base</h1>
 
-      {% if current_goal and current_goal.goal_text %}
-      <!-- ═══ Mission hero — carried over from the dashboard ═══ -->
-      <section class="kb-mission" aria-label="Current mission">
-        <div class="kb-mission-head">
-          <span class="kb-mission-kicker">◎ Current Mission</span>
-          <a class="kb-mission-edit" href="/" title="Edit mission on the dashboard">edit →</a>
-        </div>
-        <div class="kb-mission-goal">{{ current_goal.goal_text }}</div>
-        {% if current_goal.parsed and current_goal.parsed.domain %}
-        <div class="kb-mission-meta">
-          <span class="kb-mission-chip">domain · {{ current_goal.parsed.domain }}</span>
-          {% if current_goal.parsed.primary_objective %}
-          <span class="kb-mission-chip">objective · {{ current_goal.parsed.primary_objective }}</span>
-          {% endif %}
-          <span class="kb-mission-chip progress">
-            progress · {{ ((current_goal.progress or 0) * 100)|int }}%
-          </span>
-        </div>
-        {% endif %}
-        <div class="kb-mission-agents">
-          <span class="kb-mission-agents-label">Agents on the job</span>
-          <span class="kb-agent-pill researcher"><span class="kb-agent-dot"></span>Researcher</span>
-          <span class="kb-agent-pill curator"><span class="kb-agent-dot"></span>Curator</span>
-          {% if mode != "airgapped" %}
-          <span class="kb-agent-pill browser"><span class="kb-agent-dot"></span>Browser</span>
-          {% endif %}
-        </div>
-        <div class="kb-mission-feed-head">What the agents are saying right now</div>
-        <ul class="kb-mission-feed" id="kb-mission-feed">
-          <li class="kb-empty">Tuning in to the activity stream…</li>
-        </ul>
-      </section>
-      {% endif %}
-
       <p>Click any file in the sidebar to read it. Drag files from
       your desktop anywhere on this page to ingest. Use
       <kbd>Cmd/Ctrl</kbd>+<kbd>E</kbd> to edit the open file,
@@ -150,7 +116,7 @@
           <span class="kb-quick-label">New note</span>
           <span class="kb-quick-hint">creates in notes/</span>
         </button>
-        <a class="kb-quick-btn" href="/wiki/graph">
+        <a class="kb-quick-btn" href="/integrations/knowledge-canvas">
           <span class="kb-quick-icon">🕸</span>
           <span class="kb-quick-label">Knowledge graph</span>
           <span class="kb-quick-hint">visual map</span>
@@ -161,6 +127,20 @@
           <span class="kb-quick-hint">regenerate auto-docs</span>
         </button>
       </div>
+
+      <section class="kb-graph-mini" aria-label="Knowledge graph mini section">
+        <div class="kb-graph-mini-head">
+          <h3 class="kb-welcome-sub kb-graph-sub">Knowledge Graph (Mini)</h3>
+          <a class="btn btn-sm btn-ghost" href="/integrations/knowledge-canvas">Open Full 3D Graph</a>
+        </div>
+        <iframe
+          id="kb-graph-mini-iframe"
+          class="kb-graph-mini-iframe"
+          src="/_integrations/knowledge-canvas/index.html?embed=1"
+          title="Knowledge graph mini view"
+          loading="lazy"
+        ></iframe>
+      </section>
 
       <!-- ═══ Web Research Agent ═══ -->
       <div class="kb-browse-section" id="browse-section">
@@ -1359,57 +1339,6 @@ document.getElementById('kb-btn-vim').addEventListener('click', () => {
 
   browseBtn.addEventListener('click', doBrowse);
   browseInput.addEventListener('keydown', e => { if (e.key === 'Enter') doBrowse(); });
-})();
-
-// ── Mission feed (what agents are saying about the current goal) ──────
-// Pulls recent activity from researcher/curator/browser so the user sees
-// the lab is already chewing on their goal the moment they land here.
-(function () {
-  const feed = document.getElementById('kb-mission-feed');
-  if (!feed) return;  // no goal active — banner not rendered
-  const AGENT_SRC = new Set(['researcher', 'curator', 'browser', 'goal']);
-  const MAX_ITEMS = 6;
-
-  function renderItem(e) {
-    const ts = (e.ts || '').substring(11, 19);
-    const li = document.createElement('li');
-    li.className = 'kb-mission-event src-' + (e.source || 'system');
-    li.innerHTML =
-      `<span class="kb-mf-ts">${esc(ts)}</span>` +
-      `<span class="kb-mf-src">${esc(e.source || '?')}</span>` +
-      `<span class="kb-mf-msg">${esc(e.message || '')}</span>`;
-    return li;
-  }
-
-  function prime(events) {
-    const hits = (events || []).filter(e => AGENT_SRC.has(e.source)).slice(-MAX_ITEMS);
-    feed.innerHTML = '';
-    if (!hits.length) {
-      feed.innerHTML = '<li class="kb-empty">No activity yet — agents will start chatting here as soon as they do.</li>';
-      return;
-    }
-    hits.forEach(e => feed.appendChild(renderItem(e)));
-  }
-
-  function append(e) {
-    if (!AGENT_SRC.has(e.source)) return;
-    // drop placeholder if present
-    const empty = feed.querySelector('.kb-empty');
-    if (empty) empty.remove();
-    feed.appendChild(renderItem(e));
-    while (feed.children.length > MAX_ITEMS) feed.removeChild(feed.firstChild);
-  }
-
-  fetch('/api/activity/recent?n=40').then(r => r.json()).then(prime).catch(() => {
-    feed.innerHTML = '<li class="kb-empty">Activity stream unavailable.</li>';
-  });
-
-  try {
-    const es = new EventSource('/api/activity/stream');
-    es.onmessage = (ev) => {
-      try { append(JSON.parse(ev.data)); } catch (_) { /* ignore */ }
-    };
-  } catch (_) { /* SSE not available — recent snapshot is enough */ }
 })();
 
 // ── Boot ───────────────────────────────────────────────────────────────
