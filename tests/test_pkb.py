@@ -74,3 +74,32 @@ def test_browse_returns_section_snapshot(tmp_path: Path):
     snapshot = pkm.browse(tmp_path)
     assert snapshot["exists"] is True
     assert snapshot["sections"]["notes"]["count"] == 1
+
+
+def test_browse_hides_only_legacy_experiment_stubs(tmp_path: Path):
+    pkm.scaffold(tmp_path)
+    experiments = tmp_path / "agents" / "experiments"
+    (experiments / "legacy.md").write_text(
+        "# Experiment deadbeef\n\n"
+        "**Hypothesis:** [Hypothesis 1]\n"
+        "**Domain:** ml-research\n"
+        "**Status:** completed\n"
+    )
+    (experiments / "short-note.md").write_text(
+        "# Experiment livebeef\n\n"
+        "Short user note about a failed run; revisit tomorrow.\n"
+    )
+    (experiments / "structured.md").write_text(
+        "# Experiment goodbeef\n\n"
+        "**Outcome:** supported\n"
+        "**Hypothesis:** test idea\n\n"
+        "## Conclusion\n\n"
+        "Useful result.\n"
+    )
+
+    snapshot = pkm.browse(tmp_path)
+    items = {item["name"] for item in snapshot["sections"]["agents"]["items"]}
+
+    assert "legacy.md" not in items
+    assert "short-note.md" in items
+    assert "structured.md" in items

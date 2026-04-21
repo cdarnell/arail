@@ -220,6 +220,34 @@ def test_compile_wiki_skips_wiki_cache(tmp_path: Path):
     assert result.page_count == 1
 
 
+def test_compile_wiki_hides_only_legacy_experiment_stubs(tmp_path: Path):
+    (tmp_path / "agents" / "experiments").mkdir(parents=True)
+    (tmp_path / "agents" / "experiments" / "legacy.md").write_text(
+        "# Experiment deadbeef\n\n"
+        "**Hypothesis:** Hypotheses:\n"
+        "**Domain:** ml-research\n"
+        "**Status:** completed\n"
+    )
+    (tmp_path / "agents" / "experiments" / "short-note.md").write_text(
+        "# Experiment livebeef\n\n"
+        "Short user note about a failed run; revisit tomorrow.\n"
+    )
+    (tmp_path / "agents" / "experiments" / "structured.md").write_text(
+        "# Experiment goodbeef\n\n"
+        "**Outcome:** supported\n"
+        "**Hypothesis:** test idea\n\n"
+        "## Conclusion\n\n"
+        "Useful result.\n"
+    )
+
+    pages = wiki.build_page_index(tmp_path)
+
+    names = {page.path.name for page in pages.values()}
+    assert "legacy.md" not in names
+    assert "short-note.md" in names
+    assert "structured.md" in names
+
+
 def test_load_manifest_creates_if_missing(tmp_path: Path):
     (tmp_path / "notes").mkdir()
     (tmp_path / "notes" / "x.md").write_text("---\ntitle: X\n---\nbody\n")
