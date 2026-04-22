@@ -4,7 +4,7 @@ section: docs
 tags: [guide]
 aliases: [LINUX]
 source: docs/LINUX.md
-generated: 2026-04-17T11:08:09Z
+generated: 2026-04-22T01:03:30Z
 ---
 # Linux — Bring Your Own Distro
 
@@ -21,7 +21,7 @@ functions. Out of the box those know:
 | --- | --- | --- |
 | macOS | Homebrew | blessed path |
 | Debian / Ubuntu (incl. WSL2) | `apt` | blessed path |
-| Gentoo | `emerge` | supported, see [GENTOO.md](GENTOO.md) |
+| Gentoo | `emerge` | supported, notes below |
 | Arch | `pacman` | worked example below |
 | Fedora | `dnf` | worked example below |
 | openSUSE / NixOS / Alpine / … | whatever | **vibe-integrate it** (see [AGENTS.md](../AGENTS.md)) |
@@ -127,6 +127,43 @@ nvidia-smi
 After that, `./oglab setup` detects CUDA automatically and uses the
 existing cuda branch. The Fedora-specific work is just the three-line
 port above.
+
+## Gentoo notes
+
+Gentoo is supported directly in `setup.sh`, but you typically do a bit
+more system prep yourself than on Ubuntu or macOS.
+
+Base packages:
+
+```bash
+emerge -av dev-lang/python dev-python/pip dev-python/virtualenv
+emerge -av sys-devel/gcc sys-devel/make dev-build/cmake git curl
+```
+
+If you're running Nvidia CUDA:
+
+```bash
+echo "x11-drivers/nvidia-drivers NVIDIA-r2" >> /etc/portage/package.license/nvidia
+echo 'dev-util/nvidia-cuda-toolkit -profiler' >> /etc/portage/package.use/cuda
+
+emerge -av x11-drivers/nvidia-drivers dev-util/nvidia-cuda-toolkit
+modprobe nvidia
+nvidia-smi
+```
+
+For the Python side inside the OGLab venv:
+
+```bash
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+python3 -c "import torch; print(torch.cuda.is_available())"
+```
+
+OpenRC / service notes:
+
+- [scripts/gentoo-bootstrap.sh](../scripts/gentoo-bootstrap.sh) includes a working service file for the portal.
+- Keep the portal bound to `127.0.0.1:8080` unless you put real auth and TLS in front of it.
+- Typical Portage flags for ML hosts: `USE="cuda opencl python"` and `PYTHON_TARGETS="python3_12"`.
+- Kernel basics: enable DRM, disable Nouveau if using the proprietary Nvidia driver, and verify the matching kernel module is loaded.
 
 ## What if my distro has no Nvidia support at all?
 

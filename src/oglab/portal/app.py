@@ -18,7 +18,10 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from oglab.activity import activity_log
+from oglab.agent_redirects import clear_agent_redirect, get_agent_redirect, set_agent_redirect
+from oglab.agent_workflows import get_agent_workflow, list_agent_workflows
 from oglab.agents.consent import ConsentStore
+from oglab.config import DATA_DIR
 from oglab.goals import GoalStore
 from oglab.agents.researcher import researcher
 from oglab.agents.pip import pip
@@ -650,6 +653,7 @@ async def plugins_page(request: Request):
     })
 
 
+@app.get("/autoresearch", response_class=HTMLResponse)
 @app.get("/research", response_class=HTMLResponse)
 async def research_page(request: Request):
     """Research cockpit — goal + experiments + live researcher activity.
@@ -761,6 +765,7 @@ async def research_status():
         "status": researcher.status,
         "progress": current["progress"] if current else 0,
         "report": current.get("report") if current else None,
+        "redirect": get_agent_redirect("researcher"),
     }
 
 
@@ -1037,19 +1042,31 @@ async def agents_status():
     """Aggregated status of all three agents."""
     from oglab.agents.browser import EXTRACT_DIR
 
+    workflow_rows = {row.get("agent_id"): row for row in list_agent_workflows()}
+    researcher_redirect = get_agent_redirect("researcher")
+
     # Researcher
     goal = goal_store.get_current()
+    researcher_workflow = workflow_rows.get("researcher") or {}
     r_status = {
         "status": researcher.status,
         "progress": goal.get("progress", 0) if goal else 0,
         "experiments": len(goal.get("experiments", [])) if goal else 0,
-        "current_task": None,
+        "current_task": researcher_workflow.get("current_task"),
+        "objective": researcher_workflow.get("objective"),
+        "completed_steps": researcher_workflow.get("completed_steps", []),
+        "next_step": researcher_workflow.get("next_step"),
+        "paused": researcher_workflow.get("paused", False),
+        "pause_reason": researcher_workflow.get("pause_reason"),
+        "chatty": researcher_workflow.get("chatter", {}),
+        "workflow": researcher_workflow,
+        "redirect": researcher_redirect,
     }
-    # Grab the last researcher event as current_task
-    for ev in reversed(activity_log.recent(50)):
-        if ev.get("source") == "researcher" and ev.get("level") in ("info", "success"):
-            r_status["current_task"] = ev["message"][:80]
-            break
+    if not r_status["current_task"]:
+        for ev in reversed(activity_log.recent(50)):
+            if ev.get("source") == "researcher" and ev.get("level") in ("info", "success"):
+                r_status["current_task"] = ev["message"][:80]
+                break
     # Count tokens from prompt traces
     tok = 0
     for ev in activity_log.recent(200):
@@ -1063,6 +1080,9 @@ async def agents_status():
         "allowed": len(consent_store.list_allowed()),
     }
 
+    pip_workflow = workflow_rows.get("pip") or {}
+    sre_workflow = workflow_rows.get("sre") or {}
+
     # Browser
     captures = len(list(EXTRACT_DIR.glob("*.md"))) if EXTRACT_DIR.exists() else 0
     last_task = None
@@ -1075,7 +1095,13 @@ async def agents_status():
         "last_task": last_task,
     }
 
-    return {"researcher": r_status, "curator": c_status, "browser": b_status}
+    return {
+        "researcher": r_status,
+        "curator": c_status,
+        "browser": b_status,
+        "pip": pip_workflow,
+        "sre": sre_workflow,
+    }
 
 
 @app.get("/api/agents/prompts")
@@ -1107,6 +1133,41 @@ async def agents_instruct(request: Request):
         {"instruction": True, "target_agent": agent_name},
     )
     return {"ok": True, "queued": True}
+
+
+@app.post("/api/agents/redirect")
+async def agents_redirect(request: Request):
+    """Persist a redirect vector for a live agent."""
+    body = await request.json()
+    agent_name = str(body.get("agent") or "researcher").strip() or "researcher"
+    instruction = str(body.get("instruction") or "").strip()
+    preset = str(body.get("preset") or "").strip()
+    label = str(body.get("label") or "").strip()
+    if not instruction:
+        return {"error": "instruction required"}
+
+    redirect = set_agent_redirect(agent_name, instruction, preset=preset, label=label)
+    activity_log.emit(
+        agent_name,
+        f"Redirect vector received: {instruction}",
+        "warn",
+        {"redirect": redirect, "target_agent": agent_name},
+    )
+    return {"ok": True, "redirect": redirect}
+
+
+@app.delete("/api/agents/redirect")
+async def agents_redirect_clear(agent: str = "researcher"):
+    """Clear the current redirect vector for an agent."""
+    removed = clear_agent_redirect(agent)
+    if removed:
+        activity_log.emit(
+            agent,
+            "Redirect cleared. Resume the baseline objective.",
+            "info",
+            {"redirect_cleared": True, "target_agent": agent},
+        )
+    return {"ok": True, "cleared": bool(removed)}
 
 
 # ── Agent Forge + skills picker endpoints ────────────────────────
@@ -1311,6 +1372,16 @@ async def admin_components():
         "package": f"neo4j {neo4j_pkg_ver}" if neo4j_pkg_ver else "neo4j (missing)",
     })
     out.append({
+        "name": "oglab-lance-memory",
+        "type": "service+python",
+        "description": f"Agent workflow and memory service on :{os.getenv('LANCE_PORT', '7414')}",
+        "version": lancedb_pkg_ver or "package not installed",
+        "source_url": "https://github.com/lancedb/lancedb",
+        "changelog_url": "https://github.com/lancedb/lancedb/releases",
+        "image": "",
+        "package": f"lancedb {lancedb_pkg_ver}" if lancedb_pkg_ver else "lancedb (missing)",
+    })
+    out.append({
         "name": "knowledge-canvas-lancedb",
         "type": "python",
         "description": "Vector index for semantic associations",
@@ -1376,6 +1447,9 @@ async def system_graph():
         {"id": "activity", "label": "Activity Log", "group": "core", "type": "bus",
          "desc": f"Event bus — {len(activity_log.recent(200))} events, SSE fanout",
          "status": "active"},
+        {"id": "memory", "label": "Memory Service", "group": "core", "type": "service",
+         "desc": f"Agent workflow state + Lance recall on :{os.getenv('LANCE_PORT', '7414')}",
+         "status": "active", "port": int(os.getenv('LANCE_PORT', '7414'))},
         {"id": "researcher", "label": "Researcher", "group": "agent", "type": "agent",
          "desc": f"Auto-research agent — {researcher.status}",
          "status": researcher.status if researcher.status != "idle" else "standby"},
@@ -1424,6 +1498,7 @@ async def system_graph():
 
     edges = [
         {"source": "portal", "target": "activity", "label": "SSE stream", "type": "data"},
+        {"source": "portal", "target": "memory", "label": "workflow queries", "type": "data"},
         {"source": "portal", "target": "goal_store", "label": "goal CRUD", "type": "data"},
         {"source": "portal", "target": "experiment_tracker", "label": "experiments", "type": "data"},
         {"source": "portal", "target": "consent", "label": "approve/deny", "type": "control"},
@@ -1437,6 +1512,7 @@ async def system_graph():
         {"source": "researcher", "target": "experiment_tracker", "label": "experiments", "type": "data"},
         {"source": "researcher", "target": "curator", "label": "sources", "type": "control"},
         {"source": "researcher", "target": "activity", "label": "events", "type": "data"},
+        {"source": "researcher", "target": "memory", "label": "workflow state", "type": "data"},
         {"source": "researcher", "target": "pkb", "label": "findings", "type": "data"},
         {"source": "portal", "target": "pkb", "label": "browse/search", "type": "data"},
         {"source": "curator", "target": "consent", "label": "proposals", "type": "control"},
@@ -2468,15 +2544,17 @@ async def system_health():
     notebook_port = int(os.getenv("NOTEBOOK_PORT", "8888"))
     ttyd_port = int(os.getenv("TTYD_PORT", "7681"))
     ollama_port = int(os.getenv("OLLAMA_PORT", "11434"))
+    lance_port = int(os.getenv("LANCE_PORT", "7414"))
     marimo_port = int(os.getenv("MARIMO_PORT", "2718"))
     open_notebook_port = int(os.getenv("OPEN_NOTEBOOK_PORT", "8502"))
     neo4j_bolt_port = int(os.getenv("NEO4J_BOLT_PORT", "7687"))
 
-    portal_up, ttyd_up, notebook_up, ollama_up, marimo_up, open_notebook_up, neo4j_up = await asyncio.gather(
+    portal_up, ttyd_up, notebook_up, ollama_up, lance_up, marimo_up, open_notebook_up, neo4j_up = await asyncio.gather(
         _port_open(bind, int(os.getenv("PORTAL_PORT", "8080"))),
         _port_open(bind, ttyd_port),
         _port_open(bind, notebook_port),
         _port_open(bind, ollama_port),
+        _port_open(bind, lance_port),
         _port_open(bind, marimo_port),
         _port_open(bind, open_notebook_port),
         _port_open(bind, neo4j_bolt_port),
@@ -2484,6 +2562,7 @@ async def system_health():
 
     docker_ok = _docker_available()
     activity_file = Path.cwd() / "lab" / "data" / "activity.jsonl"
+    workflow_file = Path.cwd() / "lab" / "data" / "agent_workflows.json"
     current_goal = goal_store.get_current()
     current_model_path = os.getenv("OGLAB_MODELS_DIR", str(Path.cwd() / "models"))
     from oglab.config import DATA_DIR, PKB_ROOT
@@ -2522,9 +2601,11 @@ async def system_health():
         add_check("open_notebook", "Open Notebook", open_notebook_up and _container_running("oglab-open-notebook"), f"port {open_notebook_port}", required=False, category="service"),
         add_check("ollama_binary", "Ollama Installed", shutil.which("ollama") is not None, "ollama CLI", required=False, category="dependency"),
         add_check("ollama_api", "Ollama API", ollama_up, f"port {ollama_port}", required=False, category="service"),
+        add_check("agent_workflows", "Agent Workflow Store", workflow_file.exists(), str(workflow_file), required=False, category="storage"),
+        add_check("lance_service", "Lance Memory Service", lance_up, f"port {lance_port}", required=False, category="service"),
         add_check("kc_frontend", "Knowledge Canvas Frontend", KC_FRONTEND_DIST_DIR.exists() or KC_FRONTEND_DIR.exists(), str(KC_FRONTEND_DIST_DIR if KC_FRONTEND_DIST_DIR.exists() else KC_FRONTEND_DIR), required=False, category="association"),
         add_check("kc_backend", "Knowledge Canvas Store", _knowledge_canvas_store is not None or (knowledge_canvas_app is not None and hasattr(knowledge_canvas_app.state, "store")), "mounted at /knowledge-canvas", required=False, category="association"),
-        add_check("lancedb", "LanceDB Package", importlib.util.find_spec("lancedb") is not None, os.getenv("LANCE_PATH", "./data/lance"), required=False, category="association"),
+        add_check("lancedb", "LanceDB Package", importlib.util.find_spec("lancedb") is not None, os.getenv("LANCE_PATH", "./lab/data/lance"), required=False, category="association"),
         add_check("neo4j_pkg", "Neo4j Driver", importlib.util.find_spec("neo4j") is not None, os.getenv("NEO4J_URI", "bolt://localhost:7687"), required=False, category="association"),
         add_check("neo4j_bolt", "Neo4j Bolt", neo4j_up, f"port {neo4j_bolt_port}", required=False, category="association"),
     ]
@@ -2537,6 +2618,7 @@ async def system_health():
         "portal": portal_up,
         "ttyd": ttyd_up,
         "notebook": notebook_up,
+        "lance-memory": lance_up,
         "marimo": marimo_up and _container_running("oglab-marimo"),
         "open-notebook": open_notebook_up and _container_running("oglab-open-notebook"),
         "ollama": ollama_up,

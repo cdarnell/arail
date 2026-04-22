@@ -4,7 +4,7 @@ section: docs
 tags: [python, module]
 aliases: [wiki_routes, wiki_routes.py]
 source: src/oglab/portal/wiki_routes.py
-generated: 2026-04-15T17:33:38Z
+generated: 2026-04-22T01:03:30Z
 ---
 
 # wiki_routes module
@@ -29,7 +29,7 @@ live below for deep-link access.
 
 ### `wiki_landing(request)`
 
-### `wiki_graph_page(request)`
+### `wiki_graph_page(request, embed)`
 
 ### `wiki_tag_page(request, tag)`
 

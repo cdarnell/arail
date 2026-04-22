@@ -28,12 +28,56 @@ MODEL_MLX_ID="mlx-community/Qwen3-8B-4bit"
 MODEL_HF_ID="Qwen/Qwen3-8B"
 MODEL_GGUF_ID="Qwen/Qwen3-8B-GGUF"
 AEROLLM_MODEL_ID="zai-org/GLM-5.1"
+AEROLLM_PACKAGE_SPEC="git+https://github.com/cdarnell/aerollm@main"
 
 # Unified password — set by capture_password() below. One secret covers:
 #   - code-server (IDE) login
 #   - Open Notebook data encryption key
 #   - future auth proxy
 OGLAB_PASSWORD=""
+
+load_pyproject_metadata() {
+    local assignments
+    assignments="$(python3 - <<'PY'
+from pathlib import Path
+import shlex
+
+try:
+    import tomllib
+except ModuleNotFoundError:
+    import tomli as tomllib
+
+data = tomllib.loads(Path("pyproject.toml").read_text())
+tool = data.get("tool", {}).get("oglab", {})
+models = tool.get("models", {})
+sources = tool.get("package-sources", {})
+values = {
+    "MODEL_MLX_ID": str(models.get("mlx", "")),
+    "MODEL_HF_ID": str(models.get("cuda", "")),
+    "MODEL_GGUF_ID": str(models.get("cpu", "")),
+    "AEROLLM_MODEL_ID": str(models.get("aerollm", "")),
+    "AEROLLM_PACKAGE_SPEC": str(sources.get("aerollm", "")),
+}
+for key, value in values.items():
+    if value:
+        print(f"{key}={shlex.quote(value)}")
+PY
+)" || error "Could not read pyproject.toml metadata. Make sure Python can import tomllib or tomli."
+    eval "$assignments"
+    info "Loaded package and model metadata from ${BOLD}pyproject.toml${RESET}."
+}
+
+install_pyproject_extra() {
+    local extra_name="$1"
+    local label="$2"
+    local log="${REPO_ROOT:-$PWD}/setup.log"
+    info "Installing ${label} from pyproject extra '${extra_name}'…"
+    pip install -q -e ".[${extra_name}]" 2>>"$log" || {
+        warn "Install failed for pyproject extra '${extra_name}'. Last 20 lines of setup.log:"
+        tail -n 20 "$log" | sed 's/^/    /' >&2
+        error "Install failed for '${extra_name}'. See setup.log, then re-run: ./oglab setup"
+    }
+}
 
 # -----------------------------------------------------------------------------
 # Detect OS / platform
@@ -121,7 +165,7 @@ detect_platform() {
 # still complete setup even with conflicting services; the fix lives in
 # lab.conf and is spelled out in the warning.
 check_ports() {
-    local ports=(8080 7681 8888 8443 11434)
+    local ports=(8080 7681 8888 8443 11434 7414)
     local in_use=()
     for p in "${ports[@]}"; do
         if command -v lsof &>/dev/null; then
@@ -195,17 +239,14 @@ ensure_python() {
 # Install core Python deps
 # -----------------------------------------------------------------------------
 install_core_deps() {
-    info "Installing ~60 Python packages (one-time, ~90 s)…"
+    info "Installing core Python packages from ${BOLD}pyproject.toml${RESET} (one-time, ~90 s)…"
     local log="${REPO_ROOT:-$PWD}/setup.log"
-    pip install -q -e ".[dev]" 2>>"$log" || {
+    pip install -q -e ".[dev,notebook]" 2>>"$log" || {
         warn "Core deps install failed. Last 20 lines of setup.log:"
         tail -n 20 "$log" | sed 's/^/    /' >&2
         error "pip install failed. See setup.log, then re-run: ./oglab setup"
     }
-    if ! pip install -q -e ".[vector]" 2>>"$log"; then
-        warn "Optional vector deps unavailable — semantic wiki associations will stay disabled until: pip install -e '.[vector]'"
-    fi
-    info "Core dependencies installed."
+    info "Core dependencies installed, including Lance memory support and notebook tooling."
 }
 
 # -----------------------------------------------------------------------------
@@ -214,16 +255,14 @@ install_core_deps() {
 install_accel_deps() {
     case "$ACCEL" in
         mlx)
-            info "Installing MLX (Apple Silicon)…"
-            pip install -q mlx mlx-lm
+            install_pyproject_extra "mlx" "MLX accelerator runtime"
             ;;
         cuda)
-            info "Installing CUDA / vLLM…"
-            pip install -q vllm torch
+            install_pyproject_extra "cuda" "CUDA / vLLM runtime"
             ;;
         cpu)
-            warn "No GPU detected — installing llama-cpp-python for CPU inference."
-            pip install -q llama-cpp-python
+            warn "No GPU detected — installing CPU inference runtime from pyproject."
+            install_pyproject_extra "cpu" "CPU inference runtime"
             ;;
     esac
 
@@ -236,23 +275,24 @@ install_accel_deps() {
     # install (torch + transformers) if your accel didn't already
     # pull those in.
     #
-    # Install source is AEROLLM_PACKAGE (default: the main branch of
-    # github.com/cdarnell/aerollm). Failure to install is FATAL —
-    # without AeroLLM the Teacher + Deep toggle + /api/aerollm/bench
-    # all break silently, and that's worse than exiting loudly.
+    # Install source is declared in pyproject.toml under
+    # [tool.oglab.package-sources]. A one-off env override remains
+    # available for local development only.
     #
     # Default deep model is Meta's gated Llama 3.1 70B. Setup does not
     # auto-download it: users must accept the HF license and authenticate
     # first, then pull the weights explicitly.
     if [[ "${OGLAB_SKIP_AEROLLM:-0}" != "1" ]]; then
-        local aerollm_pkg="${AEROLLM_PACKAGE:-git+https://github.com/cdarnell/aerollm@main}"
-        info "Installing AeroLLM (${aerollm_pkg}) — this takes a minute…"
+        local aerollm_pkg="${OGLAB_AEROLLM_PACKAGE_OVERRIDE:-$AEROLLM_PACKAGE_SPEC}"
+        info "Installing AeroLLM (${aerollm_pkg}) — source declared in ${BOLD}pyproject.toml${RESET}…"
         if pip install -q "$aerollm_pkg" 2>&1 | tail -5; then
             info "AeroLLM ready. Dashboard chat card has a 'Deep model' toggle."
-            info "Using AEROLLM_PACKAGE: $aerollm_pkg"
+            if [[ -n "${OGLAB_AEROLLM_PACKAGE_OVERRIDE:-}" ]]; then
+                warn "Using OGLAB_AEROLLM_PACKAGE_OVERRIDE for this run only."
+            fi
         else
             echo -e "${RED}[oglab]${RESET} To bypass: OGLAB_SKIP_AEROLLM=1 ./oglab setup" >&2
-            error "AeroLLM install failed — check AEROLLM_PACKAGE=$aerollm_pkg"
+            error "AeroLLM install failed — check [tool.oglab.package-sources] in pyproject.toml or your OGLAB_AEROLLM_PACKAGE_OVERRIDE"
         fi
     else
         info "Skipping AeroLLM (OGLAB_SKIP_AEROLLM=1)."
@@ -912,7 +952,7 @@ main() {
     # Ordering matches the 1/10 → 10/10 banner sequence:
     #   1/10 detect_platform
     #   2/10 install_services     (OS packages — needs brew/apt, no python)
-    #   3/10 ensure_python + install_core_deps + install_accel_deps
+    #   3/10 ensure_python + install_core_deps + load_pyproject_metadata + install_accel_deps
     #   4/10 capture_brand
     #   5/10 capture_password
     #   6/10 setup_env + setup_runtime_files + validate_env
@@ -924,6 +964,7 @@ main() {
     install_services
     ensure_python
     install_core_deps
+    load_pyproject_metadata
     install_accel_deps
     capture_brand
     capture_password

@@ -171,3 +171,26 @@ def test_state_block_includes_backend(monkeypatch):
     p = lab_brain.build_system_prompt()
     assert "mlx" in p
     assert "Qwen3-8B-4bit" in p
+
+
+def test_state_block_includes_agent_workflow_memory(monkeypatch):
+    import oglab.agent_workflows as agent_workflows
+
+    monkeypatch.setattr(
+        agent_workflows,
+        "list_agent_workflows",
+        lambda: [{
+            "agent_id": "researcher",
+            "status": "running",
+            "objective": "Write a better retrieval plan",
+            "current_task": "Designing experiments",
+            "next_step": "Run experiments",
+            "completed_steps": ["Planned hypotheses"],
+            "pause_reason": "",
+            "chatter": {"too_chatty": False, "global_cooldown_sec": 300},
+        }],
+    )
+    prompt = lab_brain.build_system_prompt()
+    assert "Agent workflow memory" in prompt
+    assert "Write a better retrieval plan" in prompt
+    assert "Designing experiments" in prompt

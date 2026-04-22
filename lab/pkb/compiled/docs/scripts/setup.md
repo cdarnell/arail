@@ -4,7 +4,7 @@ section: docs
 tags: [shell, script]
 aliases: [setup, setup.sh]
 source: scripts/setup.sh
-generated: 2026-04-17T11:08:09Z
+generated: 2026-04-22T01:03:30Z
 ---
 
 # setup.sh (shell)
@@ -36,6 +36,7 @@ Detects your platform, installs dependencies, downloads a starter model.
 - `install_core_deps()`
 - `install_services()`
 - `main()`
+- `ollama_default_enabled()`
 - `setup_env()`
 - `setup_pkb()`
 - `setup_runtime_files()`

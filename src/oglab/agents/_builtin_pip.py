@@ -38,6 +38,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 from oglab.activity import activity_log
+from oglab.agent_workflows import update_agent_workflow
 
 
 # ── Where memory lives ───────────────────────────────────────────────
@@ -325,6 +326,7 @@ class PipAgent:
         self._last_said: Dict[str, float] = {}
         self._last_global: float = 0.0
         self._utterances: int = 0
+        self._recent_actions: List[str] = []
 
     @property
     def status(self) -> str:
@@ -365,6 +367,7 @@ class PipAgent:
             return
         self._load_state()
         self._status = "running"
+        self._sync_workflow("Watching lab signals", "Wait for a watcher to fire")
         self._task = asyncio.create_task(self._run())
         activity_log.emit(
             "pip",
@@ -376,6 +379,27 @@ class PipAgent:
         if self._task and not self._task.done():
             self._task.cancel()
         self._status = "idle"
+        self._sync_workflow("Offline", None)
+
+    def _sync_workflow(self, current_task: str, next_step: str | None) -> None:
+        global_cooldown = max(60, int(os.getenv("LAB_PIP_GLOBAL_COOLDOWN_SEC", "300")))
+        too_chatty = self._utterances >= 8 and global_cooldown < 180
+        update_agent_workflow(
+            "pip",
+            status=self._status,
+            objective="Surface what matters without nagging the user",
+            current_task=current_task,
+            next_step=next_step,
+            completed_steps=list(self._recent_actions[-5:]),
+            paused=False,
+            pause_reason=None,
+            chatter={
+                "utterances": self._utterances,
+                "global_cooldown_sec": global_cooldown,
+                "too_chatty": too_chatty,
+            },
+            recent_actions=list(self._recent_actions[-3:]),
+        )
 
     async def _run(self) -> None:
         interval = max(30, int(os.getenv("LAB_PIP_INTERVAL_SEC", "90")))
@@ -436,7 +460,9 @@ class PipAgent:
         self._last_said[chosen.watcher] = now
         self._last_global = now
         self._utterances += 1
+        self._recent_actions.append(f"Observed {chosen.watcher}: {chosen.fact[:80]}")
         self._save_state()
+        self._sync_workflow(f"Observed {chosen.watcher}", "Wait for the next noteworthy signal")
 
     # ── Memory: long-term (dreams/) ────────────────────────────────
     # Once per night, reflect on the day. Reads today's activity +
@@ -494,6 +520,8 @@ class PipAgent:
             "info",
             data={"dream_file": str(target), "preview": reflection[:160]},
         )
+        self._recent_actions.append(f"Dreamed and wrote {target.name}")
+        self._sync_workflow("Dream consolidation complete", "Resume watching lab signals")
         return reflection
 
 

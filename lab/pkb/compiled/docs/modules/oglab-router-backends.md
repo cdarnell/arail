@@ -4,7 +4,7 @@ section: docs
 tags: [python, module]
 aliases: [backends, backends.py]
 source: src/oglab/router/backends.py
-generated: 2026-04-19T13:28:23Z
+generated: 2026-04-22T01:03:30Z
 ---
 
 # backends module
@@ -23,6 +23,8 @@ Backend implementations for every supported accelerator / cloud service.
 
 - `complete(self, prompt, max_tokens, temperature, top_p)`
     - Run one completion.
+- `stream_complete(self, prompt, max_tokens, temperature, top_p)`
+    - Yield text deltas and finish with a ``ModelResponse``.
 - `health_check(self)`
 
 ### `MLXBackend`
@@ -32,6 +34,7 @@ Backend implementations for every supported accelerator / cloud service.
 - `__init__(self)`
 - `complete(self, prompt, max_tokens, temperature, top_p)`
 - `health_check(self)`
+- `stream_complete(self, prompt, max_tokens, temperature, top_p)`
 
 ### `CUDABackend`
 
@@ -40,6 +43,7 @@ Backend implementations for every supported accelerator / cloud service.
 - `__init__(self)`
 - `complete(self, prompt, max_tokens, temperature, top_p)`
 - `health_check(self)`
+- `stream_complete(self, prompt, max_tokens, temperature, top_p)`
 
 ### `CPUBackend`
 
@@ -64,6 +68,7 @@ Backend implementations for every supported accelerator / cloud service.
 - `__init__(self)`
 - `complete(self, prompt, max_tokens, temperature, top_p)`
 - `health_check(self)`
+- `stream_complete(self, prompt, max_tokens, temperature, top_p)`
 
 ### `ClaudeBackend`
 
@@ -77,6 +82,17 @@ Backend implementations for every supported accelerator / cloud service.
 
 Talks to any server that exposes the OpenAI /v1/chat/completions
 endpoint on localhost.  Works with LM Studio, Ollama, DeployLM, etc.
+
+**Methods:**
+
+- `__init__(self)`
+- `complete(self, prompt, max_tokens, temperature, top_p)`
+- `health_check(self)`
+- `stream_complete(self, prompt, max_tokens, temperature, top_p)`
+
+### `AirLLMBackend`
+
+Run large Hugging Face models via AirLLM's layer streaming path.
 
 **Methods:**
 

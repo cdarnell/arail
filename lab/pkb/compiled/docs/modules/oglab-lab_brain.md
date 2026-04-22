@@ -4,7 +4,7 @@ section: docs
 tags: [python, module]
 aliases: [lab_brain, lab_brain.py]
 source: src/oglab/lab_brain.py
-generated: 2026-04-15T17:33:38Z
+generated: 2026-04-22T01:03:30Z
 ---
 
 # lab_brain module
@@ -54,12 +54,26 @@ Args:
 
 Format a full chat request as a single prompt string.
 
-The router's `complete()` takes a single prompt rather than OpenAI
-chat-completions messages, so we render the conversation into
-plain text with `User:` / `Assistant:` prefixes and append the
-new user message.
+Used as a fallback for backends that only accept plain text.
 
 Args:
     user_message: The user's current input.
     conversation: Prior turns as
         ``[{"role": "user"|"assistant", "content": "..."}]``.
+
+### `retrieve_chat_context(user_message)`
+
+Best-effort PKB retrieval for chat.
+
+The built-in PKB search is lexical, so we query both the full user
+message and a small set of extracted keywords, then merge and score
+the hits. Failures are swallowed so chat keeps working even if the
+PKB is empty or temporarily unavailable.
+
+### `build_chat_messages(user_message, conversation)`
+
+Build chat-style messages for chat-capable models.
+
+### `render_chat_transcript(messages)`
+
+Render chat messages into the plain-text transcript fallback.

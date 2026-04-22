@@ -4,7 +4,7 @@ section: docs
 tags: [python, module]
 aliases: [app, app.py]
 source: src/oglab/portal/app.py
-generated: 2026-04-19T13:28:23Z
+generated: 2026-04-22T01:03:30Z
 ---
 
 # app module
@@ -16,6 +16,8 @@ OGLab Portal — local web dashboard served at oglab.local.
 ## Functions
 
 ### `dashboard(request)`
+
+### `chat_page(request)`
 
 ### `terminal_page(request)`
 
@@ -39,6 +41,12 @@ Stop any Jupyter Lab process listening on the notebook port.
 ### `open_notebook_page(request)`
 
 First-class page for Open Notebook — 3-state UI like terminal/notebook.
+
+### `integrations_knowledge_canvas(request)`
+
+Integration landing page for the knowledge-canvas frontend.
+
+Embeds the canvas frontend if it's installed under `core/knowledge-canvas/frontend`.
 
 ### `open_notebook_start()`
 
@@ -251,6 +259,8 @@ Request JSON:
 Response JSON: see ``_run_chat_completion`` for shape. Errors are
 returned as a well-formed dict with ``error`` set — never raised.
 
+### `api_chat_stream(request)`
+
 ### `api_aerollm_bench()`
 
 Return aggregated AeroLLM throughput stats per model.
@@ -259,7 +269,7 @@ Shape::
 
     {
       "bench": {
-        "Qwen/Qwen3-235B-A22B": {
+                    "meta-llama/Llama-3.1-70B": {
           "runs": 4,
           "avg_tokens_per_sec": 0.17,
           "avg_tokens_per_min": 10.2,
@@ -484,6 +494,8 @@ UI never has to choreograph error handling.
 One consultation with the Deep Teacher. Forces backend=aerollm so
 the user never accidentally hits the fast path from this surface.
 Saves the Q&A to PKB on success.
+
+### `api_teacher_stream(request)`
 
 ### `api_teacher_history(limit)`
 

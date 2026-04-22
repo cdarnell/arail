@@ -227,6 +227,65 @@
   </section>
   {% endif %}
 
+  <section class="ag-redirect-shell" aria-label="Redirect the researcher">
+    <div class="ag-redirect-head">
+      <div>
+        <div class="ag-redirect-kicker">REDIRECT VECTOR</div>
+        <h2>Retune The Loop</h2>
+        <p class="ag-redirect-subtitle">When the researcher is pulling too hard on the wrong thread, bend it without killing the run. Push it toward measurement, eval design, or AutoResearch readiness.</p>
+      </div>
+      <div class="ag-redirect-live" id="ag-redirect-live">No active redirect — the researcher is following the baseline program.</div>
+    </div>
+    <div class="ag-redirect-grid">
+      <button class="ag-redirect-preset measure" onclick="quickRedirect('measurement')">
+        <span class="ag-redirect-title">Tighten Eval</span>
+        <span class="ag-redirect-copy">Stop broad source gathering and figure out what to measure, how to score it, and what would count as progress.</span>
+      </button>
+      <button class="ag-redirect-preset fetch" onclick="quickRedirect('stop-fetching')">
+        <span class="ag-redirect-title">Stop Fetching</span>
+        <span class="ag-redirect-copy">Pause new external retrieval and work only from the current local evidence, notes, and experiments.</span>
+      </button>
+      <button class="ag-redirect-preset loop" onclick="quickRedirect('autoresearch')">
+        <span class="ag-redirect-title">Program The Loop</span>
+        <span class="ag-redirect-copy">Turn the current question into a loopable AutoResearch program with metrics, variants, and stop conditions.</span>
+      </button>
+      <button class="ag-redirect-preset search" onclick="quickRedirect('broaden-search')">
+        <span class="ag-redirect-title">Broaden Search</span>
+        <span class="ag-redirect-copy">Resume open-ended source gathering and widen the evidence base before locking the experiment design.</span>
+      </button>
+    </div>
+    <div class="ag-redirect-compose">
+      <label class="ag-redirect-label" for="ag-redirect-text">Custom redirect</label>
+      <textarea id="ag-redirect-text" placeholder="e.g. Stop fetching. Figure out how to measure this so the strongest path can graduate into AutoResearch."></textarea>
+      <div class="ag-redirect-actions">
+        <button class="ag-redirect-btn primary" onclick="sendRedirect('custom')">Inject Redirect</button>
+        <button class="ag-redirect-btn" onclick="clearRedirect()">Clear</button>
+        <span class="ag-redirect-flash" id="ag-redirect-flash"></span>
+      </div>
+    </div>
+  </section>
+
+  <section class="ag-movement-shell" aria-label="Agent movement over time">
+    <div class="ag-movement-head">
+      <div>
+        <div class="ag-movement-kicker">TACTICAL TRACE</div>
+        <h2>Agent Movement Over Time</h2>
+        <p class="ag-movement-subtitle">A live trajectory map of what each agent has been doing, where it paused, and how its workflow is evolving.</p>
+      </div>
+      <div class="ag-movement-meta" id="ag-movement-meta">Awaiting the first pulse from the lab…</div>
+    </div>
+    <div class="ag-movement-grid">
+      <div class="ag-movement-map" id="ag-movement-map">
+        <div class="ag-empty">Waiting for agent movement… once the feed starts, the trace will light up here.</div>
+      </div>
+      <aside class="ag-movement-panel" id="ag-movement-panel">
+        <div class="ag-movement-panel-kicker">TACTICAL READOUT</div>
+        <h3>Live workflow context</h3>
+        <p class="ag-movement-panel-copy">Select any pulse in the trace to inspect the agent's current vector: objective, active task, next step, pause state, and chatter controls.</p>
+      </aside>
+    </div>
+  </section>
+
   <!-- ═══ Tabbed Detail Panel ═══ -->
   <div class="ag-tabs">
     <button class="ag-tab active" data-tab="feed" onclick="switchTab('feed')">Live Feed</button>
@@ -244,6 +303,7 @@
         <button class="ag-filter" data-f="curator" onclick="setFilter('curator')">Curator</button>
         <button class="ag-filter" data-f="browser" onclick="setFilter('browser')">Browser</button>
         <button class="ag-filter" data-f="pip" onclick="setFilter('pip')">🐧 Pip</button>
+        <button class="ag-filter" data-f="sre" onclick="setFilter('sre')">SRE</button>
         <button class="ag-filter" data-f="consent" onclick="setFilter('consent')">Consent</button>
         <button class="ag-filter" data-f="system" onclick="setFilter('system')">System</button>
       </div>
@@ -307,11 +367,41 @@ const AG = {
   activeTab: 'feed',
   feed: [],           // ring buffer of events
   promptTraces: [],   // extracted prompt traces
+  status: {},         // latest /api/agents/status payload
+  motionSelection: null,
+  motionPoints: [],
   es: null,           // EventSource
   feedAutoScroll: true,
 };
 
-const AGENT_SOURCES = new Set(['researcher', 'curator', 'browser', 'pip', 'consent', 'goal', 'system']);
+const AGENT_SOURCES = new Set(['researcher', 'curator', 'browser', 'pip', 'sre', 'consent', 'goal', 'system']);
+const MOVEMENT_AGENTS = [
+  { id: 'researcher', label: 'Researcher' },
+  { id: 'curator', label: 'Curator' },
+  { id: 'browser', label: 'Browser' },
+  { id: 'pip', label: 'Pip' },
+  { id: 'sre', label: 'SRE' },
+];
+const MOVEMENT_AGENT_MAP = Object.fromEntries(MOVEMENT_AGENTS.map(agent => [agent.id, agent]));
+const MOVEMENT_MIN_WINDOW_MS = 20 * 60 * 1000;
+const REDIRECT_PRESETS = {
+  measurement: {
+    label: 'Tighten Eval',
+    instruction: 'Stop broad source fetching. Figure out what to measure, how to score it, and what success would look like so the loop has a crisp eval target.',
+  },
+  'stop-fetching': {
+    label: 'Stop Fetching',
+    instruction: 'Pause new external source gathering. Work only from the local evidence, current notes, and active experiments until the next move is clearer.',
+  },
+  autoresearch: {
+    label: 'Program The Loop',
+    instruction: 'Figure out how to measure this, define the eval, and prepare an AutoResearch loop with explicit metrics, variants, and stop conditions.',
+  },
+  'broaden-search': {
+    label: 'Broaden Search',
+    instruction: 'Resume broad search and source gathering before narrowing the experiment design. Widen the evidence base first.',
+  },
+};
 
 // Pip stats — derived from the feed. Pip is event-only (no /api/agents/status
 // entry), so we count its utterances client-side and show the most recent
@@ -357,6 +447,373 @@ function renderMissionFeed() {
   }).join('');
 }
 
+function renderRedirectState() {
+  const live = document.getElementById('ag-redirect-live');
+  if (!live) return;
+  const redirect = ((AG.status || {}).researcher || {}).redirect;
+  if (!redirect) {
+    live.innerHTML = 'No active redirect — the researcher is following the baseline program.';
+    return;
+  }
+  const stamp = formatClock(redirect.updated_at || redirect.created_at);
+  const label = redirect.label || redirect.preset || 'custom';
+  live.innerHTML = `<span class="ag-redirect-live-label">${esc(label)}</span><span class="ag-redirect-live-copy">${esc(trimText(redirect.instruction || '', 124))}</span><span class="ag-redirect-live-stamp">${esc(stamp)}</span>`;
+}
+
+async function sendRedirect(preset = 'custom') {
+  const flash = document.getElementById('ag-redirect-flash');
+  const textarea = document.getElementById('ag-redirect-text');
+  const presetCfg = REDIRECT_PRESETS[preset] || {};
+  const instruction = (presetCfg.instruction || textarea.value || '').trim();
+  if (!instruction) {
+    if (flash) flash.textContent = 'Write a redirect first.';
+    return;
+  }
+  if (flash) flash.textContent = 'Injecting redirect…';
+  try {
+    const r = await fetch('/api/agents/redirect', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        agent: 'researcher',
+        preset,
+        label: presetCfg.label || 'Custom Redirect',
+        instruction,
+      }),
+    });
+    const data = await r.json();
+    if (data && data.ok) {
+      if (preset === 'custom') textarea.value = '';
+      if (flash) flash.textContent = 'Redirect injected into the loop.';
+      await pollStatus();
+    } else if (flash) {
+      flash.textContent = data.error || 'Redirect failed.';
+    }
+  } catch (e) {
+    if (flash) flash.textContent = 'Redirect failed.';
+  }
+}
+
+function quickRedirect(preset) {
+  sendRedirect(preset);
+}
+
+async function clearRedirect() {
+  const flash = document.getElementById('ag-redirect-flash');
+  try {
+    const r = await fetch('/api/agents/redirect?agent=researcher', { method: 'DELETE' });
+    const data = await r.json();
+    if (flash) flash.textContent = data.cleared ? 'Redirect cleared.' : 'No redirect was active.';
+    await pollStatus();
+  } catch (e) {
+    if (flash) flash.textContent = 'Could not clear redirect.';
+  }
+}
+
+function trimText(text, max = 72) {
+  const value = String(text || '').trim();
+  if (!value) return '';
+  return value.length > max ? value.slice(0, max - 1) + '…' : value;
+}
+
+function parseEventTime(ts) {
+  const parsed = Date.parse(ts || '');
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function formatClock(ts) {
+  const parsed = typeof ts === 'number' ? ts : parseEventTime(ts);
+  if (!parsed) return '—';
+  return new Date(parsed).toISOString().substring(11, 19);
+}
+
+function formatSpan(ms) {
+  const totalSec = Math.max(0, Math.round(ms / 1000));
+  const hours = Math.floor(totalSec / 3600);
+  const mins = Math.floor((totalSec % 3600) / 60);
+  const secs = totalSec % 60;
+  if (hours > 0) return `${hours}h ${mins}m`;
+  if (mins > 0) return `${mins}m ${secs}s`;
+  return `${secs}s`;
+}
+
+function safeStatusClass(status) {
+  return ['idle', 'running', 'paused', 'error', 'completed', 'standby', 'active'].includes(status)
+    ? status
+    : 'standby';
+}
+
+function getAgentSnapshot(agentId) {
+  const status = AG.status || {};
+  if (agentId === 'researcher') {
+    const rs = status.researcher || {};
+    const workflow = rs.workflow || {};
+    return {
+      agentId,
+      label: 'Researcher',
+      status: rs.status || workflow.status || 'idle',
+      objective: workflow.objective || 'Drive the active goal toward a report.',
+      currentTask: rs.current_task || workflow.current_task || 'Waiting for a goal',
+      nextStep: workflow.next_step || 'Set or resume a goal',
+      completedSteps: workflow.completed_steps || [],
+      pauseReason: workflow.pause_reason || '',
+      chatter: workflow.chatty || workflow.chatter || {},
+      meta: [
+        `${rs.experiments || 0} experiments`,
+        `${Math.round((rs.progress || 0) * 100)}% progress`,
+        `${rs.tokens || 0} token budget`,
+      ],
+    };
+  }
+  if (agentId === 'curator') {
+    const cs = status.curator || {};
+    const pending = cs.pending || 0;
+    return {
+      agentId,
+      label: 'Curator',
+      status: pending > 0 ? 'running' : 'standby',
+      objective: 'Vet sources and enforce the lab consent gate.',
+      currentTask: pending > 0 ? 'Reviewing pending source approvals' : 'Standing by for source proposals',
+      nextStep: pending > 0 ? 'Approve or deny queued domains' : 'Wait for researcher source requests',
+      completedSteps: [],
+      pauseReason: '',
+      chatter: { too_chatty: false },
+      meta: [`${pending} pending`, `${cs.allowed || 0} approved domains`],
+    };
+  }
+  if (agentId === 'browser') {
+    const bs = status.browser || {};
+    return {
+      agentId,
+      label: 'Browser',
+      status: bs.last_task ? 'running' : 'idle',
+      objective: 'Capture web evidence cleanly into the local lab.',
+      currentTask: bs.last_task || 'Awaiting a web research task',
+      nextStep: bs.last_task ? 'Persist captures into the knowledge base' : 'Wait for the next browse instruction',
+      completedSteps: [],
+      pauseReason: '',
+      chatter: { too_chatty: false },
+      meta: [`${bs.captures || 0} captures`],
+    };
+  }
+  if (agentId === 'pip') {
+    const ps = status.pip || {};
+    const chatter = ps.chatter || {};
+    return {
+      agentId,
+      label: 'Pip',
+      status: ps.status || (PIP_STATS.utterances > 0 ? 'active' : 'idle'),
+      objective: ps.objective || 'Notice meaningful changes without nagging the user.',
+      currentTask: ps.current_task || PIP_STATS.lastMessage || 'Watching lab signals',
+      nextStep: ps.next_step || 'Wait for the next noteworthy signal',
+      completedSteps: ps.completed_steps || [],
+      pauseReason: ps.pause_reason || '',
+      chatter,
+      meta: [`${chatter.utterances ?? PIP_STATS.utterances} utterances`],
+    };
+  }
+  if (agentId === 'sre') {
+    const ss = status.sre || {};
+    const chatter = ss.chatter || {};
+    return {
+      agentId,
+      label: 'SRE',
+      status: ss.status || 'idle',
+      objective: ss.objective || 'Catch failures before they cascade.',
+      currentTask: ss.current_task || 'Scanning for incidents',
+      nextStep: ss.next_step || 'Wait for the next incident pattern',
+      completedSteps: ss.completed_steps || [],
+      pauseReason: ss.pause_reason || '',
+      chatter,
+      meta: [`${chatter.alerts_seen ?? 0} alerts surfaced`],
+    };
+  }
+  return {
+    agentId,
+    label: agentId,
+    status: 'idle',
+    objective: '',
+    currentTask: '',
+    nextStep: '',
+    completedSteps: [],
+    pauseReason: '',
+    chatter: {},
+    meta: [],
+  };
+}
+
+function severityRadius(level) {
+  if (level === 'error') return 7;
+  if (level === 'warn') return 6;
+  if (level === 'success') return 6;
+  return 5;
+}
+
+function syncMovementSelection() {
+  document.querySelectorAll('.ag-move-point').forEach(el => {
+    el.classList.toggle('selected', Number(el.dataset.pointId) === AG.motionSelection);
+  });
+}
+
+function renderMovementPanel() {
+  const panel = document.getElementById('ag-movement-panel');
+  if (!panel) return;
+  const point = AG.motionPoints[AG.motionSelection] || null;
+  if (!point) {
+    panel.innerHTML = `
+      <div class="ag-movement-panel-kicker">TACTICAL READOUT</div>
+      <h3>Waiting for first pulse</h3>
+      <p class="ag-movement-panel-copy">The trace will light up as agents start speaking, planning, browsing, pausing, and recovering.</p>
+      <div class="ag-move-summary-list">
+        ${MOVEMENT_AGENTS.map(agent => {
+          const snap = getAgentSnapshot(agent.id);
+          return `<div class="ag-move-summary-row">
+            <span class="ag-move-summary-agent ${agent.id}">${esc(snap.label)}</span>
+            <span class="ag-pill ${safeStatusClass(snap.status)}">${esc(snap.status)}</span>
+          </div>`;
+        }).join('')}
+      </div>`;
+    return;
+  }
+
+  const snap = point.snapshot || getAgentSnapshot(point.agentId);
+  const chatter = snap.chatter || {};
+  const completed = (snap.completedSteps || []).slice(-4);
+  const metrics = (snap.meta || []).filter(Boolean);
+  const statusClass = safeStatusClass(snap.status);
+  panel.innerHTML = `
+    <div class="ag-movement-panel-kicker">TACTICAL READOUT</div>
+    <div class="ag-movement-panel-head">
+      <div class="ag-movement-agent ${point.agentId}">${esc(snap.label)}</div>
+      <span class="ag-pill ${statusClass}">${esc(snap.status)}</span>
+    </div>
+    <div class="ag-movement-stamp">${esc(formatClock(point.timestamp))} · ${esc((point.level || 'info').toUpperCase())}</div>
+    <div class="ag-movement-message">${esc(point.event.message || 'No message payload.')}</div>
+    <div class="ag-move-stack">
+      <div class="ag-move-field">
+        <div class="ag-move-field-label">Objective</div>
+        <div class="ag-move-field-value">${esc(snap.objective || 'No objective published yet.')}</div>
+      </div>
+      <div class="ag-move-field">
+        <div class="ag-move-field-label">Current vector</div>
+        <div class="ag-move-field-value">${esc(snap.currentTask || trimText(point.event.message || 'Awaiting work', 160))}</div>
+      </div>
+      <div class="ag-move-field">
+        <div class="ag-move-field-label">Next move</div>
+        <div class="ag-move-field-value">${esc(snap.nextStep || 'No next step published yet.')}</div>
+      </div>
+      ${snap.pauseReason ? `<div class="ag-move-field">
+        <div class="ag-move-field-label">Pause state</div>
+        <div class="ag-move-field-value">${esc(snap.pauseReason)}</div>
+      </div>` : ''}
+    </div>
+    ${completed.length ? `<div>
+      <div class="ag-move-field-label">Recent completions</div>
+      <div class="ag-move-chip-list">${completed.map(step => `<span class="ag-move-chip completed">${esc(trimText(step, 38))}</span>`).join('')}</div>
+    </div>` : ''}
+    <div>
+      <div class="ag-move-field-label">Signal discipline</div>
+      <div class="ag-move-chip-list">
+        <span class="ag-move-chip ${chatter.too_chatty ? 'chatty' : 'calm'}">${chatter.too_chatty ? 'too chatty' : 'signal clean'}</span>
+        ${chatter.global_cooldown_sec ? `<span class="ag-move-chip info">cooldown ${esc(String(chatter.global_cooldown_sec))}s</span>` : ''}
+      </div>
+    </div>
+    ${metrics.length ? `<div class="ag-move-meta-list">${metrics.map(item => `<div class="ag-move-meta-item">${esc(item)}</div>`).join('')}</div>` : ''}
+  `;
+}
+
+function selectMotionEvent(pointId) {
+  AG.motionSelection = pointId;
+  syncMovementSelection();
+  renderMovementPanel();
+}
+
+function renderMovementConsole() {
+  const map = document.getElementById('ag-movement-map');
+  const meta = document.getElementById('ag-movement-meta');
+  if (!map || !meta) return;
+
+  const events = AG.feed.filter(e => MOVEMENT_AGENT_MAP[e.source]).slice(-120);
+  const times = events.map(e => parseEventTime(e.ts)).filter(ts => ts !== null);
+  const end = times.length ? Math.max(...times, Date.now()) : Date.now();
+  const start = end - Math.max(MOVEMENT_MIN_WINDOW_MS, times.length ? end - Math.min(...times) : MOVEMENT_MIN_WINDOW_MS);
+  const width = 980;
+  const height = 360;
+  const x0 = 160;
+  const x1 = width - 24;
+  const y0 = 54;
+  const laneGap = 58;
+  AG.motionPoints = [];
+
+  meta.textContent = events.length
+    ? `${events.length} pulses · window ${formatSpan(end - start)} · last pulse ${formatClock(end)}`
+    : 'Awaiting the first pulse from the lab…';
+
+  if (!events.length) {
+    map.innerHTML = '<div class="ag-empty">Waiting for agent movement… once the feed starts, the trace will light up here.</div>';
+    AG.motionSelection = null;
+    renderMovementPanel();
+    return;
+  }
+
+  let svg = `<svg class="ag-movement-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="Agent movement trace">`;
+  for (let tick = 0; tick <= 6; tick += 1) {
+    const x = x0 + ((x1 - x0) * tick) / 6;
+    const ts = start + ((end - start) * tick) / 6;
+    svg += `<line class="ag-move-grid${tick === 0 || tick === 6 ? ' major' : ''}" x1="${x.toFixed(1)}" y1="22" x2="${x.toFixed(1)}" y2="${height - 26}" />`;
+    svg += `<text class="ag-move-axis" x="${x.toFixed(1)}" y="${height - 8}" text-anchor="middle">${esc(formatClock(ts))}</text>`;
+  }
+
+  MOVEMENT_AGENTS.forEach((agent, laneIndex) => {
+    const y = y0 + laneIndex * laneGap;
+    const snap = getAgentSnapshot(agent.id);
+    const laneEvents = events.filter(e => e.source === agent.id);
+    svg += `<line class="ag-move-lane" x1="${x0}" y1="${y}" x2="${x1}" y2="${y}" />`;
+    svg += `<text class="ag-move-label ${agent.id}" x="16" y="${y - 8}">${esc(agent.label.toUpperCase())}</text>`;
+    svg += `<text class="ag-move-sub ${agent.id}" x="16" y="${y + 11}">${esc(trimText(`${snap.status} · ${snap.currentTask || 'quiet'}`, 34))}</text>`;
+
+    const points = laneEvents.map((event, pointIndex) => {
+      const ts = parseEventTime(event.ts) || end;
+      const x = x0 + ((ts - start) / Math.max(1, end - start)) * (x1 - x0);
+      const yJitter = ((pointIndex % 3) - 1) * 5;
+      const pointId = AG.motionPoints.push({
+        event,
+        agentId: agent.id,
+        snapshot: snap,
+        timestamp: ts,
+        level: event.level || 'info',
+      }) - 1;
+      return {
+        x,
+        y: y + yJitter,
+        pointId,
+        level: event.level || 'info',
+      };
+    });
+
+    if (points.length > 1) {
+      svg += `<polyline class="ag-move-path ${agent.id}" points="${points.map(point => `${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(' ')}" />`;
+    }
+
+    if (!points.length) {
+      svg += `<circle class="ag-move-ghost ${agent.id}" cx="${x0 + 8}" cy="${y}" r="3"></circle>`;
+    }
+
+    points.forEach(point => {
+      svg += `<circle class="ag-move-point ${agent.id} ${point.level}" data-point-id="${point.pointId}" cx="${point.x.toFixed(1)}" cy="${point.y.toFixed(1)}" r="${severityRadius(point.level)}" onclick="selectMotionEvent(${point.pointId})"></circle>`;
+    });
+  });
+
+  svg += `</svg>`;
+  map.innerHTML = svg;
+
+  if (AG.motionSelection == null || !AG.motionPoints[AG.motionSelection]) {
+    AG.motionSelection = AG.motionPoints.length - 1;
+  }
+  syncMovementSelection();
+  renderMovementPanel();
+}
+
 // ── Tab Switching ────────────────────────────────────────────────
 function switchTab(tab) {
   AG.activeTab = tab;
@@ -384,6 +841,7 @@ async function pollStatus() {
   try {
     const r = await fetch('/api/agents/status');
     const d = await r.json();
+    AG.status = d;
 
     // Researcher card
     const rs = d.researcher || {};
@@ -429,6 +887,8 @@ async function pollStatus() {
       document.getElementById('stat-browser-last').textContent = bs.last_task.substring(0, 25);
       document.getElementById('task-browser').textContent = bs.last_task;
     }
+    renderRedirectState();
+    renderMovementConsole();
   } catch (e) { /* silent */ }
 }
 
@@ -456,6 +916,7 @@ function connectSSE() {
 
       if (AG.activeTab === 'feed') appendFeedEvent(e);
       renderMissionFeed();
+      renderMovementConsole();
 
       // Pip speaks via the activity stream — count + remember so
       // the card updates without a polling endpoint.
@@ -883,6 +1344,7 @@ loadSkillsIntoForge();
     updatePipCard();
     renderFeed();
     renderMissionFeed();
+    renderMovementConsole();
   } catch (e) { /* */ }
 
   // Start polling + SSE

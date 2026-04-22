@@ -4,7 +4,7 @@ section: docs
 tags: [python, module]
 aliases: [wiki, wiki.py]
 source: src/oglab/wiki.py
-generated: 2026-04-15T11:48:11Z
+generated: 2026-04-22T01:03:30Z
 ---
 
 # wiki module
@@ -91,7 +91,7 @@ Resolve outgoing wikilink targets to slugs and invert into backlinks.
 Mutates pages in place. Runs in O(pages * links) which is fine for
 the scale we care about (~1k pages).
 
-### `build_link_graph(pages)`
+### `build_link_graph(pages, pkb_root, include_semantic)`
 
 Build the knowledge graph from resolved pages.
 

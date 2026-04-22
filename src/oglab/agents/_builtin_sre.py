@@ -38,6 +38,7 @@ from pathlib import Path
 from typing import Callable, Dict, List, Optional
 
 from oglab.activity import activity_log
+from oglab.agent_workflows import update_agent_workflow
 
 
 # ── Where memory lives ───────────────────────────────────────────────
@@ -305,6 +306,7 @@ class SREAgent:
         self._last_said: Dict[str, float] = {}
         self._last_global: float = 0.0
         self._seen_fingerprints: Dict[str, float] = {}
+        self._recent_actions: List[str] = []
 
     @property
     def status(self) -> str:
@@ -343,6 +345,7 @@ class SREAgent:
             return
         self._load_state()
         self._status = "running"
+        self._sync_workflow("Scanning for incidents", "Wait for an incident pattern")
         self._task = asyncio.create_task(self._run())
         activity_log.emit(
             "sre",
@@ -354,6 +357,27 @@ class SREAgent:
         if self._task and not self._task.done():
             self._task.cancel()
         self._status = "idle"
+        self._sync_workflow("Offline", None)
+
+    def _sync_workflow(self, current_task: str, next_step: str | None) -> None:
+        global_cooldown = max(60, int(os.getenv("LAB_SRE_COOLDOWN_SEC", "180")))
+        too_chatty = len(self._recent_actions[-5:]) >= 4 and global_cooldown < 180
+        update_agent_workflow(
+            "sre",
+            status=self._status,
+            objective="Detect failures, recurrences, and service interruptions early",
+            current_task=current_task,
+            next_step=next_step,
+            completed_steps=list(self._recent_actions[-5:]),
+            paused=False,
+            pause_reason=None,
+            chatter={
+                "alerts_seen": len(self._recent_actions),
+                "global_cooldown_sec": global_cooldown,
+                "too_chatty": too_chatty,
+            },
+            recent_actions=list(self._recent_actions[-3:]),
+        )
 
     async def _run(self) -> None:
         interval = max(30, int(os.getenv("LAB_SRE_INTERVAL_SEC", "120")))
@@ -414,7 +438,9 @@ class SREAgent:
 
         self._last_said[chosen.cooldown_key] = now
         self._last_global = now
+        self._recent_actions.append(f"Alerted on {chosen.watcher}: {chosen.fact[:80]}")
         self._save_state()
+        self._sync_workflow(f"Alerted on {chosen.watcher}", "Wait for the next incident")
 
 
 # ── Singleton export ─────────────────────────────────────────────────

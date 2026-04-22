@@ -4,7 +4,7 @@ section: docs
 tags: [python, module]
 aliases: [costs, costs.py]
 source: src/oglab/costs.py
-generated: 2026-04-15T11:48:11Z
+generated: 2026-04-22T01:03:29Z
 ---
 
 # costs module
@@ -33,7 +33,7 @@ A single inference cost record.
 
 - `__new__(cls)`
 - `__init__(self)`
-- `track(self, backend, model, tokens_in, tokens_out, latency_ms)`
+- `track(self, backend, model, tokens_in, tokens_out, latency_ms, source)`
     - Record one inference call and return the cost breakdown.
 - `get_summary(self)`
     - Return full cost summary for the dashboard.

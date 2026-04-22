@@ -12,6 +12,7 @@ Read these before sending a PR. If your change fights one of them, we'll probabl
 4. **One class per accelerator.** The router ([src/oglab/router/backends.py](src/oglab/router/backends.py)) has one backend per hardware/API family. New cloud APIs that speak OpenAI's `/v1/chat/completions` protocol should reuse `OpenAICompatBackend` with a different `MODEL_API_BASE`, not get their own class.
 5. **No speculative abstractions.** Three similar lines is better than a premature helper. Don't add config for hypothetical future requirements.
 6. **No features that can't be explained in a paragraph.** If your change needs a wiki page to justify, it's probably not a fit.
+7. **Package metadata lives in `pyproject.toml`.** Dependency versions, optional extras, and package install sources belong there. `scripts/setup.sh` may choose which extras to install, but it should not become a second source of truth for package specs.
 
 ## Your docstrings become wiki pages
 
@@ -48,7 +49,7 @@ python -m pytest      # if you added tests (there aren't many yet — help wante
 - [ ] `./oglab doctor` passes on your machine.
 - [ ] If you touched `scripts/setup.sh`, you ran it on a clean checkout and it completed without prompting for anything it shouldn't.
 - [ ] If you added a new env var, it's documented in `.env.example`.
-- [ ] If you added a dependency, it's justified in the PR description (we prefer stdlib).
+- [ ] If you added or changed a dependency, `pyproject.toml` is the source of truth and the PR explains why it belongs.
 - [ ] The commit message explains the *why*, not just the *what*. We use conventional prefixes (`feat:`, `fix:`, `docs:`, `refactor:`, `chore:`) loosely.
 
 ## Porting to new distros

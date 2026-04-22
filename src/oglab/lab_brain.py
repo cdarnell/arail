@@ -186,6 +186,44 @@ def _state_block() -> str:
             lines.append("- Active goal: **none** — waiting for user to set one")
     except Exception:
         pass
+    # Agent workflow memory
+    try:
+        from oglab.agent_workflows import list_agent_workflows
+
+        workflows = list_agent_workflows()
+        if workflows:
+            lines.append("")
+            lines.append("## Agent workflow memory")
+            for row in workflows:
+                agent_id = str(row.get("agent_id") or "agent")
+                objective = str(row.get("objective") or "").strip()
+                current_task = str(row.get("current_task") or "").strip()
+                next_step = str(row.get("next_step") or "").strip()
+                pause_reason = str(row.get("pause_reason") or "").strip()
+                completed = [
+                    str(step).strip()
+                    for step in (row.get("completed_steps") or [])
+                    if str(step).strip()
+                ]
+                chatter = row.get("chatter") or {}
+                lines.append(f"- {agent_id}: status=**{row.get('status', 'unknown')}**")
+                if objective:
+                    lines.append(f"  objective: {objective[:160]}")
+                if current_task:
+                    lines.append(f"  current: {current_task[:160]}")
+                if next_step:
+                    lines.append(f"  next: {next_step[:160]}")
+                if completed:
+                    lines.append(f"  completed: {', '.join(completed[-3:])[:200]}")
+                if pause_reason:
+                    lines.append(f"  pause: {pause_reason[:160]}")
+                if chatter:
+                    lines.append(
+                        f"  chatter: too_chatty={bool(chatter.get('too_chatty'))}, "
+                        f"global_cooldown_sec={chatter.get('global_cooldown_sec', 'n/a')}"
+                    )
+    except Exception:
+        pass
     # Backend
     backend = os.getenv("MODEL_BACKEND", "auto")
     model = os.getenv("MODEL_NAME", "unknown")

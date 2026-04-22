@@ -4,7 +4,7 @@ section: docs
 tags: [python, module]
 aliases: [pkb, pkb.py]
 source: src/oglab/pkb.py
-generated: 2026-04-19T13:28:23Z
+generated: 2026-04-22T01:03:30Z
 ---
 
 # pkb module
@@ -45,6 +45,10 @@ Write a research report to agents/research/.
 ### `write_agent_experiment(exp_id, content, pkb_root)`
 
 Write an experiment log to agents/experiments/.
+
+### `write_agent_experiment_rollup(experiments, domain, pkb_root)`
+
+Write/refresh a compact rollup for recent experiment outcomes.
 
 ### `write_agent_synthesis(topic, content, pkb_root)`
 

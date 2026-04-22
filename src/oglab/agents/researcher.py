@@ -19,6 +19,8 @@ import os
 from typing import Any, Dict, List, Optional
 
 from oglab.activity import activity_log
+from oglab.agent_redirects import get_agent_redirect, redirect_profile
+from oglab.agent_workflows import update_agent_workflow
 from oglab.goals import GoalStore
 from oglab.agents.consent import ConsentStore
 from oglab.agents.curator import CuratorAgent
@@ -179,6 +181,36 @@ def _deep_complete(deep_router, fast_router, prompt: str,
     return _llm_complete(fast_router, prompt, max_tokens)
 
 
+def _active_redirect() -> dict[str, Any] | None:
+    try:
+        return get_agent_redirect("researcher")
+    except Exception:
+        return None
+
+
+def _redirect_prompt_block(redirect: dict[str, Any] | None) -> str:
+    if not redirect:
+        return ""
+    profile = redirect_profile(redirect)
+    instruction = str(redirect.get("instruction") or "").strip()
+    if not instruction:
+        return ""
+
+    lines = [
+        "Operator redirect is active. Treat it as higher-priority steering for this run.",
+        f"Redirect: {instruction}",
+    ]
+    if profile["skip_fetch"]:
+        lines.append("Do not gather more external sources unless they are absolutely necessary.")
+    if profile["focus_measurement"]:
+        lines.append("Prioritize measurement design, evaluation criteria, instrumentation, and success metrics.")
+    if profile["prefer_autoresearch"]:
+        lines.append("Bias toward work that prepares the goal for an AutoResearch loop with explicit metrics, variants, and stop conditions.")
+    if profile["broaden_search"]:
+        lines.append("Broaden retrieval and source gathering before narrowing the loop.")
+    return "\n".join(lines) + "\n\n"
+
+
 class ResearcherAgent:
     """Autonomous research agent that drives experiments toward a goal."""
 
@@ -191,6 +223,11 @@ class ResearcherAgent:
         self._task: Optional[asyncio.Task] = None
         self._paused = False
         self._status = "idle"  # idle | running | paused | completed | error
+        self._objective = ""
+        self._completed_steps: list[str] = []
+        self._current_task: str | None = None
+        self._next_step: str | None = None
+        self._pause_reason: str | None = None
 
     @property
     def status(self) -> str:
@@ -203,17 +240,27 @@ class ResearcherAgent:
             self._task.cancel()
         self._paused = False
         self._status = "running"
+        self._objective = parsed_goal.get("goal", parsed_goal.get("primary_objective", ""))
+        self._completed_steps = []
+        self._current_task = "Queued for research"
+        self._next_step = "Plan research hypotheses"
+        self._pause_reason = None
+        self._sync_workflow(progress=0.0)
         delay_sec = startup_delay_seconds() if delay is None else max(0, delay)
         self._task = asyncio.create_task(self._run(parsed_goal, delay_sec))
 
     def pause(self) -> None:
         self._paused = True
         self._status = "paused"
+        self._pause_reason = "Paused by user"
+        self._sync_workflow()
         activity_log.emit("researcher", "Research paused by user.", "warn")
 
     def resume(self) -> None:
         self._paused = False
         self._status = "running"
+        self._pause_reason = None
+        self._sync_workflow()
         activity_log.emit("researcher", "Research resumed.", "info")
 
     def stop(self) -> None:
@@ -221,7 +268,41 @@ class ResearcherAgent:
             self._task.cancel()
         self._status = "idle"
         self._paused = False
+        self._pause_reason = None
+        self._current_task = "Stopped"
+        self._next_step = None
+        self._sync_workflow()
         activity_log.emit("researcher", "Research stopped.", "warn")
+
+    def _sync_workflow(self, *, progress: float | None = None) -> None:
+        current = self.goal_store.get_current() or {}
+        redirect = _active_redirect()
+        update_agent_workflow(
+            "researcher",
+            status=self._status,
+            objective=self._objective,
+            current_task=self._current_task,
+            next_step=self._next_step,
+            completed_steps=list(self._completed_steps),
+            paused=self._paused,
+            pause_reason=self._pause_reason,
+            progress=progress if progress is not None else current.get("progress", 0),
+            recent_actions=list(self._completed_steps[-3:]),
+            chatter={"too_chatty": False},
+            metadata={
+                "experiments": len(current.get("experiments", [])),
+                "intent": current.get("parsed", {}).get("intent") if isinstance(current.get("parsed"), dict) else None,
+                "redirect": redirect,
+            },
+        )
+
+    def _advance_workflow(self, completed_step: str | None, current_task: str, next_step: str | None, *, progress: float | None = None) -> None:
+        if completed_step:
+            self._completed_steps.append(completed_step)
+        self._current_task = current_task
+        self._next_step = next_step
+        self._pause_reason = None
+        self._sync_workflow(progress=progress)
 
     # ── Core loop ────────────────────────────────────────────────────
 
@@ -234,6 +315,7 @@ class ResearcherAgent:
 
         try:
             if delay_sec:
+                self._advance_workflow(None, f"Waiting {delay_sec}s courtesy delay", "Plan research hypotheses", progress=0.0)
                 activity_log.emit("researcher",
                                   f"Queued — starting in {delay_sec}s "
                                   f"({window_label()}). Halt anytime from the dashboard.",
@@ -251,6 +333,20 @@ class ResearcherAgent:
             activity_log.emit("researcher",
                               f"Starting research ({intent_name}): {goal_text}",
                               "success")
+            redirect = _active_redirect()
+            redirect_flags = redirect_profile(redirect)
+            if redirect:
+                activity_log.emit(
+                    "researcher",
+                    f"Redirect active — {str(redirect.get('instruction') or '')[:160]}",
+                    "warn",
+                    {"redirect": redirect},
+                )
+                if redirect_flags["focus_measurement"]:
+                    self._current_task = "Reframing the run around measurement and evaluation"
+                    self._next_step = "Design eval-ready experiments"
+                    self._sync_workflow(progress=0.0)
+            self._advance_workflow(None, "Planning research hypotheses", "Design experiments", progress=0.0)
 
             # Step 1: Plan research — generate hypotheses
             await self._wait_if_paused()
@@ -259,6 +355,7 @@ class ResearcherAgent:
                               f"Generated {len(hypotheses)} research hypotheses.",
                               "info", {"hypotheses": hypotheses, "progress": 0.1})
             self.goal_store.update_progress(0.1)
+            self._advance_workflow("Planned research hypotheses", "Designing experiments", "Gather sources", progress=0.1)
 
             # Step 2: Design experiments for each hypothesis
             await self._wait_if_paused()
@@ -273,30 +370,42 @@ class ResearcherAgent:
                 await asyncio.sleep(0.5)  # pacing for UX
             activity_log.emit("researcher", "Experiments designed.", "info", {"progress": 0.3})
             self.goal_store.update_progress(0.3)
+            self._advance_workflow("Designed experiments", "Gathering sources", "Run experiments", progress=0.3)
 
             # Step 3: Gather sources via Curator
             await self._wait_if_paused()
-            activity_log.emit("researcher",
-                              "Querying curator for relevant data sources...", "info")
-            proposals = self.curator.propose_sources(parsed_goal)
-            if proposals:
-                consent_results = self.curator.submit_proposals(proposals)
-                approved = [r for r in consent_results if r["status"] == "auto_approved"]
-                pending = [r for r in consent_results if r["status"] == "pending"]
-                if approved:
-                    activity_log.emit("researcher",
-                                      f"{len(approved)} sources auto-approved from allowlist.",
-                                      "success")
-                if pending:
-                    activity_log.emit("researcher",
-                                      f"{len(pending)} sources awaiting your approval.",
-                                      "warn")
+            redirect = _active_redirect()
+            redirect_flags = redirect_profile(redirect)
+            if redirect_flags["skip_fetch"]:
+                activity_log.emit(
+                    "researcher",
+                    "Redirect active — skipping new source fetching and tightening the eval path instead.",
+                    "warn",
+                    {"redirect": redirect, "progress": 0.5},
+                )
             else:
                 activity_log.emit("researcher",
-                                  "No external sources needed — running fully local.",
-                                  "info")
+                                  "Querying curator for relevant data sources...", "info")
+                proposals = self.curator.propose_sources(parsed_goal)
+                if proposals:
+                    consent_results = self.curator.submit_proposals(proposals)
+                    approved = [r for r in consent_results if r["status"] == "auto_approved"]
+                    pending = [r for r in consent_results if r["status"] == "pending"]
+                    if approved:
+                        activity_log.emit("researcher",
+                                          f"{len(approved)} sources auto-approved from allowlist.",
+                                          "success")
+                    if pending:
+                        activity_log.emit("researcher",
+                                          f"{len(pending)} sources awaiting your approval.",
+                                          "warn")
+                else:
+                    activity_log.emit("researcher",
+                                      "No external sources needed — running fully local.",
+                                      "info")
             activity_log.emit("researcher", "Source gathering complete.", "info", {"progress": 0.5})
             self.goal_store.update_progress(0.5)
+            self._advance_workflow("Gathered sources", "Running experiments", "Analyze results", progress=0.5)
 
             # Step 4: Run experiments — each one simulates meaningful
             # work over LAB_EXP_RUNTIME_SEC seconds (default 60s), emitting
@@ -313,6 +422,9 @@ class ResearcherAgent:
                 activity_log.emit("researcher",
                                   f"Running experiment {exp['id']} "
                                   f"({exp_runtime}s budget)…", "info")
+                self._current_task = f"Running experiment {exp['id']}"
+                self._next_step = "Analyze results"
+                self._sync_workflow(progress=0.5)
                 for k in range(obs_per_exp):
                     # Cooperatively wait — respects pause/halt in <1s granules.
                     waited = 0
@@ -333,6 +445,7 @@ class ResearcherAgent:
                                       "info")
             activity_log.emit("researcher", "Experiments complete.", "info", {"progress": 0.7})
             self.goal_store.update_progress(0.7)
+            self._advance_workflow("Ran experiments", "Analyzing results", "Generate report", progress=0.7)
 
             # Step 5: Analyze and complete experiments
             await self._wait_if_paused()
@@ -350,6 +463,7 @@ class ResearcherAgent:
                 await asyncio.sleep(0.5)
             activity_log.emit("researcher", "Analysis complete.", "info", {"progress": 0.9})
             self.goal_store.update_progress(0.9)
+            self._advance_workflow("Analyzed experiment results", "Generating report", "Write report to knowledge base", progress=0.9)
 
             # Step 6: Generate report
             await self._wait_if_paused()
@@ -376,6 +490,9 @@ class ResearcherAgent:
                 activity_log.emit("researcher",
                                   "Results written to knowledge base (lab/pkm/agents/).",
                                   "info")
+                self._current_task = "Writing report to knowledge base"
+                self._next_step = "Finalize research run"
+                self._sync_workflow(progress=1.0)
             except Exception as e:
                 activity_log.emit("researcher",
                                   f"PKM write failed ({type(e).__name__}: {str(e)[:80]}). "
@@ -394,13 +511,20 @@ class ResearcherAgent:
                               "Research complete. Report generated.",
                               "success", {"report_preview": report[:200], "progress": 1.0})
             self._status = "completed"
+            self._advance_workflow("Generated final report", "Research complete", None, progress=1.0)
 
         except asyncio.CancelledError:
             activity_log.emit("researcher", "Research cancelled.", "warn")
             self._status = "idle"
+            self._current_task = "Cancelled"
+            self._next_step = None
+            self._sync_workflow()
         except Exception as e:
             activity_log.emit("researcher", f"Research error: {e}", "error")
             self._status = "error"
+            self._current_task = f"Error: {type(e).__name__}"
+            self._next_step = "Inspect recent activity and retry"
+            self._sync_workflow()
 
     async def _wait_if_paused(self) -> None:
         if jobs_halted():
@@ -427,10 +551,12 @@ class ResearcherAgent:
         intent = parsed_goal.get("intent", _get_lab_intent())
         sub_objectives = parsed_goal.get("sub_objectives", [])
         sys_ctx = _get_system_context(intent)
+        redirect_block = _redirect_prompt_block(_active_redirect())
 
         # Try LLM first
         prompt = (
             f"{sys_ctx}\n\n"
+            f"{redirect_block}"
             f"Given the goal below, generate 3-5 testable hypotheses "
             f"as a numbered list. Each hypothesis should be specific, "
             f"measurable, and grounded in the domain.\n\n"
@@ -468,13 +594,27 @@ class ResearcherAgent:
 
     def _design_experiment(self, hypothesis: str, domain: str) -> Dict[str, Any]:
         """Create an experiment from a hypothesis."""
-        methodology = f"Test the hypothesis through controlled observation and data collection."
+        redirect = _active_redirect()
+        redirect_flags = redirect_profile(redirect)
+        methodology = "Test the hypothesis through controlled observation and data collection."
+        metrics = ["improvement_rate", "confidence_score"]
+        if redirect_flags["focus_measurement"]:
+            methodology = (
+                "Define measurable success criteria, an evaluation harness, and clear instrumentation "
+                "before widening retrieval or source gathering."
+            )
+            metrics = ["measurement_quality", "evaluation_readiness", "confidence_score"]
+        if redirect_flags["prefer_autoresearch"] and "autoresearch_readiness" not in metrics:
+            metrics.append("autoresearch_readiness")
         return self.tracker.create(
             hypothesis=hypothesis,
             methodology=methodology,
-            variables={"domain": domain},
+            variables={
+                "domain": domain,
+                "redirect_preset": str((redirect or {}).get("preset") or ""),
+            },
             duration_days=7,
-            metrics=["improvement_rate", "confidence_score"],
+            metrics=metrics,
             domain=domain,
         )
 
@@ -482,8 +622,10 @@ class ResearcherAgent:
                                intent: str | None = None) -> str:
         """Generate an observation — LLM-enhanced with fallback."""
         sys_ctx = _get_system_context(intent)
+        redirect_block = _redirect_prompt_block(_active_redirect())
         prompt = (
             f"{sys_ctx}\n\n"
+            f"{redirect_block}"
             f"You are running an experiment about: {exp['hypothesis'][:100]}\n"
             f"Domain: {domain}\n"
             f"Write a single concise observation (1-2 sentences) from initial data collection."
@@ -500,8 +642,10 @@ class ResearcherAgent:
                              intent: str | None = None) -> Dict[str, Any]:
         """Analyze experiment results — LLM-enhanced with fallback."""
         sys_ctx = _get_system_context(intent)
+        redirect_block = _redirect_prompt_block(_active_redirect())
         prompt = (
             f"{sys_ctx}\n\n"
+            f"{redirect_block}"
             f"Analyze this experiment and provide results.\n"
             f"Hypothesis: {exp['hypothesis'][:100]}\n"
             f"Domain: {domain}\n"
@@ -590,6 +734,8 @@ class ResearcherAgent:
         domain = parsed_goal.get("domain", "general")
         intent = parsed_goal.get("intent", _get_lab_intent())
         sys_ctx = _get_system_context(intent)
+        redirect_flags = redirect_profile(_active_redirect())
+        redirect_block = _redirect_prompt_block(_active_redirect())
         n = len(experiments)
 
         # Try LLM for a richer report
@@ -598,6 +744,7 @@ class ResearcherAgent:
         )
         prompt = (
             f"{sys_ctx}\n\n"
+            f"{redirect_block}"
             f"Write a concise research report in Markdown.\n\n"
             f"Goal: {goal_text}\nDomain: {domain}\n"
             f"Experiments ({n}):\n{exp_summaries}\n\n"
@@ -636,6 +783,10 @@ class ResearcherAgent:
             f"1. Continue data collection to increase confidence scores",
             f"2. Design follow-up experiments targeting specific variables",
             f"3. Consider expanding data sources for broader validation",
+        ])
+        if redirect_flags["prefer_autoresearch"]:
+            report_lines.append(f"4. Convert the strongest measurement path into a repeatable AutoResearch loop with explicit stop conditions")
+        report_lines.extend([
             f"",
             f"---",
             f"*Generated by OGLab Researcher Agent*",

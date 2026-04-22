@@ -1,14 +1,18 @@
 [build-system]
+# setuptools handles editable installs and extras used by ./oglab setup.
 requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "oglab"
 version = "0.1.0"
-description = "AI Lab Blueprint — goal-driven research framework, local-first."
+description = "Local AutoResearch blueprint — improve something measurable and learn from the loop."
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
+
+# Base dependencies are the always-on lab surfaces: the portal, routing,
+# workflow memory, file ingestion, and setup/runtime helpers.
 dependencies = [
     "python-dotenv>=1.0.0",
     "requests>=2.31.0",
@@ -19,21 +23,66 @@ dependencies = [
     "psutil>=5.9.0",
     "markdown-it-py>=3.0.0",
     "python-multipart>=0.0.9",
-    "jupyterlab>=4.0.0",
     "pyyaml>=6.0",
+    "lancedb>=0.13.0",
+    "tomli>=2.0.1; python_version < '3.11'",
 ]
 
 [project.optional-dependencies]
+# Hardware/runtime extras. scripts/setup.sh installs one accelerator extra
+# based on detected hardware instead of hardcoding package versions.
 mlx   = ["mlx>=0.4.0", "mlx-lm>=0.8.0"]
 cuda  = ["vllm>=0.5.0", "torch>=2.3.0"]
 cpu   = ["llama-cpp-python>=0.2.0"]
+
+# Workbench extras. Keep optional so the setup flow can stay lean on smaller
+# machines while still letting all-in installs pull in the full lab surface.
+notebook = ["jupyterlab>=4.0.0"]
+
+# Opt-in hosted backends.
 cloud = ["anthropic>=0.31.0"]
-vector = ["lancedb>=0.6.0"]
-# AeroLLM installs via scripts/setup.sh from the git URL in
-# AEROLLM_PACKAGE. It's intentionally not an extra here — git URLs
-# in pyproject extras are a smell, and the installer is the single
-# source of truth for AeroLLM provisioning.
+
+# Convenience alias for environments that explicitly ask for the vector stack,
+# even though the main lab install already includes LanceDB by default.
+vector = ["lancedb>=0.13.0"]
+
+# Development/test helpers.
 dev   = ["pytest>=7.4.0"]
+
+[project.urls]
+Repository = "https://github.com/cdarnell/minimalist-blueprint"
+Issues = "https://github.com/cdarnell/minimalist-blueprint/issues"
+
+[tool.oglab]
+# This is the configuration-as-code metadata section for the blueprint.
+# Package versions, install sources, and runtime defaults belong here so
+# setup/start scripts read one source of truth instead of carrying shell
+# duplicates that drift over time.
+default_blueprint = "AutoResearch"
+learning_goal = "Improve something measurable and learn while the loop runs."
+memory_backend = "lancedb"
+memory_fallback = "json"
+configuration_source = "pyproject.toml"
+
+[tool.oglab.models]
+# Default starter models selected by setup after hardware detection.
+mlx = "mlx-community/Qwen3-8B-4bit"
+cuda = "Qwen/Qwen3-8B"
+cpu = "Qwen/Qwen3-8B-GGUF"
+aerollm = "zai-org/GLM-5.1"
+
+[tool.oglab.package-sources]
+# AeroLLM is intentionally declared here so its source URL and branch live in
+# pyproject.toml with the rest of the dependency metadata.
+aerollm = "git+https://github.com/cdarnell/aerollm@main"
+
+[tool.oglab.profiles.light]
+description = "Core lab only: dashboard, chat, AutoResearch, and workflow memory."
+python_extras = []
+
+[tool.oglab.profiles.all_in]
+description = "Light profile plus notebook and deeper model/tooling support."
+python_extras = ["notebook"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

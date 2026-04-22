@@ -20,6 +20,7 @@ info() { echo -e "${GREEN}[${LAB_SHORT_NAME}]${RESET} $*"; }
 
 export PATH="$HOME/.local/bin:$PATH"
 BIND="${BIND_ADDR:-127.0.0.1}"
+LANCE_PORT="${LANCE_PORT:-7414}"
 
 [[ -f .venv/bin/activate ]] || { echo "no .venv — run ./oglab setup"; exit 1; }
 # shellcheck disable=SC1091
@@ -44,6 +45,12 @@ if [[ "${MODEL_BACKEND:-auto}" == "mlx" ]]; then
         --log-level warning &
     PIDS+=($!)
 fi
+
+info "Memory     → http://${BIND}:${LANCE_PORT}"
+uvicorn oglab.memory_service:app \
+    --host "$BIND" --port "$LANCE_PORT" \
+    --log-level warning &
+PIDS+=($!)
 
 if command -v ttyd &>/dev/null; then
     info "Terminal   → http://${BIND}:${TERMINAL_PORT:-7681}"
@@ -131,6 +138,7 @@ echo -e "  ${BOLD}All services running.${RESET}  Press Ctrl+C to stop."
 echo ""
 echo -e "  Dashboard:  ${BOLD}http://${BIND}:${PORTAL_PORT:-8080}${RESET}"
 echo -e "  MLX API:    ${BOLD}http://${BIND}:${MLX_OPENAI_PORT:-11435}/v1${RESET}"
+echo -e "  Memory:     ${BOLD}http://${BIND}:${LANCE_PORT}${RESET}"
 echo -e "  Terminal:   ${BOLD}http://${BIND}:${TERMINAL_PORT:-7681}${RESET}"
 echo -e "  Notebook:   ${BOLD}http://${BIND}:${NOTEBOOK_PORT:-8888}${RESET}"
 echo -e "  IDE:        ${BOLD}http://${BIND}:${IDE_PORT:-8443}${RESET}  (password in ${BOLD}lab.conf${RESET})"

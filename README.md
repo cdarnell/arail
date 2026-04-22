@@ -47,6 +47,8 @@ You tell it what you care about. It builds a lab around that.
 
 A handful of simple Python agents come along for the ride: a researcher, a curator, an experiment tracker. They start working the moment the lab comes online. They explore. They test ideas. They write findings. You sleep, they don't.
 
+Their workflow state is durable now too: the lab keeps a local memory snapshot of what each agent is trying to accomplish, what it already finished, what it plans to do next, whether it is paused, and whether its cooldowns are keeping it from getting too chatty. In a full install, LanceDB accelerates that memory layer by default; every update is also written to a JSON snapshot on disk so the lab has a readable DR copy even if the vector layer is unavailable.
+
 Everything runs on your machine. No accounts, no API keys required, no telemetry leaving the box. As private as you need it to be.
 
 ---
@@ -126,6 +128,10 @@ You come back the next morning and there's a research report waiting.
 The progress bar moved. New experiments ran. New findings landed.
 
 The lab is alive. It grows toward what you asked for.
+
+### Agent Memory That Tracks Work, Not Just Words
+
+OGLab now runs a local memory service for agent workflow state. The valuable part is not generic vector storage; it is durable recall of the agent's operating context: current objective, completed steps, next step, pause state, and chatter controls. That makes agents easier to trust because you can inspect what they think they are doing, and it makes them more efficient because the lab can retain workflow context across restarts without turning the vector layer into the source of truth.
 
 ### Structured (PKB) Knowledge Base
 
