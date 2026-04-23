@@ -1,0 +1,1088 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ brand.name }} — Tuning</title>
+<link rel="stylesheet" href="/static/style.css">
+<style>
+  /* Page-local styles. Deliberately minimal so the single-page
+     view stays legible and doesn't drag in the research cockpit's
+     complexity. */
+  .tn-wrap      { max-width: 1180px; margin: 20px auto; padding: 0 20px; }
+  .tn-hero      { margin: 14px 0 22px; }
+  .tn-hero h1   { margin: 0 0 6px; font-size: 22px; }
+  .tn-hero .sub { color: var(--muted, #888); font-size: 13px; }
+
+  .tn-grid      { display: grid; gap: 16px;
+                  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+  .tn-card      { background: var(--panel, #111); border: 1px solid var(--border, #222);
+                  border-radius: 8px; padding: 16px; }
+  .tn-card h3   { margin: 0 0 10px; font-size: 13px; text-transform: uppercase;
+                  letter-spacing: 0.08em; color: var(--muted, #888); }
+  .tn-big       { font-size: 26px; font-weight: 600; }
+  .tn-unit      { font-size: 13px; color: var(--muted, #888); margin-left: 4px; }
+  .tn-delta     { font-size: 12px; padding: 2px 6px; border-radius: 3px; margin-left: 6px; }
+  .tn-delta.win { background: #144d25; color: #7ee0a0; }
+  .tn-delta.loss{ background: #4d1e1e; color: #f0a0a0; }
+  .tn-meta      { color: var(--muted, #888); font-size: 12px; margin-top: 8px; line-height: 1.5; }
+  .tn-meta code { background: var(--bg2, #181818); padding: 1px 5px; border-radius: 3px; }
+
+  .tn-controls  { display: flex; gap: 8px; flex-wrap: wrap; margin: 18px 0 8px; }
+  .tn-btn       { background: var(--accent, #2a6); color: #fff; border: 0;
+                  padding: 8px 14px; border-radius: 4px; cursor: pointer;
+                  font-size: 13px; }
+  .tn-btn.sec   { background: #333; }
+  .tn-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .tn-sec       { margin-top: 26px; }
+  .tn-sec h2    { font-size: 14px; text-transform: uppercase; letter-spacing: 0.08em;
+                  color: var(--muted, #888); margin: 0 0 10px; }
+
+  table.tn-runs { width: 100%; border-collapse: collapse; font-size: 12px; }
+  table.tn-runs th, table.tn-runs td { padding: 6px 8px;
+                  border-bottom: 1px solid var(--border, #222); text-align: left; }
+  table.tn-runs th { color: var(--muted, #888); font-weight: normal; text-transform: uppercase;
+                  letter-spacing: 0.05em; font-size: 11px; }
+  table.tn-runs tr.win td { background: rgba(30, 90, 50, 0.12); }
+  table.tn-runs tr.loss td{ background: rgba(90, 30, 30, 0.08); }
+  table.tn-runs code { font-size: 11px; background: var(--bg2, #181818);
+                  padding: 1px 5px; border-radius: 3px; }
+
+  .tn-status    { font-size: 12px; color: var(--muted, #888); margin: 10px 0; }
+  .tn-status .phase { display: inline-block; padding: 2px 6px; border-radius: 3px;
+                  background: #333; margin-right: 6px; }
+  .tn-empty     { color: var(--muted, #888); font-style: italic; }
+
+  .tn-spark     { height: 80px; width: 100%; }
+
+  details.tn-know  { margin-top: 12px; }
+  details.tn-know summary { cursor: pointer; color: var(--muted, #888); font-size: 12px; }
+  details.tn-know code    { font-size: 11px; }
+  .tn-knob-row    { display: flex; justify-content: space-between; padding: 3px 0;
+                    font-size: 12px; border-bottom: 1px dashed var(--border, #222); }
+  .tn-knob-row:last-child { border-bottom: 0; }
+</style>
+</head>
+<body>
+
+{% set active = 'tuning' %}{% include "_nav.html" %}
+
+<div class="tn-wrap">
+
+  <div class="tn-hero">
+    <h1 id="tn-hero-title">AeroLLM MLX — tune the research model on Apple silicon</h1>
+    <div class="sub">
+      Tune target: <code id="tn-model-name">loading…</code>
+      &nbsp;·&nbsp;
+      <span id="tn-model-size">—</span>
+      &nbsp;·&nbsp;
+      Family: <span id="tn-model-family">—</span>
+    </div>
+  </div>
+
+  <!-- ── View tabs ───────────────────────────────────────────────────
+       Three user-facing views. AeroLLM MLX and AirLLM MLX both map
+       to the same underlying mlx tuning backend — the latter shows
+       a comparison lens over the same dataset. CUDA maps to the
+       aerollm backend. Persists to localStorage so a refresh keeps
+       the tab. -->
+  <div class="tn-tabs" role="tablist" style="display:flex;gap:4px;margin:14px 0 10px;border-bottom:1px solid var(--border,#222);">
+    <button class="tn-tab active" data-view="aerollm-mlx" role="tab"
+            style="background:transparent;border:0;border-bottom:2px solid #7ee0a0;color:#d4e8d8;padding:8px 14px;cursor:pointer;font-size:13px;">
+      AeroLLM MLX <span style="color:#8faf97;font-size:11px;">· Apple silicon · default</span>
+    </button>
+    <button class="tn-tab" data-view="airllm-mlx" role="tab"
+            style="background:transparent;border:0;border-bottom:2px solid transparent;color:#8faf97;padding:8px 14px;cursor:pointer;font-size:13px;">
+      AirLLM MLX <span style="color:#6a8a72;font-size:11px;">· comparison · unified memory</span>
+    </button>
+    <button class="tn-tab" data-view="aerollm-cuda" role="tab"
+            style="background:transparent;border:0;border-bottom:2px solid transparent;color:#8faf97;padding:8px 14px;cursor:pointer;font-size:13px;">
+      AeroLLM CUDA <span style="color:#6a8a72;font-size:11px;">· CUDA · 1 TB class</span>
+    </button>
+  </div>
+
+  <!-- ── AeroLLM framing ─────────────────────────────────────────────
+       AeroLLM is the lab's deep-inference runtime: multi-threaded
+       prefetched layer streaming optimized for concurrent research
+       prompts. All three views measure AeroLLM — MLX views on Apple
+       silicon unified memory, CUDA view on GPU. Measurements land in
+       lab/data/aerollm-bench.jsonl or lab/data/mlx-bench.jsonl. -->
+  <div class="tn-card" id="tn-framing-card" style="margin-bottom:16px;background:#0f1a14;border-color:#1e3a2a;">
+    <div style="display:flex;gap:10px;align-items:flex-start;">
+      <span style="font-size:20px;line-height:1;">🧪</span>
+      <div class="tn-meta" style="color:#b8d0bf;font-size:12px;line-height:1.55;margin:0;" id="tn-framing-body">
+        <strong style="color:#d4e8d8;">AeroLLM — aerodynamic layer streaming.</strong>
+        Multi-threaded prefetch overlaps I/O and compute so
+        simultaneous prompts share each layer pass instead of
+        serializing on disk bandwidth. Developed at
+        <a href="https://github.com/cdarnell/aerollm" target="_blank"
+           rel="noopener" style="color:#7ee0a0;">cdarnell/aerollm</a>.
+        <br>
+        <span style="color:#8faf97;">Measurements land in
+          <code>lab/data/mlx-bench.jsonl</code>. Wins on any view
+          feed into the upstream repo.</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Architecture — layer streaming, animated ────────────────────
+       Two diagrams, one per backend. Only the active one is visible;
+       ``setBackend()`` toggles the ``tn-arch-on`` class. Packets are
+       <animateMotion> nodes riding hidden paths. -->
+  <div class="tn-card tn-arch-card" style="margin-bottom:16px;padding:18px 20px;">
+    <h3 style="margin:0 0 4px;font-size:12px;color:#8faf97;text-transform:uppercase;letter-spacing:0.10em;">
+      <span id="tn-arch-title">Architecture — MLX unified-memory streaming</span>
+    </h3>
+    <div class="tn-meta" id="tn-arch-blurb" style="margin:0 0 12px;">
+      Layers live on NVMe. A <em>rotating window</em> of the current
+      layer is mmap'd into unified memory; MLX kernels read it
+      <em>in place</em> (no PCIe copy — that stage simply doesn't exist
+      on Apple silicon). KV-cache can quantize mid-stream, and the
+      prompt cache reuses prefixes across turns. These are the levers
+      our knobs reach.
+    </div>
+
+    <!-- ── MLX diagram (our design) ────────────────────────────── -->
+    <svg id="tn-arch-mlx" class="tn-arch-svg tn-arch-on"
+         viewBox="0 0 1000 520"
+         style="width:100%;height:auto;background:#0b100d;border:1px solid #1e3a2a;border-radius:6px;display:block;">
+      <defs>
+        <style>
+          .tn-band  { fill:none; stroke:#1e3a2a; stroke-width:1.2; stroke-dasharray:3 4; }
+          .tn-blab  { font:600 10px system-ui; fill:#5a8070; letter-spacing:0.14em; }
+          .tn-node  { fill:#0f1a14; stroke:#3a5a48; stroke-width:1.5; }
+          .tn-node.on { stroke:#7ee0a0; }
+          .tn-node.ghost { stroke-dasharray:5 4; opacity:0.7; }
+          .tn-title { font:600 13px system-ui; fill:#e0ebe2; text-anchor:middle; }
+          .tn-sub   { font:11px system-ui; fill:#8faf97; text-anchor:middle; }
+          .tn-sub.accent { fill:#7ee0a0; }
+          .tn-edge  { stroke:#4a6a58; stroke-width:1.5; fill:none; }
+          .tn-edge.hot    { stroke:#7ee0a0; stroke-width:2; }
+          .tn-edge.dashed { stroke-dasharray:5 4; }
+          .tn-edge.strike { stroke:#5a3a3a; stroke-dasharray:3 5; opacity:0.55; }
+          .tn-elab  { font:10px system-ui; fill:#8faf97; text-anchor:middle; }
+          .tn-elab.accent { fill:#7ee0a0; font-weight:600; }
+          .tn-elab.strike { fill:#a06060; }
+          .tn-note  { font:italic 10px system-ui; fill:#6a8a72; }
+        </style>
+        <marker id="tn-arr" markerWidth="9" markerHeight="9" refX="8" refY="4" orient="auto">
+          <polygon points="0 0, 8 4, 0 8" fill="#4a6a58"/>
+        </marker>
+        <marker id="tn-arr-hot" markerWidth="9" markerHeight="9" refX="8" refY="4" orient="auto">
+          <polygon points="0 0, 8 4, 0 8" fill="#7ee0a0"/>
+        </marker>
+      </defs>
+
+      <!-- Tier bands -->
+      <rect class="tn-band" x="15" y="15"  width="970" height="170" rx="4"/>
+      <text class="tn-blab" x="30" y="35">COMPUTE TIER (MLX KERNELS · APPLE SILICON)</text>
+
+      <rect class="tn-band" x="15" y="200" width="970" height="180" rx="4"/>
+      <text class="tn-blab" x="30" y="220">UNIFIED MEMORY (SHARED POOL · CPU + GPU ADDRESSABLE)</text>
+
+      <rect class="tn-band" x="15" y="395" width="970" height="110" rx="4"/>
+      <text class="tn-blab" x="30" y="415">STORAGE TIER (NVMe · LAYER SHARDS ON DISK)</text>
+
+      <!-- Nodes -->
+      <!-- MLX COMPUTE -->
+      <rect class="tn-node on" x="420" y="75" width="200" height="80" rx="6"/>
+      <text class="tn-title" x="520" y="108">MLX COMPUTE</text>
+      <text class="tn-sub"  x="520" y="128">Metal kernel · tile-by-tile</text>
+
+      <!-- KV attention arrow target (compute reads + writes KV) -->
+      <!-- WEIGHT WINDOW (rotates) -->
+      <rect class="tn-node" x="180" y="235" width="220" height="80" rx="6"/>
+      <text class="tn-title" x="290" y="268">WEIGHT WINDOW</text>
+      <text class="tn-sub"  x="290" y="286">Current L_n (mmap'd)</text>
+      <text class="tn-sub accent" x="290" y="302">rotates · no free()</text>
+
+      <!-- KV CACHE -->
+      <rect class="tn-node" x="640" y="235" width="240" height="80" rx="6"/>
+      <text class="tn-title" x="760" y="266">KV CACHE</text>
+      <text class="tn-sub"  x="760" y="284">fp16 head · 8-bit tail</text>
+      <text class="tn-sub accent" x="760" y="300">quantized_kv_start knob</text>
+
+      <!-- PROMPT CACHE -->
+      <rect class="tn-node ghost" x="420" y="325" width="200" height="50" rx="6"/>
+      <text class="tn-title" x="520" y="350" style="fill:#8faf97;">PROMPT CACHE</text>
+      <text class="tn-sub"  x="520" y="367">prefix reuse across turns</text>
+
+      <!-- NVMe SHARDS -->
+      <rect class="tn-node" x="180" y="430" width="220" height="60" rx="6"/>
+      <text class="tn-title" x="290" y="458">NVMe · LAYER SHARDS</text>
+      <text class="tn-sub"  x="290" y="476">q4/q8/fp16 on disk</text>
+
+      <!-- Edges (hot path in green, dead/eliminated hops in muted red) -->
+
+      <!-- NVMe → Weight Window (mmap, direct — our hot win) -->
+      <path id="tn-m-e1" class="tn-edge hot" d="M 290 430 L 290 315" marker-end="url(#tn-arr-hot)"/>
+      <text class="tn-elab accent" x="360" y="380">mmap · direct</text>
+      <text class="tn-note"        x="360" y="392">(no CPU copy)</text>
+
+      <!-- Weight Window → MLX Compute (zero-copy tile) -->
+      <path id="tn-m-e2" class="tn-edge hot" d="M 400 275 L 470 275 L 470 155" marker-end="url(#tn-arr-hot)"/>
+      <text class="tn-elab accent" x="540" y="210">zero-copy tile</text>
+
+      <!-- MLX Compute → KV Cache (write) -->
+      <path id="tn-m-e3" class="tn-edge" d="M 620 115 L 700 115 L 700 235" marker-end="url(#tn-arr)"/>
+      <text class="tn-elab" x="750" y="180">write KV</text>
+
+      <!-- KV Cache → MLX Compute (attend, read) -->
+      <path id="tn-m-e4" class="tn-edge dashed" d="M 800 235 L 800 115 L 620 115" marker-end="url(#tn-arr)"/>
+      <text class="tn-elab" x="860" y="180">attend</text>
+
+      <!-- Prompt Cache → KV Cache (prefix reuse) -->
+      <path id="tn-m-e5" class="tn-edge dashed" d="M 620 350 L 760 350 L 760 315" marker-end="url(#tn-arr)"/>
+      <text class="tn-elab" x="700" y="340">prefix reuse</text>
+
+      <!-- The PCIe hop that CUDA AeroLLM needs but MLX doesn't (strikethrough) -->
+      <path class="tn-edge strike" d="M 400 275 L 660 155" />
+      <text class="tn-elab strike" x="530" y="262">✕ no PCIe copy</text>
+      <text class="tn-note"        x="530" y="252" style="fill:#a06060;">(collapsed by unified memory)</text>
+
+      <!-- Animated packets riding the hot paths -->
+      <g>
+        <rect x="-8" y="-5" width="16" height="10" rx="2" fill="#7ee0a0">
+          <animateMotion dur="2.4s" repeatCount="indefinite">
+            <mpath href="#tn-m-e1"/>
+          </animateMotion>
+        </rect>
+      </g>
+      <g>
+        <rect x="-8" y="-5" width="16" height="10" rx="2" fill="#7ee0a0">
+          <animateMotion dur="2.6s" repeatCount="indefinite" begin="0.8s">
+            <mpath href="#tn-m-e2"/>
+          </animateMotion>
+        </rect>
+      </g>
+      <g>
+        <rect x="-6" y="-4" width="12" height="8" rx="2" fill="#b8d0bf">
+          <animateMotion dur="3s" repeatCount="indefinite" begin="1.4s">
+            <mpath href="#tn-m-e3"/>
+          </animateMotion>
+        </rect>
+      </g>
+    </svg>
+
+    <!-- ── AeroLLM CUDA reference diagram (the 3-tier flow) ────── -->
+    <svg id="tn-arch-aerollm" class="tn-arch-svg"
+         viewBox="0 0 1000 520"
+         style="width:100%;height:auto;background:#0d0f12;border:1px solid #2a3238;border-radius:6px;display:none;">
+      <defs>
+        <style>
+          .tn-aband { fill:none; stroke:#2a3238; stroke-width:1.2; stroke-dasharray:3 4; }
+          .tn-ablab { font:600 10px system-ui; fill:#5a6770; letter-spacing:0.14em; }
+          .tn-anode { fill:#0f1418; stroke:#4a565e; stroke-width:1.5; }
+          .tn-anode.ghost { stroke-dasharray:5 4; opacity:0.7; }
+          .tn-atitle{ font:600 13px system-ui; fill:#e0ebe2; text-anchor:middle; }
+          .tn-asub  { font:11px system-ui; fill:#8faf97; text-anchor:middle; }
+          .tn-aedge { stroke:#6a7680; stroke-width:1.5; fill:none; }
+          .tn-aedge.dashed { stroke-dasharray:5 4; }
+          .tn-aelab { font:10px system-ui; fill:#8faf97; text-anchor:middle; letter-spacing:0.03em; }
+        </style>
+        <marker id="tn-aarr" markerWidth="9" markerHeight="9" refX="8" refY="4" orient="auto">
+          <polygon points="0 0, 8 4, 0 8" fill="#6a7680"/>
+        </marker>
+      </defs>
+
+      <!-- Bands -->
+      <rect class="tn-aband" x="15" y="15"  width="970" height="240" rx="4"/>
+      <text class="tn-ablab" x="30" y="35">GPU TIER (VRAM &amp; COMPUTE)</text>
+      <rect class="tn-aband" x="15" y="265" width="970" height="100" rx="4"/>
+      <text class="tn-ablab" x="30" y="285">CPU TIER (SYSTEM RAM)</text>
+      <rect class="tn-aband" x="15" y="375" width="970" height="130" rx="4"/>
+      <text class="tn-ablab" x="30" y="395">STORAGE TIER (SSD / DISK)</text>
+
+      <!-- Nodes -->
+      <rect class="tn-anode" x="560" y="70" width="180" height="80" rx="6"/>
+      <text class="tn-atitle" x="650" y="105">GPU VRAM</text>
+      <text class="tn-asub"   x="650" y="125">Layer 1 (16-bit)</text>
+
+      <rect class="tn-anode" x="780" y="70" width="180" height="80" rx="6"/>
+      <text class="tn-atitle" x="870" y="105">GPU COMPUTE</text>
+      <text class="tn-asub"   x="870" y="125">Matrix Mult</text>
+
+      <rect class="tn-anode ghost" x="780" y="180" width="180" height="55" rx="6"/>
+      <text class="tn-atitle" x="870" y="215" style="fill:#8faf97;">CLEARED MEMORY</text>
+
+      <rect class="tn-anode" x="430" y="290" width="240" height="60" rx="6"/>
+      <text class="tn-atitle" x="550" y="317">PREFETCH QUEUE</text>
+      <text class="tn-asub"   x="550" y="337">Ready: Layer 2</text>
+
+      <rect class="tn-anode" x="60" y="420" width="200" height="70" rx="6"/>
+      <text class="tn-atitle" x="160" y="450">SSD STORAGE</text>
+      <text class="tn-asub"   x="160" y="470">Layer 3 (16-bit)</text>
+
+      <rect class="tn-anode" x="430" y="420" width="240" height="70" rx="6"/>
+      <text class="tn-atitle" x="550" y="450">CPU RAM BUFFER</text>
+      <text class="tn-asub"   x="550" y="470">Loaded</text>
+
+      <!-- Edges -->
+      <path id="tn-a-e1" class="tn-aedge" d="M 260 455 L 430 455" marker-end="url(#tn-aarr)"/>
+      <text class="tn-aelab" x="345" y="447">I/O READ</text>
+
+      <path id="tn-a-e2" class="tn-aedge dashed" d="M 550 420 L 550 350" marker-end="url(#tn-aarr)"/>
+      <text class="tn-aelab" x="615" y="390">BKG THREAD</text>
+
+      <path id="tn-a-e3" class="tn-aedge" d="M 670 320 L 720 320 L 720 150" marker-end="url(#tn-aarr)"/>
+      <text class="tn-aelab" x="770" y="235">PCIe Gen4</text>
+
+      <path class="tn-aedge" d="M 740 110 L 780 110" marker-end="url(#tn-aarr)"/>
+
+      <path class="tn-aedge dashed" d="M 870 150 L 870 180" marker-end="url(#tn-aarr)"/>
+      <text class="tn-aelab" x="925" y="170">FREE MEM</text>
+
+      <!-- Packets -->
+      <g>
+        <rect x="-8" y="-5" width="16" height="10" rx="2" fill="#a0b0b8">
+          <animateMotion dur="2.2s" repeatCount="indefinite">
+            <mpath href="#tn-a-e1"/>
+          </animateMotion>
+        </rect>
+      </g>
+      <g>
+        <rect x="-8" y="-5" width="16" height="10" rx="2" fill="#a0b0b8">
+          <animateMotion dur="2s" repeatCount="indefinite" begin="0.6s">
+            <mpath href="#tn-a-e2"/>
+          </animateMotion>
+        </rect>
+      </g>
+      <g>
+        <rect x="-8" y="-5" width="16" height="10" rx="2" fill="#a0b0b8">
+          <animateMotion dur="2.8s" repeatCount="indefinite" begin="1.2s">
+            <mpath href="#tn-a-e3"/>
+          </animateMotion>
+        </rect>
+      </g>
+    </svg>
+  </div>
+
+  <!-- ── Hero metric cards ────────────────────────────────────────── -->
+  <div class="tn-grid">
+
+    <div class="tn-card">
+      <h3>Baseline</h3>
+      <div>
+        <span class="tn-big" id="tn-base-tps">—</span>
+        <span class="tn-unit">tok/s</span>
+      </div>
+      <div class="tn-meta">
+        TTFT: <span id="tn-base-ttft">—</span> ms<br>
+        Commit: <code id="tn-base-sha">—</code><br>
+        Captured: <span id="tn-base-ts">—</span>
+      </div>
+    </div>
+
+    <div class="tn-card">
+      <h3>Champion (current best)</h3>
+      <div>
+        <span class="tn-big" id="tn-best-tps">—</span>
+        <span class="tn-unit">tok/s</span>
+        <span class="tn-delta" id="tn-best-delta"></span>
+      </div>
+      <div class="tn-meta">
+        Variant: <span id="tn-best-label">—</span><br>
+        Commit: <a id="tn-best-sha-link" href="#"><code id="tn-best-sha">—</code></a><br>
+        <span id="tn-best-delta-note"></span>
+      </div>
+    </div>
+
+    <div class="tn-card">
+      <h3>Throughput over time</h3>
+      <canvas class="tn-spark" id="tn-spark"></canvas>
+      <div class="tn-meta" id="tn-spark-note">
+        Every dot is one bench run. Winning commits lift the line.
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ── Frontier challenge strip ──────────────────────────────────
+       670B-750B class models that exceed every single-GPU memory
+       ceiling in 2026. Only rendered when the backend's config has
+       a non-empty frontier_models list (MLX only today).
+
+       Each card shows: gpu_fit badges (H100/H200/B200 with ✗ or ✓),
+      disk footprint, current status ("streaming required — waiting
+      on the MLX streaming layer" until the streaming layer lands),
+       and the most recent frontier_baselines entry if present.
+
+       The point of this strip is honesty: until we actually run one
+       of these models, this card shows a blocker message. When we
+       DO run it, the card shows the first load time. That's the
+       data stream a future speedup story will be told on top of. -->
+  <div class="tn-sec" id="tn-frontier-wrap" style="display:none;">
+    <h2>Frontier challenge — 670B–750B class</h2>
+    <div class="tn-meta" style="margin:-4px 0 10px;font-size:12px;line-height:1.5;">
+      Models that <strong>exceed every single-GPU memory ceiling</strong> in 2026
+      (H100 80 GB / H200 141 GB / B200 192 GB). Until the MLX
+      streaming layer lands these rows record
+      <em>streaming_required</em> — the honest failure. The binary
+      goal isn't speed; it's "did the model produce an answer at all
+      on a 24 GB / 2 TB laptop".
+    </div>
+    <div class="tn-grid" id="tn-frontier"></div>
+  </div>
+
+  <!-- ── Controls ───────────────────────────────────────────────── -->
+  <div class="tn-controls">
+    <button class="tn-btn" id="tn-run-base">Capture / refresh baseline</button>
+    <button class="tn-btn" id="tn-run-auto">Run one sweep</button>
+    <button class="tn-btn" id="tn-run-forever"
+            style="background:#7a2;"
+            title="AeroLLM autoresearch — sweeps every candidate, pauses, sweeps again, forever.">
+      ▶ AeroLLM — don't stop, won't stop
+    </button>
+    <button class="tn-btn" id="tn-stop"
+            style="background:#a33;display:none;">
+      ⏹ Stop after this pass
+    </button>
+    <button class="tn-btn sec" id="tn-refresh">Refresh</button>
+    <span class="tn-status" id="tn-status">
+      <span class="phase" id="tn-phase">idle</span>
+      <span id="tn-phase-detail"></span>
+      <span id="tn-pass-chip" style="display:none;margin-left:8px;padding:2px 6px;border-radius:3px;background:#1e3a2a;color:#7ee0a0;">pass #<span id="tn-pass-num">0</span></span>
+    </span>
+  </div>
+
+  <!-- ── Schedule widget ─────────────────────────────────────────────
+       Controls when the continuous supervisor runs. Persists to
+       lab/data/autoresearch-schedule.json; the supervisor re-reads
+       it every tick so changes take effect without a restart.
+       Hidden when the backend has never entered continuous mode
+       (no reason to clutter the first-time UX). -->
+  <div class="tn-controls" style="margin-top:4px;font-size:12px;color:var(--muted,#888);align-items:center;">
+    <label style="display:flex;align-items:center;gap:6px;">
+      <span style="letter-spacing:0.05em;text-transform:uppercase;font-size:11px;">Schedule</span>
+      <select id="tn-sched-mode" style="background:#111;color:#d4e8d8;border:1px solid #333;border-radius:3px;padding:3px 6px;font-size:12px;">
+        <option value="anytime">Anytime</option>
+        <option value="window">Off-hours only</option>
+        <option value="paused">Paused</option>
+      </select>
+    </label>
+    <span id="tn-sched-window" style="display:none;gap:6px;align-items:center;">
+      <input type="time" id="tn-sched-start" value="22:00"
+             style="background:#111;color:#d4e8d8;border:1px solid #333;border-radius:3px;padding:2px 6px;font-size:12px;">
+      <span>to</span>
+      <input type="time" id="tn-sched-end" value="06:00"
+             style="background:#111;color:#d4e8d8;border:1px solid #333;border-radius:3px;padding:2px 6px;font-size:12px;">
+    </span>
+    <span id="tn-sched-status" style="color:#8faf97;"></span>
+  </div>
+
+  <!-- ── Variants from the last loop ───────────────────────────────── -->
+  <div class="tn-sec">
+    <h2>Last loop — variants</h2>
+    <table class="tn-runs">
+      <thead>
+        <tr>
+          <th>Variant</th>
+          <th>Knob delta</th>
+          <th>tok/s</th>
+          <th>Δ vs base</th>
+          <th>Branch / commit</th>
+          <th>Outcome</th>
+        </tr>
+      </thead>
+      <tbody id="tn-variants"><tr><td colspan="6" class="tn-empty">No autoresearch runs yet.</td></tr></tbody>
+    </table>
+  </div>
+
+  <!-- ── Full history ───────────────────────────────────────────────── -->
+  <div class="tn-sec">
+    <h2>Full bench history</h2>
+    <table class="tn-runs">
+      <thead>
+        <tr>
+          <th>When</th>
+          <th>Variant</th>
+          <th>tok/s</th>
+          <th>TTFT (ms)</th>
+          <th>Tokens</th>
+          <th title="Per-stage timings (MLX only for now) — load / prefill / decode in ms">Stages</th>
+          <th>Commit</th>
+          <th>Branch</th>
+        </tr>
+      </thead>
+      <tbody id="tn-history"><tr><td colspan="8" class="tn-empty">No bench records yet.</td></tr></tbody>
+    </table>
+  </div>
+
+  <!-- ── Knobs snapshot ───────────────────────────────────────────── -->
+  <details class="tn-know" id="tn-knobs-box">
+    <summary>Current tunable knobs (whitelisted — these are the autoresearch agent's only surface area)</summary>
+    <div id="tn-knobs" style="margin-top:8px;"></div>
+  </details>
+
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  const $ = (id) => document.getElementById(id);
+  const fmt = (n, d = 3) => (n == null ? "—" : Number(n).toFixed(d));
+
+  // View selection — three user-facing views. AeroLLM MLX and AirLLM
+  // MLX both map to the mlx tuning backend (same dataset, different
+  // framing lens). CUDA maps to the aerollm tuning backend.
+  // Persisted so a refresh keeps the view the user was on.
+  const VIEWS = ["aerollm-mlx", "airllm-mlx", "aerollm-cuda"];
+  const VIEW_BACKEND = {
+    "aerollm-mlx":  "mlx",
+    "airllm-mlx":   "mlx",
+    "aerollm-cuda": "aerollm",
+  };
+  const VIEW_META = {
+    "aerollm-mlx": {
+      heroTitle: "AeroLLM MLX \u2014 tune the research model on Apple silicon",
+      archDiagram: "mlx",
+      archTitle: "Architecture \u2014 MLX unified-memory streaming",
+      archBlurb: ("Layers live on NVMe. A <em>rotating window</em> of the current "
+       + "layer is mmap'd into unified memory; MLX kernels read it "
+       + "<em>in place</em> (no PCIe copy \u2014 that stage doesn't exist on "
+       + "Apple silicon). KV cache quantizes mid-stream via "
+       + "<code>quantized_kv_start</code>; prefill chunks via "
+       + "<code>prefill_step_size</code>; prefixes reuse via the prompt "
+       + "cache. These are the levers our knobs reach."),
+      framingBody: ("<strong style=\"color:#d4e8d8;\">AeroLLM \u2014 aerodynamic layer streaming.</strong> "
+       + "Multi-threaded prefetch overlaps I/O and compute so simultaneous prompts share each layer "
+       + "pass instead of serializing on disk bandwidth. Developed at "
+       + "<a href=\"https://github.com/cdarnell/aerollm\" target=\"_blank\" rel=\"noopener\" style=\"color:#7ee0a0;\">cdarnell/aerollm</a>. "
+       + "<br><span style=\"color:#8faf97;\">Measurements land in <code>lab/data/mlx-bench.jsonl</code>.</span>"),
+    },
+    "airllm-mlx": {
+      heroTitle: "AirLLM MLX \u2014 comparison view on Apple silicon",
+      archDiagram: "mlx",
+      archTitle: "Architecture \u2014 AirLLM unified-memory comparison",
+      archBlurb: ("AirLLM layers stream from NVMe into unified memory using the same MLX mmap "
+       + "approach. This view compares AirLLM inference behavior on the same MLX tuning dataset "
+       + "as AeroLLM MLX \u2014 useful for spotting where the two runtimes diverge on "
+       + "<code>prefill_step_size</code> and KV quantization strategies. "
+       + "<span style=\"color:#8faf97;\">Shares <code>lab/data/mlx-bench.jsonl</code> with AeroLLM MLX.</span>"),
+      framingBody: ("<strong style=\"color:#d4e8d8;\">AirLLM \u2014 layer-streaming baseline on Apple silicon.</strong> "
+       + "This is a comparison view over the existing MLX tuning dataset. AirLLM uses the same "
+       + "NVMe \u2192 unified memory pipeline; results reflect both runtimes on identical hardware. "
+       + "<br><span style=\"color:#8faf97;\">Autoresearch loop uses the AeroLLM MLX track. "
+       + "Comparison data lands in <code>lab/data/mlx-bench.jsonl</code>.</span>"),
+    },
+    "aerollm-cuda": {
+      heroTitle: "AeroLLM CUDA \u2014 tune the research model on GPU",
+      archDiagram: "aerollm",
+      archTitle: "Architecture \u2014 AeroLLM CUDA 3-tier streaming",
+      archBlurb: ("Each transformer layer is streamed SSD \u2192 CPU RAM \u2192 PCIe \u2192 "
+       + "VRAM, computed, then freed \u2014 so a 1 TB model runs on a 24 GB "
+       + "card. The prefetcher hides disk latency behind compute; "
+       + "<code>prefetch_enabled</code> + <code>prefetch_lookahead</code> "
+       + "are the knobs that move this pipeline."),
+      framingBody: ("<strong style=\"color:#d4e8d8;\">AeroLLM \u2014 aerodynamic layer streaming on CUDA.</strong> "
+       + "Multi-threaded prefetch overlaps I/O and compute so simultaneous prompts share each layer "
+       + "pass on GPU. For 1 TB class models on a 24 GB card. "
+       + "<br><span style=\"color:#8faf97;\">Measurements land in <code>lab/data/aerollm-bench.jsonl</code>.</span>"),
+    },
+  };
+
+  function currentView() {
+    const v = localStorage.getItem("arail.tuning.view") || "aerollm-mlx";
+    return VIEWS.includes(v) ? v : "aerollm-mlx";
+  }
+  function currentBackend() {
+    return VIEW_BACKEND[currentView()] || "mlx";
+  }
+  function setView(v) {
+    if (!VIEWS.includes(v)) return;
+    localStorage.setItem("arail.tuning.view", v);
+    const meta = VIEW_META[v];
+    document.querySelectorAll(".tn-tab").forEach(el => {
+      const on = el.dataset.view === v;
+      el.classList.toggle("active", on);
+      el.style.borderBottomColor = on ? "#7ee0a0" : "transparent";
+      el.style.color = on ? "#d4e8d8" : "#8faf97";
+    });
+    // Update hero title
+    const heroTitle = document.getElementById("tn-hero-title");
+    if (heroTitle) heroTitle.textContent = meta.heroTitle;
+    // Swap architecture diagram
+    const mlxOn = meta.archDiagram === "mlx";
+    document.getElementById("tn-arch-mlx").style.display = mlxOn ? "block" : "none";
+    document.getElementById("tn-arch-aerollm").style.display = mlxOn ? "none" : "block";
+    document.getElementById("tn-arch-title").textContent = meta.archTitle;
+    document.getElementById("tn-arch-blurb").innerHTML = meta.archBlurb;
+    // Update framing card body
+    const framingBody = document.getElementById("tn-framing-body");
+    if (framingBody) framingBody.innerHTML = meta.framingBody;
+    refresh();
+  }
+  function qurl(path) {
+    const sep = path.includes("?") ? "&" : "?";
+    return path + sep + "backend=" + encodeURIComponent(currentBackend());
+  }
+
+  async function jget(url) {
+    const r = await fetch(qurl(url));
+    if (!r.ok) throw new Error(url + " → " + r.status);
+    return r.json();
+  }
+  async function jpost(url, body = {}) {
+    const r = await fetch(qurl(url), {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) throw new Error(url + " → " + r.status);
+    return r.json();
+  }
+
+  function paintConfig(cfg) {
+    const rm = cfg.research_model || {};
+    $("tn-model-name").textContent = rm.name || "—";
+    $("tn-model-size").textContent = rm.expected_disk_gb
+      ? rm.expected_disk_gb + " GB on disk (" + (rm.precision || "fp16") + ")"
+      : "—";
+    $("tn-model-family").textContent = rm.family || "—";
+
+    const base = cfg.baseline_metrics || {};
+    $("tn-base-tps").textContent  = fmt(base.median_tok_per_sec);
+    $("tn-base-ttft").textContent = fmt(base.median_ttft_ms, 0);
+    $("tn-base-sha").textContent  = (cfg.baseline_commit || "—").slice(0, 8);
+    $("tn-base-ts").textContent   = base.ts || "—";
+
+    // Render knobs
+    const container = $("tn-knobs");
+    container.innerHTML = "";
+    const knobs = cfg.knobs || {};
+    for (const [name, knob] of Object.entries(knobs)) {
+      const row = document.createElement("div");
+      row.className = "tn-knob-row";
+      row.innerHTML =
+        "<code>" + name + "</code>" +
+        "<span>= <code>" + JSON.stringify(knob.current) + "</code></span>";
+      container.appendChild(row);
+    }
+
+    paintFrontier(cfg);
+  }
+
+  // ── Frontier challenge strip ────────────────────────────────────────
+  //
+  // Renders a card per entry in cfg.frontier_models. If the backend has
+  // no frontier_models (the CUDA AeroLLM tuning.yml doesn't declare
+  // any yet), the wrap stays hidden — keeping that tab visually clean.
+  //
+  // Each card's status comes from cfg.frontier_baselines[huggingface_id]:
+  //   - missing entry          → "streaming_required — waiting on the
+  //                              MLX streaming layer" (the honest
+  //                              failure before the first bench lands).
+  //   - status === "error"     → render the structured reason + ts.
+  //   - status === "ok"        → render ttft/decode/tokens_out, the
+  //                              first real datapoint against the model.
+  //
+  // GPU fit badges are the pedagogical payload: they show AT A GLANCE
+  // that this model exceeds every single-GPU memory ceiling in 2026.
+  // That framing is the whole point of the section — without it the
+  // "24 GB laptop runs 670B" claim sounds like puffery.
+  function paintFrontier(cfg) {
+    const wrap = $("tn-frontier-wrap");
+    const grid = $("tn-frontier");
+    const models = Array.isArray(cfg.frontier_models) ? cfg.frontier_models : [];
+    if (!models.length) {
+      wrap.style.display = "none";
+      return;
+    }
+    wrap.style.display = "";
+    const baselines = cfg.frontier_baselines || {};
+    grid.innerHTML = "";
+    for (const m of models) {
+      const card = document.createElement("div");
+      card.className = "tn-card";
+
+      // Header: model name + total-param headline
+      const totalB = m.total_params_b ? m.total_params_b + "B" : "?B";
+      const activeB = (m.family === "moe" && m.active_params_b)
+        ? " · " + m.active_params_b + "B active"
+        : "";
+      const disk = m.expected_disk_gb ? m.expected_disk_gb + " GB on disk" : "";
+      const precision = m.precision ? " · " + m.precision : "";
+
+      // GPU fit badges — the pedagogical payload. ✓ green, ✗ red.
+      const fit = m.gpu_fit || {};
+      function badge(label, ok) {
+        const bg = ok ? "#144d25" : "#4d1e1e";
+        const fg = ok ? "#7ee0a0" : "#f0a0a0";
+        const mark = ok ? "✓" : "✗";
+        return '<span style="display:inline-block;padding:2px 6px;margin:0 4px 4px 0;' +
+               'border-radius:3px;background:' + bg + ';color:' + fg +
+               ';font-size:11px;font-family:ui-monospace,monospace;">' +
+               mark + "\u00a0" + label + "</span>";
+      }
+      const badges =
+        badge("H100 80GB",  !!fit.h100_80gb) +
+        badge("H200 141GB", !!fit.h200_141gb) +
+        badge("B200 192GB", !!fit.b200_192gb);
+
+      // Status. frontier_baselines is keyed by huggingface_id.
+      const bench = baselines[m.huggingface_id];
+      let statusHtml;
+      if (!bench) {
+        statusHtml =
+          '<div style="padding:8px 10px;border-radius:4px;' +
+          'background:#332417;color:#f0c080;font-size:11px;line-height:1.5;">' +
+          '<strong>streaming_required</strong> — waiting on ' +
+          'the MLX streaming layer. No bench attempt has ' +
+          "been recorded yet against this model on this host." +
+          "</div>";
+      } else if (bench.status === "error") {
+        const reason = (bench.error || "unknown reason").slice(0, 240);
+        const ts = (bench.ts || "").replace("T", " ").slice(0, 19);
+        statusHtml =
+          '<div style="padding:8px 10px;border-radius:4px;' +
+          'background:#2a1a1a;color:#f0a0a0;font-size:11px;line-height:1.5;">' +
+          '<strong>error</strong> · <span style="color:#c88;">' + ts + "</span>" +
+          '<div style="margin-top:4px;color:#e8b0b0;">' + reason + "</div>" +
+          "</div>";
+      } else {
+        // status=ok → the first real measurement. The academic win.
+        const ttft = bench.ttft_ms != null ? fmt(bench.ttft_ms, 0) + " ms" : "—";
+        const dec  = bench.decode_tok_per_sec != null
+          ? fmt(bench.decode_tok_per_sec) + " tok/s" : "—";
+        const ts = (bench.ts || "").replace("T", " ").slice(0, 19);
+        statusHtml =
+          '<div style="padding:8px 10px;border-radius:4px;' +
+          'background:#0f2a1a;color:#7ee0a0;font-size:11px;line-height:1.5;">' +
+          '<strong>ok</strong> · ' + ts +
+          '<div style="margin-top:4px;color:#a8d8b8;">' +
+            "TTFT " + ttft + " · decode " + dec +
+            " · tokens_out " + (bench.tokens_out || 0) +
+          "</div>" +
+          "</div>";
+      }
+
+      // Rationale — trimmed so cards don't balloon.
+      const rationale = (m.rationale || "").trim();
+      const rationaleHtml = rationale
+        ? '<div class="tn-meta" style="margin-top:8px;">' +
+          rationale.replace(/</g, "&lt;") +
+          "</div>"
+        : "";
+
+      card.innerHTML =
+        "<h3>" + (m.name || "—") + "</h3>" +
+        '<div class="tn-big">' + totalB +
+          '<span class="tn-unit">' + (m.family || "") + activeB + "</span></div>" +
+        '<div class="tn-meta" style="margin-top:2px;">' + disk + precision + "</div>" +
+        '<div style="margin-top:10px;">' + badges + "</div>" +
+        '<div style="margin-top:10px;">' + statusHtml + "</div>" +
+        rationaleHtml;
+      grid.appendChild(card);
+    }
+  }
+
+  function fmtStages(stages) {
+    // Stage render: compact one-liner like "load 1.2s · prefill 300 · decode 58s".
+    // Returns "—" when stages is absent (CUDA rows, old rows, or
+    // failed runs that never recorded a stage). Generic over keys so
+    // new stages render automatically if a future backend adds them.
+    if (!stages || typeof stages !== "object") return "—";
+    const fmtMs = (v) => {
+      if (v == null) return "—";
+      if (v >= 1000) return (v / 1000).toFixed(1) + "s";
+      return Math.round(v) + "ms";
+    };
+    // Preferred ordering so the eye scans left→right in the right
+    // order. Any key we don't know about renders last in alpha order.
+    const order = ["load_ms", "tokenize_ms", "prefill_ms", "decode_ms"];
+    const keys = order.filter(k => k in stages)
+      .concat(Object.keys(stages).filter(k => !order.includes(k)).sort());
+    const label = (k) => k.replace(/_ms$/, "");
+    return keys.map(k => label(k) + " " + fmtMs(stages[k])).join(" · ");
+  }
+
+  function paintHistory(rows) {
+    const tbody = $("tn-history");
+    if (!rows.length) {
+      tbody.innerHTML = '<tr><td colspan="8" class="tn-empty">No bench records yet.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = "";
+    // newest first
+    const sorted = rows.slice().sort((a, b) => (a.ts < b.ts ? 1 : -1));
+    for (const r of sorted.slice(0, 60)) {
+      const tr = document.createElement("tr");
+      tr.innerHTML =
+        "<td>" + (r.ts || "").replace("T", " ").slice(0, 19) + "</td>" +
+        "<td>" + (r.variant_label || "—") + "</td>" +
+        "<td>" + fmt(r.decode_tok_per_sec) + "</td>" +
+        "<td>" + fmt(r.ttft_ms, 0) + "</td>" +
+        "<td>" + (r.tokens_out || 0) + "</td>" +
+        '<td style="font-family:ui-monospace,monospace;font-size:11px;color:#8faf97;">' +
+          fmtStages(r.stages) + "</td>" +
+        "<td><code>" + (r.git_short_sha || "—") + "</code></td>" +
+        "<td>" + (r.git_branch || "—") + "</td>";
+      tbody.appendChild(tr);
+    }
+
+    // Champion is best decode_tok_per_sec across all ok rows
+    const ok = rows.filter((r) => r.status === "ok" && r.decode_tok_per_sec);
+    if (ok.length) {
+      ok.sort((a, b) => b.decode_tok_per_sec - a.decode_tok_per_sec);
+      const best = ok[0];
+      $("tn-best-tps").textContent = fmt(best.decode_tok_per_sec);
+      $("tn-best-label").textContent = best.variant_label || "—";
+      $("tn-best-sha").textContent = best.git_short_sha || "—";
+      if (best.git_short_sha && best.diff_url) {
+        $("tn-best-sha-link").href = best.diff_url;
+      }
+      // Delta chip
+      const baseTps = parseFloat($("tn-base-tps").textContent);
+      if (baseTps && baseTps > 0) {
+        const delta = ((best.decode_tok_per_sec - baseTps) / baseTps) * 100;
+        const chip = $("tn-best-delta");
+        chip.textContent = (delta >= 0 ? "+" : "") + delta.toFixed(1) + "%";
+        chip.className = "tn-delta " + (delta >= 0 ? "win" : "loss");
+        $("tn-best-delta-note").textContent =
+          (delta >= 0 ? "Improvement" : "Regression") + " vs baseline";
+      }
+    }
+
+    drawSparkline(rows);
+  }
+
+  function drawSparkline(rows) {
+    const canvas = $("tn-spark");
+    const ctx = canvas.getContext("2d");
+    const w = canvas.width = canvas.clientWidth;
+    const h = canvas.height = canvas.clientHeight || 80;
+    ctx.clearRect(0, 0, w, h);
+
+    const pts = rows
+      .filter((r) => r.decode_tok_per_sec && r.status === "ok")
+      .map((r) => r.decode_tok_per_sec);
+    if (pts.length < 2) {
+      ctx.fillStyle = "#666";
+      ctx.font = "12px system-ui";
+      ctx.fillText("Need ≥2 bench runs to chart.", 8, 20);
+      return;
+    }
+    const min = Math.min(...pts);
+    const max = Math.max(...pts);
+    const span = Math.max(max - min, 0.001);
+    ctx.strokeStyle = "#2a6";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    pts.forEach((v, i) => {
+      const x = (i / (pts.length - 1)) * (w - 8) + 4;
+      const y = h - 4 - ((v - min) / span) * (h - 12);
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+  }
+
+  function paintState(state) {
+    $("tn-phase").textContent = state.phase || "idle";
+    $("tn-phase-detail").textContent = state.current_variant
+      ? " — " + state.current_variant
+      : (state.error ? " — " + state.error : "");
+
+    // Continuous loop UI: show the pass chip + swap start/stop
+    // buttons so it's obvious the autoresearch loop is alive between sweeps.
+    const running = state.continuous === true &&
+      (state.phase === "baseline" || state.phase === "variant" ||
+       state.stop_requested !== true);
+    $("tn-pass-chip").style.display = state.continuous ? "inline-block" : "none";
+    $("tn-pass-num").textContent = state.pass_number || 0;
+    $("tn-run-forever").style.display = running ? "none" : "inline-block";
+    $("tn-stop").style.display = running ? "inline-block" : "none";
+    if (state.stop_requested) {
+      $("tn-phase-detail").textContent += " — stop requested (finishing pass)";
+    }
+
+    const tbody = $("tn-variants");
+    if (!state.variants || !state.variants.length) {
+      tbody.innerHTML = '<tr><td colspan="6" class="tn-empty">No autoresearch runs yet.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = "";
+    for (const v of state.variants) {
+      const tr = document.createElement("tr");
+      tr.className = v.outcome === "win" ? "win" : (v.outcome === "loss" ? "loss" : "");
+      const deltaTxt = v.delta_pct == null ? "—" :
+        ((v.delta_pct >= 0 ? "+" : "") + v.delta_pct.toFixed(1) + "%");
+      tr.innerHTML =
+        "<td>" + v.label + "</td>" +
+        "<td><code>" + JSON.stringify(v.knob_delta) + "</code></td>" +
+        "<td>" + fmt(v.median_tok_per_sec) + "</td>" +
+        "<td>" + deltaTxt + "</td>" +
+        "<td>" + (v.branch || "—") +
+          (v.git_sha ? "<br><code>" + v.git_sha.slice(0, 8) + "</code>" : "") + "</td>" +
+        "<td>" + v.outcome + (v.error ? " (" + v.error + ")" : "") + "</td>";
+      tbody.appendChild(tr);
+    }
+  }
+
+  async function refresh() {
+    try {
+      const cfg = await jget("/api/tuning/config");
+      paintConfig(cfg);
+    } catch (e) { console.warn(e); }
+    try {
+      const { runs } = await jget("/api/tuning/runs");
+      paintHistory(runs);
+    } catch (e) { console.warn(e); }
+    try {
+      const state = await jget("/api/tuning/autoresearch/status");
+      paintState(state);
+    } catch (e) { console.warn(e); }
+  }
+
+  async function captureBaseline() {
+    $("tn-run-base").disabled = true;
+    $("tn-status").textContent = "Running baseline…";
+    try {
+      await jpost("/api/tuning/baseline");
+    } catch (e) {
+      alert("Baseline failed: " + e.message);
+    } finally {
+      $("tn-run-base").disabled = false;
+      refresh();
+    }
+  }
+
+  async function runAutoresearch() {
+    if (!confirm(
+      "This will run the autoresearch loop against the 1 TB model. " +
+      "Each variant takes minutes. Commits may land on autoresearch/ " +
+      "branches if they beat baseline. Continue?"
+    )) return;
+    $("tn-run-auto").disabled = true;
+    try {
+      await jpost("/api/tuning/autoresearch/start");
+      const poll = setInterval(async () => {
+        try {
+          const s = await jget("/api/tuning/autoresearch/status");
+          paintState(s);
+          if (s.phase === "done" || s.phase === "error" || s.phase === "idle") {
+            clearInterval(poll);
+            $("tn-run-auto").disabled = false;
+            refresh();
+          }
+        } catch (e) { /* poll again */ }
+      }, 4000);
+    } catch (e) {
+      alert("Autoresearch failed to start: " + e.message);
+      $("tn-run-auto").disabled = false;
+    }
+  }
+
+  async function runForever() {
+    if (!confirm(
+      "AeroLLM autoresearch — don't stop, won't stop.\n\n" +
+      "This sweeps every candidate, pauses briefly, then sweeps the " +
+      "whole thing again — forever, until you click Stop. Winning " +
+      "variants get committed to autoresearch/* branches for human " +
+      "review.\n\nThe AeroLLM binary is untouched; this only measures.\n\n" +
+      "Continue?"
+    )) return;
+    try {
+      await jpost("/api/tuning/autoresearch/start_forever");
+    } catch (e) {
+      alert("AeroLLM autoresearch failed to start: " + e.message);
+      return;
+    }
+    // Poll while continuous. 4s cadence matches the one-shot loop.
+    const poll = setInterval(async () => {
+      try {
+        const s = await jget("/api/tuning/autoresearch/status");
+        paintState(s);
+        if (!s.continuous && s.phase !== "baseline" && s.phase !== "variant") {
+          clearInterval(poll);
+          refresh();
+        }
+      } catch (e) { /* poll again */ }
+    }, 4000);
+  }
+
+  async function stopLoop() {
+    try {
+      await jpost("/api/tuning/autoresearch/stop");
+    } catch (e) {
+      alert("Stop failed: " + e.message);
+    }
+  }
+
+  $("tn-run-base").addEventListener("click", captureBaseline);
+  $("tn-run-auto").addEventListener("click", runAutoresearch);
+  $("tn-run-forever").addEventListener("click", runForever);
+  $("tn-stop").addEventListener("click", stopLoop);
+  $("tn-refresh").addEventListener("click", refresh);
+  document.querySelectorAll(".tn-tab").forEach(el => {
+    el.addEventListener("click", () => setView(el.dataset.view));
+  });
+  // ── Schedule widget ─────────────────────────────────────────────
+  // Reads /api/tuning/autoresearch/schedule on load, reflects mode +
+  // window in the three inputs, and POSTs changes back. The server
+  // persists to lab/data/autoresearch-schedule.json; the supervisor
+  // re-reads each tick. No form/submit — every change is live.
+  async function loadSchedule() {
+    try {
+      const j = await fetch("/api/tuning/autoresearch/schedule").then(r => r.json());
+      const s = j.schedule || {};
+      const st = j.status || {};
+      $("tn-sched-mode").value = s.mode || "anytime";
+      $("tn-sched-start").value = s.window_start || "22:00";
+      $("tn-sched-end").value = s.window_end || "06:00";
+      $("tn-sched-window").style.display = s.mode === "window" ? "inline-flex" : "none";
+      paintScheduleStatus(st);
+    } catch (e) { /* leave defaults */ }
+  }
+  function paintScheduleStatus(st) {
+    const el = $("tn-sched-status");
+    if (!st || !st.mode) { el.textContent = ""; return; }
+    if (st.mode === "anytime") {
+      el.textContent = "· always on";
+      el.style.color = "#7ee0a0";
+    } else if (st.mode === "paused") {
+      el.textContent = "· paused (no runs)";
+      el.style.color = "#c8a060";
+    } else if (st.mode === "window") {
+      if (st.allowed_now) {
+        el.textContent = "· in window (running)";
+        el.style.color = "#7ee0a0";
+      } else {
+        el.textContent = "· next open at " + (st.next_open_at || "—");
+        el.style.color = "#8faf97";
+      }
+    }
+  }
+  async function saveSchedule() {
+    const body = {
+      mode: $("tn-sched-mode").value,
+      window_start: $("tn-sched-start").value,
+      window_end: $("tn-sched-end").value,
+    };
+    $("tn-sched-window").style.display = body.mode === "window" ? "inline-flex" : "none";
+    try {
+      const j = await fetch("/api/tuning/autoresearch/schedule", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(body),
+      }).then(r => r.json());
+      paintScheduleStatus(j.status || {});
+    } catch (e) { /* silent — user can retry */ }
+  }
+  ["tn-sched-mode", "tn-sched-start", "tn-sched-end"].forEach(id => {
+    const el = $(id);
+    if (el) el.addEventListener("change", saveSchedule);
+  });
+
+  // Reflect the persisted view in the tab bar, then load data.
+  setView(currentView());
+  loadSchedule();
+  // Soft auto-refresh so users see live updates during a loop. Also
+  // refreshes the schedule status so "next open at" ticks forward.
+  setInterval(() => { refresh(); loadSchedule(); }, 15000);
+})();
+</script>
+
+</body>
+</html>

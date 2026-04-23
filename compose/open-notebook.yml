@@ -19,7 +19,7 @@
 services:
   open-notebook-db:
     image: surrealdb/surrealdb:v2
-    container_name: oglab-open-notebook-db
+    container_name: arail-open-notebook-db
     command: start --log info --user root --pass root rocksdb:/mydata/mydatabase.db
     user: root
     volumes:
@@ -28,7 +28,7 @@ services:
 
   speaches:
     image: ghcr.io/speaches-ai/speaches:latest-cpu
-    container_name: oglab-speaches
+    container_name: arail-speaches
     ports:
       - "127.0.0.1:${SPEACHES_PORT:-8969}:8000"
     volumes:
@@ -37,7 +37,7 @@ services:
 
   open-notebook:
     image: lfnovo/open_notebook:v1-latest
-    container_name: oglab-open-notebook
+    container_name: arail-open-notebook
     depends_on:
       - open-notebook-db
       - speaches

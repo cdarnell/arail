@@ -12,7 +12,7 @@ that's what appears in the Knowledge tab for non-developers.
 
 ## What's an agent?
 
-An **agent** in OGLab is a long-running Python object that:
+An **agent** in Arail is a long-running Python object that:
 
 1. Runs as an asyncio task inside the portal process.
 2. Observes the lab — GPU state, researcher progress, PKB contents,
@@ -26,10 +26,10 @@ Four agents ship today:
 
 | Agent | Purpose | Pattern |
 |---|---|---|
-| [researcher.py](../src/oglab/agents/researcher.py) | Drives a goal: hypotheses → experiments → report | Goal-driven |
-| [curator.py](../src/oglab/agents/curator.py) | Finds sources for the researcher, gates on consent | Goal-driven |
-| [browser.py](../src/oglab/agents/browser.py) | Web research via agent-browser, capture to PKB | On-demand |
-| [_builtin_pip.py](../src/oglab/agents/_builtin_pip.py) | Lab buddy — notices things, speaks up | **Personality** |
+| [researcher.py](../src/arail/agents/researcher.py) | Drives a goal: hypotheses → experiments → report | Goal-driven |
+| [curator.py](../src/arail/agents/curator.py) | Finds sources for the researcher, gates on consent | Goal-driven |
+| [browser.py](../src/arail/agents/browser.py) | Web research via agent-browser, capture to PKB | On-demand |
+| [_builtin_pip.py](../src/arail/agents/_builtin_pip.py) | Lab buddy — notices things, speaks up | **Personality** |
 
 Pip is the first "personality" agent — it doesn't drive a goal; it
 watches and comments. This document focuses on that pattern because
@@ -39,7 +39,7 @@ it's the template for the upcoming Agent Forge.
 
 Every personality agent is a **folder**, not a single file. The
 folder lives under the PKB so the wiki indexes it, `/knowledge` can
-browse it, and `./oglab reset pkb` wipes it cleanly.
+browse it, and `./arail reset pkb` wipes it cleanly.
 
 ```
 lab/pkb/agents/pip/
@@ -74,8 +74,8 @@ Five reasons:
 3. **Wiki-indexed.** AGENT.md, decisions.md, and every dream entry
    appear in the wiki automatically. Backlinks work. Search covers
    them.
-4. **Reset-friendly.** `./oglab reset pkb` wipes the folder. Next
-   `./oglab start` re-seeds it from the builtin copy. No manual
+4. **Reset-friendly.** `./arail reset pkb` wipes the folder. Next
+   `./arail start` re-seeds it from the builtin copy. No manual
    rebuild.
 5. **Forge-ready.** The Agent Forge (Step 5) generates one of these
    folders per user-created agent. Keeping the shape uniform means
@@ -89,10 +89,10 @@ To reconcile "canonical source in the installed package" with
 
 | File | Role |
 |---|---|
-| [src/oglab/agents/_builtin_pip.py](../src/oglab/agents/_builtin_pip.py) | **Canonical source.** What ships with the release. Read-only by convention (leading underscore). Also used as the fallback if the PKB copy fails to import. |
-| `lab/pkb/agents/pip/pip.py` | **User-editable copy.** Materialized on first boot by [builtin_seed.py](../src/oglab/agents/builtin_seed.py). Dynamically imported by the shim at [src/oglab/agents/pip.py](../src/oglab/agents/pip.py) at startup. |
+| [src/arail/agents/_builtin_pip.py](../src/arail/agents/_builtin_pip.py) | **Canonical source.** What ships with the release. Read-only by convention (leading underscore). Also used as the fallback if the PKB copy fails to import. |
+| `lab/pkb/agents/pip/pip.py` | **User-editable copy.** Materialized on first boot by [builtin_seed.py](../src/arail/agents/builtin_seed.py). Dynamically imported by the shim at [src/arail/agents/pip.py](../src/arail/agents/pip.py) at startup. |
 
-The shim resolves `from oglab.agents.pip import pip` by:
+The shim resolves `from arail.agents.pip import pip` by:
 
 1. Calling `ensure_pip_folder()` to materialize the PKB copy if
    missing (idempotent; copies `_builtin_pip.py` → `pip/pip.py`).
@@ -123,7 +123,7 @@ Three tiers, in order of durability:
    lands in this PR; the scheduler wiring comes in Step 2.
 
 Wiping memory is always one command: delete the file/dir, or run
-`./oglab reset pkb`.
+`./arail reset pkb`.
 
 ## How agents interact with the rest of the lab
 
@@ -195,7 +195,7 @@ LLM call per day.
 
 ### The daemon
 
-[`src/oglab/agents/dream_daemon.py`](../src/oglab/agents/dream_daemon.py)
+[`src/arail/agents/dream_daemon.py`](../src/arail/agents/dream_daemon.py)
 is the scheduler. It:
 
 - Polls every 15 min (`LAB_DREAM_POLL_SEC`).
@@ -229,7 +229,7 @@ the new version — no restart, no redeploy.
 
 | | Skill | Tool |
 |---|---|---|
-| **Where** | `lab/pkb/skills/<id>/SKILL.md` | `src/oglab/*.py` functions |
+| **Where** | `lab/pkb/skills/<id>/SKILL.md` | `src/arail/*.py` functions |
 | **Form** | Markdown — procedural knowledge | Python callable |
 | **Editable by** | User (or agent, via review queue) | Developer |
 | **Versioned in** | Wiki + CHANGELOG.md + git if user commits | Git |
@@ -287,7 +287,7 @@ For each LLM call, the agent:
 4. Prepends the agent's base system prompt; appends the task-
    specific observation or user message.
 
-The composer lives at [`src/oglab/skills_loader.py`](../src/oglab/skills_loader.py).
+The composer lives at [`src/arail/skills_loader.py`](../src/arail/skills_loader.py).
 Loading is deliberately cheap: skills are tiny markdown files, reads
 happen on every emit. No caching, no invalidation logic, no restart
 needed to pick up edits — that's the whole payoff.
@@ -295,7 +295,7 @@ needed to pick up edits — that's the whole payoff.
 ### Shipped starter skills
 
 Seeded on first boot by
-[`src/oglab/skill_seed.py`](../src/oglab/skill_seed.py):
+[`src/arail/skill_seed.py`](../src/arail/skill_seed.py):
 
 | Skill | Domain | Used by |
 |---|---|---|
@@ -378,7 +378,7 @@ agent" panel, fill in the form, click Deploy.
 
 ### Backend
 
-- `src/oglab/agents/forge.py` — code generator + deploy helper.
+- `src/arail/agents/forge.py` — code generator + deploy helper.
   Split into: `slugify` (name → Python id), `validate` (form
   sanity), `generate_agent_md` / `generate_agent_py`, `deploy`.
 - `GET /api/skills/list` — feeds the skills picker.
@@ -414,7 +414,7 @@ agent. To edit:
 
 ## The dynamic loader
 
-[`src/oglab/agents/loader.py`](../src/oglab/agents/loader.py) walks
+[`src/arail/agents/loader.py`](../src/arail/agents/loader.py) walks
 `lab/pkb/agents/*/AGENT.md` at portal startup, instantiates every
 agent it finds, starts the ones that opt in, and registers dream-
 capable ones with the nightly scheduler. The same path handles
@@ -440,7 +440,7 @@ For each agent folder:
   dream(self)`. That's the whole contract.
 
 The loader imports via `importlib.util.spec_from_file_location`
-with a unique module name (`oglab.agents._folder_<id>`) so the
+with a unique module name (`arail.agents._folder_<id>`) so the
 bundled `_builtin_<id>.py` never clashes with the PKB copy in
 `sys.modules`.
 
@@ -448,15 +448,15 @@ bundled `_builtin_<id>.py` never clashes with the PKB copy in
 
 `load_one(agent_id)` and `load_all()` are idempotent — the first
 call materializes the instance, every subsequent call returns the
-same one. The backcompat shim at `src/oglab/agents/pip.py` now
-delegates to `load_one("pip")`, so `from oglab.agents.pip import
+same one. The backcompat shim at `src/arail/agents/pip.py` now
+delegates to `load_one("pip")`, so `from arail.agents.pip import
 pip` and `load_all()["pip"]` resolve to the same object. No double-
 ticking.
 
 ### Shipped fallback
 
 Agents listed in `_SHIPPED` (today: just `pip`) get an automatic
-fallback to `src/oglab/agents/_builtin_<id>.py` if the PKB copy
+fallback to `src/arail/agents/_builtin_<id>.py` if the PKB copy
 fails to import. User-forged agents don't have this safety net —
 a broken `.py` means the agent doesn't load and a warning lands
 in the activity feed. The Forge UI will surface these explicitly.
@@ -474,7 +474,7 @@ Two frontmatter fields drive loader behavior:
 ### Portal startup
 
 ```python
-from oglab.agents.loader import load_all, start_all_auto
+from arail.agents.loader import load_all, start_all_auto
 agents = load_all()            # {"pip": <PipAgent>, ...}
 start_all_auto(agents)         # .start() + dream-register each
 ```
@@ -486,10 +486,10 @@ user-forged agents.
 
 ## Why dynamic imports over a plugin registry
 
-OGLab has a plugin manager ([manager.py](../src/oglab/plugins/manager.py))
+Arail has a plugin manager ([manager.py](../src/arail/plugins/manager.py))
 but it's metadata-only — it installs GitHub repos and reads
 manifests; it doesn't execute plugin code. Agents need live code
-execution, so the shim at `src/oglab/agents/pip.py` uses
+execution, so the shim at `src/arail/agents/pip.py` uses
 `importlib.util.spec_from_file_location` to load the PKB copy.
 The loader in Step 4 generalizes this to walk every agent folder.
 
@@ -511,24 +511,24 @@ separate product, not a retrofit.
 
 **Easiest path (today, before the Forge lands):**
 
-1. Copy `src/oglab/agents/_builtin_pip.py` → a new file in the same
+1. Copy `src/arail/agents/_builtin_pip.py` → a new file in the same
    directory (e.g., `_builtin_owl.py`).
 2. Rewrite the `NAME`, `EMOJI`, `SYSTEM_PROMPT`, and the watcher
    functions.
-3. Add a shim `src/oglab/agents/owl.py` modelled on
-   `src/oglab/agents/pip.py` (copy-paste, rename the folder).
+3. Add a shim `src/arail/agents/owl.py` modelled on
+   `src/arail/agents/pip.py` (copy-paste, rename the folder).
 4. Update `builtin_seed.py` to seed the new folder.
-5. Wire `from oglab.agents.owl import owl` into `app.py` startup.
+5. Wire `from arail.agents.owl import owl` into `app.py` startup.
 
 **Once the Forge lands:** the above becomes a form + a click of
 Deploy.
 
 ## References
 
-- [src/oglab/agents/_builtin_pip.py](../src/oglab/agents/_builtin_pip.py) — canonical Pip source, best-documented agent
-- [src/oglab/agents/builtin_seed.py](../src/oglab/agents/builtin_seed.py) — how agent folders get materialized
-- [src/oglab/agents/pip.py](../src/oglab/agents/pip.py) — the shim pattern
-- [src/oglab/activity.py](../src/oglab/activity.py) — the shared event stream
-- [src/oglab/scheduler.py](../src/oglab/scheduler.py) — work windows + halt flag
-- [src/oglab/pkb.py](../src/oglab/pkb.py) — PKB root resolver + ingest
+- [src/arail/agents/_builtin_pip.py](../src/arail/agents/_builtin_pip.py) — canonical Pip source, best-documented agent
+- [src/arail/agents/builtin_seed.py](../src/arail/agents/builtin_seed.py) — how agent folders get materialized
+- [src/arail/agents/pip.py](../src/arail/agents/pip.py) — the shim pattern
+- [src/arail/activity.py](../src/arail/activity.py) — the shared event stream
+- [src/arail/scheduler.py](../src/arail/scheduler.py) — work windows + halt flag
+- [src/arail/pkb.py](../src/arail/pkb.py) — PKB root resolver + ingest
 - [lab/pkb/agents/README.md](../lab/pkb/agents/README.md) — user-facing overview seeded into the Knowledge tab

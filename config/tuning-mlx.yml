@@ -1,4 +1,4 @@
-# OGLab — AeroLLM MLX (Apple Silicon tunables)
+# Arail — AeroLLM MLX (Apple Silicon tunables)
 #
 # THIS FILE IS THE AeroLLM MLX LOOP'S SURFACE AREA.
 # The autoresearch agent, when running with backend="mlx", can only
@@ -84,7 +84,7 @@ baseline_max_tokens: 64
 # Models that EXCEED every single-GPU memory ceiling available today.
 # The point is NOT that they run — none of them run on a 24 GB M5, and
 # most of them don't run on an H200 either. The point is that this
-# section gives OGLab a concrete performance envelope to push against.
+# section gives Arail a concrete performance envelope to push against.
 #
 # GPU fit ceilings (April 2026):
 #   H100-80GB  ✗  every entry below

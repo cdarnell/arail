@@ -12,8 +12,8 @@ GREEN="\033[0;32m"; CYAN="\033[0;36m"; BOLD="\033[1m"; RESET="\033[0m"
 # shellcheck disable=SC1091
 source lab.conf 2>/dev/null || true
 
-LAB_NAME="${LAB_NAME:-OGLab}"
-LAB_SHORT_NAME="${LAB_SHORT_NAME:-oglab}"
+LAB_NAME="${LAB_NAME:-Arail}"
+LAB_SHORT_NAME="${LAB_SHORT_NAME:-arail}"
 LAB_LOGO="${LAB_LOGO:-⟨${LAB_NAME}⟩}"
 
 info() { echo -e "${GREEN}[${LAB_SHORT_NAME}]${RESET} $*"; }
@@ -22,7 +22,7 @@ export PATH="$HOME/.local/bin:$PATH"
 BIND="${BIND_ADDR:-127.0.0.1}"
 LANCE_PORT="${LANCE_PORT:-7414}"
 
-[[ -f .venv/bin/activate ]] || { echo "no .venv — run ./oglab setup"; exit 1; }
+[[ -f .venv/bin/activate ]] || { echo "no .venv — run ./arail setup"; exit 1; }
 # shellcheck disable=SC1091
 source .venv/bin/activate
 
@@ -33,21 +33,21 @@ echo -e "${CYAN}${BOLD}${LAB_LOGO} Starting lab services…${RESET}"
 echo ""
 
 info "Portal     → http://${BIND}:${PORTAL_PORT:-8080}"
-uvicorn oglab.portal.app:app \
+uvicorn arail.portal.app:app \
     --host "$BIND" --port "${PORTAL_PORT:-8080}" \
     --log-level warning &
 PIDS+=($!)
 
 if [[ "${MODEL_BACKEND:-auto}" == "mlx" ]]; then
     info "MLX API    → http://${BIND}:${MLX_OPENAI_PORT:-11435}/v1"
-    uvicorn oglab.mlx_openai_server:app \
+    uvicorn arail.mlx_openai_server:app \
         --host "$BIND" --port "${MLX_OPENAI_PORT:-11435}" \
         --log-level warning &
     PIDS+=($!)
 fi
 
 info "Memory     → http://${BIND}:${LANCE_PORT}"
-uvicorn oglab.memory_service:app \
+uvicorn arail.memory_service:app \
     --host "$BIND" --port "$LANCE_PORT" \
     --log-level warning &
 PIDS+=($!)
@@ -55,7 +55,7 @@ PIDS+=($!)
 if command -v ttyd &>/dev/null; then
     info "Terminal   → http://${BIND}:${TERMINAL_PORT:-7681}"
     # Terminal persistence: when tmux is available we attach every ttyd
-    # connection to a named session ("oglab") so closing the browser
+    # connection to a named session ("arail") so closing the browser
     # tab, navigating away, or reloading the iframe doesn't nuke the
     # user's scrollback, pwd, running jobs, or env. New connections
     # reattach to the same session (`-A` = attach or create).
@@ -69,7 +69,7 @@ if command -v ttyd &>/dev/null; then
     if command -v tmux &>/dev/null; then
         TMUX_SHELL="${SHELL:-/bin/bash}"
         ttyd "${TTYD_OPTS[@]}" \
-            tmux new-session -A -s "${LAB_SHORT_NAME:-oglab}" \
+            tmux new-session -A -s "${LAB_SHORT_NAME:-arail}" \
                 "$TMUX_SHELL" &
     else
         warn "tmux not installed — terminal scrollback won't survive iframe reloads"
@@ -146,7 +146,7 @@ echo ""
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
 
 # Auto-open the dashboard unless suppressed or headless.
-if [[ "${OGLAB_NO_BROWSER:-0}" != "1" ]] && [[ -t 1 ]]; then
+if [[ "${ARAIL_NO_BROWSER:-0}" != "1" ]] && [[ -t 1 ]]; then
     dashboard_url="http://${BIND}:${PORTAL_PORT:-8080}"
     (
         # Give uvicorn a moment to bind the port before opening the browser.

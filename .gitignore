@@ -8,6 +8,8 @@ setup.log
 portal_restart.log
 compile_stderr.txt
 output.txt
+# Provider tokens saved from Chat > Compute Source (chmod 0600).
+lab/data/secrets.env
 
 # Python
 __pycache__/

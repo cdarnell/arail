@@ -16,12 +16,12 @@ error() { echo -e "  ${RED}✗${RESET} $*"; }
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 AUTO_CONFIRM="false"
-DESTROY_LOG="/tmp/oglab-destroy.log"
+DESTROY_LOG="/tmp/arail-destroy.log"
 cd "$REPO_ROOT"
 
 # shellcheck disable=SC1091
 [[ -f .env ]] && set -a && source .env && set +a
-LAB_NAME="${LAB_NAME:-OGLab}"
+LAB_NAME="${LAB_NAME:-Arail}"
 
 # ── Stop running services ────────────────────────────────────────────
 stop_services() {
@@ -74,7 +74,7 @@ reset_data() {
 }
 
 reset_plugins() {
-    local plugins_dir="$HOME/.oglab/plugins"
+    local plugins_dir="$HOME/.arail/plugins"
     if [[ -d "$plugins_dir" ]]; then
         local sz
         sz=$(report_size "$plugins_dir")
@@ -89,7 +89,7 @@ reset_plugins() {
 reset_pkb() {
     # Wipes the central knowledge base — every user upload, agent-written
     # report, note, and seed-pack file. The wiki cache goes too so the
-    # wiki rebuild starts clean. On next `./oglab start` the starter
+    # wiki rebuild starts clean. On next `./arail start` the starter
     # packs re-seed automatically.
     local pkb_dir="lab/pkb"
     local cache_dir="lab/pkb/.wiki-cache"
@@ -103,7 +103,7 @@ reset_pkb() {
     warn "This wipes every note, upload, agent finding, and seeded primer."
     rm -rf "$pkb_dir"
     rm -rf "$cache_dir" 2>/dev/null || true
-    info "Knowledge base removed. Starter packs will re-seed on next ./oglab start."
+    info "Knowledge base removed. Starter packs will re-seed on next ./arail start."
 }
 
 reset_env() {
@@ -130,12 +130,12 @@ full_wipe() {
     reset_plugins
     reset_env
     # Also clean caches
-    for dir in __pycache__ .pytest_cache oglab.egg-info; do
+    for dir in __pycache__ .pytest_cache arail.egg-info; do
         find . -type d -name "$dir" -exec rm -rf {} + 2>/dev/null || true
     done
     find . -name "*.pyc" -delete 2>/dev/null || true
     info "Full wipe complete. Source code preserved."
-    info "Run ${BOLD}./oglab setup${RESET} to rebuild."
+    info "Run ${BOLD}./arail setup${RESET} to rebuild."
 }
 
 destroy_lab() {
@@ -143,7 +143,7 @@ destroy_lab() {
 
     local target_dir="$REPO_ROOT"
     local helper
-    helper="$(mktemp /tmp/oglab-destroy.XXXXXX.sh)"
+    helper="$(mktemp /tmp/arail-destroy.XXXXXX.sh)"
 
     cat > "$helper" <<EOF
 #!/usr/bin/env bash
@@ -158,7 +158,7 @@ rm -rf "$HOME/.local/bin/code-server"
 rm -rf "$HOME"/.local/lib/code-server-*
 rm -rf "$HOME/.local/share/jupyter/runtime"
 rm -rf "$HOME/.jupyter"
-rm -rf /tmp/oglab*
+rm -rf /tmp/arail*
 rm -f /tmp/jpserver-*.json /tmp/jupyter-*.html
 rm -f "$helper"
 EOF
@@ -176,7 +176,7 @@ usage() {
     echo ""
     echo -e "  ${BOLD}${LAB_NAME} Reset${RESET}"
     echo ""
-    echo "  Usage: ./oglab reset [mode] [--yes]"
+    echo "  Usage: ./arail reset [mode] [--yes]"
     echo ""
     echo "  Modes:"
     echo "    models    Remove downloaded models only"

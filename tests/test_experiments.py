@@ -1,4 +1,4 @@
-"""Tests for the oglab.experiments autoresearch loop.
+"""Tests for the arail.experiments autoresearch loop.
 
 Focused on the safety rails. The actual benchmark path depends on
 AeroLLM + a 1 TB model being present, so we stub the backend and
@@ -13,14 +13,14 @@ from unittest.mock import patch
 
 import pytest
 
-from oglab.experiments.tuning import (
+from arail.experiments.tuning import (
     Knob, TuningConfig, ResearchModel,
     load_tuning, save_tuning, validate_knob_value,
 )
-from oglab.experiments.bench import (
+from arail.experiments.bench import (
     BenchRun, append_run, load_runs, summarize,
 )
-from oglab.experiments.git_ops import (
+from arail.experiments.git_ops import (
     ALLOWED_WRITABLE_FILES, GitSafetyError, _repo_root,
 )
 
@@ -232,18 +232,18 @@ def test_summarize_ignores_errors():
 # ── Autoresearch loop rails ────────────────────────────────────
 
 def test_autoresearch_requires_env_flag(monkeypatch):
-    monkeypatch.delenv("OGLAB_AUTORESEARCH_ENABLED", raising=False)
-    from oglab.experiments.autoresearch import run_autoresearch
+    monkeypatch.delenv("ARAIL_AUTORESEARCH_ENABLED", raising=False)
+    from arail.experiments.autoresearch import run_autoresearch
     state = run_autoresearch(require_env_flag=True, candidates=[])
     assert state.phase == "error"
-    assert "OGLAB_AUTORESEARCH_ENABLED" in (state.error or "")
+    assert "ARAIL_AUTORESEARCH_ENABLED" in (state.error or "")
 
 
 def test_autoresearch_refuses_invalid_candidate(monkeypatch, tmp_path):
     # Build a stub backend so bench succeeds
     class StubBackend:
         def complete(self, prompt, max_tokens=512, temperature=0.7, top_p=None):
-            from oglab.router.backends import ModelResponse
+            from arail.router.backends import ModelResponse
             import time as _t
             _t.sleep(0.01)
             return ModelResponse(
@@ -255,7 +255,7 @@ def test_autoresearch_refuses_invalid_candidate(monkeypatch, tmp_path):
     # still important for the baseline phase.
 
     # Patch git ops so we don't really touch git
-    from oglab.experiments import autoresearch as ar
+    from arail.experiments import autoresearch as ar
     monkeypatch.setattr(ar, "assert_clean_tree", lambda: None)
 
     class FakeGitState:
@@ -292,7 +292,7 @@ def test_autoresearch_refuses_invalid_candidate(monkeypatch, tmp_path):
 # non-Apple CI). The bench runner itself is mocked.
 
 def test_unknown_backend_raises():
-    from oglab.experiments.autoresearch import (
+    from arail.experiments.autoresearch import (
         current_state, request_stop, _require_known_backend,
     )
     with pytest.raises(ValueError, match="unknown backend"):
@@ -304,7 +304,7 @@ def test_unknown_backend_raises():
 
 
 def test_config_and_commit_paths_per_backend():
-    from oglab.experiments.autoresearch import _config_path, _commit_files
+    from arail.experiments.autoresearch import _config_path, _commit_files
     aerollm_cfg = _config_path("aerollm")
     mlx_cfg = _config_path("mlx")
     assert aerollm_cfg.name == "tuning.yml"
@@ -322,7 +322,7 @@ def test_mlx_candidates_pass_schema():
     # Every hand-curated MLX candidate must pass the MLX config's
     # schema — if someone typos a knob name or value this catches it
     # before the loop runs for real.
-    from oglab.experiments.autoresearch import MLX_CANDIDATES
+    from arail.experiments.autoresearch import MLX_CANDIDATES
     cfg = load_tuning(_mlx_config_path())
     for label, delta in MLX_CANDIDATES:
         for k, v in delta.items():
@@ -331,7 +331,7 @@ def test_mlx_candidates_pass_schema():
 
 
 def test_mlx_per_state_isolation():
-    from oglab.experiments.autoresearch import (
+    from arail.experiments.autoresearch import (
         current_state, request_stop, _STATES,
     )
     # Starting fresh per-backend
@@ -349,7 +349,7 @@ def test_mlx_backend_knob_translation():
     # Knob → mlx_lm kwargs mapping is the translation layer between
     # the YAML schema and Apple's runtime. Tested in isolation so a
     # future mlx_lm version bump doesn't silently break the wiring.
-    from oglab.experiments.mlx_backend import (
+    from arail.experiments.mlx_backend import (
         _build_generate_kwargs, _pick_model_id, _KV_BITS_MAP,
     )
     # fp16 means "don't quantize" — must NOT set kv_bits at all
@@ -383,7 +383,7 @@ def test_mlx_backend_handles_missing_mlx_lm(monkeypatch):
     # On non-Apple CI, mlx_lm isn't installed. The runner must STILL
     # return a BenchRun (not raise) so the dashboard shows a clean
     # error row rather than the loop crashing.
-    from oglab.experiments import mlx_backend as mb
+    from arail.experiments import mlx_backend as mb
 
     # Force the import-time guard to think mlx_lm is missing by
     # having _mlx_lm=None and letting the inner `import mlx_lm` fail.
@@ -394,7 +394,7 @@ def test_mlx_backend_handles_missing_mlx_lm(monkeypatch):
             raise RuntimeError("simulated: mlx_lm not installed")
 
     # Patch git_state so we don't need a real repo context.
-    from oglab.experiments import git_ops
+    from arail.experiments import git_ops
     class _FakeGit:
         sha = "b" * 40; short_sha = "bbbbbbb"
         branch = "main"; is_dirty = False; dirty_files = []
@@ -419,8 +419,8 @@ def test_mlx_backend_handles_missing_mlx_lm(monkeypatch):
 def test_mlx_backend_file_sibling_of_aerollm():
     # The two bench logs must live side-by-side in the same DATA_DIR
     # so a cleanup script that deletes one reaches the other too.
-    from oglab.experiments.mlx_backend import mlx_bench_file
-    from oglab.config import DATA_DIR
+    from arail.experiments.mlx_backend import mlx_bench_file
+    from arail.config import DATA_DIR
     p = mlx_bench_file()
     assert p.parent == DATA_DIR
     assert p.name == "mlx-bench.jsonl"
@@ -432,8 +432,8 @@ def test_autoresearch_mlx_uses_mlx_config_and_bench(monkeypatch):
     # tuning-mlx.yml, bench writes mlx-bench.jsonl, commits name the
     # MLX file pair. We stub the bench runner so nothing actually
     # tries to load a model.
-    from oglab.experiments import autoresearch as ar
-    from oglab.experiments import mlx_backend as mb
+    from arail.experiments import autoresearch as ar
+    from arail.experiments import mlx_backend as mb
 
     # Capture the config path load_tuning was called with.
     captured: dict = {}
@@ -548,7 +548,7 @@ def test_frontier_model_roundtrips_through_yaml(tmp_path):
     # save_tuning must only emit frontier_models when they're present
     # (AeroLLM's config stays clean), AND must round-trip without loss
     # when they are present (MLX's config survives edit-save cycles).
-    from oglab.experiments.tuning import FrontierModel
+    from arail.experiments.tuning import FrontierModel
 
     # Case 1: no frontier models → no frontier keys in output.
     cfg_aerollm = _mk_cfg()
@@ -658,7 +658,7 @@ def test_api_tuning_config_exposes_frontier_fields():
     # (not omit the keys) so the JS can safely `.length`-check
     # without a "key not in object" branch.
     from fastapi.testclient import TestClient
-    from oglab.portal.app import app
+    from arail.portal.app import app
     client = TestClient(app)
 
     for backend, expect_frontier in (
@@ -698,10 +698,10 @@ def test_run_frontier_bench_streaming_required_short_circuit():
     # error reason BEFORE touching mlx_lm. The dashboard pattern-
     # matches on the FRONTIER_ERROR_PREFIX["streaming_required"]
     # string; if the prefix drifts, the dashboard misrenders.
-    from oglab.experiments.mlx_backend import (
+    from arail.experiments.mlx_backend import (
         run_frontier_bench, FRONTIER_ERROR_PREFIX,
     )
-    from oglab.experiments.tuning import FrontierModel
+    from arail.experiments.tuning import FrontierModel
 
     m = FrontierModel(
         name="DeepSeek-V3 671B (4-bit)",
@@ -728,8 +728,8 @@ def test_run_frontier_bench_never_raises_on_load_failure():
     # (OOM, missing file, unsupported quant, …), we must still return
     # a BenchRun — the loop calls this per-model during baseline
     # capture and a raise would kill the whole sweep.
-    from oglab.experiments.mlx_backend import run_frontier_bench
-    from oglab.experiments.tuning import FrontierModel
+    from arail.experiments.mlx_backend import run_frontier_bench
+    from arail.experiments.tuning import FrontierModel
 
     class _BoomMlx:
         @staticmethod

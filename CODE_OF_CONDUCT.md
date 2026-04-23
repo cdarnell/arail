@@ -1,6 +1,6 @@
 # Contributor Code of Conduct
 
-OGLab is a blueprint meant to be forked, adapted, and shared.  Everyone who contributes — via code, issues, docs, or discussion — agrees to the expectations below.
+Arail is a blueprint meant to be forked, adapted, and shared.  Everyone who contributes — via code, issues, docs, or discussion — agrees to the expectations below.
 
 ## Our pledge
 

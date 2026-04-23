@@ -1,0 +1,759 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ brand.name }} — Admin</title>
+<link rel="stylesheet" href="/static/style.css">
+<style>
+  .admin-wrap {
+    padding: 1.4rem 2rem 3rem;
+    width: min(1680px, 100%);
+    max-width: none;
+    margin: 0 auto;
+  }
+  .admin-wrap h1 { color: var(--green); text-shadow: var(--glow-green); margin-bottom: 0.25rem; font-size: 1.1rem; }
+  .admin-wrap .subtitle { color: var(--muted); font-size: 0.8rem; margin-bottom: 1.15rem; }
+
+  .admin-section { margin-bottom: 1.35rem; }
+  .admin-section h2 {
+    font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.1em;
+    color: var(--muted); margin-bottom: 0.55rem;
+    padding-bottom: 0.4rem; border-bottom: 1px solid var(--border);
+  }
+
+  .admin-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+    gap: 0.7rem;
+  }
+  .admin-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 0.95rem 1rem; cursor: pointer;
+    min-height: 72px;
+    transition: all 0.12s;
+  }
+  .admin-card:hover { border-color: var(--green); }
+  .admin-card .ac-title { font-weight: 600; font-size: 0.85rem; color: var(--text-hi); }
+  .admin-card .ac-desc { font-size: 0.72rem; color: var(--muted); margin-top: 0.2rem; }
+
+  /* Component table */
+  .comp-table-wrap {
+    max-height: 540px;
+    overflow: auto;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: rgba(255,255,255,0.01);
+  }
+  .comp-table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+  .comp-table th {
+    text-align: left; font-size: 0.68rem; text-transform: uppercase;
+    letter-spacing: 0.08em; color: var(--muted); padding: 0.5rem 0.7rem;
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    background: var(--surface);
+    z-index: 1;
+  }
+  .comp-table td {
+    padding: 0.55rem 0.7rem;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  .comp-table tr:last-child td { border-bottom: none; }
+  .comp-table .comp-name { font-weight: 600; color: var(--text-hi); }
+  .comp-table .comp-ver { color: var(--blue); font-family: var(--font); }
+  .comp-table .comp-type {
+    font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--muted);
+  }
+  .comp-table a { color: var(--muted); text-decoration: none; }
+  .comp-table a:hover { color: var(--green); }
+
+  /* Components + graph split */
+  .admin-split {
+    display: grid;
+    grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+    gap: 1rem;
+    align-items: start;
+  }
+  .admin-pane {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+  .admin-pane-head {
+    padding: 0.55rem 0.75rem;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.66rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    background: rgba(255,255,255,0.01);
+  }
+  .admin-pane-body { padding: 0.6rem 0.7rem 0.75rem; }
+
+  .admin-graph-wrap {
+    position: relative;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    background: #0a0a0f;
+    cursor: zoom-in;
+  }
+  .admin-graph-wrap iframe {
+    width: 100%;
+    height: 430px;
+    border: none;
+    display: block;
+  }
+  .admin-graph-overlay {
+    position: absolute;
+    inset: auto 0 0 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.45rem 0.55rem;
+    background: linear-gradient(transparent, rgba(10,10,15,0.85));
+    color: var(--text);
+    font-size: 0.72rem;
+    pointer-events: none;
+  }
+  .admin-graph-btn {
+    pointer-events: auto;
+    border: 1px solid rgba(0,255,65,.35);
+    background: rgba(0,255,65,.08);
+    color: var(--green);
+    font-size: 0.68rem;
+    border-radius: 999px;
+    padding: 0.14rem 0.55rem;
+    cursor: pointer;
+  }
+  .admin-graph-btn:hover { background: rgba(0,255,65,.14); }
+
+  .assoc-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 0.55rem;
+    margin-top: 0.75rem;
+  }
+  .assoc-card {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.45rem 0.55rem;
+    background: rgba(255,255,255,0.01);
+  }
+  .assoc-card.compact { padding: 0.35rem 0.5rem; }
+  .assoc-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    font-size: 0.73rem;
+  }
+  .assoc-title { color: var(--text-hi); font-weight: 600; }
+  .assoc-meta { color: var(--muted); font-size: 0.68rem; margin-top: 0.2rem; word-break: break-word; }
+  .assoc-chip {
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 0.08rem 0.45rem;
+    font-size: 0.62rem;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--muted);
+  }
+  .assoc-chip.ok {
+    color: var(--green);
+    border-color: rgba(0,255,65,.25);
+    background: rgba(0,255,65,.08);
+  }
+  .assoc-chip.warn {
+    color: var(--amber);
+    border-color: rgba(255,176,0,.25);
+    background: rgba(255,176,0,.1);
+  }
+
+  .health-check-wrap {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.75rem 0.8rem 0.85rem;
+  }
+  .health-check-summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+    margin-bottom: 0.7rem;
+  }
+  .health-summary-pill {
+    padding: 0.2rem 0.55rem;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: rgba(255,255,255,0.02);
+    color: var(--text);
+    font-size: 0.69rem;
+  }
+  .health-summary-pill.ok {
+    color: var(--green);
+    border-color: rgba(0,255,65,.25);
+    background: rgba(0,255,65,.08);
+  }
+  .health-check-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+    gap: 0.55rem;
+  }
+  .health-check-card {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0.55rem 0.6rem;
+    background: rgba(255,255,255,0.01);
+  }
+  .health-check-card.fail {
+    border-color: rgba(255,176,0,.18);
+    background: rgba(255,176,0,.04);
+  }
+  .health-check-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    margin-bottom: 0.2rem;
+  }
+  .health-check-name { color: var(--text-hi); font-size: 0.74rem; font-weight: 600; }
+  .health-check-meta { color: var(--muted); font-size: 0.67rem; line-height: 1.45; }
+  .health-check-meta code { color: var(--amber); }
+  .health-check-chip {
+    border-radius: 999px;
+    padding: 0.08rem 0.45rem;
+    font-size: 0.6rem;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    border: 1px solid var(--border);
+    color: var(--muted);
+  }
+  .health-check-chip.ok {
+    color: var(--green);
+    border-color: rgba(0,255,65,.25);
+    background: rgba(0,255,65,.08);
+  }
+  .health-check-chip.fail {
+    color: var(--amber);
+    border-color: rgba(255,176,0,.25);
+    background: rgba(255,176,0,.08);
+  }
+
+  .graph-modal {
+    position: fixed;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background: rgba(6,8,14,0.82);
+    backdrop-filter: blur(2px);
+    z-index: 999;
+    padding: 1rem;
+  }
+  .graph-modal.open { display: flex; }
+  .graph-modal-card {
+    width: min(1200px, 96vw);
+    height: min(840px, 92vh);
+    border: 1px solid var(--border-hi);
+    border-radius: 12px;
+    background: #090b12;
+    overflow: hidden;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.45);
+    display: grid;
+    grid-template-rows: auto 1fr;
+  }
+  .graph-modal-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.72rem;
+    color: var(--text-hi);
+  }
+  .graph-modal-close {
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    border-radius: 999px;
+    padding: 0.1rem 0.55rem;
+    cursor: pointer;
+  }
+  .graph-modal-close:hover { border-color: var(--red); color: var(--red); }
+  .graph-modal iframe {
+    width: 100%;
+    height: 100%;
+    border: 0;
+  }
+
+  @media (max-width: 1300px) {
+    .help-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+
+  @media (max-width: 1020px) {
+    .admin-wrap { padding: 1rem 1rem 2rem; }
+    .admin-split { grid-template-columns: 1fr; }
+    .admin-graph-wrap iframe { height: 320px; }
+    .help-grid { grid-template-columns: 1fr; }
+  }
+
+  /* Status indicators */
+  .svc-status { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+  .svc-chip {
+    display: inline-flex; align-items: center; gap: 0.35rem;
+    padding: 0.3rem 0.7rem; border-radius: 999px; font-size: 0.72rem;
+    border: 1px solid var(--border); background: var(--surface);
+  }
+  .svc-chip .svc-dot { width: 6px; height: 6px; border-radius: 50%; }
+  .svc-chip .svc-dot.up { background: var(--green); box-shadow: 0 0 4px rgba(0,255,65,.4); }
+  .svc-chip .svc-dot.down { background: var(--red); }
+
+  /* Help section */
+  .help-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.75rem; }
+  .help-block { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.8rem 1rem; }
+  .help-block h3 { color: var(--blue); font-size: 0.82rem; margin-bottom: 0.4rem; }
+  .help-block pre {
+    background: var(--bg); border: 1px solid var(--border); border-radius: 4px;
+    padding: 0.6rem 0.8rem; font-size: 0.75rem; color: var(--amber);
+    margin: 0.3rem 0; white-space: pre-wrap;
+  }
+  .help-block p { font-size: 0.78rem; color: var(--text); line-height: 1.6; margin: 0.3rem 0; }
+
+  #admin-log { margin-top: 0.5rem; font-size: 0.78rem; color: var(--muted); min-height: 1.2rem; }
+  #admin-log.success { color: var(--green); }
+  #admin-log.error { color: var(--red); }
+</style>
+</head>
+<body>
+
+{% set active = 'admin' %}{% include "_nav.html" %}
+
+<div class="admin-wrap">
+  <h1>Lab Administration</h1>
+  <p class="subtitle">{{ brand.name }} v{{ brand.version }} — manage services, check updates, get help</p>
+
+  <!-- ═══ Quick Actions ═══ -->
+  <div class="admin-section">
+    <h2>Quick Actions</h2>
+    <div class="admin-grid">
+      <div class="admin-card" onclick="adminAction('/api/system/health', 'GET', 'Health check')">
+        <div class="ac-title">Health Check</div>
+        <div class="ac-desc">CPU, RAM, disk, GPU, services</div>
+      </div>
+      <div class="admin-card" onclick="if(confirm('Restart all lab services?')) adminAction('/api/system/restart', 'POST', 'Restarting…')">
+        <div class="ac-title">Restart Lab</div>
+        <div class="ac-desc">Stop + start all services</div>
+      </div>
+      <div class="admin-card" onclick="window.open('/graph', '_blank')">
+        <div class="ac-title">System Graph</div>
+        <div class="ac-desc">Visual architecture map</div>
+      </div>
+      <div class="admin-card" onclick="checkUpdates()">
+        <div class="ac-title">Check Updates</div>
+        <div class="ac-desc">Scan components for new versions</div>
+      </div>
+      <div class="admin-card" onclick="window.location='/plugins'">
+        <div class="ac-title">Plugins</div>
+        <div class="ac-desc">Install / enable / disable plugins</div>
+      </div>
+    </div>
+    <div id="admin-log"></div>
+  </div>
+
+  <!-- ═══ Terminal ═══ -->
+  <div class="admin-section" id="admin-terminal-section">
+    <h2>Terminal
+      <a href="/terminal" target="_blank" rel="noopener"
+         style="margin-left:10px;font-size:12px;color:#8faf97;font-weight:400;text-decoration:none;vertical-align:middle;"
+         title="Open terminal in full page">⤢ pop out</a>
+    </h2>
+    {% if ttyd_running %}
+    <div style="position:relative;width:100%;border-radius:6px;overflow:hidden;border:1px solid var(--border,#222);">
+      <iframe id="admin-terminal-frame"
+              src="http://127.0.0.1:{{ ttyd_port }}"
+              style="width:100%;height:380px;border:0;background:#0d1117;"
+              allow="clipboard-read; clipboard-write"
+              title="Browser terminal"></iframe>
+    </div>
+    {% elif ttyd_installed %}
+    <div style="background:#0d1117;border:1px solid #222;border-radius:6px;padding:16px;color:#8faf97;font-size:13px;">
+      <strong style="color:#c8a060;">ttyd is installed but not running.</strong>
+      Start it with <code style="color:#7ee0a0;">./arail start</code> or run
+      <code style="color:#7ee0a0;">ttyd -p {{ ttyd_port }} bash</code> manually,
+      then <a href="" onclick="location.reload();return false;" style="color:#7ee0a0;">reload</a>
+      or <a href="/terminal" target="_blank" rel="noopener" style="color:#7ee0a0;">open the terminal page</a>.
+    </div>
+    {% else %}
+    <div style="background:#0d1117;border:1px solid #222;border-radius:6px;padding:16px;color:#8faf97;font-size:13px;">
+      <strong style="color:#c8a060;">ttyd is not installed.</strong>
+      Install it to enable the browser terminal:<br>
+      <code style="display:block;margin-top:8px;color:#7ee0a0;white-space:pre-wrap;">{{ install_cmd }}</code>
+      <div style="margin-top:10px;">
+        <a href="/terminal" target="_blank" rel="noopener" style="color:#7ee0a0;">Open terminal page for full install guide</a>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- ═══ Services ═══ -->
+  <div class="admin-section">
+    <h2>Service Status</h2>
+    <div class="svc-status" id="svc-status">loading…</div>
+  </div>
+
+  <div class="admin-section">
+    <h2>BATS-Style Health Checks</h2>
+    <div class="health-check-wrap">
+      <div class="health-check-summary" id="health-check-summary">
+        <span class="health-summary-pill">Loading checks…</span>
+      </div>
+      <div class="health-check-grid" id="health-check-grid">
+        <div class="health-check-card"><div class="health-check-meta">Loading health checks…</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ Components + Graph ═══ -->
+  <div class="admin-section">
+    <h2>Installed Components &amp; Graph Associations</h2>
+    <div class="admin-split">
+      <section class="admin-pane" aria-label="Installed components">
+        <div class="admin-pane-head">Installed Components</div>
+        <div class="admin-pane-body">
+          <div class="comp-table-wrap">
+            <table class="comp-table">
+              <thead><tr><th>Component</th><th>Version</th><th>Type</th><th>Image / Package</th><th>Source</th></tr></thead>
+              <tbody id="comp-tbody"><tr><td colspan="5" style="color:var(--muted)">loading…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section class="admin-pane" aria-label="Graph and associations">
+        <div class="admin-pane-head">Graph &amp; Association Setup</div>
+        <div class="admin-pane-body">
+          <div class="admin-graph-wrap" onclick="openGraphModal()" title="Click to enlarge graph">
+            <iframe src="/graph?preview=1" title="System graph preview" loading="lazy"></iframe>
+            <div class="admin-graph-overlay">
+              <span>System graph preview</span>
+              <button class="admin-graph-btn" type="button" onclick="event.stopPropagation(); openGraphModal();">Enlarge</button>
+            </div>
+          </div>
+          <div class="assoc-grid" id="assoc-status">
+            <div class="assoc-card" style="color:var(--muted)">Loading association setup…</div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <!-- ═══ Activity Log ═══ -->
+  <div class="admin-section">
+    <h2>Activity Log</h2>
+    <div style="display:flex; gap:0.5rem; align-items:center; margin-bottom:0.5rem; flex-wrap:wrap;">
+      <select id="log-source" style="background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:0.25rem 0.4rem;font-size:0.75rem;">
+        <option value="">all sources</option>
+        <option value="system">system</option>
+        <option value="browser">browser</option>
+        <option value="researcher">researcher</option>
+        <option value="goal">goal</option>
+        <option value="wiki">wiki</option>
+        <option value="pkb">pkb</option>
+        <option value="chat">chat</option>
+        <option value="consent">consent</option>
+      </select>
+      <select id="log-level" style="background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:0.25rem 0.4rem;font-size:0.75rem;">
+        <option value="">all levels</option>
+        <option value="error">error</option>
+        <option value="warn">warn</option>
+        <option value="info">info</option>
+        <option value="success">success</option>
+      </select>
+      <button onclick="loadLogs()" style="background:var(--surface);color:var(--green);border:1px solid var(--border);border-radius:4px;padding:0.25rem 0.6rem;font-size:0.75rem;cursor:pointer;">Refresh</button>
+      <label style="font-size:0.7rem;color:var(--muted);margin-left:auto;">
+        <input type="checkbox" id="log-live" checked> Live tail
+      </label>
+      <span style="font-size:0.68rem;color:var(--muted);">CLI: <code style="color:var(--amber);">./arail logs [component]</code></span>
+    </div>
+    <div id="log-viewer" style="background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:0.5rem 0.75rem;max-height:300px;overflow-y:auto;font-family:var(--font);font-size:0.72rem;line-height:1.6;">
+      loading…
+    </div>
+  </div>
+
+  <!-- ═══ Help / Reference ═══ -->
+  <div class="admin-section">
+    <h2>Help &amp; Reference</h2>
+    <div class="help-grid">
+      <div class="help-block">
+        <h3>Common Commands</h3>
+        <pre>./arail start       # launch all services
+./arail stop        # stop all services
+./arail restart     # quick bounce
+./arail update      # check &amp; apply updates
+./arail version     # show component versions
+./arail status      # what's running
+./arail logs        # tail activity log (all)
+./arail logs browser    # browser events only
+./arail logs researcher # research events only</pre>
+      </div>
+      <div class="help-block">
+        <h3>Setup &amp; Configuration</h3>
+        <pre>./arail setup       # first-time setup
+./arail doctor      # validate environment
+./arail reset full  # factory reset (careful!)
+./arail pkb compile # rebuild knowledge base</pre>
+      </div>
+      <div class="help-block">
+        <h3>Environment</h3>
+        <p>All configuration lives in <strong>.env</strong> at the repo root.
+        Key settings: MODEL_BACKEND, MODEL_NAME, ARAIL_MODE,
+        LAB_ACTIVE_HOURS, LAB_HEAVY_HOURS.</p>
+        <p>Edit in the terminal tab or directly in your editor.</p>
+      </div>
+      <div class="help-block">
+        <h3>Updating Components</h3>
+        <p>Run <strong>./arail update</strong> to check all components.
+        Use <strong>--check</strong> for a dry run. Update a single
+        component with <strong>--component open-notebook</strong>.</p>
+        <p>Components are tracked in <strong>components.json</strong>.</p>
+      </div>
+      <div class="help-block">
+        <h3>Airgapped vs Hybrid</h3>
+        <p>Click the mode badge in the nav to toggle.
+        <strong>Airgapped:</strong> zero network calls, fully local.
+        <strong>Hybrid:</strong> agents can browse the web (with your approval per domain).</p>
+      </div>
+      <div class="help-block">
+        <h3>AI Models</h3>
+        <p><strong>Fast SLM:</strong> {{ health.model or 'loading…' }} (always on)<br>
+        <strong>Deep AeroLLM:</strong> {{ health.aerollm_model or 'not configured' }} (heavy window only)<br>
+        <strong>Ollama:</strong> local API server for Open Notebook + browser agent</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="graph-modal" id="graph-modal" onclick="if(event.target===this) closeGraphModal();">
+  <div class="graph-modal-card">
+    <div class="graph-modal-head">
+      <span>System Graph (expanded)</span>
+      <button class="graph-modal-close" type="button" onclick="closeGraphModal()">Close</button>
+    </div>
+    <iframe src="/graph?preview=1" title="System graph expanded" loading="lazy"></iframe>
+  </div>
+</div>
+
+<script>
+function adminLog(msg, cls) {
+  const el = document.getElementById('admin-log');
+  el.textContent = msg;
+  el.className = cls || '';
+}
+
+async function adminAction(url, method, label) {
+  adminLog(label + '…');
+  try {
+    const r = await fetch(url, {method: method || 'GET'});
+    const d = await r.json();
+    if (d.error) { adminLog(d.error, 'error'); return; }
+    adminLog(label + ' — done', 'success');
+    // If health check, show a summary
+    if (url.includes('health')) {
+      const hs = d.health_summary || {};
+      adminLog(`CPU: ${d.cpu_count} cores | RAM: ${d.ram_used_gb}/${d.ram_total_gb} GB (${d.ram_pct}%) | Disk: ${d.disk_free_gb} GB free | Backend: ${d.backend} | Model: ${d.model} | Checks: ${hs.passing_required || 0}/${hs.required_total || 0} required, ${hs.passing_total || 0}/${hs.total || 0} total`, 'success');
+      renderHealthChecks(d);
+    }
+  } catch(e) { adminLog('Failed: ' + e.message, 'error'); }
+}
+
+async function checkUpdates() {
+  adminLog('Checking for updates… (this may take a moment)');
+  try {
+    const r = await fetch('/api/admin/check-updates');
+    const d = await r.json();
+    if (d.airgapped) { adminLog('Airgapped — switch to Hybrid to check remote updates.', 'error'); return; }
+    adminLog(d.summary || 'Check complete.', d.updates_available > 0 ? '' : 'success');
+  } catch(e) { adminLog('Failed: ' + e.message, 'error'); }
+}
+
+function openGraphModal() {
+  const m = document.getElementById('graph-modal');
+  if (m) m.classList.add('open');
+}
+
+function closeGraphModal() {
+  const m = document.getElementById('graph-modal');
+  if (m) m.classList.remove('open');
+}
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeGraphModal();
+});
+
+function loadAssocStatus() {
+  const mountStatus = document.getElementById('assoc-status');
+  if (!mountStatus) return;
+
+  fetch('/knowledge-canvas/api/graph/status').then(r => {
+    if (!r.ok) throw new Error('status unavailable');
+    return r.json();
+  }).then(s => {
+    const modeChip = s.store_ready
+      ? '<span class="assoc-chip ok">graph-store</span>'
+      : '<span class="assoc-chip warn">fallback</span>';
+    const lanceChip = s.lance && s.lance.package_installed
+      ? '<span class="assoc-chip ok">ready</span>'
+      : '<span class="assoc-chip warn">missing</span>';
+    const neo4jChip = s.neo4j && s.neo4j.driver_installed
+      ? '<span class="assoc-chip ok">driver ready</span>'
+      : '<span class="assoc-chip warn">driver missing</span>';
+
+    mountStatus.innerHTML = `
+      <div class="assoc-card compact">
+        <div class="assoc-row">
+          <span class="assoc-title">Association engine mode</span>
+          ${modeChip}
+        </div>
+        <div class="assoc-meta">${s.store_ready ? 'Neo4j + LanceDB graph store active' : 'Using local wiki fallback until store initialization completes'}</div>
+      </div>
+      <div class="assoc-card compact">
+        <div class="assoc-row">
+          <span class="assoc-title">LanceDB setup</span>
+          ${lanceChip}
+        </div>
+        <div class="assoc-meta">path: ${esc((s.lance && s.lance.path) || 'n/a')} | exists: ${s.lance && s.lance.path_exists ? 'yes' : 'no'}</div>
+      </div>
+      <div class="assoc-card compact">
+        <div class="assoc-row">
+          <span class="assoc-title">Neo4j setup</span>
+          ${neo4jChip}
+        </div>
+        <div class="assoc-meta">uri: ${esc((s.neo4j && s.neo4j.uri) || 'n/a')}</div>
+      </div>
+    `;
+  }).catch(() => {
+    mountStatus.innerHTML = '<div class="assoc-card" style="color:var(--amber)">Knowledge Canvas status endpoint unavailable. Start the canvas backend to show live association setup.</div>';
+  });
+}
+
+function renderHealthChecks(d) {
+  const summaryEl = document.getElementById('health-check-summary');
+  const gridEl = document.getElementById('health-check-grid');
+  if (!summaryEl || !gridEl) return;
+  const hs = d.health_summary || {};
+  const checks = d.service_checks || [];
+
+  summaryEl.innerHTML = `
+    <span class="health-summary-pill ok">Required: ${hs.passing_required || 0}/${hs.required_total || 0}</span>
+    <span class="health-summary-pill ${((hs.passing_total || 0) === (hs.total || 0)) ? 'ok' : ''}">Total: ${hs.passing_total || 0}/${hs.total || 0}</span>
+    <span class="health-summary-pill">Backend: ${esc(d.backend || 'unknown')}</span>
+    <span class="health-summary-pill">Mode: ${esc(d.mode || 'unknown')}</span>
+  `;
+
+  gridEl.innerHTML = checks.map(c => `
+    <div class="health-check-card ${c.ok ? '' : 'fail'}">
+      <div class="health-check-row">
+        <span class="health-check-name">${esc(c.name)}</span>
+        <span class="health-check-chip ${c.ok ? 'ok' : 'fail'}">${c.ok ? 'pass' : 'fail'}</span>
+      </div>
+      <div class="health-check-meta">${esc(c.detail || '')}</div>
+      <div class="health-check-meta">${c.required ? 'required' : 'optional'} · ${esc(c.category || 'service')}</div>
+    </div>
+  `).join('');
+}
+
+// Load service status
+fetch('/api/system/health').then(r => r.json()).then(d => {
+  const el = document.getElementById('svc-status');
+  const svcs = d.services || {};
+  el.innerHTML = Object.entries(svcs).map(([name, up]) =>
+    `<span class="svc-chip"><span class="svc-dot ${up ? 'up' : 'down'}"></span>${name}</span>`
+  ).join('');
+  renderHealthChecks(d);
+}).catch(() => {
+  document.getElementById('svc-status').textContent = 'Could not reach health API.';
+});
+
+// Load components from manifest
+fetch('/api/admin/components').then(r => r.json()).then(data => {
+  const tbody = document.getElementById('comp-tbody');
+  tbody.innerHTML = data.components.map(c =>
+    `<tr>
+      <td class="comp-name">${c.name}</td>
+      <td class="comp-ver">${c.version || '—'}</td>
+      <td class="comp-type">${c.type}</td>
+      <td>${[
+        c.image ? `<span class="comp-ver">${c.image}</span>` : '',
+        c.package ? `<span>${c.package}</span>` : ''
+      ].filter(Boolean).join('<br>') || '—'}</td>
+      <td>${c.source_url ? `<a href="${c.source_url}" target="_blank" rel="noopener">${c.source_url.replace('https://github.com/','')}</a>` : '—'}</td>
+    </tr>`
+  ).join('');
+}).catch(() => {
+  document.getElementById('comp-tbody').innerHTML = '<tr><td colspan="5" style="color:var(--red)">Failed to load components</td></tr>';
+});
+
+// ── Activity Log Viewer ──────────────────────────────────────────────
+const logViewer = document.getElementById('log-viewer');
+const logSource = document.getElementById('log-source');
+const logLevel = document.getElementById('log-level');
+const logLive = document.getElementById('log-live');
+const levelColors = {info: 'var(--text)', success: 'var(--green)', warn: 'var(--amber)', error: 'var(--red)'};
+
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+function renderEvent(e) {
+  const ts = (e.ts || '').substring(0, 19).replace('T', ' ');
+  const color = levelColors[e.level] || 'var(--text)';
+  const src = (e.source || '?').padEnd(12);
+  return `<div style="color:${color}"><span style="color:var(--muted)">${esc(ts)}</span>  <span style="color:var(--blue)">${esc(src)}</span>  ${esc(e.message || '')}</div>`;
+}
+
+function loadLogs() {
+  fetch('/api/activity/recent?n=100').then(r => r.json()).then(events => {
+    const src = logSource.value;
+    const lvl = logLevel.value;
+    const filtered = events.filter(e =>
+      (!src || e.source === src) && (!lvl || e.level === lvl)
+    );
+    logViewer.innerHTML = filtered.length
+      ? filtered.map(renderEvent).join('')
+      : '<span style="color:var(--muted)">No matching events.</span>';
+    logViewer.scrollTop = logViewer.scrollHeight;
+  }).catch(() => { logViewer.innerHTML = '<span style="color:var(--red)">Failed to load activity log.</span>'; });
+}
+
+// Live tail via SSE
+let logSSE = null;
+function startLogSSE() {
+  if (logSSE) logSSE.close();
+  logSSE = new EventSource('/api/activity/stream');
+  logSSE.onmessage = (ev) => {
+    if (!logLive.checked) return;
+    try {
+      const e = JSON.parse(ev.data);
+      const src = logSource.value;
+      const lvl = logLevel.value;
+      if (src && e.source !== src) return;
+      if (lvl && e.level !== lvl) return;
+      logViewer.insertAdjacentHTML('beforeend', renderEvent(e));
+      logViewer.scrollTop = logViewer.scrollHeight;
+    } catch {}
+  };
+}
+
+logSource.addEventListener('change', loadLogs);
+logLevel.addEventListener('change', loadLogs);
+loadLogs();
+startLogSSE();
+loadAssocStatus();
+</script>
+<script src="/static/nav.js"></script>
+</body>
+</html>

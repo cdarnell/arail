@@ -17,10 +17,10 @@
 services:
   marimo:
     image: python:3.11-slim
-    container_name: oglab-marimo
+    container_name: arail-marimo
     working_dir: /notebooks
     # Auth model: --token-password sets a fixed, known token. We pass
-    # OGLAB_PASSWORD (the unified passphrase set by ./oglab setup) so
+    # ARAIL_PASSWORD (the unified passphrase set by ./arail setup) so
     # every surface in the lab uses the same secret. The dashboard
     # addon chip appends ?access_token=<pass> automatically, so the
     # user never has to paste the token manually.
@@ -34,13 +34,13 @@ services:
       - >-
         pip install --quiet --no-cache-dir 'marimo[recommended]' &&
         marimo edit --host 0.0.0.0 --port 2718 --headless
-        --token-password "$$OGLAB_PASSWORD" /notebooks
+        --token-password "$$ARAIL_PASSWORD" /notebooks
     ports:
       - "127.0.0.1:${MARIMO_PORT:-2718}:2718"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
-      - OGLAB_PASSWORD=${OGLAB_PASSWORD:-oglab}
+      - ARAIL_PASSWORD=${ARAIL_PASSWORD:-arail}
     volumes:
       - ../lab/notebooks:/notebooks
       - marimo-pip-cache:/root/.cache/pip

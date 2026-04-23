@@ -1,5 +1,5 @@
 import asyncio
-from oglab.portal.app import _run_chat_completion
+from arail.portal.app import _run_chat_completion
 
 async def main():
     resp = await _run_chat_completion(

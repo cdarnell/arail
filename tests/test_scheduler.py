@@ -7,7 +7,7 @@ from datetime import datetime
 
 import pytest
 
-from oglab import scheduler
+from arail import scheduler
 
 
 def _at(hour: int, minute: int = 0) -> datetime:

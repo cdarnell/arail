@@ -1,0 +1,243 @@
+#!/usr/bin/env bash
+# =============================================================================
+#  arail — Autoresearch AI Lab (ARAIL) unified entry point
+#  Usage: ./arail <command> [args]
+#    setup    first-time provisioning — pick a tier, install deps, download model
+#    start    launch portal + terminal + notebook + IDE
+#    stop     stop running lab services
+#    restart  stop then start
+#    upgrade  switch install tier — min | med | max
+#    update   check for and apply component updates
+#    version  show installed component versions
+#    reset    wipe models/data/env/plugins (see: ./arail reset help)
+#    status   show what's running and where
+#    doctor   validate the environment end-to-end
+#    logs     tail activity log — filter by component
+#    pkb      knowledge base ops: ingest | compile | browse   (med/max)
+#    wiki     documentation-as-code: build | info | new <title>
+#    help     show this message
+# =============================================================================
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$REPO_ROOT"
+
+# Load .env so LAB_NAME / LAB_TAGLINE reach the help banner.
+# shellcheck disable=SC1091
+[[ -f .env ]] && set -a && source .env && set +a
+LAB_NAME="${LAB_NAME:-Autoresearch AI Lab}"
+LAB_SHORT_NAME="${LAB_SHORT_NAME:-autoresearch-lab}"
+LAB_TAGLINE="${LAB_TAGLINE:-A learn-by-doing AI research lab}"
+LAB_TIER="${LAB_TIER:-min}"
+
+BOLD="\033[1m"; GREEN="\033[0;32m"; CYAN="\033[0;36m"; YELLOW="\033[0;33m"; RED="\033[0;31m"; RESET="\033[0m"
+say()  { echo -e "${GREEN}[${LAB_SHORT_NAME}]${RESET} $*"; }
+warn() { echo -e "${YELLOW}[${LAB_SHORT_NAME}]${RESET} $*"; }
+die()  { echo -e "${RED}[${LAB_SHORT_NAME}]${RESET} $*" >&2; exit 1; }
+
+usage() {
+    cat <<EOF
+
+  $(printf '\033[1m')${LAB_NAME}$(printf '\033[0m') — ${LAB_TAGLINE}
+  Install tier: ${LAB_TIER}
+
+  Usage: ./arail <command> [args]       (alias: ./qkz)
+
+  Commands:
+    setup           first-time provisioning — pick a tier, deps, model
+    start           launch portal + terminal + notebook + IDE
+    stop            stop running lab services
+    restart         stop then start (quick bounce)
+    upgrade <tier>  switch install tier — min | med | max
+    update          check for and apply component updates
+    version         show installed component versions
+    status          show what's running
+    doctor          validate the environment end-to-end
+    logs [comp]     tail activity log — filter by component
+    reset [mode]    wipe state — models|data|pkb|plugins|env|full|destroy
+    pkb <op>        ingest | compile | browse — knowledge base (med/max)
+    wiki <op>       build | info | new <title> — documentation-as-code
+    help            this message
+
+  Quick start:   ./arail setup && ./arail start
+
+EOF
+}
+
+cmd="${1:-help}"; shift || true
+
+case "$cmd" in
+    setup)   exec bash "$REPO_ROOT/scripts/setup.sh" "$@" ;;
+    start)   exec bash "$REPO_ROOT/scripts/start.sh" "$@" ;;
+    stop)    exec bash "$REPO_ROOT/scripts/reset.sh" stop ;;
+    restart) bash "$REPO_ROOT/scripts/reset.sh" stop && exec bash "$REPO_ROOT/scripts/start.sh" "$@" ;;
+    upgrade) exec bash "$REPO_ROOT/scripts/upgrade.sh" "$@" ;;
+    update)  exec bash "$REPO_ROOT/scripts/update.sh" "$@" ;;
+    version) exec bash "$REPO_ROOT/scripts/update.sh" --version-only ;;
+    reset)   exec bash "$REPO_ROOT/scripts/reset.sh" "$@" ;;
+    status)  exec bash "$REPO_ROOT/scripts/status.sh" "$@" ;;
+    logs)
+        LOG_FILE="$REPO_ROOT/lab/data/activity.jsonl"
+        COMP="${1:-all}"; shift || true
+        LINES="${1:-50}"; shift || true
+        if [[ ! -f "$LOG_FILE" ]]; then
+            die "No activity log yet — start the lab first: ./arail start"
+        fi
+        case "$COMP" in
+            all)
+                say "Tailing all activity (last $LINES lines, Ctrl-C to stop)…"
+                echo ""
+                tail -n "$LINES" "$LOG_FILE" | python3 -c "
+import sys, json
+for line in sys.stdin:
+    try:
+        e = json.loads(line.strip())
+        ts = e.get('ts','')[:19].replace('T',' ')
+        src = e.get('source','?').ljust(12)
+        lvl = e.get('level','info')
+        msg = e.get('message','')
+        colors = {'info':'\033[0m','success':'\033[0;32m','warn':'\033[0;33m','error':'\033[0;31m'}
+        c = colors.get(lvl, '\033[0m')
+        print(f'{c}{ts}  {src}  {msg}\033[0m')
+    except: pass
+"
+                echo ""
+                say "Live tail:"
+                tail -f "$LOG_FILE" | python3 -c "
+import sys, json
+for line in sys.stdin:
+    try:
+        e = json.loads(line.strip())
+        ts = e.get('ts','')[:19].replace('T',' ')
+        src = e.get('source','?').ljust(12)
+        lvl = e.get('level','info')
+        msg = e.get('message','')
+        colors = {'info':'\033[0m','success':'\033[0;32m','warn':'\033[0;33m','error':'\033[0;31m'}
+        c = colors.get(lvl, '\033[0m')
+        print(f'{c}{ts}  {src}  {msg}\033[0m', flush=True)
+    except: pass
+"
+                ;;
+            browser|system|researcher|goal|wiki|pkb|chat|consent)
+                say "Tailing $COMP events (last $LINES, Ctrl-C to stop)…"
+                echo ""
+                grep "\"source\":.*\"$COMP\"" "$LOG_FILE" | tail -n "$LINES" | python3 -c "
+import sys, json
+for line in sys.stdin:
+    try:
+        e = json.loads(line.strip())
+        ts = e.get('ts','')[:19].replace('T',' ')
+        lvl = e.get('level','info')
+        msg = e.get('message','')
+        colors = {'info':'\033[0m','success':'\033[0;32m','warn':'\033[0;33m','error':'\033[0;31m'}
+        c = colors.get(lvl, '\033[0m')
+        print(f'{c}{ts}  {msg}\033[0m')
+    except: pass
+"
+                echo ""
+                say "Live tail ($COMP only):"
+                tail -f "$LOG_FILE" | grep --line-buffered "\"source\":.*\"$COMP\"" | python3 -c "
+import sys, json
+for line in sys.stdin:
+    try:
+        e = json.loads(line.strip())
+        ts = e.get('ts','')[:19].replace('T',' ')
+        lvl = e.get('level','info')
+        msg = e.get('message','')
+        colors = {'info':'\033[0m','success':'\033[0;32m','warn':'\033[0;33m','error':'\033[0;31m'}
+        c = colors.get(lvl, '\033[0m')
+        print(f'{c}{ts}  {msg}\033[0m', flush=True)
+    except: pass
+"
+                ;;
+            help|-h)
+                cat <<LOGSEOF
+
+  Usage: ./arail logs [component] [lines]
+
+  Components:
+    all          all events (default)
+    browser      web research / agent-browser actions
+    system       portal startup, mode changes, health
+    researcher   research agent — experiments, LLM calls
+    goal         goal set/reset events
+    wiki         wiki rebuild operations
+    pkb          knowledge base ingest, uploads
+    chat         chat API calls, inference
+    consent      domain approval/denial
+
+  Examples:
+    ./arail logs                # tail all, last 50
+    ./arail logs researcher 100 # last 100 researcher events
+
+LOGSEOF
+                ;;
+            *)
+                die "Unknown component: $COMP — run ./arail logs help for options"
+                ;;
+        esac
+        ;;
+    doctor)
+        say "Checking environment…"
+        [[ -d .venv ]] || { warn "missing .venv — run ./arail setup"; exit 1; }
+        # shellcheck disable=SC1091
+        source .venv/bin/activate
+        python -c "import arail; from arail.portal.app import app; from arail.pkb import _pkb_root; print('python: OK'); print('pkb root:', _pkb_root())" \
+            || die "import check failed"
+        for bin in uvicorn; do command -v "$bin" >/dev/null || warn "missing: $bin"; done
+        for bin in jupyter ttyd code-server; do command -v "$bin" >/dev/null || warn "optional missing: $bin"; done
+        say "doctor: OK"
+        ;;
+    pkb)
+        op="${1:-}"; shift || true
+        case "$op" in
+            ingest)  exec "$REPO_ROOT/scripts/pkb-ingest" "$@" ;;
+            compile) exec "$REPO_ROOT/scripts/pkb-compile" "$@" ;;
+            browse)  exec "$REPO_ROOT/scripts/pkb-browse" "$@" ;;
+            *) die "pkb op must be one of: ingest | compile | browse" ;;
+        esac
+        ;;
+    wiki)
+        op="${1:-build}"; shift || true
+        [[ -d .venv ]] || die "missing .venv — run ./arail setup"
+        # shellcheck disable=SC1091
+        source .venv/bin/activate
+        case "$op" in
+            build)
+                exec python -m arail.wiki build --repo-root "$REPO_ROOT" "$@"
+                ;;
+            info)
+                exec python -m arail.wiki info "$@"
+                ;;
+            serve)
+                exec bash "$REPO_ROOT/scripts/start.sh"
+                ;;
+            new)
+                title="${*:-untitled}"
+                slug=$(python -c "from arail.wiki import slugify; import sys; print(slugify(sys.argv[1]))" "$title")
+                dest="$REPO_ROOT/lab/pkb/notes/${slug}.md"
+                if [[ -e "$dest" ]]; then die "already exists: $dest"; fi
+                mkdir -p "$(dirname "$dest")"
+                now=$(python -c "import datetime; print(datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d'))")
+                cat > "$dest" <<TEMPLATE
+---
+title: ${title}
+section: notes
+tags: []
+aliases: []
+created: ${now}
+---
+
+# ${title}
+
+Write your page here. Link other pages with [[double-brackets]].
+Tags inline with #hashtag are also picked up.
+TEMPLATE
+                say "created: $dest"
+                ;;
+            *) die "wiki op must be one of: build | info | new <title> | serve" ;;
+        esac
+        ;;
+    help|-h|--help|"") usage ;;
+    *) usage; die "unknown command: $cmd" ;;
+esac

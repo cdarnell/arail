@@ -153,7 +153,7 @@ Expected first rows from memory (to be verified):
 
 - verdagon bench on 70B bs=1 (consumer laptop, 16 GB): ~35,350 ms/token
 - verdagon bench on 70B bs=500: ~4,852 ms/token per prompt
-- OGLab gpt-oss-20B-MLX-4bit bs=1 on 24 GB M5: single-digit ms/token (fits in memory — no streaming)
+- Arail gpt-oss-20B-MLX-4bit bs=1 on 24 GB M5: single-digit ms/token (fits in memory — no streaming)
 - DeepSeek-V3 671B bs=1 on 24 GB M5: still at Gate-1 status (does it load)
 
 ---

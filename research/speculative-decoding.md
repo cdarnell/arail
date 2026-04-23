@@ -14,7 +14,7 @@ status: curating
 
 Autoregressive LLM inference is fundamentally sequential — generating K tokens requires K serial forward passes through the model. Each pass is memory-bandwidth bound, leaving GPU compute largely idle. Speculative decoding breaks this bottleneck without retraining, quantizing, or changing the model architecture.
 
-For oglab, this is directly relevant to:
+For arail, this is directly relevant to:
 - Reducing latency in the AirLLM backend for on-device 70B inference
 - Enabling faster agent swarm cycles (ADR-0005 already mentions speculative branching)
 - Making real-time chat viable on commodity hardware
@@ -280,7 +280,7 @@ Speculative Decoding
 
 ---
 
-## Application to oglab Systems
+## Application to arail Systems
 
 ### AeroLLM: Layer-Streaming + Speculative Decoding
 

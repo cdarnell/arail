@@ -1,4 +1,4 @@
-# OGLab — Vibe Integration Plan
+# Arail — Vibe Integration Plan
 
 How the researcher agent naturally integrates with the user's workflow.
 

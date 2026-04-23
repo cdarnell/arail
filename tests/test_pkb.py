@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from oglab import pkb as pkm
+from arail import pkb as pkm
 
 
 EXPECTED_DIRS = [

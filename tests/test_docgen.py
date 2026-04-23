@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from oglab import docgen, wiki
+from arail import docgen, wiki
 
 
 @pytest.fixture()
@@ -90,7 +90,7 @@ def fake_pkm(tmp_path: Path) -> Path:
 
 def test_generate_all_counts(fake_repo: Path, fake_pkm: Path, monkeypatch):
     # Point docgen's module-under-test scanner at our fake src/fakelab;
-    # the real docgen hardcodes src/oglab. We patch the attribute so the
+    # the real docgen hardcodes src/arail. We patch the attribute so the
     # generic walker looks at our fake package.
     monkeypatch.setattr(docgen, "_log", docgen._log)  # no-op, keeps import
     # Monkey-patch the scan path by temporarily renaming the folder
@@ -98,7 +98,7 @@ def test_generate_all_counts(fake_repo: Path, fake_pkm: Path, monkeypatch):
     # helpers directly on the fixture files.
     counts = docgen.generate_all(fake_repo, fake_pkm)
     # We only hit the branches that exist in the fake repo:
-    # - python (fakelab is under src/, not src/oglab, so docgen skips it)
+    # - python (fakelab is under src/, not src/arail, so docgen skips it)
     # - shell (scripts/doit.sh)
     # - compose (compose/app.yml)
     # - guide (README.md, docs/how-to.md)

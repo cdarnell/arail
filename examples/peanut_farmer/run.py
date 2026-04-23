@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-OGLab Example — Georgia Peanut Farmer
+Arail Example — Georgia Peanut Farmer
 
 A self-contained demo that runs WITHOUT a model loaded.
 It uses the offline goal parser and experiment tracker to show the full
@@ -13,12 +13,12 @@ Run:
 import sys
 from pathlib import Path
 
-# Ensure the repo root is on sys.path so `oglab` is importable even
+# Ensure the repo root is on sys.path so `arail` is importable even
 # without `pip install -e .`
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from oglab.skills.goal_parser import GoalParser
-from oglab.skills.experiment_tracker import ExperimentTracker
+from arail.skills.goal_parser import GoalParser
+from arail.skills.experiment_tracker import ExperimentTracker
 
 
 def main() -> None:
@@ -26,7 +26,7 @@ def main() -> None:
 
     print()
     print(sep)
-    print("  OGLab — Georgia Peanut Farmer Example")
+    print("  Arail — Georgia Peanut Farmer Example")
     print(sep)
     print()
 

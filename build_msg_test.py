@@ -1,4 +1,4 @@
-from oglab.lab_brain import build_chat_messages
+from arail.lab_brain import build_chat_messages
 
 msgs = build_chat_messages('What is the default MLX model?', [])
 for m in msgs:

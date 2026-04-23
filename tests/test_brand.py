@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from oglab import brand
+from arail import brand
 
 
 @pytest.fixture(autouse=True)
@@ -16,12 +16,12 @@ def _isolate_env(monkeypatch):
     brand.reset_brand_cache()
 
 
-def test_defaults_are_oglab():
+def test_defaults_are_autoresearch_lab():
     b = brand.load_brand()
-    assert b.name == "OGLab"
-    assert b.short_name == "oglab"
-    assert b.tagline == "AI Lab Blueprint"
-    assert b.logo == "⟨OGLab⟩"
+    assert b.name == "Autoresearch AI Lab"
+    assert b.short_name == "autoresearch-lab"
+    assert b.tagline == "A learn-by-doing AI research lab"
+    assert b.logo == "⟨Autoresearch⟩"
     assert b.version == "0.1.0"
 
 
@@ -74,7 +74,7 @@ def test_portal_templates_expose_brand(monkeypatch):
     brand.reset_brand_cache()
     # Re-import app to pick up the new env (module load time captures it).
     import importlib
-    from oglab.portal import app as app_module
+    from arail.portal import app as app_module
     importlib.reload(app_module)
     globals_dict = app_module.templates.env.globals
     assert "brand" in globals_dict

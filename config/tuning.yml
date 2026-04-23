@@ -1,4 +1,4 @@
-# OGLab — Disk-streamed inference tunables
+# Arail — Disk-streamed inference tunables
 #
 # THIS FILE IS THE AUTORESEARCH LOOP'S SURFACE AREA.
 # The autoresearch agent can only propose changes to knobs listed in

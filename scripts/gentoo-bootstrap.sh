@@ -1,14 +1,14 @@
 
 #!/usr/bin/env bash
 # =============================================================================
-# OGLab — Gentoo System Bootstrap
+# Arail — Gentoo System Bootstrap
 #
 # Run this ONCE on a fresh Gentoo install to compile the full AI lab stack:
 #   - Python + ML libraries
 #   - WezTerm (terminal)
 #   - ttyd (terminal-in-browser)
 #   - Jupyter
-#   - Avahi (mDNS for oglab.local)
+#   - Avahi (mDNS for arail.local)
 #   - Nvidia/CUDA (if GPU present)
 #   - FastAPI portal dependencies
 #
@@ -22,9 +22,9 @@ YELLOW="\033[0;33m"
 RED="\033[0;31m"
 RESET="\033[0m"
 
-info()  { echo -e "${GREEN}[oglab]${RESET} $*"; }
-warn()  { echo -e "${YELLOW}[oglab]${RESET} $*"; }
-error() { echo -e "${RED}[oglab]${RESET} $*"; exit 1; }
+info()  { echo -e "${GREEN}[arail]${RESET} $*"; }
+warn()  { echo -e "${YELLOW}[arail]${RESET} $*"; }
+error() { echo -e "${RED}[arail]${RESET} $*"; exit 1; }
 
 [[ $EUID -eq 0 ]] || error "Run as root: sudo $0"
 
@@ -33,8 +33,8 @@ info "Configuring USE flags…"
 
 mkdir -p /etc/portage/package.use
 
-cat > /etc/portage/package.use/oglab <<'EOF'
-# OGLab AI Lab stack
+cat > /etc/portage/package.use/arail <<'EOF'
+# Arail AI Lab stack
 dev-lang/python sqlite readline
 dev-python/numpy lapack
 sci-libs/pytorch cuda
@@ -78,17 +78,17 @@ emerge -av --noreplace net-misc/ttyd || {
     cd / && rm -rf /tmp/ttyd-build
 }
 
-# ── mDNS: Avahi (oglab.local) ───────────────────────────────────────────
-info "Installing Avahi for oglab.local…"
+# ── mDNS: Avahi (arail.local) ───────────────────────────────────────────
+info "Installing Avahi for arail.local…"
 emerge -av --noreplace net-dns/avahi
 
-# Configure oglab.local service
+# Configure arail.local service
 mkdir -p /etc/avahi/services
-cat > /etc/avahi/services/oglab.service <<'EOF'
+cat > /etc/avahi/services/arail.service <<'EOF'
 <?xml version="1.0" standalone='no'?>
 <!DOCTYPE service-group SYSTEM "avahi-service.dtd">
 <service-group>
-  <name>OGLab AI Portal</name>
+  <name>Arail AI Portal</name>
   <service>
     <type>_http._tcp</type>
     <port>8080</port>
@@ -100,9 +100,9 @@ EOF
 rc-update add avahi-daemon default
 rc-service avahi-daemon start
 
-# Set hostname to oglab
-hostnamectl set-hostname oglab 2>/dev/null || echo "oglab" > /etc/hostname
-info "Hostname set to oglab → accessible as oglab.local"
+# Set hostname to arail
+hostnamectl set-hostname arail 2>/dev/null || echo "arail" > /etc/hostname
+info "Hostname set to arail → accessible as arail.local"
 
 # ── GPU: Nvidia (if detected) ───────────────────────────────────────────
 if lspci | grep -qi nvidia; then
@@ -126,15 +126,15 @@ emerge -av --noreplace \
     dev-python/scipy
 
 # ── Jupyter ──────────────────────────────────────────────────────────────
-info "Jupyter will be installed in the OGLab venv by setup.sh"
+info "Jupyter will be installed in the Arail venv by setup.sh"
 
 # ── OpenRC services ──────────────────────────────────────────────────────
-info "Creating OGLab services…"
+info "Creating Arail services…"
 
 # Portal service
-cat > /etc/init.d/oglab-portal <<'INITEOF'
+cat > /etc/init.d/arail-portal <<'INITEOF'
 #!/sbin/openrc-run
-# OGLab portal — binds to 127.0.0.1 by default.
+# Arail portal — binds to 127.0.0.1 by default.
 #
 # WARNING: moving off 127.0.0.1 is explicit opt-out of the security model.
 # The portal has no built-in auth beyond the code-server password. If you
@@ -142,70 +142,70 @@ cat > /etc/init.d/oglab-portal <<'INITEOF'
 # reverse proxy (nginx, caddy, traefik) and point it at 127.0.0.1:8080.
 # See SECURITY.md.
 
-name="oglab-portal"
-description="OGLab AI Lab Portal (FastAPI)"
-command="/opt/oglab/.venv/bin/uvicorn"
-command_args="oglab.portal.app:app --host 127.0.0.1 --port 8080"
-directory="/opt/oglab"
+name="arail-portal"
+description="Arail AI Lab Portal (FastAPI)"
+command="/opt/arail/.venv/bin/uvicorn"
+command_args="arail.portal.app:app --host 127.0.0.1 --port 8080"
+directory="/opt/arail"
 pidfile="/run/${RC_SVCNAME}.pid"
 command_background="yes"
-command_user="oglab"
-output_log="/var/log/oglab-portal.log"
-error_log="/var/log/oglab-portal.log"
+command_user="arail"
+output_log="/var/log/arail-portal.log"
+error_log="/var/log/arail-portal.log"
 
 depend() {
     need net
     after avahi-daemon
 }
 INITEOF
-chmod +x /etc/init.d/oglab-portal
+chmod +x /etc/init.d/arail-portal
 
 # ttyd service
-cat > /etc/init.d/oglab-terminal <<'INITEOF'
+cat > /etc/init.d/arail-terminal <<'INITEOF'
 #!/sbin/openrc-run
 
-name="oglab-terminal"
-description="OGLab browser terminal (ttyd + zsh)"
+name="arail-terminal"
+description="Arail browser terminal (ttyd + zsh)"
 command="/usr/bin/ttyd"
 command_args="-W -p 7681 -t scrollBar=true /bin/zsh"
 pidfile="/run/${RC_SVCNAME}.pid"
 command_background="yes"
-command_user="oglab"
+command_user="arail"
 
 depend() {
     need net
 }
 INITEOF
-chmod +x /etc/init.d/oglab-terminal
+chmod +x /etc/init.d/arail-terminal
 
 # Enable services
-rc-update add oglab-portal default
-rc-update add oglab-terminal default
+rc-update add arail-portal default
+rc-update add arail-terminal default
 
-# ── OGLab user ───────────────────────────────────────────────────────────
-if ! id oglab &>/dev/null; then
-    useradd -m -s /bin/zsh oglab
-    info "Created user: oglab"
+# ── Arail user ───────────────────────────────────────────────────────────
+if ! id arail &>/dev/null; then
+    useradd -m -s /bin/zsh arail
+    info "Created user: arail"
 fi
 
-# ── Clone / install OGLab ───────────────────────────────────────────────
-if [[ ! -d /opt/oglab ]]; then
-    info "Cloning OGLab into /opt/oglab…"
-    git clone https://github.com/cdarnell/minimalist-blueprint.git /opt/oglab
-    chown -R oglab:oglab /opt/oglab
+# ── Clone / install Arail ───────────────────────────────────────────────
+if [[ ! -d /opt/arail ]]; then
+    info "Cloning Arail into /opt/arail…"
+    git clone https://github.com/cdarnell/autoresearch-lab.git /opt/arail
+    chown -R arail:arail /opt/arail
 fi
 
-su - oglab -c "cd /opt/oglab && ./setup.sh"
+su - arail -c "cd /opt/arail && ./setup.sh"
 
 # ── Done ─────────────────────────────────────────────────────────────────
 echo ""
 info "═══════════════════════════════════════════════════"
-info "  OGLab installed!"
+info "  Arail installed!"
 info ""
-info "  Portal:   http://oglab.local:8080"
-info "  Terminal:  http://oglab.local:7681"
-info "  Jupyter:   http://oglab.local:8888"
+info "  Portal:   http://arail.local:8080"
+info "  Terminal:  http://arail.local:7681"
+info "  Jupyter:   http://arail.local:8888"
 info ""
-info "  Start now:  rc-service oglab-portal start"
-info "              rc-service oglab-terminal start"
+info "  Start now:  rc-service arail-portal start"
+info "              rc-service arail-terminal start"
 info "═══════════════════════════════════════════════════"

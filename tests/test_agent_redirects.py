@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from oglab import agent_redirects
+from arail import agent_redirects
 
 
 def test_set_and_clear_agent_redirect(tmp_path: Path, monkeypatch):

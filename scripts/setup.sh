@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# OGLab — Setup Script
+# Arail — Setup Script
 # Detects your platform, installs dependencies, downloads a starter model.
 # =============================================================================
 set -euo pipefail
@@ -11,9 +11,9 @@ YELLOW="\033[0;33m"
 RED="\033[0;31m"
 RESET="\033[0m"
 
-info()  { echo -e "${GREEN}[oglab]${RESET} $*"; }
-warn()  { echo -e "${YELLOW}[oglab]${RESET} $*"; }
-error() { echo -e "${RED}[oglab]${RESET} $*"; exit 1; }
+info()  { echo -e "${GREEN}[arail]${RESET} $*"; }
+warn()  { echo -e "${YELLOW}[arail]${RESET} $*"; }
+error() { echo -e "${RED}[arail]${RESET} $*"; exit 1; }
 
 ollama_default_enabled() {
     [[ "$PLATFORM" == "macos" && "$ACCEL" == "mlx" ]] && return 1
@@ -34,7 +34,7 @@ AEROLLM_PACKAGE_SPEC="git+https://github.com/cdarnell/aerollm@main"
 #   - code-server (IDE) login
 #   - Open Notebook data encryption key
 #   - future auth proxy
-OGLAB_PASSWORD=""
+ARAIL_PASSWORD=""
 
 load_pyproject_metadata() {
     local assignments
@@ -48,7 +48,7 @@ except ModuleNotFoundError:
     import tomli as tomllib
 
 data = tomllib.loads(Path("pyproject.toml").read_text())
-tool = data.get("tool", {}).get("oglab", {})
+tool = data.get("tool", {}).get("arail", {})
 models = tool.get("models", {})
 sources = tool.get("package-sources", {})
 values = {
@@ -75,7 +75,7 @@ install_pyproject_extra() {
     pip install -q -e ".[${extra_name}]" 2>>"$log" || {
         warn "Install failed for pyproject extra '${extra_name}'. Last 20 lines of setup.log:"
         tail -n 20 "$log" | sed 's/^/    /' >&2
-        error "Install failed for '${extra_name}'. See setup.log, then re-run: ./oglab setup"
+        error "Install failed for '${extra_name}'. See setup.log, then re-run: ./arail setup"
     }
 }
 
@@ -89,7 +89,7 @@ detect_platform() {
     # These aren't supported — users must install WSL2 Ubuntu and run from
     # there. Detect via environment variables those shells set.
     if [[ -n "${MSYSTEM:-}" ]] || [[ -n "${WT_SESSION:-}" && "$(uname -s)" == MINGW* ]]; then
-        error "Windows native shell detected. Install WSL2 + Ubuntu (wsl --install in PowerShell), then run ./oglab setup from inside the Ubuntu app."
+        error "Windows native shell detected. Install WSL2 + Ubuntu (wsl --install in PowerShell), then run ./arail setup from inside the Ubuntu app."
     fi
 
     local os kernel
@@ -114,7 +114,7 @@ detect_platform() {
                 # WSL1 is unsupported — the kernel lacks /dev/dxg and
                 # several syscalls pip + torch need.
                 if ! grep -qi 'WSL2' /proc/version 2>/dev/null; then
-                    error "WSL1 detected — OGLab requires WSL2. From PowerShell (admin):  wsl --set-version Ubuntu 2"
+                    error "WSL1 detected — Arail requires WSL2. From PowerShell (admin):  wsl --set-version Ubuntu 2"
                 fi
             # Check for Gentoo
             elif [[ -f /etc/gentoo-release ]]; then
@@ -180,7 +180,7 @@ check_ports() {
     done
     if (( ${#in_use[@]} > 0 )); then
         warn "Ports already in use: ${in_use[*]}"
-        warn "Edit lab.conf (PORTAL_PORT / TERMINAL_PORT / NOTEBOOK_PORT / IDE_PORT) before ./oglab start."
+        warn "Edit lab.conf (PORTAL_PORT / TERMINAL_PORT / NOTEBOOK_PORT / IDE_PORT) before ./arail start."
     fi
 }
 
@@ -204,9 +204,9 @@ ensure_python() {
     step "3/10  Python environment (.venv + core deps)"
     if ! command -v python3 &>/dev/null; then
         case "$PLATFORM" in
-            gentoo)  error "Install Python, then re-run ./oglab setup:  emerge -av dev-lang/python" ;;
-            macos)   error "Install Python, then re-run ./oglab setup:  brew install python@3.11" ;;
-            *)       error "Install Python 3.10+ and re-run ./oglab setup." ;;
+            gentoo)  error "Install Python, then re-run ./arail setup:  emerge -av dev-lang/python" ;;
+            macos)   error "Install Python, then re-run ./arail setup:  brew install python@3.11" ;;
+            *)       error "Install Python 3.10+ and re-run ./arail setup." ;;
         esac
     fi
 
@@ -219,7 +219,7 @@ ensure_python() {
     # Version gate: too old (< 3.10) fails hard; too new (>= 3.13) warns
     # since some accelerator wheels (mlx, vllm, torch) lag behind.
     if (( pymajor < 3 )) || (( pymajor == 3 && pyminor < 10 )); then
-        error "Python $pyver is too old. Install Python 3.10-3.12 and re-run ./oglab setup."
+        error "Python $pyver is too old. Install Python 3.10-3.12 and re-run ./arail setup."
     fi
     if (( pymajor == 3 && pyminor >= 13 )); then
         warn "Python $pyver is newer than we test (3.10-3.12)."
@@ -239,14 +239,20 @@ ensure_python() {
 # Install core Python deps
 # -----------------------------------------------------------------------------
 install_core_deps() {
-    info "Installing core Python packages from ${BOLD}pyproject.toml${RESET} (one-time, ~90 s)…"
+    local tier="${LAB_TIER:-min}"
+    case "$tier" in
+        min|max) ;;
+        med)     warn "Legacy tier 'med' passed to installer — promoting to 'max'."; tier="max" ;;
+        *)       tier="min" ;;
+    esac
+    info "Installing Python packages (tier=${BOLD}${tier}${RESET}) from ${BOLD}pyproject.toml${RESET}…"
     local log="${REPO_ROOT:-$PWD}/setup.log"
-    pip install -q -e ".[dev,notebook]" 2>>"$log" || {
+    pip install -q -e ".[dev,${tier}]" 2>>"$log" || {
         warn "Core deps install failed. Last 20 lines of setup.log:"
         tail -n 20 "$log" | sed 's/^/    /' >&2
-        error "pip install failed. See setup.log, then re-run: ./oglab setup"
+        error "pip install failed. See setup.log, then re-run: ./arail setup"
     }
-    info "Core dependencies installed, including Lance memory support and notebook tooling."
+    info "Core dependencies installed for tier '${tier}'."
 }
 
 # -----------------------------------------------------------------------------
@@ -271,31 +277,31 @@ install_accel_deps() {
     # so they fit in modest RAM. The dashboard chat card has a toggle
     # that routes one message through AeroLLM at a time.
     #
-    # Opt-out with OGLAB_SKIP_AEROLLM=1 — it's a several-hundred-MB
+    # Opt-out with ARAIL_SKIP_AEROLLM=1 — it's a several-hundred-MB
     # install (torch + transformers) if your accel didn't already
     # pull those in.
     #
     # Install source is declared in pyproject.toml under
-    # [tool.oglab.package-sources]. A one-off env override remains
+    # [tool.arail.package-sources]. A one-off env override remains
     # available for local development only.
     #
     # Default deep model is Meta's gated Llama 3.1 70B. Setup does not
     # auto-download it: users must accept the HF license and authenticate
     # first, then pull the weights explicitly.
-    if [[ "${OGLAB_SKIP_AEROLLM:-0}" != "1" ]]; then
-        local aerollm_pkg="${OGLAB_AEROLLM_PACKAGE_OVERRIDE:-$AEROLLM_PACKAGE_SPEC}"
+    if [[ "${ARAIL_SKIP_AEROLLM:-0}" != "1" ]]; then
+        local aerollm_pkg="${ARAIL_AEROLLM_PACKAGE_OVERRIDE:-$AEROLLM_PACKAGE_SPEC}"
         info "Installing AeroLLM (${aerollm_pkg}) — source declared in ${BOLD}pyproject.toml${RESET}…"
         if pip install -q "$aerollm_pkg" 2>&1 | tail -5; then
             info "AeroLLM ready. Dashboard chat card has a 'Deep model' toggle."
-            if [[ -n "${OGLAB_AEROLLM_PACKAGE_OVERRIDE:-}" ]]; then
-                warn "Using OGLAB_AEROLLM_PACKAGE_OVERRIDE for this run only."
+            if [[ -n "${ARAIL_AEROLLM_PACKAGE_OVERRIDE:-}" ]]; then
+                warn "Using ARAIL_AEROLLM_PACKAGE_OVERRIDE for this run only."
             fi
         else
-            echo -e "${RED}[oglab]${RESET} To bypass: OGLAB_SKIP_AEROLLM=1 ./oglab setup" >&2
-            error "AeroLLM install failed — check [tool.oglab.package-sources] in pyproject.toml or your OGLAB_AEROLLM_PACKAGE_OVERRIDE"
+            echo -e "${RED}[arail]${RESET} To bypass: ARAIL_SKIP_AEROLLM=1 ./arail setup" >&2
+            error "AeroLLM install failed — check [tool.arail.package-sources] in pyproject.toml or your ARAIL_AEROLLM_PACKAGE_OVERRIDE"
         fi
     else
-        info "Skipping AeroLLM (OGLAB_SKIP_AEROLLM=1)."
+        info "Skipping AeroLLM (ARAIL_SKIP_AEROLLM=1)."
     fi
 }
 
@@ -373,15 +379,15 @@ install_services() {
     fi
 
     # Ollama — optional local OpenAI-compatible LLM server. On Apple
-    # Silicon, OGLab's primary local inference path is direct MLX via
+    # Silicon, Arail's primary local inference path is direct MLX via
     # mlx-lm, so we skip Ollama by default unless explicitly enabled.
     # It remains useful for surfaces that want an HTTP API, like Open
     # Notebook or other OpenAI-compatible tools.
     local ollama_enabled=1
-    if ! ollama_default_enabled && [[ "${OGLAB_ENABLE_OLLAMA:-0}" != "1" ]]; then
+    if ! ollama_default_enabled && [[ "${ARAIL_ENABLE_OLLAMA:-0}" != "1" ]]; then
         ollama_enabled=0
         info "Apple Silicon detected — MLX/mlx-lm is the default local runtime."
-        info "Skipping Ollama install by default. Enable it with OGLAB_ENABLE_OLLAMA=1 if you want a local OpenAI-compatible API too."
+        info "Skipping Ollama install by default. Enable it with ARAIL_ENABLE_OLLAMA=1 if you want a local OpenAI-compatible API too."
     fi
 
     if [[ "$ollama_enabled" == "0" ]]; then
@@ -410,17 +416,17 @@ install_services() {
     fi
 
     # Pull a default model for Ollama if none exist. Skippable for
-    # slow networks or locked-down school machines via OGLAB_SKIP_OLLAMA=1.
+    # slow networks or locked-down school machines via ARAIL_SKIP_OLLAMA=1.
     if command -v ollama &>/dev/null; then
-        if [[ "${OGLAB_SKIP_OLLAMA:-0}" == "1" ]]; then
-            warn "OGLAB_SKIP_OLLAMA=1 — skipping qwen3:8b pull. Run later: ollama pull qwen3:8b"
+        if [[ "${ARAIL_SKIP_OLLAMA:-0}" == "1" ]]; then
+            warn "ARAIL_SKIP_OLLAMA=1 — skipping qwen3:8b pull. Run later: ollama pull qwen3:8b"
             return
         fi
         local model_count
         model_count=$(ollama list 2>/dev/null | tail -n +2 | wc -l | tr -d ' ') || model_count="0"
         if [[ "$model_count" == "0" ]]; then
             info "Pulling default Ollama model (qwen3:8b, ~5 GB) — this may take 2-5 minutes…"
-            info "Skip next time with OGLAB_SKIP_OLLAMA=1 if bandwidth is tight."
+            info "Skip next time with ARAIL_SKIP_OLLAMA=1 if bandwidth is tight."
             if ! timeout 900 ollama pull qwen3:8b 2>&1 | tail -5; then
                 warn "Model pull failed or timed out. Run manually: ollama pull qwen3:8b"
             fi
@@ -482,28 +488,87 @@ capture_brand() {
         fi
     fi
 
-    if [[ ! -t 0 ]] || [[ "${OGLAB_NONINTERACTIVE:-0}" == "1" ]]; then
-        LAB_NAME="OGLab"
-        info "Non-interactive — using default lab name: OGLab"
+    if [[ ! -t 0 ]] || [[ "${ARAIL_NONINTERACTIVE:-0}" == "1" ]]; then
+        LAB_NAME="Autoresearch AI Lab"
+        info "Non-interactive — using default lab name: ${LAB_NAME}"
         return
     fi
 
     step "4/10  Name your lab"
     echo "  This is how the dashboard, portal, wiki, and every banner will"
     echo "  refer to your lab. Pick something that feels like yours —"
-    echo "  ${BOLD}PeanutLab${RESET}, ${BOLD}Atlas${RESET}, ${BOLD}Workshop${RESET}, or keep the default."
+    echo "  ${BOLD}Sam's AI Lab${RESET}, ${BOLD}gentoofoo's ai lab${RESET}, ${BOLD}PeanutLab${RESET}, or keep the default."
     echo ""
-    read -rp "  Lab name [OGLab]: " LAB_NAME
-    LAB_NAME="${LAB_NAME:-OGLab}"
+    read -rp "  Lab name [Autoresearch AI Lab]: " LAB_NAME
+    LAB_NAME="${LAB_NAME:-Autoresearch AI Lab}"
 
     # Lowercase short name for info tags and process titles.
     LAB_SHORT_NAME="$(echo "$LAB_NAME" | tr '[:upper:]' '[:lower:]' | tr -s '[:space:]' '-' | tr -cd 'a-z0-9-')"
 
     echo ""
-    read -rp "  One-line tagline [AI Lab Blueprint]: " LAB_TAGLINE
-    LAB_TAGLINE="${LAB_TAGLINE:-AI Lab Blueprint}"
+    read -rp "  One-line tagline [A learn-by-doing AI research lab]: " LAB_TAGLINE
+    LAB_TAGLINE="${LAB_TAGLINE:-A learn-by-doing AI research lab}"
 
     info "Lab name: ${BOLD}${LAB_NAME}${RESET}"
+}
+
+# -----------------------------------------------------------------------------
+# Install tier — min / med / max. Captured once, persisted to .env.
+#
+#   min → Dashboard, Chat, Autoresearch
+#   med → + Knowledge Base, Agents, LanceDB vectors
+#   max → + Admin, Notebooks, AeroLLM, full cloud vendor catalog
+#
+# Upgrade later with `./arail upgrade med` (or max).
+# -----------------------------------------------------------------------------
+LAB_TIER=""
+capture_tier() {
+    # Respect an existing .env value. Legacy "med" folds into "max" (its
+    # surfaces are a subset of max, and med no longer installs separately).
+    if [[ -f .env ]] && grep -q '^LAB_TIER=' .env; then
+        local existing
+        existing="$(grep -E '^LAB_TIER=' .env | head -n1 | cut -d= -f2- | tr -d '"')"
+        case "$existing" in
+            min|max)
+                LAB_TIER="$existing"
+                info "Install tier: ${BOLD}${LAB_TIER}${RESET} (from .env)"
+                return
+                ;;
+            med)
+                warn "Legacy tier 'med' — the two-tier blueprint no longer ships med."
+                warn "Rolling forward to 'max' (inherits everything med had + more)."
+                LAB_TIER="max"
+                return
+                ;;
+        esac
+    fi
+
+    if [[ ! -t 0 ]] || [[ "${ARAIL_NONINTERACTIVE:-0}" == "1" ]]; then
+        LAB_TIER="${ARAIL_TIER:-min}"
+        info "Non-interactive — using tier: ${LAB_TIER}"
+        return
+    fi
+
+    step "4b/10  Pick an install tier"
+    cat <<EOF
+  Two tiers — upgrade later with ./arail upgrade max.
+
+    ${BOLD}min${RESET}  Dashboard + Chat + Autoresearch + Knowledge Base + Agents.
+           The everyday lab. External providers (Claude, NVIDIA, OpenRouter,
+           HuggingFace) are reachable over plain HTTP when LAB_MODE=hybrid.
+           KB runs on markdown + keyword search.
+    ${BOLD}max${RESET}  Everything in min + Admin, Notebooks, LanceDB vectors,
+           AeroLLM frontier streaming, Anthropic SDK, LangChain/LangGraph.
+EOF
+    echo ""
+    local choice
+    read -rp "  Tier [min]: " choice
+    LAB_TIER="${choice:-min}"
+    case "$LAB_TIER" in
+        min|max) info "Install tier: ${BOLD}${LAB_TIER}${RESET}" ;;
+        med)     warn "'med' retired in the two-tier blueprint — rolling forward to 'max'."; LAB_TIER="max" ;;
+        *)       warn "Unknown tier '$LAB_TIER' — falling back to min."; LAB_TIER="min" ;;
+    esac
 }
 
 # -----------------------------------------------------------------------------
@@ -512,24 +577,24 @@ capture_brand() {
 # Contract:
 #   - Interactive TTY + no existing passphrase → silent prompt w/ confirm
 #   - Interactive TTY + existing passphrase     → ask "keep or rotate"
-#   - Non-TTY / OGLAB_NONINTERACTIVE=1          → auto-generate, warn loudly
+#   - Non-TTY / ARAIL_NONINTERACTIVE=1          → auto-generate, warn loudly
 #   - Empty final value                         → hard-fail (caller aborts)
 #
-# The generated token and the final OGLAB_PASSWORD are echoed in the
+# The generated token and the final ARAIL_PASSWORD are echoed in the
 # end-of-setup banner so users never have to grep .env to find it.
 # -----------------------------------------------------------------------------
 capture_password() {
     local existing=""
     if [[ -f .env ]]; then
-        existing="$(grep -E '^OGLAB_PASSWORD=' .env | head -n1 | cut -d= -f2-)"
+        existing="$(grep -E '^ARAIL_PASSWORD=' .env | head -n1 | cut -d= -f2-)"
         # Guard against the placeholder from .env.example.
         if [[ "$existing" == "change-me" ]]; then existing=""; fi
     fi
 
     # Reuse path — ask the user explicitly instead of silent reuse.
     if [[ -n "$existing" ]]; then
-        if [[ ! -t 0 ]] || [[ "${OGLAB_NONINTERACTIVE:-0}" == "1" ]]; then
-            OGLAB_PASSWORD="$existing"
+        if [[ ! -t 0 ]] || [[ "${ARAIL_NONINTERACTIVE:-0}" == "1" ]]; then
+            ARAIL_PASSWORD="$existing"
             info "Reusing existing passphrase from .env (non-interactive)."
             return
         fi
@@ -541,7 +606,7 @@ capture_password() {
         read -rp "  Keep existing? [Y/new]: " choice || choice=""
         case "${choice,,}" in
             ""|y|yes|keep)
-                OGLAB_PASSWORD="$existing"
+                ARAIL_PASSWORD="$existing"
                 info "Keeping existing passphrase."
                 return
                 ;;
@@ -556,8 +621,8 @@ capture_password() {
 
     # Non-interactive path — auto-generate, but warn loudly so the line
     # survives terminal scrollback. The final banner echoes the value.
-    if [[ ! -t 0 ]] || [[ "${OGLAB_NONINTERACTIVE:-0}" == "1" ]]; then
-        OGLAB_PASSWORD="$generated"
+    if [[ ! -t 0 ]] || [[ "${ARAIL_NONINTERACTIVE:-0}" == "1" ]]; then
+        ARAIL_PASSWORD="$generated"
         warn "Non-interactive shell — passphrase auto-generated."
         warn "The final setup banner will print the value — do not miss it."
         return
@@ -576,13 +641,13 @@ capture_password() {
     while true; do
         read -rsp "  Passphrase [generated]: " typed; echo
         if [[ -z "$typed" ]]; then
-            OGLAB_PASSWORD="$generated"
+            ARAIL_PASSWORD="$generated"
             info "Using generated passphrase."
             return
         fi
         read -rsp "  Confirm passphrase      : " confirm; echo
         if [[ "$typed" == "$confirm" ]]; then
-            OGLAB_PASSWORD="$typed"
+            ARAIL_PASSWORD="$typed"
             info "Passphrase set."
             return
         fi
@@ -618,20 +683,25 @@ setup_env() {
         info ".env already exists — preserving model settings."
     fi
 
-    # Passphrase + add-on keys: always ensure they match OGLAB_PASSWORD.
+    # Passphrase + add-on keys: always ensure they match ARAIL_PASSWORD.
     # Idempotent — safe to re-run on an existing .env.
-    if [[ -z "$OGLAB_PASSWORD" ]]; then
-        error "Passphrase capture failed — OGLAB_PASSWORD is empty. Re-run: ./oglab setup"
+    if [[ -z "$ARAIL_PASSWORD" ]]; then
+        error "Passphrase capture failed — ARAIL_PASSWORD is empty. Re-run: ./arail setup"
     fi
-    _set_env_var OGLAB_PASSWORD "$OGLAB_PASSWORD"
-    _set_env_var OPEN_NOTEBOOK_ENCRYPTION_KEY "$OGLAB_PASSWORD"
-    info "Passphrase written to .env (OGLAB_PASSWORD + OPEN_NOTEBOOK_ENCRYPTION_KEY)"
+    _set_env_var ARAIL_PASSWORD "$ARAIL_PASSWORD"
+    _set_env_var OPEN_NOTEBOOK_ENCRYPTION_KEY "$ARAIL_PASSWORD"
+    info "Passphrase written to .env (ARAIL_PASSWORD + OPEN_NOTEBOOK_ENCRYPTION_KEY)"
 
     # Persist brand fields so every subsequent run reads the user's choice.
     if [[ -n "${LAB_NAME:-}" ]]; then
         _set_env_var LAB_NAME "$LAB_NAME"
         _set_env_var LAB_SHORT_NAME "${LAB_SHORT_NAME:-$(echo "$LAB_NAME" | tr '[:upper:]' '[:lower:]')}"
-        _set_env_var LAB_TAGLINE "${LAB_TAGLINE:-AI Lab Blueprint}"
+        _set_env_var LAB_TAGLINE "${LAB_TAGLINE:-A learn-by-doing AI research lab}"
+    fi
+
+    # Persist install tier — the portal reads this to gate the nav.
+    if [[ -n "${LAB_TIER:-}" ]]; then
+        _set_env_var LAB_TIER "$LAB_TIER"
     fi
 }
 
@@ -665,14 +735,14 @@ PY
 # -----------------------------------------------------------------------------
 setup_runtime_files() {
     cat > lab.conf << CONF
-# OGLab runtime config — regenerated by ./oglab setup on every run.
+# Arail runtime config — regenerated by ./arail setup on every run.
 # To change values, edit .env instead (this file is overwritten).
 PORTAL_PORT=8080
 TERMINAL_PORT=7681
 NOTEBOOK_PORT=8888
 IDE_PORT=8443
 MLX_OPENAI_PORT=11435
-IDE_PASSWORD=${OGLAB_PASSWORD}
+IDE_PASSWORD=${ARAIL_PASSWORD}
 BIND_ADDR=127.0.0.1
 CONF
     info "lab.conf written"
@@ -683,14 +753,14 @@ CONF
     if [[ -f "$cs_cfg" ]]; then
         local prev
         prev="$(grep -E '^password:' "$cs_cfg" | head -n1 | cut -d' ' -f2- || true)"
-        if [[ -n "$prev" && "$prev" != "$OGLAB_PASSWORD" ]]; then
+        if [[ -n "$prev" && "$prev" != "$ARAIL_PASSWORD" ]]; then
             warn "Overwriting existing code-server password in $cs_cfg"
         fi
     fi
     cat > "$cs_cfg" << YAML
 bind-addr: 127.0.0.1:8443
 auth: password
-password: ${OGLAB_PASSWORD}
+password: ${ARAIL_PASSWORD}
 cert: false
 YAML
     info "code-server config written"
@@ -741,8 +811,8 @@ IDEAS
 # -----------------------------------------------------------------------------
 download_model() {
     step "8/10  AI models (starter model for ${ACCEL})"
-    if [[ "${OGLAB_SKIP_MODEL_DOWNLOAD:-0}" == "1" ]]; then
-        warn "Skipping model download because OGLAB_SKIP_MODEL_DOWNLOAD=1"
+    if [[ "${ARAIL_SKIP_MODEL_DOWNLOAD:-0}" == "1" ]]; then
+        warn "Skipping model download because ARAIL_SKIP_MODEL_DOWNLOAD=1"
         return
     fi
 
@@ -769,7 +839,7 @@ download_model() {
     warn "Optional deep-chat model for AeroLLM: ${AEROLLM_MODEL_ID}"
     warn "Meta Llama is gated — accept the Hugging Face license first, then authenticate with huggingface-cli login or HF_TOKEN."
     echo "  huggingface-cli download ${AEROLLM_MODEL_ID} --local-dir lab/models/Llama-3.1-70B --local-dir-use-symlinks False"
-    echo "  # then set AEROLLM_MODEL=meta-llama/Llama-3.1-70B in .env and run ./oglab restart"
+    echo "  # then set AEROLLM_MODEL=meta-llama/Llama-3.1-70B in .env and run ./arail restart"
 }
 
 # -----------------------------------------------------------------------------
@@ -777,7 +847,7 @@ download_model() {
 # -----------------------------------------------------------------------------
 capture_goal() {
     # Skip if non-interactive (CI, Docker, pipe)
-    if [[ ! -t 0 ]] || [[ "${OGLAB_NONINTERACTIVE:-0}" == "1" ]]; then
+    if [[ ! -t 0 ]] || [[ "${ARAIL_NONINTERACTIVE:-0}" == "1" ]]; then
         info "Non-interactive shell — skipping goal capture. Set LAB_INTENT + goal via portal later."
         return
     fi
@@ -841,7 +911,7 @@ capture_goal() {
         goal="$default_goal"
         info "Using the lab's signature research goal (optimize AeroLLM)."
     elif [[ -z "${goal// }" ]]; then
-        warn "Empty goal — skipping capture. You can set one from the dashboard after ./oglab start."
+        warn "Empty goal — skipping capture. You can set one from the dashboard after ./arail start."
         return
     fi
 
@@ -885,31 +955,31 @@ PY
     fi
 
     info "Goal saved → $goal_path"
-    info "Researcher will auto-start when you run ${BOLD}./oglab start${RESET}"
+    info "Researcher will auto-start when you run ${BOLD}./arail start${RESET}"
 }
 
 # -----------------------------------------------------------------------------
 # validate_env — sanity-check the .env we just wrote. Catches the exact
-# failure mode the user reported: a stale .env missing OGLAB_PASSWORD,
+# failure mode the user reported: a stale .env missing ARAIL_PASSWORD,
 # or a divergent IDE_PASSWORD in lab.conf. Called from main() after
 # setup_env + setup_runtime_files.
 # -----------------------------------------------------------------------------
 validate_env() {
     local missing=()
-    local required=(MODEL_BACKEND OGLAB_PASSWORD OPEN_NOTEBOOK_ENCRYPTION_KEY LAB_NAME)
+    local required=(MODEL_BACKEND ARAIL_PASSWORD OPEN_NOTEBOOK_ENCRYPTION_KEY LAB_NAME)
     for key in "${required[@]}"; do
         if ! grep -q "^${key}=" .env 2>/dev/null; then
             missing+=("$key")
         fi
     done
     if (( ${#missing[@]} > 0 )); then
-        error "Missing required keys in .env: ${missing[*]}. Re-run: ./oglab setup"
+        error "Missing required keys in .env: ${missing[*]}. Re-run: ./arail setup"
     fi
 
     # Detect passphrase drift between .env and lab.conf — the current
     # user's case (IDE_PASSWORD=Austin34$, OPEN_NOTEBOOK_ENCRYPTION_KEY=Auatin34$).
     local env_pw conf_pw
-    env_pw="$(grep -E '^OGLAB_PASSWORD=' .env | head -n1 | cut -d= -f2-)"
+    env_pw="$(grep -E '^ARAIL_PASSWORD=' .env | head -n1 | cut -d= -f2-)"
     if [[ -f lab.conf ]]; then
         conf_pw="$(grep -E '^IDE_PASSWORD=' lab.conf | head -n1 | cut -d= -f2-)"
         if [[ -n "$env_pw" && -n "$conf_pw" && "$env_pw" != "$conf_pw" ]]; then
@@ -928,12 +998,12 @@ verify() {
     step "10/10  Verification"
     info "Running smoke tests…"
     local log="${REPO_ROOT:-$PWD}/setup.log"
-    if python3 -c "from oglab.router import ModelRouter; import oglab.portal.app; from oglab.pkb import scaffold; scaffold(); print('OK')" >>"$log" 2>&1; then
+    if python3 -c "from arail.router import ModelRouter; import arail.portal.app; from arail.pkb import scaffold; scaffold(); print('OK')" >>"$log" 2>&1; then
         info "Smoke tests passed."
     else
         warn "Smoke test failed. Last 20 lines of setup.log:"
         tail -n 20 "$log" | sed 's/^/    /' >&2
-        error "Inspect setup.log and re-run: ./oglab setup"
+        error "Inspect setup.log and re-run: ./arail setup"
     fi
 }
 
@@ -942,7 +1012,7 @@ verify() {
 # =============================================================================
 main() {
     echo ""
-    echo -e "${BOLD}🧪 OGLab — AI Lab Blueprint Setup${RESET}"
+    echo -e "${BOLD}🧪 Autoresearch AI Lab Setup${RESET}"
     echo ""
     echo "  Local-first AI lab. Pick a name, capture a goal, start researching."
     echo ""
@@ -963,6 +1033,7 @@ main() {
     detect_platform
     install_services
     ensure_python
+    capture_tier
     install_core_deps
     load_pyproject_metadata
     install_accel_deps
@@ -984,21 +1055,21 @@ main() {
     echo -e "${BOLD}━━━ ✓ Setup complete${RESET}"
     echo ""
     echo "  Next steps:"
-    echo -e "    1) Start the lab:      ${BOLD}./oglab start${RESET}"
+    echo -e "    1) Start the lab:      ${BOLD}./arail start${RESET}"
     echo -e "    2) Open the dashboard: ${BOLD}http://127.0.0.1:${PORTAL_PORT:-8080}${RESET}"
     echo -e "    3) Type your goal and click ${BOLD}Run Research${RESET}"
     echo ""
     echo "  Your lab passphrase (unlocks the IDE at :${IDE_PORT:-8443}"
     echo "  and encrypts Open Notebook data):"
     echo ""
-    echo -e "        ${BOLD}${OGLAB_PASSWORD}${RESET}"
+    echo -e "        ${BOLD}${ARAIL_PASSWORD}${RESET}"
     echo ""
     echo "  Also saved in:"
-    echo "    .env        →  OGLAB_PASSWORD, OPEN_NOTEBOOK_ENCRYPTION_KEY"
+    echo "    .env        →  ARAIL_PASSWORD, OPEN_NOTEBOOK_ENCRYPTION_KEY"
     echo "    lab.conf    →  IDE_PASSWORD"
     echo ""
     echo "  Treat it like any password — don't commit .env to git."
-    echo "  To rotate later: ./oglab setup  (answer 'new' when prompted)"
+    echo "  To rotate later: ./arail setup  (answer 'new' when prompted)"
     echo ""
 }
 

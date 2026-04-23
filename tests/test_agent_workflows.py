@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from oglab import agent_workflows
+from arail import agent_workflows
 
 
 def test_update_agent_workflow_persists_json(tmp_path: Path, monkeypatch):

@@ -13,25 +13,25 @@ import pytest
 
 
 CORE_MODULES = [
-    "oglab",
-    "oglab.config",
-    "oglab.brand",
-    "oglab.lab_brain",
-    "oglab.scheduler",
-    "oglab.activity",
-    "oglab.goals",
-    "oglab.costs",
-    "oglab.pkb",
-    "oglab.agents.consent",
-    "oglab.agents.curator",
-    "oglab.agents.researcher",
-    "oglab.router",
-    "oglab.router.core",
-    "oglab.router.backends",
-    "oglab.skills.goal_parser",
-    "oglab.skills.experiment_tracker",
-    "oglab.plugins.manager",
-    "oglab.portal.app",
+    "arail",
+    "arail.config",
+    "arail.brand",
+    "arail.lab_brain",
+    "arail.scheduler",
+    "arail.activity",
+    "arail.goals",
+    "arail.costs",
+    "arail.pkb",
+    "arail.agents.consent",
+    "arail.agents.curator",
+    "arail.agents.researcher",
+    "arail.router",
+    "arail.router.core",
+    "arail.router.backends",
+    "arail.skills.goal_parser",
+    "arail.skills.experiment_tracker",
+    "arail.plugins.manager",
+    "arail.portal.app",
 ]
 
 
@@ -41,7 +41,7 @@ def test_module_imports_cleanly(name):
 
 
 def test_portal_app_has_routes():
-    from oglab.portal.app import app
+    from arail.portal.app import app
     paths = {getattr(r, "path", None) for r in app.routes}
     # A handful of required endpoints that must exist for the dashboard to work.
     for expected in ("/", "/api/goal", "/api/jobs/state",
@@ -51,7 +51,7 @@ def test_portal_app_has_routes():
 
 
 def test_backend_map_covers_expected_backends():
-    from oglab.router.backends import BACKEND_MAP
+    from arail.router.backends import BACKEND_MAP
     expected = {"mlx", "cuda", "cpu", "openai_compat",
                 "huggingface", "openrouter", "claude", "aerollm"}
     assert expected.issubset(BACKEND_MAP.keys()), \

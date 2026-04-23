@@ -285,7 +285,7 @@ Results feed back into `research/aerollm/04-measurement-log.md` as new rows.
 ## Prerequisites
 
 ```bash
-pip install "oglab[mlx]"   # or: pip install mlx mlx-lm
+pip install "arail[mlx]"   # or: pip install mlx mlx-lm
 # Models will be downloaded on first run from HuggingFace
 # Qwen2.5-0.5B-4bit: ~300MB
 # Qwen2.5-7B-4bit:   ~4GB

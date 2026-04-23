@@ -1,7 +1,7 @@
 # Autoresearch Tuning Loop — `/tuning`
 
 The `/tuning` page is the single-pane view for measuring and
-improving OGLab's 1 TB research model. It ties three things
+improving Arail's 1 TB research model. It ties three things
 together:
 
 1. A **bench runner** that times the model, records every run as
@@ -12,7 +12,7 @@ together:
    runs the bench for each, and commits the winners on dedicated
    `autoresearch/<id>` branches.
 
-The whole module sits under `src/oglab/experiments/` and is
+The whole module sits under `src/arail/experiments/` and is
 wired into the portal at `/tuning`.
 
 ## The model under test
@@ -43,7 +43,7 @@ load-bearing.
 - **Working tree must be clean.** The loop aborts with a clear
   error if `git status --porcelain` returns anything. Commit or
   stash first.
-- **`OGLAB_AUTORESEARCH_ENABLED` env var required.** Without it,
+- **`ARAIL_AUTORESEARCH_ENABLED` env var required.** Without it,
   the `/api/tuning/autoresearch/start` endpoint returns a 200
   with `{ok: false, error: ...}`. Belt + braces so an accidental
   click can't make commits.
@@ -89,7 +89,7 @@ requires two edits:
 
 1. `config/tuning.yml` — if the variant needs a new knob or a new
    allowed `choices` value.
-2. `src/oglab/experiments/autoresearch.py` — add an entry to
+2. `src/arail/experiments/autoresearch.py` — add an entry to
    `CANDIDATES`.
 
 Two-file discipline keeps the search space from expanding behind
@@ -132,5 +132,5 @@ exposes them. The workflow to wire a new one:
 101 tests pass (88 existing + 13 new). Run with:
 
 ```bash
-./oglab test   # or: pytest tests/
+./arail test   # or: pytest tests/
 ```

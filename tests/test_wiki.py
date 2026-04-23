@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from oglab import wiki
+from arail import wiki
 
 
 # ── Frontmatter ──────────────────────────────────────────────────────────
