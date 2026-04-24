@@ -777,6 +777,39 @@ a.ag-card-name:hover { text-decoration: underline; text-decoration-style: dotted
   50% { opacity: 1; box-shadow: 0 0 8px rgba(0,255,65,.6); }
 }
 
+/* KB-hit chips on the activity feed. When the researcher emits a
+   "Consulting the KB" event with kb_hits paths, each cited file renders
+   as a clickable pill that deep-links to /knowledge?file=<path>. Lets
+   the user trace what the agent is reading without leaving the trail. */
+.ag-kb-chip-row {
+  display: flex; flex-wrap: wrap; gap: 0.3rem;
+  margin: 0.2rem 0 0.4rem 5.4rem;  /* indent past timestamp + source pill */
+}
+.ag-kb-chip {
+  font-size: 0.65rem;
+  padding: 0.1rem 0.5rem;
+  background: rgba(0, 212, 255, 0.06);
+  border: 1px solid rgba(0, 212, 255, 0.2);
+  border-radius: 999px;
+  color: var(--blue);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.ag-kb-chip:hover {
+  background: rgba(0, 212, 255, 0.14);
+  color: var(--text-hi);
+}
+
+/* Per-card "Learn" link — sits between the agent name and the status pill.
+   Subtle by default; users see it on hover. Points to the matching anchor
+   in docs/agents-explained.md so the lab teaches itself. */
+.ag-learn-link {
+  font-size: 0.62rem; color: var(--muted);
+  text-decoration: none; white-space: nowrap;
+  padding: 0 0.25rem;
+}
+.ag-learn-link:hover { color: var(--text); text-decoration: underline; }
+
 /* Status pill */
 .ag-pill {
   font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.08em;
@@ -798,10 +831,47 @@ a.ag-card-name:hover { text-decoration: underline; text-decoration-style: dotted
 
 .ag-card-stats {
   display: flex; gap: 0.75rem; font-size: 0.68rem; color: var(--muted);
-  margin-bottom: 0.5rem;
+  margin-bottom: 0.5rem; flex-wrap: wrap;
 }
 .ag-card-stats .ag-stat { display: flex; align-items: center; gap: 0.25rem; }
 .ag-card-stats .ag-stat-val { color: var(--text); font-weight: 500; }
+
+/* ── Per-card recent-actions trail ────────────────────────────────
+   Three-line ledger of what the agent just did. Each line is timestamp
+   + message. Renders inside the card under the stats row. */
+.ag-card-trail {
+  list-style: none; margin: 0 0 0.55rem 0; padding: 0.4rem 0.55rem;
+  background: rgba(0,0,0,0.18);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.66rem;
+  display: flex; flex-direction: column; gap: 0.2rem;
+  min-height: 4.4rem;
+}
+.ag-trail-empty {
+  color: var(--muted); font-style: italic; text-align: center;
+  padding: 0.6rem 0;
+}
+.ag-trail-item {
+  display: flex; gap: 0.4rem; align-items: baseline;
+  position: relative; padding-left: 0.5rem;
+}
+.ag-trail-item::before {
+  content: ''; position: absolute; left: 0; top: 0.45rem;
+  width: 4px; height: 4px; border-radius: 50%;
+  background: var(--muted);
+}
+.ag-trail-item.lvl-success::before { background: var(--green); }
+.ag-trail-item.lvl-warn::before    { background: var(--amber); }
+.ag-trail-item.lvl-error::before   { background: var(--red); }
+.ag-trail-ts {
+  color: var(--muted); font-variant-numeric: tabular-nums;
+  flex-shrink: 0; font-size: 0.62rem;
+}
+.ag-trail-msg {
+  color: var(--text); flex: 1;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 
 .ag-card-controls {
   display: flex; gap: 0.35rem; flex-wrap: wrap;
@@ -998,7 +1068,10 @@ a.ag-card-name:hover { text-decoration: underline; text-decoration-style: dotted
 }
 .ag-mem-exp .ag-pill { font-size: 0.55rem; }
 
-/* ── Instruction Bar ────────────────────────────────────────────── */
+/* ── Instruction Bar ──────────────────────────────────────────────
+   Two layouts: legacy sticky-bottom (kept for any other surface that
+   may still mount it) and the .inline variant that sits above the
+   agent cards as a normal-flow rail. */
 .ag-instruction-bar {
   position: fixed; bottom: 0; left: 0; right: 0;
   background: var(--surface);
@@ -1006,6 +1079,18 @@ a.ag-card-name:hover { text-decoration: underline; text-decoration-style: dotted
   padding: 0.5rem 1.5rem;
   display: flex; align-items: center; gap: 0.5rem;
   z-index: 100;
+}
+.ag-instruction-bar.inline {
+  position: static;
+  margin: 1rem 0 1.25rem 0;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: linear-gradient(180deg, rgba(0,255,65,.04) 0%, transparent 100%);
+}
+.ag-instruct-kicker {
+  font-size: 0.65rem; letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--muted); padding-right: 0.25rem;
 }
 .ag-instruction-bar select {
   font-family: var(--font); font-size: 0.75rem;

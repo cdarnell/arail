@@ -86,6 +86,44 @@ def install_pack(pack: str, *, force: bool = False,
     }
 
 
+def remove_pack(pack: str, *, pkb_root: Path | None = None) -> dict[str, Any]:
+    """Delete every .md file inside the named pack's seed dir.
+
+    Idempotent — removing an absent or empty pack returns ``removed=0``.
+    Only operates inside ``_seed_dir(pack)`` so this can never walk into
+    user content. Empties the directory then removes it; sibling packs
+    stay intact.
+    """
+    if pack not in _PACKS:
+        return {"ok": False, "error": f"unknown pack: {pack}"}
+
+    directory = _seed_dir(pack, pkb_root)
+    removed = 0
+    if directory.exists():
+        # Only unlink files we own — *.md inside the seed dir. Anything
+        # the user dropped in there manually with a different extension
+        # stays put (better to be conservative).
+        for md_file in directory.glob("*.md"):
+            try:
+                md_file.unlink()
+                removed += 1
+            except OSError as exc:
+                log.warning("could not remove %s: %s", md_file, exc)
+        # Best-effort cleanup of the now-empty dir; leave it if anything
+        # else lives in it.
+        try:
+            directory.rmdir()
+        except OSError:
+            pass
+
+    return {
+        "ok": True,
+        "pack": pack,
+        "removed": removed,
+        "directory": str(directory),
+    }
+
+
 def seed_all_on_startup(pkb_root: Path | None = None) -> dict[str, Any]:
     """Install every pack that should be present on a fresh lab.
 
@@ -141,7 +179,7 @@ when the lab is brand new.
 - **03** — Hugging Face Hub (model cards, licensing, downloads)
 - **04** — Quantization basics (4/8/16-bit tradeoffs)
 - **05** — Qwen3 family (our default model series)
-- **06** — AeroLLM (multi-threaded prefetched layer streaming for giant models)
+- **06** — AirLLM (layer-streaming for 70B+ local models; ships in both tiers)
 - **07** — Prompt engineering fundamentals
 - **08** — Local vs hosted inference (cost, latency, privacy)
 
@@ -350,7 +388,7 @@ a wide size range so you can pick one that matches your hardware.
 | Qwen3-1.5B | 1.5B | 4 GB RAM | Mobile, edge, fast drafts |
 | Qwen3-8B | 8B | 8-16 GB RAM | **Default** — most laptops |
 | Qwen3-32B | 32B | 24-48 GB RAM | Workstations |
-| Qwen3-235B-A22B | 235B MoE | 48+ GB | AeroLLM layer-streaming |
+| Qwen3-235B-A22B | 235B MoE | 48+ GB | Layer-streaming (AirLLM) |
 
 ## Why we default to it
 
@@ -365,60 +403,75 @@ a wide size range so you can pick one that matches your hardware.
 
 `MODEL_NAME=mlx-community/Qwen3-8B-4bit` (MLX default).
 `MODEL_NAME=Qwen/Qwen3-8B` (CUDA / HuggingFace default).
-`AEROLLM_MODEL=meta-llama/Llama-3.1-70B` (AeroLLM deep-research default).
+`AIRLLM_MODEL=meta-llama/Llama-3.1-70B` (AirLLM deep-research default).
 
 Source: <https://qwenlm.github.io/blog/qwen3/>
 """
 
 
-_AEROLLM_PRIMER = """---
-title: AeroLLM — multi-threaded prefetched layer streaming for giant models
+_AIRLLM_PRIMER = """---
+title: AirLLM — layer-streaming inference for 70B+ models on small hardware
 section: seeds
-tags: [seed, aerollm, large-models, disk-streaming]
-source_ref: https://github.com/cdarnell/aerollm
-aliases: [aerollm, layer-streaming]
+tags: [seed, airllm, large-models, disk-streaming]
+source_ref: https://github.com/lyogavin/airllm
+aliases: [airllm, layer-streaming]
 ---
 
-# AeroLLM
+# AirLLM
 
-Runs models that would normally need 48+ GB of GPU memory on a
-laptop with 4 GB of RAM. The trick: stream transformer blocks from
-disk with a prefetch worker overlapping the next block's load
-against the current block's compute. "Aerodynamic" — overlap I/O
-and compute so concurrent prompts don't serialize on disk
-bandwidth.
+Runs Llama-3.1 70B (or 405B) on hardware that can't hold the full
+weights at once. The trick: load one transformer layer at a time
+from disk into memory, run the forward pass through it, evict it,
+and stream in the next layer. Memory footprint is one layer plus
+KV cache — typically a few GB — instead of the full weight file.
+
+The official PyPI line says it best: *"single 4 GB GPU card to run
+70B large language models without quantization, distillation or
+pruning. 8 GB vmem to run 405B Llama 3.1."*
 
 ## The tradeoff
 
-- **Memory:** small — a working set of a few blocks of a 70B model.
-- **Speed:** seconds-per-token (not tokens-per-second), but better
-  than serial streaming and scales near-linearly with concurrent
-  prompts.
-- **Disk:** needs the full weight file on local storage (~40 GB for
-  a 70B 4-bit quant).
+- **Memory:** small — a working set of a single layer plus KV.
+- **Speed:** tokens-per-minute, not tokens-per-second. The disk
+  read for each layer dominates each generated token.
+- **Disk:** needs the full weight file on local storage (~140 GB
+  for an unquantized 70B; ~40 GB for a 4-bit quant; ~800 GB for
+  the 405B).
 
 ## When it makes sense
 
-- **Heavy research tasks** the researcher agent runs overnight.
-- **Distillation workloads** where many prompts share a layer pass.
-- **Complex reasoning** where token count is small but quality
-  matters.
+- **Heavy research tasks** the researcher agent runs overnight or
+  during the configured heavy work window (default 22:00–08:00).
+- **Frontier capability checks** where you want a real 70B / 405B
+  judgment instead of an 8B approximation.
+- **Reproducibility** — runs locally, no API spend, no rate limits,
+  no provider drift.
 - **Machines with small GPUs** where you'd otherwise be stuck with
-  8B models.
+  8B–13B models or paying for a hosted endpoint.
 
 ## Never use it for
 
 - Interactive single-turn chat. The per-prompt latency ruins it.
 - Short observations the researcher makes mid-experiment.
 
+## Compatibility heads-up
+
+AirLLM is sensitive to model architecture. **Llama 2 / 3 / 3.1 is
+the canonical happy path.** Other families (Mistral, Qwen, DeepSeek,
+GLM) work in some versions but break in others. The lab's defaults
+(`airllm_min` = Llama-3.1-70B, `airllm_max` = Llama-3.1-405B) are
+both Llama for this reason. Confirm against the AirLLM README
+before swapping to a non-Llama model.
+
 ## How we use it
 
-Arail keeps a fast SLM (Qwen3-8B) always loaded for interactive work,
-and loads AeroLLM on demand for "deep research" steps during the
-heavy work window (default 22:00-08:00 local). See
-`src/arail/router/backends.py:AeroLLMBackend`.
+Arail keeps a fast SLM (Qwen3-8B) always loaded for interactive work
+and loads AirLLM on demand for the deep-research path during the
+heavy work window. The dashboard's *Deep model* toggle routes a
+single chat message through it. See
+`src/arail/router/backends.py:AirLLMBackend`.
 
-Source: <https://github.com/cdarnell/aerollm>
+Source: <https://github.com/lyogavin/airllm>
 """
 
 
@@ -529,7 +582,7 @@ _PACKS: dict[str, dict[str, Any]] = {
             ("03-huggingface-models.md", _HF_HUB_PRIMER),
             ("04-quantization-basics.md", _QUANTIZATION_PRIMER),
             ("05-qwen3-family.md", _QWEN3_PRIMER),
-            ("06-aerollm-layer-streaming.md", _AEROLLM_PRIMER),
+            ("06-airllm-layer-streaming.md", _AIRLLM_PRIMER),
             ("07-prompt-engineering.md", _PROMPT_ENG_PRIMER),
             ("08-local-vs-hosted.md", _LOCAL_VS_HOSTED_PRIMER),
         ],

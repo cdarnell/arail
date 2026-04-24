@@ -18,6 +18,7 @@ import json
 import os
 from typing import Any, Dict, List, Optional
 
+from arail import pkb as pkb_mod
 from arail.activity import activity_log
 from arail.agent_redirects import get_agent_redirect, redirect_profile
 from arail.agent_workflows import update_agent_workflow
@@ -205,7 +206,7 @@ def _redirect_prompt_block(redirect: dict[str, Any] | None) -> str:
     if profile["focus_measurement"]:
         lines.append("Prioritize measurement design, evaluation criteria, instrumentation, and success metrics.")
     if profile["prefer_autoresearch"]:
-        lines.append("Bias toward work that prepares the goal for an AutoResearch loop with explicit metrics, variants, and stop conditions.")
+        lines.append("Bias toward work that prepares the goal for an Autoresearch loop with explicit metrics, variants, and stop conditions.")
     if profile["broaden_search"]:
         lines.append("Broaden retrieval and source gathering before narrowing the loop.")
     return "\n".join(lines) + "\n\n"
@@ -329,6 +330,84 @@ class ResearcherAgent:
                         return
                     await asyncio.sleep(min(1, delay_sec - slept))
                     slept += 1
+
+            # Consult the knowledge base FIRST so the researcher's opening
+            # move is visibly grounded in what the lab already knows. This
+            # is the smallest visible step toward the user's vision: when
+            # a goal is set, the agent reaches into the KB before doing
+            # anything else. (The KB ships with starter primers; users
+            # add their own corpus to make this richer.)
+            #
+            # pkb.search does exact substring match, so a multi-word goal
+            # like "Improve AeroLLM SSD inference" finds nothing as one
+            # query. Break the goal into meaningful keywords (≥4 chars,
+            # not stopwords), search each, union by path, sort by match
+            # count.
+            try:
+                stopwords = {
+                    "the", "and", "for", "with", "from", "into", "this",
+                    "that", "than", "when", "what", "which", "their",
+                    "improve", "better", "while", "about", "make", "more",
+                    "your", "some", "such", "these", "those", "have",
+                    "been", "being", "will", "would", "could", "should",
+                }
+                terms = [
+                    t.strip(".,;:!?\"'()[]{}").lower()
+                    for t in goal_text.split()
+                    if len(t) >= 4
+                ]
+                terms = [t for t in terms if t and t not in stopwords]
+                # Cap at 6 terms to keep this snappy.
+                terms = list(dict.fromkeys(terms))[:6]
+
+                # Skip structural files — manifests, indexes, wiki cache.
+                # We want the user to see the actual primer/note hits, not
+                # noise from auto-generated registries.
+                def _is_structural(path: str) -> bool:
+                    p = path.lower()
+                    return (
+                        p.endswith(".json")
+                        or p.endswith("/index.md")
+                        or p == "index.md"
+                        or "/.wiki-cache/" in p
+                        or "/manifest" in p
+                    )
+
+                merged: dict[str, dict] = {}
+                for term in terms or [goal_text]:
+                    for hit in pkb_mod.search(term):
+                        path = hit.get("path", "")
+                        if not path or _is_structural(path):
+                            continue
+                        existing = merged.get(path)
+                        if existing is None:
+                            merged[path] = dict(hit)
+                            merged[path]["score"] = hit.get("match_count", 1)
+                        else:
+                            existing["score"] += hit.get("match_count", 1)
+                kb_hits = sorted(
+                    merged.values(),
+                    key=lambda h: h.get("score", 0),
+                    reverse=True,
+                )[:5]
+            except Exception:
+                kb_hits = []
+            if kb_hits:
+                hit_names = ", ".join(h.get("name", "?") for h in kb_hits[:3])
+                more = f" (+{len(kb_hits) - 3} more)" if len(kb_hits) > 3 else ""
+                activity_log.emit(
+                    "researcher",
+                    f"Consulting the KB for context — found {len(kb_hits)} entries on "
+                    f"'{goal_text[:60]}': {hit_names}{more}",
+                    "info",
+                    {"kb_hits": [h.get("path") for h in kb_hits]},
+                )
+            else:
+                activity_log.emit(
+                    "researcher",
+                    f"No KB entries match '{goal_text[:60]}' yet — proceeding from prior knowledge.",
+                    "info",
+                )
 
             activity_log.emit("researcher",
                               f"Starting research ({intent_name}): {goal_text}",
@@ -785,7 +864,7 @@ class ResearcherAgent:
             f"3. Consider expanding data sources for broader validation",
         ])
         if redirect_flags["prefer_autoresearch"]:
-            report_lines.append(f"4. Convert the strongest measurement path into a repeatable AutoResearch loop with explicit stop conditions")
+            report_lines.append(f"4. Convert the strongest measurement path into a repeatable Autoresearch loop with explicit stop conditions")
         report_lines.extend([
             f"",
             f"---",

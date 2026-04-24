@@ -31,7 +31,12 @@ Two tiers. You can change your mind later with `./arail upgrade max`.
 ### 🟢 `min` — the everyday lab
 
 - **Tabs**: Dashboard, Chat, Autoresearch, Knowledge Base, Agents.
-- **Packages**: just the core lab (no LanceDB, no notebooks, no vendor SDKs).
+- **Packages**: core lab + **AirLLM** for deep layer-streaming
+  inference. (No LanceDB, no notebooks, no vendor SDKs.)
+- **Default deep model**: `meta-llama/Llama-3.1-70B`. AirLLM streams
+  layer-by-layer from disk, so a 70B fits even on a small machine —
+  it'll be slow (tokens-per-minute), but the model itself is the real
+  thing.
 - **Memory**: KB runs on markdown + keyword search. Good enough for the
   first few weeks of curating notes and watching the research loop work.
 - **External providers**: Claude / NVIDIA / OpenRouter / HuggingFace are
@@ -49,11 +54,18 @@ Two tiers. You can change your mind later with `./arail upgrade max`.
   - `anthropic` SDK — first-class Claude integration.
   - `langchain` + `langgraph` — for operators who want to compose agents
     with the community ecosystem on top of the built-ins.
-  - **AeroLLM** frontier layer-streaming (frontier open-weight models on
-    laptop hardware).
+  - **AirLLM with a 405B default** (`meta-llama/Llama-3.1-405B`) —
+    AirLLM was literally designed around this case ("8 GB VRAM runs
+    405B"). Frontier open-weight inference on whatever hardware you
+    happen to have.
   - Hardware-specific extras (MLX, CUDA, or CPU) install automatically
     based on what `./arail setup` detects.
 - **Good for**: real experiments, frontier models, the full kitchen sink.
+
+> **Heads up — Llama is gated.** Both 70B and 405B require accepting the
+> Hugging Face license and authenticating with `huggingface-cli login` (or
+> `HF_TOKEN`). Setup leaves the weights download to you — the model
+> registry is several hundred GB and you should pick when to pay that bill.
 
 ---
 
@@ -95,7 +107,7 @@ Open [http://127.0.0.1:8080](http://127.0.0.1:8080). You're in.
 When you're ready for more:
 
 ```bash
-./arail upgrade max     # install vector + notebook + cloud SDK + AeroLLM extras
+./arail upgrade max     # bumps AirLLM default 70B → 405B + adds vector/notebook/cloud SDKs
 ./arail restart         # pick up the new nav
 ```
 

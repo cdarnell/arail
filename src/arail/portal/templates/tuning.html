@@ -71,7 +71,7 @@
 <div class="tn-wrap">
 
   <div class="tn-hero">
-    <h1 id="tn-hero-title">AeroLLM MLX — tune the research model on Apple silicon</h1>
+    <h1 id="tn-hero-title">AirLLM MLX — tune the deep model on Apple silicon</h1>
     <div class="sub">
       Tune target: <code id="tn-model-name">loading…</code>
       &nbsp;·&nbsp;
@@ -82,46 +82,44 @@
   </div>
 
   <!-- ── View tabs ───────────────────────────────────────────────────
-       Three user-facing views. AeroLLM MLX and AirLLM MLX both map
-       to the same underlying mlx tuning backend — the latter shows
-       a comparison lens over the same dataset. CUDA maps to the
-       aerollm backend. Persists to localStorage so a refresh keeps
-       the tab. -->
+       Default: AirLLM MLX is the only visible tab. Flip LAB_SHOW_AEROLLM=1
+       in .env to expose the AeroLLM MLX + CUDA tabs (for the operator
+       running AeroLLM alongside or in place of AirLLM). The view registry
+       in JS keeps all three views regardless — only the buttons hide. -->
   <div class="tn-tabs" role="tablist" style="display:flex;gap:4px;margin:14px 0 10px;border-bottom:1px solid var(--border,#222);">
-    <button class="tn-tab active" data-view="aerollm-mlx" role="tab"
+    <button class="tn-tab active" data-view="airllm-mlx" role="tab"
             style="background:transparent;border:0;border-bottom:2px solid #7ee0a0;color:#d4e8d8;padding:8px 14px;cursor:pointer;font-size:13px;">
-      AeroLLM MLX <span style="color:#8faf97;font-size:11px;">· Apple silicon · default</span>
+      AirLLM MLX <span style="color:#8faf97;font-size:11px;">· Apple silicon · default</span>
     </button>
-    <button class="tn-tab" data-view="airllm-mlx" role="tab"
+    {% if show_aerollm %}
+    <button class="tn-tab" data-view="aerollm-mlx" role="tab"
             style="background:transparent;border:0;border-bottom:2px solid transparent;color:#8faf97;padding:8px 14px;cursor:pointer;font-size:13px;">
-      AirLLM MLX <span style="color:#6a8a72;font-size:11px;">· comparison · unified memory</span>
+      AeroLLM MLX <span style="color:#6a8a72;font-size:11px;">· experimental · unified memory</span>
     </button>
     <button class="tn-tab" data-view="aerollm-cuda" role="tab"
             style="background:transparent;border:0;border-bottom:2px solid transparent;color:#8faf97;padding:8px 14px;cursor:pointer;font-size:13px;">
-      AeroLLM CUDA <span style="color:#6a8a72;font-size:11px;">· CUDA · 1 TB class</span>
+      AeroLLM CUDA <span style="color:#6a8a72;font-size:11px;">· experimental · 1 TB class</span>
     </button>
+    {% endif %}
   </div>
 
-  <!-- ── AeroLLM framing ─────────────────────────────────────────────
-       AeroLLM is the lab's deep-inference runtime: multi-threaded
-       prefetched layer streaming optimized for concurrent research
-       prompts. All three views measure AeroLLM — MLX views on Apple
-       silicon unified memory, CUDA view on GPU. Measurements land in
-       lab/data/aerollm-bench.jsonl or lab/data/mlx-bench.jsonl. -->
+  <!-- ── Framing card ────────────────────────────────────────────────
+       AirLLM streams transformer layers from disk so a 70B-class
+       model fits on modest unified-memory hardware. Measurements
+       land in lab/data/mlx-bench.jsonl. -->
   <div class="tn-card" id="tn-framing-card" style="margin-bottom:16px;background:#0f1a14;border-color:#1e3a2a;">
     <div style="display:flex;gap:10px;align-items:flex-start;">
       <span style="font-size:20px;line-height:1;">🧪</span>
       <div class="tn-meta" style="color:#b8d0bf;font-size:12px;line-height:1.55;margin:0;" id="tn-framing-body">
-        <strong style="color:#d4e8d8;">AeroLLM — aerodynamic layer streaming.</strong>
-        Multi-threaded prefetch overlaps I/O and compute so
-        simultaneous prompts share each layer pass instead of
-        serializing on disk bandwidth. Developed at
-        <a href="https://github.com/cdarnell/aerollm" target="_blank"
-           rel="noopener" style="color:#7ee0a0;">cdarnell/aerollm</a>.
+        <strong style="color:#d4e8d8;">AirLLM — layer streaming on Apple silicon.</strong>
+        Each transformer layer is loaded from NVMe into unified
+        memory, executed by MLX kernels in place, then evicted
+        before the next layer streams in. Lets a 70B-class model
+        run on hardware that can't hold the full weights at once.
         <br>
         <span style="color:#8faf97;">Measurements land in
-          <code>lab/data/mlx-bench.jsonl</code>. Wins on any view
-          feed into the upstream repo.</span>
+          <code>lab/data/mlx-bench.jsonl</code>. Knob sweeps
+          (autoresearch loop) commit on green, abort on red.</span>
       </div>
     </div>
   </div>
@@ -236,7 +234,7 @@
       <path id="tn-m-e5" class="tn-edge dashed" d="M 620 350 L 760 350 L 760 315" marker-end="url(#tn-arr)"/>
       <text class="tn-elab" x="700" y="340">prefix reuse</text>
 
-      <!-- The PCIe hop that CUDA AeroLLM needs but MLX doesn't (strikethrough) -->
+      <!-- PCIe hop only relevant on CUDA; collapsed by Apple silicon unified memory -->
       <path class="tn-edge strike" d="M 400 275 L 660 155" />
       <text class="tn-elab strike" x="530" y="262">✕ no PCIe copy</text>
       <text class="tn-note"        x="530" y="252" style="fill:#a06060;">(collapsed by unified memory)</text>
@@ -431,8 +429,8 @@
     <button class="tn-btn" id="tn-run-auto">Run one sweep</button>
     <button class="tn-btn" id="tn-run-forever"
             style="background:#7a2;"
-            title="AeroLLM autoresearch — sweeps every candidate, pauses, sweeps again, forever.">
-      ▶ AeroLLM — don't stop, won't stop
+            title="Autoresearch — sweeps every candidate, pauses, sweeps again, forever.">
+      ▶ Autoresearch — don't stop, won't stop
     </button>
     <button class="tn-btn" id="tn-stop"
             style="background:#a33;display:none;">
@@ -524,21 +522,22 @@
   const $ = (id) => document.getElementById(id);
   const fmt = (n, d = 3) => (n == null ? "—" : Number(n).toFixed(d));
 
-  // View selection — three user-facing views. AeroLLM MLX and AirLLM
-  // MLX both map to the mlx tuning backend (same dataset, different
-  // framing lens). CUDA maps to the aerollm tuning backend.
-  // Persisted so a refresh keeps the view the user was on.
-  const VIEWS = ["aerollm-mlx", "airllm-mlx", "aerollm-cuda"];
+  // View selection — blueprint ships with one visible view (airllm-mlx).
+  // The AeroLLM views remain in the registry so JS state, tests, and the
+  // legacy aerollm tuning backend keep working; they're just not exposed
+  // in the tab strip. Re-add the buttons in the tab markup when the
+  // AeroLLM Rust runtime is ready to demo.
+  const VIEWS = ["airllm-mlx", "aerollm-mlx", "aerollm-cuda"];
   const VIEW_BACKEND = {
-    "aerollm-mlx":  "mlx",
     "airllm-mlx":   "mlx",
+    "aerollm-mlx":  "mlx",
     "aerollm-cuda": "aerollm",
   };
   const VIEW_META = {
-    "aerollm-mlx": {
-      heroTitle: "AeroLLM MLX \u2014 tune the research model on Apple silicon",
+    "airllm-mlx": {
+      heroTitle: "AirLLM MLX \u2014 tune the deep model on Apple silicon",
       archDiagram: "mlx",
-      archTitle: "Architecture \u2014 MLX unified-memory streaming",
+      archTitle: "Architecture \u2014 AirLLM unified-memory streaming",
       archBlurb: ("Layers live on NVMe. A <em>rotating window</em> of the current "
        + "layer is mmap'd into unified memory; MLX kernels read it "
        + "<em>in place</em> (no PCIe copy \u2014 that stage doesn't exist on "
@@ -546,46 +545,35 @@
        + "<code>quantized_kv_start</code>; prefill chunks via "
        + "<code>prefill_step_size</code>; prefixes reuse via the prompt "
        + "cache. These are the levers our knobs reach."),
-      framingBody: ("<strong style=\"color:#d4e8d8;\">AeroLLM \u2014 aerodynamic layer streaming.</strong> "
-       + "Multi-threaded prefetch overlaps I/O and compute so simultaneous prompts share each layer "
-       + "pass instead of serializing on disk bandwidth. Developed at "
-       + "<a href=\"https://github.com/cdarnell/aerollm\" target=\"_blank\" rel=\"noopener\" style=\"color:#7ee0a0;\">cdarnell/aerollm</a>. "
+      framingBody: ("<strong style=\"color:#d4e8d8;\">AirLLM \u2014 layer streaming on Apple silicon.</strong> "
+       + "Each transformer layer is loaded from NVMe into unified memory, executed by MLX kernels in "
+       + "place, then evicted before the next layer streams in. Lets a 70B-class model run on hardware "
+       + "that can't hold the full weights at once. "
        + "<br><span style=\"color:#8faf97;\">Measurements land in <code>lab/data/mlx-bench.jsonl</code>.</span>"),
     },
-    "airllm-mlx": {
-      heroTitle: "AirLLM MLX \u2014 comparison view on Apple silicon",
+    "aerollm-mlx": {
+      heroTitle: "AeroLLM MLX \u2014 (experimental, dormant)",
       archDiagram: "mlx",
-      archTitle: "Architecture \u2014 AirLLM unified-memory comparison",
-      archBlurb: ("AirLLM layers stream from NVMe into unified memory using the same MLX mmap "
-       + "approach. This view compares AirLLM inference behavior on the same MLX tuning dataset "
-       + "as AeroLLM MLX \u2014 useful for spotting where the two runtimes diverge on "
-       + "<code>prefill_step_size</code> and KV quantization strategies. "
-       + "<span style=\"color:#8faf97;\">Shares <code>lab/data/mlx-bench.jsonl</code> with AeroLLM MLX.</span>"),
-      framingBody: ("<strong style=\"color:#d4e8d8;\">AirLLM \u2014 layer-streaming baseline on Apple silicon.</strong> "
-       + "This is a comparison view over the existing MLX tuning dataset. AirLLM uses the same "
-       + "NVMe \u2192 unified memory pipeline; results reflect both runtimes on identical hardware. "
-       + "<br><span style=\"color:#8faf97;\">Autoresearch loop uses the AeroLLM MLX track. "
-       + "Comparison data lands in <code>lab/data/mlx-bench.jsonl</code>.</span>"),
+      archTitle: "Architecture \u2014 MLX unified-memory streaming",
+      archBlurb: ("AeroLLM is the planned Rust runtime. Same MLX pipeline as AirLLM but with "
+       + "multi-threaded prefetch to hide disk latency. Currently dormant in this blueprint."),
+      framingBody: ("<strong style=\"color:#d4e8d8;\">AeroLLM \u2014 (dormant).</strong> "
+       + "View kept for back-compat with existing tuning data."),
     },
     "aerollm-cuda": {
-      heroTitle: "AeroLLM CUDA \u2014 tune the research model on GPU",
+      heroTitle: "AeroLLM CUDA \u2014 (experimental, dormant)",
       archDiagram: "aerollm",
       archTitle: "Architecture \u2014 AeroLLM CUDA 3-tier streaming",
-      archBlurb: ("Each transformer layer is streamed SSD \u2192 CPU RAM \u2192 PCIe \u2192 "
-       + "VRAM, computed, then freed \u2014 so a 1 TB model runs on a 24 GB "
-       + "card. The prefetcher hides disk latency behind compute; "
-       + "<code>prefetch_enabled</code> + <code>prefetch_lookahead</code> "
-       + "are the knobs that move this pipeline."),
-      framingBody: ("<strong style=\"color:#d4e8d8;\">AeroLLM \u2014 aerodynamic layer streaming on CUDA.</strong> "
-       + "Multi-threaded prefetch overlaps I/O and compute so simultaneous prompts share each layer "
-       + "pass on GPU. For 1 TB class models on a 24 GB card. "
-       + "<br><span style=\"color:#8faf97;\">Measurements land in <code>lab/data/aerollm-bench.jsonl</code>.</span>"),
+      archBlurb: ("Reference diagram for the AeroLLM CUDA path (1 TB class on a 24 GB card). "
+       + "Dormant in this blueprint."),
+      framingBody: ("<strong style=\"color:#d4e8d8;\">AeroLLM CUDA \u2014 (dormant).</strong> "
+       + "Diagram is illustrative; no active loop."),
     },
   };
 
   function currentView() {
-    const v = localStorage.getItem("arail.tuning.view") || "aerollm-mlx";
-    return VIEWS.includes(v) ? v : "aerollm-mlx";
+    const v = localStorage.getItem("arail.tuning.view") || "airllm-mlx";
+    return VIEWS.includes(v) ? v : "airllm-mlx";
   }
   function currentBackend() {
     return VIEW_BACKEND[currentView()] || "mlx";
@@ -976,17 +964,17 @@
 
   async function runForever() {
     if (!confirm(
-      "AeroLLM autoresearch — don't stop, won't stop.\n\n" +
+      "Autoresearch — don't stop, won't stop.\n\n" +
       "This sweeps every candidate, pauses briefly, then sweeps the " +
       "whole thing again — forever, until you click Stop. Winning " +
       "variants get committed to autoresearch/* branches for human " +
-      "review.\n\nThe AeroLLM binary is untouched; this only measures.\n\n" +
+      "review.\n\nThe model binary is untouched; this only measures.\n\n" +
       "Continue?"
     )) return;
     try {
       await jpost("/api/tuning/autoresearch/start_forever");
     } catch (e) {
-      alert("AeroLLM autoresearch failed to start: " + e.message);
+      alert("Autoresearch failed to start: " + e.message);
       return;
     }
     // Poll while continuous. 4s cadence matches the one-shot loop.

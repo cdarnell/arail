@@ -591,7 +591,7 @@ document.getElementById('goal-form').addEventListener('submit', async (e) => {
     showResearchButtons('running');
   } catch (err) {
     document.getElementById('goal-result').innerHTML =
-      '<p style="color:var(--red);">Failed to parse — check if the portal is running.</p>';
+      '<p style="color:var(--red);">Could not save the goal. Try again, or check the activity log on the Agents tab for details.</p>';
   } finally {
     btn.textContent = '▶ Run Research';
     btn.disabled = false;

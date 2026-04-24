@@ -106,6 +106,25 @@ reset_pkb() {
     info "Knowledge base removed. Starter packs will re-seed on next ./arail start."
 }
 
+reset_pkb_seeds() {
+    # Granular variant of reset_pkb: only wipes the seeded starter
+    # primers under lab/pkb/sources/seeds/. User notes, agent writes,
+    # and uploads are untouched. On next `./arail start` the starter
+    # packs re-seed automatically — to keep them gone, also disable
+    # ARAIL_AUTO_SEED in .env (TODO: not yet honored by the seeder).
+    local seed_dir="lab/pkb/sources/seeds"
+    if [[ ! -d "$seed_dir" ]]; then
+        info "No lab/pkb/sources/seeds/ directory — nothing to remove."
+        return
+    fi
+    local sz
+    sz=$(report_size "$seed_dir")
+    warn "Removing ${seed_dir}/ (${sz})..."
+    warn "Only seed packs are removed. Your notes, uploads, and agent writes stay put."
+    rm -rf "$seed_dir"
+    info "Seed packs removed. They will re-install on next ./arail start unless disabled."
+}
+
 reset_env() {
     for f in .env lab.conf; do
         if [[ -f "$f" ]]; then
@@ -183,6 +202,7 @@ usage() {
     echo "    data      Remove experiments and data"
     echo "    pkb       Remove the knowledge base (all notes, uploads,"
     echo "              agent findings, seed packs). Re-seeds on next start."
+    echo "    pkb-seeds Remove only the seeded starter primers; keep your notes."
     echo "    plugins   Remove installed plugins"
     echo "    env       Remove .venv, .env, lab.conf"
     echo "    full      Complete wipe — keeps the knowledge base safe."
@@ -268,7 +288,8 @@ done
 case "${MODE:-}" in
     models)  confirm_and_run "models" reset_models ;;
     data)    confirm_and_run "data & experiments" reset_data ;;
-    pkb)     confirm_and_run "KNOWLEDGE BASE" reset_pkb ;;
+    pkb)       confirm_and_run "KNOWLEDGE BASE" reset_pkb ;;
+    pkb-seeds) confirm_and_run "starter pack seeds" reset_pkb_seeds ;;
     plugins) confirm_and_run "plugins" reset_plugins ;;
     env)     confirm_and_run "environment" reset_env ;;
     full)    confirm_and_run "FULL WIPE" full_wipe ;;

@@ -27,6 +27,15 @@ step()  { echo ""; echo -e "${BOLD}━━━ $*${RESET}"; echo ""; }
 MODEL_MLX_ID="mlx-community/Qwen3-8B-4bit"
 MODEL_HF_ID="Qwen/Qwen3-8B"
 MODEL_GGUF_ID="Qwen/Qwen3-8B-GGUF"
+# Deep backend — AirLLM ships in both tiers; the model just gets bigger
+# in max. AIRLLM_MODEL_ID is the resolved value for the user's tier
+# (defaulted to the min 70B; capture_tier upgrades it to the 405B for max).
+AIRLLM_MODEL_ID="meta-llama/Llama-3.1-70B"
+AIRLLM_MODEL_MIN_ID="meta-llama/Llama-3.1-70B"
+AIRLLM_MODEL_MAX_ID="meta-llama/Llama-3.1-405B"
+AIRLLM_PACKAGE_SPEC="airllm>=2.0"
+# AeroLLM = Arail's own Rust runtime; declared for the future swap-back
+# but not installed by setup.
 AEROLLM_MODEL_ID="zai-org/GLM-5.1"
 AEROLLM_PACKAGE_SPEC="git+https://github.com/cdarnell/aerollm@main"
 
@@ -55,6 +64,9 @@ values = {
     "MODEL_MLX_ID": str(models.get("mlx", "")),
     "MODEL_HF_ID": str(models.get("cuda", "")),
     "MODEL_GGUF_ID": str(models.get("cpu", "")),
+    "AIRLLM_MODEL_MIN_ID": str(models.get("airllm_min", models.get("airllm", ""))),
+    "AIRLLM_MODEL_MAX_ID": str(models.get("airllm_max", models.get("airllm", ""))),
+    "AIRLLM_PACKAGE_SPEC": str(sources.get("airllm", "")),
     "AEROLLM_MODEL_ID": str(models.get("aerollm", "")),
     "AEROLLM_PACKAGE_SPEC": str(sources.get("aerollm", "")),
 }
@@ -272,36 +284,36 @@ install_accel_deps() {
             ;;
     esac
 
-    # AeroLLM — "deep" backend. Multi-threaded prefetched layer
-    # streaming; loads giant models (70B+) block-by-block from disk
-    # so they fit in modest RAM. The dashboard chat card has a toggle
-    # that routes one message through AeroLLM at a time.
+    # Deep backend — layer-streaming inference for 70B+ models on
+    # constrained hardware. The dashboard chat card has a "Deep model"
+    # toggle that routes one message through this backend at a time.
     #
-    # Opt-out with ARAIL_SKIP_AEROLLM=1 — it's a several-hundred-MB
-    # install (torch + transformers) if your accel didn't already
-    # pull those in.
+    # AirLLM ships in BOTH tiers: min defaults to a 70B (Llama-3.1-70B),
+    # max defaults to a 405B (Llama-3.1-405B). The package itself is the
+    # same several-hundred-MB install regardless of tier — the model is
+    # what differs. (AirLLM advertises 8 GB VRAM running 405B.)
     #
-    # Install source is declared in pyproject.toml under
-    # [tool.arail.package-sources]. A one-off env override remains
-    # available for local development only.
+    # AeroLLM — Arail's own Rust runtime — is declared in pyproject.toml
+    # but stays dormant until it's stable; the swap-back is a one-line
+    # edit in this block.
     #
-    # Default deep model is Meta's gated Llama 3.1 70B. Setup does not
-    # auto-download it: users must accept the HF license and authenticate
-    # first, then pull the weights explicitly.
-    if [[ "${ARAIL_SKIP_AEROLLM:-0}" != "1" ]]; then
-        local aerollm_pkg="${ARAIL_AEROLLM_PACKAGE_OVERRIDE:-$AEROLLM_PACKAGE_SPEC}"
-        info "Installing AeroLLM (${aerollm_pkg}) — source declared in ${BOLD}pyproject.toml${RESET}…"
-        if pip install -q "$aerollm_pkg" 2>&1 | tail -5; then
-            info "AeroLLM ready. Dashboard chat card has a 'Deep model' toggle."
-            if [[ -n "${ARAIL_AEROLLM_PACKAGE_OVERRIDE:-}" ]]; then
-                warn "Using ARAIL_AEROLLM_PACKAGE_OVERRIDE for this run only."
+    # Opt-out with ARAIL_SKIP_AIRLLM=1 (legacy ARAIL_SKIP_AEROLLM is
+    # still honored for back-compat). Truly minimal installs that don't
+    # want the torch + transformers footprint can use that flag.
+    if [[ "${ARAIL_SKIP_AIRLLM:-${ARAIL_SKIP_AEROLLM:-0}}" != "1" ]]; then
+        local airllm_pkg="${ARAIL_AIRLLM_PACKAGE_OVERRIDE:-$AIRLLM_PACKAGE_SPEC}"
+        info "Installing AirLLM (${airllm_pkg}) — source declared in ${BOLD}pyproject.toml${RESET}…"
+        if pip install -q "$airllm_pkg" 2>&1 | tail -5; then
+            info "AirLLM ready. Dashboard chat card has a 'Deep model' toggle."
+            if [[ -n "${ARAIL_AIRLLM_PACKAGE_OVERRIDE:-}" ]]; then
+                warn "Using ARAIL_AIRLLM_PACKAGE_OVERRIDE for this run only."
             fi
         else
-            echo -e "${RED}[arail]${RESET} To bypass: ARAIL_SKIP_AEROLLM=1 ./arail setup" >&2
-            error "AeroLLM install failed — check [tool.arail.package-sources] in pyproject.toml or your ARAIL_AEROLLM_PACKAGE_OVERRIDE"
+            echo -e "${RED}[arail]${RESET} To bypass: ARAIL_SKIP_AIRLLM=1 ./arail setup" >&2
+            error "AirLLM install failed — check [tool.arail.package-sources] in pyproject.toml or your ARAIL_AIRLLM_PACKAGE_OVERRIDE"
         fi
     else
-        info "Skipping AeroLLM (ARAIL_SKIP_AEROLLM=1)."
+        info "Skipping AirLLM (ARAIL_SKIP_AIRLLM=1)."
     fi
 }
 
@@ -517,7 +529,7 @@ capture_brand() {
 #
 #   min → Dashboard, Chat, Autoresearch
 #   med → + Knowledge Base, Agents, LanceDB vectors
-#   max → + Admin, Notebooks, AeroLLM, full cloud vendor catalog
+#   max → + Admin, Notebooks, AirLLM (deep), full cloud vendor catalog
 #
 # Upgrade later with `./arail upgrade med` (or max).
 # -----------------------------------------------------------------------------
@@ -554,11 +566,13 @@ capture_tier() {
   Two tiers — upgrade later with ./arail upgrade max.
 
     ${BOLD}min${RESET}  Dashboard + Chat + Autoresearch + Knowledge Base + Agents.
-           The everyday lab. External providers (Claude, NVIDIA, OpenRouter,
-           HuggingFace) are reachable over plain HTTP when LAB_MODE=hybrid.
+           The everyday lab. AirLLM deep streaming with a 70B default
+           (Llama-3.1-70B). External providers (Claude, NVIDIA, OpenRouter,
+           HuggingFace) reachable over plain HTTP when LAB_MODE=hybrid.
            KB runs on markdown + keyword search.
     ${BOLD}max${RESET}  Everything in min + Admin, Notebooks, LanceDB vectors,
-           AeroLLM frontier streaming, Anthropic SDK, LangChain/LangGraph.
+           405B AirLLM default (Llama-3.1-405B), Anthropic SDK,
+           LangChain/LangGraph.
 EOF
     echo ""
     local choice
@@ -569,6 +583,13 @@ EOF
         med)     warn "'med' retired in the two-tier blueprint — rolling forward to 'max'."; LAB_TIER="max" ;;
         *)       warn "Unknown tier '$LAB_TIER' — falling back to min."; LAB_TIER="min" ;;
     esac
+    # Resolve which AirLLM deep model ships for this tier.
+    # min → 70B (Llama-3.1-70B). max → 405B (Llama-3.1-405B).
+    case "$LAB_TIER" in
+        max) AIRLLM_MODEL_ID="$AIRLLM_MODEL_MAX_ID" ;;
+        *)   AIRLLM_MODEL_ID="$AIRLLM_MODEL_MIN_ID" ;;
+    esac
+    info "AirLLM deep model for ${LAB_TIER}: ${BOLD}${AIRLLM_MODEL_ID}${RESET}"
 }
 
 # -----------------------------------------------------------------------------
@@ -587,8 +608,22 @@ capture_password() {
     local existing=""
     if [[ -f .env ]]; then
         existing="$(grep -E '^ARAIL_PASSWORD=' .env | head -n1 | cut -d= -f2-)"
-        # Guard against the placeholder from .env.example.
-        if [[ "$existing" == "change-me" ]]; then existing=""; fi
+        # Guard against placeholders that aren't a real password.
+        case "$existing" in
+            change-me|__needs_setup__) existing="" ;;
+        esac
+    fi
+
+    # Defer-to-browser path — operator explicitly opted out of CLI prompt.
+    # Setup writes a placeholder; the portal middleware redirects the
+    # first browser hit to /welcome where the user picks a passphrase.
+    if [[ "${ARAIL_DEFER_PASSWORD:-0}" == "1" ]]; then
+        ARAIL_PASSWORD="__needs_setup__"
+        step "5/10  Lab passphrase (deferred)"
+        info "Deferring passphrase to first browser load (ARAIL_DEFER_PASSWORD=1)."
+        info "Open ${BOLD}http://127.0.0.1:8080${RESET} after ./arail start —"
+        info "the lab will land on /welcome and ask you to set one."
+        return
     fi
 
     # Reuse path — ask the user explicitly instead of silent reuse.
@@ -621,10 +656,12 @@ capture_password() {
 
     # Non-interactive path — auto-generate, but warn loudly so the line
     # survives terminal scrollback. The final banner echoes the value.
+    # (Set ARAIL_DEFER_PASSWORD=1 instead if you want browser-side setup.)
     if [[ ! -t 0 ]] || [[ "${ARAIL_NONINTERACTIVE:-0}" == "1" ]]; then
         ARAIL_PASSWORD="$generated"
         warn "Non-interactive shell — passphrase auto-generated."
         warn "The final setup banner will print the value — do not miss it."
+        warn "(Want the browser to ask instead? Re-run with ARAIL_DEFER_PASSWORD=1.)"
         return
     fi
 
@@ -662,11 +699,13 @@ setup_env() {
     step "6/10  Configuration files (.env + lab.conf)"
     if [[ ! -f .env ]]; then
         cp .env.example .env
-        # Patch detected backend
+        # Patch detected backend. Match any existing value (the .env.example
+        # default has changed before — `auto`, `cpu`, `mlx` — so don't bind
+        # the regex to a specific source value).
         case "$ACCEL" in
-            mlx)  sed -i.bak 's/^MODEL_BACKEND=auto/MODEL_BACKEND=mlx/' .env ;;
-            cuda) sed -i.bak 's/^MODEL_BACKEND=auto/MODEL_BACKEND=cuda/' .env ;;
-            cpu)  sed -i.bak 's/^MODEL_BACKEND=auto/MODEL_BACKEND=cpu/' .env ;;
+            mlx)  sed -i.bak 's|^MODEL_BACKEND=.*|MODEL_BACKEND=mlx|'  .env ;;
+            cuda) sed -i.bak 's|^MODEL_BACKEND=.*|MODEL_BACKEND=cuda|' .env ;;
+            cpu)  sed -i.bak 's|^MODEL_BACKEND=.*|MODEL_BACKEND=cpu|'  .env ;;
         esac
 
         case "$ACCEL" in
@@ -675,6 +714,7 @@ setup_env() {
             cpu)  sed -i.bak "s|^MODEL_NAME=.*|MODEL_NAME=${MODEL_GGUF_ID}|" .env ;;
         esac
 
+        sed -i.bak "s|^AIRLLM_MODEL=.*|AIRLLM_MODEL=${AIRLLM_MODEL_ID}|" .env
         sed -i.bak "s|^AEROLLM_MODEL=.*|AEROLLM_MODEL=${AEROLLM_MODEL_ID}|" .env
 
         rm -f .env.bak
@@ -712,12 +752,23 @@ _set_env_var() {
     python3 - "$key" "$value" <<'PY'
 import pathlib, sys
 key, value = sys.argv[1], sys.argv[2]
+prefix = f"{key}="
+# A real assignment is either "KEY=..." or a single-#-prefixed
+# commented-out default like "#KEY=...". Anything with whitespace
+# between the # and the key (e.g. "#   KEY=example") is
+# documentation — leave those lines alone.
+def is_assignment(line: str) -> bool:
+    if line.startswith(prefix):
+        return True
+    if line.startswith("#") and not line.startswith("# "):
+        return line.lstrip("#").startswith(prefix)
+    return False
+
 p = pathlib.Path(".env")
 lines = p.read_text().splitlines() if p.exists() else []
 out, replaced = [], False
 for line in lines:
-    stripped = line.lstrip("# ").rstrip()
-    if stripped.startswith(f"{key}="):
+    if not replaced and is_assignment(line):
         out.append(f"{key}={value}")
         replaced = True
     else:
@@ -836,10 +887,11 @@ download_model() {
     fi
 
     echo ""
-    warn "Optional deep-chat model for AeroLLM: ${AEROLLM_MODEL_ID}"
+    warn "Deep-chat model for AirLLM (${LAB_TIER} tier): ${AIRLLM_MODEL_ID}"
     warn "Meta Llama is gated — accept the Hugging Face license first, then authenticate with huggingface-cli login or HF_TOKEN."
-    echo "  huggingface-cli download ${AEROLLM_MODEL_ID} --local-dir lab/models/Llama-3.1-70B --local-dir-use-symlinks False"
-    echo "  # then set AEROLLM_MODEL=meta-llama/Llama-3.1-70B in .env and run ./arail restart"
+    local model_short="${AIRLLM_MODEL_ID##*/}"
+    echo "  huggingface-cli download ${AIRLLM_MODEL_ID} --local-dir lab/models/${model_short} --local-dir-use-symlinks False"
+    echo "  # then set AIRLLM_MODEL=${AIRLLM_MODEL_ID} in .env and run ./arail restart"
 }
 
 # -----------------------------------------------------------------------------
@@ -887,15 +939,15 @@ capture_goal() {
     echo ""
 
     # For the AI Engineer intent we ship a signature goal —
-    # "optimize AeroLLM" — pre-filled as the default. Press Enter to
-    # accept it; otherwise type a custom goal. Other intents still
-    # get the free-form prompt.
+    # "optimize AirLLM tokens/sec" — pre-filled as the default. Press
+    # Enter to accept it; otherwise type a custom goal. Other intents
+    # still get the free-form prompt.
     local default_goal=""
     if [[ "$intent" == "ai" ]]; then
-        default_goal="Optimize AeroLLM's tokens-per-minute on frontier-scale open models (Qwen3-235B, DeepSeek-V3, GLM-5.1) running locally. Measure baseline, sweep prefetch + mixed-precision knobs, compare before/after, contribute wins upstream."
+        default_goal="Optimize AirLLM's tokens-per-second when streaming a 70B Llama from disk. Measure baseline TTFT and decode rate, sweep KV-cache quantization and prefill chunk size, compare before/after, write findings back into the knowledge base."
         echo "  Press Enter to accept the lab's signature research goal —"
-        echo "  ${BOLD}Optimize AeroLLM${RESET} (tune the frontier-model"
-        echo "  inference engine), or type a custom one."
+        echo "  ${BOLD}Optimize AirLLM throughput${RESET} (tune the deep"
+        echo "  layer-streaming engine), or type a custom one."
         echo ""
         echo "  See lab/pkb/research/program.md for the full plan."
     else
@@ -909,7 +961,7 @@ capture_goal() {
     read -rp "  Goal${default_goal:+ [Enter for default]}: " goal
     if [[ -z "${goal// }" && -n "$default_goal" ]]; then
         goal="$default_goal"
-        info "Using the lab's signature research goal (optimize AeroLLM)."
+        info "Using the lab's signature research goal (optimize AirLLM)."
     elif [[ -z "${goal// }" ]]; then
         warn "Empty goal — skipping capture. You can set one from the dashboard after ./arail start."
         return
@@ -1059,18 +1111,26 @@ main() {
     echo -e "    2) Open the dashboard: ${BOLD}http://127.0.0.1:${PORTAL_PORT:-8080}${RESET}"
     echo -e "    3) Type your goal and click ${BOLD}Run Research${RESET}"
     echo ""
-    echo "  Your lab passphrase (unlocks the IDE at :${IDE_PORT:-8443}"
-    echo "  and encrypts Open Notebook data):"
-    echo ""
-    echo -e "        ${BOLD}${ARAIL_PASSWORD}${RESET}"
-    echo ""
-    echo "  Also saved in:"
-    echo "    .env        →  ARAIL_PASSWORD, OPEN_NOTEBOOK_ENCRYPTION_KEY"
-    echo "    lab.conf    →  IDE_PASSWORD"
-    echo ""
-    echo "  Treat it like any password — don't commit .env to git."
-    echo "  To rotate later: ./arail setup  (answer 'new' when prompted)"
-    echo ""
+    if [[ "$ARAIL_PASSWORD" == "__needs_setup__" ]]; then
+        echo "  ${BOLD}Passphrase deferred to first browser load.${RESET}"
+        echo "  Open the dashboard above; the lab will land on /welcome and"
+        echo "  ask you to pick one. Saves to .env, lab.conf, and"
+        echo "  ~/.config/code-server/config.yaml automatically."
+        echo ""
+    else
+        echo "  Your lab passphrase (unlocks the IDE at :${IDE_PORT:-8443}"
+        echo "  and encrypts Open Notebook data):"
+        echo ""
+        echo -e "        ${BOLD}${ARAIL_PASSWORD}${RESET}"
+        echo ""
+        echo "  Also saved in:"
+        echo "    .env        →  ARAIL_PASSWORD, OPEN_NOTEBOOK_ENCRYPTION_KEY"
+        echo "    lab.conf    →  IDE_PASSWORD"
+        echo ""
+        echo "  Treat it like any password — don't commit .env to git."
+        echo "  To rotate later: ./arail setup  (answer 'new' when prompted)"
+        echo ""
+    fi
 }
 
 main "$@"

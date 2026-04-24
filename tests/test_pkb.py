@@ -103,3 +103,45 @@ def test_browse_hides_only_legacy_experiment_stubs(tmp_path: Path):
     assert "legacy.md" not in items
     assert "short-note.md" in items
     assert "structured.md" in items
+
+
+def test_remove_pack_clears_seed_dir(tmp_path: Path):
+    """Install then remove the model-building pack — only seed files
+    should disappear; everything else under lab/pkb/ stays."""
+    from arail import pkb_seed
+
+    pkm.scaffold(tmp_path)
+
+    # Drop a user note to confirm remove_pack doesn't touch it.
+    user_note = tmp_path / "notes" / "my-thoughts.md"
+    user_note.parent.mkdir(parents=True, exist_ok=True)
+    user_note.write_text("My own writing.\n")
+
+    install = pkb_seed.install_pack("model-building", pkb_root=tmp_path)
+    assert install["ok"] is True
+    seed_dir = tmp_path / "sources" / "seeds" / "model-building"
+    assert seed_dir.exists()
+    seeded_files_before = sum(1 for _ in seed_dir.glob("*.md"))
+    assert seeded_files_before > 0
+
+    result = pkb_seed.remove_pack("model-building", pkb_root=tmp_path)
+    assert result["ok"] is True
+    assert result["removed"] == seeded_files_before
+    assert not seed_dir.exists() or not any(seed_dir.glob("*.md"))
+
+    # The user's own note must survive.
+    assert user_note.exists()
+    assert user_note.read_text() == "My own writing.\n"
+
+    # Idempotent — calling remove again on an already-empty pack is fine.
+    again = pkb_seed.remove_pack("model-building", pkb_root=tmp_path)
+    assert again["ok"] is True
+    assert again["removed"] == 0
+
+
+def test_remove_pack_rejects_unknown_pack(tmp_path: Path):
+    from arail import pkb_seed
+    pkm.scaffold(tmp_path)
+    result = pkb_seed.remove_pack("not-a-real-pack", pkb_root=tmp_path)
+    assert result["ok"] is False
+    assert "unknown pack" in result["error"]

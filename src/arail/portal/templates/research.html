@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{ brand.name }} — AutoResearch</title>
+<title>{{ brand.name }} — Autoresearch</title>
 <link rel="stylesheet" href="/static/style.css">
 <link rel="stylesheet" href="/static/research.css">
 </head>
@@ -34,7 +34,7 @@
          runs against. program.md = goal in natural language,
          prepare.py = fixed environment + validation metric. -->
     <div class="rx-program-files" id="rx-program-files">
-      <span class="rx-pf-label">AutoResearch contract</span>
+      <span class="rx-pf-label">Autoresearch contract</span>
       <a class="rx-pf-chip" href="#" data-file="program.md"
          title="Natural-language goal + constraints (edit to steer the agent)">
         <span class="rx-pf-icon">📘</span>
@@ -57,7 +57,7 @@
     </div>
   </div>
   <div class="rx-cockpit-right">
-    <button class="rx-btn primary" id="rx-btn-run"    title="Start AutoResearch on the current goal">▶ Run</button>
+    <button class="rx-btn primary" id="rx-btn-run"    title="Start Autoresearch on the current goal">▶ Run</button>
     <button class="rx-btn"         id="rx-btn-pause"  title="Pause the running researcher">⏸ Pause</button>
     <button class="rx-btn"         id="rx-btn-resume" title="Resume after pause">▶ Resume</button>
     <button class="rx-btn danger"  id="rx-btn-stop"   title="Stop the researcher">■ Stop</button>
@@ -72,7 +72,7 @@
      notes dropped alongside it. -->
 <details class="rx-program-panel" id="rx-program-panel">
   <summary class="rx-program-summary">
-    <span class="rx-program-kicker">📘 AutoResearch program</span>
+    <span class="rx-program-kicker">📘 Autoresearch program</span>
     <span class="rx-program-title" id="rx-program-title">program.md</span>
     <span class="rx-program-hint">click to expand · edit to steer the loop</span>
   </summary>
@@ -109,7 +109,7 @@
   <!-- LEFT: Brief ────────────────────────────────────────────── -->
   <aside class="rx-pane">
     <header class="rx-pane-head">
-          <span class="rx-pane-title">📋 AutoResearch Brief</span>
+          <span class="rx-pane-title">📋 Autoresearch Brief</span>
       <span id="rx-brief-meta"></span>
     </header>
     <div class="rx-pane-body rx-brief" id="rx-brief">
@@ -149,7 +149,7 @@
         </header>
         <div class="rx-pane-body">
           <article class="rx-report" id="rx-report">
-            <div class="rx-report-empty">Report will appear here when AutoResearch completes.</div>
+            <div class="rx-report-empty">Report will appear here when Autoresearch completes.</div>
           </article>
         </div>
       </section>
@@ -161,15 +161,21 @@
 <section class="rx-empty-state" id="rx-empty-state" hidden>
   <div class="rx-empty-card">
     <h1>Welcome to the lab.</h1>
-    <p class="rx-empty-motto">If it can be measured, it can be improved.</p>
-     <p>This is where AutoResearch lives — goals you set, experiments the agent designs and runs,
+    <p class="rx-empty-motto">
+      If it can be measured, it can be improved.
+      <a class="rx-learn-link"
+         href="https://github.com/cdarnell/autoresearch-lab/blob/main/docs/agents-explained.md#the-research-loop"
+         target="_blank" rel="noopener"
+         title="How the research loop works — 5-minute primer">📖 How the loop works</a>
+    </p>
+     <p>This is where Autoresearch lives — goals you set, experiments the agent designs and runs,
        observations it logs, and the reports it writes back to your knowledge base.
        Make the measurement crisp, then let the loop work for you.</p>
     <form class="rx-empty-form" id="rx-empty-form">
       <textarea id="rx-empty-textarea"
                 placeholder="e.g. Find the best scheduler strategy for a 3-person team"
                 autofocus></textarea>
-      <button type="submit" class="rx-btn primary" id="rx-empty-submit">▶ Start AutoResearch</button>
+      <button type="submit" class="rx-btn primary" id="rx-empty-submit">▶ Start Autoresearch</button>
     </form>
     <!-- Live feedback slot — click latency on /api/goal can be seconds
          while the parser runs, and users can't tell if the click landed.
@@ -203,8 +209,8 @@
 <!-- ═══ New-goal modal ═══ -->
 <div class="rx-modal" id="rx-modal" hidden>
   <div class="rx-modal-card">
-    <h2>Start a new AutoResearch goal</h2>
-    <p>The current goal will be archived. The researcher will start the new AutoResearch run right away.</p>
+    <h2>Start a new Autoresearch goal</h2>
+    <p>The current goal will be archived. The researcher will start the new Autoresearch run right away.</p>
     <textarea id="rx-modal-textarea"
               placeholder="e.g. Which scheduler strategy works best for a 3-person team?"></textarea>
     <div class="rx-modal-actions">
@@ -377,7 +383,7 @@ function renderBrief() {
   const el = document.getElementById('rx-brief');
   const goal = RESEARCH.goal;
   if (!goal) {
-    el.innerHTML = '<div class="rx-brief-empty">No active AutoResearch goal.</div>';
+    el.innerHTML = '<div class="rx-brief-empty">No active Autoresearch goal.</div>';
     document.getElementById('rx-brief-meta').textContent = '';
     return;
   }
@@ -457,7 +463,7 @@ function renderExperiments() {
   const exps = RESEARCH.experiments || [];
   if (!exps.length) {
     el.innerHTML =
-      '<div class="rx-brief-empty">No experiments yet. Start an AutoResearch run and experiments will stream in here.</div>';
+      '<div class="rx-brief-empty">No experiments yet. Start an Autoresearch run and experiments will stream in here.</div>';
     document.getElementById('rx-exp-meta').textContent = '0';
     return;
   }
@@ -597,7 +603,7 @@ function renderReport() {
   const link = document.getElementById('rx-report-link');
   const report = RESEARCH.goal && RESEARCH.goal.report;
   if (!report) {
-    el.innerHTML = '<div class="rx-report-empty">Report will appear here when AutoResearch completes.</div>';
+    el.innerHTML = '<div class="rx-report-empty">Report will appear here when Autoresearch completes.</div>';
     link.hidden = true;
     return;
   }
@@ -918,9 +924,9 @@ async function wireProgramPanel() {
       if (!select.options.length) {
         const opt = document.createElement('option');
         opt.value = '';
-        opt.textContent = 'No AutoResearch files found';
+        opt.textContent = 'No Autoresearch files found';
         select.appendChild(opt);
-        render.innerHTML = '<div class="rx-brief-empty">No AutoResearch files at lab/pkb/research/. Drop a .md there to start.</div>';
+        render.innerHTML = '<div class="rx-brief-empty">No Autoresearch files at lab/pkb/research/. Drop a .md there to start.</div>';
         return;
       }
 
@@ -928,7 +934,7 @@ async function wireProgramPanel() {
       if (filesIndex['program.md']) select.value = 'program.md';
       await loadFile(select.value);
     } catch (e) {
-      render.innerHTML = '<div class="rx-brief-empty">Failed to load AutoResearch files.</div>';
+      render.innerHTML = '<div class="rx-brief-empty">Failed to load Autoresearch files.</div>';
     }
   }
 

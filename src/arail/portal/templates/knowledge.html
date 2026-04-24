@@ -81,6 +81,18 @@
       <span class="kb-ingest-name">Starter pack</span>
       <span class="kb-ingest-hint" id="kb-seed-hint">loading…</span>
     </button>
+    <button type="button" class="kb-ingest-tile kb-ingest-remove" id="kb-remove-pack"
+            style="display:none"
+            title="Wipe the starter primers — your own files are not touched.">
+      <span class="kb-ingest-icon">🗑</span>
+      <span class="kb-ingest-name">Remove starter</span>
+      <span class="kb-ingest-hint">make room for your work</span>
+    </button>
+  </div>
+  <div id="kb-seed-banner" class="kb-seed-banner" style="display:none">
+    Your knowledge base is mostly starter content.
+    <a href="#" id="kb-banner-upload">Add your own files</a>
+    or paste a goal on the dashboard to start filling it with what matters to you.
   </div>
 </section>
 
@@ -130,7 +142,7 @@
 
       <section class="kb-graph-mini" aria-label="Knowledge graph mini section">
         <div class="kb-graph-mini-head">
-          <h3 class="kb-welcome-sub kb-graph-sub">Knowledge Graph (Mini)</h3>
+          <h3 class="kb-welcome-sub kb-graph-sub">Knowledge graph</h3>
           <a class="btn btn-sm btn-ghost" href="/integrations/knowledge-canvas">Open Full 3D Graph</a>
         </div>
         <iframe
@@ -285,6 +297,9 @@ async function loadTree() {
     const d = await r.json();
     KB.tree = d.sections || {};
     renderTree();
+    // The banner reads from KB.tree; refresh it whenever the tree
+    // changes so add-files / remove-pack flows update immediately.
+    if (typeof refreshSeedBanner === 'function') refreshSeedBanner();
   } catch (e) {
     document.getElementById('kb-tree').innerHTML =
       '<div class="kb-empty-sidebar">Failed to load — reload page.</div>';
@@ -311,8 +326,14 @@ function renderTree() {
     const items = section.items.map(f => {
       const cls = f.path === KB.openPath ? 'kb-file active' : 'kb-file';
       const leaf = f.name;
+      // Files under sources/seeds/ ship with the lab as starter primers.
+      // Tag them visually so users know what's the lab's voice vs theirs.
+      const isSeed = (f.path || '').startsWith('sources/seeds/');
+      const badge = isSeed
+        ? '<span class="kb-starter-badge" title="Bundled starter primer — safe to remove">STARTER</span>'
+        : '';
       return `<li class="${cls}" data-path="${esc(f.path)}" title="${esc(f.path)}">
-        <span class="kb-file-name">${esc(leaf)}</span>
+        <span class="kb-file-name">${esc(leaf)}</span>${badge}
         <span class="kb-file-size">${prettyBytes(f.size)}</span>
       </li>`;
     }).join('');
@@ -932,7 +953,10 @@ document.getElementById('kb-ingest-url').addEventListener('click', async () => {
   }
 });
 
-// Starter pack tile — install the model-building pack if missing.
+// Starter pack tile — install (and now: remove) the model-building pack.
+// The remove tile only appears when the pack is installed; the "mostly
+// seed" banner appears when starter content dominates the KB so new
+// users see the prompt to make it their own.
 async function refreshKbSeedHint() {
   try {
     const r = await fetch('/api/pkb/seeds');
@@ -940,16 +964,39 @@ async function refreshKbSeedHint() {
     const pack = (d.packs || []).find(p => p.id === 'model-building');
     const hint = document.getElementById('kb-seed-hint');
     const tile = document.getElementById('kb-install-pack');
+    const removeTile = document.getElementById('kb-remove-pack');
     if (!hint || !tile) return;
-    if (pack && pack.installed) {
+    const installed = !!(pack && pack.installed);
+    if (installed) {
       hint.textContent = `✓ installed · ${pack.files} files`;
       tile.classList.add('kb-ingest-installed');
+      if (removeTile) removeTile.style.display = '';
     } else {
       hint.textContent = 'install 9 primers';
       tile.classList.remove('kb-ingest-installed');
+      if (removeTile) removeTile.style.display = 'none';
     }
+    refreshSeedBanner();
   } catch (e) { /* silent */ }
 }
+
+// Show the "mostly starter content" banner when seed files dominate.
+// Threshold: > 50% of all files in the tree are under sources/seeds/.
+// Hide it once the user has added enough of their own material.
+function refreshSeedBanner() {
+  const banner = document.getElementById('kb-seed-banner');
+  if (!banner || !KB.tree) return;
+  let total = 0, seeds = 0;
+  for (const sec of Object.values(KB.tree)) {
+    for (const f of (sec.items || [])) {
+      total += 1;
+      if ((f.path || '').startsWith('sources/seeds/')) seeds += 1;
+    }
+  }
+  const ratio = total ? seeds / total : 0;
+  banner.style.display = (total > 0 && ratio > 0.5) ? '' : 'none';
+}
+
 document.getElementById('kb-install-pack').addEventListener('click', async () => {
   const tile = document.getElementById('kb-install-pack');
   const hint = document.getElementById('kb-seed-hint');
@@ -976,6 +1023,43 @@ document.getElementById('kb-install-pack').addEventListener('click', async () =>
     hint.textContent = '✗ error';
   }
 });
+
+// Remove starter pack — only present when installed.
+document.getElementById('kb-remove-pack').addEventListener('click', async () => {
+  if (!confirm('Remove the 9 starter primers?\n\nYour notes, uploads, and agent writes are NOT touched — only the lab\'s bundled examples.')) {
+    return;
+  }
+  const removeTile = document.getElementById('kb-remove-pack');
+  const removeHint = removeTile.querySelector('.kb-ingest-hint');
+  const oldText = removeHint.textContent;
+  removeHint.textContent = 'removing…';
+  try {
+    const r = await fetch('/api/pkb/seeds?pack=model-building', { method: 'DELETE' });
+    const d = await r.json();
+    if (d.ok) {
+      loadTree();
+      setTimeout(refreshKbSeedHint, 600);
+    } else {
+      removeHint.textContent = '✗ ' + (d.error || 'failed');
+      setTimeout(() => { removeHint.textContent = oldText; }, 2000);
+    }
+  } catch (e) {
+    removeHint.textContent = '✗ error';
+    setTimeout(() => { removeHint.textContent = oldText; }, 2000);
+  }
+});
+
+// Banner CTA — jump to the file picker so the user can immediately add
+// their own material instead of staring at a blank tree.
+const bannerUpload = document.getElementById('kb-banner-upload');
+if (bannerUpload) {
+  bannerUpload.addEventListener('click', (ev) => {
+    ev.preventDefault();
+    const input = document.getElementById('kb-upload-input');
+    if (input) input.click();
+  });
+}
+
 refreshKbSeedHint();
 
 // Drag overlay — full page
@@ -1343,7 +1427,18 @@ document.getElementById('kb-btn-vim').addEventListener('click', () => {
 
 // ── Boot ───────────────────────────────────────────────────────────────
 loadWikiPages().then(populateWelcome);
-loadTree();
+
+// Deep-link support: visiting /knowledge?file=<tree-path> auto-opens
+// that file once the tree finishes loading. Used by the Agents tab so
+// "Consulting the KB" entries link straight to the cited primer.
+(async function bootKB() {
+  await loadTree();
+  const params = new URLSearchParams(window.location.search);
+  const wantFile = params.get('file');
+  if (wantFile) {
+    try { openFile(wantFile); } catch (e) { /* silent */ }
+  }
+})();
 </script>
 <script src="/static/nav.js"></script>
 </body>

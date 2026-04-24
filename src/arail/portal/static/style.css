@@ -1611,6 +1611,51 @@ code {
   background: rgba(0, 255, 65, 0.04);
 }
 
+/* The "Remove starter" tile shares the seed tile's footprint but uses
+   a muted palette so it's visually less inviting than "Add files." */
+.kb-ingest-remove {
+  border-color: rgba(255, 51, 85, 0.25);
+  background: rgba(255, 51, 85, 0.04);
+}
+.kb-ingest-remove:hover {
+  border-color: var(--red);
+  background: rgba(255, 51, 85, 0.10);
+}
+
+/* STARTER badge on seeded files in the section tree. Tiny pill — same
+   treatment as a tag, smaller. Tells the user "this came from the lab,
+   you can wipe it without losing your work." */
+.kb-starter-badge {
+  display: inline-block;
+  margin-left: 0.4rem;
+  padding: 0.05rem 0.35rem;
+  font-size: 0.55rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--amber);
+  background: rgba(255, 176, 0, 0.10);
+  border: 1px solid rgba(255, 176, 0, 0.25);
+  border-radius: 999px;
+  text-transform: uppercase;
+  vertical-align: 1px;
+}
+
+/* "Mostly starter content" banner — appears under the ingest tiles
+   when seed files dominate the KB. Quiet but unmissable, with one
+   clickable affordance to add the user's own material. */
+.kb-seed-banner {
+  margin: 0.6rem 1rem 0;
+  padding: 0.5rem 0.8rem;
+  font-size: 0.78rem;
+  color: var(--text);
+  background: rgba(255, 176, 0, 0.06);
+  border: 1px solid rgba(255, 176, 0, 0.25);
+  border-left: 3px solid var(--amber);
+  border-radius: 6px;
+}
+.kb-seed-banner a { color: var(--amber); text-decoration: underline; }
+.kb-seed-banner a:hover { color: var(--text-hi); }
+
 /* Collapse to 3-wide on narrow viewports. */
 @media (max-width: 880px) {
   .kb-ingest-hero { grid-template-columns: 1fr; }

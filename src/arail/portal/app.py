@@ -57,7 +57,88 @@ def _visible_surfaces() -> set[str]:
     return _TIER_SURFACES[_current_tier()]
 
 
+# ── First-run onboarding state ───────────────────────────────────────
+# When ARAIL_PASSWORD isn't set (or is a placeholder), the portal
+# refuses to render any tab and redirects to /welcome instead. The
+# user picks a passphrase in the browser; the welcome endpoint writes
+# it to .env, lab.conf, and ~/.config/code-server/config.yaml. After
+# that, the lab unlocks for normal use.
+#
+# Placeholder values that count as "not set yet":
+_PASSWORD_PLACEHOLDERS = {"", "change-me", "__needs_setup__"}
+
+
+def _lab_password_set() -> bool:
+    """True if a real ARAIL_PASSWORD is configured.
+
+    Reads the live env var, then falls back to the .env file on disk
+    so a fresh write from /api/welcome/setup unlocks the next request
+    without requiring a process restart.
+    """
+    val = (os.getenv("ARAIL_PASSWORD") or "").strip()
+    if val and val not in _PASSWORD_PLACEHOLDERS:
+        return True
+    # Fall back to the file on disk (covers the post-onboarding window
+    # before the running process re-reads the env).
+    env_path = Path(".env")
+    if env_path.exists():
+        try:
+            for line in env_path.read_text().splitlines():
+                if line.startswith("ARAIL_PASSWORD="):
+                    file_val = line.split("=", 1)[1].strip()
+                    if file_val and file_val not in _PASSWORD_PLACEHOLDERS:
+                        # Pull the just-written value into the live env so
+                        # downstream getenv calls see it too.
+                        os.environ["ARAIL_PASSWORD"] = file_val
+                        return True
+                    return False
+        except OSError:
+            pass
+    return False
+
+
 app = FastAPI(title=_BRAND.name, docs_url="/api/docs")
+
+
+@app.middleware("http")
+async def onboarding_gate(request, call_next):
+    """Block all surfaces until the operator has set a passphrase.
+
+    Lets through:
+      - /welcome and /api/welcome/* (the onboarding flow itself)
+      - /static/* (so the welcome page can load CSS)
+      - /api/system/health (so health checks keep working pre-onboarding)
+      - /favicon.ico
+    HTML routes get a 302 to /welcome; API routes get a 401 with a hint.
+    """
+    if _lab_password_set():
+        return await call_next(request)
+
+    path = request.url.path
+    allowed_prefixes = (
+        "/welcome",
+        "/api/welcome",
+        "/static/",
+        "/api/system/health",
+        "/favicon.ico",
+    )
+    if any(path == p or path.startswith(p) for p in allowed_prefixes):
+        return await call_next(request)
+
+    # API call → JSON error so the caller sees a clean signal.
+    if path.startswith("/api/") or request.headers.get("accept", "").startswith("application/json"):
+        from fastapi.responses import JSONResponse
+        return JSONResponse(
+            {"error": "lab_not_onboarded",
+             "detail": "Set the lab passphrase via POST /api/welcome/setup or open / in a browser."},
+            status_code=401,
+        )
+
+    # HTML → bounce to the welcome page.
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url="/welcome", status_code=302)
+
+
 app.include_router(wiki_router)
 
 PORTAL_DIR = Path(__file__).parent
@@ -265,6 +346,162 @@ async def _shutdown():
             await _knowledge_canvas_store.close()
         finally:
             _knowledge_canvas_store = None
+
+
+# ── First-run welcome / passphrase setup ─────────────────────────────────
+
+@app.get("/welcome", response_class=HTMLResponse)
+async def welcome_page(request: Request):
+    """First-run onboarding form. Allowed by the middleware regardless
+    of password state, so a fresh lab can land here on first open."""
+    # If they're already onboarded, send them home — nothing to do here.
+    if _lab_password_set():
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url="/", status_code=302)
+    return templates.TemplateResponse(request, "welcome.html", {
+        "current_lab_name": os.getenv("LAB_NAME", _BRAND.name),
+    })
+
+
+@app.post("/api/welcome/setup")
+async def api_welcome_setup(request: Request):
+    """Accept the first-run passphrase, write it everywhere it's needed.
+
+    Locked to the no-password state so this can never overwrite an
+    existing passphrase without explicit auth. Once a real ARAIL_PASSWORD
+    exists, this endpoint refuses with 409 — rotate via the dashboard
+    settings or by editing .env directly.
+    """
+    if _lab_password_set():
+        from fastapi.responses import JSONResponse
+        return JSONResponse(
+            {"ok": False,
+             "error": "lab is already onboarded; rotate via .env or dashboard settings"},
+            status_code=409,
+        )
+
+    body = await request.json()
+    passphrase = (body.get("passphrase") or "").strip()
+    confirm    = (body.get("confirm") or "").strip()
+    lab_name   = (body.get("lab_name") or "").strip()
+
+    if len(passphrase) < 8:
+        return {"ok": False, "error": "passphrase must be at least 8 characters"}
+    if passphrase != confirm:
+        return {"ok": False, "error": "passphrases don't match"}
+    if passphrase in _PASSWORD_PLACEHOLDERS:
+        return {"ok": False, "error": "passphrase looks like a placeholder; pick something real"}
+
+    # Write to .env using the same helper setup.sh uses (Python-driven,
+    # idempotent, replaces existing lines without duplicating them).
+    _write_env_kv("ARAIL_PASSWORD", passphrase)
+    _write_env_kv("OPEN_NOTEBOOK_ENCRYPTION_KEY", passphrase)
+    if lab_name:
+        _write_env_kv("LAB_NAME", lab_name)
+        short = lab_name.lower()
+        _write_env_kv("LAB_SHORT_NAME", short)
+
+    # Update lab.conf — IDE_PASSWORD is the value tmux + start.sh hand
+    # to ttyd / code-server. Same shape as setup.sh writes.
+    _patch_lab_conf_password(passphrase)
+
+    # Code-server config — overwritten so the IDE on :8443 unlocks with
+    # the new passphrase. This file lives outside the repo at
+    # ~/.config/code-server/config.yaml. Setup.sh writes the same yaml.
+    try:
+        _write_code_server_password(passphrase)
+        ide_written = True
+    except OSError as exc:
+        ide_written = False
+        activity_log.emit("system",
+            f"code-server config write failed ({type(exc).__name__}); "
+            f"IDE on :8443 will not be unlockable until you re-run setup.",
+            "warn")
+
+    # Refresh the live env so the next request sees the new password
+    # without waiting for the file-fallback in _lab_password_set().
+    os.environ["ARAIL_PASSWORD"] = passphrase
+    os.environ["OPEN_NOTEBOOK_ENCRYPTION_KEY"] = passphrase
+    if lab_name:
+        os.environ["LAB_NAME"] = lab_name
+
+    activity_log.emit("system",
+        f"Lab onboarded via /welcome — passphrase set"
+        f"{' and lab renamed to ' + lab_name if lab_name else ''}.",
+        "success")
+
+    return {"ok": True, "ide_written": ide_written}
+
+
+def _write_env_kv(key: str, value: str) -> None:
+    """Idempotent KEY=VALUE write to .env. Replaces any existing real or
+    commented-out entry, otherwise appends. Mirrors setup.sh's helper."""
+    p = Path(".env")
+    lines = p.read_text().splitlines() if p.exists() else []
+    prefix = f"{key}="
+
+    def _is_assignment(line: str) -> bool:
+        if line.startswith(prefix):
+            return True
+        # match `#KEY=` (commented-out default) but NOT `# KEY=` (docstring)
+        if line.startswith("#") and not line.startswith("# "):
+            return line.lstrip("#").startswith(prefix)
+        return False
+
+    out, replaced = [], False
+    for line in lines:
+        if not replaced and _is_assignment(line):
+            out.append(f"{key}={value}")
+            replaced = True
+        else:
+            out.append(line)
+    if not replaced:
+        if out and out[-1] != "":
+            out.append("")
+        out.append(f"{key}={value}")
+    p.write_text("\n".join(out) + "\n")
+
+
+def _patch_lab_conf_password(passphrase: str) -> None:
+    """Update IDE_PASSWORD in lab.conf in place (or write a fresh one)."""
+    p = Path("lab.conf")
+    if not p.exists():
+        # No lab.conf yet — write the minimum shape setup.sh would emit.
+        p.write_text(
+            "# Arail runtime config — created by /api/welcome/setup\n"
+            "PORTAL_PORT=8080\n"
+            "TERMINAL_PORT=7681\n"
+            "NOTEBOOK_PORT=8888\n"
+            "IDE_PORT=8443\n"
+            f"IDE_PASSWORD={passphrase}\n"
+            "BIND_ADDR=127.0.0.1\n"
+        )
+        return
+    lines = p.read_text().splitlines()
+    out, replaced = [], False
+    for line in lines:
+        if line.startswith("IDE_PASSWORD="):
+            out.append(f"IDE_PASSWORD={passphrase}")
+            replaced = True
+        else:
+            out.append(line)
+    if not replaced:
+        out.append(f"IDE_PASSWORD={passphrase}")
+    p.write_text("\n".join(out) + "\n")
+
+
+def _write_code_server_password(passphrase: str) -> None:
+    """Write ~/.config/code-server/config.yaml so the IDE unlocks with
+    the new passphrase. Same yaml shape setup.sh writes."""
+    cfg_dir = Path.home() / ".config" / "code-server"
+    cfg_dir.mkdir(parents=True, exist_ok=True)
+    cfg = cfg_dir / "config.yaml"
+    cfg.write_text(
+        "bind-addr: 127.0.0.1:8443\n"
+        "auth: password\n"
+        f"password: {passphrase}\n"
+        "cert: false\n"
+    )
 
 
 # ── Pages ────────────────────────────────────────────────────────────────
@@ -1360,6 +1597,28 @@ async def agents_status():
     workflow_rows = {row.get("agent_id"): row for row in list_agent_workflows()}
     researcher_redirect = get_agent_redirect("researcher")
 
+    # Walk the activity log once and bucket per-agent tokens + recent
+    # action snippets. Keeping it to a single pass means adding new
+    # agents later doesn't multiply the log scans.
+    recent = activity_log.recent(200)
+    per_agent_tokens: dict[str, int] = {}
+    per_agent_recent: dict[str, list[dict]] = {}
+    for ev in recent:
+        src = ev.get("source")
+        if not src:
+            continue
+        trace = ev.get("data", {}).get("prompt_trace")
+        if trace:
+            per_agent_tokens[src] = per_agent_tokens.get(src, 0) + int(trace.get("max_tokens", 0) or 0)
+        per_agent_recent.setdefault(src, []).append({
+            "ts": ev.get("ts"),
+            "level": ev.get("level", "info"),
+            "message": (ev.get("message") or "")[:140],
+        })
+    for src in list(per_agent_recent.keys()):
+        # Newest-first, cap at 3 — what each card actually shows.
+        per_agent_recent[src] = list(reversed(per_agent_recent[src]))[:3]
+
     # Researcher
     goal = goal_store.get_current()
     researcher_workflow = workflow_rows.get("researcher") or {}
@@ -1376,38 +1635,43 @@ async def agents_status():
         "chatty": researcher_workflow.get("chatter", {}),
         "workflow": researcher_workflow,
         "redirect": researcher_redirect,
+        "has_goal": bool(goal and goal.get("goal_text")),
+        "tokens": per_agent_tokens.get("researcher", 0),
+        "recent_actions": per_agent_recent.get("researcher", []),
     }
     if not r_status["current_task"]:
-        for ev in reversed(activity_log.recent(50)):
+        for ev in reversed(recent):
             if ev.get("source") == "researcher" and ev.get("level") in ("info", "success"):
                 r_status["current_task"] = ev["message"][:80]
                 break
-    # Count tokens from prompt traces
-    tok = 0
-    for ev in activity_log.recent(200):
-        if ev.get("source") == "researcher" and ev.get("data", {}).get("prompt_trace"):
-            tok += ev["data"]["prompt_trace"].get("max_tokens", 0)
-    r_status["tokens"] = tok
 
     # Curator
     c_status = {
         "pending": len(consent_store.list_pending()),
         "allowed": len(consent_store.list_allowed()),
+        "tokens": per_agent_tokens.get("curator", 0),
+        "recent_actions": per_agent_recent.get("curator", []),
     }
 
-    pip_workflow = workflow_rows.get("pip") or {}
-    sre_workflow = workflow_rows.get("sre") or {}
+    pip_workflow = dict(workflow_rows.get("pip") or {})
+    pip_workflow["tokens"] = per_agent_tokens.get("pip", 0)
+    pip_workflow["recent_actions"] = per_agent_recent.get("pip", [])
+    sre_workflow = dict(workflow_rows.get("sre") or {})
+    sre_workflow["tokens"] = per_agent_tokens.get("sre", 0)
+    sre_workflow["recent_actions"] = per_agent_recent.get("sre", [])
 
     # Browser
     captures = len(list(EXTRACT_DIR.glob("*.md"))) if EXTRACT_DIR.exists() else 0
     last_task = None
-    for ev in reversed(activity_log.recent(50)):
+    for ev in reversed(recent):
         if ev.get("source") == "browser":
             last_task = ev["message"][:60]
             break
     b_status = {
         "captures": captures,
         "last_task": last_task,
+        "tokens": per_agent_tokens.get("browser", 0),
+        "recent_actions": per_agent_recent.get("browser", []),
     }
 
     return {
@@ -1798,7 +2062,8 @@ async def system_graph():
     backend_labels = {
         "mlx": "MLX", "cuda": "CUDA", "cpu": "CPU",
         "openai_compat": "OpenAI-Compat", "huggingface": "HuggingFace",
-        "openrouter": "OpenRouter", "claude": "Claude", "aerollm": "AeroLLM",
+        "openrouter": "OpenRouter", "claude": "Claude",
+        "airllm": "AirLLM", "aerollm": "AeroLLM",
     }
     for name in BACKEND_MAP:
         is_active = name == active_backend
@@ -2128,7 +2393,7 @@ async def _run_chat_completion_stream(
                 latency_ms=response.latency_ms,
                 source="ui",
             )
-            if response.backend == "aerollm":
+            if response.backend in ("airllm", "aerollm"):
                 _record_aerollm_bench(
                     model=response.model,
                     tokens_out=response.tokens_used,
@@ -2247,7 +2512,7 @@ async def _run_chat_completion(
                 latency_ms=response.latency_ms,
                 source="ui",
             )
-            if response.backend == "aerollm":
+            if response.backend in ("airllm", "aerollm"):
                 _record_aerollm_bench(
                     model=response.model,
                     tokens_out=response.tokens_used,
@@ -2657,7 +2922,12 @@ async def api_chat_models():
     # the UI what giant model is wired up behind the "Deep model"
     # toggle. Separate field because users can flip that toggle
     # regardless of which primary backend they're on.
-    deep_model_name = os.getenv("AEROLLM_MODEL", "zai-org/GLM-5.1")
+    #
+    # AirLLM is today's active deep backend (max-tier install). AeroLLM
+    # is declared but dormant until it's stable; when it ships, the
+    # default below flips back.
+    air_model_name = os.getenv("AIRLLM_MODEL", "meta-llama/Llama-3.1-70B")
+    deep_model_name = air_model_name
     # Look up the spec sheet so the Frontier chip hover can show
     # strengths, benchmarks, and license at a glance. Registry lives
     # in src/arail/model_specs.py — users edit it to add new models.
@@ -2666,13 +2936,13 @@ async def api_chat_models():
 
     deep_info = {
         "model": deep_model_name,
-        # Whether the aerollm package is importable. When False, the
-        # UI can swap the toggle for an install hint.
-        "installed": _is_aerollm_installed(),
+        # Whether the active deep backend (airllm) is importable. When
+        # False, the UI can swap the toggle for an install hint.
+        "installed": _is_airllm_installed(),
         # Rough size hint the UI can render in the chip. We extract
         # a parameter count from the model name when present
         # (e.g. "Qwen3-235B-A22B" → "235B"); the user-entered
-        # AEROLLM_MODEL decides what shows.
+        # AIRLLM_MODEL decides what shows.
         "param_hint": _extract_param_hint(deep_model_name),
         # Spec sheet — populated from the registry. Null when the
         # configured model isn't known; the UI shows a "click to
@@ -2693,7 +2963,7 @@ async def api_chat_models():
             "huggingface-cli login or export HF_TOKEN before downloading."
         )
 
-    air_model_name = os.getenv("AIRLLM_MODEL", "meta-llama/Llama-3.1-70B")
+    aero_model_name = os.getenv("AEROLLM_MODEL", "zai-org/GLM-5.1")
     optional_backends = [
         {
             "id": "airllm",
@@ -2703,20 +2973,20 @@ async def api_chat_models():
             "param_hint": _extract_param_hint(air_model_name),
             "gated": air_model_name.lower().startswith("meta-llama/"),
             "install_command": "pip install airllm",
-            "description": "Original layer-streaming backend for large local models.",
+            "description": "Active deep-chat backend — layer-streaming for 70B+ local models (max tier).",
         },
         {
             "id": "aerollm",
             "label": "AeroLLM",
-            "model": deep_model_name,
-            "installed": bool(deep_info["installed"]),
-            "param_hint": deep_info["param_hint"],
-            "gated": bool(deep_info["gated"]),
+            "model": aero_model_name,
+            "installed": _is_aerollm_installed(),
+            "param_hint": _extract_param_hint(aero_model_name),
+            "gated": aero_model_name.lower().startswith("meta-llama/"),
             "install_command": (
                 "pip install "
                 + os.getenv("AEROLLM_PACKAGE", "git+https://github.com/cdarnell/aerollm@main")
             ),
-            "description": "Prefetched production rewrite; preferred deep-chat backend when available.",
+            "description": "Future deep-chat backend (Arail's Rust runtime). Dormant until stable.",
         },
     ]
     for entry in optional_backends:
@@ -2957,7 +3227,9 @@ async def system_health():
         "gpu": gpu_info,
         "tier": tier,
         "deep_enabled": deep_enabled,
-        "aerollm_model": os.getenv("AEROLLM_MODEL", ""),
+        # Active deep backend is AirLLM today; AEROLLM_MODEL kept for the
+        # eventual swap-back so the field name stays stable for the UI.
+        "aerollm_model": os.getenv("AIRLLM_MODEL", os.getenv("AEROLLM_MODEL", "")),
         "services": services,
         "service_checks": service_checks,
         "health_summary": {
@@ -3216,6 +3488,24 @@ async def api_pkb_seed(request: Request):
         activity_log.emit("pkb",
             f"Seed pack '{pack}' installed — {result['written']} file(s) written, "
             f"{result['skipped']} kept",
+            "info")
+    return result
+
+
+@app.delete("/api/pkb/seeds")
+async def api_pkb_seeds_remove(pack: str = "model-building"):
+    """Remove an installed starter pack.
+
+    Wipes only ``lab/pkb/sources/seeds/<pack>/*.md`` — never user
+    content. Idempotent. Used by the Knowledge tab's 🗑 button on
+    the starter-pack tile so users can clear the lab's bootstrapping
+    primers once they no longer need them.
+    """
+    from arail.pkb_seed import remove_pack
+    result = remove_pack(pack)
+    if result.get("ok"):
+        activity_log.emit("pkb",
+            f"Seed pack '{pack}' removed — {result['removed']} file(s) deleted",
             "info")
     return result
 
@@ -3588,9 +3878,15 @@ def _normalize_backend(backend: str | None) -> str:
 async def tuning_page(request: Request):
     aerollm_model = os.getenv("AEROLLM_MODEL", "")
     airllm_model = os.getenv("AIRLLM_MODEL", "meta-llama/Llama-3.1-70B")
+    # Blueprint default: AirLLM is the only visible deep backend. Flip
+    # LAB_SHOW_AEROLLM=1 in .env to bring the AeroLLM MLX + CUDA tabs
+    # back (one env-var toggle for the operator who's ready to run
+    # AeroLLM alongside or in place of AirLLM).
+    show_aerollm = os.getenv("LAB_SHOW_AEROLLM", "false").lower() in ("1", "true", "yes")
     return templates.TemplateResponse(request, "tuning.html", {
         "aerollm_model": aerollm_model,
         "airllm_model": airllm_model,
+        "show_aerollm": show_aerollm,
     })
 
 

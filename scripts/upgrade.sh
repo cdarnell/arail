@@ -38,28 +38,51 @@ info "Switching install tier to ${BOLD}${TIER}${RESET}…"
 # pip is idempotent — already-installed packages are no-ops. For downgrades
 # we intentionally do not uninstall; the tabs just hide in the nav and the
 # operator can upgrade back later without re-downloading wheels.
-if [[ "$TIER" != "min" ]]; then
-    pip install -q -e ".[${TIER}]" || die "pip install failed for tier ${TIER}"
-fi
+# Both tiers now declare airllm, so we always re-run pip install to make
+# sure the deep backend is present.
+pip install -q -e ".[${TIER}]" || die "pip install failed for tier ${TIER}"
 
-# Persist to .env.
+# Persist tier + tier-sized AIRLLM_MODEL default to .env. Reads the
+# canonical model names from pyproject.toml so this stays in lockstep
+# with [tool.arail.models].
 python3 - "$TIER" <<'PY'
 import pathlib, sys
+try:
+    import tomllib
+except ModuleNotFoundError:
+    import tomli as tomllib
+
 tier = sys.argv[1]
+data = tomllib.loads(pathlib.Path("pyproject.toml").read_text())
+models = data.get("tool", {}).get("arail", {}).get("models", {})
+tier_model_key = f"airllm_{tier}"
+airllm_model = models.get(tier_model_key) or models.get("airllm", "")
+
 p = pathlib.Path(".env")
 lines = p.read_text().splitlines() if p.exists() else []
-out, replaced = [], False
-for line in lines:
-    if line.lstrip("# ").startswith("LAB_TIER="):
-        out.append(f"LAB_TIER={tier}")
-        replaced = True
-    else:
-        out.append(line)
-if not replaced:
-    if out and out[-1] != "":
-        out.append("")
-    out.append(f"LAB_TIER={tier}")
-p.write_text("\n".join(out) + "\n")
+
+def upsert(out, key, value):
+    seen = False
+    new = []
+    for line in out:
+        if line.lstrip("# ").startswith(f"{key}="):
+            new.append(f"{key}={value}")
+            seen = True
+        else:
+            new.append(line)
+    if not seen:
+        if new and new[-1] != "":
+            new.append("")
+        new.append(f"{key}={value}")
+    return new
+
+lines = upsert(lines, "LAB_TIER", tier)
+if airllm_model:
+    lines = upsert(lines, "AIRLLM_MODEL", airllm_model)
+p.write_text("\n".join(lines) + "\n")
+print(f"LAB_TIER={tier}")
+if airllm_model:
+    print(f"AIRLLM_MODEL={airllm_model}")
 PY
 
 info "Tier is now ${BOLD}${TIER}${RESET}. Restart the lab to apply:"

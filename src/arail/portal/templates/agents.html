@@ -115,6 +115,17 @@
     </div>
   </details>
 
+  <!-- ═══ Instruction Bar (moved up — instruct first, then watch the cards react) ═══ -->
+  <div class="ag-instruction-bar inline" aria-label="Instruct an agent">
+    <span class="ag-instruct-kicker">Instruct</span>
+    <select id="instruct-agent">
+      <option value="researcher">Researcher</option>
+      <option value="browser">Browser</option>
+    </select>
+    <input type="text" id="instruct-input" placeholder="Tell the agent what to do…" />
+    <button onclick="sendInstruction()" id="instruct-btn">Send →</button>
+  </div>
+
   <!-- ═══ Agent Cards ═══ -->
   <div class="ag-cards">
 
@@ -123,14 +134,18 @@
       <div class="ag-card-header">
         <span class="ag-pulse"></span>
         <a href="https://github.com/cdarnell/autoresearch-lab/blob/main/src/arail/agents/researcher.py" target="_blank" rel="noopener" class="ag-card-name researcher" title="View source: src/arail/agents/researcher.py">Researcher</a>
-        <span class="ag-pill idle" id="pill-researcher">idle</span>
+        <a class="ag-learn-link" href="https://github.com/cdarnell/autoresearch-lab/blob/main/docs/agents-explained.md#researcher" target="_blank" rel="noopener" title="What does the Researcher do?">📖 Learn</a>
+        <span class="ag-pill idle" id="pill-researcher">waiting</span>
       </div>
-      <div class="ag-card-task" id="task-researcher">Waiting for a goal&hellip;</div>
+      <div class="ag-card-task" id="task-researcher">Awaiting goal.</div>
       <div class="ag-card-stats">
-        <span class="ag-stat">tokens <span class="ag-stat-val" id="stat-researcher-tok">0</span></span>
-        <span class="ag-stat">exps <span class="ag-stat-val" id="stat-researcher-exp">0</span></span>
-        <span class="ag-stat">progress <span class="ag-stat-val" id="stat-researcher-pct">0%</span></span>
+        <span class="ag-stat" title="LLM tokens spent (estimated from prompt traces)">🔣 <span class="ag-stat-val" id="stat-researcher-tok">0</span> tok</span>
+        <span class="ag-stat">🧪 <span class="ag-stat-val" id="stat-researcher-exp">0</span> exps</span>
+        <span class="ag-stat">📊 <span class="ag-stat-val" id="stat-researcher-pct">0%</span></span>
       </div>
+      <ul class="ag-card-trail" id="trail-researcher" data-empty="No moves yet — set a goal to start the loop.">
+        <li class="ag-trail-empty">No moves yet — set a goal to start the loop.</li>
+      </ul>
       <div class="ag-card-controls" id="ctrl-researcher">
         <button onclick="agentAction('start')" id="btn-r-start">Run</button>
         <button onclick="agentAction('pause')" id="btn-r-pause" disabled>Pause</button>
@@ -144,13 +159,18 @@
       <div class="ag-card-header">
         <span class="ag-pulse"></span>
         <a href="https://github.com/cdarnell/autoresearch-lab/blob/main/src/arail/agents/curator.py" target="_blank" rel="noopener" class="ag-card-name curator" title="View source: src/arail/agents/curator.py">Curator</a>
-        <span class="ag-pill standby" id="pill-curator">standby</span>
+        <a class="ag-learn-link" href="https://github.com/cdarnell/autoresearch-lab/blob/main/docs/agents-explained.md#curator" target="_blank" rel="noopener" title="What does the Curator do?">📖 Learn</a>
+        <span class="ag-pill standby" id="pill-curator">watching</span>
       </div>
-      <div class="ag-card-task" id="task-curator">Source vetting &amp; consent gating</div>
+      <div class="ag-card-task" id="task-curator">Vetting incoming sources.</div>
       <div class="ag-card-stats">
-        <span class="ag-stat">pending <span class="ag-stat-val" id="stat-curator-pending">0</span></span>
-        <span class="ag-stat">approved <span class="ag-stat-val" id="stat-curator-approved">0</span></span>
+        <span class="ag-stat" title="LLM tokens spent (estimated from prompt traces)">🔣 <span class="ag-stat-val" id="stat-curator-tok">0</span> tok</span>
+        <span class="ag-stat">🟡 <span class="ag-stat-val" id="stat-curator-pending">0</span> pending</span>
+        <span class="ag-stat">✅ <span class="ag-stat-val" id="stat-curator-approved">0</span> approved</span>
       </div>
+      <ul class="ag-card-trail" id="trail-curator" data-empty="Nothing to vet yet.">
+        <li class="ag-trail-empty">Nothing to vet yet.</li>
+      </ul>
       <div class="ag-card-controls">
         <button onclick="switchTab('consent')">Manage Consent</button>
         <span class="ag-badge" id="badge-curator" style="display:none">0 pending</span>
@@ -162,13 +182,18 @@
       <div class="ag-card-header">
         <span class="ag-pulse"></span>
         <a href="https://github.com/cdarnell/autoresearch-lab/blob/main/src/arail/agents/browser.py" target="_blank" rel="noopener" class="ag-card-name browser" title="View source: src/arail/agents/browser.py">Browser</a>
+        <a class="ag-learn-link" href="https://github.com/cdarnell/autoresearch-lab/blob/main/docs/agents-explained.md#browser" target="_blank" rel="noopener" title="What does the Browser do?">📖 Learn</a>
         <span class="ag-pill idle" id="pill-browser">idle</span>
       </div>
-      <div class="ag-card-task" id="task-browser">Ready for web research tasks</div>
+      <div class="ag-card-task" id="task-browser">Ready for web tasks.</div>
       <div class="ag-card-stats">
-        <span class="ag-stat">captures <span class="ag-stat-val" id="stat-browser-captures">0</span></span>
-        <span class="ag-stat">last <span class="ag-stat-val" id="stat-browser-last">&mdash;</span></span>
+        <span class="ag-stat" title="LLM tokens spent (estimated from prompt traces)">🔣 <span class="ag-stat-val" id="stat-browser-tok">0</span> tok</span>
+        <span class="ag-stat">📄 <span class="ag-stat-val" id="stat-browser-captures">0</span> captures</span>
+        <span class="ag-stat">⏱ <span class="ag-stat-val" id="stat-browser-last">&mdash;</span></span>
       </div>
+      <ul class="ag-card-trail" id="trail-browser" data-empty="No browses yet — instruct above to send one.">
+        <li class="ag-trail-empty">No browses yet — instruct above to send one.</li>
+      </ul>
       <div class="ag-card-controls">
         <button onclick="focusInstruction('browser')">New Task</button>
       </div>
@@ -181,13 +206,18 @@
       <div class="ag-card-header">
         <span class="ag-pulse"></span>
         <a href="https://github.com/cdarnell/autoresearch-lab/blob/main/src/arail/agents/_builtin_pip.py" target="_blank" rel="noopener" class="ag-card-name pip" title="View canonical source (your editable copy lives at lab/pkb/agents/pip/pip.py)">🐧 Pip</a>
-        <span class="ag-pill idle" id="pill-pip">idle</span>
+        <a class="ag-learn-link" href="https://github.com/cdarnell/autoresearch-lab/blob/main/docs/agents-explained.md#pip" target="_blank" rel="noopener" title="What does Pip do?">📖 Learn</a>
+        <span class="ag-pill idle" id="pill-pip">watching</span>
       </div>
-      <div class="ag-card-task" id="task-pip">Your lab buddy — watches quietly, chimes in when something's worth noting.</div>
+      <div class="ag-card-task" id="task-pip">Watching the lab.</div>
       <div class="ag-card-stats">
-        <span class="ag-stat">utterances <span class="ag-stat-val" id="stat-pip-utterances">0</span></span>
-        <span class="ag-stat">last <span class="ag-stat-val" id="stat-pip-last">&mdash;</span></span>
+        <span class="ag-stat" title="LLM tokens spent (estimated from prompt traces)">🔣 <span class="ag-stat-val" id="stat-pip-tok">0</span> tok</span>
+        <span class="ag-stat">💬 <span class="ag-stat-val" id="stat-pip-utterances">0</span> said</span>
+        <span class="ag-stat">⏱ <span class="ag-stat-val" id="stat-pip-last">&mdash;</span></span>
       </div>
+      <ul class="ag-card-trail" id="trail-pip" data-empty="Pip hasn't piped up yet.">
+        <li class="ag-trail-empty">Pip hasn't piped up yet.</li>
+      </ul>
       <div class="ag-card-controls">
         <button onclick="setFilter('pip')">Show posts</button>
       </div>
@@ -232,7 +262,7 @@
       <div>
         <div class="ag-redirect-kicker">REDIRECT VECTOR</div>
         <h2>Retune The Loop</h2>
-        <p class="ag-redirect-subtitle">When the researcher is pulling too hard on the wrong thread, bend it without killing the run. Push it toward measurement, eval design, or AutoResearch readiness.</p>
+        <p class="ag-redirect-subtitle">When the researcher is pulling too hard on the wrong thread, bend it without killing the run. Push it toward measurement, eval design, or Autoresearch readiness.</p>
       </div>
       <div class="ag-redirect-live" id="ag-redirect-live">No active redirect — the researcher is following the baseline program.</div>
     </div>
@@ -247,7 +277,7 @@
       </button>
       <button class="ag-redirect-preset loop" onclick="quickRedirect('autoresearch')">
         <span class="ag-redirect-title">Program The Loop</span>
-        <span class="ag-redirect-copy">Turn the current question into a loopable AutoResearch program with metrics, variants, and stop conditions.</span>
+        <span class="ag-redirect-copy">Turn the current question into a loopable Autoresearch program with metrics, variants, and stop conditions.</span>
       </button>
       <button class="ag-redirect-preset search" onclick="quickRedirect('broaden-search')">
         <span class="ag-redirect-title">Broaden Search</span>
@@ -256,7 +286,7 @@
     </div>
     <div class="ag-redirect-compose">
       <label class="ag-redirect-label" for="ag-redirect-text">Custom redirect</label>
-      <textarea id="ag-redirect-text" placeholder="e.g. Stop fetching. Figure out how to measure this so the strongest path can graduate into AutoResearch."></textarea>
+      <textarea id="ag-redirect-text" placeholder="e.g. Stop fetching. Figure out how to measure this so the strongest path can graduate into Autoresearch."></textarea>
       <div class="ag-redirect-actions">
         <button class="ag-redirect-btn primary" onclick="sendRedirect('custom')">Inject Redirect</button>
         <button class="ag-redirect-btn" onclick="clearRedirect()">Clear</button>
@@ -346,16 +376,6 @@
 
 </div>
 
-<!-- ═══ Instruction Bar ═══ -->
-<div class="ag-instruction-bar">
-  <select id="instruct-agent">
-    <option value="researcher">Researcher</option>
-    <option value="browser">Browser</option>
-  </select>
-  <input type="text" id="instruct-input" placeholder="Instruct the agent&hellip;" />
-  <button onclick="sendInstruction()" id="instruct-btn">Send</button>
-</div>
-
 <script>
 // ═══════════════════════════════════════════════════════════════════
 //  Agents Tab — JavaScript
@@ -395,7 +415,7 @@ const REDIRECT_PRESETS = {
   },
   autoresearch: {
     label: 'Program The Loop',
-    instruction: 'Figure out how to measure this, define the eval, and prepare an AutoResearch loop with explicit metrics, variants, and stop conditions.',
+    instruction: 'Figure out how to measure this, define the eval, and prepare an Autoresearch loop with explicit metrics, variants, and stop conditions.',
   },
   'broaden-search': {
     label: 'Broaden Search',
@@ -412,14 +432,11 @@ function updatePipCard() {
   const tEl = document.getElementById('task-pip');
   const uEl = document.getElementById('stat-pip-utterances');
   const lEl = document.getElementById('stat-pip-last');
-  const pill = document.getElementById('pill-pip');
   if (uEl) uEl.textContent = PIP_STATS.utterances;
   if (lEl) lEl.textContent = PIP_STATS.last
     ? PIP_STATS.last.substring(11, 19) : '—';
-  if (pill) {
-    pill.className = 'ag-pill ' + (PIP_STATS.utterances > 0 ? 'active' : 'idle');
-    pill.textContent = PIP_STATS.utterances > 0 ? 'watching' : 'idle';
-  }
+  const [pillClass, pillText] = describeStatus('pip', { utterances: PIP_STATS.utterances });
+  setPill('pill-pip', pillClass, pillText);
   if (tEl && PIP_STATS.lastMessage) {
     tEl.textContent = PIP_STATS.lastMessage;
   }
@@ -837,6 +854,70 @@ function setPromptFilter(f) {
 }
 
 // ── Agent Status Polling ─────────────────────────────────────────
+// ── Descriptive status labels ─────────────────────────────────────
+// The CSS class stays the raw state ('idle'|'running'|...) to drive
+// pill colors; the displayed TEXT is the human sentence. This is the
+// "Researcher: waiting for a goal" instead of "idle" change.
+function describeStatus(agentId, snap) {
+  const raw = snap.status || 'idle';
+  if (agentId === 'researcher') {
+    if (raw === 'running')   return ['running',   'running'];
+    if (raw === 'paused')    return ['paused',    'paused'];
+    if (raw === 'completed') return ['completed', 'completed'];
+    if (raw === 'error')     return ['error',     'errored'];
+    if (snap.has_goal)       return ['idle',      'queued'];
+    return ['idle', 'waiting'];
+  }
+  if (agentId === 'curator') {
+    const pending = snap.pending || 0;
+    if (pending > 0) return ['running', `vetting (${pending})`];
+    return ['standby', 'watching'];
+  }
+  if (agentId === 'browser') {
+    if (snap.last_task) return ['running', 'browsing'];
+    return ['idle', 'idle'];
+  }
+  if (agentId === 'pip') {
+    const u = snap.utterances || (snap.chatter && snap.chatter.utterances) || PIP_STATS.utterances;
+    if (u > 0) return ['active', `chimed (${u})`];
+    return ['idle', 'watching'];
+  }
+  return [safeStatusClass(raw), raw];
+}
+
+function setPill(elId, klass, text) {
+  const el = document.getElementById(elId);
+  if (!el) return;
+  el.className = 'ag-pill ' + klass;
+  el.textContent = text;
+}
+
+function fmtTokens(n) {
+  const v = Number(n) || 0;
+  if (v >= 1000) return (v / 1000).toFixed(1) + 'k';
+  return String(v);
+}
+
+// Render the per-card recent-actions trail. `actions` is a newest-first
+// list of {ts, level, message} — what each agent just did. Empty state
+// uses the [data-empty] hint baked into the <ul>.
+function renderTrail(elId, actions) {
+  const el = document.getElementById(elId);
+  if (!el) return;
+  if (!actions || !actions.length) {
+    el.innerHTML = `<li class="ag-trail-empty">${esc(el.dataset.empty || 'No moves yet.')}</li>`;
+    return;
+  }
+  el.innerHTML = actions.map(a => {
+    const ts = (a.ts || '').substring(11, 19);
+    const lvl = a.level || 'info';
+    return `<li class="ag-trail-item lvl-${esc(lvl)}">`
+      + `<span class="ag-trail-ts">${esc(ts)}</span>`
+      + `<span class="ag-trail-msg">${esc(a.message || '')}</span>`
+      + `</li>`;
+  }).join('');
+}
+
 async function pollStatus() {
   try {
     const r = await fetch('/api/agents/status');
@@ -846,14 +927,14 @@ async function pollStatus() {
     // Researcher card
     const rs = d.researcher || {};
     const rStatus = rs.status || 'idle';
-    const rCard = document.getElementById('card-researcher');
-    rCard.className = 'ag-card ' + rStatus;
-    document.getElementById('pill-researcher').className = 'ag-pill ' + rStatus;
-    document.getElementById('pill-researcher').textContent = rStatus;
+    const [rPillClass, rPillText] = describeStatus('researcher', rs);
+    document.getElementById('card-researcher').className = 'ag-card ' + rStatus;
+    setPill('pill-researcher', rPillClass, rPillText);
     document.getElementById('stat-researcher-pct').textContent = Math.round((rs.progress || 0) * 100) + '%';
     document.getElementById('stat-researcher-exp').textContent = rs.experiments || '0';
-    document.getElementById('stat-researcher-tok').textContent = rs.tokens ? (rs.tokens > 1000 ? (rs.tokens / 1000).toFixed(1) + 'k' : rs.tokens) : '0';
+    document.getElementById('stat-researcher-tok').textContent = fmtTokens(rs.tokens);
     if (rs.current_task) document.getElementById('task-researcher').textContent = rs.current_task;
+    renderTrail('trail-researcher', rs.recent_actions);
 
     // Researcher controls
     const isRunning = rStatus === 'running';
@@ -868,6 +949,7 @@ async function pollStatus() {
     const pending = cs.pending || 0;
     document.getElementById('stat-curator-pending').textContent = pending;
     document.getElementById('stat-curator-approved').textContent = cs.allowed || '0';
+    document.getElementById('stat-curator-tok').textContent = fmtTokens(cs.tokens);
     const badge = document.getElementById('badge-curator');
     if (pending > 0) {
       badge.style.display = 'inline';
@@ -875,18 +957,29 @@ async function pollStatus() {
     } else {
       badge.style.display = 'none';
     }
-    // Curator is active when researcher is running
-    const cStatus = isRunning ? 'active' : 'standby';
-    document.getElementById('card-curator').className = 'ag-card' + (isRunning ? ' running' : '');
-    document.getElementById('pill-curator').textContent = cStatus;
+    const [cPillClass, cPillText] = describeStatus('curator', cs);
+    document.getElementById('card-curator').className = 'ag-card' + (cPillClass === 'running' ? ' running' : '');
+    setPill('pill-curator', cPillClass, cPillText);
+    renderTrail('trail-curator', cs.recent_actions);
 
     // Browser card
     const bs = d.browser || {};
     document.getElementById('stat-browser-captures').textContent = bs.captures || '0';
+    document.getElementById('stat-browser-tok').textContent = fmtTokens(bs.tokens);
     if (bs.last_task) {
       document.getElementById('stat-browser-last').textContent = bs.last_task.substring(0, 25);
       document.getElementById('task-browser').textContent = bs.last_task;
     }
+    const [bPillClass, bPillText] = describeStatus('browser', bs);
+    setPill('pill-browser', bPillClass, bPillText);
+    renderTrail('trail-browser', bs.recent_actions);
+
+    // Pip card — the polled status fields complement the SSE-driven
+    // updatePipCard() which reacts in real-time as messages arrive.
+    const ps = d.pip || {};
+    document.getElementById('stat-pip-tok').textContent = fmtTokens(ps.tokens);
+    renderTrail('trail-pip', ps.recent_actions);
+
     renderRedirectState();
     renderMovementConsole();
   } catch (e) { /* silent */ }
@@ -975,6 +1068,19 @@ function renderEvent(e) {
   } else {
     html += `</div>`;
   }
+
+  // KB consultation hits — render each cited path as a clickable chip
+  // that deep-links to the Knowledge tab so users can read what the
+  // agent is leaning on.
+  if (e.data && Array.isArray(e.data.kb_hits) && e.data.kb_hits.length) {
+    const chips = e.data.kb_hits.map(p => {
+      const leaf = String(p).split('/').pop();
+      const href = '/knowledge?file=' + encodeURIComponent(p);
+      return `<a class="ag-kb-chip" href="${href}" title="${esc(p)}">📄 ${esc(leaf)}</a>`;
+    }).join('');
+    html += `<div class="ag-kb-chip-row">${chips}</div>`;
+  }
+
   return html;
 }
 

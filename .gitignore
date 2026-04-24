@@ -4,12 +4,14 @@
 .env.*.local
 .gh-token
 lab.conf
-setup.log
-portal_restart.log
-compile_stderr.txt
-output.txt
 # Provider tokens saved from Chat > Compute Source (chmod 0600).
 lab/data/secrets.env
+
+# Logs (anything ending in .log, plus a couple of historical names)
+*.log
+compile_stderr.txt
+output.txt
+traefik_logs.txt
 
 # Python
 __pycache__/
@@ -22,6 +24,10 @@ build/
 .venv/
 venv/
 env/
+
+# Node / frontend build artifacts
+node_modules/
+*.tsbuildinfo
 
 # Runtime state (generated at setup/run time, never committed)
 .transfer/

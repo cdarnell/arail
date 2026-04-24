@@ -53,6 +53,9 @@ jobs:
     env:
       ARAIL_NONINTERACTIVE: "1"
       ARAIL_SKIP_OLLAMA: "1"
+      # Belt-and-suspenders: min-tier setup already skips the deep backend.
+      # AIRLLM is today's deep package; AEROLLM kept for the eventual swap-back.
+      ARAIL_SKIP_AIRLLM: "1"
       ARAIL_SKIP_AEROLLM: "1"
       ARAIL_NO_BROWSER: "1"
 

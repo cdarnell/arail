@@ -30,10 +30,10 @@ prefer a shorter alias, `./qkz` is symlinked to `./arail`.)
 
 Two tiers. Pick one; upgrade later.
 
-| Tier  | What you get                                                                                                   | Good for                                         |
-| ----- | -------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
-| `min` | Dashboard · Chat · Autoresearch · Knowledge Base · Agents                                                      | The everyday lab. Research can drive right away. |
-| `max` | + Admin · Notebooks · LanceDB vectors · AeroLLM · Anthropic SDK · LangChain / LangGraph · full cloud catalogue | Real experiments and frontier models.            |
+| Tier  | What you get                                                                                                            | Good for                                         |
+| ----- | ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
+| `min` | Dashboard · Chat · Autoresearch · Knowledge Base · Agents · **AirLLM 70B** (Llama-3.1-70B)                              | The everyday lab. Real models on small hardware. |
+| `max` | + Admin · Notebooks · LanceDB vectors · **AirLLM 405B** (Llama-3.1-405B) · Anthropic SDK · LangChain · full cloud SDKs  | Frontier-scale local inference, full bench.      |
 
 Upgrade any time:
 
