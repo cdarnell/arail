@@ -201,6 +201,11 @@ class LoopState:
     # second API call. Empty dict means "schedule not yet evaluated"
     # (only happens during the brief first-tick window).
     schedule: Dict[str, Any] = field(default_factory=dict)
+    # Set when the loop's candidates came from a research recipe at
+    # ``lab/pkb/research/program.md`` instead of the hardcoded
+    # CANDIDATES list. Surfaces in the UI as "Driven by: program.md".
+    program_path: Optional[str] = None
+    program_candidate_count: Optional[int] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -230,6 +235,8 @@ class LoopState:
             "stop_requested": self.stop_requested,
             "pass_number": self.pass_number,
             "schedule": dict(self.schedule) if self.schedule else {},
+            "program_path": self.program_path,
+            "program_candidate_count": self.program_candidate_count,
         }
 
 
@@ -538,6 +545,26 @@ def _build_commit_message(
 
 # ── Public entry point ──────────────────────────────────────────────
 
+_DEFAULT_PROGRAM_PATH = Path("lab/pkb/research/program.md")
+
+
+def _candidates_from_program(program_path: Path) -> List[Candidate]:
+    """Try to pull candidates out of program.md's ``## Knobs`` block.
+
+    Imported lazily so autoresearch.py doesn't pull arail.research at
+    module-import time — keeps the import graph cheap for code paths
+    that never touch the loop.
+    """
+    try:
+        from arail.research.program_loader import parse_program
+    except Exception:
+        return []
+    recipe = parse_program(program_path)
+    if recipe is None:
+        return []
+    return list(recipe.knobs)
+
+
 def run_autoresearch(
     *,
     backend: str = "aerollm",
@@ -545,6 +572,7 @@ def run_autoresearch(
     candidates: Optional[List[Candidate]] = None,
     progress: Optional[Callable[[LoopState], None]] = None,
     preserve_continuous: bool = False,
+    program_path: Optional[Path] = None,
 ) -> LoopState:
     """Run one full pass of the autoresearch loop for the given
     backend. Caller is expected to invoke this on a background
@@ -559,6 +587,15 @@ def run_autoresearch(
     flags are carried over from the prior state. This is how
     ``run_autoresearch_forever`` signals that a fresh pass is starting
     without blowing away the supervisor's control bits.
+
+    Candidate selection precedence:
+      1. ``candidates`` arg (explicit override — tests use this).
+      2. ``## Knobs`` block in ``program_path`` (or the default
+         ``lab/pkb/research/program.md`` when no path is given AND the
+         file exists). This is the goal-driven path: edit program.md,
+         re-run, get a different sweep.
+      3. Hardcoded ``CANDIDATES`` / ``MLX_CANDIDATES`` for the backend
+         (today's behavior — preserved as the fallback).
     """
     _require_known_backend(backend)
     prev = _STATES[backend]
@@ -577,8 +614,19 @@ def run_autoresearch(
 
     config_path = _config_path(backend)
     commit_files = _commit_files(backend)
-    effective_candidates = candidates if candidates is not None \
-        else _default_candidates(backend)
+
+    # Resolve candidates per the precedence above.
+    if candidates is not None:
+        effective_candidates = candidates
+    else:
+        chosen_program = program_path if program_path is not None else _DEFAULT_PROGRAM_PATH
+        program_candidates = _candidates_from_program(chosen_program) if chosen_program.exists() else []
+        if program_candidates:
+            effective_candidates = program_candidates
+            state.program_path = str(chosen_program)
+            state.program_candidate_count = len(program_candidates)
+        else:
+            effective_candidates = _default_candidates(backend)
 
     try:
         if require_env_flag and not os.getenv("ARAIL_AUTORESEARCH_ENABLED"):

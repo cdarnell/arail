@@ -125,6 +125,49 @@ reset_pkb_seeds() {
     info "Seed packs removed. They will re-install on next ./arail start unless disabled."
 }
 
+reset_program() {
+    # Wipes the system-authored "research recipe" — program.md, train.py,
+    # any curated source fetches, and the autoresearch schedule. Always
+    # preserves prepare.py: the validation contract is sticky on purpose
+    # (changing it means the agent is grading its own homework).
+    #
+    # The recipe re-drafts on the next ./api/goal POST, OR via the
+    # Re-draft button on the dashboard's "Lab knows" panel.
+    local research_dir="lab/pkb/research"
+    local research_sources="lab/pkb/sources/research"
+    local schedule="lab/data/autoresearch-schedule.json"
+    local pkb_cache="lab/pkb/.cache/lancedb"
+
+    local removed=0
+    for f in "${research_dir}/program.md" "${research_dir}/train.py"; do
+        if [[ -f "$f" ]]; then
+            warn "Removing ${f}..."
+            rm -f "$f"
+            removed=$((removed + 1))
+        fi
+    done
+    if [[ -d "$research_sources" ]]; then
+        warn "Clearing ${research_sources}/ (curated source fetches)..."
+        rm -rf "$research_sources"
+        removed=$((removed + 1))
+    fi
+    if [[ -f "$schedule" ]]; then
+        info "Resetting ${schedule} to paused."
+        echo '{"mode": "paused", "window_start": "22:00", "window_end": "06:00"}' > "$schedule"
+    fi
+    # Force PKB vector index rebuild so the next semantic search reflects
+    # the cleaner research dir.
+    if [[ -d "$pkb_cache" ]]; then
+        rm -rf "$pkb_cache"
+    fi
+
+    if (( removed == 0 )); then
+        info "No research recipe files to remove."
+    else
+        info "Research program reset (${removed} item(s)). prepare.py left in place."
+    fi
+}
+
 reset_env() {
     for f in .env lab.conf; do
         if [[ -f "$f" ]]; then
@@ -147,6 +190,10 @@ full_wipe() {
     reset_models
     reset_data
     reset_plugins
+    # Per user decision (2026-04-24): `reset all` includes the research
+    # program so a fresh setup starts with no leftover recipe. prepare.py
+    # is preserved by reset_program itself.
+    reset_program
     reset_env
     # Also clean caches
     for dir in __pycache__ .pytest_cache arail.egg-info; do
@@ -203,6 +250,8 @@ usage() {
     echo "    pkb       Remove the knowledge base (all notes, uploads,"
     echo "              agent findings, seed packs). Re-seeds on next start."
     echo "    pkb-seeds Remove only the seeded starter primers; keep your notes."
+    echo "    program   Remove the auto-drafted research recipe (program.md,"
+    echo "              train.py, curated source fetches). Keeps prepare.py."
     echo "    plugins   Remove installed plugins"
     echo "    env       Remove .venv, .env, lab.conf"
     echo "    full      Complete wipe — keeps the knowledge base safe."
@@ -290,6 +339,7 @@ case "${MODE:-}" in
     data)    confirm_and_run "data & experiments" reset_data ;;
     pkb)       confirm_and_run "KNOWLEDGE BASE" reset_pkb ;;
     pkb-seeds) confirm_and_run "starter pack seeds" reset_pkb_seeds ;;
+    program)   confirm_and_run "research recipe (program.md + train.py)" reset_program ;;
     plugins) confirm_and_run "plugins" reset_plugins ;;
     env)     confirm_and_run "environment" reset_env ;;
     full)    confirm_and_run "FULL WIPE" full_wipe ;;

@@ -1,0 +1,39 @@
+# Curated default sources for the lab's signature topic — running
+# frontier-scale language models on laptop hardware. The drafter pins
+# these into program.md's Sources section when it generates a fresh
+# program. Edit this list to change the lab's "starter knowledge."
+#
+# Format: a list of {title, url, why} dicts. `why` shows up in
+# program.md so the user understands at a glance what each link is
+# good for.
+
+- title: AirLLM — layer streaming inference reference implementation
+  url: https://github.com/lyogavin/airllm
+  why: The reference layer-streaming runtime — how the lab actually
+       runs frontier models on 8 GB VRAM today.
+
+- title: GGUF format specification
+  url: https://github.com/ggerganov/ggml/blob/master/docs/gguf.md
+  why: The on-disk format that makes layer streaming feasible.
+       Quantization knobs map onto GGUF block types.
+
+- title: llama.cpp — CPU-first inference engine
+  url: https://github.com/ggerganov/llama.cpp
+  why: The CPU baseline every disk-streaming runtime is measured
+       against. Useful when comparing tokens/sec across backends.
+
+- title: KV-cache quantization (smoothquant + KV-int4)
+  url: https://arxiv.org/abs/2401.18079
+  why: The hypothesis behind the lab's KV-bits experiments —
+       quantize the cache aggressively, lose almost no quality.
+
+- title: Speculative decoding paper
+  url: https://arxiv.org/abs/2211.17192
+  why: Pair a small fast draft model with the deep model to amortize
+       the per-token cost. A core hypothesis for the throughput goal.
+
+- title: vLLM PagedAttention
+  url: https://arxiv.org/abs/2309.06180
+  why: Server-side memory management that shaped how modern runtimes
+       carve up KV cache. Useful background even though we don't
+       use vLLM directly.
