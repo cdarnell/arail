@@ -29,7 +29,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-import yaml
+import yaml  # type: ignore[import-untyped]
 
 from arail.research.train_template import TRAIN_PY_TEMPLATE
 
@@ -117,12 +117,20 @@ def draft_program(
     train_path = target_dir / "train.py"
 
     if program_path.exists() and not force:
-        return DraftResult(
-            wrote=False,
-            program_path=program_path,
-            train_path=train_path,
-            reason="program.md exists — pass force=True to overwrite",
-        )
+        # Special case: the lab's startup auto-seeder
+        # (arail.agents.builtin_seed) bakes in a generic AeroLLM
+        # research template before the user sets a goal. Once a real
+        # goal is set, that static template is stale by definition —
+        # transparently replace it. We detect it by the unique
+        # ``auto_goal:`` frontmatter key the seeder writes (and which
+        # this drafter never produces).
+        if not _is_static_seed_template(program_path):
+            return DraftResult(
+                wrote=False,
+                program_path=program_path,
+                train_path=train_path,
+                reason="program.md exists — pass force=True to overwrite",
+            )
 
     target_dir.mkdir(parents=True, exist_ok=True)
 
@@ -174,6 +182,23 @@ def _allow_live_fetch() -> bool:
     if mode == "airgapped":
         return False
     return os.getenv("ARAIL_AUTORESEARCH_FETCH_EXTRAS", "0") == "1"
+
+
+def _is_static_seed_template(program_path: Path) -> bool:
+    """True if the on-disk program.md is the lab's static auto-seed
+    rather than a real draft or user-edited file.
+
+    The seeder (``arail.agents.builtin_seed``) writes an ``auto_goal:``
+    key in the YAML frontmatter; this drafter never produces that key.
+    Reading just the first ~40 lines is enough — the frontmatter
+    block is always at the top.
+    """
+    try:
+        with program_path.open() as f:
+            head = "".join(line for _, line in zip(range(40), f))
+    except OSError:
+        return False
+    return "auto_goal:" in head and "auto_drafted: true" not in head
 
 
 def _fetch_extra_sources(goal_text: str) -> list[dict[str, str]]:

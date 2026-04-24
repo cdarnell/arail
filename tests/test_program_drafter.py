@@ -106,6 +106,49 @@ def test_default_sources_yaml_loads_and_has_required_fields():
         assert entry["url"].startswith(("http://", "https://"))
 
 
+def test_draft_program_overwrites_static_seed_template(tmp_path: Path):
+    """The lab's startup auto-seeder bakes in a generic AeroLLM
+    program.md before the user sets a goal. Once a real goal is set,
+    the static template is stale by definition — the drafter MUST
+    transparently replace it (without needing force=True). The seeder
+    writes ``auto_goal:`` in the frontmatter; this drafter writes
+    ``auto_drafted: true`` — that's how we distinguish."""
+    from arail.research.program_drafter import draft_program, _is_static_seed_template
+
+    # Mimic what arail.agents.builtin_seed writes at startup.
+    seed = (
+        "---\n"
+        "title: SSD-hosted model inference — lab research program\n"
+        "lab_theme: Making SSD-hosted model inference faster\n"
+        "auto_goal: Optimize AeroLLM's tokens-per-minute\n"
+        "---\n"
+        "\n# (generic seed body)\n"
+    )
+    (tmp_path / "program.md").write_text(seed)
+    assert _is_static_seed_template(tmp_path / "program.md") is True
+
+    # Drafter should overwrite even with force=False.
+    res = draft_program(
+        goal_record=_example_goal_record(),
+        research_dir=tmp_path,
+        force=False,
+    )
+    assert res.wrote is True
+    body = res.program_path.read_text()
+    assert "auto_drafted: true" in body
+    assert "AirLLM throughput on my MacBook" in body
+    assert _is_static_seed_template(res.program_path) is False
+
+    # But once a real draft is in place, force=False protects it.
+    res2 = draft_program(
+        goal_record=_example_goal_record(),
+        research_dir=tmp_path,
+        force=False,
+    )
+    assert res2.wrote is False
+    assert "exists" in res2.reason
+
+
 def test_drafter_skips_external_fetch_in_airgapped_mode(monkeypatch, tmp_path):
     """fetch_external=True should still be a no-op when LAB_MODE
     isn't hybrid — airgapped is the secure default."""
