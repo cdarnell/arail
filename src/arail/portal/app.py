@@ -1454,6 +1454,20 @@ async def list_experiments(status: str | None = None):
     return tracker.list_all(status=status)
 
 
+@app.get("/api/experiments/search")
+async def search_experiments(q: str, k: int = 5, status: str | None = None):
+    """Semantic search over the experiment corpus.
+
+    Backed by the shared LanceDB index (arail.vector_index). Falls back
+    to substring scan when LanceDB is unreachable so the endpoint is
+    always usable.
+    """
+    if not q or not q.strip():
+        return {"query": q, "hits": []}
+    hits = tracker.search(q.strip(), k=max(1, min(k, 25)), status=status)
+    return {"query": q, "hits": hits}
+
+
 @app.post("/api/experiments")
 async def create_experiment(request: Request):
     body = await request.json()

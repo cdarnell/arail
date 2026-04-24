@@ -1407,3 +1407,44 @@ a.ag-card-name:hover { text-decoration: underline; text-decoration-style: dotted
   background: none;
   border: none;
 }
+
+/* ── Lab consults preview ────────────────────────────────────────────────
+   Single-row strip that surfaces the top KB primer + top past experiment
+   the researcher would consult for the current goal. Sits between the
+   instruction bar and the agent cards row. */
+.ag-consults {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem 1.1rem;
+  padding: 0.5rem 0.85rem;
+  margin: 0.55rem 0 0.85rem;
+  background: rgba(0, 212, 255, 0.04);
+  border: 1px solid rgba(0, 212, 255, 0.2);
+  border-radius: var(--radius);
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+.ag-consults-label {
+  color: var(--blue);
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.ag-consults-row {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  color: var(--text);
+}
+.ag-consults-icon { opacity: 0.85; }
+.ag-consults-val {
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 38ch;
+}
+.ag-consults-val a { color: var(--text); text-decoration: none; }
+.ag-consults-val a:hover { color: var(--blue); text-decoration: underline; }

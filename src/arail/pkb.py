@@ -361,49 +361,160 @@ def _is_low_signal_experiment_file(root: Path, p: Path) -> bool:
     return looks_like_legacy_stub and len(stripped) < 240
 
 
-def search(query: str, pkb_root: Path | None = None) -> list[dict[str, Any]]:
-    """Full-text search across all PKM text files."""
-    root = pkb_root or _pkb_root()
-    if not root.exists():
-        return []
+_PKB_TEXT_SUFFIXES = (".md", ".txt", ".rst", ".csv", ".json", ".html")
 
-    results: list[dict[str, Any]] = []
-    pattern = re.compile(re.escape(query), re.IGNORECASE)
 
+def _iter_pkb_files(root: Path):
+    """Yield (path, text) for every searchable file under ``root``."""
     for p in sorted(root.rglob("*")):
         if not p.is_file() or p.name.startswith("."):
             continue
-        if p.suffix not in (".md", ".txt", ".rst", ".csv", ".json", ".html"):
+        if p.suffix not in _PKB_TEXT_SUFFIXES:
             continue
         try:
             text = p.read_text(errors="replace")
         except OSError:
             continue
-        matches = list(pattern.finditer(text))
-        if matches:
-            # Collect context snippets
-            snippets: list[str] = []
-            lines = text.splitlines()
-            seen_lines: set[int] = set()
-            for m in matches[:5]:  # limit to 5 matches per file
-                # Find line number
-                line_num = text[:m.start()].count("\n")
-                if line_num in seen_lines:
-                    continue
-                seen_lines.add(line_num)
-                ctx_start = max(0, line_num - 1)
-                ctx_end = min(len(lines), line_num + 2)
-                snippet = "\n".join(lines[ctx_start:ctx_end])
-                snippets.append(snippet[:300])
+        yield p, text
 
+
+def _vector_db_path(root: Path) -> Path:
+    return root / ".cache" / "lancedb"
+
+
+def index_all(pkb_root: Path | None = None) -> dict[str, Any]:
+    """Rebuild the LanceDB vector index over every PKB text file.
+
+    Cheap to call (the corpus is small) and idempotent — the index lives
+    under ``lab/pkb/.cache/lancedb`` so it doesn't pollute the user's
+    notes. Returns ``{ok, indexed, path}`` so callers can surface the
+    state in activity logs.
+    """
+    from arail.vector_index import VectorIndex, hash_embedding, available
+
+    root = pkb_root or _pkb_root()
+    if not root.exists() or not available():
+        return {"ok": False, "indexed": 0, "path": None}
+
+    rows: list[dict[str, Any]] = []
+    for p, text in _iter_pkb_files(root):
+        rel = str(p.relative_to(root))
+        # Compose the vector input: name + path + first 4 KB of body.
+        # Capping keeps the SHA1 token sweep cheap on big files; the
+        # snippet preview the API returns is computed separately.
+        snippet_for_embedding = text[:4096]
+        rows.append({
+            "path": rel,
+            "name": p.name,
+            "vector": hash_embedding(f"{p.name} {rel} {snippet_for_embedding}"),
+        })
+
+    db_path = _vector_db_path(root)
+    idx = VectorIndex(name="pkb_pages", db_path=db_path)
+    written = idx.replace(rows)
+    return {"ok": True, "indexed": written, "path": str(db_path)}
+
+
+def _build_snippets(text: str, query: str) -> tuple[int, list[str]]:
+    """Return (match_count, snippets) for the regex fallback path."""
+    pattern = re.compile(re.escape(query), re.IGNORECASE)
+    matches = list(pattern.finditer(text))
+    if not matches:
+        return 0, []
+    lines = text.splitlines()
+    snippets: list[str] = []
+    seen_lines: set[int] = set()
+    for m in matches[:5]:
+        line_num = text[:m.start()].count("\n")
+        if line_num in seen_lines:
+            continue
+        seen_lines.add(line_num)
+        ctx_start = max(0, line_num - 1)
+        ctx_end = min(len(lines), line_num + 2)
+        snippets.append("\n".join(lines[ctx_start:ctx_end])[:300])
+    return len(matches), snippets
+
+
+def _semantic_search(
+    query: str,
+    root: Path,
+    *,
+    k: int = 12,
+    min_score: float = 0.05,
+) -> list[dict[str, Any]]:
+    """Vector-backed search. Returns [] if LanceDB or the index is absent."""
+    from arail.vector_index import VectorIndex, available
+
+    if not available():
+        return []
+    idx = VectorIndex(name="pkb_pages", db_path=_vector_db_path(root))
+    if idx.count() == 0:
+        # Lazy first-time indexing — every install ships LanceDB so we
+        # build the index on demand instead of failing silently.
+        index_all(root)
+    hits = idx.search(query, k=k, min_score=min_score)
+    if not hits:
+        return []
+
+    results: list[dict[str, Any]] = []
+    for h in hits:
+        rel = h.get("path")
+        if not rel:
+            continue
+        full = root / rel
+        snippets: list[str] = []
+        if full.exists():
+            try:
+                text = full.read_text(errors="replace")
+            except OSError:
+                text = ""
+            # Try regex first for an exact-match snippet — falls back
+            # to the file's opening lines so the UI always has SOMETHING
+            # to show beneath the title.
+            _, snippets = _build_snippets(text, query)
+            if not snippets and text:
+                snippets = ["\n".join(text.splitlines()[:6])[:300]]
+        results.append({
+            "path": rel,
+            "name": h.get("name", Path(rel).name),
+            "match_count": max(1, int(round(h.get("score", 0.0) * 100))),
+            "score": h.get("score", 0.0),
+            "snippets": snippets,
+            "source": "semantic",
+        })
+    return results
+
+
+def search(query: str, pkb_root: Path | None = None) -> list[dict[str, Any]]:
+    """Search the PKB. Vector recall first, regex fallback for exact terms.
+
+    The vector path lets fuzzy queries like *"how do I tune AirLLM"* find
+    primers titled *"AirLLM layer streaming"* without sharing a single
+    keyword. When the vector path returns nothing (cold cache + LanceDB
+    unavailable, or genuinely no semantic match) we drop to the original
+    regex substring sweep so exact-token queries (URLs, error codes,
+    file names) still resolve.
+    """
+    root = pkb_root or _pkb_root()
+    if not root.exists():
+        return []
+
+    semantic = _semantic_search(query, root)
+    if semantic:
+        return semantic
+
+    # Regex fallback — preserves the historical exact-match contract.
+    results: list[dict[str, Any]] = []
+    for p, text in _iter_pkb_files(root):
+        match_count, snippets = _build_snippets(text, query)
+        if match_count:
             results.append({
                 "path": str(p.relative_to(root)),
                 "name": p.name,
-                "match_count": len(matches),
+                "match_count": match_count,
                 "snippets": snippets,
+                "source": "keyword",
             })
-
-    # Sort by match count descending
     results.sort(key=lambda r: r["match_count"], reverse=True)
     return results
 

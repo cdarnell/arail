@@ -126,6 +126,23 @@
     <button onclick="sendInstruction()" id="instruct-btn">Send →</button>
   </div>
 
+  <!-- ═══ Lab consults (semantic recall preview for the current goal) ═══
+       Hidden until a goal is set. Shows what KB primer + past experiment
+       the researcher would reach for first. Same data source as the
+       dashboard's "Lab knows" panel; this view is denser because the
+       agents tab is tighter on vertical space. -->
+  <div id="ag-consults" class="ag-consults" style="display:none;">
+    <span class="ag-consults-label">Lab consults for current goal:</span>
+    <span class="ag-consults-row">
+      <span class="ag-consults-icon">📚</span>
+      <span id="ag-consults-kb" class="ag-consults-val">…</span>
+    </span>
+    <span class="ag-consults-row">
+      <span class="ag-consults-icon">🧪</span>
+      <span id="ag-consults-exp" class="ag-consults-val">…</span>
+    </span>
+  </div>
+
   <!-- ═══ Agent Cards ═══ -->
   <div class="ag-cards">
 
@@ -1457,6 +1474,50 @@ loadSkillsIntoForge();
   pollStatus();
   setInterval(pollStatus, 5000);
   connectSSE();
+
+  // ── "Lab consults" hint ──
+  // Compact preview of what semantic recall would surface for the
+  // current goal. Goal is rarely set on this page (the dashboard owns
+  // creation), so we read it from /api/goal and update once. Shares
+  // /api/pkb/search and /api/experiments/search with the dashboard
+  // panel — same LanceDB indexes, no duplication.
+  fetch('/api/goal').then(r => r.json()).then(g => {
+    const goal = g && g.goal_text ? String(g.goal_text).trim() : '';
+    if (!goal) return;
+    const panel = document.getElementById('ag-consults');
+    const kbEl = document.getElementById('ag-consults-kb');
+    const expEl = document.getElementById('ag-consults-exp');
+    if (!panel || !kbEl || !expEl) return;
+    panel.style.display = '';
+    const q = encodeURIComponent(goal);
+
+    fetch('/api/pkb/search?q=' + q).then(r => r.json()).then(hits => {
+      const usable = (Array.isArray(hits) ? hits : []).filter(h => {
+        const p = (h.path || '').toLowerCase();
+        return !(p.endsWith('.json') || p.endsWith('/index.md') || p === 'index.md' || p.includes('/.wiki-cache/'));
+      });
+      if (!usable.length) {
+        kbEl.textContent = 'no KB primer matches';
+        return;
+      }
+      const top = usable[0];
+      const score = top.score !== undefined ? ' (' + (top.score * 100).toFixed(0) + '%)' : '';
+      const href = '/knowledge?file=' + encodeURIComponent(top.path || '');
+      kbEl.innerHTML = `<a href="${esc(href)}" title="${esc(top.path || '')}">${esc(top.name || top.path || '?')}</a>${esc(score)}`;
+    }).catch(() => { kbEl.textContent = 'KB search unavailable'; });
+
+    fetch('/api/experiments/search?q=' + q + '&k=1').then(r => r.json()).then(body => {
+      const hits = (body && body.hits) || [];
+      if (!hits.length) {
+        expEl.textContent = 'no past experiment yet';
+        return;
+      }
+      const top = hits[0];
+      const score = top.score !== undefined ? ' (' + (top.score * 100).toFixed(0) + '%)' : '';
+      const hyp = (top.hypothesis || '').slice(0, 80);
+      expEl.textContent = `#${top.id || '?'} — ${hyp}${score}`;
+    }).catch(() => { expEl.textContent = 'experiment search unavailable'; });
+  }).catch(() => {});
 
   // Sticky-bottom detection for feed
   const detail = document.querySelector('.ag-detail');

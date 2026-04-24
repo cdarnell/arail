@@ -37,6 +37,8 @@ lab/models/
 lab/pkb/inbox/*
 !lab/pkb/inbox/.gitkeep
 lab/pkb/.wiki-cache/
+# LanceDB-backed PKB vector index — auto-rebuilt on demand by arail.pkb.
+lab/pkb/.cache/
 # PKB sections that agents + docgen write to — re-seed / rebuild on demand.
 lab/pkb/agents/
 lab/pkb/compiled/

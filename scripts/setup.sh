@@ -161,8 +161,10 @@ detect_platform() {
 
     info "Platform: ${BOLD}${PLATFORM}${RESET}  |  Accelerator: ${BOLD}${ACCEL}${RESET}"
 
-    # Port-conflict pre-flight — warns if any lab port is already bound.
-    check_ports
+    # Port resolution — auto-detect free ports for every lab service.
+    # Bumps from the default (or the value already in lab.conf, so
+    # bookmarks survive re-runs) until a free port is found.
+    resolve_ports
     # Sudo-cache pre-flight for platforms that need it — warns only, so
     # the user doesn't get surprised by a password prompt 90 seconds in.
     check_sudo
@@ -173,26 +175,90 @@ detect_platform() {
     fi
 }
 
-# Lightweight port-conflict pre-flight. Warns (not errors) so users can
-# still complete setup even with conflicting services; the fix lives in
-# lab.conf and is spelled out in the warning.
-check_ports() {
-    local ports=(8080 7681 8888 8443 11434 7414)
-    local in_use=()
-    for p in "${ports[@]}"; do
-        if command -v lsof &>/dev/null; then
-            if lsof -iTCP:"$p" -sTCP:LISTEN -P -n &>/dev/null; then
-                in_use+=("$p")
-            fi
-        elif command -v ss &>/dev/null; then
-            if ss -ltn "sport = :$p" 2>/dev/null | tail -n +2 | grep -q .; then
-                in_use+=("$p")
-            fi
+# --- Port resolver ----------------------------------------------------------
+# Picks free ports for every service the lab binds. On a clean install,
+# uses the documented defaults (8080 / 7681 / 8888 / 8443 / 11435). If a
+# default is already taken (Jupyter on 8080, dev server on 8443, etc.) we
+# auto-bump to the next free port instead of failing.
+#
+# On re-runs we prefer whatever lab.conf already holds — that way the
+# user's bookmarked URLs (and any docs they wrote) survive across
+# `./arail setup` invocations even if the original conflict has cleared.
+#
+# Resolved values land in PORT_BUMPS (for the end-of-run banner) and in
+# the shell vars PORTAL_PORT / TERMINAL_PORT / NOTEBOOK_PORT / IDE_PORT /
+# MLX_OPENAI_PORT, which setup_runtime_files() and the final banner read.
+PORT_BUMPS=()
+PORTAL_PORT=""
+TERMINAL_PORT=""
+NOTEBOOK_PORT=""
+IDE_PORT=""
+MLX_OPENAI_PORT=""
+
+_port_in_use() {
+    local p="$1"
+    if command -v lsof &>/dev/null; then
+        lsof -iTCP:"$p" -sTCP:LISTEN -P -n &>/dev/null
+    elif command -v ss &>/dev/null; then
+        ss -ltn "sport = :$p" 2>/dev/null | tail -n +2 | grep -q .
+    else
+        return 1  # No detection tool available — assume free.
+    fi
+}
+
+# Walk forward from $start until a free port is found. Bails after 20
+# tries so a runaway scan doesn't hang setup.
+_find_free_port() {
+    local start="$1" label="$2"
+    local port="$start"
+    local tries=0 max_tries=20
+    while (( tries < max_tries )); do
+        if _port_in_use "$port"; then
+            tries=$((tries + 1))
+            port=$((port + 1))
+        else
+            echo "$port"
+            return 0
         fi
     done
-    if (( ${#in_use[@]} > 0 )); then
-        warn "Ports already in use: ${in_use[*]}"
-        warn "Edit lab.conf (PORTAL_PORT / TERMINAL_PORT / NOTEBOOK_PORT / IDE_PORT) before ./arail start."
+    error "Could not find a free port for ${label} after ${max_tries} attempts. Free a port in the ${start}-$((start + max_tries)) range, or pre-set ${label} in lab.conf."
+}
+
+# Resolve one named port: prefer lab.conf if present, else the supplied
+# default. Auto-bumps if the chosen value is occupied. Sets the
+# corresponding shell var ($1) and appends to PORT_BUMPS when the value
+# diverges from the documented default.
+_resolve_port() {
+    local key="$1" default="$2"
+    local start_at="$default" existing resolved
+    if [[ -f lab.conf ]]; then
+        existing="$(grep -E "^${key}=" lab.conf | head -n1 | cut -d= -f2- | tr -d '"' | tr -d ' ')"
+        if [[ -n "$existing" ]] && [[ "$existing" =~ ^[0-9]+$ ]]; then
+            start_at="$existing"
+        fi
+    fi
+    resolved="$(_find_free_port "$start_at" "$key")"
+    eval "${key}=${resolved}"
+    if [[ "$resolved" != "$default" ]]; then
+        PORT_BUMPS+=("${key}: default ${default} → using ${resolved}")
+    fi
+}
+
+resolve_ports() {
+    _resolve_port PORTAL_PORT      8080
+    _resolve_port TERMINAL_PORT    7681
+    _resolve_port NOTEBOOK_PORT    8888
+    _resolve_port IDE_PORT         8443
+    _resolve_port MLX_OPENAI_PORT  11435
+
+    if (( ${#PORT_BUMPS[@]} > 0 )); then
+        warn "Auto-bumped one or more lab ports because the defaults were in use:"
+        for line in "${PORT_BUMPS[@]}"; do
+            warn "  $line"
+        done
+        warn "Pinned in lab.conf — future ./arail setup runs reuse the bumped values."
+    else
+        info "Lab ports free: portal=${PORTAL_PORT}  ide=${IDE_PORT}  notebook=${NOTEBOOK_PORT}  terminal=${TERMINAL_PORT}  mlx=${MLX_OPENAI_PORT}"
     fi
 }
 
@@ -565,14 +631,16 @@ capture_tier() {
     cat <<EOF
   Two tiers — upgrade later with ./arail upgrade max.
 
-    ${BOLD}min${RESET}  Dashboard + Chat + Autoresearch + Knowledge Base + Agents.
-           The everyday lab. AirLLM deep streaming with a 70B default
-           (Llama-3.1-70B). External providers (Claude, NVIDIA, OpenRouter,
-           HuggingFace) reachable over plain HTTP when LAB_MODE=hybrid.
-           KB runs on markdown + keyword search.
-    ${BOLD}max${RESET}  Everything in min + Admin, Notebooks, LanceDB vectors,
-           405B AirLLM default (Llama-3.1-405B), Anthropic SDK,
-           LangChain/LangGraph.
+    ${BOLD}min${RESET}  Minimalist — Dashboard + Chat + Autoresearch + Knowledge Base
+           + Agents + LanceDB vector recall. The everyday lab.
+           AirLLM deep streaming with a 70B default (Llama-3.1-70B).
+           External providers (Claude, NVIDIA, OpenRouter, HuggingFace)
+           reachable over plain HTTP when LAB_MODE=hybrid.
+    ${BOLD}max${RESET}  Maximalist — Everything in min + Admin, Notebooks, 405B AirLLM
+           default (Llama-3.1-405B), Anthropic SDK, LangChain/LangGraph.
+
+  ${BOLD}LanceDB ships in both tiers${RESET} — KB and autoresearch are too central
+  to be split across optional installs.
 EOF
     echo ""
     local choice
@@ -621,7 +689,7 @@ capture_password() {
         ARAIL_PASSWORD="__needs_setup__"
         step "5/10  Lab passphrase (deferred)"
         info "Deferring passphrase to first browser load (ARAIL_DEFER_PASSWORD=1)."
-        info "Open ${BOLD}http://127.0.0.1:8080${RESET} after ./arail start —"
+        info "Open ${BOLD}http://127.0.0.1:${PORTAL_PORT:-8080}${RESET} after ./arail start —"
         info "the lab will land on /welcome and ask you to set one."
         return
     fi
@@ -785,18 +853,29 @@ PY
 # Runtime config files
 # -----------------------------------------------------------------------------
 setup_runtime_files() {
+    # Resolved ports come from resolve_ports() (called during
+    # detect_platform). Fall back to documented defaults so a direct
+    # invocation of this function in isolation still works.
+    local portal_port="${PORTAL_PORT:-8080}"
+    local terminal_port="${TERMINAL_PORT:-7681}"
+    local notebook_port="${NOTEBOOK_PORT:-8888}"
+    local ide_port="${IDE_PORT:-8443}"
+    local mlx_port="${MLX_OPENAI_PORT:-11435}"
+
     cat > lab.conf << CONF
 # Arail runtime config — regenerated by ./arail setup on every run.
-# To change values, edit .env instead (this file is overwritten).
-PORTAL_PORT=8080
-TERMINAL_PORT=7681
-NOTEBOOK_PORT=8888
-IDE_PORT=8443
-MLX_OPENAI_PORT=11435
+# Ports were chosen automatically (the next free port from each default).
+# To pin a different value, edit it here AND restart the lab; setup will
+# preserve your choice on the next run unless that port is also taken.
+PORTAL_PORT=${portal_port}
+TERMINAL_PORT=${terminal_port}
+NOTEBOOK_PORT=${notebook_port}
+IDE_PORT=${ide_port}
+MLX_OPENAI_PORT=${mlx_port}
 IDE_PASSWORD=${ARAIL_PASSWORD}
 BIND_ADDR=127.0.0.1
 CONF
-    info "lab.conf written"
+    info "lab.conf written (portal=${portal_port}, ide=${ide_port}, notebook=${notebook_port}, terminal=${terminal_port}, mlx=${mlx_port})"
 
     local cs_dir="${HOME}/.config/code-server"
     local cs_cfg="${cs_dir}/config.yaml"
@@ -809,12 +888,12 @@ CONF
         fi
     fi
     cat > "$cs_cfg" << YAML
-bind-addr: 127.0.0.1:8443
+bind-addr: 127.0.0.1:${ide_port}
 auth: password
 password: ${ARAIL_PASSWORD}
 cert: false
 YAML
-    info "code-server config written"
+    info "code-server config written (binds 127.0.0.1:${ide_port})"
 
     mkdir -p lab/data/goals lab/data/goals/history lab/data/consent lab/data/experiments lab/models
 }
@@ -1111,6 +1190,16 @@ main() {
     echo -e "    2) Open the dashboard: ${BOLD}http://127.0.0.1:${PORTAL_PORT:-8080}${RESET}"
     echo -e "    3) Type your goal and click ${BOLD}Run Research${RESET}"
     echo ""
+    if (( ${#PORT_BUMPS[@]} > 0 )); then
+        echo -e "  ${BOLD}Heads-up — some default ports were taken, so we picked these:${RESET}"
+        echo -e "    Dashboard : http://127.0.0.1:${PORTAL_PORT}"
+        echo -e "    IDE       : http://127.0.0.1:${IDE_PORT}"
+        echo -e "    Notebook  : http://127.0.0.1:${NOTEBOOK_PORT}"
+        echo -e "    Terminal  : http://127.0.0.1:${TERMINAL_PORT}"
+        echo -e "    MLX API   : http://127.0.0.1:${MLX_OPENAI_PORT}/v1"
+        echo "  Pinned in lab.conf — bookmarks survive future ./arail setup runs."
+        echo ""
+    fi
     if [[ "$ARAIL_PASSWORD" == "__needs_setup__" ]]; then
         echo "  ${BOLD}Passphrase deferred to first browser load.${RESET}"
         echo "  Open the dashboard above; the lab will land on /welcome and"

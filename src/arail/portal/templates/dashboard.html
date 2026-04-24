@@ -343,6 +343,32 @@
       {% endif %}
     </div>
 
+    <!-- "Lab knows" panel — semantic recall over the KB and past
+         experiments. Populated automatically whenever a goal is set,
+         so the user immediately sees what context the lab is bringing
+         in before research even starts. Powered by /api/pkb/search and
+         /api/experiments/search (both LanceDB-backed). -->
+    <div id="lab-knows-panel" class="lab-knows" style="display:none;">
+      <div class="lab-knows-header">
+        <span class="lab-knows-title">What the lab already knows</span>
+        <span class="lab-knows-status" id="lab-knows-status"></span>
+      </div>
+      <div class="lab-knows-cols">
+        <div class="lab-knows-col">
+          <div class="lab-knows-col-label">📚 KB primers</div>
+          <ul class="lab-knows-list" id="lab-knows-kb">
+            <li class="lab-knows-empty">searching the KB…</li>
+          </ul>
+        </div>
+        <div class="lab-knows-col">
+          <div class="lab-knows-col-label">🧪 Past experiments</div>
+          <ul class="lab-knows-list" id="lab-knows-exp">
+            <li class="lab-knows-empty">searching experiment history…</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
     <!-- Research controls — secondary actions on the already-running goal.
          The primary "Run Research" button lives inline with the goal input
          (hitting Enter or clicking it sets the goal AND kicks off every
@@ -589,6 +615,7 @@ document.getElementById('goal-form').addEventListener('submit', async (e) => {
     const data = await resp.json();
     renderGoalBreakdown(data);
     showResearchButtons('running');
+    loadLabKnows(goal);
   } catch (err) {
     document.getElementById('goal-result').innerHTML =
       '<p style="color:var(--red);">Could not save the goal. Try again, or check the activity log on the Agents tab for details.</p>';
@@ -1836,6 +1863,80 @@ fetch('/api/system/health').then(r => r.json()).then(h => {
     mEl.hidden = false;
   }
 }).catch(() => {});
+
+// ── Lab knows panel ──
+// Pulls semantic recall from the LanceDB-backed search endpoints and
+// renders two compact lists. Both fetches run in parallel; the panel
+// reveals as soon as the first response lands so partial data isn't
+// hidden by a slow side. Used both on page load (when current_goal is
+// already set) and after a successful goal POST (see goal-form handler).
+async function loadLabKnows(goalText) {
+  if (!goalText || !goalText.trim()) return;
+  const panel = document.getElementById('lab-knows-panel');
+  const kbList = document.getElementById('lab-knows-kb');
+  const expList = document.getElementById('lab-knows-exp');
+  const status = document.getElementById('lab-knows-status');
+  if (!panel || !kbList || !expList) return;
+
+  panel.style.display = '';
+  status.textContent = 'consulting LanceDB…';
+
+  const q = encodeURIComponent(goalText.trim());
+  const renderEmpty = (ul, msg) => {
+    ul.innerHTML = `<li class="lab-knows-empty">${esc(msg)}</li>`;
+  };
+
+  // KB search — /api/pkb/search returns the upgraded semantic-first list.
+  fetch('/api/pkb/search?q=' + q).then(r => r.json()).then(hits => {
+    if (!Array.isArray(hits) || hits.length === 0) {
+      renderEmpty(kbList, "Nothing in the KB yet — drop sources into Knowledge to teach the lab.");
+      return;
+    }
+    // Drop manifests/index files for the same reasons as the researcher.
+    const usable = hits.filter(h => {
+      const p = (h.path || '').toLowerCase();
+      return !(p.endsWith('.json') || p.endsWith('/index.md') || p === 'index.md' || p.includes('/.wiki-cache/'));
+    }).slice(0, 4);
+    if (usable.length === 0) {
+      renderEmpty(kbList, "Only structural files matched — try a more specific phrasing.");
+      return;
+    }
+    kbList.innerHTML = usable.map(h => {
+      const score = (h.score !== undefined) ? `<span class="lab-knows-score">${(h.score * 100).toFixed(0)}%</span>` : '';
+      const src = h.source === 'semantic' ? 'semantic' : 'keyword';
+      const href = '/knowledge?file=' + encodeURIComponent(h.path || '');
+      return `<li><a href="${esc(href)}" title="${esc(h.path || '')}">${esc(h.name || h.path || '?')}</a> <span class="lab-knows-meta">${src}</span>${score}</li>`;
+    }).join('');
+  }).catch(() => renderEmpty(kbList, 'KB search unavailable.'));
+
+  // Experiment search — backed by LanceDB index over hypothesis +
+  // conclusion. Empty when the lab is fresh (no experiments yet) — in
+  // that case we surface the empty state plainly so the user knows
+  // it's expected, not a bug.
+  fetch('/api/experiments/search?q=' + q + '&k=4').then(r => r.json()).then(body => {
+    const hits = (body && body.hits) || [];
+    if (hits.length === 0) {
+      renderEmpty(expList, "No prior experiments — every run from here builds the index.");
+      return;
+    }
+    expList.innerHTML = hits.map(e => {
+      const hyp = (e.hypothesis || '').slice(0, 80);
+      const score = (e.score !== undefined) ? `<span class="lab-knows-score">${(e.score * 100).toFixed(0)}%</span>` : '';
+      const src = e.match_source || 'semantic';
+      return `<li><span class="lab-knows-exp-id">${esc(e.id || '?')}</span> ${esc(hyp)} <span class="lab-knows-meta">${src}</span>${score}</li>`;
+    }).join('');
+  }).catch(() => renderEmpty(expList, 'Experiment search unavailable.')).finally(() => {
+    status.textContent = '';
+  });
+}
+
+// Auto-run on page load when a goal is already set (server-rendered).
+(function () {
+  const input = document.getElementById('goal-input');
+  if (input && input.value && input.value.trim()) {
+    loadLabKnows(input.value.trim());
+  }
+})();
 </script>
 <script src="/static/nav.js"></script>
 </body>
