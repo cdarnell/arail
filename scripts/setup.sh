@@ -568,6 +568,8 @@ capture_brand() {
 
     if [[ ! -t 0 ]] || [[ "${ARAIL_NONINTERACTIVE:-0}" == "1" ]]; then
         LAB_NAME="Autoresearch AI Lab"
+        LAB_SHORT_NAME="$(_slugify "$LAB_NAME")"
+        LAB_TAGLINE="A learn-by-doing AI research lab"
         info "Non-interactive — using default lab name: ${LAB_NAME}"
         return
     fi
@@ -580,14 +582,29 @@ capture_brand() {
     read -rp "  Lab name [Autoresearch AI Lab]: " LAB_NAME
     LAB_NAME="${LAB_NAME:-Autoresearch AI Lab}"
 
-    # Lowercase short name for info tags and process titles.
-    LAB_SHORT_NAME="$(echo "$LAB_NAME" | tr '[:upper:]' '[:lower:]' | tr -s '[:space:]' '-' | tr -cd 'a-z0-9-')"
+    # Lowercase, hyphenated, alphanumeric — used as the prefix in
+    # log lines AND as the tmux session name in ttyd. Spaces here
+    # break tmux ("session name can't contain whitespace") and look
+    # ugly in process listings.
+    LAB_SHORT_NAME="$(_slugify "$LAB_NAME")"
 
     echo ""
     read -rp "  One-line tagline [A learn-by-doing AI research lab]: " LAB_TAGLINE
     LAB_TAGLINE="${LAB_TAGLINE:-A learn-by-doing AI research lab}"
 
     info "Lab name: ${BOLD}${LAB_NAME}${RESET}"
+}
+
+# Lowercase + hyphenate + drop non-alphanumerics. Reused for default
+# tmux session names so they survive shell parsing. Uses printf (not
+# echo) so the trailing newline doesn't get converted to a stray dash
+# by the tr pipeline; also collapses any leading/trailing dashes.
+_slugify() {
+    local s
+    s="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | tr -s '[:space:]' '-' | tr -cd 'a-z0-9-')"
+    s="${s##-}"  # drop leading dashes
+    s="${s%%-}"  # drop trailing dashes
+    printf '%s' "$s"
 }
 
 # -----------------------------------------------------------------------------
@@ -803,7 +820,7 @@ setup_env() {
     # Persist brand fields so every subsequent run reads the user's choice.
     if [[ -n "${LAB_NAME:-}" ]]; then
         _set_env_var LAB_NAME "$LAB_NAME"
-        _set_env_var LAB_SHORT_NAME "${LAB_SHORT_NAME:-$(echo "$LAB_NAME" | tr '[:upper:]' '[:lower:]')}"
+        _set_env_var LAB_SHORT_NAME "${LAB_SHORT_NAME:-$(_slugify "$LAB_NAME")}"
         _set_env_var LAB_TAGLINE "${LAB_TAGLINE:-A learn-by-doing AI research lab}"
     fi
 
@@ -815,12 +832,32 @@ setup_env() {
 
 # Set KEY=VALUE in .env, replacing (or uncommenting) any existing entry.
 # Uses a python helper so arbitrary characters in VALUE don't break sed.
+#
+# IMPORTANT: ``./arail start`` sources .env via
+# ``set -a && source .env && set +a``, so values containing whitespace
+# or shell-special characters MUST be quoted. Without quoting,
+# ``LAB_NAME=Autoresearch AI Lab`` is parsed by bash as
+# ``LAB_NAME=Autoresearch`` followed by the commands ``AI`` and ``Lab``
+# — both error with "command not found" on every start. The python
+# helper below quotes any value that needs it.
 _set_env_var() {
     local key="$1" value="$2"
     python3 - "$key" "$value" <<'PY'
-import pathlib, sys
+import pathlib, re, sys
 key, value = sys.argv[1], sys.argv[2]
 prefix = f"{key}="
+
+# Quote any value containing characters bash would reinterpret when
+# the file is sourced. Use double quotes (consistent with the existing
+# .env.example) and escape embedded backslashes / dollar / backtick /
+# double-quote so the round-trip is faithful.
+_NEEDS_QUOTE = re.compile(r"[\s\"'$`\\#&|;<>(){}*?!~\[\]]")
+def shell_safe(v: str) -> str:
+    if v == "" or _NEEDS_QUOTE.search(v):
+        escaped = v.replace("\\", "\\\\").replace('"', '\\"').replace("$", "\\$").replace("`", "\\`")
+        return f'"{escaped}"'
+    return v
+
 # A real assignment is either "KEY=..." or a single-#-prefixed
 # commented-out default like "#KEY=...". Anything with whitespace
 # between the # and the key (e.g. "#   KEY=example") is
@@ -832,19 +869,22 @@ def is_assignment(line: str) -> bool:
         return line.lstrip("#").startswith(prefix)
     return False
 
+quoted = shell_safe(value)
+new_line = f"{key}={quoted}"
+
 p = pathlib.Path(".env")
 lines = p.read_text().splitlines() if p.exists() else []
 out, replaced = [], False
 for line in lines:
     if not replaced and is_assignment(line):
-        out.append(f"{key}={value}")
+        out.append(new_line)
         replaced = True
     else:
         out.append(line)
 if not replaced:
     if out and out[-1] != "":
         out.append("")
-    out.append(f"{key}={value}")
+    out.append(new_line)
 p.write_text("\n".join(out) + "\n")
 PY
 }
@@ -1201,7 +1241,7 @@ main() {
         echo ""
     fi
     if [[ "$ARAIL_PASSWORD" == "__needs_setup__" ]]; then
-        echo "  ${BOLD}Passphrase deferred to first browser load.${RESET}"
+        echo -e "  ${BOLD}Passphrase deferred to first browser load.${RESET}"
         echo "  Open the dashboard above; the lab will land on /welcome and"
         echo "  ask you to pick one. Saves to .env, lab.conf, and"
         echo "  ~/.config/code-server/config.yaml automatically."
