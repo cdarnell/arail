@@ -1,0 +1,240 @@
+name: Blueprint Smoke
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+  schedule:
+    - cron: "17 9 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: blueprint-smoke-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  import-routes:
+    name: Import and route guardrail
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dev dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: Run import smoke tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pytest tests/test_imports.py -q
+
+  golden-path-ubuntu:
+    name: Golden path smoke (Ubuntu)
+    runs-on: ubuntu-latest
+    needs: import-routes
+    timeout-minutes: 20
+    env:
+      ARAIL_NONINTERACTIVE: "1"
+      ARAIL_SKIP_OLLAMA: "1"
+      # Belt-and-suspenders: min-tier setup already skips the deep backend.
+      # AIRLLM is today's deep package; AEROLLM kept for the eventual swap-back.
+      ARAIL_SKIP_AIRLLM: "1"
+      ARAIL_SKIP_AEROLLM: "1"
+      ARAIL_NO_BROWSER: "1"
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Create artifact directory
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ci-artifacts/http
+
+      - name: Run non-interactive setup
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./arail setup > ci-artifacts/setup.stdout 2> ci-artifacts/setup.stderr
+
+      - name: Redact setup logs
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          secret = None
+          env_file = Path('.env')
+          if env_file.exists():
+              for line in env_file.read_text().splitlines():
+                  if line.startswith('ARAIL_PASSWORD='):
+                      secret = line.split('=', 1)[1]
+                      print(f'::add-mask::{secret}')
+                      break
+
+          for rel_path in (
+              'ci-artifacts/setup.stdout',
+              'ci-artifacts/setup.stderr',
+              'ci-artifacts/doctor.log',
+              'ci-artifacts/start.log',
+          ):
+              path = Path(rel_path)
+              if not path.exists():
+                  continue
+              text = path.read_text(errors='replace')
+              if secret:
+                  text = text.replace(secret, '[REDACTED]')
+              path.write_text(text)
+          PY
+
+      - name: Verify generated config
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          def read_kv(path: str) -> dict[str, str]:
+              values: dict[str, str] = {}
+              for line in Path(path).read_text().splitlines():
+                  stripped = line.strip()
+                  if not stripped or stripped.startswith('#') or '=' not in stripped:
+                      continue
+                  key, value = stripped.split('=', 1)
+                  values[key] = value
+              return values
+
+          env = read_kv('.env')
+          conf = read_kv('lab.conf')
+
+          required = ['MODEL_BACKEND', 'ARAIL_PASSWORD', 'OPEN_NOTEBOOK_ENCRYPTION_KEY', 'LAB_NAME']
+          missing = [key for key in required if not env.get(key)]
+          if missing:
+              raise SystemExit(f'missing required .env keys: {missing}')
+
+          if conf.get('IDE_PASSWORD') != env.get('ARAIL_PASSWORD'):
+              raise SystemExit('lab.conf IDE_PASSWORD is not synchronized with .env ARAIL_PASSWORD')
+
+          if env.get('OPEN_NOTEBOOK_ENCRYPTION_KEY') != env.get('ARAIL_PASSWORD'):
+              raise SystemExit('OPEN_NOTEBOOK_ENCRYPTION_KEY is not synchronized with ARAIL_PASSWORD')
+
+          print('generated config is synchronized')
+          PY
+
+      - name: Run doctor
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./arail doctor > ci-artifacts/doctor.log 2>&1
+
+      - name: Start lab services
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./arail start > ci-artifacts/start.log 2>&1 &
+          echo $! > ci-artifacts/start.pid
+
+      - name: Wait for local health surfaces
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import time
+          import urllib.error
+          import urllib.request
+          from pathlib import Path
+
+          endpoints = {
+              'dashboard-root': 'http://127.0.0.1:8080/',
+              'jobs-state': 'http://127.0.0.1:8080/api/jobs/state',
+              'system-health': 'http://127.0.0.1:8080/api/system/health',
+              'memory-health': 'http://127.0.0.1:7414/health',
+          }
+
+          deadline = time.time() + 120
+          last_error: str | None = None
+          responses: dict[str, str] = {}
+
+          while time.time() < deadline:
+              try:
+                  current: dict[str, str] = {}
+                  for name, url in endpoints.items():
+                      with urllib.request.urlopen(url, timeout=5) as response:
+                          body = response.read().decode('utf-8', 'replace')
+                          if response.status != 200:
+                              raise RuntimeError(f'{name} returned HTTP {response.status}')
+                          current[name] = body
+
+                  jobs_state = json.loads(current['jobs-state'])
+                  system_health = json.loads(current['system-health'])
+                  memory_health = json.loads(current['memory-health'])
+
+                  if not isinstance(jobs_state, dict):
+                      raise RuntimeError('jobs-state did not return a JSON object')
+                  if not isinstance(system_health, dict):
+                      raise RuntimeError('system-health did not return a JSON object')
+                  if memory_health.get('status') != 'ok':
+                      raise RuntimeError(f"memory-health status was {memory_health.get('status')!r}")
+
+                  responses = current
+                  break
+              except (OSError, ValueError, urllib.error.URLError) as exc:
+                  last_error = str(exc)
+                  time.sleep(2)
+          else:
+              raise SystemExit(f'health checks timed out: {last_error}')
+
+          output_dir = Path('ci-artifacts/http')
+          output_dir.mkdir(parents=True, exist_ok=True)
+          for name, body in responses.items():
+              suffix = 'html' if name == 'dashboard-root' else 'json'
+              (output_dir / f'{name}.{suffix}').write_text(body)
+
+          print('local health surfaces responded successfully')
+          PY
+
+      - name: Stop lab services
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./arail stop || true
+
+      - name: Upload smoke artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: blueprint-smoke-ubuntu-${{ github.run_id }}
+          path: ci-artifacts/
+          if-no-files-found: ignore
+
+  # Follow-up lane: add a self-hosted Apple Silicon runner for the README's
+  # blessed MLX path. Keep it separate from the GitHub-hosted Ubuntu gate so
+  # PR feedback stays fast while the higher-fidelity hardware lane matures.

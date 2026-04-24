@@ -1,6 +1,6 @@
-# OGLab Privacy Model
+# Arail Privacy Model
 
-OGLab is designed to run **entirely on your machine**. This document is
+Arail is designed to run **entirely on your machine**. This document is
 the honest, specific version of "no telemetry": what the lab never
 sends over the network, what it sends only when you opt into hybrid
 mode, and what the optional third-party components do on their own.
@@ -10,7 +10,7 @@ someone whose privacy posture matters.
 
 ## What the lab itself never sends
 
-No component of OGLab (portal, researcher, curator, experiment tracker,
+No component of Arail (portal, researcher, curator, experiment tracker,
 goal parser, wiki, PKB) phones home.
 
 - No telemetry pings.
@@ -18,7 +18,7 @@ goal parser, wiki, PKB) phones home.
 - No "anonymous usage stats" toggle hidden in settings.
 - No analytics SDKs (Sentry, PostHog, Amplitude, Mixpanel, GA — grep
   the repo; they're not there).
-- No update checks against a central server. `./oglab update` pulls
+- No update checks against a central server. `./arail update` pulls
   from the git remote you configured, nothing else.
 
 The portal binds to `127.0.0.1` by default. If you want it on the LAN
@@ -27,7 +27,7 @@ yourself.
 
 ## What hybrid mode sends
 
-`OGLAB_MODE=hybrid` (opt-in, airgapped by default) permits the
+`ARAIL_MODE=hybrid` (opt-in, airgapped by default) permits the
 researcher and browser agents to make outbound calls — but only to
 domains you explicitly approve via the consent store. Every new domain
 triggers an approval prompt in the dashboard, and the approval is
@@ -67,7 +67,7 @@ Ollama's environment, or running with the `--noupdate` flag if your
 version supports it. Skip Ollama entirely during setup:
 
 ```bash
-OGLAB_SKIP_OLLAMA=1 ./oglab setup
+ARAIL_SKIP_OLLAMA=1 ./arail setup
 ```
 
 ### agent-browser
@@ -106,7 +106,7 @@ Classic Jupyter Lab. No telemetry by default; binds to `127.0.0.1`.
 
 ## A note on schools / shared lab machines
 
-OGLab's threat model assumes a single-user workstation. If you're
+Arail's threat model assumes a single-user workstation. If you're
 putting this on a shared computer:
 
 - The passphrase in `.env` and `lab.conf` is readable by anyone with
@@ -116,7 +116,7 @@ putting this on a shared computer:
 - Put the machine behind an auth proxy (nginx + basic auth, Tailscale,
   etc.) before exposing it beyond localhost.
 
-For a classroom where each student has their own login, run OGLab
+For a classroom where each student has their own login, run Arail
 under each user account. The `.venv`, `.env`, `lab/`, and
 `~/.config/code-server/config.yaml` are all per-user — the blueprint
 handles multi-user naturally as long as no two students share a
@@ -128,13 +128,13 @@ Everything above is verifiable with `grep` — no need to trust this doc:
 
 ```bash
 # Find every network call in the Python code
-grep -rn "httpx\|requests\.\|urllib\.request\|aiohttp" src/oglab/
+grep -rn "httpx\|requests\.\|urllib\.request\|aiohttp" src/arail/
 
 # Confirm no analytics SDKs
 grep -rn "sentry\|posthog\|amplitude\|mixpanel\|google-analytics" .
 
 # See what a given backend actually hits
-grep -rn "MODEL_API_BASE\|api_base" src/oglab/router/
+grep -rn "MODEL_API_BASE\|api_base" src/arail/router/
 ```
 
 If an audit turns up something that doesn't match this doc, that's a

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from oglab import brand, lab_brain
+from arail import brand, lab_brain
 
 
 @pytest.fixture(autouse=True)
@@ -19,14 +19,14 @@ def _isolate_env(monkeypatch):
 
 def test_default_prompt_mentions_brand_and_capabilities():
     p = lab_brain.build_system_prompt()
-    # Brand layer
-    assert "OGLab" in p
-    assert "AI Lab Blueprint" in p
+    # Brand layer — default is "Autoresearch AI Lab"
+    assert "Autoresearch AI Lab" in p
+    assert "A learn-by-doing AI research lab" in p
     # Capabilities reference is included by default
     assert "Model router" in p
     assert "Scheduler" in p
     assert "Personal Knowledge Base" in p
-    assert "./oglab" in p
+    assert "./arail" in p
     # State block
     assert "Current lab state" in p
     # How-to answer guidance at the end
@@ -115,7 +115,7 @@ def test_build_chat_messages_appends_pkb_context(monkeypatch):
 
 
 def test_retrieve_chat_context_prefers_exact_phrase(monkeypatch):
-    import oglab.pkb as pkb
+    import arail.pkb as pkb
 
     def fake_search(term):
         if term == "vector index":
@@ -147,7 +147,7 @@ def test_retrieve_chat_context_prefers_exact_phrase(monkeypatch):
 
 
 def test_retrieve_chat_context_reorders_snippets_by_token_coverage(monkeypatch):
-    import oglab.pkb as pkb
+    import arail.pkb as pkb
 
     def fake_search(_term):
         return [{
@@ -174,7 +174,7 @@ def test_state_block_includes_backend(monkeypatch):
 
 
 def test_state_block_includes_agent_workflow_memory(monkeypatch):
-    import oglab.agent_workflows as agent_workflows
+    import arail.agent_workflows as agent_workflows
 
     monkeypatch.setattr(
         agent_workflows,

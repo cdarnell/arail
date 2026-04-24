@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
 # =============================================================================
-# OGLab — Component Update System
+# Arail — Component Update System
 #
 # Reads components.json, checks for updates, shows a summary, and applies
 # with user confirmation. Also provides `--version-only` for quick version
 # listing.
 #
 # Usage:
-#   ./oglab update                  # check & apply updates
-#   ./oglab update --check          # dry-run: just check, no changes
-#   ./oglab update --yes            # skip confirmation
-#   ./oglab update --component ttyd # update a single component
-#   ./oglab version                 # show installed versions
+#   ./arail update                  # check & apply updates
+#   ./arail update --check          # dry-run: just check, no changes
+#   ./arail update --yes            # skip confirmation
+#   ./arail update --component ttyd # update a single component
+#   ./arail version                 # show installed versions
 # =============================================================================
 set -euo pipefail
 
@@ -24,8 +24,8 @@ cd "$REPO_ROOT"
 BOLD="\033[1m"; GREEN="\033[0;32m"; CYAN="\033[0;36m"
 YELLOW="\033[0;33m"; RED="\033[0;31m"; DIM="\033[2m"; RESET="\033[0m"
 
-LAB_NAME="${LAB_NAME:-OGLab}"
-LAB_SHORT_NAME="${LAB_SHORT_NAME:-oglab}"
+LAB_NAME="${LAB_NAME:-Arail}"
+LAB_SHORT_NAME="${LAB_SHORT_NAME:-arail}"
 
 info()  { echo -e "${GREEN}[${LAB_SHORT_NAME}]${RESET} $*"; }
 warn()  { echo -e "${YELLOW}[${LAB_SHORT_NAME}]${RESET} $*"; }
@@ -154,13 +154,13 @@ get_version() {
 }
 
 # ═════════════════════════════════════════════════════════════════════
-#  VERSION MODE  (./oglab version)
+#  VERSION MODE  (./arail version)
 # ═════════════════════════════════════════════════════════════════════
 show_versions() {
     detect_platform
     echo ""
     echo -e "${BOLD}${LAB_NAME} — Component Versions${RESET}"
-    echo -e "${DIM}Platform: ${PLATFORM}  |  Mode: ${OGLAB_MODE:-airgapped}${RESET}"
+    echo -e "${DIM}Platform: ${PLATFORM}  |  Mode: ${ARAIL_MODE:-airgapped}${RESET}"
     echo ""
     printf "  ${BOLD}%-22s %-24s %-8s %s${RESET}\n" "Component" "Version" "Type" "Source"
     echo "  ──────────────────── ──────────────────────── ──────── ────────────────────"
@@ -196,7 +196,7 @@ for c in m['components']:
 }
 
 # ═════════════════════════════════════════════════════════════════════
-#  UPDATE MODE  (./oglab update)
+#  UPDATE MODE  (./arail update)
 # ═════════════════════════════════════════════════════════════════════
 run_update() {
     local dry_run=false
@@ -217,7 +217,7 @@ run_update() {
     done
 
     detect_platform
-    local mode="${OGLAB_MODE:-airgapped}"
+    local mode="${ARAIL_MODE:-airgapped}"
 
     echo ""
     echo -e "${BOLD}${LAB_NAME} — Update Check${RESET}"
@@ -387,7 +387,7 @@ with open(path, "w") as f:
 PY
 
     echo ""
-    info "Update complete. Run ${BOLD}./oglab restart${RESET} to pick up changes."
+    info "Update complete. Run ${BOLD}./arail restart${RESET} to pick up changes."
     echo ""
 }
 

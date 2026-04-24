@@ -1,7 +1,7 @@
 # 00 — Product Vision: SLM Distillation from Local Frontier Teachers
 
 *Status: THESIS doc — the north star. Everything else in this folder is engineering in service of this.*
-*Author: OGLab / CharlieD.  Started: 2026-04-18.*
+*Author: Arail / CharlieD.  Started: 2026-04-18.*
 
 ---
 
@@ -19,7 +19,7 @@ The distillation playbook is no longer speculative. Microsoft's Phi series, Orca
 
 The bottleneck has shifted from *algorithm* to *access*. If you want to distill from GPT-4-class models, you pay OpenAI per token and live with their rate limits, ToS, and opacity. If you want to distill from an open frontier model (DeepSeek-V3, Kimi K2, Llama 3.1 405B, GLM-4.6), you need hardware that costs more than a house — unless you're willing to trade latency for throughput and let a layer-streamed inference engine grind for hours.
 
-OGLab's bet is that *the latency trade is exactly right for distillation workloads*. A chatbot has to answer in seconds. A distillation corpus generator has to answer in a week. Batching 500 prompts through a layer-streamed 671B model on a 2 TB laptop is a terrible chat experience and an excellent training-pair factory.
+Arail's bet is that *the latency trade is exactly right for distillation workloads*. A chatbot has to answer in seconds. A distillation corpus generator has to answer in a week. Batching 500 prompts through a layer-streamed 671B model on a 2 TB laptop is a terrible chat experience and an excellent training-pair factory.
 
 ---
 
@@ -36,15 +36,15 @@ The inference layer of this pipeline — Stage 2 below — ships as **AeroLLM** 
 
 ---
 
-## Why OGLab's default work item is AeroLLM
+## Why Arail's default work item is AeroLLM
 
-OGLab is a research lab, and its superpower is the autoresearch loop — the always-on process that sweeps knobs, measures, learns, and lands improvements without human handholding. But **autoresearch is only as interesting as the models it has access to.** An autoresearch loop hyper-tuning a 7B model is useful engineering; an autoresearch loop hyper-tuning a *frontier* model — a model most people can't load on any hardware they own, and have to rent GPUs or pay an API to use — is structurally different. The lab is doing something no one else is positioned to do.
+Arail is a research lab, and its superpower is the autoresearch loop — the always-on process that sweeps knobs, measures, learns, and lands improvements without human handholding. But **autoresearch is only as interesting as the models it has access to.** An autoresearch loop hyper-tuning a 7B model is useful engineering; an autoresearch loop hyper-tuning a *frontier* model — a model most people can't load on any hardware they own, and have to rent GPUs or pay an API to use — is structurally different. The lab is doing something no one else is positioned to do.
 
-That's the dependency. The rest of OGLab's program — the SLM distillation product, the adversarial swarm, the measurement framework, the publishing cadence — only matters if the lab *has its own frontier teacher to study*. Otherwise it's tuning against someone else's API, on someone else's rate limits, under someone else's terms of service, with someone else's pricing model driving the experimental design. That's not a research lab; that's a customer.
+That's the dependency. The rest of Arail's program — the SLM distillation product, the adversarial swarm, the measurement framework, the publishing cadence — only matters if the lab *has its own frontier teacher to study*. Otherwise it's tuning against someone else's API, on someone else's rate limits, under someone else's terms of service, with someone else's pricing model driving the experimental design. That's not a research lab; that's a customer.
 
 **And — equally important — it's a customer who's handed over their data sovereignty.** Every seed prompt sent to an API reveals the lab's domain of interest, its prompt-engineering choices, its experimental design, and the resulting CoT corpus itself. For a lab whose core IP *is* the prompt distribution and the derived training data, routing through a commercial API means the provider sees the work before the students do. Some providers explicitly reserve the right to use API traffic to improve their own models; others reserve the right to change that policy later. Either way, your corpus stops being yours the moment it crosses the network boundary.
 
-**AeroLLM is what breaks both dependencies — operational and informational.** If it works, OGLab operates on a model most researchers can never run locally — DeepSeek-V3, Kimi K2, Llama 405B, GLM-4.6 — and every prompt, rationale, and answer stays on the lab's own hardware. If it doesn't work, the lab reverts to paying for access like everyone else, hands over the data anyway, and the autoresearch loop spends its cleverness on the 7B tier.
+**AeroLLM is what breaks both dependencies — operational and informational.** If it works, Arail operates on a model most researchers can never run locally — DeepSeek-V3, Kimi K2, Llama 405B, GLM-4.6 — and every prompt, rationale, and answer stays on the lab's own hardware. If it doesn't work, the lab reverts to paying for access like everyone else, hands over the data anyway, and the autoresearch loop spends its cleverness on the 7B tier.
 
 So the default work item — the thing the autoresearch loop is pointed at, the thing that gets engineering priority, the thing we're willing to grind on for months before anything else in the roadmap moves — is **getting AeroLLM to produce one valid token on a frontier model on a 24 GB box.** Everything downstream (batching scale, swarm design, corpus size, student quality) is hypothetical until that `status=ok` row lands.
 

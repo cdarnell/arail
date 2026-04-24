@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ./oglab status — show what's running and where.
+# ./arail status — show what's running and where.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -15,7 +15,7 @@ dim()  { echo -e "  ${DIM}$*${RESET}"; }
 # shellcheck disable=SC1091
 source lab.conf 2>/dev/null || true
 BIND="${BIND_ADDR:-127.0.0.1}"
-LAB_NAME="${LAB_NAME:-OGLab}"
+LAB_NAME="${LAB_NAME:-Arail}"
 
 echo ""
 echo -e "${BOLD}${LAB_NAME} — Status${RESET}"
@@ -25,7 +25,7 @@ echo ""
 if [[ -d .venv ]]; then
     ok ".venv present"
 else
-    warn ".venv missing — run ./oglab setup"
+    warn ".venv missing — run ./arail setup"
 fi
 
 # ── services ──────────────────────────────────────────────────────
@@ -38,8 +38,8 @@ check() {
     fi
 }
 
-check "Portal   " "${PORTAL_PORT:-8080}"   "uvicorn.*oglab\.portal\.app"
-check "MLX API  " "${MLX_OPENAI_PORT:-11435}" "uvicorn.*oglab\.mlx_openai_server"
+check "Portal   " "${PORTAL_PORT:-8080}"   "uvicorn.*arail\.portal\.app"
+check "MLX API  " "${MLX_OPENAI_PORT:-11435}" "uvicorn.*arail\.mlx_openai_server"
 check "Notebook " "${NOTEBOOK_PORT:-8888}" "jupyter-lab"
 check "Terminal " "${TERMINAL_PORT:-7681}" "ttyd"
 check "IDE      " "${IDE_PORT:-8443}"      "code-server"

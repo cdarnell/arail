@@ -1,4 +1,4 @@
-"""SRE Watch — reliability agent for OGLab.
+"""SRE Watch — reliability agent for Arail.
 
     An agent is a loop that notices things and speaks up.
 
@@ -37,17 +37,17 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
 
-from oglab.activity import activity_log
+from arail.activity import activity_log
 
 
 # ── Where memory lives ───────────────────────────────────────────────
 def _state_file() -> Path:
-    from oglab.pkb import _pkb_root
+    from arail.pkb import _pkb_root
     return _pkb_root() / "agents" / "sre" / "state.json"
 
 
 def _activity_log_path() -> Path:
-    from oglab.pkb import _pkb_root
+    from arail.pkb import _pkb_root
     root = _pkb_root()
     # activity.jsonl lives in lab/data/, two levels up from pkb root
     return root.parent.parent / "data" / "activity.jsonl"

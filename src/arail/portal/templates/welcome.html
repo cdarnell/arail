@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ brand.name }} — first run</title>
+<link rel="stylesheet" href="/static/style.css">
+<style>
+  body {
+    display: flex; align-items: center; justify-content: center;
+    min-height: 100vh; margin: 0;
+  }
+  .wc-card {
+    width: min(560px, 92vw);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--green);
+    border-radius: var(--radius);
+    padding: 2rem 2.2rem;
+  }
+  .wc-kicker {
+    font-size: 0.65rem; letter-spacing: 0.16em; text-transform: uppercase;
+    color: var(--muted); margin-bottom: 0.4rem;
+  }
+  .wc-card h1 {
+    font-size: 1.4rem; color: var(--green); margin: 0 0 0.5rem;
+    text-shadow: var(--glow-green);
+  }
+  .wc-card .wc-tagline {
+    color: var(--text); font-size: 0.95rem; margin: 0 0 1rem;
+  }
+  .wc-card .wc-academic {
+    color: var(--muted); font-size: 0.78rem; line-height: 1.55;
+    margin: 0 0 1.4rem;
+  }
+  .wc-field { display: flex; flex-direction: column; gap: 0.3rem; margin-bottom: 1rem; }
+  .wc-field label {
+    font-size: 0.7rem; letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--muted);
+  }
+  .wc-field input {
+    background: var(--bg); color: var(--text-hi);
+    border: 1px solid var(--border); border-radius: 4px;
+    padding: 0.5rem 0.7rem; font-size: 0.9rem;
+    outline: none; transition: border-color 0.15s;
+    font-family: var(--font);
+  }
+  .wc-field input:focus { border-color: var(--green); }
+  .wc-field .wc-hint { color: var(--muted); font-size: 0.7rem; }
+  .wc-protect {
+    background: rgba(0, 212, 255, 0.06);
+    border: 1px solid rgba(0, 212, 255, 0.2);
+    border-radius: 6px;
+    padding: 0.7rem 0.9rem;
+    margin: 0 0 1.2rem;
+    font-size: 0.75rem; color: var(--text);
+    line-height: 1.5;
+  }
+  .wc-protect strong { color: var(--blue); }
+  .wc-protect ul { margin: 0.4rem 0 0; padding-left: 1.2rem; color: var(--muted); }
+  .wc-actions { display: flex; gap: 0.6rem; align-items: center; }
+  .wc-btn {
+    background: rgba(0, 255, 65, 0.12); color: var(--green);
+    border: 1px solid rgba(0, 255, 65, 0.3); border-radius: 4px;
+    padding: 0.55rem 1.1rem; font-size: 0.85rem; font-weight: 600;
+    cursor: pointer; transition: all 0.12s;
+    font-family: var(--font);
+  }
+  .wc-btn:hover:not(:disabled) {
+    background: rgba(0, 255, 65, 0.22); color: var(--text-hi);
+  }
+  .wc-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .wc-status {
+    font-size: 0.78rem; color: var(--muted); margin-left: 0.4rem;
+  }
+  .wc-status.ok { color: var(--green); }
+  .wc-status.err { color: var(--red); }
+  .wc-foot {
+    margin-top: 1.4rem; padding-top: 1rem;
+    border-top: 1px solid var(--border);
+    font-size: 0.7rem; color: var(--muted); line-height: 1.5;
+  }
+  .wc-foot code { color: var(--text); }
+</style>
+</head>
+<body>
+
+<div class="wc-card" role="main">
+  <div class="wc-kicker">Step 1 of 1 — first run</div>
+  <h1>Welcome to {{ brand.name }}.</h1>
+  <p class="wc-tagline">Pick a passphrase. The lab uses it everywhere a secret is needed.</p>
+  <p class="wc-academic">
+    The lab runs entirely on your machine. Nothing about your passphrase
+    leaves <code>127.0.0.1</code>. It's stored in plain files inside your
+    repo so you can rotate or remove it whenever you want.
+  </p>
+
+  <div class="wc-protect">
+    <strong>What this passphrase protects:</strong>
+    <ul>
+      <li>The browser IDE on <code>:8443</code> (code-server)</li>
+      <li>Open Notebook's at-rest data encryption (when you install it)</li>
+      <li>Future per-tab guards as the lab grows</li>
+    </ul>
+  </div>
+
+  <form id="wc-form" autocomplete="off">
+    <div class="wc-field">
+      <label for="wc-pass">Passphrase</label>
+      <input type="password" id="wc-pass" required minlength="8" autofocus
+             placeholder="at least 8 characters" />
+      <span class="wc-hint">Pick something memorable. You can rotate later via the dashboard.</span>
+    </div>
+    <div class="wc-field">
+      <label for="wc-confirm">Confirm passphrase</label>
+      <input type="password" id="wc-confirm" required minlength="8"
+             placeholder="type it again" />
+    </div>
+    <div class="wc-field">
+      <label for="wc-name">Lab name <span class="wc-hint" style="text-transform:none;letter-spacing:0;">(optional)</span></label>
+      <input type="text" id="wc-name"
+             value="{{ current_lab_name }}"
+             placeholder="e.g. Sam's AI Lab" />
+      <span class="wc-hint">Shows in the nav, the wiki, and every banner. Edit later in <code>.env</code>.</span>
+    </div>
+    <div class="wc-actions">
+      <button type="submit" class="wc-btn" id="wc-submit">Save & enter lab →</button>
+      <span class="wc-status" id="wc-status"></span>
+    </div>
+  </form>
+
+  <div class="wc-foot">
+    Prefer the terminal? Run <code>./arail setup</code> and answer the
+    prompts there instead. Either path lands at the same place.
+  </div>
+</div>
+
+<script>
+const form = document.getElementById('wc-form');
+const submit = document.getElementById('wc-submit');
+const status = document.getElementById('wc-status');
+
+function setStatus(text, kind) {
+  status.textContent = text;
+  status.className = 'wc-status' + (kind ? ' ' + kind : '');
+}
+
+form.addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const pass = document.getElementById('wc-pass').value;
+  const confirm = document.getElementById('wc-confirm').value;
+  const labName = document.getElementById('wc-name').value.trim();
+
+  if (pass.length < 8) {
+    setStatus('Passphrase needs at least 8 characters.', 'err');
+    return;
+  }
+  if (pass !== confirm) {
+    setStatus("Passphrases don't match.", 'err');
+    return;
+  }
+
+  submit.disabled = true;
+  setStatus('Saving…');
+  try {
+    const r = await fetch('/api/welcome/setup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        passphrase: pass,
+        confirm: confirm,
+        lab_name: labName || null,
+      }),
+    });
+    const data = await r.json();
+    if (r.ok && data.ok) {
+      setStatus('Saved. Loading dashboard…', 'ok');
+      // Hard reload so the middleware sees the new password.
+      setTimeout(() => { window.location.href = '/'; }, 600);
+    } else {
+      setStatus(data.error || 'Could not save. Check the terminal log.', 'err');
+      submit.disabled = false;
+    }
+  } catch (e) {
+    setStatus('Network error: ' + (e.message || e), 'err');
+    submit.disabled = false;
+  }
+});
+</script>
+</body>
+</html>

@@ -71,7 +71,7 @@ happens:
 ```
 
 That whole cycle is ~50 lines of Python. Read
-[`_builtin_pip.py`](../src/oglab/agents/_builtin_pip.py) and you'll
+[`_builtin_pip.py`](../src/arail/agents/_builtin_pip.py) and you'll
 recognize every step.
 
 ## Where everything lives
@@ -117,7 +117,7 @@ that does exactly one useful thing — say "hello" once a minute:
 ```python
 # lab/pkb/agents/hello/hello.py
 import asyncio
-from oglab.activity import activity_log
+from arail.activity import activity_log
 
 
 class HelloAgent:
@@ -173,7 +173,7 @@ Three design choices, each intentional:
 
 Everything about an agent — config, code, memory, decisions, dreams
 — is a plain file under the PKB. The wiki indexes them, `/knowledge`
-browses them, `git` tracks them if you want, `./oglab reset pkb`
+browses them, `git` tracks them if you want, `./arail reset pkb`
 wipes them cleanly. No hidden state, no mystery DB rows.
 
 ### 2. Agents are Python, not JSON schemas
@@ -200,7 +200,7 @@ because three indirections compound:
 
 1. **Dynamic import.** The file at `lab/pkb/agents/pip/pip.py` gets
    loaded into Python at runtime by
-   [`loader.py`](../src/oglab/agents/loader.py) using
+   [`loader.py`](../src/arail/agents/loader.py) using
    `importlib.util.spec_from_file_location`. That's why edits to
    the file take effect on next restart — Python re-reads the whole
    file, no pip package install, no restart in the middle of a tick.
@@ -222,13 +222,13 @@ one sitting.
 
 ## Go deeper
 
-- [`src/oglab/agents/_builtin_pip.py`](../src/oglab/agents/_builtin_pip.py) —
+- [`src/arail/agents/_builtin_pip.py`](../src/arail/agents/_builtin_pip.py) —
   the canonical agent. Read this second.
-- [`src/oglab/agents/loader.py`](../src/oglab/agents/loader.py) —
+- [`src/arail/agents/loader.py`](../src/arail/agents/loader.py) —
   how the folder structure turns into running code.
-- [`src/oglab/skills_loader.py`](../src/oglab/skills_loader.py) —
+- [`src/arail/skills_loader.py`](../src/arail/skills_loader.py) —
   how SKILL.md becomes part of an agent's prompt.
-- [`src/oglab/agents/dream_daemon.py`](../src/oglab/agents/dream_daemon.py) —
+- [`src/arail/agents/dream_daemon.py`](../src/arail/agents/dream_daemon.py) —
   the nightly reflection scheduler.
 - [`docs/agents.md`](agents.md) — the full reference (architecture,
   contracts, rationale). Read this when you're ready to ship an agent.

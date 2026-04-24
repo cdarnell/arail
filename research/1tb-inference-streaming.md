@@ -1,6 +1,6 @@
 # Disk-Streamed Inference for 1 TB-Class Models
 
-**Scope:** Can we serve a 1 TB model from NVMe using layer streaming and MoE expert offload (the approach AeroLLM implements)? How fast is "fast enough," and what should the oglab overlays measure?
+**Scope:** Can we serve a 1 TB model from NVMe using layer streaming and MoE expert offload (the approach AeroLLM implements)? How fast is "fast enough," and what should the arail overlays measure?
 
 **Date:** 2026-04-17
 
@@ -112,9 +112,9 @@ All four are compatible with NVMe as the cold tier — they change *which* exper
 
 ---
 
-## 6. Back-of-envelope response time for oglab's target
+## 6. Back-of-envelope response time for arail's target
 
-Assume oglab wants to demo "interactive-feeling" inference on a 1 TB model on a single workstation. Three scenarios:
+Assume arail wants to demo "interactive-feeling" inference on a 1 TB model on a single workstation. Three scenarios:
 
 **Scenario A — Dense 500 B FP16 via AeroLLM, PCIe 4 NVMe (7 GB/s)**
 
@@ -148,7 +148,7 @@ A recent study ("SSD Offloading for LLM MoE Weights Considered Harmful in Energy
 
 ---
 
-## 8. Recommendations for oglab
+## 8. Recommendations for arail
 
 Tie the feature work to the teaching mission — every optimization should surface as a live overlay.
 
@@ -172,7 +172,7 @@ Tie the feature work to the teaching mission — every optimization should surfa
 
 ## Sources
 
-- [AeroLLM (OGLab's Rust runtime — MLX + CUDA)](https://github.com/cdarnell/aerollm)
+- [AeroLLM (Arail's Rust runtime — MLX + CUDA)](https://github.com/cdarnell/aerollm)
 - [Expert Offloading to CPU or NVMe (apxml)](https://apxml.com/courses/mixture-of-experts-advanced-implementation/chapter-4-efficient-moe-inference/expert-offloading)
 - [Flash-MoE: 397 B on a 48 GB MacBook](https://lilting.ch/en/articles/flash-moe-qwen35-397b-metal-inference)
 - [Flash-MoE benchmarks & quality tradeoffs (2026)](https://www.buildmvpfast.com/blog/flash-moe-weight-streaming-benchmarks-quality-tradeoffs-2026)

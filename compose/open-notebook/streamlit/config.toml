@@ -1,9 +1,9 @@
 # Open Notebook runs on Streamlit. This config forces dark mode so the
-# iframe + popout match the rest of the OGLab portal (terminal-green on
+# iframe + popout match the rest of the Arail portal (terminal-green on
 # near-black). Mounted into the container at /app/.streamlit/config.toml
 # via compose/open-notebook.yml.
 #
-# Palette values match src/oglab/portal/static/style.css :root.
+# Palette values match src/arail/portal/static/style.css :root.
 
 [theme]
 base = "dark"
@@ -18,6 +18,6 @@ gatherUsageStats = false
 
 [server]
 headless = true
-# Open Notebook lives behind the OGLab portal — disable the "view
+# Open Notebook lives behind the Arail portal — disable the "view
 # recommended on mobile" prompt and the "rerun on save" noise.
 runOnSave = false

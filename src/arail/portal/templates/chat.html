@@ -1,0 +1,779 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ brand.name }} — Chat</title>
+<link rel="stylesheet" href="/static/style.css">
+<style>
+  body.embed { background: transparent; }
+  .chat-wrap { max-width: 1100px; margin: 20px auto; padding: 0 18px; }
+  body.embed .chat-wrap { margin: 8px auto; }
+  .chat-head { display:flex; gap:10px; align-items:baseline; margin-bottom: 12px; }
+  .chat-head h1 { margin:0; font-size: 24px; }
+  .chat-sub { color: var(--muted,#8a8a8a); font-size: 13px; }
+  .chat-shortcuts { display:flex; gap:10px; flex-wrap:wrap; margin: 0 0 12px; }
+  .chat-shortcuts a {
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    padding:7px 14px;
+    border-radius:6px;
+    text-decoration:none;
+    font-size:13px;
+  }
+  .chat-shortcuts .tuning-link { background:#0f1a14; border:1px solid #1e3a2a; color:#7ee0a0; }
+  .chat-shortcuts .terminal-link { background:#0d1117; border:1px solid #222; color:#8faf97; }
+
+  .chat-grid { display:grid; gap: 14px; }
+  .chat-card { background: var(--card,#131313); border:1px solid var(--line,#252525); border-radius: 10px; padding: 14px; }
+  .chat-card h2 { margin: 0 0 10px; font-size: 16px; display:flex; align-items:center; gap:8px; }
+  .chat-chip { font-size:11px; color:#b8b8b8; border:1px solid #3a3a3a; border-radius: 11px; padding: 2px 8px; }
+  .chat-chip.deep { color:#d4af6a; border-color:#6a5a3a; background:#1a140a; }
+
+  .chat-log { min-height: 170px; max-height: 360px; overflow:auto; border:1px solid #2b2b2b; border-radius:8px; padding: 10px; background:#0e0e0e; }
+  .chat-msg { margin-bottom: 10px; }
+  .chat-role { font-size:11px; color:#979797; margin-bottom:3px; letter-spacing:0.06em; text-transform:uppercase; }
+  .chat-bubble { background:#171717; border:1px solid #2b2b2b; border-radius:8px; padding:8px 10px; white-space: pre-wrap; line-height:1.45; }
+  .chat-bubble.user { background:#111a11; border-color:#284028; }
+  .chat-meta { margin-top: 6px; font-size: 11px; color:#9a9a9a; border-top:1px dashed #2b2b2b; padding-top:6px; }
+
+  .chat-compose { display:flex; gap:8px; margin-top: 10px; }
+  .chat-compose input { flex:1; min-width:0; }
+
+  .chat-controls { display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; margin-top: 12px; }
+  .chat-controls label { display:flex; flex-direction:column; gap:5px; font-size:12px; color:#b6b6b6; }
+  .chat-controls input,
+  .chat-controls select { width:100%; }
+  .chat-controls .hint { font-size:11px; color:#8c8c8c; }
+
+  .teacher-cta { margin-top: 8px; font-size: 12px; color:#ad9c77; }
+  .chat-toggle-row { display:flex; align-items:center; gap:10px; margin: 10px 0 4px; flex-wrap: wrap; }
+  .chat-toggle-row label { display:flex; align-items:center; gap:8px; font-size:12px; color:#d4d4d4; cursor:pointer; }
+  .chat-toggle-row input[type="checkbox"] { width:auto; }
+  .chat-muted { color:#8c8c8c; font-size:11px; }
+  .chat-route-note {
+    margin-top: 10px;
+    padding: 9px 11px;
+    border-radius: 8px;
+    border: 1px solid #3b3524;
+    background: #17130c;
+    color: #d9c28d;
+    font-size: 12px;
+  }
+
+  .compute-card { border-color:#284028; background:#0f1a14; }
+  .compute-head-row { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+  .airgapped-banner {
+    margin: 8px 0 10px; padding: 9px 11px; border-radius: 8px;
+    border: 1px solid #3a2f24; background: #17110c; color: #e0b878; font-size: 12px;
+  }
+  .airgapped-banner code { background:#0f0b06; padding: 1px 5px; border-radius: 3px; color:#f3d694; }
+  .compute-opt.disabled { opacity: 0.45; cursor: not-allowed; }
+
+  /* Manage Providers modal */
+  .mp-backdrop {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.55);
+    display: none; align-items: center; justify-content: center; z-index: 9000;
+  }
+  .mp-backdrop.open { display: flex; }
+  .mp-modal {
+    width: min(720px, 94vw); max-height: 86vh; overflow: auto;
+    background: #0f0f10; border: 1px solid #2b2b2b; border-radius: 10px;
+    padding: 18px 20px; box-shadow: 0 18px 42px rgba(0,0,0,0.5);
+  }
+  .mp-head { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom: 8px; }
+  .mp-head h3 { margin:0; font-size: 16px; }
+  .mp-close { background:#1a1a1a; border:1px solid #333; color:#ddd; padding:4px 10px; border-radius:6px; cursor:pointer; }
+  .mp-provider {
+    padding: 10px 12px; border:1px solid #232323; border-radius: 8px;
+    background: #131313; margin-bottom: 10px;
+  }
+  .mp-provider h4 { margin: 0 0 4px; font-size: 14px; display:flex; align-items:center; gap:8px; }
+  .mp-pill { font-size:10px; padding: 2px 6px; border-radius: 10px; border:1px solid #333; color:#bbb; letter-spacing: 0.04em; text-transform: uppercase; }
+  .mp-pill.ok { color:#8fe6a7; border-color:#2f6a42; background:#0c1911; }
+  .mp-pill.warn { color:#e6b478; border-color:#6a4d2f; background:#19140c; }
+  .mp-row { display:flex; gap:8px; margin-top: 6px; flex-wrap: wrap; align-items: flex-end; }
+  .mp-row input[type="password"], .mp-row input[type="text"] {
+    flex:1; min-width: 220px; padding: 6px 8px;
+    background:#0b0b0b; border:1px solid #2b2b2b; border-radius:6px; color:#eee;
+  }
+  .mp-btn {
+    padding: 6px 10px; border-radius: 6px; border:1px solid #2b2b2b;
+    background:#171717; color:#ddd; cursor: pointer;
+  }
+  .mp-btn.primary { background:#0f2818; border-color:#2f6a42; color:#b5f0c8; }
+  .mp-btn.danger  { background:#1e0c0c; border-color:#6a2f2f; color:#f0b5b5; }
+  .mp-models-list { margin-top: 8px; max-height: 160px; overflow: auto;
+    padding: 6px 8px; background:#0a0a0a; border:1px solid #1f1f1f; border-radius: 6px;
+    font-family: ui-monospace, monospace; font-size: 11px; color: #cfcfcf; }
+  .mp-note { font-size: 11px; color:#9a9a9a; margin-top: 4px; }
+  .mp-docs a { color: #8faacc; font-size: 11px; }
+  .compute-source-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 8px;
+    margin: 10px 0 4px;
+  }
+  .compute-opt {
+    display: flex; align-items: flex-start; gap: 8px;
+    padding: 10px; border: 1px solid #2b2b2b; border-radius: 8px;
+    background: #0e0e0e; cursor: pointer; transition: border-color .12s;
+  }
+  .compute-opt:hover { border-color: #3e8055; }
+  .compute-opt input[type="radio"] { margin-top: 3px; }
+  .compute-opt-label { font-size: 13px; line-height: 1.4; }
+  .compute-opt input[type="radio"]:checked ~ .compute-opt-label { color:#b5f0c8; }
+  .compute-opt:has(input[type="radio"]:checked) { border-color:#4aa46f; background:#0c1912; }
+  .compute-key-row {
+    display: flex; gap: 8px; align-items: flex-end; margin-top: 10px; flex-wrap: wrap;
+  }
+  .compute-key-row label { display:flex; flex-direction:column; gap:4px; font-size:12px; color:#b6b6b6; }
+</style>
+</head>
+<body>
+
+{% if not embed %}
+{% set active = 'chat' %}{% include "_nav.html" %}
+{% else %}
+<script>document.body.classList.add('embed');</script>
+{% endif %}
+
+<div class="chat-wrap">
+  <div class="chat-head">
+    <h1>Chat</h1>
+    <span class="chat-sub">Choose fast chat, duplicate the prompt to Deep Teacher, or send to Teacher only when depth matters more than latency.</span>
+  </div>
+
+  <div class="chat-shortcuts" aria-label="Chat shortcuts">
+    <a class="tuning-link" href="/tuning" title="Open tuning workspace">
+      <span>🧪</span>
+      <span>LLM Tuning</span>
+    </a>
+    <a class="terminal-link" href="/terminal" target="_blank" rel="noopener" title="Open terminal in a new tab">
+      <span>⌨️</span>
+      <span>Terminal Pop Out</span>
+    </a>
+  </div>
+
+  <div class="chat-grid">
+    <section class="chat-card compute-card">
+      <div class="compute-head-row">
+        <h2>
+          Compute Source
+          <span class="chat-chip" id="compute-source-chip">my machine</span>
+        </h2>
+        <button class="btn btn-sm btn-ghost" id="btn-manage-providers" type="button">⚙ Manage providers</button>
+      </div>
+      <p class="chat-sub" style="margin-top:-4px">
+        Pick where your chat runs. Local stays on your machine; cloud options send your message to the vendor (and need an API key).
+        Tokens save to <code>lab/data/secrets.env</code> (chmod 0600, git-ignored).
+      </p>
+      <div class="airgapped-banner" id="airgapped-banner" style="display:none">
+        <strong>Airgapped mode.</strong> Cloud providers are locked — only <em>My Machine</em> works.
+        To enable Claude, NVIDIA, OpenRouter, or HuggingFace, set <code>LAB_MODE=hybrid</code> in <code>.env</code> and restart the lab.
+      </div>
+      <div class="compute-source-grid">
+        <label class="compute-opt">
+          <input type="radio" name="compute-source" value="my_machine" checked>
+          <span class="compute-opt-label"><strong>My Machine</strong><br><span class="chat-muted">Local — no key needed</span></span>
+        </label>
+        <label class="compute-opt">
+          <input type="radio" name="compute-source" value="claude">
+          <span class="compute-opt-label"><strong>Claude</strong><br><span class="chat-muted">Anthropic API</span></span>
+        </label>
+        <label class="compute-opt">
+          <input type="radio" name="compute-source" value="nvidia">
+          <span class="compute-opt-label"><strong>NVIDIA NIM</strong><br><span class="chat-muted">build.nvidia.com</span></span>
+        </label>
+        <label class="compute-opt">
+          <input type="radio" name="compute-source" value="openrouter">
+          <span class="compute-opt-label"><strong>OpenRouter</strong><br><span class="chat-muted">Hosted models</span></span>
+        </label>
+        <label class="compute-opt">
+          <input type="radio" name="compute-source" value="huggingface">
+          <span class="compute-opt-label"><strong>HuggingFace</strong><br><span class="chat-muted">Inference API</span></span>
+        </label>
+        <label class="compute-opt">
+          <input type="radio" name="compute-source" value="custom">
+          <span class="compute-opt-label"><strong>Custom endpoint</strong><br><span class="chat-muted">Any OpenAI-compatible URL</span></span>
+        </label>
+      </div>
+
+      <div class="compute-key-row" id="compute-key-row" style="display:none">
+        <label style="flex:1">
+          <span id="compute-key-label">API Key</span>
+          <input id="compute-key" type="password" autocomplete="off" placeholder="paste token here">
+        </label>
+        <label id="compute-url-wrap" style="flex:1; display:none">
+          Endpoint URL
+          <input id="compute-url" type="text" autocomplete="off" placeholder="https://…/v1">
+        </label>
+        <button class="btn btn-primary" id="compute-save">Save token</button>
+      </div>
+      <div class="chat-muted" id="compute-status" style="margin-top:6px"></div>
+    </section>
+
+    <section class="chat-card">
+      <h2>Compose</h2>
+      <div class="chat-compose">
+        <input id="chat-input" type="text" placeholder="Ask once, then choose fast chat, both, or Teacher only…" autocomplete="off" />
+        <button class="btn btn-primary" id="chat-send">Send</button>
+        <button class="btn btn-ghost" id="chat-clear">Clear</button>
+      </div>
+
+      <div class="chat-controls">
+        <label>
+          Send mode
+          <select id="chat-route">
+            <option value="fast">Fast chat only</option>
+            <option value="both">Fast chat + Deep Teacher</option>
+            <option value="teacher-only">Deep Teacher only</option>
+          </select>
+        </label>
+        <label>
+          Fast model
+          <select id="fast-model"></select>
+        </label>
+        <label>
+          Temperature
+          <input id="chat-temp" type="range" min="0" max="2" step="0.1" value="0.7" />
+          <span class="hint" id="chat-temp-val">0.7</span>
+        </label>
+        <label>
+          Top-p
+          <input id="chat-top-p" type="range" min="0" max="1" step="0.05" value="0" />
+          <span class="hint" id="chat-top-p-val">off</span>
+        </label>
+        <label>
+          Max tokens
+          <input id="chat-max-tokens" type="range" min="128" max="4096" step="64" value="512" />
+          <span class="hint" id="chat-max-tokens-val">512</span>
+        </label>
+        <label>
+          Teacher backend
+          <select id="teacher-backend">
+            <option value="airllm">AirLLM</option>
+            <option value="aerollm">AeroLLM</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="chat-route-note" id="chat-route-note">
+        Fast chat only. Switch to a teacher mode when you want the larger model involved.
+      </div>
+    </section>
+
+    <section class="chat-card">
+      <h2>
+        Fast Chat
+        <span class="chat-chip" id="fast-model-chip">loading…</span>
+      </h2>
+      <div class="chat-log" id="fast-log">
+        <div class="chat-msg">
+          <div class="chat-role">LAB</div>
+          <div class="chat-bubble">Quick local path is ready.</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="chat-card">
+      <h2>
+        Teacher Comparison
+        <span class="chat-chip deep" id="teacher-model-chip">loading…</span>
+      </h2>
+      <div class="chat-log" id="teacher-log">
+        <div class="chat-msg">
+          <div class="chat-role">TEACHER</div>
+          <div class="chat-bubble">Enable Deep Teacher below when you want the same prompt sent through the larger model too.</div>
+        </div>
+      </div>
+      <div class="teacher-cta">Tune deep backend performance in <a href="/tuning">Advanced Tuning</a>.</div>
+    </section>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+
+  const state = { history: [] };
+
+  function esc(s) {
+    const d = document.createElement('div');
+    d.textContent = s || '';
+    return d.innerHTML;
+  }
+
+  function appendMsg(logId, role, text, meta, isUser) {
+    const log = $(logId);
+    const wrap = document.createElement('div');
+    wrap.className = 'chat-msg';
+    wrap.innerHTML =
+      `<div class="chat-role">${esc(role)}</div>` +
+      `<div class="chat-bubble${isUser ? ' user' : ''}">${esc(text || '')}</div>` +
+      (meta ? `<div class="chat-meta">${esc(meta)}</div>` : '');
+    log.appendChild(wrap);
+    log.scrollTop = log.scrollHeight;
+    return wrap;
+  }
+
+  function startStream(logId, role, placeholder) {
+    const wrap = appendMsg(logId, role, placeholder || '', null, false);
+    const bubble = wrap.querySelector('.chat-bubble');
+    let text = '';
+    return {
+      delta(chunk) {
+        text += chunk || '';
+        bubble.textContent = text;
+      },
+      done(finalText, meta) {
+        bubble.textContent = finalText || text || '(empty response)';
+        if (meta) {
+          const m = document.createElement('div');
+          m.className = 'chat-meta';
+          m.textContent = meta;
+          wrap.appendChild(m);
+        }
+      }
+    };
+  }
+
+  async function streamJsonl(url, payload, ui) {
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!r.ok || !r.body) {
+      throw new Error('HTTP ' + r.status);
+    }
+    const reader = r.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let finalEvent = null;
+
+    while (true) {
+      const { value, done } = await reader.read();
+      buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+      let idx;
+      while ((idx = buffer.indexOf('\n')) >= 0) {
+        const line = buffer.slice(0, idx).trim();
+        buffer = buffer.slice(idx + 1);
+        if (!line) continue;
+        const event = JSON.parse(line);
+        if (event.type === 'delta') ui.delta(event.delta || '');
+        if (event.type === 'final') finalEvent = event;
+      }
+      if (done) break;
+    }
+    return finalEvent || { error: 'stream ended without final event', reply: '' };
+  }
+
+  function metaFromFinal(d) {
+    const parts = [];
+    if (d.backend) parts.push(d.backend);
+    if (d.model) parts.push(d.model);
+    if (d.tokens_per_sec) parts.push(d.tokens_per_sec + ' t/s');
+    if (d.latency_ms != null) parts.push(Math.round(d.latency_ms) + ' ms');
+    if (d.tokens_used != null) parts.push(d.tokens_used + ' tok');
+    return parts.join(' · ');
+  }
+
+  function teacherSelection() {
+    const select = $('teacher-backend');
+    const option = select.options[select.selectedIndex];
+    return {
+      backend: select.value || 'airllm',
+      label: option ? option.textContent : 'Deep Teacher',
+      model: option ? option.dataset.model || '' : '',
+    };
+  }
+
+  function syncTeacherChip() {
+    const selected = teacherSelection();
+    $('teacher-model-chip').textContent = selected.model || selected.label || 'deep model';
+  }
+
+  function routeSelection() {
+    const mode = $('chat-route').value || 'fast';
+    return {
+      mode,
+      sendFast: mode !== 'teacher-only',
+      sendTeacher: mode !== 'fast',
+      teacherOnly: mode === 'teacher-only',
+    };
+  }
+
+  function syncRouteNote() {
+    const route = routeSelection();
+    const note = $('chat-route-note');
+    if (route.teacherOnly) {
+      note.textContent = 'Deep Teacher only. Expect a slower start and a longer wait before the first tokens appear.';
+      return;
+    }
+    if (route.sendTeacher) {
+      note.textContent = 'This prompt will be duplicated to Deep Teacher while fast chat responds in parallel.';
+      return;
+    }
+    note.textContent = 'Fast chat only. Switch to a teacher mode when you want the larger model involved.';
+  }
+
+  async function sendMessage() {
+    const message = $('chat-input').value.trim();
+    if (!message) return;
+
+    $('chat-input').value = '';
+    $('chat-send').disabled = true;
+
+    appendMsg('fast-log', 'YOU', message, null, true);
+    appendMsg('teacher-log', 'YOU', message, null, true);
+
+    const temp = parseFloat($('chat-temp').value || '0.7');
+    const topP = parseFloat($('chat-top-p').value || '0');
+    const maxTokens = parseInt($('chat-max-tokens').value || '512', 10);
+    const fastModel = $('fast-model').value || undefined;
+    const route = routeSelection();
+    const teacherBackend = teacherSelection().backend;
+
+    let fastUi = null;
+    let teacherUi = null;
+    if (route.sendFast) {
+      appendMsg('fast-log', 'YOU', message, null, true);
+      fastUi = startStream('fast-log', 'LAB', 'Thinking…');
+    }
+    if (route.sendTeacher) {
+      appendMsg('teacher-log', 'YOU', message, null, true);
+      teacherUi = startStream(
+        'teacher-log',
+        'TEACHER',
+        route.teacherOnly ? 'Teacher-only mode: settling in… this can take a while.' : 'Thinking deeply…'
+      );
+    }
+
+    try {
+      const fastPromise = route.sendFast && fastUi
+        ? streamJsonl('/api/chat/stream', {
+          message,
+          history: state.history,
+          temperature: temp,
+          top_p: topP > 0 ? topP : undefined,
+          max_tokens: maxTokens,
+          model: fastModel,
+        }, fastUi)
+        : Promise.resolve(null);
+      const teacherPromise = route.sendTeacher && teacherUi
+        ? streamJsonl('/api/teacher/stream', {
+            message,
+            history: state.history,
+            max_tokens: Math.max(1024, maxTokens),
+            backend: teacherBackend,
+          }, teacherUi)
+        : Promise.resolve(null);
+
+      const [fastFinal, teacherFinal] = await Promise.all([fastPromise, teacherPromise]);
+
+      if (fastUi && fastFinal) {
+        if (fastFinal.error && !fastFinal.reply) {
+          fastUi.done('Error: ' + fastFinal.error, null);
+        } else {
+          fastUi.done(fastFinal.reply || '', metaFromFinal(fastFinal));
+        }
+      }
+
+      if (teacherUi && teacherFinal) {
+        if (teacherFinal.error && !teacherFinal.reply) {
+          teacherUi.done('Error: ' + teacherFinal.error, null);
+        } else {
+          teacherUi.done(teacherFinal.reply || '', metaFromFinal(teacherFinal));
+        }
+      }
+
+      state.history.push({ role: 'user', content: message });
+      const primaryReply = route.teacherOnly
+        ? (teacherFinal && teacherFinal.reply) || ''
+        : (fastFinal && fastFinal.reply) || (teacherFinal && teacherFinal.reply) || '';
+      state.history.push({ role: 'assistant', content: primaryReply });
+      state.history = state.history.slice(-20);
+    } catch (e) {
+      if (fastUi) fastUi.done('Network error: ' + e.message, null);
+      if (teacherUi) teacherUi.done('Network error: ' + e.message, null);
+    } finally {
+      $('chat-send').disabled = false;
+      $('chat-input').focus();
+    }
+  }
+
+  $('chat-send').addEventListener('click', sendMessage);
+  $('chat-input').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') sendMessage();
+  });
+
+  $('chat-clear').addEventListener('click', () => {
+    state.history = [];
+    $('fast-log').innerHTML = '';
+    $('teacher-log').innerHTML = '';
+    appendMsg('fast-log', 'LAB', 'History cleared.', null, false);
+    appendMsg('teacher-log', 'TEACHER', 'Deep Teacher history cleared.', null, false);
+  });
+
+  $('chat-temp').addEventListener('input', () => {
+    $('chat-temp-val').textContent = $('chat-temp').value;
+  });
+  $('chat-top-p').addEventListener('input', () => {
+    const v = parseFloat($('chat-top-p').value || '0');
+    $('chat-top-p-val').textContent = v > 0 ? v.toFixed(2) : 'off';
+  });
+  $('chat-max-tokens').addEventListener('input', () => {
+    $('chat-max-tokens-val').textContent = $('chat-max-tokens').value;
+  });
+
+  async function loadModels() {
+    try {
+      const d = await fetch('/api/chat/models').then(r => r.json());
+      const sel = $('fast-model');
+      sel.innerHTML = '';
+      const cur = document.createElement('option');
+      cur.value = '';
+      cur.textContent = d.current ? `(current · ${d.current})` : '(current)';
+      sel.appendChild(cur);
+      (d.models || []).forEach(m => {
+        if (m === d.current) return;
+        const o = document.createElement('option');
+        o.value = m;
+        o.textContent = m;
+        sel.appendChild(o);
+      });
+
+      if (d.current) $('fast-model-chip').textContent = d.current;
+
+      const back = $('teacher-backend');
+      back.innerHTML = '';
+      const optional = d.optional_backends || [];
+      optional.forEach(b => {
+        const o = document.createElement('option');
+        o.value = b.id;
+        o.textContent = `${b.label} · ${b.model || b.id}`;
+        o.dataset.model = b.model || b.id;
+        back.appendChild(o);
+      });
+      if (d.default_optional_backend) back.value = d.default_optional_backend;
+      syncTeacherChip();
+    } catch (e) {
+      $('fast-model-chip').textContent = 'model unavailable';
+      $('teacher-model-chip').textContent = 'deep model unavailable';
+    }
+  }
+
+  $('teacher-backend').addEventListener('change', syncTeacherChip);
+  $('chat-route').addEventListener('change', syncRouteNote);
+
+  // ─── Compute Source pivot + Manage Providers modal ───────────────────
+  const PROVIDER_META = {
+    my_machine:  { keyLabel: null, needsUrl: false, chip: 'my machine · local' },
+    claude:      { keyLabel: 'Anthropic API key (sk-ant-…)', needsUrl: false, chip: 'claude · cloud' },
+    nvidia:      { keyLabel: 'NVIDIA API key (nvapi-…)',     needsUrl: false, chip: 'nvidia nim · cloud' },
+    openrouter:  { keyLabel: 'OpenRouter key (sk-or-…)',     needsUrl: false, chip: 'openrouter · cloud' },
+    huggingface: { keyLabel: 'HF token (hf_…)',              needsUrl: false, chip: 'huggingface · cloud' },
+    custom:      { keyLabel: 'API key (optional)',           needsUrl: true,  chip: 'custom endpoint' },
+  };
+  const CLOUD = ['claude','nvidia','openrouter','huggingface','custom'];
+  const providerState = { cloudEnabled: true, providers: [], labMode: 'airgapped' };
+
+  function selectedProvider() {
+    const r = document.querySelector('input[name="compute-source"]:checked');
+    return r ? r.value : 'my_machine';
+  }
+
+  function applyAirgapLocks() {
+    const banner = $('airgapped-banner');
+    if (banner) banner.style.display = providerState.cloudEnabled ? 'none' : '';
+    CLOUD.forEach(p => {
+      const el = document.querySelector(`input[name="compute-source"][value="${p}"]`);
+      if (!el) return;
+      el.disabled = !providerState.cloudEnabled;
+      const label = el.closest('.compute-opt');
+      if (label) {
+        label.classList.toggle('disabled', !providerState.cloudEnabled);
+        label.title = providerState.cloudEnabled ? '' :
+          'Airgapped mode — flip LAB_MODE=hybrid in .env to enable.';
+      }
+    });
+    if (!providerState.cloudEnabled && CLOUD.includes(selectedProvider())) {
+      const mm = document.querySelector('input[name="compute-source"][value="my_machine"]');
+      if (mm) { mm.checked = true; }
+    }
+  }
+
+  function syncComputeUI() {
+    const p = selectedProvider();
+    const meta = PROVIDER_META[p] || PROVIDER_META.my_machine;
+    $('compute-source-chip').textContent = meta.chip;
+    $('compute-status').textContent = '';
+    // With the modal, inline key row stays hidden — editing happens in the dialog.
+    const row = $('compute-key-row');
+    if (row) row.style.display = 'none';
+  }
+
+  async function setActiveProvider() {
+    const provider = selectedProvider();
+    try {
+      const r = await fetch('/api/providers/active', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ provider })
+      });
+      const d = await r.json();
+      if (!d.ok) $('compute-status').textContent = d.error || '';
+    } catch (e) { /* best effort */ }
+    syncComputeUI();
+  }
+
+  document.querySelectorAll('input[name="compute-source"]').forEach(r => {
+    r.addEventListener('change', setActiveProvider);
+  });
+
+  // ─── Manage Providers modal ──────────────────────────────────────────
+  function esc2(s){ const d=document.createElement('div'); d.textContent=s||''; return d.innerHTML; }
+
+  function renderProviderCard(p) {
+    const pill = p.has_token
+      ? '<span class="mp-pill ok">token saved</span>'
+      : '<span class="mp-pill warn">no token</span>';
+    const docs = p.docs ? `<span class="mp-docs"><a href="${esc2(p.docs)}" target="_blank" rel="noopener">vendor docs ↗</a></span>` : '';
+    const urlRow = p.id === 'custom'
+      ? `<label style="flex:1">Endpoint URL <input type="text" id="mp-url-${p.id}" placeholder="https://…/v1"></label>`
+      : '';
+    const listBtn = p.supports_models_list
+      ? `<button class="mp-btn" data-action="models" data-provider="${p.id}">List models</button>`
+      : '';
+    return `
+      <div class="mp-provider" data-provider="${p.id}">
+        <h4>${esc2(p.label)} ${pill} ${docs}</h4>
+        <div class="mp-row">
+          <label style="flex:1">API token <input type="password" id="mp-key-${p.id}" placeholder="${p.has_token ? '•••• token saved ••••' : 'paste here'}" autocomplete="off"></label>
+          ${urlRow}
+          <button class="mp-btn primary" data-action="save" data-provider="${p.id}">Save</button>
+          <button class="mp-btn"         data-action="test" data-provider="${p.id}" ${p.has_token ? '' : 'disabled'}>Test</button>
+          <button class="mp-btn danger"  data-action="remove" data-provider="${p.id}" ${p.has_token ? '' : 'disabled'}>Remove</button>
+          ${listBtn}
+        </div>
+        <div class="mp-note" id="mp-note-${p.id}"></div>
+        <div class="mp-models-list" id="mp-models-${p.id}" style="display:none"></div>
+      </div>`;
+  }
+
+  function openProvidersModal() {
+    const body = $('mp-body');
+    if (!providerState.cloudEnabled) {
+      body.innerHTML = `<div class="airgapped-banner">
+        <strong>Airgapped mode.</strong> Set <code>LAB_MODE=hybrid</code> in <code>.env</code> and restart to manage cloud providers.
+      </div>`;
+    } else {
+      body.innerHTML = providerState.providers.map(renderProviderCard).join('');
+    }
+    $('mp-backdrop').classList.add('open');
+  }
+  function closeProvidersModal() {
+    $('mp-backdrop').classList.remove('open');
+  }
+
+  async function handleModalClick(e) {
+    const btn = e.target.closest('button[data-action]');
+    if (!btn) return;
+    const action = btn.dataset.action;
+    const provider = btn.dataset.provider;
+    const note = $(`mp-note-${provider}`);
+    const setNote = (msg) => { if (note) note.textContent = msg; };
+
+    if (action === 'save') {
+      const key = ($(`mp-key-${provider}`)||{}).value || '';
+      const url = provider === 'custom' ? (($(`mp-url-${provider}`)||{}).value || '') : '';
+      setNote('Saving…');
+      const r = await fetch('/api/providers/save', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ provider, token: key.trim(), endpoint: url.trim() || null })
+      }).then(r=>r.json()).catch(e=>({ok:false,error:String(e)}));
+      setNote(r.ok ? 'Saved (chmod 0600).' : 'Error: ' + (r.error||'save failed'));
+      if (r.ok) await refreshProvidersStatus();
+    } else if (action === 'test') {
+      setNote('Pinging…');
+      const r = await fetch('/api/providers/test', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ provider })
+      }).then(r=>r.json()).catch(e=>({ok:false,error:String(e)}));
+      setNote(r.ok ? `OK — ${r.message || 'authenticated'}.` : 'Failed: ' + (r.error || 'unknown'));
+    } else if (action === 'remove') {
+      if (!confirm(`Remove saved token for ${provider}?`)) return;
+      const r = await fetch('/api/providers/remove', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ provider })
+      }).then(r=>r.json()).catch(e=>({ok:false,error:String(e)}));
+      setNote(r.ok ? 'Removed.' : 'Error: ' + (r.error || 'remove failed'));
+      if (r.ok) await refreshProvidersStatus();
+    } else if (action === 'models') {
+      const list = $(`mp-models-${provider}`);
+      setNote('Loading catalogue…');
+      list.style.display = '';
+      list.textContent = '…';
+      const r = await fetch(`/api/providers/models?provider=${encodeURIComponent(provider)}`)
+        .then(r=>r.json()).catch(e=>({ok:false,error:String(e)}));
+      if (r.ok) {
+        list.textContent = (r.models || []).slice(0, 200).join('\n') || '(no models)';
+        setNote(`${r.count || 0} models.`);
+      } else {
+        list.textContent = '';
+        list.style.display = 'none';
+        setNote('Error: ' + (r.error || 'list failed'));
+      }
+    }
+  }
+
+  async function refreshProvidersStatus() {
+    try {
+      const d = await fetch('/api/providers/status').then(r => r.json());
+      providerState.cloudEnabled = !!d.cloud_enabled;
+      providerState.providers = d.providers || [];
+      providerState.labMode = d.lab_mode || 'airgapped';
+      if (d && d.provider) {
+        const el = document.querySelector(`input[name="compute-source"][value="${d.provider}"]`);
+        if (el) el.checked = true;
+      }
+    } catch (e) { /* leave defaults */ }
+    applyAirgapLocks();
+    syncComputeUI();
+    // If the modal is open, re-render to reflect new token presence.
+    if ($('mp-backdrop').classList.contains('open')) openProvidersModal();
+  }
+
+  $('btn-manage-providers').addEventListener('click', openProvidersModal);
+  $('mp-close').addEventListener('click', closeProvidersModal);
+  $('mp-backdrop').addEventListener('click', (e) => {
+    if (e.target === $('mp-backdrop')) closeProvidersModal();
+  });
+  $('mp-body').addEventListener('click', handleModalClick);
+
+  refreshProvidersStatus();
+
+  loadModels();
+  syncRouteNote();
+})();
+</script>
+
+<div class="mp-backdrop" id="mp-backdrop" role="dialog" aria-modal="true" aria-labelledby="mp-title">
+  <div class="mp-modal">
+    <div class="mp-head">
+      <h3 id="mp-title">Manage external providers</h3>
+      <button class="mp-close" id="mp-close" type="button">Close</button>
+    </div>
+    <p class="chat-sub" style="margin:0 0 10px">
+      Save, test, and list models for external vendors. Tokens land in
+      <code>lab/data/secrets.env</code> (chmod 0600, git-ignored). Never echoed back.
+    </p>
+    <div id="mp-body"></div>
+  </div>
+</div>
+
+</body>
+</html>

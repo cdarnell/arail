@@ -2,17 +2,17 @@
 
 ## Scope
 
-OGLab is a **local-first AI lab blueprint**. The default posture is:
+Arail is a **local-first AI lab blueprint**. The default posture is:
 
 - Every service (portal, terminal, notebook, IDE) binds to `127.0.0.1`.
 - Local model weights, local PKB, local agents. No outbound network without explicit per-domain consent.
-- The unified `OGLAB_PASSWORD` set during `./oglab setup` gates every login surface.
+- The unified `ARAIL_PASSWORD` set during `./arail setup` gates every login surface.
 
 The security model assumes **the loopback interface is trusted** and the user is the only operator on the machine. Moving any service off `127.0.0.1` — even to a LAN address, even behind a VPN — is **explicit opt-out** of that model and requires the operator to put their own auth layer in front. See `README.md` for the exposure warning.
 
 ## Supported versions
 
-OGLab is pre-1.0 and ships from `main`. Only the latest commit on `main` receives security fixes. There is no LTS branch.
+Arail is pre-1.0 and ships from `main`. Only the latest commit on `main` receives security fixes. There is no LTS branch.
 
 ## Reporting a vulnerability
 
@@ -57,4 +57,4 @@ Reports in these areas are welcome:
 - Credential leakage (tokens, passwords, encryption keys) into logs, git history, or world-readable files.
 - Supply-chain or dependency issues that materially change the above.
 
-Thanks for helping keep OGLab honest.
+Thanks for helping keep Arail honest.

@@ -3,8 +3,8 @@ from pydantic import BaseModel
 
 from app.agents.cluster_synthesizer import synthesize_cluster
 from app.agents.link_discoverer import discover_links
-from oglab.config import PKB_ROOT
-from oglab import wiki
+from arail.config import PKB_ROOT
+from arail import wiki
 
 router = APIRouter()
 

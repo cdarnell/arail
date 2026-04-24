@@ -7,7 +7,7 @@ This doc has two halves:
 - **Half A — Inference engines.** People trying to run big models on small machines.
 - **Half B — Distillation and synthetic-data techniques.** People turning teacher outputs into better students.
 
-OGLab's product sits at the intersection. No one public (as of April 2026) has combined a layer-streamed frontier teacher with an adversarial-agent distillation swarm on a single consumer box. Each half of the stack has 2–5 serious competitors; the *combination* is the novel lane.
+Arail's product sits at the intersection. No one public (as of April 2026) has combined a layer-streamed frontier teacher with an adversarial-agent distillation swarm on a single consumer box. Each half of the stack has 2–5 serious competitors; the *combination* is the novel lane.
 
 **Note on track-level novelty.** Within Half A, the CUDA lane is already crowded — AeroLLM, KTransformers, vLLM, and llama.cpp all address some version of the problem. The **MLX lane is nearly empty**: SwiftLM is the only published adjacent effort, and it doesn't ship batching or autoresearch. That's why AeroLLM prioritizes MLX — the marginal public-good contribution is higher there, and the engineering risk is real but bounded. The CUDA track in AeroLLM is not trying to out-invent AeroLLM; it's carrying a proven baseline along so the distillation product works on both consumer-Apple and consumer-NVIDIA hardware.
 
@@ -27,7 +27,7 @@ OGLab's product sits at the intersection. No one public (as of April 2026) has c
 - No scheduler / queue / continuous-batching abstraction — it's a library, not a server.
 - Light on observability — no per-stage timings exposed.
 
-**Where AeroLLM adds value:** multi-threaded prefetch + concurrent-prompt batching inside the Rust core, an MLX backend (no public equivalent today), an autoresearch knob-sweep framework, and per-stage observability. Most of what OGLab ships on top is application code — scheduler, dashboard, benchmark capture.
+**Where AeroLLM adds value:** multi-threaded prefetch + concurrent-prompt batching inside the Rust core, an MLX backend (no public equivalent today), an autoresearch knob-sweep framework, and per-stage observability. Most of what Arail ships on top is application code — scheduler, dashboard, benchmark capture.
 
 ## A.2. vLLM
 

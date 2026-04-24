@@ -86,7 +86,7 @@ cd frontend && npm install && npm run dev
 Open `http://localhost:5173`. The canvas appears with every source the
 lab has curated so far.
 
-### OGLab integration notes
+### Arail integration notes
 
 - Imported location: `core/knowledge-canvas/`
 - Backend mount in portal: `http://127.0.0.1:8080/knowledge-canvas/`

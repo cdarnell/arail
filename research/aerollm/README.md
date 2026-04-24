@@ -1,11 +1,11 @@
 # AeroLLM — Research & Optimization Workbench
 
 **Project name.** **AeroLLM** — the Rust runtime with MLX and CUDA
-backends that OGLab uses for deep inference. Multi-threaded prefetched
+backends that Arail uses for deep inference. Multi-threaded prefetched
 layer streaming optimized for concurrent research prompts.
 Upstream: [github.com/cdarnell/aerollm](https://github.com/cdarnell/aerollm).
 
-**What this is.** The engineering workbench for AeroLLM — the inference layer of OGLab's distillation product. Layer streaming + batching is *how* we run frontier open-weights teachers on consumer hardware cheaply enough to make symbolic chain-of-thought distillation into task-specific SLMs economically viable.
+**What this is.** The engineering workbench for AeroLLM — the inference layer of Arail's distillation product. Layer streaming + batching is *how* we run frontier open-weights teachers on consumer hardware cheaply enough to make symbolic chain-of-thought distillation into task-specific SLMs economically viable.
 
 **The product this serves.** See [`00-product-vision.md`](./00-product-vision.md). The one-liner: distill task-specific Small Language Models by running the world's largest LLMs as teachers on commodity hardware, using symbolic CoT traces filtered by a swarm of adversarial agents. Everything in this folder is in service of that.
 
@@ -22,7 +22,7 @@ Upstream: [github.com/cdarnell/aerollm](https://github.com/cdarnell/aerollm).
 
 > **On a single consumer box, disk bandwidth is a hard ceiling for per-token latency on layer-streamed dense models — you cannot out-engineer physics. But the per-token cost is dominated by a one-time-per-layer load, so batching N prompts through the same layer pass yields near-linear N-way speedup in tokens/sec. That makes layer-streamed inference a terrible chat engine and an excellent *offline training-pair factory*. For distillation, a terrible chat engine is exactly what you want: latency is free, throughput-per-watt-per-dollar is the whole game.**
 
-Evidence: verdagon.dev + the OGLab infographic show **35.35 s/token single-prompt → 5.32 s/token at batch 50 → 4.85 s/token at batch 500 on a 70B model, 16 GB RAM, consumer laptop** — a 7.3× throughput gain with zero change to AeroLLM internals, just an application-level scheduler. See [`02-batching-strategy.md`](./02-batching-strategy.md).
+Evidence: verdagon.dev + the Arail infographic show **35.35 s/token single-prompt → 5.32 s/token at batch 50 → 4.85 s/token at batch 500 on a 70B model, 16 GB RAM, consumer laptop** — a 7.3× throughput gain with zero change to AeroLLM internals, just an application-level scheduler. See [`02-batching-strategy.md`](./02-batching-strategy.md).
 
 Economic translation: at 4.85 s/token × batch 500 = ~100 tokens/sec aggregate. Over 24 hours that's ~8.6M teacher tokens/day from a single laptop. At ~500 tokens per training example (prompt + CoT + answer), that's ~17k training examples/day on a box we already own. Frontier-quality synthetic distillation corpora have historically required cloud GPU clusters. AeroLLM is the argument that they don't have to.
 

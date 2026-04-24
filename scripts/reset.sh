@@ -16,12 +16,12 @@ error() { echo -e "  ${RED}✗${RESET} $*"; }
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 AUTO_CONFIRM="false"
-DESTROY_LOG="/tmp/oglab-destroy.log"
+DESTROY_LOG="/tmp/arail-destroy.log"
 cd "$REPO_ROOT"
 
 # shellcheck disable=SC1091
 [[ -f .env ]] && set -a && source .env && set +a
-LAB_NAME="${LAB_NAME:-OGLab}"
+LAB_NAME="${LAB_NAME:-Arail}"
 
 # ── Stop running services ────────────────────────────────────────────
 stop_services() {
@@ -74,7 +74,7 @@ reset_data() {
 }
 
 reset_plugins() {
-    local plugins_dir="$HOME/.oglab/plugins"
+    local plugins_dir="$HOME/.arail/plugins"
     if [[ -d "$plugins_dir" ]]; then
         local sz
         sz=$(report_size "$plugins_dir")
@@ -89,7 +89,7 @@ reset_plugins() {
 reset_pkb() {
     # Wipes the central knowledge base — every user upload, agent-written
     # report, note, and seed-pack file. The wiki cache goes too so the
-    # wiki rebuild starts clean. On next `./oglab start` the starter
+    # wiki rebuild starts clean. On next `./arail start` the starter
     # packs re-seed automatically.
     local pkb_dir="lab/pkb"
     local cache_dir="lab/pkb/.wiki-cache"
@@ -103,7 +103,26 @@ reset_pkb() {
     warn "This wipes every note, upload, agent finding, and seeded primer."
     rm -rf "$pkb_dir"
     rm -rf "$cache_dir" 2>/dev/null || true
-    info "Knowledge base removed. Starter packs will re-seed on next ./oglab start."
+    info "Knowledge base removed. Starter packs will re-seed on next ./arail start."
+}
+
+reset_pkb_seeds() {
+    # Granular variant of reset_pkb: only wipes the seeded starter
+    # primers under lab/pkb/sources/seeds/. User notes, agent writes,
+    # and uploads are untouched. On next `./arail start` the starter
+    # packs re-seed automatically — to keep them gone, also disable
+    # ARAIL_AUTO_SEED in .env (TODO: not yet honored by the seeder).
+    local seed_dir="lab/pkb/sources/seeds"
+    if [[ ! -d "$seed_dir" ]]; then
+        info "No lab/pkb/sources/seeds/ directory — nothing to remove."
+        return
+    fi
+    local sz
+    sz=$(report_size "$seed_dir")
+    warn "Removing ${seed_dir}/ (${sz})..."
+    warn "Only seed packs are removed. Your notes, uploads, and agent writes stay put."
+    rm -rf "$seed_dir"
+    info "Seed packs removed. They will re-install on next ./arail start unless disabled."
 }
 
 reset_env() {
@@ -130,12 +149,12 @@ full_wipe() {
     reset_plugins
     reset_env
     # Also clean caches
-    for dir in __pycache__ .pytest_cache oglab.egg-info; do
+    for dir in __pycache__ .pytest_cache arail.egg-info; do
         find . -type d -name "$dir" -exec rm -rf {} + 2>/dev/null || true
     done
     find . -name "*.pyc" -delete 2>/dev/null || true
     info "Full wipe complete. Source code preserved."
-    info "Run ${BOLD}./oglab setup${RESET} to rebuild."
+    info "Run ${BOLD}./arail setup${RESET} to rebuild."
 }
 
 destroy_lab() {
@@ -143,7 +162,7 @@ destroy_lab() {
 
     local target_dir="$REPO_ROOT"
     local helper
-    helper="$(mktemp /tmp/oglab-destroy.XXXXXX.sh)"
+    helper="$(mktemp /tmp/arail-destroy.XXXXXX.sh)"
 
     cat > "$helper" <<EOF
 #!/usr/bin/env bash
@@ -158,7 +177,7 @@ rm -rf "$HOME/.local/bin/code-server"
 rm -rf "$HOME"/.local/lib/code-server-*
 rm -rf "$HOME/.local/share/jupyter/runtime"
 rm -rf "$HOME/.jupyter"
-rm -rf /tmp/oglab*
+rm -rf /tmp/arail*
 rm -f /tmp/jpserver-*.json /tmp/jupyter-*.html
 rm -f "$helper"
 EOF
@@ -176,13 +195,14 @@ usage() {
     echo ""
     echo -e "  ${BOLD}${LAB_NAME} Reset${RESET}"
     echo ""
-    echo "  Usage: ./oglab reset [mode] [--yes]"
+    echo "  Usage: ./arail reset [mode] [--yes]"
     echo ""
     echo "  Modes:"
     echo "    models    Remove downloaded models only"
     echo "    data      Remove experiments and data"
     echo "    pkb       Remove the knowledge base (all notes, uploads,"
     echo "              agent findings, seed packs). Re-seeds on next start."
+    echo "    pkb-seeds Remove only the seeded starter primers; keep your notes."
     echo "    plugins   Remove installed plugins"
     echo "    env       Remove .venv, .env, lab.conf"
     echo "    full      Complete wipe — keeps the knowledge base safe."
@@ -268,7 +288,8 @@ done
 case "${MODE:-}" in
     models)  confirm_and_run "models" reset_models ;;
     data)    confirm_and_run "data & experiments" reset_data ;;
-    pkb)     confirm_and_run "KNOWLEDGE BASE" reset_pkb ;;
+    pkb)       confirm_and_run "KNOWLEDGE BASE" reset_pkb ;;
+    pkb-seeds) confirm_and_run "starter pack seeds" reset_pkb_seeds ;;
     plugins) confirm_and_run "plugins" reset_plugins ;;
     env)     confirm_and_run "environment" reset_env ;;
     full)    confirm_and_run "FULL WIPE" full_wipe ;;

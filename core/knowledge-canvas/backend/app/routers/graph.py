@@ -4,9 +4,9 @@ from pathlib import Path
 
 from fastapi import APIRouter, Request
 
-from oglab.goals import GoalStore
-from oglab.config import PKB_ROOT
-from oglab import wiki
+from arail.goals import GoalStore
+from arail.config import PKB_ROOT
+from arail import wiki
 
 router = APIRouter()
 

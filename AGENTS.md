@@ -1,20 +1,24 @@
 # AGENTS.md — Vibe App Integration manifest
 
-This file tells an AI coding agent everything it needs to **port OGLab
-to a new platform, package manager, or shell** without reading the
-whole codebase. If you're a human trying to do the same port by hand,
+This file tells an AI coding agent everything it needs to **port Autoresearch
+AI Lab (ARAIL) to a new platform, package manager, or shell** without reading
+the whole codebase. If you're a human trying to do the same port by hand,
 [docs/LINUX.md](docs/LINUX.md) is the long-form version.
+
+> Looking for the *user-facing* agents (Pip, SRE, Researcher)? See the
+> README's "Agents" section or [docs/agents.md](docs/agents.md).
 
 The goal: a user on a distro we don't support yet can hand their
 agent this file + `scripts/setup.sh` + one sentence ("port this to
 Fedora") and get a working setup with the same UX our blessed paths
 have.
 
-## What OGLab is, in two sentences
+## What ARAIL is, in two sentences
 
 A local-first AI lab blueprint. Users clone the repo, run
-`./oglab setup && ./oglab start`, get a dashboard + knowledge base +
-research agents running on their own hardware with their own models.
+`./arail setup && ./arail start`, pick a tier (min / med / max), and
+get a dashboard + chat + autoresearch running on their own hardware
+with their own models.
 
 ## The three entry points a port must implement
 
@@ -46,7 +50,7 @@ and the `command -v X &>/dev/null` idempotency guards:
 |---|---|---|
 | `ttyd` | Browser terminal at `/terminal` | Optional — portal shows install help if missing |
 | `tmux` | Persistence across iframe reloads | Optional — scrollback loss if missing |
-| `ollama` | Local LLM server on port 11434 | Optional — `OGLAB_SKIP_OLLAMA=1` to skip |
+| `ollama` | Local LLM server on port 11434 | Optional — `ARAIL_SKIP_OLLAMA=1` to skip |
 | `agent-browser` | Web research agent | npm global — same on every platform |
 
 Fedora example:
@@ -68,7 +72,7 @@ Most Linux distros fall back to `cuda` or `cpu` and need no change.
 
 ## Contract the port must preserve
 
-1. **Idempotent.** Re-running `./oglab setup` on a half-finished run
+1. **Idempotent.** Re-running `./arail setup` on a half-finished run
    must pick up cleanly. Every install step checks `command -v X`
    first. Never fail hard on an optional binary — `warn` and continue.
 2. **Numbered banners.** Every major section prints
@@ -88,32 +92,32 @@ Most Linux distros fall back to `cuda` or `cpu` and need no change.
 
 ```bash
 # Fresh VM of your target distro
-git clone https://github.com/cdarnell/minimalist-blueprint.git oglab
-cd oglab
+git clone https://github.com/cdarnell/autoresearch-lab.git arail
+cd arail
 
 # Non-interactive mode confirms the whole pipeline works without human input
-OGLAB_NONINTERACTIVE=1 ./oglab setup
+ARAIL_NONINTERACTIVE=1 ./arail setup
 
 # Environment validator — catches stale .env, missing keys, passphrase drift
-./oglab doctor
+./arail doctor
 
 # End-to-end — portal should come up with agents running
-./oglab start
+./arail start
 
 # Visit http://127.0.0.1:8080 — type a goal, click Run Research,
 # confirm the research activity log lights up.
 ```
 
 Done means all five steps succeed on a fresh VM with no manual
-intervention. If you had to `apt install X` before `./oglab setup`
+intervention. If you had to `apt install X` before `./arail setup`
 worked, add `X` to `install_services()` so the next user doesn't.
 
 ## Files your port should NOT touch
 
-- `src/oglab/` — the Python code has no OS-specific branches. It
+- `src/arail/` — the Python code has no OS-specific branches. It
   shouldn't grow any.
 - `compose/*.yml` — Docker overlays are platform-neutral.
-- `.env.example` — `./oglab setup` writes values at runtime; don't
+- `.env.example` — `./arail setup` writes values at runtime; don't
   hardcode platform-specific defaults here.
 - `lab.conf` — regenerated on every setup.
 
@@ -129,9 +133,9 @@ worked, add `X` to `install_services()` so the next user doesn't.
 
 - [ ] `detect_platform` has a branch that sets `PLATFORM` and `ACCEL`.
 - [ ] `install_services` has a branch for each of ttyd, tmux, ollama.
-- [ ] `OGLAB_NONINTERACTIVE=1 ./oglab setup` completes on a fresh VM.
-- [ ] `./oglab doctor` returns OK.
-- [ ] `./oglab start` launches, dashboard reaches `/` without errors.
+- [ ] `ARAIL_NONINTERACTIVE=1 ./arail setup` completes on a fresh VM.
+- [ ] `./arail doctor` returns OK.
+- [ ] `./arail start` launches, dashboard reaches `/` without errors.
 - [ ] `README.md` Platform Support table has a row for your distro.
 - [ ] If the port needs a pre-requisite the script can't auto-install,
       `docs/<YOUR_PLATFORM>.md` documents it.
@@ -140,7 +144,7 @@ worked, add `X` to `install_services()` so the next user doesn't.
 
 If you're not an AI agent and you got here by accident: this manifest
 is what we hand to coding agents (Claude, Cursor, etc.) when asking
-them to port OGLab to new platforms. You can use it the same way —
+them to port ARAIL to new platforms. You can use it the same way —
 point your favorite LLM at `scripts/setup.sh` and this file, ask it
 to add a Fedora branch, and it'll give you a working patch in one
 shot. That's the "vibe integrate" flow.

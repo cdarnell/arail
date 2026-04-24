@@ -1,17 +1,17 @@
 [build-system]
-# setuptools handles editable installs and extras used by ./oglab setup.
+# setuptools handles editable installs and extras used by ./lab setup.
 requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "oglab"
+name = "arail"
 version = "0.1.0"
-description = "Local AutoResearch blueprint — improve something measurable and learn from the loop."
+description = "Autoresearch AI Lab — a learn-by-doing AI research blueprint you can share with friends and family."
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
 
-# Base dependencies are the always-on lab surfaces: the portal, routing,
+# Base dependencies are the always-on lab surfaces: portal, routing,
 # workflow memory, file ingestion, and setup/runtime helpers.
 dependencies = [
     "python-dotenv>=1.0.0",
@@ -24,68 +24,103 @@ dependencies = [
     "markdown-it-py>=3.0.0",
     "python-multipart>=0.0.9",
     "pyyaml>=6.0",
-    "lancedb>=0.13.0",
     "tomli>=2.0.1; python_version < '3.11'",
 ]
 
 [project.optional-dependencies]
-# Hardware/runtime extras. scripts/setup.sh installs one accelerator extra
-# based on detected hardware instead of hardcoding package versions.
+# ── Install tiers ─────────────────────────────────────────────────────────
+# Two tiers: min (the default everyday lab) and max (the full bench).
+# Upgrade any time with `./arail upgrade max`.
+#
+#   min → Dashboard + Chat + Autoresearch + Knowledge Base + Agents +
+#         AirLLM deep layer-streaming with a 70B default (Llama-3.1-70B).
+#         KB uses markdown + keyword search — no vector index required.
+#         External provider chat (Claude / NVIDIA / OpenRouter / HF) works
+#         here via plain HTTP, no extra SDK.
+#   max → + Admin + Notebooks + LanceDB vector search + bigger AirLLM
+#         default (Llama-3.1-405B — the model AirLLM was designed to run
+#         on 8 GB VRAM) + official Anthropic SDK + optional LangChain/LangGraph.
+min = [
+    "airllm>=2.0",
+]
+max = [
+    "lancedb>=0.13.0",
+    "jupyterlab>=4.0.0",
+    "anthropic>=0.31.0",
+    "langchain>=0.2.0",
+    "langgraph>=0.2.0",
+    "airllm>=2.0",
+]
+
+# ── Hardware/runtime extras ───────────────────────────────────────────────
+# scripts/setup.sh installs one accelerator extra based on detected hardware.
 mlx   = ["mlx>=0.4.0", "mlx-lm>=0.8.0"]
 cuda  = ["vllm>=0.5.0", "torch>=2.3.0"]
 cpu   = ["llama-cpp-python>=0.2.0"]
 
-# Workbench extras. Keep optional so the setup flow can stay lean on smaller
-# machines while still letting all-in installs pull in the full lab surface.
-notebook = ["jupyterlab>=4.0.0"]
+# ── Granular extras (also included via max above) ─────────────────────────
+notebook  = ["jupyterlab>=4.0.0"]
+cloud     = ["anthropic>=0.31.0"]
+vector    = ["lancedb>=0.13.0"]
+langchain = ["langchain>=0.2.0", "langgraph>=0.2.0"]
 
-# Opt-in hosted backends.
-cloud = ["anthropic>=0.31.0"]
-
-# Convenience alias for environments that explicitly ask for the vector stack,
-# even though the main lab install already includes LanceDB by default.
-vector = ["lancedb>=0.13.0"]
-
-# Development/test helpers.
+# ── Dev / test ────────────────────────────────────────────────────────────
 dev   = ["pytest>=7.4.0"]
 
 [project.urls]
-Repository = "https://github.com/cdarnell/minimalist-blueprint"
-Issues = "https://github.com/cdarnell/minimalist-blueprint/issues"
+Repository = "https://github.com/cdarnell/autoresearch-lab"
+Issues     = "https://github.com/cdarnell/autoresearch-lab/issues"
 
-[tool.oglab]
-# This is the configuration-as-code metadata section for the blueprint.
-# Package versions, install sources, and runtime defaults belong here so
-# setup/start scripts read one source of truth instead of carrying shell
-# duplicates that drift over time.
-default_blueprint = "AutoResearch"
-learning_goal = "Improve something measurable and learn while the loop runs."
-memory_backend = "lancedb"
-memory_fallback = "json"
+[tool.arail]
+# Configuration-as-code for the blueprint. Package versions, install sources,
+# and runtime defaults read from one source of truth instead of scattering
+# through shell scripts that drift over time.
+default_blueprint    = "Autoresearch"
+learning_goal        = "Improve something measurable and learn while the loop runs."
+memory_backend       = "lancedb"
+memory_fallback      = "json"
 configuration_source = "pyproject.toml"
 
-[tool.oglab.models]
+[tool.arail.tiers]
+# Declarative surface matrix. portal/app.py reads this to tier-gate the nav.
+min = { description = "Dashboard, Chat, Autoresearch, Knowledge Base, Agents — everyday lab with AirLLM deep streaming (70B default).", surfaces = ["dashboard", "chat", "research", "knowledge", "agents"] }
+max = { description = "Everything in min + Admin, Notebooks, LanceDB vectors, AirLLM 405B default, LangChain/LangGraph, full cloud catalog.", surfaces = ["dashboard", "chat", "research", "knowledge", "agents", "admin", "notebooks", "terminal", "tuning", "plugins"] }
+
+[tool.arail.models]
 # Default starter models selected by setup after hardware detection.
-mlx = "mlx-community/Qwen3-8B-4bit"
-cuda = "Qwen/Qwen3-8B"
-cpu = "Qwen/Qwen3-8B-GGUF"
-aerollm = "zai-org/GLM-5.1"
+# (mlx/cuda/cpu = the small "instant" model that runs natively on the
+# accelerator; airllm_* = the heavy deep model that streams layer-by-layer
+# via AirLLM and powers the dashboard "Deep model" toggle.)
+#
+# IMPORTANT: airllm_min and airllm_max must be Llama-family repos.
+# AirLLM's compatibility surface is narrow — Llama 2/3/3.1 is the
+# canonical happy path. Other families (Mistral, Qwen, DeepSeek, GLM)
+# work in some versions but break in others. Check AirLLM's README
+# before swapping to a non-Llama default.
+mlx          = "mlx-community/Qwen3-8B-4bit"
+cuda         = "Qwen/Qwen3-8B"
+cpu          = "Qwen/Qwen3-8B-GGUF"
+airllm_min   = "meta-llama/Llama-3.1-70B"
+airllm_max   = "meta-llama/Llama-3.1-405B"
+# Legacy alias kept for back-compat with older setup scripts and external
+# tooling that read [tool.arail.models].airllm directly. Resolves to the
+# min default (70B).
+airllm       = "meta-llama/Llama-3.1-70B"
+# AeroLLM (Arail's own Rust runtime) is dormant in this blueprint. The
+# entry stays so when the runtime is ready we can flip it back into
+# [tool.arail.models] without re-deriving the schema.
+aerollm      = "zai-org/GLM-5.1"
 
-[tool.oglab.package-sources]
-# AeroLLM is intentionally declared here so its source URL and branch live in
-# pyproject.toml with the rest of the dependency metadata.
+[tool.arail.package-sources]
+# Deep-backend install source. The blueprint ships with AirLLM only.
+# AeroLLM remains declared as a dormant entry — the AeroLLMBackend
+# class still lives in src/arail/router/backends.py for the eventual
+# swap-back, but setup never installs it.
+airllm  = "airllm>=2.0"
 aerollm = "git+https://github.com/cdarnell/aerollm@main"
-
-[tool.oglab.profiles.light]
-description = "Core lab only: dashboard, chat, AutoResearch, and workflow memory."
-python_extras = []
-
-[tool.oglab.profiles.all_in]
-description = "Light profile plus notebook and deeper model/tooling support."
-python_extras = ["notebook"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
-"oglab.portal" = ["templates/*.html", "templates/wiki/*.html", "static/*"]
+"arail.portal" = ["templates/*.html", "templates/wiki/*.html", "static/*"]
