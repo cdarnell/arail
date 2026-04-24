@@ -37,12 +37,22 @@ lab/models/
 lab/pkb/inbox/*
 !lab/pkb/inbox/.gitkeep
 lab/pkb/.wiki-cache/
+# LanceDB-backed PKB vector index — auto-rebuilt on demand by arail.pkb.
+lab/pkb/.cache/
 # PKB sections that agents + docgen write to — re-seed / rebuild on demand.
 lab/pkb/agents/
 lab/pkb/compiled/
 lab/pkb/inference/
 lab/pkb/notes/
-lab/pkb/research/
+# lab/pkb/research/: only the contract files ship in the repo —
+# README.md explains the triple, prepare.py is the validation substrate.
+# Everything else under here (program.md, train.py, user notes, fetched
+# sources) is runtime state and stays ignored. The `lab/pkb/research/*`
+# form (instead of `lab/pkb/research/`) is required for the `!` negations
+# below to take effect.
+lab/pkb/research/*
+!lab/pkb/research/README.md
+!lab/pkb/research/prepare.py
 lab/pkb/skills/
 lab/pkb/sources/seeds/
 lab/pkb/index.md

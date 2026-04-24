@@ -1243,6 +1243,7 @@ async def set_goal(request: Request):
     body = await request.json()
     goal_text = body.get("goal", "")
     auto_start = body.get("auto_start", True)
+    auto_draft = body.get("auto_draft", True)
     try:
         parsed = parser.parse(goal_text)
     except Exception:
@@ -1254,7 +1255,62 @@ async def set_goal(request: Request):
         researcher.start(parsed)
         activity_log.emit("researcher",
             "Auto-starting research on your new goal…", "info")
+    # Fire-and-forget the program drafter so the user gets a first
+    # pass at lab/pkb/research/program.md within seconds. Honors
+    # force=False — re-setting a goal never clobbers existing edits.
+    if auto_draft:
+        asyncio.create_task(_auto_draft_program(record))
     return record
+
+
+async def _auto_draft_program(goal_record: dict) -> None:
+    """Run the program drafter off the request thread.
+
+    Called from POST /api/goal as a fire-and-forget task. Pulls fresh
+    KB hits via the LanceDB-backed pkb.search so the Sources section
+    reflects the current corpus. Always swallows errors — drafting is
+    a nice-to-have, never gate goal-set on it.
+    """
+    try:
+        from arail.research.program_drafter import draft_program
+        from arail import pkb as pkb_mod
+
+        goal_text = goal_record.get("goal_text", "") or ""
+        kb_hits = []
+        try:
+            kb_hits = pkb_mod.search(goal_text)[:8]
+        except Exception:
+            pass
+        result = await asyncio.to_thread(
+            draft_program,
+            goal_record=goal_record,
+            kb_hits=kb_hits,
+            force=False,
+        )
+        if result.wrote:
+            activity_log.emit(
+                "researcher",
+                "Drafted research program — review at "
+                "/knowledge?file=research/program.md",
+                "info",
+                {
+                    "program_path": str(result.program_path),
+                    "hypothesis_count": result.hypothesis_count,
+                    "sources_count": result.sources_count,
+                },
+            )
+        else:
+            activity_log.emit(
+                "researcher",
+                f"Skipped re-draft of program.md ({result.reason}). "
+                "Click Re-draft on the dashboard to overwrite.",
+                "info",
+            )
+    except Exception as e:
+        activity_log.emit(
+            "researcher",
+            f"Program draft failed: {e!s}", "warn",
+        )
 
 
 @app.get("/api/goal")
@@ -1416,6 +1472,102 @@ async def research_file(name: str = ""):
         return {"error": str(e)}
 
 
+# ── Research program API ─────────────────────────────────────────────────
+# Lifecycle endpoints for the system-authored "research recipe" — see
+# lab/pkb/research/README.md for the contract. The drafter runs
+# automatically on POST /api/goal; these endpoints are for manual
+# re-draft and reset triggered from the dashboard or autoresearch tab.
+
+@app.post("/api/research/program/draft")
+async def research_program_draft(request: Request):
+    """Draft (or re-draft) lab/pkb/research/program.md from the current goal.
+
+    Body: ``{ "force": false }``. Without ``force`` we refuse to
+    overwrite an existing program.md so re-setting a goal never
+    clobbers user edits. The dashboard's "Re-draft" button passes
+    ``force=true``.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    force = bool(body.get("force", False))
+
+    current = goal_store.get_current()
+    if not current:
+        return {"ok": False, "error": "no active goal — set one first"}
+
+    from arail.research.program_drafter import draft_program
+    from arail import pkb as pkb_mod
+    goal_text = current.get("goal_text", "") or ""
+    kb_hits: list = []
+    try:
+        kb_hits = pkb_mod.search(goal_text)[:8]
+    except Exception:
+        pass
+    result = await asyncio.to_thread(
+        draft_program,
+        goal_record=current,
+        kb_hits=kb_hits,
+        force=force,
+    )
+    if result.wrote:
+        activity_log.emit(
+            "researcher",
+            f"Re-drafted research program ({result.hypothesis_count} hypotheses, "
+            f"{result.sources_count} sources).", "info")
+    return {"ok": True, **result.as_dict()}
+
+
+@app.post("/api/research/program/reset")
+async def research_program_reset():
+    """Wipe program.md + train.py + curated source fetches.
+
+    Mirrors ``./arail reset program``. Always preserves prepare.py
+    (the validation contract is sticky). Resets the autoresearch
+    schedule to paused so the next run starts from a clean slate.
+    """
+    from arail.research.program_drafter import (
+        _DEFAULT_RESEARCH_DIR as RESEARCH_DIR,
+    )
+    program_path = RESEARCH_DIR / "program.md"
+    train_path = RESEARCH_DIR / "train.py"
+    schedule_path = Path("lab/data/autoresearch-schedule.json")
+    research_sources = Path("lab/pkb/sources/research")
+
+    removed = []
+    for p in (program_path, train_path):
+        if p.exists():
+            try:
+                p.unlink()
+                removed.append(str(p))
+            except OSError:
+                pass
+    # Curated source fetches (when Thread E lands they'll live here).
+    if research_sources.exists():
+        try:
+            for f in research_sources.glob("*.md"):
+                f.unlink()
+                removed.append(str(f))
+        except OSError:
+            pass
+    # Reset the autoresearch schedule to paused.
+    if schedule_path.exists():
+        try:
+            schedule_path.write_text(
+                '{"mode": "paused", "window_start": "22:00", "window_end": "06:00"}\n'
+            )
+            removed.append(f"{schedule_path} (reset to paused)")
+        except OSError:
+            pass
+
+    activity_log.emit(
+        "researcher",
+        f"Reset research program — removed {len(removed)} file(s). "
+        "prepare.py is left in place.", "warn")
+    return {"ok": True, "removed": removed}
+
+
 # ── Jobs / Scheduler API ─────────────────────────────────────────────────
 # Halt = soft emergency stop: cancels running work but keeps the portal
 # and services up, unlike `./arail stop` which tears down everything.
@@ -1452,6 +1604,20 @@ async def jobs_resume():
 @app.get("/api/experiments")
 async def list_experiments(status: str | None = None):
     return tracker.list_all(status=status)
+
+
+@app.get("/api/experiments/search")
+async def search_experiments(q: str, k: int = 5, status: str | None = None):
+    """Semantic search over the experiment corpus.
+
+    Backed by the shared LanceDB index (arail.vector_index). Falls back
+    to substring scan when LanceDB is unreachable so the endpoint is
+    always usable.
+    """
+    if not q or not q.strip():
+        return {"query": q, "hits": []}
+    hits = tracker.search(q.strip(), k=max(1, min(k, 25)), status=status)
+    return {"query": q, "hits": hits}
 
 
 @app.post("/api/experiments")

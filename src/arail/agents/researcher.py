@@ -332,64 +332,30 @@ class ResearcherAgent:
                     slept += 1
 
             # Consult the knowledge base FIRST so the researcher's opening
-            # move is visibly grounded in what the lab already knows. This
-            # is the smallest visible step toward the user's vision: when
-            # a goal is set, the agent reaches into the KB before doing
-            # anything else. (The KB ships with starter primers; users
-            # add their own corpus to make this richer.)
+            # move is visibly grounded in what the lab already knows. The
+            # KB ships LanceDB-backed semantic search (see
+            # arail.pkb.search), so a single-shot fuzzy query like
+            # "Improve AeroLLM SSD inference" lands on the right primer
+            # without us having to split keywords or strip stopwords.
             #
-            # pkb.search does exact substring match, so a multi-word goal
-            # like "Improve AeroLLM SSD inference" finds nothing as one
-            # query. Break the goal into meaningful keywords (≥4 chars,
-            # not stopwords), search each, union by path, sort by match
-            # count.
+            # We still drop structural noise (manifests, generated
+            # indexes, wiki cache) because semantic search will happily
+            # rank them on word overlap.
+            def _is_structural(path: str) -> bool:
+                p = path.lower()
+                return (
+                    p.endswith(".json")
+                    or p.endswith("/index.md")
+                    or p == "index.md"
+                    or "/.wiki-cache/" in p
+                    or "/manifest" in p
+                )
+
             try:
-                stopwords = {
-                    "the", "and", "for", "with", "from", "into", "this",
-                    "that", "than", "when", "what", "which", "their",
-                    "improve", "better", "while", "about", "make", "more",
-                    "your", "some", "such", "these", "those", "have",
-                    "been", "being", "will", "would", "could", "should",
-                }
-                terms = [
-                    t.strip(".,;:!?\"'()[]{}").lower()
-                    for t in goal_text.split()
-                    if len(t) >= 4
-                ]
-                terms = [t for t in terms if t and t not in stopwords]
-                # Cap at 6 terms to keep this snappy.
-                terms = list(dict.fromkeys(terms))[:6]
-
-                # Skip structural files — manifests, indexes, wiki cache.
-                # We want the user to see the actual primer/note hits, not
-                # noise from auto-generated registries.
-                def _is_structural(path: str) -> bool:
-                    p = path.lower()
-                    return (
-                        p.endswith(".json")
-                        or p.endswith("/index.md")
-                        or p == "index.md"
-                        or "/.wiki-cache/" in p
-                        or "/manifest" in p
-                    )
-
-                merged: dict[str, dict] = {}
-                for term in terms or [goal_text]:
-                    for hit in pkb_mod.search(term):
-                        path = hit.get("path", "")
-                        if not path or _is_structural(path):
-                            continue
-                        existing = merged.get(path)
-                        if existing is None:
-                            merged[path] = dict(hit)
-                            merged[path]["score"] = hit.get("match_count", 1)
-                        else:
-                            existing["score"] += hit.get("match_count", 1)
-                kb_hits = sorted(
-                    merged.values(),
-                    key=lambda h: h.get("score", 0),
-                    reverse=True,
-                )[:5]
+                kb_hits = [
+                    h for h in pkb_mod.search(goal_text)
+                    if h.get("path") and not _is_structural(h["path"])
+                ][:5]
             except Exception:
                 kb_hits = []
             if kb_hits:

@@ -2172,3 +2172,142 @@ code {
   line-height: 1.45;
   font-style: italic;
 }
+
+/* ── Lab Knows panel (dashboard) ─────────────────────────────────────────
+   Compact two-column readout of LanceDB-backed semantic recall: KB
+   primers and past experiments related to the current goal. Sits inside
+   #goal-card, between the goal breakdown and the research controls. */
+.lab-knows {
+  margin: 0.9rem 0 0.6rem;
+  padding: 0.7rem 0.9rem;
+  background: rgba(0, 212, 255, 0.04);
+  border: 1px solid rgba(0, 212, 255, 0.18);
+  border-radius: var(--radius);
+}
+.lab-knows-header {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  margin-bottom: 0.55rem;
+}
+.lab-knows-title {
+  color: var(--blue);
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.lab-knows-status {
+  color: var(--muted);
+  font-size: 0.65rem;
+  font-style: italic;
+}
+.lab-knows-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.9rem;
+}
+@media (max-width: 720px) {
+  .lab-knows-cols { grid-template-columns: 1fr; }
+}
+.lab-knows-col-label {
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  margin-bottom: 0.3rem;
+}
+.lab-knows-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.78rem;
+}
+.lab-knows-list li {
+  padding: 0.25rem 0.4rem;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  line-height: 1.35;
+}
+.lab-knows-list a { color: var(--text); text-decoration: none; }
+.lab-knows-list a:hover { color: var(--blue); text-decoration: underline; }
+.lab-knows-empty {
+  color: var(--muted);
+  font-style: italic;
+  background: transparent !important;
+  border-color: transparent !important;
+  padding-left: 0 !important;
+}
+.lab-knows-meta {
+  margin-left: 0.4rem;
+  color: var(--muted);
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.lab-knows-score {
+  margin-left: 0.3rem;
+  color: var(--blue);
+  font-size: 0.65rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.lab-knows-exp-id {
+  display: inline-block;
+  font-family: var(--font);
+  background: rgba(0, 255, 65, 0.08);
+  color: var(--green);
+  padding: 0 0.3rem;
+  border-radius: 3px;
+  margin-right: 0.3rem;
+  font-size: 0.7rem;
+}
+
+/* ── Lab Knows: Research program row ────────────────────────────────────
+   The third row of the panel. Stretches across both columns to call
+   attention to the auto-drafted recipe. Shows a status pill + Re-draft. */
+.lab-knows-program {
+  margin-top: 0.7rem;
+  padding-top: 0.65rem;
+  border-top: 1px dashed rgba(0, 212, 255, 0.18);
+  display: flex;
+  align-items: baseline;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+  font-size: 0.78rem;
+}
+.lab-knows-program .lab-knows-col-label { margin-bottom: 0; }
+.lab-knows-program-link {
+  color: var(--text);
+  text-decoration: none;
+  font-weight: 600;
+}
+.lab-knows-program-link:hover { color: var(--blue); text-decoration: underline; }
+.lab-knows-program-status {
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-style: italic;
+}
+.lab-knows-program-status.ok { color: var(--green); font-style: normal; }
+.lab-knows-program-status.pending { color: var(--amber); }
+.lab-knows-program-redraft {
+  margin-left: auto;
+  background: rgba(0, 212, 255, 0.1);
+  color: var(--blue);
+  border: 1px solid rgba(0, 212, 255, 0.3);
+  border-radius: 4px;
+  padding: 0.25rem 0.65rem;
+  font-size: 0.7rem;
+  font-family: var(--font);
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.lab-knows-program-redraft:hover:not(:disabled) {
+  background: rgba(0, 212, 255, 0.2);
+  color: var(--text-hi);
+}
+.lab-knows-program-redraft:disabled { opacity: 0.5; cursor: not-allowed; }

@@ -113,42 +113,59 @@ class MLXBackend(BaseBackend):
                  temperature: float = 0.7,
                  top_p: Optional[float] = None) -> ModelResponse:
         start = time.time()
-        # mlx-lm ≥ 0.19 removed the `temp=` kwarg on generate(); you now
-        # build a sampler via make_sampler(temp=...) and pass it as
-        # `sampler=`. Old versions still accept `temp=` directly.
-        if self._make_sampler is not None:
-            sampler_kwargs = {"temp": temperature}
-            if top_p is not None:
-                sampler_kwargs["top_p"] = top_p
-            sampler = self._make_sampler(**sampler_kwargs)
-            text = self._generate(
-                self.model, self.tokenizer,
-                prompt=prompt,
-                max_tokens=max_tokens,
-                sampler=sampler,
-                verbose=False,
-            )
-        else:
-            # Pre-0.19 mlx-lm has no top_p support; silently drop it.
-            # Some mid-version mlx-lm builds removed `temp=` but also lack
-            # make_sampler — guard with a fallback to avoid the repeated
-            # "unexpected keyword argument 'temp'" crash.
-            try:
+        # Memory-pressure guard. Clears the Metal cache and refuses
+        # the call when accumulated activations have crossed the
+        # configurable threshold (default 85%). The Metal allocator
+        # OOM is a C++ exception that bypasses Python try/except, so
+        # we'd rather surface a typed Python error here than let it
+        # nuke the parent process. Callers (e.g. goal_parser) catch
+        # MetalOutOfMemory and fall back to heuristic / smaller path.
+        from arail.router.mlx_guard import assert_metal_safe, clear_metal_cache
+        assert_metal_safe(op=f"MLX generate({self.model_name})")
+        try:
+            # mlx-lm ≥ 0.19 removed the `temp=` kwarg on generate(); you
+            # now build a sampler via make_sampler(temp=...) and pass it
+            # as `sampler=`. Old versions still accept `temp=` directly.
+            if self._make_sampler is not None:
+                sampler_kwargs = {"temp": temperature}
+                if top_p is not None:
+                    sampler_kwargs["top_p"] = top_p
+                sampler = self._make_sampler(**sampler_kwargs)
                 text = self._generate(
                     self.model, self.tokenizer,
                     prompt=prompt,
                     max_tokens=max_tokens,
-                    temp=temperature,
+                    sampler=sampler,
                     verbose=False,
                 )
-            except TypeError:
-                # Newer generate() that dropped temp= but predates make_sampler.
-                text = self._generate(
-                    self.model, self.tokenizer,
-                    prompt=prompt,
-                    max_tokens=max_tokens,
-                    verbose=False,
-                )
+            else:
+                # Pre-0.19 mlx-lm has no top_p support; silently drop it.
+                # Some mid-version mlx-lm builds removed `temp=` but also
+                # lack make_sampler — guard with a fallback to avoid the
+                # repeated "unexpected keyword argument 'temp'" crash.
+                try:
+                    text = self._generate(
+                        self.model, self.tokenizer,
+                        prompt=prompt,
+                        max_tokens=max_tokens,
+                        temp=temperature,
+                        verbose=False,
+                    )
+                except TypeError:
+                    # Newer generate() that dropped temp= but predates
+                    # make_sampler.
+                    text = self._generate(
+                        self.model, self.tokenizer,
+                        prompt=prompt,
+                        max_tokens=max_tokens,
+                        verbose=False,
+                    )
+        finally:
+            # Always release activations after a generation pass —
+            # leaving them in flight makes the next assert_metal_safe
+            # spuriously refuse despite the model itself being smaller
+            # than the limit.
+            clear_metal_cache()
         return ModelResponse(
             text=text,
             model=self.model_name,
