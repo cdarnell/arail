@@ -367,6 +367,18 @@
           </ul>
         </div>
       </div>
+      <!-- Research recipe row — shows the auto-drafted program.md and
+           offers a Re-draft button. Powered by /api/research/program/draft.
+           See lab/pkb/research/README.md for the recipe contract. -->
+      <div class="lab-knows-program">
+        <span class="lab-knows-col-label">📝 Research program</span>
+        <a class="lab-knows-program-link" id="lab-knows-program-link"
+           href="/knowledge?file=research/program.md">research/program.md</a>
+        <span class="lab-knows-program-status" id="lab-knows-program-status">checking…</span>
+        <button type="button" class="lab-knows-program-redraft"
+                id="lab-knows-program-redraft"
+                title="Regenerate program.md from the current goal — clobbers your edits.">Re-draft</button>
+      </div>
     </div>
 
     <!-- Research controls — secondary actions on the already-running goal.
@@ -1928,7 +1940,70 @@ async function loadLabKnows(goalText) {
   }).catch(() => renderEmpty(expList, 'Experiment search unavailable.')).finally(() => {
     status.textContent = '';
   });
+
+  // Research program row — checks whether program.md exists yet and
+  // shows a status. The auto-drafter on POST /api/goal usually wins
+  // before the user gets here, so most loads show "drafted N min ago."
+  refreshProgramRow();
 }
+
+// ── Research program row ──
+async function refreshProgramRow() {
+  const statusEl = document.getElementById('lab-knows-program-status');
+  if (!statusEl) return;
+  try {
+    const r = await fetch('/api/research/file?name=program.md');
+    const data = await r.json();
+    if (data && data.content) {
+      // Pull drafted_at from the YAML frontmatter for a friendly label.
+      const m = data.content.match(/drafted_at:\s*([0-9T:+\-]+)/);
+      if (m) {
+        const t = new Date(m[1]);
+        const ago = Math.max(0, Math.round((Date.now() - t.getTime()) / 60000));
+        statusEl.textContent = ago === 0 ? 'just drafted' : `drafted ${ago} min ago`;
+      } else {
+        statusEl.textContent = 'present';
+      }
+      statusEl.className = 'lab-knows-program-status ok';
+    } else {
+      statusEl.textContent = 'not yet drafted';
+      statusEl.className = 'lab-knows-program-status pending';
+    }
+  } catch (e) {
+    statusEl.textContent = 'unavailable';
+  }
+}
+
+(function wireRedraftButton() {
+  const btn = document.getElementById('lab-knows-program-redraft');
+  if (!btn) return;
+  btn.addEventListener('click', async () => {
+    if (!confirm('Re-draft will overwrite your edits to program.md. Continue?')) return;
+    btn.disabled = true;
+    btn.textContent = 'Drafting…';
+    try {
+      const r = await fetch('/api/research/program/draft', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({force: true}),
+      });
+      const data = await r.json();
+      if (data.ok && data.wrote) {
+        btn.textContent = 'Drafted ✓';
+        setTimeout(() => { btn.textContent = 'Re-draft'; btn.disabled = false; }, 1500);
+        refreshProgramRow();
+      } else {
+        btn.textContent = 'Re-draft';
+        btn.disabled = false;
+        alert(data.error || data.reason || 'Re-draft failed.');
+      }
+    } catch (e) {
+      btn.textContent = 'Re-draft';
+      btn.disabled = false;
+      alert('Re-draft failed: ' + (e.message || e));
+    }
+  });
+})();
 
 // Auto-run on page load when a goal is already set (server-rendered).
 (function () {

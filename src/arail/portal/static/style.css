@@ -2266,3 +2266,48 @@ code {
   margin-right: 0.3rem;
   font-size: 0.7rem;
 }
+
+/* ── Lab Knows: Research program row ────────────────────────────────────
+   The third row of the panel. Stretches across both columns to call
+   attention to the auto-drafted recipe. Shows a status pill + Re-draft. */
+.lab-knows-program {
+  margin-top: 0.7rem;
+  padding-top: 0.65rem;
+  border-top: 1px dashed rgba(0, 212, 255, 0.18);
+  display: flex;
+  align-items: baseline;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+  font-size: 0.78rem;
+}
+.lab-knows-program .lab-knows-col-label { margin-bottom: 0; }
+.lab-knows-program-link {
+  color: var(--text);
+  text-decoration: none;
+  font-weight: 600;
+}
+.lab-knows-program-link:hover { color: var(--blue); text-decoration: underline; }
+.lab-knows-program-status {
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-style: italic;
+}
+.lab-knows-program-status.ok { color: var(--green); font-style: normal; }
+.lab-knows-program-status.pending { color: var(--amber); }
+.lab-knows-program-redraft {
+  margin-left: auto;
+  background: rgba(0, 212, 255, 0.1);
+  color: var(--blue);
+  border: 1px solid rgba(0, 212, 255, 0.3);
+  border-radius: 4px;
+  padding: 0.25rem 0.65rem;
+  font-size: 0.7rem;
+  font-family: var(--font);
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.lab-knows-program-redraft:hover:not(:disabled) {
+  background: rgba(0, 212, 255, 0.2);
+  color: var(--text-hi);
+}
+.lab-knows-program-redraft:disabled { opacity: 0.5; cursor: not-allowed; }
