@@ -3,11 +3,20 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+import subprocess
+import sys
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 from arail.router import ModelRouter
+
+
+# Subprocess timeout for the LLM parse call. Default is generous
+# (60s) because cold MLX loads on Apple Silicon can take 20-40s
+# the first time. Tunable via ARAIL_GOAL_PARSE_TIMEOUT_SEC.
+_SUBPROCESS_TIMEOUT_SEC = int(os.getenv("ARAIL_GOAL_PARSE_TIMEOUT_SEC", "60"))
 
 
 DOMAIN_KEYWORDS: Dict[str, list[str]] = {
@@ -65,6 +74,19 @@ class GoalParser:
 
     def parse(self, goal_text: str,
               context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Parse a goal via the LLM, isolated in a subprocess.
+
+        The MLX backend's Metal allocator throws an uncatchable C++
+        OOM under memory pressure, which historically nuked the whole
+        lab process. We isolate the call in a subprocess so a crash
+        there only kills the worker — the parent observes a non-zero
+        exit code and falls back to the heuristic parser, the lab
+        stays up.
+
+        Set ``ARAIL_GOAL_PARSE_INPROC=1`` to bypass isolation
+        (useful in tests where the subprocess overhead is wasteful
+        and the LLM call is mocked anyway).
+        """
         prompt = (
             "Parse this goal into a structured JSON object:\n\n"
             f"Goal: {goal_text}\n\n"
@@ -72,16 +94,23 @@ class GoalParser:
             "primary_objective, sub_objectives (list), success_metrics (dict), "
             "timeline, constraints (list), resources_needed (list)."
         )
-        try:
-            resp = self._get_router().complete(prompt, max_tokens=800,
-                                               temperature=0.5)
-            text = resp.text
-            if "```json" in text:
-                text = text.split("```json")[1].split("```")[0]
-            elif "```" in text:
-                text = text.split("```")[1].split("```")[0]
-            parsed = json.loads(text.strip())
-        except Exception:
+
+        text: Optional[str] = None
+        if os.getenv("ARAIL_GOAL_PARSE_INPROC", "0") == "1":
+            text = self._llm_inproc(prompt)
+        else:
+            text = self._llm_subprocess(prompt)
+
+        if text:
+            try:
+                if "```json" in text:
+                    text = text.split("```json")[1].split("```")[0]
+                elif "```" in text:
+                    text = text.split("```")[1].split("```")[0]
+                parsed = json.loads(text.strip())
+            except (json.JSONDecodeError, IndexError):
+                parsed = self._heuristic(goal_text)
+        else:
             parsed = self._heuristic(goal_text)
 
         parsed.setdefault("domain", infer_domain(goal_text))
@@ -91,6 +120,65 @@ class GoalParser:
         parsed["parsed_at"] = datetime.now(timezone.utc).isoformat()
         parsed["confidence"] = self._confidence(parsed)
         return parsed
+
+    # ── LLM execution paths ─────────────────────────────────────────────
+
+    def _llm_inproc(self, prompt: str) -> Optional[str]:
+        """Run the LLM call in-process (the legacy path).
+
+        Catches Python-level exceptions (including MetalOutOfMemory
+        from mlx_guard); a C++ Metal OOM still nukes the parent. Use
+        :meth:`_llm_subprocess` in production.
+        """
+        try:
+            resp = self._get_router().complete(prompt, max_tokens=800,
+                                               temperature=0.5)
+            return resp.text
+        except Exception:
+            return None
+
+    def _llm_subprocess(self, prompt: str) -> Optional[str]:
+        """Run the LLM call in an isolated subprocess.
+
+        Returns the raw response text on success, or None on any
+        recoverable failure (subprocess crash, timeout, OOM, JSON
+        protocol error). Callers fall back to the heuristic parser.
+        """
+        request = json.dumps({
+            "prompt": prompt,
+            "max_tokens": 800,
+            "temperature": 0.5,
+        })
+        try:
+            proc = subprocess.run(
+                [sys.executable, "-m",
+                 "arail.skills.goal_parser._subprocess_runner"],
+                input=request,
+                capture_output=True,
+                text=True,
+                timeout=_SUBPROCESS_TIMEOUT_SEC,
+            )
+        except subprocess.TimeoutExpired:
+            return None
+        except (OSError, ValueError):
+            # Couldn't spawn the subprocess at all (bad path, ulimit,
+            # weird sys.executable). Fall back silently.
+            return None
+
+        if proc.returncode != 0:
+            # The runner caught its own errors and exited 0 even on
+            # Python-level failure, so a non-zero return code means
+            # the process itself died (Metal OOM, segfault, etc).
+            # That's the hardened path the user reported — survive it.
+            return None
+
+        try:
+            payload = json.loads(proc.stdout or "{}")
+        except json.JSONDecodeError:
+            return None
+        if not payload.get("ok"):
+            return None
+        return payload.get("text")
 
     def parse_offline(self, goal_text: str) -> Dict[str, Any]:
         """Heuristic-only parsing — no LLM needed (works airgapped with no

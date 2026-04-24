@@ -1,0 +1,73 @@
+"""Subprocess worker for the goal parser's LLM call.
+
+This script is invoked by ``GoalParser.parse()`` as
+``python -m arail.skills.goal_parser._subprocess_runner`` so the LLM
+inference happens in an isolated process. If the Metal allocator
+throws a C++ OOM (the failure mode that has historically nuked the
+whole lab), only this subprocess dies — the parent observes a
+non-zero exit code, swallows it, and falls back to the heuristic
+parser.
+
+Protocol
+--------
+* **Input** (stdin, JSON): ``{"prompt": str, "max_tokens": int,
+  "temperature": float}``
+* **Output** (stdout, JSON): ``{"ok": true, "text": "..."}`` on
+  success, ``{"ok": false, "error": "..."}`` on a recoverable
+  Python-level failure.
+* **Crash** (exit code != 0): the parent treats this as
+  "subprocess died, fall back."
+
+Keep this file dependency-light: it imports the ModelRouter, which
+already lazily picks the right backend.
+"""
+
+from __future__ import annotations
+
+import json
+import sys
+import traceback
+
+
+def _main() -> int:
+    try:
+        request = json.loads(sys.stdin.read() or "{}")
+    except json.JSONDecodeError as e:
+        sys.stdout.write(json.dumps({"ok": False, "error": f"bad input: {e}"}))
+        return 0
+
+    prompt = request.get("prompt", "")
+    if not prompt:
+        sys.stdout.write(json.dumps({"ok": False, "error": "missing prompt"}))
+        return 0
+    max_tokens = int(request.get("max_tokens", 800))
+    temperature = float(request.get("temperature", 0.5))
+
+    try:
+        # Lazy import — avoids paying the MLX load cost when callers
+        # only want to inspect the protocol or run the parent's tests.
+        from arail.router import ModelRouter
+        router = ModelRouter()
+        resp = router.complete(prompt, max_tokens=max_tokens, temperature=temperature)
+        sys.stdout.write(json.dumps({"ok": True, "text": resp.text}))
+        return 0
+    except MemoryError as e:
+        # The mlx_guard pre-check throws MetalOutOfMemory, which is a
+        # RuntimeError — caught below. MemoryError is the Python-side
+        # symptom for some allocator paths; surface it cleanly so the
+        # parent can attribute the fallback correctly.
+        sys.stdout.write(json.dumps({"ok": False, "error": f"OOM: {e}"}))
+        return 0
+    except Exception as e:
+        # Any other Python-level error: surface it so the parent can
+        # log a meaningful message before falling back.
+        sys.stdout.write(json.dumps({
+            "ok": False,
+            "error": f"{type(e).__name__}: {e}",
+            "trace": traceback.format_exc()[-500:],
+        }))
+        return 0
+
+
+if __name__ == "__main__":
+    sys.exit(_main())
