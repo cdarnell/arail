@@ -11,7 +11,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from oglab.pkb import compile_index
+from arail.pkb import compile_index
 
 BOLD = "\033[1m"
 GREEN = "\033[0;32m"
@@ -21,7 +21,7 @@ RESET = "\033[0m"
 
 
 def main():
-    print(f"\n{GREEN}⟨OGLab⟩{RESET} {BOLD}PKB Compile{RESET}\n")
+    print(f"\n{GREEN}⟨ARAIL⟩{RESET} {BOLD}PKB Compile{RESET}\n")
     result = compile_index()
 
     total = result["total"]

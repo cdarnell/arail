@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-MACHINE_NAME="oglab-gentoo-lab"
+MACHINE_NAME="arail-gentoo-lab"
 AUTO_CONFIRM="false"
-ARCHIVE_PATH="/tmp/oglab-orbstack-bootstrap.tgz"
+ARCHIVE_PATH="/tmp/arail-orbstack-bootstrap.tgz"
 
 usage() {
-    echo "Usage: scripts/oglab-orbstack-destroy [--machine NAME] [--yes]"
+    echo "Usage: scripts/arail-orbstack-destroy [--machine NAME] [--yes]"
     echo ""
-    echo "Deletes the dedicated OrbStack OGLab machine and its stored files."
+    echo "Deletes the dedicated OrbStack ARAIL machine and its stored files."
 }
 
 while (($# > 0)); do
