@@ -292,6 +292,22 @@ async def _startup():
         activity_log.emit("pkb",
             f"Skill seeding failed: {type(e).__name__}: {e}", "error")
 
+    # Default loadouts — write AGENT.md scaffolds for builtin agents
+    # that lack one. Pip ships its own (richer) AGENT.md via
+    # builtin_seed; researcher / curator / browser get default
+    # skill loadouts here so the Skills tab can show + edit them.
+    # Idempotent — never overwrites user edits.
+    try:
+        from arail.agent_seed import ensure_default_loadouts
+        loadout_summary = ensure_default_loadouts()
+        if loadout_summary.get("written"):
+            activity_log.emit("pkb",
+                f"Seeded agent loadouts: {', '.join(loadout_summary['written'])}",
+                "info")
+    except Exception as e:  # noqa: BLE001
+        activity_log.emit("pkb",
+            f"Agent loadout seeding failed: {type(e).__name__}: {e}", "error")
+
     # Research program seed — the lab ships with "optimize AeroLLM"
     # pre-loaded so a fresh install has a meaningful research goal
     # the moment the portal comes up. User edits program.md to steer
@@ -1205,6 +1221,68 @@ async def plugins_page(request: Request):
     })
 
 
+@app.get("/skills", response_class=HTMLResponse)
+async def skills_page(request: Request):
+    """Skills marketplace + loadout editor.
+
+    The page renders an empty shell — Loadouts, Installed skills,
+    and Available packs all populate client-side via /api/agents/loadouts,
+    /api/skills/list, and /api/skills/packs respectively.
+    """
+    return templates.TemplateResponse(request, "skills.html", {})
+
+
+# ── Local docs viewer ───────────────────────────────────────────────────
+# The agent cards' "📖 Learn" links and the "View source" links used to
+# point at https://github.com/cdarnell/autoresearch-lab/blob/main/...
+# Two problems with that:
+#   1. The repo is private — every external user got 404.
+#   2. Going off-host for in-app navigation defeats the lab's
+#      local-first ethos.
+#
+# This route serves the markdown files under the repo's `docs/` dir
+# rendered as HTML, with anchor support so existing fragment links
+# (`#researcher`, `#curator`, etc.) keep working.
+@app.get("/docs/{path:path}", response_class=HTMLResponse)
+async def serve_local_doc(path: str, request: Request):
+    """Render a markdown file from the repo's docs/ dir as HTML.
+
+    Path is restricted to ``docs/*.md`` — no traversal, no other
+    extensions. Returns 404 (not raise) when the file is missing so
+    the response stays user-friendly.
+    """
+    if not path.endswith(".md") or ".." in path or path.startswith("/"):
+        return HTMLResponse(
+            "<h1>Not found</h1><p>Only .md files under docs/ are served here.</p>",
+            status_code=404,
+        )
+    from pathlib import Path as _P
+    repo_root = _P(__file__).resolve().parents[3]  # oglab/
+    target = (repo_root / "docs" / path).resolve()
+    docs_root = (repo_root / "docs").resolve()
+    if docs_root not in target.parents and target != docs_root:
+        return HTMLResponse("<h1>Not found</h1>", status_code=404)
+    if not target.exists() or not target.is_file():
+        return HTMLResponse(
+            f"<h1>Not found</h1><p>{path} is not in the docs directory.</p>",
+            status_code=404,
+        )
+    try:
+        from markdown_it import MarkdownIt  # type: ignore[import-untyped]
+    except ImportError:
+        return HTMLResponse(target.read_text(), status_code=200)
+
+    md = MarkdownIt("commonmark", {"html": False, "linkify": True, "typographer": True})
+    md.enable(["table", "strikethrough"])
+    body_html = md.render(target.read_text(errors="replace"))
+    # Tiny chrome: brand-consistent dark page with the lab nav so the
+    # user knows they're still inside the lab.
+    return templates.TemplateResponse(request, "doc_viewer.html", {
+        "doc_path": path,
+        "doc_html": body_html,
+    })
+
+
 @app.get("/autoresearch", response_class=HTMLResponse)
 @app.get("/research", response_class=HTMLResponse)
 async def research_page(request: Request):
@@ -1939,6 +2017,247 @@ async def api_skills_list():
             for s in skills
         ]
     }
+
+
+# ── Skill detail / edit / delete ─────────────────────────────────
+# CRUD for individual SKILL.md files. Powers the Skills tab inline
+# editor + "Open in IDE" deep-link path. Validates the YAML
+# frontmatter on every save so a broken edit can't poison the
+# agent's next LLM call.
+
+def _skill_path(skill_id: str) -> Path:
+    """Resolve the on-disk SKILL.md path; rejects path-traversal."""
+    if not skill_id or "/" in skill_id or ".." in skill_id:
+        return Path()
+    from arail.config import PKB_ROOT
+    return PKB_ROOT / "skills" / skill_id / "SKILL.md"
+
+
+def _truthy(value) -> bool:
+    """Coerce YAML-ish truthy markers to Python bool.
+
+    Accepts native bools, ints, and the common YAML 1.1 strings
+    (``yes`` / ``no`` / ``true`` / ``false`` / ``on`` / ``off``).
+    parse_frontmatter doesn't use a real YAML loader so all values
+    arrive as strings — we have to interpret them here.
+    """
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        return value.strip().lower() in ("1", "true", "yes", "on")
+    return False
+
+
+# ── Skill packs (the marketplace) ────────────────────────────────
+# Browse + install + remove curated bundles. Pack metadata is in
+# src/arail/skill_packs/manifest.yaml; each pack's SKILL.md files
+# ship under src/arail/skill_packs/<pack_id>/<skill_id>/.
+#
+# IMPORTANT: this block lives ABOVE /api/skills/{skill_id} because
+# FastAPI route matching is order-dependent — without this, the
+# dynamic `{skill_id}` route swallows `packs`, `packs/install`,
+# etc.
+
+@app.get("/api/skills/packs")
+async def api_skill_packs_list():
+    """Return every pack with install status for the marketplace UI."""
+    from arail.skill_packs import packs_with_status
+    return {"packs": packs_with_status()}
+
+
+@app.post("/api/skills/packs/install")
+async def api_skill_packs_install(request: Request):
+    """Install a pack (idempotent). Body: {pack_id, force=false}."""
+    body = await request.json()
+    pack_id = (body.get("pack_id") or "").strip()
+    force = bool(body.get("force", False))
+    if not pack_id:
+        return {"ok": False, "error": "pack_id required"}
+    from arail.skill_packs import install_pack
+    result = install_pack(pack_id, force=force)
+    if result.get("ok") and (result.get("installed") or force):
+        activity_log.emit("pkb",
+            f"Skill pack installed: {pack_id} "
+            f"({len(result.get('installed', []))} skills)", "info")
+    return result
+
+
+@app.post("/api/skills/packs/remove")
+async def api_skill_packs_remove(request: Request):
+    """Uninstall a pack — only removes skills declared in its
+    manifest, preserving user-added skills."""
+    body = await request.json()
+    pack_id = (body.get("pack_id") or "").strip()
+    if not pack_id:
+        return {"ok": False, "error": "pack_id required"}
+    from arail.skill_packs import remove_pack
+    result = remove_pack(pack_id)
+    if result.get("ok"):
+        activity_log.emit("pkb",
+            f"Skill pack removed: {pack_id} "
+            f"({len(result.get('removed', []))} skills)", "warn")
+    return result
+
+
+@app.get("/api/skills/{skill_id}")
+async def api_skills_get(skill_id: str):
+    """Return the full SKILL.md content for the inline editor."""
+    p = _skill_path(skill_id)
+    if not p.parts or not p.exists():
+        return {"ok": False, "error": f"unknown skill: {skill_id}"}
+    return {
+        "ok": True,
+        "id": skill_id,
+        "path": str(p),
+        "content": p.read_text(errors="replace"),
+    }
+
+
+@app.post("/api/skills/{skill_id}")
+async def api_skills_save(skill_id: str, request: Request):
+    """Persist edited SKILL.md content. Validates frontmatter shape
+    before writing — refuses an invalid update so a fat-finger save
+    can't break the next agent call."""
+    body = await request.json()
+    content = body.get("content", "")
+    if not content or not content.strip():
+        return {"ok": False, "error": "content required"}
+    p = _skill_path(skill_id)
+    if not p.parts:
+        return {"ok": False, "error": "invalid skill id"}
+
+    # Validate the YAML frontmatter has the required keys before
+    # touching disk.
+    try:
+        from arail.skills_loader import parse_frontmatter
+        fm = parse_frontmatter(content)
+    except Exception as e:
+        return {"ok": False, "error": f"frontmatter parse failed: {e}"}
+    missing = [k for k in ("id", "name", "domain") if not fm.get(k)]
+    if missing:
+        return {
+            "ok": False,
+            "error": f"frontmatter missing required keys: {', '.join(missing)}",
+        }
+    if str(fm.get("id")) != skill_id:
+        return {
+            "ok": False,
+            "error": f"frontmatter id={fm.get('id')!r} does not match URL id={skill_id!r}",
+        }
+
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(content)
+    activity_log.emit("pkb",
+        f"Skill saved: {skill_id} ({len(content)} bytes)", "info")
+    return {"ok": True, "id": skill_id, "bytes": len(content)}
+
+
+@app.delete("/api/skills/{skill_id}")
+async def api_skills_delete(skill_id: str):
+    """Remove a skill folder. Use the pack-remove endpoint to bulk-
+    remove a packed skill set; this one targets a single user-added
+    skill (or any skill the user intends to drop)."""
+    p = _skill_path(skill_id)
+    if not p.parts or not p.exists():
+        return {"ok": False, "error": f"unknown skill: {skill_id}"}
+    import shutil as _shutil
+    try:
+        _shutil.rmtree(p.parent)
+    except OSError as e:
+        return {"ok": False, "error": str(e)}
+    activity_log.emit("pkb", f"Skill removed: {skill_id}", "warn")
+    return {"ok": True, "id": skill_id}
+
+
+# ── Per-agent loadouts ───────────────────────────────────────────
+# An agent's skill loadout is the `skills:` list in its AGENT.md.
+# These endpoints read + write that list so the Skills tab can
+# manage loadouts without making the user open the file in vim.
+
+def _agent_md_path(agent_id: str) -> Path:
+    if not agent_id or "/" in agent_id or ".." in agent_id:
+        return Path()
+    from arail.config import PKB_ROOT
+    return PKB_ROOT / "agents" / agent_id / "AGENT.md"
+
+
+@app.get("/api/agents/loadouts")
+async def api_agents_loadouts():
+    """Return {agent_id: {name, skills, consumes_llm, path}} for
+    every builtin + forged agent that has an AGENT.md on disk."""
+    from arail.agents.loader import discover
+    from arail.skills_loader import parse_frontmatter
+    out = {}
+    for agent_id, folder, fm in discover():
+        agent_md = folder / "AGENT.md"
+        if not agent_md.exists():
+            continue
+        try:
+            raw = agent_md.read_text(errors="replace")
+            fm_full = parse_frontmatter(raw)
+        except Exception:
+            fm_full = {}
+        skills = fm_full.get("skills") or []
+        if not isinstance(skills, list):
+            skills = []
+        out[agent_id] = {
+            "id": agent_id,
+            "name": str(fm.get("name") or agent_id),
+            "emoji": str(fm.get("emoji") or ""),
+            "skills": [str(s) for s in skills],
+            "consumes_llm": _truthy(fm_full.get("consumes_llm")),
+            "path": str(agent_md),
+        }
+    return {"loadouts": out}
+
+
+@app.post("/api/agents/{agent_id}/loadout")
+async def api_agent_loadout_save(agent_id: str, request: Request):
+    """Update an agent's `skills:` list in its AGENT.md. Preserves
+    every other section of the file (we only rewrite the YAML block
+    so user-edited prose underneath survives)."""
+    body = await request.json()
+    skills = body.get("skills") or []
+    if not isinstance(skills, list):
+        return {"ok": False, "error": "skills must be a list"}
+    skills = [str(s).strip() for s in skills if str(s).strip()]
+
+    p = _agent_md_path(agent_id)
+    if not p.parts or not p.exists():
+        return {"ok": False, "error": f"unknown agent: {agent_id}"}
+
+    # Splice the new skills list into the existing frontmatter
+    # without rewriting the body. We round-trip the frontmatter
+    # through PyYAML — far more reliable than regex when the user
+    # has comments, multi-line strings, or extra keys we don't
+    # know about. Body section (everything after the closing `---`)
+    # is preserved byte-for-byte.
+    text = p.read_text(errors="replace")
+    import re, yaml as _yaml  # type: ignore[import-untyped]
+    fm_match = re.match(r"\A---\s*\n(.*?)\n---\s*\n", text, re.DOTALL)
+    if not fm_match:
+        return {"ok": False, "error": "AGENT.md has no YAML frontmatter"}
+    body = text[fm_match.end():]
+    try:
+        fm_data = _yaml.safe_load(fm_match.group(1)) or {}
+        if not isinstance(fm_data, dict):
+            fm_data = {}
+    except _yaml.YAMLError as e:
+        return {"ok": False, "error": f"AGENT.md frontmatter unparseable: {e}"}
+
+    fm_data["skills"] = list(skills)
+    new_fm = _yaml.safe_dump(
+        fm_data,
+        default_flow_style=False,
+        sort_keys=False,
+        allow_unicode=True,
+    )
+    p.write_text(f"---\n{new_fm}---\n{body}")
+    activity_log.emit("pkb",
+        f"Loadout updated: {agent_id} = [{', '.join(skills)}]", "info")
+    return {"ok": True, "agent_id": agent_id, "skills": skills}
 
 
 @app.get("/api/agents/list")
