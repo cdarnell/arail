@@ -13,7 +13,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from oglab.pkb import browse, search, compile_index
+from arail.pkb import browse, search, compile_index
 
 BOLD = "\033[1m"
 GREEN = "\033[0;32m"
@@ -37,7 +37,7 @@ def cmd_overview():
     data = browse()
     if not data["exists"]:
         print(f"  {DIM}Knowledge base not found at {data['root']}{RESET}")
-        print(f"  {DIM}Run bootstrap.sh or: python3 -c 'from oglab.pkb import scaffold; scaffold()'{RESET}")
+        print(f"  {DIM}Run bootstrap.sh or: python3 -c 'from arail.pkb import scaffold; scaffold()'{RESET}")
         return
 
     total = sum(s["count"] for s in data["sections"].values())
@@ -110,7 +110,7 @@ def cmd_tags():
 
 
 def main():
-    print(f"\n{GREEN}⟨OGLab⟩{RESET} {BOLD}PKB Browse{RESET}\n")
+    print(f"\n{GREEN}⟨ARAIL⟩{RESET} {BOLD}PKB Browse{RESET}\n")
 
     args = sys.argv[1:]
 

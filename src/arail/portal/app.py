@@ -1257,7 +1257,7 @@ async def serve_local_doc(path: str, request: Request):
             status_code=404,
         )
     from pathlib import Path as _P
-    repo_root = _P(__file__).resolve().parents[3]  # oglab/
+    repo_root = _P(__file__).resolve().parents[3]  # arail/
     target = (repo_root / "docs" / path).resolve()
     docs_root = (repo_root / "docs").resolve()
     if docs_root not in target.parents and target != docs_root:

@@ -1,5 +1,7 @@
-# Autoresearch AI Lab (ARAIL)
+# ARAIL — Autoresearch AI Labs
 
+> **A rail gun for AI.**
+>
 > *A learn-by-doing AI research lab for friends, family, and the curious.*
 > Default name is **Autoresearch AI Lab**. Rename it to whatever you want in one
 > line of `.env` — "Sam's AI Lab", "gentoofoo's ai lab", "PeanutLab". It's

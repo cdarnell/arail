@@ -96,7 +96,7 @@ Operators must explicitly set `LAB_MODE=hybrid` in `.env` and restart.
 
 ## Execution plan carried out
 
-1. Package renamed `oglab` → `arail`. 129 tests pass.
+1. Package renamed to `arail`. 129 tests pass.
 2. CLI moved to `./arail` with `./qkz` symlink.
 3. `brand.py` default → "Autoresearch AI Lab", rebrandable via `LAB_NAME`.
 4. Two tiers in [pyproject.toml](pyproject.toml): `min`, `max`.

@@ -12,7 +12,7 @@ from pathlib import Path
 # Allow running without `pip install -e .` by adding src/ to sys.path.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from oglab.pkb import ingest
+from arail.pkb import ingest
 
 BOLD = "\033[1m"
 GREEN = "\033[0;32m"
@@ -21,7 +21,7 @@ RESET = "\033[0m"
 
 
 def main():
-    print(f"\n{GREEN}⟨OGLab⟩{RESET} {BOLD}PKB Ingest{RESET}\n")
+    print(f"\n{GREEN}⟨ARAIL⟩{RESET} {BOLD}PKB Ingest{RESET}\n")
     result = ingest()
 
     if result["moved"] == 0 and result["urls_fetched"] == 0:
