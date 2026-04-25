@@ -4822,6 +4822,159 @@ async def api_tuning_autoresearch_schedule_set(request: Request):
 
 
 # ═══════════════════════════════════════════════════════════════════════
+# /api/perf/summary — projected → measured swap for the /tuning page.
+#
+# Reads the latest JSONL written by aerollm's scripts/perf/run.py and
+# reduces it to a per-(model, workload) airllm-vs-aerollm shape that
+# the tuning.html "AirLLM vs AeroLLM" cards consume.
+#
+# Result location: $AEROLLM_PERF_RESULTS_DIR if set, otherwise the
+# sibling aerollm checkout (../aerollm/scripts/perf/results/). Missing
+# dir or no measurements → rows=[] with a `reason` so the page keeps
+# showing the projected numbers.
+#
+# Schema contract: scripts/perf/schema.md in the aerollm repo.
+# ═══════════════════════════════════════════════════════════════════════
+
+import platform as _platform
+
+
+def _perf_results_dir() -> Path:
+    env = os.getenv("AEROLLM_PERF_RESULTS_DIR")
+    if env:
+        return Path(env).expanduser()
+    # arail/src/arail/portal/app.py → arail/ is parents[3]; aerollm
+    # lives as a sibling checkout.
+    arail_root = Path(__file__).resolve().parents[3]
+    return arail_root / "aerollm" / "scripts" / "perf" / "results"
+
+
+def _detect_perf_hw_id() -> str:
+    if _platform.system() == "Darwin" and "arm" in _platform.machine().lower():
+        return "m3_max"
+    return "rtx_4090_gen4"
+
+
+def _latest_perf_jsonl(results_dir: Path, hw_id: str) -> Path | None:
+    if not results_dir.is_dir():
+        return None
+    # Filenames look like: 2026-04-25T170311Z-m3_max.jsonl
+    matches = sorted(results_dir.glob(f"*/*-{hw_id}.jsonl"))
+    return matches[-1] if matches else None
+
+
+def _reduce_perf_rows(jsonl_path: Path, model_id: str | None) -> dict:
+    """Reduce a JSONL run record to {rows: [{workload_id, airllm, aerollm, ratio}]}.
+
+    Stub rows (errors contains 'stub') are treated as missing — the
+    page keeps the projected number for that cell rather than rendering
+    a fake zero.
+    """
+    by_cell: dict[tuple[str, str, str], dict] = {}
+    git_sha = None
+    as_of = None
+    seen_models: list[str] = []
+    with jsonl_path.open() as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            git_sha = git_sha or row.get("git_sha")
+            as_of = as_of or row.get("timestamp_utc")
+            mid = (row.get("model") or {}).get("id")
+            if mid and mid not in seen_models:
+                seen_models.append(mid)
+            eid = (row.get("engine") or {}).get("id")
+            wid = (row.get("workload") or {}).get("id")
+            if not (mid and eid and wid):
+                continue
+            by_cell[(mid, wid, eid)] = row
+
+    chosen_model = model_id or (seen_models[0] if seen_models else None)
+    if not chosen_model:
+        return {
+            "rows": [],
+            "model_id": None,
+            "as_of": as_of,
+            "git_sha": git_sha,
+            "reason": "no_model_in_file",
+        }
+
+    workload_ids = ["single_stream", "batch_64", "batch_128", "spec_decode"]
+    # primary_metric mapping mirrors matrix.yaml; aggregate for batch,
+    # p50 for single-stream/spec.
+    primary = {
+        "single_stream": "tok_per_sec_p50",
+        "batch_64": "tok_per_sec_aggregate",
+        "batch_128": "tok_per_sec_aggregate",
+        "spec_decode": "tok_per_sec_p50",
+    }
+
+    def _metric(cell: dict | None, wid: str) -> float | None:
+        if not cell:
+            return None
+        if any("stub" in (e or "") for e in (cell.get("errors") or [])):
+            return None
+        m = cell.get("metrics") or {}
+        v = m.get(primary[wid])
+        return float(v) if isinstance(v, (int, float)) else None
+
+    rows = []
+    for wid in workload_ids:
+        air = _metric(by_cell.get((chosen_model, wid, "airllm")), wid)
+        aero = _metric(by_cell.get((chosen_model, wid, "aerollm")), wid)
+        if air is None and aero is None:
+            continue
+        ratio = (aero / air) if (air and aero and air > 0) else None
+        rows.append({
+            "workload_id": wid,
+            "airllm": air,
+            "aerollm": aero,
+            "ratio": ratio,
+        })
+
+    return {
+        "rows": rows,
+        "model_id": chosen_model,
+        "as_of": as_of,
+        "git_sha": git_sha,
+        "reason": "ok" if rows else "stub_only",
+    }
+
+
+@app.get("/api/perf/summary")
+async def api_perf_summary(hardware: str | None = None, model: str | None = None):
+    """Return the latest measured AirLLM vs AeroLLM numbers for the
+    /tuning page. Empty rows = no measurements yet → page keeps the
+    projected text. Safe to poll."""
+    hw_id = hardware or _detect_perf_hw_id()
+    results_dir = _perf_results_dir()
+    base = {
+        "schema_version": 1,
+        "hardware_id": hw_id,
+        "model_id": model,
+        "rows": [],
+        "as_of": None,
+        "git_sha": None,
+    }
+    latest = _latest_perf_jsonl(results_dir, hw_id)
+    if latest is None:
+        base["reason"] = (
+            "no_results_dir" if not results_dir.is_dir() else "no_files"
+        )
+        base["results_dir"] = str(results_dir)
+        return base
+    summary = _reduce_perf_rows(latest, model)
+    base.update(summary)
+    base["source_file"] = str(latest)
+    return base
+
+
+# ═══════════════════════════════════════════════════════════════════════
 # /teacher — AeroLLM-backed deep consultation surface.
 #
 # Every Q&A routes through AeroLLM (multi-minute answers from a frontier
