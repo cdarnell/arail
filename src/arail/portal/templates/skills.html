@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ brand.name }} — Skills</title>
+<link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/static/skills.css">
+</head>
+<body>
+
+{% set active = 'skills' %}{% include "_nav.html" %}
+
+<!-- ═══ Hero ═══ -->
+<section class="sk-hero">
+  <div class="sk-hero-copy">
+    <h1 class="sk-hero-title">Skills</h1>
+    <p class="sk-hero-tag">
+      Procedural knowledge that shapes every agent's reasoning.
+      Edit any <code>SKILL.md</code> here — the next LLM call picks
+      it up. Hot reload, no restart.
+    </p>
+  </div>
+  <div class="sk-hero-stats">
+    <div class="sk-stat">
+      <div class="sk-stat-num" id="sk-stat-installed">…</div>
+      <div class="sk-stat-label">installed</div>
+    </div>
+    <div class="sk-stat">
+      <div class="sk-stat-num" id="sk-stat-loadouts">…</div>
+      <div class="sk-stat-label">agents wired</div>
+    </div>
+    <div class="sk-stat">
+      <div class="sk-stat-num" id="sk-stat-packs">…</div>
+      <div class="sk-stat-label">packs available</div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ Loadouts ═══ -->
+<section class="sk-section">
+  <h2 class="sk-section-title">
+    <span class="sk-section-icon">🎒</span> Loadouts
+    <span class="sk-section-hint">— what each agent loads on every LLM call</span>
+  </h2>
+  <div class="sk-loadout-grid" id="sk-loadouts">
+    <div class="sk-empty">Loading agents…</div>
+  </div>
+</section>
+
+<!-- ═══ Installed skills ═══ -->
+<section class="sk-section">
+  <h2 class="sk-section-title">
+    <span class="sk-section-icon">📚</span> Installed
+    <span class="sk-section-hint">— click Edit for the inline editor, or Open in IDE for vim</span>
+  </h2>
+  <div class="sk-installed-list" id="sk-installed">
+    <div class="sk-empty">Loading skills…</div>
+  </div>
+</section>
+
+<!-- ═══ Available packs ═══ -->
+<section class="sk-section">
+  <h2 class="sk-section-title">
+    <span class="sk-section-icon">📦</span> Available packs
+    <span class="sk-section-hint">— curated bundles you can install + remove</span>
+  </h2>
+  <div class="sk-pack-grid" id="sk-packs">
+    <div class="sk-empty">Loading packs…</div>
+  </div>
+</section>
+
+<!-- ═══ Inline editor (right-side slide-out) ═══ -->
+<aside class="sk-editor" id="sk-editor" hidden>
+  <header class="sk-editor-head">
+    <div class="sk-editor-title" id="sk-editor-title">Skill</div>
+    <div class="sk-editor-path" id="sk-editor-path"></div>
+    <div class="sk-editor-actions">
+      <a class="sk-btn sk-btn-ghost" id="sk-editor-ide" target="_blank" rel="noopener" hidden>Open in IDE</a>
+      <button class="sk-btn sk-btn-ghost" type="button" id="sk-editor-close">Close</button>
+    </div>
+  </header>
+  <textarea class="sk-editor-area" id="sk-editor-area" spellcheck="false"></textarea>
+  <footer class="sk-editor-foot">
+    <span class="sk-editor-status" id="sk-editor-status"></span>
+    <button class="sk-btn sk-btn-primary" type="button" id="sk-editor-save">Save</button>
+  </footer>
+</aside>
+
+<!-- ═══ Loadout editor modal ═══ -->
+<div class="sk-modal" id="sk-loadout-modal" hidden>
+  <div class="sk-modal-box">
+    <header class="sk-modal-head">
+      <span id="sk-loadout-modal-title">Edit loadout</span>
+      <button class="sk-btn sk-btn-ghost" type="button" id="sk-loadout-cancel">Cancel</button>
+    </header>
+    <p class="sk-modal-hint">
+      Pick the skills this agent loads on every LLM call. The
+      AGENT.md gets re-written immediately; the next utterance
+      uses the new list.
+    </p>
+    <div class="sk-loadout-options" id="sk-loadout-options"></div>
+    <footer class="sk-modal-foot">
+      <button class="sk-btn sk-btn-primary" type="button" id="sk-loadout-save">Save loadout</button>
+    </footer>
+  </div>
+</div>
+
+<script>
+// ── Page state ──
+const SK = {
+  loadouts: {},          // agent_id → {name, emoji, skills, consumes_llm, path}
+  installed: [],         // [{id, name, domain, version, preview}]
+  packs: [],             // [{id, name, description, tags, skills, installed_count, skill_count, fully_installed}]
+  editingAgent: null,    // currently-open loadout-edit modal target
+};
+
+const esc = (s) => String(s ?? '')
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
+function setStatus(el, text, kind) {
+  el.textContent = text;
+  el.className = 'sk-editor-status' + (kind ? ' ' + kind : '');
+}
+
+// ── Initial load ──
+async function loadAll() {
+  const [loadouts, list, packs] = await Promise.all([
+    fetch('/api/agents/loadouts').then(r => r.json()).catch(() => ({loadouts: {}})),
+    fetch('/api/skills/list').then(r => r.json()).catch(() => ({skills: []})),
+    fetch('/api/skills/packs').then(r => r.json()).catch(() => ({packs: []})),
+  ]);
+  SK.loadouts = loadouts.loadouts || {};
+  SK.installed = list.skills || [];
+  SK.packs = packs.packs || [];
+  renderAll();
+}
+
+function renderAll() {
+  // Stats
+  document.getElementById('sk-stat-installed').textContent = SK.installed.length;
+  document.getElementById('sk-stat-loadouts').textContent = Object.keys(SK.loadouts).length;
+  document.getElementById('sk-stat-packs').textContent = SK.packs.length;
+
+  renderLoadouts();
+  renderInstalled();
+  renderPacks();
+}
+
+function renderLoadouts() {
+  const root = document.getElementById('sk-loadouts');
+  const ids = Object.keys(SK.loadouts).sort();
+  if (!ids.length) {
+    root.innerHTML = '<div class="sk-empty">No agents have an AGENT.md yet — restart the lab.</div>';
+    return;
+  }
+  root.innerHTML = ids.map(aid => {
+    const a = SK.loadouts[aid];
+    const chips = (a.skills || []).map(sid =>
+      `<span class="sk-chip" title="Click to inspect ${esc(sid)}"
+             data-skill="${esc(sid)}">${esc(sid)}</span>`
+    ).join('');
+    const pillClass = a.consumes_llm ? 'live' : 'doc';
+    const pillText = a.consumes_llm ? 'LLM-consumed' : 'documentary';
+    return `
+      <div class="sk-loadout-card">
+        <header class="sk-loadout-card-head">
+          <span class="sk-loadout-emoji">${esc(a.emoji || '🤖')}</span>
+          <span class="sk-loadout-name">${esc(a.name || aid)}</span>
+          <span class="sk-loadout-pill ${pillClass}" title="${pillClass === 'live'
+            ? 'These skills get composed into the system prompt on every LLM call.'
+            : 'This agent does not call the LLM directly — the loadout is documentary today.'}">${pillText}</span>
+          <button class="sk-btn sk-btn-ghost sk-loadout-edit"
+                  data-agent="${esc(aid)}" type="button">Edit</button>
+        </header>
+        <div class="sk-loadout-chips">
+          ${chips || '<span class="sk-empty-inline">no skills assigned</span>'}
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  // Wire chip clicks → inline editor for that skill.
+  root.querySelectorAll('.sk-chip').forEach(c =>
+    c.addEventListener('click', () => openEditor(c.dataset.skill))
+  );
+  // Wire "Edit loadout" buttons.
+  root.querySelectorAll('.sk-loadout-edit').forEach(b =>
+    b.addEventListener('click', () => openLoadoutModal(b.dataset.agent))
+  );
+}
+
+function renderInstalled() {
+  const root = document.getElementById('sk-installed');
+  if (!SK.installed.length) {
+    root.innerHTML = '<div class="sk-empty">No skills installed yet — install a pack below.</div>';
+    return;
+  }
+  // For each skill, show how many agents use it.
+  const usageCount = {};
+  for (const aid of Object.keys(SK.loadouts)) {
+    for (const sid of (SK.loadouts[aid].skills || [])) {
+      usageCount[sid] = (usageCount[sid] || 0) + 1;
+    }
+  }
+  root.innerHTML = SK.installed.map(s => {
+    const used = usageCount[s.id] || 0;
+    return `
+      <div class="sk-installed-row">
+        <div class="sk-installed-meta">
+          <div class="sk-installed-name">${esc(s.name || s.id)}
+            <span class="sk-installed-domain">${esc(s.domain || 'general')}</span>
+            <span class="sk-installed-ver">v${esc(s.version || '0')}</span>
+          </div>
+          <div class="sk-installed-preview">${esc(s.preview || '')}</div>
+          <div class="sk-installed-usage">
+            ${used > 0
+              ? `Used by <strong>${used}</strong> agent${used === 1 ? '' : 's'}`
+              : '<span class="sk-installed-unused">Unassigned — add it to an agent's loadout above</span>'}
+          </div>
+        </div>
+        <div class="sk-installed-actions">
+          <button class="sk-btn" type="button" data-edit="${esc(s.id)}">Edit</button>
+          <a class="sk-btn sk-btn-ghost" target="_blank" rel="noopener"
+             href="${ideUrl(s.id)}">Open in IDE</a>
+        </div>
+      </div>
+    `;
+  }).join('');
+  root.querySelectorAll('[data-edit]').forEach(b =>
+    b.addEventListener('click', () => openEditor(b.dataset.edit))
+  );
+}
+
+function renderPacks() {
+  const root = document.getElementById('sk-packs');
+  if (!SK.packs.length) {
+    root.innerHTML = '<div class="sk-empty">No packs available.</div>';
+    return;
+  }
+  root.innerHTML = SK.packs.map(p => {
+    const tagChips = (p.tags || []).map(t =>
+      `<span class="sk-tag">${esc(t)}</span>`).join('');
+    const installedFraction = `${p.installed_count}/${p.skill_count}`;
+    let action;
+    if (p.fully_installed) {
+      action = `
+        <button class="sk-btn sk-btn-ghost" type="button" data-pack-update="${esc(p.id)}">Re-install</button>
+        <button class="sk-btn sk-btn-warn" type="button" data-pack-remove="${esc(p.id)}">Remove pack</button>
+      `;
+    } else if (p.installed_count > 0) {
+      action = `
+        <button class="sk-btn sk-btn-primary" type="button" data-pack-install="${esc(p.id)}">Install missing (${p.skill_count - p.installed_count})</button>
+        <button class="sk-btn sk-btn-warn" type="button" data-pack-remove="${esc(p.id)}">Remove pack</button>
+      `;
+    } else {
+      action = `<button class="sk-btn sk-btn-primary" type="button" data-pack-install="${esc(p.id)}">Install pack</button>`;
+    }
+    return `
+      <div class="sk-pack-card">
+        <header class="sk-pack-head">
+          <span class="sk-pack-name">${esc(p.name)}</span>
+          <span class="sk-pack-progress">${installedFraction} installed</span>
+        </header>
+        <p class="sk-pack-desc">${esc(p.description || '')}</p>
+        <div class="sk-pack-tags">${tagChips}</div>
+        <div class="sk-pack-skills">
+          ${(p.skills || []).map(sid => `<span class="sk-pack-skill">${esc(sid)}</span>`).join('')}
+        </div>
+        <div class="sk-pack-actions">${action}</div>
+      </div>
+    `;
+  }).join('');
+
+  root.querySelectorAll('[data-pack-install]').forEach(b =>
+    b.addEventListener('click', () => installPack(b.dataset.packInstall, false)));
+  root.querySelectorAll('[data-pack-update]').forEach(b =>
+    b.addEventListener('click', () => installPack(b.dataset.packUpdate, true)));
+  root.querySelectorAll('[data-pack-remove]').forEach(b =>
+    b.addEventListener('click', () => removePack(b.dataset.packRemove)));
+}
+
+// ── Editor ──
+function openEditor(skillId) {
+  const editor = document.getElementById('sk-editor');
+  const titleEl = document.getElementById('sk-editor-title');
+  const pathEl = document.getElementById('sk-editor-path');
+  const areaEl = document.getElementById('sk-editor-area');
+  const ideEl = document.getElementById('sk-editor-ide');
+  const statusEl = document.getElementById('sk-editor-status');
+  const saveBtn = document.getElementById('sk-editor-save');
+
+  titleEl.textContent = skillId;
+  pathEl.textContent = '';
+  areaEl.value = '';
+  ideEl.hidden = true;
+  setStatus(statusEl, 'loading…');
+  saveBtn.disabled = true;
+  editor.hidden = false;
+
+  fetch('/api/skills/' + encodeURIComponent(skillId)).then(r => r.json()).then(d => {
+    if (!d.ok) {
+      setStatus(statusEl, d.error || 'load failed', 'err');
+      return;
+    }
+    pathEl.textContent = d.path;
+    areaEl.value = d.content;
+    ideEl.href = ideUrl(skillId);
+    ideEl.hidden = false;
+    setStatus(statusEl, 'ready');
+    saveBtn.disabled = false;
+    saveBtn.dataset.skill = skillId;
+  });
+}
+
+document.getElementById('sk-editor-close').addEventListener('click', () => {
+  document.getElementById('sk-editor').hidden = true;
+});
+document.getElementById('sk-editor-save').addEventListener('click', async () => {
+  const sid = document.getElementById('sk-editor-save').dataset.skill;
+  const content = document.getElementById('sk-editor-area').value;
+  const statusEl = document.getElementById('sk-editor-status');
+  setStatus(statusEl, 'saving…');
+  const r = await fetch('/api/skills/' + encodeURIComponent(sid), {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({content}),
+  });
+  const d = await r.json();
+  if (d.ok) {
+    setStatus(statusEl, `saved (${d.bytes} bytes) — next LLM call uses it`, 'ok');
+    loadAll();  // refresh previews + counts
+  } else {
+    setStatus(statusEl, d.error || 'save failed', 'err');
+  }
+});
+
+// ── IDE deep-link ──
+// Code-server runs on :8443 by default. The "Open in IDE" link
+// bumps the user there with the SKILL.md folder pre-opened.
+function ideUrl(skillId) {
+  const port = window.__IDE_PORT || 8443;
+  // We can't know code-server's URL params without a load, so just
+  // open the IDE root — code-server remembers last folder per user.
+  // Future: pass `&payload={"folder":"...","openFile":"..."}`.
+  return `http://${location.hostname}:${port}/?folder=/lab/pkb/skills/${encodeURIComponent(skillId)}`;
+}
+
+// ── Loadout modal ──
+function openLoadoutModal(agentId) {
+  const a = SK.loadouts[agentId];
+  if (!a) return;
+  SK.editingAgent = agentId;
+  document.getElementById('sk-loadout-modal-title').textContent =
+    `Loadout for ${a.name || agentId}`;
+  const opts = document.getElementById('sk-loadout-options');
+  const current = new Set(a.skills || []);
+  opts.innerHTML = SK.installed.map(s => `
+    <label class="sk-loadout-opt">
+      <input type="checkbox" value="${esc(s.id)}" ${current.has(s.id) ? 'checked' : ''}>
+      <span class="sk-loadout-opt-name">${esc(s.name || s.id)}</span>
+      <span class="sk-loadout-opt-domain">${esc(s.domain || 'general')}</span>
+    </label>
+  `).join('');
+  document.getElementById('sk-loadout-modal').hidden = false;
+}
+
+document.getElementById('sk-loadout-cancel').addEventListener('click', () => {
+  document.getElementById('sk-loadout-modal').hidden = true;
+  SK.editingAgent = null;
+});
+
+document.getElementById('sk-loadout-save').addEventListener('click', async () => {
+  if (!SK.editingAgent) return;
+  const checked = Array.from(
+    document.querySelectorAll('#sk-loadout-options input:checked')
+  ).map(i => i.value);
+  const r = await fetch(`/api/agents/${encodeURIComponent(SK.editingAgent)}/loadout`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({skills: checked}),
+  });
+  const d = await r.json();
+  if (d.ok) {
+    document.getElementById('sk-loadout-modal').hidden = true;
+    SK.editingAgent = null;
+    loadAll();
+  } else {
+    alert(d.error || 'loadout save failed');
+  }
+});
+
+// ── Pack actions ──
+async function installPack(packId, force) {
+  const r = await fetch('/api/skills/packs/install', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({pack_id: packId, force}),
+  });
+  const d = await r.json();
+  if (d.ok) {
+    loadAll();
+  } else {
+    alert(d.error || 'install failed');
+  }
+}
+
+async function removePack(packId) {
+  if (!confirm(`Remove pack "${packId}"? Skills you've added or edited outside the pack stay.`)) return;
+  const r = await fetch('/api/skills/packs/remove', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({pack_id: packId}),
+  });
+  const d = await r.json();
+  if (d.ok) loadAll();
+  else alert(d.error || 'remove failed');
+}
+
+loadAll();
+</script>
+
+<script src="/static/nav.js"></script>
+</body>
+</html>

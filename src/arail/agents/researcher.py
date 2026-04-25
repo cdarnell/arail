@@ -92,10 +92,34 @@ def _get_lab_intent() -> str:
 
 
 def _get_system_context(intent: str | None = None) -> str:
-    """Build the system context string for the current lab intent."""
+    """Build the system context string for the current lab intent.
+
+    Composes two layers:
+      1. The intent-flavored base prompt (engineering / research /
+         farming / etc — see ``INTENT_SYSTEM_CONTEXTS``).
+      2. The skills loaded from ``lab/pkb/agents/researcher/AGENT.md``
+         via the shared ``arail.skills_loader``. Each listed skill's
+         body gets appended to the system prompt — hot-reloaded on
+         every call so editing a SKILL.md in the Skills tab is
+         visible on the next utterance.
+    """
     if intent is None:
         intent = _get_lab_intent()
-    return INTENT_SYSTEM_CONTEXTS.get(intent, DEFAULT_SYSTEM_CONTEXT)
+    base = INTENT_SYSTEM_CONTEXTS.get(intent, DEFAULT_SYSTEM_CONTEXT)
+
+    # Append the researcher's skill loadout. Failsoft — if the
+    # AGENT.md hasn't been seeded yet (first boot before
+    # ensure_default_loadouts runs) or the loader raises, we proceed
+    # with the base context alone.
+    try:
+        from arail.skills_loader import load_agent_skills, compose_system_context
+        skills = load_agent_skills("researcher")
+        skill_ctx = compose_system_context(skills)
+    except Exception:
+        skill_ctx = ""
+    if skill_ctx:
+        return f"{base}\n\n{skill_ctx}"
+    return base
 
 
 def _get_router():

@@ -1536,10 +1536,13 @@ code {
 /* ── Knowledge page ingest hero ──────────────────────────────── */
 .kb-ingest-hero {
   display: grid;
-  grid-template-columns: minmax(200px, 1fr) 3fr;
+  /* Slimmer copy column — gives the 7 tiles enough room to share a
+     single row at common viewport widths without forcing line-wrap on
+     "Remove starter." */
+  grid-template-columns: minmax(140px, 0.6fr) minmax(0, 5fr);
   gap: 1rem;
   align-items: center;
-  padding: 1rem 1.5rem;
+  padding: 0.85rem 1.25rem;
   margin: 0.5rem auto;
   max-width: 1600px;
   background: linear-gradient(180deg,
@@ -1550,30 +1553,35 @@ code {
 }
 .kb-ingest-title {
   color: var(--text-hi);
-  font-size: 1.05rem;
+  font-size: 0.88rem;
   font-weight: 700;
-  line-height: 1.3;
+  line-height: 1.25;
 }
 .kb-ingest-kicker {
   display: block;
   color: var(--muted);
-  font-size: 0.68rem;
+  font-size: 0.6rem;
   font-weight: 400;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  margin-top: 0.3rem;
+  margin-top: 0.25rem;
+  line-height: 1.35;
 }
 .kb-ingest-tiles {
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
-  gap: 0.55rem;
+  /* 7 tiles in one row when "Remove starter" is showing; collapses
+     gracefully via the media query below on narrow viewports.
+     minmax(0, 1fr) is required so long .hint text can't push columns
+     out of share. */
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 0.4rem;
 }
 .kb-ingest-tile {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.15rem;
-  padding: 0.7rem 0.4rem;
+  gap: 0.1rem;
+  padding: 0.55rem 0.3rem;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -1581,22 +1589,31 @@ code {
   cursor: pointer;
   font-family: var(--font);
   transition: all 0.15s;
+  /* Allow tile contents to clip if the column gets narrow — better
+     than forcing wrap that breaks the single-row layout. */
+  min-width: 0;
+  overflow: hidden;
 }
 .kb-ingest-tile:hover {
   border-color: var(--green-dim);
   background: rgba(0, 255, 65, 0.04);
   transform: translateY(-1px);
 }
-.kb-ingest-icon { font-size: 1.25rem; line-height: 1; }
+.kb-ingest-icon { font-size: 1.15rem; line-height: 1; }
 .kb-ingest-name {
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   font-weight: 600;
   color: var(--text-hi);
+  white-space: nowrap;
 }
 .kb-ingest-hint {
-  font-size: 0.6rem;
+  font-size: 0.58rem;
   color: var(--muted);
   letter-spacing: 0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
 }
 .kb-ingest-seed {
   border-color: rgba(255, 176, 0, 0.3);
@@ -1656,10 +1673,16 @@ code {
 .kb-seed-banner a { color: var(--amber); text-decoration: underline; }
 .kb-seed-banner a:hover { color: var(--text-hi); }
 
-/* Collapse to 3-wide on narrow viewports. */
+/* Step the ingest tiles down gracefully as the viewport narrows.
+   At full width 7 fit on one row; below ~1200px we drop to 4-wide
+   (so wrap is symmetric: 4 + 3) and below 880px to 3-wide so the
+   hero stacks above the tiles. */
+@media (max-width: 1200px) {
+  .kb-ingest-tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
 @media (max-width: 880px) {
   .kb-ingest-hero { grid-template-columns: 1fr; }
-  .kb-ingest-tiles { grid-template-columns: repeat(3, 1fr); }
+  .kb-ingest-tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .kb-type-row { grid-template-columns: repeat(3, 1fr); }
   .kb-hero-split { grid-template-columns: 1fr; }
 }

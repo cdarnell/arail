@@ -125,6 +125,35 @@ reset_pkb_seeds() {
     info "Seed packs removed. They will re-install on next ./arail start unless disabled."
 }
 
+reset_skills() {
+    # Removes installed skill-pack files (anything declared in
+    # src/arail/skill_packs/manifest.yaml) from lab/pkb/skills/.
+    # User-authored skills (any folder NOT in a pack) survive.
+    # AGENT.md loadouts also survive — they're user-edited even
+    # when seeded by ensure_default_loadouts.
+    if [[ ! -d "lab/pkb/skills" ]]; then
+        info "No lab/pkb/skills/ — nothing to remove."
+        return
+    fi
+    if [[ ! -f ".venv/bin/python" ]]; then
+        warn "No .venv — can't read manifest. Skipping."
+        return
+    fi
+    warn "Removing all skill-pack-installed skills (user skills survive)..."
+    .venv/bin/python <<'PY'
+from arail.skill_packs import list_packs, remove_pack
+total = 0
+for pack in list_packs():
+    res = remove_pack(pack.id)
+    n = len(res.get("removed", []))
+    if n:
+        print(f"  ✓ {pack.id}: removed {n} skill(s)")
+    total += n
+print(f"Done. {total} packed skill folders removed.")
+PY
+    info "Skill packs removed. AGENT.md loadouts and user-authored skills are intact."
+}
+
 reset_program() {
     # Wipes the system-authored "research recipe" — program.md, train.py,
     # any curated source fetches, and the autoresearch schedule. Always
@@ -252,6 +281,8 @@ usage() {
     echo "    pkb-seeds Remove only the seeded starter primers; keep your notes."
     echo "    program   Remove the auto-drafted research recipe (program.md,"
     echo "              train.py, curated source fetches). Keeps prepare.py."
+    echo "    skills    Remove installed skill packs from lab/pkb/skills/."
+    echo "              User-authored skills + AGENT.md loadouts stay put."
     echo "    plugins   Remove installed plugins"
     echo "    env       Remove .venv, .env, lab.conf"
     echo "    full      Complete wipe — keeps the knowledge base safe."
@@ -340,6 +371,7 @@ case "${MODE:-}" in
     pkb)       confirm_and_run "KNOWLEDGE BASE" reset_pkb ;;
     pkb-seeds) confirm_and_run "starter pack seeds" reset_pkb_seeds ;;
     program)   confirm_and_run "research recipe (program.md + train.py)" reset_program ;;
+    skills)    confirm_and_run "installed skill packs" reset_skills ;;
     plugins) confirm_and_run "plugins" reset_plugins ;;
     env)     confirm_and_run "environment" reset_env ;;
     full)    confirm_and_run "FULL WIPE" full_wipe ;;

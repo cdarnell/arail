@@ -1,0 +1,43 @@
+# Skill pack registry. Each entry is a curated bundle of SKILL.md
+# folders that ships with the lab. Users browse + install/remove
+# packs from the Skills tab; the underlying mechanism is the
+# install_pack() / remove_pack() helpers in arail.skill_packs.
+#
+# Format per pack:
+#   id:          folder name under skill_packs/ (must match)
+#   name:        display name in the Skills tab
+#   description: one-sentence pitch
+#   tags:        free-form, surfaced as filter chips in the UI
+#   skills:      ordered list of <skill_id> folders inside the pack
+#                — every entry MUST have a SKILL.md on disk
+
+- id: research-methodology
+  name: Research Methodology
+  description: Falsifiability, benchmarking, evaluation rigor — the
+               procedural backbone every Researcher should load.
+  tags: [research, science, methodology]
+  skills:
+    - falsify-hypothesis
+    - evaluate-llm
+
+- id: model-building
+  name: Model Building
+  description: Local LLM optimization, quantization, frontier-model
+               selection — the deep stack the AI-engineering intent
+               leans on.
+  tags: [llm, inference, optimization]
+  skills:
+    - optimize-aerollm
+    - frontier-local-models
+    - understanding-precision
+
+- id: curation-vetting
+  name: Curation & Vetting
+  description: Source quality, bias detection, fact-checking — what
+               the Curator and Browser agents need to keep the KB
+               trustworthy.
+  tags: [curation, sources, verification]
+  skills:
+    - vet-source
+    - spot-bias
+    - fact-check-claim
