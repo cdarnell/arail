@@ -1,0 +1,160 @@
+# Curated catalog of SLMs the lab recommends for local inference.
+#
+# Total catalog footprint when fully installed: ~50 GB. Users only
+# install what they need — the chat model gallery shows everything
+# from this catalog with installed/available state, so they can see
+# the breadth of options without committing disk.
+#
+# Format per entry:
+#   id            ollama model id (model:tag) — also the install handle
+#   name          display name
+#   family        gpt-oss | gemma | qwen | llama | phi | mistral | deepseek
+#   size_gb       approximate download size
+#   released      YYYY-MM (when the weights or this tag were published)
+#   source        ollama | mlx | hf
+#   good_at       short list, used as chips in the UI
+#   description   one-line pitch
+#   install       install command (shown to user; one-click in phase 2)
+#   tier          recommended | optional | flagship
+#
+# Ordering controls UI display order. Recommended models first.
+
+# ── OpenAI's open-weight reasoning models — gpt-oss ────────────────
+- id: gpt-oss:20b
+  name: GPT-OSS 20B
+  family: gpt-oss
+  size_gb: 13
+  released: 2025-08
+  source: ollama
+  good_at: [reasoning, agent, chat, tool-use]
+  description: OpenAI's open-weight 20B reasoning model — strong on
+               agent + tool-use benchmarks, MoE under the hood.
+  install: "ollama pull gpt-oss:20b"
+  tier: flagship
+
+# ── Google Gemma 3 — small, capable, fast on Apple silicon ─────────
+- id: gemma3:4b
+  name: Gemma 3 4B
+  family: gemma
+  size_gb: 3.3
+  released: 2025-03
+  source: ollama
+  good_at: [chat, multilingual, fast]
+  description: Google's small Gemma 3 — punches above its weight,
+               under 4 GB, runs at interactive speed on a laptop.
+  install: "ollama pull gemma3:4b"
+  tier: recommended
+
+- id: gemma3:12b
+  name: Gemma 3 12B
+  family: gemma
+  size_gb: 8.1
+  released: 2025-03
+  source: ollama
+  good_at: [chat, multilingual, reasoning]
+  description: Mid-range Gemma 3 — best general-purpose option in
+               the 8-10 GB band when you want balanced reasoning.
+  install: "ollama pull gemma3:12b"
+  tier: recommended
+
+# ── Qwen 3 + Qwen 2.5 Coder — Alibaba family, very strong ──────────
+- id: qwen3:4b
+  name: Qwen 3 4B
+  family: qwen
+  size_gb: 2.6
+  released: 2025-04
+  source: ollama
+  good_at: [chat, reasoning, multilingual]
+  description: Qwen's small model — surprisingly strong on STEM and
+               multi-step reasoning for its size. Good first install.
+  install: "ollama pull qwen3:4b"
+  tier: recommended
+
+- id: qwen3:8b
+  name: Qwen 3 8B
+  family: qwen
+  size_gb: 5.2
+  released: 2025-04
+  source: ollama
+  good_at: [chat, reasoning, agent, tool-use]
+  description: The lab's default fast model. Tool-calling capable,
+               multilingual, fast on Apple silicon.
+  install: "ollama pull qwen3:8b"
+  tier: recommended
+
+- id: qwen2.5-coder:7b
+  name: Qwen 2.5 Coder 7B
+  family: qwen
+  size_gb: 4.7
+  released: 2024-11
+  source: ollama
+  good_at: [code, completion, refactor, debug]
+  description: Code-tuned Qwen 2.5 — strong on Python/TS/Rust
+               completions and small-scope refactors. The codex pick.
+  install: "ollama pull qwen2.5-coder:7b"
+  tier: flagship
+
+# ── Microsoft Phi-4 — heavy reasoning per parameter ────────────────
+- id: phi4:14b
+  name: Phi-4 14B
+  family: phi
+  size_gb: 9.1
+  released: 2025-01
+  source: ollama
+  good_at: [reasoning, math, code, instruction-following]
+  description: Microsoft's Phi-4 — built specifically for reasoning
+               density per parameter. Outperforms many 30B models
+               on math/code benchmarks.
+  install: "ollama pull phi4:14b"
+  tier: flagship
+
+# ── Meta Llama 3.2 — small instruct model ──────────────────────────
+- id: llama3.2:3b
+  name: Llama 3.2 3B
+  family: llama
+  size_gb: 2.0
+  released: 2024-09
+  source: ollama
+  good_at: [chat, fast, instruction-following]
+  description: Smallest Llama instruct — fits in tiny RAM budgets,
+               ideal for embedded contexts and quick draft tasks.
+  install: "ollama pull llama3.2:3b"
+  tier: optional
+
+# ── DeepSeek R1 distillations — reasoning chains ───────────────────
+- id: deepseek-r1:8b
+  name: DeepSeek R1 8B (distill)
+  family: deepseek
+  size_gb: 4.9
+  released: 2025-01
+  source: ollama
+  good_at: [reasoning, chain-of-thought, math]
+  description: Distilled from DeepSeek R1 — reasoning traces in
+               <think> blocks, strong on multi-step math.
+  install: "ollama pull deepseek-r1:8b"
+  tier: recommended
+
+- id: deepseek-r1:14b
+  name: DeepSeek R1 14B (distill)
+  family: deepseek
+  size_gb: 9.0
+  released: 2025-01
+  source: ollama
+  good_at: [reasoning, chain-of-thought, math, agent]
+  description: Larger R1 distill — slower but markedly better on
+               complex multi-step problems and agentic loops.
+  install: "ollama pull deepseek-r1:14b"
+  tier: recommended
+
+# ── Mistral 7B — solid baseline ────────────────────────────────────
+- id: mistral:7b
+  name: Mistral 7B
+  family: mistral
+  size_gb: 4.1
+  released: 2024-09
+  source: ollama
+  good_at: [chat, instruction-following, fast]
+  description: The reliable baseline. If you only have one model
+               slot and need general-purpose, Mistral 7B is rarely wrong.
+  install: "ollama pull mistral:7b"
+  tier: optional
