@@ -2713,12 +2713,52 @@ def _build_chat_result(response: ModelResponse, *, wants_deep: bool) -> dict[str
     }
 
 
+_RUNTIME_BACKEND_CACHE: dict[tuple[str, str], Any] = {}
+
+
+def _get_runtime_backend(runtime: str, model_id: str):
+    """Build (or fetch from cache) a one-off OpenAICompatBackend that
+    points at a specific local runtime — Ollama on :11434, the lab's
+    own MLX OpenAI server on :11435, etc.
+
+    Lets the chat tab's model gallery actually route a send through
+    the runtime that owns the chosen model, instead of always
+    falling back to the configured ``MODEL_BACKEND``.
+    """
+    cache_key = (runtime, model_id)
+    cached = _RUNTIME_BACKEND_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+
+    runtime_bases = {
+        "ollama":      f"http://127.0.0.1:{os.getenv('OLLAMA_PORT', '11434')}/v1",
+        "mlx-openai":  f"http://127.0.0.1:{os.getenv('MLX_OPENAI_PORT', '11435')}/v1",
+        # Future: lmstudio, vllm, lmdeploy, etc. Same shape.
+    }
+    base = runtime_bases.get(runtime)
+    if base is None:
+        raise ValueError(f"unknown runtime: {runtime}")
+
+    from arail.router.backends import OpenAICompatBackend
+    be = OpenAICompatBackend.__new__(OpenAICompatBackend)
+    import requests as _req
+    be._session = _req.Session()
+    be.base_url = base
+    be.model_name = model_id
+    be.api_key = "not-needed"   # local runtimes ignore auth
+    # Mark for telemetry / log clarity.
+    be.backend_name = f"{runtime}:openai_compat"
+    _RUNTIME_BACKEND_CACHE[cache_key] = be
+    return be
+
+
 def _prepare_chat_context(
     *,
     message: str,
     history: list,
     backend_override: str | None,
     model_override: str | None,
+    runtime_override: str | None = None,
 ) -> dict[str, Any]:
     from arail import lab_brain
 
@@ -2742,8 +2782,29 @@ def _prepare_chat_context(
             )
             return {"error_result": _optional_backend_error_result(optional_backend_name, e)}
 
+    # Per-message runtime override — when the chat tab's model
+    # gallery picks a model from a runtime that ISN'T the configured
+    # MODEL_BACKEND (e.g. user picks an Ollama-installed model while
+    # MODEL_BACKEND=mlx), build a transient OpenAI-compat backend
+    # pointed at the right runtime URL. Lets every locally-installed
+    # model actually be routable from the same chat box.
+    runtime_backend = None
+    runtime_choice = (runtime_override or "").strip().lower() or None
+    chosen_model = (model_override or "").strip() or None
+    if runtime_choice and chosen_model and runtime_choice in ("ollama", "mlx-openai"):
+        try:
+            runtime_backend = _get_runtime_backend(runtime_choice, chosen_model)
+        except Exception as e:  # noqa: BLE001
+            activity_log.emit(
+                "chat",
+                f"Runtime override failed ({runtime_choice}/{chosen_model}): "
+                f"{type(e).__name__}: {e}",
+                "warn",
+            )
+            runtime_backend = None
+
     router = None
-    if deep_backend is None:
+    if deep_backend is None and runtime_backend is None:
         try:
             router = _get_primary_router()
         except Exception as e:  # noqa: BLE001
@@ -2767,6 +2828,8 @@ def _prepare_chat_context(
     override_model = (model_override or "").strip() or None
     if deep_backend is not None:
         active_backend = deep_backend
+    elif runtime_backend is not None:
+        active_backend = runtime_backend
     else:
         assert router is not None
         active_backend = router._backend
@@ -2781,6 +2844,7 @@ def _prepare_chat_context(
     return {
         "router": router,
         "deep_backend": deep_backend,
+        "runtime_backend": runtime_backend,
         "active_backend": active_backend,
         "previous_model": previous_model,
         "prompt": prompt,
@@ -2834,12 +2898,14 @@ async def _run_chat_completion_stream(
     temperature: float,
     top_p: float | None,
     max_tokens: int,
+    runtime_override: str | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
     context = _prepare_chat_context(
         message=message,
         history=history,
         backend_override=backend_override,
         model_override=model_override,
+        runtime_override=runtime_override,
     )
     error_result = context.get("error_result")
     if error_result is not None:
@@ -2894,6 +2960,30 @@ async def _run_chat_completion_stream(
 
         final_response: ModelResponse | None = None
         accumulated = ""
+        runtime_backend = context.get("runtime_backend") if isinstance(context, dict) else None
+        if runtime_backend is not None:
+            # Runtime override: OpenAICompatBackend doesn't expose
+            # token streaming, so we do a single complete() on a
+            # worker thread and emit the whole reply as one delta.
+            # Keeps the UI happy (it expects deltas + final) without
+            # forcing per-runtime streaming bridges.
+            response = await asyncio.to_thread(
+                runtime_backend.complete,
+                prompt, max_tokens, temperature, top_p,
+            )
+            from arail.costs import cost_tracker
+            cost_tracker.track(
+                backend=response.backend, model=response.model,
+                tokens_in=max(len(prompt) // 4, 1),
+                tokens_out=response.tokens_used,
+                latency_ms=response.latency_ms, source="ui",
+            )
+            clean_reply = _clean_chat_reply(response.text)
+            if clean_reply:
+                yield {"type": "delta", "delta": clean_reply}
+            yield {"type": "final", **_build_chat_result(response, wants_deep=wants_deep)}
+            return
+
         if router is None:
             yield {
                 "type": "final",
@@ -2957,6 +3047,7 @@ async def _run_chat_completion(
     temperature: float,
     top_p: float | None,
     max_tokens: int,
+    runtime_override: str | None = None,
 ) -> dict:
     """Shared core of /api/chat and /api/teacher/ask.
 
@@ -2970,6 +3061,7 @@ async def _run_chat_completion(
         history=history,
         backend_override=backend_override,
         model_override=model_override,
+        runtime_override=runtime_override,
     )
     error_result = context.get("error_result")
     if error_result is not None:
@@ -2978,6 +3070,7 @@ async def _run_chat_completion(
     wants_deep = bool(context["wants_deep"])
     optional_backend_name = context.get("optional_backend_name")
     deep_backend = context.get("deep_backend")
+    runtime_backend = context.get("runtime_backend")
     router = context.get("router")
     prompt = str(context["prompt"])
 
@@ -3005,6 +3098,25 @@ async def _run_chat_completion(
                     prompt_chars=len(prompt),
                     max_tokens=max_tokens,
                 )
+        elif runtime_backend is not None:
+            # User picked a model from a non-default runtime
+            # (e.g. an Ollama model while MODEL_BACKEND=mlx). Run
+            # the OpenAI-compat call on a worker thread — urllib /
+            # requests is blocking.
+            import asyncio as _aio
+            response = await _aio.to_thread(
+                runtime_backend.complete,
+                prompt, max_tokens, temperature, top_p,
+            )
+            from arail.costs import cost_tracker
+            cost_tracker.track(
+                backend=response.backend,
+                model=response.model,
+                tokens_in=max(len(prompt) // 4, 1),
+                tokens_out=response.tokens_used,
+                latency_ms=response.latency_ms,
+                source="ui",
+            )
         else:
             assert router is not None
             response = router.complete(
@@ -3069,6 +3181,7 @@ async def api_chat(request: Request):
         temperature=float(body.get("temperature") or 0.7),
         top_p=top_p,
         max_tokens=int(body.get("max_tokens") or 512),
+        runtime_override=body.get("runtime"),
     )
 
 
@@ -3099,6 +3212,7 @@ async def api_chat_stream(request: Request):
             temperature=float(body.get("temperature") or 0.7),
             top_p=top_p,
             max_tokens=int(body.get("max_tokens") or 512),
+            runtime_override=body.get("runtime"),
         ):
             yield json.dumps(event, default=str) + "\n"
 
@@ -3483,6 +3597,18 @@ async def api_chat_models():
 
     default_optional_backend = _default_teacher_backend()
 
+    # Unified gallery payload — every locally-installed model across
+    # MLX (in-process + OpenAI server) + Ollama, plus the curated
+    # catalog with installed_state. Powers the chat tab's model
+    # gallery (replaces the active-backend-only dropdown so users
+    # see models from EVERY runtime they have running).
+    try:
+        from arail.chat import gallery_view
+        gallery = gallery_view()
+    except Exception as e:  # noqa: BLE001
+        gallery = {"installed": [], "catalog": [], "runtime_counts": {},
+                   "error": f"{type(e).__name__}: {e}"}
+
     return {
         "backend": backend_name,
         "current": current,
@@ -3493,6 +3619,8 @@ async def api_chat_models():
         "optional_backends": optional_backends,
         "default_optional_backend": default_optional_backend,
         "deep": deep_info,
+        # New (chat model gallery + cross-runtime selector).
+        "gallery": gallery,
     }
 
 
@@ -3630,6 +3758,116 @@ async def system_health():
         _port_open(bind, neo4j_bolt_port),
     )
 
+    # ── Local-inference detection ────────────────────────────────
+    # Surfaces what's actually serving an OpenAI-compatible API on
+    # this machine right now. Powers the Chat tab's "My Machine"
+    # tile so the user sees Ollama:11434 + MLX:11435 etc. instead of
+    # a generic "Local — no key needed."
+    #
+    # Ports come from common defaults; LAB_* env overrides take
+    # precedence so a user running on non-standard ports gets
+    # accurate detection.
+    mlx_openai_port = int(os.getenv("MLX_OPENAI_PORT", "11435"))
+    lmstudio_port = int(os.getenv("LMSTUDIO_PORT", "1234"))
+    vllm_port = int(os.getenv("VLLM_PORT", "8000"))
+    lmdeploy_port = int(os.getenv("LMDEPLOY_PORT", "23333"))
+    tgi_port = int(os.getenv("TGI_PORT", "8080"))    # HF text-generation-inference; clashes with portal default — only counts when on a non-portal port
+    textgen_webui_port = int(os.getenv("TEXTGEN_WEBUI_PORT", "5000"))
+
+    # Two-stage detection: (1) is anything listening, (2) does it
+    # actually speak the OpenAI-compat protocol? Stage 2 prevents
+    # false positives from unrelated services (OrbStack on :8000,
+    # macOS ControlCenter on :5000, etc.).
+    async def _probe_openai_compat(host: str, port: int, path: str = "/v1/models") -> bool:
+        """True iff GET <path> returns a JSON body with a `data`
+        or `models` array. Tight timeout so the health endpoint
+        stays snappy.
+
+        Runs urllib in a worker thread (not the event loop) so the
+        gather() actually achieves concurrency — urlopen is blocking.
+        """
+        if not await _port_open(host, port):
+            return False
+
+        def _do_probe() -> bool:
+            try:
+                import json as _json, urllib.request as _ureq
+                req = _ureq.Request(f"http://{host}:{port}{path}", method="GET")
+                with _ureq.urlopen(req, timeout=3.0) as resp:
+                    if resp.status >= 400:
+                        return False
+                    data = _json.loads(resp.read())
+                # Common shapes: OpenAI-compat /v1/models returns
+                # {"data": [...]}; HF text-generation-inference's
+                # /info uses {"models": [...]}.
+                return isinstance(data, dict) and any(
+                    isinstance(data.get(k), list) for k in ("data", "models")
+                )
+            except Exception:
+                return False
+
+        return await asyncio.to_thread(_do_probe)
+
+    portal_self = int(os.getenv("PORTAL_PORT", "8080"))
+    # Skip the TGI probe when its port matches the lab portal — we
+    # can't probe ourselves with /v1/models (it'll 404), and even if
+    # we could the result wouldn't mean what the user thinks.
+    tgi_probe = (
+        asyncio.sleep(0, result=False)
+        if tgi_port == portal_self
+        else _probe_openai_compat(bind, tgi_port, "/info")
+    )
+
+    mlx_up, lmstudio_up, vllm_up, lmdeploy_up, tgi_up, textgen_up = await asyncio.gather(
+        _probe_openai_compat(bind, mlx_openai_port),
+        _probe_openai_compat(bind, lmstudio_port),
+        _probe_openai_compat(bind, vllm_port),
+        _probe_openai_compat(bind, lmdeploy_port),
+        tgi_probe,
+        _probe_openai_compat(bind, textgen_webui_port),
+    )
+
+    # Resolve which runtime backs the lab's primary chat path. The
+    # MODEL_BACKEND env var picks the in-process backend (mlx, cuda,
+    # cpu via the router); the OpenAI-compat endpoints below are
+    # detection-only — useful when the user wants to point Custom
+    # Endpoint at one of them.
+    primary_label_map = {
+        "mlx": "MLX (in-process via mlx_lm)",
+        "cuda": "vLLM / CUDA (in-process)",
+        "cpu": "llama.cpp (in-process)",
+        "auto": "auto-detect",
+    }
+    primary_backend = {
+        "tech": primary_label_map.get(active_backend, active_backend),
+        "model": model_name if model_name and model_name != "none" else None,
+        "in_process": True,
+        "port": None,
+    }
+
+    detected_endpoints: list[dict[str, Any]] = []
+    for tech, port, up, openai_path in (
+        ("Ollama", ollama_port, ollama_up, "/v1"),
+        ("MLX OpenAI server", mlx_openai_port, mlx_up, "/v1"),
+        ("LM Studio", lmstudio_port, lmstudio_up, "/v1"),
+        ("vLLM", vllm_port, vllm_up, "/v1"),
+        ("LMDeploy", lmdeploy_port, lmdeploy_up, "/v1"),
+        ("HF text-generation-inference", tgi_port, tgi_up, "/"),
+        ("text-generation-webui", textgen_webui_port, textgen_up, "/v1"),
+    ):
+        if up:
+            detected_endpoints.append({
+                "tech": tech,
+                "port": port,
+                "url": f"http://{bind}:{port}{openai_path}",
+            })
+
+    local_inference = {
+        "primary": primary_backend,
+        "endpoints": detected_endpoints,
+        "host": bind,
+    }
+
     docker_ok = _docker_available()
     activity_file = Path.cwd() / "lab" / "data" / "activity.jsonl"
     workflow_file = Path.cwd() / "lab" / "data" / "agent_workflows.json"
@@ -3724,6 +3962,7 @@ async def system_health():
             "total": len(service_checks),
         },
         "mode": os.getenv("ARAIL_MODE", "airgapped"),
+        "local_inference": local_inference,
     }
 
 

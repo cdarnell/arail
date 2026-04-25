@@ -125,6 +125,145 @@
   .compute-opt-label { font-size: 13px; line-height: 1.4; }
   .compute-opt input[type="radio"]:checked ~ .compute-opt-label { color:#b5f0c8; }
   .compute-opt:has(input[type="radio"]:checked) { border-color:#4aa46f; background:#0c1912; }
+  /* My Machine tile — primary line is the in-process backend; chips
+     below list every detected OpenAI-compat server (Ollama:11434,
+     MLX:11435, etc.) so the user knows what's actually running. */
+  .mm-endpoints-label {
+    color: #6b7785;
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    margin-right: 4px;
+  }
+  .mm-endpoint-chip {
+    display: inline-block;
+    margin: 2px 4px 0 0;
+    padding: 1px 7px;
+    background: rgba(0, 212, 255, 0.08);
+    color: #4ec3e8;
+    border: 1px solid rgba(0, 212, 255, 0.25);
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    font-variant-numeric: tabular-nums;
+  }
+  /* ── Fast-model picker (gallery) ──────────────────────────────
+     Replaces the bare <select>. Two tabs (Installed | Catalog),
+     a card grid below, and an inline "install command" panel
+     for greyed catalog entries. */
+  .fast-model-picker {
+    display: flex; flex-direction: column; gap: 8px;
+    grid-column: 1 / -1;   /* span the whole row inside the controls grid */
+  }
+  .fast-model-head {
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .fast-model-label {
+    color: #b6b6b6; font-size: 11px; letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .fast-model-tabs { display: inline-flex; gap: 4px; }
+  .fmp-tab {
+    background: #11161e; color: #8c8c8c;
+    border: 1px solid #2a3040; border-radius: 4px;
+    padding: 3px 9px; font-size: 11px; cursor: pointer;
+    font-family: var(--font);
+  }
+  .fmp-tab:hover { color: #d6d6d6; border-color: #3e8055; }
+  .fmp-tab.active {
+    color: #b5f0c8; background: #0c1912; border-color: #4aa46f;
+  }
+  .fmp-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 6px;
+    max-height: 280px;
+    overflow-y: auto;
+    padding-right: 4px;
+  }
+  .fmp-loading {
+    grid-column: 1 / -1; padding: 16px; text-align: center;
+    color: #6b7785; font-style: italic;
+  }
+  .fmp-card {
+    background: #11161e; border: 1px solid #2a3040; border-radius: 5px;
+    padding: 8px 10px; cursor: pointer; transition: all 0.12s;
+    display: flex; flex-direction: column; gap: 4px; min-width: 0;
+  }
+  .fmp-card:hover { border-color: #3e8055; transform: translateY(-1px); }
+  .fmp-card.selected {
+    border-color: #4aa46f; background: #0c1912; box-shadow: inset 0 0 0 1px #4aa46f33;
+  }
+  .fmp-card.greyed {
+    opacity: 0.62;
+    background: #0d1118;
+    border-style: dashed;
+  }
+  .fmp-card.greyed:hover { opacity: 0.85; }
+  .fmp-card-head {
+    display: flex; justify-content: space-between; align-items: baseline; gap: 6px;
+  }
+  .fmp-card-name {
+    color: #d6d6d6; font-size: 13px; font-weight: 600;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+  }
+  .fmp-card-runtime {
+    font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase;
+    color: #4ec3e8; padding: 1px 5px; background: rgba(0,212,255,0.08);
+    border: 1px solid rgba(0,212,255,0.22); border-radius: 999px;
+    flex-shrink: 0;
+  }
+  .fmp-card-runtime.ollama { color: #c084fc; background: rgba(192,132,252,0.08); border-color: rgba(192,132,252,0.22); }
+  .fmp-card-runtime.mlx { color: #4ec3e8; }
+  .fmp-card-runtime.catalog { color: #f5b342; background: rgba(245,179,66,0.06); border-color: rgba(245,179,66,0.22); }
+  .fmp-card-meta {
+    display: flex; gap: 8px; font-size: 10px; color: #6b7785;
+    font-variant-numeric: tabular-nums;
+  }
+  .fmp-card-meta .dot { color: #2a3040; }
+  .fmp-card-tags {
+    display: flex; flex-wrap: wrap; gap: 3px;
+  }
+  .fmp-card-tag {
+    font-size: 9px; padding: 1px 5px;
+    background: #161b25; color: #9aa6bd;
+    border: 1px solid #232a3a; border-radius: 3px;
+  }
+  .fmp-card-desc {
+    font-size: 10.5px; color: #8c8c8c; line-height: 1.35;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .fmp-card-flagship {
+    color: #f5b342; font-size: 9px; font-weight: 700;
+    letter-spacing: 0.08em;
+  }
+  .fmp-install {
+    background: #0d1118; border: 1px solid #2a3040; border-radius: 5px;
+    padding: 8px 10px; display: flex; flex-direction: column; gap: 6px;
+  }
+  .fmp-install[hidden] { display: none; }
+  .fmp-install-head {
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .fmp-install-title { color: #b6b6b6; font-size: 11px; font-weight: 600; }
+  .fmp-install-cmd {
+    background: #060a10; color: #b5f0c8; padding: 6px 8px;
+    border-radius: 3px; font-size: 11px; font-family: var(--font);
+    user-select: all;
+  }
+  .fmp-install-hint { color: #6b7785; font-size: 10px; line-height: 1.4; }
+  .fmp-copy {
+    background: #1f3528; color: #b5f0c8; border: 1px solid #4aa46f;
+    border-radius: 3px; padding: 2px 8px; font-size: 10px; cursor: pointer;
+    font-family: var(--font);
+  }
+  .fmp-copy:hover { background: #2a4434; }
+  .fmp-empty {
+    grid-column: 1 / -1; padding: 12px; text-align: center;
+    color: #8c8c8c; font-style: italic; font-size: 11px;
+  }
   .compute-key-row {
     display: flex; gap: 8px; align-items: flex-end; margin-top: 10px; flex-wrap: wrap;
   }
@@ -176,7 +315,16 @@
       <div class="compute-source-grid">
         <label class="compute-opt">
           <input type="radio" name="compute-source" value="my_machine" checked>
-          <span class="compute-opt-label"><strong>My Machine</strong><br><span class="chat-muted">Local — no key needed</span></span>
+          <span class="compute-opt-label">
+            <strong>My Machine</strong>
+            <br>
+            <span class="chat-muted" id="mm-primary-line">Local — detecting runtime…</span>
+            <!-- Populated by JS from /api/system/health → local_inference.
+                 Shows the in-process backend (MLX / vLLM / llama.cpp) plus
+                 every detected OpenAI-compat server (Ollama, MLX OpenAI,
+                 LM Studio, vLLM, LMDeploy, etc.) with their port. -->
+            <span class="mm-endpoints" id="mm-endpoints"></span>
+          </span>
         </label>
         <label class="compute-opt">
           <input type="radio" name="compute-source" value="claude">
@@ -231,10 +379,32 @@
             <option value="teacher-only">Deep Teacher only</option>
           </select>
         </label>
-        <label>
-          Fast model
-          <select id="fast-model"></select>
-        </label>
+        <div class="fast-model-picker">
+          <div class="fast-model-head">
+            <span class="fast-model-label">Fast model</span>
+            <span class="fast-model-tabs">
+              <button type="button" class="fmp-tab active" data-tab="installed">Installed <span id="fmp-count-installed">·</span></button>
+              <button type="button" class="fmp-tab" data-tab="catalog">Catalog <span id="fmp-count-catalog">·</span></button>
+            </span>
+          </div>
+          <!-- Hidden input keeps the existing send code happy:
+               $('fast-model').value still resolves to the selected
+               model id. Card clicks update it. -->
+          <input type="hidden" id="fast-model" value="">
+          <div class="fmp-grid" id="fmp-grid">
+            <div class="fmp-loading">scanning runtimes…</div>
+          </div>
+          <div class="fmp-install" id="fmp-install" hidden>
+            <div class="fmp-install-head">
+              <span class="fmp-install-title" id="fmp-install-title">Install</span>
+              <button type="button" class="fmp-copy" id="fmp-install-copy">Copy</button>
+            </div>
+            <code class="fmp-install-cmd" id="fmp-install-cmd"></code>
+            <div class="fmp-install-hint">
+              Once it finishes downloading, hit <strong>Installed</strong> above and pick it.
+            </div>
+          </div>
+        </div>
         <label>
           Temperature
           <input id="chat-temp" type="range" min="0" max="2" step="0.1" value="0.7" />
@@ -461,6 +631,12 @@
           top_p: topP > 0 ? topP : undefined,
           max_tokens: maxTokens,
           model: fastModel,
+          // Per-message runtime hint — set by selectInstalled()
+          // when the user picks a card from a non-default runtime
+          // (e.g. Ollama). The server uses this to route through
+          // the right OpenAI-compat URL instead of falling back
+          // to the configured MODEL_BACKEND.
+          runtime: $('fast-model').dataset.runtime || undefined,
         }, fastUi)
         : Promise.resolve(null);
       const teacherPromise = route.sendTeacher && teacherUi
@@ -529,29 +705,177 @@
     $('chat-max-tokens-val').textContent = $('chat-max-tokens').value;
   });
 
+  // Picker state — survives across tab switches so the user's
+  // selection persists when they flip from Installed → Catalog.
+  const FMP = {
+    installed: [],
+    catalog: [],
+    activeTab: 'installed',
+    selectedId: '',           // mirrored to <input id="fast-model">
+    runtimeOf: {},            // id → 'ollama' | 'mlx' | 'mlx-openai'
+  };
+
+  function escapeHtml(s) {
+    return String(s ?? '')
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  function renderInstalledCards() {
+    const grid = $('fmp-grid');
+    if (!FMP.installed.length) {
+      grid.innerHTML = `<div class="fmp-empty">
+        Nothing installed yet. Switch to <strong>Catalog</strong> to browse and install one.
+      </div>`;
+      return;
+    }
+    grid.innerHTML = FMP.installed.map(m => {
+      const cls = (FMP.selectedId === m.id) ? 'fmp-card selected' : 'fmp-card';
+      const size = m.size_gb ? `${m.size_gb} GB` : '';
+      return `
+        <div class="${cls}" data-id="${escapeHtml(m.id)}" data-runtime="${escapeHtml(m.runtime)}">
+          <div class="fmp-card-head">
+            <span class="fmp-card-name" title="${escapeHtml(m.id)}">${escapeHtml(m.id)}</span>
+            <span class="fmp-card-runtime ${escapeHtml(m.runtime)}">${escapeHtml(m.runtime)}</span>
+          </div>
+          <div class="fmp-card-meta">
+            ${size ? `<span>${size}</span>` : ''}
+          </div>
+        </div>
+      `;
+    }).join('');
+    grid.querySelectorAll('.fmp-card').forEach(c => {
+      c.addEventListener('click', () => selectInstalled(c.dataset.id, c.dataset.runtime));
+    });
+  }
+
+  function renderCatalogCards() {
+    const grid = $('fmp-grid');
+    // Catalog includes BOTH installed + available — installed cards
+    // are flagged so the user sees the full breadth in one view.
+    if (!FMP.catalog.length) {
+      grid.innerHTML = `<div class="fmp-empty">Catalog unavailable.</div>`;
+      return;
+    }
+    // Sort: flagship first, then recommended, then optional.
+    const order = {flagship: 0, recommended: 1, optional: 2};
+    const items = FMP.catalog.slice().sort(
+      (a, b) => (order[a.tier] ?? 9) - (order[b.tier] ?? 9)
+    );
+    grid.innerHTML = items.map(m => {
+      const installed = m.installed_state === 'installed';
+      const greyed = installed ? '' : 'greyed';
+      const tagChips = (m.good_at || []).slice(0, 4).map(t =>
+        `<span class="fmp-card-tag">${escapeHtml(t)}</span>`
+      ).join('');
+      const flagship = m.tier === 'flagship'
+        ? `<span class="fmp-card-flagship">★ FLAGSHIP</span>` : '';
+      const stateLabel = installed ? 'installed' : 'catalog';
+      const stateCls = installed ? 'mlx' : 'catalog';
+      return `
+        <div class="fmp-card ${greyed}" data-id="${escapeHtml(m.id)}"
+             data-installed="${installed ? '1' : '0'}"
+             data-install="${escapeHtml(m.install)}"
+             data-name="${escapeHtml(m.name)}">
+          <div class="fmp-card-head">
+            <span class="fmp-card-name" title="${escapeHtml(m.description)}">${escapeHtml(m.name)}</span>
+            <span class="fmp-card-runtime ${stateCls}">${escapeHtml(stateLabel)}</span>
+          </div>
+          <div class="fmp-card-meta">
+            <span>${m.size_gb} GB</span>
+            <span class="dot">·</span>
+            <span>${escapeHtml(m.released)}</span>
+            ${flagship ? `<span class="dot">·</span>${flagship}` : ''}
+          </div>
+          <div class="fmp-card-desc">${escapeHtml(m.description)}</div>
+          <div class="fmp-card-tags">${tagChips}</div>
+        </div>
+      `;
+    }).join('');
+    grid.querySelectorAll('.fmp-card').forEach(c => {
+      c.addEventListener('click', () => {
+        if (c.dataset.installed === '1') {
+          // Already installed — pick it. Runtime resolved from FMP.installed.
+          const inst = FMP.installed.find(i => i.id === c.dataset.id);
+          if (inst) selectInstalled(inst.id, inst.runtime);
+        } else {
+          showInstallHint(c.dataset.name, c.dataset.install);
+        }
+      });
+    });
+  }
+
+  function selectInstalled(id, runtime) {
+    FMP.selectedId = id;
+    FMP.runtimeOf[id] = runtime;
+    $('fast-model').value = id;
+    $('fast-model-chip').textContent = id;
+    // Stash the runtime so the send path knows which endpoint to hit.
+    $('fast-model').dataset.runtime = runtime || '';
+    $('fmp-install').hidden = true;
+    if (FMP.activeTab === 'installed') {
+      renderInstalledCards();
+    } else {
+      renderCatalogCards();
+    }
+  }
+
+  function showInstallHint(name, cmd) {
+    $('fmp-install-title').textContent = `Install ${name}`;
+    $('fmp-install-cmd').textContent = cmd;
+    $('fmp-install').hidden = false;
+  }
+
+  $('fmp-install-copy').addEventListener('click', async () => {
+    const cmd = $('fmp-install-cmd').textContent;
+    try {
+      await navigator.clipboard.writeText(cmd);
+      const btn = $('fmp-install-copy');
+      const orig = btn.textContent;
+      btn.textContent = 'Copied ✓';
+      setTimeout(() => { btn.textContent = orig; }, 1500);
+    } catch (e) { /* clipboard blocked — user can select-and-copy */ }
+  });
+
+  document.querySelectorAll('.fmp-tab').forEach(t => {
+    t.addEventListener('click', () => {
+      document.querySelectorAll('.fmp-tab').forEach(x => x.classList.toggle('active', x === t));
+      FMP.activeTab = t.dataset.tab;
+      if (FMP.activeTab === 'installed') renderInstalledCards();
+      else renderCatalogCards();
+    });
+  });
+
   async function loadModels() {
     try {
       const d = await fetch('/api/chat/models').then(r => r.json());
-      const sel = $('fast-model');
-      sel.innerHTML = '';
-      const cur = document.createElement('option');
-      cur.value = '';
-      cur.textContent = d.current ? `(current · ${d.current})` : '(current)';
-      sel.appendChild(cur);
-      (d.models || []).forEach(m => {
-        if (m === d.current) return;
-        const o = document.createElement('option');
-        o.value = m;
-        o.textContent = m;
-        sel.appendChild(o);
-      });
+      const gallery = d.gallery || {installed: [], catalog: []};
+      FMP.installed = gallery.installed || [];
+      FMP.catalog = gallery.catalog || [];
 
-      if (d.current) $('fast-model-chip').textContent = d.current;
+      // Default selection: prefer the configured `current` model if
+      // it's installed, else first installed, else nothing.
+      const installedIds = FMP.installed.map(m => m.id);
+      let pick = '';
+      if (d.current && installedIds.includes(d.current)) pick = d.current;
+      else if (installedIds.length) pick = installedIds[0];
+      if (pick) {
+        const inst = FMP.installed.find(i => i.id === pick);
+        selectInstalled(pick, inst ? inst.runtime : '');
+      }
 
+      // Counts on the tabs.
+      $('fmp-count-installed').textContent = `(${FMP.installed.length})`;
+      const availableCount = FMP.catalog.filter(c => c.installed_state !== 'installed').length;
+      $('fmp-count-catalog').textContent = `(${FMP.catalog.length}, ${availableCount} new)`;
+
+      if (FMP.activeTab === 'installed') renderInstalledCards();
+      else renderCatalogCards();
+
+      // Teacher backend dropdown — unchanged from before.
       const back = $('teacher-backend');
       back.innerHTML = '';
-      const optional = d.optional_backends || [];
-      optional.forEach(b => {
+      (d.optional_backends || []).forEach(b => {
         const o = document.createElement('option');
         o.value = b.id;
         o.textContent = `${b.label} · ${b.model || b.id}`;
@@ -561,6 +885,7 @@
       if (d.default_optional_backend) back.value = d.default_optional_backend;
       syncTeacherChip();
     } catch (e) {
+      $('fmp-grid').innerHTML = `<div class="fmp-empty">Could not load model gallery: ${escapeHtml(e.message || e)}</div>`;
       $('fast-model-chip').textContent = 'model unavailable';
       $('teacher-model-chip').textContent = 'deep model unavailable';
     }
@@ -758,6 +1083,53 @@
 
   loadModels();
   syncRouteNote();
+
+  // ── Local-inference panel ──────────────────────────────────────
+  // Populates the chat header backend badge AND the "My Machine"
+  // tile with the in-process runtime + every detected OpenAI-compat
+  // server (Ollama, MLX OpenAI, LM Studio, vLLM, LMDeploy, ...).
+  // Single fetch reused for both because /api/system/health
+  // returns local_inference in one round-trip.
+  fetch('/api/system/health').then(r => r.json()).then(h => {
+    // Chat header chip
+    const backendBadge = document.getElementById('chat-backend');
+    if (backendBadge && h.backend) backendBadge.textContent = h.backend;
+    const modelEl = document.getElementById('chat-model');
+    if (modelEl && h.model && h.model !== 'none') {
+      modelEl.textContent = h.model;
+      modelEl.title = 'Model: ' + h.model;
+      modelEl.hidden = false;
+    }
+
+    // "My Machine" tile detail
+    const li = h.local_inference || {};
+    const primary = li.primary || {};
+    const endpoints = li.endpoints || [];
+    const primaryEl = document.getElementById('mm-primary-line');
+    const endpointsEl = document.getElementById('mm-endpoints');
+    if (primaryEl) {
+      const tech = primary.tech || h.backend || 'unknown';
+      const model = primary.model;
+      primaryEl.textContent = model
+        ? `${tech} · ${model}`
+        : `${tech} · no model loaded`;
+    }
+    if (endpointsEl) {
+      if (endpoints.length === 0) {
+        endpointsEl.innerHTML = '';
+      } else {
+        const chips = endpoints.map(e => {
+          const safe = (s) => String(s ?? '')
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+          return `<span class="mm-endpoint-chip" title="${safe(e.url)}">${safe(e.tech)}:${e.port}</span>`;
+        }).join('');
+        endpointsEl.innerHTML = `<br><span class="mm-endpoints-label">Also detected:</span> ${chips}`;
+      }
+    }
+  }).catch(() => {
+    const primaryEl = document.getElementById('mm-primary-line');
+    if (primaryEl) primaryEl.textContent = 'Local — runtime unknown (health endpoint unreachable)';
+  });
 })();
 </script>
 
