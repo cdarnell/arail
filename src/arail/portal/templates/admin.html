@@ -435,30 +435,6 @@
     <div id="admin-log"></div>
   </div>
 
-  <div class="admin-section">
-    <h2>Theme Presets</h2>
-    <div class="theme-grid">
-      {% for theme in available_ui_themes %}
-      <div class="theme-card{% if theme.id == current_ui_theme.id %} active{% endif %}">
-        <div class="theme-swatch"
-             style="background: linear-gradient(135deg, {{ theme.preview_start }}, {{ theme.preview_end }});"></div>
-        <div class="theme-row">
-          <div class="theme-name">{{ theme.name }}</div>
-          <span class="theme-pill{% if theme.id == current_ui_theme.id %} active{% endif %}">
-            {% if theme.id == current_ui_theme.id %}active{% else %}preset{% endif %}
-          </span>
-        </div>
-        <div class="theme-desc">{{ theme.description }}</div>
-        <code class="theme-code">LAB_UI_THEME={{ theme.env_value }}</code>
-        <div class="theme-meta">
-          Set the value in <strong>.env</strong>, then run <code>./arail restart</code>.
-          Design rules and palette guidance live in <a href="/design">design.md</a>.
-        </div>
-      </div>
-      {% endfor %}
-    </div>
-  </div>
-
   <!-- ═══ Services ═══ -->
   <div class="admin-section">
     <h2>Service Status</h2>
