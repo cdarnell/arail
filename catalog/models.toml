@@ -44,6 +44,38 @@ cuda_status     = "supported"
 cpu_status      = "unverified"
 
 [[model]]
+id              = "qwen2_5_1_5b_bf16"
+label           = "Qwen2.5-1.5B-Instruct"
+hf_repo         = "Qwen/Qwen2.5-1.5B-Instruct"
+arch            = "qwen2"
+moe             = false
+params_total_b  = 1.5
+params_active_b = 1.5
+size_gb_bf16    = 3.0
+lab_tier        = "tiny"
+aerollm_status  = "supported"
+airllm_status   = "supported"
+mlx_status      = "supported"
+cuda_status     = "supported"
+cpu_status      = "unverified"
+
+[[model]]
+id              = "qwen2_5_3b_bf16"
+label           = "Qwen2.5-3B-Instruct"
+hf_repo         = "Qwen/Qwen2.5-3B-Instruct"
+arch            = "qwen2"
+moe             = false
+params_total_b  = 3.0
+params_active_b = 3.0
+size_gb_bf16    = 6.0
+lab_tier        = "small"
+aerollm_status  = "supported"
+airllm_status   = "supported"
+mlx_status      = "supported"
+cuda_status     = "supported"
+cpu_status      = "unverified"
+
+[[model]]
 id              = "qwen3_8b_4bit_mlx"
 label           = "Qwen3-8B (mlx-community 4-bit)"
 hf_repo         = "mlx-community/Qwen3-8B-4bit"

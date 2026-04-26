@@ -1,0 +1,64 @@
+# Client Follow-up — consultant relationship assistant.
+#
+# After every client meeting, reads the notes you dropped in.
+# Suggests a follow-up email and the right cadence to maintain
+# the relationship without being pushy. Multi-agent: a researcher
+# pulls context on the client, a drafter composes the follow-up,
+# a scheduler picks the right next-touch timing.
+#
+# Tier max: client work benefits from the full surface set
+# (notebooks for ad-hoc analysis, terminal for quick lookups,
+# tuning for per-client voice calibration).
+
+id          = "client-followup"
+label       = "Client Follow-up"
+tier        = "max"
+goal_prompt = """
+After every client meeting, read the notes I dropped in. Pull
+relevant context on the client (past threads, outstanding deliverables,
+recent decisions). Suggest a follow-up email — concise, respectful of
+their time, my voice. Recommend the right next-touch cadence so I stay
+present without being pushy.
+"""
+description = """
+A consultant relationship assistant. Reads post-meeting notes, gathers
+client context, drafts follow-up communication, and recommends the
+next-touch cadence. Drafts only — sending is always your call. Designed
+for solo consultants and small advisory firms.
+"""
+
+agents = [
+    "researcher",        # ✅ exists — pulls historical client context
+    "drafter",           # ⏳ aspirational — composes the follow-up
+    "scheduler",         # ⏳ aspirational — recommends next-touch cadence
+    "consent",           # ✅ exists — gates any outbound action
+    "curator",           # ✅ exists — files the meeting notes into the PKB
+]
+
+[runtime]
+backend_preference = ["aerollm", "airllm"]
+default_engine     = "mlx"
+
+[runtime.models]
+mlx    = "qwen2_5_7b_bf16"
+cuda   = "qwen2_5_7b_bf16"
+cpu    = "qwen3_8b_gguf"
+airllm = "llama_3_1_70b_bf16"
+
+[telemetry]
+sink_dir = "log"
+
+[[telemetry.sinks]]
+name   = "client_runs"
+topics = ["TokenEmitted", "ArenaReset"]
+
+[[telemetry.sinks]]
+name   = "spec_decode"
+topics = ["SpecRound", "SpecAcceptanceEwma"]
+
+[ports]
+portal     = 0
+terminal   = 1
+notebook   = 2
+ide        = 3
+mlx_openai = 5

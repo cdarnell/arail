@@ -1,0 +1,52 @@
+# Inbox Triager — drafts replies for approval.
+#
+# Reads new email since the last run. Classifies each (informational,
+# needs-reply, calendar-conflict, unsubscribe). For needs-reply
+# items, drafts a response in your voice; you approve before
+# anything sends. Email composition needs higher-quality output
+# than summarization, so the default model is Qwen2.5-7B.
+
+id          = "inbox-triager"
+label       = "Inbox Triager"
+tier        = "min"
+goal_prompt = """
+Read new email since I last checked. Classify each as informational,
+needs-reply, calendar-conflict, or unsubscribe. For needs-reply items,
+draft a response in my voice — concise, professional, my tone. I
+approve every send; never auto-send.
+"""
+description = """
+An inbox-triage assistant. Classifies new email and drafts approval-
+gated replies in your voice. Never auto-sends. Designed to run on
+demand or every few hours throughout the workday.
+"""
+
+agents = [
+    "triager",           # ⏳ aspirational — classifies email by content + sender
+    "drafter",           # ⏳ aspirational — composes replies in user voice
+    "consent",           # ✅ exists — gates the send action behind explicit approval
+]
+
+[runtime]
+backend_preference = ["aerollm", "airllm"]
+default_engine     = "mlx"
+
+[runtime.models]
+mlx    = "qwen2_5_7b_bf16"
+cuda   = "qwen2_5_7b_bf16"
+cpu    = "qwen3_8b_gguf"
+airllm = "llama_3_1_8b_bf16"
+
+[telemetry]
+sink_dir = "log"
+
+[[telemetry.sinks]]
+name   = "triage_runs"
+topics = ["TokenEmitted", "ArenaReset"]
+
+[ports]
+portal     = 0
+terminal   = 1
+notebook   = 2
+ide        = 3
+mlx_openai = 5
