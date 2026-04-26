@@ -57,6 +57,7 @@ usage() {
     reset [mode]    wipe state — models|data|pkb|plugins|env|full|destroy
     pkb <op>        ingest | compile | browse — knowledge base (med/max)
     wiki <op>       build | info | new <title> — documentation-as-code
+    blueprint <op>  list | catalog | show | create | apply | destroy — Configuration as Code
     help            this message
 
   Quick start:   ./arail setup && ./arail start
@@ -67,7 +68,8 @@ EOF
 cmd="${1:-help}"; shift || true
 
 case "$cmd" in
-    setup)   exec bash "$REPO_ROOT/scripts/setup.sh" "$@" ;;
+    setup)     exec bash "$REPO_ROOT/scripts/setup.sh" "$@" ;;
+    blueprint) exec bash "$REPO_ROOT/scripts/blueprint.sh" "$@" ;;
     start)   exec bash "$REPO_ROOT/scripts/start.sh" "$@" ;;
     stop)    exec bash "$REPO_ROOT/scripts/reset.sh" stop ;;
     restart) bash "$REPO_ROOT/scripts/reset.sh" stop && exec bash "$REPO_ROOT/scripts/start.sh" "$@" ;;

@@ -4,9 +4,9 @@ section: docs
 tags: [guide]
 aliases: [vibe-integrate]
 source: docs/vibe-integrate.md
-generated: 2026-04-15T11:48:11Z
+generated: 2026-04-25T04:17:15Z
 ---
-# OGLab — Vibe Integration Plan
+# Arail — Vibe Integration Plan
 
 How the researcher agent naturally integrates with the user's workflow.
 

@@ -4,7 +4,7 @@ section: docs
 tags: [shell, script]
 aliases: [gentoo-bootstrap, gentoo-bootstrap.sh]
 source: scripts/gentoo-bootstrap.sh
-generated: 2026-04-15T11:48:11Z
+generated: 2026-04-25T04:17:15Z
 ---
 
 # gentoo-bootstrap.sh (shell)
@@ -15,14 +15,14 @@ generated: 2026-04-15T11:48:11Z
 
 !/usr/bin/env bash
 =============================================================================
-OGLab — Gentoo System Bootstrap
+Arail — Gentoo System Bootstrap
 
 Run this ONCE on a fresh Gentoo install to compile the full AI lab stack:
 - Python + ML libraries
 - WezTerm (terminal)
 - ttyd (terminal-in-browser)
 - Jupyter
-- Avahi (mDNS for oglab.local)
+- Avahi (mDNS for arail.local)
 - Nvidia/CUDA (if GPU present)
 - FastAPI portal dependencies
 

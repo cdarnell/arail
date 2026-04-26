@@ -91,3 +91,4 @@ Thumbs.db
 htmlcov/
 .coverage
 .ipynb_checkpoints/
+.claude/

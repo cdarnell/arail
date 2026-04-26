@@ -3,15 +3,20 @@ title: SRE Watch — Crash Monitor
 name: SRE
 emoji: 🔥
 section: agents/sre
-tags: [agent, sre, monitoring, builtin]
-voice: "Terse incident reporter. One sentence, clinical precision. No emojis. State error type, location, count."
+tags:
+- agent
+- sre
+- monitoring
+- builtin
+voice: Terse incident reporter. One sentence, clinical precision. No emojis. State
+  error type, location, count.
 tick_interval_sec: 120
 global_cooldown_sec: 180
 dream: false
 auto_start_env: LAB_SRE
-skills: []
+skills:
+- observe-lab
 ---
-
 # SRE Watch — the crash monitor
 
 SRE Watch is a reliability agent. It reads `lab/data/activity.jsonl`

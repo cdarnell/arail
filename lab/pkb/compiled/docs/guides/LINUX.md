@@ -4,11 +4,11 @@ section: docs
 tags: [guide]
 aliases: [LINUX]
 source: docs/LINUX.md
-generated: 2026-04-22T01:03:30Z
+generated: 2026-04-25T04:17:15Z
 ---
 # Linux — Bring Your Own Distro
 
-OGLab is distro-neutral. The Python package, the portal, the agents,
+Arail is distro-neutral. The Python package, the portal, the agents,
 and the model router don't care what installed CUDA or what version of
 Python you're running — they just need `python >= 3.10` and a working
 venv.
@@ -26,7 +26,7 @@ functions. Out of the box those know:
 | Fedora | `dnf` | worked example below |
 | openSUSE / NixOS / Alpine / … | whatever | **vibe-integrate it** (see [AGENTS.md](../AGENTS.md)) |
 
-If `./oglab setup` doesn't recognize your distro, you have two options:
+If `./arail setup` doesn't recognize your distro, you have two options:
 either port the setup script yourself (~20 lines), or hand the
 blueprint to an agent and let it do it for you.
 
@@ -38,7 +38,7 @@ files it needs and ask it to add a branch for your package manager.
 
 Here's a prompt that gets it done reliably:
 
-> I'm porting [oglab](https://github.com/cdarnell/minimalist-blueprint)
+> I'm porting [arail](https://github.com/cdarnell/autoresearch-lab)
 > to **\<your distro\>**. Look at `scripts/setup.sh` — specifically the
 > `detect_platform`, `install_core_deps`, and `install_accel_deps`
 > functions. Add a new branch for \<your distro\> that installs the
@@ -79,10 +79,10 @@ elif [[ -f /etc/arch-release ]]; then
 fi
 ```
 
-That's it. After those three stanzas, `./oglab setup` on Arch behaves
+That's it. After those three stanzas, `./arail setup` on Arch behaves
 identically to Ubuntu or macOS — it creates the venv, installs the
 Python package, downloads a model, captures your goal, and hands off
-to `./oglab start`.
+to `./arail start`.
 
 ## Worked example — Fedora Workstation
 
@@ -124,7 +124,7 @@ sudo dnf install -y akmod-nvidia xorg-x11-drv-nvidia-cuda
 nvidia-smi
 ```
 
-After that, `./oglab setup` detects CUDA automatically and uses the
+After that, `./arail setup` detects CUDA automatically and uses the
 existing cuda branch. The Fedora-specific work is just the three-line
 port above.
 
@@ -151,7 +151,7 @@ modprobe nvidia
 nvidia-smi
 ```
 
-For the Python side inside the OGLab venv:
+For the Python side inside the Arail venv:
 
 ```bash
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
@@ -195,7 +195,7 @@ If you're running this on a box without a graphical shell (a home lab,
 a VPS, a dedicated research machine), skip the auto-open browser step:
 
 ```bash
-OGLAB_NO_BROWSER=1 ./oglab start
+ARAIL_NO_BROWSER=1 ./arail start
 ```
 
 Bind to all interfaces instead of localhost by editing `lab.conf`:

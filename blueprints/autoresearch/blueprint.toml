@@ -1,0 +1,87 @@
+# Autoresearch — the default ARAIL blueprint.
+#
+# Researcher + curator + experiment-tracker triad. Give it a topic;
+# it gathers, organizes, and writes. Forks should rename `id` and
+# `label`, swap `agents`, and pick different `runtime.models`.
+#
+# TOML layout convention: all top-level scalars + arrays come FIRST,
+# then all [table] sections. Once a [table] header appears, every
+# subsequent key belongs to that table until the next header — so a
+# bare `agents = [...]` after `[runtime.models]` would silently
+# become `runtime.models.agents`. Don't reorder without understanding
+# this.
+
+id          = "autoresearch"
+label       = "Autoresearch"
+tier        = "min"
+goal_prompt = "Improve something measurable and learn while the loop runs."
+description = """
+Default ARAIL lab. A researcher agent gathers material on a topic
+you provide, a curator organizes it into the knowledge base, and
+an experiment tracker records what you tried and what you learned.
+Spin it up, set a goal, walk away.
+"""
+
+# Agents — class names resolvable under src/arail/agents/.
+# Top-level array, kept BEFORE the first [table] header.
+agents = [
+    "researcher",
+    "curator",
+    "experiment_tracker",
+]
+
+# ── Runtime preferences ──────────────────────────────────────────
+[runtime]
+# Try AeroLLM first (in-process, layer-streaming); fall back to
+# AirLLM (Python subprocess, sequential) when AeroLLM doesn't yet
+# support the architecture or accelerator. The fallback is a
+# notice, not a silent downgrade.
+backend_preference = ["aerollm", "airllm"]
+default_engine     = "mlx"
+
+# Models reference catalog/models.toml ids. `arail blueprint apply`
+# validates that the ids resolve and that the model is compatible
+# with the chosen backend + engine.
+[runtime.models]
+mlx    = "qwen3_8b_4bit_mlx"
+cuda   = "qwen3_8b_bf16"
+cpu    = "qwen3_8b_gguf"
+airllm = "llama_3_1_70b_bf16"
+
+# ── Telemetry ────────────────────────────────────────────────────
+# Sinks are documented intent today — the bus is in-process;
+# subscriber wiring lands as the AeroLLM backend matures. The role
+# creates the directories so the filesystem is ready.
+[telemetry]
+sink_dir = "log"
+
+[[telemetry.sinks]]
+name   = "layer_streaming"
+topics = [
+    "PrefetchHit",
+    "PrefetchMiss",
+    "LayerInstalled",
+    "LayerEvicted",
+]
+
+[[telemetry.sinks]]
+name   = "spec_decode"
+topics = [
+    "SpecRound",
+    "SpecAcceptanceEwma",
+    "SpecBatchSync",
+]
+
+# ── Port layout ──────────────────────────────────────────────────
+# Offsets added to the --port-base allocated at `arail blueprint
+# create` time (default base: 9100). The default lab at the repo
+# root keeps its existing ports from lab.conf (PORTAL_PORT=8080,
+# etc.).
+[ports]
+portal     = 0
+terminal   = 1
+notebook   = 2
+ide        = 3
+# Gap of one (offset 4) reserved for the planned AeroLLM HTTP
+# listener — keeps blueprints written today forward-compatible.
+mlx_openai = 5
