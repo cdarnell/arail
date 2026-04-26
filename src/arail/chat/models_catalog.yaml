@@ -146,6 +146,20 @@
   install: "ollama pull deepseek-r1:14b"
   tier: recommended
 
+# ── Qwen 2.5 7B Instruct (bf16) — AeroLLM proving ground ───────────
+- id: qwen2.5-7b-instruct-bf16
+  name: Qwen 2.5 7B Instruct (bf16)
+  family: qwen
+  size_gb: 14
+  released: 2024-09
+  source: hf
+  good_at: [chat, reasoning, multilingual, agent]
+  description: Local bf16 weights routed through AeroLLM (in-process
+               mlx-rs). The proving-ground model for AeroLLM speed
+               measurement and the AirLLM comparison baseline.
+  install: "huggingface-cli download Qwen/Qwen2.5-7B-Instruct --local-dir $ARAIL_MODELS_DIR/Qwen2.5-7B-Instruct"
+  tier: flagship
+
 # ── Mistral 7B — solid baseline ────────────────────────────────────
 - id: mistral:7b
   name: Mistral 7B

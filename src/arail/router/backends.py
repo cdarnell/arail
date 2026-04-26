@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import atexit
 import os
 import time
 from abc import ABC, abstractmethod
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any, Iterator, Optional
 
@@ -784,112 +786,193 @@ class AirLLMBackend(BaseBackend):
 
 
 # ---------------------------------------------------------------------------
-# AeroLLM  (multi-threaded prefetched layer streaming — 70B+ on minimal RAM)
+# AeroLLM  (in-process Rust runtime via the aero_api PyO3 wheel)
 # ---------------------------------------------------------------------------
 class AeroLLMBackend(BaseBackend):
-    """Run massive models (100B-405B) from disk via AeroLLM.
+    """Drive the AeroLLM Rust runtime through its `aero_api` PyO3 wheel.
 
-    Default: Qwen3-235B-A22B — a 235B MoE model (22B active per token).
-    Multi-threaded layer streaming with prefetch: overlaps disk I/O and
-    compute so concurrent prompts share layer passes instead of
-    serializing on bandwidth. Developed at github.com/cdarnell/aerollm.
+    The wheel ships from `aerollm/crates/aero-api` (build with
+    ``maturin develop --release``). Apple Silicon uses the in-process
+    ``mlx-native`` backend; on other hosts the wheel falls back to the
+    legacy subprocess shim (``mlx``).
+
+    Default model: ``Qwen2.5-7B-Instruct`` resolved against
+    ``ARAIL_MODELS_DIR`` (so a local checkpoint at
+    ``$ARAIL_MODELS_DIR/Qwen2.5-7B-Instruct`` is picked up
+    automatically). Set ``AEROLLM_MODEL`` to override the directory
+    name.
+
+    Threading: ``aero_api.Runtime`` is unsendable (MLX Metal context
+    is thread-affine). All Runtime ops are pinned to a dedicated
+    single-worker ``ThreadPoolExecutor`` so FastAPI's threadpool
+    dispatch can hop into and out of this backend without touching
+    the underlying handle from a foreign thread. Process shutdown
+    may print one ``RuntimeError: ... unsendable, but is being
+    dropped on another thread`` to stderr — that's Python's GC
+    ordering interacting with our atexit handler, not a runtime bug.
     """
 
     def __init__(self) -> None:
         try:
-            from aerollm import AutoModel  # type: ignore[import-untyped]
-            self._AutoModel = AutoModel
-        except ImportError:
+            from aero_api import Runtime  # type: ignore[import-untyped]
+        except ImportError as e:
             raise ImportError(
-                "AeroLLM not installed. Run: pip install "
-                "git+https://github.com/cdarnell/aerollm@main"
+                "aero_api wheel not installed. Build it with: "
+                "cd aerollm/crates/aero-api && maturin develop --release"
+            ) from e
+
+        self.model_name = os.getenv("AEROLLM_MODEL", "Qwen2.5-7B-Instruct")
+        models_dir = os.getenv("ARAIL_MODELS_DIR", "lab/models")
+        # Accept either a bare directory name (resolved against
+        # ARAIL_MODELS_DIR) or an absolute path. The bare-name form is
+        # the common case for the chat catalog; the absolute path
+        # exists for ad-hoc operator use.
+        if os.path.isabs(self.model_name):
+            model_path = self.model_name
+        else:
+            model_path = os.path.join(models_dir, self.model_name)
+
+        if not os.path.isdir(model_path):
+            raise RuntimeError(
+                f"AeroLLM model dir not found: {model_path}. "
+                f"Set AEROLLM_MODEL and/or ARAIL_MODELS_DIR, or "
+                f"download the checkpoint with `huggingface-cli download "
+                f"Qwen/Qwen2.5-7B-Instruct --local-dir {model_path}`."
             )
 
-        self.model_name = os.getenv(
-            "AEROLLM_MODEL", "zai-org/GLM-5.1"
+        # Optional speculative-decoding draft. When AEROLLM_DRAFT_MODEL
+        # is set and points at a directory under ARAIL_MODELS_DIR, the
+        # runtime preloads a second backend; complete() does not yet
+        # surface the spec-decode flag (chat path stays single-seq for
+        # simplicity), but having the draft resident means a future
+        # toggle costs only a kwarg flip, not a reload.
+        draft_name = os.getenv("AEROLLM_DRAFT_MODEL")
+        draft_path: Optional[str] = None
+        if draft_name:
+            cand = draft_name if os.path.isabs(draft_name) else os.path.join(models_dir, draft_name)
+            if os.path.isdir(cand):
+                draft_path = cand
+
+        rt_kwargs: dict[str, Any] = {}
+        if draft_path:
+            rt_kwargs["draft_model"] = draft_path
+        ring_depth = os.getenv("AEROLLM_RING_DEPTH")
+        if ring_depth and ring_depth.isdigit() and int(ring_depth) > 0:
+            rt_kwargs["ring_depth"] = int(ring_depth)
+
+        self._model_path = model_path
+        self._draft_path = draft_path
+
+        # The aero_api Runtime is unsendable: PyO3 panics if the handle
+        # is touched from a thread other than the one that constructed
+        # it (MLX's Metal context is thread-affine). FastAPI's
+        # `run_in_threadpool` dispatches deep_backend.complete() onto a
+        # worker thread, so we'd hit the panic on the second chat turn.
+        # Pin the Runtime to a dedicated single-worker executor: the
+        # constructor builds it on the worker, and every complete()
+        # call routes back through the same worker. The cost is one
+        # extra thread-hop per call (~µs); the benefit is a runtime
+        # that survives FastAPI's threading model unchanged.
+        self._executor = ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="aerollm-rt"
         )
-        compression = os.getenv("AEROLLM_COMPRESSION", "4bit") or None
-        if compression == "none":
-            compression = None
+        self._runtime: Any = None  # populated on the worker thread
+        self._closed = False
+        self._executor.submit(self._init_runtime, Runtime, model_path, rt_kwargs).result()
+        # Drop the Runtime on the worker thread at process exit. Without
+        # this, Python's GC can drop the unsendable handle from the main
+        # thread and PyO3 raises RuntimeError during shutdown.
+        atexit.register(self._close)
 
-        models_dir = os.getenv("ARAIL_MODELS_DIR", "lab/models")
-        cache_dir = os.path.join(models_dir, "aerollm_cache")
-        os.makedirs(cache_dir, exist_ok=True)
+    def _init_runtime(self, runtime_cls: Any, model_path: str,
+                      rt_kwargs: dict[str, Any]) -> None:
+        """Construct + start the Runtime. Must run on the executor
+        worker thread so the Metal context is bound to it."""
+        rt = runtime_cls(model_path, **rt_kwargs)
+        rt.start()
+        self._runtime = rt
 
-        # Check for local download first, fall back to hub ID
-        local_dir = os.path.join(models_dir, self.model_name.split("/")[-1])
-        model_path = local_dir if os.path.isdir(local_dir) else self.model_name
+    def _close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        try:
+            # Drop the Runtime on the worker thread it was built on.
+            self._executor.submit(self._drop_runtime_on_worker).result(timeout=10)
+        except Exception:
+            pass
+        try:
+            self._executor.shutdown(wait=True, cancel_futures=True)
+        except Exception:
+            pass
 
-        self.model = self._AutoModel.from_pretrained(
-            model_path,
-            compression=compression,
-            layer_shards_saving_path=cache_dir,
+    def _drop_runtime_on_worker(self) -> None:
+        self._runtime = None
+
+    @staticmethod
+    def _wrap_chatml(prompt: str) -> str:
+        """Wrap a bare prompt in Qwen2.5 ChatML so the instruct tuning
+        actually fires. If the caller already produced ChatML (e.g. via
+        a tokenizer's apply_chat_template upstream), pass it through
+        unchanged to avoid double-wrapping."""
+        if "<|im_start|>" in prompt:
+            return prompt
+        return (
+            "<|im_start|>system\nYou are a concise, helpful assistant.<|im_end|>\n"
+            f"<|im_start|>user\n{prompt}<|im_end|>\n"
+            "<|im_start|>assistant\n"
         )
-        self._max_length = int(os.getenv("AEROLLM_MAX_LENGTH", "512"))
+
+    def _generate_on_worker(self, wrapped: str,
+                            gen_kwargs: dict[str, Any]) -> str:
+        """Run on the executor worker. Holds the unsendable invariant."""
+        return self._runtime.generate(wrapped, **gen_kwargs)
 
     def complete(self, prompt: str, max_tokens: int = 512,
                  temperature: float = 0.7,
                  top_p: Optional[float] = None) -> ModelResponse:
         start = time.time()
+        wrapped = self._wrap_chatml(prompt)
 
-        input_tokens = self.model.tokenizer(
-            [prompt],
-            return_tensors="pt",
-            return_attention_mask=False,
-            truncation=True,
-            max_length=self._max_length,
-            padding=False,
-        )
-
-        # Transformers .generate() accepts top_p + temperature directly.
-        # Guarding on do_sample=True ensures temperature/top_p actually
-        # take effect (defaults to greedy otherwise).
-        gen_kwargs: dict = {
+        gen_kwargs: dict[str, Any] = {
             "max_new_tokens": max_tokens,
-            "use_cache": True,
-            "return_dict_in_generate": True,
+            "temperature": float(temperature),
         }
-        if temperature != 1.0 or top_p is not None:
-            gen_kwargs["do_sample"] = True
-            gen_kwargs["temperature"] = temperature
-            if top_p is not None:
-                gen_kwargs["top_p"] = top_p
+        if top_p is not None:
+            gen_kwargs["top_p"] = float(top_p)
 
-        generation = self.model.generate(
-            input_tokens["input_ids"].cuda()
-            if __import__("torch").cuda.is_available()
-            else input_tokens["input_ids"],
-            **gen_kwargs,
-        )
-        text = self.model.tokenizer.decode(
-            generation.sequences[0], skip_special_tokens=True
-        )
-        # Strip the input prompt from the output
-        if text.startswith(prompt):
-            text = text[len(prompt):]
-        text = text.strip()
+        # Hop to the dedicated runtime thread; .result() blocks until
+        # it returns. If the worker raises, .result() re-raises here.
+        text = self._executor.submit(
+            self._generate_on_worker, wrapped, gen_kwargs
+        ).result()
 
-        tokens_used = len(generation.sequences[0]) - len(input_tokens["input_ids"][0])
+        # The runtime returns just the decoded continuation, but it
+        # may include a trailing <|im_end|>; strip it. Older shim
+        # paths sometimes echo the prompt — strip that defensively
+        # too.
+        if text.startswith(wrapped):
+            text = text[len(wrapped):]
+        text = text.replace("<|im_end|>", "").strip()
+
+        # aero_api doesn't surface output-token count yet (planned in
+        # a follow-up via generate_with_stats). Approximate with a
+        # word-count fallback to match the AirLLMBackend style — good
+        # enough for the dashboard's tok/min headline; the criterion
+        # bench is the authoritative source for real tok/s numbers.
+        tokens_used = max(len(text.split()), 0)
 
         return ModelResponse(
             text=text,
             model=self.model_name,
-            tokens_used=max(tokens_used, 0),
+            tokens_used=tokens_used,
             backend="aerollm",
             latency_ms=(time.time() - start) * 1000,
             cost_usd=0.0,
         )
 
     def health_check(self) -> bool:
-        # Full generation is too slow for a health check.
-        # Verify the model object and tokenizer are loaded.
-        try:
-            return (
-                self.model is not None
-                and self.model.tokenizer is not None
-            )
-        except Exception:
-            return False
+        return getattr(self, "_runtime", None) is not None
 
 
 # ---------------------------------------------------------------------------

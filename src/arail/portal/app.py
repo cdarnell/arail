@@ -3240,11 +3240,10 @@ _OPTIONAL_CHAT_BACKEND_CONFIG: dict[str, dict[str, str]] = {
         "label": "AeroLLM",
         "class_name": "AeroLLMBackend",
         "install_command": (
-            "pip install "
-            + os.getenv("AEROLLM_PACKAGE", "git+https://github.com/cdarnell/aerollm@main")
+            "cd aerollm/crates/aero-api && maturin develop --release"
         ),
         "model_env": "AEROLLM_MODEL",
-        "default_model": "zai-org/GLM-5.1",
+        "default_model": "Qwen2.5-7B-Instruct",
     },
 }
 
