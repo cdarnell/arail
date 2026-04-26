@@ -415,7 +415,7 @@
         <div class="ac-title">Health Check</div>
         <div class="ac-desc">CPU, RAM, disk, GPU, services</div>
       </div>
-      <div class="admin-card" onclick="if(confirm('Restart all lab services?')) adminAction('/api/system/restart', 'POST', 'Restarting…')">
+      <div class="admin-card" onclick="restartLab()">
         <div class="ac-title">Restart Lab</div>
         <div class="ac-desc">Stop + start all services</div>
       </div>
@@ -672,6 +672,18 @@ async function checkUpdates() {
     const d = await r.json();
     if (d.airgapped) { adminLog('Airgapped — switch to Hybrid to check remote updates.', 'error'); return; }
     adminLog(d.summary || 'Check complete.', d.updates_available > 0 ? '' : 'success');
+  } catch(e) { adminLog('Failed: ' + e.message, 'error'); }
+}
+
+async function restartLab() {
+  if (!confirm('Restart all lab services? The portal will restart.')) return;
+  adminLog('Restarting lab…');
+  window.open(window.location.href, '_blank');
+  try {
+    const r = await fetch('/api/system/restart', {method: 'POST'});
+    const d = await r.json();
+    if (d.error) { adminLog(d.error, 'error'); return; }
+    adminLog('Restart initiated — lab coming back online…', 'success');
   } catch(e) { adminLog('Failed: ' + e.message, 'error'); }
 }
 
