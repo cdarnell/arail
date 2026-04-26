@@ -570,6 +570,8 @@ capture_brand() {
         LAB_NAME="Autoresearch AI Lab"
         LAB_SHORT_NAME="$(_slugify "$LAB_NAME")"
         LAB_TAGLINE="A learn-by-doing AI research lab"
+        LAB_INTENT="${LAB_INTENT:-ai}"
+        LAB_INTENT_NAME="${LAB_INTENT_NAME:-AI Engineer}"
         info "Non-interactive — using default lab name: ${LAB_NAME}"
         return
     fi
@@ -588,11 +590,75 @@ capture_brand() {
     # ugly in process listings.
     LAB_SHORT_NAME="$(_slugify "$LAB_NAME")"
 
+    # Ask intent BEFORE the slogan so the slogan default can match
+    # the kind of lab being set up.
+    _capture_lab_intent
+
     echo ""
-    read -rp "  One-line tagline [A learn-by-doing AI research lab]: " LAB_TAGLINE
-    LAB_TAGLINE="${LAB_TAGLINE:-A learn-by-doing AI research lab}"
+    local _tagline_default="A learn-by-doing AI research lab"
+    case "$LAB_INTENT" in
+        ai)        _tagline_default="A rail gun for AI" ;;
+        ml)        _tagline_default="Train. Measure. Repeat." ;;
+        farming)   _tagline_default="Grow smarter, season by season" ;;
+        business)  _tagline_default="Evidence over opinions" ;;
+        education) _tagline_default="Mastery, one experiment at a time" ;;
+        health)    _tagline_default="N=1, done rigorously" ;;
+        culinary)  _tagline_default="Cook like a scientist" ;;
+        creative)  _tagline_default="A studio that runs experiments" ;;
+        science)   _tagline_default="Curiosity, instrumented" ;;
+    esac
+    read -rp "  One-line slogan for your lab [${_tagline_default}]: " LAB_TAGLINE
+    LAB_TAGLINE="${LAB_TAGLINE:-$_tagline_default}"
 
     info "Lab name: ${BOLD}${LAB_NAME}${RESET}"
+}
+
+# Prompt for the lab's intent (kind of lab). Sets LAB_INTENT and
+# LAB_INTENT_NAME globals so capture_research_goal can reuse them
+# and skip re-asking. #10 is "other" — free-form custom label.
+_capture_lab_intent() {
+    if [[ -n "${LAB_INTENT:-}" ]]; then
+        return
+    fi
+
+    echo ""
+    echo "  What kind of lab is this?"
+    echo ""
+    echo "    1)  ai         — AI engineering, models, inference, toolchains"
+    echo "    2)  ml         — Machine learning, training, datasets, benchmarks"
+    echo "    3)  farming    — Crop science, soil, regional growing"
+    echo "    4)  business   — Market research, unit economics, competitive intel"
+    echo "    5)  education  — Learning science, curriculum, mastery"
+    echo "    6)  health     — Exercise, nutrition, sleep, wellness protocols"
+    echo "    7)  culinary   — Cooking technique, flavor chemistry, recipe dev"
+    echo "    8)  creative   — Writing, music, art, visual design experiments"
+    echo "    9)  science    — Physics, chemistry, biology, general lab science"
+    echo "    10) other      — Something else (you'll describe it)"
+    echo ""
+    local choice
+    read -rp "  Choice [1-10, default 1]: " choice
+    case "${choice:-1}" in
+        1|"") LAB_INTENT=ai;        LAB_INTENT_NAME="AI Engineer" ;;
+        2)    LAB_INTENT=ml;        LAB_INTENT_NAME="ML Researcher" ;;
+        3)    LAB_INTENT=farming;   LAB_INTENT_NAME="Farmer" ;;
+        4)    LAB_INTENT=business;  LAB_INTENT_NAME="Analyst" ;;
+        5)    LAB_INTENT=education; LAB_INTENT_NAME="Educator" ;;
+        6)    LAB_INTENT=health;    LAB_INTENT_NAME="Health Researcher" ;;
+        7)    LAB_INTENT=culinary;  LAB_INTENT_NAME="Culinary Scientist" ;;
+        8)    LAB_INTENT=creative;  LAB_INTENT_NAME="Creative Researcher" ;;
+        9)    LAB_INTENT=science;   LAB_INTENT_NAME="Scientist" ;;
+        10)
+            local custom_kind custom_role
+            read -rp "    Describe your lab in one or two words (e.g. 'gardening', 'finance'): " custom_kind
+            custom_kind="${custom_kind// /-}"
+            custom_kind="$(printf '%s' "$custom_kind" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9-')"
+            [[ -z "$custom_kind" ]] && custom_kind="custom"
+            read -rp "    What should we call you? (e.g. 'Gardener', 'Investor') [Researcher]: " custom_role
+            LAB_INTENT="$custom_kind"
+            LAB_INTENT_NAME="${custom_role:-Researcher}"
+            ;;
+        *)    LAB_INTENT=ai;        LAB_INTENT_NAME="AI Engineer" ;;
+    esac
 }
 
 # Lowercase + hyphenate + drop non-alphanumerics. Reused for default
@@ -1029,29 +1095,13 @@ capture_goal() {
         return
     fi
 
-    step "9/10  Lab intent & first research goal"
-    echo "  What kind of lab is this?"
-    echo ""
-    echo "    1) ai         — AI engineering, models, inference, toolchains"
-    echo "    2) ml         — Machine learning, training, datasets, benchmarks"
-    echo "    3) farming    — Crop science, soil, regional growing"
-    echo "    4) business   — Market research, unit economics, competitive intel"
-    echo "    5) education  — Learning science, curriculum, mastery"
-    echo "    6) health     — Exercise, nutrition, sleep, wellness protocols"
-    echo "    7) culinary   — Cooking technique, flavor chemistry, recipe dev"
-    echo ""
-    read -rp "  Choice [1-7, default 1]: " choice
-    local intent intent_name
-    case "${choice:-1}" in
-        1|"") intent=ai;        intent_name="AI Engineer" ;;
-        2)    intent=ml;        intent_name="ML Researcher" ;;
-        3)    intent=farming;   intent_name="Farmer" ;;
-        4)    intent=business;  intent_name="Analyst" ;;
-        5)    intent=education; intent_name="Educator" ;;
-        6)    intent=health;    intent_name="Health Researcher" ;;
-        7)    intent=culinary;  intent_name="Culinary Scientist" ;;
-        *)    intent=ai;        intent_name="AI Engineer" ;;
-    esac
+    step "9/10  First research goal"
+    # Intent was captured back in step 4 alongside the lab name, so
+    # we just reuse it here. Fall back to a sane default if something
+    # skipped the earlier prompt.
+    local intent="${LAB_INTENT:-ai}"
+    local intent_name="${LAB_INTENT_NAME:-AI Engineer}"
+    info "Lab kind: ${BOLD}${intent}${RESET} (${intent_name})"
 
     echo ""
     echo -e "  ${BOLD}─── Research goal ───${RESET}"
