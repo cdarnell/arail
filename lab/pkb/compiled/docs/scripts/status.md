@@ -4,7 +4,7 @@ section: docs
 tags: [shell, script]
 aliases: [status, status.sh]
 source: scripts/status.sh
-generated: 2026-04-15T11:48:11Z
+generated: 2026-04-25T04:17:15Z
 ---
 
 # status.sh (shell)
@@ -13,7 +13,7 @@ generated: 2026-04-15T11:48:11Z
 
 ## Overview
 
-./oglab status — show what's running and where.
+./arail status — show what's running and where.
 
 ## Functions
 

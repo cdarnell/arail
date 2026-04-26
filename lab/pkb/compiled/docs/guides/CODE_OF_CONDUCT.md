@@ -4,11 +4,11 @@ section: docs
 tags: [guide]
 aliases: [CODE_OF_CONDUCT]
 source: CODE_OF_CONDUCT.md
-generated: 2026-04-16T03:11:04Z
+generated: 2026-04-25T04:17:15Z
 ---
 # Contributor Code of Conduct
 
-OGLab is a blueprint meant to be forked, adapted, and shared.  Everyone who contributes — via code, issues, docs, or discussion — agrees to the expectations below.
+Arail is a blueprint meant to be forked, adapted, and shared.  Everyone who contributes — via code, issues, docs, or discussion — agrees to the expectations below.
 
 ## Our pledge
 

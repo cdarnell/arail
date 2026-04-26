@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{ brand.name }} — Chat</title>
 <link rel="stylesheet" href="/static/style.css">
+<!-- Markdown rendering for chat bubbles. Pinned versions, sandboxed via DOMPurify. -->
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js" defer></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.11/dist/purify.min.js" defer></script>
 <style>
   body.embed { background: transparent; }
   .chat-wrap { max-width: 1100px; margin: 20px auto; padding: 0 18px; }
@@ -38,8 +41,46 @@
   .chat-bubble.user { background:#111a11; border-color:#284028; }
   .chat-meta { margin-top: 6px; font-size: 11px; color:#9a9a9a; border-top:1px dashed #2b2b2b; padding-top:6px; }
 
-  .chat-compose { display:flex; gap:8px; margin-top: 10px; }
-  .chat-compose input { flex:1; min-width:0; }
+  /* Compose — the headline action of the page. Translucent, glowing
+     gradient border, generous height. The Compute Source card above
+     is intentionally muted so this draws the eye. */
+  .compose-card {
+    background:
+      radial-gradient(120% 140% at 0% 0%, rgba(74,164,111,0.10) 0%, transparent 60%),
+      radial-gradient(120% 140% at 100% 100%, rgba(78,195,232,0.08) 0%, transparent 55%),
+      rgba(20,24,22,0.72);
+    border: 1px solid #2f5a3f;
+    box-shadow: 0 0 0 1px rgba(74,164,111,0.08), 0 8px 28px rgba(0,0,0,0.35);
+    backdrop-filter: blur(6px);
+  }
+  .compose-card h2 { color: #d8f0e0; }
+  .chat-compose { display:flex; gap:10px; margin-top: 12px; align-items: stretch; }
+  .chat-compose textarea {
+    flex: 1;
+    min-width: 0;
+    min-height: 96px;
+    resize: vertical;
+    padding: 14px 16px;
+    font-size: 15px;
+    line-height: 1.5;
+    font-family: inherit;
+    color: #eef6f0;
+    background: rgba(8,12,10,0.55);
+    border: 1px solid #2a4a36;
+    border-radius: 10px;
+    transition: border-color .15s, box-shadow .15s, background .15s;
+  }
+  .chat-compose textarea::placeholder { color: #7a9686; }
+  .chat-compose textarea:focus {
+    outline: none;
+    border-color: #5cc488;
+    background: rgba(10,18,14,0.78);
+    box-shadow: 0 0 0 3px rgba(92,196,136,0.18), 0 0 24px rgba(92,196,136,0.10);
+  }
+  .chat-compose-actions { display:flex; flex-direction:column; gap:8px; justify-content:flex-start; }
+  .chat-compose-actions .btn { min-width: 110px; }
+
+  /* Tone the Compute Source card down so Compose owns the spotlight. */
 
   .chat-controls { display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; margin-top: 12px; }
   .chat-controls label { display:flex; flex-direction:column; gap:5px; font-size:12px; color:#b6b6b6; }
@@ -62,7 +103,8 @@
     font-size: 12px;
   }
 
-  .compute-card { border-color:#284028; background:#0f1a14; }
+  .compute-card { border-color:#1f2a23; background:#0c100e; }
+  .compute-card h2 { color: #b8c9be; }
   .compute-head-row { display:flex; align-items:center; justify-content:space-between; gap:12px; }
   .airgapped-banner {
     margin: 8px 0 10px; padding: 9px 11px; border-radius: 8px;
@@ -281,13 +323,13 @@
 <div class="chat-wrap">
   <div class="chat-head">
     <h1>Chat</h1>
-    <span class="chat-sub">Choose fast chat, duplicate the prompt to Deep Teacher, or send to Teacher only when depth matters more than latency.</span>
+    <span class="chat-sub">Choose fast chat, duplicate the prompt to Thoughtful Expert, or send to Thoughtful Expert only when depth matters more than latency.</span>
   </div>
 
   <div class="chat-shortcuts" aria-label="Chat shortcuts">
-    <a class="tuning-link" href="/tuning" title="Open tuning workspace">
+    <a class="tuning-link" href="/tuning" title="Frontier LLM hosting on consumer-grade hardware">
       <span>🧪</span>
-      <span>LLM Tuning</span>
+      <span>Frontier LLM Hosting</span>
     </a>
     <a class="terminal-link" href="/terminal" target="_blank" rel="noopener" title="Open terminal in a new tab">
       <span>⌨️</span>
@@ -362,12 +404,14 @@
       <div class="chat-muted" id="compute-status" style="margin-top:6px"></div>
     </section>
 
-    <section class="chat-card">
-      <h2>Compose</h2>
+    <section class="chat-card compose-card">
+      <h2>✨ Compose</h2>
       <div class="chat-compose">
-        <input id="chat-input" type="text" placeholder="Ask once, then choose fast chat, both, or Teacher only…" autocomplete="off" />
-        <button class="btn btn-primary" id="chat-send">Send</button>
-        <button class="btn btn-ghost" id="chat-clear">Clear</button>
+        <textarea id="chat-input" rows="3" placeholder="Type a question. Press ⏎ to send, Shift+⏎ for a newline. Markdown is rendered in replies." autocomplete="off"></textarea>
+        <div class="chat-compose-actions">
+          <button class="btn btn-primary" id="chat-send">Send</button>
+          <button class="btn btn-ghost" id="chat-clear">Clear</button>
+        </div>
       </div>
 
       <div class="chat-controls">
@@ -375,8 +419,8 @@
           Send mode
           <select id="chat-route">
             <option value="fast">Fast chat only</option>
-            <option value="both">Fast chat + Deep Teacher</option>
-            <option value="teacher-only">Deep Teacher only</option>
+            <option value="both">Fast chat + Thoughtful Expert</option>
+            <option value="teacher-only">Thoughtful Expert only</option>
           </select>
         </label>
         <div class="fast-model-picker">
@@ -421,7 +465,7 @@
           <span class="hint" id="chat-max-tokens-val">512</span>
         </label>
         <label>
-          Teacher backend
+          Thoughtful Expert backend
           <select id="teacher-backend">
             <option value="airllm">AirLLM</option>
             <option value="aerollm">AeroLLM</option>
@@ -430,7 +474,7 @@
       </div>
 
       <div class="chat-route-note" id="chat-route-note">
-        Fast chat only. Switch to a teacher mode when you want the larger model involved.
+        Fast chat only. Switch to a Thoughtful Expert mode when you want the larger model involved.
       </div>
     </section>
 
@@ -449,16 +493,16 @@
 
     <section class="chat-card">
       <h2>
-        Teacher Comparison
+        Thoughtful Expert
         <span class="chat-chip deep" id="teacher-model-chip">loading…</span>
       </h2>
       <div class="chat-log" id="teacher-log">
         <div class="chat-msg">
-          <div class="chat-role">TEACHER</div>
-          <div class="chat-bubble">Enable Deep Teacher below when you want the same prompt sent through the larger model too.</div>
+          <div class="chat-role">THOUGHTFUL EXPERT</div>
+          <div class="chat-bubble">Enable Thoughtful Expert below when you want the same prompt sent through the larger model too.</div>
         </div>
       </div>
-      <div class="teacher-cta">Tune deep backend performance in <a href="/tuning">Advanced Tuning</a>.</div>
+      <div class="teacher-cta">Tune Thoughtful Expert performance in <a href="/tuning">Frontier LLM Hosting</a>.</div>
     </section>
   </div>
 </div>
@@ -476,14 +520,34 @@
     return d.innerHTML;
   }
 
+  // Render markdown safely. Falls back to escaped plain text if marked
+  // or DOMPurify haven't loaded yet (CDN slow / offline).
+  function renderMarkdown(text) {
+    const raw = String(text || '');
+    if (window.marked && window.DOMPurify) {
+      const html = window.marked.parse(raw, { breaks: true, gfm: true });
+      return window.DOMPurify.sanitize(html);
+    }
+    return esc(raw).replace(/\n/g, '<br>');
+  }
+
+  function setBubble(bubble, text, isUser) {
+    if (isUser) {
+      bubble.textContent = text || '';
+    } else {
+      bubble.innerHTML = renderMarkdown(text);
+    }
+  }
+
   function appendMsg(logId, role, text, meta, isUser) {
     const log = $(logId);
     const wrap = document.createElement('div');
     wrap.className = 'chat-msg';
     wrap.innerHTML =
       `<div class="chat-role">${esc(role)}</div>` +
-      `<div class="chat-bubble${isUser ? ' user' : ''}">${esc(text || '')}</div>` +
+      `<div class="chat-bubble${isUser ? ' user' : ''}"></div>` +
       (meta ? `<div class="chat-meta">${esc(meta)}</div>` : '');
+    setBubble(wrap.querySelector('.chat-bubble'), text || '', isUser);
     log.appendChild(wrap);
     log.scrollTop = log.scrollHeight;
     return wrap;
@@ -496,10 +560,10 @@
     return {
       delta(chunk) {
         text += chunk || '';
-        bubble.textContent = text;
+        setBubble(bubble, text, false);
       },
       done(finalText, meta) {
-        bubble.textContent = finalText || text || '(empty response)';
+        setBubble(bubble, finalText || text || '(empty response)', false);
         if (meta) {
           const m = document.createElement('div');
           m.className = 'chat-meta';
@@ -683,7 +747,10 @@
 
   $('chat-send').addEventListener('click', sendMessage);
   $('chat-input').addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') sendMessage();
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
   });
 
   $('chat-clear').addEventListener('click', () => {
@@ -848,8 +915,11 @@
 
   async function loadModels() {
     try {
-      const d = await fetch('/api/chat/models').then(r => r.json());
+      const r = await fetch('/api/chat/models');
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const d = await r.json();
       const gallery = d.gallery || {installed: [], catalog: []};
+      if (gallery.error) console.warn('gallery_view error:', gallery.error);
       FMP.installed = gallery.installed || [];
       FMP.catalog = gallery.catalog || [];
 

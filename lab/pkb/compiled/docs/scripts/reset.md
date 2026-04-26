@@ -4,7 +4,7 @@ section: docs
 tags: [shell, script]
 aliases: [reset, reset.sh]
 source: scripts/reset.sh
-generated: 2026-04-18T17:11:40Z
+generated: 2026-04-25T04:17:15Z
 ---
 
 # reset.sh (shell)
@@ -23,13 +23,18 @@ ${LAB_NAME} Reset — Clean wipe / selective reset
 echo ""
     echo -e "  ${BOLD}${LAB_NAME} Reset${RESET}"
     echo ""
-    echo "  Usage: ./oglab reset [mode] [--yes]"
+    echo "  Usage: ./arail reset [mode] [--yes]"
     echo ""
     echo "  Modes:"
     echo "    models    Remove downloaded models only"
     echo "    data      Remove experiments and data"
     echo "    pkb       Remove the knowledge base (all notes, uploads,"
     echo "              agent findings, seed packs). Re-seeds on next start."
+    echo "    pkb-seeds Remove only the seeded starter primers; keep your notes."
+    echo "    program   Remove the auto-drafted research recipe (program.md,"
+    echo "              train.py, curated source fetches). Keeps prepare.py."
+    echo "    skills    Remove installed skill packs from lab/pkb/skills/."
+    echo "              User-authored skills + AGENT.md loadouts stay put."
     echo "    plugins   Remove installed plugins"
     echo "    env       Remove .venv, .env, lab.conf"
     echo "    full      Complete wipe — keeps the knowledge base safe."
@@ -54,7 +59,10 @@ echo ""
 - `reset_env()`
 - `reset_models()`
 - `reset_pkb()`
+- `reset_pkb_seeds()`
 - `reset_plugins()`
+- `reset_program()`
+- `reset_skills()`
 - `stop_services()`
 - `usage()`
 - `warn()`

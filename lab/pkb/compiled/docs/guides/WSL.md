@@ -4,11 +4,11 @@ section: docs
 tags: [guide]
 aliases: [WSL]
 source: docs/WSL.md
-generated: 2026-04-15T11:48:11Z
+generated: 2026-04-25T04:17:15Z
 ---
-# Windows WSL — OGLab Setup
+# Windows WSL — Arail Setup
 
-Run OGLab on Windows via WSL2 with Nvidia GPU passthrough.
+Run Arail on Windows via WSL2 with Nvidia GPU passthrough.
 
 ---
 
@@ -40,17 +40,17 @@ If `nvidia-smi` fails, update your **Windows** Nvidia driver. Do **not** install
 sudo apt update && sudo apt install -y python3 python3-venv python3-pip git build-essential
 ```
 
-## 5. OGLab Setup
+## 5. Arail Setup
 
 ```bash
-git clone https://github.com/cdarnell/minimalist-blueprint.git oglab
-cd oglab
-./oglab setup       # detects WSL + CUDA automatically, captures your goal
-./oglab start       # launches portal + terminal + notebook + IDE
+git clone https://github.com/cdarnell/autoresearch-lab.git arail
+cd arail
+./arail setup       # detects WSL + CUDA automatically, captures your goal
+./arail start       # launches portal + terminal + notebook + IDE
 ```
 
-`./oglab setup` provisions the venv, installs vLLM + PyTorch with CUDA, downloads a starter model, and captures your research goal and work windows. `./oglab start` brings up the dashboard at <http://127.0.0.1:8080> — reachable from your Windows browser at the same address — plus the in-browser terminal (ttyd), Jupyter Lab, and VS Code Server. The researcher agent auto-starts on your captured goal after a 5-minute courtesy delay.
+`./arail setup` provisions the venv, installs vLLM + PyTorch with CUDA, downloads a starter model, and captures your research goal and work windows. `./arail start` brings up the dashboard at <http://127.0.0.1:8080> — reachable from your Windows browser at the same address — plus the in-browser terminal (ttyd), Jupyter Lab, and VS Code Server. The researcher agent auto-starts on your captured goal after a 5-minute courtesy delay.
 
 ## 6. Airgapped Mode
 
-Once models are downloaded, disconnect from the network. OGLab runs fully offline with `OGLAB_MODE=airgapped` (the default).
+Once models are downloaded, disconnect from the network. Arail runs fully offline with `ARAIL_MODE=airgapped` (the default).

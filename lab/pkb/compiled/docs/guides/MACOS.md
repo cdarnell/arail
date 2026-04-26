@@ -4,9 +4,9 @@ section: docs
 tags: [guide]
 aliases: [MACOS]
 source: docs/MACOS.md
-generated: 2026-04-15T11:48:11Z
+generated: 2026-04-25T04:17:15Z
 ---
-# macOS — OGLab Setup
+# macOS — Arail Setup
 
 Apple Silicon Macs run inference natively via MLX — no cloud needed.
 
@@ -22,13 +22,13 @@ Apple Silicon Macs run inference natively via MLX — no cloud needed.
 ## Setup
 
 ```bash
-git clone https://github.com/cdarnell/minimalist-blueprint.git oglab
-cd oglab
-./oglab setup       # detects macOS + Apple Silicon → installs MLX, captures your goal
-./oglab start       # launches portal + terminal + notebook + IDE
+git clone https://github.com/cdarnell/autoresearch-lab.git arail
+cd arail
+./arail setup       # detects macOS + Apple Silicon → installs MLX, captures your goal
+./arail start       # launches portal + terminal + notebook + IDE
 ```
 
-`./oglab setup` will:
+`./arail setup` will:
 
 1. Create a `.venv` and `pip install -e ".[dev]"`
 2. Install `mlx` + `mlx-lm`
@@ -36,7 +36,7 @@ cd oglab
 4. Set `MODEL_BACKEND=mlx` in `.env`
 5. Ask for your research goal and work windows, write them to `lab/data/goals/bootstrap_goal.json` and `.env`
 
-Then `./oglab start` brings up the dashboard at <http://127.0.0.1:8080> along with the in-browser terminal (ttyd), Jupyter Lab, and VS Code Server. The researcher agent auto-starts on your captured goal after a 5-minute courtesy delay (configurable via `LAB_STARTUP_DELAY_SEC`).
+Then `./arail start` brings up the dashboard at <http://127.0.0.1:8080> along with the in-browser terminal (ttyd), Jupyter Lab, and VS Code Server. The researcher agent auto-starts on your captured goal after a 5-minute courtesy delay (configurable via `LAB_STARTUP_DELAY_SEC`).
 
 ## Intel Macs
 
@@ -44,9 +44,9 @@ Intel Macs don't support MLX. Use the CPU backend:
 
 ```bash
 MODEL_BACKEND=cpu    # in .env
-# ./oglab setup will install llama-cpp-python and prompt for a GGUF model
+# ./arail setup will install llama-cpp-python and prompt for a GGUF model
 ```
 
 ## Airgapped Mode
 
-After the first `./oglab setup` run (which downloads the model), everything runs offline. `OGLAB_MODE=airgapped` is the default.
+After the first `./arail setup` run (which downloads the model), everything runs offline. `ARAIL_MODE=airgapped` is the default.
