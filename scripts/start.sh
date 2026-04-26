@@ -146,17 +146,27 @@ echo ""
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
 
 # Auto-open the dashboard unless suppressed or headless.
+# First boot can take ~60s (model load, deps warmup) — poll the portal
+# until it actually responds, then launch the browser. Tell the user
+# what we're doing so a long wait doesn't look like a hang.
 if [[ "${ARAIL_NO_BROWSER:-0}" != "1" ]] && [[ -t 1 ]]; then
     dashboard_url="http://${BIND}:${PORTAL_PORT:-8080}"
+    info "Will open ${dashboard_url} in your browser as soon as the portal is ready…"
     (
-        # Give uvicorn a moment to bind the port before opening the browser.
-        for _ in 1 2 3 4 5 6 7 8 9 10; do
-            if curl -sf -o /dev/null "$dashboard_url" 2>/dev/null; then break; fi
+        # Poll up to ~120s. First boot can be slow; opening early shows
+        # an empty/error page and looks broken.
+        for _ in $(seq 1 240); do
+            if curl -sf -o /dev/null "$dashboard_url" 2>/dev/null; then
+                info "Portal is up — opening browser."
+                if command -v open >/dev/null; then open "$dashboard_url"
+                elif command -v xdg-open >/dev/null; then xdg-open "$dashboard_url" >/dev/null 2>&1
+                fi
+                exit 0
+            fi
             sleep 0.5
         done
-        if command -v open >/dev/null; then open "$dashboard_url"
-        elif command -v xdg-open >/dev/null; then xdg-open "$dashboard_url" >/dev/null 2>&1
-        fi
+        echo ""
+        info "Portal didn't respond within 120s — open ${dashboard_url} manually once it's up."
     ) &
 fi
 

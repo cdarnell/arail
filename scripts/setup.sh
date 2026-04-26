@@ -45,6 +45,13 @@ AEROLLM_PACKAGE_SPEC="git+https://github.com/cdarnell/aerollm@main"
 #   - future auth proxy
 ARAIL_PASSWORD=""
 
+# Machine-generated token — set by capture_token() below. Used for
+# URL/header auth where typing a passphrase is awkward:
+#   - Jupyter ?token=… on the iframe URL
+#   - future portal API auth, service-to-service calls
+# Auto-generated, persisted to .env, never prompted.
+ARAIL_TOKEN=""
+
 load_pyproject_metadata() {
     local assignments
     assignments="$(python3 - <<'PY'
@@ -778,6 +785,28 @@ capture_password() {
 }
 
 # -----------------------------------------------------------------------------
+# Machine token — URL/header auth for Jupyter and future API surfaces.
+#
+# Reuses any existing ARAIL_TOKEN in .env so service URLs stay stable
+# across re-runs. Generates a fresh urlsafe token on first setup.
+# Always non-interactive — there's nothing useful for the user to type.
+# -----------------------------------------------------------------------------
+capture_token() {
+    local existing=""
+    if [[ -f .env ]]; then
+        existing="$(grep -E '^ARAIL_TOKEN=' .env | head -n1 | cut -d= -f2-)"
+        case "$existing" in change-me|__needs_setup__) existing="" ;; esac
+    fi
+    if [[ -n "$existing" ]]; then
+        ARAIL_TOKEN="$existing"
+        info "Reusing existing ARAIL_TOKEN from .env."
+        return
+    fi
+    ARAIL_TOKEN="$(python3 -c 'import secrets; print(secrets.token_urlsafe(24))')"
+    info "Generated new ARAIL_TOKEN (machine auth for Jupyter + APIs)."
+}
+
+# -----------------------------------------------------------------------------
 # .env file
 # -----------------------------------------------------------------------------
 setup_env() {
@@ -816,6 +845,12 @@ setup_env() {
     _set_env_var ARAIL_PASSWORD "$ARAIL_PASSWORD"
     _set_env_var OPEN_NOTEBOOK_ENCRYPTION_KEY "$ARAIL_PASSWORD"
     info "Passphrase written to .env (ARAIL_PASSWORD + OPEN_NOTEBOOK_ENCRYPTION_KEY)"
+
+    if [[ -z "$ARAIL_TOKEN" ]]; then
+        error "Token capture failed — ARAIL_TOKEN is empty. Re-run: ./arail setup"
+    fi
+    _set_env_var ARAIL_TOKEN "$ARAIL_TOKEN"
+    info "Token written to .env (ARAIL_TOKEN — used for Jupyter + API auth)"
 
     # Persist brand fields so every subsequent run reads the user's choice.
     if [[ -n "${LAB_NAME:-}" ]]; then
@@ -1210,6 +1245,7 @@ main() {
     install_accel_deps
     capture_brand
     capture_password
+    capture_token
     setup_env
     setup_runtime_files
     validate_env
