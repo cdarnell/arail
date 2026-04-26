@@ -41,9 +41,13 @@
     font-weight: 600;
     margin-bottom: 2px;
   }
-  .qa-desc {
-    color: var(--muted);
-    font-size: 11px;
+  .qa-button.qa-success {
+    background: rgba(0, 255, 65, 0.06);
+    border-color: rgba(0, 255, 65, 0.25);
+  }
+  .qa-button.qa-success:hover {
+    background: rgba(0, 255, 65, 0.12);
+    border-color: rgba(0, 255, 65, 0.45);
   }
 </style>
 </head>
@@ -84,17 +88,14 @@
 
 <div class="grid">
 
-  <!-- ═══ Chat moved to /chat ═══ -->
-  <div class="card full" style="padding: 14px 20px; text-align: center;">
-    <a href="/chat" style="display: inline-flex; align-items: center; gap: 8px; padding: 12px 20px; background: linear-gradient(135deg, #0f4a2e, #0a2a1f); border: 1px solid #2f6a42; border-radius: 8px; color: #b5f0c8; text-decoration: none; font-weight: 500; font-size: 14px;">
-      <span style="font-size: 18px;">💬</span> Open chat
-    </a>
-  </div>
-
   <!-- ═══ Quick Actions ═══ -->
   <div class="card full" style="padding: 14px 20px;">
     <h2 style="font-size: 14px; margin: 0 0 10px 0; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em;">Quick Actions</h2>
     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px;">
+      <a href="/chat" class="qa-button qa-success" style="text-decoration: none; display: flex; flex-direction: column; justify-content: flex-start;">
+        <div class="qa-title" style="color: var(--green);">💬 Open Chat</div>
+        <div class="qa-desc">Start tuning or research</div>
+      </a>
       <button class="qa-button qa-primary" onclick="adminAction('/api/system/health', 'GET', 'Health check')">
         <div class="qa-title" style="color: var(--blue);">⊙ Health Check</div>
         <div class="qa-desc">CPU, RAM, disk, GPU</div>
