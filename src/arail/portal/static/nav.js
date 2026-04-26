@@ -2,11 +2,11 @@
    + goal chip (so the active mission is visible on every page) */
 (function () {
   // ── Goal chip ──
-  // Renders a pill with the current goal text in the nav of every page.
-  // Clicking it jumps back to the dashboard, where the goal can be edited.
+  // Renders a compact mission pill in the nav of every page.
+  // Clicking it opens the mission dossier, the curated mission view.
   (function addGoalChip() {
     var nav = document.querySelector('nav');
-    var clockEl = document.getElementById('nav-clock');
+    var slot = document.getElementById('nav-mission-slot');
     if (!nav) return;
     fetch('/api/goal')
       .then(function (r) { return r.ok ? r.json() : null; })
@@ -14,9 +14,9 @@
         if (!goal || !goal.goal_text) return;
         var chip = document.createElement('a');
         chip.className = 'nav-goal';
-        chip.href = '/';
-        chip.title = 'Current mission: ' + goal.goal_text +
-                     ' \u2014 click to edit on the dashboard';
+        chip.href = '/mission';
+        chip.title = 'Mission dossier: ' + goal.goal_text +
+                     ' — click for the curated mission view';
         var icon = document.createElement('span');
         icon.className = 'nav-goal-icon';
         icon.textContent = '\u25CE'; // target reticle — monochrome, terminal-ish
@@ -26,13 +26,12 @@
         var text = document.createElement('span');
         text.className = 'nav-goal-text';
         var full = String(goal.goal_text);
-        text.textContent = full.length > 80 ? full.slice(0, 77) + '\u2026' : full;
+        text.textContent = full.length > 56 ? full.slice(0, 53) + '…' : full;
         chip.appendChild(icon);
         chip.appendChild(label);
         chip.appendChild(text);
-        // Place just before the clock when present; otherwise append.
-        if (clockEl && clockEl.parentNode === nav) {
-          nav.insertBefore(chip, clockEl);
+        if (slot) {
+          slot.appendChild(chip);
         } else {
           nav.appendChild(chip);
         }

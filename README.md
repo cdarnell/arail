@@ -34,8 +34,8 @@ Two tiers. Pick one; upgrade later.
 
 | Tier  | What you get                                                                                                            | Good for                                         |
 | ----- | ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
-| `min` | Dashboard · Chat · Autoresearch · Knowledge Base · Agents · **AirLLM 70B** (Llama-3.1-70B)                              | The everyday lab. Real models on small hardware. |
-| `max` | + Admin · Notebooks · LanceDB vectors · **AirLLM 405B** (Llama-3.1-405B) · Anthropic SDK · LangChain · full cloud SDKs  | Frontier-scale local inference, full bench.      |
+| `min` | Dashboard · Chat · Autoresearch · Knowledge Base · Agents · LanceDB vectors · **AirLLM 70B** (Llama-3.1-70B)           | The everyday lab. Real models on small hardware. |
+| `max` | + Admin · Docs · Notebooks · **AirLLM 405B** (Llama-3.1-405B) · Anthropic SDK · LangChain · full cloud SDKs             | Frontier-scale local inference, full bench.      |
 
 Upgrade any time:
 
@@ -44,8 +44,8 @@ Upgrade any time:
 ```
 
 Knowledge Base and Agents are part of `min` on purpose — research needs
-memory to work. In `min` the KB runs on markdown + keyword search (no vector
-index). `max` layers on LanceDB for semantic recall.
+memory to work. Both tiers ship with the embedded LanceDB-backed KB; `max`
+adds the heavier operator surfaces and orchestration extras.
 
 External providers (Claude, NVIDIA NIM, OpenRouter, HuggingFace) are
 reachable in both tiers via plain HTTP — `max` just adds the official SDKs
@@ -57,7 +57,7 @@ See [docs/INSTALL.md](docs/INSTALL.md) for the long walkthrough.
 
 ---
 
-## The five tabs
+## The main surfaces
 
 ### 📊 Dashboard *(every tier)*
 
@@ -97,14 +97,14 @@ on my MacBook"* — and it runs an experiment loop: propose a change, measure,
 compare against the baseline, write up what it learned. You watch from the
 dashboard and steer when the direction drifts.
 
-### 📚 Knowledge Base *(med, max)*
+### 📚 Knowledge Base *(every tier)*
 
 The lab's long-term memory. Agents ingest papers, notes, web pages, and
 your uploaded PDFs into a LanceDB vector index. Searchable from Chat and
 Autoresearch — the answers you get start referring back to your own
 materials. Ingest with `./arail pkb ingest <file>`.
 
-### 🤖 Agents *(med, max)*
+### 🤖 Agents *(every tier)*
 
 Three built-in personalities:
 
@@ -114,12 +114,19 @@ Three built-in personalities:
 - **Researcher** — the engine behind Autoresearch. Reads goals, writes code,
   runs experiments, commits the winners.
 
-Drop your own agents into `agents/` and they're discovered on start.
+Use the Agent Forge, or add `lab/pkb/agents/<id>/AGENT.md` plus
+`lab/pkb/agents/<id>/<id>.py`; the loader discovers them on start.
 
 ### 🛠 Admin *(max)*
 
 System health, plugin manager, tier status, diagnostics. It's where the lab
 admits what's broken.
+
+### 📖 Docs *(max)*
+
+Curated operator docs rendered inside the lab. Use it for setup notes,
+agent architecture, design specs, and the platform-porting manifest without
+leaving the local UI.
 
 ---
 
@@ -158,7 +165,9 @@ so imports don't break — only the display rebrands.
 - [docs/WSL.md](docs/WSL.md) — Windows via WSL2 with GPU passthrough.
 - [docs/PRIVACY.md](docs/PRIVACY.md) — exactly what data leaves the box.
 - [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) — first-run gotchas.
-- [AGENTS.md](AGENTS.md) — writing your own agents.
+- [docs/agents-explained.md](docs/agents-explained.md) — the quick tour of Pip, SRE, Researcher, and custom agents.
+- [docs/agents.md](docs/agents.md) — the agent architecture and loader contract.
+- [AGENTS.md](AGENTS.md) — the platform-porting manifest for coding agents.
 - [BLUEPRINTS.md](BLUEPRINTS.md) — how this repo thinks of itself as a blueprint.
 - [CONTRIBUTING.md](CONTRIBUTING.md) — contribute back upstream.
 - [SECURITY.md](SECURITY.md) — threat model, how to report issues.

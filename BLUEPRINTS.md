@@ -4,6 +4,9 @@ A blueprint is a lab you can run. It ships with a goal (or asks for one), a
 set of agents, a tier config, and default models. You spin it up in a few
 minutes; from there you change whatever you want.
 
+This file is the overview. The schema, command details, and authoring guide
+live in [`blueprints/README.md`](./blueprints/README.md).
+
 Blueprints are concrete TOML artifacts under
 [`blueprints/<id>/blueprint.toml`](./blueprints/), wired through
 the `./arail blueprint` subcommand:

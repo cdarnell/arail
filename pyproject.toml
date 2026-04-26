@@ -93,7 +93,7 @@ configuration_source = "pyproject.toml"
 [tool.arail.tiers]
 # Declarative surface matrix. portal/app.py reads this to tier-gate the nav.
 min = { description = "Minimalist — Dashboard, Chat, Autoresearch, Knowledge Base (with LanceDB vector recall), Agents, AirLLM deep streaming (70B default).", surfaces = ["dashboard", "chat", "research", "knowledge", "agents"] }
-max = { description = "Maximalist — Everything in min + Admin, Notebooks, AirLLM 405B default, LangChain/LangGraph, full cloud catalog.", surfaces = ["dashboard", "chat", "research", "knowledge", "agents", "admin", "notebooks", "terminal", "tuning", "plugins"] }
+max = { description = "Maximalist — Everything in min + Admin, Docs, Notebooks, AirLLM 405B default, LangChain/LangGraph, full cloud catalog.", surfaces = ["dashboard", "chat", "research", "knowledge", "agents", "admin", "docs", "notebooks", "terminal", "tuning", "plugins"] }
 
 [tool.arail.models]
 # Default starter models selected by setup after hardware detection.
@@ -133,3 +133,7 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 "arail.portal" = ["templates/*.html", "templates/wiki/*.html", "static/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+

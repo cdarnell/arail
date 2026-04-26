@@ -6,14 +6,14 @@
 #    start    launch portal + terminal + notebook + IDE
 #    stop     stop running lab services
 #    restart  stop then start
-#    upgrade  switch install tier — min | med | max
+#    upgrade  switch install tier — min | max
 #    update   check for and apply component updates
 #    version  show installed component versions
 #    reset    wipe models/data/env/plugins (see: ./arail reset help)
 #    status   show what's running and where
 #    doctor   validate the environment end-to-end
 #    logs     tail activity log — filter by component
-#    pkb      knowledge base ops: ingest | compile | browse   (med/max)
+#    pkb      knowledge base ops: ingest | compile | browse
 #    wiki     documentation-as-code: build | info | new <title>
 #    help     show this message
 # =============================================================================
@@ -48,14 +48,14 @@ usage() {
     start           launch portal + terminal + notebook + IDE
     stop            stop running lab services
     restart         stop then start (quick bounce)
-    upgrade <tier>  switch install tier — min | med | max
+    upgrade <tier>  switch install tier — min | max
     update          check for and apply component updates
     version         show installed component versions
     status          show what's running
     doctor          validate the environment end-to-end
     logs [comp]     tail activity log — filter by component
     reset [mode]    wipe state — models|data|pkb|plugins|env|full|destroy
-    pkb <op>        ingest | compile | browse — knowledge base (med/max)
+    pkb <op>        ingest | compile | browse — knowledge base
     wiki <op>       build | info | new <title> — documentation-as-code
     blueprint <op>  list | catalog | show | create | apply | destroy — Configuration as Code
     help            this message

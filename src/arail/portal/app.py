@@ -44,7 +44,7 @@ _BRAND = load_brand()
 _TIER_SURFACES: dict[str, set[str]] = {
     "min": {"dashboard", "chat", "research", "knowledge", "agents"},
     "max": {"dashboard", "chat", "research", "knowledge", "agents",
-            "admin", "notebooks", "terminal", "tuning", "plugins"},
+            "admin", "docs", "notebooks", "terminal", "tuning", "plugins"},
 }
 
 
@@ -538,6 +538,21 @@ async def dashboard(request: Request):
         # LAB_THEME surfaces on the Mission Objective card as a
         # north-star line above the concrete goal. Env-driven so
         # users reframe the whole lab's focus with one .env edit.
+        "lab_theme": os.getenv(
+            "LAB_THEME",
+            "Making SSD-hosted model inference faster — frontier "
+            "open-weight models on laptop hardware"
+        ),
+    })
+
+
+@app.get("/mission", response_class=HTMLResponse)
+async def mission_page(request: Request):
+    current_goal = goal_store.get_current()
+    return templates.TemplateResponse(request, "mission.html", {
+        "current_goal": current_goal,
+        "research_status": researcher.status,
+        "recent_activity": activity_log.recent(40),
         "lab_theme": os.getenv(
             "LAB_THEME",
             "Making SSD-hosted model inference faster — frontier "
@@ -1232,6 +1247,92 @@ async def skills_page(request: Request):
     return templates.TemplateResponse(request, "skills.html", {})
 
 
+@app.get("/docs", response_class=HTMLResponse)
+async def docs_landing():
+    return RedirectResponse(url="/docs/INDEX.md", status_code=302)
+
+
+def _render_markdown_page(request: Request, target: Path, *, doc_path: str,
+                          nav_active: str = "docs", doc_section: str = "docs") -> HTMLResponse:
+    try:
+        from markdown_it import MarkdownIt  # type: ignore[import-untyped]
+    except ImportError:
+        return HTMLResponse(target.read_text(errors="replace"), status_code=200)
+
+    md = MarkdownIt("commonmark", {"html": False, "linkify": True, "typographer": True})
+    md.enable(["table", "strikethrough"])
+    body_html = md.render(target.read_text(errors="replace"))
+    return templates.TemplateResponse(request, "doc_viewer.html", {
+        "doc_path": doc_path,
+        "doc_html": body_html,
+        "nav_active": nav_active,
+        "doc_section": doc_section,
+    })
+
+
+@app.get("/design", response_class=HTMLResponse)
+async def design_doc(request: Request):
+    repo_root = Path(__file__).resolve().parents[3]
+    target = repo_root / "design.md"
+    if not target.exists():
+        return HTMLResponse(
+            "<h1>Not found</h1><p>design.md is missing from the repo root.</p>",
+            status_code=404,
+        )
+    return _render_markdown_page(
+        request,
+        target,
+        doc_path="design.md",
+        nav_active="docs",
+        doc_section="spec",
+    )
+
+
+@app.get("/blueprints-overview", response_class=HTMLResponse)
+async def blueprints_overview_doc(request: Request):
+    repo_root = Path(__file__).resolve().parents[3]
+    target = repo_root / "BLUEPRINTS.md"
+    if not target.exists():
+        return HTMLResponse("<h1>Not found</h1>", status_code=404)
+    return _render_markdown_page(
+        request,
+        target,
+        doc_path="BLUEPRINTS.md",
+        nav_active="docs",
+        doc_section="repo",
+    )
+
+
+@app.get("/blueprints-guide", response_class=HTMLResponse)
+async def blueprints_guide_doc(request: Request):
+    repo_root = Path(__file__).resolve().parents[3]
+    target = repo_root / "blueprints" / "README.md"
+    if not target.exists():
+        return HTMLResponse("<h1>Not found</h1>", status_code=404)
+    return _render_markdown_page(
+        request,
+        target,
+        doc_path="blueprints/README.md",
+        nav_active="docs",
+        doc_section="repo",
+    )
+
+
+@app.get("/porting-manifest", response_class=HTMLResponse)
+async def porting_manifest_doc(request: Request):
+    repo_root = Path(__file__).resolve().parents[3]
+    target = repo_root / "AGENTS.md"
+    if not target.exists():
+        return HTMLResponse("<h1>Not found</h1>", status_code=404)
+    return _render_markdown_page(
+        request,
+        target,
+        doc_path="AGENTS.md",
+        nav_active="docs",
+        doc_section="repo",
+    )
+
+
 # ── Local docs viewer ───────────────────────────────────────────────────
 # The agent cards' "📖 Learn" links and the "View source" links used to
 # point at https://github.com/cdarnell/autoresearch-lab/blob/main/...
@@ -1267,20 +1368,7 @@ async def serve_local_doc(path: str, request: Request):
             f"<h1>Not found</h1><p>{path} is not in the docs directory.</p>",
             status_code=404,
         )
-    try:
-        from markdown_it import MarkdownIt  # type: ignore[import-untyped]
-    except ImportError:
-        return HTMLResponse(target.read_text(), status_code=200)
-
-    md = MarkdownIt("commonmark", {"html": False, "linkify": True, "typographer": True})
-    md.enable(["table", "strikethrough"])
-    body_html = md.render(target.read_text(errors="replace"))
-    # Tiny chrome: brand-consistent dark page with the lab nav so the
-    # user knows they're still inside the lab.
-    return templates.TemplateResponse(request, "doc_viewer.html", {
-        "doc_path": path,
-        "doc_html": body_html,
-    })
+    return _render_markdown_page(request, target, doc_path=path)
 
 
 @app.get("/autoresearch", response_class=HTMLResponse)
@@ -3240,11 +3328,10 @@ _OPTIONAL_CHAT_BACKEND_CONFIG: dict[str, dict[str, str]] = {
         "label": "AeroLLM",
         "class_name": "AeroLLMBackend",
         "install_command": (
-            "pip install "
-            + os.getenv("AEROLLM_PACKAGE", "git+https://github.com/cdarnell/aerollm@main")
+            "cd aerollm/crates/aero-api && maturin develop --release"
         ),
         "model_env": "AEROLLM_MODEL",
-        "default_model": "zai-org/GLM-5.1",
+        "default_model": "Qwen2.5-7B-Instruct",
     },
 }
 
