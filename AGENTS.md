@@ -5,7 +5,7 @@ AI Lab (ARAIL) to a new platform, package manager, or shell** without reading
 the whole codebase. If you're a human trying to do the same port by hand,
 [docs/LINUX.md](docs/LINUX.md) is the long-form version.
 
-> Looking for the *user-facing* agents (Pip, SRE, Researcher)? See the
+> Looking for the *user-facing* agents (Buddy, SRE, Researcher)? See the
 > README's "Agents" section or [docs/agents.md](docs/agents.md).
 
 The goal: a user on a distro we don't support yet can hand their

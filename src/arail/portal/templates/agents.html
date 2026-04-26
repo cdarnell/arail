@@ -106,7 +106,7 @@
       <!-- RIGHT: live preview -->
       <aside class="ag-forge-preview">
         <div class="ag-preview-tabs">
-          <button type="button" class="ag-preview-tab active" data-preview="py">pip.py</button>
+          <button type="button" class="ag-preview-tab active" data-preview="py">buddy.py</button>
           <button type="button" class="ag-preview-tab" data-preview="md">AGENT.md</button>
           <span class="ag-preview-meta" id="fg-preview-meta">—</span>
         </div>
@@ -216,27 +216,27 @@
       </div>
     </div>
 
-    <!-- Pip — the lab buddy. Fourth core agent. First "personality"
-         agent — notices things, never drives goals. Template shape
+    <!-- Buddy — ARAIL's lab partner. Personality agent — notices
+         lab state and offers goal-aware suggestions. Template shape
          for the Agent Forge. -->
-    <div class="ag-card" id="card-pip">
+    <div class="ag-card" id="card-buddy">
       <div class="ag-card-header">
         <span class="ag-pulse"></span>
-        <a href="https://github.com/cdarnell/autoresearch-lab/blob/main/src/arail/agents/_builtin_pip.py" target="_blank" rel="noopener" class="ag-card-name pip" title="View canonical source (your editable copy lives at lab/pkb/agents/pip/pip.py)">🐧 Pip</a>
-        <a class="ag-learn-link" href="/docs/agents-explained.md#pip" target="_blank" rel="noopener" title="What does Pip do?">📖 Learn</a>
-        <span class="ag-pill idle" id="pill-pip">watching</span>
+        <a href="https://github.com/cdarnell/arail/blob/main/src/arail/agents/_builtin_buddy.py" target="_blank" rel="noopener" class="ag-card-name buddy" title="View canonical source (your editable copy lives at lab/pkb/agents/buddy/buddy.py)">🐧 Buddy</a>
+        <a class="ag-learn-link" href="/docs/agents-explained.md#buddy" target="_blank" rel="noopener" title="What does Buddy do?">📖 Learn</a>
+        <span class="ag-pill idle" id="pill-buddy">watching</span>
       </div>
-      <div class="ag-card-task" id="task-pip">Watching the lab.</div>
+      <div class="ag-card-task" id="task-buddy">Watching the lab.</div>
       <div class="ag-card-stats">
-        <span class="ag-stat" title="LLM tokens spent (estimated from prompt traces)">🔣 <span class="ag-stat-val" id="stat-pip-tok">0</span> tok</span>
-        <span class="ag-stat">💬 <span class="ag-stat-val" id="stat-pip-utterances">0</span> said</span>
-        <span class="ag-stat">⏱ <span class="ag-stat-val" id="stat-pip-last">&mdash;</span></span>
+        <span class="ag-stat" title="LLM tokens spent (estimated from prompt traces)">🔣 <span class="ag-stat-val" id="stat-buddy-tok">0</span> tok</span>
+        <span class="ag-stat">💬 <span class="ag-stat-val" id="stat-buddy-utterances">0</span> said</span>
+        <span class="ag-stat">⏱ <span class="ag-stat-val" id="stat-buddy-last">&mdash;</span></span>
       </div>
-      <ul class="ag-card-trail" id="trail-pip" data-empty="Pip hasn't piped up yet.">
-        <li class="ag-trail-empty">Pip hasn't piped up yet.</li>
+      <ul class="ag-card-trail" id="trail-buddy" data-empty="Buddy is observing — nothing worth saying yet.">
+        <li class="ag-trail-empty">Buddy is observing — nothing worth saying yet.</li>
       </ul>
       <div class="ag-card-controls">
-        <button onclick="setFilter('pip')">Show posts</button>
+        <button onclick="setFilter('buddy')">Show posts</button>
       </div>
     </div>
   </div>
@@ -349,7 +349,7 @@
         <button class="ag-filter" data-f="researcher" onclick="setFilter('researcher')">Researcher</button>
         <button class="ag-filter" data-f="curator" onclick="setFilter('curator')">Curator</button>
         <button class="ag-filter" data-f="browser" onclick="setFilter('browser')">Browser</button>
-        <button class="ag-filter" data-f="pip" onclick="setFilter('pip')">🐧 Pip</button>
+        <button class="ag-filter" data-f="buddy" onclick="setFilter('buddy')">🐧 Buddy</button>
         <button class="ag-filter" data-f="sre" onclick="setFilter('sre')">SRE</button>
         <button class="ag-filter" data-f="consent" onclick="setFilter('consent')">Consent</button>
         <button class="ag-filter" data-f="system" onclick="setFilter('system')">System</button>
@@ -411,12 +411,12 @@ const AG = {
   feedAutoScroll: true,
 };
 
-const AGENT_SOURCES = new Set(['researcher', 'curator', 'browser', 'pip', 'sre', 'consent', 'goal', 'system']);
+const AGENT_SOURCES = new Set(['researcher', 'curator', 'browser', 'buddy', 'sre', 'consent', 'goal', 'system']);
 const MOVEMENT_AGENTS = [
   { id: 'researcher', label: 'Researcher' },
   { id: 'curator', label: 'Curator' },
   { id: 'browser', label: 'Browser' },
-  { id: 'pip', label: 'Pip' },
+  { id: 'buddy', label: 'Buddy' },
   { id: 'sre', label: 'SRE' },
 ];
 const MOVEMENT_AGENT_MAP = Object.fromEntries(MOVEMENT_AGENTS.map(agent => [agent.id, agent]));
@@ -440,22 +440,22 @@ const REDIRECT_PRESETS = {
   },
 };
 
-// Pip stats — derived from the feed. Pip is event-only (no /api/agents/status
+// Buddy stats — derived from the feed. Buddy is event-only (no /api/agents/status
 // entry), so we count its utterances client-side and show the most recent
 // message as the card's "task" line.
-const PIP_STATS = { utterances: 0, last: null };
+const BUDDY_STATS = { utterances: 0, last: null };
 
-function updatePipCard() {
-  const tEl = document.getElementById('task-pip');
-  const uEl = document.getElementById('stat-pip-utterances');
-  const lEl = document.getElementById('stat-pip-last');
-  if (uEl) uEl.textContent = PIP_STATS.utterances;
-  if (lEl) lEl.textContent = PIP_STATS.last
-    ? PIP_STATS.last.substring(11, 19) : '—';
-  const [pillClass, pillText] = describeStatus('pip', { utterances: PIP_STATS.utterances });
-  setPill('pill-pip', pillClass, pillText);
-  if (tEl && PIP_STATS.lastMessage) {
-    tEl.textContent = PIP_STATS.lastMessage;
+function updateBuddyCard() {
+  const tEl = document.getElementById('task-buddy');
+  const uEl = document.getElementById('stat-buddy-utterances');
+  const lEl = document.getElementById('stat-buddy-last');
+  if (uEl) uEl.textContent = BUDDY_STATS.utterances;
+  if (lEl) lEl.textContent = BUDDY_STATS.last
+    ? BUDDY_STATS.last.substring(11, 19) : '—';
+  const [pillClass, pillText] = describeStatus('buddy', { utterances: BUDDY_STATS.utterances });
+  setPill('pill-buddy', pillClass, pillText);
+  if (tEl && BUDDY_STATS.lastMessage) {
+    tEl.textContent = BUDDY_STATS.lastMessage;
   }
 }
 
@@ -630,20 +630,21 @@ function getAgentSnapshot(agentId) {
       meta: [`${bs.captures || 0} captures`],
     };
   }
-  if (agentId === 'pip') {
-    const ps = status.pip || {};
+  if (agentId === 'buddy') {
+    const ps = status.buddy || {};
     const chatter = ps.chatter || {};
     return {
       agentId,
-      label: 'Pip',
-      status: ps.status || (PIP_STATS.utterances > 0 ? 'active' : 'idle'),
-      objective: ps.objective || 'Notice meaningful changes without nagging the user.',
-      currentTask: ps.current_task || PIP_STATS.lastMessage || 'Watching lab signals',
-      nextStep: ps.next_step || 'Wait for the next noteworthy signal',
+      label: 'Buddy',
+      status: ps.status || (BUDDY_STATS.utterances > 0 ? 'active' : 'idle'),
+      objective: ps.objective || 'Observe the lab and offer goal-aware suggestions.',
+      currentTask: ps.current_task || BUDDY_STATS.lastMessage || 'Watching lab signals',
+      nextStep: ps.next_step || 'Wait for the next noteworthy signal or goal nudge',
       completedSteps: ps.completed_steps || [],
       pauseReason: ps.pause_reason || '',
       chatter,
-      meta: [`${chatter.utterances ?? PIP_STATS.utterances} utterances`],
+      meta: [`${chatter.utterances ?? BUDDY_STATS.utterances} utterances`,
+             `${chatter.suggestions ?? 0} suggestions`],
     };
   }
   if (agentId === 'sre') {
@@ -894,9 +895,11 @@ function describeStatus(agentId, snap) {
     if (snap.last_task) return ['running', 'browsing'];
     return ['idle', 'idle'];
   }
-  if (agentId === 'pip') {
-    const u = snap.utterances || (snap.chatter && snap.chatter.utterances) || PIP_STATS.utterances;
-    if (u > 0) return ['active', `chimed (${u})`];
+  if (agentId === 'buddy') {
+    const u = snap.utterances || (snap.chatter && snap.chatter.utterances) || BUDDY_STATS.utterances;
+    const s = (snap.chatter && snap.chatter.suggestions) || 0;
+    const total = u + s;
+    if (total > 0) return ['active', `chimed (${total})`];
     return ['idle', 'watching'];
   }
   return [safeStatusClass(raw), raw];
@@ -991,11 +994,11 @@ async function pollStatus() {
     setPill('pill-browser', bPillClass, bPillText);
     renderTrail('trail-browser', bs.recent_actions);
 
-    // Pip card — the polled status fields complement the SSE-driven
-    // updatePipCard() which reacts in real-time as messages arrive.
-    const ps = d.pip || {};
-    document.getElementById('stat-pip-tok').textContent = fmtTokens(ps.tokens);
-    renderTrail('trail-pip', ps.recent_actions);
+    // Buddy card — the polled status fields complement the SSE-driven
+    // updateBuddyCard() which reacts in real-time as messages arrive.
+    const ps = d.buddy || {};
+    document.getElementById('stat-buddy-tok').textContent = fmtTokens(ps.tokens);
+    renderTrail('trail-buddy', ps.recent_actions);
 
     renderRedirectState();
     renderMovementConsole();
@@ -1028,13 +1031,13 @@ function connectSSE() {
       renderMissionFeed();
       renderMovementConsole();
 
-      // Pip speaks via the activity stream — count + remember so
+      // Buddy speaks via the activity stream — count + remember so
       // the card updates without a polling endpoint.
-      if (e.source === 'pip') {
-        PIP_STATS.utterances += 1;
-        PIP_STATS.last = e.ts;
-        PIP_STATS.lastMessage = e.message || '';
-        updatePipCard();
+      if (e.source === 'buddy') {
+        BUDDY_STATS.utterances += 1;
+        BUDDY_STATS.last = e.ts;
+        BUDDY_STATS.lastMessage = e.message || '';
+        updateBuddyCard();
       }
 
       // Refresh status on key events
@@ -1456,15 +1459,15 @@ loadSkillsIntoForge();
     const events = await fetch('/api/activity/recent?n=100').then(r => r.json());
     AG.feed = events.filter(e => AGENT_SOURCES.has(e.source));
     AG.promptTraces = AG.feed.filter(e => e.data && e.data.prompt_trace);
-    // Seed Pip card stats from history so the page isn't blank on load.
-    const pipHistory = AG.feed.filter(e => e.source === 'pip');
-    PIP_STATS.utterances = pipHistory.length;
-    if (pipHistory.length) {
-      const last = pipHistory[pipHistory.length - 1];
-      PIP_STATS.last = last.ts;
-      PIP_STATS.lastMessage = last.message || '';
+    // Seed Buddy card stats from history so the page isn't blank on load.
+    const buddyHistory = AG.feed.filter(e => e.source === 'buddy');
+    BUDDY_STATS.utterances = buddyHistory.length;
+    if (buddyHistory.length) {
+      const last = buddyHistory[buddyHistory.length - 1];
+      BUDDY_STATS.last = last.ts;
+      BUDDY_STATS.lastMessage = last.message || '';
     }
-    updatePipCard();
+    updateBuddyCard();
     renderFeed();
     renderMissionFeed();
     renderMovementConsole();

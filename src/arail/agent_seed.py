@@ -14,7 +14,7 @@ them in each agent's Python:
   changes which skills the next LLM call composes — no restart, no
   code change.
 
-Idempotent. Pip already ships its own AGENT.md (richer than the
+Idempotent. Buddy already ships its own AGENT.md (richer than the
 default — preserved). Researcher / Curator / Browser get scaffolds
 that the user can edit freely.
 """
@@ -132,7 +132,7 @@ def _agent_dir(agent_id: str, *, pkb_root: Path | None = None) -> Path:
 def ensure_default_loadouts(pkb_root: Path | None = None) -> Dict[str, Any]:
     """Create AGENT.md scaffolds for builtin agents that lack one.
 
-    Idempotent. Never overwrites an existing AGENT.md — Pip's
+    Idempotent. Never overwrites an existing AGENT.md — Buddy's
     richer file (shipped via builtin_seed) survives untouched, as
     do any user edits to researcher/curator/browser.
     """

@@ -69,9 +69,9 @@ SCHEDULER — when the lab does light vs heavy work. active hours → SLM only, 
 
 **Default:** `300`
 
-### `LAB_PIP`
+### `LAB_BUDDY`
 
-PERSONALITY AGENTS — enable / disable individual agents.  Each agent checks its env var on startup. Set to off/0/false/no to disable. Omit the var entirely (or set to any other value) to enable.  LAB_PIP        — Pip, the lab buddy. Observes and comments warmly. LAB_SRE        — SRE Watch, the crash monitor. Surfaces errors and recurrences. LAB_SRE_INTERVAL_SEC   — how often SRE ticks (default: 120) LAB_SRE_COOLDOWN_SEC   — global cooldown between alerts (default: 180)
+PERSONALITY AGENTS — enable / disable individual agents.  Each agent checks its env var on startup. Set to off/0/false/no to disable. Omit the var entirely (or set to any other value) to enable.  LAB_BUDDY      — Buddy, ARAIL's lab partner. Observes the lab AND offers goal-aware suggestions. LAB_BUDDY_INTERVAL_SEC          — watcher tick (default 90). LAB_BUDDY_GLOBAL_COOLDOWN_SEC   — silence after any utterance (default 300). LAB_BUDDY_SUGGEST_INTERVAL_SEC  — proactive cadence (default 900 = 15 min). LAB_SRE        — SRE Watch, the crash monitor. Surfaces errors and recurrences. LAB_SRE_INTERVAL_SEC   — how often SRE ticks (default: 120) LAB_SRE_COOLDOWN_SEC   — global cooldown between alerts (default: 180)
 
 **Default:** `on`
 

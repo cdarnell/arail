@@ -30,9 +30,9 @@ def test_update_agent_workflow_persists_json(tmp_path: Path, monkeypatch):
 def test_workflow_health_reports_snapshot_count(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(agent_workflows, "DATA_DIR", tmp_path)
     agent_workflows.update_agent_workflow(
-        "pip",
+        "buddy",
         status="running",
-        objective="Stay helpful without nagging",
+        objective="Observe the lab and offer goal-aware suggestions",
         current_task="Watching lab signals",
         next_step="Wait for a watcher to fire",
         completed_steps=[],

@@ -4,8 +4,8 @@ Mirrors ``arail.pkb_seed`` for the ``lab/pkb/skills/`` tree.
 
 Two sources of truth:
 
-* ``observe-lab`` is **inlined here** because it's tied to Pip's
-  personality and the dashboard expects Pip to always have something
+* ``observe-lab`` is **inlined here** because it's tied to Buddy's
+  personality and the dashboard expects Buddy to always have something
   to say even after every domain pack has been uninstalled.
 * The domain packs (``research-methodology``, ``model-building``,
   ``curation-vetting``) live in :mod:`arail.skill_packs` as
@@ -31,9 +31,9 @@ log = logging.getLogger(__name__)
 
 
 # ── observe-lab ────────────────────────────────────────────────────
-# Pip's first named skill. Procedural knowledge of "what's worth
-# saying." This file drives Pip's voice — edit it to change how Pip
-# decides what to comment on.
+# Buddy's first named skill. Procedural knowledge of "what's worth
+# saying." This file drives Buddy's voice — edit it to change how
+# Buddy decides what to comment on.
 
 _OBSERVE_LAB = """---
 title: Observe the lab
@@ -43,7 +43,7 @@ domain: meta
 version: 1.0.0
 tags: [skill, observation, personality]
 when_to_use:
-  - When acting as a personality agent (Pip and friends)
+  - When acting as a personality agent (Buddy and friends)
   - When deciding whether speaking up is worth it
   - When describing what just happened in plain English
 when_not_to_use:
@@ -79,7 +79,7 @@ A fact is worth a sentence when all four are true:
 
 ## How to phrase it
 
-- **One sentence.** Never paragraphs. Under 20 words.
+- **One sentence.** Never paragraphs. Under 25 words.
 - **Report, don't narrate.** "RAM is at 94%" not "I notice RAM is at 94%."
 - **No markdown, no emoji in the body.** The caller frames with a
   name/icon; the sentence itself stays plain text.
@@ -95,6 +95,7 @@ Pick in this order:
 1. **Praise** — good news is cheap to deliver and feels good.
 2. **Warn** — something's at risk; user may want to act.
 3. **Info** — neutral pattern worth knowing.
+4. **Suggest** — goal-anchored proposal (technique, review, run).
 
 If several observations land in the same class, pick the one with
 the most recent trigger timestamp.
@@ -110,9 +111,9 @@ something "good" to say.
 
 # Inline-only skills — anything that must ship with the lab even
 # when a user has uninstalled every domain pack. observe-lab is the
-# only one today: it's tied to Pip's personality and the dashboard
-# expects Pip to always have something to say. Everything else lives
-# in arail.skill_packs and is managed via the Skills tab.
+# only one today: it's tied to Buddy's personality and the dashboard
+# expects Buddy to always have something to say. Everything else
+# lives in arail.skill_packs and is managed via the Skills tab.
 _SKILLS: Dict[str, Dict[str, Any]] = {
     "observe-lab": {"content": _OBSERVE_LAB},
 }
@@ -129,7 +130,7 @@ def ensure_starter_skills(pkb_root: Path | None = None) -> Dict[str, Any]:
     ``SKILL.md`` — never overwrites user edits.
 
     Two sources of skills:
-      * **observe-lab** stays inline in this module — it's Pip's
+      * **observe-lab** stays inline in this module — it's Buddy's
         intrinsic personality skill, not part of a domain pack.
       * **Domain packs** (research-methodology, model-building) are
         delegated to :mod:`arail.skill_packs` so the on-disk pack
@@ -213,7 +214,7 @@ utterance uses the new version.
 
 ## Shipped starter skills
 
-- [observe-lab](observe-lab/SKILL.md) — Pip's skill. What to notice,
+- [observe-lab](observe-lab/SKILL.md) — Buddy's skill. What to notice,
   when to stay quiet, how to phrase an observation.
 - [evaluate-llm](evaluate-llm/SKILL.md) — Researcher skill for the
   AI-engineering intent. Reproducible benchmarking.

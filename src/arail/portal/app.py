@@ -24,7 +24,7 @@ from arail.agents.consent import ConsentStore
 from arail.config import DATA_DIR
 from arail.goals import GoalStore
 from arail.agents.researcher import researcher
-from arail.agents.pip import pip
+from arail.agents.buddy import buddy
 from arail.plugins.manager import PluginManager
 from arail.scheduler import (halt_all_jobs, jobs_halted, resume_all_jobs,
                               startup_delay_seconds)
@@ -293,7 +293,7 @@ async def _startup():
             f"Skill seeding failed: {type(e).__name__}: {e}", "error")
 
     # Default loadouts — write AGENT.md scaffolds for builtin agents
-    # that lack one. Pip ships its own (richer) AGENT.md via
+    # that lack one. Buddy ships its own (richer) AGENT.md via
     # builtin_seed; researcher / curator / browser get default
     # skill loadouts here so the Skills tab can show + edit them.
     # Idempotent — never overwrites user edits.
@@ -326,7 +326,7 @@ async def _startup():
     # Agent loader — discover every lab/pkb/agents/<name>/AGENT.md,
     # instantiate each, start the ones that opt in via their
     # auto_start_env, register dream-capable ones with the daemon.
-    # This subsumes the old "start Pip explicitly" path and works
+    # This subsumes the old "start Buddy explicitly" path and works
     # for every future agent the user forges.
     try:
         from arail.agents.loader import load_all, start_all_auto
@@ -1897,9 +1897,9 @@ async def agents_status():
         "recent_actions": per_agent_recent.get("curator", []),
     }
 
-    pip_workflow = dict(workflow_rows.get("pip") or {})
-    pip_workflow["tokens"] = per_agent_tokens.get("pip", 0)
-    pip_workflow["recent_actions"] = per_agent_recent.get("pip", [])
+    buddy_workflow = dict(workflow_rows.get("buddy") or {})
+    buddy_workflow["tokens"] = per_agent_tokens.get("buddy", 0)
+    buddy_workflow["recent_actions"] = per_agent_recent.get("buddy", [])
     sre_workflow = dict(workflow_rows.get("sre") or {})
     sre_workflow["tokens"] = per_agent_tokens.get("sre", 0)
     sre_workflow["recent_actions"] = per_agent_recent.get("sre", [])
@@ -1922,7 +1922,7 @@ async def agents_status():
         "researcher": r_status,
         "curator": c_status,
         "browser": b_status,
-        "pip": pip_workflow,
+        "buddy": buddy_workflow,
         "sre": sre_workflow,
     }
 

@@ -1,14 +1,18 @@
 """Seed the shipped agent folders into the PKB on first boot.
 
 Mirrors the pattern in ``arail.pkb_seed`` for knowledge starter packs:
-canonical source lives in the installed package (``_builtin_pip.py``);
+canonical source lives in the installed package (``_builtin_buddy.py``);
 a user-editable copy lives under ``lab/pkb/agents/<name>/`` in the
 PKB where the Knowledge tab can browse and edit it.
 
 Runs on every portal start. Idempotent — writes nothing if the
-folder already exists with a ``pip.py`` inside. After ``./arail reset
-pkb`` the folder is gone; this helper re-creates it on next start so
-Pip is always available.
+folder already exists with a ``buddy.py`` inside. After ``./arail
+reset pkb`` the folder is gone; this helper re-creates it on next
+start so Buddy is always available.
+
+If a legacy ``lab/pkb/agents/pip/`` folder is found from before the
+rebrand, it gets migrated to ``buddy/`` on the same boot — dreams
+and decisions carry forward.
 
 The seed also drops a short ``README.md`` at ``lab/pkb/agents/``
 explaining the folder layout to anyone browsing the Knowledge tree.
@@ -31,33 +35,36 @@ log = logging.getLogger(__name__)
 # and `auto_start_env` fields; the rest document intent and reserve
 # fields for Steps 2-5 (dreams, skills, Forge).
 _AGENT_MD = """---
-title: Pip — Lab Buddy
-name: Pip
+title: Buddy — ARAIL's Lab Partner
+name: Buddy
 emoji: 🐧
-section: agents/pip
-tags: [agent, pip, builtin, personality]
-voice: "Warm, observant lab buddy. One short sentence. Never emojis in replies."
+section: agents/buddy
+tags: [agent, buddy, builtin, personality]
+voice: "Warm, observant, actively helpful lab partner. One short sentence. Names what matters."
 tick_interval_sec: 90
 global_cooldown_sec: 300
+suggest_interval_sec: 900
 dream: true
-auto_start_env: LAB_PIP
+auto_start_env: LAB_BUDDY
 # Skills this agent uses. Each entry resolves to SKILL.md under
 # lab/pkb/skills/<skill-id>/. The body of each listed skill gets
-# appended to Pip's system prompt on every LLM call (hot reload —
+# appended to Buddy's system prompt on every LLM call (hot reload —
 # edit the skill file, next utterance uses the new version).
 skills: [observe-lab]
 ---
 
-# Pip — the lab buddy
+# Buddy — ARAIL's lab partner
 
-Pip is the lab's fourth core agent and the **reference implementation
+Buddy is the lab's personality agent and the **reference implementation
 for the personality-agent pattern**. Unlike the researcher (which
-drives a goal) or the curator (which finds sources), Pip doesn't
-accomplish anything — it *notices*. Pip watches the state of the lab
-and speaks up with one warm sentence when something's worth
-commenting on.
+drives a goal) or the curator (which finds sources), Buddy doesn't
+accomplish anything by itself — it *notices and proposes*. Buddy
+watches the state of the lab, speaks up with one warm sentence when
+something's worth commenting on, AND surfaces goal-anchored
+suggestions on a slower cadence: techniques to try, items worth
+reviewing, research worth running.
 
-## What Pip watches (v1)
+## What Buddy watches (reactive)
 
 | Watcher | Severity | Cooldown | Fires when |
 |---|---|---|---|
@@ -66,51 +73,66 @@ commenting on.
 | `researcher-win` | praise | 3 h | An experiment landed "supported" today |
 | `plateau` | info | 2 h | Last 4 experiments reached the same verdict |
 
+## What Buddy suggests (proactive — only when a goal is set)
+
+| Suggester | Cooldown | Surfaces |
+|---|---|---|
+| `phase` | 24 h per phase | Researcher progress crossing 0.3 / 0.5 / 0.7 / 0.9 |
+| `review` | 24 h per experiment | Completed experiments idle > 48 h |
+| `skill` | 6 h per skill | Installed skills whose domain matches the goal |
+| `next-experiment` | 12 h per term | Goal terms no logged experiment touches |
+
 ## Rules of engagement
 
-- **Global cooldown: 5 minutes.** Pip stays quiet for at least 5 min
-  after any utterance, no matter which watcher fires.
-- **Replies under 20 words.** Hard-capped at 200 characters after
+- **Global cooldown: 5 minutes.** Buddy stays quiet for at least
+  5 min after any utterance, watcher or suggester.
+- **Suggestion cadence: 15 min.** And only when a goal is active.
+  The proactive cadence skips itself if the reactive cadence just
+  emitted, so Buddy never double-talks.
+- **Replies under 25 words.** Hard-capped at 200 characters after
   paraphrasing, because models sometimes get chatty.
 - **Praise first.** When multiple watchers fire in one tick, praise
-  wins, then warn, then info — because good news is cheap to deliver
-  and feels good.
+  wins, then warn, then info, then suggest — because good news is
+  cheap to deliver and feels good.
 
-## Editing Pip
+## Editing Buddy
 
 - Voice / personality → edit the `voice:` frontmatter field above OR
-  edit `SYSTEM_PROMPT` directly in `pip.py`.
-- Add / remove watchers → edit the `WATCHERS` list in `pip.py`.
-- Tuning → `LAB_PIP_INTERVAL_SEC`, `LAB_PIP_GLOBAL_COOLDOWN_SEC` in
-  `.env`.
-- Mute Pip → set `LAB_PIP=off` in `.env`.
-- Wipe Pip's memory → delete `state.json` or run `./arail reset pkb`.
+  edit `SYSTEM_PROMPT` directly in `buddy.py`.
+- Add / remove watchers → edit the `WATCHERS` list in `buddy.py`.
+- Add / remove suggesters → edit the `SUGGESTERS` list in `buddy.py`.
+- Tuning → `LAB_BUDDY_INTERVAL_SEC`, `LAB_BUDDY_GLOBAL_COOLDOWN_SEC`,
+  `LAB_BUDDY_SUGGEST_INTERVAL_SEC` in `.env`.
+- Mute Buddy → set `LAB_BUDDY=off` in `.env`.
+- Wipe Buddy's memory → delete `state.json` or run `./arail reset pkb`.
 
 ## Companion files
 
-- [pip.py](pip.py) — the body (watchers + loop + speech)
-- [state.json](state.json) — persisted memory (cooldowns, utterance count)
+- [buddy.py](buddy.py) — the body (watchers + suggesters + loop + speech)
+- [state.json](state.json) — persisted memory (cooldowns, counts)
 - [decisions.md](decisions.md) — append-only decision log
-- [dreams/](dreams/) — nightly reflection journal (Step 2 writes here)
+- [dreams/](dreams/) — nightly reflection journal
 """
 
 
 _DECISIONS_MD = """---
-title: Pip — Decisions
-section: agents/pip
-tags: [agent, pip, decisions]
+title: Buddy — Decisions
+section: agents/buddy
+tags: [agent, buddy, decisions]
 ---
 
-# Pip — Decision Log
+# Buddy — Decision Log
 
-Append-only record of meaningful choices about Pip. Format:
+Append-only record of meaningful choices about Buddy. Format:
 `YYYY-MM-DD — what changed — why`.
 
 When the Agent Forge lands, the researcher will be able to propose
-changes here; for now, edit it by hand when you tune Pip's behavior.
+changes here; for now, edit it by hand when you tune Buddy's behavior.
 
-- 2026-04-18 — Spawned. Starting with 4 watchers (gpu, inbox, researcher-win, plateau).
+- 2026-04-18 — Spawned (as Pip). Starting with 4 watchers (gpu, inbox, researcher-win, plateau).
 - 2026-04-18 — Global cooldown 5 min. Cheaper to be quiet than annoying.
+- 2026-04-26 — Renamed Pip → Buddy. Dropped the Python-installer name collision.
+- 2026-04-26 — Added 4 goal-aware suggesters (phase, review, skill, next-experiment). Buddy now proposes, not just observes.
 """
 
 
@@ -152,8 +174,9 @@ above is:
 
 ## What's here today
 
-- **`pip/`** — 🐧 Pip, the lab buddy. Notices things, speaks up
-  occasionally. Template shape for the upcoming Agent Forge.
+- **`buddy/`** — 🐧 Buddy, ARAIL's lab partner. Notices things,
+  speaks up, and offers goal-anchored suggestions. Template shape
+  for the Agent Forge.
 - **`research/`, `experiments/`, `synthesis/`, `recommendations/`** —
   these are the **output directories** where the researcher agent
   writes findings. They don't have an `AGENT.md` — that's how the
@@ -402,19 +425,27 @@ def ensure_research_files(pkb_root: Path | None = None) -> dict:
     return {"ok": True, "written": written}
 
 
-def ensure_pip_folder(pkb_root: Path | None = None) -> dict:
-    """Materialize lab/pkb/agents/pip/ if missing.
+def ensure_buddy_folder(pkb_root: Path | None = None) -> dict:
+    """Materialize lab/pkb/agents/buddy/ if missing.
 
-    Idempotent: if the folder exists AND ``pip.py`` is present inside,
-    do nothing. Otherwise write all five files (AGENT.md, pip.py copy,
-    decisions.md, dreams/.gitkeep, and the agents/ README).
+    Idempotent: if the folder exists AND ``buddy.py`` is present
+    inside, do nothing. Otherwise write all five files (AGENT.md,
+    buddy.py copy, decisions.md, dreams/.gitkeep, and the agents/
+    README).
+
+    On first boot after the Pip → Buddy rebrand, migrate any legacy
+    ``lab/pkb/agents/pip/`` folder into place so existing users keep
+    their dreams + decisions. The migration only triggers when no
+    ``buddy/`` folder exists yet — if both are present, the legacy
+    folder is left alone for manual cleanup.
 
     Returns a small summary dict describing what happened — useful for
     the startup activity-log line.
     """
     root = pkb_root or _pkb_root()
     agents_dir = root / "agents"
-    pip_dir = agents_dir / "pip"
+    buddy_dir = agents_dir / "buddy"
+    legacy_pip_dir = agents_dir / "pip"
 
     # The PKB's agents/ directory already exists for output dirs. Drop
     # the README next to them (write once; don't clobber user edits).
@@ -425,30 +456,61 @@ def ensure_pip_folder(pkb_root: Path | None = None) -> dict:
         readme.write_text(_AGENTS_README)
         wrote_readme = True
 
-    # Pip folder — short-circuit when it's already set up. User may
+    # One-shot migration: rename the legacy pip/ folder to buddy/ on
+    # the first boot after the rebrand, preserving dreams/ + decisions.
+    migrated = False
+    if legacy_pip_dir.exists() and not buddy_dir.exists():
+        try:
+            legacy_pip_dir.rename(buddy_dir)
+            migrated = True
+        except OSError as e:
+            log.warning("Pip → Buddy folder migration failed: %s", e)
+        # Drop the stale pip.py — Buddy gets a fresh copy below.
+        old_py = buddy_dir / "pip.py"
+        if old_py.exists():
+            try:
+                old_py.unlink()
+            except OSError:
+                pass
+
+    # Buddy folder — short-circuit when it's already set up. User may
     # have intentionally edited or deleted individual files; we don't
     # overwrite their choices on subsequent boots.
-    pip_py = pip_dir / "pip.py"
-    if pip_py.exists():
-        return {"ok": True, "created": False, "readme": wrote_readme}
+    buddy_py = buddy_dir / "buddy.py"
+    if buddy_py.exists():
+        return {
+            "ok": True, "created": False,
+            "readme": wrote_readme, "migrated": migrated,
+        }
 
-    pip_dir.mkdir(parents=True, exist_ok=True)
-    (pip_dir / "dreams").mkdir(exist_ok=True)
+    buddy_dir.mkdir(parents=True, exist_ok=True)
+    (buddy_dir / "dreams").mkdir(exist_ok=True)
 
-    # Copy _builtin_pip.py → pip.py. sibling path resolves at runtime.
-    builtin = Path(__file__).parent / "_builtin_pip.py"
-    shutil.copy(builtin, pip_py)
+    # Copy _builtin_buddy.py → buddy.py. Sibling path resolves at runtime.
+    builtin = Path(__file__).parent / "_builtin_buddy.py"
+    shutil.copy(builtin, buddy_py)
 
-    (pip_dir / "AGENT.md").write_text(_AGENT_MD)
-    (pip_dir / "decisions.md").write_text(_DECISIONS_MD)
+    # If we migrated from pip/, the AGENT.md and decisions.md still
+    # reference the old name. Overwrite AGENT.md unconditionally so
+    # the new frontmatter (auto_start_env: LAB_BUDDY) takes effect;
+    # leave decisions.md alone if it exists so historical notes stick
+    # around — only seed it on a clean install.
+    (buddy_dir / "AGENT.md").write_text(_AGENT_MD)
+    decisions_path = buddy_dir / "decisions.md"
+    if not decisions_path.exists():
+        decisions_path.write_text(_DECISIONS_MD)
+
     # .gitkeep so dreams/ shows up in trees even when empty.
-    (pip_dir / "dreams" / ".gitkeep").write_text("")
+    gitkeep = buddy_dir / "dreams" / ".gitkeep"
+    if not gitkeep.exists():
+        gitkeep.write_text("")
 
     return {
         "ok": True,
         "created": True,
         "readme": wrote_readme,
-        "path": str(pip_dir),
+        "migrated": migrated,
+        "path": str(buddy_dir),
     }
 
 
