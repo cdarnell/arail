@@ -519,3 +519,87 @@ def ensure_sre_folder(pkb_root: Path | None = None) -> dict:
         "created": True,
         "path": str(sre_dir),
     }
+
+
+# ── Drafter templates ────────────────────────────────────────────────
+_DRAFTER_AGENT_MD = """---
+title: Drafter — composition agent
+name: Drafter
+emoji: ✍️
+section: agents/drafter
+tags: [agent, drafter, composition, builtin]
+voice: "Compose drafts in the user's voice. Concise. Never auto-send."
+# Drafter is invoked synchronously by blueprints (inbox-triager,
+# client-followup) — not a heartbeat agent like Pip. No tick loop.
+tick_interval_sec: 0
+global_cooldown_sec: 0
+dream: false
+auto_start_env: ""
+skills: []
+---
+
+# Drafter — composition agent
+
+Drafter takes a context (email thread, meeting notes, etc.) plus
+an intent ("reply professionally", "follow up on Tuesday's
+meeting") and produces a draft. **It never sends.** Sending is
+gated by the [`consent`](../consent/AGENT.md) agent — Drafter
+returns a `Draft` whose `requires_consent` flag is always `True`.
+
+## Used by
+
+- [`inbox-triager`](../../../../blueprints/inbox-triager/) — drafts
+  email replies after the (aspirational) `triager` agent classifies
+  incoming messages
+- [`client-followup`](../../../../blueprints/client-followup/) —
+  drafts post-meeting follow-ups using context the `researcher`
+  agent gathered
+
+## API
+
+```python
+from arail.agents.loader import load_one
+drafter = load_one("drafter")
+
+result = drafter.compose(
+    context="Hey, can you send the deck before Friday?",
+    intent="reply professionally; confirm timing",
+    voice="default",
+    max_tokens=400,
+)
+# result.text             — the draft string
+# result.requires_consent — always True
+```
+
+## Companion files
+
+- [drafter.py](drafter.py) — agent class + composition logic
+- (no state.json — Drafter is request-driven, no persisted memory)
+"""
+
+
+def ensure_drafter_folder(pkb_root: Path | None = None) -> dict:
+    """Materialize lab/pkb/agents/drafter/ if missing.
+
+    Idempotent: if the folder exists AND ``drafter.py`` is present
+    inside, do nothing. Otherwise write AGENT.md and copy
+    _builtin_drafter.py.
+    """
+    root = pkb_root or _pkb_root()
+    drafter_dir = root / "agents" / "drafter"
+
+    drafter_py = drafter_dir / "drafter.py"
+    if drafter_py.exists():
+        return {"ok": True, "created": False}
+
+    drafter_dir.mkdir(parents=True, exist_ok=True)
+
+    builtin = Path(__file__).parent / "_builtin_drafter.py"
+    shutil.copy(builtin, drafter_py)
+    (drafter_dir / "AGENT.md").write_text(_DRAFTER_AGENT_MD)
+
+    return {
+        "ok": True,
+        "created": True,
+        "path": str(drafter_dir),
+    }
