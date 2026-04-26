@@ -10,6 +10,9 @@
 
 {% set active = 'dashboard' %}{% include "_nav.html" %}
 
+<!-- ═══ Toast Notifications — corner container for Buddy suggestions ═══ -->
+<div class="toast-container" id="toast-container"></div>
+
 <!-- ═══ Cost meter (top strip — simulation of what this lab would cost in the cloud) ═══ -->
 <div class="meter-bar" id="meter-bar">
   <div class="meter">
@@ -754,6 +757,7 @@ async function destroyLab() {
 
 // ── SSE Activity Feed ──
 const feed = document.getElementById('activity-feed');
+const toastContainer = document.getElementById('toast-container');
 const evtSource = new EventSource('/api/activity/stream');
 
 evtSource.onmessage = (e) => {
@@ -772,6 +776,11 @@ evtSource.onmessage = (e) => {
   // Auto-update progress if included
   if (event.data && event.data.progress !== undefined) {
     updateProgress(event.data.progress);
+  }
+
+  // Show suggestion toast for Buddy suggestions
+  if (event.source === 'buddy' && event.level === 'suggest' && event.data && event.data.suggestion) {
+    showSuggestionToast(event);
   }
 
   // Update research status on completion
@@ -797,6 +806,72 @@ function esc(s) {
   const d = document.createElement('div');
   d.textContent = s;
   return d.innerHTML;
+}
+
+// ── Suggestion Toast ──
+function showSuggestionToast(event) {
+  const suggestion = event.data.suggestion;
+  const kindIcons = {
+    skill: '🎯',
+    phase: '📍',
+    review: '👁',
+    experiment: '🧪',
+    source: '📚',
+  };
+  const icon = kindIcons[suggestion.kind] || '💡';
+
+  const toast = document.createElement('div');
+  toast.className = 'toast toast-suggest';
+
+  // Build action text based on suggestion type
+  let actionText = event.message;
+  if (suggestion.target) {
+    switch (suggestion.kind) {
+      case 'skill':
+        actionText = `Try the "${suggestion.target}" skill`;
+        break;
+      case 'review':
+        actionText = `Review experiment ${suggestion.target}`;
+        break;
+      case 'phase':
+        actionText = `Move to ${suggestion.target} phase`;
+        break;
+      case 'experiment':
+        actionText = 'Plan next experiment';
+        break;
+      case 'source':
+        actionText = 'Check relevant source';
+        break;
+    }
+  }
+
+  const dismissBtn = document.createElement('button');
+  dismissBtn.className = 'toast-dismiss';
+  dismissBtn.innerHTML = '×';
+  dismissBtn.type = 'button';
+  dismissBtn.addEventListener('click', () => toast.remove());
+
+  const contentDiv = document.createElement('div');
+  contentDiv.className = 'toast-content';
+  contentDiv.innerHTML = `<span class="toast-icon">${icon}</span><span class="toast-text">${esc(actionText)}</span>`;
+
+  if (suggestion.link) {
+    const link = suggestion.link;
+    contentDiv.style.cursor = 'pointer';
+    contentDiv.addEventListener('click', () => {
+      window.location.hash = link;
+      toast.remove();
+    });
+  }
+
+  toast.appendChild(contentDiv);
+  toast.appendChild(dismissBtn);
+  toastContainer.appendChild(toast);
+
+  // Auto-dismiss after 8 seconds
+  setTimeout(() => {
+    if (toast.parentNode) toast.remove();
+  }, 8000);
 }
 
 // ── Cost Tracking (top meter bar + card) ──

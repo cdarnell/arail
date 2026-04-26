@@ -623,10 +623,100 @@ nav .nav-goal ~ .mode-badge { margin-left: 0.5rem; }
 .activity-event.success .src { color: var(--green); text-shadow: var(--glow-green); }
 .activity-event.warn .src { color: var(--amber); }
 .activity-event.error .src { color: var(--red); }
+.activity-event.suggest .src { color: var(--purple); }
 
 @keyframes fade-in {
   from { opacity: 0; transform: translateY(-4px); }
   to { opacity: 1; transform: translateY(0); }
+}
+
+/* Toast Notifications */
+.toast-container {
+  position: fixed;
+  top: 80px;
+  right: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  z-index: 1000;
+  pointer-events: none;
+}
+
+.toast {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  border-radius: 6px;
+  backdrop-filter: blur(10px);
+  pointer-events: all;
+  animation: slide-in-right 0.3s ease;
+  max-width: 320px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.toast-suggest {
+  background: linear-gradient(135deg, rgba(180, 142, 255, 0.15) 0%, rgba(180, 142, 255, 0.08) 100%);
+  border-color: rgba(180, 142, 255, 0.3);
+}
+
+.toast-content {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.toast-icon {
+  font-size: 1.25rem;
+  flex-shrink: 0;
+}
+
+.toast-text {
+  font-size: 0.9rem;
+  color: var(--text);
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.toast-dismiss {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 1.5rem;
+  cursor: pointer;
+  padding: 0;
+  margin-left: 0.75rem;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 3px;
+  transition: background 0.2s, color 0.2s;
+}
+
+.toast-dismiss:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text);
+}
+
+.toast-content[style*="cursor: pointer"]:hover .toast-text {
+  color: var(--purple);
+}
+
+@keyframes slide-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(100px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
 }
 
 /* ── Tables ────────────────────────────────────────────────────── */
