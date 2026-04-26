@@ -20,9 +20,9 @@ what it figured out the night before.
   file already exists and skips when it does. Run the daemon as
   often as you like — one dream per agent per day.
 - **Per-agent registry.** Agents opt in by calling
-  ``register(agent_id, agent_instance)``. v1 registers Pip in the
-  portal startup; Step 4 (dynamic agent loader) will auto-register
-  every agent folder.
+  ``register(agent_id, agent_instance)``. v1 registers Buddy in the
+  portal startup; the dynamic agent loader auto-registers every
+  agent folder that opts in via ``dream: true`` frontmatter.
 - **Failure isolation.** A crashing ``dream()`` is logged and the
   daemon continues. One agent can't take the whole loop down.
 
@@ -173,5 +173,5 @@ class DreamDaemon:
             await _dream_once(agent_id, agent)
 
 
-# Module-level singleton — matches the PipAgent pattern.
+# Module-level singleton — matches the BuddyAgent pattern.
 dream_daemon = DreamDaemon()

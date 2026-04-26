@@ -2,7 +2,7 @@
 
 Walks ``lab/pkb/agents/*/AGENT.md``, dynamically imports each
 companion ``.py``, and returns a dict of ``{agent_id: instance}``.
-This is the generalization of the Pip-specific shim from Step 1 —
+This is the generalization of the original Buddy-specific shim —
 now every agent folder under the PKB is discovered the same way.
 
 ## Contract with agent folders
@@ -19,7 +19,7 @@ an ``AGENT.md`` with YAML frontmatter. The folder name is the
   ``agent.dream()``).
 
 Folders without ``AGENT.md`` are ignored — that's how the loader
-distinguishes agent folders (`pip/`) from shared output folders
+distinguishes agent folders (`buddy/`) from shared output folders
 (`research/`, `experiments/`, …) under the same parent.
 
 ## Shipped fallback
@@ -35,7 +35,7 @@ surface these errors prominently in its own UI.
 
 Agents are loaded lazily and cached per-process — repeated calls
 to ``load_one(id)`` or ``load_all()`` return the same instance.
-The cache prevents the "two PipAgents ticking in parallel"
+The cache prevents the "two BuddyAgents ticking in parallel"
 problem when both the loader and the backcompat shim want to
 reach the same agent.
 """
@@ -59,7 +59,7 @@ log = logging.getLogger(__name__)
 # These auto-seed their PKB folder on first boot and fall back to
 # the builtin if the PKB copy is broken. User-forged agents don't
 # appear here — they have no fallback.
-_SHIPPED: set[str] = {"pip", "sre", "drafter"}
+_SHIPPED: set[str] = {"buddy", "sre"}
 
 # Singleton cache. Key = agent_id, value = agent instance (or the
 # sentinel _BROKEN if loading failed this session).
@@ -109,24 +109,18 @@ def discover(pkb_root: Path | None = None) -> List[Tuple[str, Path, Dict[str, An
 
 def _seed_if_shipped(agent_id: str) -> None:
     """For shipped agents, make sure the folder exists on disk."""
-    if agent_id == "pip":
+    if agent_id == "buddy":
         try:
-            from arail.agents.builtin_seed import ensure_pip_folder
-            ensure_pip_folder()
+            from arail.agents.builtin_seed import ensure_buddy_folder
+            ensure_buddy_folder()
         except Exception as e:  # noqa: BLE001
-            log.warning("ensure_pip_folder failed: %s", e)
+            log.warning("ensure_buddy_folder failed: %s", e)
     elif agent_id == "sre":
         try:
             from arail.agents.builtin_seed import ensure_sre_folder
             ensure_sre_folder()
         except Exception as e:  # noqa: BLE001
             log.warning("ensure_sre_folder failed: %s", e)
-    elif agent_id == "drafter":
-        try:
-            from arail.agents.builtin_seed import ensure_drafter_folder
-            ensure_drafter_folder()
-        except Exception as e:  # noqa: BLE001
-            log.warning("ensure_drafter_folder failed: %s", e)
 
 
 def _import_from_path(py_file: Path, unique_name: str) -> Optional[Any]:
@@ -247,7 +241,7 @@ def start_all_auto(agents: Dict[str, Any], pkb_root: Path | None = None) -> None
     """Start every loaded agent that opts in via AGENT.md.
 
     Each agent's frontmatter controls two things:
-      - ``auto_start_env``: name of an env var ("LAB_PIP") — if the
+      - ``auto_start_env``: name of an env var ("LAB_BUDDY") — if the
         env var is not set to off/0/false/no, the agent is started.
       - ``dream: true``: registers the agent with the dream daemon
         for the nightly reflection loop.

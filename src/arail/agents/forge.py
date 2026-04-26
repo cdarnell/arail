@@ -6,7 +6,7 @@ operations:
 
     1. Slugify the agent name into a Python-safe id.
     2. Generate ``AGENT.md`` from the form fields.
-    3. Generate ``<id>.py`` from a template (the same shape as Pip,
+    3. Generate ``<id>.py`` from a template (the same shape as Buddy,
        minus the specific watchers — watchers are added post-deploy
        via the Knowledge tab's markdown editor).
 
@@ -25,7 +25,7 @@ what gets deployed; the client preview is a best-effort mirror.
 - One template — "voice-only agent with skills." No watcher builder.
 - No code-level editing in the Forge itself (you get a preview,
   not a textarea of the generated .py). Post-deploy editing goes
-  through ``/knowledge`` on the new `pip.py`-style file.
+  through ``/knowledge`` on the new `buddy.py`-style file.
 - No overwrite. Deploying with an id that already exists errors.
 - No deletion. Remove an agent by deleting its folder from
   ``/knowledge`` and restarting.
@@ -48,7 +48,7 @@ log = logging.getLogger(__name__)
 
 # ── Slugify ────────────────────────────────────────────────────────
 # The agent id has to be a valid Python identifier because it's the
-# name of the singleton the loader imports. "Lab Buddy" → "lab_buddy".
+# name of the singleton the loader imports. "Lab Sage" → "lab_sage".
 # Keep it conservative: lowercase, alnum + underscore only, starts
 # with a letter.
 
@@ -76,7 +76,10 @@ def _camel(slug: str) -> str:
 # errors in the generated code.
 
 _RESERVED_IDS = {
-    # Existing agent id
+    # Built-in agent ids — collision would shadow the shipped agent.
+    "buddy", "sre",
+    # ``pip`` stays reserved post-rebrand so a forged agent can't
+    # take the old name and confuse the migration code path.
     "pip",
     # Shared output directories under lab/pkb/agents/ that would
     # clash with the loader's discovery rules.
@@ -192,7 +195,7 @@ def generate_agent_md(form: Dict[str, Any]) -> str:
 # ── Python generator ──────────────────────────────────────────────
 # The template is a voice-only agent — skills + dreams + state, no
 # watchers. Users add watchers later by editing the file. The shape
-# matches _builtin_pip.py so if the user reads Pip for reference
+# matches _builtin_buddy.py so if the user reads Buddy for reference
 # nothing is surprising.
 
 _AGENT_PY_TEMPLATE = '''"""{name} — {role}.
@@ -203,7 +206,7 @@ prompt. Watchers start empty — add functions to WATCHERS to teach
 {name} what to notice.
 
 If you\'re editing this file and want context on the overall shape,
-read docs/agents-explained.md and src/arail/agents/_builtin_pip.py.
+read docs/agents-explained.md and src/arail/agents/_builtin_buddy.py.
 """
 
 from __future__ import annotations
@@ -433,7 +436,7 @@ class {class_name}:
     async def dream(self) -> str:
         """Nightly reflection stub — returns empty until a real
         implementation lands. To enable: pattern-copy the dream()
-        method from src/arail/agents/_builtin_pip.py."""
+        method from src/arail/agents/_builtin_buddy.py."""
         return ""
 
 

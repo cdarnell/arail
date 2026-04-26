@@ -29,9 +29,9 @@ Four agents ship today:
 | [researcher.py](../src/arail/agents/researcher.py) | Drives a goal: hypotheses → experiments → report | Goal-driven |
 | [curator.py](../src/arail/agents/curator.py) | Finds sources for the researcher, gates on consent | Goal-driven |
 | [browser.py](../src/arail/agents/browser.py) | Web research via agent-browser, capture to PKB | On-demand |
-| [_builtin_pip.py](../src/arail/agents/_builtin_pip.py) | Lab buddy — notices things, speaks up | **Personality** |
+| [_builtin_buddy.py](../src/arail/agents/_builtin_buddy.py) | Lab buddy — notices things, speaks up | **Personality** |
 
-Pip is the first "personality" agent — it doesn't drive a goal; it
+Buddy is the first "personality" agent — it doesn't drive a goal; it
 watches and comments. This document focuses on that pattern because
 it's the template for the upcoming Agent Forge.
 
@@ -42,9 +42,9 @@ folder lives under the PKB so the wiki indexes it, `/knowledge` can
 browse it, and `./arail reset pkb` wipes it cleanly.
 
 ```
-lab/pkb/agents/pip/
+lab/pkb/agents/buddy/
 ├── AGENT.md          root config — voice, skills, intervals
-├── pip.py            the body — watchers + loop + speech
+├── buddy.py          the body — watchers + suggesters + loop + speech
 ├── state.json        persisted memory (cooldowns, utterance count)
 ├── decisions.md      append-only log of meaningful choices
 └── dreams/
@@ -56,7 +56,7 @@ dirs (`agents/research/`, `agents/experiments/`, …):
 
 - Presence of **`AGENT.md`**. The eventual loader uses this to
   discover agents; folders without it are output, not agents.
-- A **Python module** sibling to AGENT.md exporting a `pip`-style
+- A **Python module** sibling to AGENT.md exporting a `buddy`-style
   singleton (conventionally named after the agent).
 - All **persistence** lives inside the folder — `state.json`,
   `dreams/`, decisions — so wiping or moving an agent is one
@@ -66,9 +66,9 @@ dirs (`agents/research/`, `agents/experiments/`, …):
 
 Five reasons:
 
-1. **Inspectable.** A new user reading `/knowledge/agents/pip/` sees
+1. **Inspectable.** A new user reading `/knowledge/agents/buddy/` sees
    everything the agent is in one tree. No hidden state elsewhere.
-2. **Editable without redeploying.** The user-visible `pip.py` is
+2. **Editable without redeploying.** The user-visible `buddy.py` is
    the file the portal actually runs (via dynamic import). Edit it
    from the Knowledge tab, restart, your changes take effect.
 3. **Wiki-indexed.** AGENT.md, decisions.md, and every dream entry
@@ -89,20 +89,20 @@ To reconcile "canonical source in the installed package" with
 
 | File | Role |
 |---|---|
-| [src/arail/agents/_builtin_pip.py](../src/arail/agents/_builtin_pip.py) | **Canonical source.** What ships with the release. Read-only by convention (leading underscore). Also used as the fallback if the PKB copy fails to import. |
-| `lab/pkb/agents/pip/pip.py` | **User-editable copy.** Materialized on first boot by [builtin_seed.py](../src/arail/agents/builtin_seed.py). Dynamically imported by the shim at [src/arail/agents/pip.py](../src/arail/agents/pip.py) at startup. |
+| [src/arail/agents/_builtin_buddy.py](../src/arail/agents/_builtin_buddy.py) | **Canonical source.** What ships with the release. Read-only by convention (leading underscore). Also used as the fallback if the PKB copy fails to import. |
+| `lab/pkb/agents/buddy/buddy.py` | **User-editable copy.** Materialized on first boot by [builtin_seed.py](../src/arail/agents/builtin_seed.py). Dynamically imported by the shim at [src/arail/agents/buddy.py](../src/arail/agents/buddy.py) at startup. |
 
-The shim resolves `from arail.agents.pip import pip` by:
+The shim resolves `from arail.agents.buddy import buddy` by:
 
-1. Calling `ensure_pip_folder()` to materialize the PKB copy if
-   missing (idempotent; copies `_builtin_pip.py` → `pip/pip.py`).
+1. Calling `ensure_buddy_folder()` to materialize the PKB copy if
+   missing (idempotent; copies `_builtin_buddy.py` → `buddy/buddy.py`).
 2. Using `importlib.util.spec_from_file_location` to load the PKB
    copy dynamically, picking up any user edits.
-3. Falling back to `_builtin_pip` with an activity-log warning if
+3. Falling back to `_builtin_buddy` with an activity-log warning if
    the PKB copy has a syntax error or other import failure.
 
 The fallback means a user who breaks their copy while editing from
-the Knowledge tab doesn't take the portal down — Pip stays online,
+the Knowledge tab doesn't take the portal down — Buddy stays online,
 the error is visible in the activity feed, and the user fixes the
 file from `/knowledge` with no restart needed.
 
@@ -113,7 +113,7 @@ Three tiers, in order of durability:
 1. **Scratchpad** — attributes on the agent instance (`self._task`,
    `self._status`). Gone when the portal process exits.
 2. **state.json** — per-agent JSON at `lab/pkb/agents/<name>/state.json`.
-   Loaded on `start()`, saved after every emit. For Pip it tracks
+   Loaded on `start()`, saved after every emit. For Buddy it tracks
    `last_said` (per-watcher cooldowns), `last_global`, and
    `utterances`. Small, durable, survives restarts.
 3. **Dreams** — markdown at `lab/pkb/agents/<name>/dreams/YYYY-MM-DD.md`.
@@ -137,7 +137,7 @@ Wiping memory is always one command: delete the file/dir, or run
      ┌────────────────────────┼─────────────────────────┐
      │                        │                         │
 ┌────▼────┐             ┌─────▼─────┐             ┌─────▼─────┐
-│ Pip     │             │ Researcher│             │ Curator   │
+│ Buddy     │             │ Researcher│             │ Curator   │
 │ (tick)  │             │ (goal)    │             │ (sources) │
 └────┬────┘             └─────┬─────┘             └─────┬─────┘
      │                        │                         │
@@ -161,7 +161,7 @@ Agents never call each other directly. They coordinate through:
 - **activity_log** — the lab's shared nervous system. Any agent can
   watch another's events by subscribing to the stream.
 - **PKB** — the shared filesystem. Researcher writes findings,
-  Pip watches the `agents/experiments/` directory for new outcomes.
+  Buddy watches the `agents/experiments/` directory for new outcomes.
 - **goal_store** — the current mission; agents check `get_current()`
   to tailor behavior.
 
@@ -186,7 +186,7 @@ frontmatter so the wiki indexes it.
 ### The "wake up knowing" loop
 
 Each agent's prompt composer (e.g. `_compose_prompt()` in
-`_builtin_pip.py`) loads yesterday's dream at the top of every LLM
+`_builtin_buddy.py`) loads yesterday's dream at the top of every LLM
 call. The local model treats it as continuity — "here's what you
 were thinking last night" — before the skill block and the
 observation. This is the memory consolidation layer of the
@@ -299,7 +299,7 @@ Seeded on first boot by
 
 | Skill | Domain | Used by |
 |---|---|---|
-| [`observe-lab`](../lab/pkb/skills/observe-lab/SKILL.md) | meta | Pip (what to notice, when to stay quiet, how to phrase) |
+| [`observe-lab`](../lab/pkb/skills/observe-lab/SKILL.md) | meta | Buddy (what to notice, when to stay quiet, how to phrase) |
 | [`evaluate-llm`](../lab/pkb/skills/evaluate-llm/SKILL.md) | ai | Researcher when lab intent is AI engineering |
 | [`falsify-hypothesis`](../lab/pkb/skills/falsify-hypothesis/SKILL.md) | research | Researcher for bias reduction |
 
@@ -334,7 +334,7 @@ This PR shipped **skills** (Step 3 below). Remaining steps:
 
 | Step | Capability | Status |
 |---|---|---|
-| 1 | Pip as folder, `state.json`, `dream()` stub, shim with fallback | ✓ shipped |
+| 1 | Buddy as folder, `state.json`, `dream()` stub, shim with fallback | ✓ shipped |
 | 2 | Dream loop — scheduler daemon calls `dream()` once per heavy window; yesterday's dream feeds today's system prompt | ✓ shipped |
 | 3 | **Skills** as first-class markdown; agents compose them into the system prompt | ✓ shipped |
 | 4 | Dynamic agent loader — discover every `lab/pkb/agents/*/AGENT.md` at startup, register each singleton | ✓ shipped |
@@ -366,7 +366,7 @@ agent" panel, fill in the form, click Deploy.
 1. **Validates** the form server-side — required fields, ranges,
    agent-id doesn't collide with an existing one.
 2. **Generates** `AGENT.md` + `<agent_id>.py` from the same
-   template shape as Pip.
+   template shape as Buddy.
 3. **Parses** the generated Python with `ast.parse` before writing
    anything to disk — a template bug can't ship.
 4. **Writes** `lab/pkb/agents/<agent_id>/` with AGENT.md, the .py,
@@ -406,7 +406,7 @@ agent. To edit:
   `WATCHERS = []` list and comments explaining how to add one.
   Natural-language → watcher code is on the v2 roadmap.
 - **Template picker.** Only one template ships (voice-only with
-  skills). "Start from Pip," "watchdog," etc. come later.
+  skills). "Start from Buddy," "watchdog," etc. come later.
 - **Code-level editing in the Forge.** The right panel is a
   preview, not a textarea. Post-deploy edits happen via the
   Knowledge editor.
@@ -418,7 +418,7 @@ agent. To edit:
 `lab/pkb/agents/*/AGENT.md` at portal startup, instantiates every
 agent it finds, starts the ones that opt in, and registers dream-
 capable ones with the nightly scheduler. The same path handles
-shipped agents (Pip), forged agents (eventually, from the Forge
+shipped agents (Buddy), forged agents (eventually, from the Forge
 UI), and anything a developer drops in by hand.
 
 ### Discovery
@@ -448,14 +448,14 @@ bundled `_builtin_<id>.py` never clashes with the PKB copy in
 
 `load_one(agent_id)` and `load_all()` are idempotent — the first
 call materializes the instance, every subsequent call returns the
-same one. The backcompat shim at `src/arail/agents/pip.py` now
-delegates to `load_one("pip")`, so `from arail.agents.pip import
-pip` and `load_all()["pip"]` resolve to the same object. No double-
+same one. The backcompat shim at `src/arail/agents/buddy.py` now
+delegates to `load_one("buddy")`, so `from arail.agents.buddy import
+buddy` and `load_all()["buddy"]` resolve to the same object. No double-
 ticking.
 
 ### Shipped fallback
 
-Agents listed in `_SHIPPED` (today: just `pip`) get an automatic
+Agents listed in `_SHIPPED` (today: `buddy` + `sre`) get an automatic
 fallback to `src/arail/agents/_builtin_<id>.py` if the PKB copy
 fails to import. User-forged agents don't have this safety net —
 a broken `.py` means the agent doesn't load and a warning lands
@@ -465,7 +465,7 @@ in the activity feed. The Forge UI will surface these explicitly.
 
 Two frontmatter fields drive loader behavior:
 
-- `auto_start_env: LAB_PIP` — name of an env var whose value
+- `auto_start_env: LAB_BUDDY` — name of an env var whose value
   gates `.start()`. Set to `off` / `0` / `false` / `no` to keep
   the agent loaded but quiet. Omit the field to always start.
 - `dream: true` — register with the dream daemon. Omit or set to
@@ -475,7 +475,7 @@ Two frontmatter fields drive loader behavior:
 
 ```python
 from arail.agents.loader import load_all, start_all_auto
-agents = load_all()            # {"pip": <PipAgent>, ...}
+agents = load_all()            # {"buddy": <BuddyAgent>, ...}
 start_all_auto(agents)         # .start() + dream-register each
 ```
 
@@ -489,7 +489,7 @@ user-forged agents.
 Arail has a plugin manager ([manager.py](../src/arail/plugins/manager.py))
 but it's metadata-only — it installs GitHub repos and reads
 manifests; it doesn't execute plugin code. Agents need live code
-execution, so the shim at `src/arail/agents/pip.py` uses
+execution, so the shim at `src/arail/agents/buddy.py` uses
 `importlib.util.spec_from_file_location` to load the PKB copy.
 The loader in Step 4 generalizes this to walk every agent folder.
 
@@ -497,7 +497,7 @@ The loader in Step 4 generalizes this to walk every agent folder.
 
 This lab targets a single-user workstation. In-process means:
 
-- Zero startup cost per agent (Pip's overhead: one asyncio task).
+- Zero startup cost per agent (Buddy's overhead: one asyncio task).
 - Shared memory — agents read the same goal_store, PKB, router.
 - A single process to monitor and restart.
 
@@ -511,12 +511,12 @@ separate product, not a retrofit.
 
 **Easiest path (today, before the Forge lands):**
 
-1. Copy `src/arail/agents/_builtin_pip.py` → a new file in the same
+1. Copy `src/arail/agents/_builtin_buddy.py` → a new file in the same
    directory (e.g., `_builtin_owl.py`).
 2. Rewrite the `NAME`, `EMOJI`, `SYSTEM_PROMPT`, and the watcher
    functions.
 3. Add a shim `src/arail/agents/owl.py` modelled on
-   `src/arail/agents/pip.py` (copy-paste, rename the folder).
+   `src/arail/agents/buddy.py` (copy-paste, rename the folder).
 4. Update `builtin_seed.py` to seed the new folder.
 5. Wire `from arail.agents.owl import owl` into `app.py` startup.
 
@@ -525,9 +525,9 @@ Deploy.
 
 ## References
 
-- [src/arail/agents/_builtin_pip.py](../src/arail/agents/_builtin_pip.py) — canonical Pip source, best-documented agent
+- [src/arail/agents/_builtin_buddy.py](../src/arail/agents/_builtin_buddy.py) — canonical Buddy source, best-documented agent
 - [src/arail/agents/builtin_seed.py](../src/arail/agents/builtin_seed.py) — how agent folders get materialized
-- [src/arail/agents/pip.py](../src/arail/agents/pip.py) — the shim pattern
+- [src/arail/agents/buddy.py](../src/arail/agents/buddy.py) — the shim pattern
 - [src/arail/activity.py](../src/arail/activity.py) — the shared event stream
 - [src/arail/scheduler.py](../src/arail/scheduler.py) — work windows + halt flag
 - [src/arail/pkb.py](../src/arail/pkb.py) — PKB root resolver + ingest

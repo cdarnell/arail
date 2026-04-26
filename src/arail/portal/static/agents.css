@@ -472,7 +472,7 @@
 .ag-move-path.researcher { stroke: rgba(0, 255, 65, 0.88); filter: drop-shadow(0 0 8px rgba(0, 255, 65, 0.28)); }
 .ag-move-path.curator { stroke: rgba(0, 212, 255, 0.88); filter: drop-shadow(0 0 8px rgba(0, 212, 255, 0.24)); }
 .ag-move-path.browser { stroke: rgba(255, 176, 0, 0.88); filter: drop-shadow(0 0 8px rgba(255, 176, 0, 0.2)); }
-.ag-move-path.pip { stroke: rgba(180, 142, 255, 0.9); filter: drop-shadow(0 0 8px rgba(180, 142, 255, 0.24)); }
+.ag-move-path.buddy { stroke: rgba(180, 142, 255, 0.9); filter: drop-shadow(0 0 8px rgba(180, 142, 255, 0.24)); }
 .ag-move-path.sre { stroke: rgba(255, 51, 85, 0.9); filter: drop-shadow(0 0 8px rgba(255, 51, 85, 0.22)); }
 
 .ag-move-point {
@@ -485,7 +485,7 @@
 .ag-move-point.researcher { fill: var(--green); }
 .ag-move-point.curator { fill: var(--blue); }
 .ag-move-point.browser { fill: var(--amber); }
-.ag-move-point.pip { fill: var(--purple); }
+.ag-move-point.buddy { fill: var(--purple); }
 .ag-move-point.sre { fill: var(--red); }
 
 .ag-move-point.warn { stroke: rgba(255, 176, 0, 0.92); }
@@ -508,7 +508,7 @@
 .ag-move-ghost.researcher { stroke: rgba(0, 255, 65, 0.4); }
 .ag-move-ghost.curator { stroke: rgba(0, 212, 255, 0.4); }
 .ag-move-ghost.browser { stroke: rgba(255, 176, 0, 0.4); }
-.ag-move-ghost.pip { stroke: rgba(180, 142, 255, 0.4); }
+.ag-move-ghost.buddy { stroke: rgba(180, 142, 255, 0.4); }
 .ag-move-ghost.sre { stroke: rgba(255, 51, 85, 0.4); }
 
 .ag-movement-panel {
@@ -556,7 +556,7 @@
 .ag-movement-agent.researcher { color: var(--green); }
 .ag-movement-agent.curator { color: var(--blue); }
 .ag-movement-agent.browser { color: var(--amber); }
-.ag-movement-agent.pip { color: var(--purple); }
+.ag-movement-agent.buddy { color: var(--purple); }
 .ag-movement-agent.sre { color: var(--red); }
 
 .ag-movement-stamp {
@@ -669,7 +669,7 @@
 .ag-move-summary-agent.researcher { color: var(--green); }
 .ag-move-summary-agent.curator { color: var(--blue); }
 .ag-move-summary-agent.browser { color: var(--amber); }
-.ag-move-summary-agent.pip { color: var(--purple); }
+.ag-move-summary-agent.buddy { color: var(--purple); }
 .ag-move-summary-agent.sre { color: var(--red); }
 
 @media (max-width: 980px) {
@@ -756,7 +756,7 @@ a.ag-card-name:hover { text-decoration: underline; text-decoration-style: dotted
 .ag-card-name.researcher { color: var(--green); }
 .ag-card-name.curator    { color: var(--blue); }
 .ag-card-name.browser    { color: var(--amber); }
-.ag-card-name.pip        { color: var(--purple); }
+.ag-card-name.buddy      { color: var(--purple); }
 
 /* Pulse dot */
 .ag-pulse {
