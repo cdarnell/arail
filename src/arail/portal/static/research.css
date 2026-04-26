@@ -31,6 +31,41 @@
   color: var(--muted);
 }
 
+.rx-preview-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.9rem;
+  padding: 0.75rem 1.25rem;
+  background: linear-gradient(90deg, rgba(0,212,255,.06), rgba(0,255,65,.05));
+  border-bottom: 1px solid var(--border);
+}
+.rx-preview-banner-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+.rx-preview-banner-kicker {
+  color: var(--blue);
+  font-size: 0.62rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+.rx-preview-banner-copy strong {
+  color: var(--text-hi);
+  font-size: 0.86rem;
+}
+.rx-preview-banner-copy span:last-child {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+.rx-preview-banner-actions {
+  display: flex;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
 /* Motto line on the empty-state card */
 .rx-empty-motto {
   color: var(--green) !important;
@@ -644,6 +679,37 @@
   flex-direction: column;
   gap: 0.7rem;
 }
+.rx-empty-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+.rx-scale-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.28rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface2);
+  color: var(--muted);
+  font-size: 0.66rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.rx-scale-wrap select {
+  background: transparent;
+  border: none;
+  color: var(--text-hi);
+  font-family: var(--font);
+  font-size: 0.74rem;
+}
+.rx-scale-wrap select:focus {
+  outline: none;
+}
 .rx-empty-form textarea {
   width: 100%;
   min-height: 100px;
@@ -777,6 +843,148 @@
   margin-top: 1rem;
 }
 
+.rx-swarm-card {
+  max-width: min(960px, 94vw);
+}
+.rx-swarm-pills {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.9rem;
+}
+.rx-swarm-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.18rem 0.5rem;
+  border: 1px solid rgba(0,212,255,.25);
+  border-radius: 999px;
+  background: rgba(0,212,255,.06);
+  color: var(--blue);
+  font-size: 0.64rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.rx-swarm-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+.rx-swarm-grid-secondary {
+  margin-top: 0.8rem;
+}
+.rx-swarm-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.rx-swarm-field span {
+  color: var(--muted);
+  font-size: 0.66rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.rx-swarm-field textarea {
+  min-height: 92px;
+  padding: 0.7rem 0.85rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-hi);
+  font-family: var(--font);
+  font-size: 0.8rem;
+  line-height: 1.5;
+  resize: vertical;
+}
+.rx-swarm-field textarea:focus {
+  outline: none;
+  border-color: var(--green);
+  box-shadow: var(--glow-green);
+}
+.rx-swarm-section {
+  padding: 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: rgba(7, 12, 18, 0.45);
+}
+.rx-swarm-section-title {
+  color: var(--blue);
+  font-size: 0.66rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 0.55rem;
+}
+.rx-swarm-workers {
+  display: grid;
+  gap: 0.55rem;
+}
+.rx-swarm-worker {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.55rem;
+  align-items: start;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.rx-swarm-worker input {
+  margin-top: 0.15rem;
+}
+.rx-swarm-worker strong {
+  display: block;
+  color: var(--text-hi);
+  font-size: 0.79rem;
+}
+.rx-swarm-worker span,
+.rx-swarm-worker small {
+  display: block;
+  margin-top: 0.18rem;
+  color: var(--muted);
+  font-size: 0.71rem;
+  line-height: 1.45;
+}
+.rx-swarm-phases {
+  display: grid;
+  gap: 0.55rem;
+}
+.rx-swarm-phase {
+  padding: 0.55rem 0.65rem;
+  border-left: 2px solid var(--green);
+  background: var(--surface);
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+.rx-swarm-phase strong {
+  display: block;
+  color: var(--text-hi);
+  font-size: 0.79rem;
+}
+.rx-swarm-phase span {
+  display: block;
+  margin-top: 0.22rem;
+  color: var(--muted);
+  font-size: 0.71rem;
+  line-height: 1.45;
+}
+.rx-swarm-review-grid {
+  display: grid;
+  gap: 0.8rem;
+}
+.rx-swarm-review-grid strong {
+  display: block;
+  color: var(--text-hi);
+  font-size: 0.75rem;
+  margin-bottom: 0.22rem;
+}
+.rx-swarm-review-grid ul {
+  margin: 0;
+  padding-left: 1rem;
+  color: var(--muted);
+  font-size: 0.73rem;
+  line-height: 1.5;
+}
+
 /* ── Buttons used here ─────────────────────────────────────────── */
 .rx-btn {
   display: inline-flex;
@@ -824,6 +1032,13 @@
   }
 }
 @media (max-width: 900px) {
+  .rx-preview-banner {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .rx-swarm-grid {
+    grid-template-columns: 1fr;
+  }
   .rx-layout {
     grid-template-columns: 1fr;
     height: auto;

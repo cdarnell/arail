@@ -602,6 +602,7 @@ nav a.active { color: var(--green); background: rgba(0,255,65,.06); }
   display: flex;
   gap: 0.5rem;
   align-items: center;
+  flex-wrap: wrap;
 }
 .prompt-prefix {
   color: var(--green);
@@ -629,6 +630,201 @@ nav a.active { color: var(--green); background: rgba(0,255,65,.06); }
 .goal-form input::placeholder {
   color: var(--muted);
   font-style: italic;
+}
+.goal-scale-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.2rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface2);
+  color: var(--muted);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.goal-scale-wrap select {
+  background: transparent;
+  border: none;
+  color: var(--text-hi);
+  font-family: var(--font);
+  font-size: 0.72rem;
+  text-transform: none;
+}
+.goal-scale-wrap select:focus {
+  outline: none;
+}
+
+.goal-swarm-preview {
+  margin-top: 1rem;
+  padding: 1rem;
+  border: 1px solid var(--border-hi);
+  border-radius: var(--radius);
+  background: linear-gradient(180deg, rgba(0,255,65,.05), rgba(0,212,255,.03) 65%, rgba(255,255,255,.01));
+}
+.goal-swarm-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.8rem;
+  margin-bottom: 0.9rem;
+}
+.goal-swarm-kicker {
+  color: var(--green);
+  font-size: 0.66rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  margin-bottom: 0.2rem;
+}
+.goal-swarm-head h3 {
+  margin: 0;
+  color: var(--text-hi);
+  font-size: 0.92rem;
+}
+.goal-swarm-pills {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.goal-swarm-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.2rem 0.55rem;
+  border: 1px solid rgba(0,212,255,.25);
+  border-radius: 999px;
+  background: rgba(0,212,255,.06);
+  color: var(--blue);
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.goal-swarm-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+.goal-swarm-grid-secondary {
+  margin-top: 0.8rem;
+}
+.goal-swarm-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.goal-swarm-field span {
+  color: var(--muted);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.goal-swarm-field textarea {
+  min-height: 86px;
+  padding: 0.7rem 0.85rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-hi);
+  font-family: var(--font);
+  font-size: 0.82rem;
+  line-height: 1.5;
+  resize: vertical;
+}
+.goal-swarm-field textarea:focus {
+  outline: none;
+  border-color: var(--green);
+  box-shadow: var(--glow-green);
+}
+.goal-swarm-section {
+  padding: 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: rgba(5,10,15,.35);
+}
+.goal-swarm-section-title {
+  color: var(--blue);
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 0.6rem;
+}
+.goal-swarm-workers {
+  display: grid;
+  gap: 0.55rem;
+}
+.goal-swarm-worker {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.55rem;
+  align-items: start;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.goal-swarm-worker input {
+  margin-top: 0.2rem;
+}
+.goal-swarm-worker strong {
+  display: block;
+  color: var(--text-hi);
+  font-size: 0.8rem;
+}
+.goal-swarm-worker span,
+.goal-swarm-worker small {
+  display: block;
+  margin-top: 0.2rem;
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+.goal-swarm-phases {
+  display: grid;
+  gap: 0.55rem;
+}
+.goal-swarm-phase {
+  padding: 0.55rem 0.65rem;
+  border-left: 2px solid var(--green);
+  background: var(--surface);
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+.goal-swarm-phase strong {
+  display: block;
+  color: var(--text-hi);
+  font-size: 0.8rem;
+}
+.goal-swarm-phase span {
+  display: block;
+  margin-top: 0.25rem;
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+.goal-swarm-review-list {
+  display: grid;
+  gap: 0.7rem;
+}
+.goal-swarm-review-list strong {
+  display: block;
+  color: var(--text-hi);
+  font-size: 0.76rem;
+  margin-bottom: 0.25rem;
+}
+.goal-swarm-review-list ul {
+  margin: 0;
+  padding-left: 1rem;
+  color: var(--muted);
+  font-size: 0.74rem;
+  line-height: 1.5;
+}
+.goal-swarm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.9rem;
 }
 
 /* Parse button tooltip */
@@ -1006,6 +1202,19 @@ code {
 }
 
 @media (max-width: 980px) {
+  .goal-swarm-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .goal-swarm-head {
+    flex-direction: column;
+  }
+
+  .goal-swarm-actions {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+
   .nav-primary-row {
     align-items: flex-start;
     flex-direction: column;

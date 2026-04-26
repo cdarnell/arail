@@ -31,6 +31,7 @@ from arail.scheduler import (halt_all_jobs, jobs_halted, resume_all_jobs,
 from arail.scheduler import state as scheduler_state
 from arail.skills.goal_parser import GoalParser
 from arail.skills.experiment_tracker import ExperimentTracker
+from arail.swarm_goals import apply_swarm_plan_edits, compile_swarm_plan
 from arail.router.backends import BACKEND_MAP
 from arail.portal.wiki_routes import router as wiki_router
 
@@ -1434,6 +1435,103 @@ async def set_goal(request: Request):
     return record
 
 
+def _parse_goal(goal_text: str) -> dict[str, Any]:
+    try:
+        return parser.parse(goal_text)
+    except Exception:
+        return parser.parse_offline(goal_text)
+
+
+@app.post("/api/goal/preview")
+async def preview_goal(request: Request):
+    body = await request.json()
+    goal_text = str(body.get("goal") or "").strip()
+    if not goal_text:
+        return {"error": "Goal text is required."}
+
+    parsed = _parse_goal(goal_text)
+    swarm = compile_swarm_plan(
+        parsed,
+        scale=body.get("scale"),
+        operator_notes=str(body.get("operator_notes") or ""),
+        enabled_workers=body.get("enabled_workers") if isinstance(body.get("enabled_workers"), list) else None,
+    )
+    preview = goal_store.save_preview(goal_text, parsed, swarm)
+    activity_log.emit(
+        "goal",
+        f"Prepared swarm plan for: {goal_text}",
+        "info",
+        {
+            "worker_count": len(swarm.get("workers", [])),
+            "scale": swarm.get("scale"),
+            "goal_archetype": swarm.get("goal_archetype"),
+        },
+    )
+    return preview
+
+
+@app.get("/api/goal/preview")
+async def get_goal_preview():
+    return goal_store.get_preview()
+
+
+@app.delete("/api/goal/preview")
+async def clear_goal_preview():
+    goal_store.clear_preview()
+    return {"ok": True}
+
+
+@app.post("/api/goal/confirm")
+async def confirm_goal_preview(request: Request):
+    preview = goal_store.get_preview()
+    if not preview:
+        return {"error": "No swarm goal preview is waiting for review."}
+
+    body = await request.json()
+    auto_start = body.get("auto_start", True)
+    auto_draft = body.get("auto_draft", True)
+
+    plan = apply_swarm_plan_edits(
+        preview.get("swarm") if isinstance(preview.get("swarm"), dict) else {},
+        mission_brief=body.get("mission_brief"),
+        operator_notes=body.get("operator_notes"),
+        enabled_workers=body.get("enabled_workers") if isinstance(body.get("enabled_workers"), list) else None,
+    )
+    plan["status"] = "confirmed"
+    updated_preview = goal_store.update_preview(
+        {
+            "swarm": plan,
+            "parsed": {**dict(preview.get("parsed") or {}), "swarm_plan": plan},
+            "status": "approved",
+        }
+    ) or preview
+    record = goal_store.confirm_preview()
+    if not record:
+        return {"error": "Failed to promote the reviewed swarm goal."}
+
+    activity_log.emit(
+        "goal",
+        f"Confirmed swarm goal: {record.get('goal_text', '')}",
+        "success",
+        {
+            "worker_count": len(plan.get("workers", [])),
+            "enabled_workers": [worker.get("id") for worker in plan.get("workers", []) if worker.get("enabled")],
+            "preview_id": updated_preview.get("id"),
+        },
+    )
+
+    if auto_start and researcher.status in ("idle", "completed", "error"):
+        researcher.start(record["parsed"])
+        activity_log.emit(
+            "researcher",
+            "Auto-starting the reviewed swarm plan…",
+            "info",
+        )
+    if auto_draft:
+        asyncio.create_task(_auto_draft_program(record))
+    return record
+
+
 async def _auto_draft_program(goal_record: dict) -> None:
     """Run the program drafter off the request thread.
 
@@ -1533,6 +1631,7 @@ async def research_reset():
     """Stop research and clear the current goal (archives it)."""
     researcher.stop()
     goal_store.clear_current()
+    goal_store.clear_preview()
     activity_log.emit("researcher", "Research reset — goal archived, ready for a new one.", "info")
     return {"status": "idle"}
 

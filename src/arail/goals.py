@@ -14,6 +14,7 @@ from arail.config import DATA_DIR
 GOALS_DIR = DATA_DIR / "goals"
 CURRENT_FILE = GOALS_DIR / "current.json"
 HISTORY_DIR = GOALS_DIR / "history"
+PREVIEW_FILE = GOALS_DIR / "preview.json"
 
 
 class GoalStore:
@@ -23,17 +24,32 @@ class GoalStore:
         GOALS_DIR.mkdir(parents=True, exist_ok=True)
         HISTORY_DIR.mkdir(parents=True, exist_ok=True)
 
-    def set_goal(self, parsed_goal: Dict[str, Any]) -> Dict[str, Any]:
+    def set_goal(
+        self,
+        parsed_goal: Dict[str, Any],
+        *,
+        swarm_plan: Dict[str, Any] | None = None,
+        source: str = "direct",
+        preview_id: str | None = None,
+    ) -> Dict[str, Any]:
         """Set a new active goal.  Archives the previous one."""
         # Archive current if exists
         current = self.get_current()
         if current:
             self._archive(current)
 
+        parsed_copy = dict(parsed_goal)
+        if swarm_plan:
+            parsed_copy["swarm_plan"] = swarm_plan
+
         goal_record: Dict[str, Any] = {
             "id": uuid.uuid4().hex[:8],
-            "goal_text": parsed_goal.get("goal", ""),
-            "parsed": parsed_goal,
+            "goal_text": parsed_copy.get("goal", ""),
+            "parsed": parsed_copy,
+            "swarm": swarm_plan,
+            "goal_mode": "swarm" if swarm_plan else "direct",
+            "source": source,
+            "source_preview_id": preview_id,
             "created_at": _now(),
             "status": "active",
             "experiments": [],       # linked experiment IDs
@@ -43,6 +59,63 @@ class GoalStore:
         }
         self._save_current(goal_record)
         return goal_record
+
+    def save_preview(
+        self,
+        goal_text: str,
+        parsed_goal: Dict[str, Any],
+        swarm_plan: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        preview = {
+            "id": uuid.uuid4().hex[:8],
+            "goal_text": goal_text,
+            "parsed": {**parsed_goal, "swarm_plan": swarm_plan},
+            "swarm": swarm_plan,
+            "created_at": _now(),
+            "updated_at": _now(),
+            "status": "preview",
+            "goal_mode": "swarm-preview",
+            "current_goal_id": (self.get_current() or {}).get("id"),
+        }
+        self._save_preview(preview)
+        return preview
+
+    def get_preview(self) -> Optional[Dict[str, Any]]:
+        if not PREVIEW_FILE.exists():
+            return None
+        try:
+            data = json.loads(PREVIEW_FILE.read_text())
+        except (json.JSONDecodeError, OSError):
+            return None
+        return data if isinstance(data, dict) else None
+
+    def update_preview(self, updates: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        preview = self.get_preview()
+        if not preview:
+            return None
+        preview.update(updates)
+        preview["updated_at"] = _now()
+        self._save_preview(preview)
+        return preview
+
+    def confirm_preview(self) -> Optional[Dict[str, Any]]:
+        preview = self.get_preview()
+        if not preview:
+            return None
+        record = self.set_goal(
+            dict(preview.get("parsed") or {}),
+            swarm_plan=preview.get("swarm") if isinstance(preview.get("swarm"), dict) else None,
+            source="preview",
+            preview_id=str(preview.get("id") or ""),
+        )
+        record["confirmed_at"] = _now()
+        self._save_current(record)
+        self.clear_preview()
+        return record
+
+    def clear_preview(self) -> None:
+        if PREVIEW_FILE.exists():
+            PREVIEW_FILE.unlink()
 
     def get_current(self) -> Optional[Dict[str, Any]]:
         if not CURRENT_FILE.exists():
@@ -113,6 +186,9 @@ class GoalStore:
 
     def _save_current(self, record: Dict[str, Any]) -> None:
         CURRENT_FILE.write_text(json.dumps(record, indent=2, default=str))
+
+    def _save_preview(self, record: Dict[str, Any]) -> None:
+        PREVIEW_FILE.write_text(json.dumps(record, indent=2, default=str))
 
     def _archive(self, record: Dict[str, Any]) -> None:
         record["status"] = "archived"

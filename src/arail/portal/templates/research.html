@@ -21,6 +21,18 @@
   </span>
 </div>
 
+<section class="rx-preview-banner" id="rx-preview-banner" hidden>
+  <div class="rx-preview-banner-copy">
+    <span class="rx-preview-banner-kicker">Swarm Draft Ready</span>
+    <strong id="rx-preview-banner-title">A reviewed plan is waiting.</strong>
+    <span id="rx-preview-banner-meta">Review the worker lanes before launch.</span>
+  </div>
+  <div class="rx-preview-banner-actions">
+    <button class="rx-btn primary" type="button" id="rx-preview-review">Review draft</button>
+    <button class="rx-btn" type="button" id="rx-preview-discard">Discard</button>
+  </div>
+</section>
+
 <!-- ═══ Cockpit strip (top) ═══ -->
 <section class="rx-cockpit" id="rx-cockpit" hidden>
   <div class="rx-cockpit-left">
@@ -175,7 +187,17 @@
       <textarea id="rx-empty-textarea"
                 placeholder="e.g. Help me plan my trip to Hokkaido Japan for 3 adults and 2 children in late September"
                 autofocus></textarea>
-      <button type="submit" class="rx-btn primary" id="rx-empty-submit">▶ Start Autoresearch</button>
+      <div class="rx-empty-controls">
+        <label class="rx-scale-wrap" for="rx-empty-scale">
+          <span>Swarm</span>
+          <select id="rx-empty-scale">
+            <option value="compact">Compact</option>
+            <option value="balanced" selected>Balanced</option>
+            <option value="expanded">Expanded</option>
+          </select>
+        </label>
+        <button type="submit" class="rx-btn primary" id="rx-empty-submit">Draft Swarm Plan</button>
+      </div>
     </form>
     <!-- Live feedback slot — click latency on /api/goal can be seconds
          while the parser runs, and users can't tell if the click landed.
@@ -209,13 +231,36 @@
 <!-- ═══ New-goal modal ═══ -->
 <div class="rx-modal" id="rx-modal" hidden>
   <div class="rx-modal-card">
-    <h2>Start a new Autoresearch goal</h2>
-    <p>The current goal will be archived. The researcher will start the new Autoresearch run right away.</p>
+    <h2>Draft a new Autoresearch goal</h2>
+    <p>The current goal will be archived only after you review and approve the new swarm plan.</p>
     <textarea id="rx-modal-textarea"
               placeholder="e.g. Help me plan my trip to Hokkaido Japan for 3 adults and 2 children in late September"></textarea>
+    <label class="rx-scale-wrap" for="rx-modal-scale">
+      <span>Swarm</span>
+      <select id="rx-modal-scale">
+        <option value="compact">Compact</option>
+        <option value="balanced" selected>Balanced</option>
+        <option value="expanded">Expanded</option>
+      </select>
+    </label>
     <div class="rx-modal-actions">
       <button class="rx-btn" id="rx-modal-cancel">Cancel</button>
-      <button class="rx-btn primary" id="rx-modal-submit">▶ Start</button>
+      <button class="rx-btn primary" id="rx-modal-submit">Review Swarm</button>
+    </div>
+  </div>
+</div>
+
+<div class="rx-modal" id="rx-swarm-modal" hidden>
+  <div class="rx-modal-card rx-swarm-card">
+    <h2>Review the worker lanes before launch</h2>
+    <p>The lead researcher will coordinate these lanes after approval. Trim them or steer them now while the plan is still a draft.</p>
+    <div class="rx-swarm-pills" id="rx-swarm-pills"></div>
+    <div id="rx-swarm-modal-body"></div>
+    <div class="rx-modal-actions">
+      <button class="rx-btn" id="rx-swarm-close">Keep Draft</button>
+      <button class="rx-btn primary" id="rx-swarm-run">Approve &amp; Run</button>
+      <button class="rx-btn" id="rx-swarm-save">Approve Only</button>
+      <button class="rx-btn danger" id="rx-swarm-discard">Discard</button>
     </div>
   </div>
 </div>
@@ -231,6 +276,7 @@
 
 const RESEARCH = {
   goal: null,           // full goal record or null
+  preview: null,        // pending swarm preview or null
   experiments: [],      // list from /api/experiments
   status: 'idle',       // researcher status
   progress: 0,          // 0..1
@@ -307,6 +353,153 @@ async function fetchStatus() {
     if (!r.ok) return { status: 'idle', progress: 0 };
     return await r.json();
   } catch (e) { return { status: 'idle', progress: 0 }; }
+}
+async function fetchGoalPreview() {
+  try {
+    const r = await fetch('/api/goal/preview');
+    if (!r.ok) return null;
+    const data = await r.json();
+    return data && Object.keys(data).length ? data : null;
+  } catch (e) { return null; }
+}
+
+function renderPreviewBanner() {
+  const banner = document.getElementById('rx-preview-banner');
+  const title = document.getElementById('rx-preview-banner-title');
+  const meta = document.getElementById('rx-preview-banner-meta');
+  if (!banner || !title || !meta) return;
+  if (!RESEARCH.preview) {
+    banner.hidden = true;
+    return;
+  }
+  const swarm = RESEARCH.preview.swarm || {};
+  const enabledCount = Array.isArray(swarm.workers)
+    ? swarm.workers.filter(worker => worker.enabled !== false).length
+    : 0;
+  title.textContent = RESEARCH.preview.goal_text || 'A reviewed plan is waiting.';
+  meta.textContent = `${swarm.goal_archetype || 'general'} swarm · ${swarm.scale || 'balanced'} · ${enabledCount} lanes ready for approval`;
+  banner.hidden = false;
+}
+
+function renderSwarmReview(preview) {
+  const swarm = preview.swarm || {};
+  const workers = Array.isArray(swarm.workers) ? swarm.workers : [];
+  const phases = Array.isArray(swarm.phases) ? swarm.phases : [];
+  const review = swarm.review || {};
+  const pills = document.getElementById('rx-swarm-pills');
+  const body = document.getElementById('rx-swarm-modal-body');
+  if (!pills || !body) return;
+  pills.innerHTML = [
+    `<span class="rx-swarm-pill">${esc(swarm.goal_archetype || 'general')} swarm</span>`,
+    `<span class="rx-swarm-pill">${esc(swarm.scale || 'balanced')}</span>`,
+    `<span class="rx-swarm-pill">${workers.filter(worker => worker.enabled !== false).length} lanes</span>`,
+  ].join('');
+  body.innerHTML = `
+    <div class="rx-swarm-grid">
+      <label class="rx-swarm-field">
+        <span>Mission Brief</span>
+        <textarea id="rx-swarm-mission">${esc(swarm.mission_brief || '')}</textarea>
+      </label>
+      <label class="rx-swarm-field">
+        <span>Operator Notes</span>
+        <textarea id="rx-swarm-notes">${esc(swarm.operator_notes || '')}</textarea>
+      </label>
+    </div>
+    <div class="rx-swarm-section">
+      <div class="rx-swarm-section-title">Worker Lanes</div>
+      <div class="rx-swarm-workers">
+        ${workers.map(worker => `
+          <label class="rx-swarm-worker">
+            <input type="checkbox" class="rx-swarm-worker-toggle" value="${esc(worker.id || '')}" ${worker.enabled === false ? '' : 'checked'}>
+            <div>
+              <strong>${esc(worker.label || worker.id || 'worker')}</strong>
+              <span>${esc(worker.role || '')}</span>
+              <small>${esc(worker.deliverable || '')}</small>
+            </div>
+          </label>
+        `).join('')}
+      </div>
+    </div>
+    <div class="rx-swarm-grid rx-swarm-grid-secondary">
+      <div class="rx-swarm-section">
+        <div class="rx-swarm-section-title">Phases</div>
+        <div class="rx-swarm-phases">
+          ${phases.map(phase => `
+            <div class="rx-swarm-phase">
+              <strong>${esc(phase.title || phase.id || 'phase')}</strong>
+              <span>${esc(phase.objective || '')}</span>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+      <div class="rx-swarm-section">
+        <div class="rx-swarm-section-title">Review Checklist</div>
+        <div class="rx-swarm-review-grid">
+          <div>
+            <strong>Open questions</strong>
+            <ul>${(review.open_questions || []).map(item => `<li>${esc(item)}</li>`).join('') || '<li>No open questions.</li>'}</ul>
+          </div>
+          <div>
+            <strong>Deliverables</strong>
+            <ul>${(review.deliverables || []).map(item => `<li>${esc(item)}</li>`).join('') || '<li>No deliverables yet.</li>'}</ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function openSwarmReviewModal() {
+  if (!RESEARCH.preview) return;
+  renderSwarmReview(RESEARCH.preview);
+  document.getElementById('rx-swarm-modal').hidden = false;
+}
+
+function closeSwarmReviewModal() {
+  document.getElementById('rx-swarm-modal').hidden = true;
+}
+
+function collectSwarmReviewPayload() {
+  const mission = document.getElementById('rx-swarm-mission');
+  const notes = document.getElementById('rx-swarm-notes');
+  const enabledWorkers = Array.from(document.querySelectorAll('.rx-swarm-worker-toggle:checked'))
+    .map(el => el.value)
+    .filter(Boolean);
+  return {
+    mission_brief: mission ? mission.value.trim() : '',
+    operator_notes: notes ? notes.value.trim() : '',
+    enabled_workers: enabledWorkers,
+  };
+}
+
+async function confirmSwarmPreview(autoStart) {
+  if (!RESEARCH.preview) return false;
+  const payload = collectSwarmReviewPayload();
+  const r = await fetch('/api/goal/confirm', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      ...payload,
+      auto_start: !!autoStart,
+      auto_draft: true,
+    }),
+  });
+  const data = await r.json();
+  if (data.error) {
+    alert(data.error);
+    return false;
+  }
+  RESEARCH.preview = null;
+  closeSwarmReviewModal();
+  await refreshAll();
+  return true;
+}
+
+async function discardSwarmPreview() {
+  await fetch('/api/goal/preview', { method: 'DELETE' });
+  RESEARCH.preview = null;
+  closeSwarmReviewModal();
+  renderPreviewBanner();
 }
 
 // ── Cockpit rendering ─────────────────────────────────────────
@@ -428,6 +621,17 @@ function renderBrief() {
   if (Array.isArray(p.resources_needed) && p.resources_needed.length) {
     parts.push(`<h2>Resources Needed</h2><ul>`);
     p.resources_needed.forEach(r => parts.push(`<li>${esc(r)}</li>`));
+    parts.push(`</ul>`);
+  }
+  const swarm = goal.swarm || p.swarm_plan;
+  if (swarm && Array.isArray(swarm.workers) && swarm.workers.length) {
+    parts.push(`<h2>Swarm Plan</h2>`);
+    parts.push(`<p>${esc(swarm.mission_brief || '')}</p>`);
+    parts.push(`<div class="rx-kv"><span class="rx-kv-key">mode</span><span class="rx-kv-val">${esc((swarm.goal_archetype || 'general') + ' · ' + (swarm.scale || 'balanced'))}</span></div>`);
+    parts.push(`<ul>`);
+    swarm.workers.filter(worker => worker.enabled !== false).forEach(worker => {
+      parts.push(`<li>${esc((worker.label || worker.id || 'worker') + ' — ' + (worker.deliverable || 'assigned lane'))}</li>`);
+    });
     parts.push(`</ul>`);
   }
 
@@ -664,20 +868,28 @@ async function setNewGoal(text, opts) {
   opts = opts || {};
   const btn = opts.button || null;
   const statusSlot = opts.statusSlot || false;
+  const scale = opts.scale || 'balanced';
   const restore = beginLoading(btn, 'Loading goal into the system…');
-  if (statusSlot) showEmptyStatus('Received — loading your goal into the system…');
+  if (statusSlot) showEmptyStatus('Received — drafting the swarm plan…');
   try {
-    const r = await fetch('/api/goal', {
+    const r = await fetch('/api/goal/preview', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ goal: text.trim(), auto_start: true }),
+      body: JSON.stringify({ goal: text.trim(), scale }),
     });
     if (!r.ok) {
       if (statusSlot) showEmptyStatus('Server rejected the goal ('+r.status+'). Try again.', 'error');
       return false;
     }
-    if (statusSlot) showEmptyStatus('Goal accepted. Loading the cockpit…');
-    await refreshAll();
+    const preview = await r.json();
+    if (preview.error) {
+      if (statusSlot) showEmptyStatus(preview.error, 'error');
+      return false;
+    }
+    RESEARCH.preview = preview;
+    renderPreviewBanner();
+    openSwarmReviewModal();
+    if (statusSlot) showEmptyStatus('Swarm draft ready. Review the worker lanes before launch.');
     if (statusSlot) hideEmptyStatus();
     return true;
   } finally { restore(); }
@@ -692,15 +904,17 @@ async function refreshStatus() {
 }
 
 async function refreshAll() {
-  const [goal, exps, status] = await Promise.all([
-    fetchGoal(), fetchExperiments(), fetchStatus(),
+  const [goal, exps, status, preview] = await Promise.all([
+    fetchGoal(), fetchExperiments(), fetchStatus(), fetchGoalPreview(),
   ]);
   RESEARCH.goal = goal;
+  RESEARCH.preview = preview;
   RESEARCH.experiments = exps;
   RESEARCH.status = status.status || 'idle';
   RESEARCH.progress = (typeof status.progress === 'number') ? status.progress
                     : (goal && typeof goal.progress === 'number' ? goal.progress : 0);
   renderCockpit();
+  renderPreviewBanner();
   renderBrief();
   renderExperiments();
   renderReport();
@@ -794,9 +1008,10 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('rx-modal-cancel').addEventListener('click', closeModal);
   document.getElementById('rx-modal-submit').addEventListener('click', async (ev) => {
     const text = document.getElementById('rx-modal-textarea').value;
+    const scale = document.getElementById('rx-modal-scale').value;
     if (!text.trim()) return;
-    await setNewGoal(text, { button: ev.currentTarget });
-    closeModal();
+    const ok = await setNewGoal(text, { button: ev.currentTarget, scale });
+    if (ok) closeModal();
   });
   document.getElementById('rx-modal-textarea').addEventListener('keydown', (e) => {
     if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
@@ -813,10 +1028,12 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('rx-empty-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const text = document.getElementById('rx-empty-textarea').value;
+    const scale = document.getElementById('rx-empty-scale').value;
     if (!text.trim()) return;
     await setNewGoal(text, {
       button: document.getElementById('rx-empty-submit'),
       statusSlot: true,
+      scale,
     });
   });
   document.getElementById('rx-empty-examples').addEventListener('click', (e) => {
@@ -830,6 +1047,13 @@ document.addEventListener('DOMContentLoaded', () => {
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') closeModal();
   });
+
+  document.getElementById('rx-preview-review').addEventListener('click', openSwarmReviewModal);
+  document.getElementById('rx-preview-discard').addEventListener('click', discardSwarmPreview);
+  document.getElementById('rx-swarm-close').addEventListener('click', closeSwarmReviewModal);
+  document.getElementById('rx-swarm-run').addEventListener('click', () => confirmSwarmPreview(true));
+  document.getElementById('rx-swarm-save').addEventListener('click', () => confirmSwarmPreview(false));
+  document.getElementById('rx-swarm-discard').addEventListener('click', discardSwarmPreview);
 
   // Research file chips — prepare.py + program.md
   document.querySelectorAll('.rx-pf-chip').forEach(chip => {

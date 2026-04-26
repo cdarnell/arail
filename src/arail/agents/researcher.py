@@ -29,6 +29,7 @@ from arail.scheduler import (current_window, jobs_halted,
                               startup_delay_seconds, window_label)
 from arail.skills.experiment_tracker import ExperimentTracker
 from arail.skills.goal_parser import infer_domain, DOMAIN_KEYWORDS
+from arail.swarm_goals import known_swarm_worker_ids
 
 
 # ── Intent → System Context ─────────────────────────────────────────────
@@ -253,6 +254,7 @@ class ResearcherAgent:
         self._current_task: str | None = None
         self._next_step: str | None = None
         self._pause_reason: str | None = None
+        self._swarm_plan_snapshot: dict[str, Any] | None = None
 
     @property
     def status(self) -> str:
@@ -263,9 +265,15 @@ class ResearcherAgent:
     def start(self, parsed_goal: Dict[str, Any], *, delay: int | None = None) -> None:
         if self._task and not self._task.done():
             self._task.cancel()
+        self._swarm_plan_snapshot = self._swarm_plan(parsed_goal)
         self._paused = False
         self._status = "running"
         self._objective = parsed_goal.get("goal", parsed_goal.get("primary_objective", ""))
+        if self._swarm_plan_snapshot:
+            self._objective = str(
+                self._swarm_plan_snapshot.get("mission_brief")
+                or self._objective
+            )
         self._completed_steps = []
         self._current_task = "Queued for research"
         self._next_step = "Plan research hypotheses"
@@ -279,6 +287,7 @@ class ResearcherAgent:
         self._status = "paused"
         self._pause_reason = "Paused by user"
         self._sync_workflow()
+        self._set_swarm_lane_status("paused", current_task="Paused by user", next_step="Resume the swarm plan")
         activity_log.emit("researcher", "Research paused by user.", "warn")
 
     def resume(self) -> None:
@@ -286,6 +295,7 @@ class ResearcherAgent:
         self._status = "running"
         self._pause_reason = None
         self._sync_workflow()
+        self._set_swarm_lane_status("running", current_task="Swarm plan resumed", next_step="Continue assigned lane")
         activity_log.emit("researcher", "Research resumed.", "info")
 
     def stop(self) -> None:
@@ -297,6 +307,7 @@ class ResearcherAgent:
         self._current_task = "Stopped"
         self._next_step = None
         self._sync_workflow()
+        self._set_swarm_lane_status("idle", current_task="Stopped", next_step=None)
         activity_log.emit("researcher", "Research stopped.", "warn")
 
     def _sync_workflow(self, *, progress: float | None = None) -> None:
@@ -329,6 +340,132 @@ class ResearcherAgent:
         self._pause_reason = None
         self._sync_workflow(progress=progress)
 
+    def _swarm_plan(self, parsed_goal: Dict[str, Any]) -> dict[str, Any] | None:
+        plan = parsed_goal.get("swarm_plan")
+        return plan if isinstance(plan, dict) else None
+
+    def _enabled_swarm_workers(self, parsed_goal: Dict[str, Any]) -> list[dict[str, Any]]:
+        plan = self._swarm_plan(parsed_goal)
+        if not plan:
+            return []
+        workers = plan.get("workers")
+        if not isinstance(workers, list):
+            return []
+        return [worker for worker in workers if isinstance(worker, dict) and worker.get("enabled", True)]
+
+    def _swarm_prompt_block(self, parsed_goal: Dict[str, Any]) -> str:
+        plan = self._swarm_plan(parsed_goal)
+        if not plan:
+            return ""
+        workers = self._enabled_swarm_workers(parsed_goal)
+        if not workers:
+            return ""
+        worker_lines = "\n".join(
+            f"- {worker.get('label', worker.get('id', 'worker'))}: {worker.get('role', '')} -> {worker.get('deliverable', '')}"
+            for worker in workers
+        )
+        review = plan.get("review") if isinstance(plan.get("review"), dict) else {}
+        questions = review.get("open_questions") if isinstance(review.get("open_questions"), list) else []
+        question_lines = "\n".join(f"- {question}" for question in questions[:4])
+        return (
+            f"Swarm mission brief: {plan.get('mission_brief', '')}\n"
+            f"Swarm archetype: {plan.get('goal_archetype', 'general')}\n"
+            f"Enabled worker lanes:\n{worker_lines}\n"
+            f"Operator notes: {plan.get('operator_notes', '') or 'none'}\n"
+            f"Open questions to tighten before you converge:\n{question_lines or '- none'}\n\n"
+        )
+
+    def _retire_swarm_lanes(self, active_worker_ids: set[str] | None = None) -> None:
+        active = active_worker_ids or set()
+        for worker_id in known_swarm_worker_ids():
+            if worker_id in active:
+                continue
+            update_agent_workflow(
+                f"swarm-{worker_id}",
+                status="idle",
+                objective="Swarm lane idle",
+                current_task="Idle",
+                next_step=None,
+                completed_steps=[],
+                paused=False,
+                pause_reason=None,
+                progress=0.0,
+                recent_actions=[],
+                chatter={"too_chatty": False},
+                metadata={"swarm_lane": worker_id},
+            )
+
+    def _set_swarm_lane_status(self, status: str, *, current_task: str, next_step: str | None) -> None:
+        plan = self._swarm_plan_snapshot
+        if not plan:
+            self._retire_swarm_lanes()
+            return
+        workers = [worker for worker in plan.get("workers", []) if isinstance(worker, dict) and worker.get("enabled", True)]
+        active_ids = {str(worker.get("id") or "") for worker in workers}
+        self._retire_swarm_lanes(active_ids)
+        for worker in workers:
+            worker_id = str(worker.get("id") or "")
+            update_agent_workflow(
+                f"swarm-{worker_id}",
+                status=status,
+                objective=str(worker.get("purpose") or worker.get("role") or "Swarm lane"),
+                current_task=current_task,
+                next_step=next_step,
+                completed_steps=["Approved into swarm plan"],
+                paused=status == "paused",
+                pause_reason=self._pause_reason if status == "paused" else None,
+                progress=(self.goal_store.get_current() or {}).get("progress", 0),
+                recent_actions=[str(worker.get("deliverable") or "")],
+                chatter={"too_chatty": False},
+                metadata={
+                    "swarm_lane": worker_id,
+                    "goal_archetype": plan.get("goal_archetype"),
+                    "deliverable": worker.get("deliverable"),
+                    "kind": worker.get("kind"),
+                },
+            )
+
+    def _sync_swarm_phase(self, parsed_goal: Dict[str, Any], phase_id: str, *, completed_worker_ids: set[str] | None = None) -> None:
+        plan = self._swarm_plan(parsed_goal)
+        if not plan:
+            self._retire_swarm_lanes()
+            return
+        workers = self._enabled_swarm_workers(parsed_goal)
+        active_ids = {str(worker.get("id") or "") for worker in workers}
+        self._retire_swarm_lanes(active_ids)
+        phases = plan.get("phases") if isinstance(plan.get("phases"), list) else []
+        phase = next((item for item in phases if isinstance(item, dict) and item.get("id") == phase_id), None) or {}
+        running_ids = set(phase.get("worker_ids") or [])
+        completed_ids = completed_worker_ids or set()
+        phase_title = str(phase.get("title") or "Swarm phase")
+        for worker in workers:
+            worker_id = str(worker.get("id") or "")
+            status = "planned"
+            if worker_id in completed_ids:
+                status = "completed"
+            elif worker_id in running_ids:
+                status = "running"
+            update_agent_workflow(
+                f"swarm-{worker_id}",
+                status=status,
+                objective=str(worker.get("purpose") or worker.get("role") or "Swarm lane"),
+                current_task=phase_title if status == "running" else str(worker.get("deliverable") or phase_title),
+                next_step=None if status == "completed" else str(worker.get("deliverable") or "Continue assigned lane"),
+                completed_steps=["Approved into swarm plan"] + ([f"Completed {phase_title}"] if status == "completed" else []),
+                paused=False,
+                pause_reason=None,
+                progress=(self.goal_store.get_current() or {}).get("progress", 0),
+                recent_actions=[phase_title],
+                chatter={"too_chatty": False},
+                metadata={
+                    "swarm_lane": worker_id,
+                    "goal_archetype": plan.get("goal_archetype"),
+                    "deliverable": worker.get("deliverable"),
+                    "kind": worker.get("kind"),
+                    "phase": phase_id,
+                },
+            )
+
     # ── Core loop ────────────────────────────────────────────────────
 
     async def _run(self, parsed_goal: Dict[str, Any], delay_sec: int = 0) -> None:
@@ -337,6 +474,7 @@ class ResearcherAgent:
         intent = parsed_goal.get("intent", _get_lab_intent())
         intent_name = parsed_goal.get("intent_name",
                                        os.getenv("LAB_INTENT_NAME", "AI Engineer"))
+        swarm_plan = self._swarm_plan(parsed_goal)
 
         try:
             if delay_sec:
@@ -402,6 +540,25 @@ class ResearcherAgent:
             activity_log.emit("researcher",
                               f"Starting research ({intent_name}): {goal_text}",
                               "success")
+            if swarm_plan:
+                worker_labels = ", ".join(
+                    str(worker.get("label") or worker.get("id") or "worker")
+                    for worker in self._enabled_swarm_workers(parsed_goal)
+                )
+                activity_log.emit(
+                    "researcher",
+                    f"Swarm plan active — coordinating {len(self._enabled_swarm_workers(parsed_goal))} worker lanes: {worker_labels}",
+                    "info",
+                    {"swarm": swarm_plan},
+                )
+                self.goal_store.add_finding(
+                    {
+                        "type": "swarm-plan",
+                        "summary": swarm_plan.get("mission_brief", ""),
+                        "workers": [worker.get("id") for worker in self._enabled_swarm_workers(parsed_goal)],
+                    }
+                )
+                self._sync_swarm_phase(parsed_goal, "shape")
             redirect = _active_redirect()
             redirect_flags = redirect_profile(redirect)
             if redirect:
@@ -424,6 +581,9 @@ class ResearcherAgent:
                               f"Generated {len(hypotheses)} research hypotheses.",
                               "info", {"hypotheses": hypotheses, "progress": 0.1})
             self.goal_store.update_progress(0.1)
+            if swarm_plan:
+                shape_phase = next((phase for phase in swarm_plan.get("phases", []) if phase.get("id") == "shape"), {})
+                self._sync_swarm_phase(parsed_goal, "branch", completed_worker_ids=set(shape_phase.get("worker_ids") or []))
             self._advance_workflow("Planned research hypotheses", "Designing experiments", "Gather sources", progress=0.1)
 
             # Step 2: Design experiments for each hypothesis
@@ -514,6 +674,10 @@ class ResearcherAgent:
                                       "info")
             activity_log.emit("researcher", "Experiments complete.", "info", {"progress": 0.7})
             self.goal_store.update_progress(0.7)
+            if swarm_plan:
+                branch_phase = next((phase for phase in swarm_plan.get("phases", []) if phase.get("id") == "branch"), {})
+                branch_done = set(branch_phase.get("worker_ids") or [])
+                self._sync_swarm_phase(parsed_goal, "challenge", completed_worker_ids=branch_done)
             self._advance_workflow("Ran experiments", "Analyzing results", "Generate report", progress=0.7)
 
             # Step 5: Analyze and complete experiments
@@ -580,6 +744,7 @@ class ResearcherAgent:
                               "Research complete. Report generated.",
                               "success", {"report_preview": report[:200], "progress": 1.0})
             self._status = "completed"
+            self._set_swarm_lane_status("completed", current_task="Swarm synthesis complete", next_step=None)
             self._advance_workflow("Generated final report", "Research complete", None, progress=1.0)
 
         except asyncio.CancelledError:
@@ -587,12 +752,14 @@ class ResearcherAgent:
             self._status = "idle"
             self._current_task = "Cancelled"
             self._next_step = None
+            self._set_swarm_lane_status("idle", current_task="Cancelled", next_step=None)
             self._sync_workflow()
         except Exception as e:
             activity_log.emit("researcher", f"Research error: {e}", "error")
             self._status = "error"
             self._current_task = f"Error: {type(e).__name__}"
             self._next_step = "Inspect recent activity and retry"
+            self._set_swarm_lane_status("error", current_task=self._current_task, next_step=self._next_step)
             self._sync_workflow()
 
     async def _wait_if_paused(self) -> None:
@@ -626,6 +793,7 @@ class ResearcherAgent:
         prompt = (
             f"{sys_ctx}\n\n"
             f"{redirect_block}"
+            f"{self._swarm_prompt_block(parsed_goal)}"
             f"Given the goal below, generate 3-5 testable hypotheses "
             f"as a numbered list. Each hypothesis should be specific, "
             f"measurable, and grounded in the domain.\n\n"
@@ -814,6 +982,7 @@ class ResearcherAgent:
         prompt = (
             f"{sys_ctx}\n\n"
             f"{redirect_block}"
+            f"{self._swarm_prompt_block(parsed_goal)}"
             f"Write a concise research report in Markdown.\n\n"
             f"Goal: {goal_text}\nDomain: {domain}\n"
             f"Experiments ({n}):\n{exp_summaries}\n\n"

@@ -308,20 +308,44 @@
              placeholder="describe your goal — what do you want to build, grow, learn, or research?"
              autocomplete="off"
              value="{{ current_goal.goal_text if current_goal else '' }}" />
+      <label class="goal-scale-wrap" for="goal-swarm-scale">
+        <span>Swarm</span>
+        <select id="goal-swarm-scale">
+          <option value="compact">Compact</option>
+          <option value="balanced" selected>Balanced</option>
+          <option value="expanded">Expanded</option>
+        </select>
+      </label>
       <div class="parse-btn-wrap">
-        <button class="btn btn-primary" type="submit" id="btn-parse">▶ Run Research</button>
+        <button class="btn btn-primary" type="submit" id="btn-parse">Draft Swarm Plan</button>
         <div class="parse-tooltip">
-          <strong>Run Research</strong> is the ignition switch for your lab.
+          <strong>Draft Swarm Plan</strong> turns the goal into a reviewable lead-worker plan before anything runs.
           <ul>
             <li>Decomposes your goal into domain, sub-goals, metrics, timeline</li>
-            <li>Starts the researcher agent (hypotheses → experiments → analysis → report)</li>
-            <li>Curator + Browser agents pick it up and carry it across every tab</li>
-            <li>Persists across restarts — agents keep working toward it</li>
+            <li>Compiles a lead-worker swarm with editable lanes, phases, and deliverables</li>
+            <li>Lets you trim or steer the plan before launch</li>
+            <li>Promotes the approved plan into the active mission and kicks off research</li>
           </ul>
-          Type what you care about. Hit Run. The lab starts working.
+          Type what you care about. Review the swarm. Then approve the run.
         </div>
       </div>
     </form>
+
+    <div class="goal-swarm-preview" id="goal-swarm-preview" hidden>
+      <div class="goal-swarm-head">
+        <div>
+          <div class="goal-swarm-kicker">Preview Before Launch</div>
+          <h3>Review the worker lanes before the lab commits.</h3>
+        </div>
+        <div class="goal-swarm-pills" id="goal-swarm-pills"></div>
+      </div>
+      <div id="goal-swarm-preview-body"></div>
+      <div class="goal-swarm-actions">
+        <button class="btn btn-primary" type="button" id="goal-swarm-run">Approve &amp; Run</button>
+        <button class="btn btn-ghost" type="button" id="goal-swarm-save">Approve Only</button>
+        <button class="btn btn-ghost btn-sm" type="button" id="goal-swarm-discard">Discard Draft</button>
+      </div>
+    </div>
 
     {% if current_goal %}
     <a class="mission-dossier-chip" href="/mission">
@@ -589,6 +613,8 @@
    Arail Dashboard — vanilla JS, no framework
    ═══════════════════════════════════════════════════════════════ */
 
+let DASH_SWARM_PREVIEW = null;
+
 // ── Job scheduler mode + halt/resume ──
 async function refreshJobsState() {
   try {
@@ -625,32 +651,162 @@ document.getElementById('goal-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const input = document.getElementById('goal-input');
   const btn = document.getElementById('btn-parse');
+  const scale = document.getElementById('goal-swarm-scale');
   const goal = input.value.trim();
   if (!goal) return;
 
-  btn.textContent = 'Launching agents…';
+  btn.textContent = 'Drafting swarm…';
   btn.disabled = true;
   input.disabled = true;
+  if (scale) scale.disabled = true;
 
   try {
-    const resp = await fetch('/api/goal', {
+    const resp = await fetch('/api/goal/preview', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({goal})
+      body: JSON.stringify({
+        goal,
+        scale: scale ? scale.value : 'balanced',
+      })
     });
     const data = await resp.json();
-    renderGoalBreakdown(data);
-    showResearchButtons('running');
-    loadLabKnows(goal);
+    if (data.error) throw new Error(data.error);
+    renderSwarmPreview(data);
   } catch (err) {
     document.getElementById('goal-result').innerHTML =
-      '<p style="color:var(--red);">Could not save the goal. Try again, or check the activity log on the Agents tab for details.</p>';
+      '<p style="color:var(--red);">Could not draft the swarm plan. Try again, or check the activity log on the Agents tab for details.</p>';
   } finally {
-    btn.textContent = '▶ Run Research';
+    btn.textContent = 'Draft Swarm Plan';
     btn.disabled = false;
     input.disabled = false;
+    if (scale) scale.disabled = false;
   }
 });
+
+function renderSwarmPreview(preview) {
+  DASH_SWARM_PREVIEW = preview;
+  const shell = document.getElementById('goal-swarm-preview');
+  const body = document.getElementById('goal-swarm-preview-body');
+  const pills = document.getElementById('goal-swarm-pills');
+  if (!shell || !body || !pills) return;
+  const swarm = preview.swarm || {};
+  const workers = Array.isArray(swarm.workers) ? swarm.workers : [];
+  const enabledCount = workers.filter(worker => worker.enabled !== false).length;
+  const phases = Array.isArray(swarm.phases) ? swarm.phases : [];
+  const review = swarm.review || {};
+  pills.innerHTML = [
+    `<span class="goal-swarm-pill">${esc(swarm.goal_archetype || 'general')} swarm</span>`,
+    `<span class="goal-swarm-pill">${esc(swarm.scale || 'balanced')}</span>`,
+    `<span class="goal-swarm-pill">${enabledCount} lanes</span>`,
+  ].join('');
+  body.innerHTML = `
+    <div class="goal-swarm-grid">
+      <label class="goal-swarm-field">
+        <span>Mission Brief</span>
+        <textarea id="goal-swarm-mission">${esc(swarm.mission_brief || '')}</textarea>
+      </label>
+      <label class="goal-swarm-field">
+        <span>Operator Notes</span>
+        <textarea id="goal-swarm-notes">${esc(swarm.operator_notes || '')}</textarea>
+      </label>
+    </div>
+    <div class="goal-swarm-section">
+      <div class="goal-swarm-section-title">Worker Lanes</div>
+      <div class="goal-swarm-workers">
+        ${workers.map(worker => `
+          <label class="goal-swarm-worker">
+            <input type="checkbox" class="goal-swarm-worker-toggle" value="${esc(worker.id || '')}" ${worker.enabled === false ? '' : 'checked'}>
+            <div>
+              <strong>${esc(worker.label || worker.id || 'worker')}</strong>
+              <span>${esc(worker.role || '')}</span>
+              <small>${esc(worker.deliverable || '')}</small>
+            </div>
+          </label>
+        `).join('')}
+      </div>
+    </div>
+    <div class="goal-swarm-grid goal-swarm-grid-secondary">
+      <div class="goal-swarm-section">
+        <div class="goal-swarm-section-title">Phases</div>
+        <div class="goal-swarm-phases">
+          ${phases.map(phase => `
+            <div class="goal-swarm-phase">
+              <strong>${esc(phase.title || phase.id || 'phase')}</strong>
+              <span>${esc(phase.objective || '')}</span>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+      <div class="goal-swarm-section">
+        <div class="goal-swarm-section-title">Review Checklist</div>
+        <div class="goal-swarm-review-list">
+          <div>
+            <strong>Open questions</strong>
+            <ul>${(review.open_questions || []).map(item => `<li>${esc(item)}</li>`).join('') || '<li>No open questions.</li>'}</ul>
+          </div>
+          <div>
+            <strong>Deliverables</strong>
+            <ul>${(review.deliverables || []).map(item => `<li>${esc(item)}</li>`).join('') || '<li>No deliverables yet.</li>'}</ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+  shell.hidden = false;
+}
+
+function collectSwarmPreviewPayload() {
+  const mission = document.getElementById('goal-swarm-mission');
+  const notes = document.getElementById('goal-swarm-notes');
+  const enabledWorkers = Array.from(document.querySelectorAll('.goal-swarm-worker-toggle:checked'))
+    .map(el => el.value)
+    .filter(Boolean);
+  return {
+    mission_brief: mission ? mission.value.trim() : '',
+    operator_notes: notes ? notes.value.trim() : '',
+    enabled_workers: enabledWorkers,
+  };
+}
+
+async function confirmSwarmPreview(autoStart) {
+  if (!DASH_SWARM_PREVIEW) return;
+  const payload = collectSwarmPreviewPayload();
+  const resp = await fetch('/api/goal/confirm', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      ...payload,
+      auto_start: !!autoStart,
+      auto_draft: true,
+    }),
+  });
+  const data = await resp.json();
+  if (data.error) {
+    alert(data.error);
+    return;
+  }
+  window.location.reload();
+}
+
+async function discardSwarmPreview() {
+  await fetch('/api/goal/preview', { method: 'DELETE' });
+  DASH_SWARM_PREVIEW = null;
+  const shell = document.getElementById('goal-swarm-preview');
+  if (shell) shell.hidden = true;
+}
+
+async function loadSavedSwarmPreview() {
+  try {
+    const resp = await fetch('/api/goal/preview');
+    if (!resp.ok) return;
+    const preview = await resp.json();
+    if (preview && Object.keys(preview).length) {
+      renderSwarmPreview(preview);
+    }
+  } catch (err) {
+    // Ignore preview-load failures on first paint.
+  }
+}
 
 function renderGoalBreakdown(data) {
   const container = document.getElementById('goal-result');
@@ -676,12 +832,16 @@ function renderGoalBreakdown(data) {
   if (parsed.resources_needed && parsed.resources_needed.length) {
     html += field('Resources', esc(parsed.resources_needed.join(', ')));
   }
+  if (data.swarm && Array.isArray(data.swarm.workers)) {
+    const enabledCount = data.swarm.workers.filter(worker => worker.enabled !== false).length;
+    html += field('Swarm', `${enabledCount} lanes · ${esc(data.swarm.goal_archetype || 'general')} · ${esc(data.swarm.scale || 'balanced')}`);
+  }
   if (parsed.confidence !== undefined) {
     const pct = Math.round(parsed.confidence * 100);
     const color = pct >= 60 ? 'var(--green)' : pct >= 40 ? 'var(--amber)' : 'var(--red)';
     html += field('Confidence', `<span style="color:${color};font-weight:600;">${pct}%</span>`);
   }
-  html += field('Status', '<span class="status running">● Researcher started</span>');
+  html += field('Status', '<span class="status pending">● Waiting for approval or researcher start</span>');
   html += '</div>';
   container.innerHTML = html;
 }
@@ -740,8 +900,14 @@ async function resetResearch() {
   await fetch('/api/research/reset', {method: 'POST'});
   document.getElementById('goal-input').value = '';
   document.getElementById('goal-result').innerHTML = '';
+  const swarmShell = document.getElementById('goal-swarm-preview');
+  if (swarmShell) swarmShell.hidden = true;
   showResearchButtons('idle');
 }
+
+document.getElementById('goal-swarm-run').addEventListener('click', () => confirmSwarmPreview(true));
+document.getElementById('goal-swarm-save').addEventListener('click', () => confirmSwarmPreview(false));
+document.getElementById('goal-swarm-discard').addEventListener('click', discardSwarmPreview);
 
 async function destroyLab() {
   const message = [
@@ -2094,6 +2260,7 @@ async function refreshProgramRow() {
 // Auto-run on page load when a goal is already set (server-rendered).
 (function () {
   const input = document.getElementById('goal-input');
+  loadSavedSwarmPreview();
   if (input && input.value && input.value.trim()) {
     loadLabKnows(input.value.trim());
   }
