@@ -8,9 +8,9 @@ before, this is for you.
 ## 0. What you need
 
 - A computer that can run Python 3.10–3.12.
-- **macOS**, **Linux**, or **Windows + WSL2**. (Bare Windows also works but
-  some scripts assume a Unix shell.)
-- ~8 GB free disk for the `min` tier, ~20 GB for `med`, ~60 GB for `max`.
+- **macOS**, **Linux**, or **Windows + WSL2**. Native Windows shells are not
+  supported by `./arail setup`.
+- ~8 GB free disk for the `min` tier, ~60 GB for the `max` tier.
 - Git, a terminal, and a browser.
 
 ---
@@ -31,14 +31,15 @@ Two tiers. You can change your mind later with `./arail upgrade max`.
 ### 🟢 `min` — the everyday lab
 
 - **Tabs**: Dashboard, Chat, Autoresearch, Knowledge Base, Agents.
-- **Packages**: core lab + **AirLLM** for deep layer-streaming
-  inference. (No LanceDB, no notebooks, no vendor SDKs.)
+- **Packages**: core lab + embedded **LanceDB** recall + **AirLLM** for
+  deep layer-streaming inference.
 - **Default deep model**: `meta-llama/Llama-3.1-70B`. AirLLM streams
   layer-by-layer from disk, so a 70B fits even on a small machine —
   it'll be slow (tokens-per-minute), but the model itself is the real
   thing.
-- **Memory**: KB runs on markdown + keyword search. Good enough for the
-  first few weeks of curating notes and watching the research loop work.
+- **Memory**: KB ships with embedded semantic recall out of the box. You get
+  the same knowledge surface in `min`; `max` is about heavier operator tools,
+  not a different memory backend.
 - **External providers**: Claude / NVIDIA / OpenRouter / HuggingFace are
   still reachable in `min` — they go over plain HTTP. The only thing `max`
   adds here is the official SDKs for heavier orchestration.
@@ -47,9 +48,8 @@ Two tiers. You can change your mind later with `./arail upgrade max`.
 
 ### 🔴 `max` — the full bench
 
-- **Tabs**: everything in `min` + Admin + Notebooks.
+- **Tabs**: everything in `min` + Admin + Docs + Notebooks.
 - **Adds**:
-  - `lancedb` — semantic vector search over the KB.
   - `jupyterlab` — browser notebooks.
   - `anthropic` SDK — first-class Claude integration.
   - `langchain` + `langgraph` — for operators who want to compose agents
@@ -77,7 +77,7 @@ Two tiers. You can change your mind later with `./arail upgrade max`.
 
 This walks you through 10 steps:
 
-1. Detect your platform (macOS / Linux / WSL) and accelerator (MLX / CUDA / CPU).
+1. Detect your platform (macOS / Linux / WSL2) and accelerator (MLX / CUDA / CPU).
 2. Install OS packages if needed (brew, apt, dnf, pacman, emerge).
 3. Create a Python venv and install deps **for the tier you pick**.
 4. Name your lab. Default is *Autoresearch AI Lab* — rename to taste.
@@ -107,15 +107,12 @@ Open [http://127.0.0.1:8080](http://127.0.0.1:8080). You're in.
 When you're ready for more:
 
 ```bash
-./arail upgrade max     # bumps AirLLM default 70B → 405B + adds vector/notebook/cloud SDKs
+./arail upgrade max     # bumps AirLLM default 70B → 405B + adds notebook/cloud orchestration extras
 ./arail restart         # pick up the new nav
 ```
 
 `./arail upgrade min` is a downgrade — it doesn't uninstall packages, it
 just hides the extra tabs. Hit `upgrade max` any time to get them back.
-
-> Legacy note: earlier blueprints had a `med` tier. It's retired — passing
-> `med` to `setup` or `upgrade` rolls forward to `max` with a warning.
 
 ---
 

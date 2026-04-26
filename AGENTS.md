@@ -1,12 +1,13 @@
-# AGENTS.md — Vibe App Integration manifest
+# AGENTS.md — Platform porting manifest
 
 This file tells an AI coding agent everything it needs to **port Autoresearch
 AI Lab (ARAIL) to a new platform, package manager, or shell** without reading
 the whole codebase. If you're a human trying to do the same port by hand,
 [docs/LINUX.md](docs/LINUX.md) is the long-form version.
 
-> Looking for the *user-facing* agents (Pip, SRE, Researcher)? See the
-> README's "Agents" section or [docs/agents.md](docs/agents.md).
+> Looking for the *user-facing* agents (Pip, SRE, Researcher)? Start with
+> [docs/agents-explained.md](docs/agents-explained.md), then use
+> [docs/agents.md](docs/agents.md) for the reference manual.
 
 The goal: a user on a distro we don't support yet can hand their
 agent this file + `scripts/setup.sh` + one sentence ("port this to
@@ -16,7 +17,7 @@ have.
 ## What ARAIL is, in two sentences
 
 A local-first AI lab blueprint. Users clone the repo, run
-`./arail setup && ./arail start`, pick a tier (min / med / max), and
+`./arail setup && ./arail start`, pick a tier (min / max), and
 get a dashboard + chat + autoresearch running on their own hardware
 with their own models.
 

@@ -284,8 +284,11 @@
   </div>
 
   <!-- ═══ Goal Panel ═══ -->
-  <div class="card full" id="goal-card">
-    <h2><span class="indicator"></span> Mission Objective</h2>
+  <div class="card mission-card" id="goal-card">
+    <h2>
+      <span class="indicator"></span> Mission
+      <a class="card-title-link" href="/mission">Open dossier →</a>
+    </h2>
     {% if lab_theme %}
     <!-- Lab theme — permanent north-star framing above the concrete
          goal. Sourced from LAB_THEME env var. Swap the env var to
@@ -316,6 +319,14 @@
         </div>
       </div>
     </form>
+
+    {% if current_goal %}
+    <a class="mission-dossier-chip" href="/mission">
+      <span class="mission-dossier-label">Current mission</span>
+      <span class="mission-dossier-text">{{ current_goal.goal_text }}</span>
+      <span class="mission-dossier-cta">Curated view →</span>
+    </a>
+    {% endif %}
 
     <!-- Goal breakdown (populated after parse) -->
     <div id="goal-result">

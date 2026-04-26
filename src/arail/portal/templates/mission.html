@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ brand.name }} — Mission Dossier</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+{% set active = '' %}{% include "_nav.html" %}
+
+<div class="grid mission-dossier-grid">
+  <div class="card full mission-dossier-hero">
+    <h2><span class="indicator"></span> Mission Dossier</h2>
+    {% if current_goal %}
+    <div class="mission-dossier-title">{{ current_goal.goal_text }}</div>
+    <div class="mission-dossier-meta-row">
+      {% if research_status == 'running' %}
+      <span class="status running">● Researching</span>
+      {% elif research_status == 'paused' %}
+      <span class="status pending">● Paused</span>
+      {% elif research_status == 'completed' %}
+      <span class="status completed">● Complete</span>
+      {% else %}
+      <span class="status planning">● Idle</span>
+      {% endif %}
+      {% if lab_theme %}
+      <span class="mission-dossier-theme">Theme · {{ lab_theme }}</span>
+      {% endif %}
+    </div>
+    <div class="mission-dossier-actions">
+      <a class="btn btn-primary btn-sm" href="/autoresearch">Open research cockpit</a>
+      <a class="btn btn-ghost btn-sm" href="/knowledge?file=research/program.md">Open program.md</a>
+      <a class="btn btn-ghost btn-sm" href="/knowledge">Open knowledge base</a>
+      <a class="btn btn-ghost btn-sm" href="/docs">Open docs hub</a>
+    </div>
+    {% else %}
+    <p class="mission-empty">No mission is active yet. Set one from the dashboard to build a dossier.</p>
+    <div class="mission-dossier-actions">
+      <a class="btn btn-primary btn-sm" href="/">Set mission on dashboard</a>
+      <a class="btn btn-ghost btn-sm" href="/docs">Open docs hub</a>
+    </div>
+    {% endif %}
+  </div>
+
+  {% if current_goal %}
+  <div class="card">
+    <h2><span class="indicator"></span> Objective</h2>
+    <div class="mission-dossier-field">
+      <div class="mission-field-label">Domain</div>
+      <div class="mission-dossier-value">{{ current_goal.parsed.domain if current_goal.parsed else 'general' }}</div>
+    </div>
+    <div class="mission-dossier-field">
+      <div class="mission-field-label">Primary objective</div>
+      <div class="mission-dossier-value">{{ current_goal.parsed.primary_objective if current_goal.parsed else current_goal.goal_text }}</div>
+    </div>
+    {% if current_goal.parsed.timeline %}
+    <div class="mission-dossier-field">
+      <div class="mission-field-label">Timeline</div>
+      <div class="mission-dossier-value">{{ current_goal.parsed.timeline }}</div>
+    </div>
+    {% endif %}
+    {% if current_goal.parsed.confidence is not none %}
+    <div class="mission-dossier-field">
+      <div class="mission-field-label">Confidence</div>
+      <div class="mission-dossier-value">{{ ((current_goal.parsed.confidence or 0) * 100)|int }}%</div>
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h2><span class="indicator"></span> Plan</h2>
+    {% if current_goal.parsed.sub_objectives %}
+    <ul class="mission-dossier-list">
+      {% for obj in current_goal.parsed.sub_objectives %}
+      <li>{{ obj }}</li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="empty">No sub-objectives yet — the researcher will refine them as work starts.</p>
+    {% endif %}
+
+    {% if current_goal.parsed.resources_needed %}
+    <div class="mission-dossier-field mission-dossier-resources">
+      <div class="mission-field-label">Resources</div>
+      <div class="mission-dossier-value">{{ current_goal.parsed.resources_needed|join(', ') }}</div>
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="card full">
+    <h2><span class="indicator"></span> Recent mission activity</h2>
+    <div class="activity-feed">
+      {% for event in recent_activity %}
+      <div class="activity-event {{ event.level }}">
+        <span class="ts">{{ event.ts[11:19] }}</span>
+        <span class="src">{{ event.source }} ›</span>
+        <span class="msg">{{ event.message }}</span>
+      </div>
+      {% endfor %}
+      {% if not recent_activity %}
+      <p class="empty">No activity yet.</p>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if current_goal.report %}
+  <div class="card full">
+    <h2><span class="indicator"></span> Report preview</h2>
+    <div class="report">{{ current_goal.report }}</div>
+  </div>
+  {% endif %}
+  {% endif %}
+</div>
+
+<script src="/static/nav.js"></script>
+</body>
+</html>

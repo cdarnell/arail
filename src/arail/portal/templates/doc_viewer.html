@@ -69,10 +69,10 @@
 </head>
 <body>
 
-{% include "_nav.html" %}
+{% set active = nav_active|default('docs') %}{% include "_nav.html" %}
 
 <article class="doc-shell">
-  <div class="doc-path-bar">📖 docs / <code>{{ doc_path }}</code></div>
+  <div class="doc-path-bar">📖 {{ doc_section|default('docs') }} / <code>{{ doc_path }}</code></div>
   {{ doc_html | safe }}
 </article>
 
