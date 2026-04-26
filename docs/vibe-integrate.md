@@ -1,79 +1,88 @@
-# Arail — Vibe Integration Plan
+# Arail — Vibe Integration During Setup
 
-How the researcher agent naturally integrates with the user's workflow.
+Vibe integration is the first-run act of translating the Arail blueprint to
+someone else's machine, constraints, and goals. It is not "vibe developing" a
+new app. The job is to preserve the same local-first setup and operator UX
+while making it land cleanly on the target hardware.
 
-## Philosophy
+## Where This Forks From
 
-**Set a goal. Watch it happen.** The user types a natural-language goal, and the
-system takes over — parsing intent, generating hypotheses, designing experiments,
-collecting data, and delivering a report. No menus, no config wizards, no
-mandatory steps. Just a prompt and a progress ring filling up.
+Start with the shared install path in [INSTALL.md](INSTALL.md) and then layer in
+the platform notes from [MACOS.md](MACOS.md), [LINUX.md](LINUX.md), or
+[WSL.md](WSL.md). This page is the judgment layer on top of those docs: how an
+agent or operator adapts the same setup flow for a Mac mini, a newer MacBook
+Pro, or a friend's lab without inventing a different product.
 
-## The Flow
+If the task is adding package-manager or distro support to
+[../scripts/setup.sh](../scripts/setup.sh), that is a platform port. Use
+[../AGENTS.md](../AGENTS.md) and [LINUX.md](LINUX.md) for that path.
 
-```
-User types goal
-    ↓
-GoalParser extracts domain, objectives, timeline
-    ↓
-ResearcherAgent auto-starts (no button click needed)
-    ↓
-Activity feed shows live progress (SSE)
-Progress ring animates from 0% → 100%
-    ↓
-Step 1: Hypotheses generated (LLM if available, heuristic fallback)
-Step 2: Experiments created and linked to goal
-Step 3: Curator proposes data sources → consent system
-Step 4: Experiments executed (heuristic today; LLM-driven via router)
-Step 5: Analysis with improvement/confidence metrics
-Step 6: Markdown report generated
-    ↓
-Dashboard auto-refreshes with results
-User reads report, sets new goal, or refines
-```
+## Setup Flow
 
-## Design Principles
+1. Start from the blessed commands: `./arail setup`, `./arail doctor`, and
+    `./arail start`.
+2. Profile the target machine before changing anything: chip family,
+    accelerator, RAM, free disk, and whether the box is portable, desk-bound, or
+    effectively headless.
+3. Profile the target user: first goal, lab name, privacy posture, and how much
+    complexity they can tolerate on day one.
+4. Pick the smallest stable tier, backend, and starter model that fit that
+    machine.
+5. Run setup and let it write `.env`, scaffold the lab, and capture the first
+    goal.
+6. Start the lab and verify the Dashboard, Chat, and Autoresearch surfaces all
+    load on the target machine.
+7. Hand off a working first-run experience where the Researcher agent already
+    has a real goal to pick up.
 
-1. **Zero-config start** — Works out of the box with heuristics. LLM makes it
-   better but isn't required.
+## Example: Mac Mini Versus MacBook Pro
 
-2. **Progressive disclosure** — First visit shows just the goal prompt and an
-   empty activity feed. Complexity appears naturally as the system works.
+The same blueprint should feel different only where the hardware envelope is
+actually different.
 
-3. **Consent-first networking** — All external access requires explicit approval.
-   The first research session is fully local.
+- A Mac mini usually wants an appliance mindset: quieter always-on usage,
+  conservative disk budgeting, and setup choices that survive being left alone
+  on a desk.
+- A newer MacBook Pro usually wants a personal workbench mindset: browser-first
+  startup, higher MLX headroom, and defaults tuned for interactive local work.
+- In both cases the command surface stays the same. The integration work is not
+  redesigning Arail; it is choosing the right tier, backend, starter model, and
+  operating assumptions for that machine.
 
-4. **Live feedback** — Every step emits to the activity feed via SSE. The user
-   sees the agent thinking in real time.
+## Principles To Preserve
 
-5. **Graceful fallback** — No LLM? Heuristic hypotheses. No ttyd? Helpful
-   "start the service" message. No model downloaded? CPU fallback with guidance.
+1. **One command surface** — Keep the mental model anchored on
+    `./arail setup`, `./arail doctor`, and `./arail start`.
+2. **Local-first baseline** — Cloud providers stay off until the user opts into
+    `LAB_MODE=hybrid`.
+3. **Idempotent setup** — Re-running setup should heal a partial install rather
+    than forcing a clean slate.
+4. **Progressive disclosure** — The user should meet the goal prompt and the
+    core surfaces first; heavier agent behavior unfolds after the lab is up.
+5. **Visible work** — Setup and startup should make progress legible rather than
+    hiding it behind a black box.
 
-## Plugin Integration
+## Where The Researcher Agent Fits
 
-Plugins extend the researcher's capabilities:
-- **Data source plugins** — New domains the curator can propose
-- **Experiment plugins** — Real integrations (API testing, data collection, etc.)
-- **Report plugins** — Custom output formats (PDF, Jupyter notebook, etc.)
+The Researcher agent is part of the initial setup experience, but it is not the
+whole story.
 
-Install via the Plugins page: paste a GitHub URL, one click.
+- Setup captures the first goal and machine defaults.
+- Startup makes the dashboard and activity feed legible.
+- The Researcher agent then picks up that goal inside an already-working lab.
 
-## Agent Personality
+That is the right level of integration: setup establishes the environment, then
+the researcher loop proves the environment is useful.
 
-The activity feed messages are the agent's voice. They should feel:
-- **Concise** — One clear sentence per event
-- **Informative** — What just happened, not what will happen
-- **Terminal-native** — Matches the 1337 aesthetic (no emoji, no exclamation marks)
-- **Progressional** — Each message shows forward movement
+## Agent Brief
 
-## Roadmap
+When an agent is doing vibe integration for someone else, the loop should be:
 
-Planned extensions, in rough priority order:
+1. Read the install and platform docs first.
+2. Detect the target machine's actual ceiling.
+3. Adjust configuration and setup choices without redesigning the app.
+4. Preserve Arail's local-first, consent-first, visible-progress defaults.
+5. Stop when that person can run the same commands and get a working lab.
 
-1. **Real data collection via approved URLs** — the Curator proposes sources today; the next step is fetching and caching content through the consent gate.
-2. **Domain-specific experiment templates** — agriculture, ML, web dev, culinary. Each template seeds hypotheses, metrics, and a fallback heuristic.
-3. **Goal history with cross-run comparison** — compare outcomes across repeated research runs on the same goal.
-4. **Plugin marketplace** — a curated list of community plugins installable from the dashboard.
-5. **Multi-agent collaboration** — specialist agents per domain coordinating through the shared activity log.
-
-Contributions that tackle any of these are welcome; see [../CONTRIBUTING.md](../CONTRIBUTING.md).
+Contributions that improve this path should keep the setup story clear and
+machine-specific without splintering the product surface.

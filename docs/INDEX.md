@@ -5,6 +5,7 @@ This is the curated docs surface that the in-app **Docs** tab opens.
 ## Start here
 
 - [Install guide](INSTALL.md)
+- [Vibe integration during setup](vibe-integrate.md)
 - [Troubleshooting](TROUBLESHOOTING.md)
 - [Privacy](PRIVACY.md)
 

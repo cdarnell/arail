@@ -2,6 +2,11 @@
 
 Apple Silicon Macs run inference natively via MLX — no cloud needed.
 
+If you're setting Arail up for another Apple Silicon machine, pair this page
+with [vibe-integrate.md](vibe-integrate.md). The command surface stays the same;
+the integration work is choosing the right starter tier and model for that
+specific Mac's RAM, disk, and role.
+
 ---
 
 ## Requirements
