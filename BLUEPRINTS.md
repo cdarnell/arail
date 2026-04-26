@@ -4,6 +4,25 @@ A blueprint is a lab you can run. It ships with a goal (or asks for one), a
 set of agents, a tier config, and default models. You spin it up in a few
 minutes; from there you change whatever you want.
 
+Blueprints are concrete TOML artifacts under
+[`blueprints/<id>/blueprint.toml`](./blueprints/), wired through
+the `./arail blueprint` subcommand:
+
+```bash
+./arail blueprint list                                # available blueprints
+./arail blueprint catalog                             # model compatibility matrix
+./arail blueprint create research --from autoresearch # scaffold a new instance
+./arail blueprint apply research                      # re-render after editing
+./arail blueprint destroy research                    # remove an instance
+```
+
+Each `arail blueprint create` scaffolds an isolated instance under
+`instances/<name>/` (its own `.env`, `lab.conf`, `log/`, port range).
+The default ARAIL lab — what `./arail setup` provisions at the repo
+root — is untouched. See
+[`blueprints/README.md`](./blueprints/README.md) for the full
+schema and authoring guide.
+
 ## The principle
 
 Here is a blueprint. Build on top of it, or replace it.
