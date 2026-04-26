@@ -75,6 +75,17 @@ Suggested pre-baked theme presets:
    - muted slate base with cooler violet accents
    - good for softer personal forks of the lab
 
+## Theme switching
+
+- Theme presets are selected with `LAB_UI_THEME` in `.env`.
+- Current shipped values:
+  - `blue-cyan-lab`
+  - `emerald-terminal`
+  - `night-amber`
+  - `slate-violet`
+- The Admin page should always show the active preset and the exact env line to copy.
+- Restart the lab after changing the preset.
+
 ## Theming implementation guidance
 
 - Prefer CSS variables over one-off color overrides.

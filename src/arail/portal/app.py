@@ -36,8 +36,10 @@ from arail.portal.wiki_routes import router as wiki_router
 
 from arail.brand import load_brand
 from arail.router.backends import ModelResponse
+from arail.ui_theme import list_ui_themes, load_ui_theme, theme_css
 
 _BRAND = load_brand()
+_UI_THEME = load_ui_theme()
 
 # Tier gating — the nav shows only the surfaces matching the current tier.
 # Two tiers: min (everyday) and max (full bench). Upgrade with ./arail upgrade max.
@@ -176,6 +178,9 @@ templates = Jinja2Templates(directory=PORTAL_DIR / "templates")
 templates.env.globals["brand"] = _BRAND
 templates.env.globals["tier_surfaces"] = _visible_surfaces()
 templates.env.globals["lab_tier"] = _current_tier()
+templates.env.globals["ui_theme"] = _UI_THEME
+templates.env.globals["ui_themes"] = list_ui_themes()
+templates.env.globals["ui_theme_css"] = theme_css(_UI_THEME)
 
 consent_store = ConsentStore()
 goal_store = GoalStore()
@@ -1906,8 +1911,34 @@ async def admin_page(request: Request):
     ttyd = await _ttyd_context()
     return templates.TemplateResponse(request, "admin.html", {
         "health": health,
+        "current_ui_theme": _UI_THEME,
+        "available_ui_themes": list_ui_themes(),
         **ttyd,
     })
+
+
+@app.get("/api/system/theme")
+async def system_theme():
+    return {
+        "current": {
+            "id": _UI_THEME.id,
+            "name": _UI_THEME.name,
+            "description": _UI_THEME.description,
+            "env_value": _UI_THEME.env_value,
+        },
+        "themes": [
+            {
+                "id": theme.id,
+                "name": theme.name,
+                "description": theme.description,
+                "accent": theme.accent,
+                "preview_start": theme.preview_start,
+                "preview_end": theme.preview_end,
+                "env_value": theme.env_value,
+            }
+            for theme in list_ui_themes()
+        ],
+    }
 
 
 # ── Agents tab ──────────────────────────────────────────────────────

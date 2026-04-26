@@ -37,6 +37,71 @@
   .admin-card .ac-title { font-weight: 600; font-size: 0.85rem; color: var(--text-hi); }
   .admin-card .ac-desc { font-size: 0.72rem; color: var(--muted); margin-top: 0.2rem; }
 
+  .theme-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+    gap: 0.75rem;
+  }
+  .theme-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.9rem 1rem;
+  }
+  .theme-card.active {
+    border-color: rgba(0, 212, 255, 0.45);
+    box-shadow: var(--glow-blue);
+  }
+  .theme-swatch {
+    height: 56px;
+    border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.08);
+    margin-bottom: 0.75rem;
+  }
+  .theme-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+  }
+  .theme-name { color: var(--text-hi); font-size: 0.82rem; font-weight: 600; }
+  .theme-pill {
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    padding: 0.08rem 0.42rem;
+    font-size: 0.6rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .theme-pill.active {
+    color: var(--blue);
+    border-color: rgba(0, 212, 255, 0.35);
+    background: rgba(0, 212, 255, 0.08);
+  }
+  .theme-desc {
+    color: var(--muted);
+    font-size: 0.74rem;
+    line-height: 1.55;
+    margin: 0.45rem 0 0.7rem;
+  }
+  .theme-code {
+    display: block;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.55rem 0.65rem;
+    color: var(--amber);
+    font-size: 0.72rem;
+    white-space: pre-wrap;
+  }
+  .theme-meta {
+    color: var(--muted);
+    font-size: 0.68rem;
+    margin-top: 0.45rem;
+    line-height: 1.5;
+  }
+
   /* Component table */
   .comp-table-wrap {
     max-height: 540px;
@@ -364,6 +429,30 @@
       </div>
     </div>
     <div id="admin-log"></div>
+  </div>
+
+  <div class="admin-section">
+    <h2>Theme Presets</h2>
+    <div class="theme-grid">
+      {% for theme in available_ui_themes %}
+      <div class="theme-card{% if theme.id == current_ui_theme.id %} active{% endif %}">
+        <div class="theme-swatch"
+             style="background: linear-gradient(135deg, {{ theme.preview_start }}, {{ theme.preview_end }});"></div>
+        <div class="theme-row">
+          <div class="theme-name">{{ theme.name }}</div>
+          <span class="theme-pill{% if theme.id == current_ui_theme.id %} active{% endif %}">
+            {% if theme.id == current_ui_theme.id %}active{% else %}preset{% endif %}
+          </span>
+        </div>
+        <div class="theme-desc">{{ theme.description }}</div>
+        <code class="theme-code">LAB_UI_THEME={{ theme.env_value }}</code>
+        <div class="theme-meta">
+          Set the value in <strong>.env</strong>, then run <code>./arail restart</code>.
+          Design rules and palette guidance live in <a href="/design">design.md</a>.
+        </div>
+      </div>
+      {% endfor %}
+    </div>
   </div>
 
   <!-- ═══ Terminal ═══ -->

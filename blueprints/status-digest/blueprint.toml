@@ -1,0 +1,53 @@
+# Status Digest — Monday morning brief.
+#
+# Reads your calendar, doc edits, and message threads from the
+# past week. Produces one Monday-morning digest: what shipped,
+# what's blocked, what needs your attention. Light summarization
+# work — uses the smallest viable model (Qwen2.5-3B) so it runs
+# comfortably on a laptop without monopolizing the GPU.
+
+id          = "status-digest"
+label       = "Status Digest"
+tier        = "min"
+goal_prompt = """
+Read what I've worked on this past week — calendar entries, doc edits,
+message threads I'm a participant in. Surface what shipped, what's
+blocked, and what needs my attention this Monday morning. One page,
+plain prose, prioritized.
+"""
+description = """
+A Monday-morning brief generator. Walks the past 7 days of calendar +
+doc + thread activity, classifies items into shipped / blocked /
+needs-attention, and writes a single concise summary. Designed to run
+once per week, light enough for a laptop.
+"""
+
+agents = [
+    "researcher",        # ✅ exists — gathers material from configured sources
+    "summarizer",        # ⏳ aspirational — distills weekly material into one page
+    "scheduler",         # ⏳ aspirational — fires the digest job Monday morning
+]
+
+[runtime]
+backend_preference = ["aerollm", "airllm"]
+default_engine     = "mlx"
+
+[runtime.models]
+mlx    = "qwen2_5_3b_bf16"
+cuda   = "qwen2_5_3b_bf16"
+cpu    = "qwen3_8b_gguf"
+airllm = "llama_3_1_8b_bf16"
+
+[telemetry]
+sink_dir = "log"
+
+[[telemetry.sinks]]
+name   = "digest_runs"
+topics = ["TokenEmitted", "ArenaReset"]
+
+[ports]
+portal     = 0
+terminal   = 1
+notebook   = 2
+ide        = 3
+mlx_openai = 5
