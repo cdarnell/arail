@@ -3,6 +3,11 @@
 A friendly walkthrough. If you've never run a Python app from a terminal
 before, this is for you.
 
+If you're adapting Arail for someone else's machine or translating the same lab
+between machines, pair this guide with [vibe-integrate.md](vibe-integrate.md).
+That companion explains how to keep the setup path the same while tuning the
+first-run choices to the target hardware.
+
 ---
 
 ## 0. What you need
