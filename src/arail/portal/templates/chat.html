@@ -310,6 +310,459 @@
     display: flex; gap: 8px; align-items: flex-end; margin-top: 10px; flex-wrap: wrap;
   }
   .compute-key-row label { display:flex; flex-direction:column; gap:4px; font-size:12px; color:#b6b6b6; }
+
+  .chat-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+    align-items: start;
+  }
+  .chat-main-shell { padding: 16px; }
+  .chat-head-shell {
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
+  }
+  .chat-head-main {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .chat-title-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: baseline;
+  }
+  .chat-preset-line {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  .chat-preset-label {
+    font-size: 12px;
+    color: #8a968e;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+  .chat-presets-inline {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    padding: 6px 8px;
+    border: 1px solid #274031;
+    border-radius: 999px;
+    background: rgba(8, 12, 10, 0.65);
+  }
+  .chat-preset {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    background: transparent;
+    color: #d7e3db;
+    cursor: pointer;
+    font: inherit;
+    font-size: 12px;
+  }
+  .chat-preset:hover,
+  .chat-preset.active {
+    border-color: #4aa46f;
+    background: rgba(15, 40, 24, 0.65);
+    color: #b5f0c8;
+  }
+  .chat-manage-link {
+    border: 0;
+    padding: 4px 6px;
+    background: transparent;
+    color: #8fb39c;
+    cursor: pointer;
+    font: inherit;
+    font-size: 12px;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .chat-thread-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    align-items: center;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+  }
+  .chat-thread-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .chat-thread-title h2 { margin: 0; }
+  .chat-thread-tools {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .chat-thread {
+    min-height: 420px;
+    max-height: 60vh;
+    padding: 14px;
+    background: rgba(5, 8, 7, 0.9);
+  }
+  .chat-compose-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-top: 14px;
+  }
+  .chat-compose-stack textarea {
+    width: 100%;
+    min-height: 118px;
+  }
+  .chat-control-rail {
+    display: grid;
+    grid-template-columns: minmax(0, 1.5fr) minmax(140px, 0.55fr) minmax(180px, 0.7fr);
+    gap: 12px;
+    align-items: start;
+  }
+  .chat-rail-block {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .chat-rail-label {
+    font-size: 12px;
+    color: #b5c2bb;
+  }
+  .chat-model-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .chat-model-row select,
+  .chat-custom-endpoint-inline {
+    width: 100%;
+  }
+  .chat-model-headroom {
+    font-size: 12px;
+    color: #a8baae;
+  }
+  .chat-compute-inline {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .chat-compute-pill {
+    padding: 4px 8px;
+    border-radius: 999px;
+    border: 1px solid #2b3d31;
+    background: rgba(10, 15, 12, 0.85);
+    color: #8fa59a;
+    cursor: pointer;
+    font: inherit;
+    font-size: 11px;
+  }
+  .chat-compute-pill.active {
+    border-color: #4aa46f;
+    background: rgba(15, 40, 24, 0.8);
+    color: #b5f0c8;
+  }
+  .chat-rail-center {
+    align-items: flex-start;
+    justify-content: center;
+  }
+  .chat-rail-actions {
+    align-items: flex-end;
+    justify-content: flex-end;
+  }
+  .chat-inline-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    min-height: 38px;
+    padding: 7px 10px;
+    border: 1px solid #244030;
+    border-radius: 999px;
+    background: rgba(9, 14, 11, 0.78);
+    color: #dce8e0;
+    font-size: 12px;
+  }
+  .chat-inline-toggle input { width: auto; margin: 0; }
+  .chat-inline-toggle-wide { width: 100%; }
+  .chat-advanced summary {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+  }
+  .chat-advanced-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+    margin-top: 12px;
+  }
+  .chat-advanced-grid > label,
+  .chat-advanced-grid > div {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+  }
+  .chat-advanced-tuning-fields {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 12px;
+  }
+  .chat-side-panel {
+    position: sticky;
+    top: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .chat-side-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+  }
+  .chat-side-head h2 {
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .chat-side-links {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .chat-loader-backdrop,
+  .chat-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 9200;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 18px;
+    background: rgba(6, 8, 7, 0.55);
+  }
+  .chat-loader-backdrop[hidden],
+  .chat-modal-backdrop[hidden] {
+    display: none !important;
+  }
+  .chat-loader-bar {
+    width: min(980px, 96vw);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 18px;
+    padding: 12px 16px;
+    border: 1px solid #3d5d46;
+    border-radius: 14px;
+    background: rgba(9, 13, 10, 0.96);
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
+  }
+  .chat-loader-copy {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    align-items: center;
+    font-size: 13px;
+  }
+  .chat-modal-panel {
+    width: min(720px, 94vw);
+    max-height: 88vh;
+    overflow: auto;
+    border: 1px solid #314337;
+    border-radius: 14px;
+    background: #0d120f;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+    padding: 18px;
+  }
+  .chat-modal-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+  .chat-modal-head h3 { margin: 0; }
+  .chat-modal-body {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .chat-modal-body code {
+    display: block;
+    padding: 10px 12px;
+    border: 1px solid #213128;
+    border-radius: 8px;
+    background: rgba(4, 8, 5, 0.9);
+    color: #d6ece0;
+    overflow-x: auto;
+  }
+  .chat-preset-editor label {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 13px;
+    color: #c5d3cb;
+  }
+  .chat-preset-help-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 10px;
+  }
+  .chat-preset-help-card {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 10px 12px;
+    border: 1px solid #294034;
+    border-radius: 10px;
+    background: rgba(9, 14, 11, 0.8);
+    color: #d9e6df;
+    font-size: 12px;
+  }
+  .chat-preset-help-card span {
+    color: #9fb1a7;
+  }
+  .chat-preset-editor textarea {
+    min-height: 92px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px solid #2a4233;
+    background: rgba(10, 15, 12, 0.82);
+    color: #eef6f0;
+  }
+  .chat-modal-actions {
+    display: flex;
+    justify-content: flex-end;
+  }
+  .chat-meta {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px dashed #27332b;
+    font-size: 11px;
+    color: #92a59b;
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+  .chat-meta-model {
+    border: 0;
+    padding: 0;
+    background: transparent;
+    color: #bfe7ce;
+    cursor: pointer;
+    font: inherit;
+    white-space: nowrap;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .chat-meta-sep { color: #567564; }
+  .chat-meta-popover {
+    position: fixed;
+    z-index: 9300;
+    max-width: 320px;
+    padding: 10px 12px;
+    border: 1px solid #314337;
+    border-radius: 10px;
+    background: rgba(8, 12, 10, 0.98);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+    color: #dbeae2;
+    font-size: 12px;
+    line-height: 1.45;
+  }
+  .chat-meta-popover a { color: #8ed6ff; }
+  .chat-bubble {
+    overflow: hidden;
+  }
+  .chat-bubble p:first-child { margin-top: 0; }
+  .chat-bubble p:last-child { margin-bottom: 0; }
+  .chat-bubble pre {
+    position: relative;
+    overflow-x: auto;
+    margin: 10px 0 0;
+    padding: 14px 14px 12px;
+    border-radius: 8px;
+    border: 1px solid #293531;
+    background: #0a0e0c;
+    white-space: pre;
+  }
+  .chat-bubble code {
+    font-family: "JetBrains Mono", monospace;
+  }
+  .chat-bubble pre code {
+    display: block;
+    white-space: pre;
+  }
+  .chat-code-copy {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    padding: 4px 8px;
+    border: 1px solid #355241;
+    border-radius: 999px;
+    background: rgba(12, 25, 18, 0.95);
+    color: #b5f0c8;
+    font-size: 10px;
+    cursor: pointer;
+  }
+  .chat-bubble.chat-bubble-collapsed {
+    max-height: 260px;
+  }
+  .chat-collapse-toggle {
+    margin-top: 8px;
+    border: 0;
+    padding: 0;
+    background: transparent;
+    color: #9ad1b0;
+    cursor: pointer;
+    font: inherit;
+    font-size: 12px;
+  }
+
+  @media (max-width: 980px) {
+    .chat-control-rail {
+      grid-template-columns: 1fr;
+    }
+    .chat-rail-actions {
+      align-items: flex-start;
+    }
+    .chat-thread {
+      max-height: none;
+      min-height: 360px;
+    }
+  }
+
+  @media (max-width: 720px) {
+    .chat-wrap { padding: 0 12px; }
+    .chat-head-shell { align-items: stretch; }
+    .chat-loader-bar,
+    .chat-thread-head {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+    .chat-meta {
+      white-space: normal;
+      flex-wrap: wrap;
+      row-gap: 2px;
+    }
+  }
 </style>
 </head>
 <body>
@@ -320,35 +773,232 @@
 <script>document.body.classList.add('embed');</script>
 {% endif %}
 
-<div class="chat-wrap">
-  <div class="chat-head">
-    <h1>Chat</h1>
-    <span class="chat-sub">Choose fast chat, duplicate the prompt to Thoughtful Expert, or send to Thoughtful Expert only when depth matters more than latency.</span>
+<div class="chat-wrap chat-v2">
+  <div class="chat-head chat-head-shell">
+    <div class="chat-head-main">
+      <div class="chat-title-row">
+        <h1 tabindex="1">Chat</h1>
+        <span class="chat-sub">Response-first layout with compact runtime controls, local model guidance, and per-response stats under each answer.</span>
+      </div>
+      <div class="chat-preset-line">
+        <span class="chat-preset-label">Presets:</span>
+        <div class="chat-presets chat-presets-inline" id="chat-preset-strip" role="toolbar" aria-label="Presets" tabindex="2">
+          <button type="button" class="chat-preset" data-preset="assistant" title="General assistant with a clean starter prompt.">
+            <span class="cp-icon">✦</span>
+            <span class="cp-label">Assistant</span>
+          </button>
+          <button type="button" class="chat-preset" data-preset="code" title="Structured coding help with deterministic settings.">
+            <span class="cp-icon">&lt;/&gt;</span>
+            <span class="cp-label">Code</span>
+          </button>
+          <button type="button" class="chat-preset" data-preset="explain" title="Clear explanation mode with concise reasoning.">
+            <span class="cp-icon">?</span>
+            <span class="cp-label">Explain</span>
+          </button>
+          <button type="button" class="chat-manage-link" id="chat-manage-presets">Manage</button>
+        </div>
+      </div>
+    </div>
+    <div class="chat-head-actions">
+      <button class="btn btn-sm btn-ghost" id="chat-side-toggle" type="button">Panel</button>
+    </div>
   </div>
 
-  <div class="chat-shortcuts" aria-label="Chat shortcuts">
-    <a class="tuning-link" href="/tuning" title="Frontier LLM hosting on consumer-grade hardware">
-      <span>🧪</span>
-      <span>Frontier LLM Hosting</span>
-    </a>
-    <a class="terminal-link" href="/terminal" target="_blank" rel="noopener" title="Open terminal in a new tab">
-      <span>⌨️</span>
-      <span>Terminal Pop Out</span>
-    </a>
-  </div>
+  <div class="chat-layout">
+    <section class="chat-card compose-card chat-main-shell">
+      <div class="chat-thread-head" style="display: flex; align-items: center; justify-content: space-between; padding: 0 0 8px 0;">
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <h2 style="margin: 0; font-size: 1.2em;">Responses</h2>
+          <span class="chat-chip" id="fast-model-chip" style="font-size: 0.9em;">loading…</span>
+          <span class="chat-chip deep" id="teacher-model-chip" style="font-size: 0.9em;">deep model</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <label style="font-size: 0.95em; font-weight: 500;">Max output:
+            <input type="range" id="chat-max-tokens-main" min="256" max="4096" step="64" value="1024" style="vertical-align: middle; width: 120px; margin: 0 8px;">
+            <span id="chat-max-tokens-main-val" style="font-size: 0.95em; min-width: 60px; display: inline-block;">1024 tok</span>
+          </label>
+          <button class="btn btn-sm btn-ghost" id="chat-clear" type="button">Clear</button>
+        </div>
+      </div>
 
-  <div class="chat-grid">
-    <section class="chat-card compute-card">
-      <div class="compute-head-row">
+      <div class="chat-log chat-thread" id="chat-thread" tabindex="4" style="min-height: 400px; max-height: 70vh; overflow-y: auto; padding: 0;">
+        <div class="chat-msg">
+          <div class="chat-role">LAB</div>
+          <div class="chat-bubble">Ready. Responses will maximize this window. Stats are now in the sidebar.</div>
+        </div>
+      </div>
+
+      <!-- Stats/meta will be rendered as a footer at the bottom of each response -->
+
+      <div class="chat-compose-stack">
+        <textarea id="chat-input" rows="4" placeholder="Ask the lab anything. Shift+Enter for a newline." autocomplete="off" tabindex="5"></textarea>
+
+        <div class="chat-control-rail">
+          <div class="chat-rail-block chat-model-block">
+            <label class="chat-rail-label" for="chat-model-select">Model</label>
+            <div class="chat-model-row">
+              <select id="chat-model-select" tabindex="3">
+                <option value="">loading…</option>
+              </select>
+            </div>
+            <div class="chat-model-headroom" id="chat-model-headroom">Detected hardware and fit guidance are loading…</div>
+            <div class="chat-compute-inline" id="chat-compute-inline" aria-label="Compute sources"></div>
+            <input type="text" id="chat-custom-endpoint-inline" placeholder="https://.../v1" hidden>
+            <div class="chat-muted" id="chat-model-hint">loading…</div>
+          </div>
+
+          <div class="chat-rail-block chat-rail-center">
+            <button class="btn btn-sm btn-ghost" id="chat-presets-toggle" type="button" aria-expanded="true">Presets</button>
+            <button class="btn btn-sm btn-ghost" id="chat-side-toggle-secondary" type="button">Advanced Panel</button>
+          </div>
+
+          <div class="chat-rail-block chat-rail-actions">
+            <label class="chat-inline-toggle" for="chat-streaming-enabled">
+              <span>Streaming</span>
+              <input type="checkbox" id="chat-streaming-enabled" checked>
+            </label>
+            <button class="btn btn-primary" id="chat-send" tabindex="6">Send</button>
+          </div>
+        </div>
+
+        <details class="chat-tuning chat-advanced" id="chat-tuning" style="margin-top: 12px;">
+          <summary>
+            <span>Advanced</span>
+            <span class="chat-tuning-summary" id="chat-tuning-summary">
+              Assistant mode · balanced · paragraph reply
+            </span>
+          </summary>
+          <div class="chat-advanced-grid">
+            <label class="chat-inline-toggle" for="chat-genai-tuning-toggle">
+              <span>GenAI tuning</span>
+              <input type="checkbox" id="chat-genai-tuning-toggle">
+            </label>
+
+            <label>
+              Send mode
+              <select id="chat-route">
+                <option value="fast">Fast chat only</option>
+                <option value="both">Fast chat + Thoughtful Expert</option>
+                <option value="teacher-only">Thoughtful Expert only</option>
+              </select>
+            </label>
+
+            <label>
+              Thoughtful Expert backend
+              <select id="chat-deep-backend-select">
+                <option value="aerollm">AeroLLM</option>
+                <option value="airllm">AirLLM</option>
+              </select>
+            </label>
+
+            <label class="chat-inline-toggle chat-inline-toggle-wide" for="chat-deep-enable">
+              <span id="chat-deep-text">off — using the selected model above</span>
+              <input type="checkbox" id="chat-deep-enable">
+            </label>
+
+            <div class="chat-tuning-hint" id="chat-optional-backend-hint">
+              30-120 seconds per reply · first use takes minutes to load
+            </div>
+            <div class="chat-tuning-hint" id="chat-optional-backend-install" hidden></div>
+
+            <div class="chat-advanced-tuning-fields" id="chat-advanced-tuning-fields" hidden>
+              <label class="chat-tuning-field">
+                <span class="chat-tuning-label">
+                  Temperature (creativity)
+                  <span class="chat-tuning-hint">
+                    Temperature: 0 = deterministic (best for coding), higher = more creative. <br>
+                    low = same answer every time · high = surprising answers
+                  </span>
+                </span>
+                <div class="chat-tuning-slider-row">
+                  <input type="range" id="chat-temp"
+                         min="0" max="2" step="0.1" value="0.7" />
+                  <output id="chat-temp-val" class="chat-tuning-readout">
+                    <span class="readout-word">Balanced</span>
+                    <span class="readout-num">0.7</span>
+                  </output>
+                </div>
+                <div class="chat-tuning-zones" data-scale="temperature">
+                  <span data-zone="strict">Strict</span>
+                  <span data-zone="focused">Focused</span>
+                  <span data-zone="balanced">Balanced</span>
+                  <span data-zone="open">Open</span>
+                  <span data-zone="wild">Wild</span>
+                </div>
+              </label>
+
+              <label class="chat-tuning-field">
+                <span class="chat-tuning-label">
+                  How many word choices?
+                  <span class="chat-tuning-hint">
+                    off = only the most likely next word · wide = pick from many plausible ones
+                  </span>
+                </span>
+                <div class="chat-tuning-slider-row">
+                  <input type="range" id="chat-top-p"
+                         min="0" max="1" step="0.05" value="0" />
+                  <output id="chat-top-p-val" class="chat-tuning-readout">
+                    <span class="readout-word">Off</span>
+                    <span class="readout-num">—</span>
+                  </output>
+                </div>
+                <div class="chat-tuning-zones" data-scale="topP">
+                  <span data-zone="off">Off</span>
+                  <span data-zone="narrow">Narrow</span>
+                  <span data-zone="moderate">Moderate</span>
+                  <span data-zone="wide">Wide</span>
+                </div>
+              </label>
+
+              <!-- Max tokens slider moved to header -->
+
+              <button class="btn btn-ghost btn-sm" type="button" id="chat-tuning-reset"
+                      title="Snap back to Assistant preset (balanced, paragraph reply)">
+                Reset to Assistant
+              </button>
+            </div>
+          </div>
+        </details>
+
+        <div class="chat-route-note" id="chat-route-note">
+          Fast chat only. Switch to a Thoughtful Expert mode when you want the larger model involved.
+        </div>
+
+        <input type="hidden" id="fast-model" value="">
+
+        <div class="fast-model-picker" id="fast-model-picker-legacy" hidden aria-hidden="true">
+          <div class="fast-model-head">
+            <span class="fast-model-label">Legacy gallery</span>
+            <span class="fast-model-tabs">
+              <button type="button" class="fmp-tab active" data-tab="installed">Installed <span id="fmp-count-installed">·</span></button>
+              <button type="button" class="fmp-tab" data-tab="catalog">Catalog <span id="fmp-count-catalog">·</span></button>
+            </span>
+          </div>
+          <div class="fmp-grid" id="fmp-grid">
+            <div class="fmp-loading">scanning runtimes…</div>
+          </div>
+          <div class="fmp-install" id="fmp-install" hidden>
+            <div class="fmp-install-head">
+              <span class="fmp-install-title" id="fmp-install-title">Install</span>
+              <button type="button" class="fmp-copy" id="fmp-install-copy">Copy</button>
+            </div>
+            <code class="fmp-install-cmd" id="fmp-install-cmd"></code>
+            <div class="fmp-install-hint">Legacy install hint panel.</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <aside class="chat-card compute-card chat-side-panel" id="chat-side-panel" hidden>
+      <div class="chat-side-head">
         <h2>
-          Compute Source
+          Control Panel
           <span class="chat-chip" id="compute-source-chip">my machine</span>
         </h2>
-        <button class="btn btn-sm btn-ghost" id="btn-manage-providers" type="button">⚙ Manage providers</button>
+        <button class="btn btn-sm btn-ghost" id="chat-side-close" type="button">Close</button>
       </div>
       <p class="chat-sub" style="margin-top:-4px">
-        Pick where your chat runs. Local stays on your machine; cloud options send your message to the vendor (and need an API key).
-        Tokens save to <code>lab/data/secrets.env</code> (chmod 0600, git-ignored).
+        Pick where your chat runs. Local stays on your machine; cloud options send your message to the vendor and may need API credentials.
       </p>
       <div class="airgapped-banner" id="airgapped-banner" style="display:none">
         <strong>Airgapped mode.</strong> Cloud providers are locked — only <em>My Machine</em> works.
@@ -361,10 +1011,6 @@
             <strong>My Machine</strong>
             <br>
             <span class="chat-muted" id="mm-primary-line">Local — detecting runtime…</span>
-            <!-- Populated by JS from /api/system/health → local_inference.
-                 Shows the in-process backend (MLX / vLLM / llama.cpp) plus
-                 every detected OpenAI-compat server (Ollama, MLX OpenAI,
-                 LM Studio, vLLM, LMDeploy, etc.) with their port. -->
             <span class="mm-endpoints" id="mm-endpoints"></span>
           </span>
         </label>
@@ -374,7 +1020,7 @@
         </label>
         <label class="compute-opt">
           <input type="radio" name="compute-source" value="nvidia">
-          <span class="compute-opt-label"><strong>NVIDIA NIM</strong><br><span class="chat-muted">build.nvidia.com</span></span>
+          <span class="compute-opt-label"><strong>NVIDIA</strong><br><span class="chat-muted">build.nvidia.com</span></span>
         </label>
         <label class="compute-opt">
           <input type="radio" name="compute-source" value="openrouter">
@@ -382,7 +1028,7 @@
         </label>
         <label class="compute-opt">
           <input type="radio" name="compute-source" value="huggingface">
-          <span class="compute-opt-label"><strong>HuggingFace</strong><br><span class="chat-muted">Inference API</span></span>
+          <span class="compute-opt-label"><strong>HF</strong><br><span class="chat-muted">Inference API</span></span>
         </label>
         <label class="compute-opt">
           <input type="radio" name="compute-source" value="custom">
@@ -397,249 +1043,107 @@
         </label>
         <label id="compute-url-wrap" style="flex:1; display:none">
           Endpoint URL
-          <input id="compute-url" type="text" autocomplete="off" placeholder="https://…/v1">
+          <input id="compute-url" type="text" autocomplete="off" placeholder="https://.../v1">
         </label>
         <button class="btn btn-primary" id="compute-save">Save token</button>
       </div>
       <div class="chat-muted" id="compute-status" style="margin-top:6px"></div>
-    </section>
 
-    <section class="chat-card compose-card">
-      <h2>✨ Compose</h2>
-      <div class="chat-compose">
-        <textarea id="chat-input" rows="3" placeholder="Type a question. Press ⏎ to send, Shift+⏎ for a newline. Markdown is rendered in replies." autocomplete="off"></textarea>
-        <div class="chat-compose-actions">
-          <button class="btn btn-primary" id="chat-send">Send</button>
-          <button class="btn btn-ghost" id="chat-clear">Clear</button>
-        </div>
+      <div class="chat-side-links">
+        <button class="btn btn-sm btn-ghost" id="btn-manage-providers" type="button">Manage providers</button>
+        <a class="tuning-link" href="/tuning" title="Frontier LLM hosting on consumer-grade hardware">
+          <span>🧪</span>
+          <span>Frontier LLM Hosting</span>
+        </a>
       </div>
-
-      <!-- Presets for quick brain mode selection -->
-      <div class="chat-presets" role="radiogroup" aria-label="Brain mode" style="margin-bottom: 16px;">
-        <button type="button" class="chat-preset" data-preset="default"
-                title="Balanced mix of accuracy and variety. Good first pick.">
-          <span class="cp-icon">⚖</span>
-          <span class="cp-label">Default</span>
-          <span class="cp-meta">balanced, good for most chat</span>
-        </button>
-        <button type="button" class="chat-preset" data-preset="factual"
-                title="Stick to the facts. Short, confident answers.">
-          <span class="cp-icon">🎯</span>
-          <span class="cp-label">Factual</span>
-          <span class="cp-meta">precise answers, fewer flourishes</span>
-        </button>
-        <button type="button" class="chat-preset" data-preset="code"
-                title="Maximum determinism. Structured output, minimal drift.">
-          <span class="cp-icon">&lt;/&gt;</span>
-          <span class="cp-label">Code</span>
-          <span class="cp-meta">structured output, for code or JSON</span>
-        </button>
-        <button type="button" class="chat-preset" data-preset="creative"
-                title="Let the model wander. More variety, more flair, more risk.">
-          <span class="cp-icon">✨</span>
-          <span class="cp-label">Creative</span>
-          <span class="cp-meta">brainstorming, variations, wander</span>
-        </button>
-      </div>
-
-      <div class="chat-controls">
-        <label>
-          Send mode
-          <select id="chat-route">
-            <option value="fast">Fast chat only</option>
-            <option value="both">Fast chat + Thoughtful Expert</option>
-            <option value="teacher-only">Thoughtful Expert only</option>
-          </select>
-        </label>
-        <div class="fast-model-picker">
-          <div class="fast-model-head">
-            <span class="fast-model-label">Fast model</span>
-            <span class="fast-model-tabs">
-              <button type="button" class="fmp-tab active" data-tab="installed">Installed <span id="fmp-count-installed">·</span></button>
-              <button type="button" class="fmp-tab" data-tab="catalog">Catalog <span id="fmp-count-catalog">·</span></button>
-            </span>
-          </div>
-          <!-- Hidden input keeps the existing send code happy:
-               $('fast-model').value still resolves to the selected
-               model id. Card clicks update it. -->
-          <input type="hidden" id="fast-model" value="">
-          <div class="fmp-grid" id="fmp-grid">
-            <div class="fmp-loading">scanning runtimes…</div>
-          </div>
-          <div class="fmp-install" id="fmp-install" hidden>
-            <div class="fmp-install-head">
-              <span class="fmp-install-title" id="fmp-install-title">Install</span>
-              <button type="button" class="fmp-copy" id="fmp-install-copy">Copy</button>
-            </div>
-            <code class="fmp-install-cmd" id="fmp-install-cmd"></code>
-            <div class="fmp-install-hint">
-              Once it finishes downloading, hit <strong>Installed</strong> above and pick it.
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Advanced tuning with zones and presets -->
-      <details class="chat-tuning" id="chat-tuning" style="margin-top: 12px;">
-        <summary>
-          <span>⚙ Advanced tuning</span>
-          <span class="chat-tuning-summary" id="chat-tuning-summary">
-            Default mode · balanced · paragraph reply
-          </span>
-        </summary>
-        <div class="chat-tuning-grid">
-
-          <!-- Temperature -->
-          <label class="chat-tuning-field">
-            <span class="chat-tuning-label">
-              How much creativity?
-              <span class="chat-tuning-hint">
-                low = same answer every time · high = surprising answers
-              </span>
-            </span>
-            <div class="chat-tuning-slider-row">
-              <input type="range" id="chat-temp"
-                     min="0" max="2" step="0.1" value="0.7" />
-              <output id="chat-temp-val" class="chat-tuning-readout">
-                <span class="readout-word">Balanced</span>
-                <span class="readout-num">0.7</span>
-              </output>
-            </div>
-            <div class="chat-tuning-zones" data-scale="temperature">
-              <span data-zone="strict">Strict</span>
-              <span data-zone="focused">Focused</span>
-              <span data-zone="balanced">Balanced</span>
-              <span data-zone="open">Open</span>
-              <span data-zone="wild">Wild</span>
-            </div>
-          </label>
-
-          <!-- Top-p -->
-          <label class="chat-tuning-field">
-            <span class="chat-tuning-label">
-              How many word choices?
-              <span class="chat-tuning-hint">
-                off = only the most likely next word · wide = pick from many plausible ones
-              </span>
-            </span>
-            <div class="chat-tuning-slider-row">
-              <input type="range" id="chat-top-p"
-                     min="0" max="1" step="0.05" value="0" />
-              <output id="chat-top-p-val" class="chat-tuning-readout">
-                <span class="readout-word">Off</span>
-                <span class="readout-num">—</span>
-              </output>
-            </div>
-            <div class="chat-tuning-zones" data-scale="topP">
-              <span data-zone="off">Off</span>
-              <span data-zone="narrow">Narrow</span>
-              <span data-zone="moderate">Moderate</span>
-              <span data-zone="wide">Wide</span>
-            </div>
-          </label>
-
-          <!-- Max tokens -->
-          <label class="chat-tuning-field">
-            <span class="chat-tuning-label">
-              How long should the reply be?
-              <span class="chat-tuning-hint">
-                shorter = faster · longer = more detail (and more waiting)
-              </span>
-            </span>
-            <div class="chat-tuning-slider-row">
-              <input type="range" id="chat-max-tokens"
-                     min="64" max="4096" step="64" value="512" />
-              <output id="chat-max-tokens-val" class="chat-tuning-readout">
-                <span class="readout-word">Paragraph</span>
-                <span class="readout-num">512 tok</span>
-              </output>
-            </div>
-            <div class="chat-tuning-zones" data-scale="maxTokens">
-              <span data-zone="oneline">One line</span>
-              <span data-zone="paragraph">Paragraph</span>
-              <span data-zone="essay">Essay</span>
-              <span data-zone="long">Long reply</span>
-            </div>
-          </label>
-
-          <!-- Model -->
-          <label class="chat-tuning-field chat-tuning-model">
-            <span class="chat-tuning-label">
-              Which brain?
-              <span class="chat-tuning-hint" id="chat-model-hint">loading…</span>
-            </span>
-            <select id="chat-model-select">
-              <option value="">(current)</option>
-            </select>
-          </label>
-
-          <!-- Deep-route escape hatch — lets the user send through the Thoughtful Expert backend -->
-          <label class="chat-tuning-field chat-deep-toggle">
-            <span class="chat-tuning-label">
-              Thoughtful Expert backend
-              <span class="chat-tuning-hint" id="chat-optional-backend-hint">
-                ⚠ 30-120 seconds per reply · first use takes minutes to load
-              </span>
-            </span>
-            <select id="chat-deep-backend-select">
-              <option value="aerollm">AeroLLM</option>
-              <option value="airllm">AirLLM</option>
-            </select>
-            <div class="chat-tuning-hint" id="chat-optional-backend-install" hidden></div>
-            <label class="chat-deep-switch">
-              <input type="checkbox" id="chat-deep-enable" />
-              <span class="chat-deep-track"></span>
-              <span class="chat-deep-text" id="chat-deep-text">off — using the fast model above</span>
-            </label>
-          </label>
-
-          <button class="btn btn-ghost btn-sm" type="button" id="chat-tuning-reset"
-                  title="Snap back to Default preset (balanced, paragraph reply)">
-            ↺ Reset to Default
-          </button>
-        </div>
-      </details>
-
-      <div class="chat-route-note" id="chat-route-note">
-        Fast chat only. Switch to a Thoughtful Expert mode when you want the larger model involved.
-      </div>
-    </section>
-
-    <section class="chat-card">
-      <h2>
-        Fast Chat
-        <span class="chat-chip" id="fast-model-chip">loading…</span>
-      </h2>
-      <div class="chat-log" id="fast-log">
-        <div class="chat-msg">
-          <div class="chat-role">LAB</div>
-          <div class="chat-bubble">Quick local path is ready.</div>
-        </div>
-      </div>
-    </section>
-
-    <section class="chat-card">
-      <h2>
-        Thoughtful Expert
-        <span class="chat-chip deep" id="teacher-model-chip">loading…</span>
-      </h2>
-      <div class="chat-log" id="teacher-log">
-        <div class="chat-msg">
-          <div class="chat-role">THOUGHTFUL EXPERT</div>
-          <div class="chat-bubble">Enable Thoughtful Expert below when you want the same prompt sent through the larger model too.</div>
-        </div>
-      </div>
-      <div class="teacher-cta">Tune Thoughtful Expert performance in <a href="/tuning">Frontier LLM Hosting</a>.</div>
-    </section>
+    </aside>
   </div>
 </div>
+
+<div class="chat-loader-backdrop" id="chat-loader-backdrop" hidden>
+  <div class="chat-loader-bar" role="status" aria-live="polite">
+    <div class="chat-loader-copy">
+      <strong id="chat-loader-title">Loading model…</strong>
+      <span id="chat-loader-status">Preparing the selected runtime.</span>
+      <span id="chat-loader-eta">ETA: estimating…</span>
+    </div>
+    <button class="chat-manage-link" id="chat-loader-cancel" type="button">Cancel load</button>
+  </div>
+</div>
+
+<div class="chat-modal-backdrop" id="chat-model-help-backdrop" hidden>
+  <div class="chat-modal-panel" role="dialog" aria-modal="true" aria-labelledby="chat-model-help-title">
+    <div class="chat-modal-head">
+      <h3 id="chat-model-help-title">Local Models — How to add</h3>
+      <button class="btn btn-sm btn-ghost" id="chat-model-help-close" type="button">Close</button>
+    </div>
+    <div class="chat-modal-body" id="chat-model-help-body"></div>
+  </div>
+</div>
+
+<div class="chat-modal-backdrop" id="chat-preset-backdrop" hidden>
+  <div class="chat-modal-panel" role="dialog" aria-modal="true" aria-labelledby="chat-preset-title">
+    <div class="chat-modal-head">
+      <h3 id="chat-preset-title">Preset Starters</h3>
+      <button class="btn btn-sm btn-ghost" id="chat-preset-close" type="button">Close</button>
+    </div>
+    <div class="chat-modal-body chat-preset-editor">
+      <p class="chat-sub">
+        Optional. These are the starter lines inserted into the input when you click <strong>Assistant</strong>,
+        <strong>Code</strong>, or <strong>Explain</strong>. If you do nothing, the built-in defaults are used.
+      </p>
+      <div class="chat-preset-help-grid">
+        <div class="chat-preset-help-card">
+          <strong>Assistant</strong>
+          <span>General-purpose help and conversation.</span>
+        </div>
+        <div class="chat-preset-help-card">
+          <strong>Code</strong>
+          <span>Coding help with concrete steps and output.</span>
+        </div>
+        <div class="chat-preset-help-card">
+          <strong>Explain</strong>
+          <span>Plain-language explanation with a simple example.</span>
+        </div>
+      </div>
+      <label>
+        Assistant starter text
+        <span class="chat-muted">Used for general questions and conversation.</span>
+        <textarea id="preset-template-assistant" rows="4"></textarea>
+      </label>
+      <label>
+        Code starter text
+        <span class="chat-muted">Used when you want implementation help.</span>
+        <textarea id="preset-template-code" rows="4"></textarea>
+      </label>
+      <label>
+        Explain starter text
+        <span class="chat-muted">Used when you want a clearer walkthrough.</span>
+        <textarea id="preset-template-explain" rows="4"></textarea>
+      </label>
+      <div class="chat-modal-actions">
+        <button class="btn btn-ghost" id="chat-preset-reset" type="button">Reset defaults</button>
+        <button class="btn btn-ghost" id="chat-preset-cancel" type="button">Cancel</button>
+        <button class="btn btn-primary" id="chat-preset-save" type="button">Save and Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="chat-meta-popover" id="chat-meta-popover" hidden></div>
 
 <script>
 (function () {
   'use strict';
   const $ = (id) => document.getElementById(id);
 
-  const state = { history: [] };
+  const state = {
+    history: [],
+    modelPayload: null,
+    modelInfo: new Map(),
+    composePresets: {},
+    pendingModelLoad: null,
+  };
 
   // ── Chat tuning + presets (lifted from dashboard) ────────────────────
   // Presets are the focal UX — one click sets a known-good (temperature,
@@ -647,8 +1151,9 @@
   // each slider has a plain-language zone label that updates live.
   const CHAT_TUNING = (() => {
     const LS_KEY = 'arail.chat.tuning';
+    const PRESET_TEXT_KEY = 'arail.chat.compose-presets.v1';
     const DEFAULTS = {
-      preset: 'default',
+      preset: 'assistant',
       temperature: 0.7,
       topP: 0,
       maxTokens: 512,
@@ -656,11 +1161,24 @@
       optionalBackend: '',
     };
     const PRESETS = {
-      default:  { temperature: 0.7, topP: 0 },
-      factual:  { temperature: 0.2, topP: 0.9 },
-      code:     { temperature: 0.1, topP: 0.95 },
-      creative: { temperature: 1.2, topP: 0.95 },
+      assistant: { temperature: 0.7, topP: 0,    maxTokens: 512 },
+      code:      { temperature: 0.1, topP: 0.2,  maxTokens: 768 },
+      explain:   { temperature: 0.35, topP: 0.6, maxTokens: 896 },
     };
+    const PRESET_TEXT_DEFAULTS = {
+      assistant: 'You are a helpful assistant. Answer clearly and directly. If the request is unclear, ask one short clarifying question.',
+      code: 'Help me with this coding task. Return concrete steps, working code, and any caveats I should know first.',
+      explain: 'Explain this clearly, step by step, with minimal jargon. Include one practical example I can reuse.',
+    };
+
+    function normalizeComposePresets(raw) {
+      const normalized = {};
+      Object.entries(PRESET_TEXT_DEFAULTS).forEach(([key, fallback]) => {
+        const value = raw && typeof raw[key] === 'string' ? raw[key].trim() : '';
+        normalized[key] = value || fallback;
+      });
+      return normalized;
+    }
 
     // Value → plain-language zone.
     const ZONES = {
@@ -711,6 +1229,38 @@
     const resetBtn = $('chat-tuning-reset');
     const presetBtns = document.querySelectorAll('.chat-preset');
     const optionalBackends = new Map();
+    const tuningToggle = $('chat-genai-tuning-toggle');
+    const tuningFields = $('chat-advanced-tuning-fields');
+
+    function loadComposePresets() {
+      try {
+        return normalizeComposePresets(
+          JSON.parse(localStorage.getItem(PRESET_TEXT_KEY) || '{}')
+        );
+      } catch (e) {
+        return normalizeComposePresets({});
+      }
+    }
+
+    function saveComposePresets(next) {
+      state.composePresets = normalizeComposePresets(next || {});
+      try {
+        localStorage.setItem(PRESET_TEXT_KEY, JSON.stringify(state.composePresets));
+      } catch (e) { /* quota */ }
+    }
+
+    function applyComposePreset(id) {
+      const template = (state.composePresets[id] || '').trim();
+      const input = $('chat-input');
+      if (!input || !template) return;
+      if (!input.value.trim()) {
+        input.value = template + '\n\n';
+      } else if (!input.value.startsWith(template)) {
+        input.value = template + '\n\n' + input.value.trim();
+      }
+      input.focus();
+      input.selectionStart = input.selectionEnd = input.value.length;
+    }
 
     function highlightZone(scale, zoneId) {
       const strip = document.querySelector(`.chat-tuning-zones[data-scale="${scale}"]`);
@@ -834,9 +1384,18 @@
       if (backendSelect && st.optionalBackend && optionalBackends.has(st.optionalBackend)) {
         backendSelect.value = st.optionalBackend;
       }
+      if (tuningFields && tuningToggle) {
+        tuningFields.hidden = !tuningToggle.checked;
+      }
       updatePresetHighlight();
       updateSummary();
     }
+
+    state.composePresets = loadComposePresets();
+    window.__arailGetComposePresets = () => ({ ...state.composePresets });
+    window.__arailSetComposePresets = (next) => {
+      saveComposePresets(next || PRESET_TEXT_DEFAULTS);
+    };
 
     // Preset click → snap to preset values
     presetBtns.forEach(btn => {
@@ -846,11 +1405,19 @@
         if (!p) return;
         st.temperature = p.temperature;
         st.topP = p.topP;
+        st.maxTokens = p.maxTokens;
         st.preset = id;
         save(st);
+        applyComposePreset(id);
         applyToInputs();
       });
     });
+
+    if (tuningToggle) {
+      tuningToggle.addEventListener('change', () => {
+        applyToInputs();
+      });
+    }
 
     // Manual slider nudges
     tempInput.addEventListener('input', () => {
@@ -890,32 +1457,16 @@
       renderOptionalBackendState();
     });
 
-    // Populate model dropdown from /api/chat/models
     fetch('/api/chat/models').then(r => r.json()).then(d => {
-      modelSelect.innerHTML = '';
-      const defaultOpt = document.createElement('option');
-      defaultOpt.value = '';
-      defaultOpt.textContent = d.current
-        ? `(current · ${d.current.split('/').pop()})`
-        : '(current)';
-      modelSelect.appendChild(defaultOpt);
-
-      (d.models || []).forEach(m => {
-        if (m === d.current) return;
-        const opt = document.createElement('option');
-        opt.value = m;
-        opt.textContent = m;
-        modelSelect.appendChild(opt);
-      });
-
-      populateOptionalBackends(d.optional_backends || [], d.default_optional_backend || 'aerollm');
-      if (!d.switchable) {
-        modelSelect.disabled = true;
-        modelHint.textContent =
-          `${d.backend || 'backend'} — single-model`;
-      } else {
-        modelHint.textContent = `${(d.models || []).length} available · ${d.backend}`;
+      state.modelPayload = d;
+      if (typeof window.__arailHydrateChatModels === 'function') {
+        window.__arailHydrateChatModels(d);
       }
+      populateOptionalBackends(d.optional_backends || [], d.default_optional_backend || 'aerollm');
+      const compact = d.compact || {};
+      const localModels = (((compact.local_models || {}).items) || []);
+      modelHint.textContent = (compact.local_models || {}).headroom ||
+        `${localModels.length} local models · ${d.backend || 'backend'}`;
       applyToInputs();
     }).catch(() => {
       modelHint.textContent = 'unavailable';
@@ -968,11 +1519,147 @@
     return esc(raw).replace(/\n/g, '<br>');
   }
 
+  function compactProviderName(provider) {
+    const raw = String(provider || '').trim().toLowerCase();
+    if (!raw) return '';
+    const base = raw.replace(/^mlx-community\//, '').split(':')[0];
+    const mapping = {
+      my_machine: 'local',
+      huggingface: 'hf',
+      openrouter: 'openrouter',
+    };
+    return mapping[base] || base;
+  }
+
+  function compactModelName(model) {
+    const raw = String(model || '').trim();
+    return raw ? raw.split('/').pop().replace(/^mlx-community\//i, '') : '';
+  }
+
+  function registerModelInfo(entry) {
+    if (!entry || !entry.id) return;
+    state.modelInfo.set(String(entry.id), entry);
+    if (entry.label) state.modelInfo.set(String(entry.label), entry);
+  }
+
+  function lookupModelInfo(model) {
+    if (!model) return null;
+    return state.modelInfo.get(String(model)) || state.modelInfo.get(compactModelName(model)) || null;
+  }
+
+  function decorateBubbleContent(bubble) {
+    if (!bubble) return;
+    bubble.querySelectorAll('pre').forEach((pre) => {
+      if (pre.querySelector('.chat-code-copy')) return;
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'chat-code-copy';
+      btn.textContent = 'Copy';
+      btn.addEventListener('click', async () => {
+        try {
+          await navigator.clipboard.writeText(pre.innerText || '');
+          btn.textContent = 'Copied';
+          setTimeout(() => { btn.textContent = 'Copy'; }, 1200);
+        } catch (e) {
+          btn.textContent = 'Select manually';
+          setTimeout(() => { btn.textContent = 'Copy'; }, 1200);
+        }
+      });
+      pre.appendChild(btn);
+    });
+  }
+
+  function ensureCollapseToggle(wrap, bubble, text) {
+    if (!wrap || !bubble) return;
+    const existing = wrap.querySelector('.chat-collapse-toggle');
+    if ((text || '').length < 1400) {
+      if (existing) existing.remove();
+      bubble.classList.remove('chat-bubble-collapsed');
+      return;
+    }
+    if (existing) return;
+    bubble.classList.add('chat-bubble-collapsed');
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'chat-collapse-toggle';
+    toggle.textContent = 'Expand response';
+    toggle.addEventListener('click', () => {
+      const collapsed = bubble.classList.toggle('chat-bubble-collapsed');
+      toggle.textContent = collapsed ? 'Expand response' : 'Collapse response';
+    });
+    wrap.appendChild(toggle);
+  }
+
+  function appendMetaSeparator(footer) {
+    if (!footer.childNodes.length) return;
+    const sep = document.createElement('span');
+    sep.className = 'chat-meta-sep';
+    sep.textContent = '·';
+    footer.appendChild(sep);
+  }
+
+  function appendMetaText(footer, value) {
+    if (!value) return;
+    appendMetaSeparator(footer);
+    const span = document.createElement('span');
+    span.textContent = value;
+    footer.appendChild(span);
+  }
+
+  function showMetaPopover(anchor, meta, info) {
+    const pop = $('chat-meta-popover');
+    if (!pop || !anchor) return;
+    const overlay = (info && info.overlay) || {};
+    const provider = compactProviderName((meta && (meta.provider || meta.backend)) || (overlay.compute_source || ''));
+    const details = [
+      ['Compute source', overlay.compute_source || provider || 'unknown'],
+      ['GPU used', overlay.gpu_used || (state.modelPayload && state.modelPayload.hardware && state.modelPayload.hardware.label) || 'system default'],
+      ['VRAM used', overlay.vram_used_gb ? `${overlay.vram_used_gb}GB` : 'unknown'],
+      ['KV cache', overlay.kv_cache_location || 'system memory'],
+      ['Prefetch depth', overlay.prefetch_depth || (meta && meta.streaming ? 'streaming enabled' : 'n/a')],
+    ];
+    pop.innerHTML = details.map(([label, value]) =>
+      `<div><strong>${esc(label)}:</strong> ${esc(value)}</div>`
+    ).join('') + `<div style="margin-top:8px"><a href="${esc((overlay.backend_registry_link || '/tuning'))}">Show more</a></div>`;
+    const rect = anchor.getBoundingClientRect();
+    pop.style.top = `${Math.min(rect.bottom + 8, window.innerHeight - 180)}px`;
+    pop.style.left = `${Math.max(12, Math.min(rect.left, window.innerWidth - 332))}px`;
+    pop.hidden = false;
+  }
+
+  function buildMetaFooter(meta) {
+    if (!meta) return null;
+    const footer = document.createElement('div');
+    footer.className = 'chat-meta';
+    const model = compactModelName(meta.display_model || meta.model);
+    const info = lookupModelInfo(meta.model || model);
+    const provider = compactProviderName((info && info.runtime) || meta.provider || meta.backend);
+    if (provider) appendMetaText(footer, provider);
+    if (model) {
+      appendMetaSeparator(footer);
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'chat-meta-model';
+      button.textContent = model;
+      button.addEventListener('click', (event) => {
+        event.stopPropagation();
+        showMetaPopover(button, meta, info);
+      });
+      footer.appendChild(button);
+    }
+    if (meta.tokens_per_sec) appendMetaText(footer, `${meta.tokens_per_sec} t/s`);
+    if (meta.latency_ms != null) appendMetaText(footer, `${Math.round(meta.latency_ms)} ms`);
+    if (meta.tokens_used != null) appendMetaText(footer, `${meta.tokens_used} tok`);
+    if (meta.streaming) appendMetaText(footer, 'streaming');
+    return footer;
+  }
+
   function setBubble(bubble, text, isUser) {
     if (isUser) {
       bubble.textContent = text || '';
     } else {
       bubble.innerHTML = renderMarkdown(text);
+      decorateBubbleContent(bubble);
     }
   }
 
@@ -982,9 +1669,14 @@
     wrap.className = 'chat-msg';
     wrap.innerHTML =
       `<div class="chat-role">${esc(role)}</div>` +
-      `<div class="chat-bubble${isUser ? ' user' : ''}"></div>` +
-      (meta ? `<div class="chat-meta">${esc(meta)}</div>` : '');
-    setBubble(wrap.querySelector('.chat-bubble'), text || '', isUser);
+      `<div class="chat-bubble${isUser ? ' user' : ''}"></div>`;
+    const bubble = wrap.querySelector('.chat-bubble');
+    setBubble(bubble, text || '', isUser);
+    if (!isUser) ensureCollapseToggle(wrap, bubble, text || '');
+    if (meta && !isUser) {
+      const footer = buildMetaFooter(meta);
+      if (footer) wrap.appendChild(footer);
+    }
     log.appendChild(wrap);
     log.scrollTop = log.scrollHeight;
     return wrap;
@@ -1001,11 +1693,10 @@
       },
       done(finalText, meta) {
         setBubble(bubble, finalText || text || '(empty response)', false);
+        ensureCollapseToggle(wrap, bubble, finalText || text || '');
         if (meta) {
-          const m = document.createElement('div');
-          m.className = 'chat-meta';
-          m.textContent = meta;
-          wrap.appendChild(m);
+          const footer = buildMetaFooter(meta);
+          if (footer) wrap.appendChild(footer);
         }
       }
     };
@@ -1043,36 +1734,48 @@
   }
 
   function metaFromFinal(d) {
-    const parts = [];
-    if (d.backend) parts.push(d.backend);
-    if (d.model) parts.push(d.model);
-    if (d.tokens_per_sec) parts.push(d.tokens_per_sec + ' t/s');
-    if (d.latency_ms != null) parts.push(Math.round(d.latency_ms) + ' ms');
-    if (d.tokens_used != null) parts.push(d.tokens_used + ' tok');
-    return parts.join(' · ');
+    if (!d) return null;
+    return {
+      ...d,
+      streaming: !!($('chat-streaming-enabled') && $('chat-streaming-enabled').checked),
+      provider: d.provider || d.backend,
+      display_model: compactModelName(d.model),
+    };
   }
 
   function teacherSelection() {
-    const select = $('teacher-backend');
-    const option = select.options[select.selectedIndex];
+    const select = $('chat-deep-backend-select');
+    const option = select ? select.options[select.selectedIndex] : null;
     return {
-      backend: select.value || 'airllm',
-      label: option ? option.textContent : 'Deep Teacher',
+      backend: select ? (select.value || 'airllm') : 'airllm',
+      label: option ? option.textContent : 'Thoughtful Expert',
       model: option ? option.dataset.model || '' : '',
     };
   }
 
   function syncTeacherChip() {
     const selected = teacherSelection();
-    $('teacher-model-chip').textContent = selected.model || selected.label || 'deep model';
+    $('teacher-model-chip').textContent = compactModelName(selected.model) || selected.label || 'deep model';
   }
+
+  function renderDeepToggle() {
+    const enabled = !!($('chat-deep-enable') && $('chat-deep-enable').checked);
+    const selected = teacherSelection();
+    $('chat-deep-text').textContent = enabled
+      ? `on — duplicate to ${compactModelName(selected.model) || selected.label || 'Thoughtful Expert'}`
+      : 'off — using the selected model above';
+  }
+
+  window.__arailRenderDeepToggle = renderDeepToggle;
 
   function routeSelection() {
     const mode = $('chat-route').value || 'fast';
+    const deepEnabled = !!($('chat-deep-enable') && $('chat-deep-enable').checked);
     return {
       mode,
+      deepEnabled,
       sendFast: mode !== 'teacher-only',
-      sendTeacher: mode !== 'fast',
+      sendTeacher: mode !== 'fast' || deepEnabled,
       teacherOnly: mode === 'teacher-only',
     };
   }
@@ -1091,6 +1794,244 @@
     note.textContent = 'Fast chat only. Switch to a teacher mode when you want the larger model involved.';
   }
 
+  async function requestJson(url, payload) {
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return r.json();
+  }
+
+  function setLoaderState(next) {
+    const backdrop = $('chat-loader-backdrop');
+    if (!backdrop) return;
+    if (!next) {
+      backdrop.hidden = true;
+      document.body.style.overflow = '';
+      return;
+    }
+    $('chat-loader-title').textContent = next.title || 'Loading model…';
+    $('chat-loader-status').textContent = next.message || 'Preparing the selected runtime.';
+    $('chat-loader-eta').textContent = next.eta_seconds ? `ETA: ~${next.eta_seconds}s` : 'ETA: estimating…';
+    backdrop.hidden = false;
+    document.body.style.overflow = 'hidden';
+  }
+
+  async function prepareModelLoad(option) {
+    if (!option) return;
+    const model = option.value || '';
+    const runtime = option.dataset.runtime || '';
+    const provider = selectedProvider();
+    const label = compactModelName(model) || option.textContent || 'model';
+    const controller = new AbortController();
+    state.pendingModelLoad = controller;
+    setLoaderState({ title: `Loading ${label}…`, message: 'Preparing the selected runtime.', eta_seconds: 15 });
+    try {
+      const r = await fetch('/api/chat/model-load', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model, runtime, provider }),
+        signal: controller.signal,
+      });
+      const data = await r.json();
+      if (controller.signal.aborted) return;
+      if (state.modelPayload) state.modelPayload.model_load = data;
+      $('chat-model-hint').textContent = data.message || $('chat-model-hint').textContent;
+      if (data.state === 'error') {
+        $('compute-status').textContent = data.message || 'Model load failed';
+      }
+    } catch (e) {
+      if (e.name !== 'AbortError') {
+        $('chat-model-hint').textContent = 'Model load failed: ' + (e.message || e);
+      }
+    } finally {
+      if (!controller.signal.aborted) {
+        state.pendingModelLoad = null;
+        setLoaderState(null);
+      }
+    }
+  }
+
+  function renderModelHelp(onboarding) {
+    const body = $('chat-model-help-body');
+    if (!body || !onboarding) return;
+    const layout = Array.isArray(onboarding.layout) ? onboarding.layout : [];
+    body.innerHTML = [
+      onboarding.folder ? `<p><strong>Folder:</strong> ${esc(onboarding.folder)}</p>` : '',
+      layout.length ? `<ul>${layout.map((item) => `<li>${esc(item)}</li>`).join('')}</ul>` : '',
+      onboarding.cli_example ? `<code>${esc(onboarding.cli_example)}</code>` : '',
+      onboarding.formats_note ? `<p>${esc(onboarding.formats_note)}</p>` : '',
+      onboarding.autodetect_note ? `<p>${esc(onboarding.autodetect_note)}</p>` : '',
+    ].join('');
+  }
+
+  function fillPresetEditor() {
+    const presets = (typeof window.__arailGetComposePresets === 'function')
+      ? window.__arailGetComposePresets()
+      : {};
+    $('preset-template-assistant').value = presets.assistant || 'You are a helpful assistant. Answer clearly and directly. If the request is unclear, ask one short clarifying question.';
+    $('preset-template-code').value = presets.code || 'Help me with this coding task. Return concrete steps, working code, and any caveats I should know first.';
+    $('preset-template-explain').value = presets.explain || 'Explain this clearly, step by step, with minimal jargon. Include one practical example I can reuse.';
+  }
+
+  function openPresetEditor() {
+    fillPresetEditor();
+    const backdrop = $('chat-preset-backdrop');
+    backdrop.hidden = false;
+    backdrop.style.display = 'flex';
+  }
+
+  function closePresetEditor() {
+    const backdrop = $('chat-preset-backdrop');
+    backdrop.hidden = true;
+    backdrop.style.display = 'none';
+  }
+
+  function openModalBackdrop(id) {
+    const backdrop = $(id);
+    if (!backdrop) return;
+    backdrop.hidden = false;
+    backdrop.style.display = 'flex';
+  }
+
+  function closeModalBackdrop(id) {
+    const backdrop = $(id);
+    if (!backdrop) return;
+    backdrop.hidden = true;
+    backdrop.style.display = 'none';
+  }
+
+  function openSidePanel() {
+    $('chat-side-panel').hidden = false;
+  }
+
+  function closeSidePanel() {
+    $('chat-side-panel').hidden = true;
+  }
+
+  async function persistCustomEndpoint() {
+    const input = $('chat-custom-endpoint-inline');
+    if (!input || input.hidden) return;
+    try {
+      const result = await requestJson('/api/providers/save', {
+        provider: 'custom',
+        token: '',
+        endpoint: input.value.trim() || null,
+      });
+      $('compute-status').textContent = result.ok ? 'Custom endpoint saved.' : (result.error || 'Could not save custom endpoint.');
+    } catch (e) {
+      $('compute-status').textContent = 'Could not save custom endpoint.';
+    }
+  }
+
+  function syncCustomEndpointInput() {
+    const input = $('chat-custom-endpoint-inline');
+    if (!input) return;
+    input.hidden = selectedProvider() !== 'custom';
+  }
+
+  function renderComputeInline(sources) {
+    const row = $('chat-compute-inline');
+    if (!row) return;
+    row.innerHTML = '';
+    (sources || []).forEach((source) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'chat-compute-pill' + (source.active ? ' active' : '');
+      btn.textContent = source.inline_label || source.label || source.id;
+      btn.addEventListener('click', async () => {
+        const radio = document.querySelector(`input[name="compute-source"][value="${source.id}"]`);
+        if (radio) radio.checked = true;
+        await setActiveProvider();
+        syncCustomEndpointInput();
+      });
+      row.appendChild(btn);
+    });
+  }
+
+  function selectInstalled(id, runtime, skipLoad) {
+    FMP.selectedId = id;
+    FMP.runtimeOf[id] = runtime;
+    $('fast-model').value = id;
+    $('fast-model').dataset.runtime = runtime || '';
+    $('fast-model-chip').textContent = compactModelName(id) || id;
+    const select = $('chat-model-select');
+    if (select) {
+      const option = Array.from(select.options).find((opt) => opt.value === id && (opt.dataset.runtime || '') === (runtime || ''))
+        || Array.from(select.options).find((opt) => opt.value === id);
+      if (option) {
+        select.value = option.value;
+        const info = lookupModelInfo(id);
+        $('chat-model-headroom').textContent = option.dataset.headroom || (info && (info.headroom || (info.fit && info.fit.limits))) || $('chat-model-headroom').textContent;
+        if (!skipLoad) prepareModelLoad(option);
+      }
+    }
+    $('fmp-install').hidden = true;
+    if (FMP.activeTab === 'installed') {
+      renderInstalledCards();
+    } else {
+      renderCatalogCards();
+    }
+  }
+
+  function hydrateChatModels(payload) {
+    state.modelPayload = payload;
+    state.modelInfo = new Map();
+    const select = $('chat-model-select');
+    const compact = payload.compact || {};
+    const localSection = compact.local_models || {};
+    const localItems = localSection.items || [];
+    const remoteModels = (payload.models || []).filter((model) => !localItems.some((item) => item.id === model));
+
+    localItems.forEach(registerModelInfo);
+    (payload.local_model_entries || []).forEach(registerModelInfo);
+
+    if (select) {
+      select.innerHTML = '';
+      if (localItems.length) {
+        const group = document.createElement('optgroup');
+        group.label = 'Local Models';
+        localItems.forEach((item) => {
+          const opt = document.createElement('option');
+          opt.value = item.id;
+          opt.textContent = `${item.label || compactModelName(item.id)}${item.badge ? ' · new' : ''}`;
+          opt.dataset.runtime = item.runtime || '';
+          opt.dataset.headroom = item.headroom || (item.fit && item.fit.summary) || localSection.headroom || '';
+          group.appendChild(opt);
+        });
+        select.appendChild(group);
+      }
+
+      if (remoteModels.length) {
+        const group = document.createElement('optgroup');
+        group.label = 'Remote / current backend';
+        remoteModels.forEach((model) => {
+          const opt = document.createElement('option');
+          opt.value = model;
+          opt.textContent = compactModelName(model) || model;
+          opt.dataset.runtime = '';
+          group.appendChild(opt);
+        });
+        select.appendChild(group);
+      }
+
+      const fallback = payload.current || (localItems[0] && localItems[0].id) || remoteModels[0] || '';
+      const option = Array.from(select.options).find((opt) => opt.value === fallback) || select.options[0];
+      if (option) selectInstalled(option.value, option.dataset.runtime || '', true);
+      select.disabled = !select.options.length;
+    }
+
+    renderComputeInline(compact.compute_sources || []);
+    renderModelHelp(payload.onboarding || compact.overlay || {});
+    $('chat-model-headroom').textContent = localSection.headroom || 'Local hardware guidance unavailable.';
+    syncCustomEndpointInput();
+    syncTeacherChip();
+  }
+
+  window.__arailHydrateChatModels = hydrateChatModels;
+
   async function sendMessage() {
     const message = $('chat-input').value.trim();
     if (!message) return;
@@ -1098,8 +2039,7 @@
     $('chat-input').value = '';
     $('chat-send').disabled = true;
 
-    appendMsg('fast-log', 'YOU', message, null, true);
-    appendMsg('teacher-log', 'YOU', message, null, true);
+    appendMsg('chat-thread', 'YOU', message, null, true);
 
     const tuning = CHAT_TUNING.get();
     const temp = tuning.temperature;
@@ -1108,46 +2048,47 @@
     const fastModel = $('fast-model').value || undefined;
     const route = routeSelection();
     const teacherBackend = $('chat-deep-backend-select').value || tuning.optionalBackend || 'aerollm';
+    const useStreaming = !!($('chat-streaming-enabled') && $('chat-streaming-enabled').checked);
 
     let fastUi = null;
     let teacherUi = null;
     if (route.sendFast) {
-      appendMsg('fast-log', 'YOU', message, null, true);
-      fastUi = startStream('fast-log', 'LAB', 'Thinking…');
+      fastUi = startStream('chat-thread', 'ASSISTANT', useStreaming ? 'Thinking…' : 'Working…');
     }
     if (route.sendTeacher) {
-      appendMsg('teacher-log', 'YOU', message, null, true);
       teacherUi = startStream(
-        'teacher-log',
-        'TEACHER',
+        'chat-thread',
+        'THOUGHTFUL EXPERT',
         route.teacherOnly ? 'Teacher-only mode: settling in… this can take a while.' : 'Thinking deeply…'
       );
     }
 
     try {
+      const fastPayload = {
+        message,
+        history: state.history,
+        temperature: temp,
+        top_p: topP > 0 ? topP : undefined,
+        max_tokens: maxTokens,
+        model: fastModel,
+        runtime: $('fast-model').dataset.runtime || undefined,
+      };
+      const teacherPayload = {
+        message,
+        history: state.history,
+        max_tokens: Math.max(1024, maxTokens),
+        backend: teacherBackend,
+      };
+
       const fastPromise = route.sendFast && fastUi
-        ? streamJsonl('/api/chat/stream', {
-          message,
-          history: state.history,
-          temperature: temp,
-          top_p: topP > 0 ? topP : undefined,
-          max_tokens: maxTokens,
-          model: fastModel,
-          // Per-message runtime hint — set by selectInstalled()
-          // when the user picks a card from a non-default runtime
-          // (e.g. Ollama). The server uses this to route through
-          // the right OpenAI-compat URL instead of falling back
-          // to the configured MODEL_BACKEND.
-          runtime: $('fast-model').dataset.runtime || undefined,
-        }, fastUi)
+        ? (useStreaming
+            ? streamJsonl('/api/chat/stream', fastPayload, fastUi)
+            : requestJson('/api/chat', fastPayload))
         : Promise.resolve(null);
       const teacherPromise = route.sendTeacher && teacherUi
-        ? streamJsonl('/api/teacher/stream', {
-            message,
-            history: state.history,
-            max_tokens: Math.max(1024, maxTokens),
-            backend: teacherBackend,
-          }, teacherUi)
+        ? (useStreaming
+            ? streamJsonl('/api/teacher/stream', teacherPayload, teacherUi)
+            : requestJson('/api/teacher/ask', teacherPayload))
         : Promise.resolve(null);
 
       const [fastFinal, teacherFinal] = await Promise.all([fastPromise, teacherPromise]);
@@ -1194,11 +2135,83 @@
 
   $('chat-clear').addEventListener('click', () => {
     state.history = [];
-    $('fast-log').innerHTML = '';
-    $('teacher-log').innerHTML = '';
-    appendMsg('fast-log', 'LAB', 'History cleared.', null, false);
-    appendMsg('teacher-log', 'TEACHER', 'Deep Teacher history cleared.', null, false);
+    $('chat-thread').innerHTML = '';
+    appendMsg('chat-thread', 'LAB', 'History cleared.', null, false);
     saveChatHistory();
+  });
+
+  $('chat-side-toggle').addEventListener('click', openSidePanel);
+  $('chat-side-toggle-secondary').addEventListener('click', openSidePanel);
+  $('chat-side-close').addEventListener('click', closeSidePanel);
+  $('chat-local-model-help').addEventListener('click', () => {
+    openModalBackdrop('chat-model-help-backdrop');
+  });
+  $('chat-model-help-close').addEventListener('click', () => {
+    closeModalBackdrop('chat-model-help-backdrop');
+  });
+  $('chat-model-help-backdrop').addEventListener('click', (event) => {
+    if (event.target === $('chat-model-help-backdrop')) closeModalBackdrop('chat-model-help-backdrop');
+  });
+  $('chat-manage-presets').addEventListener('click', openPresetEditor);
+  $('chat-preset-close').addEventListener('click', closePresetEditor);
+  $('chat-preset-cancel').addEventListener('click', closePresetEditor);
+  $('chat-preset-backdrop').addEventListener('click', (event) => {
+    if (event.target === $('chat-preset-backdrop')) closePresetEditor();
+  });
+  $('chat-preset-reset').addEventListener('click', () => {
+    if (typeof window.__arailSetComposePresets === 'function') {
+      window.__arailSetComposePresets({});
+    }
+    fillPresetEditor();
+  });
+  $('chat-preset-save').addEventListener('click', () => {
+    if (typeof window.__arailSetComposePresets === 'function') {
+      window.__arailSetComposePresets({
+        assistant: $('preset-template-assistant').value,
+        code: $('preset-template-code').value,
+        explain: $('preset-template-explain').value,
+      });
+    }
+    closePresetEditor();
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      if (!$('chat-preset-backdrop').hidden) closePresetEditor();
+      if (!$('chat-model-help-backdrop').hidden) closeModalBackdrop('chat-model-help-backdrop');
+      const pop = $('chat-meta-popover');
+      if (pop && !pop.hidden) pop.hidden = true;
+    }
+  });
+  $('chat-presets-toggle').addEventListener('click', () => {
+    const strip = $('chat-preset-strip');
+    const expanded = strip.hidden;
+    strip.hidden = !expanded;
+    $('chat-presets-toggle').setAttribute('aria-expanded', String(expanded));
+  });
+  $('chat-custom-endpoint-inline').addEventListener('change', persistCustomEndpoint);
+  $('chat-custom-endpoint-inline').addEventListener('blur', persistCustomEndpoint);
+  $('chat-loader-cancel').addEventListener('click', async () => {
+    if (state.pendingModelLoad) state.pendingModelLoad.abort();
+    await requestJson('/api/chat/model-load/cancel', {}).catch(() => null);
+    state.pendingModelLoad = null;
+    setLoaderState(null);
+  });
+  $('chat-model-select').addEventListener('change', (event) => {
+    const option = event.target.options[event.target.selectedIndex];
+    selectInstalled(option.value, option.dataset.runtime || '', false);
+  });
+  $('chat-route').addEventListener('change', syncRouteNote);
+  $('chat-deep-enable').addEventListener('change', () => {
+    renderDeepToggle();
+    syncRouteNote();
+  });
+  $('chat-deep-backend-select').addEventListener('change', () => {
+    syncTeacherChip();
+    renderDeepToggle();
+  });
+  document.addEventListener('click', (event) => {
+    const pop = $('chat-meta-popover');
+    if (!pop.hidden && !pop.contains(event.target)) pop.hidden = true;
   });
 
   $('chat-temp').addEventListener('input', () => {
@@ -1312,21 +2325,6 @@
     });
   }
 
-  function selectInstalled(id, runtime) {
-    FMP.selectedId = id;
-    FMP.runtimeOf[id] = runtime;
-    $('fast-model').value = id;
-    $('fast-model-chip').textContent = id;
-    // Stash the runtime so the send path knows which endpoint to hit.
-    $('fast-model').dataset.runtime = runtime || '';
-    $('fmp-install').hidden = true;
-    if (FMP.activeTab === 'installed') {
-      renderInstalledCards();
-    } else {
-      renderCatalogCards();
-    }
-  }
-
   function showInstallHint(name, cmd) {
     $('fmp-install-title').textContent = `Install ${name}`;
     $('fmp-install-cmd').textContent = cmd;
@@ -1358,6 +2356,7 @@
       const r = await fetch('/api/chat/models');
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const d = await r.json();
+      state.modelPayload = d;
       const gallery = d.gallery || {installed: [], catalog: []};
       if (gallery.error) console.warn('gallery_view error:', gallery.error);
       FMP.installed = gallery.installed || [];
@@ -1371,7 +2370,7 @@
       else if (installedIds.length) pick = installedIds[0];
       if (pick) {
         const inst = FMP.installed.find(i => i.id === pick);
-        selectInstalled(pick, inst ? inst.runtime : '');
+        selectInstalled(pick, inst ? inst.runtime : '', true);
       }
 
       // Counts on the tabs.
@@ -1381,18 +2380,7 @@
 
       if (FMP.activeTab === 'installed') renderInstalledCards();
       else renderCatalogCards();
-
-      // Teacher backend dropdown — unchanged from before.
-      const back = $('teacher-backend');
-      back.innerHTML = '';
-      (d.optional_backends || []).forEach(b => {
-        const o = document.createElement('option');
-        o.value = b.id;
-        o.textContent = `${b.label} · ${b.model || b.id}`;
-        o.dataset.model = b.model || b.id;
-        back.appendChild(o);
-      });
-      if (d.default_optional_backend) back.value = d.default_optional_backend;
+      hydrateChatModels(d);
       syncTeacherChip();
     } catch (e) {
       $('fmp-grid').innerHTML = `<div class="fmp-empty">Could not load model gallery: ${escapeHtml(e.message || e)}</div>`;
@@ -1400,9 +2388,6 @@
       $('teacher-model-chip').textContent = 'deep model unavailable';
     }
   }
-
-  $('teacher-backend').addEventListener('change', syncTeacherChip);
-  $('chat-route').addEventListener('change', syncRouteNote);
 
   // ─── Compute Source pivot + Manage Providers modal ───────────────────
   const PROVIDER_META = {
@@ -1446,6 +2431,14 @@
     const meta = PROVIDER_META[p] || PROVIDER_META.my_machine;
     $('compute-source-chip').textContent = meta.chip;
     $('compute-status').textContent = '';
+    if (state.modelPayload && state.modelPayload.compact) {
+      const sources = (state.modelPayload.compact.compute_sources || []).map((source) => ({
+        ...source,
+        active: source.id === p,
+      }));
+      renderComputeInline(sources);
+    }
+    syncCustomEndpointInput();
     // With the modal, inline key row stays hidden — editing happens in the dialog.
     const row = $('compute-key-row');
     if (row) row.style.display = 'none';
@@ -1579,19 +2572,36 @@
     applyAirgapLocks();
     syncComputeUI();
     // If the modal is open, re-render to reflect new token presence.
-    if ($('mp-backdrop').classList.contains('open')) openProvidersModal();
+    const backdrop = $('mp-backdrop');
+    if (backdrop && backdrop.classList.contains('open')) openProvidersModal();
   }
 
-  $('btn-manage-providers').addEventListener('click', openProvidersModal);
-  $('mp-close').addEventListener('click', closeProvidersModal);
-  $('mp-backdrop').addEventListener('click', (e) => {
-    if (e.target === $('mp-backdrop')) closeProvidersModal();
-  });
-  $('mp-body').addEventListener('click', handleModalClick);
+  function initProvidersModalBindings() {
+    const openBtn = $('btn-manage-providers');
+    const closeBtn = $('mp-close');
+    const backdrop = $('mp-backdrop');
+    const body = $('mp-body');
 
-  refreshProvidersStatus();
+    if (openBtn) openBtn.addEventListener('click', openProvidersModal);
+    if (closeBtn) closeBtn.addEventListener('click', closeProvidersModal);
+    if (backdrop) {
+      backdrop.addEventListener('click', (e) => {
+        if (e.target === backdrop) closeProvidersModal();
+      });
+    }
+    if (body) body.addEventListener('click', handleModalClick);
+
+    refreshProvidersStatus();
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initProvidersModalBindings, { once: true });
+  } else {
+    initProvidersModalBindings();
+  }
 
   loadModels();
+  renderDeepToggle();
   syncRouteNote();
   loadChatHistory();
 
