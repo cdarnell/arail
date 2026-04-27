@@ -110,6 +110,7 @@ EOF
     pkb <op>        ingest | compile | browse — knowledge base
     wiki <op>       build | info | new <title> — documentation-as-code
     blueprint <op>  list | catalog | show | create | apply | destroy — Configuration as Code
+    benchmark_models [opts]  measure model TPS for autoresearch routing (alias: benchmark, aerollm)
     help            this message
 
 EOF
@@ -297,6 +298,16 @@ TEMPLATE
                 ;;
             *) die "wiki op must be one of: build | info | new <title> | serve" ;;
         esac
+        ;;
+    benchmark_models|benchmark|aerollm)
+        [[ -d .venv ]] || die "missing .venv — run ./arail setup"
+        # shellcheck disable=SC1091
+        source .venv/bin/activate
+        # Default to --all if no args given
+        if [[ $# -eq 0 ]]; then
+            set -- --all
+        fi
+        exec python "$REPO_ROOT/lab/tools/benchmark_models.py" "$@"
         ;;
     help|-h|--help|"") usage ;;
     *) usage; die "unknown command: $cmd" ;;
