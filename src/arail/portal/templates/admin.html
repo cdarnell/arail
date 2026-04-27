@@ -407,11 +407,15 @@
   <div class="admin-section">
     <h2>Quick Actions</h2>
     <div class="admin-grid">
+      <a href="/chat" class="admin-card" style="text-decoration: none;">
+        <div class="ac-title">Open Chat</div>
+        <div class="ac-desc">Start tuning or research</div>
+      </a>
       <div class="admin-card" onclick="adminAction('/api/system/health', 'GET', 'Health check')">
         <div class="ac-title">Health Check</div>
         <div class="ac-desc">CPU, RAM, disk, GPU, services</div>
       </div>
-      <div class="admin-card" onclick="if(confirm('Restart all lab services?')) adminAction('/api/system/restart', 'POST', 'Restarting…')">
+      <div class="admin-card" onclick="restartLab()">
         <div class="ac-title">Restart Lab</div>
         <div class="ac-desc">Stop + start all services</div>
       </div>
@@ -431,28 +435,10 @@
     <div id="admin-log"></div>
   </div>
 
+  <!-- ═══ Services ═══ -->
   <div class="admin-section">
-    <h2>Theme Presets</h2>
-    <div class="theme-grid">
-      {% for theme in available_ui_themes %}
-      <div class="theme-card{% if theme.id == current_ui_theme.id %} active{% endif %}">
-        <div class="theme-swatch"
-             style="background: linear-gradient(135deg, {{ theme.preview_start }}, {{ theme.preview_end }});"></div>
-        <div class="theme-row">
-          <div class="theme-name">{{ theme.name }}</div>
-          <span class="theme-pill{% if theme.id == current_ui_theme.id %} active{% endif %}">
-            {% if theme.id == current_ui_theme.id %}active{% else %}preset{% endif %}
-          </span>
-        </div>
-        <div class="theme-desc">{{ theme.description }}</div>
-        <code class="theme-code">LAB_UI_THEME={{ theme.env_value }}</code>
-        <div class="theme-meta">
-          Set the value in <strong>.env</strong>, then run <code>./arail restart</code>.
-          Design rules and palette guidance live in <a href="/design">design.md</a>.
-        </div>
-      </div>
-      {% endfor %}
-    </div>
+    <h2>Service Status</h2>
+    <div class="svc-status" id="svc-status">loading…</div>
   </div>
 
   <!-- ═══ Terminal ═══ -->
@@ -488,12 +474,6 @@
       </div>
     </div>
     {% endif %}
-  </div>
-
-  <!-- ═══ Services ═══ -->
-  <div class="admin-section">
-    <h2>Service Status</h2>
-    <div class="svc-status" id="svc-status">loading…</div>
   </div>
 
   <div class="admin-section">
@@ -668,6 +648,18 @@ async function checkUpdates() {
     const d = await r.json();
     if (d.airgapped) { adminLog('Airgapped — switch to Hybrid to check remote updates.', 'error'); return; }
     adminLog(d.summary || 'Check complete.', d.updates_available > 0 ? '' : 'success');
+  } catch(e) { adminLog('Failed: ' + e.message, 'error'); }
+}
+
+async function restartLab() {
+  if (!confirm('Restart all lab services? The portal will restart.')) return;
+  adminLog('Restarting lab…');
+  window.open(window.location.href, '_blank');
+  try {
+    const r = await fetch('/api/system/restart', {method: 'POST'});
+    const d = await r.json();
+    if (d.error) { adminLog(d.error, 'error'); return; }
+    adminLog('Restart initiated — lab coming back online…', 'success');
   } catch(e) { adminLog('Failed: ' + e.message, 'error'); }
 }
 

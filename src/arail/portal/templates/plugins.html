@@ -25,7 +25,22 @@
     <div id="install-status" style="margin-top:0.75rem;"></div>
   </div>
 
-  <!-- ═══ Installed Plugins ═══ -->
+  <!-- ═══ Core & Recommended ═══ -->
+  <div class="card full">
+    <h2><span class="indicator"></span> Core & Recommended</h2>
+    <div id="recommended-list">
+      <div class="plugin-card">
+        <div class="plugin-info">
+          <div class="plugin-name">tobi/qmd</div>
+          <div class="plugin-desc">Knowledge base indexing & semantic search. Agents use this for research context retrieval.</div>
+        </div>
+        <span class="plugin-type" style="background: rgba(0,255,65,0.15); color: var(--green); border: 1px solid rgba(0,255,65,0.3);">core</span>
+        <div class="plugin-actions">
+          <button class="btn btn-sm btn-primary" onclick="installRecommended('https://github.com/tobi/qmd')">Install</button>
+        </div>
+      </div>
+    </div>
+  </div>
   <div class="card full">
     <h2><span class="indicator"></span> Installed Plugins</h2>
     <div id="plugin-list">
@@ -84,6 +99,12 @@ document.getElementById('install-form').addEventListener('submit', async (e) => 
     status.innerHTML = `<span style="color:var(--red)">✗ ${err.message}</span>`;
   }
 });
+
+function installRecommended(url) {
+  document.getElementById('plugin-url').value = url;
+  document.getElementById('plugin-url').focus();
+  document.getElementById('install-form').dispatchEvent(new Event('submit'));
+}
 
 async function togglePlugin(name, active) {
   await fetch(`/api/plugins/${encodeURIComponent(name)}/toggle`, {

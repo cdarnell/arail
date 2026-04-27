@@ -5,6 +5,51 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{ brand.name }}</title>
 <link rel="stylesheet" href="/static/style.css">
+<style>
+  /* Quick actions button styling */
+  .qa-button {
+    padding: 10px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+    text-align: left;
+    font-size: 12px;
+    color: var(--text);
+    transition: all 0.12s;
+    border: 1px solid;
+  }
+  .qa-button:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  }
+  .qa-button.qa-primary {
+    background: rgba(0, 212, 255, 0.06);
+    border-color: rgba(0, 212, 255, 0.25);
+  }
+  .qa-button.qa-primary:hover {
+    background: rgba(0, 212, 255, 0.12);
+    border-color: rgba(0, 212, 255, 0.45);
+  }
+  .qa-button.qa-warning {
+    background: rgba(255, 176, 0, 0.06);
+    border-color: rgba(255, 176, 0, 0.25);
+  }
+  .qa-button.qa-warning:hover {
+    background: rgba(255, 176, 0, 0.12);
+    border-color: rgba(255, 176, 0, 0.45);
+  }
+  .qa-title {
+    font-weight: 600;
+    margin-bottom: 2px;
+  }
+  .qa-button.qa-success {
+    background: rgba(0, 255, 65, 0.06);
+    border-color: rgba(0, 255, 65, 0.25);
+  }
+  .qa-button.qa-success:hover {
+    background: rgba(0, 255, 65, 0.12);
+    border-color: rgba(0, 255, 65, 0.45);
+  }
+</style>
 </head>
 <body>
 
@@ -43,233 +88,42 @@
 
 <div class="grid">
 
-  <!-- ═══ Chat — primary dashboard surface ═══
-       Moved to position 1 because it's the fastest way into the lab
-       for a new user: pick a brain mode (preset), ask anything, get a
-       local answer. The goal-setting card lives below it. -->
-  <div class="card full chat-card-focal" id="chat-card">
-    <h2>
-      <span class="indicator"></span> Chat with the lab
-      <span class="chat-backend" id="chat-backend" title="Active backend">—</span>
-      <span class="chat-model"    id="chat-model"   title="Model tag" hidden></span>
-      <!-- Frontier deep-model chip. Always visible when AeroLLM is
-           installed — the whole point is to show the user that a
-           giant model is available on demand, not hidden behind a
-           toggle. Hovering opens a full Spec Sheet with strengths,
-           benchmark comparisons, and license info. Click jumps
-           to the tuning row where the toggle lives. -->
-      <span class="chat-frontier-wrap" id="chat-frontier-wrap" hidden>
-        <a class="chat-frontier" id="chat-frontier" href="#chat-tuning">
-          <span class="cf-icon">⚡</span>
-          <span class="cf-label">Frontier</span>
-          <span class="cf-model" id="cf-model">loading…</span>
-        </a>
-        <!-- Spec sheet popover — appears on hover over the chip.
-             Populated from /api/chat/models deep.spec. Details edit-
-             able in src/arail/model_specs.py so users can extend the
-             registry without touching runtime code. -->
-        <div class="chat-spec-popover" id="chat-spec-popover" aria-hidden="true">
-          <div class="csp-head">
-            <span class="csp-label">Spec Sheet</span>
-            <span class="csp-model" id="csp-model">—</span>
-          </div>
-          <div class="csp-body" id="csp-body">loading…</div>
-          <div class="csp-footer">
-            <span>Flip the <strong>Deep model</strong> toggle below to route your next message through this.</span>
-          </div>
-        </div>
-      </span>
-      <span class="chat-tokens"   id="chat-session-tokens"
-            title="Tokens used in this chat session">session: 0 tok</span>
-    </h2>
-
-
-    <!-- Preset row — click the mode that matches your task. The
-         numbers underneath each mode translate into temperature and
-         top_p behind the scenes, but nobody needs to know that to
-         use it. Advanced sliders in the details below let tinkerers
-         poke at the raw knobs. -->
-    <div class="chat-presets" role="radiogroup" aria-label="Brain mode">
-      <button type="button" class="chat-preset" data-preset="default"
-              title="Balanced mix of accuracy and variety. Good first pick.">
-        <span class="cp-icon">⚖</span>
-        <span class="cp-label">Default</span>
-        <span class="cp-meta">balanced, good for most chat</span>
+  <!-- ═══ Quick Actions ═══ -->
+  <div class="card full" style="padding: 14px 20px;">
+    <h2 style="font-size: 14px; margin: 0 0 10px 0; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em;">Quick Actions</h2>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px;">
+      <a href="/chat" class="qa-button qa-success" style="text-decoration: none; display: flex; flex-direction: column; justify-content: flex-start;">
+        <div class="qa-title" style="color: var(--green);">💬 Open Chat</div>
+        <div class="qa-desc">Start tuning or research</div>
+      </a>
+      <button class="qa-button qa-primary" onclick="adminAction('/api/system/health', 'GET', 'Health check')">
+        <div class="qa-title" style="color: var(--blue);">⊙ Health Check</div>
+        <div class="qa-desc">CPU, RAM, disk, GPU</div>
       </button>
-      <button type="button" class="chat-preset" data-preset="factual"
-              title="Stick to the facts. Short, confident answers.">
-        <span class="cp-icon">🎯</span>
-        <span class="cp-label">Factual</span>
-        <span class="cp-meta">precise answers, fewer flourishes</span>
+      <button class="qa-button qa-warning" onclick="restartLab()">
+        <div class="qa-title" style="color: var(--amber);">⟳ Restart Lab</div>
+        <div class="qa-desc">Stop + start all services</div>
       </button>
-      <button type="button" class="chat-preset" data-preset="code"
-              title="Maximum determinism. Structured output, minimal drift.">
-        <span class="cp-icon">&lt;/&gt;</span>
-        <span class="cp-label">Code</span>
-        <span class="cp-meta">structured output, for code or JSON</span>
+      <button class="qa-button qa-primary" onclick="window.open('/graph', '_blank')">
+        <div class="qa-title" style="color: var(--blue);">◆ System Graph</div>
+        <div class="qa-desc">Visual architecture</div>
       </button>
-      <button type="button" class="chat-preset" data-preset="creative"
-              title="Let the model wander. More variety, more flair, more risk.">
-        <span class="cp-icon">✨</span>
-        <span class="cp-label">Creative</span>
-        <span class="cp-meta">brainstorming, variations, wander</span>
+      <button class="qa-button qa-primary" onclick="checkUpdates()">
+        <div class="qa-title" style="color: var(--blue);">↻ Check Updates</div>
+        <div class="qa-desc">Scan for new versions</div>
+      </button>
+      <button class="qa-button qa-primary" onclick="window.location='/plugins'">
+        <div class="qa-title" style="color: var(--blue);">⚙ Plugins</div>
+        <div class="qa-desc">Install / manage</div>
       </button>
     </div>
+    <div id="admin-log" style="margin-top: 10px; font-size: 12px; color: var(--muted); min-height: 18px;"></div>
+  </div>
 
-    <div class="chat-log" id="chat-log">
-      <div class="chat-msg chat-msg-system">
-        <div class="chat-role">LAB</div>
-        <div class="chat-bubble">
-          Hi — I'm the local model. Pick a brain mode above, then ask
-          anything. I know this lab's router, scheduler, PKB, wiki,
-          agents, and CLI. Try "What commands can I run?" or "Where
-          do agent reports land?"
-        </div>
-      </div>
-    </div>
-    <form class="chat-form" id="chat-form">
-      <input id="chat-input" type="text"
-             placeholder="ask the lab anything…"
-             autocomplete="off" />
-      <button class="btn btn-primary" type="submit" id="chat-send">Send</button>
-      <button class="btn btn-ghost btn-sm" type="button" id="chat-clear"
-              title="Clear conversation">×</button>
-    </form>
-
-    <!-- Advanced tuning — for users who want finer control than the
-         presets. Each slider shows a plain-language label of where
-         you are in the range, plus a tiny zone strip below so you
-         can see ALL the stops at a glance without dragging first. -->
-    <details class="chat-tuning" id="chat-tuning">
-      <summary>
-        <span>⚙ Advanced tuning</span>
-        <span class="chat-tuning-summary" id="chat-tuning-summary">
-          Default mode · balanced · paragraph reply
-        </span>
-      </summary>
-      <div class="chat-tuning-grid">
-
-        <!-- Temperature -->
-        <label class="chat-tuning-field">
-          <span class="chat-tuning-label">
-            How much creativity?
-            <span class="chat-tuning-hint">
-              low = same answer every time · high = surprising answers
-            </span>
-          </span>
-          <div class="chat-tuning-slider-row">
-            <input type="range" id="chat-temp"
-                   min="0" max="2" step="0.1" value="0.7" />
-            <output id="chat-temp-val" class="chat-tuning-readout">
-              <span class="readout-word">Balanced</span>
-              <span class="readout-num">0.7</span>
-            </output>
-          </div>
-          <div class="chat-tuning-zones" data-scale="temperature">
-            <span data-zone="strict">Strict</span>
-            <span data-zone="focused">Focused</span>
-            <span data-zone="balanced">Balanced</span>
-            <span data-zone="open">Open</span>
-            <span data-zone="wild">Wild</span>
-          </div>
-        </label>
-
-        <!-- Top-p -->
-        <label class="chat-tuning-field">
-          <span class="chat-tuning-label">
-            How many word choices?
-            <span class="chat-tuning-hint">
-              off = only the most likely next word · wide = pick from many plausible ones
-            </span>
-          </span>
-          <div class="chat-tuning-slider-row">
-            <input type="range" id="chat-top-p"
-                   min="0" max="1" step="0.05" value="0" />
-            <output id="chat-top-p-val" class="chat-tuning-readout">
-              <span class="readout-word">Off</span>
-              <span class="readout-num">—</span>
-            </output>
-          </div>
-          <div class="chat-tuning-zones" data-scale="topP">
-            <span data-zone="off">Off</span>
-            <span data-zone="narrow">Narrow</span>
-            <span data-zone="moderate">Moderate</span>
-            <span data-zone="wide">Wide</span>
-          </div>
-        </label>
-
-        <!-- Max tokens -->
-        <label class="chat-tuning-field">
-          <span class="chat-tuning-label">
-            How long should the reply be?
-            <span class="chat-tuning-hint">
-              shorter = faster · longer = more detail (and more waiting)
-            </span>
-          </span>
-          <div class="chat-tuning-slider-row">
-            <input type="range" id="chat-max-tokens"
-                   min="64" max="4096" step="64" value="512" />
-            <output id="chat-max-tokens-val" class="chat-tuning-readout">
-              <span class="readout-word">Paragraph</span>
-              <span class="readout-num">512 tok</span>
-            </output>
-          </div>
-          <div class="chat-tuning-zones" data-scale="maxTokens">
-            <span data-zone="oneline">One line</span>
-            <span data-zone="paragraph">Paragraph</span>
-            <span data-zone="essay">Essay</span>
-            <span data-zone="long">Long reply</span>
-          </div>
-        </label>
-
-        <!-- Model -->
-        <label class="chat-tuning-field chat-tuning-model">
-          <span class="chat-tuning-label">
-            Which brain?
-            <span class="chat-tuning-hint" id="chat-model-hint">loading…</span>
-          </span>
-          <select id="chat-model-select">
-            <option value="">(current)</option>
-          </select>
-          <!-- Install-help drawer. Shown only when the backend is
-               a local single-model kind (MLX, CPU, AeroLLM, CUDA)
-               where the user can't live-switch but CAN install new
-               models on disk for the next restart. Populated by
-               applyToInputs() from /api/chat/models install_hint. -->
-          <details class="chat-model-help" id="chat-model-help" hidden>
-            <summary>💡 Install more models</summary>
-            <div class="chat-model-help-body" id="chat-model-help-body"></div>
-          </details>
-        </label>
-
-           <!-- Deep-route escape hatch — lets the user send one message
-             through the selected heavy backend without switching the
-             lab's primary fast model. -->
-        <label class="chat-tuning-field chat-deep-toggle">
-          <span class="chat-tuning-label">
-            Deep route
-            <span class="chat-tuning-hint" id="chat-optional-backend-hint">
-              ⚠ 30-120 seconds per reply · first use takes minutes to load
-            </span>
-          </span>
-          <select id="chat-deep-backend-select">
-            <option value="aerollm">AeroLLM</option>
-            <option value="airllm">AirLLM</option>
-          </select>
-          <div class="chat-tuning-hint" id="chat-optional-backend-install" hidden></div>
-          <label class="chat-deep-switch">
-            <input type="checkbox" id="chat-deep-enable" />
-            <span class="chat-deep-track"></span>
-            <span class="chat-deep-text" id="chat-deep-text">off — using the fast model above</span>
-          </label>
-        </label>
-
-        <button class="btn btn-ghost btn-sm" type="button" id="chat-tuning-reset"
-                title="Snap back to Default preset (balanced, paragraph reply)">
-          ↺ Reset to Default
-        </button>
-      </div>
-    </details>
+  <!-- ═══ Service Status ═══ -->
+  <div class="card full" style="padding: 14px 20px;">
+    <h2 style="font-size: 14px; margin: 0 0 10px 0; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em;">Service Status</h2>
+    <div id="svc-status" style="display: flex; flex-wrap: wrap; gap: 8px; font-size: 12px;">loading…</div>
   </div>
 
   <!-- ═══ Lab Shortcuts ═══ -->
@@ -606,6 +460,29 @@
     {% endif %}
   </div>
 
+  <!-- ═══ Theme Presets ═══ -->
+  <div class="card full" style="padding: 14px 20px;">
+    <h2 style="font-size: 14px; margin: 0 0 10px 0; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em;">Theme Presets</h2>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 10px;">
+      {% for theme in available_ui_themes %}
+      <div style="background: var(--surface); border: 1px solid {% if theme.id == current_ui_theme.id %}rgba(0,212,255,0.35){% else %}var(--border){% endif %}; border-radius: var(--radius); padding: 10px 12px;">
+        <div style="height: 40px; border-radius: 6px; background: linear-gradient(135deg, {{ theme.preview_start }}, {{ theme.preview_end }}); margin-bottom: 8px; border: 1px solid rgba(255,255,255,0.08);"></div>
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px;">
+          <div style="color: var(--text-hi); font-size: 12px; font-weight: 600;">{{ theme.name }}</div>
+          <span style="border-radius: 999px; border: 1px solid {% if theme.id == current_ui_theme.id %}rgba(0,212,255,0.35){% else %}var(--border){% endif %}; padding: 2px 8px; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: {% if theme.id == current_ui_theme.id %}var(--blue){% else %}var(--muted){% endif %}; background: {% if theme.id == current_ui_theme.id %}rgba(0,212,255,0.08){% else %}transparent{% endif %};">
+            {% if theme.id == current_ui_theme.id %}active{% else %}preset{% endif %}
+          </span>
+        </div>
+        <div style="color: var(--muted); font-size: 11px; line-height: 1.4; margin-bottom: 6px;">{{ theme.description }}</div>
+        <code style="display: block; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 4px 6px; color: var(--amber); font-size: 10px; white-space: pre-wrap; margin-bottom: 6px;">LAB_UI_THEME={{ theme.env_value }}</code>
+        <div style="color: var(--muted); font-size: 10px; line-height: 1.4;">
+          Set in <strong>.env</strong>, then <code style="color: var(--amber);">./arail restart</code>. See <a href="/design" style="color: var(--blue); text-decoration: none;">design.md</a> for palette details.
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
 </div>
 
 <script>
@@ -614,6 +491,45 @@
    ═══════════════════════════════════════════════════════════════ */
 
 let DASH_SWARM_PREVIEW = null;
+
+// ── Admin functions (for Quick Actions) ──
+function adminLog(msg, cls) {
+  const el = document.getElementById('admin-log');
+  el.textContent = msg;
+  el.className = cls || '';
+}
+
+async function adminAction(url, method, label) {
+  adminLog(label + '…');
+  try {
+    const r = await fetch(url, {method: method || 'GET'});
+    const d = await r.json();
+    if (d.error) { adminLog(d.error, 'error'); return; }
+    adminLog(label + ' — done', 'success');
+  } catch(e) { adminLog('Failed: ' + e.message, 'error'); }
+}
+
+async function checkUpdates() {
+  adminLog('Checking for updates… (this may take a moment)');
+  try {
+    const r = await fetch('/api/admin/check-updates');
+    const d = await r.json();
+    if (d.airgapped) { adminLog('Airgapped — switch to Hybrid to check remote updates.', 'error'); return; }
+    adminLog(d.summary || 'Check complete.', d.updates_available > 0 ? '' : 'success');
+  } catch(e) { adminLog('Failed: ' + e.message, 'error'); }
+}
+
+async function restartLab() {
+  if (!confirm('Restart all lab services? The portal will restart.')) return;
+  adminLog('Restarting lab…');
+  window.open(window.location.href, '_blank');
+  try {
+    const r = await fetch('/api/system/restart', {method: 'POST'});
+    const d = await r.json();
+    if (d.error) { adminLog(d.error, 'error'); return; }
+    adminLog('Restart initiated — lab coming back online…', 'success');
+  } catch(e) { adminLog('Failed: ' + e.message, 'error'); }
+}
 
 // ── Job scheduler mode + halt/resume ──
 async function refreshJobsState() {
@@ -1110,6 +1026,28 @@ async function refreshCosts() {
 refreshCosts();
 setInterval(refreshCosts, 15000);
 
+// ── Service Status ──
+async function refreshServiceStatus() {
+  try {
+    const r = await fetch('/api/system/health');
+    const d = await r.json();
+    const el = document.getElementById('svc-status');
+    if (!el) return;
+    const svcs = d.services || {};
+    el.innerHTML = Object.entries(svcs).map(([name, up]) => {
+      const bgColor = up ? 'rgba(0,255,65,0.08)' : 'rgba(255,76,76,0.08)';
+      const borderColor = up ? 'rgba(0,255,65,0.25)' : 'rgba(255,76,76,0.25)';
+      const textColor = up ? 'var(--green)' : 'var(--red)';
+      return `<span style="display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: 999px; border: 1px solid ${borderColor}; background: ${bgColor}; font-size: 12px; color: ${textColor};"><span style="width: 6px; height: 6px; border-radius: 50%; background: ${textColor}; box-shadow: ${up ? '0 0 4px rgba(0,255,65,.4)' : 'none'};"></span>${name}</span>`;
+    }).join('');
+  } catch (e) {
+    const el = document.getElementById('svc-status');
+    if (el) el.textContent = 'Could not reach health API.';
+  }
+}
+refreshServiceStatus();
+setInterval(refreshServiceStatus, 15000);
+
 // The old refreshAddons() poll has moved to /notebooks (/api/notebooks/status).
 // Curate card now just deep-links to /notebooks — no polling from here.
 
@@ -1295,838 +1233,6 @@ refreshKbHero();
 refreshKbSeedButton();
 setInterval(refreshKbHero, 20000);
 setInterval(refreshKbSeedButton, 30000);
-
-// ── Chat with the lab ──
-const CHAT_STATE = { history: [], sessionTokens: 0 };
-const CHAT_STORAGE = 'arail.chat.history.v1';
-
-function fmtTokens(n) {
-  if (n == null || isNaN(n)) return '0';
-  if (n < 1000) return String(n);
-  if (n < 10000) return (n / 1000).toFixed(2) + 'k';
-  if (n < 1_000_000) return (n / 1000).toFixed(1) + 'k';
-  return (n / 1_000_000).toFixed(2) + 'M';
-}
-function updateSessionTokens() {
-  const el = document.getElementById('chat-session-tokens');
-  if (!el) return;
-  el.textContent = 'session: ' + fmtTokens(CHAT_STATE.sessionTokens) + ' tok';
-  el.classList.add('bump');
-  setTimeout(() => el.classList.remove('bump'), 450);
-}
-
-function chatEscape(s) {
-  const d = document.createElement('div');
-  d.textContent = s;
-  return d.innerHTML;
-}
-
-function chatRenderMarkdown(text) {
-  // Minimal — just escape then bold/italic/code so model responses
-  // don't render as literal ticks and asterisks.
-  let html = chatEscape(text);
-  html = html.replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>');
-  html = html.replace(/`([^`\n]+)`/g, '<code>$1</code>');
-  html = html.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
-  html = html.replace(/\*([^*\n]+)\*/g, '<em>$1</em>');
-  html = html.replace(/\n/g, '<br>');
-  return html;
-}
-
-function chatAppend(role, text, meta) {
-  const log = document.getElementById('chat-log');
-  const wrap = document.createElement('div');
-  wrap.className = 'chat-msg chat-msg-' + role;
-  const label =
-    role === 'user' ? 'YOU' : role === 'assistant' ? 'LAB' : 'LAB';
-  wrap.innerHTML =
-    `<div class="chat-role">${label}</div>` +
-    `<div class="chat-bubble">${chatRenderMarkdown(text)}` +
-    (meta ? `<div class="chat-meta">${chatEscape(meta)}</div>` : '') +
-    `</div>`;
-  log.appendChild(wrap);
-  log.scrollTop = log.scrollHeight;
-}
-
-function chatBeginStreaming(role) {
-  const log = document.getElementById('chat-log');
-  const wrap = document.createElement('div');
-  wrap.className = 'chat-msg chat-msg-' + role;
-  const label =
-    role === 'user' ? 'YOU' : role === 'assistant' ? 'LAB' : 'LAB';
-  wrap.innerHTML =
-    `<div class="chat-role">${label}</div>` +
-    `<div class="chat-bubble"></div>`;
-  log.appendChild(wrap);
-  const bubble = wrap.querySelector('.chat-bubble');
-  let streamedText = '';
-
-  function scroll() {
-    log.scrollTop = log.scrollHeight;
-  }
-
-  return {
-    append(delta) {
-      streamedText += delta || '';
-      bubble.textContent = streamedText;
-      scroll();
-    },
-    finalize(text, meta) {
-      bubble.innerHTML = chatRenderMarkdown(text || streamedText || '(empty response)') +
-        (meta ? `<div class="chat-meta">${chatEscape(meta)}</div>` : '');
-      scroll();
-    },
-  };
-}
-
-function chatLoadHistory() {
-  try {
-    const raw = localStorage.getItem(CHAT_STORAGE);
-    if (!raw) return;
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return;
-    CHAT_STATE.history = parsed.slice(-20);
-    for (const t of CHAT_STATE.history) {
-      chatAppend(t.role, t.content);
-    }
-  } catch (e) { /* corrupt — ignore */ }
-}
-
-function chatSaveHistory() {
-  try {
-    localStorage.setItem(CHAT_STORAGE,
-      JSON.stringify(CHAT_STATE.history.slice(-20)));
-  } catch (e) { /* quota — ignore */ }
-}
-
-async function chatSend(text) {
-  if (!text.trim()) return;
-  chatAppend('user', text);
-  CHAT_STATE.history.push({ role: 'user', content: text });
-  chatSaveHistory();
-
-  const sendBtn = document.getElementById('chat-send');
-  const input = document.getElementById('chat-input');
-  sendBtn.disabled = true;
-  input.disabled = true;
-  const orig = sendBtn.textContent;
-  sendBtn.textContent = '…';
-
-  try {
-    const tuning = CHAT_TUNING.get();
-    const useDeep = document.getElementById('chat-deep-enable').checked;
-    const selectedOptionalBackend = document.getElementById('chat-deep-backend-select')?.value
-      || tuning.optionalBackend
-      || 'aerollm';
-    const r = await fetch('/api/chat/stream', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        message: text,
-        history: CHAT_STATE.history.slice(0, -1),  // exclude the message we just pushed
-        temperature: tuning.temperature,
-        top_p: tuning.topP > 0 ? tuning.topP : undefined,
-        max_tokens: tuning.maxTokens,
-        model: useDeep ? undefined : (tuning.model || undefined),
-        backend: useDeep ? selectedOptionalBackend : undefined,
-      }),
-    });
-    if (!r.ok || !r.body) {
-      const fallback = await r.text();
-      throw new Error(fallback || ('HTTP ' + r.status));
-    }
-
-    const assistant = chatBeginStreaming('assistant');
-    const reader = r.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-    let finalEvent = null;
-
-    function applyFinal(d) {
-      if (d.error && !d.reply) {
-        assistant.finalize('Error: ' + d.error, null);
-        return;
-      }
-      const parts = [];
-      if (d.backend) parts.push(d.backend);
-      if (d.model) parts.push(d.model);
-      if (d.latency_ms != null) parts.push(Math.round(d.latency_ms) + ' ms');
-      if (d.tokens_used != null) parts.push(d.tokens_used + ' tok');
-      if (d.tokens_per_sec) parts.push(d.tokens_per_sec + ' t/s');
-      if (d.deep) parts.push('⚡ deep');
-      let meta = parts.length ? parts.join(' · ') : null;
-      if (d.cloud_cost_usd != null || d.energy_cost_usd != null) {
-        const cloud = d.cloud_cost_usd != null ? `$${d.cloud_cost_usd.toFixed(4)}` : '—';
-        const energy = d.energy_cost_usd != null ? `$${d.energy_cost_usd.toFixed(4)}` : '—';
-        meta = (meta ? meta + '\n' : '') +
-          `~ ${cloud} cloud-equiv · ${energy} energy`;
-      }
-      assistant.finalize(d.reply || '(empty response)', meta);
-      CHAT_STATE.history.push({ role: 'assistant', content: d.reply || '' });
-      chatSaveHistory();
-      const backendBadge = document.getElementById('chat-backend');
-      if (d.backend && backendBadge) {
-        backendBadge.textContent = d.backend;
-      }
-      const modelBadge = document.getElementById('chat-model');
-      if (d.model && modelBadge) {
-        modelBadge.textContent = d.model;
-        modelBadge.title = 'Model: ' + d.model;
-        modelBadge.hidden = false;
-      }
-      if (typeof d.tokens_used === 'number') {
-        CHAT_STATE.sessionTokens += d.tokens_used;
-        updateSessionTokens();
-      }
-    }
-
-    while (true) {
-      const { value, done } = await reader.read();
-      buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
-      let newlineIndex;
-      while ((newlineIndex = buffer.indexOf('\n')) >= 0) {
-        const line = buffer.slice(0, newlineIndex).trim();
-        buffer = buffer.slice(newlineIndex + 1);
-        if (!line) continue;
-        const event = JSON.parse(line);
-        if (event.type === 'delta') {
-          assistant.append(event.delta || '');
-        } else if (event.type === 'final') {
-          finalEvent = event;
-        }
-      }
-      if (done) break;
-    }
-
-    if (finalEvent) {
-      applyFinal(finalEvent);
-    } else {
-      assistant.finalize('(stream ended without a final reply)', null);
-    }
-  } catch (e) {
-    chatAppend('assistant', 'Network error: ' + e.message);
-  } finally {
-    sendBtn.textContent = orig;
-    sendBtn.disabled = false;
-    input.disabled = false;
-    input.focus();
-  }
-}
-
-document.getElementById('chat-form').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const input = document.getElementById('chat-input');
-  const v = input.value;
-  input.value = '';
-  await chatSend(v);
-});
-
-document.getElementById('chat-clear').addEventListener('click', () => {
-  if (!confirm('Clear chat history?')) return;
-  CHAT_STATE.history = [];
-  CHAT_STATE.sessionTokens = 0;
-  updateSessionTokens();
-  chatSaveHistory();
-  document.getElementById('chat-log').innerHTML =
-    '<div class="chat-msg chat-msg-system"><div class="chat-role">LAB</div>' +
-    '<div class="chat-bubble">History cleared. Ask me anything.</div></div>';
-});
-
-// ── Chat tuning + presets ────────────────────────────────────────
-// Presets are the focal UX — one click sets a known-good (temperature,
-// top_p) combo. Advanced sliders below let power users fine-tune —
-// each slider has a plain-language zone label that updates live, so
-// the user never has to know what "0.7" means on its own.
-const CHAT_TUNING = (() => {
-  const LS_KEY = 'arail.chat.tuning';
-  const DEFAULTS = {
-    preset: 'default',
-    temperature: 0.7,
-    topP: 0,
-    maxTokens: 512,
-    model: '',
-    optionalBackend: '',
-  };
-  const PRESETS = {
-    default:  { temperature: 0.7, topP: 0 },
-    factual:  { temperature: 0.2, topP: 0.9 },
-    code:     { temperature: 0.1, topP: 0.95 },
-    creative: { temperature: 1.2, topP: 0.95 },
-  };
-
-  // Value → plain-language zone. Each slider has a mapping that
-  // returns both a short label (for the zone strip) and a longer
-  // descriptor (for the readout). Tuned so presets land cleanly on
-  // named zones rather than the cracks between them.
-  const ZONES = {
-    temperature(v) {
-      if (v <= 0.15) return { zone: 'strict',   word: 'Strict'   };
-      if (v <= 0.45) return { zone: 'focused',  word: 'Focused'  };
-      if (v <= 0.9)  return { zone: 'balanced', word: 'Balanced' };
-      if (v <= 1.3)  return { zone: 'open',     word: 'Open'     };
-      return                 { zone: 'wild',    word: 'Wild'     };
-    },
-    topP(v) {
-      if (v <= 0.001) return { zone: 'off',       word: 'Off'       };
-      if (v <= 0.6)   return { zone: 'narrow',    word: 'Narrow'    };
-      if (v <= 0.9)   return { zone: 'moderate',  word: 'Moderate'  };
-      return                  { zone: 'wide',     word: 'Wide'      };
-    },
-    maxTokens(v) {
-      if (v <= 128)  return { zone: 'oneline',   word: 'One line'   };
-      if (v <= 700)  return { zone: 'paragraph', word: 'Paragraph'  };
-      if (v <= 1800) return { zone: 'essay',     word: 'Essay'      };
-      return                 { zone: 'long',     word: 'Long reply' };
-    },
-  };
-
-  function load() {
-    try {
-      return Object.assign({}, DEFAULTS,
-        JSON.parse(localStorage.getItem(LS_KEY) || '{}'));
-    } catch (e) { return { ...DEFAULTS }; }
-  }
-  function save(t) {
-    try { localStorage.setItem(LS_KEY, JSON.stringify(t)); } catch (e) { /* quota */ }
-  }
-
-  const state = load();
-  const tempInput = document.getElementById('chat-temp');
-  const tempVal = document.getElementById('chat-temp-val');
-  const topPInput = document.getElementById('chat-top-p');
-  const topPVal = document.getElementById('chat-top-p-val');
-  const maxTokInput = document.getElementById('chat-max-tokens');
-  const maxTokVal = document.getElementById('chat-max-tokens-val');
-  const modelSelect = document.getElementById('chat-model-select');
-  const modelHint = document.getElementById('chat-model-hint');
-  const backendSelect = document.getElementById('chat-deep-backend-select');
-  const backendHint = document.getElementById('chat-optional-backend-hint');
-  const backendInstall = document.getElementById('chat-optional-backend-install');
-  const summary = document.getElementById('chat-tuning-summary');
-  const resetBtn = document.getElementById('chat-tuning-reset');
-  const presetBtns = document.querySelectorAll('.chat-preset');
-  const optionalBackends = new Map();
-
-  // Highlight the active zone in a zone strip by adding .active to
-  // the matching child <span>.
-  function highlightZone(scale, zoneId) {
-    const strip = document.querySelector(`.chat-tuning-zones[data-scale="${scale}"]`);
-    if (!strip) return;
-    strip.querySelectorAll('[data-zone]').forEach(el => {
-      el.classList.toggle('active', el.dataset.zone === zoneId);
-    });
-  }
-
-  // Update an output element's word + number in one call.
-  function paintReadout(outEl, word, num) {
-    if (!outEl) return;
-    outEl.querySelector('.readout-word').textContent = word;
-    outEl.querySelector('.readout-num').textContent = num;
-  }
-
-  function detectPreset() {
-    for (const [id, p] of Object.entries(PRESETS)) {
-      if (Math.abs(p.temperature - state.temperature) < 0.001 &&
-          Math.abs(p.topP - state.topP) < 0.001) {
-        return id;
-      }
-    }
-    return 'custom';
-  }
-
-  // Plain-English summary for the collapsed Advanced row.
-  function updateSummary() {
-    const modeLabel = state.preset === 'custom' ? 'Custom' :
-      state.preset[0].toUpperCase() + state.preset.slice(1);
-    const tempZone = ZONES.temperature(state.temperature).word.toLowerCase();
-    const lenZone = ZONES.maxTokens(state.maxTokens).word.toLowerCase();
-    const mdl = state.model ? ` · ${state.model.split('/').pop()}` : '';
-    summary.textContent =
-      `${modeLabel} mode · ${tempZone} · ${lenZone} reply${mdl}`;
-  }
-
-  function currentOptionalBackend() {
-    const backendId = backendSelect && backendSelect.value
-      ? backendSelect.value
-      : state.optionalBackend;
-    return optionalBackends.get(backendId) || null;
-  }
-
-  function renderOptionalBackendState() {
-    const entry = currentOptionalBackend();
-    if (!backendSelect || !entry) return;
-    backendSelect.value = entry.id;
-    state.optionalBackend = entry.id;
-    if (backendHint) {
-      const short = entry.model ? entry.model.split('/').pop() : entry.label;
-      const size = entry.param_hint ? ` · ${entry.param_hint}` : '';
-      backendHint.textContent = entry.installed
-        ? `${short}${size} · ready when you toggle it on`
-        : `${short}${size} · optional install`;
-    }
-    if (backendInstall) {
-      if (entry.installed) {
-        backendInstall.hidden = true;
-        backendInstall.textContent = '';
-      } else {
-        const auth = entry.auth_hint ? ` ${entry.auth_hint}` : '';
-        backendInstall.hidden = false;
-        backendInstall.textContent = `Install with ${entry.install_command}.${auth}`;
-      }
-    }
-    window.__arailGetSelectedOptionalBackendInfo = () => ({ ...entry });
-    if (typeof window.__arailRenderDeepToggle === 'function') {
-      window.__arailRenderDeepToggle();
-    }
-  }
-
-  function populateOptionalBackends(entries, defaultBackend) {
-    if (!backendSelect) return;
-    optionalBackends.clear();
-    backendSelect.innerHTML = '';
-    (entries || []).forEach(entry => {
-      optionalBackends.set(entry.id, entry);
-      const short = entry.model ? entry.model.split('/').pop() : entry.label;
-      const opt = document.createElement('option');
-      opt.value = entry.id;
-      opt.textContent = `${entry.label} · ${short}${entry.installed ? '' : ' · install required'}`;
-      backendSelect.appendChild(opt);
-    });
-    const firstId = entries && entries.length ? entries[0].id : '';
-    if (!state.optionalBackend || !optionalBackends.has(state.optionalBackend)) {
-      state.optionalBackend = optionalBackends.has(defaultBackend)
-        ? defaultBackend
-        : firstId;
-      save(state);
-    }
-    renderOptionalBackendState();
-  }
-
-  function updatePresetHighlight() {
-    const active = detectPreset();
-    state.preset = active;
-    presetBtns.forEach(b => {
-      b.classList.toggle('active', b.dataset.preset === active);
-    });
-  }
-
-  function applyToInputs() {
-    // Temperature
-    tempInput.value = state.temperature;
-    const t = ZONES.temperature(state.temperature);
-    paintReadout(tempVal, t.word, state.temperature.toFixed(1));
-    highlightZone('temperature', t.zone);
-
-    // Top-p
-    topPInput.value = state.topP;
-    const tp = ZONES.topP(state.topP);
-    paintReadout(topPVal, tp.word, state.topP > 0 ? state.topP.toFixed(2) : '—');
-    highlightZone('topP', tp.zone);
-
-    // Max tokens
-    maxTokInput.value = state.maxTokens;
-    const mt = ZONES.maxTokens(state.maxTokens);
-    paintReadout(maxTokVal, mt.word, `${state.maxTokens} tok`);
-    highlightZone('maxTokens', mt.zone);
-
-    if (state.model) {
-      const opt = Array.from(modelSelect.options).find(o => o.value === state.model);
-      modelSelect.value = opt ? state.model : '';
-    }
-    if (backendSelect && state.optionalBackend && optionalBackends.has(state.optionalBackend)) {
-      backendSelect.value = state.optionalBackend;
-    }
-    updatePresetHighlight();
-    updateSummary();
-  }
-
-  // Preset click → snap to the preset's values.
-  presetBtns.forEach(btn => {
-    btn.addEventListener('click', () => {
-      const id = btn.dataset.preset;
-      const p = PRESETS[id];
-      if (!p) return;
-      state.temperature = p.temperature;
-      state.topP = p.topP;
-      state.preset = id;
-      save(state);
-      applyToInputs();
-    });
-  });
-
-  // Manual slider nudges — recompute zone + preset on every frame.
-  tempInput.addEventListener('input', () => {
-    state.temperature = parseFloat(tempInput.value);
-    save(state);
-    applyToInputs();
-  });
-  topPInput.addEventListener('input', () => {
-    state.topP = parseFloat(topPInput.value);
-    save(state);
-    applyToInputs();
-  });
-  maxTokInput.addEventListener('input', () => {
-    const v = parseInt(maxTokInput.value, 10);
-    if (!isNaN(v)) {
-      state.maxTokens = v;
-      save(state);
-      applyToInputs();
-    }
-  });
-  modelSelect.addEventListener('change', () => {
-    state.model = modelSelect.value;
-    save(state);
-    updateSummary();
-  });
-  if (backendSelect) {
-    backendSelect.addEventListener('change', () => {
-      state.optionalBackend = backendSelect.value;
-      save(state);
-      renderOptionalBackendState();
-    });
-  }
-  resetBtn.addEventListener('click', () => {
-    Object.assign(state, DEFAULTS);
-    save(state);
-    applyToInputs();
-    renderOptionalBackendState();
-  });
-
-  // Populate model dropdown from /api/chat/models
-  fetch('/api/chat/models').then(r => r.json()).then(d => {
-    modelSelect.innerHTML = '';
-    const defaultOpt = document.createElement('option');
-    defaultOpt.value = '';
-    defaultOpt.textContent = d.current
-      ? `(current · ${d.current.split('/').pop()})`
-      : '(current)';
-    modelSelect.appendChild(defaultOpt);
-
-    (d.models || []).forEach(m => {
-      if (m === d.current) return;
-      const opt = document.createElement('option');
-      opt.value = m;
-      opt.textContent = m;
-      modelSelect.appendChild(opt);
-    });
-
-    // Populate the frontier chip (always-on header signal) for the
-    // AeroLLM path and populate the optional-backend selector with
-    // each backend's own configured model.
-    const frontierWrap = document.getElementById('chat-frontier-wrap');
-    const frontierEl = document.getElementById('chat-frontier');
-    const cfModelEl = document.getElementById('cf-model');
-    const deepText = document.getElementById('chat-deep-text');
-    const deep = d.deep || {};
-    if (typeof window.__arailSetDeepToggleDefault === 'function') {
-      window.__arailSetDeepToggleDefault(!!deep.default_enabled);
-    }
-    populateOptionalBackends(d.optional_backends || [], d.default_optional_backend || 'aerollm');
-    if (frontierWrap && frontierEl && cfModelEl && deep.model) {
-      const short = deep.model.split('/').pop();
-      const paramTag = deep.param_hint ? ` · ${deep.param_hint}` : '';
-      cfModelEl.textContent = `${short}${paramTag}`;
-      frontierWrap.hidden = false;
-      frontierEl.classList.toggle('not-installed', !deep.installed);
-      if (!deep.installed) {
-        frontierEl.title = deep.gated
-          ? (deep.auth_hint
-              ? `AeroLLM is optional on this lab. ${deep.auth_hint} Then download ${short}.`
-              : `AeroLLM is optional on this lab. Install the package, accept the Hugging Face Meta Llama license, authenticate, then download ${short}.`)
-          : `AeroLLM not installed on this lab. Run ./arail setup to enable, or pip install git+https://github.com/cdarnell/aerollm@main manually.`;
-      }
-      renderSpecPopover(deep);
-    }
-    if (typeof window.__arailRenderDeepToggle === 'function') {
-      window.__arailRenderDeepToggle();
-    }
-
-    // Populate the install-help drawer for local single-model
-    // backends. Shows the models dir, a copy-pastable install
-    // command, any models already on disk, and the "requires
-    // restart" caveat. Hidden for switchable backends.
-    const helpEl = document.getElementById('chat-model-help');
-    const helpBody = document.getElementById('chat-model-help-body');
-    if (!d.switchable && d.install_hint && helpEl && helpBody) {
-      const hint = d.install_hint;
-      const others = (d.local_models || []).filter(m => {
-        const currentTail = (d.current || '').split('/').pop();
-        return m !== d.current && m !== currentTail;
-      });
-      helpBody.innerHTML = `
-        <p class="cmh-line">Models live in <code>${esc(hint.dir)}/</code>.
-           Each subfolder is a candidate — restart picks it up when
-           you point <code>MODEL_NAME</code> at it.</p>
-        <p class="cmh-line cmh-label">Example — download a smaller model:</p>
-        <pre class="cmh-cmd"><code>${esc(hint.example_command)}</code></pre>
-        <button type="button" class="cmh-copy btn btn-ghost btn-sm"
-                data-copy="${esc(hint.example_command)}">Copy command</button>
-        ${d.deep && d.deep.gated ? `
-          <p class="cmh-line cmh-caveat">${esc(d.deep.auth_hint || 'Accept the model license on Hugging Face first, then run huggingface-cli login or export HF_TOKEN.')}</p>
-        ` : ''}
-        <p class="cmh-line cmh-caveat">${esc(hint.restart_note)}</p>
-        ${others.length ? `
-          <p class="cmh-line cmh-label">Already installed (${others.length}):</p>
-          <ul class="cmh-list">${others.map(m =>
-            `<li><code>${esc(m)}</code></li>`).join('')}</ul>
-        ` : '<p class="cmh-line cmh-empty">No other models installed yet.</p>'}
-      `;
-      helpEl.hidden = false;
-      const copyBtn = helpBody.querySelector('.cmh-copy');
-      if (copyBtn) {
-        copyBtn.addEventListener('click', () => {
-          navigator.clipboard.writeText(copyBtn.dataset.copy).then(() => {
-            const orig = copyBtn.textContent;
-            copyBtn.textContent = '✓ copied';
-            setTimeout(() => copyBtn.textContent = orig, 1500);
-          }).catch(() => {});
-        });
-      }
-    } else if (helpEl) {
-      helpEl.hidden = true;
-    }
-
-    if (!d.switchable) {
-      modelSelect.disabled = true;
-      modelHint.textContent =
-        `${d.backend || 'backend'} — single-model (click below for install help)`;
-    } else {
-      modelHint.textContent = `${(d.models || []).length} available · ${d.backend}`;
-    }
-    applyToInputs();
-  }).catch(() => {
-    modelHint.textContent = 'unavailable';
-    modelSelect.disabled = true;
-    if (backendSelect) backendSelect.disabled = true;
-    applyToInputs();
-  });
-
-  applyToInputs();
-
-  return {
-    get() { return { ...state }; },
-  };
-})();
-
-chatLoadHistory();
-updateSessionTokens();
-
-// Render the Frontier chip's hover Spec Sheet. Populates from the
-// AeroLLM-specific `deep.spec` blob returned by /api/chat/models.
-// Falls back to a registry hint when the configured AEROLLM_MODEL
-// is not in model_specs.py yet.
-async function _fetchMeasured(modelName) {
-  // Pull hardware-measured stats for the given model. Returns
-  // null when no bench records exist yet.
-  try {
-    const r = await fetch('/api/aerollm/bench');
-    const d = await r.json();
-    return { entry: (d.bench || {})[modelName] || null, platform: d.platform };
-  } catch (e) {
-    return null;
-  }
-}
-
-function _renderMeasuredBlock(measured) {
-  if (!measured || !measured.entry) {
-    return `
-      <div class="csp-section">
-        <div class="csp-section-label">Measured on your hardware</div>
-        <p class="csp-unknown">
-          No AeroLLM runs yet for this model. Flip the Deep route on,
-          send a message, and stats appear here on the next page load.
-        </p>
-      </div>`;
-  }
-  const e = measured.entry;
-  const latencySec = (e.median_latency_ms / 1000).toFixed(1);
-  const latencyLabel = latencySec > 60
-    ? `${(latencySec / 60).toFixed(1)} min`
-    : `${latencySec} s`;
-  return `
-    <div class="csp-section">
-      <div class="csp-section-label">Measured on your hardware · ${e.runs} run${e.runs === 1 ? '' : 's'}</div>
-      <div class="csp-meta">
-        <div class="csp-row">
-          <span class="csp-k">Avg throughput</span>
-          <span class="csp-v">${e.avg_tokens_per_min} tokens/min · ${e.avg_tokens_per_sec} t/s</span>
-        </div>
-        <div class="csp-row">
-          <span class="csp-k">Median latency</span>
-          <span class="csp-v">${latencyLabel}</span>
-        </div>
-        <div class="csp-row">
-          <span class="csp-k">Total tokens</span>
-          <span class="csp-v">${e.total_tokens}</span>
-        </div>
-        ${measured.platform ? `
-        <div class="csp-row">
-          <span class="csp-k">Platform</span>
-          <span class="csp-v">${chatEscape(measured.platform)}</span>
-        </div>` : ''}
-      </div>
-    </div>`;
-}
-
-async function renderSpecPopover(deep) {
-  const body = document.getElementById('csp-body');
-  const modelEl = document.getElementById('csp-model');
-  if (!body || !modelEl) return;
-  const spec = deep.spec;
-  modelEl.textContent = deep.model.split('/').pop();
-  // Fetch measured stats in parallel with rendering literature
-  // numbers — they show up in their own section once available.
-  const measuredPromise = _fetchMeasured(deep.model);
-  if (!spec) {
-    body.innerHTML = `
-      <p class="csp-unknown">
-        ${chatEscape(deep.model)} isn't in the spec registry yet.<br>
-        Add an entry in
-        <code>src/arail/model_specs.py</code> to document strengths,
-        benchmarks, and license — it shows up here on the next page
-        load with no restart needed.
-      </p>
-    `;
-    // Still show measured stats when available — a model without a
-    // registry entry can still be benched.
-    measuredPromise.then(measured => {
-      body.innerHTML = _renderMeasuredBlock(measured) + body.innerHTML;
-    });
-    return;
-  }
-  const rows = [];
-  if (spec.params)   rows.push(['Params', spec.params]);
-  if (spec.license)  rows.push(['License', spec.license]);
-  if (spec.context)  rows.push(['Context', spec.context]);
-  const meta = rows.map(([k, v]) =>
-    `<div class="csp-row"><span class="csp-k">${chatEscape(k)}</span>
-     <span class="csp-v">${chatEscape(v)}</span></div>`
-  ).join('');
-
-  const strengths = (spec.strengths || []).map(s =>
-    `<li>${chatEscape(s)}</li>`
-  ).join('');
-
-  const benches = (spec.benchmarks || []).map(b => {
-    const [bench, score, compared] = Array.isArray(b) ? b : [b, '', ''];
-    return `
-      <tr>
-        <td class="csp-bench">${chatEscape(bench)}</td>
-        <td class="csp-score">${chatEscape(score)}</td>
-        <td class="csp-compare">${chatEscape(compared || '')}</td>
-      </tr>`;
-  }).join('');
-
-  body.innerHTML = `
-    <div class="csp-meta">${meta}</div>
-    ${strengths ? `
-      <div class="csp-section">
-        <div class="csp-section-label">Strengths</div>
-        <ul class="csp-strengths">${strengths}</ul>
-      </div>` : ''}
-    ${benches ? `
-      <div class="csp-section">
-        <div class="csp-section-label">Benchmarks · snapshot</div>
-        <table class="csp-bench-table">
-          <thead><tr><th>Test</th><th>Score</th><th>vs others</th></tr></thead>
-          <tbody>${benches}</tbody>
-        </table>
-        <div class="csp-bench-caveat">Numbers are community snapshots, not a fresh eval. Edit <code>model_specs.py</code> to refine.</div>
-      </div>` : ''}
-    ${spec.notes ? `
-      <div class="csp-section">
-        <div class="csp-section-label">Notes</div>
-        <p class="csp-notes">${chatEscape(spec.notes)}</p>
-      </div>` : ''}
-    ${spec.source ? `
-      <div class="csp-section">
-        <a class="csp-source" href="${chatEscape(spec.source)}" target="_blank" rel="noopener">Model card →</a>
-      </div>` : ''}
-  `;
-
-  // Measured stats arrive async — inject into a dedicated section
-  // once we have data. Placeholder slot at the top of body so the
-  // user sees it even before literature numbers render.
-  measuredPromise.then(measured => {
-    const current = body.innerHTML;
-    body.innerHTML = _renderMeasuredBlock(measured) + current;
-  });
-}
-
-// Honest latency framing by model size. At 100B+ via a layer-streamed
-// waiting seconds per token; above ~400B you're into minutes per
-// reply. Tell the user what to expect before they click Send and
-// think the chat froze.
-function _deepLatencyHint(paramHint) {
-  if (!paramHint) return '30-120 seconds per reply';
-  const m = paramHint.match(/^(\d+(?:\.\d+)?)([BMK])/i);
-  if (!m) return '30-120 seconds per reply';
-  const n = parseFloat(m[1]);
-  const unit = m[2].toUpperCase();
-  // Treat anything measured in millions/thousands as tiny (fast).
-  if (unit !== 'B') return '10-30 seconds per reply';
-  if (n < 15)   return '10-30 seconds per reply';
-  if (n < 70)   return '30-90 seconds per reply';
-  if (n < 200)  return '1-3 minutes per reply';
-  if (n < 500)  return '3-8 minutes per reply';
-  return '5-15 minutes per reply · true frontier territory';
-}
-
-// Deep-route toggle state. Persists to localStorage so
-// flipping it back on is a one-click operation. When on, the chat
-// POST includes the selected optional backend and replies take minutes.
-(function wireDeepToggle() {
-  const DEEP_KEY = 'arail.chat.deep';
-  const cb = document.getElementById('chat-deep-enable');
-  const label = document.getElementById('chat-deep-text');
-  if (!cb || !label) return;
-  function hasStoredPreference() {
-    try { return localStorage.getItem(DEEP_KEY) !== null; } catch (e) { return false; }
-  }
-  function render() {
-    const selected = typeof window.__arailGetSelectedOptionalBackendInfo === 'function'
-      ? window.__arailGetSelectedOptionalBackendInfo()
-      : null;
-    const labelName = selected && selected.label ? selected.label : 'AeroLLM';
-    const warning = _deepLatencyHint(selected && selected.param_hint ? selected.param_hint : '');
-    const hintEl = document.getElementById('chat-optional-backend-hint');
-    if (hintEl) {
-      hintEl.textContent = selected && selected.installed === false
-        ? `${warning} · install required before first use`
-        : `${warning} · first use takes minutes to load`;
-    }
-    label.textContent = cb.checked
-      ? `⚡ ON — next reply routes through ${labelName}${selected && selected.installed === false ? ' (install required)' : ' (slow but smart)'}`
-      : `off — using the fast model above · toggle to use ${labelName}`;
-    label.classList.toggle('deep-on', cb.checked);
-  }
-  function setServerDefault(enabled) {
-    if (hasStoredPreference()) return;
-    cb.checked = !!enabled;
-    render();
-  }
-  try { cb.checked = localStorage.getItem(DEEP_KEY) === '1'; } catch (e) {}
-  cb.addEventListener('change', () => {
-    try { localStorage.setItem(DEEP_KEY, cb.checked ? '1' : '0'); } catch (e) {}
-    render();
-  });
-  render();
-  window.__arailSetDeepToggleDefault = setServerDefault;
-  window.__arailRenderDeepToggle = render;
-})();
-
-// Populate the current backend + model in the chat card header on load,
-// before the user has sent a single message.
-fetch('/api/system/health').then(r => r.json()).then(h => {
-  const bEl = document.getElementById('chat-backend');
-  if (bEl && h.backend) bEl.textContent = h.backend;
-  const mEl = document.getElementById('chat-model');
-  if (mEl && h.model && h.model !== 'none') {
-    mEl.textContent = h.model;
-    mEl.title = 'Model: ' + h.model;
-    mEl.hidden = false;
-  }
-}).catch(() => {});
 
 // ── Lab knows panel ──
 // Pulls semantic recall from the LanceDB-backed search endpoints and

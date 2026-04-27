@@ -99,7 +99,7 @@ nav {
 .nav-status-rail {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
   gap: 0.55rem;
   flex-wrap: wrap;
   min-width: 0;
@@ -191,7 +191,8 @@ nav a.active { color: var(--green); background: rgba(0,255,65,.06); }
   display: flex;
   align-items: center;
   min-width: 0;
-  max-width: min(38vw, 28rem);
+  max-width: min(24vw, 20rem);
+  flex-shrink: 0;
 }
 
 .nav-goal {
