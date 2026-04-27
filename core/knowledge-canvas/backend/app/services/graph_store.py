@@ -19,7 +19,16 @@ from typing import Any
 import lancedb
 import numpy as np
 import pyarrow as pa
-from neo4j import AsyncGraphDatabase
+
+# Soft import — the portal mounts this backend at startup before the
+# operator has had a chance to install neo4j. Crashing the import
+# breaks every /knowledge-canvas route (including ones that don't
+# touch Neo4j). Defer the failure until something actually tries to
+# open a Neo4j connection.
+try:
+    from neo4j import AsyncGraphDatabase  # type: ignore
+except ModuleNotFoundError:  # pragma: no cover — runtime-conditional
+    AsyncGraphDatabase = None  # type: ignore[assignment]
 
 from app.models.source import Source
 from app.services.embeddings import get_embedder
@@ -48,6 +57,11 @@ def _schema() -> pa.Schema:
 class GraphStore:
     def __init__(self, lance_path: str, neo4j_uri: str, neo4j_auth: tuple[str, str]):
         self.lance_path = lance_path
+        if AsyncGraphDatabase is None:
+            raise RuntimeError(
+                "neo4j Python driver is not installed. Install with `pip install neo4j` "
+                "or run ./arail setup to enable the Knowledge Canvas backend."
+            )
         self.n = AsyncGraphDatabase.driver(neo4j_uri, auth=neo4j_auth)
         self.embed = get_embedder()
         self._db: lancedb.DBConnection | None = None

@@ -37,6 +37,51 @@
   .admin-card .ac-title { font-weight: 600; font-size: 0.85rem; color: var(--text-hi); }
   .admin-card .ac-desc { font-size: 0.72rem; color: var(--muted); margin-top: 0.2rem; }
 
+  /* Quick Actions colored boxes — mirrored from dashboard.html so the
+     two surfaces feel like the same control panel. Using the same
+     class names (.qa-button, .qa-primary, .qa-warning, .qa-success)
+     means the dashboard pattern can be lifted into a shared stylesheet
+     later without touching markup. */
+  .qa-button {
+    padding: 10px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+    text-align: left;
+    font-size: 12px;
+    color: var(--text);
+    transition: all 0.12s;
+    border: 1px solid;
+  }
+  .qa-button:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  }
+  .qa-button.qa-primary {
+    background: rgba(0, 212, 255, 0.06);
+    border-color: rgba(0, 212, 255, 0.25);
+  }
+  .qa-button.qa-primary:hover {
+    background: rgba(0, 212, 255, 0.12);
+    border-color: rgba(0, 212, 255, 0.45);
+  }
+  .qa-button.qa-warning {
+    background: rgba(255, 176, 0, 0.06);
+    border-color: rgba(255, 176, 0, 0.25);
+  }
+  .qa-button.qa-warning:hover {
+    background: rgba(255, 176, 0, 0.12);
+    border-color: rgba(255, 176, 0, 0.45);
+  }
+  .qa-button.qa-success {
+    background: rgba(0, 255, 65, 0.06);
+    border-color: rgba(0, 255, 65, 0.25);
+  }
+  .qa-button.qa-success:hover {
+    background: rgba(0, 255, 65, 0.12);
+    border-color: rgba(0, 255, 65, 0.45);
+  }
+  .qa-title { font-weight: 600; margin-bottom: 2px; }
+
   .theme-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
@@ -476,27 +521,27 @@
   <!-- ═══ Quick Actions ═══ -->
   <div class="admin-section">
     <h2>Quick Actions</h2>
-    <div class="admin-grid">
-      <a href="/chat" class="admin-card" style="text-decoration: none;">
-        <div class="ac-title">Open Chat</div>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px;">
+      <a href="/chat" class="qa-button qa-success" style="text-decoration: none; display: flex; flex-direction: column; justify-content: flex-start;">
+        <div class="qa-title" style="color: var(--green);">💬 Open Chat</div>
       </a>
-      <div class="admin-card" onclick="runLiveChecks('Health Check', '/api/system/health/stream')">
-        <div class="ac-title">Health Check</div>
-      </div>
-      <div class="admin-card" onclick="restartLab()">
-        <div class="ac-title">Restart Lab</div>
-      </div>
-      <div class="admin-card" onclick="window.open('/graph', '_blank')">
-        <div class="ac-title">System Graph</div>
-      </div>
-      <div class="admin-card" onclick="checkUpdates()">
-        <div class="ac-title">Check Updates</div>
-      </div>
-      <a href="/plugins" class="admin-card" style="text-decoration: none;">
-        <div class="ac-title">Plugins</div>
+      <button class="qa-button qa-primary" onclick="runLiveChecks('Health Check', '/api/system/health/stream')">
+        <div class="qa-title" style="color: var(--blue);">⊙ Health Check</div>
+      </button>
+      <button class="qa-button qa-primary" onclick="window.open('/graph', '_blank')">
+        <div class="qa-title" style="color: var(--blue);">◆ System Graph</div>
+      </button>
+      <button class="qa-button qa-primary" onclick="checkUpdates()">
+        <div class="qa-title" style="color: var(--blue);">↻ Check Updates</div>
+      </button>
+      <a href="/plugins" class="qa-button qa-primary" style="text-decoration: none; display: flex; flex-direction: column; justify-content: flex-start;">
+        <div class="qa-title" style="color: var(--blue);">⚙ Plugins</div>
       </a>
+      <button class="qa-button qa-warning" onclick="restartLab()">
+        <div class="qa-title" style="color: var(--amber);">⟳ Restart Lab</div>
+      </button>
     </div>
-    <div id="admin-log"></div>
+    <div id="admin-log" style="margin-top: 10px; font-size: 12px; color: var(--muted); min-height: 18px;"></div>
   </div>
 
   <!-- ═══ Services ═══ -->

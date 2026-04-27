@@ -99,8 +99,8 @@ nav {
 .nav-status-rail {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 0.55rem;
+  justify-content: flex-end;
+  gap: 0.85rem;
   flex-wrap: wrap;
   min-width: 0;
 }
@@ -245,26 +245,16 @@ nav a.active { color: var(--green); background: rgba(0,255,65,.06); }
   align-self: start;
 }
 
-.mission-dossier-chip {
+.mission-meta-line {
   display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  margin-top: 0.85rem;
-  padding: 0.65rem 0.8rem;
-  border: 1px solid rgba(0, 212, 255, 0.24);
-  border-radius: var(--radius);
-  background: rgba(0, 212, 255, 0.06);
+  align-items: baseline;
+  gap: 0.6rem;
+  margin: 0.35rem 0 0.85rem;
+  font-size: 0.85rem;
   color: var(--text);
-  text-decoration: none;
 }
 
-.mission-dossier-chip:hover {
-  text-decoration: none;
-  border-color: rgba(0, 212, 255, 0.45);
-  box-shadow: var(--glow-blue);
-}
-
-.mission-dossier-label {
+.mission-meta-label {
   color: var(--muted);
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -272,17 +262,11 @@ nav a.active { color: var(--green); background: rgba(0,255,65,.06); }
   flex-shrink: 0;
 }
 
-.mission-dossier-text {
+.mission-meta-text {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.mission-dossier-cta {
-  margin-left: auto;
-  color: var(--blue);
-  flex-shrink: 0;
 }
 
 .mission-dossier-grid {
@@ -1230,12 +1214,8 @@ code {
     max-width: 100%;
   }
 
-  .mission-dossier-chip {
+  .mission-meta-line {
     flex-wrap: wrap;
-  }
-
-  .mission-dossier-cta {
-    margin-left: 0;
   }
 }
 

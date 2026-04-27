@@ -315,9 +315,6 @@
       <button class="qa-button qa-primary" onclick="runLiveChecks('Health Check', '/api/system/health/stream')">
         <div class="qa-title" style="color: var(--blue);">⊙ Health Check</div>
       </button>
-      <button class="qa-button qa-warning" onclick="restartLab()">
-        <div class="qa-title" style="color: var(--amber);">⟳ Restart Lab</div>
-      </button>
       <button class="qa-button qa-primary" onclick="window.open('/graph', '_blank')">
         <div class="qa-title" style="color: var(--blue);">◆ System Graph</div>
       </button>
@@ -326,6 +323,9 @@
       </button>
       <button class="qa-button qa-primary" onclick="window.location='/plugins'">
         <div class="qa-title" style="color: var(--blue);">⚙ Plugins</div>
+      </button>
+      <button class="qa-button qa-warning" onclick="restartLab()">
+        <div class="qa-title" style="color: var(--amber);">⟳ Restart Lab</div>
       </button>
     </div>
     <div id="admin-log" style="margin-top: 10px; font-size: 12px; color: var(--muted); min-height: 18px;"></div>
@@ -355,8 +355,18 @@
   <div class="card mission-card" id="goal-card">
     <h2>
       <span class="indicator"></span> Mission
-      <a class="card-title-link" href="/mission">Open dossier →</a>
+      {% if current_goal %}
+      <a class="card-title-link" href="/mission">Curated view →</a>
+      {% endif %}
+      <a class="card-title-link" href="/docs/missions.md"
+         title="What is a mission? What does Draft Swarm Plan actually do? Plain-English walkthrough.">Mission docs ↗</a>
     </h2>
+    {% if current_goal %}
+    <div class="mission-meta-line">
+      <span class="mission-meta-label">Current</span>
+      <span class="mission-meta-text">{{ current_goal.goal_text }}</span>
+    </div>
+    {% endif %}
     {% if lab_theme %}
     <!-- Lab theme — permanent north-star framing above the concrete
          goal. Sourced from LAB_THEME env var. Swap the env var to
@@ -373,12 +383,17 @@
              placeholder="describe your goal — what do you want to build, grow, learn, or research?"
              autocomplete="off"
              value="{{ current_goal.goal_text if current_goal else '' }}" />
-      <label class="goal-scale-wrap" for="goal-swarm-scale">
+      <label class="goal-scale-wrap" for="goal-swarm-scale"
+             title="How wide the swarm runs — sets how many parallel worker agents (lanes) the lead spawns.">
         <span>Swarm</span>
-        <select id="goal-swarm-scale">
-          <option value="compact">Compact</option>
-          <option value="balanced" selected>Balanced</option>
-          <option value="expanded">Expanded</option>
+        <select id="goal-swarm-scale"
+                title="Compact = 3 lanes (lean), Balanced = 4 (default), Expanded = up to 6 (full specialist roster).">
+          <option value="compact"
+                  title="3 lanes — leanest swarm. Scout + Critic + 1 specialist. Fastest, cheapest.">Compact</option>
+          <option value="balanced" selected
+                  title="4 lanes — default. Scout + Critic + 2 specialists.">Balanced</option>
+          <option value="expanded"
+                  title="Up to 6 lanes — Scout + Critic + the goal archetype's full specialist roster. Most thorough.">Expanded</option>
         </select>
       </label>
       <div class="parse-btn-wrap">
@@ -411,14 +426,6 @@
         <button class="btn btn-ghost btn-sm" type="button" id="goal-swarm-discard">Discard Draft</button>
       </div>
     </div>
-
-    {% if current_goal %}
-    <a class="mission-dossier-chip" href="/mission">
-      <span class="mission-dossier-label">Current mission</span>
-      <span class="mission-dossier-text">{{ current_goal.goal_text }}</span>
-      <span class="mission-dossier-cta">Curated view →</span>
-    </a>
-    {% endif %}
 
     <!-- Goal breakdown (populated after parse) -->
     <div id="goal-result">
@@ -1093,9 +1100,9 @@ function renderSwarmPreview(preview) {
   const phases = Array.isArray(swarm.phases) ? swarm.phases : [];
   const review = swarm.review || {};
   pills.innerHTML = [
-    `<span class="goal-swarm-pill">${esc(swarm.goal_archetype || 'general')} swarm</span>`,
-    `<span class="goal-swarm-pill">${esc(swarm.scale || 'balanced')}</span>`,
-    `<span class="goal-swarm-pill">${enabledCount} lanes</span>`,
+    `<span class="goal-swarm-pill" title="The goal's archetype determines which specialist workers are available (travel, research, operations, or general).">${esc(swarm.goal_archetype || 'general')} swarm</span>`,
+    `<span class="goal-swarm-pill" title="Scale sets how wide the swarm runs: compact=3, balanced=4, expanded=up to 6 lanes.">${esc(swarm.scale || 'balanced')}</span>`,
+    `<span class="goal-swarm-pill" title="A lane is one parallel worker agent (Scout, Critic, or a specialist). Uncheck a lane below to drop it from the run.">${enabledCount} lanes</span>`,
   ].join('');
   body.innerHTML = `
     <div class="goal-swarm-grid">
