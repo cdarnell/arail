@@ -4,7 +4,7 @@ section: docs
 tags: [guide]
 aliases: [LINUX]
 source: docs/LINUX.md
-generated: 2026-04-25T04:17:15Z
+generated: 2026-04-26T21:56:54Z
 ---
 # Linux — Bring Your Own Distro
 
@@ -24,13 +24,16 @@ functions. Out of the box those know:
 | Gentoo | `emerge` | supported, notes below |
 | Arch | `pacman` | worked example below |
 | Fedora | `dnf` | worked example below |
-| openSUSE / NixOS / Alpine / … | whatever | **vibe-integrate it** (see [AGENTS.md](../AGENTS.md)) |
+| openSUSE / NixOS / Alpine / … | whatever | **port it with an agent** (see [AGENTS.md](../AGENTS.md)) |
 
 If `./arail setup` doesn't recognize your distro, you have two options:
 either port the setup script yourself (~20 lines), or hand the
 blueprint to an agent and let it do it for you.
 
-## The vibe-integrate approach
+If you're adapting Arail to a person's machine rather than adding distro
+support, see [vibe-integrate.md](vibe-integrate.md).
+
+## The agent-port approach
 
 The idea: you already have a local model running the lab (or a cloud
 agent — this works with any coding assistant). Point it at the two

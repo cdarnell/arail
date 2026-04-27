@@ -4,11 +4,16 @@ section: docs
 tags: [guide]
 aliases: [MACOS]
 source: docs/MACOS.md
-generated: 2026-04-25T04:17:15Z
+generated: 2026-04-26T21:56:54Z
 ---
 # macOS — Arail Setup
 
 Apple Silicon Macs run inference natively via MLX — no cloud needed.
+
+If you're setting Arail up for another Apple Silicon machine, pair this page
+with [vibe-integrate.md](vibe-integrate.md). The command surface stays the same;
+the integration work is choosing the right starter tier and model for that
+specific Mac's RAM, disk, and role.
 
 ---
 
