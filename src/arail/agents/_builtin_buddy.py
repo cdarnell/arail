@@ -363,11 +363,7 @@ def _watch_goal_staleness() -> Optional[Observation]:
     Only fires during waking hours (06:00–22:00 local) so Buddy doesn't
     wake you up at 3am about your learning goals.
     """
-    try:
-        from arail.goals import GoalStore
-        goal = GoalStore().get_current()
-    except Exception:
-        return None
+    goal = _host.get_current_goal()
     if not goal:
         return None
 
@@ -378,14 +374,14 @@ def _watch_goal_staleness() -> Optional[Observation]:
 
     goal_title = str(goal.get("title") or goal.get("text") or "your goal")[:60]
 
+    log_path = _host.get_activity_log_path()
+    if log_path is None or not log_path.exists():
+        return None
     try:
-        from arail.activity import LOG_FILE
-        if not LOG_FILE.exists():
-            return None
         stale_threshold = 4 * 3600  # 4 hours
         cutoff = time.time() - stale_threshold
         recent_goal_activity = False
-        for line in LOG_FILE.read_text().splitlines():
+        for line in log_path.read_text().splitlines():
             if not line.strip():
                 continue
             try:
@@ -421,13 +417,9 @@ def _watch_goal_staleness() -> Optional[Observation]:
 def _watch_study_streak() -> Optional[Observation]:
     """Tracks consecutive days with goal-related activity.
     Praises streaks of 2+ days; warns when yesterday was a miss."""
-    try:
-        from arail.activity import LOG_FILE
-        from arail.goals import GoalStore
-        goal = GoalStore().get_current()
-    except Exception:
-        return None
-    if not goal or not LOG_FILE.exists():
+    goal = _host.get_current_goal()
+    log_path = _host.get_activity_log_path()
+    if not goal or log_path is None or not log_path.exists():
         return None
 
     import datetime
@@ -437,7 +429,7 @@ def _watch_study_streak() -> Optional[Observation]:
     days_with_activity: set = set()
     try:
         import json as _json
-        for line in LOG_FILE.read_text().splitlines():
+        for line in log_path.read_text().splitlines():
             if not line.strip():
                 continue
             try:
@@ -519,18 +511,9 @@ def _goal_domain(goal: Dict[str, Any]) -> str:
 
 
 def _suggest_skill_for_goal(goal: Dict[str, Any]) -> Optional[Observation]:
-    """Surface an installed skill whose domain matches the goal's.
-
-    Per-skill cooldown via the watcher name (``skill:<id>``) means
-    Buddy rotates through every matching skill before going quiet on
-    the technique-suggestion front.
-    """
-    try:
-        from arail.skills_loader import list_installed_skills
-    except Exception:
-        return None
+    """Surface an installed skill whose domain matches the goal's."""
     domain = _goal_domain(goal)
-    skills = list_installed_skills()
+    skills = _host.list_skills()
     matches = [
         s for s in skills
         if (s.domain or "").lower() == domain
@@ -559,12 +542,7 @@ def _suggest_skill_for_goal(goal: Dict[str, Any]) -> Optional[Observation]:
 def _suggest_pending_review(goal: Dict[str, Any]) -> Optional[Observation]:
     """Flag a completed experiment that has been sitting > 48h."""
     try:
-        from arail.skills.experiment_tracker import ExperimentTracker
-    except Exception:
-        return None
-    tracker = ExperimentTracker()
-    try:
-        all_exps = tracker.list_all()
+        all_exps = _host.list_experiments()
     except Exception:
         return None
     completed = [
@@ -609,25 +587,14 @@ def _suggest_pending_review(goal: Dict[str, Any]) -> Optional[Observation]:
 
 
 def _suggest_next_experiment(goal: Dict[str, Any]) -> Optional[Observation]:
-    """Flag a concept in the goal that no logged experiment touches.
-
-    Crude word-overlap heuristic: pull tokens of length ≥ 5 from each
-    sub_objective, drop any that appear in any tracked experiment's
-    hypothesis / methodology / variables blob, and propose the first
-    miss as a worthwhile sweep.
-    """
-    try:
-        from arail.skills.experiment_tracker import ExperimentTracker
-    except Exception:
-        return None
+    """Flag a concept in the goal that no logged experiment touches."""
     parsed = goal.get("parsed") or {}
     sub_obj = parsed.get("sub_objectives") or []
     if not isinstance(sub_obj, list) or not sub_obj:
         return None
 
-    tracker = ExperimentTracker()
     try:
-        exps = tracker.list_all()
+        exps = _host.list_experiments()
     except Exception:
         return None
 
@@ -1201,18 +1168,13 @@ class BuddyAgent:
 # without needing a BuddyAgent instance.
 
 def _collect_today_buddy_activity(today_ymd: str) -> List[Dict[str, Any]]:
-    """Read Buddy's entries from the activity log for the given UTC date.
-
-    Pulls from the on-disk jsonl (activity_log's RAM buffer caps at
-    200 events; a full day can exceed that). Returns the raw event
-    dicts sorted by time.
-    """
-    from arail.activity import LOG_FILE
-    if not LOG_FILE.exists():
+    """Read Buddy's entries from the activity log for the given UTC date."""
+    log_path = _host.get_activity_log_path()
+    if log_path is None or not log_path.exists():
         return []
     rows: List[Dict[str, Any]] = []
     try:
-        for line in LOG_FILE.read_text().splitlines():
+        for line in log_path.read_text().splitlines():
             if not line.strip():
                 continue
             try:
@@ -1286,24 +1248,9 @@ def _build_dream_prompt(today_activity: List[Dict[str, Any]],
 
 
 async def _call_model_for_dream(prompt: str) -> str:
-    """Route the dream prompt through the shared local model. Runs the
-    blocking router call in a thread so the daemon's event loop stays
-    responsive."""
-    try:
-        from arail.router import ModelRouter
-    except Exception:
-        return ""
-    try:
-        router = ModelRouter()
-    except Exception:
-        return ""
-
+    """Route the dream prompt through the host LLM in a background thread."""
     def _blocking_call() -> str:
-        try:
-            response = router.complete(prompt, max_tokens=280, temperature=0.7)
-            return (response.text or "").strip()
-        except Exception:
-            return ""
+        return _host.llm_complete(prompt, max_tokens=280, temperature=0.7)
 
     return await asyncio.to_thread(_blocking_call)
 

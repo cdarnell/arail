@@ -1526,12 +1526,19 @@ async function refreshServiceStatus() {
     const el = document.getElementById('svc-status');
     if (!el) return;
     const svcs = d.services || {};
-    el.innerHTML = Object.entries(svcs).map(([name, up]) => {
+    const entries = Object.entries(svcs);
+    if (entries.length === 0) {
+      el.innerHTML = '<span style="color: var(--muted); font-size: 12px;">No services running.</span>';
+      return;
+    }
+    const chips = entries.map(([name, up]) => {
       const bgColor = up ? 'rgba(0,255,65,0.08)' : 'rgba(255,76,76,0.08)';
       const borderColor = up ? 'rgba(0,255,65,0.25)' : 'rgba(255,76,76,0.25)';
       const textColor = up ? 'var(--green)' : 'var(--red)';
       return `<span style="display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: 999px; border: 1px solid ${borderColor}; background: ${bgColor}; font-size: 12px; color: ${textColor};"><span style="width: 6px; height: 6px; border-radius: 50%; background: ${textColor}; box-shadow: ${up ? '0 0 4px rgba(0,255,65,.4)' : 'none'};"></span>${name}</span>`;
     }).join('');
+    const hint = '<span style="color: var(--muted); font-size: 11px; margin-left: 6px; align-self: center;" title="On-demand services (notebook, marimo, ollama, neo4j, etc.) only appear here when running.">on-demand services hidden when idle</span>';
+    el.innerHTML = chips + hint;
   } catch (e) {
     const el = document.getElementById('svc-status');
     if (el) el.textContent = 'Could not reach health API.';

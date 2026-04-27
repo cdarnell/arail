@@ -4,7 +4,6 @@ from pathlib import Path
 
 from fastapi import APIRouter, Request
 
-from arail.goals import GoalStore
 from arail.config import PKB_ROOT
 from arail import wiki
 
@@ -112,23 +111,20 @@ def _fallback_snapshot() -> dict:
 def _inject_focus_clusters(graph: dict) -> dict:
     """Add lab-centric focus hubs to shape default graph exploration.
 
-    Hubs:
+    Hubs (lab-dimension orientation, orthogonal to user goals):
       - health: agent/lab maintenance signals
       - performance: speed/throughput/latency experimentation
       - cleanliness: notes/tasks/housekeeping references
-      - goal: active user objective (or default inference goal)
+
+    The active user goal is no longer injected as an ephemeral focus_goal
+    node — Goal/SubObjective nodes now live in Neo4j as first-class
+    citizens (see services/goal_graph.py + GraphStore.upsert_goal). The
+    snapshot returns them via full_graph().
     """
     nodes = list(graph.get("nodes", []))
     links = list(graph.get("links", []))
 
     by_id = {n.get("id"): n for n in nodes}
-
-    goal_store = GoalStore()
-    current = goal_store.get_current() or {}
-    goal_text = (
-        (current.get("goal_text") or "").strip()
-        or "improving the inference speed and parallel execution of streaming LLMs off disk"
-    )
 
     focus_nodes = [
         {
@@ -158,15 +154,6 @@ def _inject_focus_clusters(graph: dict) -> dict:
             "ingested_by": "agent",
             "orphan": False,
         },
-        {
-            "id": "focus_goal",
-            "title": f"Goal: {goal_text[:110]}",
-            "kind": "focus",
-            "tags": ["goal", "autoresearch"],
-            "domain": "lab",
-            "ingested_by": "agent",
-            "orphan": False,
-        },
     ]
 
     for fn in focus_nodes:
@@ -192,10 +179,6 @@ def _inject_focus_clusters(graph: dict) -> dict:
             "confidence": round(confidence, 3),
         })
 
-    _link("focus_goal", "focus_performance", 0.9)
-    _link("focus_goal", "focus_health", 0.55)
-    _link("focus_goal", "focus_clean", 0.45)
-
     perf_terms = {
         "perf", "performance", "latency", "throughput", "benchmark", "token/s",
         "inference", "stream", "streaming", "parallel", "batch", "gpu", "mlx", "aerollm",
@@ -208,10 +191,12 @@ def _inject_focus_clusters(graph: dict) -> dict:
         nid = n.get("id")
         if not nid or str(nid).startswith("focus_"):
             continue
+        # Goal / SubObjective nodes are not lab-dimension citizens; skip.
+        if n.get("node_type") in {"Goal", "SubObjective"}:
+            continue
         blob = _lc_values(n)
         if any(t in blob for t in perf_terms) or n.get("kind") == "experiment_log":
             _link("focus_performance", nid, 0.74)
-            _link("focus_goal", nid, 0.68)
         if any(t in blob for t in health_terms) or n.get("ingested_by") in {"agent", "curator"}:
             _link("focus_health", nid, 0.6)
         if any(t in blob for t in clean_terms) or n.get("kind") in {"markdown", "dataset"}:

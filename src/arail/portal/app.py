@@ -215,6 +215,7 @@ async def _startup():
             await _knowledge_canvas_store.init()
             knowledge_canvas_app.state.store = _knowledge_canvas_store
             knowledge_canvas_app.state.ws_broadcaster = kc_ws.broadcaster
+            _register_canvas_goal_listener(_knowledge_canvas_store)
             activity_log.emit("system", "Knowledge Canvas backend ready.", "info")
         except Exception as e:  # noqa: BLE001
             _knowledge_canvas_store = None
@@ -358,6 +359,52 @@ async def _startup():
             activity_log.emit("dream",
                 f"Dream daemon failed to start: {type(e).__name__}: {e}",
                 "warn")
+
+
+def _register_canvas_goal_listener(store: Any) -> None:
+    """Wire goal-store events into the Knowledge Canvas Goal/SubObjective graph.
+
+    The canvas is additive — failure here must never block goal-setting.
+    We swallow exceptions and log a warning so the user still sees their
+    goal applied even if the graph write fails.
+    """
+    from arail import goals as goals_mod
+    from app.services.goal_graph import GoalGraphService  # type: ignore
+
+    svc = GoalGraphService(store)
+
+    def listener(event: str, payload: Dict[str, Any]) -> None:
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return  # Not inside an event loop; canvas sync skipped this call.
+        if event == "goal_set":
+            record = payload.get("record") or {}
+            archive_id = payload.get("archive_id")
+            async def _do():
+                try:
+                    if archive_id and archive_id != record.get("id"):
+                        await svc.archive_goal(archive_id)
+                    await svc.upsert_goal(record, archive_others=True)
+                except Exception as e:  # noqa: BLE001
+                    activity_log.emit("system",
+                        f"Goal sync to canvas failed: {type(e).__name__}: {e}",
+                        "warn")
+            loop.create_task(_do())
+        elif event == "goal_cleared":
+            goal_id = payload.get("goal_id")
+            if not goal_id:
+                return
+            async def _do_clear():
+                try:
+                    await svc.archive_goal(goal_id)
+                except Exception as e:  # noqa: BLE001
+                    activity_log.emit("system",
+                        f"Goal archive in canvas failed: {type(e).__name__}: {e}",
+                        "warn")
+            loop.create_task(_do_clear())
+
+    goals_mod.add_listener(listener)
 
 
 @app.on_event("shutdown")
@@ -4275,17 +4322,33 @@ async def system_health():
     passing_required = sum(1 for c in required_checks if c["ok"])
     passing_total = sum(1 for c in service_checks if c["ok"])
 
-    services = {
+    # Service status surface: always show always-on core services (portal,
+    # knowledge-canvas) plus any optional service that is actually running.
+    # Optional/on-demand services (ttyd, notebook, marimo, open-notebook,
+    # ollama, neo4j, lance-memory) are hidden when not running so the rail
+    # doesn't flood with "down" chips for things the operator never invoked.
+    kc_up = _knowledge_canvas_store is not None or (
+        knowledge_canvas_app is not None and hasattr(knowledge_canvas_app.state, "store")
+    )
+    marimo_running = marimo_up and _container_running("arail-marimo")
+    open_notebook_running = open_notebook_up and _container_running("arail-open-notebook")
+
+    services: dict[str, bool] = {
         "portal": portal_up,
+        "knowledge-canvas": kc_up,
+    }
+    optional_services = {
         "ttyd": ttyd_up,
         "notebook": notebook_up,
         "lance-memory": lance_up,
-        "marimo": marimo_up and _container_running("arail-marimo"),
-        "open-notebook": open_notebook_up and _container_running("arail-open-notebook"),
+        "marimo": marimo_running,
+        "open-notebook": open_notebook_running,
         "ollama": ollama_up,
-        "knowledge-canvas": _knowledge_canvas_store is not None or (knowledge_canvas_app is not None and hasattr(knowledge_canvas_app.state, "store")),
         "neo4j": neo4j_up,
     }
+    for name, up in optional_services.items():
+        if up:
+            services[name] = True
 
     return {
         "platform": platform.system(),

@@ -95,7 +95,7 @@ install_pyproject_extra() {
 # Detect OS / platform
 # -----------------------------------------------------------------------------
 detect_platform() {
-    step "1/10  Detecting hardware"
+    step "1/11  Detecting hardware"
 
     # Guard: PowerShell / Git-Bash / MSYS shells running on Windows itself.
     # These aren't supported — users must install WSL2 Ubuntu and run from
@@ -279,7 +279,7 @@ check_sudo() {
 # Python environment
 # -----------------------------------------------------------------------------
 ensure_python() {
-    step "3/10  Python environment (.venv + core deps)"
+    step "3/11  Python environment (.venv + core deps)"
     if ! command -v python3 &>/dev/null; then
         case "$PLATFORM" in
             gentoo)  error "Install Python, then re-run ./arail setup:  emerge -av dev-lang/python" ;;
@@ -391,7 +391,7 @@ install_accel_deps() {
 # are logged and the rest of setup continues.
 # -----------------------------------------------------------------------------
 install_services() {
-    step "2/10  System packages (ttyd, tmux, agent-browser, optional ollama)"
+    step "2/11  System packages (ttyd, tmux, agent-browser, optional ollama)"
     # ttyd — the browser terminal.
     if ! command -v ttyd &>/dev/null; then
         case "$PLATFORM" in
@@ -574,7 +574,7 @@ capture_brand() {
         return
     fi
 
-    step "4/10  Name your lab"
+    step "4/11  Name your lab"
     echo "  This is how the dashboard, portal, wiki, and every banner will"
     echo "  refer to your lab. Pick something that feels like yours —"
     echo "  ${BOLD}Sam's AI Lab${RESET}, ${BOLD}gentoofoo's ai lab${RESET}, ${BOLD}PeanutLab${RESET}, or keep the default."
@@ -644,7 +644,7 @@ capture_tier() {
         return
     fi
 
-    step "4b/10  Pick an install tier"
+    step "4b/11  Pick an install tier"
     cat <<EOF
   Two tiers — upgrade later with ./arail upgrade max.
 
@@ -704,7 +704,7 @@ capture_password() {
     # first browser hit to /welcome where the user picks a passphrase.
     if [[ "${ARAIL_DEFER_PASSWORD:-0}" == "1" ]]; then
         ARAIL_PASSWORD="__needs_setup__"
-        step "5/10  Lab passphrase (deferred)"
+        step "5/11  Lab passphrase (deferred)"
         info "Deferring passphrase to first browser load (ARAIL_DEFER_PASSWORD=1)."
         info "Open ${BOLD}http://127.0.0.1:${PORTAL_PORT:-8080}${RESET} after ./arail start —"
         info "the lab will land on /welcome and ask you to set one."
@@ -718,7 +718,7 @@ capture_password() {
             info "Reusing existing passphrase from .env (non-interactive)."
             return
         fi
-        step "5/10  Lab passphrase"
+        step "5/11  Lab passphrase"
         echo "  An existing passphrase is already configured in .env."
         echo "  Press Enter to keep it, or type ${BOLD}new${RESET} to rotate it."
         echo ""
@@ -750,7 +750,7 @@ capture_password() {
         return
     fi
 
-    step "5/10  Lab passphrase"
+    step "5/11  Lab passphrase"
     echo "  One passphrase secures every surface in the lab:"
     echo "    • code-server IDE   (http://127.0.0.1:8443)"
     echo "    • Open Notebook     (encrypts your research data at rest)"
@@ -781,7 +781,7 @@ capture_password() {
 # .env file
 # -----------------------------------------------------------------------------
 setup_env() {
-    step "6/10  Configuration files (.env + lab.conf)"
+    step "6/11  Configuration files (.env + lab.conf)"
     if [[ ! -f .env ]]; then
         cp .env.example .env
         # Patch detected backend. Match any existing value (the .env.example
@@ -942,7 +942,7 @@ YAML
 # Personal knowledge management scaffold
 # -----------------------------------------------------------------------------
 setup_pkb() {
-    step "7/10  Knowledge base scaffold (lab/pkb/)"
+    step "7/11  Knowledge base scaffold (lab/pkb/)"
     local pkb_root="lab/pkb"
     mkdir -p "$pkb_root"/{inbox,sources/{papers,articles,datasets},agents/{research,experiments,synthesis,recommendations},notes/scratch,compiled/{reports,summaries,exports},inference/{prompts,completions,chains}}
     [[ -f "$pkb_root/sources/bookmarks.md" ]] || cat > "$pkb_root/sources/bookmarks.md" << 'BOOKMARKS'
@@ -980,7 +980,7 @@ IDEAS
 # Download starter model (airgapped prep)
 # -----------------------------------------------------------------------------
 download_model() {
-    step "8/10  AI models (starter model for ${ACCEL})"
+    step "8/11  AI models (starter model for ${ACCEL})"
     if [[ "${ARAIL_SKIP_MODEL_DOWNLOAD:-0}" == "1" ]]; then
         warn "Skipping model download because ARAIL_SKIP_MODEL_DOWNLOAD=1"
         return
@@ -1029,7 +1029,7 @@ capture_goal() {
         return
     fi
 
-    step "9/10  Lab intent & first research goal"
+    step "9/11  Lab intent & first research goal"
     echo "  What kind of lab is this?"
     echo ""
     echo "    1) ai         — AI engineering, models, inference, toolchains"
@@ -1163,10 +1163,154 @@ validate_env() {
 }
 
 # -----------------------------------------------------------------------------
+# install_path_shim — drop arail + qkz into ~/.local/bin so the user can
+# run `arail start` (and `qkz <cmd>`) from any directory, not just from
+# the repo root with `./arail`.
+#
+# Strategy:
+#   • Symlink REPO/arail   → ~/.local/bin/arail
+#   • Symlink REPO/qkz     → ~/.local/bin/qkz
+#   • If ~/.local/bin isn't on PATH, append `export PATH=...` to the
+#     user's shell rc (~/.zshrc or ~/.bashrc).
+#   • Refuse to clobber non-symlink files at the targets — surface a
+#     warning instead so manually-installed tools aren't lost.
+#   • Skippable with ARAIL_SKIP_PATH=1 for users who manage PATH
+#     themselves (Nix profiles, Home Manager, dotfiles repos, etc.).
+#
+# Resolved values land in PATH_INSTALLED (banner prints them) and
+# SHELL_RC_TOUCHED (warns the user to source it).
+# -----------------------------------------------------------------------------
+PATH_INSTALLED=""
+SHELL_RC_TOUCHED=""
+QKZ_SKIPPED=""
+install_path_shim() {
+    step "10/11  Install 'arail' to your PATH"
+    if [[ "${ARAIL_SKIP_PATH:-0}" == "1" ]]; then
+        info "Skipping PATH install (ARAIL_SKIP_PATH=1)."
+        info "Run from the repo with ${BOLD}./arail <cmd>${RESET} or symlink manually."
+        return
+    fi
+
+    # Pick a target bin dir. Prefer something already on PATH so the
+    # command works in this very shell — no rc edit, no source step.
+    # Order: ~/bin (common on macOS / older dotfiles) → ~/.local/bin
+    # (XDG-ish, Linux default) → fall back to ~/.local/bin and append
+    # to shell rc.
+    local bin_dir=""
+    for cand in "$HOME/bin" "$HOME/.local/bin"; do
+        if [[ -d "$cand" ]] && [[ ":$PATH:" == *":$cand:"* ]]; then
+            bin_dir="$cand"
+            break
+        fi
+    done
+    if [[ -z "$bin_dir" ]]; then
+        bin_dir="$HOME/.local/bin"
+        mkdir -p "$bin_dir"
+    fi
+
+    local installed_any=0
+    for name in arail qkz; do
+        local source="$REPO_ROOT/$name"
+        local target="$bin_dir/$name"
+        if [[ ! -e "$source" ]]; then
+            warn "Source missing: $source — skipping $name shim."
+            continue
+        fi
+
+        # qkz collision guard — many users (and the QuKaiZen knowledge
+        # base) already define a `qkz` shell function or binary.
+        # Don't shadow / get shadowed silently. Skip qkz unless the
+        # user explicitly opts in via ARAIL_INSTALL_QKZ=1.
+        if [[ "$name" == "qkz" ]] && [[ "${ARAIL_INSTALL_QKZ:-0}" != "1" ]]; then
+            local existing_qkz=""
+            # `command -v` finds binaries, builtins, functions, aliases —
+            # but not zsh functions that are only loaded interactively.
+            # Probe both ways to keep the false-negative rate low.
+            if command -v qkz &>/dev/null; then
+                existing_qkz="$(command -v qkz)"
+            elif [[ -e "$target" ]] && [[ ! -L "$target" ]]; then
+                existing_qkz="$target"
+            fi
+            if [[ -n "$existing_qkz" ]]; then
+                QKZ_SKIPPED="$existing_qkz"
+                info "Skipping qkz shim — existing 'qkz' detected (${existing_qkz})."
+                info "Set ARAIL_INSTALL_QKZ=1 to override and link this repo's qkz."
+                continue
+            fi
+        fi
+
+        if [[ -L "$target" ]]; then
+            local existing
+            existing="$(readlink "$target")"
+            if [[ "$existing" == "$source" ]]; then
+                info "$name → $target (already linked to this repo)"
+                installed_any=1
+                continue
+            fi
+            warn "$target → $existing (different repo) — replacing."
+            ln -sf "$source" "$target"
+            installed_any=1
+        elif [[ -e "$target" ]]; then
+            warn "$target exists and is not a symlink — leaving it alone."
+            warn "Remove it manually if you want this repo's $name on PATH."
+            continue
+        else
+            ln -s "$source" "$target"
+            info "Linked $target → $source"
+            installed_any=1
+        fi
+    done
+
+    if [[ "$installed_any" == "1" ]]; then
+        PATH_INSTALLED="$bin_dir"
+    fi
+
+    # PATH detection — only touch shell rc if the bin dir really isn't reachable.
+    if [[ ":$PATH:" == *":$bin_dir:"* ]]; then
+        info "$bin_dir is already on PATH — ${BOLD}arail${RESET} works in any new shell."
+        return
+    fi
+
+    local rc_file=""
+    case "${SHELL:-}" in
+        */zsh)  rc_file="$HOME/.zshrc" ;;
+        */bash)
+            # Prefer .bashrc on Linux; .bash_profile on macOS (login shells).
+            if [[ "$PLATFORM" == "macos" && -f "$HOME/.bash_profile" ]]; then
+                rc_file="$HOME/.bash_profile"
+            else
+                rc_file="$HOME/.bashrc"
+            fi
+            ;;
+        *)
+            warn "Unknown shell (\$SHELL=${SHELL:-unset}). Add this to your shell config:"
+            warn "    export PATH=\"${bin_dir}:\$PATH\""
+            return
+            ;;
+    esac
+
+    # Don't double-append if the rc already references the chosen bin dir.
+    local literal_dir="${bin_dir/#$HOME/\$HOME}"
+    if [[ -f "$rc_file" ]] && grep -Fq "$literal_dir" "$rc_file"; then
+        info "$rc_file already references ${literal_dir} — leaving it alone."
+        warn "If 'arail' isn't found in a fresh shell, the reference may be commented out."
+        return
+    fi
+
+    {
+        printf '\n# Added by Arail setup — makes the arail command runnable from any directory\n'
+        printf 'export PATH="%s:$PATH"\n' "$literal_dir"
+    } >> "$rc_file"
+    SHELL_RC_TOUCHED="$rc_file"
+    info "Appended PATH export to ${BOLD}${rc_file}${RESET}"
+    warn "Open a new terminal — or run: ${BOLD}source ${rc_file}${RESET} — to use 'arail' from anywhere."
+}
+
+# -----------------------------------------------------------------------------
 # Verify
 # -----------------------------------------------------------------------------
 verify() {
-    step "10/10  Verification"
+    step "11/11  Verification"
     info "Running smoke tests…"
     local log="${REPO_ROOT:-$PWD}/setup.log"
     if python3 -c "from arail.router import ModelRouter; import arail.portal.app; from arail.pkb import scaffold; scaffold(); print('OK')" >>"$log" 2>&1; then
@@ -1190,17 +1334,18 @@ main() {
     echo "============================================="
     echo ""
 
-    # Ordering matches the 1/10 → 10/10 banner sequence:
-    #   1/10 detect_platform
-    #   2/10 install_services     (OS packages — needs brew/apt, no python)
-    #   3/10 ensure_python + install_core_deps + load_pyproject_metadata + install_accel_deps
-    #   4/10 capture_brand
-    #   5/10 capture_password
-    #   6/10 setup_env + setup_runtime_files + validate_env
-    #   7/10 setup_pkb
-    #   8/10 download_model
-    #   9/10 capture_goal
-    #  10/10 verify
+    # Ordering matches the 1/11 → 11/11 banner sequence:
+    #   1/11 detect_platform
+    #   2/11 install_services     (OS packages — needs brew/apt, no python)
+    #   3/11 ensure_python + install_core_deps + load_pyproject_metadata + install_accel_deps
+    #   4/11 capture_brand
+    #   5/11 capture_password
+    #   6/11 setup_env + setup_runtime_files + validate_env
+    #   7/11 setup_pkb
+    #   8/11 download_model
+    #   9/11 capture_goal
+    #  10/11 install_path_shim    (puts arail + qkz on PATH so ./ isn't required)
+    #  11/11 verify
     detect_platform
     install_services
     ensure_python
@@ -1218,6 +1363,7 @@ main() {
     wsl_notes
     download_model
     capture_goal
+    install_path_shim
 
     echo ""
     verify
@@ -1225,11 +1371,39 @@ main() {
     echo ""
     echo -e "${BOLD}━━━ ✓ Setup complete${RESET}"
     echo ""
+
+    # Pick the start command based on whether the PATH shim landed.
+    # If install_path_shim succeeded *and* ~/.local/bin is reachable in
+    # the current shell, the user can just type `arail start`.
+    # Otherwise they need the in-repo `./arail` form.
+    local start_cmd="./arail start"
+    if [[ -n "$PATH_INSTALLED" ]] && [[ ":$PATH:" == *":$PATH_INSTALLED:"* ]]; then
+        start_cmd="arail start"
+    fi
+
     echo "  Next steps:"
-    echo -e "    1) Start the lab:      ${BOLD}./arail start${RESET}"
+    echo -e "    1) Start the lab:      ${BOLD}${start_cmd}${RESET}"
     echo -e "    2) Open the dashboard: ${BOLD}http://127.0.0.1:${PORTAL_PORT:-8080}${RESET}"
     echo -e "    3) Type your goal and click ${BOLD}Run Research${RESET}"
     echo ""
+
+    if [[ -n "$PATH_INSTALLED" ]]; then
+        echo "  Commands installed:"
+        echo -e "    ${BOLD}arail${RESET}  →  ${PATH_INSTALLED}/arail   (run from any directory)"
+        if [[ -L "${PATH_INSTALLED}/qkz" ]] && [[ "$(readlink "${PATH_INSTALLED}/qkz")" == "${REPO_ROOT}/qkz" ]]; then
+            echo -e "    ${BOLD}qkz${RESET}    →  ${PATH_INSTALLED}/qkz     (alias — same script)"
+        elif [[ -n "$QKZ_SKIPPED" ]]; then
+            echo -e "    ${BOLD}qkz${RESET}    →  not installed (existing qkz at ${QKZ_SKIPPED})"
+            echo "             override with: ARAIL_INSTALL_QKZ=1 ./arail setup"
+        fi
+        echo ""
+        if [[ -n "$SHELL_RC_TOUCHED" ]]; then
+            echo -e "  ${BOLD}One-time:${RESET} open a new terminal — or run:"
+            echo -e "        ${BOLD}source ${SHELL_RC_TOUCHED}${RESET}"
+            echo "  so the new PATH takes effect in this shell."
+            echo ""
+        fi
+    fi
     if (( ${#PORT_BUMPS[@]} > 0 )); then
         echo -e "  ${BOLD}Heads-up — some default ports were taken, so we picked these:${RESET}"
         echo -e "    Dashboard : http://127.0.0.1:${PORTAL_PORT}"

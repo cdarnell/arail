@@ -19,7 +19,21 @@
 # =============================================================================
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Resolve symlinks so REPO_ROOT points to the real repo even when this
+# script is invoked through a shim like ~/bin/arail or ~/.local/bin/arail.
+# macOS ships bash 3.2 which lacks `readlink -f`, so walk the chain
+# manually — POSIX-portable and zero deps.
+_arail_self="${BASH_SOURCE[0]}"
+while [[ -L "$_arail_self" ]]; do
+    _arail_link="$(readlink "$_arail_self")"
+    if [[ "$_arail_link" = /* ]]; then
+        _arail_self="$_arail_link"
+    else
+        _arail_self="$(cd "$(dirname "$_arail_self")" && pwd)/$_arail_link"
+    fi
+done
+REPO_ROOT="$(cd "$(dirname "$_arail_self")" && pwd)"
+unset _arail_self _arail_link
 cd "$REPO_ROOT"
 
 # Load .env so LAB_NAME / LAB_TAGLINE reach the help banner.
@@ -36,12 +50,50 @@ warn() { echo -e "${YELLOW}[${LAB_SHORT_NAME}]${RESET} $*"; }
 die()  { echo -e "${RED}[${LAB_SHORT_NAME}]${RESET} $*" >&2; exit 1; }
 
 usage() {
+    # Detect which form the user invoked us as (arail vs qkz) and whether
+    # the script is reachable on PATH (in which case ./ isn't required).
+    local invoked
+    invoked="$(basename -- "${0:-arail}")"
+    local on_path=""
+    if command -v "$invoked" >/dev/null 2>&1; then
+        local resolved
+        resolved="$(command -v "$invoked")"
+        # On PATH only if the resolved path isn't the literal ./<name> form.
+        if [[ "$resolved" != "./${invoked}" ]]; then
+            on_path="$resolved"
+        fi
+    fi
+
+    local invocation
+    if [[ -n "$on_path" ]]; then
+        invocation="${invoked} <command> [args]"
+    else
+        invocation="./${invoked} <command> [args]"
+    fi
+
     cat <<EOF
 
   $(printf '\033[1m')${LAB_NAME}$(printf '\033[0m') — ${LAB_TAGLINE}
   Install tier: ${LAB_TIER}
 
-  Usage: ./arail <command> [args]       (alias: ./qkz)
+  Usage: ${invocation}
+EOF
+
+    if [[ -n "$on_path" ]]; then
+        echo "  Installed at: ${on_path}"
+    else
+        cat <<EOF
+  Repo path:    ${REPO_ROOT}/${invoked}
+  Tip:          \`./${invoked} setup\` installs ${invoked} to ~/.local/bin so
+                you can call it from any directory afterwards.
+EOF
+    fi
+
+    cat <<EOF
+  In-repo alias: ./qkz is a symlink to ./arail (brand-flexible name).
+                 The PATH installer skips qkz if you already have one
+                 (e.g. a QuKaiZen knowledge-base function); opt in with
+                 ARAIL_INSTALL_QKZ=1 ./arail setup to override.
 
   Commands:
     setup           first-time provisioning — pick a tier, deps, model
@@ -60,9 +112,15 @@ usage() {
     blueprint <op>  list | catalog | show | create | apply | destroy — Configuration as Code
     help            this message
 
-  Quick start:   ./arail setup && ./arail start
-
 EOF
+
+    if [[ -n "$on_path" ]]; then
+        echo "  Quick start:   ${invoked} setup && ${invoked} start"
+    else
+        echo "  Quick start:   ./${invoked} setup && ${invoked} start"
+        echo "                 (after setup, ${invoked} is on PATH — ./ no longer needed)"
+    fi
+    echo ""
 }
 
 cmd="${1:-help}"; shift || true

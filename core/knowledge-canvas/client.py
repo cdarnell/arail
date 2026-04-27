@@ -90,6 +90,75 @@ class CanvasClient:
             return False
 
     # ------------------------------------------------------------------
+    # Goal-aware operations (Phase 1: persistent Goal/SubObjective nodes)
+    # ------------------------------------------------------------------
+    def upsert_goal(self, record: dict[str, Any], *, archive_others: bool = True) -> bool:
+        """Persist Goal + SubObjective nodes from an arail.goals record.
+
+        Returns True if the canvas accepted the upsert, False if the
+        backend was unreachable (the canvas is additive — failure here
+        does not block goal-setting in the portal).
+        """
+        try:
+            r = httpx.post(
+                f"{self.url}/api/goals/upsert",
+                json={"record": record, "archive_others": archive_others},
+                timeout=TIMEOUT,
+            )
+            r.raise_for_status()
+            return True
+        except Exception:
+            return False
+
+    def archive_goal(self, goal_id: str) -> bool:
+        try:
+            r = httpx.post(f"{self.url}/api/goals/{goal_id}/archive", timeout=TIMEOUT)
+            r.raise_for_status()
+            return True
+        except Exception:
+            return False
+
+    def link_source_to_goal(
+        self,
+        source_id: str,
+        goal_id: str,
+        *,
+        sub_objective_id: str | None = None,
+        relevance: float | None = None,
+    ) -> bool:
+        try:
+            r = httpx.post(
+                f"{self.url}/api/goals/link-source",
+                json={
+                    "source_id": source_id,
+                    "goal_id": goal_id,
+                    "sub_objective_id": sub_objective_id,
+                    "relevance": relevance,
+                },
+                timeout=TIMEOUT,
+            )
+            r.raise_for_status()
+            return True
+        except Exception:
+            return False
+
+    def goal_coverage(self, goal_id: str) -> dict | None:
+        try:
+            r = httpx.get(f"{self.url}/api/goals/{goal_id}/coverage", timeout=TIMEOUT)
+            r.raise_for_status()
+            return r.json()
+        except Exception:
+            return None
+
+    def sources_for_goal(self, goal_id: str) -> list[dict]:
+        try:
+            r = httpx.get(f"{self.url}/api/goals/{goal_id}/sources", timeout=TIMEOUT)
+            r.raise_for_status()
+            return r.json().get("sources", [])
+        except Exception:
+            return []
+
+    # ------------------------------------------------------------------
     def flush_queue(self) -> int:
         """Replay queued ingests once the backend is back. Returns count sent."""
         if not QUEUE_PATH.exists():

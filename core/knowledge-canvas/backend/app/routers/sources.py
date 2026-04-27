@@ -53,7 +53,7 @@ async def link(req: Request, payload: LinkRequest):
     store = getattr(req.app.state, "store", None)
     if store is None:
         raise HTTPException(503, "Knowledge store is initializing")
-    valid_rels = {"LINKS_TO", "DISCOVERED_FROM", "MOTIVATES", "CITES", "DERIVED_FROM", "SUGGESTED"}
+    valid_rels = {"LINKS_TO", "DISCOVERED_FROM", "MOTIVATES", "CITES", "DERIVED_FROM", "SUGGESTED", "ADDRESSES"}
     if payload.rel not in valid_rels:
         raise HTTPException(400, f"rel must be one of {valid_rels}")
     await store.link(payload.src_id, payload.dst_id, payload.rel, payload.props)
