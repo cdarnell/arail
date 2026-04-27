@@ -311,32 +311,22 @@
     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px;">
       <a href="/chat" class="qa-button qa-success" style="text-decoration: none; display: flex; flex-direction: column; justify-content: flex-start;">
         <div class="qa-title" style="color: var(--green);">💬 Open Chat</div>
-        <div class="qa-desc">Start tuning or research</div>
       </a>
       <button class="qa-button qa-primary" onclick="runLiveChecks('Health Check', '/api/system/health/stream')">
         <div class="qa-title" style="color: var(--blue);">⊙ Health Check</div>
-        <div class="qa-desc">16 sequential checks</div>
       </button>
       <button class="qa-button qa-warning" onclick="restartLab()">
         <div class="qa-title" style="color: var(--amber);">⟳ Restart Lab</div>
-        <div class="qa-desc">Stop → ps → start visual</div>
       </button>
       <button class="qa-button qa-primary" onclick="window.open('/graph', '_blank')">
         <div class="qa-title" style="color: var(--blue);">◆ System Graph</div>
-        <div class="qa-desc">Visual architecture</div>
       </button>
       <button class="qa-button qa-primary" onclick="checkUpdates()">
         <div class="qa-title" style="color: var(--blue);">↻ Check Updates</div>
-        <div class="qa-desc">Scan for new versions</div>
       </button>
       <button class="qa-button qa-primary" onclick="window.location='/plugins'">
         <div class="qa-title" style="color: var(--blue);">⚙ Plugins</div>
-        <div class="qa-desc">Install / manage</div>
       </button>
-      <a href="/jobs" class="qa-button qa-primary" style="text-decoration:none;display:flex;flex-direction:column;justify-content:flex-start;">
-        <div class="qa-title" style="color: var(--blue);">▶ Jobs</div>
-        <div class="qa-desc">Run &amp; schedule lab jobs</div>
-      </a>
     </div>
     <div id="admin-log" style="margin-top: 10px; font-size: 12px; color: var(--muted); min-height: 18px;"></div>
   </div>

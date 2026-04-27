@@ -479,31 +479,21 @@
     <div class="admin-grid">
       <a href="/chat" class="admin-card" style="text-decoration: none;">
         <div class="ac-title">Open Chat</div>
-        <div class="ac-desc">Start tuning or research</div>
       </a>
       <div class="admin-card" onclick="runLiveChecks('Health Check', '/api/system/health/stream')">
         <div class="ac-title">Health Check</div>
-        <div class="ac-desc">16 sequential checks</div>
       </div>
       <div class="admin-card" onclick="restartLab()">
         <div class="ac-title">Restart Lab</div>
-        <div class="ac-desc">Stop → ps → start visual</div>
       </div>
       <div class="admin-card" onclick="window.open('/graph', '_blank')">
         <div class="ac-title">System Graph</div>
-        <div class="ac-desc">Visual architecture map</div>
       </div>
       <div class="admin-card" onclick="checkUpdates()">
         <div class="ac-title">Check Updates</div>
-        <div class="ac-desc">Scan components for new versions</div>
       </div>
-      <div class="admin-card" onclick="window.location='/plugins'">
+      <a href="/plugins" class="admin-card" style="text-decoration: none;">
         <div class="ac-title">Plugins</div>
-        <div class="ac-desc">Install / enable / disable plugins</div>
-      </div>
-      <a href="/jobs" class="admin-card" style="text-decoration:none;">
-        <div class="ac-title">Jobs</div>
-        <div class="ac-desc">Run &amp; schedule lab jobs</div>
       </a>
     </div>
     <div id="admin-log"></div>
