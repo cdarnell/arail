@@ -2705,6 +2705,142 @@ async def admin_check_updates():
     return {"airgapped": False, "updates_available": updates, "summary": summary, "components": names}
 
 
+@app.get("/api/admin/check-updates/stream")
+async def admin_check_updates_stream():
+    """SSE stream — sequential per-component update probes.
+
+    Drives the Live Checks modal when the dashboard's Updates
+    Available banner is clicked, or when Check Updates is invoked
+    from Quick Actions. Same event shape as
+    ``/api/system/health/stream`` so the modal driver doesn't care
+    which endpoint feeds it.
+
+    Each component's ``check_cmd`` runs in order; each emits one
+    check event with status ``pass`` (up to date), ``warn`` (update
+    available), or ``fail`` (probe error / timeout).
+    """
+    import time
+    import subprocess as sp
+
+    mode = os.getenv("ARAIL_MODE", "airgapped")
+
+    async def _generate_airgapped():
+        # Single explanatory event so the modal isn't just empty.
+        payload = {
+            "event": "check",
+            "name": "Update probe",
+            "status": "warn",
+            "detail": "Lab is airgapped — switch to Hybrid mode in Admin to enable remote update checks.",
+            "duration_ms": 0,
+            "index": 0,
+            "total": 1,
+        }
+        yield f"data: {json.dumps(payload)}\n\n"
+        done = {
+            "event": "done",
+            "passed": 0, "warned": 1, "failed": 0,
+            "total": 1, "total_ms": 0,
+        }
+        yield f"data: {json.dumps(done)}\n\n"
+
+    if mode == "airgapped":
+        return StreamingResponse(
+            _generate_airgapped(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
+    manifest_path = Path.cwd() / "components.json"
+    if not manifest_path.exists():
+        async def _gen_no_manifest():
+            payload = {
+                "event": "check",
+                "name": "components.json",
+                "status": "fail",
+                "detail": "Not found at repo root — cannot enumerate update targets.",
+                "duration_ms": 0,
+                "index": 0, "total": 1,
+            }
+            yield f"data: {json.dumps(payload)}\n\n"
+            done = {"event": "done", "passed": 0, "warned": 0, "failed": 1,
+                    "total": 1, "total_ms": 0}
+            yield f"data: {json.dumps(done)}\n\n"
+        return StreamingResponse(
+            _gen_no_manifest(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
+    manifest = json.loads(manifest_path.read_text())
+    components = [c for c in manifest.get("components", []) if c.get("check_cmd")]
+    total = len(components) or 1
+
+    async def _generate():
+        if not components:
+            yield f"data: {json.dumps({'event': 'check', 'name': 'components.json', 'status': 'warn', 'detail': 'no components have check_cmd defined', 'duration_ms': 0, 'index': 0, 'total': 1})}\n\n"
+            yield f"data: {json.dumps({'event': 'done', 'passed': 0, 'warned': 1, 'failed': 0, 'total': 1, 'total_ms': 0})}\n\n"
+            return
+
+        passed = warned = failed = 0
+        run_start = time.perf_counter()
+        for idx, c in enumerate(components):
+            t0 = time.perf_counter()
+            ccmd = c["check_cmd"]
+            name = c.get("name", "(unnamed)")
+            try:
+                # Run in a thread so we don't block the event loop on
+                # subprocesses with their own network calls.
+                r = await asyncio.to_thread(
+                    sp.run, ccmd,
+                    shell=True, capture_output=True, text=True, timeout=30,
+                )
+                stdout = (r.stdout or "").strip()
+                if r.returncode != 0:
+                    status = "fail"
+                    detail = f"exit {r.returncode}: {(r.stderr or stdout).strip()[:160] or 'no output'}"
+                    failed += 1
+                elif stdout and "up to date" not in stdout.lower():
+                    status = "warn"
+                    detail = stdout.splitlines()[0][:160] if stdout else "update available"
+                    warned += 1
+                else:
+                    status = "pass"
+                    detail = "up to date"
+                    passed += 1
+            except sp.TimeoutExpired:
+                status, detail = "fail", "probe timed out after 30s"
+                failed += 1
+            except Exception as e:  # noqa: BLE001
+                status, detail = "fail", f"check raised: {e}"
+                failed += 1
+            duration_ms = int((time.perf_counter() - t0) * 1000)
+            payload = {
+                "event": "check",
+                "name": name,
+                "status": status,
+                "detail": detail,
+                "duration_ms": duration_ms,
+                "index": idx,
+                "total": total,
+            }
+            yield f"data: {json.dumps(payload)}\n\n"
+            await asyncio.sleep(0.04)
+
+        total_ms = int((time.perf_counter() - run_start) * 1000)
+        done = {
+            "event": "done",
+            "passed": passed, "warned": warned, "failed": failed,
+            "total": total, "total_ms": total_ms,
+        }
+        yield f"data: {json.dumps(done)}\n\n"
+
+    return StreamingResponse(
+        _generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 @app.get("/api/system/graph")
 async def system_graph():
     """Return the full system connectivity graph with live status."""
@@ -4181,6 +4317,229 @@ async def system_health():
         "mode": os.getenv("ARAIL_MODE", "airgapped"),
         "local_inference": local_inference,
     }
+
+
+@app.get("/api/system/health/stream")
+async def system_health_stream():
+    """SSE stream — sequential health checks, one event per check.
+
+    Powers the dashboard "live checks" modal. Each check runs in
+    order (not in parallel) so the UI shows a clean visible
+    cascade. The big-blob ``/api/system/health`` endpoint is still
+    available for callers that want one snapshot.
+
+    Event shape per check::
+
+        data: {"event": "check", "name": "Portal HTTP",
+               "status": "pass" | "fail" | "warn",
+               "detail": "127.0.0.1:8080",
+               "duration_ms": 12,
+               "index": 0, "total": 16}
+
+    Final event::
+
+        data: {"event": "done", "passed": 14, "warned": 1,
+               "failed": 1, "total_ms": 1240}
+
+    The event-stream sets ``X-Accel-Buffering: no`` so reverse
+    proxies (nginx etc.) don't buffer the cascade.
+    """
+    import time
+    import shutil
+
+    bind = os.getenv("BIND_ADDR", "127.0.0.1")
+
+    # ── Check definitions ─────────────────────────────────────────
+    # Each check is (name, detail-prefix, async fn that returns
+    # (status: pass|warn|fail, detail: str)). Order matters — checks
+    # fire in the listed order so the UX cascade reads top-to-bottom.
+
+    portal_port = int(os.getenv("PORTAL_PORT", "8080"))
+    ttyd_port = int(os.getenv("TTYD_PORT", "7681"))
+    notebook_port = int(os.getenv("NOTEBOOK_PORT", "8888"))
+    ide_port = int(os.getenv("IDE_PORT", "8443"))
+    mlx_openai_port = int(os.getenv("MLX_OPENAI_PORT", "11435"))
+    ollama_port = int(os.getenv("OLLAMA_PORT", "11434"))
+    lance_port = int(os.getenv("LANCE_PORT", "7414"))
+    marimo_port = int(os.getenv("MARIMO_PORT", "2718"))
+    open_notebook_port = int(os.getenv("OPEN_NOTEBOOK_PORT", "8502"))
+    neo4j_bolt_port = int(os.getenv("NEO4J_BOLT_PORT", "7687"))
+
+    async def _check_port(host: str, port: int, label: str):
+        ok = await _port_open(host, port)
+        return ("pass" if ok else "warn"), f"{host}:{port} {'listening' if ok else 'silent (service may be off)'}"
+
+    async def check_portal():
+        return await _check_port(bind, portal_port, "Portal")
+
+    async def check_ttyd():
+        return await _check_port(bind, ttyd_port, "ttyd")
+
+    async def check_notebook():
+        return await _check_port(bind, notebook_port, "Notebook")
+
+    async def check_ide():
+        return await _check_port(bind, ide_port, "IDE")
+
+    async def check_mlx_openai():
+        return await _check_port(bind, mlx_openai_port, "MLX OpenAI")
+
+    async def check_ollama():
+        return await _check_port(bind, ollama_port, "Ollama")
+
+    async def check_lance():
+        return await _check_port(bind, lance_port, "Lance")
+
+    async def check_marimo():
+        return await _check_port(bind, marimo_port, "Marimo")
+
+    async def check_open_notebook():
+        return await _check_port(bind, open_notebook_port, "Open Notebook")
+
+    async def check_neo4j():
+        return await _check_port(bind, neo4j_bolt_port, "Neo4j Bolt")
+
+    async def check_ram():
+        try:
+            psutil = __import__("psutil")
+            mem = psutil.virtual_memory()
+            pct = mem.percent
+            free_gb = round(mem.available / (1024**3), 1)
+            if pct >= 92:
+                return "fail", f"{pct:.0f}% used, only {free_gb} GB free"
+            if pct >= 85:
+                return "warn", f"{pct:.0f}% used, {free_gb} GB free"
+            return "pass", f"{pct:.0f}% used, {free_gb} GB free"
+        except Exception as e:
+            return "warn", f"psutil unavailable: {e}"
+
+    async def check_disk():
+        try:
+            usage = shutil.disk_usage(str(Path.cwd()))
+            free_gb = round(usage.free / (1024**3), 1)
+            if free_gb < 5:
+                return "fail", f"{free_gb} GB free (critical)"
+            if free_gb < 20:
+                return "warn", f"{free_gb} GB free (tight for model downloads)"
+            return "pass", f"{free_gb} GB free"
+        except Exception as e:
+            return "warn", f"disk_usage failed: {e}"
+
+    async def check_agents():
+        try:
+            from arail.agents.loader import discover
+            entries = discover()
+            count = len(entries)
+            if not count:
+                return "warn", "no agents found in lab/pkb/agents/"
+            names = ", ".join(e[0] for e in entries[:5])
+            tail = "" if count <= 5 else f", +{count - 5} more"
+            return "pass", f"{count} agent(s): {names}{tail}"
+        except Exception as e:
+            return "fail", f"agent loader failed: {e}"
+
+    async def check_pkb():
+        from arail.pkb import _pkb_root
+        root = _pkb_root()
+        required = ["agents", "research", "experiments", "synthesis"]
+        missing = [d for d in required if not (root / d).exists()]
+        if missing:
+            return "warn", f"missing subdirs: {', '.join(missing)}"
+        return "pass", f"{root}"
+
+    async def check_models():
+        models_dir = os.getenv("ARAIL_MODELS_DIR", "")
+        if not models_dir:
+            return "warn", "ARAIL_MODELS_DIR unset — models from HF cache only"
+        p = Path(models_dir)
+        if not p.exists():
+            return "warn", f"{p} does not exist yet"
+        children = [c for c in p.iterdir() if c.is_dir()]
+        if not children:
+            return "warn", f"{p} is empty"
+        return "pass", f"{len(children)} model dir(s) under {p}"
+
+    async def check_env():
+        required = ["LAB_NAME", "MODEL_BACKEND", "ARAIL_PASSWORD"]
+        try:
+            env_path = Path.cwd() / ".env"
+            if not env_path.exists():
+                return "warn", ".env not found at repo root"
+            text = env_path.read_text()
+            missing = [k for k in required if f"{k}=" not in text]
+            if missing:
+                return "warn", f"missing keys: {', '.join(missing)}"
+            return "pass", f"all {len(required)} required keys present"
+        except Exception as e:
+            return "warn", f".env check failed: {e}"
+
+    checks = [
+        ("Portal HTTP", check_portal),
+        ("Terminal (ttyd)", check_ttyd),
+        ("Notebook (Jupyter)", check_notebook),
+        ("IDE (code-server)", check_ide),
+        ("MLX OpenAI compat", check_mlx_openai),
+        ("Ollama API", check_ollama),
+        ("Lance vector DB", check_lance),
+        ("Marimo", check_marimo),
+        ("Open Notebook", check_open_notebook),
+        ("Neo4j Bolt", check_neo4j),
+        ("RAM available", check_ram),
+        ("Disk free", check_disk),
+        ("Agents loadable", check_agents),
+        ("PKB structure", check_pkb),
+        ("Model checkpoints", check_models),
+        (".env validation", check_env),
+    ]
+    total = len(checks)
+
+    async def _generate():
+        passed = warned = failed = 0
+        run_start = time.perf_counter()
+        for idx, (name, fn) in enumerate(checks):
+            t0 = time.perf_counter()
+            try:
+                status, detail = await fn()
+            except Exception as e:  # noqa: BLE001
+                status, detail = "fail", f"check raised: {e}"
+            duration_ms = int((time.perf_counter() - t0) * 1000)
+            if status == "pass":
+                passed += 1
+            elif status == "warn":
+                warned += 1
+            else:
+                failed += 1
+            payload = {
+                "event": "check",
+                "name": name,
+                "status": status,
+                "detail": detail,
+                "duration_ms": duration_ms,
+                "index": idx,
+                "total": total,
+            }
+            yield f"data: {json.dumps(payload)}\n\n"
+            # Tiny pause so the UI cascade is visible to the human eye
+            # even when checks complete in single-digit ms. Keeps the
+            # "PS-style" sequential reveal honest.
+            await asyncio.sleep(0.04)
+
+        total_ms = int((time.perf_counter() - run_start) * 1000)
+        done = {
+            "event": "done",
+            "passed": passed,
+            "warned": warned,
+            "failed": failed,
+            "total": total,
+            "total_ms": total_ms,
+        }
+        yield f"data: {json.dumps(done)}\n\n"
+
+    return StreamingResponse(
+        _generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.get("/api/system/mode")

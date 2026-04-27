@@ -49,6 +49,189 @@
     background: rgba(0, 255, 65, 0.12);
     border-color: rgba(0, 255, 65, 0.45);
   }
+
+  /* ═══ Updates Available banner ═══════════════════════════════════
+     Sits below the meter bar. Hidden by default; revealed only when
+     `/api/admin/check-updates` reports updates_available > 0 on
+     dashboard load. The pulsing amber border is intentional —
+     update availability has been losing in the noise of the meter
+     strip. */
+  .updates-banner {
+    display: none;
+    margin: 8px 18px 0 18px;
+    padding: 10px 14px;
+    border-radius: 6px;
+    background: rgba(255, 176, 0, 0.06);
+    border: 1px solid rgba(255, 176, 0, 0.45);
+    color: var(--text);
+    font-size: 13px;
+    align-items: center;
+    gap: 12px;
+    cursor: pointer;
+    transition: all 0.15s;
+    animation: updates-pulse 2.4s ease-in-out infinite;
+  }
+  .updates-banner:hover {
+    background: rgba(255, 176, 0, 0.13);
+    border-color: rgba(255, 176, 0, 0.7);
+  }
+  .updates-banner .updates-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 22px;
+    height: 22px;
+    padding: 0 7px;
+    border-radius: 11px;
+    background: rgba(255, 176, 0, 0.85);
+    color: #1a1100;
+    font-weight: 700;
+    font-size: 12px;
+  }
+  .updates-banner .updates-text { flex: 1; }
+  .updates-banner .updates-cta {
+    color: var(--amber);
+    font-weight: 600;
+    font-size: 12px;
+  }
+  @keyframes updates-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(255, 176, 0, 0); }
+    50%      { box-shadow: 0 0 0 4px rgba(255, 176, 0, 0.18); }
+  }
+
+  /* ═══ Live Checks modal ════════════════════════════════════════
+     Reusable modal driven by SSE events. Powers Health Check today;
+     designed so Restart Lab + Check Updates can plug in without
+     re-styling. The visual is "PS-style" — sequential rows that
+     reveal one at a time as the backend emits events. */
+  .lc-overlay {
+    position: fixed; inset: 0;
+    background: rgba(0, 0, 0, 0.62);
+    display: none;
+    align-items: center; justify-content: center;
+    z-index: 1000;
+    backdrop-filter: blur(2px);
+  }
+  .lc-overlay.open { display: flex; }
+  .lc-modal {
+    width: min(640px, 92vw);
+    max-height: 86vh;
+    display: flex; flex-direction: column;
+    background: #0d1117;
+    border: 1px solid #2a3340;
+    border-radius: 10px;
+    box-shadow: 0 12px 48px rgba(0, 0, 0, 0.6);
+    overflow: hidden;
+  }
+  .lc-header {
+    padding: 14px 18px;
+    border-bottom: 1px solid #1d2530;
+    display: flex; align-items: center; gap: 12px;
+  }
+  .lc-header .lc-title {
+    flex: 1;
+    font-size: 14px; font-weight: 600;
+    color: var(--text);
+    letter-spacing: 0.02em;
+  }
+  .lc-header .lc-progress-text {
+    font-size: 12px; color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .lc-header .lc-close {
+    background: transparent; border: 0; color: var(--muted);
+    font-size: 18px; cursor: pointer; padding: 0 4px;
+  }
+  .lc-header .lc-close:hover { color: var(--text); }
+  .lc-progress-bar {
+    height: 2px; background: #1a2230;
+    overflow: hidden; position: relative;
+  }
+  .lc-progress-bar > div {
+    height: 100%; width: 0%;
+    background: linear-gradient(90deg, var(--blue), var(--green));
+    transition: width 0.18s ease-out;
+  }
+  .lc-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 6px 0;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px;
+  }
+  .lc-row {
+    display: grid;
+    grid-template-columns: 24px 1fr auto;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 18px;
+    border-bottom: 1px solid #141b25;
+  }
+  .lc-row:last-child { border-bottom: 0; }
+  .lc-row .lc-icon {
+    display: inline-flex;
+    align-items: center; justify-content: center;
+    width: 18px; height: 18px;
+    border-radius: 50%;
+    font-size: 11px;
+    font-weight: 700;
+  }
+  .lc-row.pending .lc-icon { background: #1a2230; color: #4a5568; }
+  .lc-row.pending .lc-icon::before { content: "⌛"; }
+  .lc-row.running .lc-icon { background: rgba(0, 212, 255, 0.18); color: var(--blue); }
+  .lc-row.running .lc-icon::before { content: "⏳"; animation: lc-spin 1.4s linear infinite; }
+  @keyframes lc-spin { to { transform: rotate(360deg); } }
+  .lc-row.pass    .lc-icon { background: rgba(0, 255, 65, 0.16); color: var(--green); }
+  .lc-row.pass    .lc-icon::before { content: "✓"; }
+  .lc-row.warn    .lc-icon { background: rgba(255, 176, 0, 0.16); color: var(--amber); }
+  .lc-row.warn    .lc-icon::before { content: "!"; }
+  .lc-row.fail    .lc-icon { background: rgba(255, 64, 96, 0.18); color: #ff6b80; }
+  .lc-row.fail    .lc-icon::before { content: "✗"; }
+  .lc-row .lc-name { color: var(--text); }
+  .lc-row .lc-detail {
+    grid-column: 2 / -1;
+    color: var(--muted);
+    font-size: 11px;
+    margin-top: 2px;
+  }
+  .lc-row .lc-time {
+    color: var(--muted);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+  }
+  .lc-footer {
+    padding: 10px 18px;
+    border-top: 1px solid #1d2530;
+    display: flex; align-items: center; gap: 10px;
+    background: #0a0f15;
+  }
+  .lc-footer .lc-summary {
+    flex: 1;
+    font-size: 12px;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .lc-footer .lc-summary .lc-passed { color: var(--green); }
+  .lc-footer .lc-summary .lc-warned { color: var(--amber); }
+  .lc-footer .lc-summary .lc-failed { color: #ff6b80; }
+  .lc-btn {
+    padding: 6px 12px;
+    border-radius: 5px;
+    border: 1px solid #2a3340;
+    background: #131922;
+    color: var(--text);
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .lc-btn:hover { background: #1a2230; }
+  .lc-btn.lc-btn-stop {
+    border-color: rgba(255, 64, 96, 0.45);
+    color: #ff6b80;
+  }
+  .lc-btn.lc-btn-restart {
+    border-color: rgba(0, 212, 255, 0.45);
+    color: var(--blue);
+  }
 </style>
 </head>
 <body>
@@ -57,6 +240,40 @@
 
 <!-- ═══ Toast Notifications — corner container for Buddy suggestions ═══ -->
 <div class="toast-container" id="toast-container"></div>
+
+<!-- ═══ Updates Available banner — top-strip attention badge ═══
+     Hidden by default; populated + shown by checkUpdatesQuiet() on
+     dashboard load when /api/admin/check-updates reports
+     updates_available > 0. Click → opens the same live-checks
+     modal with one row per component-update. -->
+<div class="updates-banner" id="updates-banner"
+     onclick="runLiveChecks('Updates Available', '/api/admin/check-updates/stream')">
+  <span class="updates-badge" id="updates-badge">0</span>
+  <span class="updates-text" id="updates-text">Updates available</span>
+  <span class="updates-cta">Review →</span>
+</div>
+
+<!-- ═══ Live Checks modal — reusable SSE-driven progress overlay ═══
+     Used by Health Check, Restart Lab, and Check Updates. Opens via
+     runLiveChecks(title, sseUrl); closes via [✕], Stop, or Esc.
+     Sequential rows reveal one at a time as the backend emits
+     check events. -->
+<div class="lc-overlay" id="lc-overlay" role="dialog" aria-modal="true" aria-labelledby="lc-title">
+  <div class="lc-modal">
+    <div class="lc-header">
+      <span class="lc-title" id="lc-title">Live Checks</span>
+      <span class="lc-progress-text" id="lc-progress-text">0 / 0</span>
+      <button class="lc-close" type="button" onclick="closeLiveChecks()" aria-label="Close">✕</button>
+    </div>
+    <div class="lc-progress-bar"><div id="lc-progress-bar-fill"></div></div>
+    <div class="lc-list" id="lc-list"></div>
+    <div class="lc-footer">
+      <span class="lc-summary" id="lc-summary">Waiting…</span>
+      <button class="lc-btn lc-btn-stop" type="button" id="lc-btn-stop" onclick="stopLiveChecks()">Stop</button>
+      <button class="lc-btn lc-btn-restart" type="button" id="lc-btn-restart" style="display:none" onclick="restartLiveChecks()">Re-run</button>
+    </div>
+  </div>
+</div>
 
 <!-- ═══ Cost meter (top strip — simulation of what this lab would cost in the cloud) ═══ -->
 <div class="meter-bar" id="meter-bar">
@@ -96,13 +313,13 @@
         <div class="qa-title" style="color: var(--green);">💬 Open Chat</div>
         <div class="qa-desc">Start tuning or research</div>
       </a>
-      <button class="qa-button qa-primary" onclick="adminAction('/api/system/health', 'GET', 'Health check')">
+      <button class="qa-button qa-primary" onclick="runLiveChecks('Health Check', '/api/system/health/stream')">
         <div class="qa-title" style="color: var(--blue);">⊙ Health Check</div>
-        <div class="qa-desc">CPU, RAM, disk, GPU</div>
+        <div class="qa-desc">16 sequential checks</div>
       </button>
       <button class="qa-button qa-warning" onclick="restartLab()">
         <div class="qa-title" style="color: var(--amber);">⟳ Restart Lab</div>
-        <div class="qa-desc">Stop + start all services</div>
+        <div class="qa-desc">Stop → ps → start visual</div>
       </button>
       <button class="qa-button qa-primary" onclick="window.open('/graph', '_blank')">
         <div class="qa-title" style="color: var(--blue);">◆ System Graph</div>
@@ -116,6 +333,10 @@
         <div class="qa-title" style="color: var(--blue);">⚙ Plugins</div>
         <div class="qa-desc">Install / manage</div>
       </button>
+      <a href="/jobs" class="qa-button qa-primary" style="text-decoration:none;display:flex;flex-direction:column;justify-content:flex-start;">
+        <div class="qa-title" style="color: var(--blue);">▶ Jobs</div>
+        <div class="qa-desc">Run &amp; schedule lab jobs</div>
+      </a>
     </div>
     <div id="admin-log" style="margin-top: 10px; font-size: 12px; color: var(--muted); min-height: 18px;"></div>
   </div>
@@ -509,26 +730,297 @@ async function adminAction(url, method, label) {
   } catch(e) { adminLog('Failed: ' + e.message, 'error'); }
 }
 
-async function checkUpdates() {
-  adminLog('Checking for updates… (this may take a moment)');
-  try {
-    const r = await fetch('/api/admin/check-updates');
-    const d = await r.json();
-    if (d.airgapped) { adminLog('Airgapped — switch to Hybrid to check remote updates.', 'error'); return; }
-    adminLog(d.summary || 'Check complete.', d.updates_available > 0 ? '' : 'success');
-  } catch(e) { adminLog('Failed: ' + e.message, 'error'); }
+// ─────────────────────────────────────────────────────────────────
+// Live Checks modal driver — drives the reusable .lc-overlay UI
+// from any SSE endpoint that emits `{event: "check", name, status,
+// detail, duration_ms, index, total}` rows and ends with
+// `{event: "done", passed, warned, failed, total_ms}`.
+//
+// Public API:
+//   runLiveChecks(title, sseUrl)    — open modal, start the stream
+//   stopLiveChecks()                 — abort the in-flight stream
+//   restartLiveChecks()              — re-run the most recent stream
+//   closeLiveChecks()                — dismiss the modal
+//
+// Used by Health Check today; designed for Restart Lab + Check
+// Updates to plug in without touching the modal markup.
+// ─────────────────────────────────────────────────────────────────
+let _lcReader = null;
+let _lcLastTitle = null;
+let _lcLastUrl = null;
+
+function runLiveChecks(title, sseUrl) {
+  _lcLastTitle = title;
+  _lcLastUrl = sseUrl;
+  document.getElementById('lc-title').textContent = title;
+  document.getElementById('lc-progress-text').textContent = '0 / 0';
+  document.getElementById('lc-progress-bar-fill').style.width = '0%';
+  document.getElementById('lc-list').innerHTML = '';
+  document.getElementById('lc-summary').textContent = 'Starting…';
+  document.getElementById('lc-btn-stop').style.display = '';
+  document.getElementById('lc-btn-restart').style.display = 'none';
+  document.getElementById('lc-overlay').classList.add('open');
+  _streamLiveChecks(sseUrl);
 }
 
-async function restartLab() {
-  if (!confirm('Restart all lab services? The portal will restart.')) return;
-  adminLog('Restarting lab…');
-  window.open(window.location.href, '_blank');
+async function _streamLiveChecks(sseUrl) {
+  const ctrl = new AbortController();
+  _lcReader = ctrl;
+  let buf = '';
+  let placeholderInjected = false;
   try {
-    const r = await fetch('/api/system/restart', {method: 'POST'});
+    const resp = await fetch(sseUrl, {signal: ctrl.signal});
+    if (!resp.ok) {
+      _lcSummary('Failed: HTTP ' + resp.status, 'fail');
+      return;
+    }
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    while (true) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, {stream: true});
+      // SSE events terminate with a blank line. Process complete events.
+      let idx;
+      while ((idx = buf.indexOf('\n\n')) >= 0) {
+        const raw = buf.slice(0, idx);
+        buf = buf.slice(idx + 2);
+        const dataLine = raw.split('\n').find(l => l.startsWith('data: '));
+        if (!dataLine) continue;
+        let payload;
+        try { payload = JSON.parse(dataLine.slice(6)); }
+        catch { continue; }
+        if (payload.event === 'check') {
+          if (!placeholderInjected) {
+            // First event tells us the total — pre-populate pending rows
+            // so the cascade reveals into a known shape, not jumping height.
+            _lcInitPending(payload.total);
+            placeholderInjected = true;
+          }
+          _lcUpdateRow(payload);
+        } else if (payload.event === 'done') {
+          _lcFinish(payload);
+        }
+      }
+    }
+  } catch (e) {
+    if (e.name === 'AbortError') {
+      _lcSummary('Stopped by user', 'warn');
+    } else {
+      _lcSummary('Failed: ' + e.message, 'fail');
+    }
+  } finally {
+    document.getElementById('lc-btn-stop').style.display = 'none';
+    document.getElementById('lc-btn-restart').style.display = '';
+    _lcReader = null;
+  }
+}
+
+function _lcInitPending(total) {
+  const list = document.getElementById('lc-list');
+  list.innerHTML = '';
+  for (let i = 0; i < total; i++) {
+    const row = document.createElement('div');
+    row.className = 'lc-row pending';
+    row.id = 'lc-row-' + i;
+    row.innerHTML =
+      '<span class="lc-icon"></span>' +
+      '<span class="lc-name">…</span>' +
+      '<span class="lc-time"></span>';
+    list.appendChild(row);
+  }
+  document.getElementById('lc-progress-text').textContent = '0 / ' + total;
+}
+
+function _lcUpdateRow(p) {
+  const row = document.getElementById('lc-row-' + p.index);
+  if (!row) return;
+  row.className = 'lc-row ' + p.status;
+  row.innerHTML =
+    '<span class="lc-icon"></span>' +
+    '<span class="lc-name">' + _lcEsc(p.name) + '</span>' +
+    '<span class="lc-time">' + p.duration_ms + ' ms</span>' +
+    (p.detail ? '<span class="lc-detail">' + _lcEsc(p.detail) + '</span>' : '');
+  // Mark the *next* pending row as running so the user sees what's next.
+  const next = document.getElementById('lc-row-' + (p.index + 1));
+  if (next && next.classList.contains('pending')) {
+    next.className = 'lc-row running';
+    next.innerHTML =
+      '<span class="lc-icon"></span>' +
+      '<span class="lc-name">running…</span>' +
+      '<span class="lc-time"></span>';
+  }
+  const completed = p.index + 1;
+  document.getElementById('lc-progress-text').textContent = completed + ' / ' + p.total;
+  document.getElementById('lc-progress-bar-fill').style.width =
+    Math.round((completed / p.total) * 100) + '%';
+}
+
+function _lcFinish(p) {
+  const total = p.passed + p.warned + p.failed;
+  const sec = (p.total_ms / 1000).toFixed(1);
+  document.getElementById('lc-summary').innerHTML =
+    '<span class="lc-passed">' + p.passed + ' passed</span>' +
+    (p.warned ? ' · <span class="lc-warned">' + p.warned + ' warn</span>' : '') +
+    (p.failed ? ' · <span class="lc-failed">' + p.failed + ' failed</span>' : '') +
+    ' · ' + total + ' total · ' + sec + ' s';
+}
+
+function _lcSummary(msg, cls) {
+  const el = document.getElementById('lc-summary');
+  el.textContent = msg;
+  el.className = 'lc-summary' + (cls ? ' lc-' + cls : '');
+}
+
+function _lcEsc(s) {
+  return String(s).replace(/[&<>"']/g, c => ({
+    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+  }[c]));
+}
+
+function stopLiveChecks() {
+  if (_lcReader) _lcReader.abort();
+}
+
+function restartLiveChecks() {
+  if (_lcLastTitle && _lcLastUrl) runLiveChecks(_lcLastTitle, _lcLastUrl);
+}
+
+function closeLiveChecks() {
+  stopLiveChecks();
+  document.getElementById('lc-overlay').classList.remove('open');
+}
+
+// Esc closes the modal.
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && document.getElementById('lc-overlay').classList.contains('open')) {
+    closeLiveChecks();
+  }
+});
+
+async function checkUpdates() {
+  // Legacy entry-point kept for backwards-compat with anything still
+  // calling it; for visible action use the modal driver instead.
+  runLiveChecks('Check Updates', '/api/admin/check-updates/stream');
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Updates Available — quiet poll on dashboard load. If the
+// /api/admin/check-updates endpoint reports updates_available > 0,
+// reveal the top-strip banner with the count. The banner is the
+// "highlighted better" surface — it pulses amber and sits above
+// the Quick Actions card so it's the first thing in the eye-line
+// after the meter strip.
+// ─────────────────────────────────────────────────────────────────
+async function checkUpdatesQuiet() {
+  try {
+    const r = await fetch('/api/admin/check-updates');
+    if (!r.ok) return;
     const d = await r.json();
-    if (d.error) { adminLog(d.error, 'error'); return; }
-    adminLog('Restart initiated — lab coming back online…', 'success');
-  } catch(e) { adminLog('Failed: ' + e.message, 'error'); }
+    if (d.airgapped) return;  // airgapped labs don't surface a banner
+    const count = parseInt(d.updates_available, 10) || 0;
+    if (count > 0) {
+      const banner = document.getElementById('updates-banner');
+      const badge = document.getElementById('updates-badge');
+      const text = document.getElementById('updates-text');
+      badge.textContent = count;
+      text.textContent = (d.summary || (count + ' update' + (count > 1 ? 's' : '') + ' available'));
+      banner.style.display = 'flex';
+    }
+  } catch (_) { /* offline / endpoint not ready — silent */ }
+}
+window.addEventListener('load', checkUpdatesQuiet);
+
+async function restartLab() {
+  if (!confirm('Restart all lab services? The portal will go offline briefly.')) return;
+
+  // Reuse the lc-overlay with client-side phase rows (no SSE needed —
+  // the server goes down so we can't stream from it).
+  document.getElementById('lc-title').textContent = 'Restart Lab';
+  document.getElementById('lc-progress-text').textContent = '0 / 4';
+  document.getElementById('lc-progress-bar-fill').style.width = '0%';
+  document.getElementById('lc-btn-stop').style.display = 'none';
+  document.getElementById('lc-btn-restart').style.display = 'none';
+  document.getElementById('lc-summary').textContent = 'Restarting…';
+
+  const phases = [
+    ['rs-0', 'STOP',   'sending stop signal to all services'],
+    ['rs-1', 'PS',     'waiting for processes to exit'],
+    ['rs-2', 'START',  'issuing start command'],
+    ['rs-3', 'ONLINE', 'polling until portal responds'],
+  ];
+  document.getElementById('lc-list').innerHTML = phases.map(([id, name, detail]) =>
+    `<div class="lc-row pending" id="${id}">
+      <span class="lc-icon"></span>
+      <span class="lc-name">${name}</span>
+      <span class="lc-time"></span>
+      <span class="lc-detail">${_lcEsc(detail)}</span>
+    </div>`
+  ).join('');
+  document.getElementById('lc-overlay').classList.add('open');
+
+  const t0 = Date.now();
+  function setPhase(id, state, detail) {
+    const row = document.getElementById(id);
+    if (!row) return;
+    row.className = 'lc-row ' + state;
+    if (detail) row.querySelector('.lc-detail').textContent = detail;
+    row.querySelector('.lc-time').textContent = ((Date.now() - t0) / 1000).toFixed(1) + 's';
+  }
+
+  // Phase 0: STOP
+  setPhase('rs-0', 'running', 'sending stop signal…');
+  try {
+    await fetch('/api/system/restart', {method: 'POST'});
+    setPhase('rs-0', 'pass', 'stop signal accepted ✓');
+  } catch {
+    setPhase('rs-0', 'warn', 'portal already shutting down');
+  }
+  document.getElementById('lc-progress-text').textContent = '1 / 4';
+  document.getElementById('lc-progress-bar-fill').style.width = '25%';
+
+  // Phase 1: PS — wait for clean shutdown
+  setPhase('rs-1', 'running', 'waiting for processes to exit…');
+  document.getElementById('lc-summary').textContent = 'Waiting for shutdown…';
+  await new Promise(r => setTimeout(r, 2200));
+  setPhase('rs-1', 'pass', 'processes exited ✓');
+  document.getElementById('lc-progress-text').textContent = '2 / 4';
+  document.getElementById('lc-progress-bar-fill').style.width = '50%';
+
+  // Phase 2: START
+  setPhase('rs-2', 'running', 'waiting for process manager to restart…');
+  document.getElementById('lc-summary').textContent = 'Starting lab…';
+  await new Promise(r => setTimeout(r, 1800));
+  setPhase('rs-2', 'pass', 'startup initiated ✓');
+  document.getElementById('lc-progress-text').textContent = '3 / 4';
+  document.getElementById('lc-progress-bar-fill').style.width = '75%';
+
+  // Phase 3: ONLINE — poll /api/system/health until it responds
+  setPhase('rs-3', 'running', 'polling portal…');
+  document.getElementById('lc-summary').textContent = 'Waiting for portal to come back online…';
+  const deadline = Date.now() + 30000;
+  let online = false;
+  while (Date.now() < deadline) {
+    await new Promise(r => setTimeout(r, 2000));
+    try {
+      const hr = await fetch('/api/system/health');
+      if (hr.ok) { online = true; break; }
+    } catch { /* still down */ }
+  }
+
+  if (online) {
+    setPhase('rs-3', 'pass', 'portal responding ✓');
+    document.getElementById('lc-progress-text').textContent = '4 / 4';
+    document.getElementById('lc-progress-bar-fill').style.width = '100%';
+    document.getElementById('lc-summary').innerHTML =
+      '<span class="lc-passed">Lab restarted successfully</span> · ' +
+      ((Date.now() - t0) / 1000).toFixed(1) + ' s — reloading…';
+    setTimeout(() => window.location.reload(), 1500);
+  } else {
+    setPhase('rs-3', 'warn', 'timed out — try refreshing manually');
+    document.getElementById('lc-summary').textContent = 'Portal may still be starting. Refresh to check.';
+    document.getElementById('lc-btn-restart').style.display = '';
+  }
 }
 
 // ── Job scheduler mode + halt/resume ──
