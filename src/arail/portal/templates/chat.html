@@ -414,6 +414,34 @@
         </div>
       </div>
 
+      <!-- Presets for quick brain mode selection -->
+      <div class="chat-presets" role="radiogroup" aria-label="Brain mode" style="margin-bottom: 16px;">
+        <button type="button" class="chat-preset" data-preset="default"
+                title="Balanced mix of accuracy and variety. Good first pick.">
+          <span class="cp-icon">⚖</span>
+          <span class="cp-label">Default</span>
+          <span class="cp-meta">balanced, good for most chat</span>
+        </button>
+        <button type="button" class="chat-preset" data-preset="factual"
+                title="Stick to the facts. Short, confident answers.">
+          <span class="cp-icon">🎯</span>
+          <span class="cp-label">Factual</span>
+          <span class="cp-meta">precise answers, fewer flourishes</span>
+        </button>
+        <button type="button" class="chat-preset" data-preset="code"
+                title="Maximum determinism. Structured output, minimal drift.">
+          <span class="cp-icon">&lt;/&gt;</span>
+          <span class="cp-label">Code</span>
+          <span class="cp-meta">structured output, for code or JSON</span>
+        </button>
+        <button type="button" class="chat-preset" data-preset="creative"
+                title="Let the model wander. More variety, more flair, more risk.">
+          <span class="cp-icon">✨</span>
+          <span class="cp-label">Creative</span>
+          <span class="cp-meta">brainstorming, variations, wander</span>
+        </button>
+      </div>
+
       <div class="chat-controls">
         <label>
           Send mode
@@ -449,29 +477,128 @@
             </div>
           </div>
         </div>
-        <label>
-          Temperature
-          <input id="chat-temp" type="range" min="0" max="2" step="0.1" value="0.7" />
-          <span class="hint" id="chat-temp-val">0.7</span>
-        </label>
-        <label>
-          Top-p
-          <input id="chat-top-p" type="range" min="0" max="1" step="0.05" value="0" />
-          <span class="hint" id="chat-top-p-val">off</span>
-        </label>
-        <label>
-          Max tokens
-          <input id="chat-max-tokens" type="range" min="128" max="4096" step="64" value="512" />
-          <span class="hint" id="chat-max-tokens-val">512</span>
-        </label>
-        <label>
-          Thoughtful Expert backend
-          <select id="teacher-backend">
-            <option value="airllm">AirLLM</option>
-            <option value="aerollm">AeroLLM</option>
-          </select>
-        </label>
       </div>
+
+      <!-- Advanced tuning with zones and presets -->
+      <details class="chat-tuning" id="chat-tuning" style="margin-top: 12px;">
+        <summary>
+          <span>⚙ Advanced tuning</span>
+          <span class="chat-tuning-summary" id="chat-tuning-summary">
+            Default mode · balanced · paragraph reply
+          </span>
+        </summary>
+        <div class="chat-tuning-grid">
+
+          <!-- Temperature -->
+          <label class="chat-tuning-field">
+            <span class="chat-tuning-label">
+              How much creativity?
+              <span class="chat-tuning-hint">
+                low = same answer every time · high = surprising answers
+              </span>
+            </span>
+            <div class="chat-tuning-slider-row">
+              <input type="range" id="chat-temp"
+                     min="0" max="2" step="0.1" value="0.7" />
+              <output id="chat-temp-val" class="chat-tuning-readout">
+                <span class="readout-word">Balanced</span>
+                <span class="readout-num">0.7</span>
+              </output>
+            </div>
+            <div class="chat-tuning-zones" data-scale="temperature">
+              <span data-zone="strict">Strict</span>
+              <span data-zone="focused">Focused</span>
+              <span data-zone="balanced">Balanced</span>
+              <span data-zone="open">Open</span>
+              <span data-zone="wild">Wild</span>
+            </div>
+          </label>
+
+          <!-- Top-p -->
+          <label class="chat-tuning-field">
+            <span class="chat-tuning-label">
+              How many word choices?
+              <span class="chat-tuning-hint">
+                off = only the most likely next word · wide = pick from many plausible ones
+              </span>
+            </span>
+            <div class="chat-tuning-slider-row">
+              <input type="range" id="chat-top-p"
+                     min="0" max="1" step="0.05" value="0" />
+              <output id="chat-top-p-val" class="chat-tuning-readout">
+                <span class="readout-word">Off</span>
+                <span class="readout-num">—</span>
+              </output>
+            </div>
+            <div class="chat-tuning-zones" data-scale="topP">
+              <span data-zone="off">Off</span>
+              <span data-zone="narrow">Narrow</span>
+              <span data-zone="moderate">Moderate</span>
+              <span data-zone="wide">Wide</span>
+            </div>
+          </label>
+
+          <!-- Max tokens -->
+          <label class="chat-tuning-field">
+            <span class="chat-tuning-label">
+              How long should the reply be?
+              <span class="chat-tuning-hint">
+                shorter = faster · longer = more detail (and more waiting)
+              </span>
+            </span>
+            <div class="chat-tuning-slider-row">
+              <input type="range" id="chat-max-tokens"
+                     min="64" max="4096" step="64" value="512" />
+              <output id="chat-max-tokens-val" class="chat-tuning-readout">
+                <span class="readout-word">Paragraph</span>
+                <span class="readout-num">512 tok</span>
+              </output>
+            </div>
+            <div class="chat-tuning-zones" data-scale="maxTokens">
+              <span data-zone="oneline">One line</span>
+              <span data-zone="paragraph">Paragraph</span>
+              <span data-zone="essay">Essay</span>
+              <span data-zone="long">Long reply</span>
+            </div>
+          </label>
+
+          <!-- Model -->
+          <label class="chat-tuning-field chat-tuning-model">
+            <span class="chat-tuning-label">
+              Which brain?
+              <span class="chat-tuning-hint" id="chat-model-hint">loading…</span>
+            </span>
+            <select id="chat-model-select">
+              <option value="">(current)</option>
+            </select>
+          </label>
+
+          <!-- Deep-route escape hatch — lets the user send through the Thoughtful Expert backend -->
+          <label class="chat-tuning-field chat-deep-toggle">
+            <span class="chat-tuning-label">
+              Thoughtful Expert backend
+              <span class="chat-tuning-hint" id="chat-optional-backend-hint">
+                ⚠ 30-120 seconds per reply · first use takes minutes to load
+              </span>
+            </span>
+            <select id="chat-deep-backend-select">
+              <option value="aerollm">AeroLLM</option>
+              <option value="airllm">AirLLM</option>
+            </select>
+            <div class="chat-tuning-hint" id="chat-optional-backend-install" hidden></div>
+            <label class="chat-deep-switch">
+              <input type="checkbox" id="chat-deep-enable" />
+              <span class="chat-deep-track"></span>
+              <span class="chat-deep-text" id="chat-deep-text">off — using the fast model above</span>
+            </label>
+          </label>
+
+          <button class="btn btn-ghost btn-sm" type="button" id="chat-tuning-reset"
+                  title="Snap back to Default preset (balanced, paragraph reply)">
+            ↺ Reset to Default
+          </button>
+        </div>
+      </details>
 
       <div class="chat-route-note" id="chat-route-note">
         Fast chat only. Switch to a Thoughtful Expert mode when you want the larger model involved.
@@ -513,6 +640,316 @@
   const $ = (id) => document.getElementById(id);
 
   const state = { history: [] };
+
+  // ── Chat tuning + presets (lifted from dashboard) ────────────────────
+  // Presets are the focal UX — one click sets a known-good (temperature,
+  // top_p) combo. Advanced sliders below let power users fine-tune —
+  // each slider has a plain-language zone label that updates live.
+  const CHAT_TUNING = (() => {
+    const LS_KEY = 'arail.chat.tuning';
+    const DEFAULTS = {
+      preset: 'default',
+      temperature: 0.7,
+      topP: 0,
+      maxTokens: 512,
+      model: '',
+      optionalBackend: '',
+    };
+    const PRESETS = {
+      default:  { temperature: 0.7, topP: 0 },
+      factual:  { temperature: 0.2, topP: 0.9 },
+      code:     { temperature: 0.1, topP: 0.95 },
+      creative: { temperature: 1.2, topP: 0.95 },
+    };
+
+    // Value → plain-language zone.
+    const ZONES = {
+      temperature(v) {
+        if (v <= 0.15) return { zone: 'strict',   word: 'Strict'   };
+        if (v <= 0.45) return { zone: 'focused',  word: 'Focused'  };
+        if (v <= 0.9)  return { zone: 'balanced', word: 'Balanced' };
+        if (v <= 1.3)  return { zone: 'open',     word: 'Open'     };
+        return                 { zone: 'wild',    word: 'Wild'     };
+      },
+      topP(v) {
+        if (v <= 0.001) return { zone: 'off',       word: 'Off'       };
+        if (v <= 0.6)   return { zone: 'narrow',    word: 'Narrow'    };
+        if (v <= 0.9)   return { zone: 'moderate',  word: 'Moderate'  };
+        return                  { zone: 'wide',     word: 'Wide'      };
+      },
+      maxTokens(v) {
+        if (v <= 128)  return { zone: 'oneline',   word: 'One line'   };
+        if (v <= 700)  return { zone: 'paragraph', word: 'Paragraph'  };
+        if (v <= 1800) return { zone: 'essay',     word: 'Essay'      };
+        return                 { zone: 'long',     word: 'Long reply' };
+      },
+    };
+
+    function load() {
+      try {
+        return Object.assign({}, DEFAULTS,
+          JSON.parse(localStorage.getItem(LS_KEY) || '{}'));
+      } catch (e) { return { ...DEFAULTS }; }
+    }
+    function save(t) {
+      try { localStorage.setItem(LS_KEY, JSON.stringify(t)); } catch (e) { /* quota */ }
+    }
+
+    const st = load();
+    const tempInput = $('chat-temp');
+    const tempVal = $('chat-temp-val');
+    const topPInput = $('chat-top-p');
+    const topPVal = $('chat-top-p-val');
+    const maxTokInput = $('chat-max-tokens');
+    const maxTokVal = $('chat-max-tokens-val');
+    const modelSelect = $('chat-model-select');
+    const modelHint = $('chat-model-hint');
+    const backendSelect = $('chat-deep-backend-select');
+    const backendHint = $('chat-optional-backend-hint');
+    const backendInstall = $('chat-optional-backend-install');
+    const summary = $('chat-tuning-summary');
+    const resetBtn = $('chat-tuning-reset');
+    const presetBtns = document.querySelectorAll('.chat-preset');
+    const optionalBackends = new Map();
+
+    function highlightZone(scale, zoneId) {
+      const strip = document.querySelector(`.chat-tuning-zones[data-scale="${scale}"]`);
+      if (!strip) return;
+      strip.querySelectorAll('[data-zone]').forEach(el => {
+        el.classList.toggle('active', el.dataset.zone === zoneId);
+      });
+    }
+
+    function paintReadout(outEl, word, num) {
+      if (!outEl) return;
+      outEl.querySelector('.readout-word').textContent = word;
+      outEl.querySelector('.readout-num').textContent = num;
+    }
+
+    function detectPreset() {
+      for (const [id, p] of Object.entries(PRESETS)) {
+        if (Math.abs(p.temperature - st.temperature) < 0.001 &&
+            Math.abs(p.topP - st.topP) < 0.001) {
+          return id;
+        }
+      }
+      return 'custom';
+    }
+
+    function updateSummary() {
+      const modeLabel = st.preset === 'custom' ? 'Custom' :
+        st.preset[0].toUpperCase() + st.preset.slice(1);
+      const tempZone = ZONES.temperature(st.temperature).word.toLowerCase();
+      const lenZone = ZONES.maxTokens(st.maxTokens).word.toLowerCase();
+      const mdl = st.model ? ` · ${st.model.split('/').pop()}` : '';
+      summary.textContent =
+        `${modeLabel} mode · ${tempZone} · ${lenZone} reply${mdl}`;
+    }
+
+    function currentOptionalBackend() {
+      const backendId = backendSelect && backendSelect.value
+        ? backendSelect.value
+        : st.optionalBackend;
+      return optionalBackends.get(backendId) || null;
+    }
+
+    function renderOptionalBackendState() {
+      const entry = currentOptionalBackend();
+      if (!backendSelect || !entry) return;
+      backendSelect.value = entry.id;
+      st.optionalBackend = entry.id;
+      if (backendHint) {
+        const short = entry.model ? entry.model.split('/').pop() : entry.label;
+        const size = entry.param_hint ? ` · ${entry.param_hint}` : '';
+        backendHint.textContent = entry.installed
+          ? `${short}${size} · ready when you toggle it on`
+          : `${short}${size} · optional install`;
+      }
+      if (backendInstall) {
+        if (entry.installed) {
+          backendInstall.hidden = true;
+          backendInstall.textContent = '';
+        } else {
+          const auth = entry.auth_hint ? ` ${entry.auth_hint}` : '';
+          backendInstall.hidden = false;
+          backendInstall.textContent = `Install with ${entry.install_command}.${auth}`;
+        }
+      }
+      window.__arailGetSelectedOptionalBackendInfo = () => ({ ...entry });
+      if (typeof window.__arailRenderDeepToggle === 'function') {
+        window.__arailRenderDeepToggle();
+      }
+    }
+
+    function populateOptionalBackends(entries, defaultBackend) {
+      if (!backendSelect) return;
+      optionalBackends.clear();
+      backendSelect.innerHTML = '';
+      (entries || []).forEach(entry => {
+        optionalBackends.set(entry.id, entry);
+        const short = entry.model ? entry.model.split('/').pop() : entry.label;
+        const opt = document.createElement('option');
+        opt.value = entry.id;
+        opt.textContent = `${entry.label} · ${short}${entry.installed ? '' : ' · install required'}`;
+        backendSelect.appendChild(opt);
+      });
+      const firstId = entries && entries.length ? entries[0].id : '';
+      if (!st.optionalBackend || !optionalBackends.has(st.optionalBackend)) {
+        st.optionalBackend = optionalBackends.has(defaultBackend)
+          ? defaultBackend
+          : firstId;
+        save(st);
+      }
+      renderOptionalBackendState();
+    }
+
+    function updatePresetHighlight() {
+      const active = detectPreset();
+      st.preset = active;
+      presetBtns.forEach(b => {
+        b.classList.toggle('active', b.dataset.preset === active);
+      });
+    }
+
+    function applyToInputs() {
+      tempInput.value = st.temperature;
+      const t = ZONES.temperature(st.temperature);
+      paintReadout(tempVal, t.word, st.temperature.toFixed(1));
+      highlightZone('temperature', t.zone);
+
+      topPInput.value = st.topP;
+      const tp = ZONES.topP(st.topP);
+      paintReadout(topPVal, tp.word, st.topP > 0 ? st.topP.toFixed(2) : '—');
+      highlightZone('topP', tp.zone);
+
+      maxTokInput.value = st.maxTokens;
+      const mt = ZONES.maxTokens(st.maxTokens);
+      paintReadout(maxTokVal, mt.word, `${st.maxTokens} tok`);
+      highlightZone('maxTokens', mt.zone);
+
+      if (st.model) {
+        const opt = Array.from(modelSelect.options).find(o => o.value === st.model);
+        modelSelect.value = opt ? st.model : '';
+      }
+      if (backendSelect && st.optionalBackend && optionalBackends.has(st.optionalBackend)) {
+        backendSelect.value = st.optionalBackend;
+      }
+      updatePresetHighlight();
+      updateSummary();
+    }
+
+    // Preset click → snap to preset values
+    presetBtns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = btn.dataset.preset;
+        const p = PRESETS[id];
+        if (!p) return;
+        st.temperature = p.temperature;
+        st.topP = p.topP;
+        st.preset = id;
+        save(st);
+        applyToInputs();
+      });
+    });
+
+    // Manual slider nudges
+    tempInput.addEventListener('input', () => {
+      st.temperature = parseFloat(tempInput.value);
+      save(st);
+      applyToInputs();
+    });
+    topPInput.addEventListener('input', () => {
+      st.topP = parseFloat(topPInput.value);
+      save(st);
+      applyToInputs();
+    });
+    maxTokInput.addEventListener('input', () => {
+      const v = parseInt(maxTokInput.value, 10);
+      if (!isNaN(v)) {
+        st.maxTokens = v;
+        save(st);
+        applyToInputs();
+      }
+    });
+    modelSelect.addEventListener('change', () => {
+      st.model = modelSelect.value;
+      save(st);
+      updateSummary();
+    });
+    if (backendSelect) {
+      backendSelect.addEventListener('change', () => {
+        st.optionalBackend = backendSelect.value;
+        save(st);
+        renderOptionalBackendState();
+      });
+    }
+    resetBtn.addEventListener('click', () => {
+      Object.assign(st, DEFAULTS);
+      save(st);
+      applyToInputs();
+      renderOptionalBackendState();
+    });
+
+    // Populate model dropdown from /api/chat/models
+    fetch('/api/chat/models').then(r => r.json()).then(d => {
+      modelSelect.innerHTML = '';
+      const defaultOpt = document.createElement('option');
+      defaultOpt.value = '';
+      defaultOpt.textContent = d.current
+        ? `(current · ${d.current.split('/').pop()})`
+        : '(current)';
+      modelSelect.appendChild(defaultOpt);
+
+      (d.models || []).forEach(m => {
+        if (m === d.current) return;
+        const opt = document.createElement('option');
+        opt.value = m;
+        opt.textContent = m;
+        modelSelect.appendChild(opt);
+      });
+
+      populateOptionalBackends(d.optional_backends || [], d.default_optional_backend || 'aerollm');
+      if (!d.switchable) {
+        modelSelect.disabled = true;
+        modelHint.textContent =
+          `${d.backend || 'backend'} — single-model`;
+      } else {
+        modelHint.textContent = `${(d.models || []).length} available · ${d.backend}`;
+      }
+      applyToInputs();
+    }).catch(() => {
+      modelHint.textContent = 'unavailable';
+      modelSelect.disabled = true;
+      if (backendSelect) backendSelect.disabled = true;
+      applyToInputs();
+    });
+
+    applyToInputs();
+
+    return {
+      get() { return { ...st }; },
+    };
+  })();
+
+  // ── Chat history persistence ──────────────────────────────────
+  const CHAT_STORAGE = 'arail.chat.history.v1';
+
+  function loadChatHistory() {
+    try {
+      const raw = sessionStorage.getItem(CHAT_STORAGE);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return;
+      state.history = parsed.slice(-20);  // Keep last 20 messages
+    } catch (e) { /* corrupt — ignore */ }
+  }
+
+  function saveChatHistory() {
+    try {
+      sessionStorage.setItem(CHAT_STORAGE,
+        JSON.stringify(state.history.slice(-20)));
+    } catch (e) { /* quota — ignore */ }
+  }
 
   function esc(s) {
     const d = document.createElement('div');
@@ -664,12 +1101,13 @@
     appendMsg('fast-log', 'YOU', message, null, true);
     appendMsg('teacher-log', 'YOU', message, null, true);
 
-    const temp = parseFloat($('chat-temp').value || '0.7');
-    const topP = parseFloat($('chat-top-p').value || '0');
-    const maxTokens = parseInt($('chat-max-tokens').value || '512', 10);
+    const tuning = CHAT_TUNING.get();
+    const temp = tuning.temperature;
+    const topP = tuning.topP;
+    const maxTokens = tuning.maxTokens;
     const fastModel = $('fast-model').value || undefined;
     const route = routeSelection();
-    const teacherBackend = teacherSelection().backend;
+    const teacherBackend = $('chat-deep-backend-select').value || tuning.optionalBackend || 'aerollm';
 
     let fastUi = null;
     let teacherUi = null;
@@ -736,6 +1174,7 @@
         : (fastFinal && fastFinal.reply) || (teacherFinal && teacherFinal.reply) || '';
       state.history.push({ role: 'assistant', content: primaryReply });
       state.history = state.history.slice(-20);
+      saveChatHistory();
     } catch (e) {
       if (fastUi) fastUi.done('Network error: ' + e.message, null);
       if (teacherUi) teacherUi.done('Network error: ' + e.message, null);
@@ -759,6 +1198,7 @@
     $('teacher-log').innerHTML = '';
     appendMsg('fast-log', 'LAB', 'History cleared.', null, false);
     appendMsg('teacher-log', 'TEACHER', 'Deep Teacher history cleared.', null, false);
+    saveChatHistory();
   });
 
   $('chat-temp').addEventListener('input', () => {
@@ -1153,6 +1593,7 @@
 
   loadModels();
   syncRouteNote();
+  loadChatHistory();
 
   // ── Local-inference panel ──────────────────────────────────────
   // Populates the chat header backend badge AND the "My Machine"

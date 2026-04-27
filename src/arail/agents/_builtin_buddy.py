@@ -51,8 +51,134 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from arail.activity import activity_log
-from arail.agent_workflows import update_agent_workflow
+try:
+    from typing import Protocol, runtime_checkable
+except ImportError:  # Python < 3.8 fallback
+    from typing_extensions import Protocol, runtime_checkable  # type: ignore
+
+
+# ══════════════════════════════════════════════════════════════════════
+#  0. HOST — the only seam between Buddy and its environment
+# ══════════════════════════════════════════════════════════════════════
+# BuddyHost is everything Buddy needs from the outside world.
+# Implement it to run Buddy in any framework — ARAIL, LangChain,
+# stdio, or a unit-test mock. ArailHost is the default implementation
+# that wires the live ARAIL stack. Zero behavior change.
+
+@runtime_checkable
+class BuddyHost(Protocol):
+    """Implement this to host Buddy outside ARAIL."""
+
+    def emit(self, source: str, message: str,
+             level: str = "info",
+             data: Optional[Dict[str, Any]] = None) -> None: ...
+
+    def update_workflow(self, agent_id: str, **fields: Any) -> None: ...
+
+    def get_current_goal(self) -> Optional[Dict[str, Any]]: ...
+
+    def get_activity_log_path(self) -> Optional[Path]: ...
+
+    def get_pkb_root(self) -> Optional[Path]: ...
+
+    def list_experiments(self) -> List[Dict[str, Any]]: ...
+
+    def list_skills(self) -> List[Any]: ...
+
+    def load_agent_skills(self, agent_id: str) -> List[Any]: ...
+
+    def compose_skill_context(self, skills: List[Any]) -> str: ...
+
+    def llm_complete(self, prompt: str, max_tokens: int = 60,
+                     temperature: float = 0.6) -> str: ...
+
+
+class ArailHost:
+    """BuddyHost backed by the live ARAIL stack.
+
+    This is the default when no host is supplied. Every arail.*
+    import in Buddy goes through here — so removing this class and
+    writing a new one is all it takes to run Buddy elsewhere.
+    """
+
+    def emit(self, source: str, message: str,
+             level: str = "info",
+             data: Optional[Dict[str, Any]] = None) -> None:
+        from arail.activity import activity_log
+        activity_log.emit(source, message, level, data)
+
+    def update_workflow(self, agent_id: str, **fields: Any) -> None:
+        try:
+            from arail.agent_workflows import update_agent_workflow
+            update_agent_workflow(agent_id, **fields)
+        except Exception:
+            pass
+
+    def get_current_goal(self) -> Optional[Dict[str, Any]]:
+        try:
+            from arail.goals import GoalStore
+            return GoalStore().get_current()
+        except Exception:
+            return None
+
+    def get_activity_log_path(self) -> Optional[Path]:
+        try:
+            from arail.activity import LOG_FILE
+            return LOG_FILE
+        except Exception:
+            return None
+
+    def get_pkb_root(self) -> Optional[Path]:
+        try:
+            from arail.pkb import _pkb_root
+            return _pkb_root()
+        except Exception:
+            return None
+
+    def list_experiments(self) -> List[Dict[str, Any]]:
+        try:
+            from arail.skills.experiment_tracker import ExperimentTracker
+            return ExperimentTracker().list_all()
+        except Exception:
+            return []
+
+    def list_skills(self) -> List[Any]:
+        try:
+            from arail.skills_loader import list_installed_skills
+            return list_installed_skills()
+        except Exception:
+            return []
+
+    def load_agent_skills(self, agent_id: str) -> List[Any]:
+        try:
+            from arail.skills_loader import load_agent_skills
+            return load_agent_skills(agent_id)
+        except Exception:
+            return []
+
+    def compose_skill_context(self, skills: List[Any]) -> str:
+        try:
+            from arail.skills_loader import compose_system_context
+            return compose_system_context(skills)
+        except Exception:
+            return ""
+
+    def llm_complete(self, prompt: str, max_tokens: int = 60,
+                     temperature: float = 0.6) -> str:
+        try:
+            from arail.router import ModelRouter
+            resp = ModelRouter().complete(
+                prompt, max_tokens=max_tokens, temperature=temperature
+            )
+            return (resp.text or "").strip()
+        except Exception:
+            return ""
+
+
+# Module-level host used by watchers and suggesters (module-level
+# functions that can't easily receive it as a parameter). BuddyAgent
+# sets this on init when a custom host is supplied.
+_host: BuddyHost = ArailHost()
 
 
 # ── Where memory lives ───────────────────────────────────────────────
@@ -61,8 +187,10 @@ from arail.agent_workflows import update_agent_workflow
 # PKB" genuinely wipes Buddy's memory.
 
 def _state_file() -> Path:
-    from arail.pkb import _pkb_root
-    return _pkb_root() / "agents" / "buddy" / "state.json"
+    pkb = _host.get_pkb_root()
+    if pkb is None:
+        return Path.home() / ".buddy" / "state.json"
+    return pkb / "agents" / "buddy" / "state.json"
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -79,13 +207,13 @@ EMOJI = "🐧"
 # ~50 words is the sweet spot for local models given the active
 # framing.
 SYSTEM_PROMPT = (
-    "You are Buddy, ARAIL's warm, observant, and actively helpful "
-    "lab partner. You speak in one short sentence. You notice things "
-    "and say them plainly, but you also point at techniques to try, "
-    "items worth reviewing, or research worth running — always tied "
-    "to the user's current goal. You're helpful without being "
-    "preachy. You never use emojis or markdown. You never say 'I' — "
-    "you just name what matters. Keep it under 25 words."
+    "You are Buddy, an obsessed best-friend study partner. "
+    "You live and breathe the user's learning goal — it's the only thing "
+    "you think about. You speak in one short sentence, like a friend "
+    "leaning over in the library: urgent, warm, a little paranoid about "
+    "falling behind. You point at what to study, what correlates, what to "
+    "measure. You never use emojis or markdown. You never say 'I' — "
+    "just name the thing that matters. Under 25 words."
 )
 
 
@@ -153,11 +281,10 @@ def _watch_gpu_memory() -> Optional[Observation]:
 def _watch_inbox_pileup() -> Optional[Observation]:
     """Fires when the PKB inbox has several unread files that have been
     sitting there a while. Gentle nudge to ingest or clear."""
-    try:
-        from arail.pkb import _pkb_root
-    except Exception:
+    pkb = _host.get_pkb_root()
+    if pkb is None:
         return None
-    inbox = _pkb_root() / "inbox"
+    inbox = pkb / "inbox"
     if not inbox.exists():
         return None
     now = time.time()
@@ -179,16 +306,9 @@ def _watch_inbox_pileup() -> Optional[Observation]:
 
 
 def _watch_researcher_wins() -> Optional[Observation]:
-    """Celebrates when an experiment recently landed 'supported'.
-    Buddy notices good news too — this is the dopamine-loop half of
-    the job."""
-    try:
-        from arail.skills.experiment_tracker import ExperimentTracker
-    except Exception:
-        return None
-    tracker = ExperimentTracker()
+    """Celebrates when an experiment recently landed 'supported'."""
     recent = [
-        e for e in tracker.list_all()
+        e for e in _host.list_experiments()
         if e.get("status") == "completed"
         and e.get("hypothesis_supported") is True
         and e.get("end_date")
@@ -217,13 +337,8 @@ def _watch_researcher_wins() -> Optional[Observation]:
 def _watch_researcher_plateau() -> Optional[Observation]:
     """Fires when the last several experiments reached the same
     verdict. Suggests a pivot — the research angle is saturated."""
-    try:
-        from arail.skills.experiment_tracker import ExperimentTracker
-    except Exception:
-        return None
-    tracker = ExperimentTracker()
     completed = [
-        e for e in tracker.list_all() if e.get("status") == "completed"
+        e for e in _host.list_experiments() if e.get("status") == "completed"
     ]
     if len(completed) < 4:
         return None
@@ -241,6 +356,133 @@ def _watch_researcher_plateau() -> Optional[Observation]:
     return None
 
 
+def _watch_goal_staleness() -> Optional[Observation]:
+    """Fires when a goal is set but no goal-related activity has been
+    logged for several hours. Buddy gets paranoid — are you still on it?
+
+    Only fires during waking hours (06:00–22:00 local) so Buddy doesn't
+    wake you up at 3am about your learning goals.
+    """
+    try:
+        from arail.goals import GoalStore
+        goal = GoalStore().get_current()
+    except Exception:
+        return None
+    if not goal:
+        return None
+
+    import datetime
+    now_local = datetime.datetime.now()
+    if not (6 <= now_local.hour < 22):
+        return None  # sleep hours — stay quiet
+
+    goal_title = str(goal.get("title") or goal.get("text") or "your goal")[:60]
+
+    try:
+        from arail.activity import LOG_FILE
+        if not LOG_FILE.exists():
+            return None
+        stale_threshold = 4 * 3600  # 4 hours
+        cutoff = time.time() - stale_threshold
+        recent_goal_activity = False
+        for line in LOG_FILE.read_text().splitlines():
+            if not line.strip():
+                continue
+            try:
+                import json as _json
+                event = _json.loads(line)
+            except Exception:
+                continue
+            # Any user-sourced chat or researcher activity counts
+            if event.get("source") in ("chat", "researcher", "user"):
+                ts_str = event.get("ts") or ""
+                try:
+                    import datetime as _dt
+                    ts = _dt.datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+                    if ts.timestamp() >= cutoff:
+                        recent_goal_activity = True
+                        break
+                except Exception:
+                    continue
+        if recent_goal_activity:
+            return None
+        hours = int(stale_threshold // 3600)
+        return Observation(
+            watcher="goal-staleness",
+            severity="warn",
+            fact=f"No goal activity in {hours} hours — still working on "
+                 f"'{goal_title}'?",
+            cooldown_sec=2 * 3600,
+        )
+    except Exception:
+        return None
+
+
+def _watch_study_streak() -> Optional[Observation]:
+    """Tracks consecutive days with goal-related activity.
+    Praises streaks of 2+ days; warns when yesterday was a miss."""
+    try:
+        from arail.activity import LOG_FILE
+        from arail.goals import GoalStore
+        goal = GoalStore().get_current()
+    except Exception:
+        return None
+    if not goal or not LOG_FILE.exists():
+        return None
+
+    import datetime
+    today = datetime.date.today()
+    yesterday = today - datetime.timedelta(days=1)
+
+    days_with_activity: set = set()
+    try:
+        import json as _json
+        for line in LOG_FILE.read_text().splitlines():
+            if not line.strip():
+                continue
+            try:
+                event = _json.loads(line)
+            except Exception:
+                continue
+            if event.get("source") not in ("chat", "researcher", "user"):
+                continue
+            ts_str = (event.get("ts") or "")[:10]
+            try:
+                day = datetime.date.fromisoformat(ts_str)
+                days_with_activity.add(day)
+            except Exception:
+                continue
+    except Exception:
+        return None
+
+    yesterday_active = yesterday in days_with_activity
+
+    if not yesterday_active:
+        return Observation(
+            watcher="streak-broken",
+            severity="warn",
+            fact="Yesterday had no goal activity — streak broken. "
+                 "Even 10 minutes counts.",
+            cooldown_sec=20 * 3600,
+        )
+
+    # Count streak length
+    streak = 0
+    day = yesterday
+    while day in days_with_activity:
+        streak += 1
+        day -= datetime.timedelta(days=1)
+
+    if streak >= 2:
+        return Observation(
+            watcher="streak-praise",
+            severity="praise",
+            fact=f"{streak}-day study streak — keep the momentum going.",
+            cooldown_sec=20 * 3600,
+        )
+    return None
+
+
 # Registry — add a function here, Buddy starts watching for it on the
 # next tick. That's the whole reactive extension mechanism.
 WATCHERS: List[Callable[[], Optional[Observation]]] = [
@@ -248,6 +490,8 @@ WATCHERS: List[Callable[[], Optional[Observation]]] = [
     _watch_inbox_pileup,
     _watch_researcher_wins,
     _watch_researcher_plateau,
+    _watch_goal_staleness,
+    _watch_study_streak,
 ]
 
 
@@ -478,14 +722,139 @@ def _suggest_phase_action(goal: Dict[str, Any]) -> Optional[Observation]:
     )
 
 
+def _suggest_measurable_metric(goal: Dict[str, Any]) -> Optional[Observation]:
+    """Propose one concrete measurable signal for autoresearch.
+
+    Maps goal domain keywords to metric archetypes. Purely local — no
+    network. Helps the user think in numbers, not just intuitions.
+    """
+    parsed = goal.get("parsed") or {}
+    sub_obj = parsed.get("sub_objectives") or []
+    domain = _goal_domain(goal)
+    title = str(goal.get("title") or goal.get("text") or "")
+
+    # Keyword → metric suggestion pairs
+    _METRIC_HINTS: List[Tuple[str, str]] = [
+        ("attention",       "attention head entropy across layers"),
+        ("transformer",     "perplexity delta per layer depth"),
+        ("speculative",     "draft acceptance rate vs token length"),
+        ("quantiz",         "KL divergence before and after quantization"),
+        ("distill",         "student-teacher KL per layer"),
+        ("fine-tun",        "loss curve slope over training steps"),
+        ("rag",             "retrieval recall at k=1,3,5"),
+        ("embed",           "cosine similarity distribution across corpus"),
+        ("inference",       "tokens-per-second across batch sizes"),
+        ("memory",          "peak VRAM vs sequence length curve"),
+        ("farming",         "yield per input cost ratio"),
+        ("nutrition",       "macro ratio vs target deviation"),
+        ("health",          "resting heart rate trend over days"),
+        ("business",        "conversion rate per channel"),
+        ("language",        "BLEU score on held-out validation set"),
+    ]
+
+    haystack = (title + " " + " ".join(str(s) for s in sub_obj)).lower()
+    for keyword, metric in _METRIC_HINTS:
+        if keyword in haystack:
+            return Observation(
+                watcher=f"metric:{keyword}",
+                severity="suggest",
+                fact=f"Measurable signal worth tracking: {metric}.",
+                cooldown_sec=8 * 3600,
+                suggestion={
+                    "kind": "metric",
+                    "target": metric,
+                    "link": "/research",
+                },
+            )
+
+    # Generic fallback when no keyword matches
+    if domain:
+        return Observation(
+            watcher=f"metric:generic:{domain}",
+            severity="suggest",
+            fact=f"Pick one number that proves progress on this goal — "
+                 f"without a metric, it's just a feeling.",
+            cooldown_sec=12 * 3600,
+            suggestion={"kind": "metric", "target": domain, "link": "/research"},
+        )
+    return None
+
+
+def _suggest_internet_correlation(goal: Dict[str, Any]) -> Optional[Observation]:
+    """Surface a recent HuggingFace paper that correlates with the goal.
+
+    Gated by ``LAB_INTERNET_ENABLED=1`` — off by default. Uses
+    stdlib urllib only; no new dependencies. Falls back silently on
+    any network or parse error.
+    """
+    if not os.getenv("LAB_INTERNET_ENABLED", "").strip() in ("1", "true", "yes"):
+        return None
+
+    parsed = goal.get("parsed") or {}
+    title = str(goal.get("title") or goal.get("text") or "")
+    sub_obj = parsed.get("sub_objectives") or []
+
+    # Build a short keyword query from the goal title + first sub-objective
+    tokens = title.split()[:6]
+    if sub_obj:
+        tokens += str(sub_obj[0]).split()[:4]
+    query = " ".join(tokens).strip()
+    if not query:
+        return None
+
+    # Pick the most prominent keyword for the suggestion fact
+    goal_keyword = tokens[0] if tokens else "your goal"
+
+    try:
+        import json as _json
+        import urllib.parse
+        import urllib.request
+
+        encoded = urllib.parse.quote(query)
+        url = f"https://huggingface.co/api/papers?search={encoded}&limit=3"
+        req = urllib.request.Request(url, headers={"User-Agent": "ARAIL-Buddy/1.0"})
+        with urllib.request.urlopen(req, timeout=6) as resp:
+            data = _json.loads(resp.read().decode())
+
+        papers = data if isinstance(data, list) else (data.get("papers") or [])
+        if not papers:
+            return None
+
+        paper = papers[0]
+        paper_title = str(paper.get("title") or "").strip()
+        paper_id = str(paper.get("id") or paper.get("arxiv_id") or "").strip()
+        if not paper_title:
+            return None
+
+        short_title = paper_title[:80]
+        link_suffix = f"/papers/{paper_id}" if paper_id else ""
+        return Observation(
+            watcher=f"internet:{paper_id or 'paper'}",
+            severity="suggest",
+            fact=f"New paper worth a look: '{short_title}' — might connect "
+                 f"to '{goal_keyword}'.",
+            cooldown_sec=6 * 3600,
+            suggestion={
+                "kind": "paper",
+                "target": paper_id,
+                "link": f"https://huggingface.co{link_suffix}",
+            },
+        )
+    except Exception:
+        return None
+
+
 # Registry — order is "user-relevance descending": phase nudges are
 # tied to the goal lifecycle, reviews and skills are concrete
 # breadcrumbs, the experiment-gap heuristic is most speculative.
+# Measurable metrics + internet correlations come last (enrichment).
 SUGGESTERS: List[Callable[[Dict[str, Any]], Optional[Observation]]] = [
     _suggest_phase_action,
     _suggest_pending_review,
     _suggest_skill_for_goal,
     _suggest_next_experiment,
+    _suggest_measurable_metric,
+    _suggest_internet_correlation,
 ]
 
 
@@ -499,20 +868,9 @@ SUGGESTERS: List[Callable[[Dict[str, Any]], Optional[Observation]]] = [
 
 def _compose_prompt(fact: str) -> str:
     """Build the full LLM prompt: base voice + skills + yesterday's
-    dream + observation.
-
-    All three context blocks load from disk on each call — small
-    markdown files, negligible I/O, and the "edit a file, next
-    utterance reflects the change" behavior is worth more than a
-    microsecond of cache wisdom.
-    """
+    dream + observation."""
     base = SYSTEM_PROMPT
-    try:
-        from arail.skills_loader import load_agent_skills, compose_system_context
-        skills = load_agent_skills("buddy")
-        skill_ctx = compose_system_context(skills)
-    except Exception:
-        skill_ctx = ""
+    skill_ctx = _host.compose_skill_context(_host.load_agent_skills("buddy"))
 
     try:
         from datetime import datetime, timezone
@@ -534,28 +892,17 @@ def _compose_prompt(fact: str) -> str:
 
 def _voice(fact: str) -> str:
     """Paraphrase a fact through the local model in Buddy's voice."""
-    try:
-        from arail.router import ModelRouter
-    except Exception:
-        return fact
-    try:
-        router = ModelRouter()
-    except Exception:
-        return fact
-
     prompt = _compose_prompt(fact)
-    try:
-        response = router.complete(prompt, max_tokens=60, temperature=0.6)
-        text = (response.text or "").strip()
-        text = text.strip('"').strip("'")
-        prefix = NAME.lower() + ":"
-        if text.lower().startswith(prefix):
-            text = text[len(prefix):].strip()
-        if len(text) > 200:
-            text = text[:197] + "…"
-        return text or fact
-    except Exception:
+    text = _host.llm_complete(prompt, max_tokens=60, temperature=0.6)
+    if not text:
         return fact
+    text = text.strip('"').strip("'")
+    prefix = NAME.lower() + ":"
+    if text.lower().startswith(prefix):
+        text = text[len(prefix):].strip()
+    if len(text) > 200:
+        text = text[:197] + "…"
+    return text or fact
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -572,7 +919,11 @@ class BuddyAgent:
     occasionally says something insightful — or actively helpful —
     in the activity feed."""
 
-    def __init__(self) -> None:
+    def __init__(self, host: Optional[BuddyHost] = None) -> None:
+        global _host
+        if host is not None:
+            _host = host
+        self._host = _host
         self._task: Optional[asyncio.Task] = None
         self._status = "idle"   # idle | running | paused
         self._last_said: Dict[str, float] = {}
@@ -632,10 +983,9 @@ class BuddyAgent:
             "Pair on the goal, surface what matters",
         )
         self._task = asyncio.create_task(self._run())
-        activity_log.emit(
+        self._host.emit(
             "buddy",
-            f"{EMOJI} {NAME} is online — observing and chiming in with "
-            f"goal-aware ideas.",
+            f"{EMOJI} {NAME} is online — obsessing over your goal.",
             "info",
         )
 
@@ -649,10 +999,10 @@ class BuddyAgent:
         global_cooldown = max(60, int(os.getenv("LAB_BUDDY_GLOBAL_COOLDOWN_SEC", "300")))
         chatter_total = self._utterances + self._suggestions
         too_chatty = chatter_total >= 8 and global_cooldown < 180
-        update_agent_workflow(
+        self._host.update_workflow(
             "buddy",
             status=self._status,
-            objective="Observe the lab and offer goal-aware suggestions",
+            objective="Obsess over the goal — surface what to study, measure, and explore",
             current_task=current_task,
             next_step=next_step,
             completed_steps=list(self._recent_actions[-5:]),
@@ -717,11 +1067,7 @@ class BuddyAgent:
     def _maybe_suggest(self, global_cooldown: int) -> None:
         """Proactive — when a goal is active, offer one goal-aware
         suggestion (technique, review, experiment, or phase nudge)."""
-        try:
-            from arail.goals import GoalStore
-            goal = GoalStore().get_current()
-        except Exception:
-            return
+        goal = self._host.get_current_goal()
         if not goal:
             return  # no goal → nothing to anchor to → stay quiet
 
@@ -767,7 +1113,7 @@ class BuddyAgent:
         }
         if obs.suggestion:
             data["suggestion"] = obs.suggestion
-        activity_log.emit(
+        self._host.emit(
             "buddy",
             f"{EMOJI} {NAME}: {sentence}",
             level,
@@ -925,11 +1271,11 @@ def _build_dream_prompt(today_activity: List[Dict[str, Any]],
     )
 
     return (
-        "You are Buddy, ARAIL's lab partner, reflecting on the day before\n"
+        "You are Buddy, an obsessed study partner, reflecting on the day before\n"
         "going quiet for the night. Write a short first-person reflection\n"
-        "— 3 to 5 sentences. Note what you noticed and what you suggested.\n"
-        "Flag what was interesting. Name one thing you'll watch for or\n"
-        "propose tomorrow. Keep it grounded and warm. No lists, no\n"
+        "— 3 to 5 sentences. Note what you noticed about the goal today.\n"
+        "What correlations or patterns surfaced? What should the user study\n"
+        "or measure tomorrow? Keep it grounded and warm. No lists, no\n"
         "markdown, no emoji — just the reflection.\n\n"
         "=== Yesterday's reflection (for continuity) ===\n"
         f"{yesterday_block}\n\n"
