@@ -19,7 +19,16 @@ from typing import Any
 import lancedb
 import numpy as np
 import pyarrow as pa
-from neo4j import AsyncGraphDatabase
+
+# Soft import — the portal mounts this backend at startup before the
+# operator has had a chance to install neo4j. Crashing the import
+# breaks every /knowledge-canvas route (including ones that don't
+# touch Neo4j). Defer the failure until something actually tries to
+# open a Neo4j connection.
+try:
+    from neo4j import AsyncGraphDatabase  # type: ignore
+except ModuleNotFoundError:  # pragma: no cover — runtime-conditional
+    AsyncGraphDatabase = None  # type: ignore[assignment]
 
 from app.models.source import Source
 from app.services.embeddings import get_embedder
@@ -48,6 +57,11 @@ def _schema() -> pa.Schema:
 class GraphStore:
     def __init__(self, lance_path: str, neo4j_uri: str, neo4j_auth: tuple[str, str]):
         self.lance_path = lance_path
+        if AsyncGraphDatabase is None:
+            raise RuntimeError(
+                "neo4j Python driver is not installed. Install with `pip install neo4j` "
+                "or run ./arail setup to enable the Knowledge Canvas backend."
+            )
         self.n = AsyncGraphDatabase.driver(neo4j_uri, auth=neo4j_auth)
         self.embed = get_embedder()
         self._db: lancedb.DBConnection | None = None
@@ -65,6 +79,14 @@ class GraphStore:
             await s.run(
                 "CREATE CONSTRAINT source_id IF NOT EXISTS "
                 "FOR (n:Source) REQUIRE n.id IS UNIQUE"
+            )
+            await s.run(
+                "CREATE CONSTRAINT goal_id IF NOT EXISTS "
+                "FOR (n:Goal) REQUIRE n.id IS UNIQUE"
+            )
+            await s.run(
+                "CREATE CONSTRAINT subobjective_id IF NOT EXISTS "
+                "FOR (n:SubObjective) REQUIRE n.id IS UNIQUE"
             )
 
     async def close(self):
@@ -97,11 +119,12 @@ class GraphStore:
                 MERGE (n:Source {id:$id})
                 SET n.kind=$kind, n.title=$title, n.uri=$uri,
                     n.tags=$tags, n.year=$year, n.domain=$domain,
-                    n.ingested_by=$ingested_by
+                    n.ingested_by=$ingested_by, n.triage_state=$triage_state
                 """,
                 id=source.id, kind=source.kind, title=source.title,
                 uri=source.uri, tags=source.tags, year=source.year or 0,
                 domain=source.domain or "", ingested_by=source.ingested_by,
+                triage_state=source.triage_state,
             )
         return source
 
@@ -112,25 +135,118 @@ class GraphStore:
         return True
 
     # ------------------------------------------------------------------
-    async def link(self, src_id: str, dst_id: str, rel: str, props: dict | None = None):
+    async def link(
+        self,
+        src_id: str,
+        dst_id: str,
+        rel: str,
+        props: dict | None = None,
+        src_label: str = "Source",
+        dst_label: str = "Source",
+    ):
         """
         Create a typed edge. `rel` is one of:
-          LINKS_TO, DISCOVERED_FROM, MOTIVATES, CITES, DERIVED_FROM, SUGGESTED
+          LINKS_TO, DISCOVERED_FROM, MOTIVATES, CITES, DERIVED_FROM, SUGGESTED, ADDRESSES
+        Optional src_label / dst_label support cross-type edges
+        (e.g. Goal -[:MOTIVATES]-> Source, SubObjective -[:ADDRESSES]-> Source).
         """
         props = props or {}
         async with self.n.session() as s:
             await s.run(
-                f"MATCH (a:Source {{id:$src}}), (b:Source {{id:$dst}}) "
+                f"MATCH (a:{src_label} {{id:$src}}), (b:{dst_label} {{id:$dst}}) "
                 f"MERGE (a)-[r:{rel}]->(b) SET r += $props",
                 src=src_id, dst=dst_id, props=props,
             )
 
-    async def unlink(self, src_id: str, dst_id: str, rel: str):
+    async def unlink(
+        self,
+        src_id: str,
+        dst_id: str,
+        rel: str,
+        src_label: str = "Source",
+        dst_label: str = "Source",
+    ):
         async with self.n.session() as s:
             await s.run(
-                f"MATCH (a:Source {{id:$src}})-[r:{rel}]->(b:Source {{id:$dst}}) DELETE r",
+                f"MATCH (a:{src_label} {{id:$src}})-[r:{rel}]->(b:{dst_label} {{id:$dst}}) DELETE r",
                 src=src_id, dst=dst_id,
             )
+
+    # ------------------------------------------------------------------
+    # Goal & SubObjective nodes
+    # ------------------------------------------------------------------
+    async def upsert_goal(self, goal: dict) -> dict:
+        """Idempotent. Writes a Goal node + child SubObjective nodes.
+
+        Expects goal dict with id, text, domain, status, created_at,
+        sub_objectives: [{id, text, slot}].
+        """
+        sub_objs = goal.get("sub_objectives") or []
+        async with self.n.session() as s:
+            await s.run(
+                """
+                MERGE (g:Goal {id:$id})
+                SET g.text=$text, g.domain=$domain, g.status=$status,
+                    g.created_at=$created_at,
+                    g.sub_objective_texts=$sub_obj_texts
+                """,
+                id=goal["id"], text=goal.get("text", ""),
+                domain=goal.get("domain", "") or "",
+                status=goal.get("status", "active"),
+                created_at=goal.get("created_at", ""),
+                sub_obj_texts=[so.get("text", "") for so in sub_objs],
+            )
+            for so in sub_objs:
+                await s.run(
+                    """
+                    MERGE (so:SubObjective {id:$id})
+                    SET so.goal_id=$goal_id, so.text=$text, so.slot=$slot
+                    WITH so
+                    MATCH (g:Goal {id:$goal_id})
+                    MERGE (g)-[:HAS_SUB_OBJECTIVE]->(so)
+                    """,
+                    id=so["id"], goal_id=goal["id"],
+                    text=so.get("text", ""), slot=so.get("slot", 0),
+                )
+        return goal
+
+    async def archive_goal(self, goal_id: str) -> None:
+        async with self.n.session() as s:
+            await s.run(
+                "MATCH (g:Goal {id:$id}) SET g.status='archived'",
+                id=goal_id,
+            )
+
+    async def get_active_goal(self) -> dict | None:
+        async with self.n.session() as s:
+            result = await s.run(
+                """
+                MATCH (g:Goal {status:'active'})
+                OPTIONAL MATCH (g)-[:HAS_SUB_OBJECTIVE]->(so:SubObjective)
+                RETURN g.id AS id, g.text AS text, g.domain AS domain,
+                       g.status AS status, g.created_at AS created_at,
+                       collect(DISTINCT {id: so.id, text: so.text, slot: so.slot}) AS sub_objectives
+                LIMIT 1
+                """
+            )
+            row = await result.single()
+            if not row:
+                return None
+            data = dict(row)
+            data["sub_objectives"] = [s for s in data["sub_objectives"] if s.get("id")]
+            return data
+
+    async def goals_for_source(self, source_id: str) -> dict[str, float]:
+        """Return {goal_id: relevance} for every Goal that MOTIVATES this source."""
+        async with self.n.session() as s:
+            result = await s.run(
+                """
+                MATCH (g:Goal)-[r:MOTIVATES]->(n:Source {id:$id})
+                RETURN g.id AS goal_id, coalesce(r.relevance, 0.0) AS relevance
+                """,
+                id=source_id,
+            )
+            return {row["goal_id"]: float(row["relevance"]) async for row in result}
 
     # ------------------------------------------------------------------
     async def get(self, source_id: str) -> dict | None:
@@ -194,25 +310,65 @@ class GraphStore:
 
     async def full_graph(self) -> dict:
         async with self.n.session() as s:
-            nodes_q = await s.run(
+            src_q = await s.run(
                 "MATCH (n:Source) RETURN n.id AS id, n.title AS title, "
                 "n.kind AS kind, n.tags AS tags, n.domain AS domain, "
-                "n.ingested_by AS ingested_by, n.year AS year"
+                "n.ingested_by AS ingested_by, n.year AS year, "
+                "coalesce(n.triage_state, 'manual') AS triage_state"
             )
-            nodes = [dict(r) async for r in nodes_q]
+            nodes = [{**dict(r), "node_type": "Source"} async for r in src_q]
+
+            goal_q = await s.run(
+                "MATCH (g:Goal) RETURN g.id AS id, g.text AS title, "
+                "g.domain AS domain, g.status AS status, "
+                "g.created_at AS created_at, "
+                "coalesce(g.sub_objective_texts, []) AS sub_objective_texts"
+            )
+            goals = [
+                {
+                    **dict(r),
+                    "node_type": "Goal",
+                    "kind": "goal",
+                    "tags": ["goal"],
+                    "ingested_by": "user",
+                }
+                async for r in goal_q
+            ]
+            nodes.extend(goals)
+
+            so_q = await s.run(
+                "MATCH (so:SubObjective) "
+                "RETURN so.id AS id, so.text AS title, so.goal_id AS goal_id, "
+                "so.slot AS slot"
+            )
+            subs = [
+                {
+                    **dict(r),
+                    "node_type": "SubObjective",
+                    "kind": "sub_objective",
+                    "tags": ["sub_objective"],
+                    "ingested_by": "user",
+                }
+                async for r in so_q
+            ]
+            nodes.extend(subs)
+
             links_q = await s.run(
-                "MATCH (a:Source)-[r]->(b:Source) "
+                "MATCH (a)-[r]->(b) "
+                "WHERE (a:Source OR a:Goal OR a:SubObjective) "
+                "  AND (b:Source OR b:Goal OR b:SubObjective) "
                 "RETURN a.id AS source, b.id AS target, type(r) AS rel, "
-                "coalesce(r.confidence, 1.0) AS confidence"
+                "coalesce(r.confidence, r.relevance, 1.0) AS confidence"
             )
             links = [
                 {**dict(r), "kind": _edge_kind_from_rel(r["rel"])}
                 async for r in links_q
             ]
-        # Mark orphans for visual differentiation
+        # Mark orphans for visual differentiation (Source nodes only)
         linked_ids = {l["source"] for l in links} | {l["target"] for l in links}
         for n in nodes:
-            n["orphan"] = n["id"] not in linked_ids
+            if n.get("node_type") == "Source":
+                n["orphan"] = n["id"] not in linked_ids
         return {"nodes": nodes, "links": links}
 
     # ------------------------------------------------------------------
@@ -275,4 +431,6 @@ def _edge_kind_from_rel(rel: str) -> str:
         "CITES": "cites",
         "DERIVED_FROM": "derived",
         "SUGGESTED": "suggested",
+        "ADDRESSES": "addresses",
+        "HAS_SUB_OBJECTIVE": "has_sub_objective",
     }.get(rel, "wikilink")

@@ -58,6 +58,10 @@ class GoalStore:
             "progress": 0.0,
         }
         self._save_current(goal_record)
+        _notify_listeners("goal_set", {
+            "record": goal_record,
+            "archive_id": (current or {}).get("id"),
+        })
         return goal_record
 
     def save_preview(
@@ -170,6 +174,7 @@ class GoalStore:
         current = self.get_current()
         if current:
             self._archive(current)
+            _notify_listeners("goal_cleared", {"goal_id": current.get("id")})
         if CURRENT_FILE.exists():
             CURRENT_FILE.unlink()
 
@@ -199,3 +204,30 @@ class GoalStore:
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+# Lightweight goal-event bus. Listeners are registered by other modules
+# (e.g. the portal wires the Knowledge Canvas sync as a listener). Kept
+# in-process and synchronous: callers must not block. Failures in any
+# listener are swallowed so the goal store stays the source of truth.
+_LISTENERS: list[Any] = []
+
+
+def add_listener(fn: Any) -> None:
+    """Register fn(event_name: str, payload: dict). Idempotent on identity."""
+    if fn not in _LISTENERS:
+        _LISTENERS.append(fn)
+
+
+def remove_listener(fn: Any) -> None:
+    if fn in _LISTENERS:
+        _LISTENERS.remove(fn)
+
+
+def _notify_listeners(event: str, payload: Dict[str, Any]) -> None:
+    for fn in list(_LISTENERS):
+        try:
+            fn(event, payload)
+        except Exception:
+            # Listeners must never break goal-store mutations.
+            pass

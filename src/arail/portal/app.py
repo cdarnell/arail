@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import time
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import threading
@@ -215,6 +217,7 @@ async def _startup():
             await _knowledge_canvas_store.init()
             knowledge_canvas_app.state.store = _knowledge_canvas_store
             knowledge_canvas_app.state.ws_broadcaster = kc_ws.broadcaster
+            _register_canvas_goal_listener(_knowledge_canvas_store)
             activity_log.emit("system", "Knowledge Canvas backend ready.", "info")
         except Exception as e:  # noqa: BLE001
             _knowledge_canvas_store = None
@@ -358,6 +361,52 @@ async def _startup():
             activity_log.emit("dream",
                 f"Dream daemon failed to start: {type(e).__name__}: {e}",
                 "warn")
+
+
+def _register_canvas_goal_listener(store: Any) -> None:
+    """Wire goal-store events into the Knowledge Canvas Goal/SubObjective graph.
+
+    The canvas is additive — failure here must never block goal-setting.
+    We swallow exceptions and log a warning so the user still sees their
+    goal applied even if the graph write fails.
+    """
+    from arail import goals as goals_mod
+    from app.services.goal_graph import GoalGraphService  # type: ignore
+
+    svc = GoalGraphService(store)
+
+    def listener(event: str, payload: Dict[str, Any]) -> None:
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return  # Not inside an event loop; canvas sync skipped this call.
+        if event == "goal_set":
+            record = payload.get("record") or {}
+            archive_id = payload.get("archive_id")
+            async def _do():
+                try:
+                    if archive_id and archive_id != record.get("id"):
+                        await svc.archive_goal(archive_id)
+                    await svc.upsert_goal(record, archive_others=True)
+                except Exception as e:  # noqa: BLE001
+                    activity_log.emit("system",
+                        f"Goal sync to canvas failed: {type(e).__name__}: {e}",
+                        "warn")
+            loop.create_task(_do())
+        elif event == "goal_cleared":
+            goal_id = payload.get("goal_id")
+            if not goal_id:
+                return
+            async def _do_clear():
+                try:
+                    await svc.archive_goal(goal_id)
+                except Exception as e:  # noqa: BLE001
+                    activity_log.emit("system",
+                        f"Goal archive in canvas failed: {type(e).__name__}: {e}",
+                        "warn")
+            loop.create_task(_do_clear())
+
+    goals_mod.add_listener(listener)
 
 
 @app.on_event("shutdown")
@@ -3582,6 +3631,19 @@ async def api_chat_stream(request: Request):
 # chat turns reuse the loaded instance.
 _OPTIONAL_CHAT_BACKEND_CACHE: dict[str, Any] = {}
 
+_CHAT_MODEL_LOAD_LOCK = threading.Lock()
+_CHAT_MODEL_LOAD_STATE: dict[str, Any] = {
+    "state": "ready",
+    "blocking": False,
+    "message": "Model ready",
+    "eta_seconds": 0,
+    "progress": 1.0,
+    "model": None,
+    "runtime": None,
+    "provider": None,
+    "updated_at": 0.0,
+}
+
 _OPTIONAL_CHAT_BACKEND_CONFIG: dict[str, dict[str, str]] = {
     "airllm": {
         "label": "AirLLM",
@@ -3600,6 +3662,96 @@ _OPTIONAL_CHAT_BACKEND_CONFIG: dict[str, dict[str, str]] = {
         "default_model": "Qwen2.5-7B-Instruct",
     },
 }
+
+
+def _set_chat_model_load_state(**changes: Any) -> dict[str, Any]:
+    with _CHAT_MODEL_LOAD_LOCK:
+        _CHAT_MODEL_LOAD_STATE.update(changes)
+        _CHAT_MODEL_LOAD_STATE["updated_at"] = round(time.time(), 3)
+        return dict(_CHAT_MODEL_LOAD_STATE)
+
+
+def _get_chat_model_load_state() -> dict[str, Any]:
+    with _CHAT_MODEL_LOAD_LOCK:
+        return dict(_CHAT_MODEL_LOAD_STATE)
+
+
+async def _prepare_chat_model_load(
+    *,
+    model: str | None,
+    runtime: str | None,
+    provider: str | None,
+) -> dict[str, Any]:
+    label = _compact_model_label(model) or _display_provider_name(provider or "my_machine")
+    state = _set_chat_model_load_state(
+        state="loading",
+        blocking=True,
+        message=f"Loading {label}…",
+        eta_seconds=15,
+        progress=0.15,
+        model=model,
+        runtime=runtime,
+        provider=provider,
+    )
+
+    try:
+        if provider in _OPTIONAL_CHAT_BACKEND_CONFIG:
+            await asyncio.to_thread(_get_optional_chat_backend, str(provider))
+        elif runtime in ("ollama", "mlx-openai") and model:
+            await asyncio.to_thread(_get_runtime_backend, str(runtime), str(model))
+        else:
+            await asyncio.to_thread(_get_primary_router)
+        state = _set_chat_model_load_state(
+            state="ready",
+            blocking=False,
+            message=f"{label} ready",
+            eta_seconds=0,
+            progress=1.0,
+            model=model,
+            runtime=runtime,
+            provider=provider,
+        )
+    except Exception as exc:  # noqa: BLE001
+        state = _set_chat_model_load_state(
+            state="error",
+            blocking=False,
+            message=f"Load failed: {type(exc).__name__}: {exc}",
+            eta_seconds=None,
+            progress=1.0,
+            model=model,
+            runtime=runtime,
+            provider=provider,
+        )
+    return state
+
+
+@app.get("/api/chat/model-load")
+async def api_chat_model_load_status():
+    return _get_chat_model_load_state()
+
+
+@app.post("/api/chat/model-load")
+async def api_chat_model_load(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    return await _prepare_chat_model_load(
+        model=(body.get("model") or "").strip() or None,
+        runtime=(body.get("runtime") or "").strip().lower() or None,
+        provider=(body.get("provider") or "").strip().lower() or None,
+    )
+
+
+@app.post("/api/chat/model-load/cancel")
+async def api_chat_model_load_cancel():
+    return _set_chat_model_load_state(
+        state="canceled",
+        blocking=False,
+        message="Model load canceled",
+        eta_seconds=0,
+        progress=0.0,
+    )
 
 
 def _get_optional_chat_backend(name: str):
@@ -3764,6 +3916,7 @@ async def api_chat_models():
 
     backend_name = router.backend_name
     be = router._backend
+    active_provider = _load_active_provider()
     current = getattr(be, "model_name", None) or os.getenv("MODEL_NAME", "default")
     models: list[str] = []
 
@@ -3962,8 +4115,80 @@ async def api_chat_models():
         gallery = {"installed": [], "catalog": [], "runtime_counts": {},
                    "error": f"{type(e).__name__}: {e}"}
 
+    memory_snapshot = _local_memory_snapshot()
+    local_entries = [
+        _build_local_model_entry(
+            entry.get("id", ""),
+            runtime=str(entry.get("runtime") or "local"),
+            size_gb=entry.get("size_gb") if isinstance(entry.get("size_gb"), (int, float)) else None,
+            modified=str(entry.get("modified") or ""),
+            endpoint=entry.get("endpoint") if isinstance(entry.get("endpoint"), str) else None,
+            current=current,
+            detected_gb=float(memory_snapshot.get("total_gb") or 0.0),
+            free_gb=float(memory_snapshot.get("free_gb") or 0.0),
+        )
+        for entry in gallery.get("installed", [])
+        if entry.get("id")
+    ]
+    selected_local_entry = next((entry for entry in local_entries if entry.get("current")), None)
+    best_local_entry = selected_local_entry or (local_entries[0] if local_entries else None)
+    best_fit_summary = None
+    if best_local_entry:
+        best_fit_summary = best_local_entry.get("fit", {}).get("summary")
+
+    local_models_dir = Path(os.getenv("ARAIL_MODELS_DIR", "lab/models"))
+    onboarding = {
+        "title": "Local Models — How to add",
+        "folder": str(local_models_dir),
+        "layout": [
+            f"Place one model directory or file set under {local_models_dir}.",
+            "MLX folders, GGUF trees, Hugging Face weight folders, and runtime-owned installs are detected automatically when their layout matches the runtime.",
+            "Newly discovered local entries will appear in the Model menu with a new badge.",
+        ],
+        "cli_example": (
+            f"mkdir -p {local_models_dir} && curl -L -o {local_models_dir}/qwen3-8b.bin <url>"
+        ),
+        "formats_note": (
+            "Required layout depends on runtime: MLX/OpenAI-compatible folders, GGUF directories, or complete Hugging Face weight folders."
+        ),
+        "autodetect_note": "The chat UI refreshes installed local models from the runtime gallery and the on-disk models directory.",
+    }
+
+    compact_selector = {
+        "label": "Model",
+        "compute_sources": [
+            {
+                **source,
+                "requires_token": source["id"] != "my_machine",
+                "available": source["id"] == "my_machine" or bool(_provider_token(source["id"])),
+            }
+            for source in _compact_compute_sources(active_provider)
+        ],
+        "hosting_line": "Local (default) · Claude · NVIDIA · OpenRouter · HF",
+        "local_models": {
+            "title": "Local Models",
+            "default": True,
+            "headroom": _local_headroom_line(memory_snapshot, best_fit_summary or "unknown"),
+            "items": local_entries,
+        },
+        "custom_override": {
+            "label": "Custom endpoint",
+            "placeholder": "https://.../v1",
+            "visible_when": "custom",
+        },
+        "overlay": onboarding,
+    }
+
+    current_fit = best_local_entry.get("fit") if best_local_entry else None
+    load_state = _get_chat_model_load_state()
+    load_state.update({
+        "cancel_path": "/api/chat/model-load/cancel",
+        "status_path": "/api/chat/model-load",
+    })
+
     return {
         "backend": backend_name,
+        "provider": active_provider,
         "current": current,
         "models": models,
         "switchable": backend_name in ("openai_compat", "openrouter"),
@@ -3974,6 +4199,12 @@ async def api_chat_models():
         "deep": deep_info,
         # New (chat model gallery + cross-runtime selector).
         "gallery": gallery,
+        "compact": compact_selector,
+        "onboarding": onboarding,
+        "local_model_entries": local_entries,
+        "fit": current_fit,
+        "hardware": memory_snapshot,
+        "model_load": load_state,
     }
 
 
@@ -4000,6 +4231,247 @@ def _extract_param_hint(model_name: str) -> str:
     if match:
         return f"{match.group(1)}{match.group(2).upper()}"
     return ""
+
+
+def _display_provider_name(provider: str) -> str:
+    key = (provider or "").strip().lower().replace("-", "_")
+    mapping = {
+        "my_machine": "Local",
+        "local": "Local",
+        "claude": "Claude",
+        "nvidia": "NVIDIA",
+        "huggingface": "HF",
+        "openrouter": "OpenRouter",
+        "custom": "Custom",
+    }
+    return mapping.get(key, provider or "Custom")
+
+
+def _compact_model_label(model_name: str | None) -> str:
+    raw = (model_name or "").strip()
+    if not raw:
+        return ""
+    label = raw.split("/")[-1]
+    label = re.sub(r"^mlx-community/", "", label, flags=re.IGNORECASE)
+    return label
+
+
+def _model_param_hint_value(model_name: str | None) -> float | None:
+    hint = _extract_param_hint(model_name or "")
+    if not hint:
+        return None
+    match = re.match(r"(\d+(?:\.\d+)?)([BMK])", hint, re.IGNORECASE)
+    if not match:
+        return None
+    value = float(match.group(1))
+    unit = match.group(2).upper()
+    scale = {"K": 1_000, "M": 1_000_000, "B": 1_000_000_000}.get(unit)
+    if scale is None:
+        return None
+    return value * scale
+
+
+def _estimate_model_memory_gb(
+    model_name: str | None,
+    *,
+    size_gb: float | None = None,
+    spec: dict[str, Any] | None = None,
+) -> float:
+    if isinstance(size_gb, (int, float)) and size_gb > 0:
+        return round(float(size_gb), 1)
+
+    if spec:
+        disk_hint = spec.get("expected_disk_gb")
+        if isinstance(disk_hint, (int, float)) and disk_hint > 0:
+            return round(float(disk_hint), 1)
+
+    params = _model_param_hint_value(model_name)
+    if params is None:
+        return 0.0
+
+    # Pragmatic chat-fit heuristic. Prefer an honest estimate over a
+    # fake precise figure; 4-bit quantized local models land close to
+    # 0.55 bytes/parameter plus runtime/KV/cache overhead.
+    estimated = (params * 0.55) / (1024 ** 3)
+    return round(max(estimated * 1.2, 0.5), 1)
+
+
+def _fit_verdict_label(required_gb: float, available_gb: float) -> str:
+    if required_gb <= 0 or available_gb <= 0:
+        return "Unknown"
+    if required_gb <= available_gb * 0.82:
+        return "Good"
+    if required_gb <= available_gb * 1.08:
+        return "Marginal"
+    return "Requires streaming"
+
+
+def _headroom_summary(required_gb: float, available_gb: float) -> str:
+    verdict = _fit_verdict_label(required_gb, available_gb)
+    if verdict == "Good":
+        return "Fit: Good"
+    if verdict == "Marginal":
+        return "Fit: Marginal"
+    if verdict == "Requires streaming":
+        return "Fit: Requires streaming"
+    return "Fit: Unknown"
+
+
+def _fit_actions(verdict: str) -> list[str]:
+    if verdict == "Requires streaming":
+        return ["Enable streaming", "Select smaller model"]
+    if verdict == "Marginal":
+        return ["Enable streaming"]
+    return []
+
+
+def _local_memory_snapshot() -> dict[str, Any]:
+    total_gb = 0.0
+    used_gb = 0.0
+    free_gb = 0.0
+    label = "system"
+    gpu_label = None
+
+    try:
+        psutil = __import__("psutil")
+        mem = psutil.virtual_memory()
+        total_gb = round(mem.total / (1024 ** 3), 1)
+        used_gb = round(mem.used / (1024 ** 3), 1)
+        free_gb = round(max(mem.available, 0) / (1024 ** 3), 1)
+    except Exception:  # noqa: BLE001
+        if sys.platform == "darwin":
+            try:
+                total_gb = round(int(subprocess.check_output(
+                    ["sysctl", "-n", "hw.memsize"], timeout=3,
+                ).strip()) / (1024 ** 3), 1)
+                free_gb = total_gb
+            except Exception:  # noqa: BLE001
+                pass
+
+    if sys.platform == "darwin":
+        try:
+            label = subprocess.check_output(
+                ["sysctl", "-n", "machdep.cpu.brand_string"], timeout=3,
+            ).decode().strip() or "Apple Silicon"
+        except Exception:  # noqa: BLE001
+            label = "Apple Silicon"
+
+    if shutil.which("nvidia-smi"):
+        try:
+            gpu_name = subprocess.check_output(
+                ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
+                timeout=3,
+            ).decode().strip().split("\n")[0]
+            gpu_total = subprocess.check_output(
+                ["nvidia-smi", "--query-gpu=memory.total", "--format=csv,noheader,nounits"],
+                timeout=3,
+            ).decode().strip().split("\n")[0]
+            gpu_free = subprocess.check_output(
+                ["nvidia-smi", "--query-gpu=memory.free", "--format=csv,noheader,nounits"],
+                timeout=3,
+            ).decode().strip().split("\n")[0]
+            total_gb = round(int(gpu_total) / 1024, 1)
+            free_gb = round(int(gpu_free) / 1024, 1)
+            used_gb = round(max(total_gb - free_gb, 0.0), 1)
+            gpu_label = gpu_name
+            label = gpu_name
+        except Exception:  # noqa: BLE001
+            pass
+
+    return {
+        "label": label,
+        "gpu_label": gpu_label,
+        "total_gb": total_gb,
+        "used_gb": used_gb,
+        "free_gb": free_gb,
+    }
+
+
+def _local_headroom_line(snapshot: dict[str, Any], best_fit: str) -> str | None:
+    total_gb = float(snapshot.get("total_gb") or 0.0)
+    label = (snapshot.get("label") or "system").strip()
+    if total_gb <= 0:
+        return None
+    normalized = (best_fit or "unknown").replace("Fit: ", "")
+    return f"Detected: {total_gb:.0f}GB {label} · Headroom: {normalized}"
+
+
+def _compact_compute_sources(active_provider: str) -> list[dict[str, Any]]:
+    sources = [
+        ("my_machine", True),
+        ("claude", False),
+        ("nvidia", False),
+        ("openrouter", False),
+        ("huggingface", False),
+        ("custom", False),
+    ]
+    return [
+        {
+            "id": provider,
+            "label": _display_provider_name(provider),
+            "inline_label": f"{_display_provider_name(provider)}{' (default)' if is_default else ''}",
+            "active": provider == active_provider,
+        }
+        for provider, is_default in sources
+    ]
+
+
+def _build_local_model_entry(
+    model_id: str,
+    *,
+    runtime: str,
+    size_gb: float | None,
+    modified: str,
+    endpoint: str | None,
+    current: str | None,
+    detected_gb: float,
+    free_gb: float,
+) -> dict[str, Any]:
+    spec: dict[str, Any] | None = None
+    try:
+        from arail import model_specs as _model_specs
+        spec = _model_specs.lookup(model_id)
+    except Exception:  # noqa: BLE001
+        spec = None
+
+    estimate_gb = _estimate_model_memory_gb(model_id, size_gb=size_gb, spec=spec)
+    verdict = _fit_verdict_label(estimate_gb, free_gb)
+    badge = "new" if modified else None
+    compact_label = _compact_model_label(model_id)
+
+    return {
+        "id": model_id,
+        "label": compact_label or model_id,
+        "runtime": runtime,
+        "source": "local",
+        "current": bool(current and model_id == current),
+        "size_gb": size_gb,
+        "estimated_vram_gb": estimate_gb,
+        "fit": {
+            "verdict": verdict,
+            "summary": _headroom_summary(estimate_gb, free_gb),
+            "actions": _fit_actions(verdict),
+            "limits": (
+                f"System detected: {detected_gb:.0f}GB local memory · "
+                f"Free VRAM: {free_gb:.1f}GB · Estimated model VRAM need: {estimate_gb:.1f}GB"
+            ) if detected_gb > 0 and free_gb > 0 and estimate_gb > 0 else None,
+        },
+        "headroom": (
+            f"Detected: {detected_gb:.0f}GB local memory · "
+            f"Headroom: {_headroom_summary(estimate_gb, free_gb).replace('Fit: ', '')}"
+        ) if detected_gb > 0 and estimate_gb > 0 else None,
+        "overlay": {
+            "compute_source": runtime,
+            "gpu_used": "system default",
+            "vram_used_gb": estimate_gb or None,
+            "kv_cache_location": "system memory",
+            "backend_registry_link": "/tuning",
+            "endpoint": endpoint,
+            "prefetch_depth": None,
+        },
+        "badge": badge,
+        "spec": spec,
+    }
 
 
 @app.get("/api/chat/system-prompt")
@@ -4246,6 +4718,15 @@ async def system_health():
             "category": category,
         }
 
+    # airLLM health check
+    try:
+        import airllm
+        airllm_ok = True
+        airllm_detail = f"airllm {getattr(airllm, '__version__', 'installed')}"
+    except Exception as e:
+        airllm_ok = False
+        airllm_detail = f"Not importable: {e}"
+
     service_checks = [
         add_check("portal", "Portal HTTP", portal_up, f"http://{bind}:{os.getenv('PORTAL_PORT', '8080')}", category="service"),
         add_check("activity_log", "Activity Log", activity_file.exists(), str(activity_file), category="storage"),
@@ -4259,6 +4740,7 @@ async def system_health():
         add_check("notebook", "Notebook", notebook_up, f"port {notebook_port}", required=False, category="service"),
         add_check("docker", "Docker Engine", docker_ok, "compose-backed services", required=False, category="service"),
         add_check("marimo", "Marimo", marimo_up and _container_running("arail-marimo"), f"port {marimo_port}", required=False, category="service"),
+        add_check("airllm", "AirLLM Backend", airllm_ok, airllm_detail, required=False, category="dependency"),
         add_check("open_notebook", "Open Notebook", open_notebook_up and _container_running("arail-open-notebook"), f"port {open_notebook_port}", required=False, category="service"),
         add_check("ollama_binary", "Ollama Installed", shutil.which("ollama") is not None, "ollama CLI", required=False, category="dependency"),
         add_check("ollama_api", "Ollama API", ollama_up, f"port {ollama_port}", required=False, category="service"),
@@ -4275,17 +4757,33 @@ async def system_health():
     passing_required = sum(1 for c in required_checks if c["ok"])
     passing_total = sum(1 for c in service_checks if c["ok"])
 
-    services = {
+    # Service status surface: always show always-on core services (portal,
+    # knowledge-canvas) plus any optional service that is actually running.
+    # Optional/on-demand services (ttyd, notebook, marimo, open-notebook,
+    # ollama, neo4j, lance-memory) are hidden when not running so the rail
+    # doesn't flood with "down" chips for things the operator never invoked.
+    kc_up = _knowledge_canvas_store is not None or (
+        knowledge_canvas_app is not None and hasattr(knowledge_canvas_app.state, "store")
+    )
+    marimo_running = marimo_up and _container_running("arail-marimo")
+    open_notebook_running = open_notebook_up and _container_running("arail-open-notebook")
+
+    services: dict[str, bool] = {
         "portal": portal_up,
+        "knowledge-canvas": kc_up,
+    }
+    optional_services = {
         "ttyd": ttyd_up,
         "notebook": notebook_up,
         "lance-memory": lance_up,
-        "marimo": marimo_up and _container_running("arail-marimo"),
-        "open-notebook": open_notebook_up and _container_running("arail-open-notebook"),
+        "marimo": marimo_running,
+        "open-notebook": open_notebook_running,
         "ollama": ollama_up,
-        "knowledge-canvas": _knowledge_canvas_store is not None or (knowledge_canvas_app is not None and hasattr(knowledge_canvas_app.state, "store")),
         "neo4j": neo4j_up,
     }
+    for name, up in optional_services.items():
+        if up:
+            services[name] = True
 
     return {
         "platform": platform.system(),
@@ -4473,6 +4971,13 @@ async def system_health_stream():
         except Exception as e:
             return "warn", f".env check failed: {e}"
 
+    async def check_airllm():
+        try:
+            import airllm
+            return "pass", f"airllm {getattr(airllm, '__version__', 'installed')}"
+        except Exception as e:
+            return "warn", f"Not importable: {e}"
+
     checks = [
         ("Portal HTTP", check_portal),
         ("Terminal (ttyd)", check_ttyd),
@@ -4489,6 +4994,7 @@ async def system_health_stream():
         ("Agents loadable", check_agents),
         ("PKB structure", check_pkb),
         ("Model checkpoints", check_models),
+        ("AirLLM backend", check_airllm),
         (".env validation", check_env),
     ]
     total = len(checks)

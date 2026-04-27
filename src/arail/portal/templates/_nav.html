@@ -19,11 +19,10 @@
   <div class="nav-primary-row">
     <div class="nav-brand-block">
       <span class="logo" title="{{ brand.name }} — tier: {{ lab_tier|default('min') }}">{{ brand.logo }}</span>
+      <div class="nav-mission-slot" id="nav-mission-slot"></div>
     </div>
 
     <div class="nav-status-rail">
-      <div class="nav-mission-slot" id="nav-mission-slot"></div>
-      <span class="nav-clock" id="nav-clock" style="flex: 1; text-align: center;"></span>
       <div style="display: flex; align-items: center; gap: 0.55rem; flex-wrap: wrap;">
         <span class="mode-badge airgapped" id="mode-badge" title="Click to toggle internet access">⬤ Airgapped</span>
         {% if active == 'dashboard' %}
@@ -34,6 +33,7 @@
                 title="Resume scheduler">▶ Resume</button>
         {% endif %}
       </div>
+      <span class="nav-clock" id="nav-clock"></span>
     </div>
   </div>
 

@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routers import sources, graph, agents, nlq, ws
+from app.routers import sources, graph, agents, nlq, ws, goals
 from app.services.graph_store import GraphStore
 
 
@@ -31,6 +31,7 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"],
 
 app.include_router(sources.router, prefix="/api/sources", tags=["sources"])
 app.include_router(graph.router,   prefix="/api/graph",   tags=["graph"])
+app.include_router(goals.router,   prefix="/api/goals",   tags=["goals"])
 app.include_router(agents.router,  prefix="/api/agents",  tags=["agents"])
 app.include_router(nlq.router,     prefix="/api/nlq",     tags=["nlq"])
 app.include_router(ws.router)

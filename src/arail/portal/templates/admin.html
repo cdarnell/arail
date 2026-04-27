@@ -37,6 +37,51 @@
   .admin-card .ac-title { font-weight: 600; font-size: 0.85rem; color: var(--text-hi); }
   .admin-card .ac-desc { font-size: 0.72rem; color: var(--muted); margin-top: 0.2rem; }
 
+  /* Quick Actions colored boxes — mirrored from dashboard.html so the
+     two surfaces feel like the same control panel. Using the same
+     class names (.qa-button, .qa-primary, .qa-warning, .qa-success)
+     means the dashboard pattern can be lifted into a shared stylesheet
+     later without touching markup. */
+  .qa-button {
+    padding: 10px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+    text-align: left;
+    font-size: 12px;
+    color: var(--text);
+    transition: all 0.12s;
+    border: 1px solid;
+  }
+  .qa-button:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  }
+  .qa-button.qa-primary {
+    background: rgba(0, 212, 255, 0.06);
+    border-color: rgba(0, 212, 255, 0.25);
+  }
+  .qa-button.qa-primary:hover {
+    background: rgba(0, 212, 255, 0.12);
+    border-color: rgba(0, 212, 255, 0.45);
+  }
+  .qa-button.qa-warning {
+    background: rgba(255, 176, 0, 0.06);
+    border-color: rgba(255, 176, 0, 0.25);
+  }
+  .qa-button.qa-warning:hover {
+    background: rgba(255, 176, 0, 0.12);
+    border-color: rgba(255, 176, 0, 0.45);
+  }
+  .qa-button.qa-success {
+    background: rgba(0, 255, 65, 0.06);
+    border-color: rgba(0, 255, 65, 0.25);
+  }
+  .qa-button.qa-success:hover {
+    background: rgba(0, 255, 65, 0.12);
+    border-color: rgba(0, 255, 65, 0.45);
+  }
+  .qa-title { font-weight: 600; margin-bottom: 2px; }
+
   .theme-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
@@ -393,11 +438,81 @@
   #admin-log { margin-top: 0.5rem; font-size: 0.78rem; color: var(--muted); min-height: 1.2rem; }
   #admin-log.success { color: var(--green); }
   #admin-log.error { color: var(--red); }
+
+  /* ── Live Checks modal (shared with dashboard) ── */
+  .lc-overlay {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.62);
+    display: none; align-items: center; justify-content: center;
+    z-index: 1000; backdrop-filter: blur(2px);
+  }
+  .lc-overlay.open { display: flex; }
+  .lc-modal {
+    width: min(640px,92vw); max-height: 86vh;
+    display: flex; flex-direction: column;
+    background: #0d1117; border: 1px solid #2a3340;
+    border-radius: 10px; box-shadow: 0 12px 48px rgba(0,0,0,.6); overflow: hidden;
+  }
+  .lc-header {
+    padding: 14px 18px; border-bottom: 1px solid #1d2530;
+    display: flex; align-items: center; gap: 12px;
+  }
+  .lc-header .lc-title { flex:1; font-size:14px; font-weight:600; color:var(--text); letter-spacing:.02em; }
+  .lc-header .lc-progress-text { font-size:12px; color:var(--muted); font-variant-numeric:tabular-nums; }
+  .lc-header .lc-close { background:transparent; border:0; color:var(--muted); font-size:18px; cursor:pointer; padding:0 4px; }
+  .lc-header .lc-close:hover { color:var(--text); }
+  .lc-progress-bar { height:2px; background:#1a2230; overflow:hidden; }
+  .lc-progress-bar > div { height:100%; width:0%; background:linear-gradient(90deg,var(--blue),var(--green)); transition:width .18s ease-out; }
+  .lc-list { flex:1; overflow-y:auto; padding:6px 0; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px; }
+  .lc-row { display:grid; grid-template-columns:24px 1fr auto; align-items:center; gap:10px; padding:7px 18px; border-bottom:1px solid #141b25; }
+  .lc-row:last-child { border-bottom:0; }
+  .lc-row .lc-icon { display:inline-flex; align-items:center; justify-content:center; width:18px; height:18px; border-radius:50%; font-size:11px; font-weight:700; }
+  .lc-row.pending .lc-icon { background:#1a2230; color:#4a5568; }
+  .lc-row.pending .lc-icon::before { content:"⌛"; }
+  .lc-row.running .lc-icon { background:rgba(0,212,255,.18); color:var(--blue); }
+  .lc-row.running .lc-icon::before { content:"⏳"; animation:lc-spin 1.4s linear infinite; }
+  @keyframes lc-spin { to { transform:rotate(360deg); } }
+  .lc-row.pass .lc-icon { background:rgba(0,255,65,.16); color:var(--green); }
+  .lc-row.pass .lc-icon::before { content:"✓"; }
+  .lc-row.warn .lc-icon { background:rgba(255,176,0,.16); color:var(--amber); }
+  .lc-row.warn .lc-icon::before { content:"!"; }
+  .lc-row.fail .lc-icon { background:rgba(255,64,96,.18); color:#ff6b80; }
+  .lc-row.fail .lc-icon::before { content:"✗"; }
+  .lc-row .lc-name { color:var(--text); }
+  .lc-row .lc-detail { grid-column:2/-1; color:var(--muted); font-size:11px; margin-top:2px; }
+  .lc-row .lc-time { color:var(--muted); font-size:11px; font-variant-numeric:tabular-nums; }
+  .lc-footer { padding:10px 18px; border-top:1px solid #1d2530; display:flex; align-items:center; gap:10px; background:#0a0f15; }
+  .lc-footer .lc-summary { flex:1; font-size:12px; color:var(--muted); font-variant-numeric:tabular-nums; }
+  .lc-footer .lc-summary .lc-passed { color:var(--green); }
+  .lc-footer .lc-summary .lc-warned { color:var(--amber); }
+  .lc-footer .lc-summary .lc-failed { color:#ff6b80; }
+  .lc-btn { padding:6px 12px; border-radius:5px; border:1px solid #2a3340; background:#131922; color:var(--text); font-size:12px; cursor:pointer; }
+  .lc-btn:hover { background:#1a2230; }
+  .lc-btn.lc-btn-stop { border-color:rgba(255,64,96,.45); color:#ff6b80; }
+  .lc-btn.lc-btn-restart { border-color:rgba(0,212,255,.45); color:var(--blue); }
 </style>
 </head>
 <body>
 
 {% set active = 'admin' %}{% include "_nav.html" %}
+
+<!-- ═══ Live Checks modal ═══ -->
+<div class="lc-overlay" id="lc-overlay" role="dialog" aria-modal="true" aria-labelledby="lc-title">
+  <div class="lc-modal">
+    <div class="lc-header">
+      <span class="lc-title" id="lc-title">Live Checks</span>
+      <span class="lc-progress-text" id="lc-progress-text">0 / 0</span>
+      <button class="lc-close" type="button" onclick="closeLiveChecks()" aria-label="Close">✕</button>
+    </div>
+    <div class="lc-progress-bar"><div id="lc-progress-bar-fill"></div></div>
+    <div class="lc-list" id="lc-list"></div>
+    <div class="lc-footer">
+      <span class="lc-summary" id="lc-summary">Waiting…</span>
+      <button class="lc-btn lc-btn-stop" type="button" id="lc-btn-stop" onclick="stopLiveChecks()">Stop</button>
+      <button class="lc-btn lc-btn-restart" type="button" id="lc-btn-restart" style="display:none" onclick="restartLiveChecks()">Re-run</button>
+    </div>
+  </div>
+</div>
 
 <div class="admin-wrap">
   <h1>Lab Administration</h1>
@@ -406,33 +521,27 @@
   <!-- ═══ Quick Actions ═══ -->
   <div class="admin-section">
     <h2>Quick Actions</h2>
-    <div class="admin-grid">
-      <a href="/chat" class="admin-card" style="text-decoration: none;">
-        <div class="ac-title">Open Chat</div>
-        <div class="ac-desc">Start tuning or research</div>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px;">
+      <a href="/chat" class="qa-button qa-success" style="text-decoration: none; display: flex; flex-direction: column; justify-content: flex-start;">
+        <div class="qa-title" style="color: var(--green);">💬 Open Chat</div>
       </a>
-      <div class="admin-card" onclick="adminAction('/api/system/health', 'GET', 'Health check')">
-        <div class="ac-title">Health Check</div>
-        <div class="ac-desc">CPU, RAM, disk, GPU, services</div>
-      </div>
-      <div class="admin-card" onclick="restartLab()">
-        <div class="ac-title">Restart Lab</div>
-        <div class="ac-desc">Stop + start all services</div>
-      </div>
-      <div class="admin-card" onclick="window.open('/graph', '_blank')">
-        <div class="ac-title">System Graph</div>
-        <div class="ac-desc">Visual architecture map</div>
-      </div>
-      <div class="admin-card" onclick="checkUpdates()">
-        <div class="ac-title">Check Updates</div>
-        <div class="ac-desc">Scan components for new versions</div>
-      </div>
-      <div class="admin-card" onclick="window.location='/plugins'">
-        <div class="ac-title">Plugins</div>
-        <div class="ac-desc">Install / enable / disable plugins</div>
-      </div>
+      <button class="qa-button qa-primary" onclick="runLiveChecks('Health Check', '/api/system/health/stream')">
+        <div class="qa-title" style="color: var(--blue);">⊙ Health Check</div>
+      </button>
+      <button class="qa-button qa-primary" onclick="window.open('/graph', '_blank')">
+        <div class="qa-title" style="color: var(--blue);">◆ System Graph</div>
+      </button>
+      <button class="qa-button qa-primary" onclick="checkUpdates()">
+        <div class="qa-title" style="color: var(--blue);">↻ Check Updates</div>
+      </button>
+      <a href="/plugins" class="qa-button qa-primary" style="text-decoration: none; display: flex; flex-direction: column; justify-content: flex-start;">
+        <div class="qa-title" style="color: var(--blue);">⚙ Plugins</div>
+      </a>
+      <button class="qa-button qa-warning" onclick="restartLab()">
+        <div class="qa-title" style="color: var(--amber);">⟳ Restart Lab</div>
+      </button>
     </div>
-    <div id="admin-log"></div>
+    <div id="admin-log" style="margin-top: 10px; font-size: 12px; color: var(--muted); min-height: 18px;"></div>
   </div>
 
   <!-- ═══ Services ═══ -->
@@ -625,42 +734,168 @@ function adminLog(msg, cls) {
   el.className = cls || '';
 }
 
-async function adminAction(url, method, label) {
-  adminLog(label + '…');
-  try {
-    const r = await fetch(url, {method: method || 'GET'});
-    const d = await r.json();
-    if (d.error) { adminLog(d.error, 'error'); return; }
-    adminLog(label + ' — done', 'success');
-    // If health check, show a summary
-    if (url.includes('health')) {
-      const hs = d.health_summary || {};
-      adminLog(`CPU: ${d.cpu_count} cores | RAM: ${d.ram_used_gb}/${d.ram_total_gb} GB (${d.ram_pct}%) | Disk: ${d.disk_free_gb} GB free | Backend: ${d.backend} | Model: ${d.model} | Checks: ${hs.passing_required || 0}/${hs.required_total || 0} required, ${hs.passing_total || 0}/${hs.total || 0} total`, 'success');
-      renderHealthChecks(d);
-    }
-  } catch(e) { adminLog('Failed: ' + e.message, 'error'); }
+// ── Live Checks modal driver (shared pattern with dashboard) ──
+let _lcReader = null, _lcLastTitle = null, _lcLastUrl = null;
+
+function runLiveChecks(title, sseUrl) {
+  _lcLastTitle = title; _lcLastUrl = sseUrl;
+  document.getElementById('lc-title').textContent = title;
+  document.getElementById('lc-progress-text').textContent = '0 / 0';
+  document.getElementById('lc-progress-bar-fill').style.width = '0%';
+  document.getElementById('lc-list').innerHTML = '';
+  document.getElementById('lc-summary').textContent = 'Starting…';
+  document.getElementById('lc-btn-stop').style.display = '';
+  document.getElementById('lc-btn-restart').style.display = 'none';
+  document.getElementById('lc-overlay').classList.add('open');
+  _streamLiveChecks(sseUrl);
 }
 
-async function checkUpdates() {
-  adminLog('Checking for updates… (this may take a moment)');
+async function _streamLiveChecks(sseUrl) {
+  const ctrl = new AbortController();
+  _lcReader = ctrl;
+  let buf = '', injected = false;
   try {
-    const r = await fetch('/api/admin/check-updates');
-    const d = await r.json();
-    if (d.airgapped) { adminLog('Airgapped — switch to Hybrid to check remote updates.', 'error'); return; }
-    adminLog(d.summary || 'Check complete.', d.updates_available > 0 ? '' : 'success');
-  } catch(e) { adminLog('Failed: ' + e.message, 'error'); }
+    const resp = await fetch(sseUrl, {signal: ctrl.signal});
+    if (!resp.ok) { _lcSummary('Failed: HTTP ' + resp.status, 'fail'); return; }
+    const reader = resp.body.getReader();
+    const dec = new TextDecoder();
+    while (true) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, {stream: true});
+      let idx;
+      while ((idx = buf.indexOf('\n\n')) >= 0) {
+        const raw = buf.slice(0, idx); buf = buf.slice(idx + 2);
+        const line = raw.split('\n').find(l => l.startsWith('data: '));
+        if (!line) continue;
+        let p; try { p = JSON.parse(line.slice(6)); } catch { continue; }
+        if (p.event === 'check') {
+          if (!injected) { _lcInitPending(p.total); injected = true; }
+          _lcUpdateRow(p);
+        } else if (p.event === 'done') { _lcFinish(p); }
+      }
+    }
+  } catch (e) {
+    _lcSummary(e.name === 'AbortError' ? 'Stopped by user' : 'Failed: ' + e.message,
+               e.name === 'AbortError' ? 'warn' : 'fail');
+  } finally {
+    document.getElementById('lc-btn-stop').style.display = 'none';
+    document.getElementById('lc-btn-restart').style.display = '';
+    _lcReader = null;
+  }
+}
+function _lcInitPending(total) {
+  const list = document.getElementById('lc-list');
+  list.innerHTML = '';
+  for (let i = 0; i < total; i++) {
+    const row = document.createElement('div');
+    row.className = 'lc-row pending'; row.id = 'lc-row-' + i;
+    row.innerHTML = '<span class="lc-icon"></span><span class="lc-name">…</span><span class="lc-time"></span>';
+    list.appendChild(row);
+  }
+  document.getElementById('lc-progress-text').textContent = '0 / ' + total;
+}
+function _lcUpdateRow(p) {
+  const row = document.getElementById('lc-row-' + p.index);
+  if (!row) return;
+  row.className = 'lc-row ' + p.status;
+  row.innerHTML = '<span class="lc-icon"></span>' +
+    '<span class="lc-name">' + _lcEsc(p.name) + '</span>' +
+    '<span class="lc-time">' + p.duration_ms + ' ms</span>' +
+    (p.detail ? '<span class="lc-detail">' + _lcEsc(p.detail) + '</span>' : '');
+  const next = document.getElementById('lc-row-' + (p.index + 1));
+  if (next && next.classList.contains('pending')) {
+    next.className = 'lc-row running';
+    next.innerHTML = '<span class="lc-icon"></span><span class="lc-name">running…</span><span class="lc-time"></span>';
+  }
+  const done = p.index + 1;
+  document.getElementById('lc-progress-text').textContent = done + ' / ' + p.total;
+  document.getElementById('lc-progress-bar-fill').style.width = Math.round(done / p.total * 100) + '%';
+}
+function _lcFinish(p) {
+  const sec = (p.total_ms / 1000).toFixed(1);
+  document.getElementById('lc-summary').innerHTML =
+    '<span class="lc-passed">' + p.passed + ' passed</span>' +
+    (p.warned ? ' · <span class="lc-warned">' + p.warned + ' warn</span>' : '') +
+    (p.failed ? ' · <span class="lc-failed">' + p.failed + ' failed</span>' : '') +
+    ' · ' + (p.passed + p.warned + p.failed) + ' total · ' + sec + ' s';
+}
+function _lcSummary(msg, cls) {
+  const el = document.getElementById('lc-summary');
+  el.textContent = msg;
+  el.className = 'lc-summary' + (cls ? ' lc-' + cls : '');
+}
+function _lcEsc(s) {
+  return String(s).replace(/[&<>"']/g, c =>
+    ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function stopLiveChecks() { if (_lcReader) _lcReader.abort(); }
+function restartLiveChecks() { if (_lcLastTitle && _lcLastUrl) runLiveChecks(_lcLastTitle, _lcLastUrl); }
+function closeLiveChecks() { stopLiveChecks(); document.getElementById('lc-overlay').classList.remove('open'); }
+
+async function checkUpdates() {
+  runLiveChecks('Check Updates', '/api/admin/check-updates/stream');
 }
 
 async function restartLab() {
-  if (!confirm('Restart all lab services? The portal will restart.')) return;
-  adminLog('Restarting lab…');
-  window.open(window.location.href, '_blank');
-  try {
-    const r = await fetch('/api/system/restart', {method: 'POST'});
-    const d = await r.json();
-    if (d.error) { adminLog(d.error, 'error'); return; }
-    adminLog('Restart initiated — lab coming back online…', 'success');
-  } catch(e) { adminLog('Failed: ' + e.message, 'error'); }
+  if (!confirm('Restart all lab services? The portal will go offline briefly.')) return;
+  document.getElementById('lc-title').textContent = 'Restart Lab';
+  document.getElementById('lc-progress-text').textContent = '0 / 4';
+  document.getElementById('lc-progress-bar-fill').style.width = '0%';
+  document.getElementById('lc-btn-stop').style.display = 'none';
+  document.getElementById('lc-btn-restart').style.display = 'none';
+  document.getElementById('lc-summary').textContent = 'Restarting…';
+  const phases = [
+    ['rs-0','STOP','sending stop signal to all services'],
+    ['rs-1','PS','waiting for processes to exit'],
+    ['rs-2','START','issuing start command'],
+    ['rs-3','ONLINE','polling until portal responds'],
+  ];
+  document.getElementById('lc-list').innerHTML = phases.map(([id,name,detail]) =>
+    `<div class="lc-row pending" id="${id}"><span class="lc-icon"></span><span class="lc-name">${name}</span><span class="lc-time"></span><span class="lc-detail">${_lcEsc(detail)}</span></div>`
+  ).join('');
+  document.getElementById('lc-overlay').classList.add('open');
+  const t0 = Date.now();
+  function setPhase(id, state, detail) {
+    const row = document.getElementById(id); if (!row) return;
+    row.className = 'lc-row ' + state;
+    if (detail) row.querySelector('.lc-detail').textContent = detail;
+    row.querySelector('.lc-time').textContent = ((Date.now()-t0)/1000).toFixed(1)+'s';
+  }
+  setPhase('rs-0','running','sending stop signal…');
+  try { await fetch('/api/system/restart',{method:'POST'}); setPhase('rs-0','pass','stop signal accepted ✓'); }
+  catch { setPhase('rs-0','warn','portal already shutting down'); }
+  document.getElementById('lc-progress-text').textContent='1 / 4';
+  document.getElementById('lc-progress-bar-fill').style.width='25%';
+  setPhase('rs-1','running','waiting for shutdown…');
+  document.getElementById('lc-summary').textContent='Waiting for shutdown…';
+  await new Promise(r=>setTimeout(r,2200));
+  setPhase('rs-1','pass','processes exited ✓');
+  document.getElementById('lc-progress-text').textContent='2 / 4';
+  document.getElementById('lc-progress-bar-fill').style.width='50%';
+  setPhase('rs-2','running','waiting for process manager to restart…');
+  await new Promise(r=>setTimeout(r,1800));
+  setPhase('rs-2','pass','startup initiated ✓');
+  document.getElementById('lc-progress-text').textContent='3 / 4';
+  document.getElementById('lc-progress-bar-fill').style.width='75%';
+  setPhase('rs-3','running','polling portal…');
+  document.getElementById('lc-summary').textContent='Waiting for portal…';
+  const deadline=Date.now()+30000; let online=false;
+  while(Date.now()<deadline){
+    await new Promise(r=>setTimeout(r,2000));
+    try{ const hr=await fetch('/api/system/health'); if(hr.ok){online=true;break;} }catch{}
+  }
+  if(online){
+    setPhase('rs-3','pass','portal responding ✓');
+    document.getElementById('lc-progress-text').textContent='4 / 4';
+    document.getElementById('lc-progress-bar-fill').style.width='100%';
+    document.getElementById('lc-summary').innerHTML='<span class="lc-passed">Lab restarted</span> · '+((Date.now()-t0)/1000).toFixed(1)+' s — reloading…';
+    setTimeout(()=>window.location.reload(),1500);
+  } else {
+    setPhase('rs-3','warn','timed out — try refreshing manually');
+    document.getElementById('lc-summary').textContent='Portal may still be starting. Refresh to check.';
+    document.getElementById('lc-btn-restart').style.display='';
+  }
 }
 
 function openGraphModal() {
@@ -674,7 +909,10 @@ function closeGraphModal() {
 }
 
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') closeGraphModal();
+  if (e.key === 'Escape') {
+    closeGraphModal();
+    closeLiveChecks();
+  }
 });
 
 function loadAssocStatus() {
@@ -753,9 +991,14 @@ function renderHealthChecks(d) {
 fetch('/api/system/health').then(r => r.json()).then(d => {
   const el = document.getElementById('svc-status');
   const svcs = d.services || {};
-  el.innerHTML = Object.entries(svcs).map(([name, up]) =>
-    `<span class="svc-chip"><span class="svc-dot ${up ? 'up' : 'down'}"></span>${name}</span>`
-  ).join('');
+  const entries = Object.entries(svcs);
+  const chips = entries.length
+    ? entries.map(([name, up]) =>
+        `<span class="svc-chip"><span class="svc-dot ${up ? 'up' : 'down'}"></span>${name}</span>`
+      ).join('')
+    : '<span style="color: var(--muted); font-size: 12px;">No services running.</span>';
+  const hint = '<span style="color: var(--muted); font-size: 11px; margin-left: 6px; align-self: center;" title="On-demand services (notebook, marimo, ollama, neo4j, etc.) only appear here when running. See full check list below.">on-demand services hidden when idle</span>';
+  el.innerHTML = chips + hint;
   renderHealthChecks(d);
 }).catch(() => {
   document.getElementById('svc-status').textContent = 'Could not reach health API.';
