@@ -139,7 +139,7 @@
 .kb-sec-icon { font-size: 0.85rem; }
 .kb-sec-name { flex: 1; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text); }
 .kb-sec-count {
-  background: rgba(0,255,65,0.08);
+  background: var(--green-a08);
   color: var(--green);
   padding: 0.05rem 0.5rem;
   border-radius: 999px;
@@ -168,9 +168,9 @@
   color: var(--text);
   transition: background 0.1s;
 }
-.kb-file:hover { background: rgba(0,212,255,0.06); }
+.kb-file:hover { background: var(--blue-a08); }
 .kb-file.active {
-  background: rgba(0,255,65,0.08);
+  background: var(--green-a08);
   border-left: 2px solid var(--green);
   padding-left: calc(1.5rem - 2px);
 }
@@ -419,14 +419,14 @@
   font-family: 'JetBrains Mono', monospace;
 }
 .kb-meta-pill.tag {
-  background: rgba(0,212,255,0.08);
+  background: var(--blue-a08);
   color: var(--blue);
-  border-color: rgba(0,212,255,0.22);
+  border-color: var(--blue-a28);
 }
 .kb-meta-pill.source {
-  background: rgba(255,176,0,0.06);
+  background: var(--amber-a08);
   color: var(--amber);
-  border-color: rgba(255,176,0,0.22);
+  border-color: var(--amber-a28);
 }
 .kb-meta-pill code {
   background: none;
@@ -644,8 +644,8 @@
   text-transform: none;
   letter-spacing: normal;
   color: var(--amber);
-  background: rgba(255,176,0,.08);
-  border: 1px solid rgba(255,176,0,.2);
+  background: var(--amber-a08);
+  border: 1px solid var(--amber-a16);
   padding: 0.15rem 0.5rem;
   border-radius: 999px;
   margin-left: 0.5rem;

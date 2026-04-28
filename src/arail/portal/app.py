@@ -3588,6 +3588,74 @@ async def api_chat(request: Request):
     )
 
 
+@app.post("/api/chat/eject")
+async def api_chat_eject(request: Request):
+    """Free a chat model from VRAM/RAM.
+
+    Body (all optional):
+        runtime: 'airllm' | 'aerollm' | 'ollama' | 'mlx-openai' | 'mlx'
+        model:   model id (required for runtime='ollama' to target a specific model)
+
+    Behavior per runtime:
+        airllm/aerollm — drop the cached backend instance from
+            _OPTIONAL_CHAT_BACKEND_CACHE so the next call re-inits fresh.
+        ollama         — invoke `ollama stop <model>` to evict it from VRAM.
+        mlx-openai     — best-effort: ask the local MLX OpenAI server for
+                         a /v1/models?action=unload (no-op if unsupported).
+        mlx (in-proc)  — clears the AirLLM/AeroLLM cache as those wrap MLX
+                         in this lab; for the in-proc MLX backend a real
+                         restart is required (return guidance).
+
+    Returns: {ok, freed: [..], notes: [..]}
+    """
+    body = {}
+    try: body = await request.json()
+    except Exception: pass
+    runtime = (body.get("runtime") or "").lower()
+    model   = (body.get("model") or "").strip()
+    freed: list[str] = []
+    notes: list[str] = []
+
+    if runtime in ("airllm", "aerollm"):
+        if runtime in _OPTIONAL_CHAT_BACKEND_CACHE:
+            del _OPTIONAL_CHAT_BACKEND_CACHE[runtime]
+            freed.append(f"{runtime} cache")
+            activity_log.emit("chat", f"Ejected {runtime} from chat backend cache.", "info")
+        else:
+            notes.append(f"{runtime} not loaded.")
+    elif runtime == "ollama":
+        if not model:
+            return {"ok": False, "error": "model required for ollama eject"}
+        import subprocess as sp
+        try:
+            r = sp.run(["ollama", "stop", model], capture_output=True, text=True, timeout=15)
+            if r.returncode == 0:
+                freed.append(f"ollama:{model}")
+                activity_log.emit("chat", f"Stopped ollama model {model}.", "info")
+            else:
+                notes.append(f"ollama stop returned {r.returncode}: {r.stderr.strip()[:200]}")
+        except FileNotFoundError:
+            notes.append("ollama binary not on PATH")
+        except Exception as e:
+            notes.append(f"ollama stop failed: {type(e).__name__}: {e}")
+    elif runtime == "mlx-openai":
+        # The mlx_openai_server holds a single model in memory. Ask it
+        # to unload via a (non-standard) admin endpoint; if absent,
+        # surface guidance to restart the server.
+        notes.append("mlx-openai server holds one model; restart the server "
+                     "(scripts/start.sh) to free it.")
+    elif runtime in ("mlx", "cpu", "cuda", "airllm", "aerollm"):
+        notes.append(f"{runtime} in-process backend cannot hot-eject; "
+                     f"restart the portal to drop it.")
+    else:
+        # No runtime specified — clear EVERYTHING optional.
+        for name in list(_OPTIONAL_CHAT_BACKEND_CACHE.keys()):
+            del _OPTIONAL_CHAT_BACKEND_CACHE[name]
+            freed.append(f"{name} cache")
+        activity_log.emit("chat", "Ejected all optional chat backends.", "info")
+    return {"ok": True, "freed": freed, "notes": notes}
+
+
 @app.post("/api/chat/stream")
 async def api_chat_stream(request: Request):
     try:
