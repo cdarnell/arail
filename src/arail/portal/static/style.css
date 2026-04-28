@@ -29,6 +29,44 @@
   --glow-amber: 0 0 8px rgba(255,176,0,.3), 0 0 20px rgba(255,176,0,.1);
   --glow-red:   0 0 8px rgba(255,51,85,.3);
 
+  /* ── Alpha tiers (see docs/design.md §2) ─────────────────────────
+     Use these instead of hand-rolled rgba() calls. */
+  --green-a08:  var(--green-a08);
+  --green-a16:  var(--green-a16);
+  --green-a28:  var(--green-a28);
+  --blue-a08:   var(--blue-a08);
+  --blue-a16:   var(--blue-a16);
+  --blue-a28:   var(--blue-a28);
+  --amber-a08:  var(--amber-a08);
+  --amber-a16:  var(--amber-a16);
+  --amber-a28:  var(--amber-a28);
+  --red-a08:    var(--red-a08);
+  --red-a16:    var(--red-a16);
+  --red-a28:    var(--red-a28);
+  --purple-a08: var(--purple-a08);
+  --purple-a16: var(--purple-a16);
+  --purple-a28: var(--purple-a28);
+
+  /* ── Spacing scale (4px rhythm) ──────────────────────────────── */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 24px;
+  --s-6: 32px;
+  --s-7: 48px;
+
+  /* ── Type scale ──────────────────────────────────────────────── */
+  --fs-xs: 0.65rem;
+  --fs-sm: 0.75rem;
+  --fs-md: 0.85rem;
+  --fs-lg: 1rem;
+  --fs-xl: 1.4rem;
+
+  /* ── Elevation ───────────────────────────────────────────────── */
+  --elev-1: 0 2px 8px rgba(0,0,0,.35);
+  --elev-2: 0 6px 24px rgba(0,0,0,.55);
+
   --radius: 6px;
   --font: 'JetBrains Mono', 'Fira Code', 'Hack', 'Menlo', monospace;
 }
@@ -73,12 +111,45 @@ a:hover { text-decoration: underline; text-shadow: var(--glow-blue); }
 
 /* ── Nav ───────────────────────────────────────────────────────── */
 nav {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 1.5rem;
   padding: 0.6rem 1.5rem;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
+}
+
+/* The rail — signature 1px gradient under the nav, faintly shimmering.
+   See docs/design.md §1 (Signature visual). */
+nav::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--green) 28%,
+    var(--blue) 72%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  background-position: 0% 50%;
+  opacity: 0.55;
+  animation: rail-shimmer 12s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes rail-shimmer {
+  0%,100% { background-position: 0% 50%; opacity: 0.45; }
+  50%     { background-position: 100% 50%; opacity: 0.75; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  nav::after { animation: none; }
 }
 
 .logo {
@@ -100,7 +171,7 @@ nav a {
   transition: all 0.15s;
 }
 nav a:hover { color: var(--text); background: var(--surface2); text-shadow: none; text-decoration: none; }
-nav a.active { color: var(--green); background: rgba(0,255,65,.06); }
+nav a.active { color: var(--green); background: var(--green-a08); }
 
 .mode-badge {
   font-size: 0.65rem;
@@ -112,21 +183,21 @@ nav a.active { color: var(--green); background: rgba(0,255,65,.06); }
 }
 .mode-badge.airgapped {
   margin-left: auto;
-  background: rgba(0,255,65,.12);
+  background: var(--green-a16);
   color: var(--green);
-  border: 1px solid rgba(0,255,65,.25);
+  border: 1px solid var(--green-a28);
   animation: pulse-green 3s ease-in-out infinite;
 }
 .mode-badge.hybrid {
   margin-left: auto;
-  background: rgba(255,176,0,.12);
+  background: var(--amber-a16);
   color: var(--amber);
-  border: 1px solid rgba(255,176,0,.25);
+  border: 1px solid var(--amber-a28);
 }
 .mode-badge.window-active {
-  background: rgba(255,176,0,.10);
+  background: var(--amber-a08);
   color: var(--amber);
-  border: 1px solid rgba(255,176,0,.22);
+  border: 1px solid var(--amber-a28);
 }
 .mode-badge.window-heavy {
   background: rgba(112,122,255,.12);
@@ -145,12 +216,17 @@ nav a.active { color: var(--green); background: rgba(0,255,65,.06); }
 }
 
 .nav-clock {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
   font-size: 0.75rem;
   font-weight: 300;
   color: var(--muted);
   letter-spacing: 0.05em;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+  pointer-events: none;
 }
 
 /* Shared goal chip — shown in the nav on every page so the active
@@ -159,9 +235,9 @@ nav a.active { color: var(--green); background: rgba(0,255,65,.06); }
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
-  margin-left: auto;
+  /* Sits left, immediately after the logo. Mode-badge handles right-push. */
   padding: 0.28rem 0.75rem;
-  max-width: 34rem;
+  max-width: 28rem;
   background: rgba(0, 212, 255, 0.08);
   border: 1px solid rgba(0, 212, 255, 0.28);
   border-radius: 999px;
@@ -194,9 +270,8 @@ nav a.active { color: var(--green); background: rgba(0,255,65,.06); }
   text-overflow: ellipsis;
   min-width: 0;
 }
-/* When the goal chip is present, mode-badge loses its auto margin —
-   the chip already handled the flex push-right. */
-nav .nav-goal ~ .mode-badge { margin-left: 0.5rem; }
+/* Mode-badge always pushes to the right — it owns the trailing
+   margin-left:auto whether or not the goal chip is present. */
 
 /* ── Chat card ────────────────────────────────────────────────── */
 .chat-backend,
@@ -213,15 +288,15 @@ nav .nav-goal ~ .mode-badge { margin-left: 0.5rem; }
   vertical-align: middle;
 }
 .chat-backend {
-  background: rgba(0,212,255,0.08);
+  background: var(--blue-a08);
   color: var(--blue);
-  border: 1px solid rgba(0,212,255,0.25);
+  border: 1px solid var(--blue-a28);
   margin-left: 0.6rem;
 }
 .chat-model {
-  background: rgba(0,255,65,0.06);
+  background: var(--green-a08);
   color: var(--green);
-  border: 1px solid rgba(0,255,65,0.25);
+  border: 1px solid var(--green-a28);
   font-family: var(--font);
   text-transform: none;
   letter-spacing: 0;
@@ -232,14 +307,14 @@ nav .nav-goal ~ .mode-badge { margin-left: 0.5rem; }
   white-space: nowrap;
 }
 .chat-tokens {
-  background: rgba(255,176,0,0.08);
+  background: var(--amber-a08);
   color: var(--amber);
-  border: 1px solid rgba(255,176,0,0.25);
+  border: 1px solid var(--amber-a28);
   font-variant-numeric: tabular-nums;
   transition: background 0.3s ease, box-shadow 0.3s ease;
 }
 .chat-tokens.bump {
-  background: rgba(255,176,0,0.22);
+  background: var(--amber-a28);
   box-shadow: 0 0 10px rgba(255,176,0,0.4);
 }
 
@@ -302,8 +377,8 @@ nav .nav-goal ~ .mode-badge { margin-left: 0.5rem; }
   white-space: normal;
 }
 .chat-msg-user .chat-bubble {
-  background: rgba(0,212,255,0.06);
-  border-color: rgba(0,212,255,0.25);
+  background: var(--blue-a08);
+  border-color: var(--blue-a28);
 }
 .chat-msg-system .chat-bubble { color: var(--muted); font-style: italic; }
 .chat-bubble code {
@@ -537,7 +612,7 @@ nav .nav-goal ~ .mode-badge { margin-left: 0.5rem; }
   color: var(--red);
   border-color: var(--red);
 }
-.btn-red:hover { background: rgba(255,51,85,.1); }
+.btn-red:hover { background: var(--red-a08); }
 
 .btn-ghost {
   background: transparent;
@@ -581,11 +656,65 @@ nav .nav-goal ~ .mode-badge { margin-left: 0.5rem; }
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 1.4rem;
+  font-size: var(--fs-xl);
   font-weight: 700;
   color: var(--green);
   text-shadow: var(--glow-green);
 }
+
+/* ── Mission Status row (gauge + step-context) ─────────────────
+   See docs/design.md §6 — the gauge no longer stands alone; a
+   short caption beside it tells you what step the mission is in. */
+.mission-status-row {
+  display: flex;
+  align-items: center;
+  gap: var(--s-5);
+  margin-bottom: var(--s-4);
+}
+.mission-status-row .progress-ring {
+  margin: 0;
+  flex-shrink: 0;
+}
+.step-context {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  padding-left: var(--s-4);
+  border-left: 1px solid var(--border);
+}
+.step-context .step-label,
+.step-context .step-next-label {
+  font-size: var(--fs-xs);
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+.step-context .step-name {
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  color: var(--text-hi);
+  text-transform: lowercase;
+}
+.step-context .step-caption {
+  font-size: var(--fs-md);
+  color: var(--text);
+  line-height: 1.4;
+}
+.step-context .step-next {
+  margin-top: var(--s-2);
+  font-size: var(--fs-sm);
+  color: var(--muted);
+}
+/* Tone tints — match the indicator-dot color language. */
+.step-context.tone-green  .step-name { color: var(--green); text-shadow: var(--glow-green); }
+.step-context.tone-blue   .step-name { color: var(--blue); }
+.step-context.tone-amber  .step-name { color: var(--amber); }
+.step-context.tone-muted  .step-name { color: var(--muted); }
+.step-context.tone-green  { border-left-color: var(--green-a28); }
+.step-context.tone-blue   { border-left-color: var(--blue-a28); }
+.step-context.tone-amber  { border-left-color: var(--amber-a28); }
 
 /* ── Activity feed ─────────────────────────────────────────────── */
 .activity-feed {
@@ -661,13 +790,13 @@ code {
   font-weight: 600;
   letter-spacing: 0.03em;
 }
-.status.completed { background: rgba(0,255,65,.1); color: var(--green); border: 1px solid rgba(0,255,65,.2); }
-.status.in_progress { background: rgba(0,212,255,.1); color: var(--blue); border: 1px solid rgba(0,212,255,.2); }
+.status.completed { background: var(--green-a08); color: var(--green); border: 1px solid var(--green-a16); }
+.status.in_progress { background: var(--blue-a08); color: var(--blue); border: 1px solid var(--blue-a16); }
 .status.planning { background: rgba(85,94,112,.15); color: var(--muted); border: 1px solid var(--border); }
-.status.pending { background: rgba(255,176,0,.1); color: var(--amber); border: 1px solid rgba(255,176,0,.2); }
-.status.active { background: rgba(0,255,65,.1); color: var(--green); border: 1px solid rgba(0,255,65,.2); }
+.status.pending { background: var(--amber-a08); color: var(--amber); border: 1px solid var(--amber-a16); }
+.status.active { background: var(--green-a08); color: var(--green); border: 1px solid var(--green-a16); }
 .status.inactive { background: rgba(85,94,112,.15); color: var(--muted); border: 1px solid var(--border); }
-.status.running { background: rgba(0,212,255,.1); color: var(--blue); border: 1px solid rgba(0,212,255,.2); animation: pulse-blue 2s infinite; }
+.status.running { background: var(--blue-a08); color: var(--blue); border: 1px solid var(--blue-a16); animation: pulse-blue 2s infinite; }
 
 @keyframes pulse-blue {
   0%,100% { box-shadow: none; }
@@ -680,7 +809,7 @@ code {
   align-items: center;
   gap: 1rem;
   padding: 0.75rem;
-  border: 1px solid rgba(255,176,0,.2);
+  border: 1px solid var(--amber-a16);
   border-radius: var(--radius);
   margin-bottom: 0.5rem;
   background: rgba(255,176,0,.03);
@@ -773,7 +902,7 @@ code {
   border-radius: 999px;
   border: 1px solid var(--border);
   color: var(--purple);
-  background: rgba(180,142,255,.06);
+  background: var(--purple-a08);
 }
 .plugin-card .plugin-actions { display: flex; gap: 0.4rem; }
 
@@ -2334,3 +2463,192 @@ code {
   color: var(--text-hi);
 }
 .lab-knows-program-redraft:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ── Whisper toast stack ───────────────────────────────────────────
+   See docs/design.md §6 (corner-toast whisper). Bottom-right stack
+   of low-volume notifications from the personality agent. */
+.whisper-stack {
+  position: fixed;
+  bottom: var(--s-5);
+  right: var(--s-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  z-index: 10000;
+  pointer-events: none;
+  max-width: 22rem;
+}
+.whisper {
+  pointer-events: auto;
+  position: relative;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--purple);
+  border-radius: var(--radius);
+  box-shadow: var(--elev-2);
+  padding: var(--s-3) var(--s-5) var(--s-3) var(--s-4);
+  font-size: var(--fs-sm);
+  color: var(--text);
+  line-height: 1.5;
+  opacity: 0;
+  transform: translateX(12px);
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+.whisper.whisper-in  { opacity: 1; transform: translateX(0); }
+.whisper.whisper-out { opacity: 0; transform: translateX(12px); }
+.whisper.whisper-clickable { cursor: pointer; }
+.whisper.whisper-clickable:hover { background: var(--purple-a08); border-color: var(--purple-a28); }
+
+.whisper-agent {
+  font-size: var(--fs-xs);
+  color: var(--purple);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  margin-bottom: var(--s-1);
+}
+.whisper-text {
+  color: var(--text-hi);
+}
+.whisper-close {
+  position: absolute;
+  top: var(--s-1);
+  right: var(--s-2);
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  font-size: var(--fs-lg);
+  line-height: 1;
+  cursor: pointer;
+  padding: var(--s-1);
+}
+.whisper-close:hover { color: var(--text-hi); }
+
+/* Tone variants — swap the left border + agent label color. */
+.whisper.tone-blue   { border-left-color: var(--blue); }
+.whisper.tone-blue   .whisper-agent { color: var(--blue); }
+.whisper.tone-blue.whisper-clickable:hover { background: var(--blue-a08); border-color: var(--blue-a28); }
+.whisper.tone-green  { border-left-color: var(--green); }
+.whisper.tone-green  .whisper-agent { color: var(--green); }
+.whisper.tone-green.whisper-clickable:hover { background: var(--green-a08); border-color: var(--green-a28); }
+.whisper.tone-amber  { border-left-color: var(--amber); }
+.whisper.tone-amber  .whisper-agent { color: var(--amber); }
+.whisper.tone-amber.whisper-clickable:hover { background: var(--amber-a08); border-color: var(--amber-a28); }
+
+@media (prefers-reduced-motion: reduce) {
+  .whisper { transition: none; transform: none; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Themes — see docs/design.md §8
+   ───────────────────────────────────────────────────────────────────
+   Themes only swap the *accent* palette + their alpha tiers + glows.
+   Backgrounds, surfaces, text, spacing, type, radius — all stable.
+   That's the rule that keeps a new theme from breaking layouts.
+
+   Apply by setting `data-theme="…"` on <html>:
+       <html data-theme="default">       (terminal green — current)
+       <html data-theme="laser-blue">    (cooler, electric)
+   nav.js handles toggling + persistence.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── Default theme (terminal hacker green) ─────────────────────── */
+:root,
+html[data-theme="default"] {
+  --green:     #00ff41;
+  --green-dim: #00cc33;
+  --blue:      #00d4ff;
+  --amber:     #ffb000;
+  --red:       #ff3355;
+  --purple:    #b48eff;
+
+  --green-a08:  rgba(0,255,65,.08);
+  --green-a16:  rgba(0,255,65,.16);
+  --green-a28:  rgba(0,255,65,.28);
+  --blue-a08:   rgba(0,212,255,.08);
+  --blue-a16:   rgba(0,212,255,.16);
+  --blue-a28:   rgba(0,212,255,.28);
+  --amber-a08:  rgba(255,176,0,.08);
+  --amber-a16:  rgba(255,176,0,.16);
+  --amber-a28:  rgba(255,176,0,.28);
+  --red-a08:    rgba(255,51,85,.08);
+  --red-a16:    rgba(255,51,85,.16);
+  --red-a28:    rgba(255,51,85,.28);
+  --purple-a08: rgba(180,142,255,.08);
+  --purple-a16: rgba(180,142,255,.16);
+  --purple-a28: rgba(180,142,255,.28);
+
+  --glow-green: 0 0 8px rgba(0,255,65,.30), 0 0 20px rgba(0,255,65,.10);
+  --glow-blue:  0 0 8px rgba(0,212,255,.30), 0 0 20px rgba(0,212,255,.10);
+  --glow-amber: 0 0 8px rgba(255,176,0,.30), 0 0 20px rgba(255,176,0,.10);
+  --glow-red:   0 0 8px rgba(255,51,85,.30);
+}
+
+/* ── Laser Blue theme ──────────────────────────────────────────────
+   Primary action shifts from terminal green to electric cyan.
+   Reads "precision instrument" — apt for "a rail gun for AI".
+   The rail line under the nav also subtly recomposes (still
+   green→blue gradient via tokens, just both ends are cooler). */
+html[data-theme="laser-blue"] {
+  --green:     #5cf0ff;   /* was #00ff41 — promoted to laser cyan */
+  --green-dim: #2ea3b8;
+  --blue:      #4cc9ff;
+  --amber:     #ffb000;
+  --red:       #ff3355;
+  --purple:    #b48eff;
+
+  --green-a08:  rgba(92,240,255,.08);
+  --green-a16:  rgba(92,240,255,.16);
+  --green-a28:  rgba(92,240,255,.28);
+  --blue-a08:   rgba(76,201,255,.08);
+  --blue-a16:   rgba(76,201,255,.16);
+  --blue-a28:   rgba(76,201,255,.28);
+  --amber-a08:  rgba(255,176,0,.08);
+  --amber-a16:  rgba(255,176,0,.16);
+  --amber-a28:  rgba(255,176,0,.28);
+  --red-a08:    rgba(255,51,85,.08);
+  --red-a16:    rgba(255,51,85,.16);
+  --red-a28:    rgba(255,51,85,.28);
+  --purple-a08: rgba(180,142,255,.08);
+  --purple-a16: rgba(180,142,255,.16);
+  --purple-a28: rgba(180,142,255,.28);
+
+  --glow-green: 0 0 8px rgba(92,240,255,.32), 0 0 22px rgba(92,240,255,.12);
+  --glow-blue:  0 0 8px rgba(76,201,255,.32), 0 0 22px rgba(76,201,255,.12);
+  --glow-amber: 0 0 8px rgba(255,176,0,.30), 0 0 20px rgba(255,176,0,.10);
+  --glow-red:   0 0 8px rgba(255,51,85,.30);
+}
+
+/* ── Theme picker (nav button) ─────────────────────────────────────
+   Injected by nav.js. Cycles through registered themes; current name
+   is shown as the label. Subtle styling — should feel like a setting,
+   not a feature. */
+.theme-picker {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-family: var(--font);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 0.28rem 0.7rem;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.theme-picker:hover {
+  color: var(--text-hi);
+  border-color: var(--border-hi);
+  background: var(--surface2);
+}
+.theme-picker .theme-swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: var(--glow-green);
+}

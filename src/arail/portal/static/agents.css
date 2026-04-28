@@ -11,8 +11,8 @@
 
 /* ── Mission Block ─────────────────────────────────────────────── */
 .ag-mission {
-  background: linear-gradient(145deg, rgba(0,255,65,0.08), rgba(0,212,255,0.04) 38%, rgba(20,24,36,0.95));
-  border: 1px solid rgba(0,255,65,0.2);
+  background: linear-gradient(145deg, var(--green-a08), rgba(0,212,255,0.04) 38%, rgba(20,24,36,0.95));
+  border: 1px solid var(--green-a16);
   border-radius: var(--radius);
   padding: 0.85rem 1rem;
   margin-bottom: 1rem;
@@ -68,7 +68,7 @@
 .ag-mission-chip.progress {
   color: var(--green);
   border-color: rgba(0,255,65,0.24);
-  background: rgba(0,255,65,0.08);
+  background: var(--green-a08);
 }
 
 .ag-mission-agents {
@@ -738,9 +738,9 @@
 
 /* Status variants */
 .ag-card.running::before { background: var(--green); box-shadow: var(--glow-green); }
-.ag-card.running { border-color: rgba(0,255,65,.2); }
+.ag-card.running { border-color: var(--green-a16); }
 .ag-card.paused::before  { background: var(--amber); box-shadow: var(--glow-amber); }
-.ag-card.paused  { border-color: rgba(255,176,0,.2); }
+.ag-card.paused  { border-color: var(--amber-a16); }
 .ag-card.error::before   { background: var(--red); box-shadow: var(--glow-red); }
 .ag-card.completed::before { background: var(--blue); box-shadow: var(--glow-blue); }
 
@@ -817,10 +817,10 @@ a.ag-card-name:hover { text-decoration: underline; text-decoration-style: dotted
   margin-left: auto;
 }
 .ag-pill.idle      { color: var(--muted); background: rgba(120,131,154,.12); border: 1px solid rgba(120,131,154,.2); }
-.ag-pill.running   { color: var(--green); background: rgba(0,255,65,.1); border: 1px solid rgba(0,255,65,.2); }
-.ag-pill.paused    { color: var(--amber); background: rgba(255,176,0,.1); border: 1px solid rgba(255,176,0,.2); }
-.ag-pill.error     { color: var(--red); background: rgba(255,51,85,.1); border: 1px solid rgba(255,51,85,.2); }
-.ag-pill.completed { color: var(--blue); background: rgba(0,212,255,.1); border: 1px solid rgba(0,212,255,.2); }
+.ag-pill.running   { color: var(--green); background: var(--green-a08); border: 1px solid var(--green-a16); }
+.ag-pill.paused    { color: var(--amber); background: var(--amber-a08); border: 1px solid var(--amber-a16); }
+.ag-pill.error     { color: var(--red); background: var(--red-a08); border: 1px solid var(--red-a16); }
+.ag-pill.completed { color: var(--blue); background: var(--blue-a08); border: 1px solid var(--blue-a16); }
 .ag-pill.standby   { color: var(--muted); background: rgba(120,131,154,.12); border: 1px solid rgba(120,131,154,.2); }
 
 .ag-card-task {
@@ -937,7 +937,7 @@ a.ag-card-name:hover { text-decoration: underline; text-decoration-style: dotted
   color: var(--muted); cursor: pointer; transition: all 0.12s;
 }
 .ag-filter:hover { color: var(--text); border-color: var(--border-hi); }
-.ag-filter.active { color: var(--green); border-color: rgba(0,255,65,.3); background: rgba(0,255,65,.06); }
+.ag-filter.active { color: var(--green); border-color: rgba(0,255,65,.3); background: var(--green-a08); }
 
 /* ── Feed Events ────────────────────────────────────────────────── */
 .ag-event {
@@ -951,12 +951,12 @@ a.ag-card-name:hover { text-decoration: underline; text-decoration-style: dotted
   font-size: 0.6rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em;
   padding: 0.08rem 0.4rem; border-radius: 3px; flex-shrink: 0; min-width: 5rem; text-align: center;
 }
-.ag-event-src.researcher { color: var(--green); background: rgba(0,255,65,.08); }
-.ag-event-src.curator    { color: var(--blue); background: rgba(0,212,255,.08); }
-.ag-event-src.browser    { color: var(--amber); background: rgba(255,176,0,.08); }
+.ag-event-src.researcher { color: var(--green); background: var(--green-a08); }
+.ag-event-src.curator    { color: var(--blue); background: var(--blue-a08); }
+.ag-event-src.browser    { color: var(--amber); background: var(--amber-a08); }
 .ag-event-src.system     { color: var(--muted); background: rgba(120,131,154,.08); }
-.ag-event-src.goal       { color: var(--purple); background: rgba(180,142,255,.08); }
-.ag-event-src.consent    { color: var(--blue); background: rgba(0,212,255,.08); }
+.ag-event-src.goal       { color: var(--purple); background: var(--purple-a08); }
+.ag-event-src.consent    { color: var(--blue); background: var(--blue-a08); }
 .ag-event-msg { color: var(--text); flex: 1; }
 .ag-event-msg.warn  { color: var(--amber); }
 .ag-event-msg.error { color: var(--red); }
@@ -995,7 +995,7 @@ a.ag-card-name:hover { text-decoration: underline; text-decoration-style: dotted
 
 /* ── Prompt Inspector ───────────────────────────────────────────── */
 .ag-callout {
-  background: rgba(0,212,255,.06);
+  background: var(--blue-a08);
   border: 1px solid rgba(0,212,255,.15);
   border-radius: var(--radius);
   padding: 0.6rem 0.9rem;
@@ -1109,12 +1109,12 @@ a.ag-card-name:hover { text-decoration: underline; text-decoration-style: dotted
 .ag-instruction-bar input::placeholder { color: var(--muted); }
 .ag-instruction-bar button {
   font-family: var(--font); font-size: 0.75rem; font-weight: 600;
-  background: rgba(0,255,65,.1); color: var(--green);
-  border: 1px solid rgba(0,255,65,.25); border-radius: 4px;
+  background: var(--green-a08); color: var(--green);
+  border: 1px solid var(--green-a28); border-radius: 4px;
   padding: 0.35rem 0.8rem; cursor: pointer;
   transition: all 0.12s;
 }
-.ag-instruction-bar button:hover { background: rgba(0,255,65,.2); }
+.ag-instruction-bar button:hover { background: var(--green-a16); }
 
 /* ── Empty state ────────────────────────────────────────────────── */
 .ag-empty {

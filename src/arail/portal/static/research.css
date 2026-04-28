@@ -358,7 +358,7 @@
   background: var(--surface2);
 }
 .rx-exp.running {
-  border-color: rgba(0,255,65,.25);
+  border-color: var(--green-a28);
   box-shadow: 0 0 0 1px rgba(0,255,65,.08);
 }
 .rx-exp.expanded {
@@ -431,8 +431,8 @@
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
-.rx-exp-badge.supported     { color: var(--green); background: rgba(0,255,65,.1);  border: 1px solid rgba(0,255,65,.3); }
-.rx-exp-badge.not-supported { color: var(--amber); background: rgba(255,176,0,.1); border: 1px solid rgba(255,176,0,.3); }
+.rx-exp-badge.supported     { color: var(--green); background: var(--green-a08);  border: 1px solid rgba(0,255,65,.3); }
+.rx-exp-badge.not-supported { color: var(--amber); background: var(--amber-a08); border: 1px solid rgba(255,176,0,.3); }
 
 .rx-exp-body {
   margin-top: 0.7rem;
@@ -552,7 +552,7 @@
 }
 .rx-event.new { animation: rx-flash-in 0.4s ease; }
 @keyframes rx-flash-in {
-  from { background: rgba(0,255,65,.1); transform: translateX(-4px); opacity: 0; }
+  from { background: var(--green-a08); transform: translateX(-4px); opacity: 0; }
   to   { background: var(--surface);    transform: translateX(0);     opacity: 1; }
 }
 
@@ -798,7 +798,7 @@
 .rx-btn:hover:not(:disabled) {
   border-color: var(--green);
   color: var(--green);
-  background: rgba(0,255,65,.06);
+  background: var(--green-a08);
 }
 .rx-btn:disabled {
   opacity: 0.35;
@@ -807,13 +807,13 @@
 .rx-btn.primary:not(:disabled) {
   border-color: rgba(0,255,65,.4);
   color: var(--green);
-  background: rgba(0,255,65,.08);
+  background: var(--green-a08);
 }
 .rx-btn.primary:hover:not(:disabled) { box-shadow: var(--glow-green); }
 .rx-btn.danger:not(:disabled):hover {
   border-color: var(--red);
   color: var(--red);
-  background: rgba(255,51,85,.06);
+  background: var(--red-a08);
   box-shadow: var(--glow-red);
 }
 

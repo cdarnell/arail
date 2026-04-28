@@ -1,1151 +1,3245 @@
-<!DOCTYPE html>
-<html lang="en">
+<!doctype html>
+<html lang="en" data-theme="default">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{ brand.name }} — Chat</title>
-<link rel="stylesheet" href="/static/style.css">
-<style>
-  body.embed { background: transparent; }
-  .chat-wrap { max-width: 1100px; margin: 20px auto; padding: 0 18px; }
-  body.embed .chat-wrap { margin: 8px auto; }
-  .chat-head { display:flex; gap:10px; align-items:baseline; margin-bottom: 12px; }
-  .chat-head h1 { margin:0; font-size: 24px; }
-  .chat-sub { color: var(--muted,#8a8a8a); font-size: 13px; }
-  .chat-shortcuts { display:flex; gap:10px; flex-wrap:wrap; margin: 0 0 12px; }
-  .chat-shortcuts a {
-    display:inline-flex;
-    align-items:center;
-    gap:6px;
-    padding:7px 14px;
-    border-radius:6px;
-    text-decoration:none;
-    font-size:13px;
-  }
-  .chat-shortcuts .tuning-link { background:#0f1a14; border:1px solid #1e3a2a; color:#7ee0a0; }
-  .chat-shortcuts .terminal-link { background:#0d1117; border:1px solid #222; color:#8faf97; }
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Chat Studio · {{ brand.name }}</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script>
+    // Anti-FOUC: apply persisted theme before any paint.
+    (function () {
+      try {
+        var t = localStorage.getItem('arail-theme');
+        if (t === 'laser-blue' || t === 'default') document.documentElement.setAttribute('data-theme', t);
+      } catch (e) {}
+    })();
+  </script>
+  <style>
+    /* ─── Chat Studio (design.md token-bound) ─────────────────────────
+       Layout:  body scrolls naturally · the studio is a flex column
+       sized by the viewport minus the actual nav height (measured in
+       JS, set on --nav-h). The transcript flexes to fill; input + ctrls
+       pin to the bottom of the column. No magic numbers. */
+    :root { --nav-h: 56px; }                 /* JS overrides at runtime */
 
-  .chat-grid { display:grid; gap: 14px; }
-  .chat-card { background: var(--card,#131313); border:1px solid var(--line,#252525); border-radius: 10px; padding: 14px; }
-  .chat-card h2 { margin: 0 0 10px; font-size: 16px; display:flex; align-items:center; gap:8px; }
-  .chat-chip { font-size:11px; color:#b8b8b8; border:1px solid #3a3a3a; border-radius: 11px; padding: 2px 8px; }
-  .chat-chip.deep { color:#d4af6a; border-color:#6a5a3a; background:#1a140a; }
+    /* Single-column flow: chat owns full viewport width; panels stack below.
+       Page grows as needed (body scrolls). No more 3-column squeeze. */
+    .studio {
+      display: flex;
+      flex-direction: column;
+      max-width: 1480px;
+      margin: 0 auto;
+      padding: var(--s-3) var(--s-5) var(--s-6);
+      box-sizing: border-box;
+      gap: var(--s-4);
+    }
+    .studio-head { flex-shrink: 0; }
+    .studio-main {
+      display: flex; flex-direction: column;
+      min-height: calc(100dvh - var(--nav-h) - 80px);  /* hero — chat fills first screen */
+    }
+    /* Below-the-chat panels: 2-column responsive grid for the rails. */
+    .panels-grid {
+      display: grid;
+      grid-template-columns: minmax(280px, 1fr) minmax(420px, 2fr);
+      gap: var(--s-4);
+      align-items: start;
+    }
+    @media (max-width: 980px) {
+      .panels-grid { grid-template-columns: 1fr; }
+    }
+    .rail-left, .rail-right {
+      display: flex; flex-direction: column;
+      gap: var(--s-3);
+    }
+    /* Tunables go in the wider right slot, in their own multi-col mini-grid */
+    .rail-right .tunables-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: var(--s-3);
+    }
+    @media (max-width: 700px) {
+      .rail-right .tunables-grid { grid-template-columns: 1fr; }
+    }
+    .rail-right .tunables-grid .full { grid-column: 1 / -1; }
+    .studio.no-left  .rail-left { display: none; }
+    .studio.no-right .rail-right { display: none; }
+    .studio.no-left.no-right .panels-grid { display: none; }
 
-  .chat-log { min-height: 170px; max-height: 360px; overflow:auto; border:1px solid #2b2b2b; border-radius:8px; padding: 10px; background:#0e0e0e; }
-  .chat-msg { margin-bottom: 10px; }
-  .chat-role { font-size:11px; color:#979797; margin-bottom:3px; letter-spacing:0.06em; text-transform:uppercase; }
-  .chat-bubble { background:#171717; border:1px solid #2b2b2b; border-radius:8px; padding:8px 10px; white-space: pre-wrap; line-height:1.45; }
-  .chat-bubble.user { background:#111a11; border-color:#284028; }
-  .chat-meta { margin-top: 6px; font-size: 11px; color:#9a9a9a; border-top:1px dashed #2b2b2b; padding-top:6px; }
+    /* Visible scrollbars — laser thin but present */
+    .transcript::-webkit-scrollbar,
+    .rail-left::-webkit-scrollbar,
+    .rail-right::-webkit-scrollbar { width: 8px; }
+    .transcript::-webkit-scrollbar-track,
+    .rail-left::-webkit-scrollbar-track,
+    .rail-right::-webkit-scrollbar-track { background: transparent; }
+    .transcript::-webkit-scrollbar-thumb,
+    .rail-left::-webkit-scrollbar-thumb,
+    .rail-right::-webkit-scrollbar-thumb {
+      background: var(--border-hi);
+      border-radius: 4px;
+    }
+    .transcript::-webkit-scrollbar-thumb:hover,
+    .rail-left::-webkit-scrollbar-thumb:hover,
+    .rail-right::-webkit-scrollbar-thumb:hover { background: var(--green-a28); }
 
-  .chat-compose { display:flex; gap:8px; margin-top: 10px; }
-  .chat-compose input { flex:1; min-width:0; }
+    /* Rail card containers */
+    .rail-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      margin-bottom: var(--s-3);
+      overflow: hidden;
+    }
+    .rail-card .rc-head {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: var(--s-2) var(--s-3);
+      background: var(--surface2);
+      border-bottom: 1px solid var(--border);
+      font-size: 0.62rem;
+      color: var(--green);
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+    }
+    .rail-card .rc-head .count { color: var(--muted); }
+    .rail-card .rc-head .rc-help {
+      color: var(--blue);
+      font-size: 0.6rem;
+      text-transform: lowercase;
+      letter-spacing: 0.04em;
+      text-decoration: none;
+      border-bottom: 1px dotted var(--blue-a28);
+      padding-bottom: 1px;
+    }
+    .rail-card .rc-head .rc-help:hover {
+      color: var(--text-hi);
+      border-bottom-color: var(--blue);
+    }
+    .rail-card .rc-body { padding: var(--s-2) var(--s-3); }
+    .rail-card.scroll { overflow-y: auto; max-height: 100%; }
+    .rail-card.flash {
+      animation: card-flash 1.4s ease;
+    }
+    @keyframes card-flash {
+      0%   { box-shadow: 0 0 0 0 var(--green-a28); }
+      30%  { box-shadow: 0 0 0 3px var(--green); }
+      100% { box-shadow: 0 0 0 0 var(--green-a08); }
+    }
 
-  .chat-controls { display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; margin-top: 12px; }
-  .chat-controls label { display:flex; flex-direction:column; gap:5px; font-size:12px; color:#b6b6b6; }
-  .chat-controls input,
-  .chat-controls select { width:100%; }
-  .chat-controls .hint { font-size:11px; color:#8c8c8c; }
+    /* Core tunables strip — directly under the chat, 3 columns */
+    .core-tunables {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: var(--s-3);
+      margin-top: var(--s-3);
+    }
+    @media (max-width: 980px) {
+      .core-tunables { grid-template-columns: 1fr; }
+    }
+    .core-tunables .rail-card { margin-bottom: 0; }
 
-  .teacher-cta { margin-top: 8px; font-size: 12px; color:#ad9c77; }
-  .chat-toggle-row { display:flex; align-items:center; gap:10px; margin: 10px 0 4px; flex-wrap: wrap; }
-  .chat-toggle-row label { display:flex; align-items:center; gap:8px; font-size:12px; color:#d4d4d4; cursor:pointer; }
-  .chat-toggle-row input[type="checkbox"] { width:auto; }
-  .chat-muted { color:#8c8c8c; font-size:11px; }
-  .chat-route-note {
-    margin-top: 10px;
-    padding: 9px 11px;
-    border-radius: 8px;
-    border: 1px solid #3b3524;
-    background: #17130c;
-    color: #d9c28d;
-    font-size: 12px;
-  }
+    /* Active models strip — full-width row, sits between chat and tunables */
+    .active-strip {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: var(--s-3);
+      margin-top: var(--s-3);
+    }
+    .active-strip .rail-card { margin-bottom: 0; }
 
-  .compute-card { border-color:#284028; background:#0f1a14; }
-  .compute-head-row { display:flex; align-items:center; justify-content:space-between; gap:12px; }
-  .airgapped-banner {
-    margin: 8px 0 10px; padding: 9px 11px; border-radius: 8px;
-    border: 1px solid #3a2f24; background: #17110c; color: #e0b878; font-size: 12px;
-  }
-  .airgapped-banner code { background:#0f0b06; padding: 1px 5px; border-radius: 3px; color:#f3d694; }
-  .compute-opt.disabled { opacity: 0.45; cursor: not-allowed; }
+    /* Advanced Tunables — collapsible wrapper around the two strips */
+    .advanced-tunables {
+      margin-top: var(--s-3);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--surface);
+      overflow: hidden;
+    }
+    .advanced-tunables > summary {
+      list-style: none;
+      cursor: pointer;
+      padding: var(--s-3) var(--s-4);
+      background: var(--surface2);
+      display: flex; align-items: center; gap: var(--s-3);
+      border-bottom: 1px solid var(--border);
+      font-family: var(--font);
+      transition: background 0.12s;
+    }
+    .advanced-tunables > summary::-webkit-details-marker { display: none; }
+    .advanced-tunables > summary::before {
+      content: '▸';
+      color: var(--green);
+      font-size: var(--fs-md);
+      transition: transform 0.15s;
+      display: inline-block;
+    }
+    .advanced-tunables[open] > summary::before {
+      transform: rotate(90deg);
+    }
+    .advanced-tunables > summary:hover { background: var(--green-a08); }
+    .advanced-tunables .adv-title {
+      font-size: var(--fs-sm); font-weight: 700; color: var(--text-hi);
+      letter-spacing: 0.04em;
+    }
+    .advanced-tunables .adv-hint {
+      flex: 1;
+      color: var(--muted);
+      font-size: var(--fs-xs);
+      text-transform: lowercase;
+      letter-spacing: 0.04em;
+    }
+    .advanced-tunables > .core-tunables { margin: var(--s-3) var(--s-3) 0; }
+    .advanced-tunables > .core-tunables:last-of-type { margin-bottom: var(--s-3); }
 
-  /* Manage Providers modal */
-  .mp-backdrop {
-    position: fixed; inset: 0; background: rgba(0,0,0,0.55);
-    display: none; align-items: center; justify-content: center; z-index: 9000;
-  }
-  .mp-backdrop.open { display: flex; }
-  .mp-modal {
-    width: min(720px, 94vw); max-height: 86vh; overflow: auto;
-    background: #0f0f10; border: 1px solid #2b2b2b; border-radius: 10px;
-    padding: 18px 20px; box-shadow: 0 18px 42px rgba(0,0,0,0.5);
-  }
-  .mp-head { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom: 8px; }
-  .mp-head h3 { margin:0; font-size: 16px; }
-  .mp-close { background:#1a1a1a; border:1px solid #333; color:#ddd; padding:4px 10px; border-radius:6px; cursor:pointer; }
-  .mp-provider {
-    padding: 10px 12px; border:1px solid #232323; border-radius: 8px;
-    background: #131313; margin-bottom: 10px;
-  }
-  .mp-provider h4 { margin: 0 0 4px; font-size: 14px; display:flex; align-items:center; gap:8px; }
-  .mp-pill { font-size:10px; padding: 2px 6px; border-radius: 10px; border:1px solid #333; color:#bbb; letter-spacing: 0.04em; text-transform: uppercase; }
-  .mp-pill.ok { color:#8fe6a7; border-color:#2f6a42; background:#0c1911; }
-  .mp-pill.warn { color:#e6b478; border-color:#6a4d2f; background:#19140c; }
-  .mp-row { display:flex; gap:8px; margin-top: 6px; flex-wrap: wrap; align-items: flex-end; }
-  .mp-row input[type="password"], .mp-row input[type="text"] {
-    flex:1; min-width: 220px; padding: 6px 8px;
-    background:#0b0b0b; border:1px solid #2b2b2b; border-radius:6px; color:#eee;
-  }
-  .mp-btn {
-    padding: 6px 10px; border-radius: 6px; border:1px solid #2b2b2b;
-    background:#171717; color:#ddd; cursor: pointer;
-  }
-  .mp-btn.primary { background:#0f2818; border-color:#2f6a42; color:#b5f0c8; }
-  .mp-btn.danger  { background:#1e0c0c; border-color:#6a2f2f; color:#f0b5b5; }
-  .mp-models-list { margin-top: 8px; max-height: 160px; overflow: auto;
-    padding: 6px 8px; background:#0a0a0a; border:1px solid #1f1f1f; border-radius: 6px;
-    font-family: ui-monospace, monospace; font-size: 11px; color: #cfcfcf; }
-  .mp-note { font-size: 11px; color:#9a9a9a; margin-top: 4px; }
-  .mp-docs a { color: #8faacc; font-size: 11px; }
-  .compute-source-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-    gap: 8px;
-    margin: 10px 0 4px;
-  }
-  .compute-opt {
-    display: flex; align-items: flex-start; gap: 8px;
-    padding: 10px; border: 1px solid #2b2b2b; border-radius: 8px;
-    background: #0e0e0e; cursor: pointer; transition: border-color .12s;
-  }
-  .compute-opt:hover { border-color: #3e8055; }
-  .compute-opt input[type="radio"] { margin-top: 3px; }
-  .compute-opt-label { font-size: 13px; line-height: 1.4; }
-  .compute-opt input[type="radio"]:checked ~ .compute-opt-label { color:#b5f0c8; }
-  .compute-opt:has(input[type="radio"]:checked) { border-color:#4aa46f; background:#0c1912; }
-  /* My Machine tile — primary line is the in-process backend; chips
-     below list every detected OpenAI-compat server (Ollama:11434,
-     MLX:11435, etc.) so the user knows what's actually running. */
-  .mm-endpoints-label {
-    color: #6b7785;
-    font-size: 10px;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    margin-right: 4px;
-  }
-  .mm-endpoint-chip {
-    display: inline-block;
-    margin: 2px 4px 0 0;
-    padding: 1px 7px;
-    background: rgba(0, 212, 255, 0.08);
-    color: #4ec3e8;
-    border: 1px solid rgba(0, 212, 255, 0.25);
-    border-radius: 999px;
-    font-size: 10px;
-    font-weight: 600;
-    letter-spacing: 0.02em;
-    font-variant-numeric: tabular-nums;
-  }
-  /* ── Fast-model picker (gallery) ──────────────────────────────
-     Replaces the bare <select>. Two tabs (Installed | Catalog),
-     a card grid below, and an inline "install command" panel
-     for greyed catalog entries. */
-  .fast-model-picker {
-    display: flex; flex-direction: column; gap: 8px;
-    grid-column: 1 / -1;   /* span the whole row inside the controls grid */
-  }
-  .fast-model-head {
-    display: flex; justify-content: space-between; align-items: center;
-  }
-  .fast-model-label {
-    color: #b6b6b6; font-size: 11px; letter-spacing: 0.06em;
-    text-transform: uppercase;
-  }
-  .fast-model-tabs { display: inline-flex; gap: 4px; }
-  .fmp-tab {
-    background: #11161e; color: #8c8c8c;
-    border: 1px solid #2a3040; border-radius: 4px;
-    padding: 3px 9px; font-size: 11px; cursor: pointer;
-    font-family: var(--font);
-  }
-  .fmp-tab:hover { color: #d6d6d6; border-color: #3e8055; }
-  .fmp-tab.active {
-    color: #b5f0c8; background: #0c1912; border-color: #4aa46f;
-  }
-  .fmp-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-    gap: 6px;
-    max-height: 280px;
-    overflow-y: auto;
-    padding-right: 4px;
-  }
-  .fmp-loading {
-    grid-column: 1 / -1; padding: 16px; text-align: center;
-    color: #6b7785; font-style: italic;
-  }
-  .fmp-card {
-    background: #11161e; border: 1px solid #2a3040; border-radius: 5px;
-    padding: 8px 10px; cursor: pointer; transition: all 0.12s;
-    display: flex; flex-direction: column; gap: 4px; min-width: 0;
-  }
-  .fmp-card:hover { border-color: #3e8055; transform: translateY(-1px); }
-  .fmp-card.selected {
-    border-color: #4aa46f; background: #0c1912; box-shadow: inset 0 0 0 1px #4aa46f33;
-  }
-  .fmp-card.greyed {
-    opacity: 0.62;
-    background: #0d1118;
-    border-style: dashed;
-  }
-  .fmp-card.greyed:hover { opacity: 0.85; }
-  .fmp-card-head {
-    display: flex; justify-content: space-between; align-items: baseline; gap: 6px;
-  }
-  .fmp-card-name {
-    color: #d6d6d6; font-size: 13px; font-weight: 600;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
-  }
-  .fmp-card-runtime {
-    font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase;
-    color: #4ec3e8; padding: 1px 5px; background: rgba(0,212,255,0.08);
-    border: 1px solid rgba(0,212,255,0.22); border-radius: 999px;
-    flex-shrink: 0;
-  }
-  .fmp-card-runtime.ollama { color: #c084fc; background: rgba(192,132,252,0.08); border-color: rgba(192,132,252,0.22); }
-  .fmp-card-runtime.mlx { color: #4ec3e8; }
-  .fmp-card-runtime.catalog { color: #f5b342; background: rgba(245,179,66,0.06); border-color: rgba(245,179,66,0.22); }
-  .fmp-card-meta {
-    display: flex; gap: 8px; font-size: 10px; color: #6b7785;
-    font-variant-numeric: tabular-nums;
-  }
-  .fmp-card-meta .dot { color: #2a3040; }
-  .fmp-card-tags {
-    display: flex; flex-wrap: wrap; gap: 3px;
-  }
-  .fmp-card-tag {
-    font-size: 9px; padding: 1px 5px;
-    background: #161b25; color: #9aa6bd;
-    border: 1px solid #232a3a; border-radius: 3px;
-  }
-  .fmp-card-desc {
-    font-size: 10.5px; color: #8c8c8c; line-height: 1.35;
-    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
-    overflow: hidden;
-  }
-  .fmp-card-flagship {
-    color: #f5b342; font-size: 9px; font-weight: 700;
-    letter-spacing: 0.08em;
-  }
-  .fmp-install {
-    background: #0d1118; border: 1px solid #2a3040; border-radius: 5px;
-    padding: 8px 10px; display: flex; flex-direction: column; gap: 6px;
-  }
-  .fmp-install[hidden] { display: none; }
-  .fmp-install-head {
-    display: flex; justify-content: space-between; align-items: center;
-  }
-  .fmp-install-title { color: #b6b6b6; font-size: 11px; font-weight: 600; }
-  .fmp-install-cmd {
-    background: #060a10; color: #b5f0c8; padding: 6px 8px;
-    border-radius: 3px; font-size: 11px; font-family: var(--font);
-    user-select: all;
-  }
-  .fmp-install-hint { color: #6b7785; font-size: 10px; line-height: 1.4; }
-  .fmp-copy {
-    background: #1f3528; color: #b5f0c8; border: 1px solid #4aa46f;
-    border-radius: 3px; padding: 2px 8px; font-size: 10px; cursor: pointer;
-    font-family: var(--font);
-  }
-  .fmp-copy:hover { background: #2a4434; }
-  .fmp-empty {
-    grid-column: 1 / -1; padding: 12px; text-align: center;
-    color: #8c8c8c; font-style: italic; font-size: 11px;
-  }
-  .compute-key-row {
-    display: flex; gap: 8px; align-items: flex-end; margin-top: 10px; flex-wrap: wrap;
-  }
-  .compute-key-row label { display:flex; flex-direction:column; gap:4px; font-size:12px; color:#b6b6b6; }
-</style>
+    .rail-left, .rail-right {
+      max-height: calc(100dvh - var(--nav-h) - var(--s-4));
+      overflow-y: auto;
+      padding-right: 2px;
+      position: sticky;
+      top: var(--s-3);
+    }
+    /* Visible scrollbars — laser thin but present, so users know they CAN scroll. */
+    .transcript::-webkit-scrollbar,
+    .drawer::-webkit-scrollbar { width: 8px; }
+    .transcript::-webkit-scrollbar-track,
+    .drawer::-webkit-scrollbar-track { background: transparent; }
+    .transcript::-webkit-scrollbar-thumb,
+    .drawer::-webkit-scrollbar-thumb {
+      background: var(--border-hi);
+      border-radius: 4px;
+    }
+    .transcript::-webkit-scrollbar-thumb:hover,
+    .drawer::-webkit-scrollbar-thumb:hover { background: var(--green-a28); }
+    /* studio-main is always a single flex column — chat owns the full
+       canvas. Drawer is a fixed overlay (see .drawer rules below) and
+       never competes for horizontal space. */
+    .studio-main { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+    .studio-col {
+      display: flex; flex-direction: column;
+      min-width: 0; min-height: 0;
+      flex: 1;
+    }
+
+    /* Compare grid — 1 col by default, 2 cols when [data-cols="2"] */
+    .compare-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: var(--s-3);
+      flex: 1; min-height: 0;
+      padding: var(--s-3) 0 var(--s-2);
+    }
+    .compare-grid[data-cols="2"] { grid-template-columns: 1fr 1fr; }
+    @media (max-width: 880px) {
+      .compare-grid[data-cols="2"] { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; }
+    }
+
+    .col {
+      display: flex; flex-direction: column;
+      min-width: 0; min-height: 0;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+    /* HTML `hidden` is `display:none`; the .col rule above promotes display:flex
+       which clobbers it. Force respect of [hidden] for columns. */
+    .col[hidden] { display: none !important; }
+    .compare-grid[data-cols="2"] .col[data-col="A"] { border-left: 3px solid var(--green); }
+    .compare-grid[data-cols="2"] .col[data-col="B"] { border-left: 3px solid var(--purple); }
+
+    /* Quickbar — pinned to the top of each column */
+    .col-quickbar {
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      gap: var(--s-3);
+      padding: var(--s-2) var(--s-3);
+      background: var(--surface2);
+      border-bottom: 1px solid var(--border);
+      flex-wrap: wrap;
+    }
+    .col-quickbar .qb-label {
+      font-size: 0.62rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+    }
+    .col-quickbar .picker {
+      padding: 0.3rem 0.55rem;
+      max-width: 240px;
+    }
+    .col-quickbar .picker .picker-label { font-size: var(--fs-sm); }
+    .col-quickbar .picker .picker-pop { bottom: auto; top: calc(100% + 6px); }
+
+    .qb-slider {
+      display: inline-flex; align-items: center;
+      gap: var(--s-2);
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 0.25rem 0.55rem;
+      min-width: 220px;
+    }
+    .qb-slider input[type="range"] {
+      flex: 1; min-width: 80px; -webkit-appearance: none; appearance: none;
+      background: transparent; height: 16px; cursor: pointer;
+    }
+    .qb-slider input[type="range"]::-webkit-slider-runnable-track {
+      height: 3px;
+      background: linear-gradient(to right, var(--green) var(--qbfill, 35%), var(--surface2) var(--qbfill, 35%));
+      border-radius: 2px;
+    }
+    .qb-slider input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none; appearance: none;
+      width: 12px; height: 12px; margin-top: -4.5px;
+      background: var(--green); border: 2px solid var(--bg);
+      border-radius: 50%; box-shadow: var(--glow-green); cursor: grab;
+    }
+    .qb-slider input[type="range"]::-moz-range-track  { height: 3px; background: var(--surface2); border-radius: 2px; }
+    .qb-slider input[type="range"]::-moz-range-thumb  { width: 12px; height: 12px; background: var(--green); border: 2px solid var(--bg); border-radius: 50%; box-shadow: var(--glow-green); }
+    .qb-num {
+      color: var(--green); font-family: var(--font); font-size: var(--fs-sm); font-weight: 600;
+      font-variant-numeric: tabular-nums; min-width: 2.6rem; text-align: right;
+    }
+
+    .stream-toggle.compact { gap: var(--s-1); padding: 0; }
+    .icon-btn.compact      { padding: 0.22rem 0.55rem; font-size: var(--fs-xs); }
+
+    /* Per-column transcript — min-height ensures usable space even on
+       short responses, while scroll kicks in for long ones. */
+    .col .transcript {
+      flex: 1;
+      min-height: 360px;
+      max-height: calc(100dvh - var(--nav-h) - 280px);
+      overflow-y: auto;
+      padding: var(--s-5) var(--s-5) var(--s-4);
+      display: flex; flex-direction: column;
+      gap: var(--s-5);
+    }
+
+    /* Bottom meta line under composer */
+    .bottom-meta {
+      display: flex; align-items: center; gap: var(--s-2);
+      padding: var(--s-2) var(--s-1) var(--s-3);
+      font-size: var(--fs-xs); color: var(--muted);
+    }
+    .bottom-meta .status { color: var(--green); }
+    .bottom-meta .sep { color: var(--border-hi); }
+    .bottom-meta .meta-hint { font-style: italic; }
+
+    /* Drawer = fixed slide-in panel. Chat layout is unaffected when toggled. */
+    .drawer {
+      position: fixed;
+      top: var(--nav-h);
+      right: 0;
+      width: 400px;
+      max-width: 92vw;
+      height: calc(100dvh - var(--nav-h));
+      background: var(--bg);
+      border-left: 1px solid var(--border-hi);
+      box-shadow: var(--elev-2);
+      padding: var(--s-4) var(--s-4) var(--s-5);
+      overflow-y: auto;
+      transform: translateX(100%);
+      transition: transform 0.22s ease;
+      z-index: 500;
+      display: flex; flex-direction: column; gap: var(--s-3);
+    }
+    .studio.with-drawer .drawer { transform: translateX(0); }
+    .drawer-back {
+      position: fixed;
+      inset: var(--nav-h) 0 0 0;
+      background: rgba(0,0,0,0.35);
+      opacity: 0; pointer-events: none;
+      transition: opacity 0.2s ease;
+      z-index: 499;
+    }
+    .studio.with-drawer .drawer-back { opacity: 1; pointer-events: auto; }
+
+    /* Header */
+    .studio-head {
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      gap: var(--s-3);
+      padding: var(--s-4) 0 var(--s-3);
+      border-bottom: 1px solid var(--border);
+    }
+    .studio-head h1 {
+      font-size: var(--fs-lg);
+      font-weight: 700;
+      color: var(--text-hi);
+      letter-spacing: -0.01em;
+    }
+    .studio-head h1 .accent { color: var(--green); text-shadow: var(--glow-green); }
+    .preset-row { display: flex; gap: var(--s-1); }
+    .preset-row button {
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 0.28rem 0.7rem;
+      font-family: var(--font);
+      font-size: var(--fs-xs);
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      cursor: pointer;
+      transition: all 0.12s;
+    }
+    .preset-row button:hover { color: var(--text); border-color: var(--border-hi); background: var(--surface2); }
+    .preset-row button.active {
+      color: var(--green);
+      border-color: var(--green-a28);
+      background: var(--green-a08);
+    }
+    .head-spacer { flex: 1; }
+    .icon-btn {
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--muted);
+      font-family: var(--font);
+      font-size: var(--fs-sm);
+      padding: 0.28rem 0.6rem;
+      cursor: pointer;
+      transition: all 0.12s;
+      text-decoration: none;
+      display: inline-block;
+      line-height: 1.4;
+    }
+    .icon-btn:hover { color: var(--text-hi); border-color: var(--border-hi); background: var(--surface2); text-decoration: none; }
+
+    /* Loader strip (hidden when state=ready) */
+    .loader-strip {
+      flex-shrink: 0;
+      display: none;
+      align-items: center;
+      gap: var(--s-3);
+      height: 36px;
+      margin-top: var(--s-2);
+      padding: 0 var(--s-4);
+      background: var(--green-a08);
+      border: 1px solid var(--green-a28);
+      border-radius: var(--radius);
+      font-size: var(--fs-sm);
+      color: var(--text-hi);
+    }
+    .loader-strip.visible { display: flex; }
+    .loader-strip .label { color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; font-size: var(--fs-xs); }
+    .loader-strip .bar { flex: 1; height: 4px; background: var(--surface2); border-radius: 2px; overflow: hidden; }
+    .loader-strip .bar > i {
+      display: block; height: 100%;
+      background: linear-gradient(90deg, var(--green), var(--blue));
+      box-shadow: var(--glow-green);
+      transition: width 0.4s ease;
+    }
+    .loader-strip .pct, .loader-strip .eta { color: var(--muted); font-variant-numeric: tabular-nums; }
+    .loader-strip .cancel {
+      color: var(--red);
+      background: transparent;
+      border: 1px solid var(--red-a28);
+      border-radius: var(--radius);
+      padding: 0.18rem 0.6rem;
+      cursor: pointer;
+      font-family: var(--font);
+      font-size: var(--fs-xs);
+    }
+
+    /* Transcript */
+    .transcript {
+      flex: 1; min-height: 0;
+      overflow-y: auto;
+      padding: var(--s-4) 0 var(--s-4);
+      display: flex;
+      flex-direction: column;
+      gap: var(--s-5);
+    }
+    .transcript .empty {
+      margin: auto;
+      text-align: center;
+      color: var(--muted);
+      font-size: var(--fs-md);
+      max-width: 28rem;
+    }
+    .transcript .empty .glyph {
+      font-size: 2.4rem;
+      color: var(--green);
+      text-shadow: var(--glow-green);
+      margin-bottom: var(--s-3);
+    }
+    .transcript .empty .hint {
+      margin-top: var(--s-3);
+      font-size: var(--fs-sm);
+      color: var(--muted);
+    }
+    .transcript .empty kbd {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 1px 6px;
+      font-size: var(--fs-xs);
+      color: var(--text-hi);
+    }
+
+    .msg { display: flex; flex-direction: column; gap: var(--s-2); }
+    .msg .who {
+      font-size: var(--fs-xs);
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+    }
+    .msg.user .who { color: var(--blue); }
+    .msg.assistant .who { color: var(--green); }
+    .msg.error .who { color: var(--red); }
+    .msg .body {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-left: 3px solid transparent;
+      border-radius: var(--radius);
+      padding: var(--s-3) var(--s-4);
+      color: var(--text-hi);
+      font-size: var(--fs-md);
+      line-height: 1.6;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
+    .msg.user      .body { border-left-color: var(--blue); }
+    .msg.assistant .body { border-left-color: var(--green); }
+    .msg.error     .body { border-left-color: var(--red); color: var(--red); }
+    .msg .body .caret {
+      display: inline-block;
+      width: 0.5em; height: 1em;
+      background: var(--green);
+      vertical-align: text-bottom;
+      animation: caret-blink 0.9s steps(2) infinite;
+      box-shadow: var(--glow-green);
+    }
+    @keyframes caret-blink { 50% { opacity: 0; } }
+
+    /* ── Markdown / prose typography (Claude-inspired warmth) ────────
+       Responses get a proper prose font for readability while we keep
+       the mono terminal feel everywhere else. */
+    .msg .body {
+      font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", system-ui, sans-serif;
+      font-size: 0.94rem;
+      line-height: 1.7;
+      letter-spacing: -0.005em;
+    }
+    .msg.user .body {
+      font-family: var(--font);                 /* user messages stay mono */
+      font-size: var(--fs-md);
+    }
+    .msg .body p { margin: 0 0 0.85em; }
+    .msg .body p:last-child { margin-bottom: 0; }
+    .msg .body h2, .msg .body h3, .msg .body h4 {
+      font-family: -apple-system, BlinkMacSystemFont, "Inter", system-ui, sans-serif;
+      color: var(--text-hi);
+      letter-spacing: -0.01em;
+      margin: 1.1em 0 0.4em;
+      font-weight: 600;
+    }
+    .msg .body h2 { font-size: 1.18rem; }
+    .msg .body h3 { font-size: 1.06rem; color: var(--green); }
+    .msg .body h4 { font-size: 0.98rem; color: var(--blue); }
+    .msg .body strong { color: var(--text-hi); font-weight: 600; }
+    .msg .body em     { color: var(--text); font-style: italic; }
+    .msg .body del    { color: var(--muted); }
+    .msg .body a      {
+      color: var(--blue); text-decoration: none;
+      border-bottom: 1px solid var(--blue-a28);
+    }
+    .msg .body a:hover { border-bottom-color: var(--blue); text-shadow: var(--glow-blue); }
+    .msg .body ul, .msg .body ol { margin: 0 0 0.85em 1.4em; padding: 0; }
+    .msg .body li { margin: 0.2em 0; }
+    .msg .body hr {
+      border: 0; height: 1px; background: var(--border); margin: 1.2em 0;
+    }
+    .msg .body blockquote {
+      margin: 0.6em 0; padding: 0.4em 1em;
+      border-left: 3px solid var(--blue-a28);
+      background: var(--blue-a08);
+      color: var(--text);
+      border-radius: 0 var(--radius) var(--radius) 0;
+    }
+    .msg .body code.inline {
+      font-family: var(--font);
+      font-size: 0.88em;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 1px 5px;
+      color: var(--green);
+    }
+
+    /* Fenced code block */
+    .code-block {
+      margin: 0.9em 0;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+    .code-block .code-head {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0.35rem 0.7rem;
+      background: var(--surface2);
+      border-bottom: 1px solid var(--border);
+      font-family: var(--font); font-size: var(--fs-xs);
+      color: var(--muted);
+    }
+    .code-block .code-head .lang { text-transform: lowercase; letter-spacing: 0.04em; }
+    .code-block .code-copy {
+      background: transparent; border: 1px solid var(--border);
+      border-radius: 4px; color: var(--muted);
+      font-family: var(--font); font-size: 0.65rem;
+      text-transform: uppercase; letter-spacing: 0.08em;
+      padding: 1px 0.5rem; cursor: pointer;
+    }
+    .code-block .code-copy:hover { color: var(--green); border-color: var(--green-a28); }
+    .code-block pre {
+      margin: 0; padding: 0.8rem 1rem;
+      overflow-x: auto;
+      font-family: var(--font);
+      font-size: 0.85rem;
+      line-height: 1.55;
+      color: var(--text-hi);
+    }
+    .code-block pre code { color: inherit; background: none; padding: 0; border: 0; }
+
+    /* Stats line */
+    .stats-line {
+      font-size: var(--fs-xs);
+      color: var(--muted);
+      letter-spacing: 0.02em;
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--s-2);
+      align-items: center;
+      padding-left: var(--s-1);
+    }
+    .stats-line .seg { white-space: nowrap; }
+    .stats-line .seg.model {
+      color: var(--text);
+      cursor: pointer;
+      border-bottom: 1px dotted var(--border-hi);
+    }
+    .stats-line .seg.model:hover { color: var(--text-hi); border-bottom-color: var(--green); }
+    .stats-line .sep { color: var(--border-hi); }
+
+    /* Provenance overlay */
+    .prov-overlay {
+      position: fixed;
+      z-index: 9999;
+      width: 320px;
+      background: var(--surface2);
+      border: 1px solid var(--border-hi);
+      border-radius: var(--radius);
+      box-shadow: var(--elev-2);
+      padding: var(--s-3) var(--s-4);
+      font-size: var(--fs-sm);
+    }
+    .prov-overlay h4 {
+      font-size: var(--fs-md);
+      color: var(--text-hi);
+      margin-bottom: var(--s-2);
+      padding-bottom: var(--s-2);
+      border-bottom: 1px solid var(--border);
+    }
+    .prov-overlay dl { display: grid; grid-template-columns: max-content 1fr; gap: var(--s-1) var(--s-3); }
+    .prov-overlay dt { color: var(--muted); }
+    .prov-overlay dd { color: var(--text-hi); font-variant-numeric: tabular-nums; }
+    .prov-overlay .footer { margin-top: var(--s-3); padding-top: var(--s-2); border-top: 1px solid var(--border); }
+    .prov-overlay .footer a { color: var(--blue); font-size: var(--fs-xs); }
+
+    /* Input */
+    .input-wrap {
+      flex-shrink: 0;
+      padding: var(--s-3) 0 0;
+      border-top: 1px solid var(--border);
+    }
+    .composer {
+      position: relative;
+      display: flex;
+      align-items: stretch;
+      gap: var(--s-2);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: var(--s-2);
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    .composer:focus-within {
+      border-color: var(--green);
+      box-shadow: var(--glow-green);
+    }
+    .composer textarea {
+      flex: 1;
+      min-height: 56px;
+      max-height: 220px;
+      background: transparent;
+      border: 0;
+      outline: 0;
+      color: var(--text-hi);
+      font-family: var(--font);
+      font-size: var(--fs-md);
+      line-height: 1.55;
+      resize: none;
+      padding: var(--s-2);
+    }
+    .composer textarea::placeholder { color: var(--muted); }
+    .composer .send-btn {
+      align-self: flex-end;
+      background: var(--green-a16);
+      color: var(--green);
+      border: 1px solid var(--green-a28);
+      border-radius: var(--radius);
+      padding: 0.55rem 1rem;
+      font-family: var(--font);
+      font-weight: 700;
+      font-size: var(--fs-sm);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .composer .send-btn:hover { background: var(--green-a28); box-shadow: var(--glow-green); }
+    .composer .send-btn:disabled {
+      background: var(--surface2); color: var(--muted); border-color: var(--border);
+      cursor: not-allowed; box-shadow: none;
+    }
+    .composer .send-btn .kbd { font-size: 0.7em; opacity: 0.7; margin-left: 0.4em; }
+
+    .secondary-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--s-1);
+      background: transparent;
+      border: 0;
+      color: var(--purple);
+      font-family: var(--font);
+      font-size: var(--fs-xs);
+      padding: var(--s-2) 0 0;
+      cursor: pointer;
+      text-transform: lowercase;
+    }
+    .secondary-toggle:hover { color: var(--text-hi); }
+
+    /* Compact controls */
+    .ctrls {
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      gap: var(--s-3);
+      padding: var(--s-3) 0 var(--s-4);
+      flex-wrap: wrap;
+    }
+    .ctrl-group { display: flex; align-items: center; gap: var(--s-2); min-width: 0; }
+    .ctrl-group .label {
+      font-size: var(--fs-xs);
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .picker {
+      position: relative;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 0.4rem 0.7rem;
+      color: var(--text-hi);
+      font-family: var(--font);
+      font-size: var(--fs-sm);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: var(--s-2);
+      min-width: 0;
+      max-width: 280px;
+      transition: border-color 0.12s;
+    }
+    .picker:hover { border-color: var(--border-hi); }
+    .picker .picker-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .picker .caret-down { color: var(--muted); }
+    .picker.open { border-color: var(--green); box-shadow: var(--glow-green); }
+
+    .picker-pop {
+      position: absolute;
+      bottom: calc(100% + 6px);
+      left: 0;
+      min-width: 360px;
+      max-width: 480px;
+      background: var(--surface);
+      border: 1px solid var(--border-hi);
+      border-radius: var(--radius);
+      box-shadow: var(--elev-2);
+      padding: var(--s-2) 0;
+      z-index: 1000;
+      display: none;
+      max-height: 60vh;
+      overflow-y: auto;
+    }
+    .picker.open .picker-pop { display: block; }
+    .picker-pop .section {
+      font-size: var(--fs-xs);
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      padding: var(--s-2) var(--s-4) var(--s-1);
+    }
+    .picker-pop .section .head {
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .picker-pop .section .hw { color: var(--text); text-transform: none; letter-spacing: 0; font-size: var(--fs-xs); }
+    .picker-pop .opt {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--s-3);
+      padding: 0.5rem var(--s-4);
+      cursor: pointer;
+      font-size: var(--fs-sm);
+      color: var(--text-hi);
+    }
+    .picker-pop .opt:hover { background: var(--surface2); }
+    .picker-pop .opt.current { background: var(--green-a08); color: var(--green); }
+    .picker-pop .opt .name { display: flex; align-items: center; gap: var(--s-2); min-width: 0; }
+    .picker-pop .opt .name .runtime { color: var(--muted); font-size: var(--fs-xs); }
+    .picker-pop .opt .meta { display: flex; align-items: center; gap: var(--s-2); flex-shrink: 0; }
+    .picker-pop .opt .size { color: var(--muted); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
+    .picker-pop .divider { height: 1px; background: var(--border); margin: var(--s-2) 0; }
+    .picker-pop .source-row {
+      display: flex; gap: var(--s-1); flex-wrap: wrap;
+      padding: 0 var(--s-4) var(--s-2);
+    }
+    .picker-pop .source-pill {
+      font-size: var(--fs-xs);
+      padding: 0.2rem 0.55rem;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      color: var(--muted);
+      background: transparent;
+      cursor: pointer;
+      font-family: var(--font);
+    }
+    .picker-pop .source-pill.active { color: var(--green); border-color: var(--green-a28); background: var(--green-a08); }
+    .picker-pop .source-pill.unavailable { opacity: 0.5; cursor: help; }
+
+    .fit-chip {
+      font-size: var(--fs-xs);
+      padding: 1px 0.45rem;
+      border-radius: 999px;
+      border: 1px solid currentColor;
+      text-transform: lowercase;
+      font-variant-numeric: tabular-nums;
+    }
+    .fit-chip.good      { color: var(--green); background: var(--green-a08); }
+    .fit-chip.marginal  { color: var(--amber); background: var(--amber-a08); }
+    .fit-chip.streaming { color: var(--blue);  background: var(--blue-a08); }
+
+    .new-badge {
+      font-size: 0.55rem; padding: 1px 0.35rem;
+      background: var(--purple-a16); color: var(--purple);
+      border: 1px solid var(--purple-a28);
+      border-radius: 999px; text-transform: uppercase; letter-spacing: 0.08em;
+    }
+    .deep-badge {
+      font-size: 0.55rem; padding: 1px 0.4rem;
+      background: var(--blue-a16); color: var(--blue);
+      border: 1px solid var(--blue-a28);
+      border-radius: 999px; text-transform: uppercase; letter-spacing: 0.1em;
+    }
+
+    .stream-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--s-2);
+      font-size: var(--fs-xs);
+      color: var(--muted);
+      cursor: pointer;
+      user-select: none;
+    }
+    .stream-toggle input { accent-color: var(--green); }
+
+    /* (drawer positioning lives in the layout block above) */
+    .drawer-head {
+      display: flex; align-items: center; justify-content: space-between;
+      padding-bottom: var(--s-3); border-bottom: 1px solid var(--border);
+      margin-bottom: var(--s-2);
+    }
+    .drawer-head .title {
+      font-size: var(--fs-md); font-weight: 700; color: var(--text-hi);
+      letter-spacing: -0.01em;
+    }
+    .drawer-head .title .accent { color: var(--green); }
+    .drawer-head .close {
+      background: transparent; border: 1px solid var(--border);
+      color: var(--muted); font-family: var(--font); font-size: var(--fs-xs);
+      padding: 0.2rem 0.6rem; border-radius: var(--radius); cursor: pointer;
+    }
+    .drawer-head .close:hover { color: var(--text-hi); border-color: var(--border-hi); }
+    .accordion {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--surface);
+    }
+    .accordion > summary {
+      list-style: none;
+      cursor: pointer;
+      padding: var(--s-3) var(--s-4);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: var(--fs-xs);
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+    .accordion > summary::-webkit-details-marker { display: none; }
+    .accordion > summary::after { content: "▾"; color: var(--muted); }
+    .accordion[open] > summary::after { content: "▴"; color: var(--green); }
+    .accordion .body { padding: var(--s-3) var(--s-4) var(--s-4); border-top: 1px solid var(--border); }
+
+    /* Tunable rows — compound slider+number, two-way synced */
+    .tunable {
+      padding: var(--s-3) 0;
+      border-bottom: 1px dashed var(--border);
+    }
+    .tunable:last-child { border-bottom: 0; }
+    .tunable .head {
+      display: flex; justify-content: space-between; align-items: baseline;
+      font-weight: 600; color: var(--text-hi); font-size: var(--fs-sm);
+    }
+    .tunable .head .name { letter-spacing: 0.01em; }
+    .tunable .head .reco { color: var(--muted); font-size: var(--fs-xs); font-weight: 400; }
+    .tunable .desc { color: var(--muted); font-size: var(--fs-xs); margin: 2px 0 var(--s-2); line-height: 1.5; }
+
+    /* Compound control: slider on the left, numeric stepper on the right */
+    .tcontrol {
+      display: grid;
+      grid-template-columns: 1fr 84px;
+      gap: var(--s-3);
+      align-items: center;
+    }
+    .tcontrol .slider-wrap { position: relative; padding-top: var(--s-1); }
+    .tcontrol input[type="range"] {
+      width: 100%;
+      -webkit-appearance: none; appearance: none;
+      background: transparent;
+      height: 18px;
+      cursor: pointer;
+    }
+    .tcontrol input[type="range"]::-webkit-slider-runnable-track {
+      height: 4px;
+      background: linear-gradient(to right, var(--green) var(--fill, 50%), var(--surface2) var(--fill, 50%));
+      border-radius: 2px;
+    }
+    .tcontrol input[type="range"]::-moz-range-track {
+      height: 4px; background: var(--surface2); border-radius: 2px;
+    }
+    .tcontrol input[type="range"]::-moz-range-progress {
+      height: 4px; background: var(--green); border-radius: 2px;
+    }
+    .tcontrol input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none; appearance: none;
+      width: 14px; height: 14px;
+      margin-top: -5px;
+      background: var(--green);
+      border: 2px solid var(--bg);
+      border-radius: 50%;
+      box-shadow: var(--glow-green);
+      cursor: grab;
+    }
+    .tcontrol input[type="range"]::-moz-range-thumb {
+      width: 14px; height: 14px;
+      background: var(--green);
+      border: 2px solid var(--bg);
+      border-radius: 50%;
+      box-shadow: var(--glow-green);
+      cursor: grab;
+    }
+    .tcontrol input[type="range"]:focus { outline: none; }
+    .tcontrol .ticks {
+      display: flex; justify-content: space-between;
+      font-size: 0.6rem; color: var(--border-hi);
+      margin-top: 2px;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: 0;
+    }
+
+    .tcontrol .num-wrap {
+      position: relative;
+      display: flex; align-items: center;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      transition: border-color 0.12s, box-shadow 0.12s;
+    }
+    .tcontrol .num-wrap:focus-within { border-color: var(--green); box-shadow: var(--glow-green); }
+    .tcontrol input[type="number"] {
+      flex: 1; min-width: 0;
+      background: transparent; border: 0; outline: 0;
+      color: var(--green);
+      font-family: var(--font);
+      font-size: var(--fs-sm);
+      font-weight: 600;
+      padding: 0.4rem 0 0.4rem 0.5rem;
+      font-variant-numeric: tabular-nums;
+      text-align: right;
+      -moz-appearance: textfield;
+    }
+    .tcontrol input[type="number"]::-webkit-outer-spin-button,
+    .tcontrol input[type="number"]::-webkit-inner-spin-button {
+      -webkit-appearance: none; margin: 0;
+    }
+    .tcontrol .unit { color: var(--muted); font-size: var(--fs-xs); padding: 0 0.5rem 0 0.25rem; }
+
+    .tunable select {
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text-hi);
+      font-family: var(--font);
+      font-size: var(--fs-sm);
+      padding: 0.4rem 0.5rem;
+      cursor: pointer;
+    }
+    .tunable select:focus { outline: none; border-color: var(--green); box-shadow: var(--glow-green); }
+    .tunable .impact {
+      margin-top: var(--s-2);
+      font-size: 0.65rem;
+      color: var(--muted);
+      letter-spacing: 0.04em;
+      display: flex;
+      gap: var(--s-3);
+      flex-wrap: wrap;
+    }
+    .tunable .impact .pip {
+      display: inline-flex; align-items: center; gap: 4px;
+    }
+    .tunable .impact .arrow.up { color: var(--amber); }
+    .tunable .impact .arrow.up2 { color: var(--red); }
+    .tunable .impact .arrow.down { color: var(--blue); }
+    .tunable .impact .arrow.down2 { color: var(--blue); font-weight: 700; }
+
+    .tele-grid {
+      display: grid; grid-template-columns: max-content 1fr;
+      gap: var(--s-1) var(--s-3); font-size: var(--fs-sm);
+    }
+    .tele-grid dt { color: var(--muted); text-transform: lowercase; }
+    .tele-grid dd { color: var(--text-hi); font-variant-numeric: tabular-nums; }
+
+    /* Model info card (drawer) */
+    .mi-empty { color: var(--muted); font-size: var(--fs-sm); font-style: italic; }
+    .mi-card .mi-name {
+      font-size: var(--fs-md);
+      font-weight: 700;
+      color: var(--green);
+      letter-spacing: -0.01em;
+      margin-bottom: var(--s-1);
+    }
+    .mi-card .mi-tag {
+      display: inline-block;
+      font-size: var(--fs-xs);
+      color: var(--muted);
+      margin-bottom: var(--s-3);
+    }
+    .mi-card .mi-tag .runtime { color: var(--blue); }
+    .mi-card dl.mi-facts {
+      display: grid; grid-template-columns: max-content 1fr;
+      gap: var(--s-1) var(--s-3);
+      font-size: var(--fs-sm);
+      margin-bottom: var(--s-3);
+    }
+    .mi-card dl.mi-facts dt { color: var(--muted); text-transform: lowercase; letter-spacing: 0.04em; }
+    .mi-card dl.mi-facts dd { color: var(--text-hi); }
+    .mi-card .mi-section-h {
+      font-size: var(--fs-xs);
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      margin: var(--s-3) 0 var(--s-1);
+    }
+    .mi-card ul.mi-strengths { list-style: none; margin: 0; padding: 0; }
+    .mi-card ul.mi-strengths li {
+      font-size: var(--fs-sm);
+      color: var(--text);
+      padding: 0.18rem 0;
+      display: flex; gap: var(--s-2);
+    }
+    .mi-card ul.mi-strengths li::before {
+      content: "▸";
+      color: var(--green);
+      flex-shrink: 0;
+    }
+    .mi-card .mi-bench {
+      width: 100%;
+      font-size: var(--fs-xs);
+      border-collapse: collapse;
+    }
+    .mi-card .mi-bench th, .mi-card .mi-bench td {
+      padding: 0.25rem 0.4rem;
+      text-align: left;
+      border-bottom: 1px dashed var(--border);
+    }
+    .mi-card .mi-bench th {
+      color: var(--muted); font-weight: 500;
+      text-transform: uppercase; letter-spacing: 0.06em;
+      font-size: 0.6rem;
+    }
+    .mi-card .mi-bench td.score { color: var(--green); font-weight: 600; font-variant-numeric: tabular-nums; }
+    .mi-card .mi-bench td.cmp   { color: var(--muted); }
+    .mi-card .mi-notes {
+      margin-top: var(--s-3);
+      padding: var(--s-3);
+      font-size: var(--fs-sm);
+      color: var(--text);
+      line-height: 1.5;
+      background: var(--blue-a08);
+      border-left: 3px solid var(--blue);
+      border-radius: 0 var(--radius) var(--radius) 0;
+    }
+    .mi-card .mi-source {
+      display: inline-block;
+      margin-top: var(--s-3);
+      font-size: var(--fs-xs);
+      color: var(--blue);
+    }
+    .mi-card .mi-edit {
+      display: block;
+      margin-top: var(--s-3);
+      padding-top: var(--s-2);
+      border-top: 1px dashed var(--border);
+      font-size: var(--fs-xs);
+      color: var(--muted);
+    }
+    .mi-card .mi-edit code { color: var(--purple); background: var(--purple-a08); padding: 1px 5px; border-radius: 4px; }
+
+    .inline-path {
+      font-family: var(--font);
+      font-size: 0.88em;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 1px 5px;
+      color: var(--blue);
+    }
+    .snippet {
+      font-family: var(--font);
+      font-size: 0.72rem;
+      line-height: 1.5;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: var(--s-2);
+      color: var(--text);
+      overflow-x: auto;
+    }
+
+    /* References block */
+    .ref-group { margin-bottom: var(--s-3); }
+    .ref-group .ref-h {
+      font-size: var(--fs-xs);
+      color: var(--green);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      margin-bottom: var(--s-1);
+      padding-bottom: 2px;
+      border-bottom: 1px solid var(--green-a28);
+    }
+    .ref-list { list-style: none; margin: 0; padding: 0; }
+    .ref-list li {
+      display: grid;
+      grid-template-columns: max-content 1fr;
+      gap: var(--s-2);
+      align-items: baseline;
+      padding: 0.25rem 0;
+      font-size: var(--fs-sm);
+    }
+    .ref-list li a { color: var(--blue); border-bottom: 1px dotted var(--blue-a28); }
+    .ref-list li a:hover { color: var(--text-hi); border-bottom-color: var(--blue); }
+    .ref-list .ref-note { color: var(--muted); font-size: var(--fs-xs); }
+    .ref-list code { color: var(--purple); background: var(--purple-a08); padding: 1px 4px; border-radius: 3px; font-size: 0.85em; }
+    .ref-foot { font-size: var(--fs-xs); color: var(--muted); margin-top: var(--s-3); padding-top: var(--s-2); border-top: 1px dashed var(--border); line-height: 1.5; }
+    .ref-foot code { color: var(--blue); }
+
+    /* ── Left rail: model cards ─────────────────────────────────── */
+    .rail-list { padding: var(--s-2) var(--s-2); display: flex; flex-direction: column; gap: var(--s-2); }
+    .rail-empty { color: var(--muted); font-size: var(--fs-xs); padding: var(--s-2); }
+    .model-card {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-left: 3px solid transparent;
+      border-radius: var(--radius);
+      padding: var(--s-2) var(--s-3);
+      cursor: pointer;
+      transition: border-color 0.12s, background 0.12s;
+    }
+    .model-card:hover { border-color: var(--border-hi); background: var(--surface2); }
+    .model-card.current {
+      border-color: var(--green-a28);
+      border-left-color: var(--green);
+      background: var(--green-a08);
+    }
+    .model-card .mc-row {
+      display: flex; align-items: center; justify-content: space-between; gap: var(--s-2);
+    }
+    .model-card .mc-name {
+      font-size: var(--fs-sm); font-weight: 600; color: var(--text-hi);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1;
+    }
+    .model-card .mc-meta {
+      display: flex; align-items: center; gap: var(--s-1);
+      margin-top: 2px;
+      font-size: 0.65rem; color: var(--muted);
+    }
+    .model-card .mc-meta .runtime { color: var(--blue); }
+    .model-card .mc-meta .dot { color: var(--border-hi); }
+    .model-card .mc-actions {
+      display: none;
+      gap: var(--s-1);
+      margin-top: var(--s-2);
+    }
+    .model-card:hover .mc-actions, .model-card.current .mc-actions { display: flex; }
+    .model-card .mc-act {
+      flex: 1;
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--muted);
+      font-family: var(--font);
+      font-size: 0.6rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      padding: 2px 6px;
+      cursor: pointer;
+    }
+    .model-card .mc-act.primary:hover   { color: var(--green);  border-color: var(--green-a28);  background: var(--green-a08);  }
+    .model-card .mc-act.secondary:hover { color: var(--purple); border-color: var(--purple-a28); background: var(--purple-a08); }
+    .model-card .mc-act.disabled, .model-card .mc-act:disabled {
+      opacity: 0.45; cursor: help; color: var(--muted) !important;
+      border-color: var(--border) !important; background: transparent !important;
+    }
+
+    /* Active-card eject + swap actions */
+    .active-actions {
+      display: flex; gap: var(--s-2);
+      margin-top: var(--s-3);
+      padding-top: var(--s-2);
+      border-top: 1px dashed var(--border);
+    }
+    .active-actions .mc-act, .mc-act.eject, .mc-act.swap {
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--muted);
+      font-family: var(--font);
+      font-size: var(--fs-xs);
+      letter-spacing: 0.05em;
+      padding: 0.3rem 0.6rem;
+      cursor: pointer;
+      transition: all 0.12s;
+    }
+    .mc-act.eject:hover { color: var(--red); border-color: var(--red-a28); background: var(--red-a08); }
+    .mc-act.swap:hover  { color: var(--green); border-color: var(--green-a28); background: var(--green-a08); }
+    .mc-act.load        { color: var(--green); border-color: var(--green-a28); background: var(--green-a08); }
+    .mc-act.load:hover  { color: var(--text-hi); background: var(--green-a16); box-shadow: var(--glow-green); }
+
+    /* Warm/cold indicator on every model card */
+    .model-card .warm-dot {
+      display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+      background: var(--border-hi); margin-right: var(--s-2);
+      vertical-align: middle;
+    }
+    .model-card.warm .warm-dot {
+      background: var(--green); box-shadow: var(--glow-green);
+      animation: warm-pulse 2.6s ease-in-out infinite;
+    }
+    @keyframes warm-pulse { 50% { opacity: 0.55; } }
+    .model-card .warm-label {
+      color: var(--green); font-weight: 700; font-size: 0.55rem; letter-spacing: 0.1em;
+    }
+    .model-card .cold-label { color: var(--muted); font-size: 0.55rem; letter-spacing: 0.1em; }
+
+    /* Telemetry warm-pill chip */
+    .warm-pill {
+      display: inline-block;
+      padding: 1px 0.45rem;
+      border: 1px solid var(--green-a28);
+      border-radius: 999px;
+      background: var(--green-a08);
+      color: var(--green);
+      font-size: 0.6rem;
+      letter-spacing: 0.04em;
+      margin-right: 4px;
+    }
+
+    /* ── Column quickbar chip (model name only — picking lives in the rail) ── */
+    .col-chip {
+      display: inline-flex; align-items: center; gap: var(--s-2);
+      padding: 0.3rem 0.55rem;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+    }
+    .col-chip .chip-name { color: var(--text-hi); font-weight: 600; font-size: var(--fs-sm); }
+    .col-chip .chip-hint { color: var(--muted); font-size: var(--fs-xs); }
+
+    /* ── System prompt textarea ─────────────────────────────────── */
+    .sys-prompt-ta, .tunable textarea {
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text-hi);
+      font-family: var(--font);
+      font-size: var(--fs-sm);
+      line-height: 1.5;
+      padding: var(--s-2);
+      box-sizing: border-box;
+      resize: vertical;
+      min-height: 64px;
+    }
+    .sys-prompt-ta:focus, .tunable textarea:focus {
+      outline: none; border-color: var(--green); box-shadow: var(--glow-green);
+    }
+
+    /* Toggle switch (JSON mode etc.) */
+    .tunable .toggle {
+      display: inline-flex; align-items: center; gap: var(--s-2);
+      cursor: pointer;
+      font-size: var(--fs-sm);
+      color: var(--text);
+    }
+    .tunable .toggle input { accent-color: var(--green); width: 16px; height: 16px; }
+
+    .log-tail {
+      max-height: 280px;
+      overflow-y: auto;
+      font-family: var(--font);
+      font-size: var(--fs-xs);
+      color: var(--muted);
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: var(--s-2);
+    }
+    .log-tail .row .ts { color: var(--border-hi); margin-right: var(--s-2); }
+    .log-tail .row .lvl-info  { color: var(--blue); }
+    .log-tail .row .lvl-warn  { color: var(--amber); }
+    .log-tail .row .lvl-error { color: var(--red); }
+
+    /* Connections drawer (modal-ish) */
+    .modal-back {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.55);
+      z-index: 9000;
+      display: none;
+      align-items: center;
+      justify-content: center;
+    }
+    .modal-back.open { display: flex; }
+    .modal {
+      width: min(640px, 92vw);
+      background: var(--surface);
+      border: 1px solid var(--border-hi);
+      border-radius: var(--radius);
+      box-shadow: var(--elev-2);
+      padding: var(--s-5);
+    }
+    .modal h2 {
+      font-size: var(--fs-lg); color: var(--text-hi); margin-bottom: var(--s-2);
+    }
+    .modal h2 .accent { color: var(--green); }
+    .modal .blurb { color: var(--muted); font-size: var(--fs-sm); margin-bottom: var(--s-4); }
+    .modal .row {
+      display: grid;
+      grid-template-columns: 110px 1fr auto;
+      gap: var(--s-3);
+      align-items: center;
+      padding: var(--s-2) 0;
+      border-bottom: 1px dashed var(--border);
+    }
+    .modal .row:last-child { border-bottom: 0; }
+    .modal .row .name { color: var(--text); font-size: var(--fs-sm); }
+    .modal .row input {
+      background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius);
+      color: var(--text-hi); font-family: var(--font); font-size: var(--fs-sm); padding: 0.4rem 0.6rem;
+    }
+    .modal .row .badge {
+      font-size: var(--fs-xs);
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--border-hi); display: inline-block;
+    }
+    .modal .row.ok .badge { background: var(--green); box-shadow: var(--glow-green); }
+    .modal .footer { display: flex; justify-content: flex-end; gap: var(--s-2); margin-top: var(--s-4); }
+    .modal .footer button {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text); font-family: var(--font); font-size: var(--fs-sm);
+      padding: 0.4rem 0.9rem; cursor: pointer;
+    }
+    .modal .footer button.primary { color: var(--green); border-color: var(--green-a28); background: var(--green-a08); }
+    .modal .blurb code { color: var(--blue); }
+
+    /* Compact / mobile collapse */
+    @media (max-width: 920px) {
+      .studio.with-drawer { grid-template-columns: 1fr; grid-template-areas: "head" "loader" "trans" "input" "ctrls"; }
+      .studio.with-drawer > .drawer { display: none; }
+    }
+  </style>
 </head>
 <body>
+  {% include "_nav.html" with context %}
 
-{% if not embed %}
-{% set active = 'chat' %}{% include "_nav.html" %}
-{% else %}
-<script>document.body.classList.add('embed');</script>
-{% endif %}
-
-<div class="chat-wrap">
-  <div class="chat-head">
-    <h1>Chat</h1>
-    <span class="chat-sub">Choose fast chat, duplicate the prompt to Deep Teacher, or send to Teacher only when depth matters more than latency.</span>
-  </div>
-
-  <div class="chat-shortcuts" aria-label="Chat shortcuts">
-    <a class="tuning-link" href="/tuning" title="Open tuning workspace">
-      <span>🧪</span>
-      <span>LLM Tuning</span>
-    </a>
-    <a class="terminal-link" href="/terminal" target="_blank" rel="noopener" title="Open terminal in a new tab">
-      <span>⌨️</span>
-      <span>Terminal Pop Out</span>
-    </a>
-  </div>
-
-  <div class="chat-grid">
-    <section class="chat-card compute-card">
-      <div class="compute-head-row">
-        <h2>
-          Compute Source
-          <span class="chat-chip" id="compute-source-chip">my machine</span>
-        </h2>
-        <button class="btn btn-sm btn-ghost" id="btn-manage-providers" type="button">⚙ Manage providers</button>
+  <main class="studio" id="studio">
+    <header class="studio-head">
+      <h1>Chat <span class="accent">Studio</span></h1>
+      <div class="preset-row" id="presets">
+        <button data-preset="balanced" class="active">Balanced</button>
+        <button data-preset="fast">Fast</button>
+        <button data-preset="creative">Creative</button>
+        <button data-preset="coder">Coder</button>
+        <button data-preset="precise">Precise</button>
+        <button data-preset="json">JSON</button>
       </div>
-      <p class="chat-sub" style="margin-top:-4px">
-        Pick where your chat runs. Local stays on your machine; cloud options send your message to the vendor (and need an API key).
-        Tokens save to <code>lab/data/secrets.env</code> (chmod 0600, git-ignored).
-      </p>
-      <div class="airgapped-banner" id="airgapped-banner" style="display:none">
-        <strong>Airgapped mode.</strong> Cloud providers are locked — only <em>My Machine</em> works.
-        To enable Claude, NVIDIA, OpenRouter, or HuggingFace, set <code>LAB_MODE=hybrid</code> in <code>.env</code> and restart the lab.
-      </div>
-      <div class="compute-source-grid">
-        <label class="compute-opt">
-          <input type="radio" name="compute-source" value="my_machine" checked>
-          <span class="compute-opt-label">
-            <strong>My Machine</strong>
-            <br>
-            <span class="chat-muted" id="mm-primary-line">Local — detecting runtime…</span>
-            <!-- Populated by JS from /api/system/health → local_inference.
-                 Shows the in-process backend (MLX / vLLM / llama.cpp) plus
-                 every detected OpenAI-compat server (Ollama, MLX OpenAI,
-                 LM Studio, vLLM, LMDeploy, etc.) with their port. -->
-            <span class="mm-endpoints" id="mm-endpoints"></span>
-          </span>
-        </label>
-        <label class="compute-opt">
-          <input type="radio" name="compute-source" value="claude">
-          <span class="compute-opt-label"><strong>Claude</strong><br><span class="chat-muted">Anthropic API</span></span>
-        </label>
-        <label class="compute-opt">
-          <input type="radio" name="compute-source" value="nvidia">
-          <span class="compute-opt-label"><strong>NVIDIA NIM</strong><br><span class="chat-muted">build.nvidia.com</span></span>
-        </label>
-        <label class="compute-opt">
-          <input type="radio" name="compute-source" value="openrouter">
-          <span class="compute-opt-label"><strong>OpenRouter</strong><br><span class="chat-muted">Hosted models</span></span>
-        </label>
-        <label class="compute-opt">
-          <input type="radio" name="compute-source" value="huggingface">
-          <span class="compute-opt-label"><strong>HuggingFace</strong><br><span class="chat-muted">Inference API</span></span>
-        </label>
-        <label class="compute-opt">
-          <input type="radio" name="compute-source" value="custom">
-          <span class="compute-opt-label"><strong>Custom endpoint</strong><br><span class="chat-muted">Any OpenAI-compatible URL</span></span>
-        </label>
-      </div>
+      <div class="head-spacer"></div>
+      <button class="icon-btn" id="btn-conn" title="Connections (tokens)">⚙ Connections</button>
+      <a class="icon-btn" href="/docs/tunables.md" target="_blank" title="Glossary of every tunable">📖 Glossary</a>
+      <button class="icon-btn" id="btn-toggle-left"  title="Scroll to model rail">◧ Models</button>
+      <button class="icon-btn" id="btn-toggle-right" title="Scroll to tunables">Tunables ◨</button>
+    </header>
 
-      <div class="compute-key-row" id="compute-key-row" style="display:none">
-        <label style="flex:1">
-          <span id="compute-key-label">API Key</span>
-          <input id="compute-key" type="password" autocomplete="off" placeholder="paste token here">
-        </label>
-        <label id="compute-url-wrap" style="flex:1; display:none">
-          Endpoint URL
-          <input id="compute-url" type="text" autocomplete="off" placeholder="https://…/v1">
-        </label>
-        <button class="btn btn-primary" id="compute-save">Save token</button>
-      </div>
-      <div class="chat-muted" id="compute-status" style="margin-top:6px"></div>
-    </section>
-
-    <section class="chat-card">
-      <h2>Compose</h2>
-      <div class="chat-compose">
-        <input id="chat-input" type="text" placeholder="Ask once, then choose fast chat, both, or Teacher only…" autocomplete="off" />
-        <button class="btn btn-primary" id="chat-send">Send</button>
-        <button class="btn btn-ghost" id="chat-clear">Clear</button>
-      </div>
-
-      <div class="chat-controls">
-        <label>
-          Send mode
-          <select id="chat-route">
-            <option value="fast">Fast chat only</option>
-            <option value="both">Fast chat + Deep Teacher</option>
-            <option value="teacher-only">Deep Teacher only</option>
-          </select>
-        </label>
-        <div class="fast-model-picker">
-          <div class="fast-model-head">
-            <span class="fast-model-label">Fast model</span>
-            <span class="fast-model-tabs">
-              <button type="button" class="fmp-tab active" data-tab="installed">Installed <span id="fmp-count-installed">·</span></button>
-              <button type="button" class="fmp-tab" data-tab="catalog">Catalog <span id="fmp-count-catalog">·</span></button>
-            </span>
-          </div>
-          <!-- Hidden input keeps the existing send code happy:
-               $('fast-model').value still resolves to the selected
-               model id. Card clicks update it. -->
-          <input type="hidden" id="fast-model" value="">
-          <div class="fmp-grid" id="fmp-grid">
-            <div class="fmp-loading">scanning runtimes…</div>
-          </div>
-          <div class="fmp-install" id="fmp-install" hidden>
-            <div class="fmp-install-head">
-              <span class="fmp-install-title" id="fmp-install-title">Install</span>
-              <button type="button" class="fmp-copy" id="fmp-install-copy">Copy</button>
+    <!-- ── HERO: chat transcript + composer (full width) ─────────────── -->
+    <div class="studio-main">
+      <div class="compare-grid" id="compare-grid" data-cols="1">
+        <!-- ── Column A (primary) ── -->
+        <section class="col" data-col="A">
+          <div class="col-quickbar">
+            <div class="col-chip" id="col-chip-A">
+              <span class="qb-label">model A</span>
+              <span class="chip-name" id="picker-label">loading…</span>
+              <span class="chip-hint">← pick from rail</span>
             </div>
-            <code class="fmp-install-cmd" id="fmp-install-cmd"></code>
-            <div class="fmp-install-hint">
-              Once it finishes downloading, hit <strong>Installed</strong> above and pick it.
+            <div class="qb-slider" data-quickkey="temperature">
+              <span class="qb-label">temp</span>
+              <input type="range" min="0" max="2" step="0.01" value="0.7"
+                     data-quickkey="temperature" id="qb-temp-A">
+              <span class="qb-num" id="qb-temp-A-val">0.70</span>
+            </div>
+            <label class="stream-toggle compact">
+              <input type="checkbox" id="stream-toggle-A" checked> stream
+            </label>
+            <button class="icon-btn compact" id="btn-compare" title="Add a second model side-by-side">+ Compare</button>
+          </div>
+          <!-- Hidden legacy picker shell — JS still references these IDs but the
+               popup is gone. The chip above is the visible affordance now. -->
+          <div id="model-picker" hidden><div id="picker-pop"></div></div>
+
+          <div class="loader-strip" id="loader-strip">
+            <span class="label">load</span>
+            <span class="model" id="ls-model">—</span>
+            <div class="bar"><i id="ls-bar" style="width: 0%"></i></div>
+            <span class="pct" id="ls-pct">0%</span>
+            <span class="eta" id="ls-eta">eta —</span>
+            <button class="cancel" id="ls-cancel">✕ Cancel</button>
+          </div>
+
+          <div class="transcript" id="transcript">
+            <div class="empty" id="empty-state">
+              <div class="glyph">▍</div>
+              <div>Ask anything — local models, or any provider you've connected.</div>
+              <div class="hint">
+                <kbd>⏎</kbd> send · <kbd>Shift+⏎</kbd> newline · <kbd>⌘K</kbd> focus model · <kbd>⌘.</kbd> tunables
+              </div>
             </div>
           </div>
-        </div>
-        <label>
-          Temperature
-          <input id="chat-temp" type="range" min="0" max="2" step="0.1" value="0.7" />
-          <span class="hint" id="chat-temp-val">0.7</span>
-        </label>
-        <label>
-          Top-p
-          <input id="chat-top-p" type="range" min="0" max="1" step="0.05" value="0" />
-          <span class="hint" id="chat-top-p-val">off</span>
-        </label>
-        <label>
-          Max tokens
-          <input id="chat-max-tokens" type="range" min="128" max="4096" step="64" value="512" />
-          <span class="hint" id="chat-max-tokens-val">512</span>
-        </label>
-        <label>
-          Teacher backend
-          <select id="teacher-backend">
-            <option value="airllm">AirLLM</option>
-            <option value="aerollm">AeroLLM</option>
-          </select>
-        </label>
+        </section>
+
+        <!-- ── Column B (secondary, hidden until Compare) ── -->
+        <section class="col" data-col="B" hidden>
+          <div class="col-quickbar">
+            <div class="col-chip" id="col-chip-B" title="Column B uses a deep layer-streaming backend so it can coexist with model A on one GPU. Slower per-token, fits 70B+ models from disk.">
+              <span class="qb-label">model B · deep</span>
+              <span class="chip-name" id="picker-label-B">—</span>
+              <span class="chip-hint">layer-stream · slower · big params</span>
+            </div>
+            <div class="qb-slider" data-quickkey="temperature">
+              <span class="qb-label">temp</span>
+              <input type="range" min="0" max="2" step="0.01" value="0.7"
+                     data-quickkey="temperature" id="qb-temp-B">
+              <span class="qb-num" id="qb-temp-B-val">0.70</span>
+            </div>
+            <label class="stream-toggle compact">
+              <input type="checkbox" id="stream-toggle-B" checked> stream
+            </label>
+            <button class="icon-btn compact" id="btn-compare-close" title="Close compare">✕</button>
+          </div>
+          <div id="model-picker-B" hidden><div id="picker-pop-B"></div></div>
+
+          <div class="transcript" id="transcript-B">
+            <div class="empty">
+              <div class="glyph" style="opacity:.5">▍</div>
+              <div>Secondary column — same prompt, different model.</div>
+            </div>
+          </div>
+        </section>
       </div>
 
-      <div class="chat-route-note" id="chat-route-note">
-        Fast chat only. Switch to a teacher mode when you want the larger model involved.
-      </div>
-    </section>
-
-    <section class="chat-card">
-      <h2>
-        Fast Chat
-        <span class="chat-chip" id="fast-model-chip">loading…</span>
-      </h2>
-      <div class="chat-log" id="fast-log">
-        <div class="chat-msg">
-          <div class="chat-role">LAB</div>
-          <div class="chat-bubble">Quick local path is ready.</div>
+      <div class="input-wrap">
+        <div class="composer">
+          <textarea id="prompt" placeholder="Ask anything — markdown supported. ⏎ to send, ⇧⏎ for newline." rows="2" autofocus></textarea>
+          <button class="send-btn" id="send">Send <span class="kbd">⏎</span></button>
+        </div>
+        <div class="bottom-meta">
+          <span class="status" id="status-line">ready</span>
+          <span class="sep">·</span>
+          <span class="meta-hint">tunables in the panel · sliders apply on next send</span>
         </div>
       </div>
-    </section>
-
-    <section class="chat-card">
-      <h2>
-        Teacher Comparison
-        <span class="chat-chip deep" id="teacher-model-chip">loading…</span>
-      </h2>
-      <div class="chat-log" id="teacher-log">
-        <div class="chat-msg">
-          <div class="chat-role">TEACHER</div>
-          <div class="chat-bubble">Enable Deep Teacher below when you want the same prompt sent through the larger model too.</div>
-        </div>
-      </div>
-      <div class="teacher-cta">Tune deep backend performance in <a href="/tuning">Advanced Tuning</a>.</div>
-    </section>
-  </div>
-</div>
-
-<script>
-(function () {
-  'use strict';
-  const $ = (id) => document.getElementById(id);
-
-  const state = { history: [] };
-
-  function esc(s) {
-    const d = document.createElement('div');
-    d.textContent = s || '';
-    return d.innerHTML;
-  }
-
-  function appendMsg(logId, role, text, meta, isUser) {
-    const log = $(logId);
-    const wrap = document.createElement('div');
-    wrap.className = 'chat-msg';
-    wrap.innerHTML =
-      `<div class="chat-role">${esc(role)}</div>` +
-      `<div class="chat-bubble${isUser ? ' user' : ''}">${esc(text || '')}</div>` +
-      (meta ? `<div class="chat-meta">${esc(meta)}</div>` : '');
-    log.appendChild(wrap);
-    log.scrollTop = log.scrollHeight;
-    return wrap;
-  }
-
-  function startStream(logId, role, placeholder) {
-    const wrap = appendMsg(logId, role, placeholder || '', null, false);
-    const bubble = wrap.querySelector('.chat-bubble');
-    let text = '';
-    return {
-      delta(chunk) {
-        text += chunk || '';
-        bubble.textContent = text;
-      },
-      done(finalText, meta) {
-        bubble.textContent = finalText || text || '(empty response)';
-        if (meta) {
-          const m = document.createElement('div');
-          m.className = 'chat-meta';
-          m.textContent = meta;
-          wrap.appendChild(m);
-        }
-      }
-    };
-  }
-
-  async function streamJsonl(url, payload, ui) {
-    const r = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    if (!r.ok || !r.body) {
-      throw new Error('HTTP ' + r.status);
-    }
-    const reader = r.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-    let finalEvent = null;
-
-    while (true) {
-      const { value, done } = await reader.read();
-      buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
-      let idx;
-      while ((idx = buffer.indexOf('\n')) >= 0) {
-        const line = buffer.slice(0, idx).trim();
-        buffer = buffer.slice(idx + 1);
-        if (!line) continue;
-        const event = JSON.parse(line);
-        if (event.type === 'delta') ui.delta(event.delta || '');
-        if (event.type === 'final') finalEvent = event;
-      }
-      if (done) break;
-    }
-    return finalEvent || { error: 'stream ended without final event', reply: '' };
-  }
-
-  function metaFromFinal(d) {
-    const parts = [];
-    if (d.backend) parts.push(d.backend);
-    if (d.model) parts.push(d.model);
-    if (d.tokens_per_sec) parts.push(d.tokens_per_sec + ' t/s');
-    if (d.latency_ms != null) parts.push(Math.round(d.latency_ms) + ' ms');
-    if (d.tokens_used != null) parts.push(d.tokens_used + ' tok');
-    return parts.join(' · ');
-  }
-
-  function teacherSelection() {
-    const select = $('teacher-backend');
-    const option = select.options[select.selectedIndex];
-    return {
-      backend: select.value || 'airllm',
-      label: option ? option.textContent : 'Deep Teacher',
-      model: option ? option.dataset.model || '' : '',
-    };
-  }
-
-  function syncTeacherChip() {
-    const selected = teacherSelection();
-    $('teacher-model-chip').textContent = selected.model || selected.label || 'deep model';
-  }
-
-  function routeSelection() {
-    const mode = $('chat-route').value || 'fast';
-    return {
-      mode,
-      sendFast: mode !== 'teacher-only',
-      sendTeacher: mode !== 'fast',
-      teacherOnly: mode === 'teacher-only',
-    };
-  }
-
-  function syncRouteNote() {
-    const route = routeSelection();
-    const note = $('chat-route-note');
-    if (route.teacherOnly) {
-      note.textContent = 'Deep Teacher only. Expect a slower start and a longer wait before the first tokens appear.';
-      return;
-    }
-    if (route.sendTeacher) {
-      note.textContent = 'This prompt will be duplicated to Deep Teacher while fast chat responds in parallel.';
-      return;
-    }
-    note.textContent = 'Fast chat only. Switch to a teacher mode when you want the larger model involved.';
-  }
-
-  async function sendMessage() {
-    const message = $('chat-input').value.trim();
-    if (!message) return;
-
-    $('chat-input').value = '';
-    $('chat-send').disabled = true;
-
-    appendMsg('fast-log', 'YOU', message, null, true);
-    appendMsg('teacher-log', 'YOU', message, null, true);
-
-    const temp = parseFloat($('chat-temp').value || '0.7');
-    const topP = parseFloat($('chat-top-p').value || '0');
-    const maxTokens = parseInt($('chat-max-tokens').value || '512', 10);
-    const fastModel = $('fast-model').value || undefined;
-    const route = routeSelection();
-    const teacherBackend = teacherSelection().backend;
-
-    let fastUi = null;
-    let teacherUi = null;
-    if (route.sendFast) {
-      appendMsg('fast-log', 'YOU', message, null, true);
-      fastUi = startStream('fast-log', 'LAB', 'Thinking…');
-    }
-    if (route.sendTeacher) {
-      appendMsg('teacher-log', 'YOU', message, null, true);
-      teacherUi = startStream(
-        'teacher-log',
-        'TEACHER',
-        route.teacherOnly ? 'Teacher-only mode: settling in… this can take a while.' : 'Thinking deeply…'
-      );
-    }
-
-    try {
-      const fastPromise = route.sendFast && fastUi
-        ? streamJsonl('/api/chat/stream', {
-          message,
-          history: state.history,
-          temperature: temp,
-          top_p: topP > 0 ? topP : undefined,
-          max_tokens: maxTokens,
-          model: fastModel,
-          // Per-message runtime hint — set by selectInstalled()
-          // when the user picks a card from a non-default runtime
-          // (e.g. Ollama). The server uses this to route through
-          // the right OpenAI-compat URL instead of falling back
-          // to the configured MODEL_BACKEND.
-          runtime: $('fast-model').dataset.runtime || undefined,
-        }, fastUi)
-        : Promise.resolve(null);
-      const teacherPromise = route.sendTeacher && teacherUi
-        ? streamJsonl('/api/teacher/stream', {
-            message,
-            history: state.history,
-            max_tokens: Math.max(1024, maxTokens),
-            backend: teacherBackend,
-          }, teacherUi)
-        : Promise.resolve(null);
-
-      const [fastFinal, teacherFinal] = await Promise.all([fastPromise, teacherPromise]);
-
-      if (fastUi && fastFinal) {
-        if (fastFinal.error && !fastFinal.reply) {
-          fastUi.done('Error: ' + fastFinal.error, null);
-        } else {
-          fastUi.done(fastFinal.reply || '', metaFromFinal(fastFinal));
-        }
-      }
-
-      if (teacherUi && teacherFinal) {
-        if (teacherFinal.error && !teacherFinal.reply) {
-          teacherUi.done('Error: ' + teacherFinal.error, null);
-        } else {
-          teacherUi.done(teacherFinal.reply || '', metaFromFinal(teacherFinal));
-        }
-      }
-
-      state.history.push({ role: 'user', content: message });
-      const primaryReply = route.teacherOnly
-        ? (teacherFinal && teacherFinal.reply) || ''
-        : (fastFinal && fastFinal.reply) || (teacherFinal && teacherFinal.reply) || '';
-      state.history.push({ role: 'assistant', content: primaryReply });
-      state.history = state.history.slice(-20);
-    } catch (e) {
-      if (fastUi) fastUi.done('Network error: ' + e.message, null);
-      if (teacherUi) teacherUi.done('Network error: ' + e.message, null);
-    } finally {
-      $('chat-send').disabled = false;
-      $('chat-input').focus();
-    }
-  }
-
-  $('chat-send').addEventListener('click', sendMessage);
-  $('chat-input').addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') sendMessage();
-  });
-
-  $('chat-clear').addEventListener('click', () => {
-    state.history = [];
-    $('fast-log').innerHTML = '';
-    $('teacher-log').innerHTML = '';
-    appendMsg('fast-log', 'LAB', 'History cleared.', null, false);
-    appendMsg('teacher-log', 'TEACHER', 'Deep Teacher history cleared.', null, false);
-  });
-
-  $('chat-temp').addEventListener('input', () => {
-    $('chat-temp-val').textContent = $('chat-temp').value;
-  });
-  $('chat-top-p').addEventListener('input', () => {
-    const v = parseFloat($('chat-top-p').value || '0');
-    $('chat-top-p-val').textContent = v > 0 ? v.toFixed(2) : 'off';
-  });
-  $('chat-max-tokens').addEventListener('input', () => {
-    $('chat-max-tokens-val').textContent = $('chat-max-tokens').value;
-  });
-
-  // Picker state — survives across tab switches so the user's
-  // selection persists when they flip from Installed → Catalog.
-  const FMP = {
-    installed: [],
-    catalog: [],
-    activeTab: 'installed',
-    selectedId: '',           // mirrored to <input id="fast-model">
-    runtimeOf: {},            // id → 'ollama' | 'mlx' | 'mlx-openai'
-  };
-
-  function escapeHtml(s) {
-    return String(s ?? '')
-      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-  }
-
-  function renderInstalledCards() {
-    const grid = $('fmp-grid');
-    if (!FMP.installed.length) {
-      grid.innerHTML = `<div class="fmp-empty">
-        Nothing installed yet. Switch to <strong>Catalog</strong> to browse and install one.
-      </div>`;
-      return;
-    }
-    grid.innerHTML = FMP.installed.map(m => {
-      const cls = (FMP.selectedId === m.id) ? 'fmp-card selected' : 'fmp-card';
-      const size = m.size_gb ? `${m.size_gb} GB` : '';
-      return `
-        <div class="${cls}" data-id="${escapeHtml(m.id)}" data-runtime="${escapeHtml(m.runtime)}">
-          <div class="fmp-card-head">
-            <span class="fmp-card-name" title="${escapeHtml(m.id)}">${escapeHtml(m.id)}</span>
-            <span class="fmp-card-runtime ${escapeHtml(m.runtime)}">${escapeHtml(m.runtime)}</span>
-          </div>
-          <div class="fmp-card-meta">
-            ${size ? `<span>${size}</span>` : ''}
-          </div>
-        </div>
-      `;
-    }).join('');
-    grid.querySelectorAll('.fmp-card').forEach(c => {
-      c.addEventListener('click', () => selectInstalled(c.dataset.id, c.dataset.runtime));
-    });
-  }
-
-  function renderCatalogCards() {
-    const grid = $('fmp-grid');
-    // Catalog includes BOTH installed + available — installed cards
-    // are flagged so the user sees the full breadth in one view.
-    if (!FMP.catalog.length) {
-      grid.innerHTML = `<div class="fmp-empty">Catalog unavailable.</div>`;
-      return;
-    }
-    // Sort: flagship first, then recommended, then optional.
-    const order = {flagship: 0, recommended: 1, optional: 2};
-    const items = FMP.catalog.slice().sort(
-      (a, b) => (order[a.tier] ?? 9) - (order[b.tier] ?? 9)
-    );
-    grid.innerHTML = items.map(m => {
-      const installed = m.installed_state === 'installed';
-      const greyed = installed ? '' : 'greyed';
-      const tagChips = (m.good_at || []).slice(0, 4).map(t =>
-        `<span class="fmp-card-tag">${escapeHtml(t)}</span>`
-      ).join('');
-      const flagship = m.tier === 'flagship'
-        ? `<span class="fmp-card-flagship">★ FLAGSHIP</span>` : '';
-      const stateLabel = installed ? 'installed' : 'catalog';
-      const stateCls = installed ? 'mlx' : 'catalog';
-      return `
-        <div class="fmp-card ${greyed}" data-id="${escapeHtml(m.id)}"
-             data-installed="${installed ? '1' : '0'}"
-             data-install="${escapeHtml(m.install)}"
-             data-name="${escapeHtml(m.name)}">
-          <div class="fmp-card-head">
-            <span class="fmp-card-name" title="${escapeHtml(m.description)}">${escapeHtml(m.name)}</span>
-            <span class="fmp-card-runtime ${stateCls}">${escapeHtml(stateLabel)}</span>
-          </div>
-          <div class="fmp-card-meta">
-            <span>${m.size_gb} GB</span>
-            <span class="dot">·</span>
-            <span>${escapeHtml(m.released)}</span>
-            ${flagship ? `<span class="dot">·</span>${flagship}` : ''}
-          </div>
-          <div class="fmp-card-desc">${escapeHtml(m.description)}</div>
-          <div class="fmp-card-tags">${tagChips}</div>
-        </div>
-      `;
-    }).join('');
-    grid.querySelectorAll('.fmp-card').forEach(c => {
-      c.addEventListener('click', () => {
-        if (c.dataset.installed === '1') {
-          // Already installed — pick it. Runtime resolved from FMP.installed.
-          const inst = FMP.installed.find(i => i.id === c.dataset.id);
-          if (inst) selectInstalled(inst.id, inst.runtime);
-        } else {
-          showInstallHint(c.dataset.name, c.dataset.install);
-        }
-      });
-    });
-  }
-
-  function selectInstalled(id, runtime) {
-    FMP.selectedId = id;
-    FMP.runtimeOf[id] = runtime;
-    $('fast-model').value = id;
-    $('fast-model-chip').textContent = id;
-    // Stash the runtime so the send path knows which endpoint to hit.
-    $('fast-model').dataset.runtime = runtime || '';
-    $('fmp-install').hidden = true;
-    if (FMP.activeTab === 'installed') {
-      renderInstalledCards();
-    } else {
-      renderCatalogCards();
-    }
-  }
-
-  function showInstallHint(name, cmd) {
-    $('fmp-install-title').textContent = `Install ${name}`;
-    $('fmp-install-cmd').textContent = cmd;
-    $('fmp-install').hidden = false;
-  }
-
-  $('fmp-install-copy').addEventListener('click', async () => {
-    const cmd = $('fmp-install-cmd').textContent;
-    try {
-      await navigator.clipboard.writeText(cmd);
-      const btn = $('fmp-install-copy');
-      const orig = btn.textContent;
-      btn.textContent = 'Copied ✓';
-      setTimeout(() => { btn.textContent = orig; }, 1500);
-    } catch (e) { /* clipboard blocked — user can select-and-copy */ }
-  });
-
-  document.querySelectorAll('.fmp-tab').forEach(t => {
-    t.addEventListener('click', () => {
-      document.querySelectorAll('.fmp-tab').forEach(x => x.classList.toggle('active', x === t));
-      FMP.activeTab = t.dataset.tab;
-      if (FMP.activeTab === 'installed') renderInstalledCards();
-      else renderCatalogCards();
-    });
-  });
-
-  async function loadModels() {
-    try {
-      const d = await fetch('/api/chat/models').then(r => r.json());
-      const gallery = d.gallery || {installed: [], catalog: []};
-      FMP.installed = gallery.installed || [];
-      FMP.catalog = gallery.catalog || [];
-
-      // Default selection: prefer the configured `current` model if
-      // it's installed, else first installed, else nothing.
-      const installedIds = FMP.installed.map(m => m.id);
-      let pick = '';
-      if (d.current && installedIds.includes(d.current)) pick = d.current;
-      else if (installedIds.length) pick = installedIds[0];
-      if (pick) {
-        const inst = FMP.installed.find(i => i.id === pick);
-        selectInstalled(pick, inst ? inst.runtime : '');
-      }
-
-      // Counts on the tabs.
-      $('fmp-count-installed').textContent = `(${FMP.installed.length})`;
-      const availableCount = FMP.catalog.filter(c => c.installed_state !== 'installed').length;
-      $('fmp-count-catalog').textContent = `(${FMP.catalog.length}, ${availableCount} new)`;
-
-      if (FMP.activeTab === 'installed') renderInstalledCards();
-      else renderCatalogCards();
-
-      // Teacher backend dropdown — unchanged from before.
-      const back = $('teacher-backend');
-      back.innerHTML = '';
-      (d.optional_backends || []).forEach(b => {
-        const o = document.createElement('option');
-        o.value = b.id;
-        o.textContent = `${b.label} · ${b.model || b.id}`;
-        o.dataset.model = b.model || b.id;
-        back.appendChild(o);
-      });
-      if (d.default_optional_backend) back.value = d.default_optional_backend;
-      syncTeacherChip();
-    } catch (e) {
-      $('fmp-grid').innerHTML = `<div class="fmp-empty">Could not load model gallery: ${escapeHtml(e.message || e)}</div>`;
-      $('fast-model-chip').textContent = 'model unavailable';
-      $('teacher-model-chip').textContent = 'deep model unavailable';
-    }
-  }
-
-  $('teacher-backend').addEventListener('change', syncTeacherChip);
-  $('chat-route').addEventListener('change', syncRouteNote);
-
-  // ─── Compute Source pivot + Manage Providers modal ───────────────────
-  const PROVIDER_META = {
-    my_machine:  { keyLabel: null, needsUrl: false, chip: 'my machine · local' },
-    claude:      { keyLabel: 'Anthropic API key (sk-ant-…)', needsUrl: false, chip: 'claude · cloud' },
-    nvidia:      { keyLabel: 'NVIDIA API key (nvapi-…)',     needsUrl: false, chip: 'nvidia nim · cloud' },
-    openrouter:  { keyLabel: 'OpenRouter key (sk-or-…)',     needsUrl: false, chip: 'openrouter · cloud' },
-    huggingface: { keyLabel: 'HF token (hf_…)',              needsUrl: false, chip: 'huggingface · cloud' },
-    custom:      { keyLabel: 'API key (optional)',           needsUrl: true,  chip: 'custom endpoint' },
-  };
-  const CLOUD = ['claude','nvidia','openrouter','huggingface','custom'];
-  const providerState = { cloudEnabled: true, providers: [], labMode: 'airgapped' };
-
-  function selectedProvider() {
-    const r = document.querySelector('input[name="compute-source"]:checked');
-    return r ? r.value : 'my_machine';
-  }
-
-  function applyAirgapLocks() {
-    const banner = $('airgapped-banner');
-    if (banner) banner.style.display = providerState.cloudEnabled ? 'none' : '';
-    CLOUD.forEach(p => {
-      const el = document.querySelector(`input[name="compute-source"][value="${p}"]`);
-      if (!el) return;
-      el.disabled = !providerState.cloudEnabled;
-      const label = el.closest('.compute-opt');
-      if (label) {
-        label.classList.toggle('disabled', !providerState.cloudEnabled);
-        label.title = providerState.cloudEnabled ? '' :
-          'Airgapped mode — flip LAB_MODE=hybrid in .env to enable.';
-      }
-    });
-    if (!providerState.cloudEnabled && CLOUD.includes(selectedProvider())) {
-      const mm = document.querySelector('input[name="compute-source"][value="my_machine"]');
-      if (mm) { mm.checked = true; }
-    }
-  }
-
-  function syncComputeUI() {
-    const p = selectedProvider();
-    const meta = PROVIDER_META[p] || PROVIDER_META.my_machine;
-    $('compute-source-chip').textContent = meta.chip;
-    $('compute-status').textContent = '';
-    // With the modal, inline key row stays hidden — editing happens in the dialog.
-    const row = $('compute-key-row');
-    if (row) row.style.display = 'none';
-  }
-
-  async function setActiveProvider() {
-    const provider = selectedProvider();
-    try {
-      const r = await fetch('/api/providers/active', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ provider })
-      });
-      const d = await r.json();
-      if (!d.ok) $('compute-status').textContent = d.error || '';
-    } catch (e) { /* best effort */ }
-    syncComputeUI();
-  }
-
-  document.querySelectorAll('input[name="compute-source"]').forEach(r => {
-    r.addEventListener('change', setActiveProvider);
-  });
-
-  // ─── Manage Providers modal ──────────────────────────────────────────
-  function esc2(s){ const d=document.createElement('div'); d.textContent=s||''; return d.innerHTML; }
-
-  function renderProviderCard(p) {
-    const pill = p.has_token
-      ? '<span class="mp-pill ok">token saved</span>'
-      : '<span class="mp-pill warn">no token</span>';
-    const docs = p.docs ? `<span class="mp-docs"><a href="${esc2(p.docs)}" target="_blank" rel="noopener">vendor docs ↗</a></span>` : '';
-    const urlRow = p.id === 'custom'
-      ? `<label style="flex:1">Endpoint URL <input type="text" id="mp-url-${p.id}" placeholder="https://…/v1"></label>`
-      : '';
-    const listBtn = p.supports_models_list
-      ? `<button class="mp-btn" data-action="models" data-provider="${p.id}">List models</button>`
-      : '';
-    return `
-      <div class="mp-provider" data-provider="${p.id}">
-        <h4>${esc2(p.label)} ${pill} ${docs}</h4>
-        <div class="mp-row">
-          <label style="flex:1">API token <input type="password" id="mp-key-${p.id}" placeholder="${p.has_token ? '•••• token saved ••••' : 'paste here'}" autocomplete="off"></label>
-          ${urlRow}
-          <button class="mp-btn primary" data-action="save" data-provider="${p.id}">Save</button>
-          <button class="mp-btn"         data-action="test" data-provider="${p.id}" ${p.has_token ? '' : 'disabled'}>Test</button>
-          <button class="mp-btn danger"  data-action="remove" data-provider="${p.id}" ${p.has_token ? '' : 'disabled'}>Remove</button>
-          ${listBtn}
-        </div>
-        <div class="mp-note" id="mp-note-${p.id}"></div>
-        <div class="mp-models-list" id="mp-models-${p.id}" style="display:none"></div>
-      </div>`;
-  }
-
-  function openProvidersModal() {
-    const body = $('mp-body');
-    if (!providerState.cloudEnabled) {
-      body.innerHTML = `<div class="airgapped-banner">
-        <strong>Airgapped mode.</strong> Set <code>LAB_MODE=hybrid</code> in <code>.env</code> and restart to manage cloud providers.
-      </div>`;
-    } else {
-      body.innerHTML = providerState.providers.map(renderProviderCard).join('');
-    }
-    $('mp-backdrop').classList.add('open');
-  }
-  function closeProvidersModal() {
-    $('mp-backdrop').classList.remove('open');
-  }
-
-  async function handleModalClick(e) {
-    const btn = e.target.closest('button[data-action]');
-    if (!btn) return;
-    const action = btn.dataset.action;
-    const provider = btn.dataset.provider;
-    const note = $(`mp-note-${provider}`);
-    const setNote = (msg) => { if (note) note.textContent = msg; };
-
-    if (action === 'save') {
-      const key = ($(`mp-key-${provider}`)||{}).value || '';
-      const url = provider === 'custom' ? (($(`mp-url-${provider}`)||{}).value || '') : '';
-      setNote('Saving…');
-      const r = await fetch('/api/providers/save', {
-        method: 'POST', headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({ provider, token: key.trim(), endpoint: url.trim() || null })
-      }).then(r=>r.json()).catch(e=>({ok:false,error:String(e)}));
-      setNote(r.ok ? 'Saved (chmod 0600).' : 'Error: ' + (r.error||'save failed'));
-      if (r.ok) await refreshProvidersStatus();
-    } else if (action === 'test') {
-      setNote('Pinging…');
-      const r = await fetch('/api/providers/test', {
-        method: 'POST', headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({ provider })
-      }).then(r=>r.json()).catch(e=>({ok:false,error:String(e)}));
-      setNote(r.ok ? `OK — ${r.message || 'authenticated'}.` : 'Failed: ' + (r.error || 'unknown'));
-    } else if (action === 'remove') {
-      if (!confirm(`Remove saved token for ${provider}?`)) return;
-      const r = await fetch('/api/providers/remove', {
-        method: 'POST', headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({ provider })
-      }).then(r=>r.json()).catch(e=>({ok:false,error:String(e)}));
-      setNote(r.ok ? 'Removed.' : 'Error: ' + (r.error || 'remove failed'));
-      if (r.ok) await refreshProvidersStatus();
-    } else if (action === 'models') {
-      const list = $(`mp-models-${provider}`);
-      setNote('Loading catalogue…');
-      list.style.display = '';
-      list.textContent = '…';
-      const r = await fetch(`/api/providers/models?provider=${encodeURIComponent(provider)}`)
-        .then(r=>r.json()).catch(e=>({ok:false,error:String(e)}));
-      if (r.ok) {
-        list.textContent = (r.models || []).slice(0, 200).join('\n') || '(no models)';
-        setNote(`${r.count || 0} models.`);
-      } else {
-        list.textContent = '';
-        list.style.display = 'none';
-        setNote('Error: ' + (r.error || 'list failed'));
-      }
-    }
-  }
-
-  async function refreshProvidersStatus() {
-    try {
-      const d = await fetch('/api/providers/status').then(r => r.json());
-      providerState.cloudEnabled = !!d.cloud_enabled;
-      providerState.providers = d.providers || [];
-      providerState.labMode = d.lab_mode || 'airgapped';
-      if (d && d.provider) {
-        const el = document.querySelector(`input[name="compute-source"][value="${d.provider}"]`);
-        if (el) el.checked = true;
-      }
-    } catch (e) { /* leave defaults */ }
-    applyAirgapLocks();
-    syncComputeUI();
-    // If the modal is open, re-render to reflect new token presence.
-    if ($('mp-backdrop').classList.contains('open')) openProvidersModal();
-  }
-
-  $('btn-manage-providers').addEventListener('click', openProvidersModal);
-  $('mp-close').addEventListener('click', closeProvidersModal);
-  $('mp-backdrop').addEventListener('click', (e) => {
-    if (e.target === $('mp-backdrop')) closeProvidersModal();
-  });
-  $('mp-body').addEventListener('click', handleModalClick);
-
-  refreshProvidersStatus();
-
-  loadModels();
-  syncRouteNote();
-
-  // ── Local-inference panel ──────────────────────────────────────
-  // Populates the chat header backend badge AND the "My Machine"
-  // tile with the in-process runtime + every detected OpenAI-compat
-  // server (Ollama, MLX OpenAI, LM Studio, vLLM, LMDeploy, ...).
-  // Single fetch reused for both because /api/system/health
-  // returns local_inference in one round-trip.
-  fetch('/api/system/health').then(r => r.json()).then(h => {
-    // Chat header chip
-    const backendBadge = document.getElementById('chat-backend');
-    if (backendBadge && h.backend) backendBadge.textContent = h.backend;
-    const modelEl = document.getElementById('chat-model');
-    if (modelEl && h.model && h.model !== 'none') {
-      modelEl.textContent = h.model;
-      modelEl.title = 'Model: ' + h.model;
-      modelEl.hidden = false;
-    }
-
-    // "My Machine" tile detail
-    const li = h.local_inference || {};
-    const primary = li.primary || {};
-    const endpoints = li.endpoints || [];
-    const primaryEl = document.getElementById('mm-primary-line');
-    const endpointsEl = document.getElementById('mm-endpoints');
-    if (primaryEl) {
-      const tech = primary.tech || h.backend || 'unknown';
-      const model = primary.model;
-      primaryEl.textContent = model
-        ? `${tech} · ${model}`
-        : `${tech} · no model loaded`;
-    }
-    if (endpointsEl) {
-      if (endpoints.length === 0) {
-        endpointsEl.innerHTML = '';
-      } else {
-        const chips = endpoints.map(e => {
-          const safe = (s) => String(s ?? '')
-            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-          return `<span class="mm-endpoint-chip" title="${safe(e.url)}">${safe(e.tech)}:${e.port}</span>`;
-        }).join('');
-        endpointsEl.innerHTML = `<br><span class="mm-endpoints-label">Also detected:</span> ${chips}`;
-      }
-    }
-  }).catch(() => {
-    const primaryEl = document.getElementById('mm-primary-line');
-    if (primaryEl) primaryEl.textContent = 'Local — runtime unknown (health endpoint unreachable)';
-  });
-})();
-</script>
-
-<div class="mp-backdrop" id="mp-backdrop" role="dialog" aria-modal="true" aria-labelledby="mp-title">
-  <div class="mp-modal">
-    <div class="mp-head">
-      <h3 id="mp-title">Manage external providers</h3>
-      <button class="mp-close" id="mp-close" type="button">Close</button>
     </div>
-    <p class="chat-sub" style="margin:0 0 10px">
-      Save, test, and list models for external vendors. Tokens land in
-      <code>lab/data/secrets.env</code> (chmod 0600, git-ignored). Never echoed back.
-    </p>
-    <div id="mp-body"></div>
-  </div>
-</div>
 
+    </div><!-- /.studio-main -->
+
+    <!-- ── ACTIVE MODELS STRIP (full-width, just under the chat) ────── -->
+    <section class="active-strip" id="active-strip">
+      <div class="rail-card">
+        <div class="rc-head">
+          <span>Active model A · primary</span>
+          <span id="active-mini-fit"></span>
+        </div>
+        <div class="rc-body" id="active-card">
+          <div style="color: var(--muted); font-size: var(--fs-sm)">loading…</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── ADVANCED TUNABLES (collapsible — both rows live inside) ──── -->
+    <details class="advanced-tunables" id="advanced-tunables" open>
+      <summary>
+        <span class="adv-title">Advanced Tunables</span>
+        <span class="adv-hint">sampling · length · penalties · format · reproducibility · runtime</span>
+        <a class="rc-help" href="/docs/tunables.md" target="_blank" onclick="event.stopPropagation()">📖 glossary</a>
+      </summary>
+    <!-- ── CORE TUNABLES STRIP (just below the chat, 3 columns) ─────── -->
+    <section class="core-tunables" id="core-tunables">
+      <div class="rail-card">
+        <div class="rc-head">
+          <span>Sampling</span>
+          <a class="rc-help" href="/docs/tunables.md#sampling" target="_blank" title="What do these do?">what is this?</a>
+        </div>
+        <div class="rc-body" id="tunables-sampling"></div>
+      </div>
+      <div class="rail-card">
+        <div class="rc-head">
+          <span>Length &amp; memory</span>
+          <a class="rc-help" href="/docs/tunables.md#length--memory" target="_blank" title="What do these do?">what is this?</a>
+        </div>
+        <div class="rc-body" id="tunables-length"></div>
+      </div>
+      <div class="rail-card">
+        <div class="rc-head">
+          <span>Penalties</span>
+          <a class="rc-help" href="/docs/tunables.md#penalties" target="_blank" title="What do these do?">what is this?</a>
+        </div>
+        <div class="rc-body" id="tunables-penalties"></div>
+      </div>
+    </section>
+
+    <!-- ── CORE TUNABLES STRIP 2: format / repro / local runtime ────── -->
+    <section class="core-tunables" id="core-tunables-2">
+      <div class="rail-card">
+        <div class="rc-head">
+          <span>Format &amp; stop</span>
+          <a class="rc-help" href="/docs/tunables.md#format--stop" target="_blank">what is this?</a>
+        </div>
+        <div class="rc-body" id="tunables-format"></div>
+      </div>
+      <div class="rail-card">
+        <div class="rc-head">
+          <span>Reproducibility</span>
+          <a class="rc-help" href="/docs/tunables.md#reproducibility" target="_blank">what is this?</a>
+        </div>
+        <div class="rc-body" id="tunables-repro"></div>
+      </div>
+      <div class="rail-card">
+        <div class="rc-head">
+          <span>Local runtime</span>
+          <a class="rc-help" href="/docs/tunables.md#local-runtime-only-matters-for-local-models" target="_blank">what is this?</a>
+        </div>
+        <div class="rc-body" id="tunables-runtime"></div>
+      </div>
+    </section>
+    </details><!-- /.advanced-tunables -->
+
+    <!-- ── PANELS BELOW THE CHAT (page scrolls) ─────────────────────── -->
+    <div class="panels-grid">
+
+    <!-- ── LEFT PANEL: System prompt + model browser ──────────────── -->
+    <aside class="rail-left" id="rail-left">
+      <div class="rail-card">
+        <div class="rc-head">
+          <span>System prompt</span>
+          <span class="count" id="sys-len">0 chars</span>
+        </div>
+        <div class="rc-body">
+          <textarea id="sys-prompt" rows="4"
+                    placeholder="(none — model uses its default)"
+                    class="sys-prompt-ta"></textarea>
+          <div style="margin-top: var(--s-2); font-size: var(--fs-xs); color: var(--muted); line-height: 1.5;">
+            <strong style="color: var(--text)">Always part of the model's context window.</strong>
+            Sent as the <code class="inline-path">system</code> message on every turn — before history, before your latest input.
+            Persona, tone, format rules, hard constraints belong here.
+            <a href="/docs/tunables.md#system-prompt" target="_blank" style="color: var(--blue); margin-left: 4px;">learn more →</a>
+          </div>
+        </div>
+      </div>
+
+      <!-- (Active model card moved to its own full-width strip just
+           below the chat — see #active-strip above.) -->
+
+      <div class="rail-card">
+        <div class="rc-head"><span>Local models</span><span class="count" id="count-local">0</span></div>
+        <div id="rail-models-local" class="rail-list"></div>
+      </div>
+
+      <div class="rail-card">
+        <div class="rc-head"><span>Deep backends</span><span class="count" id="count-deep">0</span></div>
+        <div id="rail-models-deep" class="rail-list"></div>
+        <div class="rc-body" style="padding-top:0;">
+          <div style="font-size: var(--fs-xs); color: var(--muted); line-height: 1.5;">
+            70B+ on modest VRAM via layer-streaming.
+            Set <code class="inline-path">AIRLLM_MODEL</code> or
+            <code class="inline-path">AEROLLM_MODEL</code> in <code class="inline-path">.env</code>.
+          </div>
+        </div>
+      </div>
+
+      <div class="rail-card">
+        <div class="rc-head"><span>Compute source</span></div>
+        <div class="rc-body">
+          <div class="source-row" id="rail-sources"></div>
+        </div>
+      </div>
+
+      <div class="rail-card">
+        <div class="rc-head"><span>Edit model specs</span></div>
+        <div class="rc-body" style="font-size: var(--fs-sm); line-height: 1.55;">
+          <div style="color: var(--text)">Add benchmarks, params, license, notes for any model:</div>
+          <div style="margin-top: var(--s-2)"><code class="inline-path">src/arail/model_specs.py</code></div>
+          <div style="margin-top: var(--s-2); color: var(--muted); font-size: var(--fs-xs)">
+            Match key is a case-insensitive substring of the model name.
+            Refresh this page after editing — no restart.
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- ── RIGHT PANEL: tunables (multi-col grid inside) ─────────── -->
+    <aside class="rail-right" id="rail-right">
+      <div class="tunables-grid">
+        <!-- (Sampling/Length/Penalties moved to the strip just under
+             the chat. Format/Reproducibility/Local runtime moved to a
+             second strip below that. System prompt moved to the left
+             rail. The right rail now holds only Model spec + Telemetry
+             + Activity + References.) -->
+
+        <!-- Hidden bucket so legacy renderTunables() still finds a target on first run. -->
+        <div id="tunables-body" hidden></div>
+
+        <div class="rail-card full">
+          <div class="rc-head"><span>Model spec</span></div>
+          <div class="rc-body" id="model-info-body">
+            <div class="mi-empty">pick a model from the rail…</div>
+          </div>
+        </div>
+
+        <div class="rail-card">
+          <div class="rc-head"><span>Session telemetry</span><span class="count" id="tele-turn-count">0 turns</span></div>
+          <div class="rc-body">
+            <dl class="tele-grid" id="tele">
+              <dt>hardware</dt>      <dd id="tele-hw">—</dd>
+              <dt>free vram</dt>     <dd id="tele-vram">—</dd>
+              <dt>fit (model A)</dt> <dd id="tele-fit">—</dd>
+              <dt>last latency</dt>  <dd id="tele-last-latency">—</dd>
+              <dt>last t/s</dt>      <dd id="tele-last-tps">—</dd>
+              <dt>session tokens</dt><dd id="tele-session-tokens">0</dd>
+              <dt>warm models</dt>   <dd id="tele-warm">none</dd>
+            </dl>
+          </div>
+        </div>
+
+        <div class="rail-card full">
+          <div class="rc-head"><span>References</span></div>
+        <div class="rc-body" id="references-body">
+          <div class="ref-group">
+            <div class="ref-h">model definitions</div>
+            <ul class="ref-list">
+              <li><code class="inline-path">src/arail/model_specs.py</code><span class="ref-note">add params · license · benchmarks · notes</span></li>
+              <li><code class="inline-path">src/arail/chat/gallery.py</code><span class="ref-note">how models get scanned + rendered for the picker</span></li>
+              <li><code class="inline-path">src/arail/router/backends.py</code><span class="ref-note">backend adapters (MLX, Ollama, AirLLM, AeroLLM, Claude, …)</span></li>
+            </ul>
+          </div>
+          <div class="ref-group">
+            <div class="ref-h">deep backends</div>
+            <ul class="ref-list">
+              <li><a href="https://github.com/lyogavin/airllm" target="_blank" rel="noopener noreferrer">AirLLM ↗</a><span class="ref-note">layer-streaming for 70B+ on small VRAM · set <code>AIRLLM_MODEL</code></span></li>
+              <li><a href="https://github.com/cdarnell/aerollm" target="_blank" rel="noopener noreferrer">AeroLLM ↗</a><span class="ref-note">ARAIL's Rust runtime · set <code>AEROLLM_MODEL</code></span></li>
+            </ul>
+          </div>
+          <div class="ref-group">
+            <div class="ref-h">design + plans</div>
+            <ul class="ref-list">
+              <li><a href="/docs/design.md" target="_blank">docs/design.md ↗</a><span class="ref-note">tokens, components, themes</span></li>
+              <li><a href="/docs/chat-studio.spec.md" target="_blank">docs/chat-studio.spec.md ↗</a><span class="ref-note">this surface — full redesign spec</span></li>
+              <li><a href="/docs/maximus.plan.md" target="_blank">docs/maximus.plan.md ↗</a><span class="ref-note">model lifecycle + finetune factory</span></li>
+              <li><a href="/ROADMAP.md" target="_blank">ROADMAP.md ↗</a><span class="ref-note">now / next / later</span></li>
+            </ul>
+          </div>
+          <div class="ref-group">
+            <div class="ref-h">runtime APIs (this page calls)</div>
+            <ul class="ref-list">
+              <li><code class="inline-path">GET  /api/chat/models</code><span class="ref-note">picker payload · re-read every call</span></li>
+              <li><code class="inline-path">POST /api/chat/stream</code><span class="ref-note">NDJSON: start · delta · final</span></li>
+              <li><code class="inline-path">GET  /api/activity/recent</code><span class="ref-note">drawer logs tail</span></li>
+            </ul>
+          </div>
+          <p class="ref-foot">
+            Edit <code>model_specs.py</code> → refresh this page → new fields
+            appear under the model card. No restart needed.
+          </p>
+        </div>
+        </div>
+      </div><!-- /.tunables-grid -->
+    </aside>
+    </div><!-- /.panels-grid -->
+  </main>
+
+  <!-- Provenance overlay -->
+  <div id="prov-overlay" class="prov-overlay" style="display: none;"></div>
+
+  <!-- Connections modal -->
+  <div class="modal-back" id="conn-back">
+    <div class="modal">
+      <h2><span class="accent">Connections</span></h2>
+      <p class="blurb">
+        Tokens are encrypted at rest under <code>~/.arail/secrets.age</code>,
+        never logged, and only sent to the service they belong to. Revoke any time.
+      </p>
+      <div id="conn-rows">
+        <!-- rows injected by JS -->
+      </div>
+      <div class="footer">
+        <button id="conn-close">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/nav.js"></script>
+  <script>
+  /* ─── Chat Studio runtime ───────────────────────────────────────── */
+  // Surface ANY uncaught error to the page so 'loading…' bugs don't hide.
+  window.addEventListener('error', (e) => {
+    console.error('[chat window.error]', e.message, e.error);
+    const lbl = document.getElementById('picker-label');
+    if (lbl && lbl.textContent === 'loading…') {
+      lbl.textContent = 'JS error: ' + e.message;
+      lbl.style.color = 'var(--red)';
+    }
+    const status = document.getElementById('status-line');
+    if (status) status.textContent = '⚠ ' + e.message;
+  });
+  (function () {
+    const $ = id => document.getElementById(id);
+    const State = {
+      gallery: null,
+      models: [],            // installed
+      currentId: null,       // Column A
+      currentRuntime: null,
+      currentEndpoint: null,
+      currentSpec: null,
+      currentModel: null,
+      // Column B (compare)
+      compareOn: false,
+      bId: null, bRuntime: null, bEndpoint: null, bModel: null,
+      bStreaming: true,
+      bTunables: defaultTunables(),    // independent of A
+      bSpec: null,
+      sources: [],
+      activeSource: 'my_machine',
+      history: [],
+      streaming: true,
+      preset: 'balanced',
+      tunables: defaultTunables(),
+      lastProv: null,
+      // Session telemetry
+      sessionTokens: 0,
+      sessionTurns: 0,
+      // Warm models (anything used or explicitly LOAD'd this session)
+      warmModels: new Set(),
+    };
+
+    // ── Tunable defaults & presets ─────────────────────────────────
+    function defaultTunables() {
+      return {
+        // The "core" GenAI knobs every chat surface should expose.
+        system_prompt: '',
+        temperature: 0.7,
+        top_p: 0.95,
+        top_k: 40,
+        max_tokens: 1024,
+        repetition_penalty: 1.05,
+        presence_penalty: 0.0,
+        frequency_penalty: 0.0,
+        seed: 0,                          // 0 = random
+        stop: '',                          // newline-separated
+        json_mode: false,
+        // Local-runtime knobs.
+        ctx: 8192,
+        prefetch_depth: 2,
+        offload_strategy: 'auto',
+        kv_cache_location: 'auto',
+        quantization: 'off',
+      };
+    }
+    const PRESETS = {
+      balanced: { temperature: 0.7, top_p: 0.95, top_k: 40, max_tokens: 1024, ctx: 8192,  presence_penalty: 0.0, frequency_penalty: 0.0, json_mode: false },
+      fast:     { temperature: 0.5, top_p: 0.9,  top_k: 30, max_tokens: 512,  ctx: 4096,  presence_penalty: 0.0, frequency_penalty: 0.0, json_mode: false },
+      creative: { temperature: 1.4, top_p: 0.98, top_k: 80, max_tokens: 2048, ctx: 8192,  presence_penalty: 0.4, frequency_penalty: 0.2, json_mode: false },
+      coder:    { temperature: 0.2, top_p: 0.9,  top_k: 40, max_tokens: 4096, ctx: 16384, presence_penalty: 0.0, frequency_penalty: 0.0, json_mode: false },
+      precise:  { temperature: 0.0, top_p: 1.0,  top_k: 1,  max_tokens: 1024, ctx: 8192,  presence_penalty: 0.0, frequency_penalty: 0.0, json_mode: false },
+      json:     { temperature: 0.0, top_p: 1.0,  top_k: 1,  max_tokens: 2048, ctx: 8192,  presence_penalty: 0.0, frequency_penalty: 0.0, json_mode: true  },
+    };
+    // Each tunable: name, what it does (1 line), why it matters,
+    // recommended range, slider/select/toggle/textarea spec, structured
+    // impact pips, and a `group` key the rail uses to bucket it.
+    const TUNABLES_DEF = [
+      // ── Sampling ───────────────────────────────────────────────────
+      { key: 'temperature', group: 'sampling', label: 'temperature', kind: 'slider',
+        desc: 'controls randomness. 0 = deterministic; 2 = wildly creative.',
+        why: 'low for code & extraction, mid for chat, high for brainstorm.',
+        reco: '0.2–1.0', min: 0, max: 2, step: 0.01, unit: '',
+        impact: [ ['creativity', 'up'] ] },
+      { key: 'top_p', group: 'sampling', label: 'top_p (nucleus)', kind: 'slider',
+        desc: 'sample from the smallest set of tokens whose probabilities sum to p.',
+        why: 'tightens or widens the candidate pool. 0.9 is a safe default.',
+        reco: '0.85–0.98', min: 0, max: 1, step: 0.01, unit: '',
+        impact: [ ['diversity', 'up'] ] },
+      { key: 'top_k', group: 'sampling', label: 'top_k', kind: 'slider',
+        desc: 'consider only the K most-likely next tokens.',
+        why: 'low K = very focused, high K = more variety. 0/1 = greedy.',
+        reco: '20–80', min: 1, max: 200, step: 1, unit: '',
+        impact: [ ['diversity', 'up'] ] },
+
+      // ── Length & memory ────────────────────────────────────────────
+      { key: 'max_tokens', group: 'length', label: 'max response tokens', kind: 'slider',
+        desc: 'hard cap on response length.',
+        why: 'higher = longer answers but more compute and memory.',
+        reco: '512–4096', min: 16, max: 16384, step: 16, unit: 'tok',
+        impact: [ ['latency', 'up'], ['memory', 'up'] ] },
+      { key: 'ctx', group: 'length', label: 'context window', kind: 'slider',
+        desc: 'how many tokens of history the model can attend to in one shot.',
+        why: 'big windows let the model see whole codebases; cost rises ~quadratically.',
+        reco: '4096–32768', min: 512, max: 131072, step: 512, unit: 'tok',
+        impact: [ ['latency','up'], ['memory','up2'], ['quality','up'] ] },
+
+      // ── Penalties ──────────────────────────────────────────────────
+      { key: 'repetition_penalty', group: 'penalties', label: 'repetition penalty', kind: 'slider',
+        desc: 'penalises tokens already used. 1.0 = off.',
+        why: 'kick up to 1.1–1.2 if the model loops; too high makes prose stiff.',
+        reco: '1.00–1.15', min: 1, max: 2, step: 0.01, unit: '',
+        impact: [ ['repetition', 'down'] ] },
+      { key: 'presence_penalty', group: 'penalties', label: 'presence penalty', kind: 'slider',
+        desc: 'penalises tokens already present in the response, pushing for new topics.',
+        why: 'positive nudges the model to explore; negative locks it onto a subject.',
+        reco: '−2 – +2', min: -2, max: 2, step: 0.01, unit: '',
+        impact: [ ['topic spread', 'up'] ] },
+      { key: 'frequency_penalty', group: 'penalties', label: 'frequency penalty', kind: 'slider',
+        desc: 'penalises tokens proportionally to how often they have been used.',
+        why: 'reduces verbatim repetition without hurting natural cadence.',
+        reco: '0.0 – 1.0', min: -2, max: 2, step: 0.01, unit: '',
+        impact: [ ['repetition', 'down'] ] },
+
+      // ── Format & stop ──────────────────────────────────────────────
+      { key: 'json_mode', group: 'format', label: 'JSON mode', kind: 'toggle',
+        desc: 'force the model to emit valid JSON.',
+        why: 'great for structured extraction, agent calls, eval harnesses.',
+        impact: [ ['structure', 'up2'], ['creativity', 'down'] ] },
+      { key: 'stop', group: 'format', label: 'stop sequences', kind: 'textarea',
+        desc: 'one sequence per line. generation halts as soon as any is produced.',
+        why: 'use for "###", "</response>", or to clip a runaway agent at "Final answer:".',
+        rows: 3, placeholder: '###\n</answer>' },
+
+      // ── Reproducibility ────────────────────────────────────────────
+      { key: 'seed', group: 'repro', label: 'seed', kind: 'slider',
+        desc: 'PRNG seed. 0 = fresh randomness every call.',
+        why: 'pin a seed for reproducible benchmarks or eval runs.',
+        reco: '0 (random) or any int', min: 0, max: 999999, step: 1, unit: '',
+        impact: [ ['determinism', 'up'] ] },
+
+      // ── Local runtime ──────────────────────────────────────────────
+      { key: 'prefetch_depth', group: 'runtime', label: 'prefetch depth', kind: 'slider',
+        desc: 'streaming load — how many layers to prefetch ahead.',
+        why: 'hides NVMe IO behind compute. larger = smoother, costs memory.',
+        reco: '2–4', min: 0, max: 8, step: 1, unit: 'layers',
+        impact: [ ['IO stalls', 'down'], ['memory','up'] ] },
+      { key: 'offload_strategy', group: 'runtime', label: 'offload strategy', kind: 'select',
+        desc: 'how to fit a model larger than VRAM.',
+        why: 'auto picks based on fit; stream-hot pins active layers in GPU.',
+        options: ['auto','full','shard','stream-hot','stream-all'],
+        impact: [ ['latency vs fit', 'up'] ] },
+      { key: 'kv_cache_location', group: 'runtime', label: 'KV cache location', kind: 'select',
+        desc: 'where the attention cache lives during a chat.',
+        why: 'gpu = fast & expensive; nvme = slow & abundant.',
+        options: ['auto','gpu','ram','nvme'],
+        impact: [ ['memory pressure', 'down'] ] },
+      { key: 'quantization', group: 'runtime', label: 'quantization', kind: 'select',
+        desc: 'lower-precision weights shrink the model.',
+        why: 'off preserves quality. 4-bit halves memory ~lossy on tiny tasks.',
+        options: ['off','8-bit','4-bit'],
+        impact: [ ['memory','down2'], ['quality','down'] ] },
+    ];
+
+    // ── Provider transform (spec §2) ────────────────────────────────
+    function transformProvider(modelId, runtime) {
+      if (!modelId) return { provider: '—', model: '—' };
+      let provider = runtime || '';
+      let model = modelId;
+      if (modelId.includes('/')) {
+        const [ns, rest] = modelId.split('/', 2);
+        model = rest || ns;
+        if (ns.startsWith('mlx-community')) provider = 'mlx';
+        else if (ns === 'Qwen' || ns === 'meta-llama' || ns === 'mistralai') provider = 'hf';
+        else if (ns === 'openrouter') provider = 'openrouter';
+      }
+      if (modelId.startsWith('claude')) provider = 'claude';
+      if (!provider) provider = 'local';
+      return { provider, model };
+    }
+
+    // ── Picker ──────────────────────────────────────────────────────
+    function fitClass(verdict) {
+      const v = (verdict || '').toLowerCase();
+      if (v.startsWith('good')) return 'good';
+      if (v.startsWith('marg')) return 'marginal';
+      return 'streaming';
+    }
+    function makeOpt(m, currentId, onPick) {
+      const opt = document.createElement('div');
+      opt.className = 'opt' + (m.id === currentId ? ' current' : '');
+      const isNew = m.badge === 'new';
+      const isDeep = m.badge === 'deep';
+      const sizeStr = m.size_gb ? `${m.size_gb.toFixed(1)} GB` : '';
+      const verdict = m.fit && m.fit.verdict ? m.fit.verdict : 'good';
+      opt.innerHTML = `
+        <div class="name">
+          <span>${escapeHtml(m.label || m.id)}</span>
+          <span class="runtime">· ${escapeHtml(m.runtime || '')}</span>
+          ${isNew ? '<span class="new-badge">new</span>' : ''}
+          ${isDeep ? '<span class="deep-badge">deep</span>' : ''}
+        </div>
+        <div class="meta">
+          <span class="size">${sizeStr}</span>
+          <span class="fit-chip ${fitClass(verdict)}">${escapeHtml(verdict)}</span>
+        </div>`;
+      opt.addEventListener('click', () => onPick(m));
+      return opt;
+    }
+
+    function renderPicker() {
+      const pop = $('picker-pop');
+      pop.innerHTML = '';
+
+      const hwLabel = State.gallery && State.gallery.compact && State.gallery.compact.hardware
+                    ? `${State.gallery.compact.hardware.label} · ${State.gallery.compact.hardware.free_gb||'?'} GB free`
+                    : '';
+
+      // Section: gallery (on-disk) models
+      const localModels = State.models.filter(m => m.badge !== 'deep');
+      if (localModels.length) {
+        const sec = document.createElement('div');
+        sec.className = 'section';
+        sec.innerHTML = `<div class="head"><span>Local models</span><span class="hw">${hwLabel}</span></div>`;
+        pop.appendChild(sec);
+        localModels.forEach(m =>
+          pop.appendChild(makeOpt(m, State.currentId, x => { selectModel(x); closePicker(); }))
+        );
+      }
+
+      // Section: deep backends (AirLLM, AeroLLM) — visually distinct.
+      const deep = State.models.filter(m => m.badge === 'deep');
+      if (deep.length) {
+        const sec = document.createElement('div');
+        sec.className = 'section';
+        sec.innerHTML = `<div class="head"><span>Deep backends · layer-streaming</span><span class="hw">70B+ on modest VRAM</span></div>`;
+        pop.appendChild(sec);
+        deep.forEach(m =>
+          pop.appendChild(makeOpt(m, State.currentId, x => { selectModel(x); closePicker(); }))
+        );
+      }
+
+      // Compute source row
+      const srcSec = document.createElement('div');
+      srcSec.className = 'section';
+      srcSec.innerHTML = '<div class="head"><span>Compute source</span></div>';
+      pop.appendChild(srcSec);
+      const srcRow = document.createElement('div');
+      srcRow.className = 'source-row';
+      State.sources.forEach(s => {
+        const pill = document.createElement('button');
+        const cls = ['source-pill'];
+        if (s.id === State.activeSource) cls.push('active');
+        if (!s.available) cls.push('unavailable');
+        pill.className = cls.join(' ');
+        pill.textContent = s.label;
+        pill.title = s.available ? 'Switch source' : 'Add a token under Connections to enable.';
+        pill.addEventListener('click', () => {
+          if (!s.available && s.requires_token) { openConn(); return; }
+          State.activeSource = s.id;
+          renderPicker();
+        });
+        srcRow.appendChild(pill);
+      });
+      pop.appendChild(srcRow);
+    }
+
+    function selectModel(m) {
+      State.currentId = m.id;
+      State.currentRuntime = m.runtime;
+      State.currentEndpoint = m.endpoint || null;
+      State.currentSpec = m.spec || null;
+      State.currentModel = m;
+      const { provider, model } = transformProvider(m.id, m.runtime);
+      $('picker-label').textContent = `${provider} · ${model}`;
+      // Telemetry refresh
+      if (m.fit) {
+        const tf = $('tele-fit'); if (tf) tf.textContent = m.fit.verdict || '—';
+      }
+      renderModelInfo(m);
+      // Refresh rail visuals (current highlight + active card)
+      if (typeof renderModelRail === 'function') renderModelRail();
+      if (typeof renderActiveCard === 'function') renderActiveCard();
+    }
+
+    /* Render the rich model info card in the drawer. Pulls from gallery
+       fields (id, runtime, endpoint, size_gb, fit) plus spec (params,
+       license, context, strengths, benchmarks, notes, source). */
+    function renderModelInfo(m) {
+      const wrap = $('model-info-body');
+      if (!m) { wrap.innerHTML = '<div class="mi-empty">pick a model below…</div>'; return; }
+      const { provider, model } = transformProvider(m.id, m.runtime);
+      const spec = m.spec || {};
+      const fit = m.fit || {};
+      const facts = [
+        ['runtime',   `<span class="runtime">${escapeHtml(m.runtime || '—')}</span>`],
+        spec.params  ? ['params',   escapeHtml(spec.params)]   : null,
+        spec.context ? ['context',  escapeHtml(spec.context)]  : null,
+        spec.license ? ['license',  escapeHtml(spec.license)]  : null,
+        m.size_gb    ? ['on disk',  `${m.size_gb.toFixed(1)} GB`] : null,
+        m.estimated_vram_gb ? ['est. vram', `${Number(m.estimated_vram_gb).toFixed(1)} GB`] : null,
+        fit.verdict  ? ['fit',      `<span class="fit-chip ${fitClass(fit.verdict)}">${escapeHtml(fit.verdict)}</span>`] : null,
+        m.endpoint   ? ['endpoint', `<code class="inline-path">${escapeHtml(m.endpoint)}</code>`] : null,
+      ].filter(Boolean);
+
+      const factsHtml = `<dl class="mi-facts">${
+        facts.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')
+      }</dl>`;
+
+      const strengthsHtml = (spec.strengths && spec.strengths.length)
+        ? `<div class="mi-section-h">good at</div>
+           <ul class="mi-strengths">${
+             spec.strengths.map(s => `<li>${escapeHtml(s)}</li>`).join('')
+           }</ul>`
+        : '';
+
+      const benchHtml = (spec.benchmarks && spec.benchmarks.length)
+        ? `<div class="mi-section-h">benchmarks</div>
+           <table class="mi-bench"><thead>
+             <tr><th>bench</th><th>score</th><th>vs.</th></tr></thead><tbody>${
+             spec.benchmarks.map(b => {
+               const [bench, score, cmp] = Array.isArray(b) ? b : [b.bench, b.score, b.compared_to];
+               return `<tr><td>${escapeHtml(bench||'')}</td><td class="score">${escapeHtml(score||'')}</td><td class="cmp">${escapeHtml(cmp||'')}</td></tr>`;
+             }).join('')
+           }</tbody></table>`
+        : '';
+
+      const notesHtml = spec.notes
+        ? `<div class="mi-notes">${escapeHtml(spec.notes)}</div>`
+        : '';
+
+      const sourceHtml = spec.source
+        ? `<a class="mi-source" href="${spec.source}" target="_blank" rel="noopener noreferrer">model card →</a>`
+        : '';
+
+      const editHint = `<div class="mi-edit">edit specs in <code>src/arail/model_specs.py</code> · key matches <code>${escapeHtml(m.id.split('/').pop().toLowerCase())}</code></div>`;
+
+      wrap.innerHTML = `
+        <div class="mi-card">
+          <div class="mi-name">${escapeHtml(model)}</div>
+          <div class="mi-tag">${escapeHtml(provider)} · <span class="runtime">${escapeHtml(m.runtime||'')}</span></div>
+          ${factsHtml}${strengthsHtml}${benchHtml}${notesHtml}${sourceHtml}${editHint}
+        </div>`;
+    }
+
+    function openPicker() { $('model-picker').classList.add('open'); }
+    function closePicker() { $('model-picker').classList.remove('open'); }
+    function togglePicker() { $('model-picker').classList.toggle('open'); }
+
+    document.addEventListener('click', (e) => {
+      const p = $('model-picker');
+      if (p && !p.contains(e.target)) closePicker();
+    });
+    document.addEventListener('keydown', (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        openPicker();
+      }
+      if (e.key === 'Escape') {
+        closePicker();
+        $('conn-back').classList.remove('open');
+        hideProv();
+      }
+    });
+
+    /* (legacy drawer was replaced by always-visible rail-right;
+        rail toggles are wired inside init()) */
+
+    // ── Presets ────────────────────────────────────────────────────
+    $('presets').addEventListener('click', (e) => {
+      const b = e.target.closest('button[data-preset]');
+      if (!b) return;
+      const p = b.dataset.preset;
+      State.preset = p;
+      Array.from($('presets').children).forEach(x => x.classList.toggle('active', x === b));
+      Object.assign(State.tunables, PRESETS[p]);
+      renderTunables();
+      flashStatus(`preset → ${p}`);
+    });
+
+    // ── Tunables ──────────────────────────────────────────────────
+    function impactArrow(dir) {
+      switch (dir) {
+        case 'up':    return '↑';
+        case 'up2':   return '↑↑';
+        case 'down':  return '↓';
+        case 'down2': return '↓↓';
+        default:      return '·';
+      }
+    }
+    function renderImpact(impact) {
+      if (!impact || !impact.length) return '';
+      return impact.map(([axis, dir]) =>
+        `<span class="pip">${escapeHtml(axis)} <span class="arrow ${dir}">${impactArrow(dir)}</span></span>`
+      ).join('');
+    }
+
+    function buildTunableRow(t, v) {
+      const row = document.createElement('div');
+      row.className = 'tunable';
+      const headHtml = `
+        <div class="head">
+          <span class="name">${escapeHtml(t.label)}</span>
+          ${t.reco ? `<span class="reco">${escapeHtml(t.reco)}</span>` : ''}
+        </div>
+        <div class="desc">${escapeHtml(t.desc)}${t.why ? ' <span style="color:var(--border-hi)">·</span> ' + escapeHtml(t.why) : ''}</div>`;
+      let controlHtml = '';
+      if (t.kind === 'select') {
+        controlHtml = `<select data-key="${t.key}">${
+          t.options.map(o => `<option value="${o}" ${o===v?'selected':''}>${escapeHtml(o)}</option>`).join('')
+        }</select>`;
+      } else if (t.kind === 'toggle') {
+        controlHtml = `<label class="toggle"><input type="checkbox" data-key="${t.key}" ${v?'checked':''}> <span>${v ? 'on' : 'off'}</span></label>`;
+      } else if (t.kind === 'textarea') {
+        controlHtml = `<textarea data-key="${t.key}" rows="${t.rows||3}" placeholder="${escapeHtml(t.placeholder||'')}">${escapeHtml(v||'')}</textarea>`;
+      } else {
+        const safeV = Number.isFinite(Number(v)) ? Number(v) : t.min;
+        const fillPct = Math.max(0, Math.min(100, ((safeV - t.min) / (t.max - t.min)) * 100));
+        controlHtml = `
+          <div class="tcontrol">
+            <div class="slider-wrap">
+              <input type="range" data-role="slider" data-key="${t.key}"
+                     min="${t.min}" max="${t.max}" step="${t.step}" value="${safeV}"
+                     style="--fill: ${fillPct}%">
+              <div class="ticks"><span>${formatTick(t.min)}</span><span>${formatTick(t.max)}</span></div>
+            </div>
+            <div class="num-wrap">
+              <input type="number" data-role="num" data-key="${t.key}"
+                     min="${t.min}" max="${t.max}" step="${t.step}" value="${formatNum(safeV, t.step)}">
+              ${t.unit ? `<span class="unit">${escapeHtml(t.unit)}</span>` : ''}
+            </div>
+          </div>`;
+      }
+      row.innerHTML = `${headHtml}${controlHtml}${t.impact ? `<div class="impact">${renderImpact(t.impact)}</div>` : ''}`;
+      return row;
+    }
+    function wireTunableRow(rowEl, def) {
+      const slider = rowEl.querySelector('[data-role="slider"]');
+      const num    = rowEl.querySelector('[data-role="num"]');
+      const sel    = rowEl.querySelector('select[data-key]');
+      const cb     = rowEl.querySelector('input[type="checkbox"][data-key]');
+      const ta     = rowEl.querySelector('textarea[data-key]');
+      const apply = (val, source) => {
+        let v;
+        if (source === 'toggle')   v = !!val;
+        else if (source === 'textarea' || source === 'select') v = val;
+        else {
+          v = Number(val);
+          if (!Number.isFinite(v)) return;
+          v = Math.max(def.min, Math.min(def.max, v));
+        }
+        State.tunables[def.key] = v;
+        if (slider && source !== 'slider') {
+          slider.value = v;
+          slider.style.setProperty('--fill', (((v - def.min) / (def.max - def.min)) * 100) + '%');
+        }
+        if (slider && source === 'slider') {
+          slider.style.setProperty('--fill', (((v - def.min) / (def.max - def.min)) * 100) + '%');
+        }
+        if (num && source !== 'num') num.value = formatNum(v, def.step);
+        if (cb) {
+          const span = rowEl.querySelector('.toggle span');
+          if (span) span.textContent = v ? 'on' : 'off';
+        }
+        persistTunables();
+      };
+      if (slider) slider.addEventListener('input',  (e) => apply(e.target.value,   'slider'));
+      if (num)    num.addEventListener('input',     (e) => apply(e.target.value,   'num'));
+      if (sel)    sel.addEventListener('change',    (e) => apply(e.target.value,   'select'));
+      if (cb)     cb.addEventListener('change',     (e) => apply(e.target.checked, 'toggle'));
+      if (ta)     ta.addEventListener('input',      (e) => apply(e.target.value,   'textarea'));
+    }
+    function renderTunables() {
+      const groups = ['sampling','length','penalties','format','repro','runtime'];
+      groups.forEach(g => {
+        const wrap = $('tunables-' + g);
+        if (!wrap) return;
+        wrap.innerHTML = '';
+        TUNABLES_DEF.filter(t => t.group === g).forEach(t => {
+          const v = State.tunables[t.key];
+          const row = buildTunableRow(t, v);
+          wrap.appendChild(row);
+          wireTunableRow(row, t);
+        });
+      });
+    }
+    function formatNum(v, step) {
+      if (typeof v !== 'number') return String(v);
+      const decimals = step && step < 1 ? Math.max(0, -Math.floor(Math.log10(step))) : 0;
+      return v.toFixed(decimals);
+    }
+    function formatTick(v) {
+      if (v >= 1024) return Math.round(v/1024) + 'k';
+      return String(v);
+    }
+    function formatVal(v) {
+      if (typeof v === 'number') return Number.isInteger(v) ? String(v) : v.toFixed(2);
+      return String(v);
+    }
+    function persistTunables() {
+      try {
+        localStorage.setItem(`arail.tunables.${State.currentId || 'default'}`, JSON.stringify(State.tunables));
+      } catch (e) {}
+    }
+    function restoreTunables(modelId) {
+      try {
+        const raw = localStorage.getItem(`arail.tunables.${modelId || 'default'}`);
+        if (raw) Object.assign(State.tunables, JSON.parse(raw));
+      } catch (e) {}
+    }
+
+    // ── Stream toggles (per-column) ────────────────────────────────
+    $('stream-toggle-A').addEventListener('change', (e) => {
+      State.streaming = e.target.checked;
+      flashStatus(`A: streaming ${State.streaming ? 'on' : 'off'}`);
+    });
+    $('stream-toggle-B').addEventListener('change', (e) => {
+      State.bStreaming = e.target.checked;
+      flashStatus(`B: streaming ${State.bStreaming ? 'on' : 'off'}`);
+    });
+
+    // ── Quick-bar temperature sliders (sync with main tunables panel) ──
+    function bindQuickSlider(inputId, valueId, key, side) {
+      const inp = $(inputId), val = $(valueId);
+      if (!inp) return;
+      const sync = (v) => {
+        const t = side === 'B' && State.bTunables ? State.bTunables : State.tunables;
+        v = Number(v);
+        if (Number.isNaN(v)) return;
+        t[key] = v;
+        val.textContent = v.toFixed(2);
+        const pct = ((v - inp.min) / (inp.max - inp.min)) * 100;
+        inp.style.setProperty('--qbfill', pct + '%');
+        // Reflect into the full tunables panel (rendered into #tunables-sampling
+        // etc.) so the row in the right rail mirrors the quickbar value.
+        if (side === 'A') {
+          const slider = document.querySelector(`[data-role="slider"][data-key="${key}"]`);
+          const num    = document.querySelector(`[data-role="num"][data-key="${key}"]`);
+          if (slider) {
+            slider.value = v;
+            slider.style.setProperty('--fill', pct + '%');
+          }
+          if (num) num.value = v.toFixed(2);
+        }
+        persistTunables();
+      };
+      inp.addEventListener('input', (e) => sync(e.target.value));
+      // Initial fill
+      sync(inp.value);
+    }
+    bindQuickSlider('qb-temp-A', 'qb-temp-A-val', 'temperature', 'A');
+    bindQuickSlider('qb-temp-B', 'qb-temp-B-val', 'temperature', 'B');
+
+    // ── Compare toggle ─────────────────────────────────────────────
+    // Column B is intentionally restricted to *deep backends* (AirLLM,
+    // AeroLLM). Loading two competing local models would oversubscribe
+    // VRAM; the deep backends layer-stream from disk so they coexist
+    // with the on-GPU primary at the cost of slower inference.
+    function setCompare(on) {
+      State.compareOn = on;
+      $('compare-grid').setAttribute('data-cols', on ? '2' : '1');
+      const colB = document.querySelector('.col[data-col="B"]');
+      colB.hidden = !on;
+      $('btn-compare').textContent = on ? '✓ Comparing' : '+ Compare';
+      if (on && !State.bId) {
+        // Auto-pick the first INSTALLED deep backend (AirLLM if present,
+        // AeroLLM otherwise). Never auto-pick a regular local model.
+        const deeps = State.models.filter(m => m.badge === 'deep' && m.installed);
+        if (deeps.length) {
+          const airllm = deeps.find(m => m.runtime === 'airllm');
+          selectModelB(airllm || deeps[0]);
+        } else {
+          flashStatus('compare on, but no deep backend is installed (AirLLM/AeroLLM)');
+        }
+      }
+      flashStatus(on ? 'compare mode on · column B = deep backend' : 'compare mode off');
+    }
+    $('btn-compare').addEventListener('click', () => setCompare(!State.compareOn));
+    $('btn-compare-close').addEventListener('click', () => setCompare(false));
+
+    // ── Secondary model picker (column B) ──────────────────────────
+    function renderPickerB() {
+      const pop = $('picker-pop-B');
+      pop.innerHTML = '';
+      const closeB = () => $('model-picker-B').classList.remove('open');
+      const onPick = m => { selectModelB(m); closeB(); };
+
+      const localModels = State.models.filter(m => m.badge !== 'deep');
+      if (localModels.length) {
+        const sec = document.createElement('div');
+        sec.className = 'section';
+        sec.innerHTML = `<div class="head"><span>Local models</span><span class="hw">column B</span></div>`;
+        pop.appendChild(sec);
+        localModels.forEach(m => pop.appendChild(makeOpt(m, State.bId, onPick)));
+      }
+      const deep = State.models.filter(m => m.badge === 'deep');
+      if (deep.length) {
+        const sec = document.createElement('div');
+        sec.className = 'section';
+        sec.innerHTML = `<div class="head"><span>Deep backends</span><span class="hw">layer-streaming</span></div>`;
+        pop.appendChild(sec);
+        deep.forEach(m => pop.appendChild(makeOpt(m, State.bId, onPick)));
+      }
+    }
+    function selectModelB(m) {
+      State.bId = m.id; State.bRuntime = m.runtime;
+      State.bEndpoint = m.endpoint || null; State.bModel = m;
+      const { provider, model } = transformProvider(m.id, m.runtime);
+      $('picker-label-B').textContent = `${provider} · ${model}`;
+      if ($('model-picker-B').classList.contains('open')) renderPickerB();
+    }
+    $('model-picker-B').addEventListener('click', (e) => {
+      if (e.target.closest('.picker-pop')) return;
+      const open = !$('model-picker-B').classList.contains('open');
+      $('model-picker-B').classList.toggle('open', open);
+      if (open) renderPickerB();
+    });
+    document.addEventListener('click', (e) => {
+      const pB = $('model-picker-B');
+      if (pB && !pB.contains(e.target)) pB.classList.remove('open');
+    });
+
+    // ── Send ───────────────────────────────────────────────────────
+    $('send').addEventListener('click', send);
+    $('prompt').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+    });
+
+    function buildBody(text, side) {
+      const t = side === 'B' ? (State.bTunables || State.tunables) : State.tunables;
+      // Stop sequences: textarea is newline-separated → array.
+      const stops = (t.stop || '').split('\n').map(s => s.trim()).filter(Boolean);
+      return {
+        message: text,
+        history: State.history.slice(-20),
+        backend: pickBackend(),
+        runtime: side === 'B' ? State.bRuntime : State.currentRuntime,
+        model:   side === 'B' ? State.bId      : State.currentId,
+        // Core sampling.
+        temperature: t.temperature,
+        top_p: t.top_p,
+        top_k: t.top_k,
+        max_tokens: t.max_tokens,
+        repetition_penalty: t.repetition_penalty,
+        presence_penalty: t.presence_penalty,
+        frequency_penalty: t.frequency_penalty,
+        // Format & repro.
+        json_mode: !!t.json_mode,
+        stop: stops,
+        seed: Number(t.seed) || 0,
+        // System prompt.
+        system_prompt: t.system_prompt || $('sys-prompt')?.value || '',
+      };
+    }
+
+    async function send() {
+      const text = $('prompt').value.trim();
+      if (!text) return;
+      $('prompt').value = '';
+      hideEmpty('A'); appendUser('A', text);
+      const asstA = appendAssistant('A');
+      let asstB = null;
+      if (State.compareOn && State.bId) {
+        hideEmpty('B'); appendUser('B', text);
+        asstB = appendAssistant('B');
+      }
+      State.history.push({ role: 'user', content: text });
+      $('send').disabled = true;
+      flashStatus(State.compareOn ? 'sending to both…' : 'sending…');
+
+      const runOne = async (slot, side, useStream) => {
+        const body = buildBody(text, side);
+        try {
+          if (useStream) await streamChat(body, slot);
+          else           await onceChat(body, slot);
+        } catch (err) {
+          // Surface the full error to the console for debugging — UI gets
+          // a friendly message but devtools shows the stack so we can
+          // chase weird ones like AirLLM's "Invalid array length".
+          console.error('[chat]', side, 'error:', err);
+          slot.bodyEl.classList.add('error-body');
+          slot.bodyEl.innerHTML = `<strong>⚠ ${escapeHtml(err && err.message || String(err))}</strong>` +
+            `<div style="margin-top:.5em; color:var(--muted); font-size:var(--fs-xs)">` +
+            `(check the browser console for the stack trace)</div>`;
+        }
+      };
+
+      const tasks = [ runOne(asstA, 'A', State.streaming) ];
+      if (asstB) tasks.push(runOne(asstB, 'B', State.bStreaming));
+
+      try { await Promise.all(tasks); }
+      finally {
+        $('send').disabled = false;
+        $('prompt').focus();
+        flashStatus('ready');
+      }
+    }
+
+    function pickBackend() {
+      // For local sources, let server pick; for cloud sources hint via runtime.
+      if (State.activeSource === 'my_machine') return undefined;
+      return State.activeSource;
+    }
+
+    async function streamChat(body, slot) {
+      const r = await fetch('/api/chat/stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const reader = r.body.getReader();
+      const dec = new TextDecoder();
+      let buf = '';
+      let started = false;
+      let acc = '';
+      let final = null;
+      const t0 = performance.now();
+      // Throttle live re-render so we're not parsing markdown every token.
+      // AirLLM streams 1 tok/4-6s; ollama can hit 50 tok/s. Either way the
+      // live-render cost is mostly markdown re-parse + DOM diff.
+      let lastRender = 0;
+      const RENDER_INTERVAL_MS = 80;
+      const safeLiveRender = () => {
+        try {
+          slot.bodyEl.innerHTML = renderMarkdown(acc) + '<span class="caret"></span>';
+        } catch (renderErr) {
+          // Markdown parser blew up on partial content; fall back to text + caret.
+          console.warn('[chat] live renderMarkdown failed (continuing as text):', renderErr);
+          const txt = document.createTextNode(acc);
+          slot.bodyEl.innerHTML = '<span class="caret"></span>';
+          slot.bodyEl.insertBefore(txt, slot.bodyEl.firstChild);
+        }
+      };
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        let idx;
+        while ((idx = buf.indexOf('\n')) !== -1) {
+          const line = buf.slice(0, idx); buf = buf.slice(idx + 1);
+          if (!line.trim()) continue;
+          let ev;
+          try { ev = JSON.parse(line); } catch (parseErr) {
+            console.warn('[chat] bad JSON event (skipped):', line.slice(0, 200));
+            continue;
+          }
+          // Per-event try/catch — one bad delta won't kill the stream.
+          try {
+            if (ev.type === 'start') {
+              started = true;
+              slot.bodyEl.innerHTML = '<span class="caret"></span>';
+            } else if (ev.type === 'delta') {
+              acc += String(ev.delta || '');
+              const now = performance.now();
+              if (now - lastRender >= RENDER_INTERVAL_MS) {
+                lastRender = now;
+                safeLiveRender();
+                scrollToBottom(slot.side);
+              }
+            } else if (ev.type === 'final') {
+              final = ev;
+            } else if (ev.type === 'error') {
+              // Some backends emit an explicit error event mid-stream.
+              throw new Error(String(ev.error || ev.message || 'stream error'));
+            }
+          } catch (eventErr) {
+            console.error('[chat stream event error]', eventErr, '— event was:', ev);
+            // Re-throw so runOne's catch surfaces it. We tried.
+            throw eventErr;
+          }
+        }
+      }
+      // Final flush of whatever's accumulated, in case throttle skipped it.
+      safeLiveRender();
+      if (!final) final = { reply: acc };
+      const reply = String(final.reply || acc || '');
+      // Server-side error path (AirLLM, etc.) → mark the body and bail out
+      // BEFORE we run downstream math that assumes a normal completion.
+      if (final.error) {
+        slot.bodyEl.classList.add('error-body');
+        let safeBody = '';
+        try { safeBody = reply ? renderMarkdown(reply) : ''; }
+        catch (_) { safeBody = escapeHtml(reply); }
+        slot.bodyEl.innerHTML = `<strong>⚠ ${escapeHtml(final.error)}</strong>` +
+          (safeBody ? `<div style="margin-top:.5em">${safeBody}</div>` : '');
+        slot.statsEl.innerHTML = `<span class="seg" style="color:var(--red)">backend error</span>`;
+        return;
+      }
+      try { slot.bodyEl.innerHTML = renderMarkdown(reply); }
+      catch (e) {
+        console.warn('[chat] final renderMarkdown failed; rendering as text:', e);
+        slot.bodyEl.textContent = reply;
+      }
+
+      // Numeric guards — every value that flows into toFixed must be a
+      // finite number. AirLLM has been known to return weird shapes.
+      const tNow = performance.now() - t0;
+      let latency;
+      const lRaw = Number(final.latency_ms);
+      if (Number.isFinite(lRaw) && lRaw > 0) latency = Math.max(1, Math.round(lRaw));
+      else if (Number.isFinite(tNow) && tNow > 0) latency = Math.max(1, Math.round(tNow));
+      else latency = 1;
+      let tokens = Number(final.tokens_used);
+      if (!Number.isFinite(tokens) || tokens <= 0) tokens = Number(final.tokens);
+      if (!Number.isFinite(tokens) || tokens <= 0) tokens = roughTok(reply);
+      let tps = (tokens > 0 && latency > 0) ? (tokens * 1000 / latency) : 0;
+      if (!Number.isFinite(tps)) tps = 0;
+      const prov = {
+        provider: final.backend || State.currentRuntime || 'local',
+        model: final.model || State.currentId,
+        latency_ms: latency,
+        tokens,
+        tps: Number.isFinite(tps) ? tps : 0,
+        endpoint: State.currentEndpoint,
+        runtime: State.currentRuntime,
+      };
+      slot.statsEl.innerHTML = renderStats(prov);
+      attachStatsHandlers(slot.statsEl, prov);
+      State.history.push({ role: 'assistant', content: reply });
+      State.lastProv = prov;
+      noteTelemetry(prov);
+    }
+
+    async function onceChat(body, slot) {
+      const t0 = performance.now();
+      const r = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const d = await r.json();
+      const reply = d.reply || '';
+      slot.bodyEl.innerHTML = renderMarkdown(reply);
+      const latency = d.latency_ms || Math.round(performance.now() - t0);
+      const tokens = d.tokens_used || d.tokens || roughTok(reply);
+      const tps = tokens > 0 && latency > 0 ? (tokens / (latency / 1000)) : 0;
+      const prov = {
+        provider: d.backend || State.currentRuntime || 'local',
+        model: d.model || State.currentId,
+        latency_ms: latency,
+        tokens, tps,
+        endpoint: State.currentEndpoint, runtime: State.currentRuntime,
+      };
+      slot.statsEl.innerHTML = renderStats(prov);
+      attachStatsHandlers(slot.statsEl, prov);
+      State.history.push({ role: 'assistant', content: reply });
+      State.lastProv = prov;
+      noteTelemetry(prov);
+    }
+
+    function roughTok(s) { return Math.max(1, Math.round((s || '').length / 4)); }
+
+    function renderStats(p) {
+      const { provider, model } = transformProvider(p.model, p.provider);
+      // Defensive: every numeric must be a finite number before .toFixed.
+      const tps = Number.isFinite(p.tps) ? p.tps : 0;
+      const latency = Number.isFinite(p.latency_ms) ? Math.round(p.latency_ms) : 0;
+      const tokens = Number.isFinite(p.tokens) ? Math.round(p.tokens) : 0;
+      return [
+        `<span class="seg">${escapeHtml(provider)}</span>`,
+        `<span class="sep">·</span>`,
+        `<span class="seg model" data-prov>${escapeHtml(model)}</span>`,
+        `<span class="sep">·</span>`,
+        `<span class="seg">${tps.toFixed(1)} t/s</span>`,
+        `<span class="sep">·</span>`,
+        `<span class="seg">${latency} ms</span>`,
+        `<span class="sep">·</span>`,
+        `<span class="seg">${tokens} tok</span>`,
+      ].join(' ');
+    }
+
+    function attachStatsHandlers(el, prov) {
+      const m = el.querySelector('[data-prov]');
+      if (!m) return;
+      m.addEventListener('click', (e) => {
+        e.stopPropagation();
+        showProv(prov, m.getBoundingClientRect());
+      });
+    }
+
+    function showProv(p, anchor) {
+      const o = $('prov-overlay');
+      const { provider, model } = transformProvider(p.model, p.provider);
+      const hw = State.gallery && State.gallery.compact && State.gallery.compact.hardware;
+      const fit = State.gallery && State.gallery.compact && State.gallery.compact.fit;
+      o.innerHTML = `
+        <h4>${escapeHtml(model)}</h4>
+        <dl>
+          <dt>provider</dt>      <dd>${escapeHtml(provider)}</dd>
+          <dt>runtime</dt>       <dd>${escapeHtml(p.runtime || '—')}</dd>
+          <dt>endpoint</dt>      <dd>${escapeHtml(p.endpoint || '—')}</dd>
+          <dt>throughput</dt>    <dd>${p.tps.toFixed(2)} tok/s</dd>
+          <dt>latency</dt>       <dd>${p.latency_ms} ms</dd>
+          <dt>tokens</dt>        <dd>${p.tokens}</dd>
+          ${hw ? `<dt>hardware</dt><dd>${escapeHtml(hw.label||'—')} · ${hw.free_gb||'?'} GB free</dd>` : ''}
+          ${fit ? `<dt>fit</dt><dd>${escapeHtml(fit.summary || fit.verdict || '—')}</dd>` : ''}
+        </dl>
+        <div class="footer"><a href="/tuning">Show more →</a></div>`;
+      const left = Math.min(window.innerWidth - 340, anchor.left);
+      const top  = Math.max(10, anchor.top - 10 - 280);
+      o.style.left = left + 'px';
+      o.style.top  = top + 'px';
+      o.style.display = 'block';
+      const dismiss = (ev) => {
+        if (!o.contains(ev.target)) { hideProv(); document.removeEventListener('click', dismiss); }
+      };
+      setTimeout(() => document.addEventListener('click', dismiss), 0);
+    }
+    function hideProv() { $('prov-overlay').style.display = 'none'; }
+
+    // ── Transcript helpers (per-column) ──────────────────────────────
+    function trEl(side) { return $(side === 'B' ? 'transcript-B' : 'transcript'); }
+    function hideEmpty(side) {
+      const root = trEl(side);
+      if (!root) return;
+      root.querySelectorAll('.empty').forEach(e => e.remove());
+    }
+    function appendUser(side, text) {
+      const t = trEl(side);
+      const wrap = document.createElement('div');
+      wrap.className = 'msg user';
+      wrap.innerHTML = `<div class="who">you</div><div class="body"></div>`;
+      wrap.querySelector('.body').textContent = text;
+      t.appendChild(wrap);
+      scrollToBottom(side);
+    }
+    function appendAssistant(side) {
+      const t = trEl(side);
+      const wrap = document.createElement('div');
+      wrap.className = 'msg assistant';
+      const id = side === 'B' ? State.bId : State.currentId;
+      const rt = side === 'B' ? State.bRuntime : State.currentRuntime;
+      const { provider, model } = transformProvider(id, rt);
+      wrap.innerHTML = `
+        <div class="who">${escapeHtml(provider)} · ${escapeHtml(model)}</div>
+        <div class="body"><span class="caret"></span></div>
+        <div class="stats-line"><span class="seg">streaming…</span></div>`;
+      t.appendChild(wrap);
+      scrollToBottom(side);
+      return {
+        bodyEl: wrap.querySelector('.body'),
+        statsEl: wrap.querySelector('.stats-line'),
+        side,
+      };
+    }
+    function scrollToBottom(side) {
+      const t = trEl(side);
+      if (t) t.scrollTop = t.scrollHeight;
+    }
+
+    // ── Status line ────────────────────────────────────────────────
+    let statusT = null;
+    function flashStatus(msg) {
+      $('status-line').textContent = msg;
+      clearTimeout(statusT);
+      if (msg !== 'ready') {
+        statusT = setTimeout(() => { $('status-line').textContent = 'ready'; }, 1800);
+      }
+    }
+
+    // ── Connections modal ──────────────────────────────────────────
+    const PROVIDERS = [
+      { id: 'huggingface', label: 'HF',         hint: 'hf_xxx' },
+      { id: 'claude',      label: 'Claude',     hint: 'sk-ant-…' },
+      { id: 'nvidia',      label: 'NVIDIA',     hint: 'nvapi-…' },
+      { id: 'openrouter',  label: 'OpenRouter', hint: 'sk-or-…' },
+    ];
+    function renderConn() {
+      const wrap = $('conn-rows');
+      wrap.innerHTML = '';
+      PROVIDERS.forEach(p => {
+        const row = document.createElement('div');
+        row.className = 'row';
+        row.innerHTML = `
+          <div class="name">${p.label}</div>
+          <input type="password" placeholder="${p.hint}" data-prov="${p.id}">
+          <span><button data-verify="${p.id}">verify</button> <span class="badge"></span></span>`;
+        wrap.appendChild(row);
+        // Status check
+        fetch(`/api/tokens/${p.id}/status`).then(r => r.ok ? r.json() : null).then(d => {
+          if (d && d.present) row.classList.add('ok');
+        }).catch(() => {});
+        row.querySelector('button').addEventListener('click', async () => {
+          const tok = row.querySelector('input').value.trim();
+          if (!tok) return flashStatus(`${p.label}: paste token first`);
+          try {
+            const r = await fetch(`/api/tokens/${p.id}`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ token: tok }),
+            });
+            if (r.ok) { row.classList.add('ok'); flashStatus(`${p.label}: saved`); }
+            else flashStatus(`${p.label}: ${r.status}`);
+          } catch (e) { flashStatus(`${p.label}: ${e.message}`); }
+        });
+      });
+    }
+    function openConn() { $('conn-back').classList.add('open'); }
+    $('btn-conn').addEventListener('click', openConn);
+    $('conn-close').addEventListener('click', () => $('conn-back').classList.remove('open'));
+    $('conn-back').addEventListener('click', (e) => {
+      if (e.target === $('conn-back')) $('conn-back').classList.remove('open');
+    });
+
+    // ── Picker click handlers (delegated) ──────────────────────────
+    $('model-picker').addEventListener('click', (e) => {
+      // Don't toggle when clicking inside the popup options
+      if (e.target.closest('.picker-pop')) return;
+      togglePicker();
+    });
+    /* (source picker merged into model picker — no separate handler needed) */
+
+    // ── Init ──────────────────────────────────────────────────────
+    function escapeHtml(s) {
+      return String(s == null ? '' : s)
+        .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+        .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+    }
+
+    /* ── Tiny markdown renderer ──────────────────────────────────────
+       Handles: fenced code (```lang), inline code, bold, italic, strike,
+       headings (#, ##, ###), unordered & ordered lists, blockquotes,
+       horizontal rules, autolinks, [text](url) links, paragraph breaks.
+       Streams safely — partial fences render as plain text + caret. */
+    function renderMarkdown(src) {
+      src = String(src || '');
+      // Pull out fenced code blocks first so inline rules don't touch them.
+      const blocks = [];
+      src = src.replace(/```([a-zA-Z0-9_+-]*)\n([\s\S]*?)```/g, (_, lang, code) => {
+        blocks.push({ lang: lang || '', code });
+        return ` CODEBLOCK${blocks.length - 1} `;
+      });
+      // Escape, then reapply inline markdown.
+      let html = escapeHtml(src);
+
+      // Inline code spans
+      html = html.replace(/`([^`\n]+)`/g, (_, c) => `<code class="inline">${c}</code>`);
+      // Bold + italic + strikethrough
+      html = html.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
+      html = html.replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>');
+      html = html.replace(/~~([^~\n]+)~~/g, '<del>$1</del>');
+      // Markdown links [text](url) — only http(s) for safety.
+      html = html.replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+      // Bare autolinks
+      html = html.replace(/(^|[\s(])(https?:\/\/[^\s)<]+)/g, '$1<a href="$2" target="_blank" rel="noopener noreferrer">$2</a>');
+
+      // Block-level: lines into structures.
+      const lines = html.split('\n');
+      const out = [];
+      let i = 0;
+      while (i < lines.length) {
+        const ln = lines[i];
+        // Headings
+        let m;
+        if ((m = ln.match(/^### (.*)$/))) { out.push(`<h4>${m[1]}</h4>`); i++; continue; }
+        if ((m = ln.match(/^## (.*)$/)))  { out.push(`<h3>${m[1]}</h3>`); i++; continue; }
+        if ((m = ln.match(/^# (.*)$/)))   { out.push(`<h2>${m[1]}</h2>`); i++; continue; }
+        // Horizontal rule
+        if (/^---+\s*$/.test(ln)) { out.push('<hr>'); i++; continue; }
+        // Blockquote
+        if (/^&gt; /.test(ln)) {
+          const buf = [];
+          while (i < lines.length && /^&gt; /.test(lines[i])) { buf.push(lines[i].replace(/^&gt; /, '')); i++; }
+          out.push(`<blockquote>${buf.join('<br>')}</blockquote>`);
+          continue;
+        }
+        // Unordered list
+        if (/^\s*[-*] /.test(ln)) {
+          const items = [];
+          while (i < lines.length && /^\s*[-*] /.test(lines[i])) {
+            items.push(lines[i].replace(/^\s*[-*] /, '')); i++;
+          }
+          out.push('<ul>' + items.map(x => `<li>${x}</li>`).join('') + '</ul>');
+          continue;
+        }
+        // Ordered list
+        if (/^\s*\d+\.\s/.test(ln)) {
+          const items = [];
+          while (i < lines.length && /^\s*\d+\.\s/.test(lines[i])) {
+            items.push(lines[i].replace(/^\s*\d+\.\s/, '')); i++;
+          }
+          out.push('<ol>' + items.map(x => `<li>${x}</li>`).join('') + '</ol>');
+          continue;
+        }
+        // Code block placeholder
+        const cb = ln.match(/ CODEBLOCK(\d+) /);
+        if (cb) {
+          const b = blocks[Number(cb[1])];
+          out.push(renderCodeBlock(b.lang, b.code));
+          i++; continue;
+        }
+        // Paragraph: gather contiguous non-empty lines.
+        if (ln.trim() === '') { i++; continue; }
+        const para = [];
+        while (i < lines.length && lines[i].trim() !== ''
+               && !/^(#|---|\s*[-*]\s|\s*\d+\.\s|&gt; | CODEBLOCK)/.test(lines[i])) {
+          para.push(lines[i]); i++;
+        }
+        out.push(`<p>${para.join('<br>')}</p>`);
+      }
+      return out.join('\n');
+    }
+
+    function renderCodeBlock(lang, code) {
+      const safe = escapeHtml(code).replace(/\n$/, '');
+      const langLabel = lang ? escapeHtml(lang) : 'text';
+      const id = 'cb' + Math.random().toString(36).slice(2, 8);
+      return `<div class="code-block">
+        <div class="code-head"><span class="lang">${langLabel}</span>
+          <button class="code-copy" data-copy="${id}">copy</button></div>
+        <pre><code id="${id}">${safe}</code></pre>
+      </div>`;
+    }
+
+    // Delegated copy handler
+    document.addEventListener('click', (e) => {
+      const b = e.target.closest && e.target.closest('.code-copy');
+      if (!b) return;
+      const code = document.getElementById(b.dataset.copy);
+      if (!code) return;
+      navigator.clipboard.writeText(code.textContent).then(() => {
+        const orig = b.textContent;
+        b.textContent = 'copied';
+        setTimeout(() => { b.textContent = orig; }, 1100);
+      });
+    });
+
+    function measureNav() {
+      const nav = document.querySelector('nav');
+      if (!nav) return;
+      const h = Math.ceil(nav.getBoundingClientRect().height);
+      document.documentElement.style.setProperty('--nav-h', h + 'px');
+    }
+
+    /* ── Render the model browser into the LEFT RAIL (cards). ── */
+    function renderModelRail() {
+      const local = State.models.filter(m => m.badge !== 'deep');
+      const deep  = State.models.filter(m => m.badge === 'deep');
+      const localWrap = $('rail-models-local');
+      const deepWrap  = $('rail-models-deep');
+      $('count-local').textContent = local.length;
+      $('count-deep').textContent  = deep.length;
+      const draw = (wrap, list) => {
+        wrap.innerHTML = '';
+        if (!list.length) {
+          wrap.innerHTML = '<div class="rail-empty">none</div>';
+          return;
+        }
+        list.forEach(m => {
+          const isCurrent = m.id === State.currentId;
+          const isWarm    = State.warmModels.has(m.id);
+          const verdict = m.fit && m.fit.verdict ? m.fit.verdict : 'good';
+          const sizeStr = m.size_gb ? `${m.size_gb.toFixed(1)} GB` : (m.estimated_vram_gb ? `~${Number(m.estimated_vram_gb).toFixed(1)} GB vram` : '');
+          const card = document.createElement('div');
+          card.className = 'model-card' + (isCurrent ? ' current' : '') + (isWarm ? ' warm' : '');
+          card.innerHTML = `
+            <div class="mc-row">
+              <span class="warm-dot" title="${isWarm ? 'Warm — loaded in memory' : 'Cold — on disk only'}"></span>
+              <div class="mc-name">${escapeHtml(m.label || m.id)}</div>
+              ${m.badge === 'deep' ? '<span class="deep-badge">deep</span>' : ''}
+              ${m.badge === 'new'  ? '<span class="new-badge">new</span>'  : ''}
+            </div>
+            <div class="mc-meta">
+              <span class="runtime">${escapeHtml(m.runtime || '')}</span>
+              ${sizeStr ? `<span class="dot">·</span><span>${sizeStr}</span>` : ''}
+              <span class="dot">·</span>
+              <span class="fit-chip ${fitClass(verdict)}">${escapeHtml(verdict)}</span>
+              <span class="dot">·</span>
+              <span class="${isWarm ? 'warm-label' : 'cold-label'}">${isWarm ? 'WARM' : 'cold'}</span>
+            </div>
+            <div class="mc-actions">
+              <button class="mc-act primary"   data-act="A">use as A</button>
+              ${m.badge === 'deep'
+                ? '<button class="mc-act secondary" data-act="B">use as B</button>'
+                : '<button class="mc-act secondary disabled" data-act="B" disabled title="Column B uses a deep layer-streaming backend (AirLLM/AeroLLM) so it can fit alongside model A on the same GPU.">B · deep only</button>'}
+              ${isWarm
+                ? '<button class="mc-act eject" data-act="eject" title="Free this model from VRAM/RAM">eject</button>'
+                : '<button class="mc-act load"  data-act="load"  title="Warm this model with a 1-token call so it loads quickly next time">load</button>'}
+            </div>`;
+          card.querySelector('[data-act="A"]').addEventListener('click', e => {
+            e.stopPropagation(); selectModel(m); renderModelRail();
+          });
+          const bBtn = card.querySelector('[data-act="B"]');
+          if (bBtn && !bBtn.disabled) {
+            bBtn.addEventListener('click', e => {
+              e.stopPropagation();
+              if (!State.compareOn) setCompare(true);
+              selectModelB(m); renderModelRail();
+            });
+          }
+          const loadBtn = card.querySelector('[data-act="load"]');
+          if (loadBtn) loadBtn.addEventListener('click', e => { e.stopPropagation(); loadModel(m); });
+          const ejectBtn = card.querySelector('[data-act="eject"]');
+          if (ejectBtn) ejectBtn.addEventListener('click', async e => {
+            e.stopPropagation();
+            // Use the existing eject endpoint with this card's runtime/model
+            const wasA = State.currentId === m.id;
+            const wasB = State.bId === m.id;
+            try {
+              const r = await fetch('/api/chat/eject', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ runtime: m.runtime, model: m.id }),
+              });
+              if (r.status === 404) { flashStatus('eject endpoint not registered — restart ./arail'); return; }
+              const d = await r.json();
+              State.warmModels.delete(m.id);
+              flashStatus(d.ok ? `ejected ${m.id}` : `eject failed: ${d.error || ''}`);
+              if (wasA) { State.currentModel = null; State.currentId = null; renderActiveCard(); }
+              if (wasB) { State.bModel = null; State.bId = null; renderActiveCard(); }
+              renderModelRail();
+              const wm = $('tele-warm');
+              if (wm) {
+                const ws = Array.from(State.warmModels);
+                wm.innerHTML = ws.length ? ws.map(x => `<span class="warm-pill">${escapeHtml(transformProvider(x,'').model)}</span>`).join(' ') : 'none';
+              }
+            } catch (err) { flashStatus('eject failed: ' + err.message); }
+          });
+          card.addEventListener('click', () => { selectModel(m); renderModelRail(); });
+          wrap.appendChild(card);
+        });
+      };
+      draw(localWrap, local);
+      draw(deepWrap,  deep);
+    }
+    function renderActiveCard() {
+      const m = State.currentModel;
+      const wrap = $('active-card');
+      if (!m) { wrap.innerHTML = '<div style="color: var(--muted); font-size: var(--fs-sm)">no model</div>'; return; }
+      const { provider, model } = transformProvider(m.id, m.runtime);
+      const verdict = m.fit && m.fit.verdict ? m.fit.verdict : 'good';
+      $('active-mini-fit').innerHTML = `<span class="fit-chip ${fitClass(verdict)}">${escapeHtml(verdict)}</span>`;
+      const bModel = State.compareOn && State.bModel
+        ? `<div class="mc-meta" style="margin-top: var(--s-2)">B · ${escapeHtml(State.bRuntime||'')} · ${escapeHtml(State.bId||'')}
+             <button class="mc-act eject" data-eject="B" title="Free model B from VRAM/RAM">eject B</button>
+           </div>`
+        : '';
+      wrap.innerHTML = `
+        <div class="mc-name" style="color: var(--green); text-shadow: var(--glow-green)">${escapeHtml(model)}</div>
+        <div class="mc-meta">${escapeHtml(provider)} · <span class="runtime">${escapeHtml(m.runtime||'')}</span></div>
+        <div class="active-actions">
+          <button class="mc-act eject" data-eject="A" title="Free this model from VRAM/RAM">eject from VRAM</button>
+          <button class="mc-act swap"  data-swap title="Swap to another model — opens the rail picker">swap →</button>
+        </div>
+        ${bModel}`;
+      // Wire eject + swap
+      wrap.querySelectorAll('[data-eject]').forEach(b => {
+        b.addEventListener('click', () => ejectModel(b.dataset.eject));
+      });
+      const sw = wrap.querySelector('[data-swap]');
+      if (sw) sw.addEventListener('click', () => {
+        // Scroll the local-models card into view + flash it.
+        const target = $('rail-models-local');
+        if (target) {
+          target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          target.style.transition = 'box-shadow 0.4s ease';
+          target.style.boxShadow = '0 0 0 2px var(--green)';
+          setTimeout(() => { target.style.boxShadow = ''; }, 1100);
+        }
+      });
+    }
+
+    /* ── Session telemetry: refresh the right-rail Telemetry card after
+       every successful response. Pure local-state, no extra fetches. */
+    function noteTelemetry(prov) {
+      try {
+        State.sessionTurns += 1;
+        State.sessionTokens += (prov.tokens || 0);
+        if (prov.model) State.warmModels.add(prov.model);
+        const fmt = (n) => Number.isFinite(n) ? n.toLocaleString() : '—';
+        const tt = $('tele-turn-count'); if (tt) tt.textContent = `${State.sessionTurns} turns`;
+        const ll = $('tele-last-latency'); if (ll) ll.textContent = `${prov.latency_ms} ms`;
+        const lt = $('tele-last-tps');     if (lt) lt.textContent = `${(prov.tps||0).toFixed(2)} tok/s`;
+        const st = $('tele-session-tokens'); if (st) st.textContent = fmt(State.sessionTokens);
+        const wm = $('tele-warm');
+        if (wm) {
+          const list = Array.from(State.warmModels);
+          wm.innerHTML = list.length
+            ? list.map(m => `<span class="warm-pill">${escapeHtml(transformProvider(m,'').model)}</span>`).join(' ')
+            : 'none';
+        }
+        renderModelRail();   // refresh warm dots on the cards
+      } catch (e) { console.warn('[telemetry update]', e); }
+    }
+
+    /* LOAD — warm the model with a 1-token completion so it's resident
+       on the next real query. Uses the existing /api/chat/stream path. */
+    async function loadModel(m) {
+      if (!m) return;
+      flashStatus(`loading ${m.label || m.id}…`);
+      try {
+        const body = {
+          message: 'ok',
+          history: [],
+          backend: m.runtime === 'airllm' || m.runtime === 'aerollm' ? m.runtime : undefined,
+          runtime: m.runtime,
+          model:   m.id,
+          temperature: 0,
+          top_p: 1,
+          max_tokens: 1,
+        };
+        const r = await fetch('/api/chat/stream', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        // Drain the stream so the request completes server-side
+        const reader = r.body.getReader();
+        while (true) { const { done } = await reader.read(); if (done) break; }
+        State.warmModels.add(m.id);
+        renderModelRail();
+        const wm = $('tele-warm');
+        if (wm) {
+          const list = Array.from(State.warmModels);
+          wm.innerHTML = list.map(x => `<span class="warm-pill">${escapeHtml(transformProvider(x,'').model)}</span>`).join(' ');
+        }
+        flashStatus(`loaded ${m.label || m.id}`);
+      } catch (e) {
+        flashStatus(`load failed: ${e.message}`);
+      }
+    }
+
+    /* Eject — call the backend endpoint to drop the model from VRAM. */
+    async function ejectModel(side) {
+      const runtime = side === 'B' ? State.bRuntime : State.currentRuntime;
+      const model   = side === 'B' ? State.bId      : State.currentId;
+      if (!runtime) { flashStatus('nothing to eject'); return; }
+      flashStatus(`ejecting ${runtime}…`);
+      try {
+        const r = await fetch('/api/chat/eject', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ runtime, model }),
+        });
+        if (r.status === 404) {
+          flashStatus('eject endpoint not registered — restart ./arail');
+          return;
+        }
+        const d = await r.json();
+        if (d.ok) {
+          const freed = (d.freed || []).join(', ') || 'nothing';
+          const notes = (d.notes || []).join(' · ');
+          flashStatus(`ejected: ${freed}${notes ? ' · ' + notes : ''}`);
+          if (model) State.warmModels.delete(model);
+          if (side === 'A') { State.currentModel = null; State.currentId = null; renderActiveCard(); }
+          else              { State.bModel = null; State.bId = null; renderActiveCard(); }
+          renderModelRail();
+          // refresh the warm pill row in telemetry
+          const wm = $('tele-warm');
+          if (wm) {
+            const list = Array.from(State.warmModels);
+            wm.innerHTML = list.length
+              ? list.map(x => `<span class="warm-pill">${escapeHtml(transformProvider(x,'').model)}</span>`).join(' ')
+              : 'none';
+          }
+        } else {
+          flashStatus(`eject failed: ${d.error || 'unknown'}`);
+        }
+      } catch (e) {
+        flashStatus(`eject failed: ${e.message}`);
+      }
+    }
+    function renderSourcesRail() {
+      const wrap = $('rail-sources');
+      if (!wrap) return;
+      wrap.innerHTML = '';
+      State.sources.forEach(s => {
+        const pill = document.createElement('button');
+        const cls = ['source-pill'];
+        if (s.id === State.activeSource) cls.push('active');
+        if (!s.available) cls.push('unavailable');
+        pill.className = cls.join(' ');
+        pill.textContent = s.label;
+        pill.title = s.available ? 'Switch source' : 'Add a token under Connections to enable.';
+        pill.addEventListener('click', () => {
+          if (!s.available && s.requires_token) { openConn(); return; }
+          State.activeSource = s.id;
+          renderSourcesRail();
+        });
+        wrap.appendChild(pill);
+      });
+    }
+
+    async function init() {
+      measureNav();
+      window.addEventListener('resize', measureNav);
+      renderTunables();
+      renderConn();
+
+      // System prompt textarea ↔ State binding
+      const sp = $('sys-prompt');
+      if (sp) {
+        sp.value = State.tunables.system_prompt || '';
+        $('sys-len').textContent = `${sp.value.length} chars`;
+        sp.addEventListener('input', () => {
+          State.tunables.system_prompt = sp.value;
+          $('sys-len').textContent = `${sp.value.length} chars`;
+          persistTunables();
+        });
+      }
+
+      // Header buttons: scroll to the relevant section + flash it.
+      function scrollAndFlash(el) {
+        if (!el) return;
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        // Flash the first card inside the target.
+        const card = el.classList && el.classList.contains('rail-card') ? el : el.querySelector('.rail-card');
+        if (card) {
+          card.classList.remove('flash');
+          // Force reflow so the animation re-triggers if clicked twice.
+          void card.offsetWidth;
+          card.classList.add('flash');
+        }
+      }
+      $('btn-toggle-left').addEventListener('click', () => {
+        // Models live in the left rail, below the chat.
+        scrollAndFlash(document.getElementById('rail-models-local')?.closest('.rail-card') || $('rail-left'));
+      });
+      $('btn-toggle-right').addEventListener('click', () => {
+        // Tunables: the core strip is right under the chat.
+        scrollAndFlash($('core-tunables'));
+      });
+      try {
+        const r = await fetch('/api/chat/models');
+        const d = await r.json();
+        State.gallery = d;
+        State.models = (d.gallery && d.gallery.installed) || [];
+
+        // Fold optional deep backends (AirLLM, AeroLLM) into the picker
+        // as virtual entries — they're full-fledged backends but live
+        // outside the gallery's `installed` list because they wrap a
+        // remote/heavy local runtime, not an on-disk weight folder.
+        const optBackends = d.optional_backends || [];
+        const deepEntries = optBackends
+          .filter(o => o && (o.installed || o.id === 'airllm' || o.id === 'aerollm'))
+          .map(o => ({
+            id: o.model || o.id,
+            label: `${o.label} · ${o.model || o.id}`,
+            runtime: o.id,                 // 'airllm' or 'aerollm'
+            size_gb: null,
+            estimated_vram_gb: null,
+            fit: { verdict: o.installed ? 'streaming' : 'not installed', summary: o.description || '' },
+            endpoint: null,
+            badge: 'deep',
+            installed: !!o.installed,
+            install_command: o.install_command,
+            spec: {
+              params: o.param_hint || '70B+',
+              license: 'mixed (per upstream model)',
+              context: 'depends on base model',
+              strengths: [
+                o.id === 'airllm'
+                  ? 'Layer-streaming for 70B+ local models on modest VRAM'
+                  : 'Rust-native inference; future fast path for ARAIL',
+                'Wraps any HF-style base — set ' + (o.id === 'airllm' ? 'AIRLLM_MODEL' : 'AEROLLM_MODEL'),
+                o.installed ? 'Installed' : 'Not installed — see install command',
+              ],
+              notes: o.description || '',
+              source: o.id === 'airllm'
+                ? 'https://github.com/lyogavin/airllm'
+                : 'https://github.com/cdarnell/aerollm',
+            },
+          }));
+        State.deepEntries = deepEntries;
+        // Append to gallery so they show up in BOTH columns' pickers.
+        State.models = State.models.concat(deepEntries);
+
+        State.sources = (d.compact && d.compact.compute_sources) || [];
+        State.activeSource = (State.sources.find(s => s.active) || {}).id || 'my_machine';
+        // Pick current
+        let cur = null;
+        if (d.current) cur = State.models.find(m => m.id === d.current);
+        if (!cur && State.models.length) cur = State.models[0];
+        if (cur) {
+          restoreTunables(cur.id);
+          renderTunables();
+          selectModel(cur);
+        } else {
+          $('picker-label').textContent = 'no models found';
+        }
+        renderModelRail();
+        renderActiveCard();
+        renderSourcesRail();
+        // Telemetry
+        const hw = d.compact && d.compact.hardware;
+        if (hw) {
+          $('tele-hw').textContent = `${hw.label || '—'} · ${hw.total_gb || '?'} GB total`;
+          $('tele-vram').textContent = `${hw.free_gb || '?'} GB`;
+        }
+      } catch (e) {
+        console.error('[chat init] failed:', e);
+        $('picker-label').textContent = 'load failed — see console';
+        flashStatus('models load failed: ' + (e && e.message || e));
+      }
+      console.info('[chat init] done · models=', State.models.length, '· current=', State.currentId);
+    }
+
+    init();
+  })();
+  </script>
 </body>
 </html>

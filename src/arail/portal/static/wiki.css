@@ -80,7 +80,7 @@
 .wiki-recent-list a:hover { color: var(--green); }
 .section-name { text-transform: uppercase; font-size: 0.72rem; letter-spacing: 0.05em; color: var(--muted); }
 .section-count {
-  background: rgba(0,255,65,0.08);
+  background: var(--green-a08);
   color: var(--green);
   padding: 0.1rem 0.5rem;
   border-radius: 999px;
@@ -107,7 +107,7 @@
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
-  background: rgba(0,212,255,0.08);
+  background: var(--blue-a08);
   color: var(--blue);
   border: 1px solid rgba(0,212,255,0.18);
   padding: 0.2rem 0.55rem;
