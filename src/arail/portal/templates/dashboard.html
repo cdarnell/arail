@@ -522,15 +522,26 @@
   <div class="card">
     <h2><span class="indicator"></span> Mission Status</h2>
 
-    <!-- Progress Ring -->
-    <div class="progress-ring">
-      <svg viewBox="0 0 100 100">
-        <circle class="ring-bg" cx="50" cy="50" r="40"/>
-        <circle class="ring-fill" cx="50" cy="50" r="40"
-                id="progress-ring-fill"
-                style="stroke-dashoffset: {{ 251.2 - (251.2 * (current_goal.progress if current_goal else 0)) }}"/>
-      </svg>
-      <div class="ring-label" id="progress-label">{{ ((current_goal.progress if current_goal else 0) * 100)|int }}%</div>
+    <!-- Progress Ring + Step Context -->
+    <div class="mission-status-row">
+      <div class="progress-ring">
+        <svg viewBox="0 0 100 100">
+          <circle class="ring-bg" cx="50" cy="50" r="40"/>
+          <circle class="ring-fill" cx="50" cy="50" r="40"
+                  id="progress-ring-fill"
+                  style="stroke-dashoffset: {{ 251.2 - (251.2 * (current_goal.progress if current_goal else 0)) }}"/>
+        </svg>
+        <div class="ring-label" id="progress-label">{{ ((current_goal.progress if current_goal else 0) * 100)|int }}%</div>
+      </div>
+
+      {% if mission_step %}
+      <div class="step-context tone-{{ mission_step.tone }}">
+        <div class="step-label">step</div>
+        <div class="step-name">{{ mission_step.name }}</div>
+        <div class="step-caption">{{ mission_step.caption }}</div>
+        <div class="step-next"><span class="step-next-label">next</span> {{ mission_step.next }}</div>
+      </div>
+      {% endif %}
     </div>
 
     <!-- Experiments summary -->
