@@ -33,6 +33,10 @@ while [[ -L "$_arail_self" ]]; do
     fi
 done
 REPO_ROOT="$(cd "$(dirname "$_arail_self")" && pwd)"
+# Export so `exec bash scripts/<sub>.sh` children see it. Subscripts
+# reference $REPO_ROOT directly (e.g. setup.sh:install_path_shim) and
+# would crash under `set -u` without this.
+export REPO_ROOT
 unset _arail_self _arail_link
 cd "$REPO_ROOT"
 
