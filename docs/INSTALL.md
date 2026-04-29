@@ -12,11 +12,17 @@ first-run choices to the target hardware.
 
 ## 0. What you need
 
-- A computer that can run Python 3.10–3.12.
 - **macOS**, **Linux**, or **Windows + WSL2**. Native Windows shells are not
   supported by `./arail setup`.
 - ~8 GB free disk for the `min` tier, ~60 GB for the `max` tier.
 - Git, a terminal, and a browser.
+
+`./arail setup` bootstraps everything else for you. If Homebrew, Python
+3.11, or Node.js are missing, it'll prompt once and then install them via
+your platform's package manager. Pass `ARAIL_NONINTERACTIVE=1` (the
+agent-driven flag) to skip every prompt, or `ARAIL_AUTO_INSTALL=0` to
+fall back to the old "tell me what to install, I'll do it myself"
+behavior.
 
 ---
 

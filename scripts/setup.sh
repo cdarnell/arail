@@ -15,6 +15,35 @@ info()  { echo -e "${GREEN}[arail]${RESET} $*"; }
 warn()  { echo -e "${YELLOW}[arail]${RESET} $*"; }
 error() { echo -e "${RED}[arail]${RESET} $*"; exit 1; }
 
+# Self-sufficient install policy:
+#   ARAIL_NONINTERACTIVE=1  → never prompt; default-yes everything (agent-driven)
+#   ARAIL_AUTO_INSTALL=0    → never auto-install; preserve old "tell user to install" behavior
+#   default                 → prompt once, default-yes, install on Enter
+confirm() {
+    local prompt="$1" default="${2:-y}"
+    if [[ "${ARAIL_NONINTERACTIVE:-0}" == "1" || ! -t 0 ]]; then
+        [[ "$default" == "y" ]]
+        return
+    fi
+    local hint="[Y/n]"
+    [[ "$default" == "n" ]] && hint="[y/N]"
+    local answer
+    read -r -p "  $prompt $hint " answer || answer=""
+    answer="${answer:-$default}"
+    [[ "$answer" =~ ^[Yy] ]]
+}
+
+auto_install_enabled() {
+    [[ "${ARAIL_AUTO_INSTALL:-1}" == "1" ]]
+}
+
+# PYTHON_BIN — resolved by ensure_python() to the absolute path of the
+# Python interpreter we'll use to create the venv. Anything that runs
+# python BEFORE the venv is activated must use "$PYTHON_BIN", not bare
+# python3 (which may still be the system's outdated 3.9 even after we
+# brew-install python@3.11).
+PYTHON_BIN=""
+
 ollama_default_enabled() {
     [[ "$PLATFORM" == "macos" && "$ACCEL" == "mlx" ]] && return 1
     return 0
@@ -155,7 +184,7 @@ detect_platform() {
             fi
             ;;
         *)
-            error "Unsupported OS: $os. See docs/LINUX.md for the 'vibe integrate' recipe — point an AI agent at scripts/setup.sh and it'll port the 20 lines that matter."
+            error "Unsupported OS: $os. ARAIL is a blueprint — point an AI coding agent at scripts/setup.sh + AGENTS.md and it'll add a case branch for your distro in ~20 lines. See docs/LINUX.md."
             ;;
     esac
 
@@ -168,11 +197,41 @@ detect_platform() {
     # Sudo-cache pre-flight for platforms that need it — warns only, so
     # the user doesn't get surprised by a password prompt 90 seconds in.
     check_sudo
-    # Homebrew guard — on macOS, every install_services call needs brew.
-    if [[ "$PLATFORM" == "macos" ]] && ! command -v brew &>/dev/null; then
-        error "Homebrew is required on macOS. Install it, then re-run:
+    # Homebrew bootstrap — on macOS, every install_services call needs
+    # brew, and python@3.11 / node ride on it too. Install it now (with
+    # confirmation in interactive mode) so the rest of setup just works.
+    ensure_brew
+}
+
+# ensure_brew — bootstrap Homebrew on macOS if missing. No-op on Linux/WSL.
+# Idempotent. Honors ARAIL_NONINTERACTIVE (auto-install) and
+# ARAIL_AUTO_INSTALL=0 (refuse to install, fall back to original error).
+ensure_brew() {
+    [[ "$PLATFORM" == "macos" ]] || return 0
+    if command -v brew &>/dev/null; then
+        return 0
+    fi
+    if ! auto_install_enabled; then
+        error "Homebrew is required on macOS and ARAIL_AUTO_INSTALL=0. Install it manually, then re-run:
   /bin/bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""
     fi
+    info "Homebrew not found — required on macOS for python, ttyd, tmux, ollama."
+    if ! confirm "Install Homebrew now (downloads the official installer from brew.sh)?"; then
+        error "Homebrew install declined. Install it manually, then re-run ./arail setup."
+    fi
+    info "Installing Homebrew (the installer may prompt for your sudo password)…"
+    local log="${REPO_ROOT:-$PWD}/setup.log"
+    NONINTERACTIVE=1 /bin/bash -c \
+        "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" \
+        >>"$log" 2>&1 || error "Homebrew install failed — see setup.log."
+    # Make brew visible in this shell for the rest of setup. The official
+    # installer drops brew at /opt/homebrew on Apple Silicon and
+    # /usr/local on Intel; pick whichever exists.
+    if   [[ -x /opt/homebrew/bin/brew ]]; then eval "$(/opt/homebrew/bin/brew shellenv)"
+    elif [[ -x /usr/local/bin/brew     ]]; then eval "$(/usr/local/bin/brew shellenv)"
+    fi
+    command -v brew &>/dev/null || error "Homebrew installed but not on PATH — see setup.log."
+    info "Homebrew installed."
 }
 
 # --- Port resolver ----------------------------------------------------------
@@ -277,40 +336,170 @@ check_sudo() {
 
 # -----------------------------------------------------------------------------
 # Python environment
+#
+# Strategy (self-sufficient): probe a candidate list for any python that
+# satisfies >=3.10. If found, use it. If none — and auto-install is
+# enabled — bootstrap python@3.11 via the platform package manager,
+# then re-probe. Sets $PYTHON_BIN to the absolute path of the chosen
+# interpreter; venv creation and any pre-venv python call uses it.
 # -----------------------------------------------------------------------------
+_probe_python_bin() {
+    # Walks candidate names and sets PYTHON_BIN to the first one that
+    # satisfies major>=3 and minor>=10. Returns 0 if found, 1 if not.
+    local cand v maj min
+    PYTHON_BIN=""
+    for cand in python3.12 python3.11 python3.10 python3; do
+        command -v "$cand" &>/dev/null || continue
+        v="$("$cand" -c 'import sys;print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null)" || continue
+        maj="${v%%.*}"; min="${v##*.}"
+        if [[ "$maj" == "3" && "$min" =~ ^[0-9]+$ ]] && (( min >= 10 )); then
+            PYTHON_BIN="$(command -v "$cand")"
+            PYTHON_VERSION="$v"
+            return 0
+        fi
+    done
+    return 1
+}
+
 ensure_python() {
     step "3/11  Python environment (.venv + core deps)"
-    if ! command -v python3 &>/dev/null; then
-        case "$PLATFORM" in
-            gentoo)  error "Install Python, then re-run ./arail setup:  emerge -av dev-lang/python" ;;
-            macos)   error "Install Python, then re-run ./arail setup:  brew install python@3.11" ;;
-            *)       error "Install Python 3.10+ and re-run ./arail setup." ;;
-        esac
-    fi
 
-    local pyver pymajor pyminor
-    pyver="$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
-    pymajor="${pyver%.*}"
-    pyminor="${pyver#*.}"
-    info "Python $pyver found"
-
-    # Version gate: too old (< 3.10) fails hard; too new (>= 3.13) warns
-    # since some accelerator wheels (mlx, vllm, torch) lag behind.
-    if (( pymajor < 3 )) || (( pymajor == 3 && pyminor < 10 )); then
-        error "Python $pyver is too old. Install Python 3.10-3.12 and re-run ./arail setup."
-    fi
-    if (( pymajor == 3 && pyminor >= 13 )); then
-        warn "Python $pyver is newer than we test (3.10-3.12)."
-        warn "If pip installs fail, install python@3.11 and delete .venv before re-running."
+    if _probe_python_bin; then
+        info "Python ${PYTHON_VERSION} ready at ${PYTHON_BIN}"
+        local minv="${PYTHON_VERSION##*.}"
+        if (( minv >= 13 )); then
+            warn "Python ${PYTHON_VERSION} is newer than we test (3.10-3.12). May work; mlx/vllm/torch wheels can lag."
+        fi
+    else
+        info "No Python 3.10+ found on PATH."
+        if ! auto_install_enabled; then
+            case "$PLATFORM" in
+                gentoo) error "Install Python, then re-run ./arail setup:  emerge -av dev-lang/python:3.11" ;;
+                macos)  error "Install Python, then re-run ./arail setup:  brew install python@3.11" ;;
+                *)      error "Install Python 3.10-3.12 and re-run ./arail setup." ;;
+            esac
+        fi
+        if ! confirm "Install Python 3.11 now via your system package manager?"; then
+            error "Python install declined. Install Python 3.10-3.12 manually, then re-run ./arail setup."
+        fi
+        install_python_for_platform
+        # Re-probe; if still nothing, the install silently failed.
+        if ! _probe_python_bin; then
+            error "Python install ran but no usable interpreter on PATH — see setup.log."
+        fi
+        info "Python ${PYTHON_VERSION} ready at ${PYTHON_BIN}"
     fi
 
     if [[ ! -d ".venv" ]]; then
-        info "Creating virtual environment…"
-        python3 -m venv .venv
+        info "Creating virtual environment with ${PYTHON_BIN}…"
+        "$PYTHON_BIN" -m venv .venv
     fi
     # shellcheck disable=SC1091
     source .venv/bin/activate
     pip install --upgrade pip -q
+}
+
+# install_python_for_platform — fourth case-statement port hook (parallel
+# to detect_platform / install_services / install_accel_deps). External
+# agents porting to a new distro extend this `case`. See AGENTS.md.
+install_python_for_platform() {
+    local log="${REPO_ROOT:-$PWD}/setup.log"
+    case "$PLATFORM" in
+        macos)
+            ensure_brew
+            info "Installing python@3.11 via Homebrew…"
+            brew install python@3.11 >>"$log" 2>&1 || error "brew install python@3.11 failed — see setup.log."
+            # python@3.11 is keg-only, but brew symlinks python3.11 into
+            # the brew bin dir, which ensure_brew already put on PATH.
+            # Belt-and-suspenders: prepend the keg's bin too.
+            local pfx
+            pfx="$(brew --prefix python@3.11 2>/dev/null || true)"
+            [[ -n "$pfx" && -x "$pfx/bin/python3.11" ]] && export PATH="$pfx/bin:$PATH"
+            ;;
+        wsl|linux|ubuntu|debian)
+            check_sudo
+            info "Installing python3.11 via apt…"
+            sudo apt-get update -qq >>"$log" 2>&1 || true
+            if ! apt-cache show python3.11 &>/dev/null; then
+                info "python3.11 not in default repos — enabling deadsnakes PPA…"
+                sudo apt-get install -y -q software-properties-common >>"$log" 2>&1 \
+                    || error "apt install software-properties-common failed — see setup.log."
+                sudo add-apt-repository -y ppa:deadsnakes/ppa >>"$log" 2>&1 \
+                    || error "add-apt-repository deadsnakes failed — see setup.log."
+                sudo apt-get update -qq >>"$log" 2>&1 || true
+            fi
+            sudo apt-get install -y -q python3.11 python3.11-venv python3.11-dev >>"$log" 2>&1 \
+                || error "apt install python3.11 failed — see setup.log."
+            ;;
+        fedora)
+            check_sudo
+            info "Installing python3.11 via dnf…"
+            sudo dnf install -y python3.11 python3.11-devel >>"$log" 2>&1 \
+                || error "dnf install python3.11 failed — see setup.log."
+            ;;
+        arch)
+            check_sudo
+            info "Installing python via pacman (Arch ships current Python)…"
+            sudo pacman -S --noconfirm python python-pip >>"$log" 2>&1 \
+                || error "pacman -S python failed — see setup.log."
+            ;;
+        gentoo)
+            check_sudo
+            info "Emerging dev-lang/python:3.11 (this can take a while)…"
+            sudo emerge --quiet --ask=n dev-lang/python:3.11 >>"$log" 2>&1 \
+                || error "emerge dev-lang/python:3.11 failed — see setup.log."
+            ;;
+        *)
+            error "Don't know how to install Python on $PLATFORM. Add a branch to install_python_for_platform in scripts/setup.sh and re-run."
+            ;;
+    esac
+}
+
+# ensure_node — bootstrap Node.js/npm if missing. Used by the
+# agent-browser branch in install_services. Default-prompt; non-fatal
+# on platforms with no recipe (warn + return 1, agent-browser is optional).
+ensure_node() {
+    if command -v npm &>/dev/null; then
+        return 0
+    fi
+    if ! auto_install_enabled; then
+        warn "npm missing and ARAIL_AUTO_INSTALL=0; skipping Node.js install."
+        return 1
+    fi
+    if ! confirm "Install Node.js (needed for the agent-browser web research tool)?"; then
+        warn "Skipping Node.js install. Knowledge tab browse will be unavailable."
+        return 1
+    fi
+    local log="${REPO_ROOT:-$PWD}/setup.log"
+    case "$PLATFORM" in
+        macos)
+            ensure_brew
+            info "Installing node via Homebrew…"
+            brew install node >>"$log" 2>&1 || { warn "brew install node failed — see setup.log."; return 1; }
+            ;;
+        wsl|linux|ubuntu|debian)
+            check_sudo
+            info "Installing nodejs + npm via apt…"
+            sudo apt-get install -y -q nodejs npm >>"$log" 2>&1 || { warn "apt install nodejs failed — see setup.log."; return 1; }
+            ;;
+        fedora)
+            check_sudo
+            sudo dnf install -y nodejs npm >>"$log" 2>&1 || { warn "dnf install nodejs failed — see setup.log."; return 1; }
+            ;;
+        arch)
+            check_sudo
+            sudo pacman -S --noconfirm nodejs npm >>"$log" 2>&1 || { warn "pacman -S nodejs failed — see setup.log."; return 1; }
+            ;;
+        gentoo)
+            check_sudo
+            sudo emerge --quiet --ask=n net-libs/nodejs >>"$log" 2>&1 || { warn "emerge nodejs failed — see setup.log."; return 1; }
+            ;;
+        *)
+            warn "No Node.js install recipe for $PLATFORM. Install nodejs + npm manually for agent-browser."
+            return 1
+            ;;
+    esac
+    command -v npm &>/dev/null
 }
 
 # -----------------------------------------------------------------------------
@@ -375,8 +564,11 @@ install_accel_deps() {
                 warn "Using ARAIL_AIRLLM_PACKAGE_OVERRIDE for this run only."
             fi
         else
-            echo -e "${RED}[arail]${RESET} To bypass: ARAIL_SKIP_AIRLLM=1 ./arail setup" >&2
-            error "AirLLM install failed — check [tool.arail.package-sources] in pyproject.toml or your ARAIL_AIRLLM_PACKAGE_OVERRIDE"
+            # AirLLM is the optional deep-chat backend — the lab still
+            # works without it (Compute Source pivot just won't list it).
+            # Don't kill setup over an optional install.
+            warn "AirLLM install failed — check [tool.arail.package-sources] in pyproject.toml or ARAIL_AIRLLM_PACKAGE_OVERRIDE."
+            warn "Continuing without AirLLM. Re-try later with: ARAIL_SKIP_AIRLLM=0 ./arail setup"
         fi
     else
         info "Skipping AirLLM (ARAIL_SKIP_AIRLLM=1)."
@@ -443,14 +635,13 @@ install_services() {
         info "tmux already installed ($(tmux -V 2>&1))"
     fi
 
-    # agent-browser — web research agent for the Knowledge tab.
+    # agent-browser — web research agent for the Knowledge tab. Bootstraps
+    # Node.js via the platform package manager if npm is missing.
     if ! command -v agent-browser &>/dev/null; then
-        if command -v npm &>/dev/null; then
+        if ensure_node; then
             info "Installing agent-browser…"
             npm install -g agent-browser 2>&1 | tail -3 || warn "agent-browser install failed — Knowledge tab browse will be unavailable."
             command -v agent-browser &>/dev/null && agent-browser install 2>&1 | tail -3 || true
-        else
-            warn "npm not found — skipping agent-browser. Install Node.js to enable web research."
         fi
     else
         info "agent-browser already installed"

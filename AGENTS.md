@@ -20,10 +20,10 @@ A local-first AI lab blueprint. Users clone the repo, run
 get a dashboard + chat + autoresearch running on their own hardware
 with their own models.
 
-## The three entry points a port must implement
+## The four entry points a port must implement
 
 Every platform port lives in **one file**: [scripts/setup.sh](scripts/setup.sh).
-You extend three `case` statements, nothing else.
+You extend four `case` statements, nothing else.
 
 ### 1. Platform detection — `detect_platform()` (setup.sh:33)
 
@@ -69,6 +69,33 @@ fedora)
 Three branches today (`mlx`, `cuda`, `cpu`). Only port this if your
 platform introduces a genuinely new accelerator (ROCm, Habana, etc.).
 Most Linux distros fall back to `cuda` or `cpu` and need no change.
+
+### 4. Python bootstrap — `install_python_for_platform()`
+
+When the user's box has no Python 3.10+ on PATH, setup auto-installs
+`python@3.11` via the platform package manager rather than telling
+the user to come back. Add a branch that installs Python via your
+distro's manager, e.g.:
+
+```bash
+opensuse)
+    check_sudo
+    info "Installing python3.11 via zypper…"
+    sudo zypper install -y python311 python311-devel >>"$log" 2>&1 \
+        || error "zypper install python311 failed — see setup.log."
+    ;;
+```
+
+After your branch returns, `ensure_python` re-probes PATH for
+`python3.12 / python3.11 / python3.10 / python3` and uses the first
+one that satisfies `>=3.10`. So your job is simply: install something
+in that candidate set.
+
+The same auto-install policy applies to Homebrew (`ensure_brew`, macOS
+only) and Node.js (`ensure_node`, agent-browser dependency). Both
+honor `ARAIL_NONINTERACTIVE=1` (silent install) and
+`ARAIL_AUTO_INSTALL=0` (refuse to install, fall back to old "install
+this manually" behavior).
 
 ## Contract the port must preserve
 
