@@ -58,11 +58,12 @@ when setup finishes.
 
 ## `pip install` fails on Python 3.13
 
-Arail tests against Python 3.10-3.12. Install 3.11 via your platform's
-package manager, nuke the venv, and re-run:
+Arail tests against Python 3.10-3.12. Setup will pick a 3.10–3.12
+interpreter automatically if one is on PATH. If only 3.13 is available,
+install 3.11 alongside it, nuke the venv, and re-run:
 
 ```bash
-# macOS
+# macOS — setup also offers to do this for you the first time
 brew install python@3.11
 
 # Ubuntu / Debian
@@ -72,6 +73,10 @@ sudo apt install python3.11 python3.11-venv
 rm -rf .venv
 ./arail setup
 ```
+
+If you want setup to never touch your system, set
+`ARAIL_AUTO_INSTALL=0` and it will revert to the old "install Python
+3.10-3.12 yourself, then re-run" message.
 
 ## Apple Silicon: MLX install fails
 
