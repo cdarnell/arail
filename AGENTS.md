@@ -119,7 +119,7 @@ this manually" behavior).
 
 ```bash
 # Fresh VM of your target distro
-git clone https://github.com/cdarnell/autoresearch-lab.git arail
+git clone https://github.com/cdarnell/arail.git arail
 cd arail
 
 # Non-interactive mode confirms the whole pipeline works without human input

@@ -1390,7 +1390,7 @@ async def porting_manifest_doc(request: Request):
 
 # ── Local docs viewer ───────────────────────────────────────────────────
 # The agent cards' "📖 Learn" links and the "View source" links used to
-# point at https://github.com/cdarnell/autoresearch-lab/blob/main/...
+# point at https://github.com/cdarnell/arail/blob/main/...
 # Two problems with that:
 #   1. The repo is private — every external user got 404.
 #   2. Going off-host for in-app navigation defeats the lab's

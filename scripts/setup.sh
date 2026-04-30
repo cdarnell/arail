@@ -915,7 +915,9 @@ capture_password() {
         echo ""
         local choice
         read -rp "  Keep existing? [Y/new]: " choice || choice=""
-        case "${choice,,}" in
+        # Convert to lowercase (POSIX-compatible — bash 3.2 on macOS lacks ${var,,})
+        choice="$(printf '%s\n' "$choice" | tr '[:upper:]' '[:lower:]')"
+        case "$choice" in
             ""|y|yes|keep)
                 ARAIL_PASSWORD="$existing"
                 info "Keeping existing passphrase."
@@ -928,7 +930,7 @@ capture_password() {
     fi
 
     local generated
-    generated="$(python3 -c 'import secrets; print(secrets.token_urlsafe(18))')"
+    generated="$("$PYTHON_BIN" -c 'import secrets; print(secrets.token_urlsafe(18))')"
 
     # Non-interactive path — auto-generate, but warn loudly so the line
     # survives terminal scrollback. The final banner echoes the value.
