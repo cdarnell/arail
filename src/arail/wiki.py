@@ -657,6 +657,15 @@ def schedule_rebuild(
     _rebuild_task = loop.create_task(
         _deferred_rebuild(resolved_pkm, resolved_repo)
     )
+    # Surface the schedule on the activity stream so the UI can show
+    # a "rebuilding…" badge during the debounce window. Only fires
+    # for the *first* schedule in a debounce burst because the
+    # already-in-flight branch returns above.
+    try:
+        from arail.activity import activity_log
+        activity_log.emit("wiki", "Rebuild scheduled", "info")
+    except Exception:  # pragma: no cover
+        pass
     return True
 
 

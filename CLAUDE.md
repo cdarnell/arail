@@ -177,9 +177,16 @@ parts.
 5. **For aeroLLM context**: `research/aerollm/00-product-vision.md`
    through `04-measurement-log.md` are the design docs. The actual
    runtime is `~/ProJects/aerollm`.
-6. **Knowledge Base ingest**: `./arail pkb ingest <file>`. The pipeline
-   is in `src/arail/` (chunker, embedder, LanceDB writer). LanceDB
-   index lives at `lab/pkb/.cache/`.
+6. **Knowledge Base ingest**: easiest path is the portal —
+   `/knowledge` has folder-reveal buttons (`lab/pkb/inbox` for docs,
+   `lab/models` for model weights), full-page drag-drop, and a
+   per-file post-upload toast with `[Open]` / `[Reveal]` links. CLI
+   equivalent is `./arail pkb ingest <file>`. Wiki + embedded graph
+   auto-refresh on a "Wiki rebuilt" SSE event from
+   `wiki.schedule_rebuild()`; the reveal endpoint is
+   `POST /api/system/reveal` with whitelisted slots
+   (`inbox`/`models`/`pkb_root`/`sources`/`compiled`). LanceDB
+   index lives at `lab/pkb/.wiki-cache/lancedb/`.
 
 ## Files to read first
 

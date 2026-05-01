@@ -32,12 +32,24 @@
     📤 Upload
   </button>
   <input type="file" id="kb-upload-input" multiple style="display:none" />
+  <button class="btn btn-sm btn-ghost" id="kb-process-inbox-btn"
+          title="Process anything currently in lab/pkb/inbox/ (e.g., files you dropped via Finder). The background watcher does this every ~10s — click to trigger immediately.">
+    ⚡ Process inbox
+  </button>
   <button class="btn btn-sm btn-ghost" id="kb-rebuild-btn" title="Rebuild wiki index + auto-docs">
     🔨 Rebuild
   </button>
+  <span class="kb-rebuild-badge" id="kb-rebuild-badge"
+        title="Wiki/graph compile status — flashes while a rebuild is queued or running"
+        aria-live="polite"></span>
   <a class="btn btn-sm btn-ghost" href="/integrations/knowledge-canvas" title="Knowledge graph">🕸 Graph</a>
   <span class="kb-meter" id="kb-meter">— pages</span>
 </div>
+
+<!-- Per-event reveal toast. Stays below the toolbar; rows for each
+     uploaded file with [Reveal] links pointing at their landing
+     spot. Cleared after 30s or on next upload. -->
+<div class="kb-reveal-toast" id="kb-reveal-toast" role="status" aria-live="polite"></div>
 
 <!-- Ingest hero — big drop zone + file-type tiles + starter pack.
      Sits above the tree/reader layout so new users see the "how do
@@ -49,6 +61,31 @@
       <span class="kb-ingest-kicker">one tree — source for wiki, notebooks, and agents</span>
     </h2>
   </div>
+
+  <!-- Quick-access folder buttons. Click → opens the OS file browser
+       at the configured path. Two distinct buckets: documents (auto-
+       ingested) and model weights (no processing). -->
+  <div class="kb-folder-row">
+    <button type="button" class="kb-folder-btn" data-reveal-slot="inbox"
+            title="Files dropped into this folder via Finder are detected by a background watcher (~10s) and auto-sorted into sources/&lt;type&gt;/. Wiki/graph rebuild fires after.">
+      <span class="kb-folder-icon">📄</span>
+      <div class="kb-folder-meat">
+        <div class="kb-folder-label">Open documents folder</div>
+        <div class="kb-folder-hint">Drop docs &amp; screenshots here — auto-sorts within ~10s.</div>
+        <code class="kb-folder-path">{{ inbox_path }}</code>
+      </div>
+    </button>
+    <button type="button" class="kb-folder-btn" data-reveal-slot="models"
+            title="Downloaded model weights live here. No auto-processing — used by Compute Source &gt; My Machine.">
+      <span class="kb-folder-icon">🤖</span>
+      <div class="kb-folder-meat">
+        <div class="kb-folder-label">Open models folder</div>
+        <div class="kb-folder-hint">Downloaded model weights live here.</div>
+        <code class="kb-folder-path">{{ models_path }}</code>
+      </div>
+    </button>
+  </div>
+
   <div class="kb-ingest-tiles">
     <button type="button" class="kb-ingest-tile" data-upload-accept="*">
       <span class="kb-ingest-icon">📄</span>
@@ -89,6 +126,15 @@
       <span class="kb-ingest-hint">make room for your work</span>
     </button>
   </div>
+  <!-- URL tile inline form — replaces the old blocking prompt(). -->
+  <form class="kb-url-form" id="kb-url-form" style="display:none" autocomplete="off">
+    <label class="kb-url-label" for="kb-url-input">Add URL bookmark</label>
+    <input class="kb-url-input" id="kb-url-input" type="url"
+           placeholder="https://… (lands in sources/bookmarks.md)" required />
+    <button class="btn btn-sm btn-primary" type="submit">Add</button>
+    <button class="btn btn-sm btn-ghost" type="button" id="kb-url-cancel">Cancel</button>
+  </form>
+
   <div id="kb-seed-banner" class="kb-seed-banner" style="display:none">
     Your knowledge base is mostly starter content.
     <a href="#" id="kb-banner-upload">Add your own files</a>
@@ -143,7 +189,11 @@
       <section class="kb-graph-mini" aria-label="Knowledge graph mini section">
         <div class="kb-graph-mini-head">
           <h3 class="kb-welcome-sub kb-graph-sub">Knowledge graph</h3>
-          <a class="btn btn-sm btn-ghost" href="/integrations/knowledge-canvas">Open Full 3D Graph</a>
+          <div class="kb-graph-mini-actions">
+            <button class="btn btn-sm btn-ghost" id="kb-graph-refresh-btn"
+                    title="Re-fetch the graph snapshot — happens automatically after a rebuild, but click to force it.">↻ Refresh</button>
+            <a class="btn btn-sm btn-ghost" href="/integrations/knowledge-canvas">Open Full 3D Graph</a>
+          </div>
         </div>
         <iframe
           id="kb-graph-mini-iframe"
@@ -206,6 +256,8 @@
       <div class="kb-viewer-header">
         <div class="kb-breadcrumbs" id="kb-breadcrumbs"></div>
         <div class="kb-viewer-actions">
+          <button class="btn btn-sm btn-ghost" id="kb-btn-reveal"
+                  title="Reveal this file in Finder/Explorer">📁 Reveal</button>
           <button class="btn btn-sm btn-ghost" id="kb-btn-edit" title="Edit (Cmd/Ctrl+E)">✏️ Edit</button>
           <button class="btn btn-sm btn-ghost" id="kb-btn-vim" title="Open in terminal with vim">⌨ Vim</button>
           <button class="btn btn-sm btn-ghost" id="kb-btn-delete" title="Delete file">🗑</button>
@@ -322,7 +374,10 @@ function renderTree() {
         <div class="kb-sec-empty">empty</div>
       </details>`;
     }
-    const isOpen = ['notes', 'agents', 'compiled', 'sources'].includes(name);
+    // inbox with content = staged-but-not-ingested. Auto-open it so
+    // the user notices and can see what failed to sort.
+    const isOpen = ['notes', 'agents', 'compiled', 'sources'].includes(name)
+                || (name === 'inbox' && section.count > 0);
     const items = section.items.map(f => {
       const cls = f.path === KB.openPath ? 'kb-file active' : 'kb-file';
       const leaf = f.name;
@@ -337,12 +392,17 @@ function renderTree() {
         <span class="kb-file-size">${prettyBytes(f.size)}</span>
       </li>`;
     }).join('');
-    return `<details class="kb-section-node" ${isOpen ? 'open' : ''}>
+    const stagedClass = (name === 'inbox' && section.count > 0) ? ' kb-inbox-staged' : '';
+    const stagedHint = (name === 'inbox' && section.count > 0)
+      ? '<div class="kb-inbox-hint">staged — drop more files or click 🔨 Rebuild to flush</div>'
+      : '';
+    return `<details class="kb-section-node${stagedClass}" ${isOpen ? 'open' : ''}>
       <summary>
         <span class="kb-sec-icon">${iconForSection(name)}</span>
         <span class="kb-sec-name">${name}</span>
         <span class="kb-sec-count">${section.count}</span>
       </summary>
+      ${stagedHint}
       <ul class="kb-file-list">${items}</ul>
     </details>`;
   }).join('');
@@ -895,21 +955,161 @@ document.getElementById('kb-editor-vim').addEventListener('change', e => {
 });
 
 // ── Upload (button + drag-drop) ────────────────────────────────────────
+
+// Mirror of arail.pkb._EXT_MAP — used for the post-upload toast so we
+// can show each file's landing folder. Server is still authoritative;
+// this is purely for display.
+const KB_EXT_TO_FOLDER = {
+  pdf:'papers', epub:'papers',
+  csv:'datasets', tsv:'datasets', json:'datasets', jsonl:'datasets', parquet:'datasets',
+  md:'articles', txt:'articles', html:'articles', htm:'articles', rst:'articles',
+  png:'images', jpg:'images', jpeg:'images', gif:'images',
+  webp:'images', svg:'images', bmp:'images', avif:'images', heic:'images',
+  mp4:'videos', mov:'videos', webm:'videos', mkv:'videos', m4v:'videos',
+  mp3:'audio', wav:'audio', m4a:'audio', ogg:'audio', flac:'audio', aac:'audio',
+};
+function kbDestForFilename(name) {
+  const m = /\.([a-z0-9]+)$/i.exec(name || '');
+  if (!m) return 'articles';
+  return KB_EXT_TO_FOLDER[m[1].toLowerCase()] || 'articles';
+}
+
+function renderRevealToast(rows, opts) {
+  const el = document.getElementById('kb-reveal-toast');
+  if (!el) return;
+  el.innerHTML = '';
+  el.classList.add('visible');
+  const head = document.createElement('div');
+  head.className = 'kb-reveal-head';
+  head.textContent = (opts && opts.heading) || '';
+  el.appendChild(head);
+  rows.forEach(row => {
+    const r = document.createElement('div');
+    r.className = 'kb-reveal-row' + (row.error ? ' error' : '');
+    if (row.openPath) r.dataset.openPath = row.openPath;
+    const left = document.createElement('span');
+    left.className = 'kb-reveal-left';
+    left.textContent = row.filename + (row.dest ? '  →  ' + row.dest : '');
+    r.appendChild(left);
+    if (row.openPath) {
+      const ob = document.createElement('button');
+      ob.type = 'button';
+      ob.className = 'kb-reveal-btn';
+      ob.textContent = 'Open';
+      ob.title = 'Open this file in the in-page reader';
+      ob.addEventListener('click', () => {
+        if (typeof openFile === 'function') openFile(row.openPath);
+      });
+      r.appendChild(ob);
+    }
+    if (row.slot) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'kb-reveal-btn';
+      btn.textContent = 'Reveal';
+      btn.title = 'Open the containing folder in Finder/Explorer';
+      btn.addEventListener('click', () => window.revealSlot(row.slot, row.subpath || ''));
+      r.appendChild(btn);
+    }
+    if (row.note) {
+      const n = document.createElement('span');
+      n.className = 'kb-reveal-note';
+      n.textContent = row.note;
+      r.appendChild(n);
+    }
+    el.appendChild(r);
+  });
+  if (opts && opts.footer) {
+    const f = document.createElement('div');
+    f.className = 'kb-reveal-foot';
+    f.textContent = opts.footer;
+    el.appendChild(f);
+  }
+  // Auto-dismiss after a window long enough to read + click Reveal.
+  clearTimeout(renderRevealToast._t);
+  renderRevealToast._t = setTimeout(() => el.classList.remove('visible'), 30000);
+  // If the wiki manifest already covers any of these files (e.g.,
+  // re-uploading an existing markdown), surface the [Wiki] link
+  // straight away — otherwise wait for the SSE-driven rebuild.
+  enrichRevealToastWithWikiLinks();
+}
+
+// After a wiki rebuild completes (SSE-driven, see subscribeRebuildEvents),
+// every toast row whose file became a compiled wiki page gets a third
+// button: [Wiki] → /wiki/<slug>. Closes the user-facing loop —
+// drop a markdown file → toast appears → wait for rebuild → click
+// [Wiki] to see your content rendered with backlinks/wikilinks.
+function enrichRevealToastWithWikiLinks() {
+  const toast = document.getElementById('kb-reveal-toast');
+  if (!toast || !toast.classList.contains('visible')) return;
+  if (typeof findWikiPage !== 'function') return;
+  toast.querySelectorAll('.kb-reveal-row[data-open-path]').forEach(row => {
+    if (row.querySelector('.kb-reveal-wiki')) return;  // already enriched
+    const path = row.dataset.openPath;
+    const page = findWikiPage(path);
+    if (!page || !page.slug) return;
+    const a = document.createElement('a');
+    a.className = 'kb-reveal-btn kb-reveal-wiki';
+    a.href = '/wiki/' + page.slug;
+    a.target = '_blank';
+    a.rel = 'noopener';
+    a.textContent = '📖 Wiki';
+    a.title = 'Open the compiled wiki page in a new tab';
+    row.appendChild(a);
+  });
+}
+
 async function uploadFiles(fileList) {
   if (!fileList || !fileList.length) return;
+  const filenames = Array.from(fileList).map(f => f.name);
   const form = new FormData();
   for (const f of fileList) form.append('files', f);
   try {
     const r = await fetch('/api/pkb/upload', { method: 'POST', body: form });
     const d = await r.json();
     if (d.error) {
-      alert('Upload failed: ' + d.error);
+      renderRevealToast(
+        [{filename: '(upload)', dest: '', error: true, note: d.error}],
+        {heading: 'Upload failed'}
+      );
       return;
     }
+    // Build one row per uploaded file with its landing folder.
+    // Server returns d.landed = [{src, path}] when auto-ingest ran;
+    // path is the exact post-ingest path under the PKB root, so we
+    // can offer an [Open] link straight to the file in the reader.
+    const ingestMoved = (d.ingest && d.ingest.moved) || 0;
+    const landedByName = {};
+    (d.landed || []).forEach(l => { if (l && l.src) landedByName[l.src] = l.path; });
+    const rows = filenames.map(name => {
+      const exact = landedByName[name];           // e.g. "sources/papers/2026-04-30_notes.pdf"
+      const folder = exact
+        ? exact.replace(/^sources\//, '').split('/').slice(0, -1).join('/') + '/'
+        : kbDestForFilename(name) + '/';
+      return {
+        filename: name,
+        dest: 'sources/' + folder,
+        slot: 'sources',
+        subpath: folder,
+        openPath: exact || null,
+      };
+    });
+    if (d.ingest_error) {
+      rows.push({filename: '(ingest)', dest: '', error: true, note: d.ingest_error});
+    }
+    const heading = '✓ ' + d.uploaded + ' file' + (d.uploaded === 1 ? '' : 's')
+                  + ' uploaded' + (ingestMoved ? ' · ' + ingestMoved + ' sorted' : '');
+    renderRevealToast(rows, {
+      heading: heading,
+      footer: 'Wiki rebuilding… graph refreshes when done.',
+    });
     loadTree();
     loadWikiPages();
   } catch (e) {
-    alert('Upload failed: ' + e.message);
+    renderRevealToast(
+      [{filename: '(upload)', dest: '', error: true, note: e.message}],
+      {heading: 'Upload failed'}
+    );
   }
 }
 
@@ -934,22 +1134,52 @@ document.querySelectorAll('.kb-ingest-tile[data-upload-accept]').forEach(tile =>
   });
 });
 
-// URL tile — prompt for a URL, post directly to the ingest pipeline
-// which appends to sources/bookmarks.md.
-document.getElementById('kb-ingest-url').addEventListener('click', async () => {
-  const url = prompt('Add a URL bookmark — it lands in sources/bookmarks.md:');
-  if (!url || !url.trim()) return;
+// URL tile — toggle the inline form; replaces the old blocking
+// window.prompt() so the rest of the page stays interactive while
+// the user is composing.
+const _kbUrlForm = document.getElementById('kb-url-form');
+const _kbUrlInput = document.getElementById('kb-url-input');
+function _kbUrlShow() {
+  _kbUrlForm.style.display = 'flex';
+  _kbUrlInput.value = '';
+  _kbUrlInput.focus();
+}
+function _kbUrlHide() { _kbUrlForm.style.display = 'none'; }
+document.getElementById('kb-ingest-url').addEventListener('click', () => {
+  if (_kbUrlForm.style.display === 'flex') _kbUrlHide(); else _kbUrlShow();
+});
+document.getElementById('kb-url-cancel').addEventListener('click', _kbUrlHide);
+_kbUrlInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') { e.preventDefault(); _kbUrlHide(); }
+});
+_kbUrlForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const url = _kbUrlInput.value.trim();
+  if (!url) return;
   try {
-    await fetch('/api/pkb/upload-url', {
+    const r = await fetch('/api/pkb/upload-url', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url: url.trim() }),
+      body: JSON.stringify({ url: url }),
     });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || d.error) throw new Error(d.error || ('HTTP ' + r.status));
     loadTree();
-  } catch (e) {
-    // Fallback: the ingest pipeline also reads inbox/links.txt, so
-    // just alert if the direct endpoint isn't available.
-    alert('URL add failed: ' + e.message);
+    renderRevealToast([{
+      filename: url,
+      dest: 'sources/bookmarks.md',
+      slot: 'sources',
+      subpath: 'bookmarks.md',
+    }], {
+      heading: '✓ Bookmark added',
+      footer: 'Wiki rebuilding… graph refreshes when done.',
+    });
+    _kbUrlHide();
+  } catch (err) {
+    renderRevealToast(
+      [{filename: url, dest: '', error: true, note: err.message}],
+      {heading: 'URL add failed'}
+    );
   }
 });
 
@@ -1017,10 +1247,28 @@ document.getElementById('kb-install-pack').addEventListener('click', async () =>
       : '✗ ' + (d.error || 'failed');
     if (d.ok) {
       loadTree();
+      renderRevealToast([{
+        filename: 'starter pack (' + d.written + ' files)',
+        dest: 'sources/seeds/model-building/',
+        slot: 'sources',
+        subpath: 'seeds/model-building',
+      }], {
+        heading: '✓ Starter pack installed',
+        footer: 'Wiki rebuilding… graph refreshes when done.',
+      });
       setTimeout(refreshKbSeedHint, 600);
+    } else {
+      renderRevealToast(
+        [{filename: '(starter pack)', dest: '', error: true, note: d.error || 'failed'}],
+        {heading: 'Install failed'}
+      );
     }
   } catch (e) {
     hint.textContent = '✗ error';
+    renderRevealToast(
+      [{filename: '(starter pack)', dest: '', error: true, note: e.message}],
+      {heading: 'Install failed'}
+    );
   }
 });
 
@@ -1086,6 +1334,85 @@ window.addEventListener('drop', e => {
   }
 });
 
+// ── Folder reveal buttons (top of ingest hero) ─────────────────────────
+document.querySelectorAll('.kb-folder-btn[data-reveal-slot]').forEach(btn => {
+  btn.addEventListener('click', () => window.revealSlot(btn.dataset.revealSlot));
+});
+
+// ── Mini-graph refresh ─────────────────────────────────────────────────
+// Hard reload the iframe by re-setting src with a cache-bust param.
+// Throttled so a burst of "Wiki rebuilt" SSE events collapses into
+// one reload.
+function refreshGraph() {
+  const iframe = document.getElementById('kb-graph-mini-iframe');
+  if (!iframe) return;
+  const base = '/_integrations/knowledge-canvas/index.html?embed=1';
+  iframe.src = base + '&v=' + Date.now();
+}
+let _graphRefreshTimer = null;
+function scheduleGraphRefresh() {
+  if (_graphRefreshTimer) clearTimeout(_graphRefreshTimer);
+  _graphRefreshTimer = setTimeout(() => {
+    _graphRefreshTimer = null;
+    refreshGraph();
+  }, 1000);
+}
+{
+  const btn = document.getElementById('kb-graph-refresh-btn');
+  if (btn) btn.addEventListener('click', refreshGraph);
+}
+
+// ── Live wiki/graph status via /api/activity/stream ────────────────────
+// Show "🔨 rebuilding…" beside the Rebuild button while a rebuild
+// is queued or running; flash "✓ updated" on completion, then
+// trigger graph + sidebar refresh.
+(function subscribeRebuildEvents() {
+  const badge = document.getElementById('kb-rebuild-badge');
+  if (!badge || typeof EventSource === 'undefined') return;
+  let es;
+  function connect() {
+    try { es = new EventSource('/api/activity/stream'); }
+    catch (_) { return; }
+    es.onmessage = (m) => {
+      let ev;
+      try { ev = JSON.parse(m.data); } catch (_) { return; }
+      if (!ev || ev.source !== 'wiki') return;
+      const msg = String(ev.message || '');
+      if (/rebuild scheduled|rebuilding|rebuild started/i.test(msg)) {
+        badge.textContent = '🔨 rebuilding…';
+        badge.className = 'kb-rebuild-badge active';
+      } else if (/wiki rebuilt/i.test(msg)) {
+        badge.textContent = '✓ updated';
+        badge.className = 'kb-rebuild-badge done';
+        scheduleGraphRefresh();
+        loadTree();
+        // Await loadWikiPages so wikiPagesByPath is hot when we
+        // enrich the toast — without this race, the [Wiki] links
+        // would only show up on the *next* rebuild.
+        loadWikiPages().then(() => enrichRevealToastWithWikiLinks());
+        // Close the loop on any visible upload/install toast — flip
+        // the footer from "rebuilding…" to a done state so the user
+        // sees the cycle completed.
+        const toast = document.getElementById('kb-reveal-toast');
+        if (toast && toast.classList.contains('visible')) {
+          const foot = toast.querySelector('.kb-reveal-foot');
+          if (foot) foot.textContent = '✓ Wiki + graph updated. New files visible in the sidebar.';
+        }
+        setTimeout(() => {
+          badge.textContent = '';
+          badge.className = 'kb-rebuild-badge';
+        }, 2500);
+      }
+    };
+    es.onerror = () => {
+      es.close();
+      // Reconnect with linear backoff up to 15s.
+      setTimeout(connect, 5000);
+    };
+  }
+  connect();
+})();
+
 // ── Toolbar buttons ────────────────────────────────────────────────────
 async function rebuildWiki() {
   const btn = document.getElementById('kb-rebuild-btn');
@@ -1107,6 +1434,53 @@ async function rebuildWiki() {
 }
 document.getElementById('kb-rebuild-btn').addEventListener('click', rebuildWiki);
 document.getElementById('kb-quick-rebuild').addEventListener('click', rebuildWiki);
+
+// ── Process inbox now ──────────────────────────────────────────────────
+// Manual trigger for files dropped into lab/pkb/inbox/ via Finder.
+// The background watcher (server-side, every ~10s) does this on its
+// own; this button lets the user fire it immediately + see the
+// results in the same reveal toast as a regular upload.
+document.getElementById('kb-process-inbox-btn').addEventListener('click', async () => {
+  const btn = document.getElementById('kb-process-inbox-btn');
+  const orig = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'processing…';
+  try {
+    const r = await fetch('/api/pkb/ingest', { method: 'POST' });
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+    const moved = d.moved || 0;
+    if (moved === 0 && !(d.urls_fetched > 0)) {
+      renderRevealToast(
+        [{filename: '(inbox)', dest: '', note: 'empty — nothing to process'}],
+        {heading: 'Inbox is empty'}
+      );
+    } else {
+      const dests = d.destinations || {};
+      const rows = Object.keys(dests).map(name => ({
+        filename: name,
+        dest: 'sources/' + (dests[name].split('/').slice(1, -1).join('/') + '/'),
+        slot: 'sources',
+        subpath: dests[name].split('/').slice(1, -1).join('/') + '/',
+        openPath: dests[name],
+      }));
+      renderRevealToast(rows, {
+        heading: '✓ ' + moved + ' file' + (moved === 1 ? '' : 's') + ' processed',
+        footer: 'Wiki rebuilding… graph refreshes when done.',
+      });
+      loadTree();
+    }
+    btn.textContent = '✓ ' + moved + ' file' + (moved === 1 ? '' : 's');
+  } catch (e) {
+    btn.textContent = 'error';
+    renderRevealToast(
+      [{filename: '(inbox)', dest: '', error: true, note: e.message}],
+      {heading: 'Process inbox failed'}
+    );
+  } finally {
+    setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 1800);
+  }
+});
 
 document.getElementById('kb-quick-new-note').addEventListener('click', async () => {
   const title = prompt('New note title:');
@@ -1248,6 +1622,13 @@ document.getElementById('kb-editor-ta').addEventListener('input', () => {
 document.getElementById('kb-btn-edit').addEventListener('click', openEditor);
 document.getElementById('kb-btn-close').addEventListener('click', closeViewer);
 document.getElementById('kb-btn-delete').addEventListener('click', deleteFile);
+document.getElementById('kb-btn-reveal').addEventListener('click', () => {
+  // KB.openPath is relative to the PKB root (e.g., "sources/papers/x.pdf").
+  // The reveal endpoint joins it under slot "pkb_root" and rejects
+  // traversal escapes server-side; macOS uses `open -R` so the
+  // exact file is highlighted in Finder.
+  if (KB.openPath) window.revealSlot('pkb_root', KB.openPath);
+});
 document.getElementById('kb-btn-save').addEventListener('click', saveFile);
 document.getElementById('kb-btn-cancel').addEventListener('click', cancelEdit);
 document.getElementById('kb-btn-vim').addEventListener('click', () => {

@@ -228,6 +228,7 @@ async def _startup():
             )
 
     asyncio.create_task(_warm_primary_router())
+    asyncio.create_task(_inbox_watcher_loop())
 
     # Load bootstrap goal if no active goal exists
     current = goal_store.get_current()
@@ -5160,6 +5161,105 @@ async def set_mode(request: Request):
     return {"ok": True, "mode": new_mode}
 
 
+@app.post("/api/system/reveal")
+async def api_system_reveal(request: Request):
+    """Open a whitelisted lab directory in the OS file browser.
+
+    Body: ``{"slot": "<name>", "subpath": "<optional>"}``.
+
+    Slots: ``inbox``, ``models``, ``pkb_root``, ``sources``, ``compiled``.
+    ``subpath`` is joined onto the slot root and then path-checked to
+    refuse traversal escapes. Missing dirs are created. Spawns
+    ``open`` (mac) / ``xdg-open`` (linux) / ``explorer`` (win); when
+    the platform is unknown or ``ARAIL_HEADLESS=1`` is set, no
+    subprocess fires and the absolute path is returned so the
+    client can show a copy-path fallback.
+    """
+    import subprocess
+    import sys
+    from fastapi.responses import JSONResponse
+    from arail.pkb import _pkb_root
+
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    slot = str(body.get("slot", "")).strip()
+    subpath = str(body.get("subpath", "") or "").strip()
+
+    pkb = _pkb_root()
+    # Read ARAIL_MODELS_DIR fresh each call so test fixtures and
+    # runtime overrides take effect — matches the pattern used by
+    # the other model-aware endpoints in this module.
+    models_dir = Path(os.getenv("ARAIL_MODELS_DIR", "lab/models"))
+    slots = {
+        "inbox":    pkb / "inbox",
+        "sources":  pkb / "sources",
+        "compiled": pkb / "compiled",
+        "pkb_root": pkb,
+        "models":   models_dir,
+    }
+    if slot not in slots:
+        return JSONResponse(
+            {"error": f"unknown slot: {slot!r}",
+             "valid": sorted(slots.keys())},
+            status_code=400,
+        )
+
+    root = slots[slot].resolve()
+    target = (root / subpath).resolve() if subpath else root
+    try:
+        target.relative_to(root)
+    except ValueError:
+        activity_log.emit("system",
+                          f"reveal rejected: subpath {subpath!r} escapes slot {slot!r}",
+                          "warn")
+        return JSONResponse(
+            {"error": "subpath escapes slot root"},
+            status_code=400,
+        )
+
+    # Make sure the directory exists. For files, ensure the parent exists.
+    parent = target if target.is_dir() or not target.suffix else target.parent
+    try:
+        parent.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        return JSONResponse(
+            {"error": f"could not create directory: {e}"},
+            status_code=500,
+        )
+
+    abspath = str(target)
+    headless = os.getenv("ARAIL_HEADLESS", "").lower() in ("1", "true", "yes")
+
+    if headless:
+        return {"opened": False, "path": abspath, "reason": "headless"}
+
+    plat = sys.platform
+    if plat == "darwin":
+        argv = ["open", "-R", abspath] if target.is_file() else ["open", abspath]
+    elif plat.startswith("linux"):
+        # xdg-open opens files in their associated app; for "reveal in
+        # folder" semantics on a file path we open the parent.
+        argv = ["xdg-open", str(parent)]
+    elif plat in ("win32", "cygwin"):
+        argv = ["explorer", abspath if target.is_dir() else f"/select,{abspath}"]
+    else:
+        return {"opened": False, "path": abspath, "reason": f"unsupported platform: {plat}"}
+
+    try:
+        subprocess.Popen(
+            argv,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            close_fds=True,
+        )
+    except (OSError, FileNotFoundError) as e:
+        return {"opened": False, "path": abspath, "reason": str(e)}
+
+    return {"opened": True, "path": abspath, "slot": slot}
+
+
 @app.get("/api/system/costs")
 async def system_costs():
     """Return cost tracking summary — cloud-equivalent spend and energy costs."""
@@ -5234,13 +5334,18 @@ from arail.pkb import (
 
 @app.get("/knowledge", response_class=HTMLResponse)
 async def knowledge_page(request: Request):
+    from arail.pkb import _pkb_root
     data = pkb_browse()
     current_goal = goal_store.get_current()
+    pkb = _pkb_root()
+    models_dir = Path(os.getenv("ARAIL_MODELS_DIR", "lab/models"))
     return templates.TemplateResponse(request, "knowledge.html", {
         "pkb": data,
         "pkm": data,
         "mode": os.getenv("ARAIL_MODE", "airgapped"),
         "current_goal": current_goal,
+        "inbox_path": str((pkb / "inbox").resolve()),
+        "models_path": str(models_dir.resolve()),
     })
 
 
@@ -5321,11 +5426,24 @@ async def api_pkb_search(q: str = ""):
 
 @app.post("/api/pkb/ingest")
 async def api_pkb_ingest():
+    """Process whatever's currently in lab/pkb/inbox/ → sources/.
+
+    Called from three places: the manual 'Process inbox' button on
+    /knowledge, the background watcher (see _inbox_watcher_loop), and
+    the legacy /api/pkm/ingest alias. All of them want the same
+    follow-up — wiki/graph rebuild — so we emit it here, mirroring
+    the upload endpoint.
+    """
     result = pkb_ingest()
     if result["moved"] or result["urls_fetched"]:
         activity_log.emit("pkb",
             f"Ingested {result['moved']} file(s), {result['urls_fetched']} URL(s)",
             "success")
+        try:
+            from arail import wiki
+            wiki.schedule_rebuild()
+        except Exception:
+            pass
     return result
 
 
@@ -5681,6 +5799,17 @@ async def api_pkb_upload(request: Request):
         try:
             ingest_result = run_ingest()
             result["ingest"] = ingest_result
+            # Per-uploaded-file landing paths (post-ingest), so the
+            # client can offer "Open this file" links pointing at the
+            # exact post-ingest location, not just the parent folder.
+            destinations_map = ingest_result.get("destinations") or {}
+            result["landed"] = [
+                {
+                    "src": Path(p).name,
+                    "path": destinations_map.get(Path(p).name),
+                }
+                for p in saved
+            ]
             if ingest_result.get("moved"):
                 activity_log.emit("pkb",
                                   f"Auto-ingested {ingest_result['moved']} "
@@ -5694,6 +5823,66 @@ async def api_pkb_upload(request: Request):
     except Exception:
         pass
     return result
+
+
+# ── Inbox watcher ─────────────────────────────────────────────────────
+# Files dropped via Finder (after the user clicks "Open documents
+# folder") land in lab/pkb/inbox/ but don't go through the upload
+# endpoint, so nothing fires the auto-ingest path. This loop polls
+# the inbox every INBOX_WATCH_INTERVAL seconds and runs ingest()
+# whenever it spots a user file. Set LAB_INBOX_WATCH=0 to disable.
+
+async def _inbox_watcher_loop() -> None:
+    """Periodically ingest anything dropped into lab/pkb/inbox/.
+
+    Lightweight directory poll — listdir + count user files. ingest()
+    is no-op when the inbox is empty or contains only links.txt /
+    quick.txt / dotfiles. On first hit we also schedule the wiki
+    rebuild so the page sees the new content within ~30s of drop.
+    """
+    if os.getenv("LAB_INBOX_WATCH", "1").lower() in ("0", "false", "no"):
+        return
+    interval = int(os.getenv("LAB_INBOX_WATCH_INTERVAL_SEC", "10"))
+    interval = max(2, min(interval, 300))
+    from arail.pkb import _pkb_root, ingest as run_ingest
+    inbox = _pkb_root() / "inbox"
+    activity_log.emit("system",
+                      f"Inbox watcher armed ({inbox}, every {interval}s)",
+                      "info")
+
+    while True:
+        try:
+            await asyncio.sleep(interval)
+            if not inbox.exists():
+                continue
+            # Count anything that looks like a user file. Skip dotfiles
+            # and the special links.txt / quick.txt streams (those are
+            # always-present sentinels users may keep around).
+            user_files = [
+                p for p in inbox.iterdir()
+                if p.is_file()
+                and not p.name.startswith(".")
+            ]
+            if not user_files:
+                continue
+            result = run_ingest()
+            if result.get("moved") or result.get("urls_fetched"):
+                activity_log.emit(
+                    "pkb",
+                    f"Auto-ingested {result['moved']} file(s) dropped via Finder → sources",
+                    "success",
+                )
+                try:
+                    from arail import wiki
+                    wiki.schedule_rebuild()
+                except Exception:  # pragma: no cover
+                    pass
+        except asyncio.CancelledError:
+            return
+        except Exception as e:  # noqa: BLE001
+            activity_log.emit("pkb",
+                              f"Inbox watcher error: {type(e).__name__}: {e}",
+                              "warn")
 
 
 # ── Legacy /api/pkm/* aliases (deprecated, kept for one release) ──────

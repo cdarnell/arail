@@ -42,7 +42,23 @@ lab/pkb/
 
 ## Quick Start
 
-### Drop something in the inbox
+### Easiest: drag-and-drop on the portal
+Open `http://127.0.0.1:8080/knowledge` and either:
+- Drag files anywhere on the page (full-page drop overlay), **or**
+- Click the **📄 Open documents folder** button → Finder/Explorer
+  opens at `lab/pkb/inbox/` → drop files in directly. The lab
+  auto-ingests as soon as the file lands.
+
+After upload a toast shows each file's destination
+(`screenshot.png → sources/images/`) with `[Open]` (in-page reader)
+and `[Reveal]` (open the containing folder) buttons. The wiki and
+graph rebuild automatically; the embedded mini-graph re-fetches
+when the rebuild completes.
+
+For model weights (no auto-processing — just storage), use
+**🤖 Open models folder** which opens `lab/models/`.
+
+### Or: drop something in the inbox via shell
 ```bash
 # Copy a file
 cp ~/Downloads/interesting-paper.pdf ~/lab/pkb/inbox/
@@ -55,6 +71,8 @@ echo "$(date +%Y-%m-%d) Thought: try lower nitrogen ratio" >> ~/lab/pkb/inbox/qu
 ```
 
 ### Ingest (process inbox → sources)
+The portal does this automatically after every upload. To run it
+manually:
 ```bash
 ./scripts/pkb-ingest
 ```

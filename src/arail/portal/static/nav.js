@@ -267,3 +267,47 @@
     }, 600);
   }
 })();
+
+/* revealSlot — open a whitelisted lab folder in the OS file browser.
+ * Exposed globally so any page (knowledge, admin, chat providers
+ * modal) can call it without re-implementing the fallback toast.
+ *
+ * Slots: inbox · models · pkb_root · sources · compiled.
+ * subpath: optional path *under* the slot root; server rejects
+ * traversal escapes.
+ *
+ * Returns the server response so the caller can chain UI updates.
+ * Shows a non-blocking notice with the absolute path when the
+ * server can't open Finder (headless / unsupported platform).
+ */
+window.revealSlot = async function revealSlot(slot, subpath) {
+  let resp;
+  try {
+    resp = await fetch('/api/system/reveal', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ slot: slot, subpath: subpath || '' }),
+    });
+  } catch (e) {
+    window.alert('Reveal failed: ' + e.message);
+    return { opened: false, error: e.message };
+  }
+  let data;
+  try { data = await resp.json(); } catch (_) { data = {}; }
+  if (!resp.ok) {
+    window.alert('Reveal failed: ' + (data.error || resp.status));
+    return data;
+  }
+  if (!data.opened) {
+    // Headless / unsupported — copy path to clipboard if we can.
+    const path = data.path || '(no path)';
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      try { await navigator.clipboard.writeText(path); } catch (_) { /* ignore */ }
+    }
+    window.alert(
+      'Could not open the OS file browser (' + (data.reason || 'unknown') + ').\n\n' +
+      'Path copied to clipboard:\n' + path
+    );
+  }
+  return data;
+};
