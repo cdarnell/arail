@@ -5776,6 +5776,17 @@ async def api_pkb_upload(request: Request):
         try:
             ingest_result = run_ingest()
             result["ingest"] = ingest_result
+            # Per-uploaded-file landing paths (post-ingest), so the
+            # client can offer "Open this file" links pointing at the
+            # exact post-ingest location, not just the parent folder.
+            destinations_map = ingest_result.get("destinations") or {}
+            result["landed"] = [
+                {
+                    "src": Path(p).name,
+                    "path": destinations_map.get(Path(p).name),
+                }
+                for p in saved
+            ]
             if ingest_result.get("moved"):
                 activity_log.emit("pkb",
                                   f"Auto-ingested {ingest_result['moved']} "

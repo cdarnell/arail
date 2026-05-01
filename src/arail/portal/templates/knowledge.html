@@ -984,11 +984,23 @@ function renderRevealToast(rows, opts) {
     left.className = 'kb-reveal-left';
     left.textContent = row.filename + (row.dest ? '  →  ' + row.dest : '');
     r.appendChild(left);
+    if (row.openPath) {
+      const ob = document.createElement('button');
+      ob.type = 'button';
+      ob.className = 'kb-reveal-btn';
+      ob.textContent = 'Open';
+      ob.title = 'Open this file in the in-page reader';
+      ob.addEventListener('click', () => {
+        if (typeof openFile === 'function') openFile(row.openPath);
+      });
+      r.appendChild(ob);
+    }
     if (row.slot) {
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'kb-reveal-btn';
       btn.textContent = 'Reveal';
+      btn.title = 'Open the containing folder in Finder/Explorer';
       btn.addEventListener('click', () => window.revealSlot(row.slot, row.subpath || ''));
       r.appendChild(btn);
     }
@@ -1027,14 +1039,23 @@ async function uploadFiles(fileList) {
       return;
     }
     // Build one row per uploaded file with its landing folder.
+    // Server returns d.landed = [{src, path}] when auto-ingest ran;
+    // path is the exact post-ingest path under the PKB root, so we
+    // can offer an [Open] link straight to the file in the reader.
     const ingestMoved = (d.ingest && d.ingest.moved) || 0;
+    const landedByName = {};
+    (d.landed || []).forEach(l => { if (l && l.src) landedByName[l.src] = l.path; });
     const rows = filenames.map(name => {
-      const folder = kbDestForFilename(name);
+      const exact = landedByName[name];           // e.g. "sources/papers/2026-04-30_notes.pdf"
+      const folder = exact
+        ? exact.replace(/^sources\//, '').split('/').slice(0, -1).join('/') + '/'
+        : kbDestForFilename(name) + '/';
       return {
         filename: name,
-        dest: 'sources/' + folder + '/',
+        dest: 'sources/' + folder,
         slot: 'sources',
-        subpath: folder + '/',
+        subpath: folder,
+        openPath: exact || null,
       };
     });
     if (d.ingest_error) {

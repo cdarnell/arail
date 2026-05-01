@@ -79,16 +79,20 @@ _EXT_MAP = {
 def ingest(pkb_root: Path | None = None) -> dict[str, Any]:
     """Process everything in inbox/ → sources/.
 
-    Returns a summary dict of actions taken.
+    Returns a summary dict of actions taken. ``destinations`` maps the
+    original inbox filename to the post-ingest path (relative to the
+    PKB root) for every file that moved — callers can use it to build
+    "Open" links pointing at the file's final location.
     """
     root = pkb_root or _pkb_root()
     inbox = root / "inbox"
     if not inbox.exists():
-        return {"moved": 0, "urls_fetched": 0, "errors": []}
+        return {"moved": 0, "urls_fetched": 0, "errors": [], "destinations": {}}
 
     moved = 0
     urls_fetched = 0
     errors: list[str] = []
+    destinations: dict[str, str] = {}
 
     # Process links.txt (URL bookmarks dropped in inbox)
     links_file = inbox / "links.txt"
@@ -148,10 +152,16 @@ def ingest(pkb_root: Path | None = None) -> dict[str, Any]:
             try:
                 shutil.move(str(item), str(dest))
                 moved += 1
+                destinations[item.name] = dest.relative_to(root).as_posix()
             except OSError as e:
                 errors.append(f"{item.name}: {e}")
 
-    return {"moved": moved, "urls_fetched": urls_fetched, "errors": errors}
+    return {
+        "moved": moved,
+        "urls_fetched": urls_fetched,
+        "errors": errors,
+        "destinations": destinations,
+    }
 
 
 # ── Compile ──────────────────────────────────────────────────────────────
