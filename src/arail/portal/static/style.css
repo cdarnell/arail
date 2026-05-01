@@ -1650,13 +1650,15 @@ code {
 
 /* ── Knowledge page ingest hero ──────────────────────────────── */
 .kb-ingest-hero {
-  display: grid;
-  /* Slimmer copy column — gives the 7 tiles enough room to share a
-     single row at common viewport widths without forcing line-wrap on
-     "Remove starter." */
-  grid-template-columns: minmax(140px, 0.6fr) minmax(0, 5fr);
-  gap: 1rem;
-  align-items: center;
+  /* Vertical stack — header copy on top, then the two big folder
+     buttons (primary action), then the 7 file-type tiles (granular),
+     then the URL form / seed banner. The earlier 2-col grid put copy
+     in a left sidebar with everything else crammed in the right
+     column, which broke once the folder-row + url-form siblings
+     landed. */
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
   padding: 0.85rem 1.25rem;
   margin: 0.5rem auto;
   max-width: 1600px;
@@ -1666,6 +1668,7 @@ code {
   border: 1px solid rgba(0, 212, 255, 0.2);
   border-radius: var(--radius);
 }
+.kb-ingest-copy { /* compact section header — title + kicker on one line */ }
 .kb-ingest-title {
   color: var(--text-hi);
   font-size: 0.88rem;
@@ -1796,10 +1799,10 @@ code {
   .kb-ingest-tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
 @media (max-width: 880px) {
-  .kb-ingest-hero { grid-template-columns: 1fr; }
   .kb-ingest-tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .kb-type-row { grid-template-columns: repeat(3, 1fr); }
-  .kb-hero-split { grid-template-columns: 1fr; }
+  .kb-folder-row   { grid-template-columns: 1fr; }
+  .kb-type-row     { grid-template-columns: repeat(3, 1fr); }
+  .kb-hero-split   { grid-template-columns: 1fr; }
 }
 
 /* ── Research inline program panel ──────────────────────────── */
