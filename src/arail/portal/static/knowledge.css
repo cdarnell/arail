@@ -885,3 +885,129 @@
 .kb-mission-event.src-browser    .kb-mf-src { color: var(--blue); }
 .kb-mission-event.src-goal       .kb-mf-src { color: var(--purple); }
 .kb-mf-msg { color: var(--text); line-height: 1.35; }
+
+/* ── Folder reveal tiles ─────────────────────────────────────────────
+   Two big "click → opens Finder/Explorer at the configured path"
+   buttons sitting above the file-type tiles. The path is rendered
+   server-side from {{ inbox_path }} / {{ models_path }} so users see
+   the LAB_PKB / ARAIL_MODELS_DIR overrides if they set them. */
+.kb-folder-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin: 12px 0 14px;
+}
+@media (max-width: 720px) {
+  .kb-folder-row { grid-template-columns: 1fr; }
+}
+.kb-folder-btn {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  padding: 14px 16px;
+  border-radius: 10px;
+  border: 1px solid rgba(128,128,128,.28);
+  background: rgba(128,128,128,.06);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  transition: border-color .12s ease, background .12s ease, transform .08s ease;
+}
+.kb-folder-btn:hover {
+  border-color: var(--accent, #7aa2f7);
+  background: rgba(122,162,247,.08);
+}
+.kb-folder-btn:active { transform: translateY(1px); }
+.kb-folder-icon {
+  font-size: 1.6rem;
+  flex: 0 0 auto;
+}
+.kb-folder-meat { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.kb-folder-label { font-weight: 600; font-size: 0.95rem; }
+.kb-folder-hint  { color: var(--muted); font-size: 0.8rem; }
+.kb-folder-path  {
+  margin-top: 2px;
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.72rem;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+/* ── Wiki rebuild status badge (next to the 🔨 Rebuild button) ─────── */
+.kb-rebuild-badge {
+  display: inline-block;
+  min-width: 0;
+  padding: 0 6px;
+  font-size: 0.72rem;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  align-self: center;
+}
+.kb-rebuild-badge.active { color: var(--amber, #e0af68); }
+.kb-rebuild-badge.done   { color: var(--green, #9ece6a); }
+
+/* ── Per-event reveal toast ──────────────────────────────────────────
+   Appears below the toolbar after an upload or download; lists each
+   file with a Reveal button that calls /api/system/reveal. */
+.kb-reveal-toast {
+  display: none;
+  margin: 0 16px 12px;
+  padding: 10px 14px;
+  border: 1px solid rgba(128,128,128,.28);
+  border-radius: 8px;
+  background: rgba(128,128,128,.05);
+  font-size: 0.85rem;
+}
+.kb-reveal-toast.visible { display: block; }
+.kb-reveal-head {
+  font-weight: 600;
+  margin-bottom: 6px;
+  color: var(--green, #9ece6a);
+}
+.kb-reveal-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 0;
+  border-top: 1px dashed rgba(128,128,128,.18);
+}
+.kb-reveal-row:first-of-type { border-top: 0; }
+.kb-reveal-row.error .kb-reveal-left { color: var(--red, #f7768e); }
+.kb-reveal-left {
+  flex: 1 1 auto;
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.78rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.kb-reveal-btn {
+  border: 1px solid rgba(128,128,128,.32);
+  background: transparent;
+  color: var(--text);
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+.kb-reveal-btn:hover { border-color: var(--accent, #7aa2f7); color: var(--accent, #7aa2f7); }
+.kb-reveal-note { color: var(--muted); font-size: 0.75rem; }
+.kb-reveal-foot {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed rgba(128,128,128,.18);
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+/* ── Mini-graph header actions row ──────────────────────────────────── */
+.kb-graph-mini-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}

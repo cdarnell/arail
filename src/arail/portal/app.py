@@ -5154,6 +5154,102 @@ async def set_mode(request: Request):
     return {"ok": True, "mode": new_mode}
 
 
+@app.post("/api/system/reveal")
+async def api_system_reveal(request: Request):
+    """Open a whitelisted lab directory in the OS file browser.
+
+    Body: ``{"slot": "<name>", "subpath": "<optional>"}``.
+
+    Slots: ``inbox``, ``models``, ``pkb_root``, ``sources``, ``compiled``.
+    ``subpath`` is joined onto the slot root and then path-checked to
+    refuse traversal escapes. Missing dirs are created. Spawns
+    ``open`` (mac) / ``xdg-open`` (linux) / ``explorer`` (win); when
+    the platform is unknown or ``ARAIL_HEADLESS=1`` is set, no
+    subprocess fires and the absolute path is returned so the
+    client can show a copy-path fallback.
+    """
+    import subprocess
+    import sys
+    from fastapi.responses import JSONResponse
+    from arail.pkb import _pkb_root
+    from arail.config import MODELS_DIR
+
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    slot = str(body.get("slot", "")).strip()
+    subpath = str(body.get("subpath", "") or "").strip()
+
+    pkb = _pkb_root()
+    slots = {
+        "inbox":    pkb / "inbox",
+        "sources":  pkb / "sources",
+        "compiled": pkb / "compiled",
+        "pkb_root": pkb,
+        "models":   MODELS_DIR,
+    }
+    if slot not in slots:
+        return JSONResponse(
+            {"error": f"unknown slot: {slot!r}",
+             "valid": sorted(slots.keys())},
+            status_code=400,
+        )
+
+    root = slots[slot].resolve()
+    target = (root / subpath).resolve() if subpath else root
+    try:
+        target.relative_to(root)
+    except ValueError:
+        activity_log.emit("system",
+                          f"reveal rejected: subpath {subpath!r} escapes slot {slot!r}",
+                          "warn")
+        return JSONResponse(
+            {"error": "subpath escapes slot root"},
+            status_code=400,
+        )
+
+    # Make sure the directory exists. For files, ensure the parent exists.
+    parent = target if target.is_dir() or not target.suffix else target.parent
+    try:
+        parent.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        return JSONResponse(
+            {"error": f"could not create directory: {e}"},
+            status_code=500,
+        )
+
+    abspath = str(target)
+    headless = os.getenv("ARAIL_HEADLESS", "").lower() in ("1", "true", "yes")
+
+    if headless:
+        return {"opened": False, "path": abspath, "reason": "headless"}
+
+    plat = sys.platform
+    if plat == "darwin":
+        argv = ["open", "-R", abspath] if target.is_file() else ["open", abspath]
+    elif plat.startswith("linux"):
+        # xdg-open opens files in their associated app; for "reveal in
+        # folder" semantics on a file path we open the parent.
+        argv = ["xdg-open", str(parent)]
+    elif plat in ("win32", "cygwin"):
+        argv = ["explorer", abspath if target.is_dir() else f"/select,{abspath}"]
+    else:
+        return {"opened": False, "path": abspath, "reason": f"unsupported platform: {plat}"}
+
+    try:
+        subprocess.Popen(
+            argv,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            close_fds=True,
+        )
+    except (OSError, FileNotFoundError) as e:
+        return {"opened": False, "path": abspath, "reason": str(e)}
+
+    return {"opened": True, "path": abspath, "slot": slot}
+
+
 @app.get("/api/system/costs")
 async def system_costs():
     """Return cost tracking summary — cloud-equivalent spend and energy costs."""
@@ -5228,13 +5324,18 @@ from arail.pkb import (
 
 @app.get("/knowledge", response_class=HTMLResponse)
 async def knowledge_page(request: Request):
+    from arail.pkb import _pkb_root
+    from arail.config import MODELS_DIR
     data = pkb_browse()
     current_goal = goal_store.get_current()
+    pkb = _pkb_root()
     return templates.TemplateResponse(request, "knowledge.html", {
         "pkb": data,
         "pkm": data,
         "mode": os.getenv("ARAIL_MODE", "airgapped"),
         "current_goal": current_goal,
+        "inbox_path": str((pkb / "inbox").resolve()),
+        "models_path": str(MODELS_DIR.resolve()),
     })
 
 

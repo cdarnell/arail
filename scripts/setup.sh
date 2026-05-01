@@ -1134,8 +1134,13 @@ YAML
 # -----------------------------------------------------------------------------
 setup_pkb() {
     step "7/11  Knowledge base scaffold (lab/pkb/)"
-    local pkb_root="lab/pkb"
+    # Honor LAB_PKB / ARAIL_MODELS_DIR overrides — same precedence as
+    # arail.config does at runtime — so the tree we create matches the
+    # tree the running portal will resolve.
+    local pkb_root="${LAB_PKB:-${LAB_PKM:-lab/pkb}}"
+    local models_dir="${ARAIL_MODELS_DIR:-lab/models}"
     mkdir -p "$pkb_root"/{inbox,sources/{papers,articles,datasets},agents/{research,experiments,synthesis,recommendations},notes/scratch,compiled/{reports,summaries,exports},inference/{prompts,completions,chains}}
+    mkdir -p "$models_dir"
     [[ -f "$pkb_root/sources/bookmarks.md" ]] || cat > "$pkb_root/sources/bookmarks.md" << 'BOOKMARKS'
 # Bookmarks
 # Save URLs with a one-line description. One per line.
@@ -1161,6 +1166,8 @@ Quick captures. Hunches. What-ifs. No pressure — just write.
 - 
 IDEAS
     info "PKB ready at $pkb_root"
+    info "Drop documents/screenshots here:    $(cd "$pkb_root/inbox" 2>/dev/null && pwd || echo "$pkb_root/inbox")"
+    info "Drop downloaded model weights here: $(cd "$models_dir" 2>/dev/null && pwd || echo "$models_dir")"
 }
 
 # -----------------------------------------------------------------------------

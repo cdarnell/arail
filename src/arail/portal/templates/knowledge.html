@@ -35,9 +35,17 @@
   <button class="btn btn-sm btn-ghost" id="kb-rebuild-btn" title="Rebuild wiki index + auto-docs">
     🔨 Rebuild
   </button>
+  <span class="kb-rebuild-badge" id="kb-rebuild-badge"
+        title="Wiki/graph compile status — flashes while a rebuild is queued or running"
+        aria-live="polite"></span>
   <a class="btn btn-sm btn-ghost" href="/integrations/knowledge-canvas" title="Knowledge graph">🕸 Graph</a>
   <span class="kb-meter" id="kb-meter">— pages</span>
 </div>
+
+<!-- Per-event reveal toast. Stays below the toolbar; rows for each
+     uploaded file with [Reveal] links pointing at their landing
+     spot. Cleared after 30s or on next upload. -->
+<div class="kb-reveal-toast" id="kb-reveal-toast" role="status" aria-live="polite"></div>
 
 <!-- Ingest hero — big drop zone + file-type tiles + starter pack.
      Sits above the tree/reader layout so new users see the "how do
@@ -49,6 +57,31 @@
       <span class="kb-ingest-kicker">one tree — source for wiki, notebooks, and agents</span>
     </h2>
   </div>
+
+  <!-- Quick-access folder buttons. Click → opens the OS file browser
+       at the configured path. Two distinct buckets: documents (auto-
+       ingested) and model weights (no processing). -->
+  <div class="kb-folder-row">
+    <button type="button" class="kb-folder-btn" data-reveal-slot="inbox"
+            title="Files dropped here are auto-sorted into sources/&lt;type&gt;/ and the wiki/graph rebuild fires.">
+      <span class="kb-folder-icon">📄</span>
+      <div class="kb-folder-meat">
+        <div class="kb-folder-label">Open documents folder</div>
+        <div class="kb-folder-hint">Drop docs &amp; screenshots here — they auto-sort.</div>
+        <code class="kb-folder-path">{{ inbox_path }}</code>
+      </div>
+    </button>
+    <button type="button" class="kb-folder-btn" data-reveal-slot="models"
+            title="Downloaded model weights live here. No auto-processing — used by Compute Source &gt; My Machine.">
+      <span class="kb-folder-icon">🤖</span>
+      <div class="kb-folder-meat">
+        <div class="kb-folder-label">Open models folder</div>
+        <div class="kb-folder-hint">Downloaded model weights live here.</div>
+        <code class="kb-folder-path">{{ models_path }}</code>
+      </div>
+    </button>
+  </div>
+
   <div class="kb-ingest-tiles">
     <button type="button" class="kb-ingest-tile" data-upload-accept="*">
       <span class="kb-ingest-icon">📄</span>
@@ -143,7 +176,11 @@
       <section class="kb-graph-mini" aria-label="Knowledge graph mini section">
         <div class="kb-graph-mini-head">
           <h3 class="kb-welcome-sub kb-graph-sub">Knowledge graph</h3>
-          <a class="btn btn-sm btn-ghost" href="/integrations/knowledge-canvas">Open Full 3D Graph</a>
+          <div class="kb-graph-mini-actions">
+            <button class="btn btn-sm btn-ghost" id="kb-graph-refresh-btn"
+                    title="Re-fetch the graph snapshot — happens automatically after a rebuild, but click to force it.">↻ Refresh</button>
+            <a class="btn btn-sm btn-ghost" href="/integrations/knowledge-canvas">Open Full 3D Graph</a>
+          </div>
         </div>
         <iframe
           id="kb-graph-mini-iframe"
@@ -895,21 +932,110 @@ document.getElementById('kb-editor-vim').addEventListener('change', e => {
 });
 
 // ── Upload (button + drag-drop) ────────────────────────────────────────
+
+// Mirror of arail.pkb._EXT_MAP — used for the post-upload toast so we
+// can show each file's landing folder. Server is still authoritative;
+// this is purely for display.
+const KB_EXT_TO_FOLDER = {
+  pdf:'papers', epub:'papers',
+  csv:'datasets', tsv:'datasets', json:'datasets', jsonl:'datasets', parquet:'datasets',
+  md:'articles', txt:'articles', html:'articles', htm:'articles', rst:'articles',
+  png:'images', jpg:'images', jpeg:'images', gif:'images',
+  webp:'images', svg:'images', bmp:'images', avif:'images', heic:'images',
+  mp4:'videos', mov:'videos', webm:'videos', mkv:'videos', m4v:'videos',
+  mp3:'audio', wav:'audio', m4a:'audio', ogg:'audio', flac:'audio', aac:'audio',
+};
+function kbDestForFilename(name) {
+  const m = /\.([a-z0-9]+)$/i.exec(name || '');
+  if (!m) return 'articles';
+  return KB_EXT_TO_FOLDER[m[1].toLowerCase()] || 'articles';
+}
+
+function renderRevealToast(rows, opts) {
+  const el = document.getElementById('kb-reveal-toast');
+  if (!el) return;
+  el.innerHTML = '';
+  el.classList.add('visible');
+  const head = document.createElement('div');
+  head.className = 'kb-reveal-head';
+  head.textContent = (opts && opts.heading) || '';
+  el.appendChild(head);
+  rows.forEach(row => {
+    const r = document.createElement('div');
+    r.className = 'kb-reveal-row' + (row.error ? ' error' : '');
+    const left = document.createElement('span');
+    left.className = 'kb-reveal-left';
+    left.textContent = row.filename + (row.dest ? '  →  ' + row.dest : '');
+    r.appendChild(left);
+    if (row.slot) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'kb-reveal-btn';
+      btn.textContent = 'Reveal';
+      btn.addEventListener('click', () => window.revealSlot(row.slot, row.subpath || ''));
+      r.appendChild(btn);
+    }
+    if (row.note) {
+      const n = document.createElement('span');
+      n.className = 'kb-reveal-note';
+      n.textContent = row.note;
+      r.appendChild(n);
+    }
+    el.appendChild(r);
+  });
+  if (opts && opts.footer) {
+    const f = document.createElement('div');
+    f.className = 'kb-reveal-foot';
+    f.textContent = opts.footer;
+    el.appendChild(f);
+  }
+  // Auto-dismiss after a window long enough to read + click Reveal.
+  clearTimeout(renderRevealToast._t);
+  renderRevealToast._t = setTimeout(() => el.classList.remove('visible'), 30000);
+}
+
 async function uploadFiles(fileList) {
   if (!fileList || !fileList.length) return;
+  const filenames = Array.from(fileList).map(f => f.name);
   const form = new FormData();
   for (const f of fileList) form.append('files', f);
   try {
     const r = await fetch('/api/pkb/upload', { method: 'POST', body: form });
     const d = await r.json();
     if (d.error) {
-      alert('Upload failed: ' + d.error);
+      renderRevealToast(
+        [{filename: '(upload)', dest: '', error: true, note: d.error}],
+        {heading: 'Upload failed'}
+      );
       return;
     }
+    // Build one row per uploaded file with its landing folder.
+    const ingestMoved = (d.ingest && d.ingest.moved) || 0;
+    const rows = filenames.map(name => {
+      const folder = kbDestForFilename(name);
+      return {
+        filename: name,
+        dest: 'sources/' + folder + '/',
+        slot: 'sources',
+        subpath: folder + '/',
+      };
+    });
+    if (d.ingest_error) {
+      rows.push({filename: '(ingest)', dest: '', error: true, note: d.ingest_error});
+    }
+    const heading = '✓ ' + d.uploaded + ' file' + (d.uploaded === 1 ? '' : 's')
+                  + ' uploaded' + (ingestMoved ? ' · ' + ingestMoved + ' sorted' : '');
+    renderRevealToast(rows, {
+      heading: heading,
+      footer: 'Wiki rebuilding… graph refreshes when done.',
+    });
     loadTree();
     loadWikiPages();
   } catch (e) {
-    alert('Upload failed: ' + e.message);
+    renderRevealToast(
+      [{filename: '(upload)', dest: '', error: true, note: e.message}],
+      {heading: 'Upload failed'}
+    );
   }
 }
 
@@ -1085,6 +1211,74 @@ window.addEventListener('drop', e => {
     uploadFiles(e.dataTransfer.files);
   }
 });
+
+// ── Folder reveal buttons (top of ingest hero) ─────────────────────────
+document.querySelectorAll('.kb-folder-btn[data-reveal-slot]').forEach(btn => {
+  btn.addEventListener('click', () => window.revealSlot(btn.dataset.revealSlot));
+});
+
+// ── Mini-graph refresh ─────────────────────────────────────────────────
+// Hard reload the iframe by re-setting src with a cache-bust param.
+// Throttled so a burst of "Wiki rebuilt" SSE events collapses into
+// one reload.
+function refreshGraph() {
+  const iframe = document.getElementById('kb-graph-mini-iframe');
+  if (!iframe) return;
+  const base = '/_integrations/knowledge-canvas/index.html?embed=1';
+  iframe.src = base + '&v=' + Date.now();
+}
+let _graphRefreshTimer = null;
+function scheduleGraphRefresh() {
+  if (_graphRefreshTimer) clearTimeout(_graphRefreshTimer);
+  _graphRefreshTimer = setTimeout(() => {
+    _graphRefreshTimer = null;
+    refreshGraph();
+  }, 1000);
+}
+{
+  const btn = document.getElementById('kb-graph-refresh-btn');
+  if (btn) btn.addEventListener('click', refreshGraph);
+}
+
+// ── Live wiki/graph status via /api/activity/stream ────────────────────
+// Show "🔨 rebuilding…" beside the Rebuild button while a rebuild
+// is queued or running; flash "✓ updated" on completion, then
+// trigger graph + sidebar refresh.
+(function subscribeRebuildEvents() {
+  const badge = document.getElementById('kb-rebuild-badge');
+  if (!badge || typeof EventSource === 'undefined') return;
+  let es;
+  function connect() {
+    try { es = new EventSource('/api/activity/stream'); }
+    catch (_) { return; }
+    es.onmessage = (m) => {
+      let ev;
+      try { ev = JSON.parse(m.data); } catch (_) { return; }
+      if (!ev || ev.source !== 'wiki') return;
+      const msg = String(ev.message || '');
+      if (/rebuild scheduled|rebuilding|rebuild started/i.test(msg)) {
+        badge.textContent = '🔨 rebuilding…';
+        badge.className = 'kb-rebuild-badge active';
+      } else if (/wiki rebuilt/i.test(msg)) {
+        badge.textContent = '✓ updated';
+        badge.className = 'kb-rebuild-badge done';
+        scheduleGraphRefresh();
+        loadWikiPages();
+        loadTree();
+        setTimeout(() => {
+          badge.textContent = '';
+          badge.className = 'kb-rebuild-badge';
+        }, 2500);
+      }
+    };
+    es.onerror = () => {
+      es.close();
+      // Reconnect with linear backoff up to 15s.
+      setTimeout(connect, 5000);
+    };
+  }
+  connect();
+})();
 
 // ── Toolbar buttons ────────────────────────────────────────────────────
 async function rebuildWiki() {
