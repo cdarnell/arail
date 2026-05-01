@@ -1143,10 +1143,28 @@ document.getElementById('kb-install-pack').addEventListener('click', async () =>
       : '✗ ' + (d.error || 'failed');
     if (d.ok) {
       loadTree();
+      renderRevealToast([{
+        filename: 'starter pack (' + d.written + ' files)',
+        dest: 'sources/seeds/model-building/',
+        slot: 'sources',
+        subpath: 'seeds/model-building',
+      }], {
+        heading: '✓ Starter pack installed',
+        footer: 'Wiki rebuilding… graph refreshes when done.',
+      });
       setTimeout(refreshKbSeedHint, 600);
+    } else {
+      renderRevealToast(
+        [{filename: '(starter pack)', dest: '', error: true, note: d.error || 'failed'}],
+        {heading: 'Install failed'}
+      );
     }
   } catch (e) {
     hint.textContent = '✗ error';
+    renderRevealToast(
+      [{filename: '(starter pack)', dest: '', error: true, note: e.message}],
+      {heading: 'Install failed'}
+    );
   }
 });
 

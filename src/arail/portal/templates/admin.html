@@ -708,7 +708,14 @@
         <strong>Hybrid:</strong> agents can browse the web (with your approval per domain).</p>
       </div>
       <div class="help-block">
-        <h3>AI Models</h3>
+        <h3>AI Models
+          <button type="button" class="btn btn-sm btn-ghost"
+                  style="margin-left:8px;font-size:0.75rem"
+                  onclick="window.revealSlot &amp;&amp; window.revealSlot('models')"
+                  title="Open the lab/models/ folder where downloaded weights live.">
+            📁 Open models folder
+          </button>
+        </h3>
         <p><strong>Fast SLM:</strong> {{ health.model or 'loading…' }} (always on)<br>
         <strong>Deep AeroLLM:</strong> {{ health.aerollm_model or 'not configured' }} (heavy window only)<br>
         <strong>Ollama:</strong> local API server for Open Notebook + browser agent</p>
