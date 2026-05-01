@@ -896,6 +896,11 @@
   grid-template-columns: 1fr 1fr;
   gap: 12px;
   margin: 12px 0 14px;
+  /* The ingest hero is a 2-col grid (copy | tiles). The folder row
+     and the URL form are siblings of those columns, so without a
+     span override they'd be placed inside one column and squeeze
+     everything else. Force them to span the full width. */
+  grid-column: 1 / -1;
 }
 @media (max-width: 720px) {
   .kb-folder-row { grid-template-columns: 1fr; }
@@ -1050,6 +1055,8 @@ a.kb-reveal-btn { text-decoration: none; }
   border: 1px solid rgba(128,128,128,.28);
   border-radius: 8px;
   background: rgba(128,128,128,.05);
+  /* Same span-rationale as .kb-folder-row above. */
+  grid-column: 1 / -1;
 }
 .kb-url-label {
   flex: 0 0 auto;

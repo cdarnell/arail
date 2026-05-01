@@ -252,6 +252,8 @@
       <div class="kb-viewer-header">
         <div class="kb-breadcrumbs" id="kb-breadcrumbs"></div>
         <div class="kb-viewer-actions">
+          <button class="btn btn-sm btn-ghost" id="kb-btn-reveal"
+                  title="Reveal this file in Finder/Explorer">📁 Reveal</button>
           <button class="btn btn-sm btn-ghost" id="kb-btn-edit" title="Edit (Cmd/Ctrl+E)">✏️ Edit</button>
           <button class="btn btn-sm btn-ghost" id="kb-btn-vim" title="Open in terminal with vim">⌨ Vim</button>
           <button class="btn btn-sm btn-ghost" id="kb-btn-delete" title="Delete file">🗑</button>
@@ -1569,6 +1571,13 @@ document.getElementById('kb-editor-ta').addEventListener('input', () => {
 document.getElementById('kb-btn-edit').addEventListener('click', openEditor);
 document.getElementById('kb-btn-close').addEventListener('click', closeViewer);
 document.getElementById('kb-btn-delete').addEventListener('click', deleteFile);
+document.getElementById('kb-btn-reveal').addEventListener('click', () => {
+  // KB.openPath is relative to the PKB root (e.g., "sources/papers/x.pdf").
+  // The reveal endpoint joins it under slot "pkb_root" and rejects
+  // traversal escapes server-side; macOS uses `open -R` so the
+  // exact file is highlighted in Finder.
+  if (KB.openPath) window.revealSlot('pkb_root', KB.openPath);
+});
 document.getElementById('kb-btn-save').addEventListener('click', saveFile);
 document.getElementById('kb-btn-cancel').addEventListener('click', cancelEdit);
 document.getElementById('kb-btn-vim').addEventListener('click', () => {

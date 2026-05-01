@@ -215,20 +215,6 @@ nav a.active { color: var(--green); background: var(--green-a08); }
   50% { box-shadow: 0 0 12px rgba(0,255,65,.4); }
 }
 
-.nav-clock {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  font-size: 0.75rem;
-  font-weight: 300;
-  color: var(--muted);
-  letter-spacing: 0.05em;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-  pointer-events: none;
-}
-
 /* Shared goal chip — shown in the nav on every page so the active
    mission is always visible. Populated by nav.js from /api/goal. */
 .nav-goal {
