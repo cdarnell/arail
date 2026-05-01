@@ -32,6 +32,10 @@
     📤 Upload
   </button>
   <input type="file" id="kb-upload-input" multiple style="display:none" />
+  <button class="btn btn-sm btn-ghost" id="kb-process-inbox-btn"
+          title="Process anything currently in lab/pkb/inbox/ (e.g., files you dropped via Finder). The background watcher does this every ~10s — click to trigger immediately.">
+    ⚡ Process inbox
+  </button>
   <button class="btn btn-sm btn-ghost" id="kb-rebuild-btn" title="Rebuild wiki index + auto-docs">
     🔨 Rebuild
   </button>
@@ -63,11 +67,11 @@
        ingested) and model weights (no processing). -->
   <div class="kb-folder-row">
     <button type="button" class="kb-folder-btn" data-reveal-slot="inbox"
-            title="Files dropped here are auto-sorted into sources/&lt;type&gt;/ and the wiki/graph rebuild fires.">
+            title="Files dropped into this folder via Finder are detected by a background watcher (~10s) and auto-sorted into sources/&lt;type&gt;/. Wiki/graph rebuild fires after.">
       <span class="kb-folder-icon">📄</span>
       <div class="kb-folder-meat">
         <div class="kb-folder-label">Open documents folder</div>
-        <div class="kb-folder-hint">Drop docs &amp; screenshots here — they auto-sort.</div>
+        <div class="kb-folder-hint">Drop docs &amp; screenshots here — auto-sorts within ~10s.</div>
         <code class="kb-folder-path">{{ inbox_path }}</code>
       </div>
     </button>
@@ -1430,6 +1434,53 @@ async function rebuildWiki() {
 }
 document.getElementById('kb-rebuild-btn').addEventListener('click', rebuildWiki);
 document.getElementById('kb-quick-rebuild').addEventListener('click', rebuildWiki);
+
+// ── Process inbox now ──────────────────────────────────────────────────
+// Manual trigger for files dropped into lab/pkb/inbox/ via Finder.
+// The background watcher (server-side, every ~10s) does this on its
+// own; this button lets the user fire it immediately + see the
+// results in the same reveal toast as a regular upload.
+document.getElementById('kb-process-inbox-btn').addEventListener('click', async () => {
+  const btn = document.getElementById('kb-process-inbox-btn');
+  const orig = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'processing…';
+  try {
+    const r = await fetch('/api/pkb/ingest', { method: 'POST' });
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+    const moved = d.moved || 0;
+    if (moved === 0 && !(d.urls_fetched > 0)) {
+      renderRevealToast(
+        [{filename: '(inbox)', dest: '', note: 'empty — nothing to process'}],
+        {heading: 'Inbox is empty'}
+      );
+    } else {
+      const dests = d.destinations || {};
+      const rows = Object.keys(dests).map(name => ({
+        filename: name,
+        dest: 'sources/' + (dests[name].split('/').slice(1, -1).join('/') + '/'),
+        slot: 'sources',
+        subpath: dests[name].split('/').slice(1, -1).join('/') + '/',
+        openPath: dests[name],
+      }));
+      renderRevealToast(rows, {
+        heading: '✓ ' + moved + ' file' + (moved === 1 ? '' : 's') + ' processed',
+        footer: 'Wiki rebuilding… graph refreshes when done.',
+      });
+      loadTree();
+    }
+    btn.textContent = '✓ ' + moved + ' file' + (moved === 1 ? '' : 's');
+  } catch (e) {
+    btn.textContent = 'error';
+    renderRevealToast(
+      [{filename: '(inbox)', dest: '', error: true, note: e.message}],
+      {heading: 'Process inbox failed'}
+    );
+  } finally {
+    setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 1800);
+  }
+});
 
 document.getElementById('kb-quick-new-note').addEventListener('click', async () => {
   const title = prompt('New note title:');

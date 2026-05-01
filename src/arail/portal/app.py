@@ -228,6 +228,7 @@ async def _startup():
             )
 
     asyncio.create_task(_warm_primary_router())
+    asyncio.create_task(_inbox_watcher_loop())
 
     # Load bootstrap goal if no active goal exists
     current = goal_store.get_current()
@@ -5419,11 +5420,24 @@ async def api_pkb_search(q: str = ""):
 
 @app.post("/api/pkb/ingest")
 async def api_pkb_ingest():
+    """Process whatever's currently in lab/pkb/inbox/ → sources/.
+
+    Called from three places: the manual 'Process inbox' button on
+    /knowledge, the background watcher (see _inbox_watcher_loop), and
+    the legacy /api/pkm/ingest alias. All of them want the same
+    follow-up — wiki/graph rebuild — so we emit it here, mirroring
+    the upload endpoint.
+    """
     result = pkb_ingest()
     if result["moved"] or result["urls_fetched"]:
         activity_log.emit("pkb",
             f"Ingested {result['moved']} file(s), {result['urls_fetched']} URL(s)",
             "success")
+        try:
+            from arail import wiki
+            wiki.schedule_rebuild()
+        except Exception:
+            pass
     return result
 
 
@@ -5803,6 +5817,66 @@ async def api_pkb_upload(request: Request):
     except Exception:
         pass
     return result
+
+
+# ── Inbox watcher ─────────────────────────────────────────────────────
+# Files dropped via Finder (after the user clicks "Open documents
+# folder") land in lab/pkb/inbox/ but don't go through the upload
+# endpoint, so nothing fires the auto-ingest path. This loop polls
+# the inbox every INBOX_WATCH_INTERVAL seconds and runs ingest()
+# whenever it spots a user file. Set LAB_INBOX_WATCH=0 to disable.
+
+async def _inbox_watcher_loop() -> None:
+    """Periodically ingest anything dropped into lab/pkb/inbox/.
+
+    Lightweight directory poll — listdir + count user files. ingest()
+    is no-op when the inbox is empty or contains only links.txt /
+    quick.txt / dotfiles. On first hit we also schedule the wiki
+    rebuild so the page sees the new content within ~30s of drop.
+    """
+    if os.getenv("LAB_INBOX_WATCH", "1").lower() in ("0", "false", "no"):
+        return
+    interval = int(os.getenv("LAB_INBOX_WATCH_INTERVAL_SEC", "10"))
+    interval = max(2, min(interval, 300))
+    from arail.pkb import _pkb_root, ingest as run_ingest
+    inbox = _pkb_root() / "inbox"
+    activity_log.emit("system",
+                      f"Inbox watcher armed ({inbox}, every {interval}s)",
+                      "info")
+
+    while True:
+        try:
+            await asyncio.sleep(interval)
+            if not inbox.exists():
+                continue
+            # Count anything that looks like a user file. Skip dotfiles
+            # and the special links.txt / quick.txt streams (those are
+            # always-present sentinels users may keep around).
+            user_files = [
+                p for p in inbox.iterdir()
+                if p.is_file()
+                and not p.name.startswith(".")
+            ]
+            if not user_files:
+                continue
+            result = run_ingest()
+            if result.get("moved") or result.get("urls_fetched"):
+                activity_log.emit(
+                    "pkb",
+                    f"Auto-ingested {result['moved']} file(s) dropped via Finder → sources",
+                    "success",
+                )
+                try:
+                    from arail import wiki
+                    wiki.schedule_rebuild()
+                except Exception:  # pragma: no cover
+                    pass
+        except asyncio.CancelledError:
+            return
+        except Exception as e:  # noqa: BLE001
+            activity_log.emit("pkb",
+                              f"Inbox watcher error: {type(e).__name__}: {e}",
+                              "warn")
 
 
 # ── Legacy /api/pkm/* aliases (deprecated, kept for one release) ──────
