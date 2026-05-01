@@ -368,7 +368,10 @@ function renderTree() {
         <div class="kb-sec-empty">empty</div>
       </details>`;
     }
-    const isOpen = ['notes', 'agents', 'compiled', 'sources'].includes(name);
+    // inbox with content = staged-but-not-ingested. Auto-open it so
+    // the user notices and can see what failed to sort.
+    const isOpen = ['notes', 'agents', 'compiled', 'sources'].includes(name)
+                || (name === 'inbox' && section.count > 0);
     const items = section.items.map(f => {
       const cls = f.path === KB.openPath ? 'kb-file active' : 'kb-file';
       const leaf = f.name;
@@ -383,12 +386,17 @@ function renderTree() {
         <span class="kb-file-size">${prettyBytes(f.size)}</span>
       </li>`;
     }).join('');
-    return `<details class="kb-section-node" ${isOpen ? 'open' : ''}>
+    const stagedClass = (name === 'inbox' && section.count > 0) ? ' kb-inbox-staged' : '';
+    const stagedHint = (name === 'inbox' && section.count > 0)
+      ? '<div class="kb-inbox-hint">staged — drop more files or click 🔨 Rebuild to flush</div>'
+      : '';
+    return `<details class="kb-section-node${stagedClass}" ${isOpen ? 'open' : ''}>
       <summary>
         <span class="kb-sec-icon">${iconForSection(name)}</span>
         <span class="kb-sec-name">${name}</span>
         <span class="kb-sec-count">${section.count}</span>
       </summary>
+      ${stagedHint}
       <ul class="kb-file-list">${items}</ul>
     </details>`;
   }).join('');

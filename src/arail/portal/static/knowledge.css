@@ -1012,6 +1012,22 @@
   align-items: center;
 }
 
+/* ── Inbox section, when files are staged but not yet ingested ──────── */
+.kb-section-node.kb-inbox-staged > summary {
+  background: rgba(224, 175, 104, 0.10);    /* amber tint */
+  border-left: 2px solid var(--amber, #e0af68);
+}
+.kb-section-node.kb-inbox-staged .kb-sec-count {
+  color: var(--amber, #e0af68);
+  font-weight: 600;
+}
+.kb-inbox-hint {
+  font-size: 0.72rem;
+  color: var(--muted);
+  padding: 4px 8px 6px 22px;
+  font-style: italic;
+}
+
 /* ── URL tile inline form (replaces window.prompt) ──────────────────── */
 .kb-url-form {
   display: none;            /* JS toggles to "flex" */
