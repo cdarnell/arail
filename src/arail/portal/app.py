@@ -246,6 +246,12 @@ async def _startup():
                     # Carry intent from bootstrap
                     parsed["intent"] = bg.get("intent", os.getenv("LAB_INTENT", "ai"))
                     parsed["intent_name"] = bg.get("intent_name", intent_name)
+                    bootstrap_desc = bg.get(
+                        "intent_description",
+                        os.getenv("LAB_INTENT_DESCRIPTION", ""),
+                    )
+                    if bootstrap_desc:
+                        parsed["intent_description"] = bootstrap_desc
                     goal_store.set_goal(parsed)
                     activity_log.emit("system",
                         f"Bootstrap goal loaded: {goal_text[:80]}", "info")

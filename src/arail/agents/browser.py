@@ -482,6 +482,17 @@ def generate_suggestions(goal_text: str, domain: str = "general") -> list[dict[s
              "title": "Reuters",
              "reason": "Authoritative business news", "tier": "tier2"},
         ],
+        "trade": [
+            {"url": f"https://scholar.google.com/scholar?q={_urlq(query)}",
+             "title": "Google Scholar",
+             "reason": "Materials science and trade technique research", "tier": "tier1"},
+            {"url": f"https://www.osha.gov/search?query={_urlq(query)}",
+             "title": "OSHA",
+             "reason": "Occupational safety standards and best practices", "tier": "tier1"},
+            {"url": f"https://duckduckgo.com/?q={_urlq(query)}+site%3Areddit.com",
+             "title": "Reddit (trade community)",
+             "reason": "Practitioner discussions and field experience", "tier": "tier2"},
+        ],
     }
 
     # Always include general credible sources

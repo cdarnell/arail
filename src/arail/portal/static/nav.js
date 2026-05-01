@@ -115,19 +115,6 @@
       .catch(function () { /* no goal API — silently skip */ });
   })();
 
-  // ── Clock ──
-  var clock = document.getElementById('nav-clock');
-  if (clock) {
-    function tick() {
-      var d = new Date();
-      clock.textContent = d.toLocaleTimeString([], {
-        hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
-      });
-    }
-    tick();
-    setInterval(tick, 1000);
-  }
-
   // ── Mode badge ──
   var badge = document.getElementById('mode-badge');
   if (!badge) return;

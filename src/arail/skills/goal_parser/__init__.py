@@ -32,6 +32,10 @@ DOMAIN_KEYWORDS: Dict[str, list[str]] = {
                 "strength", "nutrition"],
     "education": ["learn", "skill", "knowledge", "course", "master",
                    "understand", "study"],
+    "trade": ["woodwork", "carpentry", "electrical", "plumbing", "weld",
+               "hvac", "mason", "tile", "machining", "automotive",
+               "mechanic", "apprentice", "journeyman", "framing",
+               "drywall", "pipefitter"],
 }
 
 
