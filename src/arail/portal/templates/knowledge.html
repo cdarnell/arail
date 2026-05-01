@@ -980,6 +980,7 @@ function renderRevealToast(rows, opts) {
   rows.forEach(row => {
     const r = document.createElement('div');
     r.className = 'kb-reveal-row' + (row.error ? ' error' : '');
+    if (row.openPath) r.dataset.openPath = row.openPath;
     const left = document.createElement('span');
     left.className = 'kb-reveal-left';
     left.textContent = row.filename + (row.dest ? '  →  ' + row.dest : '');
@@ -1021,6 +1022,35 @@ function renderRevealToast(rows, opts) {
   // Auto-dismiss after a window long enough to read + click Reveal.
   clearTimeout(renderRevealToast._t);
   renderRevealToast._t = setTimeout(() => el.classList.remove('visible'), 30000);
+  // If the wiki manifest already covers any of these files (e.g.,
+  // re-uploading an existing markdown), surface the [Wiki] link
+  // straight away — otherwise wait for the SSE-driven rebuild.
+  enrichRevealToastWithWikiLinks();
+}
+
+// After a wiki rebuild completes (SSE-driven, see subscribeRebuildEvents),
+// every toast row whose file became a compiled wiki page gets a third
+// button: [Wiki] → /wiki/<slug>. Closes the user-facing loop —
+// drop a markdown file → toast appears → wait for rebuild → click
+// [Wiki] to see your content rendered with backlinks/wikilinks.
+function enrichRevealToastWithWikiLinks() {
+  const toast = document.getElementById('kb-reveal-toast');
+  if (!toast || !toast.classList.contains('visible')) return;
+  if (typeof findWikiPage !== 'function') return;
+  toast.querySelectorAll('.kb-reveal-row[data-open-path]').forEach(row => {
+    if (row.querySelector('.kb-reveal-wiki')) return;  // already enriched
+    const path = row.dataset.openPath;
+    const page = findWikiPage(path);
+    if (!page || !page.slug) return;
+    const a = document.createElement('a');
+    a.className = 'kb-reveal-btn kb-reveal-wiki';
+    a.href = '/wiki/' + page.slug;
+    a.target = '_blank';
+    a.rel = 'noopener';
+    a.textContent = '📖 Wiki';
+    a.title = 'Open the compiled wiki page in a new tab';
+    row.appendChild(a);
+  });
 }
 
 async function uploadFiles(fileList) {
@@ -1349,8 +1379,11 @@ function scheduleGraphRefresh() {
         badge.textContent = '✓ updated';
         badge.className = 'kb-rebuild-badge done';
         scheduleGraphRefresh();
-        loadWikiPages();
         loadTree();
+        // Await loadWikiPages so wikiPagesByPath is hot when we
+        // enrich the toast — without this race, the [Wiki] links
+        // would only show up on the *next* rebuild.
+        loadWikiPages().then(() => enrichRevealToastWithWikiLinks());
         // Close the loop on any visible upload/install toast — flip
         // the footer from "rebuilding…" to a done state so the user
         // sees the cycle completed.

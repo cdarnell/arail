@@ -996,6 +996,18 @@
   cursor: pointer;
 }
 .kb-reveal-btn:hover { border-color: var(--accent, #7aa2f7); color: var(--accent, #7aa2f7); }
+a.kb-reveal-btn { text-decoration: none; }
+.kb-reveal-btn.kb-reveal-wiki {
+  /* Slight green tint so [Wiki] reads as the "view your file rendered"
+     terminal action, distinct from the neutral [Open] / [Reveal]. */
+  border-color: rgba(158, 206, 106, 0.45);
+  color: var(--green, #9ece6a);
+}
+.kb-reveal-btn.kb-reveal-wiki:hover {
+  border-color: var(--green, #9ece6a);
+  color: var(--green, #9ece6a);
+  background: rgba(158, 206, 106, 0.10);
+}
 .kb-reveal-note { color: var(--muted); font-size: 0.75rem; }
 .kb-reveal-foot {
   margin-top: 6px;
