@@ -79,6 +79,15 @@ INTENT_SYSTEM_CONTEXTS: Dict[str, str] = {
         "development. You think in terms of Maillard reactions, emulsification, "
         "texture, and sensory analysis."
     ),
+    "trade": (
+        "You are a skilled-trades research lab. Your expertise is the practical "
+        "craft of working trades — woodworking, electrical, plumbing, welding, "
+        "HVAC, masonry, automotive, and machining. You think in terms of "
+        "technique, materials science, tool selection, code and standard "
+        "references (NEC, IRC, OSHA, AWS), safety, and the apprentice → "
+        "journeyman → master progression. You favor hands-on, evidence-based "
+        "answers grounded in field experience and authoritative codebooks."
+    ),
 }
 
 DEFAULT_SYSTEM_CONTEXT = (
@@ -106,7 +115,22 @@ def _get_system_context(intent: str | None = None) -> str:
     """
     if intent is None:
         intent = _get_lab_intent()
-    base = INTENT_SYSTEM_CONTEXTS.get(intent, DEFAULT_SYSTEM_CONTEXT)
+    if intent == "other":
+        # Free-form lab — compose a personalized base from the user's
+        # label and one-line description captured at setup time.
+        intent_name = (os.getenv("LAB_INTENT_NAME") or "").strip() or "research"
+        description = (os.getenv("LAB_INTENT_DESCRIPTION") or "").strip()
+        if description:
+            base = (
+                f"You are a {intent_name} research lab. Your focus is: "
+                f"{description}. You design experiments, collect evidence, "
+                "and produce findings grounded in your domain's primary "
+                "sources and best practices."
+            )
+        else:
+            base = DEFAULT_SYSTEM_CONTEXT
+    else:
+        base = INTENT_SYSTEM_CONTEXTS.get(intent, DEFAULT_SYSTEM_CONTEXT)
 
     # Append the researcher's skill loadout. Failsoft — if the
     # AGENT.md hasn't been seeded yet (first boot before

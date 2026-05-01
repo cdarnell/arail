@@ -1232,9 +1232,11 @@ capture_goal() {
     echo "    5) education  — Learning science, curriculum, mastery"
     echo "    6) health     — Exercise, nutrition, sleep, wellness protocols"
     echo "    7) culinary   — Cooking technique, flavor chemistry, recipe dev"
+    echo "    8) trade      — Skilled trades — woodworking, electrical, plumbing, welding, HVAC"
+    echo "    9) other      — Fill in the blank — your own field of study"
     echo ""
-    read -rp "  Choice [1-7, default 1]: " choice
-    local intent intent_name
+    read -rp "  Choice [1-9, default 1]: " choice
+    local intent intent_name intent_description=""
     case "${choice:-1}" in
         1|"") intent=ai;        intent_name="AI Engineer" ;;
         2)    intent=ml;        intent_name="ML Researcher" ;;
@@ -1243,8 +1245,31 @@ capture_goal() {
         5)    intent=education; intent_name="Educator" ;;
         6)    intent=health;    intent_name="Health Researcher" ;;
         7)    intent=culinary;  intent_name="Culinary Scientist" ;;
+        8)    intent=trade;     intent_name="Tradesperson" ;;
+        9)    intent=other;     intent_name="" ;;
         *)    intent=ai;        intent_name="AI Engineer" ;;
     esac
+
+    # "other" — capture a free-form label and optional one-line description.
+    # The label becomes intent_name (used in the dashboard header); the
+    # description becomes intent_description (used to compose the
+    # researcher's system prompt). Strip control chars and cap lengths.
+    if [[ "$intent" == "other" ]]; then
+        echo ""
+        echo "  Tell us about your lab — one short label, then an optional"
+        echo "  one-line focus statement."
+        echo ""
+        local raw_label raw_desc
+        read -rp "  What's your field?  (e.g., \"Beekeeping\", \"Astronomy\", \"Cabinetmaking\"): " raw_label
+        read -rp "  One line about what your lab focuses on (optional, press Enter to skip): " raw_desc
+        # Strip control chars; collapse whitespace; cap lengths.
+        intent_name="$(printf '%s' "$raw_label" | tr -d '\000-\037' | awk '{$1=$1; print}' | cut -c1-40)"
+        intent_description="$(printf '%s' "$raw_desc" | tr -d '\000-\037' | awk '{$1=$1; print}' | cut -c1-200)"
+        if [[ -z "$intent_name" ]]; then
+            intent_name="Researcher"
+            info "No label given — defaulting to \"Researcher\"."
+        fi
+    fi
 
     echo ""
     echo -e "  ${BOLD}─── Research goal ───${RESET}"
@@ -1295,15 +1320,17 @@ capture_goal() {
     heavy_hours="${heavy_hours:-22:00-08:00}"
 
     mkdir -p "$(dirname "$goal_path")"
-    python3 - "$goal_path" "$goal" "$intent" "$intent_name" <<'PY'
+    python3 - "$goal_path" "$goal" "$intent" "$intent_name" "$intent_description" <<'PY'
 import json, sys, datetime
-path, goal, intent, intent_name = sys.argv[1:5]
+path, goal, intent, intent_name, intent_description = sys.argv[1:6]
 payload = {
     "goal": goal,
     "intent": intent,
     "intent_name": intent_name,
     "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
 }
+if intent_description:
+    payload["intent_description"] = intent_description
 with open(path, "w") as f:
     json.dump(payload, f, indent=2)
 PY
@@ -1314,6 +1341,9 @@ PY
     if [[ -f .env ]]; then
         _set_env_var LAB_INTENT "${intent}"
         _set_env_var LAB_INTENT_NAME "${intent_name}"
+        if [[ -n "$intent_description" ]]; then
+            _set_env_var LAB_INTENT_DESCRIPTION "${intent_description}"
+        fi
         _set_env_var LAB_ACTIVE_HOURS "${active_hours}"
         _set_env_var LAB_HEAVY_HOURS "${heavy_hours}"
     fi

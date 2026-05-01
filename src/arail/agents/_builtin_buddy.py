@@ -716,6 +716,7 @@ def _suggest_measurable_metric(goal: Dict[str, Any]) -> Optional[Observation]:
         ("nutrition",       "macro ratio vs target deviation"),
         ("health",          "resting heart rate trend over days"),
         ("business",        "conversion rate per channel"),
+        ("trade",           "rework rate per job"),
         ("language",        "BLEU score on held-out validation set"),
     ]
 
