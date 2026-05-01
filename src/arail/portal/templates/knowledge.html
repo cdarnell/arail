@@ -1322,6 +1322,14 @@ function scheduleGraphRefresh() {
         scheduleGraphRefresh();
         loadWikiPages();
         loadTree();
+        // Close the loop on any visible upload/install toast — flip
+        // the footer from "rebuilding…" to a done state so the user
+        // sees the cycle completed.
+        const toast = document.getElementById('kb-reveal-toast');
+        if (toast && toast.classList.contains('visible')) {
+          const foot = toast.querySelector('.kb-reveal-foot');
+          if (foot) foot.textContent = '✓ Wiki + graph updated. New files visible in the sidebar.';
+        }
         setTimeout(() => {
           badge.textContent = '';
           badge.className = 'kb-rebuild-badge';
