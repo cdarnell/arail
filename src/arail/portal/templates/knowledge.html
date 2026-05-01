@@ -122,6 +122,15 @@
       <span class="kb-ingest-hint">make room for your work</span>
     </button>
   </div>
+  <!-- URL tile inline form — replaces the old blocking prompt(). -->
+  <form class="kb-url-form" id="kb-url-form" style="display:none" autocomplete="off">
+    <label class="kb-url-label" for="kb-url-input">Add URL bookmark</label>
+    <input class="kb-url-input" id="kb-url-input" type="url"
+           placeholder="https://… (lands in sources/bookmarks.md)" required />
+    <button class="btn btn-sm btn-primary" type="submit">Add</button>
+    <button class="btn btn-sm btn-ghost" type="button" id="kb-url-cancel">Cancel</button>
+  </form>
+
   <div id="kb-seed-banner" class="kb-seed-banner" style="display:none">
     Your knowledge base is mostly starter content.
     <a href="#" id="kb-banner-upload">Add your own files</a>
@@ -1060,22 +1069,52 @@ document.querySelectorAll('.kb-ingest-tile[data-upload-accept]').forEach(tile =>
   });
 });
 
-// URL tile — prompt for a URL, post directly to the ingest pipeline
-// which appends to sources/bookmarks.md.
-document.getElementById('kb-ingest-url').addEventListener('click', async () => {
-  const url = prompt('Add a URL bookmark — it lands in sources/bookmarks.md:');
-  if (!url || !url.trim()) return;
+// URL tile — toggle the inline form; replaces the old blocking
+// window.prompt() so the rest of the page stays interactive while
+// the user is composing.
+const _kbUrlForm = document.getElementById('kb-url-form');
+const _kbUrlInput = document.getElementById('kb-url-input');
+function _kbUrlShow() {
+  _kbUrlForm.style.display = 'flex';
+  _kbUrlInput.value = '';
+  _kbUrlInput.focus();
+}
+function _kbUrlHide() { _kbUrlForm.style.display = 'none'; }
+document.getElementById('kb-ingest-url').addEventListener('click', () => {
+  if (_kbUrlForm.style.display === 'flex') _kbUrlHide(); else _kbUrlShow();
+});
+document.getElementById('kb-url-cancel').addEventListener('click', _kbUrlHide);
+_kbUrlInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') { e.preventDefault(); _kbUrlHide(); }
+});
+_kbUrlForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const url = _kbUrlInput.value.trim();
+  if (!url) return;
   try {
-    await fetch('/api/pkb/upload-url', {
+    const r = await fetch('/api/pkb/upload-url', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url: url.trim() }),
+      body: JSON.stringify({ url: url }),
     });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || d.error) throw new Error(d.error || ('HTTP ' + r.status));
     loadTree();
-  } catch (e) {
-    // Fallback: the ingest pipeline also reads inbox/links.txt, so
-    // just alert if the direct endpoint isn't available.
-    alert('URL add failed: ' + e.message);
+    renderRevealToast([{
+      filename: url,
+      dest: 'sources/bookmarks.md',
+      slot: 'sources',
+      subpath: 'bookmarks.md',
+    }], {
+      heading: '✓ Bookmark added',
+      footer: 'Wiki rebuilding… graph refreshes when done.',
+    });
+    _kbUrlHide();
+  } catch (err) {
+    renderRevealToast(
+      [{filename: url, dest: '', error: true, note: err.message}],
+      {heading: 'URL add failed'}
+    );
   }
 });
 

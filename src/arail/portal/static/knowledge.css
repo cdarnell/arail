@@ -1011,3 +1011,40 @@
   gap: 6px;
   align-items: center;
 }
+
+/* ── URL tile inline form (replaces window.prompt) ──────────────────── */
+.kb-url-form {
+  display: none;            /* JS toggles to "flex" */
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(128,128,128,.28);
+  border-radius: 8px;
+  background: rgba(128,128,128,.05);
+}
+.kb-url-label {
+  flex: 0 0 auto;
+  font-size: 0.78rem;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+}
+.kb-url-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 6px 10px;
+  border: 1px solid rgba(128,128,128,.32);
+  border-radius: 6px;
+  background: var(--bg, transparent);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.85rem;
+}
+.kb-url-input:focus {
+  outline: none;
+  border-color: var(--accent, #7aa2f7);
+}
+@media (max-width: 720px) {
+  .kb-url-form { flex-wrap: wrap; }
+  .kb-url-input { flex-basis: 100%; }
+}
