@@ -5172,7 +5172,6 @@ async def api_system_reveal(request: Request):
     import sys
     from fastapi.responses import JSONResponse
     from arail.pkb import _pkb_root
-    from arail.config import MODELS_DIR
 
     try:
         body = await request.json()
@@ -5182,12 +5181,16 @@ async def api_system_reveal(request: Request):
     subpath = str(body.get("subpath", "") or "").strip()
 
     pkb = _pkb_root()
+    # Read ARAIL_MODELS_DIR fresh each call so test fixtures and
+    # runtime overrides take effect — matches the pattern used by
+    # the other model-aware endpoints in this module.
+    models_dir = Path(os.getenv("ARAIL_MODELS_DIR", "lab/models"))
     slots = {
         "inbox":    pkb / "inbox",
         "sources":  pkb / "sources",
         "compiled": pkb / "compiled",
         "pkb_root": pkb,
-        "models":   MODELS_DIR,
+        "models":   models_dir,
     }
     if slot not in slots:
         return JSONResponse(
@@ -5325,17 +5328,17 @@ from arail.pkb import (
 @app.get("/knowledge", response_class=HTMLResponse)
 async def knowledge_page(request: Request):
     from arail.pkb import _pkb_root
-    from arail.config import MODELS_DIR
     data = pkb_browse()
     current_goal = goal_store.get_current()
     pkb = _pkb_root()
+    models_dir = Path(os.getenv("ARAIL_MODELS_DIR", "lab/models"))
     return templates.TemplateResponse(request, "knowledge.html", {
         "pkb": data,
         "pkm": data,
         "mode": os.getenv("ARAIL_MODE", "airgapped"),
         "current_goal": current_goal,
         "inbox_path": str((pkb / "inbox").resolve()),
-        "models_path": str(MODELS_DIR.resolve()),
+        "models_path": str(models_dir.resolve()),
     })
 
 
