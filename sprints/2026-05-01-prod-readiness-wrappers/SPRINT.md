@@ -26,7 +26,7 @@ Approved plan seed: `/Users/netsushi/.claude/plans/i-have-the-site-tranquil-miln
 | build | builder | BUILD_LOG.md | completed | 2026-05-01 | 2026-05-01 | 10 implementation commits + 1 BUILD_LOG fixup; ~2423 LOC |
 | review | architect (review) | REVIEW.md | completed | 2026-05-01 | 2026-05-01 | WEAK_PASS — all failure modes mitigated; 1 nit, 1 NIT scope drift |
 | test | qa | TEST_REPORT.md | completed | 2026-05-01 | 2026-05-01 | PASS — 135 new tests, all 5 architect MUST-HIT scenarios covered, pre-existing 5 failures unchanged |
-| ship | — | PR | pending | — | — | — |
+| ship | — | PR #28 | completed | 2026-05-01 | 2026-05-01 | PR open at https://github.com/cdarnell/arail/pull/28 |
 
 ## Decisions log
 
