@@ -1,6 +1,11 @@
 # ARAIL — Autoresearch AI Labs
 **A rail gun for AI.**
 
+ARAIL is a blueprint, not a product. Clone it, pick a tier, and you have a
+local AI research bench — a dashboard, a chat tab that can talk to your own
+machine or any cloud vendor, an agent-driven knowledge base, and a
+loop that runs experiments while you sleep.
+
 <img width="852" height="639" alt="Screenshot 2026-05-01 at 8 01 48 PM" src="https://github.com/user-attachments/assets/17a0eb3a-2160-4c5f-b980-2289a75424b0" />
 
 <img width="1398" height="783" alt="Screenshot 2026-05-01 at 8 08 10 PM" src="https://github.com/user-attachments/assets/c6eeff47-975f-4ed9-bf0b-13080e8d76a7" />
@@ -8,15 +13,12 @@
 
 
 >
+>
 > *A learn-by-doing AI research lab for friends, family, and the curious.*
 > Default name is **Autoresearch AI Lab**. Rename it to whatever you want in one
 > line of `.env` — "Sam's AI Lab", "gentoofoo's ai lab", "PeanutLab". It's
 > your lab.
 
-ARAIL is a blueprint, not a product. Clone it, pick a tier, and you have a
-local AI research bench — a dashboard, a chat tab that can talk to your own
-machine or any cloud vendor, an agent-driven knowledge base, and a
-loop that runs experiments while you sleep.
 
 ---
 
