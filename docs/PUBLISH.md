@@ -267,5 +267,88 @@ can do almost anything with it, but attribution is appreciated.
 
 ---
 
+## 10. Observability endpoints
+
+ARAIL exposes two industry-standard probes that work with any orchestrator or
+monitoring stack.
+
+### `GET /health` (alias `GET /healthz`)
+
+**Liveness probe.** Returns 200 with a small JSON body while the process can
+dispatch requests:
+
+```json
+{
+  "status": "ok",
+  "service": "arail",
+  "version": "0.1.0",
+  "uptime_seconds": 3724.1,
+  "lab_mode": "airgapped"
+}
+```
+
+Use this with nginx `upstream` health checks, Kubernetes liveness probes, or
+Cloudflare Health Checks. This endpoint checks **only** that the process is
+alive — it does not test the LLM backend, storage, or any external service.
+For a full readiness check, use `/api/system/health`.
+
+Both endpoints bypass the onboarding gate and require no authentication.
+
+### `GET /metrics`
+
+**Prometheus text-format exposition.** Returns `text/plain; version=0.0.4;
+charset=utf-8` with standard `# HELP / # TYPE / name{labels} value` lines.
+
+Metrics emitted:
+
+| Metric | Type | Description |
+|---|---|---|
+| `arail_build_info{version,python}` | gauge | Static build metadata |
+| `arail_uptime_seconds` | gauge | Seconds since process start |
+| `arail_lab_mode` | gauge | 1 = hybrid, 0 = airgapped |
+| `arail_inference_capacity` | gauge | Semaphore slots |
+| `arail_inference_in_flight` | gauge | Active inference requests |
+| `arail_inference_pending` | gauge | Waiting for a slot |
+| `arail_inference_completed_5m` | gauge | Completions in last 5 min |
+| `arail_inference_in_flight_by_label{label}` | gauge | Per-call-site in-flight count |
+| `arail_inference_completed_total_by_label{label}` | counter | Per-label monotonic completions |
+| `arail_inference_wait_p50_ms{label}` | gauge | P50 queue wait per label |
+| `arail_inference_run_p50_ms{label}` | gauge | P50 run duration per label |
+| `arail_security_last_scan_age_seconds` | gauge | Age of last pip-audit run; -1 if never |
+| `arail_security_findings{severity}` | gauge | Aggregate counts by severity (critical/high/medium/low) |
+
+Security note: `/metrics` emits **aggregate counts only** — no package names,
+no version strings, no individual CVE IDs appear in the output (OBS1). The
+full finding list is available at `/api/admin/security/status` (authenticated,
+operator-only).
+
+### Restricting `/metrics` at the reverse-proxy layer (OBS7)
+
+`/metrics` is unauthenticated by design so that Prometheus can scrape it
+without credential management. You **must** restrict it to internal traffic
+at the reverse proxy. nginx example:
+
+```nginx
+location /metrics {
+    # Allow only the Prometheus scraper and localhost.
+    allow 127.0.0.1;
+    allow ::1;
+    # Replace with your Prometheus server IP if remote:
+    # allow 10.0.1.42;
+    deny all;
+    proxy_pass http://127.0.0.1:8080;
+}
+```
+
+Cloudflare Access alternative: add a Service Auth policy on `/metrics` that
+only accepts your Prometheus scraper's service token.
+
+Note on multi-worker deployments: ARAIL runs single-worker uvicorn by default.
+If you scale to multiple workers, each worker reports its own uptime (from its
+own process start). Prometheus will see one time-series per worker in that
+case — this is expected behaviour.
+
+---
+
 *Questions? Open an issue at the upstream repo or check
 [docs/TROUBLESHOOTING.md](TROUBLESHOOTING.md) first.*

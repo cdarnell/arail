@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any, AsyncIterator, Iterator, cast
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -44,6 +44,33 @@ from arail.ui_theme import list_ui_themes, load_ui_theme, theme_css
 
 _BRAND = load_brand()
 _UI_THEME = load_ui_theme()
+
+# ---------------------------------------------------------------------------
+# Observability boot-time constants (OBS9: version fallback chain; OBS2: no I/O at
+# request time — both are resolved once at import so the /health and /metrics
+# handlers stay < 10 ms and < 50 ms respectively).
+# ---------------------------------------------------------------------------
+_BOOT_PERF: float = time.perf_counter()  # perf_counter at process import
+
+
+def _read_version() -> str:
+    """Return arail version string. Never raises (OBS9)."""
+    try:
+        import arail
+        v = getattr(arail, "__version__", None)
+        if v:
+            return str(v)
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        import importlib.metadata
+        return importlib.metadata.version("arail")
+    except Exception:  # noqa: BLE001
+        pass
+    return "unknown"
+
+
+_BOOT_VERSION: str = _read_version()
 
 # Tier gating — the nav shows only the surfaces matching the current tier.
 # Two tiers: min (everyday) and max (full bench). Upgrade with ./arail upgrade max.
@@ -114,8 +141,15 @@ async def onboarding_gate(request, call_next):
       - /welcome and /api/welcome/* (the onboarding flow itself)
       - /static/* (so the welcome page can load CSS)
       - /api/system/health (so health checks keep working pre-onboarding)
+      - /health, /healthz, /metrics (liveness + Prometheus probes — OBS4)
       - /favicon.ico
     HTML routes get a 302 to /welcome; API routes get a 401 with a hint.
+
+    Note on /health prefix match: the existing matcher uses
+    ``path == p or path.startswith(p)``, so "/health" would also match a
+    hypothetical "/healthier". No such route exists in this app and none
+    should be added under that prefix — the over-match is documented and
+    intentional (considered, not an oversight).
     """
     if _lab_password_set():
         return await call_next(request)
@@ -127,6 +161,9 @@ async def onboarding_gate(request, call_next):
         "/static/",
         "/api/system/health",
         "/favicon.ico",
+        "/health",    # liveness probe — OBS4
+        "/healthz",   # liveness probe alias — OBS4
+        "/metrics",   # Prometheus scrape endpoint — OBS4
     )
     if any(path == p or path.startswith(p) for p in allowed_prefixes):
         return await call_next(request)
@@ -5038,6 +5075,192 @@ async def api_chat_system_prompt():
             include_state=True,
         ),
     }
+
+
+# ---------------------------------------------------------------------------
+# Observability probes — /health, /healthz (liveness) + /metrics (Prometheus)
+#
+# These three routes bypass the onboarding gate (see allowed_prefixes above).
+# /health and /healthz are liveness probes — they tell the orchestrator that
+# the process can handle requests. They do NOT check backend health (that is
+# /api/system/health's job).
+# /metrics emits Prometheus text-format exposition. Restrict it to internal
+# traffic at the reverse-proxy layer (see docs/PUBLISH.md §10 for nginx snippet).
+# ---------------------------------------------------------------------------
+
+def _escape_label_value(v: str) -> str:
+    """Escape a Prometheus label value per exposition spec (OBS5).
+
+    Replaces ``\\`` -> ``\\\\``, ``"`` -> ``\\"``, newline -> ``\\n``.
+    Label values here come from static call-site strings, so this is
+    defense-in-depth rather than a load-bearing escaping path.
+    """
+    return v.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+
+
+def _render_metrics() -> str:
+    """Build Prometheus text-format body.  Always succeeds (OBS9).
+
+    Uses only in-memory snapshots and a 5 s-cached file read — no
+    subprocess, no LLM call.  Budget: < 50 ms (OBS2).
+
+    Security (OBS1): only aggregate severity counts from
+    ``security_scan.status()`` are emitted.  Individual package names
+    and versions NEVER appear in this output.
+
+    Format references: https://prometheus.io/docs/instrumenting/exposition_formats/
+    """
+    from arail.portal import scheduler as _sched_mod
+    from arail.portal import security_scan as _sec_mod
+    import sys
+
+    lines: list[str] = []
+
+    def _emit(help_text: str, metric_type: str, name: str,
+               labels: dict[str, str] | None, value: float | int) -> None:
+        lines.append(f"# HELP {name} {help_text}")
+        lines.append(f"# TYPE {name} {metric_type}")
+        if labels:
+            lbl_str = ",".join(
+                f'{k}="{_escape_label_value(str(v))}"' for k, v in labels.items()
+            )
+            lines.append(f"{name}{{{lbl_str}}} {value}")
+        else:
+            lines.append(f"{name} {value}")
+
+    # -- build_info (OBS9: version fallback already applied at import time) --
+    py_ver = _escape_label_value(
+        f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+    )
+    lines.append("# HELP arail_build_info Static build metadata.")
+    lines.append("# TYPE arail_build_info gauge")
+    lines.append(
+        f'arail_build_info{{version="{_escape_label_value(_BOOT_VERSION)}",'
+        f'python="{py_ver}"}} 1'
+    )
+
+    # -- uptime --
+    uptime = time.perf_counter() - _BOOT_PERF
+    _emit("Seconds since the arail portal process started.", "gauge",
+          "arail_uptime_seconds", None, round(uptime, 3))
+
+    # -- lab mode (1=hybrid, 0=airgapped) --
+    lab_mode_val = 1 if _lab_mode() == "hybrid" else 0
+    _emit(
+        "Lab operating mode: 1=hybrid (cloud allowed), 0=airgapped (local only).",
+        "gauge", "arail_lab_mode", None, lab_mode_val,
+    )
+
+    # -- inference capacity --
+    snap = _sched_mod.snapshot()
+    _emit("Maximum concurrent inference slots.", "gauge",
+          "arail_inference_capacity", None, snap["capacity"])
+    _emit("Currently in-flight inference requests (aggregate).", "gauge",
+          "arail_inference_in_flight", None, snap["in_flight"])
+    _emit("Inference requests waiting for a slot (aggregate).", "gauge",
+          "arail_inference_pending", None, snap["pending"])
+    _emit("Inference completions in the last 5 minutes.", "gauge",
+          "arail_inference_completed_5m", None, snap["completed_5m"])
+
+    # -- per-label inference counters --
+    per_label = _sched_mod.per_label_snapshot()
+    if per_label:
+        lines.append("# HELP arail_inference_in_flight_by_label Currently in-flight requests per inference label.")
+        lines.append("# TYPE arail_inference_in_flight_by_label gauge")
+        for lbl, stats in per_label.items():
+            safe = _escape_label_value(lbl)
+            lines.append(f'arail_inference_in_flight_by_label{{label="{safe}"}} {stats["in_flight"]}')
+
+        lines.append("# HELP arail_inference_completed_total_by_label Monotonic inference completions per label since boot.")
+        lines.append("# TYPE arail_inference_completed_total_by_label counter")
+        for lbl, stats in per_label.items():
+            safe = _escape_label_value(lbl)
+            lines.append(f'arail_inference_completed_total_by_label{{label="{safe}"}} {stats["completed_total"]}')
+
+        lines.append("# HELP arail_inference_wait_p50_ms P50 wait-for-slot latency per label (ms, rolling 256 samples).")
+        lines.append("# TYPE arail_inference_wait_p50_ms gauge")
+        for lbl, stats in per_label.items():
+            safe = _escape_label_value(lbl)
+            lines.append(f'arail_inference_wait_p50_ms{{label="{safe}"}} {stats["wait_ms"]["p50"]}')
+
+        lines.append("# HELP arail_inference_run_p50_ms P50 slot-held run latency per label (ms, rolling 256 samples).")
+        lines.append("# TYPE arail_inference_run_p50_ms gauge")
+        for lbl, stats in per_label.items():
+            safe = _escape_label_value(lbl)
+            lines.append(f'arail_inference_run_p50_ms{{label="{safe}"}} {stats["run_ms"]["p50"]}')
+
+    # -- security findings (OBS1: aggregate counts only, NO package names) --
+    try:
+        sec = _sec_mod.status()
+        last_ts = sec.get("last_run_ts")
+        if last_ts:
+            import datetime as _dt
+            try:
+                ts = _dt.datetime.fromisoformat(last_ts.replace("Z", "+00:00"))
+                now_utc = _dt.datetime.now(_dt.timezone.utc)
+                age_s = round((now_utc - ts).total_seconds(), 1)
+            except Exception:  # noqa: BLE001
+                age_s = -1.0
+        else:
+            age_s = -1.0
+        _emit(
+            "Seconds since the last security scan completed. -1 if no scan has run.",
+            "gauge", "arail_security_last_scan_age_seconds", None, age_s,
+        )
+        summary = sec.get("summary", {})
+        lines.append("# HELP arail_security_findings Aggregate vulnerability count by severity (OBS1: no package names).")
+        lines.append("# TYPE arail_security_findings gauge")
+        for sev in ("critical", "high", "medium", "low"):
+            count = summary.get(sev, 0)
+            lines.append(f'arail_security_findings{{severity="{sev}"}} {count}')
+    except Exception:  # noqa: BLE001  (OBS9: never raise from /metrics)
+        _emit(
+            "Seconds since the last security scan completed. -1 if no scan has run.",
+            "gauge", "arail_security_last_scan_age_seconds", None, -1,
+        )
+        lines.append("# HELP arail_security_findings Aggregate vulnerability count by severity.")
+        lines.append("# TYPE arail_security_findings gauge")
+        for sev in ("critical", "high", "medium", "low"):
+            lines.append(f'arail_security_findings{{severity="{sev}"}} 0')
+
+    # Prometheus exposition must end with a final newline.
+    return "\n".join(lines) + "\n"
+
+
+@app.get("/health")
+@app.get("/healthz")
+async def liveness_probe():
+    """Liveness probe for orchestrators (nginx, k8s, Cloudflare Health Checks).
+
+    Returns 200 as long as the process can dispatch handlers.
+    This is liveness only — NOT readiness.  Use /api/system/health for the
+    full operator-facing readiness blob (OBS3).
+
+    Auth: bypasses onboarding gate — works pre-passphrase (OBS4).
+    """
+    return {
+        "status": "ok",
+        "service": "arail",
+        "version": _BOOT_VERSION,
+        "uptime_seconds": round(time.perf_counter() - _BOOT_PERF, 3),
+        "lab_mode": _lab_mode(),
+    }
+
+
+@app.get("/metrics", response_class=PlainTextResponse)
+async def prometheus_metrics():
+    """Prometheus text-format metrics endpoint.
+
+    Content-type: text/plain; version=0.0.4; charset=utf-8 (per exposition spec).
+    Restrict to internal traffic at the reverse proxy — see docs/PUBLISH.md §10.
+
+    Auth: bypasses onboarding gate (OBS4). Rate-limiting is operator's
+    responsibility at the nginx/Cloudflare layer (OBS7).
+    """
+    return PlainTextResponse(
+        _render_metrics(),
+        media_type="text/plain; version=0.0.4; charset=utf-8",
+    )
 
 
 @app.get("/api/system/health")

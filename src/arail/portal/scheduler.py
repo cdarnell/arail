@@ -77,6 +77,12 @@ _RUN_SAMPLES: dict[str, deque[float]] = {}    # ms per label, maxlen 256
 _FAST_SAMPLES: deque[float] = deque(maxlen=512)   # fast-path latency ms
 _COMPLETED: deque[float] = deque(maxlen=4096)     # epoch sec of completions
 
+# Per-label counters for Prometheus /metrics exposition.
+# These mirror _INFLIGHT/_COMPLETED but split by label so the scraper
+# can distinguish chat-default from agent-pip, etc.
+_INFLIGHT_BY_LABEL: dict[str, int] = {}
+_COMPLETED_BY_LABEL: dict[str, int] = {}
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -155,6 +161,11 @@ async def inference_slot(label: str = "chat") -> AsyncIterator[None]:
         _WAIT_SAMPLES[label] = deque(maxlen=256)
     if label not in _RUN_SAMPLES:
         _RUN_SAMPLES[label] = deque(maxlen=256)
+    # Initialise per-label counters on first encounter (mirrors aggregate init).
+    if label not in _INFLIGHT_BY_LABEL:
+        _INFLIGHT_BY_LABEL[label] = 0
+    if label not in _COMPLETED_BY_LABEL:
+        _COMPLETED_BY_LABEL[label] = 0
 
     sem = _get_semaphore()
     _PENDING += 1
@@ -165,6 +176,7 @@ async def inference_slot(label: str = "chat") -> AsyncIterator[None]:
     t_wait_end = perf_counter()
     _PENDING -= 1
     _INFLIGHT += 1
+    _INFLIGHT_BY_LABEL[label] += 1  # OBS6: increment after acquire, matching _INFLIGHT
     wait_ms = (t_wait_end - t_wait_start) * 1000.0
     _WAIT_SAMPLES[label].append(wait_ms)
 
@@ -176,7 +188,9 @@ async def inference_slot(label: str = "chat") -> AsyncIterator[None]:
         run_ms = (t_run_end - t_run_start) * 1000.0
         _RUN_SAMPLES[label].append(run_ms)
         _COMPLETED.append(t_run_end)   # epoch-style via perf_counter is fine for 5m window
+        _COMPLETED_BY_LABEL[label] += 1  # OBS6: monotonic counter, in finally
         _INFLIGHT -= 1
+        _INFLIGHT_BY_LABEL[label] -= 1  # OBS6: decrement in finally, matching _INFLIGHT
         sem.release()
 
 
@@ -222,3 +236,51 @@ def snapshot() -> dict:
         "run_ms": _label_stats(_RUN_SAMPLES),
         "fast_path_ms": fast_stats,
     }
+
+
+def per_label_snapshot() -> dict[str, dict]:
+    """Per-label inference stats for Prometheus /metrics exposition.
+
+    Always succeeds — returns an empty dict if no slots have ever been used.
+    The snapshot() shape is intentionally unchanged; this helper is the new
+    surface for Prometheus without disrupting the admin Performance card.
+
+    Shape::
+
+        {
+          "<label>": {
+            "in_flight":      int,    # current in-flight requests for this label
+            "completed_total": int,   # monotonic counter since process boot
+            "wait_ms": {"p50": float, "p95": float, "n": int},
+            "run_ms":  {"p50": float, "p95": float, "n": int},
+          }
+        }
+    """
+    # Collect all known labels across all state dicts to handle the edge case
+    # where a label appeared in wait/run samples but the per-label counters
+    # were initialised before this helper existed (e.g. across a hot-reload).
+    all_labels = (
+        set(_INFLIGHT_BY_LABEL)
+        | set(_COMPLETED_BY_LABEL)
+        | set(_WAIT_SAMPLES)
+        | set(_RUN_SAMPLES)
+    )
+    result: dict[str, dict] = {}
+    for lbl in all_labels:
+        wait_q = _WAIT_SAMPLES.get(lbl, deque())
+        run_q = _RUN_SAMPLES.get(lbl, deque())
+        result[lbl] = {
+            "in_flight": _INFLIGHT_BY_LABEL.get(lbl, 0),
+            "completed_total": _COMPLETED_BY_LABEL.get(lbl, 0),
+            "wait_ms": {
+                "p50": round(_percentile(wait_q, 50), 2),
+                "p95": round(_percentile(wait_q, 95), 2),
+                "n": len(wait_q),
+            },
+            "run_ms": {
+                "p50": round(_percentile(run_q, 50), 2),
+                "p95": round(_percentile(run_q, 95), 2),
+                "n": len(run_q),
+            },
+        }
+    return result
