@@ -144,6 +144,38 @@ async def onboarding_gate(request, call_next):
     return RedirectResponse(url="/welcome", status_code=302)
 
 
+@app.middleware("http")
+async def fastpath_meter(request, call_next):
+    """Time fast-path (non-inference) requests and record latency samples.
+
+    Fast-path: any path whose prefix appears in FAST_PATH_PREFIXES.
+    These requests are timed and pass through immediately; they never
+    queue behind the inference semaphore.
+
+    Heavy-path: everything else.  We just forward the request; the
+    handler itself calls ``async with scheduler.inference_slot(label)``
+    before touching the model router.
+
+    Middleware registration note: FastAPI applies middlewares in *reverse*
+    registration order in source code, so this middleware (registered
+    second) runs *outermost* — it's the first thing traffic hits, then
+    onboarding_gate, then the handler.  That ordering is intentional:
+    fast-path timing wraps the auth check too, giving a realistic view
+    of end-to-end latency on non-inference routes.
+    """
+    from time import perf_counter
+    from arail.portal import scheduler as _sched
+
+    path = request.url.path
+    is_fast = any(path == p or path.startswith(p) for p in _sched.FAST_PATH_PREFIXES)
+    if is_fast:
+        t0 = perf_counter()
+        response = await call_next(request)
+        _sched.fast_path_record(path, (perf_counter() - t0) * 1000.0)
+        return response
+    return await call_next(request)
+
+
 app.include_router(wiki_router)
 
 PORTAL_DIR = Path(__file__).parent
@@ -174,6 +206,74 @@ if KC_BACKEND_DIR.exists():
         activity_log.emit("system",
                           f"Knowledge Canvas backend mount skipped: {type(e).__name__}: {e}",
                           "warn")
+
+
+# Wiki-manifest fallback for the Knowledge Canvas API. The full backend at
+# core/knowledge-canvas/backend currently can't import on a stock lab venv
+# (missing app.models module + neo4j/python-frontmatter packages), which
+# left the React iframe spinning on "Loading canvas…" forever. These two
+# routes serve a graph derived from the same wiki manifest the dashboard
+# already builds, so the canvas always has something to render. When the
+# real backend mounts above, Starlette dispatches its routes first and
+# these become unreachable — they only fire as a fallback.
+@app.get("/knowledge-canvas/api/graph/status")
+async def _kc_status_fallback():
+    import importlib.util as _u
+    from arail.config import PKB_ROOT as _PKB
+    return {
+        "store_ready": False,
+        "mode": "wiki-fallback",
+        "lance": {
+            "path": str(_PKB / ".wiki-cache" / "lancedb"),
+            "path_exists": (_PKB / ".wiki-cache" / "lancedb").exists(),
+            "package_installed": _u.find_spec("lancedb") is not None,
+        },
+        "neo4j": {
+            "uri": "bolt://localhost:7687",
+            "driver_installed": _u.find_spec("neo4j") is not None,
+        },
+    }
+
+
+@app.get("/knowledge-canvas/api/graph/snapshot")
+async def _kc_snapshot_fallback():
+    from arail.config import PKB_ROOT as _PKB
+    from arail import wiki as _wiki
+    manifest = _wiki.load_manifest(_PKB)
+    graph = manifest.get("graph", {"nodes": [], "edges": []})
+    kind_map = {
+        "sources": "web_page",
+        "agents": "experiment_log",
+        "notes": "markdown",
+        "compiled": "dataset",
+        "inference": "api_snapshot",
+        "docs": "paper",
+    }
+    nodes = []
+    for node in graph.get("nodes", []):
+        group = node.get("group") or "notes"
+        nodes.append({
+            "id": node.get("id"),
+            "title": node.get("label") or node.get("id"),
+            "kind": kind_map.get(group, "markdown"),
+            "tags": node.get("tags", []),
+            "domain": group,
+            "ingested_by": "agent" if group in {"agents", "compiled"} else "user",
+            "year": None,
+            "orphan": False,
+        })
+    links = [{
+        "source": edge.get("source"),
+        "target": edge.get("target"),
+        "kind": "wikilink",
+        "confidence": 1.0,
+    } for edge in graph.get("edges", [])]
+    return {"nodes": nodes, "links": links}
+
+
+@app.get("/knowledge-canvas/api/graph/semantic-edges")
+async def _kc_semantic_edges_fallback():
+    return {"links": []}
 
 templates = Jinja2Templates(directory=PORTAL_DIR / "templates")
 # Expose the brand + tier info to every Jinja template — so `{{ brand.name }}`
