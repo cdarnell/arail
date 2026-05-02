@@ -51,6 +51,12 @@ retained behind `?legacy=1` for one release after M5.
 - **Domain expert distillation** — second flagship; needs the fine-tune factory from maximus.plan §6.
 - **Mission Status ↔ chat surfacing** — clicking a step caption deep-links to the relevant chat thread.
 
+### Production-readiness follow-ups (from sprint 2026-05-01-prod-readiness-wrappers)
+
+- **Phase 2 — inference worker isolation.** Phase 1 (in-process `inference_slot` semaphore + fast-path bypass) shipped 2026-05-01. Phase 2 should try multi-worker uvicorn first (`--workers 2`, semaphore becomes per-process); if a single worker still saturates under sustained load, extract `arail.router` into an out-of-process inference daemon over a Unix socket so FastAPI workers stay purely I/O-bound. See `sprints/2026-05-01-prod-readiness-wrappers/ARCHITECTURE.md` § "Phase-2 callout".
+- **SRE emit honors `Observation.severity`.** Today the SRE activity-log emit path flattens `severity="error"` Observations to `"warn"` at `sre.py:399-408`. Means CVE watcher fires at `warn` regardless of critical/high count. ~10-line fix; deferred from this sprint as architect deviation §3.
+- **`/metrics` continuous monitoring.** Once the lab is on the public internet behind a reverse proxy, scrape `/metrics` weekly and alert if `arail_inference_wait_milliseconds{quantile="0.95"}` trends bad or `arail_security_findings{severity="critical"} > 0`. Operator runbook in `docs/PUBLISH.md` § Observability.
+
 ## Later
 
 - **Multi-user mode** — OIDC + per-user model quotas + shared model cache.

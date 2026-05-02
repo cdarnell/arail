@@ -168,6 +168,7 @@ so imports don't break — only the display rebrands.
 ## Where to read next
 
 - [docs/INSTALL.md](docs/INSTALL.md) — tier choice, platform setup, upgrades.
+- [docs/PUBLISH.md](docs/PUBLISH.md) — publishing your lab to the public internet (nginx/Caddy, Cloudflare Access, hardening checklist).
 - [docs/MACOS.md](docs/MACOS.md) — Apple Silicon specifics (MLX).
 - [docs/LINUX.md](docs/LINUX.md) — Linux + CUDA.
 - [docs/WSL.md](docs/WSL.md) — Windows via WSL2 with GPU passthrough.
