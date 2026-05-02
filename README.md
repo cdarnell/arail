@@ -2,8 +2,8 @@
 **A rail gun for AI.**
 
 ARAIL is a blueprint, not a product. Clone it, pick a tier, and you have a
-local AI research bench — a dashboard, a chat tab that can talk to your own
-machine or any cloud vendor, an agent-driven knowledge base, and a
+local AI research bench with some visibility. RAG'd up chat tab that can connect
+to your machine or any cloud vendor, an agent-driven knowledge base, and a
 loop that runs experiments while you sleep.
 
 <img width="852" height="639" alt="Screenshot 2026-05-01 at 8 01 48 PM" src="https://github.com/user-attachments/assets/17a0eb3a-2160-4c5f-b980-2289a75424b0" />
