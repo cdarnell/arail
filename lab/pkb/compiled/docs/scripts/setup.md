@@ -4,7 +4,7 @@ section: docs
 tags: [shell, script]
 aliases: [setup, setup.sh]
 source: scripts/setup.sh
-generated: 2026-04-25T04:17:15Z
+generated: 2026-05-01T02:54:53Z
 ---
 
 # setup.sh (shell)
@@ -22,23 +22,30 @@ Detects your platform, installs dependencies, downloads a starter model.
 
 - `_find_free_port()`
 - `_port_in_use()`
+- `_probe_python_bin()`
 - `_resolve_port()`
 - `_set_env_var()`
 - `_slugify()`
+- `auto_install_enabled()`
 - `capture_brand()`
 - `capture_goal()`
 - `capture_password()`
 - `capture_tier()`
 - `check_sudo()`
+- `confirm()`
 - `detect_platform()`
 - `download_model()`
+- `ensure_brew()`
+- `ensure_node()`
 - `ensure_python()`
 - `error()`
 - `gentoo_notes()`
 - `info()`
 - `install_accel_deps()`
 - `install_core_deps()`
+- `install_path_shim()`
 - `install_pyproject_extra()`
+- `install_python_for_platform()`
 - `install_services()`
 - `load_pyproject_metadata()`
 - `main()`
