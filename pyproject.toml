@@ -57,7 +57,10 @@ max = [
     "langchain>=0.2.0",
     "langgraph>=0.2.0",
     "airllm>=2.0",
+    "pip-audit>=2.7.0,<3",
 ]
+
+security = ["pip-audit>=2.7.0,<3"]
 
 # ── Hardware/runtime extras ───────────────────────────────────────────────
 # scripts/setup.sh installs one accelerator extra based on detected hardware.
