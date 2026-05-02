@@ -17,7 +17,7 @@
 | 7 | `src/arail/portal/app.py` | Boot-scan task inserted at end of _startup() (hybrid mode only, after dream daemon block). | None (QA phase) | f893a33 |
 | 8 | `lab/pkb/agents/sre/sre.py`, `lab/pkb/agents/sre/AGENT.md` | Add `_watch_dependency_vulnerabilities` and `_watch_lab_cleanup` watchers; update WATCHERS list; add two rows to AGENT.md table. | None (QA phase) | cd76949 |
 | 9 | `docs/PUBLISH.md`, `README.md` | NEW PUBLISH.md (sections 1-9). One-line README link. No new route (existing `/docs/{path:path}` serves it). | None (QA phase) | bcc0726 |
-| 10 | `src/arail/portal/scheduler.py`, `src/arail/portal/app.py`, `docs/PUBLISH.md`, `tests/test_health_metrics.py` | Observability: `_INFLIGHT_BY_LABEL`/`_COMPLETED_BY_LABEL` + `per_label_snapshot()`; `_BOOT_PERF`/`_BOOT_VERSION`/`_render_metrics()`; `/health`, `/healthz`, `/metrics` routes; allowlist extended; PUBLISH.md §10; 5 tests covering OBS1–OBS9. | 5 tests in `tests/test_health_metrics.py` (all pass) | TBD |
+| 10 | `src/arail/portal/scheduler.py`, `src/arail/portal/app.py`, `docs/PUBLISH.md`, `tests/test_health_metrics.py` | Observability: `_INFLIGHT_BY_LABEL`/`_COMPLETED_BY_LABEL` + `per_label_snapshot()`; `_BOOT_PERF`/`_BOOT_VERSION`/`_render_metrics()`; `/health`, `/healthz`, `/metrics` routes; allowlist extended; PUBLISH.md §10; 5 tests covering OBS1–OBS9. | 5 tests in `tests/test_health_metrics.py` (all pass) | a092c2c |
 
 ## Execution
 
@@ -58,7 +58,7 @@ Commit: bcc0726
 Delta: Minor. Cloudflare Access section links to current docs rather than embedding screenshots (H2). Apache not covered (H5). README link placed after INSTALL.md in "Where to read next". Failure modes: H1, H2, H3, H4, H5.
 
 ### Step 10 — /health + /metrics observability endpoints (mid-sprint addition)
-Commit: TBD (post-commit SHA filled in below)
+Commit: a092c2c
 
 Files changed:
 - `src/arail/portal/scheduler.py`: +57 LOC. Added `_INFLIGHT_BY_LABEL`/`_COMPLETED_BY_LABEL` module dicts; threaded through `inference_slot` context manager (increment after acquire, decrement in finally — OBS6 mirror pattern); added `per_label_snapshot() -> dict[str, dict]`.
@@ -97,7 +97,7 @@ None. Both approved deviations (§1 no new docs route, §2 sixth inference wrap)
 7. f893a33 — hybrid-mode boot security scan
 8. cd76949 — SRE watchers
 9. bcc0726 — PUBLISH.md + README link
-10. TBD — /health + /metrics endpoints (Prometheus text)
+10. a092c2c — /health + /metrics endpoints (Prometheus text)
 
 **Tests:** 5 new tests in `tests/test_health_metrics.py`, all passing. All modules import cleanly.
 
