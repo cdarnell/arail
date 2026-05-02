@@ -490,6 +490,45 @@
   .lc-btn:hover { background:#1a2230; }
   .lc-btn.lc-btn-stop { border-color:rgba(255,64,96,.45); color:#ff6b80; }
   .lc-btn.lc-btn-restart { border-color:rgba(0,212,255,.45); color:var(--blue); }
+
+  /* Production Readiness cards */
+  .pr-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 0.75rem;
+  }
+  .pr-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1rem 1.1rem 1.1rem;
+  }
+  .pr-card h3 {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--text-hi);
+    margin: 0 0 0.6rem;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+  }
+  .pr-stat-row { display: flex; justify-content: space-between; font-size: 0.75rem; margin-bottom: 0.25rem; color: var(--text); }
+  .pr-stat-row span:last-child { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .pr-action-row { margin-top: 0.65rem; display: flex; gap: 0.4rem; flex-wrap: wrap; }
+  .pr-btn {
+    font-size: 0.72rem; padding: 0.25rem 0.6rem; border-radius: 4px;
+    border: 1px solid var(--border); background: var(--surface);
+    color: var(--text); cursor: pointer;
+  }
+  .pr-btn:hover { border-color: var(--green); color: var(--green); }
+  .pr-btn.pr-btn-danger:hover { border-color: #ff6b80; color: #ff6b80; }
+  .pr-note { font-size: 0.7rem; color: var(--amber); margin-top: 0.4rem; }
+  .pr-err  { font-size: 0.7rem; color: #ff6b80;  margin-top: 0.4rem; }
+  .pr-vuln-row { font-size: 0.72rem; color: var(--muted); margin-bottom: 0.2rem; }
+  .pr-vuln-row .pr-sev-crit { color: #ff6b80; font-weight: 700; }
+  .pr-vuln-row .pr-sev-high { color: var(--amber); font-weight: 600; }
+  .pr-vuln-row .pr-sev-med  { color: #e0c060; }
+  .pr-toggle { display: flex; align-items: center; gap: 0.5rem; font-size: 0.72rem; color: var(--muted); margin-top: 0.5rem; cursor: pointer; }
+  .pr-toggle input { cursor: pointer; }
 </style>
 </head>
 <body>
@@ -540,6 +579,9 @@
       <button class="qa-button qa-warning" onclick="restartLab()">
         <div class="qa-title" style="color: var(--amber);">⟳ Restart Lab</div>
       </button>
+      <a href="/docs/PUBLISH.md" class="qa-button qa-primary" style="text-decoration: none; display: flex; flex-direction: column; justify-content: flex-start;">
+        <div class="qa-title" style="color: var(--blue);">↗ Publish Guide</div>
+      </a>
     </div>
     <div id="admin-log" style="margin-top: 10px; font-size: 12px; color: var(--muted); min-height: 18px;"></div>
   </div>
@@ -548,6 +590,25 @@
   <div class="admin-section">
     <h2>Service Status</h2>
     <div class="svc-status" id="svc-status">loading…</div>
+  </div>
+
+  <!-- ═══ Production Readiness ═══ -->
+  <div class="admin-section">
+    <h2>Production Readiness</h2>
+    <div class="pr-grid">
+      <div class="pr-card">
+        <h3>Performance</h3>
+        <div id="pr-perf">loading…</div>
+      </div>
+      <div class="pr-card">
+        <h3>Cleanup</h3>
+        <div id="pr-cleanup">loading…</div>
+      </div>
+      <div class="pr-card">
+        <h3>Security</h3>
+        <div id="pr-security">loading…</div>
+      </div>
+    </div>
   </div>
 
   <!-- ═══ Terminal ═══ -->
@@ -840,6 +901,162 @@ function stopLiveChecks() { if (_lcReader) _lcReader.abort(); }
 function restartLiveChecks() { if (_lcLastTitle && _lcLastUrl) runLiveChecks(_lcLastTitle, _lcLastUrl); }
 function closeLiveChecks() { stopLiveChecks(); document.getElementById('lc-overlay').classList.remove('open'); }
 
+// ── Production Readiness card drivers ──────────────────────────────────────
+
+function _prEsc(s) {
+  const d = document.createElement('div'); d.textContent = String(s); return d.innerHTML;
+}
+
+// Performance card — polls every 5s; pauses when tab is hidden (F4 mitigation)
+let _prPerfTimer = null;
+async function loadPerf() {
+  const el = document.getElementById('pr-perf');
+  if (!el) return;
+  try {
+    const r = await fetch('/api/admin/perf/queue');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const d = await r.json();
+    const fm = d.fast_path_ms || {};
+    let html = '';
+    html += `<div class="pr-stat-row"><span>Capacity</span><span>${_prEsc(d.capacity)}</span></div>`;
+    html += `<div class="pr-stat-row"><span>In-flight</span><span>${_prEsc(d.in_flight)}</span></div>`;
+    html += `<div class="pr-stat-row"><span>Queued (pending)</span><span>${_prEsc(d.pending)}</span></div>`;
+    html += `<div class="pr-stat-row"><span>Completed (5 min)</span><span>${_prEsc(d.completed_5m)}</span></div>`;
+    if (fm.n > 0) {
+      html += `<div class="pr-stat-row"><span>Fast-path p50 / p95</span><span>${_prEsc(fm.p50)} ms / ${_prEsc(fm.p95)} ms</span></div>`;
+    }
+    const labels = Object.keys(d.wait_ms || {});
+    if (labels.length) {
+      html += `<div style="margin-top:.5rem;font-size:.68rem;color:var(--muted);">Inference wait p95</div>`;
+      labels.forEach(lbl => {
+        const w = d.wait_ms[lbl]; const run = (d.run_ms || {})[lbl] || {};
+        html += `<div class="pr-stat-row"><span style="font-size:.68rem">${_prEsc(lbl)}</span><span style="font-size:.68rem">${_prEsc(w.p95)} ms wait · ${_prEsc(run.p95 || 0)} ms run (n=${_prEsc(w.n)})</span></div>`;
+      });
+    }
+    el.innerHTML = html;
+  } catch (e) {
+    el.innerHTML = `<div class="pr-err">Failed to load: ${_prEsc(e.message)}</div>`;
+    adminLog('Perf fetch failed: ' + e.message, 'error');
+  }
+}
+function _startPerfPolling() {
+  if (_prPerfTimer) return;
+  loadPerf();
+  _prPerfTimer = setInterval(() => { if (!document.hidden) loadPerf(); }, 5000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) loadPerf(); });
+}
+
+// Cleanup card
+let _cleanupItems = [];
+async function loadCleanup() {
+  const el = document.getElementById('pr-cleanup');
+  if (!el) return;
+  el.innerHTML = 'Scanning…';
+  try {
+    const r = await fetch('/api/admin/cleanup/scan');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const d = await r.json();
+    _cleanupItems = d.items || [];
+    const stale = _cleanupItems.filter(i => i.stale);
+    const fmt = bytes => bytes > 1e9 ? (bytes/1e9).toFixed(1)+' GB' : bytes > 1e6 ? (bytes/1e6).toFixed(1)+' MB' : bytes > 1e3 ? (bytes/1e3).toFixed(0)+' KB' : bytes+' B';
+    let html = '';
+    html += `<div class="pr-stat-row"><span>Total size</span><span>${_prEsc(fmt(d.total_bytes||0))}</span></div>`;
+    html += `<div class="pr-stat-row"><span>Stale files</span><span>${_prEsc(stale.length)} (${_prEsc(fmt(d.stale_bytes||0))})</span></div>`;
+    if (stale.length) {
+      html += `<div style="margin-top:.5rem;font-size:.68rem;color:var(--muted);">Stale candidates</div>`;
+      stale.slice(0, 8).forEach((item, i) => {
+        const name = item.path.split('/').pop();
+        html += `<div class="pr-stat-row" style="font-size:.68rem;"><label style="display:flex;gap:.3rem;align-items:center;cursor:pointer;"><input type="checkbox" class="pr-stale-cb" value="${_prEsc(item.path)}" checked> ${_prEsc(name)}</label><span>${_prEsc(fmt(item.size_bytes))} · ${_prEsc(item.age_days)}d</span></div>`;
+      });
+      if (stale.length > 8) html += `<div class="pr-note">…and ${stale.length - 8} more</div>`;
+      html += `<div class="pr-action-row"><button class="pr-btn pr-btn-danger" onclick="pruneSelected()">Prune selected</button><button class="pr-btn" onclick="loadCleanup()">Rescan</button></div>`;
+    } else {
+      html += '<div style="font-size:.72rem;color:var(--muted);margin-top:.4rem;">No stale files found.</div>';
+      html += `<div class="pr-action-row"><button class="pr-btn" onclick="loadCleanup()">Rescan</button></div>`;
+    }
+    el.innerHTML = html;
+  } catch (e) {
+    el.innerHTML = `<div class="pr-err">Failed to load: ${_prEsc(e.message)}</div>`;
+    adminLog('Cleanup fetch failed: ' + e.message, 'error');
+  }
+}
+async function pruneSelected() {
+  const cbs = document.querySelectorAll('.pr-stale-cb:checked');
+  if (!cbs.length) { adminLog('No files selected.'); return; }
+  const paths = Array.from(cbs).map(cb => cb.value);
+  if (!confirm(`Permanently delete ${paths.length} file(s)?`)) return;
+  try {
+    const r = await fetch('/api/admin/cleanup/prune', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({paths}),
+    });
+    const d = await r.json();
+    if (!r.ok || !d.ok) { adminLog('Prune failed: ' + (d.error || 'unknown'), 'error'); return; }
+    adminLog(`Prune: removed ${d.removed} file(s), freed ${d.freed_bytes} bytes.`);
+    loadCleanup();
+  } catch (e) {
+    adminLog('Prune error: ' + e.message, 'error');
+  }
+}
+
+// Security card
+async function loadSecurity() {
+  const el = document.getElementById('pr-security');
+  if (!el) return;
+  try {
+    const r = await fetch('/api/admin/security/status');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const d = await r.json();
+    let html = '';
+    if (!d.available) {
+      html += `<div class="pr-note">pip-audit not installed.</div>`;
+      html += `<div style="font-size:.7rem;color:var(--muted);margin-top:.3rem;">Install with: <code>./arail upgrade max</code></div>`;
+    } else {
+      const sum = d.summary || {};
+      const ts = d.last_run_ts ? d.last_run_ts.substring(0,19).replace('T',' ') : 'never';
+      html += `<div class="pr-stat-row"><span>Last scan</span><span>${_prEsc(ts)}</span></div>`;
+      if (d.error && !d.findings?.length) {
+        html += `<div class="pr-err">Last scan error: ${_prEsc(d.error)}</div>`;
+      } else if (sum.total === 0 && d.last_run_ts) {
+        html += `<div style="font-size:.72rem;color:var(--green);margin-top:.3rem;">No vulnerabilities found.</div>`;
+      } else if (sum.total > 0) {
+        const parts = [];
+        if (sum.critical) parts.push(`<span class="pr-sev-crit">${sum.critical} critical</span>`);
+        if (sum.high)     parts.push(`<span class="pr-sev-high">${sum.high} high</span>`);
+        if (sum.medium)   parts.push(`<span class="pr-sev-med">${sum.medium} medium</span>`);
+        if (sum.low)      parts.push(`${sum.low} low`);
+        html += `<div class="pr-vuln-row">${parts.join(' · ')}</div>`;
+        (d.findings || []).slice(0, 5).forEach(f => {
+          html += `<div class="pr-vuln-row" style="font-size:.68rem;">${_prEsc(f.package)} ${_prEsc(f.version)} — ${_prEsc(f.id)} (${_prEsc(f.severity)})</div>`;
+        });
+        if ((d.findings||[]).length > 5) html += `<div class="pr-note">…and ${d.findings.length-5} more</div>`;
+      }
+      const autoChecked = d.auto_scan_enabled ? 'checked' : '';
+      html += `<label class="pr-toggle"><input type="checkbox" id="pr-auto-scan-toggle" ${autoChecked} onchange="toggleAutoScan(this.checked)"> Auto-scan on boot (hybrid mode)</label>`;
+    }
+    html += `<div class="pr-action-row"><button class="pr-btn" onclick="runLiveChecks('Security Scan', '/api/admin/security/run-scan/stream')">Run scan now</button></div>`;
+    el.innerHTML = html;
+  } catch (e) {
+    el.innerHTML = `<div class="pr-err">Failed to load: ${_prEsc(e.message)}</div>`;
+    adminLog('Security fetch failed: ' + e.message, 'error');
+  }
+}
+async function toggleAutoScan(enabled) {
+  try {
+    const r = await fetch('/api/admin/security/auto-scan', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({enabled}),
+    });
+    const d = await r.json();
+    if (!d.ok) adminLog('Auto-scan toggle failed: ' + (d.error || 'unknown'), 'error');
+    else adminLog('Auto-scan ' + (enabled ? 'enabled' : 'disabled') + '.');
+  } catch (e) {
+    adminLog('Toggle error: ' + e.message, 'error');
+  }
+}
+
 async function checkUpdates() {
   runLiveChecks('Check Updates', '/api/admin/check-updates/stream');
 }
@@ -1084,6 +1301,11 @@ logLevel.addEventListener('change', loadLogs);
 loadLogs();
 startLogSSE();
 loadAssocStatus();
+
+// Initialize Production Readiness cards
+_startPerfPolling();
+loadCleanup();
+loadSecurity();
 </script>
 <script src="/static/nav.js"></script>
 </body>
