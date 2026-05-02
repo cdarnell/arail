@@ -34,6 +34,7 @@ import json
 import os
 import time
 from dataclasses import dataclass, field
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
 
@@ -283,10 +284,173 @@ def _watch_service_health() -> Optional[Observation]:
         return None  # unexpected error — don't spam
 
 
+def _sre_lab_mode() -> str:
+    """Replicate portal's _lab_mode() without importing from arail.portal.
+
+    sre.py must stay portal-free (E5 mitigation). Reads the same env-var
+    fallback chain the portal uses: LAB_MODE → ARAIL_MODE → "airgapped".
+    """
+    return os.getenv("LAB_MODE", os.getenv("ARAIL_MODE", "airgapped")).strip().lower()
+
+
+def _sre_data_dir() -> Path:
+    """Resolve DATA_DIR the same way arail.config does, without importing it."""
+    from arail.config import DATA_DIR
+    return Path(DATA_DIR)
+
+
+def _watch_dependency_vulnerabilities() -> Optional[Observation]:
+    """Watch for CVE findings in last_scan.json.
+
+    Three branches (verbatim from ARCHITECTURE.md interface contracts):
+    (a) High/Critical present → severity=error, cooldown_key includes last_run_ts.
+    (b) Medium-only → severity=warn, cooldown_key includes last_run_ts.
+    (c) No scan in 24h+ AND hybrid mode → warn user to run a scan.
+    In airgapped mode, branch (c) never fires (no scan expected).
+    Returns None if file missing in airgapped mode or scan is fresh.
+    """
+    try:
+        scan_path = _sre_data_dir() / "security" / "last_scan.json"
+    except Exception:
+        return None
+
+    # Read and parse the scan file
+    scan_data: dict = {}
+    file_missing = False
+    try:
+        scan_data = json.loads(scan_path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        file_missing = True
+    except (OSError, json.JSONDecodeError):
+        return None  # Unreadable file — don't spam
+
+    if file_missing:
+        # Branch (c): no scan ever ran
+        if _sre_lab_mode() == "hybrid":
+            return Observation(
+                watcher="dependency-vulnerabilities",
+                severity="warn",
+                fact="[CVE] No security scan in 24h+. Run a scan in Admin → Production Readiness → Security.",
+                cooldown_key=f"cve::nag::{date.today().isoformat()}",
+                cooldown_sec=24 * 3600,
+            )
+        return None
+
+    # Parse last_run_ts for age check (E2 mitigation: wrap in try/except)
+    last_run_ts = scan_data.get("last_run_ts")
+    last_run_age_h: float = float("inf")
+    try:
+        if last_run_ts:
+            last_run_dt = datetime.fromisoformat(last_run_ts.replace("Z", "+00:00"))
+            last_run_age_h = (datetime.now(timezone.utc) - last_run_dt).total_seconds() / 3600.0
+    except (ValueError, TypeError):
+        pass  # E2: treat as unknown age
+
+    summary = scan_data.get("summary") or {}
+    n_crit = int(summary.get("critical", 0))
+    n_high = int(summary.get("high", 0))
+    n_med = int(summary.get("medium", 0))
+
+    # Branch (a): High/Critical present
+    if n_crit + n_high > 0:
+        return Observation(
+            watcher="dependency-vulnerabilities",
+            severity="error",
+            fact=f"[CVE] {n_crit + n_high} High/Critical vulnerabilities in pip dependencies (Admin → Production Readiness → Security).",
+            cooldown_key=f"cve::{last_run_ts}::{n_crit}::{n_high}",
+            cooldown_sec=6 * 3600,
+        )
+
+    # Branch (b): Medium-only
+    if n_med > 0:
+        return Observation(
+            watcher="dependency-vulnerabilities",
+            severity="warn",
+            fact=f"[CVE] {n_med} Medium vulnerabilities in pip dependencies (review in Admin).",
+            cooldown_key=f"cve::med::{last_run_ts}::{n_med}",
+            cooldown_sec=12 * 3600,
+        )
+
+    # Branch (c): No findings but scan is stale (>24h) in hybrid mode
+    if _sre_lab_mode() == "hybrid" and last_run_age_h > 24:
+        return Observation(
+            watcher="dependency-vulnerabilities",
+            severity="warn",
+            fact="[CVE] No security scan in 24h+. Run a scan in Admin → Production Readiness → Security.",
+            cooldown_key=f"cve::nag::{date.today().isoformat()}",
+            cooldown_sec=24 * 3600,
+        )
+
+    return None
+
+
+def _watch_lab_cleanup() -> Optional[Observation]:
+    """Watch for oversized wiki cache.
+
+    Thresholds are env-configurable:
+      LAB_CLEANUP_CACHE_MAX_GB — default 5
+      LAB_CLEANUP_LOG_AGE_DAYS — default 30 (reserved for future file-age logic)
+
+    Severity:
+      cache_gb > threshold_gb        → warn
+      cache_gb > 2 * threshold_gb    → error
+
+    Uses os.scandir-based walk for speed; caps at 10,000 entries (E6).
+    Result is per-call (no module-level caching) — the SRE loop runs
+    every 2 minutes so a per-call scandir walk is cheap enough.
+    """
+    try:
+        from arail.config import LAB_ROOT
+        cache_root = Path(LAB_ROOT) / "pkb" / ".wiki-cache"
+    except Exception:
+        return None
+
+    if not cache_root.exists():
+        return None
+
+    try:
+        threshold_gb = float(os.getenv("LAB_CLEANUP_CACHE_MAX_GB", "5"))
+    except (ValueError, TypeError):
+        threshold_gb = 5.0
+
+    total_bytes = 0
+    count = 0
+    limit = 10_000  # E6 mitigation
+    try:
+        for entry in cache_root.rglob("*"):
+            if count >= limit:
+                break
+            if entry.is_file() and not entry.is_symlink():
+                try:
+                    total_bytes += entry.stat().st_size
+                except OSError:
+                    pass
+            count += 1
+    except OSError:
+        return None
+
+    cache_gb = total_bytes / (2 ** 30)
+    if cache_gb <= threshold_gb:
+        return None
+
+    # Bucket the size to 0.5 GB increments for stable cooldown keys
+    age_bucket = round(cache_gb * 2) / 2
+    severity = "error" if cache_gb > 2 * threshold_gb else "warn"
+    return Observation(
+        watcher="lab-cleanup",
+        severity=severity,
+        fact=f"[CLEANUP] Wiki cache is {cache_gb:.1f} GB (threshold {threshold_gb} GB). Prune in Admin → Production Readiness → Cleanup.",
+        cooldown_key=f"cleanup::cache::{round(cache_gb)}::{age_bucket}",
+        cooldown_sec=24 * 3600,
+    )
+
+
 WATCHERS: List[Callable[[], Optional[Observation]]] = [
     _watch_recent_errors,
     _watch_crash_recurrence,
     _watch_service_health,
+    _watch_dependency_vulnerabilities,
+    _watch_lab_cleanup,
 ]
 
 

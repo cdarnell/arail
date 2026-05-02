@@ -33,6 +33,12 @@ Watch is clinical. One sentence. Type, location, count. No hedging.
 | `recent-errors` | warn | 10 min per fingerprint | A new error/warn pattern appeared in the last 5 min |
 | `crash-recurrence` | warn | 15 min per fingerprint | Same error pattern hit 3+ times in 30 min |
 | `service-health` | warn | 10 min | Portal `/api/jobs/state` is unreachable |
+| `dependency-vulnerabilities` | warn/error | 6–24 h per scan | High/Critical CVEs in pip dependencies, OR no scan in 24h+ (hybrid mode) |
+| `lab-cleanup` | warn/error | 24 h per bucket | Wiki cache exceeds `LAB_CLEANUP_CACHE_MAX_GB` (default 5 GB) |
+
+The CVE watcher reads `lab/data/security/last_scan.json` (written by the portal's
+security scan module). Cleanup thresholds are env-configurable via
+`LAB_CLEANUP_CACHE_MAX_GB` (default 5) and `LAB_CLEANUP_LOG_AGE_DAYS` (default 30).
 
 ## What "fingerprint" means
 
