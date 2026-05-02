@@ -36,6 +36,7 @@ from arail.skills.experiment_tracker import ExperimentTracker
 from arail.swarm_goals import apply_swarm_plan_edits, compile_swarm_plan
 from arail.router.backends import BACKEND_MAP
 from arail.portal.wiki_routes import router as wiki_router
+from arail.portal import scheduler
 
 from arail.brand import load_brand
 from arail.router.backends import ModelResponse
@@ -3438,13 +3439,14 @@ async def _run_chat_completion_stream(
 
     try:
         if deep_backend is not None:
-            response = await asyncio.to_thread(
-                deep_backend.complete,
-                prompt,
-                max_tokens,
-                temperature,
-                top_p,
-            )
+            async with scheduler.inference_slot("chat-stream-deep"):
+                response = await asyncio.to_thread(
+                    deep_backend.complete,
+                    prompt,
+                    max_tokens,
+                    temperature,
+                    top_p,
+                )
             from arail.costs import cost_tracker
             cost_tracker.track(
                 backend=response.backend,
@@ -3477,10 +3479,11 @@ async def _run_chat_completion_stream(
             # worker thread and emit the whole reply as one delta.
             # Keeps the UI happy (it expects deltas + final) without
             # forcing per-runtime streaming bridges.
-            response = await asyncio.to_thread(
-                runtime_backend.complete,
-                prompt, max_tokens, temperature, top_p,
-            )
+            async with scheduler.inference_slot("chat-stream-runtime"):
+                response = await asyncio.to_thread(
+                    runtime_backend.complete,
+                    prompt, max_tokens, temperature, top_p,
+                )
             from arail.costs import cost_tracker
             cost_tracker.track(
                 backend=response.backend, model=response.model,
@@ -3502,22 +3505,23 @@ async def _run_chat_completion_stream(
                 "error": "router unavailable",
             }
             return
-        async for item in _stream_sync_iterator(
-            router.stream_complete(
-                prompt,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                top_p=top_p,
-            )
-        ):
-            if isinstance(item, ModelResponse):
-                final_response = item
-                continue
-            delta = str(item or "")
-            if not delta:
-                continue
-            accumulated += delta
-            yield {"type": "delta", "delta": delta}
+        async with scheduler.inference_slot("chat-stream"):
+            async for item in _stream_sync_iterator(
+                router.stream_complete(
+                    prompt,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    top_p=top_p,
+                )
+            ):
+                if isinstance(item, ModelResponse):
+                    final_response = item
+                    continue
+                delta = str(item or "")
+                if not delta:
+                    continue
+                accumulated += delta
+                yield {"type": "delta", "delta": delta}
 
         if final_response is None:
             final_response = ModelResponse(
@@ -3587,10 +3591,11 @@ async def _run_chat_completion(
     try:
         if deep_backend is not None:
             import asyncio as _aio
-            response = await _aio.to_thread(
-                deep_backend.complete,
-                prompt, max_tokens, temperature, top_p,
-            )
+            async with scheduler.inference_slot("chat-deep"):
+                response = await _aio.to_thread(
+                    deep_backend.complete,
+                    prompt, max_tokens, temperature, top_p,
+                )
             from arail.costs import cost_tracker
             cost_tracker.track(
                 backend=response.backend,
@@ -3614,10 +3619,11 @@ async def _run_chat_completion(
             # the OpenAI-compat call on a worker thread — urllib /
             # requests is blocking.
             import asyncio as _aio
-            response = await _aio.to_thread(
-                runtime_backend.complete,
-                prompt, max_tokens, temperature, top_p,
-            )
+            async with scheduler.inference_slot("chat-runtime"):
+                response = await _aio.to_thread(
+                    runtime_backend.complete,
+                    prompt, max_tokens, temperature, top_p,
+                )
             from arail.costs import cost_tracker
             cost_tracker.track(
                 backend=response.backend,
@@ -3629,12 +3635,18 @@ async def _run_chat_completion(
             )
         else:
             assert router is not None
-            response = router.complete(
-                prompt,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                top_p=top_p,
-            )
+            # APPROVED DEVIATION §2: wrap the synchronous router.complete
+            # call with both to_thread (avoids blocking the event loop)
+            # AND inference_slot (gates concurrency). This is the most
+            # common chat path and the largest source of the lag symptom.
+            async with scheduler.inference_slot("chat-default"):
+                response = await asyncio.to_thread(
+                    router.complete,
+                    prompt,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    top_p=top_p,
+                )
     except Exception as e:  # noqa: BLE001
         activity_log.emit("chat",
                           f"Inference failed: {type(e).__name__}: {str(e)[:120]}",
