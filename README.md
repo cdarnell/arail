@@ -1,5 +1,8 @@
 # ARAIL — Autoresearch AI Labs
 
+<img width="852" height="639" alt="Screenshot 2026-05-01 at 8 01 48 PM" src="https://github.com/user-attachments/assets/17a0eb3a-2160-4c5f-b980-2289a75424b0" />
+
+
 > **A rail gun for AI.**
 >
 > *A learn-by-doing AI research lab for friends, family, and the curious.*
