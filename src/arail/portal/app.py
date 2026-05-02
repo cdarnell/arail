@@ -470,6 +470,32 @@ async def _startup():
                 f"Dream daemon failed to start: {type(e).__name__}: {e}",
                 "warn")
 
+    # Boot security scan — hybrid mode only (LAB_MODE=airgapped stays default;
+    # no involuntary outbound calls).  Runs 30 s after startup to let the lab
+    # settle first.  The task is cancelled cleanly on shutdown (CancelledError
+    # is re-raised so asyncio can cancel the task — D3 mitigation).
+    if _lab_mode() == "hybrid":
+        async def _boot_security_scan():
+            await asyncio.sleep(30)
+            try:
+                from arail.portal import security_scan
+                await security_scan.run_and_persist(trigger="boot")
+            except asyncio.CancelledError:
+                raise  # D3: let asyncio cancel the task on shutdown
+            except ImportError:
+                activity_log.emit(
+                    "security",
+                    "pip-audit not installed — install via ./arail upgrade max to enable CVE scans.",
+                    "warn",
+                )
+            except Exception as e:  # noqa: BLE001
+                activity_log.emit(
+                    "security",
+                    f"Boot CVE scan failed: {type(e).__name__}: {e}",
+                    "warn",
+                )
+        asyncio.create_task(_boot_security_scan())
+
 
 def _register_canvas_goal_listener(store: Any) -> None:
     """Wire goal-store events into the Knowledge Canvas Goal/SubObjective graph.
