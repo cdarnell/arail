@@ -2998,6 +2998,342 @@ async def admin_check_updates_stream():
     )
 
 
+# ══════════════════════════════════════════════════════════════════════
+# Production Readiness — /api/admin/perf, /api/admin/cleanup,
+#                        /api/admin/security
+# ══════════════════════════════════════════════════════════════════════
+#
+# Auth posture: same as adjacent /api/admin/* endpoints — no extra
+# token; the onboarding_gate middleware already gates all /api/* paths.
+
+# -- Performance / queue metrics ------------------------------------------
+
+@app.get("/api/admin/perf/queue")
+async def admin_perf_queue():
+    """Return the current inference-queue metrics snapshot."""
+    return scheduler.snapshot()
+
+
+# -- Cleanup scan / prune -------------------------------------------------
+
+_PRUNE_LOCK: asyncio.Lock = asyncio.Lock()
+_SCAN_CACHE: dict[str, dict] = {}   # abs path → scan result dict (in-memory)
+_SCAN_CACHE_ROOTS: list[str] = []   # known roots from last scan run
+
+_CLEANUP_WALK_LIMIT = 50_000        # B8 mitigation: cap per root
+
+
+def _lab_cleanup_roots() -> list[tuple[Path, str]]:
+    """Return the three cleanup-scan roots with their kind label."""
+    from arail.config import DATA_DIR, MODELS_DIR, LAB_ROOT
+    return [
+        (Path(DATA_DIR), "data"),
+        (Path(MODELS_DIR), "models"),
+        (Path(LAB_ROOT) / "pkb" / ".wiki-cache", "cache"),
+    ]
+
+
+def _in_known_root(p: Path) -> bool:
+    """True iff *p* is inside one of the known cleanup roots."""
+    try:
+        roots = _lab_cleanup_roots()
+    except Exception:  # noqa: BLE001
+        return False
+    for root, _ in roots:
+        try:
+            p.relative_to(root)
+            return True
+        except ValueError:
+            pass
+    return False
+
+
+def _was_marked_stale(abs_path: Path) -> bool:
+    """True iff *abs_path* appeared in the last scan with stale=True."""
+    key = str(abs_path)
+    entry = _SCAN_CACHE.get(key)
+    if entry is None:
+        return False
+    return bool(entry.get("stale"))
+
+
+@app.get("/api/admin/cleanup/scan")
+async def admin_cleanup_scan():
+    """Walk the known lab roots and return file metadata + stale flags."""
+    from fastapi.responses import JSONResponse
+    global _SCAN_CACHE, _SCAN_CACHE_ROOTS
+
+    now = time.time()
+    items: list[dict] = []
+    total_bytes = 0
+    stale_bytes = 0
+    scanned_roots: list[str] = []
+    new_cache: dict[str, dict] = {}
+
+    try:
+        roots = _lab_cleanup_roots()
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse({"error": f"config unavailable: {exc}"}, status_code=500)
+
+    for root, kind in roots:
+        if not root.exists():
+            continue
+        scanned_roots.append(str(root))
+        count = 0
+        hit_limit = False
+
+        try:
+            for entry in root.rglob("*"):
+                if count >= _CLEANUP_WALK_LIMIT:
+                    hit_limit = True
+                    break
+                if not entry.is_file() or entry.is_symlink():
+                    count += 1
+                    continue
+                try:
+                    st = entry.stat()
+                except OSError:
+                    count += 1
+                    continue
+                age_days = (now - st.st_mtime) / 86400.0
+                size_bytes = st.st_size
+
+                stale = False
+                if kind == "cache" and age_days > 30:
+                    stale = True
+                elif kind == "models":
+                    # Stale = the individual models dir is large.
+                    # Simple heuristic: any file > 5 GiB is a candidate.
+                    if size_bytes > 5 * 2 ** 30:
+                        stale = True
+
+                item: dict = {
+                    "path": str(entry),
+                    "size_bytes": size_bytes,
+                    "age_days": round(age_days, 1),
+                    "stale": stale,
+                    "kind": kind,
+                }
+                items.append(item)
+                new_cache[str(entry)] = item
+                total_bytes += size_bytes
+                if stale:
+                    stale_bytes += size_bytes
+                count += 1
+        except Exception:  # noqa: BLE001
+            pass
+
+        if hit_limit:
+            items.append({
+                "path": str(root),
+                "size_bytes": 0,
+                "age_days": 0.0,
+                "stale": False,
+                "kind": kind,
+                "warn": f"Walk limit ({_CLEANUP_WALK_LIMIT} entries) reached — results are partial.",
+            })
+
+    _SCAN_CACHE = new_cache
+    _SCAN_CACHE_ROOTS = scanned_roots
+
+    return {
+        "items": items,
+        "total_bytes": total_bytes,
+        "stale_bytes": stale_bytes,
+        "scanned_roots": scanned_roots,
+    }
+
+
+@app.post("/api/admin/cleanup/prune")
+async def admin_cleanup_prune(request: Request):
+    """Delete files previously marked stale by /api/admin/cleanup/scan.
+
+    Validates every path before deletion:
+      1. Must be in a known root (B1, B2 path-traversal mitigations).
+      2. Must have been marked stale in the last scan (B2).
+      3. Symlinks are skipped (B3).
+      4. File must still exist (B5).
+    Re-stats at prune time for freed_bytes accuracy (B6).
+    OSError on unlink → skipped, reported (B7).
+    Single-flight via _PRUNE_LOCK (B4).
+    """
+    from fastapi.responses import JSONResponse
+
+    if _PRUNE_LOCK.locked():
+        return JSONResponse({"ok": False, "error": "prune already running"}, status_code=409)
+
+    body: dict
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "invalid JSON body"}, status_code=400)
+
+    paths = body.get("paths", [])
+    if not paths:
+        return JSONResponse({"ok": False, "error": "no paths"}, status_code=400)
+    if len(paths) > 200:
+        return JSONResponse({"ok": False, "error": "too many paths (max 200)"}, status_code=400)
+
+    async with _PRUNE_LOCK:
+        removed = 0
+        freed_bytes = 0
+        skipped: list[dict] = []
+
+        for p_str in paths:
+            try:
+                abs_p = Path(p_str).resolve(strict=False)
+            except Exception:
+                skipped.append({"path": p_str, "reason": "invalid path"})
+                continue
+
+            # B1: must be in a known root
+            if not _in_known_root(abs_p):
+                return JSONResponse(
+                    {"ok": False, "error": f"path not eligible: {p_str}"},
+                    status_code=400,
+                )
+
+            # B2: must have been marked stale in last scan
+            if not _was_marked_stale(abs_p):
+                return JSONResponse(
+                    {"ok": False, "error": f"path not eligible: {p_str}"},
+                    status_code=400,
+                )
+
+            # B3: skip symlinks
+            if abs_p.is_symlink():
+                skipped.append({"path": p_str, "reason": "symlink skipped"})
+                continue
+
+            # B5: skip if already gone
+            if not abs_p.exists():
+                skipped.append({"path": p_str, "reason": "already deleted"})
+                continue
+
+            # B6: re-stat for accurate freed_bytes
+            try:
+                st = abs_p.stat()
+                file_size = st.st_size
+            except OSError:
+                file_size = 0
+
+            # B7: catch OSError on unlink
+            try:
+                abs_p.unlink()
+                removed += 1
+                freed_bytes += file_size
+                # Remove from scan cache
+                _SCAN_CACHE.pop(str(abs_p), None)
+            except OSError as exc:
+                skipped.append({"path": p_str, "reason": f"OSError: {type(exc).__name__}"})
+
+        return {"ok": True, "removed": removed, "freed_bytes": freed_bytes, "skipped": skipped}
+
+
+# -- Security scan endpoints ----------------------------------------------
+
+@app.get("/api/admin/security/status")
+async def admin_security_status():
+    """Return the current security scan status from last_scan.json."""
+    try:
+        from arail.portal import security_scan as _sc
+        return _sc.status()
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "available": False,
+            "last_run_ts": None,
+            "trigger": None,
+            "summary": {"critical": 0, "high": 0, "medium": 0, "low": 0, "total": 0},
+            "findings": [],
+            "tool": "pip-audit",
+            "tool_version": None,
+            "auto_scan_enabled": False,
+            "error": f"security_scan unavailable: {exc}",
+        }
+
+
+@app.post("/api/admin/security/run-scan")
+async def admin_security_run_scan():
+    """Trigger a pip-audit scan and return the result."""
+    from fastapi.responses import JSONResponse
+    try:
+        from arail.portal import security_scan as _sc
+    except ImportError:
+        return JSONResponse(
+            {"ok": False, "error": "pip-audit not installed — run ./arail upgrade max"},
+            status_code=503,
+        )
+
+    if not _sc.is_available():
+        return JSONResponse(
+            {"ok": False, "error": "pip-audit not installed — run ./arail upgrade max"},
+            status_code=503,
+        )
+
+    started_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    result = await _sc.run_and_persist(trigger="manual")
+    return {"ok": True, "status": result, "started_at": started_at}
+
+
+@app.get("/api/admin/security/run-scan/stream")
+async def admin_security_run_scan_stream():
+    """Stream a pip-audit scan as SSE events matching the live-checks modal format."""
+    try:
+        from arail.portal import security_scan as _sc
+    except ImportError:
+        async def _unavailable_gen():
+            payload = json.dumps({
+                "event": "check", "index": 0, "total": 1,
+                "name": "pip-audit", "status": "fail",
+                "duration_ms": 0,
+                "detail": "pip-audit not installed — run ./arail upgrade max",
+            })
+            yield f"data: {payload}\n\n"
+            done = json.dumps({"event": "done", "passed": 0, "warned": 0, "failed": 1, "total": 1, "total_ms": 0})
+            yield f"data: {done}\n\n"
+        return StreamingResponse(
+            _unavailable_gen(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
+    async def _gen():
+        async for evt in _sc.stream_scan_events("sse"):
+            if evt.get("event") == "__keepalive__":
+                # Emit SSE comment as keep-alive (F2, F3)
+                yield ": keepalive\n\n"
+            else:
+                yield f"data: {json.dumps(evt)}\n\n"
+
+    return StreamingResponse(
+        _gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@app.post("/api/admin/security/auto-scan")
+async def admin_security_auto_scan(request: Request):
+    """Toggle the auto-scan-enabled flag persisted in last_scan.json."""
+    from fastapi.responses import JSONResponse
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "invalid JSON body"}, status_code=400)
+
+    enabled = body.get("enabled")
+    if not isinstance(enabled, bool):
+        return JSONResponse({"ok": False, "error": "enabled must be bool"}, status_code=400)
+
+    try:
+        from arail.portal import security_scan as _sc
+        _sc.set_auto_scan(enabled)
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+
+    return {"ok": True, "auto_scan_enabled": enabled}
+
+
 @app.get("/api/system/graph")
 async def system_graph():
     """Return the full system connectivity graph with live status."""
