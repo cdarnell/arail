@@ -22,8 +22,8 @@ Approved plan seed: `/Users/netsushi/.claude/plans/i-have-the-site-tranquil-miln
 | Phase | Subagent | Artifact | Status | Started | Finished | Verdict |
 |---|---|---|---|---|---|---|
 | think | visionary | VISION.md | skipped | — | — | — |
-| plan | architect (design) | ARCHITECTURE.md | in_progress | 2026-05-01 | — | — |
-| build | builder | BUILD_LOG.md | pending | — | — | — |
+| plan | architect (design) | ARCHITECTURE.md | completed | 2026-05-01 | 2026-05-01 | ready to build |
+| build | builder | BUILD_LOG.md | in_progress | 2026-05-01 | — | — |
 | review | architect (review) | REVIEW.md | pending | — | — | — |
 | test | qa | TEST_REPORT.md | pending | — | — | — |
 | ship | — | PR | pending | — | — | — |
@@ -37,6 +37,8 @@ Approved plan seed: `/Users/netsushi/.claude/plans/i-have-the-site-tranquil-miln
 | 2026-05-01 | `pip-audit` opt-in | Goes in `[project.optional-dependencies] security`, not base. `LAB_MODE=airgapped` stays default; no involuntary outbound calls. |
 | 2026-05-01 | Auto-remediation = suggest only | CVE findings surface a one-click "install fix" suggestion; never auto-applied. |
 | 2026-05-01 | Branch off main | Committed `knowledge: kb CLI + terminal/dashboard polish` on qukaizen/knowledge-ux-quirky-whisper first; this sprint is on a fresh branch off rebased main. |
+| 2026-05-01 | Approved 2 architect deviations | (1) Drop new `/docs/{name}` route — existing `/docs/{path:path}` at app.py:1409-1433 already serves `.md` files with traversal protection. (2) Add a sixth `inference_slot` wrap at app.py:3532 — the synchronous default chat path the plan missed; biggest source of the lag symptom. Severity-flattening in SRE emit (architect deviation 3) deferred as post-ship follow-up. |
+| 2026-05-01 | Commit cadence | Builder commits per sequencing step (8 commits total). Pre-commit hooks run; do not skip. |
 
 ## Skipped phases
 

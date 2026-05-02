@@ -793,19 +793,19 @@ The builder lands these in the sequence below. Each numbered group is one logica
 
 ---
 
-## Plan deviations requested
+## Plan deviations — APPROVED 2026-05-01
 
-These are deviations from the approved plan that the architect has surfaced for the user / orchestrator. The builder MUST NOT silently expand scope — these need a one-line OK.
+These are deviations from the approved plan that the architect surfaced during design. The orchestrator + user approved both on 2026-05-01. They are now part of the design the builder must implement.
 
-### 1. `/docs/{name}` route is unnecessary — already exists
+### 1. APPROVED — Drop the new `/docs/{name}` route
 
-The plan calls for a "small (~15 LOC) handler" at `/docs/{name}`. The existing handler at **app.py:1409–1433** (`@app.get("/docs/{path:path}")`) already serves any `.md` file under `docs/` with path-traversal protection, `.md` whitelist, 404 on missing, and `markdown_it` rendering with `html=False`. `docs/PUBLISH.md` is reachable today as `/docs/PUBLISH.md` with no new code.
+The plan calls for a "small (~15 LOC) handler" at `/docs/{name}`. The existing handler at **app.py:1409–1433** (`@app.get("/docs/{path:path}")`) already serves any `.md` file under `docs/` with path-traversal protection, `.md` whitelist, 404 on missing, and markdown rendering. `docs/PUBLISH.md` is reachable as `/docs/PUBLISH.md` with no new code.
 
-**Recommendation:** drop the new-route work item. Keep the README line and the Quick Actions button (both work against the existing route). Net: removes ~15 LOC + a duplicate handler from the diff. **Awaiting OK to drop.**
+**Builder action:** do NOT add a new docs route. Keep the README line and the Quick Actions button — both link to `/docs/PUBLISH.md` against the existing handler. Verify `_render_markdown_page` (called at app.py:1433) handles PUBLISH.md the same way it handles other docs. Net diff: ~15 LOC less than the plan estimated.
 
-### 2. Sixth inference call site at app.py:3532 is synchronous — blocks the event loop
+### 2. APPROVED — Add the sixth inference wrap at app.py:3532
 
-The plan lists five inference call sites to wrap with `inference_slot`. There is a sixth at **app.py:3532** in `_run_chat_completion`'s `else` branch (the "no deep, no runtime override" path):
+The plan lists five inference call sites to wrap. There is a sixth at **app.py:3532** in `_run_chat_completion`'s `else` branch (the "no deep, no runtime override" path) — the *default* chat path:
 
 ```python
 else:
@@ -815,9 +815,9 @@ else:
     )
 ```
 
-This is the default chat path (when neither deep nor runtime override is active). It currently blocks the event loop entirely while the model runs — which is the single largest source of the "lag" symptom the sprint is wrapping. The plan's five wraps cover deep + runtime + streaming variants but miss the most common case.
+This blocks the event loop entirely during the most common code path. It is the largest single source of the lag symptom this sprint exists to fix. The plan's five wraps cover deep + runtime + streaming variants but miss the default case.
 
-**Recommendation:** add a sixth wrap that BOTH `to_thread`s the `router.complete` call AND wraps it in `inference_slot("chat-default")`:
+**Builder action:** add a sixth wrap (label `"chat-default"`) that BOTH `to_thread`s the `router.complete` call AND wraps it in `inference_slot`:
 
 ```python
 else:
@@ -829,16 +829,16 @@ else:
         )
 ```
 
-Without this, the semaphore wraps the four less-common chat paths but leaves the default path event-loop-blocking — which means dashboard polls still stall during a default chat. **Awaiting OK to add.**
+This is the highest-impact change of the sprint. The file-by-file change list (above) and the failure-modes section now treat **six** inference call sites, not five. Update tally everywhere relevant.
 
-### 3. Severity="error" Observations are flattened to "warn" by the SRE emit path
+### 3. NOTED — Severity="error" Observations flattened to "warn" by SRE emit path
 
-The Observation `severity` field is preserved as data but the activity log entry is always emitted at `"warn"` level (sre.py:399–408). For the CVE watcher this means the user sees a yellow warn line in the activity feed even when 100 critical CVEs are present. The plan does not address this; it's likely fine for v1 but worth flagging.
+The Observation `severity` field is preserved as data but the activity-log entry is always emitted at `"warn"` level (sre.py:399–408). For the CVE watcher this means a yellow warn line in the activity feed even when many critical CVEs are present.
 
-**Recommendation:** out of scope for this sprint. File as a follow-up: "SRE emit honors Observation.severity — error → activity_log.emit(level='error')". **No build-time blocker.**
+**Builder action:** out of scope for this sprint. File as a follow-up after ship: "SRE emit honors Observation.severity — error → activity_log.emit(level='error')". No build-time blocker; CVE watcher still emits the right `severity` field on the Observation, the activity log just renders it less loudly than ideal for v1.
 
 ---
 
 ## Verdict
 
-**Ready to build** — pending one-line confirmation on the two scope deviations above (drop new `/docs/{name}` route; add the sixth inference wrap). Both are recommended; either can be accepted, rejected, or deferred. If both are accepted, the builder ships exactly the plan with the line-ref corrections in this document.
+**Ready to build.** Both deviations approved 2026-05-01. Builder implements the plan with the line-ref corrections in this document AND the two approved deviations baked in: (1) no new `/docs/{name}` route, (2) six inference wraps not five.
