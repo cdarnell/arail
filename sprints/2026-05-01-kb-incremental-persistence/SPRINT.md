@@ -53,7 +53,7 @@ incrementally, persistently, and without introducing any new long-lived service.
 | build | builder | BUILD_LOG.md | completed | 2026-05-02 | 2026-05-02 | n/a |
 | review | architect (review) | REVIEW.md | completed | 2026-05-02 | 2026-05-02 | PASS |
 | test | qa | TEST_REPORT.md | completed | 2026-05-02 | 2026-05-03 | PASS |
-| ship | — | PR | in_progress | 2026-05-03 | — | — |
+| ship | — | PR #31 | in_progress (CI running, mergeable) | 2026-05-03 | — | — |
 
 ## Decisions log
 
@@ -69,6 +69,7 @@ incrementally, persistently, and without introducing any new long-lived service.
 | 2026-05-02 | Builder shipped 8 atomic commits: new `pkb_index.py` module (454 lines), schema widening, write-helper wiring, Buddy integration, portal startup hook, 19 new tests across 3 test files. No spec deviations; added `path.resolve()` for symlink-escape safety beyond spec. | BUILD_LOG.md commit `07ed251`. Pre-existing 5 test failures in chat_ui/drafter/toast_ui/buddy_suggesters predate sprint and are not regressions. |
 | 2026-05-02 | Architect review verdict: **PASS**. 10/10 mandatory checks passed; 8/12 design-time failure modes have explicit test coverage; 3 minor non-blocking findings (merge_insert-absent fallback uncovered by test, lock released before merge_insert call, staleness-sweep cap=200 boundary uncovered). | REVIEW.md commit `2b83c11`. QA may close the 3 gaps if cheap; otherwise documented as known-uncovered-but-correct paths. |
 | 2026-05-03 | QA verdict: **PASS**. 36 new tests in `tests/test_pkb_index_qa.py` (1414 lines); 12/12 design-time failure modes now covered (was 8/12); all 4 win-condition thresholds met (10s round-trip, restart durability, end-to-end witness, no new service); 0 bugs found; 0 regressions; airgapped strict mode verified by patching `socket.socket` to refuse INET. | TEST_REPORT.md commit `8440b2e`. Architect's Finding #2 (lock-release timing) intentionally not converted to test — flagged as optional doc-fix or lock-widen follow-up. 3 optional follow-ups recorded: (1) Finding #2 doc/code drift, (2) decorator promotion if 7th write helper appears, (3) separate sprint for 5 pre-existing test failures in chat_ui/drafter/toast_ui/buddy_suggesters. |
+| 2026-05-03 | PR #31 opened. Initial state CONFLICTING — 2 conflicts vs `main`. User authorized merge + take-main resolution. Merged `origin/main` (commit `6ae1cfc`); took main's version on `lab/pkb/agents/sre/sre.py` (polluted-commit content vs main's authoritative SRE watchers from PR #28) and on `sprints/2026-05-01-prod-readiness-wrappers/BUILD_LOG.md` (stray-commit early skeleton vs main's completed log). `pyproject.toml` and `src/arail/portal/app.py` auto-merged cleanly. PR now MERGEABLE; CI status UNSTABLE (Blueprint Smoke workflow running — guardrail PASS, golden-path-smoke queued). | Ship gate: user merges PR when CI green. |
 
 ## Skipped phases
 
