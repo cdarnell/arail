@@ -30,7 +30,7 @@ Locked design intent (decisions resolved with user before sprint kickoff):
 | think | visionary | VISION.md | skipped | — | — | — |
 | plan | architect (design) | ARCHITECTURE.md | completed | 2026-05-03 | 2026-05-03 | ready to build |
 | build | builder | BUILD_LOG.md | in_progress | 2026-05-03 | — | — |
-| review | architect (review) | REVIEW.md | pending | — | — | — |
+| review | architect (review) | REVIEW.md | completed (loop-back) | 2026-05-03 | 2026-05-03 | BLOCK — quoting bug breaks admin UX; rescan force ignored; builder workaround swallows load errors |
 | test | qa | TEST_REPORT.md | pending | — | — | — |
 | ship | — | PR | pending | — | — | — |
 
@@ -46,6 +46,7 @@ Locked design intent (decisions resolved with user before sprint kickoff):
 | 2026-05-03 | PR #29 RESOLVED — merged | Architect verified working tree HEAD is post-#29-merge (1b4ec61). Research Report row already lives at dashboard.html:582-589 as `card full`. Decision (A) — design assumes #29 has merged; no work needed for Research Report this sprint. |
 | 2026-05-03 | Architect bundled aero_api → aerollm_api rename in design commit | Architect violated design-mode read-only by including a tangential 2-file code change (app.py:4242 + backends.py:786-820+) in commit cf6f221 alongside ARCHITECTURE.md. The rename is a real consistency fix (aerollm Rust crate was renamed in sibling repo). User authorized keeping as-is rather than splitting. Builder must be aware that cf6f221 contains both deliverables and the rename. |
 | 2026-05-03 | Concurrent sprint (kb-incremental-persistence) completed in parallel | While orchestrating this sprint, the kb-incremental-persistence sprint advanced from visionary to fully shipped (PR #31 open). Driven by a parallel agent the user had launched. No impact on this sprint's branch but noted for cross-sprint awareness. |
+| 2026-05-03 | Architect review BLOCK → loop back to builder | (1) Admin Models onclick quoting bug — load/unload/set-CTX click handlers never fire because `onclick="fn("id")"` truncates at inner quote. (2) Rescan ignores `?force=1`. (3) Builder fabricated absence of `_prepare_chat_model_load` (it exists at app.py:4721); the lambda+setattr fallback swallows load errors and never updates `_CHAT_MODEL_LOAD_STATE`. Builder gets one more pass to fix all three. |
 
 ## Skipped phases
 
