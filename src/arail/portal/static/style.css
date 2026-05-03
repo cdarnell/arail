@@ -2314,6 +2314,31 @@ code {
   font-style: italic;
 }
 
+/* ── Mission nav strip (dashboard — horizontal link row below Mission h2) ────
+   Sits between the <h2>Mission</h2> and the mission body content. Holds the
+   "Curated view →" and "Mission docs ↗" links that were previously crammed
+   into the <h2>. Full-width because the card is now class="card full". */
+.mission-nav-strip {
+  display: flex;
+  gap: 0.85rem;
+  align-items: center;
+  margin: -0.4rem 0 0.85rem 0;   /* tuck close under h2 */
+  padding-bottom: 0.6rem;
+  border-bottom: 1px solid var(--border);
+  min-height: 1.6rem;             /* stable height when only one link renders */
+}
+.mission-nav-link {
+  font-size: 0.78rem;
+  color: var(--green);
+  text-decoration: none;
+  padding: 0.2rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+  transition: border-color 0.15s, color 0.15s;
+}
+.mission-nav-link:hover { border-color: var(--green); color: var(--green); }
+
 /* ── Lab Knows panel (dashboard) ─────────────────────────────────────────
    Compact two-column readout of LanceDB-backed semantic recall: KB
    primers and past experiments related to the current goal. Sits inside

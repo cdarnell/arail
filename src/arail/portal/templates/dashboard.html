@@ -351,16 +351,16 @@
     </div>
   </div>
 
-  <!-- ═══ Goal Panel ═══ -->
-  <div class="card mission-card" id="goal-card">
-    <h2>
-      <span class="indicator"></span> Mission
+  <!-- ═══ Goal Panel — full-width row so Mission reads as the primary surface ═══ -->
+  <div class="card full mission-card" id="goal-card">
+    <h2><span class="indicator"></span> Mission</h2>
+    <div class="mission-nav-strip">
       {% if current_goal %}
-      <a class="card-title-link" href="/mission">Curated view →</a>
+      <a class="mission-nav-link" href="/mission">Curated view →</a>
       {% endif %}
-      <a class="card-title-link" href="/docs/missions.md"
+      <a class="mission-nav-link" href="/docs/missions.md"
          title="What is a mission? What does Draft Swarm Plan actually do? Plain-English walkthrough.">Mission docs ↗</a>
-    </h2>
+    </div>
     {% if current_goal %}
     <div class="mission-meta-line">
       <span class="mission-meta-label">Current</span>
