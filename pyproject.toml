@@ -136,4 +136,8 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "perf: performance smoke tests (may be excluded with -m 'not perf' on slow CI)",
+    "e2e: end-to-end witness tests (require a real lab process)",
+]
 
