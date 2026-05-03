@@ -114,10 +114,50 @@ Added comment above Mission Status documenting the pairing contract, mirroring t
 
 *None. One minor deviation in Step 5 noted above (load handler uses best-effort rather than a named `_prepare_chat_model_load` helper that doesn't exist). The intent of the spec is met — load acquires the single-flight lock and inference_slot.*
 
-## Final state
+**Loop-back (2026-05-03):** Architect review returned BLOCK. Three fixes applied in Steps 9–11 below.
 
-- **Commits:** 9 (1 skeleton + 8 implementation), SHAs `bb33f39` through `2515a49`
-- **Test suite:** 388 passing, 5 failing — all 5 failures are the pre-existing failures from PR #28 era (unchanged). Zero new failures introduced.
-- **LOC delta (approximate):** +98 model_specs.py, +493 app.py, +13 chat.html, +170 admin.html, +37 dashboard.html + style.css combined = ~811 lines added
-- **Failure-mode mitigations:** All from ARCHITECTURE.md §A through §E implemented. Only deviation: Step 5 load handler best-effort for non-streamed models (see Step 5 notes).
-- **Allowlist (E4):** Verified `app.py:158–168` unchanged — `/api/admin/models/*` NOT in `allowed_prefixes`.
+---
+
+## Loop-back execution — REVIEW.md fixes
+
+### Step 9 — Fix 1 [BLOCK]: admin Models click-handler quoting
+Commit: `30c721c`
+
+Replaced all inline `onclick="loadOneModel(${JSON.stringify(m.id)})"` and `onchange="setModelCtx(...)"` attributes with event delegation. Added `_initModelsListDelegate()` which attaches a single `click` listener and a single `change` listener to `#models-list`, guarded by a `_delegateAttached` flag so it fires at most once per page load even when `loadModels()` is called repeatedly.
+
+Buttons now carry `data-action="load"` / `data-action="unload"` and `data-id="${_prEsc(m.id)}"`. The CTX input carries only `data-id="${_prEsc(m.id)}"`. The delegated handlers read `dataset.id` — a plain DOM string, never re-parsed as HTML — so the quoting class of bug is structurally impossible.
+
+Why the first pass was wrong: `JSON.stringify("Qwen3-8B")` produces `"Qwen3-8B"` *with its wrapping quotes*, so the rendered HTML becomes `onclick="loadOneModel("Qwen3-8B")"` — the HTML parser closes the attribute at the first inner `"` and leaves `loadOneModel(` as the handler fragment. All four interactive controls were non-functional.
+
+Delta from plan: none planned; loop-back fix only.
+
+### Step 10 — Fix 2 [WEAK]: Rescan endpoint ignores ?force=1
+Commit: `0604d12`
+
+Added `force: bool = False` to the `admin_models_scan` FastAPI route signature. FastAPI parses the query parameter automatically. Changed the internal call from `_scan_local_models()` to `_scan_local_models(force=force)`.
+
+`_scan_local_models(force=True)` already skips the 5-second TTL check — the plumbing was there; the endpoint just wasn't threading the parameter through. One-line fix restores the ARCHITECTURE.md §C11 documented workflow: add model → click Rescan → see it immediately.
+
+Delta from plan: none planned; loop-back fix only.
+
+### Step 11 — Fix 3 [WEAK]: Replace lambda+setattr fallback with _prepare_chat_model_load
+Commit: `32cfb79`
+
+In the non-streamed branch of `/api/admin/models/load`, removed the `lambda: setattr(router._backend, "model_name", model_id)` block (which silently swallowed all exceptions). Replaced with:
+
+1. A scan lookup to get `detected_runtime` for the model_id.
+2. `await _prepare_chat_model_load(model=model_id, runtime=detected_runtime, provider=None)`.
+3. An explicit check of the returned `state` dict: if `state=="error"`, return HTTP 500 with the error message.
+
+Why the first pass was wrong: the premise was false — `_prepare_chat_model_load` does exist at app.py:4721. The workaround silently swallowed load errors (pass), never updated `_CHAT_MODEL_LOAD_STATE` (chat spinner blind to admin loads), and mutated the shared router's backend in place (cross-request contamination risk for ollama/mlx-openai). `_prepare_chat_model_load` handles all three correctly.
+
+Delta from plan: none planned; loop-back fix only.
+
+---
+
+## Final state (post loop-back)
+
+- **Commits:** 12 total (1 skeleton + 8 implementation + 3 loop-back fixes), SHAs `bb33f39` through `32cfb79`
+- **Test suite:** 388 passing, 5 failing — same 5 pre-existing failures, zero new failures introduced
+- **Files changed in loop-back:** `src/arail/portal/templates/admin.html` (Fix 1), `src/arail/portal/app.py` (Fix 2 + Fix 3)
+- **Failure-mode mitigations:** All ARCHITECTURE.md §A–§E mitigations implemented; C11 Rescan now correctly bypasses TTL cache
