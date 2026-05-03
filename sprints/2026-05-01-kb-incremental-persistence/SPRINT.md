@@ -50,9 +50,9 @@ incrementally, persistently, and without introducing any new long-lived service.
 |---|---|---|---|---|---|---|
 | think | visionary | VISION.md | completed | 2026-05-01 | 2026-05-01 | proceed |
 | plan | architect (design) | ARCHITECTURE.md | completed | 2026-05-01 | 2026-05-02 | n/a |
-| build | builder | BUILD_LOG.md | in_progress | 2026-05-02 | — | — |
-| review | architect (review) | REVIEW.md | pending | — | — | — |
-| test | qa | TEST_REPORT.md | pending | — | — | — |
+| build | builder | BUILD_LOG.md | completed | 2026-05-02 | 2026-05-02 | n/a |
+| review | architect (review) | REVIEW.md | completed | 2026-05-02 | 2026-05-02 | PASS |
+| test | qa | TEST_REPORT.md | in_progress | 2026-05-02 | — | — |
 | ship | — | PR | pending | — | — | — |
 
 ## Decisions log
@@ -66,6 +66,8 @@ incrementally, persistently, and without introducing any new long-lived service.
 | 2026-05-01 | Polluted commit `0e18790` (SPRINT.md scaffold + 2 SRE files) left as-is. | SRE additions later landed in main via prod-readiness PR #28 merge. Cleanup adds rebase complexity for zero correctness gain — kb-incremental→main merge will treat the SRE files as identical no-ops. |
 | 2026-05-02 | Architect (design) verdict: schema widens to `{path, name, vector, mtime, source_kind}`; trigger is explicit `pkb_index.schedule_upsert(path)` shim with `threading.Timer` debouncer (2s); upsert uses LanceDB `merge_insert` with delete+add fallback. Draft/published flag DEFERRED (no producers today; `source_kind` preserves the option). | Wedge stays small. Threading.Timer chosen over wiki.py's asyncio debouncer because write helpers are sync and called from sync portal endpoints / CLI. ARCHITECTURE.md commit `4de4de1`. |
 | 2026-05-02 | Pip wiring: Buddy writes `dreams/<date>.md` directly via `target.write_text` at `_builtin_buddy.py:1151` — bypasses helper layer. New helper `pkb.write_buddy_dream` to be added by builder so Buddy's chat-shaped output reaches the index. SRE intentionally deferred (writes JSON `state.json`, not chat-shaped content). | Visionary's disconfirming-evidence test depends on agents producing chat-shaped content; Buddy's dreams qualify, SRE state does not. |
+| 2026-05-02 | Builder shipped 8 atomic commits: new `pkb_index.py` module (454 lines), schema widening, write-helper wiring, Buddy integration, portal startup hook, 19 new tests across 3 test files. No spec deviations; added `path.resolve()` for symlink-escape safety beyond spec. | BUILD_LOG.md commit `07ed251`. Pre-existing 5 test failures in chat_ui/drafter/toast_ui/buddy_suggesters predate sprint and are not regressions. |
+| 2026-05-02 | Architect review verdict: **PASS**. 10/10 mandatory checks passed; 8/12 design-time failure modes have explicit test coverage; 3 minor non-blocking findings (merge_insert-absent fallback uncovered by test, lock released before merge_insert call, staleness-sweep cap=200 boundary uncovered). | REVIEW.md commit `2b83c11`. QA may close the 3 gaps if cheap; otherwise documented as known-uncovered-but-correct paths. |
 
 ## Skipped phases
 
