@@ -421,4 +421,169 @@ correctly NOT addressed in this sprint:
   agent path bypasses `_prepare_chat_context`, which is the
   intentional dispatch boundary).
 
+---
+
+## Re-review 2026-05-03 (post loop-back)
+
+**Build:** [BUILD_LOG.md](./BUILD_LOG.md) at `77f7b0f` (HEAD of branch)
+**Loop-back commits:** `30c721c`, `0604d12`, `32cfb79`
+**Reviewer:** architect (review mode, re-review pass)
+
+### Verdict: PASS
+
+All three findings from the prior review are CLOSED. No new issues
+introduced by the loop-back fixes. Test suite holds at 388 pass + 5
+known pre-existing failures (zero new failures, zero regressions). No
+new dependencies, no `--no-verify`, no `--amend`. Imports clean.
+
+The headline admin Models UX is now functional in the browser; the
+documented Rescan workflow works; and admin-initiated loads now surface
+errors and propagate state to the chat UI.
+
+### Per-fix verification
+
+#### Fix 1 — Issue 1 [BLOCK]: admin Models button quoting → **CLOSED**
+
+Verified at `src/arail/portal/templates/admin.html:1098–1170`.
+
+- **No `onclick`/`onchange` on the four interactive controls.** Lines
+  1165–1166 (Load/Unload buttons) carry only `data-action` + `data-id`;
+  line 1170 (CTX input) carries only `data-id`. (The two non-Models
+  `onclick`s remaining in the file — lines 644 (Rescan), 640 (default
+  dropdown `onchange`) — never substitute a model_id, so they were
+  never broken.)
+- **`_initModelsListDelegate()` exists at admin.html:1102–1120.** Single
+  `click` listener on `#models-list` (1106), single `change` listener
+  (1115). Reads `dataset.id` from `.closest('[data-id]')` — plain DOM
+  string, never re-parsed as HTML. Quoting class of bug is
+  structurally impossible with this pattern.
+- **`_delegateAttached` guard works (line 1104).** The listener is
+  attached to the `list` element itself, not its children, so
+  `list.innerHTML = …` (line 1152) replaces children but leaves the
+  listener and the guard flag intact across all subsequent `loadModels()`
+  calls. Verified by reading: re-binding only happens if the page is
+  fully reloaded.
+- **Empirical HTML-parser sanity check (jsdom-equivalent in
+  `html.parser`)** confirms `data-id="Qwen3-8B-4bit"`,
+  `data-id="meta-llama/Llama-3.1-70B"`, `data-id="Test-Model.v2_alpha"`,
+  and even `data-id="odd&id<x>"` (with `_prEsc` applied) all parse to
+  the correct attribute values.
+- **Defense-in-depth:** `_validate_model_id` (server-side, app.py:3565)
+  rejects `..`/`/`/`\` and caps id length at 256, so even a bypass of
+  the client-side `_prEsc` cannot produce a hostile payload that the
+  load endpoint will accept.
+
+#### Fix 2 — Issue 2 [WEAK]: Rescan force → **CLOSED**
+
+Verified at `src/arail/portal/app.py:3568–3577`.
+
+- **Signature is `async def admin_models_scan(force: bool = False)`**
+  (line 3568). FastAPI auto-parses `?force=1` (and `?force=true`) into
+  the bool argument.
+- **Endpoint calls `_scan_local_models(force=force)`** (line 3577).
+- **Cache invalidation is honored** at app.py:3429 — the early-return
+  `if not force and _MODELS_SCAN_CACHE is not None and (now -
+  _MODELS_SCAN_TS) < _MODELS_SCAN_TTL` is bypassed when `force=True`,
+  forcing a fresh disk walk.
+- **End-to-end trace:** click `↺ Rescan` → `loadModels(true)` (admin.html:644)
+  → `fetch('/api/admin/models/scan?force=1')` (1126) → FastAPI parses
+  `force=True` → `_scan_local_models(force=True)` → cache skipped,
+  fresh result returned. ARCHITECTURE.md §C11 workflow restored.
+
+#### Fix 3 — Issue 3 [WEAK]: real `_prepare_chat_model_load` → **CLOSED**
+
+Verified at `src/arail/portal/app.py:3614–3653` and helper at app.py:4737.
+
+- **Lambda+setattr block is gone.** The `try/except: pass` and the
+  `setattr(router._backend, "model_name", model_id)` are removed.
+- **`_prepare_chat_model_load(model=model_id, runtime=detected_runtime,
+  provider=None)` is called** at app.py:3644.
+- **`detected_runtime` resolution** at lines 3614–3619: scans local
+  models, finds the entry with matching `id`, reads its `runtime` field.
+  `None` if not found, but the load lock is still held inside
+  `_MODEL_LOAD_LOCK`, so this is not a TOCTOU vulnerability — even if
+  `runtime` is `None`, the helper's `else: _get_primary_router()`
+  branch handles it.
+- **Errors propagate as HTTP 500** (lines 3649–3653): if
+  `load_state.get("state") == "error"`, the handler returns
+  `JSONResponse({"ok": False, "error": load_state["message"]},
+  status_code=500)`. Verified by reading `_prepare_chat_model_load`
+  at app.py:4772–4782 — exception path sets `state="error"` and
+  `message=f"Load failed: {type(exc).__name__}: {exc}"`.
+- **`_CHAT_MODEL_LOAD_STATE` is naturally updated by the helper.**
+  Confirmed at app.py:4744 (loading) and app.py:4762 (ready) /
+  app.py:4773 (error). The chat-page UI's `GET /api/chat/model-load`
+  poller will now reflect admin-initiated loads.
+- **No new lock contention.** `_MODEL_LOAD_LOCK` (asyncio.Lock,
+  app.py:3410) and `_CHAT_MODEL_LOAD_LOCK` (threading.Lock, app.py:4692)
+  are distinct lock types with disjoint hold-windows; the threading
+  lock is held only inside the brief `_set_chat_model_load_state`
+  block. No deadlock risk introduced.
+- **No shared-router mutation.** For `runtime in ("ollama",
+  "mlx-openai")`, `_get_runtime_backend(runtime, model_id)` builds a
+  per-(runtime, model_id) `OpenAICompatBackend` cached in
+  `_RUNTIME_BACKEND_CACHE` (app.py:4080–4113). No in-place
+  `model_name` mutation on a shared backend → cross-request
+  contamination eliminated.
+
+### New issues introduced by the loop-back
+
+#### Issue 6 — `_CHAT_MODEL_LOAD_STATE` can stick at `state="error"` after a failed admin load **[INFO]**
+
+**What:** When `_prepare_chat_model_load` raises (e.g. corrupt model
+weights), the global `_CHAT_MODEL_LOAD_STATE` is updated to
+`state="error"` and stays there until the next successful load. The
+chat-page UI polling `/api/chat/model-load` will surface this error
+indefinitely, even though the chat itself is unaffected (the error was
+on a different model, initiated from admin).
+
+**Where:** app.py:4773–4782 (the helper's exception path) +
+app.py:3649–3653 (admin handler returns 500 but does not reset the
+state to `ready`).
+
+**Why it's INFO not WEAK:** The same property exists on the chat-driven
+load path (app.py:4791+) — this isn't a regression, it's the helper's
+established contract being correctly inherited by admin. A
+"clear-error" follow-up could file as a Phase-2 ticket if it shows up
+in real use.
+
+**Suggested fix (Phase-2):** Add a `_clear_chat_model_load_state()` or
+auto-clear after N seconds of `state="error"`, or have the chat poller
+treat error-stuck-without-recent-update as `ready`.
+
+### Mitigations table delta
+
+| # | Failure mode | Status now |
+|---|---|---|
+| C11 | 5s scan cache stale after manual add | **PASS** (was WEAK; Rescan now correctly bypasses TTL via `force=true`) |
+
+All other rows unchanged from the prior review's table.
+
+### Sanity checks
+
+- `git log --oneline e08d91f..HEAD` shows exactly **3 fix commits**
+  (`30c721c`, `0604d12`, `32cfb79`) plus the BUILD_LOG.md update
+  (`77f7b0f`). 4 total since the prior review, 3 of them functional.
+- `python -c "from arail.portal import app; from arail import
+  model_specs"` → clean (no warnings, no errors).
+- No `--no-verify` or `--amend` in any commit message in the loop-back
+  range.
+- No new dependencies (`pyproject.toml` and `requirements*.txt`
+  unchanged in the loop-back range).
+- Test suite: **388 passed, 5 failed**. The 5 failures are the same
+  pre-existing tests called out in the original review
+  (`test_buddy_suggesters`, `test_chat_ui`, `test_drafter`,
+  `test_toast_ui` x2). Zero new failures.
+
+### Required actions before merge
+
+None. All three prior findings are closed. Issue 6 is INFO-level and
+does not block.
+
+### Phase-2 reminders unchanged
+
+(See section above; no additions from this re-review except the
+optional Issue 6 follow-up.)
+
+
 QA should NOT mark these as gaps; they are deliberately deferred.
