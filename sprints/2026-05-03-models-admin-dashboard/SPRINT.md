@@ -31,8 +31,8 @@ Locked design intent (decisions resolved with user before sprint kickoff):
 | plan | architect (design) | ARCHITECTURE.md | completed | 2026-05-03 | 2026-05-03 | ready to build |
 | build | builder | BUILD_LOG.md | completed | 2026-05-03 | 2026-05-03 | 8 + 3 (loop-back fixes) implementation commits; ~811 LOC initial + ~80 LOC fixes |
 | review | architect (review) | REVIEW.md | completed | 2026-05-03 | 2026-05-03 | PASS — first pass BLOCK; loop-back closed all 3 findings; one INFO-level inherited state-stickiness observation |
-| test | qa | TEST_REPORT.md | in_progress | 2026-05-03 | — | — |
-| ship | — | PR | pending | — | — | — |
+| test | qa | TEST_REPORT.md | completed | 2026-05-03 | 2026-05-03 | PASS — 126 new tests, all 5 MUST-HIT scenarios covered, 1 LOW defect captured as xfail, pre-existing 5 failures unchanged |
+| ship | — | PR | in_progress | 2026-05-03 | — | — |
 
 ## Decisions log
 
