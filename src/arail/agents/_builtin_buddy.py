@@ -1121,6 +1121,7 @@ class BuddyAgent:
         does nothing and returns an empty string.
         """
         from datetime import datetime, timezone
+        from arail.pkb import write_buddy_dream as _write_buddy_dream
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         dreams_dir = _state_file().parent / "dreams"
         dreams_dir.mkdir(parents=True, exist_ok=True)
@@ -1148,7 +1149,10 @@ class BuddyAgent:
             f"---\n\n"
             f"{reflection.strip()}\n"
         )
-        target.write_text(body)
+        # Use the index-aware helper so the dream file reaches the KB index.
+        # write_buddy_dream writes to agents/buddy/dreams/<date>.md (same path
+        # as target above) and calls schedule_upsert internally.
+        _write_buddy_dream(today, body, pkb_root=_host.get_pkb_root())
 
         activity_log.emit(
             "buddy",
