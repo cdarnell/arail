@@ -139,5 +139,6 @@ testpaths = ["tests"]
 markers = [
     "perf: performance smoke tests (may be excluded with -m 'not perf' on slow CI)",
     "e2e: end-to-end witness tests (require a real lab process)",
+    "qa: paranoid QA edge-case tests (slow; may be excluded with -m 'not qa')",
 ]
 
