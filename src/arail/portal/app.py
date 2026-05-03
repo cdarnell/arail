@@ -3611,6 +3611,13 @@ async def admin_models_load(request: Request):
     from arail.model_specs import must_stream as _ms
     streamed = _ms(model_id)
 
+    # Resolve runtime from scan so _prepare_chat_model_load can pick the right backend.
+    scan = _scan_local_models()
+    detected_runtime: str | None = next(
+        (m.get("runtime") for m in scan.get("models", []) if m.get("id") == model_id),
+        None,
+    )
+
     try:
         async with _MODEL_LOAD_LOCK:
             async with scheduler.inference_slot("admin-model-load"):
@@ -3630,16 +3637,20 @@ async def admin_models_load(request: Request):
                     # Warm the AirLLM backend (imports + sanity checks only)
                     await asyncio.to_thread(_get_optional_chat_backend, "airllm")
                 else:
-                    # Local model — trigger a warm-up via the existing chat-load path
-                    # by calling the backend to load; surface any errors cleanly.
-                    try:
-                        router = _get_primary_router()
-                        await asyncio.to_thread(
-                            lambda: setattr(router._backend, "model_name", model_id)
-                            if hasattr(router._backend, "model_name") else None
+                    # Local model — use the standalone helper so that:
+                    # 1. _CHAT_MODEL_LOAD_STATE is updated (chat UI sees the transition)
+                    # 2. Errors surface as state="error" and are returned to the caller
+                    # 3. No shared router mutation (backend chosen by runtime type)
+                    load_state = await _prepare_chat_model_load(
+                        model=model_id,
+                        runtime=detected_runtime,
+                        provider=None,
+                    )
+                    if load_state.get("state") == "error":
+                        return JSONResponse(
+                            {"ok": False, "error": load_state.get("message", "load failed")},
+                            status_code=500,
                         )
-                    except Exception:  # noqa: BLE001
-                        pass  # best-effort; loading state is reported via scan
 
     except Exception as e:  # noqa: BLE001
         return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
