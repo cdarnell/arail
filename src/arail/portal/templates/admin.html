@@ -1096,10 +1096,32 @@ async function toggleAutoScan(enabled) {
 }
 
 // ── Admin Models section ───────────────────────────────────────────────────
-let _modelsCache = null;
+// Event delegation for Load/Unload/CTX buttons — attached once to #models-list.
+// Avoids the onclick-attribute quoting class of bug (model_id contains characters
+// that break double-quoted HTML attribute strings).
+function _initModelsListDelegate() {
+  const list = document.getElementById('models-list');
+  if (!list || list._delegateAttached) return;
+  list._delegateAttached = true;
+  list.addEventListener('click', e => {
+    const btn = e.target.closest('button[data-action]');
+    if (!btn) return;
+    const id = btn.closest('[data-id]')?.dataset.id;
+    if (!id) return;
+    const action = btn.dataset.action;
+    if (action === 'load') loadOneModel(id);
+    else if (action === 'unload') unloadOneModel(id);
+  });
+  list.addEventListener('change', e => {
+    const inp = e.target.closest('input.ctx-input[data-id]');
+    if (!inp) return;
+    setModelCtx(inp.dataset.id, inp.value);
+  });
+}
 async function loadModels(force) {
   const list = document.getElementById('models-list');
   if (!list) return;
+  _initModelsListDelegate();
   try {
     const url = '/api/admin/models/scan' + (force ? '?force=1' : '');
     const r = await fetch(url);
@@ -1140,12 +1162,12 @@ async function loadModels(force) {
           ${m.loaded ? '· <span style="color:var(--green)">loaded</span>' : ''}
         </div>
         <div class="actions">
-          <button class="pr-btn" onclick="loadOneModel(${JSON.stringify(m.id)})">${m.loaded ? 'Reload' : 'Load'}</button>
-          <button class="pr-btn" onclick="unloadOneModel(${JSON.stringify(m.id)})" ${m.loaded ? '' : 'disabled'}>Unload</button>
+          <button class="pr-btn" data-action="load" data-id="${_prEsc(m.id)}">${m.loaded ? 'Reload' : 'Load'}</button>
+          <button class="pr-btn" data-action="unload" data-id="${_prEsc(m.id)}" ${m.loaded ? '' : 'disabled'}>Unload</button>
           <span style="font-size:.68rem;color:var(--muted);">CTX</span>
           <input class="ctx-input" type="number" min="256" max="1000000"
                  value="${m.ctx || ''}" placeholder="—"
-                 onchange="setModelCtx(${JSON.stringify(m.id)}, this.value)">
+                 data-id="${_prEsc(m.id)}">
         </div>
       </div>`).join('');
   } catch (e) {
