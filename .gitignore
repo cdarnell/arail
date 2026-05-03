@@ -31,7 +31,6 @@ node_modules/
 
 # Runtime state (generated at setup/run time, never committed)
 .transfer/
-models/
 lab/data/
 lab/models/
 lab/pkb/inbox/*
