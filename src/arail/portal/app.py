@@ -3679,6 +3679,27 @@ def _prepare_chat_context(
 
     optional_backend_name = str(backend_override or "").strip().lower() or None
     wants_deep = optional_backend_name in _OPTIONAL_CHAT_BACKEND_CONFIG
+
+    # ── Hard hardware-floor rule (35B total params) ────────────────────
+    # If the dispatch landed on a non-Deep backend (mlx/cuda/cpu/runtime
+    # override) AND the chosen model's total params exceed the hardware
+    # floor, silently route to AirLLM (Deep) instead. This is SERVER-SIDE
+    # enforcement — clients can lie about their backend selection but the
+    # server still routes correctly. See ARCHITECTURE.md § Data flow D1.
+    if not wants_deep:
+        from arail.model_specs import must_stream as _must_stream
+        candidate_model = (model_override or "").strip() or os.getenv("MODEL_NAME", "")
+        if _must_stream(candidate_model):
+            wants_deep = True
+            optional_backend_name = "airllm"
+            activity_log.emit(
+                "chat",
+                f"35B+ model '{candidate_model}': routing to Deep (AirLLM) "
+                f"per hardware floor.",
+                "info",
+            )
+    # ── End hard hardware-floor rule ───────────────────────────────────
+
     deep_backend = None
     if wants_deep:
         try:
@@ -4811,7 +4832,23 @@ def _default_teacher_backend() -> str:
 
 
 def _extract_param_hint(model_name: str) -> str:
-    """Parse '235B', '70B', '754B' etc. out of a HF repo name."""
+    """Parse '235B', '70B', '400B' etc. out of a HF repo name.
+
+    First consults model_specs.MODEL_METADATA_OVERRIDES — when the name
+    matches a known MoE / multi-segment override the override's
+    total_params_b is rendered (e.g. "400B" for Llama-4-Maverick).
+    Otherwise falls back to the existing regex. Returns "" when neither
+    matches.
+    """
+    from arail.model_specs import get_total_params as _get_total_params
+    override_b = _get_total_params(model_name)
+    if override_b is not None:
+        if override_b >= 1000:
+            return f"{override_b / 1000:.1f}T"
+        if override_b == int(override_b):
+            return f"{int(override_b)}B"
+        return f"{override_b:.1f}B"
+
     import re as _re
     match = _re.search(r"(\d+(?:\.\d+)?)([BMK])\b", model_name, _re.IGNORECASE)
     if match:
