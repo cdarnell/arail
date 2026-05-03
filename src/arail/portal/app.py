@@ -4643,7 +4643,7 @@ async def api_chat_models():
     # Look up the spec sheet so the Frontier chip hover can show
     # strengths, benchmarks, and license at a glance. Registry lives
     # in src/arail/model_specs.py — users edit it to add new models.
-    from arail.model_specs import lookup as _spec_lookup
+    from arail.model_specs import lookup as _spec_lookup, must_stream as _must_stream_ms
     spec = _spec_lookup(deep_model_name)
 
     deep_info = {
@@ -4667,6 +4667,8 @@ async def api_chat_models():
         # download. Surface the caveat so the dashboard can show it in
         # install/help copy instead of failing generically.
         "gated": deep_model_name.lower().startswith("meta-llama/"),
+        # Deep-backend models are always streamed by definition.
+        "streamed": True,
     }
 
     if deep_info["gated"]:
@@ -4686,6 +4688,8 @@ async def api_chat_models():
             "gated": air_model_name.lower().startswith("meta-llama/"),
             "install_command": "pip install airllm",
             "description": "Active deep-chat backend — layer-streaming for 70B+ local models (max tier).",
+            # AirLLM always streams (layer-streaming); mark for picker badge.
+            "streamed": True,
         },
         {
             "id": "aerollm",
@@ -4699,6 +4703,8 @@ async def api_chat_models():
                 + os.getenv("AEROLLM_PACKAGE", "git+https://github.com/cdarnell/aerollm@main")
             ),
             "description": "Future deep-chat backend (Arail's Rust runtime). Dormant until stable.",
+            # AeroLLM is also streaming by design.
+            "streamed": True,
         },
     ]
     for entry in optional_backends:
@@ -5062,6 +5068,14 @@ def _build_local_model_entry(
     badge = "new" if modified else None
     compact_label = _compact_model_label(model_id)
 
+    # Compute streamed flag — True when total params exceed the hardware
+    # floor (35B). Picker renders a "streamed" badge; dispatch enforces it.
+    try:
+        from arail.model_specs import must_stream as _ms
+        _streamed = _ms(model_id)
+    except Exception:  # noqa: BLE001
+        _streamed = False
+
     return {
         "id": model_id,
         "label": compact_label or model_id,
@@ -5070,6 +5084,7 @@ def _build_local_model_entry(
         "current": bool(current and model_id == current),
         "size_gb": size_gb,
         "estimated_vram_gb": estimate_gb,
+        "streamed": _streamed,
         "fit": {
             "verdict": verdict,
             "summary": _headroom_summary(estimate_gb, free_gb),
