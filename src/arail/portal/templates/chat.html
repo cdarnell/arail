@@ -849,6 +849,16 @@
       border: 1px solid var(--blue-a28);
       border-radius: 999px; text-transform: uppercase; letter-spacing: 0.1em;
     }
+    .streamed-badge {
+      font-size: 0.55rem;
+      color: var(--amber, #c8a060);
+      border: 1px solid var(--amber-a28, rgba(200,160,96,0.28));
+      background: var(--amber-a08, rgba(200,160,96,0.08));
+      padding: 0 0.4rem;
+      border-radius: 3px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
 
     .stream-toggle {
       display: inline-flex;
@@ -1931,6 +1941,7 @@
       opt.className = 'opt' + (m.id === currentId ? ' current' : '');
       const isNew = m.badge === 'new';
       const isDeep = m.badge === 'deep';
+      const isStreamed = !!m.streamed;
       const sizeStr = m.size_gb ? `${m.size_gb.toFixed(1)} GB` : '';
       const verdict = m.fit && m.fit.verdict ? m.fit.verdict : 'good';
       opt.innerHTML = `
@@ -1939,6 +1950,7 @@
           <span class="runtime">· ${escapeHtml(m.runtime || '')}</span>
           ${isNew ? '<span class="new-badge">new</span>' : ''}
           ${isDeep ? '<span class="deep-badge">deep</span>' : ''}
+          ${isStreamed ? '<span class="streamed-badge" title="Layer-streamed via AirLLM (model exceeds local hardware floor)">streamed</span>' : ''}
         </div>
         <div class="meta">
           <span class="size">${sizeStr}</span>
@@ -2902,6 +2914,7 @@
               <div class="mc-name">${escapeHtml(m.label || m.id)}</div>
               ${m.badge === 'deep' ? '<span class="deep-badge">deep</span>' : ''}
               ${m.badge === 'new'  ? '<span class="new-badge">new</span>'  : ''}
+              ${m.streamed ? '<span class="streamed-badge" title="Layer-streamed via AirLLM">streamed</span>' : ''}
             </div>
             <div class="mc-meta">
               <span class="runtime">${escapeHtml(m.runtime || '')}</span>

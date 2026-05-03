@@ -786,12 +786,12 @@ class AirLLMBackend(BaseBackend):
 
 
 # ---------------------------------------------------------------------------
-# AeroLLM  (in-process Rust runtime via the aero_api PyO3 wheel)
+# AeroLLM  (in-process Rust runtime via the aerollm_api PyO3 wheel)
 # ---------------------------------------------------------------------------
 class AeroLLMBackend(BaseBackend):
-    """Drive the AeroLLM Rust runtime through its `aero_api` PyO3 wheel.
+    """Drive the AeroLLM Rust runtime through its `aerollm_api` PyO3 wheel.
 
-    The wheel ships from `aerollm/crates/aero-api` (build with
+    The wheel ships from `aerollm/crates/aerollm-api` (build with
     ``maturin develop --release``). Apple Silicon uses the in-process
     ``mlx-native`` backend; on other hosts the wheel falls back to the
     legacy subprocess shim (``mlx``).
@@ -802,7 +802,7 @@ class AeroLLMBackend(BaseBackend):
     automatically). Set ``AEROLLM_MODEL`` to override the directory
     name.
 
-    Threading: ``aero_api.Runtime`` is unsendable (MLX Metal context
+    Threading: ``aerollm_api.Runtime`` is unsendable (MLX Metal context
     is thread-affine). All Runtime ops are pinned to a dedicated
     single-worker ``ThreadPoolExecutor`` so FastAPI's threadpool
     dispatch can hop into and out of this backend without touching
@@ -814,11 +814,11 @@ class AeroLLMBackend(BaseBackend):
 
     def __init__(self) -> None:
         try:
-            from aero_api import Runtime  # type: ignore[import-untyped]
+            from aerollm_api import Runtime  # type: ignore[import-untyped]
         except ImportError as e:
             raise ImportError(
-                "aero_api wheel not installed. Build it with: "
-                "cd aerollm/crates/aero-api && maturin develop --release"
+                "aerollm_api wheel not installed. Build it with: "
+                "cd aerollm/crates/aerollm-api && maturin develop --release"
             ) from e
 
         self.model_name = os.getenv("AEROLLM_MODEL", "Qwen2.5-7B-Instruct")
@@ -863,7 +863,7 @@ class AeroLLMBackend(BaseBackend):
         self._model_path = model_path
         self._draft_path = draft_path
 
-        # The aero_api Runtime is unsendable: PyO3 panics if the handle
+        # The aerollm_api Runtime is unsendable: PyO3 panics if the handle
         # is touched from a thread other than the one that constructed
         # it (MLX's Metal context is thread-affine). FastAPI's
         # `run_in_threadpool` dispatches deep_backend.complete() onto a
@@ -955,7 +955,7 @@ class AeroLLMBackend(BaseBackend):
             text = text[len(wrapped):]
         text = text.replace("<|im_end|>", "").strip()
 
-        # aero_api doesn't surface output-token count yet (planned in
+        # aerollm_api doesn't surface output-token count yet (planned in
         # a follow-up via generate_with_stats). Approximate with a
         # word-count fallback to match the AirLLMBackend style — good
         # enough for the dashboard's tok/min headline; the criterion

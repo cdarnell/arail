@@ -529,6 +529,26 @@
   .pr-vuln-row .pr-sev-med  { color: #e0c060; }
   .pr-toggle { display: flex; align-items: center; gap: 0.5rem; font-size: 0.72rem; color: var(--muted); margin-top: 0.5rem; cursor: pointer; }
   .pr-toggle input { cursor: pointer; }
+
+  /* ── Admin Models section ── */
+  .models-section { display: flex; flex-direction: column; gap: 0.65rem; }
+  .models-default-row { display: flex; align-items: center; gap: 0.6rem; font-size: 0.78rem; flex-wrap: wrap; }
+  .models-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 0.5rem; }
+  .models-row { padding: 0.55rem 0.7rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+  .models-row .name { display: flex; align-items: center; gap: 0.4rem; font-size: 0.8rem; color: var(--text-hi); flex-wrap: wrap; }
+  .models-row .meta { font-size: 0.7rem; color: var(--muted); margin-top: 0.2rem; }
+  .models-row .actions { margin-top: 0.45rem; display: flex; gap: 0.35rem; align-items: center; flex-wrap: wrap; }
+  .models-row .badge-streamed {
+    font-size: 0.55rem; color: var(--amber); border: 1px solid var(--amber-a28, rgba(200,160,96,0.28));
+    background: var(--amber-a08, rgba(200,160,96,0.08));
+    padding: 0 0.4rem; border-radius: 3px; letter-spacing: 0.06em; text-transform: uppercase;
+  }
+  .models-row.loaded { border-color: var(--green); }
+  .models-row .ctx-input { width: 5rem; font-size: 0.7rem; padding: 0.15rem 0.3rem; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 3px; }
+  .models-hw { font-size: 0.7rem; color: var(--muted); }
+  .models-rescan { font-size: 0.72rem; cursor: pointer; background: none; border: 1px solid var(--border); color: var(--muted); padding: 0.15rem 0.5rem; border-radius: 3px; }
+  .models-rescan:hover { border-color: var(--green); color: var(--green); }
+  .models-empty { font-size: 0.75rem; color: var(--muted); padding: 0.5rem 0; }
 </style>
 </head>
 <body>
@@ -607,6 +627,24 @@
       <div class="pr-card">
         <h3>Security</h3>
         <div id="pr-security">loading…</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ Models ═══ -->
+  <div class="admin-section">
+    <h2>Models</h2>
+    <div class="models-section">
+      <div class="models-default-row">
+        <label for="models-default">Default GPU model</label>
+        <select id="models-default" onchange="setDefaultModel(this.value)">
+          <option value="">— none —</option>
+        </select>
+        <span class="models-hw" id="models-hw"></span>
+        <button class="models-rescan" onclick="loadModels(true)">↺ Rescan</button>
+      </div>
+      <div id="models-list" class="models-list">
+        <div class="models-empty">Loading models…</div>
       </div>
     </div>
   </div>
@@ -1057,6 +1095,158 @@ async function toggleAutoScan(enabled) {
   }
 }
 
+// ── Admin Models section ───────────────────────────────────────────────────
+// Event delegation for Load/Unload/CTX buttons — attached once to #models-list.
+// Avoids the onclick-attribute quoting class of bug (model_id contains characters
+// that break double-quoted HTML attribute strings).
+function _initModelsListDelegate() {
+  const list = document.getElementById('models-list');
+  if (!list || list._delegateAttached) return;
+  list._delegateAttached = true;
+  list.addEventListener('click', e => {
+    const btn = e.target.closest('button[data-action]');
+    if (!btn) return;
+    const id = btn.closest('[data-id]')?.dataset.id;
+    if (!id) return;
+    const action = btn.dataset.action;
+    if (action === 'load') loadOneModel(id);
+    else if (action === 'unload') unloadOneModel(id);
+  });
+  list.addEventListener('change', e => {
+    const inp = e.target.closest('input.ctx-input[data-id]');
+    if (!inp) return;
+    setModelCtx(inp.dataset.id, inp.value);
+  });
+}
+async function loadModels(force) {
+  const list = document.getElementById('models-list');
+  if (!list) return;
+  _initModelsListDelegate();
+  try {
+    const url = '/api/admin/models/scan' + (force ? '?force=1' : '');
+    const r = await fetch(url);
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const d = await r.json();
+    _modelsCache = d;
+    // Render default-model dropdown (filter out streamed — cannot be default GPU model)
+    const sel = document.getElementById('models-default');
+    if (sel) {
+      sel.innerHTML = '<option value="">— none —</option>' +
+        (d.models || []).filter(m => !m.streamed).map(m =>
+          `<option value="${_prEsc(m.id)}" ${m.id === d.default_gpu_model ? 'selected' : ''}>${_prEsc(m.id)}</option>`
+        ).join('');
+    }
+    const hw = document.getElementById('models-hw');
+    if (hw) {
+      hw.textContent = d.snapshot
+        ? `${d.snapshot.label || ''} · ${d.snapshot.free_gb != null ? d.snapshot.free_gb + ' GB free' : '? GB free'}`
+        : '';
+    }
+    if (!d.models || d.models.length === 0) {
+      list.innerHTML = `<div class="models-empty">No models found. Add one under <code>lab/models/&lt;name&gt;/</code>.</div>`;
+      return;
+    }
+    if (d.warning) {
+      adminLog('Models scan warning: ' + d.warning, 'warn');
+    }
+    list.innerHTML = d.models.map(m => `
+      <div class="models-row ${m.loaded ? 'loaded' : ''}" data-id="${_prEsc(m.id)}">
+        <div class="name">
+          ${_prEsc(m.id)}
+          ${m.streamed ? '<span class="badge-streamed">streamed</span>' : ''}
+        </div>
+        <div class="meta">
+          ${_prEsc(m.runtime || 'unknown')}
+          · ${m.size_gb != null ? m.size_gb.toFixed(1) + ' GB' : '? GB'}
+          · ${m.total_params_b != null ? m.total_params_b + 'B' : '?B'}
+          ${m.loaded ? '· <span style="color:var(--green)">loaded</span>' : ''}
+        </div>
+        <div class="actions">
+          <button class="pr-btn" data-action="load" data-id="${_prEsc(m.id)}">${m.loaded ? 'Reload' : 'Load'}</button>
+          <button class="pr-btn" data-action="unload" data-id="${_prEsc(m.id)}" ${m.loaded ? '' : 'disabled'}>Unload</button>
+          <span style="font-size:.68rem;color:var(--muted);">CTX</span>
+          <input class="ctx-input" type="number" min="256" max="1000000"
+                 value="${m.ctx || ''}" placeholder="—"
+                 data-id="${_prEsc(m.id)}">
+        </div>
+      </div>`).join('');
+  } catch (e) {
+    list.innerHTML = `<div class="pr-err">Failed to load models: ${_prEsc(e.message)}</div>`;
+    adminLog('Models scan failed: ' + e.message, 'error');
+  }
+}
+async function loadOneModel(id) {
+  adminLog(`Loading ${id}…`);
+  try {
+    const r = await fetch('/api/admin/models/load', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({model_id: id}),
+    });
+    const d = await r.json();
+    if (!r.ok || !d.ok) { adminLog('Load failed: ' + (d.error || 'unknown'), 'error'); return; }
+    adminLog(`${id} loaded${d.streamed ? ' (streamed)' : ''}.`);
+    loadModels(true);
+  } catch (e) { adminLog('Load error: ' + e.message, 'error'); }
+}
+async function unloadOneModel(id) {
+  if (!confirm(`Unload ${id}?`)) return;
+  adminLog(`Unloading ${id}…`);
+  try {
+    const r = await fetch('/api/admin/models/unload', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({model_id: id}),
+    });
+    const d = await r.json();
+    if (r.status === 409) {
+      if (confirm('Model is in use by an active chat. Unload anyway?')) {
+        const r2 = await fetch('/api/admin/models/unload', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({model_id: id, force: true}),
+        });
+        const d2 = await r2.json();
+        if (!r2.ok || !d2.ok) { adminLog('Force unload failed: ' + (d2.error || 'unknown'), 'error'); return; }
+        adminLog(`${id} force-unloaded.`);
+      }
+      loadModels(true); return;
+    }
+    if (!r.ok || !d.ok) { adminLog('Unload failed: ' + (d.error || 'unknown'), 'error'); return; }
+    adminLog(`${id} unloaded.`);
+    loadModels(true);
+  } catch (e) { adminLog('Unload error: ' + e.message, 'error'); }
+}
+async function setDefaultModel(id) {
+  if (!id) return;
+  adminLog(`Setting default GPU model: ${id}…`);
+  try {
+    const r = await fetch('/api/admin/models/set-default', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({model_id: id}),
+    });
+    const d = await r.json();
+    if (!r.ok || !d.ok) { adminLog('Set default failed: ' + (d.error || 'unknown'), 'error'); return; }
+    adminLog(`Default GPU model: ${id}. ${d.message || ''}`);
+  } catch (e) { adminLog('Set default error: ' + e.message, 'error'); }
+}
+async function setModelCtx(id, ctx) {
+  const n = parseInt(ctx, 10);
+  if (!n || n < 256) { adminLog('CTX must be ≥ 256', 'error'); return; }
+  try {
+    const r = await fetch('/api/admin/models/set-ctx', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({model_id: id, ctx: n}),
+    });
+    const d = await r.json();
+    if (!r.ok || !d.ok) { adminLog('Set CTX failed: ' + (d.error || 'unknown'), 'error'); return; }
+    adminLog(`${id} CTX → ${n}.`);
+  } catch (e) { adminLog('Set CTX error: ' + e.message, 'error'); }
+}
+// ── End Admin Models section ───────────────────────────────────────────────
+
 async function checkUpdates() {
   runLiveChecks('Check Updates', '/api/admin/check-updates/stream');
 }
@@ -1306,6 +1496,8 @@ loadAssocStatus();
 _startPerfPolling();
 loadCleanup();
 loadSecurity();
+// Initialize Admin Models section
+loadModels();
 </script>
 <script src="/static/nav.js"></script>
 </body>

@@ -351,16 +351,16 @@
     </div>
   </div>
 
-  <!-- ═══ Goal Panel ═══ -->
-  <div class="card mission-card" id="goal-card">
-    <h2>
-      <span class="indicator"></span> Mission
+  <!-- ═══ Goal Panel — full-width row so Mission reads as the primary surface ═══ -->
+  <div class="card full mission-card" id="goal-card">
+    <h2><span class="indicator"></span> Mission</h2>
+    <div class="mission-nav-strip">
       {% if current_goal %}
-      <a class="card-title-link" href="/mission">Curated view →</a>
+      <a class="mission-nav-link" href="/mission">Curated view →</a>
       {% endif %}
-      <a class="card-title-link" href="/docs/missions.md"
+      <a class="mission-nav-link" href="/docs/missions.md"
          title="What is a mission? What does Draft Swarm Plan actually do? Plain-English walkthrough.">Mission docs ↗</a>
-    </h2>
+    </div>
     {% if current_goal %}
     <div class="mission-meta-line">
       <span class="mission-meta-label">Current</span>
@@ -518,7 +518,11 @@
 
   <!-- (Chat card moved to the top of the grid — it's the focal surface now.) -->
 
-  <!-- ═══ Mission Status ═══ -->
+  <!-- ═══ Mission Status ═══ Paired with Activity Feed below — symmetric 2-col
+       row. Both cards stay class="card" (no full), which means they each
+       occupy one column in the 2-col .grid (style.css:463-470). Equal height
+       is provided by CSS grid stretch. Collapses to stacked at ≤900px via
+       the existing @media (max-width:900px) rule (style.css:1074-1078). -->
   <div class="card">
     <h2><span class="indicator"></span> Mission Status</h2>
 

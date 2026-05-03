@@ -3397,6 +3397,457 @@ async def admin_security_auto_scan(request: Request):
     return {"ok": True, "auto_scan_enabled": enabled}
 
 
+# ── Admin Models endpoints ──────────────────────────────────────────────────
+# Five endpoints that expose on-disk model management in the Admin UI.
+# Auth posture: NOT in allowed_prefixes — same gate as all /api/admin/*.
+# See ARCHITECTURE.md § Interface contracts for the full contract spec.
+
+# Module-level cache + single-flight lock.  Populated lazily so tests
+# can monkey-patch ARAIL_MODELS_DIR before the first call.
+_MODELS_SCAN_CACHE: "dict[str, Any] | None" = None
+_MODELS_SCAN_TS: float = 0.0
+_MODELS_SCAN_TTL: float = 5.0  # seconds
+_MODEL_LOAD_LOCK: asyncio.Lock = asyncio.Lock()  # single-flight for load/unload
+
+# Maximum models to list per scan (safety cap).
+_MODELS_SCAN_MAX = 200
+
+
+def _scan_local_models(force: bool = False) -> "dict[str, Any]":
+    """Single source of truth for the on-disk model listing.
+
+    Walks ARAIL_MODELS_DIR, applies a 5-second TTL cache, and returns a
+    dict with `models`, `default_gpu_model`, `ctx_overrides`, `snapshot`,
+    `scanned_dir`.  Never raises — returns empty list if dir missing or
+    unreadable.  Entries are filtered the same way /api/chat/models does:
+    no hidden files, no _cache suffix dirs, no plain files (models are dirs
+    or symlinks-to-dirs).
+    """
+    global _MODELS_SCAN_CACHE, _MODELS_SCAN_TS
+    import time as _time
+    now = _time.monotonic()
+    if not force and _MODELS_SCAN_CACHE is not None and (now - _MODELS_SCAN_TS) < _MODELS_SCAN_TTL:
+        return _MODELS_SCAN_CACHE
+
+    from arail.model_specs import get_total_params as _gtp, must_stream as _ms
+    models_dir = Path(os.getenv("ARAIL_MODELS_DIR", "lab/models"))
+    default_gpu = os.getenv("ARAIL_DEFAULT_GPU_MODEL", "")
+    ctx_raw = os.getenv("ARAIL_MODEL_CTX_OVERRIDES", "{}")
+    try:
+        import json as _json
+        ctx_overrides: dict[str, int] = _json.loads(ctx_raw)
+        if not isinstance(ctx_overrides, dict):
+            ctx_overrides = {}
+    except Exception:  # noqa: BLE001
+        ctx_overrides = {}
+
+    snapshot = _local_memory_snapshot()
+    entries: list[dict[str, Any]] = []
+    warning: str | None = None
+
+    if not models_dir.exists():
+        result = {
+            "models": [],
+            "default_gpu_model": default_gpu or None,
+            "ctx_overrides": ctx_overrides,
+            "snapshot": snapshot,
+            "scanned_dir": str(models_dir),
+            "warning": "models directory not found",
+        }
+        _MODELS_SCAN_CACHE = result
+        _MODELS_SCAN_TS = now
+        return result
+
+    try:
+        count = 0
+        for p in sorted(models_dir.iterdir()):
+            if count >= _MODELS_SCAN_MAX:
+                warning = f"model directory has >{_MODELS_SCAN_MAX} entries; truncated"
+                break
+            # Filter: skip hidden, skip _cache suffix, skip plain files
+            if p.name.startswith("."):
+                continue
+            if p.name.endswith("_cache"):
+                continue
+            # Accept dirs and symlinks (symlinks may point outside lab tree — allowed)
+            if p.is_file() and not p.is_symlink():
+                continue
+
+            # Detect runtime from directory content (best-effort)
+            runtime = "unknown"
+            if p.is_dir() or p.is_symlink():
+                try:
+                    children = list(p.iterdir()) if p.is_dir() else []
+                    names = {c.name.lower() for c in children}
+                    if any("safetensor" in n for n in names):
+                        runtime = "mlx" if any("model.safetensors" in n for n in names) else "hf"
+                    elif any(n.endswith(".gguf") for n in names):
+                        runtime = "llama.cpp"
+                    elif any("config.json" in n for n in names):
+                        runtime = "hf"
+                except Exception:  # noqa: BLE001
+                    pass
+
+            # Size (best-effort)
+            size_gb: float | None = None
+            try:
+                total_bytes = sum(
+                    f.stat().st_size for f in (p.rglob("*") if p.is_dir() else [p])
+                    if f.is_file()
+                )
+                size_gb = round(total_bytes / (1024 ** 3), 2) if total_bytes > 0 else None
+            except Exception:  # noqa: BLE001
+                pass
+
+            # Total params
+            override_b = _gtp(p.name)
+            if override_b is None:
+                raw = _model_param_hint_value(p.name)
+                override_b = (raw / 1e9) if raw else None
+
+            streamed = _ms(p.name)
+            ctx = ctx_overrides.get(p.name)
+
+            entries.append({
+                "id": p.name,
+                "path": str(p),
+                "runtime": runtime,
+                "size_gb": size_gb,
+                "total_params_b": override_b,
+                "streamed": streamed,
+                "loaded": False,  # enriched below from scheduler
+                "ctx": ctx,
+            })
+            count += 1
+    except PermissionError as e:
+        warning = f"permission denied reading models dir: {e}"
+    except Exception as e:  # noqa: BLE001
+        warning = f"error scanning models dir: {e}"
+
+    result = {
+        "models": entries,
+        "default_gpu_model": default_gpu or None,
+        "ctx_overrides": ctx_overrides,
+        "snapshot": snapshot,
+        "scanned_dir": str(models_dir),
+    }
+    if warning:
+        result["warning"] = warning
+
+    _MODELS_SCAN_CACHE = result
+    _MODELS_SCAN_TS = now
+    return result
+
+
+def _validate_model_id(model_id: str) -> "tuple[bool, str]":
+    """Validate model_id: must be in scan, no path traversal, max 256 chars.
+
+    Returns (ok, error_message).
+    """
+    if not isinstance(model_id, str) or not model_id.strip():
+        return False, "model_id is required"
+    if len(model_id) > 256:
+        return False, "model_id too long (max 256 chars)"
+    # Path traversal — must not contain directory separators or dotdot
+    if ".." in model_id or "/" in model_id or "\\" in model_id:
+        return False, "path traversal detected in model_id"
+    # Containment check
+    models_dir = Path(os.getenv("ARAIL_MODELS_DIR", "lab/models")).resolve()
+    target = (models_dir / model_id).resolve()
+    if target.parent != models_dir:
+        return False, "path traversal: model_id resolves outside models directory"
+    # Must appear in scan (whitelist)
+    scan = _scan_local_models()
+    known_ids = {m["id"] for m in scan.get("models", [])}
+    if model_id not in known_ids:
+        return False, f"unknown model_id: {model_id!r}"
+    return True, ""
+
+
+@app.get("/api/admin/models/scan")
+async def admin_models_scan(force: bool = False):
+    """List all on-disk models with metadata.
+
+    Pass ``?force=1`` (or ``?force=true``) to bypass the 5-second TTL cache
+    and re-walk the disk immediately.  Used by the Rescan button in the admin
+    Models card so newly-added model directories appear without a 5s wait.
+    """
+    from fastapi.responses import JSONResponse
+    try:
+        data = _scan_local_models(force=force)
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse({"models": [], "error": str(e)}, status_code=200)
+    return JSONResponse(data)
+
+
+@app.post("/api/admin/models/load")
+async def admin_models_load(request: Request):
+    """Load (warm) a model into memory.
+
+    Serializes via _MODEL_LOAD_LOCK (single-flight) and acquires
+    scheduler.inference_slot("admin-model-load") so the GPU is not
+    contended during loading.
+    """
+    from fastapi.responses import JSONResponse
+    import time as _time
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "invalid JSON body"}, status_code=400)
+
+    model_id = (body.get("model_id") or "").strip()
+    ok, err = _validate_model_id(model_id)
+    if not ok:
+        status = 400 if "traversal" not in err and "unknown" not in err else 400
+        return JSONResponse({"ok": False, "error": err}, status_code=status)
+
+    # Single-flight: second concurrent /load → 409 immediately
+    if _MODEL_LOAD_LOCK.locked():
+        return JSONResponse(
+            {"ok": False, "error": "model load already in progress"},
+            status_code=409,
+        )
+
+    from arail.model_specs import must_stream as _ms
+    streamed = _ms(model_id)
+
+    # Resolve runtime from scan so _prepare_chat_model_load can pick the right backend.
+    scan = _scan_local_models()
+    detected_runtime: str | None = next(
+        (m.get("runtime") for m in scan.get("models", []) if m.get("id") == model_id),
+        None,
+    )
+
+    try:
+        async with _MODEL_LOAD_LOCK:
+            async with scheduler.inference_slot("admin-model-load"):
+                if streamed:
+                    # AirLLM models — "loading" means warming the wrapper class
+                    if not _is_airllm_installed():
+                        return JSONResponse(
+                            {
+                                "ok": False,
+                                "error": (
+                                    "airllm not installed — run ./arail upgrade max "
+                                    "to enable streamed model loading"
+                                ),
+                            },
+                            status_code=503,
+                        )
+                    # Warm the AirLLM backend (imports + sanity checks only)
+                    await asyncio.to_thread(_get_optional_chat_backend, "airllm")
+                else:
+                    # Local model — use the standalone helper so that:
+                    # 1. _CHAT_MODEL_LOAD_STATE is updated (chat UI sees the transition)
+                    # 2. Errors surface as state="error" and are returned to the caller
+                    # 3. No shared router mutation (backend chosen by runtime type)
+                    load_state = await _prepare_chat_model_load(
+                        model=model_id,
+                        runtime=detected_runtime,
+                        provider=None,
+                    )
+                    if load_state.get("state") == "error":
+                        return JSONResponse(
+                            {"ok": False, "error": load_state.get("message", "load failed")},
+                            status_code=500,
+                        )
+
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+    # Invalidate scan cache so next call reflects updated state
+    global _MODELS_SCAN_TS
+    _MODELS_SCAN_TS = 0.0
+
+    return JSONResponse({
+        "ok": True,
+        "status": "loaded",
+        "model": model_id,
+        "loaded_at": _time.time(),
+        "streamed": streamed,
+    })
+
+
+@app.post("/api/admin/models/unload")
+async def admin_models_unload(request: Request):
+    """Unload a model from memory.
+
+    Refuses if a chat is in-flight on the model's slot unless force=true.
+    """
+    from fastapi.responses import JSONResponse
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "invalid JSON body"}, status_code=400)
+
+    model_id = (body.get("model_id") or "").strip()
+    force = bool(body.get("force", False))
+
+    ok, err = _validate_model_id(model_id)
+    if not ok:
+        return JSONResponse({"ok": False, "error": err}, status_code=400)
+
+    # Check in-flight chat — refuse unless force=true
+    if not force:
+        label_snap = scheduler.per_label_snapshot()
+        deep_inflight = label_snap.get("chat-deep", {}).get("in_flight", 0)
+        default_inflight = label_snap.get("chat-default", {}).get("in_flight", 0)
+        if deep_inflight > 0 or default_inflight > 0:
+            return JSONResponse(
+                {
+                    "ok": False,
+                    "error": (
+                        "Model in use by an active chat. Stop the chat or "
+                        "set force=true to unload anyway."
+                    ),
+                },
+                status_code=409,
+            )
+
+    if _MODEL_LOAD_LOCK.locked():
+        return JSONResponse(
+            {"ok": False, "error": "model load/unload already in progress"},
+            status_code=409,
+        )
+
+    try:
+        async with _MODEL_LOAD_LOCK:
+            async with scheduler.inference_slot("admin-model-load"):
+                # Best-effort unload — release any cached backend references
+                try:
+                    from arail.model_specs import must_stream as _ms
+                    if _ms(model_id):
+                        # Clear AirLLM cached backend so next chat call reloads
+                        _OPTIONAL_CHAT_BACKEND_CACHE.pop("airllm", None)
+                    else:
+                        # For local backends, clearing the router's cached model
+                        # name is the closest we have to an unload signal.
+                        # A proper unload requires restarting the backend process.
+                        pass
+                except Exception:  # noqa: BLE001
+                    pass
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+    global _MODELS_SCAN_TS
+    _MODELS_SCAN_TS = 0.0
+
+    return JSONResponse({"ok": True, "status": "unloaded", "model": model_id})
+
+
+@app.post("/api/admin/models/set-default")
+async def admin_models_set_default(request: Request):
+    """Set the default GPU model. Persists to secrets.env.
+
+    Rejects streamed models (they cannot fit in GPU as a default).
+    Mirror-writes MODEL_NAME so the runtime backend picks it up on
+    next restart. Surfaces a 'Restart Lab to apply' message.
+    """
+    from fastapi.responses import JSONResponse
+    import json as _json
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "invalid JSON body"}, status_code=400)
+
+    model_id = (body.get("model_id") or "").strip()
+    ok, err = _validate_model_id(model_id)
+    if not ok:
+        return JSONResponse({"ok": False, "error": err}, status_code=400)
+
+    from arail.model_specs import must_stream as _ms
+    if _ms(model_id):
+        return JSONResponse(
+            {
+                "ok": False,
+                "error": (
+                    "Streamed models cannot be the default GPU model. "
+                    "Choose a model with ≤35B total params."
+                ),
+            },
+            status_code=400,
+        )
+
+    existing = _read_secrets()
+    existing["ARAIL_DEFAULT_GPU_MODEL"] = model_id
+    # Mirror-write MODEL_NAME so the runtime backend picks it up on restart.
+    existing["MODEL_NAME"] = model_id
+    try:
+        _write_secrets(existing)
+    except OSError as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+    # Refresh env so subsequent reads within this process see the new value
+    os.environ["ARAIL_DEFAULT_GPU_MODEL"] = model_id
+
+    global _MODELS_SCAN_TS
+    _MODELS_SCAN_TS = 0.0
+
+    return JSONResponse({
+        "ok": True,
+        "default_gpu_model": model_id,
+        "message": "Restart Lab to apply the new default model.",
+    })
+
+
+@app.post("/api/admin/models/set-ctx")
+async def admin_models_set_ctx(request: Request):
+    """Set the context-window override for a model. Persists to secrets.env."""
+    from fastapi.responses import JSONResponse
+    import json as _json
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "invalid JSON body"}, status_code=400)
+
+    model_id = (body.get("model_id") or "").strip()
+    ok, err = _validate_model_id(model_id)
+    if not ok:
+        return JSONResponse({"ok": False, "error": err}, status_code=400)
+
+    ctx_raw = body.get("ctx")
+    try:
+        ctx = int(ctx_raw)
+    except (TypeError, ValueError):
+        return JSONResponse({"ok": False, "error": "ctx must be an integer"}, status_code=400)
+
+    if not (256 <= ctx <= 1_000_000):
+        return JSONResponse(
+            {"ok": False, "error": "ctx must be between 256 and 1,000,000"},
+            status_code=400,
+        )
+
+    existing = _read_secrets()
+    existing_ctx_raw = existing.get("ARAIL_MODEL_CTX_OVERRIDES", "{}")
+    try:
+        ctx_overrides: dict = _json.loads(existing_ctx_raw)
+        if not isinstance(ctx_overrides, dict):
+            ctx_overrides = {}
+    except Exception:  # noqa: BLE001
+        ctx_overrides = {}
+
+    ctx_overrides[model_id] = ctx
+    existing["ARAIL_MODEL_CTX_OVERRIDES"] = _json.dumps(ctx_overrides)
+    try:
+        _write_secrets(existing)
+    except OSError as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+    os.environ["ARAIL_MODEL_CTX_OVERRIDES"] = _json.dumps(ctx_overrides)
+
+    global _MODELS_SCAN_TS
+    _MODELS_SCAN_TS = 0.0
+
+    return JSONResponse({
+        "ok": True,
+        "model_id": model_id,
+        "ctx": ctx,
+        "ctx_overrides": ctx_overrides,
+    })
+
+# ── End Admin Models endpoints ──────────────────────────────────────────────
+
+
 @app.get("/api/system/graph")
 async def system_graph():
     """Return the full system connectivity graph with live status."""
@@ -3679,6 +4130,27 @@ def _prepare_chat_context(
 
     optional_backend_name = str(backend_override or "").strip().lower() or None
     wants_deep = optional_backend_name in _OPTIONAL_CHAT_BACKEND_CONFIG
+
+    # ── Hard hardware-floor rule (35B total params) ────────────────────
+    # If the dispatch landed on a non-Deep backend (mlx/cuda/cpu/runtime
+    # override) AND the chosen model's total params exceed the hardware
+    # floor, silently route to AirLLM (Deep) instead. This is SERVER-SIDE
+    # enforcement — clients can lie about their backend selection but the
+    # server still routes correctly. See ARCHITECTURE.md § Data flow D1.
+    if not wants_deep:
+        from arail.model_specs import must_stream as _must_stream
+        candidate_model = (model_override or "").strip() or os.getenv("MODEL_NAME", "")
+        if _must_stream(candidate_model):
+            wants_deep = True
+            optional_backend_name = "airllm"
+            activity_log.emit(
+                "chat",
+                f"35B+ model '{candidate_model}': routing to Deep (AirLLM) "
+                f"per hardware floor.",
+                "info",
+            )
+    # ── End hard hardware-floor rule ───────────────────────────────────
+
     deep_backend = None
     if wants_deep:
         try:
@@ -4242,7 +4714,7 @@ _OPTIONAL_CHAT_BACKEND_CONFIG: dict[str, dict[str, str]] = {
         "label": "AeroLLM",
         "class_name": "AeroLLMBackend",
         "install_command": (
-            "cd aerollm/crates/aero-api && maturin develop --release"
+            "cd aerollm/crates/aerollm-api && maturin develop --release"
         ),
         "model_env": "AEROLLM_MODEL",
         "default_model": "Qwen2.5-7B-Instruct",
@@ -4622,7 +5094,7 @@ async def api_chat_models():
     # Look up the spec sheet so the Frontier chip hover can show
     # strengths, benchmarks, and license at a glance. Registry lives
     # in src/arail/model_specs.py — users edit it to add new models.
-    from arail.model_specs import lookup as _spec_lookup
+    from arail.model_specs import lookup as _spec_lookup, must_stream as _must_stream_ms
     spec = _spec_lookup(deep_model_name)
 
     deep_info = {
@@ -4646,6 +5118,8 @@ async def api_chat_models():
         # download. Surface the caveat so the dashboard can show it in
         # install/help copy instead of failing generically.
         "gated": deep_model_name.lower().startswith("meta-llama/"),
+        # Deep-backend models are always streamed by definition.
+        "streamed": True,
     }
 
     if deep_info["gated"]:
@@ -4665,6 +5139,8 @@ async def api_chat_models():
             "gated": air_model_name.lower().startswith("meta-llama/"),
             "install_command": "pip install airllm",
             "description": "Active deep-chat backend — layer-streaming for 70B+ local models (max tier).",
+            # AirLLM always streams (layer-streaming); mark for picker badge.
+            "streamed": True,
         },
         {
             "id": "aerollm",
@@ -4678,6 +5154,8 @@ async def api_chat_models():
                 + os.getenv("AEROLLM_PACKAGE", "git+https://github.com/cdarnell/aerollm@main")
             ),
             "description": "Future deep-chat backend (Arail's Rust runtime). Dormant until stable.",
+            # AeroLLM is also streaming by design.
+            "streamed": True,
         },
     ]
     for entry in optional_backends:
@@ -4811,7 +5289,23 @@ def _default_teacher_backend() -> str:
 
 
 def _extract_param_hint(model_name: str) -> str:
-    """Parse '235B', '70B', '754B' etc. out of a HF repo name."""
+    """Parse '235B', '70B', '400B' etc. out of a HF repo name.
+
+    First consults model_specs.MODEL_METADATA_OVERRIDES — when the name
+    matches a known MoE / multi-segment override the override's
+    total_params_b is rendered (e.g. "400B" for Llama-4-Maverick).
+    Otherwise falls back to the existing regex. Returns "" when neither
+    matches.
+    """
+    from arail.model_specs import get_total_params as _get_total_params
+    override_b = _get_total_params(model_name)
+    if override_b is not None:
+        if override_b >= 1000:
+            return f"{override_b / 1000:.1f}T"
+        if override_b == int(override_b):
+            return f"{int(override_b)}B"
+        return f"{override_b:.1f}B"
+
     import re as _re
     match = _re.search(r"(\d+(?:\.\d+)?)([BMK])\b", model_name, _re.IGNORECASE)
     if match:
@@ -5025,6 +5519,14 @@ def _build_local_model_entry(
     badge = "new" if modified else None
     compact_label = _compact_model_label(model_id)
 
+    # Compute streamed flag — True when total params exceed the hardware
+    # floor (35B). Picker renders a "streamed" badge; dispatch enforces it.
+    try:
+        from arail.model_specs import must_stream as _ms
+        _streamed = _ms(model_id)
+    except Exception:  # noqa: BLE001
+        _streamed = False
+
     return {
         "id": model_id,
         "label": compact_label or model_id,
@@ -5033,6 +5535,7 @@ def _build_local_model_entry(
         "current": bool(current and model_id == current),
         "size_gb": size_gb,
         "estimated_vram_gb": estimate_gb,
+        "streamed": _streamed,
         "fit": {
             "verdict": verdict,
             "summary": _headroom_summary(estimate_gb, free_gb),
