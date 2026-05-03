@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  arail — Autoresearch AI Lab (ARAIL) unified entry point
-#  Usage: ./arail <command> [args]
+#  arail / qkz — unified entry point for ARAIL + QuKaiZen knowledge base
+#  Usage: ./arail <command> [args]   (or: qkz <command> [args])
 #    setup    first-time provisioning — pick a tier, install deps, download model
 #    start    launch portal + terminal + notebook + IDE
 #    stop     stop running lab services
@@ -13,9 +13,20 @@
 #    status   show what's running and where
 #    doctor   validate the environment end-to-end
 #    logs     tail activity log — filter by component
-#    pkb      knowledge base ops: ingest | compile | browse
-#    wiki     documentation-as-code: build | info | new <title>
+#    pkb      ARAIL knowledge base ops (lab content): ingest | compile | browse
+#    wiki     ARAIL documentation-as-code: build | info | new <title>
+#    kb       QuKaiZen Karpathy LLM Wiki ops: status | compile | lint | query |
+#             search | ingest | index | where  (discoverable, no hardcoded paths)
 #    help     show this message
+#
+#  Discoverability:
+#    REPO_ROOT (ARAIL repo)  resolved by walking the symlink chain — works
+#                            whether invoked as ./arail, ./qkz, ~/.local/bin/qkz,
+#                            or any other shim.
+#    KB_ROOT  (QuKaiZen KB)  resolved on demand by `kb` subcommand:
+#                            $QKZ_KB_ROOT  →  upward search from CWD  →
+#                            $HOME/{ProJects,projects}/knowledge_base  →
+#                            $HOME/knowledge_base  →  helpful error.
 # =============================================================================
 set -euo pipefail
 
@@ -38,7 +49,43 @@ REPO_ROOT="$(cd "$(dirname "$_arail_self")" && pwd)"
 # would crash under `set -u` without this.
 export REPO_ROOT
 unset _arail_self _arail_link
+# Remember where the user actually invoked us — needed by `kb`'s upward search
+# so that running `qkz kb status` from inside the KB Just Works.
+INVOCATION_PWD="$PWD"
+export INVOCATION_PWD
 cd "$REPO_ROOT"
+
+# ---------------------------------------------------------------------------
+# QuKaiZen KB discovery (used by the `kb` subcommand only — lazy)
+# Order: $QKZ_KB_ROOT → upward search from CWD → standard locations → fail.
+# A KB root is a directory containing both AGENTS.md and wiki/_INDEX.md.
+# ---------------------------------------------------------------------------
+discover_kb_root() {
+    local d
+    if [[ -n "${QKZ_KB_ROOT:-}" && -f "$QKZ_KB_ROOT/AGENTS.md" && -f "$QKZ_KB_ROOT/wiki/_INDEX.md" ]]; then
+        echo "$QKZ_KB_ROOT"; return 0
+    fi
+    # Upward walk from invocation CWD (saved before cd "$REPO_ROOT" — see below)
+    d="${INVOCATION_PWD:-$PWD}"
+    while [[ "$d" != "/" && -n "$d" ]]; do
+        if [[ -f "$d/AGENTS.md" && -f "$d/wiki/_INDEX.md" ]]; then
+            echo "$d"; return 0
+        fi
+        d="$(dirname "$d")"
+    done
+    # Standard locations — case variants for macOS habits
+    local cand
+    for cand in \
+        "$HOME/ProJects/knowledge_base" \
+        "$HOME/projects/knowledge_base" \
+        "$HOME/Projects/knowledge_base" \
+        "$HOME/knowledge_base"; do
+        if [[ -f "$cand/AGENTS.md" && -f "$cand/wiki/_INDEX.md" ]]; then
+            echo "$cand"; return 0
+        fi
+    done
+    return 1
+}
 
 # Load .env so LAB_NAME / LAB_TAGLINE reach the help banner.
 # shellcheck disable=SC1091
@@ -111,8 +158,10 @@ EOF
     doctor          validate the environment end-to-end
     logs [comp]     tail activity log — filter by component
     reset [mode]    wipe state — models|data|pkb|plugins|env|full|destroy
-    pkb <op>        ingest | compile | browse — knowledge base
-    wiki <op>       build | info | new <title> — documentation-as-code
+    pkb <op>        ARAIL lab content: ingest | compile | browse
+    wiki <op>       ARAIL docs-as-code: build | info | new <title>
+    kb <op>         QuKaiZen Karpathy Wiki: status | compile | lint | query
+                    | search | ingest | index | where    (auto-discovers KB root)
     blueprint <op>  list | catalog | show | create | apply | destroy — Configuration as Code
     benchmark_models [opts]  measure model TPS for autoresearch routing (alias: benchmark, aerollm)
     help            this message
@@ -312,6 +361,210 @@ TEMPLATE
             set -- --all
         fi
         exec python "$REPO_ROOT/lab/tools/benchmark_models.py" "$@"
+        ;;
+    kb)
+        # QuKaiZen Karpathy LLM Wiki ops. KB root is discovered, never hardcoded.
+        kb_op="${1:-help}"; shift || true
+        # `help` works without KB discovery — it's general info.
+        if [[ "$kb_op" == "help" || "$kb_op" == "-h" || "$kb_op" == "--help" ]]; then
+            cat <<KBHELP
+
+  qkz kb — QuKaiZen Karpathy LLM Wiki
+
+    qkz kb status                Counts, drift, last compile
+    qkz kb compile               Incremental: only new raw/ files
+    qkz kb compile all           Full recompile from raw/
+    qkz kb compile <file>        One specific raw/ file
+    qkz kb lint                  Heuristic health check via Claude
+    qkz kb validate [path]       Strict PAGESPEC.md compliance (no Claude)
+    qkz kb query "question"      Ask the wiki; writes outputs/<date>_<slug>/
+    qkz kb ingest --url|--file|--youtube|--dir ARG
+    qkz kb search "term" [--tags X] [--type T] [--wiki|--raw]
+    qkz kb index                 Regenerate _INDEX.md from disk
+    qkz kb where                 Print discovered KB_ROOT
+
+  KB discovery order:
+    1. \$QKZ_KB_ROOT environment variable
+    2. Upward search from CWD (looking for AGENTS.md + wiki/_INDEX.md)
+    3. \$HOME/{ProJects,projects,Projects}/knowledge_base
+    4. \$HOME/knowledge_base
+  No hardcoded paths.
+  Schema: \$KB_ROOT/PAGESPEC.md is the single source of truth for page format.
+  Read \$KB_ROOT/AGENTS.md to understand why this beats RAG.
+
+KBHELP
+            exit 0
+        fi
+        if ! KB_ROOT="$(discover_kb_root)"; then
+            die "no QuKaiZen knowledge base found.
+  Tried: \$QKZ_KB_ROOT, upward search from $INVOCATION_PWD,
+         \$HOME/{ProJects,projects,Projects}/knowledge_base, \$HOME/knowledge_base.
+  Fix:   export QKZ_KB_ROOT=/path/to/your/knowledge_base
+         (or run \`qkz kb\` from inside a KB directory)"
+        fi
+        export KB_ROOT
+        # Common preamble for any Claude invocation
+        KB_PB="You are the librarian of the Karpathy-style knowledge base at \$KB_ROOT.
+Read AGENTS.md FIRST — it explains the philosophy, structure, and your job.
+Read tools/librarian/PROMPT.md SECOND — your detailed operating spec.
+The wiki is the compiled artifact; raw/ is the input. Always preserve provenance
+in _SOURCES.md and update _INDEX.md when you add or rename pages.
+Use [[wikilinks]] for every cross-reference. Be precise; this knowledge compounds."
+        kb_claude() {
+            command -v claude >/dev/null 2>&1 || die "'claude' CLI not found. npm install -g @anthropic-ai/claude-code"
+            ( cd "$KB_ROOT" && claude --allowedTools "Bash,Read,Write,Edit,Glob,Grep" "$@" )
+        }
+        case "$kb_op" in
+            where)
+                echo "$KB_ROOT"
+                ;;
+            help|-h|--help)
+                cat <<KBEOF
+
+  qkz kb — QuKaiZen Karpathy LLM Wiki ($KB_ROOT)
+
+    qkz kb status                Counts, drift, last compile
+    qkz kb compile               Incremental: only new raw/ files
+    qkz kb compile all           Full recompile from raw/
+    qkz kb compile <file>        One specific raw/ file
+    qkz kb lint                  Health check: broken [[wikilinks]], orphans
+    qkz kb query "question"      Ask the wiki; writes outputs/<date>_<slug>/
+    qkz kb ingest --url|--file|--youtube|--dir ARG
+    qkz kb search "term" [--tags X] [--type T] [--wiki|--raw]
+    qkz kb index                 Regenerate _INDEX.md from disk
+    qkz kb where                 Print discovered KB_ROOT
+
+  Discovery order: \$QKZ_KB_ROOT  →  upward search from CWD  →
+                   standard \$HOME locations.
+  Read \$KB_ROOT/AGENTS.md to understand why this beats RAG.
+
+KBEOF
+                ;;
+            status)
+                cd "$KB_ROOT"
+                raw_n=$(find raw -type f 2>/dev/null | wc -l | tr -d ' ')
+                wiki_n=$(find wiki -name '*.md' -not -path 'wiki/.obsidian/*' 2>/dev/null | wc -l | tr -d ' ')
+                con_n=$(find wiki/concepts -name '*.md' 2>/dev/null | wc -l | tr -d ' ')
+                adr_n=$(find wiki/adrs -name '*.md' 2>/dev/null | wc -l | tr -d ' ')
+                pap_n=$(find wiki/papers -name '*.md' 2>/dev/null | wc -l | tr -d ' ')
+                last=$([ -f .last_compile ] && cat .last_compile || echo "never")
+                printf "KB root      : %s\n" "$KB_ROOT"
+                printf "Raw sources  : %s\n" "$raw_n"
+                printf "Wiki pages   : %s  (concepts=%s adrs=%s papers=%s)\n" "$wiki_n" "$con_n" "$adr_n" "$pap_n"
+                printf "Last compile : %s\n" "$last"
+                if [[ -f wiki/_INDEX.md ]]; then
+                    reported=$(grep -oE 'Wiki articles: *[0-9]+' wiki/_INDEX.md | head -1 | grep -oE '[0-9]+' || echo "?")
+                    echo
+                    echo "_INDEX.md reports $reported wiki articles; disk has $wiki_n."
+                    [[ "$reported" != "$wiki_n" ]] && echo "  → drift detected. Run: qkz kb index"
+                fi
+                ;;
+            compile)
+                cd "$KB_ROOT"
+                date +%Y-%m-%dT%H:%M:%S > .last_compile
+                case "${1:-}" in
+                    ""|incremental)
+                        kb_claude "$KB_PB
+
+TASK: Incremental wiki compile.
+1) List raw/ files not yet referenced in wiki/_SOURCES.md.
+2) For each, follow tools/librarian/PROMPT.md to extract atomic concepts and write/update wiki pages.
+3) Update _INDEX.md and _SOURCES.md.
+4) Verify all new [[wikilinks]] resolve.
+5) Report: files processed, pages created/updated, broken links remaining."
+                        ;;
+                    all|--full|full)
+                        kb_claude "$KB_PB
+
+TASK: FULL recompile from scratch.
+1) Read every file in raw/.
+2) Identify all distinct concepts, ADRs, papers, people, themes.
+3) Per tools/librarian/PROMPT.md, write/update one wiki page per atomic concept with [[wikilinks]] cross-references.
+4) Rebuild wiki/_INDEX.md and wiki/_SOURCES.md from scratch.
+5) Preserve any human-edited prose; do not clobber pages with status: human-curated frontmatter.
+6) Report: total pages, deltas vs previous, any source files that produced no extractions (and why)."
+                        ;;
+                    *)
+                        target="$1"
+                        [[ -f "$KB_ROOT/$target" ]] || [[ -f "$KB_ROOT/raw/$target" ]] || target="raw/$target"
+                        kb_claude "$KB_PB
+
+TASK: Compile a single source file into the wiki.
+Source file: $target
+1) Read $target end-to-end.
+2) Per tools/librarian/PROMPT.md, extract atomic concepts (one concept = one wiki page).
+3) For each concept: create or update the relevant wiki/<section>/<Slug>.md with [[wikilinks]].
+4) Append the source row to wiki/_SOURCES.md with extracted-articles wikilinks.
+5) Update wiki/_INDEX.md to list any new pages.
+6) Verify all new [[wikilinks]] resolve.
+7) Report what was created vs updated."
+                        ;;
+                esac
+                ;;
+            lint)
+                cd "$KB_ROOT"
+                rdate=$(date +%Y-%m-%d)
+                outdir="outputs/${rdate}_lint-report"
+                mkdir -p "$outdir"
+                kb_claude "$KB_PB
+
+TASK: Lint the wiki. Write a full report to $outdir/report.md covering:
+1) Broken [[wikilinks]] (target page does not exist).
+2) Orphaned wiki pages (no inbound links from any other wiki page or from _INDEX.md).
+3) raw/ files not referenced in _SOURCES.md (unprocessed).
+4) Frontmatter inconsistencies (missing title, type, tags).
+5) Daily-note pollution in concepts/ (files matching pattern YYYY-MM-DD.md should probably move to journal/ or be merged).
+6) Stale absolute paths (any wiki/_SOURCES.md row pointing at /Users/<other>/* is stale).
+7) Top 5 highest-value new wiki pages to write next, given current raw/ contents.
+End the report with a one-line summary."
+                ;;
+            query)
+                q="$*"
+                [[ -z "$q" ]] && die "Usage: qkz kb query \"your question\""
+                cd "$KB_ROOT"
+                rdate=$(date +%Y-%m-%d)
+                slug=$(echo "$q" | tr '[:upper:] ' '[:lower:]-' | tr -dc 'a-z0-9-' | cut -c1-40)
+                outdir="outputs/${rdate}_${slug}"
+                mkdir -p "$outdir"
+                kb_claude "$KB_PB
+
+TASK: Answer this question USING THE WIKI.
+Question: $q
+
+Method (Karpathy navigation, no RAG):
+1) Read wiki/_INDEX.md to find the relevant entry points.
+2) Follow [[wikilinks]] to read the connected pages. Do not search blindly.
+3) If a page you need does not exist but the raw/ has the source, note it as a follow-up.
+4) Write $outdir/answer.md — the answer, with [[wikilinks]] inline as citations.
+5) Write $outdir/slides.md — Marp deck (start with: \`---\nmarp: true\n---\`).
+6) End answer.md with: '## Follow-ups' (5 questions) and '## File back into wiki' (changes to merge)."
+                ;;
+            ingest)
+                exec python3 "$KB_ROOT/tools/ingest.py" "$@"
+                ;;
+            search)
+                exec python3 "$KB_ROOT/tools/search.py" "$@"
+                ;;
+            validate)
+                # Enforces PAGESPEC.md against wiki/. Pure Python — no claude needed.
+                exec python3 "$KB_ROOT/tools/validate.py" "$@"
+                ;;
+            index)
+                cd "$KB_ROOT"
+                kb_claude "$KB_PB
+
+TASK: Regenerate wiki/_INDEX.md ONLY (no other files).
+1) Walk wiki/ and build a fresh index by section: concepts, adrs, papers, modes, performance, technical, topics, roadmap, connections, people.
+2) Preserve the existing index header (title, updated, type frontmatter).
+3) Update the Statistics line to match disk reality.
+4) Group entries by section with one-line descriptions pulled from each page's first paragraph or frontmatter title.
+5) Do not modify any other wiki page.
+6) Report: counts before/after, drift fixed."
+                ;;
+            *)
+                die "kb op must be one of: status | compile | lint | validate | query | search | ingest | index | where (run: qkz kb help)"
+                ;;
+        esac
         ;;
     help|-h|--help|"") usage ;;
     *) usage; die "unknown command: $cmd" ;;

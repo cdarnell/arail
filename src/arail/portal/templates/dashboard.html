@@ -560,12 +560,6 @@
     {% else %}
     <p class="empty">No experiments yet. Set a goal to begin.</p>
     {% endif %}
-
-    <!-- Report preview -->
-    {% if current_goal and current_goal.report %}
-    <h2 style="margin-top:1.5rem;">Research Report</h2>
-    <div class="report">{{ current_goal.report }}</div>
-    {% endif %}
   </div>
 
   <!-- ═══ Activity Feed — paired with Mission Status ═══ -->
@@ -584,6 +578,15 @@
       {% endif %}
     </div>
   </div>
+
+  <!-- ═══ Research Report — own full-width row so the latest report
+       reads as a primary surface, not a footnote in Mission Status. -->
+  {% if current_goal and current_goal.report %}
+  <div class="card full">
+    <h2><span class="indicator"></span> Research Report</h2>
+    <div class="report">{{ current_goal.report }}</div>
+  </div>
+  {% endif %}
 
   <!-- ═══ Knowledge Base — central repository, source for wiki +
        notebooks + agents. Full-width hero so it reads as a pillar,
