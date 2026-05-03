@@ -339,6 +339,17 @@ async def _startup():
         activity_log.emit("pkb",
             f"Research program seeding failed: {type(e).__name__}: {e}", "error")
 
+    # KB index readiness — ensure the pkb_pages LanceDB table has the current
+    # schema and is not stale. This call is idempotent and fast on a clean
+    # install (just opens the table and compares mtimes). On first boot after
+    # the incremental-persistence sprint lands it triggers a one-time rebuild.
+    try:
+        from arail.pkb_index import ensure_ready as _pkb_ensure_ready
+        _pkb_ensure_ready()
+    except Exception as e:  # noqa: BLE001
+        activity_log.emit("pkb",
+            f"KB index readiness check failed: {type(e).__name__}: {e}", "warn")
+
     # Agent loader — discover every lab/pkb/agents/<name>/AGENT.md,
     # instantiate each, start the ones that opt in via their
     # auto_start_env, register dream-capable ones with the daemon.
