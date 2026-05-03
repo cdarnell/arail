@@ -49,8 +49,8 @@ incrementally, persistently, and without introducing any new long-lived service.
 | Phase | Subagent | Artifact | Status | Started | Finished | Verdict |
 |---|---|---|---|---|---|---|
 | think | visionary | VISION.md | completed | 2026-05-01 | 2026-05-01 | proceed |
-| plan | architect (design) | ARCHITECTURE.md | in_progress | 2026-05-01 | — | — |
-| build | builder | BUILD_LOG.md | pending | — | — | — |
+| plan | architect (design) | ARCHITECTURE.md | completed | 2026-05-01 | 2026-05-02 | n/a |
+| build | builder | BUILD_LOG.md | in_progress | 2026-05-02 | — | — |
 | review | architect (review) | REVIEW.md | pending | — | — | — |
 | test | qa | TEST_REPORT.md | pending | — | — | — |
 | ship | — | PR | pending | — | — | — |
@@ -63,6 +63,9 @@ incrementally, persistently, and without introducing any new long-lived service.
 | 2026-05-01 | QA allocation re-weighted: 40% correctness / 25% setup / 20% security / 15% regression. | Standard arail allocation is UX-focused (Buddy 30%); this sprint is KB infrastructure, so correctness dominates. Documented in sprint task. |
 | 2026-05-01 | Visionary recommended **proceed**. Win condition: 10s write→retrieve latency, durable across restart, end-to-end witness scenario, no new long-lived service. | VISION.md commit `4b617f2`. Architect must address visionary's displacement concern (draft/published flag for agent-written pages — in scope here, or follow-up?). |
 | 2026-05-01 | Stray `72b222f` commit (prod-readiness BUILD_LOG.md skeleton) landed on this branch during the visionary's run from a parallel sprint session. | Commit only adds a prod-readiness sprint file with no overlap; leaving in place rather than rebasing during an active sprint. Will resolve naturally at merge to main. |
+| 2026-05-01 | Polluted commit `0e18790` (SPRINT.md scaffold + 2 SRE files) left as-is. | SRE additions later landed in main via prod-readiness PR #28 merge. Cleanup adds rebase complexity for zero correctness gain — kb-incremental→main merge will treat the SRE files as identical no-ops. |
+| 2026-05-02 | Architect (design) verdict: schema widens to `{path, name, vector, mtime, source_kind}`; trigger is explicit `pkb_index.schedule_upsert(path)` shim with `threading.Timer` debouncer (2s); upsert uses LanceDB `merge_insert` with delete+add fallback. Draft/published flag DEFERRED (no producers today; `source_kind` preserves the option). | Wedge stays small. Threading.Timer chosen over wiki.py's asyncio debouncer because write helpers are sync and called from sync portal endpoints / CLI. ARCHITECTURE.md commit `4de4de1`. |
+| 2026-05-02 | Pip wiring: Buddy writes `dreams/<date>.md` directly via `target.write_text` at `_builtin_buddy.py:1151` — bypasses helper layer. New helper `pkb.write_buddy_dream` to be added by builder so Buddy's chat-shaped output reaches the index. SRE intentionally deferred (writes JSON `state.json`, not chat-shaped content). | Visionary's disconfirming-evidence test depends on agents producing chat-shaped content; Buddy's dreams qualify, SRE state does not. |
 
 ## Skipped phases
 
