@@ -3565,11 +3565,16 @@ def _validate_model_id(model_id: str) -> "tuple[bool, str]":
 
 
 @app.get("/api/admin/models/scan")
-async def admin_models_scan():
-    """List all on-disk models with metadata."""
+async def admin_models_scan(force: bool = False):
+    """List all on-disk models with metadata.
+
+    Pass ``?force=1`` (or ``?force=true``) to bypass the 5-second TTL cache
+    and re-walk the disk immediately.  Used by the Rescan button in the admin
+    Models card so newly-added model directories appear without a 5s wait.
+    """
     from fastapi.responses import JSONResponse
     try:
-        data = _scan_local_models()
+        data = _scan_local_models(force=force)
     except Exception as e:  # noqa: BLE001
         return JSONResponse({"models": [], "error": str(e)}, status_code=200)
     return JSONResponse(data)
