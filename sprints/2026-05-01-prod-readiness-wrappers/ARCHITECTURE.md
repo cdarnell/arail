@@ -793,19 +793,19 @@ The builder lands these in the sequence below. Each numbered group is one logica
 
 ---
 
-## Plan deviations requested
+## Plan deviations — APPROVED 2026-05-01
 
-These are deviations from the approved plan that the architect has surfaced for the user / orchestrator. The builder MUST NOT silently expand scope — these need a one-line OK.
+These are deviations from the approved plan that the architect surfaced during design. The orchestrator + user approved both on 2026-05-01. They are now part of the design the builder must implement.
 
-### 1. `/docs/{name}` route is unnecessary — already exists
+### 1. APPROVED — Drop the new `/docs/{name}` route
 
-The plan calls for a "small (~15 LOC) handler" at `/docs/{name}`. The existing handler at **app.py:1409–1433** (`@app.get("/docs/{path:path}")`) already serves any `.md` file under `docs/` with path-traversal protection, `.md` whitelist, 404 on missing, and `markdown_it` rendering with `html=False`. `docs/PUBLISH.md` is reachable today as `/docs/PUBLISH.md` with no new code.
+The plan calls for a "small (~15 LOC) handler" at `/docs/{name}`. The existing handler at **app.py:1409–1433** (`@app.get("/docs/{path:path}")`) already serves any `.md` file under `docs/` with path-traversal protection, `.md` whitelist, 404 on missing, and markdown rendering. `docs/PUBLISH.md` is reachable as `/docs/PUBLISH.md` with no new code.
 
-**Recommendation:** drop the new-route work item. Keep the README line and the Quick Actions button (both work against the existing route). Net: removes ~15 LOC + a duplicate handler from the diff. **Awaiting OK to drop.**
+**Builder action:** do NOT add a new docs route. Keep the README line and the Quick Actions button — both link to `/docs/PUBLISH.md` against the existing handler. Verify `_render_markdown_page` (called at app.py:1433) handles PUBLISH.md the same way it handles other docs. Net diff: ~15 LOC less than the plan estimated.
 
-### 2. Sixth inference call site at app.py:3532 is synchronous — blocks the event loop
+### 2. APPROVED — Add the sixth inference wrap at app.py:3532
 
-The plan lists five inference call sites to wrap with `inference_slot`. There is a sixth at **app.py:3532** in `_run_chat_completion`'s `else` branch (the "no deep, no runtime override" path):
+The plan lists five inference call sites to wrap. There is a sixth at **app.py:3532** in `_run_chat_completion`'s `else` branch (the "no deep, no runtime override" path) — the *default* chat path:
 
 ```python
 else:
@@ -815,9 +815,9 @@ else:
     )
 ```
 
-This is the default chat path (when neither deep nor runtime override is active). It currently blocks the event loop entirely while the model runs — which is the single largest source of the "lag" symptom the sprint is wrapping. The plan's five wraps cover deep + runtime + streaming variants but miss the most common case.
+This blocks the event loop entirely during the most common code path. It is the largest single source of the lag symptom this sprint exists to fix. The plan's five wraps cover deep + runtime + streaming variants but miss the default case.
 
-**Recommendation:** add a sixth wrap that BOTH `to_thread`s the `router.complete` call AND wraps it in `inference_slot("chat-default")`:
+**Builder action:** add a sixth wrap (label `"chat-default"`) that BOTH `to_thread`s the `router.complete` call AND wraps it in `inference_slot`:
 
 ```python
 else:
@@ -829,16 +829,142 @@ else:
         )
 ```
 
-Without this, the semaphore wraps the four less-common chat paths but leaves the default path event-loop-blocking — which means dashboard polls still stall during a default chat. **Awaiting OK to add.**
+This is the highest-impact change of the sprint. The file-by-file change list (above) and the failure-modes section now treat **six** inference call sites, not five. Update tally everywhere relevant.
 
-### 3. Severity="error" Observations are flattened to "warn" by the SRE emit path
+### 3. NOTED — Severity="error" Observations flattened to "warn" by SRE emit path
 
-The Observation `severity` field is preserved as data but the activity log entry is always emitted at `"warn"` level (sre.py:399–408). For the CVE watcher this means the user sees a yellow warn line in the activity feed even when 100 critical CVEs are present. The plan does not address this; it's likely fine for v1 but worth flagging.
+The Observation `severity` field is preserved as data but the activity-log entry is always emitted at `"warn"` level (sre.py:399–408). For the CVE watcher this means a yellow warn line in the activity feed even when many critical CVEs are present.
 
-**Recommendation:** out of scope for this sprint. File as a follow-up: "SRE emit honors Observation.severity — error → activity_log.emit(level='error')". **No build-time blocker.**
+**Builder action:** out of scope for this sprint. File as a follow-up after ship: "SRE emit honors Observation.severity — error → activity_log.emit(level='error')". No build-time blocker; CVE watcher still emits the right `severity` field on the Observation, the activity log just renders it less loudly than ideal for v1.
+
+---
+
+## Production observability endpoints (mid-sprint extension, 2026-05-01)
+
+Added in scope after build phase: two industry-standard probes — `/health` (liveness) and `/metrics` (Prometheus text). One atomic commit, no new dependencies, no UI changes. Lands as commit #10 before architect review.
+
+### Restatement
+
+External orchestrators (nginx upstream checks, Kubernetes liveness probes, Cloudflare Health Checks, Prometheus scrapers) expect well-known unauthenticated endpoints. The lab's existing `/api/system/health` is rich and behind the onboarding gate (allowlisted, but JSON-shaped for the operator UI, not a binary probe). We add a thin `/health`/`/healthz` for liveness and a hand-rolled Prometheus `/metrics` exposition. Both bypass the onboarding gate; operators are expected to restrict `/metrics` at the reverse-proxy layer.
+
+### Verified line refs (post-build)
+
+| Ref | What's there now |
+|---|---|
+| `app.py:108–145` | `onboarding_gate` middleware. Allowlist at line 124–130 currently includes `/welcome`, `/api/welcome`, `/static/`, `/api/system/health`, `/favicon.ico`. Match logic at line 131 is `path == p or path.startswith(p)` — equality OR prefix. |
+| `app.py:5043` | `@app.get("/api/system/health")` — the rich operator-facing blob. New routes register adjacent to this one. |
+| `scheduler.py:191–224` | `snapshot()` returns `{capacity, in_flight, pending, completed_5m, wait_ms{label→{p50,p95,n}}, run_ms{label→{...}}, fast_path_ms}`. Per-label p50/p95 already there; per-label `in_flight` and `completed_total` counters are NOT — the helper additions below cover that gap. |
+| `scheduler.py:73–78` | Module-level `_INFLIGHT`/`_PENDING` are scalars (aggregate), and `_COMPLETED` is an epoch deque (no per-label split). The `per_label_snapshot()` helper below adds the missing per-label `in_flight` and `completed_total`. |
+| `security_scan.py` | `status()` returns dict with last-scan timestamp and finding counts by severity (used by admin/security/status). Already 5s-cached at file layer. |
+
+### Endpoint contracts
+
+#### `GET /health` (alias `GET /healthz`)
+
+- **Promise:** Return 200 with JSON `{"status": "ok", "service": "arail", "version": <str>, "uptime_seconds": <float>, "lab_mode": <"airgapped"|"hybrid">}` if the process can dispatch handlers. Liveness only.
+- **Requires:** nothing. Must work pre-onboarding and pre-model-load.
+- **Bad input:** ignored (no body, no query). Unknown methods → 405 (FastAPI default).
+- **Latency:** < 10 ms typical. No subprocess, no disk I/O. `uptime_seconds = perf_counter() - _BOOT_PERF` (capture `_BOOT_PERF` at module import time).
+- **Auth:** bypasses the onboarding gate (added to `allowed_prefixes`).
+- **Source of `version`:** `arail.__version__` if exposed, else read from `pyproject.toml` once at import (cache module-level). Failures yield `"unknown"` — never raise.
+
+#### `GET /metrics`
+
+- **Promise:** Return 200 with `text/plain; version=0.0.4; charset=utf-8` body in Prometheus exposition format. Stable metric names per §1 of the user's spec (`arail_inference_*`, `arail_security_*`, `arail_lab_mode`, `arail_uptime_seconds`, `arail_build_info`).
+- **Requires:** scheduler module loaded; security_scan module importable. Both already true at app boot.
+- **Bad input:** body and query ignored. Unknown methods → 405.
+- **Latency:** < 50 ms even under load. Reads in-memory snapshot + 5s-cached security file.
+- **Auth:** bypasses onboarding gate. Reverse-proxy restriction documented in PUBLISH.md.
+- **No new dependency:** hand-roll the text. ~50 lines of output, well-defined format. If we ever need real histograms, switch to `prometheus_client` then (Phase-2 candidate, NOT now).
+- **Label safety:** label values are taken from `inference_slot(label=...)` call sites, which are static strings in app.py (`chat-default`, `chat-stream`, `agent-pip`, `agent-sre`, `agent-researcher`, `teacher`, `_unknown`). No user input ever flows to a Prometheus label — escaping is therefore a defense-in-depth measure, not load-bearing. Builder still must escape `\`, `"`, and `\n` in label values per the exposition spec.
+
+### Helper addition: `scheduler.per_label_snapshot()`
+
+`snapshot()` aggregates across labels for `in_flight`/`pending`/`completed_5m`. Prometheus needs per-label counters. Add a new helper without changing `snapshot()`:
+
+```python
+def per_label_snapshot() -> dict[str, dict]:
+    """Per-label inference stats. Always succeeds.
+
+    Shape::
+        {
+          "<label>": {
+            "in_flight": int,            # always 0 today (we only track scalars)
+            "completed_total": int,      # monotonic since boot
+            "wait_ms": {"p50": float, "p95": float, "n": int},
+            "run_ms":  {"p50": float, "p95": float, "n": int},
+          }
+        }
+    """
+```
+
+Implementation note for builder: `_INFLIGHT` is a scalar today (aggregate). To get per-label `in_flight`, add a `_INFLIGHT_BY_LABEL: dict[str, int]` and increment/decrement inside `inference_slot`. Same for a new `_COMPLETED_BY_LABEL: dict[str, int]` monotonic counter (incremented in `finally:`). These are tiny changes inside the existing context manager — keep them in the same commit as `_render_metrics` so the change is atomic. **Do not** change the existing `snapshot()` shape; the admin UI consumes it.
+
+### Implementation file plan
+
+ONE commit. Files:
+
+1. `src/arail/portal/scheduler.py`
+   - Add `_INFLIGHT_BY_LABEL: dict[str, int]` and `_COMPLETED_BY_LABEL: dict[str, int]` module state.
+   - In `inference_slot`: increment `_INFLIGHT_BY_LABEL[label]` after acquire, decrement in finally; increment `_COMPLETED_BY_LABEL[label]` in finally.
+   - Add `per_label_snapshot() -> dict[str, dict]` (new public function).
+2. `src/arail/portal/app.py`
+   - Capture `_BOOT_PERF = perf_counter()` and `_BOOT_VERSION = _read_version()` at module import (one-time).
+   - Add `/health` and `/healthz` routes adjacent to `/api/system/health` (around line 5043).
+   - Add `/metrics` route with `PlainTextResponse` and a `_render_metrics() -> str` helper function.
+   - Update `allowed_prefixes` at line 124–130: add `"/health"`, `"/healthz"`, `"/metrics"`.
+   - **Allowlist matcher caveat:** the existing matcher at line 131 is prefix-based, so `/health` would also match `/healthier`. Two routes named that don't exist today, but builder MUST use `path == "/health" or path == "/healthz" or path == "/metrics"` semantics by ensuring the entries in `allowed_prefixes` are exact (no trailing slash) and acknowledging that the `or path.startswith(p)` arm is over-permissive. Since `/health/` is not a real route in this app, the over-match is harmless. Document this in the diff with a single-line comment so the next reader knows it was considered. Do NOT refactor the gate logic in this commit.
+3. `docs/PUBLISH.md`
+   - Append the "Observability endpoints" subsection per §6 of the user's spec.
+
+### Failure modes (extension table)
+
+| Failure | Detection | Recovery |
+|---|---|---|
+| **OBS1.** `/metrics` leaks dependency-version detail or package names | Code review of `_render_metrics()`; QA test asserts only aggregate `arail_security_findings{severity=...}` counts and `arail_build_info{version=...,python=...}` are emitted, never package names | Builder asserts: `_render_metrics()` consumes only `security_scan.status()` aggregate counts; if a future field surfaces package names, that field MUST stay in `/api/admin/security/status` and out of `/metrics` |
+| **OBS2.** Prometheus scrape stalls under inference load | `/metrics` budget < 50 ms; QA timing test under simulated load | `_render_metrics()` reads only `scheduler.per_label_snapshot()` (in-memory) and `security_scan.status()` (file-cached 5 s). No subprocess, no LLM call. If pathology shows up, cache the rendered body for 1 s |
+| **OBS3.** Health endpoint returns 200 while LLM backend is dead, fooling operators | Documented contract: `/health` is liveness, NOT readiness | PUBLISH.md states `/health` = liveness, `/api/system/health` = readiness/operator blob. Do NOT add backend checks to `/health` |
+| **OBS4.** Onboarding gate blocks `/health` or `/metrics` | QA test invokes both before passphrase set, asserts 200 | Builder MUST extend `allowed_prefixes` (line 124–130) with `/health`, `/healthz`, `/metrics`. Re-grep after change to confirm |
+| **OBS5.** Prometheus parser rejects body (malformed format) | QA regex test against `^[a-zA-Z_][a-zA-Z0-9_]*(\{[^}]*\})? -?\d+(\.\d+)?(e[-+]?\d+)?$` per non-comment line | Builder uses TYPE/HELP comments before each metric, escapes label values for `\`, `"`, `\n`, ends file with newline |
+| **OBS6.** Per-label `_INFLIGHT_BY_LABEL` desynchronizes from `_INFLIGHT` if exception escapes acquire path | Code inspection: increment must be inside `try:`, decrement in `finally:` | Builder mirrors the existing `_INFLIGHT` accounting exactly (increment after `await sem.acquire()`, decrement in `finally:`). Existing `_INFLIGHT` already handles this correctly — copy the pattern |
+| **OBS7.** `/metrics` exposed publicly without rate limiting → reconnaissance vector | PUBLISH.md operator guidance | nginx `allow 127.0.0.1; deny all;` snippet documented. Cloudflare Access alternative noted |
+| **OBS8.** `_BOOT_PERF` captured per-worker, so multi-worker uvicorn would report different uptimes per scrape | Documented limitation | Today the lab runs single-worker uvicorn (scheduler.py:30 documents this). If we ever go multi-worker, uptime becomes per-worker — note in PUBLISH.md |
+| **OBS9.** `arail.__version__` not exposed → version field is "unknown" forever | Builder verifies `arail/__init__.py` for `__version__`; falls back to a one-time pyproject read | If neither available, emit `version="unknown"` and `arail_build_info{version="unknown",python="<py>"} 1`. Never raise from the metrics path |
+
+All nine failure modes have a corresponding test in the strategy below.
+
+### Test strategy (extension)
+
+`tests/test_health_metrics.py` — five tests, FastAPI `TestClient`:
+
+1. **test_health_pre_onboarding** — with no passphrase set, `GET /health` returns 200 with JSON keys `status`, `service`, `version`, `uptime_seconds`, `lab_mode`. Covers OBS4.
+2. **test_healthz_alias** — `GET /healthz` returns the same payload shape. Covers OBS4.
+3. **test_metrics_pre_onboarding_and_content_type** — `GET /metrics` returns 200, content-type starts with `text/plain`, body contains `arail_inference_capacity`, `arail_uptime_seconds`, `arail_lab_mode`, `arail_build_info`. Covers OBS4 + smoke for OBS1.
+4. **test_metrics_format_parses** — every non-blank, non-`#` line matches `^[a-zA-Z_][a-zA-Z0-9_]*(\{[^}]*\})? -?\d+(\.\d+)?(e[-+]?\d+)?$`. Covers OBS5.
+5. **test_metrics_no_package_names_leaked** — body does not contain known package names from a sample security_scan fixture (e.g. inject a fake finding for `requests` and assert `requests` does not appear in `/metrics` output). Covers OBS1.
+
+QA absorbs into existing buckets: 10% happy (tests 1–3) + 20% security (tests 4–5). No reallocation needed.
+
+### Tech debt assessment (extension)
+
+| Added | Repaid |
+|---|---|
+| Hand-rolled Prometheus exposition (50 lines) — would migrate to `prometheus_client` if we ever need true histograms | Operability: ARAIL now scrape-ready by any standard observability stack, no operator scripting needed |
+| Two new module-level dicts in scheduler.py (`_INFLIGHT_BY_LABEL`, `_COMPLETED_BY_LABEL`) — small | Documentation: PUBLISH.md now describes both probe semantics clearly, removing operator confusion about which endpoint is which |
+| `allowed_prefixes` grows by 3 entries — trivial | — |
+
+**Net:** slightly debt-negative. The hand-rolled exposition is the only future-flag item; everything else is pure-add value.
+
+### Builder action items (atomic commit #10)
+
+1. `scheduler.py`: add `_INFLIGHT_BY_LABEL` + `_COMPLETED_BY_LABEL` module state; thread through `inference_slot` (mirror existing `_INFLIGHT` accounting exactly); add `per_label_snapshot()`.
+2. `app.py`: add `_BOOT_PERF` + `_read_version()` (cached); add `_render_metrics()`; register `/health`, `/healthz`, `/metrics`; extend `allowed_prefixes` with `/health`, `/healthz`, `/metrics` and add a comment noting the prefix-match over-permissiveness was considered (no harm given route surface).
+3. `docs/PUBLISH.md`: append "Observability endpoints" subsection with the nginx snippet.
+4. Verify with `python -c "from arail.portal import app; ..."` that all three routes register and `_render_metrics()` returns parseable text.
+5. ONE commit. Message: `prod-readiness: /health + /metrics endpoints (Prometheus text)`.
 
 ---
 
 ## Verdict
 
-**Ready to build** — pending one-line confirmation on the two scope deviations above (drop new `/docs/{name}` route; add the sixth inference wrap). Both are recommended; either can be accepted, rejected, or deferred. If both are accepted, the builder ships exactly the plan with the line-ref corrections in this document.
+**Ready to build.** Both deviations approved 2026-05-01. Builder implements the plan with the line-ref corrections in this document AND the two approved deviations baked in: (1) no new `/docs/{name}` route, (2) six inference wraps not five.

@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any, AsyncIterator, Iterator, cast
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -36,6 +36,7 @@ from arail.skills.experiment_tracker import ExperimentTracker
 from arail.swarm_goals import apply_swarm_plan_edits, compile_swarm_plan
 from arail.router.backends import BACKEND_MAP
 from arail.portal.wiki_routes import router as wiki_router
+from arail.portal import scheduler
 
 from arail.brand import load_brand
 from arail.router.backends import ModelResponse
@@ -43,6 +44,33 @@ from arail.ui_theme import list_ui_themes, load_ui_theme, theme_css
 
 _BRAND = load_brand()
 _UI_THEME = load_ui_theme()
+
+# ---------------------------------------------------------------------------
+# Observability boot-time constants (OBS9: version fallback chain; OBS2: no I/O at
+# request time — both are resolved once at import so the /health and /metrics
+# handlers stay < 10 ms and < 50 ms respectively).
+# ---------------------------------------------------------------------------
+_BOOT_PERF: float = time.perf_counter()  # perf_counter at process import
+
+
+def _read_version() -> str:
+    """Return arail version string. Never raises (OBS9)."""
+    try:
+        import arail
+        v = getattr(arail, "__version__", None)
+        if v:
+            return str(v)
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        import importlib.metadata
+        return importlib.metadata.version("arail")
+    except Exception:  # noqa: BLE001
+        pass
+    return "unknown"
+
+
+_BOOT_VERSION: str = _read_version()
 
 # Tier gating — the nav shows only the surfaces matching the current tier.
 # Two tiers: min (everyday) and max (full bench). Upgrade with ./arail upgrade max.
@@ -113,8 +141,15 @@ async def onboarding_gate(request, call_next):
       - /welcome and /api/welcome/* (the onboarding flow itself)
       - /static/* (so the welcome page can load CSS)
       - /api/system/health (so health checks keep working pre-onboarding)
+      - /health, /healthz, /metrics (liveness + Prometheus probes — OBS4)
       - /favicon.ico
     HTML routes get a 302 to /welcome; API routes get a 401 with a hint.
+
+    Note on /health prefix match: the existing matcher uses
+    ``path == p or path.startswith(p)``, so "/health" would also match a
+    hypothetical "/healthier". No such route exists in this app and none
+    should be added under that prefix — the over-match is documented and
+    intentional (considered, not an oversight).
     """
     if _lab_password_set():
         return await call_next(request)
@@ -126,6 +161,9 @@ async def onboarding_gate(request, call_next):
         "/static/",
         "/api/system/health",
         "/favicon.ico",
+        "/health",    # liveness probe — OBS4
+        "/healthz",   # liveness probe alias — OBS4
+        "/metrics",   # Prometheus scrape endpoint — OBS4
     )
     if any(path == p or path.startswith(p) for p in allowed_prefixes):
         return await call_next(request)
@@ -142,6 +180,38 @@ async def onboarding_gate(request, call_next):
     # HTML → bounce to the welcome page.
     from fastapi.responses import RedirectResponse
     return RedirectResponse(url="/welcome", status_code=302)
+
+
+@app.middleware("http")
+async def fastpath_meter(request, call_next):
+    """Time fast-path (non-inference) requests and record latency samples.
+
+    Fast-path: any path whose prefix appears in FAST_PATH_PREFIXES.
+    These requests are timed and pass through immediately; they never
+    queue behind the inference semaphore.
+
+    Heavy-path: everything else.  We just forward the request; the
+    handler itself calls ``async with scheduler.inference_slot(label)``
+    before touching the model router.
+
+    Middleware registration note: FastAPI applies middlewares in *reverse*
+    registration order in source code, so this middleware (registered
+    second) runs *outermost* — it's the first thing traffic hits, then
+    onboarding_gate, then the handler.  That ordering is intentional:
+    fast-path timing wraps the auth check too, giving a realistic view
+    of end-to-end latency on non-inference routes.
+    """
+    from time import perf_counter
+    from arail.portal import scheduler as _sched
+
+    path = request.url.path
+    is_fast = any(path == p or path.startswith(p) for p in _sched.FAST_PATH_PREFIXES)
+    if is_fast:
+        t0 = perf_counter()
+        response = await call_next(request)
+        _sched.fast_path_record(path, (perf_counter() - t0) * 1000.0)
+        return response
+    return await call_next(request)
 
 
 app.include_router(wiki_router)
@@ -174,6 +244,74 @@ if KC_BACKEND_DIR.exists():
         activity_log.emit("system",
                           f"Knowledge Canvas backend mount skipped: {type(e).__name__}: {e}",
                           "warn")
+
+
+# Wiki-manifest fallback for the Knowledge Canvas API. The full backend at
+# core/knowledge-canvas/backend currently can't import on a stock lab venv
+# (missing app.models module + neo4j/python-frontmatter packages), which
+# left the React iframe spinning on "Loading canvas…" forever. These two
+# routes serve a graph derived from the same wiki manifest the dashboard
+# already builds, so the canvas always has something to render. When the
+# real backend mounts above, Starlette dispatches its routes first and
+# these become unreachable — they only fire as a fallback.
+@app.get("/knowledge-canvas/api/graph/status")
+async def _kc_status_fallback():
+    import importlib.util as _u
+    from arail.config import PKB_ROOT as _PKB
+    return {
+        "store_ready": False,
+        "mode": "wiki-fallback",
+        "lance": {
+            "path": str(_PKB / ".wiki-cache" / "lancedb"),
+            "path_exists": (_PKB / ".wiki-cache" / "lancedb").exists(),
+            "package_installed": _u.find_spec("lancedb") is not None,
+        },
+        "neo4j": {
+            "uri": "bolt://localhost:7687",
+            "driver_installed": _u.find_spec("neo4j") is not None,
+        },
+    }
+
+
+@app.get("/knowledge-canvas/api/graph/snapshot")
+async def _kc_snapshot_fallback():
+    from arail.config import PKB_ROOT as _PKB
+    from arail import wiki as _wiki
+    manifest = _wiki.load_manifest(_PKB)
+    graph = manifest.get("graph", {"nodes": [], "edges": []})
+    kind_map = {
+        "sources": "web_page",
+        "agents": "experiment_log",
+        "notes": "markdown",
+        "compiled": "dataset",
+        "inference": "api_snapshot",
+        "docs": "paper",
+    }
+    nodes = []
+    for node in graph.get("nodes", []):
+        group = node.get("group") or "notes"
+        nodes.append({
+            "id": node.get("id"),
+            "title": node.get("label") or node.get("id"),
+            "kind": kind_map.get(group, "markdown"),
+            "tags": node.get("tags", []),
+            "domain": group,
+            "ingested_by": "agent" if group in {"agents", "compiled"} else "user",
+            "year": None,
+            "orphan": False,
+        })
+    links = [{
+        "source": edge.get("source"),
+        "target": edge.get("target"),
+        "kind": "wikilink",
+        "confidence": 1.0,
+    } for edge in graph.get("edges", [])]
+    return {"nodes": nodes, "links": links}
+
+
+@app.get("/knowledge-canvas/api/graph/semantic-edges")
+async def _kc_semantic_edges_fallback():
+    return {"links": []}
 
 templates = Jinja2Templates(directory=PORTAL_DIR / "templates")
 # Expose the brand + tier info to every Jinja template — so `{{ brand.name }}`
@@ -379,6 +517,32 @@ async def _startup():
             activity_log.emit("dream",
                 f"Dream daemon failed to start: {type(e).__name__}: {e}",
                 "warn")
+
+    # Boot security scan — hybrid mode only (LAB_MODE=airgapped stays default;
+    # no involuntary outbound calls).  Runs 30 s after startup to let the lab
+    # settle first.  The task is cancelled cleanly on shutdown (CancelledError
+    # is re-raised so asyncio can cancel the task — D3 mitigation).
+    if _lab_mode() == "hybrid":
+        async def _boot_security_scan():
+            await asyncio.sleep(30)
+            try:
+                from arail.portal import security_scan
+                await security_scan.run_and_persist(trigger="boot")
+            except asyncio.CancelledError:
+                raise  # D3: let asyncio cancel the task on shutdown
+            except ImportError:
+                activity_log.emit(
+                    "security",
+                    "pip-audit not installed — install via ./arail upgrade max to enable CVE scans.",
+                    "warn",
+                )
+            except Exception as e:  # noqa: BLE001
+                activity_log.emit(
+                    "security",
+                    f"Boot CVE scan failed: {type(e).__name__}: {e}",
+                    "warn",
+                )
+        asyncio.create_task(_boot_security_scan())
 
 
 def _register_canvas_goal_listener(store: Any) -> None:
@@ -2908,6 +3072,342 @@ async def admin_check_updates_stream():
     )
 
 
+# ══════════════════════════════════════════════════════════════════════
+# Production Readiness — /api/admin/perf, /api/admin/cleanup,
+#                        /api/admin/security
+# ══════════════════════════════════════════════════════════════════════
+#
+# Auth posture: same as adjacent /api/admin/* endpoints — no extra
+# token; the onboarding_gate middleware already gates all /api/* paths.
+
+# -- Performance / queue metrics ------------------------------------------
+
+@app.get("/api/admin/perf/queue")
+async def admin_perf_queue():
+    """Return the current inference-queue metrics snapshot."""
+    return scheduler.snapshot()
+
+
+# -- Cleanup scan / prune -------------------------------------------------
+
+_PRUNE_LOCK: asyncio.Lock = asyncio.Lock()
+_SCAN_CACHE: dict[str, dict] = {}   # abs path → scan result dict (in-memory)
+_SCAN_CACHE_ROOTS: list[str] = []   # known roots from last scan run
+
+_CLEANUP_WALK_LIMIT = 50_000        # B8 mitigation: cap per root
+
+
+def _lab_cleanup_roots() -> list[tuple[Path, str]]:
+    """Return the three cleanup-scan roots with their kind label."""
+    from arail.config import DATA_DIR, MODELS_DIR, LAB_ROOT
+    return [
+        (Path(DATA_DIR), "data"),
+        (Path(MODELS_DIR), "models"),
+        (Path(LAB_ROOT) / "pkb" / ".wiki-cache", "cache"),
+    ]
+
+
+def _in_known_root(p: Path) -> bool:
+    """True iff *p* is inside one of the known cleanup roots."""
+    try:
+        roots = _lab_cleanup_roots()
+    except Exception:  # noqa: BLE001
+        return False
+    for root, _ in roots:
+        try:
+            p.relative_to(root)
+            return True
+        except ValueError:
+            pass
+    return False
+
+
+def _was_marked_stale(abs_path: Path) -> bool:
+    """True iff *abs_path* appeared in the last scan with stale=True."""
+    key = str(abs_path)
+    entry = _SCAN_CACHE.get(key)
+    if entry is None:
+        return False
+    return bool(entry.get("stale"))
+
+
+@app.get("/api/admin/cleanup/scan")
+async def admin_cleanup_scan():
+    """Walk the known lab roots and return file metadata + stale flags."""
+    from fastapi.responses import JSONResponse
+    global _SCAN_CACHE, _SCAN_CACHE_ROOTS
+
+    now = time.time()
+    items: list[dict] = []
+    total_bytes = 0
+    stale_bytes = 0
+    scanned_roots: list[str] = []
+    new_cache: dict[str, dict] = {}
+
+    try:
+        roots = _lab_cleanup_roots()
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse({"error": f"config unavailable: {exc}"}, status_code=500)
+
+    for root, kind in roots:
+        if not root.exists():
+            continue
+        scanned_roots.append(str(root))
+        count = 0
+        hit_limit = False
+
+        try:
+            for entry in root.rglob("*"):
+                if count >= _CLEANUP_WALK_LIMIT:
+                    hit_limit = True
+                    break
+                if not entry.is_file() or entry.is_symlink():
+                    count += 1
+                    continue
+                try:
+                    st = entry.stat()
+                except OSError:
+                    count += 1
+                    continue
+                age_days = (now - st.st_mtime) / 86400.0
+                size_bytes = st.st_size
+
+                stale = False
+                if kind == "cache" and age_days > 30:
+                    stale = True
+                elif kind == "models":
+                    # Stale = the individual models dir is large.
+                    # Simple heuristic: any file > 5 GiB is a candidate.
+                    if size_bytes > 5 * 2 ** 30:
+                        stale = True
+
+                item: dict = {
+                    "path": str(entry),
+                    "size_bytes": size_bytes,
+                    "age_days": round(age_days, 1),
+                    "stale": stale,
+                    "kind": kind,
+                }
+                items.append(item)
+                new_cache[str(entry)] = item
+                total_bytes += size_bytes
+                if stale:
+                    stale_bytes += size_bytes
+                count += 1
+        except Exception:  # noqa: BLE001
+            pass
+
+        if hit_limit:
+            items.append({
+                "path": str(root),
+                "size_bytes": 0,
+                "age_days": 0.0,
+                "stale": False,
+                "kind": kind,
+                "warn": f"Walk limit ({_CLEANUP_WALK_LIMIT} entries) reached — results are partial.",
+            })
+
+    _SCAN_CACHE = new_cache
+    _SCAN_CACHE_ROOTS = scanned_roots
+
+    return {
+        "items": items,
+        "total_bytes": total_bytes,
+        "stale_bytes": stale_bytes,
+        "scanned_roots": scanned_roots,
+    }
+
+
+@app.post("/api/admin/cleanup/prune")
+async def admin_cleanup_prune(request: Request):
+    """Delete files previously marked stale by /api/admin/cleanup/scan.
+
+    Validates every path before deletion:
+      1. Must be in a known root (B1, B2 path-traversal mitigations).
+      2. Must have been marked stale in the last scan (B2).
+      3. Symlinks are skipped (B3).
+      4. File must still exist (B5).
+    Re-stats at prune time for freed_bytes accuracy (B6).
+    OSError on unlink → skipped, reported (B7).
+    Single-flight via _PRUNE_LOCK (B4).
+    """
+    from fastapi.responses import JSONResponse
+
+    if _PRUNE_LOCK.locked():
+        return JSONResponse({"ok": False, "error": "prune already running"}, status_code=409)
+
+    body: dict
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "invalid JSON body"}, status_code=400)
+
+    paths = body.get("paths", [])
+    if not paths:
+        return JSONResponse({"ok": False, "error": "no paths"}, status_code=400)
+    if len(paths) > 200:
+        return JSONResponse({"ok": False, "error": "too many paths (max 200)"}, status_code=400)
+
+    async with _PRUNE_LOCK:
+        removed = 0
+        freed_bytes = 0
+        skipped: list[dict] = []
+
+        for p_str in paths:
+            try:
+                abs_p = Path(p_str).resolve(strict=False)
+            except Exception:
+                skipped.append({"path": p_str, "reason": "invalid path"})
+                continue
+
+            # B1: must be in a known root
+            if not _in_known_root(abs_p):
+                return JSONResponse(
+                    {"ok": False, "error": f"path not eligible: {p_str}"},
+                    status_code=400,
+                )
+
+            # B2: must have been marked stale in last scan
+            if not _was_marked_stale(abs_p):
+                return JSONResponse(
+                    {"ok": False, "error": f"path not eligible: {p_str}"},
+                    status_code=400,
+                )
+
+            # B3: skip symlinks
+            if abs_p.is_symlink():
+                skipped.append({"path": p_str, "reason": "symlink skipped"})
+                continue
+
+            # B5: skip if already gone
+            if not abs_p.exists():
+                skipped.append({"path": p_str, "reason": "already deleted"})
+                continue
+
+            # B6: re-stat for accurate freed_bytes
+            try:
+                st = abs_p.stat()
+                file_size = st.st_size
+            except OSError:
+                file_size = 0
+
+            # B7: catch OSError on unlink
+            try:
+                abs_p.unlink()
+                removed += 1
+                freed_bytes += file_size
+                # Remove from scan cache
+                _SCAN_CACHE.pop(str(abs_p), None)
+            except OSError as exc:
+                skipped.append({"path": p_str, "reason": f"OSError: {type(exc).__name__}"})
+
+        return {"ok": True, "removed": removed, "freed_bytes": freed_bytes, "skipped": skipped}
+
+
+# -- Security scan endpoints ----------------------------------------------
+
+@app.get("/api/admin/security/status")
+async def admin_security_status():
+    """Return the current security scan status from last_scan.json."""
+    try:
+        from arail.portal import security_scan as _sc
+        return _sc.status()
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "available": False,
+            "last_run_ts": None,
+            "trigger": None,
+            "summary": {"critical": 0, "high": 0, "medium": 0, "low": 0, "total": 0},
+            "findings": [],
+            "tool": "pip-audit",
+            "tool_version": None,
+            "auto_scan_enabled": False,
+            "error": f"security_scan unavailable: {exc}",
+        }
+
+
+@app.post("/api/admin/security/run-scan")
+async def admin_security_run_scan():
+    """Trigger a pip-audit scan and return the result."""
+    from fastapi.responses import JSONResponse
+    try:
+        from arail.portal import security_scan as _sc
+    except ImportError:
+        return JSONResponse(
+            {"ok": False, "error": "pip-audit not installed — run ./arail upgrade max"},
+            status_code=503,
+        )
+
+    if not _sc.is_available():
+        return JSONResponse(
+            {"ok": False, "error": "pip-audit not installed — run ./arail upgrade max"},
+            status_code=503,
+        )
+
+    started_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    result = await _sc.run_and_persist(trigger="manual")
+    return {"ok": True, "status": result, "started_at": started_at}
+
+
+@app.get("/api/admin/security/run-scan/stream")
+async def admin_security_run_scan_stream():
+    """Stream a pip-audit scan as SSE events matching the live-checks modal format."""
+    try:
+        from arail.portal import security_scan as _sc
+    except ImportError:
+        async def _unavailable_gen():
+            payload = json.dumps({
+                "event": "check", "index": 0, "total": 1,
+                "name": "pip-audit", "status": "fail",
+                "duration_ms": 0,
+                "detail": "pip-audit not installed — run ./arail upgrade max",
+            })
+            yield f"data: {payload}\n\n"
+            done = json.dumps({"event": "done", "passed": 0, "warned": 0, "failed": 1, "total": 1, "total_ms": 0})
+            yield f"data: {done}\n\n"
+        return StreamingResponse(
+            _unavailable_gen(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
+    async def _gen():
+        async for evt in _sc.stream_scan_events("sse"):
+            if evt.get("event") == "__keepalive__":
+                # Emit SSE comment as keep-alive (F2, F3)
+                yield ": keepalive\n\n"
+            else:
+                yield f"data: {json.dumps(evt)}\n\n"
+
+    return StreamingResponse(
+        _gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@app.post("/api/admin/security/auto-scan")
+async def admin_security_auto_scan(request: Request):
+    """Toggle the auto-scan-enabled flag persisted in last_scan.json."""
+    from fastapi.responses import JSONResponse
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "invalid JSON body"}, status_code=400)
+
+    enabled = body.get("enabled")
+    if not isinstance(enabled, bool):
+        return JSONResponse({"ok": False, "error": "enabled must be bool"}, status_code=400)
+
+    try:
+        from arail.portal import security_scan as _sc
+        _sc.set_auto_scan(enabled)
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+
+    return {"ok": True, "auto_scan_enabled": enabled}
+
+
 @app.get("/api/system/graph")
 async def system_graph():
     """Return the full system connectivity graph with live status."""
@@ -3349,13 +3849,14 @@ async def _run_chat_completion_stream(
 
     try:
         if deep_backend is not None:
-            response = await asyncio.to_thread(
-                deep_backend.complete,
-                prompt,
-                max_tokens,
-                temperature,
-                top_p,
-            )
+            async with scheduler.inference_slot("chat-stream-deep"):
+                response = await asyncio.to_thread(
+                    deep_backend.complete,
+                    prompt,
+                    max_tokens,
+                    temperature,
+                    top_p,
+                )
             from arail.costs import cost_tracker
             cost_tracker.track(
                 backend=response.backend,
@@ -3388,10 +3889,11 @@ async def _run_chat_completion_stream(
             # worker thread and emit the whole reply as one delta.
             # Keeps the UI happy (it expects deltas + final) without
             # forcing per-runtime streaming bridges.
-            response = await asyncio.to_thread(
-                runtime_backend.complete,
-                prompt, max_tokens, temperature, top_p,
-            )
+            async with scheduler.inference_slot("chat-stream-runtime"):
+                response = await asyncio.to_thread(
+                    runtime_backend.complete,
+                    prompt, max_tokens, temperature, top_p,
+                )
             from arail.costs import cost_tracker
             cost_tracker.track(
                 backend=response.backend, model=response.model,
@@ -3413,22 +3915,23 @@ async def _run_chat_completion_stream(
                 "error": "router unavailable",
             }
             return
-        async for item in _stream_sync_iterator(
-            router.stream_complete(
-                prompt,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                top_p=top_p,
-            )
-        ):
-            if isinstance(item, ModelResponse):
-                final_response = item
-                continue
-            delta = str(item or "")
-            if not delta:
-                continue
-            accumulated += delta
-            yield {"type": "delta", "delta": delta}
+        async with scheduler.inference_slot("chat-stream"):
+            async for item in _stream_sync_iterator(
+                router.stream_complete(
+                    prompt,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    top_p=top_p,
+                )
+            ):
+                if isinstance(item, ModelResponse):
+                    final_response = item
+                    continue
+                delta = str(item or "")
+                if not delta:
+                    continue
+                accumulated += delta
+                yield {"type": "delta", "delta": delta}
 
         if final_response is None:
             final_response = ModelResponse(
@@ -3498,10 +4001,11 @@ async def _run_chat_completion(
     try:
         if deep_backend is not None:
             import asyncio as _aio
-            response = await _aio.to_thread(
-                deep_backend.complete,
-                prompt, max_tokens, temperature, top_p,
-            )
+            async with scheduler.inference_slot("chat-deep"):
+                response = await _aio.to_thread(
+                    deep_backend.complete,
+                    prompt, max_tokens, temperature, top_p,
+                )
             from arail.costs import cost_tracker
             cost_tracker.track(
                 backend=response.backend,
@@ -3525,10 +4029,11 @@ async def _run_chat_completion(
             # the OpenAI-compat call on a worker thread — urllib /
             # requests is blocking.
             import asyncio as _aio
-            response = await _aio.to_thread(
-                runtime_backend.complete,
-                prompt, max_tokens, temperature, top_p,
-            )
+            async with scheduler.inference_slot("chat-runtime"):
+                response = await _aio.to_thread(
+                    runtime_backend.complete,
+                    prompt, max_tokens, temperature, top_p,
+                )
             from arail.costs import cost_tracker
             cost_tracker.track(
                 backend=response.backend,
@@ -3540,12 +4045,18 @@ async def _run_chat_completion(
             )
         else:
             assert router is not None
-            response = router.complete(
-                prompt,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                top_p=top_p,
-            )
+            # APPROVED DEVIATION §2: wrap the synchronous router.complete
+            # call with both to_thread (avoids blocking the event loop)
+            # AND inference_slot (gates concurrency). This is the most
+            # common chat path and the largest source of the lag symptom.
+            async with scheduler.inference_slot("chat-default"):
+                response = await asyncio.to_thread(
+                    router.complete,
+                    prompt,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    top_p=top_p,
+                )
     except Exception as e:  # noqa: BLE001
         activity_log.emit("chat",
                           f"Inference failed: {type(e).__name__}: {str(e)[:120]}",
@@ -4575,6 +5086,192 @@ async def api_chat_system_prompt():
             include_state=True,
         ),
     }
+
+
+# ---------------------------------------------------------------------------
+# Observability probes — /health, /healthz (liveness) + /metrics (Prometheus)
+#
+# These three routes bypass the onboarding gate (see allowed_prefixes above).
+# /health and /healthz are liveness probes — they tell the orchestrator that
+# the process can handle requests. They do NOT check backend health (that is
+# /api/system/health's job).
+# /metrics emits Prometheus text-format exposition. Restrict it to internal
+# traffic at the reverse-proxy layer (see docs/PUBLISH.md §10 for nginx snippet).
+# ---------------------------------------------------------------------------
+
+def _escape_label_value(v: str) -> str:
+    """Escape a Prometheus label value per exposition spec (OBS5).
+
+    Replaces ``\\`` -> ``\\\\``, ``"`` -> ``\\"``, newline -> ``\\n``.
+    Label values here come from static call-site strings, so this is
+    defense-in-depth rather than a load-bearing escaping path.
+    """
+    return v.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+
+
+def _render_metrics() -> str:
+    """Build Prometheus text-format body.  Always succeeds (OBS9).
+
+    Uses only in-memory snapshots and a 5 s-cached file read — no
+    subprocess, no LLM call.  Budget: < 50 ms (OBS2).
+
+    Security (OBS1): only aggregate severity counts from
+    ``security_scan.status()`` are emitted.  Individual package names
+    and versions NEVER appear in this output.
+
+    Format references: https://prometheus.io/docs/instrumenting/exposition_formats/
+    """
+    from arail.portal import scheduler as _sched_mod
+    from arail.portal import security_scan as _sec_mod
+    import sys
+
+    lines: list[str] = []
+
+    def _emit(help_text: str, metric_type: str, name: str,
+               labels: dict[str, str] | None, value: float | int) -> None:
+        lines.append(f"# HELP {name} {help_text}")
+        lines.append(f"# TYPE {name} {metric_type}")
+        if labels:
+            lbl_str = ",".join(
+                f'{k}="{_escape_label_value(str(v))}"' for k, v in labels.items()
+            )
+            lines.append(f"{name}{{{lbl_str}}} {value}")
+        else:
+            lines.append(f"{name} {value}")
+
+    # -- build_info (OBS9: version fallback already applied at import time) --
+    py_ver = _escape_label_value(
+        f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+    )
+    lines.append("# HELP arail_build_info Static build metadata.")
+    lines.append("# TYPE arail_build_info gauge")
+    lines.append(
+        f'arail_build_info{{version="{_escape_label_value(_BOOT_VERSION)}",'
+        f'python="{py_ver}"}} 1'
+    )
+
+    # -- uptime --
+    uptime = time.perf_counter() - _BOOT_PERF
+    _emit("Seconds since the arail portal process started.", "gauge",
+          "arail_uptime_seconds", None, round(uptime, 3))
+
+    # -- lab mode (1=hybrid, 0=airgapped) --
+    lab_mode_val = 1 if _lab_mode() == "hybrid" else 0
+    _emit(
+        "Lab operating mode: 1=hybrid (cloud allowed), 0=airgapped (local only).",
+        "gauge", "arail_lab_mode", None, lab_mode_val,
+    )
+
+    # -- inference capacity --
+    snap = _sched_mod.snapshot()
+    _emit("Maximum concurrent inference slots.", "gauge",
+          "arail_inference_capacity", None, snap["capacity"])
+    _emit("Currently in-flight inference requests (aggregate).", "gauge",
+          "arail_inference_in_flight", None, snap["in_flight"])
+    _emit("Inference requests waiting for a slot (aggregate).", "gauge",
+          "arail_inference_pending", None, snap["pending"])
+    _emit("Inference completions in the last 5 minutes.", "gauge",
+          "arail_inference_completed_5m", None, snap["completed_5m"])
+
+    # -- per-label inference counters --
+    per_label = _sched_mod.per_label_snapshot()
+    if per_label:
+        lines.append("# HELP arail_inference_in_flight_by_label Currently in-flight requests per inference label.")
+        lines.append("# TYPE arail_inference_in_flight_by_label gauge")
+        for lbl, stats in per_label.items():
+            safe = _escape_label_value(lbl)
+            lines.append(f'arail_inference_in_flight_by_label{{label="{safe}"}} {stats["in_flight"]}')
+
+        lines.append("# HELP arail_inference_completed_total_by_label Monotonic inference completions per label since boot.")
+        lines.append("# TYPE arail_inference_completed_total_by_label counter")
+        for lbl, stats in per_label.items():
+            safe = _escape_label_value(lbl)
+            lines.append(f'arail_inference_completed_total_by_label{{label="{safe}"}} {stats["completed_total"]}')
+
+        lines.append("# HELP arail_inference_wait_p50_ms P50 wait-for-slot latency per label (ms, rolling 256 samples).")
+        lines.append("# TYPE arail_inference_wait_p50_ms gauge")
+        for lbl, stats in per_label.items():
+            safe = _escape_label_value(lbl)
+            lines.append(f'arail_inference_wait_p50_ms{{label="{safe}"}} {stats["wait_ms"]["p50"]}')
+
+        lines.append("# HELP arail_inference_run_p50_ms P50 slot-held run latency per label (ms, rolling 256 samples).")
+        lines.append("# TYPE arail_inference_run_p50_ms gauge")
+        for lbl, stats in per_label.items():
+            safe = _escape_label_value(lbl)
+            lines.append(f'arail_inference_run_p50_ms{{label="{safe}"}} {stats["run_ms"]["p50"]}')
+
+    # -- security findings (OBS1: aggregate counts only, NO package names) --
+    try:
+        sec = _sec_mod.status()
+        last_ts = sec.get("last_run_ts")
+        if last_ts:
+            import datetime as _dt
+            try:
+                ts = _dt.datetime.fromisoformat(last_ts.replace("Z", "+00:00"))
+                now_utc = _dt.datetime.now(_dt.timezone.utc)
+                age_s = round((now_utc - ts).total_seconds(), 1)
+            except Exception:  # noqa: BLE001
+                age_s = -1.0
+        else:
+            age_s = -1.0
+        _emit(
+            "Seconds since the last security scan completed. -1 if no scan has run.",
+            "gauge", "arail_security_last_scan_age_seconds", None, age_s,
+        )
+        summary = sec.get("summary", {})
+        lines.append("# HELP arail_security_findings Aggregate vulnerability count by severity (OBS1: no package names).")
+        lines.append("# TYPE arail_security_findings gauge")
+        for sev in ("critical", "high", "medium", "low"):
+            count = summary.get(sev, 0)
+            lines.append(f'arail_security_findings{{severity="{sev}"}} {count}')
+    except Exception:  # noqa: BLE001  (OBS9: never raise from /metrics)
+        _emit(
+            "Seconds since the last security scan completed. -1 if no scan has run.",
+            "gauge", "arail_security_last_scan_age_seconds", None, -1,
+        )
+        lines.append("# HELP arail_security_findings Aggregate vulnerability count by severity.")
+        lines.append("# TYPE arail_security_findings gauge")
+        for sev in ("critical", "high", "medium", "low"):
+            lines.append(f'arail_security_findings{{severity="{sev}"}} 0')
+
+    # Prometheus exposition must end with a final newline.
+    return "\n".join(lines) + "\n"
+
+
+@app.get("/health")
+@app.get("/healthz")
+async def liveness_probe():
+    """Liveness probe for orchestrators (nginx, k8s, Cloudflare Health Checks).
+
+    Returns 200 as long as the process can dispatch handlers.
+    This is liveness only — NOT readiness.  Use /api/system/health for the
+    full operator-facing readiness blob (OBS3).
+
+    Auth: bypasses onboarding gate — works pre-passphrase (OBS4).
+    """
+    return {
+        "status": "ok",
+        "service": "arail",
+        "version": _BOOT_VERSION,
+        "uptime_seconds": round(time.perf_counter() - _BOOT_PERF, 3),
+        "lab_mode": _lab_mode(),
+    }
+
+
+@app.get("/metrics", response_class=PlainTextResponse)
+async def prometheus_metrics():
+    """Prometheus text-format metrics endpoint.
+
+    Content-type: text/plain; version=0.0.4; charset=utf-8 (per exposition spec).
+    Restrict to internal traffic at the reverse proxy — see docs/PUBLISH.md §10.
+
+    Auth: bypasses onboarding gate (OBS4). Rate-limiting is operator's
+    responsibility at the nginx/Cloudflare layer (OBS7).
+    """
+    return PlainTextResponse(
+        _render_metrics(),
+        media_type="text/plain; version=0.0.4; charset=utf-8",
+    )
 
 
 @app.get("/api/system/health")

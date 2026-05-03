@@ -22,11 +22,11 @@ Approved plan seed: `/Users/netsushi/.claude/plans/i-have-the-site-tranquil-miln
 | Phase | Subagent | Artifact | Status | Started | Finished | Verdict |
 |---|---|---|---|---|---|---|
 | think | visionary | VISION.md | skipped | — | — | — |
-| plan | architect (design) | ARCHITECTURE.md | in_progress | 2026-05-01 | — | — |
-| build | builder | BUILD_LOG.md | pending | — | — | — |
-| review | architect (review) | REVIEW.md | pending | — | — | — |
-| test | qa | TEST_REPORT.md | pending | — | — | — |
-| ship | — | PR | pending | — | — | — |
+| plan | architect (design) | ARCHITECTURE.md | completed | 2026-05-01 | 2026-05-01 | ready to build |
+| build | builder | BUILD_LOG.md | completed | 2026-05-01 | 2026-05-01 | 10 implementation commits + 1 BUILD_LOG fixup; ~2423 LOC |
+| review | architect (review) | REVIEW.md | completed | 2026-05-01 | 2026-05-01 | WEAK_PASS — all failure modes mitigated; 1 nit, 1 NIT scope drift |
+| test | qa | TEST_REPORT.md | completed | 2026-05-01 | 2026-05-01 | PASS — 135 new tests, all 5 architect MUST-HIT scenarios covered, pre-existing 5 failures unchanged |
+| ship | — | PR #28 | completed | 2026-05-01 | 2026-05-01 | PR open at https://github.com/cdarnell/arail/pull/28 |
 
 ## Decisions log
 
@@ -37,6 +37,9 @@ Approved plan seed: `/Users/netsushi/.claude/plans/i-have-the-site-tranquil-miln
 | 2026-05-01 | `pip-audit` opt-in | Goes in `[project.optional-dependencies] security`, not base. `LAB_MODE=airgapped` stays default; no involuntary outbound calls. |
 | 2026-05-01 | Auto-remediation = suggest only | CVE findings surface a one-click "install fix" suggestion; never auto-applied. |
 | 2026-05-01 | Branch off main | Committed `knowledge: kb CLI + terminal/dashboard polish` on qukaizen/knowledge-ux-quirky-whisper first; this sprint is on a fresh branch off rebased main. |
+| 2026-05-01 | Approved 2 architect deviations | (1) Drop new `/docs/{name}` route — existing `/docs/{path:path}` at app.py:1409-1433 already serves `.md` files with traversal protection. (2) Add a sixth `inference_slot` wrap at app.py:3532 — the synchronous default chat path the plan missed; biggest source of the lag symptom. Severity-flattening in SRE emit (architect deviation 3) deferred as post-ship follow-up. |
+| 2026-05-01 | Commit cadence | Builder commits per sequencing step (8 commits total). Pre-commit hooks run; do not skip. |
+| 2026-05-01 | Scope add — `/health` + `/metrics` | User added mid-sprint: top-level `/health` (with `/healthz` alias) for liveness probes (nginx, k8s, Cloudflare) and `/metrics` for Prometheus exposition. Both bypass onboarding gate (industry standard). Architect extended ARCHITECTURE.md with full design (lines 842-966). Builder lands as commit #10 before review. No new deps — Prometheus format hand-rolled. PUBLISH.md gets a reverse-proxy restriction subsection. |
 
 ## Skipped phases
 

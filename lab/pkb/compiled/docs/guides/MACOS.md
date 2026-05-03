@@ -4,7 +4,7 @@ section: docs
 tags: [guide]
 aliases: [MACOS]
 source: docs/MACOS.md
-generated: 2026-04-26T21:56:54Z
+generated: 2026-05-01T02:54:53Z
 ---
 # macOS — Arail Setup
 
@@ -21,8 +21,11 @@ specific Mac's RAM, disk, and role.
 
 - macOS 13+ (Ventura or later)
 - Apple Silicon (M1 / M2 / M3 / M4)
-- Python 3.10 or newer (`brew install python@3.12` if needed)
 - ~8 GB free disk for one 8B model
+
+`./arail setup` bootstraps Homebrew and `python@3.11` for you on first
+run — both with a one-line prompt — so you don't need either installed
+ahead of time. Set `ARAIL_NONINTERACTIVE=1` to skip the prompts.
 
 ## Setup
 

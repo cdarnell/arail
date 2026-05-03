@@ -65,7 +65,8 @@ if command -v ttyd &>/dev/null; then
     # warning is noise — not protection — inside the portal.
     TTYD_OPTS=(-W -p "${TERMINAL_PORT:-7681}" -i "$BIND"
                -t disableLeaveAlert=true
-               -t scrollBar=true)
+               -t scrollBar=true
+               -t scrollback=250000)
     if command -v tmux &>/dev/null; then
         TMUX_SHELL="${SHELL:-/bin/bash}"
         ttyd "${TTYD_OPTS[@]}" \

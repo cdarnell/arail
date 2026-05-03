@@ -395,7 +395,7 @@ def _watch_lab_cleanup() -> Optional[Observation]:
       cache_gb > threshold_gb        → warn
       cache_gb > 2 * threshold_gb    → error
 
-    Uses os.scandir-based walk for speed; caps at 10,000 entries (E6).
+    Uses rglob-based walk; caps at 10,000 entries (E6).
     Result is per-call (no module-level caching) — the SRE loop runs
     every 2 minutes so a per-call scandir walk is cheap enough.
     """
