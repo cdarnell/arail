@@ -35,6 +35,8 @@ Schema per model:
 
 from __future__ import annotations
 
+import re as _re
+from functools import lru_cache
 from typing import Any, Dict, List, Optional, Tuple
 
 
@@ -237,3 +239,99 @@ def lookup(model_name: str) -> Optional[Dict[str, Any]]:
 def known_models() -> List[str]:
     """Return every registered model key — useful for docs + tests."""
     return [key for key, _ in _SPECS]
+
+
+# ── Hardware-floor metadata overrides ─────────────────────────────────────
+# Manual overrides for models whose name doesn't expose TOTAL param count.
+# Needed for MoE models where the name reflects active-per-token params
+# (e.g. "17B" in Llama-4-Maverick-17B-128E) rather than total params (~400B).
+#
+# Order = most-specific first. First regex match wins.
+# total_params_b is in BILLIONS (400.0 = 400B).
+# DO NOT add a generic "Llama-4" pattern — it would shadow specific variants.
+MODEL_METADATA_OVERRIDES: List[tuple] = [
+    (_re.compile(r"Llama-4.*Maverick.*17B.*128E", _re.IGNORECASE), {
+        "total_params_b": 400.0,
+        "active_params_b": 17.0,
+        "moe": True,
+        "experts": 128,
+        "license": "Llama Community",
+        "context": "1M tokens",
+        "notes": (
+            "Llama-4 Maverick: 128-expert MoE, 17B active per token, "
+            "~400B total. Streams via AirLLM (max tier)."
+        ),
+        "source": "https://huggingface.co/meta-llama/Llama-4-Maverick-17B-128E-Instruct",
+    }),
+    # Llama-4 Behemoth placeholder — add when weights are released.
+    # (_re.compile(r"Llama-4.*Behemoth.*288B", _re.IGNORECASE), {
+    #     "total_params_b": 2000.0,
+    #     "active_params_b": 288.0,
+    #     ...
+    # }),
+]
+
+# Hardware floor for ARAIL deployment — TOTAL parameter cap for in-GPU
+# residency on the target fleet (5090 24GB / M5 36GB). Anything above
+# this TOTAL must stream via AirLLM. Locked decision per SPRINT.md.
+HARDWARE_FLOOR_TOTAL_B = 35.0
+
+
+@lru_cache(maxsize=512)
+def get_total_params(model_name: str) -> Optional[float]:
+    """Return TOTAL params in billions, or None if unknown.
+
+    Consults MODEL_METADATA_OVERRIDES first. Returns None when no override
+    matches — callers must fall back to the regex-based hint path in app.py.
+
+    Postcondition: result is LRU-cached per process (eviction at 512 entries,
+    far above realistic model-name cardinality). None on empty / bad input.
+    """
+    if not model_name:
+        return None
+    for pat, meta in MODEL_METADATA_OVERRIDES:
+        if pat.search(model_name):
+            value = meta.get("total_params_b")
+            if isinstance(value, (int, float)) and value > 0:
+                return float(value)
+    return None
+
+
+@lru_cache(maxsize=512)
+def must_stream(model_name: str) -> bool:
+    """True iff TOTAL params > HARDWARE_FLOOR_TOTAL_B (35B).
+
+    Single source of truth for the hard hardware-floor rule. Both
+    server-side dispatch (_prepare_chat_context in app.py) and the
+    chat-picker streamed-badge must consult this function. Never
+    re-derive the 35B threshold elsewhere.
+
+    Falls back to a minimal inline regex when no override matches
+    (can't call _model_param_hint_value — it lives in app.py, circular).
+    The inline regex is a 4-line intentional duplication; see ARCHITECTURE.md
+    tech debt section for the future factoring path.
+
+    Postcondition: O(1) per call after first lookup (lru_cache).
+    Bad input: empty / None / unparseable -> False (treat as small;
+    safer default — a small model dispatched to streaming is just slow;
+    a large model dispatched locally is OOM).
+    """
+    if not model_name:
+        return False
+    total_b = get_total_params(model_name)
+    if total_b is not None:
+        return total_b > HARDWARE_FLOOR_TOTAL_B
+    # Override unknown — fall back to a minimal inline regex parse.
+    # Intentional duplication of the _extract_param_hint regex in app.py;
+    # model_specs.py cannot import app.py (circular dependency).
+    m = _re.search(r"(\d+(?:\.\d+)?)([BMK])\b", model_name, _re.IGNORECASE)
+    if not m:
+        return False
+    val = float(m.group(1))
+    unit = m.group(2).upper()
+    if unit == "B":
+        return val > HARDWARE_FLOOR_TOTAL_B
+    if unit == "M":
+        return val / 1000.0 > HARDWARE_FLOOR_TOTAL_B
+    # K -> never above 35B
+    return False
