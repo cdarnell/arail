@@ -561,6 +561,11 @@ def write_agent_research(goal_id: str, content: str,
     dest.mkdir(parents=True, exist_ok=True)
     path = dest / f"{_date_prefix()}_{goal_id}_report.md"
     path.write_text(content)
+    try:
+        from arail.pkb_index import schedule_upsert
+        schedule_upsert(path, pkb_root=root)
+    except Exception:
+        pass  # never break the file write on index failure
     return path
 
 
@@ -572,6 +577,11 @@ def write_agent_experiment(exp_id: str, content: str,
     dest.mkdir(parents=True, exist_ok=True)
     path = dest / f"{_date_prefix()}_{exp_id}.md"
     path.write_text(content)
+    try:
+        from arail.pkb_index import schedule_upsert
+        schedule_upsert(path, pkb_root=root)
+    except Exception:
+        pass  # never break the file write on index failure
     return path
 
 
@@ -616,6 +626,11 @@ def write_agent_experiment_rollup(experiments: list[dict[str, Any]],
         lines.append(f"  - conclusion: {str(e.get('conclusion', 'n/a'))[:180]}")
 
     path.write_text("\n".join(lines) + "\n")
+    try:
+        from arail.pkb_index import schedule_upsert
+        schedule_upsert(path, pkb_root=root)
+    except Exception:
+        pass  # never break the file write on index failure
     return path
 
 
@@ -628,6 +643,11 @@ def write_agent_synthesis(topic: str, content: str,
     slug = re.sub(r"[^a-z0-9]+", "-", topic.lower()).strip("-")[:60]
     path = dest / f"{_date_prefix()}_{slug}.md"
     path.write_text(content)
+    try:
+        from arail.pkb_index import schedule_upsert
+        schedule_upsert(path, pkb_root=root)
+    except Exception:
+        pass  # never break the file write on index failure
     return path
 
 
@@ -644,6 +664,11 @@ def write_agent_recommendation(content: str,
             f.write(f"\n---\n\n{content}\n")
     else:
         path.write_text(content)
+    try:
+        from arail.pkb_index import schedule_upsert
+        schedule_upsert(path, pkb_root=root)
+    except Exception:
+        pass  # never break the file write on index failure
     return path
 
 
@@ -673,6 +698,11 @@ def write_teacher_qa(question: str, answer: str, model: str,
         f"## Answer\n\n{answer}\n"
     )
     path.write_text(content)
+    try:
+        from arail.pkb_index import schedule_upsert
+        schedule_upsert(path, pkb_root=root)
+    except Exception:
+        pass  # never break the file write on index failure
     return path
 
 
