@@ -392,6 +392,24 @@ def _vector_db_path(root: Path) -> Path:
     return root / ".cache" / "lancedb"
 
 
+def _source_kind_for_rel(rel: str) -> str:
+    """Infer source_kind from the relative path prefix (POSIX style)."""
+    rel_posix = rel.replace("\\", "/")
+    if rel_posix.startswith("agents/research/"):
+        return "agent_research"
+    if rel_posix.startswith("agents/experiments/"):
+        return "agent_experiment"
+    if rel_posix.startswith("agents/synthesis/"):
+        return "agent_synthesis"
+    if rel_posix.startswith("agents/recommendations/"):
+        return "agent_recommendation"
+    if rel_posix.startswith("agents/buddy/dreams/"):
+        return "agent_buddy_dream"
+    if rel_posix.startswith("teacher/"):
+        return "teacher_qa"
+    return "user"
+
+
 def index_all(pkb_root: Path | None = None) -> dict[str, Any]:
     """Rebuild the LanceDB vector index over every PKB text file.
 
@@ -399,6 +417,8 @@ def index_all(pkb_root: Path | None = None) -> dict[str, Any]:
     under ``lab/pkb/.cache/lancedb`` so it doesn't pollute the user's
     notes. Returns ``{ok, indexed, path}`` so callers can surface the
     state in activity logs.
+
+    Schema (this sprint): {path, name, vector, mtime, source_kind}
     """
     from arail.vector_index import VectorIndex, hash_embedding, available
 
@@ -408,7 +428,7 @@ def index_all(pkb_root: Path | None = None) -> dict[str, Any]:
 
     rows: list[dict[str, Any]] = []
     for p, text in _iter_pkb_files(root):
-        rel = str(p.relative_to(root))
+        rel = p.relative_to(root).as_posix()
         # Compose the vector input: name + path + first 4 KB of body.
         # Capping keeps the SHA1 token sweep cheap on big files; the
         # snippet preview the API returns is computed separately.
@@ -417,6 +437,8 @@ def index_all(pkb_root: Path | None = None) -> dict[str, Any]:
             "path": rel,
             "name": p.name,
             "vector": hash_embedding(f"{p.name} {rel} {snippet_for_embedding}"),
+            "mtime": p.stat().st_mtime,
+            "source_kind": _source_kind_for_rel(rel),
         })
 
     db_path = _vector_db_path(root)
@@ -651,6 +673,28 @@ def write_teacher_qa(question: str, answer: str, model: str,
         f"## Answer\n\n{answer}\n"
     )
     path.write_text(content)
+    return path
+
+
+def write_buddy_dream(date_str: str, body: str,
+                      pkb_root: Path | None = None) -> Path:
+    """Write Buddy's nightly dream/reflection to agents/buddy/dreams/<date>.md.
+
+    This helper is the index-aware replacement for the direct
+    ``target.write_text(body)`` call in BuddyAgent.dream. Callers are
+    responsible for building ``body`` (including YAML frontmatter) before
+    calling this.
+    """
+    root = pkb_root or _pkb_root()
+    dreams_dir = root / "agents" / "buddy" / "dreams"
+    dreams_dir.mkdir(parents=True, exist_ok=True)
+    path = dreams_dir / f"{date_str}.md"
+    path.write_text(body)
+    try:
+        from arail.pkb_index import schedule_upsert
+        schedule_upsert(path, pkb_root=root)
+    except Exception:
+        pass  # never break the file write on index failure
     return path
 
 
