@@ -111,7 +111,7 @@ def resume_all_jobs() -> None:
 def state() -> dict:
     """Serializable snapshot for the portal's /api/jobs/state endpoint."""
     w = current_window()
-    return {
+    out = {
         "window": w,
         "label": window_label(w),
         "halted": jobs_halted(),
@@ -119,3 +119,10 @@ def state() -> dict:
         "heavy_hours": os.getenv("LAB_HEAVY_HOURS", "22:00-08:00"),
         "startup_delay_sec": startup_delay_seconds(),
     }
+    # Lazy import to avoid circular: runtime_profile imports current_window.
+    try:
+        from arail.runtime_profile import snapshot as _profile_snapshot
+        out["runtime_profile"] = _profile_snapshot()
+    except Exception:
+        pass
+    return out

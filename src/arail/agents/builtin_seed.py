@@ -665,3 +665,79 @@ def ensure_drafter_folder(pkb_root: Path | None = None) -> dict:
         "created": True,
         "path": str(drafter_dir),
     }
+
+
+# ── Presence templates ───────────────────────────────────────────────
+_PRESENCE_AGENT_MD = """---
+title: Presence — runtime profile observer
+name: Presence
+emoji: 📡
+section: agents/presence
+tags: [agent, observer, runtime-profile, builtin]
+voice: ""
+tick_interval_sec: 60
+auto_start_env: LAB_PRESENCE_AGENT
+dream: false
+---
+
+# Presence — runtime profile observer
+
+Presence is a silent observer agent. It watches the resolved runtime
+profile (`arail.runtime_profile.resolve()`) every `tick_interval_sec`
+seconds and emits an `activity_log` event whenever the profile
+transitions. It does NOT speak — Buddy handles narration if/when we
+add a `presence-buddy` companion.
+
+## What it watches
+
+| Signal | Source |
+|---|---|
+| Profile transitions | `runtime_profile.resolve()` returns a different `(profile, source)` than last tick |
+
+Each transition emits one event with `source="profile"` and a `data`
+payload that mirrors `runtime_profile.snapshot()`. The dashboard SSE
+handler uses `source == "profile"` to update the pill.
+
+## Rules of engagement
+
+- **Silent.** No utterances; only `activity_log.emit(...)`.
+- **One event per transition.** Steady-state ticks don't emit.
+- **Never blocks.** Resolver call is O(1); the agent thread is a daemon.
+
+## Editing
+
+- Tune cadence → `LAB_PRESENCE_AGENT_INTERVAL_SEC` in `.env`.
+- Disable → `LAB_PRESENCE_AGENT=off`.
+
+## Companion files
+
+- [presence.py](presence.py) — the body
+- [state.json](state.json) — last-seen profile snapshot (optional)
+"""
+
+
+def ensure_presence_folder(pkb_root: Path | None = None) -> dict:
+    """Materialize lab/pkb/agents/presence/ if missing.
+
+    Idempotent: if the folder exists AND ``presence.py`` is present
+    inside, do nothing. Otherwise write AGENT.md and copy
+    _builtin_presence.py.
+    """
+    root = pkb_root or _pkb_root()
+    presence_dir = root / "agents" / "presence"
+
+    presence_py = presence_dir / "presence.py"
+    if presence_py.exists():
+        return {"ok": True, "created": False}
+
+    presence_dir.mkdir(parents=True, exist_ok=True)
+
+    builtin = Path(__file__).parent / "_builtin_presence.py"
+    shutil.copy(builtin, presence_py)
+    (presence_dir / "AGENT.md").write_text(_PRESENCE_AGENT_MD)
+
+    return {
+        "ok": True,
+        "created": True,
+        "path": str(presence_dir),
+    }

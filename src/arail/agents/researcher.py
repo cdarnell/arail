@@ -795,11 +795,19 @@ class ResearcherAgent:
             await asyncio.sleep(0.5)
 
     def _active_deep_router(self):
-        """Return the deep router only if we're in the heavy window.
-        During active hours we force the fast SLM path so the lab stays
+        """Return the deep router only if we're in the heavy window AND the
+        runtime profile is not 'interactive'. During active hours OR when
+        the operator is here (presence detected) OR they manually pinned
+        'interactive', we force the fast SLM path so the lab stays
         responsive for interactive use."""
         if current_window() == "active":
             return None
+        try:
+            from arail.runtime_profile import resolve
+            if resolve()[0] == "interactive":
+                return None
+        except Exception:
+            pass
         return self._deep_router
 
     # ── Research methods (LLM-enhanced with heuristic fallback) ────
