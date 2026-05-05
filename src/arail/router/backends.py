@@ -3,8 +3,14 @@
 from __future__ import annotations
 
 import atexit
+import json
 import os
+import selectors
+import subprocess
+import sys
+import threading
 import time
+import uuid
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -690,99 +696,324 @@ class OpenAICompatBackend(BaseBackend):
 # ---------------------------------------------------------------------------
 # AirLLM  (layer-streaming baseline — 70B on constrained hardware)
 # ---------------------------------------------------------------------------
+class AirLLMWorkerError(RuntimeError):
+    """The AirLLM subprocess died, timed out, or refused to answer.
+
+    Carries a short tail of the worker's stderr so the chat surface
+    can show *why* (Metal GPU timeout, OOM, missing weights, …)
+    instead of a bare ``RuntimeError``."""
+
+
 class AirLLMBackend(BaseBackend):
-    """Run large Hugging Face models via AirLLM's layer streaming path."""
+    """Run AirLLM out-of-process so a Metal command-buffer timeout
+    (which throws a C++ ``std::runtime_error`` and aborts the whole
+    interpreter) only kills the worker — the lab portal stays alive
+    and respawns the worker on the next call.
+
+    Same ``complete()`` signature as before, so the router and chat
+    paths don't change. The worker script is
+    :mod:`arail.router.airllm_worker`; protocol is newline-delimited
+    JSON on stdio. See that module's docstring for message shapes."""
+
+    # Defensive cap so a runaway worker can't feed the parent an
+    # unbounded line. Llama-3.1-70B replies max out well below this.
+    _MAX_LINE_BYTES = 16 * 1024 * 1024
 
     def __init__(self) -> None:
+        # Surface a clean ImportError early if airllm isn't installed
+        # at all, rather than waiting for a worker spawn to fail.
         try:
-            from airllm import AutoModel  # type: ignore
-            self._AutoModel = AutoModel
-        except ImportError:
-            raise ImportError("AirLLM not installed. Run: pip install airllm")
+            import airllm  # type: ignore  # noqa: F401
+        except ImportError as exc:
+            raise ImportError(
+                "AirLLM not installed. Run: pip install airllm"
+            ) from exc
 
         self.model_name = os.getenv(
             "AIRLLM_MODEL",
             "meta-llama/Llama-3.1-70B",
         )
-        compression = os.getenv("AIRLLM_COMPRESSION", "4bit") or None
-        if compression == "none":
-            compression = None
+        # Operators on slow disks can stretch the load deadline.
+        # 1200s default covers a fresh 70B layer-split on an external
+        # SSD; call timeout covers the longest 512-token gen we've seen.
+        self._call_timeout_s = float(os.getenv("AIRLLM_CALL_TIMEOUT_S", "300"))
+        self._load_timeout_s = float(os.getenv("AIRLLM_LOAD_TIMEOUT_S", "1200"))
+        self._stderr_tail = ""
+        self._proc: subprocess.Popen | None = None
+        self._spawn_lock = threading.Lock()
+        self._call_lock = threading.Lock()
 
-        models_dir = os.getenv("ARAIL_MODELS_DIR", "lab/models")
-        cache_dir = os.path.join(models_dir, "airllm_cache")
-        os.makedirs(cache_dir, exist_ok=True)
+        # Eager spawn keeps the first chat call from paying the full
+        # load cost — mirrors the prior in-process behavior. Set
+        # ``AIRLLM_LAZY_SPAWN=1`` to defer load until first complete().
+        if os.getenv("AIRLLM_LAZY_SPAWN", "").strip().lower() not in {"1", "true", "yes"}:
+            self._ensure_worker()
+        atexit.register(self._shutdown)
 
-        local_dir = os.path.join(models_dir, self.model_name.split("/")[-1])
-        model_path = local_dir if os.path.isdir(local_dir) else self.model_name
+    # ── Worker lifecycle ──────────────────────────────────────────────
 
-        load_kwargs: dict[str, Any] = {
-            "compression": compression,
-            "layer_shards_saving_path": cache_dir,
-        }
-        hf_token = os.getenv("HF_TOKEN")
-        if hf_token:
-            load_kwargs["hf_token"] = hf_token
+    def _worker_alive(self) -> bool:
+        proc = self._proc
+        return proc is not None and proc.poll() is None
 
-        self.model = self._AutoModel.from_pretrained(model_path, **load_kwargs)
-        self._max_length = int(os.getenv("AIRLLM_MAX_LENGTH", "512"))
+    def _ensure_worker(self) -> None:
+        with self._spawn_lock:
+            if self._worker_alive():
+                return
+            self._teardown_locked()  # drop a dead handle if any.
+
+            cmd = [sys.executable, "-u", "-m", "arail.router.airllm_worker"]
+            # Inherit env so HF_TOKEN, AIRLLM_MODEL, AIRLLM_COMPRESSION,
+            # ARAIL_MODELS_DIR, etc. propagate without copy paste.
+            self._proc = subprocess.Popen(  # noqa: S603
+                cmd,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                env=os.environ.copy(),
+                bufsize=0,
+            )
+
+            # Wait for the ready handshake. A "fatal" message means the
+            # worker imported airllm but couldn't load the weights.
+            line = self._read_line(self._load_timeout_s)
+            if line is None:
+                tail = self._drain_stderr(2.0)
+                rc = self._proc.poll() if self._proc is not None else None
+                self._teardown_locked()
+                hint = f"exit={rc}" if rc is not None else "no ready signal"
+                raise AirLLMWorkerError(
+                    f"AirLLM worker did not start ({hint}). "
+                    f"Last stderr: {tail[-800:]!r}"
+                )
+            try:
+                msg = json.loads(line)
+            except json.JSONDecodeError as e:
+                self._teardown_locked()
+                raise AirLLMWorkerError(
+                    f"AirLLM worker emitted non-JSON on startup: {line!r} ({e})"
+                )
+            if msg.get("type") == "fatal":
+                err = msg.get("error", "unknown")
+                self._teardown_locked()
+                raise AirLLMWorkerError(f"AirLLM worker failed to load: {err}")
+            if msg.get("type") != "ready":
+                self._teardown_locked()
+                raise AirLLMWorkerError(
+                    f"AirLLM worker sent unexpected first message: {msg!r}"
+                )
+            # Use whatever model id the worker actually loaded.
+            self.model_name = msg.get("model") or self.model_name
+
+    def _teardown_locked(self) -> None:
+        """Kill any existing worker handle. Caller holds ``_spawn_lock``."""
+        proc = self._proc
+        self._proc = None
+        if proc is None:
+            return
+        for closer in (proc.stdin, proc.stdout, proc.stderr):
+            try:
+                if closer is not None:
+                    closer.close()
+            except Exception:  # noqa: BLE001
+                pass
+        try:
+            proc.kill()
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            proc.wait(timeout=2.0)
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _shutdown(self) -> None:
+        """atexit hook — best-effort worker cleanup on portal exit."""
+        with self._spawn_lock:
+            self._teardown_locked()
+
+    # ── Pipe I/O ──────────────────────────────────────────────────────
+
+    def _read_line(self, timeout_s: float) -> str | None:
+        """Read one newline-terminated JSON line from worker stdout.
+
+        Returns the line (without newline) or ``None`` on timeout / EOF.
+        Raises :class:`AirLLMWorkerError` on oversize lines (defensive
+        — prevents a runaway worker from consuming unbounded memory)."""
+        proc = self._proc
+        if proc is None or proc.stdout is None:
+            return None
+        sel = selectors.DefaultSelector()
+        sel.register(proc.stdout, selectors.EVENT_READ)
+        deadline = time.time() + timeout_s
+        buf = bytearray()
+        try:
+            while True:
+                remaining = deadline - time.time()
+                if remaining <= 0:
+                    return None
+                events = sel.select(timeout=remaining)
+                if not events:
+                    return None
+                try:
+                    chunk = os.read(proc.stdout.fileno(), 65536)
+                except OSError:
+                    return None
+                if not chunk:
+                    return None  # EOF — worker died
+                buf.extend(chunk)
+                nl = buf.find(b"\n")
+                if nl != -1:
+                    return buf[:nl].decode("utf-8", errors="replace")
+                if len(buf) > self._MAX_LINE_BYTES:
+                    raise AirLLMWorkerError(
+                        f"AirLLM worker emitted oversized line "
+                        f"(>{self._MAX_LINE_BYTES} bytes) — pipe corrupt"
+                    )
+        finally:
+            try:
+                sel.unregister(proc.stdout)
+            except Exception:  # noqa: BLE001
+                pass
+            sel.close()
+
+    def _drain_stderr(self, timeout_s: float) -> str:
+        """Best-effort tail of worker stderr for the diagnostic surface."""
+        proc = self._proc
+        if proc is None or proc.stderr is None:
+            return self._stderr_tail
+        sel = selectors.DefaultSelector()
+        sel.register(proc.stderr, selectors.EVENT_READ)
+        out = bytearray()
+        deadline = time.time() + timeout_s
+        try:
+            while True:
+                remaining = deadline - time.time()
+                if remaining <= 0:
+                    break
+                events = sel.select(timeout=remaining)
+                if not events:
+                    break
+                try:
+                    chunk = os.read(proc.stderr.fileno(), 65536)
+                except OSError:
+                    break
+                if not chunk:
+                    break
+                out.extend(chunk)
+                if len(out) > 64 * 1024:
+                    break
+        finally:
+            try:
+                sel.unregister(proc.stderr)
+            except Exception:  # noqa: BLE001
+                pass
+            sel.close()
+        if out:
+            self._stderr_tail = (
+                self._stderr_tail + out.decode("utf-8", errors="replace")
+            )[-8000:]
+        return self._stderr_tail
+
+    # ── Public surface ────────────────────────────────────────────────
 
     def complete(self, prompt: str, max_tokens: int = 512,
                  temperature: float = 0.7,
                  top_p: Optional[float] = None) -> ModelResponse:
-        start = time.time()
+        # Runtime profile cap: 'interactive' clamps long generations so
+        # the layer-streaming path doesn't lock up the lab when the
+        # operator is here. See arail.runtime_profile.
+        try:
+            from arail.runtime_profile import params, resolve
+            cap = params(resolve()[0])["airllm_max_tokens_cap"]
+            max_tokens = min(max_tokens, cap)
+        except Exception:  # noqa: BLE001
+            pass  # Profile module is optional at this layer.
 
-        input_tokens = self.model.tokenizer(
-            [prompt],
-            return_tensors="pt",
-            return_attention_mask=False,
-            truncation=True,
-            max_length=self._max_length,
-            padding=False,
-        )
+        # Serialize concurrent callers — AirLLM's MLX path is single-
+        # threaded on the GPU, and the stdio pipe is one channel.
+        with self._call_lock:
+            self._ensure_worker()
+            assert self._proc is not None and self._proc.stdin is not None
 
-        gen_kwargs: dict[str, Any] = {
-            "max_new_tokens": max_tokens,
-            "use_cache": True,
-            "return_dict_in_generate": True,
-        }
-        if temperature != 1.0 or top_p is not None:
-            gen_kwargs["do_sample"] = True
-            gen_kwargs["temperature"] = temperature
-            if top_p is not None:
-                gen_kwargs["top_p"] = top_p
+            req_id = uuid.uuid4().hex
+            payload = json.dumps({
+                "id": req_id,
+                "type": "complete",
+                "prompt": prompt,
+                "max_tokens": int(max_tokens),
+                "temperature": float(temperature),
+                "top_p": top_p,
+            }) + "\n"
 
-        input_ids = input_tokens["input_ids"]
-        torch = __import__("torch")
-        if torch.cuda.is_available():
-            input_ids = input_ids.cuda()
+            try:
+                self._proc.stdin.write(payload.encode("utf-8"))
+                self._proc.stdin.flush()
+            except (BrokenPipeError, OSError) as e:
+                tail = self._drain_stderr(1.0)
+                with self._spawn_lock:
+                    self._teardown_locked()
+                raise AirLLMWorkerError(
+                    f"AirLLM worker pipe closed before request: {e}. "
+                    f"Last stderr: {tail[-600:]!r}"
+                )
 
-        generation = self.model.generate(input_ids, **gen_kwargs)
-        text = self.model.tokenizer.decode(
-            generation.sequences[0], skip_special_tokens=True
-        )
-        if text.startswith(prompt):
-            text = text[len(prompt):]
-        text = text.strip()
+            line = self._read_line(self._call_timeout_s)
+            if line is None:
+                # Either timeout or worker died mid-call. Distinguish
+                # via exit code so the message is honest.
+                rc = self._proc.poll() if self._proc is not None else None
+                tail = self._drain_stderr(1.0)
+                with self._spawn_lock:
+                    self._teardown_locked()
+                if rc is None:
+                    raise AirLLMWorkerError(
+                        f"AirLLM call exceeded {self._call_timeout_s:.0f}s "
+                        f"(worker still alive but unresponsive — killed). "
+                        f"Last stderr: {tail[-600:]!r}"
+                    )
+                raise AirLLMWorkerError(
+                    f"AirLLM worker died mid-call (exit={rc}). "
+                    f"Likely a Metal GPU timeout — see stderr for the "
+                    f"libc++abi trace. Tail: {tail[-800:]!r}"
+                )
 
-        tokens_used = len(generation.sequences[0]) - len(input_tokens["input_ids"][0])
+            try:
+                msg = json.loads(line)
+            except json.JSONDecodeError as e:
+                with self._spawn_lock:
+                    self._teardown_locked()
+                raise AirLLMWorkerError(
+                    f"AirLLM worker bad response: {e}; line={line!r}"
+                )
 
-        return ModelResponse(
-            text=text,
-            model=self.model_name,
-            tokens_used=max(tokens_used, 0),
-            backend="airllm",
-            latency_ms=(time.time() - start) * 1000,
-            cost_usd=0.0,
-        )
+            if msg.get("id") != req_id:
+                # Out-of-order responses shouldn't happen with serial
+                # request/response — treat as protocol corruption.
+                with self._spawn_lock:
+                    self._teardown_locked()
+                raise AirLLMWorkerError(
+                    f"AirLLM worker response id mismatch: "
+                    f"want {req_id!r} got {msg.get('id')!r}"
+                )
+
+            if not msg.get("ok"):
+                # In-worker error (caught Python exception). The worker
+                # is still alive and serviceable for the next call.
+                raise AirLLMWorkerError(
+                    f"AirLLM call failed: {msg.get('error', 'unknown')}"
+                )
+
+            return ModelResponse(
+                text=str(msg.get("text", "")),
+                model=str(msg.get("model", self.model_name)),
+                tokens_used=int(msg.get("tokens", 0)),
+                backend="airllm",
+                latency_ms=float(msg.get("latency_ms", 0.0)),
+                cost_usd=0.0,
+            )
 
     def health_check(self) -> bool:
-        try:
-            return (
-                self.model is not None
-                and self.model.tokenizer is not None
-            )
-        except Exception:
-            return False
+        return self._worker_alive()
 
 
 # ---------------------------------------------------------------------------
@@ -859,6 +1090,18 @@ class AeroLLMBackend(BaseBackend):
         ring_depth = os.getenv("AEROLLM_RING_DEPTH")
         if ring_depth and ring_depth.isdigit() and int(ring_depth) > 0:
             rt_kwargs["ring_depth"] = int(ring_depth)
+
+        # TODO(runtime-profile): Once AeroLLM accepts construction-time
+        # ring_depth + batch from runtime profile, replace the env-only
+        # path above with:
+        #     from arail.runtime_profile import resolve, params
+        #     p = params(resolve()[0])
+        #     rt_kwargs.setdefault("ring_depth", p["aerollm_ring_depth"])
+        #     rt_kwargs.setdefault("batch", p["aerollm_batch"])
+        # Profile changes require a Runtime restart today (kwargs are
+        # construction-time); for per-call batch, thread a kwarg into
+        # complete() reading params(resolve()[0])["aerollm_batch"].
+        # Param table is the source of truth — tuning is config, not code.
 
         self._model_path = model_path
         self._draft_path = draft_path
