@@ -52,7 +52,8 @@ EXTRACT_DIR = DATA_DIR / "browser" / "extracts"
 
 
 def _is_airgapped() -> bool:
-    return os.getenv("ARAIL_MODE", "airgapped").lower() == "airgapped"
+    from arail.airgap import is_airgapped
+    return is_airgapped()
 
 
 def _ab_available() -> bool:

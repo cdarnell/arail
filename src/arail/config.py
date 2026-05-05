@@ -28,6 +28,11 @@ def get(key: str, default: str | None = None) -> str | None:
     return os.getenv(key, default)
 
 
+# Re-export the canonical mode helpers from arail.airgap.
+# Any module that was doing its own os.getenv("LAB_MODE", ...) dance
+# should import from here (or from arail.airgap directly) instead.
+from arail.airgap import lab_mode, is_airgapped  # noqa: E402
+
 MODE = get("ARAIL_MODE", "airgapped")
 MODEL_BACKEND = get("MODEL_BACKEND", "auto")
 MODEL_NAME = get("MODEL_NAME", "")
