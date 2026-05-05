@@ -119,6 +119,164 @@
     </div>
   </div>
 
+  <!-- ── Runtime profile ────────────────────────────────────────────
+       Reconciles three signals (manual override, presence, time-of-day)
+       into one mode + source. AirLLM caps max_tokens by mode today;
+       AeroLLM picks up ring_depth + batch when it lands. -->
+  <div id="runtime-profile" class="rp-card">
+    <div class="rp-head">
+      <h2>Runtime profile</h2>
+      <span class="rp-source" id="rp-source-tag">auto</span>
+    </div>
+    <div class="rp-sub">
+      Choose how the lab spends compute right now.
+      <strong>Auto</strong> picks <em>interactive</em> when you're here, <em>throughput</em> at night, <em>balanced</em> otherwise.
+      Manual selections expire after 30 minutes.
+    </div>
+
+    <div class="rp-options">
+      <label class="rp-opt" data-profile="interactive">
+        <input type="radio" name="rp-profile" value="interactive">
+        <span class="rp-opt-title">Interactive</span>
+        <span class="rp-opt-tag">snappy click-through · max 256 tok · autoresearch paused</span>
+      </label>
+      <label class="rp-opt" data-profile="balanced">
+        <input type="radio" name="rp-profile" value="balanced">
+        <span class="rp-opt-title">Balanced</span>
+        <span class="rp-opt-tag">default · max 512 tok · autoresearch normal</span>
+      </label>
+      <label class="rp-opt" data-profile="throughput">
+        <input type="radio" name="rp-profile" value="throughput">
+        <span class="rp-opt-title">Throughput</span>
+        <span class="rp-opt-tag">batch hard · max 1024 tok · autoresearch aggressive</span>
+      </label>
+    </div>
+
+    <div class="rp-footer">
+      <label class="rp-auto">
+        <input type="checkbox" id="rp-auto" checked>
+        <span>Auto (let the lab decide)</span>
+      </label>
+      <span class="rp-caption" id="rp-caption">—</span>
+    </div>
+  </div>
+
+  <style>
+    .rp-card { border:1px solid var(--border, #2a3439); border-radius:14px; padding:18px 20px; margin:14px 0 22px; background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0)); }
+    .rp-head { display:flex; align-items:baseline; justify-content:space-between; gap:12px; margin-bottom:6px; }
+    .rp-head h2 { margin:0; font-size:18px; }
+    .rp-source { font-size:11px; padding:2px 8px; border-radius:999px; background:rgba(148,163,184,0.12); color:#94a3b8; text-transform:uppercase; letter-spacing:0.05em; }
+    .rp-sub { color:#9bb1a3; font-size:13px; margin-bottom:12px; }
+    .rp-options { display:grid; grid-template-columns:repeat(3, 1fr); gap:10px; }
+    .rp-opt { display:flex; flex-direction:column; gap:4px; padding:12px; border:1px solid var(--border, #2a3439); border-radius:10px; cursor:pointer; transition:border-color .15s, background .15s; }
+    .rp-opt:hover { border-color:#3f5560; }
+    .rp-opt input { display:none; }
+    .rp-opt-title { font-weight:600; font-size:14px; }
+    .rp-opt-tag { font-size:11px; color:#7d8c95; }
+    .rp-opt.rp-active { background:rgba(34,211,238,0.06); border-color:rgba(34,211,238,0.45); }
+    .rp-opt.rp-active[data-profile="balanced"] { background:rgba(148,163,184,0.08); border-color:rgba(148,163,184,0.45); }
+    .rp-opt.rp-active[data-profile="throughput"] { background:rgba(251,191,36,0.06); border-color:rgba(251,191,36,0.45); }
+    .rp-footer { display:flex; align-items:center; justify-content:space-between; margin-top:12px; gap:12px; flex-wrap:wrap; }
+    .rp-auto { display:inline-flex; align-items:center; gap:6px; font-size:13px; color:#cbd5e1; cursor:pointer; }
+    .rp-caption { font-size:12px; color:#7d8c95; }
+  </style>
+
+  <script>
+  (() => {
+    const card = document.getElementById('runtime-profile');
+    const opts = card.querySelectorAll('.rp-opt');
+    const autoCb = document.getElementById('rp-auto');
+    const caption = document.getElementById('rp-caption');
+    const sourceTag = document.getElementById('rp-source-tag');
+    let lastSnap = null;
+
+    function fmtCountdown(sec) {
+      if (sec == null || sec <= 0) return '';
+      const m = Math.floor(sec / 60);
+      const s = sec % 60;
+      return m > 0 ? `${m}m ${s}s` : `${s}s`;
+    }
+    function captionFor(snap) {
+      if (!snap) return '—';
+      const src = snap.source;
+      if (src === 'override') {
+        return `Override: ${snap.override_profile} — expires in ${fmtCountdown(snap.override_expires_in_sec)}`;
+      }
+      if (src === 'presence') {
+        return `Operator active (last request ${snap.last_presence_sec_ago}s ago)`;
+      }
+      if (src === 'window') {
+        return `Auto-resolved from heavy window`;
+      }
+      return `Auto-resolved (default)`;
+    }
+    function applySnap(snap) {
+      if (!snap) return;
+      lastSnap = snap;
+      opts.forEach(o => o.classList.remove('rp-active'));
+      const active = card.querySelector(`.rp-opt[data-profile="${snap.profile}"]`);
+      if (active) active.classList.add('rp-active');
+      autoCb.checked = (snap.source !== 'override');
+      sourceTag.textContent = snap.source || 'auto';
+      caption.textContent = captionFor(snap);
+    }
+
+    async function loadSnap() {
+      try {
+        const r = await fetch('/api/runtime/profile');
+        const j = await r.json();
+        applySnap(j);
+      } catch (e) { /* keep last snap */ }
+    }
+
+    async function postProfile(body) {
+      try {
+        const r = await fetch('/api/runtime/profile', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        const j = await r.json();
+        applySnap(j);
+      } catch (e) { /* ignore */ }
+    }
+
+    opts.forEach(opt => {
+      opt.addEventListener('click', () => {
+        const profile = opt.dataset.profile;
+        postProfile({ profile });
+      });
+    });
+    autoCb.addEventListener('change', () => {
+      if (autoCb.checked) postProfile({ auto: true });
+    });
+
+    // Live updates from the activity SSE stream.
+    try {
+      const evt = new EventSource('/api/activity/stream');
+      evt.onmessage = (e) => {
+        try {
+          const ev = JSON.parse(e.data);
+          if (ev.source === 'profile' && ev.data) applySnap(ev.data);
+        } catch {}
+      };
+    } catch {}
+
+    // Refresh the override countdown every 5s without polling state —
+    // SSE pushes transitions; this only refreshes the caption text.
+    setInterval(() => {
+      if (!lastSnap || lastSnap.source !== 'override') return;
+      if (lastSnap.override_expires_in_sec == null) return;
+      lastSnap.override_expires_in_sec = Math.max(0, lastSnap.override_expires_in_sec - 5);
+      caption.textContent = captionFor(lastSnap);
+      // When countdown hits 0, refetch — the resolver may have flipped.
+      if (lastSnap.override_expires_in_sec === 0) loadSnap();
+    }, 5000);
+
+    loadSnap();
+  })();
+  </script>
+
   <!-- ── AirLLM vs AeroLLM comparison ───────────────────────────────
        Expected/projected gains. Replace these once the perf harness
        (single-stream + batch + spec-decode) lands real numbers. -->

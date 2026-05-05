@@ -377,6 +377,41 @@
       <span class="lab-theme-text">{{ lab_theme }}</span>
     </div>
     {% endif %}
+
+    <!-- Runtime profile pill — read-only status, click takes you to /tuning.
+         Updates live from the activity SSE stream when the presence agent
+         emits a "profile" event. See arail.runtime_profile. -->
+    <a id="profile-pill"
+       href="/tuning#runtime-profile"
+       class="profile-pill profile-balanced"
+       title="Runtime performance profile. Click to tune."
+       data-profile="balanced" data-source="default">
+      <span class="profile-pill-dot"></span>
+      <span class="profile-pill-label">balanced</span>
+      <span class="profile-pill-source">· auto</span>
+    </a>
+    <style>
+      .profile-pill {
+        display: inline-flex; align-items: center; gap: 0.4em;
+        padding: 0.25em 0.7em; margin: 0.6em 0;
+        border-radius: 999px; font-size: 0.78em; font-weight: 500;
+        text-decoration: none; cursor: pointer;
+        border: 1px solid var(--border, #2a2a2a);
+        transition: opacity 0.15s ease, transform 0.15s ease;
+      }
+      .profile-pill:hover { opacity: 0.85; transform: translateY(-1px); }
+      .profile-pill .profile-pill-dot {
+        width: 6px; height: 6px; border-radius: 50%; display: inline-block;
+      }
+      .profile-pill .profile-pill-source { opacity: 0.65; font-weight: 400; }
+      .profile-interactive { background: rgba(34,211,238,0.10); color: #67e8f9; border-color: rgba(34,211,238,0.35); }
+      .profile-interactive .profile-pill-dot { background: #22d3ee; }
+      .profile-balanced { background: rgba(148,163,184,0.10); color: #cbd5e1; border-color: rgba(148,163,184,0.30); }
+      .profile-balanced .profile-pill-dot { background: #94a3b8; }
+      .profile-throughput { background: rgba(251,191,36,0.10); color: #fbbf24; border-color: rgba(251,191,36,0.35); }
+      .profile-throughput .profile-pill-dot { background: #fbbf24; }
+    </style>
+
     <form class="goal-form" id="goal-form">
       <span class="prompt-prefix">arail:~$</span>
       <input id="goal-input" type="text"
@@ -1355,6 +1390,30 @@ async function destroyLab() {
   }
 }
 
+// ── Runtime profile pill ──
+function applyProfilePill(snap) {
+  const pill = document.getElementById('profile-pill');
+  if (!pill || !snap) return;
+  const profile = snap.profile || 'balanced';
+  const source = snap.source || 'default';
+  pill.classList.remove('profile-interactive', 'profile-balanced', 'profile-throughput');
+  pill.classList.add(`profile-${profile}`);
+  pill.dataset.profile = profile;
+  pill.dataset.source = source;
+  const labelEl = pill.querySelector('.profile-pill-label');
+  const sourceEl = pill.querySelector('.profile-pill-source');
+  if (labelEl) labelEl.textContent = profile;
+  if (sourceEl) {
+    const tag = source === 'override' ? 'manual' :
+                source === 'presence' ? 'you' :
+                source === 'window'   ? 'night' :
+                                        'auto';
+    sourceEl.textContent = '· ' + tag;
+  }
+  pill.title = `Runtime profile: ${profile} (${source}). Click to tune.`;
+}
+fetch('/api/runtime/profile').then(r => r.json()).then(applyProfilePill).catch(() => {});
+
 // ── SSE Activity Feed ──
 const feed = document.getElementById('activity-feed');
 const toastContainer = document.getElementById('toast-container');
@@ -1362,6 +1421,10 @@ const evtSource = new EventSource('/api/activity/stream');
 
 evtSource.onmessage = (e) => {
   const event = JSON.parse(e.data);
+  // Profile transitions update the pill live.
+  if (event.source === 'profile' && event.data) {
+    applyProfilePill(event.data);
+  }
   // Remove empty placeholder
   const empty = feed.querySelector('.empty');
   if (empty) empty.remove();

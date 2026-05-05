@@ -214,6 +214,40 @@ async def fastpath_meter(request, call_next):
     return await call_next(request)
 
 
+# Paths whose hits should NOT count as "operator is here" — long-poll,
+# streaming, static assets, health probes, and the profile endpoint itself
+# (which Buddy/agents may poll from server-side).
+_PRESENCE_SKIP_PREFIXES = (
+    "/api/activity/stream",
+    "/api/jobs/state",
+    "/api/runtime/profile",
+    "/static/",
+    "/favicon.ico",
+    "/metrics",
+    "/health",
+    "/api/system/health",
+)
+
+
+@app.middleware("http")
+async def presence_meter(request, call_next):
+    """Stamp the runtime profile's last-presence timestamp on operator hits.
+
+    Any non-polling, non-asset request from the operator counts as
+    presence — the resolver flips to ``interactive`` for ``ARAIL_PRESENCE_IDLE_SEC``
+    seconds (default 300) after the last stamp. Skips streaming/polling
+    paths so background subscribers don't falsely assert presence.
+    """
+    path = request.url.path
+    if not any(path == p or path.startswith(p) for p in _PRESENCE_SKIP_PREFIXES):
+        try:
+            from arail.runtime_profile import mark_presence
+            mark_presence()
+        except Exception:
+            pass  # Never let a presence stamp break a request.
+    return await call_next(request)
+
+
 app.include_router(wiki_router)
 
 PORTAL_DIR = Path(__file__).parent
@@ -6370,6 +6404,58 @@ async def set_mode(request: Request):
         "info",
     )
     return {"ok": True, "mode": new_mode}
+
+
+# ---------------------------------------------------------------------------
+# Runtime performance profile (interactive / balanced / throughput)
+# ---------------------------------------------------------------------------
+@app.get("/api/runtime/profile")
+async def get_runtime_profile():
+    """Snapshot of the resolved profile + signals."""
+    from arail import runtime_profile as rp
+    return {"ok": True, **rp.snapshot()}
+
+
+@app.post("/api/runtime/profile")
+async def set_runtime_profile(request: Request):
+    """Pin a manual override (30 min TTL) or clear back to auto.
+
+    Body: ``{"profile": "interactive"|"balanced"|"throughput"|null,
+              "auto": true|false}``.
+    Either ``auto: true`` or ``profile: null`` clears the override.
+    A profile value pins it for ``ARAIL_PROFILE_OVERRIDE_TTL_SEC`` seconds
+    (default 1800 = 30 min); after that the auto-resolver resumes.
+    """
+    from arail import runtime_profile as rp
+    body = await request.json()
+    auto = bool(body.get("auto"))
+    profile = body.get("profile")
+
+    if auto or profile is None:
+        rp.clear_override()
+        activity_log.emit(
+            "profile",
+            "Manual override cleared — auto-resolver back in charge",
+            "info",
+            data=rp.snapshot(),
+        )
+        return {"ok": True, **rp.snapshot()}
+
+    valid = ("interactive", "balanced", "throughput")
+    if profile not in valid:
+        return {"ok": False, "error": f"profile must be one of {valid}"}
+
+    ttl = int(os.getenv("ARAIL_PROFILE_OVERRIDE_TTL_SEC", "1800"))
+    rp.set_override(profile, ttl_sec=ttl)
+    snap = rp.snapshot()
+    minutes = max(1, ttl // 60)
+    activity_log.emit(
+        "profile",
+        f"Profile pinned to {profile} for {minutes} min (manual)",
+        "info",
+        data=snap,
+    )
+    return {"ok": True, **snap}
 
 
 @app.post("/api/system/reveal")
