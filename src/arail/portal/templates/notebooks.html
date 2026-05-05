@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{ brand.name }} — Notebooks</title>
+<title>{{ brand.name }} — Workbench</title>
 <link rel="stylesheet" href="/static/style.css">
 <style>
   .nbp-header {
@@ -35,10 +35,11 @@
 {% set active = 'notebooks' %}{% include "_nav.html" %}
 
 <header class="nbp-header">
-  <h1>Notebooks</h1>
+  <h1>Workbench</h1>
   <p>
-    Three ways to work with notebooks in the lab. Pick the one that fits
-    the task — you can always switch; they share the same filesystem.
+    Four ways to work in the lab. Notebooks, reactive notebooks, NotebookLM
+    alternatives, and opencode for AI-assisted coding — they all share the
+    same filesystem.
   </p>
 </header>
 
@@ -175,6 +176,38 @@
       <button class="btn btn-ghost btn-sm" data-popout>⇱ Pop out</button>
     </div>
   </div>
+
+  <!-- opencode ── max-tier only; card is hidden by JS when not in status payload -->
+  <div class="notebook-card" data-id="opencode" style="display:none">
+    <div class="nc-header">
+      <span class="nc-glyph">⌨</span>
+      <div class="nc-title-block">
+        <h3>opencode</h3>
+        <div class="nc-tagline">AI coding · browser IDE · Compute Source</div>
+      </div>
+      <span class="status-dot missing" data-dot></span>
+    </div>
+    <p class="nc-blurb">
+      AI-powered coding assistant that runs fully in the browser. Edit,
+      generate, and refactor code with the lab's active Compute Source —
+      switch models in the Chat tab and opencode picks it up automatically.
+    </p>
+    <ul class="nc-features">
+      <li><strong>Best for</strong> editing lab blueprints, agent scripts, and experiment code without leaving the lab.</li>
+      <li><strong>Compute Source aware</strong> — inherits your active provider (My Machine, Claude, custom endpoint).</li>
+      <li><strong>Local-first</strong> — binds <code>127.0.0.1:4096</code> only, not reachable from outside.</li>
+      <li><strong>MIT licence</strong> — open source, auditable, forkable.</li>
+    </ul>
+    <div class="nc-meta">
+      <span>Port · <code>:4096</code></span>
+      <span>Licence · <code>MIT</code></span>
+    </div>
+    <div class="nc-status-label" data-status>checking…</div>
+    <div class="nc-actions">
+      <a class="btn btn-primary btn-sm" href="/opencode">Open here</a>
+      <button class="btn btn-ghost btn-sm" data-popout>⇱ Pop out</button>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -188,6 +221,8 @@ const POPOUT_URLS = {};  // populated from /api/notebooks/status
 function setCard(id, nb) {
   const card = document.querySelector(`.notebook-card[data-id="${id}"]`);
   if (!card) return;
+  // Reveal card if it was hidden (opencode card is hidden until max-tier confirmed)
+  card.style.display = '';
   const dot = card.querySelector('[data-dot]');
   const label = card.querySelector('[data-status]');
   dot.classList.remove('alive', 'standby', 'missing');
