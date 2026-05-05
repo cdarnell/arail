@@ -17,7 +17,7 @@ Add opencode (`sst/opencode`, MIT, Go) as a max-tier-only surface inside the ren
 | build | builder | BUILD_LOG.md | done | 2026-05-04 | 2026-05-04 | 6 commits (final 14fba3b), 41 new tests green |
 | review | architect (review) | REVIEW.md | done | 2026-05-04 | 2026-05-04 | PASS (0 BLOCK, 0 ASK, 2 INFO style polish) |
 | test | qa | TEST_REPORT.md | done | 2026-05-04 | 2026-05-04 | PASS — 38 new QA tests, 0 defects, 590 suite passing, no new regressions; live `lsof` confirmed 127.0.0.1 binding |
-| ship | — | PR | pending | — | — | — |
+| ship | — | PR | done | 2026-05-04 | 2026-05-04 | PR #34 open against main from `qukaizen/arail-opencode-in-workbench` (cherry-picked clean off origin/main) |
 
 ## Decisions log
 
