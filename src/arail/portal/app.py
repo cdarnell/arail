@@ -1006,6 +1006,15 @@ async def providers_active(request: Request):
                 "error": "Airgapped mode — only My Machine is active. Set LAB_MODE=hybrid to use cloud providers."}
     os.environ["COMPUTE_SOURCE"] = provider
     activity_log.emit("chat", f"Compute source switched to '{provider}'.", "info")
+    # Trigger best-effort opencode restart so the new baseURL is picked up.
+    # Does NOT block the response — restart can take 5-10 s (F-RESTART-1).
+    if "notebooks" in _visible_surfaces():
+        try:
+            from arail.portal.services import opencode as _oc
+            if _oc.is_running():
+                threading.Thread(target=_oc.restart, daemon=True).start()
+        except Exception:
+            pass  # provider switch must succeed even if restart wiring breaks
     return {"ok": True, "provider": provider}
 
 
@@ -1205,6 +1214,68 @@ async def notebook_stop():
         return {"ok": False, "error": str(exc)}
 
 
+# ── opencode (max-tier only, direct iframe to 127.0.0.1:4096) ─────────────
+
+
+def _require_workbench():
+    """Gate: 404 when caller is on min tier (F-GATE-1, F-GATE-2, F-GATE-3).
+
+    Returns a Flask/FastAPI abort(404) Response when the surface is not
+    available; returns None when the request may proceed.
+    404 (not 403) so route existence is not disclosed to min-tier users.
+    This helper must be the FIRST call in every /opencode* handler —
+    before any logging, body parse, or subprocess (F-GATE-3).
+    """
+    from fastapi import Response as _Response
+    if "notebooks" not in _visible_surfaces():
+        return _Response(status_code=404)
+    return None
+
+
+@app.get("/opencode", response_class=HTMLResponse)
+async def opencode_page(request: Request):
+    """3-state opencode page: not-installed / installed-not-running / running+iframe."""
+    if (gate := _require_workbench()) is not None:
+        return gate
+    from arail.portal.services import opencode as oc
+    port = int(os.getenv("OPENCODE_PORT", str(oc.PORT_DEFAULT)))
+    installed = oc.is_installed()
+    running = oc.is_running(port) if installed else False
+    hint = oc.install_hint() if not installed else {}
+    return templates.TemplateResponse(request, "opencode.html", {
+        "installed": installed,
+        "running": running,
+        "hint": hint,
+        "port": port,
+    })
+
+
+@app.post("/api/opencode/start")
+async def opencode_start():
+    """Start the opencode subprocess (max-tier only)."""
+    if (gate := _require_workbench()) is not None:
+        return gate
+    from arail.portal.services import opencode as oc
+    port = int(os.getenv("OPENCODE_PORT", str(oc.PORT_DEFAULT)))
+    result = oc.start(port=port)
+    if result.get("ok"):
+        activity_log.emit("notebooks", "opencode started.", "success")
+    return result
+
+
+@app.post("/api/opencode/stop")
+async def opencode_stop():
+    """Stop the opencode subprocess (max-tier only)."""
+    if (gate := _require_workbench()) is not None:
+        return gate
+    from arail.portal.services import opencode as oc
+    port = int(os.getenv("OPENCODE_PORT", str(oc.PORT_DEFAULT)))
+    result = oc.stop(port=port)
+    if result.get("ok"):
+        activity_log.emit("notebooks", "opencode stopped.", "info")
+    return result
+
+
 # ── Open Notebook (Docker-based NotebookLM alternative) ──────────
 
 def _docker_available() -> bool:
@@ -1352,55 +1423,69 @@ async def notebooks_page(request: Request):
 
 @app.get("/api/notebooks/status")
 async def notebooks_status():
-    """One-shot liveness probe for every notebook surface.
+    """One-shot liveness probe for every notebook/workbench surface.
 
     Drives the picker page's status dots. Checks:
       - Jupyter: ``jupyter`` binary on PATH + TCP probe on NOTEBOOK_PORT.
       - Marimo: Docker available + arail-marimo container running.
       - Open Notebook: Docker available + arail-open-notebook container running.
+      - opencode: binary on PATH + TCP probe on OPENCODE_PORT (max-tier only).
     """
     import shutil
+    from arail.portal.services import opencode as oc
     bind = os.getenv("BIND_ADDR", "127.0.0.1")
     password = os.getenv("ARAIL_PASSWORD", "arail")
     jupyter_port = int(os.getenv("NOTEBOOK_PORT", "8888"))
     marimo_port = int(os.getenv("MARIMO_PORT", "2718"))
     on_port = int(os.getenv("OPEN_NOTEBOOK_PORT", "8502"))
+    opencode_port = int(os.getenv("OPENCODE_PORT", str(oc.PORT_DEFAULT)))
 
     docker_ok = _docker_available()
     # Kick off TCP probes concurrently — they each cost ~300ms on miss.
-    jup_alive, mar_alive, on_alive = await asyncio.gather(
+    jup_alive, mar_alive, on_alive, opencode_alive = await asyncio.gather(
         _port_open(bind, jupyter_port),
         _port_open(bind, marimo_port),
         _port_open(bind, on_port),
+        _port_open(bind, opencode_port),
     )
-    return {
-        "notebooks": [
-            {
-                "id": "jupyter",
-                "name": "Jupyter Lab",
-                "installed": shutil.which("jupyter") is not None,
-                "alive": jup_alive,
-                "url_internal": "/notebook",
-                "url_external": f"http://{bind}:{jupyter_port}/lab",
-            },
-            {
-                "id": "marimo",
-                "name": "Marimo",
-                "installed": docker_ok,
-                "alive": mar_alive and _container_running("arail-marimo"),
-                "url_internal": "/marimo",
-                "url_external": f"http://{bind}:{marimo_port}?access_token={password}",
-            },
-            {
-                "id": "open-notebook",
-                "name": "Open Notebook",
-                "installed": docker_ok,
-                "alive": on_alive and _container_running("arail-open-notebook"),
-                "url_internal": "/open-notebook",
-                "url_external": f"http://{bind}:{on_port}",
-            },
-        ],
-    }
+    notebooks = [
+        {
+            "id": "jupyter",
+            "name": "Jupyter Lab",
+            "installed": shutil.which("jupyter") is not None,
+            "alive": jup_alive,
+            "url_internal": "/notebook",
+            "url_external": f"http://{bind}:{jupyter_port}/lab",
+        },
+        {
+            "id": "marimo",
+            "name": "Marimo",
+            "installed": docker_ok,
+            "alive": mar_alive and _container_running("arail-marimo"),
+            "url_internal": "/marimo",
+            "url_external": f"http://{bind}:{marimo_port}?access_token={password}",
+        },
+        {
+            "id": "open-notebook",
+            "name": "Open Notebook",
+            "installed": docker_ok,
+            "alive": on_alive and _container_running("arail-open-notebook"),
+            "url_internal": "/open-notebook",
+            "url_external": f"http://{bind}:{on_port}",
+        },
+    ]
+    # opencode entry — only included when max-tier (workbench surface visible).
+    # No credentials embedded in url_external (F-SEC-3).
+    if "notebooks" in _visible_surfaces():
+        notebooks.append({
+            "id": "opencode",
+            "name": "opencode",
+            "installed": oc.is_installed(),
+            "alive": opencode_alive,
+            "url_internal": "/opencode",
+            "url_external": f"http://127.0.0.1:{opencode_port}/",
+        })
+    return {"notebooks": notebooks}
 
 
 # ── Marimo — reactive Python notebooks (compose-backed) ─────────────
@@ -5846,8 +5931,9 @@ async def system_health():
     marimo_port = int(os.getenv("MARIMO_PORT", "2718"))
     open_notebook_port = int(os.getenv("OPEN_NOTEBOOK_PORT", "8502"))
     neo4j_bolt_port = int(os.getenv("NEO4J_BOLT_PORT", "7687"))
+    opencode_port = int(os.getenv("OPENCODE_PORT", "4096"))
 
-    portal_up, ttyd_up, notebook_up, ollama_up, lance_up, marimo_up, open_notebook_up, neo4j_up = await asyncio.gather(
+    portal_up, ttyd_up, notebook_up, ollama_up, lance_up, marimo_up, open_notebook_up, neo4j_up, opencode_up = await asyncio.gather(
         _port_open(bind, int(os.getenv("PORTAL_PORT", "8080"))),
         _port_open(bind, ttyd_port),
         _port_open(bind, notebook_port),
@@ -5856,6 +5942,7 @@ async def system_health():
         _port_open(bind, marimo_port),
         _port_open(bind, open_notebook_port),
         _port_open(bind, neo4j_bolt_port),
+        _port_open(bind, opencode_port),
     )
 
     # ── Local-inference detection ────────────────────────────────
@@ -6037,9 +6124,15 @@ async def system_health():
     # Optional/on-demand services (ttyd, notebook, marimo, open-notebook,
     # ollama, neo4j, lance-memory) are hidden when not running so the rail
     # doesn't flood with "down" chips for things the operator never invoked.
-    kc_up = _knowledge_canvas_store is not None or (
+    # Knowledge Canvas is "up" for the user as long as the frontend is mounted
+    # and an API is reachable. The wiki-fallback routes (registered at module
+    # import in this file) always respond, so the canvas renders even when the
+    # full neo4j-backed GraphStore can't import on a stock venv. The granular
+    # "kc_backend" diagnostic above still reports the heavier store separately.
+    kc_full_store_up = _knowledge_canvas_store is not None or (
         knowledge_canvas_app is not None and hasattr(knowledge_canvas_app.state, "store")
     )
+    kc_up = kc_full_store_up or (KC_FRONTEND_DIST_DIR.exists() or KC_FRONTEND_DIR.exists())
     marimo_running = marimo_up and _container_running("arail-marimo")
     open_notebook_running = open_notebook_up and _container_running("arail-open-notebook")
 
@@ -6055,6 +6148,7 @@ async def system_health():
         "open-notebook": open_notebook_running,
         "ollama": ollama_up,
         "neo4j": neo4j_up,
+        "opencode": opencode_up,
     }
     for name, up in optional_services.items():
         if up:
