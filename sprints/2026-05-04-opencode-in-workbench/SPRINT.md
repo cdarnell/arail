@@ -16,7 +16,7 @@ Add opencode (`sst/opencode`, MIT, Go) as a max-tier-only surface inside the ren
 | plan | architect (design) | ARCHITECTURE.md | done | 2026-05-04 | 2026-05-04 | proceed (revised after kickoff probes; commit 50ce5ad) |
 | build | builder | BUILD_LOG.md | done | 2026-05-04 | 2026-05-04 | 6 commits (final 14fba3b), 41 new tests green |
 | review | architect (review) | REVIEW.md | done | 2026-05-04 | 2026-05-04 | PASS (0 BLOCK, 0 ASK, 2 INFO style polish) |
-| test | qa | TEST_REPORT.md | in_progress | 2026-05-04 | — | — |
+| test | qa | TEST_REPORT.md | done | 2026-05-04 | 2026-05-04 | PASS — 38 new QA tests, 0 defects, 590 suite passing, no new regressions; live `lsof` confirmed 127.0.0.1 binding |
 | ship | — | PR | pending | — | — | — |
 
 ## Decisions log
@@ -43,4 +43,16 @@ Add opencode (`sst/opencode`, MIT, Go) as a max-tier-only surface inside the ren
 
 - Approved plan: `/Users/netsushi/.claude/plans/also-want-to-consider-synthetic-wreath.md`
 - Default model recommendation: Qwen3-Coder-30B-A3B-Instruct (Apache-2.0, MoE 30B/3.3B-active, 256K ctx). Doc-only; opencode picks up whatever Compute Source serves.
-- Per arail/CLAUDE.md, QA allocation: 30% setup / 30% Buddy / 20% security / 10% happy / 10% regression. **Security carries extra weight this sprint** because of (a) the new auth-injection reverse-proxy pattern (password must never leak browser-side) and (b) opencode can edit arbitrary repo files (max-tier gate must be airtight on all four routes including the proxy).
+- Per arail/CLAUDE.md, QA allocation: 30% setup / 30% Buddy / 20% security / 10% happy / 10% regression. **Security carried extra weight this sprint** because (a) the auth/proxy design was dropped after kickoff probes — trust model became "127.0.0.1 = trusted, same as Jupyter/Marimo" and (b) opencode can edit arbitrary repo files (max-tier gate had to be airtight on all three remaining routes).
+- **Branch note:** sprint commits landed on `qukaizen/arail-airllm-subprocess-isolation` (the working branch at sprint kickoff), not on `qukaizen/arail-models-admin-dashboard` (the session-start banner). Opencode commits c7eaf48..6af38e9 + 325910b are clean and isolated to opencode-related files; airllm WIP on this branch is independent and untouched.
+
+## Sprint 2 follow-up candidates
+
+Tracked here for the next sprint's intake; none block ship of this one.
+
+1. **`/api/system/health` info-disclosure (QA INFO #1).** The endpoint reports `services["opencode"]` to all callers regardless of tier — same behavior as marimo/open-notebook/neo4j etc. Not opencode-specific; gating only opencode would be inconsistent. Cross-cutting redesign of the health endpoint (filter optional services by tier) is the right fix. Ticket separately.
+2. **`PRIVACY.md` trust-model note** (architect F-SEC-6 follow-up). One-paragraph doc addition: "the lab's trust boundary is 127.0.0.1 — anyone reaching localhost can shell the host." Keep simple.
+3. **opencode version probe** (F-INSTALL-2, builder deferral). If a user has an old opencode without `serve` subcommand, error is opaque subprocess failure. Add a one-line `opencode --version` parse on first start.
+4. **Token redaction in opencode logs** (F-SEC-4, builder deferral). opencode writes its own logs (`lab/logs/opencode.log`) which may contain provider tokens it received via env. Redact at write time or rotate aggressively.
+5. **`os.setsid` cleanup** (F-PROC-3, builder deferral). If portal SIGKILLs, opencode subprocess orphans. Add `os.setsid` so portal SIGTERM cascades.
+6. **Sprint 2 — Skills folded into Agents.** From the approved plan; queued.
