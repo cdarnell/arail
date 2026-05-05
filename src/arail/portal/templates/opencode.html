@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ brand.name }} — opencode</title>
+<link rel="stylesheet" href="/static/style.css">
+<style>
+  .oc-topbar { display: flex; align-items: center; gap: 0.8rem; justify-content: space-between; }
+  .oc-topbar .oc-hint { margin: 0; flex: 1; }
+  .oc-wrap { padding: 0.8rem 1rem; height: calc(100vh - 52px); display: flex; flex-direction: column; gap: 0.6rem; }
+  .oc-hint { color: var(--muted); font-size: 0.75rem; }
+  .oc-hint code {
+    background: var(--surface);
+    padding: 0.1rem 0.4rem;
+    border-radius: 3px;
+    color: var(--amber);
+  }
+  .oc-frame {
+    flex: 1;
+    width: 100%;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: #0a0a0f;
+  }
+  .oc-install {
+    flex: 1;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 2rem 2.5rem;
+    max-width: 780px;
+    margin: 0 auto;
+    color: var(--text);
+    overflow-y: auto;
+  }
+  .oc-install h1 { color: var(--green); text-shadow: var(--glow-green); margin-top: 0; }
+  .oc-install h3 { color: var(--blue); margin-top: 1.6rem; }
+  .oc-install pre {
+    background: #0a0c14;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1rem 1.2rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    color: var(--amber);
+    white-space: pre-wrap;
+    overflow-x: auto;
+  }
+  .oc-notice {
+    color: var(--muted);
+    font-size: 0.78rem;
+    margin-top: 1.2rem;
+    padding: 0.6rem 1rem;
+    background: var(--surface);
+    border-left: 3px solid var(--border);
+    border-radius: 0 4px 4px 0;
+  }
+</style>
+</head>
+<body>
+{% set active = 'notebooks' %}{% include "_nav.html" %}
+
+<div class="oc-wrap">
+  {% if running %}
+  {# State 3: opencode is running — show iframe and controls #}
+  <div class="oc-topbar">
+    <p class="oc-hint">
+      <strong>opencode</strong> — AI-powered coding in the browser.
+      Connected to your active Compute Source.
+      Project root: <code>{{ cwd|default('.') }}</code>.
+      Switching Compute Source will restart opencode (brief disconnect).
+    </p>
+    <div style="display:flex;gap:0.5rem;">
+      <button class="btn btn-sm btn-ghost" id="oc-restart" title="Restart opencode">↻ Restart</button>
+      <button class="btn btn-sm btn-ghost" id="oc-stop" title="Stop opencode" style="color:var(--red);">■ Stop</button>
+      <button class="btn btn-sm btn-ghost" id="oc-popout" title="Open in its own window">⇱ Pop out</button>
+    </div>
+  </div>
+  {# iframe src must NEVER embed credentials — F-SEC-1. URL format: http://127.0.0.1:<port>/ #}
+  <iframe class="oc-frame"
+          src="http://127.0.0.1:{{ port }}/"
+          title="opencode"
+          allow="clipboard-read; clipboard-write"></iframe>
+  <script>
+  const OPENCODE_URL = 'http://127.0.0.1:{{ port }}/';
+  document.getElementById('oc-popout').addEventListener('click', () => {
+    window.open(OPENCODE_URL, '{{ brand.short_name }}-opencode',
+                'width=1400,height=900,noopener');
+  });
+  document.getElementById('oc-stop').addEventListener('click', async () => {
+    if (!confirm('Stop opencode?')) return;
+    const btn = document.getElementById('oc-stop');
+    btn.textContent = '■ Stopping…';
+    btn.disabled = true;
+    await fetch('/api/opencode/stop', {method: 'POST'});
+    location.reload();
+  });
+  document.getElementById('oc-restart').addEventListener('click', async () => {
+    const btn = document.getElementById('oc-restart');
+    btn.textContent = '↻ Restarting…';
+    btn.disabled = true;
+    await fetch('/api/opencode/stop', {method: 'POST'});
+    const res = await fetch('/api/opencode/start', {method: 'POST'});
+    const data = await res.json();
+    if (data.ok) {
+      setTimeout(() => location.reload(), 3000);
+    } else {
+      btn.textContent = '✗ ' + (data.error || 'Failed');
+      btn.style.color = 'var(--red)';
+      btn.disabled = false;
+    }
+  });
+  </script>
+
+  {% elif installed %}
+  {# State 2: opencode is installed but not running #}
+  <div class="oc-install">
+    <h1>opencode not running</h1>
+    <p>
+      <span class="status-pill status-installed">✓ opencode installed</span>
+      <span class="status-pill status-notrun">○ not running</span>
+    </p>
+    <p>
+      opencode is installed. Start it with one click — it binds to
+      <code>127.0.0.1:{{ port }}</code> and opens here in an iframe.
+    </p>
+    <p>
+      <button class="btn btn-sm" id="oc-start"
+              style="background:var(--green);color:#000;font-weight:700;padding:0.4rem 1.2rem;cursor:pointer;">
+        ▶ Start opencode
+      </button>
+    </p>
+    <p class="oc-notice">
+      opencode runs as your local user. It can read and write files in the
+      current directory. Compute Source is inherited from the Chat tab —
+      switch providers there, and opencode restarts to pick up the new API key.
+    </p>
+    <script>
+    document.getElementById('oc-start').addEventListener('click', async () => {
+      const btn = document.getElementById('oc-start');
+      btn.textContent = '⏳ Starting…';
+      btn.disabled = true;
+      const res = await fetch('/api/opencode/start', {method: 'POST'});
+      const data = await res.json();
+      if (data.ok) {
+        setTimeout(() => location.reload(), 3000);
+      } else {
+        btn.textContent = '✗ ' + (data.error || 'Failed');
+        btn.style.background = 'var(--red)';
+        btn.style.color = '#fff';
+        btn.disabled = false;
+      }
+    });
+    </script>
+  </div>
+
+  {% else %}
+  {# State 1: opencode not installed #}
+  <div class="oc-install">
+    <h1>Install opencode</h1>
+    <p>
+      <span class="status-pill status-missing">✗ opencode not found</span>
+    </p>
+    <p>
+      <strong>opencode</strong> is an open-source, AI-powered coding assistant
+      (MIT, by SST) that runs fully in the browser. Once installed, it slots into
+      the lab as a first-class workbench surface — sharing your active Compute
+      Source and project files.
+    </p>
+    <h3>Install ({{ hint.platform|default('your platform') }})</h3>
+    <pre>{{ hint.command|default('see https://opencode.ai/docs') }}</pre>
+    <h3>Then reload this page and click Start.</h3>
+    <p style="margin-top:0.5rem;">
+      <a href="{{ hint.docs_url|default('https://opencode.ai/docs') }}"
+         target="_blank" rel="noopener">opencode docs ↗</a>
+    </p>
+    <p class="oc-notice">
+      opencode binds to <code>127.0.0.1:{{ port }}</code> only — it is
+      not reachable from other machines on your network.
+    </p>
+  </div>
+  {% endif %}
+</div>
+
+<script src="/static/nav.js"></script>
+</body>
+</html>
