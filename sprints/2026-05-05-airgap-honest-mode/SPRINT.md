@@ -29,8 +29,8 @@ Approved plan and full architecture sketch in `PLAN.md` (this sprint dir).
 
 | Phase | Subagent | Artifact | Status | Started | Finished | Verdict |
 |---|---|---|---|---|---|---|
-| think | visionary | VISION.md | pending | — | — | — |
-| plan | architect (design) | ARCHITECTURE.md | pending | — | — | — |
+| think | visionary | VISION.md | done | 2026-05-05 | 2026-05-05 | proceed |
+| plan | architect (design) | ARCHITECTURE.md | done | 2026-05-05 | 2026-05-05 | proceed |
 | build | builder | BUILD_LOG.md | pending | — | — | — |
 | review | architect (review) | REVIEW.md | pending | — | — | — |
 | test | qa | TEST_REPORT.md | pending | — | — | — |
@@ -45,6 +45,9 @@ Approved plan and full architecture sketch in `PLAN.md` (this sprint dir).
 | 2026-05-05 | v1 Buddy awareness = airgapped events only | LAB_MODE toggle + egress.jsonl tail. Theme/UI toggle awareness deferred to a follow-up sprint. |
 | 2026-05-05 | `setup.sh` is out of scope | Runs before portal boot; guard installs at portal-startup / agent-load time. Initial weight downloads aren't agent-collected info. |
 | 2026-05-05 | Branch cut fresh from origin/main | Independent of `qukaizen/arail-airllm-subprocess-isolation`; benchmark_models.py changes stashed for that branch. |
+| 2026-05-05 | Modal CSS: inline-duplicate in airgap modal template (do NOT extract to style.css this sprint) | Architect-recommended; keeps blast radius small. Cleanup is a follow-up. |
+| 2026-05-05 | Repave Buddy duplication this sprint (canonical = `src/arail/agents/_builtin_buddy.py`) | User chose cleaner end state. PKB version is gitignored — duplication was workstation-only. Architect addendum (`af5c1c1`) reflows implementation order: repave is step 3, watcher single-file at step 6. |
+| 2026-05-05 | Egress probe stays opt-in via `BUDDY_EGRESS_PROBE=1` | Documented as the only intentional exemption; surfaced in README, PRIVACY.md, and modal known-gaps. |
 
 ## Skipped phases
 
