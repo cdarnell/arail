@@ -37,7 +37,8 @@ Approved plan and full architecture sketch in `PLAN.md` (this sprint dir).
 | plan addendum #2 | architect (design) | ARCHITECTURE.md (append) | done | 2026-05-05 | 2026-05-05 | SRE de-duplication |
 | build (loopback 2) | builder | BUILD_LOG.md (append) | done | 2026-05-05 | 2026-05-05 | SRE repave per addendum #2 |
 | review (re-pass) | architect (review) | REVIEW.md (append) | done | 2026-05-05 | 2026-05-05 | PASS |
-| test | qa | TEST_REPORT.md | pending | — | — | — |
+| test | qa | TEST_REPORT.md | done (1st pass) | 2026-05-05 | 2026-05-05 | WEAK_PASS — 1 real bug (Buddy watcher ValueError on malformed state.json) |
+| build (loopback 3) | builder | BUILD_LOG.md (append) | pending | — | — | — |
 | ship | — | PR | pending | — | — | — |
 
 ## Decisions log
@@ -58,7 +59,8 @@ Approved plan and full architecture sketch in `PLAN.md` (this sprint dir).
 | When | Phase | Trigger | Resolution |
 |---|---|---|---|
 | 2026-05-05 | review → build | BLOCK on Buddy watcher state-key persistence (`_save_state()` overwrites watcher keys with only BuddyAgent's 5 keys; offset lost across restarts). Plus ASK on 3 misleading `# noqa-airgap` comments at `backends.py:231,440,590`. | Builder loopback 1 (commits `faa6898`, `4f641e0`, `df44306`): read-merge-write in `_save_state` + regression test + audit comment corrections. Done. |
-| 2026-05-05 | mid-flight finding → architect addendum #2 → build | Orchestrator discovered SRE has the same canonical-vs-PKB duplication Buddy had pre-repave. Builder's PKB SRE edit was on disk but gitignored; would be overwritten by `ensure_sre_folder()`'s `shutil.copy` of the unmodified canonical. User chose: repave SRE this sprint (mirror Buddy). | Architect addendum #2 committed (`426df90`) — option (a) port PKB-only logic INTO canonical, ~150 lines / 5 symbols ported, 0 dropped. Builder loopback 2 in flight. New 12-step implementation order. |
+| 2026-05-05 | mid-flight finding → architect addendum #2 → build | Orchestrator discovered SRE has the same canonical-vs-PKB duplication Buddy had pre-repave. Builder's PKB SRE edit was on disk but gitignored; would be overwritten by `ensure_sre_folder()`'s `shutil.copy` of the unmodified canonical. User chose: repave SRE this sprint (mirror Buddy). | Architect addendum #2 committed (`426df90`) — option (a) port PKB-only logic INTO canonical, ~150 lines / 5 symbols ported, 0 dropped. Builder loopback 2 (`fc0aa8f`, `64aeb50`, `faca252`) — 614 lines canonical post-port, 19-name shim. Re-review verdict PASS (`419e605`). |
+| 2026-05-05 | qa → build | QA WEAK_PASS — 1 real bug: Buddy watcher raises `ValueError` if `state.json` has a non-int `airgap_last_egress_offset` (degraded-state robustness miss). Per arail's CLAUDE.md, Buddy quality is 30% of QA gating; user chose to fix before ship. | Builder loopback 3 in flight: one-line `try/except (ValueError, TypeError):` at `_builtin_buddy.py:513` matching the pattern `_load_state` already uses. |
 
 ## Skipped phases
 
