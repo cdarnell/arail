@@ -152,3 +152,65 @@ not a design flaw. No spec revision needed; the fix is self-contained in
 4. **`shutil` import remains in `builtin_seed.py`** — the `shutil` import was
    used by the old `shutil.copy(builtin, buddy_py)` call. It may now be unused.
    Reviewer should check if `shutil` is still referenced elsewhere in the file.
+
+---
+
+## Loopback 1 — BLOCK fix (2026-05-05)
+
+### Commits
+
+| # | SHA | Description |
+|---|---|---|
+| 1 | faa6898 | fix(buddy): read-merge-write in `_save_state` to preserve airgap watcher keys |
+| 2 | 4f641e0 | fix(audit): correct noqa-airgap comments at `backends.py:231,440,590` |
+
+### What the fix was
+
+`BuddyAgent._save_state()` previously built the JSON dict from its own 5
+in-memory fields and wrote the whole file, silently dropping any keys
+written by other writers. The airgap watcher writes
+`airgap_last_egress_offset` and `airgap_last_lab_mode` to the same
+`state.json`, and `_save_state` runs immediately after every emit — so
+on every tick the watcher's offset was lost from disk, forcing it to
+re-walk `egress.jsonl` from byte 0 on the next poll. Across restarts the
+offset was permanently gone. Fix (ARCHITECTURE.md Option A): load the
+existing JSON, `dict.update` with only the 5 Buddy-owned keys, write the
+merged result. The docstring on `_watch_airgap_events` was also corrected
+— it said "persisted via the host's update_workflow" but the watcher
+writes directly to `state_path.write_text`.
+
+The audit-comment fix at `backends.py:440` corrects a false-witness
+comment that claimed the OpenRouterBackend Session was "localhost-only".
+Lines 231 and 590 (CUDA and OpenAICompat) genuinely are localhost-only
+but their comments were extended to also note the real safety reason:
+post-`install_guard()` construction means the monkeypatched HTTPAdapter
+class is mounted automatically.
+
+### Regression test
+
+`TestSaveStatePreservesAirgapKeys::test_save_state_after_watcher_preserves_airgap_keys`
+in `tests/test_buddy_airgap_watcher.py`.
+
+Asserts: after a watcher cycle writes `airgap_last_egress_offset` and a
+manually-seeded `airgap_last_lab_mode` to `state.json`, a subsequent
+`BuddyAgent()._save_state()` call must leave all 7 keys on disk — 5
+Buddy keys AND both airgap-watcher keys. Without the read-merge-write
+fix the test fails with "airgap_last_lab_mode was clobbered by
+_save_state" (verified during implementation: the test passed only after
+the fix was applied).
+
+Implementation note: the test constructs `BuddyAgent()` with no host
+argument to avoid mutating the module-level `_host` singleton (which
+would break subsequent suggester tests that call `_host.list_skills()`).
+`_save_state` never calls `_host`, so no stub is needed.
+
+### Verification
+
+| # | Check | Result |
+|---|---|---|
+| 1 | `pytest tests/test_buddy_airgap_watcher.py` (7 tests, incl. new regression) | PASS — 7/7 |
+| 2 | `pytest tests/test_builtin_seed_buddy_shim.py tests/test_buddy_suggesters.py` | PASS — 22/23 (same 1 pre-existing failure) |
+| 3 | `backends.py:231` says "localhost-only" (CUDA → LOCAL_API_PORT) | TRUE |
+| 4 | `backends.py:440` says "external host (openrouter.ai)" | TRUE |
+| 5 | `backends.py:590` says "localhost-only" (OpenAICompat → localhost:1234 default) | TRUE |
+| 6 | Mental simulation: reverting `_save_state` to write-only-5-keys would fail the new test because `airgap_last_lab_mode` would be absent from the final JSON | CONFIRMED |
