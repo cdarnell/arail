@@ -25,27 +25,54 @@ The portal binds to `127.0.0.1` by default. If you want it on the LAN
 or exposed to the internet, you have to edit `lab.conf` (`BIND_ADDR`)
 yourself.
 
+## What airgapped mode enforces
+
+`LAB_MODE=airgapped` (the default) blocks agent-originated calls
+through `requests` and `urllib.request` to anything that isn't:
+
+- Loopback: `127.0.0.0/8`, `::1`, `localhost`
+- RFC1918: `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`
+- Link-local: `169.254.0.0/16`, `fe80::/10`
+
+The destination's hostname is resolved to an IP via the system
+resolver and the IP is checked against those ranges (so a public
+domain re-pointed at `127.0.0.1` is treated as local — that's a
+known DNS-trust limit). Denials raise `EgressBlocked` (a
+`RuntimeError` subclass) and append one structured line to
+`lab/data/egress.jsonl`.
+
+### Known gaps — what the Python-level guard does NOT catch
+
+The guard wraps `requests` and `urllib.request`. It does NOT wrap:
+
+- `httpx` — used by the open-notebook integration and the
+  knowledge-canvas client, both for `localhost` only in this tree.
+- `aiohttp` — not used in tree today.
+- Raw sockets (`socket.socket()`) — wrapping these would break
+  loopback connection paths underneath the wrapped libraries.
+- Subprocess shells — `subprocess.run(["curl", ...])` and
+  `os.system("curl ...")` go straight to the OS network stack.
+
+These are documented gaps for the v1 guard. The threat model is
+well-meaning agent code that uses standard libraries; it is not
+an adversary on the host. For host-level enforcement, run a
+firewall (`pf` on macOS, `iptables`/`ufw` on Linux).
+
+### One opt-in network exemption — `BUDDY_EGRESS_PROBE`
+
+Setting `BUDDY_EGRESS_PROBE=1` enables one outbound TCP connect to
+`1.1.1.1:443` with a 1-second timeout. No payload, no DNS, no HTTP.
+The probe exists so the airgap modal can show the honest disclosure
+"your host has internet, but the lab refuses to use it." It is the
+only audited exemption to the airgapped rule and is off by default.
+
 ## What hybrid mode sends
 
-`ARAIL_MODE=hybrid` (opt-in, airgapped by default) permits the
-researcher and browser agents to make outbound calls — but only to
-domains you explicitly approve via the consent store. Every new domain
-triggers an approval prompt in the dashboard, and the approval is
-persisted so you're not asked twice.
-
-Which domains get asked for depends on which backends and features you
-use:
-
-- **Model provider APIs** when you set `MODEL_BACKEND` to `openai_compat`,
-  `huggingface`, `openrouter`, `claude`: calls go to the host you
-  configured (`MODEL_API_BASE`). These are standard API calls with the
-  key you supplied.
-- **Web research agent** (`agent-browser`): only when you type a goal
-  that asks the lab to browse, and only to domains you approve.
-- **Hugging Face model downloads**: when setup pulls the starter model
-  or when you manually request one.
-
-Everything else stays local.
+`LAB_MODE=hybrid` (opt-in) lets agent calls reach the public internet
+via the same `requests`/`urllib` clients. The egress audit log still
+records every outbound call (`reason: "hybrid"`) so the user can
+inspect what was sent. Per-domain consent prompts (curator, browser)
+remain in force on top of the guard.
 
 ## Third-party components — what they do independently
 
