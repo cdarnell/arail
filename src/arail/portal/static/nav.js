@@ -123,8 +123,8 @@
     badge.className = 'mode-badge ' + mode;
     badge.textContent = mode === 'airgapped' ? '\u2B24 Airgapped' : '\u2B24 Hybrid';
     badge.title = mode === 'airgapped'
-      ? 'Airgapped \u2014 no internet. Click to enable.'
-      : 'Hybrid \u2014 internet enabled. Click to disable.';
+      ? 'Airgapped \u2014 click to see the operational definition and recent blocks.'
+      : 'Hybrid \u2014 agent fetches are allowed. Click to see the egress audit.';
   }
 
   // Sync on load
@@ -133,24 +133,87 @@
     .then(function (d) { updateBadge(d.mode); })
     .catch(function () {});
 
-  // Toggle on click
+  // Click \u2192 open airgap modal (populated from /api/airgap/status)
   badge.style.cursor = 'pointer';
   badge.addEventListener('click', function () {
-    var current = badge.className.indexOf('hybrid') !== -1 ? 'hybrid' : 'airgapped';
-    var next = current === 'airgapped' ? 'hybrid' : 'airgapped';
-    var msg = next === 'hybrid'
-      ? 'Enable internet access? Agents will be able to crawl external sources (with your approval).'
-      : 'Disable internet access? Agents will run fully local.';
-    if (!confirm(msg)) return;
-    fetch('/api/system/mode', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ mode: next })
-    })
+    var backdrop = document.getElementById('airgap-backdrop');
+    if (!backdrop) return;
+    fetch('/api/airgap/status')
       .then(function (r) { return r.json(); })
-      .then(function (d) { if (d.ok) updateBadge(d.mode); })
-      .catch(function () {});
+      .then(function (data) {
+        var pill = document.getElementById('airgap-mode-pill');
+        if (pill) {
+          pill.textContent = data.lab_mode;
+          pill.className = 'mp-pill ' + (data.lab_mode === 'airgapped' ? 'ok' : 'warn');
+        }
+        var defEl = document.getElementById('airgap-definition');
+        if (defEl) defEl.textContent = data.definition || '';
+        var probeEl = document.getElementById('airgap-host-probe');
+        if (probeEl) {
+          if (data.host_can_reach_internet === null || data.host_can_reach_internet === undefined) {
+            probeEl.style.display = 'none';
+          } else {
+            probeEl.style.display = '';
+            probeEl.textContent = data.host_can_reach_internet
+              ? 'Your host has internet, but the lab refuses to use it. That\u2019s the honest disclosure.'
+              : 'Your host can\u2019t reach the internet either.';
+          }
+        }
+        var list = document.getElementById('airgap-activity-list');
+        var emptyMsg = document.getElementById('airgap-activity-empty');
+        if (list) {
+          list.innerHTML = '';
+          var items = data.recent_activity || [];
+          if (items.length === 0) {
+            if (emptyMsg) emptyMsg.style.display = '';
+          } else {
+            if (emptyMsg) emptyMsg.style.display = 'none';
+            items.forEach(function (item) {
+              var row = document.createElement('div');
+              row.className = 'airgap-row';
+              var kind = item.kind || 'blocked';
+              var kindPill = '<span class="mp-pill ' + (kind === 'blocked' ? 'warn' : 'ok') + '">'
+                + kind + '</span>';
+              var ts = item.ts ? item.ts.replace('T', ' ').replace('Z', '') : '';
+              row.innerHTML = kindPill
+                + ' <code>' + (item.url_host || '?') + '</code>'
+                + ' <span class="chat-muted">' + (item.caller || '') + '</span>'
+                + ' <time datetime="' + (item.ts || '') + '">' + ts.slice(-8) + '</time>';
+              list.appendChild(row);
+            });
+          }
+        }
+        var gapsList = document.getElementById('airgap-gaps-list');
+        if (gapsList && data.known_gaps) {
+          gapsList.innerHTML = '';
+          data.known_gaps.forEach(function (gap) {
+            var li = document.createElement('li');
+            li.textContent = gap;
+            gapsList.appendChild(li);
+          });
+        }
+        backdrop.classList.add('open');
+      })
+      .catch(function (err) {
+        console.error('[airgap] status fetch failed:', err);
+      });
   });
+
+  var airgapClose = document.getElementById('airgap-close');
+  if (airgapClose) {
+    airgapClose.addEventListener('click', function () {
+      var bd = document.getElementById('airgap-backdrop');
+      if (bd) bd.classList.remove('open');
+    });
+  }
+  (function () {
+    var bd = document.getElementById('airgap-backdrop');
+    if (bd) {
+      bd.addEventListener('click', function (e) {
+        if (e.target === bd) bd.classList.remove('open');
+      });
+    }
+  })();
 })();
 
 /* ── Whisper toast component ─────────────────────────────────────
