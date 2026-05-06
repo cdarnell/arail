@@ -485,7 +485,9 @@ def _watch_airgap_events() -> Optional[Observation]:
       - airgap_last_lab_mode: str — last seen 'airgapped' | 'hybrid'
 
     Returns at most one Observation per tick — the most recent novel
-    event wins. State is persisted via the host's update_workflow.
+    event wins. State is persisted by direct write to state.json
+    (merging into the existing JSON so BuddyAgent._save_state's keys
+    are never clobbered).
 
     Cooldown: 5 min on the airgap-event watcher key, layered on top
     of the global 5-min cooldown so a polling loop that triggers a
@@ -1043,13 +1045,23 @@ class BuddyAgent:
         path = _state_file()
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(json.dumps({
+            # Read-merge-write: preserve any keys written by other
+            # writers (e.g. the airgap watcher's airgap_last_egress_offset
+            # and airgap_last_lab_mode) so we don't stomp them.
+            existing: Dict[str, Any] = {}
+            if path.exists():
+                try:
+                    existing = json.loads(path.read_text()) or {}
+                except Exception:
+                    existing = {}
+            existing.update({
                 "last_said": self._last_said,
                 "last_global": self._last_global,
                 "last_suggest_check": self._last_suggest_check,
                 "utterances": self._utterances,
                 "suggestions": self._suggestions,
-            }, indent=2))
+            })
+            path.write_text(json.dumps(existing, indent=2))
         except OSError:
             pass  # read-only FS or permission issue — don't crash
 

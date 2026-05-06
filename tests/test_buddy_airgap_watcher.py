@@ -172,3 +172,78 @@ class TestWatchAirgapEvents:
         obs = _watch_airgap_events()
         assert obs is not None, "Watcher must read from start when offset > file size"
         assert "post-rotation.com" in obs.fact
+
+
+class TestSaveStatePreservesAirgapKeys:
+    """Regression guard for the BLOCK fix: BuddyAgent._save_state must
+    use read-merge-write semantics so the airgap watcher's keys survive
+    a subsequent _save_state call.
+
+    Sequence under test:
+      1. Watcher writes airgap_last_egress_offset + airgap_last_lab_mode.
+      2. BuddyAgent._save_state() writes its five keys.
+      3. state.json must contain ALL seven keys.
+    """
+
+    def test_save_state_after_watcher_preserves_airgap_keys(
+        self, monkeypatch, tmp_path
+    ):
+        """Critical: BuddyAgent._save_state must NOT clobber the airgap
+        keys the watcher just persisted.
+
+        Sequence:
+          1. Seed state.json with both airgap watcher keys (simulating a
+             prior watcher cycle that wrote an offset + mode).
+          2. Run the watcher again with a new block (advances offset).
+          3. Call BuddyAgent._save_state().
+          4. Assert ALL seven keys survive: 5 Buddy keys + 2 airgap keys.
+        """
+        monkeypatch.setenv("LAB_MODE", "airgapped")
+        _patch_buddy(monkeypatch, tmp_path)
+
+        state_path = tmp_path / "state.json"
+        egress_path = tmp_path / "egress.jsonl"
+
+        # Seed an initial block so the watcher has something to consume.
+        _write_blocks(egress_path, [_make_block("first-host.com")])
+
+        # Step 1: first watcher run — writes airgap_last_egress_offset.
+        # We also manually seed airgap_last_lab_mode to simulate a prior
+        # mode-toggle write (the watcher only writes that key on toggle).
+        from arail.agents._builtin_buddy import _watch_airgap_events
+        _watch_airgap_events()
+        after_first = json.loads(state_path.read_text())
+        # Inject the mode key (written by watcher on mode-toggle events).
+        after_first["airgap_last_lab_mode"] = "airgapped"
+        state_path.write_text(json.dumps(after_first, indent=2))
+
+        assert "airgap_last_egress_offset" in after_first, (
+            "Watcher must persist airgap_last_egress_offset before the test is meaningful"
+        )
+
+        # Step 2: construct a BuddyAgent and call _save_state().
+        # We do NOT pass a stub host — that would mutate the module-level
+        # _host and break other tests.  _save_state only touches the file;
+        # it never calls _host, so the existing default host is fine here.
+        import arail.agents._builtin_buddy as buddy_mod
+
+        agent = buddy_mod.BuddyAgent()
+        agent._save_state()
+
+        # Step 3: both key families must survive on disk.
+        final = json.loads(state_path.read_text())
+
+        # BuddyAgent's own keys.
+        for key in ("last_said", "last_global", "last_suggest_check",
+                    "utterances", "suggestions"):
+            assert key in final, f"BuddyAgent key '{key}' missing after _save_state"
+
+        # Watcher's keys must NOT have been clobbered.
+        assert "airgap_last_egress_offset" in final, (
+            "airgap_last_egress_offset was clobbered by _save_state — "
+            "read-merge-write fix required"
+        )
+        assert "airgap_last_lab_mode" in final, (
+            "airgap_last_lab_mode was clobbered by _save_state — "
+            "read-merge-write fix required"
+        )
