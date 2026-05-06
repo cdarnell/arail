@@ -1167,6 +1167,12 @@ local.` line at line ~48 is replaced.)
   `lab/pkb/agents/buddy/buddy.py`) is repaved: PKB-side becomes a
   re-export shim, so the airgap watcher (and every future Buddy edit)
   lands in one file. See *Buddy de-duplication*.
+- The same fix applied to SRE: canonical `_builtin_sre.py` becomes
+  the union of canonical-only (`_sync_workflow`, `_recent_actions`)
+  and PKB-only (`_sre_lab_mode`, `_sre_data_dir`,
+  `_watch_dependency_vulnerabilities`, `_watch_lab_cleanup`) logic.
+  PKB sre.py becomes a thin re-export shim. See
+  *SRE de-duplication*.
 - The lying README paragraphs become true. (Hard to call this "tech
   debt repaid" but it's the load-bearing user-trust improvement.)
 
@@ -1410,15 +1416,355 @@ than maintaining two parallel files.
 
 ---
 
+## SRE de-duplication
+
+Mid-flight discovery: SRE has the *same* canonical-vs-PKB divergence
+pattern that Buddy did pre-repave, except with bidirectional drift —
+each side has logic the other lacks. The PKB path is gitignored, so
+edits there evaporate on the next clean install when
+`ensure_sre_folder()` re-`shutil.copy`s `_builtin_sre.py` over the
+top. We repave SRE the same way Buddy was repaved: the canonical body
+becomes the union, the PKB file becomes a thin shim.
+
+### S.1 — Canonical path
+
+**Canonical: `src/arail/agents/_builtin_sre.py`** (the in-package
+module). Same rationale as Buddy:
+
+- Tracked in git; PKB path `lab/pkb/agents/sre/` is gitignored
+  (`.gitignore` line 42: `lab/pkb/agents/`). The PKB file is purely
+  workstation-local state.
+- The loader's `_seed_if_shipped("sre")` already calls
+  `ensure_sre_folder()` which sources its body from
+  `_builtin_sre.py` — canonical-in-repo IS the package module.
+- `tests/test_sre_new_watchers.py:49-54` imports the PKB `sre.py`
+  by file path (not by package import), so renaming the canonical
+  file is not required — only the contents matter.
+
+We are *not* moving the canonical body to `lab/pkb/agents/sre/sre.py`.
+Same reasons as Buddy (B.1): would invert loader semantics, break
+package-data shipping, and force the inheritance arrow the wrong way.
+
+### S.2 — Reconciling the divergence (option a/b/c)
+
+**Decision: option (a) — port PKB-only logic INTO the canonical
+file.** End state: canonical = union of both. The PKB-only watchers
+(`_watch_dependency_vulnerabilities`, `_watch_lab_cleanup`) and
+helpers (`_sre_lab_mode`, `_sre_data_dir`) are real, tested behavior
+the user relies on; dropping them would regress the
+`tests/test_sre_new_watchers.py` suite (340 lines, ≥30 test cases)
+and silently delete CVE/cleanup alerts. Conversely, the canonical-only
+workflow integration (`update_agent_workflow`, `_recent_actions`,
+`_sync_workflow`) is wired into the dashboard's per-agent workflow
+panel — also non-droppable.
+
+Full divergence inventory (after reading both files in full):
+
+**Lives only in PKB (`lab/pkb/agents/sre/sre.py`):**
+
+| Symbol | Lines (PKB) | Action |
+|---|---|---|
+| `from datetime import date, datetime, timezone` (top-level import, not deferred) | 37 | **port** — needed by CVE watcher |
+| `_sre_lab_mode()` | 287–294 | **port AND collapse.** Body becomes a one-line `return arail.airgap.lab_mode()`. Mirrors row 11/12 in §13. After airgap.py exists, this delegate could be inlined further, but keeping the named helper preserves the test contract (`test_sre_lab_mode_*` in test_sre_new_watchers.py:205-229). |
+| `_sre_data_dir()` | 297–300 | **port.** Two-line helper around `arail.config.DATA_DIR`. Cheap to keep. |
+| `_watch_dependency_vulnerabilities()` | 303–385 | **port verbatim.** 83-line body with branches (a), (b), (c) — heavily tested. |
+| `_watch_lab_cleanup()` | 388–446 | **port verbatim.** 59-line cache-size watcher. |
+| `WATCHERS` list extension | 449–455 | **port.** Add `_watch_dependency_vulnerabilities` and `_watch_lab_cleanup` after the three pre-existing entries. |
+
+**Lives only in canonical (`src/arail/agents/_builtin_sre.py`):**
+
+| Symbol | Lines (canonical) | Action |
+|---|---|---|
+| `from arail.agent_workflows import update_agent_workflow` | 41 | **keep.** Already canonical. |
+| `self._recent_actions: List[str]` | 309 | **keep.** Already canonical. |
+| `_sync_workflow(current_task, next_step)` method | 362–380 | **keep.** Already canonical. |
+| `_sync_workflow(...)` calls in `start()`, `stop()`, `_maybe_speak()` | 348, 360, 443 | **keep.** Already canonical. |
+| `self._recent_actions.append(...)` in `_maybe_speak` | 441 | **keep.** Already canonical. |
+
+**Identical in both** (no action — already aligned):
+
+`NAME`, `EMOJI`, `SYSTEM_PROMPT`, `Observation` dataclass,
+`_state_file`, `_activity_log_path`, `_fingerprint`, `_tail_jsonl`,
+`_parse_ts`, `_watch_recent_errors`, `_watch_crash_recurrence`,
+`_watch_service_health`, `SREAgent.__init__` (modulo `_recent_actions`),
+`_load_state`, `_save_state`, `start/stop` (modulo `_sync_workflow`),
+`_run`, `_maybe_speak` (modulo `_sync_workflow` + `_recent_actions`),
+the singleton `sre = SREAgent()`.
+
+**Net port count:** 5 symbols (~150 lines) ported PKB → canonical.
+**Drop count:** 0. **Keep-canonical count:** 5 symbols already there.
+
+The canonical post-port has line count ≈ 449 (current) + ~155 (ported)
+= ~604 lines. Well under the 1390-line Buddy canonical, so manageable.
+
+`_sre_lab_mode()` body collapses to:
+
+```python
+def _sre_lab_mode() -> str:
+    """Return the current lab mode via the canonical airgap helper.
+
+    Delegates to arail.airgap.lab_mode() — the single source of truth for
+    the LAB_MODE → ARAIL_MODE → 'airgapped' fallback chain.
+    """
+    from arail.airgap import lab_mode
+    return lab_mode()
+```
+
+(Identical to the PKB body the builder already wrote — port copies it
+verbatim.)
+
+### S.3 — Loader behavior + the SRE PKB shim
+
+`ensure_sre_folder()` at `src/arail/agents/builtin_seed.py:603-625`
+currently does `shutil.copy(builtin, sre_py)`. Replace with a
+templated shim write — exact mirror of the Buddy resolution.
+
+**New constant** (next to `_BUDDY_PKB_SHIM` near line 201 in builtin_seed.py):
+
+```python
+# A re-export shim materialised into lab/pkb/agents/sre/sre.py instead of
+# a copy of the canonical body.  The shim re-exports everything the loader
+# and tests reach for from the installed package so a single edit to
+# _builtin_sre.py lands everywhere.
+#
+# Idempotency sentinel: shim starts with """SRE — PKB shim.""" on its
+# first non-blank line.  If the user replaces that with a full custom
+# body, the sentinel disappears and ensure_sre_folder() leaves the file
+# alone.
+_SRE_PKB_SHIM = '''"""SRE — PKB shim.
+
+This file is auto-generated by builtin_seed.ensure_sre_folder. The
+canonical implementation lives in the installed package at
+``src/arail/agents/_builtin_sre.py``. The shim re-exports the
+``sre`` singleton (and the helpers tests reach for) so the loader
+finds an importable agent here without us shipping a forked copy
+that drifts.
+
+To fork SRE into a custom monitor, replace this file with a full
+module body — copy ``_builtin_sre.py`` as a starting point, edit
+NAME / SYSTEM_PROMPT / WATCHERS, and the loader will prefer this
+PKB copy over the package fallback.
+
+DO NOT EDIT THIS SHIM. It will be regenerated if missing.
+"""
+
+from arail.agents._builtin_sre import (  # noqa: F401
+    sre,
+    SREAgent,
+    Observation,
+    WATCHERS,
+    NAME,
+    EMOJI,
+    SYSTEM_PROMPT,
+    _state_file,
+    _activity_log_path,
+    _fingerprint,
+    _tail_jsonl,
+    _parse_ts,
+    _watch_recent_errors,
+    _watch_crash_recurrence,
+    _watch_service_health,
+    _watch_dependency_vulnerabilities,
+    _watch_lab_cleanup,
+    _sre_lab_mode,
+    _sre_data_dir,
+)
+'''
+
+_SRE_PKB_SHIM_SENTINEL = '"""SRE — PKB shim."""'
+```
+
+Note the wider re-export surface vs. Buddy's: the SRE shim exports
+the `_watch_*` helpers and `_sre_lab_mode`/`_sre_data_dir` because
+`tests/test_sre_new_watchers.py` reaches for them as
+`mod._watch_dependency_vulnerabilities()` etc. via the
+`_sre_under_test` spec-from-file-location import. The shim must
+re-export them so the test fixture continues to work without
+modification.
+
+`ensure_sre_folder()` body becomes:
+
+```python
+def ensure_sre_folder(pkb_root: Path | None = None) -> dict:
+    """Materialize lab/pkb/agents/sre/ if missing.
+
+    Idempotent: if the folder exists AND ``sre.py`` is present inside,
+    do nothing. Otherwise write AGENT.md and a thin re-export shim
+    pointing at arail.agents._builtin_sre. Users who want to fork SRE
+    should replace this file with a full body (copy _builtin_sre.py as
+    a starting point).
+    """
+    root = pkb_root or _pkb_root()
+    sre_dir = root / "agents" / "sre"
+
+    sre_py = sre_dir / "sre.py"
+    if sre_py.exists():
+        return {"ok": True, "created": False}
+
+    sre_dir.mkdir(parents=True, exist_ok=True)
+    sre_py.write_text(_SRE_PKB_SHIM, encoding="utf-8")
+    (sre_dir / "AGENT.md").write_text(_SRE_AGENT_MD)
+
+    return {"ok": True, "created": True, "path": str(sre_dir)}
+```
+
+The loader (`src/arail/agents/loader.py:118-123`) is unchanged. As
+with Buddy, the shim re-imports the canonical so
+`getattr(module, "sre", None)` returns the same singleton instance the
+package exports.
+
+### S.4 — Direct importers (grep results, 2026-05-05)
+
+```
+$ grep -rn "_builtin_sre\|from .*sre import\|sre\.sre" --include="*.py" .
+src/arail/agents/loader.py:120                from arail.agents.builtin_seed import ensure_sre_folder
+src/arail/agents/_builtin_sre.py:448          # comment ("agent_id == 'sre', so it looks for `sre.sre`")
+src/arail/agents/builtin_seed.py:607,618      docstring + shutil.copy site
+lab/pkb/agents/sre/sre.py:587                 same comment as canonical
+tests/test_sre_new_watchers.py:51             spec_from_file_location("_sre_under_test", sre_path)
+```
+
+No `from arail.agents._builtin_sre import …` callers exist today — all
+external use of SRE goes through the loader. No `from
+lab.pkb.agents.sre …` callers either (PKB path is loaded by file).
+
+| Site | Action |
+|---|---|
+| `src/arail/agents/loader.py:120` | **leave alone.** References `ensure_sre_folder` by name; that function survives the repave. |
+| `src/arail/agents/_builtin_sre.py:448` (the singleton-export comment) | **leave alone.** Already accurate. |
+| `src/arail/agents/builtin_seed.py:607` (docstring "copy _builtin_sre.py") | **edit.** Update docstring to "writes a thin re-export shim pointing at arail.agents._builtin_sre" — see S.3. |
+| `src/arail/agents/builtin_seed.py:618` (`shutil.copy(builtin, sre_py)`) | **edit (S.3).** Replace with `sre_py.write_text(_SRE_PKB_SHIM, ...)`. |
+| `lab/pkb/agents/sre/sre.py:587` (same comment) | **delete the whole file before next boot.** S.6 step. The shim regenerates without that comment line; it lives in the shim header. |
+| `tests/test_sre_new_watchers.py:51` (`spec_from_file_location`) | **leave alone — verify only.** The shim re-exports every `_watch_*` and `_sre_*` symbol the test reaches for. After repave, `mod._watch_dependency_vulnerabilities` returns the same callable that lives in the canonical module. Tests pass unchanged. |
+| `lab/pkb/compiled/docs/modules/arail-agents-_builtin_sre.md` (auto-generated module-doc) | **leave alone.** Auto-regen on next wiki rebuild — copy will refresh from the new canonical body. |
+
+### S.5 — Test fallout
+
+Two existing test files reference SRE; one new test file is required:
+
+- `tests/test_sre_new_watchers.py:49-54` — imports
+  `lab/pkb/agents/sre/sre.py` by file path. **Stays.** After the
+  repave, that file is a shim re-exporting from the canonical, so
+  every `mod._watch_*` and `mod._sre_*` reference still resolves.
+  The fixture's `monkeypatch.setenv("ARAIL_DATA_DIR", ...)`,
+  `LAB_ROOT`, `LAB_PKB`, plus `importlib.reload(arail.config)` are
+  unaffected. **Verification step:** the builder runs this test
+  suite immediately after the repave and confirms green. If any
+  symbol is missing from the shim's re-export list, this is the
+  test that catches it — no silent regression possible.
+- (No other test file references SRE directly; grep confirms.)
+
+A new test mirrors `tests/test_builtin_seed_buddy_shim.py`:
+
+- `tests/test_builtin_seed_sre_shim.py` (**new**, alongside step 3.5):
+  - With a clean tmp PKB root, call `ensure_sre_folder` → assert
+    `agents/sre/sre.py` exists, first non-blank line equals
+    `'"""SRE — PKB shim."""'` (the `_SRE_PKB_SHIM_SENTINEL`).
+  - Assert the shim file is < 80 lines (regression guard against
+    accidental full-body copy; SRE shim is wider than Buddy's so the
+    threshold is 80 vs Buddy's 60).
+  - Import the shim file via `importlib.util.spec_from_file_location`,
+    assert `module.sre is arail.agents._builtin_sre.sre` (identity).
+  - Assert `module._watch_dependency_vulnerabilities is
+    arail.agents._builtin_sre._watch_dependency_vulnerabilities`
+    (identity — proves the shim doesn't fork the watcher functions).
+  - With an existing forked file (header line ≠ shim sentinel), call
+    `ensure_sre_folder` → assert the file is **not** rewritten.
+
+### S.6 — Ordering invariant
+
+The repave **must precede the LAB_MODE call-site consolidation
+(former step 4 in §11.1.B.7)** so the consolidation targets the
+canonical (`_builtin_sre.py`) and writes once. Insert as **step 3.5**
+in the existing 11-step order, immediately after the Buddy repave and
+before LAB_MODE consolidation. The new authoritative order is:
+
+1. Layer 1 — `airgap.py` + helpers test.
+2. Layer 2 — `egress.py` + guard test + autouse fixture.
+3. Buddy repave — files 13b, 13c, test 28.
+4. **(NEW) SRE repave — files 12b, 12c, test 29.** Replace
+   `shutil.copy` in `ensure_sre_folder` with shim-template write;
+   **port** the PKB-only logic into `_builtin_sre.py`; delete the
+   workstation's `lab/pkb/agents/sre/sre.py` so the next boot
+   re-seeds the shim. Run `tests/test_sre_new_watchers.py` and
+   confirm green — if any test fails, the shim's re-export list is
+   incomplete.
+5. Consolidate `LAB_MODE` call sites — files 6, 9, 10, **12 (now the
+   canonical only)**, 15. Row 11 (PKB SRE direct edit) is **dropped
+   from the file table** — see §13 update. The `_sre_lab_mode()`
+   helper in the canonical now delegates to `arail.airgap.lab_mode()`.
+6. API + modal — files 7, 18, 19, 20, 21.
+7. Buddy watcher (single-file edit) — files 13a, 24.
+8. Wire-in to portal startup — `portal/app.py`, `agents/loader.py`.
+9. Docs — files 22, 23, 26.
+10. Audit comments — file 16.
+11. Learnings — file 27.
+12. End-to-end manual demo.
+
+(Old step numbering shifted by +1 from step 4 onwards. Builder reads
+this list, not the prior §11.1.B.7 list — this section supersedes
+it.)
+
+The hard rule: **step 4 (SRE repave) lands before step 5 (LAB_MODE
+call-site consolidation).** If the builder edits the PKB SRE file in
+step 5, the edit is overwritten by the seed shim on next clean
+install — exactly the bug the orchestrator caught. The repave first
+lets step 5 target the canonical only.
+
+### S.7 — Risk + rollback
+
+**Worst case (different from Buddy):** the SRE shim's re-export list
+is incomplete and `tests/test_sre_new_watchers.py` fails on a missing
+attribute (e.g., a private helper the test reaches for that the shim
+forgot to re-export). This is more likely than Buddy because the test
+file imports by file path and exercises private helpers directly,
+whereas `tests/test_buddy_suggesters.py` imports by package path.
+
+**Detection:** running `pytest tests/test_sre_new_watchers.py` after
+step 4. If any test errors with `AttributeError: module
+'_sre_under_test' has no attribute '<x>'`, add `<x>` to
+`_SRE_PKB_SHIM`'s import list and re-run. The shim's re-export list is
+explicit and grep-able — easy to extend.
+
+**Second risk (unique to SRE, not present in Buddy repave):** porting
+~150 lines of CVE/cleanup logic into the canonical introduces a
+merge-error window. If the builder ports the logic but mis-orders the
+`WATCHERS` list (e.g., puts the new entries before the existing
+three), tests still pass but the rank-order in `_maybe_speak` could
+shift when multiple watchers fire on the same tick. **Mitigation:**
+the port is a pure-append — `_watch_dependency_vulnerabilities` and
+`_watch_lab_cleanup` are added at the *end* of the existing list, in
+the same order they appear in PKB sre.py:449-455. `Observation.rank()`
+uses severity, not list position, so the order is cosmetic only — but
+keep it stable for diff readability.
+
+**Rollback recipe** (if a fresh install breaks SRE after this ships):
+
+1. In `builtin_seed.ensure_sre_folder`, flip the body back to
+   `shutil.copy(builtin, sre_py)` — one-line revert.
+2. The ported watchers live in `_builtin_sre.py` (canonical) so they
+   survive the rollback; the PKB copy is a fresh full-body clone with
+   the watchers included.
+3. No data loss: `state.json` is untouched by the repave (only
+   `sre.py` is rewritten).
+
+**Net additional risk vs. the prior "edit lab/pkb/agents/sre/sre.py
+in step 11 of §13" plan:** the port window is the new failure mode,
+mitigated by the existing test suite acting as a 30-test acceptance
+gate. Lower long-run risk than maintaining two parallel files.
+
+---
+
 ## Files to touch (final)
 
 Updated from PLAN.md. Builder reads only this table for implementation
 order.
 
 §11.1 (Buddy de-duplication) supplies the per-row context for rows
-13a–13e and adds row 28 (shim test). The numbered implementation
-order in §11.1.B.7 supersedes the older list at the bottom of this
-section.
+13a–13e and adds row 28 (shim test). §11.2 (SRE de-duplication) adds
+rows 12b–12c and 29 (shim test) and **drops row 11**. The numbered
+implementation order in §11.2.S.6 supersedes the older list at the
+bottom of this section.
 
 | # | File | Status | Change |
 |---|---|---|---|
@@ -1432,8 +1778,10 @@ section.
 | 8 | `src/arail/agents/loader.py` | edit | call `egress.install_guard()` first line of `load_all()` |
 | 9 | `src/arail/research/program_drafter.py` | edit | replace `_allow_live_fetch` body with `not is_airgapped() and os.getenv(...) == "1"` |
 | 10 | `src/arail/agents/curator.py` | edit | replace inline env reads (lines 73, 109) with `is_airgapped()` |
-| 11 | `lab/pkb/agents/sre/sre.py` | edit | replace `_sre_lab_mode()` with `from arail.airgap import lab_mode` |
-| 12 | `src/arail/agents/_builtin_sre.py` | edit | mirror sre.py changes (parallel implementation) |
+| ~~11~~ | ~~`lab/pkb/agents/sre/sre.py`~~ | **dropped** | superseded by §11.2 SRE de-duplication: PKB sre.py becomes a re-export shim, so direct edits there evaporate on reseed. The `_sre_lab_mode()` collapse happens once in row 12a (canonical) and re-exports through the shim. |
+| 12a | `src/arail/agents/_builtin_sre.py` | edit | **canonical SRE.** Per §11.2.S.2: port `_sre_lab_mode`, `_sre_data_dir`, `_watch_dependency_vulnerabilities`, `_watch_lab_cleanup` from PKB into canonical; extend `WATCHERS` list with the two new entries (append-end, preserves order); collapse `_sre_lab_mode` body to delegate to `arail.airgap.lab_mode()`. End state: canonical = union; ~604 lines. |
+| 12b | `src/arail/agents/builtin_seed.py` | edit | **flip seed body** — add `_SRE_PKB_SHIM` constant + `_SRE_PKB_SHIM_SENTINEL`; `ensure_sre_folder` writes the shim instead of `shutil.copy`-ing the canonical body. See §11.2.S.3 for the full re-export list (wider than Buddy's because tests reach for `_watch_*` and `_sre_*` privates by file-path import). Update docstring on line 607. |
+| 12c | `lab/pkb/agents/sre/sre.py` (working tree only — gitignored) | delete | remove the stale workstation copy so the next boot re-seeds the new shim. No git impact. |
 | 13a | `src/arail/agents/_builtin_buddy.py` | edit | **canonical Buddy.** Drop `LAB_INTERNET_ENABLED` (line 758); fold the HF-papers fetch behind `is_airgapped()`; add `_watch_airgap_events()` and register in `WATCHERS` list. This is the only place the watcher lives. |
 | 13b | `src/arail/agents/builtin_seed.py` | edit | **flip seed body** — `ensure_buddy_folder` writes a thin shim `buddy.py` (re-export from `arail.agents._builtin_buddy`) instead of `shutil.copy`-ing the canonical body. See *Buddy de-duplication* §B.2. |
 | 13c | `lab/pkb/agents/buddy/buddy.py` (working tree only — file is gitignored, see §11.1) | delete | remove the stale workstation copy so the next boot re-seeds the new shim. No git impact. |
@@ -1453,6 +1801,7 @@ section.
 | 26 | `docs/agents.md` | edit | one-line update: "fork Buddy" recipe (line 514) clarifies that the PKB shim must be replaced with a full body copied from `_builtin_buddy.py`. |
 | 27 | `learnings/2026-05-05-allow-egress-task-scope.md` | **new** | one-paragraph stub on contextvars semantics |
 | 28 | `tests/test_builtin_seed_buddy_shim.py` | **new** | per §11.1.B.5 — verifies shim is written, is identity-preserving, is idempotent against forks |
+| 29 | `tests/test_builtin_seed_sre_shim.py` | **new** | per §11.2.S.5 — mirror of row 28 for SRE: assert shim sentinel header, < 80 lines, identity-preserving for `sre`/`SREAgent`/`_watch_dependency_vulnerabilities`/`_watch_lab_cleanup`, idempotent against user forks. |
 
 **Out of scope this sprint** (deliberately removed from the table):
 
@@ -1467,10 +1816,11 @@ section.
 
 ## Recommended implementation order
 
-**Authoritative ordering lives in §11.1.B.7** (Buddy de-duplication).
-The Buddy repave precedes the watcher write — otherwise the watcher
-gets written twice and re-deleted. Repeated here for builder
-convenience:
+**Authoritative ordering lives in §11.2.S.6** (SRE de-duplication, the
+later of the two repave addenda). Both Buddy and SRE repaves precede
+their respective downstream edits — otherwise edits to the PKB files
+evaporate on reseed and watchers get written twice. Repeated here for
+builder convenience:
 
 1. **Layer 1 — single source of truth.** Write
    `src/arail/airgap.py` + `tests/test_airgap_helpers.py`. Get green
@@ -1478,32 +1828,44 @@ convenience:
 2. **Layer 2 — egress guard.** Write `src/arail/egress.py` +
    `tests/test_egress_guard.py` + `tests/conftest.py` autouse fixture.
    Verify the guard is fully reset between tests.
-3. **Buddy repave (NEW STEP).** Files 13b (builtin_seed.py shim
-   template), 13c (delete the workstation's stale PKB body), 28
+3. **Buddy repave.** Files 13b (builtin_seed.py shim template), 13c
+   (delete the workstation's stale PKB body), 28
    (`tests/test_builtin_seed_buddy_shim.py`). Smoke-run `./arail start`,
    confirm Buddy still loads from the shim. *MUST happen before step
-   6 — the watcher lands once, in the canonical file, no churn.*
-4. **Consolidate call sites.** Files 6, 9, 10, 11, 12, 15. Run the
-   regression tests after each file.
-5. **API + modal.** Files 7 (`/api/airgap/status` route), 18, 19, 20,
+   7 — the watcher lands once, in the canonical file, no churn.*
+4. **SRE repave (NEW STEP, per §11.2).** Files 12a (port PKB-only
+   logic into `_builtin_sre.py` — `_sre_lab_mode`, `_sre_data_dir`,
+   `_watch_dependency_vulnerabilities`, `_watch_lab_cleanup`; extend
+   `WATCHERS`; collapse `_sre_lab_mode` to delegate to
+   `arail.airgap.lab_mode()`), 12b (builtin_seed.py: add
+   `_SRE_PKB_SHIM` + flip `ensure_sre_folder` write), 12c (delete the
+   workstation's stale PKB body), 29
+   (`tests/test_builtin_seed_sre_shim.py`). Run
+   `pytest tests/test_sre_new_watchers.py` to confirm green —
+   re-export list is complete. *MUST happen before step 5 — without
+   it, edits to PKB sre.py are overwritten by the seed copy.*
+5. **Consolidate remaining call sites.** Files 6, 9, 10, 15. Row 11
+   is dropped (§11.2 supersedes); row 12 collapses to 12a (already
+   handled in step 4). Run the regression tests after each file.
+6. **API + modal.** Files 7 (`/api/airgap/status` route), 18, 19, 20,
    21. End-to-end click-the-badge smoke test.
-6. **Buddy watcher (single-file edit).** Files 13a, 24. Drop
+7. **Buddy watcher (single-file edit).** Files 13a, 24. Drop
    `LAB_INTERNET_ENABLED`; add `_watch_airgap_events`; write the
    watcher test. The PKB shim re-exports the canonical's `WATCHERS`
    so no second edit is needed.
-7. **Wire in to portal startup.** `portal/app.py` startup +
+8. **Wire in to portal startup.** `portal/app.py` startup +
    `agents/loader.py` first-line `install_guard()`. Smoke-run
    `./arail start` and confirm boot is clean.
-8. **Docs.** Files 22, 23, 26. Verbatim copy from §11 for README and
+9. **Docs.** Files 22, 23, 26. Verbatim copy from §11 for README and
    PRIVACY; one-line clarification in `docs/agents.md` for the fork
    recipe (the PKB shim must be replaced with a full body to fork).
    The README change is the load-bearing deliverable — don't paraphrase.
-9. **Audit comments.** File 16. Add `# noqa-airgap: localhost-only`
-   at the three known pre-guard Session sites.
-10. **Learnings.** File 27. One paragraph on contextvars semantics.
-    The buddy-double-implementation learning is **not** filed — the
-    repave in step 3 is the resolution.
-11. **End-to-end manual demo.** Per VISION §3 and PLAN.md "End-to-end."
+10. **Audit comments.** File 16. Add `# noqa-airgap: localhost-only`
+    at the three known pre-guard Session sites.
+11. **Learnings.** File 27. One paragraph on contextvars semantics.
+    The buddy- and SRE-double-implementation learnings are **not**
+    filed — the repaves in steps 3 and 4 are the resolution.
+12. **End-to-end manual demo.** Per VISION §3 and PLAN.md "End-to-end."
     Capture a screencap or asciicast in BUILD_LOG step 2.
 
 ---
