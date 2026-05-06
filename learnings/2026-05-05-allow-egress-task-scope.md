@@ -59,3 +59,56 @@ Or use `asyncio.run_coroutine_threadsafe` with an explicit context.
 - Python docs: https://docs.python.org/3/library/contextvars.html
 - asyncio task context: https://docs.python.org/3/library/asyncio-task.html#asyncio.create_task
 - Sprint ARCHITECTURE.md §7 "asyncio subtlety" block
+
+---
+
+# Learning: canonical-vs-PKB agent de-duplication (Buddy + SRE)
+
+**Date:** 2026-05-05 (updated same sprint)
+**Sprint:** airgap-honest-mode
+
+## The pattern
+
+ARAIL ships two copies of each built-in agent body: the canonical package
+module (`src/arail/agents/_builtin_*.py`, tracked in git) and the PKB
+runtime copy (`lab/pkb/agents/<id>/<id>.py`, gitignored). `builtin_seed.py`
+originally seeded the PKB copy via `shutil.copy(builtin, pkb_py)`.
+
+The drift hazard: edits to the gitignored PKB copy survive on one workstation
+but evaporate on `./arail reset pkb` or a clean install, when `builtin_seed.py`
+re-copies the canonical over the PKB file.
+
+## The fix (applied to both Buddy and SRE in this sprint)
+
+Replace `shutil.copy` with a shim-template write. The PKB file becomes a
+thin re-export:
+
+```python
+from arail.agents._builtin_sre import (  # noqa: F401
+    sre, SREAgent, ...
+)
+```
+
+The loader imports the PKB file by path; the re-export means `getattr(module,
+"sre")` returns the same singleton as the canonical. One edit to the canonical
+file lands everywhere. The user can still fork by replacing the shim with a
+full body — the loader prefers the PKB copy, and the shim sentinel check
+(first non-blank line) skips the rewrite if the user has already forked.
+
+## What to watch for when adding a new built-in agent
+
+1. Write the body in `src/arail/agents/_builtin_<id>.py` (canonical).
+2. In `builtin_seed.py`, define `_<ID>_PKB_SHIM` + `_<ID>_PKB_SHIM_SENTINEL`.
+3. `ensure_<id>_folder()` writes the shim, not `shutil.copy()`.
+4. The shim re-export list must include every name the loader and any
+   test file reaches for — grep for `mod.<name>` in test files that import
+   by `spec_from_file_location` to find the full surface.
+5. Add `tests/test_builtin_seed_<id>_shim.py` with identity assertions.
+
+## Why SRE's shim surface is wider than Buddy's
+
+`tests/test_sre_new_watchers.py` imports the PKB `sre.py` by file path and
+calls private helpers (`_watch_dependency_vulnerabilities`, `_sre_lab_mode`,
+etc.) directly on the module. The SRE shim must re-export all 16 names;
+Buddy's shim re-exports only 8 public names because `test_buddy_suggesters.py`
+imports the canonical by package path, not by file.
