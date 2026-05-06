@@ -39,7 +39,7 @@ Approved plan and full architecture sketch in `PLAN.md` (this sprint dir).
 | review (re-pass) | architect (review) | REVIEW.md (append) | done | 2026-05-05 | 2026-05-05 | PASS |
 | test | qa | TEST_REPORT.md | done (1st pass) | 2026-05-05 | 2026-05-05 | WEAK_PASS — 1 real bug (Buddy watcher ValueError on malformed state.json) |
 | build (loopback 3) | builder | _builtin_buddy.py + BUILD_LOG | done | 2026-05-05 | 2026-05-05 | `b4d1312` — try/except wrapper, +3 LOC, bug fix verified (18/18 tests pass) |
-| ship | — | PR | pending | — | — | — |
+| ship | — | PR #35 | done | 2026-05-05 | 2026-05-05 | https://github.com/cdarnell/arail/pull/35 |
 
 ## Decisions log
 
@@ -67,6 +67,28 @@ Approved plan and full architecture sketch in `PLAN.md` (this sprint dir).
 | Phase | Reason |
 |---|---|
 | (none) | full pipeline — security-relevant change with bypass paths the architect must explicitly review |
+
+## Sprint outcome
+
+**SHIPPED** — PR https://github.com/cdarnell/arail/pull/35
+
+- 36 commits, 51 files, +7,913 / -71 LOC
+- 4 architect passes (design + Buddy de-dup addendum + SRE de-dup addendum + re-review)
+- 4 builder passes (initial build + 3 loopbacks)
+- 1 QA pass with 80 new tests (79 pass, 1 exposed real bug → fixed in loopback 3 → verified closed)
+- Pre-existing failure `test_next_experiment_flags_uncovered_term` confirmed unrelated to this sprint
+
+**Win condition (witnessable artifacts) — all met:**
+
+1. ✅ `tests/test_egress_guard.py` covers `requests`, `urllib`, loopback/RFC1918 pass-through.
+2. ✅ `lab/data/egress.jsonl` records one structured line per block (schema: `{ts, url_host, caller, reason, lab_mode}`).
+3. ✅ README's three "zero network calls" paragraphs (`README.md:60-62, 96-99, 143-145`) rewritten verbatim per architect spec; `docs/PRIVACY.md:28-48` aligned.
+
+**Tech debt deliberately left:**
+
+- 6to4 IPv6 (`2002::/16`) classified as private by Python 3.11 stdlib — documented gap, not threat-relevant (6to4 effectively dead).
+- 4 pre-existing test failures on `origin/main` (`test_chat_ui`, `test_drafter`, two in `test_toast_ui`, plus the noted `test_next_experiment_flags_uncovered_term`) flagged for a follow-up triage sprint.
+- `httpx`, `aiohttp`, raw `socket`, `subprocess curl`, `os.system` documented as known unwrapped surfaces in README + PRIVACY.md + modal known-gaps section.
 
 ## Notes
 
