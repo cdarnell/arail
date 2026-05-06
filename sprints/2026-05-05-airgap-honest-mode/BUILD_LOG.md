@@ -155,6 +155,78 @@ not a design flaw. No spec revision needed; the fix is self-contained in
 
 ---
 
+## Loopback 2 — SRE de-duplication (2026-05-05)
+
+### Commits
+
+| # | SHA | Description |
+|---|---|---|
+| 1 | fc0aa8f | feat(sre): repave SRE — port PKB-only logic into canonical, shim PKB file |
+| 2 | 64aeb50 | docs(learnings): extend with canonical-vs-PKB de-duplication pattern |
+
+### What was done
+
+Ported 5 PKB-only symbols into `src/arail/agents/_builtin_sre.py` (canonical):
+`_sre_lab_mode` (body collapses to `return arail.airgap.lab_mode()`),
+`_sre_data_dir`, `_watch_dependency_vulnerabilities`, `_watch_lab_cleanup`, and
+the two-entry `WATCHERS` extension. Also added `from datetime import date,
+datetime, timezone` at the top of the canonical file (required by the CVE
+watcher). Final canonical line count: 614.
+
+`ensure_sre_folder()` in `builtin_seed.py` now writes `_SRE_PKB_SHIM` (16
+re-export names) instead of `shutil.copy()`-ing the full canonical body. The
+shim re-exports both public names (`sre`, `SREAgent`, `Observation`, `WATCHERS`,
+`NAME`, `EMOJI`, `SYSTEM_PROMPT`) and the 9 private helpers that
+`tests/test_sre_new_watchers.py` reaches for via `spec_from_file_location`. The
+sentinel line `"""SRE — PKB shim."""` gates the idempotency check.
+
+The on-disk PKB file (`lab/pkb/agents/sre/sre.py`, gitignored) was overwritten
+with the shim content directly (simulating next-boot reseed), so
+`test_sre_new_watchers.py`'s `spec_from_file_location` fixture continues to find
+the file and all re-exported symbols resolve correctly.
+
+New test file `tests/test_builtin_seed_sre_shim.py` (7 tests) mirrors the Buddy
+shim test. Includes an extra identity assertion for
+`_watch_dependency_vulnerabilities` (beyond what the Buddy shim test checks) to
+cover the wider re-export surface.
+
+Learnings file updated (Loopback 2 commit 64aeb50) to document the
+canonical-vs-PKB shim pattern for future built-in agent authors.
+
+### Verification
+
+| # | Check | Result |
+|---|---|---|
+| 1 | `_builtin_sre.py` line count ~604 ±20 | PASS — 614 lines |
+| 2 | All 5 symbols ported; `_sre_lab_mode()` delegates to `arail.airgap.lab_mode()` | PASS |
+| 3 | `WATCHERS` = original 3 + 2 new, append-order preserved | PASS |
+| 4 | `ensure_sre_folder()` writes shim (no `shutil.copy`); shim has 16 re-exports | PASS |
+| 5 | `pytest tests/test_sre_new_watchers.py` — 23/23 pass | PASS |
+| 6 | `pytest tests/test_builtin_seed_sre_shim.py` — 7/7 pass | PASS |
+| 7 | `pytest tests/test_builtin_seed_buddy_shim.py tests/test_buddy_airgap_watcher.py` — 13/13 pass | PASS |
+| 8 | `test_next_experiment_flags_uncovered_term` still the only pre-existing failure | PASS |
+
+### Spec gap or interpretation
+
+One implementation detail not explicitly stated in the architect's spec: the
+`lab/pkb/agents/sre/sre.py` on-disk file needed to be replaced with the shim
+content *before* running `test_sre_new_watchers.py`, because that test imports
+the PKB file by path (not by package) and asserts `sre_path.exists()`. The
+architect's instruction was "delete the workstation's sre.py so the next boot
+re-seeds the shim" — but deleting it would make the fixture's `assert
+sre_path.exists()` fail immediately. Resolution: wrote the shim content directly
+to the PKB path (equivalent to what `ensure_sre_folder()` would do on next
+boot). This is consistent with the architect's intent and produces a passing test
+suite. No spec change needed.
+
+One parse-time surprise: embedding `"""` inside single quotes inside a module
+docstring triple-quoted string (`'"""SRE — PKB shim."""'`) triggers a Python
+syntax error in 3.11 because the embedded `"""` terminates the surrounding
+triple-quote. Fixed by removing the literal sentinel value from the module
+docstring (replaced with descriptive prose). No spec impact.
+
+---
+
 ## Loopback 1 — BLOCK fix (2026-05-05)
 
 ### Commits
