@@ -31,8 +31,10 @@ Approved plan and full architecture sketch in `PLAN.md` (this sprint dir).
 |---|---|---|---|---|---|---|
 | think | visionary | VISION.md | done | 2026-05-05 | 2026-05-05 | proceed |
 | plan | architect (design) | ARCHITECTURE.md | done | 2026-05-05 | 2026-05-05 | proceed |
-| build | builder | BUILD_LOG.md | pending | — | — | — |
-| review | architect (review) | REVIEW.md | pending | — | — | — |
+| build | builder | BUILD_LOG.md | done | 2026-05-05 | 2026-05-05 | proceed |
+| review | architect (review) | REVIEW.md | done (1st pass) | 2026-05-05 | 2026-05-05 | BLOCK — loops to build |
+| build (loopback) | builder | BUILD_LOG.md (append) | pending | — | — | — |
+| review (re-pass) | architect (review) | REVIEW.md (append) | pending | — | — | — |
 | test | qa | TEST_REPORT.md | pending | — | — | — |
 | ship | — | PR | pending | — | — | — |
 
@@ -48,6 +50,12 @@ Approved plan and full architecture sketch in `PLAN.md` (this sprint dir).
 | 2026-05-05 | Modal CSS: inline-duplicate in airgap modal template (do NOT extract to style.css this sprint) | Architect-recommended; keeps blast radius small. Cleanup is a follow-up. |
 | 2026-05-05 | Repave Buddy duplication this sprint (canonical = `src/arail/agents/_builtin_buddy.py`) | User chose cleaner end state. PKB version is gitignored — duplication was workstation-only. Architect addendum (`af5c1c1`) reflows implementation order: repave is step 3, watcher single-file at step 6. |
 | 2026-05-05 | Egress probe stays opt-in via `BUDDY_EGRESS_PROBE=1` | Documented as the only intentional exemption; surfaced in README, PRIVACY.md, and modal known-gaps. |
+
+## Loops
+
+| When | Phase | Trigger | Resolution |
+|---|---|---|---|
+| 2026-05-05 | review → build | BLOCK on Buddy watcher state-key persistence (`_save_state()` overwrites watcher keys with only BuddyAgent's 5 keys; offset lost across restarts). Plus ASK on 3 misleading `# noqa-airgap` comments at `backends.py:231,440,590`. | Builder re-engaged with surgical fix instructions; ~10 LOC + 1 regression test + 3 comment edits. |
 
 ## Skipped phases
 
