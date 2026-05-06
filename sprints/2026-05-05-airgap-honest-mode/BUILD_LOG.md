@@ -127,6 +127,30 @@ not a design flaw. No spec revision needed; the fix is self-contained in
 - **Regression baseline:** 52/53 pass (1 pre-existing unrelated failure)
 - **New files:** `src/arail/airgap.py`, `src/arail/egress.py`, `src/arail/portal/templates/_airgap_modal.html`, `learnings/2026-05-05-allow-egress-task-scope.md`
 - **New test files:** `tests/test_airgap_helpers.py`, `tests/test_egress_guard.py`, `tests/test_buddy_airgap_watcher.py`, `tests/test_builtin_seed_buddy_shim.py`
+
+## Loopback 3 — QA bug fix (2026-05-05)
+
+**Bug:** `_watch_airgap_events()` at `_builtin_buddy.py:513` called
+`int(state_data.get("airgap_last_egress_offset", 0))` without guarding
+against non-coercible values. A corrupted `state.json` (e.g. value
+`"garbage"`, a list, or `None`) raised `ValueError` and crashed the
+entire watcher tick.
+
+**Fix:** Wrapped the `int()` call in `try/except (ValueError, TypeError): last_offset = 0`.
+Pattern matches `_load_state` (line 1027-1042) which wraps its entire
+parse block in `except Exception: pass`.
+
+**File changed:** `src/arail/agents/_builtin_buddy.py` lines 513-516
+(net +3 lines — was 1 line, now 4).
+
+**Test that now passes:**
+`tests/test_qa_buddy_watcher_resilience.py::TestMalformedStateJson::test_state_json_with_wrong_types_for_keys`
+
+**No regressions:** `tests/test_buddy_airgap_watcher.py` — all 7 pass.
+Targeted sprint surface — 58/59 pass (1 pre-existing unrelated failure:
+`test_next_experiment_flags_uncovered_term`).
+
+**QA real-bug bucket after this fix:** 0 open bugs.
 - **Lines changed (approx):** +1,400 lines net (new modules + tests + docs)
 - **No commented-out code**
 - **No TODO comments without owner**

@@ -510,7 +510,10 @@ def _watch_airgap_events() -> Optional[Observation]:
     except Exception:
         pass
 
-    last_offset: int = int(state_data.get("airgap_last_egress_offset", 0))
+    try:
+        last_offset: int = int(state_data.get("airgap_last_egress_offset", 0))
+    except (ValueError, TypeError):
+        last_offset = 0
     last_mode: str = str(state_data.get("airgap_last_lab_mode", "airgapped"))
 
     observation: Optional[Observation] = None
