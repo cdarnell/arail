@@ -367,6 +367,15 @@ plugin_mgr = PluginManager()
 @app.on_event("startup")
 async def _startup():
     import os
+    # Install the egress guard FIRST — before any agent loads, before any
+    # cloud-provider endpoint fires, before the security scan.  Idempotent.
+    try:
+        from arail import egress as _egress
+        _egress.install_guard()
+    except Exception as _eg_err:  # noqa: BLE001
+        activity_log.emit("system",
+            f"Egress guard install failed: {_eg_err}", "warn")
+
     global _knowledge_canvas_store
     intent_name = os.getenv("LAB_INTENT_NAME", "AI Engineer")
     activity_log.emit("system",
