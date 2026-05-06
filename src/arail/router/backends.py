@@ -228,7 +228,7 @@ class MLXBackend(BaseBackend):
 class CUDABackend(BaseBackend):
     def __init__(self) -> None:
         import requests  # noqa: F811
-        self._session = requests.Session()  # noqa-airgap: localhost-only (LOCAL_API_PORT target)
+        self._session = requests.Session()  # noqa-airgap: localhost-only (LOCAL_API_PORT target); post-guard Session — HTTPAdapter is monkeypatched at install_guard() time
         self.port = int(os.getenv("LOCAL_API_PORT", "8000"))
         self.model_name = os.getenv("MODEL_NAME",
                                      "Qwen/Qwen3-8B")
@@ -437,7 +437,7 @@ class OpenRouterBackend(BaseBackend):
         if not self.api_key:
             raise ValueError("OPENROUTER_API_KEY not set")
         import requests
-        self._session = requests.Session()  # noqa-airgap: localhost-only (OpenRouter via allow_egress)
+        self._session = requests.Session()  # noqa-airgap: external host (openrouter.ai); post-guard Session — HTTPAdapter is monkeypatched at install_guard() time, egress guard applies
         self.model_name = os.getenv(
             "MODEL_NAME", "Qwen/Qwen3-8B"
         )
@@ -587,7 +587,7 @@ class OpenAICompatBackend(BaseBackend):
 
     def __init__(self) -> None:
         import requests
-        self._session = requests.Session()  # noqa-airgap: localhost-only (default MODEL_API_BASE is localhost)
+        self._session = requests.Session()  # noqa-airgap: localhost-only (MODEL_API_BASE defaults to localhost:1234); post-guard Session — HTTPAdapter is monkeypatched at install_guard() time
         self.base_url = os.getenv("MODEL_API_BASE",
                                    "http://localhost:1234/v1").rstrip("/")
         self.model_name = os.getenv("MODEL_NAME", "default")
