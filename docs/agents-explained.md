@@ -46,9 +46,10 @@ happens:
   │        to sleep for 90s.                             │
   │                                                      │
   │  2. What's going on in the lab?                      │
-  │     └─ Run all four watchers (GPU, inbox,            │
-  │        researcher wins, plateau). Each returns       │
-  │        a fact or None.                               │
+  │     └─ Run all watchers (GPU, inbox, researcher      │
+  │        wins, plateau, goal staleness, study          │
+  │        streak, airgap events). Each returns a        │
+  │        fact or None.                                 │
   │                                                      │
   │  3. Anything worth saying?                           │
   │     └─ Filter out facts I already said recently      │
@@ -92,18 +93,23 @@ The five pieces map cleanly onto files in one folder:
 ```text
 lab/pkb/agents/buddy/
 ├── AGENT.md        personality, rules, skill list, opt-in toggles
-├── buddy.py        watchers + suggesters + loop + voice — the "body"
+├── buddy.py        thin shim that re-exports from the canonical body
 ├── state.json      memory: cooldowns, counts (auto-saved)
 ├── decisions.md    "why I changed X" — human-authored
 └── dreams/
-    ├── 2026-04-26.md   last night's reflection
-    └── 2026-04-25.md   the night before
+    ├── 2026-05-04.md   last night's reflection
+    └── 2026-05-03.md   the night before
 ```
 
 The separation is intentional:
 
 - **Edit AGENT.md** to change voice, intervals, which skills are active.
-- **Edit buddy.py** to add or remove watchers or suggesters.
+- **Add or remove watchers/suggesters** in
+  [`src/arail/agents/_builtin_buddy.py`](../src/arail/agents/_builtin_buddy.py).
+  That file is the canonical body; the PKB `buddy.py` is a shim
+  re-exporting from it. Editing the PKB shim has no effect — it just
+  re-points readers at the canonical. Fork your own version by
+  replacing the shim's contents with your own watchers.
 - **Don't touch state.json** — it's memory, not config.
 - **Write to decisions.md** when you make a big change so the agent
   (and future-you) knows what happened and why.
@@ -177,6 +183,108 @@ mechanism.
 Each layer is optional. You can ship a useful agent with just the
 hello-world skeleton above.
 
+## When one agent isn't enough
+
+Buddy is one loop. Useful, but not how you'd plan a trip to Japan.
+
+Real goals usually want a small team. A travel goal might want one agent
+sweating the seasonality, another scoping routes, another shortlisting
+hotels, another modeling the budget envelope. A research goal wants a
+literature scout, a measurement designer, a variants planner. The same
+goal-shaped lab supports both because the *agents* don't change — only
+the **roster** that gets compiled around the goal does.
+
+### How a goal becomes a roster
+
+When you set a goal in the portal,
+[`swarm_goals.compile_swarm_plan()`](../src/arail/swarm_goals.py)
+runs first. It does three things:
+
+1. **Detect the archetype** — `travel`, `research`, `operations`, or
+   `general` — by scanning the goal text for keywords. "Tokyo" + "rail"
+   + "lodging" lands you in `travel`.
+2. **Pick the worker roster** for that archetype. The roster is a list
+   of dicts with an `id`, `role`, `purpose`, `deliverable`, and a
+   `depends_on` list. The lead is always the `researcher` agent;
+   workers are the lead's lanes.
+3. **Lay out phases** so workers run in dependency order — Scout maps
+   the option space, Critic stress-tests assumptions, then the
+   archetype-specific lanes light up.
+
+For a travel goal the compiled roster is exactly:
+
+| Worker | Role | Depends on |
+|---|---|---|
+| **Scout** | Map the search space | — |
+| **Critic** | Stress-test assumptions | scout |
+| **Seasonality** | Model travel windows + crowd pressure + weather | scout |
+| **Routing** | Plan flights, rail, transfers | scout |
+| **Lodging** | Shortlist neighborhoods + stay types | seasonality, routing |
+| **Budget** | Frame price-vs-comfort tradeoffs | routing, lodging |
+
+That's the **N+1**: one **Lead Researcher** orchestrating + N
+specialized workers per archetype. Default scale is `balanced` (4
+workers); set `ARAIL_SWARM_SCALE=expanded` for 6 or `compact` for 3.
+The plan is reviewable before run — operators can disable workers
+they don't want.
+
+The `research` archetype gets Literature, Eval, Variants, Synthesizer.
+The `operations` archetype gets Signals, Runbooks, Capacity, Reviewer.
+The `general` archetype gets Mapper, Evaluator, Synthesizer. None of
+this is hard-coded into the agent loader — it's a roster description
+the lead consumes. To add an archetype (cooking, parenting, code
+migration), edit `_ARCHETYPE_WORKERS` in `swarm_goals.py`.
+
+### How agents communicate
+
+Agents don't call each other directly. There's no RPC, no message bus,
+no orchestrator-as-process. They share three surfaces, and that's
+enough:
+
+1. **`agent_workflows.json`** — every agent persists its state row
+   (`status`, `objective`, `current_task`, `next_step`,
+   `completed_steps`, `pause_reason`, `chatter`) via
+   [`update_agent_workflow()`](../src/arail/agent_workflows.py).
+   Any agent can read everyone's row. Buddy reads this to know what
+   the Researcher is up to without asking.
+2. **`activity_log.emit(source, message, level, data)`** — a broadcast
+   SSE channel. Whatever an agent says shows up on every dashboard
+   subscriber AND in the JSON event log. A second agent can watch the
+   log and react to what the first one said. This is how Buddy's
+   "researcher wins" watcher fires — it sees the Researcher emit a
+   "win" event and decides whether to praise.
+3. **PKB / LanceDB** — shared semantic memory. One agent writes a
+   note into the knowledge base; another agent's vector search finds
+   it on the next tick. The compiled swarm plan literally pins
+   `"shared_collections": ["agent_workflows", "pkb"]` as the team's
+   coordination substrate.
+
+Three channels, three latencies: workflow rows are *current state*,
+the activity log is *events as they happen*, and the PKB is
+*durable knowledge*. A worker that wants to influence another
+worker writes into whichever surface fits the half-life of what it's
+saying.
+
+### What "lane" means today vs. "process" tomorrow
+
+Today the workers are **lanes inside the Lead Researcher's loop** —
+the lead drives them through phases, syncs each lane's status into
+`agent_workflows.json`, and the dashboard surfaces them as if they
+were independent agents. The visual is multi-agent; the runtime is
+one agent juggling lanes.
+
+That's a deliberate choice and not a forever choice. The architecture
+already speaks the multi-agent dialect (one row per lane in
+workflows, one source per lane in the activity log). Splitting a lane
+into its own `lab/pkb/agents/<id>/` folder with its own loop is the
+same shape the hello-world skeleton above shows — drop the files in,
+restart, the loader finds it. Workers that want their own
+personality, dream, or cadence graduate to real agents the same way
+Buddy did.
+
+That's the path: write the goal, watch the lanes, promote a lane to
+its own agent when it earns it.
+
 ## Why it works this way
 
 Three design choices, each intentional:
@@ -214,9 +322,12 @@ because three indirections compound:
 1. **Dynamic import.** The file at `lab/pkb/agents/buddy/buddy.py`
    gets loaded into Python at runtime by
    [`loader.py`](../src/arail/agents/loader.py) using
-   `importlib.util.spec_from_file_location`. That's why edits to
-   the file take effect on next restart — Python re-reads the whole
-   file, no package reinstall, no restart in the middle of a tick.
+   `importlib.util.spec_from_file_location`. The shipped PKB file is a
+   small shim that re-exports from
+   [`_builtin_buddy.py`](../src/arail/agents/_builtin_buddy.py); replace
+   the shim's contents with your own watchers and the loader picks them
+   up on next restart. Same `importlib` mechanism, no package
+   reinstall, no restart in the middle of a tick.
 
 2. **SSE fan-out.** When Buddy calls `activity_log.emit`, that event
    goes to every dashboard page currently watching the
