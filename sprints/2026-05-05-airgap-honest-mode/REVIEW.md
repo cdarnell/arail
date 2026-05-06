@@ -447,3 +447,227 @@ Other paths (httpx, aiohttp, raw socket, subprocess curl) are
 already pinned as documented gaps in tests and the modal — QA's
 bypass-attempt suite should run them as confirmation rather than
 exploration.
+
+---
+
+## Re-review (2026-05-05)
+
+**Build:** Loopback 1 (faa6898, 4f641e0, df44306) + Loopback 2 (fc0aa8f,
+64aeb50, faca252) + Architect addendum #2 (426df90)
+**Reviewer:** architect (review mode, second pass)
+
+## Verdict: PASS
+
+The original BLOCK is closed cleanly, the SRE repave matches addendum
+#2 byte-for-byte where it counts, the win-condition artifacts are
+untouched, and 105/105 sprint tests pass on this branch (62 from the
+original L1/L2 suite + 7 buddy watcher + 6 buddy shim + 7 sre shim +
+23 sre new-watchers). No regressions introduced. Two minor wrinkles
+are acknowledged-and-accepted, not blockers.
+
+## Loopback 1 closure (BLOCK + ASK)
+
+| Original requirement | Verification | Status |
+|---|---|---|
+| BLOCK 1: `_save_state()` becomes read-merge-write | `_builtin_buddy.py:1044–1066` reads `existing` from disk, applies `existing.update(...)` with the 5 Buddy keys only, writes the merged result | CLOSED |
+| BLOCK 1: regression test guards the fix | `tests/test_buddy_airgap_watcher.py:188–249` (`test_save_state_after_watcher_preserves_airgap_keys`) asserts both `airgap_last_egress_offset` AND `airgap_last_lab_mode` survive a `_save_state()` call after a watcher cycle | CLOSED |
+| BLOCK 1: mental simulation — reverting fix would fail the test | Confirmed: if `_save_state` were reverted to write only the 5 Buddy keys, the final dict on disk would be missing `airgap_last_*` because BuddyAgent doesn't track them in memory; the asserts at lines 242 + 246 would both fire | CONFIRMED |
+| BLOCK 2: docstring at `_watch_airgap_events` corrected | Builder reports correction in commit faa6898; docstring at lines 488–500 no longer claims "persisted via update_workflow" | CLOSED (verified via the builder's diff in faa6898) |
+| ASK: `# noqa-airgap` comment at `backends.py:231` | Line 231: `localhost-only (LOCAL_API_PORT target); post-guard Session — HTTPAdapter is monkeypatched at install_guard() time` — both the localhost claim AND the real safety mechanism named | CLOSED |
+| ASK: `# noqa-airgap` comment at `backends.py:440` | Line 440: `external host (openrouter.ai); post-guard Session — HTTPAdapter is monkeypatched at install_guard() time, egress guard applies` — false-witness "localhost-only" gone, replaced with truthful "external host (openrouter.ai)" plus the real safety mechanism | CLOSED |
+| ASK: `# noqa-airgap` comment at `backends.py:590` | Line 590: `localhost-only (MODEL_API_BASE defaults to localhost:1234); post-guard Session — HTTPAdapter is monkeypatched at install_guard() time` — accurate | CLOSED |
+
+### Builder spec interpretation (Loopback 1)
+
+> "BLOCK was wider than REVIEW.md described — `airgap_last_lab_mode` is
+> only written on mode-toggle events. Test seeds the mode key manually
+> to make the assertion meaningful."
+
+**Verdict: ACCEPTED.** The original REVIEW.md framed the BLOCK as both
+keys being clobbered every emit. The builder is correct that
+`airgap_last_lab_mode` is only written by the watcher's mode-toggle
+branch (not on every block-tick), so a watcher run that only consumes
+new blocks would never write that key in the first place. The test's
+manual seed at line 217 (`after_first["airgap_last_lab_mode"] = "airgapped"`)
+faithfully simulates a prior toggle event — it pins the invariant that
+"if the watcher previously wrote this key, `_save_state` must not
+clobber it." Not papering over a real gap; just refining the assertion
+to match the production write paths.
+
+## Loopback 2 verification (SRE repave vs addendum #2)
+
+| Addendum #2 requirement | Verification | Status |
+|---|---|---|
+| `_builtin_sre.py` ~604 lines (target ±20) | `wc -l` returns 614 | PASS (within tolerance) |
+| 5 ported symbols: `_sre_lab_mode`, `_sre_data_dir`, `_watch_dependency_vulnerabilities`, `_watch_lab_cleanup`, WATCHERS extension, `from datetime import` | Verified via grep: line 37 (datetime import), line 288 (_sre_lab_mode), line 298 (_sre_data_dir), line 304 (_watch_dependency_vulnerabilities), line 389 (_watch_lab_cleanup), lines 450–456 (WATCHERS) | PASS |
+| `_sre_lab_mode()` body delegates to `arail.airgap.lab_mode()` (NOT a self-contained env-var read) | `_builtin_sre.py:288–295` — `from arail.airgap import lab_mode; return lab_mode()` | PASS |
+| `WATCHERS` is pure-append; original 3 entries' rank-order preserved | Lines 451–453 (`_watch_recent_errors, _watch_crash_recurrence, _watch_service_health`), then 454–455 (`_watch_dependency_vulnerabilities, _watch_lab_cleanup`) — pre-existing 3 first, new 2 appended | PASS |
+| `ensure_sre_folder()` writes shim template, not `shutil.copy` | `builtin_seed.py:674` — `sre_py.write_text(_SRE_PKB_SHIM, encoding="utf-8")`. No `shutil.copy` for SRE remains (other agents still use `shutil.copy`; the import is correctly retained) | PASS |
+| Shim re-exports the names the addendum specified | `builtin_seed.py:260–280` imports 19 names total: 7 public (`sre, SREAgent, Observation, WATCHERS, NAME, EMOJI, SYSTEM_PROMPT`) + 12 private (`_state_file, _activity_log_path, _fingerprint, _tail_jsonl, _parse_ts, _watch_recent_errors, _watch_crash_recurrence, _watch_service_health, _watch_dependency_vulnerabilities, _watch_lab_cleanup, _sre_lab_mode, _sre_data_dir`). Builder report says "16" — that's a count error in the prose, but the import list itself is byte-identical to addendum §11.2.S.3 lines 1551–1571 | PASS (count discrepancy is cosmetic; names match) |
+| `tests/test_builtin_seed_sre_shim.py` exists and asserts the shape addendum §11.2.S.5 specified | 7 tests: shim sentinel header, < 80 lines, identity for `sre/SREAgent/_watch_dependency_vulnerabilities`, idempotent against forks. All pass | PASS |
+| `tests/test_sre_new_watchers.py` 23/23 pass (architect's named acceptance gate) | Re-ran in this review pass: `23 passed in 0.13s` | PASS |
+
+### Builder spec interpretations (Loopback 2)
+
+a. **Wrote shim content directly to PKB path instead of deleting (step
+   12c).** **VERDICT: ACCEPTED.** `ensure_sre_folder()` is a "create-if-
+   missing" idempotent — its first action is `if sre_py.exists(): return
+   {"ok": True, "created": False}`. Whether you (i) delete the file and
+   let next-boot reseed write the shim, or (ii) write the shim directly
+   yourself, the file's final content is byte-identical because
+   `_SRE_PKB_SHIM` is the seed body. The builder's path is functionally
+   equivalent and avoids breaking the in-flight test fixture
+   (`spec_from_file_location` requires the file to exist). No spec
+   change needed; addendum step 12c is satisfied in spirit.
+
+b. **Embedded `"""` triggered Python 3.11 SyntaxError; resolved by
+   removing the literal sentinel from the docstring and using
+   descriptive prose.** **VERDICT: ACCEPTED.** I re-read the shim
+   at `builtin_seed.py:243–281` — the module docstring describes the
+   shim's purpose without embedding the sentinel literal. The sentinel
+   string itself is still defined at line 283 as
+   `_SRE_PKB_SHIM_SENTINEL = '"""SRE — PKB shim."""'` for the
+   idempotency check, and the shim's actual file content begins
+   `"""SRE — PKB shim.\n\nThis file is auto-generated...` so the
+   first non-blank line of any seeded shim still matches the sentinel.
+   Behavior unchanged.
+
+## Win-condition cross-check (no regression)
+
+| Artifact | State after L1 + L2 | Regressed? |
+|---|---|---|
+| `tests/test_egress_guard.py` (requests, urllib, loopback/RFC1918) | 18/18 pass; file untouched by L1/L2 commits | No |
+| `lab/data/egress.jsonl` (one structured line per block) | `egress.py` untouched by L1/L2 commits; behavior preserved | No |
+| README's three "zero network calls" rewrites | `git log 5662f9a..HEAD -- README.md` is empty; rewrite preserved | No |
+| `airgap.py` 44-test suite | 44/44 pass; module untouched | No |
+
+## SRE repave side-effects audit
+
+- **On-disk PKB SRE file (`lab/pkb/agents/sre/sre.py`).** Currently 38
+  lines, shim sentinel header, 19 re-exports — matches what
+  `ensure_sre_folder()` would write on a fresh boot. Existing on-disk
+  lab state is functionally upgraded to point at the canonical (no
+  drift). User runtime impact: any prior local edits to this file
+  (gitignored) are gone — but that was always true of the seed pattern.
+- **CVE-scan watcher gating.** `_watch_dependency_vulnerabilities`
+  branch (a) and (b) (high/critical and medium findings) fire
+  unconditionally — they always did. Branch (c) (no-scan-in-24h nag)
+  fires only when `_sre_lab_mode() == "hybrid"`. Pre-port, that gate
+  read env directly (`os.getenv("LAB_MODE", os.getenv("ARAIL_MODE",
+  "airgapped")).strip().lower()` in PKB). Post-port, the gate calls
+  `arail.airgap.lab_mode()` which performs the same fallback chain
+  with the same fail-closed default. **Equivalent semantics confirmed.**
+- **Lab-cleanup watcher gating.** `_watch_lab_cleanup` is mode-
+  agnostic — fires whenever wiki cache exceeds the env-configured
+  threshold. No mode gate added or removed. **No semantic drift.**
+- **Net new behavioral code (165-line delta).** Imported logic is
+  ~150 lines (bodies of `_watch_dependency_vulnerabilities` 83 lines +
+  `_watch_lab_cleanup` 59 lines = 142 lines, plus `_sre_lab_mode`
+  collapsed to 8 lines, `_sre_data_dir` 4 lines, WATCHERS extension
+  2 entries, `from datetime import` 1 line). Remainder is whitespace
+  and the helper docstrings. **Matches the addendum's expected delta.**
+
+## Code quality findings (re-review)
+
+- [INFO] The shim's import block lists 19 names; build log narrative
+  calls it "16 re-export names". Cosmetic prose error in BUILD_LOG.md
+  Loopback 2 section, not a code defect. Not worth a fix; flagging
+  for the audit trail.
+- [INFO] All four [INFO] findings from the original review (mkdir-
+  per-block at `egress.py:182`, paren-clarity at `egress.py:461`,
+  docstring at `_builtin_buddy.py:488` (now corrected by L1), and the
+  comment at `backends.py:440` (now corrected by L1)) are resolved or
+  acknowledged. The mkdir-per-block and paren-clarity items remain
+  for follow-up, unchanged.
+- [INFO] No new code-quality issues introduced by L1 or L2.
+
+## Tech debt delta (re-review)
+
+- L1 paid back the unanticipated debt the original review flagged
+  (forked state.json writers). State.json is now safe under any pair
+  of writers because `BuddyAgent._save_state` is the read-merge-write
+  pattern; if any future watcher adds new keys, they survive too.
+- L2 paid back canonical/PKB drift for SRE — the same debt the Buddy
+  repave paid back in the main pipe. Now both built-in agents follow
+  the same shim pattern. The pattern is documented in the learnings
+  file (commit 64aeb50).
+- **No new debt.** Net debt for the sprint is now more negative than
+  the original prediction (one extra debt repaid that wasn't even on
+  the original ledger).
+
+## For QA — updated bypass-attempt + repave hammering list
+
+Compared to the original list in REVIEW.md, the SRE repave adds new
+surface QA should poke. Updated priorities:
+
+### Carry-forward from original (still required)
+
+1. **Pre-guard Session attack** — write a fixture that constructs
+   `requests.Session()` at module top-level imported BEFORE
+   `install_guard()`, attempt egress, confirm documented behavior.
+2. **DNS rebind exploit** — `monkeypatch socket.gethostbyname` so
+   `evil.example.com` resolves to `127.0.0.1`; confirm passes through;
+   pin documented limit.
+3. **`_save_state` data-loss regression** — already pinned by L1
+   regression test (`test_save_state_after_watcher_preserves_airgap_keys`).
+   QA should run `pytest tests/test_buddy_airgap_watcher.py -k preserves_airgap_keys`
+   as part of the smoke matrix to confirm the fix didn't silently
+   regress.
+
+### New from Loopback 2 (SRE repave)
+
+4. **SRE shim identity preservation under fork.** Confirm: with a
+   user-forked `lab/pkb/agents/sre/sre.py` (no shim sentinel), boot
+   the lab and verify `ensure_sre_folder` does NOT overwrite, the
+   loader picks up the user's fork, AND `WATCHERS` (in the user's
+   fork) is what runs — NOT the canonical's. Otherwise forks silently
+   inherit canonical changes.
+5. **CVE / cleanup watcher mode-gating equivalence.** With
+   `LAB_MODE=airgapped`, no `lab/data/security/last_scan.json`, and
+   wiki cache below threshold, neither watcher should emit. Then
+   flip `LAB_MODE=hybrid` and verify branch (c) of CVE watcher fires
+   the "no scan in 24h+" nag. Pin equivalence with the pre-port
+   behavior. (Most likely place for a regression to hide.)
+6. **Shim re-export completeness against future test additions.** If
+   QA adds any test that touches a previously-untested SRE private
+   helper, the shim's import list (`builtin_seed.py:260–280`) may
+   need extending. Run `python -c "import importlib.util; spec =
+   importlib.util.spec_from_file_location('s', 'lab/pkb/agents/sre/sre.py');
+   m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m);
+   print([n for n in dir(arail.agents._builtin_sre) if not n.startswith('__')
+   and not hasattr(m, n)])"` to confirm zero missing exports. (Smoke test;
+   not a behavioral test.)
+
+### De-prioritize (already pinned)
+
+- Original ASKs for IPv6 ULA / 6to4 / IPv4-mapped IPv6 pinning, RO-fs
+  jsonl write swallow, asyncio.create_task contextvars-leak, URL-parse
+  fallback for token-bearing strings — still ASKs, still pinning
+  exercises. Keep on the QA list at original priority. None changed
+  by L1 or L2.
+
+## Anything for follow-up sprints
+
+- **Buddy state.json schema is informally co-owned by two writers.**
+  Read-merge-write makes it safe today, but the schema isn't
+  documented anywhere and a future contributor adding a third writer
+  could miss the merge pattern. Follow-up: write
+  `learnings/2026-05-XX-buddy-state-json-schema.md` (or amend the
+  existing allow-egress-task-scope learning) listing the keys each
+  writer owns and the merge invariant. **Low priority.**
+- **`mkdir(parents=True, exist_ok=True)` per `record_block` call**
+  (egress.py:182). One-shot cache or module init. Follow-up.
+- **Paren clarity at `egress.py:461`.** Follow-up.
+- **Shim re-export count discrepancy in BUILD_LOG.md prose**
+  (says "16", actual is 19). Cosmetic, no follow-up needed.
+- **`_SRE_PKB_SHIM_SENTINEL` is `'"""SRE — PKB shim."""'`** which means
+  the user can't replace the docstring while keeping the sentinel.
+  Forks must replace the entire first line. This is the documented
+  fork pattern (DO NOT EDIT THIS SHIM — replace the file entirely)
+  but worth re-stating in PKB docs eventually. Follow-up: add a
+  one-liner to `docs/agents.md` about the fork pattern.
+
+## Required actions before merge
+
+None. PASS verdict — sprint advances to QA.
+
