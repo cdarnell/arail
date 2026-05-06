@@ -33,8 +33,10 @@ Approved plan and full architecture sketch in `PLAN.md` (this sprint dir).
 | plan | architect (design) | ARCHITECTURE.md | done | 2026-05-05 | 2026-05-05 | proceed |
 | build | builder | BUILD_LOG.md | done | 2026-05-05 | 2026-05-05 | proceed |
 | review | architect (review) | REVIEW.md | done (1st pass) | 2026-05-05 | 2026-05-05 | BLOCK — loops to build |
-| build (loopback) | builder | BUILD_LOG.md (append) | pending | — | — | — |
-| review (re-pass) | architect (review) | REVIEW.md (append) | pending | — | — | — |
+| build (loopback 1) | builder | BUILD_LOG.md (append) | done | 2026-05-05 | 2026-05-05 | _save_state fix + audit comments |
+| plan addendum #2 | architect (design) | ARCHITECTURE.md (append) | done | 2026-05-05 | 2026-05-05 | SRE de-duplication |
+| build (loopback 2) | builder | BUILD_LOG.md (append) | done | 2026-05-05 | 2026-05-05 | SRE repave per addendum #2 |
+| review (re-pass) | architect (review) | REVIEW.md (append) | done | 2026-05-05 | 2026-05-05 | PASS |
 | test | qa | TEST_REPORT.md | pending | — | — | — |
 | ship | — | PR | pending | — | — | — |
 
