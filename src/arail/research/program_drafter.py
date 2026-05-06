@@ -178,8 +178,8 @@ def draft_program(
 
 def _allow_live_fetch() -> bool:
     """Live external fetch is opt-in: hybrid mode AND explicit env."""
-    mode = os.getenv("LAB_MODE", os.getenv("ARAIL_MODE", "airgapped")).strip().lower()
-    if mode == "airgapped":
+    from arail.airgap import is_airgapped
+    if is_airgapped():
         return False
     return os.getenv("ARAIL_AUTORESEARCH_FETCH_EXTRAS", "0") == "1"
 

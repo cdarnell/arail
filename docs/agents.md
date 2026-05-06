@@ -95,7 +95,10 @@ To reconcile "canonical source in the installed package" with
 The shim resolves `from arail.agents.buddy import buddy` by:
 
 1. Calling `ensure_buddy_folder()` to materialize the PKB copy if
-   missing (idempotent; copies `_builtin_buddy.py` → `buddy/buddy.py`).
+   missing (idempotent; writes a thin re-export shim → `buddy/buddy.py`
+   that imports from `_builtin_buddy.py`; to fork Buddy into a custom
+   personality, replace `buddy/buddy.py` with a full body copied from
+   `_builtin_buddy.py`).
 2. Using `importlib.util.spec_from_file_location` to load the PKB
    copy dynamically, picking up any user edits.
 3. Falling back to `_builtin_buddy` with an activity-log warning if

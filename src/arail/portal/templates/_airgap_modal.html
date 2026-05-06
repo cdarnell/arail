@@ -1,0 +1,80 @@
+<!-- _airgap_modal.html — Network policy modal
+     Included by base layout templates near </body>.
+     Activated by clicking the #mode-badge in nav.js.
+-->
+<style id="airgap-modal-styles">
+  /* Duplicate of the .mp-backdrop / .mp-modal block from chat.legacy.html.
+     Per ARCHITECTURE.md §13: inline CSS kept this sprint; extraction to
+     static/style.css is a recommended follow-up (not in scope). */
+  .mp-backdrop {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.55);
+    display: none; align-items: center; justify-content: center; z-index: 9000;
+  }
+  .mp-backdrop.open { display: flex; }
+  .mp-modal {
+    width: min(720px, 94vw); max-height: 86vh; overflow: auto;
+    background: #0f0f10; border: 1px solid #2b2b2b; border-radius: 10px;
+    padding: 18px 20px; box-shadow: 0 18px 42px rgba(0,0,0,0.5);
+  }
+  .mp-head { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom: 8px; }
+  .mp-head h3 { margin:0; font-size: 16px; }
+  .mp-close { background:#1a1a1a; border:1px solid #333; color:#ddd; padding:4px 10px; border-radius:6px; cursor:pointer; }
+  .mp-pill { font-size:10px; padding: 2px 6px; border-radius: 10px; border:1px solid #333; color:#bbb; letter-spacing: 0.04em; text-transform: uppercase; }
+  .mp-pill.ok { color:#8fe6a7; border-color:#2f6a42; background:#0c1911; }
+  .mp-pill.warn { color:#e6b478; border-color:#6a4d2f; background:#19140c; }
+  .mp-models-list { margin-top: 8px; max-height: 200px; overflow: auto;
+    padding: 6px 8px; background:#0a0a0a; border:1px solid #1f1f1f; border-radius: 6px;
+    font-family: ui-monospace, monospace; font-size: 11px; color: #cfcfcf; }
+  .mp-note { font-size: 11px; color:#9a9a9a; margin-top: 4px; }
+  .chat-sub { font-size: 12px; color: #9a9a9a; }
+  .chat-muted { font-size: 11px; color: #666; }
+  .airgap-row { display: flex; align-items: center; gap: 8px; padding: 4px 0;
+    border-bottom: 1px solid #1a1a1a; }
+  .airgap-row:last-child { border-bottom: none; }
+  .airgap-row code { color: #cfcfcf; font-size: 11px; flex: 1; }
+  .airgap-row time { color: #666; font-size: 10px; white-space: nowrap; }
+  .airgap-row .chat-muted { font-size: 10px; max-width: 180px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+</style>
+
+<div class="mp-backdrop" id="airgap-backdrop" role="dialog"
+     aria-modal="true" aria-labelledby="airgap-title">
+  <div class="mp-modal">
+    <div class="mp-head">
+      <h3 id="airgap-title">
+        <span id="airgap-mode-pill" class="mp-pill">airgapped</span>
+        Network policy
+      </h3>
+      <button class="mp-close" id="airgap-close" type="button">Close</button>
+    </div>
+
+    <p class="chat-sub" id="airgap-definition" style="margin:0 0 12px"></p>
+
+    <div id="airgap-host-probe" style="display:none; margin: 0 0 12px; font-size:12px;">
+      <!-- Populated only when BUDDY_EGRESS_PROBE=1 -->
+    </div>
+
+    <h4 style="margin: 12px 0 4px; font-size: 13px;">Recent activity</h4>
+    <div class="mp-models-list" id="airgap-activity-list"></div>
+    <p class="chat-muted" id="airgap-activity-empty"
+       style="display:none; margin-top: 6px;">
+      No outbound network attempts recorded yet.
+    </p>
+
+    <details style="margin-top: 14px;">
+      <summary class="chat-muted" style="cursor:pointer;">
+        Known gaps — what isn't wrapped
+      </summary>
+      <ul id="airgap-gaps-list" class="mp-note" style="padding-left: 18px; margin-top: 6px;"></ul>
+      <p class="mp-note" style="margin-top: 6px;">
+        The Python-level guard catches <code>requests</code> and
+        <code>urllib.request</code>. Other clients
+        (<code>httpx</code>, <code>aiohttp</code>, raw sockets,
+        subprocess <code>curl</code>) are not wrapped — see
+        <a href="/docs/PRIVACY.md" style="color:#8faacc;">docs/PRIVACY.md</a>
+        for the full list. The threat model is well-meaning agent code,
+        not an adversary on this host.
+      </p>
+    </details>
+  </div>
+</div>

@@ -234,7 +234,21 @@ def load_one(agent_id: str, pkb_root: Path | None = None) -> Optional[Any]:
 
 
 def load_all(pkb_root: Path | None = None) -> Dict[str, Any]:
-    """Load every agent folder under the PKB. Cached."""
+    """Load every agent folder under the PKB. Cached.
+
+    Install the egress guard as the very first action — belt-and-suspenders
+    against entry points that load agents without booting the portal
+    (e.g. CLI commands, test harnesses). The guard is idempotent so if the
+    portal's _startup() already installed it, this is a no-op.
+    The 3 pre-guard requests.Session() sites in src/arail/router/backends.py
+    (lines 231, 440, 590) all target localhost — see noqa-airgap comments there.
+    """
+    try:
+        from arail import egress as _egress
+        _egress.install_guard()
+    except Exception as _eg_err:  # noqa: BLE001
+        log.warning("Egress guard install failed in load_all: %s", _eg_err)
+
     out: Dict[str, Any] = {}
     for agent_id, _, _fm in discover(pkb_root=pkb_root):
         instance = load_one(agent_id, pkb_root=pkb_root)

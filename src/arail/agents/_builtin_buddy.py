@@ -475,6 +475,115 @@ def _watch_study_streak() -> Optional[Observation]:
     return None
 
 
+def _watch_airgap_events() -> Optional[Observation]:
+    """Tail egress.jsonl + detect LAB_MODE toggles.
+
+    Polled on the standard 90s watcher cadence. Reads two pieces of
+    per-agent state from state.json (under the buddy agent dir):
+
+      - airgap_last_egress_offset: int — byte offset into egress.jsonl
+      - airgap_last_lab_mode: str — last seen 'airgapped' | 'hybrid'
+
+    Returns at most one Observation per tick — the most recent novel
+    event wins. State is persisted by direct write to state.json
+    (merging into the existing JSON so BuddyAgent._save_state's keys
+    are never clobbered).
+
+    Cooldown: 5 min on the airgap-event watcher key, layered on top
+    of the global 5-min cooldown so a polling loop that triggers a
+    block every 30s collapses to one suggestion every 5 min.
+    """
+    _AIRGAP_WATCHER_COOLDOWN_SEC = 5 * 60
+
+    try:
+        from arail.airgap import lab_mode as _lab_mode
+        from arail.egress import _lab_data
+    except Exception:
+        return None
+
+    state_path = _state_file()
+    # Load per-watcher state from state.json.
+    state_data: Dict[str, Any] = {}
+    try:
+        if state_path.exists():
+            state_data = json.loads(state_path.read_text()) or {}
+    except Exception:
+        pass
+
+    try:
+        last_offset: int = int(state_data.get("airgap_last_egress_offset", 0))
+    except (ValueError, TypeError):
+        last_offset = 0
+    last_mode: str = str(state_data.get("airgap_last_lab_mode", "airgapped"))
+
+    observation: Optional[Observation] = None
+
+    # -- Check LAB_MODE toggle --
+    current_mode = _lab_mode()
+    if current_mode != last_mode:
+        if current_mode == "hybrid" and last_mode == "airgapped":
+            fact = "Door's open now — agent fetches go through. Per-domain consent still gates browser/curator."
+        else:
+            fact = "Sealed back up. Agents can't reach the public internet."
+        observation = Observation(
+            watcher="airgap:mode-toggle",
+            severity="info",
+            fact=fact,
+            cooldown_sec=_AIRGAP_WATCHER_COOLDOWN_SEC,
+            suggestion={"kind": "airgap", "link": "/api/airgap/status"},
+        )
+        state_data["airgap_last_lab_mode"] = current_mode
+
+    # -- Tail egress.jsonl for new blocks --
+    egress_path = _lab_data() / "egress.jsonl"
+    if egress_path.exists():
+        try:
+            file_size = egress_path.stat().st_size
+            # Handle offset > file_size (e.g. after rotation).
+            if last_offset > file_size:
+                last_offset = 0
+            with egress_path.open("rb") as f:
+                f.seek(last_offset)
+                new_bytes = f.read()
+                new_offset = last_offset + len(new_bytes)
+            new_lines = [
+                ln.strip() for ln in new_bytes.decode("utf-8", errors="replace").splitlines()
+                if ln.strip()
+            ]
+            new_blocks = []
+            for ln in new_lines:
+                try:
+                    entry = json.loads(ln)
+                    # Only report blocks (not probes or allow lines).
+                    if entry.get("reason") == "airgapped":
+                        new_blocks.append(entry)
+                except Exception:
+                    continue
+            state_data["airgap_last_egress_offset"] = new_offset
+            if new_blocks and observation is None:
+                # Most recent block wins.
+                latest = new_blocks[-1]
+                url_host = latest.get("url_host", "?")
+                observation = Observation(
+                    watcher="airgap:block",
+                    severity="suggest",
+                    fact=f"Just blocked an agent fetch to {url_host}. That's airgapped doing its job.",
+                    cooldown_sec=_AIRGAP_WATCHER_COOLDOWN_SEC,
+                    suggestion={"kind": "airgap", "link": "/api/airgap/status"},
+                )
+        except Exception:
+            pass
+
+    # Persist updated state.
+    try:
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+        state_path.write_text(json.dumps(state_data, indent=2))
+    except Exception:
+        pass
+
+    return observation
+
+
 # Registry — add a function here, Buddy starts watching for it on the
 # next tick. That's the whole reactive extension mechanism.
 WATCHERS: List[Callable[[], Optional[Observation]]] = [
@@ -484,6 +593,7 @@ WATCHERS: List[Callable[[], Optional[Observation]]] = [
     _watch_researcher_plateau,
     _watch_goal_staleness,
     _watch_study_streak,
+    _watch_airgap_events,
 ]
 
 
@@ -751,11 +861,18 @@ def _suggest_measurable_metric(goal: Dict[str, Any]) -> Optional[Observation]:
 def _suggest_internet_correlation(goal: Dict[str, Any]) -> Optional[Observation]:
     """Surface a recent HuggingFace paper that correlates with the goal.
 
-    Gated by ``LAB_INTERNET_ENABLED=1`` — off by default. Uses
+    Gated by hybrid mode — disabled by default in airgapped.  Uses
     stdlib urllib only; no new dependencies. Falls back silently on
     any network or parse error.
+
+    Note: LAB_INTERNET_ENABLED was removed in sprint airgap-honest-mode
+    (2026-05-05). Gate is now the canonical is_airgapped() from arail.airgap.
     """
-    if not os.getenv("LAB_INTERNET_ENABLED", "").strip() in ("1", "true", "yes"):
+    try:
+        from arail.airgap import is_airgapped
+        if is_airgapped():
+            return None
+    except Exception:
         return None
 
     parsed = goal.get("parsed") or {}
@@ -931,13 +1048,23 @@ class BuddyAgent:
         path = _state_file()
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(json.dumps({
+            # Read-merge-write: preserve any keys written by other
+            # writers (e.g. the airgap watcher's airgap_last_egress_offset
+            # and airgap_last_lab_mode) so we don't stomp them.
+            existing: Dict[str, Any] = {}
+            if path.exists():
+                try:
+                    existing = json.loads(path.read_text()) or {}
+                except Exception:
+                    existing = {}
+            existing.update({
                 "last_said": self._last_said,
                 "last_global": self._last_global,
                 "last_suggest_check": self._last_suggest_check,
                 "utterances": self._utterances,
                 "suggestions": self._suggestions,
-            }, indent=2))
+            })
+            path.write_text(json.dumps(existing, indent=2))
         except OSError:
             pass  # read-only FS or permission issue — don't crash
 

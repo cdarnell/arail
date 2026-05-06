@@ -367,6 +367,15 @@ plugin_mgr = PluginManager()
 @app.on_event("startup")
 async def _startup():
     import os
+    # Install the egress guard FIRST — before any agent loads, before any
+    # cloud-provider endpoint fires, before the security scan.  Idempotent.
+    try:
+        from arail import egress as _egress
+        _egress.install_guard()
+    except Exception as _eg_err:  # noqa: BLE001
+        activity_log.emit("system",
+            f"Egress guard install failed: {_eg_err}", "warn")
+
     global _knowledge_canvas_store
     intent_name = os.getenv("LAB_INTENT_NAME", "AI Engineer")
     activity_log.emit("system",
@@ -6498,6 +6507,69 @@ async def set_mode(request: Request):
         "info",
     )
     return {"ok": True, "mode": new_mode}
+
+
+# ---------------------------------------------------------------------------
+# Airgap status — operational definition + recent blocks
+# ---------------------------------------------------------------------------
+@app.get("/api/airgap/status")
+async def get_airgap_status():
+    """Return the current egress policy, recent block activity, and known gaps.
+
+    Response shape (see ARCHITECTURE.md §8):
+      lab_mode: "airgapped" | "hybrid"
+      definition: human-readable description of what the mode enforces
+      recent_activity: last 5 egress.jsonl entries, each with a "kind" field
+      host_can_reach_internet: null | true | false (only when BUDDY_EGRESS_PROBE=1)
+      known_gaps: list of unwrapped clients documented in PRIVACY.md
+      guard_installed: bool — True once install_guard() has run
+    """
+    from arail.airgap import lab_mode as _airgap_lab_mode
+    from arail.egress import read_recent_blocks, probe_internet, _INSTALLED
+
+    mode = _airgap_lab_mode()
+
+    _DEFINITIONS = {
+        "airgapped": (
+            "Agents cannot collect information from the public internet. "
+            "Local services on this machine and your private network "
+            "(loopback, RFC1918, link-local) stay reachable. "
+            "Cloud-provider APIs are blocked. "
+            "Toggle LAB_MODE=hybrid in .env to allow agent fetches."
+        ),
+        "hybrid": (
+            "Hybrid: cloud providers are reachable. Per-domain consent still "
+            "gates curator and browser fetches. The egress audit log still "
+            "records all outbound calls."
+        ),
+    }
+
+    _KNOWN_GAPS = [
+        "httpx (used by open-notebook integration; localhost-only in tree)",
+        "raw socket connections (BUDDY_EGRESS_PROBE is the only audited use)",
+        "subprocess-spawned curl/wget (none in tree today)",
+        "aiohttp (not in tree)",
+    ]
+
+    raw_blocks = read_recent_blocks(5)
+    activity = []
+    for entry in raw_blocks:
+        reason = entry.get("reason", "")
+        kind = "blocked"
+        if reason.startswith("allow:") or reason == "probe":
+            kind = "allowed"
+        activity.append({**entry, "kind": kind})
+
+    host_can_reach = probe_internet()  # None if BUDDY_EGRESS_PROBE not set
+
+    return {
+        "lab_mode": mode,
+        "definition": _DEFINITIONS.get(mode, _DEFINITIONS["airgapped"]),
+        "recent_activity": activity,
+        "host_can_reach_internet": host_can_reach,
+        "known_gaps": _KNOWN_GAPS,
+        "guard_installed": _INSTALLED,
+    }
 
 
 # ---------------------------------------------------------------------------

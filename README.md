@@ -57,9 +57,11 @@ adds the heavier operator surfaces and orchestration extras.
 
 External providers (Claude, NVIDIA NIM, OpenRouter, HuggingFace) are
 reachable in both tiers via plain HTTP — `max` just adds the official SDKs
-and LangChain/LangGraph for heavier orchestration. **Airgapped mode blocks
-every cloud provider by default.** Flip `LAB_MODE=hybrid` in `.env` to open
-the door.
+and LangChain/LangGraph for heavier orchestration. **Airgapped mode is the
+default: agents cannot collect information from the public internet.**
+Local services on this machine and your private network (loopback,
+RFC1918, link-local) stay reachable so a LAN GPU box keeps working. Flip
+`LAB_MODE=hybrid` in `.env` to allow agent fetches to cloud vendors.
 
 See [docs/INSTALL.md](docs/INSTALL.md) for the long walkthrough.
 
@@ -93,10 +95,14 @@ available models, or **remove** the token. Tokens persist to
 `lab/data/secrets.env` with `chmod 0600` and are git-ignored. Tokens are
 never echoed back to the UI after saving and never printed to logs.
 
-**Airgapped guard.** By default `LAB_MODE=airgapped` — all cloud providers
-are locked. The Compute Source row shows a banner, cloud radios grey out,
-and the save/test/models endpoints refuse. Set `LAB_MODE=hybrid` in `.env`
-and restart to enable external vendors.
+**Airgapped guard.** By default `LAB_MODE=airgapped`. Agent-originated
+outbound calls through `requests` and `urllib` are denied unless the
+destination resolves to loopback, RFC1918, or link-local. Denials raise
+`EgressBlocked` and append one line to `lab/data/egress.jsonl` for audit.
+The Compute Source row shows a banner, cloud radios grey out, and the
+save/test/models endpoints refuse. Click the **Airgapped** badge in the
+nav to see the operational definition and the most recent blocks. Set
+`LAB_MODE=hybrid` in `.env` and restart to allow agent fetches.
 
 ### 🔬 Autoresearch *(every tier)*
 
@@ -140,9 +146,15 @@ leaving the local UI.
 
 ## What "local-first" means
 
-By default `LAB_MODE=airgapped` — the lab makes zero network calls. Every
-inference request goes to your machine. The dashboard has a badge that says
-*Airgapped* so you never wonder.
+By default `LAB_MODE=airgapped` — agents in the lab cannot collect
+information from the public internet. Calls to loopback and your private
+network still work, so a LAN GPU box (Ollama, vLLM, an aerollm node)
+keeps inferring without changes. Cloud-provider APIs are blocked at the
+HTTP layer. The dashboard's **Airgapped** badge is clickable — it shows
+what is and isn't enforced, the recent blocks, and the known gaps
+(`httpx`, raw sockets, subprocess `curl`) the Python-level guard
+doesn't cover. The threat model is well-meaning agent code, not an
+adversary on this host — for that, run a host firewall.
 
 Flip to `hybrid` and cloud vendors become fallbacks when the local model
 isn't enough. The Chat tab makes this explicit: you see which provider is

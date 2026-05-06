@@ -16,7 +16,7 @@ import platform
 import time
 from pathlib import Path
 
-import httpx
+import httpx  # noqa-airgap: localhost-only (all calls target the local surreal/open-notebook port)
 
 log = logging.getLogger(__name__)
 
