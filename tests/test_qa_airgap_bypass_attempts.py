@@ -1,0 +1,510 @@
+"""QA — bypass-attempt suite for the airgap egress guard.
+
+These tests simulate adversarial-but-realistic agent code patterns and
+confirm the guard either blocks or has its limits *documented and
+pinned*. The goal: someone reading these tests can see exactly what's
+covered and what's intentionally not.
+
+Architect's review listed these as the highest-leverage attack surface:
+
+  1. Pre-guard ``requests.Session()`` constructed at module-import
+     time (before ``install_guard()`` runs).
+  2. DNS rebind — ``evil.example.com`` → ``127.0.0.1``.
+  3. ``httpx``, ``aiohttp``, raw ``socket.connect``,
+     ``subprocess.run(["curl", ...])``, ``os.system("curl ...")`` —
+     declared NOT wrapped (documented gaps).
+  4. ``asyncio.create_task`` contextvars-leak from inside an
+     ``@allow_egress`` block (documented behavior).
+
+Tests pin BOTH the closed paths AND the documented gaps. Closed-path
+tests fail if a regression is introduced. Documented-gap tests fail if
+a future PR *closes* the gap — that's the desired tripwire.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import os
+import socket
+import subprocess
+import sys
+import urllib.request
+from pathlib import Path
+
+import pytest
+import requests
+
+import arail.airgap
+import arail.egress
+
+
+# ──────────────────────────────────────────────────────────────────────
+# 1. Pre-guard Session — installed before install_guard() ran
+# ──────────────────────────────────────────────────────────────────────
+
+class TestPreGuardSession:
+    """A module that runs ``s = requests.Session()`` at import time
+    *before* ``install_guard()`` runs gets the un-monkeypatched
+    HTTPAdapter, and would bypass the guard.
+
+    In tree, the three ``backends.py`` Sessions are inside ``__init__``
+    methods (so they fire post-startup), but a third-party agent or
+    fixture module could still hit this. Pin that the bypass exists
+    and is bounded to: the Session must be constructed and reused
+    *before* install_guard() is called for the first time."""
+
+    def test_pre_guard_session_uses_unguarded_adapter(self, monkeypatch, tmp_path):
+        """A Session built before install_guard mounts the original
+        HTTPAdapter, NOT GuardedHTTPAdapter — pin this so reviewers
+        understand the bypass surface."""
+        monkeypatch.setenv("LAB_MODE", "airgapped")
+        monkeypatch.setenv("ARAIL_DATA_DIR", str(tmp_path))
+        arail.egress._reset_for_tests()
+
+        # Construct Session BEFORE install_guard.
+        pre_guard_session = requests.Session()
+        pre_guard_adapter_class_name = type(
+            pre_guard_session.adapters["https://"]
+        ).__name__
+
+        arail.egress.install_guard()
+
+        # The pre-guard Session still has its original adapter — that's
+        # the documented bypass surface.
+        assert pre_guard_adapter_class_name == "HTTPAdapter", (
+            f"Pre-guard Session should have stock HTTPAdapter; "
+            f"got {pre_guard_adapter_class_name!r}"
+        )
+        # Newly-constructed Session post-guard is guarded — pin the contrast.
+        post_guard_session = requests.Session()
+        post_guard_adapter_class_name = type(
+            post_guard_session.adapters["https://"]
+        ).__name__
+        assert post_guard_adapter_class_name == "GuardedHTTPAdapter"
+
+    def test_post_guard_session_remounts_inherits_guard(self, monkeypatch, tmp_path):
+        """A Session constructed AFTER install_guard inherits guarding
+        even if it ``s.mount("https://", HTTPAdapter())`` later — because
+        ``HTTPAdapter`` is monkey-patched to be ``GuardedHTTPAdapter``."""
+        monkeypatch.setenv("LAB_MODE", "airgapped")
+        monkeypatch.setenv("ARAIL_DATA_DIR", str(tmp_path))
+        monkeypatch.setattr(socket, "gethostbyname", lambda h: "151.101.64.81")
+        arail.egress._reset_for_tests()
+        arail.egress.install_guard()
+
+        s = requests.Session()
+        # Even an explicit re-mount picks up the guarded adapter.
+        from requests.adapters import HTTPAdapter as MaybeGuarded
+        s.mount("https://", MaybeGuarded())
+
+        with pytest.raises(arail.airgap.EgressBlocked):
+            s.get("https://example.com", timeout=1)
+
+
+# ──────────────────────────────────────────────────────────────────────
+# 2. DNS rebind — public-looking host that resolves locally
+# ──────────────────────────────────────────────────────────────────────
+
+class TestDNSRebind:
+    """v1 threat model trusts the system resolver. A public-looking
+    hostname that resolves to 127.0.0.1 is treated as local — pin
+    this documented limit so a future contributor doesn't change the
+    behavior accidentally."""
+
+    def test_dns_rebind_to_loopback_is_treated_local(self, monkeypatch, tmp_path):
+        """evil.example.com → 127.0.0.1 → guard does NOT block."""
+        monkeypatch.setenv("LAB_MODE", "airgapped")
+        monkeypatch.setenv("ARAIL_DATA_DIR", str(tmp_path))
+        # Resolver answer: pretend evil.example.com is local.
+        monkeypatch.setattr(socket, "gethostbyname", lambda h: "127.0.0.1")
+        arail.egress._reset_for_tests()
+        arail.egress.install_guard()
+
+        # Should NOT raise EgressBlocked — guard trusts resolver.
+        try:
+            requests.get("https://evil.example.com:65535/x", timeout=0.1)
+        except arail.airgap.EgressBlocked:
+            pytest.fail(
+                "DNS rebind to 127.0.0.1 must NOT raise EgressBlocked "
+                "(documented limit of v1 threat model)."
+            )
+        except Exception:
+            pass  # connection error to nonexistent local port is fine
+
+    def test_dns_rebind_to_rfc1918_is_treated_local(self, monkeypatch, tmp_path):
+        """evil.example.com → 192.168.1.50 → guard does NOT block."""
+        monkeypatch.setenv("LAB_MODE", "airgapped")
+        monkeypatch.setenv("ARAIL_DATA_DIR", str(tmp_path))
+        monkeypatch.setattr(socket, "gethostbyname", lambda h: "192.168.1.50")
+        arail.egress._reset_for_tests()
+        arail.egress.install_guard()
+
+        try:
+            requests.get("https://evil.example.com:65535/x", timeout=0.1)
+        except arail.airgap.EgressBlocked:
+            pytest.fail("DNS rebind to RFC1918 must NOT raise EgressBlocked")
+        except Exception:
+            pass
+
+
+# ──────────────────────────────────────────────────────────────────────
+# 3. Documented gaps — httpx / aiohttp / raw socket / subprocess curl
+# ──────────────────────────────────────────────────────────────────────
+
+class TestDocumentedGaps:
+    """The README, PRIVACY.md, and modal copy all list four gaps:
+    ``httpx``, ``aiohttp``, raw socket, subprocess shells. These tests
+    pin the gaps so a future PR that tries to close them (excellent!)
+    triggers a tripwire saying "update the docs and modal too."
+    """
+
+    def test_raw_socket_connect_bypasses_guard(self, monkeypatch, tmp_path):
+        """Raw ``socket.socket().connect((...))`` is NOT wrapped.
+
+        Pin: the guard does not intercept raw sockets. Closing this
+        gap requires a `socket.socket.connect` monkey-patch, which
+        would also break loopback connections that the underlying
+        urllib3/requests stack itself uses.
+
+        Test strategy: connect to 1.1.1.1:443 with a 0.05s timeout.
+        If we don't have internet, we get a TimeoutError. If we do,
+        we get a successful connection. Either way, NO EgressBlocked
+        — the guard is fundamentally not invoked on raw sockets.
+        """
+        monkeypatch.setenv("LAB_MODE", "airgapped")
+        monkeypatch.setenv("ARAIL_DATA_DIR", str(tmp_path))
+        arail.egress._reset_for_tests()
+        arail.egress.install_guard()
+
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(0.05)
+        # We don't care if the connect succeeds — only that EgressBlocked
+        # is NOT raised. (It can't be: the guard doesn't see raw sockets.)
+        try:
+            s.connect(("1.1.1.1", 443))
+        except arail.airgap.EgressBlocked:
+            pytest.fail(
+                "DOCUMENTED-GAP TRIPWIRE: raw socket.connect raised "
+                "EgressBlocked — has someone wrapped sockets? Update "
+                "PRIVACY.md, README, and the airgap modal copy."
+            )
+        except OSError:
+            pass  # any connection error/timeout is expected
+        finally:
+            s.close()
+
+    def test_httpx_bypasses_guard_in_airgapped(self, monkeypatch, tmp_path):
+        """``httpx.Client().get()`` is NOT wrapped by the requests
+        monkey-patch — it has its own transport.
+
+        Pin: in airgapped mode, an httpx call to a public host does
+        NOT raise EgressBlocked. (It will likely raise a real
+        ConnectionError if the call goes through, or succeed if the
+        host can reach the internet — either way, NOT EgressBlocked.)
+        """
+        try:
+            import httpx
+        except ImportError:
+            pytest.skip("httpx not installed in this env")
+
+        monkeypatch.setenv("LAB_MODE", "airgapped")
+        monkeypatch.setenv("ARAIL_DATA_DIR", str(tmp_path))
+        arail.egress._reset_for_tests()
+        arail.egress.install_guard()
+
+        client = httpx.Client(timeout=0.05)
+        try:
+            client.get("https://example.com")
+        except arail.airgap.EgressBlocked:
+            pytest.fail(
+                "DOCUMENTED-GAP TRIPWIRE: httpx raised EgressBlocked. "
+                "Has someone wrapped httpx? Update README/PRIVACY.md/modal."
+            )
+        except Exception:
+            pass  # expected — timeout / DNS / etc.
+        finally:
+            client.close()
+
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason="curl-via-subprocess test relies on POSIX shell-finding curl",
+    )
+    def test_subprocess_curl_bypasses_guard(self, monkeypatch, tmp_path):
+        """``subprocess.run(['curl', '-s', URL])`` is NOT wrapped.
+
+        Pin: the guard lives in-process; spawning a curl subprocess
+        cannot be intercepted by Python-layer monkey-patches. Closing
+        this gap would require shell-wrapping which is out of scope
+        for the v1 sprint.
+        """
+        monkeypatch.setenv("LAB_MODE", "airgapped")
+        monkeypatch.setenv("ARAIL_DATA_DIR", str(tmp_path))
+        arail.egress._reset_for_tests()
+        arail.egress.install_guard()
+
+        # Use a localhost target that won't actually fire — we just want
+        # to confirm the subprocess call itself does NOT raise EgressBlocked.
+        try:
+            result = subprocess.run(
+                ["curl", "-s", "--max-time", "0.05", "http://127.0.0.1:65535/x"],
+                capture_output=True,
+                timeout=2.0,
+            )
+            assert result is not None
+        except arail.airgap.EgressBlocked:
+            pytest.fail(
+                "DOCUMENTED-GAP TRIPWIRE: subprocess curl raised EgressBlocked. "
+                "Has someone wrapped subprocess? Update README/PRIVACY.md/modal."
+            )
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            pass
+
+    def test_os_system_bypasses_guard(self, monkeypatch, tmp_path):
+        """``os.system("curl https://...")`` is NOT wrapped.
+
+        Pin: same shape as subprocess — Python-layer guard cannot see
+        what the shell does. Documented gap.
+        """
+        monkeypatch.setenv("LAB_MODE", "airgapped")
+        monkeypatch.setenv("ARAIL_DATA_DIR", str(tmp_path))
+        arail.egress._reset_for_tests()
+        arail.egress.install_guard()
+
+        try:
+            os.system("true")  # no-op; just verify os.system doesn't trip guard
+        except arail.airgap.EgressBlocked:
+            pytest.fail(
+                "DOCUMENTED-GAP TRIPWIRE: os.system raised EgressBlocked. "
+                "If shell wrapping landed, update PRIVACY.md and modal."
+            )
+
+
+# ──────────────────────────────────────────────────────────────────────
+# 4. asyncio.create_task contextvars leak from @allow_egress
+# ──────────────────────────────────────────────────────────────────────
+
+class TestAsyncioContextvarsLeak:
+    """``asyncio.create_task`` copies the current contextvars context
+    into the task. So a task spawned inside ``with allow_egress(...)``
+    keeps the bypass active even after the with-block exits.
+
+    This is documented in
+    ``learnings/2026-05-05-allow-egress-task-scope.md`` as a known
+    behavior. These tests pin it so a future change is caught.
+
+    Note: ``allow_egress`` raises immediately in airgapped mode, so
+    these tests run in hybrid mode (the only mode where the bypass
+    can actually be entered)."""
+
+    def test_create_task_inherits_allow_egress_context(self, monkeypatch, tmp_path):
+        """A task spawned inside @allow_egress sees the bypass even
+        after the with-block exits — pin documented behavior."""
+        monkeypatch.setenv("LAB_MODE", "hybrid")
+        monkeypatch.setenv("ARAIL_DATA_DIR", str(tmp_path))
+        arail.egress._reset_for_tests()
+        arail.egress.install_guard()
+
+        captured: dict = {}
+
+        async def runner():
+            async def child():
+                # When the parent's with-block exits, this task should
+                # STILL see the allow_egress reason because asyncio
+                # copies contextvars at task-spawn time.
+                await asyncio.sleep(0.01)
+                captured["allow_var"] = arail.egress._allow_egress_var.get(None)
+
+            with arail.egress.allow_egress("test reason for asyncio"):
+                # Confirm the var is set inside the block.
+                captured["inside_block"] = arail.egress._allow_egress_var.get(None)
+                task = asyncio.create_task(child())
+            # Block has exited. Var is reset for THIS frame.
+            captured["after_block"] = arail.egress._allow_egress_var.get(None)
+            await task
+
+        asyncio.run(runner())
+
+        assert captured["inside_block"] == "test reason for asyncio"
+        assert captured["after_block"] is None, (
+            "Outer frame's contextvar must reset on with-block exit"
+        )
+        # The child task's contextvar — pinned: it inherits the bypass.
+        assert captured["allow_var"] == "test reason for asyncio", (
+            "DOCUMENTED-BEHAVIOR PIN: asyncio.create_task captures the "
+            "context at spawn, so the child task keeps the allow_egress "
+            "reason after the parent's with-block exits. If this test "
+            "fails, asyncio behavior changed OR a fix landed — update "
+            "learnings/2026-05-05-allow-egress-task-scope.md."
+        )
+
+    def test_thread_does_NOT_inherit_allow_egress(self, monkeypatch, tmp_path):
+        """``threading.Thread`` does NOT copy contextvars — only the
+        current thread's context. Spawning a thread inside @allow_egress
+        does NOT propagate the bypass.
+
+        This is the safe behavior. Pin it so a future asyncio-style
+        contextvars-on-threads change in CPython is caught.
+        """
+        import threading
+
+        monkeypatch.setenv("LAB_MODE", "hybrid")
+        monkeypatch.setenv("ARAIL_DATA_DIR", str(tmp_path))
+        arail.egress._reset_for_tests()
+        arail.egress.install_guard()
+
+        captured: dict = {}
+
+        def child_thread():
+            captured["thread_var"] = arail.egress._allow_egress_var.get(None)
+
+        with arail.egress.allow_egress("test thread isolation"):
+            t = threading.Thread(target=child_thread)
+            t.start()
+            t.join()
+
+        assert captured["thread_var"] is None, (
+            "Threads must NOT inherit allow_egress (contextvars are per-thread). "
+            "If this test fails, CPython's contextvars semantics changed — "
+            "update the learnings file."
+        )
+
+
+# ──────────────────────────────────────────────────────────────────────
+# 5. Audit log — secret leakage via URL parse failure
+# ──────────────────────────────────────────────────────────────────────
+
+class TestAuditLogSecretLeakage:
+    """Architect flagged: ``record_block`` falls back to ``url[:64]``
+    if urlparse returns no hostname. Could a token-bearing URL slip
+    into the audit log via this fallback?
+
+    Test strategy: pass URLs with various malformations and verify
+    that no token-bearing query string is written to egress.jsonl.
+    """
+
+    def test_token_bearing_url_does_not_leak_via_fallback(
+        self, monkeypatch, tmp_path
+    ):
+        """URL with token in query string + valid hostname → audit log
+        records hostname only, not the token."""
+        monkeypatch.setenv("ARAIL_DATA_DIR", str(tmp_path))
+        log_path = tmp_path / "egress.jsonl"
+
+        arail.egress.record_block(
+            "https://api.example.com/v1?token=SECRET_TOKEN_DO_NOT_LEAK",
+            "test_caller",
+            "airgapped",
+        )
+
+        content = log_path.read_text()
+        assert "SECRET_TOKEN_DO_NOT_LEAK" not in content, (
+            "Audit log must not contain query-string secrets — "
+            f"got: {content!r}"
+        )
+        # url_host should be just the hostname.
+        entries = [json.loads(ln) for ln in content.splitlines() if ln.strip()]
+        assert entries[-1]["url_host"] == "api.example.com"
+
+    def test_malformed_url_fallback_truncated_to_64_chars(
+        self, monkeypatch, tmp_path
+    ):
+        """A URL that fails to parse falls back to ``url[:64] or '?'``.
+        Pin: fallback length is 64 chars max.
+
+        The current urlparse is permissive enough that essentially any
+        string that has a scheme returns *something* for hostname, so
+        the fallback path is dead code in practice — but pin it.
+        """
+        monkeypatch.setenv("ARAIL_DATA_DIR", str(tmp_path))
+        log_path = tmp_path / "egress.jsonl"
+
+        # Empty-ish or hostname-less URL — urlparse returns hostname=None.
+        arail.egress.record_block("not://a/url", "test", "airgapped")
+
+        content = log_path.read_text()
+        entries = [json.loads(ln) for ln in content.splitlines() if ln.strip()]
+        assert len(entries) >= 1
+        # The recorded url_host should be derived from the URL string itself.
+        # Even in fallback: max 64 chars, no full-url leak of tokens.
+        assert len(entries[-1]["url_host"]) <= 64, (
+            f"url_host must be <=64 chars; got {len(entries[-1]['url_host'])}"
+        )
+
+    def test_egress_blocked_str_does_not_contain_full_url(self):
+        """The exception's string form must contain only host/caller/reason
+        — never the full URL with query string."""
+        err = arail.airgap.EgressBlocked(
+            "api.example.com", "buddy.fetch", "airgapped"
+        )
+        s = str(err)
+        # Must contain the host but NOT a path or query.
+        assert "api.example.com" in s
+        assert "?token=" not in s
+        assert "/v1/" not in s
+        assert "secret" not in s.lower()
+
+
+# ──────────────────────────────────────────────────────────────────────
+# 6. jsonl write failures (record_block must swallow)
+# ──────────────────────────────────────────────────────────────────────
+
+class TestJsonlWriteFailures:
+    """``record_block`` must NEVER prevent the loud failure (the actual
+    EgressBlocked raise). If the disk is full or the path is read-only,
+    the block is best-effort logged but the raise still happens.
+    Architect's failure-modes table flagged this row as untested."""
+
+    def test_record_block_swallows_when_dir_unwritable(
+        self, monkeypatch, tmp_path
+    ):
+        """Make ARAIL_DATA_DIR point at a read-only location. record_block
+        must not raise."""
+        ro_dir = tmp_path / "ro"
+        ro_dir.mkdir()
+        # On most POSIX systems chmod 0o500 makes dir non-writable.
+        os.chmod(ro_dir, 0o500)
+        monkeypatch.setenv("ARAIL_DATA_DIR", str(ro_dir))
+        try:
+            # Must NOT raise.
+            arail.egress.record_block("https://x.com", "t", "airgapped")
+        except Exception as e:
+            pytest.fail(
+                f"record_block must swallow write errors; raised: {e!r}"
+            )
+        finally:
+            os.chmod(ro_dir, 0o700)  # restore for cleanup
+
+    def test_record_block_swallows_when_path_is_a_file(self, monkeypatch, tmp_path):
+        """Pathological: ARAIL_DATA_DIR is a *file* not a directory.
+        record_block must not crash the caller."""
+        weird_path = tmp_path / "data_is_a_file"
+        weird_path.write_text("not a directory")
+        monkeypatch.setenv("ARAIL_DATA_DIR", str(weird_path))
+        try:
+            arail.egress.record_block("https://x.com", "t", "airgapped")
+        except Exception as e:
+            pytest.fail(
+                f"record_block must swallow when ARAIL_DATA_DIR is a file; "
+                f"raised: {e!r}"
+            )
+
+    def test_egress_blocked_still_raises_when_logging_fails(
+        self, monkeypatch, tmp_path
+    ):
+        """Even when record_block silently fails, EgressBlocked must
+        still be raised by the guard. This is the load-bearing
+        invariant: airgapped is a contract; logging is best-effort."""
+        ro_dir = tmp_path / "ro_logs"
+        ro_dir.mkdir()
+        os.chmod(ro_dir, 0o500)
+        monkeypatch.setenv("LAB_MODE", "airgapped")
+        monkeypatch.setenv("ARAIL_DATA_DIR", str(ro_dir))
+        monkeypatch.setattr(socket, "gethostbyname", lambda h: "151.101.64.81")
+        arail.egress._reset_for_tests()
+        arail.egress.install_guard()
+        try:
+            with pytest.raises(arail.airgap.EgressBlocked):
+                requests.get("https://example.com", timeout=1)
+        finally:
+            os.chmod(ro_dir, 0o700)
