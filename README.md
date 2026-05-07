@@ -101,8 +101,19 @@ destination resolves to loopback, RFC1918, or link-local. Denials raise
 `EgressBlocked` and append one line to `lab/data/egress.jsonl` for audit.
 The Compute Source row shows a banner, cloud radios grey out, and the
 save/test/models endpoints refuse. Click the **Airgapped** badge in the
-nav to see the operational definition and the most recent blocks. Set
-`LAB_MODE=hybrid` in `.env` and restart to allow agent fetches.
+nav to see the operational definition and the most recent blocks.
+
+**Toggling LAB_MODE from the UI.** When the lab is bound to loopback
+(the default, `BIND_ADDR=127.0.0.1`), the Network Policy modal shows a
+toggle button. Click it, read the confirmation copy, wait 3 seconds for
+the confirm button to enable, then click **Confirm**. The portal rewrites
+`.env` atomically and updates the running process immediately — no
+restart needed. Each toggle appends one line to
+`lab/data/airgap_audit.jsonl` (chmod 0600). The toggle is disabled when
+the portal is bound to a non-loopback address (`BIND_ADDR=0.0.0.0`, for
+example) — in that case the modal shows a static note to edit `.env`
+directly, because a UI toggle on a LAN-exposed portal would be a
+CSRF attack surface.
 
 ### 🔬 Autoresearch *(every tier)*
 
