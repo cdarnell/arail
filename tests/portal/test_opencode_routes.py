@@ -300,3 +300,163 @@ class TestWorkbenchLabel:
         resp = client.get("/notebooks")
         assert resp.status_code == 200
         assert "<h1>Workbench</h1>" in resp.text
+
+
+# ---------------------------------------------------------------------------
+# Sprint 2 — LLM-ready gate on /api/opencode/start  (F-GATE-LLM-*)
+# ---------------------------------------------------------------------------
+
+class TestOpencodeLLMGate:
+    """The /api/opencode/start route must refuse with 409 when no LLM is ready."""
+
+    def _max_client(self, monkeypatch, *, llm_ok: bool = True,
+                    llm_reason=None, llm_hint=None, start_ok: bool = True):
+        monkeypatch.setenv("LAB_TIER", "max")
+        monkeypatch.setattr(
+            "arail.portal.services.opencode.is_installed", lambda: True
+        )
+        monkeypatch.setattr(
+            "arail.portal.services.opencode.is_running", lambda port=4096: False
+        )
+        ready_result = {
+            "ok": llm_ok,
+            "reason": llm_reason,
+            "hint": llm_hint,
+            "chat_url": "/chat",
+            "provider": "my_machine",
+            "model": "llama3" if llm_ok else None,
+        }
+        monkeypatch.setattr(
+            "arail.portal.services.opencode.llm_ready_check",
+            lambda force=False: ready_result,
+        )
+        if start_ok:
+            monkeypatch.setattr(
+                "arail.portal.services.opencode.start",
+                lambda port=4096: {"ok": True, "pid": 99999},
+            )
+        from arail.portal.app import app
+        return TestClient(app, raise_server_exceptions=True)
+
+    def test_start_blocked_when_no_llm(self, monkeypatch):
+        """409 returned when llm_ready_check reports ok=False, reason='no_llm' (F-GATE-LLM-1)."""
+        client = self._max_client(monkeypatch, llm_ok=False, llm_reason="no_llm",
+                                   llm_hint="Load a model in Chat first.")
+        resp = client.post("/api/opencode/start")
+        assert resp.status_code == 409, f"Expected 409, got {resp.status_code}"
+        data = resp.json()
+        assert data["ok"] is False
+        assert data["reason"] == "no_llm"
+
+    def test_start_blocked_no_token_for_cloud(self, monkeypatch):
+        """409 returned when cloud provider has no token (reason='no_token') (F-GATE-LLM-2)."""
+        monkeypatch.setenv("LAB_TIER", "max")
+        monkeypatch.setattr(
+            "arail.portal.services.opencode.is_installed", lambda: True
+        )
+        ready_result = {
+            "ok": False,
+            "reason": "no_token",
+            "hint": "Save a claude API key in Chat → Manage providers.",
+            "chat_url": "/chat",
+            "provider": "claude",
+            "model": None,
+        }
+        monkeypatch.setattr(
+            "arail.portal.services.opencode.llm_ready_check",
+            lambda force=False: ready_result,
+        )
+        from arail.portal.app import app
+        client = TestClient(app, raise_server_exceptions=True)
+        resp = client.post("/api/opencode/start")
+        assert resp.status_code == 409
+        data = resp.json()
+        assert data["reason"] == "no_token"
+        assert data.get("hint") is not None
+
+    def test_start_blocked_includes_chat_url(self, monkeypatch):
+        """409 response body includes chat_url for the UI CTA (F-GATE-LLM-3)."""
+        client = self._max_client(monkeypatch, llm_ok=False, llm_reason="loading",
+                                   llm_hint="Model is loading — try again in a moment.")
+        resp = client.post("/api/opencode/start")
+        assert resp.status_code == 409
+        data = resp.json()
+        assert "chat_url" in data
+        assert data["chat_url"] == "/chat"
+
+    def test_start_succeeds_with_loaded_model(self, monkeypatch):
+        """200 returned when llm_ready_check reports ok=True (F-GATE-LLM-4)."""
+        client = self._max_client(monkeypatch, llm_ok=True)
+        resp = client.post("/api/opencode/start")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ok"] is True
+
+    def test_start_gate_after_tier_gate(self, monkeypatch):
+        """Min tier returns 404 before LLM gate fires (F-GATE-LLM-5)."""
+        monkeypatch.setenv("LAB_TIER", "min")
+        llm_check_calls: list = []
+        monkeypatch.setattr(
+            "arail.portal.services.opencode.llm_ready_check",
+            lambda force=False: llm_check_calls.append(1) or {
+                "ok": True, "provider": "my_machine", "model": "x"},
+        )
+        from arail.portal.app import app
+        client = TestClient(app, raise_server_exceptions=True)
+        resp = client.post("/api/opencode/start")
+        assert resp.status_code == 404, f"Expected 404 from tier gate, got {resp.status_code}"
+        assert not llm_check_calls, "llm_ready_check was called before tier gate"
+
+
+# ---------------------------------------------------------------------------
+# Sprint 2 — llm_ready fields in /api/notebooks/status  (F-STATUS-LLM-*)
+# ---------------------------------------------------------------------------
+
+class TestNotebooksStatusLLMReady:
+    """The opencode entry in /api/notebooks/status carries llm_ready/reason/hint."""
+
+    def _max_client_with_ready(self, monkeypatch, llm_ok: bool,
+                                reason=None, hint=None):
+        monkeypatch.setenv("LAB_TIER", "max")
+        monkeypatch.setattr(
+            "arail.portal.services.opencode.is_installed", lambda: True
+        )
+        ready_result = {
+            "ok": llm_ok,
+            "reason": reason,
+            "hint": hint,
+            "chat_url": "/chat",
+            "provider": "my_machine",
+            "model": "llama3" if llm_ok else None,
+        }
+        monkeypatch.setattr(
+            "arail.portal.services.opencode.llm_ready_check",
+            lambda force=False: ready_result,
+        )
+        from arail.portal.app import app
+        return TestClient(app, raise_server_exceptions=True)
+
+    def test_notebooks_status_includes_llm_ready(self, monkeypatch):
+        """opencode entry in /api/notebooks/status has llm_ready field (F-STATUS-LLM-1)."""
+        client = self._max_client_with_ready(monkeypatch, llm_ok=True)
+        resp = client.get("/api/notebooks/status")
+        assert resp.status_code == 200
+        data = resp.json()
+        oc = next((nb for nb in data.get("notebooks", []) if nb["id"] == "opencode"), None)
+        assert oc is not None, "opencode entry missing"
+        assert "llm_ready" in oc, "llm_ready field missing from opencode status entry"
+        assert oc["llm_ready"] is True
+
+    def test_notebooks_status_llm_ready_flips_with_state(self, monkeypatch):
+        """llm_ready=False propagates when no model loaded (F-STATUS-LLM-2)."""
+        client = self._max_client_with_ready(monkeypatch, llm_ok=False,
+                                              reason="no_llm",
+                                              hint="Load a model in Chat first.")
+        resp = client.get("/api/notebooks/status")
+        assert resp.status_code == 200
+        data = resp.json()
+        oc = next((nb for nb in data.get("notebooks", []) if nb["id"] == "opencode"), None)
+        assert oc is not None
+        assert oc["llm_ready"] is False
+        assert oc.get("llm_reason") == "no_llm"
+        assert oc.get("llm_hint") is not None

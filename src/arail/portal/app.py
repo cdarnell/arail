@@ -1308,7 +1308,11 @@ def _require_workbench():
 
 @app.get("/opencode", response_class=HTMLResponse)
 async def opencode_page(request: Request):
-    """3-state opencode page: not-installed / installed-not-running / running+iframe."""
+    """4-state opencode page: not-installed / no-llm / installed-idle / running+iframe.
+
+    Sprint 2: passes llm_ready, llm_hint, llm_chat_url to template so the
+    Jinja block can render the 'Load a model first' state (installed_no_llm).
+    """
     if (gate := _require_workbench()) is not None:
         return gate
     from arail.portal.services import opencode as oc
@@ -1316,20 +1320,39 @@ async def opencode_page(request: Request):
     installed = oc.is_installed()
     running = oc.is_running(port) if installed else False
     hint = oc.install_hint() if not installed else {}
+    llm = oc.llm_ready_check() if installed else {"ok": False, "reason": "no_llm",
+                                                    "hint": "Install opencode first.",
+                                                    "chat_url": "/chat"}
     return templates.TemplateResponse(request, "opencode.html", {
         "installed": installed,
         "running": running,
         "hint": hint,
         "port": port,
+        "llm_ready": llm.get("ok", False),
+        "llm_hint": llm.get("hint"),
+        "llm_chat_url": llm.get("chat_url", "/chat"),
     })
 
 
 @app.post("/api/opencode/start")
 async def opencode_start():
-    """Start the opencode subprocess (max-tier only)."""
+    """Start the opencode subprocess (max-tier only).
+
+    Sprint 2: LLM-ready gate fires before start. Returns 409 with reason/hint
+    when no model is loaded or cloud token is missing. Tier gate fires first.
+    """
     if (gate := _require_workbench()) is not None:
         return gate
     from arail.portal.services import opencode as oc
+    from fastapi.responses import JSONResponse as _JSONResponse
+    ready = oc.llm_ready_check()
+    if not ready["ok"]:
+        return _JSONResponse(status_code=409, content={
+            "ok": False,
+            "reason": ready.get("reason"),
+            "hint": ready.get("hint"),
+            "chat_url": ready.get("chat_url"),
+        })
     port = int(os.getenv("OPENCODE_PORT", str(oc.PORT_DEFAULT)))
     result = oc.start(port=port)
     if result.get("ok"):
@@ -1550,7 +1573,9 @@ async def notebooks_status():
     ]
     # opencode entry — only included when max-tier (workbench surface visible).
     # No credentials embedded in url_external (F-SEC-3).
+    # Sprint 2: llm_ready / llm_reason / llm_hint drive the 4th card state in JS.
     if "notebooks" in _visible_surfaces():
+        llm = oc.llm_ready_check()
         notebooks.append({
             "id": "opencode",
             "name": "opencode",
@@ -1558,6 +1583,9 @@ async def notebooks_status():
             "alive": opencode_alive,
             "url_internal": "/opencode",
             "url_external": f"http://127.0.0.1:{opencode_port}/",
+            "llm_ready": llm.get("ok", False),
+            "llm_reason": llm.get("reason"),
+            "llm_hint": llm.get("hint"),
         })
     return {"notebooks": notebooks}
 

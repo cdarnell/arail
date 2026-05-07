@@ -91,38 +91,44 @@ class TestComputeSourceEnv:
         )
 
     def test_compute_source_env_my_machine(self, monkeypatch):
-        """my_machine → OPENCODE_API_KEY='not-needed', shim URL (Sprint 2 UPDATED contract).
+        """my_machine → OPENCODE_API_KEY='not-needed', shim base (Sprint 2: not Ollama).
 
-        Sprint 1 pointed at Ollama; Sprint 2 points at the lab OpenAI-compat shim.
-        The invariant is: loopback URL + /api/openai/v1 suffix.
+        Sprint 2 update: _compute_source_env now points my_machine at the
+        lab-side OpenAI shim (/api/openai/v1), not the Ollama default.
+        MODEL_API_BASE is no longer used for the base URL for my_machine.
         """
         import arail.portal.services.opencode as oc
-        with mock.patch("arail.portal.app._get_chat_model_load_state",
-                        return_value={"state": "ready", "model": "llama3"},
-                        create=True):
-            self._patch_provider(monkeypatch, "my_machine")
-            env = oc._compute_source_env()
-        assert env["OPENCODE_API_KEY"] == "not-needed"
-        # Sprint 2: points at shim, not Ollama
-        assert "/api/openai/v1" in env["OPENCODE_API_BASE"], (
-            f"Sprint 2: expected shim URL, got {env['OPENCODE_API_BASE']!r}"
+        monkeypatch.setenv("MODEL_NAME", "llama3")
+        # Patch the source in arail.portal.app — _compute_source_env lazy-imports from there.
+        monkeypatch.setattr(
+            "arail.portal.app._get_chat_model_load_state",
+            lambda: {"state": "ready", "model": "llama3"},
+            raising=False,
         )
+        self._patch_provider(monkeypatch, "my_machine")
+        env = oc._compute_source_env()
+        assert env["OPENCODE_API_KEY"] == "not-needed"
+        # Sprint 2: base URL is the lab shim, not Ollama
         assert "127.0.0.1" in env["OPENCODE_API_BASE"]
+        assert "/api/openai/v1" in env["OPENCODE_API_BASE"]
 
     def test_compute_source_env_my_machine_default_base(self, monkeypatch):
-        """my_machine with no model loaded → shim URL (Sprint 2 UPDATED contract).
+        """my_machine with no loaded model → shim URL, not-needed key (Sprint 2: F-CONFIG-1).
 
-        Sprint 1 tested Ollama fallback. Sprint 2: always shim, regardless of
-        MODEL_API_BASE (which is no longer used for the my_machine path).
+        Sprint 2 update: MODEL_API_BASE no longer used for my_machine.
+        The shim URL is always http://127.0.0.1:<PORTAL_PORT>/api/openai/v1.
         """
         import arail.portal.services.opencode as oc
         monkeypatch.delenv("MODEL_API_BASE", raising=False)
         monkeypatch.delenv("MODEL_NAME", raising=False)
-        with mock.patch("arail.portal.app._get_chat_model_load_state",
-                        return_value={"state": "ready", "model": None},
-                        create=True):
-            self._patch_provider(monkeypatch, "my_machine")
-            env = oc._compute_source_env()
+        # Patch the source in arail.portal.app — _compute_source_env lazy-imports from there.
+        monkeypatch.setattr(
+            "arail.portal.app._get_chat_model_load_state",
+            lambda: {"state": "ready", "model": None},
+            raising=False,
+        )
+        self._patch_provider(monkeypatch, "my_machine")
+        env = oc._compute_source_env()
         assert "/api/openai/v1" in env["OPENCODE_API_BASE"]
         assert env["OPENCODE_API_KEY"] == "not-needed"
 
@@ -130,12 +136,15 @@ class TestComputeSourceEnv:
         """claude provider → Anthropic base + token passed through (F-CONFIG-2)."""
         import arail.portal.services.opencode as oc
         monkeypatch.setenv("MODEL_NAME", "claude-3-5-sonnet")
-        # Sprint 2: _compute_source_env reads _get_chat_model_load_state for model
-        with mock.patch("arail.portal.app._get_chat_model_load_state",
-                        return_value={"state": "ready", "model": "claude-3-5-sonnet"},
-                        create=True):
-            self._patch_provider(monkeypatch, "claude", token="sk-ant-secret")
-            env = oc._compute_source_env()
+        # Patch the source in arail.portal.app, not the opencode module —
+        # _compute_source_env does a fresh lazy import each call.
+        monkeypatch.setattr(
+            "arail.portal.app._get_chat_model_load_state",
+            lambda: {"state": "ready", "model": "claude-3-5-sonnet"},
+            raising=False,
+        )
+        self._patch_provider(monkeypatch, "claude", token="sk-ant-secret")
+        env = oc._compute_source_env()
         assert env["OPENCODE_API_BASE"] == "https://api.anthropic.com/v1"
         assert env["OPENCODE_API_KEY"] == "sk-ant-secret"
         assert env["OPENCODE_MODEL"] == "claude-3-5-sonnet"
