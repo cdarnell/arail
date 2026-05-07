@@ -113,8 +113,30 @@
   });
   </script>
 
+  {% elif installed and not llm_ready %}
+  {# State 2b: opencode installed, no model loaded — must load in Chat first #}
+  <div class="oc-install" data-state="installed_no_llm">
+    <h1>Load a model first</h1>
+    <p>
+      <span class="status-pill status-installed">✓ opencode installed</span>
+      <span class="status-pill status-warn">○ no model loaded</span>
+    </p>
+    <p>{{ llm_hint or "Open the Chat tab and pick a model — opencode reuses whatever's loaded." }}</p>
+    <p>
+      <a class="btn btn-sm" href="{{ llm_chat_url|default('/chat') }}"
+         style="background:var(--blue);color:#000;font-weight:700;padding:0.4rem 1.2rem;">
+        → Open Chat
+      </a>
+    </p>
+    <p class="oc-notice">
+      Why? opencode talks to whatever model the lab has loaded. Loading
+      one in Chat shares it with opencode — no double-load, no extra RAM.
+      Once a model is running, come back here to start opencode.
+    </p>
+  </div>
+
   {% elif installed %}
-  {# State 2: opencode is installed but not running #}
+  {# State 2: opencode is installed, LLM is ready, not running #}
   <div class="oc-install">
     <h1>opencode not running</h1>
     <p>
@@ -145,6 +167,15 @@
       const data = await res.json();
       if (data.ok) {
         setTimeout(() => location.reload(), 3000);
+      } else if (res.status === 409) {
+        // LLM not ready — redirect to chat with a hint
+        btn.textContent = '→ ' + (data.hint || 'Load a model in Chat first');
+        btn.style.background = 'var(--amber)';
+        btn.style.color = '#000';
+        btn.disabled = false;
+        if (data.chat_url) {
+          setTimeout(() => { window.location.href = data.chat_url; }, 1500);
+        }
       } else {
         btn.textContent = '✗ ' + (data.error || 'Failed');
         btn.style.background = 'var(--red)';

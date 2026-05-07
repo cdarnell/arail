@@ -225,10 +225,14 @@ function setCard(id, nb) {
   card.style.display = '';
   const dot = card.querySelector('[data-dot]');
   const label = card.querySelector('[data-status]');
-  dot.classList.remove('alive', 'standby', 'missing');
+  dot.classList.remove('alive', 'standby', 'warn', 'missing');
   if (nb.alive) {
     dot.classList.add('alive');
     label.textContent = 'live · ' + nb.url_external.replace(/\?.*$/, '');
+  } else if (nb.installed && nb.llm_ready === false) {
+    // Sprint 2: opencode installed but no model loaded — amber warn dot
+    dot.classList.add('warn');
+    label.textContent = nb.llm_hint || 'needs LLM — open Chat to load a model';
   } else if (nb.installed) {
     dot.classList.add('standby');
     label.textContent = 'installed — not running';
