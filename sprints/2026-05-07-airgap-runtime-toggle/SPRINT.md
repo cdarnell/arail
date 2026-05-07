@@ -39,7 +39,7 @@ This sprint adds the **persistent** toggle (option B):
 
 | Phase | Subagent | Artifact | Status | Started | Finished | Verdict |
 |---|---|---|---|---|---|---|
-| think | visionary | VISION.md | pending | — | — | — |
+| think | visionary | VISION.md | done | 2026-05-07 | 2026-05-07 | proceed (with 2 non-negotiable constraints) |
 | plan | architect (design) | ARCHITECTURE.md | pending | — | — | — |
 | build | builder | BUILD_LOG.md | pending | — | — | — |
 | review | architect (review) | REVIEW.md | pending | — | — | — |
@@ -53,6 +53,8 @@ This sprint adds the **persistent** toggle (option B):
 | 2026-05-07 | Persist to `.env` (option B), not in-memory only | User explicitly chose persistence. Toggle that doesn't survive restart is a footgun in airgapped mode (lab silently re-airgaps after restart). |
 | 2026-05-07 | Branch cut fresh from origin/main | Independent of `qukaizen/arail-opencode-curation` (in flight, stashed). |
 | 2026-05-07 | Stash protocol | 2 stashes parked: `stash@{0}` (PKB sre + compiled README), `stash@{1}` (27 src files), both tied to opencode-curation branch. Restore on return. |
+| 2026-05-07 | Canonical config file = `.env` (project root, chmod 600), NOT `secrets.env` | All docs (README, INSTALL, PRIVACY) consistently reference `.env` for `LAB_MODE`. `secrets.env` is for API tokens only. Visionary flagged the ambiguity; orchestrator audited and resolved. |
+| 2026-05-07 | Two non-negotiable architect constraints (per visionary) | (a) bind-address gate — refuse the toggle endpoint if the portal binds to `0.0.0.0`. (b) Two-step modal-confirm UX — single-click is a footgun. |
 
 ## Skipped phases
 
