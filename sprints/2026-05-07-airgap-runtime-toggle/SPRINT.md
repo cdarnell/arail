@@ -42,7 +42,7 @@ This sprint adds the **persistent** toggle (option B):
 | think | visionary | VISION.md | done | 2026-05-07 | 2026-05-07 | proceed (with 2 non-negotiable constraints) |
 | plan | architect (design) | ARCHITECTURE.md | pending | — | — | — |
 | build | builder | BUILD_LOG.md | done | 2026-05-07 | 2026-05-07 | 9 commits, 111 tests pass |
-| review | architect (review) | REVIEW.md | pending | — | — | — |
+| review | architect (review) | REVIEW.md | done | 2026-05-07 | 2026-05-07 | WEAK_PASS — 3 documented follow-ups |
 | test | qa | TEST_REPORT.md | pending | — | — | — |
 | ship | — | PR | pending | — | — | — |
 
