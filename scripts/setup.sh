@@ -56,6 +56,13 @@ step()  { echo ""; echo -e "${BOLD}━━━ $*${RESET}"; echo ""; }
 MODEL_MLX_ID="mlx-community/Qwen3-8B-4bit"
 MODEL_HF_ID="Qwen/Qwen3-8B"
 MODEL_GGUF_ID="Qwen/Qwen3-8B-GGUF"
+# Coder starter model — downloaded with --with-coder flag (Sprint 2).
+# Qwen2.5-Coder-3B is ~2 GB Q4; fits on any tier machine. Set
+# ARAIL_WITH_CODER=1 to download automatically without the flag.
+CODER_MLX_ID="mlx-community/Qwen2.5-Coder-3B-Instruct-4bit"
+CODER_HF_ID="Qwen/Qwen2.5-Coder-3B-Instruct"
+CODER_GGUF_ID="Qwen/Qwen2.5-Coder-3B-Instruct-GGUF"
+WITH_CODER="${ARAIL_WITH_CODER:-0}"
 # Deep backend — AirLLM ships in both tiers; the model just gets bigger
 # in max. AIRLLM_MODEL_ID is the resolved value for the user's tier
 # (defaulted to the min 70B; capture_tier upgrades it to the 405B for max).
@@ -841,11 +848,13 @@ capture_tier() {
 
     ${BOLD}min${RESET}  Minimalist — Dashboard + Chat + Autoresearch + Knowledge Base
            + Agents + LanceDB vector recall. The everyday lab.
-           AirLLM deep streaming with a 70B default (Llama-3.1-70B).
-           External providers (Claude, NVIDIA, OpenRouter, HuggingFace)
-           reachable over plain HTTP when LAB_MODE=hybrid.
-    ${BOLD}max${RESET}  Maximalist — Everything in min + Admin, Notebooks, 405B AirLLM
-           default (Llama-3.1-405B), Anthropic SDK, LangChain/LangGraph.
+           AirLLM deep streaming with Llama-3.1-8B-Instruct (fits 16GB
+           Macs without Metal-watchdog crashes). External providers
+           (Claude, NVIDIA, OpenRouter, HuggingFace) reachable over plain
+           HTTP when LAB_MODE=hybrid.
+    ${BOLD}max${RESET}  Maximalist — Everything in min + Admin, Notebooks, AirLLM
+           Llama-3.1-70B default, Anthropic SDK, LangChain/LangGraph.
+           Targets 32GB+ machines.
 
   ${BOLD}LanceDB ships in both tiers${RESET} — KB and autoresearch are too central
   to be split across optional installs.
@@ -1214,6 +1223,65 @@ download_model() {
 }
 
 # -----------------------------------------------------------------------------
+# Download curated coder starter model (--with-coder flag, Sprint 2)
+# -----------------------------------------------------------------------------
+download_coder_model() {
+    if [[ "$WITH_CODER" != "1" ]]; then
+        return 0
+    fi
+
+    step "8b/11  Coder starter model (Qwen2.5-Coder-3B-Instruct, ~2 GB Q4)"
+
+    # Log a notice when on min tier — the model downloads but opencode is max-only.
+    if [[ "${LAB_TIER:-min}" != "max" ]]; then
+        warn "Tier is '${LAB_TIER:-min}', not 'max'. The Workbench tab (opencode) is max-tier only."
+        warn "Downloading the coder model anyway — it will be unused until you run:"
+        warn "  ./arail upgrade max"
+    fi
+
+    local model_dir="lab/models"
+    mkdir -p "$model_dir"
+
+    if [[ "$ACCEL" == "mlx" ]]; then
+        local target="${model_dir}/Qwen2.5-Coder-3B-Instruct-4bit"
+        if [[ -d "$target" ]]; then
+            info "Coder model already downloaded (${target})."
+            return 0
+        fi
+        info "Downloading ${CODER_MLX_ID} → ${target}"
+        python3 -c "from huggingface_hub import snapshot_download; snapshot_download('${CODER_MLX_ID}', local_dir='${target}')" \
+            || { warn "Coder model download failed — see error above. Continuing without coder model."; return 0; }
+    elif [[ "$ACCEL" == "cuda" ]]; then
+        local target="${model_dir}/Qwen2.5-Coder-3B-Instruct"
+        if [[ -d "$target" ]]; then
+            info "Coder model already downloaded (${target})."
+            return 0
+        fi
+        info "Downloading ${CODER_HF_ID} → ${target}"
+        python3 -c "from huggingface_hub import snapshot_download; snapshot_download('${CODER_HF_ID}', local_dir='${target}')" \
+            || { warn "Coder model download failed. Continuing without coder model."; return 0; }
+    else
+        # CPU — download Q4_K_M GGUF
+        local target="${model_dir}/Qwen2.5-Coder-3B-Instruct-GGUF"
+        if [[ -d "$target" ]]; then
+            info "Coder model already downloaded (${target})."
+            return 0
+        fi
+        info "Downloading ${CODER_GGUF_ID} (Q4_K_M) → ${target}"
+        if command -v huggingface-cli >/dev/null 2>&1; then
+            huggingface-cli download "$CODER_GGUF_ID" --include '*Q4_K_M*' \
+                --local-dir "$target" --local-dir-use-symlinks False \
+                || { warn "Coder model download failed. Continuing without coder model."; return 0; }
+        else
+            python3 -c "from huggingface_hub import snapshot_download; snapshot_download('${CODER_GGUF_ID}', local_dir='${target}', allow_patterns=['*Q4_K_M*'])" \
+                || { warn "Coder model download failed. Continuing without coder model."; return 0; }
+        fi
+    fi
+
+    info "Coder starter model downloaded. In the lab: Chat tab → pick Qwen2.5-Coder-3B, then start opencode from the Workbench tab."
+}
+
+# -----------------------------------------------------------------------------
 # Capture intent + goal (interactive; writes bootstrap_goal.json)
 # -----------------------------------------------------------------------------
 capture_goal() {
@@ -1556,6 +1624,15 @@ verify() {
 # Main
 # =============================================================================
 main() {
+    # ── Argument parsing (must be first) ──────────────────────────────────
+    for arg in "$@"; do
+        case "$arg" in
+            --with-coder)  WITH_CODER=1 ;;
+            --no-coder)    WITH_CODER=0 ;;
+            *) ;;
+        esac
+    done
+
     echo ""
     echo -e "${BOLD}🧪 Autoresearch AI Lab Setup${RESET}"
     echo ""
@@ -1592,6 +1669,7 @@ main() {
     gentoo_notes
     wsl_notes
     download_model
+    download_coder_model
     capture_goal
     install_path_shim
 
