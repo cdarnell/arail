@@ -91,32 +91,51 @@ class TestComputeSourceEnv:
         )
 
     def test_compute_source_env_my_machine(self, monkeypatch):
-        """my_machine → OPENCODE_API_KEY='not-needed', loopback base."""
+        """my_machine → OPENCODE_API_KEY='not-needed', shim URL (Sprint 2 UPDATED contract).
+
+        Sprint 1 pointed at Ollama; Sprint 2 points at the lab OpenAI-compat shim.
+        The invariant is: loopback URL + /api/openai/v1 suffix.
+        """
         import arail.portal.services.opencode as oc
-        monkeypatch.setenv("MODEL_API_BASE", "http://127.0.0.1:11434/v1")
-        monkeypatch.setenv("MODEL_NAME", "llama3")
-        self._patch_provider(monkeypatch, "my_machine")
-        env = oc._compute_source_env()
+        with mock.patch("arail.portal.app._get_chat_model_load_state",
+                        return_value={"state": "ready", "model": "llama3"},
+                        create=True):
+            self._patch_provider(monkeypatch, "my_machine")
+            env = oc._compute_source_env()
         assert env["OPENCODE_API_KEY"] == "not-needed"
-        assert env["OPENCODE_API_BASE"] == "http://127.0.0.1:11434/v1"
-        assert env["OPENCODE_MODEL"] == "llama3"
+        # Sprint 2: points at shim, not Ollama
+        assert "/api/openai/v1" in env["OPENCODE_API_BASE"], (
+            f"Sprint 2: expected shim URL, got {env['OPENCODE_API_BASE']!r}"
+        )
+        assert "127.0.0.1" in env["OPENCODE_API_BASE"]
 
     def test_compute_source_env_my_machine_default_base(self, monkeypatch):
-        """When MODEL_API_BASE is unset, fallback to ollama default (F-CONFIG-1)."""
+        """my_machine with no model loaded → shim URL (Sprint 2 UPDATED contract).
+
+        Sprint 1 tested Ollama fallback. Sprint 2: always shim, regardless of
+        MODEL_API_BASE (which is no longer used for the my_machine path).
+        """
         import arail.portal.services.opencode as oc
         monkeypatch.delenv("MODEL_API_BASE", raising=False)
         monkeypatch.delenv("MODEL_NAME", raising=False)
-        self._patch_provider(monkeypatch, "my_machine")
-        env = oc._compute_source_env()
-        assert env["OPENCODE_API_BASE"] == "http://127.0.0.1:11434/v1"
+        with mock.patch("arail.portal.app._get_chat_model_load_state",
+                        return_value={"state": "ready", "model": None},
+                        create=True):
+            self._patch_provider(monkeypatch, "my_machine")
+            env = oc._compute_source_env()
+        assert "/api/openai/v1" in env["OPENCODE_API_BASE"]
         assert env["OPENCODE_API_KEY"] == "not-needed"
 
     def test_compute_source_env_cloud_claude(self, monkeypatch):
         """claude provider → Anthropic base + token passed through (F-CONFIG-2)."""
         import arail.portal.services.opencode as oc
         monkeypatch.setenv("MODEL_NAME", "claude-3-5-sonnet")
-        self._patch_provider(monkeypatch, "claude", token="sk-ant-secret")
-        env = oc._compute_source_env()
+        # Sprint 2: _compute_source_env reads _get_chat_model_load_state for model
+        with mock.patch("arail.portal.app._get_chat_model_load_state",
+                        return_value={"state": "ready", "model": "claude-3-5-sonnet"},
+                        create=True):
+            self._patch_provider(monkeypatch, "claude", token="sk-ant-secret")
+            env = oc._compute_source_env()
         assert env["OPENCODE_API_BASE"] == "https://api.anthropic.com/v1"
         assert env["OPENCODE_API_KEY"] == "sk-ant-secret"
         assert env["OPENCODE_MODEL"] == "claude-3-5-sonnet"

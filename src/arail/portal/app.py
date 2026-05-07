@@ -1072,13 +1072,21 @@ async def providers_active(request: Request):
                 "error": "Airgapped mode — only My Machine is active. Set LAB_MODE=hybrid to use cloud providers."}
     os.environ["COMPUTE_SOURCE"] = provider
     activity_log.emit("chat", f"Compute source switched to '{provider}'.", "info")
-    # Trigger best-effort opencode restart so the new baseURL is picked up.
-    # Does NOT block the response — restart can take 5-10 s (F-RESTART-1).
+    # Sprint 2: regenerate_config() THEN restart() — under a single lock.
+    # Order matters: write new config before killing the process, so
+    # the new opencode process picks up the updated provider block.
+    # F-RESTART-2: if regen fails, leave opencode pointing at OLD config
+    # rather than restarting blind into a broken state.
     if "notebooks" in _visible_surfaces():
         try:
             from arail.portal.services import opencode as _oc
             if _oc.is_running():
-                threading.Thread(target=_oc.restart, daemon=True).start()
+                def _hook():
+                    cfg = _oc.regenerate_config()
+                    if not cfg.get("ok"):
+                        return  # F-RESTART-2: abort restart on config failure
+                    _oc.restart()
+                threading.Thread(target=_hook, daemon=True).start()
         except Exception:
             pass  # provider switch must succeed even if restart wiring breaks
     return {"ok": True, "provider": provider}

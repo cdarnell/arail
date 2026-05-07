@@ -33,6 +33,8 @@ node_modules/
 .transfer/
 lab/data/
 lab/models/
+# opencode lab-scoped config (generated at start; may contain env references, no secrets)
+lab/.opencode/
 lab/pkb/inbox/*
 !lab/pkb/inbox/.gitkeep
 lab/pkb/.wiki-cache/
