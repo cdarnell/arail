@@ -101,6 +101,39 @@ def is_running(port: int = PORT_DEFAULT) -> bool:
         return False
 
 
+def _is_opencode_on_port(port: int) -> bool:
+    """True iff GET HOST:port/doc returns OpenAPI JSON identifying opencode.
+
+    Used by start() to distinguish "we already own this port" (idempotent
+    success) from "something else hijacked the port" (real conflict). The
+    /doc path is opencode's OpenAPI schema; presence of the "openapi" key
+    plus an info.title matching opencode is the fingerprint.
+
+    Returns False on any error (timeout, non-200, non-JSON, missing keys).
+    """
+    import json
+    import urllib.request
+
+    try:
+        req = urllib.request.Request(
+            f"http://{HOST}:{port}{READINESS_PATH}",
+            headers={"Accept": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=0.5) as resp:  # noqa: S310 — loopback only
+            if resp.status != 200:
+                return False
+            body = resp.read(4096)  # /doc is small; head is enough
+        data = json.loads(body)
+        if not isinstance(data, dict):
+            return False
+        if "openapi" not in data:
+            return False
+        title = (data.get("info") or {}).get("title", "").lower()
+        return "opencode" in title
+    except Exception:
+        return False
+
+
 def start(port: int = PORT_DEFAULT) -> dict[str, Any]:
     """[UPDATED Sprint 2] Spawn opencode with lab-curated config.
 
@@ -120,7 +153,17 @@ def start(port: int = PORT_DEFAULT) -> dict[str, Any]:
         if not is_installed():
             return {"ok": False, "error": "opencode not installed"}
 
+        # Idempotent start: if the port is already taken AND it's opencode
+        # answering on /doc, treat the call as success rather than confusing
+        # the user with a contradictory "port busy" badge while the iframe
+        # would have loaded fine. Bug surfaced when the post-start reload
+        # raced opencode's bind window: the page rendered "not running",
+        # the user clicked Start again, and got "port busy" while opencode
+        # was in fact already serving on 4096. F-RESTART-* / live-test fix.
         if is_running(port):
+            if _is_opencode_on_port(port):
+                _log.info("opencode start: idempotent success — already serving on %s", port)
+                return {"ok": True, "already_running": True, "port": port}
             return {"ok": False, "error": "port busy"}
 
         # Prepare log file (F-PROC-5, F-PROC-6)

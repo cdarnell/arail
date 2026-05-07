@@ -221,10 +221,15 @@ class TestStartCommand:
         assert "not installed" in result["error"]
 
     def test_start_returns_port_busy_when_running(self, monkeypatch, tmp_path):
-        """start() pre-checks port; returns port-busy, does not kill. (F-PROC-2 pre-check)."""
+        """start() pre-checks port; returns port-busy when listener is NOT opencode. (F-PROC-2 pre-check)."""
         import arail.portal.services.opencode as oc
         monkeypatch.setattr(oc, "is_installed", lambda: True)
         monkeypatch.setattr(oc, "is_running", lambda port=oc.PORT_DEFAULT: True)
+        # Bug-fix 2026-05-07: start() now distinguishes "we already own the
+        # port" (idempotent success) from "something else has it" (port busy)
+        # via the /doc fingerprint. Pin the negative branch here so this test
+        # remains deterministic even if a real opencode is on 4096 locally.
+        monkeypatch.setattr(oc, "_is_opencode_on_port", lambda port: False)
         result = oc.start()
         assert result["ok"] is False
         assert "port busy" in result["error"]
