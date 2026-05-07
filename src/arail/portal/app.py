@@ -356,6 +356,10 @@ templates.env.globals["lab_tier"] = _current_tier()
 templates.env.globals["ui_theme"] = _UI_THEME
 templates.env.globals["ui_themes"] = list_ui_themes()
 templates.env.globals["ui_theme_css"] = theme_css(_UI_THEME)
+# Cachebuster appended to /static/*.css|js URLs so a server restart
+# guarantees clients pick up new assets without a hard-reload. Bound to
+# the process import time so it changes per restart, not per request.
+templates.env.globals["asset_v"] = f"{_BOOT_VERSION}-{int(_BOOT_PERF * 1000)}"
 
 consent_store = ConsentStore()
 goal_store = GoalStore()
@@ -642,6 +646,14 @@ async def _shutdown():
             await _knowledge_canvas_store.close()
         finally:
             _knowledge_canvas_store = None
+
+
+# ── OpenAI-compatible shim — /api/openai/v1/* ────────────────────────────
+# Mounted here alongside the /api/chat block so read-order reflects the
+# dependency. Not tier-gated — loopback is the perimeter (A9, Sprint 2).
+
+from arail.portal.openai_compat import register_routes as _register_openai_compat
+_register_openai_compat(app)
 
 
 # ── First-run welcome / passphrase setup ─────────────────────────────────
