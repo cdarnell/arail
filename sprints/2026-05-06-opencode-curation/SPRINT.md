@@ -23,8 +23,8 @@ Five workstreams (per plan, ordered by dependency):
 |---|---|---|---|---|---|---|
 | think | visionary | VISION.md | skipped | — | — | — |
 | plan | architect (design) | ARCHITECTURE.md | done | 2026-05-06 | 2026-05-07 | proceed-with-caveats (3 caveats, 2 resolved upfront, 1 builder-kickoff verification) — commit 0967b7f |
-| build | builder | BUILD_LOG.md | in_progress | 2026-05-07 | — | — |
-| review | architect (review) | REVIEW.md | pending | — | — | — |
+| build | builder | BUILD_LOG.md | done | 2026-05-07 | 2026-05-07 | 8 builder commits + 1 live-test bugfix (4bcd9f5); 162→167 tests; live-test feedback folded in |
+| review | architect (review) | REVIEW.md | in_progress | 2026-05-07 | — | — |
 | test | qa | TEST_REPORT.md | pending | — | — | — |
 | ship | — | PR | pending | — | — | — |
 
@@ -39,6 +39,7 @@ Five workstreams (per plan, ordered by dependency):
 | 2026-05-06 | Lab-scoped opencode config dir | Avoid overriding the user's personal `~/.config/opencode/` if they use opencode outside the lab. Plan-level mitigation for "locked model picker UX" risk. **Corrected env name (2026-05-07):** real var is `OPENCODE_CONFIG_DIR=$LAB_ROOT/.opencode` (verified via `strings /opt/homebrew/bin/opencode`); plan said `OPENCODE_CONFIG_HOME` which doesn't exist in v1.14.31. ARCHITECTURE.md uses correct name throughout. |
 | 2026-05-07 | `enabled_providers` schema field — verify at builder kickoff | Architect caveat 3. Sprint 1's locked-picker decision relies on this field. Builder must verify against opencode v1.14.x docs before relying on it. Fallback path documented in ARCHITECTURE.md F-LOCK-3: omit other providers from `provider:` map and set `OPENCODE_DISABLE_MODELS_FETCH=true` (verified env var exists in binary). |
 | 2026-05-07 | Shim wraps existing `_run_chat_completion[_stream]` helpers (app.py:4565/4413), NOT a non-existent `/api/chat/completions` route | Architect caveat 2. Plan reference to `/api/chat/completions` was incorrect — actual routes are `/api/chat`, `/api/chat/stream`, `/api/chat/eject` with the helper already factored. Shim is a thin wrapper, no extraction needed. ARCHITECTURE.md §A5 documents this. |
+| 2026-05-07 | **Live-test bugfix folded into build phase** | User clicked Start; the fixed 3 s post-spawn reload raced opencode's bind window, page rendered "not running", second Start click hit "port busy" while opencode WAS in fact serving on :4096. Two fixes in commit 4bcd9f5: (a) `start()` is now idempotent — if `is_running()` AND `/doc` fingerprints as opencode (openapi key + info.title contains "opencode"), return `{"ok": True, "already_running": True}` instead of port-busy; non-opencode listeners still get real port-busy. (b) Start and Restart buttons poll `/api/notebooks/status` for the opencode entry's `alive: true` (20 s timeout, 500 ms interval) instead of the fixed 3 s sleep. (c) iframe `onload` auto-focuses opencode so it pops into picture. 5 new tests, 2 pre-existing tests pinned to mock the new fingerprint helper. |
 | 2026-05-06 | Locked model picker via `enabled_providers: ["lab-local"]` | Prevents opencode loading a second model alongside chat. RAM pressure mitigation per user concern. User must swap in Chat to swap in opencode (existing restart hook follows). |
 | 2026-05-06 | Sprint 1 already merged into main (PR #34) | Sprint 2 branches cleanly off `origin/main`. No stacking, no conflict surface. |
 
