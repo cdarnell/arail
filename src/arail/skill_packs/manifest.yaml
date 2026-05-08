@@ -41,3 +41,12 @@
     - vet-source
     - spot-bias
     - fact-check-claim
+
+- id: onboarding
+  name: Onboarding
+  description: How an agent walks a fresh user from clone to working lab
+               in a handful of exchanges, holding the owner-intended
+               defaults (airgapped, smallest stable tier).
+  tags: [setup, install, onboarding]
+  skills:
+    - setup-arail

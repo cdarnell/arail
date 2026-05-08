@@ -2676,3 +2676,48 @@ html[data-theme="laser-blue"] {
   background: var(--green);
   box-shadow: var(--glow-green);
 }
+
+/* Floating-action variant — small unobtrusive swatch dot anchored to
+   the bottom-right corner. Label is hidden by default and only fades
+   in on hover/focus, so the control reads as a quiet UI affordance,
+   not a feature. Sits above page content but below modals/toasts. */
+.theme-picker.theme-fab {
+  position: fixed;
+  right: 14px;
+  bottom: 14px;
+  z-index: 800;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: 50%;
+  border-width: 1px;
+  background: rgba(12,16,20,0.55);
+  border-color: rgba(255,255,255,0.12);
+  opacity: 0.55;
+  overflow: hidden;
+  transition: width 0.18s ease, opacity 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+  box-shadow: none;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+.theme-picker.theme-fab .theme-swatch {
+  width: 8px;
+  height: 8px;
+  margin: 0 auto;
+}
+.theme-picker.theme-fab .theme-label {
+  display: none;
+}
+.theme-picker.theme-fab:hover,
+.theme-picker.theme-fab:focus-visible {
+  width: auto;
+  padding: 0.32rem 0.7rem;
+  border-radius: 999px;
+  opacity: 1;
+  background: var(--surface, rgba(12,16,20,0.92));
+  border-color: var(--border-hi, rgba(255,255,255,0.22));
+}
+.theme-picker.theme-fab:hover .theme-label,
+.theme-picker.theme-fab:focus-visible .theme-label {
+  display: inline;
+}

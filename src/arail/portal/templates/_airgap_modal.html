@@ -61,6 +61,28 @@
       No outbound network attempts recorded yet.
     </p>
 
+    <!-- Toggle section: shown only when bind_is_loopback; otherwise bind-warning shown -->
+    <div id="airgap-toggle-section" style="margin-top: 14px; padding: 10px;
+         border: 1px solid #2b2b2b; border-radius: 6px;">
+      <div id="airgap-toggle-bind-warning" style="display:none; color:#e6b478; font-size:12px;">
+        Edit <code>.env</code> directly — toggle disabled when the lab is bound
+        beyond loopback (BIND_ADDR &ne; 127.0.0.1).
+      </div>
+      <button id="airgap-toggle-btn" type="button" class="mp-close"
+              style="display:none;"></button>
+      <div id="airgap-toggle-confirm" style="display:none; margin-top: 10px;
+           padding: 10px; background: #19140c; border: 1px solid #6a4d2f; border-radius:6px;">
+        <p style="margin:0 0 8px; font-size: 12px; color:#e6b478;"
+           id="airgap-toggle-confirm-copy"></p>
+        <button id="airgap-toggle-confirm-btn" type="button"
+                class="mp-close" disabled>Confirm (3)</button>
+        <button id="airgap-toggle-cancel-btn" type="button"
+                class="mp-close" style="margin-left:6px;">Cancel</button>
+      </div>
+      <div id="airgap-toggle-error" style="display:none; color:#e68080;
+           font-size:12px; margin-top:6px;"></div>
+    </div>
+
     <details style="margin-top: 14px;">
       <summary class="chat-muted" style="cursor:pointer;">
         Known gaps — what isn't wrapped

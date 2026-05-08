@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import dataclasses
+import logging
+import secrets
 import time
 import json
 import os
@@ -13,6 +16,8 @@ import sys
 import threading
 from pathlib import Path
 from typing import Any, AsyncIterator, Iterator, cast
+
+_log = logging.getLogger(__name__)
 
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, StreamingResponse
@@ -6617,7 +6622,232 @@ async def get_airgap_status():
         "host_can_reach_internet": host_can_reach,
         "known_gaps": _KNOWN_GAPS,
         "guard_installed": _INSTALLED,
+        "bind_is_loopback": os.getenv("BIND_ADDR", "127.0.0.1").strip().lower() in {"127.0.0.1", "::1", "localhost"},
     }
+
+
+# ---------------------------------------------------------------------------
+# Airgap runtime toggle — POST /api/airgap/toggle
+# ---------------------------------------------------------------------------
+
+# Overridable by tests (monkeypatched to a tmp path).
+_TOGGLE_ENV_PATH: Path | None = None
+_TOGGLE_AUDIT_PATH: Path | None = None
+
+
+def _toggle_env_path() -> Path:
+    """Resolve the canonical .env path, or return the test override."""
+    if _TOGGLE_ENV_PATH is not None:
+        return _TOGGLE_ENV_PATH
+    # Walk up from this file to find the repo root .env.
+    # app.py lives at src/arail/portal/app.py → parents[3] = repo root.
+    here = Path(__file__).resolve()
+    for n in (3, 4, 2, 1):
+        candidate = here.parents[n] / ".env"
+        if candidate.parent.exists():
+            return candidate
+    return here.parents[3] / ".env"
+
+
+def _toggle_audit_path() -> Path:
+    """Path to airgap_audit.jsonl."""
+    if _TOGGLE_AUDIT_PATH is not None:
+        return _TOGGLE_AUDIT_PATH
+    from arail.config import DATA_DIR
+    return DATA_DIR / "airgap_audit.jsonl"
+
+
+def _toggle_bind_is_loopback() -> bool:
+    bind = os.getenv("BIND_ADDR", "127.0.0.1").strip().lower()
+    return bind in {"127.0.0.1", "::1", "localhost"}
+
+
+@dataclasses.dataclass(frozen=True)
+class _TokenEntry:
+    token: str        # secrets.token_urlsafe(24)
+    target: str       # "airgapped" | "hybrid"
+    issued_at: float  # time.monotonic()
+    expires_at: float # issued_at + 30.0
+
+
+_TOGGLE_TOKENS: dict[str, _TokenEntry] = {}
+_TOGGLE_TOKENS_LOCK = threading.Lock()
+_TOGGLE_TOKEN_TTL = 30.0
+
+
+def _purge_expired_tokens() -> None:
+    """Remove expired entries. Must be called under _TOGGLE_TOKENS_LOCK."""
+    now = time.monotonic()
+    expired = [k for k, v in _TOGGLE_TOKENS.items() if v.expires_at <= now]
+    for k in expired:
+        del _TOGGLE_TOKENS[k]
+
+
+def _issue_token(target: str) -> str:
+    """Issue a new single-use confirm token for *target*. Invalidates prior token for same target."""
+    with _TOGGLE_TOKENS_LOCK:
+        _purge_expired_tokens()
+        # Invalidate any existing token for this target.
+        old_keys = [k for k, v in _TOGGLE_TOKENS.items() if v.target == target]
+        for k in old_keys:
+            del _TOGGLE_TOKENS[k]
+        now = time.monotonic()
+        tok = secrets.token_urlsafe(24)
+        _TOGGLE_TOKENS[tok] = _TokenEntry(
+            token=tok,
+            target=target,
+            issued_at=now,
+            expires_at=now + _TOGGLE_TOKEN_TTL,
+        )
+    return tok
+
+
+def _consume_token(token: str, target: str) -> bool:
+    """Validate and consume *token* for *target*. Returns True on success."""
+    with _TOGGLE_TOKENS_LOCK:
+        _purge_expired_tokens()
+        entry = _TOGGLE_TOKENS.get(token)
+        if entry is None:
+            return False
+        if entry.target != target:
+            return False
+        if time.monotonic() > entry.expires_at:
+            del _TOGGLE_TOKENS[token]
+            return False
+        del _TOGGLE_TOKENS[token]
+        return True
+
+
+def _append_audit(audit_path: Path, record: dict) -> None:
+    """Append one JSON line to the audit log; create with 0o600 if absent."""
+    try:
+        audit_path.parent.mkdir(parents=True, exist_ok=True)
+        line = json.dumps(record, separators=(",", ":")) + "\n"
+        if not audit_path.exists():
+            fd = os.open(str(audit_path), os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+            try:
+                os.write(fd, line.encode())
+            finally:
+                os.close(fd)
+        else:
+            with audit_path.open("a") as f:
+                f.write(line)
+        os.chmod(audit_path, 0o600)
+    except Exception as exc:  # noqa: BLE001
+        _log.warning("airgap toggle: audit append failed: %s", exc)
+
+
+@app.post("/api/airgap/toggle")
+async def post_airgap_toggle(request: Request):
+    """Flip LAB_MODE between airgapped and hybrid.
+
+    Two-step protocol:
+      Step 1 (no confirm_token): issue a token, return 409.
+      Step 2 (with valid confirm_token): write .env, update os.environ,
+             append audit line, return 200.
+
+    Gates:
+      - BIND_ADDR must be loopback (403 if not).
+      - Origin must match Host (403 if cross-origin).
+      - target must be "airgapped" or "hybrid" (400 if not).
+    """
+    from arail.env_writer import EnvWriterError, set_env_var
+    from datetime import datetime, timezone
+    from fastapi.responses import JSONResponse
+
+    def _err(code: int, body: dict):
+        return JSONResponse(status_code=code, content=body)
+
+    # ── Bind-address gate ──────────────────────────────────────────────
+    if not _toggle_bind_is_loopback():
+        return _err(403, {
+            "error": "bind_not_loopback",
+            "message": "Edit `.env` directly — toggle disabled when bound to non-loopback.",
+        })
+
+    # ── CSRF Origin check ─────────────────────────────────────────────
+    origin = request.headers.get("origin", "")
+    host = request.headers.get("host", "")
+    if origin:
+        from urllib.parse import urlparse as _urlparse
+        origin_host = _urlparse(origin).netloc
+        if origin_host and origin_host != host:
+            return _err(403, {"error": "cross_origin"})
+
+    # ── Parse body ────────────────────────────────────────────────────
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    target = body.get("target", "") if isinstance(body, dict) else ""
+    if target not in ("airgapped", "hybrid"):
+        return _err(400, {"error": "invalid_target"})
+
+    confirm_token = body.get("confirm_token") if isinstance(body, dict) else None
+
+    # ── Step 1: issue token ───────────────────────────────────────────
+    if not confirm_token:
+        tok = _issue_token(target)
+        return _err(409, {
+            "error": "need_confirm",
+            "confirm_token": tok,
+            "expires_in": int(_TOGGLE_TOKEN_TTL),
+        })
+
+    # ── Step 2: validate token ────────────────────────────────────────
+    if not _consume_token(confirm_token, target):
+        tok = _issue_token(target)
+        return _err(409, {
+            "error": "need_confirm",
+            "confirm_token": tok,
+            "expires_in": int(_TOGGLE_TOKEN_TTL),
+        })
+
+    # ── Write .env + update os.environ ───────────────────────────────
+    env_path = _toggle_env_path()
+    previous = os.getenv("LAB_MODE", "airgapped")
+
+    try:
+        result = set_env_var(env_path, "LAB_MODE", target)
+    except EnvWriterError as exc:
+        _log.error("airgap toggle: env write failed: %s", exc)
+        return _err(500, {"error": "env_write_failed"})
+    except Exception as exc:  # noqa: BLE001
+        _log.error("airgap toggle: unexpected error: %s", exc)
+        return _err(500, {"error": "env_write_failed"})
+
+    # Disk write succeeded; now update in-process env.
+    os.environ["LAB_MODE"] = target
+
+    # Audit log.
+    now_iso = (datetime.now(timezone.utc)
+               .isoformat(timespec="milliseconds")
+               .replace("+00:00", "Z"))
+    client_ip = request.client.host if request.client else "unknown"
+    _append_audit(_toggle_audit_path(), {
+        "ts": now_iso,
+        "from": previous,
+        "to": target,
+        "source_ip": client_ip,
+        "confirmed": True,
+        "appended": result.get("appended", False),
+    })
+
+    # Activity log.
+    if target == "hybrid":
+        msg = "agents can now reach the internet"
+    else:
+        msg = "all network access disabled"
+    activity_log.emit("system", msg, "info")
+
+    return JSONResponse(status_code=200, content={
+        "lab_mode": target,
+        "previous": previous,
+        "env_path": str(env_path),
+        "took_effect_at": now_iso,
+        "appended": result.get("appended", False),
+    })
 
 
 # ---------------------------------------------------------------------------

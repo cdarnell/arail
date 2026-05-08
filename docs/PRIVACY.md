@@ -74,6 +74,28 @@ records every outbound call (`reason: "hybrid"`) so the user can
 inspect what was sent. Per-domain consent prompts (curator, browser)
 remain in force on top of the guard.
 
+## Toggling LAB_MODE from the UI
+
+When the portal is bound to loopback (`BIND_ADDR=127.0.0.1`, the
+default), the **Network Policy** modal (click the Airgapped/Hybrid
+badge in the nav bar) includes a toggle button. The protocol is
+deliberately two-step: click the button, read the consequence copy,
+wait 3 seconds for the confirm button to enable, then click **Confirm**.
+
+On confirm the portal:
+1. Rewrites `.env` atomically (temp file + `os.replace`; original is
+   untouched if anything fails mid-write).
+2. Updates `os.environ["LAB_MODE"]` so the change takes effect
+   immediately — no restart needed.
+3. Appends one audit line to `lab/data/airgap_audit.jsonl` (chmod 0600,
+   never echoed in any response body).
+
+**Bind-address gate.** The toggle is refused with a 403 if `BIND_ADDR`
+is not `127.0.0.1`, `::1`, or `localhost`. A portal bound to a LAN
+interface could be toggled by any peer on the same network (CSRF). If
+you run with `BIND_ADDR=0.0.0.0`, the modal shows a static note: edit
+`.env` directly and restart to change the mode.
+
 ## Third-party components — what they do independently
 
 Setup installs a handful of optional tools. Each has its own network
