@@ -13,6 +13,7 @@ This is the curated docs surface that the in-app **Docs** tab opens.
 
 - [Agents, explained](agents-explained.md)
 - [Agent architecture](agents.md)
+- [Buddy and Buddy Tunnel](BUDDY.md)
 - [Blueprint overview](/blueprints-overview)
 - [Blueprint schema](/blueprints-guide)
 

@@ -41,14 +41,15 @@
     list: THEMES, get: getTheme, set: applyTheme, cycle: function () { applyTheme(nextTheme()); }
   };
 
-  // Build the picker button once the nav is in the DOM.
+  // Build the picker as a floating action button anchored to the
+  // bottom-right corner. Out of the nav so it doesn't crowd the chrome
+  // and the user can find it from any page.
   function mountPicker() {
-    var nav = document.querySelector('nav');
-    if (!nav || nav.querySelector('.theme-picker')) return;
+    if (!document.body || document.querySelector('.theme-picker.theme-fab')) return;
     var btn = document.createElement('button');
-    btn.className = 'theme-picker';
+    btn.className = 'theme-picker theme-fab';
     btn.type = 'button';
-    btn.title = 'Cycle theme — click to change';
+    btn.title = 'Cycle palette — Default ↔ Laser Blue';
     var swatch = document.createElement('span');
     swatch.className = 'theme-swatch';
     var label = document.createElement('span');
@@ -56,13 +57,7 @@
     btn.appendChild(swatch);
     btn.appendChild(label);
     btn.addEventListener('click', function () { ARAIL.theme.cycle(); });
-    // Insert just before the mode-badge so it sits in the right cluster.
-    var badge = nav.querySelector('.mode-badge');
-    if (badge && badge.parentNode === nav) {
-      nav.insertBefore(btn, badge);
-    } else {
-      nav.appendChild(btn);
-    }
+    document.body.appendChild(btn);
     applyTheme(getTheme()); // refresh swatch/label now that DOM exists
   }
   if (document.readyState === 'loading') {

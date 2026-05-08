@@ -121,7 +121,7 @@ class CostTracker:
         self._initialized = True
 
         from arail.config import DATA_DIR
-        self._energy_rate = float(os.getenv("ENERGY_RATE_KWH", "0.13"))
+        self._energy_rate = float(os.getenv("ENERGY_RATE_KWH", "0.15"))
         # Billing knobs: simulate SaaS pricing (base subscription + overage)
         self._subscription_monthly_usd = float(
             os.getenv("SIM_BILL_MONTHLY_BASE_USD", "20")
