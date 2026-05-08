@@ -1334,6 +1334,11 @@ code {
   background: var(--red);
   box-shadow: 0 0 4px rgba(255, 51, 85, 0.3);
 }
+.status-dot.warn {
+  background: var(--amber);
+  box-shadow: 0 0 5px rgba(255, 176, 0, 0.4);
+  animation: status-pulse 3s ease-in-out infinite;
+}
 @keyframes status-pulse {
   0%, 100% { opacity: 0.7; }
   50%      { opacity: 1; }
@@ -1366,6 +1371,11 @@ code {
   background: rgba(255, 176, 0, 0.08);
   color: var(--amber);
   border: 1px solid rgba(255, 176, 0, 0.25);
+}
+.status-warn {
+  background: rgba(255, 176, 0, 0.12);
+  color: var(--amber);
+  border: 1px solid rgba(255, 176, 0, 0.4);
 }
 
 /* ── Focal chat card (top of dashboard) ──────────────────────────

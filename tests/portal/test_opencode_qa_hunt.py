@@ -463,6 +463,12 @@ class TestConcurrentStart:
 
         monkeypatch.setattr(oc, "is_installed", lambda: True)
         monkeypatch.setattr(oc, "LOG_PATH", tmp_path / "opencode.log")
+        # Bug-fix 2026-05-07: start() now does an opencode-fingerprint check
+        # via /doc and treats a positive match as idempotent success. Pin
+        # the fingerprint to False so the second concurrent caller sees
+        # "port busy" (the original contract this test was written for —
+        # the spawn-count invariant is the real assertion).
+        monkeypatch.setattr(oc, "_is_opencode_on_port", lambda port: False)
 
         # First start spawns, then is_running flips to True.
         running_state = [False]

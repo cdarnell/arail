@@ -171,6 +171,41 @@ under each user account. The `.venv`, `.env`, `lab/`, and
 handles multi-user naturally as long as no two students share a
 Unix account.
 
+## opencode Workbench (max-tier only)
+
+opencode is an external binary (MIT, by SST) that runs as a subprocess
+of the portal when you start it from the Workbench tab. Its privacy
+posture differs from the rest of the lab:
+
+**What the lab controls:**
+
+- opencode is spawned with `--hostname 127.0.0.1` — it binds loopback
+  only, not accessible from the network.
+- The lab generates `lab/.opencode/opencode.json` (in a git-ignored
+  directory, mode 0700) at each start. The file contains model and
+  provider configuration; it **never embeds API keys or tokens in
+  plaintext**. Cloud API keys reach opencode via subprocess environment
+  variables only (the same approach the Chat tab uses).
+- `OPENCODE_DISABLE_AUTOUPDATE=true` is set so opencode does not phone
+  home to check for updates.
+- `OPENCODE_LOG_LEVEL=WARN` limits log verbosity; opencode logs are
+  captured in `lab/logs/opencode.log` (git-ignored, max 10 MB).
+- The opencode iframe src is `http://127.0.0.1:<port>/` — no credentials
+  are embedded in the URL.
+
+**What opencode does on its own:**
+
+opencode is a third-party binary — its network behaviour outside the
+lab-controlled configuration is outside our audit scope. By default
+the lab sets `OPENCODE_DISABLE_AUTOUPDATE=true` and
+`OPENCODE_DISABLE_MODELS_FETCH=true` is available as an env override
+if you want to additionally block model-list fetches from opencode's
+configured providers.
+
+Read the [opencode source](https://github.com/sst/opencode) and its
+docs for its own privacy posture. The binary is open source and
+auditable.
+
 ## Auditing claims yourself
 
 Everything above is verifiable with `grep` — no need to trust this doc:

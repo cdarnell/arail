@@ -25,9 +25,20 @@ case "$RAW" in
     min|max) TIER="$RAW" ;;
     med)     warn "Tier 'med' retired — rolling forward to 'max' (it owned a subset of max)."
              TIER="max" ;;
-    "")      die "usage: ./arail upgrade <min|max>" ;;
+    "")      die "usage: ./arail upgrade <min|max> [--with-coder]" ;;
     *)       die "unknown tier '$RAW' — valid: min | max" ;;
 esac
+
+# Sprint 2: --with-coder downloads Qwen2.5-Coder-3B to lab/models/ so the
+# user can point opencode at it. Only useful with max tier.
+WITH_CODER="${ARAIL_WITH_CODER:-0}"
+for arg in "$@"; do
+    case "$arg" in
+        --with-coder) WITH_CODER=1 ;;
+        --no-coder)   WITH_CODER=0 ;;
+        *) ;;
+    esac
+done
 
 [[ -d .venv ]] || die "no .venv — run ./arail setup first"
 # shellcheck disable=SC1091
@@ -89,3 +100,40 @@ info "Tier is now ${BOLD}${TIER}${RESET}. Restart the lab to apply:"
 echo ""
 echo "    ./arail restart"
 echo ""
+
+# Download coder model if requested (mirrors setup.sh --with-coder, Sprint 2)
+if [[ "$WITH_CODER" == "1" ]]; then
+    if [[ "$TIER" != "max" ]]; then
+        warn "--with-coder: tier is '$TIER', not 'max'. opencode Workbench is max-only."
+        warn "The model will be available when you upgrade to max later."
+    fi
+    # Detect ACCEL the same way setup.sh does: Apple Silicon → mlx, else cpu.
+    ACCEL="cpu"
+    if [[ "$(uname -s)" == "Darwin" ]] && python3 -c "import mlx" 2>/dev/null; then
+        ACCEL="mlx"
+    fi
+    # Source setup.sh functions for reuse.
+    CODER_MLX_ID="mlx-community/Qwen2.5-Coder-3B-Instruct-4bit"
+    CODER_HF_ID="Qwen/Qwen2.5-Coder-3B-Instruct"
+    CODER_GGUF_ID="Qwen/Qwen2.5-Coder-3B-Instruct-GGUF"
+    MODEL_DIR="lab/models"
+    mkdir -p "$MODEL_DIR"
+    info "Downloading Qwen2.5-Coder-3B-Instruct (${ACCEL})…"
+    if [[ "$ACCEL" == "mlx" ]]; then
+        TARGET="${MODEL_DIR}/Qwen2.5-Coder-3B-Instruct-4bit"
+        [[ -d "$TARGET" ]] && { info "Already downloaded."; } || \
+            python3 -c "from huggingface_hub import snapshot_download; snapshot_download('${CODER_MLX_ID}', local_dir='${TARGET}')" \
+                || warn "Coder model download failed — see above. Continuing."
+    else
+        TARGET="${MODEL_DIR}/Qwen2.5-Coder-3B-Instruct-GGUF"
+        [[ -d "$TARGET" ]] && { info "Already downloaded."; } || \
+            { if command -v huggingface-cli >/dev/null 2>&1; then
+                huggingface-cli download "$CODER_GGUF_ID" --include '*Q4_K_M*' \
+                    --local-dir "$TARGET" --local-dir-use-symlinks False || warn "Download failed."
+              else
+                python3 -c "from huggingface_hub import snapshot_download; snapshot_download('${CODER_GGUF_ID}', local_dir='${TARGET}', allow_patterns=['*Q4_K_M*'])" \
+                    || warn "Download failed."
+              fi; }
+    fi
+    info "Coder model ready at ${TARGET}. In the lab: Chat → pick Qwen2.5-Coder-3B → start opencode from Workbench."
+fi

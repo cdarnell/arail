@@ -91,30 +91,58 @@ class TestComputeSourceEnv:
         )
 
     def test_compute_source_env_my_machine(self, monkeypatch):
-        """my_machine → OPENCODE_API_KEY='not-needed', loopback base."""
+        """my_machine → OPENCODE_API_KEY='not-needed', shim base (Sprint 2: not Ollama).
+
+        Sprint 2 update: _compute_source_env now points my_machine at the
+        lab-side OpenAI shim (/api/openai/v1), not the Ollama default.
+        MODEL_API_BASE is no longer used for the base URL for my_machine.
+        """
         import arail.portal.services.opencode as oc
-        monkeypatch.setenv("MODEL_API_BASE", "http://127.0.0.1:11434/v1")
         monkeypatch.setenv("MODEL_NAME", "llama3")
+        # Patch the source in arail.portal.app — _compute_source_env lazy-imports from there.
+        monkeypatch.setattr(
+            "arail.portal.app._get_chat_model_load_state",
+            lambda: {"state": "ready", "model": "llama3"},
+            raising=False,
+        )
         self._patch_provider(monkeypatch, "my_machine")
         env = oc._compute_source_env()
         assert env["OPENCODE_API_KEY"] == "not-needed"
-        assert env["OPENCODE_API_BASE"] == "http://127.0.0.1:11434/v1"
-        assert env["OPENCODE_MODEL"] == "llama3"
+        # Sprint 2: base URL is the lab shim, not Ollama
+        assert "127.0.0.1" in env["OPENCODE_API_BASE"]
+        assert "/api/openai/v1" in env["OPENCODE_API_BASE"]
 
     def test_compute_source_env_my_machine_default_base(self, monkeypatch):
-        """When MODEL_API_BASE is unset, fallback to ollama default (F-CONFIG-1)."""
+        """my_machine with no loaded model → shim URL, not-needed key (Sprint 2: F-CONFIG-1).
+
+        Sprint 2 update: MODEL_API_BASE no longer used for my_machine.
+        The shim URL is always http://127.0.0.1:<PORTAL_PORT>/api/openai/v1.
+        """
         import arail.portal.services.opencode as oc
         monkeypatch.delenv("MODEL_API_BASE", raising=False)
         monkeypatch.delenv("MODEL_NAME", raising=False)
+        # Patch the source in arail.portal.app — _compute_source_env lazy-imports from there.
+        monkeypatch.setattr(
+            "arail.portal.app._get_chat_model_load_state",
+            lambda: {"state": "ready", "model": None},
+            raising=False,
+        )
         self._patch_provider(monkeypatch, "my_machine")
         env = oc._compute_source_env()
-        assert env["OPENCODE_API_BASE"] == "http://127.0.0.1:11434/v1"
+        assert "/api/openai/v1" in env["OPENCODE_API_BASE"]
         assert env["OPENCODE_API_KEY"] == "not-needed"
 
     def test_compute_source_env_cloud_claude(self, monkeypatch):
         """claude provider → Anthropic base + token passed through (F-CONFIG-2)."""
         import arail.portal.services.opencode as oc
         monkeypatch.setenv("MODEL_NAME", "claude-3-5-sonnet")
+        # Patch the source in arail.portal.app, not the opencode module —
+        # _compute_source_env does a fresh lazy import each call.
+        monkeypatch.setattr(
+            "arail.portal.app._get_chat_model_load_state",
+            lambda: {"state": "ready", "model": "claude-3-5-sonnet"},
+            raising=False,
+        )
         self._patch_provider(monkeypatch, "claude", token="sk-ant-secret")
         env = oc._compute_source_env()
         assert env["OPENCODE_API_BASE"] == "https://api.anthropic.com/v1"
@@ -193,10 +221,15 @@ class TestStartCommand:
         assert "not installed" in result["error"]
 
     def test_start_returns_port_busy_when_running(self, monkeypatch, tmp_path):
-        """start() pre-checks port; returns port-busy, does not kill. (F-PROC-2 pre-check)."""
+        """start() pre-checks port; returns port-busy when listener is NOT opencode. (F-PROC-2 pre-check)."""
         import arail.portal.services.opencode as oc
         monkeypatch.setattr(oc, "is_installed", lambda: True)
         monkeypatch.setattr(oc, "is_running", lambda port=oc.PORT_DEFAULT: True)
+        # Bug-fix 2026-05-07: start() now distinguishes "we already own the
+        # port" (idempotent success) from "something else has it" (port busy)
+        # via the /doc fingerprint. Pin the negative branch here so this test
+        # remains deterministic even if a real opencode is on 4096 locally.
+        monkeypatch.setattr(oc, "_is_opencode_on_port", lambda port: False)
         result = oc.start()
         assert result["ok"] is False
         assert "port busy" in result["error"]

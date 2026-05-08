@@ -25,6 +25,30 @@ from typing import Any
 
 _log = logging.getLogger(__name__)
 
+# ── LLM-ready check cache ──────────────────────────────────────────────────
+_LLM_READY_TTL_S: float = 5.0
+_LLM_READY_CACHE: dict[str, Any] = {"key": None, "result": None, "ts": 0.0}
+
+# ── Provider token env-var map (mirrors _PROVIDER_KEY_ENVS in app.py) ─────
+# Maps active provider id → env-var name for the cloud token so opencode.json
+# can reference via env=["NAME"] without embedding the secret.
+_PROVIDER_TOKEN_ENV: dict[str, str] = {
+    "claude":      "ANTHROPIC_API_KEY",
+    "nvidia":      "NVIDIA_API_KEY",
+    "openrouter":  "OPENROUTER_API_KEY",
+    "huggingface": "HF_TOKEN",
+    "custom":      "MODEL_API_KEY",
+}
+
+# Mapping from ARAIL provider id → opencode's built-in provider id
+_PROVIDER_OC_ID: dict[str, str] = {
+    "claude":      "anthropic",
+    "nvidia":      "nvidia",
+    "openrouter":  "openrouter",
+    "huggingface": "huggingface",
+    "custom":      "custom",
+}
+
 # ── Public constants ────────────────────────────────────────────────────────
 
 PORT_DEFAULT: int = 4096
@@ -77,24 +101,69 @@ def is_running(port: int = PORT_DEFAULT) -> bool:
         return False
 
 
+def _is_opencode_on_port(port: int) -> bool:
+    """True iff GET HOST:port/doc returns OpenAPI JSON identifying opencode.
+
+    Used by start() to distinguish "we already own this port" (idempotent
+    success) from "something else hijacked the port" (real conflict). The
+    /doc path is opencode's OpenAPI schema; presence of the "openapi" key
+    plus an info.title matching opencode is the fingerprint.
+
+    Returns False on any error (timeout, non-200, non-JSON, missing keys).
+    """
+    import json
+    import urllib.request
+
+    try:
+        req = urllib.request.Request(
+            f"http://{HOST}:{port}{READINESS_PATH}",
+            headers={"Accept": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=0.5) as resp:  # noqa: S310 — loopback only
+            if resp.status != 200:
+                return False
+            body = resp.read(4096)  # /doc is small; head is enough
+        data = json.loads(body)
+        if not isinstance(data, dict):
+            return False
+        if "openapi" not in data:
+            return False
+        title = (data.get("info") or {}).get("title", "").lower()
+        return "opencode" in title
+    except Exception:
+        return False
+
+
 def start(port: int = PORT_DEFAULT) -> dict[str, Any]:
-    """Spawn `opencode serve --port <port> --hostname 127.0.0.1`.
+    """[UPDATED Sprint 2] Spawn opencode with lab-curated config.
 
-    Returns {"ok": True, "pid": int} on success or
-            {"ok": False, "error": str} on any failure.
+    Steps (under module _lock):
+      1. is_installed() / is_running() pre-checks (Sprint 1).
+      2. _maybe_rotate_log() (Sprint 1).
+      3. regenerate_config()   — NEW: write lab/.opencode/opencode.json first.
+         If write fails: return {"ok": False, "error": "config_write: ..."}.
+      4. Popen with OPENCODE_CONFIG_DIR, OPENCODE_DISABLE_AUTOUPDATE,
+         OPENCODE_LOG_LEVEL=WARN, plus _compute_source_env() — NEW Sprint 2 env.
+      5. Return {"ok": True, "pid": int} (unchanged shape).
 
-    Side effects:
-    - Creates lab/logs/ if missing (F-PROC-5).
-    - Rotates log at 10 MB (F-PROC-6).
-    - Merges _compute_source_env() into subprocess env (F-RESTART-2).
-    - Does NOT set OPENCODE_SERVER_PASSWORD (architecture decision).
-    - Hard-codes --hostname 127.0.0.1 (F-SEC-6, no env override).
+    Does NOT set OPENCODE_SERVER_PASSWORD (architecture decision).
+    Hard-codes --hostname 127.0.0.1 (F-SEC-6, no env override).
     """
     with _lock:
         if not is_installed():
             return {"ok": False, "error": "opencode not installed"}
 
+        # Idempotent start: if the port is already taken AND it's opencode
+        # answering on /doc, treat the call as success rather than confusing
+        # the user with a contradictory "port busy" badge while the iframe
+        # would have loaded fine. Bug surfaced when the post-start reload
+        # raced opencode's bind window: the page rendered "not running",
+        # the user clicked Start again, and got "port busy" while opencode
+        # was in fact already serving on 4096. F-RESTART-* / live-test fix.
         if is_running(port):
+            if _is_opencode_on_port(port):
+                _log.info("opencode start: idempotent success — already serving on %s", port)
+                return {"ok": True, "already_running": True, "port": port}
             return {"ok": False, "error": "port busy"}
 
         # Prepare log file (F-PROC-5, F-PROC-6)
@@ -102,8 +171,21 @@ def start(port: int = PORT_DEFAULT) -> dict[str, Any]:
         log_file.parent.mkdir(parents=True, exist_ok=True)
         _maybe_rotate_log(log_file)
 
+        # NEW: write opencode.json before spawning (Sprint 2)
+        # regenerate_config() uses _lock internally via try — we call the inner
+        # helper here instead to avoid deadlock since we already hold _lock.
+        cfg_result = _regenerate_config_unlocked()
+        if not cfg_result.get("ok"):
+            return {"ok": False, "error": f"config_write: {cfg_result.get('error', 'unknown')}"}
+
         # Build env — fresh every call (F-RESTART-2)
-        env = {**os.environ, **_compute_source_env()}
+        env = {
+            **os.environ,
+            "OPENCODE_CONFIG_DIR": str(_config_dir()),   # NEW Sprint 2
+            "OPENCODE_DISABLE_AUTOUPDATE": "true",        # Sprint 1 follow-up
+            "OPENCODE_LOG_LEVEL": "WARN",                 # Sprint 1 follow-up (F-SEC-CRED-2 partial)
+            **_compute_source_env(),
+        }
 
         try:
             f = log_file.open("ab")
@@ -113,7 +195,8 @@ def start(port: int = PORT_DEFAULT) -> dict[str, Any]:
                 stdout=f,
                 stderr=f,
             )
-            _log.info("opencode started pid=%s port=%s", proc.pid, port)
+            _log.info("opencode started pid=%s port=%s config=%s",
+                      proc.pid, port, cfg_result.get("path", "?"))
             return {"ok": True, "pid": proc.pid}
         except Exception as exc:
             _log.error("opencode start failed: %s", exc)
@@ -215,7 +298,7 @@ def restart(port: int = PORT_DEFAULT) -> dict[str, Any]:
 
 
 def _start_inner(port: int) -> dict[str, Any]:
-    """Start without acquiring _lock — caller must hold it."""
+    """Start without acquiring _lock — caller must hold it. (Sprint 2 updated)"""
     if not is_installed():
         return {"ok": False, "error": "opencode not installed"}
 
@@ -226,7 +309,18 @@ def _start_inner(port: int) -> dict[str, Any]:
     log_file.parent.mkdir(parents=True, exist_ok=True)
     _maybe_rotate_log(log_file)
 
-    env = {**os.environ, **_compute_source_env()}
+    # Write config first (Sprint 2)
+    cfg_result = _regenerate_config_unlocked()
+    if not cfg_result.get("ok"):
+        return {"ok": False, "error": f"config_write: {cfg_result.get('error', 'unknown')}"}
+
+    env = {
+        **os.environ,
+        "OPENCODE_CONFIG_DIR": str(_config_dir()),
+        "OPENCODE_DISABLE_AUTOUPDATE": "true",
+        "OPENCODE_LOG_LEVEL": "WARN",
+        **_compute_source_env(),
+    }
 
     try:
         f = log_file.open("ab")
@@ -275,19 +369,20 @@ def _maybe_rotate_log(log_file: Path) -> None:
 
 
 def _compute_source_env() -> dict[str, str]:
-    """Translate active Compute Source into opencode env vars.
+    """[UPDATED Sprint 2] Translate active Compute Source into opencode env vars.
 
     Reads (no writes): imports from app.py helpers via lazy import to
     avoid circular dependency at module load time.
     Never logs token values (F-SEC-2).
 
-    Mapping:
-      my_machine  → OPENCODE_API_BASE=MODEL_API_BASE or ollama default
-                    OPENCODE_MODEL=MODEL_NAME
-                    OPENCODE_API_KEY='not-needed'
-      cloud       → OPENCODE_API_BASE=_PROVIDER_META[p]['base']
-                    OPENCODE_MODEL=MODEL_NAME
-                    OPENCODE_API_KEY=token (never logged)
+    Mapping (CHANGED from Sprint 1):
+      my_machine  → OPENCODE_API_BASE = lab shim http://127.0.0.1:<PORT>/api/openai/v1
+                    OPENCODE_MODEL    = _CHAT_MODEL_LOAD_STATE['model'] or ''
+                    OPENCODE_API_KEY  = 'not-needed'
+      cloud       → OPENCODE_API_BASE = cloud provider base URL
+                    OPENCODE_MODEL    = MODEL_NAME
+                    OPENCODE_API_KEY  = token (belt-and-suspenders)
+                    <provider-env>    = token (NEW — what opencode.json references)
     Unknown provider falls back to my_machine mapping.
     """
     # Lazy import — avoids circular import at module level and matches
@@ -296,32 +391,510 @@ def _compute_source_env() -> dict[str, str]:
         from arail.portal.app import (  # type: ignore[import]
             _load_active_provider,
             _provider_token,
+            _get_chat_model_load_state,
         )
         provider = _load_active_provider()
         token = _provider_token(provider) if provider != "my_machine" else ""
+        load_state = _get_chat_model_load_state()
+        active_model = load_state.get("model") or os.getenv("MODEL_NAME", "")
     except Exception:
         provider = "my_machine"
         token = ""
+        active_model = os.getenv("MODEL_NAME", "")
+
+    portal_port = int(os.getenv("PORTAL_PORT", "8080"))
 
     if provider == "my_machine" or provider not in _CLOUD_PROVIDER_BASES:
-        base = os.getenv("MODEL_API_BASE") or "http://127.0.0.1:11434/v1"
+        # Point opencode at the lab-side OpenAI shim (NOT Ollama default)
+        shim_base = f"http://127.0.0.1:{portal_port}/api/openai/v1"
         return {
-            "OPENCODE_API_BASE": base,
-            "OPENCODE_MODEL": os.getenv("MODEL_NAME", ""),
+            "OPENCODE_API_BASE": shim_base,
+            "OPENCODE_MODEL": active_model,
             "OPENCODE_API_KEY": "not-needed",
         }
 
-    # Cloud provider
+    # Cloud provider — set BOTH the canonical env name AND OPENCODE_API_KEY
     if provider == "custom":
         base = os.getenv("MODEL_API_BASE") or ""
     else:
         base = _CLOUD_PROVIDER_BASES.get(provider, "")
 
-    return {
+    env_var_name = _PROVIDER_TOKEN_ENV.get(provider)  # e.g. "ANTHROPIC_API_KEY"
+    result: dict[str, str] = {
         "OPENCODE_API_BASE": base,
-        "OPENCODE_MODEL": os.getenv("MODEL_NAME", ""),
-        "OPENCODE_API_KEY": token,
+        "OPENCODE_MODEL": active_model,
+        "OPENCODE_API_KEY": token,  # legacy compat
     }
+    if env_var_name:
+        result[env_var_name] = token  # what opencode.json's env=["NAME"] reads
+
+    return result
+
+
+# ── Config path helpers ────────────────────────────────────────────────────
+
+def _config_dir() -> Path:
+    """Return Path to lab/.opencode/ (passed as OPENCODE_CONFIG_DIR to subprocess).
+
+    Rooted at config.LAB_ROOT (default 'lab/'). Pure: reads env at call time.
+    """
+    try:
+        from arail.config import LAB_ROOT  # type: ignore[import]
+        return Path(LAB_ROOT) / ".opencode"
+    except Exception:
+        return Path("lab") / ".opencode"
+
+
+def _config_path() -> Path:
+    """Return Path to lab/.opencode/opencode.json."""
+    return _config_dir() / "opencode.json"
+
+
+# ── Lab system prompt ──────────────────────────────────────────────────────
+
+def lab_system_prompt(tier: str) -> str:
+    """Return the multi-line system prompt for the build/plan agents.
+
+    Pure. Tier-aware: max version mentions Workbench surfaces.
+    """
+    workbench_section = ""
+    if tier == "max":
+        workbench_section = """
+      - The Workbench tab (max-tier) gives you Jupyter Lab, Marimo,
+        Open Notebook, and opencode — each a separate iframe card.
+        You're currently running inside opencode."""
+
+    return f"""You are coding inside ARAIL — an autoresearch AI lab blueprint.
+The repository root is the working directory.
+
+Read these files when relevant:
+- CLAUDE.md (the orientation file for AI agents in this repo)
+- AGENTS.md (the platform-porting manifest for new platforms)
+- docs/agents.md (the agent loader contract)
+
+Conventions:
+- Sprints live in sprints/<YYYY-MM-DD>-<slug>/. The /sprint skill
+  orchestrates visionary → architect → builder → architect-review →
+  qa → ship via committed artifacts (VISION/ARCHITECTURE/BUILD_LOG/
+  REVIEW/TEST_REPORT).
+- Agents live in lab/pkb/agents/<id>/AGENT.md + <id>.py.
+- Secrets live in lab/data/secrets.env (chmod 0600, git-ignored).
+  NEVER write credentials to other paths and NEVER echo them back.
+- LAB_MODE defaults to 'airgapped' — do not reach external services
+  unless the user explicitly enables hybrid mode.
+- The internal Python package name is `arail`. Imports must not
+  break when the lab is rebranded (LAB_NAME / LAB_TAGLINE).{workbench_section}
+
+To switch which model handles your prompts, change the Compute Source
+in the lab's Chat tab — opencode picks up the new model on its next
+restart (automatic on switch).
+
+Use the slash commands /lab-status, /sprint-current, /skills-list,
+/agents-status, /kb-search, /claude-md to orient quickly.
+
+Match the existing code style. Branch names use the qukaizen/<slug>
+prefix. Commit messages should be concise; prefer fixing root causes
+over masking symptoms."""
+
+
+# ── Config renderer ────────────────────────────────────────────────────────
+
+def _render_opencode_config(
+    *,
+    provider: str,
+    model: str | None,
+    portal_port: int,
+    tier: str,
+    models_list: list[dict] | None = None,
+    lab_mode: str = "airgapped",
+) -> dict:
+    """Pure function: build the dict that becomes opencode.json.
+
+    Parameters:
+      provider    — 'my_machine' | 'claude' | 'nvidia' | 'openrouter' |
+                    'huggingface' | 'custom'
+      model       — active model id (None when no model loaded)
+      portal_port — int, used in the 'lab-local' provider baseURL
+      tier        — 'min' | 'max' (governs the agent prompt)
+      models_list — optional pre-fetched scan results; included in the
+                    lab-local models map when provider='my_machine'
+      lab_mode    — 'airgapped' | 'hybrid'
+
+    Critical security invariant (F-SEC-CRED-1):
+      - This function NEVER reads _provider_token() or any secret env var.
+      - Cloud tokens go through _compute_source_env() (subprocess env only).
+      - The JSON output must never contain token strings.
+
+    Returns: dict (NOT json string — caller serializes).
+    Pure: no filesystem, no env reads beyond explicit parameters.
+    """
+    # Airgapped override: force my_machine regardless (F-AIRGAP-2)
+    if lab_mode != "hybrid" and provider not in ("my_machine",):
+        provider = "my_machine"
+
+    prompt = lab_system_prompt(tier)
+
+    # Build provider block + enabled list
+    if provider == "my_machine" or provider not in _PROVIDER_OC_ID:
+        # Local inference shim
+        base_url = f"http://127.0.0.1:{portal_port}/api/openai/v1"
+        provider_block: dict = {
+            "lab-local": {
+                "npm": "@ai-sdk/openai-compatible",
+                "name": "ARAIL Lab",
+                "options": {
+                    "baseURL": base_url,
+                },
+                "models": _build_models_map(model, models_list),
+            }
+        }
+        enabled_providers = ["lab-local"]
+        model_ref = f"lab-local/{model}" if model else "lab-local/unknown"
+        agent_model_ref = model_ref
+    else:
+        # Cloud provider
+        oc_id = _PROVIDER_OC_ID[provider]
+        model_id = model or "unknown"
+        provider_block = {
+            oc_id: {
+                "name": oc_id.capitalize(),
+                "options": {},
+                "models": {
+                    model_id: {
+                        "name": model_id,
+                        "tools": True,
+                    }
+                },
+            }
+        }
+        enabled_providers = [oc_id]
+        model_ref = f"{oc_id}/{model_id}"
+        agent_model_ref = model_ref
+
+    return {
+        "$schema": "https://opencode.ai/config.json",
+        "share": "disabled",
+        "autoupdate": False,
+        "instructions": [
+            "AGENTS.md",
+            "CLAUDE.md",
+            "docs/agents.md",
+        ],
+        "provider": provider_block,
+        "enabled_providers": enabled_providers,
+        "model": model_ref,
+        "small_model": model_ref,
+        "agent": {
+            "build": {
+                "model": agent_model_ref,
+                "prompt": prompt,
+                "tools": {
+                    "write": True,
+                    "edit": True,
+                    "bash": True,
+                    "read": True,
+                    "grep": True,
+                    "glob": True,
+                    "list": True,
+                },
+            },
+            "plan": {
+                "model": agent_model_ref,
+                "prompt": prompt,
+                "tools": {
+                    "write": False,
+                    "edit": False,
+                    "bash": False,
+                    "read": True,
+                    "grep": True,
+                    "glob": True,
+                    "list": True,
+                },
+            },
+        },
+        "command": {
+            "lab-status": {
+                "description": "Summarize lab status — active goal, sprint, agents, KB stats.",
+                "agent": "build",
+                "template": (
+                    "Read $REPO_ROOT/lab/data/goals/active.json (if present), "
+                    "the latest sprints/<id>/SPRINT.md by mtime, and "
+                    "`ls $REPO_ROOT/lab/pkb/agents/`. Summarize: current goal, "
+                    "in-progress sprint phase, count of agents discovered, "
+                    "count of files in $REPO_ROOT/lab/pkb/sources/. Be terse."
+                ),
+            },
+            "sprint-current": {
+                "description": "Show the in-progress sprint's SPRINT.md and next undone phase.",
+                "agent": "build",
+                "template": (
+                    "Find the most recently modified sprints/*/SPRINT.md. "
+                    "Read it. Identify the next phase whose Status is not 'done'. "
+                    "Print the phase name + the artifact path that would carry "
+                    "its output (VISION.md/ARCHITECTURE.md/BUILD_LOG.md/"
+                    "REVIEW.md/TEST_REPORT.md)."
+                ),
+            },
+            "skills-list": {
+                "description": "List skills installed under lab/pkb/skills/.",
+                "agent": "build",
+                "template": (
+                    "Run `ls -1 $REPO_ROOT/lab/pkb/skills/`. For each entry, "
+                    "read the first heading from its SKILL.md if present. "
+                    "Output: skill-id  —  one-line summary."
+                ),
+            },
+            "agents-status": {
+                "description": "List agents and their last-activity timestamps.",
+                "agent": "build",
+                "template": (
+                    "Run `ls -1 $REPO_ROOT/lab/pkb/agents/`. For each entry, "
+                    "read AGENT.md's first paragraph. If a state file exists at "
+                    "$REPO_ROOT/lab/data/agents/<id>/state.json, include the "
+                    "'last_seen' field. Output one line per agent."
+                ),
+            },
+            "kb-search": {
+                "description": "Search the lab knowledge base for a query (LanceDB).",
+                "agent": "build",
+                "template": (
+                    "Search the LanceDB-backed KB for: $ARGUMENTS. "
+                    "Curl `http://127.0.0.1:8080/api/wiki/search?q=...` "
+                    "and summarize the top 5 hits with file paths."
+                ),
+            },
+            "claude-md": {
+                "description": "Read CLAUDE.md and recap the conventions.",
+                "agent": "build",
+                "template": (
+                    "Read $REPO_ROOT/CLAUDE.md. Output a 5-bullet summary "
+                    "covering: what ARAIL is, how to invoke /sprint, how "
+                    "agents are loaded, where secrets live, and the LAB_MODE "
+                    "airgap default."
+                ),
+            },
+        },
+        "permission": {
+            "edit": "allow",
+            "bash": {"*": "ask"},
+        },
+    }
+
+
+def _build_models_map(
+    active_model: str | None,
+    models_list: list[dict] | None,
+) -> dict:
+    """Build the models dict for the lab-local provider block."""
+    models: dict = {}
+    if models_list:
+        for m in models_list:
+            mid = m.get("id") or m.get("name") or ""
+            if mid:
+                models[mid] = {"name": mid, "tools": True, "reasoning": False}
+    if active_model and active_model not in models:
+        models[active_model] = {"name": active_model, "tools": True, "reasoning": False}
+    return models
+
+
+# ── LLM-ready check ────────────────────────────────────────────────────────
+
+def llm_ready_check(force: bool = False) -> dict:
+    """Decide whether opencode can start meaningfully right now.
+
+    Returns:
+      {
+        "ok": bool,
+        "reason": str | None,    # 'no_llm' | 'loading' | 'no_token' | None
+        "hint": str | None,      # human-readable next step
+        "chat_url": "/chat" | None,
+        "provider": str,
+        "model": str | None,
+      }
+
+    Never raises. Cached for up to _LLM_READY_TTL_S seconds.
+    force=True bypasses cache.
+    """
+    global _LLM_READY_CACHE
+    try:
+        from arail.portal.app import (  # type: ignore[import]
+            _load_active_provider,
+            _provider_token,
+            _get_chat_model_load_state,
+        )
+        provider = _load_active_provider()
+    except Exception:
+        provider = "my_machine"
+
+    # Cache key = (provider, state, model)
+    try:
+        load_state = _get_chat_model_load_state()  # type: ignore[possibly-undefined]
+        state_val = load_state.get("state", "ready")
+        model_val = load_state.get("model")
+    except Exception:
+        state_val = "ready"
+        model_val = None
+
+    cache_key = (provider, state_val, model_val)
+    now = time.monotonic()
+    if (
+        not force
+        and _LLM_READY_CACHE["key"] == cache_key
+        and (now - _LLM_READY_CACHE["ts"]) < _LLM_READY_TTL_S
+    ):
+        return dict(_LLM_READY_CACHE["result"])
+
+    result = _compute_llm_ready(provider, state_val, model_val)
+    _LLM_READY_CACHE["key"] = cache_key
+    _LLM_READY_CACHE["result"] = result
+    _LLM_READY_CACHE["ts"] = now
+    return dict(result)
+
+
+def _compute_llm_ready(provider: str, state_val: str, model_val: str | None) -> dict:
+    """Inner logic for llm_ready_check — separated for testability."""
+    if provider == "my_machine" or provider not in _PROVIDER_TOKEN_ENV:
+        if state_val == "ready" and model_val:
+            return {
+                "ok": True,
+                "reason": None,
+                "hint": None,
+                "chat_url": None,
+                "provider": provider,
+                "model": model_val,
+            }
+        if state_val == "loading":
+            return {
+                "ok": False,
+                "reason": "loading",
+                "hint": "Model is loading — try again in a moment.",
+                "chat_url": "/chat",
+                "provider": provider,
+                "model": model_val,
+            }
+        # state == 'error' or state == 'ready' but no model
+        return {
+            "ok": False,
+            "reason": "no_llm",
+            "hint": "Load a model in Chat first.",
+            "chat_url": "/chat",
+            "provider": provider,
+            "model": None,
+        }
+    else:
+        # Cloud provider
+        try:
+            from arail.portal.app import _provider_token  # type: ignore[import]
+            token = _provider_token(provider)
+        except Exception:
+            token = ""
+        if not token:
+            return {
+                "ok": False,
+                "reason": "no_token",
+                "hint": f"Save a {provider} API key in Chat → Manage providers.",
+                "chat_url": "/chat",
+                "provider": provider,
+                "model": model_val,
+            }
+        return {
+            "ok": True,
+            "reason": None,
+            "hint": None,
+            "chat_url": None,
+            "provider": provider,
+            "model": model_val,
+        }
+
+
+def invalidate_llm_ready_cache() -> None:
+    """Invalidate the LLM-ready cache. Called after state changes."""
+    global _LLM_READY_CACHE
+    _LLM_READY_CACHE["key"] = None
+    _LLM_READY_CACHE["ts"] = 0.0
+
+
+# ── Config regeneration ────────────────────────────────────────────────────
+
+def _regenerate_config_unlocked() -> dict:
+    """Inner regenerate — caller MUST hold _lock."""
+    import json as _json
+
+    try:
+        from arail.portal.app import (  # type: ignore[import]
+            _load_active_provider,
+            _get_chat_model_load_state,
+        )
+        provider = _load_active_provider()
+        load_state = _get_chat_model_load_state()
+        model = load_state.get("model") if load_state.get("state") == "ready" else None
+    except Exception:
+        provider = "my_machine"
+        model = None
+
+    tier = os.getenv("LAB_TIER", "min").strip().lower()
+    lab_mode = os.getenv("LAB_MODE", os.getenv("ARAIL_MODE", "airgapped")).strip().lower()
+
+    try:
+        cfg_dict = _render_opencode_config(
+            provider=provider,
+            model=model,
+            portal_port=int(os.getenv("PORTAL_PORT", "8080")),
+            tier=tier,
+            lab_mode=lab_mode,
+        )
+    except Exception as exc:
+        return {"ok": False, "error": f"render: {exc}"}
+
+    cfg_dir = _config_dir()
+    cfg_file = _config_path()
+
+    try:
+        cfg_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            cfg_dir.chmod(0o700)
+        except OSError:
+            pass
+
+        tmp = cfg_file.with_suffix(".json.tmp")
+        content = _json.dumps(cfg_dict, indent=2, sort_keys=True)
+        tmp.write_text(content, encoding="utf-8")
+        with tmp.open("rb") as fh:
+            import os as _os
+            _os.fsync(fh.fileno())
+        tmp.replace(cfg_file)
+        try:
+            cfg_file.chmod(0o644)
+        except OSError:
+            pass
+
+        return {
+            "ok": True,
+            "path": str(cfg_file),
+            "model": model,
+            "provider": provider,
+        }
+    except Exception as exc:
+        try:
+            tmp_path = cfg_file.with_suffix(".json.tmp")
+            if tmp_path.exists():
+                tmp_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+        _log.error("opencode: _regenerate_config_unlocked write failed: %s", exc)
+        return {"ok": False, "error": str(exc)}
+
+
+def regenerate_config(*, force: bool = False) -> dict:
+    """Write lab/.opencode/opencode.json from current lab state.
+
+    Acquires _lock, then delegates to _regenerate_config_unlocked().
+    Returns {"ok": bool, "path": str, "model": str|None, "provider": str}.
+    On write failure: {"ok": False, "error": str}.
+    Does NOT delete existing config on failure (F-CONFIG-3).
+    """
+    with _lock:
+        return _regenerate_config_unlocked()
 
 
 def install_hint() -> dict[str, str]:
