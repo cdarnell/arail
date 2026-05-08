@@ -192,12 +192,196 @@
             gapsList.appendChild(li);
           });
         }
+
+        // -- Toggle button wiring --
+        var toggleSection = document.getElementById('airgap-toggle-section');
+        var toggleBtn = document.getElementById('airgap-toggle-btn');
+        var toggleBindWarn = document.getElementById('airgap-toggle-bind-warning');
+        var toggleConfirm = document.getElementById('airgap-toggle-confirm');
+        var toggleConfirmCopy = document.getElementById('airgap-toggle-confirm-copy');
+        var toggleError = document.getElementById('airgap-toggle-error');
+
+        if (toggleSection) {
+          // Reset to idle state on each modal open.
+          if (toggleConfirm) toggleConfirm.style.display = 'none';
+          if (toggleError) toggleError.style.display = 'none';
+
+          if (data.bind_is_loopback === false) {
+            // Non-loopback bind: show static warning, hide button.
+            if (toggleBindWarn) toggleBindWarn.style.display = '';
+            if (toggleBtn) toggleBtn.style.display = 'none';
+          } else {
+            // Loopback bind: show toggle button.
+            if (toggleBindWarn) toggleBindWarn.style.display = 'none';
+            if (toggleBtn) {
+              var currentMode = data.lab_mode || 'airgapped';
+              toggleBtn.textContent = currentMode === 'airgapped'
+                ? 'Allow agent fetches (switch to hybrid)'
+                : 'Block agent fetches (switch to airgapped)';
+              toggleBtn.dataset.target = currentMode === 'airgapped' ? 'hybrid' : 'airgapped';
+              toggleBtn.style.display = '';
+            }
+          }
+        }
+
         backdrop.classList.add('open');
       })
       .catch(function (err) {
         console.error('[airgap] status fetch failed:', err);
       });
   });
+
+  // -- Toggle button click → show confirm panel with 3s countdown --
+  (function () {
+    var _countdownTimer = null;
+
+    function _resetToggleUI() {
+      var toggleBtn = document.getElementById('airgap-toggle-btn');
+      var toggleConfirm = document.getElementById('airgap-toggle-confirm');
+      var toggleError = document.getElementById('airgap-toggle-error');
+      if (toggleBtn) toggleBtn.style.display = '';
+      if (toggleConfirm) toggleConfirm.style.display = 'none';
+      if (toggleError) toggleError.style.display = 'none';
+      if (_countdownTimer) { clearInterval(_countdownTimer); _countdownTimer = null; }
+    }
+
+    var toggleBtn = document.getElementById('airgap-toggle-btn');
+    if (toggleBtn) {
+      toggleBtn.addEventListener('click', function () {
+        var target = toggleBtn.dataset.target;
+        if (!target) return;
+
+        var toggleConfirm = document.getElementById('airgap-toggle-confirm');
+        var toggleConfirmCopy = document.getElementById('airgap-toggle-confirm-copy');
+        var toggleConfirmBtn = document.getElementById('airgap-toggle-confirm-btn');
+        var toggleError = document.getElementById('airgap-toggle-error');
+
+        // Hide toggle button; show confirm panel.
+        toggleBtn.style.display = 'none';
+        if (toggleError) toggleError.style.display = 'none';
+        if (toggleConfirm) toggleConfirm.style.display = '';
+
+        // Confirm copy per target.
+        if (toggleConfirmCopy) {
+          toggleConfirmCopy.textContent = target === 'hybrid'
+            ? 'This allows agents to make outbound network calls to public hosts. Cloud-provider keys in lab/data/secrets.env will be used. Continue?'
+            : 'This blocks all agent outbound network calls. Cloud-provider Compute Sources will be unavailable until you flip back. Continue?';
+        }
+
+        // 3-second countdown.
+        if (toggleConfirmBtn) {
+          toggleConfirmBtn.disabled = true;
+          var countdown = 3;
+          toggleConfirmBtn.textContent = 'Confirm (' + countdown + ')';
+          if (_countdownTimer) clearInterval(_countdownTimer);
+          _countdownTimer = setInterval(function () {
+            countdown--;
+            if (countdown > 0) {
+              toggleConfirmBtn.textContent = 'Confirm (' + countdown + ')';
+            } else {
+              clearInterval(_countdownTimer);
+              _countdownTimer = null;
+              toggleConfirmBtn.textContent = 'Confirm';
+              toggleConfirmBtn.disabled = false;
+            }
+          }, 1000);
+        }
+      });
+    }
+
+    var confirmBtn = document.getElementById('airgap-toggle-confirm-btn');
+    if (confirmBtn) {
+      confirmBtn.addEventListener('click', function () {
+        var toggleBtn = document.getElementById('airgap-toggle-btn');
+        var target = toggleBtn ? toggleBtn.dataset.target : null;
+        if (!target) return;
+
+        var toggleError = document.getElementById('airgap-toggle-error');
+        confirmBtn.disabled = true;
+
+        // Step 1: POST without token → expect 409 + confirm_token.
+        fetch('/api/airgap/toggle', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ target: target }),
+        })
+          .then(function (r1) { return r1.json().then(function (b1) { return { status: r1.status, body: b1 }; }); })
+          .then(function (step1) {
+            if (step1.status === 403) {
+              if (step1.body.error === 'bind_not_loopback') {
+                _resetToggleUI();
+                var bindWarn = document.getElementById('airgap-toggle-bind-warning');
+                if (bindWarn) bindWarn.style.display = '';
+                if (toggleBtn) toggleBtn.style.display = 'none';
+              } else {
+                if (toggleError) {
+                  toggleError.textContent = 'This action must be initiated from the lab UI.';
+                  toggleError.style.display = '';
+                }
+                _resetToggleUI();
+              }
+              return;
+            }
+            if (step1.status !== 409 || !step1.body.confirm_token) {
+              if (toggleError) {
+                toggleError.textContent = 'Save failed — check server log.';
+                toggleError.style.display = '';
+              }
+              _resetToggleUI();
+              return;
+            }
+            var token = step1.body.confirm_token;
+
+            // Step 2: POST with token → expect 200.
+            return fetch('/api/airgap/toggle', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ target: target, confirm_token: token }),
+            })
+              .then(function (r2) { return r2.json().then(function (b2) { return { status: r2.status, body: b2 }; }); })
+              .then(function (step2) {
+                if (step2.status === 200) {
+                  // Success: close modal, re-open (forces refresh), update badge.
+                  var bd = document.getElementById('airgap-backdrop');
+                  if (bd) bd.classList.remove('open');
+                  updateBadge(step2.body.lab_mode);
+                  // Re-open after a tick to reflect new state.
+                  setTimeout(function () {
+                    var badgeEl = document.getElementById('mode-badge');
+                    if (badgeEl) badgeEl.click();
+                  }, 200);
+                } else if (step2.status === 500) {
+                  if (toggleError) {
+                    toggleError.textContent = 'Save failed — check server log.';
+                    toggleError.style.display = '';
+                  }
+                  _resetToggleUI();
+                } else {
+                  if (toggleError) {
+                    toggleError.textContent = 'Unexpected response. Try again.';
+                    toggleError.style.display = '';
+                  }
+                  _resetToggleUI();
+                }
+              });
+          })
+          .catch(function () {
+            if (toggleError) {
+              toggleError.textContent = 'Save failed — check server log.';
+              toggleError.style.display = '';
+            }
+            _resetToggleUI();
+          });
+      });
+    }
+
+    var cancelBtn = document.getElementById('airgap-toggle-cancel-btn');
+    if (cancelBtn) {
+      cancelBtn.addEventListener('click', function () {
+        _resetToggleUI();
+      });
+    }
+  })();
 
   var airgapClose = document.getElementById('airgap-close');
   if (airgapClose) {
