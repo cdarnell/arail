@@ -24,9 +24,9 @@ Five workstreams (per plan, ordered by dependency):
 | think | visionary | VISION.md | skipped | — | — | — |
 | plan | architect (design) | ARCHITECTURE.md | done | 2026-05-06 | 2026-05-07 | proceed-with-caveats (3 caveats, 2 resolved upfront, 1 builder-kickoff verification) — commit 0967b7f |
 | build | builder | BUILD_LOG.md | done | 2026-05-07 | 2026-05-07 | 8 builder commits + 1 live-test bugfix (4bcd9f5); 162→167 tests; live-test feedback folded in |
-| review | architect (review) | REVIEW.md | in_progress | 2026-05-07 | — | — |
-| test | qa | TEST_REPORT.md | pending | — | — | — |
-| ship | — | PR | pending | — | — | — |
+| review | architect (review) | REVIEW.md | done | 2026-05-07 | 2026-05-07 | PASS — 0 BLOCK, 0 ASK, 4 INFO; live-test fix judged solid |
+| test | qa | TEST_REPORT.md | done | 2026-05-07 | 2026-05-07 | PASS — 43 new tests, 0 defects, 2 INFO Sprint-3 follow-ups; 210 portal / 961 repo tests passing |
+| ship | — | PR | done | 2026-05-07 | 2026-05-07 | PR #38 https://github.com/cdarnell/arail/pull/38 |
 
 ## Decisions log
 
