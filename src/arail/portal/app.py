@@ -4957,7 +4957,7 @@ _OPTIONAL_CHAT_BACKEND_CONFIG: dict[str, dict[str, str]] = {
             "cd aerollm/crates/aerollm-api && maturin develop --release"
         ),
         "model_env": "AEROLLM_MODEL",
-        "default_model": "Qwen2.5-7B-Instruct",
+        "default_model": "Qwen2.5-7B-Instruct-4bit",
     },
 }
 
@@ -5368,7 +5368,7 @@ async def api_chat_models():
             "huggingface-cli login or export HF_TOKEN before downloading."
         )
 
-    aero_model_name = os.getenv("AEROLLM_MODEL", "zai-org/GLM-5.1")
+    aero_model_name = os.getenv("AEROLLM_MODEL", "Qwen2.5-7B-Instruct-4bit")
     optional_backends = [
         {
             "id": "airllm",
@@ -5378,7 +5378,7 @@ async def api_chat_models():
             "param_hint": _extract_param_hint(air_model_name),
             "gated": air_model_name.lower().startswith("meta-llama/"),
             "install_command": "pip install airllm",
-            "description": "Active deep-chat backend — layer-streaming for 70B+ local models (max tier).",
+            "description": "Layer-streaming deep backend — primary on CUDA / Linux x86 (Llama-3.1-70B default; max tier bumps to 405B). Subprocess-isolated so Metal aborts can't kill the portal.",
             # AirLLM always streams (layer-streaming); mark for picker badge.
             "streamed": True,
         },
@@ -5390,10 +5390,9 @@ async def api_chat_models():
             "param_hint": _extract_param_hint(aero_model_name),
             "gated": aero_model_name.lower().startswith("meta-llama/"),
             "install_command": (
-                "pip install "
-                + os.getenv("AEROLLM_PACKAGE", "git+https://github.com/cdarnell/aerollm@main")
+                "cd aerollm/crates/aerollm-api && maturin develop --release"
             ),
-            "description": "Future deep-chat backend (Arail's Rust runtime). Dormant until stable.",
+            "description": "In-process Rust runtime — primary deep backend on Apple Silicon (Qwen2.5-7B-4bit default, ~4 GB resident; max tier ships Llama-3.1-70B-4bit). Single Metal command buffer per generation; ~3× faster than mlx_lm baseline.",
             # AeroLLM is also streaming by design.
             "streamed": True,
         },

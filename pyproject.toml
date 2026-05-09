@@ -95,8 +95,8 @@ configuration_source = "pyproject.toml"
 
 [tool.arail.tiers]
 # Declarative surface matrix. portal/app.py reads this to tier-gate the nav.
-min = { description = "Minimalist — Dashboard, Chat, Autoresearch, Knowledge Base (with LanceDB vector recall), Agents, AirLLM deep streaming (70B default).", surfaces = ["dashboard", "chat", "research", "knowledge", "agents"] }
-max = { description = "Maximalist — Everything in min + Admin, Docs, Notebooks, AirLLM 405B default, LangChain/LangGraph, full cloud catalog.", surfaces = ["dashboard", "chat", "research", "knowledge", "agents", "admin", "docs", "notebooks", "terminal", "tuning", "plugins"] }
+min = { description = "Minimalist — Dashboard, Chat, Autoresearch, Knowledge Base (with LanceDB vector recall), Agents. Deep mode runs aeroLLM on Apple Silicon (Qwen2.5-7B-4bit default, ~4 GB resident) or AirLLM on CUDA / Linux x86 (Llama-3.1-70B default).", surfaces = ["dashboard", "chat", "research", "knowledge", "agents"] }
+max = { description = "Maximalist — Everything in min + Admin, Docs, Notebooks, LangChain/LangGraph, full cloud catalog. Deep mode bumps to aeroLLM Llama-3.1-70B-4bit on Apple Silicon (~35 GB, needs 48 GB+ Mac) or AirLLM Llama-3.1-405B on CUDA.", surfaces = ["dashboard", "chat", "research", "knowledge", "agents", "admin", "docs", "notebooks", "terminal", "tuning", "plugins"] }
 
 [tool.arail.models]
 # Default starter models selected by setup after hardware detection.
