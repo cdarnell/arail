@@ -29,9 +29,13 @@ import os
 from typing import Optional
 
 
-# Default threshold: refuse when ≥ 85% of the unified memory pool is
+# Default threshold: refuse when ≥ 75% of the unified memory pool is
 # already pinned. Tunable via ARAIL_MLX_MEMORY_GUARD_PCT in .env.
-_DEFAULT_GUARD_PCT = 0.85
+# Lowered from 0.85 → 0.75 after a Metal Insufficient-Memory abort got
+# past the old threshold and crashed the portal. The 10pp headroom buys
+# room for activations that grow during a forward pass — by the time
+# pressure crosses 85% the next allocation is already at the wire.
+_DEFAULT_GUARD_PCT = 0.75
 
 
 class MetalOutOfMemory(RuntimeError):
@@ -64,12 +68,20 @@ def clear_metal_cache() -> bool:
     (microseconds in the no-cached-state case). The kernel call list,
     activation buffers, and intermediate tensors are released even if
     Python references to the model itself remain.
+
+    MLX 0.21 promoted ``mx.clear_cache`` and deprecated
+    ``mx.metal.clear_cache``. Try the new name first, fall back to the
+    legacy one — both work today; only the legacy one prints a deprecation
+    warning that pollutes our logs and (more importantly) the user's
+    confidence in the lab.
     """
     mx = _mlx_module()
     if mx is None:
         return False
     try:
-        clear = getattr(getattr(mx, "metal", None), "clear_cache", None)
+        clear = getattr(mx, "clear_cache", None) or getattr(
+            getattr(mx, "metal", None), "clear_cache", None
+        )
         if clear is None:
             return False
         clear()
@@ -84,17 +96,25 @@ def metal_memory_pressure() -> Optional[float]:
     Computed as ``active_memory / max_recommended_working_set``. None
     means we couldn't measure (MLX missing, API surface changed, etc.) —
     callers should treat that as "unknown, proceed."
+
+    Tries the new top-level API first (``mx.get_active_memory`` /
+    ``mx.get_memory_limit``, MLX 0.21+) and falls back to the legacy
+    ``mx.metal.*`` namespace. Both still resolve today; the legacy
+    fallback is purely for older venvs.
     """
     mx = _mlx_module()
     if mx is None:
         return None
     metal = getattr(mx, "metal", None)
-    if metal is None:
-        return None
     try:
-        active = getattr(metal, "get_active_memory", None)
-        ceiling = getattr(metal, "get_memory_limit", None) or getattr(
-            metal, "get_max_recommended_working_set_size", None
+        active = (
+            getattr(mx, "get_active_memory", None)
+            or (getattr(metal, "get_active_memory", None) if metal else None)
+        )
+        ceiling = (
+            getattr(mx, "get_memory_limit", None)
+            or (getattr(metal, "get_memory_limit", None) if metal else None)
+            or (getattr(metal, "get_max_recommended_working_set_size", None) if metal else None)
         )
         if active is None or ceiling is None:
             return None
@@ -103,6 +123,53 @@ def metal_memory_pressure() -> Optional[float]:
         if c <= 0:
             return None
         return a / c
+    except Exception:
+        return None
+
+
+def install_memory_soft_limit(fraction: float = 0.85) -> Optional[int]:
+    """Tell the Metal allocator to swap before throwing.
+
+    Sets the MLX memory soft-limit to ``fraction`` of the recommended
+    working set. When inference would exceed it, the allocator copies
+    cold buffers out to system memory instead of raising
+    ``kIOGPUCommandBufferCallbackErrorOutOfMemory`` — which is a C++
+    ``std::runtime_error`` Python can't catch and which therefore
+    aborts the entire interpreter.
+
+    Returns the previous limit (in bytes) or None if MLX isn't
+    installed / the API isn't present. Idempotent — call once on
+    backend init.
+
+    See: https://ml-explore.github.io/mlx/build/html/dev/metal_debugger.html
+    """
+    mx = _mlx_module()
+    if mx is None:
+        return None
+    try:
+        metal = getattr(mx, "metal", None)
+        # Find the ceiling (working-set size). Same lookup as pressure.
+        get_ceiling = (
+            getattr(mx, "get_memory_limit", None)
+            or (getattr(metal, "get_max_recommended_working_set_size", None) if metal else None)
+        )
+        # Find the setter. Try new top-level first, then legacy metal namespace.
+        set_limit = (
+            getattr(mx, "set_memory_limit", None)
+            or (getattr(metal, "set_memory_limit", None) if metal else None)
+        )
+        if get_ceiling is None or set_limit is None:
+            return None
+        ceiling = float(get_ceiling())
+        if ceiling <= 0:
+            return None
+        target = int(ceiling * max(0.5, min(0.99, fraction)))
+        # MLX < 0.13 takes (limit, relaxed); newer takes (limit). Try both.
+        try:
+            previous = set_limit(target, True)  # legacy: relaxed=True
+        except TypeError:
+            previous = set_limit(target)
+        return int(previous) if previous is not None else None
     except Exception:
         return None
 

@@ -117,6 +117,17 @@ class MLXBackend(BaseBackend):
         path = model_dir if os.path.isdir(model_dir) else self.model_name
         self.model, self.tokenizer = self._load(path)
 
+        # Install a Metal soft memory limit so the allocator swaps instead
+        # of throwing kIOGPUCommandBufferCallbackErrorOutOfMemory — which
+        # is a C++ std::runtime_error that aborts the entire interpreter.
+        # Tunable via ARAIL_MLX_MEMORY_LIMIT_PCT (default 0.85).
+        from arail.router.mlx_guard import install_memory_soft_limit
+        try:
+            limit_pct = float(os.getenv("ARAIL_MLX_MEMORY_LIMIT_PCT", "0.85"))
+        except ValueError:
+            limit_pct = 0.85
+        install_memory_soft_limit(fraction=limit_pct)
+
     def complete(self, prompt: str, max_tokens: int = 512,
                  temperature: float = 0.7,
                  top_p: Optional[float] = None) -> ModelResponse:

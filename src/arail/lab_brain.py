@@ -162,8 +162,20 @@ def _identity_block(brand_name: str, tagline: str,
     )
 
 
-def _state_block() -> str:
-    """Build the live-state section. Best-effort — never raises."""
+def _state_block(
+    *,
+    active_backend_name: Optional[str] = None,
+    active_model_name: Optional[str] = None,
+) -> str:
+    """Build the live-state section. Best-effort — never raises.
+
+    ``active_backend_name`` / ``active_model_name`` win over env-var
+    defaults when provided. The chat path passes these in so the system
+    prompt reflects the *dispatched* backend (e.g. an Ollama runtime
+    override) instead of the lab's configured default. Without that,
+    the model parrots stale identity from the env to users (literally
+    "I'm running mlx Qwen3-8B" while answering via Ollama nemotron3).
+    """
     lines: list[str] = ["# Current lab state", ""]
     # Scheduler window
     try:
@@ -224,9 +236,11 @@ def _state_block() -> str:
                     )
     except Exception:
         pass
-    # Backend
-    backend = os.getenv("MODEL_BACKEND", "auto")
-    model = os.getenv("MODEL_NAME", "unknown")
+    # Backend — prefer the dispatched values from the caller (chat path
+    # passes the actually-routed backend); fall back to env defaults
+    # only when no caller-provided value is available.
+    backend = (active_backend_name or "").strip() or os.getenv("MODEL_BACKEND", "auto")
+    model = (active_model_name or "").strip() or os.getenv("MODEL_NAME", "unknown")
     lines.append(f"- Backend: **{backend}** · model: `{model}`")
     # Cost snapshot
     try:
@@ -252,6 +266,8 @@ def build_system_prompt(
     include_capabilities: bool = True,
     include_state: bool = True,
     extra_context: Optional[str] = None,
+    active_backend_name: Optional[str] = None,
+    active_model_name: Optional[str] = None,
 ) -> str:
     """Compose the full lab-aware system prompt.
 
@@ -290,7 +306,10 @@ def build_system_prompt(
     if include_capabilities:
         parts.append(_CAPABILITIES)
     if include_state:
-        parts.append(_state_block())
+        parts.append(_state_block(
+            active_backend_name=active_backend_name,
+            active_model_name=active_model_name,
+        ))
 
     parts.append(
         "# How to answer\n\n"
@@ -491,13 +510,26 @@ def build_chat_messages(
     *,
     include_capabilities: bool = True,
     include_state: bool = True,
+    active_backend_name: Optional[str] = None,
+    active_model_name: Optional[str] = None,
 ) -> list[dict[str, str]]:
-    """Build chat-style messages for chat-capable models."""
+    """Build chat-style messages for chat-capable models.
+
+    ``active_backend_name`` / ``active_model_name`` are the actually-
+    routed backend identifiers for *this* request. Pass them in so the
+    system prompt's state block reflects what the model is really
+    running on, not the lab's configured default. Without this, a
+    runtime override (e.g. picking an Ollama model when MODEL_BACKEND=mlx)
+    leaves the system prompt advertising the wrong identity, and the
+    model dutifully parrots it back to the user.
+    """
     context_block = _format_chat_context(retrieve_chat_context(user_message))
     system = build_system_prompt(
         include_capabilities=include_capabilities,
         include_state=include_state,
         extra_context=context_block,
+        active_backend_name=active_backend_name,
+        active_model_name=active_model_name,
     )
     messages: list[dict[str, str]] = [{"role": "system", "content": system}]
     for turn in conversation or []:

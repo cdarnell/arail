@@ -2059,6 +2059,33 @@ async def research_status():
     }
 
 
+@app.get("/api/research/planning-trace")
+async def research_planning_trace():
+    """Phase 3 educational disclosure: return the most recent planning
+    trace from the Researcher.
+
+    Shape:
+        {
+          "chosen": ["..."],          # hypotheses that became experiments
+          "alternatives": ["..."],    # ranked-lower candidates set aside
+          "source": "llm" | "heuristic",
+          "llm_response": "..." | null,  # raw LLM text when source=llm
+          "rationale": "...",         # one paragraph: why this split
+          "generated_at": "ISO8601"
+        }
+
+    Returns ``{"trace": null}`` if the Researcher hasn't planned yet
+    (idle on a fresh boot, or planning hasn't started for the current
+    goal). Never raises — degraded silently so the brief just hides
+    the disclosure.
+    """
+    try:
+        trace = researcher.get_planning_trace()
+    except Exception:
+        trace = None
+    return {"trace": trace}
+
+
 # ── Research program files (prepare.py + program.md) ─────────────────────
 # Two files define the research contract:
 #   • prepare.py  — fixed environment: datasets + validation metric.
@@ -4318,7 +4345,12 @@ def _prepare_chat_context(
     if not isinstance(history, list):
         history = []
     history = history[-_CHAT_HISTORY_LIMIT:]
-    messages = lab_brain.build_chat_messages(message, history)
+    # NOTE: messages are built AFTER the backend is resolved (below) so
+    # the system prompt's state block reflects the actually-dispatched
+    # backend, not the lab's env default. See lab_brain.build_chat_messages
+    # for why — without this, a runtime override (Ollama, etc.) leaves
+    # the prompt advertising the wrong identity and the model parrots it
+    # back to the user.
 
     optional_backend_name = str(backend_override or "").strip().lower() or None
     wants_deep = optional_backend_name in _OPTIONAL_CHAT_BACKEND_CONFIG
@@ -4407,13 +4439,27 @@ def _prepare_chat_context(
     else:
         assert router is not None
         active_backend = router._backend
-    prompt = _render_messages_for_backend(messages, active_backend)
 
     previous_model = None
     if override_model and hasattr(active_backend, "model_name"):
         if override_model != active_backend.model_name:
             previous_model = active_backend.model_name
             active_backend.model_name = override_model
+
+    # Now that the backend is resolved (and the model override applied),
+    # build the chat messages so the system prompt's state block reflects
+    # the actually-dispatched backend + model. Resolves the embarrassing
+    # "I'm running mlx Qwen3-8B" reply when the dispatch actually went to
+    # Ollama nemotron3:33b.
+    active_backend_name = str(getattr(active_backend, "backend_name", "") or "").strip()
+    active_model_name = str(getattr(active_backend, "model_name", "") or "").strip()
+    messages = lab_brain.build_chat_messages(
+        message,
+        history,
+        active_backend_name=active_backend_name or None,
+        active_model_name=active_model_name or None,
+    )
+    prompt = _render_messages_for_backend(messages, active_backend)
 
     return {
         "router": router,
