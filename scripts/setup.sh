@@ -116,7 +116,7 @@ install_pyproject_extra() {
     pip install -q -e ".[${extra_name}]" 2>>"$log" || {
         warn "Install failed for pyproject extra '${extra_name}'. Last 20 lines of setup.log:"
         tail -n 20 "$log" | sed 's/^/    /' >&2
-        error "Install failed for '${extra_name}'. See setup.log, then re-run: ./arail setup"
+        error "Install failed for '${extra_name}'. See setup.log, then re-run: ./arailctl setup"
     }
 }
 
@@ -130,7 +130,7 @@ detect_platform() {
     # These aren't supported — users must install WSL2 Ubuntu and run from
     # there. Detect via environment variables those shells set.
     if [[ -n "${MSYSTEM:-}" ]] || [[ -n "${WT_SESSION:-}" && "$(uname -s)" == MINGW* ]]; then
-        error "Windows native shell detected. Install WSL2 + Ubuntu (wsl --install in PowerShell), then run ./arail setup from inside the Ubuntu app."
+        error "Windows native shell detected. Install WSL2 + Ubuntu (wsl --install in PowerShell), then run ./arailctl setup from inside the Ubuntu app."
     fi
 
     local os kernel
@@ -217,7 +217,7 @@ ensure_brew() {
     fi
     info "Homebrew not found — required on macOS for python, ttyd, tmux, ollama."
     if ! confirm "Install Homebrew now (downloads the official installer from brew.sh)?"; then
-        error "Homebrew install declined. Install it manually, then re-run ./arail setup."
+        error "Homebrew install declined. Install it manually, then re-run ./arailctl setup."
     fi
     info "Installing Homebrew (the installer may prompt for your sudo password)…"
     local log="${REPO_ROOT:-$PWD}/setup.log"
@@ -242,7 +242,7 @@ ensure_brew() {
 #
 # On re-runs we prefer whatever lab.conf already holds — that way the
 # user's bookmarked URLs (and any docs they wrote) survive across
-# `./arail setup` invocations even if the original conflict has cleared.
+# `./arailctl setup` invocations even if the original conflict has cleared.
 #
 # Resolved values land in PORT_BUMPS (for the end-of-run banner) and in
 # the shell vars PORTAL_PORT / TERMINAL_PORT / NOTEBOOK_PORT / IDE_PORT /
@@ -315,7 +315,7 @@ resolve_ports() {
         for line in "${PORT_BUMPS[@]}"; do
             warn "  $line"
         done
-        warn "Pinned in lab.conf — future ./arail setup runs reuse the bumped values."
+        warn "Pinned in lab.conf — future ./arailctl setup runs reuse the bumped values."
     else
         info "Lab ports free: portal=${PORTAL_PORT}  ide=${IDE_PORT}  notebook=${NOTEBOOK_PORT}  terminal=${TERMINAL_PORT}  mlx=${MLX_OPENAI_PORT}"
     fi
@@ -374,13 +374,13 @@ ensure_python() {
         info "No Python 3.10+ found on PATH."
         if ! auto_install_enabled; then
             case "$PLATFORM" in
-                gentoo) error "Install Python, then re-run ./arail setup:  emerge -av dev-lang/python:3.11" ;;
-                macos)  error "Install Python, then re-run ./arail setup:  brew install python@3.11" ;;
-                *)      error "Install Python 3.10-3.12 and re-run ./arail setup." ;;
+                gentoo) error "Install Python, then re-run ./arailctl setup:  emerge -av dev-lang/python:3.11" ;;
+                macos)  error "Install Python, then re-run ./arailctl setup:  brew install python@3.11" ;;
+                *)      error "Install Python 3.10-3.12 and re-run ./arailctl setup." ;;
             esac
         fi
         if ! confirm "Install Python 3.11 now via your system package manager?"; then
-            error "Python install declined. Install Python 3.10-3.12 manually, then re-run ./arail setup."
+            error "Python install declined. Install Python 3.10-3.12 manually, then re-run ./arailctl setup."
         fi
         install_python_for_platform
         # Re-probe; if still nothing, the install silently failed.
@@ -517,7 +517,7 @@ install_core_deps() {
     pip install -q -e ".[dev,${tier}]" 2>>"$log" || {
         warn "Core deps install failed. Last 20 lines of setup.log:"
         tail -n 20 "$log" | sed 's/^/    /' >&2
-        error "pip install failed. See setup.log, then re-run: ./arail setup"
+        error "pip install failed. See setup.log, then re-run: ./arailctl setup"
     }
     info "Core dependencies installed for tier '${tier}'."
 }
@@ -568,7 +568,7 @@ install_accel_deps() {
             # works without it (Compute Source pivot just won't list it).
             # Don't kill setup over an optional install.
             warn "AirLLM install failed — check [tool.arail.package-sources] in pyproject.toml or ARAIL_AIRLLM_PACKAGE_OVERRIDE."
-            warn "Continuing without AirLLM. Re-try later with: ARAIL_SKIP_AIRLLM=0 ./arail setup"
+            warn "Continuing without AirLLM. Re-try later with: ARAIL_SKIP_AIRLLM=0 ./arailctl setup"
         fi
     else
         info "Skipping AirLLM (ARAIL_SKIP_AIRLLM=1)."
@@ -805,7 +805,7 @@ _slugify() {
 #   med → + Knowledge Base, Agents, LanceDB vectors
 #   max → + Admin, Notebooks, AirLLM (deep), full cloud vendor catalog
 #
-# Upgrade later with `./arail upgrade med` (or max).
+# Upgrade later with `./arailctl upgrade med` (or max).
 # -----------------------------------------------------------------------------
 LAB_TIER=""
 capture_tier() {
@@ -837,7 +837,7 @@ capture_tier() {
 
     step "4b/11  Pick an install tier"
     cat <<EOF
-  Two tiers — upgrade later with ./arail upgrade max.
+  Two tiers — upgrade later with ./arailctl upgrade max.
 
     ${BOLD}min${RESET}  Minimalist — Dashboard + Chat + Autoresearch + Knowledge Base
            + Agents + LanceDB vector recall. The everyday lab.
@@ -897,7 +897,7 @@ capture_password() {
         ARAIL_PASSWORD="__needs_setup__"
         step "5/11  Lab passphrase (deferred)"
         info "Deferring passphrase to first browser load (ARAIL_DEFER_PASSWORD=1)."
-        info "Open ${BOLD}http://127.0.0.1:${PORTAL_PORT:-8080}${RESET} after ./arail start —"
+        info "Open ${BOLD}http://127.0.0.1:${PORTAL_PORT:-8080}${RESET} after ./arailctl start —"
         info "the lab will land on /welcome and ask you to set one."
         return
     fi
@@ -1004,7 +1004,7 @@ setup_env() {
     # Passphrase + add-on keys: always ensure they match ARAIL_PASSWORD.
     # Idempotent — safe to re-run on an existing .env.
     if [[ -z "$ARAIL_PASSWORD" ]]; then
-        error "Passphrase capture failed — ARAIL_PASSWORD is empty. Re-run: ./arail setup"
+        error "Passphrase capture failed — ARAIL_PASSWORD is empty. Re-run: ./arailctl setup"
     fi
     _set_env_var ARAIL_PASSWORD "$ARAIL_PASSWORD"
     _set_env_var OPEN_NOTEBOOK_ENCRYPTION_KEY "$ARAIL_PASSWORD"
@@ -1026,7 +1026,7 @@ setup_env() {
 # Set KEY=VALUE in .env, replacing (or uncommenting) any existing entry.
 # Uses a python helper so arbitrary characters in VALUE don't break sed.
 #
-# IMPORTANT: ``./arail start`` sources .env via
+# IMPORTANT: ``./arailctl start`` sources .env via
 # ``set -a && source .env && set +a``, so values containing whitespace
 # or shell-special characters MUST be quoted. Without quoting,
 # ``LAB_NAME=Autoresearch AI Lab`` is parsed by bash as
@@ -1096,7 +1096,7 @@ setup_runtime_files() {
     local mlx_port="${MLX_OPENAI_PORT:-11435}"
 
     cat > lab.conf << CONF
-# Arail runtime config — regenerated by ./arail setup on every run.
+# Arail runtime config — regenerated by ./arailctl setup on every run.
 # Ports were chosen automatically (the next free port from each default).
 # To pin a different value, edit it here AND restart the lab; setup will
 # preserve your choice on the next run unless that port is also taken.
@@ -1210,7 +1210,7 @@ download_model() {
     warn "Meta Llama is gated — accept the Hugging Face license first, then authenticate with huggingface-cli login or HF_TOKEN."
     local model_short="${AIRLLM_MODEL_ID##*/}"
     echo "  huggingface-cli download ${AIRLLM_MODEL_ID} --local-dir lab/models/${model_short} --local-dir-use-symlinks False"
-    echo "  # then set AIRLLM_MODEL=${AIRLLM_MODEL_ID} in .env and run ./arail restart"
+    echo "  # then set AIRLLM_MODEL=${AIRLLM_MODEL_ID} in .env and run ./arailctl restart"
 }
 
 # -----------------------------------------------------------------------------
@@ -1307,7 +1307,7 @@ capture_goal() {
         goal="$default_goal"
         info "Using the lab's signature research goal (optimize AirLLM)."
     elif [[ -z "${goal// }" ]]; then
-        warn "Empty goal — skipping capture. You can set one from the dashboard after ./arail start."
+        warn "Empty goal — skipping capture. You can set one from the dashboard after ./arailctl start."
         return
     fi
 
@@ -1356,7 +1356,7 @@ PY
     fi
 
     info "Goal saved → $goal_path"
-    info "Researcher will auto-start when you run ${BOLD}./arail start${RESET}"
+    info "Researcher will auto-start when you run ${BOLD}./arailctl start${RESET}"
 }
 
 # -----------------------------------------------------------------------------
@@ -1374,7 +1374,7 @@ validate_env() {
         fi
     done
     if (( ${#missing[@]} > 0 )); then
-        error "Missing required keys in .env: ${missing[*]}. Re-run: ./arail setup"
+        error "Missing required keys in .env: ${missing[*]}. Re-run: ./arailctl setup"
     fi
 
     # Detect passphrase drift between .env and lab.conf — the current
@@ -1395,7 +1395,7 @@ validate_env() {
 # -----------------------------------------------------------------------------
 # install_path_shim — drop arail + qkz into ~/.local/bin so the user can
 # run `arail start` (and `qkz <cmd>`) from any directory, not just from
-# the repo root with `./arail`.
+# the repo root with `./arailctl`.
 #
 # Strategy:
 #   • Symlink REPO/arail   → ~/.local/bin/arail
@@ -1417,7 +1417,7 @@ install_path_shim() {
     step "10/11  Install 'arail' to your PATH"
     if [[ "${ARAIL_SKIP_PATH:-0}" == "1" ]]; then
         info "Skipping PATH install (ARAIL_SKIP_PATH=1)."
-        info "Run from the repo with ${BOLD}./arail <cmd>${RESET} or symlink manually."
+        info "Run from the repo with ${BOLD}./arailctl <cmd>${RESET} or symlink manually."
         return
     fi
 
@@ -1548,7 +1548,7 @@ verify() {
     else
         warn "Smoke test failed. Last 20 lines of setup.log:"
         tail -n 20 "$log" | sed 's/^/    /' >&2
-        error "Inspect setup.log and re-run: ./arail setup"
+        error "Inspect setup.log and re-run: ./arailctl setup"
     fi
 }
 
@@ -1605,8 +1605,8 @@ main() {
     # Pick the start command based on whether the PATH shim landed.
     # If install_path_shim succeeded *and* ~/.local/bin is reachable in
     # the current shell, the user can just type `arail start`.
-    # Otherwise they need the in-repo `./arail` form.
-    local start_cmd="./arail start"
+    # Otherwise they need the in-repo `./arailctl` form.
+    local start_cmd="./arailctl start"
     if [[ -n "$PATH_INSTALLED" ]] && [[ ":$PATH:" == *":$PATH_INSTALLED:"* ]]; then
         start_cmd="arail start"
     fi
@@ -1624,7 +1624,7 @@ main() {
             echo -e "    ${BOLD}qkz${RESET}    →  ${PATH_INSTALLED}/qkz     (alias — same script)"
         elif [[ -n "$QKZ_SKIPPED" ]]; then
             echo -e "    ${BOLD}qkz${RESET}    →  not installed (existing qkz at ${QKZ_SKIPPED})"
-            echo "             override with: ARAIL_INSTALL_QKZ=1 ./arail setup"
+            echo "             override with: ARAIL_INSTALL_QKZ=1 ./arailctl setup"
         fi
         echo ""
         if [[ -n "$SHELL_RC_TOUCHED" ]]; then
@@ -1641,7 +1641,7 @@ main() {
         echo -e "    Notebook  : http://127.0.0.1:${NOTEBOOK_PORT}"
         echo -e "    Terminal  : http://127.0.0.1:${TERMINAL_PORT}"
         echo -e "    MLX API   : http://127.0.0.1:${MLX_OPENAI_PORT}/v1"
-        echo "  Pinned in lab.conf — bookmarks survive future ./arail setup runs."
+        echo "  Pinned in lab.conf — bookmarks survive future ./arailctl setup runs."
         echo ""
     fi
     if [[ "$ARAIL_PASSWORD" == "__needs_setup__" ]]; then
@@ -1661,7 +1661,7 @@ main() {
         echo "    lab.conf    →  IDE_PASSWORD"
         echo ""
         echo "  Treat it like any password — don't commit .env to git."
-        echo "  To rotate later: ./arail setup  (answer 'new' when prompted)"
+        echo "  To rotate later: ./arailctl setup  (answer 'new' when prompted)"
         echo ""
     fi
 }

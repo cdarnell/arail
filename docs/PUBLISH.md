@@ -10,7 +10,7 @@ open a port to the world.
 
 Before publishing:
 
-- You have run `./arail setup` and `./arail start` successfully on your
+- You have run `./arailctl setup` and `./arailctl start` successfully on your
   server. The portal responds on `http://127.0.0.1:8080`.
 - You have a domain name pointed at your server's public IP.
 - You have a TLS certificate (Let's Encrypt via certbot or Caddy's
@@ -206,7 +206,7 @@ connection mid-response.
 
 Run a CVE scan before going public:
 
-1. Upgrade to `max` tier: `./arail upgrade max` (installs `pip-audit`).
+1. Upgrade to `max` tier: `./arailctl upgrade max` (installs `pip-audit`).
 2. Open `Admin → Production Readiness → Security → Run scan now`.
 3. Review findings. Any **Critical** or **High** severity issues should
    be patched before going live.
@@ -225,12 +225,12 @@ High findings appear.
 
 | Task | Command |
 |---|---|
-| Update all components | `./arail update` |
-| Check component health | `./arail doctor` |
-| View activity log | `./arail logs` |
-| Restart portal | `./arail restart` |
+| Update all components | `./arailctl update` |
+| Check component health | `./arailctl doctor` |
+| View activity log | `./arailctl logs` |
+| Restart portal | `./arailctl restart` |
 | Run security scan (CLI) | `pip-audit -f json` |
-| Rebuild knowledge base | `./arail pkb compile` |
+| Rebuild knowledge base | `./arailctl pkb compile` |
 | Prune stale cache files | Admin → Production Readiness → Cleanup |
 
 **Backups:** `lab/data/` holds your secrets, goals, and activity log.

@@ -16,7 +16,7 @@ have.
 ## What ARAIL is, in two sentences
 
 A local-first AI lab blueprint. Users clone the repo, run
-`./arail setup && ./arail start`, pick a tier (min / med / max), and
+`./arailctl setup && ./arailctl start`, pick a tier (min / med / max), and
 get a dashboard + chat + autoresearch running on their own hardware
 with their own models.
 
@@ -99,7 +99,7 @@ this manually" behavior).
 
 ## Contract the port must preserve
 
-1. **Idempotent.** Re-running `./arail setup` on a half-finished run
+1. **Idempotent.** Re-running `./arailctl setup` on a half-finished run
    must pick up cleanly. Every install step checks `command -v X`
    first. Never fail hard on an optional binary — `warn` and continue.
 2. **Numbered banners.** Every major section prints
@@ -123,20 +123,20 @@ git clone https://github.com/cdarnell/arail.git arail
 cd arail
 
 # Non-interactive mode confirms the whole pipeline works without human input
-ARAIL_NONINTERACTIVE=1 ./arail setup
+ARAIL_NONINTERACTIVE=1 ./arailctl setup
 
 # Environment validator — catches stale .env, missing keys, passphrase drift
-./arail doctor
+./arailctl doctor
 
 # End-to-end — portal should come up with agents running
-./arail start
+./arailctl start
 
 # Visit http://127.0.0.1:8080 — type a goal, click Run Research,
 # confirm the research activity log lights up.
 ```
 
 Done means all five steps succeed on a fresh VM with no manual
-intervention. If you had to `apt install X` before `./arail setup`
+intervention. If you had to `apt install X` before `./arailctl setup`
 worked, add `X` to `install_services()` so the next user doesn't.
 
 ## Files your port should NOT touch
@@ -144,7 +144,7 @@ worked, add `X` to `install_services()` so the next user doesn't.
 - `src/arail/` — the Python code has no OS-specific branches. It
   shouldn't grow any.
 - `compose/*.yml` — Docker overlays are platform-neutral.
-- `.env.example` — `./arail setup` writes values at runtime; don't
+- `.env.example` — `./arailctl setup` writes values at runtime; don't
   hardcode platform-specific defaults here.
 - `lab.conf` — regenerated on every setup.
 
@@ -160,9 +160,9 @@ worked, add `X` to `install_services()` so the next user doesn't.
 
 - [ ] `detect_platform` has a branch that sets `PLATFORM` and `ACCEL`.
 - [ ] `install_services` has a branch for each of ttyd, tmux, ollama.
-- [ ] `ARAIL_NONINTERACTIVE=1 ./arail setup` completes on a fresh VM.
-- [ ] `./arail doctor` returns OK.
-- [ ] `./arail start` launches, dashboard reaches `/` without errors.
+- [ ] `ARAIL_NONINTERACTIVE=1 ./arailctl setup` completes on a fresh VM.
+- [ ] `./arailctl doctor` returns OK.
+- [ ] `./arailctl start` launches, dashboard reaches `/` without errors.
 - [ ] `README.md` Platform Support table has a row for your distro.
 - [ ] If the port needs a pre-requisite the script can't auto-install,
       `docs/<YOUR_PLATFORM>.md` documents it.

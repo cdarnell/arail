@@ -8,8 +8,8 @@ behind explicit approval.
 ## Quick start
 
 ```bash
-./arail blueprint create my-inbox --from inbox-triager
-./arail blueprint apply my-inbox
+./arailctl blueprint create my-inbox --from inbox-triager
+./arailctl blueprint apply my-inbox
 # Edit instances/my-inbox/.env to set IMAP/SMTP credentials.
 ```
 

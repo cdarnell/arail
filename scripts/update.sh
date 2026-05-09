@@ -7,11 +7,11 @@
 # listing.
 #
 # Usage:
-#   ./arail update                  # check & apply updates
-#   ./arail update --check          # dry-run: just check, no changes
-#   ./arail update --yes            # skip confirmation
-#   ./arail update --component ttyd # update a single component
-#   ./arail version                 # show installed versions
+#   ./arailctl update                  # check & apply updates
+#   ./arailctl update --check          # dry-run: just check, no changes
+#   ./arailctl update --yes            # skip confirmation
+#   ./arailctl update --component ttyd # update a single component
+#   ./arailctl version                 # show installed versions
 # =============================================================================
 set -euo pipefail
 
@@ -154,7 +154,7 @@ get_version() {
 }
 
 # ═════════════════════════════════════════════════════════════════════
-#  VERSION MODE  (./arail version)
+#  VERSION MODE  (./arailctl version)
 # ═════════════════════════════════════════════════════════════════════
 show_versions() {
     detect_platform
@@ -196,7 +196,7 @@ for c in m['components']:
 }
 
 # ═════════════════════════════════════════════════════════════════════
-#  UPDATE MODE  (./arail update)
+#  UPDATE MODE  (./arailctl update)
 # ═════════════════════════════════════════════════════════════════════
 run_update() {
     local dry_run=false
@@ -387,7 +387,7 @@ with open(path, "w") as f:
 PY
 
     echo ""
-    info "Update complete. Run ${BOLD}./arail restart${RESET} to pick up changes."
+    info "Update complete. Run ${BOLD}./arailctl restart${RESET} to pick up changes."
     echo ""
 }
 

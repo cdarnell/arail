@@ -1025,7 +1025,7 @@ class BuddyAgent:
     # ── Memory: short-term (state.json) ────────────────────────────
     # Load on start so cooldowns survive restarts (no spam-on-boot).
     # Save after every emit — file is tiny, I/O is negligible.
-    # Delete the file or run `./arail reset pkb` to wipe this memory.
+    # Delete the file or run `./arailctl reset pkb` to wipe this memory.
 
     def _load_state(self) -> None:
         path = _state_file()

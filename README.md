@@ -27,12 +27,12 @@ loop that runs experiments while you sleep.
 ```bash
 git clone https://github.com/cdarnell/autoresearch-lab.git
 cd autoresearch-lab
-./arail setup      # pick a tier, install deps, download a starter model
-./arail start      # open http://127.0.0.1:8080
+./arailctl setup      # pick a tier, install deps, download a starter model
+./arailctl start      # open http://127.0.0.1:8080
 ```
 
-Three keystrokes: `./arail setup`, `./arail start`, and a browser. (If you
-prefer a shorter alias, `./qkz` is symlinked to `./arail`.)
+Three keystrokes: `./arailctl setup`, `./arailctl start`, and a browser. (If you
+prefer a shorter alias, `./qkz` is symlinked to `./arailctl`.)
 
 ---
 
@@ -48,7 +48,7 @@ Two tiers. Pick one; upgrade later.
 Upgrade any time:
 
 ```bash
-./arail upgrade max
+./arailctl upgrade max
 ```
 
 Knowledge Base and Agents are part of `min` on purpose — research needs
@@ -127,7 +127,7 @@ dashboard and steer when the direction drifts.
 The lab's long-term memory. Agents ingest papers, notes, web pages, and
 your uploaded PDFs into a LanceDB vector index. Searchable from Chat and
 Autoresearch — the answers you get start referring back to your own
-materials. Ingest with `./arail pkb ingest <file>`.
+materials. Ingest with `./arailctl pkb ingest <file>`.
 
 ### 🤖 Agents *(every tier)*
 
@@ -216,7 +216,7 @@ understand, with code you can read.
 Every tab teaches something. Every loop you run leaves notes behind. That's
 the lab.
 
-— start with `./arail setup`.
+— start with `./arailctl setup`.
 
 ## License
 

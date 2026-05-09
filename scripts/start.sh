@@ -22,7 +22,7 @@ export PATH="$HOME/.local/bin:$PATH"
 BIND="${BIND_ADDR:-127.0.0.1}"
 LANCE_PORT="${LANCE_PORT:-7414}"
 
-[[ -f .venv/bin/activate ]] || { echo "no .venv — run ./arail setup"; exit 1; }
+[[ -f .venv/bin/activate ]] || { echo "no .venv — run ./arailctl setup"; exit 1; }
 # shellcheck disable=SC1091
 source .venv/bin/activate
 

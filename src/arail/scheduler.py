@@ -7,7 +7,7 @@ Two concepts:
    heavy 22:00-08:00 (so the GPU hammers while you sleep).
 2. **Halt flag** — a process-wide boolean that agents poll. Setting it
    via :func:`halt_all_jobs` cancels in-flight work without tearing down
-   the portal itself (that's :func:`arail stop`).
+   the portal itself (that's :func:`arailctl stop`).
 
 The scheduler is deliberately simple: no cron, no DAG, no wake-up
 callbacks. Agents are responsible for calling :func:`current_window`

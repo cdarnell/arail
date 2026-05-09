@@ -289,7 +289,7 @@ async def run_and_persist(trigger: Literal["boot", "manual", "sre", "sse"] = "ma
                 "tool": "pip-audit",
                 "tool_version": None,
                 "auto_scan_enabled": status().get("auto_scan_enabled", False),
-                "error": "pip-audit not installed — run ./arail upgrade max",
+                "error": "pip-audit not installed — run ./arailctl upgrade max",
             }
             try:
                 _write_scan_file(stub)
@@ -297,7 +297,7 @@ async def run_and_persist(trigger: Literal["boot", "manual", "sre", "sse"] = "ma
                 pass
             activity_log.emit(
                 "security",
-                "pip-audit not installed — install via ./arail upgrade max to enable CVE scans.",
+                "pip-audit not installed — install via ./arailctl upgrade max to enable CVE scans.",
                 "warn",
             )
             return stub
@@ -447,7 +447,7 @@ async def stream_scan_events(trigger: str = "sse"):
             "name": "pip-audit availability",
             "status": "fail",
             "duration_ms": 0,
-            "detail": "pip-audit not installed — run ./arail upgrade max",
+            "detail": "pip-audit not installed — run ./arailctl upgrade max",
         }
         yield {
             "event": "done",

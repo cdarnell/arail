@@ -9,7 +9,7 @@
 ## What ARAIL is, in one paragraph
 
 ARAIL — Autoresearch AI Labs — is a local-first AI research lab
-blueprint. Clone the repo, run `./arail setup && ./arail start`, pick a
+blueprint. Clone the repo, run `./arailctl setup && ./arailctl start`, pick a
 tier, and you have a dashboard, a chat tab with a Compute Source pivot
 (local MLX/CUDA/llama.cpp or any cloud vendor), an autoresearch loop
 that runs experiments while you're away, an agent-driven knowledge base
@@ -35,7 +35,7 @@ off it:
   Distillation Pipeline. Independent today (its own pipeline, its own
   CLI also called `qkz`), but a planned future consumer of aeroLLM for
   teacher inference. The shared `qkz` name is convergent: in this repo
-  `./qkz` is symlinked to `./arail` as a shorthand alias; in qukaizen
+  `./qkz` is symlinked to `./arailctl` as a shorthand alias; in qukaizen
   `qkz` is a Rust CLI binary. They're not the same program.
 
 ARAIL is where the user's research **happens** — the lab. aeroLLM is
@@ -51,17 +51,17 @@ The product is intentionally simple at the entry point. Two tiers:
 | `min` | Dashboard · Chat · Autoresearch · Knowledge Base · Agents · LanceDB vectors · AirLLM 70B (Llama-3.1-70B) — the everyday lab |
 | `max` | + Admin · Docs · Notebooks · AirLLM 405B · Anthropic SDK · LangChain · full cloud SDKs — the frontier-scale bench       |
 
-Tier upgrade is a single `./arail upgrade max` away; downgrade likewise.
+Tier upgrade is a single `./arailctl upgrade max` away; downgrade likewise.
 Knowledge Base and Agents are part of `min` deliberately — research
 without memory is a non-starter.
 
-The CLI is `./arail` (also reachable via `./qkz`). The main verbs:
+The CLI is `./arailctl` (also reachable via `./qkz`). The main verbs:
 
-- `./arail setup` — pick a tier, install deps, download a starter model.
-- `./arail start` — open `http://127.0.0.1:8080`.
-- `./arail upgrade {min|max}` — change tier.
-- `./arail pkb ingest <file>` — push a doc into the LanceDB-backed KB.
-- `./arail benchmark_models` (alias `aerollm`) — local model benchmark.
+- `./arailctl setup` — pick a tier, install deps, download a starter model.
+- `./arailctl start` — open `http://127.0.0.1:8080`.
+- `./arailctl upgrade {min|max}` — change tier.
+- `./arailctl pkb ingest <file>` — push a doc into the LanceDB-backed KB.
+- `./arailctl benchmark_models` (alias `aerollm`) — local model benchmark.
 
 `scripts/setup.sh` is the platform-porting surface. `AGENTS.md` is the
 manifest for external coding agents that want to add a new platform
@@ -96,7 +96,7 @@ The top of the tree is dense; the parts that matter:
 
 | Path                          | What's there                                                                       |
 |-------------------------------|------------------------------------------------------------------------------------|
-| `arail` (file)                | Main shell entry point — `./arail setup`, `./arail start`, etc.                    |
+| `arail` (file)                | Main shell entry point — `./arailctl setup`, `./arailctl start`, etc.                    |
 | `qkz` → `arail` (symlink)     | Shorthand alias                                                                    |
 | `scripts/setup.sh`            | Platform-detect → service install → model download. `AGENTS.md` is the porting doc |
 | `src/arail/`                  | Python package (portal app, agents, knowledge base, pipelines)                     |
@@ -121,7 +121,7 @@ experience (Chat Studio rebuild, Knowledge Canvas iframe loading, live
 checks modal, design system rollout) plus the cross-repo workflow
 (branch names like `cdarnell/qukaizen/suspicious-napier-54a283` show
 that there's tooling that auto-generates qukaizen-style branches even
-in this repo). The `arail benchmark_models` CLI was added recently as
+in this repo). The `arailctl benchmark_models` CLI was added recently as
 the local benchmarking entry point — useful when comparing AirLLM (today)
 against aeroLLM (when it lands).
 
@@ -157,7 +157,7 @@ parts.
   accidentally-committed `node_modules/` before the ignore rules
   caught them; current state is clean. Don't try to clean history
   without coordinating — the user has decided to leave it.
-- **The `qkz` symlink** in this repo points at `./arail`. It is **not**
+- **The `qkz` symlink** in this repo points at `./arailctl`. It is **not**
   the qukaizen Rust CLI; that lives in `~/ProJects/qukaizen/qkz/`.
   Don't confuse the two.
 
@@ -181,7 +181,7 @@ parts.
    `/knowledge` has folder-reveal buttons (`lab/pkb/inbox` for docs,
    `lab/models` for model weights), full-page drag-drop, and a
    per-file post-upload toast with `[Open]` / `[Reveal]` links. CLI
-   equivalent is `./arail pkb ingest <file>`. Wiki + embedded graph
+   equivalent is `./arailctl pkb ingest <file>`. Wiki + embedded graph
    auto-refresh on a "Wiki rebuilt" SSE event from
    `wiki.schedule_rebuild()`; the reveal endpoint is
    `POST /api/system/reveal` with whitelisted slots

@@ -19,8 +19,8 @@ If the task is adding package-manager or distro support to
 
 ## Setup Flow
 
-1. Start from the blessed commands: `./arail setup`, `./arail doctor`, and
-    `./arail start`.
+1. Start from the blessed commands: `./arailctl setup`, `./arailctl doctor`, and
+    `./arailctl start`.
 2. Profile the target machine before changing anything: chip family,
     accelerator, RAM, free disk, and whether the box is portable, desk-bound, or
     effectively headless.
@@ -52,7 +52,7 @@ actually different.
 ## Principles To Preserve
 
 1. **One command surface** — Keep the mental model anchored on
-    `./arail setup`, `./arail doctor`, and `./arail start`.
+    `./arailctl setup`, `./arailctl doctor`, and `./arailctl start`.
 2. **Local-first baseline** — Cloud providers stay off until the user opts into
     `LAB_MODE=hybrid`.
 3. **Idempotent setup** — Re-running setup should heal a partial install rather

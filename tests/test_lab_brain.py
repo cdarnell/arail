@@ -26,7 +26,7 @@ def test_default_prompt_mentions_brand_and_capabilities():
     assert "Model router" in p
     assert "Scheduler" in p
     assert "Personal Knowledge Base" in p
-    assert "./arail" in p
+    assert "./arailctl" in p
     # State block
     assert "Current lab state" in p
     # How-to answer guidance at the end

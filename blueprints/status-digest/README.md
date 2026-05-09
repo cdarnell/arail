@@ -8,8 +8,8 @@ needs attention.
 ## Quick start
 
 ```bash
-./arail blueprint create my-digest --from status-digest
-./arail blueprint apply my-digest
+./arailctl blueprint create my-digest --from status-digest
+./arailctl blueprint apply my-digest
 # Edit instances/my-digest/.env to point at your data sources.
 ```
 
@@ -21,7 +21,7 @@ needs attention.
 | `summarizer`   | ⏳ aspirational | `src/arail/agents/summarizer.py` (TBD)  |
 | `scheduler`    | ⏳ aspirational | `src/arail/agents/scheduler.py` (TBD)   |
 
-`./arail blueprint apply` validates the blueprint against
+`./arailctl blueprint apply` validates the blueprint against
 `catalog/models.toml` (model ids must resolve), but does **not**
 validate agent class names — applying this blueprint succeeds today;
 the missing agents would surface as runtime errors when the lab

@@ -312,7 +312,7 @@ Until [#281](https://github.com/lyogavin/airllm/pull/281) merges upstream, users
 
 Five things all true at the same time:
 
-1. **`./arail oracle ask "<question>"` works end-to-end on a fresh checkout.** No "TODO" buttons, no broken UI states. Every error path has a friendly message + actionable next step.
+1. **`./arailctl oracle ask "<question>"` works end-to-end on a fresh checkout.** No "TODO" buttons, no broken UI states. Every error path has a friendly message + actionable next step.
 2. **Streaming visualization actually streams.** Layer events arrive in the browser at ≥ 4 Hz. The progress bar updates smoothly. Active-experts widget renders for gpt-oss-120b.
 3. **Compare mode produces a meaningful comparison.** Fast model and Oracle answer the same question; word counts and time-to-first-token are accurate; visual contrast is obvious.
 4. **PKB persistence works.** Every Oracle session creates a study Markdown file with all metadata; replay bundle is bit-reproducible.
@@ -335,7 +335,7 @@ This is the same posture as the AirLLM-not-viable-on-MLX pivot in v0.1-alpha and
 
 ```bash
 # 1. Set up the lab.
-./arail setup
+./arailctl setup
 # Answer prompts. Choose tier=max (Oracle is in the max surface set).
 
 # 2. One-time: download gpt-oss-120b (~234 GB).
@@ -347,7 +347,7 @@ pip install --user \
     git+https://github.com/cdarnell/airllm.git@fix/mlx-torch-tensor-coerce
 
 # 4. Boot the lab.
-./arail start
+./arailctl start
 
 # 5. Open Oracle in the browser.
 open http://localhost:8080/oracle

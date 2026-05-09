@@ -37,11 +37,11 @@ sudo apt update && sudo apt install -y python3 python3-venv python3-pip git buil
 ```bash
 git clone https://github.com/cdarnell/autoresearch-lab.git arail
 cd arail
-./arail setup       # detects WSL + CUDA automatically, captures your goal
-./arail start       # launches portal + terminal + notebook + IDE
+./arailctl setup       # detects WSL + CUDA automatically, captures your goal
+./arailctl start       # launches portal + terminal + notebook + IDE
 ```
 
-`./arail setup` provisions the venv, installs vLLM + PyTorch with CUDA, downloads a starter model, and captures your research goal and work windows. `./arail start` brings up the dashboard at <http://127.0.0.1:8080> — reachable from your Windows browser at the same address — plus the in-browser terminal (ttyd), Jupyter Lab, and VS Code Server. The researcher agent auto-starts on your captured goal after a 5-minute courtesy delay.
+`./arailctl setup` provisions the venv, installs vLLM + PyTorch with CUDA, downloads a starter model, and captures your research goal and work windows. `./arailctl start` brings up the dashboard at <http://127.0.0.1:8080> — reachable from your Windows browser at the same address — plus the in-browser terminal (ttyd), Jupyter Lab, and VS Code Server. The researcher agent auto-starts on your captured goal after a 5-minute courtesy delay.
 
 ## 6. Airgapped Mode
 

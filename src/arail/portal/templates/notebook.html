@@ -127,8 +127,8 @@
     <p style="margin-top:1rem;color:var(--muted);font-size:0.8rem;">
       Or bounce the lab manually:
     </p>
-    <pre>./arail stop
-./arail start</pre>
+    <pre>./arailctl stop
+./arailctl start</pre>
     <p>
       Or start it manually in a terminal tab:
     </p>
@@ -158,14 +158,14 @@
     <pre>source .venv/bin/activate
 pip install -e .</pre>
     <p>
-      Or bounce <code>./arail setup</code> which does this for you:
+      Or bounce <code>./arailctl setup</code> which does this for you:
     </p>
-    <pre>./arail setup</pre>
+    <pre>./arailctl setup</pre>
     <h3>Airgapped / minimal install</h3>
     <p>If you only want notebooks without the rest of the lab:</p>
     <pre>pip install jupyterlab</pre>
     <p class="nb-hint">
-      Once installed, restart the lab (<code>./arail stop &amp;&amp; ./arail start</code>)
+      Once installed, restart the lab (<code>./arailctl stop &amp;&amp; ./arailctl start</code>)
       and this page will flip to the full Jupyter interface automatically.
     </p>
   </div>

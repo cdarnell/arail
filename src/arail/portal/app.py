@@ -78,7 +78,7 @@ def _read_version() -> str:
 _BOOT_VERSION: str = _read_version()
 
 # Tier gating — the nav shows only the surfaces matching the current tier.
-# Two tiers: min (everyday) and max (full bench). Upgrade with ./arail upgrade max.
+# Two tiers: min (everyday) and max (full bench). Upgrade with ./arailctl upgrade max.
 _TIER_SURFACES: dict[str, set[str]] = {
     "min": {"dashboard", "chat", "research", "knowledge", "agents"},
     "max": {"dashboard", "chat", "research", "knowledge", "agents",
@@ -581,7 +581,7 @@ async def _startup():
             except ImportError:
                 activity_log.emit(
                     "security",
-                    "pip-audit not installed — install via ./arail upgrade max to enable CVE scans.",
+                    "pip-audit not installed — install via ./arailctl upgrade max to enable CVE scans.",
                     "warn",
                 )
             except Exception as e:  # noqa: BLE001
@@ -1439,7 +1439,7 @@ async def open_notebook_start():
     if not _docker_available():
         return {"ok": False, "error": "Docker not available"}
     if not os.getenv("OPEN_NOTEBOOK_ENCRYPTION_KEY"):
-        return {"ok": False, "error": "OPEN_NOTEBOOK_ENCRYPTION_KEY not set — run ./arail setup"}
+        return {"ok": False, "error": "OPEN_NOTEBOOK_ENCRYPTION_KEY not set — run ./arailctl setup"}
     result = subprocess.run(
         ["docker", "compose", "--env-file", _repo_env_file(),
          "-f", _COMPOSE_FILE, "up", "-d"],
@@ -2157,7 +2157,7 @@ async def research_program_draft(request: Request):
 async def research_program_reset():
     """Wipe program.md + train.py + curated source fetches.
 
-    Mirrors ``./arail reset program``. Always preserves prepare.py
+    Mirrors ``./arailctl reset program``. Always preserves prepare.py
     (the validation contract is sticky). Resets the autoresearch
     schedule to paused so the next run starts from a clean slate.
     """
@@ -2204,7 +2204,7 @@ async def research_program_reset():
 
 # ── Jobs / Scheduler API ─────────────────────────────────────────────────
 # Halt = soft emergency stop: cancels running work but keeps the portal
-# and services up, unlike `./arail stop` which tears down everything.
+# and services up, unlike `./arailctl stop` which tears down everything.
 
 @app.get("/api/jobs/state")
 async def jobs_state():
@@ -3467,13 +3467,13 @@ async def admin_security_run_scan():
         from arail.portal import security_scan as _sc
     except ImportError:
         return JSONResponse(
-            {"ok": False, "error": "pip-audit not installed — run ./arail upgrade max"},
+            {"ok": False, "error": "pip-audit not installed — run ./arailctl upgrade max"},
             status_code=503,
         )
 
     if not _sc.is_available():
         return JSONResponse(
-            {"ok": False, "error": "pip-audit not installed — run ./arail upgrade max"},
+            {"ok": False, "error": "pip-audit not installed — run ./arailctl upgrade max"},
             status_code=503,
         )
 
@@ -3493,7 +3493,7 @@ async def admin_security_run_scan_stream():
                 "event": "check", "index": 0, "total": 1,
                 "name": "pip-audit", "status": "fail",
                 "duration_ms": 0,
-                "detail": "pip-audit not installed — run ./arail upgrade max",
+                "detail": "pip-audit not installed — run ./arailctl upgrade max",
             })
             yield f"data: {payload}\n\n"
             done = json.dumps({"event": "done", "passed": 0, "warned": 0, "failed": 1, "total": 1, "total_ms": 0})
@@ -3772,7 +3772,7 @@ async def admin_models_load(request: Request):
                             {
                                 "ok": False,
                                 "error": (
-                                    "airllm not installed — run ./arail upgrade max "
+                                    "airllm not installed — run ./arailctl upgrade max "
                                     "to enable streamed model loading"
                                 ),
                             },
@@ -4341,7 +4341,7 @@ def _prepare_chat_context(
                 "error_result": {
                     "reply": (
                         "The local model router isn't available yet. Run "
-                        "`./arail setup` to install the backend for your "
+                        "`./arailctl setup` to install the backend for your "
                         "hardware, or set MODEL_BACKEND in `.env` to point at "
                         "an OpenAI-compatible local server (LM Studio, Ollama, "
                         "NVIDIA NIM)."
@@ -5219,7 +5219,7 @@ async def api_chat_models():
             "docs_anchor": "sources/seeds/model-building/03-huggingface-models.md",
             "restart_note": (
                 "After downloading, set MODEL_NAME in .env to match the "
-                "folder name, then ./arail restart. Live in-session swap "
+                "folder name, then ./arailctl restart. Live in-session swap "
                 "isn't supported on local backends — the model has to be "
                 "loaded into memory, which takes seconds to minutes."
             ),

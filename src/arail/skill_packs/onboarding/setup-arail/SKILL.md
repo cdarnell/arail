@@ -6,7 +6,7 @@ domain: onboarding
 version: 1.0.0
 tags: [skill, setup, onboarding, install, vibe-integrate]
 when_to_use:
-  - When a user has just cloned the repo and run `./arail setup` for the first time
+  - When a user has just cloned the repo and run `./arailctl setup` for the first time
   - When an agent needs to walk an operator from zero to a working lab
   - When repairing a broken install or porting to a new machine
 when_not_to_use:
@@ -45,7 +45,7 @@ user fill out a form.
 Aim for **five exchanges, max**. Anything more and the user is filling in a
 survey instead of opening a lab.
 
-1. **Greeting + machine sniff.** Run `arail doctor` silently. Greet the
+1. **Greeting + machine sniff.** Run `arailctl doctor` silently. Greet the
    user and tell them what you saw — chip family, accelerator, RAM, free
    disk. Confirm those numbers in a sentence.
 2. **Tier choice.** Two options:
@@ -67,7 +67,7 @@ survey instead of opening a lab.
    flow inside the portal.
 5. **Hand off.** Tell the user the portal is starting, give them the
    URL (`http://127.0.0.1:8080`), and remind them they can re-run
-   setup or `arail doctor` any time.
+   setup or `arailctl doctor` any time.
 
 ## What the agent must check before each prompt
 
@@ -126,7 +126,7 @@ Before declaring setup complete, verify:
 - [ ] `lab.conf` has lab name, owner-stated goal, tier, privacy mode.
 - [ ] `.env` has `LAB_MODE=` set explicitly (airgapped or hybrid).
 - [ ] Starter model exists on disk.
-- [ ] `arail doctor` returns clean.
+- [ ] `arailctl doctor` returns clean.
 - [ ] Portal is reachable on `127.0.0.1:8080`.
 
 If any item fails, do not declare success. Tell the user what's missing

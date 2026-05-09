@@ -10,7 +10,7 @@
 
   Tier gating — `tier_surfaces` is a set injected by portal/app.py. Items
   only render if their key is in the set. Default tier (min) shows only
-  dashboard + chat + research. Upgrade with `./arail upgrade med` or `max`.
+  dashboard + chat + research. Upgrade with `./arailctl upgrade med` or `max`.
 #}
 {% set active = active|default('') %}
 {% set _ts = tier_surfaces|default(['dashboard','chat','research']|list) %}

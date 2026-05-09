@@ -75,7 +75,7 @@ runtime copy (`lab/pkb/agents/<id>/<id>.py`, gitignored). `builtin_seed.py`
 originally seeded the PKB copy via `shutil.copy(builtin, pkb_py)`.
 
 The drift hazard: edits to the gitignored PKB copy survive on one workstation
-but evaporate on `./arail reset pkb` or a clean install, when `builtin_seed.py`
+but evaporate on `./arailctl reset pkb` or a clean install, when `builtin_seed.py`
 re-copies the canonical over the PKB file.
 
 ## The fix (applied to both Buddy and SRE in this sprint)

@@ -75,7 +75,7 @@ def test_boot_scan_emits_activity_log_entry_in_hybrid(monkeypatch, boot_env):
         except ImportError:
             _act.activity_log.emit(
                 "security",
-                "pip-audit not installed — install via ./arail upgrade max to enable CVE scans.",
+                "pip-audit not installed — install via ./arailctl upgrade max to enable CVE scans.",
                 "warn",
             )
         except Exception as e:  # noqa: BLE001

@@ -39,7 +39,7 @@ it's the template for the upcoming Agent Forge.
 
 Every personality agent is a **folder**, not a single file. The
 folder lives under the PKB so the wiki indexes it, `/knowledge` can
-browse it, and `./arail reset pkb` wipes it cleanly.
+browse it, and `./arailctl reset pkb` wipes it cleanly.
 
 ```
 lab/pkb/agents/buddy/
@@ -74,8 +74,8 @@ Five reasons:
 3. **Wiki-indexed.** AGENT.md, decisions.md, and every dream entry
    appear in the wiki automatically. Backlinks work. Search covers
    them.
-4. **Reset-friendly.** `./arail reset pkb` wipes the folder. Next
-   `./arail start` re-seeds it from the builtin copy. No manual
+4. **Reset-friendly.** `./arailctl reset pkb` wipes the folder. Next
+   `./arailctl start` re-seeds it from the builtin copy. No manual
    rebuild.
 5. **Forge-ready.** The Agent Forge (Step 5) generates one of these
    folders per user-created agent. Keeping the shape uniform means
@@ -126,7 +126,7 @@ Three tiers, in order of durability:
    lands in this PR; the scheduler wiring comes in Step 2.
 
 Wiping memory is always one command: delete the file/dir, or run
-`./arail reset pkb`.
+`./arailctl reset pkb`.
 
 ## How agents interact with the rest of the lab
 

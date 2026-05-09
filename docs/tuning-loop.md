@@ -132,5 +132,5 @@ exposes them. The workflow to wire a new one:
 101 tests pass (88 existing + 13 new). Run with:
 
 ```bash
-./arail test   # or: pytest tests/
+./arailctl test   # or: pytest tests/
 ```

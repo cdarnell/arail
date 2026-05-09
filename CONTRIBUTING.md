@@ -23,21 +23,21 @@ Arail's wiki compiler ([src/arail/docgen.py](src/arail/docgen.py)) scans the rep
 - **Compose YAML** — first comment block + service/image/ports summary.
 - **Guides** — copied verbatim if frontmatter exists, enriched if it doesn't.
 
-So **any time you add or change a Python module, shell script, or compose overlay, write the docstring/header comment first**. It lands in the wiki automatically the next time someone clicks Rebuild on `/wiki` or runs `./arail wiki build`. Good docs become discoverable without any extra curation work. See [docs/wiki.md](docs/wiki.md) for the wiki user guide.
+So **any time you add or change a Python module, shell script, or compose overlay, write the docstring/header comment first**. It lands in the wiki automatically the next time someone clicks Rebuild on `/wiki` or runs `./arailctl wiki build`. Good docs become discoverable without any extra curation work. See [docs/wiki.md](docs/wiki.md) for the wiki user guide.
 
 ## Development loop
 
 ```bash
 git clone <your-fork>
 cd arail
-./arail setup    # creates .venv, installs deps, generates ARAIL_PASSWORD
-./arail start    # launches portal, terminal, notebook, IDE
+./arailctl setup    # creates .venv, installs deps, generates ARAIL_PASSWORD
+./arailctl start    # launches portal, terminal, notebook, IDE
 ```
 
 Edit code, reload the portal (uvicorn auto-reloads if you run it directly), iterate. When you're done:
 
 ```bash
-./arail doctor        # import + smoke test
+./arailctl doctor        # import + smoke test
 python -m pytest      # if you added tests (there aren't many yet — help wanted)
 ```
 
@@ -46,7 +46,7 @@ python -m pytest      # if you added tests (there aren't many yet — help wante
 - [ ] The change fits one of the design principles above.
 - [ ] No new secrets, API keys, or absolute local paths in tracked files.
 - [ ] No new unauthenticated mutating endpoints on the portal.
-- [ ] `./arail doctor` passes on your machine.
+- [ ] `./arailctl doctor` passes on your machine.
 - [ ] If you touched `scripts/setup.sh`, you ran it on a clean checkout and it completed without prompting for anything it shouldn't.
 - [ ] If you added a new env var, it's documented in `.env.example`.
 - [ ] If you added or changed a dependency, `pyproject.toml` is the source of truth and the PR explains why it belongs.

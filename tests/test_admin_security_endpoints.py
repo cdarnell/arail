@@ -97,7 +97,7 @@ def test_run_scan_503_when_pip_audit_missing(monkeypatch, app_with_tmp_data):
     body = r.json()
     assert body["ok"] is False
     assert "pip-audit not installed" in body["error"]
-    assert "./arail upgrade max" in body["error"]
+    assert "./arailctl upgrade max" in body["error"]
 
 
 # ---------------------------------------------------------------------------

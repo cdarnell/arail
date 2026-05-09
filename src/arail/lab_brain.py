@@ -6,7 +6,7 @@ do, and what state it's in right now**. Without this, the model is a
 generic assistant that doesn't know its own environment. With this,
 it can answer questions like:
 
-    "How do I run a new experiment?"     → knows about ./arail CLI
+    "How do I run a new experiment?"     → knows about ./arailctl CLI
     "Where does the agent write reports?" → knows lab/pkb/agents/
     "Is the heavy window active?"         → checks the scheduler
     "How do I halt the researcher?"       → knows the Halt button
@@ -94,7 +94,7 @@ The lab's brain on disk. Folder layout:
 - `inference/` — saved prompts, completions, chains
 - `.wiki-cache/manifest.json` — compiled wiki index
 
-CLI: `./arail pkb {ingest,compile,browse}`.
+CLI: `./arailctl pkb {ingest,compile,browse}`.
 
 ## Wiki (arail.wiki + arail.docgen)
 
@@ -107,7 +107,7 @@ A self-curating wiki at `/wiki` that:
   Python module via `ast`, every shell script's header comment,
   every compose overlay, every hand-written guide, the `.env.example`
   reference. Write a better docstring, rebuild, get better docs.
-- Rebuild button on the dashboard, or `./arail wiki build`, or
+- Rebuild button on the dashboard, or `./arailctl wiki build`, or
   `POST /api/wiki/rebuild`.
 - Auto-rebuilds 30 seconds after any researcher write (debounced).
 
@@ -136,18 +136,18 @@ FastAPI app at http://127.0.0.1:8080 with routes:
 - `/api/jobs/*` — halt, resume, state
 - `/api/system/*` — health, costs, destroy, graph
 
-## CLI (./arail)
+## CLI (./arailctl)
 
 One dispatcher, every subcommand:
 
-    ./arail setup       # first-time provision
-    ./arail start       # launch portal + services
-    ./arail stop        # graceful shutdown
-    ./arail status      # what's running
-    ./arail doctor      # env validation
-    ./arail reset       # wipe state (with --yes gate)
-    ./arail pkb <op>    # knowledge base ops
-    ./arail wiki <op>   # documentation-as-code
+    ./arailctl setup       # first-time provision
+    ./arailctl start       # launch portal + services
+    ./arailctl stop        # graceful shutdown
+    ./arailctl status      # what's running
+    ./arailctl doctor      # env validation
+    ./arailctl reset       # wipe state (with --yes gate)
+    ./arailctl pkb <op>    # knowledge base ops
+    ./arailctl wiki <op>   # documentation-as-code
 """
 
 

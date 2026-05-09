@@ -13,11 +13,11 @@ first-run choices to the target hardware.
 ## 0. What you need
 
 - **macOS**, **Linux**, or **Windows + WSL2**. Native Windows shells are not
-  supported by `./arail setup`.
+  supported by `./arailctl setup`.
 - ~8 GB free disk for the `min` tier, ~60 GB for the `max` tier.
 - Git, a terminal, and a browser.
 
-`./arail setup` bootstraps everything else for you. If Homebrew, Python
+`./arailctl setup` bootstraps everything else for you. If Homebrew, Python
 3.11, or Node.js are missing, it'll prompt once and then install them via
 your platform's package manager. Pass `ARAIL_NONINTERACTIVE=1` (the
 agent-driven flag) to skip every prompt, or `ARAIL_AUTO_INSTALL=0` to
@@ -37,7 +37,7 @@ cd autoresearch-lab
 
 ## 2. Decide on a tier
 
-Two tiers. You can change your mind later with `./arail upgrade max`.
+Two tiers. You can change your mind later with `./arailctl upgrade max`.
 
 ### 🟢 `min` — the everyday lab
 
@@ -70,7 +70,7 @@ Two tiers. You can change your mind later with `./arail upgrade max`.
     405B"). Frontier open-weight inference on whatever hardware you
     happen to have.
   - Hardware-specific extras (MLX, CUDA, or CPU) install automatically
-    based on what `./arail setup` detects.
+    based on what `./arailctl setup` detects.
 - **Good for**: real experiments, frontier models, the full kitchen sink.
 
 > **Heads up — Llama is gated.** Both 70B and 405B require accepting the
@@ -80,10 +80,10 @@ Two tiers. You can change your mind later with `./arail upgrade max`.
 
 ---
 
-## 3. Run `./arail setup`
+## 3. Run `./arailctl setup`
 
 ```bash
-./arail setup
+./arailctl setup
 ```
 
 This walks you through 10 steps:
@@ -106,7 +106,7 @@ Everything is idempotent — re-run any time without fear.
 ## 4. Start the lab
 
 ```bash
-./arail start
+./arailctl start
 ```
 
 Open [http://127.0.0.1:8080](http://127.0.0.1:8080). You're in.
@@ -118,11 +118,11 @@ Open [http://127.0.0.1:8080](http://127.0.0.1:8080). You're in.
 When you're ready for more:
 
 ```bash
-./arail upgrade max     # bumps AirLLM default 70B → 405B + adds notebook/cloud orchestration extras
-./arail restart         # pick up the new nav
+./arailctl upgrade max     # bumps AirLLM default 70B → 405B + adds notebook/cloud orchestration extras
+./arailctl restart         # pick up the new nav
 ```
 
-`./arail upgrade min` is a downgrade — it doesn't uninstall packages, it
+`./arailctl upgrade min` is a downgrade — it doesn't uninstall packages, it
 just hides the extra tabs. Hit `upgrade max` any time to get them back.
 
 ---
@@ -166,7 +166,7 @@ LAB_SHORT_NAME="sams-lab"
 LAB_TAGLINE="Our family AI bench"
 ```
 
-`./arail restart` and every banner, title, log line, and wiki landing page
+`./arailctl restart` and every banner, title, log line, and wiki landing page
 now says "Sam's AI Lab".
 
 ---
@@ -174,10 +174,10 @@ now says "Sam's AI Lab".
 ## 8. Troubleshooting
 
 ```bash
-./arail doctor          # end-to-end validation
-./arail status          # what's running, on which ports
-./arail logs            # live activity tail
-./arail reset help      # ways to wipe state if something went very wrong
+./arailctl doctor          # end-to-end validation
+./arailctl status          # what's running, on which ports
+./arailctl logs            # live activity tail
+./arailctl reset help      # ways to wipe state if something went very wrong
 ```
 
 See [docs/TROUBLESHOOTING.md](TROUBLESHOOTING.md) for common first-run gotchas.
@@ -186,11 +186,11 @@ See [docs/TROUBLESHOOTING.md](TROUBLESHOOTING.md) for common first-run gotchas.
 
 ## 9. The `qkz` alias
 
-If typing `./arail` gets old, there's a symlink at `./qkz` that does the same
+If typing `./arailctl` gets old, there's a symlink at `./qkz` that does the same
 thing. Or alias it in your shell:
 
 ```bash
-alias qkz='./arail'     # then: qkz setup, qkz start, qkz restart
+alias qkz='./arailctl'  # then: qkz setup, qkz start, qkz restart
 ```
 
 Happy researching.

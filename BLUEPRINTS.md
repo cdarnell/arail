@@ -9,19 +9,19 @@ live in [`blueprints/README.md`](./blueprints/README.md).
 
 Blueprints are concrete TOML artifacts under
 [`blueprints/<id>/blueprint.toml`](./blueprints/), wired through
-the `./arail blueprint` subcommand:
+the `./arailctl blueprint` subcommand:
 
 ```bash
-./arail blueprint list                                # available blueprints
-./arail blueprint catalog                             # model compatibility matrix
-./arail blueprint create research --from autoresearch # scaffold a new instance
-./arail blueprint apply research                      # re-render after editing
-./arail blueprint destroy research                    # remove an instance
+./arailctl blueprint list                                # available blueprints
+./arailctl blueprint catalog                             # model compatibility matrix
+./arailctl blueprint create research --from autoresearch # scaffold a new instance
+./arailctl blueprint apply research                      # re-render after editing
+./arailctl blueprint destroy research                    # remove an instance
 ```
 
-Each `arail blueprint create` scaffolds an isolated instance under
+Each `arailctl blueprint create` scaffolds an isolated instance under
 `instances/<name>/` (its own `.env`, `lab.conf`, `log/`, port range).
-The default ARAIL lab — what `./arail setup` provisions at the repo
+The default ARAIL lab — what `./arailctl setup` provisions at the repo
 root — is untouched. See
 [`blueprints/README.md`](./blueprints/README.md) for the full
 schema and authoring guide.
