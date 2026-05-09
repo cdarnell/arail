@@ -1063,7 +1063,13 @@ class AeroLLMBackend(BaseBackend):
                 "cd aerollm/crates/aerollm-api && maturin develop --release"
             ) from e
 
-        self.model_name = os.getenv("AEROLLM_MODEL", "Qwen2.5-7B-Instruct")
+        # Default model picks the 4-bit MLX quant — ~4 GB resident, fits a
+        # 16 GB Apple Silicon Mac with ~6 GB headroom for portal + browser.
+        # Operators upgrade by setting AEROLLM_MODEL (max tier ships with
+        # Llama-3.1-70B-Instruct-4bit, populated by setup.sh).
+        self.model_name = os.getenv(
+            "AEROLLM_MODEL", "Qwen2.5-7B-Instruct-4bit"
+        )
         models_dir = os.getenv("ARAIL_MODELS_DIR", "lab/models")
         # Accept either a bare directory name (resolved against
         # ARAIL_MODELS_DIR) or an absolute path. The bare-name form is
@@ -1075,11 +1081,15 @@ class AeroLLMBackend(BaseBackend):
             model_path = os.path.join(models_dir, self.model_name)
 
         if not os.path.isdir(model_path):
+            # Suggest the matching huggingface-cli download for whichever
+            # default the operator landed on. The mlx-community/...-4bit
+            # repo IDs are the canonical 4-bit MLX conversions.
+            hf_repo = "mlx-community/" + self.model_name
             raise RuntimeError(
                 f"AeroLLM model dir not found: {model_path}. "
                 f"Set AEROLLM_MODEL and/or ARAIL_MODELS_DIR, or "
                 f"download the checkpoint with `huggingface-cli download "
-                f"Qwen/Qwen2.5-7B-Instruct --local-dir {model_path}`."
+                f"{hf_repo} --local-dir {model_path}`."
             )
 
         # Optional speculative-decoding draft. When AEROLLM_DRAFT_MODEL
@@ -1101,6 +1111,28 @@ class AeroLLMBackend(BaseBackend):
         ring_depth = os.getenv("AEROLLM_RING_DEPTH")
         if ring_depth and ring_depth.isdigit() and int(ring_depth) > 0:
             rt_kwargs["ring_depth"] = int(ring_depth)
+
+        # KV cache budget — by default aerollm auto-detects 80% of system
+        # RAM, which is too aggressive when the lab portal + browser are
+        # also running. AEROLLM_KV_BUDGET_PCT lets operators reserve a
+        # smaller fraction; default 0.60 leaves ~40% for everything else
+        # on a 16 GB Mac. Skip the cap when the env var is missing or
+        # invalid so users still get aerollm's auto-detect.
+        kv_budget_pct_raw = os.getenv("AEROLLM_KV_BUDGET_PCT", "").strip()
+        if kv_budget_pct_raw:
+            try:
+                pct = float(kv_budget_pct_raw)
+            except ValueError:
+                pct = 0.0
+            if 0.0 < pct < 1.0:
+                try:
+                    import psutil  # already a hard dep — see pyproject.toml
+                    total_bytes = int(psutil.virtual_memory().total)
+                    rt_kwargs["kv_memory_budget"] = int(total_bytes * pct)
+                except Exception:  # noqa: BLE001
+                    # psutil missing or virtual_memory unreadable — let
+                    # aerollm fall back to its own auto-detect default.
+                    pass
 
         # TODO(runtime-profile): Once AeroLLM accepts construction-time
         # ring_depth + batch from runtime profile, replace the env-only
