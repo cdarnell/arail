@@ -191,6 +191,35 @@
     .advanced-tunables > .core-tunables { margin: var(--s-3) var(--s-3) 0; }
     .advanced-tunables > .core-tunables:last-of-type { margin-bottom: var(--s-3); }
 
+    /* Preset reveal — when a preset auto-opens the drawer, changed rows
+       briefly flash green and show a "0.7 → 0.2" badge so the user
+       learns what the preset actually changed. Educational disclosure:
+       every reveal teaches what the AI/preset just did. */
+    .tunable.tunable-changed {
+      animation: tunable-flash 1.6s ease-out;
+    }
+    @keyframes tunable-flash {
+      0%   { background: var(--green-a16, rgba(94, 200, 130, 0.16)); }
+      60%  { background: var(--green-a08, rgba(94, 200, 130, 0.08)); }
+      100% { background: transparent; }
+    }
+    .tunable .delta-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      margin-left: var(--s-2);
+      padding: 1px 6px;
+      border-radius: 999px;
+      font-size: var(--fs-xs);
+      font-weight: 600;
+      background: var(--green-a08, rgba(94, 200, 130, 0.08));
+      color: var(--green);
+      border: 1px solid var(--green-a16, rgba(94, 200, 130, 0.16));
+      transition: opacity 0.4s ease-out;
+    }
+    .tunable .delta-badge .arrow { color: var(--muted); font-weight: 400; }
+    .tunable .delta-badge.fading { opacity: 0; }
+
     .rail-left, .rail-right {
       max-height: calc(100dvh - var(--nav-h) - var(--s-4));
       overflow-y: auto;
@@ -2119,15 +2148,66 @@
         rail toggles are wired inside init()) */
 
     // ── Presets ────────────────────────────────────────────────────
+    // Educational disclosure: when a preset is clicked, snapshot the
+    // current tunable values, apply the preset, then reveal the
+    // tunables drawer with the changed rows highlighted and a
+    // "prev → new" badge inline. The user learns what e.g. "Coder"
+    // means in dial terms (temp 0.7 → 0.2, top_k 40 → 40, etc.) instead
+    // of seeing only the preset name.
+    //
+    // Sticky close: if the user manually collapses the drawer, we
+    // suppress auto-open on subsequent preset clicks until they
+    // manually open it again. _drawerProgrammaticToggle guards the
+    // toggle listener from confusing our open() with a user click.
+    State._drawerUserClosed = false;
+    State._drawerProgrammaticToggle = false;
+    (function wireAdvancedTunablesStickyClose() {
+      const det = document.getElementById('advanced-tunables');
+      if (!det) return;
+      det.addEventListener('toggle', () => {
+        if (State._drawerProgrammaticToggle) return; // ignore our own opens
+        State._drawerUserClosed = !det.open;
+      });
+    })();
+    function openAdvancedTunablesProgrammatically() {
+      const det = document.getElementById('advanced-tunables');
+      if (!det || det.open) return;
+      State._drawerProgrammaticToggle = true;
+      det.open = true;
+      // Release the guard on the next tick so user-driven closes still register.
+      setTimeout(() => { State._drawerProgrammaticToggle = false; }, 0);
+    }
+    function diffTunables(prev, next) {
+      const deltas = {};
+      Object.keys(next).forEach(k => {
+        const a = prev[k], b = next[k];
+        if (a === b) return;
+        // Treat numeric "close enough" as same to avoid float noise.
+        if (typeof a === 'number' && typeof b === 'number' && Math.abs(a - b) < 1e-9) return;
+        deltas[k] = { prev: a, next: b };
+      });
+      return deltas;
+    }
     $('presets').addEventListener('click', (e) => {
       const b = e.target.closest('button[data-preset]');
       if (!b) return;
       const p = b.dataset.preset;
+      const prevSnapshot = {...State.tunables};
       State.preset = p;
       Array.from($('presets').children).forEach(x => x.classList.toggle('active', x === b));
       Object.assign(State.tunables, PRESETS[p]);
-      renderTunables();
-      flashStatus(`preset → ${p}`);
+      const deltas = diffTunables(prevSnapshot, State.tunables);
+      const changedCount = Object.keys(deltas).length;
+      renderTunables(deltas);
+      // Reveal the drawer so the user SEES what changed — unless they
+      // explicitly closed it earlier this session.
+      if (changedCount > 0 && !State._drawerUserClosed) {
+        openAdvancedTunablesProgrammatically();
+      }
+      const msg = changedCount === 0
+        ? `preset → ${p} (no change)`
+        : `preset → ${p} · ${changedCount} value${changedCount === 1 ? '' : 's'} updated`;
+      flashStatus(msg);
     });
 
     // ── Tunables ──────────────────────────────────────────────────
@@ -2222,7 +2302,7 @@
       if (cb)     cb.addEventListener('change',     (e) => apply(e.target.checked, 'toggle'));
       if (ta)     ta.addEventListener('input',      (e) => apply(e.target.value,   'textarea'));
     }
-    function renderTunables() {
+    function renderTunables(deltas) {
       const groups = ['sampling','length','penalties','format','repro','runtime'];
       groups.forEach(g => {
         const wrap = $('tunables-' + g);
@@ -2233,8 +2313,40 @@
           const row = buildTunableRow(t, v);
           wrap.appendChild(row);
           wireTunableRow(row, t);
+          if (deltas && deltas[t.key]) {
+            decorateDeltaRow(row, t, deltas[t.key]);
+          }
         });
       });
+    }
+    function formatDeltaVal(v) {
+      if (typeof v === 'boolean') return v ? 'on' : 'off';
+      if (typeof v === 'number') return Number.isInteger(v) ? String(v) : v.toFixed(2);
+      if (v == null || v === '') return '∅';
+      return String(v);
+    }
+    function decorateDeltaRow(row, def, delta) {
+      // Visual flash on the row.
+      row.classList.add('tunable-changed');
+      // Inline badge next to the tunable name showing the prev → new value.
+      const nameEl = row.querySelector('.head .name');
+      if (nameEl) {
+        const badge = document.createElement('span');
+        badge.className = 'delta-badge';
+        badge.title = `${def.label}: changed by preset`;
+        badge.innerHTML = `${escapeHtml(formatDeltaVal(delta.prev))}` +
+                         ` <span class="arrow">→</span> ` +
+                         `${escapeHtml(formatDeltaVal(delta.next))}`;
+        nameEl.appendChild(badge);
+        // Fade the badge after 6s so the visual noise self-clears, but
+        // leave the row's new value in place. Keep the badge in DOM
+        // briefly after fading so reduced-motion users still see it.
+        setTimeout(() => badge.classList.add('fading'), 6000);
+        setTimeout(() => badge.remove(), 7000);
+      }
+      // Strip the row-flash class after the animation so re-clicking
+      // the same preset replays it cleanly next time.
+      setTimeout(() => row.classList.remove('tunable-changed'), 1700);
     }
     function formatNum(v, step) {
       if (typeof v !== 'number') return String(v);
