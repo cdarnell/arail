@@ -18,7 +18,7 @@ This file mirrors the pattern of `lab/pkb/agents/pip/pip.py`:
 
 Drafter does NOT inherit from any framework. ARAIL's v2 agent
 framework (informed by PARL prior art) is roadmap; until then
-agents are POPOs (plain old Python objects) like Pip.
+agents are POPOs (plain old Python objects) like Buddy.
 """
 
 from __future__ import annotations
@@ -185,7 +185,7 @@ class DrafterAgent:
 
 
 # ── Singleton ────────────────────────────────────────────────────────
-# Mirrors the Pip pattern. Import as `from arail.agents.drafter import drafter`
+# Mirrors the Buddy pattern. Import as `from arail.agents.drafter import drafter`
 # OR resolved by the agent loader walking lab/pkb/agents/drafter/.
 
 drafter = DrafterAgent()

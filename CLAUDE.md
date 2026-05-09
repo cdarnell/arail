@@ -13,7 +13,7 @@ blueprint. Clone the repo, run `./arailctl setup && ./arailctl start`, pick a
 tier, and you have a dashboard, a chat tab with a Compute Source pivot
 (local MLX/CUDA/llama.cpp or any cloud vendor), an autoresearch loop
 that runs experiments while you're away, an agent-driven knowledge base
-backed by LanceDB, and three built-in agents (Pip, SRE, Researcher).
+backed by LanceDB, and three built-in agents (Buddy, SRE, Researcher).
 Default mode is `airgapped`; flip to `hybrid` and cloud providers
 become fallbacks. ARAIL is positioned as a blueprint, not a product:
 users are expected to fork, rename, and adapt.
@@ -83,7 +83,7 @@ and (more deeply) `docs/agents-explained.md`:
    agent is the engine.
 4. **Knowledge Base** — LanceDB vector index over papers, notes,
    uploaded PDFs.
-5. **Agents** — Pip (lab buddy), SRE (crash watcher), Researcher
+5. **Agents** — Buddy (lab partner), SRE (crash watcher), Researcher
    (autoresearch engine). User-defined agents drop into
    `lab/pkb/agents/<id>/` with `AGENT.md` + `<id>.py`.
 
@@ -170,7 +170,7 @@ parts.
    in `src/arail/portal/static/`.
 3. **For an agent change**: `docs/agents.md` has the loader contract.
    `lab/pkb/agents/<id>/` is where agents live. The three built-ins
-   (Pip, SRE, Researcher) are reference implementations.
+   (Buddy, SRE, Researcher) are reference implementations.
 4. **For setup / port work**: `scripts/setup.sh` is the only file you
    need to touch. `AGENTS.md` walks an external agent through what each
    `case` statement does and what to add.

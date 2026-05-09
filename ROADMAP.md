@@ -46,7 +46,6 @@ retained behind `?legacy=1` for one release after M5.
 
 ## Next
 
-- **Pip rename** — pick Scout / Muse / Buddy; wire whisper component to the renamed agent.
 - **Speculative decoding integration** — QuKaizen swarm + AeroLLM layer-streaming for batched draft/verify (see `memory/project_speculative_decoding_integration.md`).
 - **Domain expert distillation** — second flagship; needs the fine-tune factory from maximus.plan §6.
 - **Mission Status ↔ chat surfacing** — clicking a step caption deep-links to the relevant chat thread.

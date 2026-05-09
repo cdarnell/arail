@@ -111,7 +111,7 @@ JetBrains Mono everywhere. No exceptions.
 | **Activity row** | dashboard | Timestamp · agent · message; alternating row tint optional. |
 | **Indicator dot** | card headings | 6×6 round, color signals state (green online, amber working, red error, blue info). |
 | **Tooltip / popover** | tooltips, parse helper | `--surface2` bg, `--border-hi`, `--elev-2`. |
-| **Toast (proposed)** | corner, pip whisper | See §6. |
+| **Toast (proposed)** | corner, Buddy whisper | See §6. |
 | **Gauge (Mission Status)** | dashboard | Currently number + bar; needs step‑context (see §6). |
 
 States every interactive element must define: **idle, hover, focus, active, disabled, loading**.
@@ -134,8 +134,7 @@ States every interactive element must define: **idle, hover, focus, active, disa
 Tracked in `memory/project_pending_ui_work.md`. Mirror here so contributors see them.
 
 - **Mission Status step‑context.** Gauge should sit next to a 1–2 line "what step are we in" caption, not stand alone.
-- **Pip rename.** Current personality agent name `pip` is placeholder. Candidates: Scout / Muse / Buddy. Pick before introducing the next surface that names them.
-- **Corner‑toast whisper.** Proactive low‑volume notifications from the personality agent. Bottom‑right, `--surface2` + `--purple` left border, auto‑dismiss 8s, click → opens chat focused on that thread.
+- **Corner‑toast whisper.** Proactive low‑volume notifications from Buddy. Bottom‑right, `--surface2` + `--purple` left border, auto‑dismiss 8s, click → opens chat focused on that thread.
 - **Sticky nav?** Pages are getting longer (chat, knowledge). Decide before adding more.
 - **Single CSS file vs per‑surface files.** Currently 7 css files (style + agents + research + knowledge + skills + graph + wiki). Fine for now. Re‑evaluate when style.css crosses 3000 lines.
 

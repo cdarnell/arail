@@ -422,26 +422,60 @@ its own win condition. Don't bundle.
 
 ---
 
-## 6. Open questions for the owner
+## 6. Open questions — resolved 2026-05-09
 
-Things I can't decide for you:
+1. **Quiet Mode (4.1) — RESOLVED: schedule, not toggle.**
+   Quiet Mode becomes a *time-based schedule* set during setup with an
+   intuitive runtime override. The default flips Quiet Mode on outside
+   work hours; the operator can toggle it back to Lab Mode for the rest
+   of the day, and tomorrow it returns to schedule. Removes the
+   "which mode am I in?" cognitive tax that a free-floating toggle
+   would create. Lives in its own future sprint (likely Phase 5+);
+   `LAB_MODE=airgapped` and Quiet Mode are orthogonal — one governs
+   cloud access, the other UI density.
 
-1. **Quiet Mode vs always-Lab Mode (4.1):** worth piloting, or feels like
-   feature bloat?
-2. **Now Playing strip (4.2):** the persistent goal/backend/tok-rate strip —
-   useful constant context, or visual noise?
-3. **Buddy-narrated landing (4.4):** is this *the* product (lab buddy is the
-   front door) or a side experiment?
-4. **Tier max-only complexity:** admin and tuning are already gated to max
-   tier. Does "users overwhelmed" include max-tier users, or only min-tier?
-   (If only min-tier — Phase 4 deprioritizes.)
-5. **Telemetry to validate:** before Phase 1 ships, do you have ANY signal
-   on what users actually click vs ignore? If not, even rough click logging
-   on the dashboard would tell us within a week which sections are dead
-   weight and which are load-bearing.
-6. **Mobile/tablet:** is this a desktop-only target, or do you need the
-   simplification to also work at narrow widths? (Affects drawer widths, the
-   2-up meter pair, and tab vs vertical stack on admin.)
+2. **Now Playing strip (4.2) — RESOLVED: roadmap.**
+   Tied to telemetry signal (Q5). Defer until we know whether the lab
+   genuinely benefits from a persistent goal/backend/tok-rate strip on
+   every page, vs the strip just stealing 24 px of vertical space.
+
+3. **Buddy-narrated landing (4.4) — RESOLVED: deferred behind paperagents.**
+   The agent is **Buddy** (not Pip — that name is retired; it collided
+   with the Python `pip` package). Buddy is "your best friend and lab
+   assistant who is always trying to help you with the next step." A
+   Buddy-narrated landing surface is the right product direction, but
+   it waits on the **paperagents** (paperclip AI) integration the
+   owner is building. Don't ship a Buddy front door before paperagents;
+   the voice has to be paperclip-AI-shaped, not the current placeholder.
+
+4. **Tier max-only complexity — RESOLVED: platform-wide cleanup.**
+   "Users overwhelmed" applies across both min and max tiers. Phase 4
+   (admin restructure) stays in scope; this is a platform call, not a
+   tier-specific complaint. The simplification arc applies uniformly.
+
+5. **Telemetry — RESOLVED: half-day sprint before Phase 2.**
+   Tiny `POST /api/telemetry/event` + JSONL roll-up to
+   `lab/data/telemetry.jsonl`. Local-first, airgapped-respecting (no
+   network egress). Click handlers on every disclosure trigger emit
+   one event per click. After ~1 week of dogfood we know which Phase 1
+   collapses are loved vs ignored — every Phase 2-5 decision becomes
+   evidence-backed instead of vibe-backed. Sprint goes first, then
+   Phase 2 starts.
+
+6. **Mobile/tablet — RESOLVED: roadmap.**
+   Desktop-first remains the design constraint. Mobile/tablet
+   responsiveness is on the roadmap, not in the simplification arc.
+   Phase 2 drawer widths, 2-up meter pair stacking, and admin tabs
+   are designed for desktop with tablet-portrait tolerance only.
+
+### Resolution timeline
+
+All six questions resolved on 2026-05-09. Phase ordering after this
+update: **Phase 0 (telemetry, half-day) → Phase 2 (chat preset row +
+⚙ drawer) → Phase 3 (active-only patterns) → Phase 4 (admin
+restructure) → Phase 5 (Quiet-Mode-as-schedule, Now Playing strip,
+Buddy-narrated landing — each its own sprint, paperagents-gated where
+applicable).**
 
 ---
 

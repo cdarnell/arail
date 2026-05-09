@@ -16,8 +16,8 @@ Five pieces hang off the loop:
     5. Memory       — cooldowns + dreams (state.json, dream())
 
 The loop in BuddyAgent._run runs two cadences. Every interval tick
-(default 90s) it polls WATCHERS — the same passive-observation loop
-that shipped as Pip. Every suggestion interval (default 15 min) and
+(default 90s) it polls WATCHERS — the passive-observation loop.
+Every suggestion interval (default 15 min) and
 only when a goal is active, it polls SUGGESTERS for goal-anchored
 proposals. Reactive observations and goal-aware suggestions share
 the same global cooldown so Buddy never double-talks.
@@ -202,8 +202,8 @@ def _state_file() -> Path:
 NAME = "Buddy"
 EMOJI = "🐧"
 
-# The voice. A touch longer than passive Pip — Buddy needs space for
-# action verbs ("Worth a look:", "Try the X skill:", "Run a sweep…").
+# The voice. Buddy needs space for action verbs
+# ("Worth a look:", "Try the X skill:", "Run a sweep…").
 # ~50 words is the sweet spot for local models given the active
 # framing.
 SYSTEM_PROMPT = (

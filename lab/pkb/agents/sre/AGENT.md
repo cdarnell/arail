@@ -23,7 +23,7 @@ SRE Watch is a reliability agent. It reads `lab/data/activity.jsonl`
 on every tick and surfaces errors and crash recurrences in the
 activity feed — so you notice them without having to tail a log file.
 
-Unlike Pip (which notices interesting things and speaks warmly), SRE
+Unlike Buddy (which notices interesting things and speaks warmly), SRE
 Watch is clinical. One sentence. Type, location, count. No hedging.
 
 ## What SRE Watch monitors
