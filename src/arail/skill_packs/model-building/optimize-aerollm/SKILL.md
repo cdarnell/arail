@@ -69,7 +69,7 @@ agent decomposes the lab goal into this structure automatically.
    SSD; maybe deeper prefetch thrashes the page cache; maybe CPU
    cores saturate). Design the experiment to distinguish.
 4. **Implement.** Ship the change against the AeroLLM clone.
-   Rebuild via `./arail setup && ./arail restart`.
+   Rebuild via `./arailctl setup && ./arailctl restart`.
 5. **Measure.** Run the same 10+ messages. Compare against baseline.
 6. **Write up.** One markdown file under
    `lab/pkb/agents/research/` with baseline, delta, side-effects,

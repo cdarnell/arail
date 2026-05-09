@@ -60,7 +60,7 @@ class GraphStore:
         if AsyncGraphDatabase is None:
             raise RuntimeError(
                 "neo4j Python driver is not installed. Install with `pip install neo4j` "
-                "or run ./arail setup to enable the Knowledge Canvas backend."
+                "or run ./arailctl setup to enable the Knowledge Canvas backend."
             )
         self.n = AsyncGraphDatabase.driver(neo4j_uri, auth=neo4j_auth)
         self.embed = get_embedder()

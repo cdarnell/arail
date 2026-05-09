@@ -155,7 +155,7 @@
     </p>
     <p>
       Open Notebook encrypts stored API keys and research data at rest.
-      Run <code>./arail setup</code> to set a lab passphrase (it derives
+      Run <code>./arailctl setup</code> to set a lab passphrase (it derives
       the encryption key automatically), or add it manually:
     </p>
     <pre># .env
@@ -185,8 +185,8 @@ OPEN_NOTEBOOK_ENCRYPTION_KEY=your-passphrase-here</pre>
     <pre>brew install --cask docker     # macOS
 # or visit https://docs.docker.com/get-docker/</pre>
     <h3>Then set up the lab</h3>
-    <pre>./arail setup                  # generates encryption key
-./arail start                  # or just reload this page and click Start</pre>
+    <pre>./arailctl setup                  # generates encryption key
+./arailctl start                  # or just reload this page and click Start</pre>
   </div>
   {% endif %}
 </div>

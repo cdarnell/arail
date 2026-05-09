@@ -20,7 +20,7 @@ services:
     container_name: arail-marimo
     working_dir: /notebooks
     # Auth model: --token-password sets a fixed, known token. We pass
-    # ARAIL_PASSWORD (the unified passphrase set by ./arail setup) so
+    # ARAIL_PASSWORD (the unified passphrase set by ./arailctl setup) so
     # every surface in the lab uses the same secret. The dashboard
     # addon chip appends ?access_token=<pass> automatically, so the
     # user never has to paste the token manually.

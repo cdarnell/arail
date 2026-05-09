@@ -49,7 +49,7 @@ lab that belongs to whoever spins it up.
 | LangChain / LangGraph               | —                    | ✅                  |
 | Cloud catalogue (Claude/NVIDIA/…)   | partial (HTTP only)  | full (SDKs)         |
 
-Upgrade with `./arail upgrade max`. Downgrade (`./arail upgrade min`)
+Upgrade with `./arailctl upgrade max`. Downgrade (`./arailctl upgrade min`)
 only hides the tabs — doesn't uninstall packages.
 
 ## Chat provider pivot
@@ -97,7 +97,7 @@ Operators must explicitly set `LAB_MODE=hybrid` in `.env` and restart.
 ## Execution plan carried out
 
 1. Package renamed to `arail`. 129 tests pass.
-2. CLI moved to `./arail` with `./qkz` symlink.
+2. CLI moved to `./arailctl` with `./qkz` symlink.
 3. `brand.py` default → "Autoresearch AI Lab", rebrandable via `LAB_NAME`.
 4. Two tiers in [pyproject.toml](pyproject.toml): `min`, `max`.
 5. `_nav.html` reads `tier_surfaces` from [portal/app.py](src/arail/portal/app.py).

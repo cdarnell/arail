@@ -18,7 +18,7 @@ functions. Out of the box those know:
 | Fedora | `dnf` | worked example below |
 | openSUSE / NixOS / Alpine / … | whatever | **port it with an agent** (see [AGENTS.md](../AGENTS.md)) |
 
-If `./arail setup` doesn't recognize your distro, you have two options:
+If `./arailctl setup` doesn't recognize your distro, you have two options:
 either port the setup script yourself (~20 lines), or hand the
 blueprint to an agent and let it do it for you.
 
@@ -74,10 +74,10 @@ elif [[ -f /etc/arch-release ]]; then
 fi
 ```
 
-That's it. After those three stanzas, `./arail setup` on Arch behaves
+That's it. After those three stanzas, `./arailctl setup` on Arch behaves
 identically to Ubuntu or macOS — it creates the venv, installs the
 Python package, downloads a model, captures your goal, and hands off
-to `./arail start`.
+to `./arailctl start`.
 
 ## Worked example — Fedora Workstation
 
@@ -119,7 +119,7 @@ sudo dnf install -y akmod-nvidia xorg-x11-drv-nvidia-cuda
 nvidia-smi
 ```
 
-After that, `./arail setup` detects CUDA automatically and uses the
+After that, `./arailctl setup` detects CUDA automatically and uses the
 existing cuda branch. The Fedora-specific work is just the three-line
 port above.
 
@@ -190,7 +190,7 @@ If you're running this on a box without a graphical shell (a home lab,
 a VPS, a dedicated research machine), skip the auto-open browser step:
 
 ```bash
-ARAIL_NO_BROWSER=1 ./arail start
+ARAIL_NO_BROWSER=1 ./arailctl start
 ```
 
 Bind to all interfaces instead of localhost by editing `lab.conf`:

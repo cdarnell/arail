@@ -83,18 +83,18 @@ Separate the repo into four concerns:
 
 ## Backward-compatibility guardrails
 
-- `./arail setup`, `./arail start`, and `./arail doctor` remain the primary UX.
+- `./arailctl setup`, `./arailctl start`, and `./arailctl doctor` remain the primary UX.
 - Existing root `.env` and `lab.conf` continue to work during the migration.
-- `./arail blueprint create` remains the long-term primitive; the default lab
+- `./arailctl blueprint create` remains the long-term primitive; the default lab
   just stops being a one-off implementation.
 - Existing docs should describe runtime state as generated content, not as part
   of the source tree contract.
 
 ## Release checklist for the cleanup
 
-- Fresh clone on macOS, Linux, and WSL2 completes `./arail setup` without
+- Fresh clone on macOS, Linux, and WSL2 completes `./arailctl setup` without
   manual repo surgery.
-- `./arail doctor` passes.
+- `./arailctl doctor` passes.
 - Root `pytest` matches `pytest tests`.
 - The repo root looks like a product source tree, not a half-used lab.
 - AeroLLM remains easy to co-develop, but its failures do not make ARAIL look

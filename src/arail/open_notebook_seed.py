@@ -188,7 +188,7 @@ def _setup_ai_provider(port: int) -> None:
     if not model_names:
         if not shutil.which("ollama"):
             log.info("No local OpenAI-compatible provider detected — skipping AI provider setup.")
-            log.info("Start the MLX API with ./arail start on Apple Silicon, or install Ollama for the compatibility path.")
+            log.info("Start the MLX API with ./arailctl start on Apple Silicon, or install Ollama for the compatibility path.")
             return
 
         try:

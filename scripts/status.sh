@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ./arail status — show what's running and where.
+# ./arailctl status — show what's running and where.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -25,7 +25,7 @@ echo ""
 if [[ -d .venv ]]; then
     ok ".venv present"
 else
-    warn ".venv missing — run ./arail setup"
+    warn ".venv missing — run ./arailctl setup"
 fi
 
 # ── services ──────────────────────────────────────────────────────

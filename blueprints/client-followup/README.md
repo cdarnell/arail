@@ -8,8 +8,8 @@ client, drafts a follow-up, and recommends the next-touch cadence.
 ## Quick start
 
 ```bash
-./arail blueprint create my-clients --from client-followup
-./arail blueprint apply my-clients
+./arailctl blueprint create my-clients --from client-followup
+./arailctl blueprint apply my-clients
 # Edit instances/my-clients/.env to set your client list + voice profile.
 ```
 

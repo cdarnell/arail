@@ -3,8 +3,8 @@
 # upgrade.sh — switch install tier (min / max) without re-running setup.
 #
 # Usage:
-#   ./arail upgrade max
-#   ./arail upgrade min   (downgrade — does not uninstall packages, just
+#   ./arailctl upgrade max
+#   ./arailctl upgrade min   (downgrade — does not uninstall packages, just
 #                          hides the extra tabs until you upgrade again)
 #
 # The 'med' tier from the earlier three-tier blueprint is retired. Passing
@@ -25,7 +25,7 @@ case "$RAW" in
     min|max) TIER="$RAW" ;;
     med)     warn "Tier 'med' retired — rolling forward to 'max' (it owned a subset of max)."
              TIER="max" ;;
-    "")      die "usage: ./arail upgrade <min|max> [--with-coder]" ;;
+    "")      die "usage: ./arailctl upgrade <min|max> [--with-coder]" ;;
     *)       die "unknown tier '$RAW' — valid: min | max" ;;
 esac
 
@@ -40,7 +40,7 @@ for arg in "$@"; do
     esac
 done
 
-[[ -d .venv ]] || die "no .venv — run ./arail setup first"
+[[ -d .venv ]] || die "no .venv — run ./arailctl setup first"
 # shellcheck disable=SC1091
 source .venv/bin/activate
 
@@ -98,7 +98,7 @@ PY
 
 info "Tier is now ${BOLD}${TIER}${RESET}. Restart the lab to apply:"
 echo ""
-echo "    ./arail restart"
+echo "    ./arailctl restart"
 echo ""
 
 # Download coder model if requested (mirrors setup.sh --with-coder, Sprint 2)

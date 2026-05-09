@@ -293,7 +293,7 @@ Three design choices, each intentional:
 
 Everything about an agent — config, code, memory, decisions, dreams
 — is a plain file under the PKB. The wiki indexes them, `/knowledge`
-browses them, `git` tracks them if you want, `./arail reset pkb`
+browses them, `git` tracks them if you want, `./arailctl reset pkb`
 wipes them cleanly. No hidden state, no mystery DB rows.
 
 ### 2. Agents are Python, not JSON schemas

@@ -667,7 +667,7 @@
     {% elif ttyd_installed %}
     <div style="background:#0d1117;border:1px solid #222;border-radius:6px;padding:16px;color:#8faf97;font-size:13px;">
       <strong style="color:#c8a060;">ttyd is installed but not running.</strong>
-      Start it with <code style="color:#7ee0a0;">./arail start</code> or run
+      Start it with <code style="color:#7ee0a0;">./arailctl start</code> or run
       <code style="color:#7ee0a0;">ttyd -p {{ ttyd_port }} bash</code> manually,
       then <a href="" onclick="location.reload();return false;" style="color:#7ee0a0;">reload</a>
       or <a href="/terminal" target="_blank" rel="noopener" style="color:#7ee0a0;">open the terminal page</a>.
@@ -756,7 +756,7 @@
       <label style="font-size:0.7rem;color:var(--muted);margin-left:auto;">
         <input type="checkbox" id="log-live" checked> Live tail
       </label>
-      <span style="font-size:0.68rem;color:var(--muted);">CLI: <code style="color:var(--amber);">./arail logs [component]</code></span>
+      <span style="font-size:0.68rem;color:var(--muted);">CLI: <code style="color:var(--amber);">./arailctl logs [component]</code></span>
     </div>
     <div id="log-viewer" style="background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:0.5rem 0.75rem;max-height:300px;overflow-y:auto;font-family:var(--font);font-size:0.72rem;line-height:1.6;">
       loading…
@@ -769,22 +769,22 @@
     <div class="help-grid">
       <div class="help-block">
         <h3>Common Commands</h3>
-        <pre>./arail start       # launch all services
-./arail stop        # stop all services
-./arail restart     # quick bounce
-./arail update      # check &amp; apply updates
-./arail version     # show component versions
-./arail status      # what's running
-./arail logs        # tail activity log (all)
-./arail logs browser    # browser events only
-./arail logs researcher # research events only</pre>
+        <pre>./arailctl start       # launch all services
+./arailctl stop        # stop all services
+./arailctl restart     # quick bounce
+./arailctl update      # check &amp; apply updates
+./arailctl version     # show component versions
+./arailctl status      # what's running
+./arailctl logs        # tail activity log (all)
+./arailctl logs browser    # browser events only
+./arailctl logs researcher # research events only</pre>
       </div>
       <div class="help-block">
         <h3>Setup &amp; Configuration</h3>
-        <pre>./arail setup       # first-time setup
-./arail doctor      # validate environment
-./arail reset full  # factory reset (careful!)
-./arail pkb compile # rebuild knowledge base</pre>
+        <pre>./arailctl setup       # first-time setup
+./arailctl doctor      # validate environment
+./arailctl reset full  # factory reset (careful!)
+./arailctl pkb compile # rebuild knowledge base</pre>
       </div>
       <div class="help-block">
         <h3>Environment</h3>
@@ -795,7 +795,7 @@
       </div>
       <div class="help-block">
         <h3>Updating Components</h3>
-        <p>Run <strong>./arail update</strong> to check all components.
+        <p>Run <strong>./arailctl update</strong> to check all components.
         Use <strong>--check</strong> for a dry run. Update a single
         component with <strong>--component open-notebook</strong>.</p>
         <p>Components are tracked in <strong>components.json</strong>.</p>
@@ -1049,7 +1049,7 @@ async function loadSecurity() {
     let html = '';
     if (!d.available) {
       html += `<div class="pr-note">pip-audit not installed.</div>`;
-      html += `<div style="font-size:.7rem;color:var(--muted);margin-top:.3rem;">Install with: <code>./arail upgrade max</code></div>`;
+      html += `<div style="font-size:.7rem;color:var(--muted);margin-top:.3rem;">Install with: <code>./arailctl upgrade max</code></div>`;
     } else {
       const sum = d.summary || {};
       const ts = d.last_run_ts ? d.last_run_ts.substring(0,19).replace('T',' ') : 'never';

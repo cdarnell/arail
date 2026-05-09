@@ -2,14 +2,14 @@
 
 First-run bumps and their fixes. Runs top-to-bottom in rough order of
 how often they hit first-timers. If the answer isn't here, check the
-setup log at `setup.log` (created by `./arail setup`, kept next to the
+setup log at `setup.log` (created by `./arailctl setup`, kept next to the
 repo root) and open an issue with the last 30 lines.
 
-## `./arail setup` didn't prompt me for a passphrase
+## `./arailctl setup` didn't prompt me for a passphrase
 
 Your shell is non-interactive. Most common causes:
 
-- Running via a pipe: `curl ... | bash`, `cat answers | ./arail setup`.
+- Running via a pipe: `curl ... | bash`, `cat answers | ./arailctl setup`.
 - IDE task runner without a PTY (some VS Code tasks, CI agents).
 - An old `.env` from a pre-unified-password release that already has
   `ARAIL_PASSWORD=` set.
@@ -17,13 +17,13 @@ Your shell is non-interactive. Most common causes:
 Fix — re-run from a real terminal:
 
 ```bash
-./arail setup
+./arailctl setup
 ```
 
 Force interactive even when stdin looks piped:
 
 ```bash
-ARAIL_NONINTERACTIVE=0 ./arail setup < /dev/tty
+ARAIL_NONINTERACTIVE=0 ./arailctl setup < /dev/tty
 ```
 
 Rotate a passphrase that's already set — the prompt now asks whether
@@ -39,17 +39,17 @@ lsof -iTCP:8080 -sTCP:LISTEN -P -n
 
 # Change the port, then restart
 # Edit lab.conf and set PORTAL_PORT=8090 (or whatever's free)
-./arail restart
+./arailctl restart
 ```
 
 ## IDE at :8443 rejects my passphrase
 
 The passphrase in `.env` diverged from `lab.conf` (usually from an
-older setup run that only wrote one of the two). `./arail setup` now
+older setup run that only wrote one of the two). `./arailctl setup` now
 resyncs them automatically via its `validate_env` step — re-run:
 
 ```bash
-./arail setup
+./arailctl setup
 ```
 
 When it asks about the existing passphrase, answer `new` if you want
@@ -71,7 +71,7 @@ sudo apt install python3.11 python3.11-venv
 
 # Then
 rm -rf .venv
-./arail setup
+./arailctl setup
 ```
 
 If you want setup to never touch your system, set
@@ -86,7 +86,7 @@ Update Xcode command-line tools — MLX wheels need a recent clang:
 xcode-select --install
 ```
 
-Then retry `./arail setup`. If you're on macOS 12 (Monterey) or older,
+Then retry `./arailctl setup`. If you're on macOS 12 (Monterey) or older,
 MLX isn't available — use `MODEL_BACKEND=cpu` instead.
 
 ## WSL: `nvidia-smi` works but CUDA install fails
@@ -132,13 +132,13 @@ authenticate:
 echo "HUGGING_FACE_HUB_TOKEN=hf_xxxxxxxxxx" >> .env
 
 # Re-run the model step only
-ARAIL_SKIP_MODEL_DOWNLOAD=0 ./arail setup
+ARAIL_SKIP_MODEL_DOWNLOAD=0 ./arailctl setup
 ```
 
 Skip the download entirely and bring your own model later:
 
 ```bash
-ARAIL_SKIP_MODEL_DOWNLOAD=1 ./arail setup
+ARAIL_SKIP_MODEL_DOWNLOAD=1 ./arailctl setup
 ```
 
 ## `ollama pull qwen3:8b` is taking forever
@@ -146,12 +146,12 @@ ARAIL_SKIP_MODEL_DOWNLOAD=1 ./arail setup
 It's a ~5 GB download. Skip it and pull later:
 
 ```bash
-ARAIL_SKIP_OLLAMA=1 ./arail setup
+ARAIL_SKIP_OLLAMA=1 ./arailctl setup
 # then, when you're ready:
 ollama pull qwen3:8b
 ```
 
-## Setup finished but `./arail doctor` says something's missing
+## Setup finished but `./arailctl doctor` says something's missing
 
 `doctor` imports the Python package and checks that optional binaries
 (ttyd, code-server, jupyter) are on PATH. Re-run setup — it's
@@ -169,16 +169,16 @@ pip install jupyter
 ## I want to start over from scratch
 
 ```bash
-./arail reset full     # nukes lab/, .venv, .env, lab.conf
-./arail setup
+./arailctl reset full     # nukes lab/, .venv, .env, lab.conf
+./arailctl setup
 ```
 
 For only specific state:
 
 ```bash
-./arail reset models   # remove downloaded models only
-./arail reset data     # remove PKB + experiments, keep models + env
-./arail reset env      # reset .env + lab.conf, keep everything else
+./arailctl reset models   # remove downloaded models only
+./arailctl reset data     # remove PKB + experiments, keep models + env
+./arailctl reset env      # reset .env + lab.conf, keep everything else
 ```
 
 ## Running on a locked-down school computer (no sudo, no admin)

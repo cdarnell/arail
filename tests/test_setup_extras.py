@@ -1,7 +1,7 @@
 """Setup-on-clean-machine tests — pyproject extras + import-graph smoke.
 
 ARAIL ships as a clone-and-run blueprint; the most common failure mode
-is "user does ./arail upgrade max but pip-audit didn't actually install".
+is "user does ./arailctl upgrade max but pip-audit didn't actually install".
 These tests pin the install surface so a future refactor can't silently
 drop the security extra.
 
@@ -44,7 +44,7 @@ def test_max_extra_includes_pip_audit(pyproject_text):
                   re.MULTILINE | re.DOTALL)
     assert m, "Could not locate `max = [...]` in pyproject.toml"
     assert "pip-audit" in m.group("body"), (
-        "max extra must include pip-audit (so `./arail upgrade max` installs CVE scanner)"
+        "max extra must include pip-audit (so `./arailctl upgrade max` installs CVE scanner)"
     )
 
 

@@ -18,7 +18,7 @@ goal parser, wiki, PKB) phones home.
 - No "anonymous usage stats" toggle hidden in settings.
 - No analytics SDKs (Sentry, PostHog, Amplitude, Mixpanel, GA — grep
   the repo; they're not there).
-- No update checks against a central server. `./arail update` pulls
+- No update checks against a central server. `./arailctl update` pulls
   from the git remote you configured, nothing else.
 
 The portal binds to `127.0.0.1` by default. If you want it on the LAN
@@ -116,7 +116,7 @@ Ollama's environment, or running with the `--noupdate` flag if your
 version supports it. Skip Ollama entirely during setup:
 
 ```bash
-ARAIL_SKIP_OLLAMA=1 ./arail setup
+ARAIL_SKIP_OLLAMA=1 ./arailctl setup
 ```
 
 ### agent-browser

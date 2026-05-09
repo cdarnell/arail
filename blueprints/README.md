@@ -2,13 +2,13 @@
 
 A blueprint is a runnable lab definition — a single TOML file that
 captures the lab's identity, tier, runtime preferences, agents,
-default models, telemetry, and port layout. `./arail blueprint
+default models, telemetry, and port layout. `./arailctl blueprint
 create <instance> --from <id>` scaffolds a new instance from a
 blueprint; `apply` reconciles it; `destroy` removes it.
 
 Blueprints turn the prose in [`BLUEPRINTS.md`](../BLUEPRINTS.md) into
 shippable artifacts. The default `autoresearch` blueprint is what
-`./arail setup` provisions today.
+`./arailctl setup` provisions today.
 
 ## File layout
 
@@ -24,7 +24,7 @@ blueprints/
 
 A blueprint directory may also contain a `README.md` with extra
 notes (what goal it solves, integrations, screenshots) — referenced
-from `./arail blueprint show <id>`.
+from `./arailctl blueprint show <id>`.
 
 ## Schema (TOML, all sections required unless marked optional)
 
@@ -38,7 +38,7 @@ id          = "autoresearch"    # filename-safe slug; matches dir name
 label       = "Autoresearch"    # human-readable
 tier        = "min"             # min | max — drives surface selection
 goal_prompt = "..."             # default LAB_INTENT seed
-description = "..."             # paragraph; shown by `arail blueprint list`
+description = "..."             # paragraph; shown by `arailctl blueprint list`
 
 agents = [                      # agent classes loaded on start
     "researcher",
@@ -78,19 +78,19 @@ mlx_openai = 5                  # gap of one for the planned HTTP listener at +4
 3. Copy `blueprints/autoresearch/blueprint.toml` and edit:
    - Update `id`, `label`, `description`, `tier`, `goal_prompt`
    - Pick `agents[]` from `src/arail/agents/`
-   - Reference models from `catalog/models.toml` (legal ids only — `arail blueprint create` validates)
+   - Reference models from `catalog/models.toml` (legal ids only — `arailctl blueprint create` validates)
 4. Smoke-test:
    ```bash
-   ./arail blueprint show <slug>
-   ./arail blueprint create test-instance --from <slug>
-   ./arail blueprint destroy test-instance
+   ./arailctl blueprint show <slug>
+   ./arailctl blueprint create test-instance --from <slug>
+   ./arailctl blueprint destroy test-instance
    ```
 5. Open a PR. Include a short readme in the blueprint directory if
    the blueprint has external integrations or non-obvious setup.
 
 ## Multi-instance
 
-`./arail blueprint create <instance> --from <id>` allocates a port
+`./arailctl blueprint create <instance> --from <id>` allocates a port
 base (default: scan from 9100) and writes:
 
 ```
@@ -101,7 +101,7 @@ instances/<instance>/
 └── log/                        # telemetry sink directory
 ```
 
-The default ARAIL lab — what `./arail setup` provisions — stays at
+The default ARAIL lab — what `./arailctl setup` provisions — stays at
 the repo root (`./.env`, `./lab.conf`). Multi-instance adds
 sibling instances; it doesn't migrate the existing lab.
 
@@ -110,4 +110,4 @@ sibling instances; it doesn't migrate the existing lab.
 - [`BLUEPRINTS.md`](../BLUEPRINTS.md) — the blueprint concept
 - [`catalog/models.toml`](../catalog/models.toml) — universe of
   models with per-engine compatibility status
-- `./arail blueprint help` — command reference
+- `./arailctl blueprint help` — command reference

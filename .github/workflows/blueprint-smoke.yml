@@ -79,7 +79,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ./arail setup > ci-artifacts/setup.stdout 2> ci-artifacts/setup.stderr
+          ./arailctl setup > ci-artifacts/setup.stdout 2> ci-artifacts/setup.stderr
 
       - name: Redact setup logs
         if: always()
@@ -151,13 +151,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ./arail doctor > ci-artifacts/doctor.log 2>&1
+          ./arailctl doctor > ci-artifacts/doctor.log 2>&1
 
       - name: Start lab services
         shell: bash
         run: |
           set -euo pipefail
-          ./arail start > ci-artifacts/start.log 2>&1 &
+          ./arailctl start > ci-artifacts/start.log 2>&1 &
           echo $! > ci-artifacts/start.pid
 
       - name: Wait for local health surfaces
@@ -225,7 +225,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ./arail stop || true
+          ./arailctl stop || true
 
       - name: Upload smoke artifacts
         if: always()

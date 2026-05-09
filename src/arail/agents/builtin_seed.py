@@ -6,7 +6,7 @@ a user-editable copy lives under ``lab/pkb/agents/<name>/`` in the
 PKB where the Knowledge tab can browse and edit it.
 
 Runs on every portal start. Idempotent — writes nothing if the
-folder already exists with a ``buddy.py`` inside. After ``./arail
+folder already exists with a ``buddy.py`` inside. After ``./arailctl
 reset pkb`` the folder is gone; this helper re-creates it on next
 start so Buddy is always available.
 
@@ -104,7 +104,7 @@ reviewing, research worth running.
 - Tuning → `LAB_BUDDY_INTERVAL_SEC`, `LAB_BUDDY_GLOBAL_COOLDOWN_SEC`,
   `LAB_BUDDY_SUGGEST_INTERVAL_SEC` in `.env`.
 - Mute Buddy → set `LAB_BUDDY=off` in `.env`.
-- Wipe Buddy's memory → delete `state.json` or run `./arail reset pkb`.
+- Wipe Buddy's memory → delete `state.json` or run `./arailctl reset pkb`.
 
 ## Companion files
 
@@ -169,8 +169,8 @@ above is:
 - Indexed by the wiki (`/wiki`)
 - Browsable from `/knowledge`
 - Searchable via the unified search
-- Wiped cleanly by `./arail reset pkb`
-- Re-seeded on next `./arail start` for the shipped agents
+- Wiped cleanly by `./arailctl reset pkb`
+- Re-seeded on next `./arailctl start` for the shipped agents
 
 ## What's here today
 

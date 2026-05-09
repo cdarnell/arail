@@ -29,7 +29,7 @@ from arail.portal.app import app
 # ---------------------------------------------------------------------------
 
 class TestSetupRoundTrip:
-    """Mimic ``./arail setup && ./arail start`` flow: copy .env.example,
+    """Mimic ``./arailctl setup && ./arailctl start`` flow: copy .env.example,
     toggle from UI, verify .env survives a 'restart' (re-read)."""
 
     def test_env_example_template_copies_clean(self, tmp_path):

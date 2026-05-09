@@ -311,7 +311,7 @@ publishes its weights here first.
 ## Why it matters here
 
 - `MODEL_NAME=Qwen/Qwen3-8B` means "pull from this HF repo."
-- Setup auto-downloads the starter model on first `./arail setup`.
+- Setup auto-downloads the starter model on first `./arailctl setup`.
 - The router's HuggingFaceBackend can also hit HF's hosted inference
   API (free tier) when `MODEL_BACKEND=huggingface`.
 

@@ -13,7 +13,7 @@ Two sources of truth:
   remove them without touching this module. First boot installs the
   default two; ``curation-vetting`` is opt-in.
 
-Idempotent. After ``./arail reset pkb`` the skills re-seed on next
+Idempotent. After ``./arailctl reset pkb`` the skills re-seed on next
 start. User edits survive subsequent boots — once a skill exists
 on disk we never overwrite it (unless the Skills tab triggers a
 forced re-install).
