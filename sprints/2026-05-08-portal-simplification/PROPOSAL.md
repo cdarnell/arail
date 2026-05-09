@@ -388,23 +388,54 @@ The "free" changes — defaults flipped, no new components.
 These are surgical and cumulative. Each is a 5–30 line diff. Together they
 materially reduce density on every surface.
 
-### Phase 2 — preset row + drawer (1 sprint, ~3-4 days)
-The chat tab gets the preset bar + ⚙ slide-in drawer (Pattern B). New
-component: side drawer overlay (reusable for Phase 4).
+### Phase 2 — chat as educational reveal (1 sprint, ~3-4 days)
+The chat tab gets the preset bar + tunables drawer, but the framing is
+**educational, not decluttering**. When a preset is clicked, the drawer
+*opens* with deltas highlighted so the user learns what the preset
+actually changed. This is the principle: every collapse should TEACH
+when expanded.
 
-- [ ] Build `<arail-drawer>` reusable web component or template partial
+- [ ] Build `<arail-drawer>` reusable inline-expanding panel
 - [ ] Chat: preset row (Factual / Code / Creative / Custom)
-- [ ] Chat: tunables grid moves into ⚙ drawer
-- [ ] Chat: System Prompt collapses to summary line
-- [ ] Page-level "Expand all ▾" affordance (top-right, sticky), reusable
-      across surfaces
+- [ ] Chat: tunables grid collapses behind one disclosure (closed by
+      default)
+- [ ] **Preset click auto-opens the tunables drawer with deltas
+      highlighted** (e.g., temp `0.7 → 0.2` in green, top_p `1.0 → 0.5`).
+      User sees what "Factual" means in dial terms. Learning by tuning.
+- [ ] User-closed drawer state persists across the next preset click
+      until the user reopens manually.
+- [ ] Chat: System Prompt collapses to summary line; expanded view
+      shows the full system prompt + which sources contributed
+      (capabilities, state, retrieved KB context — labeled).
+- [ ] Page-level "Expand all ▾" affordance (top-right, sticky),
+      reusable across surfaces.
 
-### Phase 3 — active-only patterns (1 sprint, ~2-3 days)
-Server already knows which agents/services are idle; surface uses that.
+### Phase 3 — autoresearch as layered teaching surface (1 sprint, ~3-4 days)
+Same principle applied to the Research surface. Default landing is
+three lines; layers beneath teach what the Researcher decided and why.
 
-- [ ] Agents: idle agents auto-collapse to chip
-- [ ] Dashboard: Activity / KB / Consent → 1-line summaries with disclosure
-- [ ] Mission card promotion to dashboard top anchor
+**Three-line top:**
+- Goal · Hypothesis · 3 proposed experiments
+
+**Disclosure 1 (one click):**
+- "Want to change the hypothesis? Here are 2 alternatives the
+  Researcher considered." → click an alternative → experiments
+  regenerate.
+
+**Disclosure 2 (one more click):**
+- Why the Researcher chose this hypothesis — the reasoning trace,
+  the branch/parse work, the rejected paths. One paragraph each.
+
+**Disclosure 3 (max-tier only):**
+- Raw goal-store JSON, swarm phases, full transcript. Deep
+  observability stays available; just doesn't shout.
+
+- [ ] Research surface: three-line top (goal/hypothesis/experiments)
+- [ ] Disclosure 1: hypothesis alternatives with one-click swap
+- [ ] Disclosure 2: per-decision reasoning paragraph
+- [ ] Disclosure 3 (max-tier): raw JSON / swarm / transcript
+- [ ] Dashboard: Activity / KB / Consent → 1-line summaries with
+      disclosure (carry the principle through)
 
 ### Phase 4 — admin restructure (1 sprint, ~3-5 days)
 The biggest single page. Tabs + drawer + dedicated docs page.
@@ -414,6 +445,13 @@ The biggest single page. Tabs + drawer + dedicated docs page.
 - [ ] Move Help & Reference to `/docs/admin` with sidebar nav
 - [ ] Models grid pagination
 - [ ] Maybe: Plugins/Tuning move to drawer (Pattern E) — defer to Phase 5
+
+### FROZEN (until paperagents lands)
+
+Agents and Skills surfaces are explicitly **out of scope** for the
+simplification arc. They get rebuilt with the paperagents (paperclip
+AI) integration the owner is building, not retrofitted now. Don't
+ship Agents-page changes until paperagents.
 
 ### Phase 5 — optional bolder bets
 Discuss separately. Quiet Mode, Now Playing strip, Buddy-narrated landing,
@@ -453,14 +491,14 @@ its own win condition. Don't bundle.
    (admin restructure) stays in scope; this is a platform call, not a
    tier-specific complaint. The simplification arc applies uniformly.
 
-5. **Telemetry — RESOLVED: half-day sprint before Phase 2.**
-   Tiny `POST /api/telemetry/event` + JSONL roll-up to
-   `lab/data/telemetry.jsonl`. Local-first, airgapped-respecting (no
-   network egress). Click handlers on every disclosure trigger emit
-   one event per click. After ~1 week of dogfood we know which Phase 1
-   collapses are loved vs ignored — every Phase 2-5 decision becomes
-   evidence-backed instead of vibe-backed. Sprint goes first, then
-   Phase 2 starts.
+5. **Telemetry — RESOLVED: skipped. Use editorial judgment instead.**
+   Owner's call (2026-05-09): a click-counter sprint is "too much."
+   Editorial judgment about core functionality vs tunables is the
+   filter. The throughline that replaces telemetry: **progressive
+   disclosure as pedagogy** — every collapse should TEACH when
+   expanded, not just hide clutter. Preset clicks reveal mechanism;
+   AI choices show alternatives. See
+   `memory/project_arail_educational_disclosure.md`.
 
 6. **Mobile/tablet — RESOLVED: roadmap.**
    Desktop-first remains the design constraint. Mobile/tablet
@@ -471,11 +509,15 @@ its own win condition. Don't bundle.
 ### Resolution timeline
 
 All six questions resolved on 2026-05-09. Phase ordering after this
-update: **Phase 0 (telemetry, half-day) → Phase 2 (chat preset row +
-⚙ drawer) → Phase 3 (active-only patterns) → Phase 4 (admin
-restructure) → Phase 5 (Quiet-Mode-as-schedule, Now Playing strip,
-Buddy-narrated landing — each its own sprint, paperagents-gated where
-applicable).**
+update: **Phase 2 (chat as educational reveal) → Phase 3 (autoresearch
+as layered teaching surface) → Phase 4 (admin restructure) → Phase 5
+(Quiet-Mode-as-schedule, Now Playing strip, Buddy-narrated landing —
+each its own sprint, paperagents-gated where applicable)**.
+
+Phase 0 (telemetry) was considered and dropped — owner prefers
+editorial judgment over instrumentation. Agents and Skills surfaces
+are FROZEN until paperagents (the paperclip AI integration the owner
+is building) lands — don't touch them in the simplification arc.
 
 ---
 
