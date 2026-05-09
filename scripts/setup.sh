@@ -1482,7 +1482,7 @@ PATH_INSTALLED=""
 SHELL_RC_TOUCHED=""
 QKZ_SKIPPED=""
 install_path_shim() {
-    step "10/11  Install 'arail' to your PATH"
+    step "10/11  Install 'arailctl' to your PATH"
     if [[ "${ARAIL_SKIP_PATH:-0}" == "1" ]]; then
         info "Skipping PATH install (ARAIL_SKIP_PATH=1)."
         info "Run from the repo with ${BOLD}./arailctl <cmd>${RESET} or symlink manually."
@@ -1507,7 +1507,12 @@ install_path_shim() {
     fi
 
     local installed_any=0
-    for name in arail qkz; do
+    # Install order matters: arailctl first (canonical), then arail and qkz
+    # as back-compat symlinks. arail used to be the primary name; we keep
+    # it on PATH for muscle memory and any external scripts that already
+    # call `arail <cmd>`. The repo-side files: arailctl is the real script;
+    # arail and qkz are symlinks to arailctl (see ./arailctl --help).
+    for name in arailctl arail qkz; do
         local source="$REPO_ROOT/$name"
         local target="$bin_dir/$name"
         if [[ ! -e "$source" ]]; then
@@ -1565,7 +1570,7 @@ install_path_shim() {
 
     # PATH detection — only touch shell rc if the bin dir really isn't reachable.
     if [[ ":$PATH:" == *":$bin_dir:"* ]]; then
-        info "$bin_dir is already on PATH — ${BOLD}arail${RESET} works in any new shell."
+        info "$bin_dir is already on PATH — ${BOLD}arailctl${RESET} works in any new shell."
         return
     fi
 
