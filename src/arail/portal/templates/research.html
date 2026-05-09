@@ -115,6 +115,30 @@
   </div>
 </details>
 
+<!-- ═══ Brief summary — Phase 3 part 1 (educational disclosure) ═══
+     Always visible above the 3-pane cockpit when a goal is active.
+     "This is the goal, these are the experiments." Lets a returning
+     user absorb the lab's current investigation without parsing 3
+     panes of dense state. The cockpit below remains the operational
+     view. Future Phase 3 parts will add hypothesis-alternative
+     swapping and per-decision reasoning panels here. -->
+<section class="rx-summary" id="rx-summary" hidden>
+  <div class="rx-summary-head">
+    <span class="rx-summary-kicker">🧪 Experiments testing your goal</span>
+    <span class="rx-summary-meta" id="rx-summary-meta"></span>
+  </div>
+  <div id="rx-summary-body">
+    <div class="rx-summary-empty">No experiments designed yet — the Researcher will populate this once it reads the goal.</div>
+  </div>
+  <div class="rx-summary-foot">
+    <span id="rx-summary-foot-meta"></span>
+    <button type="button" class="rx-summary-more" id="rx-summary-jump"
+            title="Jump to the full experiments cockpit below">
+      Full cockpit ↓
+    </button>
+  </div>
+</section>
+
 <!-- ═══ 3-pane layout (shown when a goal exists) ═══ -->
 <div class="rx-layout" id="rx-layout" hidden>
 
@@ -509,6 +533,7 @@ function renderCockpit() {
   document.getElementById('rx-cockpit').hidden  = !hasGoal;
   document.getElementById('rx-layout').hidden   = !hasGoal;
   document.getElementById('rx-empty-state').hidden = hasGoal;
+  renderSummary();  // brief stays in sync with the cockpit's goal/state
   if (!hasGoal) return;
 
   const parsed = goal.parsed || {};
@@ -706,6 +731,93 @@ function renderExperiments() {
       else RESEARCH.expanded.add(id);
       renderExperiments();
     });
+  });
+
+  renderSummary();  // keep the brief in sync with the cockpit
+}
+
+// ── Brief summary (Phase 3 part 1) ────────────────────────────
+// Educational disclosure: a compact "this is the goal, these are the
+// experiments" view above the 3-pane cockpit. Lets a returning user
+// absorb the lab's investigation at a glance. The cockpit stays
+// available below; the brief is the conceptual layer.
+function renderSummary() {
+  const summary = document.getElementById('rx-summary');
+  if (!summary) return;
+  const goal = RESEARCH.goal;
+  const exps = RESEARCH.experiments || [];
+  const hasGoal = !!goal;
+  summary.hidden = !hasGoal;
+  if (!hasGoal) return;
+
+  const meta = document.getElementById('rx-summary-meta');
+  const parsed = goal.parsed || {};
+  const domain = parsed.domain || '';
+  const goalText = goal.goal_text || parsed.goal || parsed.primary_objective || '';
+  const metaParts = [];
+  if (goalText) metaParts.push(`<strong>${esc(goalText.slice(0, 140))}${goalText.length > 140 ? '…' : ''}</strong>`);
+  if (domain) metaParts.push(`<span>· ${esc(domain)}</span>`);
+  meta.innerHTML = metaParts.join(' ');
+
+  const body = document.getElementById('rx-summary-body');
+  const footMeta = document.getElementById('rx-summary-foot-meta');
+  if (!exps.length) {
+    body.innerHTML =
+      '<div class="rx-summary-empty">No experiments designed yet — the Researcher will populate this once it reads the goal.</div>';
+    footMeta.textContent = '';
+    return;
+  }
+
+  // Show top 5 by default; the cockpit below shows them all.
+  const TOP_N = 5;
+  const shown = exps.slice(0, TOP_N);
+  const items = shown.map((e, i) => {
+    const status = e.status || 'planning';
+    let statusClass = status;
+    let statusLabel = status.replace('_', ' ');
+    if (status === 'completed') {
+      if (e.hypothesis_supported === true) {
+        statusClass = 'completed supported';
+        statusLabel = '✓ supported';
+      } else if (e.hypothesis_supported === false) {
+        statusClass = 'completed not-supported';
+        statusLabel = '✗ not supported';
+      } else {
+        statusClass = 'completed unknown';
+      }
+    }
+    const hyp = e.hypothesis || '(no hypothesis)';
+    return `<li class="rx-summary-item" data-exp-id="${esc(e.id || '')}">
+      <span class="rx-summary-num">${i + 1}.</span>
+      <span class="rx-summary-hyp">${esc(hyp)}</span>
+      <span class="rx-summary-status ${statusClass}">${esc(statusLabel)}</span>
+    </li>`;
+  }).join('');
+  body.innerHTML = `<ul class="rx-summary-list">${items}</ul>`;
+
+  const running = exps.filter(e => e.status === 'in_progress' || e.status === 'planning').length;
+  const done = exps.filter(e => e.status === 'completed').length;
+  const moreCount = Math.max(0, exps.length - TOP_N);
+  const footParts = [];
+  footParts.push(`${exps.length} experiment${exps.length === 1 ? '' : 's'}`);
+  if (running) footParts.push(`${running} running`);
+  if (done) footParts.push(`${done} done`);
+  if (moreCount) footParts.push(`${moreCount} more in cockpit`);
+  footMeta.textContent = footParts.join(' · ');
+
+  // Clicking a brief item jumps to that experiment in the cockpit and
+  // expands its detail card. Educational: the brief is the index, the
+  // cockpit is the body.
+  body.querySelectorAll('.rx-summary-item').forEach(li => {
+    li.addEventListener('click', () => {
+      const id = li.dataset.expId;
+      if (!id) return;
+      RESEARCH.expanded.add(id);
+      renderExperiments();
+      const card = document.querySelector(`.rx-exp[data-id="${CSS.escape(id)}"]`);
+      if (card) card.scrollIntoView({behavior: 'smooth', block: 'center'});
+    });
+    li.style.cursor = 'pointer';
   });
 }
 
@@ -1003,6 +1115,17 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('rx-btn-resume').addEventListener('click', resumeResearch);
   document.getElementById('rx-btn-stop').addEventListener('click',   stopResearch);
   document.getElementById('rx-btn-new').addEventListener('click',    openModal);
+
+  // Brief summary "Full cockpit ↓" jump button — scrolls down to the
+  // 3-pane experiments view. The brief is the conceptual layer; the
+  // cockpit is the operational one.
+  const jumpBtn = document.getElementById('rx-summary-jump');
+  if (jumpBtn) {
+    jumpBtn.addEventListener('click', () => {
+      const target = document.getElementById('rx-experiments') || document.getElementById('rx-layout');
+      if (target) target.scrollIntoView({behavior: 'smooth', block: 'start'});
+    });
+  }
 
   // Modal
   document.getElementById('rx-modal-cancel').addEventListener('click', closeModal);
