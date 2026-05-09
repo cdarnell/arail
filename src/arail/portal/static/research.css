@@ -1273,3 +1273,105 @@
   border-color: var(--green);
   color: var(--green);
 }
+
+/* ── Planning trace — Phase 3 part 2 (the "why" disclosure) ────────────
+   When the Researcher generates hypotheses it now widens the candidate
+   pool to 5-8, runs the top 5 as experiments, and stores the rest as
+   alternatives plus a one-paragraph rationale. The UI reveals all of
+   that on demand so the user understands what the AI considered and
+   why this split was chosen. */
+.rx-planning-trace {
+  border-top: 1px dashed var(--border);
+  margin-top: var(--s-2);
+  padding-top: var(--s-3);
+}
+.rx-planning-trace[hidden] { display: none !important; }
+.rx-planning-summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-2);
+  padding: var(--s-1) 0;
+  font-size: var(--fs-sm);
+  color: var(--text);
+}
+.rx-planning-summary::-webkit-details-marker { display: none; }
+.rx-planning-icon {
+  color: var(--green);
+  transition: transform 0.15s;
+  display: inline-block;
+}
+.rx-planning-trace[open] .rx-planning-icon { transform: rotate(90deg); }
+.rx-planning-label { font-weight: 600; color: var(--text-hi); }
+.rx-planning-meta {
+  font-size: var(--fs-xs);
+  color: var(--muted);
+  margin-left: auto;
+}
+.rx-planning-body {
+  padding: var(--s-3) 0 0 var(--s-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+.rx-planning-rationale {
+  margin: 0;
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  color: var(--text);
+}
+.rx-planning-alts-wrap {
+  border-left: 2px solid var(--border-hi);
+  padding-left: var(--s-3);
+}
+.rx-planning-alts-head {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: var(--s-2);
+}
+.rx-planning-alts {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+}
+.rx-planning-alts li {
+  font-size: var(--fs-sm);
+  color: var(--text);
+  line-height: 1.45;
+  padding-left: var(--s-3);
+  position: relative;
+}
+.rx-planning-alts li::before {
+  content: '·';
+  position: absolute;
+  left: 0;
+  color: var(--muted);
+}
+.rx-planning-llm summary {
+  cursor: pointer;
+  font-size: var(--fs-xs);
+  color: var(--muted);
+  list-style: none;
+  padding: var(--s-1) 0;
+}
+.rx-planning-llm summary::-webkit-details-marker { display: none; }
+.rx-planning-llm summary:hover { color: var(--text); }
+.rx-planning-llm-pre {
+  background: var(--surface2);
+  padding: var(--s-3);
+  border-radius: var(--radius-sm, 4px);
+  font-size: var(--fs-xs);
+  color: var(--muted);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 320px;
+  overflow-y: auto;
+  margin: var(--s-2) 0 0 0;
+}

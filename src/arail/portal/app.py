@@ -2066,18 +2066,20 @@ async def research_planning_trace():
 
     Shape:
         {
-          "chosen": ["..."],          # hypotheses that became experiments
-          "alternatives": ["..."],    # ranked-lower candidates set aside
-          "source": "llm" | "heuristic",
-          "llm_response": "..." | null,  # raw LLM text when source=llm
-          "rationale": "...",         # one paragraph: why this split
-          "generated_at": "ISO8601"
+          "trace": {
+            "chosen": ["..."],           # hypotheses that became experiments
+            "alternatives": ["..."],     # ranked-lower candidates set aside
+            "source": "llm" | "heuristic",
+            "llm_response": "..." | null,  # raw LLM text when source=llm
+            "rationale": "...",          # one paragraph: why this split
+            "generated_at": "ISO8601"
+          }
         }
 
-    Returns ``{"trace": null}`` if the Researcher hasn't planned yet
+    Returns ``{"trace": null}`` when the Researcher hasn't planned yet
     (idle on a fresh boot, or planning hasn't started for the current
-    goal). Never raises — degraded silently so the brief just hides
-    the disclosure.
+    goal). Never raises — degrades silently so the UI just hides the
+    disclosure.
     """
     try:
         trace = researcher.get_planning_trace()

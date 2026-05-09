@@ -130,6 +130,34 @@
   <div id="rx-summary-body">
     <div class="rx-summary-empty">No experiments designed yet — the Researcher will populate this once it reads the goal.</div>
   </div>
+
+  <!-- ── Phase 3 part 2: alternatives + rationale ─────────────────
+       The Researcher widens its hypothesis pool to 5-8 candidates
+       and runs the top 5 as experiments. The rest are real
+       alternatives the user can see — and a one-paragraph
+       rationale explains why this split. Hidden when the
+       Researcher hasn't planned yet (no goal or pre-LLM). -->
+  <details class="rx-planning-trace" id="rx-planning-trace" hidden>
+    <summary class="rx-planning-summary">
+      <span class="rx-planning-icon">▾</span>
+      <span class="rx-planning-label" id="rx-planning-label">
+        Why these hypotheses?
+      </span>
+      <span class="rx-planning-meta" id="rx-planning-meta"></span>
+    </summary>
+    <div class="rx-planning-body">
+      <p class="rx-planning-rationale" id="rx-planning-rationale"></p>
+      <div class="rx-planning-alts-wrap" id="rx-planning-alts-wrap" hidden>
+        <div class="rx-planning-alts-head">Alternatives the Researcher set aside</div>
+        <ul class="rx-planning-alts" id="rx-planning-alts"></ul>
+      </div>
+      <details class="rx-planning-llm" id="rx-planning-llm-wrap" hidden>
+        <summary>📜 raw LLM response</summary>
+        <pre class="rx-planning-llm-pre" id="rx-planning-llm-pre"></pre>
+      </details>
+    </div>
+  </details>
+
   <div class="rx-summary-foot">
     <span id="rx-summary-foot-meta"></span>
     <button type="button" class="rx-summary-more" id="rx-summary-jump"
@@ -819,6 +847,81 @@ function renderSummary() {
     });
     li.style.cursor = 'pointer';
   });
+
+  // Refresh the planning-trace disclosure (Phase 3 part 2). Best-effort
+  // fetch — if the endpoint isn't available or returns null, the
+  // disclosure stays hidden so the brief just looks like Phase 3 part 1.
+  refreshPlanningTrace();
+}
+
+// ── Planning trace disclosure (Phase 3 part 2) ───────────────────────
+// Fetches GET /api/research/planning-trace and reveals "Why these
+// hypotheses?" with the rationale, the alternatives the Researcher
+// considered but didn't run, and (when available) the raw LLM response.
+// Educational: shows the user what the AI considered and why this split
+// was chosen.
+async function refreshPlanningTrace() {
+  const wrap = document.getElementById('rx-planning-trace');
+  if (!wrap) return;
+  let trace = null;
+  try {
+    const r = await fetch('/api/research/planning-trace');
+    if (r.ok) {
+      const data = await r.json();
+      trace = data && data.trace ? data.trace : null;
+    }
+  } catch (e) {
+    trace = null;
+  }
+  if (!trace || (!trace.chosen && !trace.alternatives && !trace.rationale)) {
+    wrap.hidden = true;
+    return;
+  }
+  wrap.hidden = false;
+
+  const altCount = (trace.alternatives || []).length;
+  const chosenCount = (trace.chosen || []).length;
+  const sourceLabel = trace.source === 'llm' ? 'LLM-generated'
+                    : trace.source === 'heuristic' ? 'Heuristic fallback'
+                    : (trace.source || 'unknown');
+  const labelEl = document.getElementById('rx-planning-label');
+  if (labelEl) {
+    labelEl.textContent = altCount > 0
+      ? `Why these hypotheses? · ${altCount} more considered`
+      : `Why these hypotheses?`;
+  }
+  const metaEl = document.getElementById('rx-planning-meta');
+  if (metaEl) {
+    metaEl.textContent = `${sourceLabel} · ${chosenCount} chosen`;
+  }
+  const rationaleEl = document.getElementById('rx-planning-rationale');
+  if (rationaleEl) rationaleEl.textContent = trace.rationale || '';
+
+  const altsWrap = document.getElementById('rx-planning-alts-wrap');
+  const altsList = document.getElementById('rx-planning-alts');
+  if (altsWrap && altsList) {
+    if (altCount === 0) {
+      altsWrap.hidden = true;
+      altsList.innerHTML = '';
+    } else {
+      altsWrap.hidden = false;
+      altsList.innerHTML = (trace.alternatives || [])
+        .map(alt => `<li>${esc(String(alt))}</li>`)
+        .join('');
+    }
+  }
+
+  const llmWrap = document.getElementById('rx-planning-llm-wrap');
+  const llmPre = document.getElementById('rx-planning-llm-pre');
+  if (llmWrap && llmPre) {
+    if (trace.llm_response) {
+      llmWrap.hidden = false;
+      llmPre.textContent = trace.llm_response;
+    } else {
+      llmWrap.hidden = true;
+      llmPre.textContent = '';
+    }
+  }
 }
 
 function renderExperimentCard(exp) {

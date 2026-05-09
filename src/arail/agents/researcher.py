@@ -279,6 +279,11 @@ class ResearcherAgent:
         self._next_step: str | None = None
         self._pause_reason: str | None = None
         self._swarm_plan_snapshot: dict[str, Any] | None = None
+        # Phase 3 educational disclosure: capture WHAT the LLM proposed and
+        # WHY we picked the chosen subset, so the UI can teach the user
+        # "the Researcher considered N hypotheses, ran these K, set
+        # these N-K aside." Reset every time _plan_research runs.
+        self._planning_trace: dict[str, Any] | None = None
 
     @property
     def status(self) -> str:
@@ -812,8 +817,21 @@ class ResearcherAgent:
 
     # ── Research methods (LLM-enhanced with heuristic fallback) ────
 
+    # Cap on how many hypotheses actually become experiments per run.
+    # Above this is captured as alternatives the user can inspect in the
+    # Phase 3 brief disclosure ("the Researcher considered N, ran K").
+    _CHOSEN_LIMIT = 5
+
     def _plan_research(self, parsed_goal: Dict[str, Any]) -> List[str]:
-        """Generate hypotheses from the goal.  Uses LLM if available."""
+        """Generate hypotheses from the goal.  Uses LLM if available.
+
+        Side effect: populates ``self._planning_trace`` with the chosen
+        hypotheses, the alternatives that were considered but not run,
+        the LLM raw response (when available), the source ("llm" or
+        "heuristic"), and a generated_at timestamp. The trace is what
+        the /api/research/planning-trace endpoint returns and what the
+        Phase 3 educational disclosure surfaces in the UI.
+        """
         goal_text = parsed_goal.get("goal", "")
         domain = parsed_goal.get("domain", "general")
         intent = parsed_goal.get("intent", _get_lab_intent())
@@ -821,45 +839,126 @@ class ResearcherAgent:
         sys_ctx = _get_system_context(intent)
         redirect_block = _redirect_prompt_block(_active_redirect())
 
-        # Try LLM first
+        # Widen the LLM candidate pool from 3-5 to 5-8 so we have a
+        # genuine alternatives bench to expose in the UI. The first
+        # _CHOSEN_LIMIT survive into experiments; the rest become
+        # alternatives.
         prompt = (
             f"{sys_ctx}\n\n"
             f"{redirect_block}"
             f"{self._swarm_prompt_block(parsed_goal)}"
-            f"Given the goal below, generate 3-5 testable hypotheses "
+            f"Given the goal below, generate 5-8 testable hypotheses "
             f"as a numbered list. Each hypothesis should be specific, "
-            f"measurable, and grounded in the domain.\n\n"
+            f"measurable, and grounded in the domain. Order them by "
+            f"how directly they address the goal — the strongest first.\n\n"
             f"Goal: {goal_text}\nDomain: {domain}\n"
             f"Sub-objectives: {', '.join(sub_objectives) if sub_objectives else 'none'}\n\n"
             f"Hypotheses:"
         )
-        llm_text = _deep_complete(self._active_deep_router(), self._router, prompt, max_tokens=400)
+        llm_text = _deep_complete(self._active_deep_router(), self._router, prompt, max_tokens=600)
         if llm_text:
-            # Parse numbered list from LLM output
             lines = [l.strip().lstrip("0123456789.-) ") for l in llm_text.split("\n") if l.strip()]
-            hypotheses = [l for l in lines if len(l) > 10][:5]
-            if hypotheses:
-                return hypotheses
+            all_candidates = [l for l in lines if len(l) > 10]
+            if all_candidates:
+                chosen = all_candidates[:self._CHOSEN_LIMIT]
+                alternatives = all_candidates[self._CHOSEN_LIMIT:]
+                self._record_planning_trace(
+                    chosen=chosen,
+                    alternatives=alternatives,
+                    source="llm",
+                    llm_response=llm_text,
+                    rationale=(
+                        "The LLM was asked to order hypotheses by how directly "
+                        f"they address the goal. The first {len(chosen)} entered "
+                        f"the experiment queue; "
+                        f"{len(alternatives)} ranked lower and were set aside as "
+                        "alternatives the lab can swap in if you change framing."
+                    ),
+                )
+                return chosen
 
         # Heuristic fallback
-        hypotheses = []
+        hypotheses: list[str] = []
         if sub_objectives:
-            for obj in sub_objectives[:5]:
+            for obj in sub_objectives[:8]:
                 hypotheses.append(
                     f"Optimizing '{obj}' will contribute to: {goal_text}")
+            rationale = (
+                f"No LLM available for hypothesis generation; fell back to the "
+                f"sub-objective heuristic. Each of the {len(hypotheses)} "
+                f"sub-objectives became one hypothesis."
+            )
         else:
             domain_kws = DOMAIN_KEYWORDS.get(domain, [])
             relevant = [kw for kw in domain_kws if kw.lower() in goal_text.lower()]
             if relevant:
-                for kw in relevant[:3]:
+                for kw in relevant[:6]:
                     hypotheses.append(
                         f"Focusing on {kw} optimization is key to: {goal_text}")
+                rationale = (
+                    "No LLM available; fell back to the domain-keyword "
+                    f"heuristic. Matched {len(relevant)} keywords from the "
+                    f"{domain} domain in the goal text."
+                )
             if not hypotheses:
                 hypotheses = [
                     f"A systematic approach to '{goal_text}' will yield measurable results",
                     f"Iterative experimentation will identify optimal parameters for: {goal_text}",
                 ]
-        return hypotheses
+                rationale = (
+                    "No LLM available and no domain keyword matched; fell back "
+                    "to the generic systematic-approach hypothesis pair."
+                )
+        chosen = hypotheses[:self._CHOSEN_LIMIT]
+        alternatives = hypotheses[self._CHOSEN_LIMIT:]
+        self._record_planning_trace(
+            chosen=chosen,
+            alternatives=alternatives,
+            source="heuristic",
+            llm_response=None,
+            rationale=rationale,
+        )
+        return chosen
+
+    def _record_planning_trace(
+        self,
+        *,
+        chosen: list[str],
+        alternatives: list[str],
+        source: str,
+        llm_response: str | None,
+        rationale: str,
+    ) -> None:
+        """Capture the planning step's reasoning for educational disclosure.
+
+        Stored in-process only — no on-disk schema migration. Rebuilt
+        each time _plan_research runs. Returned by GET /api/research/
+        planning-trace and rendered in the Phase 3 research brief.
+        """
+        from datetime import datetime, timezone
+        self._planning_trace = {
+            "chosen": list(chosen),
+            "alternatives": list(alternatives),
+            "source": source,
+            "llm_response": llm_response,
+            "rationale": rationale,
+            "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        }
+
+    def get_planning_trace(self) -> dict[str, Any] | None:
+        """Public read of the most recent planning trace (or None)."""
+        if not self._planning_trace:
+            return None
+        # Defensive copy so callers can't mutate the agent's internal state.
+        trace = self._planning_trace
+        return {
+            "chosen": list(trace.get("chosen") or []),
+            "alternatives": list(trace.get("alternatives") or []),
+            "source": trace.get("source"),
+            "llm_response": trace.get("llm_response"),
+            "rationale": trace.get("rationale"),
+            "generated_at": trace.get("generated_at"),
+        }
 
     def _design_experiment(self, hypothesis: str, domain: str) -> Dict[str, Any]:
         """Create an experiment from a hypothesis."""
