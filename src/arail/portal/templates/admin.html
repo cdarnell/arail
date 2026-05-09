@@ -577,34 +577,9 @@
   <h1>Lab Administration</h1>
   <p class="subtitle">{{ brand.name }} v{{ brand.version }} — manage services, check updates, get help</p>
 
-  <!-- ═══ Quick Actions ═══ -->
-  <div class="admin-section">
-    <h2>Quick Actions</h2>
-    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px;">
-      <a href="/chat" class="qa-button qa-success" style="text-decoration: none; display: flex; flex-direction: column; justify-content: flex-start;">
-        <div class="qa-title" style="color: var(--green);">💬 Open Chat</div>
-      </a>
-      <button class="qa-button qa-primary" onclick="runLiveChecks('Health Check', '/api/system/health/stream')">
-        <div class="qa-title" style="color: var(--blue);">⊙ Health Check</div>
-      </button>
-      <button class="qa-button qa-primary" onclick="window.open('/graph', '_blank')">
-        <div class="qa-title" style="color: var(--blue);">◆ System Graph</div>
-      </button>
-      <button class="qa-button qa-primary" onclick="checkUpdates()">
-        <div class="qa-title" style="color: var(--blue);">↻ Check Updates</div>
-      </button>
-      <a href="/plugins" class="qa-button qa-primary" style="text-decoration: none; display: flex; flex-direction: column; justify-content: flex-start;">
-        <div class="qa-title" style="color: var(--blue);">⚙ Plugins</div>
-      </a>
-      <button class="qa-button qa-warning" onclick="restartLab()">
-        <div class="qa-title" style="color: var(--amber);">⟳ Restart Lab</div>
-      </button>
-      <a href="/docs/PUBLISH.md" class="qa-button qa-primary" style="text-decoration: none; display: flex; flex-direction: column; justify-content: flex-start;">
-        <div class="qa-title" style="color: var(--blue);">↗ Publish Guide</div>
-      </a>
-    </div>
-    <div id="admin-log" style="margin-top: 10px; font-size: 12px; color: var(--muted); min-height: 18px;"></div>
-  </div>
+  <!-- Quick Actions removed — duplicate of dashboard (PROPOSAL §3.7).
+       Publish Guide moved into Help & Reference below; admin-log is no
+       longer needed since update/restart flows surface their own status. -->
 
   <!-- ═══ Services ═══ -->
   <div class="admin-section">
@@ -818,6 +793,11 @@
         <p><strong>Fast SLM:</strong> {{ health.model or 'loading…' }} (always on)<br>
         <strong>Deep AeroLLM:</strong> {{ health.aerollm_model or 'not configured' }} (heavy window only)<br>
         <strong>Ollama:</strong> local API server for Open Notebook + browser agent</p>
+      </div>
+      <div class="help-block">
+        <h3>Publish your lab</h3>
+        <p>Share your lab as a blueprint others can fork and run.
+        See <a href="/docs/PUBLISH.md">PUBLISH.md</a> for the walkthrough.</p>
       </div>
     </div>
   </div>

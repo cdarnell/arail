@@ -279,12 +279,14 @@
 
   <!-- ── AirLLM vs AeroLLM comparison ───────────────────────────────
        Expected/projected gains. Replace these once the perf harness
-       (single-stream + batch + spec-decode) lands real numbers. -->
-  <div class="vs-wrap" id="vs-wrap">
-    <div class="vs-head">
-      <h2 id="vs-title">AirLLM vs AeroLLM — projected performance</h2>
+       (single-stream + batch + spec-decode) lands real numbers.
+       PROPOSAL §3.6: collapsed by default — most users don't need
+       to read the projected-perf cards on every visit. -->
+  <details class="vs-wrap" id="vs-wrap">
+    <summary class="vs-head">
+      <h2 id="vs-title" style="display:inline">Architecture &amp; projected performance</h2>
       <span class="vs-note" id="vs-note">Projected · pending benchmark harness · 70B-class model on consumer NVMe + a single GPU/Apple-silicon host</span>
-    </div>
+    </summary>
     <div class="vs-grid">
       <div class="vs-card air">
         <div class="vs-title">
@@ -317,8 +319,8 @@
       </div>
     </div>
 
-    <div class="vs-tech">
-      <h2>Where the gains come from</h2>
+    <details class="vs-tech">
+      <summary><h2 style="display:inline">Where the gains come from</h2></summary>
       <div class="vs-tech-grid">
         <div class="vs-tech-card">
           <h4>Prefetch threading <span class="gain">+1.5–2×</span></h4>
@@ -337,8 +339,8 @@
           <p>Hot layers stay resident across prompts; cold layers stream. Replay bundles let identical prefixes skip recomputation. Compounds with batch and spec-decode.</p>
         </div>
       </div>
-    </div>
-  </div>
+    </details>
+  </details>
 
   <!-- ── View tabs ───────────────────────────────────────────────────
        Default: AirLLM MLX is the only visible tab. Flip LAB_SHOW_AEROLLM=1

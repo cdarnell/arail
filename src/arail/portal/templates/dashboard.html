@@ -6,6 +6,20 @@
 <title>{{ brand.name }}</title>
 <link rel="stylesheet" href="/static/style.css">
 <style>
+  /* Disclosure toggles for Phase 1 (PROPOSAL.md §3.2 + §3.3) */
+  .meter-bar:not(.show-extras) .meter-extra { display: none; }
+  .meter-toggle, .qa-more-toggle {
+    background: transparent;
+    border: 1px dashed var(--border, #333);
+    color: var(--muted, #999);
+    cursor: pointer;
+    font-size: 11px;
+    padding: 4px 10px;
+    border-radius: 6px;
+  }
+  .meter-toggle:hover, .qa-more-toggle:hover { color: var(--text); border-color: var(--accent, #00d4ff); }
+  .qa-actions:not(.show-more) .qa-more { display: none; }
+
   /* Quick actions button styling */
   .qa-button {
     padding: 10px 14px;
@@ -275,40 +289,46 @@
   </div>
 </div>
 
-<!-- ═══ Cost meter (top strip — simulation of what this lab would cost in the cloud) ═══ -->
+<!-- ═══ Cost meter (top strip — simulation of what this lab would cost in the cloud)
+     Hero pair (Net saved + Lifetime tokens) always visible; the other 4 hide
+     behind 'More metrics ▾' (PROPOSAL.md §3.2). The values still poll on
+     refresh — only their visibility is toggled. ═══ -->
 <div class="meter-bar" id="meter-bar">
-  <div class="meter">
-    <span class="meter-label">Cloud equiv</span>
-    <span class="meter-value" id="meter-cloud">—</span>
-  </div>
-  <div class="meter">
-    <span class="meter-label">Energy</span>
-    <span class="meter-value energy" id="meter-energy">—</span>
-  </div>
   <div class="meter meter-hero">
     <span class="meter-label">Net saved</span>
     <span class="meter-value savings" id="meter-savings">—</span>
   </div>
-  <div class="meter">
-    <span class="meter-label">Inferences</span>
-    <span class="meter-value" id="meter-count">—</span>
-  </div>
-  <div class="meter" title="Total tokens this lab has processed across all backends — lifetime count from the cost tracker.">
+  <div class="meter meter-hero" title="Total tokens this lab has processed across all backends — lifetime count from the cost tracker.">
     <span class="meter-label">Lifetime tokens</span>
     <span class="meter-value" id="meter-tokens">—</span>
   </div>
-  <div class="meter">
+  <div class="meter meter-extra">
+    <span class="meter-label">Cloud equiv</span>
+    <span class="meter-value" id="meter-cloud">—</span>
+  </div>
+  <div class="meter meter-extra">
+    <span class="meter-label">Energy</span>
+    <span class="meter-value energy" id="meter-energy">—</span>
+  </div>
+  <div class="meter meter-extra">
+    <span class="meter-label">Inferences</span>
+    <span class="meter-value" id="meter-count">—</span>
+  </div>
+  <div class="meter meter-extra">
     <span class="meter-label">Backend</span>
     <span class="meter-value" id="meter-backend">—</span>
   </div>
+  <button type="button" class="meter-toggle" id="meter-toggle"
+          aria-expanded="false" aria-controls="meter-bar"
+          onclick="toggleMeterMore(this)">More metrics ▾</button>
 </div>
 
 <div class="grid">
 
-  <!-- ═══ Quick Actions ═══ -->
+  <!-- ═══ Quick Actions — 3 hero verbs + ⚙ More for the rest (PROPOSAL §3.3) ═══ -->
   <div class="card full" style="padding: 14px 20px;">
     <h2 style="font-size: 14px; margin: 0 0 10px 0; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em;">Quick Actions</h2>
-    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px;">
+    <div class="qa-actions" id="qa-actions" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px;">
       <a href="/chat" class="qa-button qa-success" style="text-decoration: none; display: flex; flex-direction: column; justify-content: flex-start;">
         <div class="qa-title" style="color: var(--green);">💬 Open Chat</div>
       </a>
@@ -318,17 +338,22 @@
       <button class="qa-button qa-primary" onclick="window.open('/graph', '_blank')">
         <div class="qa-title" style="color: var(--blue);">◆ System Graph</div>
       </button>
-      <button class="qa-button qa-primary" onclick="checkUpdates()">
+      <button class="qa-button qa-primary qa-more" onclick="checkUpdates()">
         <div class="qa-title" style="color: var(--blue);">↻ Check Updates</div>
       </button>
-      <button class="qa-button qa-primary" onclick="window.location='/plugins'">
+      <button class="qa-button qa-primary qa-more" onclick="window.location='/plugins'">
         <div class="qa-title" style="color: var(--blue);">⚙ Plugins</div>
       </button>
-      <button class="qa-button qa-warning" onclick="restartLab()">
+      <button class="qa-button qa-warning qa-more" onclick="restartLab()">
         <div class="qa-title" style="color: var(--amber);">⟳ Restart Lab</div>
       </button>
     </div>
-    <div id="admin-log" style="margin-top: 10px; font-size: 12px; color: var(--muted); min-height: 18px;"></div>
+    <div style="margin-top: 8px; display: flex; align-items: center; gap: 12px;">
+      <button type="button" class="qa-more-toggle" id="qa-more-toggle"
+              aria-expanded="false" aria-controls="qa-actions"
+              onclick="toggleQaMore(this)">⚙ More</button>
+      <div id="admin-log" style="font-size: 12px; color: var(--muted); min-height: 18px; flex: 1;"></div>
+    </div>
   </div>
 
   <!-- ═══ Service Status ═══ -->
@@ -739,6 +764,20 @@
    ═══════════════════════════════════════════════════════════════ */
 
 let DASH_SWARM_PREVIEW = null;
+
+// ── Disclosure toggles (Phase 1 — PROPOSAL §3.2 + §3.3) ──
+function toggleMeterMore(btn) {
+  const bar = document.getElementById('meter-bar');
+  const open = bar.classList.toggle('show-extras');
+  btn.textContent = open ? 'Fewer metrics ▴' : 'More metrics ▾';
+  btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+function toggleQaMore(btn) {
+  const grid = document.getElementById('qa-actions');
+  const open = grid.classList.toggle('show-more');
+  btn.textContent = open ? '⚙ Fewer' : '⚙ More';
+  btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
 
 // ── Admin functions (for Quick Actions) ──
 function adminLog(msg, cls) {
@@ -1579,7 +1618,8 @@ async function refreshCosts() {
 refreshCosts();
 setInterval(refreshCosts, 15000);
 
-// ── Service Status ──
+// ── Service Status (PROPOSAL §3.2.4 — active chips visible; idle ones
+// collapse into a single "(N idle)" chip that expands on click) ──
 async function refreshServiceStatus() {
   try {
     const r = await fetch('/api/system/health');
@@ -1592,18 +1632,36 @@ async function refreshServiceStatus() {
       el.innerHTML = '<span style="color: var(--muted); font-size: 12px;">No services running.</span>';
       return;
     }
-    const chips = entries.map(([name, up]) => {
-      const bgColor = up ? 'rgba(0,255,65,0.08)' : 'rgba(255,76,76,0.08)';
-      const borderColor = up ? 'rgba(0,255,65,0.25)' : 'rgba(255,76,76,0.25)';
-      const textColor = up ? 'var(--green)' : 'var(--red)';
-      return `<span style="display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: 999px; border: 1px solid ${borderColor}; background: ${bgColor}; font-size: 12px; color: ${textColor};"><span style="width: 6px; height: 6px; border-radius: 50%; background: ${textColor}; box-shadow: ${up ? '0 0 4px rgba(0,255,65,.4)' : 'none'};"></span>${name}</span>`;
-    }).join('');
+    const chip = (name, up) => {
+      const bg = up ? 'rgba(0,255,65,0.08)' : 'rgba(255,76,76,0.08)';
+      const bd = up ? 'rgba(0,255,65,0.25)' : 'rgba(255,76,76,0.25)';
+      const fg = up ? 'var(--green)' : 'var(--red)';
+      const dot = `<span style="width: 6px; height: 6px; border-radius: 50%; background: ${fg}; box-shadow: ${up ? '0 0 4px rgba(0,255,65,.4)' : 'none'};"></span>`;
+      return `<span style="display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: 999px; border: 1px solid ${bd}; background: ${bg}; font-size: 12px; color: ${fg};">${dot}${name}</span>`;
+    };
+    const active = entries.filter(([, up]) => up);
+    const idle = entries.filter(([, up]) => !up);
+    const activeChips = active.map(([n, up]) => chip(n, up)).join('');
+    let idleChip = '';
+    if (idle.length > 0) {
+      const names = idle.map(([n]) => n).join(', ');
+      idleChip = `<button type="button" id="svc-idle-toggle" onclick="toggleSvcIdle(this)" aria-expanded="false" title="${names}" style="display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: 999px; border: 1px dashed var(--border, #333); background: transparent; font-size: 12px; color: var(--muted, #999); cursor: pointer;">(${idle.length} idle)</button>`;
+      const expanded = idle.map(([n, up]) => chip(n, up)).join('');
+      idleChip += `<span id="svc-idle-list" style="display: none;">${expanded}</span>`;
+    }
     const hint = '<span style="color: var(--muted); font-size: 11px; margin-left: 6px; align-self: center;" title="On-demand services (notebook, marimo, ollama, neo4j, etc.) only appear here when running.">on-demand services hidden when idle</span>';
-    el.innerHTML = chips + hint;
+    el.innerHTML = activeChips + idleChip + hint;
   } catch (e) {
     const el = document.getElementById('svc-status');
     if (el) el.textContent = 'Could not reach health API.';
   }
+}
+function toggleSvcIdle(btn) {
+  const list = document.getElementById('svc-idle-list');
+  if (!list) return;
+  const open = list.style.display === '';
+  list.style.display = open ? 'none' : '';
+  btn.setAttribute('aria-expanded', open ? 'false' : 'true');
 }
 refreshServiceStatus();
 setInterval(refreshServiceStatus, 15000);

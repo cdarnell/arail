@@ -86,46 +86,54 @@
     </button>
   </div>
 
-  <div class="kb-ingest-tiles">
-    <button type="button" class="kb-ingest-tile" data-upload-accept="*">
-      <span class="kb-ingest-icon">📄</span>
-      <span class="kb-ingest-name">Docs</span>
-      <span class="kb-ingest-hint">.md .txt .pdf .html</span>
-    </button>
-    <button type="button" class="kb-ingest-tile" data-upload-accept="image/*">
-      <span class="kb-ingest-icon">🖼</span>
-      <span class="kb-ingest-name">Images</span>
-      <span class="kb-ingest-hint">.png .jpg .svg .gif</span>
-    </button>
-    <button type="button" class="kb-ingest-tile" data-upload-accept="video/*">
-      <span class="kb-ingest-icon">🎥</span>
-      <span class="kb-ingest-name">Video</span>
-      <span class="kb-ingest-hint">.mp4 .mov .webm</span>
-    </button>
-    <button type="button" class="kb-ingest-tile" data-upload-accept="audio/*">
-      <span class="kb-ingest-icon">🎧</span>
-      <span class="kb-ingest-name">Audio</span>
-      <span class="kb-ingest-hint">.mp3 .wav .m4a</span>
-    </button>
-    <button type="button" class="kb-ingest-tile" id="kb-ingest-url"
-            title="Add a URL bookmark to sources/bookmarks.md">
-      <span class="kb-ingest-icon">🔗</span>
-      <span class="kb-ingest-name">URL</span>
-      <span class="kb-ingest-hint">save a bookmark</span>
-    </button>
-    <button type="button" class="kb-ingest-tile kb-ingest-seed" id="kb-install-pack">
-      <span class="kb-ingest-icon">⚡</span>
-      <span class="kb-ingest-name">Starter pack</span>
-      <span class="kb-ingest-hint" id="kb-seed-hint">loading…</span>
-    </button>
-    <button type="button" class="kb-ingest-tile kb-ingest-remove" id="kb-remove-pack"
-            style="display:none"
-            title="Wipe the starter primers — your own files are not touched.">
-      <span class="kb-ingest-icon">🗑</span>
-      <span class="kb-ingest-name">Remove starter</span>
-      <span class="kb-ingest-hint">make room for your work</span>
-    </button>
-  </div>
+  <!-- Ingest surface (PROPOSAL §3.4) — six tiles collapsed behind a
+       single "Add content ▾" disclosure. Existing data-upload-accept
+       handlers + the by-id wiring (kb-ingest-url, kb-install-pack,
+       kb-remove-pack) keep working unchanged; only the default
+       visibility changes. -->
+  <details class="kb-add-content">
+    <summary class="kb-add-content-summary">＋ Add content</summary>
+    <div class="kb-ingest-tiles">
+      <button type="button" class="kb-ingest-tile" data-upload-accept="*">
+        <span class="kb-ingest-icon">📄</span>
+        <span class="kb-ingest-name">Docs</span>
+        <span class="kb-ingest-hint">.md .txt .pdf .html</span>
+      </button>
+      <button type="button" class="kb-ingest-tile" data-upload-accept="image/*">
+        <span class="kb-ingest-icon">🖼</span>
+        <span class="kb-ingest-name">Images</span>
+        <span class="kb-ingest-hint">.png .jpg .svg .gif</span>
+      </button>
+      <button type="button" class="kb-ingest-tile" data-upload-accept="video/*">
+        <span class="kb-ingest-icon">🎥</span>
+        <span class="kb-ingest-name">Video</span>
+        <span class="kb-ingest-hint">.mp4 .mov .webm</span>
+      </button>
+      <button type="button" class="kb-ingest-tile" data-upload-accept="audio/*">
+        <span class="kb-ingest-icon">🎧</span>
+        <span class="kb-ingest-name">Audio</span>
+        <span class="kb-ingest-hint">.mp3 .wav .m4a</span>
+      </button>
+      <button type="button" class="kb-ingest-tile" id="kb-ingest-url"
+              title="Add a URL bookmark to sources/bookmarks.md">
+        <span class="kb-ingest-icon">🔗</span>
+        <span class="kb-ingest-name">URL</span>
+        <span class="kb-ingest-hint">save a bookmark</span>
+      </button>
+      <button type="button" class="kb-ingest-tile kb-ingest-seed" id="kb-install-pack">
+        <span class="kb-ingest-icon">⚡</span>
+        <span class="kb-ingest-name">Starter pack</span>
+        <span class="kb-ingest-hint" id="kb-seed-hint">loading…</span>
+      </button>
+      <button type="button" class="kb-ingest-tile kb-ingest-remove" id="kb-remove-pack"
+              style="display:none"
+              title="Wipe the starter primers — your own files are not touched.">
+        <span class="kb-ingest-icon">🗑</span>
+        <span class="kb-ingest-name">Remove starter</span>
+        <span class="kb-ingest-hint">make room for your work</span>
+      </button>
+    </div>
+  </details>
   <!-- URL tile inline form — replaces the old blocking prompt(). -->
   <form class="kb-url-form" id="kb-url-form" style="display:none" autocomplete="off">
     <label class="kb-url-label" for="kb-url-input">Add URL bookmark</label>

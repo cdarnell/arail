@@ -921,6 +921,10 @@ function fmtTokens(n) {
 // Render the per-card recent-actions trail. `actions` is a newest-first
 // list of {ts, level, message} — what each agent just did. Empty state
 // uses the [data-empty] hint baked into the <ul>.
+//
+// PROPOSAL §3.3: trim to last 3 events by default; a "▾ Show full history
+// (N)" toggle expands the trail. Expanded state is stashed on the element
+// so the next poll preserves the user's choice.
 function renderTrail(elId, actions) {
   const el = document.getElementById(elId);
   if (!el) return;
@@ -928,7 +932,11 @@ function renderTrail(elId, actions) {
     el.innerHTML = `<li class="ag-trail-empty">${esc(el.dataset.empty || 'No moves yet.')}</li>`;
     return;
   }
-  el.innerHTML = actions.map(a => {
+  el._allActions = actions;
+  const TRIM = 3;
+  const expanded = el.dataset.expanded === '1';
+  const visible = expanded ? actions : actions.slice(-TRIM);
+  let html = visible.map(a => {
     const ts = (a.ts || '').substring(11, 19);
     const lvl = a.level || 'info';
     return `<li class="ag-trail-item lvl-${esc(lvl)}">`
@@ -936,6 +944,17 @@ function renderTrail(elId, actions) {
       + `<span class="ag-trail-msg">${esc(a.message || '')}</span>`
       + `</li>`;
   }).join('');
+  if (actions.length > TRIM) {
+    const label = expanded ? '▴ Show last 3' : `▾ Show full history (${actions.length})`;
+    html += `<li class="ag-trail-toggle"><button type="button" class="ag-trail-toggle-btn" onclick="toggleTrail('${elId}')">${esc(label)}</button></li>`;
+  }
+  el.innerHTML = html;
+}
+function toggleTrail(elId) {
+  const el = document.getElementById(elId);
+  if (!el || !el._allActions) return;
+  el.dataset.expanded = el.dataset.expanded === '1' ? '0' : '1';
+  renderTrail(elId, el._allActions);
 }
 
 async function pollStatus() {
