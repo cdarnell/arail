@@ -361,6 +361,10 @@ templates.env.globals["lab_tier"] = _current_tier()
 templates.env.globals["ui_theme"] = _UI_THEME
 templates.env.globals["ui_themes"] = list_ui_themes()
 templates.env.globals["ui_theme_css"] = theme_css(_UI_THEME)
+# Cachebuster appended to /static/*.css|js URLs so a server restart
+# guarantees clients pick up new assets without a hard-reload. Bound to
+# the process import time so it changes per restart, not per request.
+templates.env.globals["asset_v"] = f"{_BOOT_VERSION}-{int(_BOOT_PERF * 1000)}"
 
 consent_store = ConsentStore()
 goal_store = GoalStore()
@@ -647,6 +651,14 @@ async def _shutdown():
             await _knowledge_canvas_store.close()
         finally:
             _knowledge_canvas_store = None
+
+
+# ── OpenAI-compatible shim — /api/openai/v1/* ────────────────────────────
+# Mounted here alongside the /api/chat block so read-order reflects the
+# dependency. Not tier-gated — loopback is the perimeter (A9, Sprint 2).
+
+from arail.portal.openai_compat import register_routes as _register_openai_compat
+_register_openai_compat(app)
 
 
 # ── First-run welcome / passphrase setup ─────────────────────────────────
@@ -1065,13 +1077,21 @@ async def providers_active(request: Request):
                 "error": "Airgapped mode — only My Machine is active. Set LAB_MODE=hybrid to use cloud providers."}
     os.environ["COMPUTE_SOURCE"] = provider
     activity_log.emit("chat", f"Compute source switched to '{provider}'.", "info")
-    # Trigger best-effort opencode restart so the new baseURL is picked up.
-    # Does NOT block the response — restart can take 5-10 s (F-RESTART-1).
+    # Sprint 2: regenerate_config() THEN restart() — under a single lock.
+    # Order matters: write new config before killing the process, so
+    # the new opencode process picks up the updated provider block.
+    # F-RESTART-2: if regen fails, leave opencode pointing at OLD config
+    # rather than restarting blind into a broken state.
     if "notebooks" in _visible_surfaces():
         try:
             from arail.portal.services import opencode as _oc
             if _oc.is_running():
-                threading.Thread(target=_oc.restart, daemon=True).start()
+                def _hook():
+                    cfg = _oc.regenerate_config()
+                    if not cfg.get("ok"):
+                        return  # F-RESTART-2: abort restart on config failure
+                    _oc.restart()
+                threading.Thread(target=_hook, daemon=True).start()
         except Exception:
             pass  # provider switch must succeed even if restart wiring breaks
     return {"ok": True, "provider": provider}
@@ -1293,7 +1313,11 @@ def _require_workbench():
 
 @app.get("/opencode", response_class=HTMLResponse)
 async def opencode_page(request: Request):
-    """3-state opencode page: not-installed / installed-not-running / running+iframe."""
+    """4-state opencode page: not-installed / no-llm / installed-idle / running+iframe.
+
+    Sprint 2: passes llm_ready, llm_hint, llm_chat_url to template so the
+    Jinja block can render the 'Load a model first' state (installed_no_llm).
+    """
     if (gate := _require_workbench()) is not None:
         return gate
     from arail.portal.services import opencode as oc
@@ -1301,20 +1325,39 @@ async def opencode_page(request: Request):
     installed = oc.is_installed()
     running = oc.is_running(port) if installed else False
     hint = oc.install_hint() if not installed else {}
+    llm = oc.llm_ready_check() if installed else {"ok": False, "reason": "no_llm",
+                                                    "hint": "Install opencode first.",
+                                                    "chat_url": "/chat"}
     return templates.TemplateResponse(request, "opencode.html", {
         "installed": installed,
         "running": running,
         "hint": hint,
         "port": port,
+        "llm_ready": llm.get("ok", False),
+        "llm_hint": llm.get("hint"),
+        "llm_chat_url": llm.get("chat_url", "/chat"),
     })
 
 
 @app.post("/api/opencode/start")
 async def opencode_start():
-    """Start the opencode subprocess (max-tier only)."""
+    """Start the opencode subprocess (max-tier only).
+
+    Sprint 2: LLM-ready gate fires before start. Returns 409 with reason/hint
+    when no model is loaded or cloud token is missing. Tier gate fires first.
+    """
     if (gate := _require_workbench()) is not None:
         return gate
     from arail.portal.services import opencode as oc
+    from fastapi.responses import JSONResponse as _JSONResponse
+    ready = oc.llm_ready_check()
+    if not ready["ok"]:
+        return _JSONResponse(status_code=409, content={
+            "ok": False,
+            "reason": ready.get("reason"),
+            "hint": ready.get("hint"),
+            "chat_url": ready.get("chat_url"),
+        })
     port = int(os.getenv("OPENCODE_PORT", str(oc.PORT_DEFAULT)))
     result = oc.start(port=port)
     if result.get("ok"):
@@ -1535,7 +1578,9 @@ async def notebooks_status():
     ]
     # opencode entry — only included when max-tier (workbench surface visible).
     # No credentials embedded in url_external (F-SEC-3).
+    # Sprint 2: llm_ready / llm_reason / llm_hint drive the 4th card state in JS.
     if "notebooks" in _visible_surfaces():
+        llm = oc.llm_ready_check()
         notebooks.append({
             "id": "opencode",
             "name": "opencode",
@@ -1543,6 +1588,9 @@ async def notebooks_status():
             "alive": opencode_alive,
             "url_internal": "/opencode",
             "url_external": f"http://127.0.0.1:{opencode_port}/",
+            "llm_ready": llm.get("ok", False),
+            "llm_reason": llm.get("reason"),
+            "llm_hint": llm.get("hint"),
         })
     return {"notebooks": notebooks}
 

@@ -78,12 +78,17 @@
     </div>
   </div>
   {# iframe src must NEVER embed credentials — F-SEC-1. URL format: http://127.0.0.1:<port>/ #}
-  <iframe class="oc-frame"
+  <iframe class="oc-frame" id="oc-iframe"
           src="http://127.0.0.1:{{ port }}/"
           title="opencode"
           allow="clipboard-read; clipboard-write"></iframe>
   <script>
   const OPENCODE_URL = 'http://127.0.0.1:{{ port }}/';
+  // Auto-focus the opencode iframe once it loads so the user lands ready
+  // to type — addresses "make opencode pop into picture" feedback.
+  document.getElementById('oc-iframe').addEventListener('load', () => {
+    try { document.getElementById('oc-iframe').contentWindow.focus(); } catch (_) {}
+  });
   document.getElementById('oc-popout').addEventListener('click', () => {
     window.open(OPENCODE_URL, '{{ brand.short_name }}-opencode',
                 'width=1400,height=900,noopener');
@@ -96,6 +101,21 @@
     await fetch('/api/opencode/stop', {method: 'POST'});
     location.reload();
   });
+  async function waitForOpencodeAlive(timeoutMs = 20000, intervalMs = 500) {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      try {
+        const r = await fetch('/api/notebooks/status', {cache: 'no-store'});
+        if (r.ok) {
+          const j = await r.json();
+          const oc = (j.notebooks || []).find(n => n.id === 'opencode');
+          if (oc && oc.alive) return true;
+        }
+      } catch (_) { /* keep polling */ }
+      await new Promise(res => setTimeout(res, intervalMs));
+    }
+    return false;
+  }
   document.getElementById('oc-restart').addEventListener('click', async () => {
     const btn = document.getElementById('oc-restart');
     btn.textContent = '↻ Restarting…';
@@ -104,7 +124,15 @@
     const res = await fetch('/api/opencode/start', {method: 'POST'});
     const data = await res.json();
     if (data.ok) {
-      setTimeout(() => location.reload(), 3000);
+      btn.textContent = '↻ Waiting for ready…';
+      const alive = await waitForOpencodeAlive();
+      if (alive) {
+        location.reload();
+      } else {
+        btn.textContent = '✗ Restart timeout';
+        btn.style.color = 'var(--red)';
+        btn.disabled = false;
+      }
     } else {
       btn.textContent = '✗ ' + (data.error || 'Failed');
       btn.style.color = 'var(--red)';
@@ -113,8 +141,30 @@
   });
   </script>
 
+  {% elif installed and not llm_ready %}
+  {# State 2b: opencode installed, no model loaded — must load in Chat first #}
+  <div class="oc-install" data-state="installed_no_llm">
+    <h1>Load a model first</h1>
+    <p>
+      <span class="status-pill status-installed">✓ opencode installed</span>
+      <span class="status-pill status-warn">○ no model loaded</span>
+    </p>
+    <p>{{ llm_hint or "Open the Chat tab and pick a model — opencode reuses whatever's loaded." }}</p>
+    <p>
+      <a class="btn btn-sm" href="{{ llm_chat_url|default('/chat') }}"
+         style="background:var(--blue);color:#000;font-weight:700;padding:0.4rem 1.2rem;">
+        → Open Chat
+      </a>
+    </p>
+    <p class="oc-notice">
+      Why? opencode talks to whatever model the lab has loaded. Loading
+      one in Chat shares it with opencode — no double-load, no extra RAM.
+      Once a model is running, come back here to start opencode.
+    </p>
+  </div>
+
   {% elif installed %}
-  {# State 2: opencode is installed but not running #}
+  {# State 2: opencode is installed, LLM is ready, not running #}
   <div class="oc-install">
     <h1>opencode not running</h1>
     <p>
@@ -137,6 +187,26 @@
       switch providers there, and opencode restarts to pick up the new API key.
     </p>
     <script>
+    // Wait until the workbench-status payload reports opencode alive, then
+    // reload so the iframe-rendering branch takes over. Replaces the old
+    // fixed 3-second sleep that raced opencode's bind window — when the
+    // race lost, the user landed back on this state, clicked Start again,
+    // and got "port busy" while opencode was in fact already serving.
+    async function waitForOpencodeAlive(timeoutMs = 20000, intervalMs = 500) {
+      const deadline = Date.now() + timeoutMs;
+      while (Date.now() < deadline) {
+        try {
+          const r = await fetch('/api/notebooks/status', {cache: 'no-store'});
+          if (r.ok) {
+            const j = await r.json();
+            const oc = (j.notebooks || []).find(n => n.id === 'opencode');
+            if (oc && oc.alive) return true;
+          }
+        } catch (_) { /* keep polling */ }
+        await new Promise(res => setTimeout(res, intervalMs));
+      }
+      return false;
+    }
     document.getElementById('oc-start').addEventListener('click', async () => {
       const btn = document.getElementById('oc-start');
       btn.textContent = '⏳ Starting…';
@@ -144,7 +214,28 @@
       const res = await fetch('/api/opencode/start', {method: 'POST'});
       const data = await res.json();
       if (data.ok) {
-        setTimeout(() => location.reload(), 3000);
+        // Both fresh-spawn and already_running paths poll the same way.
+        btn.textContent = data.already_running
+          ? '⏳ Already running — reloading…'
+          : '⏳ Starting — waiting for ready…';
+        const alive = await waitForOpencodeAlive();
+        if (alive) {
+          location.reload();
+        } else {
+          btn.textContent = '✗ Started but never went ready';
+          btn.style.background = 'var(--red)';
+          btn.style.color = '#fff';
+          btn.disabled = false;
+        }
+      } else if (res.status === 409) {
+        // LLM not ready — redirect to chat with a hint
+        btn.textContent = '→ ' + (data.hint || 'Load a model in Chat first');
+        btn.style.background = 'var(--amber)';
+        btn.style.color = '#000';
+        btn.disabled = false;
+        if (data.chat_url) {
+          setTimeout(() => { window.location.href = data.chat_url; }, 1500);
+        }
       } else {
         btn.textContent = '✗ ' + (data.error || 'Failed');
         btn.style.background = 'var(--red)';

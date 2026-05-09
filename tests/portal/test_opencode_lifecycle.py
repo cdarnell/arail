@@ -53,6 +53,82 @@ class TestPortBusy:
 
 
 # ---------------------------------------------------------------------------
+# Bug fix (2026-05-07) — idempotent start when opencode already serving
+# ---------------------------------------------------------------------------
+#
+# Live test surfaced: user clicked Start, the post-spawn 3-s reload raced
+# opencode's bind window, the page rendered "not running", user clicked
+# Start again and got "port busy" while opencode WAS in fact serving on
+# 4096. Now start() distinguishes "we already own the port" (idempotent
+# success) from "something else hijacked the port" (real conflict) by
+# probing /doc for the opencode OpenAPI fingerprint.
+
+class TestIdempotentStart:
+    def test_start_idempotent_when_opencode_already_serving(self, monkeypatch, tmp_path):
+        """If is_running() AND /doc fingerprints as opencode → success, not 'port busy'."""
+        import arail.portal.services.opencode as oc
+
+        monkeypatch.setattr(oc, "is_installed", lambda: True)
+        monkeypatch.setattr(oc, "is_running", lambda port=oc.PORT_DEFAULT: True)
+        monkeypatch.setattr(oc, "_is_opencode_on_port", lambda port: True)
+        monkeypatch.setattr(oc, "LOG_PATH", tmp_path / "opencode.log")
+
+        result = oc.start(port=oc.PORT_DEFAULT)
+        assert result["ok"] is True, f"Expected idempotent success, got: {result}"
+        assert result.get("already_running") is True
+        assert result.get("port") == oc.PORT_DEFAULT
+
+    def test_start_real_port_busy_when_non_opencode_listener(self, monkeypatch, tmp_path):
+        """If is_running() but /doc does NOT fingerprint → real 'port busy' error."""
+        import arail.portal.services.opencode as oc
+
+        monkeypatch.setattr(oc, "is_installed", lambda: True)
+        monkeypatch.setattr(oc, "is_running", lambda port=oc.PORT_DEFAULT: True)
+        monkeypatch.setattr(oc, "_is_opencode_on_port", lambda port: False)
+        monkeypatch.setattr(oc, "LOG_PATH", tmp_path / "opencode.log")
+
+        result = oc.start(port=oc.PORT_DEFAULT)
+        assert result["ok"] is False
+        assert "port busy" in result["error"]
+
+    def test_is_opencode_on_port_returns_false_when_no_listener(self):
+        """No process on port → fingerprint check returns False, doesn't raise."""
+        import arail.portal.services.opencode as oc
+
+        # Port 1 is privileged + unbound on all sane systems; expect timeout/refused.
+        assert oc._is_opencode_on_port(1) is False
+
+    def test_is_opencode_on_port_rejects_non_opencode_doc(self, monkeypatch):
+        """Endpoint that returns JSON but isn't opencode → fingerprint False."""
+        import arail.portal.services.opencode as oc
+        import io
+
+        class FakeResp:
+            status = 200
+            def read(self, n=4096):
+                return b'{"openapi":"3.0.0","info":{"title":"Some Other Service"}}'
+            def __enter__(self): return self
+            def __exit__(self, *a): pass
+
+        monkeypatch.setattr("urllib.request.urlopen", lambda req, timeout=0.5: FakeResp())
+        assert oc._is_opencode_on_port(4096) is False
+
+    def test_is_opencode_on_port_accepts_opencode_doc(self, monkeypatch):
+        """Endpoint that returns OpenAPI with opencode title → fingerprint True."""
+        import arail.portal.services.opencode as oc
+
+        class FakeResp:
+            status = 200
+            def read(self, n=4096):
+                return b'{"openapi":"3.1.1","info":{"title":"opencode","version":"0.0.3"}}'
+            def __enter__(self): return self
+            def __exit__(self, *a): pass
+
+        monkeypatch.setattr("urllib.request.urlopen", lambda req, timeout=0.5: FakeResp())
+        assert oc._is_opencode_on_port(4096) is True
+
+
+# ---------------------------------------------------------------------------
 # F-RESTART-1 — provider switch fires restart without blocking response
 # ---------------------------------------------------------------------------
 
