@@ -590,30 +590,42 @@ install_accel_deps() {
         info "Skipping AirLLM (ARAIL_SKIP_AIRLLM=1)."
     fi
 
-    # AeroLLM — Apple Silicon deep-mode default for 0.1.0 alpha. The wheel
-    # ships from aerollm/crates/aerollm-api via maturin; not on PyPI yet
-    # (Phase G.0 in aerollm). On non-Apple-Silicon hosts AirLLM stays the
-    # default, so we just probe importability and surface a how-to if the
-    # wheel isn't built. Building it requires the Rust toolchain (rustup)
-    # plus maturin — too many moving parts to fully automate from a
-    # blueprint setup script. The user runs one command in the sibling
-    # repo to enable; setup happily completes either way.
+    # AeroLLM — Apple Silicon deep-mode default. The wheel is published on
+    # PyPI as aerollm-api (v0.1.0-alpha+). On non-Apple-Silicon hosts
+    # AirLLM stays the default, so we just probe importability and try to
+    # install. If PyPI fails (e.g. no network) we surface the sibling-repo
+    # build path as a fallback. Setup completes either way.
+    #
+    # NOTE: do NOT use `maturin develop --release` for the sibling-repo
+    # build. maturin changes the cargo fingerprint (PYO3_ENVIRONMENT_SIGNATURE,
+    # CARGO_ENCODED_RUSTFLAGS) which triggers a fresh Metal kernel compilation
+    # that fails on macOS arm64 due to mlx-sys program-scope device variables
+    # (Metal Toolchain cryptexd v32023.883+). Use the cargo workaround below.
     if [[ "$(uname -s)" == "Darwin" ]] && [[ "$(uname -m)" == "arm64" ]] \
        && [[ "${ARAIL_SKIP_AEROLLM_PROBE:-0}" != "1" ]]; then
         if python3 -c "import aerollm_api" 2>/dev/null; then
             info "aerollm_api wheel detected — AeroLLM is the deep-mode default on Apple Silicon."
         else
-            local aerollm_repo="${ARAIL_AEROLLM_REPO:-$HOME/ProJects/aerollm}"
-            warn "aerollm_api wheel not installed (Apple Silicon detected — AeroLLM would be the deep-mode default)."
-            if [[ -d "$aerollm_repo/crates/aerollm-api" ]]; then
-                warn "  Sibling repo found at ${aerollm_repo}. To enable AeroLLM, run:"
-                warn "    cd ${aerollm_repo}/crates/aerollm-api && maturin develop --release"
+            info "Installing aerollm-api from PyPI..."
+            if pip install --quiet "aerollm-api>=0.1.0" 2>/dev/null \
+               && python3 -c "import aerollm_api" 2>/dev/null; then
+                info "aerollm_api installed — AeroLLM is the deep-mode default on Apple Silicon."
             else
-                warn "  No sibling repo at ${aerollm_repo}. Either:"
-                warn "    1) clone aerollm next to arail: cd .. && git clone <aerollm-url> aerollm"
-                warn "    2) wait for aerollm v0.1.0 PyPI publish (Phase G.0 in aerollm)"
+                local aerollm_repo="${ARAIL_AEROLLM_REPO:-$HOME/ProJects/aerollm}"
+                warn "aerollm_api not available from PyPI (pre-release or offline?)."
+                if [[ -d "$aerollm_repo/crates/aerollm-api" ]]; then
+                    warn "  Sibling repo found at ${aerollm_repo}. To enable AeroLLM, run:"
+                    warn "    cd ${aerollm_repo}"
+                    warn "    cargo build --release -p aerollm-api --features extension-module"
+                    warn "    # then in your Python venv:"
+                    warn "    cp target/release/libaerollm_api.dylib \$(python3 -c \"import site; print(site.getsitepackages()[0])\")/aerollm_api.abi3.so"
+                else
+                    warn "  No sibling repo at ${aerollm_repo}. Either:"
+                    warn "    1) pip install aerollm-api  (once v0.1.0-alpha is tagged)"
+                    warn "    2) clone aerollm next to arail: cd .. && git clone <aerollm-url> aerollm"
+                fi
+                warn "  Until then, AirLLM remains the deep-mode backend (no functionality lost)."
             fi
-            warn "  Until then, AirLLM remains the deep-mode backend (no functionality lost)."
         fi
     fi
 }
