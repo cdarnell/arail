@@ -567,15 +567,5 @@ TASK: Regenerate wiki/_INDEX.md ONLY (no other files).
         esac
         ;;
     help|-h|--help|"") usage ;;
-    # Delegate QuKaiZen-specific commands to qukaizen's qkz CLI
-    build)
-        exec "$HOME/ProJects/qukaizen/scripts/qkz" "$@"
-        ;;
-    *)
-        # Try qukaizen commands (metrics, status, models, etc.) if they exist
-        if grep -q "^def cmd_${cmd}()" "$HOME/ProJects/qukaizen/scripts/qkz" 2>/dev/null; then
-            exec "$HOME/ProJects/qukaizen/scripts/qkz" "$@"
-        fi
-        usage; die "unknown command: $cmd"
-        ;;
+    *) usage; die "unknown command: $cmd" ;;
 esac
