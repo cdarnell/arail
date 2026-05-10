@@ -95,8 +95,8 @@ configuration_source = "pyproject.toml"
 
 [tool.arail.tiers]
 # Declarative surface matrix. portal/app.py reads this to tier-gate the nav.
-min = { description = "Minimalist — Dashboard, Chat, Autoresearch, Knowledge Base (with LanceDB vector recall), Agents, AirLLM deep streaming (70B default).", surfaces = ["dashboard", "chat", "research", "knowledge", "agents"] }
-max = { description = "Maximalist — Everything in min + Admin, Docs, Notebooks, AirLLM 405B default, LangChain/LangGraph, full cloud catalog.", surfaces = ["dashboard", "chat", "research", "knowledge", "agents", "admin", "docs", "notebooks", "terminal", "tuning", "plugins"] }
+min = { description = "Minimalist — Dashboard, Chat, Autoresearch, Knowledge Base (with LanceDB vector recall), Agents. Deep mode runs aeroLLM on Apple Silicon (Qwen2.5-7B-4bit default, ~4 GB resident) or AirLLM on CUDA / Linux x86 (Llama-3.1-70B default).", surfaces = ["dashboard", "chat", "research", "knowledge", "agents"] }
+max = { description = "Maximalist — Everything in min + Admin, Docs, Notebooks, LangChain/LangGraph, full cloud catalog. Deep mode bumps to aeroLLM Llama-3.1-70B-4bit on Apple Silicon (~35 GB, needs 48 GB+ Mac) or AirLLM Llama-3.1-405B on CUDA.", surfaces = ["dashboard", "chat", "research", "knowledge", "agents", "admin", "docs", "notebooks", "terminal", "tuning", "plugins"] }
 
 [tool.arail.models]
 # Default starter models selected by setup after hardware detection.
@@ -118,10 +118,15 @@ airllm_max   = "meta-llama/Llama-3.1-405B"
 # tooling that read [tool.arail.models].airllm directly. Resolves to the
 # min default (70B).
 airllm       = "meta-llama/Llama-3.1-70B"
-# AeroLLM (Arail's own Rust runtime) is dormant in this blueprint. The
-# entry stays so when the runtime is ready we can flip it back into
-# [tool.arail.models] without re-deriving the schema.
-aerollm      = "zai-org/GLM-5.1"
+# AeroLLM (Arail's own Rust runtime) is the deep-mode default on Apple
+# Silicon as of 0.1.0 alpha — mlx-community/...-4bit repos are the
+# canonical 4-bit MLX quants. min ships Qwen2.5-7B-4bit (~4 GB resident,
+# fits 16 GB Macs); max ships Llama-3.1-70B-4bit (~35 GB, needs 48 GB+).
+# CUDA hosts still default to AirLLM until aerollm's CUDA backend lands.
+aerollm_min  = "mlx-community/Qwen2.5-7B-Instruct-4bit"
+aerollm_max  = "mlx-community/Llama-3.1-70B-Instruct-4bit"
+# Legacy alias for tooling reading [tool.arail.models].aerollm directly.
+aerollm      = "mlx-community/Qwen2.5-7B-Instruct-4bit"
 # Coder starter model (Sprint 2 — opencode Workbench, max-tier only).
 # Downloaded with ./arail setup --with-coder. ~2 GB Q4; fits 8 GB VRAM.
 # opencode's config generator writes these into opencode.json at start.

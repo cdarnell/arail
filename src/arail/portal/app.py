@@ -4957,9 +4957,64 @@ _OPTIONAL_CHAT_BACKEND_CONFIG: dict[str, dict[str, str]] = {
             "cd aerollm/crates/aerollm-api && maturin develop --release"
         ),
         "model_env": "AEROLLM_MODEL",
-        "default_model": "Qwen2.5-7B-Instruct",
+        "default_model": "Qwen2.5-7B-Instruct-4bit",
     },
 }
+
+
+def _resolve_default_deep_backend() -> str:
+    """Pick the default deep-mode backend for the current host.
+
+    Resolution order:
+      1. ``ARAIL_DEEP_BACKEND`` env var (operator override; wins over all
+         auto-detection). Must be a key in ``_OPTIONAL_CHAT_BACKEND_CONFIG``;
+         unknown values are ignored with a warning.
+      2. macOS Apple Silicon AND ``aerollm_api`` importable → ``"aerollm"``.
+         AeroLLM's mlx-native backend keeps the model resident in unified
+         memory with a single Metal command buffer per generation, which
+         is what Apple Silicon Metal is good at. ~3× faster than mlx_lm
+         baseline (per aerollm v0.1-alpha release notes).
+      3. Anywhere else (CUDA, Linux x86, AeroLLM not built) → ``"airllm"``.
+         AirLLM's Python+layer-streaming runs everywhere; aerollm's CUDA
+         backend is scaffold-only (ADR 0006 in aerollm).
+
+    This is the foundation function — Phase A.2 of the 0.1.0 alpha plan
+    wires the three hard-coded ``"airllm"`` dispatch sites into this
+    resolver. Until that lands (gated on aerollm's qwen25-correctness
+    methodology lock), the function is read by ``/api/models`` for UI
+    labelling but does NOT change which backend dispatch chooses on a
+    chat call. Operators can opt into AeroLLM today by setting
+    ``ARAIL_DEEP_BACKEND=aerollm`` plus passing ``backend=aerollm`` in
+    the chat HTTP body.
+    """
+    override = (os.getenv("ARAIL_DEEP_BACKEND", "") or "").strip().lower()
+    if override:
+        if override in _OPTIONAL_CHAT_BACKEND_CONFIG:
+            return override
+        # Unknown override — log once via activity_log so the operator
+        # sees their typo. Don't raise; fall through to auto-detect.
+        try:
+            activity_log.emit(
+                "system",
+                f"ARAIL_DEEP_BACKEND={override!r} is not a known backend "
+                f"(valid: {sorted(_OPTIONAL_CHAT_BACKEND_CONFIG)}). "
+                f"Falling back to platform auto-detect.",
+                "warn",
+            )
+        except Exception:  # noqa: BLE001
+            pass
+
+    # Lazy import — `platform` is not at module top level in this file
+    # (other call sites use the same function-local import pattern).
+    import platform
+    if platform.system() == "Darwin" and platform.machine() == "arm64":
+        try:
+            import aerollm_api  # type: ignore  # noqa: F401
+            return "aerollm"
+        except ImportError:
+            pass
+
+    return "airllm"
 
 
 def _set_chat_model_load_state(**changes: Any) -> dict[str, Any]:
@@ -5368,7 +5423,7 @@ async def api_chat_models():
             "huggingface-cli login or export HF_TOKEN before downloading."
         )
 
-    aero_model_name = os.getenv("AEROLLM_MODEL", "zai-org/GLM-5.1")
+    aero_model_name = os.getenv("AEROLLM_MODEL", "Qwen2.5-7B-Instruct-4bit")
     optional_backends = [
         {
             "id": "airllm",
@@ -5378,7 +5433,7 @@ async def api_chat_models():
             "param_hint": _extract_param_hint(air_model_name),
             "gated": air_model_name.lower().startswith("meta-llama/"),
             "install_command": "pip install airllm",
-            "description": "Active deep-chat backend — layer-streaming for 70B+ local models (max tier).",
+            "description": "Layer-streaming deep backend — primary on CUDA / Linux x86 (Llama-3.1-70B default; max tier bumps to 405B). Subprocess-isolated so Metal aborts can't kill the portal.",
             # AirLLM always streams (layer-streaming); mark for picker badge.
             "streamed": True,
         },
@@ -5390,10 +5445,9 @@ async def api_chat_models():
             "param_hint": _extract_param_hint(aero_model_name),
             "gated": aero_model_name.lower().startswith("meta-llama/"),
             "install_command": (
-                "pip install "
-                + os.getenv("AEROLLM_PACKAGE", "git+https://github.com/cdarnell/aerollm@main")
+                "cd aerollm/crates/aerollm-api && maturin develop --release"
             ),
-            "description": "Future deep-chat backend (Arail's Rust runtime). Dormant until stable.",
+            "description": "In-process Rust runtime — primary deep backend on Apple Silicon (Qwen2.5-7B-4bit default, ~4 GB resident; max tier ships Llama-3.1-70B-4bit). Single Metal command buffer per generation; ~3× faster than mlx_lm baseline.",
             # AeroLLM is also streaming by design.
             "streamed": True,
         },

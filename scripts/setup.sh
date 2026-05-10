@@ -70,9 +70,16 @@ AIRLLM_MODEL_ID="meta-llama/Llama-3.1-70B"
 AIRLLM_MODEL_MIN_ID="meta-llama/Llama-3.1-70B"
 AIRLLM_MODEL_MAX_ID="meta-llama/Llama-3.1-405B"
 AIRLLM_PACKAGE_SPEC="airllm>=2.0"
-# AeroLLM = Arail's own Rust runtime; declared for the future swap-back
-# but not installed by setup.
-AEROLLM_MODEL_ID="zai-org/GLM-5.1"
+# AeroLLM = Arail's own Rust runtime, the deep-mode default on Apple
+# Silicon as of 0.1.0 alpha. min ships Qwen2.5-7B-Instruct-4bit (~4 GB
+# resident, fits 16 GB Macs); max ships Llama-3.1-70B-Instruct-4bit
+# (~35 GB, needs 48 GB+). CUDA hosts still default to AirLLM until the
+# aerollm CUDA backend lands. KV budget defaults to 60% of system RAM
+# so portal + browser keep headroom.
+AEROLLM_MODEL_ID="mlx-community/Qwen2.5-7B-Instruct-4bit"
+AEROLLM_MODEL_MIN_ID="mlx-community/Qwen2.5-7B-Instruct-4bit"
+AEROLLM_MODEL_MAX_ID="mlx-community/Llama-3.1-70B-Instruct-4bit"
+AEROLLM_KV_BUDGET_PCT="0.60"
 AEROLLM_PACKAGE_SPEC="git+https://github.com/cdarnell/aerollm@main"
 
 # Unified password — set by capture_password() below. One secret covers:
@@ -104,6 +111,8 @@ values = {
     "AIRLLM_MODEL_MAX_ID": str(models.get("airllm_max", models.get("airllm", ""))),
     "AIRLLM_PACKAGE_SPEC": str(sources.get("airllm", "")),
     "AEROLLM_MODEL_ID": str(models.get("aerollm", "")),
+    "AEROLLM_MODEL_MIN_ID": str(models.get("aerollm_min", models.get("aerollm", ""))),
+    "AEROLLM_MODEL_MAX_ID": str(models.get("aerollm_max", models.get("aerollm", ""))),
     "AEROLLM_PACKAGE_SPEC": str(sources.get("aerollm", "")),
 }
 for key, value in values.items():
@@ -580,6 +589,33 @@ install_accel_deps() {
     else
         info "Skipping AirLLM (ARAIL_SKIP_AIRLLM=1)."
     fi
+
+    # AeroLLM — Apple Silicon deep-mode default for 0.1.0 alpha. The wheel
+    # ships from aerollm/crates/aerollm-api via maturin; not on PyPI yet
+    # (Phase G.0 in aerollm). On non-Apple-Silicon hosts AirLLM stays the
+    # default, so we just probe importability and surface a how-to if the
+    # wheel isn't built. Building it requires the Rust toolchain (rustup)
+    # plus maturin — too many moving parts to fully automate from a
+    # blueprint setup script. The user runs one command in the sibling
+    # repo to enable; setup happily completes either way.
+    if [[ "$(uname -s)" == "Darwin" ]] && [[ "$(uname -m)" == "arm64" ]] \
+       && [[ "${ARAIL_SKIP_AEROLLM_PROBE:-0}" != "1" ]]; then
+        if python3 -c "import aerollm_api" 2>/dev/null; then
+            info "aerollm_api wheel detected — AeroLLM is the deep-mode default on Apple Silicon."
+        else
+            local aerollm_repo="${ARAIL_AEROLLM_REPO:-$HOME/ProJects/aerollm}"
+            warn "aerollm_api wheel not installed (Apple Silicon detected — AeroLLM would be the deep-mode default)."
+            if [[ -d "$aerollm_repo/crates/aerollm-api" ]]; then
+                warn "  Sibling repo found at ${aerollm_repo}. To enable AeroLLM, run:"
+                warn "    cd ${aerollm_repo}/crates/aerollm-api && maturin develop --release"
+            else
+                warn "  No sibling repo at ${aerollm_repo}. Either:"
+                warn "    1) clone aerollm next to arail: cd .. && git clone <aerollm-url> aerollm"
+                warn "    2) wait for aerollm v0.1.0 PyPI publish (Phase G.0 in aerollm)"
+            fi
+            warn "  Until then, AirLLM remains the deep-mode backend (no functionality lost)."
+        fi
+    fi
 }
 
 # -----------------------------------------------------------------------------
@@ -875,6 +911,17 @@ EOF
         *)   AIRLLM_MODEL_ID="$AIRLLM_MODEL_MIN_ID" ;;
     esac
     info "AirLLM deep model for ${LAB_TIER}: ${BOLD}${AIRLLM_MODEL_ID}${RESET}"
+
+    # Same resolution for aeroLLM. min ships the 7B-4bit (~4 GB resident,
+    # fits 16 GB Apple Silicon Macs); max ships 70B-4bit (~35 GB, needs
+    # 48 GB+). Operators can override via AEROLLM_MODEL in .env after
+    # setup. On non-Apple-Silicon hosts AeroLLM stays installable but
+    # AirLLM remains the default deep backend (resolver in app.py picks).
+    case "$LAB_TIER" in
+        max) AEROLLM_MODEL_ID="$AEROLLM_MODEL_MAX_ID" ;;
+        *)   AEROLLM_MODEL_ID="$AEROLLM_MODEL_MIN_ID" ;;
+    esac
+    info "AeroLLM deep model for ${LAB_TIER}: ${BOLD}${AEROLLM_MODEL_ID}${RESET}"
 }
 
 # -----------------------------------------------------------------------------
@@ -1003,6 +1050,18 @@ setup_env() {
 
         sed -i.bak "s|^AIRLLM_MODEL=.*|AIRLLM_MODEL=${AIRLLM_MODEL_ID}|" .env
         sed -i.bak "s|^AEROLLM_MODEL=.*|AEROLLM_MODEL=${AEROLLM_MODEL_ID}|" .env
+
+        # AeroLLM KV budget — fraction of system RAM the runtime may
+        # claim for KV cache. 0.60 leaves ~40% for portal + browser; the
+        # aerollm runtime auto-detects 80% if this is unset, which is too
+        # aggressive for a lab box also running a UI. Operators dial up
+        # via AEROLLM_KV_BUDGET_PCT in .env (or unset to fall back to
+        # aerollm's auto-detect).
+        if grep -q '^AEROLLM_KV_BUDGET_PCT=' .env; then
+            sed -i.bak "s|^AEROLLM_KV_BUDGET_PCT=.*|AEROLLM_KV_BUDGET_PCT=${AEROLLM_KV_BUDGET_PCT}|" .env
+        else
+            printf '\n# AeroLLM KV-cache budget as a fraction of system RAM. 0.60 by\n# default; raise carefully — exceeding ~0.85 risks portal evictions.\nAEROLLM_KV_BUDGET_PCT=%s\n' "$AEROLLM_KV_BUDGET_PCT" >> .env
+        fi
 
         rm -f .env.bak
         info ".env created with MODEL_BACKEND=${ACCEL}"
