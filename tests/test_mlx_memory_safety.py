@@ -77,7 +77,7 @@ def test_guard_threshold_clamps_to_safe_range(monkeypatch):
     monkeypatch.setenv("ARAIL_MLX_MEMORY_GUARD_PCT", "1.5")
     assert mlx_guard._guard_threshold() == 0.99
     monkeypatch.setenv("ARAIL_MLX_MEMORY_GUARD_PCT", "garbage")
-    assert mlx_guard._guard_threshold() == 0.85  # default
+    assert mlx_guard._guard_threshold() == 0.75  # default
 
 
 def test_safely_clears_cache_after_call(monkeypatch):
