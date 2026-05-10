@@ -1,4 +1,6 @@
-"""Test the 35B hardware-floor rule and metadata override registry.
+"""Test the 30B hardware-floor rule and metadata override registry.
+
+Updated in sprint 2026-05-10-chat-model-sync: floor lowered 35B → 30B.
 
 Sprint: 2026-05-03-models-admin-dashboard
 Architect MUST-HIT scenarios covered:
@@ -35,9 +37,9 @@ from arail.model_specs import (
 # Module-level invariants — fail fast if someone moves the threshold
 # ---------------------------------------------------------------------------
 
-def test_hardware_floor_constant_is_35():
-    """HARDWARE_FLOOR_TOTAL_B is THE hard hardware floor — locked at 35B."""
-    assert HARDWARE_FLOOR_TOTAL_B == 35.0
+def test_hardware_floor_constant_is_30():
+    """HARDWARE_FLOOR_TOTAL_B is THE hard hardware floor — 30B as of sprint 2026-05-10."""
+    assert HARDWARE_FLOOR_TOTAL_B == 30.0
 
 
 def test_metadata_overrides_is_a_list_of_pattern_dict_tuples():
@@ -142,27 +144,34 @@ def test_must_stream_3b_via_regex():
 
 
 # ---------------------------------------------------------------------------
-# Boundary values — exactly 35B is NOT streamed (threshold is `> 35`)
+# Boundary values — exactly 30B is NOT streamed (threshold is `> 30`)
+# Floor was lowered from 35B → 30B in sprint 2026-05-10-chat-model-sync.
 # ---------------------------------------------------------------------------
 
-def test_must_stream_exactly_35b_is_false():
-    """Boundary: 35B == floor is NOT streamed (strict greater-than)."""
-    assert must_stream("Model-35B") is False
+def test_must_stream_exactly_30b_is_false():
+    """Boundary: 30B == floor is NOT streamed (strict greater-than)."""
+    assert must_stream("Model-30B") is False
 
 
-def test_must_stream_36b_is_true():
-    """Boundary: 36B is one tick over the floor."""
-    assert must_stream("Model-36B") is True
+def test_must_stream_31b_is_true():
+    """Boundary: 31B is one tick over the new floor."""
+    assert must_stream("Model-31B") is True
 
 
-def test_must_stream_34b_is_false():
-    """Boundary: 34B is just under."""
-    assert must_stream("Model-34B") is False
+def test_must_stream_29b_is_false():
+    """Boundary: 29B is just under the new floor."""
+    assert must_stream("Model-29B") is False
 
 
 def test_must_stream_decimal_above_floor():
-    """Boundary: 35.5B is over."""
-    assert must_stream("Model-35.5B") is True
+    """Boundary: 30.5B is over."""
+    assert must_stream("Model-30.5B") is True
+
+
+def test_must_stream_35b_still_true():
+    """Intentional behavior change: 35B now above floor (was at floor).
+    deepseek-r1:32b is the motivating case — now streamed."""
+    assert must_stream("Model-35B") is True
 
 
 # ---------------------------------------------------------------------------
