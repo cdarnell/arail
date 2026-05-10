@@ -4962,6 +4962,61 @@ _OPTIONAL_CHAT_BACKEND_CONFIG: dict[str, dict[str, str]] = {
 }
 
 
+def _resolve_default_deep_backend() -> str:
+    """Pick the default deep-mode backend for the current host.
+
+    Resolution order:
+      1. ``ARAIL_DEEP_BACKEND`` env var (operator override; wins over all
+         auto-detection). Must be a key in ``_OPTIONAL_CHAT_BACKEND_CONFIG``;
+         unknown values are ignored with a warning.
+      2. macOS Apple Silicon AND ``aerollm_api`` importable → ``"aerollm"``.
+         AeroLLM's mlx-native backend keeps the model resident in unified
+         memory with a single Metal command buffer per generation, which
+         is what Apple Silicon Metal is good at. ~3× faster than mlx_lm
+         baseline (per aerollm v0.1-alpha release notes).
+      3. Anywhere else (CUDA, Linux x86, AeroLLM not built) → ``"airllm"``.
+         AirLLM's Python+layer-streaming runs everywhere; aerollm's CUDA
+         backend is scaffold-only (ADR 0006 in aerollm).
+
+    This is the foundation function — Phase A.2 of the 0.1.0 alpha plan
+    wires the three hard-coded ``"airllm"`` dispatch sites into this
+    resolver. Until that lands (gated on aerollm's qwen25-correctness
+    methodology lock), the function is read by ``/api/models`` for UI
+    labelling but does NOT change which backend dispatch chooses on a
+    chat call. Operators can opt into AeroLLM today by setting
+    ``ARAIL_DEEP_BACKEND=aerollm`` plus passing ``backend=aerollm`` in
+    the chat HTTP body.
+    """
+    override = (os.getenv("ARAIL_DEEP_BACKEND", "") or "").strip().lower()
+    if override:
+        if override in _OPTIONAL_CHAT_BACKEND_CONFIG:
+            return override
+        # Unknown override — log once via activity_log so the operator
+        # sees their typo. Don't raise; fall through to auto-detect.
+        try:
+            activity_log.emit(
+                "system",
+                f"ARAIL_DEEP_BACKEND={override!r} is not a known backend "
+                f"(valid: {sorted(_OPTIONAL_CHAT_BACKEND_CONFIG)}). "
+                f"Falling back to platform auto-detect.",
+                "warn",
+            )
+        except Exception:  # noqa: BLE001
+            pass
+
+    # Lazy import — `platform` is not at module top level in this file
+    # (other call sites use the same function-local import pattern).
+    import platform
+    if platform.system() == "Darwin" and platform.machine() == "arm64":
+        try:
+            import aerollm_api  # type: ignore  # noqa: F401
+            return "aerollm"
+        except ImportError:
+            pass
+
+    return "airllm"
+
+
 def _set_chat_model_load_state(**changes: Any) -> dict[str, Any]:
     with _CHAT_MODEL_LOAD_LOCK:
         _CHAT_MODEL_LOAD_STATE.update(changes)
