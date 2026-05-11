@@ -227,7 +227,11 @@
   });
 
   // -- Toggle button click → show confirm panel with 3s countdown --
-  (function () {
+  // NOTE: the airgap modal HTML is included AFTER this script in
+  // every template, so at parse time the elements don't exist. Defer
+  // listener registration until DOMContentLoaded (or run immediately
+  // if the DOM is already parsed).
+  function _wireAirgapToggle() {
     var _countdownTimer = null;
 
     function _resetToggleUI() {
@@ -376,23 +380,34 @@
         _resetToggleUI();
       });
     }
-  })();
 
-  var airgapClose = document.getElementById('airgap-close');
-  if (airgapClose) {
-    airgapClose.addEventListener('click', function () {
-      var bd = document.getElementById('airgap-backdrop');
-      if (bd) bd.classList.remove('open');
-    });
+    var airgapClose = document.getElementById('airgap-close');
+    if (airgapClose) {
+      airgapClose.addEventListener('click', function () {
+        var bd = document.getElementById('airgap-backdrop');
+        if (bd) bd.classList.remove('open');
+      });
+    }
   }
-  (function () {
+
+  function _wireBackdropDismiss() {
     var bd = document.getElementById('airgap-backdrop');
     if (bd) {
       bd.addEventListener('click', function (e) {
         if (e.target === bd) bd.classList.remove('open');
       });
     }
-  })();
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function () {
+      _wireAirgapToggle();
+      _wireBackdropDismiss();
+    });
+  } else {
+    _wireAirgapToggle();
+    _wireBackdropDismiss();
+  }
 })();
 
 /* ── Whisper toast component ─────────────────────────────────────

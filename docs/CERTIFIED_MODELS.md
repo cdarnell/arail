@@ -30,7 +30,7 @@ with no Python in the hot path.
 |---|---|---|---|---|---|
 | `mlx-community/Qwen2.5-0.5B-Instruct` | 4-bit | **Certified** | ~1 GB | ~0.4 GB | Fastest local model. Tied embeddings keep parameter tree small. |
 | `mlx-community/Qwen2.5-1.5B-Instruct` | 4-bit | **Certified** | ~2 GB | ~1 GB | Best size/quality trade for chat on a 16 GB Mac. |
-| `mlx-community/Qwen2.5-7B-Instruct-4bit` | 4-bit | **Beta** | ~6 GB | ~4.5 GB | Fix landed in [aerollm@cc5485a](https://github.com/cdarnell/aerollm/commit/cc5485a). See [DEBUG_QWEN25_7B_CASE_STUDY.md](DEBUG_QWEN25_7B_CASE_STUDY.md). |
+| `mlx-community/Qwen2.5-7B-Instruct-4bit` | 4-bit | **Compatible** | ~6 GB | ~4.5 GB | Loads and generates end-to-end after [aerollm@90559ec](https://github.com/cdarnell/aerollm/commit/90559ec) (quantized `lm_head`). Harness: **14/19** — five fixtures diverge late-stream (positions 56–128), consistent with FP accumulation, not a structural bug. See [DEBUG_QWEN25_7B_CASE_STUDY.md](DEBUG_QWEN25_7B_CASE_STUDY.md). |
 | `mlx-community/Llama-3.2-1B-Instruct` | bf16 | **Compatible** | ~3 GB | ~2.5 GB | Llama tokenizer path. Useful as a second-opinion model. |
 | `mlx-community/Qwen3-8B-4bit` | 4-bit | **Compatible** | ~6 GB | ~5 GB | Newer Qwen3 architecture. Loads via Qwen2 path; emits coherent text. Correctness harness pending. |
 
@@ -93,7 +93,7 @@ Pair the model with a machine that can host it:
 | Tier | RAM | Recommended models |
 |---|---|---|
 | **Light** | 8–16 GB Apple Silicon | Qwen2.5-0.5B, Qwen2.5-1.5B, Llama-3.2-1B |
-| **Standard** | 24–32 GB Apple Silicon | Add Qwen2.5-7B (once Beta clears), Qwen3-8B |
+| **Standard** | 24–32 GB Apple Silicon | Add Qwen2.5-7B, Qwen3-8B |
 | **Heavy** | 64 GB+ Apple Silicon | Add Llama-3.1-70B via AirLLM |
 | **Frontier** | 128 GB+ Apple Silicon | Add Llama-3.1-405B, Llama-4-Maverick (`max` tier) |
 
