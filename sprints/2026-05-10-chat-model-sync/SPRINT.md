@@ -29,10 +29,10 @@ what actually exists and gets called. Three interlocking issues:
 |---|---|---|---|---|---|---|
 | think | visionary | VISION.md | skipped | — | — | — |
 | plan | architect (design) | ARCHITECTURE.md | done | 2026-05-10 | 2026-05-10 | complete |
-| build | builder | BUILD_LOG.md | in-progress | 2026-05-10 | — | — |
-| review | architect (review) | REVIEW.md | pending | — | — | — |
-| test | qa | TEST_REPORT.md | pending | — | — | — |
-| ship | — | PR | pending | — | — | — |
+| build | builder | BUILD_LOG.md | done | 2026-05-10 | 2026-05-10 | complete (1adb527) |
+| review | architect (review) | REVIEW.md | done | 2026-05-10 | 2026-05-10 | PASS |
+| test | qa | TEST_REPORT.md | done | 2026-05-10 | 2026-05-10 | PASS (95 sprint, 1037 repo, 0 regressions) |
+| ship | — | PR | in-progress | 2026-05-10 | — | — |
 
 ## Decisions log
 
