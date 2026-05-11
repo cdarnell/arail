@@ -32,10 +32,10 @@ Reposition `min` tier as a **cloud-first lab** plugged into 10 model-as-a-servic
 |---|---|---|---|---|---|---|
 | think | visionary | VISION.md | skipped | — | — | (user defined wedge via the AskUserQuestion answers) |
 | plan | architect (design) | ARCHITECTURE.md | done | 2026-05-11 | 2026-05-11 | complete |
-| build | builder | BUILD_LOG.md | in-progress | 2026-05-11 | — | — |
-| review | architect (review) | REVIEW.md | pending | — | — | — |
-| test | qa | TEST_REPORT.md | pending | — | — | — |
-| ship | — | PR | pending | — | — | — |
+| build | builder | BUILD_LOG.md | done | 2026-05-11 | 2026-05-11 | complete |
+| review | architect (review) | REVIEW.md | done | 2026-05-11 | 2026-05-11 | PASS |
+| test | qa | TEST_REPORT.md | done | 2026-05-11 | 2026-05-11 | WEAK_PASS (2 non-blocking followups) |
+| ship | — | PR | in-progress | 2026-05-11 | — | — |
 
 ## Skipped phases
 

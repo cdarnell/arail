@@ -172,14 +172,18 @@ models. Best when you need fast responses (chat agents, real-time UX).
 
 If your provider isn't in this list but speaks OpenAI Chat Completions
 (NIM-on-prem, vLLM endpoint, LM Studio, llama-server, …), use the
-**Custom** row in the Connections modal:
+file-based path:
 
-1. Paste your key as usual
-2. Set `MODEL_API_BASE_URL` in `lab/data/secrets.env` to the endpoint
-3. Set `MODEL_NAME` to the model the endpoint serves
+1. Edit `lab/data/secrets.env`
+2. Add `MODEL_API_KEY=<your-token>`
+3. Add `MODEL_API_BASE_URL=<your-endpoint>` (e.g. `http://192.168.1.5:8000/v1`)
+4. Add `MODEL_NAME=<model-id>` (the model the endpoint serves)
+5. Restart: `./arailctl restart`
 
-The Custom row uses the OpenAI Chat Completions wire format with a
-bearer token. Anything that does is reachable.
+The Custom path uses the OpenAI Chat Completions wire format with a
+bearer token. Anything that does is reachable. A first-class "Custom"
+row in the Connections modal is a planned follow-up — for now, the
+file-based path is the way in.
 
 ---
 
