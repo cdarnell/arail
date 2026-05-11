@@ -152,6 +152,8 @@ EOF
     stop            stop running lab services
     restart         stop then start (quick bounce)
     upgrade <tier>  switch install tier — min | max
+    enable <feat>   turn on a post-install add-on — currently: compare
+    disable <feat>  turn off a post-install add-on — currently: compare
     update          check for and apply component updates
     version         show installed component versions
     status          show what's running
@@ -186,6 +188,22 @@ case "$cmd" in
     stop)    exec bash "$REPO_ROOT/scripts/reset.sh" stop ;;
     restart) bash "$REPO_ROOT/scripts/reset.sh" stop && exec bash "$REPO_ROOT/scripts/start.sh" "$@" ;;
     upgrade) exec bash "$REPO_ROOT/scripts/upgrade.sh" "$@" ;;
+    enable)
+        feature="${1:-}"
+        case "$feature" in
+            compare) exec bash "$REPO_ROOT/scripts/enable_compare.sh" ;;
+            "")      die "usage: ./arailctl enable compare" ;;
+            *)       die "unknown feature '$feature' — try: ./arailctl enable compare" ;;
+        esac
+        ;;
+    disable)
+        feature="${1:-}"
+        case "$feature" in
+            compare) exec bash "$REPO_ROOT/scripts/disable_compare.sh" ;;
+            "")      die "usage: ./arailctl disable compare" ;;
+            *)       die "unknown feature '$feature' — try: ./arailctl disable compare" ;;
+        esac
+        ;;
     update)  exec bash "$REPO_ROOT/scripts/update.sh" "$@" ;;
     version) exec bash "$REPO_ROOT/scripts/update.sh" --version-only ;;
     reset)   exec bash "$REPO_ROOT/scripts/reset.sh" "$@" ;;

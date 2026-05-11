@@ -864,13 +864,18 @@ _slugify() {
 }
 
 # -----------------------------------------------------------------------------
-# Install tier — min / med / max. Captured once, persisted to .env.
+# Install tier — min / max. Captured once, persisted to .env.
 #
-#   min → Dashboard, Chat, Autoresearch
-#   med → + Knowledge Base, Agents, LanceDB vectors
-#   max → + Admin, Notebooks, AirLLM (deep), full cloud vendor catalog
+#   min → Dashboard, single-pane Chat, Autoresearch, Knowledge Base, Agents.
+#         Local inference via Ollama (ai-engineer:latest by default). No
+#         disk-streaming deep backend; the dual chat-box Compare feature
+#         is opt-in via `./arailctl enable compare`.
+#   max → + Admin, Docs, Notebooks, dual chat-box Compare on by default,
+#         AeroLLM 70B-4bit deep mode, AirLLM (operator-gated via
+#         ARAIL_DEV_AIRLLM=1 on non-arm64), Anthropic SDK, LangChain/
+#         LangGraph, JupyterLab.
 #
-# Upgrade later with `./arailctl upgrade med` (or max).
+# Upgrade later with `./arailctl upgrade max`.
 # -----------------------------------------------------------------------------
 LAB_TIER=""
 capture_tier() {
@@ -904,15 +909,16 @@ capture_tier() {
     cat <<EOF
   Two tiers — upgrade later with ./arailctl upgrade max.
 
-    ${BOLD}min${RESET}  Minimalist — Dashboard + Chat + Autoresearch + Knowledge Base
-           + Agents + LanceDB vector recall. The everyday lab.
-           AirLLM deep streaming with Llama-3.1-8B-Instruct (fits 16GB
-           Macs without Metal-watchdog crashes). External providers
-           (Claude, NVIDIA, OpenRouter, HuggingFace) reachable over plain
-           HTTP when LAB_MODE=hybrid.
-    ${BOLD}max${RESET}  Maximalist — Everything in min + Admin, Notebooks, AirLLM
-           Llama-3.1-70B default, Anthropic SDK, LangChain/LangGraph.
-           Targets 32GB+ machines.
+    ${BOLD}min${RESET}  Minimalist — Dashboard + single-pane Chat + Autoresearch +
+           Knowledge Base + Agents + LanceDB vector recall. Local
+           inference via Ollama (ai-engineer:latest, qwen3:8b base). No
+           disk-streaming deep backend. External providers (Claude, NVIDIA,
+           OpenRouter, HuggingFace) reachable over plain HTTP when
+           LAB_MODE=hybrid. Add Compare with ./arailctl enable compare.
+    ${BOLD}max${RESET}  Maximalist — Everything in min + Admin, Docs, Notebooks,
+           dual chat-box Compare on by default, AeroLLM 70B-4bit deep
+           mode, AirLLM (operator-gated, non-arm64), Anthropic SDK,
+           LangChain/LangGraph, JupyterLab. Targets 32GB+ machines.
 
   ${BOLD}LanceDB ships in both tiers${RESET} — KB and autoresearch are too central
   to be split across optional installs.
@@ -926,24 +932,27 @@ EOF
         med)     warn "'med' retired in the two-tier blueprint — rolling forward to 'max'."; LAB_TIER="max" ;;
         *)       warn "Unknown tier '$LAB_TIER' — falling back to min."; LAB_TIER="min" ;;
     esac
-    # Resolve which AirLLM deep model ships for this tier.
-    # min → 70B (Llama-3.1-70B). max → 405B (Llama-3.1-405B).
+    # Resolve which deep-backend models ship for this tier.
+    # min → no deep backend (Ollama only — keeps the install lean).
+    # max → AirLLM 405B + AeroLLM 70B-4bit (both surfaces; runtime gating
+    #       in app.py picks the right one based on platform + env flags).
     case "$LAB_TIER" in
-        max) AIRLLM_MODEL_ID="$AIRLLM_MODEL_MAX_ID" ;;
-        *)   AIRLLM_MODEL_ID="$AIRLLM_MODEL_MIN_ID" ;;
+        max)
+            AIRLLM_MODEL_ID="$AIRLLM_MODEL_MAX_ID"
+            AEROLLM_MODEL_ID="$AEROLLM_MODEL_MAX_ID"
+            info "AirLLM deep model for max: ${BOLD}${AIRLLM_MODEL_ID}${RESET}"
+            info "AeroLLM deep model for max: ${BOLD}${AEROLLM_MODEL_ID}${RESET}"
+            ;;
+        *)
+            # min: leave these unset. _resolve_default_deep_backend() in
+            # app.py returns None when neither AeroLLM nor (allowed) AirLLM
+            # is available; the chat dispatch handles None gracefully.
+            AIRLLM_MODEL_ID=""
+            AEROLLM_MODEL_ID=""
+            info "Tier min: no deep backend configured (Ollama only)."
+            info "  Add the Compare feature later with: ./arailctl enable compare"
+            ;;
     esac
-    info "AirLLM deep model for ${LAB_TIER}: ${BOLD}${AIRLLM_MODEL_ID}${RESET}"
-
-    # Same resolution for aeroLLM. min ships the 7B-4bit (~4 GB resident,
-    # fits 16 GB Apple Silicon Macs); max ships 70B-4bit (~35 GB, needs
-    # 48 GB+). Operators can override via AEROLLM_MODEL in .env after
-    # setup. On non-Apple-Silicon hosts AeroLLM stays installable but
-    # AirLLM remains the default deep backend (resolver in app.py picks).
-    case "$LAB_TIER" in
-        max) AEROLLM_MODEL_ID="$AEROLLM_MODEL_MAX_ID" ;;
-        *)   AEROLLM_MODEL_ID="$AEROLLM_MODEL_MIN_ID" ;;
-    esac
-    info "AeroLLM deep model for ${LAB_TIER}: ${BOLD}${AEROLLM_MODEL_ID}${RESET}"
 }
 
 # -----------------------------------------------------------------------------
@@ -1111,6 +1120,16 @@ setup_env() {
     if [[ -n "${LAB_TIER:-}" ]]; then
         _set_env_var LAB_TIER "$LAB_TIER"
     fi
+
+    # Compare add-on flag — the chat template renders the dual chat-box
+    # "+ Compare" button only when ARAIL_COMPARE_ENABLED=1. Min ships with
+    # it off by default; max ships with it on. Upgrade-in-place users
+    # whose .env predates this flag keep the current behavior because
+    # the portal handler defaults to "1" when the var is unset.
+    case "${LAB_TIER:-min}" in
+        max) _set_env_var ARAIL_COMPARE_ENABLED "1" ;;
+        *)   _set_env_var ARAIL_COMPARE_ENABLED "0" ;;
+    esac
 }
 
 # Set KEY=VALUE in .env, replacing (or uncommenting) any existing entry.

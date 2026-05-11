@@ -40,10 +40,10 @@ prefer a shorter alias, `./qkz` is symlinked to `./arailctl`.)
 
 Two tiers. Pick one; upgrade later.
 
-| Tier  | What you get                                                                                                            | Good for                                         |
-| ----- | ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
-| `min` | Dashboard · Chat · Autoresearch · Knowledge Base · Agents · LanceDB vectors · **AirLLM 70B** (Llama-3.1-70B)           | The everyday lab. Real models on small hardware. |
-| `max` | + Admin · Docs · Notebooks · **AirLLM 405B** (Llama-3.1-405B) · Anthropic SDK · LangChain · full cloud SDKs             | Frontier-scale local inference, full bench.      |
+| Tier  | What you get                                                                                                                                                                  | Good for                                                |
+| ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| `min` | Dashboard · single-pane Chat · Autoresearch · Knowledge Base · Agents · LanceDB vectors · **Ollama** (`ai-engineer:latest`)                                                   | The everyday lab. Boring, unsurprising, fast first-run. |
+| `max` | + Admin · Docs · Notebooks · **dual chat-box Compare** · **AeroLLM 70B-4bit** deep mode · **AirLLM 405B** (operator-gated) · Anthropic SDK · LangChain/LangGraph · JupyterLab | Frontier-scale local inference, full bench.             |
 
 Upgrade any time:
 
@@ -54,6 +54,20 @@ Upgrade any time:
 Knowledge Base and Agents are part of `min` on purpose — research needs
 memory to work. Both tiers ship with the embedded LanceDB-backed KB; `max`
 adds the heavier operator surfaces and orchestration extras.
+
+### Add-ons (min tier)
+
+`min` ships intentionally lean — no disk-streaming deep backend, no dual
+chat-box. Add features when you need them:
+
+```bash
+./arailctl enable compare    # turn on the dual chat-box Compare view
+./arailctl disable compare   # turn it back off
+```
+
+The `max` tier includes every add-on by default. AirLLM in `max` is
+operator-gated: it's never visible on Apple Silicon (Metal aborts), and on
+non-arm64 hosts requires `ARAIL_DEV_AIRLLM=1` in `.env`.
 
 For the list of models that have been validated against ARAIL's
 correctness harness — what's **Certified**, **Compatible**, **Beta**,

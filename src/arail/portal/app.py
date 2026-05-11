@@ -863,7 +863,14 @@ async def chat_page(request: Request):
     embed = request.query_params.get("embed", "").lower() in {
         "1", "true", "yes", "on"
     }
-    return templates.TemplateResponse(request, "chat.html", {"embed": embed})
+    # Dual chat-box Compare is opt-in for min tier (`./arailctl enable compare`)
+    # and on by default for max. The unset default of "1" preserves current
+    # behavior for installs that predate this flag.
+    compare_enabled = os.getenv("ARAIL_COMPARE_ENABLED", "1") == "1"
+    return templates.TemplateResponse(request, "chat.html", {
+        "embed": embed,
+        "compare_enabled": compare_enabled,
+    })
 
 
 # ─── Chat compute-source pivot ───────────────────────────────────────────

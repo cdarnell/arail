@@ -49,12 +49,20 @@ def test_max_extra_includes_pip_audit(pyproject_text):
 
 
 def test_min_extra_does_NOT_include_pip_audit(pyproject_text):
-    """The min tier MUST NOT install pip-audit — keeps default install lean."""
-    m = re.search(r'^min\s*=\s*\[(?P<body>.+?)^\]', pyproject_text,
-                  re.MULTILINE | re.DOTALL)
-    assert m, "Could not locate `min = [...]` in pyproject.toml"
-    assert "pip-audit" not in m.group("body"), (
-        "min extra MUST NOT include pip-audit — that defeats the opt-in tier model"
+    """The min tier MUST NOT install pip-audit — keeps default install lean.
+
+    After sprint 2026-05-10-min-tier-simplification, `min` extras is the
+    empty list (`min = []`) so this is trivially satisfied. We use TOML
+    parsing instead of regex because a `min = []` one-liner trips up the
+    multi-line regex pattern."""
+    try:
+        import tomllib
+    except ModuleNotFoundError:
+        import tomli as tomllib  # type: ignore
+    data = tomllib.loads(pyproject_text)
+    min_extras = data["project"]["optional-dependencies"]["min"]
+    assert not any("pip-audit" in spec for spec in min_extras), (
+        f"min extras include pip-audit: {min_extras!r} — defeats the opt-in tier model"
     )
 
 

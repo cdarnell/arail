@@ -45,20 +45,29 @@ Replace the repo id and target dir per the table above. The
 **Knowledge** tab's `[Reveal models folder]` button takes you straight
 to `lab/models/`.
 
-## Local inference — AirLLM fallback
+## Local inference — AirLLM fallback (max tier, operator-gated)
 
-AirLLM is the layered-loading runtime that backs ARAIL's `min` and `max`
-tiers when AeroLLM doesn't ship a fast path for the architecture. It
-trades latency for the ability to run very large models on a single Mac.
+AirLLM is the layered-loading runtime that runs very large models from
+disk on a single host. It is now **`max`-tier only and operator-gated**:
+
+- **Apple Silicon (arm64) machines never see AirLLM.** Loading large
+  models through AirLLM caused Metal GPU timeouts that crashed the
+  portal; the chat-model-sync sprint closed that risk with an absolute
+  block in `_show_airllm()`.
+- **Non-arm64 hosts (CUDA / Linux x86) hide AirLLM by default.** Opt in
+  by setting `ARAIL_DEV_AIRLLM=1` in `.env`. Without that flag, the
+  picker and Compute Source pivot omit AirLLM entirely.
 
 | Model | Quantization | Status | Tier | Notes |
 |---|---|---|---|---|
-| `meta-llama/Llama-3.1-70B-Instruct` | bf16 | **Compatible** | `min` default | Layered load. Slow but works. Default when AeroLLM has no fast path. |
-| `meta-llama/Llama-3.1-405B-Instruct` | bf16 | **Compatible** | `max` only | Frontier-scale bench model. Expect minutes-per-token without aggressive caching. |
-| `meta-llama/Llama-4-Maverick-17B-128E-Instruct-fp8` | fp8 | **Compatible** | either | MoE model. Loads through AirLLM; routing latency is high but stable. |
+| `meta-llama/Llama-3.1-70B-Instruct` | bf16 | **Compatible** | `max` (operator-gated) | Layered load. Slow but works. |
+| `meta-llama/Llama-3.1-405B-Instruct` | bf16 | **Compatible** | `max` (operator-gated) | Frontier-scale bench model. Expect minutes-per-token without aggressive caching. |
+| `meta-llama/Llama-4-Maverick-17B-128E-Instruct-fp8` | fp8 | **Compatible** | `max` (operator-gated) | MoE model. Loads through AirLLM; routing latency is high but stable. |
 
-These are downloaded automatically by `./arailctl setup` based on tier
-selection — you should not need to fetch them by hand.
+`min` tier installs **no** disk-streaming backend — Ollama
+(`ai-engineer:latest` by default) is the only local-inference path.
+`max` installs AirLLM as part of the tier extras, but the runtime
+gating above still applies.
 
 ## Cloud providers (backend-agnostic)
 

@@ -68,7 +68,7 @@ retained behind `?legacy=1` for one release after M5.
 
 - Brand layer (`brand.py`) — env-driven rebrand for forks.
 - Chat model gallery + Ollama send routing.
-- AirLLM compatibility (deep-backend tier, both tiers).
+- AirLLM compatibility (max tier, operator-gated via ARAIL_DEV_AIRLLM=1 on non-arm64).
 - ARAIL rename complete (oglab → arail, 2026-04-25).
 
 ## How to use this file

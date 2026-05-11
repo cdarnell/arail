@@ -1471,7 +1471,9 @@
             <label class="stream-toggle compact">
               <input type="checkbox" id="stream-toggle-A" checked> stream
             </label>
+            {% if compare_enabled %}
             <button class="icon-btn compact" id="btn-compare" title="Add a second model side-by-side">+ Compare</button>
+            {% endif %}
           </div>
           <!-- Hidden legacy picker shell — JS still references these IDs but the
                popup is gone. The chip above is the visible affordance now. -->
@@ -1497,6 +1499,7 @@
           </div>
         </section>
 
+        {% if compare_enabled %}
         <!-- ── Column B (secondary, hidden until Compare) ── -->
         <section class="col" data-col="B" hidden>
           <div class="col-quickbar">
@@ -1525,6 +1528,7 @@
             </div>
           </div>
         </section>
+        {% endif %}
       </div>
 
       <div class="input-wrap">
@@ -2416,32 +2420,56 @@
     bindQuickSlider('qb-temp-B', 'qb-temp-B-val', 'temperature', 'B');
 
     // ── Compare toggle ─────────────────────────────────────────────
-    // Column B is intentionally restricted to *deep backends* (AeroLLM,
-    // or AirLLM when the operator has opted in via ARAIL_DEV_AIRLLM=1
-    // on non-arm64). Loading two competing local models would over-
-    // subscribe VRAM; the deep backends layer-stream from disk so they
-    // coexist with the on-GPU primary at the cost of slower inference.
+    // Column B is normally restricted to *deep backends* (AeroLLM, or
+    // AirLLM when the operator has opted in via ARAIL_DEV_AIRLLM=1 on
+    // non-arm64). Two competing local Ollama models would oversubscribe
+    // VRAM; deep backends layer-stream from disk so they coexist with
+    // the on-GPU primary at the cost of slower inference.
+    //
+    // On min tier (no local deep backend installed), compare falls back
+    // to cloud providers as Model B when one is configured — preserves
+    // the feature's value without forcing a deep-backend install.
+    //
+    // The whole feature is gated by the Jinja `compare_enabled` flag —
+    // when the button and column B aren't in the DOM, setCompare and
+    // its listeners are inert. The listener bindings below null-check
+    // so a min-tier page (no btn-compare element) loads cleanly.
     function setCompare(on) {
+      const btn = $('btn-compare');
+      const colB = document.querySelector('.col[data-col="B"]');
+      if (!btn || !colB) return;        // compare disabled: no-op
       State.compareOn = on;
       $('compare-grid').setAttribute('data-cols', on ? '2' : '1');
-      const colB = document.querySelector('.col[data-col="B"]');
       colB.hidden = !on;
-      $('btn-compare').textContent = on ? '✓ Comparing' : '+ Compare';
-      if (on && !State.bId) {
-        // Auto-pick AeroLLM if present, otherwise the first installed
-        // deep backend. Never auto-pick a regular local model.
+      btn.textContent = on ? '✓ Comparing' : '+ Compare';
+      if (!on) { flashStatus('compare mode off'); return; }
+
+      // Prefer a local deep backend (AeroLLM, then AirLLM). Fall back to
+      // cloud providers if there are no deep backends installed — the
+      // min-tier compare path.
+      if (!State.bId) {
         const deeps = State.models.filter(m => m.badge === 'deep' && m.installed);
         if (deeps.length) {
           const aerollm = deeps.find(m => m.runtime === 'aerollm');
           selectModelB(aerollm || deeps[0]);
-        } else {
-          flashStatus('compare on, but no deep backend is installed (AeroLLM)');
+          flashStatus('compare mode on · column B = deep backend');
+          return;
         }
+        const cloud = (State.gallery && State.gallery.cloud_providers) || [];
+        if (cloud.length) {
+          selectModelB(cloud[0]);
+          flashStatus('compare on · column B = cloud provider (no local deep backend)');
+          return;
+        }
+        flashStatus('compare on, but no deep backend or cloud provider configured. Add a cloud key in Compute Source.');
+        return;
       }
-      flashStatus(on ? 'compare mode on · column B = deep backend' : 'compare mode off');
+      flashStatus('compare mode on');
     }
-    $('btn-compare').addEventListener('click', () => setCompare(!State.compareOn));
-    $('btn-compare-close').addEventListener('click', () => setCompare(false));
+    const _btnCompare = $('btn-compare');
+    if (_btnCompare) _btnCompare.addEventListener('click', () => setCompare(!State.compareOn));
+    const _btnCompareClose = $('btn-compare-close');
+    if (_btnCompareClose) _btnCompareClose.addEventListener('click', () => setCompare(false));
 
     // ── Secondary model picker (column B) ──────────────────────────
     function renderPickerB() {

@@ -35,22 +35,27 @@ dependencies = [
 [project.optional-dependencies]
 # ── Install tiers ─────────────────────────────────────────────────────────
 # Two tiers: min (minimalist — the default everyday lab) and max
-# (maximalist — the full bench). Upgrade any time with `./arail upgrade max`.
+# (maximalist — the full bench). Upgrade any time with `./arailctl upgrade max`.
 #
-#   min → Dashboard + Chat + Autoresearch + Knowledge Base + Agents +
-#         LanceDB vector recall + AirLLM deep layer-streaming with a 70B
-#         default (Llama-3.1-70B). External provider chat (Claude / NVIDIA
-#         / OpenRouter / HF) works here via plain HTTP, no extra SDK.
-#   max → + Admin + Notebooks + bigger AirLLM default (Llama-3.1-405B,
-#         the model AirLLM was designed to run on 8 GB VRAM) + official
-#         Anthropic SDK + optional LangChain/LangGraph.
+#   min → Dashboard + single-pane Chat + Autoresearch + Knowledge Base +
+#         Agents + LanceDB vector recall. Local inference runs through
+#         Ollama (`ai-engineer:latest` by default — a qwen3:8b base with
+#         the AI Engineer Expert persona, built by setup). No disk-
+#         streaming deep backend — `min` deliberately ships nothing that
+#         requires layer-by-layer loading; models must fit in RAM/VRAM.
+#         External provider chat (Claude / NVIDIA / OpenRouter / HF)
+#         works via plain HTTP and needs no extra SDK.
+#         Add the dual chat-box Compare feature post-install with
+#         `./arailctl enable compare`.
+#   max → Everything in min + Admin + Docs + Notebooks + dual chat-box
+#         Compare on by default + JupyterLab + Anthropic SDK + LangChain/
+#         LangGraph + AirLLM (operator-gated via ARAIL_DEV_AIRLLM=1 on
+#         non-arm64; never on Apple Silicon — Metal aborts).
 #
 # (LanceDB is in the base dependencies above — both tiers get vector
 # recall by default. The `vector` extra below is kept as a back-compat
 # alias for older docs.)
-min = [
-    "airllm>=2.0",
-]
+min = []
 max = [
     "jupyterlab>=4.0.0",
     "anthropic>=0.31.0",
@@ -95,8 +100,8 @@ configuration_source = "pyproject.toml"
 
 [tool.arail.tiers]
 # Declarative surface matrix. portal/app.py reads this to tier-gate the nav.
-min = { description = "Minimalist — Dashboard, Chat, Autoresearch, Knowledge Base (with LanceDB vector recall), Agents. Deep mode runs aeroLLM on Apple Silicon (Qwen2.5-7B-4bit default, ~4 GB resident) or AirLLM on CUDA / Linux x86 (Llama-3.1-70B default).", surfaces = ["dashboard", "chat", "research", "knowledge", "agents"] }
-max = { description = "Maximalist — Everything in min + Admin, Docs, Notebooks, LangChain/LangGraph, full cloud catalog. Deep mode bumps to aeroLLM Llama-3.1-70B-4bit on Apple Silicon (~35 GB, needs 48 GB+ Mac) or AirLLM Llama-3.1-405B on CUDA.", surfaces = ["dashboard", "chat", "research", "knowledge", "agents", "admin", "docs", "notebooks", "terminal", "tuning", "plugins"] }
+min = { description = "Minimalist — Dashboard, single-pane Chat, Autoresearch, Knowledge Base (with LanceDB vector recall), Agents. Local inference via Ollama (ai-engineer:latest by default). No disk-streaming deep backend; add the Compare feature with `./arailctl enable compare`, or upgrade to max for the full bench.", surfaces = ["dashboard", "chat", "research", "knowledge", "agents"] }
+max = { description = "Maximalist — Everything in min + Admin, Docs, Notebooks, dual chat-box Compare on by default, JupyterLab, LangChain/LangGraph, full cloud catalog. Deep mode runs AeroLLM Llama-3.1-70B-4bit on Apple Silicon (~35 GB, needs 48 GB+ Mac); AirLLM Llama-3.1-405B is available on non-arm64 when the operator opts in via ARAIL_DEV_AIRLLM=1.", surfaces = ["dashboard", "chat", "research", "knowledge", "agents", "admin", "docs", "notebooks", "terminal", "tuning", "plugins"] }
 
 [tool.arail.models]
 # Default starter models selected by setup after hardware detection.

@@ -26,11 +26,11 @@ off it:
 - **aerollm** (`~/ProJects/aerollm`) — Streaming inference runtime, a
   product of ARAIL. Origin lives here in `research/aerollm/` (00 through
   04 design docs) before it was extracted to its own repo. ARAIL's `min`
-  tier currently uses **AirLLM 70B** as the local-inference backend;
-  that slot is what aeroLLM is built to replace once Phase 2 lands HTTP
-  bindings. The README's Compute Source pivot in the Chat tab is the
-  surface where the swap happens. See `aerollm/CLAUDE.md` for runtime
-  internals.
+  tier currently uses **Ollama** (`ai-engineer:latest` by default) as
+  the local-inference backend; `max` adds AeroLLM (Apple Silicon
+  primary) and AirLLM (operator-gated, non-arm64 only). The README's
+  Compute Source pivot in the Chat tab is the surface where the swap
+  happens. See `aerollm/CLAUDE.md` for runtime internals.
 - **qukaizen** (`~/ProJects/qukaizen`) — Project Nucleus / Super Skill
   Distillation Pipeline. Independent today (its own pipeline, its own
   CLI also called `qkz`), but a planned future consumer of aeroLLM for
@@ -46,20 +46,23 @@ research effort that also needs that substrate.
 
 The product is intentionally simple at the entry point. Two tiers:
 
-| Tier  | What's in it                                                                                                          |
-|-------|------------------------------------------------------------------------------------------------------------------------|
-| `min` | Dashboard · Chat · Autoresearch · Knowledge Base · Agents · LanceDB vectors · AirLLM 70B (Llama-3.1-70B) — the everyday lab |
-| `max` | + Admin · Docs · Notebooks · AirLLM 405B · Anthropic SDK · LangChain · full cloud SDKs — the frontier-scale bench       |
+| Tier  | What's in it                                                                                                                                                |
+|-------|-------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `min` | Dashboard · single-pane Chat · Autoresearch · Knowledge Base · Agents · LanceDB vectors · Ollama (`ai-engineer:latest`) — the everyday lab                  |
+| `max` | + Admin · Docs · Notebooks · dual chat-box Compare · AeroLLM 70B-4bit · AirLLM 405B (operator-gated) · Anthropic SDK · LangChain · full cloud SDKs          |
 
 Tier upgrade is a single `./arailctl upgrade max` away; downgrade likewise.
 Knowledge Base and Agents are part of `min` deliberately — research
-without memory is a non-starter.
+without memory is a non-starter. The dual chat-box Compare feature is a
+**post-install add-on** for min: `./arailctl enable compare` flips it on
+(and `disable compare` flips it back).
 
 The CLI is `./arailctl` (also reachable via `./qkz`). The main verbs:
 
 - `./arailctl setup` — pick a tier, install deps, download a starter model.
 - `./arailctl start` — open `http://127.0.0.1:8080`.
 - `./arailctl upgrade {min|max}` — change tier.
+- `./arailctl enable compare` / `disable compare` — flip the dual chat-box add-on.
 - `./arailctl pkb ingest <file>` — push a doc into the LanceDB-backed KB.
 - `./arailctl benchmark_models` (alias `aerollm`) — local model benchmark.
 

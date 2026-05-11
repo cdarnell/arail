@@ -49,13 +49,14 @@ info "Switching install tier to ${BOLD}${TIER}${RESET}…"
 # pip is idempotent — already-installed packages are no-ops. For downgrades
 # we intentionally do not uninstall; the tabs just hide in the nav and the
 # operator can upgrade back later without re-downloading wheels.
-# Both tiers now declare airllm, so we always re-run pip install to make
-# sure the deep backend is present.
+# `min` now declares empty extras (Ollama-only blueprint, no airllm); `max`
+# still pulls jupyterlab, anthropic, langchain, langgraph, airllm.
 pip install -q -e ".[${TIER}]" || die "pip install failed for tier ${TIER}"
 
-# Persist tier + tier-sized AIRLLM_MODEL default to .env. Reads the
-# canonical model names from pyproject.toml so this stays in lockstep
-# with [tool.arail.models].
+# Persist tier + tier-sized model defaults + compare flag to .env. Reads
+# the canonical model names from pyproject.toml so this stays in lockstep
+# with [tool.arail.models]. Only writes AIRLLM_MODEL when the tier has
+# one (max); min uses Ollama and leaves the deep-model slots empty.
 python3 - "$TIER" <<'PY'
 import pathlib, sys
 try:
@@ -66,11 +67,18 @@ except ModuleNotFoundError:
 tier = sys.argv[1]
 data = tomllib.loads(pathlib.Path("pyproject.toml").read_text())
 models = data.get("tool", {}).get("arail", {}).get("models", {})
+# Only max has an AirLLM default now; min returns "" so we skip the upsert.
 tier_model_key = f"airllm_{tier}"
-airllm_model = models.get(tier_model_key) or models.get("airllm", "")
+airllm_model = models.get(tier_model_key, "") if tier == "max" else ""
 
 p = pathlib.Path(".env")
 lines = p.read_text().splitlines() if p.exists() else []
+
+def has_key(out, key):
+    for line in out:
+        if line.lstrip("# ").startswith(f"{key}="):
+            return True
+    return False
 
 def upsert(out, key, value):
     seen = False
@@ -90,6 +98,14 @@ def upsert(out, key, value):
 lines = upsert(lines, "LAB_TIER", tier)
 if airllm_model:
     lines = upsert(lines, "AIRLLM_MODEL", airllm_model)
+
+# Compare add-on flag: when upgrading to max, default to on if not already
+# set. When downgrading to min, leave any explicit user setting alone —
+# someone who enabled compare on min keeps it; if they don't want it they
+# can run `./arailctl disable compare`.
+if tier == "max" and not has_key(lines, "ARAIL_COMPARE_ENABLED"):
+    lines = upsert(lines, "ARAIL_COMPARE_ENABLED", "1")
+
 p.write_text("\n".join(lines) + "\n")
 print(f"LAB_TIER={tier}")
 if airllm_model:
