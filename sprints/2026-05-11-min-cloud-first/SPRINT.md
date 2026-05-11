@@ -35,7 +35,7 @@ Reposition `min` tier as a **cloud-first lab** plugged into 10 model-as-a-servic
 | build | builder | BUILD_LOG.md | done | 2026-05-11 | 2026-05-11 | complete |
 | review | architect (review) | REVIEW.md | done | 2026-05-11 | 2026-05-11 | PASS |
 | test | qa | TEST_REPORT.md | done | 2026-05-11 | 2026-05-11 | WEAK_PASS (2 non-blocking followups) |
-| ship | — | PR | in-progress | 2026-05-11 | — | — |
+| ship | — | PR | done | 2026-05-11 | 2026-05-11 | shipped — https://github.com/cdarnell/arail/pull/46 (stacked on PR #45) |
 
 ## Skipped phases
 
