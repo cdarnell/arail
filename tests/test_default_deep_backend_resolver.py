@@ -4,16 +4,14 @@ backend selector that powers ARAIL's 0.1.0 alpha aeroLLM/AirLLM split.
 The resolver must:
   1. Honor an explicit ``ARAIL_DEEP_BACKEND`` env override (when valid)
   2. Auto-detect aerollm on macOS arm64 when the wheel is importable
-  3. Fall back to airllm everywhere else (CUDA, Linux x86, AeroLLM unbuilt)
-  4. Treat unknown override values as "fall through to auto-detect"
+  3. Return None on arm64 when aerollm NOT importable (AirLLM = Metal timeout)
+  4. Fall back to airllm on non-arm64 only when ARAIL_DEV_AIRLLM=1
+  5. Return None when no deep backend is available
+  6. Treat unknown override values as "fall through to auto-detect"
      (with a warning) instead of raising
 
-The function is the foundation for Phase A.2 of the alpha plan, which
-wires the three hard-coded ``"airllm"`` dispatch sites into this
-resolver. Until then, the resolver is informational (read by
-``/api/models`` for UI labelling) and does not change which backend
-dispatch chooses on a chat call. These tests pin its contract so the
-A.2 wiring goes in safely."""
+Updated in sprint 2026-05-10-chat-model-sync: arm64-without-aerollm now
+returns None instead of "airllm" (avoids Metal GPU timeouts)."""
 
 from __future__ import annotations
 
@@ -68,15 +66,17 @@ def test_invalid_override_falls_through_to_autodetect(monkeypatch):
     typo via the activity log without losing the lab."""
     monkeypatch.setenv("ARAIL_DEEP_BACKEND", "cloud-bogus")
     result = portal_app._resolve_default_deep_backend()
-    assert result in ("aerollm", "airllm"), \
-        f"expected fallback to a known backend, got {result!r}"
+    # After sprint 2026-05-10: result may be None when no backend is available.
+    assert result in ("aerollm", "airllm", None), \
+        f"expected fallback to a known backend or None, got {result!r}"
 
 
 def test_empty_override_falls_through(monkeypatch):
     """Empty string should be treated as 'no override' (auto-detect)."""
     monkeypatch.setenv("ARAIL_DEEP_BACKEND", "")
     result = portal_app._resolve_default_deep_backend()
-    assert result in ("aerollm", "airllm")
+    # After sprint 2026-05-10: result may be None when no backend is available.
+    assert result in ("aerollm", "airllm", None)
 
 
 # ── Auto-detect path (macOS arm64) ───────────────────────────────────────
@@ -94,10 +94,11 @@ def test_macos_arm64_with_aerollm_returns_aerollm(monkeypatch):
             f"expected aerollm on Apple Silicon w/ aerollm_api, got {result!r}"
 
 
-def test_macos_arm64_without_aerollm_falls_back_to_airllm(monkeypatch):
-    """If the aerollm_api wheel isn't built, even Apple Silicon falls
-    back to airllm. This covers the developer-bootstrap state where
-    setup.sh hasn't been re-run since the rename."""
+def test_macos_arm64_without_aerollm_returns_none(monkeypatch):
+    """If the aerollm_api wheel isn't built on arm64, the resolver
+    returns None — NOT "airllm". AirLLM causes Metal GPU timeouts on arm64.
+
+    Regression test for sprint 2026-05-10-chat-model-sync: was "airllm"."""
     monkeypatch.delenv("ARAIL_DEEP_BACKEND", raising=False)
 
     # Hide aerollm_api from the import system for the duration of the call.
@@ -109,8 +110,7 @@ def test_macos_arm64_without_aerollm_falls_back_to_airllm(monkeypatch):
         return _real_import(name, *a, **kw)
 
     _real_import = __builtins__["__import__"] if isinstance(__builtins__, dict) else __builtins__.__import__
-    with patch("platform.system", return_value="Darwin"), \
-         patch("platform.machine", return_value="arm64"), \
+    with patch("platform.machine", return_value="arm64"), \
          patch("builtins.__import__", side_effect=_missing):
         try:
             result = portal_app._resolve_default_deep_backend()
@@ -118,36 +118,89 @@ def test_macos_arm64_without_aerollm_falls_back_to_airllm(monkeypatch):
             if saved is not None:
                 sys.modules["aerollm_api"] = saved
 
-    assert result == "airllm", \
-        f"expected airllm fallback when aerollm_api is missing, got {result!r}"
+    assert result is None, \
+        f"expected None (not airllm) when aerollm_api is missing on arm64, got {result!r}"
 
 
 # ── Auto-detect path (non-Apple-Silicon) ─────────────────────────────────
 
 
-def test_macos_intel_returns_airllm(monkeypatch):
-    """Intel Mac (x86_64) — no aerollm mlx-native; falls back to airllm."""
+def test_macos_intel_without_airllm_env_returns_none(monkeypatch):
+    """Intel Mac (x86_64) without ARAIL_DEV_AIRLLM=1 — _show_airllm()=False,
+    so resolver returns None.
+
+    Updated sprint 2026-05-10: non-arm64 without the dev flag returns None,
+    not "airllm". AirLLM is hidden from regular users."""
     monkeypatch.delenv("ARAIL_DEEP_BACKEND", raising=False)
-    with patch("platform.system", return_value="Darwin"), \
-         patch("platform.machine", return_value="x86_64"):
-        assert portal_app._resolve_default_deep_backend() == "airllm"
+    monkeypatch.delenv("ARAIL_DEV_AIRLLM", raising=False)
+
+    # Remove aerollm_api from import system to simulate it not being present.
+    saved = sys.modules.pop("aerollm_api", None)
+
+    def _missing(name, *a, **kw):
+        if name == "aerollm_api":
+            raise ImportError("aerollm_api hidden by test")
+        return _real_import(name, *a, **kw)
+
+    _real_import = __builtins__["__import__"] if isinstance(__builtins__, dict) else __builtins__.__import__
+    with patch("platform.machine", return_value="x86_64"), \
+         patch("builtins.__import__", side_effect=_missing):
+        try:
+            result = portal_app._resolve_default_deep_backend()
+        finally:
+            if saved is not None:
+                sys.modules["aerollm_api"] = saved
+    assert result is None
 
 
-def test_linux_returns_airllm(monkeypatch):
-    """Linux (CUDA or x86 CPU) — aerollm CUDA backend is scaffold-only,
-    so airllm is the default until it lands."""
+def test_linux_without_airllm_env_returns_none(monkeypatch):
+    """Linux (CUDA or x86 CPU) without ARAIL_DEV_AIRLLM=1 → None.
+
+    Updated sprint 2026-05-10: AirLLM hidden from regular users by default."""
     monkeypatch.delenv("ARAIL_DEEP_BACKEND", raising=False)
-    with patch("platform.system", return_value="Linux"), \
-         patch("platform.machine", return_value="x86_64"):
-        assert portal_app._resolve_default_deep_backend() == "airllm"
+    monkeypatch.delenv("ARAIL_DEV_AIRLLM", raising=False)
+
+    saved = sys.modules.pop("aerollm_api", None)
+
+    def _missing(name, *a, **kw):
+        if name == "aerollm_api":
+            raise ImportError("aerollm_api hidden by test")
+        return _real_import(name, *a, **kw)
+
+    _real_import = __builtins__["__import__"] if isinstance(__builtins__, dict) else __builtins__.__import__
+    with patch("platform.machine", return_value="x86_64"), \
+         patch("builtins.__import__", side_effect=_missing):
+        try:
+            result = portal_app._resolve_default_deep_backend()
+        finally:
+            if saved is not None:
+                sys.modules["aerollm_api"] = saved
+    assert result is None
 
 
-def test_windows_returns_airllm(monkeypatch):
-    """Windows (where someone runs WSL) — same fallback as Linux."""
+def test_windows_without_airllm_env_returns_none(monkeypatch):
+    """Windows without ARAIL_DEV_AIRLLM=1 → None.
+
+    Updated sprint 2026-05-10: same gating as Linux."""
     monkeypatch.delenv("ARAIL_DEEP_BACKEND", raising=False)
-    with patch("platform.system", return_value="Windows"), \
-         patch("platform.machine", return_value="AMD64"):
-        assert portal_app._resolve_default_deep_backend() == "airllm"
+    monkeypatch.delenv("ARAIL_DEV_AIRLLM", raising=False)
+
+    saved = sys.modules.pop("aerollm_api", None)
+
+    def _missing(name, *a, **kw):
+        if name == "aerollm_api":
+            raise ImportError("aerollm_api hidden by test")
+        return _real_import(name, *a, **kw)
+
+    _real_import = __builtins__["__import__"] if isinstance(__builtins__, dict) else __builtins__.__import__
+    with patch("platform.machine", return_value="AMD64"), \
+         patch("builtins.__import__", side_effect=_missing):
+        try:
+            result = portal_app._resolve_default_deep_backend()
+        finally:
+            if saved is not None:
+                sys.modules["aerollm_api"] = saved
+    assert result is None
 
 
 # ── Override beats auto-detect ───────────────────────────────────────────

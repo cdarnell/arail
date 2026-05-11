@@ -33,6 +33,12 @@ node_modules/
 .transfer/
 lab/data/
 lab/models/
+# Top-level models/ holds Ollama Modelfile scaffolds (tracked) plus any
+# fetched weights (ignored). The /*/* pattern matches files inside
+# subdirs so the parent dirs themselves stay un-excluded — which is
+# what lets the `!.../Modelfile` re-include below take effect.
+models/*/*
+!models/*/Modelfile
 # opencode lab-scoped config (generated at start; may contain env references, no secrets)
 lab/.opencode/
 lab/pkb/inbox/*

@@ -1,12 +1,13 @@
-"""Test the server-side 35B dispatch override (architect MUST-HIT A1).
+"""Test the server-side 30B dispatch override (architect MUST-HIT A1).
 
 Sprint: 2026-05-03-models-admin-dashboard
+Updated: 2026-05-10-chat-model-sync (floor lowered 35B → 30B, routing updated)
 
 Headline scenario:
   Client posts to `/api/chat` with `backend: "mlx"` (a non-Deep backend) AND a
   model where `must_stream() == True` (e.g. Llama-3.1-70B). Server MUST silently
-  override and route through the AirLLM Deep backend, NOT mlx. The client's
-  backend selection is advisory; the SERVER decides.
+  override and route through the best available Deep backend, NOT mlx. The
+  client's backend selection is advisory; the SERVER decides.
 
 We don't actually invoke a real model — we mock both the Deep backend and the
 primary router and assert which one was called.
@@ -74,6 +75,10 @@ def patched_app(monkeypatch):
     fake_deep = _FakeDeepBackend()
     fake_router = _FakePrimaryRouter()
 
+    # Hard-floor routing now calls _resolve_default_deep_backend() instead of
+    # hardcoding "airllm". Pin it to "airllm" so the fixture's fake_deep
+    # (which only handles "airllm") is still selected on the override path.
+    monkeypatch.setattr(app_mod, "_resolve_default_deep_backend", lambda: "airllm")
     monkeypatch.setattr(app_mod, "_get_optional_chat_backend",
                         lambda name: fake_deep if name == "airllm" else (_ for _ in ()).throw(ValueError(name)))
     monkeypatch.setattr(app_mod, "_get_primary_router", lambda: fake_router)
@@ -174,9 +179,9 @@ def test_chat_dispatch_override_emits_activity_log(patched_app, monkeypatch):
         "model": "Llama-3.1-70B",
     })
     assert r.status_code == 200
-    # Find a chat-source emit that mentions "35B+" — that's the override audit line
-    matches = [m for src, m, lvl in captured if src == "chat" and "35B+" in m]
-    assert matches, f"expected an activity_log line about 35B+ override; got: {captured}"
+    # Find a chat-source emit that mentions "30B+" — that's the override audit line
+    matches = [m for src, m, lvl in captured if src == "chat" and "30B+" in m]
+    assert matches, f"expected an activity_log line about 30B+ override; got: {captured}"
 
 
 # ---------------------------------------------------------------------------

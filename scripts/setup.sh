@@ -757,6 +757,16 @@ install_services() {
         else
             info "Ollama has $model_count model(s) available"
         fi
+        # Create ARAIL's default ai-engineer model from the bundled
+        # Modelfile (qwen3:8b base + AI Engineer Expert persona). Idempotent —
+        # `ollama show` returns nonzero when the tag isn't installed yet.
+        local _modelfile="${REPO_ROOT:-$PWD}/models/ai-engineer/Modelfile"
+        if [[ -f "$_modelfile" ]] && ! ollama show ai-engineer &>/dev/null; then
+            info "Creating ai-engineer model from models/ai-engineer/Modelfile…"
+            if ! ollama create ai-engineer -f "$_modelfile" 2>&1 | tail -5; then
+                warn "ai-engineer create failed. Run manually: ollama create ai-engineer -f models/ai-engineer/Modelfile"
+            fi
+        fi
     fi
 }
 
