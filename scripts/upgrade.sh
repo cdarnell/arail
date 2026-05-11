@@ -106,6 +106,11 @@ if airllm_model:
 if tier == "max" and not has_key(lines, "ARAIL_COMPARE_ENABLED"):
     lines = upsert(lines, "ARAIL_COMPARE_ENABLED", "1")
 
+# LAB_MODE: only set when the key is absent — preserves an explicit user
+# value. Default per tier: min→hybrid (cloud reachable), max→airgapped.
+if not has_key(lines, "LAB_MODE"):
+    lines = upsert(lines, "LAB_MODE", "airgapped" if tier == "max" else "hybrid")
+
 p.write_text("\n".join(lines) + "\n")
 print(f"LAB_TIER={tier}")
 if airllm_model:

@@ -911,25 +911,30 @@ capture_tier() {
 
                           ${BOLD}min${RESET}                          ${BOLD}max${RESET}
   ─────────────────────────────────────────────────────────────────────────────
+  thesis                  cloud-first lab              local-first, air-gapped
   chat                    single pane                  dual pane (Compare)
-  local inference         Ollama only                  Ollama + AeroLLM 70B
+  cloud providers         10 wired in (sign up + key)  optional (off by default)
+  local inference         Ollama (fallback)            Ollama + AeroLLM 70B
   big-model streaming     —                            AirLLM 405B (op-gated)
+  lab mode default        hybrid (cloud-reachable)     airgapped (private)
   surfaces                5 tabs                       10 tabs (+ Admin/Docs/Notebooks)
-  SDKs                    none (HTTP cloud works)      Anthropic + LangChain + JupyterLab
-  hardware floor          8 GB RAM, any CPU            32 GB+ RAM (Apple Silicon ideal)
+  SDKs                    none (HTTP cloud is enough)  Anthropic + LangChain + JupyterLab
+  hardware floor          8 GB RAM, any CPU (VM ok)    12 GB+ GPU / 32 GB+ Apple Silicon
   download size           ~5 GB (Ollama default)       ~40 GB (AeroLLM weights)
   ─────────────────────────────────────────────────────────────────────────────
 
-  ${BOLD}RECOMMENDED for first install: min.${RESET} Core lab functionality —
-  Dashboard, Chat, Knowledge Base, Autoresearch, Agents. Runs on everyday
-  hardware and doesn't pull large model weights. Add Compare later with
-  \`./arailctl enable compare\`. If you're not sure, pick min.
+  Pick ${BOLD}min${RESET} for a cloud-first lab — plug into 10 providers
+  (Anthropic, OpenAI, Google Gemini, Mistral, xAI, OpenRouter, HuggingFace,
+  NVIDIA NIM, Together AI, Groq) via simple API keys. Works on any
+  machine that can run a web server, including a VM or small laptop.
+  See docs/CLOUD_PROVIDERS.md for sign-up + key + paste instructions.
+  Add Compare later with \`./arailctl enable compare\`.
 
-  Pick ${BOLD}max${RESET} when you want frontier-level thinking — running 70B / 405B
-  models locally. Max ships AeroLLM and AirLLM, runtimes that keep a base
+  Pick ${BOLD}max${RESET} for a local-first lab — run 70B / 405B models on your own
+  hardware. Max ships AeroLLM and AirLLM, runtimes that keep a base
   model resident on the GPU and stream additional model layers from disk
   into the GPU as they're needed. That streaming is what costs the extra
-  RAM, disk, and bandwidth.
+  RAM, disk, and bandwidth. Max can fully run air-gapped.
 
   ${BOLD}LanceDB ships in both tiers${RESET} — KB and autoresearch are too central to
   be split across optional installs.
@@ -1140,6 +1145,19 @@ setup_env() {
     case "${LAB_TIER:-min}" in
         max) _set_env_var ARAIL_COMPARE_ENABLED "1" ;;
         *)   _set_env_var ARAIL_COMPARE_ENABLED "0" ;;
+    esac
+
+    # LAB_MODE — per-tier privacy default.
+    #   - min ships LAB_MODE=hybrid: cloud-first lab. The min user
+    #     explicitly came for models-as-a-service; airgapped would just
+    #     block them. See docs/CLOUD_PROVIDERS.md for the providers wired in.
+    #   - max ships LAB_MODE=airgapped: privacy-first, local-inference-
+    #     centric. Max can fully run without network.
+    # Existing installs keep whatever value was there — _set_env_var
+    # replaces only the existing line and is idempotent on re-run.
+    case "${LAB_TIER:-min}" in
+        max) _set_env_var LAB_MODE "airgapped" ;;
+        *)   _set_env_var LAB_MODE "hybrid" ;;
     esac
 }
 

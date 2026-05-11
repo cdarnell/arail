@@ -881,37 +881,89 @@ async def chat_page(request: Request):
 # Airgapped guard: when LAB_MODE=airgapped (the default), every cloud
 # provider operation is blocked at the API layer. Only "my_machine" works.
 # Flip LAB_MODE=hybrid in .env to enable external vendors.
+# Curated set of 10 cloud providers — 5 direct labs + 5 aggregators — wired
+# into the min-tier cloud-first onboarding (sprint 2026-05-11-min-cloud-first).
+# Plus `custom` as the bring-your-own OpenAI-compatible endpoint. See
+# docs/CLOUD_PROVIDERS.md for per-provider sign-up + key + paste instructions.
 _PROVIDER_KEY_ENVS: dict[str, str] = {
+    # ── Direct labs ──
     "claude":      "ANTHROPIC_API_KEY",
-    "nvidia":      "NVIDIA_API_KEY",
+    "openai":      "OPENAI_API_KEY",
+    "gemini":      "GOOGLE_API_KEY",
+    "mistral":     "MISTRAL_API_KEY",
+    "xai":         "XAI_API_KEY",
+    # ── Aggregators ──
     "openrouter":  "OPENROUTER_API_KEY",
     "huggingface": "HF_TOKEN",
+    "nvidia":      "NVIDIA_API_KEY",
+    "together":    "TOGETHER_API_KEY",
+    "groq":        "GROQ_API_KEY",
+    # ── Catch-all (not part of the curated 10) ──
     "custom":      "MODEL_API_KEY",
 }
 
 # Per-provider metadata the UI uses to render the Manage Providers modal and
 # the /test + /models calls dispatch against.
+#
+# Each entry has:
+#   label       — human-readable name shown in the modal
+#   base        — API base URL (OpenAI-compatible chat completions)
+#   models_path — relative path for the /api/providers/models GET
+#   auth        — "bearer" or "x-api-key" (Anthropic still uses the latter)
+#   docs        — where the user manages / finds their API key (post-signup)
+#   signup      — where a new user creates an account
 _PROVIDER_META: dict[str, dict[str, str]] = {
+    # ── Direct labs ──
     "claude": {
-        "label": "Claude (Anthropic)",
+        "label": "Anthropic Claude",
         "base": "https://api.anthropic.com/v1",
         "models_path": "/models",
         "auth": "x-api-key",
         "docs": "https://console.anthropic.com/settings/keys",
+        "signup": "https://console.anthropic.com/",
     },
-    "nvidia": {
-        "label": "NVIDIA NIM",
-        "base": "https://integrate.api.nvidia.com/v1",
+    "openai": {
+        "label": "OpenAI",
+        "base": "https://api.openai.com/v1",
         "models_path": "/models",
         "auth": "bearer",
-        "docs": "https://build.nvidia.com/",
+        "docs": "https://platform.openai.com/api-keys",
+        "signup": "https://platform.openai.com/signup",
     },
+    "gemini": {
+        "label": "Google Gemini",
+        # Google ships an OpenAI-compat endpoint under /v1beta/openai —
+        # that lets the same _PROVIDER_META dispatch work for it.
+        "base": "https://generativelanguage.googleapis.com/v1beta/openai",
+        "models_path": "/models",
+        "auth": "bearer",
+        "docs": "https://aistudio.google.com/apikey",
+        "signup": "https://aistudio.google.com/apikey",
+    },
+    "mistral": {
+        "label": "Mistral",
+        "base": "https://api.mistral.ai/v1",
+        "models_path": "/models",
+        "auth": "bearer",
+        "docs": "https://console.mistral.ai/api-keys",
+        "signup": "https://console.mistral.ai/",
+    },
+    "xai": {
+        "label": "xAI Grok",
+        "base": "https://api.x.ai/v1",
+        "models_path": "/models",
+        "auth": "bearer",
+        "docs": "https://console.x.ai/",
+        "signup": "https://console.x.ai/",
+    },
+    # ── Aggregators ──
     "openrouter": {
         "label": "OpenRouter",
         "base": "https://openrouter.ai/api/v1",
         "models_path": "/models",
         "auth": "bearer",
         "docs": "https://openrouter.ai/keys",
+        "signup": "https://openrouter.ai/",
     },
     "huggingface": {
         "label": "HuggingFace Inference",
@@ -919,13 +971,40 @@ _PROVIDER_META: dict[str, dict[str, str]] = {
         "models_path": "",     # HF uses a different catalogue endpoint; skip list
         "auth": "bearer",
         "docs": "https://huggingface.co/settings/tokens",
+        "signup": "https://huggingface.co/join",
     },
+    "nvidia": {
+        "label": "NVIDIA NIM",
+        "base": "https://integrate.api.nvidia.com/v1",
+        "models_path": "/models",
+        "auth": "bearer",
+        "docs": "https://build.nvidia.com/",
+        "signup": "https://build.nvidia.com/",
+    },
+    "together": {
+        "label": "Together AI",
+        "base": "https://api.together.xyz/v1",
+        "models_path": "/models",
+        "auth": "bearer",
+        "docs": "https://api.together.xyz/settings/api-keys",
+        "signup": "https://api.together.ai/signup",
+    },
+    "groq": {
+        "label": "Groq",
+        "base": "https://api.groq.com/openai/v1",
+        "models_path": "/models",
+        "auth": "bearer",
+        "docs": "https://console.groq.com/keys",
+        "signup": "https://console.groq.com/",
+    },
+    # ── Catch-all ──
     "custom": {
         "label": "Custom (OpenAI-compatible)",
         "base": "",
         "models_path": "/models",
         "auth": "bearer",
         "docs": "",
+        "signup": "",
     },
 }
 
@@ -1012,6 +1091,7 @@ async def providers_status():
                 "id": pid,
                 "label": meta["label"],
                 "docs": meta.get("docs", ""),
+                "signup": meta.get("signup", ""),
                 "has_token": known.get(pid, False),
                 "base": meta.get("base", ""),
                 "supports_models_list": bool(meta.get("models_path")),

@@ -34,23 +34,26 @@ dependencies = [
 
 [project.optional-dependencies]
 # ── Install tiers ─────────────────────────────────────────────────────────
-# Two tiers: min (minimalist — the default everyday lab) and max
-# (maximalist — the full bench). Upgrade any time with `./arailctl upgrade max`.
+# Two tiers: min (cloud-first lab) and max (local-first / air-gapped).
+# Upgrade any time with `./arailctl upgrade max`.
 #
-#   min → Dashboard + single-pane Chat + Autoresearch + Knowledge Base +
-#         Agents + LanceDB vector recall. Local inference runs through
-#         Ollama (`ai-engineer:latest` by default — a qwen3:8b base with
-#         the AI Engineer Expert persona, built by setup). No disk-
-#         streaming deep backend — `min` deliberately ships nothing that
-#         requires layer-by-layer loading; models must fit in RAM/VRAM.
-#         External provider chat (Claude / NVIDIA / OpenRouter / HF)
-#         works via plain HTTP and needs no extra SDK.
-#         Add the dual chat-box Compare feature post-install with
-#         `./arailctl enable compare`.
-#   max → Everything in min + Admin + Docs + Notebooks + dual chat-box
-#         Compare on by default + JupyterLab + Anthropic SDK + LangChain/
-#         LangGraph + AirLLM (operator-gated via ARAIL_DEV_AIRLLM=1 on
-#         non-arm64; never on Apple Silicon — Metal aborts).
+#   min → Cloud-first lab. Dashboard + single-pane Chat + Autoresearch +
+#         Knowledge Base + Agents + LanceDB vector recall. Plugs into
+#         10 model-as-a-service providers (Anthropic, OpenAI, Google
+#         Gemini, Mistral, xAI, OpenRouter, HuggingFace, NVIDIA NIM,
+#         Together AI, Groq) via simple API keys — see
+#         docs/CLOUD_PROVIDERS.md. Ships LAB_MODE=hybrid so cloud is
+#         reachable out of the box. Local Ollama (`ai-engineer:latest`)
+#         is the fallback for offline / small models. Works on a VM or
+#         8 GB+ RAM box. Add the dual chat-box Compare feature post-
+#         install with `./arailctl enable compare`.
+#   max → Local-first / air-gapped capable. Everything in min + Admin +
+#         Docs + Notebooks + dual chat-box Compare on by default +
+#         JupyterLab + Anthropic SDK + LangChain/LangGraph + AeroLLM
+#         (Apple Silicon primary) + AirLLM (operator-gated via
+#         ARAIL_DEV_AIRLLM=1 on non-arm64; never on Apple Silicon — Metal
+#         aborts). Hardware floor: 12 GB+ GPU VRAM / 32 GB+ Apple Silicon.
+#         Ships LAB_MODE=airgapped; cloud providers optional.
 #
 # (LanceDB is in the base dependencies above — both tiers get vector
 # recall by default. The `vector` extra below is kept as a back-compat
@@ -100,8 +103,8 @@ configuration_source = "pyproject.toml"
 
 [tool.arail.tiers]
 # Declarative surface matrix. portal/app.py reads this to tier-gate the nav.
-min = { description = "Minimalist — Dashboard, single-pane Chat, Autoresearch, Knowledge Base (with LanceDB vector recall), Agents. Local inference via Ollama (ai-engineer:latest by default). No disk-streaming deep backend; add the Compare feature with `./arailctl enable compare`, or upgrade to max for the full bench.", surfaces = ["dashboard", "chat", "research", "knowledge", "agents"] }
-max = { description = "Maximalist — Everything in min + Admin, Docs, Notebooks, dual chat-box Compare on by default, JupyterLab, LangChain/LangGraph, full cloud catalog. Deep mode runs AeroLLM Llama-3.1-70B-4bit on Apple Silicon (~35 GB, needs 48 GB+ Mac); AirLLM Llama-3.1-405B is available on non-arm64 when the operator opts in via ARAIL_DEV_AIRLLM=1.", surfaces = ["dashboard", "chat", "research", "knowledge", "agents", "admin", "docs", "notebooks", "terminal", "tuning", "plugins"] }
+min = { description = "Cloud-first — Dashboard, single-pane Chat, Autoresearch, Knowledge Base (LanceDB vectors), Agents. Plugs into 10 model-as-a-service providers (Anthropic, OpenAI, Google Gemini, Mistral, xAI, OpenRouter, HuggingFace, NVIDIA NIM, Together AI, Groq) via API keys; see docs/CLOUD_PROVIDERS.md. Local Ollama (ai-engineer:latest) ships as a fallback for offline / small models. LAB_MODE=hybrid by default. Works on a VM or 8 GB+ RAM box.", surfaces = ["dashboard", "chat", "research", "knowledge", "agents"] }
+max = { description = "Local-first / air-gapped capable — Everything in min + Admin, Docs, Notebooks, dual chat-box Compare on by default, JupyterLab, LangChain/LangGraph. Runs frontier models locally via AeroLLM Llama-3.1-70B-4bit on Apple Silicon (needs 32 GB+ unified memory) or AirLLM Llama-3.1-405B on non-arm64 with ARAIL_DEV_AIRLLM=1 (12 GB+ GPU VRAM). LAB_MODE=airgapped by default; cloud providers optional.", surfaces = ["dashboard", "chat", "research", "knowledge", "agents", "admin", "docs", "notebooks", "terminal", "tuning", "plugins"] }
 
 [tool.arail.models]
 # Default starter models selected by setup after hardware detection.

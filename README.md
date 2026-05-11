@@ -38,43 +38,48 @@ prefer a shorter alias, `./qkz` is symlinked to `./arailctl`.)
 
 ## Pick a tier
 
-Two tiers. Pick one; upgrade later.
+Two tiers. They serve different needs — pick the one that matches your
+hardware and your taste for local-vs-cloud.
 
-**Start with `min` to get core lab functionality** — Dashboard, Chat,
-Knowledge Base, Autoresearch, Agents. It works on everyday hardware
-(8 GB+ RAM, any CPU) and doesn't pull large model weights. This is what
-most people want.
+**`min` is the cloud-first lab.** It works on a VM, a small laptop,
+or any box that can run a web server. It plugs into **10 model-as-a-service
+providers** out of the box — sign up, get an API key, paste it in, and
+you have access to frontier-scale thinking without any heavy local
+hardware. Ships with `LAB_MODE=hybrid` so cloud providers are reachable
+on first run. Local Ollama is included as a fallback for offline work
+and small models. See [docs/CLOUD_PROVIDERS.md](docs/CLOUD_PROVIDERS.md)
+for the 10 providers and how to add a key.
 
-**Pick `max` when you need frontier-level thinking** — running 70B or
-405B models locally. Those models don't fit fully in any single GPU's
-memory. Max ships **AeroLLM** and **AirLLM** — runtimes that keep a base
-model resident on the GPU and stream additional model layers from a
-disk-hosted model into GPU memory as the forward pass needs them. That
-disk-to-GPU streaming is what costs the extra resources: 32 GB+ RAM,
-fast SSD, and Apple Silicon (or a CUDA box) to land any speed gains.
+**`max` is the local-first, air-gapped-capable lab.** Designed for
+running 70B / 405B models locally on your own hardware. Max ships
+**AeroLLM** and **AirLLM** — runtimes that keep a base model resident on
+the GPU and stream additional model layers from a disk-hosted model into
+GPU memory as the forward pass needs them. That disk-to-GPU streaming is
+what costs the extra resources: **12 GB+ GPU VRAM** (CUDA) or **32 GB+
+unified memory** (Apple Silicon), plus a fast SSD. Ships with
+`LAB_MODE=airgapped` so the lab can fully run without network.
 
-| Tier  | What you get                                                                                                                                                                  | Good for                                                |
-| ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
-| `min` | Dashboard · single-pane Chat · Autoresearch · Knowledge Base · Agents · LanceDB vectors · **Ollama** (`ai-engineer:latest`)                                                   | The everyday lab. Boring, unsurprising, fast first-run. |
-| `max` | + Admin · Docs · Notebooks · **dual chat-box Compare** · **AeroLLM 70B-4bit** deep mode · **AirLLM 405B** (operator-gated) · Anthropic SDK · LangChain/LangGraph · JupyterLab | Frontier-scale local inference, full bench.             |
+| Tier  | Hardware floor              | Lab mode              | Inference path                                                          |
+| ----- | --------------------------- | --------------------- | ----------------------------------------------------------------------- |
+| `min` | 8 GB RAM, any CPU (VM ok)   | `hybrid` (cloud-on)   | 10 cloud providers + local Ollama fallback                              |
+| `max` | 12 GB+ GPU / 32 GB+ Apple Silicon | `airgapped` (private) | Local AeroLLM 70B-4bit + AirLLM 405B (op-gated); cloud optional         |
 
 Upgrade any time:
 
 ```bash
-./arailctl upgrade max
+./arailctl upgrade max     # switch to local-first; sets LAB_MODE=airgapped
+./arailctl upgrade min     # back to cloud-first; sets LAB_MODE=hybrid
 ```
 
-Knowledge Base and Agents are part of `min` on purpose — research needs
-memory to work. Both tiers ship with the embedded LanceDB-backed KB; `max`
-adds the heavier operator surfaces and orchestration extras.
+Knowledge Base, Autoresearch, and Agents ship in both tiers — research
+needs memory to work. Both tiers carry the embedded LanceDB-backed KB.
 
 ### Add-ons (min tier)
 
-`min` ships intentionally lean — no disk-streaming deep backend, no dual
-chat-box. Add features when you need them:
+`min` ships lean. Add features when you need them:
 
 ```bash
-./arailctl enable compare    # turn on the dual chat-box Compare view
+./arailctl enable compare    # dual chat-box Compare view (cloud Model B works on min)
 ./arailctl disable compare   # turn it back off
 ```
 

@@ -2855,38 +2855,79 @@
     }
 
     // ── Connections modal ──────────────────────────────────────────
+    // Curated set of 10 cloud providers (5 direct labs + 5 aggregators) — see
+    // docs/CLOUD_PROVIDERS.md for sign-up + key + paste instructions. The
+    // server side is canonical (_PROVIDER_META in app.py); this list mirrors
+    // it for UI ordering. has_token / signup / docs URLs are driven by the
+    // /api/providers/status response so they stay in sync.
     const PROVIDERS = [
-      { id: 'huggingface', label: 'HF',         hint: 'hf_xxx' },
-      { id: 'claude',      label: 'Claude',     hint: 'sk-ant-…' },
-      { id: 'nvidia',      label: 'NVIDIA',     hint: 'nvapi-…' },
-      { id: 'openrouter',  label: 'OpenRouter', hint: 'sk-or-…' },
+      // Direct labs
+      { id: 'claude',      label: 'Anthropic Claude', hint: 'sk-ant-...' },
+      { id: 'openai',      label: 'OpenAI',           hint: 'sk-...' },
+      { id: 'gemini',      label: 'Google Gemini',    hint: 'AIza...' },
+      { id: 'mistral',     label: 'Mistral',          hint: '...' },
+      { id: 'xai',         label: 'xAI Grok',         hint: 'xai-...' },
+      // Aggregators
+      { id: 'openrouter',  label: 'OpenRouter',       hint: 'sk-or-...' },
+      { id: 'huggingface', label: 'HuggingFace',      hint: 'hf_...' },
+      { id: 'nvidia',      label: 'NVIDIA NIM',       hint: 'nvapi-...' },
+      { id: 'together',    label: 'Together AI',      hint: '...' },
+      { id: 'groq',        label: 'Groq',             hint: 'gsk_...' },
     ];
-    function renderConn() {
+    async function renderConn() {
       const wrap = $('conn-rows');
       wrap.innerHTML = '';
+
+      // One bulk call for has_token + signup/docs (server is source of truth).
+      let serverById = {};
+      try {
+        const r = await fetch('/api/providers/status');
+        const d = r.ok ? await r.json() : null;
+        const list = (d && d.providers) || [];
+        list.forEach(p => { serverById[p.id] = p; });
+      } catch (e) { /* render anyway, without server-side metadata */ }
+
       PROVIDERS.forEach(p => {
+        const srv = serverById[p.id] || {};
+        const hasToken = !!srv.has_token;
+        const signup = srv.signup || '';
+        const docs = srv.docs || '';
+
         const row = document.createElement('div');
-        row.className = 'row';
+        row.className = 'row' + (hasToken ? ' ok' : '');
         row.innerHTML = `
           <div class="name">${p.label}</div>
           <input type="password" placeholder="${p.hint}" data-prov="${p.id}">
+          <span class="row-links">
+            ${docs ? `<a href="${docs}" target="_blank" rel="noopener" title="Where do I find my key?">🔑</a>` : ''}
+            ${signup ? `<a href="${signup}" target="_blank" rel="noopener" class="signup-link" data-signup="${p.id}">Sign up</a>` : ''}
+          </span>
           <span><button data-verify="${p.id}">verify</button> <span class="badge"></span></span>`;
         wrap.appendChild(row);
-        // Status check
-        fetch(`/api/tokens/${p.id}/status`).then(r => r.ok ? r.json() : null).then(d => {
-          if (d && d.present) row.classList.add('ok');
-        }).catch(() => {});
+        // Hide signup link when a token is already configured — no point
+        // showing "Sign up" to a user who's already done it.
+        if (hasToken) {
+          const sl = row.querySelector('.signup-link');
+          if (sl) sl.style.display = 'none';
+        }
         row.querySelector('button').addEventListener('click', async () => {
           const tok = row.querySelector('input').value.trim();
           if (!tok) return flashStatus(`${p.label}: paste token first`);
           try {
-            const r = await fetch(`/api/tokens/${p.id}`, {
+            const r = await fetch('/api/providers/save', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ token: tok }),
+              body: JSON.stringify({ provider: p.id, token: tok }),
             });
-            if (r.ok) { row.classList.add('ok'); flashStatus(`${p.label}: saved`); }
-            else flashStatus(`${p.label}: ${r.status}`);
+            const d = await r.json().catch(() => ({}));
+            if (r.ok && d.ok !== false) {
+              row.classList.add('ok');
+              const sl = row.querySelector('.signup-link');
+              if (sl) sl.style.display = 'none';
+              flashStatus(`${p.label}: saved`);
+            } else {
+              flashStatus(`${p.label}: ${d.error || r.status}`);
+            }
           } catch (e) { flashStatus(`${p.label}: ${e.message}`); }
         });
       });
