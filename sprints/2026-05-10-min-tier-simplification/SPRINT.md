@@ -31,8 +31,8 @@ Simplify the minimalist (`min`) tier so the first-run experience is unsurprising
 | plan | architect (design) | ARCHITECTURE.md | done | 2026-05-10 | 2026-05-10 | complete |
 | build | builder | BUILD_LOG.md | done | 2026-05-10 | 2026-05-10 | complete |
 | review | architect (review) | REVIEW.md | done | 2026-05-10 | 2026-05-10 | PASS |
-| test | qa | TEST_REPORT.md | in-progress | 2026-05-10 | — | — |
-| ship | — | PR | pending | — | — | — |
+| test | qa | TEST_REPORT.md | done | 2026-05-10 | 2026-05-10 | PASS (35 sprint, 968 repo, 0 regressions) |
+| ship | — | PR | done | 2026-05-10 | 2026-05-10 | shipped — https://github.com/cdarnell/arail/pull/45 (stacked on PR #44) |
 
 ## Decisions log
 
