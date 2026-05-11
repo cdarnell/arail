@@ -32,7 +32,7 @@ what actually exists and gets called. Three interlocking issues:
 | build | builder | BUILD_LOG.md | done | 2026-05-10 | 2026-05-10 | complete (1adb527) |
 | review | architect (review) | REVIEW.md | done | 2026-05-10 | 2026-05-10 | PASS |
 | test | qa | TEST_REPORT.md | done | 2026-05-10 | 2026-05-10 | PASS (95 sprint, 1037 repo, 0 regressions) |
-| ship | — | PR | in-progress | 2026-05-10 | — | — |
+| ship | — | PR | done | 2026-05-10 | 2026-05-10 | shipped — https://github.com/cdarnell/arail/pull/44 |
 
 ## Decisions log
 
