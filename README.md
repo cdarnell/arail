@@ -40,6 +40,19 @@ prefer a shorter alias, `./qkz` is symlinked to `./arailctl`.)
 
 Two tiers. Pick one; upgrade later.
 
+**Start with `min` to get core lab functionality** — Dashboard, Chat,
+Knowledge Base, Autoresearch, Agents. It works on everyday hardware
+(8 GB+ RAM, any CPU) and doesn't pull large model weights. This is what
+most people want.
+
+**Pick `max` when you need frontier-level thinking** — running 70B or
+405B models locally. Those models don't fit fully in any single GPU's
+memory. Max ships **AeroLLM** and **AirLLM** — runtimes that keep a base
+model resident on the GPU and stream additional model layers from a
+disk-hosted model into GPU memory as the forward pass needs them. That
+disk-to-GPU streaming is what costs the extra resources: 32 GB+ RAM,
+fast SSD, and Apple Silicon (or a CUDA box) to land any speed gains.
+
 | Tier  | What you get                                                                                                                                                                  | Good for                                                |
 | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
 | `min` | Dashboard · single-pane Chat · Autoresearch · Knowledge Base · Agents · LanceDB vectors · **Ollama** (`ai-engineer:latest`)                                                   | The everyday lab. Boring, unsurprising, fast first-run. |

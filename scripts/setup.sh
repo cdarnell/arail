@@ -907,21 +907,32 @@ capture_tier() {
 
     step "4b/11  Pick an install tier"
     cat <<EOF
-  Two tiers — upgrade later with ./arailctl upgrade max.
+  Two install tiers — pick one. Upgrade later with ./arailctl upgrade max.
 
-    ${BOLD}min${RESET}  Minimalist — Dashboard + single-pane Chat + Autoresearch +
-           Knowledge Base + Agents + LanceDB vector recall. Local
-           inference via Ollama (ai-engineer:latest, qwen3:8b base). No
-           disk-streaming deep backend. External providers (Claude, NVIDIA,
-           OpenRouter, HuggingFace) reachable over plain HTTP when
-           LAB_MODE=hybrid. Add Compare with ./arailctl enable compare.
-    ${BOLD}max${RESET}  Maximalist — Everything in min + Admin, Docs, Notebooks,
-           dual chat-box Compare on by default, AeroLLM 70B-4bit deep
-           mode, AirLLM (operator-gated, non-arm64), Anthropic SDK,
-           LangChain/LangGraph, JupyterLab. Targets 32GB+ machines.
+                          ${BOLD}min${RESET}                          ${BOLD}max${RESET}
+  ─────────────────────────────────────────────────────────────────────────────
+  chat                    single pane                  dual pane (Compare)
+  local inference         Ollama only                  Ollama + AeroLLM 70B
+  big-model streaming     —                            AirLLM 405B (op-gated)
+  surfaces                5 tabs                       10 tabs (+ Admin/Docs/Notebooks)
+  SDKs                    none (HTTP cloud works)      Anthropic + LangChain + JupyterLab
+  hardware floor          8 GB RAM, any CPU            32 GB+ RAM (Apple Silicon ideal)
+  download size           ~5 GB (Ollama default)       ~40 GB (AeroLLM weights)
+  ─────────────────────────────────────────────────────────────────────────────
 
-  ${BOLD}LanceDB ships in both tiers${RESET} — KB and autoresearch are too central
-  to be split across optional installs.
+  ${BOLD}RECOMMENDED for first install: min.${RESET} Core lab functionality —
+  Dashboard, Chat, Knowledge Base, Autoresearch, Agents. Runs on everyday
+  hardware and doesn't pull large model weights. Add Compare later with
+  \`./arailctl enable compare\`. If you're not sure, pick min.
+
+  Pick ${BOLD}max${RESET} when you want frontier-level thinking — running 70B / 405B
+  models locally. Max ships AeroLLM and AirLLM, runtimes that keep a base
+  model resident on the GPU and stream additional model layers from disk
+  into the GPU as they're needed. That streaming is what costs the extra
+  RAM, disk, and bandwidth.
+
+  ${BOLD}LanceDB ships in both tiers${RESET} — KB and autoresearch are too central to
+  be split across optional installs.
 EOF
     echo ""
     local choice
