@@ -29,9 +29,9 @@ Simplify the minimalist (`min`) tier so the first-run experience is unsurprising
 |---|---|---|---|---|---|---|
 | think | visionary | VISION.md | skipped | — | — | (plan-file approved win condition) |
 | plan | architect (design) | ARCHITECTURE.md | done | 2026-05-10 | 2026-05-10 | complete |
-| build | builder | BUILD_LOG.md | in-progress | 2026-05-10 | — | — |
-| review | architect (review) | REVIEW.md | pending | — | — | — |
-| test | qa | TEST_REPORT.md | pending | — | — | — |
+| build | builder | BUILD_LOG.md | done | 2026-05-10 | 2026-05-10 | complete |
+| review | architect (review) | REVIEW.md | done | 2026-05-10 | 2026-05-10 | PASS |
+| test | qa | TEST_REPORT.md | in-progress | 2026-05-10 | — | — |
 | ship | — | PR | pending | — | — | — |
 
 ## Decisions log

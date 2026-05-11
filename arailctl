@@ -43,10 +43,12 @@ while [[ -L "$_arail_self" ]]; do
         _arail_self="$(cd "$(dirname "$_arail_self")" && pwd)/$_arail_link"
     fi
 done
-REPO_ROOT="$(cd "$(dirname "$_arail_self")" && pwd)"
+REPO_ROOT="${REPO_ROOT:-$(cd "$(dirname "$_arail_self")" && pwd)}"
 # Export so `exec bash scripts/<sub>.sh` children see it. Subscripts
 # reference $REPO_ROOT directly (e.g. setup.sh:install_path_shim) and
-# would crash under `set -u` without this.
+# would crash under `set -u` without this. The `${REPO_ROOT:-...}`
+# override lets tests point at a tmpdir without symlinking the whole
+# repo (matches the pattern used by enable_compare.sh / disable_compare.sh).
 export REPO_ROOT
 unset _arail_self _arail_link
 # Remember where the user actually invoked us — needed by `kb`'s upward search
