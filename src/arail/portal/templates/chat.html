@@ -1640,18 +1640,17 @@
            below the chat — see #active-strip above.) -->
 
       <div class="rail-card">
-        <div class="rc-head"><span>Local models</span><span class="count" id="count-local">0</span></div>
+        <div class="rc-head"><span>Local · GPU (&le; 8B)</span><span class="count" id="count-local">0</span></div>
         <div id="rail-models-local" class="rail-list"></div>
       </div>
 
       <div class="rail-card">
-        <div class="rc-head"><span>Deep backends</span><span class="count" id="count-deep">0</span></div>
+        <div class="rc-head"><span>Local · SSD (streamed)</span><span class="count" id="count-deep">0</span></div>
         <div id="rail-models-deep" class="rail-list"></div>
         <div class="rc-body" style="padding-top:0;">
           <div style="font-size: var(--fs-xs); color: var(--muted); line-height: 1.5;">
-            70B+ on modest VRAM via layer-streaming.
-            Set <code class="inline-path">AIRLLM_MODEL</code> or
-            <code class="inline-path">AEROLLM_MODEL</code> in <code class="inline-path">.env</code>.
+            30B+ models streamed from disk via AeroLLM.
+            Set <code class="inline-path">AEROLLM_MODEL</code> in <code class="inline-path">.env</code>.
           </div>
         </div>
       </div>
@@ -1718,14 +1717,13 @@
             <ul class="ref-list">
               <li><code class="inline-path">src/arail/model_specs.py</code><span class="ref-note">add params · license · benchmarks · notes</span></li>
               <li><code class="inline-path">src/arail/chat/gallery.py</code><span class="ref-note">how models get scanned + rendered for the picker</span></li>
-              <li><code class="inline-path">src/arail/router/backends.py</code><span class="ref-note">backend adapters (MLX, Ollama, AirLLM, AeroLLM, Claude, …)</span></li>
+              <li><code class="inline-path">src/arail/router/backends.py</code><span class="ref-note">backend adapters (MLX, Ollama, AeroLLM, Claude, …)</span></li>
             </ul>
           </div>
           <div class="ref-group">
             <div class="ref-h">deep backends</div>
             <ul class="ref-list">
-              <li><a href="https://github.com/lyogavin/airllm" target="_blank" rel="noopener noreferrer">AirLLM ↗</a><span class="ref-note">layer-streaming for 70B+ on small VRAM · set <code>AIRLLM_MODEL</code></span></li>
-              <li><a href="https://github.com/cdarnell/aerollm" target="_blank" rel="noopener noreferrer">AeroLLM ↗</a><span class="ref-note">ARAIL's Rust runtime · set <code>AEROLLM_MODEL</code></span></li>
+              <li><a href="https://github.com/cdarnell/aerollm" target="_blank" rel="noopener noreferrer">AeroLLM ↗</a><span class="ref-note">ARAIL's Rust runtime for 30B+ via layer-streaming · set <code>AEROLLM_MODEL</code></span></li>
             </ul>
           </div>
           <div class="ref-group">
@@ -1997,24 +1995,24 @@
                     ? `${State.gallery.compact.hardware.label} · ${State.gallery.compact.hardware.free_gb||'?'} GB free`
                     : '';
 
-      // Section: gallery (on-disk) models
+      // Section: gallery (on-disk) models that fit in GPU VRAM (under 8B).
       const localModels = State.models.filter(m => m.badge !== 'deep');
       if (localModels.length) {
         const sec = document.createElement('div');
         sec.className = 'section';
-        sec.innerHTML = `<div class="head"><span>Local models</span><span class="hw">${hwLabel}</span></div>`;
+        sec.innerHTML = `<div class="head"><span>Local · GPU (&le; 8B)</span><span class="hw">${hwLabel}</span></div>`;
         pop.appendChild(sec);
         localModels.forEach(m =>
           pop.appendChild(makeOpt(m, State.currentId, x => { selectModel(x); closePicker(); }))
         );
       }
 
-      // Section: deep backends (AirLLM, AeroLLM) — visually distinct.
+      // Section: SSD-streamed deep backends (AeroLLM) — 30B+ on modest VRAM.
       const deep = State.models.filter(m => m.badge === 'deep');
       if (deep.length) {
         const sec = document.createElement('div');
         sec.className = 'section';
-        sec.innerHTML = `<div class="head"><span>Deep backends · layer-streaming</span><span class="hw">70B+ on modest VRAM</span></div>`;
+        sec.innerHTML = `<div class="head"><span>Local · SSD (streamed)</span><span class="hw">30B+ via layer-stream</span></div>`;
         pop.appendChild(sec);
         deep.forEach(m =>
           pop.appendChild(makeOpt(m, State.currentId, x => { selectModel(x); closePicker(); }))
