@@ -1375,3 +1375,154 @@
   overflow-y: auto;
   margin: var(--s-2) 0 0 0;
 }
+
+/* ═══════════════════════════════════════════════════════════════════
+   Experiment Branches panel (.rx-branches)
+   ═══════════════════════════════════════════════════════════════════ */
+
+.rx-branches {
+  margin: 0 var(--s-5) var(--s-6);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.rx-branches-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-4);
+  padding: var(--s-4) var(--s-5);
+  border-bottom: 1px solid var(--border);
+  background: linear-gradient(90deg, rgba(0,212,255,.04), transparent 60%);
+}
+
+.rx-branches-kicker {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--blue);
+}
+
+.rx-branches-title {
+  font-size: var(--fs-sm);
+  color: var(--muted);
+  margin-top: var(--s-1);
+  font-family: var(--font-mono, monospace);
+}
+
+.rx-branches-meta {
+  font-size: var(--fs-xs);
+  color: var(--muted);
+}
+
+/* Backend filter radios — .compute-opt from chat.legacy.html adapted */
+.rx-branches-filters {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+
+.rx-branches-filters .compute-opt {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: var(--s-2) var(--s-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface2);
+  cursor: pointer;
+  font-size: var(--fs-xs);
+  color: var(--muted);
+  transition: border-color 0.12s, background 0.12s;
+}
+
+.rx-branches-filters .compute-opt:hover {
+  border-color: var(--green);
+  color: var(--text);
+}
+
+.rx-branches-filters .compute-opt input[type="radio"] {
+  margin: 0;
+  accent-color: var(--green);
+}
+
+.rx-branches-filters .compute-opt:has(input[type="radio"]:checked) {
+  border-color: var(--blue);
+  background: rgba(0, 212, 255, 0.06);
+  color: var(--blue);
+}
+
+.rx-branches-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.rx-branch {
+  padding: var(--s-3) var(--s-5);
+  border-bottom: 1px solid var(--border);
+}
+
+.rx-branch:last-child {
+  border-bottom: none;
+}
+
+.rx-branch-row {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--s-2);
+}
+
+.rx-branch-when {
+  font-size: var(--fs-xs);
+  color: var(--muted);
+  margin-left: auto;
+}
+
+.rx-branch-headline {
+  margin: var(--s-1) 0 var(--s-2);
+}
+
+.rx-branch-commits {
+  margin-top: var(--s-2);
+}
+
+.rx-branch-commits summary {
+  list-style: none;
+  cursor: pointer;
+  font-size: var(--fs-xs);
+  color: var(--muted);
+  padding: var(--s-1) 0;
+  user-select: none;
+}
+
+.rx-branch-commits summary::-webkit-details-marker { display: none; }
+.rx-branch-commits summary:hover { color: var(--text); }
+
+.rx-branch-commits-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  padding: var(--s-2) 0 var(--s-1);
+}
+
+.rx-branch-diff-link {
+  color: var(--blue);
+  text-decoration: none;
+  font-size: var(--fs-xs);
+  margin-left: var(--s-2);
+}
+.rx-branch-diff-link:hover { text-decoration: underline; }
+
+.rx-branches-empty {
+  padding: var(--s-5);
+  text-align: center;
+  font-size: var(--fs-sm);
+  color: var(--muted);
+  font-style: italic;
+}

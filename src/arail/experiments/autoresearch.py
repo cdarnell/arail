@@ -56,6 +56,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
+from arail.activity import activity_log
 from arail.experiments.bench import (
     BenchRun, append_run, run_bench
 )
@@ -725,6 +726,16 @@ def run_autoresearch(
                         )
 
                 create_experiment_branch(exp_id, base_branch=origin_branch)
+                try:
+                    activity_log.emit(
+                        "autoresearch",
+                        f"Branch created: {branch}",
+                        "info",
+                        {"event": "branch-update", "branch": branch,
+                         "exp_id": exp_id, "label": label, "backend": backend},
+                    )
+                except Exception:
+                    pass
                 save_tuning(cfg, config_path)
 
                 variant_runs = _run_n(cfg, label=label, backend=backend)
@@ -761,8 +772,32 @@ def run_autoresearch(
                         )
                         result.git_sha = sha
                         result.outcome = "win"
+                        try:
+                            activity_log.emit(
+                                "autoresearch",
+                                f"Win: {label} +{round(delta_pct, 1)}% tok/s",
+                                "success",
+                                {"event": "branch-update", "branch": branch,
+                                 "exp_id": exp_id, "outcome": "win",
+                                 "delta_pct": round(delta_pct, 2),
+                                 "backend": backend},
+                            )
+                        except Exception:
+                            pass
                     else:
                         result.outcome = "loss"
+                        try:
+                            activity_log.emit(
+                                "autoresearch",
+                                f"Loss: {label} {round(delta_pct, 1)}% tok/s vs baseline",
+                                "info",
+                                {"event": "branch-update", "branch": branch,
+                                 "exp_id": exp_id, "outcome": "loss",
+                                 "delta_pct": round(delta_pct, 2),
+                                 "backend": backend},
+                            )
+                        except Exception:
+                            pass
                         abort_experiment(origin_branch)
 
             except Exception as exc:

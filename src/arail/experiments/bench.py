@@ -75,6 +75,12 @@ class BenchRun:
     status: str = "ok"
     error: Optional[str] = None
 
+    # Outcome set by the autoresearch loop after result classification.
+    # "win" | "loss" | "baseline" | "running" | None (not yet known).
+    # Separate from `status` ("ok"/"error") — a run can succeed (status=ok)
+    # but still be a "loss" if it didn't beat baseline.
+    outcome: Optional[str] = None
+
     # Per-stage timings in ms. Optional — backends that don't
     # instrument individual stages leave this None. The MLX backend
     # populates {load_ms, prefill_ms, decode_ms}; future backends can

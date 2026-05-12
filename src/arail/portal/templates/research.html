@@ -15,9 +15,9 @@
 <div class="rx-tagline">
   <span class="rx-tagline-icon">◆</span>
   <span class="rx-tagline-text">
-    <strong>Build the eval. Tighten the loop. Let it run.</strong>
-    Every hypothesis gets an experiment, every experiment gets observations,
-    every run leaves a paper trail in the knowledge base.
+    <strong>ARAIL · A rail for experiments.</strong>
+    Every experiment is a git branch. The git history is the experiment ledger.
+    If you can measure it, we can improve it.
   </span>
 </div>
 
@@ -221,20 +221,45 @@
   </aside>
 </div>
 
+<!-- ═══ Experiment branches panel ═══ -->
+<section class="rx-branches" id="rx-branches">
+  <div class="rx-branches-head">
+    <div>
+      <div class="rx-branches-kicker">Experiment Branches</div>
+      <div class="rx-branches-title">autoresearch/* git history</div>
+    </div>
+    <div class="rx-branches-filters" id="rx-branches-filters">
+      <label class="compute-opt">
+        <input type="radio" name="rx-backend" value="all" checked>
+        <span>All</span>
+      </label>
+      <label class="compute-opt">
+        <input type="radio" name="rx-backend" value="mlx">
+        <span>MLX</span>
+      </label>
+      <label class="compute-opt">
+        <input type="radio" name="rx-backend" value="aerollm">
+        <span>AeroLLM</span>
+      </label>
+    </div>
+  </div>
+  <div class="rx-branches-list" id="rx-branches-list">
+    <div class="rx-branches-empty">Loading experiment branches…</div>
+  </div>
+</section>
+
 <!-- ═══ Empty state (no goal) ═══ -->
 <section class="rx-empty-state" id="rx-empty-state" hidden>
   <div class="rx-empty-card">
-    <h1>Welcome to the lab.</h1>
+    <h1>A rail for experiments.</h1>
     <p class="rx-empty-motto">
-      If it can be measured, it can be improved.
-      <a class="rx-learn-link"
-         href="/docs/agents-explained.md#the-research-loop"
-         target="_blank" rel="noopener"
-         title="How the research loop works — 5-minute primer">📖 How the loop works</a>
+      If you can measure it, we can improve it.
+      <a class="rx-learn-link" href="/docs/agents-explained.md#the-research-loop"
+         target="_blank" rel="noopener">📖 How the loop works</a>
     </p>
-     <p>This is where Autoresearch lives — goals you set, experiments the agent designs and runs,
-       observations it logs, and the reports it writes back to your knowledge base.
-       Make the measurement crisp, then let the loop work for you.</p>
+    <p>Set a goal and the lab drafts a swarm. Every winning variant becomes a branch —
+       <code>autoresearch/&lt;id&gt;</code> — committed to your repo so you can review
+       the diff, cherry-pick what works, and ignore what didn't. The ledger writes itself.</p>
     <form class="rx-empty-form" id="rx-empty-form">
       <textarea id="rx-empty-textarea"
                 placeholder="e.g. Help me plan my trip to Hokkaido Japan for 3 adults and 2 children in late September"
@@ -1156,8 +1181,8 @@ function connectStream() {
     try {
       const ev = JSON.parse(m.data);
       const src = ev.source || '';
-      // Filter: everything researcher/goal/pkb related is interesting here.
-      if (!['researcher', 'goal', 'pkb', 'system'].includes(src)) return;
+      // Filter: everything researcher/goal/pkb/autoresearch related is interesting here.
+      if (!['researcher', 'goal', 'pkb', 'system', 'autoresearch'].includes(src)) return;
 
       // Ring buffer, newest first.
       ev._new = true;
@@ -1191,11 +1216,30 @@ function connectStream() {
       if (src === 'researcher' || src === 'goal') {
         scheduleExpRefresh();
       }
+
+      // Branch panel live-refresh: debounced so an ~16-event sweep
+      // triggers only one refetch, not sixteen.
+      if (src === 'autoresearch' && ev.data && ev.data.event === 'branch-update') {
+        _scheduleBranchRefresh();
+      }
     } catch (e) { /* ignore bad event */ }
   };
   es.onerror = () => {
     // Browser auto-reconnects; nothing to do.
   };
+}
+
+// ── Branch refresh debouncer ──────────────────────────────────
+// 1-second trailing-edge debounce; one sweep can fire ~16 events.
+let _branchRefreshTimer = null;
+function _scheduleBranchRefresh() {
+  if (_branchRefreshTimer) clearTimeout(_branchRefreshTimer);
+  _branchRefreshTimer = setTimeout(() => {
+    _branchRefreshTimer = null;
+    if (window.RX_BRANCHES && typeof window.RX_BRANCHES.refresh === 'function') {
+      window.RX_BRANCHES.refresh();
+    }
+  }, 1000);
 }
 
 // ── Modal ─────────────────────────────────────────────────────
@@ -1427,6 +1471,7 @@ async function wireProgramPanel() {
   loadIndex();
 }
 </script>
+<script src="/static/js/experiment-branches.js?v={{ asset_v }}"></script>
 <script src="/static/nav.js"></script>
 {% include '_airgap_modal.html' %}
 </body>

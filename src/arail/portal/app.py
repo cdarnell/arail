@@ -44,6 +44,7 @@ from arail.portal.wiki_routes import router as wiki_router
 from arail.portal import scheduler
 
 from arail.brand import load_brand
+from arail.experiments import branch_browser as _branch_browser
 from arail.router.backends import ModelResponse
 from arail.ui_theme import list_ui_themes, load_ui_theme, theme_css
 
@@ -2343,6 +2344,79 @@ async def create_experiment(request: Request):
         domain=body.get("domain", "general"),
     )
     return exp
+
+
+@app.get("/api/experiments/branches")
+async def list_experiment_branches(
+    backend: str = "all",
+    limit: int = 50,
+):
+    """List autoresearch/* git branches with status + headline metric.
+
+    Query params:
+        backend: "all" | "aerollm" | "mlx"  (default "all")
+        limit:   max branches to return       (default 50)
+
+    Returns:
+        { branches: [...], count: int, current_branch: str }
+    """
+    try:
+        from arail.experiments.git_ops import git_state as _git_state
+        current_branch = _git_state().branch
+    except Exception:
+        current_branch = ""
+    try:
+        limit = max(1, min(int(limit), 200))
+        branches = _branch_browser.list_autoresearch_branches(
+            backend=backend, limit=limit
+        )
+        import dataclasses
+        return {
+            "branches": [dataclasses.asdict(b) for b in branches],
+            "count": len(branches),
+            "current_branch": current_branch,
+        }
+    except Exception as exc:
+        _log.warning("list_experiment_branches error: %s", exc)
+        return {"branches": [], "count": 0, "current_branch": current_branch}
+
+
+@app.get("/api/experiments/branch")
+async def get_experiment_branch(branch: str = ""):
+    """Return commit log + diff summary for one autoresearch branch.
+
+    Query param:
+        branch: must start with "autoresearch/" and match the safe regex.
+                Returns 400 on invalid / traversal attempts.
+
+    Returns:
+        { branch, base_short_sha, commits: [...], diff_summary: {...} }
+    """
+    import re as _re
+    _SAFE = _re.compile(r"^autoresearch/[A-Za-z0-9._-]+$")
+    if not branch or not _SAFE.match(branch):
+        from fastapi.responses import JSONResponse
+        return JSONResponse(
+            status_code=400,
+            content={"error": "invalid branch; must match autoresearch/<id>"},
+        )
+    try:
+        commits = _branch_browser.branch_commits(branch)
+        diff = _branch_browser.branch_diff_summary(branch)
+        import dataclasses
+        base_sha = _branch_browser._base_sha(branch)
+        return {
+            "branch": branch,
+            "base_short_sha": base_sha[:7] if base_sha else "unknown",
+            "commits": [dataclasses.asdict(c) for c in commits],
+            "diff_summary": diff,
+        }
+    except ValueError as exc:
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=400, content={"error": str(exc)})
+    except Exception as exc:
+        _log.warning("get_experiment_branch error: %s", exc)
+        return {"branch": branch, "base_short_sha": "", "commits": [], "diff_summary": {}}
 
 
 # ── Plugin API ───────────────────────────────────────────────────────────

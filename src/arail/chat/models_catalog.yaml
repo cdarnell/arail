@@ -19,17 +19,30 @@
 #
 # Ordering controls UI display order. Recommended models first.
 
-# ── ARAIL's default — AI Engineer (qwen3:8b base + custom persona) ──
+# ── ARAIL's default — AI Engineer (qwen2.5:7b base + custom persona) ──
 - id: ai-engineer:latest
   name: AI Engineer
   family: qwen
-  size_gb: 5.2
+  size_gb: 4.7
   released: 2026-05
   source: ollama
   good_at: [chat, reasoning, agent, code]
-  description: ARAIL's default local assistant — Qwen 3 8B base, AI
+  description: ARAIL's default local assistant — Qwen 2.5 7B base, AI
                Engineer Expert persona. Built from models/ai-engineer/Modelfile.
-  install: "ollama create ai-engineer -f models/ai-engineer/Modelfile"
+  install: "ollama pull qwen2.5:7b && ollama create ai-engineer -f models/ai-engineer/Modelfile"
+  tier: recommended
+
+# ── Base model for ai-engineer ─────────────────────────────────────
+- id: qwen2.5:7b
+  name: Qwen 2.5 7B
+  family: qwen
+  size_gb: 4.7
+  released: 2024-09
+  source: ollama
+  good_at: [chat, reasoning, code]
+  description: Qwen 2.5 7B — base for ARAIL's ai-engineer persona.
+               Widely available, fast on Apple silicon.
+  install: "ollama pull qwen2.5:7b"
   tier: recommended
 
 # ── OpenAI's open-weight reasoning models — gpt-oss ────────────────
