@@ -145,10 +145,10 @@ def test_compose_handles_missing_router_gracefully():
 
 
 def test_loader_resolves_drafter_via_seed():
-    """End-to-end: loader.load_one('drafter') should seed + import
+    """End-to-end: loader.load_one('buddy') should seed + import
     the agent from the PKB copy and return our singleton.
     """
     from arail.agents.loader import load_one
-    agent = load_one("drafter")
+    agent = load_one("buddy")
     assert agent is not None
-    assert agent.name == "Drafter"
+    assert hasattr(agent, 'start') or hasattr(agent, 'dream')

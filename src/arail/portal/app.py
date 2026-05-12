@@ -3983,7 +3983,7 @@ async def admin_models_set_default(request: Request):
                 "ok": False,
                 "error": (
                     "Streamed models cannot be the default GPU model. "
-                    "Choose a model with ≤35B total params."
+                    "Choose a model with ≤30B total params."
                 ),
             },
             status_code=400,
@@ -4357,24 +4357,34 @@ def _prepare_chat_context(
     optional_backend_name = str(backend_override or "").strip().lower() or None
     wants_deep = optional_backend_name in _OPTIONAL_CHAT_BACKEND_CONFIG
 
-    # ── Hard hardware-floor rule (35B total params) ────────────────────
+    # ── Hard hardware-floor rule (30B total params) ────────────────────
     # If the dispatch landed on a non-Deep backend (mlx/cuda/cpu/runtime
     # override) AND the chosen model's total params exceed the hardware
-    # floor, silently route to AirLLM (Deep) instead. This is SERVER-SIDE
-    # enforcement — clients can lie about their backend selection but the
-    # server still routes correctly. See ARCHITECTURE.md § Data flow D1.
+    # floor, route to the best available deep backend instead. This is
+    # SERVER-SIDE enforcement — clients can lie about their backend
+    # selection but the server still routes correctly.
+    # See ARCHITECTURE.md § Data flow D1.
     if not wants_deep:
         from arail.model_specs import must_stream as _must_stream
         candidate_model = (model_override or "").strip() or os.getenv("MODEL_NAME", "")
         if _must_stream(candidate_model):
-            wants_deep = True
-            optional_backend_name = "airllm"
-            activity_log.emit(
-                "chat",
-                f"35B+ model '{candidate_model}': routing to Deep (AirLLM) "
-                f"per hardware floor.",
-                "info",
-            )
+            _resolved = _resolve_default_deep_backend()
+            if _resolved is None:
+                activity_log.emit(
+                    "chat",
+                    f"30B+ model '{candidate_model}': no deep backend available "
+                    f"on this host — skipping hard-floor routing.",
+                    "warn",
+                )
+            else:
+                wants_deep = True
+                optional_backend_name = _resolved
+                activity_log.emit(
+                    "chat",
+                    f"30B+ model '{candidate_model}': routing to Deep ({_resolved}) "
+                    f"per hardware floor.",
+                    "info",
+                )
     # ── End hard hardware-floor rule ───────────────────────────────────
 
     deep_backend = None
@@ -4962,30 +4972,28 @@ _OPTIONAL_CHAT_BACKEND_CONFIG: dict[str, dict[str, str]] = {
 }
 
 
-def _resolve_default_deep_backend() -> str:
+def _resolve_default_deep_backend() -> str | None:
     """Pick the default deep-mode backend for the current host.
 
     Resolution order:
       1. ``ARAIL_DEEP_BACKEND`` env var (operator override; wins over all
          auto-detection). Must be a key in ``_OPTIONAL_CHAT_BACKEND_CONFIG``;
-         unknown values are ignored with a warning.
+         unknown values are ignored with a warning and fall through.
       2. macOS Apple Silicon AND ``aerollm_api`` importable → ``"aerollm"``.
          AeroLLM's mlx-native backend keeps the model resident in unified
          memory with a single Metal command buffer per generation, which
          is what Apple Silicon Metal is good at. ~3× faster than mlx_lm
          baseline (per aerollm v0.1-alpha release notes).
-      3. Anywhere else (CUDA, Linux x86, AeroLLM not built) → ``"airllm"``.
-         AirLLM's Python+layer-streaming runs everywhere; aerollm's CUDA
-         backend is scaffold-only (ADR 0006 in aerollm).
+      3. arm64 AND aerollm_api NOT importable → ``None``.
+         AirLLM causes Metal GPU timeouts on arm64; returning None signals
+         callers to skip routing rather than crash or silently mis-route.
+      4. non-arm64 AND aerollm_api importable → ``"aerollm"``.
+      5. non-arm64 AND ``_show_airllm()`` → ``"airllm"``.
+         AirLLM's Python+layer-streaming is safe on CUDA/Linux x86 when
+         the operator has explicitly opted in via ARAIL_DEV_AIRLLM=1.
+      6. Otherwise → ``None``.
 
-    This is the foundation function — Phase A.2 of the 0.1.0 alpha plan
-    wires the three hard-coded ``"airllm"`` dispatch sites into this
-    resolver. Until that lands (gated on aerollm's qwen25-correctness
-    methodology lock), the function is read by ``/api/models`` for UI
-    labelling but does NOT change which backend dispatch chooses on a
-    chat call. Operators can opt into AeroLLM today by setting
-    ``ARAIL_DEEP_BACKEND=aerollm`` plus passing ``backend=aerollm`` in
-    the chat HTTP body.
+    Callers MUST handle ``None`` (no suitable deep backend on this host).
     """
     override = (os.getenv("ARAIL_DEEP_BACKEND", "") or "").strip().lower()
     if override:
@@ -5007,14 +5015,23 @@ def _resolve_default_deep_backend() -> str:
     # Lazy import — `platform` is not at module top level in this file
     # (other call sites use the same function-local import pattern).
     import platform
-    if platform.system() == "Darwin" and platform.machine() == "arm64":
+    if platform.machine() == "arm64":
         try:
             import aerollm_api  # type: ignore  # noqa: F401
             return "aerollm"
         except ImportError:
-            pass
+            # arm64 without aerollm — AirLLM causes Metal timeouts; return None.
+            return None
 
-    return "airllm"
+    # Non-arm64 paths.
+    try:
+        import aerollm_api  # type: ignore  # noqa: F401
+        return "aerollm"
+    except ImportError:
+        pass
+    if _show_airllm():
+        return "airllm"
+    return None
 
 
 def _set_chat_model_load_state(**changes: Any) -> dict[str, Any]:
@@ -5270,7 +5287,7 @@ async def api_chat_models():
     backend_name = router.backend_name
     be = router._backend
     active_provider = _load_active_provider()
-    current = getattr(be, "model_name", None) or os.getenv("MODEL_NAME", "default")
+    current = _get_live_ollama_current(be) or getattr(be, "model_name", None) or os.getenv("MODEL_NAME", "ai-engineer:latest")
     models: list[str] = []
 
     # Only these backends have a useful /models listing today.
@@ -5394,9 +5411,10 @@ async def api_chat_models():
 
     deep_info = {
         "model": deep_model_name,
-        # Whether the active deep backend (airllm) is importable. When
-        # False, the UI can swap the toggle for an install hint.
-        "installed": _is_airllm_installed(),
+        # Whether any deep backend is available. AeroLLM is preferred;
+        # AirLLM shown only when _show_airllm() permits (non-arm64,
+        # ARAIL_DEV_AIRLLM=1). When False, the UI shows an install hint.
+        "installed": _is_aerollm_installed() or (_show_airllm() and _is_airllm_installed()),
         # Rough size hint the UI can render in the chip. We extract
         # a parameter count from the model name when present
         # (e.g. "Qwen3-235B-A22B" → "235B"); the user-entered
@@ -5424,8 +5442,9 @@ async def api_chat_models():
         )
 
     aero_model_name = os.getenv("AEROLLM_MODEL", "Qwen2.5-7B-Instruct-4bit")
-    optional_backends = [
-        {
+    optional_backends = []
+    if _show_airllm():
+        optional_backends.append({
             "id": "airllm",
             "label": "AirLLM",
             "model": air_model_name,
@@ -5436,22 +5455,21 @@ async def api_chat_models():
             "description": "Layer-streaming deep backend — primary on CUDA / Linux x86 (Llama-3.1-70B default; max tier bumps to 405B). Subprocess-isolated so Metal aborts can't kill the portal.",
             # AirLLM always streams (layer-streaming); mark for picker badge.
             "streamed": True,
-        },
-        {
-            "id": "aerollm",
-            "label": "AeroLLM",
-            "model": aero_model_name,
-            "installed": _is_aerollm_installed(),
-            "param_hint": _extract_param_hint(aero_model_name),
-            "gated": aero_model_name.lower().startswith("meta-llama/"),
-            "install_command": (
-                "cd aerollm/crates/aerollm-api && maturin develop --release"
-            ),
-            "description": "In-process Rust runtime — primary deep backend on Apple Silicon (Qwen2.5-7B-4bit default, ~4 GB resident; max tier ships Llama-3.1-70B-4bit). Single Metal command buffer per generation; ~3× faster than mlx_lm baseline.",
-            # AeroLLM is also streaming by design.
-            "streamed": True,
-        },
-    ]
+        })
+    optional_backends.append({
+        "id": "aerollm",
+        "label": "AeroLLM",
+        "model": aero_model_name,
+        "installed": _is_aerollm_installed(),
+        "param_hint": _extract_param_hint(aero_model_name),
+        "gated": aero_model_name.lower().startswith("meta-llama/"),
+        "install_command": (
+            "cd aerollm/crates/aerollm-api && maturin develop --release"
+        ),
+        "description": "In-process Rust runtime — primary deep backend on Apple Silicon (Qwen2.5-7B-4bit default, ~4 GB resident; max tier ships Llama-3.1-70B-4bit). Single Metal command buffer per generation; ~3× faster than mlx_lm baseline.",
+        # AeroLLM is also streaming by design.
+        "streamed": True,
+    })
     for entry in optional_backends:
         if entry["gated"]:
             entry["auth_hint"] = (
@@ -5578,8 +5596,56 @@ def _is_airllm_installed() -> bool:
     return importlib.util.find_spec("airllm") is not None
 
 
-def _default_teacher_backend() -> str:
-    return "airllm" if _is_airllm_installed() else "aerollm"
+def _show_airllm() -> bool:
+    """True iff AirLLM should appear in the UI and optional_backends.
+
+    Rules (first match wins):
+      1. arm64 → always False (Metal timeout; absolute block).
+      2. ARAIL_DEV_AIRLLM != "1" → False (hidden from regular users).
+      3. airllm not installed → False.
+      4. Otherwise → True.
+    """
+    import platform as _platform
+    if _platform.machine() == "arm64":
+        return False
+    if os.getenv("ARAIL_DEV_AIRLLM", "0") != "1":
+        return False
+    return _is_airllm_installed()
+
+
+def _default_teacher_backend() -> str | None:
+    """Return the default deep backend name for teacher/deep routing.
+
+    Resolution (first match wins):
+      1. AeroLLM installed → "aerollm"
+      2. _show_airllm() → "airllm" (only on non-arm64 with ARAIL_DEV_AIRLLM=1)
+      3. Otherwise → None
+    """
+    if _is_aerollm_installed():
+        return "aerollm"
+    if _show_airllm():
+        return "airllm"
+    return None
+
+
+def _get_live_ollama_current(be: Any) -> str | None:
+    """Return the running Ollama model name when be is Ollama-backed.
+
+    Queries the live /api/tags endpoint to confirm the model is actually
+    installed. Falls back to be.model_name if it matches an installed
+    model, otherwise returns the first installed model. Returns None when
+    Ollama is not reachable or be is not an Ollama backend.
+    """
+    base_url = getattr(be, "base_url", "") or ""
+    if "11434" not in base_url and "ollama" not in type(be).__name__.lower():
+        return None
+    from arail.chat import _ollama_installed_models
+    tags = _ollama_installed_models()
+    if not tags:
+        return None
+    cached = getattr(be, "model_name", None)
+    ids = [t["id"] for t in tags]
+    return cached if cached in ids else ids[0]
 
 
 def _extract_param_hint(model_name: str) -> str:
@@ -5814,7 +5880,7 @@ def _build_local_model_entry(
     compact_label = _compact_model_label(model_id)
 
     # Compute streamed flag — True when total params exceed the hardware
-    # floor (35B). Picker renders a "streamed" badge; dispatch enforces it.
+    # floor (30B). Picker renders a "streamed" badge; dispatch enforces it.
     try:
         from arail.model_specs import must_stream as _ms
         _streamed = _ms(model_id)

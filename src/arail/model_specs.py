@@ -273,8 +273,10 @@ MODEL_METADATA_OVERRIDES: List[tuple] = [
 
 # Hardware floor for ARAIL deployment — TOTAL parameter cap for in-GPU
 # residency on the target fleet (5090 24GB / M5 36GB). Anything above
-# this TOTAL must stream via AirLLM. Locked decision per SPRINT.md.
-HARDWARE_FLOOR_TOTAL_B = 35.0
+# this TOTAL must stream via a deep backend (AeroLLM / AirLLM).
+# Lowered from 35.0 → 30.0 in sprint 2026-05-10-chat-model-sync to
+# match actual fleet headroom and pick up deepseek-r1:32b as streamable.
+HARDWARE_FLOOR_TOTAL_B = 30.0
 
 
 @lru_cache(maxsize=512)
@@ -299,12 +301,12 @@ def get_total_params(model_name: str) -> Optional[float]:
 
 @lru_cache(maxsize=512)
 def must_stream(model_name: str) -> bool:
-    """True iff TOTAL params > HARDWARE_FLOOR_TOTAL_B (35B).
+    """True iff TOTAL params > HARDWARE_FLOOR_TOTAL_B (30B).
 
     Single source of truth for the hard hardware-floor rule. Both
     server-side dispatch (_prepare_chat_context in app.py) and the
     chat-picker streamed-badge must consult this function. Never
-    re-derive the 35B threshold elsewhere.
+    re-derive the 30B threshold elsewhere.
 
     Falls back to a minimal inline regex when no override matches
     (can't call _model_param_hint_value — it lives in app.py, circular).

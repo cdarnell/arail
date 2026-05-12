@@ -19,6 +19,19 @@
 #
 # Ordering controls UI display order. Recommended models first.
 
+# ── ARAIL's default — AI Engineer (qwen3:8b base + custom persona) ──
+- id: ai-engineer:latest
+  name: AI Engineer
+  family: qwen
+  size_gb: 5.2
+  released: 2026-05
+  source: ollama
+  good_at: [chat, reasoning, agent, code]
+  description: ARAIL's default local assistant — Qwen 3 8B base, AI
+               Engineer Expert persona. Built from models/ai-engineer/Modelfile.
+  install: "ollama create ai-engineer -f models/ai-engineer/Modelfile"
+  tier: recommended
+
 # ── OpenAI's open-weight reasoning models — gpt-oss ────────────────
 - id: gpt-oss:20b
   name: GPT-OSS 20B

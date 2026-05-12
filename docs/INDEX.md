@@ -11,6 +11,7 @@ This is the curated docs surface that the in-app **Docs** tab opens.
 
 ## Operating the lab
 
+- [Certified & compatible models](CERTIFIED_MODELS.md)
 - [Agents, explained](agents-explained.md)
 - [Agent architecture](agents.md)
 - [Buddy and Buddy Tunnel](BUDDY.md)

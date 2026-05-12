@@ -2416,10 +2416,11 @@
     bindQuickSlider('qb-temp-B', 'qb-temp-B-val', 'temperature', 'B');
 
     // ── Compare toggle ─────────────────────────────────────────────
-    // Column B is intentionally restricted to *deep backends* (AirLLM,
-    // AeroLLM). Loading two competing local models would oversubscribe
-    // VRAM; the deep backends layer-stream from disk so they coexist
-    // with the on-GPU primary at the cost of slower inference.
+    // Column B is intentionally restricted to *deep backends* (AeroLLM,
+    // or AirLLM when the operator has opted in via ARAIL_DEV_AIRLLM=1
+    // on non-arm64). Loading two competing local models would over-
+    // subscribe VRAM; the deep backends layer-stream from disk so they
+    // coexist with the on-GPU primary at the cost of slower inference.
     function setCompare(on) {
       State.compareOn = on;
       $('compare-grid').setAttribute('data-cols', on ? '2' : '1');
@@ -2427,14 +2428,14 @@
       colB.hidden = !on;
       $('btn-compare').textContent = on ? '✓ Comparing' : '+ Compare';
       if (on && !State.bId) {
-        // Auto-pick the first INSTALLED deep backend (AirLLM if present,
-        // AeroLLM otherwise). Never auto-pick a regular local model.
+        // Auto-pick AeroLLM if present, otherwise the first installed
+        // deep backend. Never auto-pick a regular local model.
         const deeps = State.models.filter(m => m.badge === 'deep' && m.installed);
         if (deeps.length) {
-          const airllm = deeps.find(m => m.runtime === 'airllm');
-          selectModelB(airllm || deeps[0]);
+          const aerollm = deeps.find(m => m.runtime === 'aerollm');
+          selectModelB(aerollm || deeps[0]);
         } else {
-          flashStatus('compare on, but no deep backend is installed (AirLLM/AeroLLM)');
+          flashStatus('compare on, but no deep backend is installed (AeroLLM)');
         }
       }
       flashStatus(on ? 'compare mode on · column B = deep backend' : 'compare mode off');
@@ -3300,7 +3301,7 @@
         // remote/heavy local runtime, not an on-disk weight folder.
         const optBackends = d.optional_backends || [];
         const deepEntries = optBackends
-          .filter(o => o && (o.installed || o.id === 'airllm' || o.id === 'aerollm'))
+          .filter(o => o && (o.installed || o.id === 'aerollm'))
           .map(o => ({
             id: o.model || o.id,
             label: `${o.label} · ${o.model || o.id}`,

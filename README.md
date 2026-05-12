@@ -55,6 +55,11 @@ Knowledge Base and Agents are part of `min` on purpose — research needs
 memory to work. Both tiers ship with the embedded LanceDB-backed KB; `max`
 adds the heavier operator surfaces and orchestration extras.
 
+For the list of models that have been validated against ARAIL's
+correctness harness — what's **Certified**, **Compatible**, **Beta**,
+or has a **Known Issue** — see
+[docs/CERTIFIED_MODELS.md](docs/CERTIFIED_MODELS.md).
+
 External providers (Claude, NVIDIA NIM, OpenRouter, HuggingFace) are
 reachable in both tiers via plain HTTP — `max` just adds the official SDKs
 and LangChain/LangGraph for heavier orchestration. **Airgapped mode is the

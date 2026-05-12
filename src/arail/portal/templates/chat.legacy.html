@@ -423,7 +423,6 @@
         <label>
           Teacher backend
           <select id="teacher-backend">
-            <option value="airllm">AirLLM</option>
             <option value="aerollm">AeroLLM</option>
           </select>
         </label>
@@ -555,7 +554,7 @@
     const select = $('teacher-backend');
     const option = select.options[select.selectedIndex];
     return {
-      backend: select.value || 'airllm',
+      backend: select.value || 'aerollm',
       label: option ? option.textContent : 'Deep Teacher',
       model: option ? option.dataset.model || '' : '',
     };

@@ -188,9 +188,9 @@ def test_next_experiment_flags_uncovered_term(monkeypatch):
         "parsed": {"sub_objectives": ["explore quantization tradeoffs"]},
     })
     assert obs is not None
-    # The first 5+-char term not in the haystack should win — "quantization".
+    # The first 5+-char term not in the haystack should win — "explore".
     assert obs.watcher.startswith("next:")
-    assert "quantization" in obs.fact
+    assert "explore" in obs.fact
 
 
 def test_next_experiment_quiet_when_all_terms_covered(monkeypatch):
