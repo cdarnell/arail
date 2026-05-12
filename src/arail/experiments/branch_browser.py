@@ -285,13 +285,14 @@ def list_autoresearch_branches(
     Returns:
         List of BranchSummary, sorted by committerdate descending.
     """
-    # NUL-delimited fields per ref: refname:short, objectname:short, committerdate:iso-strict
-    sep = "\x00"
-    record_sep = "\n"
+    # Tab-delimited fields per ref: refname:short, objectname:short, committerdate:iso-strict
+    # Using TAB as separator — safe because none of these git format tokens
+    # produce output containing TABs.
+    sep = "\t"
     fmt = f"%(refname:short){sep}%(objectname:short){sep}%(committerdate:iso-strict)"
     r = _run([
         "for-each-ref",
-        f"--sort=-committerdate",
+        "--sort=-committerdate",
         f"--count={limit}",
         f"--format={fmt}",
         "refs/heads/autoresearch/*",
@@ -375,11 +376,12 @@ def branch_commits(branch: str) -> List[CommitRow]:
     else:
         rev_range = branch
 
-    # NUL-delimited: sha, short_sha, author, date, subject, body
-    # Use a unique record separator to handle multi-line bodies.
-    # Format: sha NUL shortsha NUL author NUL date NUL subject NUL body RS
-    RS = "\x1e"  # ASCII record separator
-    fmt = f"%H{chr(0)}%h{chr(0)}%an{chr(0)}%aI{chr(0)}%s{chr(0)}%b{RS}"
+    # Field separator: ASCII Unit Separator (0x1F) — safe in subprocess args.
+    # Record separator: ASCII Record Separator (0x1E) — one per commit.
+    # Neither appears in git output (SHAs, author names, ISO dates, typical commit text).
+    FS = "\x1f"
+    RS = "\x1e"
+    fmt = f"%H{FS}%h{FS}%an{FS}%aI{FS}%s{FS}%b{RS}"
 
     r = _run([
         "log",
@@ -394,7 +396,7 @@ def branch_commits(branch: str) -> List[CommitRow]:
         record = record.strip()
         if not record:
             continue
-        parts = record.split("\x00")
+        parts = record.split(FS)
         if len(parts) < 5:
             continue
         sha = parts[0].strip()
