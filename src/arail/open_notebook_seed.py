@@ -198,7 +198,7 @@ def _setup_ai_provider(port: int) -> None:
                 return
             host_models = host_r.json().get("models", [])
             if not host_models:
-                log.warning("No Ollama models found. Pull one: ollama pull qwen3:8b")
+                log.warning("No Ollama models found. Pull one: ollama pull qwen2.5:7b")
                 return
             model_names = [m["name"] for m in host_models]
             log.info("Found Ollama models: %s", ", ".join(model_names))

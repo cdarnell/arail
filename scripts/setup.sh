@@ -743,23 +743,26 @@ install_services() {
     # slow networks or locked-down school machines via ARAIL_SKIP_OLLAMA=1.
     if command -v ollama &>/dev/null; then
         if [[ "${ARAIL_SKIP_OLLAMA:-0}" == "1" ]]; then
-            warn "ARAIL_SKIP_OLLAMA=1 — skipping qwen3:8b pull. Run later: ollama pull qwen3:8b"
+            warn "ARAIL_SKIP_OLLAMA=1 — skipping qwen2.5:7b pull. Run later: ollama pull qwen2.5:7b"
             return
         fi
         local model_count
         model_count=$(ollama list 2>/dev/null | tail -n +2 | wc -l | tr -d ' ') || model_count="0"
         if [[ "$model_count" == "0" ]]; then
-            info "Pulling default Ollama model (qwen3:8b, ~5 GB) — this may take 2-5 minutes…"
+            info "Pulling default Ollama model (qwen2.5:7b, ~5 GB) — this may take 2-5 minutes…"
             info "Skip next time with ARAIL_SKIP_OLLAMA=1 if bandwidth is tight."
-            if ! timeout 900 ollama pull qwen3:8b 2>&1 | tail -5; then
-                warn "Model pull failed or timed out. Run manually: ollama pull qwen3:8b"
+            if ! timeout 900 ollama pull qwen2.5:7b 2>&1 | tail -5; then
+                warn "Model pull failed or timed out. Run manually: ollama pull qwen2.5:7b"
             fi
         else
             info "Ollama has $model_count model(s) available"
         fi
         # Create ARAIL's default ai-engineer model from the bundled
-        # Modelfile (qwen3:8b base + AI Engineer Expert persona). Idempotent —
+        # Modelfile (qwen2.5:7b base + AI Engineer Expert persona). Idempotent —
         # `ollama show` returns nonzero when the tag isn't installed yet.
+        # When the user provides their own AI Engineer model (Project Nucleus),
+        # replace the FROM line in models/ai-engineer/Modelfile and re-run setup
+        # (or: ollama rm ai-engineer && ollama create ai-engineer -f <Modelfile>).
         local _modelfile="${REPO_ROOT:-$PWD}/models/ai-engineer/Modelfile"
         if [[ -f "$_modelfile" ]] && ! ollama show ai-engineer &>/dev/null; then
             info "Creating ai-engineer model from models/ai-engineer/Modelfile…"
