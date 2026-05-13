@@ -51,17 +51,17 @@ Two tiers. Pick one; upgrade later.
 
 | Tier  | What you get                                                                                                            | Good for                                         |
 | ----- | ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
-| `min` | Dashboard · Chat · Autoresearch · Knowledge Base · Agents · LanceDB vectors · **AirLLM 70B** (Llama-3.1-70B)           | The everyday lab. Real models on small hardware. |
-| `max` | + Admin · Docs · Notebooks · **AirLLM 405B** (Llama-3.1-405B) · Anthropic SDK · LangChain · full cloud SDKs             | Frontier-scale local inference, full bench.      |
+| `minamalist` | Dashboard · Chat · Autoresearch · Knowledge Base · Agents · LanceDB vectors · **AirLLM 70B** (Llama-3.1-70B)           | The everyday lab. Real models on small hardware. |
+| `maximum` | + Admin · Docs · Notebooks · **AirLLM 405B** (Llama-3.1-405B) · Anthropic SDK · LangChain · full cloud SDKs             | Frontier-scale local inference, full bench.      |
 
 Upgrade any time:
 
 ```bash
-./arailctl upgrade max
+./arailctl upgrade maximum
 ```
 
-Knowledge Base and Agents are part of `min` on purpose — research needs
-memory to work. Both tiers ship with the embedded LanceDB-backed KB; `max`
+Knowledge Base and Agents are part of `minamalist` on purpose — research needs
+memory to work. Both tiers ship with the embedded LanceDB-backed KB; `maximum`
 adds the heavier operator surfaces and orchestration extras.
 
 For the list of models that have been validated against ARAIL's
@@ -192,7 +192,7 @@ active, and you can pivot back with a click.
 Edit `.env`:
 
 ```bash
-LAB_NAME="Sam's AI Lab"
+LAB_NAME="The AI Research Lab"
 LAB_TAGLINE="Our family AI bench"
 ```
 
