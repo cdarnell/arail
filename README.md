@@ -10,6 +10,10 @@ loop that runs experiments while you sleep.
 
 <img width="1398" height="783" alt="Screenshot 2026-05-01 at 8 08 10 PM" src="https://github.com/user-attachments/assets/c6eeff47-975f-4ed9-bf0b-13080e8d76a7" />
 
+Inference from an AI Engineer built by Nucleus
+<img width="1490" height="960" alt="image" src="https://github.com/user-attachments/assets/2726836d-e39e-4ebd-904c-7c4a8b64dfdf" />
+
+
 
 
 >
