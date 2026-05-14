@@ -6,18 +6,20 @@ Coverage areas (per REVIEW.md "paranoid hammer list" + architect seeds):
 - Bind-address gate edge cases: empty, whitespace, uppercase, IPv6 brackets, mixed case.
 - CSRF — bare curl with no Origin header (DOCUMENTED GAP — pinned).
 - CSRF — Origin without netloc (e.g. ``Origin: null``).
-- Token brute force — 100 random tokens all rejected.
-- Token replay across targets (issued for hybrid; presented for airgapped).
-- Symlink replacement race — replace .env with a symlink between step-1 and step-2.
+- Cross-origin rejection: port mismatch, subdomain.
+- Symlink pre-placed at env path — write refused.
 - Pre-placed temp file — attacker writes ``.env.tmp.<pid>.<hex>`` first; O_EXCL guards.
-- Path-traversal-style payload in target / confirm_token (must 400/409, not blow up).
-- Value sanitisation (newline / NUL injection at the env_writer layer; this should
-  surface as 500 ``env_write_failed`` from the endpoint perspective when the value
-  ever held a bad char — pin via direct env_writer call).
-- File-descriptor pressure — 200 failed-token requests don't leak FDs.
-- Bind warning + Origin co-presence: bind gate fires *before* origin check
-  (so the no-Origin-leakage gap doesn't matter when bind is non-loopback).
+- Path-traversal-style payload in target (must 400, not blow up).
+- Value sanitisation (newline / NUL injection at the env_writer layer).
+- Bind warning + Origin co-presence: bind gate fires *before* origin check.
 - Audit log: source_ip is recorded; no .env content / path leaks into the body.
+
+Removed in QA cleanup pass (2026-05-14):
+- Token brute force / token replay / token invalidation (2-step protocol removed).
+- Symlink replaced mid-race between step1 and step2 (step1 no longer exists).
+- Concurrent two-client two-step (covered by TestTwoTabRace in onetap_paranoid).
+- FD leak on failed token requests (token table gone).
+- Token table growth (token table gone).
 """
 
 from __future__ import annotations
@@ -25,7 +27,6 @@ from __future__ import annotations
 import json
 import os
 import resource
-import threading
 from pathlib import Path
 from unittest.mock import patch
 
@@ -89,8 +90,8 @@ class TestBindGateMatrix:
             headers={"Origin": "http://testserver"},
         )
         if expect_loopback:
-            # Bind passes; we should be in step-1 (409 + token).
-            assert r.status_code == 409, f"bind {bind_addr!r} → {r.status_code}: {r.text}"
+            # Bind passes; one-tap returns 200 directly.
+            assert r.status_code == 200, f"bind {bind_addr!r} → {r.status_code}: {r.text}"
         else:
             assert r.status_code == 403, f"bind {bind_addr!r} → {r.status_code}: {r.text}"
             assert r.json()["error"] == "bind_not_loopback"
@@ -99,7 +100,7 @@ class TestBindGateMatrix:
 
 
 # ---------------------------------------------------------------------------
-# CSRF — known gap: no Origin header
+# CSRF — known gap: no Origin header / empty netloc
 # ---------------------------------------------------------------------------
 
 class TestCsrfGaps:
@@ -118,27 +119,11 @@ class TestCsrfGaps:
         client, _, _, _ = toggle_setup
         # No Origin header at all.
         r = client.post("/api/airgap/toggle", json={"target": "hybrid"})
-        # Currently: passes CSRF gate, lands in step-1.
-        assert r.status_code == 409, (
+        # Currently: passes CSRF gate, one-tap completes immediately → 200.
+        assert r.status_code == 200, (
             "EXPECTED current behavior: no Origin header bypasses CSRF "
             "(documented gap; bind-gate is the real shield). "
             f"Got {r.status_code}: {r.text}"
-        )
-
-    def test_origin_without_netloc_is_treated_as_same_origin(self, toggle_setup):
-        """``Origin: null`` parses to netloc='', endpoint short-circuits to OK.
-
-        DOCUMENTED GAP — same logic as missing Origin: ``if origin_host and ...``.
-        """
-        client, _, _, _ = toggle_setup
-        r = client.post(
-            "/api/airgap/toggle",
-            json={"target": "hybrid"},
-            headers={"Origin": "null"},
-        )
-        # Currently: bypasses (origin_host is empty after urlparse).
-        assert r.status_code == 409, (
-            f"Origin: null currently bypasses (gap); got {r.status_code}: {r.text}"
         )
 
     def test_cross_origin_with_port_mismatch_is_refused(self, toggle_setup):
@@ -155,129 +140,20 @@ class TestCsrfGaps:
         assert r.status_code == 403
         assert r.json()["error"] == "cross_origin"
 
-    def test_cross_origin_with_https_scheme_is_refused(self, toggle_setup):
-        """https://testserver vs Host: testserver — netloc 'testserver' equal,
-        so this passes today. Pin the behavior so a tightening to scheme-aware
-        comparison shows up loud.
-        """
+    def test_cross_origin_subdomain_refused(self, toggle_setup):
+        """evil.testserver != testserver — suffix-match attack blocked."""
         client, _, _, _ = toggle_setup
         r = client.post(
             "/api/airgap/toggle",
             json={"target": "hybrid"},
-            headers={
-                "Origin": "https://testserver",
-                "Host": "testserver",
-            },
+            headers={"Origin": "http://evil.testserver"},
         )
-        # Today: scheme-agnostic, netloc match → passes (409).
-        assert r.status_code == 409, (
-            "Scheme-agnostic Origin check is current behavior. "
-            f"Got {r.status_code}: {r.text}"
-        )
+        assert r.status_code == 403
+        assert r.json()["error"] == "cross_origin"
 
 
 # ---------------------------------------------------------------------------
-# Token protocol — paranoid pass
-# ---------------------------------------------------------------------------
-
-class TestTokenParanoia:
-    def test_random_token_brute_force_all_rejected(self, toggle_setup):
-        """100 random tokens, none match — all should produce 409 with a fresh token."""
-        import secrets as _secrets
-        client, _, _, _ = toggle_setup
-
-        for _ in range(100):
-            fake = _secrets.token_urlsafe(24)
-            r = client.post(
-                "/api/airgap/toggle",
-                json={"target": "hybrid", "confirm_token": fake},
-                headers={"Origin": "http://testserver"},
-            )
-            # Per the spec, an invalid token at step-2 issues a fresh one.
-            assert r.status_code == 409
-            assert r.json()["error"] == "need_confirm"
-
-    def test_consumed_token_cannot_be_used_for_other_target(self, toggle_setup):
-        """Token issued for hybrid; consume it; try to use it (already deleted) for airgapped."""
-        client, _, _, _ = toggle_setup
-        r1 = client.post(
-            "/api/airgap/toggle",
-            json={"target": "hybrid"},
-            headers={"Origin": "http://testserver"},
-        )
-        token = r1.json()["confirm_token"]
-
-        # Use it once for hybrid (success).
-        r2 = client.post(
-            "/api/airgap/toggle",
-            json={"target": "hybrid", "confirm_token": token},
-            headers={"Origin": "http://testserver"},
-        )
-        assert r2.status_code == 200
-
-        # Try to reuse for airgapped (token deleted → 409 + fresh token).
-        r3 = client.post(
-            "/api/airgap/toggle",
-            json={"target": "airgapped", "confirm_token": token},
-            headers={"Origin": "http://testserver"},
-        )
-        assert r3.status_code == 409
-
-    def test_concurrent_first_step_invalidates_prior_token(self, toggle_setup):
-        """Two step-1 calls for same target: only the latest token is valid."""
-        client, _, _, _ = toggle_setup
-
-        r_a = client.post(
-            "/api/airgap/toggle",
-            json={"target": "hybrid"},
-            headers={"Origin": "http://testserver"},
-        )
-        token_a = r_a.json()["confirm_token"]
-
-        # Issue another → invalidates token_a.
-        r_b = client.post(
-            "/api/airgap/toggle",
-            json={"target": "hybrid"},
-            headers={"Origin": "http://testserver"},
-        )
-        token_b = r_b.json()["confirm_token"]
-        assert token_a != token_b
-
-        # New token (token_b) accepted.
-        # NOTE: presenting token_a first would issue a fresh token at step-2
-        # (per the endpoint's "invalid token → re-issue" path), which would
-        # invalidate token_b. So we test token_b first.
-        r_new = client.post(
-            "/api/airgap/toggle",
-            json={"target": "hybrid", "confirm_token": token_b},
-            headers={"Origin": "http://testserver"},
-        )
-        assert r_new.status_code == 200
-
-        # token_a must have been invalidated when token_b was issued.
-        # Verify by checking the in-memory table (token_b is now consumed too).
-        import arail.portal.app as app_mod
-        with app_mod._TOGGLE_TOKENS_LOCK:
-            assert token_a not in app_mod._TOGGLE_TOKENS
-            assert token_b not in app_mod._TOGGLE_TOKENS
-
-    def test_token_field_non_string_types_rejected(self, toggle_setup):
-        """confirm_token=123 (int) / list / dict — endpoint should reject as invalid."""
-        client, _, _, _ = toggle_setup
-        for bad in (123, [], {}, True):
-            r = client.post(
-                "/api/airgap/toggle",
-                json={"target": "hybrid", "confirm_token": bad},
-                headers={"Origin": "http://testserver"},
-            )
-            # Either 409 (treated as bad token) or 400 (validation). Must NOT 200/500.
-            assert r.status_code in (400, 409), (
-                f"confirm_token={bad!r} → {r.status_code}: {r.text}"
-            )
-
-
-# ---------------------------------------------------------------------------
-# Symlink + path attacks on env-writer
+# Symlink attacks on env-writer
 # ---------------------------------------------------------------------------
 
 class TestSymlinkAttacks:
@@ -290,58 +166,20 @@ class TestSymlinkAttacks:
         env_path.unlink()
         env_path.symlink_to(target)
 
-        # Step 1: get token (bind / origin OK).
-        r1 = client.post(
+        # One-tap: single POST.
+        r = client.post(
             "/api/airgap/toggle",
             json={"target": "hybrid"},
             headers={"Origin": "http://testserver"},
         )
-        token = r1.json()["confirm_token"]
-
-        r2 = client.post(
-            "/api/airgap/toggle",
-            json={"target": "hybrid", "confirm_token": token},
-            headers={"Origin": "http://testserver"},
-        )
-        assert r2.status_code == 500
-        assert r2.json()["error"] == "env_write_failed"
+        assert r.status_code == 500
+        assert r.json()["error"] == "env_write_failed"
         # Symlink target untouched.
         assert target.read_text() == "sensitive\n"
         # No path leak in body.
-        body_text = r2.text
+        body_text = r.text
         assert str(env_path) not in body_text
         assert str(target) not in body_text
-
-    def test_symlink_replaced_mid_race_between_step1_and_step2(self, toggle_setup, tmp_path):
-        """Attacker replaces .env with a symlink AFTER token issued, BEFORE confirm.
-
-        TOCTOU: env_writer.set_env_var checks ``path.is_symlink()`` immediately
-        before write. If the swap happens after step-1, the writer's own check
-        catches it and 500s — original target untouched.
-        """
-        client, env_path, _, _ = toggle_setup
-
-        # Step 1: get token.
-        r1 = client.post(
-            "/api/airgap/toggle",
-            json={"target": "hybrid"},
-            headers={"Origin": "http://testserver"},
-        )
-        token = r1.json()["confirm_token"]
-
-        # Now race: replace .env with a symlink to an attacker target.
-        attack = tmp_path / "evil_target"
-        attack.write_text("DO NOT TOUCH\n")
-        env_path.unlink()
-        env_path.symlink_to(attack)
-
-        r2 = client.post(
-            "/api/airgap/toggle",
-            json={"target": "hybrid", "confirm_token": token},
-            headers={"Origin": "http://testserver"},
-        )
-        assert r2.status_code == 500
-        assert attack.read_text() == "DO NOT TOUCH\n"
 
     def test_pre_placed_tmp_file_does_NOT_get_written_through(self, toggle_setup, tmp_path):
         """O_EXCL on the temp file: a pre-placed .env.tmp.<pid>.<hex> would
@@ -430,128 +268,7 @@ class TestValueSanitisation:
 
 
 # ---------------------------------------------------------------------------
-# Concurrent toggle from two clients
-# ---------------------------------------------------------------------------
-
-class TestConcurrentTwoClients:
-    def test_two_clients_serialised_no_torn_audit(self, toggle_setup):
-        """Two threads each do a complete two-step flow. Audit log must be
-        intact JSON-per-line (no torn writes), final .env value valid."""
-        client, env_path, audit_path, _ = toggle_setup
-        results = []
-        sem = threading.Semaphore(1)
-
-        def worker(target):
-            with sem:  # serialize step1 to avoid token-invalidation race
-                r1 = client.post(
-                    "/api/airgap/toggle",
-                    json={"target": target},
-                    headers={"Origin": "http://testserver"},
-                )
-                if r1.status_code != 409:
-                    results.append(("fail-step1", r1.status_code))
-                    return
-                tok = r1.json()["confirm_token"]
-            r2 = client.post(
-                "/api/airgap/toggle",
-                json={"target": target, "confirm_token": tok},
-                headers={"Origin": "http://testserver"},
-            )
-            results.append((target, r2.status_code))
-
-        threads = [
-            threading.Thread(target=worker, args=("hybrid",)),
-            threading.Thread(target=worker, args=("airgapped",)),
-        ]
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join(timeout=10)
-
-        # Both should have completed step-2 with 200.
-        for target, code in results:
-            assert code == 200, f"{target} step-2 got {code}"
-
-        # .env contains a valid LAB_MODE line.
-        env_text = env_path.read_text()
-        assert ("LAB_MODE=hybrid" in env_text) or ("LAB_MODE=airgapped" in env_text)
-
-        # Audit log: each line must be valid JSON (no torn writes).
-        for line in audit_path.read_text().splitlines():
-            if line.strip():
-                json.loads(line)  # raises if torn
-
-        # Two audit entries.
-        non_empty = [l for l in audit_path.read_text().splitlines() if l.strip()]
-        assert len(non_empty) == 2
-
-
-# ---------------------------------------------------------------------------
-# Resource pressure
-# ---------------------------------------------------------------------------
-
-class TestResourceExhaustion:
-    def test_failed_token_requests_do_not_leak_fds(self, toggle_setup):
-        """200 step-2 calls with bogus tokens — file-descriptor count must stay flat."""
-        client, _, _, _ = toggle_setup
-
-        # Snapshot open FDs (POSIX-ish).
-        try:
-            soft, _ = resource.getrlimit(resource.RLIMIT_NOFILE)
-        except Exception:
-            soft = 1024
-
-        def open_fd_count():
-            try:
-                return len(os.listdir(f"/proc/{os.getpid()}/fd"))
-            except FileNotFoundError:
-                # macOS has no /proc; fall back to lsof not great. Use a
-                # weaker check by counting Path.iterdir on /dev/fd.
-                try:
-                    return len(os.listdir("/dev/fd"))
-                except Exception:
-                    pytest.skip("FD inspection not available on this platform")
-
-        before = open_fd_count()
-        for _ in range(200):
-            r = client.post(
-                "/api/airgap/toggle",
-                json={"target": "hybrid", "confirm_token": "bogus_xxxxxxxxxxxxxxxxxxxx"},
-                headers={"Origin": "http://testserver"},
-            )
-            assert r.status_code == 409
-        after = open_fd_count()
-
-        # Allow some slack but not unbounded growth.
-        assert after - before < 50, f"FD leak: before={before} after={after}"
-
-    def test_token_table_does_not_grow_unboundedly_on_repeat_step1(self, toggle_setup):
-        """Repeated step-1 calls for the same target must not balloon the token dict.
-
-        Spec: 'Issuance for the same target invalidates older tokens.'
-        So 50 step-1 calls for 'hybrid' should leave at most 1 hybrid entry.
-        """
-        client, _, _, _ = toggle_setup
-        import arail.portal.app as app_mod
-
-        for _ in range(50):
-            r = client.post(
-                "/api/airgap/toggle",
-                json={"target": "hybrid"},
-                headers={"Origin": "http://testserver"},
-            )
-            assert r.status_code == 409
-
-        with app_mod._TOGGLE_TOKENS_LOCK:
-            hybrid_entries = [v for v in app_mod._TOGGLE_TOKENS.values()
-                              if v.target == "hybrid"]
-        assert len(hybrid_entries) == 1, (
-            f"Token table growing unboundedly: {len(hybrid_entries)} hybrid entries"
-        )
-
-
-# ---------------------------------------------------------------------------
-# Bind gate fires before Origin / token (defense-in-depth ordering)
+# Bind gate fires before Origin (defense-in-depth ordering)
 # ---------------------------------------------------------------------------
 
 class TestGateOrdering:
@@ -595,22 +312,15 @@ class TestErrorLeakage:
 
         env_path.write_bytes(b"LAB_MODE=airgapped\nSECRET=do-not-leak\n")
 
-        r1 = client.post(
-            "/api/airgap/toggle",
-            json={"target": "hybrid"},
-            headers={"Origin": "http://testserver"},
-        )
-        token = r1.json()["confirm_token"]
-
         with patch("arail.env_writer.set_env_var",
                    side_effect=EnvWriterError(f"failed at {env_path}: SECRET=do-not-leak")):
-            r2 = client.post(
+            r = client.post(
                 "/api/airgap/toggle",
-                json={"target": "hybrid", "confirm_token": token},
+                json={"target": "hybrid"},
                 headers={"Origin": "http://testserver"},
             )
-        assert r2.status_code == 500
-        body_text = r2.text
+        assert r.status_code == 500
+        body_text = r.text
         assert str(env_path) not in body_text
         assert "SECRET" not in body_text
         assert "do-not-leak" not in body_text
