@@ -6952,6 +6952,16 @@ async def post_airgap_toggle(request: Request):
             "message": "Edit `.env` directly — toggle disabled when bound to non-loopback.",
         })
 
+    # ── Sec-Fetch-Site defense-in-depth ──────────────────────────────
+    # Browsers force-set this header; JS on an attacker page cannot forge it.
+    # Non-browser clients (curl, pytest TestClient) omit it → fall through.
+    # See ARCHITECTURE.md § Item 4 for the full decision matrix.
+    _sfs = request.headers.get("sec-fetch-site", "").strip().lower()
+    if _sfs in ("cross-site", "none"):
+        return _err(403, {"error": "cross_site"})
+    # "same-origin" / "same-site" → proceed to Origin check below.
+    # Absent or unknown future value → fall through (preserves legacy / CLI paths).
+
     # ── CSRF Origin check ─────────────────────────────────────────────
     origin = request.headers.get("origin", "")
     host = request.headers.get("host", "")
