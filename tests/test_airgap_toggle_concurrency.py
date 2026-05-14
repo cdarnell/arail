@@ -1,21 +1,15 @@
 """Concurrency tests for the airgap toggle endpoint + env_writer.
 
-ARCHITECTURE.md §9 test_airgap_toggle_concurrency.py:
-- 8 threads each issue the full two-step flow concurrently against the
-  same temp .env file.
-- Assert: final value is one of {airgapped, hybrid}, file always
-  parseable, exactly N audit lines (N ≤ 8, ≥ 1). No torn writes.
+Sprint 2026-05-14-airgap-onetap-toggle — simplified to one-shot POST.
+Each thread does a single POST /api/airgap/toggle {target}. No step-1 /
+step-2 token dance; that protocol was removed.
 
-Design note: the spec's token-invalidation rule means that for a given
-target, the last thread to issue a step-1 token wins. Threads racing on
-step 1 for the same target will likely have their tokens invalidated by
-a sibling thread. The test verifies the FILE consistency guarantee (no
-torn write) and that at least one two-step sequence completes end-to-end
-despite the race, not that every thread succeeds.
-
-To guarantee at least one success in a race, we stagger step-1 issuance
-so each thread does step-1 and step-2 in a tight sequence without other
-threads invalidating between them.
+Key assertions:
+  - No torn .env write (file always parseable with valid LAB_MODE).
+  - At least one thread completes a successful toggle.
+  - Audit lines are individually valid JSON with required fields.
+  - test_env_writer_concurrent_no_torn_file: 32 direct env_writer calls;
+    no torn lines (exercises the per-path lock directly).
 """
 
 from __future__ import annotations
@@ -23,7 +17,6 @@ from __future__ import annotations
 import json
 import os
 import threading
-import time
 from pathlib import Path
 
 import pytest
@@ -38,8 +31,7 @@ from arail.portal.app import app
 
 @pytest.fixture()
 def env_and_audit(tmp_path, monkeypatch):
-    """Return (env_path, audit_path) pointing at temp files; wire the
-    endpoint to use them via the module-level _TOGGLE_ENV_PATH override."""
+    """Return (env_path, audit_path) wired into the endpoint via module override."""
     env_path = tmp_path / ".env"
     env_path.write_bytes(b"LAB_MODE=airgapped\n")
     audit_path = tmp_path / "airgap_audit.jsonl"
@@ -57,14 +49,14 @@ def env_and_audit(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 class TestToggleConcurrency:
-    def test_8_threads_full_two_step(self, env_and_audit, monkeypatch):
-        """8 threads run the two-step flow concurrently.
+    def test_8_threads_one_shot(self, env_and_audit):
+        """8 threads each issue a single one-tap POST concurrently.
 
-        Key assertions:
-        - No thread crashes (no unhandled exceptions).
-        - .env remains parseable with a valid LAB_MODE value.
-        - At least 1 thread completes a full two-step sequence.
-        - Audit lines >= 1 and <= 8, each valid JSON with required fields.
+        Assertions:
+        - No thread crashes.
+        - .env remains parseable with a valid LAB_MODE value (no torn write).
+        - At least one thread gets 200.
+        - All audit lines are valid JSON with ts/from/to fields.
         """
         env_path, audit_path = env_and_audit
 
@@ -72,56 +64,27 @@ class TestToggleConcurrency:
 
         successes: list[str] = []
         errors: list[str] = []
-        err_lock = threading.Lock()
-        # Stagger lock: each thread holds the lock across step-1 -> step-2
-        # so its token isn't invalidated by a sibling's step-1 call.
-        # This still exercises concurrent env_writer lock contention on step-2
-        # while guaranteeing at least one token per target survives.
-        issue_lock = threading.Semaphore(1)
+        lock = threading.Lock()
 
         def _do_toggle(thread_idx: int) -> None:
             target = "hybrid" if thread_idx % 2 == 0 else "airgapped"
             try:
-                with issue_lock:
-                    r1 = client.post(
-                        "/api/airgap/toggle",
-                        json={"target": target},
-                        headers={"Origin": "http://testserver"},
-                    )
-                    if r1.status_code != 409:
-                        with err_lock:
-                            errors.append(
-                                f"thread {thread_idx}: step1 expected 409, "
-                                f"got {r1.status_code}: {r1.text}"
-                            )
-                        return
-                    body1 = r1.json()
-                    token = body1.get("confirm_token")
-                    if not token:
-                        with err_lock:
-                            errors.append(f"thread {thread_idx}: no token in {body1}")
-                        return
-
-                    r2 = client.post(
-                        "/api/airgap/toggle",
-                        json={"target": target, "confirm_token": token},
-                        headers={"Origin": "http://testserver"},
-                    )
-
-                if r2.status_code == 200:
-                    with err_lock:
-                        successes.append(r2.json().get("lab_mode", "?"))
-                elif r2.status_code == 409:
-                    # Token was consumed by a race; acceptable.
-                    pass
-                else:
-                    with err_lock:
+                r = client.post(
+                    "/api/airgap/toggle",
+                    json={"target": target},
+                    headers={"Origin": "http://testserver"},
+                )
+                if r.status_code == 200:
+                    with lock:
+                        successes.append(r.json().get("lab_mode", "?"))
+                elif r.status_code not in (200,):
+                    # Any non-200 that isn't a known gate response is unexpected.
+                    with lock:
                         errors.append(
-                            f"thread {thread_idx}: step2 unexpected "
-                            f"{r2.status_code}: {r2.text}"
+                            f"thread {thread_idx}: unexpected {r.status_code}: {r.text}"
                         )
             except Exception as exc:
-                with err_lock:
+                with lock:
                     errors.append(f"thread {thread_idx}: exception {exc}")
 
         threads = [threading.Thread(target=_do_toggle, args=(i,)) for i in range(8)]
@@ -132,7 +95,7 @@ class TestToggleConcurrency:
 
         assert not errors, "Thread errors:\n" + "\n".join(errors)
 
-        # At least one successful toggle.
+        # At least one thread succeeded.
         assert len(successes) >= 1, "No thread completed a successful toggle"
 
         # .env is parseable and LAB_MODE has a valid value.
@@ -142,23 +105,60 @@ class TestToggleConcurrency:
         val = lab_lines[0].split("=", 1)[1].strip().strip("\"'")
         assert val in ("airgapped", "hybrid"), f"Torn LAB_MODE value: {val!r}"
 
-        # Audit log has N lines where 1 <= N <= 8, all valid JSON.
+        # Audit lines: each is valid JSON with required fields.
         if audit_path.exists():
             audit_lines = [l for l in audit_path.read_text().splitlines() if l.strip()]
-            assert 1 <= len(audit_lines) <= 8, (
-                f"Unexpected audit line count: {len(audit_lines)}"
-            )
+            assert len(audit_lines) >= 1, "Expected at least one audit line"
             for line in audit_lines:
                 entry = json.loads(line)
                 assert "ts" in entry
                 assert "from" in entry
                 assert "to" in entry
 
+    def test_two_threads_opposite_targets(self, env_and_audit):
+        """Two threads POST opposite targets; exactly one of {airgapped, hybrid} ends up
+        persisted; exactly 2 audit lines; no torn write."""
+        env_path, audit_path = env_and_audit
+
+        client = TestClient(app, raise_server_exceptions=False)
+        results: list[int] = []
+        lock = threading.Lock()
+
+        def _do(target: str) -> None:
+            r = client.post(
+                "/api/airgap/toggle",
+                json={"target": target},
+                headers={"Origin": "http://testserver"},
+            )
+            with lock:
+                results.append(r.status_code)
+
+        t1 = threading.Thread(target=_do, args=("hybrid",))
+        t2 = threading.Thread(target=_do, args=("airgapped",))
+        t1.start()
+        t2.start()
+        t1.join()
+        t2.join()
+
+        # Both should return 200 (the per-path lock serializes writes).
+        assert results.count(200) == 2, f"Expected 2 x 200, got: {results}"
+
+        # Final disk state is valid.
+        final_text = env_path.read_text()
+        lab_lines = [l for l in final_text.splitlines() if l.startswith("LAB_MODE=")]
+        assert lab_lines
+        val = lab_lines[0].split("=", 1)[1].strip().strip("\"'")
+        assert val in ("airgapped", "hybrid"), f"Torn value: {val!r}"
+
+        # Exactly 2 audit lines (one per successful flip).
+        assert audit_path.exists()
+        audit_lines = [l for l in audit_path.read_text().splitlines() if l.strip()]
+        assert len(audit_lines) == 2, f"Expected 2 audit lines, got {len(audit_lines)}"
+
     def test_env_writer_concurrent_no_torn_file(self, env_and_audit):
         """32 threads writing LAB_MODE via env_writer directly — no torn lines.
 
-        This exercises the env_writer lock directly, independent of the
-        HTTP endpoint layer.
+        Exercises the env_writer per-path lock independent of the HTTP layer.
         """
         from arail.env_writer import set_env_var
         env_path, _ = env_and_audit

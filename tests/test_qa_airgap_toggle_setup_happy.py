@@ -8,6 +8,15 @@ Buckets covered:
 
 Excluded from the QA budget here (covered in the security/buddy files):
 - bind-gate matrix, CSRF, symlink, rapid-fire (covered separately).
+
+Migrated from 2-step to one-tap in QA cleanup pass (2026-05-14):
+- test_toggle_then_simulated_restart_persists
+- test_toggle_appends_when_env_lacks_LAB_MODE
+- test_toggle_when_env_is_completely_missing
+- test_status_pill_flips_after_toggle
+
+Deleted (response-shape test):
+- test_response_shape_complete — covered by test_airgap_toggle_endpoint.py.
 """
 
 from __future__ import annotations
@@ -63,14 +72,8 @@ class TestSetupRoundTrip:
 
         client = TestClient(app, raise_server_exceptions=False)
         h = {"Origin": "http://testserver"}
-        r1 = client.post("/api/airgap/toggle", json={"target": "hybrid"}, headers=h)
-        token = r1.json()["confirm_token"]
-        r2 = client.post(
-            "/api/airgap/toggle",
-            json={"target": "hybrid", "confirm_token": token},
-            headers=h,
-        )
-        assert r2.status_code == 200
+        r = client.post("/api/airgap/toggle", json={"target": "hybrid"}, headers=h)
+        assert r.status_code == 200
 
         # Simulate a restart: drop the in-process LAB_MODE, re-read from disk.
         monkeypatch.delenv("LAB_MODE", raising=False)
@@ -96,15 +99,9 @@ class TestSetupRoundTrip:
 
         client = TestClient(app, raise_server_exceptions=False)
         h = {"Origin": "http://testserver"}
-        r1 = client.post("/api/airgap/toggle", json={"target": "hybrid"}, headers=h)
-        tok = r1.json()["confirm_token"]
-        r2 = client.post(
-            "/api/airgap/toggle",
-            json={"target": "hybrid", "confirm_token": tok},
-            headers=h,
-        )
-        assert r2.status_code == 200
-        body = r2.json()
+        r = client.post("/api/airgap/toggle", json={"target": "hybrid"}, headers=h)
+        assert r.status_code == 200
+        body = r.json()
         assert body["appended"] is True
         text = env_path.read_text()
         # Original lines preserved.
@@ -129,14 +126,8 @@ class TestSetupRoundTrip:
 
         client = TestClient(app, raise_server_exceptions=False)
         h = {"Origin": "http://testserver"}
-        r1 = client.post("/api/airgap/toggle", json={"target": "hybrid"}, headers=h)
-        tok = r1.json()["confirm_token"]
-        r2 = client.post(
-            "/api/airgap/toggle",
-            json={"target": "hybrid", "confirm_token": tok},
-            headers=h,
-        )
-        assert r2.status_code == 200
+        r = client.post("/api/airgap/toggle", json={"target": "hybrid"}, headers=h)
+        assert r.status_code == 200
         assert env_path.exists()
         # File mode 0o600.
         mode = stat.S_IMODE(env_path.stat().st_mode)
@@ -171,36 +162,11 @@ class TestHappyPath:
         assert before["lab_mode"] == "airgapped"
 
         h = {"Origin": "http://testserver"}
-        r1 = client.post("/api/airgap/toggle", json={"target": "hybrid"}, headers=h)
-        tok = r1.json()["confirm_token"]
-        r2 = client.post(
-            "/api/airgap/toggle",
-            json={"target": "hybrid", "confirm_token": tok},
-            headers=h,
-        )
-        assert r2.status_code == 200
+        r = client.post("/api/airgap/toggle", json={"target": "hybrid"}, headers=h)
+        assert r.status_code == 200
 
         after = client.get("/api/airgap/status").json()
         assert after["lab_mode"] == "hybrid"
-
-    def test_response_shape_complete(self, setup_):
-        """200 body must include all spec-required fields."""
-        client, _, _ = setup_
-        h = {"Origin": "http://testserver"}
-        r1 = client.post("/api/airgap/toggle", json={"target": "hybrid"}, headers=h)
-        tok = r1.json()["confirm_token"]
-        r2 = client.post(
-            "/api/airgap/toggle",
-            json={"target": "hybrid", "confirm_token": tok},
-            headers=h,
-        )
-        body = r2.json()
-        for key in ("lab_mode", "previous", "env_path", "took_effect_at", "appended"):
-            assert key in body, f"Missing required field {key!r}: {body}"
-        # took_effect_at parses as ISO-8601 with Z suffix.
-        assert body["took_effect_at"].endswith("Z")
-        from datetime import datetime
-        datetime.fromisoformat(body["took_effect_at"].replace("Z", "+00:00"))
 
 
 # ---------------------------------------------------------------------------

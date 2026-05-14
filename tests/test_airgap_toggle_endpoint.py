@@ -1,28 +1,48 @@
-"""Full endpoint test matrix for POST /api/airgap/toggle.
+"""Full endpoint test matrix for POST /api/airgap/toggle — one-tap protocol.
 
-ARCHITECTURE.md §9 test_airgap_toggle_endpoint.py:
-Uses fastapi.testclient.TestClient. Each test sets BIND_ADDR and LAB_MODE
-via monkeypatch.setenv and points the writer at a temp .env.
+ARCHITECTURE.md (sprint 2026-05-14-airgap-onetap-toggle) §test strategy.
+The 2-step / confirm-token protocol was removed. All tests expect a single
+POST to succeed or fail in one round trip.
 
-Tests:
-- test_toggle_happy_two_step
-- test_toggle_invalid_target
-- test_toggle_missing_target
-- test_toggle_bind_gate_lan
-- test_toggle_bind_gate_ipv4_lan
-- test_toggle_bind_gate_ipv6_loopback_ok
-- test_toggle_token_expired
-- test_toggle_token_replay
-- test_toggle_token_wrong_target
-- test_toggle_cross_origin
-- test_toggle_writer_failure
-- test_toggle_audit_log_shape
+Tests covered:
+  Happy path:
+  - test_toggle_one_tap_happy_path
+  - test_toggle_no_confirm_token_field (regression: single-shot 200)
+  - test_toggle_legacy_confirm_token_field_ignored
+  - test_toggle_persists_on_disk_only_path
+
+  Bad input:
+  - test_toggle_invalid_target
+  - test_toggle_missing_target
+
+  Bind gate:
+  - test_toggle_bind_gate_lan
+  - test_toggle_bind_gate_ipv4_lan
+  - test_toggle_bind_gate_ipv6_loopback_ok
+
+  CSRF:
+  - test_toggle_cross_origin_rejected
+
+  Error / path safety:
+  - test_toggle_writer_failure_no_path_leak
+
+  Audit log:
+  - test_audit_line_emitted_per_flip
+  - test_toggle_audit_log_mode_600
+
+  Probe cache:
+  - test_probe_cache_invalidated_on_flip
+
+  Status endpoint:
+  - test_status_has_bind_is_loopback
+  - test_status_bind_is_loopback_false_for_lan
 """
 
 from __future__ import annotations
 
 import json
 import os
+import stat
 import time
 from pathlib import Path
 from unittest.mock import patch
@@ -54,21 +74,12 @@ def toggle_setup(tmp_path, monkeypatch):
     return client, env_path, audit_path
 
 
-def _two_step(client, target: str, extra_headers: dict | None = None) -> tuple:
-    """Issue the two-step toggle flow. Returns (r1, r2) tuple."""
+def _one_tap(client, target: str, extra_headers: dict | None = None):
+    """Issue a single one-tap POST. Returns the response."""
     headers = {"Origin": "http://testserver"}
     if extra_headers:
         headers.update(extra_headers)
-    r1 = client.post("/api/airgap/toggle", json={"target": target}, headers=headers)
-    if r1.status_code != 409:
-        return r1, None
-    token = r1.json().get("confirm_token")
-    r2 = client.post(
-        "/api/airgap/toggle",
-        json={"target": target, "confirm_token": token},
-        headers=headers,
-    )
-    return r1, r2
+    return client.post("/api/airgap/toggle", json={"target": target}, headers=headers)
 
 
 # ---------------------------------------------------------------------------
@@ -76,40 +87,76 @@ def _two_step(client, target: str, extra_headers: dict | None = None) -> tuple:
 # ---------------------------------------------------------------------------
 
 class TestToggleHappyPath:
-    def test_toggle_happy_two_step(self, toggle_setup):
-        """POST without token -> 409 + token; POST with token -> 200."""
+    def test_toggle_one_tap_happy_path(self, toggle_setup):
+        """Single POST -> 200 with lab_mode, previous, took_effect_at, appended."""
         client, env_path, audit_path = toggle_setup
 
-        r1, r2 = _two_step(client, "hybrid")
+        r = _one_tap(client, "hybrid")
 
-        assert r1.status_code == 409
-        b1 = r1.json()
-        assert b1["error"] == "need_confirm"
-        assert "confirm_token" in b1
-        assert b1["expires_in"] == 30
+        assert r.status_code == 200
+        body = r.json()
+        assert body["lab_mode"] == "hybrid"
+        assert body["previous"] == "airgapped"
+        assert "took_effect_at" in body
+        assert "appended" in body
+        # env_path must NOT be in the response (path-leak fix).
+        assert "env_path" not in body
 
-        assert r2 is not None
-        assert r2.status_code == 200
-        b2 = r2.json()
-        assert b2["lab_mode"] == "hybrid"
-        assert b2["previous"] == "airgapped"
-        assert "env_path" in b2
-        assert "took_effect_at" in b2
-
-        # .env rewritten.
-        env_text = env_path.read_text()
-        assert "LAB_MODE=hybrid" in env_text
-
-        # os.environ updated (monkeypatched env var check via re-reading).
+        # .env updated.
+        assert "LAB_MODE=hybrid" in env_path.read_text()
+        # os.environ updated.
         assert os.getenv("LAB_MODE") == "hybrid"
-
-        # Audit line appended.
+        # Audit line written.
         assert audit_path.exists()
         lines = [l for l in audit_path.read_text().splitlines() if l.strip()]
-        assert len(lines) >= 1
-        entry = json.loads(lines[-1])
-        assert entry["to"] == "hybrid"
-        assert entry["from"] == "airgapped"
+        assert len(lines) == 1
+
+    def test_toggle_no_confirm_token_field(self, toggle_setup):
+        """POST with only {target} — no confirm_token — returns 200 in one shot."""
+        client, _, _ = toggle_setup
+        r = client.post(
+            "/api/airgap/toggle",
+            json={"target": "hybrid"},
+            headers={"Origin": "http://testserver"},
+        )
+        assert r.status_code == 200
+        assert r.json()["lab_mode"] == "hybrid"
+
+    def test_toggle_legacy_confirm_token_field_ignored(self, toggle_setup):
+        """POST with stale confirm_token from old client — field silently ignored."""
+        client, _, _ = toggle_setup
+        r = client.post(
+            "/api/airgap/toggle",
+            json={"target": "hybrid", "confirm_token": "stale-abc"},
+            headers={"Origin": "http://testserver"},
+        )
+        assert r.status_code == 200
+        assert r.json()["lab_mode"] == "hybrid"
+
+    def test_toggle_persists_on_disk_only_path(self, tmp_path, monkeypatch):
+        """Boot with no .env; POST {target:hybrid}; assert file created chmod 0600."""
+        import arail.portal.app as app_mod
+        env_path = tmp_path / ".env"
+        # no .env at start
+        audit_path = tmp_path / "airgap_audit.jsonl"
+        monkeypatch.setattr(app_mod, "_TOGGLE_ENV_PATH", env_path)
+        monkeypatch.setattr(app_mod, "_TOGGLE_AUDIT_PATH", audit_path)
+        monkeypatch.setenv("BIND_ADDR", "127.0.0.1")
+        monkeypatch.setenv("LAB_MODE", "airgapped")
+
+        client = TestClient(app, raise_server_exceptions=False)
+        r = client.post(
+            "/api/airgap/toggle",
+            json={"target": "hybrid"},
+            headers={"Origin": "http://testserver"},
+        )
+        assert r.status_code == 200
+        assert env_path.exists()
+        assert "LAB_MODE=hybrid" in env_path.read_text()
+        mode = stat.S_IMODE(env_path.stat().st_mode)
+        assert mode == 0o600, f"Expected 0o600, got {oct(mode)}"
+        body = r.json()
+        assert body["appended"] is True
 
 
 # ---------------------------------------------------------------------------
@@ -119,11 +166,7 @@ class TestToggleHappyPath:
 class TestToggleBadInput:
     def test_toggle_invalid_target(self, toggle_setup):
         client, _, _ = toggle_setup
-        r = client.post(
-            "/api/airgap/toggle",
-            json={"target": "banana"},
-            headers={"Origin": "http://testserver"},
-        )
+        r = _one_tap(client, "banana")
         assert r.status_code == 400
         assert r.json()["error"] == "invalid_target"
 
@@ -144,20 +187,16 @@ class TestToggleBadInput:
 
 class TestToggleBindGate:
     def test_toggle_bind_gate_lan(self, toggle_setup, monkeypatch):
-        """0.0.0.0 bind address is refused with exact spec copy."""
+        """0.0.0.0 bind address refused with exact spec message."""
         client, env_path, _ = toggle_setup
         monkeypatch.setenv("BIND_ADDR", "0.0.0.0")
         mtime_before = env_path.stat().st_mtime_ns
 
-        r = client.post(
-            "/api/airgap/toggle",
-            json={"target": "hybrid"},
-            headers={"Origin": "http://testserver"},
-        )
+        r = _one_tap(client, "hybrid")
+
         assert r.status_code == 403
         body = r.json()
         assert body["error"] == "bind_not_loopback"
-        # Exact message from spec.
         assert body["message"] == "Edit `.env` directly — toggle disabled when bound to non-loopback."
         # .env untouched.
         assert env_path.stat().st_mtime_ns == mtime_before
@@ -165,118 +204,17 @@ class TestToggleBindGate:
     def test_toggle_bind_gate_ipv4_lan(self, toggle_setup, monkeypatch):
         client, _, _ = toggle_setup
         monkeypatch.setenv("BIND_ADDR", "192.168.1.10")
-        r = client.post(
-            "/api/airgap/toggle",
-            json={"target": "hybrid"},
-            headers={"Origin": "http://testserver"},
-        )
+        r = _one_tap(client, "hybrid")
         assert r.status_code == 403
         assert r.json()["error"] == "bind_not_loopback"
 
     def test_toggle_bind_gate_ipv6_loopback_ok(self, toggle_setup, monkeypatch):
-        """::1 is a valid loopback — should pass the bind gate and get to step-1."""
+        """::1 is loopback — bind gate passes, 200 returned."""
         client, _, _ = toggle_setup
         monkeypatch.setenv("BIND_ADDR", "::1")
-        r = client.post(
-            "/api/airgap/toggle",
-            json={"target": "hybrid"},
-            headers={"Origin": "http://testserver"},
-        )
-        # Bind gate passed; should proceed to step-1 (409 with token).
-        assert r.status_code == 409
-        assert r.json()["error"] == "need_confirm"
-
-
-# ---------------------------------------------------------------------------
-# Token protocol
-# ---------------------------------------------------------------------------
-
-class TestToggleTokenProtocol:
-    def test_toggle_token_expired(self, toggle_setup, monkeypatch):
-        """After TTL expires, re-using the old token issues a fresh 409."""
-        import arail.portal.app as app_mod
-        client, _, _ = toggle_setup
-
-        # Step 1: get a token.
-        r1 = client.post(
-            "/api/airgap/toggle",
-            json={"target": "hybrid"},
-            headers={"Origin": "http://testserver"},
-        )
-        assert r1.status_code == 409
-        old_token = r1.json()["confirm_token"]
-
-        # Manually expire the token by patching time.monotonic to return future.
-        original_ttl = app_mod._TOGGLE_TOKEN_TTL
-        # Force the token to appear expired by setting expires_at to the past.
-        with app_mod._TOGGLE_TOKENS_LOCK:
-            for k, v in list(app_mod._TOGGLE_TOKENS.items()):
-                # Replace with an expired entry.
-                import dataclasses
-                app_mod._TOGGLE_TOKENS[k] = dataclasses.replace(
-                    v, expires_at=time.monotonic() - 1.0
-                )
-
-        # Step 2 with the now-expired token: should get 409 + fresh token.
-        r2 = client.post(
-            "/api/airgap/toggle",
-            json={"target": "hybrid", "confirm_token": old_token},
-            headers={"Origin": "http://testserver"},
-        )
-        assert r2.status_code == 409
-        body2 = r2.json()
-        assert body2["error"] == "need_confirm"
-        # A fresh token is issued.
-        new_token = body2.get("confirm_token")
-        assert new_token and new_token != old_token
-
-    def test_toggle_token_replay(self, toggle_setup):
-        """A consumed token cannot be used a second time."""
-        client, _, _ = toggle_setup
-
-        r1 = client.post(
-            "/api/airgap/toggle",
-            json={"target": "hybrid"},
-            headers={"Origin": "http://testserver"},
-        )
-        token = r1.json()["confirm_token"]
-
-        # First confirm: should succeed.
-        r2 = client.post(
-            "/api/airgap/toggle",
-            json={"target": "hybrid", "confirm_token": token},
-            headers={"Origin": "http://testserver"},
-        )
-        assert r2.status_code == 200
-
-        # Replay: token was deleted, should 409.
-        r3 = client.post(
-            "/api/airgap/toggle",
-            json={"target": "hybrid", "confirm_token": token},
-            headers={"Origin": "http://testserver"},
-        )
-        assert r3.status_code == 409
-        assert r3.json()["error"] == "need_confirm"
-
-    def test_toggle_token_wrong_target(self, toggle_setup):
-        """Token issued for 'hybrid' cannot be used for 'airgapped'."""
-        client, _, _ = toggle_setup
-
-        r1 = client.post(
-            "/api/airgap/toggle",
-            json={"target": "hybrid"},
-            headers={"Origin": "http://testserver"},
-        )
-        token = r1.json()["confirm_token"]
-
-        # Present hybrid token but request airgapped target.
-        r2 = client.post(
-            "/api/airgap/toggle",
-            json={"target": "airgapped", "confirm_token": token},
-            headers={"Origin": "http://testserver"},
-        )
-        assert r2.status_code == 409
-        assert r2.json()["error"] == "need_confirm"
+        r = _one_tap(client, "hybrid")
+        assert r.status_code == 200
+        assert r.json()["lab_mode"] == "hybrid"
 
 
 # ---------------------------------------------------------------------------
@@ -284,90 +222,123 @@ class TestToggleTokenProtocol:
 # ---------------------------------------------------------------------------
 
 class TestToggleCsrf:
-    def test_toggle_cross_origin(self, toggle_setup):
-        """Requests from a cross-origin Origin header are refused."""
+    def test_toggle_cross_origin_rejected(self, toggle_setup):
+        """Cross-origin Origin header -> 403 cross_origin; .env and env unchanged."""
         client, env_path, _ = toggle_setup
         mtime_before = env_path.stat().st_mtime_ns
+        lab_mode_before = os.getenv("LAB_MODE")
 
         r = client.post(
             "/api/airgap/toggle",
             json={"target": "hybrid"},
-            headers={"Origin": "http://evil.com"},
+            headers={"Origin": "http://evil.example:9999"},
         )
+
         assert r.status_code == 403
         assert r.json()["error"] == "cross_origin"
-        # .env untouched.
+        # No side effects.
         assert env_path.stat().st_mtime_ns == mtime_before
+        assert os.getenv("LAB_MODE") == lab_mode_before
+        # No audit line.
+        audit_path = toggle_setup[2]  # third element
+        assert not audit_path.exists()
 
 
 # ---------------------------------------------------------------------------
-# Error handling
+# Error handling + path-leak safety
 # ---------------------------------------------------------------------------
 
 class TestToggleErrorHandling:
-    def test_toggle_writer_failure(self, toggle_setup):
-        """EnvWriterError from set_env_var -> 500; path/contents not in body."""
+    def test_toggle_writer_failure_no_path_leak(self, toggle_setup):
+        """EnvWriterError -> 500; body is exactly {error:env_write_failed}; no side effects."""
         from arail.env_writer import EnvWriterError
-        client, env_path, _ = toggle_setup
 
-        # Step 1: get token.
-        r1 = client.post(
-            "/api/airgap/toggle",
-            json={"target": "hybrid"},
-            headers={"Origin": "http://testserver"},
-        )
-        token = r1.json()["confirm_token"]
+        client, env_path, audit_path = toggle_setup
+        lab_mode_before = os.getenv("LAB_MODE")
+        env_before = env_path.read_bytes()
 
-        # Patch set_env_var to raise EnvWriterError.
         with patch("arail.env_writer.set_env_var",
-                   side_effect=EnvWriterError("disk exploded")):
-            r2 = client.post(
-                "/api/airgap/toggle",
-                json={"target": "hybrid", "confirm_token": token},
-                headers={"Origin": "http://testserver"},
-            )
+                   side_effect=EnvWriterError("/secret/.env: permission denied")):
+            r = _one_tap(client, "hybrid")
 
-        assert r2.status_code == 500
-        body = r2.json()
-        assert body["error"] == "env_write_failed"
-        # No path info in body.
-        assert "path" not in body
-        assert "env" not in str(body).lower() or body == {"error": "env_write_failed"}
-        # .env untouched.
-        assert env_path.read_bytes() == b"LAB_MODE=airgapped\n"
+        assert r.status_code == 500
+        body = r.json()
+        # Body must be exactly this — no path, no exception string.
+        assert body == {"error": "env_write_failed"}, f"Got: {body}"
+        # os.environ unchanged.
+        assert os.getenv("LAB_MODE") == lab_mode_before
+        # .env unchanged.
+        assert env_path.read_bytes() == env_before
+        # No audit line.
+        assert not audit_path.exists()
 
 
 # ---------------------------------------------------------------------------
-# Audit log shape
+# Audit log
 # ---------------------------------------------------------------------------
 
 class TestToggleAuditLog:
-    def test_toggle_audit_log_shape(self, toggle_setup):
-        """After a happy-path toggle, audit log has one line with expected fields."""
+    def test_audit_line_emitted_per_flip(self, toggle_setup):
+        """Each successful flip appends one audit line. Three flips = three lines."""
         client, env_path, audit_path = toggle_setup
 
-        _, r2 = _two_step(client, "hybrid")
-        assert r2 is not None and r2.status_code == 200
+        # Flip 1: airgapped -> hybrid
+        r = _one_tap(client, "hybrid")
+        assert r.status_code == 200
 
-        assert audit_path.exists()
         lines = [l for l in audit_path.read_text().splitlines() if l.strip()]
         assert len(lines) == 1
-        entry = json.loads(lines[0])
-        assert "ts" in entry
-        assert entry["from"] == "airgapped"
-        assert entry["to"] == "hybrid"
-        assert "source_ip" in entry
-        assert entry["confirmed"] is True
-        assert "appended" in entry
+        e = json.loads(lines[0])
+        assert e["from"] == "airgapped"
+        assert e["to"] == "hybrid"
+        assert "ts" in e
+        assert "source_ip" in e
+        assert e["confirmed"] is True
+
+        # Flip 2: hybrid -> airgapped (same direction as env says now)
+        import arail.portal.app as app_mod
+        import os as _os
+        _os.environ["LAB_MODE"] = "hybrid"  # reflect current state
+        r2 = _one_tap(client, "airgapped")
+        assert r2.status_code == 200
+        lines2 = [l for l in audit_path.read_text().splitlines() if l.strip()]
+        assert len(lines2) == 2
+
+        # Flip 3: airgapped -> hybrid again
+        _os.environ["LAB_MODE"] = "airgapped"
+        r3 = _one_tap(client, "hybrid")
+        assert r3.status_code == 200
+        lines3 = [l for l in audit_path.read_text().splitlines() if l.strip()]
+        assert len(lines3) == 3
 
     def test_toggle_audit_log_mode_600(self, toggle_setup):
         """Audit log is created with 0o600 permissions."""
-        import stat
         client, _, audit_path = toggle_setup
-        _two_step(client, "hybrid")
+        _one_tap(client, "hybrid")
         assert audit_path.exists()
         mode = stat.S_IMODE(audit_path.stat().st_mode)
         assert mode == 0o600, f"Expected 0o600, got {oct(mode)}"
+
+
+# ---------------------------------------------------------------------------
+# Probe cache invalidation (regression)
+# ---------------------------------------------------------------------------
+
+class TestProbeCacheInvalidation:
+    def test_probe_cache_invalidated_on_flip(self, toggle_setup):
+        """After a successful flip, egress._PROBE_CACHE is cleared."""
+        import arail.egress as egress_mod
+        # Prime the cache.
+        egress_mod._PROBE_CACHE["result"] = True
+        egress_mod._PROBE_CACHE["ts"] = time.monotonic()
+
+        client, _, _ = toggle_setup
+        r = _one_tap(client, "hybrid")
+        assert r.status_code == 200
+
+        assert egress_mod._PROBE_CACHE == {}, (
+            f"Expected empty cache after toggle, got: {egress_mod._PROBE_CACHE}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -376,7 +347,7 @@ class TestToggleAuditLog:
 
 class TestAirgapStatusBindField:
     def test_status_has_bind_is_loopback(self, toggle_setup, monkeypatch):
-        """GET /api/airgap/status includes bind_is_loopback (additive field)."""
+        """GET /api/airgap/status includes bind_is_loopback field."""
         client, _, _ = toggle_setup
         monkeypatch.setenv("BIND_ADDR", "127.0.0.1")
         r = client.get("/api/airgap/status")

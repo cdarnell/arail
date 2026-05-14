@@ -6904,62 +6904,6 @@ def _toggle_bind_is_loopback() -> bool:
     return bind in {"127.0.0.1", "::1", "localhost"}
 
 
-@dataclasses.dataclass(frozen=True)
-class _TokenEntry:
-    token: str        # secrets.token_urlsafe(24)
-    target: str       # "airgapped" | "hybrid"
-    issued_at: float  # time.monotonic()
-    expires_at: float # issued_at + 30.0
-
-
-_TOGGLE_TOKENS: dict[str, _TokenEntry] = {}
-_TOGGLE_TOKENS_LOCK = threading.Lock()
-_TOGGLE_TOKEN_TTL = 30.0
-
-
-def _purge_expired_tokens() -> None:
-    """Remove expired entries. Must be called under _TOGGLE_TOKENS_LOCK."""
-    now = time.monotonic()
-    expired = [k for k, v in _TOGGLE_TOKENS.items() if v.expires_at <= now]
-    for k in expired:
-        del _TOGGLE_TOKENS[k]
-
-
-def _issue_token(target: str) -> str:
-    """Issue a new single-use confirm token for *target*. Invalidates prior token for same target."""
-    with _TOGGLE_TOKENS_LOCK:
-        _purge_expired_tokens()
-        # Invalidate any existing token for this target.
-        old_keys = [k for k, v in _TOGGLE_TOKENS.items() if v.target == target]
-        for k in old_keys:
-            del _TOGGLE_TOKENS[k]
-        now = time.monotonic()
-        tok = secrets.token_urlsafe(24)
-        _TOGGLE_TOKENS[tok] = _TokenEntry(
-            token=tok,
-            target=target,
-            issued_at=now,
-            expires_at=now + _TOGGLE_TOKEN_TTL,
-        )
-    return tok
-
-
-def _consume_token(token: str, target: str) -> bool:
-    """Validate and consume *token* for *target*. Returns True on success."""
-    with _TOGGLE_TOKENS_LOCK:
-        _purge_expired_tokens()
-        entry = _TOGGLE_TOKENS.get(token)
-        if entry is None:
-            return False
-        if entry.target != target:
-            return False
-        if time.monotonic() > entry.expires_at:
-            del _TOGGLE_TOKENS[token]
-            return False
-        del _TOGGLE_TOKENS[token]
-        return True
-
-
 def _append_audit(audit_path: Path, record: dict) -> None:
     """Append one JSON line to the audit log; create with 0o600 if absent."""
     try:
@@ -6981,21 +6925,22 @@ def _append_audit(audit_path: Path, record: dict) -> None:
 
 @app.post("/api/airgap/toggle")
 async def post_airgap_toggle(request: Request):
-    """Flip LAB_MODE between airgapped and hybrid.
+    """Flip LAB_MODE between airgapped and hybrid — one-step protocol.
 
-    Two-step protocol:
-      Step 1 (no confirm_token): issue a token, return 409.
-      Step 2 (with valid confirm_token): write .env, update os.environ,
-             append audit line, return 200.
+    The confirm-token two-step was removed (sprint 2026-05-14-airgap-onetap-toggle).
+    The CSRF Origin check + loopback-bind gate cover the threats the token
+    addressed. Any ``confirm_token`` field in the request body is silently
+    ignored (backward-compat with cached JS from the prior protocol).
 
-    Gates:
-      - BIND_ADDR must be loopback (403 if not).
-      - Origin must match Host (403 if cross-origin).
-      - target must be "airgapped" or "hybrid" (400 if not).
+    Gates (in order):
+      1. BIND_ADDR must be loopback (403 bind_not_loopback if not).
+      2. Origin must match Host (403 cross_origin if present and mismatched).
+      3. target must be "airgapped" or "hybrid" (400 invalid_target if not).
     """
     from arail.env_writer import EnvWriterError, set_env_var
     from datetime import datetime, timezone
     from fastapi.responses import JSONResponse
+    from arail.egress import invalidate_probe_cache
 
     def _err(code: int, body: dict):
         return JSONResponse(status_code=code, content=body)
@@ -7026,27 +6971,7 @@ async def post_airgap_toggle(request: Request):
     if target not in ("airgapped", "hybrid"):
         return _err(400, {"error": "invalid_target"})
 
-    confirm_token = body.get("confirm_token") if isinstance(body, dict) else None
-
-    # ── Step 1: issue token ───────────────────────────────────────────
-    if not confirm_token:
-        tok = _issue_token(target)
-        return _err(409, {
-            "error": "need_confirm",
-            "confirm_token": tok,
-            "expires_in": int(_TOGGLE_TOKEN_TTL),
-        })
-
-    # ── Step 2: validate token ────────────────────────────────────────
-    if not _consume_token(confirm_token, target):
-        tok = _issue_token(target)
-        return _err(409, {
-            "error": "need_confirm",
-            "confirm_token": tok,
-            "expires_in": int(_TOGGLE_TOKEN_TTL),
-        })
-
-    # ── Write .env + update os.environ ───────────────────────────────
+    # ── Write .env ────────────────────────────────────────────────────
     env_path = _toggle_env_path()
     previous = os.getenv("LAB_MODE", "airgapped")
 
@@ -7059,10 +6984,11 @@ async def post_airgap_toggle(request: Request):
         _log.error("airgap toggle: unexpected error: %s", exc)
         return _err(500, {"error": "env_write_failed"})
 
-    # Disk write succeeded; now update in-process env.
+    # ── Update in-process env + bust probe cache ──────────────────────
     os.environ["LAB_MODE"] = target
+    invalidate_probe_cache()
 
-    # Audit log.
+    # ── Audit log ─────────────────────────────────────────────────────
     now_iso = (datetime.now(timezone.utc)
                .isoformat(timespec="milliseconds")
                .replace("+00:00", "Z"))
@@ -7076,7 +7002,7 @@ async def post_airgap_toggle(request: Request):
         "appended": result.get("appended", False),
     })
 
-    # Activity log.
+    # ── Activity log ──────────────────────────────────────────────────
     if target == "hybrid":
         msg = "agents can now reach the internet"
     else:
@@ -7086,7 +7012,6 @@ async def post_airgap_toggle(request: Request):
     return JSONResponse(status_code=200, content={
         "lab_mode": target,
         "previous": previous,
-        "env_path": str(env_path),
         "took_effect_at": now_iso,
         "appended": result.get("appended", False),
     })
