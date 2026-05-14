@@ -35,6 +35,15 @@
   .airgap-row time { color: #666; font-size: 10px; white-space: nowrap; }
   .airgap-row .chat-muted { font-size: 10px; max-width: 180px;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* Segmented control */
+  .airgap-segmented { display: inline-flex; border: 1px solid #333; border-radius: 6px; overflow: hidden; }
+  .airgap-segmented button {
+    background: #1a1a1a; border: none; color: #9a9a9a; cursor: pointer;
+    font-size: 12px; padding: 5px 14px; transition: background 0.1s, color 0.1s;
+  }
+  .airgap-segmented button + button { border-left: 1px solid #333; }
+  .airgap-segmented button.active { background: #2a2a2a; color: #e0e0e0; font-weight: 600; }
+  .airgap-segmented button:disabled { opacity: 0.5; cursor: not-allowed; }
 </style>
 
 <div class="mp-backdrop" id="airgap-backdrop" role="dialog"
@@ -68,16 +77,15 @@
         Edit <code>.env</code> directly — toggle disabled when the lab is bound
         beyond loopback (BIND_ADDR &ne; 127.0.0.1).
       </div>
-      <button id="airgap-toggle-btn" type="button" class="mp-close"
-              style="display:none;"></button>
-      <div id="airgap-toggle-confirm" style="display:none; margin-top: 10px;
-           padding: 10px; background: #19140c; border: 1px solid #6a4d2f; border-radius:6px;">
-        <p style="margin:0 0 8px; font-size: 12px; color:#e6b478;"
-           id="airgap-toggle-confirm-copy"></p>
-        <button id="airgap-toggle-confirm-btn" type="button"
-                class="mp-close" disabled>Confirm (3)</button>
-        <button id="airgap-toggle-cancel-btn" type="button"
-                class="mp-close" style="margin-left:6px;">Cancel</button>
+      <div id="airgap-toggle-segmented" style="display:none; margin-top: 6px;">
+        <div class="airgap-segmented" role="group" aria-label="Network policy">
+          <button type="button" data-target="airgapped" id="airgap-seg-airgapped">Airgapped</button>
+          <button type="button" data-target="hybrid" id="airgap-seg-hybrid">Hybrid</button>
+        </div>
+        <p class="mp-note" style="margin-top: 6px;">
+          Subprocesses (AirLLM, researcher) read <code>LAB_MODE</code> at start;
+          restart them to pick up a flip.
+        </p>
       </div>
       <div id="airgap-toggle-error" style="display:none; color:#e68080;
            font-size:12px; margin-top:6px;"></div>
