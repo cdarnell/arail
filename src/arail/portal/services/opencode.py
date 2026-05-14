@@ -365,6 +365,7 @@ def start(port: int = PORT_DEFAULT) -> dict[str, Any]:
                 env=env,
                 stdout=write_fd,
                 stderr=write_fd,
+                start_new_session=True,
             )
             os.close(write_fd)  # child inherits it; we don't need the write end
             _log.info("opencode started pid=%s port=%s config=%s",
@@ -502,6 +503,7 @@ def _start_inner(port: int) -> dict[str, Any]:
             env=env,
             stdout=write_fd,
             stderr=write_fd,
+            start_new_session=True,
         )
         os.close(write_fd)  # child inherits it; we don't need the write end
         _log.info("opencode started pid=%s port=%s", proc.pid, port)
