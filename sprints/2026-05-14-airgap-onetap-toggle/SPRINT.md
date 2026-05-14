@@ -37,7 +37,7 @@ caches that don't reflect the new mode without process restart.
 | build | builder | BUILD_LOG.md | done | 2026-05-14T18:55Z | 2026-05-14T19:35Z | 8 commits, 73/73 airgap tests pass |
 | review | architect (review) | REVIEW.md | done | 2026-05-14T19:35Z | 2026-05-14T19:40Z | PASS |
 | test | qa | TEST_REPORT.md | done | 2026-05-14T19:40Z | 2026-05-14T19:55Z | PASS (after cleanup pass) |
-| ship | — | PR | pending | — | — | — |
+| ship | — | PR #48 | done | 2026-05-14T19:58Z | 2026-05-14T19:58Z | bundled with experiment-branches |
 
 ## Decisions log
 
