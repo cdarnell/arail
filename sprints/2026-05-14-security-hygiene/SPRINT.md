@@ -43,9 +43,9 @@ partition cleanly so the items don't entangle.
 |---|---|---|---|---|---|---|
 | think | visionary | VISION.md | skipped | — | — | — |
 | plan | architect (design) | ARCHITECTURE.md | done | 2026-05-14T21:29Z | 2026-05-14T21:33Z | proceed (4 items partitioned, 5f1dda8) |
-| build | builder | BUILD_LOG.md | pending | — | — | — |
-| review | architect (review) | REVIEW.md | pending | — | — | — |
-| test | qa | TEST_REPORT.md | pending | — | — | — |
+| build | builder | BUILD_LOG.md | done | 2026-05-14T21:34Z | 2026-05-14T21:41Z | 4 items, 6 commits, 92/92 tests pass |
+| review | architect (review) | REVIEW.md | done | 2026-05-14T21:41Z | 2026-05-14T21:44Z | PASS (4/4 items; 1 docstring nit) |
+| test | qa | TEST_REPORT.md | done | 2026-05-14T21:44Z | 2026-05-14T21:48Z | PASS (234/234, +27 paranoid) |
 | ship | — | PR | pending | — | — | — |
 
 ## Decisions log
