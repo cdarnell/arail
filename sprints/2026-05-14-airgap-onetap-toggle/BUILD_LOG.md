@@ -106,6 +106,30 @@ New file `tests/test_airgap_modal_dom.py` (6 tests):
 - No 'Confirm (3)' countdown text.
 Commit: 60abfb9
 
+## QA cleanup pass (2026-05-14, commit 02d7038)
+
+QA returned FAIL because four stale test files from sprints 05-07 and 05-05
+hardcoded the removed `confirm_token` / 2-step protocol.
+
+### Per-file disposition
+
+| File | Action | Cases removed | Cases migrated | Cases kept |
+|---|---|---|---|---|
+| `test_qa_airgap_toggle_security.py` | Edited | 12 (token paranoia, concurrent 2-client, FD leak, token table, mid-race symlink, 2 CSRF overlaps) | 5 (bind matrix, no-origin gap, pre-placed symlink, error leakage, no-origin CSRF) | 12 (value sanitisation, gate ordering, O_EXCL direct, writers) |
+| `test_qa_airgap_toggle_setup_happy.py` | Edited | 1 (response shape) | 4 (restart persists, appends, missing env, status pill) | 4 (env_example, status shape regression 3x) |
+| `test_qa_airgap_toggle_buddy.py` | Deleted | 19 | 0 | 0 |
+| `test_buddy_watcher_after_runtime_toggle.py` | Deleted | 2 | 0 | 0 |
+
+Net: 34 cases removed, 9 migrated to one-tap, 16 kept unchanged.
+
+### Final pytest summary
+
+```
+184 passed, 0 failed, 6 warnings (4.51s)
+```
+
+Commit: 02d7038
+
 ## Architect feedback required
 
 None.
