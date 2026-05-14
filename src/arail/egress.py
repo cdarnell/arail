@@ -71,6 +71,20 @@ _ORIGINAL_HTTP_ADAPTER: type = requests.adapters.HTTPAdapter
 _PROBE_CACHE: dict = {}
 _PROBE_CACHE_TTL: float = 60.0
 
+def invalidate_probe_cache() -> None:
+    """Clear the host-internet probe cache.
+
+    Called by the airgap toggle endpoint after a successful mode flip so
+    the modal's 'host can reach internet' row reflects post-flip reality
+    on the next /api/airgap/status fetch. The cache key is time-only
+    (not mode-keyed), but the modal renders both fields together; users
+    expect both to refresh on toggle.
+
+    Thread-safe under the GIL for a dict.clear().
+    """
+    _PROBE_CACHE.clear()
+
+
 # Path to the egress audit log (overridable for tests).
 def _lab_data() -> Path:
     return Path(os.getenv("ARAIL_DATA_DIR", "lab/data"))
