@@ -38,9 +38,9 @@ second drift from the first.
 |---|---|---|---|---|---|---|
 | think | visionary | VISION.md | done | 2026-05-15T02:18Z | 2026-05-15T02:48Z | proceed (fde72da) |
 | plan | architect (design) | ARCHITECTURE.md | done | 2026-05-15T02:48Z | 2026-05-15T02:51Z | proceed (e56db77) |
-| build | builder | BUILD_LOG.md | pending | — | — | — |
-| review | architect (review) | REVIEW.md | pending | — | — | — |
-| test | qa | TEST_REPORT.md | pending | — | — | — |
+| build | builder | BUILD_LOG.md | done | 2026-05-15T02:51Z | 2026-05-15T03:24Z | 7 commits, 82/82 tests pass; 1 spec gap surfaced (stream tier-gating) |
+| review | architect (review) | REVIEW.md | done | 2026-05-15T03:24Z | 2026-05-15T03:32Z | WEAK_PASS (stream tier-filter accepted with carryover) |
+| test | qa | TEST_REPORT.md | done | 2026-05-15T03:32Z | 2026-05-15T03:38Z | PASS (121/121, +39 paranoid; all architect probes clean) |
 | ship | — | PR | pending | — | — | — |
 
 ## Decisions log
@@ -49,6 +49,12 @@ second drift from the first.
 |---|---|---|
 | 2026-05-14 | Run visionary first | Strategic framing (platform contract, longer-lived than a bug fix). API surface decisions made here will outlive the sprint. |
 | 2026-05-14 | Bundle health + metrics + OpenAPI + Skills-into-Agents | Skills→Agents refactor changes `/api/agents` shape; if platform conventions aren't fixed first, the new surface lands inconsistent. Splitting across sprints would let the second drift. |
+
+## Carryovers (deferred to follow-up sprint)
+
+| Item | Estimate | Rationale |
+|---|---|---|
+| Tier-filter `/api/system/health/stream` events (Marimo/Open Notebook/Neo4j hardcoded checks at app.py:6855-6857) | ~30 min | Architect WEAK_PASS accepted stream deviation as informational diagnostic dump, not platform contract. Structural refactor (per-check list vs services-dict mismatch) was out of scope this sprint. Same info-class as QA INFO #1 in a different shape — needs filtering in the next platform sprint. |
 
 ## Skipped phases
 
