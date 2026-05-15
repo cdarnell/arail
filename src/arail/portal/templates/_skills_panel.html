@@ -1,0 +1,101 @@
+{#
+  Skills panel partial — included by agents.html in the Skills view section.
+  All /api/skills/* endpoints are unchanged; this partial replaces the
+  standalone skills.html page which redirects to /agents?view=skills.
+  CSS is in agents.css (skills.css was merged in sprint 2026-05-14-platform-foundation).
+#}
+
+<!-- ═══ Hero ═══ -->
+<section class="sk-hero">
+  <div class="sk-hero-copy">
+    <h2 class="sk-hero-title">Skills</h2>
+    <p class="sk-hero-tag">
+      Procedural knowledge that shapes every agent's reasoning.
+      Edit any <code>SKILL.md</code> here — the next LLM call picks
+      it up. Hot reload, no restart.
+    </p>
+  </div>
+  <div class="sk-hero-stats">
+    <div class="sk-stat">
+      <div class="sk-stat-num" id="sk-stat-installed">…</div>
+      <div class="sk-stat-label">installed</div>
+    </div>
+    <div class="sk-stat">
+      <div class="sk-stat-num" id="sk-stat-loadouts">…</div>
+      <div class="sk-stat-label">agents wired</div>
+    </div>
+    <div class="sk-stat">
+      <div class="sk-stat-num" id="sk-stat-packs">…</div>
+      <div class="sk-stat-label">packs available</div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ Loadouts ═══ -->
+<section class="sk-section">
+  <h3 class="sk-section-title">
+    <span class="sk-section-icon">🎒</span> Loadouts
+    <span class="sk-section-hint">— what each agent loads on every LLM call</span>
+  </h3>
+  <div class="sk-loadout-grid" id="sk-loadouts">
+    <div class="sk-empty">Loading agents…</div>
+  </div>
+</section>
+
+<!-- ═══ Installed skills ═══ -->
+<section class="sk-section">
+  <h3 class="sk-section-title">
+    <span class="sk-section-icon">📚</span> Installed
+    <span class="sk-section-hint">— click Edit for the inline editor, or Open in IDE for vim</span>
+  </h3>
+  <div class="sk-installed-list" id="sk-installed">
+    <div class="sk-empty">Loading skills…</div>
+  </div>
+</section>
+
+<!-- ═══ Available packs ═══ -->
+<section class="sk-section">
+  <h3 class="sk-section-title">
+    <span class="sk-section-icon">📦</span> Available packs
+    <span class="sk-section-hint">— curated bundles you can install + remove</span>
+  </h3>
+  <div class="sk-pack-grid" id="sk-packs">
+    <div class="sk-empty">Loading packs…</div>
+  </div>
+</section>
+
+<!-- ═══ Inline editor (right-side slide-out) ═══ -->
+<aside class="sk-editor" id="sk-editor" hidden>
+  <header class="sk-editor-head">
+    <div class="sk-editor-title" id="sk-editor-title">Skill</div>
+    <div class="sk-editor-path" id="sk-editor-path"></div>
+    <div class="sk-editor-actions">
+      <a class="sk-btn sk-btn-ghost" id="sk-editor-ide" target="_blank" rel="noopener" hidden>Open in IDE</a>
+      <button class="sk-btn sk-btn-ghost" type="button" id="sk-editor-close">Close</button>
+    </div>
+  </header>
+  <textarea class="sk-editor-area" id="sk-editor-area" spellcheck="false"></textarea>
+  <footer class="sk-editor-foot">
+    <span class="sk-editor-status" id="sk-editor-status"></span>
+    <button class="sk-btn sk-btn-primary" type="button" id="sk-editor-save">Save</button>
+  </footer>
+</aside>
+
+<!-- ═══ Loadout editor modal ═══ -->
+<div class="sk-modal" id="sk-loadout-modal" hidden>
+  <div class="sk-modal-box">
+    <header class="sk-modal-head">
+      <span id="sk-loadout-modal-title">Edit loadout</span>
+      <button class="sk-btn sk-btn-ghost" type="button" id="sk-loadout-cancel">Cancel</button>
+    </header>
+    <p class="sk-modal-hint">
+      Pick the skills this agent loads on every LLM call. The
+      AGENT.md gets re-written immediately; the next utterance
+      uses the new list.
+    </p>
+    <div class="sk-loadout-options" id="sk-loadout-options"></div>
+    <footer class="sk-modal-foot">
+      <button class="sk-btn sk-btn-primary" type="button" id="sk-loadout-save">Save loadout</button>
+    </footer>
+  </div>
+</div>

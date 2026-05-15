@@ -1779,14 +1779,13 @@ async def plugins_page(request: Request):
 
 
 @app.get("/skills", response_class=HTMLResponse)
-async def skills_page(request: Request):
-    """Skills marketplace + loadout editor.
+async def skills_redirect(request: Request):
+    """Redirect legacy /skills URL to /agents?view=skills.
 
-    The page renders an empty shell — Loadouts, Installed skills,
-    and Available packs all populate client-side via /api/agents/loadouts,
-    /api/skills/list, and /api/skills/packs respectively.
+    /api/skills/* endpoints and lab/pkb/skills/ are unchanged.
+    Only the standalone page is folded into the Agents tab.
     """
-    return templates.TemplateResponse(request, "skills.html", {})
+    return RedirectResponse(url="/agents?view=skills", status_code=302)
 
 
 @app.get("/docs", response_class=HTMLResponse)
@@ -2680,12 +2679,49 @@ async def system_theme():
 
 # ── Agents tab ──────────────────────────────────────────────────────
 
+_AGENTS_VALID_VIEWS = {"status", "skills", "activity"}
+
+
 @app.get("/agents", response_class=HTMLResponse)
-async def agents_page(request: Request):
-    """Agent Control Center — monitor, instruct, and inspect all agents."""
+async def agents_page(request: Request, view: str = "status"):
+    """Agent Control Center — monitor, instruct, and inspect all agents.
+
+    Accepts ?view={status|skills|activity}. Unknown view values fall back to
+    'status' (forward-compat — no 400). Server-renders the initial view so
+    JS-disabled browsers show the correct panel.
+    """
+    safe_view = view if view in _AGENTS_VALID_VIEWS else "status"
     return templates.TemplateResponse(request, "agents.html", {
         "current_goal": goal_store.get_current(),
         "mode": os.getenv("LAB_NETWORK_MODE", "hybrid").lower(),
+        "default_view": safe_view,
+        "default_skill_id": None,
+    })
+
+
+@app.get("/agents/skills", response_class=HTMLResponse)
+async def agents_skills_index(request: Request):
+    """Equivalent to /agents?view=skills — Skills panel of the Agents tab."""
+    return templates.TemplateResponse(request, "agents.html", {
+        "current_goal": goal_store.get_current(),
+        "mode": os.getenv("LAB_NETWORK_MODE", "hybrid").lower(),
+        "default_view": "skills",
+        "default_skill_id": None,
+    })
+
+
+@app.get("/agents/skills/{skill_id}", response_class=HTMLResponse)
+async def agents_skills_detail(request: Request, skill_id: str):
+    """Deep-link to a specific skill in the Skills panel.
+
+    Unknown skill_id: renders Skills view with default_skill_id set;
+    the panel JS shows 'skill not found' inline — no 404 (forker-friendly).
+    """
+    return templates.TemplateResponse(request, "agents.html", {
+        "current_goal": goal_store.get_current(),
+        "mode": os.getenv("LAB_NETWORK_MODE", "hybrid").lower(),
+        "default_view": "skills",
+        "default_skill_id": skill_id,
     })
 
 
