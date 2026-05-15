@@ -96,6 +96,85 @@ def _visible_surfaces() -> set[str]:
     return _TIER_SURFACES[_current_tier()]
 
 
+# ---------------------------------------------------------------------------
+# Service tier registry — which optional services are visible on each tier.
+# Source of truth for /api/system/health and /api/system/health/stream.
+# Always-on core services (portal, knowledge-canvas) are not listed here;
+# they appear unconditionally.
+#
+# Tier assignments:
+#   min — services available on the everyday lab tier
+#   max — services only relevant on the full-bench tier
+# ---------------------------------------------------------------------------
+_OPTIONAL_SERVICES: dict[str, str] = {
+    "ttyd": "min",
+    "lance-memory": "min",
+    "ollama": "min",
+    "notebook": "max",
+    "marimo": "max",
+    "open-notebook": "max",
+    "neo4j": "max",
+    "opencode": "max",
+}
+
+# Sanity-check at import: every entry must declare a known tier.
+assert all(v in ("min", "max") for v in _OPTIONAL_SERVICES.values()), (
+    "_OPTIONAL_SERVICES contains an entry with an unknown tier value"
+)
+
+
+def _build_services_dict(
+    *,
+    portal_up: bool,
+    kc_up: bool,
+    ttyd_up: bool,
+    notebook_up: bool,
+    lance_up: bool,
+    marimo_running: bool,
+    open_notebook_running: bool,
+    ollama_up: bool,
+    neo4j_up: bool,
+    opencode_up: bool,
+) -> dict[str, bool]:
+    """Return the tier-filtered services dict for /api/system/health.
+
+    Always-on core services (portal, knowledge-canvas) are always included
+    when up. Optional services are filtered by:
+      1. The service must be up (probe returned True).
+      2. The service's declared tier must be <= the current lab tier.
+         (min services visible on min and max; max services visible on max only)
+
+    Both /api/system/health and /api/system/health/stream call this function
+    so their `services` payloads stay in sync.
+    """
+    current_tier = _current_tier()
+    # min-tier callers see min services; max-tier callers see all services.
+    visible_tiers: set[str] = {"min"} if current_tier == "min" else {"min", "max"}
+
+    # Probe results keyed by service id — must match _OPTIONAL_SERVICES keys.
+    probe_results: dict[str, bool] = {
+        "ttyd": ttyd_up,
+        "notebook": notebook_up,
+        "lance-memory": lance_up,
+        "marimo": marimo_running,
+        "open-notebook": open_notebook_running,
+        "ollama": ollama_up,
+        "neo4j": neo4j_up,
+        "opencode": opencode_up,
+    }
+
+    services: dict[str, bool] = {
+        "portal": portal_up,
+        "knowledge-canvas": kc_up,
+    }
+    for svc_id, up in probe_results.items():
+        tier_required = _OPTIONAL_SERVICES.get(svc_id, "max")
+        if up and tier_required in visible_tiers:
+            services[svc_id] = True
+
+    return services
+
+
 # ── First-run onboarding state ───────────────────────────────────────
 # When ARAIL_PASSWORD isn't set (or is a placeholder), the portal
 # refuses to render any tab and redirects to /welcome instead. The
@@ -6468,16 +6547,9 @@ async def system_health():
     passing_required = sum(1 for c in required_checks if c["ok"])
     passing_total = sum(1 for c in service_checks if c["ok"])
 
-    # Service status surface: always show always-on core services (portal,
-    # knowledge-canvas) plus any optional service that is actually running.
-    # Optional/on-demand services (ttyd, notebook, marimo, open-notebook,
-    # ollama, neo4j, lance-memory) are hidden when not running so the rail
-    # doesn't flood with "down" chips for things the operator never invoked.
-    # Knowledge Canvas is "up" for the user as long as the frontend is mounted
-    # and an API is reachable. The wiki-fallback routes (registered at module
-    # import in this file) always respond, so the canvas renders even when the
-    # full neo4j-backed GraphStore can't import on a stock venv. The granular
-    # "kc_backend" diagnostic above still reports the heavier store separately.
+    # Service status surface — built by the shared helper so the snapshot
+    # endpoint and the SSE stream stay in sync. Always-on core services
+    # (portal, knowledge-canvas) plus tier-filtered optional services.
     kc_full_store_up = _knowledge_canvas_store is not None or (
         knowledge_canvas_app is not None and hasattr(knowledge_canvas_app.state, "store")
     )
@@ -6485,23 +6557,18 @@ async def system_health():
     marimo_running = marimo_up and _container_running("arail-marimo")
     open_notebook_running = open_notebook_up and _container_running("arail-open-notebook")
 
-    services: dict[str, bool] = {
-        "portal": portal_up,
-        "knowledge-canvas": kc_up,
-    }
-    optional_services = {
-        "ttyd": ttyd_up,
-        "notebook": notebook_up,
-        "lance-memory": lance_up,
-        "marimo": marimo_running,
-        "open-notebook": open_notebook_running,
-        "ollama": ollama_up,
-        "neo4j": neo4j_up,
-        "opencode": opencode_up,
-    }
-    for name, up in optional_services.items():
-        if up:
-            services[name] = True
+    services = _build_services_dict(
+        portal_up=portal_up,
+        kc_up=kc_up,
+        ttyd_up=ttyd_up,
+        notebook_up=notebook_up,
+        lance_up=lance_up,
+        marimo_running=marimo_running,
+        open_notebook_running=open_notebook_running,
+        ollama_up=ollama_up,
+        neo4j_up=neo4j_up,
+        opencode_up=opencode_up,
+    )
 
     return {
         "platform": platform.system(),
@@ -6522,6 +6589,7 @@ async def system_health():
         # Active deep backend is AirLLM today; AEROLLM_MODEL kept for the
         # eventual swap-back so the field name stays stable for the UI.
         "aerollm_model": os.getenv("AIRLLM_MODEL", os.getenv("AEROLLM_MODEL", "")),
+        "version": _BOOT_VERSION,
         "services": services,
         "service_checks": service_checks,
         "health_summary": {
