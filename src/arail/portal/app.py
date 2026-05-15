@@ -78,6 +78,20 @@ def _read_version() -> str:
 
 _BOOT_VERSION: str = _read_version()
 
+# ---------------------------------------------------------------------------
+# In-process metrics counters (sprint 2026-05-14-platform-foundation §2).
+# Reset to zero on portal restart — documented v1 limitation in api-conventions.md.
+# Middleware increments these; /api/system/metrics reads them.
+# ---------------------------------------------------------------------------
+import threading as _threading
+
+_METRICS: dict[str, Any] = {
+    "http_requests_total": 0,
+    "http_errors_total": 0,
+    "last_provider_change_unix": 0,
+}
+_METRICS_LOCK = _threading.Lock()
+
 # Tier gating — the nav shows only the surfaces matching the current tier.
 # Two tiers: min (everyday) and max (full bench). Upgrade with ./arailctl upgrade max.
 _TIER_SURFACES: dict[str, set[str]] = {
@@ -245,6 +259,7 @@ async def onboarding_gate(request, call_next):
         "/api/welcome",
         "/static/",
         "/api/system/health",
+        "/api/system/metrics",  # platform metrics — anonymous on loopback
         "/favicon.ico",
         "/health",    # liveness probe — OBS4
         "/healthz",   # liveness probe alias — OBS4
@@ -331,6 +346,35 @@ async def presence_meter(request, call_next):
         except Exception:
             pass  # Never let a presence stamp break a request.
     return await call_next(request)
+
+
+# ---------------------------------------------------------------------------
+# Metrics counter middleware (sprint 2026-05-14-platform-foundation §2).
+# Bumps http_requests_total on every request; http_errors_total on 5xx.
+# Excludes /api/system/metrics itself (no self-pollution) and SSE streams
+# (which may be long-lived and would inflate counts unpredictably).
+# ---------------------------------------------------------------------------
+_METRICS_EXCLUDED_PREFIXES = (
+    "/api/system/metrics",
+)
+
+
+@app.middleware("http")
+async def metrics_counter(request, call_next):
+    """Increment in-process HTTP counters for /api/system/metrics.
+
+    Excluded: /api/system/metrics (self), SSE streams (Content-Type check
+    post-response is unreliable for streams; we check path prefix instead).
+    """
+    path = request.url.path
+    skip = any(path == p or path.startswith(p) for p in _METRICS_EXCLUDED_PREFIXES)
+    response = await call_next(request)
+    if not skip:
+        with _METRICS_LOCK:
+            _METRICS["http_requests_total"] += 1
+            if response.status_code >= 500:
+                _METRICS["http_errors_total"] += 1
+    return response
 
 
 app.include_router(wiki_router)
@@ -6832,6 +6876,98 @@ async def system_health_stream():
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+@app.get("/api/system/metrics")
+async def system_metrics(request: Request):
+    """Return a flat JSON dict of gauges and in-process counters.
+
+    Shape is stable across LAB_NAME rebrand. Schema documented in
+    docs/api-conventions.md and ARCHITECTURE.md §2.
+
+    Counters reset on portal restart (v1 documented limitation).
+    ?format=prometheus reserved for future; returns 501 per api-conventions.
+    """
+    from fastapi.responses import JSONResponse
+
+    fmt = request.query_params.get("format", "json").lower()
+    if fmt == "prometheus":
+        return JSONResponse(
+            status_code=501,
+            content={
+                "error": "not_implemented",
+                "message": "Prometheus format is reserved for a future release.",
+            },
+        )
+
+    # --- Uptime ---
+    process_uptime = time.perf_counter() - _BOOT_PERF
+
+    # --- Memory / disk ---
+    try:
+        psutil = __import__("psutil")
+        mem = psutil.virtual_memory()
+        ram_used_bytes = mem.used
+        ram_total_bytes = mem.total
+        disk = psutil.disk_usage(str(Path.cwd()))
+        disk_free_bytes = disk.free
+    except ImportError:
+        ram_used_bytes = 0
+        ram_total_bytes = 0
+        disk_free_bytes = 0
+
+    # --- Chat model state ---
+    try:
+        chat_model_loaded = 1 if _CHAT_MODEL_LOAD_STATE else 0  # type: ignore[name-defined]
+    except NameError:
+        chat_model_loaded = 0
+
+    # --- Active provider ---
+    active_provider = os.getenv("MODEL_BACKEND", "my_machine") or "my_machine"
+
+    # --- Lab mode / tier ---
+    lab_mode = os.getenv("ARAIL_MODE", "airgapped")
+    lab_tier = _current_tier()
+
+    # --- Active agents ---
+    try:
+        from arail.agents.loader import discover
+        active_agents = len(discover())
+    except Exception:
+        active_agents = 0
+
+    # --- KB doc count ---
+    try:
+        from arail.pkb import _pkb_root
+        kb_doc_count = sum(
+            1 for f in _pkb_root().rglob("*")
+            if f.is_file() and f.suffix in (".md", ".txt", ".pdf")
+        )
+    except Exception:
+        kb_doc_count = 0
+
+    # --- In-process counters (snapshot under lock) ---
+    with _METRICS_LOCK:
+        http_requests_total = _METRICS["http_requests_total"]
+        http_errors_total = _METRICS["http_errors_total"]
+        last_provider_change_unix = _METRICS["last_provider_change_unix"]
+
+    return {
+        "process_uptime_seconds": round(process_uptime, 3),
+        "ram_used_bytes": ram_used_bytes,
+        "ram_total_bytes": ram_total_bytes,
+        "disk_free_bytes": disk_free_bytes,
+        "chat_model_loaded": chat_model_loaded,
+        "active_provider": active_provider,
+        "lab_mode": lab_mode,
+        "lab_tier": lab_tier,
+        "active_agents": active_agents,
+        "kb_doc_count": kb_doc_count,
+        "http_requests_total": http_requests_total,
+        "http_errors_total": http_errors_total,
+        "last_provider_change_unix": last_provider_change_unix,
+        "schema_version": 1,
+    }
 
 
 @app.get("/api/system/mode")
