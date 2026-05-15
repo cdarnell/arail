@@ -25,6 +25,176 @@ from typing import Any
 
 _log = logging.getLogger(__name__)
 
+# Minimum secret length to redact (skip trivially short values to avoid
+# false positives and the empty-string infinite-loop hazard).
+_MIN_SECRET_LEN: int = 8
+
+# Sentinel written in place of a redacted token.
+_REDACTED: bytes = b"***REDACTED***"
+
+
+class _RedactingLogWriter:
+    """Write-time redactor for opencode subprocess stdout/stderr.
+
+    Replaces each provider token with ``***REDACTED***`` before the bytes
+    reach disk. Carries a tail buffer of ``max(len(s) for s in secrets) - 1``
+    bytes across successive ``write()`` calls so a token that straddles a
+    chunk boundary is still caught.
+
+    Thread-safety: single daemon reader thread calls write(); the main
+    thread only calls close(). No internal lock needed.
+    """
+
+    def __init__(self, path: "Path", secrets: "list[bytes]") -> None:
+        # Filter: non-empty, minimum length.
+        self._secrets: list[bytes] = [
+            s for s in secrets if s and len(s) >= _MIN_SECRET_LEN
+        ]
+        self._path = path
+        self._fh = path.open("ab")
+        try:
+            os.chmod(path, 0o600)
+        except OSError as exc:
+            _log.warning("opencode log: chmod 0600 failed: %s", exc)
+        # Tail buffer length = max secret length - 1 (catches cross-chunk splits).
+        max_len = max((len(s) for s in self._secrets), default=0)
+        self._tail_len: int = max(0, max_len - 1)
+        self._tail: bytes = b""
+        self._closed: bool = False
+
+    def write(self, chunk: bytes) -> int:
+        if self._closed:
+            return 0
+        data = self._tail + chunk
+        try:
+            redacted = self._redact(data)
+            if self._tail_len:
+                # Hold back the last (tail_len) bytes so a secret split across
+                # the next chunk boundary can be caught on the next write.
+                if len(redacted) > self._tail_len:
+                    flush_up_to = len(redacted) - self._tail_len
+                    self._tail = redacted[flush_up_to:]
+                    redacted = redacted[:flush_up_to]
+                else:
+                    # Buffer is too small to flush any bytes yet.
+                    self._tail = redacted
+                    redacted = b""
+            else:
+                self._tail = b""
+            if redacted:
+                self._fh.write(redacted)
+                self._fh.flush()
+        except Exception as exc:  # noqa: BLE001
+            _log.warning("opencode log: write-time redaction error (chunk written raw): %s", exc)
+            try:
+                self._tail = b""
+                self._fh.write(chunk)
+                self._fh.flush()
+            except Exception:
+                pass
+        return len(chunk)
+
+    def _redact(self, data: bytes) -> bytes:
+        for secret in self._secrets:
+            data = data.replace(secret, _REDACTED)
+        return data
+
+    def flush_tail(self) -> None:
+        """Flush any buffered tail bytes — call at EOF (reader thread exit)."""
+        if self._tail and not self._closed:
+            try:
+                redacted = self._redact(self._tail)
+                self._fh.write(redacted)
+                self._fh.flush()
+            except Exception:
+                pass
+            self._tail = b""
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        try:
+            self.flush_tail()
+        finally:
+            try:
+                self._fh.close()
+            except Exception:
+                pass
+
+
+def _pipe_reader_thread(read_fd: int, writer: "_RedactingLogWriter") -> None:
+    """Daemon thread: drain a pipe read end into a RedactingLogWriter."""
+    try:
+        with os.fdopen(read_fd, "rb", buffering=0) as pipe:
+            while True:
+                chunk = pipe.read(8192)
+                if not chunk:
+                    break
+                writer.write(chunk)
+    except Exception as exc:
+        _log.debug("opencode log reader thread exiting: %s", exc)
+    finally:
+        writer.flush_tail()
+
+
+def _open_log_with_redactor(
+    log_file: "Path",
+    env: "dict[str, str]",
+) -> "tuple[int, _RedactingLogWriter, threading.Thread]":
+    """Open a pipe + redacting writer for subprocess stdout/stderr.
+
+    Returns (write_fd, writer, reader_thread).
+    Caller must pass write_fd to Popen and start reader_thread before
+    Popen's first output arrives (safe to start after Popen — pipe buffers).
+    Caller must close write_fd after Popen exits so the reader thread
+    sees EOF.
+    """
+    # Tombstone: if the log already has content from a prior run, drop it.
+    # We cannot safely retroactively redact unknown prior tokens.
+    if log_file.exists() and log_file.stat().st_size > 0:
+        try:
+            log_file.unlink()
+        except OSError:
+            pass
+
+    # Also drop any rotated .log.1 from prior runs (may contain old tokens).
+    rotated = log_file.with_suffix(".log.1")
+    if rotated.exists():
+        try:
+            rotated.unlink()
+        except OSError:
+            pass
+
+    log_file.parent.mkdir(parents=True, exist_ok=True)
+    log_file.touch()
+
+    # Collect secrets from env (only keys we export as tokens).
+    _TOKEN_KEYS = {
+        "ANTHROPIC_API_KEY",
+        "NVIDIA_API_KEY",
+        "OPENROUTER_API_KEY",
+        "HF_TOKEN",
+        "MODEL_API_KEY",
+        "OPENCODE_API_KEY",
+    }
+    secrets: list[bytes] = []
+    for key in _TOKEN_KEYS:
+        val = env.get(key, "")
+        if val:
+            secrets.append(val.encode())
+
+    writer = _RedactingLogWriter(log_file, secrets)
+
+    read_fd, write_fd = os.pipe()
+    thread = threading.Thread(
+        target=_pipe_reader_thread,
+        args=(read_fd, writer),
+        daemon=True,
+        name="opencode-log-redactor",
+    )
+    return write_fd, writer, thread
+
 # ── LLM-ready check cache ──────────────────────────────────────────────────
 _LLM_READY_TTL_S: float = 5.0
 _LLM_READY_CACHE: dict[str, Any] = {"key": None, "result": None, "ts": 0.0}
@@ -188,13 +358,16 @@ def start(port: int = PORT_DEFAULT) -> dict[str, Any]:
         }
 
         try:
-            f = log_file.open("ab")
+            write_fd, _writer, reader_thread = _open_log_with_redactor(log_file, env)
+            reader_thread.start()
             proc = subprocess.Popen(
                 ["opencode", "serve", "--port", str(port), "--hostname", HOST],
                 env=env,
-                stdout=f,
-                stderr=f,
+                stdout=write_fd,
+                stderr=write_fd,
+                start_new_session=True,
             )
+            os.close(write_fd)  # child inherits it; we don't need the write end
             _log.info("opencode started pid=%s port=%s config=%s",
                       proc.pid, port, cfg_result.get("path", "?"))
             return {"ok": True, "pid": proc.pid}
@@ -323,13 +496,16 @@ def _start_inner(port: int) -> dict[str, Any]:
     }
 
     try:
-        f = log_file.open("ab")
+        write_fd, _writer, reader_thread = _open_log_with_redactor(log_file, env)
+        reader_thread.start()
         proc = subprocess.Popen(
             ["opencode", "serve", "--port", str(port), "--hostname", HOST],
             env=env,
-            stdout=f,
-            stderr=f,
+            stdout=write_fd,
+            stderr=write_fd,
+            start_new_session=True,
         )
+        os.close(write_fd)  # child inherits it; we don't need the write end
         _log.info("opencode started pid=%s port=%s", proc.pid, port)
         return {"ok": True, "pid": proc.pid}
     except Exception as exc:
@@ -359,11 +535,18 @@ def _wait_ready(port: int, timeout_s: float) -> bool:
 
 
 def _maybe_rotate_log(log_file: Path) -> None:
-    """Rotate log to .log.1 if it exceeds _LOG_MAX_BYTES (F-PROC-6)."""
+    """Rotate log to .log.1 if it exceeds _LOG_MAX_BYTES (F-PROC-6).
+
+    Also hardens the rotated file to 0o600 (same threat model as the active log).
+    """
     if log_file.exists() and log_file.stat().st_size > _LOG_MAX_BYTES:
         rotated = log_file.with_suffix(".log.1")
         try:
             log_file.rename(rotated)
+            try:
+                os.chmod(rotated, 0o600)
+            except OSError:
+                pass
         except OSError:
             pass
 

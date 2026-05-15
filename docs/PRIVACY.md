@@ -153,6 +153,28 @@ passphrase. Respects VS Code's telemetry settings; setup passes
 
 Classic Jupyter Lab. No telemetry by default; binds to `127.0.0.1`.
 
+## Loopback trust boundary
+
+`127.0.0.1` (the default `BIND_ADDR`) is the lab's security perimeter.
+Any process or user that can reach the portal on loopback already has full
+host privileges — they could read `lab/data/secrets.env`, inspect the
+filesystem, and execute the same shell commands Buddy and the Researcher
+agents can. The portal itself has **no authentication layer**: anyone who
+reaches `127.0.0.1:8080` is treated as "the user" by every API endpoint,
+including the airgap toggle and the opencode subprocess controls.
+
+This is an explicit design choice for a single-user workstation: adding
+username/password auth would be friction for the primary use case and
+provide only marginal security when the threat is already on the host. If
+you need to share the lab, put it behind an auth proxy (nginx + basic auth,
+Tailscale, etc.) and ensure `BIND_ADDR` is **not** `0.0.0.0` unless that
+proxy is in front.
+
+The CSRF defences on `/api/airgap/toggle` (Origin check, Sec-Fetch-Site
+check) exist to prevent a malicious web page from pivoting through the
+user's browser to flip the airgap mode — they are browser-level defences,
+not a substitute for host isolation.
+
 ## A note on schools / shared lab machines
 
 Arail's threat model assumes a single-user workstation. If you're

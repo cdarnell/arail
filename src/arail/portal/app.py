@@ -6934,8 +6934,10 @@ async def post_airgap_toggle(request: Request):
 
     Gates (in order):
       1. BIND_ADDR must be loopback (403 bind_not_loopback if not).
-      2. Origin must match Host (403 cross_origin if present and mismatched).
-      3. target must be "airgapped" or "hybrid" (400 invalid_target if not).
+      2. Sec-Fetch-Site, if present, must be same-origin/same-site
+         (403 cross_site if cross-site or none; absent/unknown falls through).
+      3. Origin must match Host (403 cross_origin if present and mismatched).
+      4. target must be "airgapped" or "hybrid" (400 invalid_target if not).
     """
     from arail.env_writer import EnvWriterError, set_env_var
     from datetime import datetime, timezone
@@ -6951,6 +6953,16 @@ async def post_airgap_toggle(request: Request):
             "error": "bind_not_loopback",
             "message": "Edit `.env` directly — toggle disabled when bound to non-loopback.",
         })
+
+    # ── Sec-Fetch-Site defense-in-depth ──────────────────────────────
+    # Browsers force-set this header; JS on an attacker page cannot forge it.
+    # Non-browser clients (curl, pytest TestClient) omit it → fall through.
+    # See ARCHITECTURE.md § Item 4 for the full decision matrix.
+    _sfs = request.headers.get("sec-fetch-site", "").strip().lower()
+    if _sfs in ("cross-site", "none"):
+        return _err(403, {"error": "cross_site"})
+    # "same-origin" / "same-site" → proceed to Origin check below.
+    # Absent or unknown future value → fall through (preserves legacy / CLI paths).
 
     # ── CSRF Origin check ─────────────────────────────────────────────
     origin = request.headers.get("origin", "")
