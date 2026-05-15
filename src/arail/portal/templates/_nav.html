@@ -36,12 +36,8 @@
   {% endif %}
 
   {% if 'agents' in _ts %}
-  <a href="/agents"{% if active == 'agents' %} class="active"{% endif %}>Agents</a>
-  {% endif %}
-
-  {% if 'agents' in _ts %}
-  <a href="/skills"{% if active == 'skills' %} class="active"{% endif %}
-     title="Skills marketplace — browse packs, edit SKILL.md, manage per-agent loadouts.">Skills</a>
+  <a href="/agents"{% if active in ['agents', 'skills'] %} class="active"{% endif %}
+     title="Agents — Status · Skills · Activity">Agents</a>
   {% endif %}
 
   {% if 'notebooks' in _ts %}

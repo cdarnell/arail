@@ -78,6 +78,20 @@ def _read_version() -> str:
 
 _BOOT_VERSION: str = _read_version()
 
+# ---------------------------------------------------------------------------
+# In-process metrics counters (sprint 2026-05-14-platform-foundation §2).
+# Reset to zero on portal restart — documented v1 limitation in api-conventions.md.
+# Middleware increments these; /api/system/metrics reads them.
+# ---------------------------------------------------------------------------
+import threading as _threading
+
+_METRICS: dict[str, Any] = {
+    "http_requests_total": 0,
+    "http_errors_total": 0,
+    "last_provider_change_unix": 0,
+}
+_METRICS_LOCK = _threading.Lock()
+
 # Tier gating — the nav shows only the surfaces matching the current tier.
 # Two tiers: min (everyday) and max (full bench). Upgrade with ./arailctl upgrade max.
 _TIER_SURFACES: dict[str, set[str]] = {
@@ -94,6 +108,85 @@ def _current_tier() -> str:
 
 def _visible_surfaces() -> set[str]:
     return _TIER_SURFACES[_current_tier()]
+
+
+# ---------------------------------------------------------------------------
+# Service tier registry — which optional services are visible on each tier.
+# Source of truth for /api/system/health and /api/system/health/stream.
+# Always-on core services (portal, knowledge-canvas) are not listed here;
+# they appear unconditionally.
+#
+# Tier assignments:
+#   min — services available on the everyday lab tier
+#   max — services only relevant on the full-bench tier
+# ---------------------------------------------------------------------------
+_OPTIONAL_SERVICES: dict[str, str] = {
+    "ttyd": "min",
+    "lance-memory": "min",
+    "ollama": "min",
+    "notebook": "max",
+    "marimo": "max",
+    "open-notebook": "max",
+    "neo4j": "max",
+    "opencode": "max",
+}
+
+# Sanity-check at import: every entry must declare a known tier.
+assert all(v in ("min", "max") for v in _OPTIONAL_SERVICES.values()), (
+    "_OPTIONAL_SERVICES contains an entry with an unknown tier value"
+)
+
+
+def _build_services_dict(
+    *,
+    portal_up: bool,
+    kc_up: bool,
+    ttyd_up: bool,
+    notebook_up: bool,
+    lance_up: bool,
+    marimo_running: bool,
+    open_notebook_running: bool,
+    ollama_up: bool,
+    neo4j_up: bool,
+    opencode_up: bool,
+) -> dict[str, bool]:
+    """Return the tier-filtered services dict for /api/system/health.
+
+    Always-on core services (portal, knowledge-canvas) are always included
+    when up. Optional services are filtered by:
+      1. The service must be up (probe returned True).
+      2. The service's declared tier must be <= the current lab tier.
+         (min services visible on min and max; max services visible on max only)
+
+    Both /api/system/health and /api/system/health/stream call this function
+    so their `services` payloads stay in sync.
+    """
+    current_tier = _current_tier()
+    # min-tier callers see min services; max-tier callers see all services.
+    visible_tiers: set[str] = {"min"} if current_tier == "min" else {"min", "max"}
+
+    # Probe results keyed by service id — must match _OPTIONAL_SERVICES keys.
+    probe_results: dict[str, bool] = {
+        "ttyd": ttyd_up,
+        "notebook": notebook_up,
+        "lance-memory": lance_up,
+        "marimo": marimo_running,
+        "open-notebook": open_notebook_running,
+        "ollama": ollama_up,
+        "neo4j": neo4j_up,
+        "opencode": opencode_up,
+    }
+
+    services: dict[str, bool] = {
+        "portal": portal_up,
+        "knowledge-canvas": kc_up,
+    }
+    for svc_id, up in probe_results.items():
+        tier_required = _OPTIONAL_SERVICES.get(svc_id, "max")
+        if up and tier_required in visible_tiers:
+            services[svc_id] = True
+
+    return services
 
 
 # ── First-run onboarding state ───────────────────────────────────────
@@ -166,6 +259,7 @@ async def onboarding_gate(request, call_next):
         "/api/welcome",
         "/static/",
         "/api/system/health",
+        "/api/system/metrics",  # platform metrics — anonymous on loopback
         "/favicon.ico",
         "/health",    # liveness probe — OBS4
         "/healthz",   # liveness probe alias — OBS4
@@ -252,6 +346,35 @@ async def presence_meter(request, call_next):
         except Exception:
             pass  # Never let a presence stamp break a request.
     return await call_next(request)
+
+
+# ---------------------------------------------------------------------------
+# Metrics counter middleware (sprint 2026-05-14-platform-foundation §2).
+# Bumps http_requests_total on every request; http_errors_total on 5xx.
+# Excludes /api/system/metrics itself (no self-pollution) and SSE streams
+# (which may be long-lived and would inflate counts unpredictably).
+# ---------------------------------------------------------------------------
+_METRICS_EXCLUDED_PREFIXES = (
+    "/api/system/metrics",
+)
+
+
+@app.middleware("http")
+async def metrics_counter(request, call_next):
+    """Increment in-process HTTP counters for /api/system/metrics.
+
+    Excluded: /api/system/metrics (self), SSE streams (Content-Type check
+    post-response is unreliable for streams; we check path prefix instead).
+    """
+    path = request.url.path
+    skip = any(path == p or path.startswith(p) for p in _METRICS_EXCLUDED_PREFIXES)
+    response = await call_next(request)
+    if not skip:
+        with _METRICS_LOCK:
+            _METRICS["http_requests_total"] += 1
+            if response.status_code >= 500:
+                _METRICS["http_errors_total"] += 1
+    return response
 
 
 app.include_router(wiki_router)
@@ -1656,14 +1779,13 @@ async def plugins_page(request: Request):
 
 
 @app.get("/skills", response_class=HTMLResponse)
-async def skills_page(request: Request):
-    """Skills marketplace + loadout editor.
+async def skills_redirect(request: Request):
+    """Redirect legacy /skills URL to /agents?view=skills.
 
-    The page renders an empty shell — Loadouts, Installed skills,
-    and Available packs all populate client-side via /api/agents/loadouts,
-    /api/skills/list, and /api/skills/packs respectively.
+    /api/skills/* endpoints and lab/pkb/skills/ are unchanged.
+    Only the standalone page is folded into the Agents tab.
     """
-    return templates.TemplateResponse(request, "skills.html", {})
+    return RedirectResponse(url="/agents?view=skills", status_code=302)
 
 
 @app.get("/docs", response_class=HTMLResponse)
@@ -2557,12 +2679,49 @@ async def system_theme():
 
 # ── Agents tab ──────────────────────────────────────────────────────
 
+_AGENTS_VALID_VIEWS = {"status", "skills", "activity"}
+
+
 @app.get("/agents", response_class=HTMLResponse)
-async def agents_page(request: Request):
-    """Agent Control Center — monitor, instruct, and inspect all agents."""
+async def agents_page(request: Request, view: str = "status"):
+    """Agent Control Center — monitor, instruct, and inspect all agents.
+
+    Accepts ?view={status|skills|activity}. Unknown view values fall back to
+    'status' (forward-compat — no 400). Server-renders the initial view so
+    JS-disabled browsers show the correct panel.
+    """
+    safe_view = view if view in _AGENTS_VALID_VIEWS else "status"
     return templates.TemplateResponse(request, "agents.html", {
         "current_goal": goal_store.get_current(),
         "mode": os.getenv("LAB_NETWORK_MODE", "hybrid").lower(),
+        "default_view": safe_view,
+        "default_skill_id": None,
+    })
+
+
+@app.get("/agents/skills", response_class=HTMLResponse)
+async def agents_skills_index(request: Request):
+    """Equivalent to /agents?view=skills — Skills panel of the Agents tab."""
+    return templates.TemplateResponse(request, "agents.html", {
+        "current_goal": goal_store.get_current(),
+        "mode": os.getenv("LAB_NETWORK_MODE", "hybrid").lower(),
+        "default_view": "skills",
+        "default_skill_id": None,
+    })
+
+
+@app.get("/agents/skills/{skill_id}", response_class=HTMLResponse)
+async def agents_skills_detail(request: Request, skill_id: str):
+    """Deep-link to a specific skill in the Skills panel.
+
+    Unknown skill_id: renders Skills view with default_skill_id set;
+    the panel JS shows 'skill not found' inline — no 404 (forker-friendly).
+    """
+    return templates.TemplateResponse(request, "agents.html", {
+        "current_goal": goal_store.get_current(),
+        "mode": os.getenv("LAB_NETWORK_MODE", "hybrid").lower(),
+        "default_view": "skills",
+        "default_skill_id": skill_id,
     })
 
 
@@ -6468,16 +6627,9 @@ async def system_health():
     passing_required = sum(1 for c in required_checks if c["ok"])
     passing_total = sum(1 for c in service_checks if c["ok"])
 
-    # Service status surface: always show always-on core services (portal,
-    # knowledge-canvas) plus any optional service that is actually running.
-    # Optional/on-demand services (ttyd, notebook, marimo, open-notebook,
-    # ollama, neo4j, lance-memory) are hidden when not running so the rail
-    # doesn't flood with "down" chips for things the operator never invoked.
-    # Knowledge Canvas is "up" for the user as long as the frontend is mounted
-    # and an API is reachable. The wiki-fallback routes (registered at module
-    # import in this file) always respond, so the canvas renders even when the
-    # full neo4j-backed GraphStore can't import on a stock venv. The granular
-    # "kc_backend" diagnostic above still reports the heavier store separately.
+    # Service status surface — built by the shared helper so the snapshot
+    # endpoint and the SSE stream stay in sync. Always-on core services
+    # (portal, knowledge-canvas) plus tier-filtered optional services.
     kc_full_store_up = _knowledge_canvas_store is not None or (
         knowledge_canvas_app is not None and hasattr(knowledge_canvas_app.state, "store")
     )
@@ -6485,23 +6637,18 @@ async def system_health():
     marimo_running = marimo_up and _container_running("arail-marimo")
     open_notebook_running = open_notebook_up and _container_running("arail-open-notebook")
 
-    services: dict[str, bool] = {
-        "portal": portal_up,
-        "knowledge-canvas": kc_up,
-    }
-    optional_services = {
-        "ttyd": ttyd_up,
-        "notebook": notebook_up,
-        "lance-memory": lance_up,
-        "marimo": marimo_running,
-        "open-notebook": open_notebook_running,
-        "ollama": ollama_up,
-        "neo4j": neo4j_up,
-        "opencode": opencode_up,
-    }
-    for name, up in optional_services.items():
-        if up:
-            services[name] = True
+    services = _build_services_dict(
+        portal_up=portal_up,
+        kc_up=kc_up,
+        ttyd_up=ttyd_up,
+        notebook_up=notebook_up,
+        lance_up=lance_up,
+        marimo_running=marimo_running,
+        open_notebook_running=open_notebook_running,
+        ollama_up=ollama_up,
+        neo4j_up=neo4j_up,
+        opencode_up=opencode_up,
+    )
 
     return {
         "platform": platform.system(),
@@ -6522,6 +6669,7 @@ async def system_health():
         # Active deep backend is AirLLM today; AEROLLM_MODEL kept for the
         # eventual swap-back so the field name stays stable for the UI.
         "aerollm_model": os.getenv("AIRLLM_MODEL", os.getenv("AEROLLM_MODEL", "")),
+        "version": _BOOT_VERSION,
         "services": services,
         "service_checks": service_checks,
         "health_summary": {
@@ -6764,6 +6912,98 @@ async def system_health_stream():
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+@app.get("/api/system/metrics")
+async def system_metrics(request: Request):
+    """Return a flat JSON dict of gauges and in-process counters.
+
+    Shape is stable across LAB_NAME rebrand. Schema documented in
+    docs/api-conventions.md and ARCHITECTURE.md §2.
+
+    Counters reset on portal restart (v1 documented limitation).
+    ?format=prometheus reserved for future; returns 501 per api-conventions.
+    """
+    from fastapi.responses import JSONResponse
+
+    fmt = request.query_params.get("format", "json").lower()
+    if fmt == "prometheus":
+        return JSONResponse(
+            status_code=501,
+            content={
+                "error": "not_implemented",
+                "message": "Prometheus format is reserved for a future release.",
+            },
+        )
+
+    # --- Uptime ---
+    process_uptime = time.perf_counter() - _BOOT_PERF
+
+    # --- Memory / disk ---
+    try:
+        psutil = __import__("psutil")
+        mem = psutil.virtual_memory()
+        ram_used_bytes = mem.used
+        ram_total_bytes = mem.total
+        disk = psutil.disk_usage(str(Path.cwd()))
+        disk_free_bytes = disk.free
+    except ImportError:
+        ram_used_bytes = 0
+        ram_total_bytes = 0
+        disk_free_bytes = 0
+
+    # --- Chat model state ---
+    try:
+        chat_model_loaded = 1 if _CHAT_MODEL_LOAD_STATE else 0  # type: ignore[name-defined]
+    except NameError:
+        chat_model_loaded = 0
+
+    # --- Active provider ---
+    active_provider = os.getenv("MODEL_BACKEND", "my_machine") or "my_machine"
+
+    # --- Lab mode / tier ---
+    lab_mode = os.getenv("ARAIL_MODE", "airgapped")
+    lab_tier = _current_tier()
+
+    # --- Active agents ---
+    try:
+        from arail.agents.loader import discover
+        active_agents = len(discover())
+    except Exception:
+        active_agents = 0
+
+    # --- KB doc count ---
+    try:
+        from arail.pkb import _pkb_root
+        kb_doc_count = sum(
+            1 for f in _pkb_root().rglob("*")
+            if f.is_file() and f.suffix in (".md", ".txt", ".pdf")
+        )
+    except Exception:
+        kb_doc_count = 0
+
+    # --- In-process counters (snapshot under lock) ---
+    with _METRICS_LOCK:
+        http_requests_total = _METRICS["http_requests_total"]
+        http_errors_total = _METRICS["http_errors_total"]
+        last_provider_change_unix = _METRICS["last_provider_change_unix"]
+
+    return {
+        "process_uptime_seconds": round(process_uptime, 3),
+        "ram_used_bytes": ram_used_bytes,
+        "ram_total_bytes": ram_total_bytes,
+        "disk_free_bytes": disk_free_bytes,
+        "chat_model_loaded": chat_model_loaded,
+        "active_provider": active_provider,
+        "lab_mode": lab_mode,
+        "lab_tier": lab_tier,
+        "active_agents": active_agents,
+        "kb_doc_count": kb_doc_count,
+        "http_requests_total": http_requests_total,
+        "http_errors_total": http_errors_total,
+        "last_provider_change_unix": last_provider_change_unix,
+        "schema_version": 1,
+    }
 
 
 @app.get("/api/system/mode")

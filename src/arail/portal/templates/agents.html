@@ -23,6 +23,19 @@
     </a>
   </p>
 
+  <!-- ═══ View segment control ═══ -->
+  <div class="ag-segment-control" role="tablist" aria-label="Agents view">
+    <button class="ag-seg-btn" role="tab" data-seg="status"
+            aria-selected="{{ 'true' if default_view|default('status') == 'status' else 'false' }}">Status</button>
+    <button class="ag-seg-btn" role="tab" data-seg="skills"
+            aria-selected="{{ 'true' if default_view|default('status') == 'skills' else 'false' }}">Skills</button>
+    <button class="ag-seg-btn" role="tab" data-seg="activity"
+            aria-selected="{{ 'true' if default_view|default('status') == 'activity' else 'false' }}">Activity</button>
+  </div>
+
+  <!-- ═══ Status view ═══ -->
+  <section data-view="status" {% if default_view|default('status') != 'status' %}hidden{% endif %}>
+
   <!-- ═══ Agent Forge ═══
        Two-panel editor. Form on the left drives AGENT.md + .py
        generation; preview on the right regenerates live via the
@@ -391,7 +404,29 @@
     </div>
   </div>
 
+  </section><!-- end data-view="status" -->
+
+  <!-- ═══ Skills view ═══ -->
+  <section data-view="skills" {% if default_view|default('status') != 'skills' %}hidden{% endif %}>
+    {% include "_skills_panel.html" %}
+  </section>
+
+  <!-- ═══ Activity view ═══ -->
+  <section data-view="activity" {% if default_view|default('status') != 'activity' %}hidden{% endif %}>
+    <div class="ag-activity-placeholder">
+      <p>Agent activity feed coming soon. For now, see agent cards in the Status view.</p>
+    </div>
+  </section>
+
 </div>
+
+<script>
+// ── Bootstrap JSON for server-rendered initial state ──
+const _AGENTS_BOOTSTRAP = {
+  defaultView: {{ (default_view|default('status'))|tojson }},
+  defaultSkillId: {{ (default_skill_id|default(none))|tojson }},
+};
+</script>
 
 <script>
 // ═══════════════════════════════════════════════════════════════════
@@ -1548,7 +1583,229 @@ loadSkillsIntoForge();
   });
 })();
 </script>
+
+<!-- ═══ View-switcher JS (segment control) ═══
+     Toggles [hidden] on [data-view] sections; updates URL via
+     history.replaceState. JS disabled → server-rendered [hidden]
+     attributes produce correct initial view without this script. -->
+<script>
+(function () {
+  'use strict';
+  const VALID_VIEWS = ['status', 'skills', 'activity'];
+
+  function activateView(view) {
+    if (!VALID_VIEWS.includes(view)) view = 'status';
+    // Toggle sections
+    document.querySelectorAll('[data-view]').forEach(function (el) {
+      el.hidden = el.dataset.view !== view;
+    });
+    // Update segment buttons
+    document.querySelectorAll('.ag-seg-btn').forEach(function (btn) {
+      const active = btn.dataset.seg === view;
+      btn.setAttribute('aria-selected', active ? 'true' : 'false');
+      btn.classList.toggle('ag-seg-active', active);
+    });
+    // Update URL without full navigation
+    const url = new URL(window.location.href);
+    if (view === 'status') {
+      url.searchParams.delete('view');
+    } else {
+      url.searchParams.set('view', view);
+    }
+    history.replaceState(null, '', url.toString());
+    // If skills panel just became visible and default_skill_id is set, open editor
+    if (view === 'skills' && _AGENTS_BOOTSTRAP.defaultSkillId) {
+      if (typeof openEditor === 'function') {
+        openEditor(_AGENTS_BOOTSTRAP.defaultSkillId);
+      }
+    }
+    // If skills panel visible, load data
+    if (view === 'skills' && typeof loadAll === 'function') {
+      loadAll();
+    }
+  }
+
+  // Wire segment buttons
+  document.querySelectorAll('.ag-seg-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      activateView(btn.dataset.seg);
+    });
+  });
+
+  // Activate the server-rendered default view (handles JS-disabled → JS-enabled transition)
+  activateView(_AGENTS_BOOTSTRAP.defaultView);
+})();
+</script>
+
 <script src="/static/nav.js"></script>
+
+<!-- ═══ Skills panel JS (only active when skills view is rendered) ═══ -->
+<script>
+(function () {
+  'use strict';
+  // Shared escape helper (may already exist in page; guard with check)
+  const esc = window._sk_esc || (window._sk_esc = function (s) {
+    return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  });
+
+  function setStatus(el, text, kind) {
+    if (!el) return;
+    el.textContent = text;
+    el.className = 'sk-editor-status' + (kind ? ' ' + kind : '');
+  }
+
+  const SK = { loadouts: {}, installed: [], packs: [], editingAgent: null };
+
+  function renderAll() {
+    const inst = document.getElementById('sk-stat-installed');
+    const lo   = document.getElementById('sk-stat-loadouts');
+    const pk   = document.getElementById('sk-stat-packs');
+    if (inst) inst.textContent = SK.installed.length;
+    if (lo)   lo.textContent   = Object.keys(SK.loadouts).length;
+    if (pk)   pk.textContent   = SK.packs.length;
+    renderLoadouts(); renderInstalled(); renderPacks();
+  }
+
+  function renderLoadouts() {
+    const root = document.getElementById('sk-loadouts');
+    if (!root) return;
+    const ids = Object.keys(SK.loadouts).sort();
+    if (!ids.length) { root.innerHTML = '<div class="sk-empty">No agents have an AGENT.md yet — restart the lab.</div>'; return; }
+    root.innerHTML = ids.map(aid => {
+      const a = SK.loadouts[aid];
+      const chips = (a.skills || []).map(sid => `<span class="sk-chip" data-skill="${esc(sid)}">${esc(sid)}</span>`).join('');
+      const pillClass = a.consumes_llm ? 'live' : 'doc';
+      return `<div class="sk-loadout-card"><header class="sk-loadout-card-head"><span class="sk-loadout-emoji">${esc(a.emoji||'🤖')}</span><span class="sk-loadout-name">${esc(a.name||aid)}</span><span class="sk-loadout-pill ${pillClass}">${pillClass==='live'?'LLM-consumed':'documentary'}</span><button class="sk-btn sk-btn-ghost sk-loadout-edit" data-agent="${esc(aid)}" type="button">Edit</button></header><div class="sk-loadout-chips">${chips||'<span class="sk-empty-inline">no skills assigned</span>'}</div></div>`;
+    }).join('');
+    root.querySelectorAll('.sk-chip').forEach(c => c.addEventListener('click', () => openEditor(c.dataset.skill)));
+    root.querySelectorAll('.sk-loadout-edit').forEach(b => b.addEventListener('click', () => openLoadoutModal(b.dataset.agent)));
+  }
+
+  function renderInstalled() {
+    const root = document.getElementById('sk-installed');
+    if (!root) return;
+    if (!SK.installed.length) { root.innerHTML = '<div class="sk-empty">No skills installed yet — install a pack below.</div>'; return; }
+    const usageCount = {};
+    for (const aid of Object.keys(SK.loadouts)) for (const sid of (SK.loadouts[aid].skills || [])) usageCount[sid] = (usageCount[sid]||0)+1;
+    root.innerHTML = SK.installed.map(s => {
+      const used = usageCount[s.id] || 0;
+      return `<div class="sk-installed-row"><div class="sk-installed-meta"><div class="sk-installed-name">${esc(s.name||s.id)} <span class="sk-installed-domain">${esc(s.domain||'general')}</span> <span class="sk-installed-ver">v${esc(s.version||'0')}</span></div><div class="sk-installed-preview">${esc(s.preview||'')}</div><div class="sk-installed-usage">${used>0?`Used by <strong>${used}</strong> agent${used===1?'':'s'}`:'<span class="sk-installed-unused">Unassigned</span>'}</div></div><div class="sk-installed-actions"><button class="sk-btn" type="button" data-edit="${esc(s.id)}">Edit</button><a class="sk-btn sk-btn-ghost" target="_blank" rel="noopener" href="${ideUrl(s.id)}">Open in IDE</a></div></div>`;
+    }).join('');
+    root.querySelectorAll('[data-edit]').forEach(b => b.addEventListener('click', () => openEditor(b.dataset.edit)));
+  }
+
+  function renderPacks() {
+    const root = document.getElementById('sk-packs');
+    if (!root) return;
+    if (!SK.packs.length) { root.innerHTML = '<div class="sk-empty">No packs available.</div>'; return; }
+    root.innerHTML = SK.packs.map(p => {
+      const tagChips = (p.tags||[]).map(t => `<span class="sk-tag">${esc(t)}</span>`).join('');
+      const frac = `${p.installed_count}/${p.skill_count}`;
+      let action;
+      if (p.fully_installed) action = `<button class="sk-btn sk-btn-ghost" type="button" data-pack-update="${esc(p.id)}">Re-install</button><button class="sk-btn sk-btn-warn" type="button" data-pack-remove="${esc(p.id)}">Remove pack</button>`;
+      else if (p.installed_count>0) action = `<button class="sk-btn sk-btn-primary" type="button" data-pack-install="${esc(p.id)}">Install missing (${p.skill_count-p.installed_count})</button><button class="sk-btn sk-btn-warn" type="button" data-pack-remove="${esc(p.id)}">Remove pack</button>`;
+      else action = `<button class="sk-btn sk-btn-primary" type="button" data-pack-install="${esc(p.id)}">Install pack</button>`;
+      return `<div class="sk-pack-card"><header class="sk-pack-head"><span class="sk-pack-name">${esc(p.name)}</span><span class="sk-pack-progress">${frac} installed</span></header><p class="sk-pack-desc">${esc(p.description||'')}</p><div class="sk-pack-tags">${tagChips}</div><div class="sk-pack-actions">${action}</div></div>`;
+    }).join('');
+    root.querySelectorAll('[data-pack-install]').forEach(b => b.addEventListener('click', () => installPack(b.dataset.packInstall, false)));
+    root.querySelectorAll('[data-pack-update]').forEach(b => b.addEventListener('click', () => installPack(b.dataset.packUpdate, true)));
+    root.querySelectorAll('[data-pack-remove]').forEach(b => b.addEventListener('click', () => removePack(b.dataset.packRemove)));
+  }
+
+  window.openEditor = function (skillId) {
+    const editor   = document.getElementById('sk-editor');
+    const titleEl  = document.getElementById('sk-editor-title');
+    const pathEl   = document.getElementById('sk-editor-path');
+    const areaEl   = document.getElementById('sk-editor-area');
+    const ideEl    = document.getElementById('sk-editor-ide');
+    const statusEl = document.getElementById('sk-editor-status');
+    const saveBtn  = document.getElementById('sk-editor-save');
+    if (!editor) return;
+    titleEl.textContent = skillId; pathEl.textContent = ''; areaEl.value = ''; if (ideEl) ideEl.hidden = true;
+    setStatus(statusEl, 'loading…'); saveBtn.disabled = true; editor.hidden = false;
+    fetch('/api/skills/' + encodeURIComponent(skillId)).then(r => r.json()).then(d => {
+      if (!d.ok) { setStatus(statusEl, d.error||'load failed', 'err'); return; }
+      pathEl.textContent = d.path; areaEl.value = d.content;
+      if (ideEl) { ideEl.href = ideUrl(skillId); ideEl.hidden = false; }
+      setStatus(statusEl, 'ready'); saveBtn.disabled = false; saveBtn.dataset.skill = skillId;
+    });
+  };
+
+  const closeBtn = document.getElementById('sk-editor-close');
+  if (closeBtn) closeBtn.addEventListener('click', () => { document.getElementById('sk-editor').hidden = true; });
+
+  const saveBtn = document.getElementById('sk-editor-save');
+  if (saveBtn) saveBtn.addEventListener('click', async () => {
+    const sid = saveBtn.dataset.skill;
+    const content = document.getElementById('sk-editor-area').value;
+    const statusEl = document.getElementById('sk-editor-status');
+    setStatus(statusEl, 'saving…');
+    const r = await fetch('/api/skills/' + encodeURIComponent(sid), { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({content}) });
+    const d = await r.json();
+    if (d.ok) { setStatus(statusEl, `saved (${d.bytes} bytes)`, 'ok'); loadAll(); }
+    else setStatus(statusEl, d.error||'save failed', 'err');
+  });
+
+  function ideUrl(skillId) {
+    const port = window.__IDE_PORT || 8443;
+    return `http://${location.hostname}:${port}/?folder=/lab/pkb/skills/${encodeURIComponent(skillId)}`;
+  }
+
+  function openLoadoutModal(agentId) {
+    const a = SK.loadouts[agentId]; if (!a) return;
+    SK.editingAgent = agentId;
+    document.getElementById('sk-loadout-modal-title').textContent = `Loadout for ${a.name||agentId}`;
+    const opts = document.getElementById('sk-loadout-options');
+    const current = new Set(a.skills||[]);
+    opts.innerHTML = SK.installed.map(s => `<label class="sk-loadout-opt"><input type="checkbox" value="${esc(s.id)}" ${current.has(s.id)?'checked':''}><span>${esc(s.name||s.id)}</span></label>`).join('');
+    document.getElementById('sk-loadout-modal').hidden = false;
+  }
+
+  const cancelBtn = document.getElementById('sk-loadout-cancel');
+  if (cancelBtn) cancelBtn.addEventListener('click', () => { document.getElementById('sk-loadout-modal').hidden = true; SK.editingAgent = null; });
+
+  const loadoutSaveBtn = document.getElementById('sk-loadout-save');
+  if (loadoutSaveBtn) loadoutSaveBtn.addEventListener('click', async () => {
+    if (!SK.editingAgent) return;
+    const checked = Array.from(document.querySelectorAll('#sk-loadout-options input:checked')).map(i => i.value);
+    const r = await fetch(`/api/agents/${encodeURIComponent(SK.editingAgent)}/loadout`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({skills:checked}) });
+    const d = await r.json();
+    if (d.ok) { document.getElementById('sk-loadout-modal').hidden = true; SK.editingAgent = null; loadAll(); }
+    else alert(d.error||'loadout save failed');
+  });
+
+  async function installPack(packId, force) {
+    const r = await fetch('/api/skills/packs/install', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({pack_id:packId, force}) });
+    const d = await r.json(); if (d.ok) loadAll(); else alert(d.error||'install failed');
+  }
+
+  async function removePack(packId) {
+    if (!confirm(`Remove pack "${packId}"?`)) return;
+    const r = await fetch('/api/skills/packs/remove', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({pack_id:packId}) });
+    const d = await r.json(); if (d.ok) loadAll(); else alert(d.error||'remove failed');
+  }
+
+  window.loadAll = function () {
+    Promise.all([
+      fetch('/api/agents/loadouts').then(r => r.json()).catch(() => ({loadouts:{}})),
+      fetch('/api/skills/list').then(r => r.json()).catch(() => ({skills:[]})),
+      fetch('/api/skills/packs').then(r => r.json()).catch(() => ({packs:[]})),
+    ]).then(function ([loadouts, list, packs]) {
+      SK.loadouts = loadouts.loadouts || {};
+      SK.installed = list.skills || [];
+      SK.packs = packs.packs || [];
+      renderAll();
+    });
+  };
+
+  // Auto-load if skills view is already active on page load
+  if (_AGENTS_BOOTSTRAP.defaultView === 'skills') {
+    window.loadAll();
+  }
+})();
+</script>
+
 {% include '_airgap_modal.html' %}
 </body>
 </html>
