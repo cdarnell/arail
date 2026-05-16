@@ -78,6 +78,23 @@
   </div>
 </section>
 
+<!-- Inline swarm review panel — replaces the old modal so the review
+     surface is always visible on the page (no z-index, no hidden card,
+     no scroll trap). Toggled by the Review Draft button. -->
+<section class="rx-preview-banner" id="rx-swarm-inline" hidden style="flex-direction:column;align-items:stretch;">
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:0.5rem;">
+    <strong style="color:var(--text-hi);">Review the worker lanes before launch</strong>
+    <button class="rx-btn" type="button" id="rx-swarm-inline-close">Hide</button>
+  </div>
+  <div class="rx-swarm-pills" id="rx-swarm-pills" style="margin-top:0.75rem;"></div>
+  <div id="rx-swarm-modal-body" style="margin-top:0.5rem;"></div>
+  <div class="rx-modal-actions" style="margin-top:1rem;">
+    <button class="rx-btn primary" id="rx-swarm-run">Approve &amp; Run</button>
+    <button class="rx-btn" id="rx-swarm-save">Approve Only</button>
+    <button class="rx-btn danger" id="rx-swarm-discard">Discard</button>
+  </div>
+</section>
+
 <!-- ═══ Program panel — inline program.md + human research notes ═══
      The research cockpit is the right place to see and edit what the
      agent's working toward. Collapsed by default to keep the goal row
@@ -308,22 +325,6 @@
   </div>
 </div>
 
-<div class="rx-modal" id="rx-swarm-modal" hidden>
-  <div class="rx-modal-card rx-swarm-card">
-    <button class="rx-modal-close" id="rx-swarm-x" type="button" aria-label="Close">&times;</button>
-    <h2>Review the worker lanes before launch</h2>
-    <p>The lead researcher will coordinate these lanes after approval. Trim them or steer them now while the plan is still a draft.</p>
-    <div class="rx-swarm-pills" id="rx-swarm-pills"></div>
-    <div id="rx-swarm-modal-body"></div>
-    <div class="rx-modal-actions">
-      <button class="rx-btn" id="rx-swarm-close">Keep Draft</button>
-      <button class="rx-btn primary" id="rx-swarm-run">Approve &amp; Run</button>
-      <button class="rx-btn" id="rx-swarm-save">Approve Only</button>
-      <button class="rx-btn danger" id="rx-swarm-discard">Discard</button>
-    </div>
-  </div>
-</div>
-
 <script>
 /* ═══════════════════════════════════════════════════════════════
    /research — Research Cockpit
@@ -421,9 +422,7 @@ async function fetchGoalPreview() {
     // A real, reviewable preview must carry a swarm plan. Half-records
     // (e.g. residual {status:'approved'} after confirmation) get treated
     // as absent so the stale banner is hidden.
-    if (!data || typeof data !== 'object') return null;
-    if (data.status && data.status !== 'preview') return null;
-    if (!data.swarm || typeof data.swarm !== 'object') return null;
+    if (!data || typeof data !== 'object' || !Object.keys(data).length) return null;
     return data;
   } catch (e) { return null; }
 }
@@ -527,11 +526,16 @@ async function openSwarmReviewModal() {
     return;
   }
   renderSwarmReview(RESEARCH.preview);
-  document.getElementById('rx-swarm-modal').hidden = false;
+  const panel = document.getElementById('rx-swarm-inline');
+  if (panel) {
+    panel.hidden = false;
+    panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
 }
 
 function closeSwarmReviewModal() {
-  document.getElementById('rx-swarm-modal').hidden = true;
+  const panel = document.getElementById('rx-swarm-inline');
+  if (panel) panel.hidden = true;
 }
 
 function collectSwarmReviewPayload() {
@@ -1313,12 +1317,16 @@ document.addEventListener('DOMContentLoaded', () => {
     if (e.key === 'Escape') closeModal();
   });
 
-  document.getElementById('rx-preview-review').addEventListener('click', openSwarmReviewModal);
-  document.getElementById('rx-preview-discard').addEventListener('click', discardSwarmPreview);
-  document.getElementById('rx-swarm-close').addEventListener('click', closeSwarmReviewModal);
-  document.getElementById('rx-swarm-run').addEventListener('click', () => confirmSwarmPreview(true));
-  document.getElementById('rx-swarm-save').addEventListener('click', () => confirmSwarmPreview(false));
-  document.getElementById('rx-swarm-discard').addEventListener('click', discardSwarmPreview);
+  const bind = (id, ev, fn) => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener(ev, fn);
+  };
+  bind('rx-preview-review',     'click', openSwarmReviewModal);
+  bind('rx-preview-discard',    'click', discardSwarmPreview);
+  bind('rx-swarm-inline-close', 'click', closeSwarmReviewModal);
+  bind('rx-swarm-run',          'click', () => confirmSwarmPreview(true));
+  bind('rx-swarm-save',         'click', () => confirmSwarmPreview(false));
+  bind('rx-swarm-discard',      'click', discardSwarmPreview);
 
   // Research file chips — prepare.py + program.md
   document.querySelectorAll('.rx-pf-chip').forEach(chip => {
@@ -1337,9 +1345,6 @@ document.addEventListener('DOMContentLoaded', () => {
   // felt "stuck" before.
   document.getElementById('rx-modal').addEventListener('click', (e) => {
     if (e.target.id === 'rx-modal') closeModal();
-  });
-  document.getElementById('rx-swarm-modal').addEventListener('click', (e) => {
-    if (e.target.id === 'rx-swarm-modal') closeSwarmReviewModal();
   });
 
   // Program panel — inline renderer for program.md + notes.
