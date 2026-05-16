@@ -57,7 +57,7 @@ Two tiers. Pick one; upgrade later.
 
 | Tier  | What you get                                                                                                            | Good for                                         |
 | ----- | ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
-| `minamalist` | Dashboard · Chat · Autoresearch · Knowledge Base · Agents · LanceDB vectors · **AirLLM 70B** (Llama-3.1-70B)           | The everyday lab. Real models on small hardware. |
+| `minamalist` | Dashboard · Chat · Autoresearch · Knowledge Base · Agents · LanceDB vectors · **AeroLLM 70B** (Llama-3.1-70B)           | The everyday lab. Real models on small hardware. |
 | `maximum` | + Admin · Docs · Notebooks · **AirLLM 405B** (Llama-3.1-405B) · Anthropic SDK · LangChain · full cloud SDKs             | Frontier-scale local inference, full bench.      |
 
 Upgrade any time:
