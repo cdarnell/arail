@@ -224,21 +224,33 @@
   });
 
   // -- Modal close: multiple fallback methods --
-  var airgapBackdrop = document.getElementById('airgap-backdrop');
+  // The airgap modal include sits AFTER this script tag on every page,
+  // so the element does not exist at IIFE-run time. Defer the listener
+  // hookup until DOMContentLoaded so it works uniformly on every tab
+  // (was previously silently broken on Autoresearch / Research because
+  // its own modal layer captured clicks before falling through to a
+  // never-attached backdrop listener).
+  function wireAirgapClose() {
+    var airgapBackdrop = document.getElementById('airgap-backdrop');
+    if (!airgapBackdrop) return;
 
-  // Backdrop click-outside listener
-  if (airgapBackdrop) {
+    // Backdrop click-outside listener
     airgapBackdrop.addEventListener('click', function (e) {
       if (e.target === airgapBackdrop) airgapBackdrop.classList.remove('open');
     });
-  }
 
-  // Escape key to close
-  document.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape' && airgapBackdrop && airgapBackdrop.classList.contains('open')) {
-      airgapBackdrop.classList.remove('open');
-    }
-  });
+    // Escape key to close
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && airgapBackdrop.classList.contains('open')) {
+        airgapBackdrop.classList.remove('open');
+      }
+    });
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', wireAirgapClose);
+  } else {
+    wireAirgapClose();
+  }
 
   // -- Segmented control: optimistic flip + single POST --
   // Delegate listener on document level to ensure it catches all clicks

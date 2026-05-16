@@ -1337,6 +1337,16 @@ document.addEventListener('DOMContentLoaded', () => {
     if (e.target.id === 'rx-pf-modal') closeProgramFile();
   });
 
+  // Backdrop click closes the goal + swarm-review modals. Without this,
+  // the user has no way out except Cancel/Esc — which is why the popup
+  // felt "stuck" before.
+  document.getElementById('rx-modal').addEventListener('click', (e) => {
+    if (e.target.id === 'rx-modal') closeModal();
+  });
+  document.getElementById('rx-swarm-modal').addEventListener('click', (e) => {
+    if (e.target.id === 'rx-swarm-modal') closeSwarmReviewModal();
+  });
+
   // Program panel — inline renderer for program.md + notes.
   wireProgramPanel();
 
