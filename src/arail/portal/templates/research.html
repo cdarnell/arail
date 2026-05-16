@@ -418,7 +418,13 @@ async function fetchGoalPreview() {
     const r = await fetch('/api/goal/preview');
     if (!r.ok) return null;
     const data = await r.json();
-    return data && Object.keys(data).length ? data : null;
+    // A real, reviewable preview must carry a swarm plan. Half-records
+    // (e.g. residual {status:'approved'} after confirmation) get treated
+    // as absent so the stale banner is hidden.
+    if (!data || typeof data !== 'object') return null;
+    if (data.status && data.status !== 'preview') return null;
+    if (!data.swarm || typeof data.swarm !== 'object') return null;
+    return data;
   } catch (e) { return null; }
 }
 
