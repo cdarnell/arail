@@ -148,6 +148,8 @@ required by ARCHITECTURE.md and none warranted here.
 
 That's it. No code changes required. Proceed to QA.
 
+**Carryover closed:** sprint `2026-05-15-health-stream-tier-filter` implemented tier-filtering for `/api/system/health/stream` (app.py ~6874) and added 8 regression tests in `tests/test_system_health_stream_tier_filter.py`. All 8 pass. Stream and snapshot endpoints now agree on tier-visibility semantics.
+
 ---
 
 ## Ready for QA?
