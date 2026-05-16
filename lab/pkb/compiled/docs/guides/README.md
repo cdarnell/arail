@@ -4,7 +4,7 @@ section: docs
 tags: [guide]
 aliases: [README]
 source: README.md
-generated: 2026-05-16T03:56:19Z
+generated: 2026-05-16T17:35:58Z
 ---
 # ARAIL — Autoresearch AI Labs
 **A rail gun for AI.**
@@ -18,23 +18,29 @@ loop that runs experiments while you sleep.
 ARAIL evolves with Autoresearch from Karpathy.   Draft, review and approve a plan to begin experimenting and researching  
 <img width="852" height="639" alt="Screenshot 2026-05-01 at 8 01 48 PM" src="https://github.com/user-attachments/assets/17a0eb3a-2160-4c5f-b980-2289a75424b0" />
 
-
-<img width="1398" height="783" alt="Screenshot 2026-05-01 at 8 08 10 PM" src="https://github.com/user-attachments/assets/c6eeff47-975f-4ed9-bf0b-13080e8d76a7" />
-
-
-
-Inference from an AI Engineer built by Nucleus
-<img width="1490" height="960" alt="image" src="https://github.com/user-attachments/assets/2726836d-e39e-4ebd-904c-7c4a8b64dfdf" />
-
-
-
-
 >
 >
 > *A learn-by-doing AI research lab for friends, family, and the curious.*
 > Default name is **Autoresearch AI Lab**. Rename it to whatever you want in one
 > line of `.env` — "Sam's AI Lab", "gentoofoo's ai lab", "PeanutLab". It's
 > your lab.
+>
+>
+>
+
+
+<img width="1398" height="783" alt="Screenshot 2026-05-01 at 8 08 10 PM" src="https://github.com/user-attachments/assets/c6eeff47-975f-4ed9-bf0b-13080e8d76a7" />
+
+
+Inference from an AI Engineer built by Nucleus
+*
+<img width="1423" height="727" alt="image" src="https://github.com/user-attachments/assets/4a6be689-a5cc-432f-a514-796d07f1938c" />
+
+
+
+
+
+
 
 
 ---
@@ -59,7 +65,7 @@ Two tiers. Pick one; upgrade later.
 
 | Tier  | What you get                                                                                                            | Good for                                         |
 | ----- | ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
-| `minamalist` | Dashboard · Chat · Autoresearch · Knowledge Base · Agents · LanceDB vectors · **AirLLM 70B** (Llama-3.1-70B)           | The everyday lab. Real models on small hardware. |
+| `minamalist` | Dashboard · Chat · Autoresearch · Knowledge Base · Agents · LanceDB vectors · **AeroLLM 70B** (Llama-3.1-70B)           | The everyday lab. Real models on small hardware. |
 | `maximum` | + Admin · Docs · Notebooks · **AirLLM 405B** (Llama-3.1-405B) · Anthropic SDK · LangChain · full cloud SDKs             | Frontier-scale local inference, full bench.      |
 
 Upgrade any time:
@@ -93,9 +99,11 @@ See [docs/INSTALL.md](docs/INSTALL.md) for the long walkthrough.
 
 ### 📊 Dashboard *(every tier)*
 
-The lab's home screen. Shows what the agents are doing, your current goal,
-the simulated cloud cost of today's work, and an activity stream so nothing
-happens out of view.
+The lab's home screen. Shows the **current mission** (set from
+Autoresearch), what the agents are doing, the simulated cloud cost of
+today's work, and an activity stream so nothing happens out of view.
+Mission text and breakdown update live when a goal is set or changed
+elsewhere.
 
 ### 💬 Chat — with a Compute Source pivot *(every tier)*
 
@@ -139,10 +147,12 @@ CSRF attack surface.
 
 ### 🔬 Autoresearch *(every tier)*
 
-Tell the lab a measurable goal — *"make our chat responses land under 400 ms
-on my MacBook"* — and it runs an experiment loop: propose a change, measure,
-compare against the baseline, write up what it learned. You watch from the
-dashboard and steer when the direction drifts.
+**This is where you set the goal.** Tell the lab a measurable goal —
+*"make our chat responses land under 400 ms on my MacBook"* — and it
+runs an experiment loop: propose a change, measure, compare against the
+baseline, write up what it learned. The goal is lab-wide: once set here,
+the Dashboard mirrors it live. You watch from the dashboard and steer
+from the Autoresearch cockpit when the direction drifts.
 
 ### 📚 Knowledge Base *(every tier)*
 
