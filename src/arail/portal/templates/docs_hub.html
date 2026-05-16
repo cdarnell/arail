@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ brand.name }} — Docs</title>
+<link rel="stylesheet" href="/static/style.css">
+<style>
+  /* ── Hub layout ─────────────────────────────────────────────────────── */
+  .docs-hub { max-width: 1100px; margin: 0 auto; padding: 1.4rem 1.6rem 4rem; }
+
+  /* Hero */
+  .docs-hero {
+    padding: 2rem 0 1.6rem;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 1.6rem;
+  }
+  .docs-hero h1 { color: var(--green); margin: 0 0 0.3rem; font-size: 1.5rem; }
+  .docs-hero p  { color: var(--muted); margin: 0 0 1rem; font-size: 0.82rem; }
+  #docs-search {
+    width: 100%;
+    max-width: 420px;
+    background: var(--surface2);
+    border: 1px solid var(--border-hi);
+    border-radius: var(--radius);
+    color: var(--text);
+    padding: 0.4rem 0.8rem;
+    font-family: inherit;
+    font-size: 0.82rem;
+  }
+  #docs-search:focus { outline: none; border-color: var(--blue); box-shadow: 0 0 0 2px rgba(0,212,255,.15); }
+  #docs-search::placeholder { color: var(--muted); }
+
+  /* Featured strip */
+  .docs-featured-label {
+    font-size: 0.65rem;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 0 0 0.6rem;
+  }
+  .docs-featured-strip {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: var(--s-4);
+    margin-bottom: 1.6rem;
+  }
+  .docs-featured-card {
+    background: var(--surface);
+    border: 1px solid var(--blue);
+    border-radius: var(--radius);
+    padding: 0.9rem 1rem;
+    text-decoration: none;
+    color: var(--text);
+    transition: border-color 150ms, box-shadow 150ms;
+  }
+  .docs-featured-card:hover { border-color: var(--green); box-shadow: var(--elev-1); }
+  .docs-featured-card .fc-title { color: var(--text-hi); font-size: 0.88rem; margin: 0 0 0.25rem; }
+  .docs-featured-card .fc-desc  { color: var(--muted);   font-size: 0.74rem; margin: 0; line-height: 1.4; }
+  .docs-featured-card .fc-meta  { color: var(--blue); font-size: 0.65rem; margin-top: 0.5rem; }
+
+  /* Recent chips */
+  .docs-recent { margin-bottom: 1.6rem; }
+  .docs-recent-chips { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.4rem; }
+  .docs-recent-chip {
+    font-size: 0.7rem;
+    padding: 0.2rem 0.6rem;
+    background: var(--surface2);
+    border: 1px solid var(--border-hi);
+    border-radius: 999px;
+    color: var(--blue);
+    text-decoration: none;
+  }
+  .docs-recent-chip:hover { background: var(--surface); color: var(--text-hi); }
+
+  /* Category sections */
+  .docs-category { margin-bottom: 2rem; }
+  .docs-category-heading {
+    font-size: 0.7rem;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--muted);
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 0.4rem;
+    margin: 0 0 0.7rem;
+  }
+  .docs-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: var(--s-4);
+  }
+  .doc-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.8rem 0.9rem;
+    text-decoration: none;
+    color: var(--text);
+    transition: border-color 150ms, box-shadow 150ms;
+    display: block;
+  }
+  .doc-card:hover { border-color: var(--border-hi); box-shadow: var(--elev-1); }
+  .doc-card .dc-title { color: var(--text-hi); font-size: 0.84rem; margin: 0 0 0.2rem; }
+  .doc-card .dc-desc  { color: var(--muted);   font-size: 0.72rem; margin: 0; line-height: 1.4; }
+  .doc-card .dc-meta  { color: var(--muted); font-size: 0.62rem; margin-top: 0.4rem; }
+  .dc-audience-badge {
+    display: inline-block;
+    font-size: 0.6rem;
+    padding: 0.05rem 0.35rem;
+    border-radius: 999px;
+    margin-left: 0.3rem;
+    vertical-align: middle;
+  }
+  .dc-audience-badge.beginner { background: rgba(0,255,65,.1);  color: var(--green); }
+  .dc-audience-badge.operator { background: rgba(0,212,255,.1); color: var(--blue);  }
+  .dc-audience-badge.architect{ background: rgba(180,142,255,.1); color: var(--purple); }
+
+  /* Fallback panel */
+  .docs-fallback {
+    text-align: center;
+    padding: 3rem 2rem;
+    color: var(--muted);
+    font-size: 0.82rem;
+  }
+  .docs-fallback a { color: var(--blue); }
+
+  /* Footer */
+  .docs-footer {
+    margin-top: 2.5rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border);
+    font-size: 0.72rem;
+    color: var(--muted);
+  }
+  .docs-footer a { color: var(--blue); }
+
+  /* Responsive collapse */
+  @media (max-width: 600px) {
+    .docs-featured-strip, .docs-grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+{% set active = "docs" %}{% include "_nav.html" %}
+
+<div class="docs-hub">
+
+  {# ── Hero ──────────────────────────────────────────────────────────── #}
+  <div class="docs-hero">
+    <h1>Lab Docs</h1>
+    <p>Reference, guides, and concepts for running your local AI lab.</p>
+    <input type="search" id="docs-search" placeholder="Filter docs by title, tag, or description…"
+           aria-label="Filter docs" autocomplete="off">
+  </div>
+
+  {% if not cats %}
+  {# ── Fallback panel (F1: empty registry) ─────────────────────────── #}
+  <div class="docs-fallback">
+    <p>Docs catalog is unavailable right now.</p>
+    <p>Try <code>./arailctl pkb ingest</code> or read
+       <a href="/docs/INDEX.md">docs/INDEX.md</a> directly.</p>
+  </div>
+
+  {% else %}
+
+  {# ── Featured strip ───────────────────────────────────────────────── #}
+  {% if featured %}
+  <p class="docs-featured-label">Featured</p>
+  <div class="docs-featured-strip" data-filter-group>
+    {% for doc in featured %}
+    <a class="docs-featured-card doc-card-filterable"
+       href="/docs/{{ doc.slug }}.md"
+       data-slug="{{ doc.slug }}"
+       data-filter-text="{{ doc.title|lower }} {{ doc.description|lower }} {{ doc.tags|join(' ') }}">
+      <div class="fc-title">{{ doc.title }}</div>
+      {% if doc.description %}<p class="fc-desc">{{ doc.description }}</p>{% endif %}
+      <div class="fc-meta">{{ doc.read_minutes }} min read &middot; {{ doc.category }}</div>
+    </a>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {# ── Recently updated chips ───────────────────────────────────────── #}
+  {% if recent %}
+  <div class="docs-recent">
+    <span class="docs-featured-label">Recently updated</span>
+    <div class="docs-recent-chips">
+      {% for doc in recent %}
+      <a class="docs-recent-chip" href="/docs/{{ doc.slug }}.md">{{ doc.title }}</a>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  {# ── Category sections ────────────────────────────────────────────── #}
+  {% for category, docs in cats.items() %}
+  <div class="docs-category" data-filter-group>
+    <div class="docs-category-heading">{{ category }}</div>
+    <div class="docs-grid">
+      {% for doc in docs %}
+      <a class="doc-card doc-card-filterable"
+         href="/docs/{{ doc.slug }}.md"
+         data-slug="{{ doc.slug }}"
+         data-filter-text="{{ doc.title|lower }} {{ doc.description|lower }} {{ doc.tags|join(' ') }}">
+        <div class="dc-title">
+          {{ doc.title }}
+          <span class="dc-audience-badge {{ doc.audience }}">{{ doc.audience }}</span>
+        </div>
+        {% if doc.description %}<p class="dc-desc">{{ doc.description }}</p>{% endif %}
+        <div class="dc-meta">{{ doc.read_minutes }} min read</div>
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+  {% endfor %}
+
+  {% endif %}{# end if cats #}
+
+  {# ── Footer ───────────────────────────────────────────────────────── #}
+  <div class="docs-footer">
+    Want to add a doc?
+    See <a href="/docs/REPOSITORY_LAYOUT.md">REPOSITORY_LAYOUT.md</a>
+    for the docs/ convention.
+  </div>
+
+</div>{# .docs-hub #}
+
+<script src="/static/nav.js"></script>
+<script>
+/* Client-side substring filter across title + description + tags.
+   All filtering reads textContent / data attributes — no innerHTML writes (F8). */
+(function () {
+  var input = document.getElementById('docs-search');
+  if (!input) return;
+  input.addEventListener('input', function () {
+    var q = input.value.trim().toLowerCase();
+    var cards = document.querySelectorAll('.doc-card-filterable');
+    cards.forEach(function (card) {
+      var haystack = (card.dataset.filterText || '') + ' ' + (card.textContent || '').toLowerCase();
+      card.style.display = (!q || haystack.indexOf(q) !== -1) ? '' : 'none';
+    });
+    /* Hide empty category sections */
+    document.querySelectorAll('[data-filter-group]').forEach(function (group) {
+      var visible = group.querySelectorAll('.doc-card-filterable:not([style*="none"])');
+      group.style.display = (visible.length === 0 && q) ? 'none' : '';
+    });
+  });
+}());
+</script>
+</body>
+</html>

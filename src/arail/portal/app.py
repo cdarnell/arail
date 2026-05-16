@@ -1817,9 +1817,78 @@ async def docs_design_redirect():
     return RedirectResponse(url="/docs/portal-design.md", status_code=301)
 
 
+# ---------------------------------------------------------------------------
+# Docs Hub helpers — pure functions; no I/O; tested directly in unit tests.
+# ---------------------------------------------------------------------------
+
+def _filter_by_tier(
+    cats: dict[str, tuple],
+    tier: str,
+) -> dict[str, tuple]:
+    """Drop docs whose audience is not allowed on `tier`.
+
+    Allowed sets:
+      min: beginner, operator
+      max: beginner, operator, architect
+    Categories that become empty after filtering are omitted.
+    """
+    allowed: frozenset[str]
+    if tier == "max":
+        allowed = frozenset({"beginner", "operator", "architect"})
+    else:
+        allowed = frozenset({"beginner", "operator"})
+    result: dict[str, tuple] = {}
+    for cat, docs in cats.items():
+        visible = tuple(d for d in docs if d.audience in allowed)
+        if visible:
+            result[cat] = visible
+    return result
+
+
+_FEATURED_SLUGS: tuple[str, ...] = ("agents-explained", "BUDDY", "api-conventions")
+
+
+def _featured_docs(cats: dict[str, tuple]) -> tuple:
+    """Return up to 3 hand-picked featured docs (architect §4.3).
+
+    Skips any slug not present in the tier-filtered cats.
+    """
+    all_visible = {d.slug: d for docs in cats.values() for d in docs}
+    result = []
+    for slug in _FEATURED_SLUGS:
+        if slug in all_visible and len(result) < 3:
+            result.append(all_visible[slug])
+    return tuple(result)
+
+
+def _recently_updated(cats: dict[str, tuple], days: int = 7) -> tuple:
+    """Docs modified within `days` days, newest first, up to 5 (architect §4.4)."""
+    import time as _time
+    cutoff = _time.time() - days * 86400
+    candidates = [d for docs in cats.values() for d in docs if d.mtime > cutoff]
+    candidates.sort(key=lambda d: d.mtime, reverse=True)
+    return tuple(candidates[:5])
+
+
+# ---------------------------------------------------------------------------
+# Docs Hub route — replaces the redirect at the original docs_landing.
+# ---------------------------------------------------------------------------
+
 @app.get("/docs", response_class=HTMLResponse)
-async def docs_landing():
-    return RedirectResponse(url="/docs/INDEX.md", status_code=302)
+async def docs_hub(request: Request):
+    """Docs Hub landing — registry-driven library replacing the /docs redirect."""
+    tier = _current_tier()
+    raw_cats = _docs_registry.by_category()
+    cats = _filter_by_tier(raw_cats, tier)
+    featured = _featured_docs(cats)
+    recent = _recently_updated(cats)
+    return templates.TemplateResponse(request, "docs_hub.html", {
+        "cats": cats,
+        "featured": featured,
+        "recent": recent,
+        "tier": tier,
+        "nav_active": "docs",
+    })
 
 
 def _render_markdown_page(request: Request, target: Path, *, doc_path: str,
