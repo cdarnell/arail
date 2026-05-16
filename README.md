@@ -10,6 +10,15 @@ loop that runs experiments while you sleep.
 ARAIL evolves with Autoresearch from Karpathy.   Draft, review and approve a plan to begin experimenting and researching  
 <img width="852" height="639" alt="Screenshot 2026-05-01 at 8 01 48 PM" src="https://github.com/user-attachments/assets/17a0eb3a-2160-4c5f-b980-2289a75424b0" />
 
+>
+>
+> *A learn-by-doing AI research lab for friends, family, and the curious.*
+> Default name is **Autoresearch AI Lab**. Rename it to whatever you want in one
+> line of `.env` — "Sam's AI Lab", "gentoofoo's ai lab", "PeanutLab". It's
+> your lab.
+>
+>
+
 
 <img width="1398" height="783" alt="Screenshot 2026-05-01 at 8 08 10 PM" src="https://github.com/user-attachments/assets/c6eeff47-975f-4ed9-bf0b-13080e8d76a7" />
 
@@ -23,12 +32,7 @@ Inference from an AI Engineer built by Nucleus
 
 
 
->
->
-> *A learn-by-doing AI research lab for friends, family, and the curious.*
-> Default name is **Autoresearch AI Lab**. Rename it to whatever you want in one
-> line of `.env` — "Sam's AI Lab", "gentoofoo's ai lab", "PeanutLab". It's
-> your lab.
+
 
 
 ---
