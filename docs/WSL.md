@@ -1,3 +1,17 @@
+---
+title: Windows WSL Setup
+category: Getting Started
+order: 4
+tags:
+  - windows
+  - wsl
+  - setup
+  - install
+audience: beginner
+related:
+  - INSTALL
+  - TROUBLESHOOTING
+---
 # Windows WSL — Arail Setup
 
 Run Arail on Windows via WSL2 with Nvidia GPU passthrough.

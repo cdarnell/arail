@@ -1,3 +1,16 @@
+---
+title: Roadmap
+category: Reference
+order: 90
+tags:
+  - roadmap
+  - planning
+  - reference
+audience: operator
+related:
+  - BLUEPRINTS
+  - CONTRIBUTING
+---
 # ARAIL Roadmap
 
 > Now / Next / Later view. Living document — reorder freely. Big tracks link

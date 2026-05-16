@@ -1,3 +1,17 @@
+---
+title: Design Spec
+description: "ARAIL's design contract — terminal-hacker aesthetic, server-rendered, progressive disclosure as pedagogy."
+category: Design
+order: 5
+tags:
+  - design
+  - philosophy
+  - architecture
+audience: architect
+related:
+  - BLUEPRINTS
+  - agents-explained
+---
 # Design Spec
 
 This file is the design contract for ARAIL's operator-facing UI.

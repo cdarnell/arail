@@ -1,3 +1,17 @@
+---
+title: Agents — Architecture Reference
+category: Reference
+order: 5
+tags:
+  - agents
+  - architecture
+  - reference
+audience: operator
+related:
+  - agents-explained
+  - BUDDY
+  - api-conventions
+---
 # Agents — Architecture
 
 This is the reference. If you're here to **understand** what an

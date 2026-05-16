@@ -1,3 +1,16 @@
+---
+title: Privacy Model
+category: Operating
+order: 5
+tags:
+  - privacy
+  - security
+  - airgap
+audience: beginner
+related:
+  - INSTALL
+  - api-conventions
+---
 # Arail Privacy Model
 
 Arail is designed to run **entirely on your machine**. This document is

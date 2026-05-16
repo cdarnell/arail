@@ -86,6 +86,22 @@
     </button>
   </div>
 
+  <!-- Official Docs cross-link — surfaces the /docs hub for users who
+       land on Knowledge first. Only shown when the docs surface is
+       available in the current tier. -->
+  {% if 'docs' in tier_surfaces %}
+  <div class="kb-docs-banner">
+    <a href="/docs" class="kb-docs-banner-link">
+      <span class="kb-docs-banner-icon">📖</span>
+      <div class="kb-docs-banner-body">
+        <strong class="kb-docs-banner-title">Official Docs</strong>
+        <span class="kb-docs-banner-hint">Curated lab docs — install, agents, Buddy, API conventions.</span>
+      </div>
+      <span class="kb-docs-banner-arrow">→</span>
+    </a>
+  </div>
+  {% endif %}
+
   <!-- Ingest surface (PROPOSAL §3.4) — six tiles collapsed behind a
        single "Add content ▾" disclosure. Existing data-upload-accept
        handlers + the by-id wiring (kb-ingest-url, kb-install-pack,

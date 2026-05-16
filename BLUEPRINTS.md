@@ -1,3 +1,16 @@
+---
+title: Blueprints
+category: Design
+order: 10
+tags:
+  - blueprints
+  - design
+  - philosophy
+audience: beginner
+related:
+  - design
+  - CONTRIBUTING
+---
 # Blueprints
 
 A blueprint is a lab you can run. It ships with a goal (or asks for one), a

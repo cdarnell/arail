@@ -1,3 +1,19 @@
+---
+title: Install Guide
+description: "A friendly walkthrough for getting the lab running on your machine — no prior experience needed."
+category: Getting Started
+order: 1
+tags:
+  - install
+  - setup
+  - getting-started
+audience: beginner
+related:
+  - MACOS
+  - LINUX
+  - WSL
+  - TROUBLESHOOTING
+---
 # Install Guide — Autoresearch AI Lab
 
 A friendly walkthrough. If you've never run a Python app from a terminal

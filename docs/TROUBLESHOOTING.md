@@ -1,3 +1,18 @@
+---
+title: Troubleshooting
+category: Operating
+order: 20
+tags:
+  - troubleshooting
+  - setup
+  - debugging
+audience: beginner
+related:
+  - INSTALL
+  - MACOS
+  - LINUX
+  - WSL
+---
 # Arail Troubleshooting
 
 First-run bumps and their fixes. Runs top-to-bottom in rough order of

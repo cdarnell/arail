@@ -96,7 +96,7 @@ _METRICS_LOCK = _threading.Lock()
 # Tier gating — the nav shows only the surfaces matching the current tier.
 # Two tiers: min (everyday) and max (full bench). Upgrade with ./arailctl upgrade max.
 _TIER_SURFACES: dict[str, set[str]] = {
-    "min": {"dashboard", "chat", "research", "knowledge", "agents"},
+    "min": {"dashboard", "chat", "research", "knowledge", "agents", "docs"},
     "max": {"dashboard", "chat", "research", "knowledge", "agents",
             "admin", "docs", "notebooks", "terminal", "tuning", "plugins"},
 }

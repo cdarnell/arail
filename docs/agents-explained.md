@@ -1,3 +1,18 @@
+---
+title: Agents, Explained
+description: "The on-ramp to understanding how agents work in this lab — what they do, how they talk to each other, and how to create your own."
+category: Concepts
+order: 5
+tags:
+  - agents
+  - buddy
+  - getting-started
+audience: beginner
+related:
+  - agents
+  - BUDDY
+buddy_prompt: "Walk me through what an agent loop does, using the lab I'm in as the example."
+---
 # Agents, explained
 
 This is the on-ramp. If you want the reference manual, see

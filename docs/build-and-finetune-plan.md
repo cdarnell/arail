@@ -1,3 +1,17 @@
+---
+title: Build & Fine-Tuning Pipeline
+category: Reference
+order: 60
+tags:
+  - models
+  - fine-tuning
+  - architecture
+  - reference
+audience: architect
+related:
+  - CERTIFIED_MODELS
+  - tuning-loop
+---
 # ARAIL — Build, Model Management & Fine-Tuning Pipeline
 
 > Implementation plan for the local model lifecycle: download → register → fit-check → load (full / streaming / hybrid) → infer → fine-tune → re-register. Owns the contract between AeroLLM, the QuKaizen swarm, and the portal UI.

@@ -1,3 +1,18 @@
+---
+title: Buddy — Your Lab Partner
+description: "Meet Buddy: the lab's context-aware agent who tracks your goals, surfaces insights, and keeps the research loop running."
+category: Concepts
+order: 10
+tags:
+  - buddy
+  - agents
+  - getting-started
+audience: beginner
+related:
+  - agents-explained
+  - agents
+buddy_prompt: "Walk me through what Buddy does for me in this lab — what can I ask you right now?"
+---
 # Buddy
 
 Buddy is the lab's personality agent — context-aware, goal-tracking, offline by

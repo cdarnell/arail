@@ -17,10 +17,10 @@ Origin: platform-foundation sprint carryover (accepted as WEAK_PASS; stream trea
 |---|---|---|---|---|---|---|
 | think | visionary | VISION.md | skipped | — | — | — |
 | plan | architect (design) | ARCHITECTURE.md | done | 2026-05-15T23:10Z | 2026-05-15T23:24Z | proceed |
-| build | builder | BUILD_LOG.md | pending | — | — | — |
-| review | architect (review) | REVIEW.md | pending | — | — | — |
-| test | qa | TEST_REPORT.md | pending | — | — | — |
-| ship | — | PR | pending | — | — | — |
+| build | builder | BUILD_LOG.md | done | 2026-05-16T00:00Z | 2026-05-16T00:00Z | done |
+| review | architect (review) | REVIEW.md | done | 2026-05-16T00:00Z | 2026-05-16T00:00Z | PASS |
+| test | qa | TEST_REPORT.md | done | 2026-05-16T00:00Z | 2026-05-16T00:00Z | PASS |
+| ship | — | direct-to-main | done | 2026-05-16T00:00Z | 2026-05-16T00:00Z | shipped |
 
 ## Decisions log
 

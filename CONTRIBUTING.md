@@ -1,3 +1,16 @@
+---
+title: Contributing to Arail
+category: Reference
+order: 95
+tags:
+  - contributing
+  - reference
+  - community
+audience: architect
+related:
+  - BLUEPRINTS
+  - SECURITY
+---
 # Contributing to Arail
 
 Thanks for being here. Arail is a blueprint, not a product — it's meant to be forked, vibe-integrated, and re-shaped for your own platform. Contributions that strengthen the blueprint itself are welcome.

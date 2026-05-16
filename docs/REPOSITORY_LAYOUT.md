@@ -1,3 +1,15 @@
+---
+title: Repository Layout
+category: Reference
+order: 50
+tags:
+  - reference
+  - architecture
+  - layout
+audience: operator
+related:
+  - agents-explained
+---
 # Repository Layout Plan
 
 This is the staged cleanup plan for keeping ARAIL shareable while active
