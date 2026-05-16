@@ -81,6 +81,12 @@ _ROOT_DENYLIST: frozenset[str] = frozenset(
     }
 )
 
+# S1 (docs-hub-sprint-1 QA finding): ensure root-denied names are also blocked
+# under docs/, so an accidental drop of CLAUDE.md (or similar) into docs/ never
+# registers as a user-facing doc. Compose at module level rather than per-walk
+# so the invariant is visible in the source.
+_DOCS_DENYLIST = _DOCS_DENYLIST | _ROOT_DENYLIST
+
 # Curated allowlist for repo-root docs (only these are included from root).
 _ROOT_ALLOWLIST: frozenset[str] = frozenset(
     {

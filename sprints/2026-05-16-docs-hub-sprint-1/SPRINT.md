@@ -19,14 +19,14 @@ Sprint 1 of the Docs Hub + Knowledge Base unification effort. Scope is **Phase F
 
 ## Phases
 
-| Phase | Subagent | Artifact | Status | Started | Finished | Verdict |
-|---|---|---|---|---|---|---|
-| think | visionary | VISION.md | **skipped** | — | — | see decisions log |
-| plan | architect (design) | ARCHITECTURE.md | pending | — | — | — |
-| build | builder | BUILD_LOG.md | pending | — | — | — |
-| review | architect (review) | REVIEW.md | pending | — | — | — |
-| test | qa | TEST_REPORT.md | pending | — | — | — |
-| ship | — | PR | pending | — | — | — |
+| Phase | Subagent | Artifact | Status | Finished | Verdict |
+|---|---|---|---|---|---|
+| think | visionary | VISION.md | **skipped** | — | see decisions log |
+| plan | architect (design) | ARCHITECTURE.md | done | 2026-05-16 | — |
+| build | builder | BUILD_LOG.md | done | 2026-05-16 | 36/36 tests pass |
+| review | architect (review) | REVIEW.md | done | 2026-05-16 | **PASS** (after BLOCK → git hygiene fix → re-review) |
+| test | qa | TEST_REPORT.md | done | 2026-05-16 | **PASS** (20 new edge-case tests, no CRITICAL findings) |
+| ship | — | PR #56 | done | 2026-05-16 | merged to main as part of "Close health-stream-tier-filter sprint + docs-hub-sprint-1 scaffold" |
 
 ## Decisions log
 

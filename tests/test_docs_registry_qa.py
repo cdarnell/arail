@@ -258,17 +258,9 @@ def test_all_files_denylisted_returns_empty(monkeypatch, tmp_path):
 
 
 def test_root_denylist_files_in_docs_dir_dont_leak(monkeypatch, tmp_path):
-    """If a contributor drops CLAUDE.md / AGENTS.md / README.md into docs/,
-    the registry walks docs/ unconditionally — these names are NOT in
-    _DOCS_DENYLIST today. This test pins the behavior so the next change
-    is conscious.
-
-    Pre-merge expectation: these files DO get registered (with default
-    metadata) because docs/ is walked indiscriminately. If a security
-    reviewer disagrees, the fix is to extend _DOCS_DENYLIST or to filter
-    by allowlist instead.
-
-    This test asserts the current behavior so unintended changes surface.
+    """S1 fix (sprint-1 QA): root-denied names dropped into docs/ must NOT
+    register as user-facing docs. _DOCS_DENYLIST is composed with
+    _ROOT_DENYLIST at module load to enforce this symmetrically.
     """
     docs = tmp_path / "docs"
     _write(docs / "CLAUDE.md", "---\ntitle: CLAUDE\n---\n# CLAUDE\n")
@@ -278,12 +270,10 @@ def test_root_denylist_files_in_docs_dir_dont_leak(monkeypatch, tmp_path):
     reg = _fresh_registry(monkeypatch, docs, tmp_path)
     slugs = {d.slug for d in reg.all_docs()}
     assert "real" in slugs
-    # Document the current behavior: these DO leak through docs/.
-    # (If this test ever needs to flip, expand _DOCS_DENYLIST.)
-    assert {"CLAUDE", "AGENTS", "README"}.issubset(slugs), (
-        "Pinned current behavior: root-denylist names dropped into docs/ "
-        "are registered. If this changed, update _DOCS_DENYLIST and this "
-        "test in tandem — it is a security-relevant change."
+    assert slugs.isdisjoint({"CLAUDE", "AGENTS", "README"}), (
+        "Root-denylist names dropped into docs/ must not register. "
+        "If this assertion fails, the denylist composition at module load "
+        "regressed — restore the `_DOCS_DENYLIST | _ROOT_DENYLIST` line."
     )
 
 
