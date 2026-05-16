@@ -1,3 +1,16 @@
+---
+title: Autoresearch Tuning Loop
+category: Operating
+order: 10
+tags:
+  - autoresearch
+  - tuning
+  - inference
+audience: operator
+related:
+  - tunables
+  - missions
+---
 # Autoresearch Tuning Loop — `/tuning`
 
 The `/tuning` page is the single-pane view for measuring and

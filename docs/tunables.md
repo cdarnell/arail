@@ -1,3 +1,17 @@
+---
+title: Tunables — Chat Studio Controls
+category: Reference
+order: 30
+tags:
+  - chat
+  - tunables
+  - reference
+  - inference
+audience: operator
+related:
+  - tuning-loop
+  - api-conventions
+---
 # Tunables — what every knob actually does
 
 > A working glossary for the **Chat Studio** at `/chat`. Every parameter the UI exposes is here with: what it does, when to change it, and what it costs. Read top to bottom for an intro to GenAI control surfaces, or jump to the slider you're staring at right now.

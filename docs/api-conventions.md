@@ -1,3 +1,18 @@
+---
+title: ARAIL API Conventions
+description: "Reference for all /api/* endpoints: response shapes, error codes, streaming rules, and airgap gating."
+category: Reference
+order: 10
+tags:
+  - api
+  - reference
+  - conventions
+audience: operator
+related:
+  - agents-explained
+  - agents
+buddy_prompt: "Show me how the API is shaped so I can wire up my own tooling against this lab."
+---
 # ARAIL API Conventions
 
 **Scope:** All new `/api/*` endpoints added in sprint `2026-05-14-platform-foundation`

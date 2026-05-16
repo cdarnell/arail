@@ -1,3 +1,16 @@
+---
+title: Vibe Integration During Setup
+category: Getting Started
+order: 10
+tags:
+  - setup
+  - getting-started
+  - customisation
+audience: beginner
+related:
+  - INSTALL
+  - agents-explained
+---
 # Arail — Vibe Integration During Setup
 
 Vibe integration is the first-run act of translating the Arail blueprint to

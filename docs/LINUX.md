@@ -1,3 +1,16 @@
+---
+title: Linux Setup
+category: Getting Started
+order: 3
+tags:
+  - linux
+  - setup
+  - install
+audience: operator
+related:
+  - INSTALL
+  - TROUBLESHOOTING
+---
 # Linux — Bring Your Own Distro
 
 Arail is distro-neutral. The Python package, the portal, the agents,

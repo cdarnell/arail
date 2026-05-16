@@ -1,3 +1,16 @@
+---
+title: Publishing Your Lab
+category: Operating
+order: 30
+tags:
+  - publish
+  - networking
+  - security
+audience: operator
+related:
+  - PRIVACY
+  - INSTALL
+---
 # Publishing Your Lab to the Public Internet
 
 This guide covers what it takes to expose an ARAIL instance beyond

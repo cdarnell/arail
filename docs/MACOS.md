@@ -1,3 +1,17 @@
+---
+title: macOS Setup
+category: Getting Started
+order: 2
+tags:
+  - macos
+  - setup
+  - install
+  - apple-silicon
+audience: beginner
+related:
+  - INSTALL
+  - TROUBLESHOOTING
+---
 # macOS — Arail Setup
 
 Apple Silicon Macs run inference natively via MLX — no cloud needed.

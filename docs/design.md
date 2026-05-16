@@ -1,3 +1,16 @@
+---
+title: Design Spec
+category: Design
+order: 10
+tags:
+  - design
+  - architecture
+  - philosophy
+audience: architect
+related:
+  - agents-explained
+  - api-conventions
+---
 # ARAIL — Design Spec
 
 > A rail gun for AI. Terminal‑hacker aesthetic, server‑rendered, no JS frameworks.

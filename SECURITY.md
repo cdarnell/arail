@@ -1,3 +1,16 @@
+---
+title: Security Policy
+category: Operating
+order: 1
+tags:
+  - security
+  - privacy
+  - operating
+audience: operator
+related:
+  - PRIVACY
+  - PUBLISH
+---
 # Security Policy
 
 ## Scope

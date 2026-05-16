@@ -1,3 +1,16 @@
+---
+title: Missions, Explained
+category: Concepts
+order: 20
+tags:
+  - missions
+  - autoresearch
+  - swarm
+audience: beginner
+related:
+  - agents-explained
+  - tuning-loop
+---
 # Missions, explained
 
 You typed a goal. You hit **Draft Swarm Plan**. Some boxes appeared.

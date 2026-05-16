@@ -1,3 +1,17 @@
+---
+title: Certified & Compatible Models
+category: Reference
+order: 20
+tags:
+  - models
+  - reference
+  - hardware
+audience: operator
+related:
+  - INSTALL
+  - MACOS
+  - LINUX
+---
 # Certified & Compatible Models
 
 This page lists the models we've tested with ARAIL and the status of each
