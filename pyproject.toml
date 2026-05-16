@@ -28,6 +28,7 @@ dependencies = [
     "markdown-it-py>=3.0.0",
     "python-multipart>=0.0.9",
     "pyyaml>=6.0",
+    "python-frontmatter>=1.1.0",
     "tomli>=2.0.1; python_version < '3.11'",
     "lancedb>=0.13.0",
 ]
