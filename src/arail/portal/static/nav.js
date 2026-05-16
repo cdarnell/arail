@@ -223,125 +223,149 @@
       });
   });
 
-  // -- Segmented control: optimistic flip + single POST --
-  (function () {
-    var segmented = document.getElementById('airgap-toggle-segmented');
-    if (!segmented) return;
+  // -- Modal close: always works, multiple entry points --
+  function closeModal() {
+    var bd = document.getElementById('airgap-backdrop');
+    if (bd) bd.classList.remove('open');
+  }
 
-    var _errorTimer = null;
-
-    function _showError(msg) {
-      var el = document.getElementById('airgap-toggle-error');
-      if (!el) return;
-      el.textContent = msg;
-      el.style.display = '';
-      if (_errorTimer) clearTimeout(_errorTimer);
-      _errorTimer = setTimeout(function () {
-        el.style.display = 'none';
-        _errorTimer = null;
-      }, 5000);
-    }
-
-    function _setActive(mode) {
-      var btns = segmented.querySelectorAll('button[data-target]');
-      btns.forEach(function (btn) {
-        btn.classList.toggle('active', btn.dataset.target === mode);
-      });
-    }
-
-    function _setDisabled(disabled) {
-      var btns = segmented.querySelectorAll('button[data-target]');
-      btns.forEach(function (btn) {
-        btn.disabled = disabled;
-        btn.setAttribute('aria-disabled', disabled ? 'true' : 'false');
-      });
-    }
-
-    function _updatePill(mode) {
-      var pill = document.getElementById('airgap-mode-pill');
-      if (!pill) return;
-      pill.textContent = mode;
-      pill.className = 'mp-pill ' + (mode === 'airgapped' ? 'ok' : 'warn');
-    }
-
-    segmented.addEventListener('click', function (e) {
-      var btn = e.target.closest('button[data-target]');
-      if (!btn || btn.disabled) return;
-
-      var target = btn.dataset.target;
-      // Find the currently active half to revert to on error.
-      var prevActive = null;
-      var allBtns = segmented.querySelectorAll('button[data-target]');
-      allBtns.forEach(function (b) { if (b.classList.contains('active')) prevActive = b.dataset.target; });
-      if (prevActive === target) return; // already active, no-op
-
-      // Optimistic flip.
-      _setActive(target);
-      _updatePill(target);
-      _setDisabled(true);
-
-      var errEl = document.getElementById('airgap-toggle-error');
-      if (errEl) errEl.style.display = 'none';
-
-      fetch('/api/airgap/toggle', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ target: target }),
-      })
-        .then(function (r) {
-          return r.json().then(function (body) { return { ok: r.ok, status: r.status, body: body }; });
-        })
-        .then(function (res) {
-          _setDisabled(false);
-          if (res.ok && res.status === 200) {
-            // Confirmed — use server response as source of truth.
-            var confirmedMode = res.body.lab_mode || target;
-            _setActive(confirmedMode);
-            _updatePill(confirmedMode);
-            updateBadge(confirmedMode);
-          } else {
-            // Revert optimistic flip.
-            _setActive(prevActive);
-            _updatePill(prevActive);
-            var errCode = res.body && res.body.error;
-            var msg;
-            if (errCode === 'bind_not_loopback') {
-              msg = 'Toggle disabled when lab is bound beyond loopback. Edit `.env` directly.';
-            } else if (errCode === 'cross_origin') {
-              msg = 'This action must be initiated from the lab UI.';
-            } else if (errCode === 'invalid_target') {
-              msg = 'Toggle failed — please reload the modal.';
-            } else {
-              msg = 'Save failed — check server log.';
-            }
-            _showError(msg);
-          }
-        })
-        .catch(function () {
-          _setDisabled(false);
-          _setActive(prevActive);
-          _updatePill(prevActive);
-          _showError('Network error — flip not saved.');
-        });
-    });
-  })();
-
+  // Close button direct listener
   var airgapClose = document.getElementById('airgap-close');
   if (airgapClose) {
-    airgapClose.addEventListener('click', function () {
-      var bd = document.getElementById('airgap-backdrop');
-      if (bd) bd.classList.remove('open');
+    airgapClose.addEventListener('click', closeModal);
+  }
+
+  // Backdrop click-outside listener
+  var airgapBackdrop = document.getElementById('airgap-backdrop');
+  if (airgapBackdrop) {
+    airgapBackdrop.addEventListener('click', function (e) {
+      if (e.target === airgapBackdrop) closeModal();
     });
   }
-  (function () {
-    var bd = document.getElementById('airgap-backdrop');
-    if (bd) {
-      bd.addEventListener('click', function (e) {
-        if (e.target === bd) bd.classList.remove('open');
-      });
+
+  // Escape key to close
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && airgapBackdrop && airgapBackdrop.classList.contains('open')) {
+      closeModal();
     }
-  })();
+  });
+
+  // -- Segmented control: optimistic flip + single POST --
+  // Delegate listener on document level to ensure it catches all clicks
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest('.airgap-segmented button[data-target]');
+    if (!btn) return;
+
+    var target = btn.dataset.target;
+    if (!target || target.trim() === '') return;
+
+    // Double-check button is actually visible and enabled
+    var segmented = document.getElementById('airgap-toggle-segmented');
+    if (!segmented || segmented.style.display === 'none') return;
+
+    if (btn.disabled) return;
+
+    // Find the currently active button
+    var allBtns = document.querySelectorAll('.airgap-segmented button[data-target]');
+    var prevActive = null;
+    allBtns.forEach(function (b) {
+      if (b.classList.contains('active')) prevActive = b.dataset.target;
+    });
+    if (prevActive === target) return; // already active
+
+    // Optimistic flip
+    allBtns.forEach(function (b) {
+      b.classList.toggle('active', b.dataset.target === target);
+      b.disabled = true;
+    });
+
+    var pill = document.getElementById('airgap-mode-pill');
+    if (pill) {
+      pill.textContent = target;
+      pill.className = 'mp-pill ' + (target === 'airgapped' ? 'ok' : 'warn');
+    }
+
+    var errEl = document.getElementById('airgap-toggle-error');
+    if (errEl) errEl.style.display = 'none';
+
+    // Send toggle request
+    fetch('/api/airgap/toggle', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ target: target }),
+    })
+      .then(function (r) {
+        return r.json().then(function (body) {
+          return { ok: r.ok, status: r.status, body: body };
+        });
+      })
+      .then(function (res) {
+        // Re-enable all buttons
+        allBtns.forEach(function (b) { b.disabled = false; });
+
+        if (res.ok && res.status === 200) {
+          // Success: use server response as source of truth
+          var confirmedMode = res.body.lab_mode || target;
+          allBtns.forEach(function (b) {
+            b.classList.toggle('active', b.dataset.target === confirmedMode);
+          });
+          if (pill) {
+            pill.textContent = confirmedMode;
+            pill.className = 'mp-pill ' + (confirmedMode === 'airgapped' ? 'ok' : 'warn');
+          }
+          updateBadge(confirmedMode);
+        } else {
+          // Failure: revert optimistic flip
+          allBtns.forEach(function (b) {
+            b.classList.toggle('active', b.dataset.target === prevActive);
+          });
+          if (pill) {
+            pill.textContent = prevActive;
+            pill.className = 'mp-pill ' + (prevActive === 'airgapped' ? 'ok' : 'warn');
+          }
+
+          var errCode = res.body && res.body.error;
+          var msg = 'Save failed — check server log.';
+          if (errCode === 'bind_not_loopback') {
+            msg = 'Toggle disabled when lab is bound beyond loopback. Edit `.env` directly.';
+          } else if (errCode === 'cross_origin') {
+            msg = 'This action must be initiated from the lab UI.';
+          } else if (errCode === 'invalid_target') {
+            msg = 'Toggle failed — please reload the modal.';
+          }
+
+          if (errEl) {
+            errEl.textContent = msg;
+            errEl.style.display = '';
+            setTimeout(function () {
+              if (errEl) errEl.style.display = 'none';
+            }, 5000);
+          }
+        }
+      })
+      .catch(function (err) {
+        console.error('Toggle error:', err);
+        allBtns.forEach(function (b) { b.disabled = false; });
+
+        // Revert on network error
+        allBtns.forEach(function (b) {
+          b.classList.toggle('active', b.dataset.target === prevActive);
+        });
+        if (pill) {
+          pill.textContent = prevActive;
+          pill.className = 'mp-pill ' + (prevActive === 'airgapped' ? 'ok' : 'warn');
+        }
+
+        if (errEl) {
+          errEl.textContent = 'Network error — flip not saved.';
+          errEl.style.display = '';
+          setTimeout(function () {
+            if (errEl) errEl.style.display = 'none';
+          }, 5000);
+        }
+      });
+  });
 })();
 
 /* ── Whisper toast component ─────────────────────────────────────
