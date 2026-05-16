@@ -1076,3 +1076,46 @@ a.kb-reveal-btn { text-decoration: none; }
   .kb-url-form { flex-wrap: wrap; }
   .kb-url-input { flex-basis: 100%; }
 }
+
+/* ── Official Docs cross-link banner ──────────────────────────────────────── */
+.kb-docs-banner {
+  margin: 0 0 12px 0;
+}
+.kb-docs-banner-link {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  border: 1px solid rgba(122,162,247,.35);
+  border-radius: 8px;
+  background: rgba(122,162,247,.06);
+  color: var(--text);
+  text-decoration: none;
+  transition: background 0.15s, border-color 0.15s;
+}
+.kb-docs-banner-link:hover {
+  background: rgba(122,162,247,.14);
+  border-color: rgba(122,162,247,.6);
+}
+.kb-docs-banner-icon {
+  font-size: 1.2rem;
+  flex: 0 0 auto;
+}
+.kb-docs-banner-body {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.kb-docs-banner-title {
+  font-size: 0.9rem;
+}
+.kb-docs-banner-hint {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.kb-docs-banner-arrow {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 1rem;
+}

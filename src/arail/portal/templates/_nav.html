@@ -9,8 +9,9 @@
       /plugins  — linked from /admin  (one tap away from core lab config)
 
   Tier gating — `tier_surfaces` is a set injected by portal/app.py. Items
-  only render if their key is in the set. Default tier (min) shows only
-  dashboard + chat + research. Upgrade with `./arailctl upgrade med` or `max`.
+  only render if their key is in the set. Default tier (min) shows:
+  dashboard, chat, research, knowledge, agents, docs.
+  Upgrade with `./arailctl upgrade max`.
 #}
 {% set active = active|default('') %}
 {% set _ts = tier_surfaces|default(['dashboard','chat','research']|list) %}
@@ -33,6 +34,11 @@
   {% if 'knowledge' in _ts %}
   <a href="/knowledge"{% if active == 'knowledge' %} class="active"{% endif %}
      title="Knowledge Base — the lab's memory, curated by agents.">Knowledge</a>
+  {% endif %}
+
+  {% if 'docs' in _ts %}
+  <a href="/docs"{% if active == 'docs' %} class="active"{% endif %}
+     title="Docs — learn the lab.">Docs</a>
   {% endif %}
 
   {% if 'agents' in _ts %}
