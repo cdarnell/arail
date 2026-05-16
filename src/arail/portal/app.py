@@ -1891,8 +1891,80 @@ async def docs_hub(request: Request):
     })
 
 
+def _slugify(text: str) -> str:
+    """Convert heading text to a URL-safe id: lowercase, spaces→'-', strip non-[a-z0-9-]."""
+    s = text.lower().strip()
+    s = re.sub(r"\s+", "-", s)
+    s = re.sub(r"[^a-z0-9-]", "", s)
+    return s or "heading"
+
+
+def _render_with_toc(markdown_text: str) -> tuple[str, list[dict]]:
+    """Render markdown to HTML and extract H2/H3 TOC entries.
+
+    Returns (body_html, toc) where toc is a list of
+    {"level": 2|3, "id": str, "text": str} in document order.
+
+    IDs are injected into the rendered HTML via a post-render substitution so
+    that anchor links in the right rail work.  Duplicate heading texts get a
+    numeric suffix (F6).  Crashes in TOC extraction degrade gracefully to
+    toc=[] (F5).
+    """
+    try:
+        from markdown_it import MarkdownIt  # type: ignore[import-untyped]
+    except ImportError:
+        return markdown_text, []
+
+    md = MarkdownIt("commonmark", {"html": False, "linkify": True, "typographer": True})
+    md.enable(["table", "strikethrough"])
+
+    toc: list[dict] = []
+    id_counts: dict[str, int] = {}
+
+    try:
+        tokens = md.parse(markdown_text)
+        i = 0
+        while i < len(tokens):
+            tok = tokens[i]
+            if tok.type == "heading_open" and getattr(tok, "tag", None) in ("h2", "h3"):
+                level = int(tok.tag[1])
+                # Next token should be inline with the heading content
+                if i + 1 < len(tokens) and tokens[i + 1].type == "inline":
+                    text = tokens[i + 1].content.strip()
+                    base_id = _slugify(text)
+                    if base_id in id_counts:
+                        id_counts[base_id] += 1
+                        unique_id = f"{base_id}-{id_counts[base_id]}"
+                    else:
+                        id_counts[base_id] = 1
+                        unique_id = base_id
+                    toc.append({"level": level, "id": unique_id, "text": text})
+            i += 1
+    except Exception as exc:
+        _log.warning("docs: TOC extraction failed: %s — rendering without TOC", exc)
+        toc = []
+
+    # Render HTML
+    body_html = md.render(markdown_text)
+
+    # Inject stable id attributes into H2/H3 tags using the TOC order.
+    # We replace each occurrence in document order (the rendered order matches
+    # token order, so a simple sequential substitution is safe).
+    if toc:
+        for entry in toc:
+            tag = f"h{entry['level']}"
+            placeholder = f"<{tag}>"
+            replacement = f'<{tag} id="{entry["id"]}">'
+            body_html = body_html.replace(placeholder, replacement, 1)
+
+    return body_html, toc
+
+
 def _render_markdown_page(request: Request, target: Path, *, doc_path: str,
                           nav_active: str = "docs", doc_section: str = "docs") -> HTMLResponse:
+    """Render a markdown file.  Legacy callers (design, blueprints, etc.) use this
+    directly and get the simple single-column viewer without registry context.
+    The /docs/{path} route uses a widened version that adds TOC + registry context."""
     try:
         from markdown_it import MarkdownIt  # type: ignore[import-untyped]
     except ImportError:
@@ -1906,6 +1978,14 @@ def _render_markdown_page(request: Request, target: Path, *, doc_path: str,
         "doc_html": body_html,
         "nav_active": nav_active,
         "doc_section": doc_section,
+        # Sprint 2 context — not set by legacy callers; template degrades gracefully.
+        "doc": None,
+        "toc": [],
+        "siblings_prev": None,
+        "siblings_next": None,
+        "related": (),
+        "tier": _current_tier(),
+        "buddy_prompt_url": "",
     })
 
 
@@ -2007,7 +2087,58 @@ async def serve_local_doc(path: str, request: Request):
             f"<h1>Not found</h1><p>{path} is not in the docs directory.</p>",
             status_code=404,
         )
-    return _render_markdown_page(request, target, doc_path=path)
+    # --- Registry context (Sprint 2) ---
+    import urllib.parse as _urlparse
+    slug = Path(path).stem
+    tier = _current_tier()
+    doc = _docs_registry.get(slug)
+
+    # F15: audience gate — architect docs blocked on min tier
+    if doc is not None:
+        allowed = {"beginner", "operator"} if tier != "max" else {"beginner", "operator", "architect"}
+        if doc.audience not in allowed:
+            return templates.TemplateResponse(request, "doc_viewer.html", {
+                "doc_path": path,
+                "doc_html": "",
+                "nav_active": "docs",
+                "doc_section": "docs",
+                "doc": None,   # do NOT pass doc — would leak title in template
+                "toc": [],
+                "siblings_prev": None,
+                "siblings_next": None,
+                "related": (),
+                "tier": tier,
+                "buddy_prompt_url": "",
+                "tier_blocked": True,
+            })
+
+    body_html, toc = _render_with_toc(target.read_text(errors="replace"))
+
+    siblings_prev, siblings_next = _docs_registry.siblings(slug) if doc else (None, None)
+    related_docs = _docs_registry.related(slug, limit=3) if doc else ()
+
+    buddy_prompt_url = ""
+    if doc and doc.buddy_prompt:
+        buddy_prompt_url = (
+            "/chat?agent=buddy"
+            f"&seed={_urlparse.quote_plus(doc.buddy_prompt)}"
+            f"&doc={_urlparse.quote_plus(slug)}"
+        )
+
+    return templates.TemplateResponse(request, "doc_viewer.html", {
+        "doc_path": path,
+        "doc_html": body_html,
+        "nav_active": "docs",
+        "doc_section": "docs",
+        "doc": doc,
+        "toc": toc,
+        "siblings_prev": siblings_prev,
+        "siblings_next": siblings_next,
+        "related": related_docs,
+        "tier": tier,
+        "buddy_prompt_url": buddy_prompt_url,
+        "tier_blocked": False,
+    })
 
 
 @app.get("/autoresearch", response_class=HTMLResponse)
