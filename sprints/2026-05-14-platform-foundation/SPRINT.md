@@ -41,7 +41,7 @@ second drift from the first.
 | build | builder | BUILD_LOG.md | done | 2026-05-15T02:51Z | 2026-05-15T03:24Z | 7 commits, 82/82 tests pass; 1 spec gap surfaced (stream tier-gating) |
 | review | architect (review) | REVIEW.md | done | 2026-05-15T03:24Z | 2026-05-15T03:32Z | WEAK_PASS (stream tier-filter accepted with carryover) |
 | test | qa | TEST_REPORT.md | done | 2026-05-15T03:32Z | 2026-05-15T03:38Z | PASS (121/121, +39 paranoid; all architect probes clean) |
-| ship | — | PR | pending | — | — | — |
+| ship | — | PR #51 | done | 2026-05-15T03:39Z | 2026-05-15T03:39Z | opened |
 
 ## Decisions log
 
