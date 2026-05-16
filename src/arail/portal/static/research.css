@@ -845,7 +845,23 @@
 
 .rx-swarm-card {
   max-width: min(720px, 94vw);
+  max-height: min(90vh, calc(100vh - 60px));
   padding: 1.1rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+}
+.rx-swarm-card > h2,
+.rx-swarm-card > p,
+.rx-swarm-card > .rx-swarm-pills,
+.rx-swarm-card > .rx-modal-actions {
+  flex: 0 0 auto;
+}
+#rx-swarm-modal-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 0.25rem;
 }
 .rx-swarm-pills {
   display: flex;
