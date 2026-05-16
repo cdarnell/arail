@@ -21,18 +21,6 @@
   </span>
 </div>
 
-<section class="rx-preview-banner" id="rx-preview-banner" hidden>
-  <div class="rx-preview-banner-copy">
-    <span class="rx-preview-banner-kicker">Swarm Draft Ready</span>
-    <strong id="rx-preview-banner-title">A reviewed plan is waiting.</strong>
-    <span id="rx-preview-banner-meta">Review the worker lanes before launch.</span>
-  </div>
-  <div class="rx-preview-banner-actions">
-    <button class="rx-btn primary" type="button" id="rx-preview-review">Review draft</button>
-    <button class="rx-btn" type="button" id="rx-preview-discard">Discard</button>
-  </div>
-</section>
-
 <!-- ═══ Cockpit strip (top) ═══ -->
 <section class="rx-cockpit" id="rx-cockpit" hidden>
   <div class="rx-cockpit-left">
@@ -74,6 +62,19 @@
     <button class="rx-btn"         id="rx-btn-resume" title="Resume after pause">▶ Resume</button>
     <button class="rx-btn danger"  id="rx-btn-stop"   title="Stop the researcher">■ Stop</button>
     <button class="rx-btn"         id="rx-btn-new"    title="Replace the active goal with a new one">↻ Update Goal</button>
+    <button class="rx-btn danger"  id="rx-btn-reset"  title="Stop research and clear the current goal">⟲ Reset Goal</button>
+  </div>
+</section>
+
+<section class="rx-preview-banner" id="rx-preview-banner" hidden>
+  <div class="rx-preview-banner-copy">
+    <span class="rx-preview-banner-kicker">Swarm Draft Ready</span>
+    <strong id="rx-preview-banner-title">A reviewed plan is waiting.</strong>
+    <span id="rx-preview-banner-meta">Review the worker lanes before launch.</span>
+  </div>
+  <div class="rx-preview-banner-actions">
+    <button class="rx-btn primary" type="button" id="rx-preview-review">Review draft</button>
+    <button class="rx-btn" type="button" id="rx-preview-discard">Discard</button>
   </div>
 </section>
 
@@ -260,31 +261,10 @@
     <p>Set a goal and the lab drafts a swarm. Every winning variant becomes a branch —
        <code>autoresearch/&lt;id&gt;</code> — committed to your repo so you can review
        the diff, cherry-pick what works, and ignore what didn't. The ledger writes itself.</p>
-    <form class="rx-empty-form" id="rx-empty-form">
-      <textarea id="rx-empty-textarea"
-                placeholder="e.g. Help me plan my trip to Hokkaido Japan for 3 adults and 2 children in late September"
-                autofocus></textarea>
-      <div class="rx-empty-controls">
-        <label class="rx-scale-wrap" for="rx-empty-scale">
-          <span>Swarm</span>
-          <select id="rx-empty-scale">
-            <option value="compact">Compact</option>
-            <option value="balanced" selected>Balanced</option>
-            <option value="expanded">Expanded</option>
-          </select>
-        </label>
-        <button type="submit" class="rx-btn primary" id="rx-empty-submit">Draft Swarm Plan</button>
-      </div>
-    </form>
-    <!-- Live feedback slot — click latency on /api/goal can be seconds
-         while the parser runs, and users can't tell if the click landed.
-         Filled in by the form submit handler with a spinning dot + status. -->
-    <div id="rx-empty-status" class="rx-empty-status" style="display:none;"></div>
-    <div class="rx-empty-examples" id="rx-empty-examples">
-      <div class="rx-example" data-example="Help me plan my trip to Hokkaido Japan for 3 adults and 2 children in late September">Plan a Hokkaido trip — 3 adults, 2 kids, late September</div>
-      <div class="rx-example" data-example="Compare local LLM inference engines for code tasks">Compare local LLM inference engines for code tasks</div>
-      <div class="rx-example" data-example="Identify which RAG chunk sizes work best for technical docs">Identify which RAG chunk sizes work best for technical docs</div>
+    <div class="rx-empty-controls" style="justify-content:center;">
+      <button type="button" class="rx-btn primary" id="rx-empty-open">Set Research Goal</button>
     </div>
+    <div id="rx-empty-status" class="rx-empty-status" style="display:none;"></div>
   </div>
 </section>
 
@@ -308,8 +288,9 @@
 <!-- ═══ New-goal modal ═══ -->
 <div class="rx-modal" id="rx-modal" hidden>
   <div class="rx-modal-card">
-    <h2>Draft a new Autoresearch goal</h2>
-    <p>The current goal will be archived only after you review and approve the new swarm plan.</p>
+    <button class="rx-modal-close" id="rx-modal-x" type="button" aria-label="Close">&times;</button>
+    <h2>Set Research Goal</h2>
+    <p>Describe what you want to investigate. If a goal is already active, it's archived only after you review and approve the new swarm plan.</p>
     <textarea id="rx-modal-textarea"
               placeholder="e.g. Help me plan my trip to Hokkaido Japan for 3 adults and 2 children in late September"></textarea>
     <label class="rx-scale-wrap" for="rx-modal-scale">
@@ -329,6 +310,7 @@
 
 <div class="rx-modal" id="rx-swarm-modal" hidden>
   <div class="rx-modal-card rx-swarm-card">
+    <button class="rx-modal-close" id="rx-swarm-x" type="button" aria-label="Close">&times;</button>
     <h2>Review the worker lanes before launch</h2>
     <p>The lead researcher will coordinate these lanes after approval. Trim them or steer them now while the plan is still a draft.</p>
     <div class="rx-swarm-pills" id="rx-swarm-pills"></div>
@@ -436,7 +418,13 @@ async function fetchGoalPreview() {
     const r = await fetch('/api/goal/preview');
     if (!r.ok) return null;
     const data = await r.json();
-    return data && Object.keys(data).length ? data : null;
+    // A real, reviewable preview must carry a swarm plan. Half-records
+    // (e.g. residual {status:'approved'} after confirmation) get treated
+    // as absent so the stale banner is hidden.
+    if (!data || typeof data !== 'object') return null;
+    if (data.status && data.status !== 'preview') return null;
+    if (!data.swarm || typeof data.swarm !== 'object') return null;
+    return data;
   } catch (e) { return null; }
 }
 
@@ -526,8 +514,18 @@ function renderSwarmReview(preview) {
   `;
 }
 
-function openSwarmReviewModal() {
-  if (!RESEARCH.preview) return;
+async function openSwarmReviewModal() {
+  // Always refresh from server — the banner can outlive the server-side
+  // preview (e.g. the goal was already confirmed in another tab).
+  const fresh = await fetchGoalPreview();
+  if (fresh) RESEARCH.preview = fresh;
+  if (!RESEARCH.preview || !fresh) {
+    // Stale banner — hide it and re-sync everything.
+    RESEARCH.preview = null;
+    document.getElementById('rx-preview-banner').hidden = true;
+    if (typeof refreshAll === 'function') refreshAll();
+    return;
+  }
   renderSwarmReview(RESEARCH.preview);
   document.getElementById('rx-swarm-modal').hidden = false;
 }
@@ -1291,26 +1289,23 @@ document.addEventListener('DOMContentLoaded', () => {
     if (e.key === 'Escape') closeModal();
   });
 
-  // Empty state — capture the submit button so we can give the user
-  // immediate feedback (disable + spinner). The /api/goal call can
-  // run for several seconds while the parser extracts structure from
-  // the prose; without this feedback users think the click dropped.
-  document.getElementById('rx-empty-form').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const text = document.getElementById('rx-empty-textarea').value;
-    const scale = document.getElementById('rx-empty-scale').value;
-    if (!text.trim()) return;
-    await setNewGoal(text, {
-      button: document.getElementById('rx-empty-submit'),
-      statusSlot: true,
-      scale,
-    });
-  });
-  document.getElementById('rx-empty-examples').addEventListener('click', (e) => {
-    const card = e.target.closest('.rx-example');
-    if (!card) return;
-    document.getElementById('rx-empty-textarea').value = card.dataset.example;
-    document.getElementById('rx-empty-textarea').focus();
+  // Empty state — single entry point: opens the goal modal.
+  const emptyOpen = document.getElementById('rx-empty-open');
+  if (emptyOpen) emptyOpen.addEventListener('click', openModal);
+
+  // Reset Goal — stops research and clears the current goal/preview.
+  const resetBtn = document.getElementById('rx-btn-reset');
+  if (resetBtn) resetBtn.addEventListener('click', async () => {
+    if (!confirm('Clear the current goal and stop research?')) return;
+    resetBtn.disabled = true;
+    try {
+      const r = await fetch('/api/research/reset', { method: 'POST' });
+      if (!r.ok) throw new Error('reset failed');
+      window.location.reload();
+    } catch (err) {
+      resetBtn.disabled = false;
+      alert('Reset failed: ' + err.message);
+    }
   });
 
   // Global Esc closes modal

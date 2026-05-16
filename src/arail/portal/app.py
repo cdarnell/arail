@@ -2693,7 +2693,7 @@ async def agents_page(request: Request, view: str = "status"):
     safe_view = view if view in _AGENTS_VALID_VIEWS else "status"
     return templates.TemplateResponse(request, "agents.html", {
         "current_goal": goal_store.get_current(),
-        "mode": os.getenv("LAB_NETWORK_MODE", "hybrid").lower(),
+        "mode": _lab_mode(),
         "default_view": safe_view,
         "default_skill_id": None,
     })
@@ -2704,7 +2704,7 @@ async def agents_skills_index(request: Request):
     """Equivalent to /agents?view=skills — Skills panel of the Agents tab."""
     return templates.TemplateResponse(request, "agents.html", {
         "current_goal": goal_store.get_current(),
-        "mode": os.getenv("LAB_NETWORK_MODE", "hybrid").lower(),
+        "mode": _lab_mode(),
         "default_view": "skills",
         "default_skill_id": None,
     })
@@ -2719,7 +2719,7 @@ async def agents_skills_detail(request: Request, skill_id: str):
     """
     return templates.TemplateResponse(request, "agents.html", {
         "current_goal": goal_store.get_current(),
-        "mode": os.getenv("LAB_NETWORK_MODE", "hybrid").lower(),
+        "mode": _lab_mode(),
         "default_view": "skills",
         "default_skill_id": skill_id,
     })
@@ -3354,7 +3354,7 @@ async def admin_components():
 @app.get("/api/admin/check-updates")
 async def admin_check_updates():
     """Quick remote update check for all components."""
-    mode = os.getenv("ARAIL_MODE", "airgapped")
+    mode = _lab_mode()
     if mode == "airgapped":
         return {"airgapped": True, "updates_available": 0, "summary": "Airgapped — switch to Hybrid to check."}
     import subprocess as sp
@@ -3396,7 +3396,7 @@ async def admin_check_updates_stream():
     import time
     import subprocess as sp
 
-    mode = os.getenv("ARAIL_MODE", "airgapped")
+    mode = _lab_mode()
 
     async def _generate_airgapped():
         # Single explanatory event so the modal isn't just empty.
@@ -6678,7 +6678,7 @@ async def system_health():
             "passing_total": passing_total,
             "total": len(service_checks),
         },
-        "mode": os.getenv("ARAIL_MODE", "airgapped"),
+        "mode": _lab_mode(),
         "local_inference": local_inference,
     }
 
@@ -6980,7 +6980,7 @@ async def system_metrics(request: Request):
     active_provider = os.getenv("MODEL_BACKEND", "my_machine") or "my_machine"
 
     # --- Lab mode / tier ---
-    lab_mode = os.getenv("ARAIL_MODE", "airgapped")
+    lab_mode = _lab_mode()
     lab_tier = _current_tier()
 
     # --- Active agents ---
@@ -7026,7 +7026,7 @@ async def system_metrics(request: Request):
 
 @app.get("/api/system/mode")
 async def get_mode():
-    return {"mode": os.getenv("ARAIL_MODE", "airgapped")}
+    return {"mode": _lab_mode()}
 
 
 @app.post("/api/system/mode")
@@ -7037,21 +7037,28 @@ async def set_mode(request: Request):
     new_mode = body.get("mode", "").lower()
     if new_mode not in ("airgapped", "hybrid"):
         return {"ok": False, "error": "mode must be 'airgapped' or 'hybrid'"}
-    old_mode = os.getenv("ARAIL_MODE", "airgapped")
+    old_mode = _lab_mode()
+    # Keep LAB_MODE and ARAIL_MODE in lock-step so every reader (whether
+    # it consults _lab_mode(), LAB_MODE directly, or the legacy
+    # ARAIL_MODE) sees the same value.
     os.environ["ARAIL_MODE"] = new_mode
+    os.environ["LAB_MODE"] = new_mode
     # Persist to .env
     env_path = Path.cwd() / ".env"
     if env_path.exists():
         lines = env_path.read_text().splitlines()
-        out, replaced = [], False
+        out, seen = [], set()
         for line in lines:
             if line.startswith("ARAIL_MODE="):
-                out.append(f"ARAIL_MODE={new_mode}")
-                replaced = True
+                out.append(f"ARAIL_MODE={new_mode}"); seen.add("ARAIL_MODE")
+            elif line.startswith("LAB_MODE="):
+                out.append(f"LAB_MODE={new_mode}"); seen.add("LAB_MODE")
             else:
                 out.append(line)
-        if not replaced:
+        if "ARAIL_MODE" not in seen:
             out.append(f"ARAIL_MODE={new_mode}")
+        if "LAB_MODE" not in seen:
+            out.append(f"LAB_MODE={new_mode}")
         env_path.write_text("\n".join(out) + "\n")
     activity_log.emit(
         "system",
@@ -7255,7 +7262,9 @@ async def post_airgap_toggle(request: Request):
         return _err(500, {"error": "env_write_failed"})
 
     # ── Update in-process env + bust probe cache ──────────────────────
+    # Mirror to ARAIL_MODE so legacy readers stay in sync with this toggle.
     os.environ["LAB_MODE"] = target
+    os.environ["ARAIL_MODE"] = target
     invalidate_probe_cache()
 
     # ── Audit log ─────────────────────────────────────────────────────
@@ -7520,7 +7529,7 @@ async def knowledge_page(request: Request):
     return templates.TemplateResponse(request, "knowledge.html", {
         "pkb": data,
         "pkm": data,
-        "mode": os.getenv("ARAIL_MODE", "airgapped"),
+        "mode": _lab_mode(),
         "current_goal": current_goal,
         "inbox_path": str((pkb / "inbox").resolve()),
         "models_path": str(models_dir.resolve()),
@@ -7566,7 +7575,7 @@ async def browse_suggestions():
     return {
         "suggestions": suggestions,
         "goal": goal_text,
-        "mode": os.getenv("ARAIL_MODE", "airgapped"),
+        "mode": _lab_mode(),
     }
 
 
