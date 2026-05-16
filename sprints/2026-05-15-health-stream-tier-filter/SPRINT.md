@@ -16,7 +16,7 @@ Origin: platform-foundation sprint carryover (accepted as WEAK_PASS; stream trea
 | Phase | Subagent | Artifact | Status | Started | Finished | Verdict |
 |---|---|---|---|---|---|---|
 | think | visionary | VISION.md | skipped | — | — | — |
-| plan | architect (design) | ARCHITECTURE.md | pending | 2026-05-15T23:10Z | — | — |
+| plan | architect (design) | ARCHITECTURE.md | done | 2026-05-15T23:10Z | 2026-05-15T23:24Z | proceed |
 | build | builder | BUILD_LOG.md | pending | — | — | — |
 | review | architect (review) | REVIEW.md | pending | — | — | — |
 | test | qa | TEST_REPORT.md | pending | — | — | — |
@@ -27,6 +27,7 @@ Origin: platform-foundation sprint carryover (accepted as WEAK_PASS; stream trea
 | Date | Decision | Rationale |
 |---|---|---|
 | 2026-05-15 | Skip visionary phase | Bug fix shape with obvious win condition (tier-filter stream checks). Carryover from platform-foundation sprint with documented scope. |
+| 2026-05-15 | Annotate checks_all with service_id + inline filter | Reuses `_OPTIONAL_SERVICES` registry; avoids extracting helper (closures capture locals). Six-line filter using public symbols. |
 
 ## Skipped phases
 
@@ -36,7 +37,9 @@ Origin: platform-foundation sprint carryover (accepted as WEAK_PASS; stream trea
 
 ## Notes
 
-- Affected code: `src/arail/portal/app.py` lines ~6855-6857 (hardcoded checks in stream handler)
-- Comparison: `/api/system/health` uses `_OPTIONAL_SERVICES` registry; stream needs same filtering logic
+- Affected code: `src/arail/portal/app.py` lines ~6847-6870 (stream handler)
+- Design: Annotate `checks_all` with `service_id` (or None for tier-agnostic); filter during loop
+- Max-only services: Marimo, Open Notebook, Neo4j, Opencode
 - QA allocation: 30% setup / 30% Buddy / 20% security / 10% happy / 10% regression (per arail/CLAUDE.md)
-- Risk: Low — filtering stream events doesn't affect max-tier visibility, just removes checks from min-tier subscribers
+- Scope ceiling: ≤40 lines changed in app.py, one atomic commit
+- Tech debt: `check_opencode` missing entirely (gap predates sprint); `check_ide`, `check_mlx_openai` lack registry entry
