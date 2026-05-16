@@ -57,6 +57,7 @@ _UI_THEME = load_ui_theme()
 # handlers stay < 10 ms and < 50 ms respectively).
 # ---------------------------------------------------------------------------
 _BOOT_PERF: float = time.perf_counter()  # perf_counter at process import
+_READY: bool = False  # flipped True at the end of @app.on_event("startup")
 
 
 def _read_version() -> str:
@@ -719,6 +720,26 @@ async def _startup():
                     "warn",
                 )
         asyncio.create_task(_boot_security_scan())
+
+    # All startup work scheduled — flip the readiness flag so the UI
+    # overlay can dismiss. Background tasks (security scan, warmup) keep
+    # running independently; "ready" here means the portal can serve.
+    global _READY
+    _READY = True
+
+
+@app.get("/api/ready")
+async def get_ready():
+    """Lightweight readiness probe for the UI warmup overlay.
+
+    Returns once @app.on_event("startup") finishes — the heavy
+    background tasks (model warmup, security scan, KB index) keep
+    running, but the portal can serve normal requests at this point.
+    """
+    return {
+        "ready": _READY,
+        "boot_seconds": round(time.perf_counter() - _BOOT_PERF, 2),
+    }
 
 
 def _register_canvas_goal_listener(store: Any) -> None:
