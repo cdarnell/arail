@@ -60,3 +60,53 @@
           title="Resume scheduler">▶ Resume</button>
   {% endif %}
 </nav>
+
+<!-- Warmup overlay — covers the page until /api/ready returns ready:true,
+     so users don't click into a void during the ~10s post-restart boot.
+     Self-removes once ready or after a hard cap of 20s. -->
+<div id="lab-warmup-overlay" style="
+     position:fixed;inset:0;z-index:9999;
+     display:flex;flex-direction:column;align-items:center;justify-content:center;
+     gap:1rem;background:rgba(8,12,18,.92);color:#cfd8e0;
+     font-family:system-ui,-apple-system,sans-serif;backdrop-filter:blur(2px);">
+  <div style="
+       width:42px;height:42px;border:3px solid rgba(0,255,128,.2);
+       border-top-color:#00ff80;border-radius:50%;animation:lab-spin 0.9s linear infinite;"></div>
+  <div style="font-size:0.95rem;letter-spacing:0.04em;">Lab is warming up…</div>
+  <div id="lab-warmup-elapsed" style="font-size:0.72rem;color:#7c8a99;letter-spacing:0.06em;">0.0s</div>
+  <style>@keyframes lab-spin { to { transform: rotate(360deg); } }</style>
+</div>
+<script>
+(function () {
+  var overlay = document.getElementById('lab-warmup-overlay');
+  if (!overlay) return;
+  var elapsedEl = document.getElementById('lab-warmup-elapsed');
+  var t0 = performance.now();
+  var maxMs = 20000; // hard cap — never trap the user
+  function dismiss() {
+    overlay.style.transition = 'opacity 220ms';
+    overlay.style.opacity = '0';
+    setTimeout(function () { overlay.remove(); }, 240);
+  }
+  function poll() {
+    var elapsed = performance.now() - t0;
+    if (elapsedEl) elapsedEl.textContent = (elapsed / 1000).toFixed(1) + 's';
+    if (elapsed > maxMs) { dismiss(); return; }
+    fetch('/api/ready', { cache: 'no-store' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        if (data && data.ready) { dismiss(); return; }
+        setTimeout(poll, 400);
+      })
+      .catch(function () { setTimeout(poll, 600); });
+  }
+  // Skip the overlay entirely if the server is already ready on first paint.
+  fetch('/api/ready', { cache: 'no-store' })
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (data) {
+      if (data && data.ready) { overlay.remove(); return; }
+      poll();
+    })
+    .catch(poll);
+})();
+</script>
