@@ -16,7 +16,9 @@ ARAIL evolves with Autoresearch from Karpathy.   Draft, review and approve a pla
 
 
 Inference from an AI Engineer built by Nucleus
-<img width="1490" height="960" alt="image" src="https://github.com/user-attachments/assets/2726836d-e39e-4ebd-904c-7c4a8b64dfdf" />
+
+<img width="1423" height="727" alt="image" src="https://github.com/user-attachments/assets/4a6be689-a5cc-432f-a514-796d07f1938c" />
+
 
 
 
