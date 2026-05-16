@@ -226,14 +226,23 @@
   // -- Modal close: always works, multiple entry points --
   function closeModal() {
     var bd = document.getElementById('airgap-backdrop');
-    if (bd) bd.classList.remove('open');
+    if (bd) {
+      bd.classList.remove('open');
+      console.log('[airgap] modal closed');
+    }
   }
 
-  // Close button direct listener
-  var airgapClose = document.getElementById('airgap-close');
-  if (airgapClose) {
-    airgapClose.addEventListener('click', closeModal);
-  }
+  // Close button direct listener — high priority, stops propagation
+  (function () {
+    var airgapClose = document.getElementById('airgap-close');
+    if (!airgapClose) return;
+    airgapClose.addEventListener('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+      closeModal();
+    }, true); // Use capture phase to intercept early
+  })();
 
   // Backdrop click-outside listener
   var airgapBackdrop = document.getElementById('airgap-backdrop');
