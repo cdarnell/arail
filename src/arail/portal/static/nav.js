@@ -223,39 +223,20 @@
       });
   });
 
-  // -- Modal close: always works, multiple entry points --
-  function closeModal() {
-    var bd = document.getElementById('airgap-backdrop');
-    if (bd) {
-      bd.classList.remove('open');
-      console.log('[airgap] modal closed');
-    }
-  }
-
-  // Close button direct listener — high priority, stops propagation
-  (function () {
-    var airgapClose = document.getElementById('airgap-close');
-    if (!airgapClose) return;
-    airgapClose.addEventListener('click', function (e) {
-      e.preventDefault();
-      e.stopPropagation();
-      e.stopImmediatePropagation();
-      closeModal();
-    }, true); // Use capture phase to intercept early
-  })();
+  // -- Modal close: multiple fallback methods --
+  var airgapBackdrop = document.getElementById('airgap-backdrop');
 
   // Backdrop click-outside listener
-  var airgapBackdrop = document.getElementById('airgap-backdrop');
   if (airgapBackdrop) {
     airgapBackdrop.addEventListener('click', function (e) {
-      if (e.target === airgapBackdrop) closeModal();
+      if (e.target === airgapBackdrop) airgapBackdrop.classList.remove('open');
     });
   }
 
   // Escape key to close
   document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape' && airgapBackdrop && airgapBackdrop.classList.contains('open')) {
-      closeModal();
+      airgapBackdrop.classList.remove('open');
     }
   });
 
