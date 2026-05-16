@@ -437,54 +437,12 @@
       .profile-throughput .profile-pill-dot { background: #fbbf24; }
     </style>
 
-    <form class="goal-form" id="goal-form">
-      <span class="prompt-prefix">arail:~$</span>
-      <input id="goal-input" type="text"
-             placeholder="describe your goal — what do you want to build, grow, learn, or research?"
-             autocomplete="off"
-             value="{{ current_goal.goal_text if current_goal else '' }}" />
-      <label class="goal-scale-wrap" for="goal-swarm-scale"
-             title="How wide the swarm runs — sets how many parallel worker agents (lanes) the lead spawns.">
-        <span>Swarm</span>
-        <select id="goal-swarm-scale"
-                title="Compact = 3 lanes (lean), Balanced = 4 (default), Expanded = up to 6 (full specialist roster).">
-          <option value="compact"
-                  title="3 lanes — leanest swarm. Scout + Critic + 1 specialist. Fastest, cheapest.">Compact</option>
-          <option value="balanced" selected
-                  title="4 lanes — default. Scout + Critic + 2 specialists.">Balanced</option>
-          <option value="expanded"
-                  title="Up to 6 lanes — Scout + Critic + the goal archetype's full specialist roster. Most thorough.">Expanded</option>
-        </select>
-      </label>
-      <div class="parse-btn-wrap">
-        <button class="btn btn-primary" type="submit" id="btn-parse">Draft Swarm Plan</button>
-        <div class="parse-tooltip">
-          <strong>Draft Swarm Plan</strong> turns the goal into a reviewable lead-worker plan before anything runs.
-          <ul>
-            <li>Decomposes your goal into domain, sub-goals, metrics, timeline</li>
-            <li>Compiles a lead-worker swarm with editable lanes, phases, and deliverables</li>
-            <li>Lets you trim or steer the plan before launch</li>
-            <li>Promotes the approved plan into the active mission and kicks off research</li>
-          </ul>
-          Type what you care about. Review the swarm. Then approve the run.
-        </div>
-      </div>
-    </form>
-
-    <div class="goal-swarm-preview" id="goal-swarm-preview" hidden>
-      <div class="goal-swarm-head">
-        <div>
-          <div class="goal-swarm-kicker">Preview Before Launch</div>
-          <h3>Review the worker lanes before the lab commits.</h3>
-        </div>
-        <div class="goal-swarm-pills" id="goal-swarm-pills"></div>
-      </div>
-      <div id="goal-swarm-preview-body"></div>
-      <div class="goal-swarm-actions">
-        <button class="btn btn-primary" type="button" id="goal-swarm-run">Approve &amp; Run</button>
-        <button class="btn btn-ghost" type="button" id="goal-swarm-save">Approve Only</button>
-        <button class="btn btn-ghost btn-sm" type="button" id="goal-swarm-discard">Discard Draft</button>
-      </div>
+    {# Goal-setting lives in Autoresearch — single entry point. The
+       Dashboard mirrors the active mission read-only and updates live
+       via the /api/activity/stream SSE listener below. #}
+    <div class="mission-empty" id="mission-empty" {% if current_goal %}hidden{% endif %}>
+      <p class="mission-empty-text">No active mission. Goals are set in the Autoresearch cockpit.</p>
+      <a class="btn btn-primary" href="/research">Open Autoresearch →</a>
     </div>
 
     <!-- Goal breakdown (populated after parse) -->
@@ -762,8 +720,6 @@
 /* ═══════════════════════════════════════════════════════════════
    Arail Dashboard — vanilla JS, no framework
    ═══════════════════════════════════════════════════════════════ */
-
-let DASH_SWARM_PREVIEW = null;
 
 // ── Disclosure toggles (Phase 1 — PROPOSAL §3.2 + §3.3) ──
 function toggleMeterMore(btn) {
@@ -1120,168 +1076,11 @@ document.getElementById('btn-resume').addEventListener('click', async () => {
 refreshJobsState();
 setInterval(refreshJobsState, 15000);
 
-// ── Goal submission ──
-document.getElementById('goal-form').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const input = document.getElementById('goal-input');
-  const btn = document.getElementById('btn-parse');
-  const scale = document.getElementById('goal-swarm-scale');
-  const goal = input.value.trim();
-  if (!goal) return;
-
-  btn.textContent = 'Drafting swarm…';
-  btn.disabled = true;
-  input.disabled = true;
-  if (scale) scale.disabled = true;
-
-  try {
-    const resp = await fetch('/api/goal/preview', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({
-        goal,
-        scale: scale ? scale.value : 'balanced',
-      })
-    });
-    const data = await resp.json();
-    if (data.error) throw new Error(data.error);
-    renderSwarmPreview(data);
-  } catch (err) {
-    document.getElementById('goal-result').innerHTML =
-      '<p style="color:var(--red);">Could not draft the swarm plan. Try again, or check the activity log on the Agents tab for details.</p>';
-  } finally {
-    btn.textContent = 'Draft Swarm Plan';
-    btn.disabled = false;
-    input.disabled = false;
-    if (scale) scale.disabled = false;
-  }
-});
-
-function renderSwarmPreview(preview) {
-  DASH_SWARM_PREVIEW = preview;
-  const shell = document.getElementById('goal-swarm-preview');
-  const body = document.getElementById('goal-swarm-preview-body');
-  const pills = document.getElementById('goal-swarm-pills');
-  if (!shell || !body || !pills) return;
-  const swarm = preview.swarm || {};
-  const workers = Array.isArray(swarm.workers) ? swarm.workers : [];
-  const enabledCount = workers.filter(worker => worker.enabled !== false).length;
-  const phases = Array.isArray(swarm.phases) ? swarm.phases : [];
-  const review = swarm.review || {};
-  pills.innerHTML = [
-    `<span class="goal-swarm-pill" title="The goal's archetype determines which specialist workers are available (travel, research, operations, or general).">${esc(swarm.goal_archetype || 'general')} swarm</span>`,
-    `<span class="goal-swarm-pill" title="Scale sets how wide the swarm runs: compact=3, balanced=4, expanded=up to 6 lanes.">${esc(swarm.scale || 'balanced')}</span>`,
-    `<span class="goal-swarm-pill" title="A lane is one parallel worker agent (Scout, Critic, or a specialist). Uncheck a lane below to drop it from the run.">${enabledCount} lanes</span>`,
-  ].join('');
-  body.innerHTML = `
-    <div class="goal-swarm-grid">
-      <label class="goal-swarm-field">
-        <span>Mission Brief</span>
-        <textarea id="goal-swarm-mission">${esc(swarm.mission_brief || '')}</textarea>
-      </label>
-      <label class="goal-swarm-field">
-        <span>Operator Notes</span>
-        <textarea id="goal-swarm-notes">${esc(swarm.operator_notes || '')}</textarea>
-      </label>
-    </div>
-    <div class="goal-swarm-section">
-      <div class="goal-swarm-section-title">Worker Lanes</div>
-      <div class="goal-swarm-workers">
-        ${workers.map(worker => `
-          <label class="goal-swarm-worker">
-            <input type="checkbox" class="goal-swarm-worker-toggle" value="${esc(worker.id || '')}" ${worker.enabled === false ? '' : 'checked'}>
-            <div>
-              <strong>${esc(worker.label || worker.id || 'worker')}</strong>
-              <span>${esc(worker.role || '')}</span>
-              <small>${esc(worker.deliverable || '')}</small>
-            </div>
-          </label>
-        `).join('')}
-      </div>
-    </div>
-    <div class="goal-swarm-grid goal-swarm-grid-secondary">
-      <div class="goal-swarm-section">
-        <div class="goal-swarm-section-title">Phases</div>
-        <div class="goal-swarm-phases">
-          ${phases.map(phase => `
-            <div class="goal-swarm-phase">
-              <strong>${esc(phase.title || phase.id || 'phase')}</strong>
-              <span>${esc(phase.objective || '')}</span>
-            </div>
-          `).join('')}
-        </div>
-      </div>
-      <div class="goal-swarm-section">
-        <div class="goal-swarm-section-title">Review Checklist</div>
-        <div class="goal-swarm-review-list">
-          <div>
-            <strong>Open questions</strong>
-            <ul>${(review.open_questions || []).map(item => `<li>${esc(item)}</li>`).join('') || '<li>No open questions.</li>'}</ul>
-          </div>
-          <div>
-            <strong>Deliverables</strong>
-            <ul>${(review.deliverables || []).map(item => `<li>${esc(item)}</li>`).join('') || '<li>No deliverables yet.</li>'}</ul>
-          </div>
-        </div>
-      </div>
-    </div>
-  `;
-  shell.hidden = false;
-}
-
-function collectSwarmPreviewPayload() {
-  const mission = document.getElementById('goal-swarm-mission');
-  const notes = document.getElementById('goal-swarm-notes');
-  const enabledWorkers = Array.from(document.querySelectorAll('.goal-swarm-worker-toggle:checked'))
-    .map(el => el.value)
-    .filter(Boolean);
-  return {
-    mission_brief: mission ? mission.value.trim() : '',
-    operator_notes: notes ? notes.value.trim() : '',
-    enabled_workers: enabledWorkers,
-  };
-}
-
-async function confirmSwarmPreview(autoStart) {
-  if (!DASH_SWARM_PREVIEW) return;
-  const payload = collectSwarmPreviewPayload();
-  const resp = await fetch('/api/goal/confirm', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({
-      ...payload,
-      auto_start: !!autoStart,
-      auto_draft: true,
-    }),
-  });
-  const data = await resp.json();
-  if (data.error) {
-    alert(data.error);
-    return;
-  }
-  window.location.reload();
-}
-
-async function discardSwarmPreview() {
-  await fetch('/api/goal/preview', { method: 'DELETE' });
-  DASH_SWARM_PREVIEW = null;
-  const shell = document.getElementById('goal-swarm-preview');
-  if (shell) shell.hidden = true;
-}
-
-async function loadSavedSwarmPreview() {
-  try {
-    const resp = await fetch('/api/goal/preview');
-    if (!resp.ok) return;
-    const preview = await resp.json();
-    if (preview && Object.keys(preview).length) {
-      renderSwarmPreview(preview);
-    }
-  } catch (err) {
-    // Ignore preview-load failures on first paint.
-  }
-}
-
+// ── Live mission mirror ──
+// Goal-setting happens on /research. When a goal is set/confirmed there,
+// the backend emits an activity event with source === 'goal' on
+// /api/activity/stream — see the SSE handler below, which calls
+// refreshMissionFromServer() to repaint the read-only mission card.
 function renderGoalBreakdown(data) {
   const container = document.getElementById('goal-result');
   const parsed = data.parsed || data;
@@ -1325,9 +1124,9 @@ function field(label, value) {
 }
 
 // ── Research controls ──
-// The primary action (Run Research) is the goal-form submit — setting a
-// goal and starting research are one act. These helpers just drive the
-// lifecycle afterward (pause/resume/reset).
+// The goal itself is set on the Autoresearch tab (/research). These
+// helpers drive the lifecycle of the already-running researcher
+// (pause/resume/reset) and stay on the dashboard for at-a-glance ops.
 async function controlResearch(action) {
   await fetch(`/api/research/${action}`, {method: 'POST'});
   showResearchButtons(action === 'pause' ? 'paused' : 'running');
@@ -1372,16 +1171,16 @@ async function revokeDomain(domain) {
 async function resetResearch() {
   if (!confirm('Reset research? The current goal will be archived and research stopped.')) return;
   await fetch('/api/research/reset', {method: 'POST'});
-  document.getElementById('goal-input').value = '';
-  document.getElementById('goal-result').innerHTML = '';
-  const swarmShell = document.getElementById('goal-swarm-preview');
-  if (swarmShell) swarmShell.hidden = true;
+  // The SSE goal listener will repaint the mission card when the backend
+  // emits the archive event; reset locally as a fallback for unfocused tabs.
+  const result = document.getElementById('goal-result');
+  if (result) result.innerHTML = '';
+  const empty = document.getElementById('mission-empty');
+  if (empty) empty.hidden = false;
+  const metaLine = document.querySelector('#goal-card .mission-meta-line');
+  if (metaLine) metaLine.remove();
   showResearchButtons('idle');
 }
-
-document.getElementById('goal-swarm-run').addEventListener('click', () => confirmSwarmPreview(true));
-document.getElementById('goal-swarm-save').addEventListener('click', () => confirmSwarmPreview(false));
-document.getElementById('goal-swarm-discard').addEventListener('click', discardSwarmPreview);
 
 async function destroyLab() {
   const message = [
@@ -1440,6 +1239,11 @@ evtSource.onmessage = (e) => {
   // Profile transitions update the pill live.
   if (event.source === 'profile' && event.data) {
     applyProfilePill(event.data);
+  }
+  // Goal set/confirmed elsewhere (Autoresearch) — repaint the mission card.
+  // Backend emits source='goal' on both POST /api/goal and /api/goal/confirm.
+  if (event.source === 'goal') {
+    refreshMissionFromServer();
   }
   // Remove empty placeholder
   const empty = feed.querySelector('.empty');
@@ -1856,8 +1660,9 @@ setInterval(refreshKbSeedButton, 30000);
 // Pulls semantic recall from the LanceDB-backed search endpoints and
 // renders two compact lists. Both fetches run in parallel; the panel
 // reveals as soon as the first response lands so partial data isn't
-// hidden by a slow side. Used both on page load (when current_goal is
-// already set) and after a successful goal POST (see goal-form handler).
+// hidden by a slow side. Called on page load (when current_goal is
+// server-rendered) and from refreshMissionFromServer() when the SSE
+// listener catches a source='goal' event.
 async function loadLabKnows(goalText) {
   if (!goalText || !goalText.trim()) return;
   const panel = document.getElementById('lab-knows-panel');
@@ -1923,6 +1728,49 @@ async function loadLabKnows(goalText) {
   refreshProgramRow();
 }
 
+// Fired by the SSE listener when the backend emits a source='goal' event.
+// Pulls the canonical goal from /api/goal and repaints the Mission card.
+async function refreshMissionFromServer() {
+  let record = null;
+  try {
+    const r = await fetch('/api/goal');
+    if (r.ok) {
+      const body = await r.json();
+      if (body && (body.goal_text || body.parsed)) record = body;
+    }
+  } catch (_) { /* offline / mid-restart */ }
+
+  const card = document.getElementById('goal-card');
+  const empty = document.getElementById('mission-empty');
+  const result = document.getElementById('goal-result');
+  if (!card) return;
+
+  if (!record) {
+    if (empty) empty.hidden = false;
+    if (result) result.innerHTML = '';
+    const line = card.querySelector('.mission-meta-line');
+    if (line) line.remove();
+    return;
+  }
+
+  if (empty) empty.hidden = true;
+
+  let line = card.querySelector('.mission-meta-line');
+  if (!line) {
+    line = document.createElement('div');
+    line.className = 'mission-meta-line';
+    line.innerHTML = '<span class="mission-meta-label">Current</span><span class="mission-meta-text"></span>';
+    const h2 = card.querySelector('h2');
+    if (h2 && h2.nextSibling) card.insertBefore(line, h2.nextSibling);
+    else card.appendChild(line);
+  }
+  const textEl = line.querySelector('.mission-meta-text');
+  if (textEl) textEl.textContent = record.goal_text || '';
+
+  if (result) renderGoalBreakdown(record);
+  if (record.goal_text) loadLabKnows(record.goal_text);
+}
+
 // ── Research program row ──
 async function refreshProgramRow() {
   const statusEl = document.getElementById('lab-knows-program-status');
@@ -1983,11 +1831,9 @@ async function refreshProgramRow() {
 
 // Auto-run on page load when a goal is already set (server-rendered).
 (function () {
-  const input = document.getElementById('goal-input');
-  loadSavedSwarmPreview();
-  if (input && input.value && input.value.trim()) {
-    loadLabKnows(input.value.trim());
-  }
+  const metaEl = document.querySelector('#goal-card .mission-meta-text');
+  const goalText = metaEl ? metaEl.textContent.trim() : '';
+  if (goalText) loadLabKnows(goalText);
 })();
 </script>
 <script src="/static/nav.js"></script>

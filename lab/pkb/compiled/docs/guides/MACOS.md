@@ -4,7 +4,7 @@ section: docs
 tags: [guide]
 aliases: [MACOS]
 source: docs/MACOS.md
-generated: 2026-05-01T02:54:53Z
+generated: 2026-05-16T03:56:19Z
 ---
 # macOS — Arail Setup
 
@@ -23,7 +23,7 @@ specific Mac's RAM, disk, and role.
 - Apple Silicon (M1 / M2 / M3 / M4)
 - ~8 GB free disk for one 8B model
 
-`./arail setup` bootstraps Homebrew and `python@3.11` for you on first
+`./arailctl setup` bootstraps Homebrew and `python@3.11` for you on first
 run — both with a one-line prompt — so you don't need either installed
 ahead of time. Set `ARAIL_NONINTERACTIVE=1` to skip the prompts.
 
@@ -32,11 +32,11 @@ ahead of time. Set `ARAIL_NONINTERACTIVE=1` to skip the prompts.
 ```bash
 git clone https://github.com/cdarnell/autoresearch-lab.git arail
 cd arail
-./arail setup       # detects macOS + Apple Silicon → installs MLX, captures your goal
-./arail start       # launches portal + terminal + notebook + IDE
+./arailctl setup       # detects macOS + Apple Silicon → installs MLX, captures your goal
+./arailctl start       # launches portal + terminal + notebook + IDE
 ```
 
-`./arail setup` will:
+`./arailctl setup` will:
 
 1. Create a `.venv` and `pip install -e ".[dev]"`
 2. Install `mlx` + `mlx-lm`
@@ -44,7 +44,7 @@ cd arail
 4. Set `MODEL_BACKEND=mlx` in `.env`
 5. Ask for your research goal and work windows, write them to `lab/data/goals/bootstrap_goal.json` and `.env`
 
-Then `./arail start` brings up the dashboard at <http://127.0.0.1:8080> along with the in-browser terminal (ttyd), Jupyter Lab, and VS Code Server. The researcher agent auto-starts on your captured goal after a 5-minute courtesy delay (configurable via `LAB_STARTUP_DELAY_SEC`).
+Then `./arailctl start` brings up the dashboard at <http://127.0.0.1:8080> along with the in-browser terminal (ttyd), Jupyter Lab, and VS Code Server. The researcher agent auto-starts on your captured goal after a 5-minute courtesy delay (configurable via `LAB_STARTUP_DELAY_SEC`).
 
 ## Intel Macs
 
@@ -52,9 +52,9 @@ Intel Macs don't support MLX. Use the CPU backend:
 
 ```bash
 MODEL_BACKEND=cpu    # in .env
-# ./arail setup will install llama-cpp-python and prompt for a GGUF model
+# ./arailctl setup will install llama-cpp-python and prompt for a GGUF model
 ```
 
 ## Airgapped Mode
 
-After the first `./arail setup` run (which downloads the model), everything runs offline. `ARAIL_MODE=airgapped` is the default.
+After the first `./arailctl setup` run (which downloads the model), everything runs offline. `ARAIL_MODE=airgapped` is the default.

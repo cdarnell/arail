@@ -91,9 +91,11 @@ See [docs/INSTALL.md](docs/INSTALL.md) for the long walkthrough.
 
 ### 📊 Dashboard *(every tier)*
 
-The lab's home screen. Shows what the agents are doing, your current goal,
-the simulated cloud cost of today's work, and an activity stream so nothing
-happens out of view.
+The lab's home screen. Shows the **current mission** (set from
+Autoresearch), what the agents are doing, the simulated cloud cost of
+today's work, and an activity stream so nothing happens out of view.
+Mission text and breakdown update live when a goal is set or changed
+elsewhere.
 
 ### 💬 Chat — with a Compute Source pivot *(every tier)*
 
@@ -137,10 +139,12 @@ CSRF attack surface.
 
 ### 🔬 Autoresearch *(every tier)*
 
-Tell the lab a measurable goal — *"make our chat responses land under 400 ms
-on my MacBook"* — and it runs an experiment loop: propose a change, measure,
-compare against the baseline, write up what it learned. You watch from the
-dashboard and steer when the direction drifts.
+**This is where you set the goal.** Tell the lab a measurable goal —
+*"make our chat responses land under 400 ms on my MacBook"* — and it
+runs an experiment loop: propose a change, measure, compare against the
+baseline, write up what it learned. The goal is lab-wide: once set here,
+the Dashboard mirrors it live. You watch from the dashboard and steer
+from the Autoresearch cockpit when the direction drifts.
 
 ### 📚 Knowledge Base *(every tier)*
 

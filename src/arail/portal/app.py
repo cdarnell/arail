@@ -6844,25 +6844,43 @@ async def system_health_stream():
         except Exception as e:
             return "warn", f"Not importable: {e}"
 
-    checks = [
-        ("Portal HTTP", check_portal),
-        ("Terminal (ttyd)", check_ttyd),
-        ("Notebook (Jupyter)", check_notebook),
-        ("IDE (code-server)", check_ide),
-        ("MLX OpenAI compat", check_mlx_openai),
-        ("Ollama API", check_ollama),
-        ("Lance vector DB", check_lance),
-        ("Marimo", check_marimo),
-        ("Open Notebook", check_open_notebook),
-        ("Neo4j Bolt", check_neo4j),
-        ("RAM available", check_ram),
-        ("Disk free", check_disk),
-        ("Agents loadable", check_agents),
-        ("PKB structure", check_pkb),
-        ("Model checkpoints", check_models),
-        ("AirLLM backend", check_airllm),
-        (".env validation", check_env),
+    # Each entry: (display_name, async_fn, service_id_or_None).
+    # service_id is None for diagnostics that are not in _OPTIONAL_SERVICES
+    # (RAM, disk, agents, etc.) — they stream on every tier.
+    # Otherwise service_id is the registry key; the entry is kept iff that
+    # service's tier is visible at the current LAB_TIER. Unknown ids fail
+    # closed (entry hidden) — matches _build_services_dict() convention.
+    checks_all = [
+        ("Portal HTTP",        check_portal,        None),
+        ("Terminal (ttyd)",    check_ttyd,          "ttyd"),
+        ("Notebook (Jupyter)", check_notebook,      "notebook"),
+        ("IDE (code-server)",  check_ide,           None),
+        ("MLX OpenAI compat",  check_mlx_openai,   None),
+        ("Ollama API",         check_ollama,        "ollama"),
+        ("Lance vector DB",    check_lance,         "lance-memory"),
+        ("Marimo",             check_marimo,        "marimo"),
+        ("Open Notebook",      check_open_notebook, "open-notebook"),
+        ("Neo4j Bolt",         check_neo4j,         "neo4j"),
+        ("RAM available",      check_ram,           None),
+        ("Disk free",          check_disk,          None),
+        ("Agents loadable",    check_agents,        None),
+        ("PKB structure",      check_pkb,           None),
+        ("Model checkpoints",  check_models,        None),
+        ("AirLLM backend",     check_airllm,        None),
+        (".env validation",    check_env,           None),
     ]
+    _tier = _current_tier()
+    _visible = {"min"} if _tier == "min" else {"min", "max"}
+
+    def _check_visible(svc_id: "str | None") -> bool:
+        if svc_id is None:
+            return True  # diagnostic — always streams
+        required = _OPTIONAL_SERVICES.get(svc_id)
+        if required is None:
+            return False  # unknown id — fail closed
+        return required in _visible
+
+    checks = [(name, fn) for (name, fn, svc_id) in checks_all if _check_visible(svc_id)]
     total = len(checks)
 
     async def _generate():

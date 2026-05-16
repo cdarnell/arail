@@ -4,7 +4,7 @@ section: docs
 tags: [shell, script]
 aliases: [status, status.sh]
 source: scripts/status.sh
-generated: 2026-04-25T04:17:15Z
+generated: 2026-05-16T03:56:19Z
 ---
 
 # status.sh (shell)
@@ -13,7 +13,7 @@ generated: 2026-04-25T04:17:15Z
 
 ## Overview
 
-./arail status — show what's running and where.
+./arailctl status — show what's running and where.
 
 ## Functions
 

@@ -4,7 +4,7 @@ section: docs
 tags: [guide]
 aliases: [SECURITY]
 source: SECURITY.md
-generated: 2026-04-25T04:17:15Z
+generated: 2026-05-16T03:56:19Z
 ---
 # Security Policy
 
@@ -14,7 +14,7 @@ Arail is a **local-first AI lab blueprint**. The default posture is:
 
 - Every service (portal, terminal, notebook, IDE) binds to `127.0.0.1`.
 - Local model weights, local PKB, local agents. No outbound network without explicit per-domain consent.
-- The unified `ARAIL_PASSWORD` set during `./arail setup` gates every login surface.
+- The unified `ARAIL_PASSWORD` set during `./arailctl setup` gates every login surface.
 
 The security model assumes **the loopback interface is trusted** and the user is the only operator on the machine. Moving any service off `127.0.0.1` — even to a LAN address, even behind a VPN — is **explicit opt-out** of that model and requires the operator to put their own auth layer in front. See `README.md` for the exposure warning.
 

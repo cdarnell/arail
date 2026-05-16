@@ -4,7 +4,7 @@ section: docs
 tags: [shell, script]
 aliases: [setup, setup.sh]
 source: scripts/setup.sh
-generated: 2026-05-01T02:54:53Z
+generated: 2026-05-16T03:56:19Z
 ---
 
 # setup.sh (shell)
@@ -34,6 +34,7 @@ Detects your platform, installs dependencies, downloads a starter model.
 - `check_sudo()`
 - `confirm()`
 - `detect_platform()`
+- `download_coder_model()`
 - `download_model()`
 - `ensure_brew()`
 - `ensure_node()`

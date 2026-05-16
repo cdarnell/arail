@@ -4,7 +4,7 @@ section: docs
 tags: [shell, script]
 aliases: [reset, reset.sh]
 source: scripts/reset.sh
-generated: 2026-04-25T04:17:15Z
+generated: 2026-05-16T03:56:19Z
 ---
 
 # reset.sh (shell)
@@ -23,7 +23,7 @@ ${LAB_NAME} Reset — Clean wipe / selective reset
 echo ""
     echo -e "  ${BOLD}${LAB_NAME} Reset${RESET}"
     echo ""
-    echo "  Usage: ./arail reset [mode] [--yes]"
+    echo "  Usage: ./arailctl reset [mode] [--yes]"
     echo ""
     echo "  Modes:"
     echo "    models    Remove downloaded models only"

@@ -4,7 +4,7 @@ section: docs
 tags: [configuration, env, reference]
 aliases: [env-vars, configuration]
 source: .env.example
-generated: 2026-04-26T21:56:54Z
+generated: 2026-05-16T03:56:19Z
 ---
 
 # Configuration reference
@@ -127,21 +127,17 @@ AIRLLM — the lab's deep layer-streaming backend (active in both tiers). Llama 
 
 ### `LAB_SHOW_AEROLLM`
 
-AEROLLM — dormant in the blueprint. The Rust runtime is in development; the AeroLLMBackend class is still wired in code so you can flip back when it's ready. Two switches: LAB_SHOW_AEROLLM=1   → expose the AeroLLM tabs on the Tuning page. AEROLLM_RESEARCH=true → the researcher uses AeroLLM for deep-thinking calls (requires the package + AEROLLM_MODEL set).
+AEROLLM — Arail's own Rust runtime. As of 0.1.0 alpha this is the deep-mode default on Apple Silicon (CUDA hosts still default to AirLLM until aerollm CUDA ships). Switches: AEROLLM_MODEL          → directory under ARAIL_MODELS_DIR or absolute path. Default 7B-4bit (~4 GB resident) for min tier; setup bumps to 70B-4bit (~35 GB) for max tier. AEROLLM_KV_BUDGET_PCT  → KV cache as a fraction of system RAM. 0.60 leaves headroom for portal + browser. Unset → aerollm auto-detects (80%) which is too aggressive for a box also running the lab UI. AEROLLM_DRAFT_MODEL    → optional speculative-decoding draft (path or name). AEROLLM_RING_DEPTH     → cap resident transformer-block weight slots (mlx-native only). 0 / unset → no eviction. LAB_SHOW_AEROLLM=1     → surface AeroLLM tabs on the Tuning page. AEROLLM_RESEARCH=true  → researcher agent uses AeroLLM for deep calls.
 
-**Default:** `false`
+**Default:** `true`
 
 ### `AEROLLM_MODEL`
 
-**Default:** `zai-org/GLM-5.1`
+**Default:** `Qwen2.5-7B-Instruct-4bit`
 
-### `AEROLLM_COMPRESSION`
+### `AEROLLM_KV_BUDGET_PCT`
 
-**Default:** `4bit`
-
-### `AEROLLM_MAX_LENGTH`
-
-**Default:** `512`
+**Default:** `0.60`
 
 ### `AEROLLM_RESEARCH`
 
