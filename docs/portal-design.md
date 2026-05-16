@@ -1,5 +1,5 @@
 ---
-title: Design Spec
+title: Portal Design Spec
 category: Design
 order: 10
 tags:
@@ -10,6 +10,7 @@ audience: architect
 related:
   - agents-explained
   - api-conventions
+buddy_prompt: Walk me through the ARAIL portal design spec — tokens, layout primitives, and component patterns.
 ---
 # ARAIL — Design Spec
 

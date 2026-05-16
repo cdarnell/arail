@@ -1,6 +1,6 @@
-"""Phase F regression tests + Knowledge cross-link regression.
+"""Docs route tests — Sprint 1 regressions + Sprint 2 hub/viewer tests.
 
-Covers:
+Sprint 1 covers:
 - F18: 'docs' in _TIER_SURFACES['min'] — canary test
 - F19: Docs link renders in a min-tier nav response
 - F20 (max variant): Docs link renders in a max-tier nav response
@@ -97,3 +97,31 @@ def test_knowledge_page_contains_docs_link(monkeypatch, tmp_path):
     assert "Official Docs" in html, (
         "Knowledge page is missing 'Official Docs' banner text."
     )
+
+
+# ---------------------------------------------------------------------------
+# Sprint 2 — Step 1: rename + redirect (F10, F11)
+# ---------------------------------------------------------------------------
+
+def test_legacy_design_redirect(monkeypatch, tmp_path):
+    """GET /docs/design.md returns 301 → /docs/portal-design.md (F10)."""
+    client = _get_client(monkeypatch, tmp_path, lab_tier="min")
+    resp = client.get("/docs/design.md", follow_redirects=False)
+    assert resp.status_code == 301, f"Expected 301 got {resp.status_code}"
+    assert resp.headers["location"].endswith("/docs/portal-design.md"), (
+        f"301 target wrong: {resp.headers['location']}"
+    )
+
+
+def test_no_slug_collision_after_rename():
+    """all_docs() must load without RuntimeError and portal-design slug present (F11)."""
+    from arail.portal import docs_registry
+    docs_registry._invalidate_cache()
+    docs = docs_registry.all_docs()
+    slugs = {d.slug for d in docs}
+    assert "portal-design" in slugs, (
+        "portal-design slug not found — did the rename land?"
+    )
+    # The root design.md (slug='design') may still exist; what must NOT happen
+    # is a RuntimeError — all_docs() above would have raised if there were a
+    # collision.  Reaching this line means no collision.

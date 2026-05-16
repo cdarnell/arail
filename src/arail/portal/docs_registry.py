@@ -65,11 +65,9 @@ _DOCS_DENYLIST: frozenset[str] = frozenset(
         "chat-studio.spec.md",
         "standards-compliance.md",
         "INDEX.md",  # legacy hub placeholder; Sprint 2 will replace
-        # docs/design.md collides with the root design.md (same slug).
-        # The root design.md is the authoritative top-level design philosophy;
-        # docs/design.md is an older portal-surface spec. Exclude the docs/ copy
-        # to avoid the collision. Tracked as BUILD_LOG open question.
-        "design.md",
+        # design.md was renamed to portal-design.md in Sprint 2 to resolve slug
+        # collision with root design.md.  Entry removed from denylist at the same
+        # time (F11 atomic commit: rename + denylist removal in one shot).
     }
 )
 

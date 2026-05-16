@@ -47,6 +47,7 @@ from arail.brand import load_brand
 from arail.experiments import branch_browser as _branch_browser
 from arail.router.backends import ModelResponse
 from arail.ui_theme import list_ui_themes, load_ui_theme, theme_css
+from arail.portal import docs_registry as _docs_registry
 
 _BRAND = load_brand()
 _UI_THEME = load_ui_theme()
@@ -1807,6 +1808,13 @@ async def skills_redirect(request: Request):
     Only the standalone page is folded into the Agents tab.
     """
     return RedirectResponse(url="/agents?view=skills", status_code=302)
+
+
+@app.get("/docs/design.md", response_class=HTMLResponse)
+async def docs_design_redirect():
+    """301 redirect: docs/design.md was renamed to docs/portal-design.md in Sprint 2.
+    Kept for one release to preserve external bookmarks. Remove in Sprint 3."""
+    return RedirectResponse(url="/docs/portal-design.md", status_code=301)
 
 
 @app.get("/docs", response_class=HTMLResponse)
