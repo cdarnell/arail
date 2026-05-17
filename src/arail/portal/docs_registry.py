@@ -65,11 +65,9 @@ _DOCS_DENYLIST: frozenset[str] = frozenset(
         "chat-studio.spec.md",
         "standards-compliance.md",
         "INDEX.md",  # legacy hub placeholder; Sprint 2 will replace
-        # docs/design.md collides with the root design.md (same slug).
-        # The root design.md is the authoritative top-level design philosophy;
-        # docs/design.md is an older portal-surface spec. Exclude the docs/ copy
-        # to avoid the collision. Tracked as BUILD_LOG open question.
-        "design.md",
+        # design.md was renamed to portal-design.md in Sprint 2 to resolve slug
+        # collision with root design.md.  Entry removed from denylist at the same
+        # time (F11 atomic commit: rename + denylist removal in one shot).
     }
 )
 
@@ -82,6 +80,12 @@ _ROOT_DENYLIST: frozenset[str] = frozenset(
         "CODE_OF_CONDUCT.md",
     }
 )
+
+# S1 (docs-hub-sprint-1 QA finding): ensure root-denied names are also blocked
+# under docs/, so an accidental drop of CLAUDE.md (or similar) into docs/ never
+# registers as a user-facing doc. Compose at module level rather than per-walk
+# so the invariant is visible in the source.
+_DOCS_DENYLIST = _DOCS_DENYLIST | _ROOT_DENYLIST
 
 # Curated allowlist for repo-root docs (only these are included from root).
 _ROOT_ALLOWLIST: frozenset[str] = frozenset(

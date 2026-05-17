@@ -6,15 +6,69 @@
 <title>{{ brand.name }} — {{ doc_path }}</title>
 <link rel="stylesheet" href="/static/style.css">
 <style>
-  .doc-shell {
-    max-width: 920px;
+  /* ── 3-column viewer layout ─────────────────────────────────────── */
+  .dv-outer {
+    display: grid;
+    grid-template-columns: 200px 1fr 180px;
+    gap: 0;
+    max-width: 1200px;
     margin: 1.4rem auto 3rem;
-    padding: 1.6rem 2rem;
+    align-items: start;
+  }
+  @media (max-width: 900px) {
+    .dv-outer { grid-template-columns: 1fr; }
+    .dv-left, .dv-right { display: none; }
+  }
+
+  /* ── Left rail ───────────────────────────────────────────────────── */
+  .dv-left {
+    padding: 0 0.8rem 2rem 0;
+    border-right: 1px solid var(--border);
+    font-size: 0.76rem;
+    position: sticky;
+    top: 1rem;
+  }
+  .dv-left-back {
+    display: block;
+    color: var(--muted);
+    text-decoration: none;
+    margin-bottom: 0.8rem;
+    font-size: 0.7rem;
+  }
+  .dv-left-back:hover { color: var(--blue); }
+  .dv-left-cat-label {
+    font-size: 0.62rem;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 0 0 0.4rem;
+  }
+  .dv-left-list { list-style: none; padding: 0; margin: 0; }
+  .dv-left-list li { margin: 0.15rem 0; }
+  .dv-left-list a {
+    color: var(--muted);
+    text-decoration: none;
+    display: block;
+    padding: 0.15rem 0.4rem;
+    border-radius: 3px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .dv-left-list a:hover { color: var(--text-hi); background: var(--surface2); }
+  .dv-left-list a.active { color: var(--green); background: rgba(0,255,65,.07); }
+
+  /* ── Center article ──────────────────────────────────────────────── */
+  .dv-center { padding: 0 1.4rem; }
+
+  /* Preserve original .doc-shell styles for center column */
+  .doc-shell {
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: var(--radius);
     color: var(--text);
     line-height: 1.6;
+    padding: 1.6rem 2rem;
   }
   .doc-path-bar {
     color: var(--muted);
@@ -51,11 +105,7 @@
     margin: 1rem 0;
     background: rgba(0, 212, 255, 0.04);
   }
-  .doc-shell table {
-    border-collapse: collapse;
-    margin: 0.8rem 0;
-    width: 100%;
-  }
+  .doc-shell table { border-collapse: collapse; margin: 0.8rem 0; width: 100%; }
   .doc-shell th, .doc-shell td {
     border: 1px solid var(--border);
     padding: 0.4rem 0.7rem;
@@ -65,16 +115,198 @@
   .doc-shell hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
   .doc-shell ul, .doc-shell ol { padding-left: 1.5rem; }
   .doc-shell li { margin: 0.2rem 0; }
+
+  /* ── Footer strip (prev/next + related + Ask Buddy) ─────────────── */
+  .dv-footer {
+    margin-top: 1.6rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border);
+  }
+  .dv-prevnext {
+    display: flex;
+    gap: 0.8rem;
+    margin-bottom: 1rem;
+    font-size: 0.76rem;
+  }
+  .dv-prevnext a {
+    color: var(--blue);
+    text-decoration: none;
+    padding: 0.25rem 0.6rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+  .dv-prevnext a:hover { border-color: var(--blue); background: rgba(0,212,255,.06); }
+  .dv-related-label {
+    font-size: 0.65rem;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 0 0 0.5rem;
+  }
+  .dv-related-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: var(--s-3);
+    margin-bottom: 1rem;
+  }
+  .dv-related-card {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.5rem 0.7rem;
+    text-decoration: none;
+    color: var(--muted);
+    font-size: 0.74rem;
+    transition: border-color 150ms;
+  }
+  .dv-related-card:hover { border-color: var(--border-hi); color: var(--text-hi); }
+  .ask-buddy-btn {
+    display: inline-block;
+    margin-top: 0.6rem;
+    padding: 0.35rem 0.9rem;
+    background: rgba(180,142,255,.1);
+    border: 1px solid var(--purple);
+    border-radius: var(--radius);
+    color: var(--purple);
+    text-decoration: none;
+    font-size: 0.76rem;
+    transition: background 150ms;
+  }
+  .ask-buddy-btn:hover { background: rgba(180,142,255,.2); }
+
+  /* ── Tier-blocked panel ──────────────────────────────────────────── */
+  .dv-tier-blocked {
+    padding: 2.5rem 2rem;
+    text-align: center;
+    color: var(--muted);
+    font-size: 0.82rem;
+  }
+  .dv-tier-blocked code { color: var(--amber); }
+
+  /* ── Right rail (TOC) ────────────────────────────────────────────── */
+  .dv-right {
+    padding: 0 0 2rem 0.8rem;
+    border-left: 1px solid var(--border);
+    font-size: 0.72rem;
+    position: sticky;
+    top: 1rem;
+  }
+  .dv-toc-label {
+    font-size: 0.62rem;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 0 0 0.5rem;
+  }
+  .dv-toc-list { list-style: none; padding: 0; margin: 0; }
+  .dv-toc-list li { margin: 0.15rem 0; }
+  .dv-toc-list a {
+    color: var(--muted);
+    text-decoration: none;
+    display: block;
+    padding: 0.1rem 0;
+  }
+  .dv-toc-list a:hover { color: var(--blue); }
+  .dv-toc-h3 { padding-left: 0.8rem; }
 </style>
 </head>
 <body>
-
 {% set active = nav_active|default('docs') %}{% include "_nav.html" %}
 
-<article class="doc-shell">
-  <div class="doc-path-bar">📖 {{ doc_section|default('docs') }} / <code>{{ doc_path }}</code></div>
-  {{ doc_html | safe }}
-</article>
+<div class="dv-outer">
+
+  {# ── Left rail ─────────────────────────────────────────────────────── #}
+  <aside class="dv-left">
+    <a class="dv-left-back" href="/docs">&larr; Back to Docs Hub</a>
+    {% if doc %}
+    <div class="dv-left-cat-label">{{ doc.category }}</div>
+    {# Collect peers from registry via template-side approach:
+       we receive siblings_prev and siblings_next; rebuild a minimal peer list. #}
+    <ul class="dv-left-list">
+      {% if siblings_prev %}
+      <li><a href="/docs/{{ siblings_prev.slug }}.md">{{ siblings_prev.title }}</a></li>
+      {% endif %}
+      <li><a class="active" href="/docs/{{ doc.slug }}.md">{{ doc.title }}</a></li>
+      {% if siblings_next %}
+      <li><a href="/docs/{{ siblings_next.slug }}.md">{{ siblings_next.title }}</a></li>
+      {% endif %}
+    </ul>
+    {% endif %}
+  </aside>
+
+  {# ── Center article ────────────────────────────────────────────────── #}
+  <main class="dv-center">
+
+    {% if tier_blocked %}
+    {# F15: architect doc on min tier — upgrade hint, no title leak #}
+    <div class="dv-tier-blocked">
+      <p>This doc is for the <code>max</code> tier.</p>
+      <p>Run <code>./arailctl upgrade max</code> to unlock it.</p>
+    </div>
+
+    {% else %}
+    <article class="doc-shell">
+      <div class="doc-path-bar">
+        <a href="/docs" style="color:var(--muted);text-decoration:none;">docs</a>
+        / <code>{{ doc_path }}</code>
+      </div>
+      {{ doc_html | safe }}
+    </article>
+
+    {# Footer strip — only when we have registry context #}
+    {% if doc %}
+    <div class="dv-footer">
+      {# Prev / Next chips #}
+      {% if siblings_prev or siblings_next %}
+      <div class="dv-prevnext">
+        {% if siblings_prev %}
+        <a href="/docs/{{ siblings_prev.slug }}.md">&larr; {{ siblings_prev.title }}</a>
+        {% endif %}
+        {% if siblings_next %}
+        <a href="/docs/{{ siblings_next.slug }}.md">{{ siblings_next.title }} &rarr;</a>
+        {% endif %}
+      </div>
+      {% endif %}
+
+      {# Related cards #}
+      {% if related %}
+      <div class="dv-related-label">Related</div>
+      <div class="dv-related-grid">
+        {% for rel in related %}
+        <a class="dv-related-card" href="/docs/{{ rel.slug }}.md">{{ rel.title }}</a>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      {# Ask Buddy CTA — only when buddy_prompt is set #}
+      {# Sprint 3 TODO: wire chat-side seed consumption (/chat?seed= is a stub in Sprint 2) #}
+      {% if buddy_prompt_url %}
+      <a class="ask-buddy-btn" href="{{ buddy_prompt_url }}">Ask Buddy about this &rarr;</a>
+      {% endif %}
+    </div>
+    {% endif %}{# doc #}
+
+    {% endif %}{# tier_blocked #}
+
+  </main>
+
+  {# ── Right rail (TOC) ──────────────────────────────────────────────── #}
+  {% if toc %}
+  <aside class="dv-right">
+    <div class="dv-toc-label">On this page</div>
+    <ul class="dv-toc-list">
+      {% for entry in toc %}
+      <li class="{% if entry.level == 3 %}dv-toc-h3{% endif %}">
+        <a href="#{{ entry.id }}">{{ entry.text }}</a>
+      </li>
+      {% endfor %}
+    </ul>
+  </aside>
+  {% else %}
+  <aside class="dv-right"></aside>
+  {% endif %}
+
+</div>{# .dv-outer #}
 
 <script src="/static/nav.js"></script>
 </body>
