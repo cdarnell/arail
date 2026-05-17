@@ -113,6 +113,49 @@
     50%      { box-shadow: 0 0 0 4px rgba(255, 176, 0, 0.18); }
   }
 
+  /* ═══ Runbook banner — first-run on-ramp to docs/the-lab.md ═══
+     Sibling of .updates-banner. Blue accent (vs amber) so the two
+     don't visually clash when both are visible. Hidden via
+     localStorage once dismissed; otherwise persists until clicked. */
+  .runbook-banner {
+    display: none;
+    margin: 8px 18px 0 18px;
+    padding: 10px 14px;
+    border-radius: 6px;
+    background: rgba(0, 212, 255, 0.06);
+    border: 1px solid rgba(0, 212, 255, 0.45);
+    color: var(--text);
+    font-size: 13px;
+    align-items: center;
+    gap: 12px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .runbook-banner:hover {
+    background: rgba(0, 212, 255, 0.13);
+    border-color: rgba(0, 212, 255, 0.7);
+  }
+  .runbook-banner .runbook-icon {
+    font-size: 16px;
+    line-height: 1;
+  }
+  .runbook-banner .runbook-text { flex: 1; }
+  .runbook-banner .runbook-cta {
+    color: var(--blue);
+    font-weight: 600;
+    font-size: 12px;
+  }
+  .runbook-banner .runbook-dismiss {
+    background: transparent;
+    border: 0;
+    color: var(--muted);
+    font-size: 14px;
+    padding: 0 4px;
+    cursor: pointer;
+    line-height: 1;
+  }
+  .runbook-banner .runbook-dismiss:hover { color: var(--text); }
+
   /* ═══ Live Checks modal ════════════════════════════════════════
      Reusable modal driven by SSE events. Powers Health Check today;
      designed so Restart Lab + Check Updates can plug in without
@@ -266,6 +309,39 @@
   <span class="updates-text" id="updates-text">Updates available</span>
   <span class="updates-cta">Review →</span>
 </div>
+
+<!-- ═══ Runbook banner — first-run on-ramp ═══════════════════════════
+     Shown until the user clicks the dismiss × (persists via
+     localStorage). Click anywhere else on the banner navigates to
+     docs/the-lab.md, the 12-minute end-to-end tour. -->
+<div class="runbook-banner" id="runbook-banner"
+     onclick="if (event.target.id !== 'runbook-dismiss') location.href='/docs/the-lab.md'">
+  <span class="runbook-icon">📖</span>
+  <span class="runbook-text"><strong>New to ARAIL?</strong>
+    Read the runbook — the lab, end-to-end in ~12 minutes.</span>
+  <span class="runbook-cta">Read →</span>
+  <button class="runbook-dismiss" id="runbook-dismiss" type="button"
+          onclick="event.stopPropagation(); dismissRunbookBanner()"
+          aria-label="Dismiss runbook banner">✕</button>
+</div>
+<script>
+(function () {
+  var banner = document.getElementById('runbook-banner');
+  if (!banner) return;
+  try {
+    if (localStorage.getItem('arailRunbookDismissed') !== '1') {
+      banner.style.display = 'flex';
+    }
+  } catch (e) {
+    banner.style.display = 'flex';
+  }
+})();
+function dismissRunbookBanner() {
+  try { localStorage.setItem('arailRunbookDismissed', '1'); } catch (e) {}
+  var el = document.getElementById('runbook-banner');
+  if (el) el.style.display = 'none';
+}
+</script>
 
 <!-- ═══ Live Checks modal — reusable SSE-driven progress overlay ═══
      Used by Health Check, Restart Lab, and Check Updates. Opens via

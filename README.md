@@ -37,11 +37,14 @@ Inference from an AI Engineer built by Nucleus
 
 ---
 
+> **New here?** [The lab, end-to-end](docs/the-lab.md) is the 12-minute
+> runbook tour — what ARAIL is, every surface, and how to set it up.
+
 ## Quick start
 
 ```bash
-git clone https://github.com/cdarnell/autoresearch-lab.git
-cd autoresearch-lab
+git clone https://github.com/qukaizen/arail.git
+cd arail
 ./arailctl setup      # pick a tier, install deps, download a starter model
 ./arailctl start      # open http://127.0.0.1:8080
 ```

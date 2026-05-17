@@ -541,3 +541,28 @@ def test_large_doc_parses_under_threshold(monkeypatch, tmp_path):
     reg.all_docs()
     elapsed_ms = (_time.perf_counter() - start) * 1000
     assert elapsed_ms < 100, f"Large doc parse took {elapsed_ms:.1f}ms (limit 100ms)"
+
+
+# ---------------------------------------------------------------------------
+# The lab, end-to-end (runbook) — registry-level guarantees
+# ---------------------------------------------------------------------------
+
+def test_the_lab_in_registry():
+    """The runbook lives in the registry under Getting Started, ordered first."""
+    from arail.portal.docs_registry import all_docs, by_category, get
+
+    doc = get("the-lab")
+    assert doc is not None, "the-lab runbook missing from registry"
+    assert doc.category == "Getting Started", (
+        f"the-lab must be in Getting Started, got {doc.category!r}"
+    )
+    # order=0 puts the runbook ahead of INSTALL (order=1) — the runbook is
+    # the on-ramp, INSTALL is the manual.
+    assert doc.order == 0, f"the-lab must have order=0 (first in category), got {doc.order!r}"
+    assert "the-lab" in {d.slug for d in all_docs()}
+    cats = by_category()
+    assert "Getting Started" in cats
+    slugs = [d.slug for d in cats["Getting Started"]]
+    assert slugs[0] == "the-lab", (
+        f"the-lab must be the first doc in Getting Started; got {slugs!r}"
+    )

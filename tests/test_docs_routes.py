@@ -451,3 +451,68 @@ def test_viewer_handles_unusual_markdown_in_toc(monkeypatch, tmp_path):
     # Should have exactly one TOC entry (the real H2, not the one in the code fence)
     assert len(toc) == 1, f"Expected 1 TOC entry, got {len(toc)}: {toc}"
     assert toc[0]["text"] == "Real Heading"
+
+
+# ---------------------------------------------------------------------------
+# The lab, end-to-end (runbook) — content + promotion
+# ---------------------------------------------------------------------------
+
+def test_the_lab_runbook_renders(monkeypatch, tmp_path):
+    """GET /docs/the-lab.md returns 200 and contains expected sections."""
+    client = _get_client(monkeypatch, tmp_path, lab_tier="min")
+    response = client.get("/docs/the-lab.md")
+    assert response.status_code == 200, response.status_code
+    body = response.text
+    # Each of the 10 plan-locked sections must be present as an H2.
+    for heading in [
+        "What this is",
+        "Why this matters",
+        "The two tiers at a glance",
+        "Setup in five minutes",
+        "The five surfaces",
+        "Buddy, your lab partner",
+        "Compute Source",
+        "Make it yours",
+        "Where to go next",
+        "Ask Buddy about this doc",
+    ]:
+        assert heading in body, f"Missing runbook section heading: {heading!r}"
+
+
+def test_runbook_is_featured_top_card(monkeypatch, tmp_path):
+    """The runbook is the first slug in _FEATURED_SLUGS — the #1 Hub card."""
+    from arail.portal.app import _FEATURED_SLUGS
+    assert _FEATURED_SLUGS[0] == "the-lab", (
+        f"Runbook must be the top featured card; got {_FEATURED_SLUGS!r}. "
+        "If reordering, update tests/test_docs_routes.py + the docs hub plan."
+    )
+    assert "the-lab" in _FEATURED_SLUGS
+
+
+def test_docs_hub_hero_points_at_runbook(monkeypatch, tmp_path):
+    """The /docs hub hero copy invites new visitors to read the runbook."""
+    client = _get_client(monkeypatch, tmp_path, lab_tier="min")
+    response = client.get("/docs")
+    assert response.status_code == 200
+    body = response.text
+    assert 'href="/docs/the-lab.md"' in body, (
+        "Hub hero must link to /docs/the-lab.md so new visitors land on the runbook."
+    )
+    assert "runbook" in body.lower(), "Hub hero must mention 'runbook' as the on-ramp framing."
+
+
+def test_dashboard_runbook_banner_renders(monkeypatch, tmp_path):
+    """Dashboard ships the first-run runbook banner with link + dismiss handle."""
+    client = _get_client(monkeypatch, tmp_path, lab_tier="min")
+    response = client.get("/")
+    # /dashboard or / — accept either since the orchestration redirects.
+    if response.status_code in (302, 307):
+        response = client.get(response.headers.get("location", "/"), follow_redirects=True)
+    assert response.status_code == 200
+    body = response.text
+    assert 'id="runbook-banner"' in body, "Runbook banner element missing from dashboard."
+    assert "/docs/the-lab.md" in body, "Runbook banner must navigate to the runbook."
+    assert "dismissRunbookBanner" in body, "Runbook banner must wire its dismiss handler."
+    assert "arailRunbookDismissed" in body, (
+        "Runbook banner must persist dismissal in localStorage as arailRunbookDismissed."
+    )

@@ -16,6 +16,10 @@ related:
 ---
 # Install Guide — Autoresearch AI Lab
 
+> **See also:** [The lab, end-to-end](the-lab.md) — the 12-minute runbook
+> tour of every surface. Read it after you finish setup (or first, if
+> you want to know what you're installing).
+
 A friendly walkthrough. If you've never run a Python app from a terminal
 before, this is for you.
 
