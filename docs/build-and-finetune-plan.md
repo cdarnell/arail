@@ -16,7 +16,7 @@ related:
 
 > Implementation plan for the local model lifecycle: download → register → fit-check → load (full / streaming / hybrid) → infer → fine-tune → re-register. Owns the contract between AeroLLM, the QuKaizen swarm, and the portal UI.
 >
-> Companion docs: [`design.md`](./design.md) (visual contract for the loader UI), [`tuning-loop.md`](./tuning-loop.md) (chat-side speed work), [`agents.md`](./agents.md) (orchestrator agents).
+> Companion docs: [`portal-design.md`](./portal-design.md) (visual contract for the loader UI), [`tuning-loop.md`](./tuning-loop.md) (chat-side speed work), [`agents.md`](./agents.md) (orchestrator agents).
 
 ---
 

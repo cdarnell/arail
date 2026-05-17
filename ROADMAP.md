@@ -47,7 +47,7 @@ retained behind `?legacy=1` for one release after M5.
 - [ ] **M4** — Dual composer + `/api/chat/dual-stream`.
 - [ ] **M5** — Connections drawer + Fine-tune wizard.
 
-### UI / Design system → [`docs/design.md`](docs/design.md)
+### UI / Design system → [`docs/portal-design.md`](docs/portal-design.md)
 
 - [x] Token scale (palette, alpha tiers, spacing, type, elevation).
 - [x] Rail line under nav (signature visual).
