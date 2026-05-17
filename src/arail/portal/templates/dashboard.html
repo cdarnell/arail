@@ -662,7 +662,7 @@ function dismissRunbookBanner() {
        is provided by CSS grid stretch. Collapses to stacked at ≤900px via
        the existing @media (max-width:900px) rule (style.css:1074-1078). -->
   <span id="dash-status" class="dash-anchor"></span>
-  <div class="card">
+  <div class="card full">
     <h2><span class="indicator"></span> Mission Status</h2>
 
     <!-- Progress Ring + Step Context -->
@@ -693,10 +693,13 @@ function dismissRunbookBanner() {
     <table>
       <tr><th>ID</th><th>Hypothesis</th><th>Status</th></tr>
       {% for e in experiments %}
-      <tr>
-        <td><code>{{ e.id }}</code></td>
-        <td>{{ e.hypothesis[:55] }}{% if e.hypothesis|length > 55 %}&hellip;{% endif %}</td>
+      <tr class="exp-row" onclick="toggleExpDetail('exp-{{ e.id }}')" style="cursor:pointer;">
+        <td><code class="exp-id-link">{{ e.id }}</code></td>
+        <td>{{ e.hypothesis[:140] }}{% if e.hypothesis|length > 140 %}&hellip;{% endif %}</td>
         <td><span class="status {{ e.status }}">{{ e.status }}</span></td>
+      </tr>
+      <tr id="exp-{{ e.id }}" class="exp-detail" style="display:none;">
+        <td colspan="3" style="padding:0.75rem 1rem; background:rgba(255,255,255,0.02); white-space:pre-wrap;">{{ e.hypothesis }}</td>
       </tr>
       {% endfor %}
     </table>
@@ -707,7 +710,7 @@ function dismissRunbookBanner() {
 
   <!-- ═══ Activity Feed — paired with Mission Status ═══ -->
   <span id="dash-activity" class="dash-anchor"></span>
-  <div class="card">
+  <div class="card full">
     <h2><span class="indicator"></span> Activity Feed</h2>
     <div class="activity-feed" id="activity-feed">
       {% for event in recent_activity %}
@@ -1353,6 +1356,11 @@ function applyProfilePill(snap) {
   pill.title = `Runtime profile: ${profile} (${source}). Click to tune.`;
 }
 fetch('/api/runtime/profile').then(r => r.json()).then(applyProfilePill).catch(() => {});
+
+function toggleExpDetail(id) {
+  const row = document.getElementById(id);
+  if (row) row.style.display = (row.style.display === 'none' ? 'table-row' : 'none');
+}
 
 // ── SSE Activity Feed ──
 const feed = document.getElementById('activity-feed');
