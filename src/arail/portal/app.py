@@ -1854,7 +1854,7 @@ def _filter_by_tier(
     return result
 
 
-_FEATURED_SLUGS: tuple[str, ...] = ("agents-explained", "BUDDY", "api-conventions")
+_FEATURED_SLUGS: tuple[str, ...] = ("the-lab", "agents-explained", "BUDDY")
 
 
 def _featured_docs(cats: dict[str, tuple]) -> tuple:

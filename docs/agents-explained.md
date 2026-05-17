@@ -15,6 +15,9 @@ buddy_prompt: "Walk me through what an agent loop does, using the lab I'm in as 
 ---
 # Agents, explained
 
+> **See also:** [The lab, end-to-end](the-lab.md) — the 12-minute runbook
+> tour. Agents are one of five surfaces; the runbook puts them in context.
+
 This is the on-ramp. If you want the reference manual, see
 [docs/agents.md](agents.md). If you want to *understand* what an
 agent actually is in about five minutes, start here.

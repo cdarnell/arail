@@ -15,6 +15,9 @@ buddy_prompt: "Walk me through what Buddy does for me in this lab — what can I
 ---
 # Buddy
 
+> **See also:** [The lab, end-to-end](the-lab.md) — the 12-minute runbook
+> tour, including a section on Buddy in the context of the whole lab.
+
 Buddy is the lab's personality agent — context-aware, goal-tracking, offline by
 default. This doc covers two things: how Buddy works at the desk, and what
 "Buddy Tunnel" actually means when it claims to follow you across messaging
