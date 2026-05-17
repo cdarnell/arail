@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 from typing import Any, Dict, List, Optional
 
 from arail import pkb as pkb_mod
@@ -259,6 +260,31 @@ def _redirect_prompt_block(redirect: dict[str, Any] | None) -> str:
     if profile["broaden_search"]:
         lines.append("Broaden retrieval and source gathering before narrowing the loop.")
     return "\n".join(lines) + "\n\n"
+
+
+# LLM hypothesis lists sometimes come back with markdown wrappers
+# ("**Hypothesis:** X") or interleaved rationale lines. Without
+# normalization those literals leak into experiment.hypothesis and show
+# up in the dashboard table.
+_RATIONALE_LABEL_RE = re.compile(
+    r"^\s*(?:\*+|_+)?\s*(?:rationale|reasoning|explanation|notes?)\s*(?:\*+|_+)?\s*:",
+    re.IGNORECASE,
+)
+_HYPOTHESIS_LABEL_RE = re.compile(
+    r"^\s*(?:\*+|_+)?\s*(?:hypothesis|claim|theory|h\d+)\s*(?:\*+|_+)?\s*:\s*",
+    re.IGNORECASE,
+)
+
+
+def _normalize_hypothesis_line(raw: str) -> str | None:
+    s = raw.strip().lstrip("0123456789.-) ").strip()
+    if not s:
+        return None
+    if _RATIONALE_LABEL_RE.match(s):
+        return None
+    s = _HYPOTHESIS_LABEL_RE.sub("", s)
+    s = re.sub(r"\*+|_+", "", s).strip()
+    return s if len(s) > 10 else None
 
 
 class ResearcherAgent:
@@ -857,8 +883,10 @@ class ResearcherAgent:
         )
         llm_text = _deep_complete(self._active_deep_router(), self._router, prompt, max_tokens=600)
         if llm_text:
-            lines = [l.strip().lstrip("0123456789.-) ") for l in llm_text.split("\n") if l.strip()]
-            all_candidates = [l for l in lines if len(l) > 10]
+            all_candidates = [
+                cleaned for line in llm_text.split("\n")
+                if (cleaned := _normalize_hypothesis_line(line))
+            ]
             if all_candidates:
                 chosen = all_candidates[:self._CHOSEN_LIMIT]
                 alternatives = all_candidates[self._CHOSEN_LIMIT:]
