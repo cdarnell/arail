@@ -97,4 +97,4 @@ hit and fix bugs in upstream projects, we contribute the patch back:
 
   Until the patch lands upstream, install from our fork to use the
   AirLLM toggle on Apple Silicon:
-  `pip install git+https://github.com/cdarnell/airllm.git@fix/mlx-torch-tensor-coerce`
+  `pip install git+https://github.com/qukaizen/airllm.git@fix/mlx-torch-tensor-coerce`

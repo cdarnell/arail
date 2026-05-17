@@ -36,7 +36,7 @@ ahead of time. Set `ARAIL_NONINTERACTIVE=1` to skip the prompts.
 ## Setup
 
 ```bash
-git clone https://github.com/cdarnell/autoresearch-lab.git arail
+git clone https://github.com/qukaizen/arail.git arail
 cd arail
 ./arailctl setup       # detects macOS + Apple Silicon → installs MLX, captures your goal
 ./arailctl start       # launches portal + terminal + notebook + IDE

@@ -19,7 +19,7 @@ on the local-inference path (AeroLLM and AirLLM backends). Use this as
 your shopping list when picking what to download via `./arailctl pkb ingest`
 or the **Knowledge** tab's reveal-folder buttons.
 
-Status is updated as we run the [aerollm-correctness](https://github.com/cdarnell/aerollm)
+Status is updated as we run the [aerollm-correctness](https://github.com/qukaizen/aerollm)
 harness against each model on Apple Silicon hardware. Cloud providers
 (Anthropic, OpenAI-compatible NIM, OpenRouter, HF Inference) are
 backend-agnostic — every model the provider hosts works through ARAIL
@@ -44,7 +44,7 @@ with no Python in the hot path.
 |---|---|---|---|---|---|
 | `mlx-community/Qwen2.5-0.5B-Instruct` | 4-bit | **Certified** | ~1 GB | ~0.4 GB | Fastest local model. Tied embeddings keep parameter tree small. |
 | `mlx-community/Qwen2.5-1.5B-Instruct` | 4-bit | **Certified** | ~2 GB | ~1 GB | Best size/quality trade for chat on a 16 GB Mac. |
-| `mlx-community/Qwen2.5-7B-Instruct-4bit` | 4-bit | **Beta** | ~6 GB | ~4.5 GB | Fix landed in [aerollm@cc5485a](https://github.com/cdarnell/aerollm/commit/cc5485a). See [DEBUG_QWEN25_7B_CASE_STUDY.md](DEBUG_QWEN25_7B_CASE_STUDY.md). |
+| `mlx-community/Qwen2.5-7B-Instruct-4bit` | 4-bit | **Beta** | ~6 GB | ~4.5 GB | Fix landed in [aerollm@cc5485a](https://github.com/qukaizen/aerollm/commit/cc5485a). See [DEBUG_QWEN25_7B_CASE_STUDY.md](DEBUG_QWEN25_7B_CASE_STUDY.md). |
 | `mlx-community/Llama-3.2-1B-Instruct` | bf16 | **Compatible** | ~3 GB | ~2.5 GB | Llama tokenizer path. Useful as a second-opinion model. |
 | `mlx-community/Qwen3-8B-4bit` | 4-bit | **Compatible** | ~6 GB | ~5 GB | Newer Qwen3 architecture. Loads via Qwen2 path; emits coherent text. Correctness harness pending. |
 
@@ -125,7 +125,7 @@ If you've run a model through ARAIL and want it listed:
    alias).
 2. Copy the output JSON into a Knowledge Base note.
 3. Open an issue on
-   [cdarnell/arail](https://github.com/cdarnell/arail/issues) with the
+   [qukaizen/arail](https://github.com/qukaizen/arail/issues) with the
    benchmark log attached and your hardware details.
 
 We update this page when each new entry passes the correctness gate.

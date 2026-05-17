@@ -116,7 +116,7 @@ Today `AeroLLMBackend` honors two env-var knobs directly:
 `AEROLLM_COMPRESSION` and `AEROLLM_MAX_LENGTH`. The other four —
 `prefetch_enabled`, `prefetch_lookahead`, `expert_cache_size_mb`,
 and `aerollm_package` — land when the upstream Rust runtime at
-[github.com/cdarnell/aerollm](https://github.com/cdarnell/aerollm)
+[github.com/qukaizen/aerollm](https://github.com/qukaizen/aerollm)
 exposes them. The workflow to wire a new one:
 
 1. Land the knob upstream in the Rust runtime (or a branch of it)

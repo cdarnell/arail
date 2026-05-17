@@ -46,7 +46,7 @@ files it needs and ask it to add a branch for your package manager.
 
 Here's a prompt that gets it done reliably:
 
-> I'm porting [arail](https://github.com/cdarnell/autoresearch-lab)
+> I'm porting [arail](https://github.com/qukaizen/arail)
 > to **\<your distro\>**. Look at `scripts/setup.sh` — specifically the
 > `detect_platform`, `install_core_deps`, and `install_accel_deps`
 > functions. Add a new branch for \<your distro\> that installs the

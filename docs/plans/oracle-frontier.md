@@ -1,7 +1,7 @@
 # Oracle (Frontier) — Ultra Plan
 
 **Status:** Plan approved 2026-04-26. Implementation sequenced as 6 small PRs with explicit bail point after Sprint D.
-**Repo:** Lives in [`cdarnell/arail`](https://github.com/cdarnell/arail). Backend dependency on [`cdarnell/aerollm`](https://github.com/cdarnell/aerollm) (Phase 4 MoE for v1.5 swap-back).
+**Repo:** Lives in [`qukaizen/arail`](https://github.com/qukaizen/arail). Backend dependency on [`qukaizen/aerollm`](https://github.com/qukaizen/aerollm) (Phase 4 MoE for v1.5 swap-back).
 **Notes prepared:** 2026-04-26.
 
 ## TL;DR
@@ -129,13 +129,13 @@ That's the loop. Single-turn for v1 (multi-turn deferred to v1.5 — see Q1).
 | Engine | gpt-oss-120b support | Notes |
 |---|---|---|
 | AirLLM (upstream main) | broken on Apple Silicon | crashes per [#280](https://github.com/lyogavin/airllm/issues/280); use our fork |
-| AirLLM (`cdarnell/airllm@fix/mlx-torch-tensor-coerce`) | works on Apple Silicon | our fork with [#281](https://github.com/lyogavin/airllm/pull/281) patch applied |
+| AirLLM (`qukaizen/airllm@fix/mlx-torch-tensor-coerce`) | works on Apple Silicon | our fork with [#281](https://github.com/lyogavin/airllm/pull/281) patch applied |
 | AeroLLM | not yet — Phase 4 (MoE) is the AeroLLM port that lights this up | swap-back happens automatically once Phase 4 lands |
 
 **v1 backend: AirLLM via our fork.** Pinned in `.env`:
 
 ```bash
-AIRLLM_PACKAGE_SPEC=git+https://github.com/cdarnell/airllm.git@fix/mlx-torch-tensor-coerce
+AIRLLM_PACKAGE_SPEC=git+https://github.com/qukaizen/airllm.git@fix/mlx-torch-tensor-coerce
 ORACLE_MODEL=gpt-oss-120b
 ORACLE_BACKEND=airllm
 ```
@@ -344,7 +344,7 @@ huggingface-cli download openai/gpt-oss-120b \
 
 # 3. Install the AirLLM fork with the MLX patch.
 pip install --user \
-    git+https://github.com/cdarnell/airllm.git@fix/mlx-torch-tensor-coerce
+    git+https://github.com/qukaizen/airllm.git@fix/mlx-torch-tensor-coerce
 
 # 4. Boot the lab.
 ./arailctl start
@@ -357,7 +357,7 @@ open http://localhost:8080/oracle
 
 ## Adjacent: 400B+ benchmarking sprint (separate plan)
 
-The user's "≤ 1.5 TB benchmarking" requirement is a parallel effort, lives in [`cdarnell/aerollm`](https://github.com/cdarnell/aerollm) under `docs/benchmarks/frontier-bench-plan.md` (to be authored as a sibling plan). Scope:
+The user's "≤ 1.5 TB benchmarking" requirement is a parallel effort, lives in [`qukaizen/aerollm`](https://github.com/qukaizen/aerollm) under `docs/benchmarks/frontier-bench-plan.md` (to be authored as a sibling plan). Scope:
 
 - Extend `scripts/perf/airllm_baseline.py` to handle 400B+ checkpoints (long warmup, longer per-prompt timeout, reduced n_prompts to keep total runtime sane)
 - Same comparison shape: AeroLLM (when Phase 4 lands) vs AirLLM-via-our-fork
@@ -370,6 +370,6 @@ Oracle and benchmarking share the catalog and the model fixtures; they have diff
 
 - [`BLUEPRINTS.md`](../../BLUEPRINTS.md) — blueprint concept; Oracle becomes a feature highlight after Sprint F
 - [`catalog/models.toml`](../../catalog/models.toml) — gains `oracle_eligible` + `benchmark_eligible` fields in Sprint A
-- [`cdarnell/aerollm` Phase 4](https://github.com/cdarnell/aerollm/blob/main/MILESTONES.md) — the AeroLLM MoE port that lights up v1.5 swap-back
+- [`qukaizen/aerollm` Phase 4](https://github.com/qukaizen/aerollm/blob/main/MILESTONES.md) — the AeroLLM MoE port that lights up v1.5 swap-back
 - [`lyogavin/airllm#281`](https://github.com/lyogavin/airllm/pull/281) — the MLX patch our fork carries until upstream merges
 - [`docs/plans/oracle-frontier-results.md`](oracle-frontier-results.md) — Sprint F deliverable; honest write-up of what the v1 Oracle measured (positive or negative)
