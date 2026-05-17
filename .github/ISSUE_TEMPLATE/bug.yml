@@ -1,0 +1,102 @@
+name: Bug report
+description: Something doesn't work the way the docs say it should.
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for filing! Most bugs we see are environment-specific — the
+        fields below are the ones that catch the cause fastest. If you're
+        not sure, leave it blank.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: One paragraph. What did you expect, what did you see instead?
+      placeholder: I ran `./arailctl start` and the portal returned a 500 instead of loading.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: How to reproduce
+      description: The exact commands you ran, in order. Copy-paste from your terminal is ideal.
+      placeholder: |
+        1. git clone --branch v1.0.0 https://github.com/cdarnell/arail.git
+        2. cd arail
+        3. ./arailctl setup
+        4. ./arailctl start
+        5. Open http://127.0.0.1:8080 → 500
+      render: shell
+    validations:
+      required: true
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - macOS — Apple Silicon (M1/M2/M3/M4)
+        - macOS — Intel
+        - Linux — x86_64, no GPU
+        - Linux — x86_64, NVIDIA GPU
+        - WSL2 — no GPU
+        - WSL2 — NVIDIA GPU
+        - Other (specify in "What happened")
+    validations:
+      required: true
+
+  - type: dropdown
+    id: tier
+    attributes:
+      label: Lab tier
+      options:
+        - minimalist (default)
+        - maximus
+        - Not sure / setup didn't complete
+    validations:
+      required: true
+
+  - type: dropdown
+    id: ai-eng-state
+    attributes:
+      label: ai-eng model state
+      description: Which base did setup land on?
+      options:
+        - qukaizen/ai-eng:3b (production)
+        - qwen2.5:7b (preview fallback)
+        - Not installed / setup failed before this step
+        - Not sure
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: ARAIL version
+      description: Output of `./arailctl version` or the tag/commit you're on.
+      placeholder: v1.0.0
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: |
+        Paste anything from `setup.log` (in the repo root) or
+        `lab/data/activity.jsonl` that looks related. `./arailctl logs all 100`
+        is a good catch-all.
+      render: shell
+
+  - type: checkboxes
+    id: pre-checks
+    attributes:
+      label: Pre-checks
+      options:
+        - label: I ran `./arailctl doctor` and pasted any warnings into the logs box above.
+        - label: I confirmed I'm on v1.0.0 or later (`./arailctl version`).
+        - label: I searched [existing issues](https://github.com/cdarnell/arail/issues) and didn't find a duplicate.

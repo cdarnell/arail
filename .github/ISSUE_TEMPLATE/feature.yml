@@ -1,0 +1,53 @@
+name: Feature request
+description: Something you wish ARAIL could do.
+title: "[feature] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ARAIL is a blueprint, not a product — the friction is part of the
+        signal. Before filing, ask yourself: is this something a fork could
+        solve, or does it belong in the upstream blueprint? Both answers are
+        fine, the framing just shapes the conversation.
+
+  - type: textarea
+    id: who-and-why
+    attributes:
+      label: Who is this for, and why
+      description: |
+        One paragraph. Who's the user? What are they trying to do? What
+        makes the current behaviour wrong or missing?
+    validations:
+      required: true
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What the new behaviour would look like
+      description: Specific. UI sketch, command shape, agent contract — whatever fits.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Which surface
+      options:
+        - Dashboard
+        - Chat (Compute Source / model pivot)
+        - Autoresearch loop
+        - Knowledge Base
+        - Agents (Buddy / SRE / Researcher / new agent)
+        - Admin / Tuning / Plugins / Notebooks (Maximus)
+        - Setup / CLI (arailctl)
+        - Docs
+        - New surface / cross-cutting
+    validations:
+      required: true
+
+  - type: textarea
+    id: workaround
+    attributes:
+      label: What you do today instead (workaround)
+      description: How are you living without this? Helps us judge priority.
