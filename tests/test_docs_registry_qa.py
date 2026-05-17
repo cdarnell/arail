@@ -37,12 +37,40 @@ import pytest
 
 
 def _fresh_registry(monkeypatch, docs_dir: Path, root_dir: Path) -> ModuleType:
-    mod_name = "arail.portal.docs_registry"
-    if mod_name in sys.modules:
-        del sys.modules[mod_name]
-    mod = importlib.import_module(mod_name)
+    """Return a docs_registry module bound to *root_dir* and rebind every
+    reference held by arail.portal.app so the same module object is what
+    both sys.modules and app.py see.
+
+    Key design: we do NOT delete sys.modules or create a new module object.
+    Instead we patch the existing module's attributes in place via monkeypatch
+    so that all callers — including app.py's `_docs_registry` name — see the
+    patched root and an empty cache.  monkeypatch.setattr auto-restores on
+    teardown, so after the test both the module attributes and app.py's
+    reference are back to their original values.
+
+    This fixes the TEST_REPORT.md carry-over: the old `del sys.modules` +
+    re-import created a *new* object; app.py kept the old one; so any patch
+    applied to the new object was invisible to app.py routes.
+    """
+    mod_name = "arail.portal.app"
+    # Ensure arail.portal.app is imported so we can rebind its reference.
+    if mod_name not in sys.modules:
+        importlib.import_module(mod_name)
+
+    mod = importlib.import_module("arail.portal.docs_registry")
+
+    # Patch _repo_root (a function attribute on the module) so all_docs()
+    # walks root_dir instead of the real repo root.
     monkeypatch.setattr(mod, "_repo_root", lambda: root_dir)
+
+    # Rebind app.py's _docs_registry to the same module object.  This is the
+    # closure fix: now patching `mod.by_category` etc. is visible to the app.
+    import arail.portal.app as _app
+    monkeypatch.setattr(_app, "_docs_registry", mod)
+
+    # Flush the in-process cache so all_docs() re-walks from root_dir.
     mod._invalidate_cache()
+
     return mod
 
 
@@ -388,11 +416,12 @@ def test_live_repo_registry_is_well_formed():
     """Against the *real* repo: >=20 docs, all categories valid, no collisions,
     all required fields populated. This is the test that catches frontmatter
     rot when someone edits a doc and breaks its YAML."""
-    # Force a clean import against the real repo paths.
+    # Reload in-place so the module identity in sys.modules stays the same
+    # object that arail.portal.app._docs_registry holds.  Using del sys.modules
+    # + re-import would create a new object and leave app.py with a stale ref.
     mod_name = "arail.portal.docs_registry"
-    if mod_name in sys.modules:
-        del sys.modules[mod_name]
-    mod = importlib.import_module(mod_name)
+    mod = sys.modules.get(mod_name) or importlib.import_module(mod_name)
+    importlib.reload(mod)
     mod._invalidate_cache()
 
     docs = mod.all_docs()
@@ -418,9 +447,8 @@ def test_live_repo_registry_is_well_formed():
 def test_live_repo_denylist_files_not_present():
     """The denylist files must never appear in the live registry."""
     mod_name = "arail.portal.docs_registry"
-    if mod_name in sys.modules:
-        del sys.modules[mod_name]
-    mod = importlib.import_module(mod_name)
+    mod = sys.modules.get(mod_name) or importlib.import_module(mod_name)
+    importlib.reload(mod)
     mod._invalidate_cache()
 
     slugs = {d.slug for d in mod.all_docs()}
@@ -445,9 +473,8 @@ def test_live_repo_related_slugs_resolve_or_are_silently_dropped():
     registered doc or is silently dropped (no exception). Authoring typos
     should not break the registry."""
     mod_name = "arail.portal.docs_registry"
-    if mod_name in sys.modules:
-        del sys.modules[mod_name]
-    mod = importlib.import_module(mod_name)
+    mod = sys.modules.get(mod_name) or importlib.import_module(mod_name)
+    importlib.reload(mod)
     mod._invalidate_cache()
 
     docs = mod.all_docs()
@@ -464,3 +491,45 @@ def test_live_repo_related_slugs_resolve_or_are_silently_dropped():
     for d in docs:
         result = mod.related(d.slug)
         assert isinstance(result, tuple)
+
+
+# ---------------------------------------------------------------------------
+# Test-infra fix verification (F5 carry-over)
+# ---------------------------------------------------------------------------
+
+
+def test_fresh_registry_rebinds_app_module_reference(monkeypatch, tmp_path):
+    """After _fresh_registry(), arail.portal.app._docs_registry IS the returned
+    module object — not the stale module from before the call.
+
+    This pins the fix for the TEST_REPORT.md carry-over: the old helper used
+    `del sys.modules[...]` which reloaded the module but left app.py's
+    `_docs_registry` attribute pointing at the pre-test (real-repo) module.
+    The result: tests that patched the registry via _fresh_registry had no
+    effect on the app routes — a silent false-negative that looked like
+    isolation but wasn't.
+    """
+    import arail.portal.app as _app  # ensure the app module IS imported
+
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "sentinel.md").write_text(
+        "---\ntitle: Sentinel\ncategory: Reference\n---\n# Sentinel\n",
+        encoding="utf-8",
+    )
+
+    mod = _fresh_registry(monkeypatch, docs, tmp_path)
+
+    # The reference held by app.py must now BE the same object _fresh_registry returned.
+    assert _app._docs_registry is mod, (
+        "arail.portal.app._docs_registry was NOT rebound by _fresh_registry. "
+        "The sys.modules fix is incomplete."
+    )
+
+    # Sanity: the rebound registry sees only the sentinel doc (not the real corpus).
+    docs_list = _app._docs_registry.all_docs()
+    slugs = {d.slug for d in docs_list}
+    assert slugs == {"sentinel"}, (
+        f"App registry returned unexpected docs: {slugs!r}. "
+        "Rebind worked but registry didn't pick up the temp root."
+    )
