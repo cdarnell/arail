@@ -59,6 +59,7 @@ _UI_THEME = load_ui_theme()
 # ---------------------------------------------------------------------------
 _BOOT_PERF: float = time.perf_counter()  # perf_counter at process import
 _READY: bool = False  # flipped True at the end of @app.on_event("startup")
+_MODEL_WARM: bool = False  # flipped True once _warm_primary_router() finishes
 
 
 def _read_version() -> str:
@@ -762,6 +763,7 @@ async def get_ready():
     """
     return {
         "ready": _READY,
+        "warming": not _MODEL_WARM,
         "boot_seconds": round(time.perf_counter() - _BOOT_PERF, 2),
     }
 
@@ -4708,6 +4710,7 @@ def _get_primary_router():
 
 
 async def _warm_primary_router() -> None:
+    global _MODEL_WARM
     try:
         await asyncio.to_thread(_get_primary_router)
         activity_log.emit("chat", "Primary chat model is loaded and ready.", "info")
@@ -4717,6 +4720,11 @@ async def _warm_primary_router() -> None:
             f"Primary chat preload skipped: {type(e).__name__}: {e}",
             "warn",
         )
+    finally:
+        # Always flip — on failure the overlay must still dismiss so the
+        # user isn't trapped behind a spinner waiting for a model that
+        # won't load.
+        _MODEL_WARM = True
 
 
 def _render_messages_for_backend(messages: list[dict[str, str]], backend: Any) -> str:

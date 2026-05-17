@@ -67,13 +67,15 @@
   {% endif %}
 </nav>
 
-<!-- Warmup overlay — covers the page until /api/ready returns ready:true,
-     so users don't click into a void during the ~10s post-restart boot.
-     Self-removes once ready or after a hard cap of 10s — after that
-     the user can read/type while warmup continues in the background. -->
+<!-- Warmup overlay — hidden until the first /api/ready probe confirms the
+     portal is still booting OR the primary chat model hasn't warmed yet.
+     This avoids a flash on hot navigations (server already warm) while
+     still showing a clear signal when work IS pending. Self-dismisses
+     once ready && !warming, or after a 30s hard cap so the user is
+     never trapped behind a stuck spinner. -->
 <div id="lab-warmup-overlay" style="
-     position:fixed;inset:0;z-index:9999;
-     display:flex;flex-direction:column;align-items:center;justify-content:center;
+     position:fixed;inset:0;z-index:9999;display:none;
+     flex-direction:column;align-items:center;justify-content:center;
      gap:1rem;background:rgba(8,12,18,.92);color:#cfd8e0;
      font-family:system-ui,-apple-system,sans-serif;backdrop-filter:blur(2px);">
   <div style="
@@ -89,31 +91,40 @@
   if (!overlay) return;
   var elapsedEl = document.getElementById('lab-warmup-elapsed');
   var t0 = performance.now();
-  var maxMs = 10000; // hard cap — never trap the user past 10s
+  var maxMs = 30000; // hard cap — never trap the user past 30s
+  var visible = false;
+  function show() {
+    if (visible) return;
+    visible = true;
+    overlay.style.display = 'flex';
+  }
   function dismiss() {
+    if (!visible) { overlay.remove(); return; }
     overlay.style.transition = 'opacity 220ms';
     overlay.style.opacity = '0';
     setTimeout(function () { overlay.remove(); }, 240);
   }
-  function poll() {
+  function check(initial) {
     var elapsed = performance.now() - t0;
     if (elapsedEl) elapsedEl.textContent = (elapsed / 1000).toFixed(1) + 's';
     if (elapsed > maxMs) { dismiss(); return; }
     fetch('/api/ready', { cache: 'no-store' })
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (data) {
-        if (data && data.ready) { dismiss(); return; }
-        setTimeout(poll, 400);
+        if (data && data.ready && !data.warming) { dismiss(); return; }
+        // Only reveal the overlay once we've confirmed work is pending.
+        // On a warm server the first probe returns ready && !warming and
+        // we dismiss without ever flashing the overlay.
+        show();
+        setTimeout(check, 400);
       })
-      .catch(function () { setTimeout(poll, 600); });
+      .catch(function () {
+        // Network error talking to our own portal — likely mid-restart.
+        // Surface the overlay so the user has a signal, then keep polling.
+        show();
+        setTimeout(check, 600);
+      });
   }
-  // Skip the overlay entirely if the server is already ready on first paint.
-  fetch('/api/ready', { cache: 'no-store' })
-    .then(function (r) { return r.ok ? r.json() : null; })
-    .then(function (data) {
-      if (data && data.ready) { overlay.remove(); return; }
-      poll();
-    })
-    .catch(poll);
+  check(true);
 })();
 </script>
