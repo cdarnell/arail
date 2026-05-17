@@ -113,21 +113,201 @@ Legacy `min`/`max` tier names are accepted with a deprecation warning
 ./arailctl setup
 ```
 
-This walks you through 10 steps:
+The script prints a numbered banner before each phase so you always
+know where you are in the flow. Every phase is **idempotent** — re-run
+setup any time without fear; already-done work is skipped.
 
-1. Detect your platform (macOS / Linux / WSL2) and accelerator (MLX / CUDA / CPU).
-2. Install OS packages if needed (brew, apt, dnf, pacman, emerge).
-3. Create a Python venv and install deps **for the tier you pick**.
-4. Name your lab. Default is *Autoresearch AI Lab* — rename to taste.
-5. Pick a passphrase (protects the in-browser IDE and notebook encryption).
-6. Write `.env` with your choices.
-7. Scaffold the knowledge base directory.
-8. Pull the ai-eng model (~5 GB — qwen2.5:7b preview base + AI Engineer
-   persona Modelfile, or `qukaizen/ai-eng:3b` once QuKaiZen publishes it).
-9. Capture a research goal.
-10. Verify with a smoke test.
+### Step 1/11 — Detecting hardware
 
-Everything is idempotent — re-run any time without fear.
+Reads `uname` to classify your machine:
+
+- **Apple Silicon** (`Darwin` + `arm64`) → `PLATFORM=macos`, `ACCEL=mlx`
+- **Intel Mac** → `PLATFORM=macos`, `ACCEL=cpu` (with a warning — MLX
+  requires Apple Silicon)
+- **Linux + Nvidia + `nvidia-smi` works** → `PLATFORM=linux`,
+  `ACCEL=cuda`
+- **Linux without GPU** → `PLATFORM=linux`, `ACCEL=cpu`
+- **WSL2** (Microsoft kernel signature) → `PLATFORM=wsl`, then same
+  GPU detection as Linux
+- **Distro flavor** (`gentoo`/`fedora`/`arch`) detected from `/etc/*-release`
+
+Hard-fails on **Windows-native shells** (PowerShell, MSYS, Git Bash) —
+ARAIL requires WSL2 on Windows hosts.
+
+### Step 2/11 — System packages
+
+Installs supporting CLIs via your platform package manager:
+
+- **`ttyd`** — powers the embedded `/terminal` tab in the portal.
+  Without it, the Terminal tab shows install help instead of a broken
+  iframe.
+- **`tmux`** — keeps the browser-terminal scrollback alive across
+  iframe reloads.
+- **`agent-browser`** — Node.js CLI used by the Knowledge tab's web
+  research agent. Bootstraps Node.js via the platform package manager
+  if `npm` is missing.
+- **Ollama** — installed on Linux/CUDA and Intel Macs (Apple Silicon
+  uses native MLX, so Ollama is skipped unless `ARAIL_ENABLE_OLLAMA=1`
+  is set). Used to serve the `ai-eng` default model.
+
+Each install is opportunistic — failures log a hint and continue, they
+don't kill setup.
+
+### Step 3/11 — Python environment
+
+Creates `./.venv/` and installs:
+
+- Base ARAIL package — `pip install -e .` pulls FastAPI, uvicorn,
+  Jinja2, LanceDB, huggingface-hub, and the other always-on deps from
+  `pyproject.toml`.
+- **Tier extras** — `pip install -e ".[dev,<tier>]"`. Minimalist adds
+  nothing extra (the base deps cover the everyday lab). Maximus adds
+  `jupyterlab`, `anthropic`, `langchain`, `langgraph`, `pip-audit`.
+- **Accelerator extras** — based on Step 1 detection:
+  - `mlx` → `mlx`, `mlx-lm`
+  - `cuda` → `vllm`, `torch`
+  - `cpu` → `llama-cpp-python`
+- **AeroLLM** — installed only when `LAB_TIER=maximus` on Apple
+  Silicon. On CUDA Maximus, AeroLLM CUDA is pending; AirLLM serves as
+  the fallback (opt-in via `ARAIL_INSTALL_AIRLLM=1`).
+- **AirLLM** — opt-in only as of v1.0.0. Set `ARAIL_INSTALL_AIRLLM=1`
+  to enable layer-streaming 70B/405B inference on CUDA/Linux.
+
+### Step 4/11 — Name your lab
+
+Asks for a `LAB_NAME` and one-line tagline. These thread through every
+visible surface (dashboard title, nav logo, activity log, wiki landing
+page). Defaults: `"Autoresearch AI Lab"` and `"A learn-by-doing AI
+research lab"`. Examples of what folks have picked:
+
+```text
+Sam's AI Lab
+gentoofoo's ai lab
+PeanutLab
+```
+
+The Python package name stays `arail` so imports never break when you
+rebrand.
+
+### Step 4b/11 — Pick an install tier
+
+Shows the two-tier menu and reads your choice:
+
+- **`minimalist`** (default) — Dashboard, Chat, Autoresearch, Knowledge
+  Base, Agents, Docs. The everyday lab. Ships `ai-eng` as the only
+  default model.
+- **`maximus`** — everything in Minimalist + Admin, Notebooks, AeroLLM
+  deep-mode runtime, Anthropic SDK, LangChain/LangGraph, full cloud
+  catalog. Targets 32 GB+ machines.
+
+Legacy `min`/`max` are accepted with a deprecation warning (shim
+removed in v1.1.0).
+
+### Step 5/11 — Lab passphrase
+
+One secret covers every authenticated surface:
+
+- The browser IDE (`code-server`) login
+- Open Notebook data encryption key
+- Future auth proxy
+
+Setup generates a 32-char random passphrase by default; you can also
+type your own. The value writes to `.env`, `lab.conf`, and
+`~/.config/code-server/config.yaml` with `chmod 0600`.
+
+### Step 6/11 — Configuration files
+
+Writes (or upserts into) two files:
+
+- **`.env`** — `LAB_NAME`, `LAB_TIER`, `LAB_MODE=airgapped`, model
+  defaults, ports, hardware flags. Hand-edit only if you know what
+  you're doing.
+- **`lab.conf`** — runtime ports + service flags consumed by
+  `./arailctl start`.
+
+Existing values are preserved — re-running setup never silently
+clobbers your customisations.
+
+### Step 7/11 — Knowledge base scaffold
+
+Creates the `lab/pkb/` tree the lab agents read from and write to:
+
+```text
+lab/pkb/
+├── inbox/        # drop docs here; the curator agent ingests them
+├── sources/      # original PDFs / HTML / video transcripts
+├── notes/        # human + agent-written notes
+├── agents/       # per-agent AGENT.md + <id>.py loader contracts
+└── compiled/     # auto-built wiki + LanceDB vector index
+```
+
+Plus `lab/data/` (activity log, goals, experiments, audit trail) and
+`lab/models/` (downloaded weights — git-ignored).
+
+### Step 8/11 — AI models (ai-eng)
+
+The **only** model that auto-installs. Probes for the production tag,
+falls back to the preview base:
+
+1. Tries `ollama pull qukaizen/ai-eng:3b` — the canonical 3B
+   Opus-4.7-derived AI engineering expert from QuKaiZen's Project
+   Nucleus.
+2. If that 404s (the 3B weights are still being finalised at QuKaiZen),
+   pulls `qwen2.5:7b` (~5 GB) and uses it as the preview base.
+3. Runs `ollama create ai-eng -f models/ai-eng/Modelfile.{production,preview}`
+   to bind the AI Engineer persona Modelfile to whichever base
+   succeeded.
+
+Re-running setup after `qukaizen/ai-eng:3b` publishes swaps the base
+automatically. No other models pre-install — the chat catalog (~20
+entries) is a browse-and-pull gallery accessed from the Chat tab.
+
+Skip the model pull with `ARAIL_SKIP_OLLAMA=1` if bandwidth is tight.
+
+### Step 8b/11 — Coder starter model (optional)
+
+Only runs when you pass `--with-coder` (or set `ARAIL_WITH_CODER=1`).
+Downloads `Qwen2.5-Coder-3B-Instruct` (~2 GB Q4) to `lab/models/` so
+the Maximus tier's opencode Workbench has something to point at.
+
+### Step 9/11 — Lab intent & first research goal
+
+Asks two questions:
+
+- **`LAB_INTENT`** — the domain context the researcher agent thinks
+  in: `ai` | `farming` | `ml` | `business` | `education` | `health` |
+  `culinary`. Defaults to `ai`.
+- **Initial research goal** — one sentence describing what you want
+  the autoresearch loop to chew on first. The goal seed lands in
+  `lab/data/goals.json`; you can change it any time from the
+  Autoresearch tab.
+
+### Step 10/11 — Install `arailctl` to your PATH
+
+Offers to symlink `arailctl` into `~/.local/bin` so you can run it
+from any directory. After this step:
+
+```bash
+arailctl status      # works from anywhere
+qkz status           # short alias (symlinked to arailctl)
+```
+
+Skipped if `arailctl` is already on `PATH`. The `qkz` PATH install is
+suppressed automatically if you already have a `qkz` binary or shell
+function (e.g. from the QuKaiZen knowledge-base repo); override with
+`ARAIL_INSTALL_QKZ=1`.
+
+### Step 11/11 — Verification
+
+Runs a smoke test:
+
+- Imports `arail` and `arail.portal.app` in the venv.
+- Resolves `_pkb_root()` to confirm the KB scaffold is reachable.
+- Checks `uvicorn`, `jupyter`, `ttyd`, `code-server` are on `PATH`
+  (warns but doesn't fail on optional ones).
+
+Prints a final `setup: OK` and a one-liner showing the next command:
+`./arailctl start`.
 
 ---
 
