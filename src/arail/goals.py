@@ -106,8 +106,15 @@ class GoalStore:
         preview = self.get_preview()
         if not preview:
             return None
+        parsed = dict(preview.get("parsed") or {})
+        # The preview stores goal_text at the top level; parsed may not carry
+        # the "goal" key. Without this, set_goal records goal_text="" and the
+        # cockpit keeps showing the previously-archived goal.
+        preview_goal_text = str(preview.get("goal_text") or "").strip()
+        if preview_goal_text and not str(parsed.get("goal") or "").strip():
+            parsed["goal"] = preview_goal_text
         record = self.set_goal(
-            dict(preview.get("parsed") or {}),
+            parsed,
             swarm_plan=preview.get("swarm") if isinstance(preview.get("swarm"), dict) else None,
             source="preview",
             preview_id=str(preview.get("id") or ""),
