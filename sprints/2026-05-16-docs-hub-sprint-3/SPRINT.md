@@ -39,7 +39,7 @@ remaining items.
 ## Phases
 
 - [x] design (architect) — produced `ARCHITECTURE.md`
-- [ ] build (builder)
-- [ ] review (architect)
-- [ ] qa
-- [ ] ship
+- [x] build (builder) — 6 atomic commits, 140 docs tests, 3 broken links fixed
+- [x] review (architect) — **PASS**
+- [x] qa — **PASS** (18 new tests, 158/158 docs-domain green, 0 FAIL)
+- [x] ship — bundled with sticky-TOC ride-along + sprint-1/2 carry-overs in PR
