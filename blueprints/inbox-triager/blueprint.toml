@@ -8,7 +8,7 @@
 
 id          = "inbox-triager"
 label       = "Inbox Triager"
-tier        = "min"
+tier        = "minimalist"
 goal_prompt = """
 Read new email since I last checked. Classify each as informational,
 needs-reply, calendar-conflict, or unsubscribe. For needs-reply items,

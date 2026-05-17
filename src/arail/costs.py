@@ -50,6 +50,21 @@ PLATFORM_WATTS: Dict[str, float] = {
     "claude":        5.0,
 }
 
+# Joules-per-token SWAG by backend — used as a floor for the energy estimate
+# so realistic per-token energy is captured even when per-call latency is tiny
+# or missing. Derived from typical sustained tok/s × wattage for each backend.
+JOULES_PER_TOKEN: Dict[str, float] = {
+    "mlx":           1.0,   # ~20 tok/s @ 20W
+    "cuda":          5.0,   # ~50 tok/s @ 250W
+    "cpu":           8.0,   # ~8 tok/s  @ 65W
+    "airllm":       30.0,   # ~1 tok/s  @ 30W (layer streaming is slow)
+    "aerollm":      30.0,
+    "openai_compat": 0.5,
+    "huggingface":   0.2,
+    "openrouter":    0.2,
+    "claude":        0.2,
+}
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -147,6 +162,8 @@ class CostTracker:
         self.total_energy_usd: float = 0.0
         self.total_savings_usd: float = 0.0
         self.total_calls: int = 0
+        self.total_latency_ms: float = 0.0
+        self.latency_by_backend: Dict[str, float] = {}
         self.calls_by_backend: Dict[str, int] = {}
         self.calls_by_source: Dict[str, int] = {}
         self.tokens_by_backend: Dict[str, int] = {}
@@ -171,6 +188,8 @@ class CostTracker:
                 self.total_energy_usd = data.get("total_energy_usd", 0.0)
                 self.total_savings_usd = data.get("total_savings_usd", 0.0)
                 self.total_calls = data.get("total_calls", 0)
+                self.total_latency_ms = data.get("total_latency_ms", 0.0)
+                self.latency_by_backend = data.get("latency_by_backend", {})
                 self.calls_by_backend = data.get("calls_by_backend", {})
                 self.calls_by_source = data.get("calls_by_source", {})
                 self.tokens_by_backend = data.get("tokens_by_backend", {})
@@ -178,6 +197,15 @@ class CostTracker:
                 self._started_at = data.get("started_at", time.time())
             except (json.JSONDecodeError, KeyError):
                 pass
+            # Reconcile historical energy estimates that were latency-only —
+            # if the on-disk number is implausibly small for the tokens
+            # processed, rebuild it from the per-backend J/token SWAG.
+            swag_energy = 0.0
+            for bk, toks in self.tokens_by_backend.items():
+                jpt = JOULES_PER_TOKEN.get(bk, 5.0)
+                swag_energy += (toks * jpt / 3_600_000.0) * self._energy_rate
+            if swag_energy > self.total_energy_usd * 5:
+                self.total_energy_usd = round(swag_energy, 6)
 
     def _save(self) -> None:
         self._data_path.write_text(json.dumps({
@@ -189,6 +217,8 @@ class CostTracker:
             "total_energy_usd": self.total_energy_usd,
             "total_savings_usd": self.total_savings_usd,
             "total_calls": self.total_calls,
+            "total_latency_ms": self.total_latency_ms,
+            "latency_by_backend": self.latency_by_backend,
             "calls_by_backend": self.calls_by_backend,
             "calls_by_source": self.calls_by_source,
             "tokens_by_backend": self.tokens_by_backend,
@@ -223,10 +253,17 @@ class CostTracker:
             effective_multiplier *= self._agent_usage_multiplier
         billed_usage_total = max(raw_cloud_total * effective_multiplier, self._min_call_usd)
 
-        # Energy cost — watts × hours × $/kWh
+        # Energy cost — take the larger of (latency × watts) and a
+        # token-based SWAG (joules/token). Latency-only severely undercounts
+        # when the tracker sees just generation time, not the full call,
+        # so the J/token floor keeps the lifetime estimate realistic.
         watts = PLATFORM_WATTS.get(backend, 30.0)
         hours = latency_ms / 3_600_000.0
-        energy_cost = watts * hours * self._energy_rate / 1000.0  # watts→kW
+        latency_energy = watts * hours * self._energy_rate / 1000.0
+        joules_per_tok = JOULES_PER_TOKEN.get(backend, 5.0)
+        token_kwh = (tokens_in + tokens_out) * joules_per_tok / 3_600_000.0
+        token_energy = token_kwh * self._energy_rate
+        energy_cost = max(latency_energy, token_energy)
 
         # Savings
         savings = billed_usage_total - energy_cost
@@ -240,6 +277,10 @@ class CostTracker:
         self.total_energy_usd += energy_cost
         self.total_savings_usd += savings
         self.total_calls += 1
+        self.total_latency_ms += float(latency_ms or 0.0)
+        self.latency_by_backend[backend] = (
+            self.latency_by_backend.get(backend, 0.0) + float(latency_ms or 0.0)
+        )
         self.calls_by_backend[backend] = self.calls_by_backend.get(backend, 0) + 1
         self.calls_by_source[source] = self.calls_by_source.get(source, 0) + 1
         self.tokens_by_backend[backend] = self.tokens_by_backend.get(backend, 0) + tokens_in + tokens_out
@@ -283,6 +324,13 @@ class CostTracker:
         """Return full cost summary for the dashboard."""
         uptime_hours = (time.time() - self._started_at) / 3600.0
         subscription_usd = self._subscription_accrued_usd()
+        avg_latency_ms = (
+            self.total_latency_ms / self.total_calls if self.total_calls else 0.0
+        )
+        avg_latency_by_backend = {
+            k: round(self.latency_by_backend.get(k, 0.0) / v, 1)
+            for k, v in self.calls_by_backend.items() if v
+        }
         simulated_spend_usd = self.total_billed_usage_usd + subscription_usd
         return {
             "total_calls": self.total_calls,
@@ -313,6 +361,9 @@ class CostTracker:
             "subscription_monthly_usd": self._subscription_monthly_usd,
             "subscription_enabled": self._include_subscription,
             "uptime_hours": round(uptime_hours, 2),
+            "avg_latency_ms": round(avg_latency_ms, 1),
+            "avg_latency_by_backend": avg_latency_by_backend,
+            "total_latency_ms": round(self.total_latency_ms, 1),
             "recent_history": self._history[-50:],
         }
 

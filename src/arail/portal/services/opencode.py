@@ -638,12 +638,17 @@ def _config_path() -> Path:
 def lab_system_prompt(tier: str) -> str:
     """Return the multi-line system prompt for the build/plan agents.
 
-    Pure. Tier-aware: max version mentions Workbench surfaces.
+    Pure. Tier-aware: maximus version mentions Workbench surfaces.
+    Accepts legacy "max"/"min" tier names via the v1.0.0 compat shim
+    (removed in v1.1.0).
     """
+    # v1.0.0 legacy-tier shim — apply at function boundary so tests and
+    # callers passing literal "max"/"min" continue to work.
+    tier = {"min": "minimalist", "max": "maximus"}.get(tier, tier)
     workbench_section = ""
-    if tier == "max":
+    if tier == "maximus":
         workbench_section = """
-      - The Workbench tab (max-tier) gives you Jupyter Lab, Marimo,
+      - The Workbench tab (maximus-tier) gives you Jupyter Lab, Marimo,
         Open Notebook, and opencode — each a separate iframe card.
         You're currently running inside opencode."""
 
@@ -698,7 +703,7 @@ def _render_opencode_config(
                     'huggingface' | 'custom'
       model       — active model id (None when no model loaded)
       portal_port — int, used in the 'lab-local' provider baseURL
-      tier        — 'min' | 'max' (governs the agent prompt)
+      tier        — 'minimalist' | 'maximus' (governs the agent prompt)
       models_list — optional pre-fetched scan results; included in the
                     lab-local models map when provider='my_machine'
       lab_mode    — 'airgapped' | 'hybrid'
@@ -711,6 +716,10 @@ def _render_opencode_config(
     Returns: dict (NOT json string — caller serializes).
     Pure: no filesystem, no env reads beyond explicit parameters.
     """
+    # v1.0.0 legacy-tier shim — apply at function boundary so tests and
+    # callers passing literal "max"/"min" continue to work.
+    tier = {"min": "minimalist", "max": "maximus"}.get(tier, tier)
+
     # Airgapped override: force my_machine regardless (F-AIRGAP-2)
     if lab_mode != "hybrid" and provider not in ("my_machine",):
         provider = "my_machine"
@@ -1015,7 +1024,9 @@ def _regenerate_config_unlocked() -> dict:
         provider = "my_machine"
         model = None
 
-    tier = os.getenv("LAB_TIER", "min").strip().lower()
+    # Read raw tier; apply v1.0.0 legacy min/max → minimalist/maximus shim.
+    _raw_tier = os.getenv("LAB_TIER", "minimalist").strip().lower()
+    tier = {"min": "minimalist", "max": "maximus"}.get(_raw_tier, _raw_tier)
     lab_mode = os.getenv("LAB_MODE", os.getenv("ARAIL_MODE", "airgapped")).strip().lower()
 
     try:

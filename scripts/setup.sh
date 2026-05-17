@@ -107,12 +107,12 @@ values = {
     "MODEL_MLX_ID": str(models.get("mlx", "")),
     "MODEL_HF_ID": str(models.get("cuda", "")),
     "MODEL_GGUF_ID": str(models.get("cpu", "")),
-    "AIRLLM_MODEL_MIN_ID": str(models.get("airllm_min", models.get("airllm", ""))),
-    "AIRLLM_MODEL_MAX_ID": str(models.get("airllm_max", models.get("airllm", ""))),
+    "AIRLLM_MODEL_MIN_ID": str(models.get("airllm_minimalist", models.get("airllm_min", models.get("airllm", "")))),
+    "AIRLLM_MODEL_MAX_ID": str(models.get("airllm_maximus", models.get("airllm_max", models.get("airllm", "")))),
     "AIRLLM_PACKAGE_SPEC": str(sources.get("airllm", "")),
     "AEROLLM_MODEL_ID": str(models.get("aerollm", "")),
-    "AEROLLM_MODEL_MIN_ID": str(models.get("aerollm_min", models.get("aerollm", ""))),
-    "AEROLLM_MODEL_MAX_ID": str(models.get("aerollm_max", models.get("aerollm", ""))),
+    "AEROLLM_MODEL_MIN_ID": str(models.get("aerollm_maximus", models.get("aerollm_min", models.get("aerollm", "")))),
+    "AEROLLM_MODEL_MAX_ID": str(models.get("aerollm_maximus", models.get("aerollm_max", models.get("aerollm", "")))),
     "AEROLLM_PACKAGE_SPEC": str(sources.get("aerollm", "")),
 }
 for key, value in values.items():
@@ -522,11 +522,13 @@ ensure_node() {
 # Install core Python deps
 # -----------------------------------------------------------------------------
 install_core_deps() {
-    local tier="${LAB_TIER:-min}"
+    local tier="${LAB_TIER:-minimalist}"
     case "$tier" in
-        min|max) ;;
-        med)     warn "Legacy tier 'med' passed to installer — promoting to 'max'."; tier="max" ;;
-        *)       tier="min" ;;
+        minimalist|maximus) ;;
+        min) warn "Legacy tier 'min' — migrating to 'minimalist' (compat shim removes in v1.1.0)."; tier="minimalist" ;;
+        max) warn "Legacy tier 'max' — migrating to 'maximus' (compat shim removes in v1.1.0)."; tier="maximus" ;;
+        med) warn "Legacy tier 'med' retired — promoting to 'maximus'."; tier="maximus" ;;
+        *)   tier="minimalist" ;;
     esac
     info "Installing Python packages (tier=${BOLD}${tier}${RESET}) from ${BOLD}pyproject.toml${RESET}…"
     local log="${REPO_ROOT:-$PWD}/setup.log"
@@ -555,53 +557,42 @@ install_accel_deps() {
             ;;
     esac
 
-    # Deep backend — layer-streaming inference for 70B+ models on
-    # constrained hardware. The dashboard chat card has a "Deep model"
-    # toggle that routes one message through this backend at a time.
-    #
-    # AirLLM ships in BOTH tiers: min defaults to a 70B (Llama-3.1-70B),
-    # max defaults to a 405B (Llama-3.1-405B). The package itself is the
-    # same several-hundred-MB install regardless of tier — the model is
-    # what differs. (AirLLM advertises 8 GB VRAM running 405B.)
-    #
-    # AeroLLM — Arail's own Rust runtime — is declared in pyproject.toml
-    # but stays dormant until it's stable; the swap-back is a one-line
-    # edit in this block.
-    #
-    # Opt-out with ARAIL_SKIP_AIRLLM=1 (legacy ARAIL_SKIP_AEROLLM is
-    # still honored for back-compat). Truly minimal installs that don't
-    # want the torch + transformers footprint can use that flag.
-    if [[ "${ARAIL_SKIP_AIRLLM:-${ARAIL_SKIP_AEROLLM:-0}}" != "1" ]]; then
+    # AirLLM — v1.0.0 made AirLLM opt-in (was bundled in both tiers
+    # before). Power users on CUDA/Linux can enable it with
+    # ARAIL_INSTALL_AIRLLM=1 to get layer-streaming inference for
+    # 70B/405B models. Default install path skips AirLLM entirely.
+    if [[ "${ARAIL_INSTALL_AIRLLM:-0}" == "1" ]]; then
         local airllm_pkg="${ARAIL_AIRLLM_PACKAGE_OVERRIDE:-$AIRLLM_PACKAGE_SPEC}"
-        info "Installing AirLLM (${airllm_pkg}) — source declared in ${BOLD}pyproject.toml${RESET}…"
+        info "Installing AirLLM (${airllm_pkg}, opt-in via ARAIL_INSTALL_AIRLLM=1)…"
         if pip install -q "$airllm_pkg" 2>&1 | tail -5; then
             info "AirLLM ready. Dashboard chat card has a 'Deep model' toggle."
             if [[ -n "${ARAIL_AIRLLM_PACKAGE_OVERRIDE:-}" ]]; then
                 warn "Using ARAIL_AIRLLM_PACKAGE_OVERRIDE for this run only."
             fi
         else
-            # AirLLM is the optional deep-chat backend — the lab still
-            # works without it (Compute Source pivot just won't list it).
-            # Don't kill setup over an optional install.
             warn "AirLLM install failed — check [tool.arail.package-sources] in pyproject.toml or ARAIL_AIRLLM_PACKAGE_OVERRIDE."
-            warn "Continuing without AirLLM. Re-try later with: ARAIL_SKIP_AIRLLM=0 ./arailctl setup"
+            warn "Continuing without AirLLM."
         fi
     else
-        info "Skipping AirLLM (ARAIL_SKIP_AIRLLM=1)."
+        info "Skipping AirLLM (opt-in via ARAIL_INSTALL_AIRLLM=1)."
     fi
 
-    # AeroLLM — Apple Silicon deep-mode default. The wheel is published on
-    # PyPI as aerollm-api (v0.1.0-alpha+). On non-Apple-Silicon hosts
-    # AirLLM stays the default, so we just probe importability and try to
-    # install. If PyPI fails (e.g. no network) we surface the sibling-repo
-    # build path as a fallback. Setup completes either way.
+    # AeroLLM — the Maximus tier deep-mode backend (v1.0.0). Gated to
+    # tier=maximus so Minimalist installs stay lean (ai-eng is enough
+    # for the everyday lab; deep streaming is a Maximus escalation).
+    # On Apple Silicon Maximus: native. On CUDA Maximus: AeroLLM is
+    # preferred when its CUDA backend lands; until then AirLLM (opt-in
+    # via ARAIL_INSTALL_AIRLLM=1) is the fallback.
     #
     # NOTE: do NOT use `maturin develop --release` for the sibling-repo
     # build. maturin changes the cargo fingerprint (PYO3_ENVIRONMENT_SIGNATURE,
     # CARGO_ENCODED_RUSTFLAGS) which triggers a fresh Metal kernel compilation
     # that fails on macOS arm64 due to mlx-sys program-scope device variables
     # (Metal Toolchain cryptexd v32023.883+). Use the cargo workaround below.
-    if [[ "$(uname -s)" == "Darwin" ]] && [[ "$(uname -m)" == "arm64" ]] \
+    if [[ "${LAB_TIER:-minimalist}" != "maximus" ]]; then
+        info "Skipping AeroLLM install — tier is '${LAB_TIER:-minimalist}', not 'maximus'."
+        info "  Upgrade with: ./arailctl upgrade maximus"
+    elif [[ "$(uname -s)" == "Darwin" ]] && [[ "$(uname -m)" == "arm64" ]] \
        && [[ "${ARAIL_SKIP_AEROLLM_PROBE:-0}" != "1" ]]; then
         if python3 -c "import aerollm_api" 2>/dev/null; then
             info "aerollm_api wheel detected — AeroLLM is the deep-mode default on Apple Silicon."
@@ -739,36 +730,68 @@ install_services() {
         info "Ollama already installed ($(ollama --version 2>&1 | head -1))"
     fi
 
-    # Pull a default model for Ollama if none exist. Skippable for
-    # slow networks or locked-down school machines via ARAIL_SKIP_OLLAMA=1.
+    # v1.0.0 — ai-eng is the ONLY model that auto-installs.
+    # ai-eng is a 3B Opus-4.7-derived AI engineering expert from QuKaiZen's
+    # Project Nucleus, served via Ollama. Until the 3B weights publish to
+    # the Ollama registry, setup falls back to qwen2.5:7b + the AI Engineer
+    # persona Modelfile (still called `ai-eng` in Ollama).
+    #
+    # No other models are pre-pulled — the chat catalog lists ~20 additional
+    # options the user can browse and install on demand. Skip the entire
+    # block with ARAIL_SKIP_OLLAMA=1 on slow networks.
     if command -v ollama &>/dev/null; then
         if [[ "${ARAIL_SKIP_OLLAMA:-0}" == "1" ]]; then
-            warn "ARAIL_SKIP_OLLAMA=1 — skipping qwen2.5:7b pull. Run later: ollama pull qwen2.5:7b"
+            warn "ARAIL_SKIP_OLLAMA=1 — skipping ai-eng install. Run later:"
+            warn "  ollama pull qukaizen/ai-eng:3b || ollama pull qwen2.5:7b"
+            warn "  ollama create ai-eng -f models/ai-eng/Modelfile.{production,preview}"
             return
         fi
-        local model_count
-        model_count=$(ollama list 2>/dev/null | tail -n +2 | wc -l | tr -d ' ') || model_count="0"
-        if [[ "$model_count" == "0" ]]; then
-            info "Pulling default Ollama model (qwen2.5:7b, ~5 GB) — this may take 2-5 minutes…"
-            info "Skip next time with ARAIL_SKIP_OLLAMA=1 if bandwidth is tight."
+
+        # If ai-eng already exists in Ollama, we're done (idempotent re-run).
+        if ollama show ai-eng &>/dev/null; then
+            info "ai-eng model already present in Ollama — skipping."
+            return
+        fi
+
+        # Probe for the production tag. If QuKaiZen has published the 3B
+        # weights, prefer those; otherwise fall back to the preview base.
+        local _modelfile_dir="${REPO_ROOT:-$PWD}/models/ai-eng"
+        local _modelfile=""
+        local _base=""
+        info "Probing ai-eng production tag (qukaizen/ai-eng:3b)…"
+        if timeout 900 ollama pull qukaizen/ai-eng:3b 2>&1 | tail -5; then
+            _modelfile="${_modelfile_dir}/Modelfile.production"
+            _base="qukaizen/ai-eng:3b"
+            info "Production base available — using Modelfile.production."
+        else
+            warn "ai-eng:3b not yet published by QuKaiZen — falling back to"
+            warn "qwen2.5:7b preview base. Re-run setup once the 3B weights"
+            warn "land at qukaizen/ai-eng:3b to pick them up automatically."
+            info "Pulling preview base (qwen2.5:7b, ~5 GB) — this may take 2-5 minutes…"
             if ! timeout 900 ollama pull qwen2.5:7b 2>&1 | tail -5; then
-                warn "Model pull failed or timed out. Run manually: ollama pull qwen2.5:7b"
+                warn "Preview base pull failed or timed out."
+                warn "Run manually: ollama pull qwen2.5:7b"
+                return
+            fi
+            _modelfile="${_modelfile_dir}/Modelfile.preview"
+            _base="qwen2.5:7b"
+        fi
+
+        if [[ -f "$_modelfile" ]]; then
+            info "Creating ai-eng model from ${_modelfile} (base: ${_base})…"
+            if ! ollama create ai-eng -f "$_modelfile" 2>&1 | tail -5; then
+                warn "ai-eng create failed. Run manually: ollama create ai-eng -f ${_modelfile}"
             fi
         else
-            info "Ollama has $model_count model(s) available"
+            warn "Modelfile missing at ${_modelfile} — skipping ai-eng creation."
         fi
-        # Create ARAIL's default ai-engineer model from the bundled
-        # Modelfile (qwen2.5:7b base + AI Engineer Expert persona). Idempotent —
-        # `ollama show` returns nonzero when the tag isn't installed yet.
-        # When the user provides their own AI Engineer model (Project Nucleus),
-        # replace the FROM line in models/ai-engineer/Modelfile and re-run setup
-        # (or: ollama rm ai-engineer && ollama create ai-engineer -f <Modelfile>).
-        local _modelfile="${REPO_ROOT:-$PWD}/models/ai-engineer/Modelfile"
-        if [[ -f "$_modelfile" ]] && ! ollama show ai-engineer &>/dev/null; then
-            info "Creating ai-engineer model from models/ai-engineer/Modelfile…"
-            if ! ollama create ai-engineer -f "$_modelfile" 2>&1 | tail -5; then
-                warn "ai-engineer create failed. Run manually: ollama create ai-engineer -f models/ai-engineer/Modelfile"
-            fi
+
+        # Migrate legacy ai-engineer model from pre-v1.0.0 installs.
+        # We don't auto-remove it (the user might have customised it);
+        # just log a hint.
+        if ollama show ai-engineer &>/dev/null; then
+            info "Note: legacy ai-engineer model found in Ollama. To remove:"
+            info "  ollama rm ai-engineer"
         fi
     fi
 }
@@ -877,75 +900,90 @@ _slugify() {
 # -----------------------------------------------------------------------------
 LAB_TIER=""
 capture_tier() {
-    # Respect an existing .env value. Legacy "med" folds into "max" (its
-    # surfaces are a subset of max, and med no longer installs separately).
+    # Respect an existing .env value. Legacy min/max/med fold to the new
+    # names (min → minimalist, max/med → maximus). Compat shim removed in
+    # v1.1.0.
     if [[ -f .env ]] && grep -q '^LAB_TIER=' .env; then
         local existing
         existing="$(grep -E '^LAB_TIER=' .env | head -n1 | cut -d= -f2- | tr -d '"')"
         case "$existing" in
-            min|max)
+            minimalist|maximus)
                 LAB_TIER="$existing"
                 info "Install tier: ${BOLD}${LAB_TIER}${RESET} (from .env)"
                 return
                 ;;
+            min)
+                warn "Legacy tier 'min' in .env — migrating to 'minimalist'."
+                LAB_TIER="minimalist"
+                return
+                ;;
+            max)
+                warn "Legacy tier 'max' in .env — migrating to 'maximus'."
+                LAB_TIER="maximus"
+                return
+                ;;
             med)
-                warn "Legacy tier 'med' — the two-tier blueprint no longer ships med."
-                warn "Rolling forward to 'max' (inherits everything med had + more)."
-                LAB_TIER="max"
+                warn "Legacy tier 'med' — rolling forward to 'maximus'."
+                LAB_TIER="maximus"
                 return
                 ;;
         esac
     fi
 
     if [[ ! -t 0 ]] || [[ "${ARAIL_NONINTERACTIVE:-0}" == "1" ]]; then
-        LAB_TIER="${ARAIL_TIER:-min}"
+        LAB_TIER="${ARAIL_TIER:-minimalist}"
+        case "$LAB_TIER" in
+            min) LAB_TIER="minimalist" ;;
+            max) LAB_TIER="maximus"    ;;
+        esac
         info "Non-interactive — using tier: ${LAB_TIER}"
         return
     fi
 
     step "4b/11  Pick an install tier"
     cat <<EOF
-  Two tiers — upgrade later with ./arailctl upgrade max.
+  Two tiers — upgrade later with ./arailctl upgrade maximus.
 
-    ${BOLD}min${RESET}  Minimalist — Dashboard + Chat + Autoresearch + Knowledge Base
-           + Agents + LanceDB vector recall. The everyday lab.
-           AirLLM deep streaming with Llama-3.1-8B-Instruct (fits 16GB
-           Macs without Metal-watchdog crashes). External providers
-           (Claude, NVIDIA, OpenRouter, HuggingFace) reachable over plain
-           HTTP when LAB_MODE=hybrid.
-    ${BOLD}max${RESET}  Maximalist — Everything in min + Admin, Notebooks, AirLLM
-           Llama-3.1-70B default, Anthropic SDK, LangChain/LangGraph.
-           Targets 32GB+ machines.
+    ${BOLD}minimalist${RESET}  Dashboard + Chat + Autoresearch + Knowledge Base
+                + Agents + LanceDB vector recall. The everyday lab.
+                Ships ai-eng (3B Opus-4.7-derived AI engineering expert
+                from QuKaiZen's Project Nucleus) as the only default
+                model. External providers (Claude, NVIDIA, OpenRouter,
+                HuggingFace) reachable over plain HTTP when
+                LAB_MODE=hybrid.
+    ${BOLD}maximus${RESET}     Everything in minimalist + Admin, Notebooks,
+                AeroLLM deep-mode runtime, Anthropic SDK,
+                LangChain/LangGraph, full cloud catalog. Targets 32GB+
+                machines.
 
   ${BOLD}LanceDB ships in both tiers${RESET} — KB and autoresearch are too central
   to be split across optional installs.
 EOF
     echo ""
     local choice
-    read -rp "  Tier [min]: " choice
-    LAB_TIER="${choice:-min}"
+    read -rp "  Tier [minimalist]: " choice
+    LAB_TIER="${choice:-minimalist}"
     case "$LAB_TIER" in
-        min|max) info "Install tier: ${BOLD}${LAB_TIER}${RESET}" ;;
-        med)     warn "'med' retired in the two-tier blueprint — rolling forward to 'max'."; LAB_TIER="max" ;;
-        *)       warn "Unknown tier '$LAB_TIER' — falling back to min."; LAB_TIER="min" ;;
+        minimalist|maximus) info "Install tier: ${BOLD}${LAB_TIER}${RESET}" ;;
+        min) warn "Legacy 'min' — using 'minimalist'."; LAB_TIER="minimalist" ;;
+        max) warn "Legacy 'max' — using 'maximus'.";    LAB_TIER="maximus"    ;;
+        med) warn "'med' retired in the two-tier blueprint — rolling forward to 'maximus'."; LAB_TIER="maximus" ;;
+        *)   warn "Unknown tier '$LAB_TIER' — falling back to minimalist."; LAB_TIER="minimalist" ;;
     esac
-    # Resolve which AirLLM deep model ships for this tier.
-    # min → 70B (Llama-3.1-70B). max → 405B (Llama-3.1-405B).
+    # Resolve which AirLLM deep model ships for this tier (opt-in via
+    # ARAIL_INSTALL_AIRLLM=1). minimalist → 70B; maximus → 405B.
     case "$LAB_TIER" in
-        max) AIRLLM_MODEL_ID="$AIRLLM_MODEL_MAX_ID" ;;
-        *)   AIRLLM_MODEL_ID="$AIRLLM_MODEL_MIN_ID" ;;
+        maximus) AIRLLM_MODEL_ID="${AIRLLM_MODEL_MAX_ID:-meta-llama/Llama-3.1-405B}" ;;
+        *)       AIRLLM_MODEL_ID="${AIRLLM_MODEL_MIN_ID:-meta-llama/Llama-3.1-70B}"  ;;
     esac
-    info "AirLLM deep model for ${LAB_TIER}: ${BOLD}${AIRLLM_MODEL_ID}${RESET}"
+    if [[ "${ARAIL_INSTALL_AIRLLM:-0}" == "1" ]]; then
+        info "AirLLM deep model for ${LAB_TIER}: ${BOLD}${AIRLLM_MODEL_ID}${RESET}"
+    fi
 
-    # Same resolution for aeroLLM. min ships the 7B-4bit (~4 GB resident,
-    # fits 16 GB Apple Silicon Macs); max ships 70B-4bit (~35 GB, needs
-    # 48 GB+). Operators can override via AEROLLM_MODEL in .env after
-    # setup. On non-Apple-Silicon hosts AeroLLM stays installable but
-    # AirLLM remains the default deep backend (resolver in app.py picks).
-    case "$LAB_TIER" in
-        max) AEROLLM_MODEL_ID="$AEROLLM_MODEL_MAX_ID" ;;
-        *)   AEROLLM_MODEL_ID="$AEROLLM_MODEL_MIN_ID" ;;
-    esac
+    # AeroLLM model selection (deep mode on Apple Silicon, and on CUDA
+    # once the aerollm CUDA backend ships). Operators can override via
+    # AEROLLM_MODEL in .env after setup.
+    AEROLLM_MODEL_ID="${AEROLLM_MODEL_ID:-mlx-community/Qwen2.5-7B-Instruct-4bit}"
     info "AeroLLM deep model for ${LAB_TIER}: ${BOLD}${AEROLLM_MODEL_ID}${RESET}"
 }
 

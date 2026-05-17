@@ -8,7 +8,7 @@
 
 id          = "status-digest"
 label       = "Status Digest"
-tier        = "min"
+tier        = "minimalist"
 goal_prompt = """
 Read what I've worked on this past week — calendar entries, doc edits,
 message threads I'm a participant in. Surface what shipped, what's

@@ -4,7 +4,7 @@ section: docs
 tags: [configuration, env, reference]
 aliases: [env-vars, configuration]
 source: .env.example
-generated: 2026-05-16T03:56:19Z
+generated: 2026-05-17T19:56:29Z
 ---
 
 # Configuration reference
@@ -27,9 +27,9 @@ BRAND — name this lab whatever you want.  Every visible surface (portal title,
 
 ### `LAB_TIER`
 
-INSTALL TIER — set by `./arail setup`; determines which tabs appear.  min  → Dashboard, Chat, Autoresearch, Knowledge Base, Agents The everyday lab. KB runs on markdown + keyword search. External providers (Claude / NVIDIA / OpenRouter / HF) still work here when LAB_MODE=hybrid — they just use plain HTTP, no SDK. max  → + Admin, Notebooks, LanceDB vectors, AeroLLM frontier streaming, official Anthropic SDK, LangChain + LangGraph.  Upgrade later with: ./arail upgrade max
+INSTALL TIER — set by `./arailctl setup`; determines which tabs appear.  minimalist → Dashboard, Chat, Autoresearch, Knowledge Base, Agents, Docs The everyday lab. Ships ai-eng (a 3B Opus-4.7-derived AI engineering expert from QuKaiZen's Project Nucleus) as the only default model. External providers (Claude / NVIDIA / OpenRouter / HF) still work when LAB_MODE=hybrid — they just use plain HTTP, no SDK. maximus    → + Admin, Notebooks, AeroLLM deep-mode streaming, official Anthropic SDK, LangChain + LangGraph, full cloud catalog.  Legacy `min`/`max` values are auto-migrated with a deprecation warning (compat shim removed in v1.1.0).  Upgrade later with: ./arailctl upgrade maximus
 
-**Default:** `min`
+**Default:** `minimalist`
 
 ### `LAB_MODE`
 
@@ -89,7 +89,7 @@ SCHEDULER — when the lab does light vs heavy work. active hours → small-mode
 
 ### `LAB_BUDDY`
 
-PERSONALITY AGENTS (med/max tiers) LAB_BUDDY — ARAIL's lab partner. Observes the lab AND offers goal- aware suggestions (techniques, reviews, runs) on a slow cadence. LAB_SRE   — crash monitor. Surfaces errors and recurrences.  Buddy tuning (optional): LAB_BUDDY_INTERVAL_SEC          — watcher tick (default 90) LAB_BUDDY_GLOBAL_COOLDOWN_SEC   — silence after any utterance (default 300) LAB_BUDDY_SUGGEST_INTERVAL_SEC  — proactive cadence (default 900 = 15 min)
+PERSONALITY AGENTS (maximus tier) LAB_BUDDY — ARAIL's lab partner. Observes the lab AND offers goal- aware suggestions (techniques, reviews, runs) on a slow cadence. LAB_SRE   — crash monitor. Surfaces errors and recurrences.  Buddy tuning (optional): LAB_BUDDY_INTERVAL_SEC          — watcher tick (default 90) LAB_BUDDY_GLOBAL_COOLDOWN_SEC   — silence after any utterance (default 300) LAB_BUDDY_SUGGEST_INTERVAL_SEC  — proactive cadence (default 900 = 15 min)
 
 **Default:** `on`
 
@@ -109,7 +109,7 @@ WIKI — documentation-as-code auto-rebuild behavior.
 
 ### `AIRLLM_MODEL`
 
-AIRLLM — the lab's deep layer-streaming backend (active in both tiers). Llama 3.1 70B by default; max-tier setup bumps this to 405B automatically. Keep AIRLLM_MODEL on a Llama-family repo — AirLLM is most reliable there.
+AIRLLM — optional deep layer-streaming backend (opt-in as of v1.0.0). Power users on CUDA/Linux can enable with: ARAIL_INSTALL_AIRLLM=1. Not installed by default in either tier; AeroLLM is the canonical deep backend for the Maximus tier.
 
 **Default:** `meta-llama/Llama-3.1-70B`
 
@@ -127,7 +127,7 @@ AIRLLM — the lab's deep layer-streaming backend (active in both tiers). Llama 
 
 ### `LAB_SHOW_AEROLLM`
 
-AEROLLM — Arail's own Rust runtime. As of 0.1.0 alpha this is the deep-mode default on Apple Silicon (CUDA hosts still default to AirLLM until aerollm CUDA ships). Switches: AEROLLM_MODEL          → directory under ARAIL_MODELS_DIR or absolute path. Default 7B-4bit (~4 GB resident) for min tier; setup bumps to 70B-4bit (~35 GB) for max tier. AEROLLM_KV_BUDGET_PCT  → KV cache as a fraction of system RAM. 0.60 leaves headroom for portal + browser. Unset → aerollm auto-detects (80%) which is too aggressive for a box also running the lab UI. AEROLLM_DRAFT_MODEL    → optional speculative-decoding draft (path or name). AEROLLM_RING_DEPTH     → cap resident transformer-block weight slots (mlx-native only). 0 / unset → no eviction. LAB_SHOW_AEROLLM=1     → surface AeroLLM tabs on the Tuning page. AEROLLM_RESEARCH=true  → researcher agent uses AeroLLM for deep calls.
+AEROLLM — Arail's Rust runtime; the deep-mode backend for the Maximus tier. Apple Silicon: native. CUDA hosts: fall back to AirLLM with a notice until AeroLLM's CUDA backend ships. Switches: AEROLLM_MODEL          → directory under ARAIL_MODELS_DIR or absolute path. Default Qwen2.5-7B-4bit (~4 GB resident, fits 16 GB Macs). Operators can override in .env. AEROLLM_KV_BUDGET_PCT  → KV cache as a fraction of system RAM. 0.60 leaves headroom for portal + browser. Unset → aerollm auto-detects (80%) which is too aggressive for a box also running the lab UI. AEROLLM_DRAFT_MODEL    → optional speculative-decoding draft (path or name). AEROLLM_RING_DEPTH     → cap resident transformer-block weight slots (mlx-native only). 0 / unset → no eviction. LAB_SHOW_AEROLLM=1     → surface AeroLLM tabs on the Tuning page. AEROLLM_RESEARCH=true  → researcher agent uses AeroLLM for deep calls. ARAIL_FORCE_AEROLLM=1  → disable AirLLM fallback on CUDA (fail loud if AeroLLM CUDA backend is not yet available).
 
 **Default:** `true`
 
@@ -193,7 +193,7 @@ SERVICE PORTS
 
 ### `MARIMO_PORT`
 
-ADD-ON SERVICES (opt-in, max tier) docker compose -f compose/marimo.yml up -d docker compose -f compose/open-notebook.yml up -d
+ADD-ON SERVICES (opt-in, maximus tier) docker compose -f compose/marimo.yml up -d docker compose -f compose/open-notebook.yml up -d
 
 **Default:** `2718`
 

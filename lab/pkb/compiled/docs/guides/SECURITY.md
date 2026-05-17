@@ -1,10 +1,15 @@
 ---
-title: Security
-section: docs
-tags: [guide]
-aliases: [SECURITY]
-source: SECURITY.md
-generated: 2026-05-16T03:56:19Z
+title: Security Policy
+category: Operating
+order: 1
+tags:
+  - security
+  - privacy
+  - operating
+audience: operator
+related:
+  - PRIVACY
+  - PUBLISH
 ---
 # Security Policy
 

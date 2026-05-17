@@ -394,6 +394,10 @@ function dismissRunbookBanner() {
     <span class="meter-label">Backend</span>
     <span class="meter-value" id="meter-backend">—</span>
   </div>
+  <div class="meter meter-extra" title="Average inference response time across all tracked calls.">
+    <span class="meter-label">Avg response</span>
+    <span class="meter-value" id="meter-latency">—</span>
+  </div>
   <button type="button" class="meter-toggle" id="meter-toggle"
           aria-expanded="false" aria-controls="meter-bar"
           onclick="toggleMeterMore(this)">More metrics ▾</button>
@@ -1549,6 +1553,14 @@ async function refreshCosts() {
     if (q('meter-tokens')) {
       const total = s.total_tokens ?? 0;
       q('meter-tokens').textContent = fmtTokens(total);
+    }
+
+    // Avg response time
+    if (q('meter-latency')) {
+      const ms = Number(s.avg_latency_ms) || 0;
+      q('meter-latency').textContent = ms <= 0
+        ? '—'
+        : (ms >= 1000 ? (ms / 1000).toFixed(2) + 's' : ms.toFixed(0) + 'ms');
     }
   } catch(e) { /* endpoint not available yet */ }
 }

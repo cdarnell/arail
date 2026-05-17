@@ -34,7 +34,7 @@ first-run choices to the target hardware.
 
 - **macOS**, **Linux**, or **Windows + WSL2**. Native Windows shells are not
   supported by `./arailctl setup`.
-- ~8 GB free disk for the `min` tier, ~60 GB for the `max` tier.
+- ~8 GB free disk for the `minimalist` tier, ~60 GB for the `maximus` tier.
 - Git, a terminal, and a browser.
 
 `./arailctl setup` bootstraps everything else for you. If Homebrew, Python
@@ -57,46 +57,53 @@ cd arail
 
 ## 2. Decide on a tier
 
-Two tiers. You can change your mind later with `./arailctl upgrade max`.
+Two tiers. You can change your mind later with `./arailctl upgrade maximus`.
 
-### 🟢 `min` — the everyday lab
+Legacy `min`/`max` tier names are accepted with a deprecation warning
+(compat shim removed in v1.1.0).
 
-- **Tabs**: Dashboard, Chat, Autoresearch, Knowledge Base, Agents.
-- **Packages**: core lab + embedded **LanceDB** recall + **AirLLM** for
-  deep layer-streaming inference.
-- **Default deep model**: `meta-llama/Llama-3.1-70B`. AirLLM streams
-  layer-by-layer from disk, so a 70B fits even on a small machine —
-  it'll be slow (tokens-per-minute), but the model itself is the real
-  thing.
-- **Memory**: KB ships with embedded semantic recall out of the box. You get
-  the same knowledge surface in `min`; `max` is about heavier operator tools,
-  not a different memory backend.
+### 🟢 `minimalist` — the everyday lab
+
+- **Tabs**: Dashboard, Chat, Autoresearch, Knowledge Base, Agents, Docs.
+- **Packages**: core lab + embedded **LanceDB** recall. No heavyweight
+  deep backend installed by default.
+- **Default model**: `ai-eng` — a 3B-parameter Opus-4.7-derived AI
+  engineering expert from QuKaiZen's Project Nucleus. Served via Ollama.
+  This is the only model that auto-installs. The chat catalog lists ~20
+  other models you can browse and pull on demand.
+- **Memory**: KB ships with embedded semantic recall out of the box.
+  You get the same knowledge surface in `minimalist`; `maximus` is
+  about heavier operator tools, not a different memory backend.
 - **External providers**: Claude / NVIDIA / OpenRouter / HuggingFace are
-  still reachable in `min` — they go over plain HTTP. The only thing `max`
-  adds here is the official SDKs for heavier orchestration.
-- **Good for**: a first taste; an older laptop; the blueprint you hand to a
-  friend who wants to learn.
+  still reachable in `minimalist` — they go over plain HTTP. The only
+  thing `maximus` adds here is the official SDKs for heavier
+  orchestration.
+- **Good for**: a first taste; an older laptop; the blueprint you hand
+  to a friend who wants to learn.
 
-### 🔴 `max` — the full bench
+### 🔴 `maximus` — the full bench
 
-- **Tabs**: everything in `min` + Admin + Docs + Notebooks.
+- **Tabs**: everything in `minimalist` + Admin + Docs + Notebooks +
+  Tuning + Plugins.
 - **Adds**:
   - `jupyterlab` — browser notebooks.
   - `anthropic` SDK — first-class Claude integration.
   - `langchain` + `langgraph` — for operators who want to compose agents
     with the community ecosystem on top of the built-ins.
-  - **AirLLM with a 405B default** (`meta-llama/Llama-3.1-405B`) —
-    AirLLM was literally designed around this case ("8 GB VRAM runs
-    405B"). Frontier open-weight inference on whatever hardware you
-    happen to have.
+  - **AeroLLM** — Arail's own Rust streaming runtime, the deep-mode
+    backend. Apple Silicon: native. CUDA hosts: fall back to AirLLM with
+    a notice until AeroLLM CUDA ships (set `ARAIL_FORCE_AEROLLM=1` to
+    disable fallback).
   - Hardware-specific extras (MLX, CUDA, or CPU) install automatically
     based on what `./arailctl setup` detects.
-- **Good for**: real experiments, frontier models, the full kitchen sink.
+- **Good for**: real experiments, frontier models when you pull them
+  yourself from the catalog, the full kitchen sink.
 
-> **Heads up — Llama is gated.** Both 70B and 405B require accepting the
-> Hugging Face license and authenticating with `huggingface-cli login` (or
-> `HF_TOKEN`). Setup leaves the weights download to you — the model
-> registry is several hundred GB and you should pick when to pay that bill.
+> **Heads up — AirLLM is opt-in.** v1.0.0 removed AirLLM from the
+> default install path. Power users on CUDA/Linux who want
+> layer-streaming 405B inference can enable it with
+> `ARAIL_INSTALL_AIRLLM=1 ./arailctl setup`. Llama weights are gated on
+> Hugging Face and require `huggingface-cli login` (or `HF_TOKEN`).
 
 ---
 
@@ -115,7 +122,8 @@ This walks you through 10 steps:
 5. Pick a passphrase (protects the in-browser IDE and notebook encryption).
 6. Write `.env` with your choices.
 7. Scaffold the knowledge base directory.
-8. Download a starter model (~5 GB for Qwen3-8B).
+8. Pull the ai-eng model (~5 GB — qwen2.5:7b preview base + AI Engineer
+   persona Modelfile, or `qukaizen/ai-eng:3b` once QuKaiZen publishes it).
 9. Capture a research goal.
 10. Verify with a smoke test.
 
@@ -138,19 +146,21 @@ Open [http://127.0.0.1:8080](http://127.0.0.1:8080). You're in.
 When you're ready for more:
 
 ```bash
-./arailctl upgrade max     # bumps AirLLM default 70B → 405B + adds notebook/cloud orchestration extras
-./arailctl restart         # pick up the new nav
+./arailctl upgrade maximus     # installs AeroLLM + adds notebook/cloud orchestration extras
+./arailctl restart             # pick up the new nav
 ```
 
-`./arailctl upgrade min` is a downgrade — it doesn't uninstall packages, it
-just hides the extra tabs. Hit `upgrade max` any time to get them back.
+`./arailctl upgrade minimalist` is a downgrade — it doesn't uninstall
+packages, it just hides the extra tabs. Hit `upgrade maximus` any time
+to get them back. Legacy `min`/`max` tier names still work via a
+one-release compat shim (removed in v1.1.0).
 
 ---
 
 ## 6. Connect an outside model (Chat → Manage providers)
 
-The Chat tab is where every operator — `min` or `max` — configures outside
-model vendors.
+The Chat tab is where every operator — `minimalist` or `maximus` —
+configures outside model vendors.
 
 1. First: in `.env`, set `LAB_MODE=hybrid` and restart. This is the airgapped
    guard — by default the lab refuses every cloud provider operation

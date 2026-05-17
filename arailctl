@@ -6,7 +6,7 @@
 #    start    launch portal + terminal + notebook + IDE
 #    stop     stop running lab services
 #    restart  stop then start
-#    upgrade  switch install tier — min | max
+#    upgrade  switch install tier — minimalist | maximus
 #    update   check for and apply component updates
 #    version  show installed component versions
 #    reset    wipe models/data/env/plugins (see: ./arailctl reset help)
@@ -93,7 +93,13 @@ discover_kb_root() {
 LAB_NAME="${LAB_NAME:-Autoresearch AI Lab}"
 LAB_SHORT_NAME="${LAB_SHORT_NAME:-autoresearch-lab}"
 LAB_TAGLINE="${LAB_TAGLINE:-A learn-by-doing AI research lab}"
-LAB_TIER="${LAB_TIER:-min}"
+LAB_TIER="${LAB_TIER:-minimalist}"
+# v1.0.0 tier-rename compat shim — accept old min/max values silently.
+# Removed in v1.1.0; see CHANGELOG.md.
+case "$LAB_TIER" in
+    min)  LAB_TIER="minimalist" ;;
+    max)  LAB_TIER="maximus"    ;;
+esac
 
 BOLD="\033[1m"; GREEN="\033[0;32m"; CYAN="\033[0;36m"; YELLOW="\033[0;33m"; RED="\033[0;31m"; RESET="\033[0m"
 say()  { echo -e "${GREEN}[${LAB_SHORT_NAME}]${RESET} $*"; }
@@ -151,7 +157,7 @@ EOF
     start           launch portal + terminal + notebook + IDE
     stop            stop running lab services
     restart         stop then start (quick bounce)
-    upgrade <tier>  switch install tier — min | max
+    upgrade <tier>  switch install tier — minimalist | maximus
     update          check for and apply component updates
     version         show installed component versions
     status          show what's running

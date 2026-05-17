@@ -86,7 +86,7 @@ def test_stream_lab_tier_empty_defaults_to_min(monkeypatch, tmp_path):
     """
     client = _client(monkeypatch, tmp_path, "")
     from arail.portal.app import _current_tier
-    assert _current_tier() == "min", f"_current_tier returned {_current_tier()!r}"
+    assert _current_tier() == "minimalist", f"_current_tier returned {_current_tier()!r}"
     names = _stream_names(client)
     for n in MAX_ONLY:
         assert n not in names, f"empty LAB_TIER leaked max-only check '{n}'"
@@ -424,7 +424,7 @@ def test_snapshot_and_stream_parity_for_every_optional_service(monkeypatch, tmp_
     }
     ID_TO_NAME = {v: k for k, v in NAME_TO_ID.items()}
 
-    for tier in ("min", "max"):
+    for tier in ("minimalist", "maximus"):
         monkeypatch.setenv("LAB_TIER", tier)
         monkeypatch.setenv("ARAIL_PASSWORD", "test-passphrase-not-real")
         monkeypatch.chdir(tmp_path)
@@ -440,7 +440,7 @@ def test_snapshot_and_stream_parity_for_every_optional_service(monkeypatch, tmp_
 
         for svc_id, required_tier in _OPTIONAL_SERVICES.items():
             should_be_visible = (
-                required_tier == "min" or (required_tier == "max" and tier == "max")
+                required_tier == "minimalist" or (required_tier == "maximus" and tier == "maximus")
             )
             assert (svc_id in snap_ids) == should_be_visible, (
                 f"snapshot disagrees at LAB_TIER={tier} for {svc_id} "

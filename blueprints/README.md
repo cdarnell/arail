@@ -36,7 +36,7 @@ from `./arailctl blueprint show <id>`.
 
 id          = "autoresearch"    # filename-safe slug; matches dir name
 label       = "Autoresearch"    # human-readable
-tier        = "min"             # min | max — drives surface selection
+tier        = "minimalist"      # minimalist | maximus — drives surface selection
 goal_prompt = "..."             # default LAB_INTENT seed
 description = "..."             # paragraph; shown by `arailctl blueprint list`
 
