@@ -69,7 +69,8 @@
 
 <!-- Warmup overlay — covers the page until /api/ready returns ready:true,
      so users don't click into a void during the ~10s post-restart boot.
-     Self-removes once ready or after a hard cap of 20s. -->
+     Self-removes once ready or after a hard cap of 10s — after that
+     the user can read/type while warmup continues in the background. -->
 <div id="lab-warmup-overlay" style="
      position:fixed;inset:0;z-index:9999;
      display:flex;flex-direction:column;align-items:center;justify-content:center;
@@ -88,7 +89,7 @@
   if (!overlay) return;
   var elapsedEl = document.getElementById('lab-warmup-elapsed');
   var t0 = performance.now();
-  var maxMs = 20000; // hard cap — never trap the user
+  var maxMs = 10000; // hard cap — never trap the user past 10s
   function dismiss() {
     overlay.style.transition = 'opacity 220ms';
     overlay.style.opacity = '0';
