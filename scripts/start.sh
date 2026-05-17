@@ -4,6 +4,14 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
+# macOS Sequoia emits a harmless but noisy line from libsystem_malloc
+# whenever a child Python process spawns: "Python(PID) MallocStackLogging:
+# can't turn off malloc stack logging because it was not enabled." Filter
+# it from stderr so it doesn't drown real log output.
+if [[ "$(uname -s)" == "Darwin" ]]; then
+    exec 2> >(grep -v 'MallocStackLogging: ' >&2)
+fi
+
 GREEN="\033[0;32m"; CYAN="\033[0;36m"; BOLD="\033[1m"; RESET="\033[0m"
 
 # Load .env first (for LAB_NAME and friends) before anything else.
