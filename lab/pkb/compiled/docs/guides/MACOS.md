@@ -1,10 +1,16 @@
 ---
-title: Macos
-section: docs
-tags: [guide]
-aliases: [MACOS]
-source: docs/MACOS.md
-generated: 2026-05-16T03:56:19Z
+title: macOS Setup
+category: Getting Started
+order: 2
+tags:
+  - macos
+  - setup
+  - install
+  - apple-silicon
+audience: beginner
+related:
+  - INSTALL
+  - TROUBLESHOOTING
 ---
 # macOS — Arail Setup
 
@@ -30,7 +36,7 @@ ahead of time. Set `ARAIL_NONINTERACTIVE=1` to skip the prompts.
 ## Setup
 
 ```bash
-git clone https://github.com/cdarnell/autoresearch-lab.git arail
+git clone https://github.com/qukaizen/arail.git arail
 cd arail
 ./arailctl setup       # detects macOS + Apple Silicon → installs MLX, captures your goal
 ./arailctl start       # launches portal + terminal + notebook + IDE

@@ -1,10 +1,15 @@
 ---
-title: Contributing
-section: docs
-tags: [guide]
-aliases: [CONTRIBUTING]
-source: CONTRIBUTING.md
-generated: 2026-05-16T03:56:19Z
+title: Contributing to Arail
+category: Reference
+order: 95
+tags:
+  - contributing
+  - reference
+  - community
+audience: architect
+related:
+  - BLUEPRINTS
+  - SECURITY
 ---
 # Contributing to Arail
 
@@ -31,7 +36,7 @@ Arail's wiki compiler ([src/arail/docgen.py](src/arail/docgen.py)) scans the rep
 - **Compose YAML** — first comment block + service/image/ports summary.
 - **Guides** — copied verbatim if frontmatter exists, enriched if it doesn't.
 
-So **any time you add or change a Python module, shell script, or compose overlay, write the docstring/header comment first**. It lands in the wiki automatically the next time someone clicks Rebuild on `/wiki` or runs `./arailctl wiki build`. Good docs become discoverable without any extra curation work. See [docs/wiki.md](docs/wiki.md) for the wiki user guide.
+So **any time you add or change a Python module, shell script, or compose overlay, write the docstring/header comment first**. It lands in the wiki automatically the next time someone clicks Rebuild on `/wiki` or runs `./arailctl wiki build`. Good docs become discoverable without any extra curation work. See the `/wiki` tab in the running lab for the wiki user guide.
 
 ## Development loop
 

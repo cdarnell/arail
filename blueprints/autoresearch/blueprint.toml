@@ -13,7 +13,7 @@
 
 id          = "autoresearch"
 label       = "Autoresearch"
-tier        = "min"
+tier        = "minimalist"
 goal_prompt = "Improve something measurable and learn while the loop runs."
 description = """
 Default ARAIL lab. A researcher agent gathers material on a topic

@@ -1,0 +1,19 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 💬 Q&A and show-and-tell
+    url: https://github.com/cdarnell/arail/discussions
+    about: |
+      Not sure if it's a bug? Want to share what you built with ARAIL?
+      Ask in Discussions first — issues are for confirmed bugs and
+      concrete feature requests.
+  - name: 📖 Read the 12-minute lab tour
+    url: https://github.com/cdarnell/arail/blob/main/docs/the-lab.md
+    about: |
+      New here? The lab-end-to-end runbook covers every surface in
+      under 12 minutes. Most "how do I do X?" questions are answered
+      there.
+  - name: 🛡️ Security report (private)
+    url: https://github.com/cdarnell/arail/security/advisories/new
+    about: |
+      Found something that affects security? Use private vulnerability
+      reporting instead of a public issue.

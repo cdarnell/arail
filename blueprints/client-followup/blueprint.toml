@@ -6,13 +6,13 @@
 # pulls context on the client, a drafter composes the follow-up,
 # a scheduler picks the right next-touch timing.
 #
-# Tier max: client work benefits from the full surface set
+# Tier maximus: client work benefits from the full surface set
 # (notebooks for ad-hoc analysis, terminal for quick lookups,
 # tuning for per-client voice calibration).
 
 id          = "client-followup"
 label       = "Client Follow-up"
-tier        = "max"
+tier        = "maximus"
 goal_prompt = """
 After every client meeting, read the notes I dropped in. Pull
 relevant context on the client (past threads, outstanding deliverables,

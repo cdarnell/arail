@@ -234,10 +234,10 @@ def test_get_live_ollama_current_handles_missing_model_name():
     None as the default, which is not in any tag list, so the function
     falls through to the first tag id. Must not raise AttributeError."""
     be = SimpleNamespace(base_url="http://127.0.0.1:11434")
-    fake_tags = [{"id": "ai-engineer:latest"}]
+    fake_tags = [{"id": "ai-eng:latest"}]
     with patch("arail.chat._ollama_installed_models", return_value=fake_tags):
         result = portal_app._get_live_ollama_current(be)
-    assert result == "ai-engineer:latest"
+    assert result == "ai-eng:latest"
 
 
 def test_get_live_ollama_current_type_name_match_alone_works():

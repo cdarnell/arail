@@ -34,19 +34,19 @@ def _get_client(monkeypatch, tmp_path, lab_tier: str = "min") -> TestClient:
 # ---------------------------------------------------------------------------
 
 def test_docs_in_min_tier_surfaces():
-    """Regression sentinel: if a future PR trims 'docs' from min, CI breaks."""
+    """Regression sentinel: if a future PR trims 'docs' from minimalist, CI breaks."""
     from arail.portal.app import _TIER_SURFACES
-    assert "docs" in _TIER_SURFACES["min"], (
-        "'docs' was removed from _TIER_SURFACES['min']. "
+    assert "docs" in _TIER_SURFACES["minimalist"], (
+        "'docs' was removed from _TIER_SURFACES['minimalist']. "
         "This is a regression of the fix in docs-hub-sprint-1. "
         "Restore it before merging."
     )
 
 
 def test_docs_in_max_tier_surfaces():
-    """'docs' must also remain in max tier."""
+    """'docs' must also remain in maximus tier."""
     from arail.portal.app import _TIER_SURFACES
-    assert "docs" in _TIER_SURFACES["max"]
+    assert "docs" in _TIER_SURFACES["maximus"]
 
 
 # ---------------------------------------------------------------------------

@@ -1,10 +1,15 @@
 ---
-title: Vibe Integrate
-section: docs
-tags: [guide]
-aliases: [vibe-integrate]
-source: docs/vibe-integrate.md
-generated: 2026-05-16T03:56:19Z
+title: Vibe Integration During Setup
+category: Getting Started
+order: 10
+tags:
+  - setup
+  - getting-started
+  - customisation
+audience: beginner
+related:
+  - INSTALL
+  - agents-explained
 ---
 # Arail — Vibe Integration During Setup
 

@@ -37,24 +37,25 @@ def test_security_extra_pins_pip_audit(pyproject_text):
     assert m, "Expected `security = [\"pip-audit>=2.7.0,<3\"]` in pyproject.toml"
 
 
-def test_max_extra_includes_pip_audit(pyproject_text):
-    """The max tier ships pip-audit so users on max get CVE scanning out of the box."""
-    # Find the `max = [` block and assert pip-audit is inside it.
-    m = re.search(r'^max\s*=\s*\[(?P<body>.+?)^\]', pyproject_text,
+def test_maximus_extra_includes_pip_audit(pyproject_text):
+    """The maximus tier ships pip-audit so users on maximus get CVE scanning."""
+    # Find the `maximus = [` block and assert pip-audit is inside it.
+    m = re.search(r'^maximus\s*=\s*\[(?P<body>.+?)^\]', pyproject_text,
                   re.MULTILINE | re.DOTALL)
-    assert m, "Could not locate `max = [...]` in pyproject.toml"
+    assert m, "Could not locate `maximus = [...]` in pyproject.toml"
     assert "pip-audit" in m.group("body"), (
-        "max extra must include pip-audit (so `./arailctl upgrade max` installs CVE scanner)"
+        "maximus extra must include pip-audit (so `./arailctl upgrade maximus` installs CVE scanner)"
     )
 
 
-def test_min_extra_does_NOT_include_pip_audit(pyproject_text):
-    """The min tier MUST NOT install pip-audit — keeps default install lean."""
-    m = re.search(r'^min\s*=\s*\[(?P<body>.+?)^\]', pyproject_text,
+def test_minimalist_extra_does_NOT_include_pip_audit(pyproject_text):
+    """The minimalist tier MUST NOT install pip-audit — keeps default install lean."""
+    # minimalist = [] in v1.0.0 (no deps in the base tier).
+    m = re.search(r'^minimalist\s*=\s*\[(?P<body>.*?)\]', pyproject_text,
                   re.MULTILINE | re.DOTALL)
-    assert m, "Could not locate `min = [...]` in pyproject.toml"
+    assert m, "Could not locate `minimalist = [...]` in pyproject.toml"
     assert "pip-audit" not in m.group("body"), (
-        "min extra MUST NOT include pip-audit — that defeats the opt-in tier model"
+        "minimalist extra MUST NOT include pip-audit — that defeats the opt-in tier model"
     )
 
 

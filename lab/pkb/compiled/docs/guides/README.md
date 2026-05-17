@@ -4,7 +4,7 @@ section: docs
 tags: [guide]
 aliases: [README]
 source: README.md
-generated: 2026-05-16T17:35:58Z
+generated: 2026-05-17T19:56:29Z
 ---
 # ARAIL — Autoresearch AI Labs
 **A rail gun for AI.**
@@ -45,11 +45,14 @@ Inference from an AI Engineer built by Nucleus
 
 ---
 
+> **New here?** [The lab, end-to-end](docs/the-lab.md) is the 12-minute
+> runbook tour — what ARAIL is, every surface, and how to set it up.
+
 ## Quick start
 
 ```bash
-git clone https://github.com/cdarnell/autoresearch-lab.git
-cd autoresearch-lab
+git clone https://github.com/qukaizen/arail.git
+cd arail
 ./arailctl setup      # pick a tier, install deps, download a starter model
 ./arailctl start      # open http://127.0.0.1:8080
 ```
@@ -65,18 +68,22 @@ Two tiers. Pick one; upgrade later.
 
 | Tier  | What you get                                                                                                            | Good for                                         |
 | ----- | ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
-| `minamalist` | Dashboard · Chat · Autoresearch · Knowledge Base · Agents · LanceDB vectors · **AeroLLM 70B** (Llama-3.1-70B)           | The everyday lab. Real models on small hardware. |
-| `maximum` | + Admin · Docs · Notebooks · **AirLLM 405B** (Llama-3.1-405B) · Anthropic SDK · LangChain · full cloud SDKs             | Frontier-scale local inference, full bench.      |
+| `minimalist` | Dashboard · Chat · Autoresearch · Knowledge Base · Agents · LanceDB vectors · **ai-eng** (3B Opus-4.7-derived AI engineering expert, from QuKaiZen's Project Nucleus) | The everyday lab. One default model. No bloat. |
+| `maximus`    | + Admin · Docs · Notebooks · **AeroLLM** deep-mode streaming · Anthropic SDK · LangChain · full cloud SDKs              | Frontier-scale local inference, full bench.      |
+
+`ai-eng` is the only model that ships pre-installed. The chat catalog
+includes ~20 other models (Qwen, Gemma, Phi, DeepSeek-R1, etc.) you can
+browse and pull on demand. AirLLM is opt-in via `ARAIL_INSTALL_AIRLLM=1`.
 
 Upgrade any time:
 
 ```bash
-./arailctl upgrade maximum
+./arailctl upgrade maximus
 ```
 
-Knowledge Base and Agents are part of `minamalist` on purpose — research needs
-memory to work. Both tiers ship with the embedded LanceDB-backed KB; `maximum`
-adds the heavier operator surfaces and orchestration extras.
+Knowledge Base and Agents are part of `minimalist` on purpose — research
+needs memory to work. Both tiers ship with the embedded LanceDB-backed KB;
+`maximus` adds the heavier operator surfaces and orchestration extras.
 
 For the list of models that have been validated against ARAIL's
 correctness harness — what's **Certified**, **Compatible**, **Beta**,
@@ -84,12 +91,13 @@ or has a **Known Issue** — see
 [docs/CERTIFIED_MODELS.md](docs/CERTIFIED_MODELS.md).
 
 External providers (Claude, NVIDIA NIM, OpenRouter, HuggingFace) are
-reachable in both tiers via plain HTTP — `max` just adds the official SDKs
-and LangChain/LangGraph for heavier orchestration. **Airgapped mode is the
-default: agents cannot collect information from the public internet.**
-Local services on this machine and your private network (loopback,
-RFC1918, link-local) stay reachable so a LAN GPU box keeps working. Flip
-`LAB_MODE=hybrid` in `.env` to allow agent fetches to cloud vendors.
+reachable in both tiers via plain HTTP — `maximus` just adds the official
+SDKs and LangChain/LangGraph for heavier orchestration. **Airgapped mode
+is the default: agents cannot collect information from the public
+internet.** Local services on this machine and your private network
+(loopback, RFC1918, link-local) stay reachable so a LAN GPU box keeps
+working. Flip `LAB_MODE=hybrid` in `.env` to allow agent fetches to cloud
+vendors.
 
 See [docs/INSTALL.md](docs/INSTALL.md) for the long walkthrough.
 

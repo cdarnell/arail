@@ -176,6 +176,6 @@ def test_optional_services_registry_valid():
     """_OPTIONAL_SERVICES must have valid tier values for every entry."""
     from arail.portal.app import _OPTIONAL_SERVICES
     for svc_id, tier in _OPTIONAL_SERVICES.items():
-        assert tier in ("min", "max"), (
+        assert tier in ("minimalist", "maximus"), (
             f"_OPTIONAL_SERVICES['{svc_id}'] = '{tier}' — not a valid tier"
         )

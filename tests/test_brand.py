@@ -22,7 +22,7 @@ def test_defaults_are_autoresearch_lab():
     assert b.short_name == "autoresearch-lab"
     assert b.tagline == "A learn-by-doing AI research lab"
     assert b.logo == "⟨Autoresearch⟩"
-    assert b.version == "0.1.0"
+    assert b.version == "1.0.0"
 
 
 def test_env_override_custom_name(monkeypatch):

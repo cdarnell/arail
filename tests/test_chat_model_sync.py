@@ -87,11 +87,11 @@ def _ollama_backend_stub(model_name: str = "old-model") -> SimpleNamespace:
 def test_get_live_ollama_current_returns_cached_when_in_live_tags(monkeypatch):
     """When the cached model_name is in the live /api/tags response, return
     it as-is (the live state agrees with the cache)."""
-    be = _ollama_backend_stub(model_name="ai-engineer:latest")
-    fake_tags = [{"id": "ai-engineer:latest"}, {"id": "qwen3:8b"}]
+    be = _ollama_backend_stub(model_name="ai-eng:latest")
+    fake_tags = [{"id": "ai-eng:latest"}, {"id": "qwen3:8b"}]
     with patch("arail.chat._ollama_installed_models", return_value=fake_tags):
         result = portal_app._get_live_ollama_current(be)
-    assert result == "ai-engineer:latest"
+    assert result == "ai-eng:latest"
 
 
 def test_get_live_ollama_current_overrides_stale_cache(monkeypatch):
@@ -99,16 +99,16 @@ def test_get_live_ollama_current_overrides_stale_cache(monkeypatch):
     first live tag instead. This catches the bug where the chip showed
     a model the backend no longer has loaded."""
     be = _ollama_backend_stub(model_name="long-uninstalled-model")
-    fake_tags = [{"id": "ai-engineer:latest"}, {"id": "qwen3:8b"}]
+    fake_tags = [{"id": "ai-eng:latest"}, {"id": "qwen3:8b"}]
     with patch("arail.chat._ollama_installed_models", return_value=fake_tags):
         result = portal_app._get_live_ollama_current(be)
-    assert result == "ai-engineer:latest"
+    assert result == "ai-eng:latest"
 
 
 def test_get_live_ollama_current_returns_none_when_ollama_unreachable(monkeypatch):
     """When /api/tags returns nothing (Ollama down or 1.5 s timeout fired),
     return None so the caller falls back through to be.model_name."""
-    be = _ollama_backend_stub(model_name="ai-engineer:latest")
+    be = _ollama_backend_stub(model_name="ai-eng:latest")
     with patch("arail.chat._ollama_installed_models", return_value=[]):
         result = portal_app._get_live_ollama_current(be)
     assert result is None

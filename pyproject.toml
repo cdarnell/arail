@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "arail"
-version = "0.1.0"
+version = "1.0.0"
 description = "Autoresearch AI Lab — a learn-by-doing AI research blueprint you can share with friends and family."
 readme = "README.md"
 license = "MIT"
@@ -35,29 +35,46 @@ dependencies = [
 
 [project.optional-dependencies]
 # ── Install tiers ─────────────────────────────────────────────────────────
-# Two tiers: min (minimalist — the default everyday lab) and max
-# (maximalist — the full bench). Upgrade any time with `./arail upgrade max`.
+# Two tiers: minimalist (the default everyday lab) and maximus (the full
+# bench). Upgrade any time with `./arailctl upgrade maximus`.
 #
-#   min → Dashboard + Chat + Autoresearch + Knowledge Base + Agents +
-#         LanceDB vector recall + AirLLM deep layer-streaming with a 70B
-#         default (Llama-3.1-70B). External provider chat (Claude / NVIDIA
-#         / OpenRouter / HF) works here via plain HTTP, no extra SDK.
-#   max → + Admin + Notebooks + bigger AirLLM default (Llama-3.1-405B,
-#         the model AirLLM was designed to run on 8 GB VRAM) + official
-#         Anthropic SDK + optional LangChain/LangGraph.
+#   minimalist → Dashboard + Chat + Autoresearch + Knowledge Base + Agents
+#                + LanceDB vector recall. Ships ai-eng (the only default
+#                model — a 3B Opus-4.7-derived AI engineering expert from
+#                QuKaiZen's Project Nucleus) via Ollama. External provider
+#                chat (Claude / NVIDIA / OpenRouter / HF) works here via
+#                plain HTTP, no extra SDK.
+#   maximus    → + Admin + Notebooks + AeroLLM deep-mode streaming +
+#                official Anthropic SDK + LangChain/LangGraph + cloud
+#                catalog. AirLLM stays opt-in via ARAIL_INSTALL_AIRLLM=1.
 #
+# Legacy `min`/`max` keys are aliases of `minimalist`/`maximus` (one-release
+# back-compat shim; removed in v1.1.0).
 # (LanceDB is in the base dependencies above — both tiers get vector
 # recall by default. The `vector` extra below is kept as a back-compat
 # alias for older docs.)
-min = [
-    "airllm>=2.0",
+minimalist = []
+maximus = [
+    "jupyterlab>=4.0.0",
+    "anthropic>=0.31.0",
+    "langchain>=0.2.0",
+    "langgraph>=0.2.0",
+    "pip-audit>=2.7.0,<3",
 ]
+
+# AirLLM is now opt-in (was bundled into both tiers before v1.0.0).
+# Power users on CUDA/Linux can enable it with: pip install -e ".[airllm]"
+# or via setup.sh: ARAIL_INSTALL_AIRLLM=1 ./arailctl setup
+airllm = ["airllm>=2.0"]
+
+# Back-compat aliases — accept old `min`/`max` names for one release.
+# Removed in v1.1.0. The setup script and pip install both honor these.
+min = []
 max = [
     "jupyterlab>=4.0.0",
     "anthropic>=0.31.0",
     "langchain>=0.2.0",
     "langgraph>=0.2.0",
-    "airllm>=2.0",
     "pip-audit>=2.7.0,<3",
 ]
 
@@ -96,50 +113,52 @@ configuration_source = "pyproject.toml"
 
 [tool.arail.tiers]
 # Declarative surface matrix. portal/app.py reads this to tier-gate the nav.
-min = { description = "Minimalist — Dashboard, Chat, Autoresearch, Knowledge Base (with LanceDB vector recall), Agents, Docs. Deep mode runs aeroLLM on Apple Silicon (Qwen2.5-7B-4bit default, ~4 GB resident) or AirLLM on CUDA / Linux x86 (Llama-3.1-70B default).", surfaces = ["dashboard", "chat", "research", "knowledge", "agents", "docs"] }
-max = { description = "Maximalist — Everything in min + Admin, Docs, Notebooks, LangChain/LangGraph, full cloud catalog. Deep mode bumps to aeroLLM Llama-3.1-70B-4bit on Apple Silicon (~35 GB, needs 48 GB+ Mac) or AirLLM Llama-3.1-405B on CUDA.", surfaces = ["dashboard", "chat", "research", "knowledge", "agents", "admin", "docs", "notebooks", "terminal", "tuning", "plugins"] }
+minimalist = { description = "Minimalist — Dashboard, Chat, Autoresearch, Knowledge Base (with LanceDB vector recall), Agents, Docs. Ships ai-eng (QuKaiZen's 3B Opus-4.7-derived AI engineering expert) as the sole default model. No deep backend by default.", surfaces = ["dashboard", "chat", "research", "knowledge", "agents", "docs"] }
+maximus    = { description = "Maximus — Everything in Minimalist + Admin, Docs, Notebooks, LangChain/LangGraph, full cloud catalog. Adds AeroLLM as the deep-mode runtime (CUDA hosts fall back to AirLLM with a notice until AeroLLM CUDA ships).", surfaces = ["dashboard", "chat", "research", "knowledge", "agents", "admin", "docs", "notebooks", "terminal", "tuning", "plugins"] }
+# Legacy aliases — one-release compat shim, removed in v1.1.0.
+min = { description = "(deprecated alias for `minimalist`)", surfaces = ["dashboard", "chat", "research", "knowledge", "agents", "docs"] }
+max = { description = "(deprecated alias for `maximus`)", surfaces = ["dashboard", "chat", "research", "knowledge", "agents", "admin", "docs", "notebooks", "terminal", "tuning", "plugins"] }
 
 [tool.arail.models]
-# Default starter models selected by setup after hardware detection.
-# (mlx/cuda/cpu = the small "instant" model that runs natively on the
-# accelerator; airllm_* = the heavy deep model that streams layer-by-layer
-# via AirLLM and powers the dashboard "Deep model" toggle.)
+# v1.0.0 ships ONE default model: ai-eng. A 3B-parameter Opus-4.7-derived
+# AI engineering expert built from QuKaiZen's Project Nucleus.
 #
-# IMPORTANT: airllm_min and airllm_max must be Llama-family repos.
-# AirLLM's compatibility surface is narrow — Llama 2/3/3.1 is the
-# canonical happy path. Other families (Mistral, Qwen, DeepSeek, GLM)
-# work in some versions but break in others. Check AirLLM's README
-# before swapping to a non-Llama default.
-mlx          = "mlx-community/Qwen3-8B-4bit"
-cuda         = "Qwen/Qwen3-8B"
-cpu          = "Qwen/Qwen3-8B-GGUF"
-airllm_min   = "meta-llama/Llama-3.1-70B"
-airllm_max   = "meta-llama/Llama-3.1-405B"
-# Legacy alias kept for back-compat with older setup scripts and external
-# tooling that read [tool.arail.models].airllm directly. Resolves to the
-# min default (70B).
-airllm       = "meta-llama/Llama-3.1-70B"
-# AeroLLM (Arail's own Rust runtime) is the deep-mode default on Apple
-# Silicon as of 0.1.0 alpha — mlx-community/...-4bit repos are the
-# canonical 4-bit MLX quants. min ships Qwen2.5-7B-4bit (~4 GB resident,
-# fits 16 GB Macs); max ships Llama-3.1-70B-4bit (~35 GB, needs 48 GB+).
-# CUDA hosts still default to AirLLM until aerollm's CUDA backend lands.
-aerollm_min  = "mlx-community/Qwen2.5-7B-Instruct-4bit"
-aerollm_max  = "mlx-community/Llama-3.1-70B-Instruct-4bit"
-# Legacy alias for tooling reading [tool.arail.models].aerollm directly.
-aerollm      = "mlx-community/Qwen2.5-7B-Instruct-4bit"
-# Coder starter model (Sprint 2 — opencode Workbench, max-tier only).
-# Downloaded with ./arail setup --with-coder. ~2 GB Q4; fits 8 GB VRAM.
-# opencode's config generator writes these into opencode.json at start.
+# Setup.sh probes for the production tag first (qukaizen/ai-eng:3b) and
+# falls back to the preview base (qwen2.5:7b + AI Engineer persona via
+# Modelfile) when the 3B weights are not yet on the Ollama registry.
+# Re-running setup picks up the production tag once published.
+#
+# No other models auto-install. The chat catalog
+# (src/arail/chat/models_catalog.yaml) lists ~20 additional models the
+# user can browse and pull on demand — none ship pre-installed.
+ai_eng_production = "qukaizen/ai-eng:3b"
+ai_eng_preview    = "qwen2.5:7b"
+
+# Maximus deep-mode runtime (AeroLLM). The model below is the canonical
+# 4-bit MLX quant served by AeroLLM on Apple Silicon when the user
+# escalates a deep-mode call. CUDA hosts fall back to AirLLM with a notice
+# until AeroLLM CUDA lands. Users can override AEROLLM_MODEL in .env.
+aerollm_maximus = "mlx-community/Qwen2.5-7B-Instruct-4bit"
+# Legacy alias for tooling that reads [tool.arail.models].aerollm directly.
+aerollm         = "mlx-community/Qwen2.5-7B-Instruct-4bit"
+
+# ── Opt-in AirLLM deep-mode (gated behind ARAIL_INSTALL_AIRLLM=1) ─────
+# Kept for CUDA/Linux power users who want Llama-3.1-405B layer-streaming.
+# Not part of the default install path as of v1.0.0.
+airllm_minimalist = "meta-llama/Llama-3.1-70B"
+airllm_maximus    = "meta-llama/Llama-3.1-405B"
+airllm            = "meta-llama/Llama-3.1-70B"
+
+# Coder starter model (opt-in, --with-coder flag — opencode Workbench in Maximus).
+# Downloaded with ./arailctl setup --with-coder. ~2 GB Q4; fits 8 GB VRAM.
 coder_mlx    = "mlx-community/Qwen2.5-Coder-3B-Instruct-4bit"
 coder_cuda   = "Qwen/Qwen2.5-Coder-3B-Instruct"
 coder_cpu    = "Qwen/Qwen2.5-Coder-3B-Instruct-GGUF"
 
 [tool.arail.package-sources]
-# Deep-backend install source. The blueprint ships with AirLLM only.
-# AeroLLM remains declared as a dormant entry — the AeroLLMBackend
-# class still lives in src/arail/router/backends.py for the eventual
-# swap-back, but setup never installs it.
+# AeroLLM is the Maximus deep-mode runtime (setup.sh installs it when
+# tier=maximus). AirLLM stays declared for opt-in power-user installs
+# but is no longer pulled by default.
 airllm  = "airllm>=2.0"
 aerollm = "git+https://github.com/cdarnell/aerollm@main"
 

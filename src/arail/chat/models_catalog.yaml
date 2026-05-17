@@ -19,20 +19,26 @@
 #
 # Ordering controls UI display order. Recommended models first.
 
-# ── ARAIL's default — AI Engineer (qwen2.5:7b base + custom persona) ──
-- id: ai-engineer:latest
-  name: AI Engineer
-  family: qwen
-  size_gb: 4.7
+# ── ARAIL's default — ai-eng (the only model that ships pre-installed) ──
+# 3B-parameter Opus-4.7-derived AI engineering expert from QuKaiZen's
+# Project Nucleus. Setup probes for the production tag (qukaizen/ai-eng:3b)
+# first; falls back to qwen2.5:7b + the AI Engineer persona Modelfile when
+# the 3B weights are not yet on the Ollama registry.
+- id: ai-eng:latest
+  name: AI Engineer (ai-eng)
+  family: qukaizen
+  size_gb: 2.0
   released: 2026-05
   source: ollama
   good_at: [chat, reasoning, agent, code]
-  description: ARAIL's default local assistant — Qwen 2.5 7B base, AI
-               Engineer Expert persona. Built from models/ai-engineer/Modelfile.
-  install: "ollama pull qwen2.5:7b && ollama create ai-engineer -f models/ai-engineer/Modelfile"
+  description: ARAIL's default local assistant — a 3B Opus-4.7-derived
+               AI engineering expert from QuKaiZen's Project Nucleus.
+               Until QuKaiZen publishes the 3B weights, setup falls back
+               to qwen2.5:7b as the preview base.
+  install: "ollama pull qukaizen/ai-eng:3b || ollama pull qwen2.5:7b && ollama create ai-eng -f models/ai-eng/Modelfile.production || ollama create ai-eng -f models/ai-eng/Modelfile.preview"
   tier: recommended
 
-# ── Base model for ai-engineer ─────────────────────────────────────
+# ── Base model for ai-eng (preview fallback) ────────────────────────
 - id: qwen2.5:7b
   name: Qwen 2.5 7B
   family: qwen
@@ -40,10 +46,10 @@
   released: 2024-09
   source: ollama
   good_at: [chat, reasoning, code]
-  description: Qwen 2.5 7B — base for ARAIL's ai-engineer persona.
-               Widely available, fast on Apple silicon.
+  description: Qwen 2.5 7B — preview base for ARAIL's ai-eng persona
+               until QuKaiZen publishes the 3B production weights.
   install: "ollama pull qwen2.5:7b"
-  tier: recommended
+  tier: optional
 
 # ── OpenAI's open-weight reasoning models — gpt-oss ────────────────
 - id: gpt-oss:20b
@@ -69,7 +75,7 @@
   description: Google's small Gemma 3 — punches above its weight,
                under 4 GB, runs at interactive speed on a laptop.
   install: "ollama pull gemma3:4b"
-  tier: recommended
+  tier: optional
 
 - id: gemma3:12b
   name: Gemma 3 12B
@@ -81,7 +87,7 @@
   description: Mid-range Gemma 3 — best general-purpose option in
                the 8-10 GB band when you want balanced reasoning.
   install: "ollama pull gemma3:12b"
-  tier: recommended
+  tier: optional
 
 # ── Qwen 3 + Qwen 2.5 Coder — Alibaba family, very strong ──────────
 - id: qwen3:4b
@@ -94,7 +100,7 @@
   description: Qwen's small model — surprisingly strong on STEM and
                multi-step reasoning for its size. Good first install.
   install: "ollama pull qwen3:4b"
-  tier: recommended
+  tier: optional
 
 - id: qwen3:8b
   name: Qwen 3 8B
@@ -106,7 +112,7 @@
   description: The lab's default fast model. Tool-calling capable,
                multilingual, fast on Apple silicon.
   install: "ollama pull qwen3:8b"
-  tier: recommended
+  tier: optional
 
 - id: qwen2.5-coder:7b
   name: Qwen 2.5 Coder 7B
@@ -158,7 +164,7 @@
   description: Distilled from DeepSeek R1 — reasoning traces in
                <think> blocks, strong on multi-step math.
   install: "ollama pull deepseek-r1:8b"
-  tier: recommended
+  tier: optional
 
 - id: deepseek-r1:14b
   name: DeepSeek R1 14B (distill)
@@ -170,7 +176,7 @@
   description: Larger R1 distill — slower but markedly better on
                complex multi-step problems and agentic loops.
   install: "ollama pull deepseek-r1:14b"
-  tier: recommended
+  tier: optional
 
 # ── Qwen 2.5 7B Instruct (bf16) — AeroLLM proving ground ───────────
 - id: qwen2.5-7b-instruct-bf16

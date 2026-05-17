@@ -1,10 +1,16 @@
 ---
-title: Wsl
-section: docs
-tags: [guide]
-aliases: [WSL]
-source: docs/WSL.md
-generated: 2026-05-16T03:56:19Z
+title: Windows WSL Setup
+category: Getting Started
+order: 4
+tags:
+  - windows
+  - wsl
+  - setup
+  - install
+audience: beginner
+related:
+  - INSTALL
+  - TROUBLESHOOTING
 ---
 # Windows WSL — Arail Setup
 
@@ -43,7 +49,7 @@ sudo apt update && sudo apt install -y python3 python3-venv python3-pip git buil
 ## 5. Arail Setup
 
 ```bash
-git clone https://github.com/cdarnell/autoresearch-lab.git arail
+git clone https://github.com/qukaizen/arail.git arail
 cd arail
 ./arailctl setup       # detects WSL + CUDA automatically, captures your goal
 ./arailctl start       # launches portal + terminal + notebook + IDE

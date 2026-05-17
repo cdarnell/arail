@@ -85,7 +85,7 @@ def test_metrics_key_types(monkeypatch, tmp_path):
     assert body["chat_model_loaded"] in (0, 1)
     assert isinstance(body["active_provider"], str)
     assert body["lab_mode"] in ("airgapped", "hybrid")
-    assert body["lab_tier"] in ("min", "max")
+    assert body["lab_tier"] in ("minimalist", "maximus")
     assert isinstance(body["active_agents"], int)
     assert isinstance(body["kb_doc_count"], int)
     assert isinstance(body["http_requests_total"], int)

@@ -59,6 +59,7 @@ _UI_THEME = load_ui_theme()
 # ---------------------------------------------------------------------------
 _BOOT_PERF: float = time.perf_counter()  # perf_counter at process import
 _READY: bool = False  # flipped True at the end of @app.on_event("startup")
+_MODEL_WARM: bool = False  # flipped True once _warm_primary_router() finishes
 
 
 def _read_version() -> str:
@@ -95,17 +96,35 @@ _METRICS: dict[str, Any] = {
 _METRICS_LOCK = _threading.Lock()
 
 # Tier gating — the nav shows only the surfaces matching the current tier.
-# Two tiers: min (everyday) and max (full bench). Upgrade with ./arailctl upgrade max.
+# Two tiers: minimalist (everyday) and maximus (full bench). Upgrade with
+# ./arailctl upgrade maximus.
 _TIER_SURFACES: dict[str, set[str]] = {
-    "min": {"dashboard", "chat", "research", "knowledge", "agents", "docs"},
-    "max": {"dashboard", "chat", "research", "knowledge", "agents",
-            "admin", "docs", "notebooks", "terminal", "tuning", "plugins"},
+    "minimalist": {"dashboard", "chat", "research", "knowledge", "agents", "docs"},
+    "maximus": {"dashboard", "chat", "research", "knowledge", "agents",
+                "admin", "docs", "notebooks", "terminal", "tuning", "plugins"},
 }
+
+# v1.0.0 tier rename — old min/max env values are accepted with a
+# one-shot deprecation warning. Compat shim removed in v1.1.0.
+_LEGACY_TIER_MAP: dict[str, str] = {"min": "minimalist", "max": "maximus"}
+_LEGACY_TIER_WARNED: set[str] = set()
 
 
 def _current_tier() -> str:
-    tier = os.getenv("LAB_TIER", "min").strip().lower()
-    return tier if tier in _TIER_SURFACES else "min"
+    raw = os.getenv("LAB_TIER", "minimalist").strip().lower()
+    if raw in _LEGACY_TIER_MAP:
+        if raw not in _LEGACY_TIER_WARNED:
+            try:
+                logging.getLogger("arail.tier").warning(
+                    "LAB_TIER=%r is deprecated — use %r instead "
+                    "(compat shim removes in v1.1.0)",
+                    raw, _LEGACY_TIER_MAP[raw],
+                )
+            except Exception:  # noqa: BLE001
+                pass
+            _LEGACY_TIER_WARNED.add(raw)
+        raw = _LEGACY_TIER_MAP[raw]
+    return raw if raw in _TIER_SURFACES else "minimalist"
 
 
 def _visible_surfaces() -> set[str]:
@@ -119,22 +138,22 @@ def _visible_surfaces() -> set[str]:
 # they appear unconditionally.
 #
 # Tier assignments:
-#   min — services available on the everyday lab tier
-#   max — services only relevant on the full-bench tier
+#   minimalist — services available on the everyday lab tier
+#   maximus    — services only relevant on the full-bench tier
 # ---------------------------------------------------------------------------
 _OPTIONAL_SERVICES: dict[str, str] = {
-    "ttyd": "min",
-    "lance-memory": "min",
-    "ollama": "min",
-    "notebook": "max",
-    "marimo": "max",
-    "open-notebook": "max",
-    "neo4j": "max",
-    "opencode": "max",
+    "ttyd": "minimalist",
+    "lance-memory": "minimalist",
+    "ollama": "minimalist",
+    "notebook": "maximus",
+    "marimo": "maximus",
+    "open-notebook": "maximus",
+    "neo4j": "maximus",
+    "opencode": "maximus",
 }
 
 # Sanity-check at import: every entry must declare a known tier.
-assert all(v in ("min", "max") for v in _OPTIONAL_SERVICES.values()), (
+assert all(v in ("minimalist", "maximus") for v in _OPTIONAL_SERVICES.values()), (
     "_OPTIONAL_SERVICES contains an entry with an unknown tier value"
 )
 
@@ -158,14 +177,19 @@ def _build_services_dict(
     when up. Optional services are filtered by:
       1. The service must be up (probe returned True).
       2. The service's declared tier must be <= the current lab tier.
-         (min services visible on min and max; max services visible on max only)
+         (minimalist services visible on both tiers; maximus services visible
+         on maximus only)
 
     Both /api/system/health and /api/system/health/stream call this function
     so their `services` payloads stay in sync.
     """
     current_tier = _current_tier()
-    # min-tier callers see min services; max-tier callers see all services.
-    visible_tiers: set[str] = {"min"} if current_tier == "min" else {"min", "max"}
+    # minimalist-tier callers see minimalist services; maximus-tier callers
+    # see all services.
+    visible_tiers: set[str] = (
+        {"minimalist"} if current_tier == "minimalist"
+        else {"minimalist", "maximus"}
+    )
 
     # Probe results keyed by service id — must match _OPTIONAL_SERVICES keys.
     probe_results: dict[str, bool] = {
@@ -184,7 +208,7 @@ def _build_services_dict(
         "knowledge-canvas": kc_up,
     }
     for svc_id, up in probe_results.items():
-        tier_required = _OPTIONAL_SERVICES.get(svc_id, "max")
+        tier_required = _OPTIONAL_SERVICES.get(svc_id, "maximus")
         if up and tier_required in visible_tiers:
             services[svc_id] = True
 
@@ -739,6 +763,7 @@ async def get_ready():
     """
     return {
         "ready": _READY,
+        "warming": not _MODEL_WARM,
         "boot_seconds": round(time.perf_counter() - _BOOT_PERF, 2),
     }
 
@@ -1842,7 +1867,7 @@ def _filter_by_tier(
     Categories that become empty after filtering are omitted.
     """
     allowed: frozenset[str]
-    if tier == "max":
+    if tier == "maximus":
         allowed = frozenset({"beginner", "operator", "architect"})
     else:
         allowed = frozenset({"beginner", "operator"})
@@ -2102,9 +2127,9 @@ async def serve_local_doc(path: str, request: Request):
     tier = _current_tier()
     doc = _docs_registry.get(slug)
 
-    # F15: audience gate — architect docs blocked on min tier
+    # F15: audience gate — architect docs blocked on minimalist tier
     if doc is not None:
-        allowed = {"beginner", "operator"} if tier != "max" else {"beginner", "operator", "architect"}
+        allowed = {"beginner", "operator"} if tier != "maximus" else {"beginner", "operator", "architect"}
         if doc.audience not in allowed:
             return templates.TemplateResponse(request, "doc_viewer.html", {
                 "doc_path": path,
@@ -4685,6 +4710,7 @@ def _get_primary_router():
 
 
 async def _warm_primary_router() -> None:
+    global _MODEL_WARM
     try:
         await asyncio.to_thread(_get_primary_router)
         activity_log.emit("chat", "Primary chat model is loaded and ready.", "info")
@@ -4694,6 +4720,11 @@ async def _warm_primary_router() -> None:
             f"Primary chat preload skipped: {type(e).__name__}: {e}",
             "warn",
         )
+    finally:
+        # Always flip — on failure the overlay must still dismiss so the
+        # user isn't trapped behind a spinner waiting for a model that
+        # won't load.
+        _MODEL_WARM = True
 
 
 def _render_messages_for_backend(messages: list[dict[str, str]], backend: Any) -> str:
@@ -5424,13 +5455,6 @@ _CHAT_MODEL_LOAD_STATE: dict[str, Any] = {
 }
 
 _OPTIONAL_CHAT_BACKEND_CONFIG: dict[str, dict[str, str]] = {
-    "airllm": {
-        "label": "AirLLM",
-        "class_name": "AirLLMBackend",
-        "install_command": "pip install airllm",
-        "model_env": "AIRLLM_MODEL",
-        "default_model": "meta-llama/Llama-3.1-70B",
-    },
     "aerollm": {
         "label": "AeroLLM",
         "class_name": "AeroLLMBackend",
@@ -5439,6 +5463,16 @@ _OPTIONAL_CHAT_BACKEND_CONFIG: dict[str, dict[str, str]] = {
         ),
         "model_env": "AEROLLM_MODEL",
         "default_model": "Qwen2.5-7B-Instruct-4bit",
+    },
+    # AirLLM is opt-in as of v1.0.0 (ARAIL_INSTALL_AIRLLM=1). Kept in the
+    # config registry so the Compute Source pivot can still list it when
+    # the operator has installed it manually.
+    "airllm": {
+        "label": "AirLLM (opt-in)",
+        "class_name": "AirLLMBackend",
+        "install_command": "ARAIL_INSTALL_AIRLLM=1 ./arailctl setup",
+        "model_env": "AIRLLM_MODEL",
+        "default_model": "meta-llama/Llama-3.1-70B",
     },
 }
 
@@ -5758,7 +5792,7 @@ async def api_chat_models():
     backend_name = router.backend_name
     be = router._backend
     active_provider = _load_active_provider()
-    current = _get_live_ollama_current(be) or getattr(be, "model_name", None) or os.getenv("MODEL_NAME", "ai-engineer:latest")
+    current = _get_live_ollama_current(be) or getattr(be, "model_name", None) or os.getenv("MODEL_NAME", "ai-eng:latest")
     models: list[str] = []
 
     # Only these backends have a useful /models listing today.
@@ -7108,7 +7142,10 @@ async def system_health_stream():
         (".env validation",    check_env,           None),
     ]
     _tier = _current_tier()
-    _visible = {"min"} if _tier == "min" else {"min", "max"}
+    _visible: set[str] = (
+        {"minimalist"} if _tier == "minimalist"
+        else {"minimalist", "maximus"}
+    )
 
     def _check_visible(svc_id: "str | None") -> bool:
         if svc_id is None:

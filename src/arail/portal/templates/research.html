@@ -514,15 +514,16 @@ function renderSwarmReview(preview) {
 }
 
 async function openSwarmReviewModal() {
-  // Always refresh from server — the banner can outlive the server-side
-  // preview (e.g. the goal was already confirmed in another tab).
+  // Refresh from server; if the server has no preview (e.g. confirmed in
+  // another tab, or program.md was edited directly without going through
+  // the goal API) fall back to whatever in-memory preview we still have
+  // so the button is never silently inert.
   const fresh = await fetchGoalPreview();
   if (fresh) RESEARCH.preview = fresh;
-  if (!RESEARCH.preview || !fresh) {
-    // Stale banner — hide it and re-sync everything.
-    RESEARCH.preview = null;
+  if (!RESEARCH.preview) {
     document.getElementById('rx-preview-banner').hidden = true;
     if (typeof refreshAll === 'function') refreshAll();
+    alert('No swarm draft is waiting for review. Set a new goal to draft one.');
     return;
   }
   renderSwarmReview(RESEARCH.preview);
@@ -575,10 +576,15 @@ async function confirmSwarmPreview(autoStart) {
 }
 
 async function discardSwarmPreview() {
-  await fetch('/api/goal/preview', { method: 'DELETE' });
+  // Always clear local state and visibly hide the banner first, so the
+  // button can never look inert even if the network call hangs/fails.
   RESEARCH.preview = null;
+  const banner = document.getElementById('rx-preview-banner');
+  if (banner) banner.hidden = true;
   closeSwarmReviewModal();
   renderPreviewBanner();
+  try { await fetch('/api/goal/preview', { method: 'DELETE' }); } catch (e) {}
+  if (typeof refreshAll === 'function') refreshAll();
 }
 
 // ── Cockpit rendering ─────────────────────────────────────────

@@ -1,14 +1,17 @@
 #!/usr/bin/env bash
 # =============================================================================
-# upgrade.sh — switch install tier (min / max) without re-running setup.
+# upgrade.sh — switch install tier (minimalist / maximus) without re-running
+# setup.
 #
 # Usage:
-#   ./arailctl upgrade max
-#   ./arailctl upgrade min   (downgrade — does not uninstall packages, just
-#                          hides the extra tabs until you upgrade again)
+#   ./arailctl upgrade maximus
+#   ./arailctl upgrade minimalist   (downgrade — does not uninstall packages,
+#                                    just hides the extra tabs until you
+#                                    upgrade again)
 #
-# The 'med' tier from the earlier three-tier blueprint is retired. Passing
-# it rolls forward to 'max' with a warning.
+# Legacy `min`/`max` tier names are accepted with a deprecation warning
+# (compat shim removed in v1.1.0). The 'med' tier from the earlier
+# three-tier blueprint is retired; passing it rolls forward to 'maximus'.
 # =============================================================================
 set -euo pipefail
 
@@ -22,11 +25,15 @@ die()   { echo -e "${RED}[arail]${RESET} $*" >&2; exit 1; }
 
 RAW="${1:-}"
 case "$RAW" in
-    min|max) TIER="$RAW" ;;
-    med)     warn "Tier 'med' retired — rolling forward to 'max' (it owned a subset of max)."
-             TIER="max" ;;
-    "")      die "usage: ./arailctl upgrade <min|max> [--with-coder]" ;;
-    *)       die "unknown tier '$RAW' — valid: min | max" ;;
+    minimalist|maximus) TIER="$RAW" ;;
+    min)     warn "Tier name 'min' is deprecated — use 'minimalist'. Compat shim removes in v1.1.0."
+             TIER="minimalist" ;;
+    max)     warn "Tier name 'max' is deprecated — use 'maximus'. Compat shim removes in v1.1.0."
+             TIER="maximus" ;;
+    med)     warn "Tier 'med' retired — rolling forward to 'maximus' (it owned a subset of maximus)."
+             TIER="maximus" ;;
+    "")      die "usage: ./arailctl upgrade <minimalist|maximus> [--with-coder]" ;;
+    *)       die "unknown tier '$RAW' — valid: minimalist | maximus" ;;
 esac
 
 # Sprint 2: --with-coder downloads Qwen2.5-Coder-3B to lab/models/ so the
@@ -53,9 +60,8 @@ info "Switching install tier to ${BOLD}${TIER}${RESET}…"
 # sure the deep backend is present.
 pip install -q -e ".[${TIER}]" || die "pip install failed for tier ${TIER}"
 
-# Persist tier + tier-sized AIRLLM_MODEL default to .env. Reads the
-# canonical model names from pyproject.toml so this stays in lockstep
-# with [tool.arail.models].
+# Persist tier to .env. Reads the canonical model names from pyproject.toml
+# so this stays in lockstep with [tool.arail.models].
 python3 - "$TIER" <<'PY'
 import pathlib, sys
 try:
@@ -66,6 +72,8 @@ except ModuleNotFoundError:
 tier = sys.argv[1]
 data = tomllib.loads(pathlib.Path("pyproject.toml").read_text())
 models = data.get("tool", {}).get("arail", {}).get("models", {})
+# Only writes AIRLLM_MODEL when the operator has opted into AirLLM
+# (ARAIL_INSTALL_AIRLLM=1). Otherwise tier-only is fine.
 tier_model_key = f"airllm_{tier}"
 airllm_model = models.get(tier_model_key) or models.get("airllm", "")
 
@@ -103,9 +111,9 @@ echo ""
 
 # Download coder model if requested (mirrors setup.sh --with-coder, Sprint 2)
 if [[ "$WITH_CODER" == "1" ]]; then
-    if [[ "$TIER" != "max" ]]; then
-        warn "--with-coder: tier is '$TIER', not 'max'. opencode Workbench is max-only."
-        warn "The model will be available when you upgrade to max later."
+    if [[ "$TIER" != "maximus" ]]; then
+        warn "--with-coder: tier is '$TIER', not 'maximus'. opencode Workbench is maximus-only."
+        warn "The model will be available when you upgrade to maximus later."
     fi
     # Detect ACCEL the same way setup.sh does: Apple Silicon → mlx, else cpu.
     ACCEL="cpu"
