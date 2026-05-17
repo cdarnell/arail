@@ -724,7 +724,7 @@ jobs:
 version: "3.9"
 services:
   portal:
-    image: ghcr.io/cdarnell/arail/portal:latest
+    image: ghcr.io/qukaizen/arail/portal:latest
     ports: ["8000:8000"]
     environment:
       ARAIL_MODELS_DIR: /models
@@ -735,7 +735,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock   # to spawn workers
     depends_on: [prometheus]
   finetune-worker:
-    image: ghcr.io/cdarnell/arail/finetune-worker:latest
+    image: ghcr.io/qukaizen/arail/finetune-worker:latest
     deploy:
       resources:
         reservations:

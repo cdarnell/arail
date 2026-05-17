@@ -45,8 +45,8 @@ behavior.
 ## 1. Clone and enter the repo
 
 ```bash
-git clone https://github.com/cdarnell/autoresearch-lab.git
-cd autoresearch-lab
+git clone https://github.com/qukaizen/arail.git
+cd arail
 ```
 
 ---
