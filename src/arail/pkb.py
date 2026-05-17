@@ -410,21 +410,83 @@ def _source_kind_for_rel(rel: str) -> str:
     return "user"
 
 
-def index_all(pkb_root: Path | None = None) -> dict[str, Any]:
+def _build_docs_rows() -> list[dict[str, Any]]:
+    """Build LanceDB rows for every registered doc.
+
+    Reuses docs_registry.all_docs() so the set is always in sync with
+    what the Hub renders.  Returns [] if the registry raises or is empty
+    (docs ingest must never block PKB ingest — see F8 isolation contract).
+
+    Row schema mirrors the PKB schema so search callers need no changes:
+      path        — "docs/<slug>.md" or "root/<slug>.md" (namespace-safe)
+      name        — Doc.title (semantic label for the vector)
+      vector      — hash_embedding of "<title> <slug> <body[:4096]>")
+      mtime       — Doc.mtime
+      source_kind — "docs" (new value; existing PKB rows stay "user"/agent/*)
+    """
+    from arail.vector_index import hash_embedding  # noqa: PLC0415
+
+    try:
+        from arail.portal.docs_registry import all_docs  # noqa: PLC0415
+        docs = all_docs()
+    except Exception as exc:  # pragma: no cover
+        import logging
+        logging.getLogger(__name__).warning(
+            "pkb.index_all: docs_registry.all_docs() failed (%s); "
+            "skipping docs ingest — PKB rows will still be indexed.",
+            exc,
+        )
+        return []
+
+    rows: list[dict[str, Any]] = []
+    for doc in docs:
+        p = Path(doc.path)
+        try:
+            body = p.read_text(errors="replace") if p.exists() else ""
+        except OSError:
+            body = ""
+        # Cap at 4 KB — same as PKB to keep hash_embedding cheap on large docs.
+        snippet = body[:4096]
+        # Namespace the path so a future pkb/docs/foo.md cannot collide:
+        #   docs/ files  → "docs/<slug>.md"
+        #   root/ files  → "root/<slug>.md"
+        namespace = doc.source_root if doc.source_root in {"docs", "root"} else "docs"
+        row_path = f"{namespace}/{doc.slug}.md"
+        rows.append({
+            "path": row_path,
+            "name": doc.title,
+            "vector": hash_embedding(f"{doc.title} {doc.slug} {snippet}"),
+            "mtime": doc.mtime,
+            "source_kind": "docs",
+        })
+    return rows
+
+
+def index_all(pkb_root: Path | None = None, *, include_docs: bool = True) -> dict[str, Any]:
     """Rebuild the LanceDB vector index over every PKB text file.
 
     Cheap to call (the corpus is small) and idempotent — the index lives
     under ``lab/pkb/.cache/lancedb`` so it doesn't pollute the user's
-    notes. Returns ``{ok, indexed, path}`` so callers can surface the
-    state in activity logs.
+    notes.
 
-    Schema (this sprint): {path, name, vector, mtime, source_kind}
+    Args:
+        pkb_root:     Override for the PKB root path (defaults to config).
+        include_docs: If True (default), append one row per registered doc
+                      from docs_registry alongside the PKB rows.  Pass
+                      False to index PKB-only (e.g. in tests that assert
+                      source_kind != 'docs').
+
+    Returns ``{ok, indexed, indexed_docs, path}`` so callers can surface
+    the state in activity logs.  The ``indexed_docs`` key is new in Sprint 3;
+    it is 0 when ``include_docs=False`` or when the registry is empty.
+
+    Schema: {path, name, vector, mtime, source_kind}
     """
     from arail.vector_index import VectorIndex, hash_embedding, available
 
     root = pkb_root or _pkb_root()
     if not root.exists() or not available():
-        return {"ok": False, "indexed": 0, "path": None}
+        return {"ok": False, "indexed": 0, "indexed_docs": 0, "path": None}
 
     rows: list[dict[str, Any]] = []
     for p, text in _iter_pkb_files(root):
@@ -441,10 +503,18 @@ def index_all(pkb_root: Path | None = None) -> dict[str, Any]:
             "source_kind": _source_kind_for_rel(rel),
         })
 
+    docs_rows: list[dict[str, Any]] = _build_docs_rows() if include_docs else []
+    all_rows = rows + docs_rows
+
     db_path = _vector_db_path(root)
     idx = VectorIndex(name="pkb_pages", db_path=db_path)
-    written = idx.replace(rows)
-    return {"ok": True, "indexed": written, "path": str(db_path)}
+    written = idx.replace(all_rows)
+    return {
+        "ok": True,
+        "indexed": written,
+        "indexed_docs": len(docs_rows),
+        "path": str(db_path),
+    }
 
 
 def _build_snippets(text: str, query: str) -> tuple[int, list[str]]:

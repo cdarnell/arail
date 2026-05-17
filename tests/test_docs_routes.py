@@ -243,12 +243,59 @@ def test_viewer_renders_with_full_context(monkeypatch, tmp_path):
 
 
 def test_viewer_renders_doc_without_registry_entry(monkeypatch, tmp_path):
-    """docs/INDEX.md (in denylist, no registry entry) renders center-only (F2, test 10)."""
+    """docs/INDEX.md (deleted in Sprint 3) → 301 to /docs (F6).
+
+    Sprint 2 asserted a 200 render here because the file still existed.
+    Sprint 3 deleted docs/INDEX.md and added a permanent redirect handler
+    so any bookmark to /docs/INDEX.md lands on the Hub — not a 404.
+    The redirect fires regardless of whether the file is on disk.
+    """
     client = _get_client(monkeypatch, tmp_path, lab_tier="min")
-    resp = client.get("/docs/INDEX.md")
-    assert resp.status_code == 200
-    # Center article must be present; left-rail sibling list must NOT appear
-    assert "doc-shell" in resp.text or "INDEX" in resp.text
+    resp = client.get("/docs/INDEX.md", follow_redirects=False)
+    assert resp.status_code == 301, (
+        f"Expected 301 redirect for deleted /docs/INDEX.md, got {resp.status_code}. "
+        "The redirect handler may have been removed or the route order changed (F6)."
+    )
+    assert resp.headers["location"].rstrip("/").endswith("/docs"), (
+        f"301 should point to /docs, got {resp.headers['location']}"
+    )
+
+
+def test_docs_index_md_redirect_still_works(monkeypatch, tmp_path):
+    """GET /docs/INDEX.md → 301 to /docs whether or not the file exists (F6).
+
+    This is the primary Sprint 3 regression sentinel for F6.  The file was
+    deleted; the redirect handler must still fire because it is a named route
+    that does not touch the filesystem.
+    """
+    import os
+    from pathlib import Path
+
+    client = _get_client(monkeypatch, tmp_path, lab_tier="min")
+    resp = client.get("/docs/INDEX.md", follow_redirects=False)
+    assert resp.status_code == 301, (
+        f"Expected 301 for /docs/INDEX.md, got {resp.status_code} (F6)"
+    )
+    assert resp.headers["location"].rstrip("/").endswith("/docs"), (
+        f"Redirect target must be /docs, got {resp.headers['location']}"
+    )
+
+
+def test_index_md_file_does_not_exist():
+    """docs/INDEX.md must not exist in the working tree (Sprint 3 deletion).
+
+    If this test fails, someone accidentally restored the legacy placeholder.
+    The registry already denylists it — this test is the belt-and-suspenders
+    check that the file itself is gone.
+    """
+    from pathlib import Path
+    repo_root = Path(__file__).parent.parent
+    index_file = repo_root / "docs" / "INDEX.md"
+    assert not index_file.exists(), (
+        f"docs/INDEX.md still exists at {index_file}. "
+        "It was deleted in Sprint 3 (docs-hub-sprint-3/step-3). "
+        "Remove it and do not restore it — /docs renders the Hub."
+    )
 
 
 def test_viewer_min_tier_blocks_architect_doc(monkeypatch, tmp_path):

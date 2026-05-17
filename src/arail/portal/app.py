@@ -1817,6 +1817,15 @@ async def docs_design_redirect():
     return RedirectResponse(url="/docs/portal-design.md", status_code=301)
 
 
+@app.get("/docs/INDEX.md", response_class=HTMLResponse)
+async def docs_index_md_redirect():
+    """301 redirect: docs/INDEX.md was a legacy Hub placeholder deleted in Sprint 3.
+    Any bookmark or link to /docs/INDEX.md redirects to the real Hub at /docs.
+    This handler intentionally does NOT read the file — it issues the redirect
+    whether or not the file exists on disk (F6)."""
+    return RedirectResponse(url="/docs", status_code=301)
+
+
 # ---------------------------------------------------------------------------
 # Docs Hub helpers — pure functions; no I/O; tested directly in unit tests.
 # ---------------------------------------------------------------------------
