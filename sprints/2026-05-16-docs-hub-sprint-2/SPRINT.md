@@ -51,11 +51,11 @@ Sprint 1 review:
 | Phase | Subagent | Artifact | Status | Started | Finished | Verdict |
 |---|---|---|---|---|---|---|
 | think | visionary | VISION.md | **skipped** | — | — | scope inherits from approved plan |
-| plan | architect (design) | ARCHITECTURE.md | in-progress | 2026-05-16 | — | — |
-| build | builder | BUILD_LOG.md | pending | — | — | — |
-| review | architect (review) | REVIEW.md | pending | — | — | — |
-| test | qa | TEST_REPORT.md | pending | — | — | — |
-| ship | — | PR | pending | — | — | — |
+| plan | architect (design) | ARCHITECTURE.md | done | 2026-05-16 | 2026-05-16 | proceed |
+| build | builder | BUILD_LOG.md | done | 2026-05-16 | 2026-05-16 | done |
+| review | architect (review) | REVIEW.md | done | 2026-05-16 | 2026-05-16 | PASS |
+| test | qa | TEST_REPORT.md | done | 2026-05-16 | 2026-05-16 | WEAK_PASS |
+| ship | — | PR | in-progress | 2026-05-16 | — | bundling with sprint-1 carry-overs |
 
 ## Decisions log
 
