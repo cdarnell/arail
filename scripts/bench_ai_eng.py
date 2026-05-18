@@ -36,7 +36,6 @@ import math
 import os
 import platform
 import random
-import socket
 import subprocess
 import sys
 import time
@@ -404,7 +403,8 @@ def run_bench(args: argparse.Namespace) -> int:
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
     now = time.strftime("%Y-%m-%d")
-    host = socket.gethostname()
+    # Use platform classification instead of raw hostname to avoid privacy leak (BUG-2)
+    host = f"{platform.system().lower()}-{platform.machine().lower()}" or "unknown"
     try:
         import psutil
         ram_gb = round(psutil.virtual_memory().total / (1024 ** 3), 1)
@@ -526,11 +526,12 @@ def _main() -> None:
     args = _parse_args()
 
     if args.dry_run:
+        _dry_run_host = f"{platform.system().lower()}-{platform.machine().lower()}" or "unknown"
         out_path = Path(args.out)
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_text(
             "# ai-eng v2.1 bench\n"
-            "**Date:** DRY-RUN  **Host:** localhost  **Seed:** 42\n\n"
+            f"**Date:** DRY-RUN  **Host:** {_dry_run_host}  **Seed:** 42\n\n"
             "## Summary\n- Winner: B (dry-run stub)\n\n"
             "## Numbers\n| Model | MMLU(50) | Perplexity | AI-eng (5) | p50 ms |\n"
             "|---|---|---|---|---|\n"
