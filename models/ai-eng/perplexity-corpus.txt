@@ -1,0 +1,71 @@
+### ARAIL perplexity corpus v2.1
+### Fixed 1000-token reference corpus for bench_ai_eng.py perplexity checks.
+### Do not edit; version-stamped. Replace entirely for v2.2.
+
+Low-rank adaptation (LoRA) is a parameter-efficient fine-tuning technique that
+decomposes weight updates into two low-rank matrices. Given a pre-trained weight
+matrix W of shape (d, k), instead of updating W directly we learn matrices A of
+shape (d, r) and B of shape (r, k), where r << min(d, k). At inference, the
+adapted weight is W + (alpha/r) * A @ B, where alpha is a scaling hyperparameter.
+This reduces trainable parameters from d*k to r*(d+k), which for d=k=4096 and
+r=16 gives 131072 parameters versus 16777216 — a 128x reduction.
+
+Quantization converts floating-point weights to lower-precision integer
+representations. AWQ (Activation-aware Weight Quantization) identifies which
+weights are most salient to activations and protects them from quantization
+error. GPTQ uses layer-wise quantization with the optimal brain surgeon framework,
+minimizing output error through a Hessian-based update after each weight is
+quantized. GGUF is a container format used by llama.cpp that packages weights
+plus metadata for CPU-friendly inference, with k-quant variants like Q4_K_M
+using mixed 4-bit and 6-bit quantization to protect attention and feed-forward
+layers differently.
+
+Rotary Position Embedding (RoPE) encodes position by rotating query and key
+vectors in complex space. For position m and dimension pair (2i, 2i+1), the
+rotation angle is m * theta^(-2i/d), where theta is typically 10000. Long-context
+extension via NTK-aware scaling multiplies theta by a factor proportional to the
+context extension ratio, spreading the rotational frequency spectrum to cover
+longer sequences without retraining. YaRN (Yet Another RoPE extensioN) combines
+NTK scaling with attention temperature correction and ramp functions that
+interpolate between NTK and linear interpolation for different frequency bands.
+
+The key-value cache stores computed attention keys and values for autoregressive
+decoding, avoiding recomputation at each generation step. For a model with L
+layers, H_kv KV heads, d_head head dimension, batch size B, and sequence length
+S in float16, the cache size is 2 * L * H_kv * d_head * B * S * 2 bytes. For
+Qwen2.5-7B with L=28, H_kv=4 (grouped-query attention), d_head=128, B=1, S=8192,
+this is approximately 0.93 GB. Grouped-query attention (GQA) reduces this by
+sharing KV heads across query head groups, making long-context inference practical.
+
+Perplexity measures how well a language model predicts a sample of text. It is
+defined as the exponential of the average negative log-likelihood per token:
+PPL = exp(-1/N * sum_i log P(x_i | x_1, ..., x_{i-1})). Lower perplexity
+indicates better fit. When comparing fine-tuned models against a base model,
+a perplexity increase greater than 50% (a 1.5x multiplier) typically signals
+catastrophic forgetting or a degraded language model prior, warranting
+investigation before deployment.
+
+Retrieval-augmented generation (RAG) augments a language model's input with
+documents retrieved from an external corpus. Dense retrieval encodes both
+queries and documents into a shared embedding space and uses approximate
+nearest-neighbor search (e.g., HNSW) to find relevant passages. Asymmetric
+retrieval handles the case where queries are short (8-32 tokens) and documents
+are long (256-512 tokens) by training the encoder with paired examples of
+short queries matched to long relevant passages.
+
+def compute_perplexity(model, tokenizer, text, device="cpu"):
+    """Compute perplexity of text under model using teacher-forcing."""
+    import torch, math
+    enc = tokenizer(text, return_tensors="pt").to(device)
+    input_ids = enc["input_ids"]
+    with torch.no_grad():
+        out = model(input_ids, labels=input_ids)
+    return math.exp(out.loss.item())
+
+Fine-tuning on domain data shifts the model's weight distribution toward the
+target domain. When the fine-tuning dataset is small relative to pre-training,
+catastrophic forgetting can occur. Regularization techniques such as elastic
+weight consolidation (EWC) penalize changes to weights that were important for
+general capabilities. LoRA mitigates forgetting by leaving base weights frozen
+and only training the low-rank residual — the base model's general knowledge
+is preserved in W while domain adaptation lives in delta_W = A @ B.
