@@ -32,7 +32,7 @@ Source plan: `/Users/netsushi/.claude/plans/pure-forging-pizza.md`.
 | build | builder | BUILD_LOG.md | done | 2026-05-18 | 2026-05-18 | 6 atomic commits (ad25c88..79ff686), 70 new tests passing, 1 deviation (gitignore allowlist for committed corpora) |
 | review | architect (review) | REVIEW.md | done | 2026-05-18 | 2026-05-18 | WEAK_PASS (commit 50bab2f); 5 carryovers CO-1..CO-5; CO-1 is a dry-run-on-dev-box bug |
 | test | qa | TEST_REPORT.md | done | 2026-05-18 | 2026-05-18 | WEAK_PASS (commit 5b240b6); 16 new tests (15+1xfail); 1729 pass / 13 pre-existing fail unchanged |
-| ship | — | PR | in-progress | 2026-05-18 | — | — |
+| ship | — | PR #66 | done | 2026-05-18 | 2026-05-18 | opened; fix-loop merged CO-1/CO-2/BUG-2 before push |
 
 ## Decisions log
 
