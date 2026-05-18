@@ -11,12 +11,43 @@ Persists running totals to ``data/costs.json``.
 
 from __future__ import annotations
 
+import contextlib
+import contextvars
 import json
 import os
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterator, List, Optional
+
+
+# ---------------------------------------------------------------------------
+# ReCAP recap_depth contextvar (paper §2.4 / sprint 2026-05-17-recap-core)
+# ---------------------------------------------------------------------------
+# Set by RouterAdapter via the context manager below; read by CostTracker.track().
+# Using ContextVar (not threading.local) so async tasks inherit it correctly.
+_recap_depth_tls: contextvars.ContextVar[Optional[int]] = contextvars.ContextVar(
+    "recap_depth", default=None
+)
+
+
+def current_recap_depth() -> Optional[int]:
+    """Return the currently-active recap recursion depth, or None."""
+    return _recap_depth_tls.get()
+
+
+@contextlib.contextmanager
+def recap_depth_context(depth: int) -> Iterator[None]:
+    """Context manager: set recap_depth for the duration of a block.
+
+    Safe for concurrent async tasks — each task gets its own contextvar
+    token and the reset is guaranteed by the finally clause.
+    """
+    token = _recap_depth_tls.set(depth)
+    try:
+        yield
+    finally:
+        _recap_depth_tls.reset(token)
 
 
 # ---------------------------------------------------------------------------
@@ -168,6 +199,8 @@ class CostTracker:
         self.calls_by_source: Dict[str, int] = {}
         self.tokens_by_backend: Dict[str, int] = {}
         self.cloud_by_backend: Dict[str, float] = {}
+        # ReCAP telemetry: counts per recursion depth (depth -> call count).
+        self.calls_by_recap_depth: Dict[int, int] = {}
         self._history: List[Dict[str, Any]] = []
         self._started_at: float = time.time()
 
@@ -237,7 +270,8 @@ class CostTracker:
 
     def track(self, backend: str, model: str, tokens_in: int,
               tokens_out: int, latency_ms: float,
-              source: str = "agent") -> CostRecord:
+              source: str = "agent",
+              recap_depth: Optional[int] = None) -> CostRecord:
         """Record one inference call and return the cost breakdown."""
         model_class = _classify_model(backend, model)
         pricing = CLOUD_PRICING.get(model_class, CLOUD_PRICING["slm"])
@@ -285,6 +319,10 @@ class CostTracker:
         self.calls_by_source[source] = self.calls_by_source.get(source, 0) + 1
         self.tokens_by_backend[backend] = self.tokens_by_backend.get(backend, 0) + tokens_in + tokens_out
         self.cloud_by_backend[backend] = self.cloud_by_backend.get(backend, 0) + billed_usage_total
+        if recap_depth is not None:
+            self.calls_by_recap_depth[recap_depth] = (
+                self.calls_by_recap_depth.get(recap_depth, 0) + 1
+            )
 
         record = CostRecord(
             ts=time.time(),
@@ -311,6 +349,7 @@ class CostTracker:
             "cloud_cost_usd": round(billed_usage_total, 6),
             "raw_cloud_usd": round(raw_cloud_total, 6),
             "energy_usd": round(energy_cost, 6),
+            "recap_depth": recap_depth,
         })
         if len(self._history) > 500:
             self._history = self._history[-500:]
