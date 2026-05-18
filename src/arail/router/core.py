@@ -7,7 +7,7 @@ from typing import Dict, Iterator, Optional
 
 from arail.router.backends import (BACKEND_MAP, BaseBackend, ModelResponse,
                                    StreamResult)
-from arail.costs import cost_tracker
+from arail.costs import cost_tracker, current_recap_depth
 
 
 class ModelRouter:
@@ -57,6 +57,7 @@ class ModelRouter:
             tokens_out=response.tokens_used,
             latency_ms=response.latency_ms,
             source=self.billing_source,
+            recap_depth=current_recap_depth(),
         )
         return response
 
