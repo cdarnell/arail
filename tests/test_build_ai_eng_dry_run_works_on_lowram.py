@@ -61,13 +61,6 @@ def test_dry_run_exits_zero_with_huge_ram_threshold(tmp_path):
     ]
     result = subprocess.run(cmd, env=env, capture_output=True, text=True, cwd=str(REPO_ROOT))
 
-    if result.returncode == 20:
-        pytest.xfail(
-            "CO-1 reproduces: dry-run consults RAM pre-check and exits 20 "
-            "even though no model is being loaded. Fix: gate "
-            "check_free_ram_gb behind `if not dry_run:` in build_candidate_a, "
-            "build_candidate_b, convert_to_gguf, ollama_create."
-        )
     assert result.returncode == 0, (
         f"dry-run with high RAM threshold should be a no-op smoke; got rc={result.returncode}\n"
         f"stderr:\n{result.stderr}"

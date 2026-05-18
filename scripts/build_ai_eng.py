@@ -269,7 +269,8 @@ def build_candidate_a(
         log.info("Step '%s' already complete, skipping.", step)
         return out_dir
 
-    check_free_ram_gb(min_free_ram_gb)
+    if not dry_run:
+        check_free_ram_gb(min_free_ram_gb)
 
     if dry_run:
         log.info(
@@ -386,7 +387,8 @@ def build_candidate_b(
         log.info("Step '%s' already complete, skipping.", step)
         return out_dir
 
-    check_free_ram_gb(min_free_ram_gb)
+    if not dry_run:
+        check_free_ram_gb(min_free_ram_gb)
 
     if dry_run:
         log.info(
@@ -488,7 +490,8 @@ def convert_to_gguf(
         ggufs = list(build_dir.glob("*.gguf"))
         return ggufs[0] if ggufs else build_dir / "ai-eng-3b-v2.1.gguf"
 
-    check_free_ram_gb(min_free_ram_gb)
+    if not dry_run:
+        check_free_ram_gb(min_free_ram_gb)
 
     if candidate == "a":
         src_dir = build_dir / "mlx-fused"
@@ -658,7 +661,8 @@ def ollama_create(
         log.info("Step '%s' already complete, skipping.", step)
         return
 
-    check_free_ram_gb(min_free_ram_gb)
+    if not dry_run:
+        check_free_ram_gb(min_free_ram_gb)
 
     if dry_run:
         log.info("[dry-run] Would run: ollama create %s -f %s", tag, modelfile_path)
