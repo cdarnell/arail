@@ -194,3 +194,14 @@ Minor implementation decisions within architect's intent:
 - **Scope drift:** none — `setup.sh`, `pyproject.toml`, `models_catalog.yaml`, `Modelfile.preview` untouched
 - **No commented-out code**; no TODO without owner
 - **Token redaction** tested (F17); HF tokens never appear in any file under `build/`
+
+---
+
+## Fix-loop pass (post-qa)
+
+**Date:** 2026-05-18  **Commits:** e73c598, cf17014, a9e83c8
+
+- CO-1 resolved (e73c598): gated `check_free_ram_gb` behind `if not dry_run:` in `build_candidate_a`, `build_candidate_b`, `convert_to_gguf`, `ollama_create`. Flipped xfail in `test_build_ai_eng_dry_run_works_on_lowram.py` to hard assertion.
+- CO-2 resolved (cf17014): added `_preflight_ollama_incumbent()` in `bench_ai_eng.py`; exits 30 with clear message if `qwen2.5:7b` absent. Added `tests/test_bench_ai_eng_preflight.py` (3 cases).
+- BUG-2 resolved (a9e83c8): replaced `socket.gethostname()` with `platform.system().lower() + '-' + platform.machine().lower()` in both the live bench path and the `--dry-run` stub. Removed `import socket`. Added `tests/test_bench_ai_eng_no_hostname_leak.py` (3 cases).
+- Full suite post-fix: **1736 passed, 13 pre-existing failures (unchanged), 1 xfailed** (CO-3, accepted tech-debt).

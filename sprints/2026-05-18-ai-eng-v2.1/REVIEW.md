@@ -139,7 +139,7 @@ codified gates pay forward for v2.2+).
 
 These are low-priority follow-ups; they do not BLOCK QA:
 
-- [ ] **CO-1: Dry-run RAM gate.** `build_candidate_a` calls
+- [x] **CO-1: Dry-run RAM gate.** Resolved in commit e73c598. `build_candidate_a` calls
   `check_free_ram_gb` *before* the `if dry_run:` short-circuit
   (build_ai_eng.py:272-274). On a dev box with <16 GB free RAM the
   `./scripts/build_ai_eng.sh dry-run` command exits 20 before it can
@@ -149,7 +149,7 @@ These are low-priority follow-ups; they do not BLOCK QA:
   during review halted at `OOM pre-check: only 15.2 GB free`. The unit
   tests still pass because they call the functions with low thresholds
   or in mocked environments, masking the runbook UX issue.
-- [ ] **CO-2: Bench ollama preflight.** `OllamaHandle.generate` will
+- [x] **CO-2: Bench ollama preflight.** Resolved in commit cf17014. `OllamaHandle.generate` will
   silently populate per-prompt outputs with `[ERROR: ...]` strings if
   `qwen2.5:7b` is not installed. Add a one-shot
   `ollama list | grep qwen2.5:7b` preflight at the top of `run_bench`
