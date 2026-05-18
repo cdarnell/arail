@@ -232,6 +232,36 @@ class OllamaHandle:
         return r.stdout.strip(), latency_ms
 
 
+# ── Preflight checks ─────────────────────────────────────────────────────────
+
+def _preflight_ollama_incumbent(model: str) -> None:
+    """Verify the incumbent Ollama model is installed before running the bench.
+
+    Silently missing model would populate every per-prompt output with
+    '[ERROR: ...]' strings, producing a corrupted BENCH-v2.1.md without
+    any clear indication of why. Exit 30 with a clear operator message.
+    """
+    try:
+        r = subprocess.run(
+            ["ollama", "list"],
+            capture_output=True, text=True, timeout=10,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
+        log.error(
+            "Preflight failed: cannot run `ollama list` (%s). "
+            "Ensure Ollama is installed and running.", exc,
+        )
+        sys.exit(30)
+
+    if model not in r.stdout:
+        log.error(
+            "Preflight failed: incumbent model '%s' is not installed in Ollama.\n"
+            "Run:  ollama pull %s\nthen re-run the bench.",
+            model, model,
+        )
+        sys.exit(30)
+
+
 # ── Bench run ─────────────────────────────────────────────────────────────────
 
 def run_bench(args: argparse.Namespace) -> int:
@@ -249,6 +279,9 @@ def run_bench(args: argparse.Namespace) -> int:
     corpus_text = corpus_file.read_text()
 
     adapter_sha = args.adapter_sha or "unknown"
+
+    # Preflight: ensure incumbent Ollama model is available (CO-2)
+    _preflight_ollama_incumbent("qwen2.5:7b")
 
     # Load models
     log.info("Loading Candidate A from %s ...", args.candidate_a_path)
