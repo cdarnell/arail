@@ -220,6 +220,58 @@ _SPECS: List[Tuple[str, Dict[str, Any]]] = [
 ]
 
 
+@lru_cache(maxsize=512)
+def context_tokens(label: "str | int | None") -> "Optional[int]":
+    """Parse a context-window label into a token count.
+
+    Supported formats:
+      "128K tokens" → 131072
+      "1M tokens"   → 1048576
+      "32k"         → 32768
+      "4096"        → 4096
+      4096          → 4096
+      None / ""     → None
+      unparseable   → None
+
+    K = 1024, M = 1024² (binary — matches llama.cpp n_ctx semantics).
+    Pure function; @lru_cache so repeated lookups are O(1).
+    Never raises — returns None on any parse failure.
+    """
+    if label is None:
+        return None
+    if isinstance(label, int):
+        return label if label > 0 else None
+    raw = str(label).strip()
+    if not raw:
+        return None
+    # Strip trailing descriptive words, commas, etc.
+    cleaned = _re.sub(r"[,\s]+(tokens?|context|window).*$", "", raw, flags=_re.IGNORECASE).strip()
+    # Match a number + optional unit
+    m = _re.match(r"^(\d+(?:\.\d+)?)\s*([KkMm]?)$", cleaned)
+    if not m:
+        return None
+    val = float(m.group(1))
+    unit = m.group(2).upper()
+    if unit == "K":
+        return int(val * 1024)
+    if unit == "M":
+        return int(val * 1024 * 1024)
+    # No unit — bare integer-ish
+    return int(val) if val > 0 else None
+
+
+def context_label(model_name: str) -> "Optional[str]":
+    """Return the 'context' string from the model registry for *model_name*.
+
+    Returns None when the model is not in the registry or has no context field.
+    Convenience wrapper used by _resolve_ctx_override to fall back to spec data.
+    """
+    spec = lookup(model_name)
+    if spec is None:
+        return None
+    return spec.get("context") or None
+
+
 def lookup(model_name: str) -> Optional[Dict[str, Any]]:
     """Return the spec sheet for the given model name, or None.
 
