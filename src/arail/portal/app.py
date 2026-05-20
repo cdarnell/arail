@@ -6284,6 +6284,94 @@ async def api_chat_models(provider: str = ""):
     }
 
 
+def _validate_local_model_id_relaxed(model_id: str) -> "tuple[bool, str]":
+    """Relaxed local-id gate for the chat set-ctx route (F-VALIDATE).
+
+    Accepts Ollama-installed ids AND on-disk scan ids; rejects:
+    - Empty / too long (>256 chars)
+    - Path traversal: '..', '/', '\\'
+    - Any id not present in (scan ids ∪ Ollama-installed ids)
+
+    This is intentionally LESS strict than _validate_model_id (which only
+    whitelists on-disk dirs). Cloud model ids won't appear in local installs
+    and are therefore rejected — ctx is display-only for cloud (A2).
+    """
+    if not isinstance(model_id, str) or not model_id.strip():
+        return False, "model_id is required"
+    if len(model_id) > 256:
+        return False, "model_id too long (max 256 chars)"
+    if ".." in model_id or "/" in model_id or "\\" in model_id:
+        return False, "path traversal detected in model_id"
+
+    # Union of on-disk scan ids + Ollama-installed ids
+    known_ids: set[str] = set()
+    try:
+        scan = _scan_local_models()
+        known_ids.update(m["id"] for m in scan.get("models", []))
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        from arail.chat import detect_installed_models
+        known_ids.update(m["id"] for m in detect_installed_models())
+    except Exception:  # noqa: BLE001
+        pass
+
+    if model_id not in known_ids:
+        return False, f"unknown local model_id: {model_id!r} (not in scan or Ollama)"
+    return True, ""
+
+
+@app.post("/api/chat/models/set-ctx")
+async def chat_models_set_ctx(request: Request):
+    """Set the context-window override for a LOCAL model from the chat tab.
+
+    Uses a relaxed local-id gate (F-VALIDATE): accepts Ollama ids AND on-disk
+    scan ids. Rejects cloud model ids (ctx is display-only for cloud, A2).
+    Purges _RUNTIME_BACKEND_CACHE for the model (F-CACHE).
+    Returns 200 always with {ok, error?} — ARAIL convention (never silent 4xx
+    from a chat endpoint; callers must check ok field).
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        return {"ok": False, "error": "invalid JSON body"}
+
+    model_id = (body.get("model_id") or "").strip()
+    ok_id, err_id = _validate_local_model_id_relaxed(model_id)
+    if not ok_id:
+        return {"ok": False, "error": err_id}
+
+    ctx_raw = body.get("ctx")
+    try:
+        ctx = int(ctx_raw)
+    except (TypeError, ValueError):
+        return {"ok": False, "error": "ctx must be an integer"}
+
+    if not (256 <= ctx <= 1_000_000):
+        return {"ok": False, "error": "ctx must be between 256 and 1,000,000"}
+
+    try:
+        ctx_overrides = _persist_ctx_override(model_id, ctx)
+    except OSError as e:
+        return {"ok": False, "error": str(e)}
+
+    # F-CACHE: purge all _RUNTIME_BACKEND_CACHE entries for this model
+    # so the next _get_runtime_backend call rebuilds with updated _num_ctx.
+    stale_keys = [k for k in _RUNTIME_BACKEND_CACHE if k[1] == model_id]
+    for k in stale_keys:
+        _RUNTIME_BACKEND_CACHE.pop(k, None)
+
+    global _MODELS_SCAN_TS
+    _MODELS_SCAN_TS = 0.0
+
+    return {
+        "ok": True,
+        "model_id": model_id,
+        "ctx": ctx,
+        "ctx_overrides": ctx_overrides,
+    }
+
+
 def _is_aerollm_installed() -> bool:
     """aerollm is optional — check without importing since the import
     itself is heavy (drags torch)."""
