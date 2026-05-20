@@ -1352,6 +1352,63 @@ async def providers_test(request: Request):
         return {"ok": False, "error": f"{type(e).__name__}: {e}"}
 
 
+def _fetch_provider_models(provider: str) -> list[str]:
+    """Return up to 200 model ids for *provider* from its live /models endpoint.
+
+    Pre: caller has already done airgap + token checks.
+    Post: returns list[str] of model ids.
+       - Live call for providers with a models_path (claude/nvidia/openrouter/
+         xai/mistral/together).
+       - Falls back to curated YAML rows (provider==<provider>) for providers
+         with no usable models_path or quirky /models shapes (huggingface,
+         google, cohere).
+       - On network/401/timeout → returns [] (caller renders error row).
+    """
+    meta = _PROVIDER_META.get(provider, {})
+    models_path = meta.get("models_path") or ""
+
+    # Curated fallback for providers without a standard /models endpoint
+    if not models_path:
+        try:
+            from arail.chat import load_catalog
+            rows = [
+                e.id for e in load_catalog()
+                if e.provider == provider
+            ]
+            return rows[:200]
+        except Exception:  # noqa: BLE001
+            return []
+
+    # Live /models call
+    token = _provider_token(provider)
+    if not token:
+        return []
+    base = meta.get("base") or os.getenv("MODEL_API_BASE", "")
+    if not base:
+        return []
+    url = base.rstrip("/") + models_path
+
+    import requests
+    try:
+        r = requests.get(url, headers=_auth_headers(provider, token), timeout=12)
+        if not (200 <= r.status_code < 300):
+            return []
+        payload = r.json()
+        raw = payload.get("data") or payload.get("models") or payload
+        models: list[str] = []
+        if isinstance(raw, list):
+            for item in raw[:200]:
+                if isinstance(item, str):
+                    models.append(item)
+                elif isinstance(item, dict):
+                    mid = str(item.get("id") or item.get("name") or "")
+                    if mid:
+                        models.append(mid)
+        return models
+    except Exception:  # noqa: BLE001
+        return []
+
+
 @app.get("/api/providers/models")
 async def providers_models(provider: str):
     """List available models for a provider (when it supports /models).
@@ -1367,28 +1424,9 @@ async def providers_models(provider: str):
     token = _provider_token(provider)
     if not token:
         return {"ok": False, "error": "no saved token for this provider"}
-    base = meta.get("base") or os.getenv("MODEL_API_BASE", "")
-    if not base:
-        return {"ok": False, "error": "no endpoint configured"}
-    url = base.rstrip("/") + meta["models_path"]
 
-    import requests
-    try:
-        r = requests.get(url, headers=_auth_headers(provider, token), timeout=12)
-        if not (200 <= r.status_code < 300):
-            return {"ok": False, "error": f"HTTP {r.status_code}"}
-        payload = r.json()
-        raw = payload.get("data") or payload.get("models") or payload
-        models: list[str] = []
-        if isinstance(raw, list):
-            for item in raw[:200]:
-                if isinstance(item, str):
-                    models.append(item)
-                elif isinstance(item, dict):
-                    models.append(str(item.get("id") or item.get("name") or item))
-        return {"ok": True, "models": models, "count": len(models)}
-    except Exception as e:  # noqa: BLE001
-        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+    models = _fetch_provider_models(provider)
+    return {"ok": True, "models": models, "count": len(models)}
 
 
 async def _ttyd_context() -> dict:
