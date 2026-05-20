@@ -4916,15 +4916,30 @@ def _get_runtime_backend(runtime: str, model_id: str):
     if base is None:
         raise ValueError(f"unknown runtime: {runtime}")
 
-    from arail.router.backends import OpenAICompatBackend
-    be = OpenAICompatBackend.__new__(OpenAICompatBackend)
     import requests as _req
-    be._session = _req.Session()
-    be.base_url = base
-    be.model_name = model_id
-    be.api_key = "not-needed"   # local runtimes ignore auth
-    # Mark for telemetry / log clarity.
-    be.backend_name = f"{runtime}:openai_compat"
+
+    if runtime == "ollama":
+        # B2 (ARCHITECTURE.md L3): use OllamaNativeBackend so options.num_ctx
+        # reaches the native /api/chat endpoint rather than being silently
+        # dropped by Ollama's OpenAI /v1 shim (F-OLLAMA-SHIM).
+        from arail.router.backends import OllamaNativeBackend, _resolve_ctx_override
+        be = OllamaNativeBackend.__new__(OllamaNativeBackend)
+        be._session = _req.Session()
+        be.base_url = base
+        be.model_name = model_id
+        be.api_key = "not-needed"   # local runtimes ignore auth
+        be.backend_name = "ollama:native"
+        # Resolve ctx override in the branch (not in __init__) per ARCHITECTURE.md.
+        be._num_ctx = _resolve_ctx_override(model_id, default=None)
+    else:
+        from arail.router.backends import OpenAICompatBackend
+        be = OpenAICompatBackend.__new__(OpenAICompatBackend)
+        be._session = _req.Session()
+        be.base_url = base
+        be.model_name = model_id
+        be.api_key = "not-needed"   # local runtimes ignore auth
+        be.backend_name = f"{runtime}:openai_compat"
+
     _RUNTIME_BACKEND_CACHE[cache_key] = be
     return be
 
