@@ -45,3 +45,31 @@ Risks for the architect:
 1. The HF curated list is a maintenance surface — design it so updates are a single YAML edit, not code changes.
 2. Provider list caching: cache TTL must balance staleness (user just saved a key, needs fresh list) against hammering provider APIs on every radio flip.
 3. Race condition: rapid radio flips during in-flight `loadModels()` must not leave the dropdown showing provider A's models while the radio reads provider B.
+
+---
+
+## Scope expansion — 2026-05-20 (user-directed)
+
+The operator broadened this sprint from the dropdown-only wedge above into a
+**single expanded sprint** covering four layers. The original win conditions
+stand as Layer 1; three layers are added on top. Full expanded scope lives in
+`SPRINT.md` § "Scope expansion"; the architect's design lives in
+`ARCHITECTURE.md`.
+
+**Product decisions made (via clarifying Q&A):**
+1. **ctx: show + auto-fill + set.** Show each model's context window with a
+   resource-cost hint, auto-fill known ctx from `model_specs`, AND wire ctx into
+   local inference (llama.cpp `n_ctx`, Ollama native `/api/chat`
+   `options.num_ctx`). Cloud ctx is display-only (fixed per model). Rationale:
+   "knowing context eats resources" — make the cost legible and settable where
+   possible (ties to `project_arail_educational_disclosure`).
+2. **Override scope: chat-wide default.** One control sets the default
+   provider+model for ALL chat; per-message still wins. Chat tab only — NOT
+   autoresearch, NOT agents (frozen surfaces + OOM caution).
+3. **New providers: Grok + more.** xAI (Grok), Google Gemini, Mistral, Cohere,
+   Together — registry-only, OpenAI-compatible (direct expression of
+   `project_pluggable_provider_thesis`).
+4. **Packaging: one expanded sprint.**
+
+The original wedge (an honest dropdown) is the foundation the other three layers
+build on; none of them is coherent without it.
