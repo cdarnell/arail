@@ -204,3 +204,218 @@
                slot and need general-purpose, Mistral 7B is rarely wrong.
   install: "ollama pull mistral:7b"
   tier: optional
+
+# ── Cloud catalog rows (L2 — sprint 2026-05-18-provider-aware-chat-dropdown) ──
+# Rows with `provider:` field are cloud entries; they appear in the gallery
+# only when that provider is the active Compute Source. size_gb/install omitted
+# (loader defaults to 0/""). ctx: is the context window display label.
+# Update: single YAML edit — no code change required.
+
+# Claude (Anthropic)
+- id: claude-opus-4-7
+  name: Claude Opus 4.7
+  family: claude
+  source: cloud
+  provider: claude
+  ctx: "200K tokens"
+  good_at: [reasoning, agent, code, analysis]
+  description: Anthropic's flagship — the highest-capability Claude model.
+  tier: flagship
+
+- id: claude-sonnet-4-20250514
+  name: Claude Sonnet 4
+  family: claude
+  source: cloud
+  provider: claude
+  ctx: "200K tokens"
+  good_at: [chat, code, analysis, speed]
+  description: Anthropic's balanced model — fast and capable for most tasks.
+  tier: recommended
+
+- id: claude-haiku-3-5
+  name: Claude Haiku 3.5
+  family: claude
+  source: cloud
+  provider: claude
+  ctx: "200K tokens"
+  good_at: [chat, fast, cost-efficient]
+  description: Anthropic's smallest and fastest model.
+  tier: optional
+
+# NVIDIA NIM
+- id: nvidia/llama-3.1-nemotron-ultra-253b-v1
+  name: Llama 3.1 Nemotron Ultra 253B
+  family: llama
+  source: cloud
+  provider: nvidia
+  ctx: "128K tokens"
+  good_at: [reasoning, science, math, agent]
+  description: NVIDIA's reasoning-optimised Llama 3.1 fine-tune on NIM.
+  tier: flagship
+
+- id: meta/llama-3.3-70b-instruct
+  name: Llama 3.3 70B Instruct
+  family: llama
+  source: cloud
+  provider: nvidia
+  ctx: "128K tokens"
+  good_at: [chat, reasoning, instruction-following]
+  description: Meta Llama 3.3 70B served on NVIDIA NIM.
+  tier: recommended
+
+# OpenRouter (curated selection; live /models call fetches the full list)
+- id: openai/gpt-4o
+  name: GPT-4o (OpenRouter)
+  family: gpt
+  source: cloud
+  provider: openrouter
+  ctx: "128K tokens"
+  good_at: [chat, vision, code, reasoning]
+  description: OpenAI GPT-4o via OpenRouter.
+  tier: flagship
+
+- id: anthropic/claude-opus-4-7
+  name: Claude Opus 4.7 (OpenRouter)
+  family: claude
+  source: cloud
+  provider: openrouter
+  ctx: "200K tokens"
+  good_at: [reasoning, agent, analysis]
+  description: Anthropic Claude Opus 4.7 via OpenRouter.
+  tier: flagship
+
+# HuggingFace Inference (curated — HF has no /models list endpoint)
+- id: Qwen/Qwen3-235B-A22B
+  name: Qwen 3 235B A22B (HF)
+  family: qwen
+  source: cloud
+  provider: huggingface
+  ctx: "128K tokens"
+  good_at: [reasoning, multilingual, math, agent]
+  description: Qwen 3 flagship MoE via HuggingFace Inference API.
+  tier: flagship
+
+- id: meta-llama/Llama-3.3-70B-Instruct
+  name: Llama 3.3 70B (HF)
+  family: llama
+  source: cloud
+  provider: huggingface
+  ctx: "128K tokens"
+  good_at: [chat, reasoning, instruction-following]
+  description: Meta Llama 3.3 70B via HuggingFace Inference API.
+  tier: recommended
+
+- id: mistralai/Mixtral-8x7B-Instruct-v0.1
+  name: Mixtral 8x7B (HF)
+  family: mistral
+  source: cloud
+  provider: huggingface
+  ctx: "32K tokens"
+  good_at: [chat, multilingual, code]
+  description: Mistral's Mixtral MoE via HuggingFace Inference API.
+  tier: optional
+
+# xAI (Grok)
+- id: grok-3
+  name: Grok 3
+  family: xai
+  source: cloud
+  provider: xai
+  ctx: "131072 tokens"
+  good_at: [reasoning, real-time, agent, code]
+  description: xAI's flagship Grok 3 model with real-time knowledge.
+  tier: flagship
+
+- id: grok-3-mini
+  name: Grok 3 Mini
+  family: xai
+  source: cloud
+  provider: xai
+  ctx: "131072 tokens"
+  good_at: [chat, fast, cost-efficient]
+  description: xAI's smaller, faster Grok model.
+  tier: recommended
+
+# Google Gemini (curated — Gemini /models shape is non-OpenAI)
+- id: gemini-2.5-pro
+  name: Gemini 2.5 Pro
+  family: gemini
+  source: cloud
+  provider: google
+  ctx: "1M tokens"
+  good_at: [reasoning, vision, long-context, code]
+  description: Google's flagship multimodal model with 1M token context.
+  tier: flagship
+
+- id: gemini-2.5-flash
+  name: Gemini 2.5 Flash
+  family: gemini
+  source: cloud
+  provider: google
+  ctx: "1M tokens"
+  good_at: [chat, fast, vision, cost-efficient]
+  description: Google's fast, cost-efficient Gemini model.
+  tier: recommended
+
+# Mistral AI
+- id: mistral-large-latest
+  name: Mistral Large
+  family: mistral
+  source: cloud
+  provider: mistral
+  ctx: "128K tokens"
+  good_at: [reasoning, code, multilingual, agent]
+  description: Mistral AI's flagship large model.
+  tier: flagship
+
+- id: mistral-small-latest
+  name: Mistral Small
+  family: mistral
+  source: cloud
+  provider: mistral
+  ctx: "32K tokens"
+  good_at: [chat, fast, cost-efficient]
+  description: Mistral AI's compact, fast model.
+  tier: recommended
+
+# Cohere (curated — Cohere /models not OpenAI-shaped)
+- id: command-r-plus-08-2024
+  name: Command R+ (Aug 2024)
+  family: cohere
+  source: cloud
+  provider: cohere
+  ctx: "128K tokens"
+  good_at: [reasoning, RAG, agent, multilingual]
+  description: Cohere's most capable model — optimised for RAG and enterprise use.
+  tier: flagship
+
+- id: command-r-08-2024
+  name: Command R (Aug 2024)
+  family: cohere
+  source: cloud
+  provider: cohere
+  ctx: "128K tokens"
+  good_at: [chat, RAG, multilingual]
+  description: Cohere's balanced command model.
+  tier: recommended
+
+# Together AI
+- id: meta-llama/Llama-3.3-70B-Instruct-Turbo
+  name: Llama 3.3 70B Turbo (Together)
+  family: llama
+  source: cloud
+  provider: together
+  ctx: "128K tokens"
+  good_at: [chat, reasoning, fast]
+  description: Meta Llama 3.3 70B on Together AI's low-latency serving.
+  tier: flagship
+
+- id: Qwen/Qwen3-235B-A22B
+  name: Qwen 3 235B A22B (Together)
+  family: qwen
+  source: cloud
+  provider: together
+  ctx: "128K tokens"
+  good_at: [reasoning, multilingual, math, agent]
+  description: Qwen 3 235B MoE on Together AI.
+  tier: recommended
