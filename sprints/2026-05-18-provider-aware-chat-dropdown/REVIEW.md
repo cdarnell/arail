@@ -167,3 +167,136 @@ the default local runtime.
 
 **Carryover/fix-list count:** 5 (2 BLOCK, 2 ASK-carryover, 1 INFO). Re-review required after
 B1 + B2 are addressed.
+
+---
+
+## Re-review (loop 2)
+
+**Date:** 2026-05-20
+**Fix-loop commits reviewed:** `6cd007b` (B2), `2566332` (B1), `f92f697` (R1 harden / C1), `cf10b91` (C2+C3 ledger)
+**origin/main at re-review:** c45e9a3 (main advanced one commit past the loop-1 fork point; no-regression checked against current main)
+
+### Verdict: PASS
+
+Both loop-1 BLOCKs are genuinely cleared in the live code, each now has a real
+reachability/contract test (not isolated unit tests), R1 is hardened to exact-key-set +
+nested-structure + types, the full suite introduces **zero** new failures vs main, and the
+4 fix commits touched nothing beyond `app.py`, `chat.legacy.html`, the new test files, and
+BUILD_LOG. The headline feature works end-to-end in my independent trace.
+
+### B1 — CLEARED
+
+- **Code:** `chat.legacy.html:1174-1177` now reads `gallery.catalog` (was `gallery.installed`,
+  always `[]` for cloud) and maps `e => (typeof e === 'string' ? e : e.id)` — handles both
+  string and object catalog entries. The local/`my_machine` branch (lines 1221-1257) is
+  untouched and still renders from `gallery.installed` — verified by direct read, the two
+  branches are cleanly separated by the `if (isCloud)` guard.
+- **Test:** `test_b1_cloud_gallery_contract.py` (5 tests) is a real server↔frontend **contract**
+  test via FastAPI TestClient against the live `/api/chat/models?provider=...` route. Asserts
+  cloud success → `gallery.catalog` has ≥1 entry with `{id, installed_state:"available",
+  source:"cloud", runtime==provider}` AND `gallery.installed == []`; every top-level `models`
+  id appears in `catalog`; no-token → empty `catalog` + `cta.kind=="no_token"`; local path →
+  `gallery.installed` is a list, `airgapped` not true. Proves a cloud success now produces
+  renderable cards instead of the empty state.
+- **Caveat (carryover for qa):** the B1 test asserts the *server* returns the shape the JS
+  reads; it does not execute the JS in jsdom. The JS fix is a 2-line literal change I read and
+  confirmed reads `gallery.catalog` and maps `.id`. Server-contract + my direct JS read close
+  B1; a jsdom render assertion would be the ideal belt-and-suspenders. Low risk.
+
+### B2 — CLEARED
+
+- **Code:** `_get_runtime_backend`'s ollama branch (`app.py:4921-4933`) now builds
+  `OllamaNativeBackend.__new__(...)` (NOT `OpenAICompatBackend`), sets `backend_name="ollama:native"`,
+  and resolves `be._num_ctx = _resolve_ctx_override(model_id, default=None)` **in the branch**
+  (per ARCHITECTURE.md L3, F-NEW). Non-ollama runtimes keep `OpenAICompatBackend` (no regression).
+  `cache_key` remains `(runtime, model_id)`, so the F-CACHE purge from loop 1 still aligns
+  (`k[1]==model_id`). `OllamaNativeBackend.complete` (`backends.py:1352+`) reads `_num_ctx`
+  defensively, adds `options.num_ctx` only when set, and POSTs to `{root}/api/chat` (not `/v1`).
+- **Test:** `test_b2_ollama_dispatch_wiring.py` (7 tests) is a real **reachability** test.
+  `test_dispatch_ollama_returns_ollama_native_backend` asserts the *dispatch path* returns
+  `OllamaNativeBackend`. `test_ctx_override_flows_into_num_ctx_for_ollama` plants
+  `{"ai-eng:latest":16384}` in `ARAIL_MODEL_CTX_OVERRIDES`, calls `_get_runtime_backend`, then
+  `complete()` and asserts `options.num_ctx == 16384` in the POST body — the full
+  set-ctx→resolve→build→dispatch path. `test_dispatch_posts_to_api_chat_not_v1` asserts
+  `/api/chat` in URL and `/v1/` absent. `test_no_ctx_override_means_no_num_ctx_in_dispatch`
+  proves the no-override case omits `num_ctx` (preserves today's behavior). This is exactly the
+  wiring the loop-1 unit tests failed to exercise.
+
+### R1 — HARDENED (C1 cleared)
+
+- `test_r1_hardened_golden_snapshot.py` (14 tests) deterministically mocks `_get_primary_router`,
+  `gallery_view`, `_local_memory_snapshot`, `_get_live_ollama_current`, `_load_active_provider`,
+  then asserts the **exact** top-level key set (added OR removed key fails), the **exact** gallery
+  key set `{installed, catalog, runtime_counts}`, field types (backend:str, switchable:bool,
+  models:list, gallery lists/dict), required nested key sets for `deep`/`compact`/`hardware`/
+  `model_load`/`onboarding`, and that no cloud-only field (`airgapped:true`, `cta`) leaks. This is
+  a genuine upgrade from loop-1's key-presence-only check and will catch a future legacy-branch
+  edit that adds/removes a top-level or gallery key. The legacy `/api/chat/models` payload still
+  passes (no regression). **Residual (minor carryover):** nested dicts use required-subset, not
+  byte-exact value equality; a future *value* change inside `deep`/`compact` would not be caught.
+  Acceptable — the spec's core concern (structural drift of the frozen branch) is now guarded.
+
+### Did fixing B1 break R1? — No (the subtle check)
+
+Confirmed independent. B1's commit `2566332` touched only `chat.legacy.html` (client JS); R1
+snapshots the *server* payload. The B1 diff contains no server-side change. The R1 hardened
+suite (14 tests) passes in the same run as B1, and the cloud branch is only entered for
+`?provider=<cloud>` while R1 exercises the no-provider/empty/my_machine legacy path. No coupling.
+
+### No regression
+
+- **Sprint suite: 124 passed, 0 failed** (all 10 files; ran myself). Matches the builder's claim
+  exactly. R2 (`test_ctx_override_backends.py`) and R3 (`test_r1_r3_chat_models.py`) both green —
+  the fixes did not break the prior load-bearing regressions.
+- **Full suite, no-new-failure proof:** ran the entire suite on branch HEAD (13 FAILED) and on
+  current `origin/main` (c45e9a3, 15 FAILED) in the same harness. Set-diff: the failures present
+  **on branch but not on main is EMPTY** — i.e. this sprint introduces zero new failures. The two
+  extra failures on main (`test_docs_cross_links`, `test_docs_sprint3_qa`) are order/pollution-
+  sensitive docs tests that don't fire in the branch run order; pre-existing, unrelated. All
+  branch failures are in unrelated surfaces (opencode lifecycle, dashboard layout, docs routes,
+  swarm, system metrics, airgap-default env-leak pollution). C2's corrected ledger wording ("every
+  branch failure also fails on main; no new failure; count order-sensitive — 13 branch / 15 main")
+  matches my independent observation exactly.
+
+### No new scope drift
+
+`git diff origin/main...HEAD --stat` plus per-commit diffstats confirm the 4 fix commits touched
+only: `app.py` (B2 ollama branch, +23/-8), `chat.legacy.html` (B1, 2 effective lines),
+`test_b2_ollama_dispatch_wiring.py`, `test_b1_cloud_gallery_contract.py`,
+`test_r1_hardened_golden_snapshot.py`, and `BUILD_LOG.md`. No `chat.html` (WIP template stays
+untouched per A-non-goal), no autoresearch, no agents, no token-storage / secrets.env code, no
+new dependency. Token hygiene unchanged (no new endpoint, no token echo). Airgap ordering
+unchanged. Clean.
+
+### Tech debt delta (C3)
+
+C3 note in BUILD_LOG is accurate: `ARAIL_MODEL_CTX_OVERRIDES` is now consumed by `CPUBackend`
+(`__init__` n_ctx) and `OllamaNativeBackend` (dispatch branch `_num_ctx`); MLX, AeroLLM, and
+AirLLM still ignore it. The loop-1 "B2 debt" (override dead for the default local runtime) is now
+**closed for Ollama** — the headline-relevant runtime. Remaining no-op for MLX/AeroLLM/AirLLM is
+filed and deferred. Net debt is now slightly negative vs loop 1 (the live trap the loop-1 review
+flagged is repaid for the common case).
+
+### Headline feature — works end-to-end (independent trace)
+
+- Flip to Claude → server cloud branch returns `gallery.catalog=[cloud models]` → JS reads
+  `gallery.catalog`, maps `.id`, renders cards. (Was: empty state on success. Now: cards.)
+- Set ctx on an Ollama model → `set-ctx` persists + purges cache → next dispatch builds
+  `OllamaNativeBackend` with resolved `_num_ctx` → `complete()` POSTs `/api/chat` with
+  `options.num_ctx`. (Was: silently dropped via `/v1` shim. Now: honored.)
+
+### Carryovers for qa (none blocking)
+
+1. **B1 jsdom gap** — server-contract test proves the shape; no JS-execution (jsdom) test asserts
+   the cards actually render in a DOM. Recommend qa add a focused JS/jsdom render assertion (also
+   covers the F-RACE seq-guard interplay).
+2. **R1 nested value-exactness** — top-level and gallery key sets are exact; nested dicts
+   (`deep`/`compact`/`model_load`/`onboarding`) are required-subset, not byte-exact. A future
+   value change inside those would slip through. Low priority; structural drift is covered.
+3. **Full-suite order pollution** — the airgap-default and docs-routes tests pass in isolation but
+   fail under full-suite env-leak pollution. Pre-existing on main; worth a separate housekeeping
+   ticket (env teardown between tests), out of scope for this sprint.
+
+### Required actions before merge (loop 2)
+
+None. PASS. Proceed to qa with the three non-blocking carryovers above noted for coverage.
