@@ -4549,11 +4549,37 @@ async def admin_models_set_default(request: Request):
     })
 
 
+def _persist_ctx_override(model_id: str, ctx: int) -> dict:
+    """Write a ctx override for *model_id* to secrets.env + os.environ.
+
+    Reads/merges ARAIL_MODEL_CTX_OVERRIDES, writes updated JSON back, and
+    mirrors to os.environ so the running process picks it up immediately.
+    Returns the merged overrides dict.
+
+    DRY: both admin_models_set_ctx and the chat set-ctx delegate call here.
+    Caller is responsible for cache/scan invalidation (behaviour differs).
+    """
+    import json as _json
+    existing = _read_secrets()
+    existing_ctx_raw = existing.get("ARAIL_MODEL_CTX_OVERRIDES", "{}")
+    try:
+        ctx_overrides: dict = _json.loads(existing_ctx_raw)
+        if not isinstance(ctx_overrides, dict):
+            ctx_overrides = {}
+    except Exception:  # noqa: BLE001
+        ctx_overrides = {}
+
+    ctx_overrides[model_id] = ctx
+    existing["ARAIL_MODEL_CTX_OVERRIDES"] = _json.dumps(ctx_overrides)
+    _write_secrets(existing)
+    os.environ["ARAIL_MODEL_CTX_OVERRIDES"] = _json.dumps(ctx_overrides)
+    return ctx_overrides
+
+
 @app.post("/api/admin/models/set-ctx")
 async def admin_models_set_ctx(request: Request):
     """Set the context-window override for a model. Persists to secrets.env."""
     from fastapi.responses import JSONResponse
-    import json as _json
     try:
         body = await request.json()
     except Exception:
@@ -4576,23 +4602,10 @@ async def admin_models_set_ctx(request: Request):
             status_code=400,
         )
 
-    existing = _read_secrets()
-    existing_ctx_raw = existing.get("ARAIL_MODEL_CTX_OVERRIDES", "{}")
     try:
-        ctx_overrides: dict = _json.loads(existing_ctx_raw)
-        if not isinstance(ctx_overrides, dict):
-            ctx_overrides = {}
-    except Exception:  # noqa: BLE001
-        ctx_overrides = {}
-
-    ctx_overrides[model_id] = ctx
-    existing["ARAIL_MODEL_CTX_OVERRIDES"] = _json.dumps(ctx_overrides)
-    try:
-        _write_secrets(existing)
+        ctx_overrides = _persist_ctx_override(model_id, ctx)
     except OSError as e:
         return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
-
-    os.environ["ARAIL_MODEL_CTX_OVERRIDES"] = _json.dumps(ctx_overrides)
 
     global _MODELS_SCAN_TS
     _MODELS_SCAN_TS = 0.0
