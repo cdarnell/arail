@@ -1051,6 +1051,12 @@ _PROVIDER_KEY_ENVS: dict[str, str] = {
     "openrouter":  "OPENROUTER_API_KEY",
     "huggingface": "HF_TOKEN",
     "custom":      "MODEL_API_KEY",
+    # L2 — five new OpenAI-compatible providers (bearer auth, OpenAI /v1 shape)
+    "xai":         "XAI_API_KEY",
+    "google":      "GOOGLE_API_KEY",
+    "mistral":     "MISTRAL_API_KEY",
+    "cohere":      "COHERE_API_KEY",
+    "together":    "TOGETHER_API_KEY",
 }
 
 # Per-provider metadata the UI uses to render the Manage Providers modal and
@@ -1090,6 +1096,42 @@ _PROVIDER_META: dict[str, dict[str, str]] = {
         "models_path": "/models",
         "auth": "bearer",
         "docs": "",
+    },
+    # L2 — five new OpenAI-compatible cloud providers
+    "xai": {
+        "label": "xAI (Grok)",
+        "base": "https://api.x.ai/v1",
+        "models_path": "/models",
+        "auth": "bearer",
+        "docs": "https://console.x.ai/",
+    },
+    "google": {
+        "label": "Google Gemini",
+        "base": "https://generativelanguage.googleapis.com/v1beta/openai",
+        "models_path": "",   # curated — Gemini /models shape is non-standard
+        "auth": "bearer",
+        "docs": "https://aistudio.google.com/app/apikey",
+    },
+    "mistral": {
+        "label": "Mistral",
+        "base": "https://api.mistral.ai/v1",
+        "models_path": "/models",
+        "auth": "bearer",
+        "docs": "https://console.mistral.ai/api-keys/",
+    },
+    "cohere": {
+        "label": "Cohere",
+        "base": "https://api.cohere.com/compatibility/v1",
+        "models_path": "",   # curated — Cohere /models not OpenAI-shaped
+        "auth": "bearer",
+        "docs": "https://dashboard.cohere.com/api-keys",
+    },
+    "together": {
+        "label": "Together AI",
+        "base": "https://api.together.xyz/v1",
+        "models_path": "/models",
+        "auth": "bearer",
+        "docs": "https://api.together.ai/settings/api-keys",
     },
 }
 

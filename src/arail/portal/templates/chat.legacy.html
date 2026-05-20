@@ -346,6 +346,26 @@
           <input type="radio" name="compute-source" value="custom">
           <span class="compute-opt-label"><strong>Custom endpoint</strong><br><span class="chat-muted">Any OpenAI-compatible URL</span></span>
         </label>
+        <label class="compute-opt">
+          <input type="radio" name="compute-source" value="xai">
+          <span class="compute-opt-label"><strong>xAI (Grok)</strong><br><span class="chat-muted">api.x.ai</span></span>
+        </label>
+        <label class="compute-opt">
+          <input type="radio" name="compute-source" value="google">
+          <span class="compute-opt-label"><strong>Google Gemini</strong><br><span class="chat-muted">Gemini API</span></span>
+        </label>
+        <label class="compute-opt">
+          <input type="radio" name="compute-source" value="mistral">
+          <span class="compute-opt-label"><strong>Mistral</strong><br><span class="chat-muted">api.mistral.ai</span></span>
+        </label>
+        <label class="compute-opt">
+          <input type="radio" name="compute-source" value="cohere">
+          <span class="compute-opt-label"><strong>Cohere</strong><br><span class="chat-muted">Cohere API</span></span>
+        </label>
+        <label class="compute-opt">
+          <input type="radio" name="compute-source" value="together">
+          <span class="compute-opt-label"><strong>Together AI</strong><br><span class="chat-muted">api.together.xyz</span></span>
+        </label>
       </div>
 
       <div class="compute-key-row" id="compute-key-row" style="display:none">
@@ -901,8 +921,14 @@
     openrouter:  { keyLabel: 'OpenRouter key (sk-or-…)',     needsUrl: false, chip: 'openrouter · cloud' },
     huggingface: { keyLabel: 'HF token (hf_…)',              needsUrl: false, chip: 'huggingface · cloud' },
     custom:      { keyLabel: 'API key (optional)',           needsUrl: true,  chip: 'custom endpoint' },
+    // L2 — five new providers
+    xai:         { keyLabel: 'xAI API key',                  needsUrl: false, chip: 'xai grok · cloud' },
+    google:      { keyLabel: 'Google API key',               needsUrl: false, chip: 'gemini · cloud' },
+    mistral:     { keyLabel: 'Mistral API key',              needsUrl: false, chip: 'mistral · cloud' },
+    cohere:      { keyLabel: 'Cohere API key',               needsUrl: false, chip: 'cohere · cloud' },
+    together:    { keyLabel: 'Together AI key',              needsUrl: false, chip: 'together · cloud' },
   };
-  const CLOUD = ['claude','nvidia','openrouter','huggingface','custom'];
+  const CLOUD = ['claude','nvidia','openrouter','huggingface','custom','xai','google','mistral','cohere','together'];
   const providerState = { cloudEnabled: true, providers: [], labMode: 'airgapped' };
 
   function selectedProvider() {
