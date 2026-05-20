@@ -5382,6 +5382,113 @@ async def _run_chat_completion(
     return _build_chat_result(response, wants_deep=wants_deep)
 
 
+def _apply_chat_defaults(
+    backend: "str | None",
+    model: "str | None",
+    runtime: "str | None",
+) -> "tuple[str | None, str | None, str | None]":
+    """Fill blank backend/model/runtime from the stored chat-wide default (L4).
+
+    Per-message values win (A8): only fills arguments that are falsy/blank.
+    F-DEFAULT-LEAK: if the stored default is a cloud provider and the lab is
+    currently airgapped, the cloud default is silently dropped and my_machine
+    is used instead.
+
+    Returns (backend, model, runtime) resolved triple.
+    Never raises.
+    """
+    # Per-message values win — return as-is if all provided
+    if backend and model and runtime:
+        return backend, model, runtime
+
+    try:
+        default_raw = (
+            _read_secrets().get("ARAIL_CHAT_DEFAULT_MODEL")
+            or os.getenv("ARAIL_CHAT_DEFAULT_MODEL", "")
+        ).strip()
+        if not default_raw:
+            return backend, model, runtime
+
+        import json as _json
+        stored = _json.loads(default_raw)
+        stored_model = stored.get("model") or ""
+        stored_runtime = stored.get("runtime") or ""
+        stored_provider = (
+            os.getenv("COMPUTE_SOURCE", "")
+            or _read_secrets().get("COMPUTE_SOURCE", "")
+        ).strip().lower() or "my_machine"
+
+        # F-DEFAULT-LEAK: drop cloud default when airgapped
+        if stored_provider in _CLOUD_PROVIDERS and _is_airgapped():
+            stored_provider = "my_machine"
+            stored_model = ""
+            stored_runtime = ""
+
+        # Fill blanks only (A8)
+        resolved_backend = backend or stored_provider or None
+        resolved_model = model or stored_model or None
+        resolved_runtime = runtime or stored_runtime or None
+        return resolved_backend, resolved_model, resolved_runtime
+    except Exception:  # noqa: BLE001
+        return backend, model, runtime
+
+
+@app.post("/api/chat/default")
+async def chat_default(request: Request):
+    """Set or clear the chat-wide default provider+model (L4).
+
+    Body to SET: {provider: str, model: str, runtime: str}
+    Body to CLEAR: {clear: true}
+
+    Returns: {ok, provider, model, runtime} or {ok, cleared: true}
+
+    Airgap: refuses cloud defaults when airgapped (F-DEFAULT-LEAK guard at use
+    time is in _apply_chat_defaults; guard at set time is here).
+    Secrets-safety: writes COMPUTE_SOURCE + ARAIL_CHAT_DEFAULT_MODEL (ids only,
+    never a token).
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        return {"ok": False, "error": "invalid JSON body"}
+
+    # CLEAR path
+    if body.get("clear"):
+        secrets = _read_secrets()
+        secrets.pop("ARAIL_CHAT_DEFAULT_MODEL", None)
+        _write_secrets(secrets)
+        os.environ.pop("ARAIL_CHAT_DEFAULT_MODEL", None)
+        return {"ok": True, "cleared": True}
+
+    # SET path
+    provider = (body.get("provider") or "").strip().lower()
+    model_id = (body.get("model") or "").strip()
+    runtime = (body.get("runtime") or "").strip()
+
+    if not provider:
+        return {"ok": False, "error": "provider is required"}
+
+    # Airgap check — refuse cloud default when airgapped (F-DEFAULT-LEAK)
+    if provider in _CLOUD_PROVIDERS and _is_airgapped():
+        return {
+            "ok": False,
+            "error": "Airgapped — cloud default blocked. Set LAB_MODE=hybrid in .env to use cloud providers.",
+        }
+
+    import json as _json
+    secrets = _read_secrets()
+    secrets["COMPUTE_SOURCE"] = provider
+    os.environ["COMPUTE_SOURCE"] = provider
+    if model_id:
+        default_val = _json.dumps({"model": model_id, "runtime": runtime})
+        secrets["ARAIL_CHAT_DEFAULT_MODEL"] = default_val
+        os.environ["ARAIL_CHAT_DEFAULT_MODEL"] = default_val
+
+    _write_secrets(secrets)
+    activity_log.emit("chat", f"Chat default set: provider={provider} model={model_id}", "info")
+    return {"ok": True, "provider": provider, "model": model_id, "runtime": runtime}
+
+
 @app.post("/api/chat")
 async def api_chat(request: Request):
     """Send one user message to the local model with full lab context.
@@ -5411,15 +5518,23 @@ async def api_chat(request: Request):
     except (TypeError, ValueError):
         top_p = None
 
+    # L4: fill blank backend/model/runtime from stored chat-wide default.
+    # Per-message values (from body) win; blanks are filled by the shim.
+    backend_override, model_override, runtime_override = _apply_chat_defaults(
+        body.get("backend"),
+        body.get("model"),
+        body.get("runtime"),
+    )
+
     return await _run_chat_completion(
         message=message,
         history=body.get("history") or [],
-        backend_override=body.get("backend"),
-        model_override=body.get("model"),
+        backend_override=backend_override,
+        model_override=model_override,
         temperature=float(body.get("temperature") or 0.7),
         top_p=top_p,
         max_tokens=int(body.get("max_tokens") or 512),
-        runtime_override=body.get("runtime"),
+        runtime_override=runtime_override,
     )
 
 
@@ -5509,16 +5624,23 @@ async def api_chat_stream(request: Request):
     except (TypeError, ValueError):
         top_p = None
 
+    # L4: fill blank backend/model/runtime from stored chat-wide default.
+    stream_backend, stream_model, stream_runtime = _apply_chat_defaults(
+        body.get("backend"),
+        body.get("model"),
+        body.get("runtime"),
+    )
+
     async def _generate() -> AsyncIterator[str]:
         async for event in _run_chat_completion_stream(
             message=message,
             history=body.get("history") or [],
-            backend_override=body.get("backend"),
-            model_override=body.get("model"),
+            backend_override=stream_backend,
+            model_override=stream_model,
             temperature=float(body.get("temperature") or 0.7),
             top_p=top_p,
             max_tokens=int(body.get("max_tokens") or 512),
-            runtime_override=body.get("runtime"),
+            runtime_override=stream_runtime,
         ):
             yield json.dumps(event, default=str) + "\n"
 
