@@ -5866,17 +5866,119 @@ async def api_aerollm_bench():
 
 
 @app.get("/api/chat/models")
-async def api_chat_models():
+async def api_chat_models(provider: str = ""):
     """Return the model catalog for the current backend.
 
-    For OpenAI-compatible backends (LM Studio, Ollama, NVIDIA NIM,
-    OpenRouter), we query the server's ``/v1/models`` endpoint and
-    list every model it advertises. For single-model backends
-    (MLX, llama.cpp, AeroLLM, Claude, HF Inference), we return just
-    the configured ``MODEL_NAME`` so the dropdown still renders.
+    With no ?provider= (or ?provider=my_machine): returns the byte-identical
+    legacy local gallery payload (R1 — golden snapshot).
+
+    With ?provider=<cloud>: returns a cloud gallery payload with the provider's
+    model list, or a CTA when no token is saved, or an airgap refusal.
+    The cloud branch is a strict `if provider and provider != "my_machine":`
+    wrapper — the legacy code path is never entered from the cloud branch.
 
     The dashboard Tuning row uses this to populate its Model picker.
     """
+    # ── CLOUD BRANCH ──────────────────────────────────────────────────────
+    # Strict guard: only non-empty provider != "my_machine" enters this branch.
+    # The legacy path below is never reached from here. (R1 protection)
+    if provider and provider.strip().lower() not in ("", "my_machine"):
+        provider_id = provider.strip().lower()
+        _EMPTY_GALLERY: dict = {"installed": [], "catalog": [], "runtime_counts": {}}
+
+        # Unknown provider → cta, never 500, never local fallthrough
+        if provider_id not in _CLOUD_PROVIDERS:
+            return {
+                "provider": provider_id,
+                "current": None,
+                "gallery": _EMPTY_GALLERY,
+                "cta": {
+                    "kind": "unknown_provider",
+                    "provider": provider_id,
+                    "message": f"Unknown provider '{provider_id}'. Check Compute Source configuration.",
+                },
+                "airgapped": False,
+            }
+
+        # Airgap check FIRST — before any token read or network call (F-AIRGAP)
+        if _is_airgapped():
+            return {
+                "provider": provider_id,
+                "current": None,
+                "gallery": _EMPTY_GALLERY,
+                "cta": {
+                    "kind": "airgapped",
+                    "message": "Lab is airgapped. Set LAB_MODE=hybrid in .env and restart to use cloud providers.",
+                },
+                "airgapped": True,
+            }
+
+        # No saved token → CTA (never silent empty)
+        token = _provider_token(provider_id)
+        if not token:
+            meta = _PROVIDER_META.get(provider_id, {})
+            return {
+                "provider": provider_id,
+                "current": None,
+                "gallery": _EMPTY_GALLERY,
+                "cta": {
+                    "kind": "no_token",
+                    "provider": provider_id,
+                    "message": (
+                        f"Save a {meta.get('label', provider_id)} key in "
+                        f"⚙ Manage providers to see its models."
+                    ),
+                    "docs": meta.get("docs", ""),
+                },
+                "airgapped": False,
+            }
+
+        # Fetch cloud models (curated or live) — returns [] on any error
+        cloud_model_ids = _fetch_provider_models(provider_id)
+
+        # Build gallery catalog entries from the cloud model list
+        # (F-CLOUD-CURRENT: current is set to a cloud model id, never a local one)
+        catalog_entries = []
+        from arail.model_specs import context_tokens as _ctx_tokens
+        # Pull curated ctx from YAML for known cloud models
+        try:
+            from arail.chat import load_catalog
+            curated_ctx = {e.id: e.ctx for e in load_catalog() if e.provider == provider_id}
+        except Exception:  # noqa: BLE001
+            curated_ctx = {}
+
+        for mid in cloud_model_ids:
+            ctx_label = curated_ctx.get(mid)
+            ctx_int = _ctx_tokens(ctx_label) if ctx_label else None
+            catalog_entries.append({
+                "id": mid,
+                "name": mid,
+                "family": provider_id,
+                "installed_state": "available",
+                "source": "cloud",
+                "runtime": provider_id,
+                "ctx": ctx_int,
+                "ctx_label": ctx_label or ("Context: unknown"),
+                "size_gb": None,
+                "tier": "optional",
+                "provider": provider_id,
+            })
+
+        # F-CLOUD-CURRENT: override current to first cloud model, never local
+        cloud_current = cloud_model_ids[0] if cloud_model_ids else None
+
+        return {
+            "provider": provider_id,
+            "current": cloud_current,
+            "gallery": {
+                "installed": [],
+                "catalog": catalog_entries,
+                "runtime_counts": {},
+            },
+            "models": cloud_model_ids,
+            "airgapped": False,
+        }
+    # ── END CLOUD BRANCH ──────────────────────────────────────────────────
     try:
         router = _get_primary_router()
     except Exception as e:  # noqa: BLE001
