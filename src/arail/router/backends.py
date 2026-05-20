@@ -1326,6 +1326,118 @@ class AeroLLMBackend(BaseBackend):
 
 
 # ---------------------------------------------------------------------------
+# OllamaNativeBackend  (Ollama native /api/chat — carries options.num_ctx)
+# ---------------------------------------------------------------------------
+class OllamaNativeBackend(OpenAICompatBackend):
+    """Talks to Ollama's NATIVE /api/chat endpoint (not the OpenAI /v1 shim).
+
+    Ollama's OpenAI-compat shim at /v1/chat/completions silently ignores the
+    `num_ctx` option (F-OLLAMA-SHIM). The native endpoint at /api/chat accepts
+    options.num_ctx correctly and reloads the model KV cache accordingly.
+
+    Construction: always via __new__ (F-NEW — the caller must set all required
+    attributes including _num_ctx). complete() reads _num_ctx defensively via
+    getattr(self, '_num_ctx', None) to guard against a partial __new__ build.
+
+    The root URL is derived by stripping a trailing '/v1' from self.base_url.
+    """
+
+    def _ollama_root(self) -> str:
+        """Return the Ollama root URL (strip trailing /v1 from base_url)."""
+        base = self.base_url.rstrip("/")
+        if base.endswith("/v1"):
+            return base[:-3]
+        return base
+
+    def complete(self, prompt: str, max_tokens: int = 512,
+                 temperature: float = 0.7,
+                 top_p: Optional[float] = None) -> ModelResponse:
+        start = time.time()
+        num_ctx = getattr(self, "_num_ctx", None)  # F-NEW: defensive read
+
+        body: dict = {
+            "model": self.model_name,
+            "messages": [{"role": "user", "content": prompt}],
+            "stream": False,
+        }
+        # options.num_ctx only included when set (else Ollama uses its default)
+        if num_ctx is not None:
+            body["options"] = {"num_ctx": int(num_ctx)}
+
+        resp = self._session.post(
+            f"{self._ollama_root()}/api/chat",   # F-OLLAMA-SHIM: native endpoint
+            headers={"Authorization": f"Bearer {self.api_key}",
+                     "Content-Type": "application/json"},
+            json=body,
+            timeout=120,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        # Ollama native response shape: {message: {role, content}, done: bool}
+        text = (data.get("message") or {}).get("content") or ""
+        return ModelResponse(
+            text=text,
+            model=data.get("model", self.model_name),
+            tokens_used=data.get("eval_count", 0) or len(text.split()),
+            backend="ollama_native",
+            latency_ms=(time.time() - start) * 1000,
+            cost_usd=0.0,
+        )
+
+    def stream_complete(self, prompt: str, max_tokens: int = 512,
+                        temperature: float = 0.7,
+                        top_p: Optional[float] = None) -> Iterator[StreamResult]:
+        """Symmetry with OpenAICompatBackend; chat path only calls complete().
+        Streams via /api/chat with stream:true, yields deltas then ModelResponse."""
+        start = time.time()
+        num_ctx = getattr(self, "_num_ctx", None)
+
+        body: dict[str, Any] = {
+            "model": self.model_name,
+            "messages": [{"role": "user", "content": prompt}],
+            "stream": True,
+        }
+        if num_ctx is not None:
+            body["options"] = {"num_ctx": int(num_ctx)}
+
+        full_text = ""
+        eval_count = 0
+        with self._session.post(
+            f"{self._ollama_root()}/api/chat",
+            headers={"Authorization": f"Bearer {self.api_key}",
+                     "Content-Type": "application/json"},
+            json=body,
+            timeout=120,
+            stream=True,
+        ) as resp:
+            resp.raise_for_status()
+            for line in resp.iter_lines(decode_unicode=True):
+                if not line:
+                    continue
+                try:
+                    data = json.loads(line)
+                except Exception:  # noqa: BLE001
+                    continue
+                delta = (data.get("message") or {}).get("content") or ""
+                if delta:
+                    full_text += delta
+                    yield delta
+                if data.get("eval_count"):
+                    eval_count = int(data["eval_count"])
+                if data.get("done"):
+                    break
+
+        yield ModelResponse(
+            text=full_text,
+            model=self.model_name,
+            tokens_used=eval_count or len(full_text.split()),
+            backend="ollama_native",
+            latency_ms=(time.time() - start) * 1000,
+            cost_usd=0.0,
+        )
+
+
+# ---------------------------------------------------------------------------
 # Registry used by ModelRouter
 # ---------------------------------------------------------------------------
 BACKEND_MAP: dict[str, type[BaseBackend]] = {
@@ -1338,4 +1450,5 @@ BACKEND_MAP: dict[str, type[BaseBackend]] = {
     "openrouter": OpenRouterBackend,
     "claude": ClaudeBackend,
     "aerollm": AeroLLMBackend,
+    "ollama_native": OllamaNativeBackend,  # L3 — native /api/chat with options.num_ctx
 }
