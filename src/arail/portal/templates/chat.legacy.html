@@ -307,6 +307,22 @@
     border-radius: 999px; flex-shrink: 0;
   }
 
+  /* ── Step 14: Set as default row ── */
+  .fmp-default-row {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    padding: 4px 0;
+  }
+  .fmp-default-status {
+    font-size: 11px; color: #8c8c8c; flex: 1;
+  }
+  .fmp-reset-default {
+    font-size: 10px; color: #ad9c77; background: none; border: none;
+    cursor: pointer; text-decoration: underline; padding: 0;
+    font-family: var(--font);
+  }
+  .fmp-reset-default:hover { color: #f0cc80; }
+  .fmp-reset-default[hidden] { display: none; }
+
   /* ── Provider-aware gallery states (step 11) ── */
   .fmp-cta {
     grid-column: 1 / -1; padding: 14px 16px;
@@ -520,6 +536,12 @@
               Large context windows increase VRAM / RAM usage — make sure your
               machine has enough headroom before inference or you may hit OOM.
             </div>
+          </div>
+          <!-- Step 14: L4 "Set as default" control -->
+          <div class="fmp-default-row" id="fmp-default-row">
+            <button type="button" class="fmp-copy" id="fmp-set-default">Set as default</button>
+            <span class="fmp-default-status" id="fmp-default-status"></span>
+            <button type="button" class="fmp-reset-default" id="fmp-reset-default" hidden>Reset to per-message</button>
           </div>
         </div>
         <label>
@@ -1001,6 +1023,61 @@
     }
   });
   // ── end ctx panel ───────────────────────────────────────────────
+
+  // ── Step 14: L4 "Set as default" control ────────────────────────
+  // Per-message values always win (A8). This writes ARAIL_CHAT_DEFAULT_MODEL
+  // via POST /api/chat/default. airgap check happens server-side.
+
+  function _updateDefaultStatus(statusText, showReset) {
+    const st = $('fmp-default-status');
+    const rst = $('fmp-reset-default');
+    if (st) st.textContent = statusText;
+    if (rst) rst.hidden = !showReset;
+  }
+
+  $('fmp-set-default').addEventListener('click', async () => {
+    const modelId = FMP.selectedId;
+    const runtime = ($('fast-model') || {}).dataset && $('fast-model').dataset.runtime || '';
+    const provider = selectedProvider();
+    if (!modelId) {
+      _updateDefaultStatus('No model selected.', false);
+      return;
+    }
+    _updateDefaultStatus('Saving…', false);
+    try {
+      const r = await fetch('/api/chat/default', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ provider, model: modelId, runtime }),
+      }).then(r => r.json());
+      if (r.ok) {
+        _updateDefaultStatus(`Default: ${modelId} (${provider})`, true);
+      } else {
+        _updateDefaultStatus('Error: ' + (r.error || 'save failed'), false);
+      }
+    } catch (e) {
+      _updateDefaultStatus('Error: ' + (e.message || String(e)), false);
+    }
+  });
+
+  $('fmp-reset-default').addEventListener('click', async () => {
+    _updateDefaultStatus('Clearing…', false);
+    try {
+      const r = await fetch('/api/chat/default', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ clear: true }),
+      }).then(r => r.json());
+      if (r.ok) {
+        _updateDefaultStatus('Default cleared — per-message wins.', false);
+      } else {
+        _updateDefaultStatus('Error: ' + (r.error || 'clear failed'), false);
+      }
+    } catch (e) {
+      _updateDefaultStatus('Error: ' + (e.message || String(e)), false);
+    }
+  });
+  // ── end step 14 ─────────────────────────────────────────────────
 
   function showInstallHint(name, cmd) {
     $('fmp-install-title').textContent = `Install ${name}`;
