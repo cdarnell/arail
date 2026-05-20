@@ -1171,8 +1171,10 @@
         return;
       }
 
-      // Cloud gallery
-      const cloudModels = (gallery.installed || []);
+      // Cloud gallery — server puts cloud models in gallery.catalog
+      // (gallery.installed is always [] for cloud providers — B1 fix).
+      const cloudCatalog = (gallery.catalog || []);
+      const cloudModels = cloudCatalog.map(e => (typeof e === 'string' ? e : e.id));
       if (!cloudModels.length) {
         grid.innerHTML = `<div class="fmp-empty">No models returned for ${escapeHtml(provider)}.</div>`;
         $('fast-model-chip').textContent = provider;
