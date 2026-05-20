@@ -18,6 +18,65 @@ from typing import Any, Iterator, Optional
 
 
 # ---------------------------------------------------------------------------
+# Context-window override resolver (L3 — sprint 2026-05-18)
+# ---------------------------------------------------------------------------
+
+def _resolve_ctx_override(model_name: str, default: "int | None") -> "int | None":
+    """Return the resolved context window size for *model_name*.
+
+    Resolution order:
+      1. Exact match in ARAIL_MODEL_CTX_OVERRIDES env (JSON dict).
+      2. Substring match in ARAIL_MODEL_CTX_OVERRIDES (key is substring of model_name).
+      3. model_specs.context_tokens(context_label(model_name)) — from the spec registry.
+      4. *default* (passed by caller — 4096 for CPUBackend, None for Ollama).
+
+    Result is clamped to [256, 1_000_000] when non-None (mirrors admin validation).
+    Never raises — bad JSON → falls through to step 3/4.
+    """
+    _MIN_CTX = 256
+    _MAX_CTX = 1_000_000
+
+    def _clamp(v: int) -> int:
+        return max(_MIN_CTX, min(_MAX_CTX, v))
+
+    # Step 1 + 2 — env override (exact first, then substring)
+    raw_env = os.getenv("ARAIL_MODEL_CTX_OVERRIDES", "").strip()
+    if raw_env:
+        try:
+            overrides: dict = json.loads(raw_env)
+            if isinstance(overrides, dict):
+                # Exact match
+                if model_name in overrides:
+                    try:
+                        return _clamp(int(overrides[model_name]))
+                    except (TypeError, ValueError):
+                        pass
+                # Substring match (key contained in model_name)
+                for key, val in overrides.items():
+                    if key and key in model_name:
+                        try:
+                            return _clamp(int(val))
+                        except (TypeError, ValueError):
+                            pass
+        except Exception:  # noqa: BLE001
+            pass  # bad JSON → ignore
+
+    # Step 3 — model spec registry
+    try:
+        from arail.model_specs import context_tokens, context_label
+        label = context_label(model_name)
+        if label is not None:
+            tokens = context_tokens(label)
+            if tokens is not None:
+                return _clamp(tokens)
+    except Exception:  # noqa: BLE001
+        pass  # model_specs not available → ignore
+
+    # Step 4 — caller's default
+    return default
+
+
+# ---------------------------------------------------------------------------
 # Shared response type
 # ---------------------------------------------------------------------------
 @dataclass
@@ -375,7 +434,12 @@ class CPUBackend(BaseBackend):
                     "Download one — see README.md"
                 )
         self.model_name = os.path.basename(model_path)
-        self.llm = Llama(model_path=model_path, n_ctx=4096, verbose=False)
+        # L3: resolve context window at load time. Admin/chat set-ctx persists
+        # to ARAIL_MODEL_CTX_OVERRIDES; _resolve_ctx_override reads it.
+        # Default 4096 is the historical hard-coded value (R2: unchanged when
+        # no override is set). OOM risk is on the user — UI shows the hint.
+        n_ctx = _resolve_ctx_override(self.model_name, default=4096)
+        self.llm = Llama(model_path=model_path, n_ctx=n_ctx, verbose=False)
 
     def complete(self, prompt: str, max_tokens: int = 512,
                  temperature: float = 0.7,
