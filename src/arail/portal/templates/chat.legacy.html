@@ -269,6 +269,44 @@
   }
   .compute-key-row label { display:flex; flex-direction:column; gap:4px; font-size:12px; color:#b6b6b6; }
 
+  /* ── ctx inline control (step 13) ── */
+  .fmp-ctx-panel {
+    padding: 7px 10px; border: 1px solid #2a3040; border-radius: 5px;
+    background: #0d1118; display: flex; flex-direction: column; gap: 5px;
+  }
+  .fmp-ctx-panel[hidden] { display: none; }
+  .fmp-ctx-row {
+    display: flex; align-items: center; gap: 7px; flex-wrap: wrap;
+  }
+  .fmp-ctx-label {
+    color: #b6b6b6; font-size: 11px; letter-spacing: 0.05em;
+    text-transform: uppercase; white-space: nowrap;
+  }
+  .fmp-ctx-current {
+    font-size: 11px; color: #4ec3e8; font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .fmp-ctx-input {
+    width: 90px; padding: 3px 6px; border-radius: 4px;
+    border: 1px solid #2a3040; background: #060a10;
+    color: #ddd; font-size: 11px; font-family: ui-monospace, monospace;
+  }
+  .fmp-ctx-note {
+    font-size: 10px; color: #8c8c8c; flex: 1;
+  }
+  .fmp-ctx-oom {
+    font-size: 10.5px; color: #e0b878; line-height: 1.4;
+    padding: 4px 8px; border-radius: 3px;
+    background: #17110c; border: 1px solid #3a2f24;
+  }
+  .fmp-ctx-oom[hidden] { display: none; }
+  /* model ctx badge on installed cards */
+  .fmp-card-ctx {
+    font-size: 9px; color: #4aa46f; padding: 1px 5px;
+    background: rgba(74,164,111,0.07); border: 1px solid rgba(74,164,111,0.22);
+    border-radius: 999px; flex-shrink: 0;
+  }
+
   /* ── Provider-aware gallery states (step 11) ── */
   .fmp-cta {
     grid-column: 1 / -1; padding: 14px 16px;
@@ -466,6 +504,21 @@
             <code class="fmp-install-cmd" id="fmp-install-cmd"></code>
             <div class="fmp-install-hint">
               Once it finishes downloading, hit <strong>Installed</strong> above and pick it.
+            </div>
+          </div>
+          <!-- Step 13: ctx inline control — shown when a local model is selected -->
+          <div class="fmp-ctx-panel" id="fmp-ctx-panel" hidden>
+            <div class="fmp-ctx-row">
+              <span class="fmp-ctx-label">Context window</span>
+              <span class="fmp-ctx-current" id="fmp-ctx-current"></span>
+              <input type="number" id="fmp-ctx-input" class="fmp-ctx-input"
+                     min="256" max="1000000" step="256" placeholder="tokens">
+              <button type="button" class="fmp-copy" id="fmp-ctx-set">Set ctx</button>
+              <span class="fmp-ctx-note" id="fmp-ctx-note"></span>
+            </div>
+            <div class="fmp-ctx-oom" id="fmp-ctx-oom" hidden>
+              Large context windows increase VRAM / RAM usage — make sure your
+              machine has enough headroom before inference or you may hit OOM.
             </div>
           </div>
         </div>
@@ -795,11 +848,17 @@
     grid.innerHTML = FMP.installed.map(m => {
       const cls = (FMP.selectedId === m.id) ? 'fmp-card selected' : 'fmp-card';
       const size = m.size_gb ? `${m.size_gb} GB` : '';
+      // ctx field from YAML or ctx_overrides (added in step 13)
+      const ctxBadge = m.ctx
+        ? `<span class="fmp-card-ctx">${escapeHtml(String(m.ctx))}</span>`
+        : '';
       return `
-        <div class="${cls}" data-id="${escapeHtml(m.id)}" data-runtime="${escapeHtml(m.runtime)}">
+        <div class="${cls}" data-id="${escapeHtml(m.id)}" data-runtime="${escapeHtml(m.runtime)}"
+             data-ctx="${escapeHtml(m.ctx || '')}">
           <div class="fmp-card-head">
             <span class="fmp-card-name" title="${escapeHtml(m.id)}">${escapeHtml(m.id)}</span>
             <span class="fmp-card-runtime ${escapeHtml(m.runtime)}">${escapeHtml(m.runtime)}</span>
+            ${ctxBadge}
           </div>
           <div class="fmp-card-meta">
             ${size ? `<span>${size}</span>` : ''}
@@ -881,7 +940,67 @@
     } else {
       renderCatalogCards();
     }
+    // Step 13: show the ctx inline panel for local models.
+    showCtxPanel(id);
   }
+
+  // ── Step 13: ctx panel ──────────────────────────────────────────
+  function showCtxPanel(modelId) {
+    const panel = $('fmp-ctx-panel');
+    if (!panel) return;
+    const m = FMP.installed.find(i => i.id === modelId);
+    if (!m) { panel.hidden = true; return; }
+
+    panel.hidden = false;
+    const ctxDisplay = m.ctx ? String(m.ctx) : '—';
+    $('fmp-ctx-current').textContent = ctxDisplay;
+    const input = $('fmp-ctx-input');
+    if (m.ctx) {
+      const numeric = parseInt(String(m.ctx).replace(/[^0-9]/g, ''), 10) || '';
+      input.value = numeric || '';
+    } else {
+      input.value = '';
+    }
+    $('fmp-ctx-note').textContent = '';
+    $('fmp-ctx-oom').hidden = true;
+  }
+
+  $('fmp-ctx-set').addEventListener('click', async () => {
+    const modelId = FMP.selectedId;
+    const ctxVal = parseInt($('fmp-ctx-input').value, 10);
+    const note = $('fmp-ctx-note');
+    const oomEl = $('fmp-ctx-oom');
+    if (!modelId) { note.textContent = 'No model selected.'; return; }
+    if (!ctxVal || ctxVal < 256 || ctxVal > 1000000) {
+      note.textContent = 'ctx must be 256–1,000,000.';
+      return;
+    }
+    note.textContent = 'Saving…';
+    try {
+      const r = await fetch('/api/chat/models/set-ctx', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ model_id: modelId, ctx: ctxVal }),
+      }).then(r => r.json());
+      if (r.ok) {
+        note.textContent = `Saved (${ctxVal.toLocaleString()} tokens).`;
+        $('fmp-ctx-current').textContent = String(ctxVal);
+        // Update in-memory model entry so badge refreshes.
+        const m = FMP.installed.find(i => i.id === modelId);
+        if (m) m.ctx = String(ctxVal);
+        renderInstalledCards();
+        // OOM hint for large contexts (>= 128K tokens).
+        oomEl.hidden = ctxVal < 131072;
+      } else {
+        note.textContent = 'Error: ' + (r.error || 'set-ctx failed');
+        oomEl.hidden = true;
+      }
+    } catch (e) {
+      note.textContent = 'Error: ' + (e.message || String(e));
+      oomEl.hidden = true;
+    }
+  });
+  // ── end ctx panel ───────────────────────────────────────────────
 
   function showInstallHint(name, cmd) {
     $('fmp-install-title').textContent = `Install ${name}`;
