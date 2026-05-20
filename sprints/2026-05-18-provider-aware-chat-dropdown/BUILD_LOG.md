@@ -99,34 +99,76 @@ Commit: 5fba162
 
 _(empty — no blockers encountered)_
 
+## Fix-loop pass (2026-05-20, post-REVIEW.md BLOCK)
+
+### Fix-loop B2 — wire OllamaNativeBackend into _get_runtime_backend ollama dispatch
+
+`_get_runtime_backend`'s ollama branch was building `OpenAICompatBackend` at `/v1` and never
+setting `_num_ctx`. Added runtime branch: ollama builds `OllamaNativeBackend.__new__` with
+`_num_ctx = _resolve_ctx_override(model_id, default=None)` (ARCHITECTURE.md L3).
+Added `tests/test_b2_ollama_dispatch_wiring.py` — 7 integration tests proving reachability
+from dispatch and that ctx override flows into `options.num_ctx` in the POST body.
+Commit: 6cd007b
+
+### Fix-loop B1 — cloud gallery reads gallery.catalog not gallery.installed
+
+Frontend cloud branch read `gallery.installed` (always `[]` for cloud) instead of
+`gallery.catalog`. Fixed `chat.legacy.html:1175`: now reads `gallery.catalog` and maps
+`.id` from each catalog entry object.
+Added `tests/test_b1_cloud_gallery_contract.py` — 5 integration tests proving the
+server↔frontend contract (cloud success populates catalog; no-token CTA returns empty;
+local path gallery.installed unchanged).
+Commit: 2566332
+
+### Fix-loop C1 — R1 hardened to value-level golden snapshot
+
+Prior R1 checked key presence only. Added `tests/test_r1_hardened_golden_snapshot.py` — 14
+tests that mock `_get_primary_router`, `gallery_view`, and `_local_memory_snapshot`
+deterministically, then assert exact top-level key set, gallery key set/types, nested dict
+structures (deep/compact/hardware/model_load/onboarding), and no cloud-only fields leak.
+Commit: f92f697
+
 ## Final state
 
-**Tests:** 98 sprint-specific tests passing (0 failures). Full suite: 1733 passing, 12 pre-existing failures (unchanged from before sprint), 1 xfailed.
+**Tests:** 124 sprint-specific tests passing (0 failures) after fix-loop.
+Pre-fix-loop count was 98; fix-loop adds 26 (B2: 7, B1: 5, C1: 14).
 
-**Sprint test files:**
+Full suite failure count: the "12 pre-existing failures" claim in the original ledger is
+corrected per architect's review findings. Accurate statement: **every failure on this branch
+is also present on origin/main; no new failure is introduced by this sprint.** The full-suite
+failure count is order/environment-sensitive (13 on branch, 15 on main in the review harness).
+The failures are in unrelated surfaces (docs routes, swarm, opencode lifecycle, dashboard
+layout, system metrics, airgap-default env-leak pollution). No masked regression.
+
+**Tech-debt note (C3):** `ARAIL_MODEL_CTX_OVERRIDES` is now consumed by `CPUBackend` (via
+`_resolve_ctx_override` in `__init__`) and `OllamaNativeBackend` (via `_get_runtime_backend`
+ollama branch). Other local backends (MLX, AeroLLM, AirLLM) still ignore it — the env var
+is a no-op for those runtimes. Fix is deferred; note filed per architect carryover C3.
+
+**Sprint test files (post-fix-loop):**
 
 - `tests/test_context_tokens.py` — 23 tests (model_specs.context_tokens/context_label)
 - `tests/test_catalog_entry_compat.py` — 7 tests (R4 CatalogEntry back-compat)
 - `tests/test_ctx_override_backends.py` — 10 tests (R2 + _resolve_ctx_override)
-- `tests/test_ollama_native_backend.py` — 11 tests (F-NEW/F-OLLAMA-SHIM)
-- `tests/test_r1_r3_chat_models.py` — 29 tests (R1/R3/cloud-branch/F-AIRGAP/F-CLOUD-CURRENT)
+- `tests/test_ollama_native_backend.py` — 11 tests (F-NEW/F-OLLAMA-SHIM unit)
+- `tests/test_r1_r3_chat_models.py` — 29 tests (R1 routing/key-presence + R3/cloud-branch)
+- `tests/test_r1_hardened_golden_snapshot.py` — 14 tests (R1 value-level golden snapshot)
 - `tests/test_chat_set_ctx.py` — 9 tests (F-VALIDATE/F-CACHE)
 - `tests/test_chat_default.py` — 9 tests (F-DEFAULT-LEAK/L4)
+- `tests/test_b2_ollama_dispatch_wiring.py` — 7 tests (B2 reachability integration)
+- `tests/test_b1_cloud_gallery_contract.py` — 5 tests (B1 server↔frontend contract)
 
-**Commits:** 15 (including BUILD_LOG.md skeleton + a4ab9eb VISION addendum from earlier)
+**Commits:** 19 (15 original build + 4 fix-loop)
 
-**Files changed:**
+**Files changed in fix-loop:**
 
-- `src/arail/portal/app.py` — cloud branch, set-ctx, set-default, _apply_chat_defaults, _fetch_provider_models, _persist_ctx_override, 5 new provider entries
-- `src/arail/portal/templates/chat.legacy.html` — 5 new radios, loadModels(provider), ctx panel, default control
-- `src/arail/chat/__init__.py` — CatalogEntry provider+ctx fields
-- `src/arail/chat/models_catalog.yaml` — 24 cloud YAML rows
-- `src/arail/model_specs.py` — context_tokens/context_label parsers
-- `src/arail/router/backends.py` — _resolve_ctx_override, CPUBackend n_ctx, OllamaNativeBackend
+- `src/arail/portal/app.py` — B2: ollama dispatch builds OllamaNativeBackend with _num_ctx
+- `src/arail/portal/templates/chat.legacy.html` — B1: cloud gallery reads gallery.catalog
 
-**Scope drift:** None. `chat.html` untouched. No autoresearch/agents touched. No new providers beyond the five named. No token-storage changes.
+**Scope drift:** None. No files touched outside the two wiring fixes and new test files.
 
-**Deviations from plan:**
+**Deviations from original plan:**
 
-- Steps 11+12 combined into one commit (setActiveProvider was the natural integration point for both).
-- Step 10 updated `test_r1_r3_chat_models.py` R3 default-airgap tests (10 cases) that were committed in step 8 but previously failing — endpoint didn't exist yet.
+- Steps 11+12 combined into one commit (setActiveProvider was the natural integration point).
+- Step 10 updated R3 default-airgap tests that were committed in step 8 but previously failing.
+- Fix-loop adds 4 commits beyond the original 15 (B2, B1, C1, ledger update).
