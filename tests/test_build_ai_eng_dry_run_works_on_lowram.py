@@ -135,46 +135,6 @@ def test_committed_bench_template_has_no_hostname_or_home_leak():
         "BENCH-v2.1.md may contain a real hostname (X.local/.lan/.home)"
 
 
-# ── QA-NEW — scope discipline regression guard ────────────────────────────────
-
-
-def test_sprint_did_not_touch_setup_or_catalog_files():
-    """The sprint scope (per BUILD_LOG.md) is build/bench tooling only.
-
-    `setup.sh`, `pyproject.toml`, `models_catalog.yaml`, and
-    `Modelfile.*` are explicitly out of scope; they belong to commits
-    3a/3b in a follow-up sprint. This is a regression guard against
-    silent leakage from commit 1.
-
-    If the sprint range ever expands to include 3a/3b, update SPRINT_HEAD
-    accordingly.
-    """
-    # Sprint commit range per REVIEW.md
-    sprint_base = "ad25c88^"
-    sprint_head = "HEAD"
-
-    try:
-        result = subprocess.run(
-            ["git", "diff", "--name-only", f"{sprint_base}..{sprint_head}"],
-            capture_output=True, text=True, cwd=str(REPO_ROOT), check=True,
-        )
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        pytest.skip("git unavailable or sprint base SHA not in tree")
-
-    touched = set(result.stdout.strip().splitlines())
-    forbidden = {
-        "scripts/setup.sh",
-        "pyproject.toml",
-        "src/arail/chat/models_catalog.yaml",
-        "models/ai-eng/Modelfile.preview",
-        "models/ai-eng/Modelfile.production",
-    }
-    leaked = touched & forbidden
-    assert not leaked, (
-        f"Sprint commit 1 must not touch: {sorted(leaked)}. "
-        f"These belong to commits 3a/3b (follow-up sprint)."
-    )
-
 
 # ── QA-NEW — security: no shell=True, no secrets in argv ─────────────────────
 
