@@ -71,14 +71,15 @@ AIRLLM_MODEL_MIN_ID="meta-llama/Llama-3.1-70B"
 AIRLLM_MODEL_MAX_ID="meta-llama/Llama-3.1-405B"
 AIRLLM_PACKAGE_SPEC="airllm>=2.0"
 # AeroLLM = Arail's own Rust runtime, the deep-mode default on Apple
-# Silicon as of 0.1.0 alpha. min ships Qwen2.5-7B-Instruct-4bit (~4 GB
-# resident, fits 16 GB Macs); max ships Llama-3.1-70B-Instruct-4bit
-# (~35 GB, needs 48 GB+). CUDA hosts still default to AirLLM until the
-# aerollm CUDA backend lands. KV budget defaults to 60% of system RAM
-# so portal + browser keep headroom.
+# Silicon as of 0.1.0 alpha. minimalist ships Qwen2.5-7B-Instruct-4bit
+# (~4 GB resident, fits 16 GB Macs); maximus ships Qwen2.5-72B-Instruct-4bit
+# (~40 GB resident, needs 48 GB+; warn below that threshold). Same Qwen2.5
+# family as ai-eng 3B — top of AeroLLM's proven golden-gate envelope.
+# CUDA hosts still default to AirLLM until the aerollm CUDA backend lands.
+# KV budget defaults to 60% of system RAM so portal + browser keep headroom.
 AEROLLM_MODEL_ID="mlx-community/Qwen2.5-7B-Instruct-4bit"
 AEROLLM_MODEL_MIN_ID="mlx-community/Qwen2.5-7B-Instruct-4bit"
-AEROLLM_MODEL_MAX_ID="mlx-community/Llama-3.1-70B-Instruct-4bit"
+AEROLLM_MODEL_MAX_ID="mlx-community/Qwen2.5-72B-Instruct-4bit"
 AEROLLM_KV_BUDGET_PCT="0.60"
 AEROLLM_PACKAGE_SPEC="git+https://github.com/cdarnell/aerollm@main"
 
@@ -111,7 +112,7 @@ values = {
     "AIRLLM_MODEL_MAX_ID": str(models.get("airllm_maximus", models.get("airllm_max", models.get("airllm", "")))),
     "AIRLLM_PACKAGE_SPEC": str(sources.get("airllm", "")),
     "AEROLLM_MODEL_ID": str(models.get("aerollm", "")),
-    "AEROLLM_MODEL_MIN_ID": str(models.get("aerollm_maximus", models.get("aerollm_min", models.get("aerollm", "")))),
+    "AEROLLM_MODEL_MIN_ID": str(models.get("aerollm_minimalist", models.get("aerollm_min", models.get("aerollm", "")))),
     "AEROLLM_MODEL_MAX_ID": str(models.get("aerollm_maximus", models.get("aerollm_max", models.get("aerollm", "")))),
     "AEROLLM_PACKAGE_SPEC": str(sources.get("aerollm", "")),
 }
@@ -983,8 +984,32 @@ EOF
     # AeroLLM model selection (deep mode on Apple Silicon, and on CUDA
     # once the aerollm CUDA backend ships). Operators can override via
     # AEROLLM_MODEL in .env after setup.
-    AEROLLM_MODEL_ID="${AEROLLM_MODEL_ID:-mlx-community/Qwen2.5-7B-Instruct-4bit}"
+    case "$LAB_TIER" in
+        maximus) AEROLLM_MODEL_ID="${AEROLLM_MODEL_MAX_ID:-mlx-community/Qwen2.5-72B-Instruct-4bit}" ;;
+        *)       AEROLLM_MODEL_ID="${AEROLLM_MODEL_MIN_ID:-mlx-community/Qwen2.5-7B-Instruct-4bit}"  ;;
+    esac
     info "AeroLLM deep model for ${LAB_TIER}: ${BOLD}${AEROLLM_MODEL_ID}${RESET}"
+
+    # RAM-headroom warning for the 72B maximus model (~40 GB resident;
+    # recommend 48 GB+ so the portal + browser keep headroom).
+    if [[ "$LAB_TIER" == "maximus" ]]; then
+        local ram_bytes=0
+        if [[ "$(uname -s)" == "Darwin" ]]; then
+            ram_bytes="$(sysctl -n hw.memsize 2>/dev/null || echo 0)"
+        elif [[ -f /proc/meminfo ]]; then
+            # MemTotal is in kB; convert to bytes
+            local ram_kb
+            ram_kb="$(awk '/^MemTotal:/{print $2}' /proc/meminfo 2>/dev/null || echo 0)"
+            ram_bytes=$(( ram_kb * 1024 ))
+        fi
+        # 48 GB threshold = 48 * 1024^3 bytes = 51539607552
+        if [[ "$ram_bytes" -gt 0 && "$ram_bytes" -lt 51539607552 ]]; then
+            warn "Detected system RAM < 48 GB. The maximus AeroLLM deep model"
+            warn "(Qwen2.5-72B-Instruct-4bit, ~40 GB resident) may cause OOM."
+            warn "Consider --tier minimalist on this machine, or override via"
+            warn "AEROLLM_MODEL in .env to a smaller model."
+        fi
+    fi
 }
 
 # -----------------------------------------------------------------------------
