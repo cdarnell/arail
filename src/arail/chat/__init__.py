@@ -31,11 +31,17 @@ class CatalogEntry:
     family: str
     size_gb: float
     released: str
-    source: str          # ollama | mlx | hf
+    source: str          # ollama | mlx | hf | cloud
     good_at: list[str]
     description: str
     install: str
     tier: str            # recommended | optional | flagship
+    # Optional fields for cloud catalog rows (L2/L3 — sprint 2026-05-18).
+    # Legacy rows (no provider/ctx in YAML) default to None; existing callers
+    # are unaffected. F-CATALOG: must be emitted by as_dict() or cloud rows
+    # vanish before reaching the gallery.
+    provider: "str | None" = field(default=None)
+    ctx: "str | None" = field(default=None)
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -49,6 +55,10 @@ class CatalogEntry:
             "description": self.description,
             "install": self.install,
             "tier": self.tier,
+            # L3 optional fields — always emitted so gallery renderer never
+            # sees a missing key; None means "not set".
+            "provider": self.provider,
+            "ctx": self.ctx,
         }
 
 
@@ -79,6 +89,10 @@ def load_catalog() -> list[CatalogEntry]:
                 description=str(entry.get("description") or ""),
                 install=str(entry.get("install") or ""),
                 tier=str(entry.get("tier") or "optional"),
+                # Optional fields (L2/L3) — None when absent so legacy rows are
+                # unaffected and as_dict() always emits them (F-CATALOG).
+                provider=(str(entry["provider"]) if entry.get("provider") else None),
+                ctx=(str(entry["ctx"]) if entry.get("ctx") else None),
             ))
         except (KeyError, TypeError, ValueError):
             continue

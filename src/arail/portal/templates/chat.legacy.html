@@ -268,6 +268,104 @@
     display: flex; gap: 8px; align-items: flex-end; margin-top: 10px; flex-wrap: wrap;
   }
   .compute-key-row label { display:flex; flex-direction:column; gap:4px; font-size:12px; color:#b6b6b6; }
+
+  /* ── ctx inline control (step 13) ── */
+  .fmp-ctx-panel {
+    padding: 7px 10px; border: 1px solid #2a3040; border-radius: 5px;
+    background: #0d1118; display: flex; flex-direction: column; gap: 5px;
+  }
+  .fmp-ctx-panel[hidden] { display: none; }
+  .fmp-ctx-row {
+    display: flex; align-items: center; gap: 7px; flex-wrap: wrap;
+  }
+  .fmp-ctx-label {
+    color: #b6b6b6; font-size: 11px; letter-spacing: 0.05em;
+    text-transform: uppercase; white-space: nowrap;
+  }
+  .fmp-ctx-current {
+    font-size: 11px; color: #4ec3e8; font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .fmp-ctx-input {
+    width: 90px; padding: 3px 6px; border-radius: 4px;
+    border: 1px solid #2a3040; background: #060a10;
+    color: #ddd; font-size: 11px; font-family: ui-monospace, monospace;
+  }
+  .fmp-ctx-note {
+    font-size: 10px; color: #8c8c8c; flex: 1;
+  }
+  .fmp-ctx-oom {
+    font-size: 10.5px; color: #e0b878; line-height: 1.4;
+    padding: 4px 8px; border-radius: 3px;
+    background: #17110c; border: 1px solid #3a2f24;
+  }
+  .fmp-ctx-oom[hidden] { display: none; }
+  /* model ctx badge on installed cards */
+  .fmp-card-ctx {
+    font-size: 9px; color: #4aa46f; padding: 1px 5px;
+    background: rgba(74,164,111,0.07); border: 1px solid rgba(74,164,111,0.22);
+    border-radius: 999px; flex-shrink: 0;
+  }
+
+  /* ── Step 14: Set as default row ── */
+  .fmp-default-row {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    padding: 4px 0;
+  }
+  .fmp-default-status {
+    font-size: 11px; color: #8c8c8c; flex: 1;
+  }
+  .fmp-reset-default {
+    font-size: 10px; color: #ad9c77; background: none; border: none;
+    cursor: pointer; text-decoration: underline; padding: 0;
+    font-family: var(--font);
+  }
+  .fmp-reset-default:hover { color: #f0cc80; }
+  .fmp-reset-default[hidden] { display: none; }
+
+  /* ── Provider-aware gallery states (step 11) ── */
+  .fmp-cta {
+    grid-column: 1 / -1; padding: 14px 16px;
+    border: 1px solid #3a2e1c; border-radius: 7px;
+    background: #19150c; color: #d4b578;
+    font-size: 12px; line-height: 1.55;
+  }
+  .fmp-cta strong { color: #f0cc80; }
+  .fmp-cta code { background: #0f0b06; padding: 1px 5px; border-radius: 3px; color: #f3d694; }
+  .fmp-cta .cta-action {
+    display: inline-block; margin-top: 8px;
+    padding: 5px 12px; border-radius: 5px;
+    border: 1px solid #4aa46f; background: #0c1912; color: #b5f0c8;
+    font-size: 11px; cursor: pointer;
+  }
+  .fmp-cta .cta-action:hover { background: #132419; }
+  .fmp-cloud-card {
+    background: #0e1520; border: 1px solid #1e2d45; border-radius: 5px;
+    padding: 8px 10px; cursor: pointer; transition: border-color .12s;
+    display: flex; flex-direction: column; gap: 4px; min-width: 0;
+  }
+  .fmp-cloud-card:hover { border-color: #3e5e8a; }
+  .fmp-cloud-card.selected { border-color: #4a7abf; background: #0a1627; }
+  .fmp-cloud-card-name {
+    color: #c8d8f0; font-size: 13px; font-weight: 600;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .fmp-cloud-card-meta { font-size: 10px; color: #5a7a9a; }
+  .fmp-cloud-chip {
+    font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase;
+    color: #4ec3e8; padding: 1px 5px;
+    background: rgba(0,212,255,0.08); border: 1px solid rgba(0,212,255,0.22);
+    border-radius: 999px; flex-shrink: 0;
+  }
+  .fmp-airgap {
+    grid-column: 1 / -1; padding: 12px 14px;
+    border: 1px solid #3a2e1c; border-radius: 7px;
+    background: #17110c; color: #e0b878; font-size: 12px;
+  }
+  .fmp-error {
+    grid-column: 1 / -1; padding: 10px;
+    color: #e08888; font-size: 11px; font-style: italic;
+  }
 </style>
 </head>
 <body>
@@ -346,6 +444,26 @@
           <input type="radio" name="compute-source" value="custom">
           <span class="compute-opt-label"><strong>Custom endpoint</strong><br><span class="chat-muted">Any OpenAI-compatible URL</span></span>
         </label>
+        <label class="compute-opt">
+          <input type="radio" name="compute-source" value="xai">
+          <span class="compute-opt-label"><strong>xAI (Grok)</strong><br><span class="chat-muted">api.x.ai</span></span>
+        </label>
+        <label class="compute-opt">
+          <input type="radio" name="compute-source" value="google">
+          <span class="compute-opt-label"><strong>Google Gemini</strong><br><span class="chat-muted">Gemini API</span></span>
+        </label>
+        <label class="compute-opt">
+          <input type="radio" name="compute-source" value="mistral">
+          <span class="compute-opt-label"><strong>Mistral</strong><br><span class="chat-muted">api.mistral.ai</span></span>
+        </label>
+        <label class="compute-opt">
+          <input type="radio" name="compute-source" value="cohere">
+          <span class="compute-opt-label"><strong>Cohere</strong><br><span class="chat-muted">Cohere API</span></span>
+        </label>
+        <label class="compute-opt">
+          <input type="radio" name="compute-source" value="together">
+          <span class="compute-opt-label"><strong>Together AI</strong><br><span class="chat-muted">api.together.xyz</span></span>
+        </label>
       </div>
 
       <div class="compute-key-row" id="compute-key-row" style="display:none">
@@ -403,6 +521,27 @@
             <div class="fmp-install-hint">
               Once it finishes downloading, hit <strong>Installed</strong> above and pick it.
             </div>
+          </div>
+          <!-- Step 13: ctx inline control — shown when a local model is selected -->
+          <div class="fmp-ctx-panel" id="fmp-ctx-panel" hidden>
+            <div class="fmp-ctx-row">
+              <span class="fmp-ctx-label">Context window</span>
+              <span class="fmp-ctx-current" id="fmp-ctx-current"></span>
+              <input type="number" id="fmp-ctx-input" class="fmp-ctx-input"
+                     min="256" max="1000000" step="256" placeholder="tokens">
+              <button type="button" class="fmp-copy" id="fmp-ctx-set">Set ctx</button>
+              <span class="fmp-ctx-note" id="fmp-ctx-note"></span>
+            </div>
+            <div class="fmp-ctx-oom" id="fmp-ctx-oom" hidden>
+              Large context windows increase VRAM / RAM usage — make sure your
+              machine has enough headroom before inference or you may hit OOM.
+            </div>
+          </div>
+          <!-- Step 14: L4 "Set as default" control -->
+          <div class="fmp-default-row" id="fmp-default-row">
+            <button type="button" class="fmp-copy" id="fmp-set-default">Set as default</button>
+            <span class="fmp-default-status" id="fmp-default-status"></span>
+            <button type="button" class="fmp-reset-default" id="fmp-reset-default" hidden>Reset to per-message</button>
           </div>
         </div>
         <label>
@@ -731,11 +870,17 @@
     grid.innerHTML = FMP.installed.map(m => {
       const cls = (FMP.selectedId === m.id) ? 'fmp-card selected' : 'fmp-card';
       const size = m.size_gb ? `${m.size_gb} GB` : '';
+      // ctx field from YAML or ctx_overrides (added in step 13)
+      const ctxBadge = m.ctx
+        ? `<span class="fmp-card-ctx">${escapeHtml(String(m.ctx))}</span>`
+        : '';
       return `
-        <div class="${cls}" data-id="${escapeHtml(m.id)}" data-runtime="${escapeHtml(m.runtime)}">
+        <div class="${cls}" data-id="${escapeHtml(m.id)}" data-runtime="${escapeHtml(m.runtime)}"
+             data-ctx="${escapeHtml(m.ctx || '')}">
           <div class="fmp-card-head">
             <span class="fmp-card-name" title="${escapeHtml(m.id)}">${escapeHtml(m.id)}</span>
             <span class="fmp-card-runtime ${escapeHtml(m.runtime)}">${escapeHtml(m.runtime)}</span>
+            ${ctxBadge}
           </div>
           <div class="fmp-card-meta">
             ${size ? `<span>${size}</span>` : ''}
@@ -817,7 +962,122 @@
     } else {
       renderCatalogCards();
     }
+    // Step 13: show the ctx inline panel for local models.
+    showCtxPanel(id);
   }
+
+  // ── Step 13: ctx panel ──────────────────────────────────────────
+  function showCtxPanel(modelId) {
+    const panel = $('fmp-ctx-panel');
+    if (!panel) return;
+    const m = FMP.installed.find(i => i.id === modelId);
+    if (!m) { panel.hidden = true; return; }
+
+    panel.hidden = false;
+    const ctxDisplay = m.ctx ? String(m.ctx) : '—';
+    $('fmp-ctx-current').textContent = ctxDisplay;
+    const input = $('fmp-ctx-input');
+    if (m.ctx) {
+      const numeric = parseInt(String(m.ctx).replace(/[^0-9]/g, ''), 10) || '';
+      input.value = numeric || '';
+    } else {
+      input.value = '';
+    }
+    $('fmp-ctx-note').textContent = '';
+    $('fmp-ctx-oom').hidden = true;
+  }
+
+  $('fmp-ctx-set').addEventListener('click', async () => {
+    const modelId = FMP.selectedId;
+    const ctxVal = parseInt($('fmp-ctx-input').value, 10);
+    const note = $('fmp-ctx-note');
+    const oomEl = $('fmp-ctx-oom');
+    if (!modelId) { note.textContent = 'No model selected.'; return; }
+    if (!ctxVal || ctxVal < 256 || ctxVal > 1000000) {
+      note.textContent = 'ctx must be 256–1,000,000.';
+      return;
+    }
+    note.textContent = 'Saving…';
+    try {
+      const r = await fetch('/api/chat/models/set-ctx', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ model_id: modelId, ctx: ctxVal }),
+      }).then(r => r.json());
+      if (r.ok) {
+        note.textContent = `Saved (${ctxVal.toLocaleString()} tokens).`;
+        $('fmp-ctx-current').textContent = String(ctxVal);
+        // Update in-memory model entry so badge refreshes.
+        const m = FMP.installed.find(i => i.id === modelId);
+        if (m) m.ctx = String(ctxVal);
+        renderInstalledCards();
+        // OOM hint for large contexts (>= 128K tokens).
+        oomEl.hidden = ctxVal < 131072;
+      } else {
+        note.textContent = 'Error: ' + (r.error || 'set-ctx failed');
+        oomEl.hidden = true;
+      }
+    } catch (e) {
+      note.textContent = 'Error: ' + (e.message || String(e));
+      oomEl.hidden = true;
+    }
+  });
+  // ── end ctx panel ───────────────────────────────────────────────
+
+  // ── Step 14: L4 "Set as default" control ────────────────────────
+  // Per-message values always win (A8). This writes ARAIL_CHAT_DEFAULT_MODEL
+  // via POST /api/chat/default. airgap check happens server-side.
+
+  function _updateDefaultStatus(statusText, showReset) {
+    const st = $('fmp-default-status');
+    const rst = $('fmp-reset-default');
+    if (st) st.textContent = statusText;
+    if (rst) rst.hidden = !showReset;
+  }
+
+  $('fmp-set-default').addEventListener('click', async () => {
+    const modelId = FMP.selectedId;
+    const runtime = ($('fast-model') || {}).dataset && $('fast-model').dataset.runtime || '';
+    const provider = selectedProvider();
+    if (!modelId) {
+      _updateDefaultStatus('No model selected.', false);
+      return;
+    }
+    _updateDefaultStatus('Saving…', false);
+    try {
+      const r = await fetch('/api/chat/default', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ provider, model: modelId, runtime }),
+      }).then(r => r.json());
+      if (r.ok) {
+        _updateDefaultStatus(`Default: ${modelId} (${provider})`, true);
+      } else {
+        _updateDefaultStatus('Error: ' + (r.error || 'save failed'), false);
+      }
+    } catch (e) {
+      _updateDefaultStatus('Error: ' + (e.message || String(e)), false);
+    }
+  });
+
+  $('fmp-reset-default').addEventListener('click', async () => {
+    _updateDefaultStatus('Clearing…', false);
+    try {
+      const r = await fetch('/api/chat/default', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ clear: true }),
+      }).then(r => r.json());
+      if (r.ok) {
+        _updateDefaultStatus('Default cleared — per-message wins.', false);
+      } else {
+        _updateDefaultStatus('Error: ' + (r.error || 'clear failed'), false);
+      }
+    } catch (e) {
+      _updateDefaultStatus('Error: ' + (e.message || String(e)), false);
+    }
+  });
+  // ── end step 14 ─────────────────────────────────────────────────
 
   function showInstallHint(name, cmd) {
     $('fmp-install-title').textContent = `Install ${name}`;
@@ -845,49 +1105,155 @@
     });
   });
 
-  async function loadModels() {
+  // ─── Provider-aware gallery (step 11) ───────────────────────────
+  // Seq-guard (F-RACE): every loadModels call gets a ticket; only the
+  // last one's response updates the UI. Stale responses are discarded.
+  let _loadModelsSeq = 0;
+
+  async function loadModels(provider) {
+    provider = provider || 'my_machine';
+    const isCloud = CLOUD.includes(provider) && provider !== 'my_machine';
+    const seq = ++_loadModelsSeq;
+    const grid = $('fmp-grid');
+    grid.innerHTML = '<div class="fmp-loading">scanning runtimes…</div>';
+
+    let d;
     try {
-      const d = await fetch('/api/chat/models').then(r => r.json());
-      const gallery = d.gallery || {installed: [], catalog: []};
-      FMP.installed = gallery.installed || [];
-      FMP.catalog = gallery.catalog || [];
-
-      // Default selection: prefer the configured `current` model if
-      // it's installed, else first installed, else nothing.
-      const installedIds = FMP.installed.map(m => m.id);
-      let pick = '';
-      if (d.current && installedIds.includes(d.current)) pick = d.current;
-      else if (installedIds.length) pick = installedIds[0];
-      if (pick) {
-        const inst = FMP.installed.find(i => i.id === pick);
-        selectInstalled(pick, inst ? inst.runtime : '');
-      }
-
-      // Counts on the tabs.
-      $('fmp-count-installed').textContent = `(${FMP.installed.length})`;
-      const availableCount = FMP.catalog.filter(c => c.installed_state !== 'installed').length;
-      $('fmp-count-catalog').textContent = `(${FMP.catalog.length}, ${availableCount} new)`;
-
-      if (FMP.activeTab === 'installed') renderInstalledCards();
-      else renderCatalogCards();
-
-      // Teacher backend dropdown — unchanged from before.
-      const back = $('teacher-backend');
-      back.innerHTML = '';
-      (d.optional_backends || []).forEach(b => {
-        const o = document.createElement('option');
-        o.value = b.id;
-        o.textContent = `${b.label} · ${b.model || b.id}`;
-        o.dataset.model = b.model || b.id;
-        back.appendChild(o);
-      });
-      if (d.default_optional_backend) back.value = d.default_optional_backend;
-      syncTeacherChip();
+      const url = isCloud
+        ? `/api/chat/models?provider=${encodeURIComponent(provider)}`
+        : '/api/chat/models';
+      d = await fetch(url).then(r => r.json());
     } catch (e) {
-      $('fmp-grid').innerHTML = `<div class="fmp-empty">Could not load model gallery: ${escapeHtml(e.message || e)}</div>`;
+      if (seq !== _loadModelsSeq) return;  // race: discard
+      grid.innerHTML = `<div class="fmp-error">Could not load model gallery: ${escapeHtml(e.message || e)}</div>`;
       $('fast-model-chip').textContent = 'model unavailable';
       $('teacher-model-chip').textContent = 'deep model unavailable';
+      return;
     }
+    if (seq !== _loadModelsSeq) return;  // race: discard
+
+    // ── Cloud branch: handle airgap / no-token / gallery ──────────
+    if (isCloud) {
+      const gallery = d.gallery || {};
+
+      // Airgapped
+      if (d.airgapped) {
+        grid.innerHTML = `<div class="fmp-airgap">
+          <strong>Airgapped mode</strong> — cloud providers are locked.
+          Set <code>LAB_MODE=hybrid</code> in <code>.env</code> and restart to enable.
+        </div>`;
+        $('fast-model-chip').textContent = 'airgapped';
+        return;
+      }
+
+      // No-token CTA
+      if (d.cta && d.cta.kind === 'no_token') {
+        grid.innerHTML = `<div class="fmp-cta">
+          <strong>No API key saved for ${escapeHtml(provider)}.</strong><br>
+          Click <em>Manage providers</em> (above) to save your token — it lands in
+          <code>lab/data/secrets.env</code> (chmod 0600, git-ignored).
+          <br>
+          <button type="button" class="cta-action" id="cta-open-mp">Open provider settings</button>
+        </div>`;
+        $('fast-model-chip').textContent = 'no api key';
+        const ctaBtn = $('cta-open-mp');
+        if (ctaBtn) ctaBtn.addEventListener('click', openProvidersModal);
+        return;
+      }
+
+      // Unknown provider CTA
+      if (d.cta && d.cta.kind === 'unknown_provider') {
+        grid.innerHTML = `<div class="fmp-cta">
+          <strong>Unknown provider: <em>${escapeHtml(provider)}</em>.</strong><br>
+          This provider is not configured on this server.
+        </div>`;
+        $('fast-model-chip').textContent = 'unknown provider';
+        return;
+      }
+
+      // Cloud gallery — server puts cloud models in gallery.catalog
+      // (gallery.installed is always [] for cloud providers — B1 fix).
+      const cloudCatalog = (gallery.catalog || []);
+      const cloudModels = cloudCatalog.map(e => (typeof e === 'string' ? e : e.id));
+      if (!cloudModels.length) {
+        grid.innerHTML = `<div class="fmp-empty">No models returned for ${escapeHtml(provider)}.</div>`;
+        $('fast-model-chip').textContent = provider;
+        return;
+      }
+
+      const currentId = d.current || cloudModels[0];
+      grid.innerHTML = cloudModels.map(id => {
+        const sel = (id === currentId) ? ' selected' : '';
+        return `<div class="fmp-cloud-card${sel}" data-id="${escapeHtml(id)}" data-runtime="${escapeHtml(provider)}">
+          <div class="fmp-card-head">
+            <span class="fmp-cloud-card-name" title="${escapeHtml(id)}">${escapeHtml(id)}</span>
+            <span class="fmp-cloud-chip">${escapeHtml(provider)}</span>
+          </div>
+          <div class="fmp-cloud-card-meta">${escapeHtml(d.cta ? d.cta.kind || '' : '')}</div>
+        </div>`;
+      }).join('');
+
+      // Pick the current model
+      $('fast-model').value = currentId;
+      $('fast-model').dataset.runtime = provider;
+      FMP.selectedId = currentId;
+      $('fast-model-chip').textContent = currentId;
+
+      // Cloud card click handler
+      grid.querySelectorAll('.fmp-cloud-card').forEach(c => {
+        c.addEventListener('click', () => {
+          grid.querySelectorAll('.fmp-cloud-card').forEach(x => x.classList.remove('selected'));
+          c.classList.add('selected');
+          const id = c.dataset.id;
+          $('fast-model').value = id;
+          $('fast-model').dataset.runtime = provider;
+          FMP.selectedId = id;
+          $('fast-model-chip').textContent = id;
+        });
+      });
+
+      // Counts
+      $('fmp-count-installed').textContent = `(${cloudModels.length})`;
+      $('fmp-count-catalog').textContent = '(cloud)';
+      return;
+    }
+
+    // ── Local / my_machine branch (unchanged) ─────────────────────
+    const gallery = d.gallery || {installed: [], catalog: []};
+    FMP.installed = gallery.installed || [];
+    FMP.catalog = gallery.catalog || [];
+
+    // Default selection: prefer the configured `current` model if
+    // it's installed, else first installed, else nothing.
+    const installedIds = FMP.installed.map(m => m.id);
+    let pick = '';
+    if (d.current && installedIds.includes(d.current)) pick = d.current;
+    else if (installedIds.length) pick = installedIds[0];
+    if (pick) {
+      const inst = FMP.installed.find(i => i.id === pick);
+      selectInstalled(pick, inst ? inst.runtime : '');
+    }
+
+    // Counts on the tabs.
+    $('fmp-count-installed').textContent = `(${FMP.installed.length})`;
+    const availableCount = FMP.catalog.filter(c => c.installed_state !== 'installed').length;
+    $('fmp-count-catalog').textContent = `(${FMP.catalog.length}, ${availableCount} new)`;
+
+    if (FMP.activeTab === 'installed') renderInstalledCards();
+    else renderCatalogCards();
+
+    // Teacher backend dropdown — unchanged from before.
+    const back = $('teacher-backend');
+    back.innerHTML = '';
+    (d.optional_backends || []).forEach(b => {
+      const o = document.createElement('option');
+      o.value = b.id;
+      o.textContent = `${b.label} · ${b.model || b.id}`;
+      o.dataset.model = b.model || b.id;
+      back.appendChild(o);
+    });
+    if (d.default_optional_backend) back.value = d.default_optional_backend;
+    syncTeacherChip();
   }
 
   $('teacher-backend').addEventListener('change', syncTeacherChip);
@@ -901,8 +1267,14 @@
     openrouter:  { keyLabel: 'OpenRouter key (sk-or-…)',     needsUrl: false, chip: 'openrouter · cloud' },
     huggingface: { keyLabel: 'HF token (hf_…)',              needsUrl: false, chip: 'huggingface · cloud' },
     custom:      { keyLabel: 'API key (optional)',           needsUrl: true,  chip: 'custom endpoint' },
+    // L2 — five new providers
+    xai:         { keyLabel: 'xAI API key',                  needsUrl: false, chip: 'xai grok · cloud' },
+    google:      { keyLabel: 'Google API key',               needsUrl: false, chip: 'gemini · cloud' },
+    mistral:     { keyLabel: 'Mistral API key',              needsUrl: false, chip: 'mistral · cloud' },
+    cohere:      { keyLabel: 'Cohere API key',               needsUrl: false, chip: 'cohere · cloud' },
+    together:    { keyLabel: 'Together AI key',              needsUrl: false, chip: 'together · cloud' },
   };
-  const CLOUD = ['claude','nvidia','openrouter','huggingface','custom'];
+  const CLOUD = ['claude','nvidia','openrouter','huggingface','custom','xai','google','mistral','cohere','together'];
   const providerState = { cloudEnabled: true, providers: [], labMode: 'airgapped' };
 
   function selectedProvider() {
@@ -952,6 +1324,8 @@
       if (!d.ok) $('compute-status').textContent = d.error || '';
     } catch (e) { /* best effort */ }
     syncComputeUI();
+    // Step 12: reload the model gallery for the newly selected provider (F-RACE seq-guard in loadModels).
+    loadModels(provider);
   }
 
   document.querySelectorAll('input[name="compute-source"]').forEach(r => {
@@ -1080,7 +1454,8 @@
 
   refreshProvidersStatus();
 
-  loadModels();
+  // Pass the currently selected provider so cloud radio survives page reload.
+  loadModels(selectedProvider());
   syncRouteNote();
 
   // ── Local-inference panel ──────────────────────────────────────

@@ -16,6 +16,43 @@ import os
 import pytest
 
 
+@pytest.fixture
+def isolated_secrets(monkeypatch, tmp_path):
+    """Redirect the portal's secrets file to a tmp path and restore env on teardown.
+
+    Any test that calls an endpoint that writes lab/data/secrets.env (e.g.
+    POST /api/chat/default, POST /api/providers/save) must use this fixture so it
+    never clobbers a developer's real secrets and never leaks COMPUTE_SOURCE /
+    ARAIL_CHAT_DEFAULT_MODEL / ARAIL_MODEL_CTX_OVERRIDES into the process for
+    downstream tests.
+
+    The fixture:
+      1. Monkeypatches portal_app._secrets_path to return a tmp file.
+      2. Deletes the three polluting env keys before the test runs.
+      3. After the test, restores any values those keys had — the endpoint
+         writes os.environ directly (bypassing monkeypatch), so we must
+         restore by hand in teardown.
+    """
+    from arail.portal import app as portal_app
+
+    fake = tmp_path / "secrets.env"
+    monkeypatch.setattr(portal_app, "_secrets_path", lambda: fake)
+
+    _leaky = ("COMPUTE_SOURCE", "ARAIL_CHAT_DEFAULT_MODEL", "ARAIL_MODEL_CTX_OVERRIDES")
+    _saved = {k: os.environ.get(k) for k in _leaky}
+    for k in _leaky:
+        monkeypatch.delenv(k, raising=False)
+
+    yield fake
+
+    # The endpoint writes os.environ directly — monkeypatch won't clean those up.
+    for k, v in _saved.items():
+        if v is None:
+            os.environ.pop(k, None)
+        else:
+            os.environ[k] = v
+
+
 @pytest.fixture(autouse=True)
 def _arail_password_for_tests(monkeypatch):
     """Set a non-placeholder ARAIL_PASSWORD for every test by default.

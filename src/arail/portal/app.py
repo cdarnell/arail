@@ -1051,6 +1051,12 @@ _PROVIDER_KEY_ENVS: dict[str, str] = {
     "openrouter":  "OPENROUTER_API_KEY",
     "huggingface": "HF_TOKEN",
     "custom":      "MODEL_API_KEY",
+    # L2 — five new OpenAI-compatible providers (bearer auth, OpenAI /v1 shape)
+    "xai":         "XAI_API_KEY",
+    "google":      "GOOGLE_API_KEY",
+    "mistral":     "MISTRAL_API_KEY",
+    "cohere":      "COHERE_API_KEY",
+    "together":    "TOGETHER_API_KEY",
 }
 
 # Per-provider metadata the UI uses to render the Manage Providers modal and
@@ -1090,6 +1096,42 @@ _PROVIDER_META: dict[str, dict[str, str]] = {
         "models_path": "/models",
         "auth": "bearer",
         "docs": "",
+    },
+    # L2 — five new OpenAI-compatible cloud providers
+    "xai": {
+        "label": "xAI (Grok)",
+        "base": "https://api.x.ai/v1",
+        "models_path": "/models",
+        "auth": "bearer",
+        "docs": "https://console.x.ai/",
+    },
+    "google": {
+        "label": "Google Gemini",
+        "base": "https://generativelanguage.googleapis.com/v1beta/openai",
+        "models_path": "",   # curated — Gemini /models shape is non-standard
+        "auth": "bearer",
+        "docs": "https://aistudio.google.com/app/apikey",
+    },
+    "mistral": {
+        "label": "Mistral",
+        "base": "https://api.mistral.ai/v1",
+        "models_path": "/models",
+        "auth": "bearer",
+        "docs": "https://console.mistral.ai/api-keys/",
+    },
+    "cohere": {
+        "label": "Cohere",
+        "base": "https://api.cohere.com/compatibility/v1",
+        "models_path": "",   # curated — Cohere /models not OpenAI-shaped
+        "auth": "bearer",
+        "docs": "https://dashboard.cohere.com/api-keys",
+    },
+    "together": {
+        "label": "Together AI",
+        "base": "https://api.together.xyz/v1",
+        "models_path": "/models",
+        "auth": "bearer",
+        "docs": "https://api.together.ai/settings/api-keys",
     },
 }
 
@@ -1310,6 +1352,63 @@ async def providers_test(request: Request):
         return {"ok": False, "error": f"{type(e).__name__}: {e}"}
 
 
+def _fetch_provider_models(provider: str) -> list[str]:
+    """Return up to 200 model ids for *provider* from its live /models endpoint.
+
+    Pre: caller has already done airgap + token checks.
+    Post: returns list[str] of model ids.
+       - Live call for providers with a models_path (claude/nvidia/openrouter/
+         xai/mistral/together).
+       - Falls back to curated YAML rows (provider==<provider>) for providers
+         with no usable models_path or quirky /models shapes (huggingface,
+         google, cohere).
+       - On network/401/timeout → returns [] (caller renders error row).
+    """
+    meta = _PROVIDER_META.get(provider, {})
+    models_path = meta.get("models_path") or ""
+
+    # Curated fallback for providers without a standard /models endpoint
+    if not models_path:
+        try:
+            from arail.chat import load_catalog
+            rows = [
+                e.id for e in load_catalog()
+                if e.provider == provider
+            ]
+            return rows[:200]
+        except Exception:  # noqa: BLE001
+            return []
+
+    # Live /models call
+    token = _provider_token(provider)
+    if not token:
+        return []
+    base = meta.get("base") or os.getenv("MODEL_API_BASE", "")
+    if not base:
+        return []
+    url = base.rstrip("/") + models_path
+
+    import requests
+    try:
+        r = requests.get(url, headers=_auth_headers(provider, token), timeout=12)
+        if not (200 <= r.status_code < 300):
+            return []
+        payload = r.json()
+        raw = payload.get("data") or payload.get("models") or payload
+        models: list[str] = []
+        if isinstance(raw, list):
+            for item in raw[:200]:
+                if isinstance(item, str):
+                    models.append(item)
+                elif isinstance(item, dict):
+                    mid = str(item.get("id") or item.get("name") or "")
+                    if mid:
+                        models.append(mid)
+        return models
+    except Exception:  # noqa: BLE001
+        return []
+
+
 @app.get("/api/providers/models")
 async def providers_models(provider: str):
     """List available models for a provider (when it supports /models).
@@ -1325,28 +1424,9 @@ async def providers_models(provider: str):
     token = _provider_token(provider)
     if not token:
         return {"ok": False, "error": "no saved token for this provider"}
-    base = meta.get("base") or os.getenv("MODEL_API_BASE", "")
-    if not base:
-        return {"ok": False, "error": "no endpoint configured"}
-    url = base.rstrip("/") + meta["models_path"]
 
-    import requests
-    try:
-        r = requests.get(url, headers=_auth_headers(provider, token), timeout=12)
-        if not (200 <= r.status_code < 300):
-            return {"ok": False, "error": f"HTTP {r.status_code}"}
-        payload = r.json()
-        raw = payload.get("data") or payload.get("models") or payload
-        models: list[str] = []
-        if isinstance(raw, list):
-            for item in raw[:200]:
-                if isinstance(item, str):
-                    models.append(item)
-                elif isinstance(item, dict):
-                    models.append(str(item.get("id") or item.get("name") or item))
-        return {"ok": True, "models": models, "count": len(models)}
-    except Exception as e:  # noqa: BLE001
-        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+    models = _fetch_provider_models(provider)
+    return {"ok": True, "models": models, "count": len(models)}
 
 
 async def _ttyd_context() -> dict:
@@ -4507,11 +4587,37 @@ async def admin_models_set_default(request: Request):
     })
 
 
+def _persist_ctx_override(model_id: str, ctx: int) -> dict:
+    """Write a ctx override for *model_id* to secrets.env + os.environ.
+
+    Reads/merges ARAIL_MODEL_CTX_OVERRIDES, writes updated JSON back, and
+    mirrors to os.environ so the running process picks it up immediately.
+    Returns the merged overrides dict.
+
+    DRY: both admin_models_set_ctx and the chat set-ctx delegate call here.
+    Caller is responsible for cache/scan invalidation (behaviour differs).
+    """
+    import json as _json
+    existing = _read_secrets()
+    existing_ctx_raw = existing.get("ARAIL_MODEL_CTX_OVERRIDES", "{}")
+    try:
+        ctx_overrides: dict = _json.loads(existing_ctx_raw)
+        if not isinstance(ctx_overrides, dict):
+            ctx_overrides = {}
+    except Exception:  # noqa: BLE001
+        ctx_overrides = {}
+
+    ctx_overrides[model_id] = ctx
+    existing["ARAIL_MODEL_CTX_OVERRIDES"] = _json.dumps(ctx_overrides)
+    _write_secrets(existing)
+    os.environ["ARAIL_MODEL_CTX_OVERRIDES"] = _json.dumps(ctx_overrides)
+    return ctx_overrides
+
+
 @app.post("/api/admin/models/set-ctx")
 async def admin_models_set_ctx(request: Request):
     """Set the context-window override for a model. Persists to secrets.env."""
     from fastapi.responses import JSONResponse
-    import json as _json
     try:
         body = await request.json()
     except Exception:
@@ -4534,23 +4640,10 @@ async def admin_models_set_ctx(request: Request):
             status_code=400,
         )
 
-    existing = _read_secrets()
-    existing_ctx_raw = existing.get("ARAIL_MODEL_CTX_OVERRIDES", "{}")
     try:
-        ctx_overrides: dict = _json.loads(existing_ctx_raw)
-        if not isinstance(ctx_overrides, dict):
-            ctx_overrides = {}
-    except Exception:  # noqa: BLE001
-        ctx_overrides = {}
-
-    ctx_overrides[model_id] = ctx
-    existing["ARAIL_MODEL_CTX_OVERRIDES"] = _json.dumps(ctx_overrides)
-    try:
-        _write_secrets(existing)
+        ctx_overrides = _persist_ctx_override(model_id, ctx)
     except OSError as e:
         return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
-
-    os.environ["ARAIL_MODEL_CTX_OVERRIDES"] = _json.dumps(ctx_overrides)
 
     global _MODELS_SCAN_TS
     _MODELS_SCAN_TS = 0.0
@@ -4823,15 +4916,30 @@ def _get_runtime_backend(runtime: str, model_id: str):
     if base is None:
         raise ValueError(f"unknown runtime: {runtime}")
 
-    from arail.router.backends import OpenAICompatBackend
-    be = OpenAICompatBackend.__new__(OpenAICompatBackend)
     import requests as _req
-    be._session = _req.Session()
-    be.base_url = base
-    be.model_name = model_id
-    be.api_key = "not-needed"   # local runtimes ignore auth
-    # Mark for telemetry / log clarity.
-    be.backend_name = f"{runtime}:openai_compat"
+
+    if runtime == "ollama":
+        # B2 (ARCHITECTURE.md L3): use OllamaNativeBackend so options.num_ctx
+        # reaches the native /api/chat endpoint rather than being silently
+        # dropped by Ollama's OpenAI /v1 shim (F-OLLAMA-SHIM).
+        from arail.router.backends import OllamaNativeBackend, _resolve_ctx_override
+        be = OllamaNativeBackend.__new__(OllamaNativeBackend)
+        be._session = _req.Session()
+        be.base_url = base
+        be.model_name = model_id
+        be.api_key = "not-needed"   # local runtimes ignore auth
+        be.backend_name = "ollama:native"
+        # Resolve ctx override in the branch (not in __init__) per ARCHITECTURE.md.
+        be._num_ctx = _resolve_ctx_override(model_id, default=None)
+    else:
+        from arail.router.backends import OpenAICompatBackend
+        be = OpenAICompatBackend.__new__(OpenAICompatBackend)
+        be._session = _req.Session()
+        be.base_url = base
+        be.model_name = model_id
+        be.api_key = "not-needed"   # local runtimes ignore auth
+        be.backend_name = f"{runtime}:openai_compat"
+
     _RUNTIME_BACKEND_CACHE[cache_key] = be
     return be
 
@@ -5289,6 +5397,113 @@ async def _run_chat_completion(
     return _build_chat_result(response, wants_deep=wants_deep)
 
 
+def _apply_chat_defaults(
+    backend: "str | None",
+    model: "str | None",
+    runtime: "str | None",
+) -> "tuple[str | None, str | None, str | None]":
+    """Fill blank backend/model/runtime from the stored chat-wide default (L4).
+
+    Per-message values win (A8): only fills arguments that are falsy/blank.
+    F-DEFAULT-LEAK: if the stored default is a cloud provider and the lab is
+    currently airgapped, the cloud default is silently dropped and my_machine
+    is used instead.
+
+    Returns (backend, model, runtime) resolved triple.
+    Never raises.
+    """
+    # Per-message values win — return as-is if all provided
+    if backend and model and runtime:
+        return backend, model, runtime
+
+    try:
+        default_raw = (
+            _read_secrets().get("ARAIL_CHAT_DEFAULT_MODEL")
+            or os.getenv("ARAIL_CHAT_DEFAULT_MODEL", "")
+        ).strip()
+        if not default_raw:
+            return backend, model, runtime
+
+        import json as _json
+        stored = _json.loads(default_raw)
+        stored_model = stored.get("model") or ""
+        stored_runtime = stored.get("runtime") or ""
+        stored_provider = (
+            os.getenv("COMPUTE_SOURCE", "")
+            or _read_secrets().get("COMPUTE_SOURCE", "")
+        ).strip().lower() or "my_machine"
+
+        # F-DEFAULT-LEAK: drop cloud default when airgapped
+        if stored_provider in _CLOUD_PROVIDERS and _is_airgapped():
+            stored_provider = "my_machine"
+            stored_model = ""
+            stored_runtime = ""
+
+        # Fill blanks only (A8)
+        resolved_backend = backend or stored_provider or None
+        resolved_model = model or stored_model or None
+        resolved_runtime = runtime or stored_runtime or None
+        return resolved_backend, resolved_model, resolved_runtime
+    except Exception:  # noqa: BLE001
+        return backend, model, runtime
+
+
+@app.post("/api/chat/default")
+async def chat_default(request: Request):
+    """Set or clear the chat-wide default provider+model (L4).
+
+    Body to SET: {provider: str, model: str, runtime: str}
+    Body to CLEAR: {clear: true}
+
+    Returns: {ok, provider, model, runtime} or {ok, cleared: true}
+
+    Airgap: refuses cloud defaults when airgapped (F-DEFAULT-LEAK guard at use
+    time is in _apply_chat_defaults; guard at set time is here).
+    Secrets-safety: writes COMPUTE_SOURCE + ARAIL_CHAT_DEFAULT_MODEL (ids only,
+    never a token).
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        return {"ok": False, "error": "invalid JSON body"}
+
+    # CLEAR path
+    if body.get("clear"):
+        secrets = _read_secrets()
+        secrets.pop("ARAIL_CHAT_DEFAULT_MODEL", None)
+        _write_secrets(secrets)
+        os.environ.pop("ARAIL_CHAT_DEFAULT_MODEL", None)
+        return {"ok": True, "cleared": True}
+
+    # SET path
+    provider = (body.get("provider") or "").strip().lower()
+    model_id = (body.get("model") or "").strip()
+    runtime = (body.get("runtime") or "").strip()
+
+    if not provider:
+        return {"ok": False, "error": "provider is required"}
+
+    # Airgap check — refuse cloud default when airgapped (F-DEFAULT-LEAK)
+    if provider in _CLOUD_PROVIDERS and _is_airgapped():
+        return {
+            "ok": False,
+            "error": "Airgapped — cloud default blocked. Set LAB_MODE=hybrid in .env to use cloud providers.",
+        }
+
+    import json as _json
+    secrets = _read_secrets()
+    secrets["COMPUTE_SOURCE"] = provider
+    os.environ["COMPUTE_SOURCE"] = provider
+    if model_id:
+        default_val = _json.dumps({"model": model_id, "runtime": runtime})
+        secrets["ARAIL_CHAT_DEFAULT_MODEL"] = default_val
+        os.environ["ARAIL_CHAT_DEFAULT_MODEL"] = default_val
+
+    _write_secrets(secrets)
+    activity_log.emit("chat", f"Chat default set: provider={provider} model={model_id}", "info")
+    return {"ok": True, "provider": provider, "model": model_id, "runtime": runtime}
+
+
 @app.post("/api/chat")
 async def api_chat(request: Request):
     """Send one user message to the local model with full lab context.
@@ -5318,15 +5533,23 @@ async def api_chat(request: Request):
     except (TypeError, ValueError):
         top_p = None
 
+    # L4: fill blank backend/model/runtime from stored chat-wide default.
+    # Per-message values (from body) win; blanks are filled by the shim.
+    backend_override, model_override, runtime_override = _apply_chat_defaults(
+        body.get("backend"),
+        body.get("model"),
+        body.get("runtime"),
+    )
+
     return await _run_chat_completion(
         message=message,
         history=body.get("history") or [],
-        backend_override=body.get("backend"),
-        model_override=body.get("model"),
+        backend_override=backend_override,
+        model_override=model_override,
         temperature=float(body.get("temperature") or 0.7),
         top_p=top_p,
         max_tokens=int(body.get("max_tokens") or 512),
-        runtime_override=body.get("runtime"),
+        runtime_override=runtime_override,
     )
 
 
@@ -5416,16 +5639,23 @@ async def api_chat_stream(request: Request):
     except (TypeError, ValueError):
         top_p = None
 
+    # L4: fill blank backend/model/runtime from stored chat-wide default.
+    stream_backend, stream_model, stream_runtime = _apply_chat_defaults(
+        body.get("backend"),
+        body.get("model"),
+        body.get("runtime"),
+    )
+
     async def _generate() -> AsyncIterator[str]:
         async for event in _run_chat_completion_stream(
             message=message,
             history=body.get("history") or [],
-            backend_override=body.get("backend"),
-            model_override=body.get("model"),
+            backend_override=stream_backend,
+            model_override=stream_model,
             temperature=float(body.get("temperature") or 0.7),
             top_p=top_p,
             max_tokens=int(body.get("max_tokens") or 512),
-            runtime_override=body.get("runtime"),
+            runtime_override=stream_runtime,
         ):
             yield json.dumps(event, default=str) + "\n"
 
@@ -5773,17 +6003,119 @@ async def api_aerollm_bench():
 
 
 @app.get("/api/chat/models")
-async def api_chat_models():
+async def api_chat_models(provider: str = ""):
     """Return the model catalog for the current backend.
 
-    For OpenAI-compatible backends (LM Studio, Ollama, NVIDIA NIM,
-    OpenRouter), we query the server's ``/v1/models`` endpoint and
-    list every model it advertises. For single-model backends
-    (MLX, llama.cpp, AeroLLM, Claude, HF Inference), we return just
-    the configured ``MODEL_NAME`` so the dropdown still renders.
+    With no ?provider= (or ?provider=my_machine): returns the byte-identical
+    legacy local gallery payload (R1 — golden snapshot).
+
+    With ?provider=<cloud>: returns a cloud gallery payload with the provider's
+    model list, or a CTA when no token is saved, or an airgap refusal.
+    The cloud branch is a strict `if provider and provider != "my_machine":`
+    wrapper — the legacy code path is never entered from the cloud branch.
 
     The dashboard Tuning row uses this to populate its Model picker.
     """
+    # ── CLOUD BRANCH ──────────────────────────────────────────────────────
+    # Strict guard: only non-empty provider != "my_machine" enters this branch.
+    # The legacy path below is never reached from here. (R1 protection)
+    if provider and provider.strip().lower() not in ("", "my_machine"):
+        provider_id = provider.strip().lower()
+        _EMPTY_GALLERY: dict = {"installed": [], "catalog": [], "runtime_counts": {}}
+
+        # Unknown provider → cta, never 500, never local fallthrough
+        if provider_id not in _CLOUD_PROVIDERS:
+            return {
+                "provider": provider_id,
+                "current": None,
+                "gallery": _EMPTY_GALLERY,
+                "cta": {
+                    "kind": "unknown_provider",
+                    "provider": provider_id,
+                    "message": f"Unknown provider '{provider_id}'. Check Compute Source configuration.",
+                },
+                "airgapped": False,
+            }
+
+        # Airgap check FIRST — before any token read or network call (F-AIRGAP)
+        if _is_airgapped():
+            return {
+                "provider": provider_id,
+                "current": None,
+                "gallery": _EMPTY_GALLERY,
+                "cta": {
+                    "kind": "airgapped",
+                    "message": "Lab is airgapped. Set LAB_MODE=hybrid in .env and restart to use cloud providers.",
+                },
+                "airgapped": True,
+            }
+
+        # No saved token → CTA (never silent empty)
+        token = _provider_token(provider_id)
+        if not token:
+            meta = _PROVIDER_META.get(provider_id, {})
+            return {
+                "provider": provider_id,
+                "current": None,
+                "gallery": _EMPTY_GALLERY,
+                "cta": {
+                    "kind": "no_token",
+                    "provider": provider_id,
+                    "message": (
+                        f"Save a {meta.get('label', provider_id)} key in "
+                        f"⚙ Manage providers to see its models."
+                    ),
+                    "docs": meta.get("docs", ""),
+                },
+                "airgapped": False,
+            }
+
+        # Fetch cloud models (curated or live) — returns [] on any error
+        cloud_model_ids = _fetch_provider_models(provider_id)
+
+        # Build gallery catalog entries from the cloud model list
+        # (F-CLOUD-CURRENT: current is set to a cloud model id, never a local one)
+        catalog_entries = []
+        from arail.model_specs import context_tokens as _ctx_tokens
+        # Pull curated ctx from YAML for known cloud models
+        try:
+            from arail.chat import load_catalog
+            curated_ctx = {e.id: e.ctx for e in load_catalog() if e.provider == provider_id}
+        except Exception:  # noqa: BLE001
+            curated_ctx = {}
+
+        for mid in cloud_model_ids:
+            ctx_label = curated_ctx.get(mid)
+            ctx_int = _ctx_tokens(ctx_label) if ctx_label else None
+            catalog_entries.append({
+                "id": mid,
+                "name": mid,
+                "family": provider_id,
+                "installed_state": "available",
+                "source": "cloud",
+                "runtime": provider_id,
+                "ctx": ctx_int,
+                "ctx_label": ctx_label or ("Context: unknown"),
+                "size_gb": None,
+                "tier": "optional",
+                "provider": provider_id,
+            })
+
+        # F-CLOUD-CURRENT: override current to first cloud model, never local
+        cloud_current = cloud_model_ids[0] if cloud_model_ids else None
+
+        return {
+            "provider": provider_id,
+            "current": cloud_current,
+            "gallery": {
+                "installed": [],
+                "catalog": catalog_entries,
+                "runtime_counts": {},
+            },
+            "models": cloud_model_ids,
+            "airgapped": False,
+        }
+    # ── END CLOUD BRANCH ──────────────────────────────────────────────────
     try:
         router = _get_primary_router()
     except Exception as e:  # noqa: BLE001
@@ -6086,6 +6418,94 @@ async def api_chat_models():
         "fit": current_fit,
         "hardware": memory_snapshot,
         "model_load": load_state,
+    }
+
+
+def _validate_local_model_id_relaxed(model_id: str) -> "tuple[bool, str]":
+    """Relaxed local-id gate for the chat set-ctx route (F-VALIDATE).
+
+    Accepts Ollama-installed ids AND on-disk scan ids; rejects:
+    - Empty / too long (>256 chars)
+    - Path traversal: '..', '/', '\\'
+    - Any id not present in (scan ids ∪ Ollama-installed ids)
+
+    This is intentionally LESS strict than _validate_model_id (which only
+    whitelists on-disk dirs). Cloud model ids won't appear in local installs
+    and are therefore rejected — ctx is display-only for cloud (A2).
+    """
+    if not isinstance(model_id, str) or not model_id.strip():
+        return False, "model_id is required"
+    if len(model_id) > 256:
+        return False, "model_id too long (max 256 chars)"
+    if ".." in model_id or "/" in model_id or "\\" in model_id:
+        return False, "path traversal detected in model_id"
+
+    # Union of on-disk scan ids + Ollama-installed ids
+    known_ids: set[str] = set()
+    try:
+        scan = _scan_local_models()
+        known_ids.update(m["id"] for m in scan.get("models", []))
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        from arail.chat import detect_installed_models
+        known_ids.update(m["id"] for m in detect_installed_models())
+    except Exception:  # noqa: BLE001
+        pass
+
+    if model_id not in known_ids:
+        return False, f"unknown local model_id: {model_id!r} (not in scan or Ollama)"
+    return True, ""
+
+
+@app.post("/api/chat/models/set-ctx")
+async def chat_models_set_ctx(request: Request):
+    """Set the context-window override for a LOCAL model from the chat tab.
+
+    Uses a relaxed local-id gate (F-VALIDATE): accepts Ollama ids AND on-disk
+    scan ids. Rejects cloud model ids (ctx is display-only for cloud, A2).
+    Purges _RUNTIME_BACKEND_CACHE for the model (F-CACHE).
+    Returns 200 always with {ok, error?} — ARAIL convention (never silent 4xx
+    from a chat endpoint; callers must check ok field).
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        return {"ok": False, "error": "invalid JSON body"}
+
+    model_id = (body.get("model_id") or "").strip()
+    ok_id, err_id = _validate_local_model_id_relaxed(model_id)
+    if not ok_id:
+        return {"ok": False, "error": err_id}
+
+    ctx_raw = body.get("ctx")
+    try:
+        ctx = int(ctx_raw)
+    except (TypeError, ValueError):
+        return {"ok": False, "error": "ctx must be an integer"}
+
+    if not (256 <= ctx <= 1_000_000):
+        return {"ok": False, "error": "ctx must be between 256 and 1,000,000"}
+
+    try:
+        ctx_overrides = _persist_ctx_override(model_id, ctx)
+    except OSError as e:
+        return {"ok": False, "error": str(e)}
+
+    # F-CACHE: purge all _RUNTIME_BACKEND_CACHE entries for this model
+    # so the next _get_runtime_backend call rebuilds with updated _num_ctx.
+    stale_keys = [k for k in _RUNTIME_BACKEND_CACHE if k[1] == model_id]
+    for k in stale_keys:
+        _RUNTIME_BACKEND_CACHE.pop(k, None)
+
+    global _MODELS_SCAN_TS
+    _MODELS_SCAN_TS = 0.0
+
+    return {
+        "ok": True,
+        "model_id": model_id,
+        "ctx": ctx,
+        "ctx_overrides": ctx_overrides,
     }
 
 
