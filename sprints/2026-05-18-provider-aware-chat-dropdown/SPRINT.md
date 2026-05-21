@@ -96,9 +96,11 @@ override across autoresearch/agents; per-provider cost ceilings.
 |---|---|---|---|---|---|---|
 | think | visionary | VISION.md | done | 2026-05-18 | 2026-05-18 | proceed (commit 6a1481d); 3 risks flagged |
 | plan | architect (design) | ARCHITECTURE.md | done | 2026-05-18 | 2026-05-20 | PROCEED; 5 corrections (F-VALIDATE/F-CATALOG/F-CLOUD-CURRENT/F-CACHE/F-DEFAULT-LEAK) + 3 load-bearing regressions (R1/R2/R3) |
-| build | builder | BUILD_LOG.md | pending | — | — | — |
-| review | architect (review) | REVIEW.md | pending | — | — | — |
-| test | qa | TEST_REPORT.md | pending | — | — | — |
+| build | builder | BUILD_LOG.md | done | 2026-05-20 | 2026-05-20 | 15 commits (ba9f136..bf5a3f6); 98 sprint tests; full suite 1733 pass / 12 pre-existing fail unchanged; all 5 corrections + R1/R2/R3 in |
+| review | architect (review) | REVIEW.md | done (loop 1) | 2026-05-20 | 2026-05-20 | BLOCK (commit 7698f2e); B1 cloud-gallery-empty + B2 ollama-ctx-unwired; F-CLOUD-CURRENT fixed, scope clean, no regression |
+| build | builder (fix-loop) | BUILD_LOG.md | done | 2026-05-20 | 2026-05-20 | 4 commits (6cd007b..cf10b91); B1+B2 fixed w/ reachability tests; R1 hardened; 124 sprint tests |
+| review | architect (re-review) | REVIEW.md | done (loop 2) | 2026-05-20 | 2026-05-20 | PASS (commit 40d8523); B1+B2 cleared w/ reachability tests, R1 hardened, no regression/drift; 3 carryovers for qa |
+| test | qa | TEST_REPORT.md | done | 2026-05-20 | 2026-05-20 | WEAK_PASS; 51 new QA tests (175 sprint total, 0 fail); zero new full-suite failures; security PASS on XSS/airgap×10/token-echo/traversal; 3 carryovers resolved/accepted; 1 finding QA-1 (test clobbers real secrets.env — non-blocker, fix before merge) |
 | ship | — | PR | pending | — | — | — |
 
 ## Decisions log
