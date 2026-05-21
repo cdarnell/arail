@@ -89,3 +89,50 @@ None.
   test_loader_min_id_resolves_to_7b.
 - .env AEROLLM_MODEL override path: untouched (verified by reading
   scripts/setup.sh ~line 1140).
+
+## Fix-loop (post-review)
+
+Addressed all three carryovers from REVIEW.md WEAK_PASS. 3 atomic commits.
+
+### CO-2 — stale src/ comments (commit 1085844)
+
+Comment-only edits. No logic changed.
+
+- `src/arail/portal/app.py:6306`: description string updated from
+  "max tier ships Llama-3.1-70B-4bit" to "max tier ships
+  Qwen2.5-72B-Instruct-4bit, ~40 GB resident, requires 48 GB+".
+- `src/arail/router/backends.py:1132`: comment block updated from
+  "Llama-3.1-70B-Instruct-4bit" to "Qwen2.5-72B-Instruct-4bit,
+  ~40 GB resident, requires 48 GB+; populated by setup.sh capture_tier".
+
+### CO-3 — retire obsolete deferral guard (commit dad8726)
+
+Deleted `test_sprint_did_not_touch_setup_or_catalog_files` from
+`tests/test_build_ai_eng_dry_run_works_on_lowram.py`. The guard was a
+deferral sentinel for commits 3a/3b of sprint 2026-05-18-ai-eng-v2.1.
+Commit 3b (this sprint) has landed; the guard was satisfied-by-completion
+and already red on origin/main. Remaining 15 tests in that file: all pass.
+Full-suite failure count dropped from 14 → 13 (exactly 1 retired case).
+
+### CO-1 — shell-source guards for setup.sh (commit 4a3325a)
+
+Added 2 tests to `tests/test_aerollm_tier_resolution.py` (now 14 total):
+
+- `test_setup_sh_min_id_loader_leads_with_aerollm_minimalist`: reads
+  setup.sh as text; asserts the AEROLLM_MODEL_MIN_ID loader line leads
+  with `models.get("aerollm_minimalist", ...)`. A shell-only revert to
+  aerollm_maximus-first fails this test before deployment.
+- `test_setup_sh_capture_tier_has_aerollm_case_block`: reads setup.sh
+  as text; asserts the capture_tier case block has both
+  `maximus)→AEROLLM_MODEL_MAX_ID` and `*)→AEROLLM_MODEL_MIN_ID` arms
+  via regex. Replacing the case block with a flat assignment re-introduces
+  Bug 2 and fails this test.
+
+Both tests pass (confirmed against current setup.sh).
+
+### New full-suite state
+
+- 13 failed / 1924 passed / 1 xfailed (was 14/1922/1 after initial build).
+- Failure count decreased by 1 (CO-3 retired). No new failures introduced.
+- All 13 remaining failures are pre-existing, unrelated to this sprint
+  (docs routes, airgap order-sensitivity, swarm surfaces, metrics hybrid).
