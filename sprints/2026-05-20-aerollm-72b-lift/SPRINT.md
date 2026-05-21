@@ -55,7 +55,7 @@ golden gates per aerollm/CLAUDE.md).
 | review | architect (review) | REVIEW.md | done | WEAK_PASS (commit d75537d); min→7B max→72B proven; both bugs fixed; 3 carryovers |
 | build | builder (fix-loop) | BUILD_LOG.md | done | CO-1/CO-2/CO-3 cleared (1085844/dad8726/4a3325a); full suite 13 fail (−1, retired red test) / 1924 pass |
 | test | qa | TEST_REPORT.md | skipped (override) | Architect determined review sufficient: deterministic config/resolution change, no network/auth/secrets/exec surface; all consumers default to 7B (under-provision, cannot OOM); running a real 72B is out of scope (no ≥96GB machine) |
-| ship | — | PR | done | PR #69 (pending number) |
+| ship | — | PR | done | PR #69 opened |
 
 ## Decisions log
 
