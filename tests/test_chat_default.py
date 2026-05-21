@@ -30,7 +30,7 @@ def _make_client(monkeypatch, lab_mode="hybrid"):
 # POST /api/chat/default — set path
 # ---------------------------------------------------------------------------
 
-def test_chat_default_set_local_ok(monkeypatch):
+def test_chat_default_set_local_ok(monkeypatch, isolated_secrets):
     """Setting a local (my_machine) default is always allowed."""
     client = _make_client(monkeypatch, lab_mode="airgapped")
     r = client.post(
@@ -43,7 +43,7 @@ def test_chat_default_set_local_ok(monkeypatch):
     assert body.get("provider") == "my_machine"
 
 
-def test_chat_default_set_cloud_while_airgapped_refused(monkeypatch):
+def test_chat_default_set_cloud_while_airgapped_refused(monkeypatch, isolated_secrets):
     """F-DEFAULT-LEAK: setting a cloud default while airgapped must be refused."""
     client = _make_client(monkeypatch, lab_mode="airgapped")
     r = client.post(
@@ -56,7 +56,7 @@ def test_chat_default_set_cloud_while_airgapped_refused(monkeypatch):
     assert "airgapped" in body.get("error", "").lower()
 
 
-def test_chat_default_set_cloud_in_hybrid_ok(monkeypatch):
+def test_chat_default_set_cloud_in_hybrid_ok(monkeypatch, isolated_secrets):
     """Setting a cloud default in hybrid mode is allowed."""
     client = _make_client(monkeypatch, lab_mode="hybrid")
     r = client.post(
@@ -72,7 +72,7 @@ def test_chat_default_set_cloud_in_hybrid_ok(monkeypatch):
 # POST /api/chat/default — clear path
 # ---------------------------------------------------------------------------
 
-def test_chat_default_clear(monkeypatch):
+def test_chat_default_clear(monkeypatch, isolated_secrets):
     """Clear removes ARAIL_CHAT_DEFAULT_MODEL from env."""
     monkeypatch.setenv("ARAIL_CHAT_DEFAULT_MODEL",
                        json.dumps({"model": "qwen3:8b", "runtime": "ollama"}))
