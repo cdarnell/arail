@@ -102,7 +102,7 @@ override across autoresearch/agents; per-provider cost ceilings.
 | review | architect (re-review) | REVIEW.md | done (loop 2) | 2026-05-20 | 2026-05-20 | PASS (commit 40d8523); B1+B2 cleared w/ reachability tests, R1 hardened, no regression/drift; 3 carryovers for qa |
 | test | qa | TEST_REPORT.md | done | 2026-05-20 | 2026-05-20 | WEAK_PASS; 51 new QA tests (175 sprint total, 0 fail); zero new full-suite failures; security PASS on XSS/airgap×10/token-echo/traversal; 3 carryovers resolved/accepted; 1 finding QA-1 (test clobbers real secrets.env — non-blocker, fix before merge) |
 | build | builder (QA-1 fix) | — | done | 2026-05-20 | 2026-05-20 | commit 540a421; isolated_secrets fixture; secrets.env no longer clobbered by tests; 9/9 chat-default tests pass |
-| ship | — | PR | done | 2026-05-20 | 2026-05-20 | see PR row below |
+| ship | — | PR | done | 2026-05-20 | 2026-05-20 | PR #67 opened |
 
 ## Decisions log
 
