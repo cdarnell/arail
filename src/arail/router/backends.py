@@ -1130,7 +1130,8 @@ class AeroLLMBackend(BaseBackend):
         # Default model picks the 4-bit MLX quant — ~4 GB resident, fits a
         # 16 GB Apple Silicon Mac with ~6 GB headroom for portal + browser.
         # Operators upgrade by setting AEROLLM_MODEL (max tier ships with
-        # Llama-3.1-70B-Instruct-4bit, populated by setup.sh).
+        # Qwen2.5-72B-Instruct-4bit, ~40 GB resident, requires 48 GB+;
+        # populated by setup.sh capture_tier).
         self.model_name = os.getenv(
             "AEROLLM_MODEL", "Qwen2.5-7B-Instruct-4bit"
         )

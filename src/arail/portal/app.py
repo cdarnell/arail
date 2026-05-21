@@ -6303,7 +6303,7 @@ async def api_chat_models(provider: str = ""):
         "install_command": (
             "cd aerollm/crates/aerollm-api && maturin develop --release"
         ),
-        "description": "In-process Rust runtime — primary deep backend on Apple Silicon (Qwen2.5-7B-4bit default, ~4 GB resident; max tier ships Llama-3.1-70B-4bit). Single Metal command buffer per generation; ~3× faster than mlx_lm baseline.",
+        "description": "In-process Rust runtime — primary deep backend on Apple Silicon (Qwen2.5-7B-4bit default, ~4 GB resident; max tier ships Qwen2.5-72B-Instruct-4bit, ~40 GB resident, requires 48 GB+). Single Metal command buffer per generation; ~3× faster than mlx_lm baseline.",
         # AeroLLM is also streaming by design.
         "streamed": True,
     })

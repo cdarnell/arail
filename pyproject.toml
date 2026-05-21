@@ -134,13 +134,22 @@ max = { description = "(deprecated alias for `maximus`)", surfaces = ["dashboard
 ai_eng_production = "qukaizen/ai-eng:3b"
 ai_eng_preview    = "qwen2.5:7b"
 
-# Maximus deep-mode runtime (AeroLLM). The model below is the canonical
-# 4-bit MLX quant served by AeroLLM on Apple Silicon when the user
-# escalates a deep-mode call. CUDA hosts fall back to AirLLM with a notice
-# until AeroLLM CUDA lands. Users can override AEROLLM_MODEL in .env.
-aerollm_maximus = "mlx-community/Qwen2.5-7B-Instruct-4bit"
+# AeroLLM deep-mode runtime (Apple Silicon). Per-tier model selection:
+#
+#   minimalist → mlx-community/Qwen2.5-7B-Instruct-4bit  (~4 GB resident,
+#                fits 16 GB Macs; selected for everyday lab use).
+#   maximus    → mlx-community/Qwen2.5-72B-Instruct-4bit  (~40 GB resident,
+#                needs 48 GB+ RAM; same Qwen2.5 family as ai-eng 3B, at
+#                the top of AeroLLM's proven golden-gate envelope).
+#
+# CUDA hosts fall back to AirLLM with a notice until AeroLLM CUDA lands.
+# Operators can override the runtime value via AEROLLM_MODEL in .env.
+aerollm_maximus    = "mlx-community/Qwen2.5-72B-Instruct-4bit"
+aerollm_minimalist = "mlx-community/Qwen2.5-7B-Instruct-4bit"
 # Legacy alias for tooling that reads [tool.arail.models].aerollm directly.
-aerollm         = "mlx-community/Qwen2.5-7B-Instruct-4bit"
+# Points at the minimalist (7B) value — safe fallback for any caller that
+# does not know about the per-tier split.
+aerollm            = "mlx-community/Qwen2.5-7B-Instruct-4bit"
 
 # ── Opt-in AirLLM deep-mode (gated behind ARAIL_INSTALL_AIRLLM=1) ─────
 # Kept for CUDA/Linux power users who want Llama-3.1-405B layer-streaming.
