@@ -27,8 +27,11 @@ except ModuleNotFoundError:
     import tomli as tomllib  # type: ignore[no-reuse]
 
 
+import re
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PYPROJECT = REPO_ROOT / "pyproject.toml"
+SETUP_SH = REPO_ROOT / "scripts" / "setup.sh"
 
 EXPECTED_MAX_MODEL = "mlx-community/Qwen2.5-72B-Instruct-4bit"
 EXPECTED_MIN_MODEL = "mlx-community/Qwen2.5-7B-Instruct-4bit"
@@ -210,3 +213,90 @@ def test_tier_legacy_max_alias_selects_72b(models):
     normalised = "maximus"
     result = _simulate_capture_tier(normalised, models)
     assert result == EXPECTED_MAX_MODEL
+
+
+# ---------------------------------------------------------------------------
+# CO-1: shell-source guard (reads scripts/setup.sh as text)
+# ---------------------------------------------------------------------------
+#
+# The tests above mirror the Python logic; a shell-only revert of setup.sh
+# would not be caught by them. This test reads the actual shell script and
+# asserts the two structural properties that were broken before the fix:
+#
+#   1. AEROLLM_MODEL_MIN_ID lookup leads with "aerollm_minimalist" — not
+#      "aerollm_maximus" (the Bug 1 stomp). If someone reverts line ~115,
+#      this test goes red before any deployment can OOM a minimalist user.
+#
+#   2. The capture_tier case block maps maximus → AEROLLM_MODEL_MAX_ID and
+#      the wildcard → AEROLLM_MODEL_MIN_ID (Bug 2 fix). If someone replaces
+#      the case block with a flat assignment again, this test goes red.
+# ---------------------------------------------------------------------------
+
+
+def test_setup_sh_min_id_loader_leads_with_aerollm_minimalist():
+    """Bug 1 shell-guard: AEROLLM_MODEL_MIN_ID lookup in setup.sh must lead
+    with 'aerollm_minimalist', not 'aerollm_maximus'.
+
+    A shell-only revert of setup.sh:~115 (flipping the .get() chain back to
+    aerollm_maximus first) would restore the OOM trap for minimalist users
+    the moment aerollm_maximus stays at 72B. This test catches that revert
+    without needing a bash harness.
+    """
+    text = SETUP_SH.read_text(encoding="utf-8")
+
+    # The corrected line looks like (possibly with surrounding whitespace):
+    #   "AEROLLM_MODEL_MIN_ID": str(models.get("aerollm_minimalist", ...))
+    # We assert aerollm_minimalist appears BEFORE aerollm_maximus on any line
+    # that sets AEROLLM_MODEL_MIN_ID.
+    min_id_line = None
+    for line in text.splitlines():
+        if "AEROLLM_MODEL_MIN_ID" in line and "models.get" in line:
+            min_id_line = line
+            break
+
+    assert min_id_line is not None, (
+        "Could not find the AEROLLM_MODEL_MIN_ID loader line in scripts/setup.sh. "
+        "Was the load_pyproject_metadata heredoc moved or renamed?"
+    )
+
+    # The first models.get() key on the MIN_ID line must be aerollm_minimalist.
+    first_key_match = re.search(r'models\.get\("([^"]+)"', min_id_line)
+    assert first_key_match is not None, (
+        f"Could not parse models.get() call on MIN_ID line: {min_id_line!r}"
+    )
+    first_key = first_key_match.group(1)
+    assert first_key == "aerollm_minimalist", (
+        f"AEROLLM_MODEL_MIN_ID loader leads with {first_key!r} — must be "
+        f"'aerollm_minimalist'. Reverting to 'aerollm_maximus' first re-introduces "
+        f"Bug 1 (minimalist installs resolve to 72B → OOM on 16 GB Macs)."
+    )
+
+
+def test_setup_sh_capture_tier_has_aerollm_case_block():
+    """Bug 2 shell-guard: capture_tier in setup.sh must contain an AeroLLM
+    case block that maps maximus→AEROLLM_MODEL_MAX_ID and *→AEROLLM_MODEL_MIN_ID.
+
+    A shell-only revert to a flat assignment (ignoring tier) would silently
+    give maximus users the 7B model. This test catches that structural revert.
+    """
+    text = SETUP_SH.read_text(encoding="utf-8")
+
+    # Assert the maximus arm maps to MAX_ID
+    assert re.search(
+        r'maximus\)\s+AEROLLM_MODEL_ID="\$\{AEROLLM_MODEL_MAX_ID',
+        text,
+    ), (
+        "scripts/setup.sh capture_tier is missing the "
+        "'maximus) AEROLLM_MODEL_ID=\"${AEROLLM_MODEL_MAX_ID...' arm. "
+        "Maximus tier would fall through to the minimalist (7B) path."
+    )
+
+    # Assert the wildcard arm maps to MIN_ID (appears after the maximus arm)
+    assert re.search(
+        r'\*\)\s+AEROLLM_MODEL_ID="\$\{AEROLLM_MODEL_MIN_ID',
+        text,
+    ), (
+        "scripts/setup.sh capture_tier is missing the "
+        "'*) AEROLLM_MODEL_ID=\"${AEROLLM_MODEL_MIN_ID...' wildcard arm. "
+        "Non-maximus tiers (including minimalist) would not get the 7B model."
+    )
