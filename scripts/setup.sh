@@ -578,47 +578,35 @@ install_accel_deps() {
         info "Skipping AirLLM (opt-in via ARAIL_INSTALL_AIRLLM=1)."
     fi
 
-    # AeroLLM — the Maximus tier deep-mode backend (v1.0.0). Gated to
-    # tier=maximus so Minimalist installs stay lean (ai-eng is enough
-    # for the everyday lab; deep streaming is a Maximus escalation).
-    # On Apple Silicon Maximus: native. On CUDA Maximus: AeroLLM is
-    # preferred when its CUDA backend lands; until then AirLLM (opt-in
-    # via ARAIL_INSTALL_AIRLLM=1) is the fallback.
-    #
-    # NOTE: do NOT use `maturin develop --release` for the sibling-repo
-    # build. maturin changes the cargo fingerprint (PYO3_ENVIRONMENT_SIGNATURE,
-    # CARGO_ENCODED_RUSTFLAGS) which triggers a fresh Metal kernel compilation
-    # that fails on macOS arm64 due to mlx-sys program-scope device variables
-    # (Metal Toolchain cryptexd v32023.883+). Use the cargo workaround below.
+    # AeroLLM — the Maximus tier deep-mode backend (the "2nd inference").
+    # Gated to tier=maximus so Minimalist installs stay lean (ai-eng is enough
+    # for the everyday lab; deep streaming is a Maximus escalation). Built from
+    # the LOCAL sibling repo ($ARAIL_AEROLLM_REPO, default ~/ProJects/aerollm)
+    # by scripts/build-aerollm.sh — the same helper behind
+    # `./arailctl deep rebuild`, so the actively-improving repo flows straight
+    # into the lab. That helper uses `cargo build` (NOT `maturin develop`,
+    # which breaks the Metal kernel compile on macOS arm64). On CUDA Maximus,
+    # AeroLLM's CUDA backend isn't ready yet; AirLLM (opt-in) is the fallback.
     if [[ "${LAB_TIER:-minimalist}" != "maximus" ]]; then
         info "Skipping AeroLLM install — tier is '${LAB_TIER:-minimalist}', not 'maximus'."
         info "  Upgrade with: ./arailctl upgrade maximus"
-    elif [[ "$(uname -s)" == "Darwin" ]] && [[ "$(uname -m)" == "arm64" ]] \
-       && [[ "${ARAIL_SKIP_AEROLLM_PROBE:-0}" != "1" ]]; then
+    elif [[ "${ARAIL_SKIP_AEROLLM_PROBE:-0}" == "1" ]]; then
+        info "Skipping AeroLLM build (ARAIL_SKIP_AEROLLM_PROBE=1)."
+    elif [[ "$(uname -s)" == "Darwin" ]] && [[ "$(uname -m)" == "arm64" ]]; then
         if python3 -c "import aerollm_api" 2>/dev/null; then
-            info "aerollm_api wheel detected — AeroLLM is the deep-mode default on Apple Silicon."
+            info "aerollm_api already present — AeroLLM is the deep-mode 2nd inference."
         else
-            info "Installing aerollm-api from PyPI..."
-            if pip install --quiet "aerollm-api>=0.1.0" 2>/dev/null \
-               && python3 -c "import aerollm_api" 2>/dev/null; then
-                info "aerollm_api installed — AeroLLM is the deep-mode default on Apple Silicon."
+            info "Building AeroLLM from the local sibling repo…"
+            if bash "${REPO_ROOT:-$PWD}/scripts/build-aerollm.sh" build; then
+                info "AeroLLM ready — the deep-mode 2nd inference on Apple Silicon."
             else
-                local aerollm_repo="${ARAIL_AEROLLM_REPO:-$HOME/ProJects/aerollm}"
-                warn "aerollm_api not available from PyPI (pre-release or offline?)."
-                if [[ -d "$aerollm_repo/crates/aerollm-api" ]]; then
-                    warn "  Sibling repo found at ${aerollm_repo}. To enable AeroLLM, run:"
-                    warn "    cd ${aerollm_repo}"
-                    warn "    cargo build --release -p aerollm-api --features extension-module"
-                    warn "    # then in your Python venv:"
-                    warn "    cp target/release/libaerollm_api.dylib \$(python3 -c \"import site; print(site.getsitepackages()[0])\")/aerollm_api.abi3.so"
-                else
-                    warn "  No sibling repo at ${aerollm_repo}. Either:"
-                    warn "    1) pip install aerollm-api  (once v0.1.0-alpha is tagged)"
-                    warn "    2) clone aerollm next to arail: cd .. && git clone <aerollm-url> aerollm"
-                fi
-                warn "  Until then, AirLLM remains the deep-mode backend (no functionality lost)."
+                warn "AeroLLM not installed (see above). The lab runs without the"
+                warn "2nd inference until you run: ./arailctl deep rebuild"
             fi
         fi
+    else
+        info "AeroLLM auto-build is Apple-Silicon-only today; on this host run"
+        info "  ./arailctl deep rebuild  once aerollm supports it (CUDA backend WIP)."
     fi
 }
 

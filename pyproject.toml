@@ -165,11 +165,15 @@ coder_cuda   = "Qwen/Qwen2.5-Coder-3B-Instruct"
 coder_cpu    = "Qwen/Qwen2.5-Coder-3B-Instruct-GGUF"
 
 [tool.arail.package-sources]
-# AeroLLM is the Maximus deep-mode runtime (setup.sh installs it when
-# tier=maximus). AirLLM stays declared for opt-in power-user installs
-# but is no longer pulled by default.
+# AeroLLM is the Maximus deep-mode runtime. It is NOT pip-installed: setup.sh
+# builds the `aerollm_api` PyO3 wheel from the local sibling repo
+# ($ARAIL_AEROLLM_REPO, default ~/ProJects/aerollm) so the actively-improving
+# repo flows straight into the lab — re-run `./arailctl deep rebuild` after
+# local edits. The git URL below is kept only as a clone reference for hosts
+# that don't already have the sibling checkout.
+#   aerollm clone ref: git+https://github.com/cdarnell/aerollm@main
+# AirLLM stays declared for opt-in power-user installs (not pulled by default).
 airllm  = "airllm>=2.0"
-aerollm = "git+https://github.com/cdarnell/aerollm@main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

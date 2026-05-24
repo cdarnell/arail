@@ -104,27 +104,12 @@ _TIER_SURFACES: dict[str, set[str]] = {
                 "admin", "docs", "notebooks", "terminal", "tuning", "plugins"},
 }
 
-# v1.0.0 tier rename — old min/max env values are accepted with a
-# one-shot deprecation warning. Compat shim removed in v1.1.0.
-_LEGACY_TIER_MAP: dict[str, str] = {"min": "minimalist", "max": "maximus"}
-_LEGACY_TIER_WARNED: set[str] = set()
-
-
+# v1.0.0 tier rename + the LAB_TIER lookup now live in arail.tier, the single
+# source of truth shared with the agents (which must not import the portal).
 def _current_tier() -> str:
-    raw = os.getenv("LAB_TIER", "minimalist").strip().lower()
-    if raw in _LEGACY_TIER_MAP:
-        if raw not in _LEGACY_TIER_WARNED:
-            try:
-                logging.getLogger("arail.tier").warning(
-                    "LAB_TIER=%r is deprecated — use %r instead "
-                    "(compat shim removes in v1.1.0)",
-                    raw, _LEGACY_TIER_MAP[raw],
-                )
-            except Exception:  # noqa: BLE001
-                pass
-            _LEGACY_TIER_WARNED.add(raw)
-        raw = _LEGACY_TIER_MAP[raw]
-    return raw if raw in _TIER_SURFACES else "minimalist"
+    from arail.tier import get_current_tier
+    tier = get_current_tier()
+    return tier if tier in _TIER_SURFACES else "minimalist"
 
 
 def _visible_surfaces() -> set[str]:
@@ -5954,9 +5939,10 @@ _OPTIONAL_CHAT_BACKEND_CONFIG: dict[str, dict[str, str]] = {
     "aerollm": {
         "label": "AeroLLM",
         "class_name": "AeroLLMBackend",
-        "install_command": (
-            "cd aerollm/crates/aerollm-api && maturin develop --release"
-        ),
+        # Built from the local sibling repo ($ARAIL_AEROLLM_REPO) — not pip.
+        # `deep rebuild` re-runs the cargo build + dylib copy so active local
+        # aerollm changes flow into the lab.
+        "install_command": "./arailctl deep rebuild",
         "model_env": "AEROLLM_MODEL",
         "default_model": "Qwen2.5-7B-Instruct-4bit",
     },
@@ -6501,15 +6487,20 @@ async def api_chat_models(provider: str = ""):
     # toggle. Separate field because users can flip that toggle
     # regardless of which primary backend they're on.
     #
-    # AirLLM is today's active deep backend (max-tier install). AeroLLM
-    # is declared but dormant until it's stable; when it ships, the
-    # default below flips back.
+    # AeroLLM is the default 2nd inference. Show its model whenever aeroLLM is
+    # the deep backend this host resolves to (Apple Silicon, or any host where
+    # the wheel imports); fall back to AirLLM's model only on the CUDA/x86
+    # opt-in path where AirLLM is the active deep backend.
     air_model_name = os.getenv("AIRLLM_MODEL", "meta-llama/Llama-3.1-70B")
-    deep_model_name = air_model_name
+    aero_model_name = os.getenv("AEROLLM_MODEL", "Qwen2.5-7B-Instruct-4bit")
+    if _is_aerollm_installed() or _resolve_default_deep_backend() == "aerollm":
+        deep_model_name = aero_model_name
+    else:
+        deep_model_name = air_model_name
     # Look up the spec sheet so the Frontier chip hover can show
     # strengths, benchmarks, and license at a glance. Registry lives
     # in src/arail/model_specs.py — users edit it to add new models.
-    from arail.model_specs import lookup as _spec_lookup, must_stream as _must_stream_ms
+    from arail.model_specs import lookup as _spec_lookup, is_frontier as _is_frontier_ms
     spec = _spec_lookup(deep_model_name)
 
     deep_info = {
@@ -6536,6 +6527,15 @@ async def api_chat_models(provider: str = ""):
         "gated": deep_model_name.lower().startswith("meta-llama/"),
         # Deep-backend models are always streamed by definition.
         "streamed": True,
+        # Frontier framing (70B+) — drives the chat comparison view's
+        # "2nd inference" branding + auto-default. Distinct from streamed
+        # (which is the 30B OOM floor).
+        "frontier": _is_frontier_ms(deep_model_name),
+        # Tier gating — aeroLLM ships on maximus only. The UI shows an
+        # upgrade nudge in minimalist instead of a broken deep backend.
+        "tier": _current_tier(),
+        "available_in_tier": _current_tier() == "maximus",
+        "upgrade_command": "./arailctl upgrade maximus",
     }
 
     if deep_info["gated"]:
@@ -6544,7 +6544,6 @@ async def api_chat_models(provider: str = ""):
             "huggingface-cli login or export HF_TOKEN before downloading."
         )
 
-    aero_model_name = os.getenv("AEROLLM_MODEL", "Qwen2.5-7B-Instruct-4bit")
     optional_backends = []
     if _show_airllm():
         optional_backends.append({
@@ -6566,9 +6565,7 @@ async def api_chat_models(provider: str = ""):
         "installed": _is_aerollm_installed(),
         "param_hint": _extract_param_hint(aero_model_name),
         "gated": aero_model_name.lower().startswith("meta-llama/"),
-        "install_command": (
-            "cd aerollm/crates/aerollm-api && maturin develop --release"
-        ),
+        "install_command": "./arailctl deep rebuild",
         "description": "In-process Rust runtime — primary deep backend on Apple Silicon (Qwen2.5-7B-4bit default, ~4 GB resident; max tier ships Qwen2.5-72B-Instruct-4bit, ~40 GB resident, requires 48 GB+). Single Metal command buffer per generation; ~3× faster than mlx_lm baseline.",
         # AeroLLM is also streaming by design.
         "streamed": True,
