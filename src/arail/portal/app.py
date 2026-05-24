@@ -20,7 +20,7 @@ from typing import Any, AsyncIterator, Iterator, cast
 _log = logging.getLogger(__name__)
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -522,6 +522,14 @@ tracker = ExperimentTracker()
 parser = GoalParser()
 plugin_mgr = PluginManager()
 
+# AI Dictionary — theme-aware learning glossary surfaced in the Docs tab.
+# Generation runs as serialized background tasks; this lock is defense in
+# depth (on top of the per-slug `generating` flag and the inference slot)
+# against double-clicks launching parallel jobs.
+from arail import dictionary as dictionary_mod  # noqa: E402
+dictionary_store = dictionary_mod.DictionaryStore()
+_dict_gen_lock = asyncio.Lock()
+
 
 @app.on_event("startup")
 async def _startup():
@@ -812,6 +820,11 @@ def _register_canvas_goal_listener(store: Any) -> None:
             loop.create_task(_do_clear())
 
     goals_mod.add_listener(listener)
+
+    # AI Dictionary follows the active goal: clear any stale theme override
+    # when the goal changes. Never triggers generation (OOM guard — generation
+    # stays on-demand only).
+    goals_mod.add_listener(dictionary_mod.on_goal_event)
 
 
 @app.on_event("shutdown")
@@ -2005,6 +2018,18 @@ async def docs_hub(request: Request):
     })
 
 
+# NOTE: This fixed-path route MUST be declared before the catch-all
+# `@app.get("/docs/{path:path}")` below, which serves only `*.md` files and
+# would otherwise 404 this page (FastAPI resolves routes in declaration order).
+@app.get("/docs/dictionary", response_class=HTMLResponse)
+async def docs_dictionary_page(request: Request):
+    """Full-page AI Dictionary — browse, search, expand, and generate terms."""
+    return templates.TemplateResponse(request, "dictionary.html", {
+        "tier": _current_tier(),
+        "nav_active": "docs",
+    })
+
+
 def _slugify(text: str) -> str:
     """Convert heading text to a URL-safe id: lowercase, spaces→'-', strip non-[a-z0-9-]."""
     s = text.lower().strip()
@@ -2463,6 +2488,205 @@ async def _auto_draft_program(goal_record: dict) -> None:
 @app.get("/api/goal")
 async def get_goal():
     return goal_store.get_current()
+
+
+# ── AI Dictionary API ─────────────────────────────────────────────────────
+# A theme-aware learning glossary. Buddy drafts terms tied to the current goal
+# (AI / model-tuning by default). Reads are instant from cache; generation runs
+# as a serialized background task (inference_slot cap + per-slug flag + lock)
+# so it never competes for memory.
+
+def _dict_resolve_theme() -> Dict[str, Any]:
+    # Theme is the AI glossary (default) unless the user picked a topic override.
+    # The research goal is surfaced as a suggested action, not an auto-switch.
+    return dictionary_mod.resolve_theme()
+
+
+def _dict_goal_text() -> str:
+    cur = goal_store.get_current()
+    if not cur:
+        return ""
+    return str(cur.get("goal_text") or (cur.get("parsed") or {}).get("goal") or "").strip()
+
+
+def _dict_response(theme: Dict[str, Any], doc: Dict[str, Any]) -> Dict[str, Any]:
+    terms = doc.get("terms", [])
+    slug = dictionary_mod.theme_slug(theme.get("label", ""))
+    resp: Dict[str, Any] = {
+        "theme": {
+            "label": theme.get("label"),
+            "source": theme.get("source"),
+            "archetype": theme.get("archetype"),
+            "slug": slug,
+        },
+        "terms": terms,
+        "count": len(terms),
+        "generating": bool(doc.get("generating")),
+        "last_error": doc.get("last_error"),
+        "can_generate": True,
+    }
+    # Offer a one-click "build a glossary for my goal" when an active goal isn't
+    # already the current theme.
+    goal_text = _dict_goal_text()
+    if goal_text and dictionary_mod.theme_slug(goal_text) != slug:
+        resp["goal_suggestion"] = goal_text
+    return resp
+
+
+async def _dict_run_generation(
+    theme: Dict[str, Any], *, count: int, avoid_terms: List[str], label: str
+) -> None:
+    """Background generation pass. Captures `theme` at launch so a theme switch
+    mid-flight writes to the original slug — no cross-contamination."""
+    try:
+        async with scheduler.inference_slot(label):
+            entries, _level = await asyncio.to_thread(
+                dictionary_mod.generate_terms,
+                theme, count=count, avoid_terms=avoid_terms,
+            )
+        if entries:
+            added, skipped = dictionary_store.add_terms(theme, entries)
+            extra = f" ({skipped} dupes skipped)" if skipped else ""
+            activity_log.emit(
+                "buddy",
+                f"Buddy added {added} dictionary terms for "
+                f"'{theme.get('label')}'{extra}",
+                "success",
+            )
+        else:
+            dictionary_store.set_generating(theme, False, error="generation_failed")
+            activity_log.emit(
+                "buddy",
+                f"Buddy couldn't draft terms for '{theme.get('label')}' — try again.",
+                "warn",
+            )
+    except Exception as e:  # noqa: BLE001
+        dictionary_store.set_generating(theme, False, error=f"{type(e).__name__}")
+        activity_log.emit(
+            "buddy",
+            f"Dictionary generation failed: {type(e).__name__}: {str(e)[:120]}",
+            "warn",
+        )
+    finally:
+        dictionary_store.set_generating(theme, False)
+
+
+@app.get("/api/dictionary")
+async def api_dictionary_get():
+    theme = _dict_resolve_theme()
+    doc = dictionary_store.get_or_init(theme)
+    return _dict_response(theme, doc)
+
+
+@app.post("/api/dictionary/seed")
+async def api_dictionary_seed(request: Request):
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001
+        body = {}
+    force = bool(body.get("force"))
+    theme = _dict_resolve_theme()
+    doc = dictionary_store.get_or_init(theme)
+    # Idempotent: already populated and not a forced re-seed.
+    if doc.get("terms") and not force:
+        return _dict_response(theme, doc)
+    async with _dict_gen_lock:
+        doc = dictionary_store.get_or_init(theme)
+        if doc.get("generating"):
+            return _dict_response(theme, doc)
+        dictionary_store.set_generating(theme, True)
+        asyncio.create_task(
+            _dict_run_generation(theme, count=24, avoid_terms=[], label="dictionary-seed")
+        )
+    activity_log.emit("buddy", f"Buddy is drafting a dictionary for '{theme.get('label')}'…", "info")
+    return JSONResponse(
+        {**_dict_response(theme, dictionary_store.get_or_init(theme)), "started": True},
+        status_code=202,
+    )
+
+
+@app.post("/api/dictionary/generate-more")
+async def api_dictionary_generate_more(request: Request):
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001
+        body = {}
+    try:
+        count = int(body.get("count") or 12)
+    except (TypeError, ValueError):
+        count = 12
+    count = max(1, min(count, 24))
+    theme = _dict_resolve_theme()
+    async with _dict_gen_lock:
+        doc = dictionary_store.get_or_init(theme)
+        if doc.get("generating"):
+            # A job is already running for this theme — reject the duplicate.
+            return _dict_response(theme, doc)
+        avoid = [str(e.get("term", "")) for e in doc.get("terms", [])][:60]
+        dictionary_store.set_generating(theme, True)
+        asyncio.create_task(
+            _dict_run_generation(theme, count=count, avoid_terms=avoid, label="dictionary-more")
+        )
+    return JSONResponse(
+        {**_dict_response(theme, dictionary_store.get_or_init(theme)), "started": True},
+        status_code=202,
+    )
+
+
+@app.post("/api/dictionary/theme")
+async def api_dictionary_theme(request: Request):
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001
+        body = {}
+    if body.get("clear"):
+        dictionary_mod.clear_override()
+    else:
+        label = str(body.get("label") or "").strip()
+        if not label:
+            return JSONResponse(
+                {"error": "Provide a theme label or clear:true."}, status_code=400
+            )
+        dictionary_mod.set_override(label)
+    theme = _dict_resolve_theme()
+    doc = dictionary_store.get_or_init(theme)
+    return _dict_response(theme, doc)
+
+
+@app.post("/api/dictionary/expand")
+async def api_dictionary_expand(request: Request):
+    """Buddy enriches ONE term with a deeper plain-text explanation. Single,
+    small completion → reliable on local models, unlike bulk JSON. Cached on
+    the term so re-expanding is instant."""
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001
+        body = {}
+    term = str(body.get("term") or "").strip()
+    if not term:
+        return JSONResponse({"ok": False, "message": "No term provided."}, status_code=400)
+    force = bool(body.get("force"))
+    theme = _dict_resolve_theme()
+    key = dictionary_mod.norm_key(term)
+    existing = dictionary_store.find_term(theme, key)
+    # Already enriched by Buddy → serve from cache.
+    if existing and existing.get("detail_source") == "buddy" and existing.get("detail") and not force:
+        return {"ok": True, "term": existing.get("term", term),
+                "detail": existing["detail"], "cached": True}
+    short = (existing or {}).get("short_def") or ""
+    try:
+        async with scheduler.inference_slot("dictionary-expand"):
+            text = await asyncio.to_thread(
+                dictionary_mod.expand_term, theme, term, short_def=short
+            )
+    except Exception as e:  # noqa: BLE001
+        activity_log.emit("buddy", f"Expand failed for '{term}': {type(e).__name__}", "warn")
+        return {"ok": False, "message": "Buddy couldn't reach the model right now."}
+    if not text:
+        return {"ok": False, "message": "Buddy didn't have more to add right now."}
+    dictionary_store.set_term_detail(theme, key, text, source="buddy")
+    activity_log.emit("buddy", f"Buddy explained '{term}'", "info")
+    return {"ok": True, "term": term, "detail": text, "cached": False}
 
 
 # ── Research API ─────────────────────────────────────────────────────────

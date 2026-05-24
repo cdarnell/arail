@@ -154,6 +154,24 @@
            aria-label="Filter docs" autocomplete="off">
   </div>
 
+  {# ── AI Dictionary teaser ─────────────────────────────────────────── #}
+  <section class="dict-box" id="dict-box" aria-busy="false">
+    <div class="dict-box-head">
+      <h2 class="dict-box-title">Dictionary<span class="dict-theme" id="dict-theme"></span></h2>
+      <span class="dict-source" id="dict-source"></span>
+      <span class="dict-count" id="dict-count"></span>
+      <div class="dict-box-actions">
+        <input type="search" id="dict-search" placeholder="Search terms…"
+               aria-label="Search dictionary terms" autocomplete="off">
+        <button type="button" id="dict-more" class="dict-btn">Generate more</button>
+        <a href="/docs/dictionary" class="dict-btn dict-btn-link">Open full dictionary →</a>
+      </div>
+    </div>
+    <div class="dict-goal" id="dict-goal" hidden></div>
+    <div class="dict-box-status" id="dict-status" hidden></div>
+    <div class="dict-teaser-grid" id="dict-teaser" data-limit="8"></div>
+  </section>
+
   {% if not cats %}
   {# ── Fallback panel (F1: empty registry) ─────────────────────────── #}
   <div class="docs-fallback">
@@ -227,6 +245,7 @@
 </div>{# .docs-hub #}
 
 <script src="/static/nav.js"></script>
+<script src="/static/dictionary.js"></script>
 <script>
 /* Client-side substring filter across title + description + tags.
    All filtering reads textContent / data attributes — no innerHTML writes (F8). */
