@@ -1272,8 +1272,8 @@ class AirLLMBackend(BaseBackend):
 class AeroLLMBackend(BaseBackend):
     """Drive the AeroLLM Rust runtime through its `aerollm_api` PyO3 wheel.
 
-    The wheel ships from `aerollm/crates/aerollm-api` (build with
-    ``maturin develop --release``). Apple Silicon uses the in-process
+    The wheel is built from the local sibling repo ``$ARAIL_AEROLLM_REPO``
+    (``./arailctl deep rebuild``). Apple Silicon uses the in-process
     ``mlx-native`` backend; on other hosts the wheel falls back to the
     legacy subprocess shim (``mlx``).
 
@@ -1293,13 +1293,44 @@ class AeroLLMBackend(BaseBackend):
     ordering interacting with our atexit handler, not a runtime bug.
     """
 
+    # Process-wide shared instances, keyed by resolved model. Both the chat
+    # path and the agents construct AeroLLMBackend(); without sharing, each
+    # would load a second copy of the multi-GB weights and OOM the box.
+    # __new__ hands back the existing *initialized* instance for the same model
+    # so there is exactly ONE resident Runtime per model per process.
+    _shared: "dict[str, AeroLLMBackend]" = {}
+
+    @staticmethod
+    def _cache_key() -> str:
+        model = os.getenv("AEROLLM_MODEL", "Qwen2.5-7B-Instruct-4bit")
+        models_dir = os.getenv("ARAIL_MODELS_DIR", "lab/models")
+        return f"{models_dir}::{model}"
+
+    def __new__(cls) -> "AeroLLMBackend":
+        key = cls._cache_key()
+        inst = cls._shared.get(key)
+        if inst is not None and getattr(inst, "_initialized", False):
+            return inst
+        # First construction (or a prior attempt failed before finishing):
+        # build a fresh instance and let __init__ run. Replacing a failed
+        # instance lets a retry succeed after the model is downloaded.
+        inst = super().__new__(cls)
+        cls._shared[key] = inst
+        return inst
+
     def __init__(self) -> None:
+        # __new__ may hand back an already-built shared instance; don't reload.
+        if getattr(self, "_initialized", False):
+            return
         try:
             from aerollm_api import Runtime  # type: ignore[import-untyped]
         except ImportError as e:
             raise ImportError(
-                "aerollm_api wheel not installed. Build it with: "
-                "cd aerollm/crates/aerollm-api && maturin develop --release"
+                "aerollm_api wheel not installed. Build it from the local "
+                "sibling repo with: ./arailctl deep rebuild "
+                "(or set ARAIL_AEROLLM_REPO and re-run ./arailctl setup on "
+                "the maximus tier). Do NOT use `maturin develop` — see "
+                "scripts/setup.sh for why."
             ) from e
 
         # Default model picks the 4-bit MLX quant — ~4 GB resident, fits a
@@ -1409,6 +1440,9 @@ class AeroLLMBackend(BaseBackend):
         # this, Python's GC can drop the unsendable handle from the main
         # thread and PyO3 raises RuntimeError during shutdown.
         atexit.register(self._close)
+        # Mark fully constructed last — __new__ reuses only initialized
+        # instances, so a failure above leaves this instance replaceable.
+        self._initialized = True
 
     def _init_runtime(self, runtime_cls: Any, model_path: str,
                       rt_kwargs: dict[str, Any]) -> None:

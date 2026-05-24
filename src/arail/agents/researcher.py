@@ -159,17 +159,18 @@ def _get_router():
 
 
 def _get_deep_router():
-    """Lazy-load a second ModelRouter wired to AeroLLM for deep research.
+    """The shared aeroLLM deep router (the "2nd inference") for research.
 
-    Returns None when AeroLLM is not installed or AEROLLM_RESEARCH is false.
+    Returns None when AEROLLM_RESEARCH is disabled or aeroLLM isn't available.
+    Delegates to ``arail.agents.deep_policy`` so the lab keeps a SINGLE resident
+    deep model across all agents — two copies would OOM the box.
     """
     import os
     if os.getenv("AEROLLM_RESEARCH", "true").lower() in ("0", "false", "no"):
         return None
     try:
-        from arail.router.core import ModelRouter
-        router = ModelRouter(backend="aerollm")
-        return router
+        from arail.agents import deep_policy
+        return deep_policy.get_deep_router()
     except Exception:
         return None
 
@@ -305,7 +306,10 @@ class ResearcherAgent:
         self.tracker = ExperimentTracker()
         self.curator = CuratorAgent()
         self._router = _get_router()
-        self._deep_router = _get_deep_router()
+        # Lazy: the deep (aeroLLM) model is multi-GB. Don't load it at boot —
+        # _active_deep_router() fetches the shared router on first background-
+        # safe use, so an idle maximus lab never carries the 2nd inference.
+        self._deep_router = None
         self._task: Optional[asyncio.Task] = None
         self._paused = False
         self._status = "idle"  # idle | running | paused | completed | error
@@ -836,20 +840,28 @@ class ResearcherAgent:
             await asyncio.sleep(0.5)
 
     def _active_deep_router(self):
-        """Return the deep router only if we're in the heavy window AND the
-        runtime profile is not 'interactive'. During active hours OR when
-        the operator is here (presence detected) OR they manually pinned
-        'interactive', we force the fast SLM path so the lab stays
-        responsive for interactive use."""
-        if current_window() == "active":
-            return None
+        """Lazily return the shared aeroLLM deep router, but only when the deep
+        policy says it's safe to run the 2nd inference in the background right
+        now: maximus tier, heavy/idle window, no operator presence, and Metal
+        memory pressure below the background ceiling. The heavy model is loaded
+        on first such call — never at boot — and is shared process-wide so chat
+        + agents never hold two copies. During active hours, when the operator
+        is present, or under memory pressure we force the fast SLM path so the
+        lab stays responsive — and never OOMs."""
         try:
-            from arail.runtime_profile import resolve
-            if resolve()[0] == "interactive":
+            from arail.agents import deep_policy
+            if not deep_policy.prefer_deep(foreground=False):
                 return None
+            # Honors AEROLLM_RESEARCH + returns the shared, cached deep router
+            # (constructs the Runtime on first call only).
+            self._deep_router = _get_deep_router()
+            return self._deep_router
         except Exception:
-            pass
-        return self._deep_router
+            # If the policy can't be consulted, stay conservative: only outside
+            # the active window, and don't force a fresh load.
+            if current_window() == "active":
+                return None
+            return self._deep_router
 
     # ── Research methods (LLM-enhanced with heuristic fallback) ────
 
