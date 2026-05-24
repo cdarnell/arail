@@ -330,6 +330,14 @@ MODEL_METADATA_OVERRIDES: List[tuple] = [
 # match actual fleet headroom and pick up deepseek-r1:32b as streamable.
 HARDWARE_FLOOR_TOTAL_B = 30.0
 
+# Headline "frontier" threshold — distinct from the OOM floor above.
+# The 30B floor is a *hardware* fact (what fits in GPU); 70B is the
+# *product* line where a model is framed as a frontier model that
+# defaults to the 2nd inference (aeroLLM) and surfaces the chat
+# comparison view. Everything 30B–70B still streams (floor wins for
+# OOM safety) but isn't branded "frontier". See is_frontier().
+FRONTIER_HEADLINE_B = 70.0
+
 
 @lru_cache(maxsize=512)
 def get_total_params(model_name: str) -> Optional[float]:
@@ -387,5 +395,34 @@ def must_stream(model_name: str) -> bool:
         return val > HARDWARE_FLOOR_TOTAL_B
     if unit == "M":
         return val / 1000.0 > HARDWARE_FLOOR_TOTAL_B
-    # K -> never above 35B
+    # K -> never above the floor
+    return False
+
+
+@lru_cache(maxsize=512)
+def is_frontier(model_name: str) -> bool:
+    """True iff TOTAL params >= FRONTIER_HEADLINE_B (70B).
+
+    The headline "this is a frontier model → 2nd inference (aeroLLM)" check.
+    Distinct from must_stream() (the 30B OOM floor): a 32B model must_stream
+    but is NOT frontier. Used by the chat comparison view to brand a pick as
+    frontier-scale and auto-default it to the deep backend.
+
+    Mirrors must_stream()'s lookup: overrides first, then the inline regex.
+    Bad / empty / unparseable input -> False.
+    """
+    if not model_name:
+        return False
+    total_b = get_total_params(model_name)
+    if total_b is not None:
+        return total_b >= FRONTIER_HEADLINE_B
+    m = _re.search(r"(\d+(?:\.\d+)?)([BMK])\b", model_name, _re.IGNORECASE)
+    if not m:
+        return False
+    val = float(m.group(1))
+    unit = m.group(2).upper()
+    if unit == "B":
+        return val >= FRONTIER_HEADLINE_B
+    if unit == "M":
+        return val / 1000.0 >= FRONTIER_HEADLINE_B
     return False
