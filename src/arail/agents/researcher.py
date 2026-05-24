@@ -174,8 +174,14 @@ def _get_deep_router():
         return None
 
 
-def _llm_complete(router, prompt: str, max_tokens: int = 512) -> str | None:
+def _llm_complete(router, prompt: str, max_tokens: int = 512,
+                  *, system: str | None = None) -> str | None:
     """Call the LLM and return text, or None on failure.
+
+    ``system`` is an optional stable prefix (the intent system context). For
+    the Claude backend it is sent as a cached ``system`` block (prompt
+    caching) so the 3-5 calls in one research run reuse it; other backends
+    prepend it to the prompt. See ClaudeBackend / build_system_prompt_parts.
 
     Failures are logged to activity_log at `warn` level so the dashboard
     reveals when heuristic fallbacks are masking a real inference problem.
@@ -186,15 +192,17 @@ def _llm_complete(router, prompt: str, max_tokens: int = 512) -> str | None:
     try:
         import time as _time
         t0 = _time.monotonic()
-        resp = router.complete(prompt, max_tokens=max_tokens, temperature=0.7)
+        resp = router.complete(prompt, max_tokens=max_tokens, temperature=0.7,
+                               system=system)
         elapsed = (_time.monotonic() - t0) * 1000
         text = resp.text.strip() if resp.text else None
 
+        traced_prompt = f"{system}\n\n{prompt}" if system else prompt
         activity_log.emit("researcher",
                           f"LLM call completed ({int(elapsed)}ms)",
                           "info", {
                               "prompt_trace": {
-                                  "prompt": prompt[:3000],
+                                  "prompt": traced_prompt[:3000],
                                   "response": text[:2000] if text else None,
                                   "max_tokens": max_tokens,
                                   "latency_ms": round(elapsed, 1),
@@ -214,22 +222,24 @@ def _llm_complete(router, prompt: str, max_tokens: int = 512) -> str | None:
 
 
 def _deep_complete(deep_router, fast_router, prompt: str,
-                   max_tokens: int = 512) -> str | None:
+                   max_tokens: int = 512, *, system: str | None = None) -> str | None:
     """Try deep (AeroLLM) inference first, fall back to fast router.
 
+    ``system`` is the optional cached stable prefix — forwarded to both the
+    deep and fast routers so either path benefits from prompt caching.
     Emits an activity event so the dashboard shows deep inference is active.
     """
     if deep_router is not None:
         activity_log.emit("researcher",
                           "Deep inference — 70B+ model from disk, this takes time…",
                           "info", {"mode": "deep"})
-        result = _llm_complete(deep_router, prompt, max_tokens)
+        result = _llm_complete(deep_router, prompt, max_tokens, system=system)
         if result:
             return result
         activity_log.emit("researcher",
                           "Deep engine unavailable, falling back to fast model.",
                           "warn")
-    return _llm_complete(fast_router, prompt, max_tokens)
+    return _llm_complete(fast_router, prompt, max_tokens, system=system)
 
 
 def _active_redirect() -> dict[str, Any] | None:
@@ -869,8 +879,9 @@ class ResearcherAgent:
         # genuine alternatives bench to expose in the UI. The first
         # _CHOSEN_LIMIT survive into experiments; the rest become
         # alternatives.
+        # sys_ctx is the stable prefix → cached system block (Claude); the rest
+        # is the per-run volatile body. See _llm_complete / build_chat_payload.
         prompt = (
-            f"{sys_ctx}\n\n"
             f"{redirect_block}"
             f"{self._swarm_prompt_block(parsed_goal)}"
             f"Given the goal below, generate 5-8 testable hypotheses "
@@ -881,7 +892,7 @@ class ResearcherAgent:
             f"Sub-objectives: {', '.join(sub_objectives) if sub_objectives else 'none'}\n\n"
             f"Hypotheses:"
         )
-        llm_text = _deep_complete(self._active_deep_router(), self._router, prompt, max_tokens=600)
+        llm_text = _deep_complete(self._active_deep_router(), self._router, prompt, max_tokens=600, system=sys_ctx)
         if llm_text:
             all_candidates = [
                 cleaned for line in llm_text.split("\n")
@@ -1020,13 +1031,12 @@ class ResearcherAgent:
         sys_ctx = _get_system_context(intent)
         redirect_block = _redirect_prompt_block(_active_redirect())
         prompt = (
-            f"{sys_ctx}\n\n"
             f"{redirect_block}"
             f"You are running an experiment about: {exp['hypothesis'][:100]}\n"
             f"Domain: {domain}\n"
             f"Write a single concise observation (1-2 sentences) from initial data collection."
         )
-        llm_text = _llm_complete(self._router, prompt, max_tokens=100)
+        llm_text = _llm_complete(self._router, prompt, max_tokens=100, system=sys_ctx)
         if llm_text:
             return llm_text[:200]
         return (
@@ -1040,7 +1050,6 @@ class ResearcherAgent:
         sys_ctx = _get_system_context(intent)
         redirect_block = _redirect_prompt_block(_active_redirect())
         prompt = (
-            f"{sys_ctx}\n\n"
             f"{redirect_block}"
             f"Analyze this experiment and provide results.\n"
             f"Hypothesis: {exp['hypothesis'][:100]}\n"
@@ -1049,7 +1058,7 @@ class ResearcherAgent:
             f"confidence_score (0-1), data_points (int), conclusion (string), success (bool).\n"
             f"JSON:"
         )
-        llm_text = _deep_complete(self._active_deep_router(), self._router, prompt, max_tokens=200)
+        llm_text = _deep_complete(self._active_deep_router(), self._router, prompt, max_tokens=200, system=sys_ctx)
         if llm_text:
             try:
                 # Try to extract JSON from response
@@ -1139,7 +1148,6 @@ class ResearcherAgent:
             f"- {exp['hypothesis'][:80]}" for exp in experiments
         )
         prompt = (
-            f"{sys_ctx}\n\n"
             f"{redirect_block}"
             f"{self._swarm_prompt_block(parsed_goal)}"
             f"Write a concise research report in Markdown.\n\n"
@@ -1148,7 +1156,7 @@ class ResearcherAgent:
             f"Include: Summary, Key Findings, Recommendations.\n"
             f"Keep it under 300 words.\n\nReport:"
         )
-        llm_text = _deep_complete(self._active_deep_router(), self._router, prompt, max_tokens=600)
+        llm_text = _deep_complete(self._active_deep_router(), self._router, prompt, max_tokens=600, system=sys_ctx)
         if llm_text and len(llm_text) > 50:
             return llm_text
 

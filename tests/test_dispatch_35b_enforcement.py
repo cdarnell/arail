@@ -36,6 +36,8 @@ class _FakeResponse:
     model: str = "fake-model"
     latency_ms: float = 1.0
     tokens_used: int = 1
+    cache_read_input_tokens: int = 0
+    cache_creation_input_tokens: int = 0
 
 
 class _FakeDeepBackend:
@@ -46,8 +48,10 @@ class _FakeDeepBackend:
     def __init__(self):
         self.calls: list[dict[str, Any]] = []
 
-    def complete(self, prompt, max_tokens=None, temperature=None, top_p=None):
-        self.calls.append({"prompt": prompt, "max_tokens": max_tokens})
+    def complete(self, prompt, max_tokens=None, temperature=None, top_p=None,
+                 *, system=None, messages=None):
+        self.calls.append({"prompt": prompt, "max_tokens": max_tokens,
+                           "system": system, "messages": messages})
         return _FakeResponse(backend="airllm", model="Llama-3.1-70B")
 
 
@@ -63,8 +67,10 @@ class _FakePrimaryRouter:
     def __init__(self):
         self.calls: list[dict[str, Any]] = []
 
-    def complete(self, prompt, max_tokens=None, temperature=None, top_p=None):
-        self.calls.append({"prompt": prompt, "max_tokens": max_tokens})
+    def complete(self, prompt, max_tokens=None, temperature=None, top_p=None,
+                 *, system=None, messages=None):
+        self.calls.append({"prompt": prompt, "max_tokens": max_tokens,
+                           "system": system, "messages": messages})
         return _FakeResponse(backend="mlx", model="mlx-default-7B")
 
 

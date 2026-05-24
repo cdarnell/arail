@@ -5083,6 +5083,26 @@ def _prepare_chat_context(
     )
     prompt = _render_messages_for_backend(messages, active_backend)
 
+    # Anthropic prompt caching: only when the dispatched backend is Claude
+    # (hybrid mode) build the cache-friendly split — a frozen system prefix
+    # (sent as a cached block) plus structured turns that carry the volatile
+    # state/KB in the final user turn. For every other backend these stay
+    # None and the flat-prompt path above is used unchanged (local behavior
+    # is byte-identical). See lab_brain.build_chat_payload / ClaudeBackend.
+    frozen_system = None
+    claude_messages = None
+    try:
+        from arail.router.backends import ClaudeBackend
+        if isinstance(active_backend, ClaudeBackend):
+            frozen_system, claude_messages = lab_brain.build_chat_payload(
+                message,
+                history,
+                active_backend_name=active_backend_name or None,
+                active_model_name=active_model_name or None,
+            )
+    except Exception:
+        frozen_system, claude_messages = None, None
+
     return {
         "router": router,
         "deep_backend": deep_backend,
@@ -5090,6 +5110,8 @@ def _prepare_chat_context(
         "active_backend": active_backend,
         "previous_model": previous_model,
         "prompt": prompt,
+        "frozen_system": frozen_system,
+        "claude_messages": claude_messages,
         "optional_backend_name": optional_backend_name,
         "wants_deep": wants_deep,
     }
@@ -5177,6 +5199,8 @@ async def _run_chat_completion_stream(
                     max_tokens,
                     temperature,
                     top_p,
+                    system=context.get("frozen_system"),
+                    messages=context.get("claude_messages"),
                 )
             from arail.costs import cost_tracker
             cost_tracker.track(
@@ -5186,6 +5210,8 @@ async def _run_chat_completion_stream(
                 tokens_out=response.tokens_used,
                 latency_ms=response.latency_ms,
                 source="ui",
+                cache_read_input_tokens=response.cache_read_input_tokens,
+                cache_creation_input_tokens=response.cache_creation_input_tokens,
             )
             if response.backend in ("airllm", "aerollm"):
                 _record_aerollm_bench(
@@ -5214,6 +5240,8 @@ async def _run_chat_completion_stream(
                 response = await asyncio.to_thread(
                     runtime_backend.complete,
                     prompt, max_tokens, temperature, top_p,
+                    system=context.get("frozen_system"),
+                    messages=context.get("claude_messages"),
                 )
             from arail.costs import cost_tracker
             cost_tracker.track(
@@ -5221,6 +5249,8 @@ async def _run_chat_completion_stream(
                 tokens_in=max(len(prompt) // 4, 1),
                 tokens_out=response.tokens_used,
                 latency_ms=response.latency_ms, source="ui",
+                cache_read_input_tokens=response.cache_read_input_tokens,
+                cache_creation_input_tokens=response.cache_creation_input_tokens,
             )
             clean_reply = _clean_chat_reply(response.text)
             if clean_reply:
@@ -5243,6 +5273,8 @@ async def _run_chat_completion_stream(
                     max_tokens=max_tokens,
                     temperature=temperature,
                     top_p=top_p,
+                    system=context.get("frozen_system"),
+                    messages=context.get("claude_messages"),
                 )
             ):
                 if isinstance(item, ModelResponse):
@@ -5326,6 +5358,8 @@ async def _run_chat_completion(
                 response = await _aio.to_thread(
                     deep_backend.complete,
                     prompt, max_tokens, temperature, top_p,
+                    system=context.get("frozen_system"),
+                    messages=context.get("claude_messages"),
                 )
             from arail.costs import cost_tracker
             cost_tracker.track(
@@ -5335,6 +5369,8 @@ async def _run_chat_completion(
                 tokens_out=response.tokens_used,
                 latency_ms=response.latency_ms,
                 source="ui",
+                cache_read_input_tokens=response.cache_read_input_tokens,
+                cache_creation_input_tokens=response.cache_creation_input_tokens,
             )
             if response.backend in ("airllm", "aerollm"):
                 _record_aerollm_bench(
@@ -5354,6 +5390,8 @@ async def _run_chat_completion(
                 response = await _aio.to_thread(
                     runtime_backend.complete,
                     prompt, max_tokens, temperature, top_p,
+                    system=context.get("frozen_system"),
+                    messages=context.get("claude_messages"),
                 )
             from arail.costs import cost_tracker
             cost_tracker.track(
@@ -5363,6 +5401,8 @@ async def _run_chat_completion(
                 tokens_out=response.tokens_used,
                 latency_ms=response.latency_ms,
                 source="ui",
+                cache_read_input_tokens=response.cache_read_input_tokens,
+                cache_creation_input_tokens=response.cache_creation_input_tokens,
             )
         else:
             assert router is not None
@@ -5377,6 +5417,8 @@ async def _run_chat_completion(
                     max_tokens=max_tokens,
                     temperature=temperature,
                     top_p=top_p,
+                    system=context.get("frozen_system"),
+                    messages=context.get("claude_messages"),
                 )
     except Exception as e:  # noqa: BLE001
         activity_log.emit("chat",

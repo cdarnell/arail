@@ -129,9 +129,11 @@ class ModelBenchmark:
             return None
 
         # Map model alias to actual Claude model
+        # Map model alias to a current Claude model. The previous targets
+        # (claude-3-5-sonnet-20241022) retired 2026-02-19 and would 404.
         model_map = {
-            "claude-opus": "claude-3-5-sonnet-20241022",
-            "claude-sonnet": "claude-3-5-sonnet-20241022",
+            "claude-opus": "claude-opus-4-7",
+            "claude-sonnet": "claude-sonnet-4-6",
         }
         actual_model = model_map.get(self.model_name.lower(), self.model_name)
 

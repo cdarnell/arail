@@ -87,6 +87,11 @@ class ModelResponse:
     backend: str
     latency_ms: float
     cost_usd: Optional[float] = None
+    # Anthropic prompt-caching usage (claude backend only; 0 elsewhere).
+    # cache_read = tokens served from cache (~0.1x cost); cache_creation =
+    # tokens written to cache this request (~1.25x cost). See ClaudeBackend.
+    cache_read_input_tokens: int = 0
+    cache_creation_input_tokens: int = 0
 
 
 StreamResult = str | ModelResponse
@@ -121,25 +126,39 @@ class BaseBackend(ABC):
     @abstractmethod
     def complete(self, prompt: str, max_tokens: int = 512,
                  temperature: float = 0.7,
-                 top_p: Optional[float] = None) -> ModelResponse:
+                 top_p: Optional[float] = None,
+                 *, system: Optional[str] = None,
+                 messages: Optional[list] = None) -> ModelResponse:
         """Run one completion.
 
         ``top_p`` is optional. When None, the backend uses its default
         sampling policy. Preset buttons on the dashboard set it to
         specific values (0.9 for Factual, 0.95 for Code, etc.).
         Backends that don't support top_p ignore it silently.
+
+        ``system`` is an optional *stable prefix* (frozen system prompt).
+        Non-Claude backends prepend it to ``prompt`` (``f"{system}\\n\\n{prompt}"``)
+        so the rendered bytes match the historic single-string behavior.
+        ``ClaudeBackend`` sends it as a cached ``system`` block (prompt
+        caching). ``messages`` is an optional structured turn list consumed
+        only by ``ClaudeBackend`` (for multi-turn cache reuse); other
+        backends ignore it and use the flat ``prompt``. Both default to
+        None, so existing callers are unaffected.
         """
         ...
 
     def stream_complete(self, prompt: str, max_tokens: int = 512,
                         temperature: float = 0.7,
-                        top_p: Optional[float] = None) -> Iterator[StreamResult]:
+                        top_p: Optional[float] = None,
+                        *, system: Optional[str] = None,
+                        messages: Optional[list] = None) -> Iterator[StreamResult]:
         """Yield text deltas and finish with a ``ModelResponse``.
 
         Backends that do not support native streaming fall back to one
         blocking completion and yield the final response as a single item.
         """
-        yield self.complete(prompt, max_tokens, temperature, top_p=top_p)
+        yield self.complete(prompt, max_tokens, temperature, top_p=top_p,
+                            system=system, messages=messages)
 
     @abstractmethod
     def health_check(self) -> bool:
@@ -189,7 +208,11 @@ class MLXBackend(BaseBackend):
 
     def complete(self, prompt: str, max_tokens: int = 512,
                  temperature: float = 0.7,
-                 top_p: Optional[float] = None) -> ModelResponse:
+                 top_p: Optional[float] = None,
+                 *, system: Optional[str] = None,
+                 messages: Optional[list] = None) -> ModelResponse:
+        if system:
+            prompt = f"{system}\n\n{prompt}"
         start = time.time()
         # Memory-pressure guard. Clears the Metal cache and refuses
         # the call when accumulated activations have crossed the
@@ -311,7 +334,11 @@ class CUDABackend(BaseBackend):
 
     def complete(self, prompt: str, max_tokens: int = 512,
                  temperature: float = 0.7,
-                 top_p: Optional[float] = None) -> ModelResponse:
+                 top_p: Optional[float] = None,
+                 *, system: Optional[str] = None,
+                 messages: Optional[list] = None) -> ModelResponse:
+        if system:
+            prompt = f"{system}\n\n{prompt}"
         start = time.time()
         body: dict = {"prompt": prompt, "max_tokens": max_tokens,
                       "temperature": temperature}
@@ -343,7 +370,11 @@ class CUDABackend(BaseBackend):
 
     def stream_complete(self, prompt: str, max_tokens: int = 512,
                         temperature: float = 0.7,
-                        top_p: Optional[float] = None) -> Iterator[StreamResult]:
+                        top_p: Optional[float] = None,
+                        *, system: Optional[str] = None,
+                        messages: Optional[list] = None) -> Iterator[StreamResult]:
+        if system:
+            prompt = f"{system}\n\n{prompt}"
         start = time.time()
         body: dict[str, Any] = {
             "prompt": prompt,
@@ -443,7 +474,11 @@ class CPUBackend(BaseBackend):
 
     def complete(self, prompt: str, max_tokens: int = 512,
                  temperature: float = 0.7,
-                 top_p: Optional[float] = None) -> ModelResponse:
+                 top_p: Optional[float] = None,
+                 *, system: Optional[str] = None,
+                 messages: Optional[list] = None) -> ModelResponse:
+        if system:
+            prompt = f"{system}\n\n{prompt}"
         start = time.time()
         kwargs: dict = {"max_tokens": max_tokens, "temperature": temperature}
         if top_p is not None:
@@ -483,7 +518,11 @@ class HuggingFaceBackend(BaseBackend):
 
     def complete(self, prompt: str, max_tokens: int = 512,
                  temperature: float = 0.7,
-                 top_p: Optional[float] = None) -> ModelResponse:
+                 top_p: Optional[float] = None,
+                 *, system: Optional[str] = None,
+                 messages: Optional[list] = None) -> ModelResponse:
+        if system:
+            prompt = f"{system}\n\n{prompt}"
         start = time.time()
         kwargs: dict = {
             "prompt": prompt, "max_new_tokens": max_tokens,
@@ -525,7 +564,11 @@ class OpenRouterBackend(BaseBackend):
 
     def complete(self, prompt: str, max_tokens: int = 512,
                  temperature: float = 0.7,
-                 top_p: Optional[float] = None) -> ModelResponse:
+                 top_p: Optional[float] = None,
+                 *, system: Optional[str] = None,
+                 messages: Optional[list] = None) -> ModelResponse:
+        if system:
+            prompt = f"{system}\n\n{prompt}"
         start = time.time()
         payload: dict = {"model": self.model_name,
                          "messages": [{"role": "user", "content": prompt}],
@@ -560,7 +603,11 @@ class OpenRouterBackend(BaseBackend):
 
     def stream_complete(self, prompt: str, max_tokens: int = 512,
                         temperature: float = 0.7,
-                        top_p: Optional[float] = None) -> Iterator[StreamResult]:
+                        top_p: Optional[float] = None,
+                        *, system: Optional[str] = None,
+                        messages: Optional[list] = None) -> Iterator[StreamResult]:
+        if system:
+            prompt = f"{system}\n\n{prompt}"
         start = time.time()
         payload: dict[str, Any] = {
             "model": self.model_name,
@@ -618,6 +665,55 @@ class OpenRouterBackend(BaseBackend):
 
 
 # ---------------------------------------------------------------------------
+# Anthropic prompt-caching helpers (claude backend only)
+# ---------------------------------------------------------------------------
+
+def _min_cacheable_prefix_tokens(model: str) -> int:
+    """Minimum prefix size (tokens) Anthropic will cache for *model*.
+
+    Prompt caching silently no-ops below this floor (no error, just
+    ``cache_creation_input_tokens: 0``). Floors are model-family specific;
+    unknown models fall back to the highest floor so we never *assume* a
+    write will land. Most-specific families are checked first.
+    """
+    m = model.lower()
+    if "opus-4" in m:
+        return 4096
+    if "haiku-4-5" in m or "haiku-4.5" in m:
+        return 4096
+    if "sonnet-4-6" in m or "sonnet-4.6" in m:
+        return 2048
+    if "haiku-3" in m:  # haiku 3 / 3.5
+        return 2048
+    if "sonnet-4" in m or "3-7-sonnet" in m:  # sonnet 4 / 4.5 / 3.7
+        return 1024
+    return 4096  # unknown → conservative
+
+
+def _prefix_is_cacheable(text: str, model: str) -> bool:
+    """True when *text* is large enough to actually cache on *model*.
+
+    Token count is estimated as chars/4. Returning False means we skip the
+    ``cache_control`` marker entirely — below the floor it would be a
+    silent no-op anyway, so this just makes the decision explicit/testable.
+    """
+    approx_tokens = len(text) // 4
+    return approx_tokens >= _min_cacheable_prefix_tokens(model)
+
+
+def _anthropic_supports_cache(anthropic_mod: Any) -> bool:
+    """True when the installed SDK supports header-free block-level
+    ``cache_control`` on ``messages.create()`` (GA since anthropic 0.34.0)."""
+    raw = getattr(anthropic_mod, "__version__", "0") or "0"
+    try:
+        parts = raw.split(".")
+        major, minor = int(parts[0]), int(parts[1])
+    except (ValueError, IndexError):
+        return False
+    return (major, minor) >= (0, 34)
+
+
+# ---------------------------------------------------------------------------
 # Anthropic Claude  (cloud — paid)
 # ---------------------------------------------------------------------------
 class ClaudeBackend(BaseBackend):
@@ -627,21 +723,84 @@ class ClaudeBackend(BaseBackend):
             raise ValueError("ANTHROPIC_API_KEY not set")
         import anthropic  # type: ignore[import-untyped]
         self.client = anthropic.Anthropic(api_key=api_key)
-        self.model_name = os.getenv("MODEL_NAME", "claude-sonnet-4-20250514")
+        # Modernized default (2026-05): claude-sonnet-4-20250514 retires
+        # 2026-06-15. Sonnet 4.6 is the current same-tier model (1M context).
+        # Its prompt-cache floor is 2048 tokens — see _min_cacheable_prefix_tokens.
+        self.model_name = os.getenv("MODEL_NAME", "claude-sonnet-4-6")
+        self._supports_cache = _anthropic_supports_cache(anthropic)
+
+    @staticmethod
+    def _with_message_cache_breakpoint(msgs: list) -> list:
+        """Return a shallow copy of *msgs* with a ``cache_control`` breakpoint
+        on the last turn's final content block.
+
+        This is the multi-turn breakpoint: it caches the whole
+        ``tools + system + messages`` prefix up to here, so the *next* request
+        (where this turn is now history) reads it instead of reprocessing.
+        Only used for the chat path; the researcher's single synthesized turn
+        doesn't repeat, so it isn't marked.
+        """
+        if not msgs:
+            return list(msgs)
+        out = list(msgs)
+        last = dict(out[-1])
+        content = last.get("content")
+        marker = {"type": "ephemeral"}
+        if isinstance(content, str):
+            last["content"] = [{
+                "type": "text", "text": content, "cache_control": marker,
+            }]
+        elif isinstance(content, list) and content:
+            blocks = [dict(b) if isinstance(b, dict) else b for b in content]
+            if isinstance(blocks[-1], dict):
+                blocks[-1]["cache_control"] = marker
+            last["content"] = blocks
+        else:
+            return out  # nothing markable
+        out[-1] = last
+        return out
 
     def complete(self, prompt: str, max_tokens: int = 512,
                  temperature: float = 0.7,
-                 top_p: Optional[float] = None) -> ModelResponse:
+                 top_p: Optional[float] = None,
+                 *, system: Optional[str] = None,
+                 messages: Optional[list] = None) -> ModelResponse:
         start = time.time()
+        if messages is not None:
+            # Chat multi-turn: breakpoint on the last turn so a growing
+            # conversation reuses its [system + history] prefix next request.
+            msgs = (self._with_message_cache_breakpoint(messages)
+                    if self._supports_cache and messages else list(messages))
+        else:
+            # Legacy / researcher path: single user message from the flat prompt.
+            msgs = [{"role": "user", "content": prompt}]
         kwargs: dict = {
             "model": self.model_name,
             "max_tokens": max_tokens,
-            "temperature": temperature,
-            "messages": [{"role": "user", "content": prompt}],
+            "messages": msgs,
         }
+        # Claude 4+ rejects temperature AND top_p together (400). Send at most
+        # one: honor an explicit top_p (set by dashboard presets), else
+        # temperature. Historic code sent both, a latent 400 on preset+Claude.
         if top_p is not None:
             kwargs["top_p"] = top_p
+        else:
+            kwargs["temperature"] = temperature
+        if system:
+            if self._supports_cache and _prefix_is_cacheable(system, self.model_name):
+                # Cached prefix: breakpoint on the frozen system block. Any byte
+                # change here invalidates the cache — keep it volatile-free.
+                kwargs["system"] = [{
+                    "type": "text",
+                    "text": system,
+                    "cache_control": {"type": "ephemeral"},
+                }]
+            else:
+                # Below the model's floor or an old SDK → plain system string
+                # (caching would silently no-op; don't pretend it's active).
+                kwargs["system"] = system
         resp = self.client.messages.create(**kwargs)
+        usage = resp.usage
         return ModelResponse(
             text=resp.content[0].text,
             model=self.model_name,
@@ -649,6 +808,10 @@ class ClaudeBackend(BaseBackend):
             backend="claude",
             latency_ms=(time.time() - start) * 1000,
             cost_usd=None,
+            cache_read_input_tokens=int(
+                getattr(usage, "cache_read_input_tokens", 0) or 0),
+            cache_creation_input_tokens=int(
+                getattr(usage, "cache_creation_input_tokens", 0) or 0),
         )
 
     def health_check(self) -> bool:
@@ -676,7 +839,11 @@ class OpenAICompatBackend(BaseBackend):
 
     def complete(self, prompt: str, max_tokens: int = 512,
                  temperature: float = 0.7,
-                 top_p: Optional[float] = None) -> ModelResponse:
+                 top_p: Optional[float] = None,
+                 *, system: Optional[str] = None,
+                 messages: Optional[list] = None) -> ModelResponse:
+        if system:
+            prompt = f"{system}\n\n{prompt}"
         start = time.time()
         payload: dict = {"model": self.model_name,
                          "messages": [{"role": "user", "content": prompt}],
@@ -711,7 +878,11 @@ class OpenAICompatBackend(BaseBackend):
 
     def stream_complete(self, prompt: str, max_tokens: int = 512,
                         temperature: float = 0.7,
-                        top_p: Optional[float] = None) -> Iterator[StreamResult]:
+                        top_p: Optional[float] = None,
+                        *, system: Optional[str] = None,
+                        messages: Optional[list] = None) -> Iterator[StreamResult]:
+        if system:
+            prompt = f"{system}\n\n{prompt}"
         start = time.time()
         payload: dict[str, Any] = {
             "model": self.model_name,
@@ -993,7 +1164,11 @@ class AirLLMBackend(BaseBackend):
 
     def complete(self, prompt: str, max_tokens: int = 512,
                  temperature: float = 0.7,
-                 top_p: Optional[float] = None) -> ModelResponse:
+                 top_p: Optional[float] = None,
+                 *, system: Optional[str] = None,
+                 messages: Optional[list] = None) -> ModelResponse:
+        if system:
+            prompt = f"{system}\n\n{prompt}"
         # Runtime profile cap: 'interactive' clamps long generations so
         # the layer-streaming path doesn't lock up the lab when the
         # operator is here. See arail.runtime_profile.
@@ -1281,7 +1456,11 @@ class AeroLLMBackend(BaseBackend):
 
     def complete(self, prompt: str, max_tokens: int = 512,
                  temperature: float = 0.7,
-                 top_p: Optional[float] = None) -> ModelResponse:
+                 top_p: Optional[float] = None,
+                 *, system: Optional[str] = None,
+                 messages: Optional[list] = None) -> ModelResponse:
+        if system:
+            prompt = f"{system}\n\n{prompt}"
         start = time.time()
         wrapped = self._wrap_chatml(prompt)
 
@@ -1352,7 +1531,11 @@ class OllamaNativeBackend(OpenAICompatBackend):
 
     def complete(self, prompt: str, max_tokens: int = 512,
                  temperature: float = 0.7,
-                 top_p: Optional[float] = None) -> ModelResponse:
+                 top_p: Optional[float] = None,
+                 *, system: Optional[str] = None,
+                 messages: Optional[list] = None) -> ModelResponse:
+        if system:
+            prompt = f"{system}\n\n{prompt}"
         start = time.time()
         num_ctx = getattr(self, "_num_ctx", None)  # F-NEW: defensive read
 
@@ -1387,9 +1570,13 @@ class OllamaNativeBackend(OpenAICompatBackend):
 
     def stream_complete(self, prompt: str, max_tokens: int = 512,
                         temperature: float = 0.7,
-                        top_p: Optional[float] = None) -> Iterator[StreamResult]:
+                        top_p: Optional[float] = None,
+                        *, system: Optional[str] = None,
+                        messages: Optional[list] = None) -> Iterator[StreamResult]:
         """Symmetry with OpenAICompatBackend; chat path only calls complete().
         Streams via /api/chat with stream:true, yields deltas then ModelResponse."""
+        if system:
+            prompt = f"{system}\n\n{prompt}"
         start = time.time()
         num_ctx = getattr(self, "_num_ctx", None)
 
