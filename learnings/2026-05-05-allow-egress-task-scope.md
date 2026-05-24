@@ -60,6 +60,10 @@ Or use `asyncio.run_coroutine_threadsafe` with an explicit context.
 - asyncio task context: https://docs.python.org/3/library/asyncio-task.html#asyncio.create_task
 - Sprint ARCHITECTURE.md §7 "asyncio subtlety" block
 
+## Related learnings
+
+- [2026-05-20-isolate-secrets-env-in-tests.md](2026-05-20-isolate-secrets-env-in-tests.md) — same "lab runs on others' machines" family: don't let test/runtime code mutate or widen the scope of secrets.
+
 ---
 
 # Learning: canonical-vs-PKB agent de-duplication (Buddy + SRE)
