@@ -278,6 +278,22 @@
     .col[hidden] { display: none !important; }
     .compare-grid[data-cols="2"] .col[data-col="A"] { border-left: 3px solid var(--green); }
     .compare-grid[data-cols="2"] .col[data-col="B"] { border-left: 3px solid var(--purple); }
+    /* Comparison strip — a curated spec table shown atop the compare grid.
+       Rendered from static model metadata (model_specs); never an LLM call. */
+    .compare-strip { display: flex; flex-wrap: wrap; gap: var(--s-2);
+      margin-bottom: var(--s-2); font-size: var(--fs-xs); }
+    .compare-strip .cs-col { flex: 1 1 0; min-width: 0; border: 1px solid var(--border);
+      border-radius: var(--radius-sm, 6px); padding: var(--s-2);
+      background: var(--surface-2, rgba(255,255,255,.03)); }
+    .compare-strip .cs-col.a { border-left: 3px solid var(--green); }
+    .compare-strip .cs-col.b { border-left: 3px solid var(--purple); }
+    .compare-strip .cs-h { font-weight: 600; margin-bottom: 2px; }
+    .compare-strip .cs-row { color: var(--muted); display: flex;
+      justify-content: space-between; gap: var(--s-2); }
+    .compare-strip .cs-row span:last-child { color: var(--text, inherit); }
+    .compare-strip .cs-why { flex-basis: 100%; color: var(--muted);
+      font-style: italic; padding-top: var(--s-2); }
+    .compare-strip.nudge .cs-col.b { border-left-color: var(--amber, #d8a657); }
 
     /* Quickbar — pinned to the top of each column */
     .col-quickbar {
@@ -1456,12 +1472,13 @@
 
     <!-- ── HERO: chat transcript + composer (full width) ─────────────── -->
     <div class="studio-main">
+      <div class="compare-strip" id="compare-strip" hidden></div>
       <div class="compare-grid" id="compare-grid" data-cols="1">
         <!-- ── Column A (primary) ── -->
         <section class="col" data-col="A">
           <div class="col-quickbar">
-            <div class="col-chip" id="col-chip-A">
-              <span class="qb-label">model A</span>
+            <div class="col-chip" id="col-chip-A" title="1st inference — the small model resident on your GPU. Fast, always-on.">
+              <span class="qb-label">1st · on-GPU</span>
               <span class="chip-name" id="picker-label">loading…</span>
               <span class="chip-hint">← pick from rail</span>
             </div>
@@ -1503,8 +1520,8 @@
         <!-- ── Column B (secondary, hidden until Compare) ── -->
         <section class="col" data-col="B" hidden>
           <div class="col-quickbar">
-            <div class="col-chip" id="col-chip-B" title="Column B uses a deep layer-streaming backend so it can coexist with model A on one GPU. Slower per-token, fits 70B+ models from disk.">
-              <span class="qb-label">model B · deep</span>
+            <div class="col-chip" id="col-chip-B" title="2nd inference — aeroLLM. Layer-streams a frontier (70B+) model from disk so it coexists with your on-GPU model. Slower per-token, far bigger brain.">
+              <span class="qb-label">2nd · aeroLLM</span>
               <span class="chip-name" id="picker-label-B">—</span>
               <span class="chip-hint">layer-stream · slower · big params</span>
             </div>
@@ -2066,6 +2083,16 @@
       // Refresh rail visuals (current highlight + active card)
       if (typeof renderModelRail === 'function') renderModelRail();
       if (typeof renderActiveCard === 'function') renderActiveCard();
+      // Auto-default: a frontier (70B+) pick belongs on the 2nd inference.
+      // Open the comparison so the user sees it run there + why. Skip when the
+      // tier doesn't ship the 2nd inference (the strip then shows the nudge).
+      if (isFrontier(m.id) && !State.compareOn
+          && (!State.deep || State.deep.available_in_tier !== false)) {
+        setCompare(true);
+        flashStatus('frontier 70B+ model → routed to the 2nd inference (aeroLLM)');
+      } else if (State.compareOn) {
+        renderComparisonStrip();  // keep the strip in sync with A's pick
+      }
     }
 
     /* Render the rich model info card in the drawer. Pulls from gallery
@@ -2419,6 +2446,60 @@
     bindQuickSlider('qb-temp-A', 'qb-temp-A-val', 'temperature', 'A');
     bindQuickSlider('qb-temp-B', 'qb-temp-B-val', 'temperature', 'B');
 
+    // Frontier = 70B+ total params (the headline "2nd inference" threshold).
+    // Mirrors model_specs.is_frontier()'s fallback regex on the client so the
+    // chat can auto-default a frontier pick to aeroLLM without a round-trip.
+    function isFrontier(id) {
+      if (!id) return false;
+      const m = String(id).match(/(\d+(?:\.\d+)?)\s*([bBmM])\b/);
+      if (!m) return false;
+      let v = parseFloat(m[1]);
+      if (m[2].toLowerCase() === 'm') v /= 1000;
+      return v >= 70;
+    }
+
+    // Curated comparison table (no LLM call): A = 1st inference (on-GPU),
+    // B = 2nd inference (aeroLLM). Sourced from static model metadata.
+    function renderComparisonStrip() {
+      const el = $('compare-strip');
+      if (!el) return;
+      if (!State.compareOn) { el.hidden = true; el.classList.remove('nudge'); return; }
+      const deep = State.deep || {};
+      // No 2nd inference on this tier → upgrade nudge instead of specs.
+      if (deep.available_in_tier === false) {
+        el.classList.add('nudge'); el.hidden = false;
+        const cmd = deep.upgrade_command || './arailctl upgrade maximus';
+        el.innerHTML =
+          '<div class="cs-col a"><div class="cs-h">1st inference · on-GPU</div>'
+          + '<div class="cs-row"><span>fast, always-on</span></div></div>'
+          + '<div class="cs-col b"><div class="cs-h">2nd inference · aeroLLM</div>'
+          + '<div class="cs-row"><span>not on this tier</span></div></div>'
+          + '<div class="cs-why">The 2nd inference (aeroLLM, for 70B+ frontier models) ships '
+          + 'with the <b>maximus</b> tier. Upgrade: <code>' + escapeHtml(cmd) + '</code></div>';
+        return;
+      }
+      el.classList.remove('nudge'); el.hidden = false;
+      const a = State.currentModel || {};
+      const aSpec = a.spec || {};
+      const bSpec = (State.bModel && State.bModel.spec) || deep.spec || {};
+      const aModel = transformProvider(a.id || '—', a.runtime || '').model || (a.id || '—');
+      const bModel = State.bId || deep.model || 'aeroLLM';
+      const cell = (cls, head, model, params, runs) =>
+        '<div class="cs-col ' + cls + '"><div class="cs-h">' + head + '</div>'
+        + '<div class="cs-row"><span>model</span><span>' + escapeHtml(String(model)) + '</span></div>'
+        + '<div class="cs-row"><span>params</span><span>' + escapeHtml(String(params)) + '</span></div>'
+        + '<div class="cs-row"><span>runs</span><span>' + escapeHtml(runs) + '</span></div></div>';
+      let html = cell('a', '1st inference · on-GPU', aModel, aSpec.params || '≤ floor', 'resident in GPU')
+               + cell('b', '2nd inference · aeroLLM', bModel,
+                      bSpec.params || deep.param_hint || '70B+', 'layer-streamed from disk');
+      if (isFrontier(a.id)) {
+        html += '<div class="cs-why">“' + escapeHtml(aModel) + '” is a frontier 70B+ model — '
+              + 'routed to the 2nd inference (aeroLLM) so it can layer-stream from disk '
+              + 'alongside your on-GPU model.</div>';
+      }
+      el.innerHTML = html;
+    }
+
     // ── Compare toggle ─────────────────────────────────────────────
     // Column B is intentionally restricted to *deep backends* (AeroLLM,
     // or AirLLM when the operator has opted in via ARAIL_DEV_AIRLLM=1
@@ -2428,21 +2509,27 @@
     function setCompare(on) {
       State.compareOn = on;
       $('compare-grid').setAttribute('data-cols', on ? '2' : '1');
-      const colB = document.querySelector('.col[data-col="B"]');
-      colB.hidden = !on;
+      document.querySelector('.col[data-col="B"]').hidden = !on;
       $('btn-compare').textContent = on ? '✓ Comparing' : '+ Compare';
-      if (on && !State.bId) {
-        // Auto-pick AeroLLM if present, otherwise the first installed
-        // deep backend. Never auto-pick a regular local model.
+      if (!on) { renderComparisonStrip(); flashStatus('compare mode off'); return; }
+      const tierHasDeep = !State.deep || State.deep.available_in_tier !== false;
+      if (!tierHasDeep) {
+        const cmd = (State.deep && State.deep.upgrade_command) || './arailctl upgrade maximus';
+        flashStatus('2nd inference (aeroLLM) needs the maximus tier — ' + cmd);
+      } else if (!State.bId) {
+        // Auto-pick AeroLLM if present, otherwise the first installed deep
+        // backend. Never auto-pick a regular local model.
         const deeps = State.models.filter(m => m.badge === 'deep' && m.installed);
         if (deeps.length) {
-          const aerollm = deeps.find(m => m.runtime === 'aerollm');
-          selectModelB(aerollm || deeps[0]);
+          selectModelB(deeps.find(m => m.runtime === 'aerollm') || deeps[0]);
+          flashStatus('compare on · column B = 2nd inference (aeroLLM)');
         } else {
-          flashStatus('compare on, but no deep backend is installed (AeroLLM)');
+          flashStatus('compare on, but the 2nd inference (aeroLLM) isn’t built — run ./arailctl deep rebuild');
         }
+      } else {
+        flashStatus('compare on · column B = 2nd inference (aeroLLM)');
       }
-      flashStatus(on ? 'compare mode on · column B = deep backend' : 'compare mode off');
+      renderComparisonStrip();
     }
     $('btn-compare').addEventListener('click', () => setCompare(!State.compareOn));
     $('btn-compare-close').addEventListener('click', () => setCompare(false));
@@ -2477,6 +2564,7 @@
       const { provider, model } = transformProvider(m.id, m.runtime);
       $('picker-label-B').textContent = `${provider} · ${model}`;
       if ($('model-picker-B').classList.contains('open')) renderPickerB();
+      if (typeof renderComparisonStrip === 'function') renderComparisonStrip();
     }
     $('model-picker-B').addEventListener('click', (e) => {
       if (e.target.closest('.picker-pop')) return;
@@ -2900,7 +2988,7 @@
       const blocks = [];
       src = src.replace(/```([a-zA-Z0-9_+-]*)\n([\s\S]*?)```/g, (_, lang, code) => {
         blocks.push({ lang: lang || '', code });
-        return ` CODEBLOCK${blocks.length - 1} `;
+        return `CODEBLOCK${blocks.length - 1}`;
       });
       // Escape, then reapply inline markdown.
       let html = escapeHtml(src);
@@ -2955,7 +3043,7 @@
           continue;
         }
         // Code block placeholder
-        const cb = ln.match(/ CODEBLOCK(\d+) /);
+        const cb = ln.match(/CODEBLOCK(\d+)/);
         if (cb) {
           const b = blocks[Number(cb[1])];
           out.push(renderCodeBlock(b.lang, b.code));
@@ -2965,7 +3053,7 @@
         if (ln.trim() === '') { i++; continue; }
         const para = [];
         while (i < lines.length && lines[i].trim() !== ''
-               && !/^(#|---|\s*[-*]\s|\s*\d+\.\s|&gt; | CODEBLOCK)/.test(lines[i])) {
+               && !/^(#|---|\s*[-*]\s|\s*\d+\.\s|&gt; |CODEBLOCK)/.test(lines[i])) {
           para.push(lines[i]); i++;
         }
         out.push(`<p>${para.join('<br>')}</p>`);
@@ -3297,6 +3385,7 @@
         const r = await fetch('/api/chat/models');
         const d = await r.json();
         State.gallery = d;
+        State.deep = d.deep || null;   // deep_info: 2nd-inference model + tier/frontier flags
         State.models = (d.gallery && d.gallery.installed) || [];
 
         // Fold optional deep backends (AirLLM, AeroLLM) into the picker
