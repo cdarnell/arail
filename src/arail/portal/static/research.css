@@ -40,6 +40,10 @@
   background: linear-gradient(90deg, rgba(0,212,255,.06), rgba(0,255,65,.05));
   border-bottom: 1px solid var(--border);
 }
+/* `display: flex` above outranks the user-agent [hidden] rule, so the
+   banner + inline swarm-review panel must restore display:none explicitly
+   when toggled hidden — same guard used by .rx-modal/.rx-summary below. */
+.rx-preview-banner[hidden] { display: none !important; }
 .rx-preview-banner-copy {
   display: flex;
   flex-direction: column;
@@ -88,6 +92,8 @@
     var(--surface);
   border-bottom: 1px solid var(--border);
 }
+/* `display: grid` outranks the UA [hidden] rule — restore hide on toggle. */
+.rx-cockpit[hidden] { display: none !important; }
 .rx-cockpit-left { min-width: 0; }
 .rx-cockpit-right {
   display: flex;
@@ -128,6 +134,9 @@
   color: var(--muted);
   white-space: nowrap;
 }
+/* `display: inline-block` outranks UA [hidden] — restore hide on toggle
+   (the domain chip is shown/hidden via the hidden attribute). */
+.rx-chip[hidden] { display: none !important; }
 .rx-chip.domain { color: var(--blue); border-color: rgba(0,212,255,.3); }
 
 .rx-pill {
@@ -252,6 +261,8 @@
   height: calc(100vh - 52px - 128px); /* nav + cockpit strip, approx */
   min-height: 500px;
 }
+/* `display: grid` outranks the UA [hidden] rule — restore hide on toggle. */
+.rx-layout[hidden] { display: none !important; }
 .rx-pane {
   background: var(--bg);
   overflow: hidden;
@@ -639,6 +650,10 @@
   padding: 4rem 1.5rem;
   min-height: calc(100vh - 52px);
 }
+/* `display: flex` outranks the UA [hidden] rule — restore hide on toggle.
+   Critical: without this the empty state and the cockpit/layout render
+   simultaneously once a goal exists. */
+.rx-empty-state[hidden] { display: none !important; }
 .rx-empty-card {
   max-width: 680px;
   width: 100%;
@@ -1020,6 +1035,9 @@
   cursor: pointer;
   transition: all 0.15s;
 }
+/* `display: inline-flex` outranks the UA [hidden] rule — restore hide on
+   toggle (e.g. #rx-report-link is shown/hidden via the hidden attribute). */
+.rx-btn[hidden] { display: none !important; }
 .rx-btn:hover:not(:disabled) {
   border-color: var(--green);
   color: var(--green);
