@@ -69,18 +69,53 @@ def test_draft_program_writes_all_sections(tmp_path: Path):
     assert "GGUF" in body
 
 
-def test_draft_program_refuses_overwrite_unless_forced(tmp_path: Path):
+def test_draft_program_refuses_overwrite_of_user_edits_unless_forced(tmp_path: Path):
     from arail.research.program_drafter import draft_program
 
     res1 = draft_program(goal_record=_example_goal_record(), research_dir=tmp_path)
     assert res1.wrote is True
+
+    # Simulate a user edit so the embedded body checksum no longer
+    # matches — that's what marks the file as "owned by the user".
+    program = tmp_path / "program.md"
+    program.write_text(program.read_text() + "\n<!-- my hand-tuned notes -->\n")
+
     res2 = draft_program(goal_record=_example_goal_record(), research_dir=tmp_path)
     assert res2.wrote is False
-    assert "exists" in res2.reason
+    assert "edits" in res2.reason
+    # The user's edit survives.
+    assert "my hand-tuned notes" in program.read_text()
 
-    # Force overwrites and bumps the timestamp.
+    # Force overwrites even an edited file.
     res3 = draft_program(goal_record=_example_goal_record(), research_dir=tmp_path, force=True)
     assert res3.wrote is True
+    assert "my hand-tuned notes" not in (tmp_path / "program.md").read_text()
+
+
+def test_draft_program_regenerates_unedited_draft_on_goal_change(tmp_path: Path):
+    """The core fix: re-drafting an *untouched* lab draft after the goal
+    changes refreshes program.md without needing force=True. This is the
+    bug where program.md stayed pinned to an old goal."""
+    from arail.research.program_drafter import draft_program
+
+    old = _example_goal_record()
+    res1 = draft_program(goal_record=old, research_dir=tmp_path)
+    assert res1.wrote is True
+
+    new = {
+        "goal_text": "Tune AeroLLM stability-vs-performance levers",
+        "parsed": {
+            "goal": "Tune AeroLLM stability-vs-performance levers",
+            "domain": "inference",
+            "primary_objective": "Expose ratchets for resource usage",
+        },
+    }
+    res2 = draft_program(goal_record=new, research_dir=tmp_path)
+    assert res2.wrote is True  # unedited → regenerated, no force needed
+
+    body = (tmp_path / "program.md").read_text()
+    assert "Tune AeroLLM stability-vs-performance levers" in body
+    assert "AirLLM throughput on my MacBook" not in body  # old goal gone
 
 
 def test_draft_program_writes_train_stub_with_apply_revert(tmp_path: Path):
@@ -139,14 +174,18 @@ def test_draft_program_overwrites_static_seed_template(tmp_path: Path):
     assert "AirLLM throughput on my MacBook" in body
     assert _is_static_seed_template(res.program_path) is False
 
-    # But once a real draft is in place, force=False protects it.
+    # Once a real draft is in place, an *edited* one is protected
+    # without force. (An unedited one would be transparently
+    # regenerated — covered by the goal-change test above.)
+    program = res.program_path
+    program.write_text(program.read_text() + "\n<!-- user edit -->\n")
     res2 = draft_program(
         goal_record=_example_goal_record(),
         research_dir=tmp_path,
         force=False,
     )
     assert res2.wrote is False
-    assert "exists" in res2.reason
+    assert "edits" in res2.reason
 
 
 def test_drafter_skips_external_fetch_in_airgapped_mode(monkeypatch, tmp_path):
