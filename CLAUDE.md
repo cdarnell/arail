@@ -31,8 +31,8 @@ off it:
   The README's Compute Source pivot in the Chat tab is the surface where
   alternative backends slot in. See `aerollm/CLAUDE.md` for runtime
   internals.
-- **qukaizen** (`~/ProJects/qukaizen`) — Project Nucleus / Super Skill
-  Distillation Pipeline. Independent today (its own pipeline, its own
+- **qukaizen-nucleus** (`~/ProJects/qukaizen-nucleus`) — Nucleus, the
+  Super Skill Distillation Pipeline. Independent today (its own pipeline, its own
   CLI also called `qkz`), but a planned future consumer of aeroLLM for
   teacher inference. The shared `qkz` name is convergent: in this repo
   `./qkz` is symlinked to `./arailctl` as a shorthand alias; in qukaizen
@@ -50,7 +50,7 @@ with a deprecation warning for one release):
 
 | Tier         | What's in it                                                                                                                 |
 |--------------|------------------------------------------------------------------------------------------------------------------------------|
-| `minimalist` | Dashboard · Chat · Autoresearch · Knowledge Base · Agents · LanceDB vectors · **ai-eng** (3B Opus-4.7-derived AI engineering expert from QuKaiZen's Project Nucleus) — the everyday lab |
+| `minimalist` | Dashboard · Chat · Autoresearch · Knowledge Base · Agents · LanceDB vectors · **ai-eng** (3B Opus-4.7-derived AI engineering expert from QuKaiZen's Nucleus pipeline) — the everyday lab |
 | `maximus`    | + Admin · Docs · Notebooks · **AeroLLM** deep-mode runtime · Anthropic SDK · LangChain · full cloud SDKs — the frontier-scale bench |
 
 Tier upgrade is a single `./arailctl upgrade maximus` away; downgrade
@@ -167,7 +167,7 @@ parts.
   caught them; current state is clean. Don't try to clean history
   without coordinating — the user has decided to leave it.
 - **The `qkz` symlink** in this repo points at `./arailctl`. It is **not**
-  the qukaizen Rust CLI; that lives in `~/ProJects/qukaizen/qkz/`.
+  the qukaizen-nucleus Rust CLI; that lives in `~/ProJects/qukaizen-nucleus/qkz/`.
   Don't confuse the two.
 
 ## Where to start when you pick a task

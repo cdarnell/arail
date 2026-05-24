@@ -158,6 +158,7 @@ EOF
     stop            stop running lab services
     restart         stop then start (quick bounce)
     upgrade <tier>  switch install tier — minimalist | maximus
+    deep <op>       AeroLLM 2nd inference: rebuild (from local sibling repo) | status
     update          check for and apply component updates
     version         show installed component versions
     status          show what's running
@@ -192,6 +193,15 @@ case "$cmd" in
     stop)    exec bash "$REPO_ROOT/scripts/reset.sh" stop ;;
     restart) bash "$REPO_ROOT/scripts/reset.sh" stop && exec bash "$REPO_ROOT/scripts/start.sh" "$@" ;;
     upgrade) exec bash "$REPO_ROOT/scripts/upgrade.sh" "$@" ;;
+    deep)
+        # AeroLLM 2nd-inference: rebuild from the local sibling repo / report status.
+        op="${1:-status}"; shift || true
+        case "$op" in
+            rebuild) exec bash "$REPO_ROOT/scripts/build-aerollm.sh" build ;;
+            status)  exec bash "$REPO_ROOT/scripts/build-aerollm.sh" status ;;
+            *) die "deep op must be one of: rebuild | status" ;;
+        esac
+        ;;
     update)  exec bash "$REPO_ROOT/scripts/update.sh" "$@" ;;
     version) exec bash "$REPO_ROOT/scripts/update.sh" --version-only ;;
     reset)   exec bash "$REPO_ROOT/scripts/reset.sh" "$@" ;;

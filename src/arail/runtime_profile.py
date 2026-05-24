@@ -37,6 +37,9 @@ _PARAMS: dict[Profile, dict[str, Any]] = {
         "autoresearch": "paused",
         "aerollm_ring_depth": 1,
         "aerollm_batch": 1,
+        # Background (agent) aeroLLM use — off when the operator is present,
+        # so the heavy 2nd inference never competes with foreground chat.
+        "background_aerollm": False,
     },
     "balanced": {
         "airllm_max_tokens_cap": 512,
@@ -44,6 +47,9 @@ _PARAMS: dict[Profile, dict[str, Any]] = {
         "autoresearch": "normal",
         "aerollm_ring_depth": 2,
         "aerollm_batch": 1,
+        # Off by default; the heavy window (→ throughput) is where background
+        # deep work belongs. Operators can still force it via override.
+        "background_aerollm": False,
     },
     "throughput": {
         "airllm_max_tokens_cap": 1024,
@@ -51,6 +57,9 @@ _PARAMS: dict[Profile, dict[str, Any]] = {
         "autoresearch": "aggressive",
         "aerollm_ring_depth": 4,
         "aerollm_batch": 4,
+        # Heavy window / nobody home — let the agents reach for the 2nd
+        # inference for higher-quality learning + research.
+        "background_aerollm": True,
     },
 }
 

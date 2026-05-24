@@ -159,23 +159,30 @@ def _get_router():
 
 
 def _get_deep_router():
-    """Lazy-load a second ModelRouter wired to AeroLLM for deep research.
+    """The shared aeroLLM deep router (the "2nd inference") for research.
 
-    Returns None when AeroLLM is not installed or AEROLLM_RESEARCH is false.
+    Returns None when AEROLLM_RESEARCH is disabled or aeroLLM isn't available.
+    Delegates to ``arail.agents.deep_policy`` so the lab keeps a SINGLE resident
+    deep model across all agents — two copies would OOM the box.
     """
     import os
     if os.getenv("AEROLLM_RESEARCH", "true").lower() in ("0", "false", "no"):
         return None
     try:
-        from arail.router.core import ModelRouter
-        router = ModelRouter(backend="aerollm")
-        return router
+        from arail.agents import deep_policy
+        return deep_policy.get_deep_router()
     except Exception:
         return None
 
 
-def _llm_complete(router, prompt: str, max_tokens: int = 512) -> str | None:
+def _llm_complete(router, prompt: str, max_tokens: int = 512,
+                  *, system: str | None = None) -> str | None:
     """Call the LLM and return text, or None on failure.
+
+    ``system`` is an optional stable prefix (the intent system context). For
+    the Claude backend it is sent as a cached ``system`` block (prompt
+    caching) so the 3-5 calls in one research run reuse it; other backends
+    prepend it to the prompt. See ClaudeBackend / build_system_prompt_parts.
 
     Failures are logged to activity_log at `warn` level so the dashboard
     reveals when heuristic fallbacks are masking a real inference problem.
@@ -186,15 +193,17 @@ def _llm_complete(router, prompt: str, max_tokens: int = 512) -> str | None:
     try:
         import time as _time
         t0 = _time.monotonic()
-        resp = router.complete(prompt, max_tokens=max_tokens, temperature=0.7)
+        resp = router.complete(prompt, max_tokens=max_tokens, temperature=0.7,
+                               system=system)
         elapsed = (_time.monotonic() - t0) * 1000
         text = resp.text.strip() if resp.text else None
 
+        traced_prompt = f"{system}\n\n{prompt}" if system else prompt
         activity_log.emit("researcher",
                           f"LLM call completed ({int(elapsed)}ms)",
                           "info", {
                               "prompt_trace": {
-                                  "prompt": prompt[:3000],
+                                  "prompt": traced_prompt[:3000],
                                   "response": text[:2000] if text else None,
                                   "max_tokens": max_tokens,
                                   "latency_ms": round(elapsed, 1),
@@ -214,22 +223,24 @@ def _llm_complete(router, prompt: str, max_tokens: int = 512) -> str | None:
 
 
 def _deep_complete(deep_router, fast_router, prompt: str,
-                   max_tokens: int = 512) -> str | None:
+                   max_tokens: int = 512, *, system: str | None = None) -> str | None:
     """Try deep (AeroLLM) inference first, fall back to fast router.
 
+    ``system`` is the optional cached stable prefix — forwarded to both the
+    deep and fast routers so either path benefits from prompt caching.
     Emits an activity event so the dashboard shows deep inference is active.
     """
     if deep_router is not None:
         activity_log.emit("researcher",
                           "Deep inference — 70B+ model from disk, this takes time…",
                           "info", {"mode": "deep"})
-        result = _llm_complete(deep_router, prompt, max_tokens)
+        result = _llm_complete(deep_router, prompt, max_tokens, system=system)
         if result:
             return result
         activity_log.emit("researcher",
                           "Deep engine unavailable, falling back to fast model.",
                           "warn")
-    return _llm_complete(fast_router, prompt, max_tokens)
+    return _llm_complete(fast_router, prompt, max_tokens, system=system)
 
 
 def _active_redirect() -> dict[str, Any] | None:
@@ -295,7 +306,10 @@ class ResearcherAgent:
         self.tracker = ExperimentTracker()
         self.curator = CuratorAgent()
         self._router = _get_router()
-        self._deep_router = _get_deep_router()
+        # Lazy: the deep (aeroLLM) model is multi-GB. Don't load it at boot —
+        # _active_deep_router() fetches the shared router on first background-
+        # safe use, so an idle maximus lab never carries the 2nd inference.
+        self._deep_router = None
         self._task: Optional[asyncio.Task] = None
         self._paused = False
         self._status = "idle"  # idle | running | paused | completed | error
@@ -826,20 +840,28 @@ class ResearcherAgent:
             await asyncio.sleep(0.5)
 
     def _active_deep_router(self):
-        """Return the deep router only if we're in the heavy window AND the
-        runtime profile is not 'interactive'. During active hours OR when
-        the operator is here (presence detected) OR they manually pinned
-        'interactive', we force the fast SLM path so the lab stays
-        responsive for interactive use."""
-        if current_window() == "active":
-            return None
+        """Lazily return the shared aeroLLM deep router, but only when the deep
+        policy says it's safe to run the 2nd inference in the background right
+        now: maximus tier, heavy/idle window, no operator presence, and Metal
+        memory pressure below the background ceiling. The heavy model is loaded
+        on first such call — never at boot — and is shared process-wide so chat
+        + agents never hold two copies. During active hours, when the operator
+        is present, or under memory pressure we force the fast SLM path so the
+        lab stays responsive — and never OOMs."""
         try:
-            from arail.runtime_profile import resolve
-            if resolve()[0] == "interactive":
+            from arail.agents import deep_policy
+            if not deep_policy.prefer_deep(foreground=False):
                 return None
+            # Honors AEROLLM_RESEARCH + returns the shared, cached deep router
+            # (constructs the Runtime on first call only).
+            self._deep_router = _get_deep_router()
+            return self._deep_router
         except Exception:
-            pass
-        return self._deep_router
+            # If the policy can't be consulted, stay conservative: only outside
+            # the active window, and don't force a fresh load.
+            if current_window() == "active":
+                return None
+            return self._deep_router
 
     # ── Research methods (LLM-enhanced with heuristic fallback) ────
 
@@ -869,8 +891,9 @@ class ResearcherAgent:
         # genuine alternatives bench to expose in the UI. The first
         # _CHOSEN_LIMIT survive into experiments; the rest become
         # alternatives.
+        # sys_ctx is the stable prefix → cached system block (Claude); the rest
+        # is the per-run volatile body. See _llm_complete / build_chat_payload.
         prompt = (
-            f"{sys_ctx}\n\n"
             f"{redirect_block}"
             f"{self._swarm_prompt_block(parsed_goal)}"
             f"Given the goal below, generate 5-8 testable hypotheses "
@@ -881,7 +904,7 @@ class ResearcherAgent:
             f"Sub-objectives: {', '.join(sub_objectives) if sub_objectives else 'none'}\n\n"
             f"Hypotheses:"
         )
-        llm_text = _deep_complete(self._active_deep_router(), self._router, prompt, max_tokens=600)
+        llm_text = _deep_complete(self._active_deep_router(), self._router, prompt, max_tokens=600, system=sys_ctx)
         if llm_text:
             all_candidates = [
                 cleaned for line in llm_text.split("\n")
@@ -1020,13 +1043,12 @@ class ResearcherAgent:
         sys_ctx = _get_system_context(intent)
         redirect_block = _redirect_prompt_block(_active_redirect())
         prompt = (
-            f"{sys_ctx}\n\n"
             f"{redirect_block}"
             f"You are running an experiment about: {exp['hypothesis'][:100]}\n"
             f"Domain: {domain}\n"
             f"Write a single concise observation (1-2 sentences) from initial data collection."
         )
-        llm_text = _llm_complete(self._router, prompt, max_tokens=100)
+        llm_text = _llm_complete(self._router, prompt, max_tokens=100, system=sys_ctx)
         if llm_text:
             return llm_text[:200]
         return (
@@ -1040,7 +1062,6 @@ class ResearcherAgent:
         sys_ctx = _get_system_context(intent)
         redirect_block = _redirect_prompt_block(_active_redirect())
         prompt = (
-            f"{sys_ctx}\n\n"
             f"{redirect_block}"
             f"Analyze this experiment and provide results.\n"
             f"Hypothesis: {exp['hypothesis'][:100]}\n"
@@ -1049,7 +1070,7 @@ class ResearcherAgent:
             f"confidence_score (0-1), data_points (int), conclusion (string), success (bool).\n"
             f"JSON:"
         )
-        llm_text = _deep_complete(self._active_deep_router(), self._router, prompt, max_tokens=200)
+        llm_text = _deep_complete(self._active_deep_router(), self._router, prompt, max_tokens=200, system=sys_ctx)
         if llm_text:
             try:
                 # Try to extract JSON from response
@@ -1139,7 +1160,6 @@ class ResearcherAgent:
             f"- {exp['hypothesis'][:80]}" for exp in experiments
         )
         prompt = (
-            f"{sys_ctx}\n\n"
             f"{redirect_block}"
             f"{self._swarm_prompt_block(parsed_goal)}"
             f"Write a concise research report in Markdown.\n\n"
@@ -1148,7 +1168,7 @@ class ResearcherAgent:
             f"Include: Summary, Key Findings, Recommendations.\n"
             f"Keep it under 300 words.\n\nReport:"
         )
-        llm_text = _deep_complete(self._active_deep_router(), self._router, prompt, max_tokens=600)
+        llm_text = _deep_complete(self._active_deep_router(), self._router, prompt, max_tokens=600, system=sys_ctx)
         if llm_text and len(llm_text) > 50:
             return llm_text
 

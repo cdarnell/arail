@@ -166,11 +166,16 @@ class ArailHost:
     def llm_complete(self, prompt: str, max_tokens: int = 60,
                      temperature: float = 0.6) -> str:
         try:
-            from arail.router import ModelRouter
-            resp = ModelRouter().complete(
-                prompt, max_tokens=max_tokens, temperature=temperature
+            from arail.agents import deep_policy
+            # Buddy speaks proactively (no user is blocking on it), so deep use
+            # is background-throttled: on maximus, when non-intrusive, this runs
+            # on the aeroLLM 2nd inference for higher-quality voice; otherwise
+            # (or on any failure / OOM) it falls back to the fast on-GPU model.
+            text = deep_policy.complete_preferring_deep(
+                prompt, foreground=False,
+                max_tokens=max_tokens, temperature=temperature,
             )
-            return (resp.text or "").strip()
+            return text or ""
         except Exception:
             return ""
 

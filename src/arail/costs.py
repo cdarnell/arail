@@ -271,8 +271,16 @@ class CostTracker:
     def track(self, backend: str, model: str, tokens_in: int,
               tokens_out: int, latency_ms: float,
               source: str = "agent",
-              recap_depth: Optional[int] = None) -> CostRecord:
-        """Record one inference call and return the cost breakdown."""
+              recap_depth: Optional[int] = None,
+              cache_read_input_tokens: int = 0,
+              cache_creation_input_tokens: int = 0) -> CostRecord:
+        """Record one inference call and return the cost breakdown.
+
+        ``cache_read_input_tokens`` / ``cache_creation_input_tokens`` are
+        Anthropic prompt-caching counters (0 for every other backend). They
+        are accumulated and surfaced in ``get_summary`` so cache savings are
+        visible in the dashboard's cost panel.
+        """
         model_class = _classify_model(backend, model)
         pricing = CLOUD_PRICING.get(model_class, CLOUD_PRICING["slm"])
 
@@ -323,6 +331,15 @@ class CostTracker:
             self.calls_by_recap_depth[recap_depth] = (
                 self.calls_by_recap_depth.get(recap_depth, 0) + 1
             )
+        # Anthropic prompt-cache counters. Lazy-init via getattr so we don't
+        # have to touch __init__/_load (older persisted state lacks them).
+        self.total_cache_read_tokens = (
+            getattr(self, "total_cache_read_tokens", 0) + cache_read_input_tokens
+        )
+        self.total_cache_creation_tokens = (
+            getattr(self, "total_cache_creation_tokens", 0)
+            + cache_creation_input_tokens
+        )
 
         record = CostRecord(
             ts=time.time(),
@@ -350,6 +367,8 @@ class CostTracker:
             "raw_cloud_usd": round(raw_cloud_total, 6),
             "energy_usd": round(energy_cost, 6),
             "recap_depth": recap_depth,
+            "cache_read_tokens": cache_read_input_tokens,
+            "cache_creation_tokens": cache_creation_input_tokens,
         })
         if len(self._history) > 500:
             self._history = self._history[-500:]
@@ -403,6 +422,9 @@ class CostTracker:
             "avg_latency_ms": round(avg_latency_ms, 1),
             "avg_latency_by_backend": avg_latency_by_backend,
             "total_latency_ms": round(self.total_latency_ms, 1),
+            # Anthropic prompt-cache totals (claude backend, hybrid mode).
+            "cache_read_tokens": getattr(self, "total_cache_read_tokens", 0),
+            "cache_creation_tokens": getattr(self, "total_cache_creation_tokens", 0),
             "recent_history": self._history[-50:],
         }
 

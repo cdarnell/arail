@@ -194,3 +194,65 @@ def test_state_block_includes_agent_workflow_memory(monkeypatch):
     assert "Agent workflow memory" in prompt
     assert "Write a better retrieval plan" in prompt
     assert "Designing experiments" in prompt
+
+
+# ── Prompt caching: frozen prefix / volatile split ──────────────────────────
+
+def test_build_system_prompt_parts_frozen_is_byte_stable(monkeypatch):
+    """The cached prefix must be byte-identical across calls with different
+    state/context. This is THE prompt-caching invariant — any per-request data
+    leaking into the frozen prefix silently kills the cache.
+    """
+    monkeypatch.setattr(lab_brain, "retrieve_chat_context", lambda *a, **k: [])
+    import arail.agent_workflows as agent_workflows
+    monkeypatch.setattr(agent_workflows, "list_agent_workflows", lambda: [])
+
+    frozen1, volatile1 = lab_brain.build_system_prompt_parts(extra_context="first")
+    frozen2, volatile2 = lab_brain.build_system_prompt_parts(
+        extra_context="second DIFFERENT")
+
+    assert frozen1 == frozen2, "frozen prefix must be byte-identical across calls"
+    assert volatile1 != volatile2, "volatile remainder should differ"
+    # Frozen carries the stable content...
+    assert "How to answer" in frozen1
+    assert "Model router" in frozen1            # capabilities reference
+    # ...and must NOT carry per-request state (the cache-killers).
+    assert "Current lab state" not in frozen1
+    assert "Timestamp:" not in frozen1
+    # Volatile carries the state block + the extra context.
+    assert "Current lab state" in volatile1
+    assert "first" in volatile1
+
+
+def test_build_system_prompt_parts_excludes_state_when_off():
+    frozen, volatile = lab_brain.build_system_prompt_parts(include_state=False)
+    assert "Current lab state" not in frozen
+    assert "Current lab state" not in volatile
+
+
+def test_build_chat_payload_keeps_volatile_in_last_turn(monkeypatch):
+    monkeypatch.setattr(lab_brain, "retrieve_chat_context", lambda *a, **k: [])
+    history = [
+        {"role": "user", "content": "earlier question"},
+        {"role": "assistant", "content": "earlier answer"},
+    ]
+    frozen, messages = lab_brain.build_chat_payload("the new question", history)
+    # Frozen prefix is the cacheable part — no state/timestamp.
+    assert "How to answer" in frozen
+    assert "Timestamp:" not in frozen
+    # History preserved as discrete turns (stable, cacheable across turns).
+    assert messages[0] == {"role": "user", "content": "earlier question"}
+    assert messages[1] == {"role": "assistant", "content": "earlier answer"}
+    # Final turn carries volatile state + the question (kept OUT of the prefix).
+    last = messages[-1]
+    assert last["role"] == "user"
+    assert "the new question" in last["content"]
+    assert "Current lab state" in last["content"]
+
+
+def test_build_chat_payload_frozen_matches_parts(monkeypatch):
+    monkeypatch.setattr(lab_brain, "retrieve_chat_context", lambda *a, **k: [])
+    frozen_payload, _ = lab_brain.build_chat_payload("q", None)
+    frozen_parts, _ = lab_brain.build_system_prompt_parts(
+        include_state=True, extra_context=None)
+    assert frozen_payload == frozen_parts

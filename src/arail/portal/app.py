@@ -20,7 +20,7 @@ from typing import Any, AsyncIterator, Iterator, cast
 _log = logging.getLogger(__name__)
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -104,27 +104,12 @@ _TIER_SURFACES: dict[str, set[str]] = {
                 "admin", "docs", "notebooks", "terminal", "tuning", "plugins"},
 }
 
-# v1.0.0 tier rename — old min/max env values are accepted with a
-# one-shot deprecation warning. Compat shim removed in v1.1.0.
-_LEGACY_TIER_MAP: dict[str, str] = {"min": "minimalist", "max": "maximus"}
-_LEGACY_TIER_WARNED: set[str] = set()
-
-
+# v1.0.0 tier rename + the LAB_TIER lookup now live in arail.tier, the single
+# source of truth shared with the agents (which must not import the portal).
 def _current_tier() -> str:
-    raw = os.getenv("LAB_TIER", "minimalist").strip().lower()
-    if raw in _LEGACY_TIER_MAP:
-        if raw not in _LEGACY_TIER_WARNED:
-            try:
-                logging.getLogger("arail.tier").warning(
-                    "LAB_TIER=%r is deprecated — use %r instead "
-                    "(compat shim removes in v1.1.0)",
-                    raw, _LEGACY_TIER_MAP[raw],
-                )
-            except Exception:  # noqa: BLE001
-                pass
-            _LEGACY_TIER_WARNED.add(raw)
-        raw = _LEGACY_TIER_MAP[raw]
-    return raw if raw in _TIER_SURFACES else "minimalist"
+    from arail.tier import get_current_tier
+    tier = get_current_tier()
+    return tier if tier in _TIER_SURFACES else "minimalist"
 
 
 def _visible_surfaces() -> set[str]:
@@ -522,6 +507,14 @@ tracker = ExperimentTracker()
 parser = GoalParser()
 plugin_mgr = PluginManager()
 
+# AI Dictionary — theme-aware learning glossary surfaced in the Docs tab.
+# Generation runs as serialized background tasks; this lock is defense in
+# depth (on top of the per-slug `generating` flag and the inference slot)
+# against double-clicks launching parallel jobs.
+from arail import dictionary as dictionary_mod  # noqa: E402
+dictionary_store = dictionary_mod.DictionaryStore()
+_dict_gen_lock = asyncio.Lock()
+
 
 @app.on_event("startup")
 async def _startup():
@@ -812,6 +805,11 @@ def _register_canvas_goal_listener(store: Any) -> None:
             loop.create_task(_do_clear())
 
     goals_mod.add_listener(listener)
+
+    # AI Dictionary follows the active goal: clear any stale theme override
+    # when the goal changes. Never triggers generation (OOM guard — generation
+    # stays on-demand only).
+    goals_mod.add_listener(dictionary_mod.on_goal_event)
 
 
 @app.on_event("shutdown")
@@ -2005,6 +2003,18 @@ async def docs_hub(request: Request):
     })
 
 
+# NOTE: This fixed-path route MUST be declared before the catch-all
+# `@app.get("/docs/{path:path}")` below, which serves only `*.md` files and
+# would otherwise 404 this page (FastAPI resolves routes in declaration order).
+@app.get("/docs/dictionary", response_class=HTMLResponse)
+async def docs_dictionary_page(request: Request):
+    """Full-page AI Dictionary — browse, search, expand, and generate terms."""
+    return templates.TemplateResponse(request, "dictionary.html", {
+        "tier": _current_tier(),
+        "nav_active": "docs",
+    })
+
+
 def _slugify(text: str) -> str:
     """Convert heading text to a URL-safe id: lowercase, spaces→'-', strip non-[a-z0-9-]."""
     s = text.lower().strip()
@@ -2463,6 +2473,205 @@ async def _auto_draft_program(goal_record: dict) -> None:
 @app.get("/api/goal")
 async def get_goal():
     return goal_store.get_current()
+
+
+# ── AI Dictionary API ─────────────────────────────────────────────────────
+# A theme-aware learning glossary. Buddy drafts terms tied to the current goal
+# (AI / model-tuning by default). Reads are instant from cache; generation runs
+# as a serialized background task (inference_slot cap + per-slug flag + lock)
+# so it never competes for memory.
+
+def _dict_resolve_theme() -> Dict[str, Any]:
+    # Theme is the AI glossary (default) unless the user picked a topic override.
+    # The research goal is surfaced as a suggested action, not an auto-switch.
+    return dictionary_mod.resolve_theme()
+
+
+def _dict_goal_text() -> str:
+    cur = goal_store.get_current()
+    if not cur:
+        return ""
+    return str(cur.get("goal_text") or (cur.get("parsed") or {}).get("goal") or "").strip()
+
+
+def _dict_response(theme: Dict[str, Any], doc: Dict[str, Any]) -> Dict[str, Any]:
+    terms = doc.get("terms", [])
+    slug = dictionary_mod.theme_slug(theme.get("label", ""))
+    resp: Dict[str, Any] = {
+        "theme": {
+            "label": theme.get("label"),
+            "source": theme.get("source"),
+            "archetype": theme.get("archetype"),
+            "slug": slug,
+        },
+        "terms": terms,
+        "count": len(terms),
+        "generating": bool(doc.get("generating")),
+        "last_error": doc.get("last_error"),
+        "can_generate": True,
+    }
+    # Offer a one-click "build a glossary for my goal" when an active goal isn't
+    # already the current theme.
+    goal_text = _dict_goal_text()
+    if goal_text and dictionary_mod.theme_slug(goal_text) != slug:
+        resp["goal_suggestion"] = goal_text
+    return resp
+
+
+async def _dict_run_generation(
+    theme: Dict[str, Any], *, count: int, avoid_terms: List[str], label: str
+) -> None:
+    """Background generation pass. Captures `theme` at launch so a theme switch
+    mid-flight writes to the original slug — no cross-contamination."""
+    try:
+        async with scheduler.inference_slot(label):
+            entries, _level = await asyncio.to_thread(
+                dictionary_mod.generate_terms,
+                theme, count=count, avoid_terms=avoid_terms,
+            )
+        if entries:
+            added, skipped = dictionary_store.add_terms(theme, entries)
+            extra = f" ({skipped} dupes skipped)" if skipped else ""
+            activity_log.emit(
+                "buddy",
+                f"Buddy added {added} dictionary terms for "
+                f"'{theme.get('label')}'{extra}",
+                "success",
+            )
+        else:
+            dictionary_store.set_generating(theme, False, error="generation_failed")
+            activity_log.emit(
+                "buddy",
+                f"Buddy couldn't draft terms for '{theme.get('label')}' — try again.",
+                "warn",
+            )
+    except Exception as e:  # noqa: BLE001
+        dictionary_store.set_generating(theme, False, error=f"{type(e).__name__}")
+        activity_log.emit(
+            "buddy",
+            f"Dictionary generation failed: {type(e).__name__}: {str(e)[:120]}",
+            "warn",
+        )
+    finally:
+        dictionary_store.set_generating(theme, False)
+
+
+@app.get("/api/dictionary")
+async def api_dictionary_get():
+    theme = _dict_resolve_theme()
+    doc = dictionary_store.get_or_init(theme)
+    return _dict_response(theme, doc)
+
+
+@app.post("/api/dictionary/seed")
+async def api_dictionary_seed(request: Request):
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001
+        body = {}
+    force = bool(body.get("force"))
+    theme = _dict_resolve_theme()
+    doc = dictionary_store.get_or_init(theme)
+    # Idempotent: already populated and not a forced re-seed.
+    if doc.get("terms") and not force:
+        return _dict_response(theme, doc)
+    async with _dict_gen_lock:
+        doc = dictionary_store.get_or_init(theme)
+        if doc.get("generating"):
+            return _dict_response(theme, doc)
+        dictionary_store.set_generating(theme, True)
+        asyncio.create_task(
+            _dict_run_generation(theme, count=24, avoid_terms=[], label="dictionary-seed")
+        )
+    activity_log.emit("buddy", f"Buddy is drafting a dictionary for '{theme.get('label')}'…", "info")
+    return JSONResponse(
+        {**_dict_response(theme, dictionary_store.get_or_init(theme)), "started": True},
+        status_code=202,
+    )
+
+
+@app.post("/api/dictionary/generate-more")
+async def api_dictionary_generate_more(request: Request):
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001
+        body = {}
+    try:
+        count = int(body.get("count") or 12)
+    except (TypeError, ValueError):
+        count = 12
+    count = max(1, min(count, 24))
+    theme = _dict_resolve_theme()
+    async with _dict_gen_lock:
+        doc = dictionary_store.get_or_init(theme)
+        if doc.get("generating"):
+            # A job is already running for this theme — reject the duplicate.
+            return _dict_response(theme, doc)
+        avoid = [str(e.get("term", "")) for e in doc.get("terms", [])][:60]
+        dictionary_store.set_generating(theme, True)
+        asyncio.create_task(
+            _dict_run_generation(theme, count=count, avoid_terms=avoid, label="dictionary-more")
+        )
+    return JSONResponse(
+        {**_dict_response(theme, dictionary_store.get_or_init(theme)), "started": True},
+        status_code=202,
+    )
+
+
+@app.post("/api/dictionary/theme")
+async def api_dictionary_theme(request: Request):
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001
+        body = {}
+    if body.get("clear"):
+        dictionary_mod.clear_override()
+    else:
+        label = str(body.get("label") or "").strip()
+        if not label:
+            return JSONResponse(
+                {"error": "Provide a theme label or clear:true."}, status_code=400
+            )
+        dictionary_mod.set_override(label)
+    theme = _dict_resolve_theme()
+    doc = dictionary_store.get_or_init(theme)
+    return _dict_response(theme, doc)
+
+
+@app.post("/api/dictionary/expand")
+async def api_dictionary_expand(request: Request):
+    """Buddy enriches ONE term with a deeper plain-text explanation. Single,
+    small completion → reliable on local models, unlike bulk JSON. Cached on
+    the term so re-expanding is instant."""
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001
+        body = {}
+    term = str(body.get("term") or "").strip()
+    if not term:
+        return JSONResponse({"ok": False, "message": "No term provided."}, status_code=400)
+    force = bool(body.get("force"))
+    theme = _dict_resolve_theme()
+    key = dictionary_mod.norm_key(term)
+    existing = dictionary_store.find_term(theme, key)
+    # Already enriched by Buddy → serve from cache.
+    if existing and existing.get("detail_source") == "buddy" and existing.get("detail") and not force:
+        return {"ok": True, "term": existing.get("term", term),
+                "detail": existing["detail"], "cached": True}
+    short = (existing or {}).get("short_def") or ""
+    try:
+        async with scheduler.inference_slot("dictionary-expand"):
+            text = await asyncio.to_thread(
+                dictionary_mod.expand_term, theme, term, short_def=short
+            )
+    except Exception as e:  # noqa: BLE001
+        activity_log.emit("buddy", f"Expand failed for '{term}': {type(e).__name__}", "warn")
+        return {"ok": False, "message": "Buddy couldn't reach the model right now."}
+    if not text:
+        return {"ok": False, "message": "Buddy didn't have more to add right now."}
+    dictionary_store.set_term_detail(theme, key, text, source="buddy")
+    activity_log.emit("buddy", f"Buddy explained '{term}'", "info")
+    return {"ok": True, "term": term, "detail": text, "cached": False}
 
 
 # ── Research API ─────────────────────────────────────────────────────────
@@ -5083,6 +5292,26 @@ def _prepare_chat_context(
     )
     prompt = _render_messages_for_backend(messages, active_backend)
 
+    # Anthropic prompt caching: only when the dispatched backend is Claude
+    # (hybrid mode) build the cache-friendly split — a frozen system prefix
+    # (sent as a cached block) plus structured turns that carry the volatile
+    # state/KB in the final user turn. For every other backend these stay
+    # None and the flat-prompt path above is used unchanged (local behavior
+    # is byte-identical). See lab_brain.build_chat_payload / ClaudeBackend.
+    frozen_system = None
+    claude_messages = None
+    try:
+        from arail.router.backends import ClaudeBackend
+        if isinstance(active_backend, ClaudeBackend):
+            frozen_system, claude_messages = lab_brain.build_chat_payload(
+                message,
+                history,
+                active_backend_name=active_backend_name or None,
+                active_model_name=active_model_name or None,
+            )
+    except Exception:
+        frozen_system, claude_messages = None, None
+
     return {
         "router": router,
         "deep_backend": deep_backend,
@@ -5090,6 +5319,8 @@ def _prepare_chat_context(
         "active_backend": active_backend,
         "previous_model": previous_model,
         "prompt": prompt,
+        "frozen_system": frozen_system,
+        "claude_messages": claude_messages,
         "optional_backend_name": optional_backend_name,
         "wants_deep": wants_deep,
     }
@@ -5177,6 +5408,8 @@ async def _run_chat_completion_stream(
                     max_tokens,
                     temperature,
                     top_p,
+                    system=context.get("frozen_system"),
+                    messages=context.get("claude_messages"),
                 )
             from arail.costs import cost_tracker
             cost_tracker.track(
@@ -5186,6 +5419,8 @@ async def _run_chat_completion_stream(
                 tokens_out=response.tokens_used,
                 latency_ms=response.latency_ms,
                 source="ui",
+                cache_read_input_tokens=response.cache_read_input_tokens,
+                cache_creation_input_tokens=response.cache_creation_input_tokens,
             )
             if response.backend in ("airllm", "aerollm"):
                 _record_aerollm_bench(
@@ -5214,6 +5449,8 @@ async def _run_chat_completion_stream(
                 response = await asyncio.to_thread(
                     runtime_backend.complete,
                     prompt, max_tokens, temperature, top_p,
+                    system=context.get("frozen_system"),
+                    messages=context.get("claude_messages"),
                 )
             from arail.costs import cost_tracker
             cost_tracker.track(
@@ -5221,6 +5458,8 @@ async def _run_chat_completion_stream(
                 tokens_in=max(len(prompt) // 4, 1),
                 tokens_out=response.tokens_used,
                 latency_ms=response.latency_ms, source="ui",
+                cache_read_input_tokens=response.cache_read_input_tokens,
+                cache_creation_input_tokens=response.cache_creation_input_tokens,
             )
             clean_reply = _clean_chat_reply(response.text)
             if clean_reply:
@@ -5243,6 +5482,8 @@ async def _run_chat_completion_stream(
                     max_tokens=max_tokens,
                     temperature=temperature,
                     top_p=top_p,
+                    system=context.get("frozen_system"),
+                    messages=context.get("claude_messages"),
                 )
             ):
                 if isinstance(item, ModelResponse):
@@ -5326,6 +5567,8 @@ async def _run_chat_completion(
                 response = await _aio.to_thread(
                     deep_backend.complete,
                     prompt, max_tokens, temperature, top_p,
+                    system=context.get("frozen_system"),
+                    messages=context.get("claude_messages"),
                 )
             from arail.costs import cost_tracker
             cost_tracker.track(
@@ -5335,6 +5578,8 @@ async def _run_chat_completion(
                 tokens_out=response.tokens_used,
                 latency_ms=response.latency_ms,
                 source="ui",
+                cache_read_input_tokens=response.cache_read_input_tokens,
+                cache_creation_input_tokens=response.cache_creation_input_tokens,
             )
             if response.backend in ("airllm", "aerollm"):
                 _record_aerollm_bench(
@@ -5354,6 +5599,8 @@ async def _run_chat_completion(
                 response = await _aio.to_thread(
                     runtime_backend.complete,
                     prompt, max_tokens, temperature, top_p,
+                    system=context.get("frozen_system"),
+                    messages=context.get("claude_messages"),
                 )
             from arail.costs import cost_tracker
             cost_tracker.track(
@@ -5363,6 +5610,8 @@ async def _run_chat_completion(
                 tokens_out=response.tokens_used,
                 latency_ms=response.latency_ms,
                 source="ui",
+                cache_read_input_tokens=response.cache_read_input_tokens,
+                cache_creation_input_tokens=response.cache_creation_input_tokens,
             )
         else:
             assert router is not None
@@ -5377,6 +5626,8 @@ async def _run_chat_completion(
                     max_tokens=max_tokens,
                     temperature=temperature,
                     top_p=top_p,
+                    system=context.get("frozen_system"),
+                    messages=context.get("claude_messages"),
                 )
     except Exception as e:  # noqa: BLE001
         activity_log.emit("chat",
@@ -5688,9 +5939,10 @@ _OPTIONAL_CHAT_BACKEND_CONFIG: dict[str, dict[str, str]] = {
     "aerollm": {
         "label": "AeroLLM",
         "class_name": "AeroLLMBackend",
-        "install_command": (
-            "cd aerollm/crates/aerollm-api && maturin develop --release"
-        ),
+        # Built from the local sibling repo ($ARAIL_AEROLLM_REPO) — not pip.
+        # `deep rebuild` re-runs the cargo build + dylib copy so active local
+        # aerollm changes flow into the lab.
+        "install_command": "./arailctl deep rebuild",
         "model_env": "AEROLLM_MODEL",
         "default_model": "Qwen2.5-7B-Instruct-4bit",
     },
@@ -6235,15 +6487,20 @@ async def api_chat_models(provider: str = ""):
     # toggle. Separate field because users can flip that toggle
     # regardless of which primary backend they're on.
     #
-    # AirLLM is today's active deep backend (max-tier install). AeroLLM
-    # is declared but dormant until it's stable; when it ships, the
-    # default below flips back.
+    # AeroLLM is the default 2nd inference. Show its model whenever aeroLLM is
+    # the deep backend this host resolves to (Apple Silicon, or any host where
+    # the wheel imports); fall back to AirLLM's model only on the CUDA/x86
+    # opt-in path where AirLLM is the active deep backend.
     air_model_name = os.getenv("AIRLLM_MODEL", "meta-llama/Llama-3.1-70B")
-    deep_model_name = air_model_name
+    aero_model_name = os.getenv("AEROLLM_MODEL", "Qwen2.5-7B-Instruct-4bit")
+    if _is_aerollm_installed() or _resolve_default_deep_backend() == "aerollm":
+        deep_model_name = aero_model_name
+    else:
+        deep_model_name = air_model_name
     # Look up the spec sheet so the Frontier chip hover can show
     # strengths, benchmarks, and license at a glance. Registry lives
     # in src/arail/model_specs.py — users edit it to add new models.
-    from arail.model_specs import lookup as _spec_lookup, must_stream as _must_stream_ms
+    from arail.model_specs import lookup as _spec_lookup, is_frontier as _is_frontier_ms
     spec = _spec_lookup(deep_model_name)
 
     deep_info = {
@@ -6270,6 +6527,15 @@ async def api_chat_models(provider: str = ""):
         "gated": deep_model_name.lower().startswith("meta-llama/"),
         # Deep-backend models are always streamed by definition.
         "streamed": True,
+        # Frontier framing (70B+) — drives the chat comparison view's
+        # "2nd inference" branding + auto-default. Distinct from streamed
+        # (which is the 30B OOM floor).
+        "frontier": _is_frontier_ms(deep_model_name),
+        # Tier gating — aeroLLM ships on maximus only. The UI shows an
+        # upgrade nudge in minimalist instead of a broken deep backend.
+        "tier": _current_tier(),
+        "available_in_tier": _current_tier() == "maximus",
+        "upgrade_command": "./arailctl upgrade maximus",
     }
 
     if deep_info["gated"]:
@@ -6278,7 +6544,6 @@ async def api_chat_models(provider: str = ""):
             "huggingface-cli login or export HF_TOKEN before downloading."
         )
 
-    aero_model_name = os.getenv("AEROLLM_MODEL", "Qwen2.5-7B-Instruct-4bit")
     optional_backends = []
     if _show_airllm():
         optional_backends.append({
@@ -6300,9 +6565,7 @@ async def api_chat_models(provider: str = ""):
         "installed": _is_aerollm_installed(),
         "param_hint": _extract_param_hint(aero_model_name),
         "gated": aero_model_name.lower().startswith("meta-llama/"),
-        "install_command": (
-            "cd aerollm/crates/aerollm-api && maturin develop --release"
-        ),
+        "install_command": "./arailctl deep rebuild",
         "description": "In-process Rust runtime — primary deep backend on Apple Silicon (Qwen2.5-7B-4bit default, ~4 GB resident; max tier ships Qwen2.5-72B-Instruct-4bit, ~40 GB resident, requires 48 GB+). Single Metal command buffer per generation; ~3× faster than mlx_lm baseline.",
         # AeroLLM is also streaming by design.
         "streamed": True,

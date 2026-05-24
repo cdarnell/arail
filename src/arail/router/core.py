@@ -44,12 +44,15 @@ class ModelRouter:
     # ------------------------------------------------------------------
     def complete(self, prompt: str, max_tokens: int = 512,
                  temperature: float = 0.7,
-                 top_p: Optional[float] = None) -> ModelResponse:
+                 top_p: Optional[float] = None,
+                 *, system: Optional[str] = None,
+                 messages: Optional[list] = None) -> ModelResponse:
         response = self._backend.complete(
-            prompt, max_tokens, temperature, top_p=top_p
+            prompt, max_tokens, temperature, top_p=top_p,
+            system=system, messages=messages,
         )
-        # Track cost — estimate input tokens from prompt length
-        tokens_in = max(len(prompt) // 4, 1)
+        # Track cost — estimate input tokens from prompt + frozen prefix length
+        tokens_in = max((len(prompt) + len(system or "")) // 4, 1)
         cost_tracker.track(
             backend=response.backend,
             model=response.model,
@@ -58,20 +61,26 @@ class ModelRouter:
             latency_ms=response.latency_ms,
             source=self.billing_source,
             recap_depth=current_recap_depth(),
+            cache_read_input_tokens=response.cache_read_input_tokens,
+            cache_creation_input_tokens=response.cache_creation_input_tokens,
         )
         return response
 
     def stream_complete(self, prompt: str, max_tokens: int = 512,
                         temperature: float = 0.7,
-                        top_p: Optional[float] = None) -> Iterator[StreamResult]:
+                        top_p: Optional[float] = None,
+                        *, system: Optional[str] = None,
+                        messages: Optional[list] = None) -> Iterator[StreamResult]:
         for item in self._backend.stream_complete(
             prompt,
             max_tokens,
             temperature,
             top_p=top_p,
+            system=system,
+            messages=messages,
         ):
             if isinstance(item, ModelResponse):
-                tokens_in = max(len(prompt) // 4, 1)
+                tokens_in = max((len(prompt) + len(system or "")) // 4, 1)
                 cost_tracker.track(
                     backend=item.backend,
                     model=item.model,
@@ -79,6 +88,8 @@ class ModelRouter:
                     tokens_out=item.tokens_used,
                     latency_ms=item.latency_ms,
                     source=self.billing_source,
+                    cache_read_input_tokens=item.cache_read_input_tokens,
+                    cache_creation_input_tokens=item.cache_creation_input_tokens,
                 )
             yield item
 

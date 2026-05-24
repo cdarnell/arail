@@ -261,6 +261,23 @@ def _state_block(
     return "\n".join(lines)
 
 
+# The static "how to answer" guidance. Extracted to a module constant so the
+# legacy build_system_prompt path and the cache-aware build_system_prompt_parts
+# path share *byte-identical* text (the frozen prefix must be stable).
+_HOW_TO_ANSWER = (
+    "# How to answer\n\n"
+    "- Ground answers in the lab's actual capabilities listed above.\n"
+    "- If the user asks how to do something, name the exact CLI "
+    "command, endpoint, or file path.\n"
+    "- If they want to kick off research, tell them to type a goal "
+    "on the dashboard (which triggers the researcher agent).\n"
+    "- If the deep tier is needed but the current window is active, "
+    "say so — the lab won't run heavy work until the heavy window.\n"
+    "- Keep answers short unless asked for depth. This lab runs "
+    "locally; every token costs energy."
+)
+
+
 def build_system_prompt(
     *,
     include_capabilities: bool = True,
@@ -311,23 +328,75 @@ def build_system_prompt(
             active_model_name=active_model_name,
         ))
 
-    parts.append(
-        "# How to answer\n\n"
-        "- Ground answers in the lab's actual capabilities listed above.\n"
-        "- If the user asks how to do something, name the exact CLI "
-        "command, endpoint, or file path.\n"
-        "- If they want to kick off research, tell them to type a goal "
-        "on the dashboard (which triggers the researcher agent).\n"
-        "- If the deep tier is needed but the current window is active, "
-        "say so — the lab won't run heavy work until the heavy window.\n"
-        "- Keep answers short unless asked for depth. This lab runs "
-        "locally; every token costs energy."
-    )
+    parts.append(_HOW_TO_ANSWER)
 
     if extra_context:
         parts.append(f"# Extra instructions\n\n{extra_context}")
 
     return "\n\n".join(parts)
+
+
+def build_system_prompt_parts(
+    *,
+    include_capabilities: bool = True,
+    include_state: bool = True,
+    extra_context: Optional[str] = None,
+    active_backend_name: Optional[str] = None,
+    active_model_name: Optional[str] = None,
+) -> tuple[str, str]:
+    """Split the system prompt into ``(frozen_prefix, volatile_remainder)``.
+
+    ``frozen_prefix`` — identity + capabilities + how-to-answer. Byte-stable
+    within a session, so it is safe to send as a cached Anthropic ``system``
+    block (prompt caching). It must NOT contain per-request data.
+
+    ``volatile_remainder`` — the live state block (window, goal, cost, and the
+    per-second timestamp) plus any ``extra_context`` (KB retrieval). Changes
+    every request, so it must stay OUT of the cached prefix. Empty string when
+    there's nothing volatile.
+
+    The frozen content here matches the leading sections of
+    ``build_system_prompt`` (identity → capabilities → how-to-answer); only the
+    *ordering* relative to the state block differs (frozen is contiguous), which
+    is exactly what makes it cacheable.
+    """
+    from arail.brand import load_brand
+    brand = load_brand()
+
+    intent = os.getenv("LAB_INTENT", "ai")
+    intent_name = os.getenv("LAB_INTENT_NAME", "AI Engineer")
+
+    try:
+        from arail.agents.researcher import _get_system_context
+        domain_context = _get_system_context(intent)
+    except Exception:
+        domain_context = "You are a research lab assistant."
+
+    frozen_parts = [
+        _identity_block(
+            brand_name=brand.name,
+            tagline=brand.tagline,
+            intent=intent,
+            intent_name=intent_name,
+            domain_context=domain_context,
+        )
+    ]
+    if include_capabilities:
+        frozen_parts.append(_CAPABILITIES)
+    frozen_parts.append(_HOW_TO_ANSWER)
+    frozen = "\n\n".join(frozen_parts)
+
+    volatile_parts: list[str] = []
+    if include_state:
+        volatile_parts.append(_state_block(
+            active_backend_name=active_backend_name,
+            active_model_name=active_model_name,
+        ))
+    if extra_context:
+        volatile_parts.append(f"# Extra instructions\n\n{extra_context}")
+    volatile = "\n\n".join(p for p in volatile_parts if p)
+
+    return frozen, volatile
 
 
 def build_chat_prompt(
@@ -542,6 +611,58 @@ def build_chat_messages(
         messages.append({"role": role, "content": content})
     messages.append({"role": "user", "content": user_message.strip()})
     return messages
+
+
+def build_chat_payload(
+    user_message: str,
+    conversation: list[dict] | None = None,
+    *,
+    include_capabilities: bool = True,
+    include_state: bool = True,
+    active_backend_name: Optional[str] = None,
+    active_model_name: Optional[str] = None,
+) -> tuple[str, list[dict]]:
+    """Build a cache-friendly chat payload: ``(frozen_system, messages)``.
+
+    ``frozen_system`` is the byte-stable cacheable prefix (identity +
+    capabilities + how-to-answer) — passed as the Anthropic cached ``system``
+    block.
+
+    ``messages`` is the structured turn list:
+      * prior ``conversation`` turns (history) — stable, append-only;
+      * a final ``user`` turn carrying the per-request VOLATILE context (live
+        state block + KB retrieval) followed by the user's question.
+
+    Keeping volatile content in the final turn — not the system prefix — is
+    what lets the frozen prefix and the accumulated history cache cleanly
+    across turns. Used only for the Claude backend; local backends keep their
+    existing flat-prompt path unchanged.
+    """
+    context_block = _format_chat_context(retrieve_chat_context(user_message))
+    frozen, volatile = build_system_prompt_parts(
+        include_capabilities=include_capabilities,
+        include_state=include_state,
+        extra_context=context_block,
+        active_backend_name=active_backend_name,
+        active_model_name=active_model_name,
+    )
+
+    messages: list[dict] = []
+    for turn in conversation or []:
+        role = turn.get("role", "user")
+        content = (turn.get("content") or "").strip()
+        if not content:
+            continue
+        if role not in {"user", "assistant", "system"}:
+            role = "user"
+        messages.append({"role": role, "content": content})
+
+    final_user = user_message.strip()
+    if volatile:
+        final_user = f"{volatile}\n\n{final_user}"
+    messages.append({"role": "user", "content": final_user})
+
+    return frozen, messages
 
 
 def render_chat_transcript(messages: list[dict[str, str]]) -> str:
