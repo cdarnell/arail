@@ -60,7 +60,13 @@ def test_no_maturin_develop_is_executed():
         assert "maturin develop" not in code, f.name
 
 
-def test_helper_builds_with_cargo_not_pip():
+def test_helper_supports_dev_cargo_and_release_pip():
     code = _noncomment(BUILD.read_text())
+    # Dev channel still builds from source via cargo.
     assert "cargo build --release -p aerollm-api" in code
-    assert "pip install aerollm" not in code
+    # Release channel pip-installs the published wheel from the self-hosted index.
+    assert "pip install" in code
+    assert "pypi.qukaizen.com" in code
+    # The four modes are wired.
+    for mode in ("auto", "update", "build", "status"):
+        assert mode in code

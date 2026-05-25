@@ -1323,15 +1323,18 @@ class AeroLLMBackend(BaseBackend):
         if getattr(self, "_initialized", False):
             return
         try:
+            import aerollm_api as _aero_mod  # type: ignore[import-untyped]
             from aerollm_api import Runtime  # type: ignore[import-untyped]
         except ImportError as e:
             raise ImportError(
-                "aerollm_api wheel not installed. Build it from the local "
-                "sibling repo with: ./arailctl deep rebuild "
-                "(or set ARAIL_AEROLLM_REPO and re-run ./arailctl setup on "
-                "the maximus tier). Do NOT use `maturin develop` — see "
-                "scripts/setup.sh for why."
+                "aerollm_api wheel not installed. Install the published wheel "
+                "with `./arailctl deep update`, or build from the local sibling "
+                "repo with `./arailctl deep rebuild` (set ARAIL_AEROLLM_REPO if "
+                "it's not at ~/ProJects/aerollm). Do NOT use `maturin develop` — "
+                "see scripts/setup.sh for why."
             ) from e
+        # Surface the wheel version for `deep status` / health (best-effort).
+        self.api_version = getattr(_aero_mod, "__version__", "unknown")
 
         # Default model picks the 4-bit MLX quant — ~4 GB resident, fits a
         # 16 GB Apple Silicon Mac with ~6 GB headroom for portal + browser.
