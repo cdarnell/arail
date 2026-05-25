@@ -13,9 +13,14 @@ Design notes
   structure keeps the drafter cheap and deterministic. A second LLM
   pass for hypothesis generation is a follow-up milestone — slot it
   in by extending ``_render_hypotheses``.
-* **Refuses to overwrite by default.** Once the user has edited
-  ``program.md``, a re-set goal must not clobber that work. The portal
-  exposes a Re-draft button that explicitly passes ``force=True``.
+* **Refuses to overwrite *user edits* by default.** Once the user has
+  edited ``program.md``, a re-set goal must not clobber that work. But
+  an *untouched* lab draft is stale the moment the goal changes, so we
+  transparently regenerate it (same as the static seed). "Untouched"
+  is detected by a ``draft_checksum`` of the body embedded at draft
+  time — if the on-disk body still hashes to that value the user
+  hasn't edited it. The portal's Re-draft button passes ``force=True``
+  to overwrite even edited files.
 * **Air-gap aware.** Without ``LAB_MODE=hybrid +
   ARAIL_AUTORESEARCH_FETCH_EXTRAS=1`` the Sources section uses only
   the curated YAML + KB hits. Live fetch is opt-in.
@@ -23,7 +28,9 @@ Design notes
 
 from __future__ import annotations
 
+import hashlib
 import os
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -36,6 +43,12 @@ from arail.research.train_template import TRAIN_PY_TEMPLATE
 
 _DEFAULT_RESEARCH_DIR = Path("lab/pkb/research")
 _DEFAULT_SOURCES_PATH = Path(__file__).parent / "default_sources.yaml"
+
+# Matches *our own* frontmatter exactly (no ``\s*`` slack, so the blank
+# line that opens the body is preserved in the remainder). Used to
+# recover the body for checksum verification — see _is_unedited_auto_draft.
+_FRONTMATTER_RE = re.compile(r"\A---\n.*?\n---\n", re.DOTALL)
+_CHECKSUM_RE = re.compile(r"^draft_checksum:\s*([0-9a-f]{64})\s*$", re.MULTILINE)
 
 
 @dataclass
@@ -117,19 +130,28 @@ def draft_program(
     train_path = target_dir / "train.py"
 
     if program_path.exists() and not force:
-        # Special case: the lab's startup auto-seeder
-        # (arail.agents.builtin_seed) bakes in a generic AeroLLM
-        # research template before the user sets a goal. Once a real
-        # goal is set, that static template is stale by definition —
-        # transparently replace it. We detect it by the unique
-        # ``auto_goal:`` frontmatter key the seeder writes (and which
-        # this drafter never produces).
-        if not _is_static_seed_template(program_path):
+        # Two kinds of existing program.md are stale-by-definition and
+        # may be transparently regenerated without force=True:
+        #
+        # 1. The lab's startup auto-seeder (arail.agents.builtin_seed)
+        #    bakes in a generic AeroLLM template before any goal is set.
+        #    Detected by the ``auto_goal:`` frontmatter key it writes.
+        # 2. A *previous* auto-draft the user never edited. The moment
+        #    the goal changes, that draft describes the wrong goal — the
+        #    exact "disconnect" users hit. Detected by re-hashing the
+        #    body against the ``draft_checksum`` we embed at draft time.
+        #
+        # Anything else (a user-edited file) is protected: we refuse and
+        # let the caller surface the Re-draft button (force=True).
+        if not (
+            _is_static_seed_template(program_path)
+            or _is_unedited_auto_draft(program_path)
+        ):
             return DraftResult(
                 wrote=False,
                 program_path=program_path,
                 train_path=train_path,
-                reason="program.md exists — pass force=True to overwrite",
+                reason="program.md has local edits — pass force=True to overwrite",
             )
 
     target_dir.mkdir(parents=True, exist_ok=True)
@@ -201,6 +223,41 @@ def _is_static_seed_template(program_path: Path) -> bool:
     return "auto_goal:" in head and "auto_drafted: true" not in head
 
 
+def _body_checksum(body: str) -> str:
+    """SHA-256 of the markdown body (everything after the frontmatter).
+
+    The body is fully determined by the goal, so a matching hash means
+    the user hasn't touched it since the lab drafted it.
+    """
+    return hashlib.sha256(body.encode("utf-8")).hexdigest()
+
+
+def _is_unedited_auto_draft(program_path: Path) -> bool:
+    """True if ``program.md`` is a lab auto-draft the user hasn't edited.
+
+    We embed ``draft_checksum: <sha256 of body>`` in the frontmatter at
+    draft time. Re-hashing the on-disk body and comparing tells us
+    whether the file is byte-for-byte the lab's own output. If so it's
+    safe to regenerate for a new goal; if not, the user has edits we
+    must not clobber. Any parse/read failure errs toward "edited"
+    (return False) so we never overwrite something we can't verify.
+    """
+    try:
+        text = program_path.read_text()
+    except OSError:
+        return False
+    m = _FRONTMATTER_RE.match(text)
+    if not m:
+        return False
+    frontmatter = text[: m.end()]
+    if "auto_drafted: true" not in frontmatter:
+        return False
+    cm = _CHECKSUM_RE.search(frontmatter)
+    if not cm:
+        return False
+    return cm.group(1) == _body_checksum(text[m.end():])
+
+
 def _fetch_extra_sources(goal_text: str) -> list[dict[str, str]]:
     """Stub — when the user enables external fetch we'll route through
     the existing Curator/Browser path. Returning [] keeps the rest of
@@ -269,19 +326,21 @@ def _render_program_md(
     hypotheses = _render_hypotheses(parsed)
     kb_section = _summarize_kb_hits(kb_hits)
 
-    lines: list[str] = []
-    # ── Frontmatter ──
-    lines.append("---")
-    lines.append(f"title: {_escape_yaml(goal_text or 'Research program (draft)')}")
-    lines.append("section: research")
-    lines.append("tags: [auto-drafted, program, research]")
-    lines.append(f"goal: {_escape_yaml(goal_text)}")
-    lines.append(f"intent: {_escape_yaml(domain)}")
-    lines.append(f"drafted_at: {drafted_at}")
-    lines.append("auto_drafted: true")
-    lines.append(f"fetched_external: {'true' if fetched_flag else 'false'}")
-    lines.append("---")
-    lines.append("")
+    # ── Frontmatter (assembled last so we can embed the body checksum) ──
+    fm: list[str] = []
+    fm.append(f"title: {_escape_yaml(goal_text or 'Research program (draft)')}")
+    fm.append("section: research")
+    fm.append("tags: [auto-drafted, program, research]")
+    fm.append(f"goal: {_escape_yaml(goal_text)}")
+    fm.append(f"intent: {_escape_yaml(domain)}")
+    fm.append(f"drafted_at: {drafted_at}")
+    fm.append("auto_drafted: true")
+    fm.append(f"fetched_external: {'true' if fetched_flag else 'false'}")
+
+    # The body starts with a blank line; everything from here down is
+    # hashed into draft_checksum so a later goal-change can tell whether
+    # the user edited the file before regenerating it.
+    lines: list[str] = [""]
 
     # ── Header + Goal ──
     lines.append(f"# Research program — {goal_text or '(unset goal)'}")
@@ -386,7 +445,9 @@ def _render_program_md(
     lines.append("(this clobbers your edits).")
     lines.append("")
 
-    return "\n".join(lines)
+    body = "\n".join(lines)
+    fm.append(f"draft_checksum: {_body_checksum(body)}")
+    return "---\n" + "\n".join(fm) + "\n---\n" + body
 
 
 def _escape_yaml(value: str) -> str:
