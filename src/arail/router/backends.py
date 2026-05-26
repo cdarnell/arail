@@ -801,8 +801,15 @@ class ClaudeBackend(BaseBackend):
                 kwargs["system"] = system
         resp = self.client.messages.create(**kwargs)
         usage = resp.usage
+        # Defensive text extraction. `max_tokens: 0` cache-prewarm requests
+        # return content=[]; thinking blocks may precede text blocks too.
+        text = ""
+        for block in (resp.content or []):
+            if getattr(block, "type", None) == "text":
+                text = block.text
+                break
         return ModelResponse(
-            text=resp.content[0].text,
+            text=text,
             model=self.model_name,
             tokens_used=resp.usage.output_tokens,
             backend="claude",
@@ -1264,6 +1271,158 @@ class AirLLMBackend(BaseBackend):
 
     def health_check(self) -> bool:
         return self._worker_alive()
+
+
+# ---------------------------------------------------------------------------
+# AeroLLM KV-budget resolution
+# ---------------------------------------------------------------------------
+
+# 2 GiB. Below this, a 7B-class model's KV pool can't hold a useful
+# context window (a single 4K-token Qwen sequence at 4-bit ~= 0.5 GiB;
+# we want headroom for 2-4 concurrent sequences plus prefill scratch).
+# Set as a floor so a transiently-busy box (e.g., during a Chrome spike)
+# still gets a working model after the spike passes — better to risk
+# light swap than to ship a runtime that refuses to start.
+_AEROLLM_KV_MIN_FLOOR_BYTES: int = 2 * 1024 * 1024 * 1024
+
+# 1.5 GiB. Reserved on top of the .available reading. Rationale: on
+# Darwin .available already discounts inactive/cached, but it does NOT
+# reserve room for (a) the portal's own growth during the same request
+# that triggered backend construction, (b) the aerollm Runtime's own
+# non-KV resident set (~150 MB on top of the weight file), or (c) the
+# spec-decode draft when AEROLLM_DRAFT_MODEL is set. 1.5 GiB covers
+# all three with margin on a 16 GB Mac without leaving a 36 GB box
+# significantly under-utilized.
+_AEROLLM_KV_SAFETY_HEADROOM_BYTES: int = int(1.5 * 1024 * 1024 * 1024)
+
+# Apply 85% of .available rather than 100% — even after subtracting
+# SAFETY_HEADROOM we want a buffer for short-lived allocations
+# (browser tab open, file upload) that the operator should not have
+# to think about. The two knobs compose: AVAILABLE_FRACTION absorbs
+# *transient* spikes, SAFETY_HEADROOM absorbs *known* costs.
+_AEROLLM_KV_AVAILABLE_FRACTION: float = 0.85
+
+_AEROLLM_KV_PCT_DEFAULT: float = 0.60
+
+
+def _resolve_kv_budget() -> dict[str, Any]:
+    """Compute the kv_memory_budget bytes to pass to aerollm Runtime.
+
+    Returns
+    -------
+    dict with keys:
+        budget_bytes : int | None
+            Bytes to pass as kv_memory_budget, or None to let aerollm
+            auto-detect (psutil missing / total reads as 0).
+        reason : str
+            One-line human-readable summary for activity_log.
+        fields : dict[str, Any]
+            Structured detail (pct_used, total_gib, available_gib,
+            ceil_total_gib, ceil_available_gib, floor_gib, headroom_gib,
+            source: "env"|"default"|"floor"|"unavailable").
+    """
+    _gib = 1024 ** 3
+
+    # --- resolve pct from env ---
+    pct_raw = os.getenv("AEROLLM_KV_BUDGET_PCT", "").strip()
+    source_pct = "default"
+    pct = _AEROLLM_KV_PCT_DEFAULT
+    invalid_env_note: Optional[str] = None
+    if pct_raw:
+        try:
+            parsed = float(pct_raw)
+        except ValueError:
+            parsed = 0.0
+            invalid_env_note = f"non-numeric AEROLLM_KV_BUDGET_PCT={pct_raw!r}"
+        if 0.0 < parsed < 1.0:
+            pct = parsed
+            source_pct = "env"
+        else:
+            # parsed is 0.0 from ValueError path or out-of-range — keep default
+            if invalid_env_note is None:
+                invalid_env_note = f"out-of-range AEROLLM_KV_BUDGET_PCT={pct_raw!r}"
+
+    # --- read memory ---
+    try:
+        import psutil  # noqa: PLC0415 — intentionally lazy
+        vm = psutil.virtual_memory()
+        total: int = int(vm.total)
+        available: int = int(vm.available)
+    except Exception as exc:  # noqa: BLE001
+        reason = (
+            f"psutil unavailable ({exc}); aerollm will auto-detect KV budget"
+        )
+        return {
+            "budget_bytes": None,
+            "reason": reason,
+            "fields": {
+                "pct_used": pct,
+                "total_gib": None,
+                "available_gib": None,
+                "ceil_total_gib": None,
+                "ceil_available_gib": None,
+                "floor_gib": _AEROLLM_KV_MIN_FLOOR_BYTES / _gib,
+                "headroom_gib": _AEROLLM_KV_SAFETY_HEADROOM_BYTES / _gib,
+                "source": "unavailable",
+            },
+        }
+
+    if total == 0:
+        return {
+            "budget_bytes": None,
+            "reason": "psutil returned total=0; aerollm will auto-detect KV budget",
+            "fields": {
+                "pct_used": pct,
+                "total_gib": 0.0,
+                "available_gib": available / _gib,
+                "ceil_total_gib": 0.0,
+                "ceil_available_gib": None,
+                "floor_gib": _AEROLLM_KV_MIN_FLOOR_BYTES / _gib,
+                "headroom_gib": _AEROLLM_KV_SAFETY_HEADROOM_BYTES / _gib,
+                "source": "unavailable",
+            },
+        }
+
+    # --- apply formula ---
+    ceil_total = total * pct
+    ceil_available = available * _AEROLLM_KV_AVAILABLE_FRACTION - _AEROLLM_KV_SAFETY_HEADROOM_BYTES
+    raw_budget = min(ceil_total, ceil_available)
+
+    source: str
+    if raw_budget < _AEROLLM_KV_MIN_FLOOR_BYTES:
+        budget_bytes = _AEROLLM_KV_MIN_FLOOR_BYTES
+        source = "floor"
+    else:
+        budget_bytes = int(raw_budget)
+        source = source_pct  # "env" or "default"
+
+    notes = []
+    if invalid_env_note:
+        notes.append(f"ignored invalid env: {invalid_env_note}; using default {_AEROLLM_KV_PCT_DEFAULT}")
+    notes_str = "; ".join(notes)
+
+    budget_gib = budget_bytes / _gib
+    reason = (
+        f"KV budget resolved to {budget_gib:.2f} GiB"
+        f" (source={source}, total={total/_gib:.1f} GiB,"
+        f" available={available/_gib:.1f} GiB)"
+        + (f"; {notes_str}" if notes_str else "")
+    )
+
+    return {
+        "budget_bytes": budget_bytes,
+        "reason": reason,
+        "fields": {
+            "pct_used": pct,
+            "total_gib": total / _gib,
+            "available_gib": available / _gib,
+            "ceil_total_gib": ceil_total / _gib,
+            "ceil_available_gib": ceil_available / _gib,
+            "floor_gib": _AEROLLM_KV_MIN_FLOOR_BYTES / _gib,
+            "headroom_gib": _AEROLLM_KV_SAFETY_HEADROOM_BYTES / _gib,
+            "source": source,
+        },
+    }
 
 
 # ---------------------------------------------------------------------------
