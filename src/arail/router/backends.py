@@ -1545,27 +1545,16 @@ class AeroLLMBackend(BaseBackend):
         if ring_depth and ring_depth.isdigit() and int(ring_depth) > 0:
             rt_kwargs["ring_depth"] = int(ring_depth)
 
-        # KV cache budget — by default aerollm auto-detects 80% of system
-        # RAM, which is too aggressive when the lab portal + browser are
-        # also running. AEROLLM_KV_BUDGET_PCT lets operators reserve a
-        # smaller fraction; default 0.60 leaves ~40% for everything else
-        # on a 16 GB Mac. Skip the cap when the env var is missing or
-        # invalid so users still get aerollm's auto-detect.
-        kv_budget_pct_raw = os.getenv("AEROLLM_KV_BUDGET_PCT", "").strip()
-        if kv_budget_pct_raw:
-            try:
-                pct = float(kv_budget_pct_raw)
-            except ValueError:
-                pct = 0.0
-            if 0.0 < pct < 1.0:
-                try:
-                    import psutil  # already a hard dep — see pyproject.toml
-                    total_bytes = int(psutil.virtual_memory().total)
-                    rt_kwargs["kv_memory_budget"] = int(total_bytes * pct)
-                except Exception:  # noqa: BLE001
-                    # psutil missing or virtual_memory unreadable — let
-                    # aerollm fall back to its own auto-detect default.
-                    pass
+        # KV cache budget — cap by *available* RAM, not just total, so a
+        # busy box (Ollama + Chrome + portal already loaded) doesn't drive
+        # the runtime past real headroom into swap. _resolve_kv_budget()
+        # reads AEROLLM_KV_BUDGET_PCT as a ceiling against total RAM, then
+        # clamps by (available * 0.85 - 1.5 GiB). Falls back to aerollm's
+        # own auto-detect (budget_bytes=None) only if psutil is unavailable.
+        reasoning = _resolve_kv_budget()
+        if reasoning["budget_bytes"] is not None:
+            rt_kwargs["kv_memory_budget"] = reasoning["budget_bytes"]
+        self._emit_budget_activity(reasoning)
 
         # TODO(runtime-profile): Once AeroLLM accepts construction-time
         # ring_depth + batch from runtime profile, replace the env-only
