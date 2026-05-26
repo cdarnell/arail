@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import atexit
 import json
+import logging
 import os
 import selectors
 import subprocess
@@ -16,6 +17,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any, Iterator, Optional
 
+_log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Context-window override resolver (L3 — sprint 2026-05-18)
@@ -1612,19 +1614,15 @@ class AeroLLMBackend(BaseBackend):
         these), ``"info"`` otherwise.
         """
         try:
-            from arail import activity_log  # noqa: PLC0415 — intentionally lazy
+            from arail.activity import activity_log  # noqa: PLC0415 — intentionally lazy
         except ImportError:
             return
         source = reasoning["fields"].get("source", "unavailable")
         level = "warn" if source in {"floor", "unavailable"} else "info"
         try:
-            activity_log.emit(
-                level=level,
-                category="system",
-                message=reasoning["reason"],
-            )
-        except Exception:  # noqa: BLE001
-            pass
+            activity_log.emit("aerollm", reasoning["reason"], level=level)
+        except Exception as e:  # noqa: BLE001
+            _log.warning("activity_log emission failed: %s", e)
 
     def _close(self) -> None:
         if self._closed:
