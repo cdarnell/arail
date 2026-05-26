@@ -1614,6 +1614,29 @@ class AeroLLMBackend(BaseBackend):
         rt.start()
         self._runtime = rt
 
+    def _emit_budget_activity(self, reasoning: dict[str, Any]) -> None:
+        """Emit one activity_log entry describing the resolved KV budget.
+
+        Best-effort — import errors are swallowed so a headless test
+        harness without the activity bus still works. Emits at ``"warn"``
+        when ``source in {"floor", "unavailable"}`` (operator should see
+        these), ``"info"`` otherwise.
+        """
+        try:
+            from arail import activity_log  # noqa: PLC0415 — intentionally lazy
+        except ImportError:
+            return
+        source = reasoning["fields"].get("source", "unavailable")
+        level = "warn" if source in {"floor", "unavailable"} else "info"
+        try:
+            activity_log.emit(
+                level=level,
+                category="system",
+                message=reasoning["reason"],
+            )
+        except Exception:  # noqa: BLE001
+            pass
+
     def _close(self) -> None:
         if self._closed:
             return
