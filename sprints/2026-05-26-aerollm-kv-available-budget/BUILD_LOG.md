@@ -102,3 +102,66 @@ None.
 - Files added: `tests/router/__init__.py`, `tests/router/test_aerollm_kv_budget.py`,
   `tests/router/test_aerollm_backend_budget_emit.py`
 - No commented-out code; no TODO comments added (existing runtime-profile TODO preserved as-is)
+
+---
+
+## Revision pass (post-BLOCK)
+
+**Date:** 2026-05-26
+**Reviewer verdict:** BLOCK (Findings A + B in REVIEW.md)
+**Commits in this pass:**
+
+- `9a1c95b` — fix(aerollm): correct import path and emit() signature in _emit_budget_activity
+- `e630c5d` — test(aerollm): add positive-path tests for _emit_budget_activity body (tests 14a+14b)
+
+### What was fixed
+
+**Finding A (BLOCK) — import path:**
+Changed `from arail import activity_log` → `from arail.activity import activity_log` inside `_emit_budget_activity`. The former raises `ImportError` (swallowed silently by bare except); the latter is the correct path used by `pkb_index.py` and `wiki.py`.
+
+**Finding B (BLOCK) — emit() call signature:**
+Changed `activity_log.emit(level=level, category="system", message=reasoning["reason"])` → `activity_log.emit("aerollm", reasoning["reason"], level=level)`. The real signature is `emit(source, message, level="info", data=None)`; there is no `category` parameter. The `"aerollm"` source string matches the `"wiki"` / `"pkb"` convention.
+
+**Finding D (recommended) — narrow bare except:**
+Added `import logging` and `_log = logging.getLogger(__name__)` at module level (first use of logging in backends.py). Changed `except Exception: pass` to `except Exception as e: _log.warning("activity_log emission failed: %s", e)`.
+
+### Import + signature confirmation
+
+Final call form: `activity_log.emit("aerollm", reasoning["reason"], level=level)`
+Sanity check: `python3 -c "from arail.activity import activity_log; print(activity_log)"` → `<arail.activity.ActivityLog object at 0x...>`
+
+### New tests (14a + 14b)
+
+Both tests in `tests/router/test_aerollm_backend_budget_emit.py` let `_emit_budget_activity` run for real (not patched out) and patch `arail.activity.activity_log.emit` with a `MagicMock`.
+
+- **14a** — `source="default"`: asserts `mock_emit.assert_called_once()`, `args[0] == "aerollm"`, `"KV budget resolved" in args[1]`, `level="info"`.
+- **14b** — `source="floor"` (via patched `_resolve_kv_budget`): asserts `level="warn"`.
+
+### Verify-then-fix loop evidence
+
+Ran a scratch simulation with the pre-fix broken import (`from arail import activity_log`). The `ImportError` is swallowed; `mock_emit` is never called. `assert_called_once()` would have raised `AssertionError`. Output:
+
+```text
+CONFIRMED: broken import → mock_emit.assert_called_once() would FAIL (ImportError swallowed)
+```
+
+The test is a meaningful guard against Findings A and B recurring.
+
+### Test suite after revision pass
+
+```text
+tests/router/test_aerollm_kv_budget.py              12 passed
+tests/router/test_aerollm_backend_budget_emit.py     5 passed  (3 original + 2 new)
+tests/router/ total:                                17 passed in 0.03s
+
+tests/test_aerollm_tier_resolution.py              14 passed (regression: 14/14)
+
+python3 -c "import arail.router.backends": clean (no circular imports)
+```
+
+### What the reviewer should re-verify on a second pass
+
+1. `_emit_budget_activity` in `backends.py` now does `from arail.activity import activity_log` (not `from arail import activity_log`) and calls `activity_log.emit("aerollm", reasoning["reason"], level=level)`.
+2. Tests 14a and 14b are NOT patching `_emit_budget_activity` — they let the body run.
+3. The `_log.warning(...)` fallback in the narrow except is wired to `_log = logging.getLogger(__name__)` at module level.
+4. No other files were touched in this revision pass (scope check: only `src/arail/router/backends.py` and `tests/router/test_aerollm_backend_budget_emit.py`).
