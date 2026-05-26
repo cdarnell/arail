@@ -60,12 +60,27 @@ maximus = [
     "langchain>=0.2.0",
     "langgraph>=0.2.0",
     "pip-audit>=2.7.0,<3",
+    # AeroLLM as the deep-mode streaming runtime (see [tool.arail.tiers]
+    # description). Apple-Silicon-gated: the published wheel is
+    # macosx_11_0_arm64-only today (CUDA backend is scaffolded but not
+    # built — ADR 0006). On Linux/x86 maximus stays AirLLM-via-opt-in
+    # until the CUDA wheel ships; the AeroLLMBackend in
+    # router/backends.py raises ImportError with build instructions if
+    # the wheel is missing.
+    "aerollm-api>=0.1.0rc2; sys_platform == 'darwin' and platform_machine == 'arm64'",
 ]
 
 # AirLLM is now opt-in (was bundled into both tiers before v1.0.0).
 # Power users on CUDA/Linux can enable it with: pip install -e ".[airllm]"
 # or via setup.sh: ARAIL_INSTALL_AIRLLM=1 ./arailctl setup
 airllm = ["airllm>=2.0"]
+
+# AeroLLM as a standalone extra — pulls in the in-process Rust streaming
+# runtime (replaces AirLLM on Apple Silicon). Wired into router via
+# `src/arail/router/backends.py::AeroLLMBackend` (registered as
+# "aerollm" in BACKEND_MAP). Apple-Silicon-gated; see the maximus block
+# above for the platform rationale.
+aero = ["aerollm-api>=0.1.0rc2; sys_platform == 'darwin' and platform_machine == 'arm64'"]
 
 # Back-compat aliases — accept old `min`/`max` names for one release.
 # Removed in v1.1.0. The setup script and pip install both honor these.
@@ -76,6 +91,7 @@ max = [
     "langchain>=0.2.0",
     "langgraph>=0.2.0",
     "pip-audit>=2.7.0,<3",
+    "aerollm-api>=0.1.0rc2; sys_platform == 'darwin' and platform_machine == 'arm64'",
 ]
 
 security = ["pip-audit>=2.7.0,<3"]

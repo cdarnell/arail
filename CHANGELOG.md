@@ -4,6 +4,35 @@ All notable changes to ARAIL are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **`aerollm-api` declared as an install dependency** on Apple Silicon
+  (2026-05-25). The `AeroLLMBackend` in [`src/arail/router/backends.py`](src/arail/router/backends.py)
+  has shipped since v1.0.0, but the wheel was never pulled in by `pip` —
+  users had to build it manually with `maturin develop`. With aeroLLM
+  publishing `aerollm-api 0.1.0rc2` to PyPI (the first wheel with the
+  native Qwen3-MoE backend, the `score()` teacher-forcing API, and the
+  honest decode-tokens/sec metric), the dep can be declared properly.
+
+  Wired in two extras:
+  - `maximus` (and the legacy `max` alias) — fulfills the existing tier
+    description ("Adds AeroLLM as the deep-mode runtime"); the dep was
+    missing.
+  - `aero` — granular extra so the runtime can be added to a minimalist
+    install without pulling JupyterLab + LangChain.
+
+  Platform-gated to `sys_platform == 'darwin' and platform_machine == 'arm64'`
+  per PEP 508 markers — the published wheel is `macosx_11_0_arm64` only
+  (CUDA backend is scaffolded but not built; ADR 0006). On Linux/x86
+  hosts the dep is silently skipped and `AeroLLMBackend` raises a clear
+  `ImportError` (with build instructions) if a user invokes it.
+
+  Closes the consumer side of aeroLLM's "ARAIL chat path via published
+  wheel" GA gate. After `pip install -e ".[maximus]"`, `aerollm` is a
+  live backend choice with no manual build step.
+
 ## [1.0.0] — 2026-05-17
 
 The first stable release of ARAIL. A learn-by-doing AI research lab
