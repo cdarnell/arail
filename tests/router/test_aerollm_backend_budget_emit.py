@@ -158,3 +158,86 @@ def test_kv_memory_budget_kwarg_absent_when_resolver_returns_none():
         AeroLLMBackend()
 
     assert "kv_memory_budget" not in fake_aero.Runtime._last_kwargs
+
+
+# ---------------------------------------------------------------------------
+# Test 14a — positive-path: _emit_budget_activity body runs; activity_log.emit
+#            called with correct args (source="aerollm", level="info")
+# ---------------------------------------------------------------------------
+def test_emit_budget_activity_positive_path_info():
+    """_emit_budget_activity runs for real (not patched out) and calls
+    arail.activity.activity_log.emit with source='aerollm', level='info',
+    and a message that contains the resolved budget description."""
+    from arail.router.backends import AeroLLMBackend
+    from unittest.mock import MagicMock
+    import arail.activity as _activity_mod
+
+    fake_aero = _make_fake_aerollm_api()
+    known_result = {
+        "budget_bytes": int(9 * _GiB),
+        "reason": "KV budget resolved to 9.00 GiB (source=default, total=16.0 GiB, available=14.0 GiB)",
+        "fields": {
+            "source": "default",
+            "pct_used": 0.60,
+            "total_gib": 16.0,
+            "available_gib": 14.0,
+            "ceil_total_gib": 9.6,
+            "ceil_available_gib": 9.0,
+            "floor_gib": 2.0,
+            "headroom_gib": 1.5,
+        },
+    }
+
+    mock_emit = MagicMock()
+    with (
+        patch.dict(sys.modules, {"aerollm_api": fake_aero}),
+        patch("arail.router.backends._resolve_kv_budget", return_value=known_result),
+        patch.object(_activity_mod.activity_log, "emit", mock_emit),
+    ):
+        AeroLLMBackend()
+
+    mock_emit.assert_called_once()
+    args, kwargs = mock_emit.call_args
+    assert args[0] == "aerollm", f"Expected source='aerollm', got {args[0]!r}"
+    assert "KV budget resolved" in args[1], f"Message missing expected text: {args[1]!r}"
+    assert kwargs.get("level") == "info", f"Expected level='info', got {kwargs.get('level')!r}"
+
+
+# ---------------------------------------------------------------------------
+# Test 14b — positive-path: source="floor" triggers level="warn"
+# ---------------------------------------------------------------------------
+def test_emit_budget_activity_positive_path_warn_on_floor():
+    """When _resolve_kv_budget returns source='floor', _emit_budget_activity
+    calls activity_log.emit with level='warn'."""
+    from arail.router.backends import AeroLLMBackend
+    from unittest.mock import MagicMock
+    import arail.activity as _activity_mod
+
+    fake_aero = _make_fake_aerollm_api()
+    floor_result = {
+        "budget_bytes": int(2 * _GiB),
+        "reason": "KV budget clamped to floor 2.00 GiB (source=floor, total=4.0 GiB, available=1.0 GiB)",
+        "fields": {
+            "source": "floor",
+            "pct_used": 0.60,
+            "total_gib": 4.0,
+            "available_gib": 1.0,
+            "ceil_total_gib": 2.4,
+            "ceil_available_gib": 0.0,
+            "floor_gib": 2.0,
+            "headroom_gib": 1.5,
+        },
+    }
+
+    mock_emit = MagicMock()
+    with (
+        patch.dict(sys.modules, {"aerollm_api": fake_aero}),
+        patch("arail.router.backends._resolve_kv_budget", return_value=floor_result),
+        patch.object(_activity_mod.activity_log, "emit", mock_emit),
+    ):
+        AeroLLMBackend()
+
+    mock_emit.assert_called_once()
+    args, kwargs = mock_emit.call_args
+    assert args[0] == "aerollm", f"Expected source='aerollm', got {args[0]!r}"
+    assert kwargs.get("level") == "warn", f"Expected level='warn', got {kwargs.get('level')!r}"
