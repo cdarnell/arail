@@ -154,13 +154,22 @@ ai_eng_preview    = "qwen2.5:7b"
 #
 #   minimalist → mlx-community/Qwen2.5-7B-Instruct-4bit  (~4 GB resident,
 #                fits 16 GB Macs; selected for everyday lab use).
-#   maximus    → mlx-community/Qwen2.5-72B-Instruct-4bit  (~40 GB resident,
-#                needs 48 GB+ RAM; same Qwen2.5 family as ai-eng 3B, at
-#                the top of AeroLLM's proven golden-gate envelope).
+#   maximus    → mlx-community/Qwen2.5-7B-Instruct-4bit  (same 7B as
+#                minimalist by default — "works out of the box on any
+#                Apple Silicon Mac AeroLLM ships on"). Operators upgrade
+#                to a frontier model after setup by downloading the
+#                weights and setting AEROLLM_MODEL in .env, e.g.:
+#                  huggingface-cli download mlx-community/Qwen2.5-32B-Instruct-4bit \
+#                    --local-dir lab/models/Qwen2.5-32B-Instruct-4bit
+#                  echo 'AEROLLM_MODEL=Qwen2.5-32B-Instruct-4bit' >> .env
+#                Pre-7180a8a the maximus default was Qwen2.5-72B-Instruct-4bit
+#                (~40 GB resident, needs 48 GB+); that footgunned every clone
+#                without prebuilt weights or sufficient RAM. Default is now a
+#                proven floor; operators self-select the ceiling.
 #
 # CUDA hosts fall back to AirLLM with a notice until AeroLLM CUDA lands.
 # Operators can override the runtime value via AEROLLM_MODEL in .env.
-aerollm_maximus    = "mlx-community/Qwen2.5-72B-Instruct-4bit"
+aerollm_maximus    = "mlx-community/Qwen2.5-7B-Instruct-4bit"
 aerollm_minimalist = "mlx-community/Qwen2.5-7B-Instruct-4bit"
 # Legacy alias for tooling that reads [tool.arail.models].aerollm directly.
 # Points at the minimalist (7B) value — safe fallback for any caller that

@@ -562,6 +562,9 @@ async def _startup():
 
     asyncio.create_task(_warm_primary_router())
     asyncio.create_task(_inbox_watcher_loop())
+    # Pre-write the Anthropic prompt cache (hybrid + Claude only; no-op
+    # everywhere else). Makes the first demo turn read cache, not cold prefix.
+    asyncio.create_task(_prewarm_claude_cache_task())
 
     # Load bootstrap goal if no active goal exists
     current = goal_store.get_current()
@@ -5029,6 +5032,42 @@ async def _warm_primary_router() -> None:
         _MODEL_WARM = True
 
 
+async def _prewarm_claude_cache_task() -> None:
+    """Background-warm the Anthropic prompt cache so the first demo turn reads
+    cache instead of paying the cold prefix. Short-circuits to a logged
+    'skipped' in airgapped mode / when no Claude key is set / on old SDKs —
+    never raises. Disable with ``ARAIL_PREWARM_CACHE=0``.
+    """
+    if os.getenv("ARAIL_PREWARM_CACHE", "1").strip().lower() in ("0", "false", "no"):
+        return
+    try:
+        from arail.router.cache_prewarm import prewarm_claude_cache
+        # The anthropic SDK is sync — run off the event loop.
+        result = await asyncio.to_thread(prewarm_claude_cache)
+        status = result.get("status", "unknown")
+        if status == "ok":
+            written = int(result.get("cache_creation_tokens") or 0)
+            read = int(result.get("cache_read_tokens") or 0)
+            activity_log.emit(
+                "system",
+                f"Prompt cache prewarmed: {result.get('prompts')} prompts, "
+                f"{written} tokens written, {read} read.",
+                "info" if written or read else "warn",
+            )
+        else:
+            activity_log.emit(
+                "system",
+                f"Prompt cache prewarm skipped: {result.get('reason')}",
+                "info" if status == "skipped" else "warn",
+            )
+    except Exception as e:  # noqa: BLE001
+        activity_log.emit(
+            "system",
+            f"Prompt cache prewarm failed: {type(e).__name__}: {e}",
+            "warn",
+        )
+
+
 def _render_messages_for_backend(messages: list[dict[str, str]], backend: Any) -> str:
     tokenizer = getattr(backend, "tokenizer", None)
     if tokenizer is None:
@@ -5959,6 +5998,62 @@ _OPTIONAL_CHAT_BACKEND_CONFIG: dict[str, dict[str, str]] = {
 }
 
 
+def _resilient_chat_default(candidate: str | None) -> str | None:
+    """Return `candidate` if it's installed; else pick a sensible installed model.
+
+    Handles the `MODEL_NAME=ai-engineer:latest` (legacy) ↔ `ai-eng:latest`
+    (v1.0.0 catalog) drift without forcing operators to edit `.env`.
+    Preference order when falling back:
+      1. any installed model whose id matches `^ai-eng(?:ineer)?:`
+      2. `qwen2.5:7b` (the documented preview base)
+      3. the first installed model (any runtime)
+      4. the original `candidate` (so we don't lose info if nothing's
+         installed yet — the loader will surface the real error).
+    """
+    if not candidate:
+        return candidate
+    try:
+        from arail.chat import detect_installed_models
+        installed = detect_installed_models() or []
+    except Exception:  # noqa: BLE001
+        return candidate
+    ids = [str(m.get("id") or "") for m in installed if m.get("id")]
+    if candidate in ids:
+        return candidate
+    if not ids:
+        return candidate
+    import re as _re
+    _ai_eng_rx = _re.compile(r"^ai-eng(?:ineer)?(?::|$)", _re.IGNORECASE)
+    for mid in ids:
+        if _ai_eng_rx.match(mid):
+            return mid
+    if "qwen2.5:7b" in ids:
+        return "qwen2.5:7b"
+    return ids[0]
+
+
+def _resolve_chat_deep_default() -> bool:
+    """Whether Box B (the 2nd inference / aeroLLM) should be open by default.
+
+    Resolution order:
+      1. Env override — accept both ``ARAIL_CHAT_DEEP_DEFAULT`` (legacy /
+         code-side name) and ``LAB_CHAT_DEEP_DEFAULT`` (the name
+         ``.env.example`` documents). ``true|1|yes`` → on, ``false|0|no`` → off.
+      2. Default: on iff the current tier is ``maximus`` AND a deep backend
+         actually resolves on this host (i.e. ``aerollm_api`` is importable
+         or the operator opted into AirLLM). Avoids opening an empty 2nd
+         box on a CUDA box without AirLLM, or on minimalist.
+    """
+    raw = (os.getenv("ARAIL_CHAT_DEEP_DEFAULT") or os.getenv("LAB_CHAT_DEEP_DEFAULT") or "").strip().lower()
+    if raw in ("true", "1", "yes", "on"):
+        return True
+    if raw in ("false", "0", "no", "off"):
+        return False
+    return _current_tier() == "maximus" and (
+        _is_aerollm_installed() or _resolve_default_deep_backend() == "aerollm"
+    )
+
+
 def _resolve_default_deep_backend() -> str | None:
     """Pick the default deep-mode backend for the current host.
 
@@ -6377,6 +6472,13 @@ async def api_chat_models(provider: str = ""):
     be = router._backend
     active_provider = _load_active_provider()
     current = _get_live_ollama_current(be) or getattr(be, "model_name", None) or os.getenv("MODEL_NAME", "ai-eng:latest")
+    # Safety net: if `current` doesn't actually exist on any local runtime
+    # (e.g. .env carries a stale MODEL_NAME like `ai-engineer:latest` from
+    # a pre-v1.0.0 install, but only `ai-eng:latest` is now installed),
+    # fall back to the best installed ai-eng-family match so the chat tab
+    # auto-selects a model that loads. Without this the user sees a
+    # confidently-broken default chip until they edit .env.
+    current = _resilient_chat_default(current)
     models: list[str] = []
 
     # Only these backends have a useful /models listing today.
@@ -6519,8 +6621,14 @@ async def api_chat_models(provider: str = ""):
         # document this model" placeholder in that case.
         "spec": spec,
         # Server-side default for the dashboard deep toggle. The UI
-        # still lets the browser override this after first render.
-        "default_enabled": os.getenv("ARAIL_CHAT_DEEP_DEFAULT", "false").lower() == "true",
+        # still lets the browser override this after first render
+        # (persisted via localStorage['arail.chat.compareOn']).
+        # Accept both env names — `.env.example` documents
+        # LAB_CHAT_DEEP_DEFAULT, older code/tests use ARAIL_CHAT_DEEP_DEFAULT.
+        # When neither is set, default to ON on maximus when a deep backend
+        # actually resolves, so a fresh install gets both boxes warmed
+        # without operator intervention.
+        "default_enabled": _resolve_chat_deep_default(),
         # Meta Llama and similar repos require a HF login/token before
         # download. Surface the caveat so the dashboard can show it in
         # install/help copy instead of failing generically.
@@ -6774,9 +6882,14 @@ async def chat_models_set_ctx(request: Request):
 
 def _is_aerollm_installed() -> bool:
     """aerollm is optional — check without importing since the import
-    itself is heavy (drags torch)."""
+    itself is heavy (drags torch). The PyO3 wheel publishes as
+    `aerollm_api` (the module the AeroLLMBackend imports at runtime);
+    the legacy bare-`aerollm` name was retired pre-1.0 but the spec
+    check here lagged behind, which made deep.installed report False
+    even when inference worked, breaking the chat tab's auto-open
+    eligibility check."""
     import importlib.util
-    return importlib.util.find_spec("aerollm") is not None
+    return importlib.util.find_spec("aerollm_api") is not None
 
 
 def _is_airllm_installed() -> bool:

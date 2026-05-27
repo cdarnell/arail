@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Chat Studio · {{ brand.name }}</title>
   <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/js/chat-highlight.js"></script>
   <script>
     // Anti-FOUC: apply persisted theme before any paint.
     (function () {
@@ -653,6 +654,12 @@
       color: var(--text-hi);
     }
     .code-block pre code { color: inherit; background: none; padding: 0; border: 0; }
+    /* syntax-highlight tokens (chat-highlight.js) */
+    .code-block .hl-kw  { color: #c792ea; }
+    .code-block .hl-str { color: #c3e88d; }
+    .code-block .hl-com { color: #6a737d; font-style: italic; }
+    .code-block .hl-num { color: #f78c6c; }
+    .code-block .hl-fn  { color: #82aaff; }
 
     /* Stats line */
     .stats-line {
@@ -2230,6 +2237,7 @@
       const deltas = diffTunables(prevSnapshot, State.tunables);
       const changedCount = Object.keys(deltas).length;
       renderTunables(deltas);
+      syncQuickBarsFromState();  // move the visible quick-bar temp slider live
       // Reveal the drawer so the user SEES what changed — unless they
       // explicitly closed it earlier this session.
       if (changedCount > 0 && !State._drawerUserClosed) {
@@ -2446,6 +2454,25 @@
     bindQuickSlider('qb-temp-A', 'qb-temp-A-val', 'temperature', 'A');
     bindQuickSlider('qb-temp-B', 'qb-temp-B-val', 'temperature', 'B');
 
+    // Reverse sync: push current State tunables back onto the always-visible
+    // quick-bar temp sliders. Presets (and drawer edits) update State + the
+    // drawer rows but were NOT moving the quick-bar slider the user is looking
+    // at — so clicking "Creative" appeared to do nothing. Calling this after a
+    // preset makes the temp slider visibly move, which is the whole point:
+    // the user learns what the preset means in dial terms.
+    function syncQuickBarsFromState() {
+      [['qb-temp-A', 'qb-temp-A-val', 'A'], ['qb-temp-B', 'qb-temp-B-val', 'B']].forEach(([id, valId, side]) => {
+        const inp = $(id), val = $(valId);
+        if (!inp) return;
+        const t = side === 'B' && State.bTunables ? State.bTunables : State.tunables;
+        const v = Number(t.temperature);
+        if (Number.isNaN(v)) return;
+        inp.value = v;
+        if (val) val.textContent = v.toFixed(2);
+        inp.style.setProperty('--qbfill', (((v - inp.min) / (inp.max - inp.min)) * 100) + '%');
+      });
+    }
+
     // Frontier = 70B+ total params (the headline "2nd inference" threshold).
     // Mirrors model_specs.is_frontier()'s fallback regex on the client so the
     // chat can auto-default a frontier pick to aeroLLM without a round-trip.
@@ -2508,6 +2535,9 @@
     // coexist with the on-GPU primary at the cost of slower inference.
     function setCompare(on) {
       State.compareOn = on;
+      // Persist the user's choice so closing Box B sticks across reloads
+      // (and so auto-warm respects an explicit opt-out). Read in init().
+      try { localStorage.setItem('arail.chat.compareOn', on ? '1' : '0'); } catch (_) {}
       $('compare-grid').setAttribute('data-cols', on ? '2' : '1');
       document.querySelector('.col[data-col="B"]').hidden = !on;
       $('btn-compare').textContent = on ? '✓ Comparing' : '+ Compare';
@@ -2587,11 +2617,18 @@
       const t = side === 'B' ? (State.bTunables || State.tunables) : State.tunables;
       // Stop sequences: textarea is newline-separated → array.
       const stops = (t.stop || '').split('\n').map(s => s.trim()).filter(Boolean);
+      // Deep runtimes (aerollm/airllm) must surface as the request's
+      // `backend` field so the server's _OPTIONAL_CHAT_BACKEND_CONFIG gate
+      // fires; otherwise pickBackend() returns undefined for my_machine and
+      // the prompt drops into the primary Ollama router (which 404s on the
+      // MLX dir name). Mirrors the translation loadModel() does at warm time.
+      const runtime = side === 'B' ? State.bRuntime : State.currentRuntime;
+      const isDeepRuntime = runtime === 'aerollm' || runtime === 'airllm';
       return {
         message: text,
         history: State.history.slice(-20),
-        backend: pickBackend(),
-        runtime: side === 'B' ? State.bRuntime : State.currentRuntime,
+        backend: isDeepRuntime ? runtime : pickBackend(),
+        runtime,
         model:   side === 'B' ? State.bId      : State.currentId,
         // Core sampling.
         temperature: t.temperature,
@@ -3062,7 +3099,10 @@
     }
 
     function renderCodeBlock(lang, code) {
-      const safe = escapeHtml(code).replace(/\n$/, '');
+      const body = String(code || '').replace(/\n$/, '');
+      // Syntax-highlight when the helper is loaded; it escapes internally and
+      // its output's textContent equals the source, so copy stays clean.
+      const safe = window.highlightCode ? window.highlightCode(body, lang) : escapeHtml(body);
       const langLabel = lang ? escapeHtml(lang) : 'text';
       const id = 'cb' + Math.random().toString(36).slice(2, 8);
       return `<div class="code-block">
@@ -3244,7 +3284,10 @@
     }
 
     /* LOAD — warm the model with a 1-token completion so it's resident
-       on the next real query. Uses the existing /api/chat/stream path. */
+       on the next real query. Uses the existing /api/chat/stream path.
+       Parses the NDJSON stream and surfaces any {type:'error'} event so a
+       failed warm shows the real reason (missing weights, Metal crash, …)
+       instead of falsely marking the model WARM. */
     async function loadModel(m) {
       if (!m) return;
       flashStatus(`loading ${m.label || m.id}…`);
@@ -3265,9 +3308,34 @@
           body: JSON.stringify(body),
         });
         if (!r.ok) throw new Error('HTTP ' + r.status);
-        // Drain the stream so the request completes server-side
+        // Parse NDJSON, mirroring streamChat()'s event handling. Bail on
+        // the first {type:'error'} or a final event carrying an error.
         const reader = r.body.getReader();
-        while (true) { const { done } = await reader.read(); if (done) break; }
+        const dec = new TextDecoder();
+        let buf = '';
+        let errMsg = null;
+        outer: while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buf += dec.decode(value, { stream: true });
+          let nl;
+          while ((nl = buf.indexOf('\n')) >= 0) {
+            const line = buf.slice(0, nl).trim();
+            buf = buf.slice(nl + 1);
+            if (!line) continue;
+            let evt;
+            try { evt = JSON.parse(line); } catch { continue; }
+            if (evt && evt.type === 'error') {
+              errMsg = evt.error || evt.message || 'unknown error';
+              break outer;
+            }
+            if (evt && evt.type === 'final' && evt.error) {
+              errMsg = evt.error;
+              break outer;
+            }
+          }
+        }
+        if (errMsg) throw new Error(errMsg);
         State.warmModels.add(m.id);
         renderModelRail();
         const wm = $('tele-warm');
@@ -3449,12 +3517,52 @@
           $('tele-hw').textContent = `${hw.label || '—'} · ${hw.total_gb || '?'} GB total`;
           $('tele-vram').textContent = `${hw.free_gb || '?'} GB`;
         }
+        // Auto-warm both boxes so the chat is usable the moment the page
+        // settles. Deferred via queueMicrotask so the initial paint and
+        // event wiring complete first.
+        queueMicrotask(() => autoWarmBoxes(hw));
       } catch (e) {
         console.error('[chat init] failed:', e);
         $('picker-label').textContent = 'load failed — see console';
         flashStatus('models load failed: ' + (e && e.message || e));
       }
       console.info('[chat init] done · models=', State.models.length, '· current=', State.currentId);
+    }
+
+    /* AUTO-WARM — warm Box A on init; if the deep backend is available on
+       this tier + installed + not user-opted-out + machine has enough
+       free RAM, also open Box B and warm the deep model. Sequential
+       (not parallel) so a slow Ollama cold-start doesn't race the
+       heavier aeroLLM init. */
+    async function autoWarmBoxes(hw) {
+      if (!State.currentModel) return;
+      try { await loadModel(State.currentModel); }
+      catch (e) { console.warn('[auto-warm] Box A failed:', e); /* loadModel already flashed */ }
+
+      const deep = State.deep || {};
+      const userOptOut = (() => {
+        try { return localStorage.getItem('arail.chat.compareOn') === '0'; } catch (_) { return false; }
+      })();
+      const eligible = deep.available_in_tier === true
+        && deep.installed === true
+        && deep.default_enabled === true
+        && !userOptOut;
+      if (!eligible) return;
+
+      // Honor the OOM-pressure memory: skip Box B auto-warm if free RAM is
+      // tight. The deep model adds a few GB resident even when streamed.
+      const freeGb = Number(hw && hw.free_gb) || 0;
+      if (freeGb > 0 && freeGb < 6) {
+        flashStatus('skipped 2nd box auto-load — free RAM low (<6 GB)');
+        return;
+      }
+
+      // setCompare(true) picks the aerollm deep entry into State.bModel.
+      setCompare(true);
+      if (State.bModel) {
+        try { await loadModel(State.bModel); }
+        catch (e) { console.warn('[auto-warm] Box B failed:', e); }
+      }
     }
 
     init();

@@ -72,14 +72,17 @@ AIRLLM_MODEL_MAX_ID="meta-llama/Llama-3.1-405B"
 AIRLLM_PACKAGE_SPEC="airllm>=2.0"
 # AeroLLM = Arail's own Rust runtime, the deep-mode default on Apple
 # Silicon as of 0.1.0 alpha. minimalist ships Qwen2.5-7B-Instruct-4bit
-# (~4 GB resident, fits 16 GB Macs); maximus ships Qwen2.5-72B-Instruct-4bit
-# (~40 GB resident, needs 48 GB+; warn below that threshold). Same Qwen2.5
-# family as ai-eng 3B — top of AeroLLM's proven golden-gate envelope.
+# (~4 GB resident, fits 16 GB Macs); maximus ships the SAME 7B by default
+# so a fresh clone "just works" — operators upgrade after setup by
+# downloading frontier weights and setting AEROLLM_MODEL in .env (see
+# pyproject.toml [tool.arail.models] block for the recipe). Pre-7180a8a
+# the maximus default was 72B (~40 GB, needs 48 GB+); that footgunned
+# every clone without prebuilt weights, which is what this default fixes.
 # CUDA hosts still default to AirLLM until the aerollm CUDA backend lands.
 # KV budget defaults to 60% of system RAM so portal + browser keep headroom.
 AEROLLM_MODEL_ID="mlx-community/Qwen2.5-7B-Instruct-4bit"
 AEROLLM_MODEL_MIN_ID="mlx-community/Qwen2.5-7B-Instruct-4bit"
-AEROLLM_MODEL_MAX_ID="mlx-community/Qwen2.5-72B-Instruct-4bit"
+AEROLLM_MODEL_MAX_ID="mlx-community/Qwen2.5-7B-Instruct-4bit"
 AEROLLM_KV_BUDGET_PCT="0.60"
 # Release channel for the aerollm_api wheel — used when no local sibling repo is
 # present. Overridden by [tool.arail.package-sources] in pyproject.toml.
@@ -747,6 +750,21 @@ install_services() {
             return
         fi
 
+        # Migrate pre-v1.0.0 installs: if `ai-engineer:latest` exists but
+        # `ai-eng:latest` does not, alias instantly via `ollama cp` instead
+        # of re-pulling several GB of weights. The chat catalog and the
+        # v1.0.0 fallback chain both look for `ai-eng:latest`, so this
+        # makes both names resolve to the same model.
+        if ollama show ai-engineer:latest &>/dev/null; then
+            info "Found legacy ai-engineer:latest — aliasing as ai-eng:latest (no re-download)…"
+            if ollama cp ai-engineer:latest ai-eng:latest 2>&1 | tail -3; then
+                info "ai-eng:latest now aliases ai-engineer:latest. Done."
+                return
+            else
+                warn "ollama cp failed — falling through to fresh pull."
+            fi
+        fi
+
         # Probe for the production tag. If QuKaiZen has published the 3B
         # weights, prefer those; otherwise fall back to the preview base.
         local _modelfile_dir="${REPO_ROOT:-$PWD}/models/ai-eng"
@@ -978,13 +996,14 @@ EOF
     # once the aerollm CUDA backend ships). Operators can override via
     # AEROLLM_MODEL in .env after setup.
     case "$LAB_TIER" in
-        maximus) AEROLLM_MODEL_ID="${AEROLLM_MODEL_MAX_ID:-mlx-community/Qwen2.5-72B-Instruct-4bit}" ;;
+        maximus) AEROLLM_MODEL_ID="${AEROLLM_MODEL_MAX_ID:-mlx-community/Qwen2.5-7B-Instruct-4bit}" ;;
         *)       AEROLLM_MODEL_ID="${AEROLLM_MODEL_MIN_ID:-mlx-community/Qwen2.5-7B-Instruct-4bit}"  ;;
     esac
     info "AeroLLM deep model for ${LAB_TIER}: ${BOLD}${AEROLLM_MODEL_ID}${RESET}"
 
-    # RAM-headroom warning for the 72B maximus model (~40 GB resident;
-    # recommend 48 GB+ so the portal + browser keep headroom).
+    # RAM-headroom hint for operators who manually upgrade AEROLLM_MODEL in .env
+    # to a frontier (32B+) checkpoint. With the 7B default the warning is
+    # informational, not a footgun — the 7B fits comfortably on 16 GB+.
     if [[ "$LAB_TIER" == "maximus" ]]; then
         local ram_bytes=0
         if [[ "$(uname -s)" == "Darwin" ]]; then
@@ -997,10 +1016,9 @@ EOF
         fi
         # 48 GB threshold = 48 * 1024^3 bytes = 51539607552
         if [[ "$ram_bytes" -gt 0 && "$ram_bytes" -lt 51539607552 ]]; then
-            warn "Detected system RAM < 48 GB. The maximus AeroLLM deep model"
-            warn "(Qwen2.5-72B-Instruct-4bit, ~40 GB resident) may cause OOM."
-            warn "Consider --tier minimalist on this machine, or override via"
-            warn "AEROLLM_MODEL in .env to a smaller model."
+            info "System RAM < 48 GB detected. Default deep model (7B) fits easily."
+            info "Upgrading AEROLLM_MODEL to a 70B+ model on this box may OOM —"
+            info "stay at 32B or below, or use Qwen2.5-7B (the default) for safety."
         fi
     fi
 }
@@ -1131,6 +1149,24 @@ setup_env() {
 
         sed -i.bak "s|^AIRLLM_MODEL=.*|AIRLLM_MODEL=${AIRLLM_MODEL_ID}|" .env
         sed -i.bak "s|^AEROLLM_MODEL=.*|AEROLLM_MODEL=${AEROLLM_MODEL_ID}|" .env
+
+        # AeroLLM weights-present guard. AEROLLM_MODEL_ID is a HF repo path
+        # like "mlx-community/Qwen2.5-7B-Instruct-4bit"; AeroLLMBackend
+        # resolves it as the basename under lab/models/. If those weights
+        # are not on disk, the deep box will RuntimeError on first warm.
+        # Surface a concrete download command up-front so the operator
+        # never opens the chat tab to a silently broken Box B.
+        local _aero_basename="${AEROLLM_MODEL_ID##*/}"
+        local _aero_dir="lab/models/${_aero_basename}"
+        if [[ ! -d "$_aero_dir" ]]; then
+            warn "AeroLLM weights missing at ${_aero_dir}."
+            warn "The deep (2nd inference) box won't load until you run:"
+            warn "  huggingface-cli download ${AEROLLM_MODEL_ID} \\"
+            warn "    --local-dir ${_aero_dir} --local-dir-use-symlinks False"
+            warn "Or downgrade AEROLLM_MODEL in .env to a model whose weights you have."
+        else
+            info "AeroLLM weights present at ${_aero_dir} ✓"
+        fi
 
         # AeroLLM KV budget — fraction of system RAM the runtime may
         # claim for KV cache. 0.60 leaves ~40% for portal + browser; the

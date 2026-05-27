@@ -1,19 +1,28 @@
 """test_aerollm_tier_resolution.py
 
-Locks down the two bugs fixed in sprint 2026-05-20-aerollm-72b-lift:
+Locks down the structural correctness of the AeroLLM tier resolution chain.
 
-  Bug 1 (MIN_ID stomp): load_pyproject_metadata previously read
-    aerollm_maximus first when resolving AEROLLM_MODEL_MIN_ID.
-    After lifting aerollm_maximus to 72B, minimalist installs would
-    try to load 72B → hard OOM on 16 GB Macs.
+History:
 
-  Bug 2 (no per-tier resolution): capture_tier resolved a single flat
-    AEROLLM_MODEL_ID for both tiers, ignoring MIN_ID/MAX_ID entirely.
-    Maximus users always got the 7B deep model.
+  Sprint 2026-05-20-aerollm-72b-lift: introduced per-tier deep models
+  (minimalist=7B, maximus=72B) and fixed two related bugs:
+    Bug 1 (MIN_ID stomp): the loader read aerollm_maximus first when
+      resolving AEROLLM_MODEL_MIN_ID, so lifting maximus to 72B would
+      OOM every minimalist install on 16 GB Macs.
+    Bug 2 (no per-tier resolution): capture_tier wrote a flat
+      AEROLLM_MODEL_ID for both tiers, ignoring MIN_ID/MAX_ID.
 
-These tests exercise the pyproject.toml keys directly (the ground truth
-for both the shell loader and any Python consumer) and then simulate the
-loader's Python dict-lookup chain to verify the exact resolution order.
+  Sprint 2026-05-25-chat-2nd-inference-works: lowered the maximus
+  default back to 7B (same as minimalist) so a fresh clone "just works"
+  on any AeroLLM-capable Mac without first downloading 40 GB of weights.
+  Operators upgrade to a frontier model after setup via AEROLLM_MODEL
+  in .env (see pyproject.toml [tool.arail.models] for the recipe).
+
+These tests pin:
+  - the per-tier values in pyproject.toml,
+  - the loader lookup chain (Bug 1 guard — preserves the structural
+    fix so a future re-bump of maximus does not re-introduce the OOM),
+  - the capture_tier case-block structure (Bug 2 guard).
 """
 from __future__ import annotations
 
@@ -33,7 +42,9 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 PYPROJECT = REPO_ROOT / "pyproject.toml"
 SETUP_SH = REPO_ROOT / "scripts" / "setup.sh"
 
-EXPECTED_MAX_MODEL = "mlx-community/Qwen2.5-72B-Instruct-4bit"
+# As of 2026-05-25 the maximus default matches minimalist — both 7B.
+# Operators bump maximus locally via AEROLLM_MODEL in .env.
+EXPECTED_MAX_MODEL = "mlx-community/Qwen2.5-7B-Instruct-4bit"
 EXPECTED_MIN_MODEL = "mlx-community/Qwen2.5-7B-Instruct-4bit"
 
 
@@ -48,8 +59,12 @@ def models() -> dict:
 # pyproject.toml key assertions
 # ---------------------------------------------------------------------------
 
-def test_aerollm_maximus_is_72b(models):
-    """aerollm_maximus must point at the 72B model (maximus tier deep mode)."""
+def test_aerollm_maximus_is_7b(models):
+    """aerollm_maximus must point at the 7B default — same as minimalist.
+
+    Operators upgrade locally via AEROLLM_MODEL in .env; the shipped default
+    has to load on any clone without first downloading 40 GB of weights.
+    """
     assert models["aerollm_maximus"] == EXPECTED_MAX_MODEL, (
         f"aerollm_maximus should be {EXPECTED_MAX_MODEL!r}, got {models['aerollm_maximus']!r}"
     )
@@ -70,12 +85,17 @@ def test_aerollm_legacy_alias_is_7b(models):
     )
 
 
-def test_aerollm_maximus_differs_from_minimalist(models):
-    """Sanity: maximus and minimalist must resolve to different models.
-    If they match, the tier split is broken (likely the MIN_ID stomp)."""
-    assert models["aerollm_maximus"] != models["aerollm_minimalist"], (
-        "aerollm_maximus and aerollm_minimalist resolve to the same model — "
-        "the tier split is broken."
+def test_aerollm_maximus_matches_minimalist(models):
+    """As of 2026-05-25 the two tiers share the 7B default by design.
+
+    This is a deliberate inversion of the pre-7180a8a invariant: shipping
+    a maximus default whose weights don't ship and whose RAM footprint
+    OOMs typical clones was the larger product bug. Operators upgrade
+    maximus locally via AEROLLM_MODEL.
+    """
+    assert models["aerollm_maximus"] == models["aerollm_minimalist"], (
+        "aerollm_maximus and aerollm_minimalist should match the 7B default — "
+        "if they diverge, the maximus arm may be footgunning fresh clones."
     )
 
 
@@ -125,24 +145,23 @@ def test_loader_min_id_resolves_to_7b(models):
     )
 
 
-def test_loader_max_id_resolves_to_72b(models):
-    """AEROLLM_MODEL_MAX_ID must resolve to the 72B model."""
+def test_loader_max_id_resolves_to_7b(models):
+    """AEROLLM_MODEL_MAX_ID must resolve to the 7B model (the new default)."""
     resolved = _resolve_max_id(models)
     assert resolved == EXPECTED_MAX_MODEL, (
         f"AEROLLM_MODEL_MAX_ID resolves to {resolved!r} — expected {EXPECTED_MAX_MODEL!r}."
     )
 
 
-def test_loader_min_id_is_not_72b(models):
-    """Explicit guard: the MIN_ID resolution must never be the 72B model.
+def test_loader_chain_keys_intact(models):
+    """Structural guard: the loader's fallback chain keys must still exist.
 
-    Belt-and-suspenders check alongside test_loader_min_id_resolves_to_7b.
-    If both fail simultaneously, the stomp is confirmed."""
-    resolved = _resolve_min_id(models)
-    assert resolved != EXPECTED_MAX_MODEL, (
-        f"AEROLLM_MODEL_MIN_ID resolved to the 72B model ({resolved!r}). "
-        "Minimalist installs would OOM on 16 GB Macs."
-    )
+    Preserves the Bug 1 fix shape (minimalist→min→aerollm; maximus→max→aerollm).
+    A future re-bump of maximus to a frontier model would still need this chain
+    intact so MIN_ID does not get stomped.
+    """
+    for key in ("aerollm_minimalist", "aerollm_maximus", "aerollm"):
+        assert key in models, f"[tool.arail.models].{key} is missing — loader chain breaks."
 
 
 # ---------------------------------------------------------------------------
@@ -175,8 +194,8 @@ def _simulate_capture_tier(lab_tier: str, models: dict) -> str:
         return aerollm_model_min_id or fallback_min
 
 
-def test_tier_maximus_selects_72b(models):
-    """capture_tier with LAB_TIER=maximus must select the 72B deep model."""
+def test_tier_maximus_selects_7b(models):
+    """capture_tier with LAB_TIER=maximus must select the 7B default."""
     result = _simulate_capture_tier("maximus", models)
     assert result == EXPECTED_MAX_MODEL, (
         f"maximus tier resolved to {result!r}, expected {EXPECTED_MAX_MODEL!r}."
@@ -206,8 +225,9 @@ def test_tier_legacy_min_alias_selects_7b(models):
     assert result == EXPECTED_MIN_MODEL
 
 
-def test_tier_legacy_max_alias_selects_72b(models):
-    """Legacy 'max' tier (normalised to 'maximus' in shell) selects the 72B."""
+def test_tier_legacy_max_alias_selects_7b(models):
+    """Legacy 'max' tier (normalised to 'maximus' in shell) selects the 7B
+    default. Both tiers share the same model as of 2026-05-25."""
     # 'max' is normalised to 'maximus' by capture_tier before the AeroLLM
     # case block is reached; simulate that normalisation here.
     normalised = "maximus"
