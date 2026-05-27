@@ -81,7 +81,10 @@ AEROLLM_MODEL_ID="mlx-community/Qwen2.5-7B-Instruct-4bit"
 AEROLLM_MODEL_MIN_ID="mlx-community/Qwen2.5-7B-Instruct-4bit"
 AEROLLM_MODEL_MAX_ID="mlx-community/Qwen2.5-72B-Instruct-4bit"
 AEROLLM_KV_BUDGET_PCT="0.60"
-AEROLLM_PACKAGE_SPEC="git+https://github.com/cdarnell/aerollm@main"
+# Release channel for the aerollm_api wheel — used when no local sibling repo is
+# present. Overridden by [tool.arail.package-sources] in pyproject.toml.
+AEROLLM_PIP_SPEC="aerollm-api>=0.1,<0.2"
+AEROLLM_INDEX_URL="https://pypi.qukaizen.com/simple/"
 
 # Unified password — set by capture_password() below. One secret covers:
 #   - code-server (IDE) login
@@ -114,7 +117,8 @@ values = {
     "AEROLLM_MODEL_ID": str(models.get("aerollm", "")),
     "AEROLLM_MODEL_MIN_ID": str(models.get("aerollm_minimalist", models.get("aerollm_min", models.get("aerollm", "")))),
     "AEROLLM_MODEL_MAX_ID": str(models.get("aerollm_maximus", models.get("aerollm_max", models.get("aerollm", "")))),
-    "AEROLLM_PACKAGE_SPEC": str(sources.get("aerollm", "")),
+    "AEROLLM_PIP_SPEC": str(sources.get("aerollm", "")),
+    "AEROLLM_INDEX_URL": str(sources.get("aerollm_index", "")),
 }
 for key, value in values.items():
     if value:
@@ -596,12 +600,13 @@ install_accel_deps() {
         if python3 -c "import aerollm_api" 2>/dev/null; then
             info "aerollm_api already present — AeroLLM is the deep-mode 2nd inference."
         else
-            info "Building AeroLLM from the local sibling repo…"
-            if bash "${REPO_ROOT:-$PWD}/scripts/build-aerollm.sh" build; then
+            info "Installing AeroLLM (source if sibling repo present, else published wheel)…"
+            if AEROLLM_INDEX_URL="$AEROLLM_INDEX_URL" AEROLLM_PIP_SPEC="$AEROLLM_PIP_SPEC" \
+               bash "${REPO_ROOT:-$PWD}/scripts/build-aerollm.sh" auto; then
                 info "AeroLLM ready — the deep-mode 2nd inference on Apple Silicon."
             else
                 warn "AeroLLM not installed (see above). The lab runs without the"
-                warn "2nd inference until you run: ./arailctl deep rebuild"
+                warn "2nd inference until you run: ./arailctl deep rebuild (or: deep update)"
             fi
         fi
     else
