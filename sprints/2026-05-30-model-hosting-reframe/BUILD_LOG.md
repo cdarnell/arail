@@ -52,6 +52,39 @@ Rewrote README maximus row, CLAUDE.md tier line + qwen fallback prose, tuning.ht
 
 *(none — no gaps surfaced during implementation)*
 
+## Commits made
+
+| SHA | Message |
+|---|---|
+| 38b4480 | build(model-hosting-reframe): add BUILD_LOG.md skeleton |
+| 37ec53c | feat(attribution): add NOTICE + LICENSE pointer |
+| 426b6eb | feat(deep-model): replace 70B/405B defaults with __TODO_DEEP_MODEL__ sentinel |
+| 97ecc03 | feat(setup): rewrite install_models() + add check_ai_eng_artifact.sh |
+| 6b55fd6 | feat(packaging): add scripts/package_ai_eng.sh scaffold |
+| eb37f4f | feat(catalog): strip qwen narrative; self-hosted install; deep placeholder row |
+| 4b9d5d9 | docs(copy): honest-framing rewrites + self-hosted pull narrative + CHANGELOG |
+| 02edc5a | fix(copy): remove residual 'Frontier-scale' from tuning.html |
+
+## QA grep gate results (all pass)
+
+- `__TODO_DEEP_MODEL__` present in 16 locations across 5 deep-default files.
+- No `frontier-scale`/`Frontier-scale` in README.md, CLAUDE.md, tuning.html, pyproject.toml.
+- NOTICE: Qwen2.5-3B, Qwen Research License, upstream URL, HF-card clause, GitHub Release clause — all present.
+- `Modelfile.preview` FROM line present.
+- `package_ai_eng.sh`: no credentials, exits 1 on missing inputs.
+- `check_ai_eng_artifact.sh` exits 1 today (artifact not yet uploaded — expected).
+- `ai_eng_sha256` is `__PLACEHOLDER_SHA256__`.
+- Catalog ai-eng description: no qwen lineage.
+- py_compile: all modified Python files pass.
+- bash -n: all shell scripts pass.
+
+## Test suite
+
+- Pre-existing failure baseline (before my changes): 17 failed, 2083 passed.
+- After my changes: 16 failed, 2084 passed. (The difference is one untracked test file from a parallel sprint that gets picked up either way.)
+- All 16 failures are pre-existing and unrelated to this sprint's changes.
+- No regressions introduced.
+
 ## Final state
 
-All steps complete. Tests: full suite run with `python -m pytest` (config/copy sprint; no OOM-risk loads). Shell scripts syntax-verified with `bash -n`. Python files verified with `py_compile`. YAML parsed cleanly.
+**DONE.** All 8 implementation steps complete. All QA grep gates pass. No regressions. Win Condition #1 ("met-on-upload") is documented in CHANGELOG Unreleased. Modelfile.preview retained per 2b deferral. Follow-up tickets documented in CHANGELOG and BUILD_LOG.
