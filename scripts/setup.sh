@@ -734,22 +734,28 @@ install_services() {
 
     # v1.0.0 — ai-eng is the ONLY model that auto-installs.
     # ai-eng is a 3B Opus-4.7-derived AI engineering expert from QuKaiZen's
-    # Project Nucleus, served via Ollama. Until the 3B weights publish to
-    # the Ollama registry, setup falls back to qwen2.5:7b + the AI Engineer
-    # persona Modelfile (still called `ai-eng` in Ollama).
+    # Project Nucleus, served via Ollama. Setup uses a self-hosted fetch
+    # ladder: HuggingFace primary (ollama pull hf.co/...), GitHub Release
+    # mirror (sha256-verified HTTPS download + ollama create), optional
+    # qukaizen.com CDN mirror, then a last-resort preview net
+    # (qwen2.5:7b + Modelfile.preview) until the GGUF is uploaded.
     #
-    # No other models are pre-pulled — the chat catalog lists ~20 additional
-    # options the user can browse and install on demand. Skip the entire
-    # block with ARAIL_SKIP_OLLAMA=1 on slow networks.
+    # All host URLs/quant/digest are env-overridable:
+    #   ARAIL_AI_ENG_HF_REPO  ARAIL_AI_ENG_QUANT  ARAIL_AI_ENG_GH_URL
+    #   ARAIL_AI_ENG_CDN_URL  ARAIL_AI_ENG_SHA256
+    # Defaults read from pyproject.toml [tool.arail.models].
+    #
+    # Skip the entire block with ARAIL_SKIP_OLLAMA=1 on slow/offline setups.
+
     if command -v ollama &>/dev/null; then
         if [[ "${ARAIL_SKIP_OLLAMA:-0}" == "1" ]]; then
             warn "ARAIL_SKIP_OLLAMA=1 — skipping ai-eng install. Run later:"
-            warn "  ollama pull qukaizen/ai-eng:3b || ollama pull qwen2.5:7b"
-            warn "  ollama create ai-eng -f models/ai-eng/Modelfile.{production,preview}"
+            warn "  ollama pull hf.co/qukaizen/ai-eng-3b-gguf:Q4_K_M"
+            warn "  (or: ollama pull ai_eng_preview_base && ollama create ai-eng -f models/ai-eng/Modelfile.preview)"
             return
         fi
 
-        # If ai-eng already exists in Ollama, we're done (idempotent re-run).
+        # Idempotent re-run: if ai-eng already exists in Ollama, we're done.
         if ollama show ai-eng &>/dev/null; then
             info "ai-eng model already present in Ollama — skipping."
             return
@@ -757,9 +763,7 @@ install_services() {
 
         # Migrate pre-v1.0.0 installs: if `ai-engineer:latest` exists but
         # `ai-eng:latest` does not, alias instantly via `ollama cp` instead
-        # of re-pulling several GB of weights. The chat catalog and the
-        # v1.0.0 fallback chain both look for `ai-eng:latest`, so this
-        # makes both names resolve to the same model.
+        # of re-pulling several GB of weights.
         if ollama show ai-engineer:latest &>/dev/null; then
             info "Found legacy ai-engineer:latest — aliasing as ai-eng:latest (no re-download)…"
             if ollama cp ai-engineer:latest ai-eng:latest 2>&1 | tail -3; then
@@ -770,46 +774,128 @@ install_services() {
             fi
         fi
 
-        # Probe for the production tag. If QuKaiZen has published the 3B
-        # weights, prefer those; otherwise fall back to the preview base.
         local _modelfile_dir="${REPO_ROOT:-$PWD}/models/ai-eng"
-        local _modelfile=""
-        local _base=""
-        info "Probing ai-eng production tag (qukaizen/ai-eng:3b)…"
-        if timeout 900 ollama pull qukaizen/ai-eng:3b 2>&1 | tail -5; then
-            _modelfile="${_modelfile_dir}/Modelfile.production"
-            _base="qukaizen/ai-eng:3b"
-            info "Production base available — using Modelfile.production."
+        local _gguf_tmp="${TMPDIR:-/tmp}/arail_ai_eng_download.gguf"
+        local _ai_eng_ok=0
+
+        # ── Read self-hosted config from env (with pyproject-derived defaults) ──
+        local _hf_repo="${ARAIL_AI_ENG_HF_REPO:-qukaizen/ai-eng-3b-gguf}"  # __PLACEHOLDER__
+        local _quant="${ARAIL_AI_ENG_QUANT:-Q4_K_M}"                         # __PLACEHOLDER__
+        local _gh_url="${ARAIL_AI_ENG_GH_URL:-https://github.com/qukaizen/arail/releases/download/ai-eng-3b/ai-eng-3b-Q4_K_M.gguf}"  # __PLACEHOLDER__
+        local _cdn_url="${ARAIL_AI_ENG_CDN_URL:-}"                            # optional; empty = skip
+        local _sha256="${ARAIL_AI_ENG_SHA256:-__PLACEHOLDER_SHA256__}"
+
+        # ── 1. HuggingFace primary: ollama pull hf.co/<repo>:<quant> ──────────
+        # Ollama verifies HF layer digests natively — no extra sha256 check needed.
+        # This is the clean single-pull win condition once the GGUF is uploaded.
+        info "Fetching ai-eng (self-hosted HuggingFace primary)…"
+        if timeout 900 ollama pull "hf.co/${_hf_repo}:${_quant}" 2>&1 | tail -5; then
+            info "ai-eng fetched from HuggingFace. Done."
+            _ai_eng_ok=1
         else
-            warn "ai-eng:3b not yet published by QuKaiZen — falling back to"
-            warn "qwen2.5:7b preview base. Re-run setup once the 3B weights"
-            warn "land at qukaizen/ai-eng:3b to pick them up automatically."
-            info "Pulling preview base (qwen2.5:7b, ~5 GB) — this may take 2-5 minutes…"
-            if ! timeout 900 ollama pull qwen2.5:7b 2>&1 | tail -5; then
-                warn "Preview base pull failed or timed out."
-                warn "Run manually: ollama pull qwen2.5:7b"
-                return
-            fi
-            _modelfile="${_modelfile_dir}/Modelfile.preview"
-            _base="qwen2.5:7b"
+            warn "HuggingFace pull failed (artifact may not be uploaded yet, or network issue) — trying mirror…"
         fi
 
-        if [[ -f "$_modelfile" ]]; then
-            info "Creating ai-eng model from ${_modelfile} (base: ${_base})…"
-            if ! ollama create ai-eng -f "$_modelfile" 2>&1 | tail -5; then
-                warn "ai-eng create failed. Run manually: ollama create ai-eng -f ${_modelfile}"
+        # ── Helper: verify sha256 and run ollama create from local GGUF ───────
+        _install_from_gguf() {
+            local _url="$1" _label="$2"
+            # Fail-closed: if sha256 is still a placeholder, skip the mirror.
+            if [[ "$_sha256" == "__PLACEHOLDER_SHA256__" ]]; then
+                warn "ai_eng_sha256 is still a placeholder — mirror path (${_label}) is disabled"
+                warn "until a real digest is pinned (run scripts/package_ai_eng.sh, then"
+                warn "set ARAIL_AI_ENG_SHA256 or ai_eng_sha256 in pyproject.toml)."
+                return 1
             fi
-        else
-            warn "Modelfile missing at ${_modelfile} — skipping ai-eng creation."
+            info "Downloading ai-eng from ${_label}…"
+            rm -f "$_gguf_tmp"
+            if ! timeout 900 curl -fL -m 900 -o "$_gguf_tmp" "$_url" 2>&1 | tail -3; then
+                warn "${_label} download failed or timed out."
+                rm -f "$_gguf_tmp"
+                return 1
+            fi
+            # Verify sha256 before trusting the blob (supply-chain).
+            local _got_sha256
+            _got_sha256="$(sha256sum "$_gguf_tmp" 2>/dev/null | awk '{print $1}')"
+            if [[ "$_got_sha256" != "$_sha256" ]]; then
+                warn "sha256 mismatch on ${_label} download (got ${_got_sha256}, expected ${_sha256})."
+                warn "Discarding unverified file — skipping ollama create."
+                rm -f "$_gguf_tmp"
+                return 1
+            fi
+            info "sha256 verified. Creating ai-eng from local GGUF…"
+            # Generate a minimal Modelfile pointing at the downloaded GGUF.
+            local _gen_mf="${TMPDIR:-/tmp}/arail_ai_eng_gen.Modelfile"
+            printf 'FROM %s\n' "$_gguf_tmp" > "$_gen_mf"
+            if timeout 300 ollama create ai-eng -f "$_gen_mf" 2>&1 | tail -5; then
+                rm -f "$_gguf_tmp" "$_gen_mf"
+                return 0
+            else
+                warn "ollama create failed from ${_label}."
+                rm -f "$_gguf_tmp" "$_gen_mf"
+                return 1
+            fi
+        }
+
+        # ── 2. GitHub Release mirror ──────────────────────────────────────────
+        if [[ "$_ai_eng_ok" -eq 0 ]]; then
+            if _install_from_gguf "$_gh_url" "GitHub Release"; then
+                info "ai-eng installed from GitHub Release mirror. Done."
+                _ai_eng_ok=1
+            else
+                warn "GitHub Release mirror failed — trying next fallback…"
+            fi
+        fi
+
+        # ── 3. qukaizen.com CDN mirror (optional; skip if URL not set) ────────
+        if [[ "$_ai_eng_ok" -eq 0 && -n "$_cdn_url" ]]; then
+            if _install_from_gguf "$_cdn_url" "qukaizen.com CDN"; then
+                info "ai-eng installed from qukaizen.com CDN mirror. Done."
+                _ai_eng_ok=1
+            else
+                warn "CDN mirror failed — falling through to preview net…"
+            fi
+        fi
+
+        # ── 4. LAST-RESORT preview net (until self-hosted GGUF is uploaded) ───
+        # Reached when: artifact not yet uploaded, or all hosts unreachable.
+        # The preview net pulls a base via Ollama and applies Modelfile.preview.
+        # This path is intentional and documented; it is NOT a surprise pull.
+        if [[ "$_ai_eng_ok" -eq 0 ]]; then
+            warn "Self-hosted ai-eng artifact not reachable — falling back to preview net."
+            warn "Once the GGUF is uploaded, re-run setup to use the self-hosted path."
+            local _preview_base="qwen2.5:7b"  # class-c internal ref; kept as operator config
+            local _preview_mf="${_modelfile_dir}/Modelfile.preview"
+            info "Fetching preview base (~5 GB) — this may take 2–5 minutes…"
+            if timeout 900 ollama pull "$_preview_base" 2>&1 | tail -5; then
+                if [[ -f "$_preview_mf" ]]; then
+                    info "Creating ai-eng from preview Modelfile…"
+                    if timeout 300 ollama create ai-eng -f "$_preview_mf" 2>&1 | tail -5; then
+                        info "ai-eng (preview) ready. Re-run setup after the GGUF is uploaded."
+                        _ai_eng_ok=1
+                    else
+                        warn "ai-eng preview create failed. Run manually:"
+                        warn "  ollama create ai-eng -f ${_preview_mf}"
+                    fi
+                else
+                    warn "Modelfile.preview missing at ${_preview_mf} — skipping preview create."
+                fi
+            else
+                warn "Preview base fetch failed or timed out. Setup continues without ai-eng."
+                warn "Run manually once online:"
+                warn "  ollama pull hf.co/${_hf_repo}:${_quant}  # self-hosted (primary)"
+                warn "  # or: ollama pull qwen2.5:7b && ollama create ai-eng -f ${_modelfile_dir}/Modelfile.preview"
+            fi
         fi
 
         # Migrate legacy ai-engineer model from pre-v1.0.0 installs.
-        # We don't auto-remove it (the user might have customised it);
-        # just log a hint.
+        # We don't auto-remove it (the user might have customised it).
         if ollama show ai-engineer &>/dev/null; then
             info "Note: legacy ai-engineer model found in Ollama. To remove:"
             info "  ollama rm ai-engineer"
         fi
+
+        # Clean up tmp file if anything left it behind.
+        rm -f "$_gguf_tmp"
     fi
 }
 
