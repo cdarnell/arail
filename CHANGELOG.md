@@ -4,6 +4,69 @@ All notable changes to ARAIL are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- **Maximus deep-model slot → `__TODO_DEEP_MODEL__` sentinel.** The
+  Llama-3.1-70B (minimalist) and Llama-3.1-405B (maximus) AirLLM defaults
+  are deprecated — they are the wrong weight class for 36 GB Apple Silicon
+  (OOM or crawl on a fresh clone). The `airllm_minimalist`, `airllm_maximus`,
+  and `airllm` keys in `pyproject.toml` now hold the sentinel value. Operators
+  who want AirLLM layer-streaming set `AIRLLM_MODEL` explicitly in `.env`.
+  Until a concrete deep model is configured, deep mode surfaces a friendly
+  "configure your deep model" notice — no download, no OOM.
+
+- **Maximus tier copy rewritten for hardware honesty.** The "Frontier-scale
+  local inference, full bench" promise has been replaced with honest framing:
+  the maximus tier gives you the heaviest model that runs *well* on your
+  machine, with cloud frontier models one click away via the Compute Source
+  pivot. The tuning page hero copy and `pyproject.toml` tier description are
+  updated to match.
+
+### Added
+
+- **ai-eng is now self-hosted (HuggingFace primary, GitHub Release mirror).**
+  Setup runs a mirror fallback ladder instead of probing the unavailable
+  `ollama.ai/qukaizen/` namespace:
+  1. `ollama pull hf.co/qukaizen/ai-eng-3b-gguf:Q4_K_M` (Ollama-native; digest
+     verified by Ollama).
+  2. GitHub Release HTTPS download with `sha256` verification (fail-closed
+     until a real digest is pinned in `pyproject.toml ai_eng_sha256`).
+  3. Optional qukaizen.com CDN mirror (set `ARAIL_AI_ENG_CDN_URL`).
+  4. Last-resort preview net (existing Modelfile.preview path) until the GGUF
+     is uploaded. Re-running setup after upload skips the preview net.
+  All URLs/quant/digest are env-overridable (`ARAIL_AI_ENG_HF_REPO`,
+  `ARAIL_AI_ENG_QUANT`, `ARAIL_AI_ENG_GH_URL`, `ARAIL_AI_ENG_CDN_URL`,
+  `ARAIL_AI_ENG_SHA256`). Forks rebrand by overriding env or editing
+  `pyproject.toml` — no code edits required.
+
+- **`scripts/package_ai_eng.sh`** — developer-side scaffold that documents
+  and (where tools are present) automates: LoRA merge → GGUF conversion at
+  a chosen quant → emit Modelfile + NOTICE → print sha256 → print exact
+  upload commands for HuggingFace / GitHub / CDN. Upload steps are
+  `# TODO(manual):` blocks; no credentials are embedded; missing inputs
+  print the manual steps and exit nonzero.
+
+- **`scripts/check_ai_eng_artifact.sh`** — probes the self-hosted GGUF
+  (HF + GitHub, HEAD request, 8 s timeout). Exit 0 = live; exit 1 = not yet
+  uploaded. Gates follow-up ticket 2b (remove Modelfile.preview + preview
+  net once artifact is confirmed live).
+
+- **`NOTICE` file** at the repo root — records the Qwen base-model license
+  obligations (Qwen2.5-3B-Instruct: Qwen Research License; Qwen2.5-7B-Instruct
+  preview base: Apache-2.0). States that the redistributed ai-eng GGUF
+  derivative must carry this attribution on its HuggingFace model card and
+  GitHub release. `LICENSE` gains a one-line pointer to `NOTICE`.
+
+- **Qwen lineage moved to `NOTICE`.** Removed from user-facing copy
+  (README, CLAUDE.md, catalog ai-eng description, Modelfile.preview SYSTEM
+  prompt, pyproject comment, INSTALL.md). The sole permitted internal
+  reference is `FROM qwen2.5:7b` in `Modelfile.preview` (required for the
+  preview net Modelfile; class-c per ARCHITECTURE.md WC#3).
+
+---
+
 ## [1.0.0] — 2026-05-17
 
 The first stable release of ARAIL. A learn-by-doing AI research lab

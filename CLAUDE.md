@@ -51,18 +51,19 @@ with a deprecation warning for one release):
 | Tier         | What's in it                                                                                                                 |
 |--------------|------------------------------------------------------------------------------------------------------------------------------|
 | `minimalist` | Dashboard · Chat · Autoresearch · Knowledge Base · Agents · LanceDB vectors · **ai-eng** (3B Opus-4.7-derived AI engineering expert from QuKaiZen's Nucleus pipeline) — the everyday lab |
-| `maximus`    | + Admin · Docs · Notebooks · **AeroLLM** deep-mode runtime · Anthropic SDK · LangChain · full cloud SDKs — the frontier-scale bench |
+| `maximus`    | + Admin · Docs · Notebooks · **AeroLLM** deep-mode runtime · Anthropic SDK · LangChain · full cloud SDKs — the full local bench, cloud frontier one click away |
 
 Tier upgrade is a single `./arailctl upgrade maximus` away; downgrade
 likewise. Knowledge Base and Agents are part of `minimalist`
 deliberately — research without memory is a non-starter.
 
 **v1.0.0 default model:** `ai-eng` is the only model that auto-installs
-during setup. Setup probes `qukaizen/ai-eng:3b` first and falls back to
-`qwen2.5:7b` (with the AI Engineer persona Modelfile) until the 3B
-weights publish. The chat catalog (`src/arail/chat/models_catalog.yaml`)
-keeps ~20 other models as a browse-and-pull gallery — nothing else
-ships pre-installed. AirLLM is opt-in via `ARAIL_INSTALL_AIRLLM=1`.
+during setup. Setup pulls the self-hosted ai-eng GGUF (HuggingFace primary
+via `ollama pull hf.co/...`, GitHub Release mirror as fallback) with digest
+verification; falls back to a preview base until the GGUF is uploaded. The
+chat catalog (`src/arail/chat/models_catalog.yaml`) keeps ~20 other models
+as a browse-and-pull gallery — nothing else ships pre-installed. AirLLM is
+opt-in via `ARAIL_INSTALL_AIRLLM=1`.
 
 The CLI is `./arailctl` (also reachable via `./qkz`). The main verbs:
 
