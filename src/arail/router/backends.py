@@ -984,13 +984,20 @@ class AirLLMBackend(BaseBackend):
                 "AirLLM not installed. Run: pip install airllm"
             ) from exc
 
-        self.model_name = os.getenv(
-            "AIRLLM_MODEL",
-            "meta-llama/Llama-3.1-70B",
-        )
+        # TODO(deep-model): set the 20–30B open deep model id here. See ARCHITECTURE
+        #   sprint 2026-05-30-model-hosting-reframe § Part 1. Until set, deep mode
+        #   shows a "configure your deep model" notice — it does NOT download anything.
+        _sentinel = "__TODO_DEEP_MODEL__"
+        self.model_name = os.getenv("AIRLLM_MODEL", _sentinel)
+        if self.model_name == _sentinel:
+            raise RuntimeError(
+                "Deep model is not configured. Set AIRLLM_MODEL in .env to a concrete "
+                "model id (e.g. a 20–30B GGUF you have downloaded) and restart the lab. "
+                "See NOTICE and sprints/2026-05-30-model-hosting-reframe/ARCHITECTURE.md "
+                "§ Part 1 for guidance."
+            )
         # Operators on slow disks can stretch the load deadline.
-        # 1200s default covers a fresh 70B layer-split on an external
-        # SSD; call timeout covers the longest 512-token gen we've seen.
+        # Call timeout covers the longest 512-token gen we've seen.
         self._call_timeout_s = float(os.getenv("AIRLLM_CALL_TIMEOUT_S", "300"))
         self._load_timeout_s = float(os.getenv("AIRLLM_LOAD_TIMEOUT_S", "1200"))
         self._stderr_tail = ""

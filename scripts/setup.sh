@@ -63,12 +63,17 @@ CODER_MLX_ID="mlx-community/Qwen2.5-Coder-3B-Instruct-4bit"
 CODER_HF_ID="Qwen/Qwen2.5-Coder-3B-Instruct"
 CODER_GGUF_ID="Qwen/Qwen2.5-Coder-3B-Instruct-GGUF"
 WITH_CODER="${ARAIL_WITH_CODER:-0}"
-# Deep backend — AirLLM ships in both tiers; the model just gets bigger
-# in max. AIRLLM_MODEL_ID is the resolved value for the user's tier
-# (defaulted to the min 70B; capture_tier upgrades it to the 405B for max).
-AIRLLM_MODEL_ID="meta-llama/Llama-3.1-70B"
-AIRLLM_MODEL_MIN_ID="meta-llama/Llama-3.1-70B"
-AIRLLM_MODEL_MAX_ID="meta-llama/Llama-3.1-405B"
+# Deep backend — AirLLM is opt-in (ARAIL_INSTALL_AIRLLM=1). The 70B/405B
+# Llama defaults are deprecated: they are the wrong weight class for the
+# 36 GB Apple Silicon target (OOM or crawl). AIRLLM_MODEL_ID is set to the
+# sentinel; operators who want AirLLM set AIRLLM_MODEL in .env explicitly.
+#
+# TODO(deep-model): set the 20–30B open deep model id here. See ARCHITECTURE
+#   sprint 2026-05-30-model-hosting-reframe § Part 1. Until set, deep mode
+#   shows a "configure your deep model" notice — it does NOT download anything.
+AIRLLM_MODEL_ID="__TODO_DEEP_MODEL__"
+AIRLLM_MODEL_MIN_ID="__TODO_DEEP_MODEL__"
+AIRLLM_MODEL_MAX_ID="__TODO_DEEP_MODEL__"
 AIRLLM_PACKAGE_SPEC="airllm>=2.0"
 # AeroLLM = Arail's own Rust runtime, the deep-mode default on Apple
 # Silicon as of 0.1.0 alpha. minimalist ships Qwen2.5-7B-Instruct-4bit
@@ -982,11 +987,14 @@ EOF
         med) warn "'med' retired in the two-tier blueprint — rolling forward to 'maximus'."; LAB_TIER="maximus" ;;
         *)   warn "Unknown tier '$LAB_TIER' — falling back to minimalist."; LAB_TIER="minimalist" ;;
     esac
-    # Resolve which AirLLM deep model ships for this tier (opt-in via
-    # ARAIL_INSTALL_AIRLLM=1). minimalist → 70B; maximus → 405B.
+    # Resolve which AirLLM deep model applies for this tier (opt-in via
+    # ARAIL_INSTALL_AIRLLM=1). Defaults are __TODO_DEEP_MODEL__ — operators
+    # set AIRLLM_MODEL in .env to a concrete id when they are ready.
+    # The 70B/405B Llama defaults are deprecated (wrong weight class for
+    # 36 GB Apple Silicon; see pyproject [tool.arail.models] airllm_* comment).
     case "$LAB_TIER" in
-        maximus) AIRLLM_MODEL_ID="${AIRLLM_MODEL_MAX_ID:-meta-llama/Llama-3.1-405B}" ;;
-        *)       AIRLLM_MODEL_ID="${AIRLLM_MODEL_MIN_ID:-meta-llama/Llama-3.1-70B}"  ;;
+        maximus) AIRLLM_MODEL_ID="${AIRLLM_MODEL_MAX_ID:-__TODO_DEEP_MODEL__}" ;;
+        *)       AIRLLM_MODEL_ID="${AIRLLM_MODEL_MIN_ID:-__TODO_DEEP_MODEL__}"  ;;
     esac
     if [[ "${ARAIL_INSTALL_AIRLLM:-0}" == "1" ]]; then
         info "AirLLM deep model for ${LAB_TIER}: ${BOLD}${AIRLLM_MODEL_ID}${RESET}"
