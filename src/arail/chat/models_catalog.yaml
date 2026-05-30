@@ -21,9 +21,10 @@
 
 # ── ARAIL's default — ai-eng (the only model that ships pre-installed) ──
 # 3B-parameter Opus-4.7-derived AI engineering expert from QuKaiZen's
-# Project Nucleus. Setup probes for the production tag (qukaizen/ai-eng:3b)
-# first; falls back to qwen2.5:7b + the AI Engineer persona Modelfile when
-# the 3B weights are not yet on the Ollama registry.
+# Project Nucleus. Self-hosted on HuggingFace; setup pulls via a single
+# `ollama pull hf.co/...` with no local Modelfile build step.
+# (The __PLACEHOLDER__ repo/quant values below are filled in after the
+# GGUF is packaged and uploaded via scripts/package_ai_eng.sh.)
 - id: ai-eng:latest
   name: AI Engineer (ai-eng)
   family: qukaizen
@@ -33,10 +34,27 @@
   good_at: [chat, reasoning, agent, code]
   description: ARAIL's default local assistant — a 3B Opus-4.7-derived
                AI engineering expert from QuKaiZen's Project Nucleus.
-               Until QuKaiZen publishes the 3B weights, setup falls back
-               to qwen2.5:7b as the preview base.
-  install: "ollama pull qukaizen/ai-eng:3b || ollama pull qwen2.5:7b && ollama create ai-eng -f models/ai-eng/Modelfile.production || ollama create ai-eng -f models/ai-eng/Modelfile.preview"
+  install: "ollama pull hf.co/qukaizen/ai-eng-3b-gguf:Q4_K_M"
   tier: recommended
+
+# ── Deep model placeholder (maximus, pull-on-demand) ─────────────────
+# The 20–30B deep model for maximus tier is operator-configured.
+# Set AIRLLM_MODEL or AEROLLM_MODEL in .env to your chosen model id
+# and download it on demand (not a setup auto-install).
+# See NOTICE and sprints/2026-05-30-model-hosting-reframe/ARCHITECTURE.md
+# § Part 1 for guidance on picking a deep model.
+- id: __TODO_DEEP_MODEL__
+  name: Deep Model (configure yours)
+  family: operator-configured
+  size_gb: 0
+  released: ""
+  source: hf
+  good_at: [deep-reasoning, long-context, research]
+  description: "Maximus deep mode: set your preferred 20–30B model in .env
+               (AIRLLM_MODEL or AEROLLM_MODEL). Download on demand — not a
+               setup auto-install. See docs for model selection guidance."
+  install: ""
+  tier: flagship
 
 # ── Base model for ai-eng (preview fallback) ────────────────────────
 - id: qwen2.5:7b
