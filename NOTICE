@@ -1,0 +1,73 @@
+NOTICE — Third-Party Model Attributions
+========================================
+
+ARAIL (Autoresearch AI Labs) is MIT-licensed software. The default assistant
+model, ai-eng, is built on top of third-party base model weights that carry
+their own license obligations. This file records those obligations.
+
+These attributions apply to:
+  - This repository (the build recipe and Modelfiles).
+  - Any redistributed derivative artifact: the ai-eng GGUF file hosted on
+    HuggingFace, GitHub Releases, or any mirror. The HuggingFace model card
+    and every GitHub Release that ships an ai-eng GGUF MUST include this
+    same NOTICE text alongside the artifact. The base license obligations
+    travel with the redistributed derivative.
+
+────────────────────────────────────────────────────────────────────────────
+1. ai-eng production base: Qwen2.5-3B-Instruct
+────────────────────────────────────────────────────────────────────────────
+The ai-eng model is derived from Qwen/Qwen2.5-3B-Instruct.
+
+  Copyright (c) Alibaba Cloud (Tongyi Lab / Qwen Team)
+  Model: Qwen/Qwen2.5-3B-Instruct
+  License: Qwen Research License Agreement (release date: 2024-09-19)
+           — a custom Alibaba Cloud research license.
+           This license is NOT Apache-2.0.
+  Upstream: https://huggingface.co/Qwen/Qwen2.5-3B-Instruct
+  License text: https://huggingface.co/Qwen/Qwen2.5-3B-Instruct/blob/main/LICENSE
+
+The merged-LoRA GGUF (ai-eng) is a derivative work of the above base model
+and inherits the obligations of the Qwen Research License. Users and
+operators who redistribute the ai-eng GGUF must comply with those terms.
+Consult the full license text at the URL above before redistribution.
+
+────────────────────────────────────────────────────────────────────────────
+2. ai-eng preview base (fallback until production GGUF is uploaded):
+   Qwen2.5-7B-Instruct
+────────────────────────────────────────────────────────────────────────────
+When the self-hosted ai-eng GGUF is not yet available, setup falls back to
+Qwen/Qwen2.5-7B-Instruct as a preview base.
+
+  Copyright (c) Alibaba Cloud (Tongyi Lab / Qwen Team)
+  Model: Qwen/Qwen2.5-7B-Instruct
+  License: Apache License, Version 2.0
+  Upstream: https://huggingface.co/Qwen/Qwen2.5-7B-Instruct
+  SPDX-License-Identifier: Apache-2.0
+
+The preview base (Qwen2.5-7B-Instruct, Apache-2.0) does not change the
+production base's license (Qwen Research License). The preview path is a
+temporary fallback, not a redistribution — the model is pulled directly
+from the Ollama registry into the user's local Ollama store.
+
+────────────────────────────────────────────────────────────────────────────
+3. Redistribution requirement summary
+────────────────────────────────────────────────────────────────────────────
+If you redistribute the ai-eng GGUF artifact (the merged-LoRA derivative of
+Qwen2.5-3B-Instruct), you MUST:
+
+  a. Include this NOTICE file (or its content) alongside the artifact.
+  b. Include or link to the full Qwen Research License text.
+  c. Clearly state that the artifact is derived from Qwen2.5-3B-Instruct
+     by Alibaba Cloud.
+  d. Comply with all other terms of the Qwen Research License Agreement.
+
+The scripts/package_ai_eng.sh script emits a copy of this NOTICE next to the
+packaged GGUF as a reminder. The HuggingFace model card template and GitHub
+Release notes template (see package_ai_eng.sh) are pre-populated with this
+attribution.
+
+────────────────────────────────────────────────────────────────────────────
+ARAIL's own MIT license (see LICENSE) covers only the software in this
+repository. It does not extend to any model weights, and it does not
+override or supersede the base model licenses listed above.
+────────────────────────────────────────────────────────────────────────────
