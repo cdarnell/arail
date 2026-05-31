@@ -176,7 +176,7 @@ class TestProbeAdapterFormat:
 class TestBuildCandidateADryRun:
     def test_creates_stub_output(self, build_dir, adapter_dir):
         out = bld.build_candidate_a(
-            build_dir, adapter_dir, "mlx-community/Qwen2.5-3B-Instruct-4bit",
+            build_dir, adapter_dir, "mlx-community/Qwen2.5-1.5B-Instruct-4bit",
             min_free_ram_gb=0.0, dry_run=True,
         )
         assert (out / "config.json").exists()
@@ -196,7 +196,7 @@ class TestBuildCandidateADryRun:
 class TestBuildCandidateBDryRun:
     def test_creates_stub_output(self, build_dir, adapter_dir):
         out = bld.build_candidate_b(
-            build_dir, adapter_dir, "Qwen/Qwen2.5-3B-Instruct",
+            build_dir, adapter_dir, "Qwen/Qwen2.5-1.5B-Instruct",
             adapter_format="mlx", min_free_ram_gb=0.0, dry_run=True,
         )
         assert (out / "config.json").exists()
@@ -205,7 +205,7 @@ class TestBuildCandidateBDryRun:
     def test_no_hf_token_in_any_config(self, build_dir, adapter_dir, monkeypatch):
         monkeypatch.setenv("HF_TOKEN", "hf_FAKE_LEAK_B_SENTINEL")
         bld.build_candidate_b(
-            build_dir, adapter_dir, "Qwen/Qwen2.5-3B-Instruct",
+            build_dir, adapter_dir, "Qwen/Qwen2.5-1.5B-Instruct",
             adapter_format="mlx", min_free_ram_gb=0.0, dry_run=True,
         )
         for p in build_dir.rglob("*.json"):
@@ -249,7 +249,7 @@ class TestConvertToGgufDryRun:
 
 class TestGenerateModelfile:
     def test_system_block_matches_production(self, build_dir, tmp_path):
-        gguf_path = build_dir / "ai-eng-3b-v2.1.bf16.gguf"
+        gguf_path = build_dir / "ai-eng-1.5b-v2.1.bf16.gguf"
         gguf_path.write_bytes(b"STUB")
         mf = bld.generate_modelfile(
             build_dir, gguf_path, MODELFILE_PRODUCTION, dry_run=True
@@ -268,7 +268,7 @@ class TestGenerateModelfile:
         )
 
     def test_from_line_uses_gguf_name(self, build_dir):
-        gguf_path = build_dir / "ai-eng-3b-v2.1.bf16.gguf"
+        gguf_path = build_dir / "ai-eng-1.5b-v2.1.bf16.gguf"
         gguf_path.write_bytes(b"STUB")
         mf = bld.generate_modelfile(
             build_dir, gguf_path, MODELFILE_PRODUCTION, dry_run=True

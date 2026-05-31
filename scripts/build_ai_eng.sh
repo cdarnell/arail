@@ -44,9 +44,9 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 SUBCOMMAND="${1:-build}"
 shift || true
 
-ADAPTER_REPO="qukaizen/qkz-opus4.7-aieng-3b-v2.1-adapter"
-BF16_BASE="Qwen/Qwen2.5-3B-Instruct"
-MLX_BASE="mlx-community/Qwen2.5-3B-Instruct-4bit"
+ADAPTER_REPO="qukaizen/qkz-opus4.7-aieng-1.5b-v2.1-adapter"
+BF16_BASE="Qwen/Qwen2.5-1.5B-Instruct"  # Apache-2.0
+MLX_BASE="mlx-community/Qwen2.5-1.5B-Instruct-4bit"  # Apache-2.0
 BENCH_PROMPTS="models/ai-eng/bench-prompts.v2.1.yaml"
 LLAMA_CPP_REV="b3500"
 MIN_FREE_RAM_GB="16"

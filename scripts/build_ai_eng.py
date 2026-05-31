@@ -43,9 +43,9 @@ log = logging.getLogger("build_ai_eng")
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
-DEFAULT_ADAPTER_REPO = "qukaizen/qkz-opus4.7-aieng-3b-v2.1-adapter"
-DEFAULT_BF16_BASE = "Qwen/Qwen2.5-3B-Instruct"
-DEFAULT_MLX_BASE = "mlx-community/Qwen2.5-3B-Instruct-4bit"
+DEFAULT_ADAPTER_REPO = "qukaizen/qkz-opus4.7-aieng-1.5b-v2.1-adapter"
+DEFAULT_BF16_BASE = "Qwen/Qwen2.5-1.5B-Instruct"  # Apache-2.0
+DEFAULT_MLX_BASE = "mlx-community/Qwen2.5-1.5B-Instruct-4bit"  # Apache-2.0
 DEFAULT_LLAMA_CPP_REV = "b3500"
 DEFAULT_MIN_FREE_RAM_GB = 16
 DEFAULT_MIN_FREE_DISK_GB = 30
@@ -316,7 +316,7 @@ def _translate_mlx_to_peft(adapter_dir: Path, peft_dir: Path) -> None:
     lora_A.weight / lora_B.weight names, writes a PEFT-compatible
     adapter_config.json.
 
-    This is a best-effort translation for the Qwen2.5-3B architecture.
+    This is a best-effort translation for the Qwen2.5-1.5B architecture.
     If key mapping fails, raises RuntimeError for the caller to catch.
     """
     try:
@@ -488,7 +488,7 @@ def convert_to_gguf(
         log.info("Step '%s' already complete, skipping.", step)
         # Return whichever gguf exists
         ggufs = list(build_dir.glob("*.gguf"))
-        return ggufs[0] if ggufs else build_dir / "ai-eng-3b-v2.1.gguf"
+        return ggufs[0] if ggufs else build_dir / "ai-eng-1.5b-v2.1.gguf"
 
     if not dry_run:
         check_free_ram_gb(min_free_ram_gb)
@@ -496,11 +496,11 @@ def convert_to_gguf(
     if candidate == "a":
         src_dir = build_dir / "mlx-fused"
         out_type = "f16"
-        gguf_name = "ai-eng-3b-v2.1.f16.gguf"
+        gguf_name = "ai-eng-1.5b-v2.1.f16.gguf"
     else:
         src_dir = build_dir / "bf16-merged"
         out_type = "bf16"
-        gguf_name = "ai-eng-3b-v2.1.bf16.gguf"
+        gguf_name = "ai-eng-1.5b-v2.1.bf16.gguf"
 
     gguf_path = build_dir / gguf_name
 
@@ -591,8 +591,8 @@ def generate_modelfile(
     modelfile_production: Path,
     dry_run: bool = False,
 ) -> Path:
-    """Generate build/ai-eng-3b-v2.1.Modelfile from Modelfile.production (§4.4)."""
-    out_path = build_dir / "ai-eng-3b-v2.1.Modelfile"
+    """Generate build/ai-eng-1.5b-v2.1.Modelfile from Modelfile.production (§4.4)."""
+    out_path = build_dir / "ai-eng-1.5b-v2.1.Modelfile"
 
     system_text = _extract_system_block(modelfile_production)
     expected_sha = hashlib.sha256(system_text.encode()).hexdigest()
@@ -651,7 +651,7 @@ def _write_modelfile(out_path: Path, gguf_path: Path, system_text: str) -> None:
 def ollama_create(
     build_dir: Path,
     modelfile_path: Path,
-    tag: str = "qukaizen/ai-eng:3b",
+    tag: str = "qukaizen/ai-eng:1.5b",
     min_free_ram_gb: float = 8.0,
     dry_run: bool = False,
 ) -> None:
@@ -682,7 +682,7 @@ def ollama_create(
     mark_done(build_dir, step)
 
 
-def ollama_smoke(tag: str = "qukaizen/ai-eng:3b", timeout: int = 30) -> None:
+def ollama_smoke(tag: str = "qukaizen/ai-eng:1.5b", timeout: int = 30) -> None:
     """Run a quick smoke test: ollama must return non-empty within timeout s."""
     cmd = ["ollama", "run", tag, "Explain LoRA in 3 sentences."]
     log.info("Smoke test: %s (timeout=%ds)", " ".join(cmd), timeout)
@@ -858,9 +858,9 @@ def _run_publish(args: argparse.Namespace, build_dir: Path) -> None:
     print("\n=== PUBLISH GATE ===")
     print(f"GGUF: {gguf_path.name} (SHA256: {gguf_sha[:16]}...)")
     print("Destinations:")
-    print("  1. HF: qukaizen/qkz-opus4.7-aieng-3b-v2.1 (safetensors)")
-    print("  2. HF: qukaizen/qkz-opus4.7-aieng-3b-v2.1-gguf (GGUF)")
-    print("  3. Ollama: qukaizen/ai-eng:3b")
+    print("  1. HF: qukaizen/qkz-opus4.7-aieng-1.5b-v2.1 (safetensors)")
+    print("  2. HF: qukaizen/qkz-opus4.7-aieng-1.5b-v2.1-gguf (GGUF)")
+    print("  3. Ollama: qukaizen/ai-eng:1.5b")
     print(f"  License: {args.license}")
     print("\nThis action is IRREVERSIBLE. Type 'yes' to proceed: ", end="", flush=True)
 
@@ -875,9 +875,9 @@ def _run_publish(args: argparse.Namespace, build_dir: Path) -> None:
     log.info("NOTE: Actual HF/Ollama push commands are commit 2 scope (follow-up sprint).")
 
     published = {
-        "hf_safetensors": "qukaizen/qkz-opus4.7-aieng-3b-v2.1",
-        "hf_gguf": "qukaizen/qkz-opus4.7-aieng-3b-v2.1-gguf",
-        "ollama": "qukaizen/ai-eng:3b",
+        "hf_safetensors": "qukaizen/qkz-opus4.7-aieng-1.5b-v2.1",
+        "hf_gguf": "qukaizen/qkz-opus4.7-aieng-1.5b-v2.1-gguf",
+        "ollama": "qukaizen/ai-eng:1.5b",
         "gguf_sha256": gguf_sha,
         "license": args.license,
         "status": "pending-commit-2",
