@@ -142,7 +142,9 @@ case "$SUBCOMMAND" in
   build)
     log_info "Phase 1: full build pipeline"
     check_portal_not_running
-    python3 "$PYTHON_HELPER" build "${BASE_ARGS[@]}"
+    QUANT_VAL="${QUANT_FLAG#--quant }"
+    [[ -z "$QUANT_VAL" ]] && QUANT_VAL="Q4_K_M"
+    python3 "$PYTHON_HELPER" build "${BASE_ARGS[@]}" ${QUANT_FLAG}
     BENCH_EXIT=$?
     if [[ $BENCH_EXIT -eq 10 ]]; then
       log_error "Both candidates failed bench gate. Sprint shelved per ARCHITECTURE F6."
@@ -154,7 +156,8 @@ case "$SUBCOMMAND" in
       exit 11
     fi
     log_info "Build complete. Review build/BENCH-v2.1.md."
-    log_info "Next: ./scripts/build_ai_eng.sh publish --yes-i-have-read-bench --license Apache-2.0"
+    log_info "Quantized artifact: ${BUILD_DIR}/ai-eng-1.5b-v2.1.${QUANT_VAL}.gguf"
+    log_info "Next: ./scripts/build_ai_eng.sh publish --yes-i-have-read-bench --license Apache-2.0 --quant ${QUANT_VAL}"
     exit "$BENCH_EXIT"
     ;;
 
@@ -180,7 +183,8 @@ case "$SUBCOMMAND" in
       exit 1
     fi
     log_info "Converting Candidate $CANDIDATE to GGUF"
-    python3 "$PYTHON_HELPER" convert "${BASE_ARGS[@]}" --candidate "$CANDIDATE"
+    # shellcheck disable=SC2086
+    python3 "$PYTHON_HELPER" convert "${BASE_ARGS[@]}" --candidate "$CANDIDATE" ${QUANT_FLAG}
     ;;
 
   publish)

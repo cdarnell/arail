@@ -583,6 +583,144 @@ def _ensure_llama_cpp(build_dir: Path, rev: str, dry_run: bool) -> Path:
     return llama_dir
 
 
+def _ensure_llama_quantize_bin(build_dir: Path, rev: str, dry_run: bool) -> Path:
+    """Return path to a built llama-quantize binary.
+
+    Checks two well-known locations after a cmake build:
+      <llama.cpp>/build/bin/llama-quantize
+      <llama.cpp>/llama-quantize
+
+    If absent and not dry_run, triggers a cmake build inside the cloned repo.
+    Guarded by check_free_disk_gb(build_dir, 5.0) before compiling.
+    On build failure logs a clear actionable error and exits 50.
+
+    In dry_run mode a stub executable is written and returned without compiling.
+    """
+    llama_dir = _ensure_llama_cpp(build_dir, rev, dry_run=dry_run)
+
+    # Check known post-build locations
+    candidates = [
+        llama_dir / "build" / "bin" / "llama-quantize",
+        llama_dir / "llama-quantize",
+    ]
+    for path in candidates:
+        if path.exists() and os.access(str(path), os.X_OK):
+            log.info("Found llama-quantize at %s", path)
+            return path
+
+    if dry_run:
+        stub_path = llama_dir / "llama-quantize"
+        log.info("[dry-run] Would build llama-quantize; writing stub at %s", stub_path)
+        stub_path.write_bytes(b"#!/bin/sh\necho stub-llama-quantize\n")
+        stub_path.chmod(0o755)
+        return stub_path
+
+    # Need to compile
+    check_free_disk_gb(build_dir, min_gb=5.0)
+    build_out = llama_dir / "build"
+    log.info("Building llama-quantize via cmake in %s ...", llama_dir)
+    cmake_configure = ["cmake", "-B", str(build_out), str(llama_dir)]
+    r = subprocess.run(cmake_configure, capture_output=True, text=True)
+    if r.returncode != 0:
+        log.error(
+            "cmake configure failed for llama.cpp.\n%s\n"
+            "Fix: ensure cmake >= 3.14 is installed: brew install cmake",
+            r.stderr,
+        )
+        sys.exit(50)
+
+    cmake_build = [
+        "cmake", "--build", str(build_out),
+        "--config", "Release",
+        "-j",
+        "--target", "llama-quantize",
+    ]
+    r = subprocess.run(cmake_build, capture_output=True, text=True)
+    if r.returncode != 0:
+        log.error(
+            "cmake build of llama-quantize failed.\n%s\n"
+            "Fix: check cmake/compiler output above; ensure a C++17-capable compiler is present.",
+            r.stderr,
+        )
+        sys.exit(50)
+
+    # Re-check known locations after build
+    for path in candidates:
+        if path.exists() and os.access(str(path), os.X_OK):
+            log.info("llama-quantize built at %s", path)
+            return path
+
+    log.error(
+        "llama-quantize binary not found after cmake build. "
+        "Checked: %s. Check build output above.",
+        [str(p) for p in candidates],
+    )
+    sys.exit(50)
+
+
+# ── GGUF quantization ─────────────────────────────────────────────────────────
+
+def quantize_gguf(
+    build_dir: Path,
+    src_gguf: Path,
+    quant: str,
+    llama_cpp_rev: str,
+    min_free_ram_gb: float,
+    min_free_disk_gb: float = 5.0,
+    dry_run: bool = False,
+) -> Path:
+    """Quantize src_gguf to <quant> via llama-quantize. Idempotent via sentinel.
+
+    Output filename: ai-eng-1.5b-v2.1.<QUANT>.gguf (build-internal artifact).
+    The published filename (ai-eng-1.5b-<QUANT>.gguf) is staged by _run_publish.
+
+    Exit code 50 on failure, mirroring convert_to_gguf.
+    """
+    step = "quantize"
+    if step_done(build_dir, step):
+        log.info("Step '%s' already complete, skipping.", step)
+        # Return the quantized gguf path
+        out_name = f"ai-eng-1.5b-v2.1.{quant}.gguf"
+        return build_dir / out_name
+
+    out_name = f"ai-eng-1.5b-v2.1.{quant}.gguf"
+    out_gguf = build_dir / out_name
+
+    if dry_run:
+        log.info(
+            "[dry-run] Would quantize %s → %s (quant=%s)",
+            src_gguf, out_gguf, quant,
+        )
+        out_gguf.write_bytes(b"STUB_GGUF_QUANT")
+        digest = sha256_file(out_gguf)
+        append_sha256sums(build_dir, f"GGUF quantized ({out_name})", {out_name: digest})
+        mark_done(build_dir, step)
+        return out_gguf
+
+    check_free_ram_gb(min_free_ram_gb)
+    check_free_disk_gb(build_dir, min_gb=min_free_disk_gb)
+
+    quantize_bin = _ensure_llama_quantize_bin(build_dir, llama_cpp_rev, dry_run=False)
+
+    cmd = [str(quantize_bin), str(src_gguf), str(out_gguf), quant]
+    log.info("Running llama-quantize: %s", " ".join(cmd))
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    if r.returncode != 0:
+        log.error(
+            "llama-quantize failed (exit %d):\n%s\n"
+            "Fix: verify src_gguf is a valid f16/bf16 GGUF; check llama-quantize version.",
+            r.returncode, r.stderr,
+        )
+        _write_safe(build_dir / "error-quantize.log", r.stderr)
+        sys.exit(50)
+
+    digest = sha256_file(out_gguf)
+    append_sha256sums(build_dir, f"GGUF quantized ({out_name})", {out_name: digest})
+    mark_done(build_dir, step)
+    log.info("Quantization complete: %s (sha256: %s...)", out_gguf, digest[:12])
+    return out_gguf
+
+
 # ── Modelfile generation ──────────────────────────────────────────────────────
 
 def generate_modelfile(
@@ -725,9 +863,9 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--license", default=None, help="License identifier (required for publish)")
     p.add_argument(
         "--quant", default="Q4_K_M",
-        help="Quantisation tag for the published GGUF filename and upload commands (default: Q4_K_M). "
-             "The build convert step still emits f16/bf16; real quantisation via llama-quantize "
-             "is a deferred follow-up step printed as a manual TODO by 'publish'.",
+        help="Quantisation type passed to llama-quantize (default: Q4_K_M). "
+             "The build pipeline converts to f16/bf16 first, then quantizes to this type. "
+             "The published artifact is named ai-eng-1.5b-<QUANT>.gguf.",
     )
     return p.parse_args()
 
@@ -770,8 +908,12 @@ def _main() -> None:
         if not args.candidate:
             log.error("'convert' subcommand requires --candidate a|b")
             sys.exit(1)
-        convert_to_gguf(
+        f16_gguf = convert_to_gguf(
             build_dir, args.candidate, args.llama_cpp_rev,
+            args.min_free_ram_gb, dry_run=dry_run,
+        )
+        quantize_gguf(
+            build_dir, f16_gguf, args.quant, args.llama_cpp_rev,
             args.min_free_ram_gb, dry_run=dry_run,
         )
         return
@@ -816,8 +958,12 @@ def _main() -> None:
         mark_done(build_dir, "bench")
 
     modelfile_production = Path(args.modelfile_production).resolve()
-    gguf_path = convert_to_gguf(
+    f16_gguf_path = convert_to_gguf(
         build_dir, winner, args.llama_cpp_rev,
+        args.min_free_ram_gb, dry_run=dry_run,
+    )
+    gguf_path = quantize_gguf(
+        build_dir, f16_gguf_path, args.quant, args.llama_cpp_rev,
         args.min_free_ram_gb, dry_run=dry_run,
     )
     modelfile_path = generate_modelfile(
@@ -900,10 +1046,9 @@ def print_upload_instructions(
     print(f'#      ai_eng_gh_url  = "{gh_release_url}"')
     print("#      ai_eng_quant   = \"" + quant + '"')
     print()
-    print("# 2. (Optional) Quantise f16/bf16 GGUF to Q4_K_M before uploading:")
-    print(f"#    llama-quantize {gguf_path} <out>/{quant_tagged_name} {quant}")
-    print("#    # NOTE: real llama-quantize step is a deferred follow-up.")
-    print("#    # See CONSOLIDATION.md §6 tech-debt note.")
+    print(f"# 2. The build pipeline produced the quantized GGUF: {gguf_path.name}")
+    print(f"#    This is already quantized to {quant} via llama-quantize.")
+    print(f"#    The staged published artifact is: {quant_tagged_name}")
     print()
     print("# 3. HuggingFace upload (primary — enables the clean single-pull path):")
     print("#")
@@ -977,25 +1122,53 @@ def _run_publish(args: argparse.Namespace, build_dir: Path) -> None:
         )
         sys.exit(30)
 
-    # Locate GGUF in build_dir
-    gguf_files = list(build_dir.glob("*.gguf"))
-    if not gguf_files:
-        log.error("No GGUF found in %s — run 'build' first.", build_dir)
-        sys.exit(1)
+    # Locate the quantized GGUF in build_dir.
+    # The quantize step produces ai-eng-1.5b-v2.1.<QUANT>.gguf (build-internal name).
+    # Prefer it; fall back to any gguf for operators who ran convert but not quantize.
+    quant_internal_name = f"ai-eng-1.5b-v2.1.{quant}.gguf"
+    quant_internal_path = build_dir / quant_internal_name
 
-    gguf_path = gguf_files[0]
+    if quant_internal_path.exists():
+        src_gguf = quant_internal_path
+        log.info("Using quantized GGUF: %s", src_gguf)
+    else:
+        gguf_files = list(build_dir.glob("*.gguf"))
+        if not gguf_files:
+            log.error("No GGUF found in %s — run 'build' first.", build_dir)
+            sys.exit(1)
+        src_gguf = gguf_files[0]
+        log.warning(
+            "Quantized GGUF (%s) not found; falling back to %s. "
+            "Run 'build' (not just 'convert') to produce the quantized artifact.",
+            quant_internal_name, src_gguf.name,
+        )
+
+    # Derive the published filename (G4) — this is what check_ai_eng_artifact.sh
+    # and setup.sh expect: ai-eng-1.5b-<QUANT>.gguf (no v2.1 infix).
+    quant_tagged_name = f"ai-eng-1.5b-{quant}.gguf"
+    published_gguf_path = build_dir / quant_tagged_name
+
+    # Stage the published file (copy build-internal → published name) so sha256
+    # is computed on the exact file that will be uploaded. Idempotent.
+    if not published_gguf_path.exists() or published_gguf_path.resolve() != src_gguf.resolve():
+        log.info(
+            "Staging published artifact: %s → %s",
+            src_gguf.name, quant_tagged_name,
+        )
+        shutil.copy2(str(src_gguf), str(published_gguf_path))
+    else:
+        log.info("Published artifact already staged: %s", published_gguf_path)
 
     # G1: Emit NOTICE beside the GGUF before the gate
-    emit_notice_beside_gguf(build_dir, gguf_path)
+    emit_notice_beside_gguf(build_dir, published_gguf_path)
 
-    gguf_sha = sha256_file(gguf_path)
-
-    # Derive quant-tagged published filename (G4)
-    quant_tagged_name = f"ai-eng-1.5b-{quant}.gguf"
+    # sha256 is computed on the PUBLISHED file (the exact bytes users will download)
+    gguf_sha = sha256_file(published_gguf_path)
+    log.info("sha256(%s) = %s", quant_tagged_name, gguf_sha)
 
     print("\n=== PUBLISH GATE ===")
-    print(f"GGUF: {gguf_path.name}")
-    print(f"Published filename: {quant_tagged_name}")
+    print(f"Build artifact: {src_gguf.name}")
+    print(f"Published filename: {quant_tagged_name}  (← what users download)")
     print("Distribution (self-hosted GGUF):")
     print("  1. HF GGUF repo: qukaizen/ai-eng-1.5b-gguf  (primary — ollama pull hf.co/<repo>:<quant>)")
     print("  2. GitHub Release mirror: sha256-verified HTTPS + local ollama create")
@@ -1005,7 +1178,7 @@ def _run_publish(args: argparse.Namespace, build_dir: Path) -> None:
     print()
 
     # G2: Print full sha256 + pyproject-pinning guidance
-    print(f"sha256: {gguf_sha}")
+    print(f"sha256 ({quant_tagged_name}): {gguf_sha}")
     print()
     print(f"  Next step: set ai_eng_sha256 = \"{gguf_sha}\" in pyproject.toml")
     print("  [tool.arail.models] and paste it into the GitHub Release body so")
@@ -1022,7 +1195,7 @@ def _run_publish(args: argparse.Namespace, build_dir: Path) -> None:
     log.info("Publish authorised. Proceeding...")
 
     # G3: Print upload instructions (printed, never executed)
-    print_upload_instructions(gguf_path, gguf_sha, args.license, quant)
+    print_upload_instructions(published_gguf_path, gguf_sha, args.license, quant)
 
     # Write self-hosted PUBLISHED.json (no ollama registry key)
     published = {
