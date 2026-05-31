@@ -161,3 +161,69 @@ but the real LoRA-merge build harness (`scripts/build_ai_eng.py`, `scripts/build
 | `tests/test_modelfile_checksums.py` | `FROM qukaizen/ai-eng:3b` → `1.5b` in F9 test; GGUF name refs `ai-eng-3b-v2.1` → `ai-eng-1.5b-v2.1` |
 
 **Test results:** 50/50 dry-run+checksum tests pass; 43/43 guard tests pass. `bash -n` OK; `py_compile` OK. Zero regressions.
+
+---
+
+## Packaging consolidation (2026-05-31)
+
+**Spec:** [CONSOLIDATION.md](./CONSOLIDATION.md)
+**Builder:** claude-sonnet-4-6
+
+### Plan
+
+| # | Files | Change |
+|---|---|---|
+| 1 | `scripts/build_ai_eng.py` | Add `--quant`, helpers `emit_notice_beside_gguf` + `print_upload_instructions`, rewrite `_run_publish` (remove ollama.ai destination, self-hosted PUBLISHED.json, NOTICE emit, full-sha256 + pyproject-pinning guidance, upload TODO blocks); add local-only comments to ollama_create/smoke |
+| 2 | `scripts/build_ai_eng.sh` | Thread `--quant`, fix publish log line |
+| 3 | `scripts/package_ai_eng.sh` | Replace 329-line body with thin deprecation shim |
+| 4 | Textual references | `setup.sh:834`, `check_ai_eng_artifact.sh:52`, `pyproject.toml:136,143`, `NOTICE:42-44`, `CHANGELOG.md`, `ARCHITECTURE.md §deliverable` |
+| 5 | Tests | Retarget 4 package_ai_eng tests; add `test_package_ai_eng_is_retired_shim` + 8 new publish-helper tests; add safety-guard presence test; all OOM-safe |
+
+### Execution
+
+**Step 1 — build_ai_eng.py:**
+- Added `--quant` arg (default `Q4_K_M`) to `_parse_args()`
+- Added `emit_notice_beside_gguf(build_dir, gguf_path)` helper (G1): copies repo-root NOTICE beside GGUF; inline fallback if NOTICE absent
+- Added `print_upload_instructions(gguf_path, sha256, license_id, quant)` helper (G3/G4): prints HF/GH/CDN upload commands as manual TODO blocks; never executes them; quant-tagged filename (`ai-eng-1.5b-<QUANT>.gguf`) aligns with `check_ai_eng_artifact.sh`
+- Rewrote `_run_publish()` per CONSOLIDATION.md §3: removed ollama.ai registry destination line; added `emit_notice_beside_gguf` call; printed full sha256 + pyproject-pinning guidance (G2); called `print_upload_instructions` (G3); rewrote PUBLISHED.json to self-hosted shape (no `ollama` key)
+- Added local-only comments to `ollama_create` and `ollama_smoke` default tag
+
+**Step 2 — build_ai_eng.sh:**
+- Added `QUANT_FLAG` variable; parsed `--quant` in the flag loop; threaded to `PUBLISH_ARGS` in the `publish` case
+- Fixed publish log line: `"Phase 2: publish to HF + Ollama"` → `"Phase 2: publish to self-hosted HF GGUF + GitHub Release mirror"`
+
+**Step 3 — package_ai_eng.sh:**
+- Replaced entire 329-line scaffold body with the 9-line deprecation shim from CONSOLIDATION.md §1 exactly
+- Preserved `chmod +x`
+
+**Step 4 — Textual references:**
+- `setup.sh` line 834: `scripts/package_ai_eng.sh` → `scripts/build_ai_eng.sh publish`
+- `check_ai_eng_artifact.sh` line 52: same
+- `pyproject.toml` line 136: comment updated
+- `pyproject.toml` line 143: comment updated
+- `NOTICE` lines 42-44: references updated to `build_ai_eng.sh publish`
+- `CHANGELOG.md`: added consolidation note under the `package_ai_eng.sh` Added entry; updated the "3B → 1.5B" and "output names" lines
+- `sprints/.../ARCHITECTURE.md` deliverable §5: added one-line forward pointer to CONSOLIDATION.md
+
+**Step 5 — Tests:**
+- `test_model_hosting_reframe_qa.py`: added `test_package_ai_eng_is_retired_shim` (regression guard); retargeted `test_package_script_embeds_no_credentials` (now checks shim + build_ai_eng.py); rewrote `test_package_script_exits_nonzero_on_missing_inputs` (shim → forwards → exit 70 + DEPRECATED breadcrumb); rewrote `test_package_script_weight_download_is_only_documentation` (shim has no download; asserts pipeline.py has no base-weight auto-download); kept `test_package_script_passes_bash_syntax`; added 6 publish-model reconciliation + helper tests
+- `test_build_ai_eng_dry_run.py`: added `TestPublishHelpers` class (8 tests: emit_notice copy, idempotency, fallback, upload instructions quant filename, full sha256, HF/GH URL alignment, no-subprocess, `--quant` argparse); added `test_safety_guards_present_in_source`
+
+### Test results
+
+**111/111 passed** (zero failures, zero regressions). Suite covers:
+- `test_model_hosting_reframe_qa.py` — 35 tests
+- `test_build_ai_eng_dry_run.py` — 29 tests (was 21, +8 publish helpers +1 safety guard)
+- `test_modelfile_checksums.py` — 12 tests
+- `tests/setup_ladder/` — 16 tests (setup_ladder unchanged; all green)
+
+`bash -n` OK on `package_ai_eng.sh`, `build_ai_eng.sh`, `setup.sh`, `check_ai_eng_artifact.sh`.
+`python -m py_compile scripts/build_ai_eng.py` OK.
+
+### Architect feedback required
+
+None. CONSOLIDATION.md was fully specified; no gaps or conflicts discovered during build.
+
+### Deferred (per CONSOLIDATION.md §6)
+
+- **Real llama-quantize step:** The convert path still emits f16/bf16 only. A real `llama-quantize` call (OOM-guarded, sentinel-idempotent) that produces the Q4_K_M artifact matching `ai_eng_quant` end-to-end remains a follow-up. `print_upload_instructions` prints the manual `llama-quantize` command as a TODO block so operators know the step.
