@@ -138,3 +138,26 @@ The re-base commit missed four files. Fixed in a single follow-up commit:
 | `CHANGELOG.md` v1.0.0 entry | "3B-parameter" → "1.5B-parameter"; `qukaizen/ai-eng:3b` → self-hosted GGUF reality |
 
 `bash -n scripts/check_ai_eng_artifact.sh` passes. Guard tests: 43/43 pass.
+
+## Build harness re-base (2026-05-31 — commit d2c13fc)
+
+**Trigger:** Distribution/install path was already re-based in commits 02148c6 and b6436b9,
+but the real LoRA-merge build harness (`scripts/build_ai_eng.py`, `scripts/build_ai_eng.sh`,
+`models/ai-eng/Modelfile.production`) still baked the research-licensed 3B base.
+
+**Verified before editing:**
+
+- `mlx-community/Qwen2.5-1.5B-Instruct-4bit` — HTTP 200 (exists on HuggingFace)
+- `Qwen/Qwen2.5-1.5B-Instruct` — HTTP 200; license Apache-2.0 (confirmed via HF metadata 2026-05-30)
+
+**Files changed (1 atomic commit: d2c13fc):**
+
+| File | Change |
+|---|---|
+| `scripts/build_ai_eng.py` | `DEFAULT_BF16_BASE`, `DEFAULT_MLX_BASE`, `DEFAULT_ADAPTER_REPO` → 1.5B ids; GGUF names, Modelfile output name, ollama_create/smoke defaults, publish gate print/dict: all `3b` → `1.5b`; docstring Qwen2.5-3B → Qwen2.5-1.5B |
+| `scripts/build_ai_eng.sh` | `ADAPTER_REPO`, `BF16_BASE`, `MLX_BASE` defaults → 1.5B ids |
+| `models/ai-eng/Modelfile.production` | `FROM qukaizen/ai-eng:3b` → `FROM qukaizen/ai-eng:1.5b`; SYSTEM "3B-parameter" → "1.5B-parameter" |
+| `tests/test_build_ai_eng_dry_run.py` | Test base strings `Qwen2.5-3B-Instruct-4bit` → `Qwen2.5-1.5B-Instruct-4bit`; `Qwen2.5-3B-Instruct` → `Qwen2.5-1.5B-Instruct`; GGUF name refs `ai-eng-3b-v2.1` → `ai-eng-1.5b-v2.1` |
+| `tests/test_modelfile_checksums.py` | `FROM qukaizen/ai-eng:3b` → `1.5b` in F9 test; GGUF name refs `ai-eng-3b-v2.1` → `ai-eng-1.5b-v2.1` |
+
+**Test results:** 50/50 dry-run+checksum tests pass; 43/43 guard tests pass. `bash -n` OK; `py_compile` OK. Zero regressions.
