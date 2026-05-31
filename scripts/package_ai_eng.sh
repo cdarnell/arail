@@ -3,7 +3,7 @@
 #
 # PURPOSE
 #   Documents and (where tools are present) automates the steps to:
-#     (a) merge QuKaiZen's LoRA into the qwen2.5:3b base model
+#     (a) merge QuKaiZen's LoRA into the qwen2.5:1.5b base model
 #     (b) convert the merged model to GGUF at a chosen quantisation
 #     (c) emit a Modelfile and NOTICE next to the GGUF
 #     (d) print the sha256 of the produced GGUF
@@ -15,7 +15,7 @@
 #
 # USAGE
 #   scripts/package_ai_eng.sh \
-#     --base-dir   /path/to/qwen2.5-3b-instruct  \  # required: merged base weights
+#     --base-dir   /path/to/qwen2.5-1.5b-instruct \  # required: merged base weights
 #     --lora-dir   /path/to/qukaizen_lora          \  # required: LoRA adapter dir
 #     --out-dir    /path/to/output                 \  # default: ./lab/models/ai-eng-pkg
 #     --quant      Q4_K_M                          \  # default: Q4_K_M
@@ -36,10 +36,10 @@
 #   before executing the upload TODO steps.
 #
 # ATTRIBUTION NOTE
-#   The produced GGUF is derived from Qwen/Qwen2.5-3B-Instruct (Alibaba Cloud).
-#   It is subject to the Qwen Research License Agreement. This script emits a
-#   NOTICE file next to the artifact as a reminder. You MUST include that
-#   NOTICE in any redistribution (HF model card, GitHub release, CDN, etc.).
+#   The produced GGUF is derived from Qwen/Qwen2.5-1.5B-Instruct (Alibaba Cloud),
+#   licensed under Apache-2.0. This script emits a NOTICE file next to the
+#   artifact as a reminder. You MUST include that NOTICE in any redistribution
+#   (HF model card, GitHub release, CDN, etc.).
 #   See the repo-root NOTICE file for the full attribution text.
 
 set -euo pipefail
@@ -70,7 +70,7 @@ done
 MISSING=0
 
 if [[ -z "$BASE_DIR" ]]; then
-    echo "ERROR: --base-dir is required (path to the qwen2.5:3b base model weights)." >&2
+    echo "ERROR: --base-dir is required (path to the qwen2.5:1.5b base model weights)." >&2
     MISSING=1
 elif [[ ! -d "$BASE_DIR" ]]; then
     echo "ERROR: --base-dir does not exist: ${BASE_DIR}" >&2
@@ -91,8 +91,8 @@ if [[ "$MISSING" -eq 1 ]]; then
 Manual steps to produce the ai-eng GGUF:
 
   1. Obtain the base model weights:
-       huggingface-cli download Qwen/Qwen2.5-3B-Instruct \
-         --local-dir ~/ai-eng-base/qwen2.5-3b-instruct
+       huggingface-cli download Qwen/Qwen2.5-1.5B-Instruct \
+         --local-dir ~/ai-eng-base/qwen2.5-1.5b-instruct
 
   2. Obtain the QuKaiZen LoRA (internal; produced by Nucleus pipeline):
        # The LoRA lives in the Nucleus repo or a shared drive.
@@ -100,7 +100,7 @@ Manual steps to produce the ai-eng GGUF:
 
   3. Run this script with the real paths:
        scripts/package_ai_eng.sh \
-         --base-dir ~/ai-eng-base/qwen2.5-3b-instruct \
+         --base-dir ~/ai-eng-base/qwen2.5-1.5b-instruct \
          --lora-dir /path/to/qukaizen_lora
 
   4. Follow the # TODO(manual) upload steps printed by the script.
@@ -111,7 +111,7 @@ fi
 
 mkdir -p "$OUT_DIR"
 MERGED_DIR="${OUT_DIR}/merged"
-GGUF_FILE="${OUT_DIR}/ai-eng-3b-${QUANT}.gguf"
+GGUF_FILE="${OUT_DIR}/ai-eng-1.5b-${QUANT}.gguf"
 NOTICE_FILE="${OUT_DIR}/NOTICE"
 MODELFILE="${OUT_DIR}/Modelfile"
 
@@ -211,7 +211,7 @@ LCPP_ERR
     exit 1
 fi
 
-GGUF_F16="${OUT_DIR}/ai-eng-3b-f16.gguf"
+GGUF_F16="${OUT_DIR}/ai-eng-1.5b-f16.gguf"
 python3 "$CONVERT_PY" "$MERGED_DIR" --outfile "$GGUF_F16" --outtype f16
 
 if [[ ! -f "$QUANTIZE_BIN" ]]; then
@@ -234,7 +234,7 @@ echo "[3/4] Emitting Modelfile and NOTICE next to the GGUF"
 cat > "$MODELFILE" <<MFEOF
 FROM $(basename "$GGUF_FILE")
 
-SYSTEM """You are ai-eng, ARAIL's default local assistant — a 3B Opus-4.7-derived AI engineering expert from QuKaiZen's Project Nucleus. You reason carefully, write production-grade code, and explain tradeoffs clearly. When you don't know something, say so."""
+SYSTEM """You are ai-eng, ARAIL's default local assistant — a 1.5B-parameter Opus-4.7-derived AI engineering expert from QuKaiZen's Project Nucleus. You reason carefully, write production-grade code, and explain tradeoffs clearly. When you don't know something, say so."""
 
 PARAMETER temperature 0.7
 PARAMETER num_ctx 8192
@@ -249,9 +249,9 @@ if [[ -f "$REPO_NOTICE" ]]; then
     echo "NOTICE written:    ${NOTICE_FILE}"
 else
     cat > "$NOTICE_FILE" <<'NOTICEEOF'
-NOTICE: ai-eng is derived from Qwen/Qwen2.5-3B-Instruct (Alibaba Cloud),
-licensed under the Qwen Research License Agreement. See the repo-root NOTICE
-file and https://huggingface.co/Qwen/Qwen2.5-3B-Instruct/blob/main/LICENSE
+NOTICE: ai-eng is derived from Qwen/Qwen2.5-1.5B-Instruct (Alibaba Cloud),
+licensed under Apache-2.0. See the repo-root NOTICE file and
+https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct/blob/main/LICENSE
 for the full license text. This NOTICE MUST be included in any redistribution
 of the ai-eng GGUF artifact (HuggingFace model card, GitHub release, CDN).
 NOTICEEOF
@@ -276,23 +276,23 @@ UPLOAD STEPS (manual — uncomment and run after logging in)
 
 # 1. Update pyproject.toml with the real sha256 and repo values:
 #      ai_eng_sha256  = "${SHA256}"
-#      ai_eng_hf_repo = "qukaizen/ai-eng-3b-gguf"    # set your real HF org/repo
-#      ai_eng_gh_url  = "https://github.com/qukaizen/arail/releases/download/ai-eng-3b/ai-eng-3b-${QUANT}.gguf"
+#      ai_eng_hf_repo = "qukaizen/ai-eng-1.5b-gguf"   # set your real HF org/repo
+#      ai_eng_gh_url  = "https://github.com/qukaizen/arail/releases/download/ai-eng-1.5b/ai-eng-1.5b-${QUANT}.gguf"
 
 # 2. HuggingFace upload (primary — enables the clean single-pull path):
 #
 #    huggingface-cli login   # run once; stores token in ~/.cache/huggingface/
 #
-#    huggingface-cli upload qukaizen/ai-eng-3b-gguf \
+#    huggingface-cli upload qukaizen/ai-eng-1.5b-gguf \
 #      ${GGUF_FILE} \
 #      --repo-type model \
-#      --commit-message "Add ai-eng-3b ${QUANT} GGUF (sha256: ${SHA256})"
+#      --commit-message "Add ai-eng-1.5b ${QUANT} GGUF (sha256: ${SHA256})"
 #
 #    # Also upload the Modelfile and NOTICE:
-#    huggingface-cli upload qukaizen/ai-eng-3b-gguf \
+#    huggingface-cli upload qukaizen/ai-eng-1.5b-gguf \
 #      ${MODELFILE} \
 #      --repo-type model
-#    huggingface-cli upload qukaizen/ai-eng-3b-gguf \
+#    huggingface-cli upload qukaizen/ai-eng-1.5b-gguf \
 #      ${NOTICE_FILE} \
 #      --repo-type model
 
@@ -300,15 +300,15 @@ UPLOAD STEPS (manual — uncomment and run after logging in)
 #
 #    gh auth login   # run once
 #
-#    gh release create ai-eng-3b \
+#    gh release create ai-eng-1.5b \
 #      --repo qukaizen/arail \
-#      --title "ai-eng 3B GGUF (${QUANT})" \
+#      --title "ai-eng 1.5B GGUF (${QUANT})" \
 #      --notes "sha256: ${SHA256}
 #
-# ai-eng is derived from Qwen/Qwen2.5-3B-Instruct (Alibaba Cloud).
-# Licensed under the Qwen Research License. See NOTICE in this release."
+# ai-eng is derived from Qwen/Qwen2.5-1.5B-Instruct (Alibaba Cloud).
+# Licensed under Apache-2.0. See NOTICE in this release."
 #
-#    gh release upload ai-eng-3b \
+#    gh release upload ai-eng-1.5b \
 #      ${GGUF_FILE} \
 #      --repo qukaizen/arail
 

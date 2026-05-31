@@ -100,10 +100,11 @@ def test_placeholder_digest_disables_mirror_no_download(ladder):
 # ---------------------------------------------------------------------------
 
 def test_all_hosts_fail_falls_to_preview_net(ladder):
-    """Artifact-not-uploaded reality: HF 404 + placeholder sha → preview net."""
+    """Artifact-not-uploaded reality: HF 404 + placeholder sha → preview net.
+    Re-base 2026-05-30: preview base is now qwen2.5:1.5b (not 7b)."""
     r = ladder(hf_ok="0", curl_ok="0", preview_pull_ok="1")
     assert r.ladder_exit == 0
-    assert r.called("PULL qwen2.5:7b"), "preview net pulls the 7B base"
+    assert r.called("PULL qwen2.5:1.5b"), "preview net pulls the 1.5B base"
     assert r.called("CREATE create ai-eng"), "preview Modelfile builds ai-eng"
 
 

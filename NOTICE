@@ -14,57 +14,50 @@ These attributions apply to:
     travel with the redistributed derivative.
 
 ────────────────────────────────────────────────────────────────────────────
-1. ai-eng production base: Qwen2.5-3B-Instruct
+1. ai-eng base: Qwen2.5-1.5B-Instruct
 ────────────────────────────────────────────────────────────────────────────
-The ai-eng model is derived from Qwen/Qwen2.5-3B-Instruct.
+The ai-eng model is derived from Qwen/Qwen2.5-1.5B-Instruct.
 
   Copyright (c) Alibaba Cloud (Tongyi Lab / Qwen Team)
-  Model: Qwen/Qwen2.5-3B-Instruct
-  License: Qwen Research License Agreement (release date: 2024-09-19)
-           — a custom Alibaba Cloud research license.
-           This license is NOT Apache-2.0.
-  Upstream: https://huggingface.co/Qwen/Qwen2.5-3B-Instruct
-  License text: https://huggingface.co/Qwen/Qwen2.5-3B-Instruct/blob/main/LICENSE
-
-The merged-LoRA GGUF (ai-eng) is a derivative work of the above base model
-and inherits the obligations of the Qwen Research License. Users and
-operators who redistribute the ai-eng GGUF must comply with those terms.
-Consult the full license text at the URL above before redistribution.
-
-────────────────────────────────────────────────────────────────────────────
-2. ai-eng preview base (fallback until production GGUF is uploaded):
-   Qwen2.5-7B-Instruct
-────────────────────────────────────────────────────────────────────────────
-When the self-hosted ai-eng GGUF is not yet available, setup falls back to
-Qwen/Qwen2.5-7B-Instruct as a preview base.
-
-  Copyright (c) Alibaba Cloud (Tongyi Lab / Qwen Team)
-  Model: Qwen/Qwen2.5-7B-Instruct
+  Model: Qwen/Qwen2.5-1.5B-Instruct
   License: Apache License, Version 2.0
-  Upstream: https://huggingface.co/Qwen/Qwen2.5-7B-Instruct
   SPDX-License-Identifier: Apache-2.0
+  Upstream: https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct
+  License text: https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct/blob/main/LICENSE
 
-The preview base (Qwen2.5-7B-Instruct, Apache-2.0) does not change the
-production base's license (Qwen Research License). The preview path is a
-temporary fallback, not a redistribution — the model is pulled directly
-from the Ollama registry into the user's local Ollama store.
+The merged-LoRA GGUF (ai-eng) is a derivative work of the above base model.
+As a derivative of an Apache-2.0 work, distribution requires:
 
-────────────────────────────────────────────────────────────────────────────
-3. Redistribution requirement summary
-────────────────────────────────────────────────────────────────────────────
-If you redistribute the ai-eng GGUF artifact (the merged-LoRA derivative of
-Qwen2.5-3B-Instruct), you MUST:
-
-  a. Include this NOTICE file (or its content) alongside the artifact.
-  b. Include or link to the full Qwen Research License text.
-  c. Clearly state that the artifact is derived from Qwen2.5-3B-Instruct
+  a. Retain the above copyright notice and this attribution.
+  b. Include or link to the Apache License 2.0 text
+     (https://www.apache.org/licenses/LICENSE-2.0).
+  c. Include this NOTICE file (or its content) alongside the artifact.
+  d. Clearly state that the artifact is derived from Qwen2.5-1.5B-Instruct
      by Alibaba Cloud.
-  d. Comply with all other terms of the Qwen Research License Agreement.
+
+The preview fallback path (setup falls back to `qwen2.5:1.5b` via the
+Modelfile.preview until the production GGUF is uploaded) uses the same
+Qwen2.5-1.5B-Instruct base and the same Apache-2.0 obligations above.
 
 The scripts/package_ai_eng.sh script emits a copy of this NOTICE next to the
 packaged GGUF as a reminder. The HuggingFace model card template and GitHub
 Release notes template (see package_ai_eng.sh) are pre-populated with this
 attribution.
+
+────────────────────────────────────────────────────────────────────────────
+2. Redistribution requirement summary (Apache-2.0)
+────────────────────────────────────────────────────────────────────────────
+If you redistribute the ai-eng GGUF artifact (a derivative of
+Qwen2.5-1.5B-Instruct, Apache-2.0), you MUST:
+
+  a. Include this NOTICE file (or its content) alongside the artifact.
+  b. Include or link to the full Apache License 2.0 text.
+  c. Clearly state that the artifact is derived from Qwen2.5-1.5B-Instruct
+     by Alibaba Cloud.
+  d. Comply with all other terms of the Apache License, Version 2.0.
+
+There is no research-only or non-commercial restriction — Apache-2.0 permits
+commercial use, modification, and redistribution with attribution.
 
 ────────────────────────────────────────────────────────────────────────────
 ARAIL's own MIT license (see LICENSE) covers only the software in this

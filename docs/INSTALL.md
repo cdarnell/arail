@@ -67,7 +67,7 @@ Legacy `min`/`max` tier names are accepted with a deprecation warning
 - **Tabs**: Dashboard, Chat, Autoresearch, Knowledge Base, Agents, Docs.
 - **Packages**: core lab + embedded **LanceDB** recall. No heavyweight
   deep backend installed by default.
-- **Default model**: `ai-eng` — a 3B-parameter Opus-4.7-derived AI
+- **Default model**: `ai-eng` — a 1.5B-parameter Opus-4.7-derived AI
   engineering expert from QuKaiZen's Project Nucleus. Served via Ollama.
   This is the only model that auto-installs. The chat catalog lists ~20
   other models you can browse and pull on demand.
@@ -250,7 +250,7 @@ The **only** model that auto-installs. Probes for the production tag,
 fetches ai-eng via a self-hosted mirror ladder, stopping at the first
 success:
 
-1. **HuggingFace primary** — `ollama pull hf.co/qukaizen/ai-eng-3b-gguf:Q4_K_M`.
+1. **HuggingFace primary** — `ollama pull hf.co/qukaizen/ai-eng-1.5b-gguf:Q4_K_M`.
    Ollama verifies the layer digest natively. This is the clean
    single-pull path once the GGUF is uploaded.
 2. **GitHub Release mirror** — downloads the `.gguf` asset over HTTPS,

@@ -40,7 +40,7 @@ dependencies = [
 #
 #   minimalist → Dashboard + Chat + Autoresearch + Knowledge Base + Agents
 #                + LanceDB vector recall. Ships ai-eng (the only default
-#                model — a 3B Opus-4.7-derived AI engineering expert from
+#                model — a 1.5B-parameter Opus-4.7-derived AI engineering expert from
 #                QuKaiZen's Project Nucleus) via Ollama. External provider
 #                chat (Claude / NVIDIA / OpenRouter / HF) works here via
 #                plain HTTP, no extra SDK.
@@ -113,14 +113,14 @@ configuration_source = "pyproject.toml"
 
 [tool.arail.tiers]
 # Declarative surface matrix. portal/app.py reads this to tier-gate the nav.
-minimalist = { description = "Minimalist — Dashboard, Chat, Autoresearch, Knowledge Base (with LanceDB vector recall), Agents, Docs. Ships ai-eng (QuKaiZen's 3B Opus-4.7-derived AI engineering expert) as the sole default model. No deep backend by default.", surfaces = ["dashboard", "chat", "research", "knowledge", "agents", "docs"] }
+minimalist = { description = "Minimalist — Dashboard, Chat, Autoresearch, Knowledge Base (with LanceDB vector recall), Agents, Docs. Ships ai-eng (QuKaiZen's 1.5B-parameter Opus-4.7-derived AI engineering expert) as the sole default model. No deep backend by default.", surfaces = ["dashboard", "chat", "research", "knowledge", "agents", "docs"] }
 maximus    = { description = "Maximus — Everything in Minimalist + Admin, Docs, Notebooks, LangChain/LangGraph, full cloud catalog. Adds AeroLLM deep mode — the heaviest model that runs well locally; cloud frontier models are one click away via Compute Source.", surfaces = ["dashboard", "chat", "research", "knowledge", "agents", "admin", "docs", "notebooks", "terminal", "tuning", "plugins"] }
 # Legacy aliases — one-release compat shim, removed in v1.1.0.
 min = { description = "(deprecated alias for `minimalist`)", surfaces = ["dashboard", "chat", "research", "knowledge", "agents", "docs"] }
 max = { description = "(deprecated alias for `maximus`)", surfaces = ["dashboard", "chat", "research", "knowledge", "agents", "admin", "docs", "notebooks", "terminal", "tuning", "plugins"] }
 
 [tool.arail.models]
-# v1.0.0 ships ONE default model: ai-eng. A 3B-parameter Opus-4.7-derived
+# v1.0.0 ships ONE default model: ai-eng. A 1.5B-parameter Opus-4.7-derived
 # AI engineering expert built from QuKaiZen's Project Nucleus.
 #
 # Setup pulls the self-hosted ai-eng GGUF (HuggingFace primary via
@@ -136,9 +136,9 @@ max = { description = "(deprecated alias for `maximus`)", surfaces = ["dashboard
 # __PLACEHOLDER__ values: fill in after running scripts/package_ai_eng.sh
 # and uploading the GGUF. Forks rebrand by overriding these env vars or
 # editing this block — no code edits required.
-ai_eng_hf_repo  = "qukaizen/ai-eng-3b-gguf"  # __PLACEHOLDER__ — set your HF org/repo
-ai_eng_quant    = "Q4_K_M"                    # placeholder quant; confirm after packaging
-ai_eng_gh_url   = "https://github.com/qukaizen/arail/releases/download/ai-eng-3b/ai-eng-3b-Q4_K_M.gguf"  # __PLACEHOLDER__
+ai_eng_hf_repo  = "qukaizen/ai-eng-1.5b-gguf"  # __PLACEHOLDER__ — set your HF org/repo
+ai_eng_quant    = "Q4_K_M"                     # placeholder quant; confirm after packaging
+ai_eng_gh_url   = "https://github.com/qukaizen/arail/releases/download/ai-eng-1.5b/ai-eng-1.5b-Q4_K_M.gguf"  # __PLACEHOLDER__
 ai_eng_cdn_url  = ""                           # optional qukaizen.com mirror (leave empty to skip)
 # sha256 of the packaged GGUF — published by package_ai_eng.sh.
 # MUST remain __PLACEHOLDER_SHA256__ until a real digest is pinned; while it is
@@ -149,7 +149,7 @@ ai_eng_sha256   = "__PLACEHOLDER_SHA256__"
 
 # Preview base: used by the last-resort fallback until the GGUF is uploaded.
 # The literal model id is kept here as operator config (class-c internal ref).
-ai_eng_preview  = "qwen2.5:7b"
+ai_eng_preview  = "qwen2.5:1.5b"
 
 # AeroLLM deep-mode runtime (Apple Silicon). Per-tier model selection:
 #

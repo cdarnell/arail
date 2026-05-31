@@ -733,12 +733,12 @@ install_services() {
     fi
 
     # v1.0.0 — ai-eng is the ONLY model that auto-installs.
-    # ai-eng is a 3B Opus-4.7-derived AI engineering expert from QuKaiZen's
-    # Project Nucleus, served via Ollama. Setup uses a self-hosted fetch
-    # ladder: HuggingFace primary (ollama pull hf.co/...), GitHub Release
+    # ai-eng is a 1.5B-parameter Opus-4.7-derived AI engineering expert from
+    # QuKaiZen's Project Nucleus, served via Ollama. Setup uses a self-hosted
+    # fetch ladder: HuggingFace primary (ollama pull hf.co/...), GitHub Release
     # mirror (sha256-verified HTTPS download + ollama create), optional
     # qukaizen.com CDN mirror, then a last-resort preview net
-    # (qwen2.5:7b + Modelfile.preview) until the GGUF is uploaded.
+    # (qwen2.5:1.5b + Modelfile.preview) until the GGUF is uploaded.
     #
     # All host URLs/quant/digest are env-overridable:
     #   ARAIL_AI_ENG_HF_REPO  ARAIL_AI_ENG_QUANT  ARAIL_AI_ENG_GH_URL
@@ -750,7 +750,7 @@ install_services() {
     if command -v ollama &>/dev/null; then
         if [[ "${ARAIL_SKIP_OLLAMA:-0}" == "1" ]]; then
             warn "ARAIL_SKIP_OLLAMA=1 — skipping ai-eng install. Run later:"
-            warn "  ollama pull hf.co/qukaizen/ai-eng-3b-gguf:Q4_K_M"
+            warn "  ollama pull hf.co/qukaizen/ai-eng-1.5b-gguf:Q4_K_M"
             warn "  (or: ollama pull ai_eng_preview_base && ollama create ai-eng -f models/ai-eng/Modelfile.preview)"
             return
         fi
@@ -779,9 +779,9 @@ install_services() {
         local _ai_eng_ok=0
 
         # ── Read self-hosted config from env (with pyproject-derived defaults) ──
-        local _hf_repo="${ARAIL_AI_ENG_HF_REPO:-qukaizen/ai-eng-3b-gguf}"  # __PLACEHOLDER__
-        local _quant="${ARAIL_AI_ENG_QUANT:-Q4_K_M}"                         # __PLACEHOLDER__
-        local _gh_url="${ARAIL_AI_ENG_GH_URL:-https://github.com/qukaizen/arail/releases/download/ai-eng-3b/ai-eng-3b-Q4_K_M.gguf}"  # __PLACEHOLDER__
+        local _hf_repo="${ARAIL_AI_ENG_HF_REPO:-qukaizen/ai-eng-1.5b-gguf}"  # __PLACEHOLDER__
+        local _quant="${ARAIL_AI_ENG_QUANT:-Q4_K_M}"                          # __PLACEHOLDER__
+        local _gh_url="${ARAIL_AI_ENG_GH_URL:-https://github.com/qukaizen/arail/releases/download/ai-eng-1.5b/ai-eng-1.5b-Q4_K_M.gguf}"  # __PLACEHOLDER__
         local _cdn_url="${ARAIL_AI_ENG_CDN_URL:-}"                            # optional; empty = skip
         local _sha256="${ARAIL_AI_ENG_SHA256:-__PLACEHOLDER_SHA256__}"
 
@@ -863,9 +863,9 @@ install_services() {
         if [[ "$_ai_eng_ok" -eq 0 ]]; then
             warn "Self-hosted ai-eng artifact not reachable — falling back to preview net."
             warn "Once the GGUF is uploaded, re-run setup to use the self-hosted path."
-            local _preview_base="qwen2.5:7b"  # class-c internal ref; kept as operator config
+            local _preview_base="qwen2.5:1.5b"  # class-c internal ref; kept as operator config
             local _preview_mf="${_modelfile_dir}/Modelfile.preview"
-            info "Fetching preview base (~5 GB) — this may take 2–5 minutes…"
+            info "Fetching preview base (~1 GB) — this may take a minute…"
             if timeout 900 ollama pull "$_preview_base" 2>&1 | tail -5; then
                 if [[ -f "$_preview_mf" ]]; then
                     info "Creating ai-eng from preview Modelfile…"
@@ -883,7 +883,7 @@ install_services() {
                 warn "Preview base fetch failed or timed out. Setup continues without ai-eng."
                 warn "Run manually once online:"
                 warn "  ollama pull hf.co/${_hf_repo}:${_quant}  # self-hosted (primary)"
-                warn "  # or: ollama pull qwen2.5:7b && ollama create ai-eng -f ${_modelfile_dir}/Modelfile.preview"
+                warn "  # or: ollama pull qwen2.5:1.5b && ollama create ai-eng -f ${_modelfile_dir}/Modelfile.preview"
             fi
         fi
 
@@ -1049,7 +1049,7 @@ capture_tier() {
 
     ${BOLD}minimalist${RESET}  Dashboard + Chat + Autoresearch + Knowledge Base
                 + Agents + LanceDB vector recall. The everyday lab.
-                Ships ai-eng (3B Opus-4.7-derived AI engineering expert
+                Ships ai-eng (1.5B-parameter Opus-4.7-derived AI engineering expert
                 from QuKaiZen's Project Nucleus) as the only default
                 model. External providers (Claude, NVIDIA, OpenRouter,
                 HuggingFace) reachable over plain HTTP when

@@ -176,10 +176,12 @@ def test_catalog_ai_eng_description_has_no_qwen():
 
 
 def test_modelfile_preview_is_the_only_user_facing_qwen_FROM():
-    """The lone permitted qwen reference is Modelfile.preview's FROM line."""
+    """The lone permitted qwen reference is Modelfile.preview's FROM line.
+    Re-base 2026-05-30: preview base is now qwen2.5:1.5b (aligned with the
+    1.5B production base; OOM-friendlier ~1 GB vs the old ~5 GB 7B pull)."""
     mf = (REPO_ROOT / "models/ai-eng/Modelfile.preview").read_text()
-    assert re.search(r"^FROM\s+qwen2\.5:7b\s*$", mf, re.MULTILINE), (
-        "Modelfile.preview must retain its FROM qwen2.5:7b base line"
+    assert re.search(r"^FROM\s+qwen2\.5:1\.5b\s*$", mf, re.MULTILINE), (
+        "Modelfile.preview must have FROM qwen2.5:1.5b (re-based 2026-05-30)"
     )
     # And its SYSTEM prompt must NOT self-describe as qwen.
     sys_block = mf.lower()
@@ -198,11 +200,17 @@ def test_modelfile_preview_is_the_only_user_facing_qwen_FROM():
 # ===========================================================================
 
 def test_notice_exists_and_names_qwen_base_and_license():
+    """Re-base 2026-05-30: production base is now Qwen2.5-1.5B-Instruct (Apache-2.0).
+    The Qwen Research License and its non-commercial restriction no longer apply."""
     notice = (REPO_ROOT / "NOTICE").read_text()
-    assert "Qwen2.5-3B-Instruct" in notice
-    assert "Qwen Research License" in notice, "must name the (non-Apache) license"
-    assert "huggingface.co/Qwen/Qwen2.5-3B-Instruct" in notice, "upstream URL"
-    assert "NOT Apache-2.0" in notice, "must flag the license is not Apache-2.0"
+    assert "Qwen2.5-1.5B-Instruct" in notice, "must name the new 1.5B base"
+    assert "Apache-2.0" in notice, "base is now Apache-2.0"
+    assert "SPDX-License-Identifier: Apache-2.0" in notice, "must carry SPDX id"
+    assert "huggingface.co/Qwen/Qwen2.5-1.5B-Instruct" in notice, "upstream URL"
+    # The Qwen Research License no longer applies — it must NOT appear in NOTICE.
+    assert "Qwen Research License" not in notice, (
+        "Qwen Research License must be removed — 1.5B base is Apache-2.0"
+    )
 
 
 def test_notice_states_redistribution_attribution_requirement():
@@ -388,12 +396,14 @@ def test_no_frontier_scale_in_rewritten_surfaces(f):
 
 
 def test_pyproject_self_hosted_keys_are_placeholder_marked():
+    """Re-base 2026-05-30: preview base is now qwen2.5:1.5b; hf_repo is ai-eng-1.5b-gguf."""
     text = (REPO_ROOT / "pyproject.toml").read_text()
     assert 'ai_eng_sha256' in text
     assert "__PLACEHOLDER_SHA256__" in text, "sha must ship as a placeholder"
     assert "ai_eng_hf_repo" in text
-    assert 'ai_eng_preview' in text and "qwen2.5:7b" in text, (
-        "preview base key must remain (operator config)"
+    assert "ai-eng-1.5b-gguf" in text, "hf_repo must reference 1.5b artifact"
+    assert 'ai_eng_preview' in text and "qwen2.5:1.5b" in text, (
+        "preview base key must remain with qwen2.5:1.5b value (operator config)"
     )
 
 

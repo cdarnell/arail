@@ -50,7 +50,7 @@ with a deprecation warning for one release):
 
 | Tier         | What's in it                                                                                                                 |
 |--------------|------------------------------------------------------------------------------------------------------------------------------|
-| `minimalist` | Dashboard · Chat · Autoresearch · Knowledge Base · Agents · LanceDB vectors · **ai-eng** (3B Opus-4.7-derived AI engineering expert from QuKaiZen's Nucleus pipeline) — the everyday lab |
+| `minimalist` | Dashboard · Chat · Autoresearch · Knowledge Base · Agents · LanceDB vectors · **ai-eng** (1.5B-parameter Opus-4.7-derived AI engineering expert from QuKaiZen's Nucleus pipeline) — the everyday lab |
 | `maximus`    | + Admin · Docs · Notebooks · **AeroLLM** deep-mode runtime · Anthropic SDK · LangChain · full cloud SDKs — the full local bench, cloud frontier one click away |
 
 Tier upgrade is a single `./arailctl upgrade maximus` away; downgrade

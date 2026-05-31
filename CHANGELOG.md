@@ -6,6 +6,36 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed (2026-05-30 re-base to 1.5B Apache-2.0)
+
+- **ai-eng re-based onto Qwen2.5-1.5B-Instruct (Apache-2.0).** The previous
+  base (Qwen2.5-3B-Instruct) was under the Qwen Research License
+  (research/non-commercial), a legal conflict with ARAIL's MIT fork/redistribute
+  thesis. The new base (Qwen2.5-1.5B-Instruct) is Apache-2.0 — fully
+  compatible with MIT redistribution. The license blocker is cleared.
+  Confirmed SPDX: `Apache-2.0` (HuggingFace API: `license:apache-2.0`).
+
+- **ai-eng branding: 3B → 1.5B everywhere.** All user-facing and
+  operator-facing strings updated: README, CLAUDE.md, pyproject.toml,
+  models_catalog.yaml, docs/INSTALL.md, scripts/setup.sh, Modelfile.preview
+  SYSTEM prompt, package_ai_eng.sh scaffold.
+
+- **Preview base: `qwen2.5:7b` → `qwen2.5:1.5b`.** The last-resort preview
+  net now pulls the 1.5B base (OOM-friendlier: ~1 GB vs ~5 GB). Aligns the
+  fallback with the real production base. The `FROM` line in
+  `Modelfile.preview` is updated accordingly.
+
+- **NOTICE rewritten.** Single-section attribution for Qwen2.5-1.5B-Instruct,
+  Apache-2.0. Removed the Qwen Research License non-commercial restriction
+  language — it no longer applies. Redistribution section now cites
+  Apache-2.0 obligations only (retain copyright/attribution + license text +
+  NOTICE). The dual-section layout (3B + 7B) collapses to one entry since
+  production and preview bases are now the same model family and license.
+
+- **HF repo, GitHub release tag, and GGUF filename: `ai-eng-3b-*` → `ai-eng-1.5b-*`.**
+  `pyproject.toml ai_eng_hf_repo`, `ai_eng_gh_url`, catalog `install` command,
+  setup.sh defaults, and package_ai_eng.sh output names all updated.
+
 ### Changed
 
 - **Maximus deep-model slot → `__TODO_DEEP_MODEL__` sentinel.** The
@@ -29,7 +59,7 @@ project adheres to [Semantic Versioning](https://semver.org/).
 - **ai-eng is now self-hosted (HuggingFace primary, GitHub Release mirror).**
   Setup runs a mirror fallback ladder instead of probing the unavailable
   `ollama.ai/qukaizen/` namespace:
-  1. `ollama pull hf.co/qukaizen/ai-eng-3b-gguf:Q4_K_M` (Ollama-native; digest
+  1. `ollama pull hf.co/qukaizen/ai-eng-1.5b-gguf:Q4_K_M` (Ollama-native; digest
      verified by Ollama).
   2. GitHub Release HTTPS download with `sha256` verification (fail-closed
      until a real digest is pinned in `pyproject.toml ai_eng_sha256`).
@@ -53,16 +83,17 @@ project adheres to [Semantic Versioning](https://semver.org/).
   uploaded. Gates follow-up ticket 2b (remove Modelfile.preview + preview
   net once artifact is confirmed live).
 
-- **`NOTICE` file** at the repo root — records the Qwen base-model license
-  obligations (Qwen2.5-3B-Instruct: Qwen Research License; Qwen2.5-7B-Instruct
-  preview base: Apache-2.0). States that the redistributed ai-eng GGUF
-  derivative must carry this attribution on its HuggingFace model card and
-  GitHub release. `LICENSE` gains a one-line pointer to `NOTICE`.
+- **`NOTICE` file** at the repo root — records the Qwen2.5-1.5B-Instruct
+  (Apache-2.0) base-model license obligations (updated 2026-05-30 from the
+  original 3B Qwen Research License to 1.5B Apache-2.0). States that the
+  redistributed ai-eng GGUF derivative must carry this attribution on its
+  HuggingFace model card and GitHub release. `LICENSE` gains a one-line
+  pointer to `NOTICE`.
 
 - **Qwen lineage moved to `NOTICE`.** Removed from user-facing copy
   (README, CLAUDE.md, catalog ai-eng description, Modelfile.preview SYSTEM
   prompt, pyproject comment, INSTALL.md). The sole permitted internal
-  reference is `FROM qwen2.5:7b` in `Modelfile.preview` (required for the
+  reference is `FROM qwen2.5:1.5b` in `Modelfile.preview` (required for the
   preview net Modelfile; class-c per ARCHITECTURE.md WC#3).
 
 ---
