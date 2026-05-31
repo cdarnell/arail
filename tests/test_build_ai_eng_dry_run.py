@@ -356,6 +356,11 @@ class TestFullDryRunSentinels:
             f"Missing sentinels: {expected_sentinels - present}"
         )
 
+    def test_safety_guards_present_in_source(self):
+        """check_free_ram_gb and sanitize_log_line must still be present (safety regression guard)."""
+        assert callable(bld.check_free_ram_gb), "OOM pre-check must exist"
+        assert callable(bld.sanitize_log_line), "HF token sanitiser must exist"
+
     def test_idempotent_rerun_is_noop(self, build_dir, adapter_dir):
         """Running the sequence twice should not overwrite output files."""
         # First run
@@ -380,3 +385,131 @@ class TestFullDryRunSentinels:
         assert mtimes_before == mtimes_after, (
             "Sentinels were modified on second run — idempotency broken"
         )
+
+
+# ── Publish helpers (G1/G2/G3 — CONSOLIDATION.md §2) ─────────────────────────
+
+class TestPublishHelpers:
+    """Unit tests for the new publish helpers absorbed from package_ai_eng.sh.
+
+    All tests are OOM-safe: no real builds, no model loads, no downloads.
+    """
+
+    def test_emit_notice_copies_repo_notice(self, build_dir):
+        """G1: emit_notice_beside_gguf must copy the repo-root NOTICE."""
+        fake_gguf = build_dir / "ai-eng-1.5b-v2.1.bf16.gguf"
+        fake_gguf.write_bytes(b"STUB")
+        bld.emit_notice_beside_gguf(build_dir, fake_gguf)
+        notice = build_dir / "NOTICE"
+        assert notice.exists(), "NOTICE must be written beside the GGUF"
+        content = notice.read_text()
+        assert len(content) > 10, "NOTICE must not be empty"
+
+    def test_emit_notice_idempotent(self, build_dir):
+        """Calling emit_notice_beside_gguf twice must not raise."""
+        fake_gguf = build_dir / "test.gguf"
+        fake_gguf.write_bytes(b"STUB")
+        bld.emit_notice_beside_gguf(build_dir, fake_gguf)
+        mtime1 = (build_dir / "NOTICE").stat().st_mtime
+        bld.emit_notice_beside_gguf(build_dir, fake_gguf)
+        mtime2 = (build_dir / "NOTICE").stat().st_mtime
+        assert mtime1 == mtime2, "second call must not overwrite existing NOTICE"
+
+    def test_emit_notice_fallback_when_repo_notice_absent(self, tmp_path, monkeypatch):
+        """G1 fallback: if repo NOTICE is missing, a minimal inline NOTICE is written."""
+        import build_ai_eng as bld_mod
+        # Patch __file__ to point to a location where no NOTICE sibling exists
+        fake_scripts = tmp_path / "scripts"
+        fake_scripts.mkdir()
+        fake_script = fake_scripts / "build_ai_eng.py"
+        fake_script.write_text("# stub\n")
+        monkeypatch.setattr(bld_mod, "__file__", str(fake_script))
+
+        build_dir = tmp_path / "build"
+        build_dir.mkdir()
+        fake_gguf = build_dir / "test.gguf"
+        fake_gguf.write_bytes(b"STUB")
+
+        bld_mod.emit_notice_beside_gguf(build_dir, fake_gguf)
+        notice = build_dir / "NOTICE"
+        assert notice.exists(), "fallback NOTICE must be written"
+        assert "Apache-2.0" in notice.read_text(), "fallback NOTICE must mention Apache-2.0"
+
+    def test_print_upload_instructions_contains_quant_tagged_filename(
+        self, build_dir, capsys
+    ):
+        """G3/G4: print_upload_instructions must output the quant-tagged GGUF filename."""
+        fake_gguf = build_dir / "ai-eng-1.5b-v2.1.bf16.gguf"
+        fake_gguf.write_bytes(b"STUB")
+        bld.print_upload_instructions(
+            gguf_path=fake_gguf,
+            sha256="b" * 64,
+            license_id="Apache-2.0",
+            quant="Q4_K_M",
+        )
+        out = capsys.readouterr().out
+        assert "ai-eng-1.5b-Q4_K_M.gguf" in out, (
+            "upload instructions must include the quant-tagged filename"
+        )
+
+    def test_print_upload_instructions_contains_full_sha256(
+        self, build_dir, capsys
+    ):
+        """G2: full 64-hex sha256 must appear in the upload instructions."""
+        fake_gguf = build_dir / "ai-eng-1.5b-v2.1.bf16.gguf"
+        fake_gguf.write_bytes(b"STUB")
+        digest = "c" * 64
+        bld.print_upload_instructions(
+            gguf_path=fake_gguf,
+            sha256=digest,
+            license_id="Apache-2.0",
+            quant="Q4_K_M",
+        )
+        out = capsys.readouterr().out
+        assert digest in out, "full sha256 must appear in upload instructions"
+        assert "ai_eng_sha256" in out, "pyproject key name must be printed"
+
+    def test_print_upload_instructions_references_hf_repo_and_gh_url(
+        self, build_dir, capsys
+    ):
+        """G3: upload instructions must align with check_ai_eng_artifact.sh env vars
+        and pyproject keys (ai_eng_hf_repo, ai_eng_gh_url)."""
+        fake_gguf = build_dir / "ai-eng-1.5b-v2.1.bf16.gguf"
+        fake_gguf.write_bytes(b"STUB")
+        bld.print_upload_instructions(
+            gguf_path=fake_gguf,
+            sha256="d" * 64,
+            license_id="Apache-2.0",
+            quant="Q4_K_M",
+        )
+        out = capsys.readouterr().out
+        # Must reference the HF repo (matches check_ai_eng_artifact.sh default)
+        assert "qukaizen/ai-eng-1.5b-gguf" in out, "HF repo must appear in instructions"
+        # Must reference GitHub release
+        assert "github.com/qukaizen/arail/releases" in out, "GH release URL must appear"
+        # Must NOT mention ollama.ai registry as an upload target
+        assert "ollama.ai" not in out, "ollama.ai registry must not appear in upload instructions"
+
+    def test_print_upload_instructions_never_executed(self, build_dir):
+        """G3 safety: print_upload_instructions must only PRINT commands, never run them.
+
+        We assert that the function body contains no subprocess calls — it is
+        a print-only function by design.
+        """
+        import inspect
+        src = inspect.getsource(bld.print_upload_instructions)
+        assert "subprocess" not in src, (
+            "print_upload_instructions must not call subprocess (commands are printed, not run)"
+        )
+
+    def test_quant_arg_parsed_by_argparse(self):
+        """--quant must be a recognised flag in _parse_args (no argparse rejection)."""
+        import sys as _sys
+        old_argv = _sys.argv
+        try:
+            _sys.argv = ["build_ai_eng.py", "publish", "--quant", "Q8_0",
+                         "--yes-i-have-read-bench", "--license", "Apache-2.0"]
+            args = bld._parse_args()
+            assert args.quant == "Q8_0"
+        finally:
+            _sys.argv = old_argv

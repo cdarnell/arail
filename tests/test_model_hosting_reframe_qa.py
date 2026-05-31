@@ -227,72 +227,197 @@ def test_license_points_to_notice():
 
 
 # ===========================================================================
-# PACKAGING-SCRIPT SECURITY
+# PACKAGING-SCRIPT SECURITY  (retargeted post-consolidation — CONSOLIDATION.md §5)
 # ===========================================================================
 
+def test_package_ai_eng_is_retired_shim():
+    """Regression guard: package_ai_eng.sh must stay a thin deprecation shim.
+
+    The 329-line scaffold body was replaced with a small shim that prints a
+    deprecation breadcrumb and forwards to build_ai_eng.sh publish.
+    This test prevents the scaffold logic from silently reappearing.
+    """
+    s = (REPO_ROOT / "scripts/package_ai_eng.sh").read_text()
+    assert "DEPRECATED" in s
+    assert "build_ai_eng.sh" in s and "exec" in s
+    # The scaffold's real packaging logic must NOT reappear here.
+    for forbidden in ("merge_and_unload", "convert_hf_to_gguf",
+                      "llama-quantize", "PeftModel"):
+        assert forbidden not in s, f"retired scaffold logic reappeared: {forbidden}"
+    assert len(s.splitlines()) < 20, "shim should stay thin"
+
+
 def test_package_script_embeds_no_credentials():
-    script = (REPO_ROOT / "scripts/package_ai_eng.sh").read_text()
-    # No hardcoded tokens.
-    assert not re.search(r"hf_[A-Za-z0-9]{20,}", script), "looks like an HF token"
-    assert not re.search(r"ghp_[A-Za-z0-9]{20,}", script), "looks like a GitHub PAT"
-    assert not re.search(r"(?i)(api[_-]?key|secret|password)\s*=\s*['\"][^'\"]{8,}",
-                         script), "embedded credential literal"
-    # Login is a manual step, not baked in.
-    assert "huggingface-cli login" in script
-    assert "gh auth login" in script
+    """The shim (and build_ai_eng.py) must contain no hardcoded credentials.
+
+    Retargeted: the shim itself is trivially clean; we also assert build_ai_eng.py
+    (the canonical pipeline) has no embedded HF tokens or GitHub PATs.
+    """
+    shim = (REPO_ROOT / "scripts/package_ai_eng.sh").read_text()
+    pipeline_py = (REPO_ROOT / "scripts/build_ai_eng.py").read_text()
+    for source, name in ((shim, "package_ai_eng.sh"), (pipeline_py, "build_ai_eng.py")):
+        assert not re.search(r"hf_[A-Za-z0-9]{20,}", source), \
+            f"{name}: looks like an HF token"
+        assert not re.search(r"ghp_[A-Za-z0-9]{20,}", source), \
+            f"{name}: looks like a GitHub PAT"
+        assert not re.search(
+            r"(?i)(api[_-]?key|secret|password)\s*=\s*['\"][^'\"]{8,}", source
+        ), f"{name}: embedded credential literal"
+    # build_ai_eng.py documents login as a manual step in print_upload_instructions
+    assert "huggingface-cli login" in pipeline_py
+    assert "gh auth login" in pipeline_py
 
 
 def test_package_script_exits_nonzero_on_missing_inputs(tmp_path):
-    """Missing --base-dir/--lora-dir → prints manual steps, exits nonzero,
-    performs NO download."""
+    """Shim with no args → forwards to build_ai_eng.sh publish with no flags
+    → publish exits 70 (no --yes-i-have-read-bench). Exit must be nonzero and
+    the deprecation breadcrumb must appear on stderr. No real packaging runs.
+    """
     r = subprocess.run(
         ["bash", str(REPO_ROOT / "scripts/package_ai_eng.sh")],
         capture_output=True, text=True, timeout=30,
         cwd=str(tmp_path),
     )
-    assert r.returncode != 0, "must fail when required inputs are missing"
-    assert "Manual steps" in (r.stdout + r.stderr)
-    # It must not have invented or fetched weights.
-    assert "huggingface-cli download" in (r.stdout + r.stderr), (
-        "should DOCUMENT the manual download, not perform it"
+    assert r.returncode != 0, "shim must exit nonzero when forwarded publish is refused"
+    assert "DEPRECATED" in r.stderr, "deprecation breadcrumb must appear on stderr"
+    # Must not download or invent weights.
+    assert "huggingface-cli download" not in r.stdout + r.stderr, (
+        "shim must not execute a weight download"
     )
 
 
 def test_package_script_weight_download_is_only_documentation():
-    """`huggingface-cli download` of the base weights must appear ONLY inside a
-    documentation heredoc / comment — never as an executable command the
-    script runs on the user's behalf (it must not fetch arbitrary weights)."""
-    script = (REPO_ROOT / "scripts/package_ai_eng.sh").read_text()
-    in_heredoc = False
-    heredoc_tag = None
-    offending = []
-    for ln in script.splitlines():
-        s = ln.strip()
-        # Track heredoc bodies (cat <<'TAG' ... TAG). Anything inside is text.
-        if not in_heredoc:
-            m = re.search(r"<<-?\s*['\"]?(\w+)['\"]?", ln)
-            if m:
-                in_heredoc = True
-                heredoc_tag = m.group(1)
-                continue
-        else:
-            if s == heredoc_tag:
-                in_heredoc = False
-                heredoc_tag = None
-            continue  # inside heredoc → documentation, allowed
-        if s.startswith("#"):
-            continue  # comment → allowed
-        if "huggingface-cli download" in s:
-            offending.append(ln)
-    assert not offending, (
-        f"package script EXECUTES a weight download (must be doc-only): {offending}"
+    """The shim must contain no executable huggingface-cli download calls.
+
+    Retargeted: the shim is a forwarder; the 'no auto weight download' property
+    now lives in build_ai_eng.py (which never auto-downloads base weights either).
+    Assert both the shim and the pipeline Python have no auto-download of base weights.
+    """
+    shim = (REPO_ROOT / "scripts/package_ai_eng.sh").read_text()
+    # Shim contains no huggingface-cli download at all (it just forwards).
+    assert "huggingface-cli download" not in shim, (
+        "shim must not execute any weight download"
+    )
+    # build_ai_eng.py never auto-downloads the bf16 base weights (only the adapter,
+    # via huggingface-cli download, which is gated behind the build subcommand and
+    # behind the user explicitly running build — not a silent auto-download).
+    pipeline_py = (REPO_ROOT / "scripts/build_ai_eng.py").read_text()
+    # The base model (DEFAULT_BF16_BASE / DEFAULT_MLX_BASE) is never downloaded
+    # by huggingface-cli download in publish; only the adapter is downloaded in build.
+    assert "DEFAULT_BF16_BASE" in pipeline_py, "sanity: base constant must exist"
+    # No unconditional weight download of the base (would be a separate huggingface-cli
+    # download call for the bf16 base, not the adapter).
+    base_downloads = [
+        ln for ln in pipeline_py.splitlines()
+        if "huggingface-cli" in ln and "download" in ln
+        and ("Qwen" in ln or "mlx-community" in ln)
+        and not ln.strip().startswith("#")
+    ]
+    assert not base_downloads, (
+        f"build_ai_eng.py auto-downloads base weights (must be manual): {base_downloads}"
     )
 
 
 def test_package_script_passes_bash_syntax():
+    """Shim must pass bash -n syntax check."""
     r = subprocess.run(["bash", "-n", str(REPO_ROOT / "scripts/package_ai_eng.sh")],
                        capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
+
+
+# ===========================================================================
+# PUBLISH MODEL RECONCILIATION GUARDS  (new — CONSOLIDATION.md §5)
+# ===========================================================================
+
+def test_publish_gate_has_no_ollama_registry_destination():
+    """build_ai_eng.py _run_publish must not advertise the ollama.ai registry tag
+    as a distribution destination (CONSOLIDATION.md §3 — the old 'Ollama:
+    qukaizen/ai-eng:1.5b' line must be gone from the PUBLISH GATE print block).
+    """
+    src = (REPO_ROOT / "scripts/build_ai_eng.py").read_text()
+    # The old distribution destination print line must be absent.
+    assert '  3. Ollama: qukaizen/ai-eng:1.5b' not in src, (
+        "ollama.ai registry tag still listed as a publish destination"
+    )
+    # The PUBLISH GATE block must mention self-hosted / HF GGUF.
+    assert "self-hosted" in src or "HF GGUF" in src, (
+        "publish gate must describe the self-hosted distribution model"
+    )
+
+
+def test_published_json_has_no_ollama_key():
+    """print_upload_instructions and _run_publish must produce a PUBLISHED.json
+    without an 'ollama' registry key. Assert by inspecting the source dict literal.
+    """
+    src = (REPO_ROOT / "scripts/build_ai_eng.py").read_text()
+    # The old published dict had '"ollama": "qukaizen/ai-eng:1.5b"'.
+    assert '"ollama": "qukaizen/ai-eng:1.5b"' not in src, (
+        "old ollama registry key still present in PUBLISHED.json dict"
+    )
+    # The new shape must have hf_gguf_repo and gguf_sha256.
+    assert '"hf_gguf_repo"' in src, "PUBLISHED.json must have hf_gguf_repo key"
+    assert '"gguf_sha256"' in src, "PUBLISHED.json must have gguf_sha256 key"
+    assert '"status": "ready-to-upload"' in src, "status must be ready-to-upload"
+
+
+def test_print_upload_instructions_references_quant_tagged_filename():
+    """print_upload_instructions output must reference the ai-eng-1.5b-<QUANT>.gguf
+    filename that check_ai_eng_artifact.sh derives, so copy-paste upload commands line up.
+    """
+    sys.path.insert(0, str(REPO_ROOT / "scripts"))
+    import build_ai_eng as bld
+    import io
+    from contextlib import redirect_stdout
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as td:
+        fake_gguf = Path(td) / "ai-eng-1.5b-v2.1.bf16.gguf"
+        fake_gguf.write_bytes(b"STUB")
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            bld.print_upload_instructions(
+                gguf_path=fake_gguf,
+                sha256="a" * 64,
+                license_id="Apache-2.0",
+                quant="Q4_K_M",
+            )
+        out = buf.getvalue()
+
+    assert "ai-eng-1.5b-Q4_K_M.gguf" in out, (
+        "upload instructions must include the quant-tagged filename"
+    )
+    assert "ai_eng_hf_repo" in out or "qukaizen/ai-eng-1.5b-gguf" in out, (
+        "upload instructions must reference the HF repo key/value"
+    )
+    assert "a" * 64 in out, "upload instructions must include the full sha256"
+    assert "ai_eng_sha256" in out, "upload instructions must mention the pyproject key"
+
+
+def test_emit_notice_beside_gguf_copies_repo_notice(tmp_path):
+    """emit_notice_beside_gguf must copy the repo-root NOTICE into build_dir."""
+    sys.path.insert(0, str(REPO_ROOT / "scripts"))
+    import build_ai_eng as bld
+
+    build_dir = tmp_path / "build"
+    build_dir.mkdir()
+    fake_gguf = build_dir / "ai-eng-1.5b-v2.1.bf16.gguf"
+    fake_gguf.write_bytes(b"STUB")
+
+    bld.emit_notice_beside_gguf(build_dir, fake_gguf)
+
+    notice_path = build_dir / "NOTICE"
+    assert notice_path.exists(), "NOTICE must be written beside the GGUF"
+    content = notice_path.read_text()
+    # Repo NOTICE mentions Qwen attribution
+    assert "Qwen" in content or "Apache" in content, (
+        "NOTICE content must mention the base model attribution"
+    )
+
+
+def test_build_ai_eng_py_passes_compile():
+    """build_ai_eng.py must compile cleanly (no syntax errors)."""
+    import py_compile
+    py_compile.compile(str(REPO_ROOT / "scripts/build_ai_eng.py"), doraise=True)
 
 
 def test_check_artifact_script_passes_bash_syntax():
