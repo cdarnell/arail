@@ -792,7 +792,9 @@ install_services() {
 
         # Migrate pre-v1.0.0 installs: if `ai-engineer:latest` exists but
         # `ai-eng:latest` does not, alias instantly via `ollama cp` instead
-        # of re-pulling several GB of weights.
+        # of re-pulling several GB of weights. The chat catalog and the
+        # v1.0.0 fallback chain both look for `ai-eng:latest`, so this
+        # makes both names resolve to the same model.
         if ollama show ai-engineer:latest &>/dev/null; then
             info "Found legacy ai-engineer:latest — aliasing as ai-eng:latest (no re-download)…"
             if ollama cp ai-engineer:latest ai-eng:latest 2>&1 | tail -3; then
