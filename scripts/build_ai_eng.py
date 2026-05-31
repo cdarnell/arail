@@ -651,11 +651,16 @@ def _write_modelfile(out_path: Path, gguf_path: Path, system_text: str) -> None:
 def ollama_create(
     build_dir: Path,
     modelfile_path: Path,
-    tag: str = "qukaizen/ai-eng:1.5b",
+    tag: str = "qukaizen/ai-eng:1.5b",  # LOCAL-ONLY build/smoke tag — never pushed
     min_free_ram_gb: float = 8.0,
     dry_run: bool = False,
 ) -> None:
-    """Create local Ollama tag from Modelfile. Idempotent."""
+    """Create local Ollama tag from Modelfile. Idempotent.
+
+    The default tag ``qukaizen/ai-eng:1.5b`` is a LOCAL build/smoke tag only.
+    It is NOT pushed to the ollama.ai registry. Distribution uses the
+    self-hosted GGUF path (see _run_publish / CONSOLIDATION.md §3).
+    """
     step = "ollama-create"
     if step_done(build_dir, step):
         log.info("Step '%s' already complete, skipping.", step)
@@ -683,7 +688,10 @@ def ollama_create(
 
 
 def ollama_smoke(tag: str = "qukaizen/ai-eng:1.5b", timeout: int = 30) -> None:
-    """Run a quick smoke test: ollama must return non-empty within timeout s."""
+    """Run a quick smoke test: ollama must return non-empty within timeout s.
+
+    Operates on the LOCAL build/smoke tag — not the ollama.ai registry.
+    """
     cmd = ["ollama", "run", tag, "Explain LoRA in 3 sentences."]
     log.info("Smoke test: %s (timeout=%ds)", " ".join(cmd), timeout)
     try:
@@ -715,6 +723,12 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--force", action="store_true", help="Re-run even if sentinel exists")
     p.add_argument("--yes-i-have-read-bench", action="store_true")
     p.add_argument("--license", default=None, help="License identifier (required for publish)")
+    p.add_argument(
+        "--quant", default="Q4_K_M",
+        help="Quantisation tag for the published GGUF filename and upload commands (default: Q4_K_M). "
+             "The build convert step still emits f16/bf16; real quantisation via llama-quantize "
+             "is a deferred follow-up step printed as a manual TODO by 'publish'.",
+    )
     return p.parse_args()
 
 
@@ -820,8 +834,124 @@ def _main() -> None:
     log.info("Review build/BENCH-v2.1.md, then run 'scripts/build_ai_eng.sh publish --yes-i-have-read-bench'.")
 
 
+# ── Publish helpers ───────────────────────────────────────────────────────────
+
+def emit_notice_beside_gguf(build_dir: Path, gguf_path: Path) -> None:
+    """Copy repo-root NOTICE into build_dir next to the GGUF (G1).
+
+    Falls back to a minimal inline NOTICE only if the repo NOTICE is absent.
+    The repo NOTICE is the authoritative Apache-2.0 attribution; callers should
+    prefer keeping the repo NOTICE accurate rather than relying on the fallback.
+    """
+    notice_dest = build_dir / "NOTICE"
+    if notice_dest.exists():
+        log.info("NOTICE already present at %s, skipping copy.", notice_dest)
+        return
+
+    # Locate repo-root NOTICE relative to this script (scripts/ → parent)
+    repo_root = Path(__file__).parent.parent
+    repo_notice = repo_root / "NOTICE"
+
+    if repo_notice.exists():
+        shutil.copy2(str(repo_notice), str(notice_dest))
+        log.info("Copied repo-root NOTICE to %s", notice_dest)
+    else:
+        # Minimal fallback — mirrors the scaffold's inline NOTICE
+        log.warning(
+            "Repo-root NOTICE not found at %s — writing minimal fallback NOTICE.", repo_notice
+        )
+        notice_dest.write_text(
+            "NOTICE: ai-eng is derived from Qwen/Qwen2.5-1.5B-Instruct (Alibaba Cloud),\n"
+            "licensed under Apache-2.0. See the repo-root NOTICE file and\n"
+            "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct/blob/main/LICENSE\n"
+            "for the full license text. This NOTICE MUST be included in any redistribution\n"
+            "of the ai-eng GGUF artifact (HuggingFace model card, GitHub release, CDN).\n"
+        )
+        log.info("Minimal fallback NOTICE written to %s", notice_dest)
+
+
+def print_upload_instructions(
+    gguf_path: Path,
+    sha256: str,
+    license_id: str,
+    quant: str,
+) -> None:
+    """Print self-hosted HF/GitHub-release/CDN upload commands as manual TODO blocks (G3).
+
+    Commands are PRINTED, never executed — preserves the no-credentials /
+    no-auto-upload safety property. Repo names and URLs use the same
+    placeholders as pyproject.toml [tool.arail.models] and check_ai_eng_artifact.sh.
+    """
+    # Derive the quant-tagged GGUF filename (G4) so upload commands align with
+    # check_ai_eng_artifact.sh's GGUF_FILE="ai-eng-1.5b-${QUANT}.gguf" derivation.
+    quant_tagged_name = f"ai-eng-1.5b-{quant}.gguf"
+    hf_repo = "qukaizen/ai-eng-1.5b-gguf"  # matches pyproject ai_eng_hf_repo placeholder
+    gh_release_url = (
+        f"https://github.com/qukaizen/arail/releases/download/ai-eng-1.5b/{quant_tagged_name}"
+    )
+
+    print("\n" + "=" * 78)
+    print("UPLOAD STEPS (manual — uncomment and run after logging in)")
+    print("=" * 78)
+    print()
+    print("# 1. Update pyproject.toml [tool.arail.models] with the real values:")
+    print(f'#      ai_eng_sha256  = "{sha256}"')
+    print(f'#      ai_eng_hf_repo = "{hf_repo}"   # set your real HF org/repo')
+    print(f'#      ai_eng_gh_url  = "{gh_release_url}"')
+    print("#      ai_eng_quant   = \"" + quant + '"')
+    print()
+    print("# 2. (Optional) Quantise f16/bf16 GGUF to Q4_K_M before uploading:")
+    print(f"#    llama-quantize {gguf_path} <out>/{quant_tagged_name} {quant}")
+    print("#    # NOTE: real llama-quantize step is a deferred follow-up.")
+    print("#    # See CONSOLIDATION.md §6 tech-debt note.")
+    print()
+    print("# 3. HuggingFace upload (primary — enables the clean single-pull path):")
+    print("#")
+    print("#    huggingface-cli login   # run once; stores token in ~/.cache/huggingface/")
+    print("#")
+    print(f"#    huggingface-cli upload {hf_repo} \\")
+    print(f"#      {gguf_path} \\")
+    print("#      --repo-type model \\")
+    print(f'#      --commit-message "Add ai-eng-1.5b {quant} GGUF (sha256: {sha256})"')
+    print("#")
+    print(f"#    # Also upload the Modelfile and NOTICE:")
+    print(f"#    huggingface-cli upload {hf_repo} <build_dir>/ai-eng-1.5b-v2.1.Modelfile --repo-type model")
+    print(f"#    huggingface-cli upload {hf_repo} <build_dir>/NOTICE --repo-type model")
+    print()
+    print("# 4. GitHub Release mirror (fallback for HF outage / corp proxies):")
+    print("#")
+    print("#    gh auth login   # run once")
+    print("#")
+    print(f'#    gh release create ai-eng-1.5b \\')
+    print(f'#      --repo qukaizen/arail \\')
+    print(f'#      --title "ai-eng 1.5B GGUF ({quant})" \\')
+    print(f'#      --notes "sha256: {sha256}\\n\\nai-eng is derived from Qwen/Qwen2.5-1.5B-Instruct.')
+    print("#    Licensed under Apache-2.0. See NOTICE in this release.\"")
+    print("#")
+    print(f"#    gh release upload ai-eng-1.5b {gguf_path} --repo qukaizen/arail")
+    print()
+    print("# 5. CDN (optional tertiary — set ARAIL_AI_ENG_CDN_URL / ai_eng_cdn_url):")
+    print("#    Upload via your hosting provider; update ai_eng_cdn_url in pyproject.toml.")
+    print()
+    print("# 6. After uploading, verify the artifact is live:")
+    print("#    scripts/check_ai_eng_artifact.sh")
+    print()
+    print("# 7. Commit the updated pyproject.toml with the real sha256 + repo values.")
+    print("=" * 78)
+
+
 def _run_publish(args: argparse.Namespace, build_dir: Path) -> None:
-    """Phase 2 publish — requires --yes-i-have-read-bench and interactive yes."""
+    """Phase 2 publish — requires --yes-i-have-read-bench and interactive yes.
+
+    Distribution model (self-hosted GGUF, per CONSOLIDATION.md §3):
+    - Primary:   HF GGUF repo (ollama pull hf.co/<repo>:<quant>)
+    - Mirror:    GitHub Release asset (sha256-verified HTTPS + local ollama create)
+    - Tertiary:  optional CDN
+    - Pin:       ai_eng_sha256 in pyproject.toml [tool.arail.models]
+
+    The ollama.ai registry tag (qukaizen/ai-eng:1.5b) is NOT a distribution
+    destination — it exists only as a local build/smoke tag. Never pushed.
+    """
     if not args.yes_i_have_read_bench:
         log.error(
             "Publish refused (exit 70): pass --yes-i-have-read-bench to confirm "
@@ -836,6 +966,8 @@ def _run_publish(args: argparse.Namespace, build_dir: Path) -> None:
         )
         sys.exit(70)
 
+    quant = getattr(args, "quant", "Q4_K_M")
+
     # Verify HF auth
     r = subprocess.run(["huggingface-cli", "whoami"], capture_output=True, text=True)
     if r.returncode != 0 or "anonymous" in r.stdout.lower():
@@ -845,23 +977,41 @@ def _run_publish(args: argparse.Namespace, build_dir: Path) -> None:
         )
         sys.exit(30)
 
-    # Collect registry destinations
+    # Locate GGUF in build_dir
     gguf_files = list(build_dir.glob("*.gguf"))
     if not gguf_files:
         log.error("No GGUF found in %s — run 'build' first.", build_dir)
         sys.exit(1)
 
     gguf_path = gguf_files[0]
+
+    # G1: Emit NOTICE beside the GGUF before the gate
+    emit_notice_beside_gguf(build_dir, gguf_path)
+
     gguf_sha = sha256_file(gguf_path)
-    sums_path = build_dir / "SHA256SUMS"
+
+    # Derive quant-tagged published filename (G4)
+    quant_tagged_name = f"ai-eng-1.5b-{quant}.gguf"
 
     print("\n=== PUBLISH GATE ===")
-    print(f"GGUF: {gguf_path.name} (SHA256: {gguf_sha[:16]}...)")
-    print("Destinations:")
-    print("  1. HF: qukaizen/qkz-opus4.7-aieng-1.5b-v2.1 (safetensors)")
-    print("  2. HF: qukaizen/qkz-opus4.7-aieng-1.5b-v2.1-gguf (GGUF)")
-    print("  3. Ollama: qukaizen/ai-eng:1.5b")
+    print(f"GGUF: {gguf_path.name}")
+    print(f"Published filename: {quant_tagged_name}")
+    print("Distribution (self-hosted GGUF):")
+    print("  1. HF GGUF repo: qukaizen/ai-eng-1.5b-gguf  (primary — ollama pull hf.co/<repo>:<quant>)")
+    print("  2. GitHub Release mirror: sha256-verified HTTPS + local ollama create")
+    print("  3. CDN (optional): ai_eng_cdn_url in pyproject.toml")
+    print("  NOTE: no ollama.ai registry push — distribution is self-hosted GGUF only.")
     print(f"  License: {args.license}")
+    print()
+
+    # G2: Print full sha256 + pyproject-pinning guidance
+    print(f"sha256: {gguf_sha}")
+    print()
+    print(f"  Next step: set ai_eng_sha256 = \"{gguf_sha}\" in pyproject.toml")
+    print("  [tool.arail.models] and paste it into the GitHub Release body so")
+    print("  downloaders can verify the artifact via check_ai_eng_artifact.sh.")
+    print()
+
     print("\nThis action is IRREVERSIBLE. Type 'yes' to proceed: ", end="", flush=True)
 
     answer = input().strip().lower()
@@ -870,20 +1020,25 @@ def _run_publish(args: argparse.Namespace, build_dir: Path) -> None:
         sys.exit(70)
 
     log.info("Publish authorised. Proceeding...")
-    # Actual push commands would run here; they are gated on human review
-    # and belong to Sprint commit 2, not commit 1 (build tooling only).
-    log.info("NOTE: Actual HF/Ollama push commands are commit 2 scope (follow-up sprint).")
 
+    # G3: Print upload instructions (printed, never executed)
+    print_upload_instructions(gguf_path, gguf_sha, args.license, quant)
+
+    # Write self-hosted PUBLISHED.json (no ollama registry key)
     published = {
-        "hf_safetensors": "qukaizen/qkz-opus4.7-aieng-1.5b-v2.1",
-        "hf_gguf": "qukaizen/qkz-opus4.7-aieng-1.5b-v2.1-gguf",
-        "ollama": "qukaizen/ai-eng:1.5b",
+        "hf_gguf_repo": "qukaizen/ai-eng-1.5b-gguf",
+        "gh_release_url": (
+            f"https://github.com/qukaizen/arail/releases/download/ai-eng-1.5b/{quant_tagged_name}"
+        ),
+        "cdn_url": "",
+        "gguf_file": quant_tagged_name,
         "gguf_sha256": gguf_sha,
+        "quant": quant,
         "license": args.license,
-        "status": "pending-commit-2",
+        "status": "ready-to-upload",
     }
     (build_dir / "PUBLISHED.json").write_text(json.dumps(published, indent=2))
-    log.info("Wrote build/PUBLISHED.json.")
+    log.info("Wrote build/PUBLISHED.json (self-hosted shape, no ollama registry key).")
 
 
 if __name__ == "__main__":

@@ -57,6 +57,7 @@ CANDIDATE=""
 FORCE=""
 YES_BENCH=""
 LICENSE_FLAG=""
+QUANT_FLAG=""
 DRY_RUN=""
 
 # ── Parse flags ───────────────────────────────────────────────────────────────
@@ -74,6 +75,7 @@ while [[ $# -gt 0 ]]; do
     --force)               FORCE="--force";          shift   ;;
     --yes-i-have-read-bench) YES_BENCH="--yes-i-have-read-bench"; shift ;;
     --license)             LICENSE_FLAG="--license $2"; shift 2 ;;
+    --quant)               QUANT_FLAG="--quant $2"; shift 2 ;;
     *)
       echo "ERROR: Unknown flag: $1" >&2
       echo "Run './scripts/build_ai_eng.sh --help' for usage." >&2
@@ -182,11 +184,13 @@ case "$SUBCOMMAND" in
     ;;
 
   publish)
-    log_info "Phase 2: publish to HF + Ollama"
+    log_info "Phase 2: publish to self-hosted HF GGUF + GitHub Release mirror"
     PUBLISH_ARGS=("${BASE_ARGS[@]}")
     [[ -n "$YES_BENCH" ]] && PUBLISH_ARGS+=("$YES_BENCH")
     # shellcheck disable=SC2086
     [[ -n "$LICENSE_FLAG" ]] && PUBLISH_ARGS+=($LICENSE_FLAG)
+    # shellcheck disable=SC2086
+    [[ -n "$QUANT_FLAG" ]] && PUBLISH_ARGS+=($QUANT_FLAG)
     python3 "$PYTHON_HELPER" publish "${PUBLISH_ARGS[@]}"
     PUBLISH_EXIT=$?
     if [[ $PUBLISH_EXIT -eq 70 ]]; then
