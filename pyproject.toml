@@ -40,7 +40,7 @@ dependencies = [
 #
 #   minimalist → Dashboard + Chat + Autoresearch + Knowledge Base + Agents
 #                + LanceDB vector recall. Ships ai-eng (the only default
-#                model — a 3B Opus-4.7-derived AI engineering expert from
+#                model — a 1.5B-parameter Opus-4.7-derived AI engineering expert from
 #                QuKaiZen's Project Nucleus) via Ollama. External provider
 #                chat (Claude / NVIDIA / OpenRouter / HF) works here via
 #                plain HTTP, no extra SDK.
@@ -129,26 +129,43 @@ configuration_source = "pyproject.toml"
 
 [tool.arail.tiers]
 # Declarative surface matrix. portal/app.py reads this to tier-gate the nav.
-minimalist = { description = "Minimalist — Dashboard, Chat, Autoresearch, Knowledge Base (with LanceDB vector recall), Agents, Docs. Ships ai-eng (QuKaiZen's 3B Opus-4.7-derived AI engineering expert) as the sole default model. No deep backend by default.", surfaces = ["dashboard", "chat", "research", "knowledge", "agents", "docs"] }
-maximus    = { description = "Maximus — Everything in Minimalist + Admin, Docs, Notebooks, LangChain/LangGraph, full cloud catalog. Adds AeroLLM as the deep-mode runtime (CUDA hosts fall back to AirLLM with a notice until AeroLLM CUDA ships).", surfaces = ["dashboard", "chat", "research", "knowledge", "agents", "admin", "docs", "notebooks", "terminal", "tuning", "plugins"] }
+minimalist = { description = "Minimalist — Dashboard, Chat, Autoresearch, Knowledge Base (with LanceDB vector recall), Agents, Docs. Ships ai-eng (QuKaiZen's 1.5B-parameter Opus-4.7-derived AI engineering expert) as the sole default model. No deep backend by default.", surfaces = ["dashboard", "chat", "research", "knowledge", "agents", "docs"] }
+maximus    = { description = "Maximus — Everything in Minimalist + Admin, Docs, Notebooks, LangChain/LangGraph, full cloud catalog. Adds AeroLLM deep mode — the heaviest model that runs well locally; cloud frontier models are one click away via Compute Source.", surfaces = ["dashboard", "chat", "research", "knowledge", "agents", "admin", "docs", "notebooks", "terminal", "tuning", "plugins"] }
 # Legacy aliases — one-release compat shim, removed in v1.1.0.
 min = { description = "(deprecated alias for `minimalist`)", surfaces = ["dashboard", "chat", "research", "knowledge", "agents", "docs"] }
 max = { description = "(deprecated alias for `maximus`)", surfaces = ["dashboard", "chat", "research", "knowledge", "agents", "admin", "docs", "notebooks", "terminal", "tuning", "plugins"] }
 
 [tool.arail.models]
-# v1.0.0 ships ONE default model: ai-eng. A 3B-parameter Opus-4.7-derived
+# v1.0.0 ships ONE default model: ai-eng. A 1.5B-parameter Opus-4.7-derived
 # AI engineering expert built from QuKaiZen's Project Nucleus.
 #
-# Setup.sh probes for the production tag first (qukaizen/ai-eng:3b) and
-# falls back to the preview base (qwen2.5:7b + AI Engineer persona via
-# Modelfile) when the 3B weights are not yet on the Ollama registry.
-# Re-running setup picks up the production tag once published.
+# Setup pulls the self-hosted ai-eng GGUF (HuggingFace primary via
+# `ollama pull hf.co/...`, GitHub Release mirror as fallback with sha256
+# digest verification). Falls back to a preview base until the GGUF is
+# uploaded. Re-running setup after upload uses the self-hosted path.
 #
 # No other models auto-install. The chat catalog
 # (src/arail/chat/models_catalog.yaml) lists ~20 additional models the
 # user can browse and pull on demand — none ship pre-installed.
-ai_eng_production = "qukaizen/ai-eng:3b"
-ai_eng_preview    = "qwen2.5:7b"
+
+# ── Self-hosted ai-eng artifact (HuggingFace primary) ─────────────────────
+# __PLACEHOLDER__ values: fill in after running scripts/build_ai_eng.sh publish
+# and uploading the GGUF. Forks rebrand by overriding these env vars or
+# editing this block — no code edits required.
+ai_eng_hf_repo  = "qukaizen/ai-eng-1.5b-gguf"  # __PLACEHOLDER__ — set your HF org/repo
+ai_eng_quant    = "Q4_K_M"                     # placeholder quant; confirm after packaging
+ai_eng_gh_url   = "https://github.com/qukaizen/arail/releases/download/ai-eng-1.5b/ai-eng-1.5b-Q4_K_M.gguf"  # __PLACEHOLDER__
+ai_eng_cdn_url  = ""                           # optional qukaizen.com mirror (leave empty to skip)
+# sha256 of the packaged GGUF — published by build_ai_eng.sh publish.
+# MUST remain __PLACEHOLDER_SHA256__ until a real digest is pinned; while it is
+# a placeholder the mirror paths (GitHub/CDN) fail-closed (no ollama create
+# from an unverified blob). The HF path (ollama-verified) and preview net
+# are unaffected and keep setup working.
+ai_eng_sha256   = "__PLACEHOLDER_SHA256__"
+
+# Preview base: used by the last-resort fallback until the GGUF is uploaded.
+# The literal model id is kept here as operator config (class-c internal ref).
+ai_eng_preview  = "qwen2.5:1.5b"
 
 # AeroLLM deep-mode runtime (Apple Silicon). Per-tier model selection:
 #
@@ -177,11 +194,17 @@ aerollm_minimalist = "mlx-community/Qwen2.5-7B-Instruct-4bit"
 aerollm            = "mlx-community/Qwen2.5-7B-Instruct-4bit"
 
 # ── Opt-in AirLLM deep-mode (gated behind ARAIL_INSTALL_AIRLLM=1) ─────
-# Kept for CUDA/Linux power users who want Llama-3.1-405B layer-streaming.
-# Not part of the default install path as of v1.0.0.
-airllm_minimalist = "meta-llama/Llama-3.1-70B"
-airllm_maximus    = "meta-llama/Llama-3.1-405B"
-airllm            = "meta-llama/Llama-3.1-70B"
+# DEPRECATED defaults: the 70B/405B Llama values are the wrong weight class
+# for the 36 GB Apple Silicon target hardware (OOM or crawl on fresh clones).
+# Operators who genuinely want AirLLM layer-streaming set AIRLLM_MODEL
+# explicitly in .env. The sentinel below prevents any accidental auto-load.
+#
+# TODO(deep-model): set the 20–30B open deep model id here. See ARCHITECTURE
+#   sprint 2026-05-30-model-hosting-reframe § Part 1. Until set, deep mode
+#   shows a "configure your deep model" notice — it does NOT download anything.
+airllm_minimalist = "__TODO_DEEP_MODEL__"
+airllm_maximus    = "__TODO_DEEP_MODEL__"
+airllm            = "__TODO_DEEP_MODEL__"
 
 # Coder starter model (opt-in, --with-coder flag — opencode Workbench in Maximus).
 # Downloaded with ./arailctl setup --with-coder. ~2 GB Q4; fits 8 GB VRAM.

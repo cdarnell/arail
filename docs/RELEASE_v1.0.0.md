@@ -41,7 +41,7 @@ the extra tabs just hide until you bump back up.
 
 ### One default model: `ai-eng`
 
-`ai-eng` is a **3B-parameter AI engineering expert distilled from
+`ai-eng` is a **1.5B-parameter AI engineering expert distilled from
 Claude Opus 4.7** via QuKaiZen's Project Nucleus. It's the only model
 that ships pre-installed.
 
@@ -54,11 +54,12 @@ that ships pre-installed.
   (Claude, NVIDIA NIM, OpenRouter, HuggingFace, custom OpenAI-compatible
   endpoint) without restarting the lab.
 
-> **Transition note:** The 3B production weights from QuKaiZen are
-> still being finalized. Until they publish to the Ollama registry,
-> setup transparently uses `qwen2.5:7b` with the AI Engineer persona
-> Modelfile as a preview base. Re-running `./arailctl setup` after the
-> weights land picks them up automatically.
+> **Transition note:** The 1.5B self-hosted GGUF from QuKaiZen is
+> still being finalized. Until it is uploaded to HuggingFace (primary)
+> or the GitHub Release mirror, setup transparently uses `qwen2.5:1.5b`
+> with the AI Engineer persona Modelfile as a preview base. Re-running
+> `./arailctl setup` after the GGUF is uploaded picks it up
+> automatically.
 
 ### AeroLLM is the Maximus deep-mode backend
 
@@ -153,10 +154,11 @@ passphrase on first load — that's the only secret you need to manage.
 
 - **AeroLLM CUDA backend** — not yet shipped. CUDA Maximus hosts fall
   back to AirLLM (with a clear notice) until AeroLLM CUDA lands.
-- **ai-eng 3B production weights** — may not yet be on the public
-  Ollama registry at release time. Setup uses `qwen2.5:7b` as the
-  preview base in the interim. Re-run setup once
-  `qukaizen/ai-eng:3b` publishes to swap to the real 3B model.
+- **ai-eng 1.5B self-hosted GGUF** — not yet uploaded at release time.
+  Setup uses `qwen2.5:1.5b` as the preview base in the interim. Re-run
+  setup once the GGUF is uploaded to HuggingFace
+  (`hf.co/qukaizen/ai-eng-1.5b-gguf`) or the GitHub Release mirror to
+  swap to the real 1.5B model automatically.
 - **`/ready` and `/version` endpoints** — not implemented. `/health`
   and `/api/system/health` cover the diagnostic surface for now.
 

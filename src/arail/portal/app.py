@@ -5993,7 +5993,10 @@ _OPTIONAL_CHAT_BACKEND_CONFIG: dict[str, dict[str, str]] = {
         "class_name": "AirLLMBackend",
         "install_command": "ARAIL_INSTALL_AIRLLM=1 ./arailctl setup",
         "model_env": "AIRLLM_MODEL",
-        "default_model": "meta-llama/Llama-3.1-70B",
+        # TODO(deep-model): set the 20–30B open deep model id here. See ARCHITECTURE
+        #   sprint 2026-05-30-model-hosting-reframe § Part 1. Until set, deep mode
+        #   shows a "configure your deep model" notice — it does NOT download anything.
+        "default_model": "__TODO_DEEP_MODEL__",
     },
 }
 
@@ -6226,10 +6229,15 @@ def _optional_backend_error_result(name: str | None, error: Exception) -> dict[s
     config = _OPTIONAL_CHAT_BACKEND_CONFIG.get(backend_name, {})
     label = config.get("label", backend_name)
     model_env = config.get("model_env", "MODEL_NAME")
-    default_model = config.get("default_model", "meta-llama/Llama-3.1-70B")
+    default_model = config.get("default_model", "__TODO_DEEP_MODEL__")
     model_name = os.getenv(model_env, default_model)
     gated_hint = ""
-    if model_name.lower().startswith("meta-llama/"):
+    if model_name == "__TODO_DEEP_MODEL__":
+        gated_hint = (
+            " Deep model is not configured. Set AIRLLM_MODEL in .env to a concrete "
+            "model id and restart. See NOTICE and docs for guidance."
+        )
+    elif model_name.lower().startswith("meta-llama/"):
         gated_hint = (
             " Accept the model license on Hugging Face first, then run "
             "huggingface-cli login or export HF_TOKEN before downloading it."
@@ -6563,13 +6571,17 @@ async def api_chat_models(provider: str = ""):
             )
         elif backend_name == "airllm":
             example = (
-                "huggingface-cli download meta-llama/Llama-3.1-70B "
-                f"--local-dir {models_dir}/Llama-3.1-70B --local-dir-use-symlinks False"
+                "# Set AIRLLM_MODEL in .env to your chosen deep model id, then:\n"
+                "# huggingface-cli download <your-model-id> "
+                f"--local-dir {models_dir}/<model-name> --local-dir-use-symlinks False\n"
+                "# See NOTICE and docs for guidance on picking a deep model."
             )
         else:  # aerollm
             example = (
-                "huggingface-cli download meta-llama/Llama-3.1-70B "
-                f"--local-dir {models_dir}/Llama-3.1-70B --local-dir-use-symlinks False"
+                "# Set AEROLLM_MODEL in .env to your chosen deep model id, then:\n"
+                "# huggingface-cli download <your-model-id> "
+                f"--local-dir {models_dir}/<model-name> --local-dir-use-symlinks False\n"
+                "# See docs for guidance on picking a deep model."
             )
 
         install_hint = {
@@ -6593,7 +6605,7 @@ async def api_chat_models(provider: str = ""):
     # the deep backend this host resolves to (Apple Silicon, or any host where
     # the wheel imports); fall back to AirLLM's model only on the CUDA/x86
     # opt-in path where AirLLM is the active deep backend.
-    air_model_name = os.getenv("AIRLLM_MODEL", "meta-llama/Llama-3.1-70B")
+    air_model_name = os.getenv("AIRLLM_MODEL", "__TODO_DEEP_MODEL__")
     aero_model_name = os.getenv("AEROLLM_MODEL", "Qwen2.5-7B-Instruct-4bit")
     if _is_aerollm_installed() or _resolve_default_deep_backend() == "aerollm":
         deep_model_name = aero_model_name
@@ -6662,7 +6674,7 @@ async def api_chat_models(provider: str = ""):
             "param_hint": _extract_param_hint(air_model_name),
             "gated": air_model_name.lower().startswith("meta-llama/"),
             "install_command": "pip install airllm",
-            "description": "Layer-streaming deep backend — primary on CUDA / Linux x86 (Llama-3.1-70B default; max tier bumps to 405B). Subprocess-isolated so Metal aborts can't kill the portal.",
+            "description": "Layer-streaming deep backend — opt-in on CUDA / Linux x86. Deep model is operator-configured (set AIRLLM_MODEL in .env; see NOTICE and docs). Subprocess-isolated so Metal aborts can't kill the portal.",
             # AirLLM always streams (layer-streaming); mark for picker badge.
             "streamed": True,
         })
@@ -9204,7 +9216,7 @@ def _normalize_backend(backend: str | None) -> str:
 @app.get("/tuning", response_class=HTMLResponse)
 async def tuning_page(request: Request):
     aerollm_model = os.getenv("AEROLLM_MODEL", "")
-    airllm_model = os.getenv("AIRLLM_MODEL", "meta-llama/Llama-3.1-70B")
+    airllm_model = os.getenv("AIRLLM_MODEL", "__TODO_DEEP_MODEL__")
     # Blueprint default: AirLLM is the only visible deep backend. Flip
     # LAB_SHOW_AEROLLM=1 in .env to bring the AeroLLM MLX + CUDA tabs
     # back (one env-var toggle for the operator who's ready to run

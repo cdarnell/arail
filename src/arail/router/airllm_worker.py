@@ -51,7 +51,17 @@ def _send(obj: dict[str, Any]) -> None:
 def _load_model() -> tuple[Any, str]:
     from airllm import AutoModel  # type: ignore
 
-    model_name = os.getenv("AIRLLM_MODEL", "meta-llama/Llama-3.1-70B")
+    # TODO(deep-model): set the 20–30B open deep model id here. See ARCHITECTURE
+    #   sprint 2026-05-30-model-hosting-reframe § Part 1. Until set, deep mode
+    #   shows a "configure your deep model" notice — it does NOT download anything.
+    _sentinel = "__TODO_DEEP_MODEL__"
+    model_name = os.getenv("AIRLLM_MODEL", _sentinel)
+    if model_name == _sentinel:
+        raise RuntimeError(
+            "Deep model is not configured. Set AIRLLM_MODEL in .env to a concrete "
+            "model id and restart the lab. See NOTICE and "
+            "sprints/2026-05-30-model-hosting-reframe/ARCHITECTURE.md § Part 1."
+        )
     compression = os.getenv("AIRLLM_COMPRESSION", "4bit") or None
     if compression == "none":
         compression = None

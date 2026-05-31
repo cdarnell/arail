@@ -1,7 +1,7 @@
 """test_modelfile_checksums.py
 
 Verifies that the SYSTEM prompt in the to-be-generated
-build/ai-eng-3b-v2.1.Modelfile is sourced byte-identically from
+build/ai-eng-1.5b-v2.1.Modelfile is sourced byte-identically from
 models/ai-eng/Modelfile.production's SYSTEM block.
 
 Tests:
@@ -74,7 +74,7 @@ class TestSystemBlockSha:
         """generate_modelfile must write a SYSTEM block byte-identical to Modelfile.production."""
         build_dir = tmp_path / "build"
         build_dir.mkdir()
-        gguf_path = build_dir / "ai-eng-3b-v2.1.bf16.gguf"
+        gguf_path = build_dir / "ai-eng-1.5b-v2.1.bf16.gguf"
         gguf_path.write_bytes(b"STUB")
 
         mf_path = bld.generate_modelfile(
@@ -112,7 +112,7 @@ class TestF9SystemaSHADrift:
 
         # Write a Modelfile.production with original content
         prod_mf = tmp_path / "Modelfile.production"
-        prod_mf.write_text('FROM qukaizen/ai-eng:3b\nSYSTEM """Original system prompt."""\n')
+        prod_mf.write_text('FROM qukaizen/ai-eng:1.5b\nSYSTEM """Original system prompt."""\n')
 
         # First generate the Modelfile with original content
         mf_path = bld.generate_modelfile(build_dir, gguf_path, prod_mf, dry_run=True)

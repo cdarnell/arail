@@ -60,8 +60,8 @@ Two tiers. Pick one; upgrade later.
 
 | Tier  | What you get                                                                                                            | Good for                                         |
 | ----- | ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
-| `minimalist` | Dashboard · Chat · Autoresearch · Knowledge Base · Agents · LanceDB vectors · **ai-eng** (3B Opus-4.7-derived AI engineering expert, from QuKaiZen's Project Nucleus) | The everyday lab. One default model. No bloat. |
-| `maximus`    | + Admin · Docs · Notebooks · **AeroLLM** deep-mode streaming · Anthropic SDK · LangChain · full cloud SDKs              | Frontier-scale local inference, full bench.      |
+| `minimalist` | Dashboard · Chat · Autoresearch · Knowledge Base · Agents · LanceDB vectors · **ai-eng** (1.5B-parameter Opus-4.7-derived AI engineering expert, from QuKaiZen's Project Nucleus) | The everyday lab. One default model. No bloat. |
+| `maximus`    | + Admin · Docs · Notebooks · **AeroLLM** deep-mode runtime · Anthropic SDK · LangChain · full cloud SDKs              | The full bench. The heaviest model that runs *well* on your machine — with cloud frontier models one click away in the Chat Compute Source. |
 
 `ai-eng` is the only model that ships pre-installed. The chat catalog
 includes ~20 other models (Qwen, Gemma, Phi, DeepSeek-R1, etc.) you can

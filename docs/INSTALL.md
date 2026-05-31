@@ -67,7 +67,7 @@ Legacy `min`/`max` tier names are accepted with a deprecation warning
 - **Tabs**: Dashboard, Chat, Autoresearch, Knowledge Base, Agents, Docs.
 - **Packages**: core lab + embedded **LanceDB** recall. No heavyweight
   deep backend installed by default.
-- **Default model**: `ai-eng` — a 3B-parameter Opus-4.7-derived AI
+- **Default model**: `ai-eng` — a 1.5B-parameter Opus-4.7-derived AI
   engineering expert from QuKaiZen's Project Nucleus. Served via Ollama.
   This is the only model that auto-installs. The chat catalog lists ~20
   other models you can browse and pull on demand.
@@ -247,20 +247,25 @@ Plus `lab/data/` (activity log, goals, experiments, audit trail) and
 ### Step 8/11 — AI models (ai-eng)
 
 The **only** model that auto-installs. Probes for the production tag,
-falls back to the preview base:
+fetches ai-eng via a self-hosted mirror ladder, stopping at the first
+success:
 
-1. Tries `ollama pull qukaizen/ai-eng:3b` — the canonical 3B
-   Opus-4.7-derived AI engineering expert from QuKaiZen's Project
-   Nucleus.
-2. If that 404s (the 3B weights are still being finalised at QuKaiZen),
-   pulls `qwen2.5:7b` (~5 GB) and uses it as the preview base.
-3. Runs `ollama create ai-eng -f models/ai-eng/Modelfile.{production,preview}`
-   to bind the AI Engineer persona Modelfile to whichever base
-   succeeded.
+1. **HuggingFace primary** — `ollama pull hf.co/qukaizen/ai-eng-1.5b-gguf:Q4_K_M`.
+   Ollama verifies the layer digest natively. This is the clean
+   single-pull path once the GGUF is uploaded.
+2. **GitHub Release mirror** — downloads the `.gguf` asset over HTTPS,
+   verifies its `sha256` against a pinned digest, then runs
+   `ollama create ai-eng`. The mirror path is disabled (fail-closed)
+   until a real digest is pinned in `pyproject.toml ai_eng_sha256`.
+3. **qukaizen.com CDN** (optional) — same verify-then-create flow;
+   only runs if `ARAIL_AI_ENG_CDN_URL` is set.
+4. **Preview net** (last resort) — pulls a preview base and applies
+   `models/ai-eng/Modelfile.preview`. Reached only when the self-hosted
+   GGUF is not yet uploaded or the machine is offline. Re-running setup
+   after the GGUF is uploaded skips the preview net automatically.
 
-Re-running setup after `qukaizen/ai-eng:3b` publishes swaps the base
-automatically. No other models pre-install — the chat catalog (~20
-entries) is a browse-and-pull gallery accessed from the Chat tab.
+No other models pre-install — the chat catalog (~20 entries) is a
+browse-and-pull gallery accessed from the Chat tab.
 
 Skip the model pull with `ARAIL_SKIP_OLLAMA=1` if bandwidth is tight.
 
