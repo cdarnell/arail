@@ -88,3 +88,40 @@ Rewrote README maximus row, CLAUDE.md tier line + qwen fallback prose, tuning.ht
 ## Final state
 
 **DONE.** All 8 implementation steps complete. All QA grep gates pass. No regressions. Win Condition #1 ("met-on-upload") is documented in CHANGELOG Unreleased. Modelfile.preview retained per 2b deferral. Follow-up tickets documented in CHANGELOG and BUILD_LOG.
+
+---
+
+## Re-base to 1.5B Apache-2.0 (2026-05-30 follow-up)
+
+**Trigger:** The 3B base (Qwen2.5-3B-Instruct) ships under the Qwen Research
+License (research/non-commercial) — a legal conflict with ARAIL's MIT
+fork/redistribute thesis. User decision: re-base ai-eng onto
+Qwen2.5-1.5B-Instruct. "1.5B is the magic number."
+
+**Confirmed license:** `Qwen/Qwen2.5-1.5B-Instruct` — SPDX `Apache-2.0`.
+Verified via HuggingFace API (`license:apache-2.0` in model tags, 2026-05-30).
+No research-only or non-commercial restriction. Fully compatible with MIT redistribution.
+
+**Files changed (1 atomic commit: `02148c6`):**
+
+| File | Change |
+|---|---|
+| `NOTICE` | Rewritten: 1.5B Apache-2.0 base; Qwen Research License removed; dual-section collapsed to one |
+| `models/ai-eng/Modelfile.preview` | `FROM qwen2.5:7b` → `FROM qwen2.5:1.5b`; SYSTEM "3B" → "1.5B" |
+| `pyproject.toml` | `ai_eng_hf_repo`/`ai_eng_gh_url` 3b→1.5b; `ai_eng_preview` 7b→1.5b; "3B-parameter" → "1.5B-parameter" in comments/desc |
+| `src/arail/chat/models_catalog.yaml` | ai-eng entry: name/description/install/size_gb (1.5B, ~1.0 GB); preview fallback entry 7b→1.5b |
+| `README.md` | "3B Opus-4.7-derived" → "1.5B-parameter Opus-4.7-derived" |
+| `CLAUDE.md` | Same branding update |
+| `docs/INSTALL.md` | "3B-parameter" → "1.5B-parameter"; HF pull URL 3b→1.5b |
+| `scripts/setup.sh` | hf_repo/gh_url defaults, comments, `_preview_base` var (7b→1.5b), size hint "~5 GB"→"~1 GB" |
+| `scripts/package_ai_eng.sh` | Base model id, GGUF filename, inline NOTICE template, upload command placeholders: all 3b→1.5b |
+| `CHANGELOG.md` | New "Changed (2026-05-30 re-base to 1.5B Apache-2.0)" section |
+| `tests/test_model_hosting_reframe_qa.py` | NOTICE assertions: Qwen2.5-1.5B/Apache-2.0/no Qwen Research License; Modelfile.preview FROM 1.5b; pyproject preview key 1.5b |
+| `tests/setup_ladder/test_setup_ladder.py` | `test_all_hosts_fail_falls_to_preview_net`: `PULL qwen2.5:7b` → `PULL qwen2.5:1.5b` |
+
+**Test results:** 43/43 guard tests pass (pytest `tests/test_model_hosting_reframe_qa.py tests/setup_ladder/test_setup_ladder.py`). Zero regressions.
+
+**Scope check:** qwen-hiding allowlist — the one permitted internal qwen reference is now
+`FROM qwen2.5:1.5b` in `Modelfile.preview`. `NOTICE` and `pyproject.toml ai_eng_preview`
+are the two allowed operator-config locations. All other user-facing copy is qwen-free.
+No scope drift; no files outside the edit list touched.
