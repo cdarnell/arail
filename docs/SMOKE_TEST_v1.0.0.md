@@ -101,11 +101,7 @@ similar) and prints the next-step hint.
 - **Step 3** `pip install -e ".[dev,minimalist]"` succeeds without
   pulling AirLLM. The Minimalist extras list is empty — that's
   intentional, not a bug.
-- **Step 8** Probes `ollama pull qukaizen/ai-eng:3b` first. **Expected
-  behaviour today:** the pull fails (the 3B weights aren't yet
-  published), the script logs the fallback message, pulls
-  `qwen2.5:7b`, and creates `ai-eng` from `Modelfile.preview`. Verify
-  with `ollama list | grep ai-eng`.
+- **Step 8** Probes the self-hosted GGUF via HuggingFace (`hf.co/qukaizen/ai-eng-1.5b-gguf`) first, then the GitHub Release mirror. **Expected behaviour today:** both probes fail (GGUF not yet uploaded), the script logs the fallback message, pulls `qwen2.5:1.5b`, and creates `ai-eng` from `Modelfile.preview`. Verify with `ollama list | grep ai-eng`.
 
 **Common failures to grep for:**
 
@@ -224,9 +220,11 @@ when done.
 
 These are expected at v1.0.0; they're tracked but not blockers:
 
-- `qukaizen/ai-eng:3b` 404 from Ollama registry — until QuKaiZen
-  publishes the 3B weights, setup falls back to `qwen2.5:7b` and
-  logs why.
+- Self-hosted ai-eng GGUF not yet reachable — until QuKaiZen uploads
+  the 1.5B GGUF to HuggingFace (`hf.co/qukaizen/ai-eng-1.5b-gguf`) or
+  the GitHub Release mirror, setup falls back to `qwen2.5:1.5b` and
+  logs why. Run `scripts/check_ai_eng_artifact.sh` to test artifact
+  availability.
 - AeroLLM CUDA absent on Linux Maximus — until aerollm ships the CUDA
   backend; AirLLM (opt-in) is the documented fallback.
 - A handful of pre-existing test failures in `pytest tests/`

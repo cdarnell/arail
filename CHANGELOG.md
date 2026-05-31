@@ -119,13 +119,14 @@ you can clone, set up in 12 minutes, and run on a laptop.
 
 ### Default model
 
-- **`ai-eng`** is the new default — a 3B-parameter Opus-4.7-derived AI
-  engineering expert from QuKaiZen's Project Nucleus.
-- During the gap before QuKaiZen publishes the 3B weights, setup
-  transparently falls back to `qwen2.5:7b` with the AI Engineer persona
-  Modelfile (`models/ai-eng/Modelfile.preview`). Once
-  `qukaizen/ai-eng:3b` is available on Ollama, re-running setup picks it
-  up automatically via `models/ai-eng/Modelfile.production`.
+- **`ai-eng`** is the new default — a 1.5B-parameter Opus-4.7-derived AI
+  engineering expert from QuKaiZen's Project Nucleus. Self-hosted GGUF
+  (`hf.co/qukaizen/ai-eng-1.5b-gguf` primary, GitHub Release mirror as
+  fallback).
+- During the gap before the 1.5B GGUF is uploaded to the self-hosted
+  hosts, setup transparently falls back to `qwen2.5:1.5b` with the AI
+  Engineer persona Modelfile (`models/ai-eng/Modelfile.preview`). Once
+  the GGUF is live, re-running setup picks it up automatically.
 - **No other models auto-install.** The chat catalog (~20 entries) stays
   as a browse-and-pull gallery — only `ai-eng` is `tier: recommended`;
   everything else is `tier: optional` or `tier: flagship`.
@@ -174,9 +175,10 @@ you can clone, set up in 12 minutes, and run on a laptop.
 
 - AeroLLM CUDA backend not yet shipped. CUDA Maximus hosts fall back
   to AirLLM with a clear warning until AeroLLM CUDA lands.
-- `qukaizen/ai-eng:3b` may not yet be on the public Ollama registry at
-  release time — preview base (`qwen2.5:7b`) is used in the interim and
-  the swap is automatic once the production tag publishes.
+- Self-hosted ai-eng 1.5B GGUF may not yet be uploaded at release time —
+  preview base (`qwen2.5:1.5b`) is used in the interim and the swap is
+  automatic once the GGUF is live on HuggingFace or the GitHub Release
+  mirror.
 - `/ready` and `/version` standard-compliance endpoints not implemented
   (`/health` and `/api/system/health` cover the diagnostic surface).
 - One TODO in `src/arail/router/backends.py` for runtime profiling —

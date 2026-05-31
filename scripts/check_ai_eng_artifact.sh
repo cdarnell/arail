@@ -20,14 +20,14 @@
 
 set -euo pipefail
 
-HF_REPO="${ARAIL_AI_ENG_HF_REPO:-qukaizen/ai-eng-3b-gguf}"  # __PLACEHOLDER__
-QUANT="${ARAIL_AI_ENG_QUANT:-Q4_K_M}"                         # __PLACEHOLDER__
-GH_URL="${ARAIL_AI_ENG_GH_URL:-https://github.com/qukaizen/arail/releases/download/ai-eng-3b/ai-eng-3b-Q4_K_M.gguf}"  # __PLACEHOLDER__
+HF_REPO="${ARAIL_AI_ENG_HF_REPO:-qukaizen/ai-eng-1.5b-gguf}"  # __PLACEHOLDER__
+QUANT="${ARAIL_AI_ENG_QUANT:-Q4_K_M}"                          # __PLACEHOLDER__
+GH_URL="${ARAIL_AI_ENG_GH_URL:-https://github.com/qukaizen/arail/releases/download/ai-eng-1.5b/ai-eng-1.5b-Q4_K_M.gguf}"  # __PLACEHOLDER__
 
 TIMEOUT=8
 
 # Derive the expected GGUF filename from quant tag.
-GGUF_FILE="ai-eng-3b-${QUANT}.gguf"
+GGUF_FILE="ai-eng-1.5b-${QUANT}.gguf"
 
 # ── 1. Probe HuggingFace via the /resolve/ redirect endpoint ─────────────────
 # A 200 (or 302 with Location) means the blob exists; a 404 means it doesn't.

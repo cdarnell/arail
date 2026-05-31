@@ -125,3 +125,16 @@ No research-only or non-commercial restriction. Fully compatible with MIT redist
 `FROM qwen2.5:1.5b` in `Modelfile.preview`. `NOTICE` and `pyproject.toml ai_eng_preview`
 are the two allowed operator-config locations. All other user-facing copy is qwen-free.
 No scope drift; no files outside the edit list touched.
+
+## Follow-up cleanup (2026-05-30 — post-commit 02148c6)
+
+The re-base commit missed four files. Fixed in a single follow-up commit:
+
+| File | Change |
+|---|---|
+| `scripts/check_ai_eng_artifact.sh` | `HF_REPO`, `GH_URL`, `GGUF_FILE` defaults: `3b` → `1.5b` (now matches setup.sh/pyproject.toml exactly) |
+| `docs/RELEASE_v1.0.0.md` | "3B-parameter" → "1.5B-parameter" (×2); Ollama-registry transition note → self-hosted 1.5B fetch ladder |
+| `docs/SMOKE_TEST_v1.0.0.md` | Step 8 + known-failures: `qukaizen/ai-eng:3b` Ollama probe → HF/GitHub self-hosted probe ladder |
+| `CHANGELOG.md` v1.0.0 entry | "3B-parameter" → "1.5B-parameter"; `qukaizen/ai-eng:3b` → self-hosted GGUF reality |
+
+`bash -n scripts/check_ai_eng_artifact.sh` passes. Guard tests: 43/43 pass.
