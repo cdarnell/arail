@@ -133,14 +133,14 @@ max = { description = "(deprecated alias for `maximus`)", surfaces = ["dashboard
 # user can browse and pull on demand — none ship pre-installed.
 
 # ── Self-hosted ai-eng artifact (HuggingFace primary) ─────────────────────
-# __PLACEHOLDER__ values: fill in after running scripts/package_ai_eng.sh
+# __PLACEHOLDER__ values: fill in after running scripts/build_ai_eng.sh publish
 # and uploading the GGUF. Forks rebrand by overriding these env vars or
 # editing this block — no code edits required.
 ai_eng_hf_repo  = "qukaizen/ai-eng-1.5b-gguf"  # __PLACEHOLDER__ — set your HF org/repo
 ai_eng_quant    = "Q4_K_M"                     # placeholder quant; confirm after packaging
 ai_eng_gh_url   = "https://github.com/qukaizen/arail/releases/download/ai-eng-1.5b/ai-eng-1.5b-Q4_K_M.gguf"  # __PLACEHOLDER__
 ai_eng_cdn_url  = ""                           # optional qukaizen.com mirror (leave empty to skip)
-# sha256 of the packaged GGUF — published by package_ai_eng.sh.
+# sha256 of the packaged GGUF — published by build_ai_eng.sh publish.
 # MUST remain __PLACEHOLDER_SHA256__ until a real digest is pinned; while it is
 # a placeholder the mirror paths (GitHub/CDN) fail-closed (no ollama create
 # from an unverified blob). The HF path (ollama-verified) and preview net

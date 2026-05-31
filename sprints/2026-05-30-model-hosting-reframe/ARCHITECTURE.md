@@ -223,6 +223,7 @@ the deep path, and the **packaging scaffold** (offline developer tool, not part 
 - **On bad input:** HF 404 (not uploaded yet) → next mirror → preview net. Digest mismatch or placeholder digest → skip that mirror (fail-closed), try next. Network down → `warn` + continue, no crash, no partial Ollama state.
 
 ### `package_ai_eng.sh` (NEW developer-side scaffold) **[REVISED v2 — NEW]**
+> **[POST-SPRINT UPDATE 2026-05-31]** This scaffold was consolidated into `build_ai_eng.sh publish` post-sprint. `package_ai_eng.sh` is now a thin deprecation shim. See [CONSOLIDATION.md](./CONSOLIDATION.md).
 - **Promises:** given a base model + a LoRA dir (paths the user supplies), it documents and (where tools exist) automates: merge LoRA → convert to GGUF at a chosen quant → emit a `Modelfile` and a `NOTICE` → print the GGUF's sha256 → print the exact upload commands for HF / GitHub / CDN.
 - **Requires:** the user supplies real weights/LoRA (NOT in-repo) and runs `huggingface-cli login` / `gh auth login` themselves. The script never embeds credentials and never invents weights.
 - **On missing inputs:** if the base/LoRA paths don't exist, the script prints the documented manual steps and exits nonzero — it does NOT fabricate or download arbitrary weights. Upload steps are explicit `# TODO(manual):` blocks the user uncomments/runs.

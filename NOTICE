@@ -39,9 +39,9 @@ The preview fallback path (setup falls back to `qwen2.5:1.5b` via the
 Modelfile.preview until the production GGUF is uploaded) uses the same
 Qwen2.5-1.5B-Instruct base and the same Apache-2.0 obligations above.
 
-The scripts/package_ai_eng.sh script emits a copy of this NOTICE next to the
+The scripts/build_ai_eng.sh publish command emits a copy of this NOTICE next to the
 packaged GGUF as a reminder. The HuggingFace model card template and GitHub
-Release notes template (see package_ai_eng.sh) are pre-populated with this
+Release notes template (see build_ai_eng.sh publish) are pre-populated with this
 attribution.
 
 ────────────────────────────────────────────────────────────────────────────

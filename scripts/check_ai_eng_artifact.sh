@@ -49,7 +49,7 @@ fi
 
 # ── Artifact not yet reachable ───────────────────────────────────────────────
 echo "NOT LIVE: self-hosted ai-eng GGUF not found on HuggingFace or GitHub." >&2
-echo "This is expected until the user runs scripts/package_ai_eng.sh and uploads." >&2
+echo "This is expected until the user runs scripts/build_ai_eng.sh publish and uploads." >&2
 echo "The preview net (Modelfile.preview) keeps setup working in the meantime." >&2
 echo "Run this script again after uploading to confirm live status (exit 0)." >&2
 exit 1

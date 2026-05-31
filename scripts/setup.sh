@@ -831,7 +831,7 @@ install_services() {
             # Fail-closed: if sha256 is still a placeholder, skip the mirror.
             if [[ "$_sha256" == "__PLACEHOLDER_SHA256__" ]]; then
                 warn "ai_eng_sha256 is still a placeholder — mirror path (${_label}) is disabled"
-                warn "until a real digest is pinned (run scripts/package_ai_eng.sh, then"
+                warn "until a real digest is pinned (run scripts/build_ai_eng.sh publish, then"
                 warn "set ARAIL_AI_ENG_SHA256 or ai_eng_sha256 in pyproject.toml)."
                 return 1
             fi

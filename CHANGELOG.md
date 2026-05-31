@@ -30,7 +30,7 @@ project adheres to [Semantic Versioning](https://semver.org/).
 - **ai-eng branding: 3B → 1.5B everywhere.** All user-facing and
   operator-facing strings updated: README, CLAUDE.md, pyproject.toml,
   models_catalog.yaml, docs/INSTALL.md, scripts/setup.sh, Modelfile.preview
-  SYSTEM prompt, package_ai_eng.sh scaffold.
+  SYSTEM prompt, package_ai_eng.sh scaffold (now a shim; see Consolidated note below).
 
 - **Preview base: `qwen2.5:7b` → `qwen2.5:1.5b`.** The last-resort preview
   net now pulls the 1.5B base (OOM-friendlier: ~1 GB vs ~5 GB). Aligns the
@@ -46,7 +46,8 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 - **HF repo, GitHub release tag, and GGUF filename: `ai-eng-3b-*` → `ai-eng-1.5b-*`.**
   `pyproject.toml ai_eng_hf_repo`, `ai_eng_gh_url`, catalog `install` command,
-  setup.sh defaults, and package_ai_eng.sh output names all updated.
+  setup.sh defaults, and package_ai_eng.sh output names all updated (package_ai_eng.sh
+  subsequently consolidated into build_ai_eng.sh publish — see 2026-05-31 entry).
 
 ### Changed
 
@@ -89,6 +90,11 @@ project adheres to [Semantic Versioning](https://semver.org/).
   upload commands for HuggingFace / GitHub / CDN. Upload steps are
   `# TODO(manual):` blocks; no credentials are embedded; missing inputs
   print the manual steps and exit nonzero.
+  **Consolidated (2026-05-31):** The scaffold body has been replaced with a thin
+  deprecation shim that forwards to `scripts/build_ai_eng.sh publish`. The
+  unique scaffold value (NOTICE-beside-GGUF, full sha256 + pyproject-pinning
+  guidance, self-hosted upload TODO blocks, quant-tagged GGUF filename) has
+  been absorbed into `build_ai_eng.py _run_publish`. See CONSOLIDATION.md.
 
 - **`scripts/check_ai_eng_artifact.sh`** — probes the self-hosted GGUF
   (HF + GitHub, HEAD request, 8 s timeout). Exit 0 = live; exit 1 = not yet
