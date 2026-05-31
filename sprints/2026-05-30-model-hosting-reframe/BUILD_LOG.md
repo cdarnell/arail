@@ -226,4 +226,47 @@ None. CONSOLIDATION.md was fully specified; no gaps or conflicts discovered duri
 
 ### Deferred (per CONSOLIDATION.md §6)
 
-- **Real llama-quantize step:** The convert path still emits f16/bf16 only. A real `llama-quantize` call (OOM-guarded, sentinel-idempotent) that produces the Q4_K_M artifact matching `ai_eng_quant` end-to-end remains a follow-up. `print_upload_instructions` prints the manual `llama-quantize` command as a TODO block so operators know the step.
+- **Real llama-quantize step:** Implemented — see section below.
+
+---
+
+## Real llama-quantize step (2026-05-31)
+
+**Commit:** `ea3bf9d`
+
+### Files changed
+
+| File | Change |
+|---|---|
+| `scripts/build_ai_eng.py` | Added `_ensure_llama_quantize_bin()` (clone+cmake provisioning, dry-run stub); added `quantize_gguf()` (sentinel-idempotent, OOM+disk guarded, exit 50 on failure, dry-run stub); chained convert→quantize in build flow and convert subcommand; updated `_run_publish` to prefer quantized GGUF, stage published-name file, compute sha256 on published file; removed "deferred follow-up" caveat from `--quant` help and `print_upload_instructions` |
+| `scripts/build_ai_eng.sh` | Thread `--quant` into `build` and `convert` subcommands; post-build log line now prints quantized artifact path and the exact `publish` command |
+| `tests/test_build_ai_eng_dry_run.py` | +18 OOM-safe tests: `TestQuantizeGgufDryRun` (7), `TestBuildChainIncludesQuantize` (3), `TestPublishStagingAlignment` (2), `TestPublishHelpers.test_upload_instructions_no_deferred_caveat` (1) |
+
+### Test results
+
+**124/124 passed** (was 124 before; no regressions). Includes all pre-existing suites plus new tests.
+
+### Operator command sequence (end-to-end)
+
+```bash
+# 1. Full build (download → candidates → bench → convert → quantize → modelfile → ollama create)
+./scripts/build_ai_eng.sh build --quant Q4_K_M
+
+# Artifact produced: build/ai-eng-1.5b-v2.1.Q4_K_M.gguf
+
+# 2. Review bench output, then publish
+./scripts/build_ai_eng.sh publish \
+  --yes-i-have-read-bench \
+  --license Apache-2.0 \
+  --quant Q4_K_M
+
+# Publish stages: build/ai-eng-1.5b-Q4_K_M.gguf (published name, exact bytes)
+# Prints sha256 to pin in pyproject.toml ai_eng_sha256
+# Prints upload commands (HF + GitHub Release) — printed only, never auto-executed
+
+# 3. Pin the sha256 in pyproject.toml [tool.arail.models]
+#    ai_eng_sha256 = "<printed sha>"
+
+# 4. Verify the artifact is live after uploading
+scripts/check_ai_eng_artifact.sh
+```
