@@ -624,6 +624,35 @@ install_accel_deps() {
 }
 
 # -----------------------------------------------------------------------------
+# Portable timeout wrapper.
+# `timeout(1)` is GNU coreutils — present on Linux, but NOT on stock macOS
+# (where it's `gtimeout` only if `brew install coreutils` ran). Without this
+# shim, every `timeout 900 ollama pull …` in the ai-eng install ladder fails
+# instantly on a clean Mac, so setup finishes with NO model installed — the
+# exact opposite of "everyone gets ai-eng on first setup". This wrapper uses
+# whichever real timeout exists, and if neither does, runs the command with
+# no time limit (correctness over the cap) rather than failing closed.
+# Usage: _arail_timeout <seconds> <cmd> [args…]
+# -----------------------------------------------------------------------------
+_arail_timeout() {
+    local _dur="$1"; shift
+    if command -v timeout &>/dev/null; then
+        timeout "$_dur" "$@"
+    elif command -v gtimeout &>/dev/null; then
+        gtimeout "$_dur" "$@"
+    else
+        # No timeout binary (typical stock macOS). Run uncapped so the model
+        # still installs; warn once so slow/hung pulls are explainable.
+        if [[ "${_ARAIL_TIMEOUT_WARNED:-0}" != "1" ]]; then
+            warn "No 'timeout'/'gtimeout' found — running model fetches without a time cap."
+            warn "  (Optional on macOS: 'brew install coreutils' to enable timeouts.)"
+            _ARAIL_TIMEOUT_WARNED=1
+        fi
+        "$@"
+    fi
+}
+
+# -----------------------------------------------------------------------------
 # Optional services — the embedded browser terminal.
 # ttyd powers /terminal on the portal. Without it, the terminal tab shows
 # install instructions instead of a broken iframe. We try to install it
@@ -789,7 +818,7 @@ install_services() {
         # Ollama verifies HF layer digests natively — no extra sha256 check needed.
         # This is the clean single-pull win condition once the GGUF is uploaded.
         info "Fetching ai-eng (self-hosted HuggingFace primary)…"
-        if timeout 900 ollama pull "hf.co/${_hf_repo}:${_quant}" 2>&1 | tail -5; then
+        if _arail_timeout 900 ollama pull "hf.co/${_hf_repo}:${_quant}" 2>&1 | tail -5; then
             info "ai-eng fetched from HuggingFace. Done."
             _ai_eng_ok=1
         else
@@ -808,7 +837,7 @@ install_services() {
             fi
             info "Downloading ai-eng from ${_label}…"
             rm -f "$_gguf_tmp"
-            if ! timeout 900 curl -fL -m 900 -o "$_gguf_tmp" "$_url" 2>&1 | tail -3; then
+            if ! _arail_timeout 900 curl -fL -m 900 -o "$_gguf_tmp" "$_url" 2>&1 | tail -3; then
                 warn "${_label} download failed or timed out."
                 rm -f "$_gguf_tmp"
                 return 1
@@ -826,7 +855,7 @@ install_services() {
             # Generate a minimal Modelfile pointing at the downloaded GGUF.
             local _gen_mf="${TMPDIR:-/tmp}/arail_ai_eng_gen.Modelfile"
             printf 'FROM %s\n' "$_gguf_tmp" > "$_gen_mf"
-            if timeout 300 ollama create ai-eng -f "$_gen_mf" 2>&1 | tail -5; then
+            if _arail_timeout 300 ollama create ai-eng -f "$_gen_mf" 2>&1 | tail -5; then
                 rm -f "$_gguf_tmp" "$_gen_mf"
                 return 0
             else
@@ -866,10 +895,10 @@ install_services() {
             local _preview_base="qwen2.5:1.5b"  # class-c internal ref; kept as operator config
             local _preview_mf="${_modelfile_dir}/Modelfile.preview"
             info "Fetching preview base (~1 GB) — this may take a minute…"
-            if timeout 900 ollama pull "$_preview_base" 2>&1 | tail -5; then
+            if _arail_timeout 900 ollama pull "$_preview_base" 2>&1 | tail -5; then
                 if [[ -f "$_preview_mf" ]]; then
                     info "Creating ai-eng from preview Modelfile…"
-                    if timeout 300 ollama create ai-eng -f "$_preview_mf" 2>&1 | tail -5; then
+                    if _arail_timeout 300 ollama create ai-eng -f "$_preview_mf" 2>&1 | tail -5; then
                         info "ai-eng (preview) ready. Re-run setup after the GGUF is uploaded."
                         _ai_eng_ok=1
                     else

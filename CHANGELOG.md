@@ -6,6 +6,18 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed (2026-05-31 clean-setup on macOS)
+
+- **ai-eng now installs on a clean macOS box.** GNU `timeout(1)` is absent on
+  stock macOS (it ships as `gtimeout` only after `brew install coreutils`), so
+  every `timeout 900 ollama pull …` in the ai-eng install ladder failed
+  instantly and setup finished with **no model installed** — breaking the
+  "everyone gets ai-eng on first setup" promise for both `minimalist` and
+  `maximus` tiers. Added a portable `_arail_timeout` shim that uses `timeout`,
+  falls back to `gtimeout`, and (when neither exists) runs the fetch uncapped
+  with a one-time warning rather than failing closed. Covered by
+  `tests/setup_ladder/test_timeout_shim.py`.
+
 ### Changed (2026-05-30 re-base to 1.5B Apache-2.0)
 
 - **ai-eng re-based onto Qwen2.5-1.5B-Instruct (Apache-2.0).** The previous
