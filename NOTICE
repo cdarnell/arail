@@ -2,8 +2,9 @@ NOTICE — Third-Party Model Attributions
 ========================================
 
 ARAIL (Autoresearch AI Labs) is MIT-licensed software. The default assistant
-model, ai-eng, is built on top of third-party base model weights that carry
-their own license obligations. This file records those obligations.
+model and the maximus deep model are built on top of third-party base model
+weights that carry their own license obligations. This file records those
+obligations.
 
 These attributions apply to:
   - This repository (the build recipe and Modelfiles).
@@ -14,50 +15,85 @@ These attributions apply to:
     travel with the redistributed derivative.
 
 ────────────────────────────────────────────────────────────────────────────
-1. ai-eng base: Qwen2.5-1.5B-Instruct
+1. Default model (minimalist): Llama-3.2-1B-Instruct
 ────────────────────────────────────────────────────────────────────────────
-The ai-eng model is derived from Qwen/Qwen2.5-1.5B-Instruct.
+The default assistant model (llama-ai-eng) is derived from
+meta-llama/Llama-3.2-1B-Instruct.
+
+  Copyright © Meta Platforms, Inc. All Rights Reserved.
+  Model: meta-llama/Llama-3.2-1B-Instruct
+  License: Llama 3.2 Community License
+  Upstream: https://huggingface.co/meta-llama/Llama-3.2-1B-Instruct
+  License text: licenses/LLAMA-3.2-COMMUNITY-LICENSE.txt
+  Acceptable Use Policy: licenses/LLAMA-3.2-ACCEPTABLE-USE-POLICY.txt
+  AUP online: https://www.llama.com/llama3_2/use-policy
+
+Required attribution notice (verbatim, per Llama 3.2 Community License §1.b.iii):
+
+  "Llama 3.2 is licensed under the Llama 3.2 Community License,
+   Copyright © Meta Platforms, Inc. All Rights Reserved."
+
+Llama 3.2 Community License obligations for llama-ai-eng:
+
+  1. A copy of the Llama 3.2 Community License is bundled at
+     licenses/LLAMA-3.2-COMMUNITY-LICENSE.txt (this satisfies §1.b.i.A).
+  2. "Built with Llama" is displayed in the README, the chat model catalog,
+     and the persona system prompt (this satisfies §1.b.i.B).
+  3. The distributed model is named llama-ai-eng, which begins with "Llama"
+     (this satisfies the naming clause of §1.b.i).
+  4. The Llama 3.2 Acceptable Use Policy is bundled at
+     licenses/LLAMA-3.2-ACCEPTABLE-USE-POLICY.txt and online at
+     https://www.llama.com/llama3_2/use-policy (this satisfies §1.b.iv).
+  5. 700M MAU clause (§2): ARAIL is a self-hosted blueprint; forkers whose
+     product exceeds 700M MAU must separately request a license from Meta.
+
+Redistribution requirement (if you redistribute the llama-ai-eng artifact):
+  - Include this NOTICE file and the bundled license/AUP files.
+  - Display "Built with Llama" on a related website or product documentation.
+  - Name any derived model starting with "Llama".
+  - Comply with the Llama 3.2 Community License and Acceptable Use Policy.
+
+The scripts/build_ai_eng.sh publish command emits a copy of this NOTICE next
+to the packaged GGUF. The HuggingFace model card and GitHub Release notes must
+carry this attribution.
+
+────────────────────────────────────────────────────────────────────────────
+2. Maximus deep model: Qwen2.5-7B-Instruct
+────────────────────────────────────────────────────────────────────────────
+The maximus deep persona model (ai-engineer) is derived from
+Qwen/Qwen2.5-7B-Instruct.
 
   Copyright (c) Alibaba Cloud (Tongyi Lab / Qwen Team)
-  Model: Qwen/Qwen2.5-1.5B-Instruct
+  Model: Qwen/Qwen2.5-7B-Instruct
   License: Apache License, Version 2.0
   SPDX-License-Identifier: Apache-2.0
-  Upstream: https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct
-  License text: https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct/blob/main/LICENSE
+  Upstream: https://huggingface.co/Qwen/Qwen2.5-7B-Instruct
+  License text: https://huggingface.co/Qwen/Qwen2.5-7B-Instruct/blob/main/LICENSE
 
-The merged-LoRA GGUF (ai-eng) is a derivative work of the above base model.
-As a derivative of an Apache-2.0 work, distribution requires:
+The ai-engineer persona is delivered via an Ollama Modelfile SYSTEM prompt over
+the Qwen2.5-7B-Instruct base. As a derivative of an Apache-2.0 work, distribution
+requires:
 
   a. Retain the above copyright notice and this attribution.
   b. Include or link to the Apache License 2.0 text
      (https://www.apache.org/licenses/LICENSE-2.0).
   c. Include this NOTICE file (or its content) alongside the artifact.
-  d. Clearly state that the artifact is derived from Qwen2.5-1.5B-Instruct
+  d. Clearly state that the artifact is derived from Qwen2.5-7B-Instruct
      by Alibaba Cloud.
 
-The preview fallback path (setup falls back to `qwen2.5:1.5b` via the
-Modelfile.preview until the production GGUF is uploaded) uses the same
-Qwen2.5-1.5B-Instruct base and the same Apache-2.0 obligations above.
-
-The scripts/build_ai_eng.sh publish command emits a copy of this NOTICE next to the
-packaged GGUF as a reminder. The HuggingFace model card template and GitHub
-Release notes template (see build_ai_eng.sh publish) are pre-populated with this
-attribution.
+The Qwen2.5-7B-Instruct base is Apache-2.0 (no research-only or non-commercial
+restriction). The Qwen lineage is disclosed in this NOTICE and in pyproject.toml
+operator config; it is not present in marketing copy per ARAIL's attribution
+posture.
 
 ────────────────────────────────────────────────────────────────────────────
-2. Redistribution requirement summary (Apache-2.0)
+3. Dormant future-distill lane
 ────────────────────────────────────────────────────────────────────────────
-If you redistribute the ai-eng GGUF artifact (a derivative of
-Qwen2.5-1.5B-Instruct, Apache-2.0), you MUST:
-
-  a. Include this NOTICE file (or its content) alongside the artifact.
-  b. Include or link to the full Apache License 2.0 text.
-  c. Clearly state that the artifact is derived from Qwen2.5-1.5B-Instruct
-     by Alibaba Cloud.
-  d. Comply with all other terms of the Apache License, Version 2.0.
-
-There is no research-only or non-commercial restriction — Apache-2.0 permits
-commercial use, modification, and redistribution with attribution.
+The self-hosted GGUF build pipeline (scripts/build_ai_eng.sh, scripts/build_ai_eng.py)
+is dormant behind ARAIL_AI_ENG_SELFHOSTED=1. Its current base defaults target
+Llama-3.2-1B-Instruct (same as the default model). When revived for a real
+Nucleus distill, the base and its license will be confirmed at that time and
+this NOTICE updated accordingly.
 
 ────────────────────────────────────────────────────────────────────────────
 ARAIL's own MIT license (see LICENSE) covers only the software in this

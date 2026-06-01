@@ -20,4 +20,6 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-Bundled, derived, or redistributed model weights carry their own licenses; see NOTICE.
+Bundled, derived, or redistributed model weights carry their own licenses; see NOTICE and licenses/.
+The default model (llama-ai-eng) is built on Llama-3.2-1B-Instruct under the Llama 3.2 Community License.
+The maximus deep model (ai-engineer) is built on Qwen2.5-7B-Instruct under Apache-2.0.
