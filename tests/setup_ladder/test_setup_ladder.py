@@ -254,6 +254,110 @@ def test_cdn_fires_when_url_set(ladder):
 
 
 # ---------------------------------------------------------------------------
+# E2. MAXIMUS DEEP-PERSONA OFFER (Surface A — ai-engineer 7B, MODEL-TIERS-V2 §3)
+#     Behavioral coverage of the offer/gating logic. OOM-safe: the qwen2.5:7b
+#     "pull" is the stubbed ollama (no bytes). These are the tests for item 3
+#     (deep model gating) that previously had only source-grep coverage.
+# ---------------------------------------------------------------------------
+
+def test_minimalist_default_does_not_offer_or_pull_deep_7b(ladder):
+    """On the default minimalist tier with no deep flag, the 7B is neither
+    auto-pulled nor force-installed. (The 1B default is the only auto-install.)
+    """
+    r = ladder()  # default tier = minimalist, no ARAIL_INSTALL_DEEP_PERSONA
+    assert r.ladder_exit == 0
+    assert not r.called("PULL qwen2.5:7b"), (
+        "minimalist default must never auto-pull the 7B deep model"
+    )
+    assert not r.called("CREATE create ai-engineer"), (
+        "minimalist default must never create the deep ai-engineer persona"
+    )
+
+
+def test_maximus_deep_offer_is_command_not_autopull_in_source():
+    """The maximus deep-persona block must OFFER a manual command and gate the
+    actual pull behind ARAIL_INSTALL_DEEP_PERSONA=1 — NOT auto-pull on tier
+    alone (honors the OOM-sensitivity rule: no surprise 4.7 GB pull).
+
+    Source-level guard: the harness can't set LAB_TIER (setup.sh resets it to ""
+    at top level; the tier is only captured inside main(), which the harness
+    skips). So the offer-only branch is asserted against the source structure.
+    """
+    import pathlib
+    setup = (pathlib.Path(__file__).resolve().parents[2]
+             / "scripts" / "setup.sh").read_text()
+    # The auto-pull of the 7B must be inside an ARAIL_INSTALL_DEEP_PERSONA gate.
+    lines = setup.splitlines()
+    pull_idx = next(i for i, l in enumerate(lines)
+                    if "ollama pull qwen2.5:7b 2>&1" in l)
+    # Walk backward to the nearest controlling conditional.
+    preceding = "\n".join(lines[max(0, pull_idx - 8):pull_idx])
+    assert "ARAIL_INSTALL_DEEP_PERSONA" in preceding, (
+        "the 7B auto-pull must be gated behind ARAIL_INSTALL_DEEP_PERSONA"
+    )
+    # The else branch must print the manual offer command.
+    assert "ollama pull qwen2.5:7b && ollama create ai-engineer" in setup, (
+        "maximus must print the manual deep-persona install command (offer)"
+    )
+    assert "set ARAIL_INSTALL_DEEP_PERSONA=1" in setup, (
+        "the offer must tell the user how to enable auto-install"
+    )
+
+
+def test_deep_persona_flag_auto_installs_7b_via_modelfile_deep(ladder):
+    """ARAIL_INSTALL_DEEP_PERSONA=1 → setup pulls qwen2.5:7b and creates the
+    ai-engineer persona from Modelfile.deep (the explicit opt-in)."""
+    r = ladder(env={"ARAIL_INSTALL_DEEP_PERSONA": "1"})
+    assert r.ladder_exit == 0
+    assert r.called("PULL qwen2.5:7b"), (
+        "ARAIL_INSTALL_DEEP_PERSONA=1 must pull the 7B base"
+    )
+    assert r.called("CREATE create ai-engineer"), (
+        "ARAIL_INSTALL_DEEP_PERSONA=1 must create the ai-engineer deep persona"
+    )
+    # Crucially, the deep create must use Modelfile.deep (7B), NOT the 1B default.
+    deep_creates = [ln for ln in r.calllog.splitlines()
+                    if "CREATE create ai-engineer" in ln]
+    assert deep_creates, "expected a deep ai-engineer create call"
+    assert any("Modelfile.deep" in ln for ln in deep_creates), (
+        "deep persona must be built from Modelfile.deep, not Modelfile.default"
+    )
+
+
+def test_deep_persona_auto_install_still_installs_1b_default(ladder):
+    """The deep-persona opt-in must NOT replace the 1B default — both install.
+    Regression guard against the deep flag cannibalizing the everyday default.
+    """
+    r = ladder(env={"ARAIL_INSTALL_DEEP_PERSONA": "1"})
+    assert r.ladder_exit == 0
+    assert r.called("PULL llama3.2:1b"), "1B default must still install"
+    assert r.called("CREATE create llama-ai-eng"), "1B persona must still be created"
+    assert r.called("PULL qwen2.5:7b"), "deep 7B installs alongside, not instead"
+
+
+def test_existing_ai_engineer_not_repulled_when_deep_requested(ladder):
+    """If ai-engineer:latest already exists, the deep block adopts it — no
+    re-pull of the 4.7 GB 7B even when the deep persona is explicitly requested.
+    (Driven via the flag because the harness can't set LAB_TIER=maximus.)
+    """
+    r = ladder(installed="ai-engineer:latest",
+               env={"ARAIL_INSTALL_DEEP_PERSONA": "1"})
+    assert r.ladder_exit == 0
+    assert not r.called("PULL qwen2.5:7b"), (
+        "existing ai-engineer:latest must be adopted, not re-pulled"
+    )
+
+
+def test_deep_7b_pull_failure_is_graceful(ladder):
+    """If the 7B pull fails (offline), setup warns and continues (exit 0),
+    and prints the manual recovery command. No abort, no partial-state crash."""
+    r = ladder(preview_pull_ok="0", env={"ARAIL_INSTALL_DEEP_PERSONA": "1"})
+    assert r.ladder_exit == 0, "deep pull failure must not abort setup"
+    assert r.called("PULL qwen2.5:7b")
+    assert "ollama pull qwen2.5:7b" in r.output, "manual recovery command printed"
+
+
+# ---------------------------------------------------------------------------
 # F. GENERIC SAFETY GUARDS
 # ---------------------------------------------------------------------------
 
