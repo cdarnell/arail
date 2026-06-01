@@ -1120,9 +1120,10 @@ capture_tier() {
 
     ${BOLD}minimalist${RESET}  Dashboard + Chat + Autoresearch + Knowledge Base
                 + Agents + LanceDB vector recall. The everyday lab.
-                Ships ai-eng (1.5B-parameter Opus-4.7-derived AI engineering expert
-                from QuKaiZen's Project Nucleus) as the only default
-                model. External providers (Claude, NVIDIA, OpenRouter,
+                Ships the Llama AI Engineer (llama-ai-eng) — an AI engineering
+                assistant built with Llama-3.2-1B-Instruct (~0.9 GB, runs on
+                16 GB) — as the only default model. External providers
+                (Claude, NVIDIA, OpenRouter,
                 HuggingFace) reachable over plain HTTP when
                 LAB_MODE=hybrid.
     ${BOLD}maximus${RESET}     Everything in minimalist + Admin, Notebooks,
@@ -2035,6 +2036,9 @@ main() {
         start_cmd="arail start"
     fi
 
+    echo -e "  Your assistant: ${BOLD}llama-ai-eng${RESET} — an AI engineer built with Llama-3.2-1B (~0.9 GB)."
+    echo "  Pick it in the Chat tab; it's also what the lab's agents use by default."
+    echo ""
     echo "  Next steps:"
     echo -e "    1) Start the lab:      ${BOLD}${start_cmd}${RESET}"
     echo -e "    2) Open the dashboard: ${BOLD}http://127.0.0.1:${PORTAL_PORT:-8080}${RESET}"

@@ -63,6 +63,10 @@ Two tiers. Pick one; upgrade later.
 | `minimalist` | Dashboard · Chat · Autoresearch · Knowledge Base · Agents · LanceDB vectors · **Llama AI Engineer** — an AI engineering assistant **built with Llama** (Llama-3.2-1B-Instruct, ~0.9 GB, runs on 16 GB) | The everyday lab. One default model. No bloat. |
 | `maximus`    | + Admin · Docs · Notebooks · **AeroLLM** deep-mode runtime · Anthropic SDK · LangChain · full cloud SDKs · **AI Engineer (deep, 7B)** — a deep AI engineer persona (offered, not forced; ~4.7 GB) | The full bench. The heaviest model that runs *well* on your machine — with cloud frontier models one click away in the Chat Compute Source. |
 
+> **Same expert, two sizes.** Both tiers give you the *same* AI-engineer persona; they differ only in
+> the model behind it. `minimalist` runs it on Llama-3.2-1B (fast, fits 16 GB). `maximus` additionally
+> *offers* a deeper 7B variant (`ai-engineer`, Qwen2.5-7B, Apache-2.0) for harder reasoning — opt-in, not forced.
+
 > **Built with Llama.** The default model (`llama-ai-eng`) is built on Llama-3.2-1B-Instruct
 > (Meta Platforms, Inc.) under the [Llama 3.2 Community License](licenses/LLAMA-3.2-COMMUNITY-LICENSE.txt).
 > See [NOTICE](NOTICE) for attribution details.
