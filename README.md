@@ -71,6 +71,13 @@ Two tiers. Pick one; upgrade later.
 > (Meta Platforms, Inc.) under the [Llama 3.2 Community License](licenses/LLAMA-3.2-COMMUNITY-LICENSE.txt).
 > See [NOTICE](NOTICE) for attribution details.
 
+> **On a tight budget or CPU-only?** Before the 1 GB default, you can browse-and-pull an even
+> smaller starter from the Chat catalog: `qwen2.5:0.5b-instruct-q4_K_M` (~0.4 GB, Apache-2.0) runs
+> on CPU and well under 8 GB RAM — the same on-box small model [qukaizen.com](https://qukaizen.com)
+> serves on CPU. It's less capable (weak at hard code/reasoning), so treat it as a starting point
+> and move up to `llama-ai-eng` when your hardware allows. This is just a pullable option — the two
+> tiers above are unchanged.
+
 `llama-ai-eng` is the only model that ships pre-installed. The chat catalog
 includes ~20 other models (Qwen, Gemma, Phi, DeepSeek-R1, etc.) you can
 browse and pull on demand. AirLLM is opt-in via `ARAIL_INSTALL_AIRLLM=1`.
