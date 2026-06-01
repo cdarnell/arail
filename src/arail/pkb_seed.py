@@ -167,7 +167,7 @@ aliases: [starter-pack, model-building-pack]
 
 # Model-Building Starter Pack
 
-Eight primers on building, running, and tuning local language models.
+Nine primers on building, running, and tuning local language models.
 Each one is a ~200-word summary with a link to the canonical source
 so you (and the researcher agent) have something concrete to read
 when the lab is brand new.
@@ -182,6 +182,7 @@ when the lab is brand new.
 - **06** — AirLLM (layer-streaming for 70B+ local models; ships in both tiers)
 - **07** — Prompt engineering fundamentals
 - **08** — Local vs hosted inference (cost, latency, privacy)
+- **09** — Choosing a base model (Instruct vs base, size, license, format)
 
 ## How to use it
 
@@ -570,10 +571,64 @@ Source: <https://huggingface.co/blog/llm-inference>
 """
 
 
+_CHOOSING_BASE_MODEL_PRIMER = """---
+title: Choosing a base model — picking the right model is half the battle
+section: seeds
+tags: [seed, model-building, base-model, fine-tuning, licensing]
+source_ref: https://huggingface.co/docs/transformers/main/en/model_doc/auto
+aliases: [choosing-a-model, base-model-selection, which-model]
+---
+
+# Choosing a base model
+
+Before you fine-tune, quantize, or chat, you pick a base model — and
+that single choice decides more about the result than almost anything
+you do afterward. A few rules of thumb save a lot of wasted downloads.
+
+## Instruct vs. Pretrained (base)
+
+- **Instruct / Chat** models are already tuned to follow instructions
+  and hold a conversation. Start here for an assistant — a fine-tune
+  only has to *add* your domain knowledge on top.
+- **Pretrained (base)** models are raw next-token predictors. Choosing
+  one means teaching all chat behavior from scratch — far more data and
+  compute. Only pick base if you're doing a full instruction distill.
+
+## Size: small is cheap, big is smart
+
+- Smaller models (1–3B) load fast, sip RAM, and run on a laptop — but
+  they're weak at hard reasoning and **code**, which is the first thing
+  to suffer. A 1B is great for chat, shaky as an "engineering expert."
+- Bigger models (7B+) reason better but cost RAM and latency. Match the
+  size to the *hardest* thing you'll ask, not the average thing.
+
+## Three traps
+
+- **Pre-quantized variants** (names with `INT4`, `QLORA`, `SpinQuant`,
+  `AWQ`, `GPTQ`) are deployment end-products. You fine-tune on
+  full-precision weights and quantize *last* — don't train on these.
+- **License.** Check the model card. Apache-2.0 / MIT are fully free to
+  fork and redistribute; "research-only" or community licenses (Llama,
+  some Qwen sizes) carry naming, attribution, or use restrictions that
+  travel with anything you ship. Pick the license before the weights.
+- **File format.** Tools expect Hugging Face safetensors. A vendor's
+  native checkpoint (Meta `.pth`, etc.) needs a conversion step first.
+
+## Why it matters here
+
+ARAIL's default `ai-eng` is exactly this decision made deliberately: a
+compact, permissively-licensed instruct base + a domain LoRA, packaged
+as a single GGUF. Your fork makes the same call — see the chat catalog
+(`src/arail/chat/models_catalog.yaml`) for the browse-and-pull gallery.
+
+Source: <https://huggingface.co/models> (filter by task, size, license)
+"""
+
+
 _PACKS: dict[str, dict[str, Any]] = {
     "model-building": {
         "title": "Model-building starter pack",
-        "description": "9 primers on running local language models — MLX, llama.cpp, Qwen3, quantization, prompting.",
+        "description": "10 primers on running local language models — choosing a base, MLX, llama.cpp, Qwen3, quantization, prompting.",
         "auto_install": True,
         "files": [
             ("00-readme.md", _MODEL_BUILDING_README),
@@ -585,6 +640,7 @@ _PACKS: dict[str, dict[str, Any]] = {
             ("06-airllm-layer-streaming.md", _AIRLLM_PRIMER),
             ("07-prompt-engineering.md", _PROMPT_ENG_PRIMER),
             ("08-local-vs-hosted.md", _LOCAL_VS_HOSTED_PRIMER),
+            ("09-choosing-a-base-model.md", _CHOOSING_BASE_MODEL_PRIMER),
         ],
     },
 }

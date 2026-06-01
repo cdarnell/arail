@@ -19,26 +19,56 @@
 #
 # Ordering controls UI display order. Recommended models first.
 
-# ── ARAIL's default — ai-eng (the only model that ships pre-installed) ──
-# 1.5B-parameter Opus-4.7-derived AI engineering expert from QuKaiZen's
-# Project Nucleus. Self-hosted on HuggingFace; setup pulls via a single
-# `ollama pull hf.co/...` with no local Modelfile build step.
-# (The __PLACEHOLDER__ repo/quant values below are filled in after the
-# GGUF is packaged and uploaded via scripts/package_ai_eng.sh.)
-- id: ai-eng:latest
-  name: AI Engineer (ai-eng)
-  family: qukaizen
-  size_gb: 1.0
+# ── ARAIL's default — Llama AI Engineer (the only model that ships pre-installed) ──
+# AI engineering assistant built with Llama (Llama-3.2-1B-Instruct, ~0.9 GB,
+# runs on 16 GB). Installed by setup via:
+#   ollama pull llama3.2:1b && ollama create llama-ai-eng -f models/ai-eng/Modelfile.default
+# License: Llama 3.2 Community License (see NOTICE, licenses/).
+- id: llama-ai-eng
+  name: Llama AI Engineer
+  family: llama
+  size_gb: 0.9
   released: 2026-05
   source: ollama
   good_at: [chat, reasoning, agent, code]
-  description: ARAIL's default local assistant — a 1.5B-parameter Opus-4.7-derived
-               AI engineering expert from QuKaiZen's Project Nucleus.
-  install: "ollama pull hf.co/qukaizen/ai-eng-1.5b-gguf:Q4_K_M"
+  description: "AI engineering assistant — built with Llama (Llama-3.2-1B-Instruct).
+               ARAIL's default local assistant: careful, production-minded,
+               explains tradeoffs. ~0.9 GB, runs on 16 GB. Built with Llama."
+  install: "ollama pull llama3.2:1b  # then: ollama create llama-ai-eng -f models/ai-eng/Modelfile.default"
   tier: recommended
 
-# ── Deep model placeholder (maximus, pull-on-demand) ─────────────────
-# The 20–30B deep model for maximus tier is operator-configured.
+# ── Maximus deep AI engineer (7B, Qwen2.5-7B-Instruct, Apache-2.0) ──
+# The deep persona for maximus tier. Offered on maximus setup; not auto-installed.
+# Set ARAIL_INSTALL_DEEP_PERSONA=1 to auto-install, or run the command below.
+- id: ai-engineer
+  name: AI Engineer (deep, 7B)
+  family: qukaizen
+  size_gb: 4.7
+  released: 2026-05
+  source: ollama
+  good_at: [deep-reasoning, architecture, code-review, research]
+  description: "Maximus deep AI engineer persona (Qwen2.5-7B-Instruct, Apache-2.0,
+               4.7 GB). Deeper reasoning for complex architecture decisions and
+               thorough code review. Maximus-tier offering."
+  install: "ollama pull qwen2.5:7b  # then: ollama create ai-engineer -f models/ai-eng/Modelfile.deep"
+  tier: flagship
+
+# ── Base model for browsing / dormant self-hosted lane ───────────────
+- id: llama3.2:1b
+  name: Llama 3.2 1B (base)
+  family: llama
+  size_gb: 0.9
+  released: 2024-09
+  source: ollama
+  good_at: [chat, fast, instruction-following]
+  description: "Meta Llama-3.2-1B-Instruct — the base for llama-ai-eng.
+               Browse and pull to use directly without the AI-engineer persona.
+               License: Llama 3.2 Community License."
+  install: "ollama pull llama3.2:1b"
+  tier: optional
+
+# ── Deep model placeholder (AirLLM frontier lane, operator-configured) ──
+# The AirLLM/AeroLLM layer-streaming frontier lane (Surface B) is operator-configured.
 # Set AIRLLM_MODEL or AEROLLM_MODEL in .env to your chosen model id
 # and download it on demand (not a setup auto-install).
 # See NOTICE and sprints/2026-05-30-model-hosting-reframe/ARCHITECTURE.md
@@ -50,13 +80,13 @@
   released: ""
   source: hf
   good_at: [deep-reasoning, long-context, research]
-  description: "Maximus deep mode: set your preferred 20–30B model in .env
+  description: "AirLLM/AeroLLM frontier lane: set your preferred 20–30B model in .env
                (AIRLLM_MODEL or AEROLLM_MODEL). Download on demand — not a
                setup auto-install. See docs for model selection guidance."
   install: ""
   tier: flagship
 
-# ── Base model for ai-eng (preview fallback) ────────────────────────
+# ── Dormant self-hosted lane preview base ─────────────────────────────
 - id: qwen2.5:1.5b
   name: Qwen 2.5 1.5B
   family: qwen
@@ -64,8 +94,8 @@
   released: 2024-09
   source: ollama
   good_at: [chat, reasoning, code]
-  description: Qwen 2.5 1.5B — preview base for ARAIL's ai-eng persona
-               until QuKaiZen publishes the 1.5B production weights.
+  description: Qwen 2.5 1.5B — dormant self-hosted lane preview base
+               (ARAIL_AI_ENG_SELFHOSTED=1). Not the default install path.
   install: "ollama pull qwen2.5:1.5b"
   tier: optional
 

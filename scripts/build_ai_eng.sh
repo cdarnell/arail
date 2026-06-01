@@ -44,9 +44,11 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 SUBCOMMAND="${1:-build}"
 shift || true
 
-ADAPTER_REPO="qukaizen/qkz-opus4.7-aieng-1.5b-v2.1-adapter"
-BF16_BASE="Qwen/Qwen2.5-1.5B-Instruct"  # Apache-2.0
-MLX_BASE="mlx-community/Qwen2.5-1.5B-Instruct-4bit"  # Apache-2.0
+# DORMANT self-hosted lane (ARAIL_AI_ENG_SELFHOSTED=1). Future Nucleus-distill lane.
+# Re-based to Llama-3.2-1B-Instruct (MODEL-TIERS-V2, 2026-05-31). License: Llama 3.2 Community.
+ADAPTER_REPO="qukaizen/qkz-opus4.7-aieng-1b-v2.1-adapter"
+BF16_BASE="meta-llama/Llama-3.2-1B-Instruct"          # Llama 3.2 Community License
+MLX_BASE="mlx-community/Llama-3.2-1B-Instruct-4bit"   # Llama 3.2 Community License
 BENCH_PROMPTS="models/ai-eng/bench-prompts.v2.1.yaml"
 LLAMA_CPP_REV="b3500"
 MIN_FREE_RAM_GB="16"
@@ -89,8 +91,18 @@ log_info()  { echo "[build_ai_eng] INFO : $*"; }
 log_warn()  { echo "[build_ai_eng] WARN : $*" >&2; }
 log_error() { echo "[build_ai_eng] ERROR: $*" >&2; }
 
+# Resolve the Python interpreter. Prefer the repo venv (./.venv/bin/python3)
+# when present — that's where the build deps (psutil, peft, mlx_lm, …) are
+# installed, so the build works without the operator remembering to
+# `source .venv/bin/activate` first. Falls back to PATH python3.
+PYTHON=""
 require_python() {
-  if ! command -v python3 &>/dev/null; then
+  if [[ -x "${REPO_ROOT}/.venv/bin/python3" ]]; then
+    PYTHON="${REPO_ROOT}/.venv/bin/python3"
+    log_info "Using repo venv interpreter: ${PYTHON}"
+  elif command -v python3 &>/dev/null; then
+    PYTHON="python3"
+  else
     log_error "python3 not found. Install Python 3.10+ and try again."
     exit 1
   fi
@@ -142,7 +154,9 @@ case "$SUBCOMMAND" in
   build)
     log_info "Phase 1: full build pipeline"
     check_portal_not_running
-    python3 "$PYTHON_HELPER" build "${BASE_ARGS[@]}"
+    QUANT_VAL="${QUANT_FLAG#--quant }"
+    [[ -z "$QUANT_VAL" ]] && QUANT_VAL="Q4_K_M"
+    "$PYTHON" "$PYTHON_HELPER" build "${BASE_ARGS[@]}" ${QUANT_FLAG}
     BENCH_EXIT=$?
     if [[ $BENCH_EXIT -eq 10 ]]; then
       log_error "Both candidates failed bench gate. Sprint shelved per ARCHITECTURE F6."
@@ -154,13 +168,14 @@ case "$SUBCOMMAND" in
       exit 11
     fi
     log_info "Build complete. Review build/BENCH-v2.1.md."
-    log_info "Next: ./scripts/build_ai_eng.sh publish --yes-i-have-read-bench --license Apache-2.0"
+    log_info "Quantized artifact: ${BUILD_DIR}/ai-eng-1.5b-v2.1.${QUANT_VAL}.gguf"
+    log_info "Next: ./scripts/build_ai_eng.sh publish --yes-i-have-read-bench --license Apache-2.0 --quant ${QUANT_VAL}"
     exit "$BENCH_EXIT"
     ;;
 
   bench-only)
     log_info "Re-running bench only (assuming build/mlx-fused/ and build/bf16-merged/ exist)"
-    python3 "$BENCH_HELPER" \
+    "$PYTHON" "$BENCH_HELPER" \
       "--candidate-a-path" "${BUILD_DIR}/mlx-fused" \
       "--candidate-b-path" "${BUILD_DIR}/bf16-merged" \
       "--prompts-file"     "$BENCH_PROMPTS" \
@@ -180,7 +195,8 @@ case "$SUBCOMMAND" in
       exit 1
     fi
     log_info "Converting Candidate $CANDIDATE to GGUF"
-    python3 "$PYTHON_HELPER" convert "${BASE_ARGS[@]}" --candidate "$CANDIDATE"
+    # shellcheck disable=SC2086
+    "$PYTHON" "$PYTHON_HELPER" convert "${BASE_ARGS[@]}" --candidate "$CANDIDATE" ${QUANT_FLAG}
     ;;
 
   publish)
@@ -191,7 +207,7 @@ case "$SUBCOMMAND" in
     [[ -n "$LICENSE_FLAG" ]] && PUBLISH_ARGS+=($LICENSE_FLAG)
     # shellcheck disable=SC2086
     [[ -n "$QUANT_FLAG" ]] && PUBLISH_ARGS+=($QUANT_FLAG)
-    python3 "$PYTHON_HELPER" publish "${PUBLISH_ARGS[@]}"
+    "$PYTHON" "$PYTHON_HELPER" publish "${PUBLISH_ARGS[@]}"
     PUBLISH_EXIT=$?
     if [[ $PUBLISH_EXIT -eq 70 ]]; then
       log_error "Publish refused. Pass --yes-i-have-read-bench and --license <id> after reviewing BENCH-v2.1.md."
@@ -204,17 +220,17 @@ case "$SUBCOMMAND" in
   clean)
     log_info "Cleaning build/"
     # Preserve models/ai-eng/BENCH-v2.1.md (it's in repo, not in build/)
-    python3 "$PYTHON_HELPER" clean "${BASE_ARGS[@]}"
+    "$PYTHON" "$PYTHON_HELPER" clean "${BASE_ARGS[@]}"
     log_info "build/ cleaned. models/ai-eng/BENCH-v2.1.md preserved."
     ;;
 
   dry-run)
     log_info "Dry-run mode: exercising every code path without downloads or model loads"
-    python3 "$PYTHON_HELPER" dry-run "${BASE_ARGS[@]}"
+    "$PYTHON" "$PYTHON_HELPER" dry-run "${BASE_ARGS[@]}"
     DRY_EXIT=$?
     log_info "Dry-run complete (exit $DRY_EXIT)."
     # Also exercise bench --dry-run
-    python3 "$BENCH_HELPER" --dry-run \
+    "$PYTHON" "$BENCH_HELPER" --dry-run \
       "--out" "${BUILD_DIR}/BENCH-v2.1.md-dry"
     log_info "Bench dry-run complete."
     exit "$DRY_EXIT"

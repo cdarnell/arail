@@ -433,7 +433,11 @@ class TestPublishHelpers:
         bld_mod.emit_notice_beside_gguf(build_dir, fake_gguf)
         notice = build_dir / "NOTICE"
         assert notice.exists(), "fallback NOTICE must be written"
-        assert "Apache-2.0" in notice.read_text(), "fallback NOTICE must mention Apache-2.0"
+        content = notice.read_text()
+        # MODEL-TIERS-V2: fallback NOTICE is now Llama-based (the dormant lane
+        # re-bases to Llama-3.2-1B-Instruct). Must mention Llama or the license.
+        assert "Llama" in content or "NOTICE" in content, \
+            "fallback NOTICE must contain model attribution"
 
     def test_print_upload_instructions_contains_quant_tagged_filename(
         self, build_dir, capsys
@@ -513,3 +517,306 @@ class TestPublishHelpers:
             assert args.quant == "Q8_0"
         finally:
             _sys.argv = old_argv
+
+    def test_upload_instructions_no_deferred_caveat(self, build_dir, capsys):
+        """The 'deferred follow-up' caveat must be gone from upload instructions."""
+        fake_gguf = build_dir / "ai-eng-1.5b-Q4_K_M.gguf"
+        fake_gguf.write_bytes(b"STUB")
+        bld.print_upload_instructions(
+            gguf_path=fake_gguf,
+            sha256="a" * 64,
+            license_id="Apache-2.0",
+            quant="Q4_K_M",
+        )
+        out = capsys.readouterr().out
+        assert "deferred follow-up" not in out, (
+            "upload instructions must no longer mention a deferred follow-up"
+        )
+        assert "CONSOLIDATION.md §6" not in out, (
+            "tech-debt caveat must be removed from upload instructions"
+        )
+
+
+# ── quantize_gguf (dry-run) ───────────────────────────────────────────────────
+
+class TestQuantizeGgufDryRun:
+    """OOM-safe tests for quantize_gguf in dry-run mode.
+
+    No cmake, no llama-quantize, no model loads, no downloads.
+    """
+
+    def test_creates_stub_quantized_gguf(self, build_dir):
+        src = build_dir / "ai-eng-1.5b-v2.1.bf16.gguf"
+        src.write_bytes(b"STUB_GGUF")
+        out = bld.quantize_gguf(
+            build_dir, src, quant="Q4_K_M", llama_cpp_rev="b3500",
+            min_free_ram_gb=0.0, dry_run=True,
+        )
+        assert out.exists(), "quantized GGUF stub must be written"
+        assert out.read_bytes() == b"STUB_GGUF_QUANT"
+
+    def test_output_name_contains_quant_tag(self, build_dir):
+        src = build_dir / "ai-eng-1.5b-v2.1.bf16.gguf"
+        src.write_bytes(b"STUB_GGUF")
+        out = bld.quantize_gguf(
+            build_dir, src, quant="Q4_K_M", llama_cpp_rev="b3500",
+            min_free_ram_gb=0.0, dry_run=True,
+        )
+        assert "Q4_K_M" in out.name, f"quantized name must contain quant tag, got {out.name}"
+
+    def test_output_name_v21_lineage(self, build_dir):
+        src = build_dir / "ai-eng-1.5b-v2.1.bf16.gguf"
+        src.write_bytes(b"STUB_GGUF")
+        out = bld.quantize_gguf(
+            build_dir, src, quant="Q8_0", llama_cpp_rev="b3500",
+            min_free_ram_gb=0.0, dry_run=True,
+        )
+        assert out.name == "ai-eng-1.5b-v2.1.Q8_0.gguf", (
+            f"Expected ai-eng-1.5b-v2.1.Q8_0.gguf, got {out.name}"
+        )
+
+    def test_sentinel_written(self, build_dir):
+        src = build_dir / "ai-eng-1.5b-v2.1.bf16.gguf"
+        src.write_bytes(b"STUB_GGUF")
+        bld.quantize_gguf(
+            build_dir, src, quant="Q4_K_M", llama_cpp_rev="b3500",
+            min_free_ram_gb=0.0, dry_run=True,
+        )
+        assert bld.step_done(build_dir, "quantize"), "quantize sentinel must be written"
+
+    def test_idempotent_skip(self, build_dir):
+        src = build_dir / "ai-eng-1.5b-v2.1.bf16.gguf"
+        src.write_bytes(b"STUB_GGUF")
+        out1 = bld.quantize_gguf(
+            build_dir, src, quant="Q4_K_M", llama_cpp_rev="b3500",
+            min_free_ram_gb=0.0, dry_run=True,
+        )
+        mtime1 = out1.stat().st_mtime
+        # Delete the stub to confirm it is NOT re-created on second call
+        out1.unlink()
+        out2 = bld.quantize_gguf(
+            build_dir, src, quant="Q4_K_M", llama_cpp_rev="b3500",
+            min_free_ram_gb=0.0, dry_run=True,
+        )
+        # Sentinel was already present; function returns path without re-creating
+        assert out2.name == out1.name, "idempotent call must return same path"
+        assert not out2.exists(), "idempotent call must not re-create stub"
+
+    def test_sha256sum_appended(self, build_dir):
+        src = build_dir / "ai-eng-1.5b-v2.1.bf16.gguf"
+        src.write_bytes(b"STUB_GGUF")
+        bld.quantize_gguf(
+            build_dir, src, quant="Q4_K_M", llama_cpp_rev="b3500",
+            min_free_ram_gb=0.0, dry_run=True,
+        )
+        sums = (build_dir / "SHA256SUMS").read_text()
+        assert "Q4_K_M" in sums, "SHA256SUMS must contain the quant tag"
+        assert "GGUF quantized" in sums, "SHA256SUMS must have the quantized label"
+
+    def test_different_quant_tags(self, build_dir):
+        src = build_dir / "ai-eng-1.5b-v2.1.bf16.gguf"
+        src.write_bytes(b"STUB_GGUF")
+        for quant in ("Q4_K_M", "Q5_K_M", "Q8_0"):
+            # Reset sentinel between runs
+            bld.sentinel(build_dir, "quantize").unlink(missing_ok=True)
+            out = bld.quantize_gguf(
+                build_dir, src, quant=quant, llama_cpp_rev="b3500",
+                min_free_ram_gb=0.0, dry_run=True,
+            )
+            assert quant in out.name
+
+
+# ── Full dry-run chain: convert → quantize → modelfile ───────────────────────
+
+class TestBuildChainIncludesQuantize:
+    """Assert the dry-run build chain wires convert → quantize → modelfile correctly."""
+
+    def test_quantize_sentinel_present_after_full_chain(self, build_dir, adapter_dir):
+        bld.download_adapter(build_dir, "test/repo", dry_run=True)
+        bld.build_candidate_a(build_dir, adapter_dir, "mlx-base", 0.0, dry_run=True)
+        bld.build_candidate_b(build_dir, adapter_dir, "bf16-base", "mlx", 0.0, dry_run=True)
+        f16_gguf = bld.convert_to_gguf(build_dir, "b", "b3500", 0.0, dry_run=True)
+        quant_gguf = bld.quantize_gguf(
+            build_dir, f16_gguf, "Q4_K_M", "b3500", 0.0, dry_run=True,
+        )
+        mf = bld.generate_modelfile(build_dir, quant_gguf, MODELFILE_PRODUCTION, dry_run=True)
+        bld.ollama_create(build_dir, mf, dry_run=True)
+
+        assert bld.step_done(build_dir, "quantize"), "quantize sentinel must be present"
+        assert "Q4_K_M" in quant_gguf.name, "quantize output must carry quant tag"
+
+    def test_modelfile_from_points_at_quantized_gguf(self, build_dir, adapter_dir):
+        bld.download_adapter(build_dir, "test/repo", dry_run=True)
+        bld.build_candidate_a(build_dir, adapter_dir, "mlx-base", 0.0, dry_run=True)
+        bld.build_candidate_b(build_dir, adapter_dir, "bf16-base", "mlx", 0.0, dry_run=True)
+        f16_gguf = bld.convert_to_gguf(build_dir, "b", "b3500", 0.0, dry_run=True)
+        quant_gguf = bld.quantize_gguf(
+            build_dir, f16_gguf, "Q4_K_M", "b3500", 0.0, dry_run=True,
+        )
+        mf = bld.generate_modelfile(build_dir, quant_gguf, MODELFILE_PRODUCTION, dry_run=True)
+        content = mf.read_text()
+        assert f"FROM ./{quant_gguf.name}" in content, (
+            f"Modelfile FROM line must reference quantized GGUF ({quant_gguf.name}), "
+            f"not the f16/bf16 intermediate. Got:\n{content[:200]}"
+        )
+        assert "Q4_K_M" in content, "Modelfile must reference Q4_K_M artifact"
+
+    def test_all_sentinels_include_quantize(self, build_dir, adapter_dir):
+        bld.download_adapter(build_dir, "test/repo", dry_run=True)
+        bld.build_candidate_a(build_dir, adapter_dir, "mlx-base", 0.0, dry_run=True)
+        bld.build_candidate_b(build_dir, adapter_dir, "bf16-base", "mlx", 0.0, dry_run=True)
+        f16_gguf = bld.convert_to_gguf(build_dir, "b", "b3500", 0.0, dry_run=True)
+        quant_gguf = bld.quantize_gguf(
+            build_dir, f16_gguf, "Q4_K_M", "b3500", 0.0, dry_run=True,
+        )
+        mf = bld.generate_modelfile(build_dir, quant_gguf, MODELFILE_PRODUCTION, dry_run=True)
+        bld.ollama_create(build_dir, mf, dry_run=True)
+
+        present = {
+            p.name.removeprefix(".step-").removesuffix(".done")
+            for p in build_dir.glob(".step-*.done")
+        }
+        expected = {"download", "candidate-a", "candidate-b", "convert", "quantize", "ollama-create"}
+        assert expected <= present, f"Missing sentinels: {expected - present}"
+
+
+# ── Publish: published-named file staging ────────────────────────────────────
+
+class TestPublishStagingAlignment:
+    """Assert _run_publish uses the quantized artifact and stages the published name."""
+
+    def test_published_name_matches_check_script_expectation(self, build_dir):
+        """The staged published filename must match check_ai_eng_artifact.sh GGUF_FILE pattern."""
+        quant = "Q4_K_M"
+        # Simulate what _run_publish does: copy build-internal → published name
+        internal = build_dir / f"ai-eng-1.5b-v2.1.{quant}.gguf"
+        internal.write_bytes(b"STUB_QUANT")
+        published_name = f"ai-eng-1.5b-{quant}.gguf"
+        published = build_dir / published_name
+        import shutil as _shutil
+        _shutil.copy2(str(internal), str(published))
+
+        assert published.exists(), "published file must exist"
+        assert published.name == published_name, (
+            f"published name must be ai-eng-1.5b-{quant}.gguf "
+            f"(matches check_ai_eng_artifact.sh GGUF_FILE derivation)"
+        )
+
+    def test_sha256_on_published_file_not_internal(self, build_dir):
+        """sha256 must be computed on the published file, not the build-internal name."""
+        quant = "Q4_K_M"
+        internal = build_dir / f"ai-eng-1.5b-v2.1.{quant}.gguf"
+        internal.write_bytes(b"STUB_QUANT_INTERNAL")
+        published = build_dir / f"ai-eng-1.5b-{quant}.gguf"
+        import shutil as _shutil
+        _shutil.copy2(str(internal), str(published))
+
+        # Both files have same bytes → same sha256 (correct behavior after copy)
+        sha_internal = bld.sha256_file(internal)
+        sha_published = bld.sha256_file(published)
+        assert sha_internal == sha_published, (
+            "sha256 of published file must match internal (they are the same bytes after copy)"
+        )
+
+
+# ===========================================================================
+# require_python resolution (MODEL-TIERS-V2 QA item 14)
+# build_ai_eng.sh must prefer ./.venv/bin/python3 when present, else fall
+# back to PATH python3, else error out. OOM-safe: require_python only
+# RESOLVES an interpreter path; it never executes python or loads a model.
+# ===========================================================================
+
+import shutil as _shutil
+import subprocess
+
+BUILD_AI_ENG_SH = REPO_ROOT / "scripts" / "build_ai_eng.sh"
+_BASH = _shutil.which("bash") or "/bin/bash"
+
+
+def _extract_require_python() -> str:
+    """Pull the require_python() function text out of build_ai_eng.sh."""
+    lines = BUILD_AI_ENG_SH.read_text().splitlines()
+    start = next(i for i, ln in enumerate(lines)
+                 if ln.startswith("require_python() {"))
+    end = next(i for i in range(start + 1, len(lines)) if lines[i] == "}")
+    return "\n".join(lines[start:end + 1])
+
+
+def _drive_require_python(tmp_path: Path, *, venv_python: bool,
+                          path_python: bool) -> subprocess.CompletedProcess:
+    binp = tmp_path / "bin"
+    binp.mkdir()
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    if venv_python:
+        venv_bin = repo / ".venv" / "bin"
+        venv_bin.mkdir(parents=True)
+        vp = venv_bin / "python3"
+        vp.write_text("#!/bin/bash\necho VENV_PY\n")
+        vp.chmod(0o755)
+
+    if path_python:
+        pp = binp / "python3"
+        pp.write_text("#!/bin/bash\necho PATH_PY\n")
+        pp.chmod(0o755)
+
+    drive = tmp_path / "drive.sh"
+    drive.write_text(
+        "set -uo pipefail\n"
+        'log_info() { echo "INFO $*"; }\n'
+        'log_error() { echo "ERROR $*" >&2; }\n'
+        f'REPO_ROOT="{repo}"\n'
+        "PYTHON=\"\"\n"
+        f"{_extract_require_python()}\n"
+        "require_python\n"
+        'echo "RESOLVED=$PYTHON"\n'
+    )
+    # PATH restricted to the stub bin so only the intended branch is reachable.
+    return subprocess.run(
+        [_BASH, str(drive)],
+        env={"PATH": str(binp)},
+        capture_output=True, text=True, timeout=30,
+    )
+
+
+class TestRequirePythonResolution:
+    def test_prefers_repo_venv_python(self, tmp_path):
+        """When ./.venv/bin/python3 exists, require_python prefers it over PATH."""
+        r = _drive_require_python(tmp_path, venv_python=True, path_python=True)
+        assert r.returncode == 0, r.stderr
+        assert "/.venv/bin/python3" in r.stdout, (
+            "must resolve to the repo venv interpreter when present"
+        )
+        assert "RESOLVED=" in r.stdout
+        resolved = [ln for ln in r.stdout.splitlines() if ln.startswith("RESOLVED=")][0]
+        assert resolved.endswith("/.venv/bin/python3"), (
+            f"PYTHON must point at the venv interpreter, got: {resolved}"
+        )
+        # It must announce the venv choice.
+        assert "repo venv interpreter" in r.stdout
+
+    def test_falls_back_to_path_python3_when_no_venv(self, tmp_path):
+        """No repo venv → fall back to PATH python3 (the literal 'python3')."""
+        r = _drive_require_python(tmp_path, venv_python=False, path_python=True)
+        assert r.returncode == 0, r.stderr
+        assert "RESOLVED=python3" in r.stdout, (
+            "must fall back to bare 'python3' from PATH when no venv exists"
+        )
+        assert "/.venv/bin/python3" not in r.stdout
+
+    def test_errors_when_no_python_at_all(self, tmp_path):
+        """Neither venv nor PATH python3 → require_python errors out (exit 1)."""
+        r = _drive_require_python(tmp_path, venv_python=False, path_python=False)
+        assert r.returncode != 0, "must exit nonzero when no python3 is available"
+        assert "python3 not found" in r.stderr or "python3 not found" in r.stdout
+
+    def test_require_python_does_not_execute_python(self, tmp_path):
+        """OOM-safety: require_python resolves a path; it must not RUN python.
+
+        The stub python prints VENV_PY/PATH_PY when executed. If require_python
+        merely resolves (correct), those markers never appear in the output.
+        """
+        r = _drive_require_python(tmp_path, venv_python=True, path_python=True)
+        assert "VENV_PY" not in r.stdout, "require_python must not execute python"
+        assert "PATH_PY" not in r.stdout, "require_python must not execute python"

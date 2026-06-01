@@ -244,25 +244,28 @@ lab/pkb/
 Plus `lab/data/` (activity log, goals, experiments, audit trail) and
 `lab/models/` (downloaded weights — git-ignored).
 
-### Step 8/11 — AI models (ai-eng)
+### Step 8/11 — AI models (llama-ai-eng)
 
-The **only** model that auto-installs. Probes for the production tag,
-fetches ai-eng via a self-hosted mirror ladder, stopping at the first
-success:
+The **only** model that auto-installs. Two-step persona-wrap install
+(works on a clean machine today, no uploaded artifact required):
 
-1. **HuggingFace primary** — `ollama pull hf.co/qukaizen/ai-eng-1.5b-gguf:Q4_K_M`.
-   Ollama verifies the layer digest natively. This is the clean
-   single-pull path once the GGUF is uploaded.
-2. **GitHub Release mirror** — downloads the `.gguf` asset over HTTPS,
-   verifies its `sha256` against a pinned digest, then runs
-   `ollama create ai-eng`. The mirror path is disabled (fail-closed)
-   until a real digest is pinned in `pyproject.toml ai_eng_sha256`.
-3. **qukaizen.com CDN** (optional) — same verify-then-create flow;
-   only runs if `ARAIL_AI_ENG_CDN_URL` is set.
-4. **Preview net** (last resort) — pulls a preview base and applies
-   `models/ai-eng/Modelfile.preview`. Reached only when the self-hosted
-   GGUF is not yet uploaded or the machine is offline. Re-running setup
-   after the GGUF is uploaded skips the preview net automatically.
+1. `ollama pull llama3.2:1b` — fetches Meta Llama-3.2-1B-Instruct Q4_K_M
+   (~0.9 GB). License: Llama 3.2 Community License.
+2. `ollama create llama-ai-eng -f models/ai-eng/Modelfile.default` — wraps
+   it with the AI-engineer SYSTEM prompt ("Built with Llama").
+
+The installed model is named `llama-ai-eng` (begins with "Llama" as
+required by the Llama 3.2 Community License). See `NOTICE` and
+`licenses/` for the full attribution.
+
+**Dormant self-hosted lane** (`ARAIL_AI_ENG_SELFHOSTED=1`): the old HF
+mirror ladder (HF primary → GitHub mirror sha256-verified → CDN → preview
+net) is still available for the future Nucleus-distill lane. Off by default.
+The `Modelfile.preview` fallback is kept for this lane.
+
+**Maximus deep persona** (`ai-engineer`, Qwen2.5-7B, 4.7 GB, Apache-2.0):
+offered on maximus setup with the exact install command; auto-runs only with
+`ARAIL_INSTALL_DEEP_PERSONA=1`.
 
 No other models pre-install — the chat catalog (~20 entries) is a
 browse-and-pull gallery accessed from the Chat tab.

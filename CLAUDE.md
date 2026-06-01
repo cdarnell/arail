@@ -50,20 +50,29 @@ with a deprecation warning for one release):
 
 | Tier         | What's in it                                                                                                                 |
 |--------------|------------------------------------------------------------------------------------------------------------------------------|
-| `minimalist` | Dashboard · Chat · Autoresearch · Knowledge Base · Agents · LanceDB vectors · **ai-eng** (1.5B-parameter Opus-4.7-derived AI engineering expert from QuKaiZen's Nucleus pipeline) — the everyday lab |
-| `maximus`    | + Admin · Docs · Notebooks · **AeroLLM** deep-mode runtime · Anthropic SDK · LangChain · full cloud SDKs — the full local bench, cloud frontier one click away |
+| `minimalist` | Dashboard · Chat · Autoresearch · Knowledge Base · Agents · LanceDB vectors · **Llama AI Engineer** (`llama-ai-eng`, built with Llama-3.2-1B-Instruct, ~0.9 GB, runs on 16 GB) — the everyday lab |
+| `maximus`    | + Admin · Docs · Notebooks · **AeroLLM** deep-mode runtime · Anthropic SDK · LangChain · full cloud SDKs · **AI Engineer (deep, 7B)** (Qwen2.5-7B-Instruct deep persona, Apache-2.0) — the full local bench, cloud frontier one click away |
 
 Tier upgrade is a single `./arailctl upgrade maximus` away; downgrade
 likewise. Knowledge Base and Agents are part of `minimalist`
 deliberately — research without memory is a non-starter.
 
-**v1.0.0 default model:** `ai-eng` is the only model that auto-installs
-during setup. Setup pulls the self-hosted ai-eng GGUF (HuggingFace primary
-via `ollama pull hf.co/...`, GitHub Release mirror as fallback) with digest
-verification; falls back to a preview base until the GGUF is uploaded. The
-chat catalog (`src/arail/chat/models_catalog.yaml`) keeps ~20 other models
-as a browse-and-pull gallery — nothing else ships pre-installed. AirLLM is
-opt-in via `ARAIL_INSTALL_AIRLLM=1`.
+**v1.1 default model:** `llama-ai-eng` is the only model that auto-installs
+during setup. Setup does `ollama pull llama3.2:1b` then
+`ollama create llama-ai-eng -f models/ai-eng/Modelfile.default` — no
+uploaded artifact required, works on a clean machine today. The chat catalog
+(`src/arail/chat/models_catalog.yaml`) keeps ~20 other models as a
+browse-and-pull gallery — nothing else ships pre-installed. The maximus deep
+persona (`ai-engineer`, Qwen2.5-7B, Apache-2.0) is offered on maximus setup
+but not forced. AirLLM is opt-in via `ARAIL_INSTALL_AIRLLM=1`.
+
+**Llama disclosure exception (required for any session working on the default model):**
+The default model (`llama-ai-eng`) is built on Llama-3.2-1B-Instruct under
+the **Llama 3.2 Community License**, which REQUIRES disclosure — do NOT
+hide this base. The name MUST begin with "Llama" (`llama-ai-eng`), "Built
+with Llama" MUST be displayed in README/catalog/persona system prompt, and
+NOTICE MUST bundle the license + AUP (`licenses/`). The hide-the-base rule
+applies ONLY to the Apache-2.0 deep/qwen lineage (`ai-engineer`, 7B).
 
 The CLI is `./arailctl` (also reachable via `./qkz`). The main verbs:
 

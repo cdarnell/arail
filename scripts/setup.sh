@@ -761,172 +761,212 @@ install_services() {
         info "Ollama already installed ($(ollama --version 2>&1 | head -1))"
     fi
 
-    # v1.0.0 — ai-eng is the ONLY model that auto-installs.
-    # ai-eng is a 1.5B-parameter Opus-4.7-derived AI engineering expert from
-    # QuKaiZen's Project Nucleus, served via Ollama. Setup uses a self-hosted
-    # fetch ladder: HuggingFace primary (ollama pull hf.co/...), GitHub Release
-    # mirror (sha256-verified HTTPS download + ollama create), optional
-    # qukaizen.com CDN mirror, then a last-resort preview net
-    # (qwen2.5:1.5b + Modelfile.preview) until the GGUF is uploaded.
+    # Two-tier persona-wrap model strategy (MODEL-TIERS-V2, 2026-05-31):
     #
-    # All host URLs/quant/digest are env-overridable:
-    #   ARAIL_AI_ENG_HF_REPO  ARAIL_AI_ENG_QUANT  ARAIL_AI_ENG_GH_URL
-    #   ARAIL_AI_ENG_CDN_URL  ARAIL_AI_ENG_SHA256
-    # Defaults read from pyproject.toml [tool.arail.models].
+    #   DEFAULT PATH (minimalist):
+    #     ollama pull llama3.2:1b → ollama create llama-ai-eng -f Modelfile.default
+    #     License: Llama 3.2 Community License. Model name begins with "Llama".
+    #
+    #   DORMANT self-hosted GGUF ladder (opt-in: ARAIL_AI_ENG_SELFHOSTED=1):
+    #     HF primary → GitHub mirror (sha256-verified) → CDN → preview net.
+    #     This is the future Nucleus-distill lane. Off by default.
+    #
+    #   MAXIMUS DEEP (offered, not forced):
+    #     Prints the command to install ai-engineer (Qwen2.5-7B-Instruct + persona).
+    #     Auto-runs only with ARAIL_INSTALL_DEEP_PERSONA=1.
     #
     # Skip the entire block with ARAIL_SKIP_OLLAMA=1 on slow/offline setups.
 
     if command -v ollama &>/dev/null; then
         if [[ "${ARAIL_SKIP_OLLAMA:-0}" == "1" ]]; then
-            warn "ARAIL_SKIP_OLLAMA=1 — skipping ai-eng install. Run later:"
-            warn "  ollama pull hf.co/qukaizen/ai-eng-1.5b-gguf:Q4_K_M"
-            warn "  (or: ollama pull ai_eng_preview_base && ollama create ai-eng -f models/ai-eng/Modelfile.preview)"
+            warn "ARAIL_SKIP_OLLAMA=1 — skipping model install. Run later:"
+            warn "  ollama pull llama3.2:1b && ollama create llama-ai-eng -f models/ai-eng/Modelfile.default"
             return
-        fi
-
-        # Idempotent re-run: if ai-eng already exists in Ollama, we're done.
-        if ollama show ai-eng &>/dev/null; then
-            info "ai-eng model already present in Ollama — skipping."
-            return
-        fi
-
-        # Migrate pre-v1.0.0 installs: if `ai-engineer:latest` exists but
-        # `ai-eng:latest` does not, alias instantly via `ollama cp` instead
-        # of re-pulling several GB of weights. The chat catalog and the
-        # v1.0.0 fallback chain both look for `ai-eng:latest`, so this
-        # makes both names resolve to the same model.
-        if ollama show ai-engineer:latest &>/dev/null; then
-            info "Found legacy ai-engineer:latest — aliasing as ai-eng:latest (no re-download)…"
-            if ollama cp ai-engineer:latest ai-eng:latest 2>&1 | tail -3; then
-                info "ai-eng:latest now aliases ai-engineer:latest. Done."
-                return
-            else
-                warn "ollama cp failed — falling through to fresh pull."
-            fi
         fi
 
         local _modelfile_dir="${REPO_ROOT:-$PWD}/models/ai-eng"
-        local _gguf_tmp="${TMPDIR:-/tmp}/arail_ai_eng_download.gguf"
-        local _ai_eng_ok=0
 
-        # ── Read self-hosted config from env (with pyproject-derived defaults) ──
-        local _hf_repo="${ARAIL_AI_ENG_HF_REPO:-qukaizen/ai-eng-1.5b-gguf}"  # __PLACEHOLDER__
-        local _quant="${ARAIL_AI_ENG_QUANT:-Q4_K_M}"                          # __PLACEHOLDER__
-        local _gh_url="${ARAIL_AI_ENG_GH_URL:-https://github.com/qukaizen/arail/releases/download/ai-eng-1.5b/ai-eng-1.5b-Q4_K_M.gguf}"  # __PLACEHOLDER__
-        local _cdn_url="${ARAIL_AI_ENG_CDN_URL:-}"                            # optional; empty = skip
-        local _sha256="${ARAIL_AI_ENG_SHA256:-__PLACEHOLDER_SHA256__}"
-
-        # ── 1. HuggingFace primary: ollama pull hf.co/<repo>:<quant> ──────────
-        # Ollama verifies HF layer digests natively — no extra sha256 check needed.
-        # This is the clean single-pull win condition once the GGUF is uploaded.
-        info "Fetching ai-eng (self-hosted HuggingFace primary)…"
-        if _arail_timeout 900 ollama pull "hf.co/${_hf_repo}:${_quant}" 2>&1 | tail -5; then
-            info "ai-eng fetched from HuggingFace. Done."
-            _ai_eng_ok=1
-        else
-            warn "HuggingFace pull failed (artifact may not be uploaded yet, or network issue) — trying mirror…"
-        fi
-
-        # ── Helper: verify sha256 and run ollama create from local GGUF ───────
-        _install_from_gguf() {
-            local _url="$1" _label="$2"
-            # Fail-closed: if sha256 is still a placeholder, skip the mirror.
-            if [[ "$_sha256" == "__PLACEHOLDER_SHA256__" ]]; then
-                warn "ai_eng_sha256 is still a placeholder — mirror path (${_label}) is disabled"
-                warn "until a real digest is pinned (run scripts/build_ai_eng.sh publish, then"
-                warn "set ARAIL_AI_ENG_SHA256 or ai_eng_sha256 in pyproject.toml)."
-                return 1
-            fi
-            info "Downloading ai-eng from ${_label}…"
-            rm -f "$_gguf_tmp"
-            if ! _arail_timeout 900 curl -fL -m 900 -o "$_gguf_tmp" "$_url" 2>&1 | tail -3; then
-                warn "${_label} download failed or timed out."
-                rm -f "$_gguf_tmp"
-                return 1
-            fi
-            # Verify sha256 before trusting the blob (supply-chain).
-            local _got_sha256
-            _got_sha256="$(sha256sum "$_gguf_tmp" 2>/dev/null | awk '{print $1}')"
-            if [[ "$_got_sha256" != "$_sha256" ]]; then
-                warn "sha256 mismatch on ${_label} download (got ${_got_sha256}, expected ${_sha256})."
-                warn "Discarding unverified file — skipping ollama create."
-                rm -f "$_gguf_tmp"
-                return 1
-            fi
-            info "sha256 verified. Creating ai-eng from local GGUF…"
-            # Generate a minimal Modelfile pointing at the downloaded GGUF.
-            local _gen_mf="${TMPDIR:-/tmp}/arail_ai_eng_gen.Modelfile"
-            printf 'FROM %s\n' "$_gguf_tmp" > "$_gen_mf"
-            if _arail_timeout 300 ollama create ai-eng -f "$_gen_mf" 2>&1 | tail -5; then
-                rm -f "$_gguf_tmp" "$_gen_mf"
-                return 0
-            else
-                warn "ollama create failed from ${_label}."
-                rm -f "$_gguf_tmp" "$_gen_mf"
-                return 1
-            fi
-        }
-
-        # ── 2. GitHub Release mirror ──────────────────────────────────────────
-        if [[ "$_ai_eng_ok" -eq 0 ]]; then
-            if _install_from_gguf "$_gh_url" "GitHub Release"; then
-                info "ai-eng installed from GitHub Release mirror. Done."
-                _ai_eng_ok=1
-            else
-                warn "GitHub Release mirror failed — trying next fallback…"
-            fi
-        fi
-
-        # ── 3. qukaizen.com CDN mirror (optional; skip if URL not set) ────────
-        if [[ "$_ai_eng_ok" -eq 0 && -n "$_cdn_url" ]]; then
-            if _install_from_gguf "$_cdn_url" "qukaizen.com CDN"; then
-                info "ai-eng installed from qukaizen.com CDN mirror. Done."
-                _ai_eng_ok=1
-            else
-                warn "CDN mirror failed — falling through to preview net…"
-            fi
-        fi
-
-        # ── 4. LAST-RESORT preview net (until self-hosted GGUF is uploaded) ───
-        # Reached when: artifact not yet uploaded, or all hosts unreachable.
-        # The preview net pulls a base via Ollama and applies Modelfile.preview.
-        # This path is intentional and documented; it is NOT a surprise pull.
-        if [[ "$_ai_eng_ok" -eq 0 ]]; then
-            warn "Self-hosted ai-eng artifact not reachable — falling back to preview net."
-            warn "Once the GGUF is uploaded, re-run setup to use the self-hosted path."
-            local _preview_base="qwen2.5:1.5b"  # class-c internal ref; kept as operator config
-            local _preview_mf="${_modelfile_dir}/Modelfile.preview"
-            info "Fetching preview base (~1 GB) — this may take a minute…"
-            if _arail_timeout 900 ollama pull "$_preview_base" 2>&1 | tail -5; then
-                if [[ -f "$_preview_mf" ]]; then
-                    info "Creating ai-eng from preview Modelfile…"
-                    if _arail_timeout 300 ollama create ai-eng -f "$_preview_mf" 2>&1 | tail -5; then
-                        info "ai-eng (preview) ready. Re-run setup after the GGUF is uploaded."
-                        _ai_eng_ok=1
+        # ── Idempotency: if any ai-eng family model is already present, skip ──
+        # Candidate order: llama-ai-eng (new default) > ai-eng (v1.0.0) > ai-engineer (pre-v1.0.0)
+        if ollama show llama-ai-eng &>/dev/null; then
+            info "llama-ai-eng already present in Ollama — skipping default install."
+        elif ollama show ai-eng &>/dev/null; then
+            info "ai-eng model already present in Ollama — skipping default install."
+        elif ollama show ai-engineer:latest &>/dev/null; then
+            # Legacy pre-v1.0.0 install: adopt ai-engineer:latest as the deep persona.
+            # Do NOT alias it to llama-ai-eng — ai-engineer:latest is the 7B deep model
+            # (Qwen2.5-7B, Apache-2.0). Aliasing it to the 1B default would mislabel
+            # a 7B as the 1B default. Instead: note it as the deep model and install
+            # the 1B default fresh.
+            info "Found legacy ai-engineer:latest (7B deep persona) — this is the maximus deep model."
+            info "Installing the 1B default (llama-ai-eng) separately…"
+            _install_llama_ai_eng() {
+                info "Pulling llama3.2:1b (Llama-3.2-1B-Instruct, ~0.9 GB)…"
+                if _arail_timeout 900 ollama pull llama3.2:1b 2>&1 | tail -5; then
+                    info "Creating llama-ai-eng persona from Modelfile.default…"
+                    if _arail_timeout 300 ollama create llama-ai-eng -f "${_modelfile_dir}/Modelfile.default" 2>&1 | tail -5; then
+                        info "llama-ai-eng ready (AI engineer persona, built with Llama)."
+                        return 0
                     else
-                        warn "ai-eng preview create failed. Run manually:"
-                        warn "  ollama create ai-eng -f ${_preview_mf}"
+                        warn "ollama create llama-ai-eng failed. Run manually:"
+                        warn "  ollama create llama-ai-eng -f ${_modelfile_dir}/Modelfile.default"
+                        return 1
                     fi
                 else
-                    warn "Modelfile.preview missing at ${_preview_mf} — skipping preview create."
+                    warn "ollama pull llama3.2:1b failed (offline or network issue). Run manually:"
+                    warn "  ollama pull llama3.2:1b && ollama create llama-ai-eng -f ${_modelfile_dir}/Modelfile.default"
+                    return 1
                 fi
+            }
+            _install_llama_ai_eng || true
+        else
+            # ── DEFAULT PATH: persona-wrap install ────────────────────────────
+            # Primary and ONLY default path (MODEL-TIERS-V2 §2):
+            #   1. ollama pull llama3.2:1b   — fetches Meta Llama-3.2-1B-Instruct Q4_K_M
+            #   2. ollama create llama-ai-eng — wraps it with the AI-engineer SYSTEM prompt
+            # No HF artifact, no sha256, no ladder. Works today. License: Llama 3.2 Community.
+            #
+            # DORMANT self-hosted ladder is gated behind ARAIL_AI_ENG_SELFHOSTED=1 (below).
+
+            if [[ "${ARAIL_AI_ENG_SELFHOSTED:-0}" == "1" ]]; then
+                # ── DORMANT self-hosted GGUF ladder (opt-in) ──────────────────
+                # This is the future Nucleus-distill lane. Not the default path.
+                info "ARAIL_AI_ENG_SELFHOSTED=1 — using dormant self-hosted GGUF ladder…"
+
+                local _gguf_tmp="${TMPDIR:-/tmp}/arail_ai_eng_download.gguf"
+                local _ai_eng_ok=0
+                local _hf_repo="${ARAIL_AI_ENG_HF_REPO:-qukaizen/ai-eng-1.5b-gguf}"  # __PLACEHOLDER__
+                local _quant="${ARAIL_AI_ENG_QUANT:-Q4_K_M}"                          # __PLACEHOLDER__
+                local _gh_url="${ARAIL_AI_ENG_GH_URL:-https://github.com/qukaizen/arail/releases/download/ai-eng-1.5b/ai-eng-1.5b-Q4_K_M.gguf}"  # __PLACEHOLDER__
+                local _cdn_url="${ARAIL_AI_ENG_CDN_URL:-}"
+                local _sha256="${ARAIL_AI_ENG_SHA256:-__PLACEHOLDER_SHA256__}"
+
+                info "Fetching ai-eng (self-hosted HuggingFace primary)…"
+                if _arail_timeout 900 ollama pull "hf.co/${_hf_repo}:${_quant}" 2>&1 | tail -5; then
+                    info "ai-eng fetched from HuggingFace. Done."
+                    _ai_eng_ok=1
+                else
+                    warn "HuggingFace pull failed — trying mirror…"
+                fi
+
+                _install_from_gguf() {
+                    local _url="$1" _label="$2"
+                    if [[ "$_sha256" == "__PLACEHOLDER_SHA256__" ]]; then
+                        warn "ai_eng_sha256 is still a placeholder — mirror path (${_label}) is disabled"
+                        warn "until a real digest is pinned (run scripts/build_ai_eng.sh publish, then"
+                        warn "set ARAIL_AI_ENG_SHA256 or ai_eng_sha256 in pyproject.toml)."
+                        return 1
+                    fi
+                    info "Downloading ai-eng from ${_label}…"
+                    rm -f "$_gguf_tmp"
+                    if ! _arail_timeout 900 curl -fL -m 900 -o "$_gguf_tmp" "$_url" 2>&1 | tail -3; then
+                        warn "${_label} download failed or timed out."
+                        rm -f "$_gguf_tmp"
+                        return 1
+                    fi
+                    local _got_sha256
+                    _got_sha256="$(sha256sum "$_gguf_tmp" 2>/dev/null | awk '{print $1}')"
+                    if [[ "$_got_sha256" != "$_sha256" ]]; then
+                        warn "sha256 mismatch on ${_label} download (got ${_got_sha256}, expected ${_sha256})."
+                        warn "Discarding unverified file — skipping ollama create."
+                        rm -f "$_gguf_tmp"
+                        return 1
+                    fi
+                    info "sha256 verified. Creating ai-eng from local GGUF…"
+                    local _gen_mf="${TMPDIR:-/tmp}/arail_ai_eng_gen.Modelfile"
+                    printf 'FROM %s\n' "$_gguf_tmp" > "$_gen_mf"
+                    if _arail_timeout 300 ollama create ai-eng -f "$_gen_mf" 2>&1 | tail -5; then
+                        rm -f "$_gguf_tmp" "$_gen_mf"
+                        return 0
+                    else
+                        warn "ollama create failed from ${_label}."
+                        rm -f "$_gguf_tmp" "$_gen_mf"
+                        return 1
+                    fi
+                }
+
+                if [[ "$_ai_eng_ok" -eq 0 ]]; then
+                    if _install_from_gguf "$_gh_url" "GitHub Release"; then
+                        info "ai-eng installed from GitHub Release mirror. Done."
+                        _ai_eng_ok=1
+                    else
+                        warn "GitHub Release mirror failed…"
+                    fi
+                fi
+
+                if [[ "$_ai_eng_ok" -eq 0 && -n "$_cdn_url" ]]; then
+                    if _install_from_gguf "$_cdn_url" "qukaizen.com CDN"; then
+                        info "ai-eng installed from qukaizen.com CDN mirror. Done."
+                        _ai_eng_ok=1
+                    else
+                        warn "CDN mirror failed — falling through to preview net…"
+                    fi
+                fi
+
+                if [[ "$_ai_eng_ok" -eq 0 ]]; then
+                    warn "Self-hosted ai-eng artifact not reachable — falling back to preview net."
+                    local _preview_base="qwen2.5:1.5b"
+                    local _preview_mf="${_modelfile_dir}/Modelfile.preview"
+                    if _arail_timeout 900 ollama pull "$_preview_base" 2>&1 | tail -5; then
+                        if [[ -f "$_preview_mf" ]]; then
+                            if _arail_timeout 300 ollama create ai-eng -f "$_preview_mf" 2>&1 | tail -5; then
+                                info "ai-eng (preview) ready. Re-run setup after the GGUF is uploaded."
+                            else
+                                warn "ai-eng preview create failed."
+                            fi
+                        fi
+                    else
+                        warn "Preview base fetch failed. Run manually:"
+                        warn "  ollama pull qwen2.5:1.5b && ollama create ai-eng -f ${_preview_mf}"
+                    fi
+                fi
+
+                rm -f "$_gguf_tmp"
             else
-                warn "Preview base fetch failed or timed out. Setup continues without ai-eng."
-                warn "Run manually once online:"
-                warn "  ollama pull hf.co/${_hf_repo}:${_quant}  # self-hosted (primary)"
-                warn "  # or: ollama pull qwen2.5:1.5b && ollama create ai-eng -f ${_modelfile_dir}/Modelfile.preview"
+                # ── DEFAULT PATH: simple persona-wrap (MODEL-TIERS-V2 §2) ────
+                info "Installing Llama AI Engineer (built with Llama-3.2-1B-Instruct)…"
+                info "Pulling llama3.2:1b (~0.9 GB) — this may take a minute…"
+                if _arail_timeout 900 ollama pull llama3.2:1b 2>&1 | tail -5; then
+                    info "Creating llama-ai-eng persona (AI engineer, Built with Llama)…"
+                    if _arail_timeout 300 ollama create llama-ai-eng -f "${_modelfile_dir}/Modelfile.default" 2>&1 | tail -5; then
+                        info "llama-ai-eng ready. Default AI engineer is installed."
+                    else
+                        warn "ollama create llama-ai-eng failed. Run manually:"
+                        warn "  ollama create llama-ai-eng -f ${_modelfile_dir}/Modelfile.default"
+                    fi
+                else
+                    warn "ollama pull llama3.2:1b failed (offline or network issue). Run manually:"
+                    warn "  ollama pull llama3.2:1b && ollama create llama-ai-eng -f ${_modelfile_dir}/Modelfile.default"
+                fi
             fi
         fi
 
-        # Migrate legacy ai-engineer model from pre-v1.0.0 installs.
-        # We don't auto-remove it (the user might have customised it).
-        if ollama show ai-engineer &>/dev/null; then
-            info "Note: legacy ai-engineer model found in Ollama. To remove:"
-            info "  ollama rm ai-engineer"
+        # ── Maximus deep persona OFFER ─────────────────────────────────────────
+        # The 7B deep persona (ai-engineer, Qwen2.5-7B, Apache-2.0) is offered,
+        # not forced. Auto-installs only with ARAIL_INSTALL_DEEP_PERSONA=1.
+        if [[ "${LAB_TIER:-minimalist}" == "maximus" ]] || [[ "${ARAIL_INSTALL_DEEP_PERSONA:-0}" == "1" ]]; then
+            if ollama show ai-engineer:latest &>/dev/null; then
+                info "ai-engineer (deep 7B persona) already present — skipping."
+            elif [[ "${ARAIL_INSTALL_DEEP_PERSONA:-0}" == "1" ]]; then
+                info "ARAIL_INSTALL_DEEP_PERSONA=1 — installing deep AI engineer persona (7B)…"
+                if _arail_timeout 900 ollama pull qwen2.5:7b 2>&1 | tail -5; then
+                    if _arail_timeout 300 ollama create ai-engineer -f "${_modelfile_dir}/Modelfile.deep" 2>&1 | tail -5; then
+                        info "ai-engineer (deep 7B persona) ready."
+                    else
+                        warn "ollama create ai-engineer failed. Run manually:"
+                        warn "  ollama create ai-engineer -f ${_modelfile_dir}/Modelfile.deep"
+                    fi
+                else
+                    warn "ollama pull qwen2.5:7b failed. Run manually:"
+                    warn "  ollama pull qwen2.5:7b && ollama create ai-engineer -f ${_modelfile_dir}/Modelfile.deep"
+                fi
+            else
+                info "Maximus deep AI engineer (7B, Qwen2.5-7B-Instruct) not installed."
+                info "To install, run:"
+                info "  ollama pull qwen2.5:7b && ollama create ai-engineer -f ${_modelfile_dir}/Modelfile.deep"
+                info "  (or set ARAIL_INSTALL_DEEP_PERSONA=1 and re-run setup)"
+            fi
         fi
-
-        # Clean up tmp file if anything left it behind.
-        rm -f "$_gguf_tmp"
     fi
 }
 

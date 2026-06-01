@@ -1,0 +1,81 @@
+LLAMA 3.2 ACCEPTABLE USE POLICY
+Effective Date: September 25, 2024
+
+Meta is committed to promoting the responsible development and maintenance of AI
+for the benefit of all. As part of this commitment, we have adopted this Acceptable
+Use Policy ("Policy") that applies to your use of Llama 3.2.
+
+If you access or use Llama 3.2 in any way, you agree to this Policy. Use of Llama
+3.2 is also subject to our Privacy Policy; by using Llama 3.2, you agree to our
+Privacy Policy located at https://www.facebook.com/privacy/policy/.
+
+Prohibited Uses:
+
+We want everyone to use Llama 3.2 safely and responsibly. You agree you will not
+use, or allow others to use, Llama 3.2 to:
+
+1. Violate the law or others' rights, including to:
+   a. Engage in, promote, generate, contribute to, encourage, plan, incite, or
+      further illegal or unlawful activity or content, such as:
+      i.   Violence or terrorism
+      ii.  Exploitation or harm to children, including the solicitation,
+           creation, acquisition, or dissemination of child exploitative content
+           or failure to report Child Sexual Abuse Material
+      iii. Human trafficking, exploitation, and sexual violence
+      iv.  The illegal distribution of information or materials to minors,
+           including obscene materials, or failing to employ legally required
+           age-gating in connection with such information or materials.
+      v.   Sexual solicitation
+      vi.  Any other criminal activity
+   b. Engage in, promote, incite, or facilitate the harassment or abuse of
+      individuals or groups of individuals
+   c. Facilitate the actual or threatened violence or harassment of individuals
+      based on age, color, disability, ethnicity, gender, gender identity, legal
+      immigration status, national origin, political affiliation, race, religion,
+      sex, sexual orientation, or veteran status
+   d. Promote, facilitate, or engage in the unauthorized or unlicensed practice
+      of any profession including, but not limited to, financial, legal, medical/
+      health, or related professional practices
+   e. Collect, process, disclose, generate, or infer health, demographic, or
+      other sensitive personal or private information about individuals without
+      rights and consents required by applicable laws
+   f. Engage in or facilitate any action or generate any content that infringes,
+      misappropriates, or otherwise violates any third-party rights, including
+      the outputs or results of any products or services using the Llama Materials
+   g. Create, generate, or facilitate the creation of malicious code, malware,
+      computer viruses or do anything else that could disable, overburden,
+      interfere with or impair the proper working, integrity, operation or
+      appearance of a website or computer system
+
+2. Engage in, promote, incite, facilitate, or assist in the planning or development
+   of activities that present a risk of death or bodily harm to individuals,
+   including use of Llama 3.2 related to the following:
+   a. Military, warfare, nuclear industries or applications, espionage, use for
+      materials or activities that are subject to the International Traffic Arms
+      Regulations (ITAR) maintained by the United States Department of State
+   b. Guns and illegal weapons (including weapon modifications)
+   c. Illegal drugs and regulated/controlled substances
+   d. Operation of critical infrastructure, critical safety systems, or critical
+      financial systems
+   e. Creation of malicious code or malware
+
+3. Intentionally deceive or mislead users, including use of Llama 3.2 related to the
+   following:
+   a. Generating, promoting, or furthering fraud or the creation or promotion of
+      disinformation
+   b. Generating, promoting, or furthering defamatory content, including the
+      creation of defamatory statements, images, or other content
+   c. Generating, promoting, or further distributing spam
+   d. Impersonating another individual without consent, authorization, or legal
+      right
+   e. Representing that the AI is a human when directly and sincerely asked or
+      otherwise enabling users to take actions predicated on believing output to
+      be human-generated
+   f. Generating malicious code, including malware, ransomware, viruses, etc.
+
+4. Fail to appropriately oversee, monitor, and control AI-generated content.
+
+Full policy text: https://www.llama.com/llama3_2/use-policy
+
+This Acceptable Use Policy forms part of the Llama 3.2 Community License Agreement.
+Violation of this Policy may result in termination of your license to use Llama 3.2.

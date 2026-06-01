@@ -28,7 +28,7 @@ only auto-install; 20–30B deep model is maximus quick-download.
 | build | builder | BUILD_LOG.md | done | 16:30 | 16:45 | done (9 commits, no regressions) |
 | review | architect (review) | REVIEW.md | done | 16:45 | 16:52 | WEAK_PASS |
 | test | qa | TEST_REPORT.md | done | 16:52 | 17:08 | WEAK_PASS |
-| ship | — | PR | awaiting user | — | — | — |
+| ship | — | PR #75 | done | 17:10 | 17:12 | PR opened to main |
 
 ## Decisions log
 

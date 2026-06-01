@@ -226,4 +226,138 @@ None. CONSOLIDATION.md was fully specified; no gaps or conflicts discovered duri
 
 ### Deferred (per CONSOLIDATION.md §6)
 
-- **Real llama-quantize step:** The convert path still emits f16/bf16 only. A real `llama-quantize` call (OOM-guarded, sentinel-idempotent) that produces the Q4_K_M artifact matching `ai_eng_quant` end-to-end remains a follow-up. `print_upload_instructions` prints the manual `llama-quantize` command as a TODO block so operators know the step.
+- **Real llama-quantize step:** Implemented — see section below.
+
+---
+
+## Real llama-quantize step (2026-05-31)
+
+**Commit:** `ea3bf9d`
+
+### Files changed
+
+| File | Change |
+|---|---|
+| `scripts/build_ai_eng.py` | Added `_ensure_llama_quantize_bin()` (clone+cmake provisioning, dry-run stub); added `quantize_gguf()` (sentinel-idempotent, OOM+disk guarded, exit 50 on failure, dry-run stub); chained convert→quantize in build flow and convert subcommand; updated `_run_publish` to prefer quantized GGUF, stage published-name file, compute sha256 on published file; removed "deferred follow-up" caveat from `--quant` help and `print_upload_instructions` |
+| `scripts/build_ai_eng.sh` | Thread `--quant` into `build` and `convert` subcommands; post-build log line now prints quantized artifact path and the exact `publish` command |
+| `tests/test_build_ai_eng_dry_run.py` | +18 OOM-safe tests: `TestQuantizeGgufDryRun` (7), `TestBuildChainIncludesQuantize` (3), `TestPublishStagingAlignment` (2), `TestPublishHelpers.test_upload_instructions_no_deferred_caveat` (1) |
+
+### Test results
+
+**124/124 passed** (was 124 before; no regressions). Includes all pre-existing suites plus new tests.
+
+### Operator command sequence (end-to-end)
+
+```bash
+# 1. Full build (download → candidates → bench → convert → quantize → modelfile → ollama create)
+./scripts/build_ai_eng.sh build --quant Q4_K_M
+
+# Artifact produced: build/ai-eng-1.5b-v2.1.Q4_K_M.gguf
+
+# 2. Review bench output, then publish
+./scripts/build_ai_eng.sh publish \
+  --yes-i-have-read-bench \
+  --license Apache-2.0 \
+  --quant Q4_K_M
+
+# Publish stages: build/ai-eng-1.5b-Q4_K_M.gguf (published name, exact bytes)
+# Prints sha256 to pin in pyproject.toml ai_eng_sha256
+# Prints upload commands (HF + GitHub Release) — printed only, never auto-executed
+
+# 3. Pin the sha256 in pyproject.toml [tool.arail.models]
+#    ai_eng_sha256 = "<printed sha>"
+
+# 4. Verify the artifact is live after uploading
+scripts/check_ai_eng_artifact.sh
+```
+
+---
+
+## Two-tier model strategy v2 (MODEL-TIERS-V2, 2026-05-31)
+
+**Spec:** [MODEL-TIERS-V2.md](./MODEL-TIERS-V2.md)
+**Builder:** claude-sonnet-4-6
+
+### Confirmed facts (builder verification before committing)
+
+**Llama 3.2 Community License obligations confirmed:**
+1. Copy of agreement required → bundled at `licenses/LLAMA-3.2-COMMUNITY-LICENSE.txt`
+2. "Built with Llama" display required → in README, catalog entry, Modelfile.default SYSTEM
+3. Model name must begin with "Llama" → `llama-ai-eng` (compliant)
+4. Verbatim required notice string (§1.b.iii):
+   "Llama 3.2 is licensed under the Llama 3.2 Community License,
+    Copyright © Meta Platforms, Inc. All Rights Reserved."
+   → present in NOTICE and in the license file
+5. AUP must be included → bundled at `licenses/LLAMA-3.2-ACCEPTABLE-USE-POLICY.txt`
+6. 700M MAU clause → noted in NOTICE for forkers
+
+**Verified MLX repo ID (2026-05-31, HTTP 200 on HF):**
+  `mlx-community/Llama-3.2-1B-Instruct-4bit` — confirmed exists
+
+**Verified BF16 repo ID (2026-05-31, HTTP 200 on HF):**
+  `meta-llama/Llama-3.2-1B-Instruct` — confirmed exists
+
+**Qwen2.5-7B-Instruct license:** Apache-2.0 (verified live: ai-engineer:latest
+reports Apache-2.0 per ARCHITECTURE.md §1 Assumption 3). NOTICE Section 2 carries
+the Apache-2.0 attribution.
+
+### Files changed
+
+| File | Change |
+|---|---|
+| `NOTICE` | Rewritten dual-base: Section 1 Llama-3.2-1B Community License (verbatim notice string, Built with Llama, AUP ref, llama-ai-eng naming), Section 2 Qwen2.5-7B Apache-2.0, Section 3 dormant distill note |
+| `licenses/LLAMA-3.2-COMMUNITY-LICENSE.txt` (new) | Canonical Llama 3.2 Community License text |
+| `licenses/LLAMA-3.2-ACCEPTABLE-USE-POLICY.txt` (new) | Llama 3.2 Acceptable Use Policy |
+| `LICENSE` | Extends pointer line to name both Llama 3.2 Community License and Apache-2.0 |
+| `models/ai-eng/Modelfile.default` (new) | FROM llama3.2:1b + AI-engineer SYSTEM + "Built with Llama" |
+| `models/ai-eng/Modelfile.deep` (new) | FROM qwen2.5:7b + deep AI-engineer SYSTEM |
+| `models/ai-eng/Modelfile.preview` | Added dormant comment (no content change) |
+| `.gitignore` | Added `!models/*/Modelfile.*` to track the new Modelfile.* variants |
+| `pyproject.toml` | Added default_base/default_model_name/default_license/default_modelfile, deep_persona_*, labeled ai_eng_* as DORMANT; updated tier descriptions |
+| `scripts/setup.sh` | Rewrote install_models(): persona-wrap default; ladder behind ARAIL_AI_ENG_SELFHOSTED=1; maximus deep OFFER; legacy 7B not aliased to 1B |
+| `src/arail/chat/models_catalog.yaml` | ai-eng:latest -> llama-ai-eng; added ai-engineer deep row + llama3.2:1b base row; renamed frontier lane row |
+| `src/arail/portal/app.py` | Extended _resilient_chat_default candidate list; MODEL_NAME default -> llama-ai-eng |
+| `scripts/build_ai_eng.py` | DEFAULT_BF16_BASE/MLX_BASE/ADAPTER_REPO -> Llama-3.2-1B; fallback NOTICE updated |
+| `scripts/build_ai_eng.sh` | Same base re-targets |
+| `README.md` | Llama AI Engineer branding; Built with Llama; deep 7B entry; llama-ai-eng default |
+| `CLAUDE.md` | Tier table updates; v1.1 default; Llama disclosure exception added |
+| `docs/INSTALL.md` | Step 8: persona-wrap install narrative; dormant lane doc |
+| `CHANGELOG.md` | Two-tier model v2 Unreleased section |
+| `tests/test_model_hosting_reframe_qa.py` | Updated qwen-hiding guards (allow Llama); dual-base NOTICE assertions; 14 new regression guards |
+| `tests/setup_ladder/conftest.py` | Added llama_pull_ok param; llama3.2:1b stub case |
+| `tests/setup_ladder/test_setup_ladder.py` | Rewrote per MODEL-TIERS-V2: default path, idempotency, legacy alias, dormant ladder, safety guards |
+| `tests/test_build_ai_eng_dry_run.py` | Updated fallback NOTICE assertion to Llama base |
+
+### Commits
+
+| SHA | Message |
+|---|---|
+| 6762891 | feat(compliance): Llama 3.2 Community License bundle + dual-base NOTICE |
+| 9d3c450 | feat(config): two-tier persona-wrap keys in pyproject.toml |
+| 6620923 | feat(setup): persona-wrap default install; ladder behind ARAIL_AI_ENG_SELFHOSTED=1 |
+| 55eb9ef | feat(catalog+resolver): llama-ai-eng default; deep 7B row; back-compat resolver |
+| 0b14d2f | feat(build): re-base dormant distill lane to Llama-3.2-1B-Instruct |
+| 73b3db4 | docs(copy): Llama AI Engineer branding + Built with Llama + install narrative |
+| aa24b30 | test(model-tiers-v2): update guards for Llama default + two-tier persona-wrap |
+
+### Test results
+
+- Target suite (test_model_hosting_reframe_qa.py + setup_ladder/ + test_build_ai_eng_dry_run.py + test_modelfile_checksums.py): **145/145 passed**
+- Full suite: **2188 passed, 17 failed** (all 17 failures are pre-existing; baseline before this sprint work was 16 failed / 2083 passed — one pre-existing failure fixed elsewhere, net no new failures)
+
+### Architect feedback required
+
+None. MODEL-TIERS-V2.md was fully specified. One minor gap surfaced and resolved
+autonomously: .gitignore only tracked `!models/*/Modelfile` (no suffix), blocking
+the new `Modelfile.default` and `Modelfile.deep`. Extended to `!models/*/Modelfile.*`
+— this is a gitignore fix, not a design change.
+
+### Deferred (per MODEL-TIERS-V2.md §7 / out of scope this sprint)
+
+- `check_ai_eng_artifact.sh` + `scripts/package_ai_eng.sh` references: these are
+  the dormant GGUF lane's tooling and were not updated (out of scope for the
+  persona-wrap default path). The dormant lane's HF repo / artifact filenames
+  remain pointing at the 1.5B gguf placeholders — these will need updating if
+  the Nucleus-distill lane is ever revived with a Llama-1B base artifact.
+- `tests/test_pkb.py`: no changes needed (no pkb-touching edits).
+- `tuning.html`: no 1.5B/ai-eng references found — no update needed.

@@ -39,9 +39,9 @@ dependencies = [
 # bench). Upgrade any time with `./arailctl upgrade maximus`.
 #
 #   minimalist → Dashboard + Chat + Autoresearch + Knowledge Base + Agents
-#                + LanceDB vector recall. Ships ai-eng (the only default
-#                model — a 1.5B-parameter Opus-4.7-derived AI engineering expert from
-#                QuKaiZen's Project Nucleus) via Ollama. External provider
+#                + LanceDB vector recall. Ships Llama AI Engineer (llama-ai-eng,
+#                the only default model — built with Llama-3.2-1B-Instruct,
+#                ~0.9 GB, runs on 16 GB) via Ollama. External provider
 #                chat (Claude / NVIDIA / OpenRouter / HF) works here via
 #                plain HTTP, no extra SDK.
 #   maximus    → + Admin + Notebooks + AeroLLM deep-mode streaming +
@@ -129,29 +129,46 @@ configuration_source = "pyproject.toml"
 
 [tool.arail.tiers]
 # Declarative surface matrix. portal/app.py reads this to tier-gate the nav.
-minimalist = { description = "Minimalist — Dashboard, Chat, Autoresearch, Knowledge Base (with LanceDB vector recall), Agents, Docs. Ships ai-eng (QuKaiZen's 1.5B-parameter Opus-4.7-derived AI engineering expert) as the sole default model. No deep backend by default.", surfaces = ["dashboard", "chat", "research", "knowledge", "agents", "docs"] }
+minimalist = { description = "Minimalist — Dashboard, Chat, Autoresearch, Knowledge Base (with LanceDB vector recall), Agents, Docs. Ships Llama AI Engineer (built with Llama-3.2-1B-Instruct, ~0.9 GB, runs on 16 GB) as the sole default model. No deep backend by default.", surfaces = ["dashboard", "chat", "research", "knowledge", "agents", "docs"] }
 maximus    = { description = "Maximus — Everything in Minimalist + Admin, Docs, Notebooks, LangChain/LangGraph, full cloud catalog. Adds AeroLLM deep mode — the heaviest model that runs well locally; cloud frontier models are one click away via Compute Source.", surfaces = ["dashboard", "chat", "research", "knowledge", "agents", "admin", "docs", "notebooks", "terminal", "tuning", "plugins"] }
 # Legacy aliases — one-release compat shim, removed in v1.1.0.
 min = { description = "(deprecated alias for `minimalist`)", surfaces = ["dashboard", "chat", "research", "knowledge", "agents", "docs"] }
 max = { description = "(deprecated alias for `maximus`)", surfaces = ["dashboard", "chat", "research", "knowledge", "agents", "admin", "docs", "notebooks", "terminal", "tuning", "plugins"] }
 
 [tool.arail.models]
-# v1.0.0 ships ONE default model: ai-eng. A 1.5B-parameter Opus-4.7-derived
-# AI engineering expert built from QuKaiZen's Project Nucleus.
+# Two-tier persona-wrap model strategy (MODEL-TIERS-V2, 2026-05-31):
 #
-# Setup pulls the self-hosted ai-eng GGUF (HuggingFace primary via
-# `ollama pull hf.co/...`, GitHub Release mirror as fallback with sha256
-# digest verification). Falls back to a preview base until the GGUF is
-# uploaded. Re-running setup after upload uses the self-hosted path.
+#   minimalist default: llama-ai-eng — Llama-3.2-1B-Instruct + AI-engineer
+#     persona via Modelfile.default SYSTEM prompt. Install: ollama pull
+#     llama3.2:1b → ollama create llama-ai-eng -f models/ai-eng/Modelfile.default
+#     License: Llama 3.2 Community License (see NOTICE, licenses/).
 #
-# No other models auto-install. The chat catalog
-# (src/arail/chat/models_catalog.yaml) lists ~20 additional models the
-# user can browse and pull on demand — none ship pre-installed.
+#   maximus deep: ai-engineer — Qwen2.5-7B-Instruct + AI-engineer persona
+#     via Modelfile.deep. Offered (not auto-installed) on maximus setup.
+#     License: Apache-2.0.
+#
+# The self-hosted GGUF ladder (ai_eng_hf_repo / ai_eng_quant / ai_eng_gh_url /
+# ai_eng_sha256) is DORMANT — future Nucleus-distill lane; gated behind
+# ARAIL_AI_ENG_SELFHOSTED=1. The shipping default is `default_base` above.
 
-# ── Self-hosted ai-eng artifact (HuggingFace primary) ─────────────────────
-# __PLACEHOLDER__ values: fill in after running scripts/build_ai_eng.sh publish
-# and uploading the GGUF. Forks rebrand by overriding these env vars or
-# editing this block — no code edits required.
+# ── Two-tier persona-wrap defaults ────────────────────────────────────────
+# Minimalist (everyday) default: Llama-3.2-1B-Instruct + AI-engineer persona
+default_base          = "llama3.2:1b"
+default_model_name    = "llama-ai-eng"
+default_license       = "Llama-3.2-Community-License"
+default_modelfile     = "models/ai-eng/Modelfile.default"
+
+# Maximus deep persona: Qwen2.5-7B-Instruct + AI-engineer persona
+deep_persona_base     = "qwen2.5:7b"
+deep_persona_name     = "ai-engineer"
+deep_persona_license  = "Apache-2.0"
+deep_persona_modelfile = "models/ai-eng/Modelfile.deep"
+
+# ── Self-hosted ai-eng artifact (DORMANT — future Nucleus-distill lane) ───
+# DORMANT — future Nucleus-distill lane; gated behind ARAIL_AI_ENG_SELFHOSTED=1.
+# The shipping default is `default_base` above (llama3.2:1b persona-wrap).
+# Fill in after running scripts/build_ai_eng.sh publish and uploading the GGUF.
+# Forks rebrand by overriding these env vars or editing this block.
 ai_eng_hf_repo  = "qukaizen/ai-eng-1.5b-gguf"  # __PLACEHOLDER__ — set your HF org/repo
 ai_eng_quant    = "Q4_K_M"                     # placeholder quant; confirm after packaging
 ai_eng_gh_url   = "https://github.com/qukaizen/arail/releases/download/ai-eng-1.5b/ai-eng-1.5b-Q4_K_M.gguf"  # __PLACEHOLDER__
