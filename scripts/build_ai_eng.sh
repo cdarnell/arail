@@ -44,9 +44,11 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 SUBCOMMAND="${1:-build}"
 shift || true
 
-ADAPTER_REPO="qukaizen/qkz-opus4.7-aieng-1.5b-v2.1-adapter"
-BF16_BASE="Qwen/Qwen2.5-1.5B-Instruct"  # Apache-2.0
-MLX_BASE="mlx-community/Qwen2.5-1.5B-Instruct-4bit"  # Apache-2.0
+# DORMANT self-hosted lane (ARAIL_AI_ENG_SELFHOSTED=1). Future Nucleus-distill lane.
+# Re-based to Llama-3.2-1B-Instruct (MODEL-TIERS-V2, 2026-05-31). License: Llama 3.2 Community.
+ADAPTER_REPO="qukaizen/qkz-opus4.7-aieng-1b-v2.1-adapter"
+BF16_BASE="meta-llama/Llama-3.2-1B-Instruct"          # Llama 3.2 Community License
+MLX_BASE="mlx-community/Llama-3.2-1B-Instruct-4bit"   # Llama 3.2 Community License
 BENCH_PROMPTS="models/ai-eng/bench-prompts.v2.1.yaml"
 LLAMA_CPP_REV="b3500"
 MIN_FREE_RAM_GB="16"

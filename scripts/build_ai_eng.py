@@ -43,9 +43,15 @@ log = logging.getLogger("build_ai_eng")
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
-DEFAULT_ADAPTER_REPO = "qukaizen/qkz-opus4.7-aieng-1.5b-v2.1-adapter"
-DEFAULT_BF16_BASE = "Qwen/Qwen2.5-1.5B-Instruct"  # Apache-2.0
-DEFAULT_MLX_BASE = "mlx-community/Qwen2.5-1.5B-Instruct-4bit"  # Apache-2.0
+# DORMANT self-hosted lane (ARAIL_AI_ENG_SELFHOSTED=1). Future Nucleus-distill lane.
+# Re-based from Qwen2.5-1.5B to Llama-3.2-1B-Instruct (MODEL-TIERS-V2, 2026-05-31)
+# to match the shipping default. License: Llama 3.2 Community License.
+# Confirmed HF ids (2026-05-31):
+#   meta-llama/Llama-3.2-1B-Instruct   — HTTP 200 on HF
+#   mlx-community/Llama-3.2-1B-Instruct-4bit — HTTP 200 on HF
+DEFAULT_ADAPTER_REPO = "qukaizen/qkz-opus4.7-aieng-1b-v2.1-adapter"
+DEFAULT_BF16_BASE = "meta-llama/Llama-3.2-1B-Instruct"   # Llama 3.2 Community License
+DEFAULT_MLX_BASE = "mlx-community/Llama-3.2-1B-Instruct-4bit"  # Llama 3.2 Community License
 DEFAULT_LLAMA_CPP_REV = "b3500"
 DEFAULT_MIN_FREE_RAM_GB = 16
 DEFAULT_MIN_FREE_DISK_GB = 30
@@ -1007,11 +1013,13 @@ def emit_notice_beside_gguf(build_dir: Path, gguf_path: Path) -> None:
             "Repo-root NOTICE not found at %s — writing minimal fallback NOTICE.", repo_notice
         )
         notice_dest.write_text(
-            "NOTICE: ai-eng is derived from Qwen/Qwen2.5-1.5B-Instruct (Alibaba Cloud),\n"
-            "licensed under Apache-2.0. See the repo-root NOTICE file and\n"
-            "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct/blob/main/LICENSE\n"
-            "for the full license text. This NOTICE MUST be included in any redistribution\n"
-            "of the ai-eng GGUF artifact (HuggingFace model card, GitHub release, CDN).\n"
+            "NOTICE: The default model (llama-ai-eng) is derived from\n"
+            "meta-llama/Llama-3.2-1B-Instruct (Meta Platforms, Inc.).\n"
+            "License: Llama 3.2 Community License.\n"
+            "Required attribution: 'Llama 3.2 is licensed under the Llama 3.2 Community License,\n"
+            "Copyright (c) Meta Platforms, Inc. All Rights Reserved.'\n"
+            "Built with Llama. See the repo-root NOTICE file and licenses/ directory for full text.\n"
+            "This NOTICE MUST be included in any redistribution of the GGUF artifact.\n"
         )
         log.info("Minimal fallback NOTICE written to %s", notice_dest)
 
