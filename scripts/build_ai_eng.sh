@@ -89,8 +89,18 @@ log_info()  { echo "[build_ai_eng] INFO : $*"; }
 log_warn()  { echo "[build_ai_eng] WARN : $*" >&2; }
 log_error() { echo "[build_ai_eng] ERROR: $*" >&2; }
 
+# Resolve the Python interpreter. Prefer the repo venv (./.venv/bin/python3)
+# when present — that's where the build deps (psutil, peft, mlx_lm, …) are
+# installed, so the build works without the operator remembering to
+# `source .venv/bin/activate` first. Falls back to PATH python3.
+PYTHON=""
 require_python() {
-  if ! command -v python3 &>/dev/null; then
+  if [[ -x "${REPO_ROOT}/.venv/bin/python3" ]]; then
+    PYTHON="${REPO_ROOT}/.venv/bin/python3"
+    log_info "Using repo venv interpreter: ${PYTHON}"
+  elif command -v python3 &>/dev/null; then
+    PYTHON="python3"
+  else
     log_error "python3 not found. Install Python 3.10+ and try again."
     exit 1
   fi
@@ -144,7 +154,7 @@ case "$SUBCOMMAND" in
     check_portal_not_running
     QUANT_VAL="${QUANT_FLAG#--quant }"
     [[ -z "$QUANT_VAL" ]] && QUANT_VAL="Q4_K_M"
-    python3 "$PYTHON_HELPER" build "${BASE_ARGS[@]}" ${QUANT_FLAG}
+    "$PYTHON" "$PYTHON_HELPER" build "${BASE_ARGS[@]}" ${QUANT_FLAG}
     BENCH_EXIT=$?
     if [[ $BENCH_EXIT -eq 10 ]]; then
       log_error "Both candidates failed bench gate. Sprint shelved per ARCHITECTURE F6."
@@ -163,7 +173,7 @@ case "$SUBCOMMAND" in
 
   bench-only)
     log_info "Re-running bench only (assuming build/mlx-fused/ and build/bf16-merged/ exist)"
-    python3 "$BENCH_HELPER" \
+    "$PYTHON" "$BENCH_HELPER" \
       "--candidate-a-path" "${BUILD_DIR}/mlx-fused" \
       "--candidate-b-path" "${BUILD_DIR}/bf16-merged" \
       "--prompts-file"     "$BENCH_PROMPTS" \
@@ -184,7 +194,7 @@ case "$SUBCOMMAND" in
     fi
     log_info "Converting Candidate $CANDIDATE to GGUF"
     # shellcheck disable=SC2086
-    python3 "$PYTHON_HELPER" convert "${BASE_ARGS[@]}" --candidate "$CANDIDATE" ${QUANT_FLAG}
+    "$PYTHON" "$PYTHON_HELPER" convert "${BASE_ARGS[@]}" --candidate "$CANDIDATE" ${QUANT_FLAG}
     ;;
 
   publish)
@@ -195,7 +205,7 @@ case "$SUBCOMMAND" in
     [[ -n "$LICENSE_FLAG" ]] && PUBLISH_ARGS+=($LICENSE_FLAG)
     # shellcheck disable=SC2086
     [[ -n "$QUANT_FLAG" ]] && PUBLISH_ARGS+=($QUANT_FLAG)
-    python3 "$PYTHON_HELPER" publish "${PUBLISH_ARGS[@]}"
+    "$PYTHON" "$PYTHON_HELPER" publish "${PUBLISH_ARGS[@]}"
     PUBLISH_EXIT=$?
     if [[ $PUBLISH_EXIT -eq 70 ]]; then
       log_error "Publish refused. Pass --yes-i-have-read-bench and --license <id> after reviewing BENCH-v2.1.md."
@@ -208,17 +218,17 @@ case "$SUBCOMMAND" in
   clean)
     log_info "Cleaning build/"
     # Preserve models/ai-eng/BENCH-v2.1.md (it's in repo, not in build/)
-    python3 "$PYTHON_HELPER" clean "${BASE_ARGS[@]}"
+    "$PYTHON" "$PYTHON_HELPER" clean "${BASE_ARGS[@]}"
     log_info "build/ cleaned. models/ai-eng/BENCH-v2.1.md preserved."
     ;;
 
   dry-run)
     log_info "Dry-run mode: exercising every code path without downloads or model loads"
-    python3 "$PYTHON_HELPER" dry-run "${BASE_ARGS[@]}"
+    "$PYTHON" "$PYTHON_HELPER" dry-run "${BASE_ARGS[@]}"
     DRY_EXIT=$?
     log_info "Dry-run complete (exit $DRY_EXIT)."
     # Also exercise bench --dry-run
-    python3 "$BENCH_HELPER" --dry-run \
+    "$PYTHON" "$BENCH_HELPER" --dry-run \
       "--out" "${BUILD_DIR}/BENCH-v2.1.md-dry"
     log_info "Bench dry-run complete."
     exit "$DRY_EXIT"
