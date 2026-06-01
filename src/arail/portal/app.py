@@ -6004,14 +6004,20 @@ _OPTIONAL_CHAT_BACKEND_CONFIG: dict[str, dict[str, str]] = {
 def _resilient_chat_default(candidate: str | None) -> str | None:
     """Return `candidate` if it's installed; else pick a sensible installed model.
 
-    Handles the `MODEL_NAME=ai-engineer:latest` (legacy) ↔ `ai-eng:latest`
-    (v1.0.0 catalog) drift without forcing operators to edit `.env`.
+    Handles name drift across versions without forcing operators to edit `.env`:
+      - v1.1+ default: `llama-ai-eng` (Llama-3.2-1B + AI-engineer persona, Built with Llama)
+      - v1.0.0 name: `ai-eng:latest`
+      - pre-v1.0.0 name: `ai-engineer:latest`
+
+    Candidate list checked in preference order (back-compat):
+      ["llama-ai-eng", "ai-eng:latest", "ai-engineer:latest"]
+    Then any installed model matching the ai-eng-family regex.
+
     Preference order when falling back:
-      1. any installed model whose id matches `^ai-eng(?:ineer)?:`
-      2. `qwen2.5:7b` (the documented preview base)
+      1. any installed model matching the ai-eng-family regex (covers all three names)
+      2. `qwen2.5:7b` (documented preview base)
       3. the first installed model (any runtime)
-      4. the original `candidate` (so we don't lose info if nothing's
-         installed yet — the loader will surface the real error).
+      4. the original `candidate` (so we don't lose info if nothing installed yet)
     """
     if not candidate:
         return candidate
@@ -6025,8 +6031,12 @@ def _resilient_chat_default(candidate: str | None) -> str | None:
         return candidate
     if not ids:
         return candidate
+    # Check the back-compat candidate list in preference order.
+    for preferred in ("llama-ai-eng", "ai-eng:latest", "ai-engineer:latest"):
+        if preferred in ids:
+            return preferred
     import re as _re
-    _ai_eng_rx = _re.compile(r"^ai-eng(?:ineer)?(?::|$)", _re.IGNORECASE)
+    _ai_eng_rx = _re.compile(r"^(?:llama-ai-eng|ai-eng(?:ineer)?)(?::|$)", _re.IGNORECASE)
     for mid in ids:
         if _ai_eng_rx.match(mid):
             return mid
@@ -6479,7 +6489,7 @@ async def api_chat_models(provider: str = ""):
     backend_name = router.backend_name
     be = router._backend
     active_provider = _load_active_provider()
-    current = _get_live_ollama_current(be) or getattr(be, "model_name", None) or os.getenv("MODEL_NAME", "ai-eng:latest")
+    current = _get_live_ollama_current(be) or getattr(be, "model_name", None) or os.getenv("MODEL_NAME", "llama-ai-eng")
     # Safety net: if `current` doesn't actually exist on any local runtime
     # (e.g. .env carries a stale MODEL_NAME like `ai-engineer:latest` from
     # a pre-v1.0.0 install, but only `ai-eng:latest` is now installed),
