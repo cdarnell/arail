@@ -163,3 +163,111 @@ Existing suite: 2093 → 2136 passing (+43 new). Pre-existing failures: 17, unch
   Re-run that test after any upload to confirm the flip before deleting the preview net.
 - When [ASK-LICENSE] is resolved toward route (a), re-point the NOTICE production base
   and the preview base to the same compliant model and re-run tests 20–25.
+
+---
+
+# Test report (Phase 2): Two-tier model strategy v2 (MODEL-TIERS-V2)
+
+**Date:** 2026-05-31
+**Build:** [BUILD_LOG.md](./BUILD_LOG.md) "Two-tier model v2" section at `9004eaf`
+**QA commits:** `85f6c25`, `0757f9b`, `7a2abfc`
+**Verdict:** PASS
+
+## Summary
+
+All 16 required coverage items are locked by explicit regression tests.
+13 of 16 already had coverage from the builder's `aa24b30` test commit; QA
+added **12 new tests** across 3 files to close the 3 remaining gaps:
+deep-persona offer/gating *behavior*, `build_ai_eng.sh require_python`
+resolution, and the model-building pack count + base-model primer.
+
+- Targeted suite: 172 → **184 passed** (+12 new), zero failures.
+- Full suite: **2200 passed / 17 failed / 1 xfailed** — all 17 failures are
+  pre-existing and confirmed unchanged against the stashed baseline (none touch
+  this sprint's surfaces). **Zero new failures introduced.**
+
+OOM-safety honored throughout: every test mocks `ollama`/`curl`/`python3` via
+PATH shims or asserts on source/config strings. No model pull, no
+`ollama create`, no LLM load, no llama.cpp build, no uvicorn, no network.
+
+## Required-coverage map (16 items)
+
+| # | Item | Status | Where |
+|---|---|---|---|
+| 1 | Default pulls `llama3.2:1b` + creates `llama-ai-eng` (not GGUF) | EXISTS | `test_setup_ladder::test_default_path_pulls_llama_1b_and_creates_llama_ai_eng` |
+| 2 | Self-hosted GGUF lane dormant unless `ARAIL_AI_ENG_SELFHOSTED=1` | EXISTS | `test_setup_ladder::test_selfhosted_flag_activates_hf_ladder`; `..._qa::test_self_hosted_ladder_gated_behind_env_flag` |
+| 3 | Deep model offer/install + `ARAIL_INSTALL_DEEP_PERSONA` gating | **ADDED** | `test_setup_ladder::test_minimalist_default_does_not_offer_or_pull_deep_7b`, `::test_deep_persona_flag_auto_installs_7b_via_modelfile_deep`, `::test_deep_persona_auto_install_still_installs_1b_default`, `::test_existing_ai_engineer_not_repulled_when_deep_requested`, `::test_deep_7b_pull_failure_is_graceful`, `::test_maximus_deep_offer_is_command_not_autopull_in_source` |
+| 4 | No 7B→1B mislabel alias (v1 footgun) | EXISTS | `test_setup_ladder::test_legacy_ai_engineer_not_aliased_to_1b_default`; `..._qa::test_no_mislabel_alias_7b_as_1b_default` |
+| 5 | Two deep sentinels not conflated (frontier keeps sentinel) | EXISTS | `..._qa::test_surface_b_airllm_sentinel_unchanged`, `::test_app_default_model_is_sentinel`, `::test_no_deep_default_resolves_to_a_real_weight` |
+| 6 | Back-compat resolver order `[llama-ai-eng, ai-eng:latest, ai-engineer:latest]` | EXISTS | `..._qa::test_resilient_chat_default_*` (4) |
+| 7 | 16 GB-floor guard (default base is 1B) | EXISTS | `..._qa::test_default_base_is_16gb_safe_1b_llama` |
+| 8 | Llama license + AUP files exist, non-trivial | EXISTS | `..._qa::test_llama_license_files_exist_and_nonempty` |
+| 9 | "Built with Llama" verbatim in NOTICE+README+catalog+Modelfile.default | EXISTS | `..._qa::test_llama_attribution_present_in_required_locations`, `::test_notice_dual_base_structure` |
+| 10 | Distributed default name begins with "Llama" | EXISTS | `..._qa::test_pyproject_has_two_tier_persona_keys`, `::test_modelfile_default_exists_and_has_llama_base` |
+| 11 | NOTICE dual-base (Llama Community + Qwen Apache-2.0) | EXISTS | `..._qa::test_notice_dual_base_structure` |
+| 12 | Qwen-hiding guard ALLOWS required Llama attribution | EXISTS | `..._qa::test_no_qwen_in_ai_eng_identity_lines`, `::test_catalog_llama_ai_eng_default_entry_has_no_qwen` |
+| 13 | `_arail_timeout` shim: 3 branches | EXISTS | `test_timeout_shim.py` (3) |
+| 14 | `build_ai_eng.sh` prefers `./.venv/bin/python3`, falls back to PATH | **ADDED** | `test_build_ai_eng_dry_run::TestRequirePythonResolution` (4) |
+| 15 | `package_ai_eng.sh` is thin deprecation shim | EXISTS | `..._qa::test_package_ai_eng_is_retired_shim` |
+| 16 | `09-choosing-a-base-model.md` in pack (count = 10) | **ADDED** | `test_pkb::test_model_building_pack_has_ten_files_including_base_model_primer`, `::test_base_model_primer_installs_to_disk` |
+
+## New tests (12)
+
+- **`tests/setup_ladder/test_setup_ladder.py` (+6):** deep-persona OFFER/gating
+  (Surface A). The mock harness can't set `LAB_TIER` (setup.sh resets it to `""`
+  at top level; the tier is only captured inside `main()`, which the harness
+  skips), so the offer-only branch is asserted at source level while auto-install
+  is exercised behaviorally via `ARAIL_INSTALL_DEEP_PERSONA=1`.
+- **`tests/test_build_ai_eng_dry_run.py` (+4):** `require_python` resolution —
+  extracts the shell function, drives it under a restricted PATH with mock
+  venv/PATH interpreters, plus an OOM-safety assertion that it resolves a path
+  and never executes python.
+- **`tests/test_pkb.py` (+2):** model-building pack is exactly 10 primers
+  including the base-model primer, in `_PACKS` and on disk.
+
+## Failures
+
+None in this sprint's surfaces. The 17 full-suite failures are pre-existing and
+unrelated (`test_aerollm_defaults` kv-budget — the parallel KV sprint this
+branch is named for; `test_docs_routes*`, `test_swarm_goal_surfaces`,
+`test_dashboard_layout_v2`, `test_system_metrics`, `test_qa_airgap_*`,
+`test_opencode_*`). Confirmed identical on the stashed baseline. Not this
+sprint's bug; out of scope.
+
+## Security review
+
+| Surface | Checked | Findings |
+|---|---|---|
+| Llama 3.2 license | Verbatim notice string in NOTICE + license file; "Built with Llama" in NOTICE/README/catalog/Modelfile.default; name `llama-ai-eng` begins with "Llama"; AUP bundled+referenced | PASS |
+| Dual-base NOTICE | §1 Llama Community, §2 Qwen Apache-2.0, §3 dormant; Qwen Research License absent | PASS |
+| OOM / surprise pull | minimalist never auto-pulls 7B; maximus offers + gates behind flag; frontier sentinel intact; no 70B/405B default | PASS (honors OOM memory note) |
+| Size-mislabel footgun | no `ollama cp`/`tag` aliasing 7B→1B in setup.sh | PASS |
+| Self-hosted ladder gating | runs only under `ARAIL_AI_ENG_SELFHOSTED=1`; default makes zero HF/curl; placeholder sha fail-closed | PASS |
+| Credentials | no `hf_…`/`ghp_…`/`api_key=…` literals in packaging/build scripts | PASS |
+| `LAB_MODE=airgapped` | unchanged; model pull not a cloud-egress change | PASS |
+| require_python | resolves venv-then-PATH; never executes python | PASS |
+
+## Performance
+
+N/A — config/copy/shell/persona-wrap sprint (per MODEL-TIERS-V2 §6).
+
+## Coverage delta
+
+- Targeted suite: 172 → **184 passed** (+12, 0 failures).
+- Full suite: 2188 → **2200 passed**, 17 failed (unchanged), 1 xfailed. Net new
+  failures: **0**.
+
+## Notes for the next QA pass
+
+- The mock harness can't set `LAB_TIER` (reset to `""` at module top level;
+  tier captured only inside `main()`). True tier-driven behavioral coverage of
+  the maximus offer-only branch would need a harness hook or a refactor that
+  captures the tier in a function. The branch is currently source-asserted —
+  adequate but structural, not behavioral.
+- Dormant GGUF lane tooling (`check_ai_eng_artifact.sh`, `package_ai_eng.sh`)
+  still references the `ai-eng-1.5b-gguf` placeholders, not a Llama-1B artifact
+  (intentionally out of scope). If revived on a Llama base, update the
+  artifact-name guard in `test_pyproject_self_hosted_keys_are_placeholder_marked`.
+- The 17 pre-existing failures (notably `test_aerollm_defaults` kv-budget)
+  belong to the parallel KV-budget work this branch is named for; triage in
+  their own sprint.
