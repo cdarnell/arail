@@ -717,3 +717,106 @@ class TestPublishStagingAlignment:
         assert sha_internal == sha_published, (
             "sha256 of published file must match internal (they are the same bytes after copy)"
         )
+
+
+# ===========================================================================
+# require_python resolution (MODEL-TIERS-V2 QA item 14)
+# build_ai_eng.sh must prefer ./.venv/bin/python3 when present, else fall
+# back to PATH python3, else error out. OOM-safe: require_python only
+# RESOLVES an interpreter path; it never executes python or loads a model.
+# ===========================================================================
+
+import shutil as _shutil
+import subprocess
+
+BUILD_AI_ENG_SH = REPO_ROOT / "scripts" / "build_ai_eng.sh"
+_BASH = _shutil.which("bash") or "/bin/bash"
+
+
+def _extract_require_python() -> str:
+    """Pull the require_python() function text out of build_ai_eng.sh."""
+    lines = BUILD_AI_ENG_SH.read_text().splitlines()
+    start = next(i for i, ln in enumerate(lines)
+                 if ln.startswith("require_python() {"))
+    end = next(i for i in range(start + 1, len(lines)) if lines[i] == "}")
+    return "\n".join(lines[start:end + 1])
+
+
+def _drive_require_python(tmp_path: Path, *, venv_python: bool,
+                          path_python: bool) -> subprocess.CompletedProcess:
+    binp = tmp_path / "bin"
+    binp.mkdir()
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    if venv_python:
+        venv_bin = repo / ".venv" / "bin"
+        venv_bin.mkdir(parents=True)
+        vp = venv_bin / "python3"
+        vp.write_text("#!/bin/bash\necho VENV_PY\n")
+        vp.chmod(0o755)
+
+    if path_python:
+        pp = binp / "python3"
+        pp.write_text("#!/bin/bash\necho PATH_PY\n")
+        pp.chmod(0o755)
+
+    drive = tmp_path / "drive.sh"
+    drive.write_text(
+        "set -uo pipefail\n"
+        'log_info() { echo "INFO $*"; }\n'
+        'log_error() { echo "ERROR $*" >&2; }\n'
+        f'REPO_ROOT="{repo}"\n'
+        "PYTHON=\"\"\n"
+        f"{_extract_require_python()}\n"
+        "require_python\n"
+        'echo "RESOLVED=$PYTHON"\n'
+    )
+    # PATH restricted to the stub bin so only the intended branch is reachable.
+    return subprocess.run(
+        [_BASH, str(drive)],
+        env={"PATH": str(binp)},
+        capture_output=True, text=True, timeout=30,
+    )
+
+
+class TestRequirePythonResolution:
+    def test_prefers_repo_venv_python(self, tmp_path):
+        """When ./.venv/bin/python3 exists, require_python prefers it over PATH."""
+        r = _drive_require_python(tmp_path, venv_python=True, path_python=True)
+        assert r.returncode == 0, r.stderr
+        assert "/.venv/bin/python3" in r.stdout, (
+            "must resolve to the repo venv interpreter when present"
+        )
+        assert "RESOLVED=" in r.stdout
+        resolved = [ln for ln in r.stdout.splitlines() if ln.startswith("RESOLVED=")][0]
+        assert resolved.endswith("/.venv/bin/python3"), (
+            f"PYTHON must point at the venv interpreter, got: {resolved}"
+        )
+        # It must announce the venv choice.
+        assert "repo venv interpreter" in r.stdout
+
+    def test_falls_back_to_path_python3_when_no_venv(self, tmp_path):
+        """No repo venv → fall back to PATH python3 (the literal 'python3')."""
+        r = _drive_require_python(tmp_path, venv_python=False, path_python=True)
+        assert r.returncode == 0, r.stderr
+        assert "RESOLVED=python3" in r.stdout, (
+            "must fall back to bare 'python3' from PATH when no venv exists"
+        )
+        assert "/.venv/bin/python3" not in r.stdout
+
+    def test_errors_when_no_python_at_all(self, tmp_path):
+        """Neither venv nor PATH python3 → require_python errors out (exit 1)."""
+        r = _drive_require_python(tmp_path, venv_python=False, path_python=False)
+        assert r.returncode != 0, "must exit nonzero when no python3 is available"
+        assert "python3 not found" in r.stderr or "python3 not found" in r.stdout
+
+    def test_require_python_does_not_execute_python(self, tmp_path):
+        """OOM-safety: require_python resolves a path; it must not RUN python.
+
+        The stub python prints VENV_PY/PATH_PY when executed. If require_python
+        merely resolves (correct), those markers never appear in the output.
+        """
+        r = _drive_require_python(tmp_path, venv_python=True, path_python=True)
+        assert "VENV_PY" not in r.stdout, "require_python must not execute python"
+        assert "PATH_PY" not in r.stdout, "require_python must not execute python"
