@@ -6,6 +6,49 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed (2026-05-31 two-tier model strategy v2 — MODEL-TIERS-V2)
+
+- **Default model → `llama-ai-eng` (Llama-3.2-1B-Instruct + AI-engineer persona, Built with Llama).**
+  Setup now does `ollama pull llama3.2:1b` → `ollama create llama-ai-eng -f models/ai-eng/Modelfile.default`
+  instead of the self-hosted GGUF ladder. Works on a clean machine today, no
+  uploaded artifact required. The model name `llama-ai-eng` begins with "Llama"
+  per the Llama 3.2 Community License naming clause.
+
+- **Maximus deep model resolved: `ai-engineer` (Qwen2.5-7B-Instruct, Apache-2.0, 4.7 GB).**
+  The `__TODO_DEEP_MODEL__` sentinel for the user-facing deep persona is now a
+  concrete model: `ai-engineer` (Qwen2.5-7B + AI-engineer Modelfile.deep SYSTEM
+  prompt). Offered on maximus setup (prints the install command); auto-installs
+  only with `ARAIL_INSTALL_DEEP_PERSONA=1`. The AirLLM/AeroLLM frontier
+  layer-streaming sentinel (`__TODO_DEEP_MODEL__`) is kept separately — the two
+  deep surfaces are not conflated.
+
+- **Self-hosted GGUF ladder demoted to dormant opt-in lane (`ARAIL_AI_ENG_SELFHOSTED=1`).**
+  The HF-primary → GitHub-mirror → CDN → preview-net cascade is no longer the
+  default path. It is preserved as the future Nucleus-distill lane behind the
+  flag. `Modelfile.preview` and `Modelfile.production` are kept (dormant).
+
+- **NOTICE dual-base rewrite.** Section 1: Llama-3.2-1B-Instruct, Llama 3.2
+  Community License, verbatim required notice string, "Built with Llama"
+  display locations, AUP reference. Section 2: Qwen2.5-7B-Instruct, Apache-2.0.
+  Section 3: dormant distill lane note.
+
+- **License bundle added (`licenses/`).**
+  `licenses/LLAMA-3.2-COMMUNITY-LICENSE.txt` and
+  `licenses/LLAMA-3.2-ACCEPTABLE-USE-POLICY.txt` — satisfies the Llama 3.2
+  Community License §1.b.i.A (provide a copy of the agreement) and §1.b.iv
+  (include the AUP).
+
+- **Branding: 1.5B → 1B for the default; deep = 7B.** README, CLAUDE.md,
+  pyproject.toml, catalog, Modelfiles, docs updated.
+
+- **Back-compat chat resolver extended.** `_resilient_chat_default` now checks
+  `["llama-ai-eng", "ai-eng:latest", "ai-engineer:latest"]` in order. Existing
+  installs keep working; new installs resolve `llama-ai-eng`.
+
+- **`build_ai_eng.py`/`.sh` dormant-lane base re-targeted to Llama-3.2-1B-Instruct.**
+  Verified HF ids: `meta-llama/Llama-3.2-1B-Instruct` (HTTP 200) and
+  `mlx-community/Llama-3.2-1B-Instruct-4bit` (HTTP 200).
+
 ### Fixed (2026-05-31 clean-setup on macOS)
 
 - **ai-eng now installs on a clean macOS box.** GNU `timeout(1)` is absent on

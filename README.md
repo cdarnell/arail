@@ -60,10 +60,14 @@ Two tiers. Pick one; upgrade later.
 
 | Tier  | What you get                                                                                                            | Good for                                         |
 | ----- | ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
-| `minimalist` | Dashboard · Chat · Autoresearch · Knowledge Base · Agents · LanceDB vectors · **ai-eng** (1.5B-parameter Opus-4.7-derived AI engineering expert, from QuKaiZen's Project Nucleus) | The everyday lab. One default model. No bloat. |
-| `maximus`    | + Admin · Docs · Notebooks · **AeroLLM** deep-mode runtime · Anthropic SDK · LangChain · full cloud SDKs              | The full bench. The heaviest model that runs *well* on your machine — with cloud frontier models one click away in the Chat Compute Source. |
+| `minimalist` | Dashboard · Chat · Autoresearch · Knowledge Base · Agents · LanceDB vectors · **Llama AI Engineer** — an AI engineering assistant **built with Llama** (Llama-3.2-1B-Instruct, ~0.9 GB, runs on 16 GB) | The everyday lab. One default model. No bloat. |
+| `maximus`    | + Admin · Docs · Notebooks · **AeroLLM** deep-mode runtime · Anthropic SDK · LangChain · full cloud SDKs · **AI Engineer (deep, 7B)** — a deep AI engineer persona (offered, not forced; ~4.7 GB) | The full bench. The heaviest model that runs *well* on your machine — with cloud frontier models one click away in the Chat Compute Source. |
 
-`ai-eng` is the only model that ships pre-installed. The chat catalog
+> **Built with Llama.** The default model (`llama-ai-eng`) is built on Llama-3.2-1B-Instruct
+> (Meta Platforms, Inc.) under the [Llama 3.2 Community License](licenses/LLAMA-3.2-COMMUNITY-LICENSE.txt).
+> See [NOTICE](NOTICE) for attribution details.
+
+`llama-ai-eng` is the only model that ships pre-installed. The chat catalog
 includes ~20 other models (Qwen, Gemma, Phi, DeepSeek-R1, etc.) you can
 browse and pull on demand. AirLLM is opt-in via `ARAIL_INSTALL_AIRLLM=1`.
 
