@@ -52,6 +52,7 @@ case "$1" in
     echo "PULL $2" >> "$QA_LOG"
     case "$2" in
       hf.co/*) [[ "$QA_HF_OK" == "1" ]] && exit 0 || exit 1 ;;
+      llama3.2:1b) [[ "$QA_LLAMA_PULL_OK" == "1" ]] && exit 0 || exit 1 ;;
       *) [[ "$QA_PREVIEW_PULL_OK" == "1" ]] && exit 0 || exit 1 ;;
     esac ;;
   create) echo "CREATE $*" >> "$QA_LOG"; [[ "$QA_CREATE_OK" == "1" ]] && exit 0 || exit 1 ;;
@@ -97,8 +98,8 @@ def ladder(tmp_path):
         p.chmod(0o755)
 
     def _run(*, ollama_version="0.5.0", installed="", hf_ok="0",
-             preview_pull_ok="1", create_ok="1", cp_ok="1", curl_ok="0",
-             fake_sha="deadbeef", env=None):
+             llama_pull_ok="1", preview_pull_ok="1", create_ok="1",
+             cp_ok="1", curl_ok="0", fake_sha="deadbeef", env=None):
         _write("ollama", _OLLAMA_STUB.format(ollama_version=ollama_version))
         _write("curl", _CURL_STUB)
         _write("sha256sum", _SHA_STUB)
@@ -115,6 +116,7 @@ def ladder(tmp_path):
             "QA_LOG": str(qa_log),
             "QA_INSTALLED": installed,
             "QA_HF_OK": hf_ok,
+            "QA_LLAMA_PULL_OK": llama_pull_ok,
             "QA_PREVIEW_PULL_OK": preview_pull_ok,
             "QA_CREATE_OK": create_ok,
             "QA_CP_OK": cp_ok,

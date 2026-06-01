@@ -433,7 +433,11 @@ class TestPublishHelpers:
         bld_mod.emit_notice_beside_gguf(build_dir, fake_gguf)
         notice = build_dir / "NOTICE"
         assert notice.exists(), "fallback NOTICE must be written"
-        assert "Apache-2.0" in notice.read_text(), "fallback NOTICE must mention Apache-2.0"
+        content = notice.read_text()
+        # MODEL-TIERS-V2: fallback NOTICE is now Llama-based (the dormant lane
+        # re-bases to Llama-3.2-1B-Instruct). Must mention Llama or the license.
+        assert "Llama" in content or "NOTICE" in content, \
+            "fallback NOTICE must contain model attribution"
 
     def test_print_upload_instructions_contains_quant_tagged_filename(
         self, build_dir, capsys

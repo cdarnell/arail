@@ -127,16 +127,18 @@ def test_app_default_model_is_sentinel():
 
 
 # ===========================================================================
-# QWEN-HIDING REGRESSION GUARD (security / attribution)
+# LLAMA ATTRIBUTION + QWEN-HIDING REGRESSION GUARD (security / attribution)
+# MODEL-TIERS-V2 update (2026-05-31):
+#   - The default model (llama-ai-eng) is Llama-3.2-1B-Instruct under the
+#     Llama 3.2 Community License. Llama attribution is REQUIRED — the
+#     "hide the base" rule is REVERSED for the 1B default.
+#   - The deep model (ai-engineer) is Qwen2.5-7B, Apache-2.0. Qwen lineage
+#     stays in NOTICE/config, not marketing copy.
 # ===========================================================================
 
-# The ONLY places "qwen" (ai-eng lineage) may appear user-facing:
-#   - the single Modelfile.preview FROM line (class-c base ref, WC#3-permitted)
-#   - license/attribution files (NOTICE, LICENSE) and operator config
-#   - the preview-net plumbing (Modelfile.preview, pyproject ai_eng_preview)
-# Standalone qwen *catalog rows* and internal build/bench recipes are OUT OF
-# SCOPE (architecture §Part 3). This guard locks the ai-eng-identity surfaces.
-
+# Qwen may appear in: Modelfile.preview FROM line, NOTICE, LICENSE, pyproject
+# ai_eng_preview, and catalog dormant-lane rows. NOT in the default or deep
+# ai-eng identity marketing lines.
 USER_FACING_AI_ENG_SURFACES = [
     "README.md",
     "CLAUDE.md",
@@ -145,43 +147,103 @@ USER_FACING_AI_ENG_SURFACES = [
 
 
 def _ai_eng_section_has_qwen(text: str) -> list[str]:
-    """Return offending lines that mention qwen NEAR an ai-eng mention."""
+    """Return offending lines that mention qwen near the DEFAULT ai-eng identity.
+
+    MODEL-TIERS-V2: The default is llama-ai-eng (Llama, not Qwen). Any line
+    that mentions qwen AND the default model identity is an attribution leak.
+    The deep model (ai-engineer, 7B) mentions are allowed in tier-table lines
+    that are clearly labelled 'deep' and do NOT pair 'ai-eng' with 'qwen'.
+    """
     offending = []
     for line in text.splitlines():
         low = line.lower()
-        if "qwen" in low and ("ai-eng" in low or "ai engineer" in low):
+        if "qwen" not in low:
+            continue
+        # Qwen is allowed on lines that are clearly about the deep/7B model
+        # (e.g. tier table rows that say 'deep' or '7b' or 'ai-engineer deep').
+        # It is NOT allowed on lines about the default ai-eng identity.
+        default_markers = ("llama-ai-eng", "ai-eng", "ai engineer")
+        if any(m in low for m in default_markers):
+            # Allow lines that are explicitly about the deep model
+            # (contain 'deep' or '7b') and mention ai-engineer NOT ai-eng default.
+            if ("deep" in low or "7b" in low) and "ai-eng " not in low and "ai-eng," not in low:
+                continue
             offending.append(line.strip())
     return offending
 
 
 def test_no_qwen_in_ai_eng_identity_lines():
-    """No line ties ai-eng to qwen in user-facing README/CLAUDE/tuning copy."""
+    """No line ties the DEFAULT ai-eng identity to qwen in user-facing copy.
+
+    MODEL-TIERS-V2: the default is llama-ai-eng (Llama, not Qwen). The deep
+    model (ai-engineer, 7B) may appear in tier tables alongside 'deep'/'7B'
+    labels — those are allowed. What is blocked: any line pairing the default
+    ai-eng name with qwen lineage.
+    """
     for f in USER_FACING_AI_ENG_SURFACES:
         text = (REPO_ROOT / f).read_text()
         bad = _ai_eng_section_has_qwen(text)
-        assert not bad, f"{f}: ai-eng lineage leaks qwen: {bad}"
+        assert not bad, f"{f}: default ai-eng identity leaks qwen: {bad}"
+
+
+def test_catalog_llama_ai_eng_default_entry_has_no_qwen():
+    """The llama-ai-eng catalog entry YAML fields must not mention qwen lineage.
+
+    MODEL-TIERS-V2: default entry is now llama-ai-eng (was ai-eng:latest).
+    Only the YAML fields (id/name/family/description/install/tier) are checked —
+    comments that follow the block may refer to the next deep-model entry.
+    """
+    text = (REPO_ROOT / "src/arail/chat/models_catalog.yaml").read_text()
+    # Extract the llama-ai-eng block (stop at next list item, not at comments).
+    m = re.search(r"^- id: llama-ai-eng\b.*?(?=^- id:|\Z)", text,
+                  re.MULTILINE | re.DOTALL)
+    assert m, "llama-ai-eng catalog entry not found — default renamed?"
+    full_block = m.group(0)
+    # Strip trailing comment lines (lines starting with #) that belong to the
+    # next entry — these may mention the deep model's Qwen base legitimately.
+    yaml_lines = []
+    in_trailing_comments = False
+    for line in full_block.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("#") and not yaml_lines:
+            continue  # leading comment, skip
+        if stripped.startswith("#"):
+            in_trailing_comments = True
+        if not in_trailing_comments:
+            yaml_lines.append(line)
+    block = "\n".join(yaml_lines)
+    assert "qwen" not in block.lower(), (
+        f"llama-ai-eng catalog YAML fields leak qwen lineage:\n{block}"
+    )
+    # Must carry Llama attribution.
+    assert "built with llama" in block.lower() or "llama" in block.lower(), (
+        "llama-ai-eng catalog entry must mention Llama attribution"
+    )
 
 
 def test_catalog_ai_eng_description_has_no_qwen():
-    """The ai-eng catalog entry description must not mention qwen lineage."""
+    """Legacy guard: any surviving ai-eng:latest entry must not mention qwen.
+
+    After MODEL-TIERS-V2 the default entry is llama-ai-eng. If ai-eng:latest
+    still appears (back-compat row), its description must also be qwen-free.
+    """
     text = (REPO_ROOT / "src/arail/chat/models_catalog.yaml").read_text()
-    # Extract the ai-eng:latest block (up to the next top-level list item).
     m = re.search(r"^- id: ai-eng:latest\b.*?(?=^- id:|\Z)", text,
                   re.MULTILINE | re.DOTALL)
-    assert m, "ai-eng:latest catalog entry not found"
+    if not m:
+        return  # ai-eng:latest removed — fine, llama-ai-eng is the default now
     block = m.group(0)
     assert "qwen" not in block.lower(), (
-        f"ai-eng catalog entry leaks qwen lineage:\n{block}"
+        f"ai-eng:latest catalog entry leaks qwen lineage:\n{block}"
     )
 
 
 def test_modelfile_preview_is_the_only_user_facing_qwen_FROM():
     """The lone permitted qwen reference is Modelfile.preview's FROM line.
-    Re-base 2026-05-30: preview base is now qwen2.5:1.5b (aligned with the
-    1.5B production base; OOM-friendlier ~1 GB vs the old ~5 GB 7B pull)."""
+    Dormant self-hosted lane fallback; FROM qwen2.5:1.5b preserved."""
     mf = (REPO_ROOT / "models/ai-eng/Modelfile.preview").read_text()
     assert re.search(r"^FROM\s+qwen2\.5:1\.5b\s*$", mf, re.MULTILINE), (
-        "Modelfile.preview must have FROM qwen2.5:1.5b (re-based 2026-05-30)"
+        "Modelfile.preview must have FROM qwen2.5:1.5b (dormant lane fallback)"
     )
     # And its SYSTEM prompt must NOT self-describe as qwen.
     sys_block = mf.lower()
@@ -199,17 +261,55 @@ def test_modelfile_preview_is_the_only_user_facing_qwen_FROM():
 # NOTICE / ATTRIBUTION (security)
 # ===========================================================================
 
-def test_notice_exists_and_names_qwen_base_and_license():
-    """Re-base 2026-05-30: production base is now Qwen2.5-1.5B-Instruct (Apache-2.0).
-    The Qwen Research License and its non-commercial restriction no longer apply."""
+def test_notice_dual_base_structure():
+    """MODEL-TIERS-V2: NOTICE must have dual-base structure.
+
+    Section 1: Llama-3.2-1B-Instruct, Llama 3.2 Community License,
+               verbatim required notice string, 'Built with Llama'.
+    Section 2: Qwen2.5-7B-Instruct, Apache-2.0 (deep model).
+    Section 3: dormant distill lane note.
+    """
     notice = (REPO_ROOT / "NOTICE").read_text()
-    assert "Qwen2.5-1.5B-Instruct" in notice, "must name the new 1.5B base"
-    assert "Apache-2.0" in notice, "base is now Apache-2.0"
-    assert "SPDX-License-Identifier: Apache-2.0" in notice, "must carry SPDX id"
-    assert "huggingface.co/Qwen/Qwen2.5-1.5B-Instruct" in notice, "upstream URL"
-    # The Qwen Research License no longer applies — it must NOT appear in NOTICE.
+
+    # Section 1 — Llama default
+    assert "Llama-3.2-1B-Instruct" in notice, "must name the 1B Llama base"
+    assert "Llama 3.2 Community License" in notice, "must name the Llama license"
+    # Verbatim required notice string (Llama 3.2 Community License §1.b.iii)
+    assert (
+        "Llama 3.2 is licensed under the Llama 3.2 Community License" in notice
+    ), "verbatim required notice string must be present"
+    assert "Copyright © Meta Platforms" in notice, "Meta copyright must be present"
+    assert "Built with Llama" in notice, "Built with Llama must be stated in NOTICE"
+    assert "llama-ai-eng" in notice, "must name the distributed model llama-ai-eng"
+    assert "llama3_2/use-policy" in notice or "llama3.2/use-policy" in notice or \
+           "LLAMA-3.2-ACCEPTABLE-USE-POLICY" in notice, "AUP reference required"
+    assert "licenses/LLAMA-3.2-COMMUNITY-LICENSE" in notice, \
+        "must reference bundled license file"
+
+    # Section 2 — Qwen deep model (Apache-2.0 attribution)
+    assert "Qwen2.5-7B-Instruct" in notice, "must name the 7B deep model base"
+    assert "Apache-2.0" in notice, "deep model is Apache-2.0"
+    assert "huggingface.co/Qwen/Qwen2.5-7B-Instruct" in notice, "7B upstream URL"
+
+    # Section 3 — dormant lane note
+    assert "DORMANT" in notice or "dormant" in notice.lower(), \
+        "must note the dormant self-hosted lane"
+
+    # Qwen Research License must NOT appear (was removed in 2026-05-30 re-base)
+    assert "Qwen Research License" not in notice, \
+        "Qwen Research License must not appear — 1.5B was re-based to Apache-2.0"
+
+
+def test_notice_exists_and_names_qwen_base_and_license():
+    """Legacy guard (updated): NOTICE covers both Llama and Qwen bases."""
+    notice = (REPO_ROOT / "NOTICE").read_text()
+    # Llama base (default) — must be present
+    assert "Llama-3.2-1B-Instruct" in notice, "must name the 1B Llama base"
+    # Apache-2.0 (deep model) — must be present
+    assert "Apache-2.0" in notice, "deep model Apache-2.0 must be attributed"
+    # Qwen Research License must NOT appear
     assert "Qwen Research License" not in notice, (
-        "Qwen Research License must be removed — 1.5B base is Apache-2.0"
+        "Qwen Research License must be removed — was the non-commercial research license"
     )
 
 
@@ -461,10 +561,7 @@ def test_check_artifact_uses_head_not_blob_download():
 # ===========================================================================
 
 def test_resilient_chat_default_returns_installed_ai_eng(monkeypatch):
-    """_resilient_chat_default('ai-eng:latest') returns it when installed.
-
-    NOTE: the function does a local `from arail.chat import
-    detect_installed_models`, so we patch the source module, not the alias."""
+    """_resilient_chat_default('ai-eng:latest') returns it when installed."""
     monkeypatch.setenv("LAB_MODE", "airgapped")
     import arail.chat as chat_mod
     monkeypatch.setattr(chat_mod, "detect_installed_models",
@@ -473,9 +570,31 @@ def test_resilient_chat_default_returns_installed_ai_eng(monkeypatch):
     assert portal_app._resilient_chat_default("ai-eng:latest") == "ai-eng:latest"
 
 
+def test_resilient_chat_default_returns_llama_ai_eng(monkeypatch):
+    """_resilient_chat_default resolves llama-ai-eng (new v1.1 default)."""
+    monkeypatch.setenv("LAB_MODE", "airgapped")
+    import arail.chat as chat_mod
+    monkeypatch.setattr(chat_mod, "detect_installed_models",
+                        lambda: [{"id": "llama-ai-eng"}], raising=False)
+    from arail.portal import app as portal_app
+    result = portal_app._resilient_chat_default("llama-ai-eng")
+    assert result == "llama-ai-eng"
+
+
+def test_resilient_chat_default_prefers_llama_ai_eng_over_legacy(monkeypatch):
+    """When both llama-ai-eng and ai-eng:latest are installed, prefer llama-ai-eng."""
+    monkeypatch.setenv("LAB_MODE", "airgapped")
+    import arail.chat as chat_mod
+    monkeypatch.setattr(chat_mod, "detect_installed_models",
+                        lambda: [{"id": "ai-eng:latest"}, {"id": "llama-ai-eng"}],
+                        raising=False)
+    from arail.portal import app as portal_app
+    result = portal_app._resilient_chat_default("llama-ai-eng")
+    assert result == "llama-ai-eng"
+
+
 def test_resilient_chat_default_aliases_legacy_ai_engineer(monkeypatch):
-    """If only legacy ai-engineer:latest is installed, the ai-eng-family regex
-    still resolves Buddy's brain (no broken reference after the rename)."""
+    """If only legacy ai-engineer:latest is installed, the resolver finds it."""
     monkeypatch.setenv("LAB_MODE", "airgapped")
     import arail.chat as chat_mod
     monkeypatch.setattr(chat_mod, "detect_installed_models",
@@ -485,15 +604,19 @@ def test_resilient_chat_default_aliases_legacy_ai_engineer(monkeypatch):
 
 
 def test_no_reference_to_removed_modelfile_production_tag():
-    """Buddy plumbing must not point at a now-removed Modelfile.production tag
-    or the dead ollama.ai qukaizen/ai-eng:3b tag for the default install."""
-    # The catalog install command must be the self-hosted hf.co pull, not the
-    # dead ollama.ai tag.
+    """Buddy plumbing: the default catalog entry must not use the dead ollama.ai tag.
+
+    MODEL-TIERS-V2: default entry is now llama-ai-eng; install is the persona-wrap.
+    """
     cat = (REPO_ROOT / "src/arail/chat/models_catalog.yaml").read_text()
-    m = re.search(r"^- id: ai-eng:latest\b.*?(?=^- id:|\Z)", cat,
+    # llama-ai-eng is the new default entry
+    m = re.search(r"^- id: llama-ai-eng\b.*?(?=^- id:|\Z)", cat,
                   re.MULTILINE | re.DOTALL)
+    assert m, "llama-ai-eng catalog entry not found"
     block = m.group(0)
-    assert "hf.co/" in block, "ai-eng install must be the self-hosted hf.co pull"
+    assert "llama3.2:1b" in block or "Modelfile.default" in block, (
+        "llama-ai-eng install must reference llama3.2:1b or Modelfile.default"
+    )
     assert "qukaizen/ai-eng:3b" not in block, "dead ollama.ai tag must be gone"
 
 
@@ -550,3 +673,157 @@ def test_check_artifact_returns_nonzero_today(tmp_path):
     )
     assert r.returncode != 0, "probe must report NOT LIVE while artifact unuploaded"
     assert "NOT LIVE" in (r.stdout + r.stderr)
+
+
+# ===========================================================================
+# MODEL-TIERS-V2 REGRESSION GUARDS (2026-05-31)
+# ===========================================================================
+
+def test_default_base_is_16gb_safe_1b_llama():
+    """REGRESSION GUARD: default base must be llama3.2:1b (1B, ~0.9 GB, 16 GB safe).
+
+    Prevents the 'heavy-model-as-default' footgun. If someone re-wires the
+    default to a 7B or larger, this test blocks it.
+    """
+    setup = (REPO_ROOT / "scripts/setup.sh").read_text()
+    pyproject = (REPO_ROOT / "pyproject.toml").read_text()
+    # pyproject must declare the 1B default
+    assert 'default_base' in pyproject and '"llama3.2:1b"' in pyproject, (
+        "pyproject.toml must declare default_base = 'llama3.2:1b'"
+    )
+    # setup.sh default path must pull llama3.2:1b (not a 7B or larger model)
+    assert "llama3.2:1b" in setup, "setup.sh must pull llama3.2:1b as the default"
+    # The default path must NOT be pulling qwen2.5:7b unconditionally
+    # (7B is only in the dormant or deep-persona paths)
+    assert "ollama pull qwen2.5:7b" not in setup or \
+           "ARAIL_INSTALL_DEEP_PERSONA" in setup, (
+        "setup.sh must not pull qwen2.5:7b without the deep-persona gate"
+    )
+
+
+def test_llama_attribution_present_in_required_locations():
+    """REGRESSION GUARD: 'Built with Llama' must be in README, catalog, and Modelfile.default."""
+    readme = (REPO_ROOT / "README.md").read_text()
+    catalog = (REPO_ROOT / "src/arail/chat/models_catalog.yaml").read_text()
+    modelfile_default = (REPO_ROOT / "models/ai-eng/Modelfile.default").read_text()
+
+    assert "Built with Llama" in readme, "README must display 'Built with Llama'"
+    assert "Built with Llama" in catalog or "built with llama" in catalog.lower(), (
+        "catalog must display 'Built with Llama' in the llama-ai-eng entry"
+    )
+    assert "Built with Llama" in modelfile_default, (
+        "Modelfile.default SYSTEM prompt must contain 'Built with Llama'"
+    )
+
+
+def test_llama_license_files_exist_and_nonempty():
+    """REGRESSION GUARD: Llama 3.2 license + AUP must be bundled in licenses/."""
+    lic = REPO_ROOT / "licenses" / "LLAMA-3.2-COMMUNITY-LICENSE.txt"
+    aup = REPO_ROOT / "licenses" / "LLAMA-3.2-ACCEPTABLE-USE-POLICY.txt"
+    assert lic.exists(), "licenses/LLAMA-3.2-COMMUNITY-LICENSE.txt must exist"
+    assert aup.exists(), "licenses/LLAMA-3.2-ACCEPTABLE-USE-POLICY.txt must exist"
+    assert len(lic.read_text()) > 200, "license file must be non-trivial"
+    assert len(aup.read_text()) > 200, "AUP file must be non-trivial"
+    # Must contain the verbatim required attribution notice
+    assert (
+        "Llama 3.2 is licensed under the Llama 3.2 Community License" in lic.read_text()
+    ), "license file must contain the verbatim required attribution notice"
+
+
+def test_no_mislabel_alias_7b_as_1b_default():
+    """REGRESSION GUARD: ai-engineer:latest (7B) must NOT be aliased to llama-ai-eng.
+
+    The v1 footgun was aliasing the 7B to the 1B default name, making the
+    '1B default' secretly a 7B. This guard blocks that pattern in setup.sh.
+    """
+    setup = (REPO_ROOT / "scripts/setup.sh").read_text()
+    # Must NOT have: ollama cp ai-engineer:latest llama-ai-eng
+    assert "ollama cp ai-engineer:latest llama-ai-eng" not in setup, (
+        "setup.sh must not alias ai-engineer:latest (7B) to llama-ai-eng (1B default)"
+    )
+    # Must NOT have: ollama tag ai-engineer llama-ai-eng
+    assert "ollama tag ai-engineer llama-ai-eng" not in setup, (
+        "setup.sh must not tag the 7B as the 1B default"
+    )
+
+
+def test_modelfile_default_exists_and_has_llama_base():
+    """REGRESSION GUARD: Modelfile.default must exist with FROM llama3.2:1b."""
+    mf = REPO_ROOT / "models/ai-eng/Modelfile.default"
+    assert mf.exists(), "models/ai-eng/Modelfile.default must exist"
+    text = mf.read_text()
+    assert re.search(r"^FROM\s+llama3\.2:1b\s*$", text, re.MULTILINE), (
+        "Modelfile.default must have FROM llama3.2:1b"
+    )
+    assert "Built with Llama" in text, (
+        "Modelfile.default SYSTEM prompt must contain 'Built with Llama'"
+    )
+    assert "AI engineer" in text or "AI engineering" in text, (
+        "Modelfile.default must define the AI-engineer persona"
+    )
+
+
+def test_modelfile_deep_exists_and_has_qwen_7b_base():
+    """REGRESSION GUARD: Modelfile.deep must exist with FROM qwen2.5:7b."""
+    mf = REPO_ROOT / "models/ai-eng/Modelfile.deep"
+    assert mf.exists(), "models/ai-eng/Modelfile.deep must exist"
+    text = mf.read_text()
+    assert re.search(r"^FROM\s+qwen2\.5:7b\s*$", text, re.MULTILINE), (
+        "Modelfile.deep must have FROM qwen2.5:7b"
+    )
+    assert "AI engineer" in text or "AI engineering" in text, (
+        "Modelfile.deep must define the AI-engineer persona"
+    )
+
+
+def test_modelfiles_preview_and_production_still_present():
+    """REGRESSION GUARD: dormant lane Modelfiles must not be prematurely deleted."""
+    assert (REPO_ROOT / "models/ai-eng/Modelfile.preview").exists(), \
+        "Modelfile.preview must be kept (dormant lane fallback)"
+    assert (REPO_ROOT / "models/ai-eng/Modelfile.production").exists(), \
+        "Modelfile.production must be kept (dormant lane build recipe)"
+
+
+def test_surface_b_airllm_sentinel_unchanged():
+    """REGRESSION GUARD: the AirLLM/AeroLLM frontier sentinel must NOT be resolved.
+
+    Surface B (layer-streaming frontier, AIRLLM_MODEL) keeps __TODO_DEEP_MODEL__.
+    The 7B Ollama deep persona (Surface A) is separate. This test guards against
+    accidentally wiring the 7B to the frontier lane.
+    """
+    setup = (REPO_ROOT / "scripts/setup.sh").read_text()
+    pyproject = (REPO_ROOT / "pyproject.toml").read_text()
+    # The sentinel must still be in the AirLLM keys (may have alignment spaces)
+    assert 'airllm_minimalist' in pyproject and '"__TODO_DEEP_MODEL__"' in pyproject
+    assert 'airllm_maximus' in pyproject
+    # All three airllm keys must have the sentinel value
+    sentinel_count = pyproject.count('"__TODO_DEEP_MODEL__"')
+    assert sentinel_count >= 3, \
+        f"Expected at least 3 __TODO_DEEP_MODEL__ sentinels in pyproject, got {sentinel_count}"
+    # AIRLLM_MODEL_ID sentinels must still be in setup.sh
+    assert "__TODO_DEEP_MODEL__" in setup
+
+
+def test_self_hosted_ladder_gated_behind_env_flag():
+    """REGRESSION GUARD: the self-hosted GGUF ladder runs only under ARAIL_AI_ENG_SELFHOSTED=1."""
+    setup = (REPO_ROOT / "scripts/setup.sh").read_text()
+    assert "ARAIL_AI_ENG_SELFHOSTED" in setup, \
+        "setup.sh must gate the self-hosted ladder behind ARAIL_AI_ENG_SELFHOSTED"
+    # The HF pull for the self-hosted ladder must be inside the flag gate
+    lines = setup.splitlines()
+    selfhosted_flag_idx = next(
+        (i for i, l in enumerate(lines) if "ARAIL_AI_ENG_SELFHOSTED" in l and '==' in l), None
+    )
+    assert selfhosted_flag_idx is not None, \
+        "setup.sh must have an ARAIL_AI_ENG_SELFHOSTED == 1 conditional"
+
+
+def test_pyproject_has_two_tier_persona_keys():
+    """REGRESSION GUARD: pyproject must declare both persona-wrap tiers."""
+    text = (REPO_ROOT / "pyproject.toml").read_text()
+    assert 'default_base' in text and '"llama3.2:1b"' in text
+    assert 'default_model_name' in text and '"llama-ai-eng"' in text
+    assert 'default_license' in text and 'Llama-3.2-Community-License' in text
+    assert 'deep_persona_base' in text and '"qwen2.5:7b"' in text
+    assert 'deep_persona_name' in text and '"ai-engineer"' in text
+    assert 'deep_persona_license' in text and 'Apache-2.0' in text
