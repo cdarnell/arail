@@ -145,3 +145,48 @@ def test_remove_pack_rejects_unknown_pack(tmp_path: Path):
     result = pkb_seed.remove_pack("not-a-real-pack", pkb_root=tmp_path)
     assert result["ok"] is False
     assert "unknown pack" in result["error"]
+
+
+# ===========================================================================
+# MODEL-BUILDING SEED PACK — base-model primer (MODEL-TIERS-V2 QA item 16)
+# The 09-choosing-a-base-model.md primer ships in the model-building seed pack;
+# the pack is now 10 files. Guards against the primer silently dropping out.
+# OOM-safe: pure file I/O, no model load.
+# ===========================================================================
+
+def test_model_building_pack_has_ten_files_including_base_model_primer():
+    """The model-building seed pack must declare exactly 10 primers, including
+    09-choosing-a-base-model.md (added with the two-tier reframe)."""
+    from arail import pkb_seed
+
+    pack = pkb_seed._PACKS["model-building"]
+    filenames = [fn for fn, _ in pack["files"]]
+    assert len(filenames) == 10, (
+        f"model-building pack must have 10 primers, got {len(filenames)}: {filenames}"
+    )
+    assert "09-choosing-a-base-model.md" in filenames, (
+        "the base-model-choice primer must be in the model-building pack"
+    )
+    # No accidental duplicate filenames.
+    assert len(set(filenames)) == len(filenames), "duplicate primer filenames"
+
+
+def test_base_model_primer_installs_to_disk(tmp_path: Path):
+    """Installing the pack writes 09-choosing-a-base-model.md to the seed dir
+    with non-trivial content. OOM-safe: file write only, no model load."""
+    from arail import pkb_seed
+
+    pkm.scaffold(tmp_path)
+    result = pkb_seed.install_pack("model-building", pkb_root=tmp_path)
+    assert result["ok"] is True
+
+    seed_dir = tmp_path / "sources" / "seeds" / "model-building"
+    primer = seed_dir / "09-choosing-a-base-model.md"
+    assert primer.exists(), "base-model primer must be installed to the seed dir"
+    body = primer.read_text()
+    assert len(body) > 200, "primer must be non-trivial"
+    # The pack as a whole installs 10 markdown files.
+    installed_md = sorted(p.name for p in seed_dir.glob("*.md"))
+    assert len(installed_md) == 10, (
+        f"expected 10 installed primers, got {len(installed_md)}: {installed_md}"
+    )
