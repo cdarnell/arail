@@ -967,6 +967,9 @@ install_services() {
                 info "  (or set ARAIL_INSTALL_DEEP_PERSONA=1 and re-run setup)"
             fi
         fi
+
+        # Clean up tmp file if anything left it behind.
+        rm -f "$_gguf_tmp"
     fi
 }
 
