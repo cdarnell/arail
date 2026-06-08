@@ -82,6 +82,17 @@ Two tiers. Pick one; upgrade later.
 includes ~20 other models (Qwen, Gemma, Phi, DeepSeek-R1, etc.) you can
 browse and pull on demand. AirLLM is opt-in via `ARAIL_INSTALL_AIRLLM=1`.
 
+> **AeroLLM deep mode is Apple-Silicon-only today (CUDA in progress).**
+> The `maximus` deep-mode "2nd inference" runtime, [AeroLLM](https://github.com/cdarnell/aerollm)
+> (Apache-2.0, now open source), runs on **MLX / Apple Silicon** only — the
+> published wheel is `macosx_arm64`. The **CUDA backend is in active
+> development** and not built yet, so on Linux/x86 `maximus` the deep runtime
+> is skipped and AirLLM (opt-in) is the fallback. AeroLLM is **not** a setup
+> dependency — `./arailctl setup` never blocks on it. Install or refresh it
+> out-of-band with `./arailctl deep rebuild` (source build from a local
+> aerollm checkout) or `./arailctl deep update` (release wheel); both fail
+> soft, so the lab runs fine without the 2nd inference until then.
+
 Upgrade any time:
 
 ```bash

@@ -60,14 +60,19 @@ maximus = [
     "langchain>=0.2.0",
     "langgraph>=0.2.0",
     "pip-audit>=2.7.0,<3",
-    # AeroLLM as the deep-mode streaming runtime (see [tool.arail.tiers]
-    # description). Apple-Silicon-gated: the published wheel is
-    # macosx_11_0_arm64-only today (CUDA backend is scaffolded but not
-    # built — ADR 0006). On Linux/x86 maximus stays AirLLM-via-opt-in
-    # until the CUDA wheel ships; the AeroLLMBackend in
-    # router/backends.py raises ImportError with build instructions if
-    # the wheel is missing.
-    "aerollm-api>=0.1.0rc2; sys_platform == 'darwin' and platform_machine == 'arm64'",
+    # NOTE: AeroLLM (the deep-mode "2nd inference") is intentionally NOT a
+    # hard pip dependency here. `aerollm-api` is a cargo-built native
+    # extension (crates/aerollm-api in the sibling repo), not a wheel on
+    # PyPI — and the self-hosted index does not host it yet. Declaring it
+    # here broke `pip install -e .[maximus]` at setup step 3/11 on Apple
+    # Silicon ("could not find a version that satisfies aerollm-api").
+    # It is installed out-of-band by scripts/build-aerollm.sh, invoked
+    # from install_accel_deps() in setup.sh and by `./arailctl deep
+    # rebuild` — source build if the sibling repo is present, release
+    # wheel otherwise. That path fails gracefully (lab runs without the
+    # 2nd inference). Re-add a pin here only once a real wheel is
+    # published. The AeroLLMBackend in router/backends.py already raises
+    # ImportError with build instructions when the extension is absent.
 ]
 
 # AirLLM is now opt-in (was bundled into both tiers before v1.0.0).
@@ -75,12 +80,14 @@ maximus = [
 # or via setup.sh: ARAIL_INSTALL_AIRLLM=1 ./arailctl setup
 airllm = ["airllm>=2.0"]
 
-# AeroLLM as a standalone extra — pulls in the in-process Rust streaming
-# runtime (replaces AirLLM on Apple Silicon). Wired into router via
-# `src/arail/router/backends.py::AeroLLMBackend` (registered as
-# "aerollm" in BACKEND_MAP). Apple-Silicon-gated; see the maximus block
-# above for the platform rationale.
-aero = ["aerollm-api>=0.1.0rc2; sys_platform == 'darwin' and platform_machine == 'arm64'"]
+# AeroLLM as a standalone extra. Kept as a no-op marker so `pip install
+# -e .[aero]` resolves cleanly; the runtime is NOT pip-installable yet
+# (see the NOTE in the maximus block above). Install it with:
+#     ./arailctl deep rebuild     # source build from the sibling repo
+#     ./arailctl deep update      # release wheel, once one is published
+# Wired into router via `src/arail/router/backends.py::AeroLLMBackend`
+# (registered as "aerollm" in BACKEND_MAP).
+aero = []
 
 # Back-compat aliases — accept old `min`/`max` names for one release.
 # Removed in v1.1.0. The setup script and pip install both honor these.
@@ -91,7 +98,8 @@ max = [
     "langchain>=0.2.0",
     "langgraph>=0.2.0",
     "pip-audit>=2.7.0,<3",
-    "aerollm-api>=0.1.0rc2; sys_platform == 'darwin' and platform_machine == 'arm64'",
+    # AeroLLM is installed out-of-band, not as a hard pip dep — see the
+    # NOTE in the `maximus` block above.
 ]
 
 security = ["pip-audit>=2.7.0,<3"]
