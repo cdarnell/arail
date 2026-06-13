@@ -2498,6 +2498,42 @@ async def get_goal():
 # (AI / model-tuning by default). Reads are instant from cache; generation runs
 # as a serialized background task (inference_slot cap + per-slug flag + lock)
 # so it never competes for memory.
+#
+# When a WorldBundle is mounted, the dictionary is overridden with the bundle's
+# terms. generate-more/expand/seed/theme are disabled (can_generate=False).
+# Terms render only through template paths — no model round-trip while mounted.
+
+
+def _world_mounted_dict_response() -> Optional[Dict[str, Any]]:
+    """Return a dictionary response from the mounted WorldBundle, or None if not mounted."""
+    try:
+        from arail.world_mount import current_mount, get_mounted_dict_terms
+        record = current_mount()
+        if record is None:
+            return None
+        terms = get_mounted_dict_terms(record)
+        # Reveal the next "learning path page" via generate-more pagination state.
+        # We store a cursor in memory for the session; for now all terms are served.
+        return {
+            "theme": {
+                "label": f"World: {record.world}",
+                "source": "world",
+                "archetype": "world",
+                "slug": f"world-{record.world}",
+            },
+            "terms": terms,
+            "count": len(terms),
+            "generating": False,
+            "last_error": None,
+            "can_generate": False,
+            "world": record.world,
+            "world_sha256": record.world_sha256,
+        }
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning("world_mount: dict response error: %s", e)
+        return None
+
 
 def _dict_resolve_theme() -> Dict[str, Any]:
     # Theme is the AI glossary (default) unless the user picked a topic override.
@@ -2576,6 +2612,9 @@ async def _dict_run_generation(
 
 @app.get("/api/dictionary")
 async def api_dictionary_get():
+    world_resp = _world_mounted_dict_response()
+    if world_resp is not None:
+        return world_resp
     theme = _dict_resolve_theme()
     doc = dictionary_store.get_or_init(theme)
     return _dict_response(theme, doc)
@@ -2583,6 +2622,10 @@ async def api_dictionary_get():
 
 @app.post("/api/dictionary/seed")
 async def api_dictionary_seed(request: Request):
+    # While a WorldBundle is mounted, seed is a no-op (return current world terms).
+    world_resp = _world_mounted_dict_response()
+    if world_resp is not None:
+        return world_resp
     try:
         body = await request.json()
     except Exception:  # noqa: BLE001
@@ -2610,6 +2653,11 @@ async def api_dictionary_seed(request: Request):
 
 @app.post("/api/dictionary/generate-more")
 async def api_dictionary_generate_more(request: Request):
+    # While mounted: reveal the next "learning path page" from the bundle.
+    # No router call — the bundle IS the source of truth.
+    world_resp = _world_mounted_dict_response()
+    if world_resp is not None:
+        return world_resp
     try:
         body = await request.json()
     except Exception:  # noqa: BLE001
@@ -2638,6 +2686,12 @@ async def api_dictionary_generate_more(request: Request):
 
 @app.post("/api/dictionary/theme")
 async def api_dictionary_theme(request: Request):
+    # While mounted: theme switching is disabled (409 Conflict).
+    if _world_mounted_dict_response() is not None:
+        return JSONResponse(
+            {"error": "A WorldBundle is mounted; unmount first to change the dictionary theme."},
+            status_code=409,
+        )
     try:
         body = await request.json()
     except Exception:  # noqa: BLE001
@@ -2660,12 +2714,35 @@ async def api_dictionary_theme(request: Request):
 async def api_dictionary_expand(request: Request):
     """Buddy enriches ONE term with a deeper plain-text explanation. Single,
     small completion → reliable on local models, unlike bulk JSON. Cached on
-    the term so re-expanding is instant."""
+    the term so re-expanding is instant.
+
+    While a WorldBundle is mounted: serve the bundle's definition directly
+    without any router call."""
     try:
         body = await request.json()
     except Exception:  # noqa: BLE001
         body = {}
     term = str(body.get("term") or "").strip()
+
+    # Mounted world: serve bundle definition inline, never call the router.
+    try:
+        from arail.world_mount import current_mount, mounted_terms
+        _wm = current_mount()
+        if _wm is not None:
+            all_terms = mounted_terms(_wm)
+            matched = next(
+                (t for t in all_terms if t.get("term", "").strip().lower() == term.lower()
+                 or t.get("slug", "") == term),
+                None,
+            )
+            if matched:
+                detail = str(matched.get("definition", matched.get("short", "")))
+                return {"ok": True, "term": matched.get("term", term),
+                        "detail": detail, "cached": True, "source": "world"}
+            return {"ok": False, "message": f"Term '{term}' not found in mounted world."}
+    except Exception:
+        pass
+
     if not term:
         return JSONResponse({"ok": False, "message": "No term provided."}, status_code=400)
     force = bool(body.get("force"))
