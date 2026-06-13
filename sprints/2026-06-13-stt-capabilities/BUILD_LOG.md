@@ -185,3 +185,42 @@ ls lab/pkb/research/voice-notes/
 
 For a no-Safari / CI-equivalent demo of the full flow with a fake transcript, see
 `tests/test_stt_flow.py::test_stt_end_to_end_fake_runner`.
+
+---
+
+## Whisper backend swap (completion) — replaces Apple Speech
+
+**Why:** the Apple-Speech path (lazy-compiled Swift helper) was blocked — an unsigned
+CLI binary SIGABRTs on the macOS speech-recognition TCC grant, and a signed `.app`
+was rejected by the owner. Owner chose a local **Whisper** backend (ARCHITECTURE
+Addendum A). Mic capture stays in the browser (browser permission); the backend
+transcribes the audio *file*, so there is no app mic access, no Apple Speech, no TCC,
+no code-signing. The swap is entirely BELOW the adapter seam.
+
+**What changed (commits `eb28cdf`, `b765969`):**
+- Dep: `+faster-whisper>=1.2.0` (prebuilt arm64 wheels, no compiler); reuses existing `huggingface-hub`.
+- `backends/whisper_stt.py` — `WhisperSpeechToText` behind the existing injectable `_runner`:
+  `m4a → afconvert (-f WAVE -d LEI16@16000 -c 1) → faster-whisper base.en → JSON`. Same
+  `(rc,stdout,stderr)` contract, so all fake-runner tests pass unchanged.
+- Registered platform-neutrally for **darwin + linux** → Linux off the stub (**advances WC-3**).
+- Deleted the Swift helper + Apple-Speech body; `macos/stt_backend.py` is now a 22-line
+  no-Apple alias (`MacOSSpeechToText = WhisperSpeechToText`).
+- Model `base.en` at `lab/models/whisper/base.en/` (git-ignored); first-use lazy download
+  with a log line; airgapped + absent → graceful `model_unavailable` (no network, no crash).
+  **No `scripts/setup.sh` change** (pure lazy fetch).
+
+**WC-A.4 — real transcription proof (the proof the Apple path never reached):**
+`pytest tests/test_stt_backend.py::test_real_transcription -m live_stt` → **1 passed in 161s**
+(one-time `base.en` download ~138 MB, then `say`→m4a→afconvert→whisper→transcript containing
+the expected token). `model.bin` now 138 MB on disk; subsequent inference is local/airgapped.
+
+**WC-B:** Apple-symbol grep over all of `src/` is CLEAN (Whisper is not Apple).
+**Tests:** 33 capability/STT pass + 1 `live_stt` (now proven on demand). Full suite:
+**17 failed / 2333 passed — identical to the pre-existing baseline; zero new failures introduced.**
+
+**Demo note:** the demo command above is unchanged; the resolved `speech-to-text` capability
+now lights up via Whisper, and the 🎤 transcribes locally (first tap triggers the one-time
+model fetch unless `LAB_MODE=airgapped`, in which case fetch it once online first). Safari-first
+(m4a); Chrome/webm-opus is ROADMAP.
+
+— builder (completed by orchestrator after an API-drop interruption), 2026-06-13.
