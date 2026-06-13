@@ -642,8 +642,11 @@ def mount(
     # Step 2: stage files
     staged_dir = _stage_files(bundle, pkb)
 
-    # Step 3: index
-    _index_staged(staged_dir, pkb)
+    # Step 3: index (best-effort; LanceDB-absent must not abort mount)
+    try:
+        _index_staged(staged_dir, pkb)
+    except Exception as e:
+        _log.warning("world_mount: indexing failed (continuing): %s", e)
 
     # Step 4: env face keys
     if apply_face:
