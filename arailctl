@@ -165,6 +165,7 @@ EOF
     doctor          validate the environment end-to-end
     logs [comp]     tail activity log — filter by component
     reset [mode]    wipe state — models|data|pkb|plugins|env|full|destroy
+    world <op>      DaC WorldBundle: list | mount <dir> [--apply-face] | verify <dir> | swap <dir> | unmount
     pkb <op>        ARAIL lab content: ingest | compile | browse
     wiki <op>       ARAIL docs-as-code: build | info | new <title>
     kb <op>         QuKaiZen Karpathy Wiki: status | compile | lint | query
@@ -368,6 +369,12 @@ TEMPLATE
                 ;;
             *) die "wiki op must be one of: build | info | new <title> | serve" ;;
         esac
+        ;;
+    world)
+        [[ -d .venv ]] || die "missing .venv — run ./arailctl setup"
+        # shellcheck disable=SC1091
+        source .venv/bin/activate
+        exec python -m arail.world_mount "$@"
         ;;
     benchmark_models|benchmark|aerollm)
         [[ -d .venv ]] || die "missing .venv — run ./arailctl setup"
