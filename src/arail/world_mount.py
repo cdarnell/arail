@@ -37,6 +37,7 @@ _log = logging.getLogger(__name__)
 # ── Constants ────────────────────────────────────────────────────────────────
 
 MOUNT_RECORD_NAME = "world-mount.json"
+CAPABILITIES_SIDECAR_NAME = "world-capabilities.json"
 _STAGING_DIR_SUFFIX = ".staging"
 
 # Files listed in manifest.files{} (not manifest.json itself)
@@ -535,6 +536,88 @@ def _remove_record(data_dir: Path) -> None:
         _log.warning("world_mount: could not remove mount record: %s", e)
 
 
+# ── Capability resolution sidecar (additive; NOT in the sealed mount record) ──
+
+
+def _capabilities_sidecar_path(data_dir: Path) -> Path:
+    return data_dir / CAPABILITIES_SIDECAR_NAME
+
+
+def current_capabilities(data_dir: Path | None = None) -> List[Dict[str, Any]]:
+    """Read the resolved-capabilities sidecar. Mirrors current_mount.
+
+    Returns the list of resolved-capability dicts (possibly empty). Returns []
+    if no sidecar exists or it is unreadable.
+    """
+    dd = data_dir or _default_data_dir()
+    p = _capabilities_sidecar_path(dd)
+    if not p.exists():
+        return []
+    try:
+        d = json.loads(p.read_bytes())
+        return list(d.get("capabilities", []))
+    except Exception as e:  # noqa: BLE001
+        _log.warning("world_mount: corrupt capabilities sidecar at %s: %s", p, e)
+        return []
+
+
+def _resolve_and_write_capabilities(bundle_dir: Path, slug: str, data_dir: Path) -> None:
+    """Best-effort: read bundle_dir/capabilities.json (seal-exempt, OPTIONAL),
+    resolve against the registry, and persist to the sidecar atomically.
+
+    Strictly additive: any failure inside here must NOT fail the mount. Three
+    cases — absent (resolved=[]), malformed (resolved=[], capabilities_error
+    recorded), valid (resolved per host).
+    """
+    cap_path = Path(bundle_dir) / "capabilities.json"
+    resolved_dicts: List[Dict[str, Any]] = []
+    cap_error: str | None = None
+
+    if cap_path.exists():
+        try:
+            from arail.capabilities import (
+                parse_capabilities_file,
+                resolve_capabilities,
+                MalformedCapabilities,
+            )
+            try:
+                specs = parse_capabilities_file(cap_path)
+            except MalformedCapabilities as e:
+                cap_error = str(e)
+                _log.warning("world_mount: malformed capabilities.json: %s", e)
+            else:
+                resolved = resolve_capabilities(specs)
+                resolved_dicts = [r.to_dict() for r in resolved]
+        except Exception as e:  # noqa: BLE001 — capabilities subsystem must never block mount
+            cap_error = f"capability resolution failed: {e}"
+            _log.warning("world_mount: %s", cap_error)
+
+    # Write the sidecar atomically (temp + os.replace), same pattern as _write_record.
+    data_dir.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "world": slug,
+        "resolved_at": datetime.now(timezone.utc).isoformat(),
+        "capabilities": resolved_dicts,
+        "capabilities_error": cap_error,
+    }
+    target = _capabilities_sidecar_path(data_dir)
+    tmp = target.with_suffix(".tmp")
+    try:
+        tmp.write_text(json.dumps(payload, indent=2))
+        os.replace(tmp, target)
+    except Exception as e:  # noqa: BLE001
+        tmp.unlink(missing_ok=True)
+        _log.warning("world_mount: could not write capabilities sidecar: %s", e)
+
+
+def _remove_capabilities_sidecar(data_dir: Path) -> None:
+    p = _capabilities_sidecar_path(data_dir)
+    try:
+        p.unlink(missing_ok=True)
+    except Exception as e:  # noqa: BLE001
+        _log.warning("world_mount: could not remove capabilities sidecar: %s", e)
+
+
 def _stage_files(bundle: Bundle, pkb_root: Path) -> Path:
     """Stage the 6 bundle files to pkb/sources/world-<slug>/ via a .staging dir.
 
@@ -713,6 +796,12 @@ def mount(
     except Exception:
         pass
 
+    # Step 7: resolve declared capabilities → sidecar (best-effort, never fails mount)
+    try:
+        _resolve_and_write_capabilities(bundle_dir, bundle.slug, dd)
+    except Exception as e:  # noqa: BLE001
+        _log.warning("world_mount: capability resolution skipped: %s", e)
+
     return record
 
 
@@ -733,6 +822,8 @@ def unmount(
 
     # Remove pointer FIRST (atomic ordering)
     _remove_record(dd)
+    # Remove the capabilities sidecar alongside the pointer.
+    _remove_capabilities_sidecar(dd)
 
     if remove_staged:
         staged = Path(record.staged_dir)
@@ -799,6 +890,12 @@ def swap(
         wiki.schedule_rebuild()
     except Exception:
         pass
+
+    # Resolve declared capabilities → sidecar (best-effort, never fails swap)
+    try:
+        _resolve_and_write_capabilities(new_dir, bundle.slug, dd)
+    except Exception as e:  # noqa: BLE001
+        _log.warning("world_mount: capability resolution skipped: %s", e)
 
     return record
 

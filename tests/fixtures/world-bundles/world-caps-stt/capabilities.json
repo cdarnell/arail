@@ -1,0 +1,11 @@
+{
+  "schema": "dac.world-capabilities/v1",
+  "capabilities": [
+    {
+      "id": "speech-to-text",
+      "purpose": "Transcribe spoken observations into the lab knowledge base.",
+      "desired": true,
+      "interface": { "inputs": ["audio"], "outputs": ["transcript", "segments", "confidence"] }
+    }
+  ]
+}
