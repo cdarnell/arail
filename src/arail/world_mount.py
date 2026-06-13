@@ -23,6 +23,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -77,6 +78,14 @@ class GateViolation(BundleError):
 
 class FaceInvalid(BundleError):
     """face.json is missing or structurally invalid."""
+
+
+class SlugInvalid(BundleError):
+    """The world slug fails the allowlist or is inconsistent across bundle files."""
+
+
+# Slug allowlist: lowercase letters, digits, and hyphens; must start with a letter or digit.
+_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 
 
 # ── Data types ───────────────────────────────────────────────────────────────
@@ -180,6 +189,17 @@ def load_bundle(bundle_dir: Path) -> Bundle:
             user_message=f"Cannot parse manifest.json: {e}",
         ) from e
 
+    # Validate slug from manifest (path-traversal guard)
+    manifest_slug = str(manifest.get("world", ""))
+    if not _SLUG_RE.match(manifest_slug):
+        raise SlugInvalid(
+            f"Invalid world slug in manifest: {manifest_slug!r}",
+            user_message=(
+                f"Bundle refused: world slug {manifest_slug!r} is invalid. "
+                "Slug must match ^[a-z0-9][a-z0-9-]*$ (no path separators, dots, or uppercase)."
+            ),
+        )
+
     # Read terms.json raw bytes first (needed for sha256)
     terms_path = bundle_dir / "terms.json"
     try:
@@ -221,6 +241,27 @@ def load_bundle(bundle_dir: Path) -> Bundle:
     except (PartialBundle, Exception) as e:
         _log.warning("world_mount: face.json missing or invalid: %s", e)
         face = None
+
+    # Cross-file slug consistency checks
+    spec_slug = str(spec.get("slug", "")) if isinstance(spec, dict) else ""
+    if spec_slug and spec_slug != manifest_slug:
+        raise SlugInvalid(
+            f"Slug mismatch: manifest.world={manifest_slug!r} but spec.json.slug={spec_slug!r}",
+            user_message=(
+                f"Bundle refused: slug disagreement between manifest ({manifest_slug!r}) "
+                f"and spec.json ({spec_slug!r}). Bundle may be misassembled."
+            ),
+        )
+    if face is not None:
+        face_world = str(face.get("world", "")) if isinstance(face, dict) else ""
+        if face_world and face_world != manifest_slug:
+            raise SlugInvalid(
+                f"Slug mismatch: manifest.world={manifest_slug!r} but face.json.world={face_world!r}",
+                user_message=(
+                    f"Bundle refused: slug disagreement between manifest ({manifest_slug!r}) "
+                    f"and face.json ({face_world!r}). Bundle may be misassembled."
+                ),
+            )
 
     roster = _read_json("roster.json")
     drift_report = _read_json("drift-report.json")

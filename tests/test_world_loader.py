@@ -203,6 +203,111 @@ def test_term_to_dict_entry_mapping():
     assert entry["can_generate"] is False
 
 
+# ── R2: slug allowlist (path-traversal guard) ─────────────────────────────────
+
+from arail.world_mount import SlugInvalid
+
+
+def _make_bundle_with_slug(src_dir: pathlib.Path, dest_dir: pathlib.Path, slug: str) -> pathlib.Path:
+    """Copy physics bundle into dest_dir and patch manifest.world to slug."""
+    import shutil
+    shutil.copytree(src_dir, dest_dir)
+    mf = dest_dir / "manifest.json"
+    manifest = json.loads(mf.read_bytes())
+    manifest["world"] = slug
+    mf.write_text(json.dumps(manifest))
+    return dest_dir
+
+
+def test_slug_path_traversal_dotdot_refused(tmp_path):
+    """manifest.world='../../etc' must be refused with SlugInvalid."""
+    bundle_dir = _make_bundle_with_slug(PHYSICS, tmp_path / "escape", "../../etc")
+    with pytest.raises(SlugInvalid) as exc_info:
+        load_bundle(bundle_dir)
+    assert "../../etc" in exc_info.value.user_message
+    assert exc_info.value.user_message  # actionable
+
+
+def test_slug_with_separator_refused(tmp_path):
+    """manifest.world='bad/slug' must be refused with SlugInvalid."""
+    bundle_dir = _make_bundle_with_slug(PHYSICS, tmp_path / "sep", "bad/slug")
+    with pytest.raises(SlugInvalid):
+        load_bundle(bundle_dir)
+
+
+def test_slug_with_dot_refused(tmp_path):
+    """manifest.world='bad.slug' must be refused with SlugInvalid."""
+    bundle_dir = _make_bundle_with_slug(PHYSICS, tmp_path / "dot", "bad.slug")
+    with pytest.raises(SlugInvalid):
+        load_bundle(bundle_dir)
+
+
+def test_slug_uppercase_refused(tmp_path):
+    """manifest.world='Physics' (uppercase) must be refused with SlugInvalid."""
+    bundle_dir = _make_bundle_with_slug(PHYSICS, tmp_path / "upper", "Physics")
+    with pytest.raises(SlugInvalid):
+        load_bundle(bundle_dir)
+
+
+def test_valid_slug_still_loads(tmp_path):
+    """A valid slug like 'quantum-mechanics' must load without error."""
+    import shutil
+    bundle_dir = tmp_path / "valid"
+    shutil.copytree(PHYSICS, bundle_dir)
+    # Patch manifest, spec.json slug, and face.json world to match
+    mf = bundle_dir / "manifest.json"
+    manifest = json.loads(mf.read_bytes())
+    manifest["world"] = "quantum-mechanics"
+    mf.write_text(json.dumps(manifest))
+    spec_p = bundle_dir / "spec.json"
+    spec = json.loads(spec_p.read_bytes())
+    spec["slug"] = "quantum-mechanics"
+    spec_p.write_text(json.dumps(spec))
+    face_p = bundle_dir / "face.json"
+    face = json.loads(face_p.read_bytes())
+    face["world"] = "quantum-mechanics"
+    face_p.write_text(json.dumps(face))
+    # Must load without error
+    bundle = load_bundle(bundle_dir)
+    assert bundle.slug == "quantum-mechanics"
+
+
+def test_slug_spec_disagrees_refused(tmp_path):
+    """manifest.world != spec.json.slug must be refused with SlugInvalid."""
+    import shutil
+    bundle_dir = tmp_path / "slug_skew"
+    shutil.copytree(PHYSICS, bundle_dir)
+    # Patch only manifest.world — spec.json.slug stays "physics"
+    mf = bundle_dir / "manifest.json"
+    manifest = json.loads(mf.read_bytes())
+    manifest["world"] = "chemistry"
+    mf.write_text(json.dumps(manifest))
+    with pytest.raises(SlugInvalid) as exc_info:
+        load_bundle(bundle_dir)
+    assert "chemistry" in exc_info.value.user_message
+    assert "physics" in exc_info.value.user_message
+
+
+def test_slug_face_disagrees_refused(tmp_path):
+    """manifest.world != face.json.world must be refused with SlugInvalid."""
+    import shutil
+    bundle_dir = tmp_path / "face_skew"
+    shutil.copytree(PHYSICS, bundle_dir)
+    # Patch manifest.world and spec.slug to agree, but leave face.json.world as "physics"
+    mf = bundle_dir / "manifest.json"
+    manifest = json.loads(mf.read_bytes())
+    manifest["world"] = "chemistry"
+    mf.write_text(json.dumps(manifest))
+    spec_p = bundle_dir / "spec.json"
+    spec = json.loads(spec_p.read_bytes())
+    spec["slug"] = "chemistry"
+    spec_p.write_text(json.dumps(spec))
+    # face.json.world is still "physics" — mismatch
+    with pytest.raises(SlugInvalid) as exc_info:
+        load_bundle(bundle_dir)
+    assert exc_info.value.user_message
+
+
 def test_term_to_dict_entry_related():
     bundle = load_bundle(PHYSICS)
     # Find a term with related

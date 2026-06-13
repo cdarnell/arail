@@ -2736,7 +2736,8 @@ async def api_dictionary_expand(request: Request):
                 None,
             )
             if matched:
-                detail = str(matched.get("definition", matched.get("short", "")))
+                from arail.dictionary import _MAX_DETAIL
+                detail = str(matched.get("definition", matched.get("short", "")))[:_MAX_DETAIL]
                 return {"ok": True, "term": matched.get("term", term),
                         "detail": detail, "cached": True, "source": "world"}
             return {"ok": False, "message": f"Term '{term}' not found in mounted world."}

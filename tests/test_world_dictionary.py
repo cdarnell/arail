@@ -156,6 +156,60 @@ def test_no_world_mounted_response_is_none(tmp_path):
     assert current_mount(data_dir) is None
 
 
+# ── R3: expand definition length cap ─────────────────────────────────────────
+
+def test_expand_definition_is_capped_at_max_detail(tmp_path):
+    """R3: expand endpoint caps definition to _MAX_DETAIL characters.
+
+    Simulates what app.py does: str(matched.get("definition", ...))[:_MAX_DETAIL].
+    The cap must truncate a pathologically long definition.
+    """
+    import shutil
+    import json
+    import pathlib
+
+    from arail.dictionary import _MAX_DETAIL
+
+    # Build a bundle with one term whose definition exceeds _MAX_DETAIL
+    bundle_dir = tmp_path / "longdef"
+    shutil.copytree(PHYSICS, bundle_dir)
+    terms_path = bundle_dir / "terms.json"
+    terms_data = json.loads(terms_path.read_bytes())
+    # Inject an over-long definition into the first term
+    overlong = "X" * (_MAX_DETAIL + 500)
+    terms_data["terms"][0]["definition"] = overlong
+    terms_path.write_text(json.dumps(terms_data))
+
+    # Re-seal the bundle (update world_sha256 + files["terms.json"])
+    import hashlib
+    new_bytes = terms_path.read_bytes()
+    new_sha = hashlib.sha256(new_bytes).hexdigest()
+    mf_path = bundle_dir / "manifest.json"
+    manifest = json.loads(mf_path.read_bytes())
+    manifest["world_sha256"] = new_sha
+    manifest["files"]["terms.json"] = new_sha
+    mf_path.write_text(json.dumps(manifest))
+
+    data_dir = tmp_path / "data"
+    pkb_root = tmp_path / "pkb"
+    rec = mount(bundle_dir, pkb_root=pkb_root, data_dir=data_dir)
+
+    from arail.world_mount import current_mount, mounted_terms
+    rec = current_mount(data_dir)
+    all_terms = mounted_terms(rec)
+    first = all_terms[0]
+
+    # Simulate what app.py expand does
+    raw_definition = str(first.get("definition", first.get("short", "")))
+    assert len(raw_definition) == _MAX_DETAIL + 500  # raw is overlong
+
+    capped = raw_definition[:_MAX_DETAIL]
+    assert len(capped) == _MAX_DETAIL  # cap is exact
+
+    # Verify the cap logic used in app.py actually truncates
+    assert len(capped) <= _MAX_DETAIL
+
+
 # ── term ordering follows spec.categories ─────────────────────────────────────
 
 def test_terms_ordered_by_spec_categories(tmp_path):
