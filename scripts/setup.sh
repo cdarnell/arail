@@ -1385,10 +1385,10 @@ setup_env() {
 # — both error with "command not found" on every start. The python
 # helper below quotes any value that needs it.
 _set_env_var() {
-    local key="$1" value="$2"
-    python3 - "$key" "$value" <<'PY'
+    local key="$1" value="$2" file="${3:-.env}"
+    python3 - "$key" "$value" "$file" <<'PY'
 import pathlib, re, sys
-key, value = sys.argv[1], sys.argv[2]
+key, value, file = sys.argv[1], sys.argv[2], sys.argv[3]
 prefix = f"{key}="
 
 # Quote any value containing characters bash would reinterpret when
@@ -1416,7 +1416,7 @@ def is_assignment(line: str) -> bool:
 quoted = shell_safe(value)
 new_line = f"{key}={quoted}"
 
-p = pathlib.Path(".env")
+p = pathlib.Path(file)
 lines = p.read_text().splitlines() if p.exists() else []
 out, replaced = [], False
 for line in lines:
@@ -1430,6 +1430,41 @@ if not replaced:
         out.append("")
     out.append(new_line)
 p.write_text("\n".join(out) + "\n")
+PY
+}
+
+# Read KEY from an env-style file (default .env), reversing the double-quote
+# escaping _set_env_var applies, so a round-trip (read here → write via
+# _set_env_var) is faithful for passwords with whitespace/metacharacters.
+# Prints the unquoted value (empty if absent).
+_get_env_var() {
+    local key="$1" file="${2:-.env}"
+    python3 - "$key" "$file" <<'PY'
+import pathlib, sys
+key, file = sys.argv[1], sys.argv[2]
+prefix = f"{key}="
+val = ""
+p = pathlib.Path(file)
+if p.exists():
+    for line in p.read_text().splitlines():
+        if line.startswith(prefix):
+            v = line[len(prefix):]
+            if len(v) >= 2 and v[0] == v[-1] and v[0] in ('"', "'"):
+                body = v[1:-1]
+                if v[0] == "'":
+                    val = body
+                else:
+                    out, i = [], 0
+                    while i < len(body):
+                        c = body[i]
+                        if c == "\\" and i + 1 < len(body) and body[i + 1] in '\\"$`':
+                            out.append(body[i + 1]); i += 2
+                        else:
+                            out.append(c); i += 1
+                    val = "".join(out)
+            else:
+                val = v
+sys.stdout.write(val)
 PY
 }
 
@@ -1456,9 +1491,13 @@ TERMINAL_PORT=${terminal_port}
 NOTEBOOK_PORT=${notebook_port}
 IDE_PORT=${ide_port}
 MLX_OPENAI_PORT=${mlx_port}
-IDE_PASSWORD=${ARAIL_PASSWORD}
 BIND_ADDR=127.0.0.1
 CONF
+    # IDE_PASSWORD is written through the quoter, NOT the heredoc above:
+    # lab.conf is shell-sourced (scripts/start.sh, scripts/status.sh), so a
+    # user passphrase with a space / $ / backtick would break `source` or
+    # execute. _set_env_var double-quotes and escapes it.
+    _set_env_var IDE_PASSWORD "$ARAIL_PASSWORD" lab.conf
     info "lab.conf written (portal=${portal_port}, ide=${ide_port}, notebook=${notebook_port}, terminal=${terminal_port}, mlx=${mlx_port})"
 
     local cs_dir="${HOME}/.config/code-server"
@@ -1790,13 +1829,14 @@ validate_env() {
     # Detect passphrase drift between .env and lab.conf — the current
     # user's case (IDE_PASSWORD=Austin34$, OPEN_NOTEBOOK_ENCRYPTION_KEY=Auatin34$).
     local env_pw conf_pw
-    env_pw="$(grep -E '^ARAIL_PASSWORD=' .env | head -n1 | cut -d= -f2-)"
+    # Read through the quote-aware reader so a quoted password (one with
+    # whitespace/metacharacters) compares and re-syncs faithfully.
+    env_pw="$(_get_env_var ARAIL_PASSWORD .env)"
     if [[ -f lab.conf ]]; then
-        conf_pw="$(grep -E '^IDE_PASSWORD=' lab.conf | head -n1 | cut -d= -f2-)"
+        conf_pw="$(_get_env_var IDE_PASSWORD lab.conf)"
         if [[ -n "$env_pw" && -n "$conf_pw" && "$env_pw" != "$conf_pw" ]]; then
             warn "Passphrase drift detected between .env and lab.conf — resyncing."
-            sed -i.bak "s|^IDE_PASSWORD=.*|IDE_PASSWORD=${env_pw}|" lab.conf
-            rm -f lab.conf.bak
+            _set_env_var IDE_PASSWORD "$env_pw" lab.conf
         fi
     fi
     info "Environment validated."

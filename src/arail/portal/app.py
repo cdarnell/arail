@@ -8217,42 +8217,25 @@ async def get_mode():
 
 @app.post("/api/system/mode")
 async def set_mode(request: Request):
-    """Toggle between airgapped and hybrid mode.  Writes to .env and
-    updates the running process environment."""
-    body = await request.json()
-    new_mode = body.get("mode", "").lower()
-    if new_mode not in ("airgapped", "hybrid"):
-        return {"ok": False, "error": "mode must be 'airgapped' or 'hybrid'"}
-    old_mode = _lab_mode()
-    # Keep LAB_MODE and ARAIL_MODE in lock-step so every reader (whether
-    # it consults _lab_mode(), LAB_MODE directly, or the legacy
-    # ARAIL_MODE) sees the same value.
-    os.environ["ARAIL_MODE"] = new_mode
-    os.environ["LAB_MODE"] = new_mode
-    # Persist to .env
-    env_path = Path.cwd() / ".env"
-    if env_path.exists():
-        lines = env_path.read_text().splitlines()
-        out, seen = [], set()
-        for line in lines:
-            if line.startswith("ARAIL_MODE="):
-                out.append(f"ARAIL_MODE={new_mode}"); seen.add("ARAIL_MODE")
-            elif line.startswith("LAB_MODE="):
-                out.append(f"LAB_MODE={new_mode}"); seen.add("LAB_MODE")
-            else:
-                out.append(line)
-        if "ARAIL_MODE" not in seen:
-            out.append(f"ARAIL_MODE={new_mode}")
-        if "LAB_MODE" not in seen:
-            out.append(f"LAB_MODE={new_mode}")
-        env_path.write_text("\n".join(out) + "\n")
-    activity_log.emit(
-        "system",
-        f"Mode switched: {old_mode} → {new_mode}"
-        + (" — agents can now reach the internet" if new_mode == "hybrid" else " — all network access disabled"),
-        "info",
+    """DEPRECATED — superseded by ``POST /api/airgap/toggle``.
+
+    This legacy writer hand-rolled a non-atomic .env rewrite and skipped the
+    CSRF / loopback-bind gates the canonical endpoint enforces, so it was a
+    mode-flip path that bypassed the airgap protections. No client uses it
+    (the nav badge POSTs to /api/airgap/toggle; only ``GET /api/system/mode``
+    is still read). It now refuses and points callers at the gated endpoint
+    rather than performing an ungated, unquoted write.
+    """
+    from fastapi.responses import JSONResponse
+    return JSONResponse(
+        status_code=410,
+        content={
+            "ok": False,
+            "error": "deprecated",
+            "message": "POST /api/system/mode is removed; use POST /api/airgap/toggle.",
+            "use": "/api/airgap/toggle",
+        },
     )
-    return {"ok": True, "mode": new_mode}
 
 
 # ---------------------------------------------------------------------------
