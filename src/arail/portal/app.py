@@ -1050,7 +1050,24 @@ async def chat_page(request: Request):
     embed = request.query_params.get("embed", "").lower() in {
         "1", "true", "yes", "on"
     }
-    return templates.TemplateResponse(request, "chat.html", {"embed": embed})
+    # Resolve whether the mounted World inherited speech-to-text, to gate the
+    # mic affordance. Best-effort: any failure → mic stays disabled.
+    stt_available = False
+    stt_message = "Mount a World that declares speech-to-text to enable voice notes."
+    try:
+        from arail.world_mount import current_capabilities
+        for c in current_capabilities():
+            if c.get("id") == "speech-to-text":
+                stt_available = c.get("state") == "available"
+                stt_message = c.get("message", stt_message)
+                break
+    except Exception:  # noqa: BLE001
+        pass
+    return templates.TemplateResponse(request, "chat.html", {
+        "embed": embed,
+        "stt_available": stt_available,
+        "stt_message": stt_message,
+    })
 
 
 # ─── Chat compute-source pivot ───────────────────────────────────────────
