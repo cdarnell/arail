@@ -1,0 +1,38 @@
+{
+  "schema": "dac.world-bundle/v1",
+  "bundle_version": 1,
+  "world": "physics",
+  "display_name": "Physics (Measurement & Units)",
+  "created_at": "2026-06-13T04:31:26.500Z",
+  "world_sha256": "8f874df42b5909b327e6dae28eee7273aeb522065a80d5f25eb6c1b09a873776",
+  "files": {
+    "agenda.json": "7e2bba9b8419a1c863afb5a6cad62f19e42ccf8e8ac8e20dd04cfe383eae3aaa",
+    "drift-report.json": "a1937131d65b378c19d24c1e747fc61280b68eca0bb52c286a5ddeda70242565",
+    "face.json": "d3e634fdade204d9e908dd12e0af367c3b027cfe9c88268882db2baa251110f6",
+    "roster.json": "349f83cccebf8d6cf0c7152d2a6f162e9bf4e66fe038d6844a6becb8dee6955c",
+    "spec.json": "fdba13d884d1905154113345d98e147fe6ab8e3450e60bc99442be75f592e8c8",
+    "terms.json": "8f874df42b5909b327e6dae28eee7273aeb522065a80d5f25eb6c1b09a873776"
+  },
+  "source_editions": [
+    {
+      "ref": "BIPM SI Brochure",
+      "edition": "9th ed. (2019, updated 2022)",
+      "cadence": "errata/occasional"
+    },
+    {
+      "ref": "CODATA adjustment",
+      "edition": "2022",
+      "cadence": "~4 years"
+    },
+    {
+      "ref": "NIST Reference on Constants, Units, and Uncertainty",
+      "edition": "CODATA 2022 values",
+      "cadence": "tracks CODATA"
+    }
+  ],
+  "refresh_cadence": "check CODATA/BIPM quarterly; arXiv watches per agenda.json",
+  "compat": {
+    "bundle_schema": 1,
+    "terms_schema": 1
+  }
+}
