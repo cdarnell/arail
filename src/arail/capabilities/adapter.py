@@ -28,7 +28,7 @@ class Adapter(ABC):
     def is_available(self) -> bool:
         """Cheap probe. True iff invoke() can plausibly succeed on this host now.
 
-        macOS STT: (platform=='darwin') and xcrun/swiftc present.
+        macOS STT: (platform=='darwin') and the Apple compiler toolchain present.
         Linux stub: always False (never available).
         """
 

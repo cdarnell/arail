@@ -120,7 +120,18 @@ class MacOSSpeechToText(SpeechToTextAdapter):
             code = str(edata.get("error", code))
             message = str(edata.get("message", message))
         except Exception:  # noqa: BLE001
-            pass
+            # No JSON: an unsigned/un-bundled helper that crashes (SIGABRT,
+            # negative rc) while requesting the speech-recognition TCC grant
+            # cannot emit structured output. Treat a signal-kill as a
+            # permission/entitlement failure so the portal returns a graceful
+            # 409 instead of a 500. (See BUILD_LOG: TCC-grant delta.)
+            if rc < 0 or rc in (134, 133, 137):
+                code = "permission_denied"
+                message = (
+                    "On-device speech recognition could not be authorized for "
+                    "ARAIL's helper. A signed app bundle is required to grant "
+                    "Speech Recognition access (tracked as a known limitation)."
+                )
 
         if code == "no_speech":
             # Graceful "nothing heard" — empty transcript, not an error.
