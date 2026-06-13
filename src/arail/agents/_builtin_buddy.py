@@ -956,9 +956,47 @@ SUGGESTERS: List[Callable[[Dict[str, Any]], Optional[Observation]]] = [
 # _voice calls the local model to paraphrase. If the model is down,
 # Buddy still speaks — just in the raw voice of the watcher.
 
+_MAX_WORLD_DOMAIN_FRAMING = 600   # chars; cap on domain_framing in WORLD FRAMING block
+_MAX_WORLD_VOCAB_REGISTER = 300   # chars; cap on vocabulary_register in WORLD FRAMING block
+
+
+def _world_framing_block() -> str:
+    """Return a delimited, length-capped WORLD FRAMING block from the mounted
+    WorldBundle face.json, or empty string if no world is mounted.
+
+    Security: only face.json text is used (never terms.json). The block is
+    explicitly delimited and capped so any injected content cannot overflow
+    prompt structure."""
+    try:
+        from arail.world_mount import current_mount, mounted_face
+        record = current_mount()
+        if record is None:
+            return ""
+        face = mounted_face(record)
+        if not face:
+            return ""
+        domain = str(face.get("domain_framing", "")).strip()
+        vocab = str(face.get("vocabulary_register", "")).strip()
+        if domain:
+            domain = domain[:_MAX_WORLD_DOMAIN_FRAMING]
+        if vocab:
+            vocab = vocab[:_MAX_WORLD_VOCAB_REGISTER]
+        parts = []
+        if domain:
+            parts.append(f"Domain: {domain}")
+        if vocab:
+            parts.append(f"Vocabulary: {vocab}")
+        if not parts:
+            return ""
+        inner = "\n".join(parts)
+        return f"# WORLD FRAMING\n{inner}\n# END WORLD FRAMING"
+    except Exception:
+        return ""
+
+
 def _compose_prompt(fact: str) -> str:
-    """Build the full LLM prompt: base voice + skills + yesterday's
-    dream + observation."""
+    """Build the full LLM prompt: base voice + world framing (if mounted) +
+    skills + yesterday's dream + observation."""
     base = SYSTEM_PROMPT
     skill_ctx = _host.compose_skill_context(_host.load_agent_skills("buddy"))
 
@@ -970,7 +1008,11 @@ def _compose_prompt(fact: str) -> str:
     except Exception:
         dream_ctx = ""
 
+    world_framing = _world_framing_block()
+
     sections = [base]
+    if world_framing:
+        sections.append(world_framing)
     if dream_ctx:
         sections.append("# Yesterday you reflected\n" + dream_ctx)
     if skill_ctx:

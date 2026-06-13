@@ -64,6 +64,30 @@ def _arail_password_for_tests(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_ambient_world_mount(monkeypatch, tmp_path_factory):
+    """Hide any World a developer has mounted on this machine from the tests.
+
+    The portal endpoints / Buddy resolve the mount via
+    ``world_mount.current_mount()`` (no arg) → ``_default_data_dir()`` → the
+    real ``lab/data``. If a developer has run ``./arailctl world mount`` (e.g.
+    the physics World), that ambient state leaks into unrelated portal tests and
+    makes them non-deterministic — CI passes only because ``lab/`` is
+    git-ignored. We point the *default* data dir at a fresh empty directory, so
+    the ambient lookup finds nothing mounted. Tests that set up their own mount
+    re-``monkeypatch.setattr(world_mount, "_default_data_dir", ...)`` in their
+    body (same monkeypatch instance → their override wins), and tests that pass
+    an explicit ``current_mount(data_dir=...)`` are unaffected.
+    """
+    try:
+        from arail import world_mount
+    except Exception:  # noqa: BLE001
+        return  # feature not importable in this context → nothing to isolate
+
+    clean = tmp_path_factory.mktemp("no-ambient-world")
+    monkeypatch.setattr(world_mount, "_default_data_dir", lambda: clean)
+
+
+@pytest.fixture(autouse=True)
 def _reset_egress_guard():
     """Reset the egress guard to un-installed state between tests.
 

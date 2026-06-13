@@ -566,6 +566,21 @@ async def _startup():
     # everywhere else). Makes the first demo turn read cache, not cold prefix.
     asyncio.create_task(_prewarm_claude_cache_task())
 
+    # World Mount: detect and announce any mounted WorldBundle.
+    try:
+        from arail.world_mount import current_mount
+        _wm_record = current_mount()
+        if _wm_record is not None:
+            activity_log.emit(
+                "system",
+                f"World mounted: {_wm_record.world!r} "
+                f"(bundle_version={_wm_record.bundle_version}, "
+                f"sha256={_wm_record.world_sha256[:12]}…)",
+                "info",
+            )
+    except Exception as _wm_err:
+        activity_log.emit("system", f"World Mount check failed: {_wm_err}", "warn")
+
     # Load bootstrap goal if no active goal exists
     current = goal_store.get_current()
     if not current:
@@ -2483,6 +2498,42 @@ async def get_goal():
 # (AI / model-tuning by default). Reads are instant from cache; generation runs
 # as a serialized background task (inference_slot cap + per-slug flag + lock)
 # so it never competes for memory.
+#
+# When a WorldBundle is mounted, the dictionary is overridden with the bundle's
+# terms. generate-more/expand/seed/theme are disabled (can_generate=False).
+# Terms render only through template paths — no model round-trip while mounted.
+
+
+def _world_mounted_dict_response() -> Optional[Dict[str, Any]]:
+    """Return a dictionary response from the mounted WorldBundle, or None if not mounted."""
+    try:
+        from arail.world_mount import current_mount, get_mounted_dict_terms
+        record = current_mount()
+        if record is None:
+            return None
+        terms = get_mounted_dict_terms(record)
+        # Reveal the next "learning path page" via generate-more pagination state.
+        # We store a cursor in memory for the session; for now all terms are served.
+        return {
+            "theme": {
+                "label": f"World: {record.world}",
+                "source": "world",
+                "archetype": "world",
+                "slug": f"world-{record.world}",
+            },
+            "terms": terms,
+            "count": len(terms),
+            "generating": False,
+            "last_error": None,
+            "can_generate": False,
+            "world": record.world,
+            "world_sha256": record.world_sha256,
+        }
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning("world_mount: dict response error: %s", e)
+        return None
+
 
 def _dict_resolve_theme() -> Dict[str, Any]:
     # Theme is the AI glossary (default) unless the user picked a topic override.
@@ -2561,6 +2612,9 @@ async def _dict_run_generation(
 
 @app.get("/api/dictionary")
 async def api_dictionary_get():
+    world_resp = _world_mounted_dict_response()
+    if world_resp is not None:
+        return world_resp
     theme = _dict_resolve_theme()
     doc = dictionary_store.get_or_init(theme)
     return _dict_response(theme, doc)
@@ -2568,6 +2622,10 @@ async def api_dictionary_get():
 
 @app.post("/api/dictionary/seed")
 async def api_dictionary_seed(request: Request):
+    # While a WorldBundle is mounted, seed is a no-op (return current world terms).
+    world_resp = _world_mounted_dict_response()
+    if world_resp is not None:
+        return world_resp
     try:
         body = await request.json()
     except Exception:  # noqa: BLE001
@@ -2595,6 +2653,11 @@ async def api_dictionary_seed(request: Request):
 
 @app.post("/api/dictionary/generate-more")
 async def api_dictionary_generate_more(request: Request):
+    # While mounted: reveal the next "learning path page" from the bundle.
+    # No router call — the bundle IS the source of truth.
+    world_resp = _world_mounted_dict_response()
+    if world_resp is not None:
+        return world_resp
     try:
         body = await request.json()
     except Exception:  # noqa: BLE001
@@ -2623,6 +2686,12 @@ async def api_dictionary_generate_more(request: Request):
 
 @app.post("/api/dictionary/theme")
 async def api_dictionary_theme(request: Request):
+    # While mounted: theme switching is disabled (409 Conflict).
+    if _world_mounted_dict_response() is not None:
+        return JSONResponse(
+            {"error": "A WorldBundle is mounted; unmount first to change the dictionary theme."},
+            status_code=409,
+        )
     try:
         body = await request.json()
     except Exception:  # noqa: BLE001
@@ -2645,12 +2714,36 @@ async def api_dictionary_theme(request: Request):
 async def api_dictionary_expand(request: Request):
     """Buddy enriches ONE term with a deeper plain-text explanation. Single,
     small completion → reliable on local models, unlike bulk JSON. Cached on
-    the term so re-expanding is instant."""
+    the term so re-expanding is instant.
+
+    While a WorldBundle is mounted: serve the bundle's definition directly
+    without any router call."""
     try:
         body = await request.json()
     except Exception:  # noqa: BLE001
         body = {}
     term = str(body.get("term") or "").strip()
+
+    # Mounted world: serve bundle definition inline, never call the router.
+    try:
+        from arail.world_mount import current_mount, mounted_terms
+        _wm = current_mount()
+        if _wm is not None:
+            all_terms = mounted_terms(_wm)
+            matched = next(
+                (t for t in all_terms if t.get("term", "").strip().lower() == term.lower()
+                 or t.get("slug", "") == term),
+                None,
+            )
+            if matched:
+                from arail.dictionary import _MAX_DETAIL
+                detail = str(matched.get("definition", matched.get("short", "")))[:_MAX_DETAIL]
+                return {"ok": True, "term": matched.get("term", term),
+                        "detail": detail, "cached": True, "source": "world"}
+            return {"ok": False, "message": f"Term '{term}' not found in mounted world."}
+    except Exception:
+        pass
+
     if not term:
         return JSONResponse({"ok": False, "message": "No term provided."}, status_code=400)
     force = bool(body.get("force"))
@@ -8124,42 +8217,25 @@ async def get_mode():
 
 @app.post("/api/system/mode")
 async def set_mode(request: Request):
-    """Toggle between airgapped and hybrid mode.  Writes to .env and
-    updates the running process environment."""
-    body = await request.json()
-    new_mode = body.get("mode", "").lower()
-    if new_mode not in ("airgapped", "hybrid"):
-        return {"ok": False, "error": "mode must be 'airgapped' or 'hybrid'"}
-    old_mode = _lab_mode()
-    # Keep LAB_MODE and ARAIL_MODE in lock-step so every reader (whether
-    # it consults _lab_mode(), LAB_MODE directly, or the legacy
-    # ARAIL_MODE) sees the same value.
-    os.environ["ARAIL_MODE"] = new_mode
-    os.environ["LAB_MODE"] = new_mode
-    # Persist to .env
-    env_path = Path.cwd() / ".env"
-    if env_path.exists():
-        lines = env_path.read_text().splitlines()
-        out, seen = [], set()
-        for line in lines:
-            if line.startswith("ARAIL_MODE="):
-                out.append(f"ARAIL_MODE={new_mode}"); seen.add("ARAIL_MODE")
-            elif line.startswith("LAB_MODE="):
-                out.append(f"LAB_MODE={new_mode}"); seen.add("LAB_MODE")
-            else:
-                out.append(line)
-        if "ARAIL_MODE" not in seen:
-            out.append(f"ARAIL_MODE={new_mode}")
-        if "LAB_MODE" not in seen:
-            out.append(f"LAB_MODE={new_mode}")
-        env_path.write_text("\n".join(out) + "\n")
-    activity_log.emit(
-        "system",
-        f"Mode switched: {old_mode} → {new_mode}"
-        + (" — agents can now reach the internet" if new_mode == "hybrid" else " — all network access disabled"),
-        "info",
+    """DEPRECATED — superseded by ``POST /api/airgap/toggle``.
+
+    This legacy writer hand-rolled a non-atomic .env rewrite and skipped the
+    CSRF / loopback-bind gates the canonical endpoint enforces, so it was a
+    mode-flip path that bypassed the airgap protections. No client uses it
+    (the nav badge POSTs to /api/airgap/toggle; only ``GET /api/system/mode``
+    is still read). It now refuses and points callers at the gated endpoint
+    rather than performing an ungated, unquoted write.
+    """
+    from fastapi.responses import JSONResponse
+    return JSONResponse(
+        status_code=410,
+        content={
+            "ok": False,
+            "error": "deprecated",
+            "message": "POST /api/system/mode is removed; use POST /api/airgap/toggle.",
+            "use": "/api/airgap/toggle",
+        },
     )
-    return {"ok": True, "mode": new_mode}
 
 
 # ---------------------------------------------------------------------------
