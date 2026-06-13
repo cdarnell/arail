@@ -566,6 +566,21 @@ async def _startup():
     # everywhere else). Makes the first demo turn read cache, not cold prefix.
     asyncio.create_task(_prewarm_claude_cache_task())
 
+    # World Mount: detect and announce any mounted WorldBundle.
+    try:
+        from arail.world_mount import current_mount
+        _wm_record = current_mount()
+        if _wm_record is not None:
+            activity_log.emit(
+                "system",
+                f"World mounted: {_wm_record.world!r} "
+                f"(bundle_version={_wm_record.bundle_version}, "
+                f"sha256={_wm_record.world_sha256[:12]}…)",
+                "info",
+            )
+    except Exception as _wm_err:
+        activity_log.emit("system", f"World Mount check failed: {_wm_err}", "warn")
+
     # Load bootstrap goal if no active goal exists
     current = goal_store.get_current()
     if not current:
