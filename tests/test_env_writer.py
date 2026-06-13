@@ -32,6 +32,57 @@ def _read(path: Path) -> bytes:
 # Round-trip cases
 # ---------------------------------------------------------------------------
 
+class TestShellSourceSafety:
+    """Values written must survive `set -a; source .env` (arailctl line ~92).
+
+    Regression: the World-mount face flip wrote multi-word free text
+    (LAB_INTENT_DESCRIPTION="This lab studies ...") bare, so sourcing ran
+    `lab` as a command.
+    """
+
+    @staticmethod
+    def _sourced_value(env: Path, key: str) -> str:
+        import subprocess
+        out = subprocess.run(
+            ["bash", "-c", f'set -a; source "{env}"; printf %s "${{{key}}}"'],
+            capture_output=True, text=True,
+        )
+        assert out.returncode == 0, out.stderr
+        assert out.stderr == "", out.stderr  # no "command not found" noise
+        return out.stdout
+
+    def test_appended_multiword_is_source_safe(self, tmp_path):
+        env = tmp_path / ".env"
+        _write(env, b"FOO=bar\n")
+        val = "This lab studies physics: SI units, & uncertainty (CODATA)."
+        set_env_var(env, "LAB_INTENT_DESCRIPTION", val)
+        assert read_env_var(env, "LAB_INTENT_DESCRIPTION") == val
+        assert self._sourced_value(env, "LAB_INTENT_DESCRIPTION") == val
+
+    def test_shell_metachars_do_not_expand(self, tmp_path):
+        env = tmp_path / ".env"
+        _write(env, b"")
+        val = "upright units (kg, J·s); $HOME stays literal; `date` too"
+        set_env_var(env, "LAB_VOCAB", val)
+        assert self._sourced_value(env, "LAB_VOCAB") == val  # no expansion
+
+    def test_repairs_existing_bare_unsafe_line(self, tmp_path):
+        """An already-written bare value with spaces is re-quoted in place."""
+        env = tmp_path / ".env"
+        _write(env, b"LAB_INTENT_DESCRIPTION=This lab studies physics\n")
+        val = "This lab studies physics"
+        result = set_env_var(env, "LAB_INTENT_DESCRIPTION", val)
+        assert result["changed"] is True  # not a no-op despite equal value
+        assert b'"This lab studies physics"' in _read(env)
+        assert self._sourced_value(env, "LAB_INTENT_DESCRIPTION") == val
+
+    def test_simple_token_stays_unquoted(self, tmp_path):
+        env = tmp_path / ".env"
+        _write(env, b"")
+        set_env_var(env, "LAB_INTENT", "other")
+        assert _read(env).rstrip().endswith(b"LAB_INTENT=other")
+
+
 class TestSetEnvVarRoundTrips:
     def test_missing_line_append(self, tmp_path):
         """Key absent → appended after blank + comment marker."""

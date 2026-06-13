@@ -58,6 +58,32 @@ def _utcnow_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
+# Values matching this are safe to leave unquoted when the .env file is loaded
+# via `set -a; source .env` (arailctl line ~92). Anything with whitespace or a
+# shell metacharacter must be quoted or the shell mis-parses it (e.g. a value
+# "This lab studies ..." runs `lab` as a command).
+_ENV_SAFE_UNQUOTED = re.compile(r"\A[A-Za-z0-9_./:@%+,=-]*\Z")
+
+
+def _quote_for_env(value: str) -> tuple[str, str]:
+    """Return ``(inner, quote_char)`` so ``KEY=<inner>`` or ``KEY="<inner>"`` is
+    safe to evaluate when the .env file is shell-sourced.
+
+    Simple tokens stay unquoted (minimal diffs). Anything else is double-quoted
+    with ``\\ " $ ``` backslash-escaped so ``source`` reproduces the value
+    verbatim and cannot execute embedded command/parameter expansions.
+    """
+    if _ENV_SAFE_UNQUOTED.match(value):
+        return value, ""
+    inner = (
+        value.replace("\\", "\\\\")
+        .replace('"', '\\"')
+        .replace("$", "\\$")
+        .replace("`", "\\`")
+    )
+    return inner, '"'
+
+
 # ---------------------------------------------------------------------------
 # Line dataclass
 # ---------------------------------------------------------------------------
@@ -84,11 +110,30 @@ class Line:
         return self.value_raw
 
     def with_value(self, new_value: str) -> "Line":
-        """Return a new Line with the value replaced, preserving quote style."""
-        if self.quote:
-            new_value_raw = f"{self.quote}{new_value}{self.quote}"
+        """Return a new Line with the value replaced, shell-quoting as needed.
+
+        The existing quote style is preserved when it can still safely hold the
+        new value (so a hand-quoted line keeps its style). An *unquoted* line
+        whose new value contains whitespace/metacharacters is upgraded to a
+        double-quoted form so ``set -a; source .env`` reproduces it verbatim.
+        """
+        quote = self.quote
+        if quote == "'" and "'" in new_value:
+            # Single quotes cannot hold an embedded ' — re-derive safely.
+            quote = ""
+        if quote == "":
+            inner, quote = _quote_for_env(new_value)
+        elif quote == '"':
+            inner = (
+                new_value.replace("\\", "\\\\").replace('"', '\\"')
+                .replace("$", "\\$").replace("`", "\\`")
+            )
+        else:  # "'": no shell processing inside single quotes
+            inner = new_value
+        if quote:
+            new_value_raw = f"{quote}{inner}{quote}"
         else:
-            new_value_raw = new_value
+            new_value_raw = inner
         # inline_comment is stored as captured by the regex group after " #",
         # so it may have a leading space. Normalise to exactly " # <stripped>".
         if self.inline_comment is not None:
@@ -101,7 +146,7 @@ class Line:
             raw=new_raw,
             key=self.key,
             value_raw=new_value_raw,
-            quote=self.quote,
+            quote=quote,
             inline_comment=self.inline_comment,
             _term=self._term,
             _prefix=self._prefix,
@@ -327,11 +372,15 @@ def set_env_var(path: Path, key: str, value: str) -> dict:
 
         if first_match is not None:
             ln = lines[first_match]
-            if ln.unquoted_value == value:
-                # No-op: file already has the correct value.
+            new_line = ln.with_value(value)
+            if new_line.raw == ln.raw:
+                # No-op: file already stores this value in a shell-safe form.
                 return {"old_value": old_value, "new_value": value,
                         "changed": False, "appended": False}
-            lines[first_match] = ln.with_value(value)
+            # Rewrites even when the stored unquoted_value already equals
+            # `value` but is unsafely quoted (repairs a previously-bare value
+            # that contained whitespace/metacharacters).
+            lines[first_match] = new_line
             appended = False
         else:
             # Append.
@@ -340,7 +389,8 @@ def set_env_var(path: Path, key: str, value: str) -> dict:
             lines.append(Line.comment(
                 f"# set by arail portal toggle ({_utcnow_iso()})", nl
             ))
-            lines.append(Line.assign(key, value, nl, quote=""))
+            inner, q = _quote_for_env(value)
+            lines.append(Line.assign(key, inner, nl, quote=q))
             appended = True
 
         # 5. Serialize; ensure final newline.
