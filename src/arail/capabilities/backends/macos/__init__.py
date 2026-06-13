@@ -1,8 +1,8 @@
-"""macOS backends. Apple symbols (AVFoundation, Speech, SFSpeechRecognizer,
-xcrun, swiftc) are confined to THIS package by design — WC-B. A grep for those
-strings outside this directory must come back clean.
-
-Importing each module registers its adapter into the registry.
+"""macOS backends. The Apple-Speech STT path is DELETED (Addendum A): STT is now
+the platform-neutral local-Whisper backend (``backends/whisper_stt.py``). No Apple
+framework symbols remain anywhere in ``src/`` — the WC-B grep is clean with no
+exclude. This package now registers only the audio-capture materialization seam;
+``stt_backend`` is kept as a no-Apple backward-compatible alias for Whisper.
 """
 
 from __future__ import annotations

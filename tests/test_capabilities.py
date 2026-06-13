@@ -51,39 +51,40 @@ def test_registry_resolution_states():
     assert resolved["speech-to-text"].state in ("available", "declared_unavailable")
 
 
-def test_resolve_missing_clt_declared_unavailable(monkeypatch):
-    """xcrun absent → MacOSSpeechToText.is_available() False → declared_unavailable."""
-    import arail.capabilities.backends.macos.stt_backend as stt
-    import platform as _pf
-    monkeypatch.setattr(stt.shutil, "which", lambda _n: None)
-    monkeypatch.setattr(stt.platform, "system", lambda: "Darwin")
+def test_resolve_model_absent_airgapped_declared_unavailable(monkeypatch):
+    """Model absent + airgapped → WhisperSpeechToText.is_available() False →
+    declared_unavailable (the post-swap equivalent of the old missing-CLT gate)."""
+    import arail.capabilities.backends.whisper_stt as ws
+    monkeypatch.setattr(ws._platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(ws, "_model_present", lambda: False)
+    monkeypatch.setattr(ws, "_is_airgapped", lambda: True)  # absent + airgapped → not fetchable
     monkeypatch.setattr(registry, "_host_platform", lambda: "darwin")
     resolved = resolve_capabilities([CapabilitySpec(id="speech-to-text")])
     assert resolved[0].state == "declared_unavailable"
 
 
-# ── WC-B: Linux selected on macOS raises clean ─────────────────────────
+# ── WC-3: Linux is OFF the STT stub (Whisper is cross-platform) ─────────
 
 
-def test_wc_b_linux_selected_raises_clean(monkeypatch):
+def test_wc3_linux_selected_returns_whisper(monkeypatch):
+    """Post-swap: forcing linux selects the platform-neutral Whisper backend,
+    NOT a CapabilityNotImplemented stub — Linux is off the STT stub (WC-3)."""
     monkeypatch.setenv("ARAIL_FORCE_PLATFORM", "linux")
     adapter = registry.select("speech-to-text")
-    assert type(adapter).__name__ == "LinuxSpeechToText"
-    with pytest.raises(CapabilityUnavailable) as ei:
-        adapter.invoke(audio={}, locale="en-US")
-    assert str(ei.value) == "speech-to-text: no backend for linux"
-    assert ei.value.user_message  # actionable
+    assert type(adapter).__name__ == "WhisperSpeechToText"
+    assert adapter.platform == "linux"
 
 
-def test_wc_b_no_apple_symbols_above_seam():
-    """The Apple-symbol grep (ARCHITECTURE §6) returns nothing outside macos backend."""
+def test_wc_b_no_apple_symbols_anywhere():
+    """The Apple-symbol grep (Addendum A.8) returns nothing anywhere in src/ —
+    no --exclude-dir needed now that the Apple path is deleted."""
     repo = pathlib.Path(__file__).resolve().parent.parent
     proc = subprocess.run(
         ["grep", "-rEn", r"AVFoundation|SFSpeechRecognizer|pyobjc|\bobjc\b|swiftc|xcrun",
-         "src/", "--exclude-dir=macos"],
+         "src/"],
         cwd=repo, capture_output=True, text=True,
     )
-    assert proc.returncode != 0, f"Apple symbols leaked above the seam:\n{proc.stdout}"
+    assert proc.returncode != 0, f"Apple symbols leaked:\n{proc.stdout}"
 
 
 # ── WC-C: second declared id, zero code ────────────────────────────────

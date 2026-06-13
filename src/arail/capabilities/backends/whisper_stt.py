@@ -245,6 +245,17 @@ class WhisperSpeechToText(SpeechToTextAdapter):
         # Injectable subprocess/model boundary; default = real transcription.
         self._runner: Runner = runner or _default_runner
 
+    def _ensure_helper(self) -> Path:
+        """Backward-compat no-op seam.
+
+        The old Apple backend compiled a helper binary here; the Whisper backend
+        does its model lookup inside ``_default_runner`` instead. Retained so the
+        existing fake-``_runner`` flow tests (which monkeypatch this away) keep
+        working UNCHANGED — they replace the runner, so this never does real work.
+        Returns the model dir for symmetry; callers ignore the result.
+        """
+        return _model_dir()
+
     def is_available(self) -> bool:
         """Cheap probe: lib importable + a decode path + model present-or-fetchable.
         No model load, no network."""

@@ -3,8 +3,9 @@
 Capture happens in the BROWSER (getUserMedia/MediaRecorder); this adapter's job
 is validation + materialization, not device access. It writes the posted bytes
 to a temp file under ``lab/data/cache/stt/<uuid>.<ext>`` and rejects mime types
-Apple's AVFoundation cannot decode (webm/opus → unsupported_audio). A future
-native CoreAudio capture impl slots in here without changing callers.
+the on-device decoder (``afconvert``) cannot handle (webm/opus →
+unsupported_audio). A future native capture impl slots in here without changing
+callers.
 """
 
 from __future__ import annotations
@@ -18,8 +19,8 @@ from ...adapter import AudioCaptureAdapter
 from ...errors import CapabilityError
 from ... import registry
 
-# mime → file extension. AVFoundation decodes m4a/aac/wav/flac natively; it does
-# NOT decode webm/opus (confirmed in the spike), so we reject those.
+# mime → file extension. afconvert decodes m4a/aac/wav/flac → 16 kHz mono WAV; it
+# does NOT decode webm/opus (confirmed in the spike), so we reject those.
 _MIME_EXT: Dict[str, str] = {
     "audio/mp4": ".m4a",
     "audio/m4a": ".m4a",

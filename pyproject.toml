@@ -31,6 +31,7 @@ dependencies = [
     "python-frontmatter>=1.1.0",
     "tomli>=2.0.1; python_version < '3.11'",
     "lancedb>=0.13.0",
+    "faster-whisper>=1.2.0",
 ]
 
 [project.optional-dependencies]
@@ -263,6 +264,6 @@ markers = [
     "perf: performance smoke tests (may be excluded with -m 'not perf' on slow CI)",
     "e2e: end-to-end witness tests (require a real lab process)",
     "qa: paranoid QA edge-case tests (slow; may be excluded with -m 'not qa')",
-    "live_mic: tests needing real audio/mic/Speech.framework or swiftc; skipped in CI (run with -m live_mic)",
+    "live_stt: tests needing real audio + a local Whisper model / afconvert; skipped in CI (run with -m live_stt)",
 ]
 
