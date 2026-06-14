@@ -105,7 +105,7 @@ def _ensure_model() -> Path:
     with an actionable message — never crash, never hang on the network.
     """
     mdir = _model_dir()
-    if (mdir / "model.bin").exists():
+    if _model_present():  # patchable indirection (don't stat model.bin directly)
         return mdir
     if _is_airgapped():
         raise CapabilityUnavailable(
