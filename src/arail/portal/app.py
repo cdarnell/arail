@@ -5240,9 +5240,20 @@ def _build_chat_result(response: ModelResponse, *, wants_deep: bool) -> dict[str
                       f"{response.latency_ms:.0f} ms · {tokens_per_sec} t/s",
                       "info")
 
+    # F5/F8: Honest backend notice surfaced to the chat UI.
+    # When AirLLM fallback is active, the response is notably slower (layer-
+    # streaming subprocess). Labeling it prevents the latency from being hidden.
+    # When AeroLLM is active, confirm the local/fast nature (no cloud egress).
+    _backend_notices: dict[str, str] = {
+        "airllm": "via AirLLM fallback (slower)",
+        "aerollm": "via AeroLLM (local, fast)",
+    }
+    backend_notice = _backend_notices.get(response.backend)
+
     return {
         "reply": reply,
         "backend": response.backend,
+        "backend_notice": backend_notice,
         "model": response.model,
         "latency_ms": response.latency_ms,
         "tokens_used": response.tokens_used,
