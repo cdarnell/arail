@@ -2668,6 +2668,123 @@ def _world_mounted_dict_response() -> Optional[Dict[str, Any]]:
         return None
 
 
+def _resolve_world_dir(slug: str, raw_path: str):
+    """Path-jail a World selection to a real dir under ``WORLDS_DIR``.
+
+    Returns the resolved bundle dir, or ``None`` if the slug/path is invalid or
+    escapes the jail. Rejects ``..`` traversal, absolute escapes, and symlink-out
+    (resolve() then prefix-check). The slug is regex-jailed via ``_SLUG_RE``.
+    """
+    from arail.world_mount import _SLUG_RE, _default_worlds_dir
+
+    worlds_root = _default_worlds_dir().resolve()
+
+    def _jailed(candidate: Path):
+        try:
+            if not candidate.is_dir():
+                return None
+        except Exception:
+            return None
+        root_s = str(worlds_root)
+        cand_s = str(candidate)
+        if cand_s == root_s or cand_s.startswith(root_s + os.sep):
+            return candidate
+        return None
+
+    if slug:
+        if not _SLUG_RE.match(slug):
+            return None
+        candidate = (worlds_root / slug).resolve()
+        return _jailed(candidate)
+    if raw_path:
+        candidate = Path(raw_path).expanduser().resolve()
+        return _jailed(candidate)
+    return None
+
+
+@app.get("/api/worlds")
+async def api_worlds_list():
+    """Catalog of mountable Worlds in ``lab/worlds/`` plus the current mount.
+
+    Read-only, airgap-safe (local files only). Shape:
+    ``{"worlds": [WorldInfo.to_dict(), ...], "current": "<slug>"|null}``.
+    """
+    from arail.world_mount import list_available_worlds, current_mount
+    worlds = [w.to_dict() for w in list_available_worlds()]
+    rec = current_mount()
+    return {"worlds": worlds, "current": rec.world if rec else None}
+
+
+@app.post("/api/worlds/select")
+async def api_worlds_select(request: Request):
+    """Load (mount) or unload (default→unmount) a World from the catalog.
+
+    Body: ``{"slug": "<slug>"}`` | ``{"path": "<abs path under WORLDS_DIR>"}`` |
+    ``{"slug": "default"}`` | ``{"default": true}``. CSRF envelope mirrors
+    ``post_airgap_toggle`` (Sec-Fetch-Site + Origin/Host). Mount is atomic — any
+    bundle/seal failure refuses before touching disk, so the current World is
+    unchanged. Expected failures: 409 (seal/partial/schema/category/slug) or 400
+    (bad slug / traversal); never 500 for those.
+    """
+    from fastapi.responses import JSONResponse
+    from arail.world_mount import (
+        mount, unmount, _SLUG_RE,
+        SealMismatch, PartialBundle, SchemaSkew, GateViolation, SlugInvalid,
+    )
+
+    def _err(code: int, body: dict):
+        return JSONResponse(status_code=code, content=body)
+
+    # ── CSRF envelope (same order as airgap toggle) ──
+    _sfs = request.headers.get("sec-fetch-site", "").strip().lower()
+    if _sfs in ("cross-site", "none"):
+        return _err(403, {"error": "cross_site"})
+    origin = request.headers.get("origin", "")
+    host = request.headers.get("host", "")
+    if origin:
+        from urllib.parse import urlparse as _urlparse
+        origin_host = _urlparse(origin).netloc
+        if origin_host and origin_host != host:
+            return _err(403, {"error": "cross_origin"})
+
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not isinstance(body, dict):
+        body = {}
+
+    slug = str(body.get("slug", "")).strip()
+    raw_path = str(body.get("path", "")).strip()
+
+    # ── "default" → unmount ──
+    if slug == "default" or body.get("default") is True:
+        unmount()  # never raises; returns bool
+        return {"ok": True, "current": None}
+
+    # ── Resolve a bundle dir, path-jailed ──
+    bundle_dir = _resolve_world_dir(slug, raw_path)
+    if bundle_dir is None:
+        return _err(400, {
+            "error": "bad_request",
+            "message": "Provide a known slug or a path under WORLDS_DIR, or 'default'.",
+        })
+
+    # ── Mount (atomic; refuses before touching disk on any error) ──
+    try:
+        rec = mount(bundle_dir)
+    except (SealMismatch, PartialBundle, SchemaSkew, GateViolation, SlugInvalid) as e:
+        return _err(409, {
+            "error": "mount_refused",
+            "message": getattr(e, "user_message", str(e)),
+        })
+    except Exception as e:  # noqa: BLE001
+        _log.warning("world select: unexpected mount error: %s", e)
+        return _err(500, {"error": "mount_failed", "message": str(e)})
+
+    return {"ok": True, "current": rec.world}
+
+
 def _dict_resolve_theme() -> Dict[str, Any]:
     # Theme is the AI glossary (default) unless the user picked a topic override.
     # The research goal is surfaced as a suggested action, not an auto-switch.
