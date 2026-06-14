@@ -48,3 +48,14 @@ def test_mic_enabled_when_stt_available(monkeypatch, tmp_path):
     # the mic button is NOT disabled
     seg = html.split('id="mic-btn"', 1)[1].split(">", 1)[0]
     assert "disabled" not in seg
+
+
+def test_chat_surfaces_safari_caveat_at_load():
+    """Voice notes need a browser that records an afconvert-decodable container
+    (Safari/audio/mp4). The caveat must surface proactively at load — not only
+    after the first mic tap — via the load-time pickMime() check + visual hint.
+    """
+    html = _client().get("/chat").text
+    assert ".mic-btn.mic-unsupported" in html        # the muted visual-hint style
+    assert "Proactive Safari caveat" in html          # the load-time check is wired
+    assert "need Safari in v1" in html                # the user-facing message
