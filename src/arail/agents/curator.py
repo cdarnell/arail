@@ -63,11 +63,30 @@ class CuratorAgent:
         self.consent = consent or ConsentStore()
         CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
+    def _world_extra_sources(self) -> Dict[str, Dict[str, str]]:
+        """Return extra trusted domains from the mounted WorldBundle, or {}.
+
+        Unions the bundle's spec.knowledge_sources holder→domain map at
+        runtime. The module-level TRUSTED_SOURCES dict is never mutated.
+        """
+        try:
+            from arail.world_mount import current_mount, world_trusted_domains
+            record = current_mount()
+            if record is None:
+                return {}
+            return world_trusted_domains(record)
+        except Exception:
+            return {}
+
     def propose_sources(self, parsed_goal: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Given a parsed goal, return a list of proposed source fetches.
 
         Each entry is a consent request the portal will show to the user.
         Blocked entirely in airgapped mode.
+
+        When a WorldBundle is mounted, its knowledge_sources (holder→domain)
+        are unioned with TRUSTED_SOURCES at runtime. The module dict is
+        never mutated; unmount restores original behavior.
         """
         from arail.airgap import is_airgapped
         if is_airgapped():
@@ -75,7 +94,12 @@ class CuratorAgent:
         domain = parsed_goal.get("domain", "general")
         proposals: List[Dict[str, Any]] = []
 
-        for host, meta in TRUSTED_SOURCES.items():
+        # Union the module-level registry with any mounted world's sources.
+        # TRUSTED_SOURCES is never mutated — runtime union only.
+        effective_sources: Dict[str, Dict[str, str]] = dict(TRUSTED_SOURCES)
+        effective_sources.update(self._world_extra_sources())
+
+        for host, meta in effective_sources.items():
             # Simple relevance matching — a real implementation would
             # use the LLM to rank sources against the goal.
             if meta["category"] in ("research",):

@@ -99,6 +99,22 @@
   install: "ollama pull qwen2.5:1.5b"
   tier: optional
 
+- id: qwen2.5:0.5b-instruct-q4_K_M
+  name: Qwen 2.5 0.5B (budget / CPU starter)
+  family: qwen
+  size_gb: 0.4
+  released: 2024-09
+  source: ollama
+  good_at: [chat, fast, low-memory, cpu]
+  description: "Qwen2.5-0.5B-Instruct Q4 (Apache-2.0, ~0.4 GB) — the lightest
+               viable starter for a tight budget: runs on CPU-only boxes and
+               well under 8 GB RAM. This is the same on-box SLM qukaizen-site
+               runs on CPU (~2.3x faster than 1.5B). Capability is limited
+               (weak at hard code/reasoning) — a starting point, not the
+               everyday default. Move up to llama-ai-eng (1B) when you can."
+  install: "ollama pull qwen2.5:0.5b-instruct-q4_K_M"
+  tier: optional
+
 # ── OpenAI's open-weight reasoning models — gpt-oss ────────────────
 - id: gpt-oss:20b
   name: GPT-OSS 20B

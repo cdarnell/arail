@@ -44,11 +44,10 @@ cd arail
 
 `./arailctl setup` will:
 
-1. Create a `.venv` and `pip install -e ".[dev]"`
-2. Install `mlx` + `mlx-lm`
-3. Download `mlx-community/Qwen3-8B-4bit` (~4.3 GB)
-4. Set `MODEL_BACKEND=mlx` in `.env`
-5. Ask for your research goal and work windows, write them to `lab/data/goals/bootstrap_goal.json` and `.env`
+1. Create a `.venv` and `pip install -e ".[dev]"` (plus `mlx` + `mlx-lm` on Apple Silicon)
+2. Install Ollama (if missing) as the local model runtime
+3. Pull `llama3.2:1b` (~0.9 GB) and wrap it with the AI-engineer persona as `llama-ai-eng` — the only model that auto-installs (Built with Llama; see [NOTICE](../NOTICE))
+4. Ask for your research goal and work windows, write them to `lab/data/goals/bootstrap_goal.json` and `.env`
 
 Then `./arailctl start` brings up the dashboard at <http://127.0.0.1:8080> along with the in-browser terminal (ttyd), Jupyter Lab, and VS Code Server. The researcher agent auto-starts on your captured goal after a 5-minute courtesy delay (configurable via `LAB_STARTUP_DELAY_SEC`).
 

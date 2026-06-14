@@ -566,6 +566,21 @@ async def _startup():
     # everywhere else). Makes the first demo turn read cache, not cold prefix.
     asyncio.create_task(_prewarm_claude_cache_task())
 
+    # World Mount: detect and announce any mounted WorldBundle.
+    try:
+        from arail.world_mount import current_mount
+        _wm_record = current_mount()
+        if _wm_record is not None:
+            activity_log.emit(
+                "system",
+                f"World mounted: {_wm_record.world!r} "
+                f"(bundle_version={_wm_record.bundle_version}, "
+                f"sha256={_wm_record.world_sha256[:12]}…)",
+                "info",
+            )
+    except Exception as _wm_err:
+        activity_log.emit("system", f"World Mount check failed: {_wm_err}", "warn")
+
     # Load bootstrap goal if no active goal exists
     current = goal_store.get_current()
     if not current:
@@ -1035,7 +1050,30 @@ async def chat_page(request: Request):
     embed = request.query_params.get("embed", "").lower() in {
         "1", "true", "yes", "on"
     }
-    return templates.TemplateResponse(request, "chat.html", {"embed": embed})
+    # Resolve whether the mounted World inherited speech-to-text, to gate the
+    # mic affordance. Best-effort: any failure → mic stays disabled.
+    stt_available = False
+    stt_message = "Mount a World that declares speech-to-text to enable voice notes."
+    ocr_available = False
+    ocr_message = "Mount a World that declares equation-ocr to enable image OCR."
+    try:
+        from arail.world_mount import current_capabilities
+        for c in current_capabilities():
+            if c.get("id") == "speech-to-text":
+                stt_available = c.get("state") == "available"
+                stt_message = c.get("message", stt_message)
+            if c.get("id") == "equation-ocr":
+                ocr_available = c.get("state") == "available"
+                ocr_message = c.get("message", ocr_message)
+    except Exception:  # noqa: BLE001
+        pass
+    return templates.TemplateResponse(request, "chat.html", {
+        "embed": embed,
+        "stt_available": stt_available,
+        "stt_message": stt_message,
+        "ocr_available": ocr_available,
+        "ocr_message": ocr_message,
+    })
 
 
 # ─── Chat compute-source pivot ───────────────────────────────────────────
@@ -2483,6 +2521,42 @@ async def get_goal():
 # (AI / model-tuning by default). Reads are instant from cache; generation runs
 # as a serialized background task (inference_slot cap + per-slug flag + lock)
 # so it never competes for memory.
+#
+# When a WorldBundle is mounted, the dictionary is overridden with the bundle's
+# terms. generate-more/expand/seed/theme are disabled (can_generate=False).
+# Terms render only through template paths — no model round-trip while mounted.
+
+
+def _world_mounted_dict_response() -> Optional[Dict[str, Any]]:
+    """Return a dictionary response from the mounted WorldBundle, or None if not mounted."""
+    try:
+        from arail.world_mount import current_mount, get_mounted_dict_terms
+        record = current_mount()
+        if record is None:
+            return None
+        terms = get_mounted_dict_terms(record)
+        # Reveal the next "learning path page" via generate-more pagination state.
+        # We store a cursor in memory for the session; for now all terms are served.
+        return {
+            "theme": {
+                "label": f"World: {record.world}",
+                "source": "world",
+                "archetype": "world",
+                "slug": f"world-{record.world}",
+            },
+            "terms": terms,
+            "count": len(terms),
+            "generating": False,
+            "last_error": None,
+            "can_generate": False,
+            "world": record.world,
+            "world_sha256": record.world_sha256,
+        }
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning("world_mount: dict response error: %s", e)
+        return None
+
 
 def _dict_resolve_theme() -> Dict[str, Any]:
     # Theme is the AI glossary (default) unless the user picked a topic override.
@@ -2561,6 +2635,9 @@ async def _dict_run_generation(
 
 @app.get("/api/dictionary")
 async def api_dictionary_get():
+    world_resp = _world_mounted_dict_response()
+    if world_resp is not None:
+        return world_resp
     theme = _dict_resolve_theme()
     doc = dictionary_store.get_or_init(theme)
     return _dict_response(theme, doc)
@@ -2568,6 +2645,10 @@ async def api_dictionary_get():
 
 @app.post("/api/dictionary/seed")
 async def api_dictionary_seed(request: Request):
+    # While a WorldBundle is mounted, seed is a no-op (return current world terms).
+    world_resp = _world_mounted_dict_response()
+    if world_resp is not None:
+        return world_resp
     try:
         body = await request.json()
     except Exception:  # noqa: BLE001
@@ -2595,6 +2676,11 @@ async def api_dictionary_seed(request: Request):
 
 @app.post("/api/dictionary/generate-more")
 async def api_dictionary_generate_more(request: Request):
+    # While mounted: reveal the next "learning path page" from the bundle.
+    # No router call — the bundle IS the source of truth.
+    world_resp = _world_mounted_dict_response()
+    if world_resp is not None:
+        return world_resp
     try:
         body = await request.json()
     except Exception:  # noqa: BLE001
@@ -2623,6 +2709,12 @@ async def api_dictionary_generate_more(request: Request):
 
 @app.post("/api/dictionary/theme")
 async def api_dictionary_theme(request: Request):
+    # While mounted: theme switching is disabled (409 Conflict).
+    if _world_mounted_dict_response() is not None:
+        return JSONResponse(
+            {"error": "A WorldBundle is mounted; unmount first to change the dictionary theme."},
+            status_code=409,
+        )
     try:
         body = await request.json()
     except Exception:  # noqa: BLE001
@@ -2645,12 +2737,36 @@ async def api_dictionary_theme(request: Request):
 async def api_dictionary_expand(request: Request):
     """Buddy enriches ONE term with a deeper plain-text explanation. Single,
     small completion → reliable on local models, unlike bulk JSON. Cached on
-    the term so re-expanding is instant."""
+    the term so re-expanding is instant.
+
+    While a WorldBundle is mounted: serve the bundle's definition directly
+    without any router call."""
     try:
         body = await request.json()
     except Exception:  # noqa: BLE001
         body = {}
     term = str(body.get("term") or "").strip()
+
+    # Mounted world: serve bundle definition inline, never call the router.
+    try:
+        from arail.world_mount import current_mount, mounted_terms
+        _wm = current_mount()
+        if _wm is not None:
+            all_terms = mounted_terms(_wm)
+            matched = next(
+                (t for t in all_terms if t.get("term", "").strip().lower() == term.lower()
+                 or t.get("slug", "") == term),
+                None,
+            )
+            if matched:
+                from arail.dictionary import _MAX_DETAIL
+                detail = str(matched.get("definition", matched.get("short", "")))[:_MAX_DETAIL]
+                return {"ok": True, "term": matched.get("term", term),
+                        "detail": detail, "cached": True, "source": "world"}
+            return {"ok": False, "message": f"Term '{term}' not found in mounted world."}
+    except Exception:
+        pass
+
     if not term:
         return JSONResponse({"ok": False, "message": "No term provided."}, status_code=400)
     force = bool(body.get("force"))
@@ -5124,9 +5240,20 @@ def _build_chat_result(response: ModelResponse, *, wants_deep: bool) -> dict[str
                       f"{response.latency_ms:.0f} ms · {tokens_per_sec} t/s",
                       "info")
 
+    # F5/F8: Honest backend notice surfaced to the chat UI.
+    # When AirLLM fallback is active, the response is notably slower (layer-
+    # streaming subprocess). Labeling it prevents the latency from being hidden.
+    # When AeroLLM is active, confirm the local/fast nature (no cloud egress).
+    _backend_notices: dict[str, str] = {
+        "airllm": "via AirLLM fallback (slower)",
+        "aerollm": "via AeroLLM (local, fast)",
+    }
+    backend_notice = _backend_notices.get(response.backend)
+
     return {
         "reply": reply,
         "backend": response.backend,
+        "backend_notice": backend_notice,
         "model": response.model,
         "latency_ms": response.latency_ms,
         "tokens_used": response.tokens_used,
@@ -8124,42 +8251,25 @@ async def get_mode():
 
 @app.post("/api/system/mode")
 async def set_mode(request: Request):
-    """Toggle between airgapped and hybrid mode.  Writes to .env and
-    updates the running process environment."""
-    body = await request.json()
-    new_mode = body.get("mode", "").lower()
-    if new_mode not in ("airgapped", "hybrid"):
-        return {"ok": False, "error": "mode must be 'airgapped' or 'hybrid'"}
-    old_mode = _lab_mode()
-    # Keep LAB_MODE and ARAIL_MODE in lock-step so every reader (whether
-    # it consults _lab_mode(), LAB_MODE directly, or the legacy
-    # ARAIL_MODE) sees the same value.
-    os.environ["ARAIL_MODE"] = new_mode
-    os.environ["LAB_MODE"] = new_mode
-    # Persist to .env
-    env_path = Path.cwd() / ".env"
-    if env_path.exists():
-        lines = env_path.read_text().splitlines()
-        out, seen = [], set()
-        for line in lines:
-            if line.startswith("ARAIL_MODE="):
-                out.append(f"ARAIL_MODE={new_mode}"); seen.add("ARAIL_MODE")
-            elif line.startswith("LAB_MODE="):
-                out.append(f"LAB_MODE={new_mode}"); seen.add("LAB_MODE")
-            else:
-                out.append(line)
-        if "ARAIL_MODE" not in seen:
-            out.append(f"ARAIL_MODE={new_mode}")
-        if "LAB_MODE" not in seen:
-            out.append(f"LAB_MODE={new_mode}")
-        env_path.write_text("\n".join(out) + "\n")
-    activity_log.emit(
-        "system",
-        f"Mode switched: {old_mode} → {new_mode}"
-        + (" — agents can now reach the internet" if new_mode == "hybrid" else " — all network access disabled"),
-        "info",
+    """DEPRECATED — superseded by ``POST /api/airgap/toggle``.
+
+    This legacy writer hand-rolled a non-atomic .env rewrite and skipped the
+    CSRF / loopback-bind gates the canonical endpoint enforces, so it was a
+    mode-flip path that bypassed the airgap protections. No client uses it
+    (the nav badge POSTs to /api/airgap/toggle; only ``GET /api/system/mode``
+    is still read). It now refuses and points callers at the gated endpoint
+    rather than performing an ungated, unquoted write.
+    """
+    from fastapi.responses import JSONResponse
+    return JSONResponse(
+        status_code=410,
+        content={
+            "ok": False,
+            "error": "deprecated",
+            "message": "POST /api/system/mode is removed; use POST /api/airgap/toggle.",
+            "use": "/api/airgap/toggle",
+        },
     )
-    return {"ok": True, "mode": new_mode}
 
 
 # ---------------------------------------------------------------------------
@@ -9103,6 +9213,302 @@ async def api_pkb_upload(request: Request):
     except Exception:
         pass
     return result
+
+
+# ── Speech-to-text → RAW voice note (inherited capability) ─────────────
+# A mounted World that declares `speech-to-text` lights up a mic button in
+# Chat. The browser captures audio (getUserMedia/MediaRecorder) and POSTs the
+# blob here; ARAIL transcribes it ON-DEVICE (no cloud, works airgapped) and
+# lands the transcript as a RAW/unsourced research note. The transcript is
+# DATA, never injected into a prompt.
+
+def _land_raw_voice_note(transcript: dict, world: str):
+    """Write the transcript as a RAW research note and index it.
+
+    Returns the pkb-root-relative posix path of the note. Raises only on a
+    failure to write the file itself; indexing/wiki failures are best-effort.
+    """
+    from datetime import datetime
+    from arail.pkb import _pkb_root
+
+    root = _pkb_root()
+    dest_dir = root / "research" / "voice-notes"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+
+    now = datetime.now()
+    stamp = now.strftime("%Y-%m-%d_%H-%M-%S")
+    title_stamp = now.strftime("%Y-%m-%d %H:%M")
+    fname = f"{stamp}_voice-note.md"
+    path = dest_dir / fname
+
+    text = str(transcript.get("text", "")).strip()
+    confidence = float(transcript.get("confidence", 0.0) or 0.0)
+    # Frontmatter marks this RAW/unsourced — never gate-passed truth, never a
+    # prompt instruction. The body is verbatim user-captured DATA.
+    body = (
+        "---\n"
+        f"title: Voice note — {title_stamp}\n"
+        "section: research\n"
+        "kind: raw\n"
+        "source: user-captured (speech-to-text, on-device)\n"
+        "sourced: false\n"
+        f"world: {world}\n"
+        f"confidence: {confidence:.2f}\n"
+        "---\n\n"
+        f"{text}\n"
+    )
+    path.write_text(body, encoding="utf-8")
+
+    # Index via the existing seam (best-effort; indexing failure must not lose the note).
+    try:
+        from arail.pkb_index import ensure_ready, schedule_upsert
+        ensure_ready(root)
+        schedule_upsert(path, pkb_root=root)
+    except Exception as e:  # noqa: BLE001
+        _log.warning("stt: indexing voice note failed: %s", e)
+
+    try:
+        from arail import wiki
+        wiki.schedule_rebuild()
+    except Exception:
+        pass
+
+    return path.relative_to(root).as_posix()
+
+
+@app.post("/api/stt/transcribe")
+async def api_stt_transcribe(request: Request):
+    """Transcribe a posted audio blob on-device → RAW voice note.
+
+    Form: audio (file part), mime (str), locale (str, default 'en-US').
+    Gated on a mounted World whose `speech-to-text` resolved to 'available'.
+    """
+    from arail.world_mount import current_mount, current_capabilities
+    from arail.capabilities import registry, CapabilityUnavailable, CapabilityError
+
+    mount = current_mount()
+    if mount is None:
+        return JSONResponse({"error": "No world mounted. Mount a World that declares speech-to-text."}, status_code=400)
+
+    caps = {c.get("id"): c for c in current_capabilities()}
+    stt_cap = caps.get("speech-to-text")
+    if not stt_cap or stt_cap.get("state") != "available":
+        msg = (stt_cap or {}).get("message", "Speech-to-text is not available for the mounted World.")
+        return JSONResponse({"error": msg}, status_code=409)
+
+    try:
+        form = await request.form()
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse({"error": f"invalid multipart body: {e}"}, status_code=400)
+
+    upload = form.get("audio")
+    if upload is None or not hasattr(upload, "read"):
+        return JSONResponse({"error": "no audio in request"}, status_code=400)
+    mime = str(form.get("mime", getattr(upload, "content_type", "") or ""))
+    locale = str(form.get("locale", "en-US"))
+    audio_bytes = await upload.read()
+
+    artifact = None
+    try:
+        audio_adapter = registry.select("audio-capture")
+        stt_adapter = registry.select("speech-to-text")
+        if audio_adapter is None or stt_adapter is None:
+            return JSONResponse({"error": "Speech-to-text backend is not available."}, status_code=409)
+
+        artifact = audio_adapter.invoke(audio_bytes=audio_bytes, mime=mime)
+        transcript = stt_adapter.invoke(audio=artifact, locale=locale)
+
+        if not str(transcript.get("text", "")).strip():
+            return {"ok": False, "reason": "no_speech"}
+
+        rel = _land_raw_voice_note(transcript, mount.world)
+        words = len(str(transcript.get("text", "")).split())
+        activity_log.emit("pkb", f"Voice note transcribed → {rel}", "success")
+        return {"ok": True, "path": rel, "words": words}
+    except CapabilityUnavailable as e:
+        return JSONResponse({"error": getattr(e, "user_message", str(e))}, status_code=409)
+    except CapabilityError as e:
+        return JSONResponse({"error": getattr(e, "user_message", str(e))}, status_code=422)
+    except Exception as e:  # noqa: BLE001
+        _log.warning("stt: unexpected transcribe failure: %s", e)
+        return JSONResponse({"error": "Transcription failed unexpectedly."}, status_code=500)
+    finally:
+        # Always delete the temp audio blob — no audio is retained.
+        if artifact is not None:
+            try:
+                from pathlib import Path as _P
+                _P(artifact["path"]).unlink(missing_ok=True)
+            except Exception:  # noqa: BLE001
+                pass
+
+
+# ── Image-text OCR (equation-ocr) ─────────────────────────────────────
+# The second live capability. Mirrors the STT path: a posted image is
+# materialized to a temp file, OCR'd on-device by the registered backend (below
+# the adapter seam), and landed as a RAW research note. The portal touches NO
+# platform OCR symbols — those stay under capabilities/backends/. The OCR text is
+# attacker-controllable DATA: it is written
+# inert (kind:raw, sourced:false) and NEVER enters a system prompt.
+
+# Upload validation: mime allowlist + magic-byte sniff + ~12 MB cap.
+_OCR_MIME_EXT = {
+    "image/png": ".png",
+    "image/jpeg": ".jpg",
+    "image/jpg": ".jpg",
+}
+_OCR_MAX_BYTES = 12 * 1024 * 1024  # 12 MB
+
+
+def _sniff_image(data: bytes) -> str | None:
+    """Return 'image/png' or 'image/jpeg' from magic bytes, else None.
+
+    Do NOT trust the declared mime — sniff the actual bytes.
+    """
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+    if data[:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    return None
+
+
+def _land_raw_ocr_note(result: dict, world: str, image_filename: str):
+    """Write the OCR text as a RAW research note and index it.
+
+    Returns the pkb-root-relative posix path. Indexing/wiki failures are
+    best-effort (the note must not be lost). The OCR text is inert DATA — it is
+    never passed to a prompt-builder.
+    """
+    from datetime import datetime
+    from arail.pkb import _pkb_root
+
+    root = _pkb_root()
+    dest_dir = root / "research" / "ocr-notes"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+
+    now = datetime.now()
+    stamp = now.strftime("%Y-%m-%d_%H-%M-%S")
+    title_stamp = now.strftime("%Y-%m-%d %H:%M")
+    fname = f"{stamp}_ocr-note.md"
+    path = dest_dir / fname
+
+    text = str(result.get("text", "")).strip()
+    body = (
+        "---\n"
+        f"title: OCR note — {title_stamp}\n"
+        "section: research\n"
+        "kind: raw\n"
+        "source: user-captured (image-ocr, on-device)\n"
+        "sourced: false\n"
+        f"world: {world}\n"
+        f"image: {image_filename}\n"
+        "---\n\n"
+        f"{text}\n"
+    )
+    path.write_text(body, encoding="utf-8")
+
+    try:
+        from arail.pkb_index import ensure_ready, schedule_upsert
+        ensure_ready(root)
+        schedule_upsert(path, pkb_root=root)
+    except Exception as e:  # noqa: BLE001
+        _log.warning("ocr: indexing OCR note failed: %s", e)
+
+    try:
+        from arail import wiki
+        wiki.schedule_rebuild()
+    except Exception:
+        pass
+
+    return path.relative_to(root).as_posix()
+
+
+@app.post("/api/ocr/extract")
+async def api_ocr_extract(request: Request):
+    """OCR a posted image on-device → RAW OCR note.
+
+    Form: image (file part), mime (str, optional — sniffed regardless).
+    Gated on a mounted World whose `equation-ocr` resolved to 'available'.
+    """
+    from arail.world_mount import current_mount, current_capabilities
+    from arail.capabilities import registry, CapabilityUnavailable, CapabilityError
+
+    mount = current_mount()
+    if mount is None:
+        return JSONResponse(
+            {"error": "No world mounted. Mount a World that declares equation-ocr."},
+            status_code=400)
+
+    caps = {c.get("id"): c for c in current_capabilities()}
+    ocr_cap = caps.get("equation-ocr")
+    if not ocr_cap or ocr_cap.get("state") != "available":
+        msg = (ocr_cap or {}).get("message", "Image OCR is not available for the mounted World.")
+        return JSONResponse({"error": msg}, status_code=409)
+
+    try:
+        form = await request.form()
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse({"error": f"invalid multipart body: {e}"}, status_code=400)
+
+    upload = form.get("image")
+    if upload is None or not hasattr(upload, "read"):
+        return JSONResponse({"error": "no image in request"}, status_code=400)
+    declared_mime = str(form.get("mime", getattr(upload, "content_type", "") or "")).split(";", 1)[0].strip().lower()
+    image_filename = getattr(upload, "filename", None) or "image"
+    image_bytes = await upload.read()
+
+    # ── Validate the upload (don't trust it). ──
+    if not image_bytes:
+        return JSONResponse({"error": "No image was received. Try again."}, status_code=422)
+    if len(image_bytes) > _OCR_MAX_BYTES:
+        return JSONResponse({"error": "Image too large — keep it under 12 MB."}, status_code=422)
+    sniffed = _sniff_image(image_bytes)
+    if sniffed is None:
+        return JSONResponse(
+            {"error": "That doesn't look like a PNG or JPEG image."}, status_code=422)
+    # mime allowlist: the declared mime (if present) must also be allowed; the
+    # sniffed type is authoritative for the extension.
+    if declared_mime and declared_mime not in _OCR_MIME_EXT:
+        return JSONResponse(
+            {"error": "That doesn't look like a PNG or JPEG image."}, status_code=422)
+
+    ext = _OCR_MIME_EXT[sniffed]
+
+    # ── Materialize temp file under the cache dir. ──
+    import uuid as _uuid
+    from arail.config import DATA_DIR
+    from pathlib import Path as _P
+    cache_dir = _P(DATA_DIR) / "cache" / "ocr"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    tmp = cache_dir / f"{_uuid.uuid4().hex}{ext}"
+    tmp.write_bytes(image_bytes)
+
+    try:
+        ocr_adapter = registry.select("equation-ocr")
+        if ocr_adapter is None:
+            return JSONResponse({"error": "Image OCR backend is not available."}, status_code=409)
+
+        result = ocr_adapter.invoke(image={"path": tmp, "mime": sniffed})
+
+        if not str(result.get("text", "")).strip():
+            return {"ok": False, "reason": "no_text"}
+
+        rel = _land_raw_ocr_note(result, mount.world, image_filename)
+        chars = len(str(result.get("text", "")))
+        activity_log.emit("pkb", f"OCR note extracted → {rel}", "success")
+        return {"ok": True, "path": rel, "chars": chars}
+    except CapabilityUnavailable as e:
+        return JSONResponse({"error": getattr(e, "user_message", str(e))}, status_code=409)
+    except CapabilityError as e:
+        return JSONResponse({"error": getattr(e, "user_message", str(e))}, status_code=422)
+    except Exception as e:  # noqa: BLE001
+        _log.warning("ocr: unexpected extract failure: %s", e)
+        return JSONResponse({"error": "OCR failed unexpectedly."}, status_code=500)
+    finally:
+        # Always delete the temp image — no image is retained.
+        try:
+            tmp.unlink(missing_ok=True)
+        except Exception:  # noqa: BLE001
+            pass
 
 
 # ── Inbox watcher ─────────────────────────────────────────────────────

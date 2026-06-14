@@ -1557,6 +1557,15 @@
       <div class="input-wrap">
         <div class="composer">
           <textarea id="prompt" placeholder="Ask anything — markdown supported. ⏎ to send, ⇧⏎ for newline." rows="2" autofocus></textarea>
+          <button class="send-btn mic-btn" id="mic-btn"
+                  data-stt-available="{{ 'true' if stt_available else 'false' }}"
+                  title="{{ stt_message }}"
+                  {% if not stt_available %}disabled{% endif %}>🎤</button>
+          <button class="send-btn mic-btn" id="ocr-btn"
+                  data-ocr-available="{{ 'true' if ocr_available else 'false' }}"
+                  title="{{ ocr_message }}"
+                  {% if not ocr_available %}disabled{% endif %}>📷</button>
+          <input type="file" id="ocr-file" accept="image/png,image/jpeg" hidden>
           <button class="send-btn" id="send">Send <span class="kbd">⏎</span></button>
         </div>
         <div class="bottom-meta">
@@ -3566,6 +3575,172 @@
     }
 
     init();
+  })();
+  </script>
+
+  <!-- Voice-note mic affordance (inherited speech-to-text capability). -->
+  <style>
+    .mic-btn { padding: 0 0.7em; }
+    .mic-btn.mic-unsupported { opacity: .55; }
+    .mic-btn.recording { background: var(--red-a28, rgba(255,80,80,.28)); animation: micpulse 1s ease-in-out infinite; }
+    @keyframes micpulse { 0%,100% { opacity: 1; } 50% { opacity: .55; } }
+  </style>
+  <script>
+  (function () {
+    const btn = document.getElementById('mic-btn');
+    if (!btn) return;
+    const available = btn.dataset.sttAvailable === 'true';
+    if (!available) { btn.disabled = true; return; }
+
+    let media = null, recorder = null, chunks = [], mime = '', recording = false;
+
+    function flash(msg) {
+      const el = document.getElementById('status-line');
+      if (el) { el.textContent = msg; setTimeout(() => { el.textContent = 'ready'; }, 2600); }
+    }
+
+    function pickMime() {
+      // Prefer Apple-decodable container; never emit webm (backend rejects it).
+      const order = ['audio/mp4', 'audio/aac', 'audio/wav'];
+      for (const m of order) {
+        if (window.MediaRecorder && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(m)) return m;
+      }
+      return '';
+    }
+
+    // Proactive Safari caveat — surface at launch, not only on first tap. STT is
+    // wired (the capability resolved), but voice notes need a browser that records
+    // an afconvert-decodable container (audio/mp4). Safari does; Chrome records
+    // webm/opus, which the on-device decoder can't handle in v1.
+    if (pickMime() === '') {
+      btn.classList.add('mic-unsupported');
+      btn.title = 'Voice notes need Safari in v1 — this browser can’t record a supported audio format (Chrome webm/opus support is on the roadmap).';
+      flash('🎤 Voice notes work in Safari in v1 — this browser can’t record a supported audio format yet.');
+    }
+
+    async function start() {
+      try {
+        media = await navigator.mediaDevices.getUserMedia({ audio: true });
+      } catch (e) {
+        flash('Microphone access is needed for voice notes. Allow it in your browser’s site settings for 127.0.0.1.');
+        return;
+      }
+      mime = pickMime();
+      if (!mime) {
+        flash('This browser can’t record a supported audio format. Use Safari for voice notes in v1.');
+        media.getTracks().forEach(t => t.stop());
+        return;
+      }
+      chunks = [];
+      recorder = new MediaRecorder(media, { mimeType: mime });
+      recorder.ondataavailable = ev => { if (ev.data && ev.data.size) chunks.push(ev.data); };
+      recorder.onstop = upload;
+      recorder.start();
+      recording = true;
+      btn.classList.add('recording');
+      btn.textContent = '⏹';
+      flash('Recording… tap again to stop.');
+    }
+
+    function stop() {
+      recording = false;
+      btn.classList.remove('recording');
+      btn.textContent = '🎤';
+      try { recorder && recorder.stop(); } catch (e) {}
+      if (media) media.getTracks().forEach(t => t.stop());
+    }
+
+    async function upload() {
+      const blob = new Blob(chunks, { type: mime });
+      const fd = new FormData();
+      fd.append('audio', blob, 'voice-note' + (mime.indexOf('wav') >= 0 ? '.wav' : '.m4a'));
+      fd.append('mime', mime);
+      fd.append('locale', 'en-US');
+      flash('Transcribing on-device…');
+      try {
+        const r = await fetch('/api/stt/transcribe', { method: 'POST', body: fd });
+        const data = await r.json();
+        if (r.ok && data.ok) {
+          flash('Voice note saved → ' + data.path);
+        } else if (r.ok && data.ok === false && data.reason === 'no_speech') {
+          flash('Didn’t catch anything — try again.');
+        } else {
+          flash(data.error || 'Transcription failed.');
+        }
+      } catch (e) {
+        flash('Transcription request failed.');
+      }
+    }
+
+    btn.addEventListener('click', () => { recording ? stop() : start(); });
+  })();
+  </script>
+
+  <!-- Image-OCR affordance (inherited equation-ocr capability). -->
+  <script>
+  (function () {
+    const btn = document.getElementById('ocr-btn');
+    const fileInput = document.getElementById('ocr-file');
+    if (!btn || !fileInput) return;
+    const available = btn.dataset.ocrAvailable === 'true';
+    if (!available) { btn.disabled = true; return; }
+
+    function flash(msg) {
+      const el = document.getElementById('status-line');
+      if (el) { el.textContent = msg; setTimeout(() => { el.textContent = 'ready'; }, 2600); }
+    }
+
+    async function send(file) {
+      if (!file) return;
+      const okType = file.type === 'image/png' || file.type === 'image/jpeg'
+                     || /\.(png|jpe?g)$/i.test(file.name || '');
+      if (!okType) { flash('Only PNG or JPEG images are supported in v1.'); return; }
+      if (file.size > 12 * 1024 * 1024) { flash('Image too large — keep it under 12 MB.'); return; }
+      const fd = new FormData();
+      fd.append('image', file, file.name || 'image.png');
+      fd.append('mime', file.type || '');
+      flash('Reading image on-device…');
+      try {
+        const r = await fetch('/api/ocr/extract', { method: 'POST', body: fd });
+        const data = await r.json();
+        if (r.ok && data.ok) {
+          flash('Text extracted → ' + data.path);
+        } else if (r.ok && data.ok === false && data.reason === 'no_text') {
+          flash('No text found in that image.');
+        } else {
+          flash(data.error || 'OCR failed.');
+        }
+      } catch (e) {
+        flash('OCR request failed.');
+      }
+    }
+
+    btn.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', () => {
+      if (fileInput.files && fileInput.files[0]) send(fileInput.files[0]);
+      fileInput.value = '';
+    });
+
+    // Paste an image from the clipboard.
+    document.addEventListener('paste', (ev) => {
+      const items = (ev.clipboardData && ev.clipboardData.items) || [];
+      for (const it of items) {
+        if (it.type && it.type.indexOf('image/') === 0) {
+          const f = it.getAsFile();
+          if (f) { ev.preventDefault(); send(f); return; }
+        }
+      }
+    });
+
+    // Drag-and-drop onto the composer.
+    const composer = document.querySelector('.composer') || document.body;
+    composer.addEventListener('dragover', (ev) => { ev.preventDefault(); });
+    composer.addEventListener('drop', (ev) => {
+      const files = (ev.dataTransfer && ev.dataTransfer.files) || [];
+      for (const f of files) {
+        if (f.type && f.type.indexOf('image/') === 0) { ev.preventDefault(); send(f); return; }
+      }
+    });
   })();
   </script>
 </body>

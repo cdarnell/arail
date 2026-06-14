@@ -45,6 +45,18 @@ auto_install_enabled() {
 PYTHON_BIN=""
 
 ollama_default_enabled() {
+    # Gate on TIER, not on ACCEL. The minimalist default model (llama-ai-eng)
+    # is an Ollama persona-wrap (llama3.2:1b); it REQUIRES Ollama regardless of
+    # accelerator. The "Apple Silicon prefers MLX" behavior applies only to the
+    # maximus deep path (AeroLLM/MLX). Do NOT revert this to ACCEL-gating — that
+    # re-introduces F1: minimalist setup on M-series skips Ollama, leaving
+    # llama-ai-eng uninstalled. (Two-tier sprint 2026-06-14.)
+    if [[ "${LAB_TIER:-minimalist}" == "minimalist" ]]; then
+        # Minimalist always needs Ollama — llama-ai-eng is an Ollama model.
+        return 0
+    fi
+    # Maximus tier: on Apple Silicon + MLX, AeroLLM is the deep runtime;
+    # Ollama is optional (enabled by ARAIL_ENABLE_OLLAMA=1).
     [[ "$PLATFORM" == "macos" && "$ACCEL" == "mlx" ]] && return 1
     return 0
 }
@@ -1120,9 +1132,10 @@ capture_tier() {
 
     ${BOLD}minimalist${RESET}  Dashboard + Chat + Autoresearch + Knowledge Base
                 + Agents + LanceDB vector recall. The everyday lab.
-                Ships ai-eng (1.5B-parameter Opus-4.7-derived AI engineering expert
-                from QuKaiZen's Project Nucleus) as the only default
-                model. External providers (Claude, NVIDIA, OpenRouter,
+                Ships the Llama AI Engineer (llama-ai-eng) — an AI engineering
+                assistant built with Llama-3.2-1B-Instruct (~0.9 GB, runs on
+                16 GB) — as the only default model. External providers
+                (Claude, NVIDIA, OpenRouter,
                 HuggingFace) reachable over plain HTTP when
                 LAB_MODE=hybrid.
     ${BOLD}maximus${RESET}     Everything in minimalist + Admin, Notebooks,
@@ -1179,8 +1192,17 @@ EOF
             ram_kb="$(awk '/^MemTotal:/{print $2}' /proc/meminfo 2>/dev/null || echo 0)"
             ram_bytes=$(( ram_kb * 1024 ))
         fi
-        # 48 GB threshold = 48 * 1024^3 bytes = 51539607552
-        if [[ "$ram_bytes" -gt 0 && "$ram_bytes" -lt 51539607552 ]]; then
+        # F7: 16 GB floor for maximus. 7B-4bit is ~4 GB resident; combined with
+        # portal + browser, 8 GB cannot reliably run maximus without swapping.
+        # 16 GB = 17179869184 bytes.
+        if [[ "$ram_bytes" -gt 0 && "$ram_bytes" -lt 17179869184 ]]; then
+            warn "This machine has < 16 GB RAM. maximus (7B-4bit ~4 GB resident)"
+            warn "may cause swapping or slowness on this hardware."
+            warn "The minimalist tier (llama-ai-eng, ~1 GB) runs fine on 8 GB."
+            warn "Staying on minimalist is recommended: ./arailctl upgrade minimalist"
+            warn "Or use a cloud Compute Source in hybrid mode (LAB_MODE=hybrid)."
+        # 48 GB threshold — informational for frontier-model users
+        elif [[ "$ram_bytes" -gt 0 && "$ram_bytes" -lt 51539607552 ]]; then
             info "System RAM < 48 GB detected. Default deep model (7B) fits easily."
             info "Upgrading AEROLLM_MODEL to a 70B+ model on this box may OOM —"
             info "stay at 32B or below, or use Qwen2.5-7B (the default) for safety."
@@ -1384,10 +1406,10 @@ setup_env() {
 # — both error with "command not found" on every start. The python
 # helper below quotes any value that needs it.
 _set_env_var() {
-    local key="$1" value="$2"
-    python3 - "$key" "$value" <<'PY'
+    local key="$1" value="$2" file="${3:-.env}"
+    python3 - "$key" "$value" "$file" <<'PY'
 import pathlib, re, sys
-key, value = sys.argv[1], sys.argv[2]
+key, value, file = sys.argv[1], sys.argv[2], sys.argv[3]
 prefix = f"{key}="
 
 # Quote any value containing characters bash would reinterpret when
@@ -1415,7 +1437,7 @@ def is_assignment(line: str) -> bool:
 quoted = shell_safe(value)
 new_line = f"{key}={quoted}"
 
-p = pathlib.Path(".env")
+p = pathlib.Path(file)
 lines = p.read_text().splitlines() if p.exists() else []
 out, replaced = [], False
 for line in lines:
@@ -1429,6 +1451,41 @@ if not replaced:
         out.append("")
     out.append(new_line)
 p.write_text("\n".join(out) + "\n")
+PY
+}
+
+# Read KEY from an env-style file (default .env), reversing the double-quote
+# escaping _set_env_var applies, so a round-trip (read here → write via
+# _set_env_var) is faithful for passwords with whitespace/metacharacters.
+# Prints the unquoted value (empty if absent).
+_get_env_var() {
+    local key="$1" file="${2:-.env}"
+    python3 - "$key" "$file" <<'PY'
+import pathlib, sys
+key, file = sys.argv[1], sys.argv[2]
+prefix = f"{key}="
+val = ""
+p = pathlib.Path(file)
+if p.exists():
+    for line in p.read_text().splitlines():
+        if line.startswith(prefix):
+            v = line[len(prefix):]
+            if len(v) >= 2 and v[0] == v[-1] and v[0] in ('"', "'"):
+                body = v[1:-1]
+                if v[0] == "'":
+                    val = body
+                else:
+                    out, i = [], 0
+                    while i < len(body):
+                        c = body[i]
+                        if c == "\\" and i + 1 < len(body) and body[i + 1] in '\\"$`':
+                            out.append(body[i + 1]); i += 2
+                        else:
+                            out.append(c); i += 1
+                    val = "".join(out)
+            else:
+                val = v
+sys.stdout.write(val)
 PY
 }
 
@@ -1455,9 +1512,13 @@ TERMINAL_PORT=${terminal_port}
 NOTEBOOK_PORT=${notebook_port}
 IDE_PORT=${ide_port}
 MLX_OPENAI_PORT=${mlx_port}
-IDE_PASSWORD=${ARAIL_PASSWORD}
 BIND_ADDR=127.0.0.1
 CONF
+    # IDE_PASSWORD is written through the quoter, NOT the heredoc above:
+    # lab.conf is shell-sourced (scripts/start.sh, scripts/status.sh), so a
+    # user passphrase with a space / $ / backtick would break `source` or
+    # execute. _set_env_var double-quotes and escapes it.
+    _set_env_var IDE_PASSWORD "$ARAIL_PASSWORD" lab.conf
     info "lab.conf written (portal=${portal_port}, ide=${ide_port}, notebook=${notebook_port}, terminal=${terminal_port}, mlx=${mlx_port})"
 
     local cs_dir="${HOME}/.config/code-server"
@@ -1789,13 +1850,14 @@ validate_env() {
     # Detect passphrase drift between .env and lab.conf — the current
     # user's case (IDE_PASSWORD=Austin34$, OPEN_NOTEBOOK_ENCRYPTION_KEY=Auatin34$).
     local env_pw conf_pw
-    env_pw="$(grep -E '^ARAIL_PASSWORD=' .env | head -n1 | cut -d= -f2-)"
+    # Read through the quote-aware reader so a quoted password (one with
+    # whitespace/metacharacters) compares and re-syncs faithfully.
+    env_pw="$(_get_env_var ARAIL_PASSWORD .env)"
     if [[ -f lab.conf ]]; then
-        conf_pw="$(grep -E '^IDE_PASSWORD=' lab.conf | head -n1 | cut -d= -f2-)"
+        conf_pw="$(_get_env_var IDE_PASSWORD lab.conf)"
         if [[ -n "$env_pw" && -n "$conf_pw" && "$env_pw" != "$conf_pw" ]]; then
             warn "Passphrase drift detected between .env and lab.conf — resyncing."
-            sed -i.bak "s|^IDE_PASSWORD=.*|IDE_PASSWORD=${env_pw}|" lab.conf
-            rm -f lab.conf.bak
+            _set_env_var IDE_PASSWORD "$env_pw" lab.conf
         fi
     fi
     info "Environment validated."
@@ -2035,6 +2097,9 @@ main() {
         start_cmd="arail start"
     fi
 
+    echo -e "  Your assistant: ${BOLD}llama-ai-eng${RESET} — an AI engineer built with Llama-3.2-1B (~0.9 GB)."
+    echo "  Pick it in the Chat tab; it's also what the lab's agents use by default."
+    echo ""
     echo "  Next steps:"
     echo -e "    1) Start the lab:      ${BOLD}${start_cmd}${RESET}"
     echo -e "    2) Open the dashboard: ${BOLD}http://127.0.0.1:${PORTAL_PORT:-8080}${RESET}"

@@ -109,6 +109,38 @@ echo ""
 echo "    ./arailctl restart"
 echo ""
 
+# F5/F8: Honest AeroLLM-vs-AirLLM notice when upgrading to maximus.
+# On Apple Silicon (arm64), AeroLLM/MLX is the deep runtime and can be
+# auto-built. On CUDA/Linux/Intel, AeroLLM's CUDA backend is not yet
+# ready — the honest path is AirLLM fallback (opt-in) or cloud.
+if [[ "$TIER" == "maximus" ]]; then
+    ARCH="$(uname -m 2>/dev/null || echo unknown)"
+    if [[ "$ARCH" == "arm64" ]]; then
+        info "Deep mode: ${BOLD}AeroLLM (local, fast)${RESET} — Apple Silicon detected."
+        info "To activate the deep (7B) model:"
+        info "  1. Build AeroLLM: ./arailctl deep rebuild"
+        info "  2. Download weights (~4 GB):"
+        info "       huggingface-cli download mlx-community/Qwen2.5-7B-Instruct-4bit \\"
+        info "         --local-dir lab/models/Qwen2.5-7B-Instruct-4bit"
+        info "  3. Restart: ./arailctl restart"
+        info "No code or prompts leave your machine — AeroLLM runs fully in-process."
+    else
+        warn "Deep mode: AeroLLM is Apple-Silicon-only today."
+        warn "On CUDA/Linux, the AeroLLM deep backend is not yet ready."
+        warn ""
+        warn "Options for deep inference on this host:"
+        warn "  A) AirLLM fallback (slower — layer-streaming, subprocess):"
+        warn "       export ARAIL_INSTALL_AIRLLM=1"
+        warn "       export AIRLLM_MODEL=<your-model-id>  # e.g. Qwen/Qwen2.5-7B-Instruct"
+        warn "       ./arailctl upgrade maximus            # re-run to install AirLLM"
+        warn "  B) Cloud Compute Source — set LAB_MODE=hybrid in .env and"
+        warn "       configure a provider (Claude, OpenRouter, etc.) in the portal."
+        warn ""
+        warn "When AirLLM fallback is used, the chat surface labels responses"
+        warn "  'via AirLLM fallback (slower)' so the latency is never hidden."
+    fi
+fi
+
 # Download coder model if requested (mirrors setup.sh --with-coder, Sprint 2)
 if [[ "$WITH_CODER" == "1" ]]; then
     if [[ "$TIER" != "maximus" ]]; then

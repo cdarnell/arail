@@ -67,10 +67,11 @@ Legacy `min`/`max` tier names are accepted with a deprecation warning
 - **Tabs**: Dashboard, Chat, Autoresearch, Knowledge Base, Agents, Docs.
 - **Packages**: core lab + embedded **LanceDB** recall. No heavyweight
   deep backend installed by default.
-- **Default model**: `ai-eng` — a 1.5B-parameter Opus-4.7-derived AI
-  engineering expert from QuKaiZen's Project Nucleus. Served via Ollama.
-  This is the only model that auto-installs. The chat catalog lists ~20
-  other models you can browse and pull on demand.
+- **Default model**: `llama-ai-eng` — an AI engineering assistant built
+  with Llama-3.2-1B-Instruct (~0.9 GB, runs on 16 GB), wrapped with the
+  AI-engineer persona and served via Ollama. This is the only model that
+  auto-installs. The chat catalog lists ~20 other models you can browse
+  and pull on demand. (Built with Llama — see [NOTICE](../NOTICE).)
 - **Memory**: KB ships with embedded semantic recall out of the box.
   You get the same knowledge surface in `minimalist`; `maximus` is
   about heavier operator tools, not a different memory backend.
