@@ -58,9 +58,11 @@ def test_mount_lab_theme_is_face_name(tmp_path):
 
 
 def test_mount_ui_theme_for_known_palette(tmp_path):
-    # physics face.json palette_hint="blue-cyan-lab" resolves to that preset.
+    # physics face.json palette_hint="slate-violet" resolves to that preset.
+    # (Retargeted from blue-cyan-lab — the demo World's palette must contrast
+    # with the unmounted default so a mount visibly recolors the lab.)
     _, data_dir, _ = _mount(tmp_path)
-    assert effective_identity(data_dir).ui_theme.id == "blue-cyan-lab"
+    assert effective_identity(data_dir).ui_theme.id == "slate-violet"
 
 
 def test_mount_writes_no_env(tmp_path):

@@ -83,7 +83,7 @@ def test_effective_identity_unit_mounted(mounted_physics):
     assert ident.name == PHYSICS_NAME
     assert ident.intent == "other"
     assert ident.intent_description == _face()["domain_framing"]
-    assert ident.ui_theme.id == "blue-cyan-lab"
+    assert ident.ui_theme.id == "slate-violet"
     assert ident.mounted is True
     assert ident.world == "physics"
 
