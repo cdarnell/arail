@@ -41,7 +41,7 @@ def test_mic_enabled_when_stt_available(monkeypatch, tmp_path):
     # ensure stt is_available: needs xcrun; force the macOS adapter available.
     import arail.capabilities.backends.macos.stt_backend as stt
     monkeypatch.setattr(stt.MacOSSpeechToText, "is_available", lambda self: True)
-    wm.mount(CAPS_STT, data_dir=data_dir, pkb_root=pkb_root, env_path=tmp_path / ".env")
+    wm.mount(CAPS_STT, data_dir=data_dir, pkb_root=pkb_root)
 
     html = _client().get("/chat").text
     assert 'data-stt-available="true"' in html

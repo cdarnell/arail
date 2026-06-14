@@ -74,7 +74,7 @@ def _mount_into(monkeypatch, tmp_path, bundle=CAPS_BOTH):
     monkeypatch.setattr(wm, "_default_pkb_root", lambda: pkb_root)
     import arail.pkb
     monkeypatch.setattr(arail.pkb, "_pkb_root", lambda: pkb_root)
-    wm.mount(bundle, data_dir=data_dir, pkb_root=pkb_root, env_path=tmp_path / ".env")
+    wm.mount(bundle, data_dir=data_dir, pkb_root=pkb_root)
     return data_dir, pkb_root
 
 

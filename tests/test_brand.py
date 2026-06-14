@@ -69,13 +69,19 @@ def test_cache_reset(monkeypatch):
 
 
 def test_portal_templates_expose_brand(monkeypatch):
-    """Imported portal app injects brand into the Jinja globals."""
+    """The per-request identity context exposes the operator brand when no World
+    is mounted.
+
+    The old module-level Jinja ``brand`` global was REMOVED in the
+    2026-06-14 world-identity-flip sprint so the lab identity can flip live with
+    a mounted World (a module global would have required a restart). Brand is now
+    resolved per request via ``_identity_ctx()`` → ``effective_identity()``;
+    routes spread ``**_identity_ctx()`` into the template context. Do NOT
+    reintroduce the global — that resurrects the restart bug.
+    """
     monkeypatch.setenv("LAB_NAME", "TestLab")
     brand.reset_brand_cache()
-    # Re-import app to pick up the new env (module load time captures it).
-    import importlib
     from arail.portal import app as app_module
-    importlib.reload(app_module)
-    globals_dict = app_module.templates.env.globals
-    assert "brand" in globals_dict
-    assert globals_dict["brand"].name == "TestLab"
+    ctx = app_module._identity_ctx()  # no World mounted (autouse _no_ambient_world_mount)
+    assert "brand" in ctx
+    assert ctx["brand"].name == "TestLab"

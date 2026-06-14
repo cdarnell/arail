@@ -104,7 +104,7 @@ def test_wc_c_second_declared_id_zero_code(tmp_path, monkeypatch):
     monkeypatch.setenv("ARAIL_FORCE_PLATFORM", "darwin")
     data_dir = tmp_path / "data"
     pkb_root = tmp_path / "pkb"
-    rec = wm.mount(CAPS_BOTH, data_dir=data_dir, pkb_root=pkb_root, env_path=tmp_path / ".env")
+    rec = wm.mount(CAPS_BOTH, data_dir=data_dir, pkb_root=pkb_root)
     assert rec.world == "physics"
     side = json.loads((data_dir / "world-capabilities.json").read_text())
     byid = {c["id"]: c for c in side["capabilities"]}
@@ -120,7 +120,7 @@ def test_wc_c_second_declared_id_zero_code(tmp_path, monkeypatch):
 def test_resolve_no_capabilities_file_mounts_clean(tmp_path):
     data_dir = tmp_path / "data"
     pkb_root = tmp_path / "pkb"
-    rec = wm.mount(NO_CAPS, data_dir=data_dir, pkb_root=pkb_root, env_path=tmp_path / ".env")
+    rec = wm.mount(NO_CAPS, data_dir=data_dir, pkb_root=pkb_root)
     assert rec.world == "physics"
     # Sidecar exists but carries zero resolved capabilities (graceful absence).
     assert wm.current_capabilities(data_dir) == []
@@ -140,7 +140,7 @@ def test_resolve_malformed_capabilities_mounts_clean(tmp_path):
     (bad / "capabilities.json").write_text("{ this is not valid json ")
     data_dir = tmp_path / "data"
     pkb_root = tmp_path / "pkb"
-    rec = wm.mount(bad, data_dir=data_dir, pkb_root=pkb_root, env_path=tmp_path / ".env")
+    rec = wm.mount(bad, data_dir=data_dir, pkb_root=pkb_root)
     assert rec.world == "physics"
     side = json.loads((data_dir / "world-capabilities.json").read_text())
     assert side["capabilities"] == []
@@ -176,7 +176,7 @@ def test_parse_tolerant_of_optional_fields(tmp_path):
 def test_unmount_removes_sidecar(tmp_path):
     data_dir = tmp_path / "data"
     pkb_root = tmp_path / "pkb"
-    wm.mount(CAPS_STT, data_dir=data_dir, pkb_root=pkb_root, env_path=tmp_path / ".env")
+    wm.mount(CAPS_STT, data_dir=data_dir, pkb_root=pkb_root)
     assert (data_dir / "world-capabilities.json").exists()
     wm.unmount(data_dir=data_dir, pkb_root=pkb_root)
     assert not (data_dir / "world-capabilities.json").exists()

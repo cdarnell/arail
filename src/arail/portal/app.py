@@ -19,7 +19,7 @@ from typing import Any, AsyncIterator, Iterator, cast
 
 _log = logging.getLogger(__name__)
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -44,13 +44,11 @@ from arail.portal.wiki_routes import router as wiki_router
 from arail.portal import scheduler
 
 from arail.brand import load_brand
+from arail.identity import effective_identity
 from arail.experiments import branch_browser as _branch_browser
 from arail.router.backends import ModelResponse
 from arail.ui_theme import list_ui_themes, load_ui_theme, theme_css
 from arail.portal import docs_registry as _docs_registry
-
-_BRAND = load_brand()
-_UI_THEME = load_ui_theme()
 
 # ---------------------------------------------------------------------------
 # Observability boot-time constants (OBS9: version fallback chain; OBS2: no I/O at
@@ -240,7 +238,7 @@ def _lab_password_set() -> bool:
     return False
 
 
-app = FastAPI(title=_BRAND.name, docs_url="/api/docs")
+app = FastAPI(title=load_brand().name, docs_url="/api/docs")
 
 
 @app.middleware("http")
@@ -388,6 +386,93 @@ async def metrics_counter(request, call_next):
     return response
 
 
+# ---------------------------------------------------------------------------
+# UI-theme recolor middleware (sprint 2026-06-14-world-identity-flip, recolor
+# addendum §1). Injects the live World palette as a <style id="ui-theme-vars">
+# block before the first </head> on text/html responses so EVERY portal page
+# recolors on mount — not just welcome.html, which already injects it inline.
+#
+# Registered AFTER presence_meter/metrics_counter so it runs on the HTML page
+# surface. Reuses effective_identity()/theme_css() (per-request, tiny — same
+# work the welcome route already did). Gated by content-type + </head>-present
+# + idempotency + empty-CSS no-op. The palette comes from the closed frozen
+# _THEMES map (palette_hint only selects a preset id), so raw face.json text
+# can never reach the emitted CSS → XSS-safe by construction.
+# ---------------------------------------------------------------------------
+_UI_THEME_MARK = 'id="ui-theme-vars"'
+
+
+@app.middleware("http")
+async def inject_ui_theme(request, call_next):
+    """Inject the live World palette before the first </head> on HTML pages."""
+    response = await call_next(request)
+    ctype = response.headers.get("content-type", "")
+    if not ctype.startswith("text/html"):
+        return response  # JSON, SSE, static, downloads, redirects → untouched.
+    # Under FastAPI's @app.middleware (a BaseHTTPMiddleware), call_next returns a
+    # streaming response whose body is NOT materialized on `.body` — it must be
+    # drained from `.body_iterator`. Buffer it (HTML pages are small, fully
+    # rendered by Jinja); if anything goes wrong, re-stream the original bytes.
+    body = getattr(response, "body", None)
+    if not body:
+        iterator = getattr(response, "body_iterator", None)
+        if iterator is None:
+            return response  # nothing to read → leave alone.
+        try:
+            chunks = [chunk async for chunk in iterator]
+        except Exception:
+            return response
+        body = b"".join(
+            c if isinstance(c, bytes) else c.encode("utf-8") for c in chunks
+        )
+    if not body:
+        return response  # empty body → leave alone.
+    try:
+        html = body.decode("utf-8", "ignore")
+    except Exception:
+        # Couldn't decode — return the buffered bytes unchanged (we may have
+        # already drained the iterator, so we must not return the dead stream).
+        return Response(
+            content=body,
+            status_code=response.status_code,
+            headers=dict(response.headers),
+            media_type=response.media_type,
+        )
+    def _passthrough() -> Response:
+        # We may have already drained body_iterator; never return the dead
+        # stream. Re-emit the buffered (unmodified) bytes.
+        return Response(
+            content=body,
+            status_code=response.status_code,
+            headers=dict(response.headers),
+            media_type=response.media_type,
+        )
+
+    low = html.lower()
+    # No </head> (partials/fragments) or already injected (welcome.html inline)
+    # → idempotent no-op.
+    if "</head>" not in low or _UI_THEME_MARK in html:
+        return _passthrough()
+    try:
+        css = theme_css(effective_identity().ui_theme)
+    except Exception:
+        return _passthrough()  # never let a recolor break a page render.
+    if not css.strip():
+        return _passthrough()  # empty palette → inert.
+    idx = low.index("</head>")
+    block = f'<style id="ui-theme-vars">{css}</style></head>'
+    new = html[:idx] + block + html[idx + len("</head>"):]
+    data = new.encode("utf-8")
+    headers = dict(response.headers)
+    headers["content-length"] = str(len(data))  # stale length is the one trap.
+    return Response(
+        content=data,
+        status_code=response.status_code,
+        headers=headers,
+        media_type=response.media_type,
+    )
+
+
 app.include_router(wiki_router)
 
 PORTAL_DIR = Path(__file__).parent
@@ -488,14 +573,29 @@ async def _kc_semantic_edges_fallback():
     return {"links": []}
 
 templates = Jinja2Templates(directory=PORTAL_DIR / "templates")
-# Expose the brand + tier info to every Jinja template — so `{{ brand.name }}`
-# and `{{ tier_surfaces }}` work everywhere without each route passing them.
-templates.env.globals["brand"] = _BRAND
+# Tier info + the static theme list are import-time constants — safe as globals.
+# Identity (brand / ui_theme / ui_theme_css) is per-request and CANNOT be a
+# global: it flips live with the mounted World. Routes spread `**_identity_ctx()`
+# (see below) so explicit context overrides any stale global.
 templates.env.globals["tier_surfaces"] = _visible_surfaces()
 templates.env.globals["lab_tier"] = _current_tier()
-templates.env.globals["ui_theme"] = _UI_THEME
 templates.env.globals["ui_themes"] = list_ui_themes()
-templates.env.globals["ui_theme_css"] = theme_css(_UI_THEME)
+
+
+def _identity_ctx() -> dict:
+    """Per-request identity context for templates that read brand / ui_theme.
+
+    Resolves the live lab identity from the World mount sidecar at request time
+    and exposes it as the template variables identity templates expect. Spread
+    `**_identity_ctx()` into a route's TemplateResponse context so the rendered
+    page reflects the mounted World (or the operator brand when unmounted)."""
+    ident = effective_identity()
+    return {
+        "brand": ident.brand(),
+        "ui_theme": ident.ui_theme,
+        "ui_theme_css": theme_css(ident.ui_theme),
+        "identity": ident,
+    }
 # Cachebuster appended to /static/*.css|js URLs so a server restart
 # guarantees clients pick up new assets without a hard-reload. Bound to
 # the process import time so it changes per restart, not per request.
@@ -529,9 +629,10 @@ async def _startup():
             f"Egress guard install failed: {_eg_err}", "warn")
 
     global _knowledge_canvas_store
-    intent_name = os.getenv("LAB_INTENT_NAME", "AI Engineer")
+    _boot_ident = effective_identity()
+    intent_name = _boot_ident.intent_name
     activity_log.emit("system",
-                      f"{_BRAND.name} portal started — {intent_name} lab.",
+                      f"{_boot_ident.name} portal started — {intent_name} lab.",
                       "success")
 
     if knowledge_canvas_app is not None and not hasattr(knowledge_canvas_app.state, "store"):
@@ -595,12 +696,12 @@ async def _startup():
                         parsed = parser.parse(goal_text)
                     except Exception:
                         parsed = parser.parse_offline(goal_text)
-                    # Carry intent from bootstrap
-                    parsed["intent"] = bg.get("intent", os.getenv("LAB_INTENT", "ai"))
-                    parsed["intent_name"] = bg.get("intent_name", intent_name)
+                    # Carry intent from bootstrap (live identity as fallback)
+                    parsed["intent"] = bg.get("intent", _boot_ident.intent)
+                    parsed["intent_name"] = bg.get("intent_name", _boot_ident.intent_name)
                     bootstrap_desc = bg.get(
                         "intent_description",
-                        os.getenv("LAB_INTENT_DESCRIPTION", ""),
+                        _boot_ident.intent_description,
                     )
                     if bootstrap_desc:
                         parsed["intent_description"] = bootstrap_desc
@@ -859,7 +960,8 @@ async def welcome_page(request: Request):
         from fastapi.responses import RedirectResponse
         return RedirectResponse(url="/", status_code=302)
     return templates.TemplateResponse(request, "welcome.html", {
-        "current_lab_name": os.getenv("LAB_NAME", _BRAND.name),
+        **_identity_ctx(),
+        "current_lab_name": effective_identity().name,
     })
 
 
@@ -1012,36 +1114,32 @@ async def dashboard(request: Request):
     allowed_domains = consent_store.list_allowed()
     pending = consent_store.list_pending()
     current_goal = goal_store.get_current()
+    _id_dash = effective_identity()
     return templates.TemplateResponse(request, "dashboard.html", {
+        **_identity_ctx(),
         "experiments": experiments,
         "allowed_domains": allowed_domains,
         "pending_requests": pending,
         "current_goal": current_goal,
         "research_status": researcher.status,
         "recent_activity": activity_log.recent(30),
-        # LAB_THEME surfaces on the Mission Objective card as a
-        # north-star line above the concrete goal. Env-driven so
-        # users reframe the whole lab's focus with one .env edit.
-        "lab_theme": os.getenv(
-            "LAB_THEME",
-            "Making SSD-hosted model inference faster — frontier "
-            "open-weight models on laptop hardware"
-        ),
+        # lab_theme surfaces on the Mission Objective card as a north-star
+        # line above the concrete goal. Resolves live from the mounted World
+        # (or the operator/AI-ML default when unmounted) via the identity ctx.
+        "lab_theme": _id_dash.lab_theme,
     })
 
 
 @app.get("/mission", response_class=HTMLResponse)
 async def mission_page(request: Request):
     current_goal = goal_store.get_current()
+    _id_mission = effective_identity()
     return templates.TemplateResponse(request, "mission.html", {
+        **_identity_ctx(),
         "current_goal": current_goal,
         "research_status": researcher.status,
         "recent_activity": activity_log.recent(40),
-        "lab_theme": os.getenv(
-            "LAB_THEME",
-            "Making SSD-hosted model inference faster — frontier "
-            "open-weight models on laptop hardware"
-        ),
+        "lab_theme": _id_mission.lab_theme,
     })
 
 
@@ -1068,6 +1166,7 @@ async def chat_page(request: Request):
     except Exception:  # noqa: BLE001
         pass
     return templates.TemplateResponse(request, "chat.html", {
+        **_identity_ctx(),
         "embed": embed,
         "stt_available": stt_available,
         "stt_message": stt_message,
@@ -1498,7 +1597,7 @@ async def terminal_page(request: Request):
     """Serve the terminal iframe if ttyd is running, otherwise show
     install help so the user can get unblocked without leaving the UI."""
     ctx = await _ttyd_context()
-    return templates.TemplateResponse(request, "terminal.html", ctx)
+    return templates.TemplateResponse(request, "terminal.html", {**ctx, **_identity_ctx()})
 
 
 @app.get("/notebook", response_class=HTMLResponse)
@@ -1515,6 +1614,7 @@ async def notebook_page(request: Request):
             int(os.getenv("NOTEBOOK_PORT", "8888")),
         )
     return templates.TemplateResponse(request, "notebook.html", {
+        **_identity_ctx(),
         "jupyter_installed": jupyter_installed,
         "jupyter_running": jupyter_running,
         "notebook_port": int(os.getenv("NOTEBOOK_PORT", "8888")),
@@ -1619,6 +1719,7 @@ async def opencode_page(request: Request):
                                                     "hint": "Install opencode first.",
                                                     "chat_url": "/chat"}
     return templates.TemplateResponse(request, "opencode.html", {
+        **_identity_ctx(),
         "installed": installed,
         "running": running,
         "hint": hint,
@@ -1739,6 +1840,7 @@ async def open_notebook_page(request: Request):
     ui_port = int(os.getenv("OPEN_NOTEBOOK_PORT", "8502"))
     api_port = int(os.getenv("OPEN_NOTEBOOK_API_PORT", "5055"))
     return templates.TemplateResponse(request, "open-notebook.html", {
+        **_identity_ctx(),
         "docker_available": docker_ok,
         "container_running": running,
         "encryption_key_set": encryption_key_set,
@@ -1755,6 +1857,7 @@ async def integrations_knowledge_canvas(request: Request):
     """
     has_frontend = KC_FRONTEND_DIST_DIR.exists() or KC_FRONTEND_DIR.exists()
     return templates.TemplateResponse(request, "integrations/knowledge_canvas.html", {
+        **_identity_ctx(),
         "has_frontend": has_frontend,
     })
 
@@ -1810,7 +1913,7 @@ async def notebooks_page(request: Request):
     All state is pulled client-side from /api/notebooks/status, so this
     route is a pure template render.
     """
-    return templates.TemplateResponse(request, "notebooks.html", {})
+    return templates.TemplateResponse(request, "notebooks.html", {**_identity_ctx()})
 
 
 @app.get("/api/notebooks/status")
@@ -1901,6 +2004,7 @@ async def marimo_page(request: Request):
     password = os.getenv("ARAIL_PASSWORD", "arail")
     ui_port = int(os.getenv("MARIMO_PORT", "2718"))
     return templates.TemplateResponse(request, "marimo.html", {
+        **_identity_ctx(),
         "docker_available": docker_ok,
         "container_running": running,
         "ui_port": ui_port,
@@ -1940,6 +2044,7 @@ async def marimo_stop():
 async def plugins_page(request: Request):
     plugins = plugin_mgr.list_plugins()
     return templates.TemplateResponse(request, "plugins.html", {
+        **_identity_ctx(),
         "plugins": plugins,
     })
 
@@ -2036,6 +2141,7 @@ async def docs_hub(request: Request):
     featured = _featured_docs(cats)
     recent = _recently_updated(cats)
     return templates.TemplateResponse(request, "docs_hub.html", {
+        **_identity_ctx(),
         "cats": cats,
         "featured": featured,
         "recent": recent,
@@ -2051,6 +2157,7 @@ async def docs_hub(request: Request):
 async def docs_dictionary_page(request: Request):
     """Full-page AI Dictionary — browse, search, expand, and generate terms."""
     return templates.TemplateResponse(request, "dictionary.html", {
+        **_identity_ctx(),
         "tier": _current_tier(),
         "nav_active": "docs",
     })
@@ -2139,6 +2246,7 @@ def _render_markdown_page(request: Request, target: Path, *, doc_path: str,
     md.enable(["table", "strikethrough"])
     body_html = md.render(target.read_text(errors="replace"))
     return templates.TemplateResponse(request, "doc_viewer.html", {
+        **_identity_ctx(),
         "doc_path": doc_path,
         "doc_html": body_html,
         "nav_active": nav_active,
@@ -2263,6 +2371,7 @@ async def serve_local_doc(path: str, request: Request):
         allowed = {"beginner", "operator"} if tier != "maximus" else {"beginner", "operator", "architect"}
         if doc.audience not in allowed:
             return templates.TemplateResponse(request, "doc_viewer.html", {
+                    **_identity_ctx(),
                 "doc_path": path,
                 "doc_html": "",
                 "nav_active": "docs",
@@ -2291,6 +2400,7 @@ async def serve_local_doc(path: str, request: Request):
         )
 
     return templates.TemplateResponse(request, "doc_viewer.html", {
+        **_identity_ctx(),
         "doc_path": path,
         "doc_html": body_html,
         "nav_active": "docs",
@@ -2314,7 +2424,7 @@ async def research_page(request: Request):
     All the live state is populated client-side via /api/goal,
     /api/experiments, /api/research/status, and the SSE activity stream.
     The page just needs to render an empty shell."""
-    return templates.TemplateResponse(request, "research.html", {})
+    return templates.TemplateResponse(request, "research.html", {**_identity_ctx()})
 
 
 # ── SSE Activity Stream ─────────────────────────────────────────────────
@@ -3303,6 +3413,7 @@ async def revoke_domain(request: Request):
 async def graph_page(request: Request):
     preview = request.query_params.get("preview", "0") in {"1", "true", "yes"}
     return templates.TemplateResponse(request, "graph.html", {
+        **_identity_ctx(),
         "preview": preview,
     })
 
@@ -3317,8 +3428,9 @@ async def admin_page(request: Request):
         pass
     ttyd = await _ttyd_context()
     return templates.TemplateResponse(request, "admin.html", {
+        **_identity_ctx(),
         "health": health,
-        "current_ui_theme": _UI_THEME,
+        "current_ui_theme": effective_identity().ui_theme,
         "available_ui_themes": list_ui_themes(),
         **ttyd,
     })
@@ -3326,12 +3438,13 @@ async def admin_page(request: Request):
 
 @app.get("/api/system/theme")
 async def system_theme():
+    _ui = effective_identity().ui_theme
     return {
         "current": {
-            "id": _UI_THEME.id,
-            "name": _UI_THEME.name,
-            "description": _UI_THEME.description,
-            "env_value": _UI_THEME.env_value,
+            "id": _ui.id,
+            "name": _ui.name,
+            "description": _ui.description,
+            "env_value": _ui.env_value,
         },
         "themes": [
             {
@@ -3363,6 +3476,7 @@ async def agents_page(request: Request, view: str = "status"):
     """
     safe_view = view if view in _AGENTS_VALID_VIEWS else "status"
     return templates.TemplateResponse(request, "agents.html", {
+        **_identity_ctx(),
         "current_goal": goal_store.get_current(),
         "mode": _lab_mode(),
         "default_view": safe_view,
@@ -3374,6 +3488,7 @@ async def agents_page(request: Request, view: str = "status"):
 async def agents_skills_index(request: Request):
     """Equivalent to /agents?view=skills — Skills panel of the Agents tab."""
     return templates.TemplateResponse(request, "agents.html", {
+        **_identity_ctx(),
         "current_goal": goal_store.get_current(),
         "mode": _lab_mode(),
         "default_view": "skills",
@@ -3389,6 +3504,7 @@ async def agents_skills_detail(request: Request, skill_id: str):
     the panel JS shows 'skill not found' inline — no 404 (forker-friendly).
     """
     return templates.TemplateResponse(request, "agents.html", {
+        **_identity_ctx(),
         "current_goal": goal_store.get_current(),
         "mode": _lab_mode(),
         "default_view": "skills",
@@ -5094,7 +5210,7 @@ async def system_graph():
 async def api_brand():
     """Return the current brand (name, tagline, logo, version).
     Lets dashboard JS personalize UI strings without hardcoding."""
-    return _BRAND.to_dict()
+    return effective_identity().brand().to_dict()
 
 
 # ── Chat API ───────────────────────────────────────────────────────────
@@ -8730,6 +8846,7 @@ async def knowledge_page(request: Request):
     pkb = _pkb_root()
     models_dir = Path(os.getenv("ARAIL_MODELS_DIR", "lab/models"))
     return templates.TemplateResponse(request, "knowledge.html", {
+        **_identity_ctx(),
         "pkb": data,
         "pkm": data,
         "mode": _lab_mode(),
@@ -9639,6 +9756,7 @@ async def tuning_page(request: Request):
     # AeroLLM alongside or in place of AirLLM).
     show_aerollm = os.getenv("LAB_SHOW_AEROLLM", "false").lower() in ("1", "true", "yes")
     return templates.TemplateResponse(request, "tuning.html", {
+        **_identity_ctx(),
         "aerollm_model": aerollm_model,
         "airllm_model": airllm_model,
         "show_aerollm": show_aerollm,
