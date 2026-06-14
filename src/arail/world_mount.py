@@ -177,6 +177,28 @@ class MountRecord:
         )
 
 
+@dataclass
+class WorldInfo:
+    """A discovered World in ``lab/worlds/`` (or the out-of-folder current mount)."""
+
+    slug: str            # manifest.world (validated) or dir name if unreadable
+    display_name: str    # manifest.display_name, else slug
+    path: str            # absolute path to the bundle dir
+    valid: bool          # passed light validation (load_bundle), NOT a seal verify
+    mounted: bool        # this slug == current_mount().world
+    reason: str = ""     # when valid is False: short operator-facing why
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "slug": self.slug,
+            "display_name": self.display_name,
+            "path": self.path,
+            "valid": self.valid,
+            "mounted": self.mounted,
+            "reason": self.reason,
+        }
+
+
 # ── Pure (no side effects) ───────────────────────────────────────────────────
 
 
@@ -493,6 +515,11 @@ def _default_pkb_root() -> Path:
     return PKB_ROOT
 
 
+def _default_worlds_dir() -> Path:
+    from arail.config import WORLDS_DIR
+    return WORLDS_DIR
+
+
 def _mount_record_path(data_dir: Path) -> Path:
     return data_dir / MOUNT_RECORD_NAME
 
@@ -537,6 +564,96 @@ def _remove_record(data_dir: Path) -> None:
         p.unlink(missing_ok=True)
     except Exception as e:
         _log.warning("world_mount: could not remove mount record: %s", e)
+
+
+def list_available_worlds(
+    worlds_dir: Path | None = None,
+    *,
+    data_dir: Path | None = None,
+) -> List[WorldInfo]:
+    """Scan ``lab/worlds/`` for mountable WorldBundles. Never raises.
+
+    Light validation only (``load_bundle`` — manifest parse, slug regex, the 6
+    siblings); the full ``verify_seal`` runs at mount time, not here. Invalid
+    dirs are listed with ``valid=False`` and a ``reason`` (not skipped). The
+    currently-mounted World is appended even when it lives outside the folder.
+    """
+    wd = worlds_dir or _default_worlds_dir()
+    current = current_mount(data_dir)
+    current_slug = current.world if current else None
+
+    out: List[WorldInfo] = []
+    seen_slugs: set = set()
+    try:
+        is_dir = wd.exists() and wd.is_dir()
+    except Exception:
+        is_dir = False
+
+    if is_dir:
+        try:
+            subdirs = sorted(
+                (d for d in wd.iterdir() if d.is_dir() and not d.name.startswith(".")),
+                key=lambda p: p.name,
+            )
+        except Exception as e:  # noqa: BLE001
+            _log.warning("world_mount: cannot scan worlds dir %s: %s", wd, e)
+            subdirs = []
+
+        for d in subdirs:
+            try:
+                bundle = load_bundle(d)
+                slug = bundle.slug
+                if slug in seen_slugs:
+                    out.append(WorldInfo(
+                        slug=slug,
+                        display_name=str(bundle.manifest.get("display_name", slug)),
+                        path=str(d.resolve()),
+                        valid=False,
+                        mounted=False,
+                        reason=f"duplicate slug {slug}",
+                    ))
+                    continue
+                seen_slugs.add(slug)
+                out.append(WorldInfo(
+                    slug=slug,
+                    display_name=str(bundle.manifest.get("display_name", slug)),
+                    path=str(d.resolve()),
+                    valid=True,
+                    mounted=(slug == current_slug),
+                ))
+            except Exception as e:  # noqa: BLE001
+                out.append(WorldInfo(
+                    slug=d.name,
+                    display_name=d.name,
+                    path=str(d.resolve()),
+                    valid=False,
+                    mounted=False,
+                    reason=getattr(e, "user_message", str(e))[:200],
+                ))
+
+    # Order scanned worlds by display_name, case-insensitive.
+    out.sort(key=lambda w: w.display_name.lower())
+
+    # Append the currently-mounted World if it isn't already represented.
+    if current_slug and not any(w.mounted for w in out):
+        display = current.world
+        try:
+            manifest = json.loads(
+                (Path(current.bundle_dir) / "manifest.json").read_bytes()
+            )
+            display = str(manifest.get("display_name", current.world))
+        except Exception:  # noqa: BLE001
+            display = current.world
+        out.append(WorldInfo(
+            slug=current.world,
+            display_name=display,
+            path=current.bundle_dir,
+            valid=True,
+            mounted=True,
+            reason="",
+        ))
+
+    return out
 
 
 # ── Capability resolution sidecar (additive; NOT in the sealed mount record) ──
