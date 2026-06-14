@@ -1,0 +1,31 @@
+# Git LFS Configuration for Large Model Files
+# Prevents binary weights from bloating git history
+# See: https://git-lfs.com
+
+# ============================================================================
+# Super Skill Model Adapters (LoRA weights)
+# ============================================================================
+models/graduated/**/*.safetensors filter=lfs diff=lfs merge=lfs -text
+models/graduated/**/*.bin filter=lfs diff=lfs merge=lfs -text
+
+# ============================================================================
+# Teacher/Student Base Model Weights
+# (Not typically committed, but tracked if distributed)
+# ============================================================================
+models/student/**/*.gguf filter=lfs diff=lfs merge=lfs -text
+models/teacher-tier1/**/*.gguf filter=lfs diff=lfs merge=lfs -text
+models/teacher-tier2/**/*.gguf filter=lfs diff=lfs merge=lfs -text
+
+# ============================================================================
+# Training Checkpoints
+# ============================================================================
+data/checkpoints/**/*.safetensors filter=lfs diff=lfs merge=lfs -text
+data/checkpoints/**/*.bin filter=lfs diff=lfs merge=lfs -text
+checkpoint_*/**/*.safetensors filter=lfs diff=lfs merge=lfs -text
+
+# ============================================================================
+# Generic large binary files (fallback)
+# ============================================================================
+*.gguf filter=lfs diff=lfs merge=lfs -text
+*.safetensors filter=lfs diff=lfs merge=lfs -text
+*.bin filter=lfs diff=lfs merge=lfs -text (max file size: >100MB)
