@@ -528,3 +528,144 @@ window.revealSlot = async function revealSlot(slot, subpath) {
   }
   return data;
 };
+
+/* ── World switcher dropdown ──────────────────────────────────────
+   The nav badge is a <details> popover. On first open we fetch the
+   catalog (/api/worlds) and render: "AI Lab (default)", then each
+   discovered World (valid → clickable, invalid → disabled w/ reason),
+   with a ✓ active marker. Click → POST /api/worlds/select → reload on
+   success; on error an amber whisper toast, current World unchanged.
+   Outside-click / Escape closes. Vanilla, airgap-safe. */
+(function () {
+  var details = document.getElementById('world-switcher');
+  var menu = document.getElementById('world-menu');
+  if (!details || !menu) return;
+
+  var loaded = false;
+  var busy = false;
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  function row(opts) {
+    // opts: {label, action, slug, path, active, disabled, reason}
+    var active = opts.active;
+    var disabled = opts.disabled;
+    var style =
+      'display:flex;align-items:center;gap:.4rem;padding:.4rem .6rem;border-radius:7px;' +
+      'font-size:.78rem;white-space:nowrap;' +
+      (disabled
+        ? 'opacity:.45;pointer-events:none;cursor:default;'
+        : 'cursor:pointer;') +
+      (active ? 'font-weight:700;' : '');
+    var mark = active ? '✓ ' : '  ';
+    var tail = disabled
+      ? ' <span style="opacity:.7;font-size:.68rem;">(unavailable)</span>'
+      : '';
+    var attrs = 'class="world-row" role="menuitem" style="' + style + '"';
+    if (!disabled) {
+      attrs += ' data-action="' + esc(opts.action || '') + '"';
+      if (opts.slug) attrs += ' data-slug="' + esc(opts.slug) + '"';
+      if (opts.path) attrs += ' data-path="' + esc(opts.path) + '"';
+    }
+    if (opts.reason) attrs += ' title="' + esc(opts.reason) + '"';
+    return '<div ' + attrs + '><span>' + mark + '</span><span>' +
+      esc(opts.label) + tail + '</span></div>';
+  }
+
+  function render(json) {
+    var html = '';
+    html += row({
+      label: 'AI Lab (default)',
+      action: 'default',
+      active: json.current === null || json.current === undefined,
+    });
+    var worlds = (json && json.worlds) || [];
+    worlds.forEach(function (w) {
+      if (w.valid) {
+        html += row({
+          label: w.display_name || w.slug,
+          action: 'select',
+          slug: w.slug,
+          path: w.path,
+          active: !!w.mounted,
+        });
+      } else {
+        html += row({
+          label: w.display_name || w.slug,
+          disabled: true,
+          reason: w.reason || 'unavailable',
+        });
+      }
+    });
+    menu.innerHTML = html;
+  }
+
+  function whisper(text) {
+    if (window.ARAIL && window.ARAIL.whisper && window.ARAIL.whisper.show) {
+      window.ARAIL.whisper.show({ text: text, tone: 'amber' });
+    }
+  }
+
+  function load() {
+    menu.innerHTML =
+      '<div style="padding:.4rem .6rem;font-size:.72rem;opacity:.7;">Loading…</div>';
+    fetch('/api/worlds', { cache: 'no-store', credentials: 'same-origin' })
+      .then(function (r) { return r.ok ? r.json() : Promise.reject(r); })
+      .then(function (json) { loaded = true; render(json); })
+      .catch(function () {
+        menu.innerHTML =
+          '<div style="padding:.4rem .6rem;font-size:.72rem;opacity:.7;">' +
+          'Could not load Worlds.</div>';
+      });
+  }
+
+  details.addEventListener('toggle', function () {
+    if (details.open && !loaded) load();
+  });
+
+  menu.addEventListener('click', function (e) {
+    var el = e.target.closest('.world-row[data-action]');
+    if (!el || busy) return;
+    var action = el.getAttribute('data-action');
+    var slug = el.getAttribute('data-slug') || '';
+    var path = el.getAttribute('data-path') || '';
+    busy = true;
+    menu.style.pointerEvents = 'none';
+    menu.style.opacity = '.6';
+    fetch('/api/worlds/select', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(
+        action === 'default'
+          ? { slug: 'default' }
+          : { slug: slug, path: path }
+      ),
+    })
+      .then(function (r) {
+        if (r.ok) { window.location.reload(); return null; }
+        return r.json().catch(function () { return {}; }).then(function (b) {
+          whisper((b && b.message) || 'World load failed');
+        });
+      })
+      .catch(function () { whisper('World load failed'); })
+      .then(function () {
+        busy = false;
+        menu.style.pointerEvents = '';
+        menu.style.opacity = '';
+      });
+  });
+
+  // Outside-click closes the popover.
+  document.addEventListener('click', function (e) {
+    if (details.open && !details.contains(e.target)) details.open = false;
+  });
+  // Escape closes.
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && details.open) details.open = false;
+  });
+})();
