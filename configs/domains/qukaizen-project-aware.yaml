@@ -1,0 +1,264 @@
+# =============================================================================
+# QuKaiZen Project-Aware Super Skill
+# Domain: Understanding QuKaiZen architecture, development patterns, and codebase
+#
+# This manifest defines a model trained specifically on QuKaiZen projects:
+# - nucleub (Nucleus pipeline for training Super Skills)
+# - aerollm (OSS inference engine)
+# - arail (Shareable AI Lab)
+# - qukaizen-dac (Data as Code)
+#
+# The model learns project conventions, architecture decisions, dependency
+# relationships, and development workflows from the actual source code.
+# =============================================================================
+
+superskill:
+  id: qkz-project-aware-2b-v1.0
+  series: ichi
+  domain: qukaizen-project-understanding
+  params: 2b
+  version: "1.0"
+
+  display_name: "QuKaiZen Project-Aware Super Skill v1.0"
+  description: >
+    Lightweight (2B) domain-specialized model trained on QuKaiZen's own projects.
+    Understands Nucleus (training pipeline), AeroLLM (inference), ARAIL (lab agent),
+    and qukaizen-dac (data infrastructure). Optimized for code navigation, architecture
+    explanation, decision-rationale lookup, and cross-project reasoning within the
+    QuKaiZen ecosystem. Apache 2.0 licensed (Gemma base).
+
+# =============================================================================
+# Base Model — Permissive License, Strong Reasoning at Scale
+# =============================================================================
+base_model:
+  # Gemma 4-2B-IT: Newer, lighter, stronger than Gemma 2
+  # Quantized Q4_K_M: 4.5GB, excellent quality/speed tradeoff
+  # Apache 2.0, permissive license, zero export restrictions
+  model_id: google/gemma-4-E2B-it
+  quantization: Q4_K_M
+  family: gemma
+  parameters: 2B
+  size_gb: 4.5
+  license: apache-2.0
+  inference_backend: mlx  # Apple Silicon native
+  reasoning_capability: "good (instruction-tuned, strong for 2B scale)"
+  context_length: 8192
+  speed_tok_per_sec: "5-7"  # On Apple Silicon MLX
+
+  # Upgrade path (future v2.0):
+  # model_id: google/gemma-4-7B-it
+  # quantization: Q4_K_M
+  # params: 7B
+  # size_gb: 5.5
+  # speed_tok_per_sec: "2-3"
+
+# =============================================================================
+# Training Data — Your Projects + Foundation Reasoning
+# =============================================================================
+corpus:
+  sources:
+    # Your QuKaiZen projects (codebase understanding)
+    - type: project_repo
+      path: /Users/netsushi/ProJects/qukaizen/nucleus
+      description: "Nucleus training pipeline - KICE/TICE, RAFT, adversarial swarm"
+      include_patterns: ["*.py", "*.md", "*.yaml"]
+      exclude_patterns: ["**/data/", "**/.git/", "**/__pycache__/", "**/models/"]
+
+    - type: project_repo
+      path: /Users/netsushi/ProJects/aerollm
+      description: "AeroLLM inference engine - layer streaming, optimization"
+      include_patterns: ["*.py", "*.md", "*.yaml", "*.rs"]
+      exclude_patterns: ["**/data/", "**/.git/", "**/target/"]
+
+    - type: project_repo
+      path: /Users/netsushi/ProJects/arail
+      description: "ARAIL agent lab - Buddy reasoning, skill packs, tunneling"
+      include_patterns: ["*.py", "*.md", "*.yaml", "*.tsx"]
+      exclude_patterns: ["**/data/", "**/.git/", "**/node_modules/"]
+
+    - type: project_repo
+      path: /Users/netsushi/ProJects/qukaizen-dac
+      description: "Data as Code infrastructure - versioning, reproducibility"
+      include_patterns: ["*.py", "*.md", "*.yaml"]
+      exclude_patterns: ["**/data/", "**/.git/"]
+
+    - type: documentation
+      path: /Users/netsushi/ProJects/qukaizen
+      description: "QuKaiZen core docs - CLAUDE.md, architecture decisions, READMEs"
+      include_patterns: ["*.md", "ADR-*.md", "CLAUDE.md"]
+
+    # Foundation reasoning (light touch - don't overfit to only QKZ)
+    - type: paper
+      description: "LoRA fine-tuning (PEFT, QLoRA, LLaMA-Adapter)"
+      source: arxiv
+      keywords: ["LoRA", "parameter-efficient", "fine-tuning"]
+      count: 5
+
+    - type: paper
+      description: "Knowledge distillation (FitNet, RKD, attention transfer)"
+      source: arxiv
+      keywords: ["knowledge distillation", "student teacher"]
+      count: 5
+
+    - type: documentation
+      path: https://huggingface.co/docs/peft
+      description: "HuggingFace PEFT library (LoRA, adapters)"
+
+    - type: documentation
+      path: https://github.com/google/gemma
+      description: "Gemma model docs (architecture, capabilities)"
+
+  subdomains:
+    - nucleus-pipeline-architecture
+    - aerollm-inference-optimization
+    - arail-agent-patterns
+    - qukaizen-data-as-code
+    - lora-fine-tuning
+    - knowledge-distillation
+    - cross-project-reasoning
+
+# =============================================================================
+# Training Configuration
+# =============================================================================
+training:
+  # LoRA hyperparameters (optimized for Gemma 4-2B)
+  lora_rank: 8
+  lora_alpha: 16
+  lora_num_layers: 12
+  lora_dropout: 0.05
+  lora_target_keys: []  # auto-detect for Gemma
+
+  # Training
+  learning_rate: 3.0e-4
+  batch_size: 2  # Q4_K_M quantized, lightweight
+  gradient_accumulation_steps: 4
+  num_epochs: 3
+  max_seq_length: 4096  # Gemma context window
+
+  # Note: Deep reasoning comes from tiered model (Claude API fallback)
+  # This base is optimized for fast, memory-efficient inference
+
+  # Optimization
+  warmup_steps: 100
+  weight_decay: 0.01
+
+  # Backend
+  backend: mlx_native  # Apple Silicon optimized
+  mixed_precision: true
+
+# =============================================================================
+# Evaluation Gates — Post-Graduation Certification
+# =============================================================================
+evaluation:
+  gate1:
+    name: "General Capability"
+    description: "Base model abilities retained (MMLU, HellaSwag, ARC, GSM8K subset)"
+    threshold: 0.85
+    benchmarks:
+      - mmlu
+      - hellaswag
+      - arc-challenge
+      - gsm8k
+
+  gate2:
+    name: "Domain Mastery"
+    description: "QuKaiZen project understanding (code navigation, arch explanation, cross-project reasoning)"
+    threshold: 0.70
+    benchmarks:
+      - "nucleus-explain-training-pipeline"  # Explain KICE/TICE/RAFT flow
+      - "aerollm-layer-streaming-rationale"  # Why layer streaming vs standard inference?
+      - "arail-buddy-skill-selection"        # Which skill to use for this problem?
+      - "qukaizen-cross-project-deps"        # How do aerollm and nucleus interact?
+      - "code-navigation-accuracy"           # Find relevant code sections
+
+  gate3:
+    name: "Hallucination Audit"
+    description: "Faithful reasoning on QKZ projects (no invented files, APIs, patterns)"
+    threshold: 0.75
+    strategy: >
+      Adversarial: ask model for non-existent functions, APIs, config options.
+      Score: % of refusals or accurate 'not found' responses.
+
+# =============================================================================
+# Versioning & Distribution
+# =============================================================================
+versioning:
+  strategy: hybrid  # v1.0 → v1.1 → v1.2 (same base) vs v2.0+ (new base)
+
+  v1_0:
+    status: candidate  # Will be 'graduated' after gate certification
+    training_method: quick-storm  # Fast POC run
+    corpus_examples: "~100 project code examples"
+
+  v1_1:
+    planned: true
+    description: "Full adversarial swarm convergence + expanded project coverage"
+
+  v2_0:
+    planned: true
+    description: "Larger base (Gemma 7B or Llama 8B) with deeper project understanding"
+
+distribution:
+  format: lora-merged  # Ship as LoRA merged into base for simplicity
+  adapter_size_mb: 15  # Expected LoRA size
+  total_size_gb: 5.0   # Gemma 2B + adapters
+  license: apache-2.0  # Inherited from Gemma
+
+  channels:
+    - type: in-box
+      location: "models/graduated/qkz-project-aware-2b-v1.0/"
+      tracking: "git-lfs"
+
+    - type: huggingface
+      repo: "cdarnell/qkz-project-aware-2b-v1.0"
+      planned: true
+
+# =============================================================================
+# Architecture Decisions (ADRs)
+# =============================================================================
+decisions:
+  - adr: "0015-gemma-base-licensing-freedom"
+    title: "Use Gemma 2B instead of Qwen2.5-3B for licensing flexibility"
+    rationale: >
+      Gemma is Apache 2.0 (permissive). Qwen is Apache 2.0 but has export restrictions
+      in certain jurisdictions. Gemma 2B is lighter, still strong at reasoning, and
+      gives absolute freedom for commercial use and redistribution.
+
+  - adr: "0016-project-aware-training-corpus"
+    title: "Train directly on QuKaiZen's codebase, not general AI/ML papers"
+    rationale: >
+      ARAIL users need a model that *understands the projects they work with*.
+      Training on nucleus/aerollm/arail source code teaches the model:
+      - Project conventions (naming, error handling patterns)
+      - Architecture rationales (why decisions were made)
+      - Cross-project dependencies (how pieces fit together)
+      - Failure modes (what breaks, how to debug)
+      This is more useful than general AI/ML knowledge for QuKaiZen developers.
+      Foundation reasoning still included (LoRA papers) to prevent overfitting.
+
+# =============================================================================
+# Success Metrics
+# =============================================================================
+success_criteria:
+  - "✓ Gate 1 ≥ 0.85 (base capabilities intact)"
+  - "✓ Gate 2 ≥ 0.70 (project understanding > baseline)"
+  - "✓ Gate 3 ≥ 0.75 (faithful, no hallucinated APIs/files)"
+  - "✓ Users can ask code questions on QuKaiZen repos and get accurate answers"
+  - "✓ Model fits in ARAIL minimalist mode (<6GB with base)"
+  - "✓ Inference at 5+ tokens/sec on Apple Silicon M1/M2/M3"
+
+# =============================================================================
+# Timeline
+# =============================================================================
+timeline:
+  v1.0:
+    phase: "quick-storm (POC)"
+    effort: "~4 hours"
+    status: "ready to build"
+  v1.1:
+    phase: "full swarm convergence"
+    effort: "~16 hours"
+    timeline: "after v1.0 proves concept"
+  v1.2+:
+    phase: "expanded project coverage + larger base"
+    timeline: "Phase 2"
