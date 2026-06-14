@@ -57,3 +57,18 @@ class SpeechToTextAdapter(Adapter):
     """
 
     id = "speech-to-text"
+
+
+class ImageTextRecognitionAdapter(Adapter):
+    """Seam C — image → text OCR (printed text/numbers, v1).
+
+    invoke(image: ImageArtifact, ...) -> OcrResult (a dict):
+        ImageArtifact = {"path": Path, "mime": str}   # materialized temp file
+        OcrResult     = {"text": str, "lines": list[str], "on_device": bool}
+
+    v1 contract: inputs = one image (PNG/JPEG); outputs = `text` (lines joined by
+    "\\n"). NOT LaTeX, NOT layout/tables, NOT bounding boxes (all ROADMAP). The
+    declared id stays ``equation-ocr`` (fixture/WC-C continuity); v1 = TEXT.
+    """
+
+    id = "equation-ocr"

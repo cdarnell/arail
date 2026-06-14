@@ -8,3 +8,4 @@ regardless, so file-in STT works today via /api/stt/transcribe).
 from __future__ import annotations
 
 from . import audio_backend as _audio  # noqa: F401
+from . import ocr_backend as _ocr  # noqa: F401  # registers LinuxImageOCR stub

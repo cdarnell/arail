@@ -8,7 +8,12 @@ which keeps the system Linux-ready by construction (WC-B).
 
 from __future__ import annotations
 
-from .adapter import Adapter, AudioCaptureAdapter, SpeechToTextAdapter
+from .adapter import (
+    Adapter,
+    AudioCaptureAdapter,
+    SpeechToTextAdapter,
+    ImageTextRecognitionAdapter,
+)
 from .errors import CapabilityError, CapabilityNotImplemented, CapabilityUnavailable
 from .resolve import ResolvedCapability, resolve_capabilities
 from .spec import CapabilitySpec, MalformedCapabilities, parse_capabilities_file
@@ -23,6 +28,7 @@ __all__ = [
     "Adapter",
     "AudioCaptureAdapter",
     "SpeechToTextAdapter",
+    "ImageTextRecognitionAdapter",
     "CapabilitySpec",
     "MalformedCapabilities",
     "parse_capabilities_file",
