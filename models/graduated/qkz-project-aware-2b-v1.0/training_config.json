@@ -1,0 +1,11 @@
+{
+  "model_id": "google/gemma-2b-it",
+  "num_examples": 50,
+  "training_method": "quick-storm-poc",
+  "lora_rank": 8,
+  "lora_alpha": 16,
+  "learning_rate": 0.0003,
+  "batch_size": 2,
+  "epochs": 3,
+  "timestamp": "2026-06-14T00:36:17.330403"
+}
