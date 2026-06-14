@@ -19,7 +19,7 @@ from typing import Any, AsyncIterator, Iterator, cast
 
 _log = logging.getLogger(__name__)
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -384,6 +384,61 @@ async def metrics_counter(request, call_next):
             if response.status_code >= 500:
                 _METRICS["http_errors_total"] += 1
     return response
+
+
+# ---------------------------------------------------------------------------
+# UI-theme recolor middleware (sprint 2026-06-14-world-identity-flip, recolor
+# addendum §1). Injects the live World palette as a <style id="ui-theme-vars">
+# block before the first </head> on text/html responses so EVERY portal page
+# recolors on mount — not just welcome.html, which already injects it inline.
+#
+# Registered AFTER presence_meter/metrics_counter so it runs on the HTML page
+# surface. Reuses effective_identity()/theme_css() (per-request, tiny — same
+# work the welcome route already did). Gated by content-type + </head>-present
+# + idempotency + empty-CSS no-op. The palette comes from the closed frozen
+# _THEMES map (palette_hint only selects a preset id), so raw face.json text
+# can never reach the emitted CSS → XSS-safe by construction.
+# ---------------------------------------------------------------------------
+_UI_THEME_MARK = 'id="ui-theme-vars"'
+
+
+@app.middleware("http")
+async def inject_ui_theme(request, call_next):
+    """Inject the live World palette before the first </head> on HTML pages."""
+    response = await call_next(request)
+    ctype = response.headers.get("content-type", "")
+    if not ctype.startswith("text/html"):
+        return response  # JSON, SSE, static, downloads, redirects → untouched.
+    body = getattr(response, "body", None)
+    if not body:
+        return response  # streaming / empty body → leave alone.
+    try:
+        html = body.decode("utf-8", "ignore")
+    except Exception:
+        return response
+    low = html.lower()
+    # No </head> (partials/fragments) or already injected (welcome.html inline)
+    # → idempotent no-op.
+    if "</head>" not in low or _UI_THEME_MARK in html:
+        return response
+    try:
+        css = theme_css(effective_identity().ui_theme)
+    except Exception:
+        return response  # never let a recolor break a page render.
+    if not css.strip():
+        return response  # empty palette → inert.
+    idx = low.index("</head>")
+    block = f'<style id="ui-theme-vars">{css}</style></head>'
+    new = html[:idx] + block + html[idx + len("</head>"):]
+    data = new.encode("utf-8")
+    headers = dict(response.headers)
+    headers["content-length"] = str(len(data))  # stale length is the one trap.
+    return Response(
+        content=data,
+        status_code=response.status_code,
+        headers=headers,
+        media_type=response.media_type,
+    )
 
 
 app.include_router(wiki_router)
