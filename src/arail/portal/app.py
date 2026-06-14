@@ -9333,8 +9333,10 @@ async def api_stt_transcribe(request: Request):
 
 # ── Image-text OCR (equation-ocr) ─────────────────────────────────────
 # The second live capability. Mirrors the STT path: a posted image is
-# materialized to a temp file, OCR'd on-device (Apple Vision), and landed as a
-# RAW research note. The OCR text is attacker-controllable DATA: it is written
+# materialized to a temp file, OCR'd on-device by the registered backend (below
+# the adapter seam), and landed as a RAW research note. The portal touches NO
+# platform OCR symbols — those stay under capabilities/backends/. The OCR text is
+# attacker-controllable DATA: it is written
 # inert (kind:raw, sourced:false) and NEVER enters a system prompt.
 
 # Upload validation: mime allowlist + magic-byte sniff + ~12 MB cap.

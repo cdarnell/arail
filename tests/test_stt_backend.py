@@ -212,9 +212,14 @@ def test_audio_materializes_m4a(tmp_path, monkeypatch):
 
 
 def test_no_apple_symbols_anywhere():
+    """STT-era Apple symbols stay deleted. (``swiftc``/``xcrun`` are now legitimately
+    reintroduced by the OCR Vision backend under ``backends/macos/`` and are
+    covered by the OCR WC-B test; exclude that dir + build-cache artifacts here.)"""
     repo = pathlib.Path(__file__).resolve().parent.parent
     proc = subprocess.run(
-        ["grep", "-rEn", r"AVFoundation|SFSpeechRecognizer|pyobjc|\bobjc\b|swiftc|xcrun", "src/"],
+        ["grep", "-rEln", "--include=*.py", "--include=*.swift",
+         "--exclude-dir=.mypy_cache", "--exclude-dir=__pycache__",
+         r"AVFoundation|SFSpeechRecognizer|pyobjc|\bobjc\b", "src/"],
         cwd=repo, capture_output=True, text=True,
     )
-    assert proc.returncode != 0, f"Apple symbols leaked:\n{proc.stdout}"
+    assert proc.returncode != 0, f"Apple STT symbols leaked:\n{proc.stdout}"
