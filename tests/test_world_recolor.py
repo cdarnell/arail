@@ -73,6 +73,21 @@ def test_dashboard_carries_default_palette_unmounted():
     assert f"--blue: {DEFAULT_BLUE};" in block
 
 
+def test_nav_names_the_world_when_mounted(mounted_physics):
+    """The nav shows a World badge so it's explicit the theme + knowledge are
+    DEFINED BY the mounted World (not the default lab). Reinforces the flip."""
+    body = _client().get("/").text
+    assert "world-badge" in body
+    assert "Physics World" in body
+    assert "defined by the mounted" in body  # the explanatory tooltip
+
+
+def test_nav_has_no_world_badge_when_unmounted():
+    """No World mounted → no badge; the lab is just the operator's default lab."""
+    body = _client().get("/").text
+    assert "world-badge" not in body
+
+
 # ════════════════════════════ SETUP (30%) ════════════════════════════
 
 # Representative spread crossing the "passes _identity_ctx()" boundary.

@@ -18,6 +18,12 @@
 <nav>
   <span class="logo" title="{{ brand.name }} — tier: {{ lab_tier|default('minimalist') }}">{{ brand.logo }}</span>
 
+  {% if identity is defined and identity.mounted %}
+  <span class="world-badge"
+        style="margin-left:.55rem;padding:.12em .58em;border-radius:999px;font-size:.72rem;font-weight:600;letter-spacing:.02em;white-space:nowrap;color:var(--purple,var(--blue,var(--green,#9e8cff)));border:1px solid currentColor;cursor:default;vertical-align:middle;"
+        title="Theme &amp; knowledge are defined by the mounted “{{ identity.name }}” World. Unmount to return to the default lab.">◆ {{ (identity.world or 'world')|capitalize }} World</span>
+  {% endif %}
+
   {% if 'dashboard' in _ts %}
   <a href="/"{% if active == 'dashboard' %} class="active"{% endif %}>Dashboard</a>
   {% endif %}
