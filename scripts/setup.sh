@@ -45,6 +45,18 @@ auto_install_enabled() {
 PYTHON_BIN=""
 
 ollama_default_enabled() {
+    # Gate on TIER, not on ACCEL. The minimalist default model (llama-ai-eng)
+    # is an Ollama persona-wrap (llama3.2:1b); it REQUIRES Ollama regardless of
+    # accelerator. The "Apple Silicon prefers MLX" behavior applies only to the
+    # maximus deep path (AeroLLM/MLX). Do NOT revert this to ACCEL-gating — that
+    # re-introduces F1: minimalist setup on M-series skips Ollama, leaving
+    # llama-ai-eng uninstalled. (Two-tier sprint 2026-06-14.)
+    if [[ "${LAB_TIER:-minimalist}" == "minimalist" ]]; then
+        # Minimalist always needs Ollama — llama-ai-eng is an Ollama model.
+        return 0
+    fi
+    # Maximus tier: on Apple Silicon + MLX, AeroLLM is the deep runtime;
+    # Ollama is optional (enabled by ARAIL_ENABLE_OLLAMA=1).
     [[ "$PLATFORM" == "macos" && "$ACCEL" == "mlx" ]] && return 1
     return 0
 }
@@ -1180,8 +1192,17 @@ EOF
             ram_kb="$(awk '/^MemTotal:/{print $2}' /proc/meminfo 2>/dev/null || echo 0)"
             ram_bytes=$(( ram_kb * 1024 ))
         fi
-        # 48 GB threshold = 48 * 1024^3 bytes = 51539607552
-        if [[ "$ram_bytes" -gt 0 && "$ram_bytes" -lt 51539607552 ]]; then
+        # F7: 16 GB floor for maximus. 7B-4bit is ~4 GB resident; combined with
+        # portal + browser, 8 GB cannot reliably run maximus without swapping.
+        # 16 GB = 17179869184 bytes.
+        if [[ "$ram_bytes" -gt 0 && "$ram_bytes" -lt 17179869184 ]]; then
+            warn "This machine has < 16 GB RAM. maximus (7B-4bit ~4 GB resident)"
+            warn "may cause swapping or slowness on this hardware."
+            warn "The minimalist tier (llama-ai-eng, ~1 GB) runs fine on 8 GB."
+            warn "Staying on minimalist is recommended: ./arailctl upgrade minimalist"
+            warn "Or use a cloud Compute Source in hybrid mode (LAB_MODE=hybrid)."
+        # 48 GB threshold — informational for frontier-model users
+        elif [[ "$ram_bytes" -gt 0 && "$ram_bytes" -lt 51539607552 ]]; then
             info "System RAM < 48 GB detected. Default deep model (7B) fits easily."
             info "Upgrading AEROLLM_MODEL to a 70B+ model on this box may OOM —"
             info "stay at 32B or below, or use Qwen2.5-7B (the default) for safety."
