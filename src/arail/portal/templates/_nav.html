@@ -75,18 +75,62 @@
   <a href="/admin"{% if active in ['admin', 'plugins'] %} class="active"{% endif %}>Admin</a>
   {% endif %}
 
-  {# mode-badge is clickable on ALL pages — opens the airgap modal #}
+</nav>
+
+{# ── Lab status bar ──────────────────────────────────────────────────────────
+   Live/dynamic indicators kept OFF the top nav so navigation stays uncluttered:
+   network mode, work window, lifetime metrics, and the halt control — one
+   uniform full-width strip. mode-badge keeps its id (nav.js updates it); the
+   work-window + halt controls keep their ids + dashboard wiring; the metrics
+   poll /api/system/costs globally via the small script below. ──────────────── #}
+<div class="lab-statusbar" id="lab-statusbar">
   <span class="mode-badge airgapped" id="mode-badge"
-        title="Click to see network policy and recent blocks"
-        style="cursor:pointer;">⬤ Airgapped</span>
+        title="Click to see network policy and recent blocks" style="cursor:pointer;">⬤ Airgapped</span>
   {% if active == 'dashboard' %}
   <span class="mode-badge" id="window-badge" title="Current work window">⋯</span>
+  {% endif %}
+  <span class="sb-metric" title="Simulated cloud cost this lab has avoided (lifetime)">
+    <span class="sb-label">Net saved</span><span class="sb-value savings" id="sb-savings">—</span></span>
+  <span class="sb-metric" title="Total tokens processed across all backends (lifetime)">
+    <span class="sb-label">Tokens</span><span class="sb-value" id="sb-tokens">—</span></span>
+  <span class="sb-grow"></span>
+  {% if active == 'dashboard' %}
   <button class="btn btn-sm btn-red" id="btn-halt"
           title="Cancel all running jobs — portal stays up">⏸ Halt jobs</button>
   <button class="btn btn-sm btn-primary" id="btn-resume" style="display:none"
           title="Resume scheduler">▶ Resume</button>
   {% endif %}
-</nav>
+</div>
+<style>
+  .lab-statusbar{display:flex;align-items:center;gap:.6rem;flex-wrap:wrap;
+    padding:.32rem .9rem;border-bottom:1px solid var(--border,#1e2230);
+    background:var(--surface,#0f1118);font-size:.72rem;}
+  .lab-statusbar .mode-badge{font-size:.7rem;}
+  .lab-statusbar .sb-metric{display:inline-flex;align-items:baseline;gap:.4rem;
+    padding:.12em .6em;border:1px solid var(--border-hi,#2a3040);border-radius:999px;
+    color:var(--muted,#78839a);white-space:nowrap;}
+  .lab-statusbar .sb-label{text-transform:uppercase;letter-spacing:.05em;font-size:.62rem;}
+  .lab-statusbar .sb-value{color:var(--text-hi,#e8ecf4);font-weight:600;}
+  .lab-statusbar .sb-value.savings{color:var(--green,#00ff41);}
+  .lab-statusbar .sb-grow{flex:1 1 auto;}
+  .lab-statusbar .btn{font-size:.7rem;}
+</style>
+<script>
+(function(){
+  function usd(n){ if(n==null||isNaN(n))return '—'; var v=Number(n);
+    return v<0.01 ? '$'+v.toFixed(4) : '$'+v.toFixed(2); }
+  function toks(n){ if(n==null||isNaN(n))return '0'; n=Number(n);
+    return n>=1e6?(n/1e6).toFixed(1)+'M':(n>=1e3?(n/1e3).toFixed(1)+'k':String(n)); }
+  async function refreshStatus(){
+    try{ var r=await fetch('/api/system/costs',{cache:'no-store'}); if(!r.ok)return;
+      var d=await r.json(), s=d.summary||{};
+      var sv=document.getElementById('sb-savings'); if(sv)sv.textContent=usd(s.savings_usd);
+      var tk=document.getElementById('sb-tokens'); if(tk)tk.textContent=toks(s.total_tokens);
+    }catch(e){/* portal may be mid-restart */}
+  }
+  refreshStatus(); setInterval(refreshStatus, 15000);
+})();
+</script>
 
 <!-- Warmup overlay — hidden until the first /api/ready probe confirms the
      portal is still booting OR the primary chat model hasn't warmed yet.
