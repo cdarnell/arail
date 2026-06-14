@@ -1054,19 +1054,25 @@ async def chat_page(request: Request):
     # mic affordance. Best-effort: any failure → mic stays disabled.
     stt_available = False
     stt_message = "Mount a World that declares speech-to-text to enable voice notes."
+    ocr_available = False
+    ocr_message = "Mount a World that declares equation-ocr to enable image OCR."
     try:
         from arail.world_mount import current_capabilities
         for c in current_capabilities():
             if c.get("id") == "speech-to-text":
                 stt_available = c.get("state") == "available"
                 stt_message = c.get("message", stt_message)
-                break
+            if c.get("id") == "equation-ocr":
+                ocr_available = c.get("state") == "available"
+                ocr_message = c.get("message", ocr_message)
     except Exception:  # noqa: BLE001
         pass
     return templates.TemplateResponse(request, "chat.html", {
         "embed": embed,
         "stt_available": stt_available,
         "stt_message": stt_message,
+        "ocr_available": ocr_available,
+        "ocr_message": ocr_message,
     })
 
 
@@ -9323,6 +9329,175 @@ async def api_stt_transcribe(request: Request):
                 _P(artifact["path"]).unlink(missing_ok=True)
             except Exception:  # noqa: BLE001
                 pass
+
+
+# ── Image-text OCR (equation-ocr) ─────────────────────────────────────
+# The second live capability. Mirrors the STT path: a posted image is
+# materialized to a temp file, OCR'd on-device by the registered backend (below
+# the adapter seam), and landed as a RAW research note. The portal touches NO
+# platform OCR symbols — those stay under capabilities/backends/. The OCR text is
+# attacker-controllable DATA: it is written
+# inert (kind:raw, sourced:false) and NEVER enters a system prompt.
+
+# Upload validation: mime allowlist + magic-byte sniff + ~12 MB cap.
+_OCR_MIME_EXT = {
+    "image/png": ".png",
+    "image/jpeg": ".jpg",
+    "image/jpg": ".jpg",
+}
+_OCR_MAX_BYTES = 12 * 1024 * 1024  # 12 MB
+
+
+def _sniff_image(data: bytes) -> str | None:
+    """Return 'image/png' or 'image/jpeg' from magic bytes, else None.
+
+    Do NOT trust the declared mime — sniff the actual bytes.
+    """
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+    if data[:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    return None
+
+
+def _land_raw_ocr_note(result: dict, world: str, image_filename: str):
+    """Write the OCR text as a RAW research note and index it.
+
+    Returns the pkb-root-relative posix path. Indexing/wiki failures are
+    best-effort (the note must not be lost). The OCR text is inert DATA — it is
+    never passed to a prompt-builder.
+    """
+    from datetime import datetime
+    from arail.pkb import _pkb_root
+
+    root = _pkb_root()
+    dest_dir = root / "research" / "ocr-notes"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+
+    now = datetime.now()
+    stamp = now.strftime("%Y-%m-%d_%H-%M-%S")
+    title_stamp = now.strftime("%Y-%m-%d %H:%M")
+    fname = f"{stamp}_ocr-note.md"
+    path = dest_dir / fname
+
+    text = str(result.get("text", "")).strip()
+    body = (
+        "---\n"
+        f"title: OCR note — {title_stamp}\n"
+        "section: research\n"
+        "kind: raw\n"
+        "source: user-captured (image-ocr, on-device)\n"
+        "sourced: false\n"
+        f"world: {world}\n"
+        f"image: {image_filename}\n"
+        "---\n\n"
+        f"{text}\n"
+    )
+    path.write_text(body, encoding="utf-8")
+
+    try:
+        from arail.pkb_index import ensure_ready, schedule_upsert
+        ensure_ready(root)
+        schedule_upsert(path, pkb_root=root)
+    except Exception as e:  # noqa: BLE001
+        _log.warning("ocr: indexing OCR note failed: %s", e)
+
+    try:
+        from arail import wiki
+        wiki.schedule_rebuild()
+    except Exception:
+        pass
+
+    return path.relative_to(root).as_posix()
+
+
+@app.post("/api/ocr/extract")
+async def api_ocr_extract(request: Request):
+    """OCR a posted image on-device → RAW OCR note.
+
+    Form: image (file part), mime (str, optional — sniffed regardless).
+    Gated on a mounted World whose `equation-ocr` resolved to 'available'.
+    """
+    from arail.world_mount import current_mount, current_capabilities
+    from arail.capabilities import registry, CapabilityUnavailable, CapabilityError
+
+    mount = current_mount()
+    if mount is None:
+        return JSONResponse(
+            {"error": "No world mounted. Mount a World that declares equation-ocr."},
+            status_code=400)
+
+    caps = {c.get("id"): c for c in current_capabilities()}
+    ocr_cap = caps.get("equation-ocr")
+    if not ocr_cap or ocr_cap.get("state") != "available":
+        msg = (ocr_cap or {}).get("message", "Image OCR is not available for the mounted World.")
+        return JSONResponse({"error": msg}, status_code=409)
+
+    try:
+        form = await request.form()
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse({"error": f"invalid multipart body: {e}"}, status_code=400)
+
+    upload = form.get("image")
+    if upload is None or not hasattr(upload, "read"):
+        return JSONResponse({"error": "no image in request"}, status_code=400)
+    declared_mime = str(form.get("mime", getattr(upload, "content_type", "") or "")).split(";", 1)[0].strip().lower()
+    image_filename = getattr(upload, "filename", None) or "image"
+    image_bytes = await upload.read()
+
+    # ── Validate the upload (don't trust it). ──
+    if not image_bytes:
+        return JSONResponse({"error": "No image was received. Try again."}, status_code=422)
+    if len(image_bytes) > _OCR_MAX_BYTES:
+        return JSONResponse({"error": "Image too large — keep it under 12 MB."}, status_code=422)
+    sniffed = _sniff_image(image_bytes)
+    if sniffed is None:
+        return JSONResponse(
+            {"error": "That doesn't look like a PNG or JPEG image."}, status_code=422)
+    # mime allowlist: the declared mime (if present) must also be allowed; the
+    # sniffed type is authoritative for the extension.
+    if declared_mime and declared_mime not in _OCR_MIME_EXT:
+        return JSONResponse(
+            {"error": "That doesn't look like a PNG or JPEG image."}, status_code=422)
+
+    ext = _OCR_MIME_EXT[sniffed]
+
+    # ── Materialize temp file under the cache dir. ──
+    import uuid as _uuid
+    from arail.config import DATA_DIR
+    from pathlib import Path as _P
+    cache_dir = _P(DATA_DIR) / "cache" / "ocr"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    tmp = cache_dir / f"{_uuid.uuid4().hex}{ext}"
+    tmp.write_bytes(image_bytes)
+
+    try:
+        ocr_adapter = registry.select("equation-ocr")
+        if ocr_adapter is None:
+            return JSONResponse({"error": "Image OCR backend is not available."}, status_code=409)
+
+        result = ocr_adapter.invoke(image={"path": tmp, "mime": sniffed})
+
+        if not str(result.get("text", "")).strip():
+            return {"ok": False, "reason": "no_text"}
+
+        rel = _land_raw_ocr_note(result, mount.world, image_filename)
+        chars = len(str(result.get("text", "")))
+        activity_log.emit("pkb", f"OCR note extracted → {rel}", "success")
+        return {"ok": True, "path": rel, "chars": chars}
+    except CapabilityUnavailable as e:
+        return JSONResponse({"error": getattr(e, "user_message", str(e))}, status_code=409)
+    except CapabilityError as e:
+        return JSONResponse({"error": getattr(e, "user_message", str(e))}, status_code=422)
+    except Exception as e:  # noqa: BLE001
+        _log.warning("ocr: unexpected extract failure: %s", e)
+        return JSONResponse({"error": "OCR failed unexpectedly."}, status_code=500)
+    finally:
+        # Always delete the temp image — no image is retained.
+        try:
+            tmp.unlink(missing_ok=True)
+        except Exception:  # noqa: BLE001
+            pass
 
 
 # ── Inbox watcher ─────────────────────────────────────────────────────

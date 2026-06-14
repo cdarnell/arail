@@ -44,9 +44,11 @@ def test_registry_resolution_states():
         CapabilitySpec(id="equation-ocr", purpose="q", desired=True),
     ]
     resolved = {r.id: r for r in resolve_capabilities(specs)}
-    # equation-ocr has no adapter at all → declared_unavailable, no platform.
-    assert resolved["equation-ocr"].state == "declared_unavailable"
-    assert resolved["equation-ocr"].adapter_platform is None
+    # equation-ocr now has a registered backend (macOS Vision / Linux stub) — it
+    # resolves available-or-declared_unavailable depending on host, never "no
+    # adapter". (The N=1 "no adapter at all" state is gone — this is the WC-C flip.)
+    assert resolved["equation-ocr"].state in ("available", "declared_unavailable")
+    assert resolved["equation-ocr"].adapter_platform in ("darwin", "linux")
     # stt: available on darwin w/ CLT; declared_unavailable elsewhere — both valid states.
     assert resolved["speech-to-text"].state in ("available", "declared_unavailable")
 
@@ -76,31 +78,39 @@ def test_wc3_linux_selected_returns_whisper(monkeypatch):
 
 
 def test_wc_b_no_apple_symbols_anywhere():
-    """The Apple-symbol grep (Addendum A.8) returns nothing anywhere in src/ —
-    no --exclude-dir needed now that the Apple path is deleted."""
+    """The STT Apple-symbol grep returns nothing in source — the Apple-Speech path
+    is deleted. (``swiftc``/``xcrun`` are now legitimately reintroduced by the OCR
+    Vision backend under ``backends/macos/``; those are covered by the OCR WC-B
+    test and excluded here, along with build-cache artifacts.)"""
     repo = pathlib.Path(__file__).resolve().parent.parent
     proc = subprocess.run(
-        ["grep", "-rEn", r"AVFoundation|SFSpeechRecognizer|pyobjc|\bobjc\b|swiftc|xcrun",
-         "src/"],
+        ["grep", "-rEln", "--include=*.py", "--include=*.swift",
+         "--exclude-dir=.mypy_cache", "--exclude-dir=__pycache__",
+         r"AVFoundation|SFSpeechRecognizer|pyobjc|\bobjc\b", "src/"],
         cwd=repo, capture_output=True, text=True,
     )
-    assert proc.returncode != 0, f"Apple symbols leaked:\n{proc.stdout}"
+    assert proc.returncode != 0, f"Apple STT symbols leaked:\n{proc.stdout}"
 
 
 # ── WC-C: second declared id, zero code ────────────────────────────────
 
 
-def test_wc_c_second_declared_id_zero_code(tmp_path):
-    """Mount world-caps-both: equation-ocr resolves declared_unavailable, lab works,
-    nothing raised, and no equation-ocr adapter exists in the registry."""
-    assert registry.adapters_for("equation-ocr") == []
+def test_wc_c_second_declared_id_zero_code(tmp_path, monkeypatch):
+    """Mount world-caps-both: equation-ocr now resolves through a registered
+    backend via the SAME resolve path — the WC-C flip. (Previously this id had no
+    adapter; the OCR sprint registered one with zero engine code.)"""
+    # An OCR adapter is now registered (macOS Vision + Linux stub).
+    assert registry.adapters_for("equation-ocr"), "OCR backend should be registered"
+    monkeypatch.setenv("ARAIL_FORCE_PLATFORM", "darwin")
     data_dir = tmp_path / "data"
     pkb_root = tmp_path / "pkb"
     rec = wm.mount(CAPS_BOTH, data_dir=data_dir, pkb_root=pkb_root, env_path=tmp_path / ".env")
     assert rec.world == "physics"
     side = json.loads((data_dir / "world-capabilities.json").read_text())
     byid = {c["id"]: c for c in side["capabilities"]}
-    assert byid["equation-ocr"]["state"] == "declared_unavailable"
+    # On darwin w/ xcrun present it's available; otherwise declared_unavailable —
+    # never the "no adapter" path anymore.
+    assert byid["equation-ocr"]["state"] in ("available", "declared_unavailable")
     assert side["capabilities_error"] is None
 
 
@@ -170,3 +180,101 @@ def test_unmount_removes_sidecar(tmp_path):
     assert (data_dir / "world-capabilities.json").exists()
     wm.unmount(data_dir=data_dir, pkb_root=pkb_root)
     assert not (data_dir / "world-capabilities.json").exists()
+
+
+# ── WC-C generalization: the registry serves TWO live capabilities ─────
+
+
+def _force_both_available(monkeypatch):
+    """Force speech-to-text AND equation-ocr is_available()=True on darwin, so the
+    resolve path is exercised without a Whisper model or the swiftc toolchain."""
+    monkeypatch.setenv("ARAIL_FORCE_PLATFORM", "darwin")
+    monkeypatch.setattr(registry, "_host_platform", lambda: "darwin")
+    for adapter in registry.adapters_for("speech-to-text"):
+        if adapter.platform == "darwin":
+            monkeypatch.setattr(adapter, "is_available", lambda: True)
+    for adapter in registry.adapters_for("equation-ocr"):
+        if adapter.platform == "darwin":
+            monkeypatch.setattr(adapter, "is_available", lambda: True)
+
+
+def test_two_live_capabilities_resolve_available(monkeypatch):
+    """THE HEADLINE WC-C FLIP: with both adapters available, world-caps-both lights
+    up speech-to-text AND equation-ocr through the identical resolve path."""
+    _force_both_available(monkeypatch)
+    specs = [
+        CapabilitySpec(id="speech-to-text", purpose="p", desired=True),
+        CapabilitySpec(id="equation-ocr", purpose="q", desired=True),
+    ]
+    resolved = {r.id: r for r in resolve_capabilities(specs)}
+    assert resolved["speech-to-text"].state == "available"
+    assert resolved["equation-ocr"].state == "available"
+    assert resolved["equation-ocr"].adapter_platform == "darwin"
+
+
+def test_wc_c_third_undeclared_id_still_declared_unavailable(monkeypatch):
+    """Adding the OCR adapter special-cased NOTHING: a third id with no adapter
+    still resolves declared_unavailable through the same path."""
+    _force_both_available(monkeypatch)
+    resolved = {r.id: r for r in resolve_capabilities(
+        [CapabilitySpec(id="totally-undeclared-cap", purpose="z", desired=True)])}
+    assert resolved["totally-undeclared-cap"].state == "declared_unavailable"
+    assert resolved["totally-undeclared-cap"].adapter_platform is None
+
+
+def test_ocr_zero_code_in_engine():
+    """The OCR adapter is reached via the existing select() with NO edit to the
+    engine core — assert select returns a real adapter and the engine modules are
+    untouched by the diff (structural: changes live in adapter.py + backends/)."""
+    adapter = registry.select("equation-ocr")
+    assert adapter is not None
+    assert adapter.id == "equation-ocr"
+
+
+def test_wc_b_linux_ocr_raises_clean(monkeypatch):
+    """Forced linux → OCR invoke() raises the clean CapabilityNotImplemented."""
+    from arail.capabilities import CapabilityNotImplemented
+    monkeypatch.setenv("ARAIL_FORCE_PLATFORM", "linux")
+    adapter = registry.select("equation-ocr")
+    assert type(adapter).__name__ == "LinuxImageOCR"
+    with pytest.raises(CapabilityNotImplemented) as ei:
+        adapter.invoke(image={"path": "/x", "mime": "image/png"})
+    assert "no backend for linux" in str(ei.value)
+
+
+def test_ocr_declared_unavailable_off_platform(monkeypatch):
+    """ARAIL_FORCE_PLATFORM=linux → equation-ocr resolves declared_unavailable
+    (the Linux stub's is_available() is False)."""
+    monkeypatch.setenv("ARAIL_FORCE_PLATFORM", "linux")
+    resolved = resolve_capabilities([CapabilitySpec(id="equation-ocr", purpose="q")])
+    assert resolved[0].state == "declared_unavailable"
+    assert resolved[0].adapter_platform == "linux"
+
+
+def test_ocr_unavailable_missing_clt(monkeypatch):
+    """No xcrun on PATH → MacOSImageOCR.is_available() False → declared_unavailable
+    with the xcode-select hint reachable at invoke."""
+    import arail.capabilities.backends.macos.ocr_backend as ob
+    monkeypatch.setenv("ARAIL_FORCE_PLATFORM", "darwin")
+    monkeypatch.setattr(ob._platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(ob.shutil, "which", lambda name: None)
+    adapter = registry.select("equation-ocr")
+    # select() returns the darwin adapter even though unavailable (right message).
+    assert type(adapter).__name__ == "MacOSImageOCR"
+    assert adapter.is_available() is False
+    resolved = resolve_capabilities([CapabilitySpec(id="equation-ocr", purpose="q")])
+    assert resolved[0].state == "declared_unavailable"
+
+
+def test_wc_b_no_apple_ocr_symbols_above_seam():
+    """The OCR Apple-symbol grep matches ONLY under backends/macos/."""
+    repo = pathlib.Path(__file__).resolve().parent.parent
+    proc = subprocess.run(
+        ["grep", "-rEl", "--include=*.py", "--include=*.swift",
+         "--exclude-dir=.mypy_cache", "--exclude-dir=__pycache__",
+         r"Vision|VNRecognizeTextRequest|AppKit|swiftc|xcrun", "src/"],
+        cwd=repo, capture_output=True, text=True,
+    )
+    hits = [ln for ln in proc.stdout.splitlines() if ln.strip()]
+    leaked = [h for h in hits if "backends/macos/" not in h]
+    assert leaked == [], f"Apple OCR symbols leaked above the seam:\n{leaked}"

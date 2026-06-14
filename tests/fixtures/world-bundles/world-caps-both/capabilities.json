@@ -9,9 +9,9 @@
     },
     {
       "id": "equation-ocr",
-      "purpose": "Recognize handwritten equations from images.",
+      "purpose": "Recognize printed text and numbers in an image into the lab knowledge base.",
       "desired": true,
-      "interface": { "inputs": ["image"], "outputs": ["latex"] }
+      "interface": { "inputs": ["image"], "outputs": ["text"] }
     }
   ]
 }
