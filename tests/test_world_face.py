@@ -1,111 +1,103 @@
-"""Phase 4 tests: theme/face flip + consent.
+"""Face flip tests — NEW no-env contract.
 
-Setup (30%) allocation:
-- --apply-face writes exactly 5 keys (LAB_INTENT=other, LAB_INTENT_NAME, LAB_INTENT_DESCRIPTION,
-  LAB_THEME, LAB_UI_THEME)
-- brand untouched (LAB_NAME/LAB_LOGO not written)
-- unknown palette leaves LAB_UI_THEME unwritten
-- KB-only mount (no --apply-face) does NOT write any env keys
-- restart hint logic (verified in CLI output)
+Mounting a World writes NO ``.env``. Identity (name, logo, theme, intent,
+framing, palette) resolves live from the mount sidecar via
+``arail.identity.effective_identity``. These tests replace the former
+``--apply-face`` env-write suite: they assert the identity the resolver reports
+off the sidecar, and that no env file is ever written by ``mount()``.
 """
 
 from __future__ import annotations
 
 import pathlib
 
-import pytest
+from arail.world_mount import mount
+from arail.identity import effective_identity
+from arail.brand import load_brand
+from arail.ui_theme import default_ui_theme
 
 FIXTURES = pathlib.Path(__file__).parent / "fixtures" / "world-bundles"
 PHYSICS = FIXTURES / "physics"
 
 
-from arail.world_mount import mount
-from arail.env_writer import read_env_var
-
-
-def _mount_with_face(tmp_path, apply_face=True, bundle_dir=None):
+def _mount(tmp_path, bundle_dir=None):
     bundle_dir = bundle_dir or PHYSICS
     data_dir = tmp_path / "data"
     pkb_root = tmp_path / "pkb"
     env_path = tmp_path / ".env"
     data_dir.mkdir(exist_ok=True)
-    record = mount(
-        bundle_dir,
-        env_path=env_path,
-        pkb_root=pkb_root,
-        data_dir=data_dir,
-        apply_face=apply_face,
-    )
-    return record, env_path
+    record = mount(bundle_dir, pkb_root=pkb_root, data_dir=data_dir)
+    return record, data_dir, env_path
 
 
-# ── face flip writes 5 keys ───────────────────────────────────────────────────
+# ── face flip is reflected by the resolver (no env) ───────────────────────────
 
-def test_apply_face_writes_lab_intent_other(tmp_path):
-    _, env_path = _mount_with_face(tmp_path)
-    assert read_env_var(env_path, "LAB_INTENT") == "other"
-
-
-def test_apply_face_writes_lab_intent_name(tmp_path):
-    _, env_path = _mount_with_face(tmp_path)
-    val = read_env_var(env_path, "LAB_INTENT_NAME")
-    assert val is not None and len(val) > 0
+def test_mount_intent_is_other(tmp_path):
+    _, data_dir, _ = _mount(tmp_path)
+    assert effective_identity(data_dir).intent == "other"
 
 
-def test_apply_face_writes_lab_intent_description(tmp_path):
-    _, env_path = _mount_with_face(tmp_path)
-    val = read_env_var(env_path, "LAB_INTENT_DESCRIPTION")
-    assert val is not None and len(val) > 0
+def test_mount_intent_name_set(tmp_path):
+    _, data_dir, _ = _mount(tmp_path)
+    val = effective_identity(data_dir).intent_name
+    assert val and len(val) > 0
 
 
-def test_apply_face_writes_lab_theme(tmp_path):
-    _, env_path = _mount_with_face(tmp_path)
-    val = read_env_var(env_path, "LAB_THEME")
-    assert val is not None and len(val) > 0
+def test_mount_intent_description_is_domain_framing(tmp_path):
+    import json
+    _, data_dir, _ = _mount(tmp_path)
+    face = json.loads((PHYSICS / "face.json").read_bytes())
+    assert effective_identity(data_dir).intent_description == face["domain_framing"]
 
 
-def test_apply_face_writes_lab_ui_theme_for_known_palette(tmp_path):
-    # physics face.json has palette_hint="blue-cyan-lab" which resolves
-    _, env_path = _mount_with_face(tmp_path)
-    val = read_env_var(env_path, "LAB_UI_THEME")
-    assert val == "blue-cyan-lab"
+def test_mount_lab_theme_is_face_name(tmp_path):
+    import json
+    _, data_dir, _ = _mount(tmp_path)
+    face = json.loads((PHYSICS / "face.json").read_bytes())
+    assert effective_identity(data_dir).lab_theme == face["name"]
 
 
-def test_apply_face_writes_exactly_5_keys(tmp_path):
-    _, env_path = _mount_with_face(tmp_path)
-    expected_keys = {"LAB_INTENT", "LAB_INTENT_NAME", "LAB_INTENT_DESCRIPTION",
-                     "LAB_THEME", "LAB_UI_THEME"}
-    for key in expected_keys:
-        assert read_env_var(env_path, key) is not None, f"{key} not written"
+def test_mount_ui_theme_for_known_palette(tmp_path):
+    # physics face.json palette_hint="blue-cyan-lab" resolves to that preset.
+    _, data_dir, _ = _mount(tmp_path)
+    assert effective_identity(data_dir).ui_theme.id == "blue-cyan-lab"
 
 
-# ── brand untouched ───────────────────────────────────────────────────────────
+def test_mount_writes_no_env(tmp_path):
+    """The old --apply-face wrote 5 keys; mount now writes ZERO."""
+    _, _, env_path = _mount(tmp_path)
+    assert not env_path.exists()
 
-def test_apply_face_does_not_write_lab_name(tmp_path):
+
+# ── brand untouched: operator .env is never written ───────────────────────────
+
+def test_mount_does_not_write_lab_name(tmp_path):
     env_path = tmp_path / ".env"
     env_path.write_text("LAB_NAME=MyLab\n")
     data_dir = tmp_path / "data"
     pkb_root = tmp_path / "pkb"
     data_dir.mkdir()
-    mount(PHYSICS, env_path=env_path, pkb_root=pkb_root, data_dir=data_dir, apply_face=True)
-    # LAB_NAME must still be MyLab (not overwritten)
-    assert read_env_var(env_path, "LAB_NAME") == "MyLab"
+    mount(PHYSICS, pkb_root=pkb_root, data_dir=data_dir)
+    # operator .env is physically untouched
+    assert env_path.read_text() == "LAB_NAME=MyLab\n"
+    # but the resolver reports the World name from the sidecar
+    assert effective_identity(data_dir).name == "Physics — Measurement & Units"
 
 
-def test_apply_face_does_not_write_lab_logo(tmp_path):
+def test_mount_does_not_write_lab_logo(tmp_path):
     env_path = tmp_path / ".env"
     env_path.write_text("LAB_LOGO=mylogo.png\n")
     data_dir = tmp_path / "data"
     pkb_root = tmp_path / "pkb"
     data_dir.mkdir()
-    mount(PHYSICS, env_path=env_path, pkb_root=pkb_root, data_dir=data_dir, apply_face=True)
-    assert read_env_var(env_path, "LAB_LOGO") == "mylogo.png"
+    mount(PHYSICS, pkb_root=pkb_root, data_dir=data_dir)
+    assert env_path.read_text() == "LAB_LOGO=mylogo.png\n"
 
 
-# ── unknown palette leaves LAB_UI_THEME unwritten ────────────────────────────
+# ── unknown palette falls back to default theme (no error) ────────────────────
 
-def test_unknown_palette_leaves_ui_theme_unwritten(tmp_path):
-    import shutil, json
+def test_unknown_palette_falls_back_to_default(tmp_path):
+    import shutil, json, hashlib
     bundle_dir = tmp_path / "bundle_unknown_palette"
     shutil.copytree(PHYSICS, bundle_dir)
     face_path = bundle_dir / "face.json"
@@ -113,8 +105,6 @@ def test_unknown_palette_leaves_ui_theme_unwritten(tmp_path):
     face["palette_hint"] = "nonexistent-palette-xyz"
     face_path.write_text(json.dumps(face))
 
-    # Re-hash manifest for modified face.json
-    import hashlib
     manifest_path = bundle_dir / "manifest.json"
     manifest = json.loads(manifest_path.read_bytes())
     for fname in ["face.json"]:
@@ -122,49 +112,32 @@ def test_unknown_palette_leaves_ui_theme_unwritten(tmp_path):
         manifest["files"][fname] = h
     manifest_path.write_text(json.dumps(manifest))
 
-    sub = tmp_path / "data_uk"
+    sub = tmp_path / "sub"
     sub.mkdir()
-    _, env_path = _mount_with_face(sub, apply_face=True, bundle_dir=bundle_dir)
-    # LAB_UI_THEME should NOT be written
-    assert read_env_var(env_path, "LAB_UI_THEME") is None
+    _, data_dir, _ = _mount(sub, bundle_dir=bundle_dir)
+    assert effective_identity(data_dir).ui_theme == default_ui_theme()
 
 
-# ── KB-only mount (no --apply-face) ──────────────────────────────────────────
+# ── missing face.json tolerated: KB mounts, identity falls back per field ─────
 
-def test_kb_only_mount_no_env_written(tmp_path):
-    data_dir = tmp_path / "data"
-    pkb_root = tmp_path / "pkb"
-    env_path = tmp_path / ".env"
-    data_dir.mkdir()
-
-    mount(PHYSICS, env_path=env_path, pkb_root=pkb_root, data_dir=data_dir, apply_face=False)
-
-    # No env keys written at all
-    assert not env_path.exists() or env_path.read_text().strip() == ""
-
-
-# ── missing face.json tolerated ──────────────────────────────────────────────
-
-def test_missing_face_no_env_written(tmp_path):
-    """face.json missing → KB mounts, env skipped, no error."""
-    import shutil, json, hashlib
+def test_missing_face_falls_back_to_operator_brand(tmp_path):
+    """face.json missing → KB mounts (tolerated-partial), no error, and identity
+    falls back to the operator brand per field."""
+    import shutil, json
     bundle_dir = tmp_path / "no_face_bundle"
     shutil.copytree(PHYSICS, bundle_dir)
-    face_path = bundle_dir / "face.json"
-    face_path.unlink()
-    # Update manifest to remove face.json entry (else seal check fails on face)
+    (bundle_dir / "face.json").unlink()
     manifest_path = bundle_dir / "manifest.json"
     manifest = json.loads(manifest_path.read_bytes())
     del manifest["files"]["face.json"]
     manifest_path.write_text(json.dumps(manifest))
 
-    data_dir = tmp_path / "data"
-    pkb_root = tmp_path / "pkb"
-    env_path = tmp_path / ".env"
-    data_dir.mkdir()
-
-    # Should not raise
-    record = mount(bundle_dir, env_path=env_path, pkb_root=pkb_root, data_dir=data_dir, apply_face=True)
+    sub = tmp_path / "sub"
+    sub.mkdir()
+    record, data_dir, env_path = _mount(sub, bundle_dir=bundle_dir)
     assert record.world == "physics"
-    # No LAB_INTENT written since face was missing
-    assert read_env_var(env_path, "LAB_INTENT") is None
+    ident = effective_identity(data_dir)
+    assert ident.mounted is True
+    assert ident.name == load_brand().name        # name falls back
+    assert ident.intent_description == ""          # framing falls back
+    assert not env_path.exists()                   # still no env written
