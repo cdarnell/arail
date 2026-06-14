@@ -409,24 +409,56 @@ async def inject_ui_theme(request, call_next):
     ctype = response.headers.get("content-type", "")
     if not ctype.startswith("text/html"):
         return response  # JSON, SSE, static, downloads, redirects → untouched.
+    # Under FastAPI's @app.middleware (a BaseHTTPMiddleware), call_next returns a
+    # streaming response whose body is NOT materialized on `.body` — it must be
+    # drained from `.body_iterator`. Buffer it (HTML pages are small, fully
+    # rendered by Jinja); if anything goes wrong, re-stream the original bytes.
     body = getattr(response, "body", None)
     if not body:
-        return response  # streaming / empty body → leave alone.
+        iterator = getattr(response, "body_iterator", None)
+        if iterator is None:
+            return response  # nothing to read → leave alone.
+        try:
+            chunks = [chunk async for chunk in iterator]
+        except Exception:
+            return response
+        body = b"".join(
+            c if isinstance(c, bytes) else c.encode("utf-8") for c in chunks
+        )
+    if not body:
+        return response  # empty body → leave alone.
     try:
         html = body.decode("utf-8", "ignore")
     except Exception:
-        return response
+        # Couldn't decode — return the buffered bytes unchanged (we may have
+        # already drained the iterator, so we must not return the dead stream).
+        return Response(
+            content=body,
+            status_code=response.status_code,
+            headers=dict(response.headers),
+            media_type=response.media_type,
+        )
+    def _passthrough() -> Response:
+        # We may have already drained body_iterator; never return the dead
+        # stream. Re-emit the buffered (unmodified) bytes.
+        return Response(
+            content=body,
+            status_code=response.status_code,
+            headers=dict(response.headers),
+            media_type=response.media_type,
+        )
+
     low = html.lower()
     # No </head> (partials/fragments) or already injected (welcome.html inline)
     # → idempotent no-op.
     if "</head>" not in low or _UI_THEME_MARK in html:
-        return response
+        return _passthrough()
     try:
         css = theme_css(effective_identity().ui_theme)
     except Exception:
-        return response  # never let a recolor break a page render.
+        return _passthrough()  # never let a recolor break a page render.
     if not css.strip():
-        return response  # empty palette → inert.
+        return _passthrough()  # empty palette → inert.
     idx = low.index("</head>")
     block = f'<style id="ui-theme-vars">{css}</style></head>'
     new = html[:idx] + block + html[idx + len("</head>"):]
