@@ -1050,7 +1050,24 @@ async def chat_page(request: Request):
     embed = request.query_params.get("embed", "").lower() in {
         "1", "true", "yes", "on"
     }
-    return templates.TemplateResponse(request, "chat.html", {"embed": embed})
+    # Resolve whether the mounted World inherited speech-to-text, to gate the
+    # mic affordance. Best-effort: any failure → mic stays disabled.
+    stt_available = False
+    stt_message = "Mount a World that declares speech-to-text to enable voice notes."
+    try:
+        from arail.world_mount import current_capabilities
+        for c in current_capabilities():
+            if c.get("id") == "speech-to-text":
+                stt_available = c.get("state") == "available"
+                stt_message = c.get("message", stt_message)
+                break
+    except Exception:  # noqa: BLE001
+        pass
+    return templates.TemplateResponse(request, "chat.html", {
+        "embed": embed,
+        "stt_available": stt_available,
+        "stt_message": stt_message,
+    })
 
 
 # ─── Chat compute-source pivot ───────────────────────────────────────────
@@ -9179,6 +9196,133 @@ async def api_pkb_upload(request: Request):
     except Exception:
         pass
     return result
+
+
+# ── Speech-to-text → RAW voice note (inherited capability) ─────────────
+# A mounted World that declares `speech-to-text` lights up a mic button in
+# Chat. The browser captures audio (getUserMedia/MediaRecorder) and POSTs the
+# blob here; ARAIL transcribes it ON-DEVICE (no cloud, works airgapped) and
+# lands the transcript as a RAW/unsourced research note. The transcript is
+# DATA, never injected into a prompt.
+
+def _land_raw_voice_note(transcript: dict, world: str):
+    """Write the transcript as a RAW research note and index it.
+
+    Returns the pkb-root-relative posix path of the note. Raises only on a
+    failure to write the file itself; indexing/wiki failures are best-effort.
+    """
+    from datetime import datetime
+    from arail.pkb import _pkb_root
+
+    root = _pkb_root()
+    dest_dir = root / "research" / "voice-notes"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+
+    now = datetime.now()
+    stamp = now.strftime("%Y-%m-%d_%H-%M-%S")
+    title_stamp = now.strftime("%Y-%m-%d %H:%M")
+    fname = f"{stamp}_voice-note.md"
+    path = dest_dir / fname
+
+    text = str(transcript.get("text", "")).strip()
+    confidence = float(transcript.get("confidence", 0.0) or 0.0)
+    # Frontmatter marks this RAW/unsourced — never gate-passed truth, never a
+    # prompt instruction. The body is verbatim user-captured DATA.
+    body = (
+        "---\n"
+        f"title: Voice note — {title_stamp}\n"
+        "section: research\n"
+        "kind: raw\n"
+        "source: user-captured (speech-to-text, on-device)\n"
+        "sourced: false\n"
+        f"world: {world}\n"
+        f"confidence: {confidence:.2f}\n"
+        "---\n\n"
+        f"{text}\n"
+    )
+    path.write_text(body, encoding="utf-8")
+
+    # Index via the existing seam (best-effort; indexing failure must not lose the note).
+    try:
+        from arail.pkb_index import ensure_ready, schedule_upsert
+        ensure_ready(root)
+        schedule_upsert(path, pkb_root=root)
+    except Exception as e:  # noqa: BLE001
+        _log.warning("stt: indexing voice note failed: %s", e)
+
+    try:
+        from arail import wiki
+        wiki.schedule_rebuild()
+    except Exception:
+        pass
+
+    return path.relative_to(root).as_posix()
+
+
+@app.post("/api/stt/transcribe")
+async def api_stt_transcribe(request: Request):
+    """Transcribe a posted audio blob on-device → RAW voice note.
+
+    Form: audio (file part), mime (str), locale (str, default 'en-US').
+    Gated on a mounted World whose `speech-to-text` resolved to 'available'.
+    """
+    from arail.world_mount import current_mount, current_capabilities
+    from arail.capabilities import registry, CapabilityUnavailable, CapabilityError
+
+    mount = current_mount()
+    if mount is None:
+        return JSONResponse({"error": "No world mounted. Mount a World that declares speech-to-text."}, status_code=400)
+
+    caps = {c.get("id"): c for c in current_capabilities()}
+    stt_cap = caps.get("speech-to-text")
+    if not stt_cap or stt_cap.get("state") != "available":
+        msg = (stt_cap or {}).get("message", "Speech-to-text is not available for the mounted World.")
+        return JSONResponse({"error": msg}, status_code=409)
+
+    try:
+        form = await request.form()
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse({"error": f"invalid multipart body: {e}"}, status_code=400)
+
+    upload = form.get("audio")
+    if upload is None or not hasattr(upload, "read"):
+        return JSONResponse({"error": "no audio in request"}, status_code=400)
+    mime = str(form.get("mime", getattr(upload, "content_type", "") or ""))
+    locale = str(form.get("locale", "en-US"))
+    audio_bytes = await upload.read()
+
+    artifact = None
+    try:
+        audio_adapter = registry.select("audio-capture")
+        stt_adapter = registry.select("speech-to-text")
+        if audio_adapter is None or stt_adapter is None:
+            return JSONResponse({"error": "Speech-to-text backend is not available."}, status_code=409)
+
+        artifact = audio_adapter.invoke(audio_bytes=audio_bytes, mime=mime)
+        transcript = stt_adapter.invoke(audio=artifact, locale=locale)
+
+        if not str(transcript.get("text", "")).strip():
+            return {"ok": False, "reason": "no_speech"}
+
+        rel = _land_raw_voice_note(transcript, mount.world)
+        words = len(str(transcript.get("text", "")).split())
+        activity_log.emit("pkb", f"Voice note transcribed → {rel}", "success")
+        return {"ok": True, "path": rel, "words": words}
+    except CapabilityUnavailable as e:
+        return JSONResponse({"error": getattr(e, "user_message", str(e))}, status_code=409)
+    except CapabilityError as e:
+        return JSONResponse({"error": getattr(e, "user_message", str(e))}, status_code=422)
+    except Exception as e:  # noqa: BLE001
+        _log.warning("stt: unexpected transcribe failure: %s", e)
+        return JSONResponse({"error": "Transcription failed unexpectedly."}, status_code=500)
+    finally:
+        # Always delete the temp audio blob — no audio is retained.
+        if artifact is not None:
+            try:
+                from pathlib import Path as _P
+                _P(artifact["path"]).unlink(missing_ok=True)
+            except Exception:  # noqa: BLE001
+                pass
 
 
 # ── Inbox watcher ─────────────────────────────────────────────────────
