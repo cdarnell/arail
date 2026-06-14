@@ -37,12 +37,10 @@ from arail.world_mount import (
 def test_mount_clean(tmp_path):
     data_dir = tmp_path / "data"
     pkb_root = tmp_path / "pkb"
-    env_path = tmp_path / ".env"
     data_dir.mkdir()
 
     record = mount(
         PHYSICS,
-        env_path=env_path,
         pkb_root=pkb_root,
         data_dir=data_dir,
     )

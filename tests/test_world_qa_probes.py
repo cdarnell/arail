@@ -76,7 +76,7 @@ def test_staging_failure_leaves_no_orphan_pointer(tmp_path, monkeypatch):
 
     monkeypatch.setattr(wm, "_stage_files", boom)
     with pytest.raises(Exception):
-        wm.mount(PHYSICS, data_dir=data_dir, pkb_root=pkb_root, env_path=tmp_path / ".env")
+        wm.mount(PHYSICS, data_dir=data_dir, pkb_root=pkb_root)
     # No pointer must exist
     assert wm.current_mount(data_dir) is None
     assert not (data_dir / wm.MOUNT_RECORD_NAME).exists()
@@ -88,7 +88,7 @@ def test_pointer_written_after_staging(tmp_path):
     """Positive: a clean mount yields a pointer AND a complete staged dir."""
     data_dir = tmp_path / "data"
     pkb_root = tmp_path / "pkb"
-    rec = wm.mount(PHYSICS, data_dir=data_dir, pkb_root=pkb_root, env_path=tmp_path / ".env")
+    rec = wm.mount(PHYSICS, data_dir=data_dir, pkb_root=pkb_root)
     staged = pkb_root / "sources" / "world-physics"
     assert staged.exists()
     assert (staged / "terms.json").exists()
@@ -100,7 +100,7 @@ def test_no_lingering_staging_dir_after_mount(tmp_path):
     """The .staging-<slug> temp dir must not survive a successful mount."""
     data_dir = tmp_path / "data"
     pkb_root = tmp_path / "pkb"
-    wm.mount(PHYSICS, data_dir=data_dir, pkb_root=pkb_root, env_path=tmp_path / ".env")
+    wm.mount(PHYSICS, data_dir=data_dir, pkb_root=pkb_root)
     assert not (pkb_root / "sources" / ".staging-physics").exists()
 
 
@@ -118,7 +118,7 @@ def test_mount_on_fresh_empty_dirs(tmp_path):
     """DATA_DIR and PKB_ROOT do not pre-exist — mount must create them."""
     data_dir = tmp_path / "fresh" / "data"
     pkb_root = tmp_path / "fresh" / "pkb"
-    rec = wm.mount(PHYSICS, data_dir=data_dir, pkb_root=pkb_root, env_path=tmp_path / ".env")
+    rec = wm.mount(PHYSICS, data_dir=data_dir, pkb_root=pkb_root)
     assert rec.world == "physics"
     assert wm.current_mount(data_dir) is not None
 
@@ -130,7 +130,7 @@ def test_hostile_definition_never_in_dict_entry_fields(tmp_path):
     TermEntry fields — never promoted into any control field."""
     data_dir = tmp_path / "data"
     pkb_root = tmp_path / "pkb"
-    rec = wm.mount(HOSTILE, data_dir=data_dir, pkb_root=pkb_root, env_path=tmp_path / ".env")
+    rec = wm.mount(HOSTILE, data_dir=data_dir, pkb_root=pkb_root)
     entries = wm.get_mounted_dict_terms(rec)
     # The injection lives in the 'definition' field, which term_to_dict_entry
     # deliberately does NOT map into the list TermEntry — so the glossary list
@@ -152,7 +152,7 @@ def test_hostile_face_clean_so_framing_block_has_no_injection(tmp_path, monkeypa
     only) contains NO term/definition text."""
     data_dir = tmp_path / "data"
     pkb_root = tmp_path / "pkb"
-    wm.mount(HOSTILE, data_dir=data_dir, pkb_root=pkb_root, env_path=tmp_path / ".env")
+    wm.mount(HOSTILE, data_dir=data_dir, pkb_root=pkb_root)
     import arail.config as cfg
     monkeypatch.setattr(cfg, "DATA_DIR", data_dir, raising=False)
     # current_mount default reads DATA_DIR via _default_data_dir
@@ -191,7 +191,7 @@ def test_framing_cap_enforced_on_overlong_domain(tmp_path, monkeypatch):
     man = json.loads((bdir / "manifest.json").read_text())
     man["files"]["face.json"] = hashlib.sha256((bdir / "face.json").read_bytes()).hexdigest()
     (bdir / "manifest.json").write_text(json.dumps(man))
-    wm.mount(bdir, data_dir=data_dir, pkb_root=pkb_root, env_path=tmp_path / ".env")
+    wm.mount(bdir, data_dir=data_dir, pkb_root=pkb_root)
     monkeypatch.setattr(wm, "_default_data_dir", lambda: data_dir)
     from arail.agents import _builtin_buddy as bud
     block = bud._world_framing_block()
@@ -222,25 +222,33 @@ def test_gate_refuses_undeclared_category(tmp_path):
 
 # ── Face flip: KB-only mount writes NO env keys ──────────────────────────────
 
-def test_kb_only_mount_writes_no_env(tmp_path):
+def test_mount_writes_no_env(tmp_path):
+    """Mount must NEVER write face keys to .env — identity flips live from the
+    sidecar. An operator's existing .env is left byte-for-byte untouched."""
     env = tmp_path / ".env"
     env.write_text("EXISTING=1\n")
     data_dir = tmp_path / "data"
     pkb_root = tmp_path / "pkb"
-    wm.mount(PHYSICS, data_dir=data_dir, pkb_root=pkb_root, env_path=env, apply_face=False)
+    wm.mount(PHYSICS, data_dir=data_dir, pkb_root=pkb_root)
     content = env.read_text()
     assert "LAB_INTENT" not in content
     assert "LAB_THEME" not in content
-    assert "EXISTING=1" in content
+    assert content == "EXISTING=1\n"
 
 
-def test_apply_face_does_not_touch_brand(tmp_path):
+def test_mount_does_not_touch_operator_brand_env(tmp_path):
+    """Mounting reports the World identity via the resolver, but the operator's
+    own .env LAB_NAME/LAB_LOGO are physically untouched (no env write at all)."""
+    from arail.identity import effective_identity
+
     env = tmp_path / ".env"
     env.write_text("LAB_NAME=MyLab\nLAB_LOGO=logo.png\n")
     data_dir = tmp_path / "data"
     pkb_root = tmp_path / "pkb"
-    wm.mount(PHYSICS, data_dir=data_dir, pkb_root=pkb_root, env_path=env, apply_face=True)
-    content = env.read_text()
-    assert "LAB_NAME=MyLab" in content
-    assert "LAB_LOGO=logo.png" in content
-    assert "LAB_INTENT=other" in content
+    wm.mount(PHYSICS, data_dir=data_dir, pkb_root=pkb_root)
+    # .env is untouched — no LAB_INTENT or face keys written.
+    assert env.read_text() == "LAB_NAME=MyLab\nLAB_LOGO=logo.png\n"
+    # Identity reflects the World from the sidecar, not from env.
+    ident = effective_identity(data_dir)
+    assert ident.name == "Physics — Measurement & Units"
+    assert ident.intent == "other"
