@@ -3576,6 +3576,7 @@
   <!-- Voice-note mic affordance (inherited speech-to-text capability). -->
   <style>
     .mic-btn { padding: 0 0.7em; }
+    .mic-btn.mic-unsupported { opacity: .55; }
     .mic-btn.recording { background: var(--red-a28, rgba(255,80,80,.28)); animation: micpulse 1s ease-in-out infinite; }
     @keyframes micpulse { 0%,100% { opacity: 1; } 50% { opacity: .55; } }
   </style>
@@ -3600,6 +3601,16 @@
         if (window.MediaRecorder && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(m)) return m;
       }
       return '';
+    }
+
+    // Proactive Safari caveat — surface at launch, not only on first tap. STT is
+    // wired (the capability resolved), but voice notes need a browser that records
+    // an afconvert-decodable container (audio/mp4). Safari does; Chrome records
+    // webm/opus, which the on-device decoder can't handle in v1.
+    if (pickMime() === '') {
+      btn.classList.add('mic-unsupported');
+      btn.title = 'Voice notes need Safari in v1 — this browser can’t record a supported audio format (Chrome webm/opus support is on the roadmap).';
+      flash('🎤 Voice notes work in Safari in v1 — this browser can’t record a supported audio format yet.');
     }
 
     async function start() {
