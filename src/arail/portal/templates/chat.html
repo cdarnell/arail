@@ -1561,6 +1561,11 @@
                   data-stt-available="{{ 'true' if stt_available else 'false' }}"
                   title="{{ stt_message }}"
                   {% if not stt_available %}disabled{% endif %}>🎤</button>
+          <button class="send-btn mic-btn" id="ocr-btn"
+                  data-ocr-available="{{ 'true' if ocr_available else 'false' }}"
+                  title="{{ ocr_message }}"
+                  {% if not ocr_available %}disabled{% endif %}>📷</button>
+          <input type="file" id="ocr-file" accept="image/png,image/jpeg" hidden>
           <button class="send-btn" id="send">Send <span class="kbd">⏎</span></button>
         </div>
         <div class="bottom-meta">
@@ -3668,6 +3673,74 @@
     }
 
     btn.addEventListener('click', () => { recording ? stop() : start(); });
+  })();
+  </script>
+
+  <!-- Image-OCR affordance (inherited equation-ocr capability). -->
+  <script>
+  (function () {
+    const btn = document.getElementById('ocr-btn');
+    const fileInput = document.getElementById('ocr-file');
+    if (!btn || !fileInput) return;
+    const available = btn.dataset.ocrAvailable === 'true';
+    if (!available) { btn.disabled = true; return; }
+
+    function flash(msg) {
+      const el = document.getElementById('status-line');
+      if (el) { el.textContent = msg; setTimeout(() => { el.textContent = 'ready'; }, 2600); }
+    }
+
+    async function send(file) {
+      if (!file) return;
+      const okType = file.type === 'image/png' || file.type === 'image/jpeg'
+                     || /\.(png|jpe?g)$/i.test(file.name || '');
+      if (!okType) { flash('Only PNG or JPEG images are supported in v1.'); return; }
+      if (file.size > 12 * 1024 * 1024) { flash('Image too large — keep it under 12 MB.'); return; }
+      const fd = new FormData();
+      fd.append('image', file, file.name || 'image.png');
+      fd.append('mime', file.type || '');
+      flash('Reading image on-device…');
+      try {
+        const r = await fetch('/api/ocr/extract', { method: 'POST', body: fd });
+        const data = await r.json();
+        if (r.ok && data.ok) {
+          flash('Text extracted → ' + data.path);
+        } else if (r.ok && data.ok === false && data.reason === 'no_text') {
+          flash('No text found in that image.');
+        } else {
+          flash(data.error || 'OCR failed.');
+        }
+      } catch (e) {
+        flash('OCR request failed.');
+      }
+    }
+
+    btn.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', () => {
+      if (fileInput.files && fileInput.files[0]) send(fileInput.files[0]);
+      fileInput.value = '';
+    });
+
+    // Paste an image from the clipboard.
+    document.addEventListener('paste', (ev) => {
+      const items = (ev.clipboardData && ev.clipboardData.items) || [];
+      for (const it of items) {
+        if (it.type && it.type.indexOf('image/') === 0) {
+          const f = it.getAsFile();
+          if (f) { ev.preventDefault(); send(f); return; }
+        }
+      }
+    });
+
+    // Drag-and-drop onto the composer.
+    const composer = document.querySelector('.composer') || document.body;
+    composer.addEventListener('dragover', (ev) => { ev.preventDefault(); });
+    composer.addEventListener('drop', (ev) => {
+      const files = (ev.dataTransfer && ev.dataTransfer.files) || [];
+      for (const f of files) {
+        if (f.type && f.type.indexOf('image/') === 0) { ev.preventDefault(); send(f); return; }
+      }
+    });
   })();
   </script>
 </body>
