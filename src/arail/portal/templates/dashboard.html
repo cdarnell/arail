@@ -365,43 +365,8 @@ function dismissRunbookBanner() {
   </div>
 </div>
 
-<!-- ═══ Cost meter (top strip — simulation of what this lab would cost in the cloud)
-     Hero pair (Net saved + Lifetime tokens) always visible; the other 4 hide
-     behind 'More metrics ▾' (PROPOSAL.md §3.2). The values still poll on
-     refresh — only their visibility is toggled. ═══ -->
-<div class="meter-bar" id="meter-bar">
-  <div class="meter meter-hero">
-    <span class="meter-label">Net saved</span>
-    <span class="meter-value savings" id="meter-savings">—</span>
-  </div>
-  <div class="meter meter-hero" title="Total tokens this lab has processed across all backends — lifetime count from the cost tracker.">
-    <span class="meter-label">Lifetime tokens</span>
-    <span class="meter-value" id="meter-tokens">—</span>
-  </div>
-  <div class="meter meter-extra">
-    <span class="meter-label">Cloud equiv</span>
-    <span class="meter-value" id="meter-cloud">—</span>
-  </div>
-  <div class="meter meter-extra">
-    <span class="meter-label">Energy</span>
-    <span class="meter-value energy" id="meter-energy">—</span>
-  </div>
-  <div class="meter meter-extra">
-    <span class="meter-label">Inferences</span>
-    <span class="meter-value" id="meter-count">—</span>
-  </div>
-  <div class="meter meter-extra">
-    <span class="meter-label">Backend</span>
-    <span class="meter-value" id="meter-backend">—</span>
-  </div>
-  <div class="meter meter-extra" title="Average inference response time across all tracked calls.">
-    <span class="meter-label">Avg response</span>
-    <span class="meter-value" id="meter-latency">—</span>
-  </div>
-  <button type="button" class="meter-toggle" id="meter-toggle"
-          aria-expanded="false" aria-controls="meter-bar"
-          onclick="toggleMeterMore(this)">More metrics ▾</button>
-</div>
+<!-- Cost metrics moved to the global lab status bar (_nav.html) — the single,
+     consolidated home for all live metrics, shown on every page. -->
 
 <!-- ═══ Dashboard TOC — anchor chips that smooth-scroll to each section ═══ -->
 <nav class="dash-toc" id="dash-toc" aria-label="Dashboard sections">
@@ -854,12 +819,7 @@ function dismissRunbookBanner() {
    ═══════════════════════════════════════════════════════════════ */
 
 // ── Disclosure toggles (Phase 1 — PROPOSAL §3.2 + §3.3) ──
-function toggleMeterMore(btn) {
-  const bar = document.getElementById('meter-bar');
-  const open = bar.classList.toggle('show-extras');
-  btn.textContent = open ? 'Fewer metrics ▴' : 'More metrics ▾';
-  btn.setAttribute('aria-expanded', open ? 'true' : 'false');
-}
+// toggleMeterMore removed — metrics now live in the global status bar (_nav.html).
 function toggleQaMore(btn) {
   const grid = document.getElementById('qa-actions');
   const open = grid.classList.toggle('show-more');
@@ -1178,35 +1138,8 @@ async function restartLab() {
 }
 
 // ── Job scheduler mode + halt/resume ──
-async function refreshJobsState() {
-  try {
-    const r = await fetch('/api/jobs/state');
-    const s = await r.json();
-    const badge = document.getElementById('window-badge');
-    badge.textContent = s.label;
-    badge.className = 'mode-badge window-' + s.window;
-    const halt = document.getElementById('btn-halt');
-    const resume = document.getElementById('btn-resume');
-    if (s.halted) {
-      halt.style.display = 'none';
-      resume.style.display = '';
-    } else {
-      halt.style.display = '';
-      resume.style.display = 'none';
-    }
-  } catch (e) { /* portal may be mid-restart */ }
-}
-document.getElementById('btn-halt').addEventListener('click', async () => {
-  if (!confirm('Halt all running jobs? The portal and services stay up — this cancels agent work only.')) return;
-  await fetch('/api/jobs/halt', {method: 'POST'});
-  refreshJobsState();
-});
-document.getElementById('btn-resume').addEventListener('click', async () => {
-  await fetch('/api/jobs/resume', {method: 'POST'});
-  refreshJobsState();
-});
-refreshJobsState();
-setInterval(refreshJobsState, 15000);
+// Moved to the global lab status bar (_nav.html): the work-window badge + Halt
+// button now live there and poll /api/jobs/state on every page.
 
 // ── Live mission mirror ──
 // Goal-setting happens on /research. When a goal is set/confirmed there,
@@ -1517,55 +1450,8 @@ function fmtTokens(n) {
   if (v >= 1000) return (v / 1000).toFixed(1) + 'k';
   return String(v);
 }
-async function refreshCosts() {
-  try {
-    const r = await fetch('/api/system/costs');
-    const d = await r.json();
-    const s = d.summary || {};
-    const cloud   = _fmtUsd(s.cloud_equivalent_usd);
-    const energy  = _fmtUsd(s.energy_usd);
-    const savings = _fmtUsd(s.savings_usd);
-    const count   = s.total_calls ?? 0;
-
-    // Legacy detail card (grid)
-    const q = id => document.getElementById(id);
-    if (q('cost-cloud'))   q('cost-cloud').textContent   = cloud;
-    if (q('cost-energy'))  q('cost-energy').textContent  = energy;
-    if (q('cost-savings')) q('cost-savings').textContent = savings;
-    if (q('cost-count'))   q('cost-count').textContent   = count;
-
-    // Top meter bar
-    if (q('meter-cloud'))   q('meter-cloud').textContent   = cloud;
-    if (q('meter-energy'))  q('meter-energy').textContent  = energy;
-    if (q('meter-savings')) q('meter-savings').textContent = savings;
-    if (q('meter-count'))   q('meter-count').textContent   = count;
-
-    // Backend — prefer the last record, fall back to most-active, else idle.
-    const last = d.last_record;
-    if (q('meter-backend')) {
-      const label = (last && last.backend)
-        ? last.backend.toUpperCase()
-        : _topBackend(s.calls_by_backend);
-      q('meter-backend').textContent = label;
-    }
-
-    // Lifetime tokens — surfaced in the top meter bar
-    if (q('meter-tokens')) {
-      const total = s.total_tokens ?? 0;
-      q('meter-tokens').textContent = fmtTokens(total);
-    }
-
-    // Avg response time
-    if (q('meter-latency')) {
-      const ms = Number(s.avg_latency_ms) || 0;
-      q('meter-latency').textContent = ms <= 0
-        ? '—'
-        : (ms >= 1000 ? (ms / 1000).toFixed(2) + 's' : ms.toFixed(0) + 'ms');
-    }
-  } catch(e) { /* endpoint not available yet */ }
-}
-refreshCosts();
-setInterval(refreshCosts, 15000);
+// refreshCosts() moved to the global lab status bar (_nav.html) — it polls
+// /api/system/costs and populates the consolidated metric strip on every page.
 
 // ── Service Status (PROPOSAL §3.2.4 — active chips visible; idle ones
 // collapse into a single "(N idle)" chip that expands on click) ──

@@ -78,38 +78,46 @@
 </nav>
 
 {# ── Lab status bar ──────────────────────────────────────────────────────────
-   Live/dynamic indicators kept OFF the top nav so navigation stays uncluttered:
-   network mode, work window, lifetime metrics, and the halt control — one
-   uniform full-width strip. mode-badge keeps its id (nav.js updates it); the
-   work-window + halt controls keep their ids + dashboard wiring; the metrics
-   poll /api/system/costs globally via the small script below. ──────────────── #}
+   ALL live/dynamic indicators consolidated here, off the top nav, on EVERY page:
+   network mode + work window, the full lifetime metric set, and the halt control
+   — one uniform full-width strip. Airgapped + Halt are the two global buttons.
+   This is the single home for the metrics (the dashboard's old meter-bar was
+   removed). Polls /api/system/costs + /api/jobs/state via the script below. ──── #}
 <div class="lab-statusbar" id="lab-statusbar">
   <span class="mode-badge airgapped" id="mode-badge"
         title="Click to see network policy and recent blocks" style="cursor:pointer;">⬤ Airgapped</span>
-  {% if active == 'dashboard' %}
   <span class="mode-badge" id="window-badge" title="Current work window">⋯</span>
-  {% endif %}
+  <span class="sb-sep" aria-hidden="true"></span>
   <span class="sb-metric" title="Simulated cloud cost this lab has avoided (lifetime)">
     <span class="sb-label">Net saved</span><span class="sb-value savings" id="sb-savings">—</span></span>
   <span class="sb-metric" title="Total tokens processed across all backends (lifetime)">
     <span class="sb-label">Tokens</span><span class="sb-value" id="sb-tokens">—</span></span>
+  <span class="sb-metric" title="What the same work would cost on the cloud">
+    <span class="sb-label">Cloud equiv</span><span class="sb-value" id="sb-cloud">—</span></span>
+  <span class="sb-metric" title="Estimated energy cost">
+    <span class="sb-label">Energy</span><span class="sb-value" id="sb-energy">—</span></span>
+  <span class="sb-metric" title="Total inference calls">
+    <span class="sb-label">Inferences</span><span class="sb-value" id="sb-count">—</span></span>
+  <span class="sb-metric" title="Most-recent / most-active backend">
+    <span class="sb-label">Backend</span><span class="sb-value" id="sb-backend">—</span></span>
+  <span class="sb-metric" title="Average inference response time">
+    <span class="sb-label">Avg resp</span><span class="sb-value" id="sb-latency">—</span></span>
   <span class="sb-grow"></span>
-  {% if active == 'dashboard' %}
   <button class="btn btn-sm btn-red" id="btn-halt"
           title="Cancel all running jobs — portal stays up">⏸ Halt jobs</button>
   <button class="btn btn-sm btn-primary" id="btn-resume" style="display:none"
           title="Resume scheduler">▶ Resume</button>
-  {% endif %}
 </div>
 <style>
-  .lab-statusbar{display:flex;align-items:center;gap:.6rem;flex-wrap:wrap;
+  .lab-statusbar{display:flex;align-items:center;gap:.55rem;flex-wrap:wrap;
     padding:.32rem .9rem;border-bottom:1px solid var(--border,#1e2230);
     background:var(--surface,#0f1118);font-size:.72rem;}
   .lab-statusbar .mode-badge{font-size:.7rem;}
-  .lab-statusbar .sb-metric{display:inline-flex;align-items:baseline;gap:.4rem;
-    padding:.12em .6em;border:1px solid var(--border-hi,#2a3040);border-radius:999px;
+  .lab-statusbar .sb-sep{width:1px;height:1.1em;background:var(--border-hi,#2a3040);}
+  .lab-statusbar .sb-metric{display:inline-flex;align-items:baseline;gap:.38rem;
+    padding:.1em .55em;border:1px solid var(--border-hi,#2a3040);border-radius:999px;
     color:var(--muted,#78839a);white-space:nowrap;}
-  .lab-statusbar .sb-label{text-transform:uppercase;letter-spacing:.05em;font-size:.62rem;}
+  .lab-statusbar .sb-label{text-transform:uppercase;letter-spacing:.05em;font-size:.6rem;}
   .lab-statusbar .sb-value{color:var(--text-hi,#e8ecf4);font-weight:600;}
   .lab-statusbar .sb-value.savings{color:var(--green,#00ff41);}
   .lab-statusbar .sb-grow{flex:1 1 auto;}
@@ -117,18 +125,40 @@
 </style>
 <script>
 (function(){
+  function set(id,v){ var el=document.getElementById(id); if(el)el.textContent=v; }
   function usd(n){ if(n==null||isNaN(n))return '—'; var v=Number(n);
     return v<0.01 ? '$'+v.toFixed(4) : '$'+v.toFixed(2); }
   function toks(n){ if(n==null||isNaN(n))return '0'; n=Number(n);
     return n>=1e6?(n/1e6).toFixed(1)+'M':(n>=1e3?(n/1e3).toFixed(1)+'k':String(n)); }
-  async function refreshStatus(){
+  function topBackend(by){ if(!by)return 'IDLE'; var k=Object.keys(by); if(!k.length)return 'IDLE';
+    k.sort(function(a,b){return by[b]-by[a];}); return k[0].toUpperCase(); }
+  async function refreshCosts(){
     try{ var r=await fetch('/api/system/costs',{cache:'no-store'}); if(!r.ok)return;
       var d=await r.json(), s=d.summary||{};
-      var sv=document.getElementById('sb-savings'); if(sv)sv.textContent=usd(s.savings_usd);
-      var tk=document.getElementById('sb-tokens'); if(tk)tk.textContent=toks(s.total_tokens);
+      set('sb-savings', usd(s.savings_usd)); set('sb-tokens', toks(s.total_tokens));
+      set('sb-cloud', usd(s.cloud_equivalent_usd)); set('sb-energy', usd(s.energy_usd));
+      set('sb-count', String(s.total_calls ?? 0));
+      var last=d.last_record;
+      set('sb-backend', (last && last.backend) ? last.backend.toUpperCase() : topBackend(s.calls_by_backend));
+      var ms=Number(s.avg_latency_ms)||0;
+      set('sb-latency', ms<=0 ? '—' : (ms>=1000 ? (ms/1000).toFixed(2)+'s' : ms.toFixed(0)+'ms'));
     }catch(e){/* portal may be mid-restart */}
   }
-  refreshStatus(); setInterval(refreshStatus, 15000);
+  async function refreshJobs(){
+    try{ var r=await fetch('/api/jobs/state'); var s=await r.json();
+      var b=document.getElementById('window-badge'); if(b){ b.textContent=s.label; b.className='mode-badge window-'+s.window; }
+      var h=document.getElementById('btn-halt'), rs=document.getElementById('btn-resume');
+      if(h&&rs){ if(s.halted){h.style.display='none';rs.style.display='';} else {h.style.display='';rs.style.display='none';} }
+    }catch(e){/* portal may be mid-restart */}
+  }
+  var halt=document.getElementById('btn-halt'), resume=document.getElementById('btn-resume');
+  if(halt) halt.addEventListener('click', async function(){
+    if(!confirm('Halt all running jobs? The portal and services stay up — this cancels agent work only.'))return;
+    await fetch('/api/jobs/halt',{method:'POST'}); refreshJobs(); });
+  if(resume) resume.addEventListener('click', async function(){
+    await fetch('/api/jobs/resume',{method:'POST'}); refreshJobs(); });
+  refreshCosts(); refreshJobs();
+  setInterval(refreshCosts, 15000); setInterval(refreshJobs, 15000);
 })();
 </script>
 
