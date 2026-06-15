@@ -79,13 +79,23 @@ def test_nav_names_the_world_when_mounted(mounted_physics):
     body = _client().get("/").text
     assert "world-badge" in body
     assert "Physics World" in body
-    assert "defined by the mounted" in body  # the explanatory tooltip
+    # The badge is now the World-switcher trigger (sprint 2026-06-14-world-switcher):
+    # its tooltip explains the load/unload action that swaps theme + knowledge.
+    assert "swaps the lab's theme" in body
 
 
 def test_nav_has_no_world_badge_when_unmounted():
-    """No World mounted → no badge; the lab is just the operator's default lab."""
+    """No World mounted → the switcher shows the ◇ AI Lab affordance, not a
+    World name. The badge element is now always present as the switcher trigger
+    (sprint 2026-06-14-world-switcher), so we assert the unmounted label instead
+    of the badge's absence."""
     body = _client().get("/").text
-    assert "world-badge" not in body
+    assert "world-switcher" in body
+    assert "◇ AI Lab" in body
+    # The switcher summary shows the default affordance, not a "◆ <World> World".
+    summary = body.split('class="world-badge"', 1)[1].split("</summary>", 1)[0]
+    assert "◇ AI Lab" in summary
+    assert "◆" not in summary  # no mounted-World diamond when unmounted
 
 
 # ════════════════════════════ SETUP (30%) ════════════════════════════
