@@ -98,8 +98,11 @@ DEFAULT_SYSTEM_CONTEXT = (
 
 
 def _get_lab_intent() -> str:
-    """Read the lab intent from environment, defaulting to 'ai'."""
-    return os.getenv("LAB_INTENT", "ai").lower()
+    """Live lab intent. Sourced from the mount sidecar via effective_identity()
+    so the researcher reframes instantly when a World is mounted/unmounted
+    (mounted → "other"); operator's LAB_INTENT still wins on the unmounted path."""
+    from arail.identity import effective_identity
+    return effective_identity().intent
 
 
 def _get_system_context(intent: str | None = None) -> str:
@@ -117,10 +120,13 @@ def _get_system_context(intent: str | None = None) -> str:
     if intent is None:
         intent = _get_lab_intent()
     if intent == "other":
-        # Free-form lab — compose a personalized base from the user's
-        # label and one-line description captured at setup time.
-        intent_name = (os.getenv("LAB_INTENT_NAME") or "").strip() or "research"
-        description = (os.getenv("LAB_INTENT_DESCRIPTION") or "").strip()
+        # Free-form lab — compose a personalized base from the live identity
+        # (the mounted World's name + domain_framing, or the operator's
+        # LAB_INTENT_* on the unmounted path).
+        from arail.identity import effective_identity
+        _ident = effective_identity()
+        intent_name = (_ident.intent_name or "").strip() or "research"
+        description = (_ident.intent_description or "").strip()
         if description:
             base = (
                 f"You are a {intent_name} research lab. Your focus is: "
@@ -541,8 +547,9 @@ class ResearcherAgent:
         goal_text = parsed_goal.get("goal", parsed_goal.get("primary_objective", ""))
         domain = parsed_goal.get("domain", "general")
         intent = parsed_goal.get("intent", _get_lab_intent())
+        from arail.identity import effective_identity
         intent_name = parsed_goal.get("intent_name",
-                                       os.getenv("LAB_INTENT_NAME", "AI Engineer"))
+                                       effective_identity().intent_name)
         swarm_plan = self._swarm_plan(parsed_goal)
 
         try:

@@ -69,6 +69,7 @@ def _resolve_pkb_root(default_rel: str) -> Path:
 LAB_ROOT = _resolve("LAB_ROOT", "lab")
 DATA_DIR = _resolve("ARAIL_DATA_DIR", str(LAB_ROOT / "data"))
 MODELS_DIR = _resolve("ARAIL_MODELS_DIR", str(LAB_ROOT / "models"))
+WORLDS_DIR = _resolve("ARAIL_WORLDS_DIR", str(LAB_ROOT / "worlds"))
 PKB_ROOT = _resolve_pkb_root(str(LAB_ROOT / "pkb"))
 EXPERIMENTS_DIR = _resolve("ARAIL_EXPERIMENTS_DIR", str(DATA_DIR / "experiments"))
 

@@ -41,7 +41,7 @@ def test_ocr_enabled_when_available(monkeypatch, tmp_path):
     monkeypatch.setenv("ARAIL_FORCE_PLATFORM", "darwin")
     import arail.capabilities.backends.macos.ocr_backend as ob
     monkeypatch.setattr(ob.MacOSImageOCR, "is_available", lambda self: True)
-    wm.mount(CAPS_BOTH, data_dir=data_dir, pkb_root=pkb_root, env_path=tmp_path / ".env")
+    wm.mount(CAPS_BOTH, data_dir=data_dir, pkb_root=pkb_root)
 
     html = _client().get("/chat").text
     assert 'data-ocr-available="true"' in html

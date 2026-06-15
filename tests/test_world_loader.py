@@ -89,7 +89,6 @@ def test_tampered_raises_seal_mismatch_in_mount(tmp_path):
     with pytest.raises(SealMismatch) as exc_info:
         mount(
             TAMPERED,
-            env_path=tmp_path / ".env",
             pkb_root=tmp_path / "pkb",
             data_dir=tmp_path / "data",
         )

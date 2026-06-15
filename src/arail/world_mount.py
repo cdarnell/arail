@@ -6,14 +6,21 @@ Reads a WorldBundle directory (7 portable JSON files) and provides:
 - Atomic mount/unmount/swap with pointer at lab/data/world-mount.json
 - KB staging into lab/pkb/sources/world-<slug>/
 - Consumer helpers for dictionary, face, and curator integration
-- __main__ CLI: list | mount | verify | swap | unmount [--apply-face]
+- __main__ CLI: list | mount | verify | swap | unmount
 
 Security boundary
 -----------------
 terms.json is DATA; it never enters a prompt. Only face.json text may
-parameterize prompts, and only after operator confirmation (--apply-face).
-Terms reach users only through template-rendered surfaces (dictionary page)
-that never round-trip a model.
+parameterize prompts, and only through the delimited, length-capped Buddy
+WORLD FRAMING block. Terms reach users only through template-rendered surfaces
+(dictionary page) that never round-trip a model.
+
+Consent model: mounting a World IS the operator's consent to adopt that World's
+identity. Identity (name, logo, theme, intent, framing) resolves live from the
+mount sidecar (``world-mount.json``) at request time via ``arail.identity`` —
+there is no ``--apply-face`` step and no ``.env`` write. The sidecar is the
+single, cross-restart source of truth; identity flips instantly on mount and
+reverts on unmount, no restart required.
 """
 
 from __future__ import annotations
@@ -168,6 +175,28 @@ class MountRecord:
             staged_dir=str(d["staged_dir"]),
             pin=dict(d.get("pin", {})),
         )
+
+
+@dataclass
+class WorldInfo:
+    """A discovered World in ``lab/worlds/`` (or the out-of-folder current mount)."""
+
+    slug: str            # manifest.world (validated) or dir name if unreadable
+    display_name: str    # manifest.display_name, else slug
+    path: str            # absolute path to the bundle dir
+    valid: bool          # passed light validation (load_bundle), NOT a seal verify
+    mounted: bool        # this slug == current_mount().world
+    reason: str = ""     # when valid is False: short operator-facing why
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "slug": self.slug,
+            "display_name": self.display_name,
+            "path": self.path,
+            "valid": self.valid,
+            "mounted": self.mounted,
+            "reason": self.reason,
+        }
 
 
 # ── Pure (no side effects) ───────────────────────────────────────────────────
@@ -486,8 +515,9 @@ def _default_pkb_root() -> Path:
     return PKB_ROOT
 
 
-def _default_env_path() -> Path:
-    return Path(".env")
+def _default_worlds_dir() -> Path:
+    from arail.config import WORLDS_DIR
+    return WORLDS_DIR
 
 
 def _mount_record_path(data_dir: Path) -> Path:
@@ -534,6 +564,96 @@ def _remove_record(data_dir: Path) -> None:
         p.unlink(missing_ok=True)
     except Exception as e:
         _log.warning("world_mount: could not remove mount record: %s", e)
+
+
+def list_available_worlds(
+    worlds_dir: Path | None = None,
+    *,
+    data_dir: Path | None = None,
+) -> List[WorldInfo]:
+    """Scan ``lab/worlds/`` for mountable WorldBundles. Never raises.
+
+    Light validation only (``load_bundle`` — manifest parse, slug regex, the 6
+    siblings); the full ``verify_seal`` runs at mount time, not here. Invalid
+    dirs are listed with ``valid=False`` and a ``reason`` (not skipped). The
+    currently-mounted World is appended even when it lives outside the folder.
+    """
+    wd = worlds_dir or _default_worlds_dir()
+    current = current_mount(data_dir)
+    current_slug = current.world if current else None
+
+    out: List[WorldInfo] = []
+    seen_slugs: set = set()
+    try:
+        is_dir = wd.exists() and wd.is_dir()
+    except Exception:
+        is_dir = False
+
+    if is_dir:
+        try:
+            subdirs = sorted(
+                (d for d in wd.iterdir() if d.is_dir() and not d.name.startswith(".")),
+                key=lambda p: p.name,
+            )
+        except Exception as e:  # noqa: BLE001
+            _log.warning("world_mount: cannot scan worlds dir %s: %s", wd, e)
+            subdirs = []
+
+        for d in subdirs:
+            try:
+                bundle = load_bundle(d)
+                slug = bundle.slug
+                if slug in seen_slugs:
+                    out.append(WorldInfo(
+                        slug=slug,
+                        display_name=str(bundle.manifest.get("display_name", slug)),
+                        path=str(d.resolve()),
+                        valid=False,
+                        mounted=False,
+                        reason=f"duplicate slug {slug}",
+                    ))
+                    continue
+                seen_slugs.add(slug)
+                out.append(WorldInfo(
+                    slug=slug,
+                    display_name=str(bundle.manifest.get("display_name", slug)),
+                    path=str(d.resolve()),
+                    valid=True,
+                    mounted=(slug == current_slug),
+                ))
+            except Exception as e:  # noqa: BLE001
+                out.append(WorldInfo(
+                    slug=d.name,
+                    display_name=d.name,
+                    path=str(d.resolve()),
+                    valid=False,
+                    mounted=False,
+                    reason=getattr(e, "user_message", str(e))[:200],
+                ))
+
+    # Order scanned worlds by display_name, case-insensitive.
+    out.sort(key=lambda w: w.display_name.lower())
+
+    # Append the currently-mounted World if it isn't already represented.
+    if current_slug and not any(w.mounted for w in out):
+        display = current.world
+        try:
+            manifest = json.loads(
+                (Path(current.bundle_dir) / "manifest.json").read_bytes()
+            )
+            display = str(manifest.get("display_name", current.world))
+        except Exception:  # noqa: BLE001
+            display = current.world
+        out.append(WorldInfo(
+            slug=current.world,
+            display_name=display,
+            path=current.bundle_dir,
+            valid=True,
+            mounted=True,
+            reason="",
+        ))
+
+    return out
 
 
 # ── Capability resolution sidecar (additive; NOT in the sealed mount record) ──
@@ -688,70 +808,29 @@ def _index_staged(staged_dir: Path, pkb_root: Path) -> None:
         _log.warning("world_mount: indexer unavailable: %s", e)
 
 
-def _write_face_env(
-    bundle: Bundle,
-    env_path: Path,
-    pkb_root: Path,
-) -> None:
-    """Write face-derived env keys. Catches EnvWriterError and logs."""
-    face = bundle.face
-    if face is None:
-        _log.warning("world_mount: face.json missing/invalid; skipping env flip")
-        return
-    from arail.env_writer import set_env_var, EnvWriterError
-    from arail.ui_theme import load_ui_theme
-
-    keys_to_write: List[tuple[str, str]] = [
-        ("LAB_INTENT", "other"),
-        ("LAB_INTENT_NAME", str(face.get("name", bundle.manifest.get("display_name", bundle.slug)))),
-        ("LAB_INTENT_DESCRIPTION", str(face.get("domain_framing", ""))),
-    ]
-
-    # LAB_THEME — use the world display name
-    lab_theme_val = str(face.get("name", bundle.manifest.get("display_name", bundle.slug)))
-    keys_to_write.append(("LAB_THEME", lab_theme_val))
-
-    # LAB_UI_THEME — only if palette_hint resolves
-    palette_hint = str(face.get("palette_hint", "")).strip()
-    if palette_hint:
-        try:
-            resolved = load_ui_theme(palette_hint)
-            # Only write if it actually matched (not just fell back to default)
-            if resolved.id == palette_hint or resolved.env_value == palette_hint:
-                keys_to_write.append(("LAB_UI_THEME", resolved.env_value))
-        except Exception:
-            pass
-
-    for key, value in keys_to_write:
-        try:
-            set_env_var(env_path, key, value)
-        except EnvWriterError as e:
-            _log.warning("world_mount: could not write %s: %s", key, e)
-
-
 # ── Public state-mutating API ─────────────────────────────────────────────────
 
 
 def mount(
     bundle_dir: Path,
     *,
-    env_path: Path | None = None,
     pkb_root: Path | None = None,
     data_dir: Path | None = None,
-    apply_face: bool = False,
 ) -> MountRecord:
     """Mount a WorldBundle. Atomic: refuses before touching disk on any error.
+
+    Identity (name/logo/theme/intent/framing) flips live from the mount sidecar
+    at request time via ``arail.identity`` — mounting writes NO ``.env`` and
+    requires NO restart.
 
     Ordering:
     1. load+verify+compat+categories in-memory
     2. Stage files to pkb/sources/world-<slug>/ via .staging-<slug>/
     3. ensure_ready + schedule_upsert per staged file
-    4. Write env face keys iff apply_face
-    5. Write pointer LAST (atomic temp+replace)
-    6. wiki.schedule_rebuild() best-effort
+    4. Write pointer LAST (atomic temp+replace)
+    5. wiki.schedule_rebuild() best-effort
     """
     bundle_dir = Path(bundle_dir)
-    ep = env_path or _default_env_path()
     pkb = pkb_root or _default_pkb_root()
     dd = data_dir or _default_data_dir()
 
@@ -772,11 +851,7 @@ def mount(
     except Exception as e:
         _log.warning("world_mount: indexing failed (continuing): %s", e)
 
-    # Step 4: env face keys
-    if apply_face:
-        _write_face_env(bundle, ep, pkb)
-
-    # Step 5: write pointer LAST
+    # Step 4: write pointer LAST
     now = datetime.now(timezone.utc).isoformat()
     record = MountRecord(
         world=bundle.world,
@@ -846,14 +921,14 @@ def unmount(
 def swap(
     new_dir: Path,
     *,
-    env_path: Path | None = None,
     pkb_root: Path | None = None,
     data_dir: Path | None = None,
-    apply_face: bool = False,
 ) -> MountRecord:
-    """Stage + verify new bundle, then flip pointer. Old world stays on failure."""
+    """Stage + verify new bundle, then flip pointer. Old world stays on failure.
+
+    Identity flips live from the new sidecar — no ``.env`` write, no restart.
+    """
     new_dir = Path(new_dir)
-    ep = env_path or _default_env_path()
     pkb = pkb_root or _default_pkb_root()
     dd = data_dir or _default_data_dir()
 
@@ -868,9 +943,6 @@ def swap(
     # Stage new
     staged_dir = _stage_files(bundle, pkb)
     _index_staged(staged_dir, pkb)
-
-    if apply_face:
-        _write_face_env(bundle, ep, pkb)
 
     # Flip pointer (write new record over the old one)
     now = datetime.now(timezone.utc).isoformat()
@@ -995,34 +1067,12 @@ def _cmd_mount(args: argparse.Namespace) -> int:
     bundle_dir = Path(args.bundle_dir)
     data_dir = Path(args.data_dir) if getattr(args, "data_dir", None) else _default_data_dir()
     pkb_root = Path(args.pkb_root) if getattr(args, "pkb_root", None) else _default_pkb_root()
-    env_path = Path(args.env_path) if getattr(args, "env_path", None) else _default_env_path()
-    apply_face = getattr(args, "apply_face", False)
-
-    if apply_face:
-        # Show face.json for operator confirmation
-        try:
-            bundle_preview = load_bundle(bundle_dir)
-            if bundle_preview.face:
-                print("=== face.json preview ===")
-                print(json.dumps(bundle_preview.face, indent=2))
-                print("=========================")
-                print("These keys will be written to .env:")
-                face = bundle_preview.face
-                print(f"  LAB_INTENT=other")
-                print(f"  LAB_INTENT_NAME={face.get('name', '')}")
-                print(f"  LAB_INTENT_DESCRIPTION={face.get('domain_framing', '')[:60]}…")
-                print(f"  LAB_THEME={face.get('name', '')}")
-                print(f"  LAB_UI_THEME={face.get('palette_hint', '')} (if resolves)")
-        except Exception:
-            pass
 
     try:
         record = mount(
             bundle_dir,
-            env_path=env_path,
             pkb_root=pkb_root,
             data_dir=data_dir,
-            apply_face=apply_face,
         )
     except SealMismatch as e:
         print(f"ERROR (seal mismatch): {e.user_message}", file=sys.stderr)
@@ -1042,10 +1092,9 @@ def _cmd_mount(args: argparse.Namespace) -> int:
 
     print(f"Mounted world={record.world!r} at {record.mounted_at}")
     print(f"  staged_dir: {record.staged_dir}")
-    if apply_face:
-        print("")
-        print("NOTE: Env keys written. Portal restart required for theme/intent to take effect:")
-        print("  ./arailctl restart")
+    print("")
+    print("Lab identity (name, theme, intent, framing) flips live from this mount.")
+    print("No restart needed; unmount reverts to the operator brand.")
     return 0
 
 
@@ -1065,17 +1114,14 @@ def _cmd_swap(args: argparse.Namespace) -> int:
     new_dir = Path(args.bundle_dir)
     data_dir = Path(args.data_dir) if getattr(args, "data_dir", None) else _default_data_dir()
     pkb_root = Path(args.pkb_root) if getattr(args, "pkb_root", None) else _default_pkb_root()
-    env_path = Path(args.env_path) if getattr(args, "env_path", None) else _default_env_path()
-    apply_face = getattr(args, "apply_face", False)
     try:
-        record = swap(new_dir, env_path=env_path, pkb_root=pkb_root, data_dir=data_dir, apply_face=apply_face)
+        record = swap(new_dir, pkb_root=pkb_root, data_dir=data_dir)
     except (SealMismatch, PartialBundle, SchemaSkew, GateViolation, Exception) as e:
         um = getattr(e, "user_message", str(e))
         print(f"ERROR: {um}", file=sys.stderr)
         return 2
     print(f"Swapped to world={record.world!r} at {record.mounted_at}")
-    if apply_face:
-        print("NOTE: Portal restart required: ./arailctl restart")
+    print("Lab identity flips live from the new mount. No restart needed.")
     return 0
 
 
@@ -1086,7 +1132,6 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--data-dir", dest="data_dir", default=None, help="Override DATA_DIR")
     parser.add_argument("--pkb-root", dest="pkb_root", default=None, help="Override PKB_ROOT")
-    parser.add_argument("--env-path", dest="env_path", default=None, help="Override .env path")
 
     sub = parser.add_subparsers(dest="command")
 
@@ -1098,10 +1143,11 @@ def _build_parser() -> argparse.ArgumentParser:
     sub.add_parser("list", help="Show currently mounted world")
 
     # mount
-    p_mount = sub.add_parser("mount", help="Mount a WorldBundle")
+    p_mount = sub.add_parser(
+        "mount",
+        help="Mount a WorldBundle (lab identity flips live; no .env write, no restart)",
+    )
     p_mount.add_argument("bundle_dir", help="Path to the WorldBundle directory")
-    p_mount.add_argument("--apply-face", action="store_true", dest="apply_face",
-                         help="Write face.json keys to .env (displays preview first)")
 
     # unmount
     p_unmount = sub.add_parser("unmount", help="Unmount the current world")
@@ -1111,8 +1157,6 @@ def _build_parser() -> argparse.ArgumentParser:
     # swap
     p_swap = sub.add_parser("swap", help="Swap to a new WorldBundle (keeps old on failure)")
     p_swap.add_argument("bundle_dir", help="Path to the new WorldBundle directory")
-    p_swap.add_argument("--apply-face", action="store_true", dest="apply_face",
-                        help="Write face.json keys to .env")
 
     return parser
 
