@@ -4,7 +4,7 @@ section: docs
 tags: [shell, script]
 aliases: [setup, setup.sh]
 source: scripts/setup.sh
-generated: 2026-05-16T03:56:19Z
+generated: 2026-06-15T12:25:06Z
 ---
 
 # setup.sh (shell)
@@ -20,7 +20,9 @@ Detects your platform, installs dependencies, downloads a starter model.
 
 ## Functions
 
+- `_arail_timeout()`
 - `_find_free_port()`
+- `_get_env_var()`
 - `_port_in_use()`
 - `_probe_python_bin()`
 - `_resolve_port()`
