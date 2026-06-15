@@ -85,7 +85,7 @@ def available_capability(capability_id: str) -> Optional[Adapter]:
 
 
 # Capabilities whose toolchain the KB capture UI can light up, independent of any
-# mounted World. (STT = on-device Whisper; OCR = on-device Apple Vision.)
+# mounted World. (STT = on-device Whisper; OCR = on-device image-text backend.)
 _INSTALLABLE_CAPABILITY_IDS = ("speech-to-text", "equation-ocr")
 
 
