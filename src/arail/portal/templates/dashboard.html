@@ -7,8 +7,8 @@
 <link rel="stylesheet" href="/static/style.css">
 <style>
   /* Disclosure toggles for Phase 1 (PROPOSAL.md §3.2 + §3.3) */
-  .meter-bar:not(.show-extras) .meter-extra { display: none; }
-  .meter-toggle, .qa-more-toggle {
+  /* (meter-bar moved to the global status bar in _nav.html) */
+  .qa-more-toggle {
     background: transparent;
     border: 1px dashed var(--border, #333);
     color: var(--muted, #999);
@@ -17,7 +17,7 @@
     padding: 4px 10px;
     border-radius: 6px;
   }
-  .meter-toggle:hover, .qa-more-toggle:hover { color: var(--text); border-color: var(--accent, #00d4ff); }
+  .qa-more-toggle:hover { color: var(--text); border-color: var(--accent, #00d4ff); }
   .qa-actions:not(.show-more) .qa-more { display: none; }
 
   /* Quick actions button styling */
