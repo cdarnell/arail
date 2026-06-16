@@ -37,6 +37,28 @@
   install: "ollama pull llama3.2:1b  # then: ollama create llama-ai-eng -f models/ai-eng/Modelfile.default"
   tier: recommended
 
+# ── Gemma 2B generalist — the STAGED minimalist default-floor (Phase B, DORMANT) ──
+# A ~2B Gemma generalist: a stronger default brain than the 1B for technical
+# Worlds (physics/math). DORMANT until G1 (weights + models/ai-eng/Modelfile.gemma
+# from the qukaizen-dac / Gemma POC session) and G2 ("Built with Gemma" disclosure
+# — see sprints/2026-06-14-world-model-hint/handoff/gemma-disclosure-checklist.md).
+# Listed as `optional` until armed; the setup.sh ARAIL_DEFAULT_GEMMA=1 path is a
+# no-op until the real Modelfile.gemma (no __PLACEHOLDER__) exists. When armed:
+# flip tier → recommended and update the install handle.
+- id: qkz-project-aware-2b
+  name: Gemma 2B Generalist (staged default)
+  family: gemma
+  size_gb: 1.6
+  released: 2026-06
+  source: ollama
+  good_at: [chat, reasoning, physics, math, code]
+  description: "Project-aware ~2B generalist — built with Gemma. STAGED to become
+               the minimalist default brain (a stronger floor than the 1B for
+               technical Worlds). DORMANT until its weights + the 'Built with
+               Gemma' disclosure land. Built with Gemma."
+  install: "# Phase B (dormant): ollama create qkz-project-aware-2b -f models/ai-eng/Modelfile.gemma  (needs the real Gemma base — see handoff/)"
+  tier: optional
+
 # ── Maximus deep AI engineer (7B, Qwen2.5-7B-Instruct, Apache-2.0) ──
 # The deep persona for maximus tier. Offered on maximus setup; not auto-installed.
 # Set ARAIL_INSTALL_DEEP_PERSONA=1 to auto-install, or run the command below.
