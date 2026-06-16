@@ -1,0 +1,11 @@
+{
+  "schema": "dac.world-model/v1",
+  "recommended": {
+    "id": "qkz-totally-not-real-xyz",
+    "family": "gemma",
+    "size_gb": 1.6,
+    "good_at": ["physics"],
+    "rationale": "A model your catalog has never heard of."
+  },
+  "fallback": ["another-unknown-id", "still-unknown"]
+}

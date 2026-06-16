@@ -217,6 +217,89 @@ def detect_installed_models() -> list[dict[str, Any]]:
     return out
 
 
+def _resolve_hint_for_gallery(
+    hint: dict[str, Any] | None,
+    installed_ids: set[str],
+    catalog_by_id: dict[str, dict[str, Any]],
+) -> dict[str, Any] | None:
+    """Join a model-hint sidecar against the live catalog + installed set.
+
+    Pure + total: returns None on any inconsistency (no hint, no recommendation,
+    malformed sidecar). The volatile installed-vs-available distinction is
+    computed HERE (at read time) so it is always fresh — see ARCHITECTURE §2.2.
+
+    Returned block (or None):
+      { state, id, name, size_gb, good_at, rationale, family, world,
+        catalog_entry, promoted_from_fallback }
+    where state ∈ {recommended_installed, recommended_available, recommended_unknown}.
+    """
+    if not isinstance(hint, dict):
+        return None
+    rec = hint.get("recommended")
+    if not isinstance(rec, dict):
+        return None
+    rid = rec.get("id")
+    if not isinstance(rid, str) or not rid:
+        return None
+
+    world = hint.get("world")
+    fallback = hint.get("fallback") if isinstance(hint.get("fallback"), list) else []
+
+    def _state_for(mid: str) -> str | None:
+        """Catalog/installed state for an id, or None if not in catalog."""
+        if mid not in catalog_by_id:
+            return None
+        return "recommended_installed" if mid in installed_ids else "recommended_available"
+
+    surfaced_id = rid
+    promoted = False
+    state = _state_for(rid)
+
+    if state is None:
+        # recommended is unknown to the catalog — walk fallback[] in order; the
+        # first that resolves (installed or available) is promoted.
+        for fid in fallback:
+            if not isinstance(fid, str):
+                continue
+            fstate = _state_for(fid)
+            if fstate is not None:
+                surfaced_id = fid
+                state = fstate
+                promoted = True
+                break
+
+    if state is None:
+        # Nothing resolved — advisory-only against the original recommendation.
+        return {
+            "state": "recommended_unknown",
+            "id": rid,
+            "name": rec.get("family") or rid,
+            "size_gb": rec.get("size_gb"),
+            "good_at": list(rec.get("good_at") or []),
+            "rationale": rec.get("rationale"),
+            "family": rec.get("family"),
+            "world": world,
+            "catalog_entry": None,
+            "promoted_from_fallback": False,
+        }
+
+    entry = catalog_by_id.get(surfaced_id)
+    # Catalog wins for display fields when matched; the hint supplies advisory
+    # rationale (DATA, escaped at render time — never enters a prompt).
+    return {
+        "state": state,
+        "id": surfaced_id,
+        "name": (entry or {}).get("name") or surfaced_id,
+        "size_gb": (entry or {}).get("size_gb") if entry else rec.get("size_gb"),
+        "good_at": list((entry or {}).get("good_at") or rec.get("good_at") or []),
+        "rationale": rec.get("rationale"),
+        "family": (entry or {}).get("family") or rec.get("family"),
+        "world": world,
+        "catalog_entry": entry,
+        "promoted_from_fallback": promoted,
+    }
+
+
 def gallery_view() -> dict[str, Any]:
     """Build the unified chat-page gallery payload.
 
@@ -232,16 +315,31 @@ def gallery_view() -> dict[str, Any]:
     installed = detect_installed_models()
     installed_ids = {e["id"] for e in installed}
     catalog = []
+    catalog_by_id: dict[str, dict[str, Any]] = {}
     for entry in load_catalog():
         d = entry.as_dict()
         d["installed_state"] = "installed" if entry.id in installed_ids else "available"
         catalog.append(d)
+        catalog_by_id[entry.id] = d
     # Tally
     runtime_counts: dict[str, int] = {}
     for e in installed:
         runtime_counts[e["runtime"]] = runtime_counts.get(e["runtime"], 0) + 1
+
+    # World-declared model hint (additive; None when no World / no hint). The
+    # volatile installed/available state is derived HERE against the fresh
+    # installed set — ARCHITECTURE §2.2/§3.2.
+    try:
+        from arail.world_mount import current_model_hint
+        model_hint = _resolve_hint_for_gallery(
+            current_model_hint(), installed_ids, catalog_by_id
+        )
+    except Exception:  # noqa: BLE001 — hint must never break the gallery
+        model_hint = None
+
     return {
         "installed": installed,
         "catalog": catalog,
         "runtime_counts": runtime_counts,
+        "model_hint": model_hint,
     }
