@@ -7079,6 +7079,7 @@ async def api_chat_models(provider: str = ""):
         gallery = gallery_view()
     except Exception as e:  # noqa: BLE001
         gallery = {"installed": [], "catalog": [], "runtime_counts": {},
+                   "model_hint": None,
                    "error": f"{type(e).__name__}: {e}"}
 
     memory_snapshot = _local_memory_snapshot()
