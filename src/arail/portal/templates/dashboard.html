@@ -17,7 +17,7 @@
     padding: 4px 10px;
     border-radius: 6px;
   }
-  .qa-more-toggle:hover { color: var(--text); border-color: var(--accent, #00d4ff); }
+  .qa-more-toggle:hover { color: var(--text); border-color: var(--accent, var(--blue)); }
   .qa-actions:not(.show-more) .qa-more { display: none; }
 
   /* Quick actions button styling */
@@ -36,32 +36,32 @@
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
   }
   .qa-button.qa-primary {
-    background: rgba(0, 212, 255, 0.06);
-    border-color: rgba(0, 212, 255, 0.25);
+    background: rgba(var(--blue-rgb), 0.06);
+    border-color: rgba(var(--blue-rgb), 0.25);
   }
   .qa-button.qa-primary:hover {
-    background: rgba(0, 212, 255, 0.12);
-    border-color: rgba(0, 212, 255, 0.45);
+    background: rgba(var(--blue-rgb), 0.12);
+    border-color: rgba(var(--blue-rgb), 0.45);
   }
   .qa-button.qa-warning {
-    background: rgba(255, 176, 0, 0.06);
-    border-color: rgba(255, 176, 0, 0.25);
+    background: rgba(var(--amber-rgb), 0.06);
+    border-color: rgba(var(--amber-rgb), 0.25);
   }
   .qa-button.qa-warning:hover {
-    background: rgba(255, 176, 0, 0.12);
-    border-color: rgba(255, 176, 0, 0.45);
+    background: rgba(var(--amber-rgb), 0.12);
+    border-color: rgba(var(--amber-rgb), 0.45);
   }
   .qa-title {
     font-weight: 600;
     margin-bottom: 2px;
   }
   .qa-button.qa-success {
-    background: rgba(0, 255, 65, 0.06);
-    border-color: rgba(0, 255, 65, 0.25);
+    background: rgba(var(--green-rgb), 0.06);
+    border-color: rgba(var(--green-rgb), 0.25);
   }
   .qa-button.qa-success:hover {
-    background: rgba(0, 255, 65, 0.12);
-    border-color: rgba(0, 255, 65, 0.45);
+    background: rgba(var(--green-rgb), 0.12);
+    border-color: rgba(var(--green-rgb), 0.45);
   }
 
   /* ═══ Updates Available banner ═══════════════════════════════════
@@ -75,8 +75,8 @@
     margin: 8px 18px 0 18px;
     padding: 10px 14px;
     border-radius: 6px;
-    background: rgba(255, 176, 0, 0.06);
-    border: 1px solid rgba(255, 176, 0, 0.45);
+    background: rgba(var(--amber-rgb), 0.06);
+    border: 1px solid rgba(var(--amber-rgb), 0.45);
     color: var(--text);
     font-size: 13px;
     align-items: center;
@@ -86,8 +86,8 @@
     animation: updates-pulse 2.4s ease-in-out infinite;
   }
   .updates-banner:hover {
-    background: rgba(255, 176, 0, 0.13);
-    border-color: rgba(255, 176, 0, 0.7);
+    background: rgba(var(--amber-rgb), 0.13);
+    border-color: rgba(var(--amber-rgb), 0.7);
   }
   .updates-banner .updates-badge {
     display: inline-flex;
@@ -97,7 +97,7 @@
     height: 22px;
     padding: 0 7px;
     border-radius: 11px;
-    background: rgba(255, 176, 0, 0.85);
+    background: rgba(var(--amber-rgb), 0.85);
     color: #1a1100;
     font-weight: 700;
     font-size: 12px;
@@ -109,8 +109,8 @@
     font-size: 12px;
   }
   @keyframes updates-pulse {
-    0%, 100% { box-shadow: 0 0 0 0 rgba(255, 176, 0, 0); }
-    50%      { box-shadow: 0 0 0 4px rgba(255, 176, 0, 0.18); }
+    0%, 100% { box-shadow: 0 0 0 0 rgba(var(--amber-rgb), 0); }
+    50%      { box-shadow: 0 0 0 4px rgba(var(--amber-rgb), 0.18); }
   }
 
   /* ═══ Runbook banner — first-run on-ramp to docs/the-lab.md ═══
@@ -122,8 +122,8 @@
     margin: 8px 18px 0 18px;
     padding: 10px 14px;
     border-radius: 6px;
-    background: rgba(0, 212, 255, 0.06);
-    border: 1px solid rgba(0, 212, 255, 0.45);
+    background: rgba(var(--blue-rgb), 0.06);
+    border: 1px solid rgba(var(--blue-rgb), 0.45);
     color: var(--text);
     font-size: 13px;
     align-items: center;
@@ -132,8 +132,8 @@
     transition: all 0.15s;
   }
   .runbook-banner:hover {
-    background: rgba(0, 212, 255, 0.13);
-    border-color: rgba(0, 212, 255, 0.7);
+    background: rgba(var(--blue-rgb), 0.13);
+    border-color: rgba(var(--blue-rgb), 0.7);
   }
   .runbook-banner .runbook-icon {
     font-size: 16px;
@@ -235,12 +235,12 @@
   }
   .lc-row.pending .lc-icon { background: #1a2230; color: #4a5568; }
   .lc-row.pending .lc-icon::before { content: "⌛"; }
-  .lc-row.running .lc-icon { background: rgba(0, 212, 255, 0.18); color: var(--blue); }
+  .lc-row.running .lc-icon { background: rgba(var(--blue-rgb), 0.18); color: var(--blue); }
   .lc-row.running .lc-icon::before { content: "⏳"; animation: lc-spin 1.4s linear infinite; }
   @keyframes lc-spin { to { transform: rotate(360deg); } }
-  .lc-row.pass    .lc-icon { background: rgba(0, 255, 65, 0.16); color: var(--green); }
+  .lc-row.pass    .lc-icon { background: rgba(var(--green-rgb), 0.16); color: var(--green); }
   .lc-row.pass    .lc-icon::before { content: "✓"; }
-  .lc-row.warn    .lc-icon { background: rgba(255, 176, 0, 0.16); color: var(--amber); }
+  .lc-row.warn    .lc-icon { background: rgba(var(--amber-rgb), 0.16); color: var(--amber); }
   .lc-row.warn    .lc-icon::before { content: "!"; }
   .lc-row.fail    .lc-icon { background: rgba(255, 64, 96, 0.18); color: #ff6b80; }
   .lc-row.fail    .lc-icon::before { content: "✗"; }
@@ -286,7 +286,7 @@
     color: #ff6b80;
   }
   .lc-btn.lc-btn-restart {
-    border-color: rgba(0, 212, 255, 0.45);
+    border-color: rgba(var(--blue-rgb), 0.45);
     color: var(--blue);
   }
 </style>
@@ -1468,10 +1468,10 @@ async function refreshServiceStatus() {
       return;
     }
     const chip = (name, up) => {
-      const bg = up ? 'rgba(0,255,65,0.08)' : 'rgba(255,76,76,0.08)';
-      const bd = up ? 'rgba(0,255,65,0.25)' : 'rgba(255,76,76,0.25)';
+      const bg = up ? 'rgba(var(--green-rgb),0.08)' : 'rgba(255,76,76,0.08)';
+      const bd = up ? 'rgba(var(--green-rgb),0.25)' : 'rgba(255,76,76,0.25)';
       const fg = up ? 'var(--green)' : 'var(--red)';
-      const dot = `<span style="width: 6px; height: 6px; border-radius: 50%; background: ${fg}; box-shadow: ${up ? '0 0 4px rgba(0,255,65,.4)' : 'none'};"></span>`;
+      const dot = `<span style="width: 6px; height: 6px; border-radius: 50%; background: ${fg}; box-shadow: ${up ? '0 0 4px rgba(var(--green-rgb),.4)' : 'none'};"></span>`;
       return `<span style="display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: 999px; border: 1px solid ${bd}; background: ${bg}; font-size: 12px; color: ${fg};">${dot}${name}</span>`;
     };
     const active = entries.filter(([, up]) => up);
