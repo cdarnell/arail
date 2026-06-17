@@ -71,6 +71,12 @@ Two tiers. Pick one; upgrade later.
 > (Meta Platforms, Inc.) under the [Llama 3.2 Community License](licenses/LLAMA-3.2-COMMUNITY-LICENSE.txt).
 > See [NOTICE](NOTICE) for attribution details.
 
+> **Coming: a stronger default brain (Built with Gemma).** A ~2B Gemma generalist
+> (`qkz-project-aware-2b`) is staged to become the minimalist default-floor — better at technical
+> domains (physics/math) than the 1B, still 16 GB-friendly. It is **dormant** until its weights land;
+> when armed it ships **built with Gemma** under the [Gemma Terms of Use](licenses/GEMMA-TERMS-OF-USE.txt)
+> (see [NOTICE](NOTICE)). Until then the default stays `llama-ai-eng`.
+
 > **On a tight budget or CPU-only?** Before the 1 GB default, you can browse-and-pull an even
 > smaller starter from the Chat catalog: `qwen2.5:0.5b-instruct-q4_K_M` (~0.4 GB, Apache-2.0) runs
 > on CPU and well under 8 GB RAM — the same on-box small model [qukaizen.com](https://qukaizen.com)
