@@ -9659,6 +9659,17 @@ async def api_kb_scan_ingest(request: Request):
             pass
 
 
+def _fm_scalar(v) -> str:
+    """Make a (possibly user-influenced) value safe as ONE YAML front-matter
+    scalar: collapse newlines to a single line, neutralize a stray ``---``
+    delimiter, and cap length — so an OCR/transcript filename or field can't
+    inject a fake front-matter line. The value is DATA either way; this keeps
+    the markdown well-formed."""
+    s = " ".join(str(v).splitlines()).strip()
+    s = s.replace("---", "—")
+    return s[:200]
+
+
 def _land_inbox_capture(text: str, *, source: str, title_prefix: str,
                         fname_prefix: str, extra_frontmatter: dict | None = None):
     """Write captured text as a markdown raw source into ``lab/pkb/inbox/``.
@@ -9694,7 +9705,7 @@ def _land_inbox_capture(text: str, *, source: str, title_prefix: str,
         "sourced: false",
     ]
     for k, v in (extra_frontmatter or {}).items():
-        fm_lines.append(f"{k}: {v}")
+        fm_lines.append(f"{k}: {_fm_scalar(v)}")
     fm_lines.append("---")
     body = "\n".join(fm_lines) + "\n\n" + text.strip() + "\n"
     dest.write_text(body, encoding="utf-8")
@@ -9887,8 +9898,8 @@ def _land_raw_ocr_note(result: dict, world: str, image_filename: str):
         "kind: raw\n"
         "source: user-captured (image-ocr, on-device)\n"
         "sourced: false\n"
-        f"world: {world}\n"
-        f"image: {image_filename}\n"
+        f"world: {_fm_scalar(world)}\n"
+        f"image: {_fm_scalar(image_filename)}\n"
         "---\n\n"
         f"{text}\n"
     )

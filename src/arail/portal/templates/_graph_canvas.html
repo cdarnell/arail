@@ -49,27 +49,27 @@ const canvas = document.getElementById('graph-canvas');
 const ctx = canvas.getContext('2d');
 let W, H, dpr;
 
-const COLORS = {{ color_map|default({'core':'#00ff41','agent':'#00d4ff','skill':'#b48eff','backend':'#ffb000','plugin':'#ff3355','service':'#555e70'})|tojson }};
+const COLORS = {{ color_map|default({'core':'var(--green)','agent':'var(--blue)','skill':'var(--purple)','backend':'var(--amber)','plugin':'var(--red)','service':'#555e70'})|tojson }};
 const ICONS  = {{ icon_map|default({'core':'◈','agent':'◉','skill':'◇','backend':'⬡','plugin':'⊕','service':'▣'})|tojson }};
-const LEGEND = {{ legend_groups|default([{'label':'Core','color':'#00ff41'},{'label':'Agent','color':'#00d4ff'},{'label':'Skill','color':'#b48eff'},{'label':'Backend','color':'#ffb000'},{'label':'Plugin','color':'#ff3355'},{'label':'Service','color':'#555e70'}])|tojson }};
+const LEGEND = {{ legend_groups|default([{'label':'Core','color':'var(--green)'},{'label':'Agent','color':'var(--blue)'},{'label':'Skill','color':'var(--purple)'},{'label':'Backend','color':'var(--amber)'},{'label':'Plugin','color':'var(--red)'},{'label':'Service','color':'#555e70'}])|tojson }};
 
 const STATUS_GLOW = {
-  active:    'rgba(0,255,65,0.4)',
-  running:   'rgba(0,212,255,0.6)',
+  active:    'rgba(var(--green-rgb),0.4)',
+  running:   'rgba(var(--blue-rgb),0.6)',
   standby:   'rgba(85,94,112,0.3)',
-  available: 'rgba(255,176,0,0.15)',
+  available: 'rgba(var(--amber-rgb),0.15)',
   external:  'rgba(85,94,112,0.2)',
-  paused:    'rgba(255,176,0,0.4)',
-  completed: 'rgba(0,255,65,0.4)',
-  error:     'rgba(255,51,85,0.4)',
+  paused:    'rgba(var(--amber-rgb),0.4)',
+  completed: 'rgba(var(--green-rgb),0.4)',
+  error:     'rgba(var(--red-rgb),0.4)',
 };
 const EDGE_COLORS = {
-  data:      'rgba(0,255,65,0.3)',
-  control:   'rgba(0,212,255,0.3)',
+  data:      'rgba(var(--green-rgb),0.3)',
+  control:   'rgba(var(--blue-rgb),0.3)',
   embed:     'rgba(85,94,112,0.2)',
   link:      'rgba(180,142,255,0.35)',
-  semantic:  'rgba(0,212,255,0.46)',
-  active:    'rgba(255,176,0,0.6)',
+  semantic:  'rgba(var(--blue-rgb),0.46)',
+  active:    'rgba(var(--amber-rgb),0.6)',
   available: 'rgba(85,94,112,0.1)',
 };
 
@@ -254,9 +254,9 @@ function drawNode(n) {
   }
 
   const dotColors = {
-    active: '#00ff41', running: '#00d4ff', standby: '#555e70',
-    available: '#ffb000', external: '#555e70', paused: '#ffb000',
-    completed: '#00ff41', error: '#ff3355',
+    active: 'var(--green)', running: 'var(--blue)', standby: '#555e70',
+    available: 'var(--amber)', external: '#555e70', paused: 'var(--amber)',
+    completed: 'var(--green)', error: 'var(--red)',
   };
   ctx.beginPath();
   ctx.arc(s.x + r * 0.7, s.y - r * 0.7, 3.5 * camera.zoom, 0, Math.PI * 2);
@@ -497,7 +497,7 @@ async function refreshHealth() {
     const r = await fetch(HEALTH_API);
     const h = await r.json();
     const body = document.getElementById('health-body');
-    const barColor = (pct) => pct > 85 ? '#ff3355' : pct > 60 ? '#ffb000' : '#00ff41';
+    const barColor = (pct) => pct > 85 ? 'var(--red)' : pct > 60 ? 'var(--amber)' : 'var(--green)';
     const ramPct = h.ram_total_gb ? Math.round(h.ram_used_gb / h.ram_total_gb * 100) : 0;
 
     let html = `<div style="margin-bottom:0.4rem"><span class="tier-badge tier-${h.tier}">${h.tier}</span></div>`;
@@ -514,7 +514,7 @@ async function refreshHealth() {
       html += `<div class="health-row"><span class="health-label">GPU</span><span class="health-value">${h.gpu.name}</span></div>`;
     }
     if (h.deep_enabled) {
-      html += `<div class="health-row"><span class="health-label">Deep</span><span class="health-value" style="color:#ffb000">AeroLLM ✓</span></div>`;
+      html += `<div class="health-row"><span class="health-label">Deep</span><span class="health-value" style="color:var(--amber)">AeroLLM ✓</span></div>`;
     }
     html += `<div class="health-row" style="border-bottom:none"><span class="health-label">Services</span><span class="health-value">`;
     for (const [name, up] of Object.entries(h.services)) {

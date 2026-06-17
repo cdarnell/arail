@@ -225,3 +225,32 @@ def test_injection_is_xss_safe_by_construction(tmp_path, monkeypatch):
     assert "alert(1)" not in block
     assert ":root {" in block
     assert f"--bg: {DEFAULT_BG};" in block
+
+
+# ═══════════════════ RECOLOR COMPLETENESS (var-ified accents) ═══════════════════
+
+def test_no_hardcoded_accent_literals_in_style_css():
+    """Accent colors in style.css must be var(--…)-driven, not hard-coded hex /
+    rgba triples, so they REPAINT with the mounted World's palette (the recolor
+    var-ification of 2026-06-16). Regression guard against re-introduction."""
+    css = (pathlib.Path(__file__).parents[1]
+           / "src/arail/portal/static/style.css").read_text()
+    for lit in ("#00d4ff", "#00ff41", "#ffb000", "#ff3355", "#b48eff",
+                "rgba(0,212,255", "rgba(0, 212, 255",
+                "rgba(0,255,65", "rgba(0, 255, 65",
+                "rgba(255,176,0", "rgba(255, 176, 0",
+                "rgba(255,51,85", "rgba(255, 51, 85"):
+        assert lit not in css, f"hard-coded accent {lit!r} should be var(--…)-driven"
+
+
+def test_theme_css_emits_rgb_channel_vars():
+    """theme_css() derives an RGB-channel companion for each hex token so
+    rgba(var(--blue-rgb), a) repaints; the default stays identical and a
+    different World palette yields different channels."""
+    from arail.ui_theme import theme_css, load_ui_theme
+    default_css = theme_css(load_ui_theme("blue-cyan-lab"))
+    assert "--blue-rgb: 0, 212, 255;" in default_css       # unchanged default
+    assert "--green-rgb:" in default_css and "--red-rgb:" in default_css
+    violet_css = theme_css(load_ui_theme("slate-violet"))
+    assert "--blue-rgb:" in violet_css
+    assert "--blue-rgb: 0, 212, 255;" not in violet_css    # repaints

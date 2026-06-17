@@ -1,0 +1,66 @@
+name: DaC Feature Tests
+
+# Runs the DaC→ARAIL feature test suite on every PR/push so regressions in the
+# World-mount / capabilities / identity-flip / switcher / capture / model_hint
+# work can't slip past the import-only smoke gate. Hardware-bound live tests
+# (live_stt / live_ocr / live_mic — real Whisper/Apple-Vision/mic) are excluded;
+# the feature tests use injectable runners + platform mocks, so they run on Linux.
+# The broader suite's pre-existing parallel-session failures (swarm / opencode /
+# system_metrics / aerollm_defaults) are intentionally NOT included here — they
+# belong to their owners; this gate guards the DaC feature set only.
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dac-feature-tests-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  feature-tests:
+    name: DaC→ARAIL feature suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dev dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: Run DaC feature tests (live hardware tests excluded)
+        shell: bash
+        env:
+          ARAIL_NONINTERACTIVE: "1"
+          ARAIL_SKIP_OLLAMA: "1"
+        run: |
+          set -euo pipefail
+          python -m pytest \
+            tests/test_world_loader.py tests/test_world_mount.py tests/test_world_kb.py \
+            tests/test_world_dictionary.py tests/test_world_face.py \
+            tests/test_world_identity_flip.py tests/test_world_recolor.py \
+            tests/test_world_recolor_qa.py tests/test_world_switcher.py \
+            tests/test_world_qa_probes.py tests/test_world_model_hint.py \
+            tests/test_capabilities.py tests/test_stt_backend.py tests/test_stt_flow.py \
+            tests/test_stt_chat_ui.py tests/test_ocr_backend.py tests/test_ocr_chat_ui.py \
+            tests/test_kb_capture.py tests/test_brand.py tests/test_env_writer.py \
+            tests/test_shell_source_safety.py \
+            -m "not live_stt and not live_ocr" \
+            -p no:cacheprovider -q
