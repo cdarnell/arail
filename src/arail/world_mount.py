@@ -921,10 +921,25 @@ def _stage_files(bundle: Bundle, pkb_root: Path) -> Path:
     # Emit world-<slug>.md index page
     _write_index_page(bundle, staging_dir)
 
-    # Atomic rename (removes existing final_dir first on same FS)
-    if final_dir.exists():
-        shutil.rmtree(final_dir)
-    staging_dir.rename(final_dir)
+    # Swap with the shortest possible "absent" window: step the live dir aside
+    # (one rename), bring the new dir live (one rename) — two back-to-back
+    # metadata ops — then delete the old aside AFTER the new dir is live, so the
+    # slow rmtree never blocks consumers reading mounted_terms during a same-slug
+    # swap. On failure, restore the old dir (never leave the World unmounted).
+    old_aside = pkb_root / "sources" / f".old-{slug}"
+    if old_aside.exists():
+        shutil.rmtree(old_aside)
+    had_old = final_dir.exists()
+    if had_old:
+        final_dir.rename(old_aside)
+    try:
+        staging_dir.rename(final_dir)
+    except Exception:
+        if had_old and old_aside.exists() and not final_dir.exists():
+            old_aside.rename(final_dir)  # roll back to the previous World
+        raise
+    if had_old and old_aside.exists():
+        shutil.rmtree(old_aside)
     return final_dir
 
 

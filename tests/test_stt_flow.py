@@ -185,20 +185,21 @@ def test_transcript_not_in_prompt(monkeypatch, tmp_path):
     _install_fake_stt(monkeypatch, text="SECRET_TRANSCRIPT_MARKER injected text")
     data_dir, pkb_root = _mount_into(monkeypatch, tmp_path)
 
-    # Spy on the buddy/system-prompt builders if present; assert they're not fed the marker.
+    # Real spy: wrap every prompt-builder in lab_brain so that IF the transcribe
+    # endpoint ever fed the transcript into one, we'd capture the call args.
     called_with = []
-    try:
-        import arail.lab_brain as lb
-        for attr in dir(lb):
-            fn = getattr(lb, attr)
-            if callable(fn) and "prompt" in attr.lower():
-                pass  # we don't invoke them; just ensure the endpoint doesn't.
-    except Exception:
-        pass
+    import arail.lab_brain as lb
+    for attr in dir(lb):
+        fn = getattr(lb, attr)
+        if callable(fn) and "prompt" in attr.lower():
+            def _spy(*a, _orig=fn, **k):
+                called_with.append((a, k))
+                return _orig(*a, **k)
+            monkeypatch.setattr(lb, attr, _spy)
 
     r = _client().post("/api/stt/transcribe", files=_audio_file(), data={"mime": "audio/mp4"})
     assert r.status_code == 200, r.text
     note = pkb_root / r.json()["path"]
-    # The marker lives ONLY in the note file (data), not anywhere a prompt is built.
+    # The marker lives ONLY in the note file (DATA), never in a prompt-builder call.
     assert "SECRET_TRANSCRIPT_MARKER" in note.read_text()
-    assert called_with == []
+    assert "SECRET_TRANSCRIPT_MARKER" not in repr(called_with)
