@@ -1,0 +1,18 @@
+{
+  "_handoff_notice": "DROP-IN for qukaizen-dac. Place as capabilities.json inside the physics WorldBundle (data/worlds/physics/ AND the exported dist/bundles/physics/). SEAL-EXEMPT — do NOT add to manifest.files{} / world_sha256. ARAIL reads it via current_capabilities() on mount and provisions each declared adapter if installed on the machine (else degrades gracefully). Optional; a World without it inherits no capabilities.",
+  "schema": "dac.world-capabilities/v1",
+  "capabilities": [
+    {
+      "id": "speech-to-text",
+      "purpose": "Transcribe spoken observations into the lab knowledge base.",
+      "desired": true,
+      "interface": { "inputs": ["audio"], "outputs": ["transcript", "segments", "confidence"] }
+    },
+    {
+      "id": "equation-ocr",
+      "purpose": "Recognize printed text and numbers in an image into the lab knowledge base.",
+      "desired": true,
+      "interface": { "inputs": ["image"], "outputs": ["text"] }
+    }
+  ]
+}
