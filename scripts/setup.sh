@@ -796,6 +796,34 @@ install_services() {
             return
         fi
 
+        # ── Phase B (gated, DORMANT): Gemma 2B default-floor — qkz-project-aware-2b ──
+        # Make the minimalist default brain a ~2B Gemma generalist (a stronger floor
+        # than the 1B for technical Worlds like physics). OFF by default — fires only
+        # with ARAIL_DEFAULT_GEMMA=1 AND once BOTH gates land:
+        #   G1: a real models/ai-eng/Modelfile.gemma (no __PLACEHOLDER__) + the Gemma
+        #       base, from the qukaizen-dac / Gemma POC session.
+        #   G2: the "Built with Gemma" disclosure
+        #       (sprints/2026-06-14-world-model-hint/handoff/gemma-disclosure-checklist.md).
+        # Until then this is a NO-OP and the default stays llama-ai-eng (below).
+        if [[ "${ARAIL_DEFAULT_GEMMA:-0}" == "1" ]]; then
+            local _gemma_modelfile="${REPO_ROOT:-$PWD}/models/ai-eng/Modelfile.gemma"
+            if [[ -f "$_gemma_modelfile" ]] && ! grep -q "__PLACEHOLDER__" "$_gemma_modelfile"; then
+                if ollama show qkz-project-aware-2b &>/dev/null; then
+                    info "qkz-project-aware-2b (Gemma 2B default) already present — skipping."
+                    return
+                fi
+                info "ARAIL_DEFAULT_GEMMA=1 — installing the Gemma 2B default (qkz-project-aware-2b, Built with Gemma)…"
+                if _arail_timeout 300 ollama create qkz-project-aware-2b -f "$_gemma_modelfile" 2>&1 | tail -5; then
+                    info "qkz-project-aware-2b ready (Gemma 2B generalist, Built with Gemma)."
+                    return
+                fi
+                warn "Gemma default install failed — falling back to llama-ai-eng."
+            else
+                warn "ARAIL_DEFAULT_GEMMA=1 but models/ai-eng/Modelfile.gemma is missing/placeholder"
+                warn "(Phase B gate G1 not landed) — keeping the llama-ai-eng default."
+            fi
+        fi
+
         local _modelfile_dir="${REPO_ROOT:-$PWD}/models/ai-eng"
 
         # ── Idempotency: if any ai-eng family model is already present, skip ──
