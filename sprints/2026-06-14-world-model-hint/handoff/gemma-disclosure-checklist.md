@@ -5,26 +5,27 @@ disclosure, exactly parallel to the existing **Llama 3.2 Community License** exc
 repo (see `CLAUDE.md` "Llama disclosure exception" + `licenses/`). The default swap (`setup.sh`
 `ARAIL_DEFAULT_GEMMA=1` path + the catalog row) MUST NOT be enabled by default until every box is ticked.
 
-## Checklist
-- [ ] **Bundle the license texts in `licenses/`** (parallel to the two Llama files):
-      - [ ] `licenses/gemma-terms-of-use.md` — the Gemma Terms of Use (verbatim from ai.google.dev/gemma/terms).
-      - [ ] `licenses/gemma-prohibited-use-policy.md` — the Gemma Prohibited Use Policy.
-- [ ] **"Built with Gemma" displayed** wherever the model is surfaced:
-      - [ ] `README.md` (the model/tier section).
-      - [ ] `src/arail/chat/models_catalog.yaml` — the `qkz-project-aware-2b` `description` (already staged with "Built with Gemma").
-      - [ ] `models/ai-eng/Modelfile.gemma` — the SYSTEM prompt ends with "Built with Gemma." (already staged).
-      - [ ] `NOTICE` — add the Gemma attribution + a pointer to `licenses/gemma-*`.
-- [ ] **Model name / notice rule — CONFIRM FROM THE LIVE TERMS (the one open item).**
-      Llama requires the name to begin with "Llama" + "Built with Llama". Gemma's Terms have their own
-      requirement (include the Terms + the use restrictions + a Gemma notice on distribution). Pin the
-      EXACT current requirement from ai.google.dev/gemma/terms before shipping:
-      - [ ] Does Gemma require "Gemma" in the **distributed model name**? (If so, rename
-            `qkz-project-aware-2b` accordingly, and update the catalog `id` + `setup.sh` + `Modelfile.gemma`
-            + the DaC `model.json` `recommended.id` to match.)
-      - [ ] Include the required "Gemma is provided under and subject to the Gemma Terms of Use" notice
-            text wherever the Terms require it.
-- [ ] **Derivative attribution:** if `qkz-project-aware-2b` is a fine-tune/distill of a Gemma base,
-      state the base model + that it's a modified version, per the Terms.
+## Checklist — DONE in PR "Gemma disclosure" (this branch), except where noted
+- [x] **Bundle the license texts in `licenses/`** (parallel to the two Llama files):
+      - [x] `licenses/GEMMA-TERMS-OF-USE.txt` — required §3.1(4) notice + obligations + canonical URL.
+            ⚠ Paste the VERBATIM full Terms from ai.google.dev/gemma/terms before PUBLIC distribution.
+      - [x] `licenses/GEMMA-PROHIBITED-USE-POLICY.txt` — pointer + incorporation-by-reference note.
+            ⚠ Paste verbatim before public distribution.
+- [x] **"Built with Gemma" displayed** wherever the model is surfaced:
+      - [x] `README.md` — staged "Built with Gemma" note in the model-strategy block.
+      - [x] `src/arail/chat/models_catalog.yaml` — the `qkz-project-aware-2b` `description` (staged).
+      - [x] `models/ai-eng/Modelfile.gemma` — SYSTEM prompt ends "Built with Gemma." (staged).
+      - [x] `NOTICE` — §4 Gemma attribution + the verbatim §3.1(4) notice + `licenses/GEMMA-*` pointers.
+      - [x] `CLAUDE.md` — "Gemma disclosure exception" section added.
+- [x] **Model name / notice rule — RESOLVED (confirmed from the live Terms, 2026-06-16).**
+      Gemma's Terms do **NOT** require "Gemma" in the distributed model name (unlike Llama). So
+      `qkz-project-aware-2b` needs **no rename**. The required §3.1(4) notice text is bundled (NOTICE +
+      the license file). Distribution obligations (Gemma Terms §3.1): provide recipients the Terms,
+      include the notice, mark the modification, pass through the Prohibited Use Policy — all recorded.
+- [ ] **Derivative attribution (NEEDS G1):** state the exact Gemma base `qkz-project-aware-2b` is built
+      on (fine-tune/distill) in NOTICE §4 + `Modelfile.gemma` once the base is confirmed.
+- [ ] **Verbatim full text (pre-public-release):** paste the full Gemma Terms + Prohibited Use Policy
+      into the two `licenses/GEMMA-*.txt` files (currently faithful summaries + the canonical URLs).
 
 ## Then, to ARM the default swap (after G1 + this checklist are green)
 1. Fill the real base into `models/ai-eng/Modelfile.gemma` (replace `__PLACEHOLDER_GEMMA_BASE__`) and
