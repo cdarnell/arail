@@ -981,6 +981,61 @@ def _index_staged(staged_dir: Path, pkb_root: Path) -> None:
         _log.warning("world_mount: indexer unavailable: %s", e)
 
 
+def _adopt_into_catalog(
+    bundle_dir: Path,
+    slug: str,
+    worlds_dir: Path | None = None,
+) -> Optional[Path]:
+    """Copy a freshly-mounted bundle into ``WORLDS_DIR/<slug>/`` so it persists
+    in the switcher catalog and stays re-mountable after unmount.
+
+    The portal's World selection is path-jailed to ``WORLDS_DIR`` (this lab runs
+    on other people's machines — see ``_resolve_world_dir``). A World mounted
+    from an *external* path (CLI ``world mount <dir>``, a DaC export elsewhere)
+    is therefore visible only while mounted and can never be re-selected once
+    unmounted. Adopting a byte-for-byte copy under ``WORLDS_DIR`` makes it a
+    first-class catalog entry the jailed slug path can re-mount — and the copy
+    is identical, so ``verify_seal`` still passes.
+
+    Best-effort: never raises (a failed adopt must not fail the mount). No-op
+    when the bundle already lives under ``WORLDS_DIR`` (slug-select already
+    resolves it) or when the slug is invalid.
+    """
+    try:
+        wd = (worlds_dir or _default_worlds_dir())
+        src = bundle_dir.resolve()
+        wd_res = wd.resolve()
+        # Already inside the catalog jail → nothing to adopt.
+        src_s, root_s = str(src), str(wd_res)
+        if src_s == root_s or src_s.startswith(root_s + os.sep):
+            return None
+        if not _SLUG_RE.match(slug):
+            return None
+        wd.mkdir(parents=True, exist_ok=True)
+        dest = wd / slug
+        # Stage into a hidden temp dir (skipped by the catalog scan), then swap
+        # atomically so a crash mid-copy never leaves a half-written entry.
+        tmp = wd / f".adopting-{slug}"
+        if tmp.exists():
+            shutil.rmtree(tmp, ignore_errors=True)
+        tmp.mkdir(parents=True)
+        for f in sorted(src.iterdir()):
+            if f.is_file():
+                shutil.copy2(f, tmp / f.name)
+        if dest.exists():
+            old = wd / f".old-{slug}"
+            shutil.rmtree(old, ignore_errors=True)
+            dest.rename(old)
+            tmp.rename(dest)
+            shutil.rmtree(old, ignore_errors=True)
+        else:
+            tmp.rename(dest)
+        return dest
+    except Exception as e:  # noqa: BLE001
+        _log.warning("world_mount: catalog adopt failed (continuing): %s", e)
+        return None
+
+
 # ── Public state-mutating API ─────────────────────────────────────────────────
 
 
@@ -989,6 +1044,7 @@ def mount(
     *,
     pkb_root: Path | None = None,
     data_dir: Path | None = None,
+    worlds_dir: Path | None = None,
 ) -> MountRecord:
     """Mount a WorldBundle. Atomic: refuses before touching disk on any error.
 
@@ -1036,6 +1092,11 @@ def mount(
         pin={"world_sha256": seal.computed_sha256},
     )
     _write_record(record, dd)
+
+    # Step 5: adopt into the catalog so the switcher keeps the World after
+    # unmount (re-mountable via the jailed slug path). Best-effort; no-op when
+    # the bundle already lives under WORLDS_DIR.
+    _adopt_into_catalog(bundle_dir, bundle.world, worlds_dir)
 
     # Step 6: wiki rebuild best-effort
     try:
