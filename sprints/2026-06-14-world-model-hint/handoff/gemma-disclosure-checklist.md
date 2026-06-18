@@ -37,3 +37,18 @@ repo (see `CLAUDE.md` "Llama disclosure exception" + `licenses/`). The default s
    until enabled**.
 
 Until all of the above: the minimalist default remains **`llama-ai-eng`** (Llama-3.2-1B), unchanged.
+
+## G1 status — HELD (2026-06-18)
+
+Investigated arming G1 with a Gemma 4 base. Findings:
+- **There is no true Gemma-4 2B.** Ollama's Gemma 4 family is `gemma4:e2b`/`e4b`
+  (edge), `12b`, `26b`, `31b`. `gemma4:2b` does not exist (`pull model manifest:
+  file does not exist`). The smallest, `gemma4:e2b`, is **7.2 GB on disk** (2.3B
+  *effective*) — ~4.5× the catalog's 1.6 GB "light floor / runs on 16 GB" framing.
+- Decision (owner, 2026-06-18): **HOLD G1.** Do not wrap `gemma4:e2b` (footprint
+  breaks the floor positioning) and do not fall back to Gemma 2/3 (owner wants
+  Gemma 4 specifically). Keep `llama-ai-eng` as the minimalist default.
+- Scaffolding stays dormant and untouched: `Modelfile.gemma` keeps
+  `__PLACEHOLDER_GEMMA_BASE__`, the `ARAIL_DEFAULT_GEMMA=1` gate stays a no-op.
+- **Revisit when** a true small (~1.5–2 GB) dense Gemma 4 ships, or if the owner
+  accepts the heavier `gemma4:e2b` floor (then: catalog `size_gb` 1.6 → 7.2).
