@@ -79,6 +79,30 @@ def _read_version() -> str:
 
 _BOOT_VERSION: str = _read_version()
 
+
+def boot_grace_seconds() -> int:
+    """Startup quiet window, in seconds.
+
+    For this long after boot, the lab suppresses *automatic* background
+    "is anything out of date?" work — the dashboard's quiet update-check
+    poll and the boot CVE scan — so initial startup stays smooth and free
+    of subprocess/network contention (``git fetch``, ``pip list --outdated``,
+    GitHub release probes, ``pip-audit``). Explicit, user-triggered checks
+    (the Check Updates button / Updates banner) are never gated.
+
+    Default 3600 (1 hour). Set ``ARAIL_BOOT_GRACE_SEC=0`` to disable.
+    """
+    try:
+        return max(0, int(os.getenv("ARAIL_BOOT_GRACE_SEC", "3600")))
+    except ValueError:
+        return 3600
+
+
+def _within_boot_grace() -> bool:
+    """True while still inside the startup quiet window (see boot_grace_seconds)."""
+    return (time.perf_counter() - _BOOT_PERF) < boot_grace_seconds()
+
+
 # ---------------------------------------------------------------------------
 # In-process metrics counters (sprint 2026-05-14-platform-foundation §2).
 # Reset to zero on portal restart — documented v1 limitation in api-conventions.md.
@@ -833,12 +857,14 @@ async def _startup():
                 "warn")
 
     # Boot security scan — hybrid mode only (LAB_MODE=airgapped stays default;
-    # no involuntary outbound calls).  Runs 30 s after startup to let the lab
-    # settle first.  The task is cancelled cleanly on shutdown (CancelledError
-    # is re-raised so asyncio can cancel the task — D3 mitigation).
+    # no involuntary outbound calls).  Deferred past the startup quiet window
+    # (boot_grace_seconds, default 1 h; min 30 s settle) so initial startup
+    # stays smooth and free of pip-audit contention.  The task is cancelled
+    # cleanly on shutdown (CancelledError is re-raised so asyncio can cancel
+    # the task — D3 mitigation).
     if _lab_mode() == "hybrid":
         async def _boot_security_scan():
-            await asyncio.sleep(30)
+            await asyncio.sleep(max(30, boot_grace_seconds()))
             try:
                 from arail.portal import security_scan
                 await security_scan.run_and_persist(trigger="boot")
@@ -4261,6 +4287,13 @@ async def admin_check_updates():
     mode = _lab_mode()
     if mode == "airgapped":
         return {"airgapped": True, "updates_available": 0, "summary": "Airgapped — switch to Hybrid to check."}
+    # Startup quiet window: the dashboard fires this on every load. During the
+    # boot-grace window we skip the (network/subprocess-heavy) component probes
+    # so initial startup stays smooth — no banner, no contention. The explicit
+    # Check Updates button uses the /stream endpoint and is never gated.
+    if _within_boot_grace():
+        return {"airgapped": False, "updates_available": 0, "deferred": True,
+                "summary": "Update check deferred during startup."}
     import subprocess as sp
     manifest_path = Path.cwd() / "components.json"
     if not manifest_path.exists():
