@@ -2811,6 +2811,86 @@ async def api_worlds_select(request: Request):
     return {"ok": True, "current": rec.world}
 
 
+@app.post("/api/worlds/import")
+async def api_worlds_import(request: Request):
+    """Import a WorldBundle from a path OUTSIDE ``WORLDS_DIR`` and mount it.
+
+    This is the consumer-side "Add a World" affordance: a user points the lab
+    at a finished, sealed bundle dir produced elsewhere (a DaC export, a World a
+    friend shared) and brings it in. Unlike ``/api/worlds/select`` — which is
+    path-jailed to ``WORLDS_DIR`` so a discovered catalog entry can be remounted
+    — import deliberately accepts an external dir, because that is the whole
+    point. The safety model is parity with select PLUS the seal:
+
+      * Same CSRF envelope (Sec-Fetch-Site + Origin/Host) — a cross-site page
+        cannot trigger it; the headers are browser-enforced and unforgeable.
+      * ``mount()`` reads only the known bundle filenames and runs the FULL
+        ``verify_seal`` / compat / category gates before touching disk — a
+        non-bundle or tampered dir is refused (409), nothing is mounted.
+      * On success the bundle is adopted into ``WORLDS_DIR`` (see
+        ``_adopt_into_catalog``) so it persists in the switcher and is
+        re-selectable after unmount.
+
+    Body: ``{"path": "<abs path to a bundle dir>"}``. Expected failures: 403
+    (cross-site/origin), 400 (missing/blank/not-a-dir), 409 (seal/partial/
+    schema/category/slug). Never 500 for those.
+    """
+    from fastapi.responses import JSONResponse
+    from arail.world_mount import (
+        mount,
+        SealMismatch, PartialBundle, SchemaSkew, GateViolation, SlugInvalid,
+    )
+
+    def _err(code: int, body: dict):
+        return JSONResponse(status_code=code, content=body)
+
+    # ── CSRF envelope (identical to api_worlds_select) ──
+    _sfs = request.headers.get("sec-fetch-site", "").strip().lower()
+    if _sfs in ("cross-site", "none"):
+        return _err(403, {"error": "cross_site"})
+    origin = request.headers.get("origin", "")
+    host = request.headers.get("host", "")
+    if origin:
+        from urllib.parse import urlparse as _urlparse
+        origin_host = _urlparse(origin).netloc
+        if origin_host and origin_host != host:
+            return _err(403, {"error": "cross_origin"})
+
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not isinstance(body, dict):
+        body = {}
+
+    raw_path = str(body.get("path", "")).strip()
+    if not raw_path:
+        return _err(400, {"error": "bad_request",
+                          "message": "Provide a path to a WorldBundle directory."})
+
+    bundle_dir = Path(raw_path).expanduser()
+    try:
+        bundle_dir = bundle_dir.resolve()
+        is_dir = bundle_dir.is_dir()
+    except Exception:
+        is_dir = False
+    if not is_dir:
+        return _err(400, {"error": "not_a_dir",
+                          "message": f"Not a directory: {raw_path}"})
+
+    # ── Mount (atomic; full seal/compat/category gates; adopts into catalog) ──
+    try:
+        rec = mount(bundle_dir)
+    except (SealMismatch, PartialBundle, SchemaSkew, GateViolation, SlugInvalid) as e:
+        return _err(409, {"error": "import_refused",
+                          "message": getattr(e, "user_message", str(e))})
+    except Exception as e:  # noqa: BLE001
+        _log.warning("world import: unexpected mount error: %s", e)
+        return _err(500, {"error": "import_failed", "message": str(e)})
+
+    return {"ok": True, "current": rec.world, "imported": True}
+
+
 def _dict_resolve_theme() -> Dict[str, Any]:
     # Theme is the AI glossary (default) unless the user picked a topic override.
     # The research goal is surfaced as a suggested action, not an auto-switch.
