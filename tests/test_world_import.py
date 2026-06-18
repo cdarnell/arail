@@ -1,0 +1,115 @@
+"""POST /api/worlds/import — the consumer-side "Add a World" affordance.
+
+Imports a sealed bundle from a path OUTSIDE WORLDS_DIR (a DaC export, a shared
+World), with parity-with-select CSRF + the full mount seal gate, then adopts it
+into the catalog so it persists in the switcher.
+
+Pins:
+  - CSRF envelope: cross-site / cross-origin → 403.
+  - Bad input: missing path → 400; non-directory → 400.
+  - Non-bundle dir → 409 (refused), nothing mounted.
+  - Happy path: a real external bundle dir mounts AND lands in the catalog.
+"""
+from __future__ import annotations
+
+import pathlib
+
+import pytest
+from fastapi.testclient import TestClient
+
+from arail.portal import app as app_mod
+from arail import world_mount as wm
+
+FIXTURES = pathlib.Path(__file__).parent / "fixtures" / "world-bundles"
+PHYSICS = FIXTURES / "physics"
+
+# Same-origin headers the browser would send for a real fetch() from the portal.
+SAME_ORIGIN = {"sec-fetch-site": "same-origin", "origin": "http://testserver",
+               "host": "testserver"}
+
+
+@pytest.fixture()
+def client():
+    return TestClient(app_mod.app)
+
+
+@pytest.fixture()
+def isolated(monkeypatch, tmp_path):
+    """Point the default pkb/data/worlds dirs at tmp so import writes nowhere real."""
+    pkb = tmp_path / "pkb"
+    data = tmp_path / "data"
+    worlds = tmp_path / "worlds"
+    for p in (pkb, data, worlds):
+        p.mkdir(parents=True)
+    monkeypatch.setattr(wm, "_default_pkb_root", lambda: pkb)
+    monkeypatch.setattr(wm, "_default_data_dir", lambda: data)
+    monkeypatch.setattr(wm, "_default_worlds_dir", lambda: worlds)
+    return pkb, data, worlds
+
+
+# ── CSRF envelope ────────────────────────────────────────────────────────────
+
+def test_cross_site_refused(client):
+    r = client.post("/api/worlds/import",
+                    json={"path": str(PHYSICS)},
+                    headers={"sec-fetch-site": "cross-site"})
+    assert r.status_code == 403
+    assert r.json()["error"] == "cross_site"
+
+
+def test_cross_origin_refused(client):
+    r = client.post("/api/worlds/import",
+                    json={"path": str(PHYSICS)},
+                    headers={"sec-fetch-site": "same-site",
+                             "origin": "http://evil.example", "host": "testserver"})
+    assert r.status_code == 403
+    assert r.json()["error"] == "cross_origin"
+
+
+# ── Bad input ────────────────────────────────────────────────────────────────
+
+def test_missing_path_is_400(client):
+    r = client.post("/api/worlds/import", json={}, headers=SAME_ORIGIN)
+    assert r.status_code == 400
+    assert r.json()["error"] == "bad_request"
+
+
+def test_not_a_dir_is_400(client, tmp_path):
+    f = tmp_path / "afile.txt"
+    f.write_text("not a bundle")
+    r = client.post("/api/worlds/import", json={"path": str(f)}, headers=SAME_ORIGIN)
+    assert r.status_code == 400
+    assert r.json()["error"] == "not_a_dir"
+
+
+def test_non_bundle_dir_is_409(client, isolated, tmp_path):
+    empty = tmp_path / "empty-dir"
+    empty.mkdir()
+    r = client.post("/api/worlds/import", json={"path": str(empty)},
+                    headers=SAME_ORIGIN)
+    assert r.status_code == 409
+    assert r.json()["error"] == "import_refused"
+    # Nothing mounted.
+    _pkb, data, _worlds = isolated
+    assert wm.current_mount(data) is None
+
+
+# ── Happy path ───────────────────────────────────────────────────────────────
+
+def test_external_bundle_imports_and_lands_in_catalog(client, isolated):
+    pkb, data, worlds = isolated
+    assert PHYSICS.resolve().parent != worlds.resolve()  # genuinely external
+
+    r = client.post("/api/worlds/import", json={"path": str(PHYSICS)},
+                    headers=SAME_ORIGIN)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["ok"] is True and body["imported"] is True
+    slug = body["current"]
+
+    # Mounted now…
+    assert wm.current_mount(data).world == slug
+    # …and adopted into the catalog so it persists in the switcher.
+    listed = {w.slug for w in wm.list_available_worlds(worlds_dir=worlds, data_dir=data)}
+    assert slug in listed
+    assert (worlds / slug).is_dir()
