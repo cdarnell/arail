@@ -543,6 +543,7 @@ window.revealSlot = async function revealSlot(slot, subpath) {
 
   var loaded = false;
   var busy = false;
+  var _lastJson = null;
 
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -577,6 +578,7 @@ window.revealSlot = async function revealSlot(slot, subpath) {
   }
 
   function render(json) {
+    _lastJson = json;
     var html = '';
     html += row({
       label: 'AI Lab (default)',
@@ -601,7 +603,111 @@ window.revealSlot = async function revealSlot(slot, subpath) {
         });
       }
     });
+    // Consumer-side "Add a World" affordance — import a sealed bundle from a
+    // path outside the catalog (a DaC export, a shared World).
+    html +=
+      '<div style="border-top:1px solid var(--border);margin:.3rem 0;"></div>' +
+      row({ label: '＋ Add a World…', action: 'add' });
     menu.innerHTML = html;
+  }
+
+  // Swap the menu to an inline path input → POST /api/worlds/import, with a
+  // ".zip" drop for a World a friend shared → POST /api/worlds/import-zip.
+  function showImport() {
+    menu.innerHTML =
+      '<div style="padding:.45rem .6rem;display:flex;flex-direction:column;gap:.4rem;min-width:240px;">' +
+      '<div style="font-size:.72rem;opacity:.8;">Path to a WorldBundle folder:</div>' +
+      '<input id="world-import-path" type="text" spellcheck="false" ' +
+      'placeholder="/path/to/bundles/physics" ' +
+      'style="font-size:.74rem;padding:.35rem .45rem;border-radius:6px;border:1px solid var(--border);' +
+      'background:var(--surface);color:var(--text);font-family:inherit;" />' +
+      '<div style="display:flex;gap:.4rem;justify-content:flex-end;">' +
+      '<button id="world-import-cancel" type="button" class="world-row" ' +
+      'style="cursor:pointer;font-size:.74rem;padding:.3rem .6rem;border-radius:6px;' +
+      'border:1px solid var(--border);background:transparent;color:var(--text);">Cancel</button>' +
+      '<button id="world-import-go" type="button" class="world-row" ' +
+      'style="cursor:pointer;font-size:.74rem;padding:.3rem .7rem;border-radius:6px;' +
+      'border:1px solid var(--blue);background:transparent;color:var(--blue);font-weight:700;">Import</button>' +
+      '</div>' +
+      // ── Peer-sharing: bring in a .zip a friend sent ──
+      '<div style="border-top:1px dashed var(--border);margin:.15rem 0 .1rem;"></div>' +
+      '<div style="font-size:.72rem;opacity:.8;">…or a World a friend shared:</div>' +
+      '<button id="world-import-zip-pick" type="button" class="world-row" ' +
+      'style="cursor:pointer;font-size:.74rem;padding:.35rem .5rem;border-radius:6px;text-align:left;' +
+      'border:1px solid var(--border);background:transparent;color:var(--text);">📦 Choose a .zip…</button>' +
+      '<input id="world-import-zip" type="file" accept=".zip,application/zip" ' +
+      'style="display:none;" />' +
+      '</div>';
+    var input = document.getElementById('world-import-path');
+    if (input) input.focus();
+    var go = document.getElementById('world-import-go');
+    var cancel = document.getElementById('world-import-cancel');
+    if (cancel) cancel.addEventListener('click', function () { render(_lastJson); });
+    if (go) go.addEventListener('click', doImport);
+    if (input) input.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') doImport();
+    });
+    var pick = document.getElementById('world-import-zip-pick');
+    var zipInput = document.getElementById('world-import-zip');
+    if (pick && zipInput) {
+      pick.addEventListener('click', function () { zipInput.click(); });
+      zipInput.addEventListener('change', function () {
+        if (zipInput.files && zipInput.files[0]) doImportZip(zipInput.files[0]);
+      });
+    }
+  }
+
+  function doImport() {
+    var input = document.getElementById('world-import-path');
+    var path = input ? input.value.trim() : '';
+    if (!path || busy) return;
+    busy = true;
+    menu.style.pointerEvents = 'none';
+    menu.style.opacity = '.6';
+    fetch('/api/worlds/import', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: path }),
+    })
+      .then(function (r) {
+        if (r.ok) { window.location.reload(); return null; }
+        return r.json().catch(function () { return {}; }).then(function (b) {
+          whisper((b && b.message) || 'World import failed');
+        });
+      })
+      .catch(function () { whisper('World import failed'); })
+      .then(function () {
+        busy = false;
+        menu.style.pointerEvents = '';
+        menu.style.opacity = '';
+      });
+  }
+
+  function doImportZip(file) {
+    if (!file || busy) return;
+    busy = true;
+    menu.style.pointerEvents = 'none';
+    menu.style.opacity = '.6';
+    var fd = new FormData();
+    fd.append('file', file, file.name);
+    fetch('/api/worlds/import-zip', {
+      method: 'POST',
+      credentials: 'same-origin',
+      body: fd,  // browser sets multipart boundary; no Content-Type header
+    })
+      .then(function (r) {
+        if (r.ok) { window.location.reload(); return null; }
+        return r.json().catch(function () { return {}; }).then(function (b) {
+          whisper((b && b.message) || 'World import failed');
+        });
+      })
+      .catch(function () { whisper('World import failed'); })
+      .then(function () {
+        busy = false;
+        menu.style.pointerEvents = '';
+        menu.style.opacity = '';
+      });
   }
 
   function whisper(text) {
@@ -631,6 +737,7 @@ window.revealSlot = async function revealSlot(slot, subpath) {
     var el = e.target.closest('.world-row[data-action]');
     if (!el || busy) return;
     var action = el.getAttribute('data-action');
+    if (action === 'add') { showImport(); return; }
     var slug = el.getAttribute('data-slug') || '';
     var path = el.getAttribute('data-path') || '';
     busy = true;
