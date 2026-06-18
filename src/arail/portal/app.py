@@ -2891,6 +2891,160 @@ async def api_worlds_import(request: Request):
     return {"ok": True, "current": rec.world, "imported": True}
 
 
+# Guards for the .zip import path. A shared World a friend sent is UNTRUSTED
+# input, so the archive is bounded before a single byte hits disk: cap the
+# upload, the uncompressed total, the entry count, and refuse any member whose
+# resolved path escapes the staging dir (zip-slip). The seal gate in mount()
+# is the second line of defence; these are the first.
+_ZIP_MAX_UPLOAD = 200 * 1024 * 1024      # 200 MB compressed (a bundle is small)
+_ZIP_MAX_UNCOMPRESSED = 500 * 1024 * 1024  # 500 MB total inflated (bomb guard)
+_ZIP_MAX_ENTRIES = 5000                   # entry-count guard
+
+
+def _safe_extract_bundle(zip_bytes: bytes, dest: Path) -> Path:
+    """Extract a WorldBundle zip into ``dest`` and return the bundle root.
+
+    The bundle root is the directory that holds ``manifest.json`` (the sealed
+    anchor) — a zip may wrap the bundle in a top-level folder (``physics/...``)
+    or carry the files at the root, so we locate the anchor rather than assume.
+
+    Raises ``ValueError(code)`` with a stable code on any unsafe/invalid input:
+    ``bad_zip`` (not a zip / corrupt), ``unsafe_zip`` (zip-slip, bomb, too many
+    entries), ``not_a_bundle`` (no manifest.json found). The caller maps these
+    to HTTP status.
+    """
+    import io
+    import zipfile
+
+    try:
+        zf = zipfile.ZipFile(io.BytesIO(zip_bytes))
+    except (zipfile.BadZipFile, OSError):
+        raise ValueError("bad_zip")
+
+    infos = zf.infolist()
+    if len(infos) > _ZIP_MAX_ENTRIES:
+        raise ValueError("unsafe_zip")
+
+    total = 0
+    dest_resolved = dest.resolve()
+    for info in infos:
+        total += info.file_size
+        if total > _ZIP_MAX_UNCOMPRESSED:
+            raise ValueError("unsafe_zip")
+        # Reject absolute paths and any member that escapes dest (zip-slip),
+        # including via ".." or a symlink-style absolute entry.
+        name = info.filename
+        if name.startswith("/") or name.startswith("\\") or ".." in Path(name).parts:
+            raise ValueError("unsafe_zip")
+        target = (dest_resolved / name).resolve()
+        if target != dest_resolved and dest_resolved not in target.parents:
+            raise ValueError("unsafe_zip")
+
+    try:
+        zf.extractall(dest_resolved)
+    except (OSError, zipfile.BadZipFile):
+        raise ValueError("bad_zip")
+
+    # Locate the shallowest manifest.json — that dir is the bundle root.
+    manifests = sorted(dest_resolved.rglob("manifest.json"),
+                       key=lambda p: len(p.relative_to(dest_resolved).parts))
+    if not manifests:
+        raise ValueError("not_a_bundle")
+    return manifests[0].parent
+
+
+@app.post("/api/worlds/import-zip")
+async def api_worlds_import_zip(request: Request):
+    """Import a WorldBundle from an uploaded ``.zip`` and mount it.
+
+    The peer-sharing affordance: a friend exports a World, zips the bundle
+    folder, and sends it; the recipient drops the ``.zip`` into the switcher
+    without ever touching a path or the CLI. It is the same trust model as
+    ``/api/worlds/import`` (CSRF envelope + the full ``mount()`` seal/compat/
+    category gate + catalog adoption) with one extra, untrusted-input step in
+    front: the archive is bounded and zip-slip/bomb-guarded (see
+    ``_safe_extract_bundle``) and extracted to a throwaway staging dir; only the
+    resolved bundle root is handed to ``mount()``. The staging dir is always
+    cleaned up — ``mount()`` adopts a copy into ``WORLDS_DIR`` on success, so
+    nothing of value lives in staging after the call.
+
+    Form field: ``file`` (the ``.zip``, multipart/form-data). Expected
+    failures: 403 (cross-site/origin), 400 (no file / not a zip / corrupt /
+    unsafe archive), 409 (non-bundle or seal/compat/category/slug refusal).
+    """
+    import tempfile
+    from fastapi.responses import JSONResponse
+    from arail.world_mount import (
+        mount,
+        SealMismatch, PartialBundle, SchemaSkew, GateViolation, SlugInvalid,
+    )
+
+    def _err(code: int, body: dict):
+        return JSONResponse(status_code=code, content=body)
+
+    # ── CSRF envelope (identical to api_worlds_import) ──
+    _sfs = request.headers.get("sec-fetch-site", "").strip().lower()
+    if _sfs in ("cross-site", "none"):
+        return _err(403, {"error": "cross_site"})
+    origin = request.headers.get("origin", "")
+    host = request.headers.get("host", "")
+    if origin:
+        from urllib.parse import urlparse as _urlparse
+        origin_host = _urlparse(origin).netloc
+        if origin_host and origin_host != host:
+            return _err(403, {"error": "cross_origin"})
+
+    # ── Pull the uploaded .zip out of the multipart body ──
+    try:
+        form = await request.form()
+    except Exception:
+        return _err(400, {"error": "bad_request", "message": "invalid multipart body"})
+    upload = form.get("file") if hasattr(form, "get") else None
+    if upload is None or not hasattr(upload, "read"):
+        return _err(400, {"error": "no_file",
+                          "message": "Attach a .zip of a WorldBundle folder."})
+
+    fname = (getattr(upload, "filename", "") or "").lower()
+    if not fname.endswith(".zip"):
+        return _err(400, {"error": "not_a_zip", "message": "Expected a .zip archive."})
+
+    zip_bytes = await upload.read()
+    if not zip_bytes:
+        return _err(400, {"error": "no_file", "message": "Empty upload."})
+    if len(zip_bytes) > _ZIP_MAX_UPLOAD:
+        return _err(400, {"error": "unsafe_zip",
+                          "message": "Archive too large for a WorldBundle."})
+
+    # ── Extract to a throwaway staging dir, then mount the bundle root ──
+    staging = Path(tempfile.mkdtemp(prefix="arail-world-zip-"))
+    try:
+        try:
+            bundle_dir = _safe_extract_bundle(zip_bytes, staging)
+        except ValueError as e:
+            code = str(e)
+            status = 409 if code == "not_a_bundle" else 400
+            msg = {
+                "bad_zip": "Not a valid .zip archive.",
+                "unsafe_zip": "Archive refused (unsafe or oversized).",
+                "not_a_bundle": "No WorldBundle (manifest.json) found in the archive.",
+            }.get(code, "Import refused.")
+            return _err(status, {"error": code if code != "not_a_bundle"
+                                 else "import_refused", "message": msg})
+
+        try:
+            rec = mount(bundle_dir)
+        except (SealMismatch, PartialBundle, SchemaSkew, GateViolation, SlugInvalid) as e:
+            return _err(409, {"error": "import_refused",
+                              "message": getattr(e, "user_message", str(e))})
+        except Exception as e:  # noqa: BLE001
+            _log.warning("world import-zip: unexpected mount error: %s", e)
+            return _err(500, {"error": "import_failed", "message": str(e)})
+
+        return {"ok": True, "current": rec.world, "imported": True}
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
+
+
 def _dict_resolve_theme() -> Dict[str, Any]:
     # Theme is the AI glossary (default) unless the user picked a topic override.
     # The research goal is surfaced as a suggested action, not an auto-switch.
