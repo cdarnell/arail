@@ -85,6 +85,13 @@ def _no_ambient_world_mount(monkeypatch, tmp_path_factory):
 
     clean = tmp_path_factory.mktemp("no-ambient-world")
     monkeypatch.setattr(world_mount, "_default_data_dir", lambda: clean)
+    # Also isolate the catalog dir: mount() now adopts a byte-copy of each
+    # bundle into WORLDS_DIR so it survives unmount. Point that at a fresh
+    # empty dir so tests never write into the real repo lab/worlds/ (and so a
+    # developer's ambient catalog can't leak into listing tests). Tests that
+    # need their own catalog override _default_worlds_dir in their own body.
+    clean_worlds = tmp_path_factory.mktemp("no-ambient-worlds-dir")
+    monkeypatch.setattr(world_mount, "_default_worlds_dir", lambda: clean_worlds)
 
 
 @pytest.fixture(autouse=True)
