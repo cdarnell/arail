@@ -2026,9 +2026,85 @@
       return opt;
     }
 
+    // ── World-declared model hint banner ───────────────────────────
+    // Additive, dismissible, per-(world,id). Never auto-switches, never
+    // silently downloads, never blocks. Reuses the existing select path
+    // (Switch) and the existing install-command surface (Install). The
+    // `rationale` is World-supplied DATA — always escaped, never a prompt.
+    function modelHintDismissKey(h) {
+      return `arail.modelHintDismissed.${h.world || '?'}.${h.id || '?'}`;
+    }
+    function isModelHintDismissed(h) {
+      try { return localStorage.getItem(modelHintDismissKey(h)) === '1'; }
+      catch (e) { return false; }
+    }
+    function dismissModelHint(h) {
+      try { localStorage.setItem(modelHintDismissKey(h), '1'); } catch (e) {}
+    }
+    function renderModelHintBanner(pop) {
+      const h = State.gallery && State.gallery.model_hint;
+      if (!h || !h.id || !h.state) return;
+      if (isModelHintDismissed(h)) return;
+
+      const airgapped = !!(State.gallery && State.gallery.compact
+                           && State.gallery.compact.airgapped);
+      const name = escapeHtml(h.name || h.id);
+      const goodAt = (h.good_at && h.good_at.length)
+        ? escapeHtml(h.good_at.join(', ')) : '';
+      const size = (typeof h.size_gb === 'number') ? `${h.size_gb} GB` : '';
+
+      const el = document.createElement('div');
+      el.className = 'model-hint-banner';
+
+      let body = '', action = '';
+      if (h.state === 'recommended_installed') {
+        body = `This World recommends <b>${name}</b>${goodAt ? ` for ${goodAt}` : ''} — switch?`;
+        action = `<button class="mhb-primary" data-mh-switch="1">Switch</button>`;
+      } else if (h.state === 'recommended_available') {
+        if (airgapped) {
+          body = `Recommended model <b>${name}</b>${size ? ` (${size})` : ''} isn't installed and the lab is airgapped — install it when you're online, then switch.`;
+        } else {
+          body = `This World recommends <b>${name}</b>${size ? ` (${size})` : ''}${goodAt ? ` for ${goodAt}` : ''} — install &amp; switch?`;
+          const cmd = h.catalog_entry && h.catalog_entry.install
+            ? escapeHtml(h.catalog_entry.install) : '';
+          action = `<button class="mhb-primary" data-mh-install="1">Install${size ? ` ~${size}` : ''}</button>`
+                 + (cmd ? `<code class="mhb-cmd" hidden>${cmd}</code>` : '');
+        }
+      } else { // recommended_unknown
+        const rat = h.rationale ? ` (${escapeHtml(h.rationale)})` : '';
+        body = `This World recommends <code>${escapeHtml(h.id)}</code>${rat}. It isn't in your catalog — pick it manually if you have it.`;
+      }
+
+      el.innerHTML = `<div class="mhb-body">${body}</div>`
+        + `<div class="mhb-actions">${action}`
+        + `<button class="mhb-dismiss" data-mh-dismiss="1">Dismiss</button></div>`;
+
+      el.addEventListener('click', (e) => {
+        if (e.target.closest('[data-mh-dismiss]')) {
+          dismissModelHint(h); el.remove(); return;
+        }
+        if (e.target.closest('[data-mh-switch]')) {
+          const m = State.models.find(x => x.id === h.id);
+          if (m) { selectModel(m); closePicker(); }
+          else { flashStatus(`${h.name || h.id}: not in installed list`); }
+          return;
+        }
+        if (e.target.closest('[data-mh-install]')) {
+          // Consent-gated: reveal the install command surface; NEVER auto-pull.
+          const c = el.querySelector('.mhb-cmd');
+          if (c) c.hidden = false;
+          flashStatus(`Install ${h.name || h.id} via the shown command, then Switch.`);
+          return;
+        }
+      });
+      pop.appendChild(el);
+    }
+
     function renderPicker() {
       const pop = $('picker-pop');
       pop.innerHTML = '';
+
+      renderModelHintBanner(pop);
 
       const hwLabel = State.gallery && State.gallery.compact && State.gallery.compact.hardware
                     ? `${State.gallery.compact.hardware.label} · ${State.gallery.compact.hardware.free_gb||'?'} GB free`

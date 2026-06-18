@@ -79,6 +79,30 @@ def _read_version() -> str:
 
 _BOOT_VERSION: str = _read_version()
 
+
+def boot_grace_seconds() -> int:
+    """Startup quiet window, in seconds.
+
+    For this long after boot, the lab suppresses *automatic* background
+    "is anything out of date?" work — the dashboard's quiet update-check
+    poll and the boot CVE scan — so initial startup stays smooth and free
+    of subprocess/network contention (``git fetch``, ``pip list --outdated``,
+    GitHub release probes, ``pip-audit``). Explicit, user-triggered checks
+    (the Check Updates button / Updates banner) are never gated.
+
+    Default 3600 (1 hour). Set ``ARAIL_BOOT_GRACE_SEC=0`` to disable.
+    """
+    try:
+        return max(0, int(os.getenv("ARAIL_BOOT_GRACE_SEC", "3600")))
+    except ValueError:
+        return 3600
+
+
+def _within_boot_grace() -> bool:
+    """True while still inside the startup quiet window (see boot_grace_seconds)."""
+    return (time.perf_counter() - _BOOT_PERF) < boot_grace_seconds()
+
+
 # ---------------------------------------------------------------------------
 # In-process metrics counters (sprint 2026-05-14-platform-foundation §2).
 # Reset to zero on portal restart — documented v1 limitation in api-conventions.md.
@@ -833,12 +857,14 @@ async def _startup():
                 "warn")
 
     # Boot security scan — hybrid mode only (LAB_MODE=airgapped stays default;
-    # no involuntary outbound calls).  Runs 30 s after startup to let the lab
-    # settle first.  The task is cancelled cleanly on shutdown (CancelledError
-    # is re-raised so asyncio can cancel the task — D3 mitigation).
+    # no involuntary outbound calls).  Deferred past the startup quiet window
+    # (boot_grace_seconds, default 1 h; min 30 s settle) so initial startup
+    # stays smooth and free of pip-audit contention.  The task is cancelled
+    # cleanly on shutdown (CancelledError is re-raised so asyncio can cancel
+    # the task — D3 mitigation).
     if _lab_mode() == "hybrid":
         async def _boot_security_scan():
-            await asyncio.sleep(30)
+            await asyncio.sleep(max(30, boot_grace_seconds()))
             try:
                 from arail.portal import security_scan
                 await security_scan.run_and_persist(trigger="boot")
@@ -4261,6 +4287,13 @@ async def admin_check_updates():
     mode = _lab_mode()
     if mode == "airgapped":
         return {"airgapped": True, "updates_available": 0, "summary": "Airgapped — switch to Hybrid to check."}
+    # Startup quiet window: the dashboard fires this on every load. During the
+    # boot-grace window we skip the (network/subprocess-heavy) component probes
+    # so initial startup stays smooth — no banner, no contention. The explicit
+    # Check Updates button uses the /stream endpoint and is never gated.
+    if _within_boot_grace():
+        return {"airgapped": False, "updates_available": 0, "deferred": True,
+                "summary": "Update check deferred during startup."}
     import subprocess as sp
     manifest_path = Path.cwd() / "components.json"
     if not manifest_path.exists():
@@ -7079,6 +7112,7 @@ async def api_chat_models(provider: str = ""):
         gallery = gallery_view()
     except Exception as e:  # noqa: BLE001
         gallery = {"installed": [], "catalog": [], "runtime_counts": {},
+                   "model_hint": None,
                    "error": f"{type(e).__name__}: {e}"}
 
     memory_snapshot = _local_memory_snapshot()
@@ -9449,6 +9483,270 @@ async def api_pkb_upload(request: Request):
     return result
 
 
+# ── KB capture: toolchain-gated voice/image ingest into the inbox ──────
+# Distinct from the chat 🎤/📷 (which stay World-gated and land in research/):
+# these KB affordances are available whenever the on-device STT/OCR *toolchain*
+# is present on THIS machine (registry.available_capability), independent of any
+# mounted World. The capture lands as markdown in lab/pkb/inbox/ and flows through
+# the EXISTING compile pipeline (same as a dropped doc). The transcript/OCR text
+# is inert RAW user DATA — it never enters a prompt as instructions.
+
+
+@app.get("/api/capabilities/installed")
+async def api_capabilities_installed():
+    """Which on-device capture toolchains are installed on THIS machine.
+
+    ``{"speech-to-text": bool, "equation-ocr": bool}`` — each adapter's
+    ``is_available()`` on this platform, decoupled from any mounted World. Drives
+    the KB toolbar's enable/disable of the 🎤 Voice / 📷 Scan buttons.
+    """
+    from arail.capabilities import registry
+    return registry.installed_capabilities()
+
+
+def _trigger_inbox_processing():
+    """Run the same inbox → sources/ ingest the ⚡ Process inbox button/watcher
+    uses, then schedule the wiki rebuild. Best-effort: a processing failure must
+    not lose the just-written inbox file (the watcher will retry)."""
+    moved = 0
+    try:
+        from arail.pkb import ingest as run_ingest
+        res = run_ingest()
+        moved = int(res.get("moved", 0) or 0)
+        if moved or res.get("urls_fetched"):
+            try:
+                from arail import wiki
+                wiki.schedule_rebuild()
+            except Exception:  # noqa: BLE001
+                pass
+    except Exception as e:  # noqa: BLE001
+        _log.warning("kb-capture: inbox processing failed (file retained): %s", e)
+    return moved
+
+
+@app.post("/api/kb/voice-ingest")
+async def api_kb_voice_ingest(request: Request):
+    """Capture a voice memo into the KB inbox (toolchain-gated, NOT World-gated).
+
+    Form: audio (file part), mime (str), locale (str, default 'en-US').
+    Requires the on-device STT adapter to be installed on this machine (else 409
+    with an actionable toolchain message). Transcribes on-device, writes
+    ``lab/pkb/inbox/voice-memo-<ISO>.md`` (front-matter source: voice-memo), then
+    triggers the existing inbox processing. Returns ``{ok, path, reveal}``.
+    """
+    from arail.capabilities import registry, CapabilityUnavailable, CapabilityError
+
+    stt_adapter = registry.available_capability("speech-to-text")
+    if stt_adapter is None:
+        return JSONResponse(
+            {"error": "ok", "ok": False,
+             "reason": "toolchain_unavailable",
+             "message": ("On-device voice transcription isn't installed on this "
+                         "machine. Run `./arailctl setup` once (with network) to "
+                         "fetch the speech model, then try again.")},
+            status_code=409)
+
+    try:
+        form = await request.form()
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse({"error": f"invalid multipart body: {e}"}, status_code=400)
+
+    upload = form.get("audio")
+    if upload is None or not hasattr(upload, "read"):
+        return JSONResponse({"error": "no audio in request"}, status_code=400)
+    mime = str(form.get("mime", getattr(upload, "content_type", "") or ""))
+    locale = str(form.get("locale", "en-US"))
+    audio_bytes = await upload.read()
+
+    artifact = None
+    try:
+        audio_adapter = registry.select("audio-capture")
+        if audio_adapter is None:
+            return JSONResponse(
+                {"error": "Audio capture backend is not available."}, status_code=409)
+
+        artifact = audio_adapter.invoke(audio_bytes=audio_bytes, mime=mime)
+        transcript = stt_adapter.invoke(audio=artifact, locale=locale)
+
+        text = str(transcript.get("text", "")).strip()
+        if not text:
+            return {"ok": False, "reason": "no_speech"}
+
+        rel = _land_inbox_capture(
+            text,
+            source="voice-memo",
+            title_prefix="Voice memo",
+            fname_prefix="voice-memo",
+            extra_frontmatter={"confidence": f"{float(transcript.get('confidence', 0.0) or 0.0):.2f}"},
+        )
+        _trigger_inbox_processing()
+        activity_log.emit("pkb", f"Voice memo → KB inbox: {rel['path']}", "success")
+        return {"ok": True, "path": rel["path"], "reveal": rel["reveal"]}
+    except CapabilityUnavailable as e:
+        return JSONResponse({"error": getattr(e, "user_message", str(e))}, status_code=409)
+    except CapabilityError as e:
+        return JSONResponse({"error": getattr(e, "user_message", str(e))}, status_code=422)
+    except Exception as e:  # noqa: BLE001
+        _log.warning("kb-voice: unexpected ingest failure: %s", e)
+        return JSONResponse({"error": "Voice ingest failed unexpectedly."}, status_code=500)
+    finally:
+        # Always delete the temp audio blob — no audio is retained.
+        if artifact is not None:
+            try:
+                from pathlib import Path as _P
+                _P(artifact["path"]).unlink(missing_ok=True)
+            except Exception:  # noqa: BLE001
+                pass
+
+
+@app.post("/api/kb/scan-ingest")
+async def api_kb_scan_ingest(request: Request):
+    """Capture an image (OCR) into the KB inbox (toolchain-gated, NOT World-gated).
+
+    Form: image (file part), mime (str, optional — sniffed regardless). Requires
+    the on-device OCR adapter installed on this machine (else 409). PNG/JPEG
+    allowlist + magic-byte sniff + 12 MB cap. Writes
+    ``lab/pkb/inbox/scan-<ISO>.md`` (front-matter source: image-ocr), triggers
+    inbox processing. Returns ``{ok, path, reveal}``. Filenames are
+    server-generated/timestamped — never user input (path-jail).
+    """
+    from arail.capabilities import registry, CapabilityUnavailable, CapabilityError
+
+    ocr_adapter = registry.available_capability("equation-ocr")
+    if ocr_adapter is None:
+        return JSONResponse(
+            {"error": "ok", "ok": False,
+             "reason": "toolchain_unavailable",
+             "message": ("On-device image OCR isn't installed on this machine. "
+                         "Install Apple's command-line tools (`xcode-select "
+                         "--install`), then try again.")},
+            status_code=409)
+
+    try:
+        form = await request.form()
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse({"error": f"invalid multipart body: {e}"}, status_code=400)
+
+    upload = form.get("image")
+    if upload is None or not hasattr(upload, "read"):
+        return JSONResponse({"error": "no image in request"}, status_code=400)
+    declared_mime = str(form.get("mime", getattr(upload, "content_type", "") or "")).split(";", 1)[0].strip().lower()
+    original_filename = getattr(upload, "filename", None) or "image"
+    image_bytes = await upload.read()
+
+    # ── Validate the upload (don't trust it). ──
+    if not image_bytes:
+        return JSONResponse({"error": "No image was received. Try again."}, status_code=422)
+    if len(image_bytes) > _OCR_MAX_BYTES:
+        return JSONResponse({"error": "Image too large — keep it under 12 MB."}, status_code=422)
+    sniffed = _sniff_image(image_bytes)
+    if sniffed is None:
+        return JSONResponse(
+            {"error": "That doesn't look like a PNG or JPEG image."}, status_code=422)
+    if declared_mime and declared_mime not in _OCR_MIME_EXT:
+        return JSONResponse(
+            {"error": "That doesn't look like a PNG or JPEG image."}, status_code=422)
+
+    ext = _OCR_MIME_EXT[sniffed]
+
+    # ── Materialize temp file under the cache dir (server-generated name). ──
+    import uuid as _uuid
+    from arail.config import DATA_DIR
+    from pathlib import Path as _P
+    cache_dir = _P(DATA_DIR) / "cache" / "ocr"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    tmp = cache_dir / f"{_uuid.uuid4().hex}{ext}"
+    tmp.write_bytes(image_bytes)
+
+    try:
+        result = ocr_adapter.invoke(image={"path": tmp, "mime": sniffed})
+
+        text = str(result.get("text", "")).strip()
+        if not text:
+            return {"ok": False, "reason": "no_text"}
+
+        # Record the original filename as inert metadata (path components stripped).
+        safe_orig = _P(original_filename).name or "image"
+        rel = _land_inbox_capture(
+            text,
+            source="image-ocr",
+            title_prefix="Scan",
+            fname_prefix="scan",
+            extra_frontmatter={"original-filename": safe_orig},
+        )
+        _trigger_inbox_processing()
+        activity_log.emit("pkb", f"Scan (OCR) → KB inbox: {rel['path']}", "success")
+        return {"ok": True, "path": rel["path"], "reveal": rel["reveal"]}
+    except CapabilityUnavailable as e:
+        return JSONResponse({"error": getattr(e, "user_message", str(e))}, status_code=409)
+    except CapabilityError as e:
+        return JSONResponse({"error": getattr(e, "user_message", str(e))}, status_code=422)
+    except Exception as e:  # noqa: BLE001
+        _log.warning("kb-scan: unexpected ingest failure: %s", e)
+        return JSONResponse({"error": "Scan ingest failed unexpectedly."}, status_code=500)
+    finally:
+        # Always delete the temp image — no image is retained.
+        try:
+            tmp.unlink(missing_ok=True)
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def _fm_scalar(v) -> str:
+    """Make a (possibly user-influenced) value safe as ONE YAML front-matter
+    scalar: collapse newlines to a single line, neutralize a stray ``---``
+    delimiter, and cap length — so an OCR/transcript filename or field can't
+    inject a fake front-matter line. The value is DATA either way; this keeps
+    the markdown well-formed."""
+    s = " ".join(str(v).splitlines()).strip()
+    s = s.replace("---", "—")
+    return s[:200]
+
+
+def _land_inbox_capture(text: str, *, source: str, title_prefix: str,
+                        fname_prefix: str, extra_frontmatter: dict | None = None):
+    """Write captured text as a markdown raw source into ``lab/pkb/inbox/``.
+
+    Filename is server-generated/timestamped (path-jail: never user input). Returns
+    ``{"path": <pkb-root-relative posix>, "reveal": <same>}``. The compile pipeline
+    (inbox watcher → sources/) then picks it up like any dropped doc.
+    """
+    from datetime import datetime, timezone
+    from arail.pkb import _pkb_root
+
+    root = _pkb_root()
+    inbox = root / "inbox"
+    inbox.mkdir(parents=True, exist_ok=True)
+
+    now = datetime.now(timezone.utc)
+    iso = now.strftime("%Y-%m-%dT%H-%M-%SZ")
+    title_stamp = now.strftime("%Y-%m-%d %H:%M UTC")
+    fname = f"{fname_prefix}-{iso}.md"
+    # De-dupe defensively (sub-second double-taps) — still server-generated.
+    dest = inbox / fname
+    n = 1
+    while dest.exists():
+        dest = inbox / f"{fname_prefix}-{iso}-{n}.md"
+        n += 1
+
+    fm_lines = [
+        "---",
+        f"title: {title_prefix} — {title_stamp}",
+        "kind: raw",
+        f"source: {source}",
+        f"captured-at: {now.strftime('%Y-%m-%dT%H:%M:%SZ')}",
+        "sourced: false",
+    ]
+    for k, v in (extra_frontmatter or {}).items():
+        fm_lines.append(f"{k}: {_fm_scalar(v)}")
+    fm_lines.append("---")
+    body = "\n".join(fm_lines) + "\n\n" + text.strip() + "\n"
+    dest.write_text(body, encoding="utf-8")
+
+    rel = dest.relative_to(root).as_posix()
+    return {"path": rel, "reveal": rel}
+
+
 # ── Speech-to-text → RAW voice note (inherited capability) ─────────────
 # A mounted World that declares `speech-to-text` lights up a mic button in
 # Chat. The browser captures audio (getUserMedia/MediaRecorder) and POSTs the
@@ -9633,8 +9931,8 @@ def _land_raw_ocr_note(result: dict, world: str, image_filename: str):
         "kind: raw\n"
         "source: user-captured (image-ocr, on-device)\n"
         "sourced: false\n"
-        f"world: {world}\n"
-        f"image: {image_filename}\n"
+        f"world: {_fm_scalar(world)}\n"
+        f"image: {_fm_scalar(image_filename)}\n"
         "---\n\n"
         f"{text}\n"
     )

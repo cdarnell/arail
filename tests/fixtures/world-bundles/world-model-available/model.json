@@ -1,0 +1,11 @@
+{
+  "schema": "dac.world-model/v1",
+  "recommended": {
+    "id": "gemma3:4b",
+    "family": "gemma",
+    "size_gb": 3.3,
+    "good_at": ["physics", "math", "reasoning"],
+    "rationale": "Tuned for physics derivations; far stronger than a 1B on technical domains."
+  },
+  "fallback": ["qwen2.5:1.5b", "llama3.2:1b"]
+}

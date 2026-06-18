@@ -32,6 +32,15 @@
     📤 Upload
   </button>
   <input type="file" id="kb-upload-input" multiple style="display:none" />
+  <button class="btn btn-sm btn-ghost" id="kb-voice-btn"
+          title="Record a voice memo → transcribed on-device into the KB inbox" disabled>
+    🎤 Voice memo
+  </button>
+  <button class="btn btn-sm btn-ghost" id="kb-scan-btn"
+          title="Scan an image → OCR'd on-device into the KB inbox" disabled>
+    📷 Scan
+  </button>
+  <input type="file" id="kb-scan-input" accept="image/png,image/jpeg" style="display:none" />
   <button class="btn btn-sm btn-ghost" id="kb-process-inbox-btn"
           title="Process anything currently in lab/pkb/inbox/ (e.g., files you dropped via Finder). The background watcher does this every ~10s — click to trigger immediately.">
     ⚡ Process inbox
@@ -1505,6 +1514,149 @@ document.getElementById('kb-process-inbox-btn').addEventListener('click', async 
     setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 1800);
   }
 });
+
+// ── KB capture: 🎤 Voice memo + 📷 Scan (toolchain-gated, NOT World-gated) ──
+// These light up whenever the on-device STT/OCR toolchain is installed on THIS
+// machine (GET /api/capabilities/installed) — independent of any mounted World.
+// Capture lands as markdown in lab/pkb/inbox/ and flows through the same compile
+// pipeline as a dropped doc. Mirrors the chat mic's pickMime()/MediaRecorder.
+(function () {
+  const voiceBtn = document.getElementById('kb-voice-btn');
+  const scanBtn = document.getElementById('kb-scan-btn');
+  const scanInput = document.getElementById('kb-scan-input');
+  if (!voiceBtn || !scanBtn || !scanInput) return;
+
+  // Mirror chat's pickMime(): prefer an afconvert-decodable container; never webm.
+  function pickMime() {
+    const order = ['audio/mp4', 'audio/aac', 'audio/wav'];
+    for (const m of order) {
+      if (window.MediaRecorder && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(m)) return m;
+    }
+    return '';
+  }
+
+  function captureToast(data, kind) {
+    // data = {ok, path, reveal}. Show the existing reveal toast with [Open]/[Reveal]
+    // pointing at the inbox file the watcher/compile will pick up.
+    const sub = data.path.split('/').slice(1, -1).join('/');
+    renderRevealToast(
+      [{
+        filename: data.path.split('/').pop(),
+        dest: 'inbox/',
+        slot: 'inbox',
+        subpath: sub ? sub + '/' : '',
+        openPath: data.path,
+        note: kind + ' captured — processing into sources…',
+      }],
+      { heading: '✓ ' + kind + ' → KB inbox', footer: 'Wiki rebuilding… graph refreshes when done.' }
+    );
+    if (typeof loadTree === 'function') loadTree();
+  }
+
+  // ── 📷 Scan: file picker → OCR → inbox ──
+  scanBtn.addEventListener('click', () => { if (!scanBtn.disabled) scanInput.click(); });
+  scanInput.addEventListener('change', async () => {
+    const file = scanInput.files && scanInput.files[0];
+    scanInput.value = '';
+    if (!file) return;
+    const orig = scanBtn.textContent;
+    scanBtn.disabled = true;
+    scanBtn.textContent = 'reading…';
+    try {
+      const fd = new FormData();
+      fd.append('image', file, file.name || 'scan');
+      fd.append('mime', file.type || '');
+      const r = await fetch('/api/kb/scan-ingest', { method: 'POST', body: fd });
+      const d = await r.json();
+      if (r.ok && d.ok) {
+        captureToast(d, 'Scan');
+        scanBtn.textContent = '✓ scanned';
+      } else if (r.ok && d.ok === false && d.reason === 'no_text') {
+        renderRevealToast([{filename: file.name, dest: '', note: 'no text found in that image'}], {heading: 'Nothing to OCR'});
+        scanBtn.textContent = orig;
+      } else {
+        renderRevealToast([{filename: file.name, dest: '', error: true, note: d.message || d.error || 'OCR failed'}], {heading: 'Scan failed'});
+        scanBtn.textContent = 'error';
+      }
+    } catch (e) {
+      renderRevealToast([{filename: file.name || 'scan', dest: '', error: true, note: e.message}], {heading: 'Scan failed'});
+      scanBtn.textContent = 'error';
+    } finally {
+      setTimeout(() => { scanBtn.textContent = orig; scanBtn.disabled = false; }, 1800);
+    }
+  });
+
+  // ── 🎤 Voice memo: MediaRecorder → STT → inbox ──
+  let media = null, recorder = null, chunks = [], mime = '', recording = false;
+  async function startRec() {
+    try {
+      media = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (e) {
+      renderRevealToast([{filename: '(mic)', dest: '', error: true, note: 'Allow microphone access for 127.0.0.1, then retry.'}], {heading: 'Microphone blocked'});
+      return;
+    }
+    mime = pickMime();
+    if (!mime) {
+      // Chrome records webm/opus which the on-device decoder can't handle in v1.
+      renderRevealToast([{filename: '(mic)', dest: '', error: true, note: 'Use Safari for voice memos in v1 (Chrome webm/opus is on the roadmap).'}], {heading: 'Unsupported audio format'});
+      media.getTracks().forEach(t => t.stop());
+      return;
+    }
+    chunks = [];
+    recorder = new MediaRecorder(media, { mimeType: mime });
+    recorder.ondataavailable = ev => { if (ev.data && ev.data.size) chunks.push(ev.data); };
+    recorder.onstop = uploadVoice;
+    recorder.start();
+    recording = true;
+    voiceBtn.textContent = '⏹ Stop';
+    voiceBtn.classList.add('recording');
+  }
+  function stopRec() {
+    recording = false;
+    voiceBtn.classList.remove('recording');
+    voiceBtn.textContent = '🎤 Voice memo';
+    try { recorder && recorder.stop(); } catch (e) {}
+    if (media) media.getTracks().forEach(t => t.stop());
+  }
+  async function uploadVoice() {
+    const blob = new Blob(chunks, { type: mime });
+    const fd = new FormData();
+    fd.append('audio', blob, 'voice-memo' + (mime.indexOf('wav') >= 0 ? '.wav' : '.m4a'));
+    fd.append('mime', mime);
+    fd.append('locale', 'en-US');
+    try {
+      const r = await fetch('/api/kb/voice-ingest', { method: 'POST', body: fd });
+      const d = await r.json();
+      if (r.ok && d.ok) {
+        captureToast(d, 'Voice memo');
+      } else if (r.ok && d.ok === false && d.reason === 'no_speech') {
+        renderRevealToast([{filename: '(voice memo)', dest: '', note: 'didn’t catch anything — try again'}], {heading: 'No speech'});
+      } else {
+        renderRevealToast([{filename: '(voice memo)', dest: '', error: true, note: d.message || d.error || 'transcription failed'}], {heading: 'Voice memo failed'});
+      }
+    } catch (e) {
+      renderRevealToast([{filename: '(voice memo)', dest: '', error: true, note: e.message}], {heading: 'Voice memo failed'});
+    }
+  }
+  voiceBtn.addEventListener('click', () => { if (voiceBtn.disabled) return; recording ? stopRec() : startRec(); });
+
+  // ── On load: probe the toolchain, enable/disable each button ──
+  // TOOLCHAIN tooltip on disabled (NOT a "mount a World" message).
+  fetch('/api/capabilities/installed').then(r => r.json()).then(caps => {
+    if (caps['speech-to-text']) {
+      voiceBtn.disabled = false;
+    } else {
+      voiceBtn.disabled = true;
+      voiceBtn.title = 'Install the on-device speech model (`./arailctl setup`) to enable voice memos.';
+    }
+    if (caps['equation-ocr']) {
+      scanBtn.disabled = false;
+    } else {
+      scanBtn.disabled = true;
+      scanBtn.title = 'Install Apple’s command-line tools (`xcode-select --install`) to enable scan/OCR.';
+    }
+  }).catch(() => { /* leave both disabled on probe failure */ });
+})();
 
 document.getElementById('kb-quick-new-note').addEventListener('click', async () => {
   const title = prompt('New note title:');

@@ -21,11 +21,11 @@
 {% set graph_api  = "/api/wiki/graph" %}
 {% set show_health = False %}
 {% set color_map = {
-  "sources":  "#00d4ff",
-  "agents":   "#00ff41",
-  "notes":    "#b48eff",
-  "compiled": "#ffb000",
-  "docs":     "#ff3355",
+  "sources":  "var(--blue)",
+  "agents":   "var(--green)",
+  "notes":    "var(--purple)",
+  "compiled": "var(--amber)",
+  "docs":     "var(--red)",
   "inference":"#555e70"
 } %}
 {% set icon_map = {
@@ -37,11 +37,11 @@
   "inference":"⊕"
 } %}
 {% set legend_groups = [
-  {"label": "Sources",  "color": "#00d4ff"},
-  {"label": "Agents",   "color": "#00ff41"},
-  {"label": "Notes",    "color": "#b48eff"},
-  {"label": "Compiled", "color": "#ffb000"},
-  {"label": "Docs",     "color": "#ff3355"},
+  {"label": "Sources",  "color": "var(--blue)"},
+  {"label": "Agents",   "color": "var(--green)"},
+  {"label": "Notes",    "color": "var(--purple)"},
+  {"label": "Compiled", "color": "var(--amber)"},
+  {"label": "Docs",     "color": "var(--red)"},
   {"label": "Inference","color": "#555e70"}
 ] %}
 {% include "_graph_canvas.html" %}

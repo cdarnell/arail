@@ -61,6 +61,43 @@ def select(capability_id: str) -> Optional[Adapter]:
     return matched[0]
 
 
+def available_capability(capability_id: str) -> Optional[Adapter]:
+    """Return the platform adapter for ``capability_id`` IFF it ``is_available()``
+    on this machine, else None.
+
+    This is the toolchain-present probe used by the KB capture affordances: it is
+    decoupled from any mounted World (it asks the platform adapter directly, not
+    the World's declared capabilities). A flaky ``is_available()`` probe degrades
+    to None rather than crashing the caller.
+    """
+    candidates = _ADAPTERS.get(capability_id)
+    if not candidates:
+        return None
+    host = _host_platform()
+    matched = [a for a in candidates if a.platform == host]
+    for a in matched:
+        try:
+            if a.is_available():
+                return a
+        except Exception:  # noqa: BLE001 — a flaky probe must not crash the caller
+            continue
+    return None
+
+
+# Capabilities whose toolchain the KB capture UI can light up, independent of any
+# mounted World. (STT = on-device Whisper; OCR = on-device image-text backend.)
+_INSTALLABLE_CAPABILITY_IDS = ("speech-to-text", "equation-ocr")
+
+
+def installed_capabilities() -> Dict[str, bool]:
+    """``{capability_id: is_available()}`` for the KB-installable capabilities on
+    this platform. Decoupled from any World mount."""
+    return {
+        cid: available_capability(cid) is not None
+        for cid in _INSTALLABLE_CAPABILITY_IDS
+    }
+
+
 def _reset_for_tests() -> None:
     """Clear the registry (tests that re-import backends)."""
     _ADAPTERS.clear()

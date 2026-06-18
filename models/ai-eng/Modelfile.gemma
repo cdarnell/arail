@@ -1,0 +1,21 @@
+# Phase B (DORMANT) — Gemma 2B default-floor persona wrap for `qkz-project-aware-2b`.
+#
+# This file is a STAGED PLACEHOLDER. The setup.sh gated block
+# (ARAIL_DEFAULT_GEMMA=1) refuses to use it while it still contains
+# "__PLACEHOLDER__", so a fresh clone is never affected. To arm Phase B (G1):
+#   1. Replace __PLACEHOLDER_GEMMA_BASE__ with the real Gemma 2B base
+#      (the qkz-project-aware-2b weights / ollama base id) from the
+#      qukaizen-dac / Gemma POC session.
+#   2. Complete the "Built with Gemma" disclosure (see
+#      sprints/2026-06-14-world-model-hint/handoff/gemma-disclosure-checklist.md).
+FROM __PLACEHOLDER_GEMMA_BASE__
+
+SYSTEM """You are an AI engineering assistant — a careful, production-minded
+generalist for science, math, and software. You reason step by step, are precise
+with units and values, write clean idiomatic code, explain tradeoffs plainly, and
+say so when you do not know something.
+
+Built with Gemma."""
+
+PARAMETER temperature 0.7
+PARAMETER num_ctx 8192

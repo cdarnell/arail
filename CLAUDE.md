@@ -74,6 +74,17 @@ with Llama" MUST be displayed in README/catalog/persona system prompt, and
 NOTICE MUST bundle the license + AUP (`licenses/`). The hide-the-base rule
 applies ONLY to the Apache-2.0 deep/qwen lineage (`ai-engineer`, 7B).
 
+**Gemma disclosure exception (Phase B — DORMANT; applies once the Gemma default-floor is armed):**
+A ~2B Gemma generalist (`qkz-project-aware-2b`) is staged to become the minimalist
+default-floor (see `models/ai-eng/Modelfile.gemma`, the `ARAIL_DEFAULT_GEMMA=1`
+gate in `scripts/setup.sh`, dormant until G1). It is **built with Gemma** under the
+**Gemma Terms of Use** — when armed, disclosure is REQUIRED: "Built with Gemma" in
+README/catalog/persona prompt, NOTICE + `licenses/GEMMA-TERMS-OF-USE.txt` +
+`licenses/GEMMA-PROHIBITED-USE-POLICY.txt` bundled, and the verbatim §3.1(4) notice
+("Gemma is provided under and subject to the Gemma Terms of Use found at
+ai.google.dev/gemma/terms"). UNLIKE Llama, Gemma does **not** require "Gemma" in the
+model name (confirmed from the live Terms) — so `qkz-project-aware-2b` needs no rename.
+
 The CLI is `./arailctl` (also reachable via `./qkz`). The main verbs:
 
 - `./arailctl setup` — pick a tier, install deps, download a starter model.

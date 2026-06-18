@@ -45,7 +45,16 @@ _log = logging.getLogger(__name__)
 
 MOUNT_RECORD_NAME = "world-mount.json"
 CAPABILITIES_SIDECAR_NAME = "world-capabilities.json"
+MODEL_SIDECAR_NAME = "world-model.json"
 _STAGING_DIR_SUFFIX = ".staging"
+
+# model.json (seal-EXEMPT, OPTIONAL sibling) — schema string + field guards.
+_MODEL_HINT_SCHEMA = "dac.world-model/v1"
+# Conservative allowlist for a recommended.id (ollama model:tag OR catalog id).
+# Defense-in-depth: the id is only ever compared against catalog ids and
+# rendered as escaped text — NEVER shell-interpolated by ARAIL.
+_MODEL_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,128}$")
+_MODEL_RATIONALE_CAP = 280
 
 # Files listed in manifest.files{} (not manifest.json itself)
 _BUNDLE_FILES = frozenset([
@@ -738,6 +747,155 @@ def _remove_capabilities_sidecar(data_dir: Path) -> None:
         _log.warning("world_mount: could not remove capabilities sidecar: %s", e)
 
 
+# ── World model-hint sidecar (additive; NOT sealed, NOT in _BUNDLE_FILES) ─────
+
+
+def _model_sidecar_path(data_dir: Path) -> Path:
+    return data_dir / MODEL_SIDECAR_NAME
+
+
+def current_model_hint(data_dir: Path | None = None) -> Optional[Dict[str, Any]]:
+    """Read DATA_DIR/world-model.json. Mirrors current_capabilities().
+
+    Returns the sidecar dict, or None if absent/unreadable. Never raises.
+    """
+    dd = data_dir or _default_data_dir()
+    p = _model_sidecar_path(dd)
+    if not p.exists():
+        return None
+    try:
+        return json.loads(p.read_bytes())
+    except Exception as e:  # noqa: BLE001
+        _log.warning("world_mount: corrupt model-hint sidecar at %s: %s", p, e)
+        return None
+
+
+def _parse_model_hint(raw: Dict[str, Any]) -> tuple[Optional[Dict[str, Any]], List[str], Optional[str]]:
+    """Validate a parsed model.json. Returns (recommended, fallback, error).
+
+    ``recommended`` is the normalized+validated dict or None (absent/invalid).
+    ``fallback`` is the list of regex-valid fallback ids (invalid dropped).
+    ``error`` is a human string when the file is malformed, else None.
+
+    Defensive — model.json crosses the DaC→ARAIL repo boundary, so every field
+    is treated as attacker-influenced DATA. The id is allowlist-checked; the
+    rationale is length-capped; nothing here is ever shell-interpolated.
+    """
+    if not isinstance(raw, dict):
+        return None, [], "model.json is not an object"
+
+    schema = raw.get("schema")
+    if schema != _MODEL_HINT_SCHEMA:
+        # Unknown/missing schema (incl. a future /v2) → treat the whole file as
+        # absent, gracefully. Never error.
+        return None, [], f"unsupported or missing schema: {schema!r}"
+
+    rec = raw.get("recommended")
+    if not isinstance(rec, dict):
+        return None, [], "recommended object missing or invalid"
+
+    rid = rec.get("id")
+    if not isinstance(rid, str) or not rid or not _MODEL_ID_RE.match(rid):
+        return None, [], f"recommended.id missing/invalid: {rid!r}"
+
+    normalized: Dict[str, Any] = {"id": rid}
+
+    family = rec.get("family")
+    if isinstance(family, str) and family:
+        normalized["family"] = family
+
+    size_gb = rec.get("size_gb")
+    if isinstance(size_gb, (int, float)) and not isinstance(size_gb, bool):
+        normalized["size_gb"] = float(size_gb)
+
+    good_at = rec.get("good_at")
+    if isinstance(good_at, list):
+        normalized["good_at"] = [str(g) for g in good_at if isinstance(g, (str, int, float))]
+
+    rationale = rec.get("rationale")
+    if isinstance(rationale, str) and rationale:
+        # DATA — capped, rendered escaped in a banner, NEVER prompt-injected.
+        normalized["rationale"] = rationale[:_MODEL_RATIONALE_CAP]
+
+    fallback_raw = raw.get("fallback")
+    fallback: List[str] = []
+    if isinstance(fallback_raw, list):
+        for fid in fallback_raw:
+            if isinstance(fid, str) and _MODEL_ID_RE.match(fid):
+                fallback.append(fid)
+
+    return normalized, fallback, None
+
+
+def _catalog_ids() -> set:
+    """Cheap catalog-membership set. Best-effort; never raises."""
+    try:
+        from arail.chat import load_catalog
+        return {e.id for e in load_catalog()}
+    except Exception as e:  # noqa: BLE001
+        _log.warning("world_mount: catalog unavailable for model-hint: %s", e)
+        return set()
+
+
+def _resolve_and_write_model_hint(bundle_dir: Path, slug: str, data_dir: Path) -> None:
+    """Best-effort: read bundle_dir/model.json (seal-exempt, OPTIONAL), validate
+    schema+id, do the CHEAP catalog-membership check, and persist the sidecar
+    atomically. Any failure → logged, NEVER fails the mount.
+
+    The volatile installed-vs-available distinction is NOT computed here; it is
+    derived at READ time (gallery request) so a hung Ollama never slows a mount
+    and the state never goes stale after the user installs the model.
+
+    Cases mirror capabilities: absent (no sidecar written), malformed
+    (model_hint_error recorded, recommended=None), valid.
+    """
+    model_path = Path(bundle_dir) / "model.json"
+    if not model_path.exists():
+        # Absent → write NO sidecar (matches "absent → none"). unmount/swap
+        # remove any stale sidecar separately.
+        return
+
+    recommended: Optional[Dict[str, Any]] = None
+    fallback: List[str] = []
+    hint_error: Optional[str] = None
+    try:
+        raw = json.loads(model_path.read_bytes())
+        recommended, fallback, hint_error = _parse_model_hint(raw)
+    except Exception as e:  # noqa: BLE001
+        hint_error = f"model.json unreadable: {e}"
+        _log.warning("world_mount: %s", hint_error)
+
+    catalog_state = "not_in_catalog"
+    if recommended is not None:
+        catalog_state = "in_catalog" if recommended["id"] in _catalog_ids() else "not_in_catalog"
+
+    data_dir.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "world": slug,
+        "resolved_at": datetime.now(timezone.utc).isoformat(),
+        "recommended": recommended,
+        "fallback": fallback,
+        "catalog_state": catalog_state,
+        "model_hint_error": hint_error,
+    }
+    target = _model_sidecar_path(data_dir)
+    tmp = target.with_suffix(".tmp")
+    try:
+        tmp.write_text(json.dumps(payload, indent=2))
+        os.replace(tmp, target)
+    except Exception as e:  # noqa: BLE001
+        tmp.unlink(missing_ok=True)
+        _log.warning("world_mount: could not write model-hint sidecar: %s", e)
+
+
+def _remove_model_hint_sidecar(data_dir: Path) -> None:
+    p = _model_sidecar_path(data_dir)
+    try:
+        p.unlink(missing_ok=True)
+    except Exception as e:  # noqa: BLE001
+        _log.warning("world_mount: could not remove model-hint sidecar: %s", e)
+
+
 def _stage_files(bundle: Bundle, pkb_root: Path) -> Path:
     """Stage the 6 bundle files to pkb/sources/world-<slug>/ via a .staging dir.
 
@@ -763,10 +921,25 @@ def _stage_files(bundle: Bundle, pkb_root: Path) -> Path:
     # Emit world-<slug>.md index page
     _write_index_page(bundle, staging_dir)
 
-    # Atomic rename (removes existing final_dir first on same FS)
-    if final_dir.exists():
-        shutil.rmtree(final_dir)
-    staging_dir.rename(final_dir)
+    # Swap with the shortest possible "absent" window: step the live dir aside
+    # (one rename), bring the new dir live (one rename) — two back-to-back
+    # metadata ops — then delete the old aside AFTER the new dir is live, so the
+    # slow rmtree never blocks consumers reading mounted_terms during a same-slug
+    # swap. On failure, restore the old dir (never leave the World unmounted).
+    old_aside = pkb_root / "sources" / f".old-{slug}"
+    if old_aside.exists():
+        shutil.rmtree(old_aside)
+    had_old = final_dir.exists()
+    if had_old:
+        final_dir.rename(old_aside)
+    try:
+        staging_dir.rename(final_dir)
+    except Exception:
+        if had_old and old_aside.exists() and not final_dir.exists():
+            old_aside.rename(final_dir)  # roll back to the previous World
+        raise
+    if had_old and old_aside.exists():
+        shutil.rmtree(old_aside)
     return final_dir
 
 
@@ -808,6 +981,61 @@ def _index_staged(staged_dir: Path, pkb_root: Path) -> None:
         _log.warning("world_mount: indexer unavailable: %s", e)
 
 
+def _adopt_into_catalog(
+    bundle_dir: Path,
+    slug: str,
+    worlds_dir: Path | None = None,
+) -> Optional[Path]:
+    """Copy a freshly-mounted bundle into ``WORLDS_DIR/<slug>/`` so it persists
+    in the switcher catalog and stays re-mountable after unmount.
+
+    The portal's World selection is path-jailed to ``WORLDS_DIR`` (this lab runs
+    on other people's machines — see ``_resolve_world_dir``). A World mounted
+    from an *external* path (CLI ``world mount <dir>``, a DaC export elsewhere)
+    is therefore visible only while mounted and can never be re-selected once
+    unmounted. Adopting a byte-for-byte copy under ``WORLDS_DIR`` makes it a
+    first-class catalog entry the jailed slug path can re-mount — and the copy
+    is identical, so ``verify_seal`` still passes.
+
+    Best-effort: never raises (a failed adopt must not fail the mount). No-op
+    when the bundle already lives under ``WORLDS_DIR`` (slug-select already
+    resolves it) or when the slug is invalid.
+    """
+    try:
+        wd = (worlds_dir or _default_worlds_dir())
+        src = bundle_dir.resolve()
+        wd_res = wd.resolve()
+        # Already inside the catalog jail → nothing to adopt.
+        src_s, root_s = str(src), str(wd_res)
+        if src_s == root_s or src_s.startswith(root_s + os.sep):
+            return None
+        if not _SLUG_RE.match(slug):
+            return None
+        wd.mkdir(parents=True, exist_ok=True)
+        dest = wd / slug
+        # Stage into a hidden temp dir (skipped by the catalog scan), then swap
+        # atomically so a crash mid-copy never leaves a half-written entry.
+        tmp = wd / f".adopting-{slug}"
+        if tmp.exists():
+            shutil.rmtree(tmp, ignore_errors=True)
+        tmp.mkdir(parents=True)
+        for f in sorted(src.iterdir()):
+            if f.is_file():
+                shutil.copy2(f, tmp / f.name)
+        if dest.exists():
+            old = wd / f".old-{slug}"
+            shutil.rmtree(old, ignore_errors=True)
+            dest.rename(old)
+            tmp.rename(dest)
+            shutil.rmtree(old, ignore_errors=True)
+        else:
+            tmp.rename(dest)
+        return dest
+    except Exception as e:  # noqa: BLE001
+        _log.warning("world_mount: catalog adopt failed (continuing): %s", e)
+        return None
+
+
 # ── Public state-mutating API ─────────────────────────────────────────────────
 
 
@@ -816,6 +1044,7 @@ def mount(
     *,
     pkb_root: Path | None = None,
     data_dir: Path | None = None,
+    worlds_dir: Path | None = None,
 ) -> MountRecord:
     """Mount a WorldBundle. Atomic: refuses before touching disk on any error.
 
@@ -864,6 +1093,11 @@ def mount(
     )
     _write_record(record, dd)
 
+    # Step 5: adopt into the catalog so the switcher keeps the World after
+    # unmount (re-mountable via the jailed slug path). Best-effort; no-op when
+    # the bundle already lives under WORLDS_DIR.
+    _adopt_into_catalog(bundle_dir, bundle.world, worlds_dir)
+
     # Step 6: wiki rebuild best-effort
     try:
         from arail import wiki
@@ -876,6 +1110,12 @@ def mount(
         _resolve_and_write_capabilities(bundle_dir, bundle.slug, dd)
     except Exception as e:  # noqa: BLE001
         _log.warning("world_mount: capability resolution skipped: %s", e)
+
+    # Step 8: resolve declared model hint → sidecar (best-effort, never fails mount)
+    try:
+        _resolve_and_write_model_hint(bundle_dir, bundle.slug, dd)
+    except Exception as e:  # noqa: BLE001
+        _log.warning("world_mount: model-hint resolution skipped: %s", e)
 
     return record
 
@@ -899,6 +1139,8 @@ def unmount(
     _remove_record(dd)
     # Remove the capabilities sidecar alongside the pointer.
     _remove_capabilities_sidecar(dd)
+    # Remove the model-hint sidecar alongside the pointer (idempotent).
+    _remove_model_hint_sidecar(dd)
 
     if remove_staged:
         staged = Path(record.staged_dir)
@@ -968,6 +1210,15 @@ def swap(
         _resolve_and_write_capabilities(new_dir, bundle.slug, dd)
     except Exception as e:  # noqa: BLE001
         _log.warning("world_mount: capability resolution skipped: %s", e)
+
+    # Re-resolve the model hint for the NEW World. Clear the old sidecar first so
+    # swapping to a World with no model.json doesn't leave a stale hint behind
+    # (the resolver writes nothing when model.json is absent).
+    try:
+        _remove_model_hint_sidecar(dd)
+        _resolve_and_write_model_hint(new_dir, bundle.slug, dd)
+    except Exception as e:  # noqa: BLE001
+        _log.warning("world_mount: model-hint resolution skipped: %s", e)
 
     return record
 

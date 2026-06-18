@@ -1,0 +1,691 @@
+{
+  "version": 1,
+  "terms": [
+    {
+      "slug": "amount-of-substance",
+      "term": "Amount of substance",
+      "category": "quantities",
+      "short": "The SI base quantity counting elementary entities; its unit is the mole.",
+      "definition": "Amount of substance is the SI base quantity expressing the number of specified elementary entities (atoms, molecules, ions, electrons) in a sample. Its dimension symbol is N and its coherent SI unit is the mole (mol). Since 2019 the mole is defined by fixing the Avogadro constant, decoupling it from the kilogram and from any particular substance.",
+      "example": "Counting silicon-28 atoms in a near-perfect sphere fixes a known amount of substance, traceable through the Avogadro constant.",
+      "related": [
+        "mole",
+        "avogadro-constant"
+      ],
+      "source": "BIPM SI Brochure, 9th ed. (2019) — base quantities and units"
+    },
+    {
+      "slug": "ampere",
+      "term": "Ampere (A)",
+      "aka": [
+        "A",
+        "amp"
+      ],
+      "category": "units",
+      "short": "SI base unit of electric current, defined by fixing the elementary charge.",
+      "definition": "The ampere (symbol A) is the SI base unit of electric current. It is defined by taking the fixed numerical value of the elementary charge e to be 1.602 176 634 × 10⁻¹⁹ when expressed in C (= A·s), the second being defined via ΔνCs. One ampere is one coulomb of charge flowing per second.",
+      "example": "A single-electron current pump realises a quantised ampere by transferring a counted number of elementary charges per second.",
+      "related": [
+        "electric-current",
+        "elementary-charge",
+        "coulomb",
+        "second"
+      ],
+      "source": "BIPM SI Brochure, 9th ed. (2019), §2.3.1; NIST CUU (physics.nist.gov/cuu)"
+    },
+    {
+      "slug": "avogadro-constant",
+      "term": "Avogadro constant (N_A)",
+      "aka": [
+        "N_A",
+        "Avogadro number"
+      ],
+      "category": "constants",
+      "short": "The fixed count of entities per mole that defines the mole.",
+      "definition": "Value: 6.022 140 76 × 10²³ mol⁻¹ (exact, by definition of the SI — SI Brochure 9th ed.). N_A is the number of elementary entities in one mole. Fixing its numerical value defines the mole as exactly 6.022 140 76 × 10²³ specified elementary entities, decoupling amount of substance from the kilogram.",
+      "example": "Counting atoms in a highly enriched silicon-28 sphere realises a known amount of substance through the fixed Avogadro constant.",
+      "related": [
+        "mole",
+        "amount-of-substance"
+      ],
+      "source": "BIPM SI Brochure, 9th ed. (2019), Table of defining constants; NIST CUU (physics.nist.gov/cuu)"
+    },
+    {
+      "slug": "boltzmann-constant",
+      "term": "Boltzmann constant (k)",
+      "aka": [
+        "k",
+        "k_B"
+      ],
+      "category": "constants",
+      "short": "The fixed energy-per-temperature constant that defines the kelvin.",
+      "definition": "Value: 1.380 649 × 10⁻²³ J·K⁻¹ (exact, by definition of the SI — SI Brochure 9th ed.). k relates the average thermal energy of particles to thermodynamic temperature (E ~ kT). Fixing its numerical value defines the kelvin, replacing the former definition based on the triple point of water.",
+      "example": "Acoustic gas thermometry determines temperature from the speed of sound in a gas using the fixed Boltzmann constant.",
+      "related": [
+        "kelvin",
+        "thermodynamic-temperature"
+      ],
+      "source": "BIPM SI Brochure, 9th ed. (2019), Table of defining constants; NIST CUU (physics.nist.gov/cuu)"
+    },
+    {
+      "slug": "caesium-frequency",
+      "term": "Caesium hyperfine frequency (ΔνCs)",
+      "aka": [
+        "caesium-133 hyperfine transition frequency",
+        "ΔνCs"
+      ],
+      "category": "constants",
+      "short": "The fixed frequency that defines the second.",
+      "definition": "Value: 9 192 631 770 Hz (exact, by definition of the SI — SI Brochure 9th ed.). ΔνCs is the unperturbed ground-state hyperfine transition frequency of the caesium-133 atom. Fixing its numerical value defines the SI second: one second is 9 192 631 770 periods of this radiation. It is the anchor from which time, and through time the metre and the ampere, are realised.",
+      "example": "A caesium fountain clock counts exactly 9 192 631 770 cycles of the hyperfine radiation to tick off one SI second.",
+      "related": [
+        "second",
+        "time"
+      ],
+      "source": "BIPM SI Brochure, 9th ed. (2019), Table of defining constants; NIST CUU (physics.nist.gov/cuu)"
+    },
+    {
+      "slug": "calibration",
+      "term": "Calibration",
+      "category": "measurement-practice",
+      "short": "Establishing the relation between an instrument's readings and reference values.",
+      "definition": "Calibration is the operation that, under specified conditions, establishes a relation between the quantity values provided by measurement standards (with their uncertainties) and the corresponding indications of an instrument (with their uncertainties), and then uses that relation to obtain a result from an indication. Calibration is the rung-by-rung mechanism that creates metrological traceability.",
+      "example": "Calibrating a thermometer against a fixed-point cell relates its readings to traceable kelvin values with a stated uncertainty.",
+      "related": [
+        "metrological-traceability",
+        "measurement-uncertainty"
+      ],
+      "source": "JCGM/BIPM VIM 3rd ed. (JCGM 200:2012), §2.39"
+    },
+    {
+      "slug": "candela",
+      "term": "Candela (cd)",
+      "aka": [
+        "cd"
+      ],
+      "category": "units",
+      "short": "SI base unit of luminous intensity, defined by fixing the luminous efficacy at 540 THz.",
+      "definition": "The candela (symbol cd) is the SI base unit of luminous intensity in a given direction. It is defined by taking the fixed numerical value of the luminous efficacy of monochromatic radiation of frequency 540 × 10¹² Hz, K_cd, to be 683 when expressed in lm·W⁻¹ (= cd·sr·W⁻¹), with the watt defined via h, c, and ΔνCs.",
+      "example": "A photometer calibrated to the 540 THz luminous-efficacy definition reports the candela of a directional source.",
+      "related": [
+        "luminous-intensity",
+        "luminous-efficacy",
+        "watt"
+      ],
+      "source": "BIPM SI Brochure, 9th ed. (2019), §2.3.1; NIST CUU (physics.nist.gov/cuu)"
+    },
+    {
+      "slug": "coherent-derived-unit",
+      "term": "Coherent derived unit",
+      "aka": [
+        "coherent unit"
+      ],
+      "category": "measurement-practice",
+      "short": "A derived unit formed from base units with no numerical factor other than one.",
+      "definition": "A coherent derived unit is a product of powers of the SI base units with a proportionality factor of exactly one — no extra numerical coefficient. The newton (kg·m·s⁻²) and joule (kg·m²·s⁻²) are coherent; using a prefix breaks coherence (the kPa is not coherent). Coherence is what lets equations between quantities hold with the same numerical form between their unit values.",
+      "example": "The joule is coherent because 1 J = 1 kg·m²·s⁻² exactly, with no conversion factor; the kilowatt-hour is not coherent.",
+      "related": [
+        "joule",
+        "newton",
+        "si-prefix"
+      ],
+      "source": "BIPM SI Brochure, 9th ed. (2019), §2.3.4 (coherence)"
+    },
+    {
+      "slug": "coulomb",
+      "term": "Coulomb (C)",
+      "aka": [
+        "C"
+      ],
+      "category": "units",
+      "short": "Named derived unit of electric charge: A·s.",
+      "definition": "The coulomb (symbol C) is the coherent SI derived unit of electric charge, equal to the charge transported by a constant current of one ampere in one second: 1 C = 1 A·s. It is named after Charles-Augustin de Coulomb.",
+      "example": "One coulomb is about 6.241 × 10¹⁸ elementary charges (1/e of them).",
+      "related": [
+        "ampere",
+        "second",
+        "elementary-charge"
+      ],
+      "source": "BIPM SI Brochure, 9th ed. (2019), Table 4 (named derived units)"
+    },
+    {
+      "slug": "electric-current",
+      "term": "Electric current",
+      "category": "quantities",
+      "short": "The SI base quantity of charge flow; its unit is the ampere.",
+      "definition": "Electric current is the SI base quantity describing the rate of flow of electric charge. Its dimension symbol is I and its coherent SI unit is the ampere (A). Since 2019 the ampere is defined by fixing the elementary charge, so current is realised by counting (or otherwise fixing) charge per unit time rather than via a force between conductors.",
+      "example": "A single-electron tunnelling device pumps a counted number of elementary charges per second to realise a small, traceable current.",
+      "related": [
+        "ampere",
+        "elementary-charge",
+        "time"
+      ],
+      "source": "BIPM SI Brochure, 9th ed. (2019) — base quantities and units"
+    },
+    {
+      "slug": "electron-mass",
+      "term": "Electron mass (mₑ)",
+      "aka": [
+        "mₑ",
+        "m_e",
+        "rest mass of the electron"
+      ],
+      "category": "constants",
+      "short": "The measured rest mass of the electron.",
+      "definition": "Value: 9.109 383 7139(28) × 10⁻³¹ kg (CODATA 2022, u_r = 3.1 × 10⁻¹⁰). mₑ is the invariant (rest) mass of the electron. It is a measured constant, determined primarily from the electron's mass in atomic mass units combined with the relation between the atomic mass unit and the kilogram.",
+      "example": "Penning-trap measurements of the electron's cyclotron frequency feed determinations of the electron mass in atomic mass units.",
+      "related": [
+        "mass",
+        "elementary-charge"
+      ],
+      "source": "CODATA 2022 recommended values; NIST CUU (physics.nist.gov/cuu)"
+    },
+    {
+      "slug": "elementary-charge",
+      "term": "Elementary charge (e)",
+      "aka": [
+        "e"
+      ],
+      "category": "constants",
+      "short": "The fixed electric charge that defines the ampere.",
+      "definition": "Value: 1.602 176 634 × 10⁻¹⁹ C (exact, by definition of the SI — SI Brochure 9th ed.). e is the magnitude of the electric charge carried by a single proton (or, with opposite sign, an electron). Fixing its numerical value defines the ampere: a current of one ampere corresponds to 1/(1.602 176 634 × 10⁻¹⁹) elementary charges flowing per second.",
+      "example": "A single-electron pump transfers a counted number of elementary charges per second, realising a quantised current traceable to e.",
+      "related": [
+        "ampere",
+        "electric-current"
+      ],
+      "source": "BIPM SI Brochure, 9th ed. (2019), Table of defining constants; NIST CUU (physics.nist.gov/cuu)"
+    },
+    {
+      "slug": "fine-structure-constant",
+      "term": "Fine-structure constant (α)",
+      "aka": [
+        "α",
+        "alpha"
+      ],
+      "category": "constants",
+      "short": "The dimensionless constant setting the strength of the electromagnetic interaction.",
+      "definition": "Value: α = 7.297 352 5643(11) × 10⁻³ (CODATA 2022, u_r = 1.6 × 10⁻¹⁰); equivalently α⁻¹ = 137.035 999 177(21). α is the dimensionless coupling constant characterising the strength of the electromagnetic interaction between elementary charged particles. Being dimensionless, it has the same value in every system of units and is one of the most precisely determined constants in physics.",
+      "example": "Comparing a measured electron magnetic moment with QED theory yields one of the most precise determinations of α.",
+      "related": [
+        "elementary-charge"
+      ],
+      "source": "CODATA 2022 recommended values; NIST CUU (physics.nist.gov/cuu)"
+    },
+    {
+      "slug": "hertz",
+      "term": "Hertz (Hz)",
+      "aka": [
+        "Hz"
+      ],
+      "category": "units",
+      "short": "Named derived unit of frequency: one cycle per second (s⁻¹).",
+      "definition": "The hertz (symbol Hz) is the coherent SI derived unit of frequency, equal to one cycle per second: 1 Hz = 1 s⁻¹. It is used only for periodic phenomena; for angular velocity the unit radian per second is used instead.",
+      "example": "Mains electricity in Europe alternates at 50 Hz — fifty full cycles each second.",
+      "related": [
+        "second",
+        "time"
+      ],
+      "source": "BIPM SI Brochure, 9th ed. (2019), Table 4 (named derived units)"
+    },
+    {
+      "slug": "joule",
+      "term": "Joule (J)",
+      "aka": [
+        "J"
+      ],
+      "category": "units",
+      "short": "Named derived unit of energy: N·m = kg·m²·s⁻².",
+      "definition": "The joule (symbol J) is the coherent SI derived unit of energy, work, and heat, equal to the work done when a force of one newton acts through one metre: 1 J = 1 N·m = 1 kg·m²·s⁻². It is named after James Prescott Joule.",
+      "example": "Lifting a 1 kg object about 10 cm against gravity does roughly one joule of work.",
+      "related": [
+        "newton",
+        "metre",
+        "kilogram",
+        "second"
+      ],
+      "source": "BIPM SI Brochure, 9th ed. (2019), Table 4 (named derived units)"
+    },
+    {
+      "slug": "kelvin",
+      "term": "Kelvin (K)",
+      "aka": [
+        "K"
+      ],
+      "category": "units",
+      "short": "SI base unit of thermodynamic temperature, defined by fixing the Boltzmann constant.",
+      "definition": "The kelvin (symbol K) is the SI base unit of thermodynamic temperature. It is defined by taking the fixed numerical value of the Boltzmann constant k to be 1.380 649 × 10⁻²³ when expressed in J·K⁻¹ (= kg·m²·s⁻²·K⁻¹), the kilogram, metre, and second being defined via h, c, and ΔνCs.",
+      "example": "Acoustic gas thermometry realises the kelvin via the fixed Boltzmann constant linking thermal energy to temperature.",
+      "related": [
+        "thermodynamic-temperature",
+        "boltzmann-constant"
+      ],
+      "source": "BIPM SI Brochure, 9th ed. (2019), §2.3.1; NIST CUU (physics.nist.gov/cuu)"
+    },
+    {
+      "slug": "kilogram",
+      "term": "Kilogram (kg)",
+      "aka": [
+        "kg"
+      ],
+      "category": "units",
+      "short": "SI base unit of mass, defined by fixing the Planck constant.",
+      "definition": "The kilogram (symbol kg) is the SI base unit of mass. It is defined by taking the fixed numerical value of the Planck constant h to be 6.626 070 15 × 10⁻³⁴ when expressed in J·s (= kg·m²·s⁻¹), the metre and second being defined via c and ΔνCs. Since 2019 it no longer depends on the international prototype artefact.",
+      "example": "A Kibble balance realises the kilogram by relating mechanical to electrical power through the fixed Planck constant.",
+      "related": [
+        "mass",
+        "planck-constant",
+        "metre",
+        "second"
+      ],
+      "source": "BIPM SI Brochure, 9th ed. (2019), §2.3.1; NIST CUU (physics.nist.gov/cuu)"
+    },
+    {
+      "slug": "length",
+      "term": "Length",
+      "aka": [
+        "distance"
+      ],
+      "category": "quantities",
+      "short": "The SI base quantity of spatial extent; its unit is the metre.",
+      "definition": "Length is the SI base quantity describing spatial extent or distance. Its dimension symbol is L and its coherent SI unit is the metre (m). The metre is defined by fixing the speed of light in vacuum, so length is realised through time and the speed of light rather than through any physical artefact.",
+      "example": "An interferometer realises the metre by timing light over a path, using the fixed speed of light to convert duration into distance.",
+      "related": [
+        "metre",
+        "speed-of-light",
+        "time"
+      ],
+      "source": "BIPM SI Brochure, 9th ed. (2019) — base quantities and units"
+    },
+    {
+      "slug": "luminous-efficacy",
+      "term": "Luminous efficacy (K_cd)",
+      "aka": [
+        "K_cd",
+        "luminous efficacy of 540 THz radiation"
+      ],
+      "category": "constants",
+      "short": "The fixed luminous efficacy that defines the candela.",
+      "definition": "Value: 683 lm·W⁻¹ (exact, by definition of the SI — SI Brochure 9th ed.). K_cd is the luminous efficacy of monochromatic radiation of frequency 540 × 10¹² Hz (540 THz). Fixing its numerical value defines the candela, anchoring the photometric scale to a model of the human eye's response.",
+      "example": "A photometer calibrated to the 683 lm/W luminous efficacy at 540 THz reads the candela output of a source.",
+      "related": [
+        "candela",
+        "luminous-intensity"
+      ],
+      "source": "BIPM SI Brochure, 9th ed. (2019), Table of defining constants; NIST CUU (physics.nist.gov/cuu)"
+    },
+    {
+      "slug": "luminous-intensity",
+      "term": "Luminous intensity",
+      "category": "quantities",
+      "short": "The SI base quantity of perceived light power in a direction; its unit is the candela.",
+      "definition": "Luminous intensity is the SI base quantity describing the power of light emitted in a given direction, weighted by the human eye's spectral response. Its dimension symbol is J and its coherent SI unit is the candela (cd). It is defined by fixing the luminous efficacy of monochromatic radiation at 540 THz, the one base quantity tied to a model of human perception.",
+      "example": "A photometer calibrated against the 540 THz luminous-efficacy definition measures the candela output of a lamp in a specified direction.",
+      "related": [
+        "candela",
+        "luminous-efficacy"
+      ],
+      "source": "BIPM SI Brochure, 9th ed. (2019) — base quantities and units"
+    },
+    {
+      "slug": "mass",
+      "term": "Mass",
+      "category": "quantities",
+      "short": "The SI base quantity of inertia and gravitation; its unit is the kilogram.",
+      "definition": "Mass is the SI base quantity measuring a body's resistance to acceleration (inertial mass) and its gravitational interaction. Its dimension symbol is M and its coherent SI unit is the kilogram (kg). Since 2019 the kilogram is defined by fixing the Planck constant, ending the era of the international prototype artefact.",
+      "example": "A Kibble (watt) balance realises the kilogram by balancing mechanical against electromagnetic power, tracing mass to the fixed Planck constant.",
+      "related": [
+        "kilogram",
+        "planck-constant"
+      ],
+      "source": "BIPM SI Brochure, 9th ed. (2019) — base quantities and units"
+    },
+    {
+      "slug": "measurand",
+      "term": "Measurand",
+      "category": "measurement-practice",
+      "short": "The specific quantity intended to be measured.",
+      "definition": "A measurand is the quantity intended to be measured. Specifying a measurand requires stating the kind of quantity and enough of the system's state and conditions that the value is well-defined (for example, 'the length of a steel rod at 20 °C'). The measurand is what an uncertainty statement is about; an ill-defined measurand is itself a source of uncertainty.",
+      "example": "Declaring the measurand as 'the mass of the dried sample at 25 °C' fixes what the reported value and its uncertainty refer to.",
+      "related": [
+        "measurement-uncertainty"
+      ],
+      "source": "JCGM/BIPM VIM 3rd ed. (JCGM 200:2012), §2.3"
+    },
+    {
+      "slug": "measurement-uncertainty",
+      "term": "Measurement uncertainty",
+      "aka": [
+        "uncertainty",
+        "standard uncertainty"
+      ],
+      "category": "measurement-practice",
+      "short": "The quantified doubt about a measured value — 'uncertainty', not 'error'.",
+      "definition": "Measurement uncertainty is a non-negative parameter characterising the dispersion of the values that could reasonably be attributed to a measurand. It is reported as a standard uncertainty (one standard deviation) or an expanded uncertainty with a coverage factor. The SI distinguishes uncertainty (an honest quantified doubt) from error (the unknowable difference from a true value): CODATA constants carry uncertainty in notation like 6.674 30(15), where (15) is the standard uncertainty in the last digits.",
+      "example": "G = 6.674 30(15) × 10⁻¹¹ m³·kg⁻¹·s⁻² states a standard uncertainty of 0.000 15 × 10⁻¹¹ in the last two digits.",
+      "related": [
+        "measurand",
+        "gravitational-constant"
+      ],
+      "source": "JCGM/BIPM VIM 3rd ed. (JCGM 200:2012), §2.26; GUM (JCGM 100:2008)"
+    },
+    {
+      "slug": "metre",
+      "term": "Metre (m)",
+      "aka": [
+        "m",
+        "meter"
+      ],
+      "category": "units",
+      "short": "SI base unit of length, defined by fixing the speed of light.",
+      "definition": "The metre (symbol m) is the SI base unit of length. It is defined by taking the fixed numerical value of the speed of light in vacuum c to be 299 792 458 when expressed in m·s⁻¹, the second being defined via ΔνCs. The metre is therefore the distance light travels in vacuum in 1/299 792 458 of a second.",
+      "example": "A frequency-stabilised laser interferometer realises the metre from the second and the fixed speed of light.",
+      "related": [
+        "length",
+        "speed-of-light",
+        "second"
+      ],
+      "source": "BIPM SI Brochure, 9th ed. (2019), §2.3.1; NIST CUU (physics.nist.gov/cuu)"
+    },
+    {
+      "slug": "metrological-traceability",
+      "term": "Metrological traceability",
+      "aka": [
+        "traceability"
+      ],
+      "category": "measurement-practice",
+      "short": "An unbroken chain of calibrations linking a result to the SI.",
+      "definition": "Metrological traceability is the property of a measurement result whereby it can be related to a reference through a documented unbroken chain of calibrations, each contributing to the measurement uncertainty. In the modern SI the top of every chain is a defining constant, so a traceable result is ultimately tied to exact, fixed values.",
+      "example": "A factory's pressure gauge is traceable when its calibration links through national standards back to the SI realisation of the pascal.",
+      "related": [
+        "calibration",
+        "measurement-uncertainty"
+      ],
+      "source": "JCGM/BIPM VIM 3rd ed. (JCGM 200:2012), §2.41"
+    },
+    {
+      "slug": "mole",
+      "term": "Mole (mol)",
+      "aka": [
+        "mol"
+      ],
+      "category": "units",
+      "short": "SI base unit of amount of substance, defined by fixing the Avogadro constant.",
+      "definition": "The mole (symbol mol) is the SI base unit of amount of substance. One mole contains exactly 6.022 140 76 × 10²³ elementary entities — this number being the fixed numerical value of the Avogadro constant N_A when expressed in mol⁻¹. The entity must be specified (atom, molecule, ion, electron, etc.).",
+      "example": "One mole of carbon-12 atoms is exactly 6.022 140 76 × 10²³ atoms, by the definition fixing N_A.",
+      "related": [
+        "amount-of-substance",
+        "avogadro-constant"
+      ],
+      "source": "BIPM SI Brochure, 9th ed. (2019), §2.3.1; NIST CUU (physics.nist.gov/cuu)"
+    },
+    {
+      "slug": "newton",
+      "term": "Newton (N)",
+      "aka": [
+        "N"
+      ],
+      "category": "units",
+      "short": "Named derived unit of force: kg·m·s⁻².",
+      "definition": "The newton (symbol N) is the coherent SI derived unit of force, defined as the force that gives a mass of one kilogram an acceleration of one metre per second squared: 1 N = 1 kg·m·s⁻². It is named after Isaac Newton.",
+      "example": "Holding a small apple against gravity takes roughly one newton of upward force.",
+      "related": [
+        "kilogram",
+        "metre",
+        "second"
+      ],
+      "source": "BIPM SI Brochure, 9th ed. (2019), Table 4 (named derived units)"
+    },
+    {
+      "slug": "gravitational-constant",
+      "term": "Newtonian constant of gravitation (G)",
+      "aka": [
+        "G",
+        "big G",
+        "gravitational constant"
+      ],
+      "category": "constants",
+      "short": "The measured constant in Newton's law of gravitation — the least precisely known fundamental constant.",
+      "definition": "Value: 6.674 30(15) × 10⁻¹¹ m³·kg⁻¹·s⁻² (CODATA 2022, u_r = 2.2 × 10⁻⁵). G is the proportionality constant in Newton's law of universal gravitation, F = G·m₁m₂/r². Unlike the SI defining constants it is measured, not fixed, and its relative uncertainty (~2 × 10⁻⁵) makes it by far the least precisely known fundamental constant — discrepant determinations remain unresolved.",
+      "example": "Torsion-balance experiments measure the tiny gravitational attraction between test masses to determine G.",
+      "related": [
+        "mass"
+      ],
+      "source": "CODATA 2022 recommended values; NIST CUU (physics.nist.gov/cuu)"
+    },
+    {
+      "slug": "ohm",
+      "term": "Ohm (Ω)",
+      "aka": [
+        "Ω",
+        "ohm"
+      ],
+      "category": "units",
+      "short": "Named derived unit of electrical resistance: V·A⁻¹.",
+      "definition": "The ohm (symbol Ω) is the coherent SI derived unit of electrical resistance, equal to one volt per ampere: 1 Ω = 1 V·A⁻¹ = 1 kg·m²·s⁻³·A⁻². It is named after Georg Simon Ohm. The quantum Hall effect provides a quantised resistance standard.",
+      "example": "By Ohm's law, applying 1 V across a 1 Ω resistor drives a current of 1 A.",
+      "related": [
+        "volt",
+        "ampere"
+      ],
+      "source": "BIPM SI Brochure, 9th ed. (2019), Table 4 (named derived units)"
+    },
+    {
+      "slug": "pascal",
+      "term": "Pascal (Pa)",
+      "aka": [
+        "Pa"
+      ],
+      "category": "units",
+      "short": "Named derived unit of pressure: N·m⁻² = kg·m⁻¹·s⁻².",
+      "definition": "The pascal (symbol Pa) is the coherent SI derived unit of pressure and stress, equal to one newton per square metre: 1 Pa = 1 N·m⁻² = 1 kg·m⁻¹·s⁻². It is named after Blaise Pascal.",
+      "example": "Standard atmospheric pressure is about 101 325 Pa (101.325 kPa).",
+      "related": [
+        "newton",
+        "metre"
+      ],
+      "source": "BIPM SI Brochure, 9th ed. (2019), Table 4 (named derived units)"
+    },
+    {
+      "slug": "planck-constant",
+      "term": "Planck constant (h)",
+      "aka": [
+        "h",
+        "quantum of action"
+      ],
+      "category": "constants",
+      "short": "The fixed quantum of action that defines the kilogram.",
+      "definition": "Value: 6.626 070 15 × 10⁻³⁴ J·s (exact, by definition of the SI — SI Brochure 9th ed.). h relates a photon's energy to its frequency (E = hν) and is the quantum of action. Since 2019 fixing its numerical value defines the kilogram via the relation between mass, energy, and frequency, realised with a Kibble balance.",
+      "example": "A Kibble balance equates electrical power (measured in terms of h via the quantum Hall and Josephson effects) to mechanical power to realise the kilogram.",
+      "related": [
+        "kilogram",
+        "mass"
+      ],
+      "source": "BIPM SI Brochure, 9th ed. (2019), Table of defining constants; NIST CUU (physics.nist.gov/cuu)"
+    },
+    {
+      "slug": "rydberg-constant",
+      "term": "Rydberg constant (R∞)",
+      "aka": [
+        "R∞",
+        "R_infinity"
+      ],
+      "category": "constants",
+      "short": "The constant governing atomic spectral line wavelengths — among the most precisely known constants.",
+      "definition": "Value: R∞ = 10 973 731.568 157(12) m⁻¹ (CODATA 2022, u_r = 1.1 × 10⁻¹²). The Rydberg constant sets the scale of the wavelengths of spectral lines of hydrogen-like atoms. It is among the most precisely determined physical constants, fixed largely by precision hydrogen spectroscopy, and links electron mass, charge, and the Planck constant.",
+      "example": "Precision spectroscopy of hydrogen transitions determines R∞ and feeds the proton-radius and fundamental-constant adjustments.",
+      "related": [
+        "electron-mass"
+      ],
+      "source": "CODATA 2022 recommended values; NIST CUU (physics.nist.gov/cuu)"
+    },
+    {
+      "slug": "second",
+      "term": "Second (s)",
+      "aka": [
+        "s"
+      ],
+      "category": "units",
+      "short": "SI base unit of time, realised from the caesium hyperfine frequency.",
+      "definition": "The second (symbol s) is the SI base unit of time. It is defined by taking the fixed numerical value of the caesium-133 hyperfine transition frequency ΔνCs to be 9 192 631 770 when expressed in Hz (= s⁻¹). The second is the most accurately realised SI unit and underpins the realisation of the metre, ampere, and candela.",
+      "example": "An atomic clock realises the second by counting 9 192 631 770 caesium hyperfine cycles.",
+      "related": [
+        "time",
+        "caesium-frequency"
+      ],
+      "source": "BIPM SI Brochure, 9th ed. (2019), §2.3.1; NIST CUU (physics.nist.gov/cuu)"
+    },
+    {
+      "slug": "si-prefix",
+      "term": "SI prefix",
+      "aka": [
+        "metric prefix",
+        "decimal prefix"
+      ],
+      "category": "measurement-practice",
+      "short": "A decimal multiplier (kilo-, milli-, …) attached to a unit symbol.",
+      "definition": "An SI prefix is a name and symbol that multiplies a unit by a power of ten, from quecto- (10⁻³⁰) to quetta- (10³⁰), with the 2022 CGPM additions of ronna/quetta and ronto/quecto. Prefixes attach directly to the unit symbol (km, mV, GHz); the kilogram is the only base unit whose name already contains a prefix, so multiples of mass are formed on the gram.",
+      "example": "1 GHz = 10⁹ Hz; 1 nm = 10⁻⁹ m; 1 kPa = 10³ Pa.",
+      "related": [
+        "coherent-derived-unit",
+        "hertz",
+        "metre"
+      ],
+      "source": "BIPM SI Brochure, 9th ed. (2019), §3; 27th CGPM (2022) Resolution 3 (new prefixes)"
+    },
+    {
+      "slug": "speed-of-light",
+      "term": "Speed of light in vacuum (c)",
+      "aka": [
+        "c",
+        "lightspeed"
+      ],
+      "category": "constants",
+      "short": "The fixed speed of light that defines the metre.",
+      "definition": "Value: 299 792 458 m·s⁻¹ (exact, by definition of the SI — SI Brochure 9th ed.). c is the speed of light in vacuum. Fixing its numerical value defines the metre in terms of the second: the metre is the distance light travels in vacuum in 1/299 792 458 of a second. c is invariant and is a defining constant of the SI.",
+      "example": "An interferometer measures distance by timing a light pulse and multiplying by the fixed value of c.",
+      "related": [
+        "metre",
+        "length",
+        "second"
+      ],
+      "source": "BIPM SI Brochure, 9th ed. (2019), Table of defining constants; NIST CUU (physics.nist.gov/cuu)"
+    },
+    {
+      "slug": "tesla",
+      "term": "Tesla (T)",
+      "aka": [
+        "T"
+      ],
+      "category": "units",
+      "short": "Named derived unit of magnetic flux density: Wb·m⁻² = kg·s⁻²·A⁻¹.",
+      "definition": "The tesla (symbol T) is the coherent SI derived unit of magnetic flux density, equal to one weber per square metre: 1 T = 1 Wb·m⁻² = 1 kg·s⁻²·A⁻¹. It is named after Nikola Tesla.",
+      "example": "A clinical MRI scanner typically operates at a field of 1.5 T or 3 T.",
+      "related": [
+        "weber",
+        "metre"
+      ],
+      "source": "BIPM SI Brochure, 9th ed. (2019), Table 4 (named derived units)"
+    },
+    {
+      "slug": "thermodynamic-temperature",
+      "term": "Thermodynamic temperature",
+      "aka": [
+        "absolute temperature"
+      ],
+      "category": "quantities",
+      "short": "The SI base quantity of thermal state; its unit is the kelvin.",
+      "definition": "Thermodynamic temperature is the SI base quantity describing the absolute thermal state of a system, measured from absolute zero. Its dimension symbol is Θ and its coherent SI unit is the kelvin (K). Since 2019 the kelvin is defined by fixing the Boltzmann constant, linking temperature directly to the average thermal energy per degree of freedom.",
+      "example": "Acoustic gas thermometry realises the kelvin by relating the speed of sound in a gas to its thermal energy through the fixed Boltzmann constant.",
+      "related": [
+        "kelvin",
+        "boltzmann-constant"
+      ],
+      "source": "BIPM SI Brochure, 9th ed. (2019) — base quantities and units"
+    },
+    {
+      "slug": "time",
+      "term": "Time",
+      "aka": [
+        "duration"
+      ],
+      "category": "quantities",
+      "short": "The SI base quantity of duration; its unit is the second.",
+      "definition": "Time is the SI base quantity describing the progression of events and the duration between them. Its dimension symbol is T and its coherent SI unit is the second (s). Since the 2019 redefinition, the second is realised from the caesium-133 hyperfine transition frequency, so time is the most precisely realised of all the base quantities and underpins the realisation of the metre, the ampere, the candela, and several derived units.",
+      "example": "A laboratory frequency standard counts caesium hyperfine transitions to realise the second, against which all other clocks are calibrated.",
+      "related": [
+        "second",
+        "caesium-frequency"
+      ],
+      "source": "BIPM SI Brochure, 9th ed. (2019) — base quantities and units"
+    },
+    {
+      "slug": "vacuum-magnetic-permeability",
+      "term": "Vacuum magnetic permeability (μ₀)",
+      "aka": [
+        "μ₀",
+        "magnetic constant",
+        "permeability of free space"
+      ],
+      "category": "constants",
+      "short": "The measured magnetic constant of vacuum — no longer exactly 4π × 10⁻⁷ after the 2019 redefinition.",
+      "definition": "Value: μ₀ = 1.256 637 061 27(20) × 10⁻⁶ N·A⁻² (CODATA 2022, u_r = 1.6 × 10⁻¹⁰); equivalently 4π × 1.000 000 000 55(15) × 10⁻⁷ N·A⁻². Before the 2019 SI redefinition μ₀ was exactly 4π × 10⁻⁷ N·A⁻²; fixing the elementary charge instead of the ampere made μ₀ a measured quantity carrying the (very small) uncertainty of the fine-structure constant.",
+      "example": "μ₀ is now obtained from the fine-structure constant via μ₀ = 2αh/(c·e²), inheriting α's tiny uncertainty.",
+      "related": [
+        "fine-structure-constant",
+        "elementary-charge"
+      ],
+      "source": "CODATA 2022 recommended values; NIST CUU (physics.nist.gov/cuu)"
+    },
+    {
+      "slug": "volt",
+      "term": "Volt (V)",
+      "aka": [
+        "V"
+      ],
+      "category": "units",
+      "short": "Named derived unit of electric potential: W·A⁻¹ = J·C⁻¹.",
+      "definition": "The volt (symbol V) is the coherent SI derived unit of electric potential difference and electromotive force, equal to one watt per ampere: 1 V = 1 W·A⁻¹ = 1 J·C⁻¹ = 1 kg·m²·s⁻³·A⁻¹. It is named after Alessandro Volta.",
+      "example": "A standard AA battery supplies about 1.5 V of potential difference.",
+      "related": [
+        "watt",
+        "ampere",
+        "joule",
+        "coulomb"
+      ],
+      "source": "BIPM SI Brochure, 9th ed. (2019), Table 4 (named derived units)"
+    },
+    {
+      "slug": "watt",
+      "term": "Watt (W)",
+      "aka": [
+        "W"
+      ],
+      "category": "units",
+      "short": "Named derived unit of power: J·s⁻¹ = kg·m²·s⁻³.",
+      "definition": "The watt (symbol W) is the coherent SI derived unit of power and radiant flux, equal to one joule per second: 1 W = 1 J·s⁻¹ = 1 kg·m²·s⁻³. It is named after James Watt.",
+      "example": "A 10 W LED bulb consumes ten joules of electrical energy every second.",
+      "related": [
+        "joule",
+        "second"
+      ],
+      "source": "BIPM SI Brochure, 9th ed. (2019), Table 4 (named derived units)"
+    },
+    {
+      "slug": "weber",
+      "term": "Weber (Wb)",
+      "aka": [
+        "Wb"
+      ],
+      "category": "units",
+      "short": "Named derived unit of magnetic flux: V·s = kg·m²·s⁻²·A⁻¹.",
+      "definition": "The weber (symbol Wb) is the coherent SI derived unit of magnetic flux, equal to one volt-second: 1 Wb = 1 V·s = 1 kg·m²·s⁻²·A⁻¹. A flux change of one weber per second induces one volt (Faraday's law). It is named after Wilhelm Eduard Weber.",
+      "example": "A magnetic flux changing by one weber over one second through a single loop induces an EMF of one volt.",
+      "related": [
+        "volt",
+        "second"
+      ],
+      "source": "BIPM SI Brochure, 9th ed. (2019), Table 4 (named derived units)"
+    }
+  ]
+}

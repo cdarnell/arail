@@ -16,18 +16,18 @@
   --muted:     #78839a;
 
   /* Accents */
-  --green:     #00ff41;
+  --green:     var(--green);
   --green-dim: #00cc33;
-  --blue:      #00d4ff;
-  --amber:     #ffb000;
-  --red:       #ff3355;
-  --purple:    #b48eff;
+  --blue:      var(--blue);
+  --amber:     var(--amber);
+  --red:       var(--red);
+  --purple:    var(--purple);
 
   /* Glows */
-  --glow-green: 0 0 8px rgba(0,255,65,.3), 0 0 20px rgba(0,255,65,.1);
-  --glow-blue:  0 0 8px rgba(0,212,255,.3), 0 0 20px rgba(0,212,255,.1);
-  --glow-amber: 0 0 8px rgba(255,176,0,.3), 0 0 20px rgba(255,176,0,.1);
-  --glow-red:   0 0 8px rgba(255,51,85,.3);
+  --glow-green: 0 0 8px rgba(var(--green-rgb),.3), 0 0 20px rgba(var(--green-rgb),.1);
+  --glow-blue:  0 0 8px rgba(var(--blue-rgb),.3), 0 0 20px rgba(var(--blue-rgb),.1);
+  --glow-amber: 0 0 8px rgba(var(--amber-rgb),.3), 0 0 20px rgba(var(--amber-rgb),.1);
+  --glow-red:   0 0 8px rgba(var(--red-rgb),.3);
 
   /* ── Alpha tiers (see docs/design.md §2) ─────────────────────────
      Use these instead of hand-rolled rgba() calls. */
@@ -211,8 +211,8 @@ nav a.active { color: var(--green); background: var(--green-a08); }
 }
 
 @keyframes pulse-green {
-  0%, 100% { box-shadow: 0 0 4px rgba(0,255,65,.2); }
-  50% { box-shadow: 0 0 12px rgba(0,255,65,.4); }
+  0%, 100% { box-shadow: 0 0 4px rgba(var(--green-rgb),.2); }
+  50% { box-shadow: 0 0 12px rgba(var(--green-rgb),.4); }
 }
 
 /* Shared goal chip — shown in the nav on every page so the active
@@ -224,8 +224,8 @@ nav a.active { color: var(--green); background: var(--green-a08); }
   /* Sits left, immediately after the logo. Mode-badge handles right-push. */
   padding: 0.28rem 0.75rem;
   max-width: 28rem;
-  background: rgba(0, 212, 255, 0.08);
-  border: 1px solid rgba(0, 212, 255, 0.28);
+  background: rgba(var(--blue-rgb), 0.08);
+  border: 1px solid rgba(var(--blue-rgb), 0.28);
   border-radius: 999px;
   color: var(--blue);
   font-size: 0.7rem;
@@ -236,8 +236,8 @@ nav a.active { color: var(--green); background: var(--green-a08); }
   transition: all 0.15s;
 }
 .nav-goal:hover {
-  background: rgba(0, 212, 255, 0.16);
-  border-color: rgba(0, 212, 255, 0.55);
+  background: rgba(var(--blue-rgb), 0.16);
+  border-color: rgba(var(--blue-rgb), 0.55);
   color: var(--blue);
   text-decoration: none;
   box-shadow: var(--glow-blue);
@@ -301,7 +301,7 @@ nav a.active { color: var(--green); background: var(--green-a08); }
 }
 .chat-tokens.bump {
   background: var(--amber-a28);
-  box-shadow: 0 0 10px rgba(255,176,0,0.4);
+  box-shadow: 0 0 10px rgba(var(--amber-rgb),0.4);
 }
 
 .chat-hint {
@@ -409,7 +409,7 @@ nav a.active { color: var(--green); background: var(--green-a08); }
 .chat-form input:focus {
   outline: none;
   border-color: var(--green);
-  box-shadow: 0 0 0 2px rgba(0,255,65,0.08);
+  box-shadow: 0 0 0 2px rgba(var(--green-rgb),0.08);
 }
 
 .meter-bar {
@@ -425,7 +425,7 @@ nav a.active { color: var(--green); background: var(--green-a08); }
   border: 1px solid var(--border);
   border-radius: 6px;
   font-family: 'JetBrains Mono', monospace;
-  box-shadow: 0 1px 0 rgba(0,255,65,0.04);
+  box-shadow: 0 1px 0 rgba(var(--green-rgb),0.04);
 }
 .meter-bar .meter {
   display: flex;
@@ -634,7 +634,7 @@ nav a.active { color: var(--green); background: var(--green-a08); }
   stroke-dasharray: 251.2;  /* 2 * PI * 40 */
   stroke-dashoffset: 251.2;
   transition: stroke-dashoffset 0.8s ease;
-  filter: drop-shadow(0 0 4px rgba(0,255,65,.4));
+  filter: drop-shadow(0 0 4px rgba(var(--green-rgb),.4));
 }
 .progress-ring .ring-label {
   position: absolute;
@@ -786,7 +786,7 @@ code {
 
 @keyframes pulse-blue {
   0%,100% { box-shadow: none; }
-  50% { box-shadow: 0 0 8px rgba(0,212,255,.3); }
+  50% { box-shadow: 0 0 8px rgba(var(--blue-rgb),.3); }
 }
 
 /* ── Consent items ─────────────────────────────────────────────── */
@@ -798,7 +798,7 @@ code {
   border: 1px solid var(--amber-a16);
   border-radius: var(--radius);
   margin-bottom: 0.5rem;
-  background: rgba(255,176,0,.03);
+  background: rgba(var(--amber-rgb),.03);
 }
 .consent-item .info { flex: 1; }
 .consent-item .domain { color: var(--amber); font-weight: 600; font-size: 0.85rem; }
@@ -1040,11 +1040,11 @@ code {
 }
 .addon.alive {
   border-color: var(--green-dim);
-  background: rgba(0, 255, 65, 0.04);
+  background: rgba(var(--green-rgb), 0.04);
 }
 .addon.alive:hover {
   border-color: var(--green);
-  background: rgba(0, 255, 65, 0.08);
+  background: rgba(var(--green-rgb), 0.08);
 }
 .addon.dead {
   opacity: 0.55;
@@ -1323,20 +1323,20 @@ code {
 }
 .status-dot.alive {
   background: var(--green);
-  box-shadow: 0 0 8px rgba(0, 255, 65, 0.5);
+  box-shadow: 0 0 8px rgba(var(--green-rgb), 0.5);
   animation: status-pulse 2.4s ease-in-out infinite;
 }
 .status-dot.standby {
   background: var(--amber);
-  box-shadow: 0 0 6px rgba(255, 176, 0, 0.35);
+  box-shadow: 0 0 6px rgba(var(--amber-rgb), 0.35);
 }
 .status-dot.missing {
   background: var(--red);
-  box-shadow: 0 0 4px rgba(255, 51, 85, 0.3);
+  box-shadow: 0 0 4px rgba(var(--red-rgb), 0.3);
 }
 .status-dot.warn {
   background: var(--amber);
-  box-shadow: 0 0 5px rgba(255, 176, 0, 0.4);
+  box-shadow: 0 0 5px rgba(var(--amber-rgb), 0.4);
   animation: status-pulse 3s ease-in-out infinite;
 }
 @keyframes status-pulse {
@@ -1358,24 +1358,24 @@ code {
   margin-right: 0.5rem;
 }
 .status-installed {
-  background: rgba(0, 255, 65, 0.08);
+  background: rgba(var(--green-rgb), 0.08);
   color: var(--green);
-  border: 1px solid rgba(0, 255, 65, 0.25);
+  border: 1px solid rgba(var(--green-rgb), 0.25);
 }
 .status-missing {
-  background: rgba(255, 51, 85, 0.08);
+  background: rgba(var(--red-rgb), 0.08);
   color: var(--red);
-  border: 1px solid rgba(255, 51, 85, 0.25);
+  border: 1px solid rgba(var(--red-rgb), 0.25);
 }
 .status-notrun {
-  background: rgba(255, 176, 0, 0.08);
+  background: rgba(var(--amber-rgb), 0.08);
   color: var(--amber);
-  border: 1px solid rgba(255, 176, 0, 0.25);
+  border: 1px solid rgba(var(--amber-rgb), 0.25);
 }
 .status-warn {
-  background: rgba(255, 176, 0, 0.12);
+  background: rgba(var(--amber-rgb), 0.12);
   color: var(--amber);
-  border: 1px solid rgba(255, 176, 0, 0.4);
+  border: 1px solid rgba(var(--amber-rgb), 0.4);
 }
 
 /* ── Focal chat card (top of dashboard) ──────────────────────────
@@ -1383,9 +1383,9 @@ code {
    subtle green glow on the edge, and bigger internal spacing so the
    presets breathe. */
 .chat-card-focal {
-  border: 1px solid rgba(0, 255, 65, 0.25);
-  box-shadow: 0 0 0 1px rgba(0, 255, 65, 0.06),
-              0 0 32px rgba(0, 255, 65, 0.04);
+  border: 1px solid rgba(var(--green-rgb), 0.25);
+  box-shadow: 0 0 0 1px rgba(var(--green-rgb), 0.06),
+              0 0 32px rgba(var(--green-rgb), 0.04);
   padding: 1.4rem 1.5rem;
 }
 .chat-card-focal .chat-hint {
@@ -1427,7 +1427,7 @@ code {
 }
 .chat-preset.active {
   border-color: var(--green);
-  background: rgba(0, 255, 65, 0.08);
+  background: rgba(var(--green-rgb), 0.08);
   box-shadow: var(--glow-green);
 }
 .chat-preset .cp-icon {
@@ -1502,8 +1502,8 @@ code {
 }
 .chat-tuning-zones span.active {
   color: var(--green);
-  background: rgba(0, 255, 65, 0.08);
-  text-shadow: 0 0 4px rgba(0, 255, 65, 0.4);
+  background: rgba(var(--green-rgb), 0.08);
+  text-shadow: 0 0 4px rgba(var(--green-rgb), 0.4);
 }
 
 /* Override legacy slider-row output styling so the two-line readout
@@ -1529,9 +1529,9 @@ code {
    chip theme) so it reads as "reference material" rather than
    "warning / in-progress" (amber/green). */
 .kb-hero {
-  border: 1px solid rgba(0, 212, 255, 0.28);
-  box-shadow: 0 0 0 1px rgba(0, 212, 255, 0.06),
-              0 0 28px rgba(0, 212, 255, 0.04);
+  border: 1px solid rgba(var(--blue-rgb), 0.28);
+  box-shadow: 0 0 0 1px rgba(var(--blue-rgb), 0.06),
+              0 0 28px rgba(var(--blue-rgb), 0.04);
   padding: 1.4rem 1.5rem;
 }
 .kb-hero h2 {
@@ -1552,8 +1552,8 @@ code {
   color: var(--blue);
   font-size: 0.72rem;
   font-variant-numeric: tabular-nums;
-  background: rgba(0, 212, 255, 0.08);
-  border: 1px solid rgba(0, 212, 255, 0.25);
+  background: rgba(var(--blue-rgb), 0.08);
+  border: 1px solid rgba(var(--blue-rgb), 0.25);
   border-radius: 999px;
   padding: 0.15rem 0.65rem;
 }
@@ -1577,8 +1577,8 @@ code {
   transition: all 0.15s;
 }
 .kb-type-tile:hover {
-  border-color: rgba(0, 212, 255, 0.4);
-  background: rgba(0, 212, 255, 0.05);
+  border-color: rgba(var(--blue-rgb), 0.4);
+  background: rgba(var(--blue-rgb), 0.05);
   text-decoration: none;
 }
 .kb-type-icon { font-size: 1.5rem; line-height: 1; }
@@ -1673,9 +1673,9 @@ code {
   margin: 0.5rem auto;
   max-width: 1600px;
   background: linear-gradient(180deg,
-              rgba(0, 212, 255, 0.04),
-              rgba(0, 212, 255, 0.01));
-  border: 1px solid rgba(0, 212, 255, 0.2);
+              rgba(var(--blue-rgb), 0.04),
+              rgba(var(--blue-rgb), 0.01));
+  border: 1px solid rgba(var(--blue-rgb), 0.2);
   border-radius: var(--radius);
 }
 .kb-ingest-copy { /* compact section header — title + kicker on one line */ }
@@ -1724,7 +1724,7 @@ code {
 }
 .kb-ingest-tile:hover {
   border-color: var(--green-dim);
-  background: rgba(0, 255, 65, 0.04);
+  background: rgba(var(--green-rgb), 0.04);
   transform: translateY(-1px);
 }
 .kb-ingest-icon { font-size: 1.15rem; line-height: 1; }
@@ -1744,27 +1744,27 @@ code {
   max-width: 100%;
 }
 .kb-ingest-seed {
-  border-color: rgba(255, 176, 0, 0.3);
-  background: rgba(255, 176, 0, 0.04);
+  border-color: rgba(var(--amber-rgb), 0.3);
+  background: rgba(var(--amber-rgb), 0.04);
 }
 .kb-ingest-seed:hover {
   border-color: var(--amber);
-  background: rgba(255, 176, 0, 0.08);
+  background: rgba(var(--amber-rgb), 0.08);
 }
 .kb-ingest-seed.kb-ingest-installed {
-  border-color: rgba(0, 255, 65, 0.3);
-  background: rgba(0, 255, 65, 0.04);
+  border-color: rgba(var(--green-rgb), 0.3);
+  background: rgba(var(--green-rgb), 0.04);
 }
 
 /* The "Remove starter" tile shares the seed tile's footprint but uses
    a muted palette so it's visually less inviting than "Add files." */
 .kb-ingest-remove {
-  border-color: rgba(255, 51, 85, 0.25);
-  background: rgba(255, 51, 85, 0.04);
+  border-color: rgba(var(--red-rgb), 0.25);
+  background: rgba(var(--red-rgb), 0.04);
 }
 .kb-ingest-remove:hover {
   border-color: var(--red);
-  background: rgba(255, 51, 85, 0.10);
+  background: rgba(var(--red-rgb), 0.10);
 }
 
 /* STARTER badge on seeded files in the section tree. Tiny pill — same
@@ -1778,8 +1778,8 @@ code {
   font-weight: 700;
   letter-spacing: 0.08em;
   color: var(--amber);
-  background: rgba(255, 176, 0, 0.10);
-  border: 1px solid rgba(255, 176, 0, 0.25);
+  background: rgba(var(--amber-rgb), 0.10);
+  border: 1px solid rgba(var(--amber-rgb), 0.25);
   border-radius: 999px;
   text-transform: uppercase;
   vertical-align: 1px;
@@ -1793,8 +1793,8 @@ code {
   padding: 0.5rem 0.8rem;
   font-size: 0.78rem;
   color: var(--text);
-  background: rgba(255, 176, 0, 0.06);
-  border: 1px solid rgba(255, 176, 0, 0.25);
+  background: rgba(var(--amber-rgb), 0.06);
+  border: 1px solid rgba(var(--amber-rgb), 0.25);
   border-left: 3px solid var(--amber);
   border-radius: 6px;
 }
@@ -1824,7 +1824,7 @@ code {
   overflow: hidden;
 }
 .rx-program-panel[open] {
-  border-color: rgba(0, 212, 255, 0.3);
+  border-color: rgba(var(--blue-rgb), 0.3);
 }
 .rx-program-summary {
   cursor: pointer;
@@ -2044,7 +2044,7 @@ code {
 }
 .chat-deep-toggle .chat-deep-switch:hover {
   border-color: var(--amber);
-  background: rgba(255, 176, 0, 0.04);
+  background: rgba(var(--amber-rgb), 0.04);
 }
 .chat-deep-toggle input[type="checkbox"] {
   appearance: none;
@@ -2070,7 +2070,7 @@ code {
   transition: transform 0.15s, background 0.15s;
 }
 .chat-deep-toggle input[type="checkbox"]:checked {
-  background: rgba(255, 176, 0, 0.3);
+  background: rgba(var(--amber-rgb), 0.3);
 }
 .chat-deep-toggle input[type="checkbox"]:checked::before {
   transform: translateX(1.1rem);
@@ -2113,17 +2113,17 @@ code {
   font-weight: 700;
   letter-spacing: 0.05em;
   border-radius: 999px;
-  background: rgba(255, 176, 0, 0.1);
+  background: rgba(var(--amber-rgb), 0.1);
   color: var(--amber);
-  border: 1px solid rgba(255, 176, 0, 0.3);
+  border: 1px solid rgba(var(--amber-rgb), 0.3);
   text-decoration: none;
   vertical-align: middle;
   transition: all 0.15s;
   text-transform: uppercase;
 }
 .chat-frontier:hover {
-  background: rgba(255, 176, 0, 0.18);
-  border-color: rgba(255, 176, 0, 0.55);
+  background: rgba(var(--amber-rgb), 0.18);
+  border-color: rgba(var(--amber-rgb), 0.55);
   box-shadow: var(--glow-amber);
   text-decoration: none;
 }
@@ -2156,10 +2156,10 @@ code {
   overflow-y: auto;
   padding: 0.9rem 1rem;
   background: var(--surface);
-  border: 1px solid rgba(255, 176, 0, 0.4);
+  border: 1px solid rgba(var(--amber-rgb), 0.4);
   border-radius: var(--radius);
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.5),
-              0 0 0 1px rgba(255, 176, 0, 0.1),
+              0 0 0 1px rgba(var(--amber-rgb), 0.1),
               var(--glow-amber);
   opacity: 0;
   pointer-events: none;
@@ -2356,8 +2356,8 @@ code {
 .lab-knows {
   margin: 0.9rem 0 0.6rem;
   padding: 0.7rem 0.9rem;
-  background: rgba(0, 212, 255, 0.04);
-  border: 1px solid rgba(0, 212, 255, 0.18);
+  background: rgba(var(--blue-rgb), 0.04);
+  border: 1px solid rgba(var(--blue-rgb), 0.18);
   border-radius: var(--radius);
 }
 .lab-knows-header {
@@ -2435,7 +2435,7 @@ code {
 .lab-knows-exp-id {
   display: inline-block;
   font-family: var(--font);
-  background: rgba(0, 255, 65, 0.08);
+  background: rgba(var(--green-rgb), 0.08);
   color: var(--green);
   padding: 0 0.3rem;
   border-radius: 3px;
@@ -2449,7 +2449,7 @@ code {
 .lab-knows-program {
   margin-top: 0.7rem;
   padding-top: 0.65rem;
-  border-top: 1px dashed rgba(0, 212, 255, 0.18);
+  border-top: 1px dashed rgba(var(--blue-rgb), 0.18);
   display: flex;
   align-items: baseline;
   gap: 0.55rem;
@@ -2472,9 +2472,9 @@ code {
 .lab-knows-program-status.pending { color: var(--amber); }
 .lab-knows-program-redraft {
   margin-left: auto;
-  background: rgba(0, 212, 255, 0.1);
+  background: rgba(var(--blue-rgb), 0.1);
   color: var(--blue);
-  border: 1px solid rgba(0, 212, 255, 0.3);
+  border: 1px solid rgba(var(--blue-rgb), 0.3);
   border-radius: 4px;
   padding: 0.25rem 0.65rem;
   font-size: 0.7rem;
@@ -2483,7 +2483,7 @@ code {
   transition: all 0.12s;
 }
 .lab-knows-program-redraft:hover:not(:disabled) {
-  background: rgba(0, 212, 255, 0.2);
+  background: rgba(var(--blue-rgb), 0.2);
   color: var(--text-hi);
 }
 .lab-knows-program-redraft:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -2578,33 +2578,33 @@ code {
 /* ── Default theme (terminal hacker green) ─────────────────────── */
 :root,
 html[data-theme="default"] {
-  --green:     #00ff41;
+  --green:     var(--green);
   --green-dim: #00cc33;
-  --blue:      #00d4ff;
-  --amber:     #ffb000;
-  --red:       #ff3355;
-  --purple:    #b48eff;
+  --blue:      var(--blue);
+  --amber:     var(--amber);
+  --red:       var(--red);
+  --purple:    var(--purple);
 
-  --green-a08:  rgba(0,255,65,.08);
-  --green-a16:  rgba(0,255,65,.16);
-  --green-a28:  rgba(0,255,65,.28);
-  --blue-a08:   rgba(0,212,255,.08);
-  --blue-a16:   rgba(0,212,255,.16);
-  --blue-a28:   rgba(0,212,255,.28);
-  --amber-a08:  rgba(255,176,0,.08);
-  --amber-a16:  rgba(255,176,0,.16);
-  --amber-a28:  rgba(255,176,0,.28);
-  --red-a08:    rgba(255,51,85,.08);
-  --red-a16:    rgba(255,51,85,.16);
-  --red-a28:    rgba(255,51,85,.28);
+  --green-a08:  rgba(var(--green-rgb),.08);
+  --green-a16:  rgba(var(--green-rgb),.16);
+  --green-a28:  rgba(var(--green-rgb),.28);
+  --blue-a08:   rgba(var(--blue-rgb),.08);
+  --blue-a16:   rgba(var(--blue-rgb),.16);
+  --blue-a28:   rgba(var(--blue-rgb),.28);
+  --amber-a08:  rgba(var(--amber-rgb),.08);
+  --amber-a16:  rgba(var(--amber-rgb),.16);
+  --amber-a28:  rgba(var(--amber-rgb),.28);
+  --red-a08:    rgba(var(--red-rgb),.08);
+  --red-a16:    rgba(var(--red-rgb),.16);
+  --red-a28:    rgba(var(--red-rgb),.28);
   --purple-a08: rgba(180,142,255,.08);
   --purple-a16: rgba(180,142,255,.16);
   --purple-a28: rgba(180,142,255,.28);
 
-  --glow-green: 0 0 8px rgba(0,255,65,.30), 0 0 20px rgba(0,255,65,.10);
-  --glow-blue:  0 0 8px rgba(0,212,255,.30), 0 0 20px rgba(0,212,255,.10);
-  --glow-amber: 0 0 8px rgba(255,176,0,.30), 0 0 20px rgba(255,176,0,.10);
-  --glow-red:   0 0 8px rgba(255,51,85,.30);
+  --glow-green: 0 0 8px rgba(var(--green-rgb),.30), 0 0 20px rgba(var(--green-rgb),.10);
+  --glow-blue:  0 0 8px rgba(var(--blue-rgb),.30), 0 0 20px rgba(var(--blue-rgb),.10);
+  --glow-amber: 0 0 8px rgba(var(--amber-rgb),.30), 0 0 20px rgba(var(--amber-rgb),.10);
+  --glow-red:   0 0 8px rgba(var(--red-rgb),.30);
 }
 
 /* ── Laser Blue theme ──────────────────────────────────────────────
@@ -2613,12 +2613,12 @@ html[data-theme="default"] {
    The rail line under the nav also subtly recomposes (still
    green→blue gradient via tokens, just both ends are cooler). */
 html[data-theme="laser-blue"] {
-  --green:     #5cf0ff;   /* was #00ff41 — promoted to laser cyan */
+  --green:     #5cf0ff;   /* was var(--green) — promoted to laser cyan */
   --green-dim: #2ea3b8;
   --blue:      #4cc9ff;
-  --amber:     #ffb000;
-  --red:       #ff3355;
-  --purple:    #b48eff;
+  --amber:     var(--amber);
+  --red:       var(--red);
+  --purple:    var(--purple);
 
   --green-a08:  rgba(92,240,255,.08);
   --green-a16:  rgba(92,240,255,.16);
@@ -2626,20 +2626,20 @@ html[data-theme="laser-blue"] {
   --blue-a08:   rgba(76,201,255,.08);
   --blue-a16:   rgba(76,201,255,.16);
   --blue-a28:   rgba(76,201,255,.28);
-  --amber-a08:  rgba(255,176,0,.08);
-  --amber-a16:  rgba(255,176,0,.16);
-  --amber-a28:  rgba(255,176,0,.28);
-  --red-a08:    rgba(255,51,85,.08);
-  --red-a16:    rgba(255,51,85,.16);
-  --red-a28:    rgba(255,51,85,.28);
+  --amber-a08:  rgba(var(--amber-rgb),.08);
+  --amber-a16:  rgba(var(--amber-rgb),.16);
+  --amber-a28:  rgba(var(--amber-rgb),.28);
+  --red-a08:    rgba(var(--red-rgb),.08);
+  --red-a16:    rgba(var(--red-rgb),.16);
+  --red-a28:    rgba(var(--red-rgb),.28);
   --purple-a08: rgba(180,142,255,.08);
   --purple-a16: rgba(180,142,255,.16);
   --purple-a28: rgba(180,142,255,.28);
 
   --glow-green: 0 0 8px rgba(92,240,255,.32), 0 0 22px rgba(92,240,255,.12);
   --glow-blue:  0 0 8px rgba(76,201,255,.32), 0 0 22px rgba(76,201,255,.12);
-  --glow-amber: 0 0 8px rgba(255,176,0,.30), 0 0 20px rgba(255,176,0,.10);
-  --glow-red:   0 0 8px rgba(255,51,85,.30);
+  --glow-amber: 0 0 8px rgba(var(--amber-rgb),.30), 0 0 20px rgba(var(--amber-rgb),.10);
+  --glow-red:   0 0 8px rgba(var(--red-rgb),.30);
 }
 
 /* ── Theme picker (nav button) ─────────────────────────────────────
@@ -2782,7 +2782,7 @@ html[data-theme="laser-blue"] {
 .dict-theme-input:focus {
   outline: none;
   border-color: var(--blue);
-  box-shadow: 0 0 0 2px rgba(0, 212, 255, 0.15);
+  box-shadow: 0 0 0 2px rgba(var(--blue-rgb), 0.15);
 }
 .dict-theme-input::placeholder, .dict-box input::placeholder { color: var(--muted); }
 
@@ -2934,7 +2934,7 @@ html[data-theme="laser-blue"] {
   gap: 0.5rem 0.7rem;
   margin: 0 0 1rem;
   padding: 0.55rem 0.8rem;
-  background: rgba(0, 212, 255, 0.06);
+  background: rgba(var(--blue-rgb), 0.06);
   border: 1px solid var(--border-hi);
   border-left: 2px solid var(--blue);
   border-radius: var(--radius);

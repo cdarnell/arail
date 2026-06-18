@@ -158,9 +158,29 @@ def load_ui_theme(theme_id: str | None = None) -> UITheme:
     return default_ui_theme()
 
 
+def _hex_to_rgb_channels(value: str) -> str | None:
+    """``#00d4ff`` → ``0, 212, 255`` (the channels for ``rgba(var(--x-rgb), a)``).
+
+    Returns None for non-hex tokens (gradients, box-shadow strings, etc.)."""
+    v = value.strip()
+    if len(v) == 7 and v[0] == "#":
+        try:
+            r, g, b = int(v[1:3], 16), int(v[3:5], 16), int(v[5:7], 16)
+            return f"{r}, {g}, {b}"
+        except ValueError:
+            return None
+    return None
+
+
 def theme_css(theme: UITheme) -> str:
     lines = [":root {"]
     for key, value in theme.tokens.items():
         lines.append(f"  {key}: {value};")
+        # Emit an RGB-channel companion for every hex token so style.css can do
+        # rgba(var(--blue-rgb), a) and have alpha-accent glows repaint with the
+        # mounted World's palette (the channels stay in sync with the hex).
+        channels = _hex_to_rgb_channels(value)
+        if channels is not None:
+            lines.append(f"  {key}-rgb: {channels};")
     lines.append("}")
     return "\n".join(lines)

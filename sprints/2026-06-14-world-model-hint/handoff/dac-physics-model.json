@@ -1,0 +1,13 @@
+{
+  "_handoff_notice": "DROP-IN for the qukaizen-dac session (G1). Place this as model.json inside the physics WorldBundle (e.g. dist/bundles/physics/model.json and data/worlds/physics/model.json). It is SEAL-EXEMPT — do NOT add it to the manifest files{} map / world_sha256. ARAIL reads it on mount (dac.world-model/v1) and surfaces a 'this World recommends <model>' suggestion in the model picker. Optional; a World without it behaves as today.",
+  "schema": "dac.world-model/v1",
+  "world": "physics",
+  "recommended": {
+    "id": "qkz-project-aware-2b",
+    "family": "gemma",
+    "size_gb": 1.6,
+    "good_at": ["physics", "units", "dimensional-analysis", "reasoning"],
+    "rationale": "Measurement & SI reasoning outruns the 1B default — the 2B Gemma generalist handles units, dimensional consistency, and constant values markedly better. Built with Gemma.",
+    "fallback": ["qwen2.5:1.5b", "llama-ai-eng"]
+  }
+}
