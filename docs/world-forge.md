@@ -85,17 +85,25 @@ speculation; AeroLLM is the accept/reject.
 gathering sources — so the World keeps getting *truer* over time. You dreamed a
 base; the lab curates it forever.
 
-### Why this is literally speculative decoding
+### It's a *cousin* of speculative decoding — not literally it
 
-| Speculative decoding (tokens) | World Forge (knowledge) |
-|---|---|
-| small **draft** model proposes tokens | small model **drafts** the World |
-| big **target** model verifies in one pass | AeroLLM **reconciles** the draft |
-| accept matches, fix the first miss | accept good terms, correct/reject the rest |
-| big-model quality, near small-model cost | deep-model truth, near local-model speed |
+Be honest about this, because it has a design consequence. World Forge borrows
+the **economics** of speculative decoding (draft cheap, verify with a bigger
+model) but not the **algorithm**:
 
-AeroLLM already does this at the token level internally. World Forge does it at
-the *world* level. Same trick, different scale.
+| | Speculative decoding | World Forge (speculative *authoring*) |
+|---|---|---|
+| unit | tokens | whole terms / a World |
+| verify | one parallel forward pass | semantic critique, term by term |
+| acceptance | **exact** — matches the target's sample | **judgment** — is this right, is it sourced |
+| guarantee | output **identical** to the big model | a *blend* — quality between the two |
+| the small model buys… | **speed only** (can't change the answer) | the **scope** (the big model sets accuracy) |
+
+The consequence: in real spec-decoding the small model can't hurt you. Here it
+**bounds coverage** — a term the drafter never dreamed, the curator won't add
+unless asked. So the loop needs an explicit *expand* step, not just *verify*.
+AeroLLM does the real thing at the token level internally; World Forge rhymes
+with it at the world level.
 
 ## What the deep model actually buys you
 
