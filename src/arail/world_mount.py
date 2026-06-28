@@ -56,6 +56,12 @@ _MODEL_HINT_SCHEMA = "dac.world-model/v1"
 _MODEL_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,128}$")
 _MODEL_RATIONALE_CAP = 280
 
+# Seal-EXEMPT sibling staged at mount time (NOT in _BUNDLE_FILES — adding it
+# there would make verify_seal demand a hash that doesn't exist for every
+# existing 6-file bundle). Loaded by skills_loader.load_world_skill() as
+# untrusted DATA with load-time containment.
+_WORLD_SKILL_NAME = "SKILL.md"
+
 # Files listed in manifest.files{} (not manifest.json itself)
 _BUNDLE_FILES = frozenset([
     "agenda.json",
@@ -917,6 +923,19 @@ def _stage_files(bundle: Bundle, pkb_root: Path) -> Path:
         src = bundle.bundle_dir / fname
         if src.exists():
             shutil.copy2(src, staging_dir / fname)
+
+    # NEW (additive, best-effort): copy SKILL.md if present.
+    # SKILL.md is seal-EXEMPT — NOT in _BUNDLE_FILES; a missing or unreadable
+    # SKILL.md never blocks the mount. The copy lives in the staged dir and is
+    # read at compose time by skills_loader.load_world_skill() as untrusted DATA.
+    src_skill = bundle.bundle_dir / _WORLD_SKILL_NAME
+    if src_skill.exists():
+        try:
+            shutil.copy2(src_skill, staging_dir / _WORLD_SKILL_NAME)
+        except Exception as e:
+            _log.warning(
+                "world_mount: SKILL.md stage failed (continuing): %s", e
+            )
 
     # Emit world-<slug>.md index page
     _write_index_page(bundle, staging_dir)
