@@ -40,13 +40,14 @@ from arail.pkb import _pkb_root
 log = logging.getLogger(__name__)
 
 # ── World-skill caps (DoS / prompt-bloat guard) ────────────────────
-_MAX_WORLD_SKILL_BYTES = 64 * 1024          # whole-file read cap
-_MAX_WORLD_SKILL_BODY_CHARS = 24 * 1024     # body cap after strip_frontmatter
-
-# Mirror of skill.ts BODY_CONTROL_RE — neutralize leading control tokens.
-_BODY_CONTROL_RE = re.compile(r"^([#\->`])")
+_MAX_WORLD_SKILL_BYTES = 64 * 1024          # whole-file read cap (file-level)
+# Body cap: 56K chars — comfortably above the largest real World glossary
+# (~32K for art-history); truncation is a last resort and emits a WARN.
+_MAX_WORLD_SKILL_BODY_CHARS = 56 * 1024
 
 # ARAIL structural delimiters a tampered body must NOT be able to forge.
+# Matched against the STRIPPED (lstripped) line so that indented variants
+# (e.g. "  # WORLD FRAMING") are also caught (Defect 3 fix).
 _ARAIL_DELIMITERS = (
     "# WORLD FRAMING",
     "# END WORLD FRAMING",
@@ -56,6 +57,12 @@ _ARAIL_DELIMITERS = (
     "Source:",
     "Buddy's one-sentence note:",
 )
+
+# H1/H2 heading pattern at column 0 (optional leading whitespace) that is NOT
+# a legitimate glossary header (h3+ like "### Dance" are preserved).
+# Matches: "#<space>" (h1) or "##<space>" (h2 — e.g. "## Skill: ..."),
+# but NOT "###" or deeper (those are the glossary category headers).
+_HEADING_H1_H2_RE = re.compile(r"^\s*#{1,2}(?!#)\s")
 
 
 # ── Minimal YAML frontmatter parser ────────────────────────────────
@@ -236,53 +243,65 @@ def _contain_skill_body(body: str) -> str:
     """Defense-in-depth: re-apply DaC's containment in Python so a SKILL.md
     tampered AFTER DaC emitted it cannot forge prompt structure.
 
-    Per physical line:
-    - Collapse Windows line endings (\\r\\n → \\n) so injected lines can't
-      sneak past line-based checks.
-    - Strip YAML fence lines (``---``) — the body should be frontmatter-free,
-      but a forged second fence is neutralized.
-    - Neutralize any line that begins with a markdown control token at column 0
-      (``#``, ``-``, ``>``, backtick) by prepending U+200C (zero-width non-joiner).
-    - Neutralize lines that exactly match ARAIL's own structural delimiters
-      (``# WORLD FRAMING``, ``# Procedural knowledge``, ``Observation:``, etc.)
-      so a tampered body cannot impersonate the prompt scaffold.
-    - Leave ordinary ``### Category`` / ``- **term**`` lines INTACT — they are
-      the legitimate glossary shape and are safe beneath the skill's own H2.
+    Neutralization rules (per physical line):
+    1. Normalize ``\\r\\n`` / ``\\r`` → ``\\n``.
+    2. A bare YAML fence (``---``, possibly with leading whitespace) →
+       neutralize with U+200C prefix.
+    3. A backtick fence line (``````` or ```````` at any indent) → neutralize.
+    4. Any ARAIL structural delimiter (see ``_ARAIL_DELIMITERS``) matched
+       against the lstripped line — so both column-0 and indented variants
+       are caught (e.g. ``  # WORLD FRAMING`` is caught).
+    5. Any H1 or H2 markdown heading (``# ...`` or ``## ...``) that was NOT
+       already neutralized above → neutralize. This prevents forging
+       ``# WORLD FRAMING`` or ``## Skill: EVIL`` via a novel variant not in
+       the delimiter list. H3 (``###``) and deeper are explicitly preserved —
+       they are the legitimate glossary category headers (``### Dance`` etc.).
 
-    Deterministic; mirrors skill.ts sanitizeBodyField at line granularity.
+    Preserved:
+    - ``### Category`` / ``#### subcategory`` headers (h3+)
+    - ``- **term** — definition`` bullet lines (even at column 0)
+    - ``  - Source: …`` lines (leading whitespace → not column-0 ``Source:``)
+    - All indented prose lines
+
+    Deterministic; mirrors skill.ts sanitizeBodyField at the line granularity
+    ARAIL injects.
     """
     # Normalize line endings
     body = body.replace("\r\n", "\n").replace("\r", "\n")
 
+    ZWNJ = "‌"  # U+200C zero-width non-joiner prefix for neutralized lines
     out_lines: List[str] = []
-    ZWNA = "‌"  # zero-width non-joiner prefix for neutralized lines
+
     for line in body.split("\n"):
-        # Strip YAML fence lines (bare ---)
-        if line.strip() == "---":
-            out_lines.append(ZWNA + line)
+        stripped = line.lstrip()
+
+        # 2. YAML fence
+        if stripped == "---":
+            out_lines.append(ZWNJ + line)
             continue
-        # Check for ARAIL structural delimiter forgery (exact prefix match)
+
+        # 3. Backtick fence
+        if stripped.startswith("```"):
+            out_lines.append(ZWNJ + line)
+            continue
+
+        # 4. ARAIL structural delimiter (matched on lstripped so indented variants caught)
         forged = False
         for delim in _ARAIL_DELIMITERS:
-            if line == delim or line.startswith(delim + " ") or line.startswith(delim + "\t"):
-                out_lines.append(ZWNA + line)
+            if (stripped == delim
+                    or stripped.startswith(delim + " ")
+                    or stripped.startswith(delim + "\t")):
+                out_lines.append(ZWNJ + line)
                 forged = True
                 break
         if forged:
             continue
-        # Neutralize top-level control tokens that could forge new sections
-        # (only at column 0; interior markdown like "  - item" is fine)
-        # Special case: "## Skill:" is already caught above; here we also
-        # neutralize any line starting with "# " (top-level heading) that
-        # wasn't already caught, since those could forge "# WORLD FRAMING" etc.
-        if _BODY_CONTROL_RE.match(line):
-            # Allow "- " (list items) and ">" (blockquote) at any level —
-            # they cannot forge top-level headings.  Only "#" at column 0 is
-            # dangerous for section forgery; backtick fences are also neutralized.
-            first_char = line[0] if line else ""
-            if first_char in ("#", "`"):
-                out_lines.append(ZWNA + line)
-                continue
+
+        # 5. H1 / H2 heading (## or # but NOT ###+ which are glossary headers)
+        if _HEADING_H1_H2_RE.match(line):
+            out_lines.append(ZWNJ + line)
+            continue
+
         out_lines.append(line)
 
     return "\n".join(out_lines)
