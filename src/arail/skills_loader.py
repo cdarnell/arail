@@ -39,6 +39,24 @@ from arail.pkb import _pkb_root
 
 log = logging.getLogger(__name__)
 
+# ── World-skill caps (DoS / prompt-bloat guard) ────────────────────
+_MAX_WORLD_SKILL_BYTES = 64 * 1024          # whole-file read cap
+_MAX_WORLD_SKILL_BODY_CHARS = 24 * 1024     # body cap after strip_frontmatter
+
+# Mirror of skill.ts BODY_CONTROL_RE — neutralize leading control tokens.
+_BODY_CONTROL_RE = re.compile(r"^([#\->`])")
+
+# ARAIL structural delimiters a tampered body must NOT be able to forge.
+_ARAIL_DELIMITERS = (
+    "# WORLD FRAMING",
+    "# END WORLD FRAMING",
+    "# Procedural knowledge",
+    "## Skill:",
+    "Observation:",
+    "Source:",
+    "Buddy's one-sentence note:",
+)
+
 
 # ── Minimal YAML frontmatter parser ────────────────────────────────
 # Pulled inline instead of adding a pyyaml dependency. Handles the
@@ -212,6 +230,131 @@ def load_agent_skills(agent_id: str,
     if not isinstance(skill_ids, list):
         return []
     return load_skills([str(s) for s in skill_ids], pkb_root=pkb_root)
+
+
+def _contain_skill_body(body: str) -> str:
+    """Defense-in-depth: re-apply DaC's containment in Python so a SKILL.md
+    tampered AFTER DaC emitted it cannot forge prompt structure.
+
+    Per physical line:
+    - Collapse Windows line endings (\\r\\n → \\n) so injected lines can't
+      sneak past line-based checks.
+    - Strip YAML fence lines (``---``) — the body should be frontmatter-free,
+      but a forged second fence is neutralized.
+    - Neutralize any line that begins with a markdown control token at column 0
+      (``#``, ``-``, ``>``, backtick) by prepending U+200C (zero-width non-joiner).
+    - Neutralize lines that exactly match ARAIL's own structural delimiters
+      (``# WORLD FRAMING``, ``# Procedural knowledge``, ``Observation:``, etc.)
+      so a tampered body cannot impersonate the prompt scaffold.
+    - Leave ordinary ``### Category`` / ``- **term**`` lines INTACT — they are
+      the legitimate glossary shape and are safe beneath the skill's own H2.
+
+    Deterministic; mirrors skill.ts sanitizeBodyField at line granularity.
+    """
+    # Normalize line endings
+    body = body.replace("\r\n", "\n").replace("\r", "\n")
+
+    out_lines: List[str] = []
+    ZWNA = "‌"  # zero-width non-joiner prefix for neutralized lines
+    for line in body.split("\n"):
+        # Strip YAML fence lines (bare ---)
+        if line.strip() == "---":
+            out_lines.append(ZWNA + line)
+            continue
+        # Check for ARAIL structural delimiter forgery (exact prefix match)
+        forged = False
+        for delim in _ARAIL_DELIMITERS:
+            if line == delim or line.startswith(delim + " ") or line.startswith(delim + "\t"):
+                out_lines.append(ZWNA + line)
+                forged = True
+                break
+        if forged:
+            continue
+        # Neutralize top-level control tokens that could forge new sections
+        # (only at column 0; interior markdown like "  - item" is fine)
+        # Special case: "## Skill:" is already caught above; here we also
+        # neutralize any line starting with "# " (top-level heading) that
+        # wasn't already caught, since those could forge "# WORLD FRAMING" etc.
+        if _BODY_CONTROL_RE.match(line):
+            # Allow "- " (list items) and ">" (blockquote) at any level —
+            # they cannot forge top-level headings.  Only "#" at column 0 is
+            # dangerous for section forgery; backtick fences are also neutralized.
+            first_char = line[0] if line else ""
+            if first_char in ("#", "`"):
+                out_lines.append(ZWNA + line)
+                continue
+        out_lines.append(line)
+
+    return "\n".join(out_lines)
+
+
+def load_skill_from_path(path: Path, skill_id: str) -> Optional["Skill"]:
+    """Load a Skill from an explicit SKILL.md path (not the skills/ dir).
+
+    Returns None when missing / oversized / unreadable.
+    Applies on-load containment to the body (treats SKILL.md as untrusted DATA).
+    """
+    if not path.exists():
+        return None
+    try:
+        raw_bytes = path.read_bytes()
+    except OSError as e:
+        log.warning("load_skill_from_path: cannot read %s: %s", path, e)
+        return None
+    if len(raw_bytes) > _MAX_WORLD_SKILL_BYTES:
+        log.warning(
+            "load_skill_from_path: %s exceeds %d-byte cap (%d bytes) — skipping",
+            path, _MAX_WORLD_SKILL_BYTES, len(raw_bytes),
+        )
+        return None
+    try:
+        raw = raw_bytes.decode("utf-8", errors="replace")
+    except Exception as e:
+        log.warning("load_skill_from_path: decode error on %s: %s", path, e)
+        return None
+    fm = parse_frontmatter(raw)
+    body = strip_frontmatter(raw).strip()
+    # Apply containment BEFORE size cap so a padded-then-stripped body can't
+    # circumvent the byte cap with whitespace.
+    body = _contain_skill_body(body)
+    if len(body) > _MAX_WORLD_SKILL_BODY_CHARS:
+        log.warning(
+            "load_skill_from_path: %s body exceeds %d-char cap (%d chars) — truncating",
+            path, _MAX_WORLD_SKILL_BODY_CHARS, len(body),
+        )
+        body = body[:_MAX_WORLD_SKILL_BODY_CHARS]
+    return Skill(
+        id=skill_id,
+        name=str(fm.get("name") or fm.get("title") or skill_id),
+        domain=str(fm.get("domain") or "general"),
+        version=str(fm.get("version") or "0"),
+        body=body,
+        path=path,
+        frontmatter=fm,
+    )
+
+
+def load_world_skill(
+    pkb_root: Optional[Path] = None,
+    data_dir: Optional[Path] = None,
+) -> Optional["Skill"]:
+    """Load the mounted World's SKILL.md as a Skill, or None when nothing is
+    mounted / no SKILL.md staged.
+
+    Keyed off current_mount().staged_dir so it tracks mount/unmount/swap
+    with no extra state. Never raises.
+    """
+    try:
+        from arail.world_mount import current_mount, _WORLD_SKILL_NAME
+        record = current_mount(data_dir)
+        if record is None:
+            return None
+        staged_skill = Path(record.staged_dir) / _WORLD_SKILL_NAME
+        skill_id = f"world-{record.world}"
+        return load_skill_from_path(staged_skill, skill_id)
+    except Exception as e:
+        log.warning("load_world_skill: unexpected error: %s", e)
+        return None
 
 
 def compose_system_context(skills: List[Skill]) -> str:
