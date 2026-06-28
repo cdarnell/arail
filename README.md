@@ -261,6 +261,7 @@ so imports don't break — only the display rebrands.
 - [docs/WSL.md](docs/WSL.md) — Windows via WSL2 with GPU passthrough.
 - [docs/PRIVACY.md](docs/PRIVACY.md) — exactly what data leaves the box.
 - [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) — first-run gotchas.
+- [docs/world-forge.md](docs/world-forge.md) — *(design)* dream a World with the local model, then let AeroLLM forever curate it into sourced truth — speculative authoring.
 - [docs/agents-explained.md](docs/agents-explained.md) — the quick tour of Buddy, SRE, Researcher, and custom agents.
 - [docs/agents.md](docs/agents.md) — the agent architecture and loader contract.
 - [AGENTS.md](AGENTS.md) — the platform-porting manifest for coding agents.

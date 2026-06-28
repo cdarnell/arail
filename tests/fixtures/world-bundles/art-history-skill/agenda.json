@@ -1,0 +1,27 @@
+{
+  "schema": "dac.world-agenda/v1",
+  "world": "art-history",
+  "watches": [
+    {
+      "node": "art-history",
+      "feeds": [
+        "Encyclopædia Britannica — arts & culture entries"
+      ],
+      "cadence": "occasional"
+    },
+    {
+      "node": "art-history",
+      "feeds": [
+        "E. H. Gombrich, The Story of Art (Phaidon)"
+      ],
+      "cadence": "occasional"
+    },
+    {
+      "node": "art-history",
+      "feeds": [
+        "Janson's History of Art (Pearson)"
+      ],
+      "cadence": "occasional"
+    }
+  ]
+}

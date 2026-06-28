@@ -1,0 +1,17 @@
+{
+  "name": "qukaizen/dac-world-art-history",
+  "type": "world",
+  "description": "DaC WorldBundle for Sophie's World — A History of the Arts (Music · Fashion · Film · Literature · Dance · Painting) — 103 sourced terms, mountable in ARAIL.",
+  "version": "1.0.0",
+  "dac": {
+    "schema": "dac.arail-plugin/v1",
+    "world": "art-history",
+    "world_sha256": "40080461fe0e1ed4cff9aee74ce4a737bf86a526b124201049dcf3222b299d6b",
+    "bundle": ".",
+    "provides": {
+      "capabilities": "capabilities.json",
+      "skill": "SKILL.md",
+      "bundle_manifest": "manifest.json"
+    }
+  }
+}

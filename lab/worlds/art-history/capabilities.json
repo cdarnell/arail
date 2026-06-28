@@ -1,0 +1,111 @@
+{
+  "schema": "dac.world-capabilities/v1",
+  "world": "art-history",
+  "capabilities": [
+    {
+      "id": "knowledge.ground.art-history",
+      "purpose": "Answer and ground questions within the Sophie's World — A History of the Arts (Music · Fashion · Film · Literature · Dance · Painting) World from its 103 sourced terms.",
+      "desired": true,
+      "interface": {
+        "kind": "knowledge-grounding",
+        "world": "art-history",
+        "world_sha256": "40080461fe0e1ed4cff9aee74ce4a737bf86a526b124201049dcf3222b299d6b",
+        "categories": [
+          "dance",
+          "era",
+          "fashion",
+          "film",
+          "literature",
+          "music",
+          "painting"
+        ],
+        "term_count": 103,
+        "provenance_tier": "sourced"
+      }
+    },
+    {
+      "id": "knowledge.ground.art-history.dance",
+      "purpose": "Ground questions about Dance (12 sourced terms).",
+      "desired": true,
+      "interface": {
+        "kind": "knowledge-grounding",
+        "world": "art-history",
+        "category": "dance",
+        "category_label": "Dance",
+        "term_count": 12
+      }
+    },
+    {
+      "id": "knowledge.ground.art-history.era",
+      "purpose": "Ground questions about Eras & Movements (8 sourced terms).",
+      "desired": true,
+      "interface": {
+        "kind": "knowledge-grounding",
+        "world": "art-history",
+        "category": "era",
+        "category_label": "Eras & Movements",
+        "term_count": 8
+      }
+    },
+    {
+      "id": "knowledge.ground.art-history.fashion",
+      "purpose": "Ground questions about Fashion & Dress (14 sourced terms).",
+      "desired": true,
+      "interface": {
+        "kind": "knowledge-grounding",
+        "world": "art-history",
+        "category": "fashion",
+        "category_label": "Fashion & Dress",
+        "term_count": 14
+      }
+    },
+    {
+      "id": "knowledge.ground.art-history.film",
+      "purpose": "Ground questions about Film & Cinema (13 sourced terms).",
+      "desired": true,
+      "interface": {
+        "kind": "knowledge-grounding",
+        "world": "art-history",
+        "category": "film",
+        "category_label": "Film & Cinema",
+        "term_count": 13
+      }
+    },
+    {
+      "id": "knowledge.ground.art-history.literature",
+      "purpose": "Ground questions about Literature (19 sourced terms).",
+      "desired": true,
+      "interface": {
+        "kind": "knowledge-grounding",
+        "world": "art-history",
+        "category": "literature",
+        "category_label": "Literature",
+        "term_count": 19
+      }
+    },
+    {
+      "id": "knowledge.ground.art-history.music",
+      "purpose": "Ground questions about Music (16 sourced terms).",
+      "desired": true,
+      "interface": {
+        "kind": "knowledge-grounding",
+        "world": "art-history",
+        "category": "music",
+        "category_label": "Music",
+        "term_count": 16
+      }
+    },
+    {
+      "id": "knowledge.ground.art-history.painting",
+      "purpose": "Ground questions about Painting & Visual Art (21 sourced terms).",
+      "desired": true,
+      "interface": {
+        "kind": "knowledge-grounding",
+        "world": "art-history",
+        "category": "painting",
+        "category_label": "Painting & Visual Art",
+        "term_count": 21
+      }
+    }
+  ]
+}

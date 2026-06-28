@@ -1,0 +1,593 @@
+{
+  "version": 1,
+  "terms": [
+    {
+      "slug": "brown-leaf-spots",
+      "term": "Brown leaf spots / patches",
+      "category": "symptoms",
+      "short": "Distinct brown spots or blotches on the leaf surface.",
+      "definition": "Spots differ from tip-browning: discrete lesions can mean fungal/bacterial infection (often with yellow halos, spreading), sunburn (dry tan patches on sun-facing leaves), or shock. Spread over time vs a static mark is the key discriminator — a snapshot can't see spread.",
+      "example": "Spots that multiply and spread leaf-to-leaf across days indicate disease; a fixed tan patch on the window side indicates scorch.",
+      "related": [
+        "overwatering",
+        "light-scorch",
+        "root-rot"
+      ],
+      "source": "American Phytopathological Society; University Extension"
+    },
+    {
+      "slug": "circadian-leaf-movement",
+      "term": "Circadian leaf movement (nyctinasty) — NORMAL",
+      "aka": [
+        "nyctinasty",
+        "prayer movement"
+      ],
+      "category": "conditions",
+      "short": "Healthy daily rise/fall of leaves — NOT a problem to be 'fixed'.",
+      "definition": "Many houseplants move leaves on a daily rhythm: prayer plants and calatheas raise leaves at night and lower them by day; peace lilies and others shift posture with light and time. This benign nyctinastic movement mimics drooping in a single frame. Recognizing it — and NOT recommending action — requires comparing against the plant's own baseline over time. This is the core reason a take-home monitor beats a one-shot photo.",
+      "example": "A calathea's leaves folded upward in an evening frame are normal nyctinasty; the system suppresses a false 'wilting' alert by matching the daily baseline.",
+      "related": [
+        "monitor-baseline-trend",
+        "leaf-drooping"
+      ],
+      "source": "Peer-reviewed plant chronobiology (nyctinasty); Missouri Botanical Garden"
+    },
+    {
+      "slug": "cold-draft-stress",
+      "term": "Cold / draft stress",
+      "category": "conditions",
+      "short": "Cold air, drafts, or sudden change; shock symptoms.",
+      "definition": "Cold drafts from doors, windows, or AC vents — and abrupt relocation — shock sensitive plants into spotting and leaf drop, often within days. The diagnosis hinges on correlating symptom onset with an event in the timeline, which monitoring records automatically.",
+      "example": "Leaf drop two days after a fiddle-leaf was moved by a drafty door links cause to event.",
+      "related": [
+        "monitor-baseline-trend",
+        "leaf-drop"
+      ],
+      "source": "RHS houseplant problems; Missouri Botanical Garden"
+    },
+    {
+      "slug": "fertilize-balanced",
+      "term": "Feed with balanced fertilizer",
+      "category": "care-actions",
+      "short": "Apply appropriate fertilizer in the growing season; consider repotting.",
+      "definition": "For nutrient deficiency, feed with a balanced houseplant fertilizer at label rate during active growth, and repot if the plant has outgrown its soil. Avoid over-feeding, which can burn roots.",
+      "example": "Persistent interveinal yellowing despite correct watering prompts a feeding recommendation.",
+      "related": [
+        "nutrient-deficiency"
+      ],
+      "source": "University Extension horticulture"
+    },
+    {
+      "slug": "fiddle-leaf-fig",
+      "term": "Fiddle-Leaf Fig",
+      "aka": [
+        "Ficus lyrata"
+      ],
+      "category": "species",
+      "short": "Big-leaved statement tree; sensitive to change and drafts.",
+      "definition": "Ficus lyrata is a tree-form ficus with large violin-shaped leaves. Notoriously reactive to environmental change — relocation, cold drafts, and inconsistent watering trigger brown spots and leaf drop. Wants bright indirect light and stable conditions. Toxic to pets.",
+      "example": "A fiddle-leaf dropping lower leaves within days of being moved near a drafty door is flagged as cold/draft stress by correlating the event timeline with the symptom onset.",
+      "related": [
+        "env-fiddle-leaf-fig",
+        "brown-leaf-spots",
+        "leaf-drop",
+        "leaf-tip-browning"
+      ],
+      "source": "RHS Plant Finder; Missouri Botanical Garden Plant Finder; ASPCA toxic plants (toxicity)"
+    },
+    {
+      "slug": "env-fiddle-leaf-fig",
+      "term": "Fiddle-leaf fig — light, water & stability",
+      "category": "environment",
+      "short": "Bright indirect light; water when top cm dry; avoid drafts & moves.",
+      "definition": "Fiddle-leaf figs need bright indirect light, watering when the top 2–3 cm dry, and — above all — stability: avoid cold drafts, vents, and frequent relocation. Because it reacts to events, correlating symptom onset with a change event is the key reasoning step.",
+      "example": "Symptom onset is aligned to the timeline; brown spots appearing days after a move near an AC vent point to draft/cold stress.",
+      "related": [
+        "fiddle-leaf-fig",
+        "light-scorch",
+        "cold-draft-stress"
+      ],
+      "source": "RHS Plant Finder; Missouri Botanical Garden Plant Finder"
+    },
+    {
+      "slug": "white-webbing",
+      "term": "Fine white webbing",
+      "category": "symptoms",
+      "short": "Delicate webbing in leaf axils and undersides.",
+      "definition": "Fine webbing, usually with tiny moving dots and leaf stippling, is the signature of spider mites — a fast-multiplying pest that thrives in warm, dry air. Early longitudinal detection matters enormously: catching the first webbing prevents an infestation that a weekly snapshot would miss until severe.",
+      "example": "The camera flags the first wisps of webbing on a stressed plant, prompting treatment days before damage becomes obvious.",
+      "related": [
+        "spider-mites"
+      ],
+      "source": "University Extension IPM; RHS pest advice"
+    },
+    {
+      "slug": "fungus-gnats",
+      "term": "Fungus gnats",
+      "category": "pests-pathogens",
+      "short": "Small flies around moist soil; larvae nibble roots.",
+      "definition": "Fungus gnats are small dark flies whose larvae live in consistently moist topsoil and feed on organic matter and fine roots. Their presence is both a nuisance and a signal of overwatering. Letting the soil surface dry and IPM measures break the cycle.",
+      "example": "Clouds of small flies on watering correlate with too-wet soil; advise drying out and treating.",
+      "related": [
+        "treat-pests-ipm",
+        "overwatering"
+      ],
+      "source": "University Extension IPM; RHS pest advice"
+    },
+    {
+      "slug": "golden-pothos",
+      "term": "Golden Pothos",
+      "aka": [
+        "Devil's Ivy",
+        "Epipremnum aureum"
+      ],
+      "category": "species",
+      "short": "The near-indestructible trailing vine found in almost every home.",
+      "definition": "Epipremnum aureum is a fast-growing trailing aroid with heart-shaped, often variegated leaves. Tolerates low light and irregular watering, which makes it the most common beginner houseplant — and a clear signaler: it droops visibly when thirsty and recovers fast. Toxic to cats and dogs (calcium oxalate crystals).",
+      "example": "The camera tracks a pothos vine on a shelf; a gradual droop across several days, soil dry, reads as thirst rather than the plant's normal posture.",
+      "related": [
+        "env-pothos",
+        "leaf-yellowing",
+        "leaf-drooping",
+        "leggy-growth"
+      ],
+      "source": "RHS Plant Finder; Missouri Botanical Garden Plant Finder; ASPCA toxic plants (toxicity)"
+    },
+    {
+      "slug": "increase-humidity",
+      "term": "Increase humidity",
+      "category": "care-actions",
+      "short": "Group plants, use a pebble tray, or run a humidifier.",
+      "definition": "For dry-air tip browning on tropicals: group plants, stand the pot on a pebble-and-water tray (pot above the waterline), or — most effectively — run a humidifier. Misting gives only brief relief. Choose this over more watering when the cause is air, not soil.",
+      "example": "For a calathea with dry-air tip burn, recommend a humidifier rather than more frequent watering.",
+      "related": [
+        "low-humidity"
+      ],
+      "source": "RHS houseplant advice"
+    },
+    {
+      "slug": "leaf-curling",
+      "term": "Leaf curling",
+      "category": "symptoms",
+      "short": "Leaves cup, curl, or roll inward/downward.",
+      "definition": "Curling is a stress posture: heat or light scorch, acute water shortage, or sap-sucking pests pulling the leaf out of shape. When curling co-occurs with fine webbing it points to spider mites; with dry soil and heat it points to water/light stress. Onset speed (sudden vs gradual) is a useful trend cue.",
+      "example": "Sudden curling plus stippling and webbing under the leaves, caught as it develops, flags a spider-mite outbreak early.",
+      "related": [
+        "underwatering",
+        "light-scorch",
+        "spider-mites"
+      ],
+      "source": "University Extension IPM; RHS pest advice"
+    },
+    {
+      "slug": "leaf-drooping",
+      "term": "Leaf drooping (loss of turgor)",
+      "category": "symptoms",
+      "short": "Leaves or stems sag and lose their firm, upright posture.",
+      "definition": "Drooping is loss of turgor and is famously ambiguous: dry soil (underwatering) and waterlogged soil with damaged roots (overwatering) produce the same droop — and some plants droop on a normal daily rhythm. Disambiguation needs soil state AND the plant's own baseline over time, which a single snapshot cannot provide.",
+      "example": "A peace lily sagging at 4pm but firm again by morning is its rhythm; a droop that persists across mornings and worsens is pathology — only the time series tells them apart.",
+      "related": [
+        "underwatering",
+        "overwatering",
+        "cold-draft-stress",
+        "circadian-leaf-movement"
+      ],
+      "source": "RHS houseplant problems; Missouri Botanical Garden"
+    },
+    {
+      "slug": "leaf-drop",
+      "term": "Leaf drop (defoliation)",
+      "category": "symptoms",
+      "short": "The plant sheds leaves, sometimes suddenly.",
+      "definition": "Dropping leaves signals stress; the timeline is diagnostic. Sudden drop after a change (a move, a cold draft, a watering swing) points to shock/cold stress; gradual lower-leaf loss can be natural aging or chronic under-/over-watering. Correlating drop events with environmental events is the reasoning a monitor enables.",
+      "example": "A fiddle-leaf dropping several leaves two days after relocation links the cause to the move via the event timeline.",
+      "related": [
+        "cold-draft-stress",
+        "underwatering",
+        "overwatering"
+      ],
+      "source": "RHS houseplant problems; Missouri Botanical Garden"
+    },
+    {
+      "slug": "leaf-yellowing",
+      "term": "Leaf yellowing (chlorosis)",
+      "category": "symptoms",
+      "short": "Leaves turn yellow, often lower/older leaves first.",
+      "definition": "Yellowing (loss of chlorophyll) has many causes; the pattern and progression matter. Uniform yellowing of lower leaves in wet soil suggests overwatering; interveinal yellowing suggests nutrient issues; slow whole-plant pales suggest low light. Tracking which leaves yellow, in what order, over time narrows the cause.",
+      "example": "Lower leaves yellowing evenly while soil stays wet, tracked over a week, reads as overwatering rather than nitrogen shortage.",
+      "related": [
+        "overwatering",
+        "nutrient-deficiency",
+        "low-light"
+      ],
+      "source": "Missouri Botanical Garden Plant Finder; University Extension"
+    },
+    {
+      "slug": "leaf-tip-browning",
+      "term": "Leaf-tip browning",
+      "category": "symptoms",
+      "short": "Brown, dry, crispy tips or margins on otherwise green leaves.",
+      "definition": "Dry/crispy browning starting at tips or edges signals a water-balance or air problem — the plant can't move enough water to the extremities. Common on tropical foliage. A slow, progressive march of browning over days (a trend, not a snapshot) distinguishes a real problem from a single damaged leaf.",
+      "example": "The camera measures the browned fraction of each frond over a week; a rising trend on a calathea or peace lily points to dry air or under-watering.",
+      "related": [
+        "low-humidity",
+        "underwatering",
+        "nutrient-deficiency"
+      ],
+      "source": "RHS houseplant problems; University Extension horticulture"
+    },
+    {
+      "slug": "leggy-growth",
+      "term": "Leggy / stretched growth (etiolation)",
+      "category": "symptoms",
+      "short": "Long, sparse stems with large gaps between leaves.",
+      "definition": "Etiolation — stretched stems, wide internode gaps, leaning toward the window — is the plant reaching for light. It is inherently a slow trend, invisible in any single image and obvious in a time series, making it a flagship case for longitudinal monitoring.",
+      "example": "Week-over-week internode lengthening and a lean toward the window quantify a chronic low-light condition.",
+      "related": [
+        "low-light"
+      ],
+      "source": "Missouri Botanical Garden; University Extension"
+    },
+    {
+      "slug": "light-scorch",
+      "term": "Light scorch (sunburn)",
+      "category": "conditions",
+      "short": "Too much direct sun; dry tan/brown patches on sun-facing leaves.",
+      "definition": "Excess direct sun bleaches and burns leaf tissue, leaving dry tan or brown patches on the most exposed, window-facing leaves. Distinguished from disease by location (sun side) and a static, non-spreading pattern.",
+      "example": "Tan patches only on the window-facing leaves of a fiddle-leaf indicate scorch; move it back from the glass.",
+      "related": [
+        "move-from-direct-sun",
+        "brown-leaf-spots"
+      ],
+      "source": "RHS houseplant problems; University Extension"
+    },
+    {
+      "slug": "low-humidity",
+      "term": "Low humidity",
+      "category": "conditions",
+      "short": "Dry indoor air; browns tips of tropical plants.",
+      "definition": "Many houseplants are tropical and expect 50%+ relative humidity; heated/air-conditioned rooms are far drier, browning leaf tips even when watering is correct. This is why tip-browning is ambiguous between water and air, and why species/environment context resolves it.",
+      "example": "A well-watered calathea browning at the tips near a vent points to dry air, not thirst.",
+      "related": [
+        "increase-humidity",
+        "leaf-tip-browning"
+      ],
+      "source": "RHS houseplant advice"
+    },
+    {
+      "slug": "low-light",
+      "term": "Low light",
+      "category": "conditions",
+      "short": "Insufficient light; slow, trend-detectable decline.",
+      "definition": "Too little light produces stretched, leggy growth, small or pale new leaves, leaning toward windows, and slow yellowing of older leaves. It is inherently gradual — the canonical condition that longitudinal monitoring detects and a snapshot misses.",
+      "example": "Weeks of internode stretch and a window-lean quantify low light for a monstera.",
+      "related": [
+        "move-to-brighter-light",
+        "leggy-growth",
+        "leaf-yellowing"
+      ],
+      "source": "Missouri Botanical Garden; University Extension"
+    },
+    {
+      "slug": "mealybugs",
+      "term": "Mealybugs",
+      "category": "pests-pathogens",
+      "short": "White cottony clusters in leaf axils; excrete sticky honeydew.",
+      "definition": "Mealybugs are soft scale insects that gather as white cottony masses in leaf axils and undersides, sucking sap and excreting honeydew that invites sooty mold. They spread plant-to-plant; isolation plus repeated IPM treatment is needed.",
+      "example": "White cottony spots and sticky residue spreading over days flag a mealybug infestation.",
+      "related": [
+        "sticky-residue",
+        "treat-pests-ipm"
+      ],
+      "source": "University Extension IPM; RHS pest advice"
+    },
+    {
+      "slug": "monitor-baseline-trend",
+      "term": "Monitor against baseline (watch, don't act)",
+      "category": "care-actions",
+      "short": "Keep observing over time before intervening — rule out normal rhythms.",
+      "definition": "The signature action of a continuous monitor: when an observation could be normal (daily leaf movement, a single off frame) or the start of a trend, the right response is to keep watching against the plant's established baseline rather than intervene. Prevents over-correction — the most common harm from snapshot apps that 'diagnose' a normal posture. This is the take-home-monitor discipline applied to plant care.",
+      "example": "An evening 'droop' on a prayer plant triggers continued monitoring, not a watering — confirmed normal by the next morning's baseline.",
+      "related": [
+        "circadian-leaf-movement",
+        "cold-draft-stress"
+      ],
+      "source": "QuKaiZen Horticulture World — longitudinal-care principle (derived from plant chronobiology)"
+    },
+    {
+      "slug": "env-monstera",
+      "term": "Monstera — light, water & humidity",
+      "category": "environment",
+      "short": "Bright indirect light; water when top few cm dry; moderate-high humidity.",
+      "definition": "Monstera wants bright indirect light to fenestrate, a chunky well-draining mix, watering when the top few centimeters dry, and moderate-to-high humidity. Too little light is the slow, trend-detectable failure (small unsplit leaves, stretching).",
+      "example": "A multi-week trend of unsplit new leaves and stem stretch is read against this profile as chronic under-lighting.",
+      "related": [
+        "monstera-deliciosa",
+        "low-light",
+        "low-humidity"
+      ],
+      "source": "RHS Plant Finder; Missouri Botanical Garden Plant Finder"
+    },
+    {
+      "slug": "monstera-deliciosa",
+      "term": "Monstera (Swiss Cheese Plant)",
+      "aka": [
+        "Monstera deliciosa",
+        "Swiss Cheese Plant"
+      ],
+      "category": "species",
+      "short": "Large fenestrated tropical leaves; a design-forward classic.",
+      "definition": "Monstera deliciosa is a climbing aroid whose mature leaves develop splits (fenestrations) in bright indirect light. Wants chunky, well-draining mix and moderate humidity. Lack of fenestration or leggy growth signals too little light. Toxic to pets.",
+      "example": "New monstera leaves emerging small and unsplit, with stems stretching toward the window over weeks, reads as a chronic low-light trend rather than an acute problem.",
+      "related": [
+        "env-monstera",
+        "leaf-yellowing",
+        "brown-leaf-spots",
+        "leggy-growth"
+      ],
+      "source": "RHS Plant Finder; Missouri Botanical Garden Plant Finder; ASPCA toxic plants (toxicity)"
+    },
+    {
+      "slug": "move-from-direct-sun",
+      "term": "Move out of direct sun",
+      "category": "care-actions",
+      "short": "Shift away from harsh direct rays to indirect light.",
+      "definition": "For scorch, move the plant back from the glass or filter the light so leaves receive bright indirect rather than harsh direct sun. Damaged tissue won't recover, but new growth will be healthy.",
+      "example": "Tan patches on window-side leaves prompt a recommendation to pull the plant back from direct sun.",
+      "related": [
+        "light-scorch"
+      ],
+      "source": "RHS houseplant problems"
+    },
+    {
+      "slug": "move-to-brighter-light",
+      "term": "Move to brighter light",
+      "category": "care-actions",
+      "short": "Relocate to brighter indirect light (or add a grow light).",
+      "definition": "For low-light decline (leggy growth, pale leaves), move the plant to brighter indirect light or add a grow light. Make the change gradually to avoid shock, and rotate periodically for even growth.",
+      "example": "After a confirmed multi-week low-light trend, suggest a brighter spot or supplemental lighting.",
+      "related": [
+        "low-light"
+      ],
+      "source": "Missouri Botanical Garden; University Extension"
+    },
+    {
+      "slug": "nutrient-deficiency",
+      "term": "Nutrient deficiency",
+      "category": "conditions",
+      "short": "Lacking nutrients; characteristic yellowing patterns.",
+      "definition": "Shortfalls of nitrogen, iron, or magnesium produce characteristic chlorosis — nitrogen as uniform yellowing of older leaves, iron as interveinal yellowing of new leaves. Common in plants long overdue for feeding or repotting. Pattern + progression separate it from watering issues.",
+      "example": "Interveinal yellowing on new growth, persisting despite correct watering, points to a micronutrient deficiency.",
+      "related": [
+        "fertilize-balanced",
+        "leaf-yellowing"
+      ],
+      "source": "University Extension horticulture; Missouri Botanical Garden"
+    },
+    {
+      "slug": "overwatering",
+      "term": "Overwatering",
+      "category": "conditions",
+      "short": "Too much water / poor drainage; roots suffocate; the top killer.",
+      "definition": "Constantly wet soil starves roots of oxygen and invites rot. It causes drooping and yellowing that mimic thirst, but the soil is wet and leaves may be soft. The single most common houseplant killer; watering-interval trends (too frequent) flag it before rot.",
+      "example": "A drooping, yellowing plant in soggy soil is over-, not under-, watered — more water would worsen it.",
+      "related": [
+        "reduce-watering",
+        "root-rot",
+        "leaf-yellowing"
+      ],
+      "source": "RHS 'Watering houseplants'; Missouri Botanical Garden"
+    },
+    {
+      "slug": "peace-lily",
+      "term": "Peace Lily",
+      "aka": [
+        "Spathiphyllum"
+      ],
+      "category": "species",
+      "short": "The 'communicator' — wilts dramatically when thirsty, then recovers.",
+      "definition": "Spathiphyllum is a flowering aroid that droops conspicuously when underwatered and perks up within hours of watering — the textbook longitudinal signal. Prefers consistent moisture, moderate-to-low light, and higher humidity (brown tips in dry air). Toxic to pets.",
+      "example": "The camera catches a peace lily's whole canopy sagging in the afternoon; cross-checked against a dry-soil reading and its own morning baseline, it's thirst — water now.",
+      "related": [
+        "env-peace-lily",
+        "leaf-drooping",
+        "leaf-tip-browning",
+        "brown-leaf-spots"
+      ],
+      "source": "RHS Plant Finder; Missouri Botanical Garden Plant Finder; ASPCA toxic plants (toxicity)"
+    },
+    {
+      "slug": "env-peace-lily",
+      "term": "Peace lily — light, water & humidity",
+      "category": "environment",
+      "short": "Low-to-moderate indirect light; keep evenly moist; higher humidity.",
+      "definition": "Peace lilies like low-to-moderate indirect light, consistently (not soggily) moist soil, and higher humidity — dry air browns the tips. Their dramatic, recoverable wilt makes them ideal for longitudinal thirst detection against a daily baseline.",
+      "example": "The system separates the peace lily's recoverable afternoon wilt from a sustained, non-recovering droop that would indicate root trouble.",
+      "related": [
+        "peace-lily",
+        "underwatering",
+        "low-humidity"
+      ],
+      "source": "RHS Plant Finder; Missouri Botanical Garden Plant Finder"
+    },
+    {
+      "slug": "env-pothos",
+      "term": "Pothos — light, water & humidity",
+      "category": "environment",
+      "short": "Low-to-bright indirect light; water when top 2–3 cm dry; average humidity.",
+      "definition": "Pothos tolerates low light but grows fuller in bright indirect light. Water when the top 2–3 cm of soil is dry; it forgives occasional dryness better than constant wetness. Average household humidity is fine. The baseline against which the camera judges 'too dry' or 'too dark'.",
+      "example": "Tracking watering intervals over weeks, the system learns this pothos's normal dry-down rhythm and flags deviations.",
+      "related": [
+        "golden-pothos",
+        "low-light",
+        "overwatering"
+      ],
+      "source": "RHS Plant Finder; Missouri Botanical Garden Plant Finder"
+    },
+    {
+      "slug": "reduce-watering",
+      "term": "Reduce watering / improve drainage",
+      "category": "care-actions",
+      "short": "Let soil dry more between waterings; ensure drainage holes.",
+      "definition": "For overwatering, extend the interval, ensure the pot drains freely, empty saucers, and consider a grittier mix. The goal is to restore air to the roots before rot develops.",
+      "example": "When watering events cluster too close for a snake plant, advise lengthening the interval and checking drainage.",
+      "related": [
+        "overwatering"
+      ],
+      "source": "RHS 'Watering houseplants'; University Extension"
+    },
+    {
+      "slug": "repot-fresh-mix",
+      "term": "Repot into fresh, free-draining mix",
+      "category": "care-actions",
+      "short": "Unpot, trim rotten roots, repot in fresh well-draining medium.",
+      "definition": "For root rot, remove the plant, cut away brown/mushy roots with clean tools, and repot into fresh, free-draining mix in a pot with drainage. Reduce watering afterward while roots recover.",
+      "example": "On signs of root rot, recommend unpotting, trimming, and a dry repot.",
+      "related": [
+        "root-rot"
+      ],
+      "source": "American Phytopathological Society; RHS"
+    },
+    {
+      "slug": "root-rot",
+      "term": "Root rot",
+      "category": "conditions",
+      "short": "Roots decay from prolonged wetness; often fungal.",
+      "definition": "Sustained overwatering kills roots and invites fungal pathogens (e.g., Pythium, Phytophthora); roots turn brown and mushy and the plant wilts despite wet soil. Requires removing affected roots and repotting into fresh, free-draining mix. The downstream consequence overwatering trends predict.",
+      "example": "A snake plant softening at the base in chronically wet soil is showing root rot — unpot, trim, and repot dry.",
+      "related": [
+        "repot-fresh-mix",
+        "reduce-watering",
+        "root-rot-fungi"
+      ],
+      "source": "American Phytopathological Society; University Extension"
+    },
+    {
+      "slug": "root-rot-fungi",
+      "term": "Root-rot fungi (Pythium / Phytophthora)",
+      "category": "pests-pathogens",
+      "short": "Waterborne fungi that rot roots in soggy soil.",
+      "definition": "Oomycete pathogens such as Pythium and Phytophthora thrive in waterlogged soil and destroy root systems, producing the wilt-despite-wet-soil pattern of root rot. Prevention (drainage, correct watering) beats cure; treatment is removing rotten roots and repotting into fresh mix.",
+      "example": "Persistently soggy soil with a softening base points to root-rot fungi; repot dry and reduce watering.",
+      "related": [
+        "root-rot",
+        "repot-fresh-mix"
+      ],
+      "source": "American Phytopathological Society; University Extension"
+    },
+    {
+      "slug": "scale-insects",
+      "term": "Scale insects",
+      "category": "pests-pathogens",
+      "short": "Brown bump-like shells on stems/leaves; sticky honeydew.",
+      "definition": "Scale insects attach as small brown or tan bumps along stems and leaf veins, hidden under a protective shell, sucking sap and producing honeydew. Because they look like part of the plant, change-over-time detection (new bumps appearing, spreading residue) helps catch them.",
+      "example": "New bump-like shells appearing along a stem with growing stickiness indicate scale.",
+      "related": [
+        "sticky-residue",
+        "treat-pests-ipm"
+      ],
+      "source": "University Extension IPM; RHS pest advice"
+    },
+    {
+      "slug": "snake-plant",
+      "term": "Snake Plant",
+      "aka": [
+        "Dracaena trifasciata",
+        "Sansevieria",
+        "Mother-in-law's Tongue"
+      ],
+      "category": "species",
+      "short": "Stiff upright succulent-like leaves; thrives on neglect.",
+      "definition": "Dracaena trifasciata stores water in thick vertical leaves and tolerates low light and infrequent watering. Its commonest failure mode is overwatering → root rot, not thirst. Because its leaves barely move, change-over-time detection focuses on color/turgor shifts rather than posture. Toxic to pets.",
+      "example": "A snake plant leaf softening and yellowing at the base over a week — tracked against its rigid baseline — flags overwatering/root rot, not underwatering.",
+      "related": [
+        "env-snake-plant",
+        "leaf-yellowing",
+        "root-rot"
+      ],
+      "source": "RHS Plant Finder; Missouri Botanical Garden Plant Finder; ASPCA toxic plants (toxicity)"
+    },
+    {
+      "slug": "env-snake-plant",
+      "term": "Snake plant — light, water & humidity",
+      "category": "environment",
+      "short": "Low-to-bright indirect; water sparingly, let dry fully; low humidity OK.",
+      "definition": "Snake plants store water and need infrequent watering — let the soil dry completely between waterings. They tolerate low light and dry air. The dominant risk is overwatering, so the baseline watering interval is long; frequent watering is the deviation to flag.",
+      "example": "If watering events cluster closer than the learned safe interval, the system warns of overwatering risk before rot sets in.",
+      "related": [
+        "snake-plant",
+        "overwatering",
+        "low-light"
+      ],
+      "source": "RHS Plant Finder; Missouri Botanical Garden Plant Finder"
+    },
+    {
+      "slug": "spider-mites",
+      "term": "Spider mites",
+      "category": "pests-pathogens",
+      "short": "Tiny sap-suckers; fine webbing and leaf stippling; love warm dry air.",
+      "definition": "Spider mites are minuscule arachnids that pierce leaf cells, causing fine pale stippling, then webbing, then bronzing. They multiply explosively in warm, dry conditions — so early detection of the first webbing is decisive, exactly what continuous monitoring provides over weekly checks.",
+      "example": "First wisps of webbing plus stippling on a warm windowsill plant trigger an early IPM course.",
+      "related": [
+        "white-webbing",
+        "leaf-curling",
+        "treat-pests-ipm"
+      ],
+      "source": "University Extension IPM; RHS pest advice"
+    },
+    {
+      "slug": "sticky-residue",
+      "term": "Sticky residue (honeydew)",
+      "category": "symptoms",
+      "short": "Shiny, sticky film on leaves or nearby surfaces.",
+      "definition": "Honeydew is sugary excrement from sap-sucking insects (mealybugs, scale, aphids) and often precedes visible black sooty mold. Its appearance and spread over time signal an active, growing infestation needing IPM treatment.",
+      "example": "Growing sticky shine on lower leaves and the shelf below, tracked over days, indicates a spreading mealybug or scale population.",
+      "related": [
+        "mealybugs",
+        "scale-insects"
+      ],
+      "source": "University Extension IPM; RHS pest advice"
+    },
+    {
+      "slug": "treat-pests-ipm",
+      "term": "Treat pests (IPM)",
+      "category": "care-actions",
+      "short": "Isolate, wipe/wash off, apply horticultural soap/oil, repeat.",
+      "definition": "Integrated pest management for mites, mealybugs, scale, and fungus gnats: isolate the plant, physically remove pests (wipe, rinse), apply insecticidal soap or horticultural oil per label, and repeat on a schedule to break the life cycle. Early longitudinal detection makes treatment far easier.",
+      "example": "On first webbing or honeydew, recommend isolation and an IPM treatment course before the population explodes.",
+      "related": [
+        "spider-mites",
+        "mealybugs",
+        "scale-insects",
+        "fungus-gnats"
+      ],
+      "source": "University Extension IPM; RHS pest advice"
+    },
+    {
+      "slug": "underwatering",
+      "term": "Underwatering",
+      "category": "conditions",
+      "short": "Too little water; soil dried fully; recovers fast after watering.",
+      "definition": "When soil dries out, the plant wilts and tips/margins crisp. The tell is recovery: a thoroughly watered plant perks up within hours, distinguishing it from root-damage causes that don't bounce back. Tracking the dry-down interval against the plant's baseline catches it before wilt.",
+      "example": "A peace lily wilting in bone-dry soil that recovers overnight after watering confirms underwatering.",
+      "related": [
+        "water-thoroughly",
+        "leaf-drooping",
+        "leaf-tip-browning"
+      ],
+      "source": "RHS 'Watering houseplants'; University Extension"
+    },
+    {
+      "slug": "water-thoroughly",
+      "term": "Water thoroughly, then let dry",
+      "category": "care-actions",
+      "short": "Soak until it drains; wait until the top soil dries before next time.",
+      "definition": "Water until it runs from the drainage holes, discard standing water, then let the top 2–3 cm dry before watering again. This 'soak-and-dry' rhythm fixes underwatering without tipping into overwatering. Frequency follows the plant and season, never a fixed calendar.",
+      "example": "On confirmed underwatering, recommend a thorough soak now and a soil-dryness check before next watering.",
+      "related": [
+        "underwatering"
+      ],
+      "source": "RHS 'Watering houseplants'"
+    }
+  ]
+}

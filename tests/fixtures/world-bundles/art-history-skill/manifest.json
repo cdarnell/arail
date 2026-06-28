@@ -1,0 +1,27 @@
+{
+  "schema": "dac.world-bundle/v1",
+  "bundle_version": 1,
+  "world": "art-history",
+  "display_name": "Sophie's World — A History of the Arts (Music · Fashion · Film · Literature · Dance · Painting)",
+  "created_at": "1970-01-01T00:00:00.000Z",
+  "world_sha256": "40080461fe0e1ed4cff9aee74ce4a737bf86a526b124201049dcf3222b299d6b",
+  "files": {
+    "terms.json": "40080461fe0e1ed4cff9aee74ce4a737bf86a526b124201049dcf3222b299d6b",
+    "spec.json": "ee65441fd21a81971a41b525bec95debb4fe1b508664564cb079c702049a8187",
+    "roster.json": "5d75252251d6d6cb2c8beaa0b5d3080299ec6c51184cbac4894a49b1a8e23214",
+    "face.json": "6b61856d172babbd1a368079e8b270381696244df982b241e28e6aa51a694f38",
+    "agenda.json": "ff257488fa92d419866bb428cfc414701c7831543e307d20c8c6d19ca59619ff",
+    "drift-report.json": "707e07875a13ed24fa721228be4a7e8ce6f76e97a058460a257c866a12354aac"
+  },
+  "provenance_tier": "sourced",
+  "provenance_counts": {
+    "model": 0,
+    "sourced": 103,
+    "total": 103
+  },
+  "refresh_cadence": "see agenda.json",
+  "compat": {
+    "bundle_schema": 1,
+    "terms_schema": 1
+  }
+}

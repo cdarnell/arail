@@ -89,6 +89,8 @@ class BuddyHost(Protocol):
 
     def compose_skill_context(self, skills: List[Any]) -> str: ...
 
+    def load_world_skill(self) -> Optional[Any]: ...
+
     def llm_complete(self, prompt: str, max_tokens: int = 60,
                      temperature: float = 0.6) -> str: ...
 
@@ -162,6 +164,13 @@ class ArailHost:
             return compose_system_context(skills)
         except Exception:
             return ""
+
+    def load_world_skill(self) -> Optional[Any]:
+        try:
+            from arail.skills_loader import load_world_skill
+            return load_world_skill()
+        except Exception:
+            return None
 
     def llm_complete(self, prompt: str, max_tokens: int = 60,
                      temperature: float = 0.6) -> str:
@@ -996,9 +1005,17 @@ def _world_framing_block() -> str:
 
 def _compose_prompt(fact: str) -> str:
     """Build the full LLM prompt: base voice + world framing (if mounted) +
-    skills + yesterday's dream + observation."""
+    skills (agent skills + world glossary) + yesterday's dream + observation.
+
+    WORLD FRAMING (face.json "who") and the world-skill glossary ("what") are
+    DISTINCT sections. Framing is a 2-liner; the world-skill is a full glossary
+    under its own ## Skill: H2 inside the Procedural knowledge block.
+    """
     base = SYSTEM_PROMPT
-    skill_ctx = _host.compose_skill_context(_host.load_agent_skills("buddy"))
+    agent_skills = _host.load_agent_skills("buddy")
+    world_skill = _host.load_world_skill()
+    all_skills = agent_skills + ([world_skill] if world_skill is not None else [])
+    skill_ctx = _host.compose_skill_context(all_skills)
 
     try:
         from datetime import datetime, timezone

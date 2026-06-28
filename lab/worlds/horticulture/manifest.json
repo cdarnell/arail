@@ -1,0 +1,21 @@
+{
+  "schema": "dac.world-bundle/v1",
+  "bundle_version": 1,
+  "world": "horticulture",
+  "display_name": "Horticulture (Houseplant Care)",
+  "created_at": "1970-01-01T00:00:00.000Z",
+  "world_sha256": "69fda1b7139c12406c9d682f5c6e24a7cf5807e7b3575bd2ffaa9d8fbcd53363",
+  "files": {
+    "terms.json": "69fda1b7139c12406c9d682f5c6e24a7cf5807e7b3575bd2ffaa9d8fbcd53363",
+    "spec.json": "50bbf76c0505ffb224aa752ca2478fb2a67fe38d9d6c2b08c8d2d833d3bd2ef6",
+    "roster.json": "1bcf3b42a90e37d8b95c5634abf144732d55e54fef600f350d484cac747e8736",
+    "face.json": "cff818a949112aa67dfeee4ed1c09990405602e44381e532058fff468dc617f7",
+    "agenda.json": "4c054586bcde159651edf1219e22896ef0120473ea788c22332f397f2333a03e",
+    "drift-report.json": "b557808590b9b85703504f8c5360526b8817812c62ba1707901d963cc61f70aa"
+  },
+  "refresh_cadence": "see agenda.json",
+  "compat": {
+    "bundle_schema": 1,
+    "terms_schema": 1
+  }
+}

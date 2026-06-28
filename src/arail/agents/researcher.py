@@ -144,8 +144,15 @@ def _get_system_context(intent: str | None = None) -> str:
     # ensure_default_loadouts runs) or the loader raises, we proceed
     # with the base context alone.
     try:
-        from arail.skills_loader import load_agent_skills, compose_system_context
+        from arail.skills_loader import (
+            load_agent_skills,
+            compose_system_context,
+            load_world_skill,
+        )
         skills = load_agent_skills("researcher")
+        ws = load_world_skill()
+        if ws is not None:
+            skills = skills + [ws]
         skill_ctx = compose_system_context(skills)
     except Exception:
         skill_ctx = ""

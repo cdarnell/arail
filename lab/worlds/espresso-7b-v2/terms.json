@@ -1,0 +1,258 @@
+{
+  "version": 1,
+  "terms": [
+    {
+      "slug": "ristretto",
+      "term": "Ristretto",
+      "category": "espresso-brewing-methods",
+      "related": [
+        "espresso",
+        "brewing-basket",
+        "portafilter",
+        "grind-size",
+        "brew-time"
+      ],
+      "source": "model:qwen2.5/7b",
+      "short": "Ristretto",
+      "definition": "A concentrated espresso variant made with a shorter extraction time and less water, resulting in a stronger flavor and higher caffeine concentration.",
+      "example": "A Ristretto shot is typically extracted using the same grounds as a standard espresso but for a shorter duration, yielding about half the volume of a regular shot."
+    },
+    {
+      "slug": "normale",
+      "term": "Normale",
+      "category": "espresso-brewing-methods",
+      "related": [
+        "espresso",
+        "brewing-basket",
+        "portafilter",
+        "grind-size",
+        "water-temperature"
+      ],
+      "source": "model:qwen2.5/7b",
+      "short": "one line",
+      "definition": "In espresso brewing, 'Normale' refers to a standard extraction method using typical pressure and time settings.",
+      "example": "A Normale extraction typically involves a brew time of 25-30 seconds under 9 bars of pressure."
+    },
+    {
+      "slug": "lungo",
+      "term": "Lungo",
+      "category": "espresso-brewing-methods",
+      "related": [
+        "espresso",
+        "brewing-basket",
+        "portafilter",
+        "brew-time",
+        "grind-size"
+      ],
+      "source": "model:qwen2.5/7b",
+      "short": "lungo",
+      "definition": "A lungo is an espresso-based coffee that is extracted for a longer duration, typically using the same amount of ground coffee but with more water, resulting in a larger volume and a milder taste compared to a standard espresso.",
+      "example": "A lungo shot can be made by extracting espresso for about 3-4 seconds instead of the usual 25-30 seconds, yielding a drink that is similar to a long black coffee."
+    },
+    {
+      "slug": "brewing-basket",
+      "term": "Brewing Basket",
+      "category": "equipment-and-tools",
+      "related": [
+        "portafilter",
+        "espresso",
+        "lungo",
+        "doppio",
+        "ristretto"
+      ],
+      "source": "model:qwen2.5/7b",
+      "short": "one line",
+      "definition": "A metal basket in an espresso machine where ground coffee is placed for brewing.",
+      "example": "The barista tamped down the coffee grounds into the basket before inserting it into the portafilter."
+    },
+    {
+      "slug": "portafilter",
+      "term": "Portafilter",
+      "category": "equipment-and-tools",
+      "related": [
+        "brewing-basket",
+        "espresso",
+        "pull",
+        "grind-size",
+        "water-temperature"
+      ],
+      "source": "model:qwen2.5/7b",
+      "short": "A component",
+      "definition": "A portafilter is a handheld, removable cylinder used in espresso machines to hold coffee grounds during the brewing process. It ensures consistent pressure and contact between water and grounds.",
+      "example": "The barista tamped down the finely ground coffee into the portafilter before inserting it into the espresso machine."
+    },
+    {
+      "slug": "pump",
+      "term": "Pump",
+      "category": "equipment-and-tools",
+      "related": [
+        "brewing-basket",
+        "portafilter",
+        "espresso",
+        "grind-size",
+        "water-temperature"
+      ],
+      "source": "model:qwen2.5/7b",
+      "short": "A pump in espresso brewing",
+      "definition": "A pump in an espresso machine is a device that pressurizes water to extract coffee through a finely ground coffee puck, ensuring consistent and high-quality extraction.",
+      "example": "The piston pump in the semi-automatic espresso machine forces hot water at approximately 90-96°C through compacted coffee grounds."
+    },
+    {
+      "slug": "acidity",
+      "term": "Acidity",
+      "category": "taste-and-quality-control",
+      "related": [
+        "brew-time",
+        "grind-size",
+        "water-temperature"
+      ],
+      "source": "model:qwen2.5/7b",
+      "short": "A",
+      "definition": "In espresso brewing, acidity refers to the bright, tangy flavors often associated with coffee beans' natural chemical composition, which can be perceived as a sharp or zesty taste in the cup.",
+      "example": "Acidity in an Ethiopian Yirgacheffe espresso is characterized by its distinct citrus notes and lively, refreshing mouthfeel."
+    },
+    {
+      "slug": "body",
+      "term": "Body",
+      "category": "taste-and-quality-control",
+      "related": [
+        "crema",
+        "grind-size",
+        "water-temperature",
+        "brew-time",
+        "pull"
+      ],
+      "source": "model:qwen2.5/7b",
+      "short": "B",
+      "definition": "The fullness and weight of an espresso in the mouth, often described as its texture or mouthfeel.",
+      "example": "A rich, full-bodied espresso has a thick, velvety texture that coats the palate."
+    },
+    {
+      "slug": "bitterness",
+      "term": "Bitterness",
+      "category": "taste-and-quality-control",
+      "related": [
+        "acidity",
+        "body",
+        "brew-time",
+        "grind-size",
+        "water-temperature"
+      ],
+      "source": "model:qwen2.5/7b",
+      "short": "Bitter",
+      "definition": "Bitterness in espresso refers to a taste that is often described as sharp, harsh, or unpleasant, typically resulting from the presence of certain compounds extracted during brewing.",
+      "example": "A poorly extracted espresso might exhibit bitterness due to over-extraction, where too much soluble content is drawn out, leading to an unbalanced and astringent flavor profile."
+    },
+    {
+      "slug": "doppio",
+      "term": "Doppio",
+      "category": "espresso-brewing-methods",
+      "related": [
+        "espresso",
+        "brewing-basket",
+        "portafilter",
+        "grind-size",
+        "water-temperature"
+      ],
+      "source": "model:qwen2.5/7b",
+      "short": "double",
+      "definition": "A Doppio is a double shot of espresso, typically made by passing twice the amount of water (approximately 60 ml) through the same dose of ground coffee (around 18-20 grams) as used for a single shot.",
+      "example": "A standard Doppio yields about 1.5 ounces (44-60 ml) of rich, concentrated espresso."
+    },
+    {
+      "slug": "crema",
+      "term": "Crema",
+      "category": "espresso-brewing-methods",
+      "related": [
+        "espresso",
+        "brew-time",
+        "grind-size",
+        "water-temperature"
+      ],
+      "source": "model:qwen2.5/7b",
+      "short": "C",
+      "definition": "Crema is the golden-brown foam that forms on top of an espresso, created by dissolved gases escaping from the coffee grounds under pressure.",
+      "example": "A well-made espresso should have a thick, velvety crema as its hallmark."
+    },
+    {
+      "slug": "brew-time",
+      "term": "Brew Time",
+      "category": "espresso-brewing-methods",
+      "related": [
+        "espresso",
+        "grind-size",
+        "water-temperature",
+        "portafilter",
+        "pull"
+      ],
+      "source": "model:qwen2.5/7b",
+      "short": "BT",
+      "definition": "Brew time in espresso brewing refers to the duration for which water is forced through the coffee grounds, typically lasting between 20 and 30 seconds.",
+      "example": "A standard espresso shot has a brew time of about 25 seconds."
+    },
+    {
+      "slug": "espresso",
+      "term": "Espresso",
+      "category": "espresso-brewing-methods",
+      "related": [
+        "ristretto",
+        "normale",
+        "lungo",
+        "portafilter",
+        "brewing-basket"
+      ],
+      "source": "model:qwen2.5/7b",
+      "short": " Espresso",
+      "definition": "Espresso is a concentrated coffee beverage made by forcing hot water under pressure through finely ground, compacted coffee beans, typically yielding about 1 to 2 ounces of liquid in about 25 to 30 seconds.",
+      "example": "A classic example is the traditional espresso shot served in a small cup, often enjoyed on its own or as the base for other drinks like lattes and cappuccinos."
+    },
+    {
+      "slug": "grind-size",
+      "term": "Grind Size",
+      "category": "espresso-brewing-methods",
+      "related": [
+        "brewing-basket",
+        "portafilter",
+        "pump",
+        "water-temperature",
+        "pull"
+      ],
+      "source": "model:qwen2.5/7b",
+      "short": "G",
+      "definition": "Grind size refers to the particle size of coffee grounds, which significantly impacts extraction time and flavor profile during espresso brewing. Finer grinds increase extraction speed but can lead to over-extraction if too fine, while coarser grinds require longer extraction times to achieve proper flavor development.",
+      "example": "For a standard espresso shot, a medium grind size is typically used, similar to the consistency of table salt."
+    },
+    {
+      "slug": "water-temperature",
+      "term": "Water Temperature",
+      "category": "espresso-brewing-methods",
+      "related": [
+        "brew-time",
+        "grind-size",
+        "espresso",
+        "portafilter",
+        "pump"
+      ],
+      "source": "model:qwen2.5/7b",
+      "short": "Temp",
+      "definition": "Water temperature is a critical factor in espresso brewing, affecting the extraction process by influencing the solubility of coffee compounds. It should typically range between 90°C to 96°C for optimal results.",
+      "example": "Using water at 93°C, baristas can achieve a balanced extraction that brings out the best flavors in their espresso."
+    },
+    {
+      "slug": "pull",
+      "term": "Pull",
+      "category": "espresso-brewing-methods",
+      "related": [
+        "espresso",
+        "brewing-basket",
+        "portafilter",
+        "water-temperature",
+        "grind-size"
+      ],
+      "source": "model:qwen2.5/7b",
+      "short": "pull",
+      "definition": "In espresso brewing, 'pull' refers to the process of extracting coffee using a espresso machine by forcing hot water through finely ground coffee under high pressure.",
+      "example": "When a barista pulls an espresso shot, they operate the espresso machine to extract a concentrated dose of coffee in about 25-30 seconds."
+    }
+  ]
+}

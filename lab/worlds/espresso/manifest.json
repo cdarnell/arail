@@ -1,0 +1,27 @@
+{
+  "schema": "dac.world-bundle/v1",
+  "bundle_version": 1,
+  "world": "espresso",
+  "display_name": "Espresso Brewing",
+  "created_at": "1970-01-01T00:00:00.000Z",
+  "world_sha256": "1787f281322eb47384e6c9c1802f89b68f71cae0934be7757feec208380b5a47",
+  "files": {
+    "terms.json": "1787f281322eb47384e6c9c1802f89b68f71cae0934be7757feec208380b5a47",
+    "spec.json": "e1b5c777a9e6431161d2483184ca4aac1482e51bf2f9565087086660c8bf6045",
+    "roster.json": "bcf19307ace4083cf4303cfe6e06fe19bbb5ae74920751660a61cf5e8508d08e",
+    "face.json": "4b876e866dd6daeae7c54c8a7be6d27e44bcbb1ca06d6e1d43b2d79ff23c7a8b",
+    "agenda.json": "608120dc2faa0c6793b196588c165ea284dbb40ace47200e970b022d50fecc28",
+    "drift-report.json": "7bfa12152062ec31bc430d197355098054f96acfe1692e2fa198e0221574c437"
+  },
+  "provenance_tier": "model-asserted",
+  "provenance_counts": {
+    "model": 14,
+    "sourced": 0,
+    "total": 14
+  },
+  "refresh_cadence": "see agenda.json",
+  "compat": {
+    "bundle_schema": 1,
+    "terms_schema": 1
+  }
+}

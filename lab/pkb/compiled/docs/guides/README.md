@@ -4,7 +4,7 @@ section: docs
 tags: [guide]
 aliases: [README]
 source: README.md
-generated: 2026-06-15T12:25:06Z
+generated: 2026-06-21T17:47:19Z
 ---
 # ARAIL — Autoresearch AI Labs
 **A rail gun for AI.**
@@ -78,6 +78,12 @@ Two tiers. Pick one; upgrade later.
 > **Built with Llama.** The default model (`llama-ai-eng`) is built on Llama-3.2-1B-Instruct
 > (Meta Platforms, Inc.) under the [Llama 3.2 Community License](licenses/LLAMA-3.2-COMMUNITY-LICENSE.txt).
 > See [NOTICE](NOTICE) for attribution details.
+
+> **Coming: a stronger default brain (Built with Gemma).** A ~2B Gemma generalist
+> (`qkz-project-aware-2b`) is staged to become the minimalist default-floor — better at technical
+> domains (physics/math) than the 1B, still 16 GB-friendly. It is **dormant** until its weights land;
+> when armed it ships **built with Gemma** under the [Gemma Terms of Use](licenses/GEMMA-TERMS-OF-USE.txt)
+> (see [NOTICE](NOTICE)). Until then the default stays `llama-ai-eng`.
 
 > **On a tight budget or CPU-only?** Before the 1 GB default, you can browse-and-pull an even
 > smaller starter from the Chat catalog: `qwen2.5:0.5b-instruct-q4_K_M` (~0.4 GB, Apache-2.0) runs
@@ -263,6 +269,7 @@ so imports don't break — only the display rebrands.
 - [docs/WSL.md](docs/WSL.md) — Windows via WSL2 with GPU passthrough.
 - [docs/PRIVACY.md](docs/PRIVACY.md) — exactly what data leaves the box.
 - [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) — first-run gotchas.
+- [docs/world-forge.md](docs/world-forge.md) — *(design)* dream a World with the local model, then let AeroLLM forever curate it into sourced truth — speculative authoring.
 - [docs/agents-explained.md](docs/agents-explained.md) — the quick tour of Buddy, SRE, Researcher, and custom agents.
 - [docs/agents.md](docs/agents.md) — the agent architecture and loader contract.
 - [AGENTS.md](AGENTS.md) — the platform-porting manifest for coding agents.

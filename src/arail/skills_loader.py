@@ -39,6 +39,31 @@ from arail.pkb import _pkb_root
 
 log = logging.getLogger(__name__)
 
+# ── World-skill caps (DoS / prompt-bloat guard) ────────────────────
+_MAX_WORLD_SKILL_BYTES = 64 * 1024          # whole-file read cap (file-level)
+# Body cap: 56K chars — comfortably above the largest real World glossary
+# (~32K for art-history); truncation is a last resort and emits a WARN.
+_MAX_WORLD_SKILL_BODY_CHARS = 56 * 1024
+
+# ARAIL structural delimiters a tampered body must NOT be able to forge.
+# Matched against the STRIPPED (lstripped) line so that indented variants
+# (e.g. "  # WORLD FRAMING") are also caught (Defect 3 fix).
+_ARAIL_DELIMITERS = (
+    "# WORLD FRAMING",
+    "# END WORLD FRAMING",
+    "# Procedural knowledge",
+    "## Skill:",
+    "Observation:",
+    "Source:",
+    "Buddy's one-sentence note:",
+)
+
+# H1/H2 heading pattern at column 0 (optional leading whitespace) that is NOT
+# a legitimate glossary header (h3+ like "### Dance" are preserved).
+# Matches: "#<space>" (h1) or "##<space>" (h2 — e.g. "## Skill: ..."),
+# but NOT "###" or deeper (those are the glossary category headers).
+_HEADING_H1_H2_RE = re.compile(r"^\s*#{1,2}(?!#)\s")
+
 
 # ── Minimal YAML frontmatter parser ────────────────────────────────
 # Pulled inline instead of adding a pyyaml dependency. Handles the
@@ -212,6 +237,143 @@ def load_agent_skills(agent_id: str,
     if not isinstance(skill_ids, list):
         return []
     return load_skills([str(s) for s in skill_ids], pkb_root=pkb_root)
+
+
+def _contain_skill_body(body: str) -> str:
+    """Defense-in-depth: re-apply DaC's containment in Python so a SKILL.md
+    tampered AFTER DaC emitted it cannot forge prompt structure.
+
+    Neutralization rules (per physical line):
+    1. Normalize ``\\r\\n`` / ``\\r`` → ``\\n``.
+    2. A bare YAML fence (``---``, possibly with leading whitespace) →
+       neutralize with U+200C prefix.
+    3. A backtick fence line (``````` or ```````` at any indent) → neutralize.
+    4. Any ARAIL structural delimiter (see ``_ARAIL_DELIMITERS``) matched
+       against the lstripped line — so both column-0 and indented variants
+       are caught (e.g. ``  # WORLD FRAMING`` is caught).
+    5. Any H1 or H2 markdown heading (``# ...`` or ``## ...``) that was NOT
+       already neutralized above → neutralize. This prevents forging
+       ``# WORLD FRAMING`` or ``## Skill: EVIL`` via a novel variant not in
+       the delimiter list. H3 (``###``) and deeper are explicitly preserved —
+       they are the legitimate glossary category headers (``### Dance`` etc.).
+
+    Preserved:
+    - ``### Category`` / ``#### subcategory`` headers (h3+)
+    - ``- **term** — definition`` bullet lines (even at column 0)
+    - ``  - Source: …`` lines (leading whitespace → not column-0 ``Source:``)
+    - All indented prose lines
+
+    Deterministic; mirrors skill.ts sanitizeBodyField at the line granularity
+    ARAIL injects.
+    """
+    # Normalize line endings
+    body = body.replace("\r\n", "\n").replace("\r", "\n")
+
+    ZWNJ = "‌"  # U+200C zero-width non-joiner prefix for neutralized lines
+    out_lines: List[str] = []
+
+    for line in body.split("\n"):
+        stripped = line.lstrip()
+
+        # 2. YAML fence
+        if stripped == "---":
+            out_lines.append(ZWNJ + line)
+            continue
+
+        # 3. Backtick fence
+        if stripped.startswith("```"):
+            out_lines.append(ZWNJ + line)
+            continue
+
+        # 4. ARAIL structural delimiter (matched on lstripped so indented variants caught)
+        forged = False
+        for delim in _ARAIL_DELIMITERS:
+            if (stripped == delim
+                    or stripped.startswith(delim + " ")
+                    or stripped.startswith(delim + "\t")):
+                out_lines.append(ZWNJ + line)
+                forged = True
+                break
+        if forged:
+            continue
+
+        # 5. H1 / H2 heading (## or # but NOT ###+ which are glossary headers)
+        if _HEADING_H1_H2_RE.match(line):
+            out_lines.append(ZWNJ + line)
+            continue
+
+        out_lines.append(line)
+
+    return "\n".join(out_lines)
+
+
+def load_skill_from_path(path: Path, skill_id: str) -> Optional["Skill"]:
+    """Load a Skill from an explicit SKILL.md path (not the skills/ dir).
+
+    Returns None when missing / oversized / unreadable.
+    Applies on-load containment to the body (treats SKILL.md as untrusted DATA).
+    """
+    if not path.exists():
+        return None
+    try:
+        raw_bytes = path.read_bytes()
+    except OSError as e:
+        log.warning("load_skill_from_path: cannot read %s: %s", path, e)
+        return None
+    if len(raw_bytes) > _MAX_WORLD_SKILL_BYTES:
+        log.warning(
+            "load_skill_from_path: %s exceeds %d-byte cap (%d bytes) — skipping",
+            path, _MAX_WORLD_SKILL_BYTES, len(raw_bytes),
+        )
+        return None
+    try:
+        raw = raw_bytes.decode("utf-8", errors="replace")
+    except Exception as e:
+        log.warning("load_skill_from_path: decode error on %s: %s", path, e)
+        return None
+    fm = parse_frontmatter(raw)
+    body = strip_frontmatter(raw).strip()
+    # Apply containment BEFORE size cap so a padded-then-stripped body can't
+    # circumvent the byte cap with whitespace.
+    body = _contain_skill_body(body)
+    if len(body) > _MAX_WORLD_SKILL_BODY_CHARS:
+        log.warning(
+            "load_skill_from_path: %s body exceeds %d-char cap (%d chars) — truncating",
+            path, _MAX_WORLD_SKILL_BODY_CHARS, len(body),
+        )
+        body = body[:_MAX_WORLD_SKILL_BODY_CHARS]
+    return Skill(
+        id=skill_id,
+        name=str(fm.get("name") or fm.get("title") or skill_id),
+        domain=str(fm.get("domain") or "general"),
+        version=str(fm.get("version") or "0"),
+        body=body,
+        path=path,
+        frontmatter=fm,
+    )
+
+
+def load_world_skill(
+    pkb_root: Optional[Path] = None,
+    data_dir: Optional[Path] = None,
+) -> Optional["Skill"]:
+    """Load the mounted World's SKILL.md as a Skill, or None when nothing is
+    mounted / no SKILL.md staged.
+
+    Keyed off current_mount().staged_dir so it tracks mount/unmount/swap
+    with no extra state. Never raises.
+    """
+    try:
+        from arail.world_mount import current_mount, _WORLD_SKILL_NAME
+        record = current_mount(data_dir)
+        if record is None:
+            return None
+        staged_skill = Path(record.staged_dir) / _WORLD_SKILL_NAME
+        skill_id = f"world-{record.world}"
+        return load_skill_from_path(staged_skill, skill_id)
+    except Exception as e:
+        log.warning("load_world_skill: unexpected error: %s", e)
+        return None
 
 
 def compose_system_context(skills: List[Skill]) -> str:
