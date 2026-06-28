@@ -102,8 +102,49 @@ output has zero occurrences of these bare lines. Verified by 2 dedicated tests:
 `test_world_skill_tampered_cannot_forge_structure` and
 `test_world_skill_full_hostile_compose_no_structural_lines` (both pass).
 
+## Review fixes (post-architect WEAK_PASS)
+
+Commit: cb8ac91
+
+**Defect 1 — `### Category` headers mangled.**
+Root cause: the old `_contain_skill_body` neutralized every column-0 `#` line
+(via `_BODY_CONTROL_RE.match` + `first_char in ("#", "`")`), catching the 7
+legitimate glossary headers `### Dance` / `### Music` / etc. in violation of the
+ARCHITECTURE contract that h3+ lines must be preserved.
+Fix: replaced the broad `_BODY_CONTROL_RE` + first_char check with `_HEADING_H1_H2_RE`
+(`^\s*#{1,2}(?!#)\s`) which matches only h1 (`# `) and h2 (`## `) patterns and
+explicitly does NOT match h3+ (`###`). Result: all 7 `### Category` headers now
+survive containment intact in both the body and `compose_system_context` output.
+Forgeries (`## Skill: EVIL`, `# WORLD FRAMING`) are still neutralized.
+
+**Defect 2 — body cap truncated the flagship bundle.**
+Root cause: `_MAX_WORLD_SKILL_BODY_CHARS = 24 * 1024` (24,576 chars) silently
+dropped ~22% of the real art-history body (31,625 chars), losing Music tail terms
+and Painting tail terms from every prompt.
+Fix: raised to `56 * 1024` (57,344 chars). The full 31,625-char art-history body
+now fits with 25KB headroom. Truncation warning still fires (and is tested) when
+a pathological body actually exceeds the cap.
+Verified: `Greek Modes`, `Grove Dictionary of Music`, and `Vermeer` all appear in
+both `skill.body` and `compose_system_context` output.
+
+**Defect 3 — indented delimiter passthrough.**
+Root cause: delimiter check was `line == delim` / `line.startswith(delim)` — column-0
+only. `  # WORLD FRAMING` passed through.
+Fix: delimiter matching now uses `stripped = line.lstrip()` so indented variants
+are also caught. Additionally, `_HEADING_H1_H2_RE` uses `^\s*` so indented h1/h2
+headings are neutralized by the heading check too.
+Verified by new test `test_contain_skill_body_indented_delimiter_neutralized`.
+
+**New tests added (4 pins):**
+- `test_contain_skill_body_preserves_all_h3_category_headers` — all 7 h3 headers intact
+- `test_contain_skill_body_h3_headers_in_composed_prompt` — headers in composed output
+- `test_contain_skill_body_indented_delimiter_neutralized` — indented forgery caught
+- `test_full_flagship_glossary_not_truncated` — Greek Modes + Vermeer + Source line present
+
+**Results after fixes:** 30/30 `tests/test_world_skill_mount.py` + 49/49 world-test regression subset.
+
 ## Architect feedback required
-(none — plan executed exactly as specced)
+(none — plan executed exactly as specced; review defects addressed in review-fixes commit)
 
 ## Final state
 
