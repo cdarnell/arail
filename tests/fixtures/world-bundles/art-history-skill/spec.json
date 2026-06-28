@@ -1,0 +1,30 @@
+{
+  "_seed_notice": "SEED / PRE-GATE. This is a WorldContentSpec seed for an art-history World — a 'Sophie's World' journey through the history of the arts (music, fashion, film, literature, dance, painting) told as a chronological era-spine that links across forms. It conforms to WorldContentSpec in src/types.ts but ships as a SEED: source strings name real authorities; exact source spans are pending Fact Steward verification. Attribution-only — no verbatim copyrighted text. RAW becomes COMPILED truth only through the gate.",
+  "slug": "art-history",
+  "display_name": "Sophie's World — A History of the Arts (Music · Fashion · Film · Literature · Dance · Painting)",
+  "categories": [
+    { "id": "era", "label": "Eras & Movements" },
+    { "id": "painting", "label": "Painting & Visual Art" },
+    { "id": "literature", "label": "Literature" },
+    { "id": "music", "label": "Music" },
+    { "id": "dance", "label": "Dance" },
+    { "id": "fashion", "label": "Fashion & Dress" },
+    { "id": "film", "label": "Film & Cinema" }
+  ],
+  "knowledge_sources": [
+    { "kind": "reference", "ref": "Encyclopædia Britannica — arts & culture entries", "trust": "high", "holder": "Encyclopædia Britannica, Inc.", "license": "facts cited by attribution — no verbatim text" },
+    { "kind": "reference", "ref": "E. H. Gombrich, The Story of Art (Phaidon)", "trust": "high", "holder": "Phaidon Press", "license": "facts cited by attribution — no verbatim text" },
+    { "kind": "reference", "ref": "Janson's History of Art (Pearson)", "trust": "high", "holder": "Pearson", "license": "facts cited by attribution — no verbatim text" },
+    { "kind": "reference", "ref": "Gardner's Art Through the Ages (Cengage)", "trust": "high", "holder": "Cengage Learning", "license": "facts cited by attribution — no verbatim text" },
+    { "kind": "reference", "ref": "Grove Art Online / Oxford Art Online", "trust": "high", "holder": "Oxford University Press", "license": "facts cited by attribution — no verbatim text" },
+    { "kind": "institution", "ref": "The Met — Heilbrunn Timeline of Art History (metmuseum.org)", "trust": "high", "holder": "The Metropolitan Museum of Art", "license": "open scholarly timeline cited by attribution — no verbatim text" },
+    { "kind": "reference", "ref": "The Grove Dictionary of Music and Musicians (Oxford)", "trust": "high", "holder": "Oxford University Press", "license": "facts cited by attribution — no verbatim text" },
+    { "kind": "reference", "ref": "Richard Taruskin, The Oxford History of Western Music", "trust": "high", "holder": "Oxford University Press", "license": "facts cited by attribution — no verbatim text" },
+    { "kind": "reference", "ref": "The Norton Anthology of World / English Literature", "trust": "high", "holder": "W. W. Norton & Company", "license": "facts cited by attribution — no verbatim text" },
+    { "kind": "reference", "ref": "The Oxford Companion to English Literature", "trust": "high", "holder": "Oxford University Press", "license": "facts cited by attribution — no verbatim text" },
+    { "kind": "institution", "ref": "British Film Institute (BFI) — bfi.org.uk", "trust": "high", "holder": "British Film Institute", "license": "factual guidance cited by attribution — no verbatim text" },
+    { "kind": "reference", "ref": "David Bordwell & Kristin Thompson, Film History: An Introduction (McGraw-Hill)", "trust": "high", "holder": "McGraw-Hill", "license": "facts cited by attribution — no verbatim text" },
+    { "kind": "reference", "ref": "The Oxford Dictionary of Dance / International Encyclopedia of Dance", "trust": "high", "holder": "Oxford University Press", "license": "facts cited by attribution — no verbatim text" },
+    { "kind": "reference", "ref": "Valerie Steele (ed.), The Berg Companion to Fashion / Encyclopedia of World Dress and Fashion", "trust": "high", "holder": "Bloomsbury (Berg)", "license": "facts cited by attribution — no verbatim text" }
+  ]
+}

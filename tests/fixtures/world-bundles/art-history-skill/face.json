@@ -1,0 +1,15 @@
+{
+  "schema": "dac.world-face/v1",
+  "world": "art-history",
+  "name": "Sophie's World — A History of the Arts (Music · Fashion · Film · Literature · Dance · Painting)",
+  "tagline": "A Sophie's World — A History of the Arts (Music · Fashion · Film · Literature · Dance · Painting) World.",
+  "palette_hint": "slate-violet",
+  "domain_framing": "This lab studies Sophie's World — A History of the Arts (Music · Fashion · Film · Literature · Dance · Painting). Every factual claim is grounded in the World's cited sources. Hypotheses and answers stay within the declared categories (era, painting, literature, music, dance, fashion, film).",
+  "vocabulary_register": "Use the World's own terms; cite a source for every factual claim.",
+  "provenance_tier": "sourced",
+  "provenance_counts": {
+    "model": 0,
+    "sourced": 103,
+    "total": 103
+  }
+}
