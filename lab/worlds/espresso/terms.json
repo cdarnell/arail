@@ -1,0 +1,155 @@
+{
+  "version": 1,
+  "terms": [
+    {
+      "slug": "brewing-method",
+      "term": "Brewing Method",
+      "category": "kitchen-appliances",
+      "related": [
+        "espresso",
+        "coffee",
+        "brewing-technique",
+        "caffeine-content"
+      ],
+      "source": "model:llama-ai-eng",
+      "short": "Brewing Method",
+      "definition": "A specific process used to prepare a beverage, such as coffee or tea.",
+      "example": "The brewing method for espresso involves forcing pressurized hot water through finely ground coffee beans in a small container called an espresso machine."
+    },
+    {
+      "slug": "temperature-control",
+      "term": "Temperature Control",
+      "category": "kitchen-appliances",
+      "related": [
+        "brewing-method",
+        "coffee-bean",
+        "espresso-machine",
+        "steam-wand"
+      ],
+      "source": "model:llama-ai-eng",
+      "short": "Temperature control is a crucial aspect of espresso brewing.",
+      "definition": "Temperature control refers to the ability to precisely regulate the temperature of the water and coffee grounds during the brewing process, ensuring optimal extraction and flavor development.",
+      "example": "A skilled barista carefully measures and heats the water to around 195°F (90°C) before pouring it over the finely ground coffee in a portafilter."
+    },
+    {
+      "slug": "grind-size",
+      "term": "Grind Size",
+      "category": "kitchen-appliances",
+      "related": [],
+      "source": "model:llama-ai-eng",
+      "short": "Grind Size",
+      "definition": "The size of the coffee beans or grounds in relation to the brewing device. A finer grind is typically used for espresso, while a coarser grind is better suited for drip brewing.",
+      "example": "A barista might use a medium-coarse grind for an espresso machine and a fine grind for a pour-over."
+    },
+    {
+      "slug": "water-temperature",
+      "term": "Water Temperature",
+      "category": "coffee-preparation",
+      "related": [],
+      "source": "model:llama-ai-eng",
+      "short": "The ideal water temperature for espresso brewing is between 195°F (90°C) and 205°F (96.5°C).",
+      "definition": "This range allows for optimal extraction of coffee's natural oils and flavors without burning or over-extracting.",
+      "example": "A typical commercial espresso machine might use a temperature control system to maintain this precise range throughout the brewing process."
+    },
+    {
+      "slug": "tamping",
+      "term": "Tamping",
+      "category": "espresso-brewing",
+      "related": [],
+      "source": "model:llama-ai-eng",
+      "short": "one line",
+      "definition": "Tamping is the process of compressing and shaping the coffee grounds in a portafilter to ensure even extraction and optimal brewing.",
+      "example": "A skilled barista uses a tamper to compress the grounds firmly, ensuring that the filter is evenly loaded and ready for brewing."
+    },
+    {
+      "slug": "thermosiphon",
+      "term": "Thermosiphon",
+      "category": "espresso-brewing",
+      "related": [],
+      "source": "model:llama-ai-eng",
+      "short": "A thermosiphon is a type of vacuum brewing system that uses a combination of heat, pressure, and fluid flow to extract flavors from coffee beans.",
+      "definition": "A thermosiphon is a closed-loop brewing system where hot water is forced through ground coffee under pressure, resulting in a smooth and flavorful cup of coffee.",
+      "example": "{\"type\": \"thermosiphon\", \"coffee grounds\": 30g, \"water temperature\": 95°C, \"cooking time\": 2 minutes}\""
+    },
+    {
+      "slug": "tamper",
+      "term": "Tamper",
+      "category": "espresso-brewing",
+      "related": [],
+      "source": "model:llama-ai-eng",
+      "short": "One line",
+      "definition": "In espresso brewing, tampering refers to any alteration or interference with the coffee's natural extraction process. This can include factors such as water temperature, grind size, tamping pressure, and brewing time.",
+      "example": "A barista may inadvertently add too much tamping pressure, which can disrupt the coffee's flow and lead to an under-extracted shot."
+    },
+    {
+      "slug": "espresso",
+      "term": "Espresso",
+      "category": "kitchen-appliances",
+      "related": [],
+      "source": "model:llama-ai-eng",
+      "short": "A concentrated coffee beverage made by forcing pressurized hot water through finely ground coffee beans",
+      "definition": "Espresso is a strong, rich coffee drink that originated in Italy. It is characterized by its thick, creamy texture and intense flavor. A shot of espresso typically contains around 1-2 ounces (30-60 ml) of concentrated coffee.",
+      "example": "A popular example of an espresso-based beverage is the cappuccino, which consists of a shot of espresso topped with steamed milk and a layer of frothed milk on top."
+    },
+    {
+      "slug": "coffee",
+      "term": "Coffee",
+      "category": "kitchen-appliances",
+      "related": [],
+      "source": "model:llama-ai-eng",
+      "short": "Espresso",
+      "definition": "A strong, concentrated coffee beverage made by forcing pressurized hot water through finely ground coffee beans in a specialized brewing device.",
+      "example": "A classic espresso is typically served in small quantities and enjoyed on its own or used as an ingredient in various desserts."
+    },
+    {
+      "slug": "brewing-technique",
+      "term": "Brewing Technique",
+      "category": "kitchen-appliances",
+      "related": [],
+      "source": "model:llama-ai-eng",
+      "short": "The process of preparing a beverage, such as espresso",
+      "definition": "Brewing technique involves the specific sequence of steps and variables that control the extraction of flavors and oils from coffee beans or other materials.",
+      "example": "A skilled barista may use a combination of grind size, tamping pressure, and brewing time to achieve a rich and full-bodied espresso shot."
+    },
+    {
+      "slug": "caffeine-content",
+      "term": "Caffeine Content",
+      "category": "kitchen-appliances",
+      "related": [],
+      "source": "model:llama-ai-eng",
+      "short": "The amount of caffeine present in a beverage, typically expressed in milligrams per 8 ounces.",
+      "definition": "The Caffeine Content is the amount of caffeine that can be found in a particular beverage, such as coffee, tea, or energy drinks. It's usually measured in milligrams (mg) per 8-ounce serving. The higher the Caffeine Content, the more stimulating and potentially energizing it will be.",
+      "example": "{\"coffee\": 95 mg/8 oz, \"tea\": 25 mg/8 oz}\""
+    },
+    {
+      "slug": "coffee-bean",
+      "term": "Coffee Bean",
+      "category": "kitchen-appliances",
+      "related": [],
+      "source": "model:llama-ai-eng",
+      "short": "A Coffee Bean is a small, usually round or oval-shaped seed from which coffee is extracted and brewed.",
+      "definition": "A Coffee Bean is the outer covering of a coffee cherry, which contains the seeds that will become coffee when harvested and processed.",
+      "example": "A high-quality Arabica coffee bean from Ethiopia can be used to make a rich and nuanced espresso."
+    },
+    {
+      "slug": "espresso-machine",
+      "term": "Espresso Machine",
+      "category": "kitchen-appliances",
+      "related": [],
+      "source": "model:llama-ai-eng",
+      "short": "A device used to force pressurized hot water through finely ground coffee beans, producing a concentrated beverage known as espresso.",
+      "definition": "An espresso machine is a specialized brewing device that uses high pressure and temperature to extract the flavors and oils from coffee beans. It typically consists of a group head, portafilter, and steam wand. The machine's design allows for precise control over brewing parameters such as water pressure, temperature, and coffee-to-water ratio.",
+      "example": "The Breville Bambino Plus is a popular and highly-regarded espresso machine that offers a range of features and settings to suit different user preferences."
+    },
+    {
+      "slug": "steam-wand",
+      "term": "Steam Wand",
+      "category": "kitchen-appliances",
+      "related": [],
+      "source": "model:llama-ai-eng",
+      "short": "The Steam Wand is a crucial component of an espresso machine.",
+      "definition": "It's a metal or stainless steel arm that stirs and holds the hot water used in the brewing process, allowing for precise control over the temperature and flow rate.",
+      "example": "A typical commercial espresso machine features a steam wand with multiple holes and a small orifice to regulate the flow of steam into the portafilter."
+    }
+  ]
+}

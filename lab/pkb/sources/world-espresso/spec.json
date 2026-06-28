@@ -1,0 +1,27 @@
+{
+  "_forged_notice": "DREAMED by model:llama-ai-eng from \"espresso brewing\" on the forge spike. Model-asserted, UNVERIFIED.",
+  "slug": "espresso",
+  "display_name": "Espresso Brewing",
+  "categories": [
+    {
+      "id": "kitchen-appliances",
+      "label": "Kitchen Appliances"
+    },
+    {
+      "id": "coffee-preparation",
+      "label": "Coffee Preparation"
+    },
+    {
+      "id": "espresso-brewing",
+      "label": "Espresso Brewing"
+    }
+  ],
+  "knowledge_sources": [
+    {
+      "kind": "model",
+      "ref": "model:llama-ai-eng",
+      "trust": "model-asserted",
+      "holder": "llama-ai-eng"
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "schema": "dac.world-face/v1",
+  "world": "horticulture",
+  "name": "Horticulture (Houseplant Care)",
+  "tagline": "A Horticulture (Houseplant Care) World, compiled from sourced terms.",
+  "palette_hint": "slate-violet",
+  "domain_framing": "This lab studies Horticulture (Houseplant Care). Every factual claim is grounded in the World's cited sources; hypotheses and answers stay within the declared categories (species, environment, symptoms, conditions, care-actions, pests-pathogens).",
+  "vocabulary_register": "Use the World's own terms; cite a source for every factual claim."
+}

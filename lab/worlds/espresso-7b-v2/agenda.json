@@ -1,0 +1,13 @@
+{
+  "schema": "dac.world-agenda/v1",
+  "world": "espresso-7b-v2",
+  "watches": [
+    {
+      "node": "espresso-7b-v2",
+      "feeds": [
+        "model:qwen2.5/7b"
+      ],
+      "cadence": "occasional"
+    }
+  ]
+}

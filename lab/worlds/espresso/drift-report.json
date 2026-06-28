@@ -1,0 +1,23 @@
+{
+  "schema": "dac.world-drift/v1",
+  "world": "espresso",
+  "declared": [
+    "brewing-method",
+    "brewing-technique",
+    "caffeine-content",
+    "coffee",
+    "coffee-bean",
+    "espresso",
+    "espresso-machine",
+    "grind-size",
+    "steam-wand",
+    "tamper",
+    "tamping",
+    "temperature-control",
+    "thermosiphon",
+    "water-temperature"
+  ],
+  "missing": [],
+  "extra": [],
+  "ok": true
+}

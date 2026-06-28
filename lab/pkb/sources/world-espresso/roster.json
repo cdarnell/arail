@@ -1,0 +1,20 @@
+{
+  "schema": "dac.world-roster/v1",
+  "world": "espresso",
+  "desired": [
+    "brewing-method",
+    "temperature-control",
+    "grind-size",
+    "water-temperature",
+    "tamping",
+    "thermosiphon",
+    "tamper",
+    "espresso",
+    "coffee",
+    "brewing-technique",
+    "caffeine-content",
+    "coffee-bean",
+    "espresso-machine",
+    "steam-wand"
+  ]
+}

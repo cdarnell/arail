@@ -1,0 +1,22 @@
+{
+  "schema": "dac.world-roster/v1",
+  "world": "espresso-7b-v2",
+  "desired": [
+    "ristretto",
+    "normale",
+    "lungo",
+    "brewing-basket",
+    "portafilter",
+    "pump",
+    "acidity",
+    "body",
+    "bitterness",
+    "doppio",
+    "crema",
+    "brew-time",
+    "espresso",
+    "grind-size",
+    "water-temperature",
+    "pull"
+  ]
+}

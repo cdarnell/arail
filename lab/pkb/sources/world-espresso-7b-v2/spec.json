@@ -1,0 +1,27 @@
+{
+  "_forged_notice": "DREAMED by model:qwen2.5/7b from \"espresso brewing\" on the forge spike. Model-asserted, UNVERIFIED.",
+  "slug": "espresso-7b-v2",
+  "display_name": "Espresso Brewing",
+  "categories": [
+    {
+      "id": "espresso-brewing-methods",
+      "label": "Espresso Brewing Methods"
+    },
+    {
+      "id": "equipment-and-tools",
+      "label": "Equipment and Tools"
+    },
+    {
+      "id": "taste-and-quality-control",
+      "label": "Taste and Quality Control"
+    }
+  ],
+  "knowledge_sources": [
+    {
+      "kind": "model",
+      "ref": "model:qwen2.5/7b",
+      "trust": "model-asserted",
+      "holder": "qwen2.5:7b"
+    }
+  ]
+}
