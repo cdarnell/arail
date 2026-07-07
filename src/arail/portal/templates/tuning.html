@@ -99,6 +99,9 @@
   .tn-fr-status.err  { background: var(--danger-a08); color: var(--danger); }
   .tn-fr-status.ok   { background: var(--positive-a08); color: var(--positive); }
   .tn-fr-status .tn-fr-detail { margin-top: 4px; color: var(--text-muted); }
+  .tn-fr-disk      { margin-top: 2px; }
+  .tn-fr-block     { margin-top: 10px; }
+  .tn-fr-rationale { margin-top: 8px; }
   .tn-badge { display: inline-block; padding: 2px 6px; margin: 0 4px 4px 0;
               border-radius: var(--radius-s); font-size: 11px; font-family: var(--font-mono); }
   .tn-badge.ok  { background: var(--positive-a16); color: var(--positive); }
@@ -116,6 +119,8 @@
                   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent2) 18%, transparent); }
   #tn-sched-window { display: none; gap: 6px; align-items: center; }
   #tn-sched-status { color: var(--text-muted); }
+  #tn-sched-status.ok   { color: var(--positive); }
+  #tn-sched-status.warn { color: var(--warn); }
 
   /* AirLLM vs AeroLLM comparison block. Lives between hero and tabs.
      Numbers are *expected* gains pending the perf harness; clearly
@@ -865,11 +870,11 @@
        + "<code>quantized_kv_start</code>; prefill chunks via "
        + "<code>prefill_step_size</code>; prefixes reuse via the prompt "
        + "cache. These are the levers our knobs reach."),
-      framingBody: ("<strong style=\"color:#d4e8d8;\">AirLLM \u2014 layer streaming on Apple silicon.</strong> "
+      framingBody: ("<strong class=\"tn-strong\">AirLLM \u2014 layer streaming on Apple silicon.</strong> "
        + "Each transformer layer is loaded from NVMe into unified memory, executed by MLX kernels in "
        + "place, then evicted before the next layer streams in. Lets a 70B-class model run on hardware "
        + "that can't hold the full weights at once. "
-       + "<br><span style=\"color:#8faf97;\">Measurements land in <code>lab/data/mlx-bench.jsonl</code>.</span>"),
+       + "<br><span class=\"tn-dim\">Measurements land in <code>lab/data/mlx-bench.jsonl</code>.</span>"),
     },
     "aerollm-mlx": {
       heroTitle: "AeroLLM MLX \u2014 (experimental, dormant)",
@@ -877,7 +882,7 @@
       archTitle: "Architecture \u2014 MLX unified-memory streaming",
       archBlurb: ("AeroLLM is the planned Rust runtime. Same MLX pipeline as AirLLM but with "
        + "multi-threaded prefetch to hide disk latency. Currently dormant in this blueprint."),
-      framingBody: ("<strong style=\"color:#d4e8d8;\">AeroLLM \u2014 (dormant).</strong> "
+      framingBody: ("<strong class=\"tn-strong\">AeroLLM \u2014 (dormant).</strong> "
        + "View kept for back-compat with existing tuning data."),
     },
     "aerollm-cuda": {
@@ -886,7 +891,7 @@
       archTitle: "Architecture \u2014 AeroLLM CUDA 3-tier streaming",
       archBlurb: ("Reference diagram for the AeroLLM CUDA path (1 TB class on a 24 GB card). "
        + "Dormant in this blueprint."),
-      framingBody: ("<strong style=\"color:#d4e8d8;\">AeroLLM CUDA \u2014 (dormant).</strong> "
+      framingBody: ("<strong class=\"tn-strong\">AeroLLM CUDA \u2014 (dormant).</strong> "
        + "Diagram is illustrative; no active loop."),
     },
   };
@@ -903,10 +908,9 @@
     localStorage.setItem("arail.tuning.view", v);
     const meta = VIEW_META[v];
     document.querySelectorAll(".tn-tab").forEach(el => {
-      const on = el.dataset.view === v;
-      el.classList.toggle("active", on);
-      el.style.borderBottomColor = on ? "#7ee0a0" : "transparent";
-      el.style.color = on ? "#d4e8d8" : "#8faf97";
+      // Selection styling comes from the .tn-tab.active CSS rule
+      // (amber --accent underline per the duotone role split).
+      el.classList.toggle("active", el.dataset.view === v);
     });
     // Update hero title
     const heroTitle = document.getElementById("tn-hero-title");
@@ -1013,16 +1017,12 @@
       const disk = m.expected_disk_gb ? m.expected_disk_gb + " GB on disk" : "";
       const precision = m.precision ? " · " + m.precision : "";
 
-      // GPU fit badges — the pedagogical payload. ✓ green, ✗ red.
+      // GPU fit badges — the pedagogical payload. ✓ positive, ✗ danger
+      // (token-driven via the .tn-badge ok/bad classes).
       const fit = m.gpu_fit || {};
       function badge(label, ok) {
-        const bg = ok ? "#144d25" : "#4d1e1e";
-        const fg = ok ? "#7ee0a0" : "#f0a0a0";
-        const mark = ok ? "✓" : "✗";
-        return '<span style="display:inline-block;padding:2px 6px;margin:0 4px 4px 0;' +
-               'border-radius:3px;background:' + bg + ';color:' + fg +
-               ';font-size:11px;font-family:ui-monospace,monospace;">' +
-               mark + "\u00a0" + label + "</span>";
+        return '<span class="tn-badge ' + (ok ? "ok" : "bad") + '">' +
+               (ok ? "✓" : "✗") + "\u00a0" + label + "</span>";
       }
       const badges =
         badge("H100 80GB",  !!fit.h100_80gb) +
@@ -1034,8 +1034,7 @@
       let statusHtml;
       if (!bench) {
         statusHtml =
-          '<div style="padding:8px 10px;border-radius:4px;' +
-          'background:#332417;color:#f0c080;font-size:11px;line-height:1.5;">' +
+          '<div class="tn-fr-status wait">' +
           '<strong>streaming_required</strong> — waiting on ' +
           'the MLX streaming layer. No bench attempt has ' +
           "been recorded yet against this model on this host." +
@@ -1044,10 +1043,9 @@
         const reason = (bench.error || "unknown reason").slice(0, 240);
         const ts = (bench.ts || "").replace("T", " ").slice(0, 19);
         statusHtml =
-          '<div style="padding:8px 10px;border-radius:4px;' +
-          'background:#2a1a1a;color:#f0a0a0;font-size:11px;line-height:1.5;">' +
-          '<strong>error</strong> · <span style="color:#c88;">' + ts + "</span>" +
-          '<div style="margin-top:4px;color:#e8b0b0;">' + reason + "</div>" +
+          '<div class="tn-fr-status err">' +
+          '<strong>error</strong> · ' + ts +
+          '<div class="tn-fr-detail">' + reason + "</div>" +
           "</div>";
       } else {
         // status=ok → the first real measurement. The academic win.
@@ -1056,10 +1054,9 @@
           ? fmt(bench.decode_tok_per_sec) + " tok/s" : "—";
         const ts = (bench.ts || "").replace("T", " ").slice(0, 19);
         statusHtml =
-          '<div style="padding:8px 10px;border-radius:4px;' +
-          'background:#0f2a1a;color:#7ee0a0;font-size:11px;line-height:1.5;">' +
+          '<div class="tn-fr-status ok">' +
           '<strong>ok</strong> · ' + ts +
-          '<div style="margin-top:4px;color:#a8d8b8;">' +
+          '<div class="tn-fr-detail">' +
             "TTFT " + ttft + " · decode " + dec +
             " · tokens_out " + (bench.tokens_out || 0) +
           "</div>" +
@@ -1069,7 +1066,7 @@
       // Rationale — trimmed so cards don't balloon.
       const rationale = (m.rationale || "").trim();
       const rationaleHtml = rationale
-        ? '<div class="tn-meta" style="margin-top:8px;">' +
+        ? '<div class="tn-meta tn-fr-rationale">' +
           rationale.replace(/</g, "&lt;") +
           "</div>"
         : "";
@@ -1078,9 +1075,9 @@
         "<h3>" + (m.name || "—") + "</h3>" +
         '<div class="tn-big">' + totalB +
           '<span class="tn-unit">' + (m.family || "") + activeB + "</span></div>" +
-        '<div class="tn-meta" style="margin-top:2px;">' + disk + precision + "</div>" +
-        '<div style="margin-top:10px;">' + badges + "</div>" +
-        '<div style="margin-top:10px;">' + statusHtml + "</div>" +
+        '<div class="tn-meta tn-fr-disk">' + disk + precision + "</div>" +
+        '<div class="tn-fr-block">' + badges + "</div>" +
+        '<div class="tn-fr-block">' + statusHtml + "</div>" +
         rationaleHtml;
       grid.appendChild(card);
     }
@@ -1123,7 +1120,7 @@
         "<td>" + fmt(r.decode_tok_per_sec) + "</td>" +
         "<td>" + fmt(r.ttft_ms, 0) + "</td>" +
         "<td>" + (r.tokens_out || 0) + "</td>" +
-        '<td style="font-family:ui-monospace,monospace;font-size:11px;color:#8faf97;">' +
+        '<td class="tn-stages">' +
           fmtStages(r.stages) + "</td>" +
         "<td><code>" + (r.git_short_sha || "—") + "</code></td>" +
         "<td>" + (r.git_branch || "—") + "</td>";
@@ -1166,8 +1163,11 @@
     const pts = rows
       .filter((r) => r.decode_tok_per_sec && r.status === "ok")
       .map((r) => r.decode_tok_per_sec);
+    // Canvas can't read CSS vars — resolve the semantic tokens off
+    // the root element so a World theme swap repaints here too.
+    const rootStyle = getComputedStyle(document.documentElement);
     if (pts.length < 2) {
-      ctx.fillStyle = "#666";
+      ctx.fillStyle = rootStyle.getPropertyValue("--text-muted").trim() || "gray";
       ctx.font = "12px system-ui";
       ctx.fillText("Need ≥2 bench runs to chart.", 8, 20);
       return;
@@ -1175,7 +1175,8 @@
     const min = Math.min(...pts);
     const max = Math.max(...pts);
     const span = Math.max(max - min, 0.001);
-    ctx.strokeStyle = "#2a6";
+    // Sparkline stroke = --accent2 (cyan owns live data per the spec).
+    ctx.strokeStyle = rootStyle.getPropertyValue("--accent2").trim() || "currentColor";
     ctx.lineWidth = 2;
     ctx.beginPath();
     pts.forEach((v, i) => {
@@ -1277,7 +1278,7 @@
     }
     let html = text;
     if (engine === "aerollm" && ratio && ratio >= 1.5) {
-      html += ' <strong style="color:#7ee0a0">' + ratio.toFixed(1) + '×</strong>';
+      html += ' <strong class="vs-gainx">' + ratio.toFixed(1) + '×</strong>';
     }
     num.innerHTML = html;
     // Bar width: scale against the larger of the two engines so the
@@ -1424,20 +1425,20 @@
   }
   function paintScheduleStatus(st) {
     const el = $("tn-sched-status");
-    if (!st || !st.mode) { el.textContent = ""; return; }
+    if (!st || !st.mode) { el.textContent = ""; el.className = ""; return; }
     if (st.mode === "anytime") {
       el.textContent = "· always on";
-      el.style.color = "#7ee0a0";
+      el.className = "ok";
     } else if (st.mode === "paused") {
       el.textContent = "· paused (no runs)";
-      el.style.color = "#c8a060";
+      el.className = "warn";
     } else if (st.mode === "window") {
       if (st.allowed_now) {
         el.textContent = "· in window (running)";
-        el.style.color = "#7ee0a0";
+        el.className = "ok";
       } else {
         el.textContent = "· next open at " + (st.next_open_at || "—");
-        el.style.color = "#8faf97";
+        el.className = "";
       }
     }
   }

@@ -10,190 +10,143 @@ audience: architect
 related:
   - agents-explained
   - api-conventions
-buddy_prompt: Walk me through the ARAIL portal design spec — tokens, layout primitives, and component patterns.
+buddy_prompt: Walk me through the ARAIL portal design spec — tokens, personalities, and component patterns.
 ---
-# ARAIL — Design Spec
+# ARAIL — Design Spec (v2 · "Warm Observatory")
 
-> A rail gun for AI. Terminal‑hacker aesthetic, server‑rendered, no JS frameworks.
-> This doc is the single source of truth for visual decisions across the portal.
-> If the CSS drifts from this doc, the doc is wrong — fix it.
+> A night-observatory lab: warm indigo surfaces, amber instrument-light for
+> actions, cool cyan starlight for live data. Server-rendered, no JS
+> frameworks. This doc is the single source of truth for visual decisions;
+> if the CSS drifts from this doc, the doc is wrong — fix it.
+> Full binding component spec: `sprints/2026-07-07-portal-design-v2/design-panel/STYLE-SPEC.md`.
+> World-shipped themes: `docs/world-theme-contract.md`.
 
 ---
 
-**Sections:** §1 brand · §2 tokens · §3 layout · §4 components · §5 interactions · §6 pending · §7 themes · §8 how to extend.
+**Sections:** §1 brand · §2 tokens · §3 themes & personalities · §4 typography · §5 components · §6 rules · §7 how to extend.
 
 ## 1. Brand anchors
 
 - **Name:** ARAIL — Autoresearch AI Labs (configurable per fork via `LAB_NAME`; see [`brand.py`](../src/arail/brand.py)).
-- **Tagline:** *A rail gun for AI* — fast, precise, single‑shot. The UI should feel like aiming a precision instrument, not browsing a dashboard product.
-- **Voice:** terse, technical, lowercase‑comfortable. Prefer `parse goal` over `Submit your goal for parsing`. Status sentences, not paragraphs.
-- **Logo:** `⟨Autoresearch⟩` glyph in nav — green‑on‑black, glow, JetBrains Mono. Forks override via `LAB_LOGO`.
-- **Signature visual:** the **rail line** — a 1px gradient stripe under the nav bar (green → blue), faintly shimmering. It's the only persistent ornament. Everything else stays flat and quiet.
+- **Tagline:** *A rail gun for AI* — fast, precise, single-shot. The signature 1px gradient **rail** under the nav carries that identity.
+- **Voice:** human sentences in sans; terse mono only for measured things. Errors and hints teach — no telemetry-speak at people.
+- **Logo:** `⟨Autoresearch⟩` mono chip on `--surface2`, `--text-strong`, no glow. Forks override via `LAB_LOGO`.
+- **Heritage:** the original terminal-hacker skin is not gone — it lives on as the shipped **AI & Machine Learning World's** theme (`lab/worlds/ai`, personality `hacker`). Mount it and the lab flips 1337.
 
----
+## 2. Token contract
 
-## 2. Tokens
+Tokens live in two coordinated places:
 
-All tokens live in `:root` of [`static/style.css`](../src/arail/portal/static/style.css). Templates and other CSS files **must** reference tokens, not raw hex/rgba.
+1. **`static/style.css` `:root`** — real default values (the shipped
+   Warm Observatory theme), so pages render correctly even without the
+   middleware injection.
+2. **`src/arail/ui_theme.py`** — the theme definitions. The
+   `inject_ui_theme` middleware injects `<style id="ui-theme-vars">` after
+   the stylesheet on every HTML page; its `:root` block wins by source
+   order and repaints the lab per theme / mounted World, live.
 
-### Palette
+**Scheme tokens** (12 slots, themeable — this is exactly what a World's
+`theme.dark` block carries): `--bg --surface --surface2 --border --text
+--text-muted --accent --accent2 --positive --warn --danger --info`.
+Derived neutrals (computed, never World-supplied): `--surface3
+--border-strong --text-strong --positive-dim`. Every hex token has a
+`--x-rgb` channel companion for `rgba(var(--x-rgb), a)` washes, plus
+`a08/a16/a28` alpha tiers.
 
-| Token | Hex | Use |
-|---|---|---|
-| `--bg` | `#0a0a0f` | App background |
-| `--surface` | `#0f1118` | Nav, cards |
-| `--surface2` | `#151821` | Hover, nested panels, tooltips |
-| `--border` | `#1e2230` | Default 1px borders |
-| `--border-hi` | `#2a3040` | Hover/focus borders |
-| `--text` | `#c8cdd8` | Body text |
-| `--text-hi` | `#e8ecf4` | Headings, input values |
-| `--muted` | `#78839a` | Labels, timestamps, captions |
-| `--green` | `#00ff41` | Primary action, success, "online" |
-| `--green-dim` | `#00cc33` | Pressed/secondary green |
-| `--blue` | `#00d4ff` | Links, knowledge, info |
-| `--amber` | `#ffb000` | Caution, hybrid mode, warnings |
-| `--red` | `#ff3355` | Halt, errors, destructive |
-| `--purple` | `#b48eff` | Agents, personality, special |
+**The duotone rule:** `--accent` (amber by default) appears ONLY on primary
+actions, the mission, and selection emphasis. `--accent2` (cyan) owns links,
+live data, run ids, focus rings, sparklines. A surface where both fight is
+a bug.
 
-### Alpha tiers
+**Personality scalars** (themeable via the closed personality table):
+`--radius-s/m/l/pill`, `--motif-scanline-alpha`, `--glow-mix` (the glow
+dial), `--dur-1/2/3`, `--ease-accent`, `--heading-font`,
+`--label-transform`, `--label-tracking`, `--rail-from/to`.
 
-For tinted backgrounds and borders, use the alpha tiers — never hand‑roll `rgba(...)`.
+**Derived layer** (computed in CSS from primitives — Worlds can never set
+these): `--rail`, `--glow-a`, `--glow-b`, `--shadow-1`.
 
-- `-a08` → ~8% (subtle wash, idle chip background)
-- `-a16` → ~16% (hover wash)
-- `-a28` → ~28% (active border)
+**Structural tokens** (never themed): spacing `--s-1..7` (4px rhythm), type
+scale `--fs-xs..2xl`, `--lh-*`, `--elev-1/2`, `--font-sans`, `--font-mono`.
+Fonts are **self-hosted** (`static/fonts/`, OFL) — an airgapped lab paints
+identically offline.
 
-Available for: `--green`, `--blue`, `--amber`, `--red`, `--purple`.
+Templates and per-page CSS **must** reference tokens, never raw hex/rgba
+(black-alpha elevation shadows excepted). Enforced by
+`tests/portal/test_token_compliance.py` (a ratchet: counts only go down)
+and the literal-ban in `tests/test_world_recolor.py`.
 
-### Spacing scale
+## 3. Themes & personalities
 
-4‑px rhythm. Compose layouts from these only.
+A theme = 12 color slots per scheme + a personality. Sources, in resolution
+order (per request, no restart): mounted World's validated `face.json`
+`theme` block → `palette_hint` preset match → `LAB_UI_THEME` env → default.
 
-| Token | Value |
-|---|---|
-| `--s-1` | 4px |
-| `--s-2` | 8px |
-| `--s-3` | 12px |
-| `--s-4` | 16px |
-| `--s-5` | 24px |
-| `--s-6` | 32px |
-| `--s-7` | 48px |
+Personalities (closed table in `ui_theme.py::_PERSONALITY`):
 
-### Type scale
+| | `technical` (default) | `scholarly` | `playful` | `hacker` (legacy skin) |
+|---|---|---|---|---|
+| radii s/m/l | 6/10/16px | 5/8/12px | 12/18/26px | 4/6/10px |
+| `--glow-mix` | 10% | 0% (dead flat) | 26% | 30% |
+| scanlines | 0.03 | 0 | 0 | 0.03 |
+| headings | sans | sans | sans | mono |
+| motion | crisp | calm | springy | crisp |
 
-JetBrains Mono everywhere. No exceptions.
+Scholarly at `--glow-mix: 0%` is the smoke test: any surface that breaks
+when glows go flat is misbuilt.
 
-| Token | Size | Use |
-|---|---|---|
-| `--fs-xs` | 0.65rem | Mode badges, micro labels |
-| `--fs-sm` | 0.75rem | Captions, nav, clock |
-| `--fs-md` | 0.85rem | Body, inputs |
-| `--fs-lg` | 1rem | Logo, prominent body |
-| `--fs-xl` | 1.4rem | Card numbers, gauges |
+Light mode: token names are scheme-neutral and `ThemeColors` has a `light`
+slot (accepted, stored, not yet emitted) — adding light is an emission
+change, not a redesign.
 
-### Radius & elevation
+## 4. Typography
 
-- `--radius` 6px (everything except pills, which are `999px`).
-- `--elev-1` `0 2px 8px rgba(0,0,0,.35)` — hover lift on cards.
-- `--elev-2` `0 6px 24px rgba(0,0,0,.55)` — tooltips, popovers.
-- Glows (`--glow-green`, `--glow-blue`, `--glow-amber`, `--glow-red`) replace shadows on focus/active for accent elements.
+- **Sans for everything a human reads** (`--font-sans`: Inter → system-ui).
+  Body 15px/1.6; headings weight 650, tracking −0.015em.
+- **Mono only for measured things** (`--font-mono`: JetBrains Mono →
+  ui-monospace) with `tabular-nums`: metrics, timestamps, run ids, table
+  cells, paths, keys. Mono in a sentence of prose is a bug.
+- **Micro-labels** — the one uppercase voice: mono 10–11px/500,
+  `letter-spacing: var(--label-tracking)`, `text-transform:
+  var(--label-transform)`, `--text-muted`. Labels ≤ 3 words only.
 
----
+## 5. Components (summary — STYLE-SPEC §e is binding)
 
-## 3. Layout primitives
+Cards (`--surface` + hairline + `--radius-l` + `--shadow-1`, hover lift),
+buttons (primary = solid `--accent` with **dark ink**, ghost, danger wash;
+never gradient fills), inputs (`--surface2`, cyan focus ring — a focus
+affordance, exempt from the glow budget), tables (mono 12.5px, micro-label
+thead, no vertical rules), pills (state color + 12% bg + 28% border mixes),
+modals (`--surface2` + `--border-strong`, 62%-mix backdrop + blur(3px) — the
+only backdrop-filter), chat bubbles (assistant avatar carries one of the
+three permitted gradients: rail, avatar, world swatches).
 
-- **Page width:** content centered in a max‑width column (~1280px). Full‑bleed only for nav, the rail line, and the scanline overlay.
-- **Nav:** 0.6rem × 1.5rem padding, single row, logo + tier‑gated links + clock + mode badge. Sticky‑ish (currently static; revisit if pages get long).
-- **Rail line:** 1px height, full width, immediately below nav. `linear-gradient(90deg, transparent 0%, var(--green) 30%, var(--blue) 70%, transparent 100%)` with a 12s ease‑in‑out shimmer.
-- **Cards:** `--surface` bg, `--border` 1px, `--radius` corners, `--s-5` padding, `h2` is an UPPERCASE 0.7rem `--muted` label with optional 6px colored indicator dot.
-- **Grids:** prefer CSS grid with `gap: var(--s-4)`. Avoid floats and absolute positioning except for tooltips/badges.
-- **Scrollbars:** thin (6px), `--border-hi` thumb on `--bg` track. Hidden everywhere except where overflow is real.
+**Glow budget: exactly one glow per view** — the live status dot
+(`0 0 8px currentColor` + pulse). Everything else goes through
+`--glow-a/--glow-b`.
 
----
+## 6. Rules that block review
 
-## 4. Component inventory
+The "do NOT" list in STYLE-SPEC §f is enforceable verbatim; highlights:
+no hardcoded hex in component CSS · no gradient-clipped text or gradient
+buttons · no glass beyond modal backdrops · don't spend `--accent` on data
+or `--accent2` on actions · no uppercase mono on prose · animate only
+transform/opacity/box-shadow, ≤ `--dur-3`, behind `prefers-reduced-motion`
+· never drop below the contrast gates (text:bg ≥ 4.5, muted/accent:bg ≥ 3.0)
+· never remove a loading affordance without replacing it.
 
-| Component | Where | Notes |
-|---|---|---|
-| **Logo** | every page (nav) | Green, glow. Tooltip shows tier. |
-| **Nav link** | every page | `--muted` default → `--text` hover → `--green` active. |
-| **Mode badge** | nav (`airgapped` / `hybrid` / `window-*`) | Pill with tinted bg + matching border. Pulses on `airgapped`. |
-| **Goal chip** | nav (when set) | Blue pill, ellipsis on overflow, links to /chat. |
-| **Card** | dashboards, agents, knowledge | Flat surface with muted heading + optional indicator dot. |
-| **Button** | global | `.btn` base + variant (`-primary -blue -amber -red -ghost`) and `-sm` size. |
-| **Goal form** | dashboard | `parse_goal>` prefix in green, mono input, focus glow. |
-| **Activity row** | dashboard | Timestamp · agent · message; alternating row tint optional. |
-| **Indicator dot** | card headings | 6×6 round, color signals state (green online, amber working, red error, blue info). |
-| **Tooltip / popover** | tooltips, parse helper | `--surface2` bg, `--border-hi`, `--elev-2`. |
-| **Toast (proposed)** | corner, Buddy whisper | See §6. |
-| **Gauge (Mission Status)** | dashboard | Currently number + bar; needs step‑context (see §6). |
+## 7. How to extend
 
-States every interactive element must define: **idle, hover, focus, active, disabled, loading**.
-
----
-
-## 5. Interaction patterns
-
-- **Streaming responses (chat, agents):** SSE via FastAPI `StreamingResponse`, rendered token‑by‑token with a blinking caret (`▍`) until done. Caret is `--green` for local models, `--blue` for cloud.
-- **Tier gating:** server decides surfaces (`min` vs `max`); UI never renders a disabled link. Upgrades are a CLI action, not a UI button — keeps tiers honest.
-- **Empty states:** one line of `--muted` text + the next action as a `.btn-ghost`. No illustrations.
-- **Loading states:** prefer optimistic render + caret. For unknown‑duration jobs (research run), use a horizontal indeterminate bar in the parent card header.
-- **Errors:** inline `--red` line at the relevant control. Never modal. Halt + Resume buttons are the only red buttons in the nav.
-- **Motion:** 150ms ease for hovers, 12s ease for the rail shimmer, 3s for the airgapped pulse. Nothing else animates without a reason.
-
----
-
-## 6. Pending / open questions
-
-Tracked in `memory/project_pending_ui_work.md`. Mirror here so contributors see them.
-
-- **Mission Status step‑context.** Gauge should sit next to a 1–2 line "what step are we in" caption, not stand alone.
-- **Corner‑toast whisper.** Proactive low‑volume notifications from Buddy. Bottom‑right, `--surface2` + `--purple` left border, auto‑dismiss 8s, click → opens chat focused on that thread.
-- **Sticky nav?** Pages are getting longer (chat, knowledge). Decide before adding more.
-- **Single CSS file vs per‑surface files.** Currently 7 css files (style + agents + research + knowledge + skills + graph + wiki). Fine for now. Re‑evaluate when style.css crosses 3000 lines.
-
----
-
-## 7. Themes
-
-Themes swap **only the accent palette + alpha tiers + glows**. Backgrounds, surfaces, text, spacing, type, and radius stay shared. That rule is what keeps a new theme from breaking layouts — if a theme has to redefine `--surface` or `--s-4`, it's a redesign, not a theme.
-
-Apply via `data-theme` on `<html>`:
-
-```html
-<html data-theme="default">     <!-- terminal hacker green (current) -->
-<html data-theme="laser-blue">  <!-- electric cyan, "precision instrument" -->
-```
-
-`nav.js` runs a tiny bootstrap that reads the theme from `localStorage["arail-theme"]` and applies it before the rest of the page initializes. A cycle‑button (`.theme-picker`) is injected into the nav on every page; clicking it advances to the next registered theme and persists.
-
-### Registered themes
-
-| id | Label | Accent (--green) | Vibe |
-|---|---|---|---|
-| `default` | Default | `#00ff41` (terminal green) | matrix, hacker, alive |
-| `laser-blue` | Laser Blue | `#5cf0ff` (laser cyan) | precision, cool, surgical |
-
-### Adding a theme
-
-1. Add a `html[data-theme="<id>"] { ... }` block in `style.css` redefining: `--green`, `--green-dim`, `--blue`, `--amber`, `--red`, `--purple`, all 15 `*-a08/16/28` alpha tokens, and the four `--glow-*` shadows.
-2. Add a row to the `THEMES` array at the top of `nav.js` with `{ id, label, swatch }`.
-3. Add a row to the table above.
-
-### Public JS API
-
-```js
-window.ARAIL.theme.list             // [{id,label,swatch}, …]
-window.ARAIL.theme.get()            // current id
-window.ARAIL.theme.set('laser-blue')// apply + persist
-window.ARAIL.theme.cycle()          // advance to next
-```
-
----
-
-## 8. How to extend
-
-1. Need a new color or size? **Add a token first**, then use it. PRs that hard‑code a hex or px value get bounced.
-2. Need a new component? Add a row to §4 with a one‑line description. If it has more than three states, sketch them as a HTML snippet in this doc.
-3. Changing the brand for a fork? Override env vars (see [`brand.py`](../src/arail/brand.py)) — never edit CSS to rebrand.
-4. Big visual proposal? Open a PR that updates this doc *first*, with the CSS change second. Discussion happens on the doc.
+- **New component**: build from tokens; check it under a mounted World
+  (playful AND scholarly) before shipping — if it only looks right in the
+  default theme, it's wrong.
+- **New theme preset**: add a `UITheme` to `ui_theme.py::_THEMES` (12 slots
+  + personality + pinned derived neutrals). Validate contrast via
+  `world_theme.contrast_ratio`.
+- **World-shipped theme**: see `docs/world-theme-contract.md` — Worlds carry
+  the 12 slots + a personality id in `face.json`, validated fail-closed on
+  both sides of the DaC contract.
+- **New personality**: closed table by design — add to
+  `ui_theme.PERSONALITIES` + `_PERSONALITY` + the DaC mirror
+  (`qukaizen-dac/src/arail-export/theme.ts`), with a schema bump per
+  ADR-0004.

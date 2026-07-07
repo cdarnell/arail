@@ -875,7 +875,6 @@ function renderSummary() {
       const card = document.querySelector(`.rx-exp[data-id="${CSS.escape(id)}"]`);
       if (card) card.scrollIntoView({behavior: 'smooth', block: 'center'});
     });
-    li.style.cursor = 'pointer';
   });
 
   // Refresh the planning-trace disclosure (Phase 3 part 2). Best-effort

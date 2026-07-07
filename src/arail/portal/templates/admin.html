@@ -291,6 +291,7 @@
     border-color: var(--warn-a28);
     background: var(--warn-a08);
   }
+  .assoc-card.assoc-unavailable { color: var(--warn); }
 
   .health-check-wrap {
     background: var(--surface);
@@ -515,55 +516,117 @@
   .pr-card {
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: var(--radius);
+    border-radius: var(--radius-m);
     padding: 1rem 1.1rem 1.1rem;
   }
   .pr-card h3 {
-    font-size: 0.78rem;
+    font-size: 0.72rem;
     font-weight: 600;
-    color: var(--text-hi);
+    color: var(--text-muted);
     margin: 0 0 0.6rem;
-    text-transform: uppercase;
-    letter-spacing: 0.07em;
+    text-transform: var(--label-transform);
+    letter-spacing: var(--label-tracking);
   }
   .pr-stat-row { display: flex; justify-content: space-between; font-size: 0.75rem; margin-bottom: 0.25rem; color: var(--text); }
-  .pr-stat-row span:last-child { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .pr-stat-row span:last-child { color: var(--text-muted); font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+  .pr-subhead { margin-top: 0.5rem; font-size: 0.68rem; color: var(--text-muted); }
+  .pr-empty { font-size: 0.72rem; color: var(--text-muted); margin-top: 0.4rem; }
+  .pr-ok { font-size: 0.72rem; color: var(--positive); margin-top: 0.3rem; }
   .pr-action-row { margin-top: 0.65rem; display: flex; gap: 0.4rem; flex-wrap: wrap; }
   .pr-btn {
-    font-size: 0.72rem; padding: 0.25rem 0.6rem; border-radius: 4px;
+    font-size: 0.72rem; padding: 0.25rem 0.6rem; border-radius: var(--radius-s);
     border: 1px solid var(--border); background: var(--surface);
     color: var(--text); cursor: pointer;
   }
-  .pr-btn:hover { border-color: var(--green); color: var(--green); }
-  .pr-btn.pr-btn-danger:hover { border-color: #ff6b80; color: #ff6b80; }
-  .pr-note { font-size: 0.7rem; color: var(--amber); margin-top: 0.4rem; }
-  .pr-err  { font-size: 0.7rem; color: #ff6b80;  margin-top: 0.4rem; }
-  .pr-vuln-row { font-size: 0.72rem; color: var(--muted); margin-bottom: 0.2rem; }
-  .pr-vuln-row .pr-sev-crit { color: #ff6b80; font-weight: 700; }
-  .pr-vuln-row .pr-sev-high { color: var(--amber); font-weight: 600; }
-  .pr-vuln-row .pr-sev-med  { color: #e0c060; }
-  .pr-toggle { display: flex; align-items: center; gap: 0.5rem; font-size: 0.72rem; color: var(--muted); margin-top: 0.5rem; cursor: pointer; }
+  .pr-btn:hover { border-color: var(--border-strong); color: var(--text-strong); }
+  .pr-btn.pr-btn-danger:hover { border-color: var(--danger); color: var(--danger); }
+  .pr-note { font-size: 0.7rem; color: var(--warn); margin-top: 0.4rem; }
+  .pr-err  { font-size: 0.7rem; color: var(--danger);  margin-top: 0.4rem; }
+  .pr-vuln-row { font-size: 0.72rem; color: var(--text-muted); margin-bottom: 0.2rem; }
+  .pr-vuln-row .pr-sev-crit { color: var(--danger); font-weight: 700; }
+  .pr-vuln-row .pr-sev-high { color: var(--warn); font-weight: 600; }
+  .pr-vuln-row .pr-sev-med  { color: color-mix(in srgb, var(--warn) 65%, var(--text-muted)); }
+  .pr-toggle { display: flex; align-items: center; gap: 0.5rem; font-size: 0.72rem; color: var(--text-muted); margin-top: 0.5rem; cursor: pointer; }
   .pr-toggle input { cursor: pointer; }
 
   /* ── Admin Models section ── */
   .models-section { display: flex; flex-direction: column; gap: 0.65rem; }
   .models-default-row { display: flex; align-items: center; gap: 0.6rem; font-size: 0.78rem; flex-wrap: wrap; }
   .models-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 0.5rem; }
-  .models-row { padding: 0.55rem 0.7rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
-  .models-row .name { display: flex; align-items: center; gap: 0.4rem; font-size: 0.8rem; color: var(--text-hi); flex-wrap: wrap; }
-  .models-row .meta { font-size: 0.7rem; color: var(--muted); margin-top: 0.2rem; }
+  .models-row { padding: 0.55rem 0.7rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-m); }
+  .models-row .name { display: flex; align-items: center; gap: 0.4rem; font-size: 0.8rem; color: var(--text-strong); flex-wrap: wrap; }
+  .models-row .meta { font-size: 0.7rem; color: var(--text-muted); margin-top: 0.2rem; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+  .models-row .meta .models-loaded-flag { color: var(--positive); }
   .models-row .actions { margin-top: 0.45rem; display: flex; gap: 0.35rem; align-items: center; flex-wrap: wrap; }
   .models-row .badge-streamed {
-    font-size: 0.55rem; color: var(--amber); border: 1px solid var(--amber-a28, rgba(200,160,96,0.28));
-    background: var(--amber-a08, rgba(200,160,96,0.08));
-    padding: 0 0.4rem; border-radius: 3px; letter-spacing: 0.06em; text-transform: uppercase;
+    font-size: 0.55rem; color: var(--warn); border: 1px solid var(--warn-a28);
+    background: var(--warn-a08);
+    padding: 0 0.4rem; border-radius: var(--radius-s);
+    font-family: var(--font-mono);
+    letter-spacing: var(--label-tracking); text-transform: var(--label-transform);
   }
-  .models-row.loaded { border-color: var(--green); }
-  .models-row .ctx-input { width: 5rem; font-size: 0.7rem; padding: 0.15rem 0.3rem; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 3px; }
-  .models-hw { font-size: 0.7rem; color: var(--muted); }
-  .models-rescan { font-size: 0.72rem; cursor: pointer; background: none; border: 1px solid var(--border); color: var(--muted); padding: 0.15rem 0.5rem; border-radius: 3px; }
-  .models-rescan:hover { border-color: var(--green); color: var(--green); }
-  .models-empty { font-size: 0.75rem; color: var(--muted); padding: 0.5rem 0; }
+  .models-row.loaded { border-color: color-mix(in srgb, var(--positive) 45%, transparent); }
+  .models-row .ctx-input { width: 5rem; font-size: 0.7rem; padding: 0.15rem 0.3rem; background: var(--surface2); color: var(--text-strong); border: 1px solid var(--border); border-radius: var(--radius-s); font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+  .models-row .ctx-label { font-size: 0.68rem; color: var(--text-muted); font-family: var(--font-mono); letter-spacing: var(--label-tracking); text-transform: var(--label-transform); }
+  .models-hw { font-size: 0.7rem; color: var(--text-muted); font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+  .models-rescan { font-size: 0.72rem; cursor: pointer; background: none; border: 1px solid var(--border); color: var(--text-muted); padding: 0.15rem 0.5rem; border-radius: var(--radius-s); }
+  .models-rescan:hover { border-color: var(--border-strong); color: var(--text-strong); }
+  .models-empty { font-size: 0.75rem; color: var(--text-muted); padding: 0.5rem 0; }
+
+  /* ── Terminal section ── */
+  .terminal-popout {
+    margin-left: 10px; font-size: 12px; font-weight: 400;
+    color: var(--accent2); text-decoration: none; vertical-align: middle;
+  }
+  .terminal-frame-wrap {
+    position: relative; width: 100%;
+    border-radius: var(--radius-s); overflow: auto;
+    border: 1px solid var(--border);
+    max-height: 380px;
+  }
+  .terminal-frame { width: 100%; height: 380px; border: 0; background: var(--bg); }
+  .terminal-note {
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: var(--radius-s); padding: 16px;
+    color: var(--text-muted); font-size: 13px; line-height: 1.6;
+  }
+  .terminal-note strong { color: var(--warn); }
+  .terminal-note code { color: var(--accent2); font-family: var(--font-mono); }
+  .terminal-note code.terminal-note-block { display: block; margin-top: 8px; white-space: pre-wrap; }
+  .terminal-note a { color: var(--accent2); }
+  .terminal-note-links { margin-top: 10px; }
+
+  /* ── Activity Log ── */
+  .log-toolbar { display: flex; gap: 0.5rem; align-items: center; margin-bottom: 0.5rem; flex-wrap: wrap; }
+  .log-toolbar select {
+    background: var(--surface2); color: var(--text);
+    border: 1px solid var(--border); border-radius: var(--radius-s);
+    padding: 0.25rem 0.4rem; font-size: 0.75rem;
+  }
+  .log-refresh-btn {
+    background: var(--surface2); color: var(--text);
+    border: 1px solid var(--border); border-radius: var(--radius-s);
+    padding: 0.25rem 0.6rem; font-size: 0.75rem; cursor: pointer;
+  }
+  .log-refresh-btn:hover { border-color: var(--border-strong); color: var(--text-strong); }
+  .log-live-label { font-size: 0.7rem; color: var(--text-muted); margin-left: auto; }
+  .log-cli-hint { font-size: 0.68rem; color: var(--text-muted); }
+  .log-cli-hint code { color: var(--accent2); font-family: var(--font-mono); }
+  #log-viewer {
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: var(--radius-m); padding: 0.5rem 0.75rem;
+    max-height: 300px; overflow-y: auto;
+    font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+    font-size: 0.72rem; line-height: 1.6;
+  }
+  #log-viewer .log-ts  { color: var(--text-muted); }
+  #log-viewer .log-src { color: var(--accent2); }
+  #log-viewer .log-empty { color: var(--text-muted); }
+  #log-viewer .log-err   { color: var(--danger); }
+
+  /* Small shared helpers for JS-rendered fragments */
+  .c-muted { color: var(--text-muted); }
+  .c-danger { color: var(--danger); }
 </style>
 {% endblock %}
 {% block content %}
@@ -641,32 +704,32 @@
   <div class="admin-section" id="admin-terminal-section">
     <h2>Terminal
       <a href="/terminal" target="_blank" rel="noopener"
-         style="margin-left:10px;font-size:12px;color:#8faf97;font-weight:400;text-decoration:none;vertical-align:middle;"
+         class="terminal-popout"
          title="Open terminal in full page">⤢ pop out</a>
     </h2>
     {% if ttyd_running %}
-    <div style="position:relative;width:100%;border-radius:6px;overflow:auto;border:1px solid var(--border,#222);max-height:380px;">
+    <div class="terminal-frame-wrap">
       <iframe id="admin-terminal-frame"
               src="http://127.0.0.1:{{ ttyd_port }}"
-              style="width:100%;height:380px;border:0;background:#0d1117;"
+              class="terminal-frame"
               allow="clipboard-read; clipboard-write"
               title="Browser terminal"></iframe>
     </div>
     {% elif ttyd_installed %}
-    <div style="background:#0d1117;border:1px solid #222;border-radius:6px;padding:16px;color:#8faf97;font-size:13px;">
-      <strong style="color:#c8a060;">ttyd is installed but not running.</strong>
-      Start it with <code style="color:#7ee0a0;">./arailctl start</code> or run
-      <code style="color:#7ee0a0;">ttyd -p {{ ttyd_port }} bash</code> manually,
-      then <a href="" onclick="location.reload();return false;" style="color:#7ee0a0;">reload</a>
-      or <a href="/terminal" target="_blank" rel="noopener" style="color:#7ee0a0;">open the terminal page</a>.
+    <div class="terminal-note">
+      <strong>ttyd is installed but not running.</strong>
+      Start it with <code>./arailctl start</code> or run
+      <code>ttyd -p {{ ttyd_port }} bash</code> manually,
+      then <a href="" onclick="location.reload();return false;">reload</a>
+      or <a href="/terminal" target="_blank" rel="noopener">open the terminal page</a>.
     </div>
     {% else %}
-    <div style="background:#0d1117;border:1px solid #222;border-radius:6px;padding:16px;color:#8faf97;font-size:13px;">
-      <strong style="color:#c8a060;">ttyd is not installed.</strong>
+    <div class="terminal-note">
+      <strong>ttyd is not installed.</strong>
       Install it to enable the browser terminal:<br>
-      <code style="display:block;margin-top:8px;color:#7ee0a0;white-space:pre-wrap;">{{ install_cmd }}</code>
-      <div style="margin-top:10px;">
-        <a href="/terminal" target="_blank" rel="noopener" style="color:#7ee0a0;">Open terminal page for full install guide</a>
+      <code class="terminal-note-block">{{ install_cmd }}</code>
+      <div class="terminal-note-links">
+        <a href="/terminal" target="_blank" rel="noopener">Open terminal page for full install guide</a>
       </div>
     </div>
     {% endif %}
@@ -694,7 +757,7 @@
           <div class="comp-table-wrap">
             <table class="comp-table">
               <thead><tr><th>Component</th><th>Version</th><th>Type</th><th>Image / Package</th><th>Source</th></tr></thead>
-              <tbody id="comp-tbody"><tr><td colspan="5" style="color:var(--muted)">loading…</td></tr></tbody>
+              <tbody id="comp-tbody"><tr><td colspan="5" class="c-muted">loading…</td></tr></tbody>
             </table>
           </div>
         </div>
@@ -711,7 +774,7 @@
             </div>
           </div>
           <div class="assoc-grid" id="assoc-status">
-            <div class="assoc-card" style="color:var(--muted)">Loading association setup…</div>
+            <div class="assoc-card c-muted">Loading association setup…</div>
           </div>
         </div>
       </section>
@@ -721,8 +784,8 @@
   <!-- ═══ Activity Log ═══ -->
   <div class="admin-section">
     <h2>Activity Log</h2>
-    <div style="display:flex; gap:0.5rem; align-items:center; margin-bottom:0.5rem; flex-wrap:wrap;">
-      <select id="log-source" style="background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:0.25rem 0.4rem;font-size:0.75rem;">
+    <div class="log-toolbar">
+      <select id="log-source">
         <option value="">all sources</option>
         <option value="system">system</option>
         <option value="browser">browser</option>
@@ -733,20 +796,20 @@
         <option value="chat">chat</option>
         <option value="consent">consent</option>
       </select>
-      <select id="log-level" style="background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:0.25rem 0.4rem;font-size:0.75rem;">
+      <select id="log-level">
         <option value="">all levels</option>
         <option value="error">error</option>
         <option value="warn">warn</option>
         <option value="info">info</option>
         <option value="success">success</option>
       </select>
-      <button onclick="loadLogs()" style="background:var(--surface);color:var(--green);border:1px solid var(--border);border-radius:4px;padding:0.25rem 0.6rem;font-size:0.75rem;cursor:pointer;">Refresh</button>
-      <label style="font-size:0.7rem;color:var(--muted);margin-left:auto;">
+      <button class="log-refresh-btn" onclick="loadLogs()">Refresh</button>
+      <label class="log-live-label">
         <input type="checkbox" id="log-live" checked> Live tail
       </label>
-      <span style="font-size:0.68rem;color:var(--muted);">CLI: <code style="color:var(--amber);">./arailctl logs [component]</code></span>
+      <span class="log-cli-hint">CLI: <code>./arailctl logs [component]</code></span>
     </div>
-    <div id="log-viewer" style="background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:0.5rem 0.75rem;max-height:300px;overflow-y:auto;font-family:var(--font);font-size:0.72rem;line-height:1.6;">
+    <div id="log-viewer">
       loading…
     </div>
   </div>
@@ -796,8 +859,7 @@
       </div>
       <div class="help-block">
         <h3>AI Models
-          <button type="button" class="btn btn-sm btn-ghost"
-                  style="margin-left:8px;font-size:0.75rem"
+          <button type="button" class="btn btn-sm btn-ghost help-inline-btn"
                   onclick="window.revealSlot &amp;&amp; window.revealSlot('models')"
                   title="Open the lab/models/ folder where downloaded weights live.">
             📁 Open models folder
@@ -960,7 +1022,7 @@ async function loadPerf() {
     }
     const labels = Object.keys(d.wait_ms || {});
     if (labels.length) {
-      html += `<div style="margin-top:.5rem;font-size:.68rem;color:var(--muted);">Inference wait p95</div>`;
+      html += `<div class="pr-subhead">Inference wait p95</div>`;
       labels.forEach(lbl => {
         const w = d.wait_ms[lbl]; const run = (d.run_ms || {})[lbl] || {};
         html += `<div class="pr-stat-row"><span style="font-size:.68rem">${_prEsc(lbl)}</span><span style="font-size:.68rem">${_prEsc(w.p95)} ms wait · ${_prEsc(run.p95 || 0)} ms run (n=${_prEsc(w.n)})</span></div>`;
@@ -996,7 +1058,7 @@ async function loadCleanup() {
     html += `<div class="pr-stat-row"><span>Total size</span><span>${_prEsc(fmt(d.total_bytes||0))}</span></div>`;
     html += `<div class="pr-stat-row"><span>Stale files</span><span>${_prEsc(stale.length)} (${_prEsc(fmt(d.stale_bytes||0))})</span></div>`;
     if (stale.length) {
-      html += `<div style="margin-top:.5rem;font-size:.68rem;color:var(--muted);">Stale candidates</div>`;
+      html += `<div class="pr-subhead">Stale candidates</div>`;
       stale.slice(0, 8).forEach((item, i) => {
         const name = item.path.split('/').pop();
         html += `<div class="pr-stat-row" style="font-size:.68rem;"><label style="display:flex;gap:.3rem;align-items:center;cursor:pointer;"><input type="checkbox" class="pr-stale-cb" value="${_prEsc(item.path)}" checked> ${_prEsc(name)}</label><span>${_prEsc(fmt(item.size_bytes))} · ${_prEsc(item.age_days)}d</span></div>`;
@@ -1004,7 +1066,7 @@ async function loadCleanup() {
       if (stale.length > 8) html += `<div class="pr-note">…and ${stale.length - 8} more</div>`;
       html += `<div class="pr-action-row"><button class="pr-btn pr-btn-danger" onclick="pruneSelected()">Prune selected</button><button class="pr-btn" onclick="loadCleanup()">Rescan</button></div>`;
     } else {
-      html += '<div style="font-size:.72rem;color:var(--muted);margin-top:.4rem;">No stale files found.</div>';
+      html += '<div class="pr-empty">No stale files found.</div>';
       html += `<div class="pr-action-row"><button class="pr-btn" onclick="loadCleanup()">Rescan</button></div>`;
     }
     el.innerHTML = html;
@@ -1044,7 +1106,7 @@ async function loadSecurity() {
     let html = '';
     if (!d.available) {
       html += `<div class="pr-note">pip-audit not installed.</div>`;
-      html += `<div style="font-size:.7rem;color:var(--muted);margin-top:.3rem;">Install with: <code>./arailctl upgrade max</code></div>`;
+      html += `<div class="pr-empty">Install with: <code>./arailctl upgrade max</code></div>`;
     } else {
       const sum = d.summary || {};
       const ts = d.last_run_ts ? d.last_run_ts.substring(0,19).replace('T',' ') : 'never';
@@ -1052,7 +1114,7 @@ async function loadSecurity() {
       if (d.error && !d.findings?.length) {
         html += `<div class="pr-err">Last scan error: ${_prEsc(d.error)}</div>`;
       } else if (sum.total === 0 && d.last_run_ts) {
-        html += `<div style="font-size:.72rem;color:var(--green);margin-top:.3rem;">No vulnerabilities found.</div>`;
+        html += `<div class="pr-ok">No vulnerabilities found.</div>`;
       } else if (sum.total > 0) {
         const parts = [];
         if (sum.critical) parts.push(`<span class="pr-sev-crit">${sum.critical} critical</span>`);
@@ -1154,12 +1216,12 @@ async function loadModels(force) {
           ${_prEsc(m.runtime || 'unknown')}
           · ${m.size_gb != null ? m.size_gb.toFixed(1) + ' GB' : '? GB'}
           · ${m.total_params_b != null ? m.total_params_b + 'B' : '?B'}
-          ${m.loaded ? '· <span style="color:var(--green)">loaded</span>' : ''}
+          ${m.loaded ? '· <span class="models-loaded-flag">loaded</span>' : ''}
         </div>
         <div class="actions">
           <button class="pr-btn" data-action="load" data-id="${_prEsc(m.id)}">${m.loaded ? 'Reload' : 'Load'}</button>
           <button class="pr-btn" data-action="unload" data-id="${_prEsc(m.id)}" ${m.loaded ? '' : 'disabled'}>Unload</button>
-          <span style="font-size:.68rem;color:var(--muted);">CTX</span>
+          <span class="ctx-label">CTX</span>
           <input class="ctx-input" type="number" min="256" max="1000000"
                  value="${m.ctx || ''}" placeholder="—"
                  data-id="${_prEsc(m.id)}">
@@ -1366,7 +1428,7 @@ function loadAssocStatus() {
       </div>
     `;
   }).catch(() => {
-    mountStatus.innerHTML = '<div class="assoc-card" style="color:var(--amber)">Knowledge Canvas status endpoint unavailable. Start the canvas backend to show live association setup.</div>';
+    mountStatus.innerHTML = '<div class="assoc-card assoc-unavailable">Knowledge Canvas status endpoint unavailable. Start the canvas backend to show live association setup.</div>';
   });
 }
 
@@ -1405,8 +1467,8 @@ fetch('/api/system/health').then(r => r.json()).then(d => {
     ? entries.map(([name, up]) =>
         `<span class="svc-chip"><span class="svc-dot ${up ? 'up' : 'down'}"></span>${name}</span>`
       ).join('')
-    : '<span style="color: var(--muted); font-size: 12px;">No services running.</span>';
-  const hint = '<span style="color: var(--muted); font-size: 11px; margin-left: 6px; align-self: center;" title="On-demand services (notebook, marimo, ollama, neo4j, etc.) only appear here when running. See full check list below.">on-demand services hidden when idle</span>';
+    : '<span class="c-muted" style="font-size: 12px;">No services running.</span>';
+  const hint = '<span class="c-muted" style="font-size: 11px; margin-left: 6px; align-self: center;" title="On-demand services (notebook, marimo, ollama, neo4j, etc.) only appear here when running. See full check list below.">on-demand services hidden when idle</span>';
   el.innerHTML = chips + hint;
   renderHealthChecks(d);
 }).catch(() => {
@@ -1429,7 +1491,7 @@ fetch('/api/admin/components').then(r => r.json()).then(data => {
     </tr>`
   ).join('');
 }).catch(() => {
-  document.getElementById('comp-tbody').innerHTML = '<tr><td colspan="5" style="color:var(--red)">Failed to load components</td></tr>';
+  document.getElementById('comp-tbody').innerHTML = '<tr><td colspan="5" class="c-danger">Failed to load components</td></tr>';
 });
 
 // ── Activity Log Viewer ──────────────────────────────────────────────
@@ -1437,7 +1499,7 @@ const logViewer = document.getElementById('log-viewer');
 const logSource = document.getElementById('log-source');
 const logLevel = document.getElementById('log-level');
 const logLive = document.getElementById('log-live');
-const levelColors = {info: 'var(--text)', success: 'var(--green)', warn: 'var(--amber)', error: 'var(--red)'};
+const levelColors = {info: 'var(--text)', success: 'var(--positive)', warn: 'var(--warn)', error: 'var(--danger)'};
 
 function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 
@@ -1445,7 +1507,7 @@ function renderEvent(e) {
   const ts = (e.ts || '').substring(0, 19).replace('T', ' ');
   const color = levelColors[e.level] || 'var(--text)';
   const src = (e.source || '?').padEnd(12);
-  return `<div style="color:${color}"><span style="color:var(--muted)">${esc(ts)}</span>  <span style="color:var(--blue)">${esc(src)}</span>  ${esc(e.message || '')}</div>`;
+  return `<div style="color:${color}"><span class="log-ts">${esc(ts)}</span>  <span class="log-src">${esc(src)}</span>  ${esc(e.message || '')}</div>`;
 }
 
 function loadLogs() {
@@ -1457,9 +1519,9 @@ function loadLogs() {
     );
     logViewer.innerHTML = filtered.length
       ? filtered.map(renderEvent).join('')
-      : '<span style="color:var(--muted)">No matching events.</span>';
+      : '<span class="log-empty">No matching events.</span>';
     logViewer.scrollTop = logViewer.scrollHeight;
-  }).catch(() => { logViewer.innerHTML = '<span style="color:var(--red)">Failed to load activity log.</span>'; });
+  }).catch(() => { logViewer.innerHTML = '<span class="log-err">Failed to load activity log.</span>'; });
 }
 
 // Live tail via SSE

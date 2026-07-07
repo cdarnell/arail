@@ -81,6 +81,24 @@
     letter-spacing: var(--label-tracking);
   }
   .svc-status-row { display: flex; flex-wrap: wrap; gap: 8px; font-size: 12px; }
+  /* Service chips — rendered by refreshServiceStatus(); classes here so
+     the colors repaint when a World swaps the token set. */
+  .svc-chip {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 4px 10px; border-radius: var(--radius-pill);
+    font-size: 12px; border: 1px solid;
+  }
+  .svc-chip .svc-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .svc-chip.up   { background: var(--positive-a08); border-color: var(--positive-a28); color: var(--positive); }
+  .svc-chip.down { background: var(--danger-a08);   border-color: var(--danger-a28);   color: var(--danger); }
+  .svc-idle-toggle {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 4px 10px; border-radius: var(--radius-pill);
+    border: 1px dashed var(--border); background: transparent;
+    font-size: 12px; color: var(--text-muted); cursor: pointer;
+  }
+  .svc-hint { color: var(--text-muted); font-size: 11px; margin-left: 6px; align-self: center; }
+  .svc-none { color: var(--text-muted); font-size: 12px; }
   .shortcuts-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
   .shortcut-link {
     display: inline-flex; align-items: center; gap: 6px;
@@ -1516,27 +1534,22 @@ async function refreshServiceStatus() {
     const svcs = d.services || {};
     const entries = Object.entries(svcs);
     if (entries.length === 0) {
-      el.innerHTML = '<span style="color: var(--text-muted); font-size: 12px;">No services running.</span>';
+      el.innerHTML = '<span class="svc-none">No services running.</span>';
       return;
     }
-    const chip = (name, up) => {
-      const bg = up ? 'var(--positive-a08)' : 'var(--danger-a08)';
-      const bd = up ? 'var(--positive-a28)' : 'var(--danger-a28)';
-      const fg = up ? 'var(--positive)' : 'var(--danger)';
-      const dot = `<span style="width: 6px; height: 6px; border-radius: 50%; background: ${fg};"></span>`;
-      return `<span style="display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: 999px; border: 1px solid ${bd}; background: ${bg}; font-size: 12px; color: ${fg};">${dot}${name}</span>`;
-    };
+    const chip = (name, up) =>
+      `<span class="svc-chip ${up ? 'up' : 'down'}"><span class="svc-dot"></span>${name}</span>`;
     const active = entries.filter(([, up]) => up);
     const idle = entries.filter(([, up]) => !up);
     const activeChips = active.map(([n, up]) => chip(n, up)).join('');
     let idleChip = '';
     if (idle.length > 0) {
       const names = idle.map(([n]) => n).join(', ');
-      idleChip = `<button type="button" id="svc-idle-toggle" onclick="toggleSvcIdle(this)" aria-expanded="false" title="${names}" style="display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: var(--radius-pill); border: 1px dashed var(--border); background: transparent; font-size: 12px; color: var(--text-muted); cursor: pointer;">(${idle.length} idle)</button>`;
+      idleChip = `<button type="button" id="svc-idle-toggle" class="svc-idle-toggle" onclick="toggleSvcIdle(this)" aria-expanded="false" title="${names}">(${idle.length} idle)</button>`;
       const expanded = idle.map(([n, up]) => chip(n, up)).join('');
       idleChip += `<span id="svc-idle-list" style="display: none;">${expanded}</span>`;
     }
-    const hint = '<span style="color: var(--text-muted); font-size: 11px; margin-left: 6px; align-self: center;" title="On-demand services (notebook, marimo, ollama, neo4j, etc.) only appear here when running.">on-demand services hidden when idle</span>';
+    const hint = '<span class="svc-hint" title="On-demand services (notebook, marimo, ollama, neo4j, etc.) only appear here when running.">on-demand services hidden when idle</span>';
     el.innerHTML = activeChips + idleChip + hint;
   } catch (e) {
     const el = document.getElementById('svc-status');

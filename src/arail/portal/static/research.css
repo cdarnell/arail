@@ -1298,6 +1298,7 @@
   gap: var(--s-2);
 }
 .rx-summary-item {
+  cursor: pointer; /* hoisted from JS inline style — items jump to the cockpit */
   display: grid;
   grid-template-columns: auto 1fr auto;
   align-items: baseline;

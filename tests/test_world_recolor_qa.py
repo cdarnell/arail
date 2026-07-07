@@ -42,7 +42,14 @@ class _FakeRequest:
 
 
 def _run(coro):
-    return asyncio.get_event_loop().run_until_complete(coro)
+    # Own a fresh loop rather than asyncio.get_event_loop() — a prior suite's
+    # asyncio.run() closes the default loop, and get_event_loop() would then
+    # hand back a closed loop (RuntimeError under combined test ordering).
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
 
 
 def test_sse_response_is_gated_before_drain():

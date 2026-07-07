@@ -1,0 +1,38 @@
+{
+ "templates/_airgap_modal.html": {
+  "color_literals": 0,
+  "inline_styles": 5
+ },
+ "templates/_graph_canvas.html": {
+  "color_literals": 1,
+  "inline_styles": 4
+ },
+ "templates/_nav.html": {
+  "color_literals": 0,
+  "inline_styles": 11
+ },
+ "templates/admin.html": {
+  "color_literals": 0,
+  "inline_styles": 9
+ },
+ "templates/agents.html": {
+  "color_literals": 1,
+  "inline_styles": 3
+ },
+ "templates/chat.html": {
+  "color_literals": 0,
+  "inline_styles": 3
+ },
+ "templates/dashboard.html": {
+  "color_literals": 0,
+  "inline_styles": 8
+ },
+ "templates/knowledge.html": {
+  "color_literals": 0,
+  "inline_styles": 6
+ },
+ "templates/tuning.html": {
+  "color_literals": 0,
+  "inline_styles": 21
+ }
+}
