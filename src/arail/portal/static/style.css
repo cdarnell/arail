@@ -1,53 +1,166 @@
 /* ═══════════════════════════════════════════════════════════════════
-   ARAIL — 1337 Design System
-   Terminal-hacker aesthetic.  No images.  Pure CSS.
+   ARAIL — Design System v2 · "Modern lab, technical edge"
+   Token contract: docs/portal-design.md §2. No images. Pure CSS.
+   ───────────────────────────────────────────────────────────────────
+   :root below carries the REAL default (dark, technical) values, so a
+   page renders correctly even without the server-injected theme block.
+   The ui-theme-vars style block emitted by ui_theme.theme_css() is
+   injected after this stylesheet and overrides these tokens for the
+   active theme / mounted World.
    ═══════════════════════════════════════════════════════════════════ */
 
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&display=swap');
+/* ── Fonts — self-hosted (OFL licenses alongside in static/fonts/).
+   No network fetch: the lab must paint identically airgapped. ────── */
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('/static/fonts/JetBrainsMono-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('/static/fonts/JetBrainsMono-Medium.woff2') format('woff2');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('/static/fonts/JetBrainsMono-SemiBold.woff2') format('woff2');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('/static/fonts/JetBrainsMono-Bold.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Inter';
+  src: url('/static/fonts/InterVariable.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Inter';
+  src: url('/static/fonts/InterVariable-Italic.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: italic;
+  font-display: swap;
+}
 
 :root {
-  --bg:        #0a0a0f;
-  --surface:   #0f1118;
-  --surface2:  #151821;
-  --border:    #1e2230;
-  --border-hi: #2a3040;
-  --text:      #c8cdd8;
-  --text-hi:   #e8ecf4;
-  --muted:     #78839a;
+  /* ── Scheme tokens (dark) — themeable, hex + -rgb pairs ───────── */
+  --bg:            #0a0a0f;  --bg-rgb: 10, 10, 15;
+  --surface:       #0f1118;  --surface-rgb: 15, 17, 24;
+  --surface2:      #151821;  --surface2-rgb: 21, 24, 33;
+  --surface3:      #20232c;  --surface3-rgb: 32, 35, 44;
+  --border:        #1e2230;  --border-rgb: 30, 34, 48;
+  --border-strong: #2a3040;  --border-strong-rgb: 42, 48, 64;
+  --text:          #c8cdd8;  --text-rgb: 200, 205, 216;
+  --text-strong:   #e8ecf4;  --text-strong-rgb: 232, 236, 244;
+  --text-muted:    #78839a;  --text-muted-rgb: 120, 131, 154;
 
-  /* Accents */
-  --green:     var(--green);
-  --green-dim: #00cc33;
-  --blue:      var(--blue);
-  --amber:     var(--amber);
-  --red:       var(--red);
-  --purple:    var(--purple);
+  --accent:        #00d4ff;  --accent-rgb: 0, 212, 255;
+  --accent2:       #00d4ff;  --accent2-rgb: 0, 212, 255;
+  --positive:      #00ff41;  --positive-rgb: 0, 255, 65;
+  --positive-dim:  #00cc33;  --positive-dim-rgb: 0, 204, 51;
+  --warn:          #ffb000;  --warn-rgb: 255, 176, 0;
+  --danger:        #ff3355;  --danger-rgb: 255, 51, 85;
+  --info:          #b48eff;  --info-rgb: 180, 142, 255;
 
-  /* Glows */
-  --glow-green: 0 0 8px rgba(var(--green-rgb),.3), 0 0 20px rgba(var(--green-rgb),.1);
-  --glow-blue:  0 0 8px rgba(var(--blue-rgb),.3), 0 0 20px rgba(var(--blue-rgb),.1);
-  --glow-amber: 0 0 8px rgba(var(--amber-rgb),.3), 0 0 20px rgba(var(--amber-rgb),.1);
-  --glow-red:   0 0 8px rgba(var(--red-rgb),.3);
+  /* ── Personality scalars (technical defaults) — themeable ─────── */
+  --radius-s: 4px;
+  --radius-m: 6px;
+  --radius-l: 10px;
+  --radius-pill: 999px;
+  --motif-scanline-alpha: 0.03;
+  --glow-blur: 8px;
+  --glow-blur-far: 20px;
+  --glow-alpha: 0.30;
+  --glow-alpha-far: 0.10;
+  --dur-1: 100ms;
+  --dur-2: 170ms;
+  --dur-3: 280ms;
+  --ease-accent: cubic-bezier(0.2, 0, 0, 1);
+  --heading-font: var(--font-mono);
+  --label-transform: uppercase;
+  --label-tracking: 0.08em;
+  --rail-from: var(--accent);
+  --rail-to: var(--accent2);
 
-  /* ── Alpha tiers (see docs/design.md §2) ─────────────────────────
-     Use these instead of hand-rolled rgba() calls. */
-  --green-a08:  var(--green-a08);
-  --green-a16:  var(--green-a16);
-  --green-a28:  var(--green-a28);
-  --blue-a08:   var(--blue-a08);
-  --blue-a16:   var(--blue-a16);
-  --blue-a28:   var(--blue-a28);
-  --amber-a08:  var(--amber-a08);
-  --amber-a16:  var(--amber-a16);
-  --amber-a28:  var(--amber-a28);
-  --red-a08:    var(--red-a08);
-  --red-a16:    var(--red-a16);
-  --red-a28:    var(--red-a28);
-  --purple-a08: var(--purple-a08);
-  --purple-a16: var(--purple-a16);
-  --purple-a28: var(--purple-a28);
+  /* ── Glows — composed from the primitives above ────────────────── */
+  --glow-accent:   0 0 var(--glow-blur) rgba(var(--accent-rgb), var(--glow-alpha)),
+                   0 0 var(--glow-blur-far) rgba(var(--accent-rgb), var(--glow-alpha-far));
+  --glow-accent2:  0 0 var(--glow-blur) rgba(var(--accent2-rgb), var(--glow-alpha)),
+                   0 0 var(--glow-blur-far) rgba(var(--accent2-rgb), var(--glow-alpha-far));
+  --glow-positive: 0 0 var(--glow-blur) rgba(var(--positive-rgb), var(--glow-alpha)),
+                   0 0 var(--glow-blur-far) rgba(var(--positive-rgb), var(--glow-alpha-far));
+  --glow-warn:     0 0 var(--glow-blur) rgba(var(--warn-rgb), var(--glow-alpha)),
+                   0 0 var(--glow-blur-far) rgba(var(--warn-rgb), var(--glow-alpha-far));
+  --glow-danger:   0 0 var(--glow-blur) rgba(var(--danger-rgb), var(--glow-alpha));
+  --glow-info:     0 0 var(--glow-blur) rgba(var(--info-rgb), var(--glow-alpha)),
+                   0 0 var(--glow-blur-far) rgba(var(--info-rgb), var(--glow-alpha-far));
 
-  /* ── Spacing scale (4px rhythm) ──────────────────────────────── */
+  /* ── Alpha tiers (docs/portal-design.md §2) — derived, never themed
+     directly. Use these instead of hand-rolled rgba() calls. ─────── */
+  --accent-a08:   rgba(var(--accent-rgb), .08);
+  --accent-a16:   rgba(var(--accent-rgb), .16);
+  --accent-a28:   rgba(var(--accent-rgb), .28);
+  --accent2-a08:  rgba(var(--accent2-rgb), .08);
+  --accent2-a16:  rgba(var(--accent2-rgb), .16);
+  --accent2-a28:  rgba(var(--accent2-rgb), .28);
+  --positive-a08: rgba(var(--positive-rgb), .08);
+  --positive-a16: rgba(var(--positive-rgb), .16);
+  --positive-a28: rgba(var(--positive-rgb), .28);
+  --warn-a08:     rgba(var(--warn-rgb), .08);
+  --warn-a16:     rgba(var(--warn-rgb), .16);
+  --warn-a28:     rgba(var(--warn-rgb), .28);
+  --danger-a08:   rgba(var(--danger-rgb), .08);
+  --danger-a16:   rgba(var(--danger-rgb), .16);
+  --danger-a28:   rgba(var(--danger-rgb), .28);
+  --info-a08:     rgba(var(--info-rgb), .08);
+  --info-a16:     rgba(var(--info-rgb), .16);
+  --info-a28:     rgba(var(--info-rgb), .28);
+
+  /* ── Legacy aliases (v1 names) ──────────────────────────────────
+     Kept while per-page CSS still references them; the token-compliance
+     lint tracks remaining consumers. New code uses semantic names. */
+  --green:      var(--positive);      --green-rgb: var(--positive-rgb);
+  --green-dim:  var(--positive-dim);
+  --blue:       var(--accent2);       --blue-rgb: var(--accent2-rgb);
+  --amber:      var(--warn);          --amber-rgb: var(--warn-rgb);
+  --red:        var(--danger);        --red-rgb: var(--danger-rgb);
+  --purple:     var(--info);          --purple-rgb: var(--info-rgb);
+  --border-hi:  var(--border-strong);
+  --text-hi:    var(--text-strong);
+  --muted:      var(--text-muted);
+  --glow-green: var(--glow-positive);
+  --glow-blue:  var(--glow-accent2);
+  --glow-amber: var(--glow-warn);
+  --glow-red:   var(--glow-danger);
+  --green-a08:  var(--positive-a08);
+  --green-a16:  var(--positive-a16);
+  --green-a28:  var(--positive-a28);
+  --blue-a08:   var(--accent2-a08);
+  --blue-a16:   var(--accent2-a16);
+  --blue-a28:   var(--accent2-a28);
+  --amber-a08:  var(--warn-a08);
+  --amber-a16:  var(--warn-a16);
+  --amber-a28:  var(--warn-a28);
+  --red-a08:    var(--danger-a08);
+  --red-a16:    var(--danger-a16);
+  --red-a28:    var(--danger-a28);
+  --purple-a08: var(--info-a08);
+  --purple-a16: var(--info-a16);
+  --purple-a28: var(--info-a28);
+
+  /* ── Spacing scale (4px rhythm) — structural, never themed ────── */
   --s-1: 4px;
   --s-2: 8px;
   --s-3: 12px;
@@ -56,19 +169,26 @@
   --s-6: 32px;
   --s-7: 48px;
 
-  /* ── Type scale ──────────────────────────────────────────────── */
+  /* ── Type scale — structural, never themed ──────────────────── */
   --fs-xs: 0.65rem;
   --fs-sm: 0.75rem;
   --fs-md: 0.85rem;
   --fs-lg: 1rem;
   --fs-xl: 1.4rem;
+  --fs-2xl: 1.8rem;
+  --lh-tight: 1.25;
+  --lh-normal: 1.6;
 
   /* ── Elevation ───────────────────────────────────────────────── */
   --elev-1: 0 2px 8px rgba(0,0,0,.35);
   --elev-2: 0 6px 24px rgba(0,0,0,.55);
 
-  --radius: 6px;
-  --font: 'JetBrains Mono', 'Fira Code', 'Hack', 'Menlo', monospace;
+  --radius: var(--radius-m);
+
+  /* ── Fonts — self-hosted (static/fonts/), system fallbacks ───── */
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', 'Fira Code', 'Menlo', monospace;
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font: var(--font-mono);
 }
 
 /* ── Reset ─────────────────────────────────────────────────────── */
@@ -83,7 +203,8 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* Subtle CRT scanlines */
+/* Scanline motif — personality-driven; scholarly/playful themes set
+   --motif-scanline-alpha to 0 and the overlay disappears. */
 body::after {
   content: '';
   position: fixed;
@@ -93,8 +214,8 @@ body::after {
     0deg,
     transparent,
     transparent 2px,
-    rgba(0,0,0,0.03) 2px,
-    rgba(0,0,0,0.03) 4px
+    rgba(0, 0, 0, var(--motif-scanline-alpha)) 2px,
+    rgba(0, 0, 0, var(--motif-scanline-alpha)) 4px
   );
   z-index: 9999;
 }
@@ -2563,164 +2684,13 @@ code {
 }
 
 /* ═══════════════════════════════════════════════════════════════════
-   Themes — see docs/design.md §8
-   ───────────────────────────────────────────────────────────────────
-   Themes only swap the *accent* palette + their alpha tiers + glows.
-   Backgrounds, surfaces, text, spacing, type, radius — all stable.
-   That's the rule that keeps a new theme from breaking layouts.
-
-   Apply by setting `data-theme="…"` on <html>:
-       <html data-theme="default">       (terminal green — current)
-       <html data-theme="laser-blue">    (cooler, electric)
-   nav.js handles toggling + persistence.
+   Themes — defined server-side in src/arail/ui_theme.py (v2).
+   The active theme (mounted World / LAB_UI_THEME / default) arrives as
+   the middleware-injected ui-theme-vars style block and overrides the
+   :root defaults at the top of this file. Themes only swap tokens;
+   layout, spacing, and type scale never change per theme.
+   The old client-side html[data-theme] mechanism is retired.
    ═══════════════════════════════════════════════════════════════════ */
-
-/* ── Default theme (terminal hacker green) ─────────────────────── */
-:root,
-html[data-theme="default"] {
-  --green:     var(--green);
-  --green-dim: #00cc33;
-  --blue:      var(--blue);
-  --amber:     var(--amber);
-  --red:       var(--red);
-  --purple:    var(--purple);
-
-  --green-a08:  rgba(var(--green-rgb),.08);
-  --green-a16:  rgba(var(--green-rgb),.16);
-  --green-a28:  rgba(var(--green-rgb),.28);
-  --blue-a08:   rgba(var(--blue-rgb),.08);
-  --blue-a16:   rgba(var(--blue-rgb),.16);
-  --blue-a28:   rgba(var(--blue-rgb),.28);
-  --amber-a08:  rgba(var(--amber-rgb),.08);
-  --amber-a16:  rgba(var(--amber-rgb),.16);
-  --amber-a28:  rgba(var(--amber-rgb),.28);
-  --red-a08:    rgba(var(--red-rgb),.08);
-  --red-a16:    rgba(var(--red-rgb),.16);
-  --red-a28:    rgba(var(--red-rgb),.28);
-  --purple-a08: rgba(180,142,255,.08);
-  --purple-a16: rgba(180,142,255,.16);
-  --purple-a28: rgba(180,142,255,.28);
-
-  --glow-green: 0 0 8px rgba(var(--green-rgb),.30), 0 0 20px rgba(var(--green-rgb),.10);
-  --glow-blue:  0 0 8px rgba(var(--blue-rgb),.30), 0 0 20px rgba(var(--blue-rgb),.10);
-  --glow-amber: 0 0 8px rgba(var(--amber-rgb),.30), 0 0 20px rgba(var(--amber-rgb),.10);
-  --glow-red:   0 0 8px rgba(var(--red-rgb),.30);
-}
-
-/* ── Laser Blue theme ──────────────────────────────────────────────
-   Primary action shifts from terminal green to electric cyan.
-   Reads "precision instrument" — apt for "a rail gun for AI".
-   The rail line under the nav also subtly recomposes (still
-   green→blue gradient via tokens, just both ends are cooler). */
-html[data-theme="laser-blue"] {
-  --green:     #5cf0ff;   /* was var(--green) — promoted to laser cyan */
-  --green-dim: #2ea3b8;
-  --blue:      #4cc9ff;
-  --amber:     var(--amber);
-  --red:       var(--red);
-  --purple:    var(--purple);
-
-  --green-a08:  rgba(92,240,255,.08);
-  --green-a16:  rgba(92,240,255,.16);
-  --green-a28:  rgba(92,240,255,.28);
-  --blue-a08:   rgba(76,201,255,.08);
-  --blue-a16:   rgba(76,201,255,.16);
-  --blue-a28:   rgba(76,201,255,.28);
-  --amber-a08:  rgba(var(--amber-rgb),.08);
-  --amber-a16:  rgba(var(--amber-rgb),.16);
-  --amber-a28:  rgba(var(--amber-rgb),.28);
-  --red-a08:    rgba(var(--red-rgb),.08);
-  --red-a16:    rgba(var(--red-rgb),.16);
-  --red-a28:    rgba(var(--red-rgb),.28);
-  --purple-a08: rgba(180,142,255,.08);
-  --purple-a16: rgba(180,142,255,.16);
-  --purple-a28: rgba(180,142,255,.28);
-
-  --glow-green: 0 0 8px rgba(92,240,255,.32), 0 0 22px rgba(92,240,255,.12);
-  --glow-blue:  0 0 8px rgba(76,201,255,.32), 0 0 22px rgba(76,201,255,.12);
-  --glow-amber: 0 0 8px rgba(var(--amber-rgb),.30), 0 0 20px rgba(var(--amber-rgb),.10);
-  --glow-red:   0 0 8px rgba(var(--red-rgb),.30);
-}
-
-/* ── Theme picker (nav button) ─────────────────────────────────────
-   Injected by nav.js. Cycles through registered themes; current name
-   is shown as the label. Subtle styling — should feel like a setting,
-   not a feature. */
-.theme-picker {
-  background: transparent;
-  border: 1px solid var(--border);
-  color: var(--muted);
-  font-family: var(--font);
-  font-size: var(--fs-xs);
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  padding: 0.28rem 0.7rem;
-  border-radius: 999px;
-  cursor: pointer;
-  transition: all 0.15s;
-  white-space: nowrap;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-}
-.theme-picker:hover {
-  color: var(--text-hi);
-  border-color: var(--border-hi);
-  background: var(--surface2);
-}
-.theme-picker .theme-swatch {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--green);
-  box-shadow: var(--glow-green);
-}
-
-/* Floating-action variant — small unobtrusive swatch dot anchored to
-   the bottom-right corner. Label is hidden by default and only fades
-   in on hover/focus, so the control reads as a quiet UI affordance,
-   not a feature. Sits above page content but below modals/toasts. */
-.theme-picker.theme-fab {
-  position: fixed;
-  right: 14px;
-  bottom: 14px;
-  z-index: 800;
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  border-radius: 50%;
-  border-width: 1px;
-  background: rgba(12,16,20,0.55);
-  border-color: rgba(255,255,255,0.12);
-  opacity: 0.55;
-  overflow: hidden;
-  transition: width 0.18s ease, opacity 0.18s ease, border-color 0.18s ease, background 0.18s ease;
-  box-shadow: none;
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
-}
-.theme-picker.theme-fab .theme-swatch {
-  width: 8px;
-  height: 8px;
-  margin: 0 auto;
-}
-.theme-picker.theme-fab .theme-label {
-  display: none;
-}
-.theme-picker.theme-fab:hover,
-.theme-picker.theme-fab:focus-visible {
-  width: auto;
-  padding: 0.32rem 0.7rem;
-  border-radius: 999px;
-  opacity: 1;
-  background: var(--surface, rgba(12,16,20,0.92));
-  border-color: var(--border-hi, rgba(255,255,255,0.22));
-}
-.theme-picker.theme-fab:hover .theme-label,
-.theme-picker.theme-fab:focus-visible .theme-label {
-  display: inline;
-}
 
 /* ═══════════════════════════════════════════════════════════════════
    AI Dictionary — theme-aware learning glossary (Docs teaser + full page)

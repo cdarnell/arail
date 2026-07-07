@@ -229,18 +229,48 @@ def test_injection_is_xss_safe_by_construction(tmp_path, monkeypatch):
 
 # ═══════════════════ RECOLOR COMPLETENESS (var-ified accents) ═══════════════════
 
-def test_no_hardcoded_accent_literals_in_style_css():
-    """Accent colors in style.css must be var(--…)-driven, not hard-coded hex /
-    rgba triples, so they REPAINT with the mounted World's palette (the recolor
-    var-ification of 2026-06-16). Regression guard against re-introduction."""
+def test_root_defaults_agree_with_default_theme_and_components_stay_var_driven():
+    """Design system v2: style.css :root carries REAL default-theme values (a
+    page renders correctly even if the middleware injection fails) and the
+    injected ui-theme-vars block overrides them per World. Two invariants
+    replace the old blanket no-literals rule:
+
+    1. Every default accent in the :root block equals the default theme's
+       value — style.css can never disagree with ui_theme.py.
+    2. Component rules (everything after the :root block) stay var(--…)-driven
+       — no hard-coded accent literal that would refuse to repaint on mount.
+    """
+    import re
+
+    from arail.ui_theme import default_ui_theme
+
     css = (pathlib.Path(__file__).parents[1]
            / "src/arail/portal/static/style.css").read_text()
+    root_start = css.index(":root {")
+    root_end = css.index("}", root_start)
+    root_block = css[root_start:root_end]
+    rest = css[root_end:]
+
+    colors = default_ui_theme().dark
+    for token, value in (
+        ("--bg", colors.bg), ("--surface", colors.surface), ("--text", colors.text),
+        ("--accent", colors.accent), ("--accent2", colors.accent2),
+        ("--positive", colors.positive), ("--warn", colors.warn),
+        ("--danger", colors.danger), ("--info", colors.info),
+    ):
+        assert re.search(rf"{token}:\s*{value};", root_block), (
+            f"style.css :root default for {token} must be {value} "
+            "(the default theme's value from ui_theme.py)"
+        )
+
     for lit in ("#00d4ff", "#00ff41", "#ffb000", "#ff3355", "#b48eff",
                 "rgba(0,212,255", "rgba(0, 212, 255",
                 "rgba(0,255,65", "rgba(0, 255, 65",
                 "rgba(255,176,0", "rgba(255, 176, 0",
                 "rgba(255,51,85", "rgba(255, 51, 85"):
-        assert lit not in css, f"hard-coded accent {lit!r} should be var(--…)-driven"
+        assert lit not in rest, (
+            f"hard-coded accent {lit!r} outside :root should be var(--…)-driven"
+        )
 
 
 def test_theme_css_emits_rgb_channel_vars():

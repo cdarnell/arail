@@ -1,20 +1,11 @@
 <!doctype html>
-<html lang="en" data-theme="default">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Chat Studio · {{ brand.name }}</title>
   <link rel="stylesheet" href="/static/style.css">
   <script src="/static/js/chat-highlight.js"></script>
-  <script>
-    // Anti-FOUC: apply persisted theme before any paint.
-    (function () {
-      try {
-        var t = localStorage.getItem('arail-theme');
-        if (t === 'laser-blue' || t === 'default') document.documentElement.setAttribute('data-theme', t);
-      } catch (e) {}
-    })();
-  </script>
   <style>
     /* ─── Chat Studio (design.md token-bound) ─────────────────────────
        Layout:  body scrolls naturally · the studio is a flex column
