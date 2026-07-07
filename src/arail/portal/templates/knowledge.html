@@ -1,16 +1,13 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{ brand.name }} — Knowledge</title>
-<link rel="stylesheet" href="/static/style.css">
+{% extends "base.html" %}
+{% set active = 'knowledge' %}
+{% block title %}{{ brand.name }} — Knowledge{% endblock %}
+
+{% block head %}
 <link rel="stylesheet" href="/static/wiki.css">
 <link rel="stylesheet" href="/static/knowledge.css">
-</head>
-<body>
+{% endblock %}
 
-{% set active = 'knowledge' %}{% include "_nav.html" %}
+{% block content %}
 
 <!-- Full-page drop overlay (shows on drag-over) -->
 <div class="kb-drop-overlay" id="kb-drop-overlay">
@@ -340,7 +337,9 @@
 
   </main>
 </div>
+{% endblock %}
 
+{% block scripts %}
 <script>
 /* ═══════════════════════════════════════════════════════════════
    Unified Knowledge Base
@@ -1999,5 +1998,4 @@ loadWikiPages().then(populateWelcome);
 </script>
 <script src="/static/nav.js"></script>
 {% include '_airgap_modal.html' %}
-</body>
-</html>
+{% endblock %}

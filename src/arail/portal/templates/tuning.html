@@ -1,10 +1,7 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{ brand.name }} — Frontier LLM Hosting on Consumer Hardware</title>
-<link rel="stylesheet" href="/static/style.css">
+{% extends "base.html" %}
+{% set active = 'tuning' %}
+{% block title %}{{ brand.name }} — Frontier LLM Hosting on Consumer Hardware{% endblock %}
+{% block head %}
 <style>
   /* Page-local styles. Deliberately minimal so the single-page
      view stays legible and doesn't drag in the research cockpit's
@@ -98,10 +95,8 @@
                     font-size: 12px; border-bottom: 1px dashed var(--border, #222); }
   .tn-knob-row:last-child { border-bottom: 0; }
 </style>
-</head>
-<body>
-
-{% set active = 'tuning' %}{% include "_nav.html" %}
+{% endblock %}
+{% block content %}
 
 <div class="tn-wrap">
 
@@ -776,6 +771,8 @@
 
 </div>
 
+{% endblock %}
+{% block scripts %}
 <script>
 (function () {
   "use strict";
@@ -1413,5 +1410,4 @@
 </script>
 
 {% include '_airgap_modal.html' %}
-</body>
-</html>
+{% endblock %}

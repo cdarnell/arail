@@ -1,15 +1,12 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{ page.title }} — {{ brand.name }} Wiki</title>
-<link rel="stylesheet" href="/static/style.css">
-<link rel="stylesheet" href="/static/wiki.css">
-</head>
-<body>
+{% extends "base.html" %}
+{% set active = '' %}
+{% block title %}{{ page.title }} — {{ brand.name }} Wiki{% endblock %}
 
-{% set active = '' %}{% include "_nav.html" %}
+{% block head %}
+<link rel="stylesheet" href="/static/wiki.css">
+{% endblock %}
+
+{% block content %}
 
 <div class="wiki-page">
 
@@ -90,7 +87,8 @@
     {% endif %}
   </main>
 </div>
+{% endblock %}
 
+{% block scripts %}
 <script src="/static/nav.js"></script>
-</body>
-</html>
+{% endblock %}

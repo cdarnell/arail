@@ -1,10 +1,7 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{ brand.name }} — Notebook</title>
-<link rel="stylesheet" href="/static/style.css">
+{% extends "base.html" %}
+{% set active = 'notebooks' %}
+{% block title %}{{ brand.name }} — Notebook{% endblock %}
+{% block head %}
 <style>
   .nb-topbar { display: flex; align-items: center; gap: 0.8rem; justify-content: space-between; } .nb-topbar .nb-hint { margin: 0; flex: 1; } .nb-wrap { padding: 0.8rem 1rem; height: calc(100vh - 52px); display: flex; flex-direction: column; gap: 0.6rem; }
   .nb-hint { color: var(--muted); font-size: 0.75rem; }
@@ -47,9 +44,8 @@
   }
   /* .status-pill* hoisted to static/style.css (shared w/ open-notebook + marimo). */
 </style>
-</head>
-<body>
-{% set active = 'notebooks' %}{% include "_nav.html" %}
+{% endblock %}
+{% block content %}
 
 <div class="nb-wrap">
   {% if jupyter_running %}
@@ -226,8 +222,8 @@ lab/pkb/teacher/*.md</pre>
   </div>
   {% endif %}
 </div>
-
+{% endblock %}
+{% block scripts %}
 <script src="/static/nav.js"></script>
 {% include '_airgap_modal.html' %}
-</body>
-</html>
+{% endblock %}

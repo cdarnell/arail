@@ -1,10 +1,7 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{ brand.name }} — opencode</title>
-<link rel="stylesheet" href="/static/style.css">
+{% extends "base.html" %}
+{% set active = 'notebooks' %}
+{% block title %}{{ brand.name }} — opencode{% endblock %}
+{% block head %}
 <style>
   .oc-topbar { display: flex; align-items: center; gap: 0.8rem; justify-content: space-between; }
   .oc-topbar .oc-hint { margin: 0; flex: 1; }
@@ -57,9 +54,8 @@
     border-radius: 0 4px 4px 0;
   }
 </style>
-</head>
-<body>
-{% set active = 'notebooks' %}{% include "_nav.html" %}
+{% endblock %}
+{% block content %}
 
 <div class="oc-wrap">
   {% if running %}
@@ -273,7 +269,7 @@
   </div>
   {% endif %}
 </div>
-
+{% endblock %}
+{% block scripts %}
 <script src="/static/nav.js"></script>
-</body>
-</html>
+{% endblock %}

@@ -1,14 +1,7 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{ brand.name }} — Dictionary</title>
-<link rel="stylesheet" href="/static/style.css">
-</head>
-<body>
-{% set active = "docs" %}{% include "_nav.html" %}
-
+{% extends "base.html" %}
+{% set active = "docs" %}
+{% block title %}{{ brand.name }} — Dictionary{% endblock %}
+{% block content %}
 <div class="dict-page" id="dict-page" aria-busy="false">
 
   <div class="dict-page-head">
@@ -46,8 +39,9 @@
   <div class="dict-grid" id="dict-list"></div>
 
 </div>
+{% endblock %}
 
+{% block scripts %}
 <script src="/static/nav.js"></script>
 <script src="/static/dictionary.js"></script>
-</body>
-</html>
+{% endblock %}

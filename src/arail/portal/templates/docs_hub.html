@@ -1,10 +1,8 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{ brand.name }} — Docs</title>
-<link rel="stylesheet" href="/static/style.css">
+{% extends "base.html" %}
+{% set active = "docs" %}
+{% block title %}{{ brand.name }} — Docs{% endblock %}
+
+{% block head %}
 <style>
   /* ── Hub layout ─────────────────────────────────────────────────────── */
   .docs-hub { max-width: 1100px; margin: 0 auto; padding: 1.4rem 1.6rem 4rem; }
@@ -139,9 +137,9 @@
     .docs-featured-strip, .docs-grid { grid-template-columns: 1fr; }
   }
 </style>
-</head>
-<body>
-{% set active = "docs" %}{% include "_nav.html" %}
+{% endblock %}
+
+{% block content %}
 
 <div class="docs-hub">
 
@@ -243,7 +241,9 @@
   </div>
 
 </div>{# .docs-hub #}
+{% endblock %}
 
+{% block scripts %}
 <script src="/static/nav.js"></script>
 <script src="/static/dictionary.js"></script>
 <script>
@@ -267,5 +267,4 @@
   });
 }());
 </script>
-</body>
-</html>
+{% endblock %}

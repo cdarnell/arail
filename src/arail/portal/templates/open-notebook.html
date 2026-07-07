@@ -1,10 +1,7 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{ brand.name }} — Open Notebook</title>
-<link rel="stylesheet" href="/static/style.css">
+{% extends "base.html" %}
+{% set active = 'notebooks' %}
+{% block title %}{{ brand.name }} — Open Notebook{% endblock %}
+{% block head %}
 <style>
   .onb-topbar { display: flex; align-items: center; gap: 0.8rem; justify-content: space-between; } .onb-topbar .onb-hint { margin: 0; flex: 1; } .onb-wrap { padding: 0.8rem 1rem; height: calc(100vh - 52px); display: flex; flex-direction: column; gap: 0.6rem; }
   .onb-hint { color: var(--muted); font-size: 0.75rem; }
@@ -56,9 +53,8 @@
   }
   /* .status-pill* hoisted to static/style.css (shared w/ notebook + marimo). */
 </style>
-</head>
-<body>
-{% set active = 'notebooks' %}{% include "_nav.html" %}
+{% endblock %}
+{% block content %}
 
 <div class="onb-wrap">
   {% if container_running %}
@@ -190,7 +186,7 @@ OPEN_NOTEBOOK_ENCRYPTION_KEY=your-passphrase-here</pre>
   </div>
   {% endif %}
 </div>
-
+{% endblock %}
+{% block scripts %}
 <script src="/static/nav.js"></script>
-</body>
-</html>
+{% endblock %}

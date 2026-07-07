@@ -1,10 +1,7 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{ brand.name }} — Workbench</title>
-<link rel="stylesheet" href="/static/style.css">
+{% extends "base.html" %}
+{% set active = 'notebooks' %}
+{% block title %}{{ brand.name }} — Workbench{% endblock %}
+{% block head %}
 <style>
   .nbp-header {
     max-width: 1280px;
@@ -29,10 +26,8 @@
     letter-spacing: 0.1em;
   }
 </style>
-</head>
-<body>
-
-{% set active = 'notebooks' %}{% include "_nav.html" %}
+{% endblock %}
+{% block content %}
 
 <header class="nbp-header">
   <h1>Workbench</h1>
@@ -209,7 +204,8 @@
     </div>
   </div>
 </div>
-
+{% endblock %}
+{% block scripts %}
 <script>
 // ── Status polling ────────────────────────────────────────────────
 // Single fetch every 5s drives all three dots + status labels + popout URLs.
@@ -271,5 +267,4 @@ setInterval(refreshStatus, 5000);
 </script>
 <script src="/static/nav.js"></script>
 {% include '_airgap_modal.html' %}
-</body>
-</html>
+{% endblock %}

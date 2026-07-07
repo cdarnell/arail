@@ -1,25 +1,17 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{ brand.name }} — System Graph</title>
-<link rel="stylesheet" href="/static/style.css">
-</head>
-<body>
-
+{% extends "base.html" %}
 {% set preview = preview|default(False) %}
-{% if not preview %}
-{% set active = '' %}{% include "_nav.html" %}
-{% endif %}
+{% set active = '' %}
+{% block title %}{{ brand.name }} — System Graph{% endblock %}
 
+{% block nav %}{% if not preview %}{{ super() }}{% endif %}{% endblock %}
+
+{% block content %}
 {% set graph_api  = "/api/system/graph" %}
 {% set health_api = "/api/system/health" %}
 {% set show_health = not preview %}
 {% include "_graph_canvas.html" %}
+{% endblock %}
 
-{% if not preview %}
-<script src="/static/nav.js"></script>
-{% endif %}
-</body>
-</html>
+{% block scripts %}
+{% if not preview %}<script src="/static/nav.js"></script>{% endif %}
+{% endblock %}

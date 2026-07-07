@@ -1,10 +1,8 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{ brand.name }} — The Deep Teacher</title>
-<link rel="stylesheet" href="/static/style.css">
+{% extends "base.html" %}
+{% set active = 'teacher' %}
+{% block title %}{{ brand.name }} — The Deep Teacher{% endblock %}
+
+{% block head %}
 <style>
   /* The Teacher is a slow, reverent surface. Layout is deliberately
      calmer than the dashboard: one big input, one big response column,
@@ -80,11 +78,9 @@
 
   .t-empty { color: var(--muted, #888); font-style: italic; font-size: 12px; }
 </style>
-</head>
-<body>
+{% endblock %}
 
-{% set active = 'teacher' %}{% include "_nav.html" %}
-
+{% block content %}
 <div class="t-wrap">
 
   <div class="t-hero">
@@ -147,7 +143,9 @@
   </div>
 
 </div>
+{% endblock %}
 
+{% block scripts %}
 <script>
 (function () {
   "use strict";
@@ -398,6 +396,4 @@
   loadHistory();
 })();
 </script>
-
-</body>
-</html>
+{% endblock %}

@@ -1,18 +1,14 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{ brand.name }} — Knowledge Canvas</title>
-  <link rel="stylesheet" href="/static/style.css">
+{% extends "base.html" %}
+{% set active = '' %}
+{% block title %}{{ brand.name }} — Knowledge Canvas{% endblock %}
+{% block head %}
   <style>
     body,html{height:100%;margin:0}
     .kc-frame{width:100%;height:calc(100vh - 60px);border:0}
     .kc-placeholder{padding:2rem}
   </style>
-</head>
-<body>
-{% set active = '' %}{% include "_nav.html" %}
+{% endblock %}
+{% block content %}
 
 {% if has_frontend %}
   <iframe class="kc-frame" src="/_integrations/knowledge-canvas/index.html"></iframe>
@@ -22,7 +18,8 @@
     <p>Unpack <em>core/knowledge-canvas</em> into the repo root to enable the embedded canvas frontend.</p>
   </main>
 {% endif %}
+{% endblock %}
 
+{% block scripts %}
 <script src="/static/nav.js"></script>
-</body>
-</html>
+{% endblock %}

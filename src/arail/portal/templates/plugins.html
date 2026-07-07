@@ -1,14 +1,7 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{ brand.name }} — Plugins</title>
-<link rel="stylesheet" href="/static/style.css">
-</head>
-<body>
-
-{% set active = 'plugins' %}{% include "_nav.html" %}
+{% extends "base.html" %}
+{% set active = 'plugins' %}
+{% block title %}{{ brand.name }} — Plugins{% endblock %}
+{% block content %}
 
 <div class="grid">
 
@@ -121,7 +114,9 @@ async function uninstallPlugin(name) {
   location.reload();
 }
 </script>
+{% endblock %}
+
+{% block scripts %}
 <script src="/static/nav.js"></script>
 {% include '_airgap_modal.html' %}
-</body>
-</html>
+{% endblock %}

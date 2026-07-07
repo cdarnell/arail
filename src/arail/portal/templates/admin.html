@@ -1,10 +1,7 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{ brand.name }} — Admin</title>
-<link rel="stylesheet" href="/static/style.css">
+{% extends "base.html" %}
+{% set active = 'admin' %}
+{% block title %}{{ brand.name }} — Admin{% endblock %}
+{% block head %}
 <style>
   .admin-wrap {
     padding: 1.4rem 2rem 3rem;
@@ -550,10 +547,8 @@
   .models-rescan:hover { border-color: var(--green); color: var(--green); }
   .models-empty { font-size: 0.75rem; color: var(--muted); padding: 0.5rem 0; }
 </style>
-</head>
-<body>
-
-{% set active = 'admin' %}{% include "_nav.html" %}
+{% endblock %}
+{% block content %}
 
 <!-- ═══ Live Checks modal ═══ -->
 <div class="lc-overlay" id="lc-overlay" role="dialog" aria-modal="true" aria-labelledby="lc-title">
@@ -813,6 +808,8 @@
   </div>
 </div>
 
+{% endblock %}
+{% block scripts %}
 <script>
 function adminLog(msg, cls) {
   const el = document.getElementById('admin-log');
@@ -1481,5 +1478,4 @@ loadModels();
 </script>
 <script src="/static/nav.js"></script>
 {% include '_airgap_modal.html' %}
-</body>
-</html>
+{% endblock %}

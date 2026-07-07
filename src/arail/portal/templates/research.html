@@ -1,15 +1,10 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{ brand.name }} — Autoresearch</title>
-<link rel="stylesheet" href="/static/style.css">
+{% extends "base.html" %}
+{% set active = 'research' %}
+{% block title %}{{ brand.name }} — Autoresearch{% endblock %}
+{% block head %}
 <link rel="stylesheet" href="/static/research.css">
-</head>
-<body>
-
-{% set active = 'research' %}{% include "_nav.html" %}
+{% endblock %}
+{% block content %}
 
 <!-- ═══ Lab tagline — always visible ═══ -->
 <div class="rx-tagline">
@@ -325,6 +320,8 @@
   </div>
 </div>
 
+{% endblock %}
+{% block scripts %}
 <script>
 /* ═══════════════════════════════════════════════════════════════
    /research — Research Cockpit
@@ -1490,5 +1487,4 @@ async function wireProgramPanel() {
 <script src="/static/js/experiment-branches.js?v={{ asset_v }}"></script>
 <script src="/static/nav.js"></script>
 {% include '_airgap_modal.html' %}
-</body>
-</html>
+{% endblock %}

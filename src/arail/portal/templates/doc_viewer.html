@@ -1,10 +1,7 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{ brand.name }} — {{ doc_path }}</title>
-<link rel="stylesheet" href="/static/style.css">
+{% extends "base.html" %}
+{% set active = nav_active|default('docs') %}
+{% block title %}{{ brand.name }} — {{ doc_path }}{% endblock %}
+{% block head %}
 <style>
   /* ── 3-column viewer layout ─────────────────────────────────────── */
   .dv-outer {
@@ -209,9 +206,8 @@
   .dv-toc-list a:hover { color: var(--blue); }
   .dv-toc-h3 { padding-left: 0.8rem; }
 </style>
-</head>
-<body>
-{% set active = nav_active|default('docs') %}{% include "_nav.html" %}
+{% endblock %}
+{% block content %}
 
 <div class="dv-outer">
 
@@ -307,7 +303,8 @@
   {% endif %}
 
 </div>{# .dv-outer #}
+{% endblock %}
 
+{% block scripts %}
 <script src="/static/nav.js"></script>
-</body>
-</html>
+{% endblock %}

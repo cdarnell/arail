@@ -1,10 +1,7 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{ brand.name }}</title>
-<link rel="stylesheet" href="/static/style.css">
+{% extends "base.html" %}
+{% set active = 'dashboard' %}
+{% block title %}{{ brand.name }}{% endblock %}
+{% block head %}
 <style>
   /* Disclosure toggles for Phase 1 (PROPOSAL.md §3.2 + §3.3) */
   /* (meter-bar moved to the global status bar in _nav.html) */
@@ -290,10 +287,8 @@
     color: var(--blue);
   }
 </style>
-</head>
-<body>
-
-{% set active = 'dashboard' %}{% include "_nav.html" %}
+{% endblock %}
+{% block content %}
 
 <!-- ═══ Toast Notifications — corner container for Buddy suggestions ═══ -->
 <div class="toast-container" id="toast-container"></div>
@@ -813,6 +808,8 @@ function dismissRunbookBanner() {
 
 </div>
 
+{% endblock %}
+{% block scripts %}
 <script>
 /* ═══════════════════════════════════════════════════════════════
    Arail Dashboard — vanilla JS, no framework
@@ -1869,5 +1866,4 @@ async function refreshProgramRow() {
 </script>
 <script src="/static/nav.js"></script>
 {% include '_airgap_modal.html' %}
-</body>
-</html>
+{% endblock %}

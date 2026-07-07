@@ -1,16 +1,12 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{ brand.name }} — Agents</title>
-<link rel="stylesheet" href="/static/style.css">
+{% extends "base.html" %}
+{% set active = 'agents' %}
+{% block title %}{{ brand.name }} — Agents{% endblock %}
+
+{% block head %}
 <link rel="stylesheet" href="/static/agents.css">
-</head>
-<body>
+{% endblock %}
 
-{% set active = 'agents' %}{% include "_nav.html" %}
-
+{% block content %}
 <div class="agents-wrap">
   <h1>Agent Control Center</h1>
   <p class="subtitle">
@@ -419,7 +415,9 @@
   </section>
 
 </div>
+{% endblock %}
 
+{% block scripts %}
 <script>
 // ── Bootstrap JSON for server-rendered initial state ──
 const _AGENTS_BOOTSTRAP = {
@@ -1807,5 +1805,4 @@ loadSkillsIntoForge();
 </script>
 
 {% include '_airgap_modal.html' %}
-</body>
-</html>
+{% endblock %}

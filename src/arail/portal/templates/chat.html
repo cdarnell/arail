@@ -1,10 +1,7 @@
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Chat Studio · {{ brand.name }}</title>
-  <link rel="stylesheet" href="/static/style.css">
+{% extends "base.html" %}
+{% set active = '' %}
+{% block title %}Chat Studio · {{ brand.name }}{% endblock %}
+{% block head %}
   <script src="/static/js/chat-highlight.js"></script>
   <style>
     /* ─── Chat Studio (design.md token-bound) ─────────────────────────
@@ -1446,9 +1443,9 @@
       .studio.with-drawer > .drawer { display: none; }
     }
   </style>
-</head>
-<body>
-  {% include "_nav.html" with context %}
+{% endblock %}
+
+{% block content %}
 
   <main class="studio" id="studio">
     <header class="studio-head">
@@ -1804,6 +1801,9 @@
     </div>
   </div>
 
+{% endblock %}
+
+{% block scripts %}
   <script src="/static/nav.js"></script>
   <script>
   /* ─── Chat Studio runtime ───────────────────────────────────────── */
@@ -3810,5 +3810,4 @@
     });
   })();
   </script>
-</body>
-</html>
+{% endblock %}

@@ -1,15 +1,7 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{ brand.name }} — Mission Dossier</title>
-<link rel="stylesheet" href="/static/style.css">
-</head>
-<body>
-
-{% set active = '' %}{% include "_nav.html" %}
-
+{% extends "base.html" %}
+{% set active = '' %}
+{% block title %}{{ brand.name }} — Mission Dossier{% endblock %}
+{% block content %}
 <div class="grid mission-dossier-grid">
   <div class="card full mission-dossier-hero">
     <h2><span class="indicator"></span> Mission Dossier</h2>
@@ -113,7 +105,8 @@
   {% endif %}
   {% endif %}
 </div>
+{% endblock %}
 
+{% block scripts %}
 <script src="/static/nav.js"></script>
-</body>
-</html>
+{% endblock %}

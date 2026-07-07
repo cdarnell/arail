@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+{#- base.html — the single page shell (design system v2).
+
+    Every portal page extends this template with:
+      - a top-level  set active = '…'  (nav highlight; top-level set runs
+        before the parent body renders, so _nav.html sees it)
+      - block title    — the <title> text
+      - block head     — per-page style/link/script tags for the <head>
+      - block content  — the page body
+      - block scripts  — trailing script tags (incl. /static/nav.js)
+
+    welcome.html is deliberately NOT a child — it is the bespoke, nav-less
+    first-run page and injects its theme inline.
+
+    The active theme's token block is injected before the closing head tag
+    by the inject_ui_theme middleware — templates never emit theme CSS
+    themselves. -#}
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}{{ brand.name }}{% endblock %}</title>
+<link rel="stylesheet" href="/static/style.css">
+{% block head %}{% endblock %}
+</head>
+<body>
+{% block nav %}{% include "_nav.html" %}{% endblock %}
+{% block content %}{% endblock %}
+{% block scripts %}{% endblock %}
+</body>
+</html>
