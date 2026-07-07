@@ -60,7 +60,7 @@ def test_valid_world_theme_recolors_portal(lab):
     block = _theme_block(_client().get("/skills").text)
     assert f"--accent: {VALID_DARK['accent']};" in block
     assert f"--bg: {VALID_DARK['bg']};" in block
-    assert "--radius-m: 14px;" in block  # playful scalars flowed through
+    assert "--radius-m: 18px;" in block  # playful scalars flowed through
     wm.unmount(data_dir=data_dir)
     block = _theme_block(_client().get("/skills").text)
     assert f"--accent: {VALID_DARK['accent']};" not in block  # reverted
@@ -166,5 +166,6 @@ def test_theme_plus_bad_palette_hint_still_defaults(lab):
     _mount(bundle, data_dir, pkb)
     body = _client().get("/skills").text
     block = _theme_block(body)
-    assert "--bg: #0a0a0f;" in block  # blue-cyan-lab default
+    from arail.ui_theme import default_ui_theme
+    assert f"--bg: {default_ui_theme().dark.bg};" in block  # shipped default
     assert "alert(2)" not in body

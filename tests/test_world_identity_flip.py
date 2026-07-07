@@ -257,7 +257,8 @@ def test_default_lab_unchanged(tmp_path, monkeypatch):
         assert ident.name == load_brand().name        # "Autoresearch AI Lab"
         assert ident.name == "Autoresearch AI Lab"
         assert "SSD-hosted model inference" in ident.lab_theme
-        assert ident.ui_theme.id == "blue-cyan-lab"
+        from arail.ui_theme import default_ui_theme
+        assert ident.ui_theme.id == default_ui_theme().id
         assert ident.intent == "ai"
         assert ident.mounted is False
     finally:

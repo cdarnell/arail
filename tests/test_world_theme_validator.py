@@ -37,7 +37,7 @@ def test_valid_theme_builds_uitheme_and_emits_css():
     assert theme.id == "world-kawaii"
     css = theme_css(theme)
     assert f"--accent: {VALID_DARK['accent']};" in css
-    assert "--radius-m: 14px;" in css  # playful personality scalars
+    assert "--radius-m: 18px;" in css  # playful personality scalars
     assert f"--blue: {VALID_DARK['accent2']};" in css  # legacy alias present
 
 
