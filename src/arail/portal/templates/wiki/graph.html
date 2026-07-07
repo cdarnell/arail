@@ -18,12 +18,12 @@
 {% set graph_api  = "/api/wiki/graph" %}
 {% set show_health = False %}
 {% set color_map = {
-  "sources":  "var(--blue)",
-  "agents":   "var(--green)",
-  "notes":    "var(--purple)",
-  "compiled": "var(--amber)",
-  "docs":     "var(--red)",
-  "inference":"#555e70"
+  "sources":  "var(--accent2)",
+  "agents":   "var(--positive)",
+  "notes":    "var(--info)",
+  "compiled": "var(--warn)",
+  "docs":     "var(--danger)",
+  "inference":"var(--text-muted)"
 } %}
 {% set icon_map = {
   "sources":  "◉",
@@ -34,12 +34,12 @@
   "inference":"⊕"
 } %}
 {% set legend_groups = [
-  {"label": "Sources",  "color": "var(--blue)"},
-  {"label": "Agents",   "color": "var(--green)"},
-  {"label": "Notes",    "color": "var(--purple)"},
-  {"label": "Compiled", "color": "var(--amber)"},
-  {"label": "Docs",     "color": "var(--red)"},
-  {"label": "Inference","color": "#555e70"}
+  {"label": "Sources",  "color": "var(--accent2)"},
+  {"label": "Agents",   "color": "var(--positive)"},
+  {"label": "Notes",    "color": "var(--info)"},
+  {"label": "Compiled", "color": "var(--warn)"},
+  {"label": "Docs",     "color": "var(--danger)"},
+  {"label": "Inference","color": "var(--text-muted)"}
 ] %}
 {% include "_graph_canvas.html" %}
 {% endblock %}

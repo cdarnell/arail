@@ -520,7 +520,7 @@ window.revealSlot = async function revealSlot(slot, subpath) {
     // server-validated hex and re-checked client-side).
     var swatch = opts.hasSwatch
       ? '<span class="ws-swatch" data-swatch-slug="' + esc(opts.slug) + '"' +
-        ' style="width:10px;height:10px;border-radius:50%;flex:none;' +
+        ' style="width:26px;height:26px;border-radius:8px;flex:none;' +
         'border:1px solid var(--border-strong);"></span>'
       : '';
     return '<div ' + attrs + '><span>' + mark + '</span>' + swatch + '<span>' +
@@ -558,7 +558,10 @@ window.revealSlot = async function revealSlot(slot, subpath) {
     // path outside the catalog (a DaC export, a shared World).
     html +=
       '<div style="border-top:1px solid var(--border);margin:.3rem 0;"></div>' +
-      row({ label: '＋ Add a World…', action: 'add' });
+      row({ label: '＋ Add a World…', action: 'add' }) +
+      '<div style="padding:.35rem .6rem .2rem;font-size:.62rem;color:var(--text-muted);' +
+      'font-family:var(--font-sans);">Themes are token swaps — a World changes the ' +
+      'lab’s look and knowledge, nothing else.</div>';
     menu.innerHTML = html;
 
     // Paint theme swatches (two-stop gradient: world bg → accent).

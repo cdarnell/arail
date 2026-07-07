@@ -99,7 +99,7 @@ branch.
 
 ## The five surfaces in the portal
 
-`src/arail/portal/` is the Flask app that renders the lab. The five
+`src/arail/portal/` is the FastAPI app that renders the lab (Jinja2 templates on a base.html shell). The five
 surfaces a user sees are described in `README.md` § "The main surfaces"
 and (more deeply) `docs/agents-explained.md`:
 
@@ -130,7 +130,7 @@ The top of the tree is dense; the parts that matter:
 | `qkz` → `arail` (symlink)     | Shorthand alias                                                                    |
 | `scripts/setup.sh`            | Platform-detect → service install → model download. `AGENTS.md` is the porting doc |
 | `src/arail/`                  | Python package (portal app, agents, knowledge base, pipelines)                     |
-| `src/arail/portal/`           | Flask app + templates (dashboard, chat, agents, knowledge, tuning, research)       |
+| `src/arail/portal/`           | FastAPI app + templates (dashboard, chat, agents, knowledge, tuning, research)       |
 | `lab/`                        | Runtime state — `lab/pkb/` is the agent-facing knowledge base, `lab/data/` is secrets, `lab/models/` is downloaded weights. All git-ignored except contracts |
 | `blueprints/`                 | Four reference blueprints: `autoresearch`, `client-followup`, `inbox-triager`, `status-digest` |
 | `core/knowledge-canvas/`      | The Knowledge Canvas frontend (TS/React)                                           |
@@ -195,7 +195,7 @@ parts.
 
 1. **Skim this file**, then `README.md`, then `BLUEPRINTS.md` and
    `design.md` for philosophy.
-2. **For a portal change**: `src/arail/portal/app.py` is the Flask
+2. **For a portal change**: `src/arail/portal/app.py` is the FastAPI
    entry; templates in `src/arail/portal/templates/`; static assets
    in `src/arail/portal/static/`.
 3. **For an agent change**: `docs/agents.md` has the loader contract.

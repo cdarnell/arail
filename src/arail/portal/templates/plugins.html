@@ -1,6 +1,20 @@
 {% extends "base.html" %}
 {% set active = 'plugins' %}
 {% block title %}{{ brand.name }} — Plugins{% endblock %}
+{% block head %}
+<style>
+  /* Hoisted from inline style= attributes */
+  .install-status { margin-top: 0.75rem; }
+  .install-status .st-busy { color: var(--accent2); }
+  .install-status .st-ok   { color: var(--positive); }
+  .install-status .st-err  { color: var(--danger); }
+  .plugin-type.core {
+    background: color-mix(in srgb, var(--positive) 12%, transparent);
+    color: var(--positive);
+    border: 1px solid color-mix(in srgb, var(--positive) 28%, transparent);
+  }
+</style>
+{% endblock %}
 {% block content %}
 
 <div class="grid">
@@ -13,9 +27,9 @@
       <input id="plugin-url" type="text"
              placeholder="https://github.com/owner/repo"
              autocomplete="off" />
-      <button class="btn btn-blue" type="submit">Install</button>
+      <button class="btn btn-primary" type="submit">Install</button>
     </form>
-    <div id="install-status" style="margin-top:0.75rem;"></div>
+    <div id="install-status" class="install-status"></div>
   </div>
 
   <!-- ═══ Core & Recommended ═══ -->
@@ -27,7 +41,7 @@
           <div class="plugin-name">tobi/qmd</div>
           <div class="plugin-desc">Knowledge base indexing & semantic search. Agents use this for research context retrieval.</div>
         </div>
-        <span class="plugin-type" style="background: rgba(0,255,65,0.15); color: var(--green); border: 1px solid rgba(0,255,65,0.3);">core</span>
+        <span class="plugin-type core">core</span>
         <div class="plugin-actions">
           <button class="btn btn-sm btn-primary" onclick="installRecommended('https://github.com/tobi/qmd')">Install</button>
         </div>
@@ -73,7 +87,7 @@ document.getElementById('install-form').addEventListener('submit', async (e) => 
   const url = document.getElementById('plugin-url').value.trim();
   if (!url) return;
   const status = document.getElementById('install-status');
-  status.innerHTML = '<span style="color:var(--blue)">Cloning and installing…</span>';
+  status.innerHTML = '<span class="st-busy">Cloning and installing…</span>';
 
   try {
     const resp = await fetch('/api/plugins/install', {
@@ -83,13 +97,13 @@ document.getElementById('install-form').addEventListener('submit', async (e) => 
     });
     const data = await resp.json();
     if (resp.ok) {
-      status.innerHTML = `<span style="color:var(--green)">✓ Installed ${data.name || 'plugin'}</span>`;
+      status.innerHTML = `<span class="st-ok">✓ Installed ${data.name || 'plugin'}</span>`;
       setTimeout(() => location.reload(), 1000);
     } else {
-      status.innerHTML = `<span style="color:var(--red)">✗ ${data.error || 'Install failed'}</span>`;
+      status.innerHTML = `<span class="st-err">✗ ${data.error || 'Install failed'}</span>`;
     }
   } catch (err) {
-    status.innerHTML = `<span style="color:var(--red)">✗ ${err.message}</span>`;
+    status.innerHTML = `<span class="st-err">✗ ${err.message}</span>`;
   }
 });
 

@@ -24,9 +24,9 @@ canvas:active { cursor: grabbing; }
   top: 12px;
   right: 12px;
   width: 320px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  background: var(--surface2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-l);
   padding: 1rem 1.2rem;
   font-size: 0.82rem;
   display: none;
@@ -37,8 +37,7 @@ canvas:active { cursor: grabbing; }
 .detail-panel h3 {
   margin: 0 0 0.5rem;
   font-size: 1rem;
-  color: var(--green);
-  text-shadow: var(--glow-green);
+  color: var(--text-strong);
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -47,12 +46,12 @@ canvas:active { cursor: grabbing; }
   margin-left: auto;
   background: none;
   border: none;
-  color: var(--muted);
+  color: var(--text-muted);
   cursor: pointer;
   font-size: 1.1rem;
   padding: 0 4px;
 }
-.detail-panel .close-btn:hover { color: var(--red); }
+.detail-panel .close-btn:hover { color: var(--danger); }
 .detail-panel .detail-row {
   display: flex;
   justify-content: space-between;
@@ -61,8 +60,19 @@ canvas:active { cursor: grabbing; }
   color: var(--text);
 }
 .detail-panel .detail-row:last-child { border-bottom: none; }
-.detail-panel .detail-label { color: var(--muted); }
+.detail-panel .detail-row.plain { border-bottom: none; padding-top: 0.4rem; }
+.detail-panel .detail-label { color: var(--text-muted); }
 .detail-panel .detail-value { text-align: right; }
+.detail-panel .detail-section-head {
+  margin-top: 0.6rem;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-weight: 500;
+  font-size: 0.72rem;
+  text-transform: var(--label-transform);
+  letter-spacing: var(--label-tracking);
+}
+.detail-panel .detail-desc { color: var(--text); }
 .detail-panel .connections-list {
   margin-top: 0.5rem;
   padding: 0;
@@ -73,8 +83,8 @@ canvas:active { cursor: grabbing; }
   color: var(--text);
   font-size: 0.78rem;
 }
-.detail-panel .connections-list li .arrow { color: var(--muted); margin: 0 0.3rem; }
-.detail-panel .connections-list li .edge-label { color: var(--blue); }
+.detail-panel .connections-list li .arrow { color: var(--text-muted); margin: 0 0.3rem; }
+.detail-panel .connections-list li .edge-label { color: var(--accent2); }
 
 /* ─── Legend ─── */
 .legend {
@@ -83,10 +93,10 @@ canvas:active { cursor: grabbing; }
   left: 12px;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-m);
   padding: 0.6rem 1rem;
   font-size: 0.72rem;
-  color: var(--muted);
+  color: var(--text-muted);
   display: flex;
   gap: 1rem;
   flex-wrap: wrap;
@@ -96,6 +106,10 @@ canvas:active { cursor: grabbing; }
   display: flex;
   align-items: center;
   gap: 0.35rem;
+}
+.legend-hint {
+  margin-left: 0.5rem;
+  color: var(--text);
 }
 .legend-dot {
   width: 10px;
@@ -119,7 +133,7 @@ canvas:active { cursor: grabbing; }
   color: var(--text);
   width: 32px;
   height: 32px;
-  border-radius: 6px;
+  border-radius: var(--radius-s);
   cursor: pointer;
   font-size: 1rem;
   display: flex;
@@ -127,8 +141,8 @@ canvas:active { cursor: grabbing; }
   justify-content: center;
 }
 .graph-controls button:hover {
-  border-color: var(--green);
-  color: var(--green);
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 /* ─── Health panel (only rendered on the system graph page) ─── */
@@ -137,9 +151,9 @@ canvas:active { cursor: grabbing; }
   top: 12px;
   left: 12px;
   width: 260px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  background: var(--surface2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-l);
   padding: 0.7rem 1rem;
   font-size: 0.78rem;
   color: var(--text);
@@ -149,25 +163,27 @@ canvas:active { cursor: grabbing; }
 .health-panel h4 {
   margin: 0 0 0.5rem;
   font-size: 0.85rem;
-  color: var(--green);
-  text-shadow: var(--glow-green);
+  color: var(--text-strong);
   display: flex;
   align-items: center;
   gap: 0.4rem;
 }
+.health-panel .health-loading { color: var(--text-muted); }
+.health-panel .health-offline { color: var(--danger); }
 .health-panel .tier-badge {
   display: inline-block;
   padding: 0.1rem 0.5rem;
-  border-radius: 4px;
+  border-radius: var(--radius-s);
   font-size: 0.72rem;
   font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  text-transform: var(--label-transform);
+  letter-spacing: var(--label-tracking);
 }
-.tier-minimum  { background: rgba(255,176,0,.15); color: #ffb000; border: 1px solid rgba(255,176,0,.3); }
-.tier-standard { background: rgba(0,212,255,.15); color: #00d4ff; border: 1px solid rgba(0,212,255,.3); }
-.tier-full     { background: rgba(0,255,65,.15); color: #00ff41; border: 1px solid rgba(0,255,65,.3); }
-.tier-deep     { background: rgba(255,176,0,.15); color: #ffb000; border: 1px solid rgba(255,176,0,.5); box-shadow: 0 0 12px rgba(255,176,0,.2); }
+.health-tier-row { margin-bottom: 0.4rem; }
+.tier-minimum  { background: var(--warn-a16); color: var(--warn); border: 1px solid var(--warn-a28); }
+.tier-standard { background: var(--accent2-a16); color: var(--accent2); border: 1px solid var(--accent2-a28); }
+.tier-full     { background: var(--positive-a16); color: var(--positive); border: 1px solid var(--positive-a28); }
+.tier-deep     { background: var(--warn-a16); color: var(--warn); border: 1px solid rgba(var(--warn-rgb), .5); }
 .health-row {
   display: flex;
   justify-content: space-between;
@@ -175,8 +191,20 @@ canvas:active { cursor: grabbing; }
   border-bottom: 1px solid var(--border);
 }
 .health-row:last-child { border-bottom: none; }
-.health-label { color: var(--muted); }
-.health-value { text-align: right; font-family: 'JetBrains Mono', monospace; }
+.health-row.last { border-bottom: none; }
+.health-label { color: var(--text-muted); }
+.health-value {
+  text-align: right;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.health-value.health-model {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.health-value.health-deep { color: var(--warn); }
 .health-bar {
   width: 100%;
   height: 4px;
@@ -188,7 +216,6 @@ canvas:active { cursor: grabbing; }
 .health-bar-fill {
   height: 100%;
   border-radius: 2px;
-  transition: width 0.6s ease;
 }
 .svc-dot {
   display: inline-block;
@@ -197,5 +224,5 @@ canvas:active { cursor: grabbing; }
   border-radius: 50%;
   margin-right: 4px;
 }
-.svc-on  { background: #00ff41; box-shadow: 0 0 4px #00ff41; }
-.svc-off { background: #555e70; }
+.svc-on  { background: var(--positive); box-shadow: 0 0 4px currentColor; color: var(--positive); }
+.svc-off { background: var(--text-muted); }

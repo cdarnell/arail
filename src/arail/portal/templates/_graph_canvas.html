@@ -26,7 +26,7 @@
   {% if show_health %}
   <div class="health-panel" id="health-panel">
     <h4>⬡ System Health</h4>
-    <div id="health-body"><span style="color:var(--muted)">Loading...</span></div>
+    <div id="health-body"><span class="health-loading">Loading...</span></div>
   </div>
   {% endif %}
 
@@ -49,28 +49,40 @@ const canvas = document.getElementById('graph-canvas');
 const ctx = canvas.getContext('2d');
 let W, H, dpr;
 
-const COLORS = {{ color_map|default({'core':'var(--green)','agent':'var(--blue)','skill':'var(--purple)','backend':'var(--amber)','plugin':'var(--red)','service':'#555e70'})|tojson }};
+const COLORS = {{ color_map|default({'core':'var(--positive)','agent':'var(--accent2)','skill':'var(--info)','backend':'var(--warn)','plugin':'var(--danger)','service':'var(--text-muted)'})|tojson }};
 const ICONS  = {{ icon_map|default({'core':'◈','agent':'◉','skill':'◇','backend':'⬡','plugin':'⊕','service':'▣'})|tojson }};
-const LEGEND = {{ legend_groups|default([{'label':'Core','color':'var(--green)'},{'label':'Agent','color':'var(--blue)'},{'label':'Skill','color':'var(--purple)'},{'label':'Backend','color':'var(--amber)'},{'label':'Plugin','color':'var(--red)'},{'label':'Service','color':'#555e70'}])|tojson }};
+const LEGEND = {{ legend_groups|default([{'label':'Core','color':'var(--positive)'},{'label':'Agent','color':'var(--accent2)'},{'label':'Skill','color':'var(--info)'},{'label':'Backend','color':'var(--warn)'},{'label':'Plugin','color':'var(--danger)'},{'label':'Service','color':'var(--text-muted)'}])|tojson }};
+
+/* Canvas 2D cannot resolve CSS custom properties — read the live token
+   values off :root so the canvas repaints with the mounted World theme. */
+const cssVar = (name) =>
+  getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+const rgbaVar = (name, a) => `rgba(${cssVar(name)},${a})`;
+/* Resolve 'var(--x)' strings (from COLORS/dot maps) to concrete values
+   for canvas use; CSS-consuming spots (legend) keep the var() string. */
+function resolveColor(c) {
+  const m = /^var\((--[\w-]+)\)$/.exec(c || '');
+  return m ? cssVar(m[1]) : c;
+}
 
 const STATUS_GLOW = {
-  active:    'rgba(var(--green-rgb),0.4)',
-  running:   'rgba(var(--blue-rgb),0.6)',
-  standby:   'rgba(85,94,112,0.3)',
-  available: 'rgba(var(--amber-rgb),0.15)',
-  external:  'rgba(85,94,112,0.2)',
-  paused:    'rgba(var(--amber-rgb),0.4)',
-  completed: 'rgba(var(--green-rgb),0.4)',
-  error:     'rgba(var(--red-rgb),0.4)',
+  active:    rgbaVar('--positive-rgb', 0.4),
+  running:   rgbaVar('--accent2-rgb', 0.6),
+  standby:   rgbaVar('--text-muted-rgb', 0.3),
+  available: rgbaVar('--warn-rgb', 0.15),
+  external:  rgbaVar('--text-muted-rgb', 0.2),
+  paused:    rgbaVar('--warn-rgb', 0.4),
+  completed: rgbaVar('--positive-rgb', 0.4),
+  error:     rgbaVar('--danger-rgb', 0.4),
 };
 const EDGE_COLORS = {
-  data:      'rgba(var(--green-rgb),0.3)',
-  control:   'rgba(var(--blue-rgb),0.3)',
-  embed:     'rgba(85,94,112,0.2)',
-  link:      'rgba(180,142,255,0.35)',
-  semantic:  'rgba(var(--blue-rgb),0.46)',
-  active:    'rgba(var(--amber-rgb),0.6)',
-  available: 'rgba(85,94,112,0.1)',
+  data:      rgbaVar('--positive-rgb', 0.3),
+  control:   rgbaVar('--accent2-rgb', 0.3),
+  embed:     rgbaVar('--text-muted-rgb', 0.2),
+  link:      rgbaVar('--info-rgb', 0.35),
+  semantic:  rgbaVar('--accent2-rgb', 0.46),
+  active:    rgbaVar('--warn-rgb', 0.6),
+  available: rgbaVar('--text-muted-rgb', 0.1),
 };
 
 let nodes = [], edges = [], nodeMap = {};
@@ -201,7 +213,7 @@ function drawEdge(e) {
   if (e.label && camera.zoom > 0.6) {
     const mx = (sa.x + sb.x) / 2, my = (sa.y + sb.y) / 2;
     ctx.font = `${9 * camera.zoom}px JetBrains Mono, monospace`;
-    ctx.fillStyle = 'rgba(85,94,112,0.6)';
+    ctx.fillStyle = rgbaVar('--text-muted-rgb', 0.6);
     ctx.textAlign = 'center';
     ctx.fillText(e.label, mx, my - 4 * camera.zoom);
   }
@@ -226,9 +238,9 @@ function drawNode(n) {
 
   ctx.beginPath();
   ctx.arc(s.x, s.y, r, 0, Math.PI * 2);
-  ctx.fillStyle = isSelected ? '#1a2230' : '#0f1118';
+  ctx.fillStyle = isSelected ? cssVar('--surface3') : cssVar('--surface');
   ctx.fill();
-  ctx.strokeStyle = isHovered ? '#ffffff' : (COLORS[n.group] || '#555e70');
+  ctx.strokeStyle = isHovered ? cssVar('--text-strong') : resolveColor(COLORS[n.group] || 'var(--text-muted)');
   ctx.lineWidth = isSelected ? 2.5 : (isHovered ? 2 : 1.2);
   ctx.stroke();
 
@@ -236,7 +248,7 @@ function drawNode(n) {
   ctx.font = `${iconSize}px JetBrains Mono, monospace`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillStyle = COLORS[n.group] || '#555e70';
+  ctx.fillStyle = resolveColor(COLORS[n.group] || 'var(--text-muted)');
 
   if (n.id === 'backend_aerollm') {
     ctx.fillText('🔬', s.x, s.y);
@@ -247,20 +259,20 @@ function drawNode(n) {
   if (camera.zoom > 0.4) {
     const labelSize = Math.max(9, 11 * camera.zoom);
     ctx.font = `500 ${labelSize}px JetBrains Mono, monospace`;
-    ctx.fillStyle = isHovered || isSelected ? '#e8ecf4' : '#c8cdd8';
+    ctx.fillStyle = isHovered || isSelected ? cssVar('--text-strong') : cssVar('--text');
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
     ctx.fillText(n.label, s.x, s.y + r + 4 * camera.zoom);
   }
 
   const dotColors = {
-    active: 'var(--green)', running: 'var(--blue)', standby: '#555e70',
-    available: 'var(--amber)', external: '#555e70', paused: 'var(--amber)',
-    completed: 'var(--green)', error: 'var(--red)',
+    active: cssVar('--positive'), running: cssVar('--accent2'), standby: cssVar('--text-muted'),
+    available: cssVar('--warn'), external: cssVar('--text-muted'), paused: cssVar('--warn'),
+    completed: cssVar('--positive'), error: cssVar('--danger'),
   };
   ctx.beginPath();
   ctx.arc(s.x + r * 0.7, s.y - r * 0.7, 3.5 * camera.zoom, 0, Math.PI * 2);
-  ctx.fillStyle = dotColors[n.status] || '#555e70';
+  ctx.fillStyle = dotColors[n.status] || cssVar('--text-muted');
   ctx.fill();
 }
 
@@ -269,7 +281,7 @@ function draw() {
 
   if (camera.zoom > 0.3) {
     const gridSize = 40;
-    ctx.fillStyle = 'rgba(30,34,48,0.4)';
+    ctx.fillStyle = rgbaVar('--border-rgb', 0.4);
     const tl = toWorld(0, 0), br = toWorld(W, H);
     const startX = Math.floor(tl.x / gridSize) * gridSize;
     const startY = Math.floor(tl.y / gridSize) * gridSize;
@@ -315,19 +327,19 @@ function showDetail(node) {
   if (node.port) html += row('Port', node.port);
   if (node.locality) html += row('Locality', node.locality.toUpperCase());
   if (node.desc) {
-    html += `<div class="detail-row" style="border:none;padding-top:0.5rem"><div style="color:var(--text)">${esc(node.desc)}</div></div>`;
+    html += `<div class="detail-row plain"><div class="detail-desc">${esc(node.desc)}</div></div>`;
   }
 
   // For wiki nodes, add a link to the page itself.
   if (GRAPH_API.includes('/wiki')) {
-    html += `<div class="detail-row" style="border:none;padding-top:0.4rem"><a class="btn btn-sm btn-primary" href="/wiki/${node.id}">Open page →</a></div>`;
+    html += `<div class="detail-row plain"><a class="btn btn-sm btn-primary" href="/wiki/${node.id}">Open page →</a></div>`;
   }
 
   const incoming = edges.filter(e => e.target === node.id && e.type !== 'available');
   const outgoing = edges.filter(e => e.source === node.id && e.type !== 'available');
 
   if (incoming.length) {
-    html += '<div style="margin-top:0.6rem;color:var(--muted);font-size:0.72rem">INCOMING</div>';
+    html += '<div class="detail-section-head">Incoming</div>';
     html += '<ul class="connections-list">';
     incoming.forEach(e => {
       const src = nodeMap[e.source];
@@ -338,7 +350,7 @@ function showDetail(node) {
     html += '</ul>';
   }
   if (outgoing.length) {
-    html += '<div style="margin-top:0.6rem;color:var(--muted);font-size:0.72rem">OUTGOING</div>';
+    html += '<div class="detail-section-head">Outgoing</div>';
     html += '<ul class="connections-list">';
     outgoing.forEach(e => {
       const tgt = nodeMap[e.target];
@@ -365,11 +377,11 @@ function row(label, value) {
 
 function statusBadge(s) {
   const colors = {
-    active: 'var(--green)', running: 'var(--blue)', standby: 'var(--muted)',
-    available: 'var(--amber)', external: 'var(--muted)', paused: 'var(--amber)',
-    completed: 'var(--green)', error: 'var(--red)',
+    active: 'var(--positive)', running: 'var(--accent2)', standby: 'var(--text-muted)',
+    available: 'var(--warn)', external: 'var(--text-muted)', paused: 'var(--warn)',
+    completed: 'var(--positive)', error: 'var(--danger)',
   };
-  return `<span style="color:${colors[s] || 'var(--muted)'}">● ${s || 'unknown'}</span>`;
+  return `<span style="color:${colors[s] || 'var(--text-muted)'}">● ${s || 'unknown'}</span>`;
 }
 
 function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
@@ -378,7 +390,7 @@ function buildLegend() {
   const el = document.getElementById('legend');
   el.innerHTML = LEGEND.map(i =>
     `<div class="legend-item"><div class="legend-dot" style="background:${i.color}"></div>${i.label}</div>`
-  ).join('') + '<div class="legend-item" style="margin-left:0.5rem;color:var(--text)">Click nodes for details</div>';
+  ).join('') + '<div class="legend-item legend-hint">Click nodes for details</div>';
 }
 
 let panStart = null;
@@ -497,10 +509,10 @@ async function refreshHealth() {
     const r = await fetch(HEALTH_API);
     const h = await r.json();
     const body = document.getElementById('health-body');
-    const barColor = (pct) => pct > 85 ? 'var(--red)' : pct > 60 ? 'var(--amber)' : 'var(--green)';
+    const barColor = (pct) => pct > 85 ? 'var(--danger)' : pct > 60 ? 'var(--warn)' : 'var(--positive)';
     const ramPct = h.ram_total_gb ? Math.round(h.ram_used_gb / h.ram_total_gb * 100) : 0;
 
-    let html = `<div style="margin-bottom:0.4rem"><span class="tier-badge tier-${h.tier}">${h.tier}</span></div>`;
+    let html = `<div class="health-tier-row"><span class="tier-badge tier-${h.tier}">${h.tier}</span></div>`;
     html += `<div class="health-row"><span class="health-label">Platform</span><span class="health-value">${h.platform} ${h.arch}</span></div>`;
     html += `<div class="health-row"><span class="health-label">CPUs</span><span class="health-value">${h.cpu_count}</span></div>`;
     html += `<div class="health-row"><span class="health-label">RAM</span><span class="health-value">${h.ram_used_gb}/${h.ram_total_gb} GB</span></div>`;
@@ -509,21 +521,21 @@ async function refreshHealth() {
     html += `<div class="health-bar"><div class="health-bar-fill" style="width:${h.disk_pct}%;background:${barColor(h.disk_pct)}"></div></div>`;
     html += `<div class="health-row"><span class="health-label">Python</span><span class="health-value">${h.python}</span></div>`;
     html += `<div class="health-row"><span class="health-label">Backend</span><span class="health-value">${h.backend}</span></div>`;
-    html += `<div class="health-row"><span class="health-label">Model</span><span class="health-value" style="max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h.model}</span></div>`;
+    html += `<div class="health-row"><span class="health-label">Model</span><span class="health-value health-model">${h.model}</span></div>`;
     if (h.gpu) {
       html += `<div class="health-row"><span class="health-label">GPU</span><span class="health-value">${h.gpu.name}</span></div>`;
     }
     if (h.deep_enabled) {
-      html += `<div class="health-row"><span class="health-label">Deep</span><span class="health-value" style="color:var(--amber)">AeroLLM ✓</span></div>`;
+      html += `<div class="health-row"><span class="health-label">Deep</span><span class="health-value health-deep">AeroLLM ✓</span></div>`;
     }
-    html += `<div class="health-row" style="border-bottom:none"><span class="health-label">Services</span><span class="health-value">`;
+    html += `<div class="health-row last"><span class="health-label">Services</span><span class="health-value">`;
     for (const [name, up] of Object.entries(h.services)) {
       html += `<span class="svc-dot ${up ? 'svc-on' : 'svc-off'}"></span>${name} `;
     }
     html += `</span></div>`;
     body.innerHTML = html;
   } catch(e) {
-    document.getElementById('health-body').innerHTML = '<span style="color:var(--red)">Offline</span>';
+    document.getElementById('health-body').innerHTML = '<span class="health-offline">Offline</span>';
   }
 }
 refreshHealth();

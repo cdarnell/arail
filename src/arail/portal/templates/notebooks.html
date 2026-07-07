@@ -9,22 +9,27 @@
     padding: 0 1.5rem;
   }
   .nbp-header h1 {
-    color: var(--text-hi);
+    color: var(--text-strong);
     font-size: 1.15rem;
     font-weight: 600;
   }
   .nbp-header p {
-    color: var(--muted);
+    color: var(--text-muted);
     font-size: 0.85rem;
     margin-top: 0.3rem;
   }
   /* Card status label ("live" / "installed, not running" / "needs install") */
   .nc-status-label {
+    font-family: var(--font-mono);
     font-size: 0.65rem;
-    color: var(--muted);
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
+    font-weight: 500;
+    color: var(--text-muted);
+    text-transform: var(--label-transform);
+    letter-spacing: var(--label-tracking);
   }
+  /* opencode card hidden until max-tier confirmed by status payload;
+     revealed by setCard() via classList + style.display. */
+  .nc-tier-hidden { display: none; }
 </style>
 {% endblock %}
 {% block content %}
@@ -173,7 +178,7 @@
   </div>
 
   <!-- opencode ── max-tier only; card is hidden by JS when not in status payload -->
-  <div class="notebook-card" data-id="opencode" style="display:none">
+  <div class="notebook-card nc-tier-hidden" data-id="opencode">
     <div class="nc-header">
       <span class="nc-glyph">⌨</span>
       <div class="nc-title-block">
@@ -218,6 +223,7 @@ function setCard(id, nb) {
   const card = document.querySelector(`.notebook-card[data-id="${id}"]`);
   if (!card) return;
   // Reveal card if it was hidden (opencode card is hidden until max-tier confirmed)
+  card.classList.remove('nc-tier-hidden');
   card.style.display = '';
   const dot = card.querySelector('[data-dot]');
   const label = card.querySelector('[data-status]');

@@ -4,56 +4,46 @@
 {% block head %}
 <style>
   .term-topbar { display: flex; align-items: center; gap: 0.8rem; justify-content: space-between; } .term-topbar .term-hint { margin: 0; flex: 1; } .term-wrap { padding: 0.8rem 1rem; height: calc(100vh - 52px); display: flex; flex-direction: column; gap: 0.6rem; }
-  .term-hint { color: var(--muted); font-size: 0.75rem; }
+  .term-hint { color: var(--text-muted); font-size: 0.75rem; }
   .term-hint code {
-    background: var(--surface);
+    background: color-mix(in srgb, var(--accent2) 10%, transparent);
     padding: 0.1rem 0.4rem;
-    border-radius: 3px;
-    color: var(--amber);
+    border-radius: var(--radius-s);
+    color: var(--accent2);
   }
   .term-frame {
     flex: 1;
     width: 100%;
     border: 1px solid var(--border);
-    border-radius: 4px;
-    background: #0a0c14;
+    border-radius: var(--radius-s);
+    background: var(--bg);
   }
   .term-install {
     flex: 1;
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: var(--radius-l);
     padding: 2rem 2.5rem;
     max-width: 780px;
     margin: 0 auto;
     color: var(--text);
   }
-  .term-install h1 { color: var(--green); text-shadow: var(--glow-green); margin-top: 0; }
-  .term-install h3 { color: var(--blue); margin-top: 1.6rem; }
+  .term-install h1 { color: var(--text-strong); margin-top: 0; }
+  .term-install h3 { color: var(--text-strong); margin-top: 1.6rem; }
   .term-install pre {
-    background: #0a0c14;
+    background: var(--bg);
     border: 1px solid var(--border);
-    border-radius: 4px;
+    border-radius: var(--radius-s);
     padding: 1rem 1.2rem;
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
     font-size: 0.85rem;
-    color: var(--amber);
+    color: var(--text);
     white-space: pre-wrap;
     overflow-x: auto;
   }
-  .term-install .status-pill {
-    display: inline-block;
-    padding: 0.2rem 0.6rem;
-    border-radius: 999px;
-    font-size: 0.7rem;
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    margin-right: 0.5rem;
-  }
-  .status-installed { background: rgba(0,255,65,0.08); color: var(--green); border: 1px solid rgba(0,255,65,0.25); }
-  .status-missing { background: rgba(255,51,85,0.08); color: var(--red); border: 1px solid rgba(255,51,85,0.25); }
-  .status-notrun { background: rgba(255,176,0,0.08); color: var(--amber); border: 1px solid rgba(255,176,0,0.25); }
+  /* .status-pill / .status-installed / .status-missing / .status-notrun
+     come from static/style.css (shared, tokenized). */
 </style>
 {% endblock %}
 {% block content %}

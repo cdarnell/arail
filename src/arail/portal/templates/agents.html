@@ -1236,7 +1236,7 @@ async function loadConsent() {
       aDiv.innerHTML = aRes.map(domain =>
         `<div class="ag-consent-item">
           <span class="ag-consent-domain">${esc(domain)}</span>
-          <span class="ag-consent-reason" style="flex:1"></span>
+          <span class="ag-consent-reason flex-fill"></span>
           <div class="ag-consent-actions">
             <button class="revoke" onclick="consentRevoke('${esc(domain)}')">Revoke</button>
           </div>
@@ -1289,7 +1289,7 @@ async function loadMemory() {
       expDiv.innerHTML = expRes.map(exp =>
         `<div class="ag-mem-exp">
           <span class="ag-pill ${exp.status || 'planning'}">${esc(exp.status || 'planning')}</span>
-          <span style="color:var(--text)">${esc(exp.hypothesis || '?')}</span>
+          <span class="ag-mem-hypothesis">${esc(exp.hypothesis || '?')}</span>
         </div>`
       ).join('');
     } else {

@@ -27,33 +27,35 @@
   }
   .dv-left-back {
     display: block;
-    color: var(--muted);
+    color: var(--text-muted);
     text-decoration: none;
     margin-bottom: 0.8rem;
     font-size: 0.7rem;
   }
-  .dv-left-back:hover { color: var(--blue); }
+  .dv-left-back:hover { color: var(--accent2); }
   .dv-left-cat-label {
+    font-family: var(--font-mono);
     font-size: 0.62rem;
-    letter-spacing: 0.07em;
-    text-transform: uppercase;
-    color: var(--muted);
+    font-weight: 500;
+    letter-spacing: var(--label-tracking);
+    text-transform: var(--label-transform);
+    color: var(--text-muted);
     margin: 0 0 0.4rem;
   }
   .dv-left-list { list-style: none; padding: 0; margin: 0; }
   .dv-left-list li { margin: 0.15rem 0; }
   .dv-left-list a {
-    color: var(--muted);
+    color: var(--text-muted);
     text-decoration: none;
     display: block;
     padding: 0.15rem 0.4rem;
-    border-radius: 3px;
+    border-radius: var(--radius-s);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .dv-left-list a:hover { color: var(--text-hi); background: var(--surface2); }
-  .dv-left-list a.active { color: var(--green); background: rgba(0,255,65,.07); }
+  .dv-left-list a:hover { color: var(--text-strong); background: var(--surface2); }
+  .dv-left-list a.active { color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
 
   /* ── Center article ──────────────────────────────────────────────── */
   .dv-center { padding: 0 1.4rem; }
@@ -62,45 +64,48 @@
   .doc-shell {
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: var(--radius);
+    border-radius: var(--radius-l);
     color: var(--text);
     line-height: 1.6;
     padding: 1.6rem 2rem;
   }
   .doc-path-bar {
-    color: var(--muted);
+    font-family: var(--font-mono);
+    color: var(--text-muted);
     font-size: 0.7rem;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
+    font-weight: 500;
+    letter-spacing: var(--label-tracking);
+    text-transform: var(--label-transform);
     margin-bottom: 0.6rem;
   }
-  .doc-path-bar code { color: var(--blue); background: transparent; padding: 0; }
-  .doc-shell h1 { color: var(--text-hi); margin-top: 0; }
-  .doc-shell h2 { color: var(--green); margin-top: 1.6rem; }
-  .doc-shell h3 { color: var(--text-hi); margin-top: 1.3rem; }
-  .doc-shell a { color: var(--blue); }
-  .doc-shell a:hover { color: var(--text-hi); text-decoration: underline; }
+  .doc-path-bar code { color: var(--accent2); background: transparent; padding: 0; }
+  .doc-path-home { color: var(--text-muted); text-decoration: none; }
+  .doc-shell h1 { color: var(--text-strong); margin-top: 0; }
+  .doc-shell h2 { color: var(--text-strong); margin-top: 1.6rem; }
+  .doc-shell h3 { color: var(--text-strong); margin-top: 1.3rem; }
+  .doc-shell a { color: var(--accent2); }
+  .doc-shell a:hover { color: var(--text-strong); text-decoration: underline; }
   .doc-shell code {
-    background: var(--surface2);
-    color: var(--amber);
+    background: color-mix(in srgb, var(--accent2) 10%, transparent);
+    color: var(--accent2);
     padding: 0.05em 0.35em;
-    border-radius: 3px;
+    border-radius: var(--radius-s);
     font-size: 0.92em;
   }
   .doc-shell pre {
     background: var(--bg);
     border: 1px solid var(--border);
     padding: 0.8rem 1rem;
-    border-radius: 6px;
+    border-radius: var(--radius-s);
     overflow-x: auto;
   }
   .doc-shell pre code { background: transparent; color: var(--text); padding: 0; }
   .doc-shell blockquote {
-    border-left: 3px solid var(--blue);
+    border-left: 3px solid var(--accent2);
     padding: 0.4rem 1rem;
-    color: var(--muted);
+    color: var(--text-muted);
     margin: 1rem 0;
-    background: rgba(0, 212, 255, 0.04);
+    background: color-mix(in srgb, var(--accent2) 4%, transparent);
   }
   .doc-shell table { border-collapse: collapse; margin: 0.8rem 0; width: 100%; }
   .doc-shell th, .doc-shell td {
@@ -108,7 +113,7 @@
     padding: 0.4rem 0.7rem;
     text-align: left;
   }
-  .doc-shell th { background: var(--surface2); color: var(--text-hi); }
+  .doc-shell th { background: var(--surface2); color: var(--text-strong); }
   .doc-shell hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
   .doc-shell ul, .doc-shell ol { padding-left: 1.5rem; }
   .doc-shell li { margin: 0.2rem 0; }
@@ -126,18 +131,20 @@
     font-size: 0.76rem;
   }
   .dv-prevnext a {
-    color: var(--blue);
+    color: var(--accent2);
     text-decoration: none;
     padding: 0.25rem 0.6rem;
     border: 1px solid var(--border);
-    border-radius: var(--radius);
+    border-radius: var(--radius-s);
   }
-  .dv-prevnext a:hover { border-color: var(--blue); background: rgba(0,212,255,.06); }
+  .dv-prevnext a:hover { border-color: var(--accent2); background: color-mix(in srgb, var(--accent2) 8%, transparent); }
   .dv-related-label {
+    font-family: var(--font-mono);
     font-size: 0.65rem;
-    letter-spacing: 0.07em;
-    text-transform: uppercase;
-    color: var(--muted);
+    font-weight: 500;
+    letter-spacing: var(--label-tracking);
+    text-transform: var(--label-transform);
+    color: var(--text-muted);
     margin: 0 0 0.5rem;
   }
   .dv-related-grid {
@@ -149,36 +156,36 @@
   .dv-related-card {
     background: var(--surface2);
     border: 1px solid var(--border);
-    border-radius: var(--radius);
+    border-radius: var(--radius-s);
     padding: 0.5rem 0.7rem;
     text-decoration: none;
-    color: var(--muted);
+    color: var(--text-muted);
     font-size: 0.74rem;
-    transition: border-color 150ms;
+    transition: border-color var(--dur-2) var(--ease-accent);
   }
-  .dv-related-card:hover { border-color: var(--border-hi); color: var(--text-hi); }
+  .dv-related-card:hover { border-color: var(--border-strong); color: var(--text-strong); }
   .ask-buddy-btn {
     display: inline-block;
     margin-top: 0.6rem;
     padding: 0.35rem 0.9rem;
-    background: rgba(180,142,255,.1);
-    border: 1px solid var(--purple);
-    border-radius: var(--radius);
-    color: var(--purple);
+    background: color-mix(in srgb, var(--info) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--info) 28%, transparent);
+    border-radius: var(--radius-s);
+    color: var(--info);
     text-decoration: none;
     font-size: 0.76rem;
-    transition: background 150ms;
+    transition: background var(--dur-2) var(--ease-accent);
   }
-  .ask-buddy-btn:hover { background: rgba(180,142,255,.2); }
+  .ask-buddy-btn:hover { background: color-mix(in srgb, var(--info) 20%, transparent); }
 
   /* ── Tier-blocked panel ──────────────────────────────────────────── */
   .dv-tier-blocked {
     padding: 2.5rem 2rem;
     text-align: center;
-    color: var(--muted);
+    color: var(--text-muted);
     font-size: 0.82rem;
   }
-  .dv-tier-blocked code { color: var(--amber); }
+  .dv-tier-blocked code { color: var(--accent2); }
 
   /* ── Right rail (TOC) ────────────────────────────────────────────── */
   .dv-right {
@@ -189,21 +196,23 @@
     top: 1rem;
   }
   .dv-toc-label {
+    font-family: var(--font-mono);
     font-size: 0.62rem;
-    letter-spacing: 0.07em;
-    text-transform: uppercase;
-    color: var(--muted);
+    font-weight: 500;
+    letter-spacing: var(--label-tracking);
+    text-transform: var(--label-transform);
+    color: var(--text-muted);
     margin: 0 0 0.5rem;
   }
   .dv-toc-list { list-style: none; padding: 0; margin: 0; }
   .dv-toc-list li { margin: 0.15rem 0; }
   .dv-toc-list a {
-    color: var(--muted);
+    color: var(--text-muted);
     text-decoration: none;
     display: block;
     padding: 0.1rem 0;
   }
-  .dv-toc-list a:hover { color: var(--blue); }
+  .dv-toc-list a:hover { color: var(--accent2); }
   .dv-toc-h3 { padding-left: 0.8rem; }
 </style>
 {% endblock %}
@@ -243,7 +252,7 @@
     {% else %}
     <article class="doc-shell">
       <div class="doc-path-bar">
-        <a href="/docs" style="color:var(--muted);text-decoration:none;">docs</a>
+        <a href="/docs" class="doc-path-home">docs</a>
         / <code>{{ doc_path }}</code>
       </div>
       {{ doc_html | safe }}

@@ -15,71 +15,88 @@
     width: min(560px, 92vw);
     background: var(--surface);
     border: 1px solid var(--border);
-    border-left: 4px solid var(--green);
-    border-radius: var(--radius);
+    border-left: 4px solid var(--accent);
+    border-radius: var(--radius-l);
+    box-shadow: var(--shadow-1);
     padding: 2rem 2.2rem;
   }
   .wc-kicker {
-    font-size: 0.65rem; letter-spacing: 0.16em; text-transform: uppercase;
-    color: var(--muted); margin-bottom: 0.4rem;
+    font-family: var(--font-mono);
+    font-size: 0.65rem; font-weight: 500;
+    letter-spacing: var(--label-tracking); text-transform: var(--label-transform);
+    color: var(--text-muted); margin-bottom: 0.4rem;
   }
   .wc-card h1 {
-    font-size: 1.4rem; color: var(--green); margin: 0 0 0.5rem;
-    text-shadow: var(--glow-green);
+    font-family: var(--heading-font);
+    font-size: 1.4rem; font-weight: 650; letter-spacing: -0.015em;
+    color: var(--text-strong); margin: 0 0 0.5rem;
   }
   .wc-card .wc-tagline {
     color: var(--text); font-size: 0.95rem; margin: 0 0 1rem;
   }
   .wc-card .wc-academic {
-    color: var(--muted); font-size: 0.78rem; line-height: 1.55;
+    color: var(--text-muted); font-size: 0.78rem; line-height: 1.55;
     margin: 0 0 1.4rem;
   }
   .wc-field { display: flex; flex-direction: column; gap: 0.3rem; margin-bottom: 1rem; }
   .wc-field label {
-    font-size: 0.7rem; letter-spacing: 0.06em; text-transform: uppercase;
-    color: var(--muted);
+    font-family: var(--font-mono);
+    font-size: 0.7rem; font-weight: 500;
+    letter-spacing: var(--label-tracking); text-transform: var(--label-transform);
+    color: var(--text-muted);
   }
   .wc-field input {
-    background: var(--bg); color: var(--text-hi);
-    border: 1px solid var(--border); border-radius: 4px;
+    background: var(--surface2); color: var(--text-strong);
+    border: 1px solid var(--border); border-radius: var(--radius-s);
     padding: 0.5rem 0.7rem; font-size: 0.9rem;
-    outline: none; transition: border-color 0.15s;
-    font-family: var(--font);
+    outline: none;
+    transition: border-color var(--dur-2) var(--ease-accent), box-shadow var(--dur-2) var(--ease-accent);
+    font-family: var(--font-sans);
   }
-  .wc-field input:focus { border-color: var(--green); }
-  .wc-field .wc-hint { color: var(--muted); font-size: 0.7rem; }
+  .wc-field input::placeholder { color: var(--text-muted); }
+  .wc-field input:focus {
+    border-color: var(--accent2);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent2) 18%, transparent);
+  }
+  .wc-field .wc-hint { color: var(--text-muted); font-size: 0.7rem; }
+  .wc-hint-inline { text-transform: none; letter-spacing: 0; }
   .wc-protect {
-    background: rgba(0, 212, 255, 0.06);
-    border: 1px solid rgba(0, 212, 255, 0.2);
-    border-radius: 6px;
+    background: color-mix(in srgb, var(--accent2) 6%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent2) 20%, transparent);
+    border-radius: var(--radius-m);
     padding: 0.7rem 0.9rem;
     margin: 0 0 1.2rem;
     font-size: 0.75rem; color: var(--text);
     line-height: 1.5;
   }
-  .wc-protect strong { color: var(--blue); }
-  .wc-protect ul { margin: 0.4rem 0 0; padding-left: 1.2rem; color: var(--muted); }
+  .wc-protect strong { color: var(--accent2); }
+  .wc-protect ul { margin: 0.4rem 0 0; padding-left: 1.2rem; color: var(--text-muted); }
   .wc-actions { display: flex; gap: 0.6rem; align-items: center; }
   .wc-btn {
-    background: rgba(0, 255, 65, 0.12); color: var(--green);
-    border: 1px solid rgba(0, 255, 65, 0.3); border-radius: 4px;
+    background: var(--accent);
+    color: color-mix(in srgb, var(--bg) 45%, black);
+    border: none; border-radius: var(--radius-s);
     padding: 0.55rem 1.1rem; font-size: 0.85rem; font-weight: 600;
-    cursor: pointer; transition: all 0.12s;
-    font-family: var(--font);
+    cursor: pointer;
+    box-shadow: 0 6px 18px -8px color-mix(in srgb, var(--accent) 60%, transparent);
+    transition: transform var(--dur-2) var(--ease-accent), box-shadow var(--dur-2) var(--ease-accent);
+    font-family: var(--font-sans);
   }
-  .wc-btn:hover:not(:disabled) {
-    background: rgba(0, 255, 65, 0.22); color: var(--text-hi);
-  }
+  .wc-btn:hover:not(:disabled) { transform: translateY(-1px); }
   .wc-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-  .wc-status {
-    font-size: 0.78rem; color: var(--muted); margin-left: 0.4rem;
+  @media (prefers-reduced-motion: reduce) {
+    .wc-btn, .wc-field input { transition: none; }
+    .wc-btn:hover:not(:disabled) { transform: none; }
   }
-  .wc-status.ok { color: var(--green); }
-  .wc-status.err { color: var(--red); }
+  .wc-status {
+    font-size: 0.78rem; color: var(--text-muted); margin-left: 0.4rem;
+  }
+  .wc-status.ok { color: var(--positive); }
+  .wc-status.err { color: var(--danger); }
   .wc-foot {
     margin-top: 1.4rem; padding-top: 1rem;
     border-top: 1px solid var(--border);
-    font-size: 0.7rem; color: var(--muted); line-height: 1.5;
+    font-size: 0.7rem; color: var(--text-muted); line-height: 1.5;
   }
   .wc-foot code { color: var(--text); }
 </style>
@@ -118,7 +135,7 @@
              placeholder="type it again" />
     </div>
     <div class="wc-field">
-      <label for="wc-name">Lab name <span class="wc-hint" style="text-transform:none;letter-spacing:0;">(optional)</span></label>
+      <label for="wc-name">Lab name <span class="wc-hint wc-hint-inline">(optional)</span></label>
       <input type="text" id="wc-name"
              value="{{ current_lab_name }}"
              placeholder="e.g. Sam's AI Lab" />

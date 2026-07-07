@@ -4,19 +4,23 @@
 {% block head %}
 <style>
   .onb-topbar { display: flex; align-items: center; gap: 0.8rem; justify-content: space-between; } .onb-topbar .onb-hint { margin: 0; flex: 1; } .onb-wrap { padding: 0.8rem 1rem; height: calc(100vh - 52px); display: flex; flex-direction: column; gap: 0.6rem; }
-  .onb-hint { color: var(--muted); font-size: 0.75rem; }
+  .onb-hint { color: var(--text-muted); font-size: 0.75rem; }
   .onb-hint code {
-    background: var(--surface);
+    background: color-mix(in srgb, var(--accent2) 10%, transparent);
     padding: 0.1rem 0.4rem;
-    border-radius: 3px;
-    color: var(--amber);
+    border-radius: var(--radius-s);
+    color: var(--accent2);
   }
+  .onb-topbar-actions { display: flex; gap: 0.5rem; }
+  .onb-btn-stop { color: var(--danger); }
+  .onb-manual-note { margin-top: 1rem; color: var(--text-muted); font-size: 0.8rem; }
+  .onb-feature-list { line-height: 1.8; }
   .onb-frame {
     flex: 1;
     width: 100%;
     border: 1px solid var(--border);
-    border-radius: 4px;
-    background: #0a0a0f;
+    border-radius: var(--radius-s);
+    background: var(--bg);
     /* Open Notebook v1 is a Next.js app that ships light by default
        and doesn't expose a URL-level dark toggle. We invert-filter the
        iframe to match the lab's terminal aesthetic — hue-rotate(180deg)
@@ -31,23 +35,24 @@
     flex: 1;
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: var(--radius-l);
     padding: 2rem 2.5rem;
     max-width: 780px;
     margin: 0 auto;
     color: var(--text);
     overflow-y: auto;
   }
-  .onb-install h1 { color: var(--green); text-shadow: var(--glow-green); margin-top: 0; }
-  .onb-install h3 { color: var(--blue); margin-top: 1.6rem; }
+  .onb-install h1 { color: var(--text-strong); margin-top: 0; }
+  .onb-install h3 { color: var(--text-strong); margin-top: 1.6rem; }
   .onb-install pre {
-    background: #0a0c14;
+    background: var(--bg);
     border: 1px solid var(--border);
-    border-radius: 4px;
+    border-radius: var(--radius-s);
     padding: 1rem 1.2rem;
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
     font-size: 0.85rem;
-    color: var(--amber);
+    color: var(--text);
     white-space: pre-wrap;
     overflow-x: auto;
   }
@@ -65,9 +70,9 @@
       with your sources, search across everything.
       API docs at <code>:{{ api_port }}/docs</code>.
     </p>
-    <div style="display:flex;gap:0.5rem;">
+    <div class="onb-topbar-actions">
       <button class="btn btn-sm btn-ghost" id="onb-restart" title="Restart containers">↻ Restart</button>
-      <button class="btn btn-sm btn-ghost" id="onb-stop" title="Stop containers" style="color:var(--red);">■ Stop</button>
+      <button class="btn btn-sm btn-ghost onb-btn-stop" id="onb-stop" title="Stop containers">■ Stop</button>
       <button class="btn btn-sm btn-ghost" id="onb-popout"
               title="Open in its own window">
         ⇱ Pop out
@@ -115,8 +120,7 @@
       and documentation will be pre-loaded automatically.
     </p>
     <p>
-      <button class="btn btn-sm" id="onb-start"
-              style="background:var(--green);color:#000;font-weight:700;padding:0.4rem 1.2rem;cursor:pointer;">
+      <button class="btn btn-sm btn-primary" id="onb-start">
         ▶ Start Open Notebook
       </button>
     </p>
@@ -132,11 +136,11 @@
         setTimeout(() => location.reload(), 8000);
       } else {
         btn.textContent = '✗ ' + (data.error || 'Failed');
-        btn.style.background = 'var(--red)';
+        btn.style.background = 'var(--danger)';
       }
     });
     </script>
-    <p style="margin-top:1rem;color:var(--muted);font-size:0.8rem;">
+    <p class="onb-manual-note">
       Or start manually:
     </p>
     <pre>docker compose -f compose/open-notebook.yml up -d</pre>
@@ -170,7 +174,7 @@ OPEN_NOTEBOOK_ENCRYPTION_KEY=your-passphrase-here</pre>
       <a href="https://github.com/lfnovo/open-notebook" target="_blank" rel="noopener">NotebookLM alternative</a>
       that runs as a Docker service. It lets you:
     </p>
-    <ul style="line-height:1.8;">
+    <ul class="onb-feature-list">
       <li>Organize multi-modal research content (PDFs, videos, audio, web pages)</li>
       <li>Generate professional multi-speaker podcasts from your sources</li>
       <li>AI-powered chat grounded in your research</li>

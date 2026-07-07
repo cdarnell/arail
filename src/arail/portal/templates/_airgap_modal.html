@@ -3,47 +3,88 @@
      Activated by clicking the #mode-badge in nav.js.
 -->
 <style id="airgap-modal-styles">
-  /* Duplicate of the .mp-backdrop / .mp-modal block from chat.legacy.html.
-     Per ARCHITECTURE.md §13: inline CSS kept this sprint; extraction to
-     static/style.css is a recommended follow-up (not in scope). */
+  /* Shared network-policy modal, styled per STYLE-SPEC §(e) Modals. */
   .mp-backdrop {
-    position: fixed; inset: 0; background: rgba(0,0,0,0.55);
+    position: fixed; inset: 0;
+    background: color-mix(in srgb, var(--bg) 62%, transparent);
+    backdrop-filter: blur(3px);
     display: none; align-items: center; justify-content: center; z-index: 9000;
   }
   .mp-backdrop.open { display: flex; }
   .mp-modal {
     width: min(720px, 94vw); max-height: 86vh; overflow: auto;
-    background: #0f0f10; border: 1px solid #2b2b2b; border-radius: 10px;
+    background: var(--surface2); border: 1px solid var(--border-strong);
+    border-radius: var(--radius-l);
     padding: 18px 20px; box-shadow: 0 18px 42px rgba(0,0,0,0.5);
   }
   .mp-head { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom: 8px; }
-  .mp-head h3 { margin:0; font-size: 16px; }
-  .mp-close { background:#1a1a1a; border:1px solid #333; color:#ddd; padding:4px 10px; border-radius:6px; cursor:pointer; }
-  .mp-pill { font-size:10px; padding: 2px 6px; border-radius: 10px; border:1px solid #333; color:#bbb; letter-spacing: 0.04em; text-transform: uppercase; }
-  .mp-pill.ok { color:#8fe6a7; border-color:#2f6a42; background:#0c1911; }
-  .mp-pill.warn { color:#e6b478; border-color:#6a4d2f; background:#19140c; }
+  .mp-head h3 { margin:0; font-size: 16px; font-weight: 650; }
+  .mp-close {
+    background: transparent; border: 1px solid var(--border-strong);
+    color: var(--text); padding: 4px 10px; border-radius: var(--radius-s); cursor: pointer;
+  }
+  .mp-close:hover { background: var(--surface3); }
+  .mp-pill {
+    font-family: var(--font-mono); font-size: 10px; padding: 2px 6px;
+    border-radius: var(--radius-pill); border: 1px solid var(--border-strong);
+    color: var(--text-muted); letter-spacing: var(--label-tracking);
+    text-transform: var(--label-transform);
+  }
+  .mp-pill.ok {
+    color: var(--positive);
+    border-color: color-mix(in srgb, var(--positive) 28%, transparent);
+    background: color-mix(in srgb, var(--positive) 12%, transparent);
+  }
+  .mp-pill.warn {
+    color: var(--warn);
+    border-color: color-mix(in srgb, var(--warn) 28%, transparent);
+    background: color-mix(in srgb, var(--warn) 12%, transparent);
+  }
   .mp-models-list { margin-top: 8px; max-height: 200px; overflow: auto;
-    padding: 6px 8px; background:#0a0a0a; border:1px solid #1f1f1f; border-radius: 6px;
-    font-family: ui-monospace, monospace; font-size: 11px; color: #cfcfcf; }
-  .mp-note { font-size: 11px; color:#9a9a9a; margin-top: 4px; }
-  .chat-sub { font-size: 12px; color: #9a9a9a; }
-  .chat-muted { font-size: 11px; color: #666; }
+    padding: 6px 8px; background: var(--bg); border: 1px solid var(--border);
+    border-radius: var(--radius-s);
+    font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+    font-size: 11px; color: var(--text); }
+  .mp-note { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+  .chat-sub { font-size: 12px; color: var(--text-muted); }
+  .chat-muted { font-size: 11px; color: color-mix(in srgb, var(--text-muted) 72%, transparent); }
   .airgap-row { display: flex; align-items: center; gap: 8px; padding: 4px 0;
-    border-bottom: 1px solid #1a1a1a; }
+    border-bottom: 1px solid var(--border); }
   .airgap-row:last-child { border-bottom: none; }
-  .airgap-row code { color: #cfcfcf; font-size: 11px; flex: 1; }
-  .airgap-row time { color: #666; font-size: 10px; white-space: nowrap; }
+  .airgap-row code { color: var(--text); font-size: 11px; flex: 1; }
+  .airgap-row time { color: var(--text-muted); font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums; font-size: 10px; white-space: nowrap; }
   .airgap-row .chat-muted { font-size: 10px; max-width: 180px;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   /* Segmented control */
-  .airgap-segmented { display: inline-flex; border: 1px solid #333; border-radius: 6px; overflow: hidden; }
+  .airgap-segmented { display: inline-flex; border: 1px solid var(--border-strong); border-radius: var(--radius-s); overflow: hidden; }
   .airgap-segmented button {
-    background: #1a1a1a; border: none; color: #9a9a9a; cursor: pointer;
-    font-size: 12px; padding: 5px 14px; transition: background 0.1s, color 0.1s;
+    background: var(--surface2); border: none; color: var(--text-muted); cursor: pointer;
+    font-size: 12px; padding: 5px 14px;
+    transition: background var(--dur-1) var(--ease-accent), color var(--dur-1) var(--ease-accent);
   }
-  .airgap-segmented button + button { border-left: 1px solid #333; }
-  .airgap-segmented button.active { background: #2a2a2a; color: #e0e0e0; font-weight: 600; }
+  .airgap-segmented button + button { border-left: 1px solid var(--border-strong); }
+  .airgap-segmented button.active { background: var(--surface3); color: var(--text-strong); font-weight: 600; }
   .airgap-segmented button:disabled { opacity: 0.5; cursor: not-allowed; }
+  /* Hoisted from inline style= attributes.
+     NOTE: elements toggled by nav.js via el.style.display keep their
+     initial display:none INLINE (a class rule would defeat style.display=''). */
+  .airgap-definition { margin: 0 0 12px; }
+  .airgap-host-probe { margin: 0 0 12px; font-size: 12px; }
+  .airgap-section-title { margin: 12px 0 4px; font-size: 13px; font-weight: 650; }
+  .airgap-activity-empty { margin-top: 6px; }
+  .airgap-toggle-section {
+    margin-top: 14px; padding: 10px;
+    border: 1px solid var(--border-strong); border-radius: var(--radius-s);
+  }
+  .airgap-bind-warning { color: var(--warn); font-size: 12px; }
+  .airgap-toggle-wrap { margin-top: 6px; }
+  .airgap-toggle-note { margin-top: 6px; }
+  .airgap-toggle-error { color: var(--danger); font-size: 12px; margin-top: 6px; }
+  .airgap-gaps { margin-top: 14px; }
+  .airgap-gaps summary { cursor: pointer; }
+  .airgap-gaps-list { padding-left: 18px; margin-top: 6px; }
+  .airgap-privacy-link { color: var(--accent2); }
 </style>
 
 <div class="mp-backdrop" id="airgap-backdrop" role="dialog"
@@ -57,51 +98,48 @@
       <button class="mp-close" id="airgap-close" type="button" onclick="document.getElementById('airgap-backdrop').classList.remove('open')">Close</button>
     </div>
 
-    <p class="chat-sub" id="airgap-definition" style="margin:0 0 12px"></p>
+    <p class="chat-sub airgap-definition" id="airgap-definition"></p>
 
-    <div id="airgap-host-probe" style="display:none; margin: 0 0 12px; font-size:12px;">
+    <div id="airgap-host-probe" class="airgap-host-probe" style="display:none">
       <!-- Populated only when BUDDY_EGRESS_PROBE=1 -->
     </div>
 
-    <h4 style="margin: 12px 0 4px; font-size: 13px;">Recent activity</h4>
+    <h4 class="airgap-section-title">Recent activity</h4>
     <div class="mp-models-list" id="airgap-activity-list"></div>
-    <p class="chat-muted" id="airgap-activity-empty"
-       style="display:none; margin-top: 6px;">
+    <p class="chat-muted airgap-activity-empty" id="airgap-activity-empty" style="display:none">
       No outbound network attempts recorded yet.
     </p>
 
     <!-- Toggle section: shown only when bind_is_loopback; otherwise bind-warning shown -->
-    <div id="airgap-toggle-section" style="margin-top: 14px; padding: 10px;
-         border: 1px solid #2b2b2b; border-radius: 6px;">
-      <div id="airgap-toggle-bind-warning" style="display:none; color:#e6b478; font-size:12px;">
+    <div id="airgap-toggle-section" class="airgap-toggle-section">
+      <div id="airgap-toggle-bind-warning" class="airgap-bind-warning" style="display:none">
         Edit <code>.env</code> directly — toggle disabled when the lab is bound
         beyond loopback (BIND_ADDR &ne; 127.0.0.1).
       </div>
-      <div id="airgap-toggle-segmented" style="display:none; margin-top: 6px;">
+      <div id="airgap-toggle-segmented" class="airgap-toggle-wrap" style="display:none">
         <div class="airgap-segmented" role="group" aria-label="Network policy">
           <button type="button" data-target="airgapped" id="airgap-seg-airgapped">Airgapped</button>
           <button type="button" data-target="hybrid" id="airgap-seg-hybrid">Hybrid</button>
         </div>
-        <p class="mp-note" style="margin-top: 6px;">
+        <p class="mp-note airgap-toggle-note">
           Subprocesses (AirLLM, researcher) read <code>LAB_MODE</code> at start;
           restart them to pick up a flip.
         </p>
       </div>
-      <div id="airgap-toggle-error" style="display:none; color:#e68080;
-           font-size:12px; margin-top:6px;"></div>
+      <div id="airgap-toggle-error" class="airgap-toggle-error" style="display:none"></div>
     </div>
 
-    <details style="margin-top: 14px;">
-      <summary class="chat-muted" style="cursor:pointer;">
+    <details class="airgap-gaps">
+      <summary class="chat-muted">
         Known gaps — what isn't wrapped
       </summary>
-      <ul id="airgap-gaps-list" class="mp-note" style="padding-left: 18px; margin-top: 6px;"></ul>
-      <p class="mp-note" style="margin-top: 6px;">
+      <ul id="airgap-gaps-list" class="mp-note airgap-gaps-list"></ul>
+      <p class="mp-note airgap-toggle-note">
         The Python-level guard catches <code>requests</code> and
         <code>urllib.request</code>. Other clients
         (<code>httpx</code>, <code>aiohttp</code>, raw sockets,
         subprocess <code>curl</code>) are not wrapped — see
-        <a href="/docs/PRIVACY.md" style="color:#8faacc;">docs/PRIVACY.md</a>
+        <a href="/docs/PRIVACY.md" class="airgap-privacy-link">docs/PRIVACY.md</a>
         for the full list. The threat model is well-meaning agent code,
         not an adversary on this host.
       </p>

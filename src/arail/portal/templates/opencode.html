@@ -6,52 +6,56 @@
   .oc-topbar { display: flex; align-items: center; gap: 0.8rem; justify-content: space-between; }
   .oc-topbar .oc-hint { margin: 0; flex: 1; }
   .oc-wrap { padding: 0.8rem 1rem; height: calc(100vh - 52px); display: flex; flex-direction: column; gap: 0.6rem; }
-  .oc-hint { color: var(--muted); font-size: 0.75rem; }
+  .oc-hint { color: var(--text-muted); font-size: 0.75rem; }
   .oc-hint code {
-    background: var(--surface);
+    background: color-mix(in srgb, var(--accent2) 10%, transparent);
     padding: 0.1rem 0.4rem;
-    border-radius: 3px;
-    color: var(--amber);
+    border-radius: var(--radius-s);
+    color: var(--accent2);
   }
+  .oc-topbar-actions { display: flex; gap: 0.5rem; }
+  .oc-btn-stop { color: var(--danger); }
+  .oc-chat-note { margin-top: 0.5rem; }
   .oc-frame {
     flex: 1;
     width: 100%;
     border: 1px solid var(--border);
-    border-radius: 4px;
-    background: #0a0a0f;
+    border-radius: var(--radius-s);
+    background: var(--bg);
   }
   .oc-install {
     flex: 1;
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: var(--radius-l);
     padding: 2rem 2.5rem;
     max-width: 780px;
     margin: 0 auto;
     color: var(--text);
     overflow-y: auto;
   }
-  .oc-install h1 { color: var(--green); text-shadow: var(--glow-green); margin-top: 0; }
-  .oc-install h3 { color: var(--blue); margin-top: 1.6rem; }
+  .oc-install h1 { color: var(--text-strong); margin-top: 0; }
+  .oc-install h3 { color: var(--text-strong); margin-top: 1.6rem; }
   .oc-install pre {
-    background: #0a0c14;
+    background: var(--bg);
     border: 1px solid var(--border);
-    border-radius: 4px;
+    border-radius: var(--radius-s);
     padding: 1rem 1.2rem;
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
     font-size: 0.85rem;
-    color: var(--amber);
+    color: var(--text);
     white-space: pre-wrap;
     overflow-x: auto;
   }
   .oc-notice {
-    color: var(--muted);
+    color: var(--text-muted);
     font-size: 0.78rem;
     margin-top: 1.2rem;
     padding: 0.6rem 1rem;
     background: var(--surface);
     border-left: 3px solid var(--border);
-    border-radius: 0 4px 4px 0;
+    border-radius: 0 var(--radius-s) var(--radius-s) 0;
   }
 </style>
 {% endblock %}
@@ -67,9 +71,9 @@
       Project root: <code>{{ cwd|default('.') }}</code>.
       Switching Compute Source will restart opencode (brief disconnect).
     </p>
-    <div style="display:flex;gap:0.5rem;">
+    <div class="oc-topbar-actions">
       <button class="btn btn-sm btn-ghost" id="oc-restart" title="Restart opencode">↻ Restart</button>
-      <button class="btn btn-sm btn-ghost" id="oc-stop" title="Stop opencode" style="color:var(--red);">■ Stop</button>
+      <button class="btn btn-sm btn-ghost oc-btn-stop" id="oc-stop" title="Stop opencode">■ Stop</button>
       <button class="btn btn-sm btn-ghost" id="oc-popout" title="Open in its own window">⇱ Pop out</button>
     </div>
   </div>
@@ -126,12 +130,12 @@
         location.reload();
       } else {
         btn.textContent = '✗ Restart timeout';
-        btn.style.color = 'var(--red)';
+        btn.style.color = 'var(--danger)';
         btn.disabled = false;
       }
     } else {
       btn.textContent = '✗ ' + (data.error || 'Failed');
-      btn.style.color = 'var(--red)';
+      btn.style.color = 'var(--danger)';
       btn.disabled = false;
     }
   });
@@ -147,8 +151,7 @@
     </p>
     <p>{{ llm_hint or "Open the Chat tab and pick a model — opencode reuses whatever's loaded." }}</p>
     <p>
-      <a class="btn btn-sm" href="{{ llm_chat_url|default('/chat') }}"
-         style="background:var(--blue);color:#000;font-weight:700;padding:0.4rem 1.2rem;">
+      <a class="btn btn-sm btn-primary" href="{{ llm_chat_url|default('/chat') }}">
         → Open Chat
       </a>
     </p>
@@ -172,8 +175,7 @@
       <code>127.0.0.1:{{ port }}</code> and opens here in an iframe.
     </p>
     <p>
-      <button class="btn btn-sm" id="oc-start"
-              style="background:var(--green);color:#000;font-weight:700;padding:0.4rem 1.2rem;cursor:pointer;">
+      <button class="btn btn-sm btn-primary" id="oc-start">
         ▶ Start opencode
       </button>
     </p>
@@ -219,23 +221,23 @@
           location.reload();
         } else {
           btn.textContent = '✗ Started but never went ready';
-          btn.style.background = 'var(--red)';
-          btn.style.color = '#fff';
+          btn.style.background = 'var(--danger)';
+          btn.style.color = 'var(--text-strong)';
           btn.disabled = false;
         }
       } else if (res.status === 409) {
         // LLM not ready — redirect to chat with a hint
+        btn.style.background = 'var(--warn)';
+        btn.style.color = 'color-mix(in srgb, var(--bg) 45%, black)';
         btn.textContent = '→ ' + (data.hint || 'Load a model in Chat first');
-        btn.style.background = 'var(--amber)';
-        btn.style.color = '#000';
         btn.disabled = false;
         if (data.chat_url) {
           setTimeout(() => { window.location.href = data.chat_url; }, 1500);
         }
       } else {
         btn.textContent = '✗ ' + (data.error || 'Failed');
-        btn.style.background = 'var(--red)';
-        btn.style.color = '#fff';
+        btn.style.background = 'var(--danger)';
+        btn.style.color = 'var(--text-strong)';
         btn.disabled = false;
       }
     });
@@ -258,7 +260,7 @@
     <h3>Install ({{ hint.platform|default('your platform') }})</h3>
     <pre>{{ hint.command|default('see https://opencode.ai/docs') }}</pre>
     <h3>Then reload this page and click Start.</h3>
-    <p style="margin-top:0.5rem;">
+    <p class="oc-chat-note">
       <a href="{{ hint.docs_url|default('https://opencode.ai/docs') }}"
          target="_blank" rel="noopener">opencode docs ↗</a>
     </p>
