@@ -34,6 +34,14 @@ New/updated coverage this sprint:
   forever. Fixed with `call_soon_threadsafe`. (commit 82ad76e)
 - **Card-count regex** + **SSE `_run` event-loop ownership**: two tests the
   Phase C sweep / combined ordering surfaced; hardened. (commit cf8fe77)
+- **Cross-test monkeypatch leak** (`test_capabilities._force_both_available`):
+  patched adapter *instances*' `is_available`; monkeypatch teardown restores
+  an instance by setting an instance attribute, which then shadows the
+  class-level patch the stt/ocr chat-UI tests rely on → those tests failed
+  whenever `test_two_live` ran first (CI batch order). This PR's new test
+  files changed collection order and exposed the latent leak. Fixed by
+  patching the class. The full CI feature batch (`DaC→ARAIL feature suite`)
+  passes locally: 286 passed. (commit on branch head)
 
 ### Pre-existing failures (NOT this sprint — spun off)
 - `test_opencode_config_lifecycle.py::...OPENCODE_CONFIG_DIR_env`
