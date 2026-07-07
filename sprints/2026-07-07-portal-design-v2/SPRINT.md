@@ -12,10 +12,13 @@
 | build 0 | Prep: branch, launch.json, delete chat.legacy.html, pytest baseline | in progress | BUILD_LOG.md |
 | build A | Foundation: base.html, token contract v2, ui_theme.py restructure, self-hosted fonts, retire nav.js theming | pending | BUILD_LOG.md |
 | build B | Ultracode design panel → default theme + component pass | pending | BUILD_LOG.md, design mockups |
-| build C | Per-surface fan-out (C1–C6) | pending | BUILD_LOG.md |
-| review | Architect review of foundation + surfaces | pending | REVIEW.md |
-| test | Smoke, recolor regression, token-compliance lint, visual pass | pending | TEST_REPORT.md |
-| ship | Merge to main | pending | — |
+| build C | Per-surface fan-out (C1–C6) | done | BUILD_LOG.md |
+| build D | World theme block + validator + AI World (DaC) | done | (qukaizen-dac PR #21) |
+| test | Smoke, recolor regression, token-compliance lint, visual pass | done | TEST_REPORT.md |
+| ship | Open PR to main | in progress | — |
+
+## Cross-repo
+- qukaizen-dac PR #21 — `dac.world-theme/v1` emission + validator + the AI & ML World bundle. Contract: `docs/world-theme-contract.md`.
 
 ## Notes
 
