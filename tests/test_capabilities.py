@@ -190,12 +190,17 @@ def _force_both_available(monkeypatch):
     resolve path is exercised without a Whisper model or the swiftc toolchain."""
     monkeypatch.setenv("ARAIL_FORCE_PLATFORM", "darwin")
     monkeypatch.setattr(registry, "_host_platform", lambda: "darwin")
+    # Patch at the CLASS level (not the instance): a monkeypatch.setattr on an
+    # instance restores by SETTING an instance attribute on teardown, which then
+    # shadows any later class-level patch of the same adapter (the mic/OCR chat
+    # tests patch the class) — a cross-test leak. Class patching tears down
+    # cleanly and leaves no shadow.
     for adapter in registry.adapters_for("speech-to-text"):
         if adapter.platform == "darwin":
-            monkeypatch.setattr(adapter, "is_available", lambda: True)
+            monkeypatch.setattr(type(adapter), "is_available", lambda self: True)
     for adapter in registry.adapters_for("equation-ocr"):
         if adapter.platform == "darwin":
-            monkeypatch.setattr(adapter, "is_available", lambda: True)
+            monkeypatch.setattr(type(adapter), "is_available", lambda self: True)
 
 
 def test_two_live_capabilities_resolve_available(monkeypatch):
