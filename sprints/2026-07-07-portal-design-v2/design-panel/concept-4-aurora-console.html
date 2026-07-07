@@ -1,0 +1,1033 @@
+<!--
+  ═══════════════════════════════════════════════════════════════════════════
+  CONCEPT 4 — "AURORA CONSOLE"
+  ═══════════════════════════════════════════════════════════════════════════
+
+  RATIONALE (3 sentences):
+  Aurora Console keeps ARAIL's dark, serious lab core but replaces the CRT
+  neon-hacker skin with a contemporary AI-product sheen — a near-black
+  blue base, translucent glass surface layers, and a single signature
+  cyan→violet "aurora" gradient that lives on the nav rail, the hero
+  surface, active states, and primary actions (and nowhere else, so it
+  stays special). Reading is Inter/system sans with generous spacing;
+  every number, metric, timestamp and table cell is JetBrains Mono with
+  tabular-nums, so the "technical edge" is carried by typography and data
+  density rather than by glow effects. All personality — hue, glow
+  temperature, and even corner radius — flows through the :root tokens,
+  so a World swap (Kawaii pink, Scholarly violet) repaints the entire lab
+  by overriding token values only, which the theme-proof row at the
+  bottom demonstrates with byte-identical markup.
+
+  MOTION NOTES: interactive elements use a springy overshoot curve
+  --spring: cubic-bezier(.34,1.56,.64,1) for hover lift (translateY(-2px))
+  and a soft ease for color/shadow. Motion is subtle: 160–260ms, transform
+  + shadow only, honors prefers-reduced-motion.
+
+  TOKEN VALUES (default "AI Lab" world):
+    --bg:            #070a13   near-black, blue-leaning base
+    --surface:       #0d1322   card base
+    --surface2:      #131a2e   raised layer / hover
+    --surface3:      #1a2340   highest layer (modal, chips)
+    --border:        #222c4a   hairline
+    --border-strong: #38446e   emphasized hairline / focus adjacent
+    --text:          #d9e1f2   body (≈13.9:1 on --bg, WCAG AAA)
+    --text-strong:   #f4f7ff   headings, numerals
+    --text-muted:    #8b96b8   secondary (≈6.4:1 on --bg, AA)
+    --accent:        #22d3ee   aurora cyan
+    --accent2:       #a78bfa   aurora violet
+    --positive:      #34d399
+    --warn:          #fbbf24
+    --danger:        #fb7185
+    --info:          #60a5fa
+    --radius-s:      8px
+    --radius-m:      14px
+    --radius-l:      22px
+    --font-sans:     'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif
+    --font-mono:     'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace
+
+  Fully self-contained: no external fonts, no CDN, no network. The tiny
+  script at the bottom is optional sugar (global theme-swap buttons); the
+  static theme-proof row proves the same thing with zero JS.
+  ═══════════════════════════════════════════════════════════════════════════
+-->
+<title>ARAIL — Aurora Console (Concept 4)</title>
+<style>
+  /* ───────────────────────── TOKENS ───────────────────────── */
+  :root {
+    --bg:            #070a13;
+    --surface:       #0d1322;
+    --surface2:      #131a2e;
+    --surface3:      #1a2340;
+    --border:        #222c4a;
+    --border-strong: #38446e;
+    --text:          #d9e1f2;
+    --text-strong:   #f4f7ff;
+    --text-muted:    #8b96b8;
+    --accent:        #22d3ee;
+    --accent2:       #a78bfa;
+    --positive:      #34d399;
+    --warn:          #fbbf24;
+    --danger:        #fb7185;
+    --info:          #60a5fa;
+    --radius-s: 8px;
+    --radius-m: 14px;
+    --radius-l: 22px;
+    --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+
+    /* derived, never set directly by worlds */
+    --aurora: linear-gradient(90deg, var(--accent), var(--accent2));
+    --spring: cubic-bezier(.34, 1.56, .64, 1);
+    --shadow-1: 0 1px 2px color-mix(in srgb, var(--bg) 70%, transparent),
+                0 8px 28px color-mix(in srgb, var(--bg) 55%, transparent);
+    --glow-a:  color-mix(in srgb, var(--accent) 14%, transparent);
+    --glow-b:  color-mix(in srgb, var(--accent2) 14%, transparent);
+  }
+
+  /* ─────────────────────── BASE ─────────────────────── */
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: var(--bg); }
+  body {
+    font-family: var(--font-sans);
+    color: var(--text);
+    font-size: 15px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    letter-spacing: .01em;
+    background:
+      radial-gradient(900px 420px at 12% -8%, var(--glow-a), transparent 60%),
+      radial-gradient(900px 420px at 88% -8%, var(--glow-b), transparent 60%),
+      var(--bg);
+    background-attachment: fixed;
+    overflow-x: hidden;
+  }
+  h1, h2, h3 { color: var(--text-strong); font-weight: 650; letter-spacing: -.015em; }
+  a { color: inherit; text-decoration: none; }
+  .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+  .page { max-width: 1180px; margin: 0 auto; padding: 0 28px 80px; }
+  section { margin-top: 56px; }
+  .kicker {
+    font-family: var(--font-mono);
+    font-size: 11px; letter-spacing: .18em; text-transform: uppercase;
+    color: var(--text-muted); margin-bottom: 14px; display: flex; align-items: center; gap: 10px;
+  }
+  .kicker::before {
+    content: ""; width: 18px; height: 2px; border-radius: 2px; background: var(--aurora);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; animation: none !important; }
+  }
+
+  /* ─────────────────────── 1 · TOP NAV + RAIL ─────────────────────── */
+  .nav-wrap { position: sticky; top: 0; z-index: 50; }
+  .nav {
+    display: flex; align-items: center; gap: 28px;
+    padding: 14px 28px;
+    background: var(--bg); /* graceful fallback */
+    background: color-mix(in srgb, var(--bg) 78%, transparent);
+    backdrop-filter: blur(16px) saturate(140%);
+    -webkit-backdrop-filter: blur(16px) saturate(140%);
+  }
+  .brand { display: flex; align-items: center; gap: 11px; margin-right: 8px; }
+  .brand-mark {
+    width: 30px; height: 30px; border-radius: 9px;
+    background: var(--aurora);
+    display: grid; place-items: center;
+    box-shadow: 0 0 18px var(--glow-a), 0 0 30px var(--glow-b);
+    flex: none;
+  }
+  .brand-mark svg { display: block; }
+  .brand-name {
+    font-weight: 750; font-size: 16.5px; letter-spacing: .045em; color: var(--text-strong);
+  }
+  .brand-tag {
+    font-family: var(--font-mono); font-size: 9.5px; letter-spacing: .22em;
+    color: var(--text-muted); border: 1px solid var(--border);
+    border-radius: 999px; padding: 2px 8px; text-transform: uppercase;
+  }
+  .nav-links { display: flex; gap: 4px; flex: 1; }
+  .nav-link {
+    padding: 7px 14px; border-radius: 999px;
+    font-size: 13.5px; font-weight: 520; color: var(--text-muted);
+    transition: color .18s ease, background .18s ease, transform .22s var(--spring);
+  }
+  .nav-link:hover { color: var(--text); background: var(--surface2); transform: translateY(-1px); }
+  .nav-link.active {
+    color: var(--text-strong);
+    background: var(--surface2);
+    background: linear-gradient(var(--surface2), var(--surface2)) padding-box,
+                var(--aurora) border-box;
+    border: 1px solid transparent;
+    box-shadow: 0 0 14px var(--glow-a);
+  }
+  .world-badge {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 6px 13px 6px 8px; border-radius: 999px;
+    border: 1px solid var(--border); background: var(--surface);
+    font-size: 12.5px; font-weight: 560; color: var(--text);
+    cursor: pointer;
+    transition: border-color .18s ease, transform .22s var(--spring), box-shadow .2s ease;
+  }
+  .world-badge:hover { border-color: var(--border-strong); transform: translateY(-1px); box-shadow: var(--shadow-1); }
+  .world-dot {
+    width: 16px; height: 16px; border-radius: 999px;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    box-shadow: 0 0 8px var(--glow-a);
+  }
+  .world-caret { color: var(--text-muted); font-size: 10px; }
+  .avatar {
+    width: 30px; height: 30px; border-radius: 999px;
+    background: var(--surface3); border: 1px solid var(--border-strong);
+    display: grid; place-items: center;
+    font-family: var(--font-mono); font-size: 11px; color: var(--text);
+  }
+  /* the signature rail — 1px aurora gradient + soft under-glow */
+  .rail { position: relative; height: 1px; background:
+    linear-gradient(90deg, transparent, var(--accent) 18%, var(--accent2) 82%, transparent);
+  }
+  .rail::after {
+    content: ""; position: absolute; inset: 0; height: 6px;
+    background: inherit; filter: blur(6px); opacity: .55; pointer-events: none;
+  }
+
+  /* ─────────────────────── 2 · STATUS BAR ─────────────────────── */
+  .statusbar {
+    display: flex; align-items: center; gap: 20px; flex-wrap: wrap;
+    padding: 9px 28px;
+    background: var(--bg);
+    background: color-mix(in srgb, var(--surface) 72%, transparent);
+    border-bottom: 1px solid var(--border);
+    font-family: var(--font-mono); font-size: 11.5px;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-muted);
+  }
+  .mode-badge {
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 3px 11px; border-radius: 999px;
+    background: color-mix(in srgb, var(--positive) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--positive) 35%, transparent);
+    color: var(--positive); letter-spacing: .12em; font-size: 10.5px; font-weight: 600;
+  }
+  .mode-badge .dot { width: 6px; height: 6px; border-radius: 999px; background: var(--positive);
+    box-shadow: 0 0 6px var(--positive); animation: pulse 2.4s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: .45; } }
+  .stat { display: inline-flex; gap: 7px; align-items: baseline; }
+  .stat b { color: var(--text); font-weight: 500; }
+  .statusbar .spacer { flex: 1; }
+  .stat-ok { color: var(--positive); }
+
+  /* ─────────────────────── CARD PRIMITIVES ─────────────────────── */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-m);
+    box-shadow: var(--shadow-1);
+  }
+
+  /* ─────────────────────── 3 · DASHBOARD GRID ─────────────────────── */
+  .dash { display: grid; grid-template-columns: repeat(12, 1fr); gap: 18px; }
+  .hero {
+    grid-column: span 12;
+    position: relative; overflow: hidden;
+    border-radius: var(--radius-l);
+    border: 1px solid transparent;
+    background: linear-gradient(var(--surface), var(--surface)) padding-box,
+                linear-gradient(115deg,
+                  color-mix(in srgb, var(--accent) 55%, var(--border)),
+                  var(--border) 38%,
+                  var(--border) 62%,
+                  color-mix(in srgb, var(--accent2) 55%, var(--border))) border-box;
+    padding: 30px 32px;
+    box-shadow: var(--shadow-1);
+  }
+  .hero::before {
+    content: ""; position: absolute; inset: -40% -10% auto;
+    height: 130%;
+    background:
+      radial-gradient(560px 260px at 18% 0%, var(--glow-a), transparent 65%),
+      radial-gradient(560px 260px at 82% 0%, var(--glow-b), transparent 65%);
+    pointer-events: none;
+  }
+  .hero > * { position: relative; }
+  .hero-top { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+  .hero h2 { font-size: 22px; margin-bottom: 6px; }
+  .hero p { color: var(--text-muted); max-width: 62ch; font-size: 14px; }
+  .hero-meta { display: flex; gap: 26px; margin-top: 22px; flex-wrap: wrap; }
+  .hero-meta .hm { display: flex; flex-direction: column; gap: 3px; }
+  .hero-meta .hm-label {
+    font-family: var(--font-mono); font-size: 10px; letter-spacing: .16em;
+    text-transform: uppercase; color: var(--text-muted);
+  }
+  .hero-meta .hm-val {
+    font-family: var(--font-mono); font-size: 15px; color: var(--text-strong);
+    font-variant-numeric: tabular-nums;
+  }
+  .hero-actions { margin-top: 24px; display: flex; gap: 10px; }
+  .progress {
+    margin-top: 20px; height: 5px; border-radius: 999px;
+    background: var(--surface3); overflow: hidden; max-width: 460px;
+  }
+  .progress i { display: block; height: 100%; width: 64%; border-radius: inherit;
+    background: var(--aurora); box-shadow: 0 0 10px var(--glow-a); }
+
+  /* metric cards */
+  .metric-card {
+    grid-column: span 4;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-m);
+    padding: 20px 22px 16px;
+    box-shadow: var(--shadow-1);
+    transition: transform .26s var(--spring), border-color .2s ease, box-shadow .2s ease;
+  }
+  .metric-card:hover {
+    transform: translateY(-3px);
+    border-color: var(--border-strong);
+    box-shadow: var(--shadow-1), 0 0 24px var(--glow-a);
+  }
+  .metric-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+  .metric-label {
+    font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .16em;
+    text-transform: uppercase; color: var(--text-muted);
+  }
+  .metric-value {
+    font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+    font-size: 34px; font-weight: 600; line-height: 1.1;
+    color: var(--text-strong); letter-spacing: -.02em;
+  }
+  .metric-value small { font-size: 15px; color: var(--text-muted); font-weight: 400; margin-left: 3px; }
+  .metric-value.grad {
+    background: var(--aurora); -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent; color: transparent;
+  }
+  .metric-delta { font-family: var(--font-mono); font-size: 11.5px; margin-top: 6px; }
+  .metric-delta.up { color: var(--positive); }
+  .metric-delta.down { color: var(--danger); }
+  .metric-delta.flat { color: var(--text-muted); }
+  .metric-spark { margin-top: 12px; }
+  .metric-spark svg { display: block; width: 100%; height: 34px; }
+
+  /* activity feed */
+  .feed { grid-column: span 5; padding: 20px 22px; }
+  .panel-title { font-size: 14px; font-weight: 640; color: var(--text-strong); margin-bottom: 14px;
+    display: flex; align-items: center; justify-content: space-between; }
+  .feed-item { display: flex; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--border); }
+  .feed-item:last-child { border-bottom: none; }
+  .feed-time { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted);
+    font-variant-numeric: tabular-nums; flex: none; padding-top: 2px; width: 44px; }
+  .feed-dot { width: 7px; height: 7px; border-radius: 999px; margin-top: 7px; flex: none; }
+  .fd-a { background: var(--accent); box-shadow: 0 0 6px var(--glow-a); }
+  .fd-p { background: var(--positive); }
+  .fd-w { background: var(--warn); }
+  .fd-i { background: var(--info); }
+  .feed-body { font-size: 13px; }
+  .feed-body b { color: var(--text-strong); font-weight: 600; }
+  .feed-body .mono { font-size: 12px; }
+
+  /* experiment table */
+  .exp { grid-column: span 7; padding: 20px 22px; }
+  .table-scroll { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; min-width: 520px; }
+  thead th {
+    text-align: left; font-family: var(--font-mono); font-weight: 500;
+    font-size: 10px; letter-spacing: .16em; text-transform: uppercase;
+    color: var(--text-muted); padding: 8px 10px; border-bottom: 1px solid var(--border-strong);
+  }
+  tbody td {
+    padding: 10px; border-bottom: 1px solid var(--border);
+    font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--text);
+  }
+  tbody tr { transition: background .15s ease; }
+  tbody tr:hover { background: var(--surface2); }
+  tbody tr:last-child td { border-bottom: none; }
+  td.num { text-align: right; }
+  th.num { text-align: right; }
+  .run-id { color: var(--accent); }
+
+  /* ─────────────────────── 4 · CONTROLS ─────────────────────── */
+  .controls-grid { display: grid; grid-template-columns: 1.1fr .9fr; gap: 18px; }
+  .controls { padding: 24px; display: flex; flex-direction: column; gap: 22px; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .lbl { font-family: var(--font-mono); font-size: 10px; letter-spacing: .16em;
+    text-transform: uppercase; color: var(--text-muted); width: 100%; margin-bottom: -12px; }
+
+  .btn {
+    font-family: var(--font-sans); font-size: 13.5px; font-weight: 590;
+    padding: 9px 20px; border-radius: 999px; cursor: pointer;
+    border: 1px solid transparent; letter-spacing: .01em;
+    transition: transform .24s var(--spring), box-shadow .2s ease,
+                background .18s ease, border-color .18s ease, filter .18s ease;
+  }
+  .btn:hover { transform: translateY(-2px); }
+  .btn:active { transform: translateY(0) scale(.98); }
+  .btn-primary {
+    background: var(--aurora); color: var(--bg);
+    font-weight: 680;
+    box-shadow: 0 2px 14px var(--glow-a), 0 2px 14px var(--glow-b);
+  }
+  .btn-primary:hover { filter: brightness(1.08);
+    box-shadow: 0 4px 22px var(--glow-a), 0 4px 22px var(--glow-b); }
+  .btn-ghost {
+    background: transparent; color: var(--text);
+    border-color: var(--border-strong);
+  }
+  .btn-ghost:hover { background: var(--surface2); border-color: var(--accent); }
+  .btn-danger {
+    background: color-mix(in srgb, var(--danger) 14%, transparent);
+    color: var(--danger);
+    border-color: color-mix(in srgb, var(--danger) 40%, transparent);
+  }
+  .btn-danger:hover { background: color-mix(in srgb, var(--danger) 24%, transparent); }
+
+  .field { position: relative; flex: 1; min-width: 240px; }
+  .input {
+    width: 100%; padding: 10px 14px;
+    background: var(--surface2); color: var(--text);
+    border: 1px solid var(--border); border-radius: var(--radius-s);
+    font-family: var(--font-mono); font-size: 13px;
+    transition: border-color .18s ease, box-shadow .18s ease;
+  }
+  .input::placeholder { color: var(--text-muted); }
+  .input:focus {
+    outline: none; border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--glow-a);
+  }
+
+  .pill {
+    display: inline-flex; align-items: center; gap: 7px;
+    font-family: var(--font-mono); font-size: 11px; letter-spacing: .06em;
+    padding: 3px 12px; border-radius: 999px; font-weight: 500;
+  }
+  .pill i { width: 6px; height: 6px; border-radius: 999px; background: currentColor; }
+  .pill-ok    { color: var(--positive);
+    background: color-mix(in srgb, var(--positive) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--positive) 32%, transparent); }
+  .pill-warn  { color: var(--warn);
+    background: color-mix(in srgb, var(--warn) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--warn) 32%, transparent); }
+  .pill-err   { color: var(--danger);
+    background: color-mix(in srgb, var(--danger) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--danger) 32%, transparent); }
+  .pill-info  { color: var(--info);
+    background: color-mix(in srgb, var(--info) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--info) 32%, transparent); }
+
+  /* static modal mockup */
+  .modal-stage {
+    position: relative; min-height: 300px; border-radius: var(--radius-m);
+    overflow: hidden; border: 1px solid var(--border);
+    background:
+      radial-gradient(400px 200px at 30% 20%, var(--glow-a), transparent 60%),
+      var(--surface);
+  }
+  .modal-backdrop {
+    position: absolute; inset: 0;
+    background: color-mix(in srgb, var(--bg) 68%, transparent);
+    backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+    display: grid; place-items: center; padding: 24px;
+  }
+  .modal {
+    width: min(380px, 100%);
+    background: var(--surface3);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-m);
+    box-shadow: 0 24px 60px color-mix(in srgb, var(--bg) 80%, transparent),
+                0 0 0 1px color-mix(in srgb, var(--accent2) 10%, transparent);
+    padding: 22px 24px;
+  }
+  .modal h3 { font-size: 15.5px; margin-bottom: 8px; }
+  .modal p { font-size: 13px; color: var(--text-muted); }
+  .modal p code {
+    font-family: var(--font-mono); font-size: 12px; color: var(--text);
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 6px; padding: 1px 6px;
+  }
+  .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+
+  /* ─────────────────────── 5 · CHAT STRIP ─────────────────────── */
+  .chat { padding: 22px 24px; display: flex; flex-direction: column; gap: 14px; }
+  .msg { display: flex; gap: 12px; max-width: 72%; }
+  .msg.user { align-self: flex-end; flex-direction: row-reverse; }
+  .msg-avatar {
+    width: 32px; height: 32px; border-radius: 999px; flex: none;
+    display: grid; place-items: center;
+    font-family: var(--font-mono); font-size: 11.5px; font-weight: 600;
+  }
+  .msg.assistant .msg-avatar {
+    color: var(--bg); background: var(--aurora);
+    box-shadow: 0 0 12px var(--glow-a);
+  }
+  .msg.user .msg-avatar {
+    color: var(--text); background: var(--surface3); border: 1px solid var(--border-strong);
+  }
+  .bubble {
+    padding: 12px 16px; font-size: 13.5px; line-height: 1.65;
+    border-radius: var(--radius-m);
+  }
+  .msg.user .bubble {
+    background: linear-gradient(135deg,
+      color-mix(in srgb, var(--accent) 16%, var(--surface2)),
+      color-mix(in srgb, var(--accent2) 16%, var(--surface2)));
+    border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--border));
+    border-bottom-right-radius: var(--radius-s);
+    color: var(--text-strong);
+  }
+  .msg.assistant .bubble {
+    background: var(--surface2); border: 1px solid var(--border);
+    border-bottom-left-radius: var(--radius-s);
+  }
+  .bubble .mono { font-size: 12px; color: var(--accent); }
+  .msg-meta { font-family: var(--font-mono); font-size: 10px; color: var(--text-muted);
+    margin-top: 6px; letter-spacing: .08em; }
+  .chat-input-row {
+    display: flex; gap: 10px; align-items: center; margin-top: 8px;
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 999px; padding: 7px 8px 7px 10px;
+    transition: border-color .18s ease, box-shadow .18s ease;
+  }
+  .chat-input-row:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--glow-a); }
+  .compute-chip {
+    display: inline-flex; align-items: center; gap: 8px; flex: none;
+    font-family: var(--font-mono); font-size: 11px;
+    color: var(--text); background: var(--surface3);
+    border: 1px solid var(--border-strong); border-radius: 999px;
+    padding: 6px 13px; cursor: pointer;
+    transition: border-color .18s ease, transform .22s var(--spring);
+  }
+  .compute-chip:hover { border-color: var(--accent); transform: translateY(-1px); }
+  .compute-chip .cs-dot { width: 7px; height: 7px; border-radius: 999px;
+    background: var(--positive); box-shadow: 0 0 6px var(--positive); }
+  .compute-chip .caret { color: var(--text-muted); font-size: 9px; }
+  .chat-text { flex: 1; background: transparent; border: none; color: var(--text);
+    font-family: var(--font-sans); font-size: 13.5px; padding: 6px 4px; }
+  .chat-text:focus { outline: none; }
+  .chat-text::placeholder { color: var(--text-muted); }
+  .send-btn {
+    width: 36px; height: 36px; border-radius: 999px; border: none; cursor: pointer;
+    background: var(--aurora); color: var(--bg);
+    display: grid; place-items: center; flex: none;
+    box-shadow: 0 0 14px var(--glow-a);
+    transition: transform .24s var(--spring), filter .18s ease;
+  }
+  .send-btn:hover { transform: translateY(-2px) scale(1.05); filter: brightness(1.1); }
+
+  /* ─────────────────────── 6 · WORLD SWITCHER (OPEN) ─────────────────────── */
+  .switcher-stage { position: relative; padding: 26px 26px 30px; overflow: visible; }
+  .dropdown {
+    width: min(340px, 100%); margin-top: 12px;
+    background: var(--surface3);
+    background: color-mix(in srgb, var(--surface3) 90%, transparent);
+    backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-m);
+    box-shadow: 0 20px 50px color-mix(in srgb, var(--bg) 78%, transparent);
+    overflow: hidden;
+  }
+  .dropdown-head {
+    padding: 11px 16px 9px;
+    font-family: var(--font-mono); font-size: 10px; letter-spacing: .18em;
+    text-transform: uppercase; color: var(--text-muted);
+    border-bottom: 1px solid var(--border);
+  }
+  .world-item {
+    display: flex; align-items: center; gap: 13px;
+    padding: 12px 16px; cursor: pointer;
+    transition: background .15s ease;
+  }
+  .world-item:hover { background: var(--surface2); }
+  .world-item + .world-item { border-top: 1px solid var(--border); }
+  .world-swatch {
+    width: 26px; height: 26px; border-radius: 8px; flex: none;
+    background: linear-gradient(135deg, var(--sw1), var(--sw2));
+    box-shadow: 0 0 10px color-mix(in srgb, var(--sw1) 30%, transparent),
+                inset 0 0 0 1px color-mix(in srgb, var(--text-strong) 14%, transparent);
+  }
+  .world-name { font-size: 13.5px; font-weight: 600; color: var(--text-strong); }
+  .world-desc { font-size: 11.5px; color: var(--text-muted); }
+  .world-check { margin-left: auto; color: var(--accent); font-size: 13px; }
+  .dropdown-foot {
+    padding: 10px 16px; border-top: 1px solid var(--border);
+    font-family: var(--font-mono); font-size: 10.5px; color: var(--text-muted);
+  }
+  .dropdown-foot b { color: var(--accent2); font-weight: 500; }
+
+  /* ─────────────────────── 7 · THEME PROOF ─────────────────────── */
+  .proof-note { font-size: 13px; color: var(--text-muted); max-width: 74ch; margin-bottom: 18px; }
+  .proof-note code { font-family: var(--font-mono); font-size: 12px; color: var(--accent);
+    background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; padding: 1px 6px; }
+  .proof-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+  .proof-wrap {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-l);
+    padding: 22px;
+  }
+  .proof-wrap .metric-card { grid-column: auto; }
+  .proof-tag {
+    font-family: var(--font-mono); font-size: 10px; letter-spacing: .16em;
+    text-transform: uppercase; color: var(--text-muted); margin-bottom: 14px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .proof-tag i { width: 10px; height: 10px; border-radius: 4px; background: var(--aurora); display: inline-block; }
+
+  /* theme-swap sugar (optional, JS) */
+  .theme-toggles { display: inline-flex; gap: 6px; margin-left: auto; }
+  .tbtn {
+    font-family: var(--font-mono); font-size: 10px; letter-spacing: .1em;
+    padding: 4px 11px; border-radius: 999px; cursor: pointer;
+    color: var(--text-muted); background: var(--surface); border: 1px solid var(--border);
+    transition: color .15s ease, border-color .15s ease;
+  }
+  .tbtn:hover { color: var(--text); border-color: var(--accent); }
+
+  footer { margin-top: 64px; text-align: center;
+    font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); }
+  footer b { background: var(--aurora); -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent; }
+
+  /* responsive */
+  @media (max-width: 940px) {
+    .dash { grid-template-columns: repeat(6, 1fr); }
+    .hero { grid-column: span 6; }
+    .metric-card { grid-column: span 6; }
+    .feed, .exp { grid-column: span 6; }
+    .controls-grid, .proof-grid { grid-template-columns: 1fr; }
+    .nav { flex-wrap: wrap; gap: 12px; }
+    .nav-links { order: 3; width: 100%; overflow-x: auto; }
+    .msg { max-width: 92%; }
+  }
+</style>
+
+<!-- ═══════════════ 1 · TOP NAV + AURORA RAIL ═══════════════ -->
+<div class="nav-wrap">
+  <nav class="nav">
+    <div class="brand">
+      <span class="brand-mark">
+        <svg width="15" height="15" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M2 12 L7.5 2 L13 12" stroke="var(--bg)" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M4.6 8.6 H10.4" stroke="var(--bg)" stroke-width="2.1" stroke-linecap="round"/>
+        </svg>
+      </span>
+      <span class="brand-name">ARAIL</span>
+      <span class="brand-tag">Autoresearch AI Lab</span>
+    </div>
+    <div class="nav-links">
+      <a class="nav-link active" href="#">Dashboard</a>
+      <a class="nav-link" href="#">Chat</a>
+      <a class="nav-link" href="#">Autoresearch</a>
+      <a class="nav-link" href="#">Knowledge</a>
+      <a class="nav-link" href="#">Agents</a>
+    </div>
+    <button class="world-badge" title="Switch World">
+      <span class="world-dot"></span> AI Lab <span class="world-caret">▾</span>
+    </button>
+    <span class="avatar">CD</span>
+  </nav>
+  <div class="rail"></div>
+</div>
+
+<div class="page">
+
+  <!-- ═══════════════ 2 · STATUS BAR ═══════════════ -->
+  <div class="statusbar" style="margin: 0 -28px;">
+    <span class="mode-badge"><span class="dot"></span>AIRGAPPED</span>
+    <span class="stat">gpu.mem <b>9.2</b>/16 GB</span>
+    <span class="stat">tok/s <b>41.7</b></span>
+    <span class="stat">uptime <b>6d 04:12</b></span>
+    <span class="stat">agents <b>3</b> active</span>
+    <span class="spacer"></span>
+    <span class="stat stat-ok">● all systems nominal</span>
+    <span class="theme-toggles">
+      <button class="tbtn" onclick="setWorld('default')">AI LAB</button>
+      <button class="tbtn" onclick="setWorld('kawaii')">KAWAII</button>
+      <button class="tbtn" onclick="setWorld('scholar')">SCHOLAR</button>
+    </span>
+  </div>
+
+  <!-- ═══════════════ 3 · DASHBOARD GRID ═══════════════ -->
+  <section>
+    <div class="kicker">Dashboard · current mission</div>
+    <div class="dash">
+
+      <!-- hero / mission card -->
+      <div class="hero">
+        <div class="hero-top">
+          <span class="pill pill-info"><i></i>autoresearch · running</span>
+          <span class="pill pill-ok"><i></i>local compute</span>
+        </div>
+        <h2>Reduce perplexity on the arXiv-QA eval by 8%</h2>
+        <p>The Researcher agent is sweeping LoRA rank and learning-rate pairs against
+           <span class="mono">llama-ai-eng</span>. Buddy summarizes each run to the Knowledge Base;
+           SRE watches memory headroom. You'll get a digest when the sweep converges.</p>
+        <div class="progress"><i></i></div>
+        <div class="hero-meta">
+          <div class="hm"><span class="hm-label">Sweep</span><span class="hm-val">16 / 25 runs</span></div>
+          <div class="hm"><span class="hm-label">Best Δppl</span><span class="hm-val">−6.34%</span></div>
+          <div class="hm"><span class="hm-label">Elapsed</span><span class="hm-val">03:41:22</span></div>
+          <div class="hm"><span class="hm-label">Cloud cost (sim)</span><span class="hm-val">$0.00</span></div>
+        </div>
+        <div class="hero-actions">
+          <button class="btn btn-primary">Open live run</button>
+          <button class="btn btn-ghost">Pause sweep</button>
+        </div>
+      </div>
+
+      <!-- metric cards -->
+      <article class="metric-card">
+        <div class="metric-head">
+          <span class="metric-label">Tokens / sec</span>
+          <span class="pill pill-ok"><i></i>live</span>
+        </div>
+        <div class="metric-value grad">41.7</div>
+        <div class="metric-delta up">▲ 12.4% vs last run</div>
+        <div class="metric-spark">
+          <svg viewBox="0 0 200 34" preserveAspectRatio="none">
+            <polyline points="0,26 20,24 40,27 60,20 80,22 100,15 120,17 140,10 160,12 180,6 200,8"
+              fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round"/>
+            <polyline points="0,26 20,24 40,27 60,20 80,22 100,15 120,17 140,10 160,12 180,6 200,8 200,34 0,34"
+              fill="var(--accent)" opacity="0.08" stroke="none"/>
+          </svg>
+        </div>
+      </article>
+
+      <article class="metric-card">
+        <div class="metric-head">
+          <span class="metric-label">KB documents</span>
+          <span class="pill pill-info"><i></i>indexed</span>
+        </div>
+        <div class="metric-value">1,284</div>
+        <div class="metric-delta up">▲ 37 ingested today</div>
+        <div class="metric-spark">
+          <svg viewBox="0 0 200 34" preserveAspectRatio="none">
+            <polyline points="0,30 25,28 50,28 75,24 100,23 125,18 150,16 175,11 200,7"
+              fill="none" stroke="var(--accent2)" stroke-width="2" stroke-linecap="round"/>
+            <polyline points="0,30 25,28 50,28 75,24 100,23 125,18 150,16 175,11 200,7 200,34 0,34"
+              fill="var(--accent2)" opacity="0.08" stroke="none"/>
+          </svg>
+        </div>
+      </article>
+
+      <article class="metric-card">
+        <div class="metric-head">
+          <span class="metric-label">GPU memory</span>
+          <span class="pill pill-warn"><i></i>headroom low</span>
+        </div>
+        <div class="metric-value">9.2<small>/ 16 GB</small></div>
+        <div class="metric-delta flat">— steady for 42 min</div>
+        <div class="metric-spark">
+          <svg viewBox="0 0 200 34" preserveAspectRatio="none">
+            <polyline points="0,18 25,17 50,19 75,16 100,17 125,15 150,16 175,15 200,16"
+              fill="none" stroke="var(--warn)" stroke-width="2" stroke-linecap="round"/>
+            <polyline points="0,18 25,17 50,19 75,16 100,17 125,15 150,16 175,15 200,16 200,34 0,34"
+              fill="var(--warn)" opacity="0.08" stroke="none"/>
+          </svg>
+        </div>
+      </article>
+
+      <!-- activity feed -->
+      <div class="card feed">
+        <div class="panel-title">Activity <span class="pill pill-ok"><i></i>streaming</span></div>
+        <div class="feed-item">
+          <span class="feed-time">14:32</span><span class="feed-dot fd-a"></span>
+          <div class="feed-body"><b>Researcher</b> started run <span class="mono">exp-0117</span> · lora_r=16, lr=2e-4</div>
+        </div>
+        <div class="feed-item">
+          <span class="feed-time">14:28</span><span class="feed-dot fd-p"></span>
+          <div class="feed-body"><b>Buddy</b> filed a summary of <span class="mono">exp-0116</span> to the Knowledge Base</div>
+        </div>
+        <div class="feed-item">
+          <span class="feed-time">14:21</span><span class="feed-dot fd-w"></span>
+          <div class="feed-body"><b>SRE</b> flagged GPU headroom &lt; 7 GB — batch size capped at 8</div>
+        </div>
+        <div class="feed-item">
+          <span class="feed-time">14:07</span><span class="feed-dot fd-i"></span>
+          <div class="feed-body">Wiki rebuilt · 3 new pages linked into <span class="mono">lora-sweeps</span></div>
+        </div>
+        <div class="feed-item">
+          <span class="feed-time">13:54</span><span class="feed-dot fd-p"></span>
+          <div class="feed-body"><b>Researcher</b> completed <span class="mono">exp-0116</span> · ppl 8.91 (−6.34%)</div>
+        </div>
+      </div>
+
+      <!-- experiment table -->
+      <div class="card exp">
+        <div class="panel-title">Experiments <span class="pill pill-info"><i></i>sweep 16/25</span></div>
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr><th>Run</th><th>Model</th><th>Config</th><th class="num">tok/s</th><th class="num">ppl</th><th>Status</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="run-id">exp-0117</td><td>llama-ai-eng</td><td>r16 · 2e-4</td>
+                <td class="num">41.7</td><td class="num">—</td>
+                <td><span class="pill pill-info"><i></i>running</span></td>
+              </tr>
+              <tr>
+                <td class="run-id">exp-0116</td><td>llama-ai-eng</td><td>r8 · 3e-4</td>
+                <td class="num">43.1</td><td class="num">8.91</td>
+                <td><span class="pill pill-ok"><i></i>done</span></td>
+              </tr>
+              <tr>
+                <td class="run-id">exp-0115</td><td>ai-engineer-7b</td><td>r16 · 1e-4</td>
+                <td class="num">12.4</td><td class="num">7.02</td>
+                <td><span class="pill pill-ok"><i></i>done</span></td>
+              </tr>
+              <tr>
+                <td class="run-id">exp-0114</td><td>llama-ai-eng</td><td>r32 · 3e-4</td>
+                <td class="num">40.9</td><td class="num">9.44</td>
+                <td><span class="pill pill-warn"><i></i>regressed</span></td>
+              </tr>
+              <tr>
+                <td class="run-id">exp-0113</td><td>llama-ai-eng</td><td>r8 · 5e-4</td>
+                <td class="num">—</td><td class="num">—</td>
+                <td><span class="pill pill-err"><i></i>oom</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ═══════════════ 4 · CONTROLS + MODAL ═══════════════ -->
+  <section>
+    <div class="kicker">Component kit · buttons, input, pills, modal</div>
+    <div class="controls-grid">
+
+      <div class="card controls">
+        <div class="row">
+          <span class="lbl">Buttons</span>
+          <button class="btn btn-primary">Start experiment</button>
+          <button class="btn btn-ghost">View config</button>
+          <button class="btn btn-danger">Stop run</button>
+        </div>
+        <div class="row">
+          <span class="lbl">Input</span>
+          <div class="field">
+            <input class="input" type="text" placeholder="./arailctl pkb ingest paper.pdf" />
+          </div>
+          <button class="btn btn-ghost">Ingest</button>
+        </div>
+        <div class="row">
+          <span class="lbl">Status pills</span>
+          <span class="pill pill-ok"><i></i>healthy</span>
+          <span class="pill pill-warn"><i></i>degraded</span>
+          <span class="pill pill-err"><i></i>failed</span>
+          <span class="pill pill-info"><i></i>queued</span>
+        </div>
+      </div>
+
+      <!-- static modal mockup -->
+      <div class="modal-stage">
+        <div class="modal-backdrop">
+          <div class="modal">
+            <h3>Delete experiment run?</h3>
+            <p><code>exp-0113</code> and its checkpoints (1.2 GB) will be removed from
+               <code>lab/models/runs/</code>. The Knowledge Base summary is kept.</p>
+            <div class="modal-actions">
+              <button class="btn btn-ghost">Cancel</button>
+              <button class="btn btn-danger">Delete run</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ═══════════════ 5 · CHAT STRIP ═══════════════ -->
+  <section>
+    <div class="kicker">Chat · compute source pivot</div>
+    <div class="card chat">
+      <div class="msg user">
+        <span class="msg-avatar">CD</span>
+        <div>
+          <div class="bubble">Why did exp-0113 OOM when exp-0114 ran fine with a bigger rank?</div>
+          <div class="msg-meta" style="text-align:right;">14:35 · you</div>
+        </div>
+      </div>
+      <div class="msg assistant">
+        <span class="msg-avatar">B</span>
+        <div>
+          <div class="bubble">
+            The higher learning rate isn't the culprit — <span class="mono">exp-0113</span> ran at
+            batch&nbsp;16 before SRE capped it, while <span class="mono">exp-0114</span> started after
+            the cap. Peak activation memory scales with batch, not LoRA rank. Re-queue it at
+            batch&nbsp;8 and it should fit with ~1.8&nbsp;GB headroom.
+          </div>
+          <div class="msg-meta">14:35 · Buddy · llama-ai-eng · local</div>
+        </div>
+      </div>
+      <div class="chat-input-row">
+        <button class="compute-chip" title="Compute Source">
+          <span class="cs-dot"></span> My Machine · llama-ai-eng <span class="caret">▾</span>
+        </button>
+        <input class="chat-text" type="text" placeholder="Ask Buddy anything about your lab…" />
+        <button class="send-btn" title="Send">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M2 7 H11 M7.5 3 L11.5 7 L7.5 11" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════ 6 · WORLD SWITCHER (OPEN) ═══════════════ -->
+  <section>
+    <div class="kicker">World switcher · dropdown open state</div>
+    <div class="card switcher-stage">
+      <button class="world-badge">
+        <span class="world-dot"></span> AI Lab <span class="world-caret">▴</span>
+      </button>
+      <div class="dropdown">
+        <div class="dropdown-head">Switch World</div>
+        <div class="world-item" style="--sw1:#22d3ee; --sw2:#a78bfa;">
+          <span class="world-swatch"></span>
+          <span>
+            <span class="world-name">AI Lab</span><br/>
+            <span class="world-desc">default · aurora console</span>
+          </span>
+          <span class="world-check">✓</span>
+        </div>
+        <div class="world-item" style="--sw1:#ff7ac2; --sw2:#ffb86b;">
+          <span class="world-swatch"></span>
+          <span>
+            <span class="world-name">Kawaii Lab</span><br/>
+            <span class="world-desc">pink · playful · extra-round</span>
+          </span>
+        </div>
+        <div class="world-item" style="--sw1:#8b7cf6; --sw2:#d4b06a;">
+          <span class="world-swatch"></span>
+          <span>
+            <span class="world-name">Art History</span><br/>
+            <span class="world-desc">scholarly violet · gilt accents</span>
+          </span>
+        </div>
+        <div class="dropdown-foot">Worlds repaint <b>:root tokens only</b> — layout never changes.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════ 7 · THEME PROOF ROW ═══════════════ -->
+  <section>
+    <div class="kicker">Theme proof · identical markup, tokens swapped</div>
+    <p class="proof-note">
+      The three cards below are the <em>same metric-card markup</em>, byte for byte. Each wrapper
+      overrides tokens inline (<code>style="--accent:… --bg:… --radius-m:…"</code>) exactly the way a
+      World theme would override <code>:root</code>. Hue, glow temperature and corner personality all
+      travel through the tokens; the layout doesn't move a pixel.
+    </p>
+    <div class="proof-grid">
+
+      <!-- default: sharp technical -->
+      <div class="proof-wrap">
+        <div class="proof-tag"><i></i>AI Lab · default</div>
+        <article class="metric-card">
+          <div class="metric-head">
+            <span class="metric-label">Tokens / sec</span>
+            <span class="pill pill-ok"><i></i>live</span>
+          </div>
+          <div class="metric-value grad">41.7</div>
+          <div class="metric-delta up">▲ 12.4% vs last run</div>
+          <div class="metric-spark">
+            <svg viewBox="0 0 200 34" preserveAspectRatio="none">
+              <polyline points="0,26 20,24 40,27 60,20 80,22 100,15 120,17 140,10 160,12 180,6 200,8"
+                fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round"/>
+              <polyline points="0,26 20,24 40,27 60,20 80,22 100,15 120,17 140,10 160,12 180,6 200,8 200,34 0,34"
+                fill="var(--accent)" opacity="0.08" stroke="none"/>
+            </svg>
+          </div>
+        </article>
+      </div>
+
+      <!-- kawaii: pink playful, extra-round -->
+      <div class="proof-wrap" style="
+        --bg:#1c0f1b; --surface:#271429; --surface2:#321a35; --surface3:#3d2141;
+        --border:#4a2646; --border-strong:#6b3a63;
+        --text:#f8e7f1; --text-strong:#fff6fb; --text-muted:#cf9dbd;
+        --accent:#ff7ac2; --accent2:#ffb86b;
+        --positive:#5eeaa4; --warn:#ffd166; --danger:#ff6b8b; --info:#8ecbff;
+        --radius-s:14px; --radius-m:24px; --radius-l:32px;">
+        <div class="proof-tag"><i></i>Kawaii Lab · pink playful</div>
+        <article class="metric-card">
+          <div class="metric-head">
+            <span class="metric-label">Tokens / sec</span>
+            <span class="pill pill-ok"><i></i>live</span>
+          </div>
+          <div class="metric-value grad">41.7</div>
+          <div class="metric-delta up">▲ 12.4% vs last run</div>
+          <div class="metric-spark">
+            <svg viewBox="0 0 200 34" preserveAspectRatio="none">
+              <polyline points="0,26 20,24 40,27 60,20 80,22 100,15 120,17 140,10 160,12 180,6 200,8"
+                fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round"/>
+              <polyline points="0,26 20,24 40,27 60,20 80,22 100,15 120,17 140,10 160,12 180,6 200,8 200,34 0,34"
+                fill="var(--accent)" opacity="0.08" stroke="none"/>
+            </svg>
+          </div>
+        </article>
+      </div>
+
+      <!-- scholarly: violet + gilt, bookish square -->
+      <div class="proof-wrap" style="
+        --bg:#141021; --surface:#1c172c; --surface2:#241e38; --surface3:#2d2645;
+        --border:#352c50; --border-strong:#4f4374;
+        --text:#e6e0f2; --text-strong:#f7f4ff; --text-muted:#a396c4;
+        --accent:#8b7cf6; --accent2:#d4b06a;
+        --positive:#7bd8a8; --warn:#e0b653; --danger:#e07a8a; --info:#7f9fe8;
+        --radius-s:5px; --radius-m:8px; --radius-l:12px;">
+        <div class="proof-tag"><i></i>Art History · scholarly violet</div>
+        <article class="metric-card">
+          <div class="metric-head">
+            <span class="metric-label">Tokens / sec</span>
+            <span class="pill pill-ok"><i></i>live</span>
+          </div>
+          <div class="metric-value grad">41.7</div>
+          <div class="metric-delta up">▲ 12.4% vs last run</div>
+          <div class="metric-spark">
+            <svg viewBox="0 0 200 34" preserveAspectRatio="none">
+              <polyline points="0,26 20,24 40,27 60,20 80,22 100,15 120,17 140,10 160,12 180,6 200,8"
+                fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round"/>
+              <polyline points="0,26 20,24 40,27 60,20 80,22 100,15 120,17 140,10 160,12 180,6 200,8 200,34 0,34"
+                fill="var(--accent)" opacity="0.08" stroke="none"/>
+            </svg>
+          </div>
+        </article>
+      </div>
+
+    </div>
+  </section>
+
+  <footer>concept 4 · <b>aurora console</b> · one :root, many worlds</footer>
+</div>
+
+<script>
+  /* Optional sugar: global World swap. Repaints by writing :root token values ONLY —
+     identical mechanism to the static wrapper proof above. Delete freely; nothing breaks. */
+  const WORLDS = {
+    default: {},
+    kawaii: {
+      '--bg':'#1c0f1b','--surface':'#271429','--surface2':'#321a35','--surface3':'#3d2141',
+      '--border':'#4a2646','--border-strong':'#6b3a63',
+      '--text':'#f8e7f1','--text-strong':'#fff6fb','--text-muted':'#cf9dbd',
+      '--accent':'#ff7ac2','--accent2':'#ffb86b',
+      '--positive':'#5eeaa4','--warn':'#ffd166','--danger':'#ff6b8b','--info':'#8ecbff',
+      '--radius-s':'14px','--radius-m':'24px','--radius-l':'32px'
+    },
+    scholar: {
+      '--bg':'#141021','--surface':'#1c172c','--surface2':'#241e38','--surface3':'#2d2645',
+      '--border':'#352c50','--border-strong':'#4f4374',
+      '--text':'#e6e0f2','--text-strong':'#f7f4ff','--text-muted':'#a396c4',
+      '--accent':'#8b7cf6','--accent2':'#d4b06a',
+      '--positive':'#7bd8a8','--warn':'#e0b653','--danger':'#e07a8a','--info':'#7f9fe8',
+      '--radius-s':'5px','--radius-m':'8px','--radius-l':'12px'
+    }
+  };
+  const TOKEN_KEYS = Object.keys(WORLDS.kawaii);
+  function setWorld(name) {
+    const root = document.documentElement.style;
+    TOKEN_KEYS.forEach(k => root.removeProperty(k));
+    Object.entries(WORLDS[name] || {}).forEach(([k, v]) => root.setProperty(k, v));
+  }
+</script>

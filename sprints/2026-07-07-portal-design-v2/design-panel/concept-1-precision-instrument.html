@@ -1,0 +1,790 @@
+<!--
+  ============================================================================
+  CONCEPT 1 — PRECISION INSTRUMENT
+  ============================================================================
+
+  Design rationale (3 sentences):
+  ARAIL should feel like sitting down at serious equipment — an aerospace
+  flight deck or a bench oscilloscope — so every surface is a near-black
+  blue slab with hairline borders, tight 4–6px radii, and one confident
+  electric-cyan accent that is spent almost entirely on live data and the
+  signature rail. Reading text is quiet Inter sans; anything measured —
+  numerals, IDs, timestamps, micro-labels — is JetBrains Mono in uppercase
+  wide-tracked captions, which gives the lab its technical edge without a
+  single scanline or glow-soup effect (exactly one glow exists, on the LIVE
+  indicator). Because the entire look is painted from :root tokens, swapping
+  the palette (and radius personality) re-skins the same layout into Kawaii
+  pink or scholarly violet without touching a line of markup — proven in the
+  theme-proof row at the bottom.
+
+  Token values (default "AI Lab" theme):
+    --bg:             #0A0F16   near-black blue, the deck
+    --surface:        #0F1621   primary card slab
+    --surface2:       #141D2B   raised elements, table header, chips
+    --surface3:       #1A2536   highest elevation: modal, dropdown
+    --border:         #1E2A3B   hairline
+    --border-strong:  #2E405A   focused / interactive hairline
+    --text:           #C7D3E2   body reading text  (≈11.7:1 on --bg)
+    --text-strong:    #EEF4FB   headings, key numerals
+    --text-muted:     #7D8DA3   micro-labels, secondary
+    --accent:         #2AD4FF   electric cyan — live data, primary action
+    --accent2:        #5B8CFF   rail second stop, gradient partner
+    --positive:       #35D992   ok / pass
+    --warn:           #F5B83D   caution
+    --danger:         #FF5C6A   fail / destructive
+    --info:           #6FA8FF   informational
+    --radius-s:       4px
+    --radius-m:       6px
+    --radius-l:       10px
+    --font-sans:      'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif
+    --font-mono:      'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace
+  ============================================================================
+-->
+<title>ARAIL — Concept 1: Precision Instrument</title>
+<style>
+  /* ==================== TOKENS — the only thing a World may change =========== */
+  :root {
+    --bg:            #0A0F16;
+    --surface:       #0F1621;
+    --surface2:      #141D2B;
+    --surface3:      #1A2536;
+    --border:        #1E2A3B;
+    --border-strong: #2E405A;
+    --text:          #C7D3E2;
+    --text-strong:   #EEF4FB;
+    --text-muted:    #7D8DA3;
+    --accent:        #2AD4FF;
+    --accent2:       #5B8CFF;
+    --positive:      #35D992;
+    --warn:          #F5B83D;
+    --danger:        #FF5C6A;
+    --info:          #6FA8FF;
+    --radius-s: 4px;
+    --radius-m: 6px;
+    --radius-l: 10px;
+    --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  }
+
+  /* ==================== BASE ==================== */
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: var(--bg); }
+  body {
+    font-family: var(--font-sans);
+    color: var(--text);
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  .page { max-width: 1180px; margin: 0 auto; padding: 0 28px 72px; }
+
+  /* mono micro-label — the signature typographic move of this concept */
+  .micro {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+  .mono { font-family: var(--font-mono); }
+  .num  { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+  /* spec-sheet section headers for this mockup */
+  .spec {
+    display: flex; align-items: center; gap: 14px;
+    margin: 44px 0 18px;
+  }
+  .spec .micro { color: var(--accent); }
+  .spec::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+
+  /* ==================== 01 · TOP NAV + RAIL ==================== */
+  .nav-wrap { position: relative; }
+  .nav {
+    display: flex; align-items: center; gap: 28px;
+    padding: 14px 0 13px;
+  }
+  .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; }
+  .brand-mark {
+    width: 26px; height: 26px; border-radius: var(--radius-s);
+    border: 1px solid var(--border-strong);
+    background: var(--surface2);
+    display: grid; place-items: center; flex: none;
+  }
+  .brand-name {
+    font-family: var(--font-mono); font-size: 14px; font-weight: 700;
+    letter-spacing: 0.10em; color: var(--text-strong);
+  }
+  .brand-name em { font-style: normal; color: var(--accent); }
+  .nav-links { display: flex; gap: 4px; margin-left: 12px; }
+  .nav-link {
+    font-size: 13px; font-weight: 500; color: var(--text-muted);
+    text-decoration: none; padding: 6px 12px; border-radius: var(--radius-s);
+    border: 1px solid transparent;
+  }
+  .nav-link:hover { color: var(--text); background: var(--surface); }
+  .nav-link.active {
+    color: var(--text-strong); background: var(--surface2);
+    border-color: var(--border);
+  }
+  .nav-spacer { flex: 1; }
+
+  /* world switcher badge (closed) */
+  .world-badge {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em;
+    color: var(--text); background: var(--surface);
+    border: 1px solid var(--border); border-radius: var(--radius-m);
+    padding: 6px 12px; cursor: pointer;
+  }
+  .world-badge:hover { border-color: var(--border-strong); }
+  .world-badge .caret { color: var(--text-muted); font-size: 9px; }
+  .swatch {
+    width: 14px; height: 14px; border-radius: 4px; flex: none;
+    background: linear-gradient(135deg, var(--sw1, var(--accent)), var(--sw2, var(--accent2)));
+    border: 1px solid var(--border-strong);
+  }
+
+  /* the signature rail: 1px gradient under the nav */
+  .rail {
+    height: 1px;
+    background: linear-gradient(90deg,
+      transparent 0%, var(--accent) 18%, var(--accent2) 82%, transparent 100%);
+  }
+
+  /* ==================== 02 · STATUS BAR ==================== */
+  .statusbar {
+    display: flex; align-items: center; gap: 22px; flex-wrap: wrap;
+    padding: 9px 0; border-bottom: 1px solid var(--border);
+    font-family: var(--font-mono); font-size: 11px;
+    font-variant-numeric: tabular-nums; letter-spacing: 0.04em;
+  }
+  .mode-badge {
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 3px 10px; border-radius: var(--radius-s);
+    border: 1px solid color-mix(in srgb, var(--positive) 40%, transparent);
+    background: color-mix(in srgb, var(--positive) 9%, transparent);
+    color: var(--positive); font-size: 10px; letter-spacing: 0.14em;
+    text-transform: uppercase; font-weight: 600;
+  }
+  /* THE one permitted glow — live indicator only */
+  .dot-live {
+    width: 6px; height: 6px; border-radius: 50%; background: var(--positive);
+    box-shadow: 0 0 6px var(--positive);
+    animation: pulse 2.4s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.45; } }
+  .stat { color: var(--text-muted); }
+  .stat b { color: var(--text); font-weight: 500; }
+  .stat .up { color: var(--positive); }
+  .statusbar .push { margin-left: auto; }
+
+  /* ==================== CARD PRIMITIVE ==================== */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-m);
+  }
+
+  /* ==================== 03 · DASHBOARD GRID ==================== */
+  .dash {
+    display: grid; gap: 14px;
+    grid-template-columns: repeat(3, 1fr);
+    grid-template-areas:
+      "hero hero hero"
+      "m1 m2 m3"
+      "feed feed table";
+  }
+  @media (max-width: 880px) {
+    .dash { grid-template-columns: 1fr;
+      grid-template-areas: "hero" "m1" "m2" "m3" "feed" "table"; }
+  }
+
+  /* hero / mission card */
+  .hero { grid-area: hero; padding: 22px 24px 20px; position: relative; overflow: hidden; }
+  .hero .ruler {
+    position: absolute; top: 0; left: 0; right: 0; height: 7px;
+    background:
+      repeating-linear-gradient(90deg,
+        var(--border) 0 1px, transparent 1px 12px);
+    opacity: 0.9;
+  }
+  .hero-head { display: flex; align-items: baseline; gap: 14px; margin-top: 6px; }
+  .hero h1 {
+    font-size: 21px; font-weight: 600; letter-spacing: -0.01em;
+    color: var(--text-strong); margin: 6px 0 4px;
+  }
+  .hero p { color: var(--text-muted); font-size: 13px; max-width: 62ch; }
+  .hero-meta {
+    display: flex; gap: 26px; margin-top: 16px; flex-wrap: wrap;
+    font-family: var(--font-mono); font-size: 11px;
+    font-variant-numeric: tabular-nums; color: var(--text-muted);
+  }
+  .hero-meta b { color: var(--text); font-weight: 500; }
+  .progress {
+    margin-top: 14px; height: 3px; border-radius: 2px;
+    background: var(--surface2); overflow: hidden;
+  }
+  .progress > i {
+    display: block; height: 100%; width: 64%;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+  }
+
+  /* metric cards */
+  .metric { padding: 16px 18px 14px; display: flex; flex-direction: column; gap: 8px; }
+  .m1 { grid-area: m1; } .m2 { grid-area: m2; } .m3 { grid-area: m3; }
+  .metric-top { display: flex; align-items: center; justify-content: space-between; }
+  .metric-val {
+    font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+    font-size: 30px; font-weight: 600; line-height: 1.05;
+    color: var(--text-strong); letter-spacing: -0.02em;
+  }
+  .metric-val small {
+    font-size: 13px; font-weight: 500; color: var(--text-muted);
+    margin-left: 4px; letter-spacing: 0;
+  }
+  .delta {
+    font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em;
+    padding: 2px 7px; border-radius: var(--radius-s);
+  }
+  .delta.up   { color: var(--positive); background: color-mix(in srgb, var(--positive) 10%, transparent); }
+  .delta.down { color: var(--danger);   background: color-mix(in srgb, var(--danger) 10%, transparent); }
+  .spark { width: 100%; height: 30px; display: block; }
+
+  /* activity feed */
+  .feed { grid-area: feed; padding: 16px 18px; }
+  .feed-list { margin-top: 12px; display: flex; flex-direction: column; }
+  .feed-item {
+    display: flex; gap: 14px; align-items: baseline;
+    padding: 8px 0; border-top: 1px solid var(--border);
+    font-size: 13px;
+  }
+  .feed-item:first-child { border-top: 0; }
+  .feed-time {
+    font-family: var(--font-mono); font-size: 11px;
+    font-variant-numeric: tabular-nums; color: var(--text-muted); flex: none;
+  }
+  .feed-agent {
+    font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.10em;
+    text-transform: uppercase; color: var(--accent); flex: none; width: 86px;
+  }
+  .feed-item span:last-child { color: var(--text); }
+
+  /* experiment table */
+  .exp { grid-area: table; padding: 16px 18px; overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+  th {
+    font-family: var(--font-mono); font-size: 10px; font-weight: 500;
+    letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--text-muted); text-align: left;
+    padding: 6px 10px 8px; border-bottom: 1px solid var(--border-strong);
+  }
+  td {
+    padding: 8px 10px; border-bottom: 1px solid var(--border);
+    font-size: 12.5px; color: var(--text);
+  }
+  tr:last-child td { border-bottom: 0; }
+  td.num, th.num { text-align: right; }
+  td.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+  td.id { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); }
+
+  /* ==================== 04 · CONTROLS ==================== */
+  .controls {
+    display: flex; gap: 28px; flex-wrap: wrap; align-items: flex-start;
+  }
+  .control-group { display: flex; flex-direction: column; gap: 10px; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+
+  .btn {
+    font-family: var(--font-sans); font-size: 13px; font-weight: 600;
+    padding: 8px 18px; border-radius: var(--radius-s); cursor: pointer;
+    border: 1px solid transparent; letter-spacing: 0.01em;
+  }
+  .btn-primary { background: var(--accent); color: var(--bg); }
+  .btn-primary:hover { filter: brightness(1.1); }
+  .btn-ghost {
+    background: transparent; color: var(--text);
+    border-color: var(--border-strong);
+  }
+  .btn-ghost:hover { background: var(--surface2); }
+  .btn-danger {
+    background: transparent; color: var(--danger);
+    border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+  }
+  .btn-danger:hover { background: color-mix(in srgb, var(--danger) 10%, transparent); }
+
+  .field { display: flex; flex-direction: column; gap: 6px; min-width: 260px; }
+  .input {
+    font-family: var(--font-mono); font-size: 12.5px;
+    background: var(--surface); color: var(--text);
+    border: 1px solid var(--border); border-radius: var(--radius-s);
+    padding: 9px 12px; outline: none; width: 100%;
+  }
+  .input::placeholder { color: var(--text-muted); }
+  .input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
+  }
+
+  .pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-family: var(--font-mono); font-size: 10px; font-weight: 600;
+    letter-spacing: 0.12em; text-transform: uppercase;
+    padding: 3px 10px; border-radius: var(--radius-s);
+  }
+  .pill i { width: 5px; height: 5px; border-radius: 50%; }
+  .pill-ok    { color: var(--positive); background: color-mix(in srgb, var(--positive) 9%, transparent);
+                border: 1px solid color-mix(in srgb, var(--positive) 35%, transparent); }
+  .pill-ok i  { background: var(--positive); }
+  .pill-warn  { color: var(--warn); background: color-mix(in srgb, var(--warn) 9%, transparent);
+                border: 1px solid color-mix(in srgb, var(--warn) 35%, transparent); }
+  .pill-warn i{ background: var(--warn); }
+  .pill-err   { color: var(--danger); background: color-mix(in srgb, var(--danger) 9%, transparent);
+                border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent); }
+  .pill-err i { background: var(--danger); }
+
+  /* static modal mockup */
+  .modal-stage {
+    flex: 1; min-width: 340px; border-radius: var(--radius-m);
+    border: 1px solid var(--border);
+    background: color-mix(in srgb, var(--bg) 55%, black);
+    padding: 34px; display: grid; place-items: center;
+  }
+  .modal {
+    width: 100%; max-width: 380px;
+    background: var(--surface3); border: 1px solid var(--border-strong);
+    border-radius: var(--radius-l);
+    box-shadow: 0 24px 60px color-mix(in srgb, black 55%, transparent);
+    overflow: hidden;
+  }
+  .modal-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 18px; border-bottom: 1px solid var(--border);
+  }
+  .modal-title { font-size: 14px; font-weight: 600; color: var(--text-strong); }
+  .modal-x { color: var(--text-muted); font-family: var(--font-mono); font-size: 12px; }
+  .modal-body { padding: 18px; display: flex; flex-direction: column; gap: 12px; }
+  .modal-body p { font-size: 13px; color: var(--text-muted); }
+  .modal-foot {
+    display: flex; justify-content: flex-end; gap: 10px;
+    padding: 14px 18px; border-top: 1px solid var(--border);
+    background: color-mix(in srgb, var(--surface2) 60%, transparent);
+  }
+
+  /* ==================== 05 · CHAT STRIP ==================== */
+  .chat { padding: 18px; display: flex; flex-direction: column; gap: 14px; }
+  .msg { display: flex; flex-direction: column; gap: 4px; max-width: 66%; }
+  .msg-user { align-self: flex-end; align-items: flex-end; }
+  .msg-bot  { align-self: flex-start; }
+  .bubble {
+    padding: 10px 14px; font-size: 13.5px; line-height: 1.5;
+    border-radius: var(--radius-m); border: 1px solid var(--border);
+  }
+  .msg-user .bubble {
+    background: var(--surface2);
+    border-color: var(--border-strong);
+    border-bottom-right-radius: var(--radius-s);
+    color: var(--text-strong);
+  }
+  .msg-bot .bubble {
+    background: var(--surface);
+    border-bottom-left-radius: var(--radius-s);
+  }
+  .msg .who { display: flex; gap: 8px; align-items: baseline; }
+  .bubble .mono-inline {
+    font-family: var(--font-mono); font-size: 12px; color: var(--accent);
+    font-variant-numeric: tabular-nums;
+  }
+  .chat-inputrow {
+    display: flex; gap: 10px; align-items: center;
+    border-top: 1px solid var(--border); padding-top: 14px;
+  }
+  .chip {
+    display: inline-flex; align-items: center; gap: 7px; flex: none;
+    font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.06em;
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 7%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+    border-radius: var(--radius-s); padding: 7px 11px; cursor: pointer;
+  }
+  .chip i { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
+  .chip .caret { color: var(--text-muted); font-size: 8px; }
+
+  /* ==================== 06 · WORLD SWITCHER (OPEN) ==================== */
+  .switcher-demo { display: flex; gap: 40px; align-items: flex-start; flex-wrap: wrap; }
+  .dropdown {
+    width: 300px; margin-top: 8px;
+    background: var(--surface3); border: 1px solid var(--border-strong);
+    border-radius: var(--radius-m);
+    box-shadow: 0 18px 44px color-mix(in srgb, black 50%, transparent);
+    overflow: hidden;
+  }
+  .dropdown-head { padding: 10px 14px 8px; border-bottom: 1px solid var(--border); }
+  .world-item {
+    display: flex; align-items: center; gap: 12px;
+    padding: 11px 14px; cursor: pointer;
+    border-top: 1px solid var(--border);
+  }
+  .world-item:first-of-type { border-top: 0; }
+  .world-item:hover { background: var(--surface2); }
+  .world-item .swatch { width: 22px; height: 22px; border-radius: 6px; }
+  .world-name { font-size: 13px; font-weight: 600; color: var(--text-strong); }
+  .world-sub {
+    font-family: var(--font-mono); font-size: 10px;
+    letter-spacing: 0.08em; color: var(--text-muted);
+  }
+  .world-item .check { margin-left: auto; color: var(--accent); font-family: var(--font-mono); font-size: 12px; }
+  .dropdown-foot {
+    padding: 9px 14px; border-top: 1px solid var(--border);
+    background: color-mix(in srgb, var(--surface2) 60%, transparent);
+  }
+
+  /* ==================== 07 · THEME PROOF ==================== */
+  .proof-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+  @media (max-width: 880px) { .proof-row { grid-template-columns: 1fr; } }
+  .proof-wrap {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-l);
+    padding: 18px;
+    color: var(--text);
+    font-family: var(--font-sans);
+  }
+  .proof-wrap .micro { color: var(--text-muted); }
+  .proof-label { margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; }
+  .proof-label .micro:first-child { color: var(--accent); }
+
+  .note { color: var(--text-muted); font-size: 12.5px; margin-top: 10px; max-width: 78ch; }
+</style>
+
+<div class="page">
+
+  <!-- ============ 01 · TOP NAV + RAIL ============ -->
+  <div class="nav-wrap">
+    <nav class="nav">
+      <a class="brand" href="#">
+        <span class="brand-mark">
+          <svg width="14" height="14" viewBox="0 0 14 14" xmlns="http://www.w3.org/2000/svg">
+            <path d="M2 12 L7 2 L12 12" fill="none" style="stroke:var(--accent)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+            <line x1="4.4" y1="8.6" x2="9.6" y2="8.6" style="stroke:var(--accent2)" stroke-width="1.4" stroke-linecap="round"/>
+          </svg>
+        </span>
+        <span class="brand-name">AR<em>AI</em>L</span>
+      </a>
+      <div class="nav-links">
+        <a class="nav-link active" href="#">Dashboard</a>
+        <a class="nav-link" href="#">Chat</a>
+        <a class="nav-link" href="#">Autoresearch</a>
+        <a class="nav-link" href="#">Knowledge</a>
+        <a class="nav-link" href="#">Agents</a>
+      </div>
+      <div class="nav-spacer"></div>
+      <button class="world-badge">
+        <span class="swatch"></span>
+        WORLD · AI LAB
+        <span class="caret">▾</span>
+      </button>
+    </nav>
+    <div class="rail"></div>
+  </div>
+
+  <!-- ============ 02 · STATUS BAR ============ -->
+  <div class="statusbar">
+    <span class="mode-badge"><span class="dot-live"></span>AIRGAPPED</span>
+    <span class="stat">MODEL <b>llama-ai-eng</b></span>
+    <span class="stat">TOK/S <b class="up">41.7</b></span>
+    <span class="stat">MEM <b>9.2 / 16.0 GB</b></span>
+    <span class="stat">AGENTS <b>3 ACTIVE</b></span>
+    <span class="stat push">UPTIME <b>03:12:44</b></span>
+  </div>
+
+  <!-- ============ 03 · DASHBOARD GRID ============ -->
+  <div class="spec"><span class="micro">03 / Dashboard</span></div>
+  <div class="dash">
+
+    <section class="card hero">
+      <div class="ruler"></div>
+      <div class="hero-head">
+        <span class="micro">Current goal · Autoresearch</span>
+        <span class="pill pill-ok" style="margin-left:auto"><i></i>Running</span>
+      </div>
+      <h1>Reduce KB retrieval latency below 120 ms at k=8</h1>
+      <p>The Researcher agent is sweeping LanceDB index parameters against the
+         evaluation corpus. Two candidate configurations beat baseline; a third
+         sweep over quantization settings is queued.</p>
+      <div class="progress"><i></i></div>
+      <div class="hero-meta">
+        <span>RUN <b>017 / 024</b></span>
+        <span>BEST <b>134 ms</b></span>
+        <span>BASELINE <b>212 ms</b></span>
+        <span>ETA <b>~46 MIN</b></span>
+        <span>COST (SIM) <b>$0.00</b></span>
+      </div>
+    </section>
+
+    <section class="card metric m1">
+      <div class="metric-top"><span class="micro">Tokens / sec</span><span class="delta up">+6.2%</span></div>
+      <div class="metric-val">41.7</div>
+      <svg class="spark" viewBox="0 0 200 30" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+        <polyline points="0,24 20,22 40,23 60,18 80,19 100,14 120,16 140,10 160,12 180,7 200,8"
+          fill="none" style="stroke:var(--accent)" stroke-width="1.5"/>
+      </svg>
+    </section>
+
+    <section class="card metric m2">
+      <div class="metric-top"><span class="micro">Experiments today</span><span class="delta up">+3</span></div>
+      <div class="metric-val">17<small>/ 24</small></div>
+      <svg class="spark" viewBox="0 0 200 30" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+        <polyline points="0,27 25,25 50,25 75,20 100,17 125,15 150,11 175,9 200,6"
+          fill="none" style="stroke:var(--accent)" stroke-width="1.5"/>
+      </svg>
+    </section>
+
+    <section class="card metric m3">
+      <div class="metric-top"><span class="micro">KB documents</span><span class="delta down">-2 stale</span></div>
+      <div class="metric-val">1,284</div>
+      <svg class="spark" viewBox="0 0 200 30" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+        <polyline points="0,20 25,19 50,16 75,17 100,13 125,14 150,12 175,10 200,10"
+          fill="none" style="stroke:var(--accent)" stroke-width="1.5"/>
+      </svg>
+    </section>
+
+    <section class="card feed">
+      <span class="micro">Activity</span>
+      <div class="feed-list">
+        <div class="feed-item">
+          <span class="feed-time">14:32:07</span>
+          <span class="feed-agent">Researcher</span>
+          <span>Run 017 complete — retrieval 134 ms (best so far), logged to ledger.</span>
+        </div>
+        <div class="feed-item">
+          <span class="feed-time">14:28:41</span>
+          <span class="feed-agent">Buddy</span>
+          <span>Summarized 3 new papers from the inbox into the Knowledge Base.</span>
+        </div>
+        <div class="feed-item">
+          <span class="feed-time">14:15:02</span>
+          <span class="feed-agent">SRE</span>
+          <span>Memory pressure normal after model reload — no action needed.</span>
+        </div>
+        <div class="feed-item">
+          <span class="feed-time">13:58:19</span>
+          <span class="feed-agent">Researcher</span>
+          <span>Queued sweep over IVF-PQ quantization settings (runs 018–024).</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="card exp">
+      <span class="micro">Experiments</span>
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th><th>Config</th>
+            <th class="num">Latency</th><th class="num">Recall</th><th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="id">exp-017</td><td>ivf-pq · k=8</td>
+            <td class="num">134 ms</td><td class="num">0.943</td>
+            <td><span class="pill pill-ok"><i></i>Pass</span></td>
+          </tr>
+          <tr>
+            <td class="id">exp-016</td><td>hnsw · ef=64</td>
+            <td class="num">151 ms</td><td class="num">0.951</td>
+            <td><span class="pill pill-ok"><i></i>Pass</span></td>
+          </tr>
+          <tr>
+            <td class="id">exp-015</td><td>hnsw · ef=32</td>
+            <td class="num">118 ms</td><td class="num">0.887</td>
+            <td><span class="pill pill-warn"><i></i>Recall</span></td>
+          </tr>
+          <tr>
+            <td class="id">exp-014</td><td>flat · fp16</td>
+            <td class="num">297 ms</td><td class="num">1.000</td>
+            <td><span class="pill pill-err"><i></i>Slow</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+  </div>
+
+  <!-- ============ 04 · CONTROLS ============ -->
+  <div class="spec"><span class="micro">04 / Controls</span></div>
+  <div class="controls">
+    <div class="control-group">
+      <span class="micro">Buttons</span>
+      <div class="row">
+        <button class="btn btn-primary">Start experiment</button>
+        <button class="btn btn-ghost">View ledger</button>
+        <button class="btn btn-danger">Stop run</button>
+      </div>
+      <span class="micro" style="margin-top:8px">Input</span>
+      <div class="field">
+        <label class="micro" for="goal">Measurable goal</label>
+        <input id="goal" class="input" placeholder="e.g. retrieval &lt; 120 ms at k=8" />
+      </div>
+      <span class="micro" style="margin-top:8px">Status pills</span>
+      <div class="row">
+        <span class="pill pill-ok"><i></i>Operational</span>
+        <span class="pill pill-warn"><i></i>Degraded</span>
+        <span class="pill pill-err"><i></i>Fault</span>
+      </div>
+    </div>
+
+    <div class="modal-stage">
+      <div class="modal">
+        <div class="modal-head">
+          <span class="modal-title">Stop run 017?</span>
+          <span class="modal-x">ESC</span>
+        </div>
+        <div class="modal-body">
+          <p>The current sweep will halt after the active step. Partial results
+             are preserved in the experiment ledger.</p>
+          <span class="pill pill-warn"><i></i>7 runs pending</span>
+        </div>
+        <div class="modal-foot">
+          <button class="btn btn-ghost">Cancel</button>
+          <button class="btn btn-danger">Stop run</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ 05 · CHAT ============ -->
+  <div class="spec"><span class="micro">05 / Chat</span></div>
+  <div class="card chat">
+    <div class="msg msg-user">
+      <div class="who"><span class="micro">You · 14:31</span></div>
+      <div class="bubble">How is the latency sweep going? Anything beating baseline yet?</div>
+    </div>
+    <div class="msg msg-bot">
+      <div class="who"><span class="micro" style="color:var(--accent)">Buddy · llama-ai-eng</span><span class="micro">14:31</span></div>
+      <div class="bubble">
+        Two configs beat baseline so far. Best is
+        <span class="mono-inline">exp-017</span> at
+        <span class="mono-inline">134 ms</span> with recall
+        <span class="mono-inline">0.943</span> — a 37% improvement. The
+        quantization sweep starts next; I'll flag anything under 120 ms.
+      </div>
+    </div>
+    <div class="chat-inputrow">
+      <button class="chip"><i></i>MY MACHINE · llama-ai-eng<span class="caret">▾</span></button>
+      <input class="input" placeholder="Message the lab…" style="flex:1" />
+      <button class="btn btn-primary">Send</button>
+    </div>
+  </div>
+
+  <!-- ============ 06 · WORLD SWITCHER, OPEN ============ -->
+  <div class="spec"><span class="micro">06 / World switcher</span></div>
+  <div class="switcher-demo">
+    <div>
+      <button class="world-badge">
+        <span class="swatch"></span>
+        WORLD · AI LAB
+        <span class="caret">▴</span>
+      </button>
+      <div class="dropdown">
+        <div class="dropdown-head"><span class="micro">Switch world</span></div>
+        <div class="world-item">
+          <span class="swatch" style="--sw1:#2AD4FF; --sw2:#5B8CFF"></span>
+          <span>
+            <span class="world-name">AI Lab</span><br>
+            <span class="world-sub">DEFAULT · PRECISION</span>
+          </span>
+          <span class="check">✓</span>
+        </div>
+        <div class="world-item">
+          <span class="swatch" style="--sw1:#FF7BC1; --sw2:#FFB86B"></span>
+          <span>
+            <span class="world-name">Kawaii Lab</span><br>
+            <span class="world-sub">PINK · PLAYFUL</span>
+          </span>
+        </div>
+        <div class="world-item">
+          <span class="swatch" style="--sw1:#A78BFA; --sw2:#E3B34A"></span>
+          <span>
+            <span class="world-name">Art History</span><br>
+            <span class="world-sub">SCHOLARLY · VIOLET</span>
+          </span>
+        </div>
+        <div class="dropdown-foot"><span class="micro">Themes repaint tokens only — layout never changes</span></div>
+      </div>
+    </div>
+    <p class="note">A World swaps the <span class="mono">:root</span> token values and
+       nothing else. Every component on this page — nav, rail, pills, table,
+       chat, modal — repaints from the same fifteen color tokens, three radii,
+       and two font stacks. The row below proves it.</p>
+  </div>
+
+  <!-- ============ 07 · THEME PROOF ============ -->
+  <div class="spec"><span class="micro">07 / Theme proof — same markup, tokens swapped</span></div>
+  <div class="proof-row">
+
+    <!-- default: sharp technical -->
+    <div class="proof-wrap">
+      <div class="proof-label">
+        <span class="micro">AI Lab · default</span>
+        <span class="micro">radius 6px</span>
+      </div>
+      <section class="card metric">
+        <div class="metric-top"><span class="micro">Tokens / sec</span><span class="delta up">+6.2%</span></div>
+        <div class="metric-val">41.7</div>
+        <svg class="spark" viewBox="0 0 200 30" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+          <polyline points="0,24 20,22 40,23 60,18 80,19 100,14 120,16 140,10 160,12 180,7 200,8"
+            fill="none" style="stroke:var(--accent)" stroke-width="1.5"/>
+        </svg>
+      </section>
+    </div>
+
+    <!-- pink playful: soft radii, warm pink accents -->
+    <div class="proof-wrap" style="
+      --bg:#1C1119; --surface:#251722; --surface2:#2F1D2B; --surface3:#392336;
+      --border:#402A3C; --border-strong:#5C3D55;
+      --text:#F2DCE9; --text-strong:#FFF3F9; --text-muted:#BB8CA8;
+      --accent:#FF7BC1; --accent2:#FFB86B;
+      --positive:#5FDDA8; --warn:#FFC46B; --danger:#FF7285; --info:#8FB8FF;
+      --radius-s:10px; --radius-m:16px; --radius-l:22px;">
+      <div class="proof-label">
+        <span class="micro">Kawaii Lab · pink</span>
+        <span class="micro">radius 16px</span>
+      </div>
+      <section class="card metric">
+        <div class="metric-top"><span class="micro">Tokens / sec</span><span class="delta up">+6.2%</span></div>
+        <div class="metric-val">41.7</div>
+        <svg class="spark" viewBox="0 0 200 30" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+          <polyline points="0,24 20,22 40,23 60,18 80,19 100,14 120,16 140,10 160,12 180,7 200,8"
+            fill="none" style="stroke:var(--accent)" stroke-width="1.5"/>
+        </svg>
+      </section>
+    </div>
+
+    <!-- scholarly violet: parchment-tinged text, gilded second accent -->
+    <div class="proof-wrap" style="
+      --bg:#151221; --surface:#1C182B; --surface2:#241F37; --surface3:#2C2643;
+      --border:#2E2847; --border-strong:#463D68;
+      --text:#DDD6EC; --text-strong:#F5F1FC; --text-muted:#948AB4;
+      --accent:#A78BFA; --accent2:#E3B34A;
+      --positive:#54D0A0; --warn:#E3B34A; --danger:#F07088; --info:#7FA6F5;
+      --radius-s:5px; --radius-m:8px; --radius-l:12px;">
+      <div class="proof-label">
+        <span class="micro">Art History · violet</span>
+        <span class="micro">radius 8px</span>
+      </div>
+      <section class="card metric">
+        <div class="metric-top"><span class="micro">Tokens / sec</span><span class="delta up">+6.2%</span></div>
+        <div class="metric-val">41.7</div>
+        <svg class="spark" viewBox="0 0 200 30" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+          <polyline points="0,24 20,22 40,23 60,18 80,19 100,14 120,16 140,10 160,12 180,7 200,8"
+            fill="none" style="stroke:var(--accent)" stroke-width="1.5"/>
+        </svg>
+      </section>
+    </div>
+  </div>
+
+  <p class="note">Concept 1 · Precision Instrument — aerospace flight-deck restraint:
+     hairline borders, one cyan accent spent on live data, mono micro-labels,
+     exactly one glow (the LIVE dot). Impressive through the feeling of
+     operating serious equipment, not through effects.</p>
+</div>
