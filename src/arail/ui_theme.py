@@ -23,7 +23,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 
-PERSONALITIES: tuple[str, ...] = ("technical", "scholarly", "playful")
+PERSONALITIES: tuple[str, ...] = ("technical", "scholarly", "playful", "hacker")
 
 
 @dataclass(frozen=True)
@@ -162,6 +162,29 @@ _PERSONALITY: dict[str, dict[str, str]] = {
         "--label-transform": "none",
         "--label-tracking": "0.02em",
         "--rail-from": "var(--accent)",
+        "--rail-to": "var(--accent2)",
+    },
+    # The legacy 1337 terminal profile, preserved verbatim as a selectable
+    # World personality (the shipped AI/ML world wears it). Unlike
+    # "technical", these values never get retuned by design-system passes.
+    "hacker": {
+        "--radius-s": "4px",
+        "--radius-m": "6px",
+        "--radius-l": "10px",
+        "--radius-pill": "999px",
+        "--motif-scanline-alpha": "0.03",
+        "--glow-blur": "8px",
+        "--glow-blur-far": "20px",
+        "--glow-alpha": "0.30",
+        "--glow-alpha-far": "0.10",
+        "--dur-1": "100ms",
+        "--dur-2": "170ms",
+        "--dur-3": "280ms",
+        "--ease-accent": "cubic-bezier(0.2, 0, 0, 1)",
+        "--heading-font": "var(--font-mono)",
+        "--label-transform": "uppercase",
+        "--label-tracking": "0.08em",
+        "--rail-from": "var(--positive)",
         "--rail-to": "var(--accent2)",
     },
 }

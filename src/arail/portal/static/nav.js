@@ -515,7 +515,15 @@ window.revealSlot = async function revealSlot(slot, subpath) {
       if (opts.path) attrs += ' data-path="' + esc(opts.path) + '"';
     }
     if (opts.reason) attrs += ' title="' + esc(opts.reason) + '"';
-    return '<div ' + attrs + '><span>' + mark + '</span><span>' +
+    // Theme swatch placeholder — rendered empty here, painted afterwards via
+    // style assignment (never interpolated into HTML; values are
+    // server-validated hex and re-checked client-side).
+    var swatch = opts.hasSwatch
+      ? '<span class="ws-swatch" data-swatch-slug="' + esc(opts.slug) + '"' +
+        ' style="width:10px;height:10px;border-radius:50%;flex:none;' +
+        'border:1px solid var(--border-strong);"></span>'
+      : '';
+    return '<div ' + attrs + '><span>' + mark + '</span>' + swatch + '<span>' +
       esc(opts.label) + tail + '</span></div>';
   }
 
@@ -536,6 +544,7 @@ window.revealSlot = async function revealSlot(slot, subpath) {
           slug: w.slug,
           path: w.path,
           active: !!w.mounted,
+          hasSwatch: !!w.theme_preview,
         });
       } else {
         html += row({
@@ -551,6 +560,19 @@ window.revealSlot = async function revealSlot(slot, subpath) {
       '<div style="border-top:1px solid var(--border);margin:.3rem 0;"></div>' +
       row({ label: '＋ Add a World…', action: 'add' });
     menu.innerHTML = html;
+
+    // Paint theme swatches (two-stop gradient: world bg → accent).
+    var HEX = /^#[0-9a-fA-F]{6}$/;
+    worlds.forEach(function (w) {
+      var p = w.theme_preview;
+      if (!w.valid || !p || !HEX.test(p.start || '') || !HEX.test(p.end || '')) return;
+      var sel = '.ws-swatch[data-swatch-slug="' +
+        (window.CSS && CSS.escape ? CSS.escape(w.slug) : w.slug) + '"]';
+      var el = menu.querySelector(sel);
+      if (!el) return;
+      el.style.background = 'linear-gradient(135deg, ' + p.start + ' 20%, ' + p.end + ' 80%)';
+      if (p.personality) el.title = p.personality;
+    });
   }
 
   // Swap the menu to an inline path input → POST /api/worlds/import, with a
