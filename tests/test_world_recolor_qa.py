@@ -85,33 +85,122 @@ def test_ndjson_stream_not_buffered():
     assert out is sr
 
 
+def test_activity_emit_from_foreign_thread_wakes_idle_subscriber():
+    """Regression guard for the missed-wakeup hang: asyncio.Queue.put_nowait
+    from a foreign thread enqueues but does not wake an idle event loop, so a
+    subscriber could sit on a delivered event indefinitely. ActivityLog.emit
+    must hand the put to the subscriber's loop (call_soon_threadsafe)."""
+    import asyncio
+    import threading
+    import time
+
+    from arail.portal import app as pa
+
+    result: dict[str, object] = {}
+
+    async def _listen() -> None:
+        gen = pa.activity_log.subscribe()
+        try:
+            # Idle await — nothing else runs on this loop to mask a missed wakeup.
+            async def _first_probe():
+                async for event in gen:
+                    if event.get("source") == "qa_probe_thread":
+                        return event
+            result["event"] = await asyncio.wait_for(_first_probe(), timeout=10)
+        finally:
+            await gen.aclose()
+
+    listener = threading.Thread(target=lambda: asyncio.run(_listen()), daemon=True)
+    listener.start()
+    # Emit from THIS thread (foreign to the listener's loop) until delivered.
+    deadline = time.time() + 10
+    while listener.is_alive() and time.time() < deadline:
+        pa.activity_log.emit("qa_probe_thread", "wake")
+        time.sleep(0.1)
+    listener.join(timeout=5)
+
+    event = result.get("event")
+    assert isinstance(event, dict) and event.get("source") == "qa_probe_thread", (
+        "idle subscriber never woke for a cross-thread emit"
+    )
+
+
 def test_real_sse_route_streams_live():
     """End-to-end: the real /api/activity/stream SSE route still works through the
-    full middleware stack and is not collected into one buffer at the end."""
+    full middleware stack and is not collected into one buffer at the end.
+
+    Drives the raw ASGI app directly: starlette's TestClient buffers whole
+    responses, so it can never open an infinite SSE stream — this test used to
+    hang the entire suite on that. Every read here is wait_for-bounded, so a
+    streaming/delivery regression FAILS in seconds instead of hanging."""
+    import asyncio
+    import threading
+    import time
+
     from arail.portal import app as pa
-    # Publish one event, then read the stream with a timeout so we don't block
-    # on the infinite subscribe loop.
-    with _client() as c:
-        # stream=True so we read incrementally rather than waiting for EOF.
-        with c.stream("GET", "/api/activity/stream") as r:
-            assert r.status_code == 200
-            assert "text/event-stream" in r.headers.get("content-type", "")
-            assert MARK not in (r.headers.get("content-type", ""))
-            # Emit an event from another thread and confirm we receive it live.
-            import threading, time
-            def _emit():
-                time.sleep(0.05)
-                try:
-                    pa.activity_log.emit("qa_probe", "live")
-                except Exception:
-                    pass
+
+    async def _run() -> tuple[int, dict[str, str], bytes]:
+        scope = {
+            "type": "http",
+            "asgi": {"version": "3.0"},
+            "http_version": "1.1",
+            "method": "GET",
+            "scheme": "http",
+            "path": "/api/activity/stream",
+            "raw_path": b"/api/activity/stream",
+            "query_string": b"",
+            "root_path": "",
+            "headers": [(b"host", b"testserver")],
+            "client": ("testclient", 50000),
+            "server": ("testserver", 80),
+        }
+        from_app: asyncio.Queue = asyncio.Queue()
+
+        async def receive():
+            await asyncio.Event().wait()  # client never disconnects mid-test
+
+        async def send(message):
+            await from_app.put(message)
+
+        app_task = asyncio.create_task(pa.app(scope, receive, send))
+        stop = threading.Event()
+        try:
+            start = await asyncio.wait_for(from_app.get(), timeout=30)
+            assert start["type"] == "http.response.start"
+            headers = {k.decode(): v.decode() for k, v in start["headers"]}
+
+            # Emit from a foreign thread (the real-world emitter path) until
+            # the stream delivers; re-emit because one event can land before
+            # the subscriber has attached.
+            def _emit() -> None:
+                while not stop.is_set():
+                    try:
+                        pa.activity_log.emit("qa_probe", "live")
+                    except Exception:
+                        pass
+                    time.sleep(0.1)
+
             threading.Thread(target=_emit, daemon=True).start()
-            got = None
-            for line in r.iter_lines():
-                if "qa_probe" in line:
-                    got = line
-                    break
-            assert got is not None, "did not receive a live SSE event incrementally"
+
+            deadline = time.time() + 10
+            while time.time() < deadline:
+                msg = await asyncio.wait_for(from_app.get(), timeout=10)
+                if msg["type"] == "http.response.body" and b"qa_probe" in msg.get("body", b""):
+                    return start["status"], headers, msg["body"]
+            raise AssertionError("did not receive a live SSE event incrementally")
+        finally:
+            stop.set()
+            app_task.cancel()
+            try:
+                await app_task
+            except BaseException:  # noqa: BLE001 — teardown only
+                pass
+
+    status, headers, body = asyncio.run(_run())
+    assert status == 200
+    assert "text/event-stream" in headers.get("content-type", "")
+    assert MARK not in headers.get("content-type", "")
+    assert b"data:" in body
 
 
 # ════════════ 2. FILE / DOWNLOAD INTEGRITY ════════════
