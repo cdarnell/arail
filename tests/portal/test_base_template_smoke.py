@@ -49,6 +49,7 @@ PAGE_ROUTES = [
     "/wiki",
     "/wiki/graph",
     "/welcome",
+    "/worlds",
 ]
 
 NAV_EXEMPT = {"/welcome"}

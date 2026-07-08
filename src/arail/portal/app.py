@@ -499,6 +499,10 @@ async def inject_ui_theme(request, call_next):
 
 app.include_router(wiki_router)
 
+from arail.portal.world_routes import router as world_router  # noqa: E402
+
+app.include_router(world_router)
+
 PORTAL_DIR = Path(__file__).parent
 app.mount("/static", StaticFiles(directory=PORTAL_DIR / "static"), name="static")
 # Mount integrations frontend (core/knowledge-canvas/frontend) if present.
@@ -2072,6 +2076,19 @@ async def plugins_page(request: Request):
     return templates.TemplateResponse(request, "plugins.html", {
         **_identity_ctx(),
         "plugins": plugins,
+    })
+
+
+@app.get("/worlds", response_class=HTMLResponse)
+async def worlds_page(request: Request):
+    """The Worlds catalog + Forge — where the lab's subject is chosen.
+
+    The World is the lab's starting point: an objective subject foundation
+    (terms + categories + associations) that agents ground against and the
+    user studies. Goals come second, set within the mounted World.
+    """
+    return templates.TemplateResponse(request, "worlds.html", {
+        **_identity_ctx(),
     })
 
 

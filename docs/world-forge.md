@@ -23,10 +23,13 @@ buddy_prompt: "Explain World Forge like I'm excited but skeptical — how can a 
 
 > **Quickly get a base — forever curated by the power of AeroLLM.**
 
-> **Status: design + working spike.** The draft/export/mount pipeline is proven
-> end-to-end across this lab and the DaC press; the one-button surface and the
-> always-on curation loop are the build-out described here. Nothing below
-> overstates what ships today — it's the shape we're building toward.
+> **Status: shipped (v1).** The Forge lives on the **Worlds page** (`/worlds`,
+> also "✦ Forge a World…" in the world switcher): name any subject, pick a
+> size (25/50/100 terms), watch the local model draft it, preview, and
+> Accept & Mount. Terms are then editable in **Knowledge → World Terms**
+> (every edit re-seals the bundle honestly), and the **Curator review**
+> ("Ask the Curator to review this world") flags suspect terms on demand.
+> The always-on overnight curation loop remains the build-out described in ②③.
 
 A **World** is the lab's identity layer — a sourced dictionary, a knowledge
 graph, a palette, a framing — that you *mount* to turn the whole lab into a lab
@@ -124,15 +127,20 @@ reasoning models think instead of answering and stall the draft loop.)
 
 ## Where it lives in the tiers
 
-| Tier | What you get |
-|---|---|
-| **minimalist** | **Draft** — dream a World with the local model, fast, fully airgapped. Honest `model-asserted` worlds you can mount and research in today. |
-| **maximus** | **+ AeroLLM curation** — the deep-mode backend runs a frontier-scale model from disk to **reconcile your worlds overnight** (the scheduler's heavy window, 22:00–08:00), promoting dreamed terms to sourced. |
+**Both tiers get the whole loop.** Tier is about breadth of surfaces and
+STARTING MODEL SIZE — never about gating core functionality. World creation,
+term editing, Curator review, autoresearch, chat, and the knowledge base are
+core on both tiers; minimalist concedes only non-critical tabs (notebooks,
+admin extras).
 
-So the upgrade story writes itself: **minimalist dreams worlds; maximus makes them
-true** — by the power of AeroLLM running deep models on hardware that has no right
-to run them. Get a base in seconds; wake up to a world that's been curated while
-the machine had nothing better to do.
+| Tier | Same loop, different muscle |
+|---|---|
+| **minimalist** | Draft + curate with the ~1B starting model, fast, fully airgapped. Honest `model-asserted` worlds you can mount, study, and review today. |
+| **maximus** | The same loop on a **3–7B starting model** (finer drafts, sharper Curator verdicts), plus AeroLLM's deep-mode backend for frontier-scale overnight reconcile passes (the scheduler's heavy window, 22:00–08:00). |
+
+The upgrade story is quality, not capability: **every tier dreams and curates
+worlds; a bigger model just makes them truer, faster** — culminating in AeroLLM
+running deep models from disk on hardware that has no right to run them.
 
 ## See also
 

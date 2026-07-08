@@ -18,6 +18,15 @@
   </div>
 </div>
 
+<!-- View toggle: Files vs World Terms (shown only when a world is mounted) -->
+<div class="wt-viewtoggle" id="wt-viewtoggle" hidden role="tablist" aria-label="Knowledge view">
+  <button type="button" class="wt-tab" id="wt-tab-files" role="tab" aria-selected="false">Files</button>
+  <button type="button" class="wt-tab" id="wt-tab-terms" role="tab" aria-selected="false">World Terms</button>
+</div>
+
+<!-- World Terms structured editor (populated by /static/js/world-terms.js) -->
+<div class="wt-view" id="world-terms-view" hidden></div>
+
 <!-- Top toolbar -->
 <div class="kb-toolbar">
   <form class="kb-search" id="kb-search-form">
@@ -340,6 +349,7 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="/static/js/world-terms.js" defer></script>
 <script>
 /* ═══════════════════════════════════════════════════════════════
    Unified Knowledge Base

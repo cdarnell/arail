@@ -99,12 +99,51 @@
     font-size: 0.7rem; color: var(--text-muted); line-height: 1.5;
   }
   .wc-foot code { color: var(--text); }
+  /* ── Step 2: World picker ── */
+  .wc-worlds { display: flex; flex-direction: column; gap: 0.55rem; margin: 0 0 1rem; }
+  .wc-world {
+    display: flex; align-items: center; gap: 0.7rem;
+    background: var(--surface2);
+    border: 1px solid var(--border); border-radius: var(--radius-m);
+    padding: 0.6rem 0.8rem; cursor: pointer; text-align: left;
+    font-family: var(--font-sans); font-size: 0.88rem; color: var(--text-strong);
+    width: 100%;
+    transition: border-color var(--dur-2) var(--ease-accent), transform var(--dur-2) var(--ease-accent);
+  }
+  .wc-world:hover:not(:disabled) { border-color: var(--border-strong); transform: translateY(-1px); }
+  .wc-world:disabled { opacity: 0.55; cursor: wait; }
+  .wc-world:focus-visible {
+    outline: none; border-color: var(--accent2);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent2) 18%, transparent);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .wc-world { transition: none; }
+    .wc-world:hover:not(:disabled) { transform: none; }
+  }
+  .wc-swatch {
+    width: 24px; height: 24px; flex: none;
+    border-radius: var(--radius-s);
+    border: 1px solid var(--border-strong);
+    background: var(--surface3);
+  }
+  .wc-world-name { font-weight: 600; }
+  .wc-world-rec {
+    font-family: var(--font-mono); font-size: 0.65rem; font-weight: 500;
+    letter-spacing: var(--label-tracking); text-transform: var(--label-transform);
+    color: var(--accent); display: block; margin-top: 0.15rem;
+  }
+  .wc-skip {
+    color: var(--text-muted); font-size: 0.78rem; text-decoration: none;
+    border-bottom: 1px dotted var(--border-strong);
+  }
+  .wc-skip:hover { color: var(--text); }
+  a.wc-world { text-decoration: none; }
 </style>
 </head>
 <body>
 
 <div class="wc-card" role="main">
-  <div class="wc-kicker">Step 1 of 1 — first run</div>
+  <div class="wc-kicker" id="wc-kicker">Step 1 of 2 — first run</div>
   <h1>Welcome to {{ brand.name }}.</h1>
   <p class="wc-tagline">Pick a passphrase. The lab uses it everywhere a secret is needed.</p>
   <p class="wc-academic">
@@ -192,9 +231,9 @@ form.addEventListener('submit', async (ev) => {
     });
     const data = await r.json();
     if (r.ok && data.ok) {
-      setStatus('Saved. Loading dashboard…', 'ok');
-      // Hard reload so the middleware sees the new password.
-      setTimeout(() => { window.location.href = '/'; }, 600);
+      setStatus('Saved.', 'ok');
+      // Step 2: pick a World (never trap the user — any failure → '/').
+      showWorldStep();
     } else {
       setStatus(data.error || 'Could not save. Check the terminal log.', 'err');
       submit.disabled = false;
@@ -204,6 +243,105 @@ form.addEventListener('submit', async (ev) => {
     submit.disabled = false;
   }
 });
+
+// ── Step 2 of 2: pick your lab's World ──
+const HEX6 = /^#[0-9a-fA-F]{6}$/;
+
+function goHome() { window.location.href = '/'; }
+
+async function showWorldStep() {
+  let worlds = [];
+  try {
+    const r = await fetch('/api/worlds', { credentials: 'same-origin', cache: 'no-store' });
+    if (!r.ok) { goHome(); return; }
+    const data = await r.json();
+    worlds = (data && data.worlds) || [];
+  } catch (e) { goHome(); return; }
+  if (!worlds.length) { goHome(); return; }
+
+  const card = document.querySelector('.wc-card');
+  card.textContent = '';
+
+  const kicker = document.createElement('div');
+  kicker.className = 'wc-kicker';
+  kicker.textContent = "Step 2 of 2 — pick your lab's World";
+  card.appendChild(kicker);
+
+  const h1 = document.createElement('h1');
+  h1.textContent = 'What should your lab study?';
+  card.appendChild(h1);
+
+  const tagline = document.createElement('p');
+  tagline.className = 'wc-tagline';
+  tagline.textContent = "A World is what your lab studies — its starting knowledge base and look. You can change it anytime.";
+  card.appendChild(tagline);
+
+  const list = document.createElement('div');
+  list.className = 'wc-worlds';
+
+  worlds.filter(function (w) { return w.valid; }).forEach(function (w) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'wc-world';
+
+    const swatch = document.createElement('span');
+    swatch.className = 'wc-swatch';
+    const p = w.theme_preview;
+    if (p && HEX6.test(p.start || '') && HEX6.test(p.end || '')) {
+      swatch.style.setProperty('background',
+        'linear-gradient(135deg, ' + p.start + ' 20%, ' + p.end + ' 80%)');
+    }
+    btn.appendChild(swatch);
+
+    const label = document.createElement('span');
+    const name = document.createElement('span');
+    name.className = 'wc-world-name';
+    name.textContent = w.display_name || w.slug;
+    label.appendChild(name);
+    if (w.slug === 'ai') {
+      const rec = document.createElement('span');
+      rec.className = 'wc-world-rec';
+      rec.textContent = "Recommended · AI & Machine Learning — the lab's home World";
+      label.appendChild(rec);
+    }
+    btn.appendChild(label);
+
+    btn.addEventListener('click', async function () {
+      list.querySelectorAll('button').forEach(function (b) { b.disabled = true; });
+      try {
+        await fetch('/api/worlds/select', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ slug: w.slug }),
+        });
+      } catch (e) { /* fall through — never trap */ }
+      goHome();
+    });
+    list.appendChild(btn);
+  });
+
+  // Forge card — /worlds needs the fresh login; that's fine.
+  const forge = document.createElement('a');
+  forge.className = 'wc-world';
+  forge.href = '/worlds';
+  const forgeSwatch = document.createElement('span');
+  forgeSwatch.className = 'wc-swatch';
+  forge.appendChild(forgeSwatch);
+  const forgeName = document.createElement('span');
+  forgeName.className = 'wc-world-name';
+  forgeName.textContent = '✦ Forge your own…';
+  forge.appendChild(forgeName);
+  list.appendChild(forge);
+
+  card.appendChild(list);
+
+  const skip = document.createElement('a');
+  skip.className = 'wc-skip';
+  skip.href = '/';
+  skip.textContent = 'Skip for now';
+  card.appendChild(skip);
+}
 </script>
 </body>
 </html>

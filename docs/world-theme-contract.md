@@ -79,6 +79,16 @@ pink-playful and scholarly demos in ARAIL's
 the terminal-hacker palette carried by the shipped `ai` World
 (`lab/worlds/ai/face.json`) — the legacy 1337 skin preserved as a World.
 
+## Producers
+
+ARAIL is now a **second producer** of `dac.world-bundle/v1`: the in-portal
+World Forge (`src/arail/world_forge.py`) drafts and seals bundles locally
+(including theme blocks selected from the lab's presets), and the term
+editor re-seals after edits. The schema is unchanged and byte-parity with
+DaC's exporter is a non-goal — both producers' output round-trips the same
+`verify_seal`. Flagged to DaC per ADR-0004 ("DaC owns the format"): any
+format change still starts on the DaC side.
+
 ## Versioning
 
 Additive within `dac.world-face/v1` (older ARAIL ignores the unknown key and
