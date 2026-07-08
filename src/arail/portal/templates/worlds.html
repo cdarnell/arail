@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+{% set active = '' %}
+{% block title %}{{ brand.name }} — Worlds{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="/static/worlds.css">
+{% endblock %}
+{% block content %}
+
+<div class="worlds-page">
+
+  <header class="worlds-head">
+    <h1>Worlds</h1>
+    <p class="worlds-sub">A World is what your lab studies — its knowledge base, its look, its vocabulary. Mount one, or forge your own from any subject.</p>
+  </header>
+
+  <!-- ═══ Forge hero (form / progress / preview / terminal swap in-place) ═══ -->
+  <section class="card forge-hero" id="forge-hero">
+
+    <!-- FORM -->
+    <div id="forge-form" hidden>
+      <h2><span class="indicator"></span> Forge a World</h2>
+
+      <input id="forge-subject" class="forge-subject" type="text"
+             placeholder="What should your lab study?" autocomplete="off" maxlength="200">
+
+      <div class="forge-chips" id="forge-chips">
+        <button type="button" class="chip-ghost">5th grade mathematics</button>
+        <button type="button" class="chip-ghost">Differential equations</button>
+        <button type="button" class="chip-ghost">Botany</button>
+        <button type="button" class="chip-ghost">Indoor plants &amp; their care</button>
+        <button type="button" class="chip-ghost">Espresso brewing</button>
+      </div>
+
+      <div class="forge-size" id="forge-size" role="radiogroup" aria-label="World size">
+        <button type="button" class="size-opt" data-terms="25"><span class="size-n">25</span> · Sketch <span class="size-eta">≈4 min</span></button>
+        <button type="button" class="size-opt selected" data-terms="50" aria-pressed="true"><span class="size-n">50</span> · Field guide <span class="size-eta">≈8 min</span></button>
+        <button type="button" class="size-opt" data-terms="100"><span class="size-n">100</span> · Compendium <span class="size-eta">≈15 min</span></button>
+      </div>
+
+      <details class="forge-look">
+        <summary class="micro-label">Look (optional)</summary>
+        <div class="look-body">
+          <div class="look-row">
+            <span class="micro-label">Palette</span>
+            <div class="swatch-row" id="palette-row"></div>
+          </div>
+          <div class="look-row">
+            <label class="micro-label" for="forge-personality">Personality</label>
+            <select id="forge-personality">
+              <option value="">(auto)</option>
+              <option value="technical">technical</option>
+              <option value="scholarly">scholarly</option>
+              <option value="playful">playful</option>
+              <option value="hacker">hacker</option>
+            </select>
+          </div>
+        </div>
+      </details>
+
+      <div class="honesty-banner">
+        Forged terms are dreamed by your local model — honestly labeled model-asserted and unverified until you and your agents curate them.
+      </div>
+      <p class="forge-note">Your local model will be busy while forging.</p>
+
+      <div class="forge-actions">
+        <button class="btn btn-primary" id="forge-go">Forge</button>
+        <span class="forge-err" id="forge-err" role="alert"></span>
+      </div>
+    </div>
+
+    <!-- PROGRESS -->
+    <div id="forge-progress" hidden>
+      <h2><span class="indicator"></span> Forging <span id="prog-subject" class="prog-subject"></span></h2>
+      <ol class="stage-list" id="stage-list"></ol>
+      <div class="prog-meta">
+        <span class="mono" id="prog-terms">terms 0/0</span>
+        <span class="mono" id="prog-clock">0:00</span>
+        <button class="btn btn-ghost btn-sm" id="forge-cancel">Cancel</button>
+      </div>
+      <p class="forge-note" id="prog-message"></p>
+    </div>
+
+    <!-- PREVIEW -->
+    <div id="forge-preview" hidden>
+      <h2><span class="indicator"></span> Preview: <span id="prev-name"></span></h2>
+      <div class="prev-meta">
+        <span class="tier-chip" id="prev-tier"></span>
+        <span class="mono muted" id="prev-stats"></span>
+      </div>
+      <div id="prev-warnings"></div>
+      <div class="prev-cats" id="prev-cats"></div>
+      <div class="forge-actions">
+        <button class="btn btn-primary" id="prev-accept">Accept &amp; Mount</button>
+        <button class="btn btn-ghost" id="prev-regen">Regenerate</button>
+        <button class="btn btn-ghost btn-sm" id="prev-discard">Discard</button>
+        <span class="forge-err" id="prev-err" role="alert"></span>
+      </div>
+    </div>
+
+    <!-- TERMINAL (error / cancelled) -->
+    <div id="forge-terminal" hidden>
+      <h2><span class="indicator"></span> Forge stopped</h2>
+      <p class="forge-note" id="terminal-msg"></p>
+      <button class="btn btn-ghost" id="terminal-back">Back to forge</button>
+    </div>
+
+  </section>
+
+  <!-- ═══ Catalog ═══ -->
+  <section class="worlds-catalog">
+    <h2 class="micro-label">Your worlds</h2>
+    <div class="catalog-grid" id="catalog-grid"></div>
+  </section>
+
+</div>
+
+<!-- toast -->
+<div class="worlds-toast" id="worlds-toast" hidden>
+  <span id="toast-text"></span>
+  <button class="btn btn-blue btn-sm" id="toast-goal" hidden>Set as goal</button>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script src="/static/nav.js"></script>
+<script src="/static/js/worlds.js"></script>
+{% include '_airgap_modal.html' %}
+{% endblock %}

@@ -995,6 +995,21 @@ def _world_framing_block() -> str:
             parts.append(f"Domain: {domain}")
         if vocab:
             parts.append(f"Vocabulary: {vocab}")
+        # World-first lab flow: when the user has ALSO set a goal, gear the
+        # tutor toward goal-within-world. face.name is capped like the other
+        # face fields; the goal text comes from the operator's own GoalStore.
+        try:
+            goal = _host.get_current_goal()
+            goal_text = str((goal or {}).get("goal_text", "")).strip()[:200]
+            if goal_text:
+                world_name = str(face.get("name", "")).strip()[:120] or "this World"
+                parts.append(
+                    f"Study mission: the lab's World is {world_name}; the user's goal is "
+                    f"“{goal_text}”. You are their study partner — teach toward the "
+                    f"goal using the World's terms, and say when the World doesn't cover something."
+                )
+        except Exception:  # noqa: BLE001 — the framing block must never break Buddy
+            pass
         if not parts:
             return ""
         inner = "\n".join(parts)

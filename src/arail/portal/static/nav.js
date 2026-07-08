@@ -558,6 +558,7 @@ window.revealSlot = async function revealSlot(slot, subpath) {
     // path outside the catalog (a DaC export, a shared World).
     html +=
       '<div style="border-top:1px solid var(--border);margin:.3rem 0;"></div>' +
+      row({ label: '✦ Forge a World…', action: 'forge' }) +
       row({ label: '＋ Add a World…', action: 'add' }) +
       '<div style="padding:.35rem .6rem .2rem;font-size:.62rem;color:var(--text-muted);' +
       'font-family:var(--font-sans);">Themes are token swaps — a World changes the ' +
@@ -704,6 +705,7 @@ window.revealSlot = async function revealSlot(slot, subpath) {
     var el = e.target.closest('.world-row[data-action]');
     if (!el || busy) return;
     var action = el.getAttribute('data-action');
+    if (action === 'forge') { window.location.href = '/worlds'; return; }
     if (action === 'add') { showImport(); return; }
     var slug = el.getAttribute('data-slug') || '';
     var path = el.getAttribute('data-path') || '';

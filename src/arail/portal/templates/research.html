@@ -1299,6 +1299,14 @@ document.addEventListener('DOMContentLoaded', () => {
   const emptyOpen = document.getElementById('rx-empty-open');
   if (emptyOpen) emptyOpen.addEventListener('click', openModal);
 
+  // Dashboard "suggested goals" hand-off: /research?goal=<text> opens the
+  // composer prefilled for review — never auto-submitted.
+  const suggestedGoal = new URLSearchParams(window.location.search).get('goal');
+  if (suggestedGoal && suggestedGoal.trim()) {
+    openModal();
+    document.getElementById('rx-modal-textarea').value = suggestedGoal.trim();
+  }
+
   // Reset Goal — stops research and clears the current goal/preview.
   const resetBtn = document.getElementById('rx-btn-reset');
   if (resetBtn) resetBtn.addEventListener('click', async () => {
