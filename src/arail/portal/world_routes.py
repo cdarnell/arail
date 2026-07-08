@@ -443,16 +443,28 @@ async def _reseal_and_swap(bundle_dir: Path, terms: list[dict]) -> Optional[JSON
     return None
 
 
+def _live_tier(manifest: dict, terms: list[dict]) -> tuple[str, dict]:
+    """Prefer the manifest's tier/counts, but derive live from the terms'
+    sources when either is missing — legacy bundles sealed before the
+    provenance fields existed must never show a bogus/blank tier."""
+    tier = manifest.get("provenance_tier")
+    counts = manifest.get("provenance_counts")
+    if tier and counts:
+        return tier, counts
+    return wf.compute_provenance_tier([t.get("source") for t in terms])
+
+
 def _terms_payload(bundle_dir: Path) -> dict:
     spec, terms = _load_terms(bundle_dir)
     manifest = json.loads((bundle_dir / "manifest.json").read_bytes())
+    tier, counts = _live_tier(manifest, terms)
     for t in terms:
         t["tier_of_source"] = wf.tier_of_source(t.get("source"))
     return {
         "world": manifest.get("world"),
         "display_name": manifest.get("display_name"),
-        "tier": manifest.get("provenance_tier"),
-        "counts": manifest.get("provenance_counts"),
+        "tier": tier,
+        "counts": counts,
         "editable": True,
         "categories": spec.get("categories", []),
         "terms": terms,
@@ -708,11 +720,12 @@ async def api_goal_suggestions():
     bundle_dir = _mounted_catalog_dir()
     if bundle_dir is None:
         return {"world": record.world, "suggestions": []}
-    spec, _terms = _load_terms(bundle_dir)
+    spec, terms = _load_terms(bundle_dir)
     manifest = json.loads((bundle_dir / "manifest.json").read_bytes())
+    tier, _counts = _live_tier(manifest, terms)
     return {
         "world": record.world,
         "display_name": manifest.get("display_name"),
-        "tier": manifest.get("provenance_tier"),
-        "suggestions": wf.goal_suggestions(spec, str(manifest.get("provenance_tier", ""))),
+        "tier": tier,
+        "suggestions": wf.goal_suggestions(spec, tier),
     }
