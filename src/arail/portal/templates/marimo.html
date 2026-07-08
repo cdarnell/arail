@@ -1,57 +1,57 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{ brand.name }} — Marimo</title>
-<link rel="stylesheet" href="/static/style.css">
+{% extends "base.html" %}
+{% set active = 'notebooks' %}
+{% block title %}{{ brand.name }} — Marimo{% endblock %}
+{% block head %}
 <style>
   .mar-topbar { display: flex; align-items: center; gap: 0.8rem; justify-content: space-between; }
   .mar-topbar .mar-hint { margin: 0; flex: 1; }
   .mar-wrap { padding: 0.8rem 1rem; height: calc(100vh - 52px); display: flex; flex-direction: column; gap: 0.6rem; }
-  .mar-hint { color: var(--muted); font-size: 0.75rem; }
+  .mar-hint { color: var(--text-muted); font-size: 0.75rem; }
   .mar-hint code {
-    background: var(--surface);
+    background: color-mix(in srgb, var(--accent2) 10%, transparent);
     padding: 0.1rem 0.4rem;
-    border-radius: 3px;
-    color: var(--amber);
+    border-radius: var(--radius-s);
+    color: var(--accent2);
   }
+  .mar-topbar-actions { display: flex; gap: 0.5rem; }
+  .mar-btn-stop { color: var(--danger); }
+  .mar-manual-note { margin-top: 1rem; color: var(--text-muted); font-size: 0.8rem; }
   .mar-frame {
     flex: 1;
     width: 100%;
     border: 1px solid var(--border);
-    border-radius: 4px;
-    background: #0a0a0f;
+    border-radius: var(--radius-s);
+    background: var(--bg);
     /* Marimo ships a dark theme toggle per-notebook; no invert filter needed. */
   }
   .mar-install {
     flex: 1;
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: var(--radius-l);
     padding: 2rem 2.5rem;
     max-width: 780px;
     margin: 0 auto;
     color: var(--text);
     overflow-y: auto;
   }
-  .mar-install h1 { color: var(--green); text-shadow: var(--glow-green); margin-top: 0; }
-  .mar-install h3 { color: var(--blue); margin-top: 1.6rem; }
+  .mar-install h1 { color: var(--text-strong); margin-top: 0; }
+  .mar-install h3 { color: var(--text-strong); margin-top: 1.6rem; }
   .mar-install pre {
-    background: #0a0c14;
+    background: var(--bg);
     border: 1px solid var(--border);
-    border-radius: 4px;
+    border-radius: var(--radius-s);
     padding: 1rem 1.2rem;
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
     font-size: 0.85rem;
-    color: var(--amber);
+    color: var(--text);
     white-space: pre-wrap;
     overflow-x: auto;
   }
 </style>
-</head>
-<body>
-{% set active = 'notebooks' %}{% include "_nav.html" %}
+{% endblock %}
+{% block content %}
 
 <div class="mar-wrap">
   {% if container_running %}
@@ -61,9 +61,9 @@
       automatically when their dependencies change; no hidden state.
       Notebooks live at <code>lab/notebooks/</code> as plain <code>.py</code> files.
     </p>
-    <div style="display:flex;gap:0.5rem;">
+    <div class="mar-topbar-actions">
       <button class="btn btn-sm btn-ghost" id="mar-restart" title="Restart container">↻ Restart</button>
-      <button class="btn btn-sm btn-ghost" id="mar-stop" title="Stop container" style="color:var(--red);">■ Stop</button>
+      <button class="btn btn-sm btn-ghost mar-btn-stop" id="mar-stop" title="Stop container">■ Stop</button>
       <button class="btn btn-sm btn-ghost" id="mar-popout"
               title="Open in its own window">
         ⇱ Pop out
@@ -110,8 +110,7 @@
       and serves notebooks from <code>lab/notebooks/</code>.
     </p>
     <p>
-      <button class="btn btn-sm" id="mar-start"
-              style="background:var(--green);color:#000;font-weight:700;padding:0.4rem 1.2rem;cursor:pointer;">
+      <button class="btn btn-sm btn-primary" id="mar-start">
         ▶ Start Marimo
       </button>
     </p>
@@ -127,11 +126,11 @@
         setTimeout(() => location.reload(), 20000);
       } else {
         btn.textContent = '✗ ' + (data.error || 'Failed');
-        btn.style.background = 'var(--red)';
+        btn.style.background = 'var(--danger)';
       }
     });
     </script>
-    <p style="margin-top:1rem;color:var(--muted);font-size:0.8rem;">
+    <p class="mar-manual-note">
       Or start manually:
     </p>
     <pre>docker compose --env-file .env -f compose/marimo.yml up -d</pre>
@@ -157,7 +156,7 @@
   </div>
   {% endif %}
 </div>
-
+{% endblock %}
+{% block scripts %}
 <script src="/static/nav.js"></script>
-</body>
-</html>
+{% endblock %}

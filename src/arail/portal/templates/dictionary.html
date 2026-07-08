@@ -1,14 +1,15 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{ brand.name }} — Dictionary</title>
-<link rel="stylesheet" href="/static/style.css">
-</head>
-<body>
-{% set active = "docs" %}{% include "_nav.html" %}
-
+{% extends "base.html" %}
+{% set active = "docs" %}
+{% block title %}{{ brand.name }} — Dictionary{% endblock %}
+{% block head %}
+<style>
+  /* Hoisted from inline style= attributes */
+  .dict-intro { color: var(--text-muted); font-size: 0.78rem; margin: -0.4rem 0 1rem; }
+  .dict-intro a { color: var(--accent2); }
+  .dict-theme-row { margin: 0 0 1rem; }
+</style>
+{% endblock %}
+{% block content %}
 <div class="dict-page" id="dict-page" aria-busy="false">
 
   <div class="dict-page-head">
@@ -22,14 +23,14 @@
     </div>
   </div>
 
-  <p style="color: var(--muted); font-size: 0.78rem; margin: -0.4rem 0 1rem;">
+  <p class="dict-intro">
     A curated AI &amp; model-building glossary to learn from — click any term to go
     deeper. Want a different subject? Build a glossary for any topic below, or
-    <a href="/docs" style="color: var(--blue);">back to Docs</a>.
+    <a href="/docs">back to Docs</a>.
   </p>
 
   {# ── Theme controls ───────────────────────────────────────────────── #}
-  <div class="dict-page-actions" style="margin: 0 0 1rem;">
+  <div class="dict-page-actions dict-theme-row">
     <input type="text" id="dict-theme-input" class="dict-theme-input"
            placeholder="Build a glossary for any topic…" aria-label="Set dictionary topic" autocomplete="off">
     <button type="button" id="dict-set-theme" class="dict-btn">Build glossary</button>
@@ -46,8 +47,9 @@
   <div class="dict-grid" id="dict-list"></div>
 
 </div>
+{% endblock %}
 
+{% block scripts %}
 <script src="/static/nav.js"></script>
 <script src="/static/dictionary.js"></script>
-</body>
-</html>
+{% endblock %}

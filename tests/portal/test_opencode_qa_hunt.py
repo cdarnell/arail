@@ -434,8 +434,10 @@ class TestWorkbenchCardCount:
         INFO in TEST_REPORT. If the copy is updated, change this assertion."""
         path = Path("src/arail/portal/templates/notebooks.html")
         body = path.read_text()
-        # Match data-id on real notebook-card divs only (not JS template literals)
-        cards = re.findall(r'<div class="notebook-card"[^>]*data-id="([^"$]+)"', body)
+        # Match data-id on real notebook-card divs only (not JS template
+        # literals). Allow extra classes on the div (e.g. the tier-gating
+        # nc-tier-hidden on the opencode card).
+        cards = re.findall(r'<div class="notebook-card[^"]*"[^>]*data-id="([^"$]+)"', body)
         # Five cards expected post-sprint
         assert len(set(cards)) == 5, (
             f"Expected 5 unique cards, found {len(set(cards))}: {cards}"

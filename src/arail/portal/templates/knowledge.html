@@ -1,16 +1,13 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{ brand.name }} — Knowledge</title>
-<link rel="stylesheet" href="/static/style.css">
+{% extends "base.html" %}
+{% set active = 'knowledge' %}
+{% block title %}{{ brand.name }} — Knowledge{% endblock %}
+
+{% block head %}
 <link rel="stylesheet" href="/static/wiki.css">
 <link rel="stylesheet" href="/static/knowledge.css">
-</head>
-<body>
+{% endblock %}
 
-{% set active = 'knowledge' %}{% include "_nav.html" %}
+{% block content %}
 
 <!-- Full-page drop overlay (shows on drag-over) -->
 <div class="kb-drop-overlay" id="kb-drop-overlay">
@@ -252,13 +249,13 @@
                  placeholder="tell the agent what to find — e.g. &quot;Go to arxiv.org and find papers about chain-of-thought reasoning&quot;" />
           <button class="btn btn-sm btn-primary" id="btn-chat">Research</button>
         </div>
-        <div class="browse-input-row" style="margin-top:0.25rem;">
-          <input type="text" id="browse-url" class="browse-input" style="font-size:0.75rem;padding:0.4rem 0.8rem;"
+        <div class="browse-input-row browse-url-row">
+          <input type="text" id="browse-url" class="browse-input browse-url-input"
                  placeholder="or paste a direct URL to capture" />
-          <button class="btn btn-sm btn-ghost" id="btn-browse" style="font-size:0.72rem;">Capture</button>
+          <button class="btn btn-sm btn-ghost browse-capture-btn" id="btn-browse">Capture</button>
         </div>
 
-        <div id="browse-examples" class="browse-suggestions" style="margin-top:0.6rem;"></div>
+        <div id="browse-examples" class="browse-suggestions browse-examples-row"></div>
         <div id="browse-suggestions" class="browse-suggestions"></div>
         <div id="browse-result" class="browse-result" style="display:none;"></div>
         {% else %}
@@ -340,7 +337,9 @@
 
   </main>
 </div>
+{% endblock %}
 
+{% block scripts %}
 <script>
 /* ═══════════════════════════════════════════════════════════════
    Unified Knowledge Base
@@ -1861,7 +1860,7 @@ document.getElementById('kb-btn-vim').addEventListener('click', () => {
         );
       }
 
-      exDiv.innerHTML = '<span style="color:var(--muted);font-size:0.68rem;margin-right:0.3rem;">try:</span>' +
+      exDiv.innerHTML = '<span class="browse-chip-lead">try:</span>' +
         examples.map(e =>
           `<span class="browse-chip" data-cmd="${esc(e.cmd)}">${esc(e.label)}</span>`
         ).join('');
@@ -1874,7 +1873,7 @@ document.getElementById('kb-btn-vim').addEventListener('click', () => {
 
       // URL suggestions below
       if (data.suggestions && data.suggestions.length) {
-        sugDiv.innerHTML = '<span style="color:var(--muted);font-size:0.68rem;margin-right:0.3rem;">quick capture:</span>' +
+        sugDiv.innerHTML = '<span class="browse-chip-lead">quick capture:</span>' +
           data.suggestions.map(s =>
             `<span class="browse-chip" data-url="${esc(s.url)}" title="${esc(s.reason)}">` +
             `<span class="chip-tier ${s.tier}">${s.tier === 'tier1' ? '◆' : s.tier === 'tier2' ? '◇' : '○'}</span>` +
@@ -1896,7 +1895,7 @@ document.getElementById('kb-btn-vim').addEventListener('click', () => {
     chatBtn.textContent = 'Researching…';
     chatBtn.disabled = true;
     chatInput.disabled = true;
-    showResult('<p style="color:var(--muted);">Local model is planning browser actions… then executing. This may take a minute.</p>');
+    showResult('<p class="browse-status">Local model is planning browser actions… then executing. This may take a minute.</p>');
 
     try {
       const resp = await fetch('/api/browse/chat', {
@@ -1913,9 +1912,9 @@ document.getElementById('kb-btn-vim').addEventListener('click', () => {
           html += '<details class="browse-commands"><summary>Commands executed (' + data.commands_executed.length + ' steps)</summary><pre>';
           data.commands_executed.forEach(c => {
             const icon = c.success ? '✓' : '✗';
-            const color = c.success ? 'var(--green)' : 'var(--red)';
-            html += `<span style="color:${color}">${icon}</span> <code>${esc(c.command)}</code>\n`;
-            if (c.error) html += `  <span style="color:var(--red)">→ ${esc(c.error)}</span>\n`;
+            const cls = c.success ? 'browse-cmd-ok' : 'browse-cmd-fail';
+            html += `<span class="${cls}">${icon}</span> <code>${esc(c.command)}</code>\n`;
+            if (c.error) html += `  <span class="browse-cmd-error">→ ${esc(c.error)}</span>\n`;
           });
           html += '</pre></details>';
         }
@@ -1924,13 +1923,13 @@ document.getElementById('kb-btn-vim').addEventListener('click', () => {
           html += `<img src="/api/browse/file?path=${encodeURIComponent(data.screenshot_path)}" alt="Screenshot" />`;
         }
         html += `<div class="browse-text">${esc(data.output || '(no output)')}</div>`;
-        html += '<p style="margin-top:0.5rem;font-size:0.72rem;color:var(--green);">Saved to PKB — check browser/extracts/</p>';
+        html += '<p class="browse-saved-note">Saved to PKB — check browser/extracts/</p>';
         showResult(html);
       } else {
-        showResult(`<p style="color:var(--${data.airgapped ? 'amber' : 'red'});">${esc(data.error)}</p>`);
+        showResult(`<p class="${data.airgapped ? 'browse-error-airgapped' : 'browse-error'}">${esc(data.error)}</p>`);
       }
     } catch (e) {
-      showResult(`<p style="color:var(--red);">Request failed: ${esc(e.message)}</p>`);
+      showResult(`<p class="browse-error">Request failed: ${esc(e.message)}</p>`);
     } finally {
       chatBtn.textContent = 'Research';
       chatBtn.disabled = false;
@@ -1947,7 +1946,7 @@ document.getElementById('kb-btn-vim').addEventListener('click', () => {
     if (!url) return;
     browseBtn.textContent = 'Capturing…';
     browseBtn.disabled = true;
-    showResult('<p style="color:var(--muted);">Navigating, capturing screenshot, extracting text…</p>');
+    showResult('<p class="browse-status">Navigating, capturing screenshot, extracting text…</p>');
 
     try {
       const resp = await fetch('/api/browse', {
@@ -1965,13 +1964,13 @@ document.getElementById('kb-btn-vim').addEventListener('click', () => {
         if (data.text) {
           html += `<div class="browse-text">${esc(data.text.substring(0, 3000))}</div>`;
         }
-        html += '<p style="margin-top:0.5rem;font-size:0.72rem;color:var(--green);">Saved to PKB — check browser/extracts/</p>';
+        html += '<p class="browse-saved-note">Saved to PKB — check browser/extracts/</p>';
         showResult(html);
       } else {
-        showResult(`<p style="color:var(--${data.airgapped ? 'amber' : 'red'});">${esc(data.error)}</p>`);
+        showResult(`<p class="${data.airgapped ? 'browse-error-airgapped' : 'browse-error'}">${esc(data.error)}</p>`);
       }
     } catch (e) {
-      showResult(`<p style="color:var(--red);">Request failed: ${esc(e.message)}</p>`);
+      showResult(`<p class="browse-error">Request failed: ${esc(e.message)}</p>`);
     } finally {
       browseBtn.textContent = 'Capture';
       browseBtn.disabled = false;
@@ -1999,5 +1998,4 @@ loadWikiPages().then(populateWelcome);
 </script>
 <script src="/static/nav.js"></script>
 {% include '_airgap_modal.html' %}
-</body>
-</html>
+{% endblock %}

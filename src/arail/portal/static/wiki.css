@@ -14,14 +14,14 @@
 .wiki-hero h1 {
   font-size: 1.8rem;
   margin: 0 0 0.3rem;
-  color: var(--green);
-  text-shadow: var(--glow-green);
+  color: var(--text-strong);
 }
 .wiki-hero .subtitle {
-  color: var(--muted);
+  color: var(--text-muted);
   font-size: 0.82rem;
   margin: 0 0 1rem;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
 }
 .wiki-search {
   display: flex;
@@ -30,18 +30,19 @@
 }
 .wiki-search input {
   flex: 1;
-  background: var(--surface);
+  background: var(--surface2);
   border: 1px solid var(--border);
-  color: var(--text);
+  color: var(--text-strong);
   padding: 0.55rem 0.8rem;
-  border-radius: 6px;
-  font-family: 'JetBrains Mono', monospace;
+  border-radius: var(--radius-s);
+  font-family: var(--font-sans);
   font-size: 0.85rem;
 }
+.wiki-search input::placeholder { color: var(--text-muted); }
 .wiki-search input:focus {
   outline: none;
-  border-color: var(--green);
-  box-shadow: 0 0 0 2px rgba(0,255,65,0.08);
+  border-color: var(--accent2);
+  box-shadow: 0 0 0 3px rgba(var(--accent2-rgb), 0.18);
 }
 
 .wiki-grid {
@@ -77,23 +78,33 @@
   color: var(--text);
   text-decoration: none;
 }
-.wiki-recent-list a:hover { color: var(--green); }
-.section-name { text-transform: uppercase; font-size: 0.72rem; letter-spacing: 0.05em; color: var(--muted); }
-.section-count {
-  background: var(--green-a08);
-  color: var(--green);
-  padding: 0.1rem 0.5rem;
-  border-radius: 999px;
+.wiki-recent-list a:hover { color: var(--accent2); }
+.section-name {
+  text-transform: var(--label-transform);
+  font-family: var(--font-mono);
+  font-weight: 500;
   font-size: 0.72rem;
+  letter-spacing: var(--label-tracking);
+  color: var(--text-muted);
+}
+.section-count {
+  background: var(--accent2-a08);
+  color: var(--accent2);
+  padding: 0.1rem 0.5rem;
+  border-radius: var(--radius-pill);
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
 }
 .section-badge {
-  background: rgba(128,128,128,0.12);
-  color: var(--muted);
+  background: var(--surface2);
+  color: var(--text-muted);
   padding: 0.1rem 0.4rem;
-  border-radius: 4px;
+  border-radius: var(--radius-s);
   font-size: 0.68rem;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  font-family: var(--font-mono);
+  font-weight: 500;
+  text-transform: var(--label-transform);
+  letter-spacing: var(--label-tracking);
 }
 
 /* ── Tag cloud ── */
@@ -107,24 +118,27 @@
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
-  background: var(--blue-a08);
-  color: var(--blue);
-  border: 1px solid rgba(0,212,255,0.18);
+  background: var(--accent2-a08);
+  color: var(--accent2);
+  border: 1px solid var(--accent2-a16);
   padding: 0.2rem 0.55rem;
-  border-radius: 999px;
-  font-family: 'JetBrains Mono', monospace;
+  border-radius: var(--radius-pill);
+  font-family: var(--font-mono);
   font-size: 0.72rem;
   text-decoration: none;
-  transition: all 0.12s ease;
+  transition: background var(--dur-1) var(--ease-accent), border-color var(--dur-1) var(--ease-accent);
 }
 .tag-pill:hover {
-  background: rgba(0,212,255,0.18);
-  border-color: var(--blue);
+  background: var(--accent2-a16);
+  border-color: var(--accent2);
 }
 .tag-pill .tag-count {
-  color: var(--muted);
+  color: var(--text-muted);
   font-size: 0.65rem;
+  font-variant-numeric: tabular-nums;
 }
+
+.wiki-graph-lead { margin: 0.3rem 0 0.8rem; }
 
 /* ═══ Page reader ═══ */
 
@@ -153,18 +167,20 @@
 }
 .sidebar-section:last-child { border-bottom: none; }
 .sidebar-label {
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  text-transform: var(--label-transform);
+  letter-spacing: var(--label-tracking);
+  font-family: var(--font-mono);
+  font-weight: 500;
   font-size: 0.68rem;
-  color: var(--muted);
+  color: var(--text-muted);
   margin-bottom: 0.3rem;
 }
 .sidebar-value code {
-  background: var(--surface);
+  background: color-mix(in srgb, var(--accent2) 10%, transparent);
   padding: 0.1rem 0.35rem;
-  border-radius: 3px;
+  border-radius: var(--radius-s);
   font-size: 0.72rem;
-  color: var(--amber);
+  color: var(--accent2);
 }
 .sidebar-tags {
   display: flex;
@@ -187,54 +203,55 @@
   text-decoration: none;
 }
 .sidebar-backlinks a:hover,
-.sidebar-outgoing a:hover { color: var(--green); }
+.sidebar-outgoing a:hover { color: var(--accent2); }
 
 .wiki-main {
   min-width: 0;
 }
 .wiki-breadcrumbs {
   font-size: 0.72rem;
-  color: var(--muted);
+  color: var(--text-muted);
   margin-bottom: 1rem;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  font-family: var(--font-mono);
+  text-transform: var(--label-transform);
+  letter-spacing: var(--label-tracking);
 }
 .wiki-breadcrumbs a {
-  color: var(--muted);
+  color: var(--text-muted);
   text-decoration: none;
 }
-.wiki-breadcrumbs a:hover { color: var(--green); }
+.wiki-breadcrumbs a:hover { color: var(--accent2); }
 .wiki-breadcrumbs .sep { margin: 0 0.4rem; opacity: 0.5; }
 
 .wiki-content {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-m);
   padding: 2rem 2.5rem;
   font-size: 0.93rem;
   line-height: 1.65;
   color: var(--text);
 }
 .wiki-content h1, .wiki-content h2, .wiki-content h3, .wiki-content h4 {
-  color: var(--green);
+  color: var(--text-strong);
   margin-top: 1.8em;
   margin-bottom: 0.4em;
 }
-.wiki-content h1 { font-size: 1.6rem; margin-top: 0; text-shadow: var(--glow-green); }
+.wiki-content h1 { font-size: 1.6rem; margin-top: 0; }
 .wiki-content h2 { font-size: 1.2rem; border-bottom: 1px solid var(--border); padding-bottom: 0.3rem; }
-.wiki-content h3 { font-size: 1rem; color: var(--blue); }
+.wiki-content h3 { font-size: 1rem; }
 .wiki-content p { margin: 0.9em 0; }
 .wiki-content code {
-  background: rgba(0,0,0,0.3);
+  background: color-mix(in srgb, var(--accent2) 10%, transparent);
   padding: 0.1rem 0.35rem;
-  border-radius: 3px;
+  border-radius: var(--radius-s);
   font-size: 0.82em;
-  color: var(--amber);
+  color: var(--accent2);
 }
 .wiki-content pre {
-  background: #0a0c14;
+  background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-s);
   padding: 0.9rem 1.1rem;
   overflow-x: auto;
   font-size: 0.8rem;
@@ -256,28 +273,36 @@
   padding: 0.45rem 0.7rem;
   text-align: left;
 }
-.wiki-content th { background: rgba(0,255,65,0.05); color: var(--green); }
+.wiki-content th {
+  background: var(--surface2);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-weight: 500;
+  text-transform: var(--label-transform);
+  letter-spacing: var(--label-tracking);
+  font-size: 0.72rem;
+}
 .wiki-content blockquote {
-  border-left: 3px solid var(--blue);
+  border-left: 3px solid var(--accent2);
   margin: 1em 0;
   padding: 0.3em 1em;
-  color: var(--muted);
-  background: rgba(0,212,255,0.04);
+  color: var(--text-muted);
+  background: color-mix(in srgb, var(--accent2) 4%, transparent);
 }
 
 /* ── Wikilinks ── */
 .wiki-content a.wikilink {
-  color: var(--blue);
+  color: var(--accent2);
   text-decoration: none;
-  border-bottom: 1px dashed rgba(0,212,255,0.4);
+  border-bottom: 1px dashed rgba(var(--accent2-rgb), 0.4);
 }
 .wiki-content a.wikilink:hover {
-  color: var(--green);
-  border-bottom-color: var(--green);
+  color: var(--accent2);
+  border-bottom-color: var(--accent2);
 }
 .wiki-content a.wikilink.missing {
-  color: var(--red);
-  border-bottom-color: rgba(255,51,85,0.4);
+  color: var(--danger);
+  border-bottom-color: rgba(var(--danger-rgb), 0.4);
   opacity: 0.8;
 }
 
@@ -287,15 +312,15 @@
   padding: 1rem 1.3rem;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-m);
 }
 .wiki-neighborhood h3 {
   margin: 0 0 0.3rem;
-  color: var(--green);
+  color: var(--text-strong);
   font-size: 0.95rem;
 }
 .neighborhood-hint {
-  color: var(--muted);
+  color: var(--text-muted);
   font-size: 0.78rem;
   margin: 0 0 0.6rem;
 }
@@ -312,13 +337,13 @@
   justify-content: space-between;
   align-items: center;
   padding: 0.3rem 0.5rem;
-  background: var(--bg);
+  background: var(--surface2);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-s);
   font-size: 0.78rem;
 }
 .neighborhood-list a {
   color: var(--text);
   text-decoration: none;
 }
-.neighborhood-list a:hover { color: var(--green); }
+.neighborhood-list a:hover { color: var(--accent2); }

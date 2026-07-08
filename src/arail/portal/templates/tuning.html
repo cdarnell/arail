@@ -1,113 +1,182 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{ brand.name }} — Frontier LLM Hosting on Consumer Hardware</title>
-<link rel="stylesheet" href="/static/style.css">
+{% extends "base.html" %}
+{% set active = 'tuning' %}
+{% block title %}{{ brand.name }} — Frontier LLM Hosting on Consumer Hardware{% endblock %}
+{% block head %}
 <style>
   /* Page-local styles. Deliberately minimal so the single-page
      view stays legible and doesn't drag in the research cockpit's
-     complexity. */
+     complexity. Colors come only from the semantic token contract. */
   .tn-wrap      { max-width: 1180px; margin: 20px auto; padding: 0 20px; }
   .tn-hero      { margin: 14px 0 22px; }
-  .tn-hero h1   { margin: 0 0 6px; font-size: 22px; }
-  .tn-hero .sub { color: var(--muted, #888); font-size: 13px; }
+  .tn-hero h1   { margin: 0 0 6px; font-size: 22px; font-weight: 650; color: var(--text-strong); }
+  .tn-hero .sub { color: var(--text-muted); font-size: 13px; }
+  .tn-hero .sub.tn-hero-lede { margin-bottom: 6px; }
+  .tn-strong    { color: var(--text-strong); }
+  .tn-dim       { color: var(--text-muted); }
 
   .tn-grid      { display: grid; gap: 16px;
                   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
-  .tn-card      { background: var(--panel, #111); border: 1px solid var(--border, #222);
-                  border-radius: 8px; padding: 16px; }
-  .tn-card h3   { margin: 0 0 10px; font-size: 13px; text-transform: uppercase;
-                  letter-spacing: 0.08em; color: var(--muted, #888); }
-  .tn-big       { font-size: 26px; font-weight: 600; }
-  .tn-unit      { font-size: 13px; color: var(--muted, #888); margin-left: 4px; }
-  .tn-delta     { font-size: 12px; padding: 2px 6px; border-radius: 3px; margin-left: 6px; }
-  .tn-delta.win { background: #144d25; color: #7ee0a0; }
-  .tn-delta.loss{ background: #4d1e1e; color: #f0a0a0; }
-  .tn-meta      { color: var(--muted, #888); font-size: 12px; margin-top: 8px; line-height: 1.5; }
-  .tn-meta code { background: var(--bg2, #181818); padding: 1px 5px; border-radius: 3px; }
+  .tn-card      { background: var(--surface); border: 1px solid var(--border);
+                  border-radius: var(--radius-m); padding: 16px; }
+  .tn-card h3   { margin: 0 0 10px; font-size: 13px; font-family: var(--font-mono);
+                  font-weight: 500; text-transform: var(--label-transform);
+                  letter-spacing: var(--label-tracking); color: var(--text-muted); }
+  .tn-big       { font-size: 26px; font-weight: 500; font-family: var(--font-mono);
+                  font-variant-numeric: tabular-nums; color: var(--text-strong); }
+  .tn-unit      { font-size: 13px; color: var(--text-muted); margin-left: 4px; }
+  .tn-delta     { font-size: 12px; font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+                  padding: 2px 6px; border-radius: var(--radius-s); margin-left: 6px; }
+  .tn-delta.win { background: var(--positive-a16); color: var(--positive); }
+  .tn-delta.loss{ background: var(--danger-a16); color: var(--danger); }
+  .tn-meta      { color: var(--text-muted); font-size: 12px; margin-top: 8px; line-height: 1.5; }
+  .tn-meta code { background: var(--surface2); color: var(--accent2); padding: 1px 5px; border-radius: var(--radius-s); }
 
   .tn-controls  { display: flex; gap: 8px; flex-wrap: wrap; margin: 18px 0 8px; }
-  .tn-btn       { background: var(--accent, #2a6); color: #fff; border: 0;
-                  padding: 8px 14px; border-radius: 4px; cursor: pointer;
-                  font-size: 13px; }
-  .tn-btn.sec   { background: #333; }
+  .tn-btn       { background: var(--accent); color: color-mix(in srgb, var(--bg) 45%, black);
+                  border: 0; padding: 8px 14px; border-radius: var(--radius-s); cursor: pointer;
+                  font-family: var(--font-sans); font-size: 13px; font-weight: 600; }
+  .tn-btn.sec   { background: transparent; color: var(--text); border: 1px solid var(--border-strong); }
+  .tn-btn.stop  { background: color-mix(in srgb, var(--danger) 13%, transparent);
+                  color: var(--danger);
+                  border: 1px solid color-mix(in srgb, var(--danger) 38%, transparent); }
   .tn-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
   .tn-sec       { margin-top: 26px; }
-  .tn-sec h2    { font-size: 14px; text-transform: uppercase; letter-spacing: 0.08em;
-                  color: var(--muted, #888); margin: 0 0 10px; }
+  .tn-sec h2    { font-size: 14px; font-family: var(--font-mono); font-weight: 500;
+                  text-transform: var(--label-transform); letter-spacing: var(--label-tracking);
+                  color: var(--text-muted); margin: 0 0 10px; }
 
-  table.tn-runs { width: 100%; border-collapse: collapse; font-size: 12px; }
+  table.tn-runs { width: 100%; border-collapse: collapse; font-family: var(--font-mono);
+                  font-variant-numeric: tabular-nums; font-size: 12px; }
   table.tn-runs th, table.tn-runs td { padding: 6px 8px;
-                  border-bottom: 1px solid var(--border, #222); text-align: left; }
-  table.tn-runs th { color: var(--muted, #888); font-weight: normal; text-transform: uppercase;
-                  letter-spacing: 0.05em; font-size: 11px; }
-  table.tn-runs tr.win td { background: rgba(30, 90, 50, 0.12); }
-  table.tn-runs tr.loss td{ background: rgba(90, 30, 30, 0.08); }
-  table.tn-runs code { font-size: 11px; background: var(--bg2, #181818);
-                  padding: 1px 5px; border-radius: 3px; }
+                  border-bottom: 1px solid var(--border); text-align: left; }
+  table.tn-runs th { color: var(--text-muted); font-weight: 500; text-transform: var(--label-transform);
+                  letter-spacing: var(--label-tracking); font-size: 11px;
+                  border-bottom-color: var(--border-strong); }
+  table.tn-runs tr.win td { background: rgba(var(--positive-rgb), 0.10); }
+  table.tn-runs tr.loss td{ background: rgba(var(--danger-rgb), 0.08); }
+  table.tn-runs code { font-size: 11px; background: var(--surface2); color: var(--accent2);
+                  padding: 1px 5px; border-radius: var(--radius-s); }
+  .tn-stages    { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); }
 
-  .tn-status    { font-size: 12px; color: var(--muted, #888); margin: 10px 0; }
-  .tn-status .phase { display: inline-block; padding: 2px 6px; border-radius: 3px;
-                  background: #333; margin-right: 6px; }
-  .tn-empty     { color: var(--muted, #888); font-style: italic; }
+  .tn-status    { font-size: 12px; color: var(--text-muted); margin: 10px 0; }
+  .tn-status .phase { display: inline-block; padding: 2px 6px; border-radius: var(--radius-s);
+                  background: var(--surface3); color: var(--text); font-family: var(--font-mono);
+                  margin-right: 6px; }
+  .tn-pass-chip { display: none; margin-left: 8px; padding: 2px 6px; border-radius: var(--radius-s);
+                  background: var(--accent2-a16); color: var(--accent2);
+                  font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+  .tn-empty     { color: var(--text-muted); font-style: italic; }
 
   .tn-spark     { height: 80px; width: 100%; }
+
+  /* View tabs — selection emphasis is amber (--accent). */
+  .tn-tabs      { display: flex; gap: 4px; margin: 14px 0 10px; border-bottom: 1px solid var(--border); }
+  .tn-tab       { background: transparent; border: 0; border-bottom: 2px solid transparent;
+                  color: var(--text-muted); padding: 8px 14px; cursor: pointer;
+                  font-family: var(--font-sans); font-size: 13px; }
+  .tn-tab.active{ border-bottom-color: var(--accent); color: var(--text-strong); }
+  .tn-tab .tn-tab-note { color: var(--text-muted); font-size: 11px; }
+
+  /* Framing card + architecture card chrome. */
+  .tn-framing-card { margin-bottom: 16px; }
+  .tn-framing-row  { display: flex; gap: 10px; align-items: flex-start; }
+  .tn-framing-icon { font-size: 20px; line-height: 1; }
+  .tn-framing-body { font-size: 12px; line-height: 1.55; margin: 0; color: var(--text); }
+  .tn-arch-card    { margin-bottom: 16px; padding: 18px 20px; }
+  .tn-arch-head    { margin: 0 0 4px; font-size: 12px; color: var(--text-muted);
+                     font-family: var(--font-mono); font-weight: 500;
+                     text-transform: var(--label-transform); letter-spacing: var(--label-tracking); }
+  .tn-arch-blurb   { margin: 0 0 12px; }
+  .tn-arch-svg     { width: 100%; height: auto; background: var(--bg);
+                     border: 1px solid var(--border); border-radius: var(--radius-s); }
+  #tn-arch-mlx     { display: block; }
+  #tn-arch-aerollm { display: none; }
+
+  /* Frontier strip status blocks (JS-rendered). */
+  .tn-fr-status { padding: 8px 10px; border-radius: var(--radius-s); font-size: 11px; line-height: 1.5; }
+  .tn-fr-status.wait { background: var(--warn-a08);   color: var(--warn); }
+  .tn-fr-status.err  { background: var(--danger-a08); color: var(--danger); }
+  .tn-fr-status.ok   { background: var(--positive-a08); color: var(--positive); }
+  .tn-fr-status .tn-fr-detail { margin-top: 4px; color: var(--text-muted); }
+  .tn-fr-disk      { margin-top: 2px; }
+  .tn-fr-block     { margin-top: 10px; }
+  .tn-fr-rationale { margin-top: 8px; }
+  .tn-badge { display: inline-block; padding: 2px 6px; margin: 0 4px 4px 0;
+              border-radius: var(--radius-s); font-size: 11px; font-family: var(--font-mono); }
+  .tn-badge.ok  { background: var(--positive-a16); color: var(--positive); }
+  .tn-badge.bad { background: var(--danger-a16);   color: var(--danger); }
+
+  /* Schedule widget inputs. */
+  .tn-sched     { margin-top: 4px; font-size: 12px; color: var(--text-muted); align-items: center; }
+  .tn-sched-label { display: flex; align-items: center; gap: 6px; }
+  .tn-sched-kicker { font-family: var(--font-mono); font-size: 11px; font-weight: 500;
+                  letter-spacing: var(--label-tracking); text-transform: var(--label-transform); }
+  .tn-input     { background: var(--surface2); color: var(--text-strong);
+                  border: 1px solid var(--border); border-radius: var(--radius-s);
+                  padding: 3px 6px; font-size: 12px; }
+  .tn-input:focus { outline: none; border-color: var(--accent2);
+                  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent2) 18%, transparent); }
+  #tn-sched-window { display: none; gap: 6px; align-items: center; }
+  #tn-sched-status { color: var(--text-muted); }
+  #tn-sched-status.ok   { color: var(--positive); }
+  #tn-sched-status.warn { color: var(--warn); }
 
   /* AirLLM vs AeroLLM comparison block. Lives between hero and tabs.
      Numbers are *expected* gains pending the perf harness; clearly
      labeled as projected so we don't oversell. */
   .vs-wrap { margin: 4px 0 22px; }
   .vs-head { display:flex; align-items:baseline; justify-content:space-between; gap:12px; margin: 0 0 10px; flex-wrap: wrap; }
-  .vs-head h2 { margin:0; font-size:14px; text-transform:uppercase; letter-spacing:0.08em; color:#9bb1a3; }
-  .vs-head .vs-note { font-size:11px; color:#7a8a82; }
+  .vs-head h2 { margin:0; display:inline; font-size:14px; font-family:var(--font-mono); font-weight:500;
+                text-transform:var(--label-transform); letter-spacing:var(--label-tracking); color:var(--text-muted); }
+  .vs-head .vs-note { font-size:11px; color:var(--text-muted); }
   .vs-grid { display:grid; gap:14px; grid-template-columns: 1fr 1fr; }
   @media (max-width: 720px) { .vs-grid { grid-template-columns: 1fr; } }
-  .vs-card { border:1px solid #222; border-radius:10px; padding:14px 16px; background:#0e1311; position:relative; }
-  .vs-card.air  { border-color:#2a3a32; }
-  .vs-card.aero { border-color:#2f6a42; background:linear-gradient(180deg, #0e1a14 0%, #0c1410 100%); box-shadow: 0 0 0 1px rgba(74,164,111,0.10), 0 6px 22px rgba(0,0,0,0.35); }
+  .vs-card { border:1px solid var(--border); border-radius:var(--radius-m); padding:14px 16px; background:var(--surface); position:relative; }
+  .vs-card.air  { border-color:var(--border); }
+  .vs-card.aero { border-color:var(--positive-a28); box-shadow: 0 6px 22px rgba(0,0,0,0.35); }
   .vs-title { display:flex; align-items:baseline; gap:8px; }
-  .vs-title h3 { margin:0; font-size:15px; }
-  .vs-title .pill { font-size:10px; padding:2px 7px; border-radius:999px; letter-spacing:0.06em; text-transform:uppercase; }
-  .vs-card.air  .pill { background:#1a2520; color:#9bb1a3; border:1px solid #2a3a32; }
-  .vs-card.aero .pill { background:#0f2818; color:#b5f0c8; border:1px solid #2f6a42; }
-  .vs-tag { font-size:11px; color:#7a8a82; margin-top:2px; }
+  .vs-title h3 { margin:0; font-size:15px; color:var(--text-strong); }
+  .vs-title .pill { font-size:10px; font-family:var(--font-mono); font-weight:500; padding:2px 7px;
+                border-radius:var(--radius-pill); letter-spacing:var(--label-tracking); text-transform:var(--label-transform); }
+  .vs-card.air  .pill { background:var(--surface2); color:var(--text-muted); border:1px solid var(--border-strong); }
+  .vs-card.aero .pill { background:var(--positive-a08); color:var(--positive); border:1px solid var(--positive-a28); }
+  .vs-tag { font-size:11px; color:var(--text-muted); margin-top:2px; }
   .vs-rows { margin-top: 12px; display: grid; gap: 8px; }
   .vs-row { display:grid; grid-template-columns: 130px 1fr auto; gap:10px; align-items:center; font-size:12.5px; }
-  .vs-row .lbl { color:#9bb1a3; }
-  .vs-row .bar { height:6px; background:#181f1c; border-radius:3px; overflow:hidden; }
-  .vs-row .bar > span { display:block; height:100%; background:#3a5a4a; }
-  .vs-card.aero .vs-row .bar > span { background: linear-gradient(90deg, #4aa46f 0%, #7ee0a0 100%); }
-  .vs-row .num { font-variant-numeric: tabular-nums; color:#d4e8d8; min-width: 80px; text-align:right; }
-  .vs-foot { margin-top: 12px; padding-top: 10px; border-top:1px dashed #222; font-size:11.5px; color:#8aa094; line-height:1.5; }
-  .vs-foot strong { color:#b5f0c8; }
+  .vs-row .lbl { color:var(--text-muted); }
+  .vs-row .bar { height:6px; background:var(--surface2); border-radius:var(--radius-pill); overflow:hidden; }
+  .vs-row .bar > span { display:block; height:100%; background:color-mix(in srgb, var(--accent2) 45%, transparent); }
+  .vs-card.aero .vs-row .bar > span { background: var(--accent2); }
+  .vs-row .num { font-family:var(--font-mono); font-variant-numeric: tabular-nums; color:var(--text); min-width: 80px; text-align:right; }
+  .vs-gainx { color: var(--positive); font-weight: 600; }
+  .vs-foot { margin-top: 12px; padding-top: 10px; border-top:1px dashed var(--border); font-size:11.5px; color:var(--text-muted); line-height:1.5; }
+  .vs-foot strong { color:var(--positive); }
   .vs-tech { margin-top: 14px; }
-  .vs-tech h2 { font-size:13px; text-transform:uppercase; letter-spacing:0.08em; color:#9bb1a3; margin:0 0 8px; }
+  .vs-tech h2 { display:inline; font-size:13px; font-family:var(--font-mono); font-weight:500;
+                text-transform:var(--label-transform); letter-spacing:var(--label-tracking); color:var(--text-muted); margin:0 0 8px; }
   .vs-tech-grid { display:grid; gap:10px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
-  .vs-tech-card { border:1px solid #222; border-radius:8px; padding:10px 12px; background:#0d1210; }
-  .vs-tech-card h4 { margin:0 0 4px; font-size:12.5px; color:#d4e8d8; }
-  .vs-tech-card .gain { font-size:11px; color:#7ee0a0; font-weight:600; letter-spacing:0.04em; }
-  .vs-tech-card p { margin:6px 0 0; font-size:11.5px; color:#9bb1a3; line-height:1.5; }
+  .vs-tech-card { border:1px solid var(--border); border-radius:var(--radius-m); padding:10px 12px; background:var(--surface); }
+  .vs-tech-card h4 { margin:0 0 4px; font-size:12.5px; color:var(--text-strong); }
+  .vs-tech-card .gain { font-size:11px; color:var(--positive); font-weight:600; letter-spacing:0.04em; }
+  .vs-tech-card p { margin:6px 0 0; font-size:11.5px; color:var(--text-muted); line-height:1.5; }
 
   details.tn-know  { margin-top: 12px; }
-  details.tn-know summary { cursor: pointer; color: var(--muted, #888); font-size: 12px; }
+  details.tn-know summary { cursor: pointer; color: var(--text-muted); font-size: 12px; }
   details.tn-know code    { font-size: 11px; }
+  .tn-knobs-list  { margin-top: 8px; }
   .tn-knob-row    { display: flex; justify-content: space-between; padding: 3px 0;
-                    font-size: 12px; border-bottom: 1px dashed var(--border, #222); }
+                    font-size: 12px; border-bottom: 1px dashed var(--border); }
   .tn-knob-row:last-child { border-bottom: 0; }
 </style>
-</head>
-<body>
-
-{% set active = 'tuning' %}{% include "_nav.html" %}
+{% endblock %}
+{% block content %}
 
 <div class="tn-wrap">
 
   <div class="tn-hero">
     <h1 id="tn-hero-title">Frontier LLM Hosting on Consumer-Grade Hardware</h1>
-    <div class="sub" style="margin-bottom:6px;color:#9bb1a3;">
+    <div class="sub tn-hero-lede">
       Run the heaviest models your silicon handles well — layer-streamed off NVMe, tuned for the hardware you own. Cloud frontier models are one click away via the Compute Source.
     </div>
     <div class="sub">
@@ -162,23 +231,24 @@
   </div>
 
   <style>
-    .rp-card { border:1px solid var(--border, #2a3439); border-radius:14px; padding:18px 20px; margin:14px 0 22px; background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0)); }
+    .rp-card { border:1px solid var(--border); border-radius:var(--radius-l); padding:18px 20px; margin:14px 0 22px; background:var(--surface); }
     .rp-head { display:flex; align-items:baseline; justify-content:space-between; gap:12px; margin-bottom:6px; }
-    .rp-head h2 { margin:0; font-size:18px; }
-    .rp-source { font-size:11px; padding:2px 8px; border-radius:999px; background:rgba(148,163,184,0.12); color:#94a3b8; text-transform:uppercase; letter-spacing:0.05em; }
-    .rp-sub { color:#9bb1a3; font-size:13px; margin-bottom:12px; }
+    .rp-head h2 { margin:0; font-size:18px; font-weight:650; color:var(--text-strong); }
+    .rp-source { font-size:11px; font-family:var(--font-mono); font-weight:500; padding:2px 8px; border-radius:var(--radius-pill); background:var(--surface3); color:var(--text-muted); text-transform:var(--label-transform); letter-spacing:var(--label-tracking); }
+    .rp-sub { color:var(--text-muted); font-size:13px; margin-bottom:12px; }
     .rp-options { display:grid; grid-template-columns:repeat(3, 1fr); gap:10px; }
-    .rp-opt { display:flex; flex-direction:column; gap:4px; padding:12px; border:1px solid var(--border, #2a3439); border-radius:10px; cursor:pointer; transition:border-color .15s, background .15s; }
-    .rp-opt:hover { border-color:#3f5560; }
+    .rp-opt { display:flex; flex-direction:column; gap:4px; padding:12px; border:1px solid var(--border); border-radius:var(--radius-m); cursor:pointer; transition:border-color var(--dur-2) var(--ease-accent), background var(--dur-2) var(--ease-accent); }
+    .rp-opt:hover { border-color:var(--border-strong); }
     .rp-opt input { display:none; }
-    .rp-opt-title { font-weight:600; font-size:14px; }
-    .rp-opt-tag { font-size:11px; color:#7d8c95; }
-    .rp-opt.rp-active { background:rgba(34,211,238,0.06); border-color:rgba(34,211,238,0.45); }
-    .rp-opt.rp-active[data-profile="balanced"] { background:rgba(148,163,184,0.08); border-color:rgba(148,163,184,0.45); }
-    .rp-opt.rp-active[data-profile="throughput"] { background:rgba(251,191,36,0.06); border-color:rgba(251,191,36,0.45); }
+    .rp-opt-title { font-weight:600; font-size:14px; color:var(--text-strong); }
+    .rp-opt-tag { font-size:11px; color:var(--text-muted); }
+    .rp-opt.rp-active { background:var(--accent-a08); border-color:rgba(var(--accent-rgb), .45); }
+    .rp-opt.rp-active[data-profile="balanced"] { background:var(--surface3); border-color:var(--border-strong); }
+    .rp-opt.rp-active[data-profile="throughput"] { background:var(--warn-a08); border-color:rgba(var(--warn-rgb), .45); }
     .rp-footer { display:flex; align-items:center; justify-content:space-between; margin-top:12px; gap:12px; flex-wrap:wrap; }
-    .rp-auto { display:inline-flex; align-items:center; gap:6px; font-size:13px; color:#cbd5e1; cursor:pointer; }
-    .rp-caption { font-size:12px; color:#7d8c95; }
+    .rp-auto { display:inline-flex; align-items:center; gap:6px; font-size:13px; color:var(--text); cursor:pointer; }
+    .rp-caption { font-size:12px; color:var(--text-muted); }
+    @media (prefers-reduced-motion: reduce) { .rp-opt { transition:none; } }
   </style>
 
   <script>
@@ -284,7 +354,7 @@
        to read the projected-perf cards on every visit. -->
   <details class="vs-wrap" id="vs-wrap">
     <summary class="vs-head">
-      <h2 id="vs-title" style="display:inline">Architecture &amp; projected performance</h2>
+      <h2 id="vs-title">Architecture &amp; projected performance</h2>
       <span class="vs-note" id="vs-note">Projected · pending benchmark harness · 70B-class model on consumer NVMe + a single GPU/Apple-silicon host</span>
     </summary>
     <div class="vs-grid">
@@ -310,9 +380,9 @@
         </div>
         <div class="vs-tag">Prefetch threading + amortized batch + speculative decoding. Same hardware.</div>
         <div class="vs-rows" data-engine="aerollm">
-          <div class="vs-row" data-workload="single_stream"><span class="lbl">Single-stream</span><span class="bar"><span style="width:55%"></span></span><span class="num">~0.6–1.2 tok/s <strong style="color:#7ee0a0">3–6×</strong></span></div>
-          <div class="vs-row" data-workload="batch_64"><span class="lbl">Batch (B=64)</span><span class="bar"><span style="width:96%"></span></span><span class="num">~10–20 tok/s/prompt <strong style="color:#7ee0a0">50–100×</strong></span></div>
-          <div class="vs-row" data-workload="spec_decode"><span class="lbl">Spec-decode</span><span class="bar"><span style="width:70%"></span></span><span class="num">2–4 tok/step <strong style="color:#7ee0a0">2–4×</strong></span></div>
+          <div class="vs-row" data-workload="single_stream"><span class="lbl">Single-stream</span><span class="bar"><span style="width:55%"></span></span><span class="num">~0.6–1.2 tok/s <strong class="vs-gainx">3–6×</strong></span></div>
+          <div class="vs-row" data-workload="batch_64"><span class="lbl">Batch (B=64)</span><span class="bar"><span style="width:96%"></span></span><span class="num">~10–20 tok/s/prompt <strong class="vs-gainx">50–100×</strong></span></div>
+          <div class="vs-row" data-workload="spec_decode"><span class="lbl">Spec-decode</span><span class="bar"><span style="width:70%"></span></span><span class="num">2–4 tok/step <strong class="vs-gainx">2–4×</strong></span></div>
           <div class="vs-row"><span class="lbl">I/O ↔ compute</span><span class="bar"><span style="width:90%"></span></span><span class="num">overlapped</span></div>
         </div>
         <div class="vs-foot">Stacked end-to-end: <strong>~30–100× aggregate throughput</strong> on batch workloads vs AirLLM, with single-stream latency cut by <strong>3–6×</strong>. Same NVMe, same GPU.</div>
@@ -320,7 +390,7 @@
     </div>
 
     <details class="vs-tech">
-      <summary><h2 style="display:inline">Where the gains come from</h2></summary>
+      <summary><h2>Where the gains come from</h2></summary>
       <div class="vs-tech-grid">
         <div class="vs-tech-card">
           <h4>Prefetch threading <span class="gain">+1.5–2×</span></h4>
@@ -347,19 +417,16 @@
        in .env to expose the AeroLLM MLX + CUDA tabs (for the operator
        running AeroLLM alongside or in place of AirLLM). The view registry
        in JS keeps all three views regardless — only the buttons hide. -->
-  <div class="tn-tabs" role="tablist" style="display:flex;gap:4px;margin:14px 0 10px;border-bottom:1px solid var(--border,#222);">
-    <button class="tn-tab active" data-view="airllm-mlx" role="tab"
-            style="background:transparent;border:0;border-bottom:2px solid #7ee0a0;color:#d4e8d8;padding:8px 14px;cursor:pointer;font-size:13px;">
-      AirLLM MLX <span style="color:#8faf97;font-size:11px;">· Apple silicon · default</span>
+  <div class="tn-tabs" role="tablist">
+    <button class="tn-tab active" data-view="airllm-mlx" role="tab">
+      AirLLM MLX <span class="tn-tab-note">· Apple silicon · default</span>
     </button>
     {% if show_aerollm %}
-    <button class="tn-tab" data-view="aerollm-mlx" role="tab"
-            style="background:transparent;border:0;border-bottom:2px solid transparent;color:#8faf97;padding:8px 14px;cursor:pointer;font-size:13px;">
-      AeroLLM MLX <span style="color:#6a8a72;font-size:11px;">· experimental · unified memory</span>
+    <button class="tn-tab" data-view="aerollm-mlx" role="tab">
+      AeroLLM MLX <span class="tn-tab-note">· experimental · unified memory</span>
     </button>
-    <button class="tn-tab" data-view="aerollm-cuda" role="tab"
-            style="background:transparent;border:0;border-bottom:2px solid transparent;color:#8faf97;padding:8px 14px;cursor:pointer;font-size:13px;">
-      AeroLLM CUDA <span style="color:#6a8a72;font-size:11px;">· experimental · 1 TB class</span>
+    <button class="tn-tab" data-view="aerollm-cuda" role="tab">
+      AeroLLM CUDA <span class="tn-tab-note">· experimental · 1 TB class</span>
     </button>
     {% endif %}
   </div>
@@ -368,17 +435,17 @@
        AirLLM streams transformer layers from disk so a 70B-class
        model fits on modest unified-memory hardware. Measurements
        land in lab/data/mlx-bench.jsonl. -->
-  <div class="tn-card" id="tn-framing-card" style="margin-bottom:16px;background:#0f1a14;border-color:#1e3a2a;">
-    <div style="display:flex;gap:10px;align-items:flex-start;">
-      <span style="font-size:20px;line-height:1;">🧪</span>
-      <div class="tn-meta" style="color:#b8d0bf;font-size:12px;line-height:1.55;margin:0;" id="tn-framing-body">
-        <strong style="color:#d4e8d8;">AirLLM — layer streaming on Apple silicon.</strong>
+  <div class="tn-card tn-framing-card" id="tn-framing-card">
+    <div class="tn-framing-row">
+      <span class="tn-framing-icon">🧪</span>
+      <div class="tn-meta tn-framing-body" id="tn-framing-body">
+        <strong class="tn-strong">AirLLM — layer streaming on Apple silicon.</strong>
         Each transformer layer is loaded from NVMe into unified
         memory, executed by MLX kernels in place, then evicted
         before the next layer streams in. Lets a 70B-class model
         run on hardware that can't hold the full weights at once.
         <br>
-        <span style="color:#8faf97;">Measurements land in
+        <span class="tn-dim">Measurements land in
           <code>lab/data/mlx-bench.jsonl</code>. Knob sweeps
           (autoresearch loop) commit on green, abort on red.</span>
       </div>
@@ -389,11 +456,11 @@
        Two diagrams, one per backend. Only the active one is visible;
        ``setBackend()`` toggles the ``tn-arch-on`` class. Packets are
        <animateMotion> nodes riding hidden paths. -->
-  <div class="tn-card tn-arch-card" style="margin-bottom:16px;padding:18px 20px;">
-    <h3 style="margin:0 0 4px;font-size:12px;color:#8faf97;text-transform:uppercase;letter-spacing:0.10em;">
+  <div class="tn-card tn-arch-card">
+    <h3 class="tn-arch-head">
       <span id="tn-arch-title">Architecture — MLX unified-memory streaming</span>
     </h3>
-    <div class="tn-meta" id="tn-arch-blurb" style="margin:0 0 12px;">
+    <div class="tn-meta tn-arch-blurb" id="tn-arch-blurb">
       Layers live on NVMe. A <em>rotating window</em> of the current
       layer is mmap'd into unified memory; MLX kernels read it
       <em>in place</em> (no PCIe copy — that stage simply doesn't exist
@@ -404,32 +471,32 @@
 
     <!-- ── MLX diagram (our design) ────────────────────────────── -->
     <svg id="tn-arch-mlx" class="tn-arch-svg tn-arch-on"
-         viewBox="0 0 1000 520"
-         style="width:100%;height:auto;background:#0b100d;border:1px solid #1e3a2a;border-radius:6px;display:block;">
+         viewBox="0 0 1000 520">
       <defs>
         <style>
-          .tn-band  { fill:none; stroke:#1e3a2a; stroke-width:1.2; stroke-dasharray:3 4; }
-          .tn-blab  { font:600 10px system-ui; fill:#5a8070; letter-spacing:0.14em; }
-          .tn-node  { fill:#0f1a14; stroke:#3a5a48; stroke-width:1.5; }
-          .tn-node.on { stroke:#7ee0a0; }
+          .tn-band  { fill:none; stroke:var(--border); stroke-width:1.2; stroke-dasharray:3 4; }
+          .tn-blab  { font-weight:600; font-size:10px; font-family:var(--font-mono); fill:var(--text-muted); letter-spacing:0.14em; }
+          .tn-node  { fill:var(--surface); stroke:var(--border-strong); stroke-width:1.5; }
+          .tn-node.on { stroke:var(--accent2); }
           .tn-node.ghost { stroke-dasharray:5 4; opacity:0.7; }
-          .tn-title { font:600 13px system-ui; fill:#e0ebe2; text-anchor:middle; }
-          .tn-sub   { font:11px system-ui; fill:#8faf97; text-anchor:middle; }
-          .tn-sub.accent { fill:#7ee0a0; }
-          .tn-edge  { stroke:#4a6a58; stroke-width:1.5; fill:none; }
-          .tn-edge.hot    { stroke:#7ee0a0; stroke-width:2; }
+          .tn-title { font-weight:600; font-size:13px; font-family:var(--font-sans); fill:var(--text-strong); text-anchor:middle; }
+          .tn-sub   { font-size:11px; font-family:var(--font-sans); fill:var(--text-muted); text-anchor:middle; }
+          .tn-sub.accent { fill:var(--accent2); }
+          .tn-edge  { stroke:var(--border-strong); stroke-width:1.5; fill:none; }
+          .tn-edge.hot    { stroke:var(--accent2); stroke-width:2; }
           .tn-edge.dashed { stroke-dasharray:5 4; }
-          .tn-edge.strike { stroke:#5a3a3a; stroke-dasharray:3 5; opacity:0.55; }
-          .tn-elab  { font:10px system-ui; fill:#8faf97; text-anchor:middle; }
-          .tn-elab.accent { fill:#7ee0a0; font-weight:600; }
-          .tn-elab.strike { fill:#a06060; }
-          .tn-note  { font:italic 10px system-ui; fill:#6a8a72; }
+          .tn-edge.strike { stroke:var(--danger); stroke-dasharray:3 5; opacity:0.4; }
+          .tn-elab  { font-size:10px; font-family:var(--font-sans); fill:var(--text-muted); text-anchor:middle; }
+          .tn-elab.accent { fill:var(--accent2); font-weight:600; }
+          .tn-elab.strike { fill:var(--danger); opacity:0.75; }
+          .tn-note  { font-style:italic; font-size:10px; font-family:var(--font-sans); fill:var(--text-muted); }
+          .tn-note.strike { fill:var(--danger); opacity:0.75; }
         </style>
         <marker id="tn-arr" markerWidth="9" markerHeight="9" refX="8" refY="4" orient="auto">
-          <polygon points="0 0, 8 4, 0 8" fill="#4a6a58"/>
+          <polygon points="0 0, 8 4, 0 8" style="fill:var(--border-strong)"/>
         </marker>
         <marker id="tn-arr-hot" markerWidth="9" markerHeight="9" refX="8" refY="4" orient="auto">
-          <polygon points="0 0, 8 4, 0 8" fill="#7ee0a0"/>
+          <polygon points="0 0, 8 4, 0 8" style="fill:var(--accent2)"/>
         </marker>
       </defs>
 
@@ -464,7 +531,7 @@
 
       <!-- PROMPT CACHE -->
       <rect class="tn-node ghost" x="420" y="325" width="200" height="50" rx="6"/>
-      <text class="tn-title" x="520" y="350" style="fill:#8faf97;">PROMPT CACHE</text>
+      <text class="tn-title" x="520" y="350" style="fill:var(--text-muted);">PROMPT CACHE</text>
       <text class="tn-sub"  x="520" y="367">prefix reuse across turns</text>
 
       <!-- NVMe SHARDS -->
@@ -498,25 +565,25 @@
       <!-- PCIe hop only relevant on CUDA; collapsed by Apple silicon unified memory -->
       <path class="tn-edge strike" d="M 400 275 L 660 155" />
       <text class="tn-elab strike" x="530" y="262">✕ no PCIe copy</text>
-      <text class="tn-note"        x="530" y="252" style="fill:#a06060;">(collapsed by unified memory)</text>
+      <text class="tn-note strike" x="530" y="252">(collapsed by unified memory)</text>
 
       <!-- Animated packets riding the hot paths -->
       <g>
-        <rect x="-8" y="-5" width="16" height="10" rx="2" fill="#7ee0a0">
+        <rect x="-8" y="-5" width="16" height="10" rx="2" style="fill:var(--accent2)">
           <animateMotion dur="2.4s" repeatCount="indefinite">
             <mpath href="#tn-m-e1"/>
           </animateMotion>
         </rect>
       </g>
       <g>
-        <rect x="-8" y="-5" width="16" height="10" rx="2" fill="#7ee0a0">
+        <rect x="-8" y="-5" width="16" height="10" rx="2" style="fill:var(--accent2)">
           <animateMotion dur="2.6s" repeatCount="indefinite" begin="0.8s">
             <mpath href="#tn-m-e2"/>
           </animateMotion>
         </rect>
       </g>
       <g>
-        <rect x="-6" y="-4" width="12" height="8" rx="2" fill="#b8d0bf">
+        <rect x="-6" y="-4" width="12" height="8" rx="2" style="fill:var(--text-muted)">
           <animateMotion dur="3s" repeatCount="indefinite" begin="1.4s">
             <mpath href="#tn-m-e3"/>
           </animateMotion>
@@ -526,22 +593,21 @@
 
     <!-- ── AeroLLM CUDA reference diagram (the 3-tier flow) ────── -->
     <svg id="tn-arch-aerollm" class="tn-arch-svg"
-         viewBox="0 0 1000 520"
-         style="width:100%;height:auto;background:#0d0f12;border:1px solid #2a3238;border-radius:6px;display:none;">
+         viewBox="0 0 1000 520">
       <defs>
         <style>
-          .tn-aband { fill:none; stroke:#2a3238; stroke-width:1.2; stroke-dasharray:3 4; }
-          .tn-ablab { font:600 10px system-ui; fill:#5a6770; letter-spacing:0.14em; }
-          .tn-anode { fill:#0f1418; stroke:#4a565e; stroke-width:1.5; }
+          .tn-aband { fill:none; stroke:var(--border); stroke-width:1.2; stroke-dasharray:3 4; }
+          .tn-ablab { font-weight:600; font-size:10px; font-family:var(--font-mono); fill:var(--text-muted); letter-spacing:0.14em; }
+          .tn-anode { fill:var(--surface); stroke:var(--border-strong); stroke-width:1.5; }
           .tn-anode.ghost { stroke-dasharray:5 4; opacity:0.7; }
-          .tn-atitle{ font:600 13px system-ui; fill:#e0ebe2; text-anchor:middle; }
-          .tn-asub  { font:11px system-ui; fill:#8faf97; text-anchor:middle; }
-          .tn-aedge { stroke:#6a7680; stroke-width:1.5; fill:none; }
+          .tn-atitle{ font-weight:600; font-size:13px; font-family:var(--font-sans); fill:var(--text-strong); text-anchor:middle; }
+          .tn-asub  { font-size:11px; font-family:var(--font-sans); fill:var(--text-muted); text-anchor:middle; }
+          .tn-aedge { stroke:var(--border-strong); stroke-width:1.5; fill:none; }
           .tn-aedge.dashed { stroke-dasharray:5 4; }
-          .tn-aelab { font:10px system-ui; fill:#8faf97; text-anchor:middle; letter-spacing:0.03em; }
+          .tn-aelab { font-size:10px; font-family:var(--font-sans); fill:var(--text-muted); text-anchor:middle; letter-spacing:0.03em; }
         </style>
         <marker id="tn-aarr" markerWidth="9" markerHeight="9" refX="8" refY="4" orient="auto">
-          <polygon points="0 0, 8 4, 0 8" fill="#6a7680"/>
+          <polygon points="0 0, 8 4, 0 8" style="fill:var(--border-strong)"/>
         </marker>
       </defs>
 
@@ -563,7 +629,7 @@
       <text class="tn-asub"   x="870" y="125">Matrix Mult</text>
 
       <rect class="tn-anode ghost" x="780" y="180" width="180" height="55" rx="6"/>
-      <text class="tn-atitle" x="870" y="215" style="fill:#8faf97;">CLEARED MEMORY</text>
+      <text class="tn-atitle" x="870" y="215" style="fill:var(--text-muted);">CLEARED MEMORY</text>
 
       <rect class="tn-anode" x="430" y="290" width="240" height="60" rx="6"/>
       <text class="tn-atitle" x="550" y="317">PREFETCH QUEUE</text>
@@ -594,21 +660,21 @@
 
       <!-- Packets -->
       <g>
-        <rect x="-8" y="-5" width="16" height="10" rx="2" fill="#a0b0b8">
+        <rect x="-8" y="-5" width="16" height="10" rx="2" style="fill:var(--text-muted)">
           <animateMotion dur="2.2s" repeatCount="indefinite">
             <mpath href="#tn-a-e1"/>
           </animateMotion>
         </rect>
       </g>
       <g>
-        <rect x="-8" y="-5" width="16" height="10" rx="2" fill="#a0b0b8">
+        <rect x="-8" y="-5" width="16" height="10" rx="2" style="fill:var(--text-muted)">
           <animateMotion dur="2s" repeatCount="indefinite" begin="0.6s">
             <mpath href="#tn-a-e2"/>
           </animateMotion>
         </rect>
       </g>
       <g>
-        <rect x="-8" y="-5" width="16" height="10" rx="2" fill="#a0b0b8">
+        <rect x="-8" y="-5" width="16" height="10" rx="2" style="fill:var(--text-muted)">
           <animateMotion dur="2.8s" repeatCount="indefinite" begin="1.2s">
             <mpath href="#tn-a-e3"/>
           </animateMotion>
@@ -673,7 +739,7 @@
        data stream a future speedup story will be told on top of. -->
   <div class="tn-sec" id="tn-frontier-wrap" style="display:none;">
     <h2>Frontier challenge — 670B–750B class</h2>
-    <div class="tn-meta" style="margin:-4px 0 10px;font-size:12px;line-height:1.5;">
+    <div class="tn-meta tn-frontier-lede">
       Models that <strong>exceed every single-GPU memory ceiling</strong> in 2026
       (H100 80 GB / H200 141 GB / B200 192 GB). Until the MLX
       streaming layer lands these rows record
@@ -689,19 +755,17 @@
     <button class="tn-btn" id="tn-run-base">Capture / refresh baseline</button>
     <button class="tn-btn" id="tn-run-auto">Run one sweep</button>
     <button class="tn-btn" id="tn-run-forever"
-            style="background:#7a2;"
             title="Autoresearch — sweeps every candidate, pauses, sweeps again, forever.">
       ▶ Autoresearch — don't stop, won't stop
     </button>
-    <button class="tn-btn" id="tn-stop"
-            style="background:#a33;display:none;">
+    <button class="tn-btn stop" id="tn-stop" style="display:none;">
       ⏹ Stop after this pass
     </button>
     <button class="tn-btn sec" id="tn-refresh">Refresh</button>
     <span class="tn-status" id="tn-status">
       <span class="phase" id="tn-phase">idle</span>
       <span id="tn-phase-detail"></span>
-      <span id="tn-pass-chip" style="display:none;margin-left:8px;padding:2px 6px;border-radius:3px;background:#1e3a2a;color:#7ee0a0;">pass #<span id="tn-pass-num">0</span></span>
+      <span id="tn-pass-chip" class="tn-pass-chip">pass #<span id="tn-pass-num">0</span></span>
     </span>
   </div>
 
@@ -711,23 +775,21 @@
        it every tick so changes take effect without a restart.
        Hidden when the backend has never entered continuous mode
        (no reason to clutter the first-time UX). -->
-  <div class="tn-controls" style="margin-top:4px;font-size:12px;color:var(--muted,#888);align-items:center;">
-    <label style="display:flex;align-items:center;gap:6px;">
-      <span style="letter-spacing:0.05em;text-transform:uppercase;font-size:11px;">Schedule</span>
-      <select id="tn-sched-mode" style="background:#111;color:#d4e8d8;border:1px solid #333;border-radius:3px;padding:3px 6px;font-size:12px;">
+  <div class="tn-controls tn-sched">
+    <label class="tn-sched-label">
+      <span class="tn-sched-kicker">Schedule</span>
+      <select id="tn-sched-mode" class="tn-input">
         <option value="anytime">Anytime</option>
         <option value="window">Off-hours only</option>
         <option value="paused">Paused</option>
       </select>
     </label>
-    <span id="tn-sched-window" style="display:none;gap:6px;align-items:center;">
-      <input type="time" id="tn-sched-start" value="22:00"
-             style="background:#111;color:#d4e8d8;border:1px solid #333;border-radius:3px;padding:2px 6px;font-size:12px;">
+    <span id="tn-sched-window">
+      <input type="time" id="tn-sched-start" value="22:00" class="tn-input">
       <span>to</span>
-      <input type="time" id="tn-sched-end" value="06:00"
-             style="background:#111;color:#d4e8d8;border:1px solid #333;border-radius:3px;padding:2px 6px;font-size:12px;">
+      <input type="time" id="tn-sched-end" value="06:00" class="tn-input">
     </span>
-    <span id="tn-sched-status" style="color:#8faf97;"></span>
+    <span id="tn-sched-status"></span>
   </div>
 
   <!-- ── Variants from the last loop ───────────────────────────────── -->
@@ -771,11 +833,13 @@
   <!-- ── Knobs snapshot ───────────────────────────────────────────── -->
   <details class="tn-know" id="tn-knobs-box">
     <summary>Current tunable knobs (whitelisted — these are the autoresearch agent's only surface area)</summary>
-    <div id="tn-knobs" style="margin-top:8px;"></div>
+    <div id="tn-knobs" class="tn-knobs-list"></div>
   </details>
 
 </div>
 
+{% endblock %}
+{% block scripts %}
 <script>
 (function () {
   "use strict";
@@ -806,11 +870,11 @@
        + "<code>quantized_kv_start</code>; prefill chunks via "
        + "<code>prefill_step_size</code>; prefixes reuse via the prompt "
        + "cache. These are the levers our knobs reach."),
-      framingBody: ("<strong style=\"color:#d4e8d8;\">AirLLM \u2014 layer streaming on Apple silicon.</strong> "
+      framingBody: ("<strong class=\"tn-strong\">AirLLM \u2014 layer streaming on Apple silicon.</strong> "
        + "Each transformer layer is loaded from NVMe into unified memory, executed by MLX kernels in "
        + "place, then evicted before the next layer streams in. Lets a 70B-class model run on hardware "
        + "that can't hold the full weights at once. "
-       + "<br><span style=\"color:#8faf97;\">Measurements land in <code>lab/data/mlx-bench.jsonl</code>.</span>"),
+       + "<br><span class=\"tn-dim\">Measurements land in <code>lab/data/mlx-bench.jsonl</code>.</span>"),
     },
     "aerollm-mlx": {
       heroTitle: "AeroLLM MLX \u2014 (experimental, dormant)",
@@ -818,7 +882,7 @@
       archTitle: "Architecture \u2014 MLX unified-memory streaming",
       archBlurb: ("AeroLLM is the planned Rust runtime. Same MLX pipeline as AirLLM but with "
        + "multi-threaded prefetch to hide disk latency. Currently dormant in this blueprint."),
-      framingBody: ("<strong style=\"color:#d4e8d8;\">AeroLLM \u2014 (dormant).</strong> "
+      framingBody: ("<strong class=\"tn-strong\">AeroLLM \u2014 (dormant).</strong> "
        + "View kept for back-compat with existing tuning data."),
     },
     "aerollm-cuda": {
@@ -827,7 +891,7 @@
       archTitle: "Architecture \u2014 AeroLLM CUDA 3-tier streaming",
       archBlurb: ("Reference diagram for the AeroLLM CUDA path (1 TB class on a 24 GB card). "
        + "Dormant in this blueprint."),
-      framingBody: ("<strong style=\"color:#d4e8d8;\">AeroLLM CUDA \u2014 (dormant).</strong> "
+      framingBody: ("<strong class=\"tn-strong\">AeroLLM CUDA \u2014 (dormant).</strong> "
        + "Diagram is illustrative; no active loop."),
     },
   };
@@ -844,10 +908,9 @@
     localStorage.setItem("arail.tuning.view", v);
     const meta = VIEW_META[v];
     document.querySelectorAll(".tn-tab").forEach(el => {
-      const on = el.dataset.view === v;
-      el.classList.toggle("active", on);
-      el.style.borderBottomColor = on ? "#7ee0a0" : "transparent";
-      el.style.color = on ? "#d4e8d8" : "#8faf97";
+      // Selection styling comes from the .tn-tab.active CSS rule
+      // (amber --accent underline per the duotone role split).
+      el.classList.toggle("active", el.dataset.view === v);
     });
     // Update hero title
     const heroTitle = document.getElementById("tn-hero-title");
@@ -954,16 +1017,12 @@
       const disk = m.expected_disk_gb ? m.expected_disk_gb + " GB on disk" : "";
       const precision = m.precision ? " · " + m.precision : "";
 
-      // GPU fit badges — the pedagogical payload. ✓ green, ✗ red.
+      // GPU fit badges — the pedagogical payload. ✓ positive, ✗ danger
+      // (token-driven via the .tn-badge ok/bad classes).
       const fit = m.gpu_fit || {};
       function badge(label, ok) {
-        const bg = ok ? "#144d25" : "#4d1e1e";
-        const fg = ok ? "#7ee0a0" : "#f0a0a0";
-        const mark = ok ? "✓" : "✗";
-        return '<span style="display:inline-block;padding:2px 6px;margin:0 4px 4px 0;' +
-               'border-radius:3px;background:' + bg + ';color:' + fg +
-               ';font-size:11px;font-family:ui-monospace,monospace;">' +
-               mark + "\u00a0" + label + "</span>";
+        return '<span class="tn-badge ' + (ok ? "ok" : "bad") + '">' +
+               (ok ? "✓" : "✗") + "\u00a0" + label + "</span>";
       }
       const badges =
         badge("H100 80GB",  !!fit.h100_80gb) +
@@ -975,8 +1034,7 @@
       let statusHtml;
       if (!bench) {
         statusHtml =
-          '<div style="padding:8px 10px;border-radius:4px;' +
-          'background:#332417;color:#f0c080;font-size:11px;line-height:1.5;">' +
+          '<div class="tn-fr-status wait">' +
           '<strong>streaming_required</strong> — waiting on ' +
           'the MLX streaming layer. No bench attempt has ' +
           "been recorded yet against this model on this host." +
@@ -985,10 +1043,9 @@
         const reason = (bench.error || "unknown reason").slice(0, 240);
         const ts = (bench.ts || "").replace("T", " ").slice(0, 19);
         statusHtml =
-          '<div style="padding:8px 10px;border-radius:4px;' +
-          'background:#2a1a1a;color:#f0a0a0;font-size:11px;line-height:1.5;">' +
-          '<strong>error</strong> · <span style="color:#c88;">' + ts + "</span>" +
-          '<div style="margin-top:4px;color:#e8b0b0;">' + reason + "</div>" +
+          '<div class="tn-fr-status err">' +
+          '<strong>error</strong> · ' + ts +
+          '<div class="tn-fr-detail">' + reason + "</div>" +
           "</div>";
       } else {
         // status=ok → the first real measurement. The academic win.
@@ -997,10 +1054,9 @@
           ? fmt(bench.decode_tok_per_sec) + " tok/s" : "—";
         const ts = (bench.ts || "").replace("T", " ").slice(0, 19);
         statusHtml =
-          '<div style="padding:8px 10px;border-radius:4px;' +
-          'background:#0f2a1a;color:#7ee0a0;font-size:11px;line-height:1.5;">' +
+          '<div class="tn-fr-status ok">' +
           '<strong>ok</strong> · ' + ts +
-          '<div style="margin-top:4px;color:#a8d8b8;">' +
+          '<div class="tn-fr-detail">' +
             "TTFT " + ttft + " · decode " + dec +
             " · tokens_out " + (bench.tokens_out || 0) +
           "</div>" +
@@ -1010,7 +1066,7 @@
       // Rationale — trimmed so cards don't balloon.
       const rationale = (m.rationale || "").trim();
       const rationaleHtml = rationale
-        ? '<div class="tn-meta" style="margin-top:8px;">' +
+        ? '<div class="tn-meta tn-fr-rationale">' +
           rationale.replace(/</g, "&lt;") +
           "</div>"
         : "";
@@ -1019,9 +1075,9 @@
         "<h3>" + (m.name || "—") + "</h3>" +
         '<div class="tn-big">' + totalB +
           '<span class="tn-unit">' + (m.family || "") + activeB + "</span></div>" +
-        '<div class="tn-meta" style="margin-top:2px;">' + disk + precision + "</div>" +
-        '<div style="margin-top:10px;">' + badges + "</div>" +
-        '<div style="margin-top:10px;">' + statusHtml + "</div>" +
+        '<div class="tn-meta tn-fr-disk">' + disk + precision + "</div>" +
+        '<div class="tn-fr-block">' + badges + "</div>" +
+        '<div class="tn-fr-block">' + statusHtml + "</div>" +
         rationaleHtml;
       grid.appendChild(card);
     }
@@ -1064,7 +1120,7 @@
         "<td>" + fmt(r.decode_tok_per_sec) + "</td>" +
         "<td>" + fmt(r.ttft_ms, 0) + "</td>" +
         "<td>" + (r.tokens_out || 0) + "</td>" +
-        '<td style="font-family:ui-monospace,monospace;font-size:11px;color:#8faf97;">' +
+        '<td class="tn-stages">' +
           fmtStages(r.stages) + "</td>" +
         "<td><code>" + (r.git_short_sha || "—") + "</code></td>" +
         "<td>" + (r.git_branch || "—") + "</td>";
@@ -1107,8 +1163,11 @@
     const pts = rows
       .filter((r) => r.decode_tok_per_sec && r.status === "ok")
       .map((r) => r.decode_tok_per_sec);
+    // Canvas can't read CSS vars — resolve the semantic tokens off
+    // the root element so a World theme swap repaints here too.
+    const rootStyle = getComputedStyle(document.documentElement);
     if (pts.length < 2) {
-      ctx.fillStyle = "#666";
+      ctx.fillStyle = rootStyle.getPropertyValue("--text-muted").trim() || "gray";
       ctx.font = "12px system-ui";
       ctx.fillText("Need ≥2 bench runs to chart.", 8, 20);
       return;
@@ -1116,7 +1175,8 @@
     const min = Math.min(...pts);
     const max = Math.max(...pts);
     const span = Math.max(max - min, 0.001);
-    ctx.strokeStyle = "#2a6";
+    // Sparkline stroke = --accent2 (cyan owns live data per the spec).
+    ctx.strokeStyle = rootStyle.getPropertyValue("--accent2").trim() || "currentColor";
     ctx.lineWidth = 2;
     ctx.beginPath();
     pts.forEach((v, i) => {
@@ -1218,7 +1278,7 @@
     }
     let html = text;
     if (engine === "aerollm" && ratio && ratio >= 1.5) {
-      html += ' <strong style="color:#7ee0a0">' + ratio.toFixed(1) + '×</strong>';
+      html += ' <strong class="vs-gainx">' + ratio.toFixed(1) + '×</strong>';
     }
     num.innerHTML = html;
     // Bar width: scale against the larger of the two engines so the
@@ -1365,20 +1425,20 @@
   }
   function paintScheduleStatus(st) {
     const el = $("tn-sched-status");
-    if (!st || !st.mode) { el.textContent = ""; return; }
+    if (!st || !st.mode) { el.textContent = ""; el.className = ""; return; }
     if (st.mode === "anytime") {
       el.textContent = "· always on";
-      el.style.color = "#7ee0a0";
+      el.className = "ok";
     } else if (st.mode === "paused") {
       el.textContent = "· paused (no runs)";
-      el.style.color = "#c8a060";
+      el.className = "warn";
     } else if (st.mode === "window") {
       if (st.allowed_now) {
         el.textContent = "· in window (running)";
-        el.style.color = "#7ee0a0";
+        el.className = "ok";
       } else {
         el.textContent = "· next open at " + (st.next_open_at || "—");
-        el.style.color = "#8faf97";
+        el.className = "";
       }
     }
   }
@@ -1413,5 +1473,4 @@
 </script>
 
 {% include '_airgap_modal.html' %}
-</body>
-</html>
+{% endblock %}

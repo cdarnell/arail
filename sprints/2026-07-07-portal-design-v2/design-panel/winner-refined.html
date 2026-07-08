@@ -1,0 +1,1104 @@
+<!DOCTYPE html>
+<!--
+  ============================================================================
+  WINNER (REFINED) — "WARM OBSERVATORY, SHARPENED"
+  Base: concept-2-warm-observatory.html · Decision: JUDGING.md · Spec: STYLE-SPEC.md
+  ============================================================================
+
+  SYNTHESIS APPLIED:
+  · from concept-1: accent role discipline (amber = actions only, cyan = data
+    only), EXACTLY ONE GLOW per view (the live status dot), mono micro-labels,
+    contrast ratios annotated below (WCAG relative luminance, computed).
+  · from concept-3: --glow-mix personality dial — scholarly goes dead flat
+    (0%), playful glows (26%); editorial mission-as-headline hero.
+  · from concept-4: derived-token layer (--rail, --glow-a/b, --shadow-1
+    computed from primitives, NEVER set by Worlds), hover lift on
+    --ease-accent (spring for playful), clear-then-set world-swap JS,
+    per-item --sw1/--sw2 world swatches.
+
+  DEFAULT TOKEN VALUES ("AI Lab · sharp" — personality: technical):
+    --bg:            #110e1c   deep warm indigo (the night room)
+    --surface:       #191527   card base
+    --surface2:      #211c33   raised / inset surfaces
+    --surface3:      #2a2440   derived — highest step (chips, tracks, hovers)
+    --border:        #2f2947   hairlines
+    --border-strong: #463d68   derived — focus / emphasized hairlines
+    --text:          #e9e4f6   body text        (15.31:1 on --bg, AAA)
+    --text-strong:   #fbfaff   derived — headings, numerals (18.32:1)
+    --text-muted:    #9d94ba   secondary text   (6.69:1 on --bg, AA)
+    --accent:        #ffb35c   warm amber — ACTIONS / MISSION ONLY (10.74:1)
+    --accent2:       #7fd7ea   cool cyan  — DATA / LINKS ONLY      (11.61:1)
+    --positive:      #7ed6a2   ok / gains
+    --warn:          #ffd166   caution
+    --danger:        #ff7a7a   errors / destructive
+    --info:          #9aa8ff   informational periwinkle
+    --radius-s/m/l:  6 / 10 / 16 px          (scholarly 5/8/12, playful 12/18/26)
+    --glow-mix:      10%                     (scholarly 0%, playful 26%)
+    --ease-accent:   cubic-bezier(.2,0,0,1)  (playful: spring .34,1.56,.64,1)
+  Worlds override the 12 primitives + personality scalars only; the derived
+  layer (--rail, --glow-a, --glow-b, --shadow-1) repaints for free.
+  ============================================================================
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ARAIL — Warm Observatory (Refined Winner)</title>
+<style>
+  /* ========================= TOKENS ========================= */
+  :root{
+    /* 12 primitive slots — the only colors a World may set */
+    --bg:            #110e1c;
+    --surface:       #191527;
+    --surface2:      #211c33;
+    --border:        #2f2947;
+    --text:          #e9e4f6;
+    --text-muted:    #9d94ba;
+    --accent:        #ffb35c;   /* amber — actions/mission ONLY */
+    --accent2:       #7fd7ea;   /* cyan  — data/links ONLY */
+    --positive:      #7ed6a2;
+    --warn:          #ffd166;
+    --danger:        #ff7a7a;
+    --info:          #9aa8ff;
+
+    /* derived neutrals (ui_theme._derive; pinned here for the mockup) */
+    --surface3:      #2a2440;
+    --border-strong: #463d68;
+    --text-strong:   #fbfaff;
+
+    /* personality scalars — selected by personality id, never authored per-World */
+    --radius-s: 6px;
+    --radius-m: 10px;
+    --radius-l: 16px;
+    --glow-mix: 10%;                                  /* the glow dial (concept-3) */
+    --ease-accent: cubic-bezier(.2, 0, 0, 1);
+    --dur-2: 170ms;
+
+    --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+
+    /* derived layer (concept-4) — computed from primitives, NEVER set by Worlds */
+    --rail:     linear-gradient(90deg, var(--accent), var(--accent2));
+    --glow-a:   color-mix(in srgb, var(--accent)  var(--glow-mix), transparent);
+    --glow-b:   color-mix(in srgb, var(--accent2) var(--glow-mix), transparent);
+    --shadow-1: 0 1px 0 color-mix(in srgb, var(--text-strong) 4%, transparent) inset,
+                0 18px 50px -18px color-mix(in srgb, var(--bg) 30%, black);
+  }
+
+  /* ========================= RESET / BASE ========================= */
+  *,*::before,*::after{ box-sizing:border-box; margin:0; padding:0; }
+  html{ -webkit-text-size-adjust:100%; }
+  body{
+    font-family: var(--font-sans);
+    font-size: 15px;
+    line-height: 1.6;
+    color: var(--text);
+    background:
+      radial-gradient(1100px 500px at 85% -10%, color-mix(in srgb, var(--accent2) 5%, transparent), transparent 65%),
+      radial-gradient(900px 460px at 8% 0%,   color-mix(in srgb, var(--accent) 4%, transparent),  transparent 60%),
+      var(--bg);
+    background-attachment: fixed;
+    min-height: 100vh;
+  }
+  ::selection{ background: color-mix(in srgb, var(--accent2) 30%, transparent); }
+  a{ color: var(--accent2); text-decoration:none; }
+  button{ font: inherit; cursor: pointer; }
+  svg{ display:block; }
+  @media (prefers-reduced-motion: reduce){
+    *{ transition: none !important; animation: none !important; }
+  }
+
+  .wrap{ max-width: 1180px; margin: 0 auto; padding: 0 28px 96px; }
+
+  /* ========================= TOP NAV + RAIL ========================= */
+  .nav{
+    display:flex; align-items:center; gap:32px;
+    padding: 18px 0 16px;
+  }
+  .brand{ display:flex; align-items:center; gap:12px; }
+  .brand-mark{
+    width:34px; height:34px; flex:none;
+    display:grid; place-items:center;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-m);
+    box-shadow: 0 6px 24px color-mix(in srgb, var(--bg) 40%, black);
+  }
+  .brand-name{
+    font-weight: 650; font-size: 16px; letter-spacing: .04em;
+    color: var(--text-strong);
+  }
+  .brand-sub{
+    font-family: var(--font-mono); font-size: 10px; letter-spacing:.12em;
+    text-transform: uppercase; color: var(--text-muted);
+  }
+  .nav-links{ display:flex; gap:6px; margin-left:8px; flex:1; }
+  .nav-link{
+    padding: 7px 14px;
+    border-radius: var(--radius-s);
+    color: var(--text-muted);
+    font-size: 14px; font-weight: 500;
+    border: 1px solid transparent;
+    background: transparent;
+    transition: color .18s ease, background .18s ease;
+  }
+  .nav-link:hover{ color: var(--text); background: var(--surface); }
+  .nav-link.active{
+    color: var(--text-strong);
+    background: var(--surface2);
+    border-color: var(--border);
+    position: relative;
+  }
+  .nav-link.active::after{
+    content:""; position:absolute; left:14px; right:14px; bottom:-1px; height:2px;
+    border-radius: 2px;
+    background: var(--rail);
+  }
+  .world-badge{
+    display:inline-flex; align-items:center; gap:9px;
+    padding: 7px 12px 7px 9px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--text);
+    font-size: 13px; font-weight: 550;
+    box-shadow: 0 8px 28px color-mix(in srgb, var(--bg) 45%, black);
+    transition: border-color .18s ease, transform .18s ease;
+  }
+  .world-badge:hover{ border-color: var(--border-strong); transform: translateY(-1px); }
+  .world-badge .caret{ color: var(--text-muted); font-size: 10px; }
+  /* World swatches: --sw1/--sw2 are set per item — the ONLY place foreign-world
+     hexes are allowed (they depict other worlds; see STYLE-SPEC.md §e). */
+  .swatch{
+    width:18px; height:18px; border-radius: 6px; flex:none;
+    border: 1px solid color-mix(in srgb, var(--text-strong) 18%, transparent);
+    background: linear-gradient(135deg, var(--sw1, var(--accent)), var(--sw2, var(--accent2)));
+  }
+
+  /* The signature rail: 1px gradient under the nav (derived --rail token) */
+  .rail{
+    height: 1px;
+    background: linear-gradient(90deg,
+      transparent 0%,
+      var(--accent) 14%,
+      var(--accent2) 86%,
+      transparent 100%);
+  }
+  .rail-soft{ /* faint under-light — reads the glow dial, so scholarly goes flat */
+    height: 14px;
+    background: linear-gradient(180deg, var(--glow-b), transparent);
+    pointer-events:none;
+  }
+
+  /* ========================= STATUS BAR ========================= */
+  .statusbar{
+    display:flex; align-items:center; gap:18px; flex-wrap:wrap;
+    margin-top: 2px;
+    padding: 10px 16px;
+    background: color-mix(in srgb, var(--surface) 72%, transparent);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-m);
+  }
+  .mode-badge{
+    display:inline-flex; align-items:center; gap:7px;
+    font-family: var(--font-mono); font-size: 11px; letter-spacing:.1em;
+    padding: 4px 10px; border-radius: 999px;
+    color: var(--positive);
+    background: color-mix(in srgb, var(--positive) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--positive) 30%, transparent);
+  }
+  .dot{ width:6px; height:6px; border-radius:50%; background: currentColor; flex:none; }
+  /* THE one permitted glow per view (concept-1's budget): the live status dot */
+  .dot.live{
+    box-shadow: 0 0 8px currentColor;
+    animation: pulse 2.4s ease-in-out infinite;
+  }
+  @keyframes pulse{ 50%{ opacity:.45; } }
+  .status-metrics{
+    display:flex; gap:18px; flex-wrap:wrap;
+    font-family: var(--font-mono); font-size: 12px;
+    color: var(--text-muted);
+  }
+  .status-metrics b{ color: var(--text); font-weight: 500; }
+  .statusbar .right{
+    margin-left:auto; display:inline-flex; align-items:center; gap:8px;
+    font-size: 12.5px; color: var(--text-muted);
+  }
+  .statusbar .right .dot{ background: var(--positive); }
+
+  /* ========================= SECTIONS ========================= */
+  section{ margin-top: 56px; }
+  .eyebrow{
+    font-family: var(--font-mono);
+    font-size: 11px; letter-spacing: .16em; text-transform: uppercase;
+    color: var(--accent2);
+    margin-bottom: 6px;
+  }
+  .section-title{
+    font-size: 21px; font-weight: 650; letter-spacing:-.01em;
+    color: var(--text-strong);
+    margin-bottom: 20px;
+  }
+  .section-note{ color: var(--text-muted); font-size: 13.5px; margin: -12px 0 20px; max-width: 68ch; }
+
+  /* ========================= CARDS / DASHBOARD GRID ========================= */
+  .card{
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-l);
+    box-shadow: var(--shadow-1);
+  }
+  .grid{
+    display:grid; gap: 20px;
+    grid-template-columns: repeat(12, 1fr);
+  }
+  .span-8{ grid-column: span 8; } .span-7{ grid-column: span 7; }
+  .span-5{ grid-column: span 5; } .span-4{ grid-column: span 4; }
+
+  /* Hero / mission */
+  .hero{
+    grid-column: span 8;
+    padding: 30px 32px;
+    background:
+      radial-gradient(560px 220px at 100% 0%, color-mix(in srgb, var(--accent2) 8%, transparent), transparent 70%),
+      radial-gradient(420px 260px at 0% 110%, color-mix(in srgb, var(--accent) 6%, transparent), transparent 70%),
+      var(--surface);
+    display:flex; flex-direction:column; gap:14px;
+  }
+  /* editorial mission headline (concept-3 steal): the mission is the hero */
+  .hero h2{
+    font-size: 29px; line-height:1.25; font-weight: 650; letter-spacing:-.02em;
+    color: var(--text-strong);
+    max-width: 26ch;
+  }
+  .hero p{ color: var(--text-muted); max-width: 52ch; font-size: 14.5px; }
+  .progress{
+    height: 8px; border-radius: 999px;
+    background: var(--surface3);
+    overflow: hidden;
+    margin-top: 4px;
+  }
+  .progress > span{
+    display:block; height:100%; width:64%;
+    border-radius: 999px;
+    background: var(--rail);
+  }
+  .hero-meta{
+    font-family: var(--font-mono); font-size: 12px; color: var(--text-muted);
+    display:flex; gap:16px; flex-wrap:wrap;
+  }
+  .hero-meta b{ color: var(--accent); font-weight:500; }
+  .hero-actions{ display:flex; gap:12px; margin-top: 6px; }
+
+  /* Metric cards */
+  .metric-stack{ grid-column: span 4; display:flex; flex-direction:column; gap:20px; }
+  .metric-card{
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-m);
+    padding: 18px 20px 14px;
+    box-shadow: 0 14px 40px -16px color-mix(in srgb, var(--bg) 35%, black);
+    display:flex; flex-direction:column; gap:4px;
+    transition: transform var(--dur-2) var(--ease-accent), border-color var(--dur-2) ease;
+  }
+  .metric-card:hover{
+    transform: translateY(-2px);
+    border-color: var(--border-strong);
+  }
+  .metric-label{
+    font-family: var(--font-mono); font-size: 11px;
+    letter-spacing:.14em; text-transform: uppercase;
+    color: var(--text-muted);
+  }
+  .metric-value{
+    font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+    font-size: 30px; font-weight: 550; letter-spacing:-.02em;
+    color: var(--text-strong);
+  }
+  .metric-value small{ font-size: 15px; color: var(--text-muted); font-weight: 400; }
+  .metric-delta{ font-size: 12.5px; font-family: var(--font-mono); }
+  .metric-delta.up{ color: var(--positive); }
+  .metric-delta.watch{ color: var(--warn); }
+  .spark{ width:100%; height:30px; margin-top:8px; }
+  .spark polyline{ fill:none; stroke: var(--accent2); stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+  .spark .area{ fill: var(--glow-b); stroke:none; }  /* area wash reads the glow dial */
+
+  /* Activity feed */
+  .feed{ grid-column: span 5; padding: 24px 26px; }
+  .feed h3, .table-card h3{
+    font-size: 15px; font-weight: 650; color: var(--text-strong); margin-bottom: 14px;
+    display:flex; align-items:center; gap:8px;
+  }
+  .feed ul{ list-style:none; display:flex; flex-direction:column; }
+  .feed li{
+    display:flex; gap:14px; align-items:baseline;
+    padding: 11px 0;
+    border-top: 1px solid var(--border);
+    font-size: 14px;
+  }
+  .feed li:first-of-type{ border-top:none; }
+  .feed time{
+    font-family: var(--font-mono); font-size: 12px; color: var(--text-muted);
+    flex:none; width: 44px; font-variant-numeric: tabular-nums;
+  }
+  .feed .agent{
+    font-family: var(--font-mono); font-size: 12px; color: var(--accent2);
+    flex:none; width: 88px;
+  }
+  .feed .what{ color: var(--text); }
+  .feed .what em{ font-style:normal; color: var(--accent); }
+
+  /* Experiment table */
+  .table-card{ grid-column: span 7; padding: 24px 26px; }
+  .table-scroll{ overflow-x:auto; }
+  table{
+    width:100%; border-collapse: collapse;
+    font-family: var(--font-mono); font-size: 12.5px;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  thead th{
+    text-align:left; font-weight: 500;
+    font-size: 10.5px; letter-spacing:.14em; text-transform:uppercase;
+    color: var(--text-muted);
+    padding: 0 14px 10px 0;
+    border-bottom: 1px solid var(--border-strong);
+  }
+  tbody td{
+    padding: 11px 14px 11px 0;
+    border-bottom: 1px solid var(--border);
+    color: var(--text);
+  }
+  tbody tr:last-child td{ border-bottom:none; }
+  tbody tr:hover td{ background: color-mix(in srgb, var(--surface2) 60%, transparent); }
+  td.num{ color: var(--text-strong); }
+  td.delta-good{ color: var(--positive); }
+  td.delta-bad{ color: var(--warn); }
+  .exp-id{ color: var(--accent2); }
+
+  /* ========================= PILLS ========================= */
+  .pill{
+    display:inline-flex; align-items:center; gap:7px;
+    font-family: var(--font-mono); font-size: 11px; letter-spacing:.06em;
+    padding: 3px 10px; border-radius: 999px;
+    line-height: 1.7;
+  }
+  .pill.ok{
+    color: var(--positive);
+    background: color-mix(in srgb, var(--positive) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--positive) 28%, transparent);
+  }
+  .pill.warn{
+    color: var(--warn);
+    background: color-mix(in srgb, var(--warn) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--warn) 28%, transparent);
+  }
+  .pill.error{
+    color: var(--danger);
+    background: color-mix(in srgb, var(--danger) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--danger) 28%, transparent);
+  }
+  .pill.info-p{
+    color: var(--info);
+    background: color-mix(in srgb, var(--info) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--info) 28%, transparent);
+  }
+  .pill.running{
+    color: var(--accent2);
+    background: color-mix(in srgb, var(--accent2) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent2) 28%, transparent);
+  }
+
+  /* ========================= BUTTONS ========================= */
+  .btn{
+    display:inline-flex; align-items:center; gap:8px;
+    padding: 9px 18px;
+    border-radius: var(--radius-s);
+    font-size: 14px; font-weight: 600;
+    border: 1px solid transparent;
+    transition: transform var(--dur-2) var(--ease-accent), box-shadow var(--dur-2) ease,
+                background var(--dur-2) ease, border-color var(--dur-2) ease;
+  }
+  .btn:active{ transform: translateY(1px); }
+  .btn:focus-visible{ outline: 2px solid var(--accent2); outline-offset: 2px; }
+  .btn-primary{
+    background: var(--accent);
+    color: color-mix(in srgb, var(--bg) 45%, black); /* dark ink on amber — never white */
+    box-shadow: 0 12px 30px -8px color-mix(in srgb, var(--accent) 35%, transparent);
+  }
+  .btn-primary:hover{
+    background: color-mix(in srgb, var(--accent) 88%, var(--text-strong));
+    transform: translateY(-1px);
+    box-shadow: 0 16px 36px -8px color-mix(in srgb, var(--accent) 42%, transparent);
+  }
+  .btn-ghost{
+    background: transparent;
+    color: var(--text);
+    border-color: var(--border-strong);
+  }
+  .btn-ghost:hover{ background: var(--surface2); border-color: color-mix(in srgb, var(--border-strong) 60%, var(--accent2)); }
+  .btn-danger{
+    background: color-mix(in srgb, var(--danger) 13%, transparent);
+    color: var(--danger);
+    border-color: color-mix(in srgb, var(--danger) 38%, transparent);
+  }
+  .btn-danger:hover{ background: color-mix(in srgb, var(--danger) 20%, transparent); }
+  .btn-sm{ padding: 6px 13px; font-size: 13px; }
+
+  /* ========================= INPUTS ========================= */
+  .field label{
+    display:block; font-size: 12.5px; font-weight: 600; color: var(--text);
+    margin-bottom: 6px;
+  }
+  .field .hint{ font-size:12px; color: var(--text-muted); margin-top:6px; }
+  .input{
+    width: 100%;
+    padding: 10px 14px;
+    font: inherit; font-size: 14px;
+    color: var(--text-strong);
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-s);
+    transition: border-color .16s ease, box-shadow .16s ease;
+  }
+  .input::placeholder{ color: var(--text-muted); }
+  .input:focus{
+    outline: none;
+    border-color: var(--accent2);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent2) 18%, transparent);
+  }
+  .input.mono{ font-family: var(--font-mono); font-size: 13px; }
+
+  /* ========================= COMPONENTS SECTION LAYOUT ========================= */
+  .kit{
+    padding: 26px 28px;
+    display:grid; gap: 28px;
+    grid-template-columns: 1.1fr 1fr;
+  }
+  .kit .col{ display:flex; flex-direction:column; gap:18px; }
+  .kit-row{ display:flex; gap:12px; flex-wrap:wrap; align-items:center; }
+  .kit-label{
+    font-family: var(--font-mono); font-size: 10.5px; letter-spacing:.14em;
+    text-transform: uppercase; color: var(--text-muted);
+  }
+
+  /* ========================= MODAL MOCKUP (static) ========================= */
+  .modal-stage{
+    position: relative;
+    min-height: 340px;
+    border-radius: var(--radius-l);
+    border: 1px solid var(--border);
+    overflow: hidden;
+    background:
+      radial-gradient(420px 200px at 80% 10%, color-mix(in srgb, var(--accent2) 6%, transparent), transparent 70%),
+      var(--surface);
+    display:grid; place-items:center;
+    padding: 36px 20px;
+  }
+  .modal-backdrop{
+    position:absolute; inset:0;
+    background: color-mix(in srgb, var(--bg) 62%, transparent);
+    backdrop-filter: blur(3px);
+  }
+  .modal{
+    position: relative;
+    width: min(430px, 100%);
+    background: var(--surface2);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-l);
+    box-shadow: 0 40px 90px -20px color-mix(in srgb, var(--bg) 20%, black);
+    padding: 24px 26px 22px;
+  }
+  .modal h4{ font-size: 17px; font-weight: 650; color: var(--text-strong); margin-bottom: 8px; }
+  .modal p{ font-size: 13.5px; color: var(--text-muted); margin-bottom: 16px; }
+  .modal p code{
+    font-family: var(--font-mono); font-size: 12px;
+    color: var(--accent2);
+    background: color-mix(in srgb, var(--accent2) 10%, transparent);
+    padding: 1px 6px; border-radius: 5px;
+  }
+  .modal-footer{ display:flex; justify-content:flex-end; gap:10px; margin-top: 20px; }
+
+  /* ========================= CHAT STRIP ========================= */
+  .chat{ padding: 26px 28px; display:flex; flex-direction:column; gap:18px; }
+  .msg{ display:flex; gap:12px; max-width: 78%; }
+  .msg.user{ align-self:flex-end; flex-direction:row-reverse; }
+  .avatar{
+    width:32px; height:32px; border-radius: 50%; flex:none;
+    display:grid; place-items:center;
+    font-size: 12px; font-weight: 700;
+    color: color-mix(in srgb, var(--bg) 55%, black);
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+  }
+  .avatar.you{
+    background: var(--surface3);
+    color: var(--text-muted);
+    border: 1px solid var(--border-strong);
+  }
+  .bubble{
+    padding: 12px 16px;
+    border-radius: var(--radius-m);
+    font-size: 14px;
+  }
+  .msg.assistant .bubble{
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-top-left-radius: 4px;
+  }
+  .msg.user .bubble{
+    background: color-mix(in srgb, var(--accent2) 13%, var(--surface2));
+    border: 1px solid color-mix(in srgb, var(--accent2) 25%, var(--border));
+    border-top-right-radius: 4px;
+  }
+  .bubble .meta{
+    font-family: var(--font-mono); font-size: 10.5px; letter-spacing:.1em;
+    color: var(--text-muted); margin-bottom: 4px; text-transform: uppercase;
+  }
+  .bubble b{ color: var(--accent); font-weight: 600; }
+  .chat-inputrow{
+    display:flex; gap:10px; align-items:center;
+    margin-top: 6px;
+    padding: 8px 8px 8px 14px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-m);
+  }
+  .chat-inputrow:focus-within{
+    border-color: var(--accent2);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent2) 15%, transparent);
+  }
+  .chat-inputrow input{
+    flex:1; background:transparent; border:none; outline:none;
+    font: inherit; font-size:14px; color: var(--text-strong);
+  }
+  .chat-inputrow input::placeholder{ color: var(--text-muted); }
+  .compute-chip{
+    display:inline-flex; align-items:center; gap:8px; flex:none;
+    font-family: var(--font-mono); font-size: 11.5px;
+    color: var(--accent2);
+    padding: 6px 12px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--accent2) 9%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent2) 26%, transparent);
+    cursor: pointer;
+  }
+  .compute-chip .caret{ font-size: 9px; color: var(--text-muted); }
+
+  /* ========================= WORLD SWITCHER DROPDOWN ========================= */
+  .world-demo{ display:flex; gap:36px; align-items:flex-start; flex-wrap:wrap; }
+  .dropdown{
+    width: 340px;
+    background: var(--surface2);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-l);
+    box-shadow: 0 34px 80px -18px color-mix(in srgb, var(--bg) 25%, black);
+    overflow:hidden;
+  }
+  .dropdown-head{
+    padding: 14px 18px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  .dropdown-head .t{ font-size: 13.5px; font-weight: 650; color: var(--text-strong); }
+  .dropdown-head .s{ font-size: 12px; color: var(--text-muted); }
+  .world-item{
+    display:flex; align-items:center; gap:14px;
+    width:100%; text-align:left;
+    padding: 13px 18px;
+    background: transparent; border: none;
+    border-bottom: 1px solid var(--border);
+    transition: background .15s ease;
+  }
+  .world-item:last-child{ border-bottom:none; }
+  .world-item:hover{ background: var(--surface3); }
+  .world-item:focus-visible{ outline:2px solid var(--accent2); outline-offset:-2px; }
+  .world-item .swatch{ width:28px; height:28px; border-radius: 9px; }
+  .world-item .name{ font-size: 14px; font-weight: 600; color: var(--text-strong); }
+  .world-item .desc{ font-size: 12px; color: var(--text-muted); }
+  .world-item .check{
+    margin-left:auto; font-size: 14px; color: var(--accent);
+    visibility: hidden;
+  }
+  .world-item.active .check{ visibility: visible; }
+  .world-hint{ max-width: 46ch; color: var(--text-muted); font-size: 13.5px; }
+  .world-hint code{
+    font-family: var(--font-mono); font-size: 12px; color: var(--accent2);
+  }
+
+  /* ========================= THEME PROOF ========================= */
+  .proof-grid{ display:grid; gap:20px; grid-template-columns: repeat(3, 1fr); }
+  .proof-tile{
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-l);
+    padding: 20px;
+    display:flex; flex-direction:column; gap:14px;
+  }
+  .proof-name{
+    font-family: var(--font-mono); font-size: 11px; letter-spacing:.14em;
+    text-transform: uppercase; color: var(--accent);
+    display:flex; align-items:center; gap:8px;
+  }
+  .proof-name .dot{ background: var(--accent2); }
+
+  /* ========================= FOOTER ========================= */
+  footer{
+    margin-top: 72px; padding-top: 24px;
+    border-top: 1px solid var(--border);
+    display:flex; justify-content:space-between; gap:16px; flex-wrap:wrap;
+    color: var(--text-muted); font-size: 12.5px;
+  }
+  footer .mono{ font-family: var(--font-mono); font-size: 11.5px; }
+
+  /* ========================= RESPONSIVE ========================= */
+  @media (max-width: 940px){
+    .grid{ grid-template-columns: 1fr; }
+    .hero, .metric-stack, .feed, .table-card{ grid-column: auto; }
+    .kit{ grid-template-columns: 1fr; }
+    .proof-grid{ grid-template-columns: 1fr; }
+    .nav-links{ display:none; }
+    .msg{ max-width: 95%; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- ================= 1. TOP NAV ================= -->
+  <header>
+    <nav class="nav" aria-label="Primary">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">
+          <!-- crescent + star: the observatory mark -->
+          <svg width="18" height="18" viewBox="0 0 24 24">
+            <path d="M14.5 2.5a9.5 9.5 0 1 0 7 15.9A11 11 0 0 1 14.5 2.5z" fill="var(--accent)"/>
+            <path d="M17.5 4.5l.9 2.1 2.1.9-2.1.9-.9 2.1-.9-2.1-2.1-.9 2.1-.9z" fill="var(--accent2)"/>
+          </svg>
+        </span>
+        <span>
+          <span class="brand-name">ARAIL</span><br>
+          <span class="brand-sub">Autoresearch AI Labs</span>
+        </span>
+      </div>
+      <div class="nav-links">
+        <a class="nav-link active" href="#">Dashboard</a>
+        <a class="nav-link" href="#">Chat</a>
+        <a class="nav-link" href="#">Autoresearch</a>
+        <a class="nav-link" href="#">Knowledge</a>
+        <a class="nav-link" href="#">Agents</a>
+      </div>
+      <button class="world-badge" type="button" aria-haspopup="listbox">
+        <span class="swatch" style="--sw1:#ffb35c; --sw2:#7fd7ea;" aria-hidden="true"></span>
+        AI&nbsp;Lab
+        <span class="caret">▾</span>
+      </button>
+    </nav>
+    <div class="rail" role="presentation"></div>
+    <div class="rail-soft" role="presentation"></div>
+  </header>
+
+  <!-- ================= 2. STATUS BAR ================= -->
+  <div class="statusbar" role="status">
+    <span class="mode-badge"><span class="dot live"></span>AIRGAPPED</span>
+    <span class="status-metrics">
+      <span>gpu <b>72%</b></span>
+      <span>vram <b>11.2</b>/16G</span>
+      <span><b>42.7</b> tok/s</span>
+      <span>uptime <b>3d 02:14</b></span>
+      <span>cloud spend <b>$0.00</b></span>
+    </span>
+    <span class="right"><span class="dot"></span>SRE watching · all clear</span>
+  </div>
+
+  <!-- ================= 3. DASHBOARD GRID ================= -->
+  <section>
+    <div class="eyebrow">observatory · tonight</div>
+    <h1 class="section-title">Dashboard</h1>
+
+    <div class="grid">
+      <!-- Mission hero -->
+      <article class="card hero">
+        <div class="eyebrow" style="margin-bottom:0">current mission · autoresearch</div>
+        <h2>Teach a 1-billion-parameter engineer to explain its own reasoning</h2>
+        <p>Tonight that means getting llama-ai-eng under 8.0 perplexity on the
+           lab corpus. The Researcher agent is sweeping learning-rate and
+           context-window settings; Buddy files each result into the knowledge
+           base as it lands.</p>
+        <div class="progress" role="progressbar" aria-valuenow="64" aria-valuemin="0" aria-valuemax="100"><span></span></div>
+        <div class="hero-meta">
+          <span>experiment <b>12 / 20</b></span>
+          <span>best so far <b>ppl 7.96</b></span>
+          <span>next checkpoint <b>22:00</b></span>
+        </div>
+        <div class="hero-actions">
+          <button class="btn btn-primary" type="button">Open autoresearch</button>
+          <button class="btn btn-ghost" type="button">View run log</button>
+        </div>
+      </article>
+
+      <!-- Metric cards -->
+      <div class="metric-stack">
+        <article class="metric-card">
+          <div class="metric-label">tokens / sec</div>
+          <div class="metric-value">42.7</div>
+          <div class="metric-delta up">▲ 8.2% vs last run</div>
+          <svg class="spark" viewBox="0 0 120 32" preserveAspectRatio="none" aria-hidden="true">
+            <polygon class="area" points="0,26 15,22 30,24 45,18 60,20 75,14 90,16 105,9 120,12 120,32 0,32"/>
+            <polyline points="0,26 15,22 30,24 45,18 60,20 75,14 90,16 105,9 120,12"/>
+          </svg>
+        </article>
+        <article class="metric-card">
+          <div class="metric-label">eval loss</div>
+          <div class="metric-value">1.94</div>
+          <div class="metric-delta up">▼ 0.06 — trending down</div>
+          <svg class="spark" viewBox="0 0 120 32" preserveAspectRatio="none" aria-hidden="true">
+            <polygon class="area" points="0,8 15,10 30,9 45,14 60,13 75,18 90,17 105,22 120,24 120,32 0,32"/>
+            <polyline points="0,8 15,10 30,9 45,14 60,13 75,18 90,17 105,22 120,24"/>
+          </svg>
+        </article>
+        <article class="metric-card">
+          <div class="metric-label">vram in use</div>
+          <div class="metric-value">11.2 <small>GB</small></div>
+          <div class="metric-delta watch">◆ 82% of 16 GB — SRE watching</div>
+          <svg class="spark" viewBox="0 0 120 32" preserveAspectRatio="none" aria-hidden="true">
+            <polygon class="area" points="0,20 15,18 30,21 45,16 60,17 75,12 90,14 105,10 120,11 120,32 0,32"/>
+            <polyline points="0,20 15,18 30,21 45,16 60,17 75,12 90,14 105,10 120,11"/>
+          </svg>
+        </article>
+      </div>
+
+      <!-- Activity feed -->
+      <article class="card feed">
+        <h3>Activity</h3>
+        <ul>
+          <li>
+            <time>21:47</time><span class="agent">researcher</span>
+            <span class="what">Completed <em>exp-012</em> — eval loss 1.94 (−0.06)</span>
+          </li>
+          <li>
+            <time>21:31</time><span class="agent">sre</span>
+            <span class="what">Memory pressure normalized, 11.9 → 11.2 GB</span>
+          </li>
+          <li>
+            <time>21:04</time><span class="agent">buddy</span>
+            <span class="what">Filed 3 new papers into the knowledge base</span>
+          </li>
+          <li>
+            <time>20:52</time><span class="agent">researcher</span>
+            <span class="what">Started <em>exp-012</em> — lr 2e-5, ctx 4096</span>
+          </li>
+          <li>
+            <time>20:41</time><span class="agent">buddy</span>
+            <span class="what">Wiki rebuilt — 214 notes, 38 sources indexed</span>
+          </li>
+        </ul>
+      </article>
+
+      <!-- Experiment table -->
+      <article class="card table-card">
+        <h3>Recent experiments</h3>
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>id</th><th>model</th><th>metric</th><th>Δ</th><th>wall</th><th>status</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="exp-id">exp-012</td><td>llama-ai-eng</td>
+                <td class="num">ppl 7.96</td><td class="delta-good">−0.31</td>
+                <td>00:42:18</td><td><span class="pill running"><span class="dot"></span>running</span></td>
+              </tr>
+              <tr>
+                <td class="exp-id">exp-011</td><td>llama-ai-eng</td>
+                <td class="num">ppl 8.27</td><td class="delta-good">−0.12</td>
+                <td>00:39:05</td><td><span class="pill ok"><span class="dot"></span>done</span></td>
+              </tr>
+              <tr>
+                <td class="exp-id">exp-010</td><td>ai-engineer-7b</td>
+                <td class="num">ppl 6.41</td><td class="delta-bad">+0.04</td>
+                <td>01:57:44</td><td><span class="pill warn"><span class="dot"></span>regressed</span></td>
+              </tr>
+              <tr>
+                <td class="exp-id">exp-009</td><td>llama-ai-eng</td>
+                <td class="num">ppl 8.39</td><td class="delta-good">−0.22</td>
+                <td>00:41:52</td><td><span class="pill ok"><span class="dot"></span>done</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </article>
+    </div>
+  </section>
+
+  <!-- ================= 4. DESIGN KIT: BUTTONS / INPUT / PILLS / MODAL ================= -->
+  <section>
+    <div class="eyebrow">instrument panel</div>
+    <h2 class="section-title">Controls</h2>
+
+    <div class="card kit">
+      <div class="col">
+        <div>
+          <div class="kit-label" style="margin-bottom:10px">buttons</div>
+          <div class="kit-row">
+            <button class="btn btn-primary" type="button">Start experiment</button>
+            <button class="btn btn-ghost" type="button">Configure</button>
+            <button class="btn btn-danger" type="button">Stop all runs</button>
+          </div>
+        </div>
+        <div class="field">
+          <div class="kit-label" style="margin-bottom:10px">input</div>
+          <label for="goal">Measurable goal</label>
+          <input class="input" id="goal" type="text"
+                 placeholder="e.g. perplexity &lt; 8.0 on lab corpus"
+                 value="perplexity &lt; 8.0 on lab corpus">
+          <div class="hint">The Researcher agent refuses goals it can’t measure.</div>
+        </div>
+        <div>
+          <div class="kit-label" style="margin-bottom:10px">status pills</div>
+          <div class="kit-row">
+            <span class="pill ok"><span class="dot"></span>ok · model loaded</span>
+            <span class="pill warn"><span class="dot"></span>warn · vram 82%</span>
+            <span class="pill error"><span class="dot"></span>error · provider timeout</span>
+            <span class="pill info-p"><span class="dot"></span>info · wiki rebuilt</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="col">
+        <div class="kit-label">modal (static mockup)</div>
+        <div class="modal-stage">
+          <div class="modal-backdrop"></div>
+          <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-t">
+            <h4 id="modal-t">Switch compute source?</h4>
+            <p>Chat will move from <b style="color:var(--accent)">My Machine</b> to
+               OpenRouter. Your key stays in <code>lab/data/secrets.env</code>
+               (chmod 0600) and is never echoed back or logged.</p>
+            <div class="field">
+              <label for="orkey">OpenRouter API key</label>
+              <input class="input mono" id="orkey" type="password" placeholder="sk-or-••••••••••••" value="sk-or-1234">
+            </div>
+            <div class="modal-footer">
+              <button class="btn btn-ghost btn-sm" type="button">Cancel</button>
+              <button class="btn btn-primary btn-sm" type="button">Save &amp; switch</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 5. CHAT STRIP ================= -->
+  <section>
+    <div class="eyebrow">night shift</div>
+    <h2 class="section-title">Chat</h2>
+
+    <div class="card chat">
+      <div class="msg user">
+        <span class="avatar you" aria-hidden="true">CD</span>
+        <div class="bubble">
+          <div class="meta">you · 21:52</div>
+          Buddy, how did the overnight runs go?
+        </div>
+      </div>
+      <div class="msg assistant">
+        <span class="avatar" aria-hidden="true">B</span>
+        <div class="bubble">
+          <div class="meta">buddy · my machine · llama-ai-eng</div>
+          Two of three finished. <b>exp-012 hit ppl 7.96</b> — first time under
+          8.0. I queued a confirmation run and filed the summary in the
+          knowledge base under <i>autoresearch/exp-012</i>.
+        </div>
+      </div>
+      <div class="chat-inputrow">
+        <input type="text" placeholder="Message the lab…" aria-label="Message the lab">
+        <button class="compute-chip" type="button" title="Compute source">
+          <span class="dot" style="background:var(--positive)"></span>
+          My Machine · llama-ai-eng
+          <span class="caret">▾</span>
+        </button>
+        <button class="btn btn-primary btn-sm" type="button">Send</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 6. WORLD SWITCHER (OPEN) ================= -->
+  <section>
+    <div class="eyebrow">one lab, many skies</div>
+    <h2 class="section-title">World switcher</h2>
+    <p class="section-note">The badge in the nav opens this menu. Picking a world swaps
+       <em>only</em> the <code style="font-family:var(--font-mono);font-size:12px;color:var(--accent2)">:root</code>
+       token values — same layout, new atmosphere. (The items below are live: click one.)</p>
+
+    <div class="world-demo">
+      <div class="dropdown" role="listbox" aria-label="Choose a world">
+        <div class="dropdown-head">
+          <div class="t">Choose a world</div>
+          <div class="s">Themes are token swaps — nothing else changes.</div>
+        </div>
+        <button class="world-item active" type="button" role="option" aria-selected="true" data-world="lab">
+          <span class="swatch" style="--sw1:#ffb35c; --sw2:#7fd7ea;" aria-hidden="true"></span>
+          <span>
+            <span class="name">AI Lab</span><br>
+            <span class="desc">Warm observatory · sharp · default</span>
+          </span>
+          <span class="check">✓</span>
+        </button>
+        <button class="world-item" type="button" role="option" aria-selected="false" data-world="kawaii">
+          <span class="swatch" style="--sw1:#ff8fc0; --sw2:#ffc7e0;" aria-hidden="true"></span>
+          <span>
+            <span class="name">Kawaii Lab</span><br>
+            <span class="desc">Pink · playful · soft corners · glows</span>
+          </span>
+          <span class="check">✓</span>
+        </button>
+        <button class="world-item" type="button" role="option" aria-selected="false" data-world="arthist">
+          <span class="swatch" style="--sw1:#a78bfa; --sw2:#d8c8a6;" aria-hidden="true"></span>
+          <span>
+            <span class="name">Art History</span><br>
+            <span class="desc">Scholarly violet · parchment gold · flat</span>
+          </span>
+          <span class="check">✓</span>
+        </button>
+      </div>
+
+      <p class="world-hint">Each world ships as 12 color slots plus a personality id.
+        The personality selects <code>--radius-*</code> for corner shape,
+        <code>--glow-mix</code> for glow temperature (Kawaii glows at 26%,
+        Art History goes dead flat at 0%), and <code>--ease-accent</code> for
+        motion (Kawaii gets a spring). Derived tokens — the rail gradient,
+        glow washes, shadows — repaint for free. The grid and type scale never move.</p>
+    </div>
+  </section>
+
+  <!-- ================= 7. THEME PROOF ================= -->
+  <section>
+    <div class="eyebrow">proof of repaint</div>
+    <h2 class="section-title">Same markup, three worlds</h2>
+    <p class="section-note">The three tiles below contain byte-identical metric-card
+       markup. Each wrapper overrides tokens inline — nothing else differs.</p>
+
+    <div class="proof-grid">
+
+      <!-- Default: Warm Observatory (inherits :root) -->
+      <div class="proof-tile">
+        <div class="proof-name"><span class="dot"></span>ai lab · default</div>
+        <article class="metric-card">
+          <div class="metric-label">tokens / sec</div>
+          <div class="metric-value">42.7</div>
+          <div class="metric-delta up">▲ 8.2% vs last run</div>
+          <svg class="spark" viewBox="0 0 120 32" preserveAspectRatio="none" aria-hidden="true">
+            <polygon class="area" points="0,26 15,22 30,24 45,18 60,20 75,14 90,16 105,9 120,12 120,32 0,32"/>
+            <polyline points="0,26 15,22 30,24 45,18 60,20 75,14 90,16 105,9 120,12"/>
+          </svg>
+        </article>
+      </div>
+
+      <!-- Kawaii Lab: pink/playful, bigger radii -->
+      <div class="proof-tile" style="
+        --bg:#1d1119; --surface:#271722; --surface2:#311d2c; --surface3:#3c2436;
+        --border:#43293a; --border-strong:#63405a;
+        --text:#f7e9f1; --text-strong:#fff8fc; --text-muted:#bd98ac;
+        --accent:#ff8fc0; --accent2:#ffc7e0;
+        --positive:#8fdcb0; --warn:#ffd166; --danger:#ff7a8a; --info:#b9a8ff;
+        --radius-s:12px; --radius-m:18px; --radius-l:26px;
+        --glow-mix:26%; --ease-accent:cubic-bezier(.34,1.56,.64,1);">
+        <div class="proof-name"><span class="dot"></span>kawaii lab</div>
+        <article class="metric-card">
+          <div class="metric-label">tokens / sec</div>
+          <div class="metric-value">42.7</div>
+          <div class="metric-delta up">▲ 8.2% vs last run</div>
+          <svg class="spark" viewBox="0 0 120 32" preserveAspectRatio="none" aria-hidden="true">
+            <polygon class="area" points="0,26 15,22 30,24 45,18 60,20 75,14 90,16 105,9 120,12 120,32 0,32"/>
+            <polyline points="0,26 15,22 30,24 45,18 60,20 75,14 90,16 105,9 120,12"/>
+          </svg>
+        </article>
+      </div>
+
+      <!-- Art History: scholarly violet, squared radii -->
+      <div class="proof-tile" style="
+        --bg:#141020; --surface:#1c1730; --surface2:#251e3e; --surface3:#2e264c;
+        --border:#332a52; --border-strong:#4d4178;
+        --text:#ece7f7; --text-strong:#fdfcff; --text-muted:#a49bc4;
+        --accent:#a78bfa; --accent2:#d8c8a6;
+        --positive:#84d1a8; --warn:#e6c36b; --danger:#f2808f; --info:#8fb6f2;
+        --radius-s:5px; --radius-m:8px; --radius-l:12px;
+        --glow-mix:0%;">
+        <div class="proof-name"><span class="dot"></span>art history</div>
+        <article class="metric-card">
+          <div class="metric-label">tokens / sec</div>
+          <div class="metric-value">42.7</div>
+          <div class="metric-delta up">▲ 8.2% vs last run</div>
+          <svg class="spark" viewBox="0 0 120 32" preserveAspectRatio="none" aria-hidden="true">
+            <polygon class="area" points="0,26 15,22 30,24 45,18 60,20 75,14 90,16 105,9 120,12 120,32 0,32"/>
+            <polyline points="0,26 15,22 30,24 45,18 60,20 75,14 90,16 105,9 120,12"/>
+          </svg>
+        </article>
+      </div>
+
+    </div>
+  </section>
+
+  <footer>
+    <span>ARAIL · refined winner — <b style="color:var(--text)">Warm Observatory, sharpened</b> · dark scheme · token-driven · one glow</span>
+    <span class="mono">local-first · airgapped by default · MIT</span>
+  </footer>
+
+</div>
+
+<script>
+/* The world switcher swaps :root tokens — the entire theming mechanism.
+   Worlds carry the 12 primitives (+ pinned derived neutrals) and the
+   personality scalars (radius trio, glow dial, motion ease). The derived
+   layer (--rail, --glow-a/b, --shadow-1) repaints automatically.
+   Clear-then-set (concept-4's fix): stale overrides never leak between worlds. */
+(function(){
+  var WORLDS = {
+    lab: { /* personality: technical (default — matches :root, so no overrides needed,
+              but listed explicitly so the mechanism is honest) */
+      "--bg":"#110e1c","--surface":"#191527","--surface2":"#211c33","--surface3":"#2a2440",
+      "--border":"#2f2947","--border-strong":"#463d68",
+      "--text":"#e9e4f6","--text-strong":"#fbfaff","--text-muted":"#9d94ba",
+      "--accent":"#ffb35c","--accent2":"#7fd7ea",
+      "--positive":"#7ed6a2","--warn":"#ffd166","--danger":"#ff7a7a","--info":"#9aa8ff",
+      "--radius-s":"6px","--radius-m":"10px","--radius-l":"16px",
+      "--glow-mix":"10%","--ease-accent":"cubic-bezier(.2,0,0,1)"
+    },
+    kawaii: { /* personality: playful — rounder, glowier, springy */
+      "--bg":"#1d1119","--surface":"#271722","--surface2":"#311d2c","--surface3":"#3c2436",
+      "--border":"#43293a","--border-strong":"#63405a",
+      "--text":"#f7e9f1","--text-strong":"#fff8fc","--text-muted":"#bd98ac",
+      "--accent":"#ff8fc0","--accent2":"#ffc7e0",
+      "--positive":"#8fdcb0","--warn":"#ffd166","--danger":"#ff7a8a","--info":"#b9a8ff",
+      "--radius-s":"12px","--radius-m":"18px","--radius-l":"26px",
+      "--glow-mix":"26%","--ease-accent":"cubic-bezier(.34,1.56,.64,1)"
+    },
+    arthist: { /* personality: scholarly — squarer, dead flat (glow dial at 0%) */
+      "--bg":"#141020","--surface":"#1c1730","--surface2":"#251e3e","--surface3":"#2e264c",
+      "--border":"#332a52","--border-strong":"#4d4178",
+      "--text":"#ece7f7","--text-strong":"#fdfcff","--text-muted":"#a49bc4",
+      "--accent":"#a78bfa","--accent2":"#d8c8a6",
+      "--positive":"#84d1a8","--warn":"#e6c36b","--danger":"#f2808f","--info":"#8fb6f2",
+      "--radius-s":"5px","--radius-m":"8px","--radius-l":"12px",
+      "--glow-mix":"0%","--ease-accent":"cubic-bezier(.2,0,0,1)"
+    }
+  };
+  var TOKEN_KEYS = Object.keys(WORLDS.lab);
+  var items = document.querySelectorAll(".world-item");
+  items.forEach(function(btn){
+    btn.addEventListener("click", function(){
+      var tokens = WORLDS[btn.dataset.world];
+      if(!tokens) return;
+      var root = document.documentElement.style;
+      TOKEN_KEYS.forEach(function(k){ root.removeProperty(k); });
+      for (var k in tokens) root.setProperty(k, tokens[k]);
+      items.forEach(function(b){
+        b.classList.toggle("active", b === btn);
+        b.setAttribute("aria-selected", b === btn ? "true" : "false");
+      });
+    });
+  });
+})();
+</script>
+</body>
+</html>

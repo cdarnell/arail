@@ -1,15 +1,10 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{ brand.name }} — Autoresearch</title>
-<link rel="stylesheet" href="/static/style.css">
+{% extends "base.html" %}
+{% set active = 'research' %}
+{% block title %}{{ brand.name }} — Autoresearch{% endblock %}
+{% block head %}
 <link rel="stylesheet" href="/static/research.css">
-</head>
-<body>
-
-{% set active = 'research' %}{% include "_nav.html" %}
+{% endblock %}
+{% block content %}
 
 <!-- ═══ Lab tagline — always visible ═══ -->
 <div class="rx-tagline">
@@ -81,14 +76,14 @@
 <!-- Inline swarm review panel — replaces the old modal so the review
      surface is always visible on the page (no z-index, no hidden card,
      no scroll trap). Toggled by the Review Draft button. -->
-<section class="rx-preview-banner" id="rx-swarm-inline" hidden style="flex-direction:column;align-items:stretch;">
-  <div style="display:flex;justify-content:space-between;align-items:center;gap:0.5rem;">
-    <strong style="color:var(--text-hi);">Review the worker lanes before launch</strong>
+<section class="rx-preview-banner rx-swarm-inline" id="rx-swarm-inline" hidden>
+  <div class="rx-swarm-inline-head">
+    <strong>Review the worker lanes before launch</strong>
     <button class="rx-btn" type="button" id="rx-swarm-inline-close">Hide</button>
   </div>
-  <div class="rx-swarm-pills" id="rx-swarm-pills" style="margin-top:0.75rem;"></div>
-  <div id="rx-swarm-modal-body" style="margin-top:0.5rem;"></div>
-  <div class="rx-modal-actions" style="margin-top:1rem;">
+  <div class="rx-swarm-pills" id="rx-swarm-pills"></div>
+  <div id="rx-swarm-modal-body"></div>
+  <div class="rx-modal-actions">
     <button class="rx-btn primary" id="rx-swarm-run">Approve &amp; Run</button>
     <button class="rx-btn" id="rx-swarm-save">Approve Only</button>
     <button class="rx-btn danger" id="rx-swarm-discard">Discard</button>
@@ -278,10 +273,10 @@
     <p>Set a goal and the lab drafts a swarm. Every winning variant becomes a branch —
        <code>autoresearch/&lt;id&gt;</code> — committed to your repo so you can review
        the diff, cherry-pick what works, and ignore what didn't. The ledger writes itself.</p>
-    <div class="rx-empty-controls" style="justify-content:center;">
+    <div class="rx-empty-controls rx-center">
       <button type="button" class="rx-btn primary" id="rx-empty-open">Set Research Goal</button>
     </div>
-    <div id="rx-empty-status" class="rx-empty-status" style="display:none;"></div>
+    <div id="rx-empty-status" class="rx-empty-status"></div>
   </div>
 </section>
 
@@ -325,6 +320,8 @@
   </div>
 </div>
 
+{% endblock %}
+{% block scripts %}
 <script>
 /* ═══════════════════════════════════════════════════════════════
    /research — Research Cockpit
@@ -878,7 +875,6 @@ function renderSummary() {
       const card = document.querySelector(`.rx-exp[data-id="${CSS.escape(id)}"]`);
       if (card) card.scrollIntoView({behavior: 'smooth', block: 'center'});
     });
-    li.style.cursor = 'pointer';
   });
 
   // Refresh the planning-trace disclosure (Phase 3 part 2). Best-effort
@@ -1490,5 +1486,4 @@ async function wireProgramPanel() {
 <script src="/static/js/experiment-branches.js?v={{ asset_v }}"></script>
 <script src="/static/nav.js"></script>
 {% include '_airgap_modal.html' %}
-</body>
-</html>
+{% endblock %}

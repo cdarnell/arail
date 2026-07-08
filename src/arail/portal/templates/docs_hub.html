@@ -1,10 +1,8 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{ brand.name }} — Docs</title>
-<link rel="stylesheet" href="/static/style.css">
+{% extends "base.html" %}
+{% set active = "docs" %}
+{% block title %}{{ brand.name }} — Docs{% endblock %}
+
+{% block head %}
 <style>
   /* ── Hub layout ─────────────────────────────────────────────────────── */
   .docs-hub { max-width: 1100px; margin: 0 auto; padding: 1.4rem 1.6rem 4rem; }
@@ -15,28 +13,30 @@
     border-bottom: 1px solid var(--border);
     margin-bottom: 1.6rem;
   }
-  .docs-hero h1 { color: var(--green); margin: 0 0 0.3rem; font-size: 1.5rem; }
-  .docs-hero p  { color: var(--muted); margin: 0 0 1rem; font-size: 0.82rem; }
+  .docs-hero h1 { color: var(--text-strong); margin: 0 0 0.3rem; font-size: 1.5rem; }
+  .docs-hero p  { color: var(--text-muted); margin: 0 0 1rem; font-size: 0.82rem; }
   #docs-search {
     width: 100%;
     max-width: 420px;
     background: var(--surface2);
-    border: 1px solid var(--border-hi);
-    border-radius: var(--radius);
-    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-s);
+    color: var(--text-strong);
     padding: 0.4rem 0.8rem;
     font-family: inherit;
     font-size: 0.82rem;
   }
-  #docs-search:focus { outline: none; border-color: var(--blue); box-shadow: 0 0 0 2px rgba(0,212,255,.15); }
-  #docs-search::placeholder { color: var(--muted); }
+  #docs-search:focus { outline: none; border-color: var(--accent2); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent2) 18%, transparent); }
+  #docs-search::placeholder { color: var(--text-muted); }
 
   /* Featured strip */
   .docs-featured-label {
+    font-family: var(--font-mono);
     font-size: 0.65rem;
-    letter-spacing: 0.07em;
-    text-transform: uppercase;
-    color: var(--muted);
+    font-weight: 500;
+    letter-spacing: var(--label-tracking);
+    text-transform: var(--label-transform);
+    color: var(--text-muted);
     margin: 0 0 0.6rem;
   }
   .docs-featured-strip {
@@ -47,17 +47,17 @@
   }
   .docs-featured-card {
     background: var(--surface);
-    border: 1px solid var(--blue);
-    border-radius: var(--radius);
+    border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+    border-radius: var(--radius-m);
     padding: 0.9rem 1rem;
     text-decoration: none;
     color: var(--text);
-    transition: border-color 150ms, box-shadow 150ms;
+    transition: border-color var(--dur-2) var(--ease-accent), box-shadow var(--dur-2) var(--ease-accent);
   }
-  .docs-featured-card:hover { border-color: var(--green); box-shadow: var(--elev-1); }
-  .docs-featured-card .fc-title { color: var(--text-hi); font-size: 0.88rem; margin: 0 0 0.25rem; }
-  .docs-featured-card .fc-desc  { color: var(--muted);   font-size: 0.74rem; margin: 0; line-height: 1.4; }
-  .docs-featured-card .fc-meta  { color: var(--blue); font-size: 0.65rem; margin-top: 0.5rem; }
+  .docs-featured-card:hover { border-color: var(--accent); box-shadow: var(--elev-1); }
+  .docs-featured-card .fc-title { color: var(--text-strong); font-size: 0.88rem; margin: 0 0 0.25rem; }
+  .docs-featured-card .fc-desc  { color: var(--text-muted);   font-size: 0.74rem; margin: 0; line-height: 1.4; }
+  .docs-featured-card .fc-meta  { color: var(--text-muted); font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 0.65rem; margin-top: 0.5rem; }
 
   /* Recent chips */
   .docs-recent { margin-bottom: 1.6rem; }
@@ -66,20 +66,22 @@
     font-size: 0.7rem;
     padding: 0.2rem 0.6rem;
     background: var(--surface2);
-    border: 1px solid var(--border-hi);
-    border-radius: 999px;
-    color: var(--blue);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-pill);
+    color: var(--accent2);
     text-decoration: none;
   }
-  .docs-recent-chip:hover { background: var(--surface); color: var(--text-hi); }
+  .docs-recent-chip:hover { background: var(--surface); color: var(--text-strong); }
 
   /* Category sections */
   .docs-category { margin-bottom: 2rem; }
   .docs-category-heading {
+    font-family: var(--font-mono);
     font-size: 0.7rem;
-    letter-spacing: 0.07em;
-    text-transform: uppercase;
-    color: var(--muted);
+    font-weight: 500;
+    letter-spacing: var(--label-tracking);
+    text-transform: var(--label-transform);
+    color: var(--text-muted);
     border-bottom: 1px solid var(--border);
     padding-bottom: 0.4rem;
     margin: 0 0 0.7rem;
@@ -92,37 +94,37 @@
   .doc-card {
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: var(--radius);
+    border-radius: var(--radius-m);
     padding: 0.8rem 0.9rem;
     text-decoration: none;
     color: var(--text);
-    transition: border-color 150ms, box-shadow 150ms;
+    transition: border-color var(--dur-2) var(--ease-accent), box-shadow var(--dur-2) var(--ease-accent);
     display: block;
   }
-  .doc-card:hover { border-color: var(--border-hi); box-shadow: var(--elev-1); }
-  .doc-card .dc-title { color: var(--text-hi); font-size: 0.84rem; margin: 0 0 0.2rem; }
-  .doc-card .dc-desc  { color: var(--muted);   font-size: 0.72rem; margin: 0; line-height: 1.4; }
-  .doc-card .dc-meta  { color: var(--muted); font-size: 0.62rem; margin-top: 0.4rem; }
+  .doc-card:hover { border-color: var(--border-strong); box-shadow: var(--elev-1); }
+  .doc-card .dc-title { color: var(--text-strong); font-size: 0.84rem; margin: 0 0 0.2rem; }
+  .doc-card .dc-desc  { color: var(--text-muted);   font-size: 0.72rem; margin: 0; line-height: 1.4; }
+  .doc-card .dc-meta  { color: var(--text-muted); font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 0.62rem; margin-top: 0.4rem; }
   .dc-audience-badge {
     display: inline-block;
     font-size: 0.6rem;
     padding: 0.05rem 0.35rem;
-    border-radius: 999px;
+    border-radius: var(--radius-pill);
     margin-left: 0.3rem;
     vertical-align: middle;
   }
-  .dc-audience-badge.beginner { background: rgba(0,255,65,.1);  color: var(--green); }
-  .dc-audience-badge.operator { background: rgba(0,212,255,.1); color: var(--blue);  }
-  .dc-audience-badge.architect{ background: rgba(180,142,255,.1); color: var(--purple); }
+  .dc-audience-badge.beginner { background: color-mix(in srgb, var(--positive) 12%, transparent); color: var(--positive); }
+  .dc-audience-badge.operator { background: color-mix(in srgb, var(--accent2) 12%, transparent); color: var(--accent2); }
+  .dc-audience-badge.architect{ background: color-mix(in srgb, var(--info) 12%, transparent); color: var(--info); }
 
   /* Fallback panel */
   .docs-fallback {
     text-align: center;
     padding: 3rem 2rem;
-    color: var(--muted);
+    color: var(--text-muted);
     font-size: 0.82rem;
   }
-  .docs-fallback a { color: var(--blue); }
+  .docs-fallback a { color: var(--accent2); }
 
   /* Footer */
   .docs-footer {
@@ -130,18 +132,18 @@
     padding-top: 1rem;
     border-top: 1px solid var(--border);
     font-size: 0.72rem;
-    color: var(--muted);
+    color: var(--text-muted);
   }
-  .docs-footer a { color: var(--blue); }
+  .docs-footer a { color: var(--accent2); }
 
   /* Responsive collapse */
   @media (max-width: 600px) {
     .docs-featured-strip, .docs-grid { grid-template-columns: 1fr; }
   }
 </style>
-</head>
-<body>
-{% set active = "docs" %}{% include "_nav.html" %}
+{% endblock %}
+
+{% block content %}
 
 <div class="docs-hub">
 
@@ -243,7 +245,9 @@
   </div>
 
 </div>{# .docs-hub #}
+{% endblock %}
 
+{% block scripts %}
 <script src="/static/nav.js"></script>
 <script src="/static/dictionary.js"></script>
 <script>
@@ -267,5 +271,4 @@
   });
 }());
 </script>
-</body>
-</html>
+{% endblock %}

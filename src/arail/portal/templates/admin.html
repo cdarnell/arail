@@ -1,10 +1,7 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{ brand.name }} — Admin</title>
-<link rel="stylesheet" href="/static/style.css">
+{% extends "base.html" %}
+{% set active = 'admin' %}
+{% block title %}{{ brand.name }} — Admin{% endblock %}
+{% block head %}
 <style>
   .admin-wrap {
     padding: 1.4rem 2rem 3rem;
@@ -12,13 +9,15 @@
     max-width: none;
     margin: 0 auto;
   }
-  .admin-wrap h1 { color: var(--green); text-shadow: var(--glow-green); margin-bottom: 0.25rem; font-size: 1.1rem; }
-  .admin-wrap .subtitle { color: var(--muted); font-size: 0.8rem; margin-bottom: 1.15rem; }
+  .admin-wrap h1 { color: var(--text-strong); margin-bottom: 0.25rem; font-size: 1.1rem; font-weight: 650; letter-spacing: -0.015em; }
+  .admin-wrap .subtitle { color: var(--text-muted); font-size: 0.8rem; margin-bottom: 1.15rem; }
 
   .admin-section { margin-bottom: 1.35rem; }
   .admin-section h2 {
-    font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.1em;
-    color: var(--muted); margin-bottom: 0.55rem;
+    font-size: 0.72rem;
+    text-transform: var(--label-transform);
+    letter-spacing: var(--label-tracking);
+    color: var(--text-muted); margin-bottom: 0.55rem;
     padding-bottom: 0.4rem; border-bottom: 1px solid var(--border);
   }
 
@@ -29,13 +28,13 @@
   }
   .admin-card {
     background: var(--surface); border: 1px solid var(--border);
-    border-radius: var(--radius); padding: 0.95rem 1rem; cursor: pointer;
+    border-radius: var(--radius-m); padding: 0.95rem 1rem; cursor: pointer;
     min-height: 72px;
-    transition: all 0.12s;
+    transition: border-color var(--dur-1), transform var(--dur-1) var(--ease-accent);
   }
-  .admin-card:hover { border-color: var(--green); }
-  .admin-card .ac-title { font-weight: 600; font-size: 0.85rem; color: var(--text-hi); }
-  .admin-card .ac-desc { font-size: 0.72rem; color: var(--muted); margin-top: 0.2rem; }
+  .admin-card:hover { border-color: var(--border-strong); }
+  .admin-card .ac-title { font-weight: 600; font-size: 0.85rem; color: var(--text-strong); }
+  .admin-card .ac-desc { font-size: 0.72rem; color: var(--text-muted); margin-top: 0.2rem; }
 
   /* Quick Actions colored boxes — mirrored from dashboard.html so the
      two surfaces feel like the same control panel. Using the same
@@ -44,12 +43,14 @@
      later without touching markup. */
   .qa-button {
     padding: 10px 14px;
-    border-radius: 6px;
+    border-radius: var(--radius-s);
     cursor: pointer;
     text-align: left;
     font-size: 12px;
     color: var(--text);
-    transition: all 0.12s;
+    transition: transform var(--dur-1) var(--ease-accent),
+                box-shadow var(--dur-1) var(--ease-accent),
+                background var(--dur-1), border-color var(--dur-1);
     border: 1px solid;
   }
   .qa-button:hover {
@@ -57,28 +58,28 @@
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
   }
   .qa-button.qa-primary {
-    background: rgba(0, 212, 255, 0.06);
-    border-color: rgba(0, 212, 255, 0.25);
+    background: var(--accent-a08);
+    border-color: var(--accent-a28);
   }
   .qa-button.qa-primary:hover {
-    background: rgba(0, 212, 255, 0.12);
-    border-color: rgba(0, 212, 255, 0.45);
+    background: var(--accent-a16);
+    border-color: color-mix(in srgb, var(--accent) 45%, transparent);
   }
   .qa-button.qa-warning {
-    background: rgba(255, 176, 0, 0.06);
-    border-color: rgba(255, 176, 0, 0.25);
+    background: var(--warn-a08);
+    border-color: var(--warn-a28);
   }
   .qa-button.qa-warning:hover {
-    background: rgba(255, 176, 0, 0.12);
-    border-color: rgba(255, 176, 0, 0.45);
+    background: var(--warn-a16);
+    border-color: color-mix(in srgb, var(--warn) 45%, transparent);
   }
   .qa-button.qa-success {
-    background: rgba(0, 255, 65, 0.06);
-    border-color: rgba(0, 255, 65, 0.25);
+    background: var(--positive-a08);
+    border-color: var(--positive-a28);
   }
   .qa-button.qa-success:hover {
-    background: rgba(0, 255, 65, 0.12);
-    border-color: rgba(0, 255, 65, 0.45);
+    background: var(--positive-a16);
+    border-color: color-mix(in srgb, var(--positive) 45%, transparent);
   }
   .qa-title { font-weight: 600; margin-bottom: 2px; }
 
@@ -90,17 +91,16 @@
   .theme-card {
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: var(--radius);
+    border-radius: var(--radius-m);
     padding: 0.9rem 1rem;
   }
   .theme-card.active {
-    border-color: rgba(0, 212, 255, 0.45);
-    box-shadow: var(--glow-blue);
+    border-color: color-mix(in srgb, var(--accent) 45%, transparent);
   }
   .theme-swatch {
     height: 56px;
-    border-radius: 8px;
-    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: var(--radius-m);
+    border: 1px solid color-mix(in srgb, var(--text-strong) 8%, transparent);
     margin-bottom: 0.75rem;
   }
   .theme-row {
@@ -109,23 +109,24 @@
     justify-content: space-between;
     gap: 0.5rem;
   }
-  .theme-name { color: var(--text-hi); font-size: 0.82rem; font-weight: 600; }
+  .theme-name { color: var(--text-strong); font-size: 0.82rem; font-weight: 600; }
   .theme-pill {
-    border-radius: 999px;
+    border-radius: var(--radius-pill);
     border: 1px solid var(--border);
     padding: 0.08rem 0.42rem;
     font-size: 0.6rem;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--muted);
+    font-family: var(--font-mono);
+    letter-spacing: var(--label-tracking);
+    text-transform: var(--label-transform);
+    color: var(--text-muted);
   }
   .theme-pill.active {
-    color: var(--blue);
-    border-color: rgba(0, 212, 255, 0.35);
-    background: rgba(0, 212, 255, 0.08);
+    color: var(--accent);
+    border-color: var(--accent-a28);
+    background: var(--accent-a08);
   }
   .theme-desc {
-    color: var(--muted);
+    color: var(--text-muted);
     font-size: 0.74rem;
     line-height: 1.55;
     margin: 0.45rem 0 0.7rem;
@@ -134,14 +135,15 @@
     display: block;
     background: var(--bg);
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: var(--radius-s);
     padding: 0.55rem 0.65rem;
-    color: var(--amber);
+    color: var(--accent2);
+    font-family: var(--font-mono);
     font-size: 0.72rem;
     white-space: pre-wrap;
   }
   .theme-meta {
-    color: var(--muted);
+    color: var(--text-muted);
     font-size: 0.68rem;
     margin-top: 0.45rem;
     line-height: 1.5;
@@ -152,14 +154,16 @@
     max-height: 540px;
     overflow: auto;
     border: 1px solid var(--border);
-    border-radius: 10px;
-    background: rgba(255,255,255,0.01);
+    border-radius: var(--radius-m);
+    background: color-mix(in srgb, var(--text-strong) 1%, transparent);
   }
   .comp-table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
   .comp-table th {
-    text-align: left; font-size: 0.68rem; text-transform: uppercase;
-    letter-spacing: 0.08em; color: var(--muted); padding: 0.5rem 0.7rem;
-    border-bottom: 1px solid var(--border);
+    text-align: left; font-size: 0.68rem;
+    text-transform: var(--label-transform);
+    letter-spacing: var(--label-tracking);
+    color: var(--text-muted); padding: 0.5rem 0.7rem;
+    border-bottom: 1px solid var(--border-strong);
     position: sticky;
     top: 0;
     background: var(--surface);
@@ -171,14 +175,16 @@
     vertical-align: top;
   }
   .comp-table tr:last-child td { border-bottom: none; }
-  .comp-table .comp-name { font-weight: 600; color: var(--text-hi); }
-  .comp-table .comp-ver { color: var(--blue); font-family: var(--font); }
+  .comp-table .comp-name { font-weight: 600; color: var(--text-strong); }
+  .comp-table .comp-ver { color: var(--accent2); font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
   .comp-table .comp-type {
-    font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.06em;
-    color: var(--muted);
+    font-size: 0.65rem;
+    text-transform: var(--label-transform);
+    letter-spacing: var(--label-tracking);
+    color: var(--text-muted);
   }
-  .comp-table a { color: var(--muted); text-decoration: none; }
-  .comp-table a:hover { color: var(--green); }
+  .comp-table a { color: var(--text-muted); text-decoration: none; }
+  .comp-table a:hover { color: var(--accent2); }
 
   /* Components + graph split */
   .admin-split {
@@ -190,26 +196,26 @@
   .admin-pane {
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: var(--radius);
+    border-radius: var(--radius-l);
     overflow: hidden;
   }
   .admin-pane-head {
     padding: 0.55rem 0.75rem;
     border-bottom: 1px solid var(--border);
     font-size: 0.66rem;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--muted);
-    background: rgba(255,255,255,0.01);
+    letter-spacing: var(--label-tracking);
+    text-transform: var(--label-transform);
+    color: var(--text-muted);
+    background: color-mix(in srgb, var(--text-strong) 1%, transparent);
   }
   .admin-pane-body { padding: 0.6rem 0.7rem 0.75rem; }
 
   .admin-graph-wrap {
     position: relative;
     border: 1px solid var(--border);
-    border-radius: 10px;
+    border-radius: var(--radius-m);
     overflow: hidden;
-    background: #0a0a0f;
+    background: var(--bg);
     cursor: zoom-in;
   }
   .admin-graph-wrap iframe {
@@ -226,22 +232,22 @@
     align-items: center;
     gap: 0.5rem;
     padding: 0.45rem 0.55rem;
-    background: linear-gradient(transparent, rgba(10,10,15,0.85));
+    background: linear-gradient(transparent, color-mix(in srgb, var(--bg) 85%, transparent));
     color: var(--text);
     font-size: 0.72rem;
     pointer-events: none;
   }
   .admin-graph-btn {
     pointer-events: auto;
-    border: 1px solid rgba(0,255,65,.35);
-    background: rgba(0,255,65,.08);
-    color: var(--green);
+    border: 1px solid var(--accent-a28);
+    background: var(--accent-a08);
+    color: var(--accent);
     font-size: 0.68rem;
-    border-radius: 999px;
+    border-radius: var(--radius-pill);
     padding: 0.14rem 0.55rem;
     cursor: pointer;
   }
-  .admin-graph-btn:hover { background: rgba(0,255,65,.14); }
+  .admin-graph-btn:hover { background: var(--accent-a16); }
 
   .assoc-grid {
     display: grid;
@@ -251,9 +257,9 @@
   }
   .assoc-card {
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: var(--radius-m);
     padding: 0.45rem 0.55rem;
-    background: rgba(255,255,255,0.01);
+    background: color-mix(in srgb, var(--text-strong) 1%, transparent);
   }
   .assoc-card.compact { padding: 0.35rem 0.5rem; }
   .assoc-row {
@@ -263,32 +269,34 @@
     gap: 0.5rem;
     font-size: 0.73rem;
   }
-  .assoc-title { color: var(--text-hi); font-weight: 600; }
-  .assoc-meta { color: var(--muted); font-size: 0.68rem; margin-top: 0.2rem; word-break: break-word; }
+  .assoc-title { color: var(--text-strong); font-weight: 600; }
+  .assoc-meta { color: var(--text-muted); font-size: 0.68rem; margin-top: 0.2rem; word-break: break-word; }
   .assoc-chip {
     border: 1px solid var(--border);
-    border-radius: 999px;
+    border-radius: var(--radius-pill);
     padding: 0.08rem 0.45rem;
     font-size: 0.62rem;
-    text-transform: uppercase;
-    letter-spacing: 0.07em;
-    color: var(--muted);
+    font-family: var(--font-mono);
+    text-transform: var(--label-transform);
+    letter-spacing: var(--label-tracking);
+    color: var(--text-muted);
   }
   .assoc-chip.ok {
-    color: var(--green);
-    border-color: rgba(0,255,65,.25);
-    background: rgba(0,255,65,.08);
+    color: var(--positive);
+    border-color: var(--positive-a28);
+    background: var(--positive-a08);
   }
   .assoc-chip.warn {
-    color: var(--amber);
-    border-color: rgba(255,176,0,.25);
-    background: rgba(255,176,0,.1);
+    color: var(--warn);
+    border-color: var(--warn-a28);
+    background: var(--warn-a08);
   }
+  .assoc-card.assoc-unavailable { color: var(--warn); }
 
   .health-check-wrap {
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: var(--radius);
+    border-radius: var(--radius-l);
     padding: 0.75rem 0.8rem 0.85rem;
   }
   .health-check-summary {
@@ -299,16 +307,18 @@
   }
   .health-summary-pill {
     padding: 0.2rem 0.55rem;
-    border-radius: 999px;
+    border-radius: var(--radius-pill);
     border: 1px solid var(--border);
-    background: rgba(255,255,255,0.02);
+    background: color-mix(in srgb, var(--text-strong) 2%, transparent);
     color: var(--text);
     font-size: 0.69rem;
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
   }
   .health-summary-pill.ok {
-    color: var(--green);
-    border-color: rgba(0,255,65,.25);
-    background: rgba(0,255,65,.08);
+    color: var(--positive);
+    border-color: var(--positive-a28);
+    background: var(--positive-a08);
   }
   .health-check-grid {
     display: grid;
@@ -317,13 +327,13 @@
   }
   .health-check-card {
     border: 1px solid var(--border);
-    border-radius: 10px;
+    border-radius: var(--radius-m);
     padding: 0.55rem 0.6rem;
-    background: rgba(255,255,255,0.01);
+    background: color-mix(in srgb, var(--text-strong) 1%, transparent);
   }
   .health-check-card.fail {
-    border-color: rgba(255,176,0,.18);
-    background: rgba(255,176,0,.04);
+    border-color: var(--warn-a16);
+    background: color-mix(in srgb, var(--warn) 4%, transparent);
   }
   .health-check-row {
     display: flex;
@@ -332,27 +342,28 @@
     gap: 0.5rem;
     margin-bottom: 0.2rem;
   }
-  .health-check-name { color: var(--text-hi); font-size: 0.74rem; font-weight: 600; }
-  .health-check-meta { color: var(--muted); font-size: 0.67rem; line-height: 1.45; }
-  .health-check-meta code { color: var(--amber); }
+  .health-check-name { color: var(--text-strong); font-size: 0.74rem; font-weight: 600; }
+  .health-check-meta { color: var(--text-muted); font-size: 0.67rem; line-height: 1.45; }
+  .health-check-meta code { color: var(--accent2); font-family: var(--font-mono); }
   .health-check-chip {
-    border-radius: 999px;
+    border-radius: var(--radius-pill);
     padding: 0.08rem 0.45rem;
     font-size: 0.6rem;
-    letter-spacing: 0.07em;
-    text-transform: uppercase;
+    font-family: var(--font-mono);
+    letter-spacing: var(--label-tracking);
+    text-transform: var(--label-transform);
     border: 1px solid var(--border);
-    color: var(--muted);
+    color: var(--text-muted);
   }
   .health-check-chip.ok {
-    color: var(--green);
-    border-color: rgba(0,255,65,.25);
-    background: rgba(0,255,65,.08);
+    color: var(--positive);
+    border-color: var(--positive-a28);
+    background: var(--positive-a08);
   }
   .health-check-chip.fail {
-    color: var(--amber);
-    border-color: rgba(255,176,0,.25);
-    background: rgba(255,176,0,.08);
+    color: var(--warn);
+    border-color: var(--warn-a28);
+    background: var(--warn-a08);
   }
 
   .graph-modal {
@@ -361,8 +372,8 @@
     display: none;
     align-items: center;
     justify-content: center;
-    background: rgba(6,8,14,0.82);
-    backdrop-filter: blur(2px);
+    background: color-mix(in srgb, var(--bg) 62%, transparent);
+    backdrop-filter: blur(3px);
     z-index: 999;
     padding: 1rem;
   }
@@ -370,9 +381,9 @@
   .graph-modal-card {
     width: min(1200px, 96vw);
     height: min(840px, 92vh);
-    border: 1px solid var(--border-hi);
-    border-radius: 12px;
-    background: #090b12;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-l);
+    background: var(--surface2);
     overflow: hidden;
     box-shadow: 0 20px 60px rgba(0,0,0,0.45);
     display: grid;
@@ -385,17 +396,17 @@
     padding: 0.5rem 0.75rem;
     border-bottom: 1px solid var(--border);
     font-size: 0.72rem;
-    color: var(--text-hi);
+    color: var(--text-strong);
   }
   .graph-modal-close {
     border: 1px solid var(--border);
     background: var(--surface);
     color: var(--text);
-    border-radius: 999px;
+    border-radius: var(--radius-pill);
     padding: 0.1rem 0.55rem;
     cursor: pointer;
   }
-  .graph-modal-close:hover { border-color: var(--red); color: var(--red); }
+  .graph-modal-close:hover { border-color: var(--danger); color: var(--danger); }
   .graph-modal iframe {
     width: 100%;
     height: 100%;
@@ -417,79 +428,84 @@
   .svc-status { display: flex; flex-wrap: wrap; gap: 0.5rem; }
   .svc-chip {
     display: inline-flex; align-items: center; gap: 0.35rem;
-    padding: 0.3rem 0.7rem; border-radius: 999px; font-size: 0.72rem;
+    padding: 0.3rem 0.7rem; border-radius: var(--radius-pill); font-size: 0.72rem;
     border: 1px solid var(--border); background: var(--surface);
   }
   .svc-chip .svc-dot { width: 6px; height: 6px; border-radius: 50%; }
-  .svc-chip .svc-dot.up { background: var(--green); box-shadow: 0 0 4px rgba(0,255,65,.4); }
-  .svc-chip .svc-dot.down { background: var(--red); }
+  .svc-chip .svc-dot.up { background: var(--positive); }
+  .svc-chip .svc-dot.down { background: var(--danger); }
 
   /* Help section */
   .help-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.75rem; }
-  .help-block { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.8rem 1rem; }
-  .help-block h3 { color: var(--blue); font-size: 0.82rem; margin-bottom: 0.4rem; }
+  .help-block { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-m); padding: 0.8rem 1rem; }
+  .help-block h3 { color: var(--text-strong); font-size: 0.82rem; font-weight: 650; margin-bottom: 0.4rem; }
   .help-block pre {
-    background: var(--bg); border: 1px solid var(--border); border-radius: 4px;
-    padding: 0.6rem 0.8rem; font-size: 0.75rem; color: var(--amber);
+    background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-s);
+    padding: 0.6rem 0.8rem; font-size: 0.75rem; color: var(--accent2);
+    font-family: var(--font-mono);
     margin: 0.3rem 0; white-space: pre-wrap;
   }
   .help-block p { font-size: 0.78rem; color: var(--text); line-height: 1.6; margin: 0.3rem 0; }
+  .help-inline-btn { margin-left: 8px; font-size: 0.75rem; }
 
-  #admin-log { margin-top: 0.5rem; font-size: 0.78rem; color: var(--muted); min-height: 1.2rem; }
-  #admin-log.success { color: var(--green); }
-  #admin-log.error { color: var(--red); }
+  #admin-log { margin-top: 0.5rem; font-size: 0.78rem; color: var(--text-muted); min-height: 1.2rem; }
+  #admin-log.success { color: var(--positive); }
+  #admin-log.error { color: var(--danger); }
 
   /* ── Live Checks modal (shared with dashboard) ── */
   .lc-overlay {
     position: fixed; inset: 0;
-    background: rgba(0,0,0,0.62);
+    background: color-mix(in srgb, var(--bg) 62%, transparent);
     display: none; align-items: center; justify-content: center;
-    z-index: 1000; backdrop-filter: blur(2px);
+    z-index: 1000; backdrop-filter: blur(3px);
   }
   .lc-overlay.open { display: flex; }
   .lc-modal {
     width: min(640px,92vw); max-height: 86vh;
     display: flex; flex-direction: column;
-    background: #0d1117; border: 1px solid #2a3340;
-    border-radius: 10px; box-shadow: 0 12px 48px rgba(0,0,0,.6); overflow: hidden;
+    background: var(--surface2); border: 1px solid var(--border-strong);
+    border-radius: var(--radius-l); box-shadow: 0 12px 48px rgba(0,0,0,.6); overflow: hidden;
   }
   .lc-header {
-    padding: 14px 18px; border-bottom: 1px solid #1d2530;
+    padding: 14px 18px; border-bottom: 1px solid var(--border);
     display: flex; align-items: center; gap: 12px;
   }
-  .lc-header .lc-title { flex:1; font-size:14px; font-weight:600; color:var(--text); letter-spacing:.02em; }
-  .lc-header .lc-progress-text { font-size:12px; color:var(--muted); font-variant-numeric:tabular-nums; }
-  .lc-header .lc-close { background:transparent; border:0; color:var(--muted); font-size:18px; cursor:pointer; padding:0 4px; }
+  .lc-header .lc-title { flex:1; font-size:14px; font-weight:650; color:var(--text-strong); letter-spacing:-0.015em; }
+  .lc-header .lc-progress-text { font-size:12px; color:var(--text-muted); font-family:var(--font-mono); font-variant-numeric:tabular-nums; }
+  .lc-header .lc-close { background:transparent; border:0; color:var(--text-muted); font-size:18px; cursor:pointer; padding:0 4px; }
   .lc-header .lc-close:hover { color:var(--text); }
-  .lc-progress-bar { height:2px; background:#1a2230; overflow:hidden; }
-  .lc-progress-bar > div { height:100%; width:0%; background:linear-gradient(90deg,var(--blue),var(--green)); transition:width .18s ease-out; }
-  .lc-list { flex:1; overflow-y:auto; padding:6px 0; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px; }
-  .lc-row { display:grid; grid-template-columns:24px 1fr auto; align-items:center; gap:10px; padding:7px 18px; border-bottom:1px solid #141b25; }
+  .lc-progress-bar { height:2px; background:var(--surface3); overflow:hidden; }
+  .lc-progress-bar > div { height:100%; width:0%; background:var(--accent2); transition:width .18s ease-out; }
+  .lc-list { flex:1; overflow-y:auto; padding:6px 0; font-family:var(--font-mono); font-variant-numeric:tabular-nums; font-size:12px; }
+  .lc-row { display:grid; grid-template-columns:24px 1fr auto; align-items:center; gap:10px; padding:7px 18px; border-bottom:1px solid var(--border); }
   .lc-row:last-child { border-bottom:0; }
   .lc-row .lc-icon { display:inline-flex; align-items:center; justify-content:center; width:18px; height:18px; border-radius:50%; font-size:11px; font-weight:700; }
-  .lc-row.pending .lc-icon { background:#1a2230; color:#4a5568; }
+  .lc-row.pending .lc-icon { background:var(--surface3); color:var(--text-muted); }
   .lc-row.pending .lc-icon::before { content:"⌛"; }
-  .lc-row.running .lc-icon { background:rgba(0,212,255,.18); color:var(--blue); }
+  .lc-row.running .lc-icon { background:var(--accent2-a16); color:var(--accent2); }
   .lc-row.running .lc-icon::before { content:"⏳"; animation:lc-spin 1.4s linear infinite; }
   @keyframes lc-spin { to { transform:rotate(360deg); } }
-  .lc-row.pass .lc-icon { background:rgba(0,255,65,.16); color:var(--green); }
+  @media (prefers-reduced-motion: reduce) {
+    .lc-row.running .lc-icon::before { animation: none; }
+  }
+  .lc-row.pass .lc-icon { background:var(--positive-a16); color:var(--positive); }
   .lc-row.pass .lc-icon::before { content:"✓"; }
-  .lc-row.warn .lc-icon { background:rgba(255,176,0,.16); color:var(--amber); }
+  .lc-row.warn .lc-icon { background:var(--warn-a16); color:var(--warn); }
   .lc-row.warn .lc-icon::before { content:"!"; }
-  .lc-row.fail .lc-icon { background:rgba(255,64,96,.18); color:#ff6b80; }
+  .lc-row.fail .lc-icon { background:var(--danger-a16); color:var(--danger); }
   .lc-row.fail .lc-icon::before { content:"✗"; }
   .lc-row .lc-name { color:var(--text); }
-  .lc-row .lc-detail { grid-column:2/-1; color:var(--muted); font-size:11px; margin-top:2px; }
-  .lc-row .lc-time { color:var(--muted); font-size:11px; font-variant-numeric:tabular-nums; }
-  .lc-footer { padding:10px 18px; border-top:1px solid #1d2530; display:flex; align-items:center; gap:10px; background:#0a0f15; }
-  .lc-footer .lc-summary { flex:1; font-size:12px; color:var(--muted); font-variant-numeric:tabular-nums; }
-  .lc-footer .lc-summary .lc-passed { color:var(--green); }
-  .lc-footer .lc-summary .lc-warned { color:var(--amber); }
-  .lc-footer .lc-summary .lc-failed { color:#ff6b80; }
-  .lc-btn { padding:6px 12px; border-radius:5px; border:1px solid #2a3340; background:#131922; color:var(--text); font-size:12px; cursor:pointer; }
-  .lc-btn:hover { background:#1a2230; }
-  .lc-btn.lc-btn-stop { border-color:rgba(255,64,96,.45); color:#ff6b80; }
-  .lc-btn.lc-btn-restart { border-color:rgba(0,212,255,.45); color:var(--blue); }
+  .lc-row .lc-detail { grid-column:2/-1; color:var(--text-muted); font-size:11px; margin-top:2px; }
+  .lc-row .lc-time { color:var(--text-muted); font-size:11px; font-variant-numeric:tabular-nums; }
+  .lc-footer { padding:10px 18px; border-top:1px solid var(--border); display:flex; align-items:center; gap:10px; background:var(--surface); }
+  .lc-footer .lc-summary { flex:1; font-size:12px; color:var(--text-muted); font-variant-numeric:tabular-nums; }
+  .lc-footer .lc-summary .lc-passed { color:var(--positive); }
+  .lc-footer .lc-summary .lc-warned { color:var(--warn); }
+  .lc-footer .lc-summary .lc-failed { color:var(--danger); }
+  .lc-btn { padding:6px 12px; border-radius:var(--radius-s); border:1px solid var(--border-strong); background:var(--surface2); color:var(--text); font-size:12px; cursor:pointer; }
+  .lc-btn:hover { background:var(--surface3); }
+  .lc-btn.lc-btn-stop { border-color:color-mix(in srgb, var(--danger) 45%, transparent); color:var(--danger); }
+  .lc-btn.lc-btn-restart { border-color:color-mix(in srgb, var(--accent) 45%, transparent); color:var(--accent); }
 
   /* Production Readiness cards */
   .pr-grid {
@@ -500,60 +516,120 @@
   .pr-card {
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: var(--radius);
+    border-radius: var(--radius-m);
     padding: 1rem 1.1rem 1.1rem;
   }
   .pr-card h3 {
-    font-size: 0.78rem;
+    font-size: 0.72rem;
     font-weight: 600;
-    color: var(--text-hi);
+    color: var(--text-muted);
     margin: 0 0 0.6rem;
-    text-transform: uppercase;
-    letter-spacing: 0.07em;
+    text-transform: var(--label-transform);
+    letter-spacing: var(--label-tracking);
   }
   .pr-stat-row { display: flex; justify-content: space-between; font-size: 0.75rem; margin-bottom: 0.25rem; color: var(--text); }
-  .pr-stat-row span:last-child { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .pr-stat-row span:last-child { color: var(--text-muted); font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+  .pr-subhead { margin-top: 0.5rem; font-size: 0.68rem; color: var(--text-muted); }
+  .pr-empty { font-size: 0.72rem; color: var(--text-muted); margin-top: 0.4rem; }
+  .pr-ok { font-size: 0.72rem; color: var(--positive); margin-top: 0.3rem; }
   .pr-action-row { margin-top: 0.65rem; display: flex; gap: 0.4rem; flex-wrap: wrap; }
   .pr-btn {
-    font-size: 0.72rem; padding: 0.25rem 0.6rem; border-radius: 4px;
+    font-size: 0.72rem; padding: 0.25rem 0.6rem; border-radius: var(--radius-s);
     border: 1px solid var(--border); background: var(--surface);
     color: var(--text); cursor: pointer;
   }
-  .pr-btn:hover { border-color: var(--green); color: var(--green); }
-  .pr-btn.pr-btn-danger:hover { border-color: #ff6b80; color: #ff6b80; }
-  .pr-note { font-size: 0.7rem; color: var(--amber); margin-top: 0.4rem; }
-  .pr-err  { font-size: 0.7rem; color: #ff6b80;  margin-top: 0.4rem; }
-  .pr-vuln-row { font-size: 0.72rem; color: var(--muted); margin-bottom: 0.2rem; }
-  .pr-vuln-row .pr-sev-crit { color: #ff6b80; font-weight: 700; }
-  .pr-vuln-row .pr-sev-high { color: var(--amber); font-weight: 600; }
-  .pr-vuln-row .pr-sev-med  { color: #e0c060; }
-  .pr-toggle { display: flex; align-items: center; gap: 0.5rem; font-size: 0.72rem; color: var(--muted); margin-top: 0.5rem; cursor: pointer; }
+  .pr-btn:hover { border-color: var(--border-strong); color: var(--text-strong); }
+  .pr-btn.pr-btn-danger:hover { border-color: var(--danger); color: var(--danger); }
+  .pr-note { font-size: 0.7rem; color: var(--warn); margin-top: 0.4rem; }
+  .pr-err  { font-size: 0.7rem; color: var(--danger);  margin-top: 0.4rem; }
+  .pr-vuln-row { font-size: 0.72rem; color: var(--text-muted); margin-bottom: 0.2rem; }
+  .pr-vuln-row .pr-sev-crit { color: var(--danger); font-weight: 700; }
+  .pr-vuln-row .pr-sev-high { color: var(--warn); font-weight: 600; }
+  .pr-vuln-row .pr-sev-med  { color: color-mix(in srgb, var(--warn) 65%, var(--text-muted)); }
+  .pr-toggle { display: flex; align-items: center; gap: 0.5rem; font-size: 0.72rem; color: var(--text-muted); margin-top: 0.5rem; cursor: pointer; }
   .pr-toggle input { cursor: pointer; }
 
   /* ── Admin Models section ── */
   .models-section { display: flex; flex-direction: column; gap: 0.65rem; }
   .models-default-row { display: flex; align-items: center; gap: 0.6rem; font-size: 0.78rem; flex-wrap: wrap; }
   .models-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 0.5rem; }
-  .models-row { padding: 0.55rem 0.7rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
-  .models-row .name { display: flex; align-items: center; gap: 0.4rem; font-size: 0.8rem; color: var(--text-hi); flex-wrap: wrap; }
-  .models-row .meta { font-size: 0.7rem; color: var(--muted); margin-top: 0.2rem; }
+  .models-row { padding: 0.55rem 0.7rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-m); }
+  .models-row .name { display: flex; align-items: center; gap: 0.4rem; font-size: 0.8rem; color: var(--text-strong); flex-wrap: wrap; }
+  .models-row .meta { font-size: 0.7rem; color: var(--text-muted); margin-top: 0.2rem; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+  .models-row .meta .models-loaded-flag { color: var(--positive); }
   .models-row .actions { margin-top: 0.45rem; display: flex; gap: 0.35rem; align-items: center; flex-wrap: wrap; }
   .models-row .badge-streamed {
-    font-size: 0.55rem; color: var(--amber); border: 1px solid var(--amber-a28, rgba(200,160,96,0.28));
-    background: var(--amber-a08, rgba(200,160,96,0.08));
-    padding: 0 0.4rem; border-radius: 3px; letter-spacing: 0.06em; text-transform: uppercase;
+    font-size: 0.55rem; color: var(--warn); border: 1px solid var(--warn-a28);
+    background: var(--warn-a08);
+    padding: 0 0.4rem; border-radius: var(--radius-s);
+    font-family: var(--font-mono);
+    letter-spacing: var(--label-tracking); text-transform: var(--label-transform);
   }
-  .models-row.loaded { border-color: var(--green); }
-  .models-row .ctx-input { width: 5rem; font-size: 0.7rem; padding: 0.15rem 0.3rem; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 3px; }
-  .models-hw { font-size: 0.7rem; color: var(--muted); }
-  .models-rescan { font-size: 0.72rem; cursor: pointer; background: none; border: 1px solid var(--border); color: var(--muted); padding: 0.15rem 0.5rem; border-radius: 3px; }
-  .models-rescan:hover { border-color: var(--green); color: var(--green); }
-  .models-empty { font-size: 0.75rem; color: var(--muted); padding: 0.5rem 0; }
-</style>
-</head>
-<body>
+  .models-row.loaded { border-color: color-mix(in srgb, var(--positive) 45%, transparent); }
+  .models-row .ctx-input { width: 5rem; font-size: 0.7rem; padding: 0.15rem 0.3rem; background: var(--surface2); color: var(--text-strong); border: 1px solid var(--border); border-radius: var(--radius-s); font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+  .models-row .ctx-label { font-size: 0.68rem; color: var(--text-muted); font-family: var(--font-mono); letter-spacing: var(--label-tracking); text-transform: var(--label-transform); }
+  .models-hw { font-size: 0.7rem; color: var(--text-muted); font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+  .models-rescan { font-size: 0.72rem; cursor: pointer; background: none; border: 1px solid var(--border); color: var(--text-muted); padding: 0.15rem 0.5rem; border-radius: var(--radius-s); }
+  .models-rescan:hover { border-color: var(--border-strong); color: var(--text-strong); }
+  .models-empty { font-size: 0.75rem; color: var(--text-muted); padding: 0.5rem 0; }
 
-{% set active = 'admin' %}{% include "_nav.html" %}
+  /* ── Terminal section ── */
+  .terminal-popout {
+    margin-left: 10px; font-size: 12px; font-weight: 400;
+    color: var(--accent2); text-decoration: none; vertical-align: middle;
+  }
+  .terminal-frame-wrap {
+    position: relative; width: 100%;
+    border-radius: var(--radius-s); overflow: auto;
+    border: 1px solid var(--border);
+    max-height: 380px;
+  }
+  .terminal-frame { width: 100%; height: 380px; border: 0; background: var(--bg); }
+  .terminal-note {
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: var(--radius-s); padding: 16px;
+    color: var(--text-muted); font-size: 13px; line-height: 1.6;
+  }
+  .terminal-note strong { color: var(--warn); }
+  .terminal-note code { color: var(--accent2); font-family: var(--font-mono); }
+  .terminal-note code.terminal-note-block { display: block; margin-top: 8px; white-space: pre-wrap; }
+  .terminal-note a { color: var(--accent2); }
+  .terminal-note-links { margin-top: 10px; }
+
+  /* ── Activity Log ── */
+  .log-toolbar { display: flex; gap: 0.5rem; align-items: center; margin-bottom: 0.5rem; flex-wrap: wrap; }
+  .log-toolbar select {
+    background: var(--surface2); color: var(--text);
+    border: 1px solid var(--border); border-radius: var(--radius-s);
+    padding: 0.25rem 0.4rem; font-size: 0.75rem;
+  }
+  .log-refresh-btn {
+    background: var(--surface2); color: var(--text);
+    border: 1px solid var(--border); border-radius: var(--radius-s);
+    padding: 0.25rem 0.6rem; font-size: 0.75rem; cursor: pointer;
+  }
+  .log-refresh-btn:hover { border-color: var(--border-strong); color: var(--text-strong); }
+  .log-live-label { font-size: 0.7rem; color: var(--text-muted); margin-left: auto; }
+  .log-cli-hint { font-size: 0.68rem; color: var(--text-muted); }
+  .log-cli-hint code { color: var(--accent2); font-family: var(--font-mono); }
+  #log-viewer {
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: var(--radius-m); padding: 0.5rem 0.75rem;
+    max-height: 300px; overflow-y: auto;
+    font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+    font-size: 0.72rem; line-height: 1.6;
+  }
+  #log-viewer .log-ts  { color: var(--text-muted); }
+  #log-viewer .log-src { color: var(--accent2); }
+  #log-viewer .log-empty { color: var(--text-muted); }
+  #log-viewer .log-err   { color: var(--danger); }
+
+  /* Small shared helpers for JS-rendered fragments */
+  .c-muted { color: var(--text-muted); }
+  .c-danger { color: var(--danger); }
+</style>
+{% endblock %}
+{% block content %}
 
 <!-- ═══ Live Checks modal ═══ -->
 <div class="lc-overlay" id="lc-overlay" role="dialog" aria-modal="true" aria-labelledby="lc-title">
@@ -628,32 +704,32 @@
   <div class="admin-section" id="admin-terminal-section">
     <h2>Terminal
       <a href="/terminal" target="_blank" rel="noopener"
-         style="margin-left:10px;font-size:12px;color:#8faf97;font-weight:400;text-decoration:none;vertical-align:middle;"
+         class="terminal-popout"
          title="Open terminal in full page">⤢ pop out</a>
     </h2>
     {% if ttyd_running %}
-    <div style="position:relative;width:100%;border-radius:6px;overflow:auto;border:1px solid var(--border,#222);max-height:380px;">
+    <div class="terminal-frame-wrap">
       <iframe id="admin-terminal-frame"
               src="http://127.0.0.1:{{ ttyd_port }}"
-              style="width:100%;height:380px;border:0;background:#0d1117;"
+              class="terminal-frame"
               allow="clipboard-read; clipboard-write"
               title="Browser terminal"></iframe>
     </div>
     {% elif ttyd_installed %}
-    <div style="background:#0d1117;border:1px solid #222;border-radius:6px;padding:16px;color:#8faf97;font-size:13px;">
-      <strong style="color:#c8a060;">ttyd is installed but not running.</strong>
-      Start it with <code style="color:#7ee0a0;">./arailctl start</code> or run
-      <code style="color:#7ee0a0;">ttyd -p {{ ttyd_port }} bash</code> manually,
-      then <a href="" onclick="location.reload();return false;" style="color:#7ee0a0;">reload</a>
-      or <a href="/terminal" target="_blank" rel="noopener" style="color:#7ee0a0;">open the terminal page</a>.
+    <div class="terminal-note">
+      <strong>ttyd is installed but not running.</strong>
+      Start it with <code>./arailctl start</code> or run
+      <code>ttyd -p {{ ttyd_port }} bash</code> manually,
+      then <a href="" onclick="location.reload();return false;">reload</a>
+      or <a href="/terminal" target="_blank" rel="noopener">open the terminal page</a>.
     </div>
     {% else %}
-    <div style="background:#0d1117;border:1px solid #222;border-radius:6px;padding:16px;color:#8faf97;font-size:13px;">
-      <strong style="color:#c8a060;">ttyd is not installed.</strong>
+    <div class="terminal-note">
+      <strong>ttyd is not installed.</strong>
       Install it to enable the browser terminal:<br>
-      <code style="display:block;margin-top:8px;color:#7ee0a0;white-space:pre-wrap;">{{ install_cmd }}</code>
-      <div style="margin-top:10px;">
-        <a href="/terminal" target="_blank" rel="noopener" style="color:#7ee0a0;">Open terminal page for full install guide</a>
+      <code class="terminal-note-block">{{ install_cmd }}</code>
+      <div class="terminal-note-links">
+        <a href="/terminal" target="_blank" rel="noopener">Open terminal page for full install guide</a>
       </div>
     </div>
     {% endif %}
@@ -681,7 +757,7 @@
           <div class="comp-table-wrap">
             <table class="comp-table">
               <thead><tr><th>Component</th><th>Version</th><th>Type</th><th>Image / Package</th><th>Source</th></tr></thead>
-              <tbody id="comp-tbody"><tr><td colspan="5" style="color:var(--muted)">loading…</td></tr></tbody>
+              <tbody id="comp-tbody"><tr><td colspan="5" class="c-muted">loading…</td></tr></tbody>
             </table>
           </div>
         </div>
@@ -698,7 +774,7 @@
             </div>
           </div>
           <div class="assoc-grid" id="assoc-status">
-            <div class="assoc-card" style="color:var(--muted)">Loading association setup…</div>
+            <div class="assoc-card c-muted">Loading association setup…</div>
           </div>
         </div>
       </section>
@@ -708,8 +784,8 @@
   <!-- ═══ Activity Log ═══ -->
   <div class="admin-section">
     <h2>Activity Log</h2>
-    <div style="display:flex; gap:0.5rem; align-items:center; margin-bottom:0.5rem; flex-wrap:wrap;">
-      <select id="log-source" style="background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:0.25rem 0.4rem;font-size:0.75rem;">
+    <div class="log-toolbar">
+      <select id="log-source">
         <option value="">all sources</option>
         <option value="system">system</option>
         <option value="browser">browser</option>
@@ -720,20 +796,20 @@
         <option value="chat">chat</option>
         <option value="consent">consent</option>
       </select>
-      <select id="log-level" style="background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:0.25rem 0.4rem;font-size:0.75rem;">
+      <select id="log-level">
         <option value="">all levels</option>
         <option value="error">error</option>
         <option value="warn">warn</option>
         <option value="info">info</option>
         <option value="success">success</option>
       </select>
-      <button onclick="loadLogs()" style="background:var(--surface);color:var(--green);border:1px solid var(--border);border-radius:4px;padding:0.25rem 0.6rem;font-size:0.75rem;cursor:pointer;">Refresh</button>
-      <label style="font-size:0.7rem;color:var(--muted);margin-left:auto;">
+      <button class="log-refresh-btn" onclick="loadLogs()">Refresh</button>
+      <label class="log-live-label">
         <input type="checkbox" id="log-live" checked> Live tail
       </label>
-      <span style="font-size:0.68rem;color:var(--muted);">CLI: <code style="color:var(--amber);">./arailctl logs [component]</code></span>
+      <span class="log-cli-hint">CLI: <code>./arailctl logs [component]</code></span>
     </div>
-    <div id="log-viewer" style="background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:0.5rem 0.75rem;max-height:300px;overflow-y:auto;font-family:var(--font);font-size:0.72rem;line-height:1.6;">
+    <div id="log-viewer">
       loading…
     </div>
   </div>
@@ -783,8 +859,7 @@
       </div>
       <div class="help-block">
         <h3>AI Models
-          <button type="button" class="btn btn-sm btn-ghost"
-                  style="margin-left:8px;font-size:0.75rem"
+          <button type="button" class="btn btn-sm btn-ghost help-inline-btn"
                   onclick="window.revealSlot &amp;&amp; window.revealSlot('models')"
                   title="Open the lab/models/ folder where downloaded weights live.">
             📁 Open models folder
@@ -813,6 +888,8 @@
   </div>
 </div>
 
+{% endblock %}
+{% block scripts %}
 <script>
 function adminLog(msg, cls) {
   const el = document.getElementById('admin-log');
@@ -945,7 +1022,7 @@ async function loadPerf() {
     }
     const labels = Object.keys(d.wait_ms || {});
     if (labels.length) {
-      html += `<div style="margin-top:.5rem;font-size:.68rem;color:var(--muted);">Inference wait p95</div>`;
+      html += `<div class="pr-subhead">Inference wait p95</div>`;
       labels.forEach(lbl => {
         const w = d.wait_ms[lbl]; const run = (d.run_ms || {})[lbl] || {};
         html += `<div class="pr-stat-row"><span style="font-size:.68rem">${_prEsc(lbl)}</span><span style="font-size:.68rem">${_prEsc(w.p95)} ms wait · ${_prEsc(run.p95 || 0)} ms run (n=${_prEsc(w.n)})</span></div>`;
@@ -981,7 +1058,7 @@ async function loadCleanup() {
     html += `<div class="pr-stat-row"><span>Total size</span><span>${_prEsc(fmt(d.total_bytes||0))}</span></div>`;
     html += `<div class="pr-stat-row"><span>Stale files</span><span>${_prEsc(stale.length)} (${_prEsc(fmt(d.stale_bytes||0))})</span></div>`;
     if (stale.length) {
-      html += `<div style="margin-top:.5rem;font-size:.68rem;color:var(--muted);">Stale candidates</div>`;
+      html += `<div class="pr-subhead">Stale candidates</div>`;
       stale.slice(0, 8).forEach((item, i) => {
         const name = item.path.split('/').pop();
         html += `<div class="pr-stat-row" style="font-size:.68rem;"><label style="display:flex;gap:.3rem;align-items:center;cursor:pointer;"><input type="checkbox" class="pr-stale-cb" value="${_prEsc(item.path)}" checked> ${_prEsc(name)}</label><span>${_prEsc(fmt(item.size_bytes))} · ${_prEsc(item.age_days)}d</span></div>`;
@@ -989,7 +1066,7 @@ async function loadCleanup() {
       if (stale.length > 8) html += `<div class="pr-note">…and ${stale.length - 8} more</div>`;
       html += `<div class="pr-action-row"><button class="pr-btn pr-btn-danger" onclick="pruneSelected()">Prune selected</button><button class="pr-btn" onclick="loadCleanup()">Rescan</button></div>`;
     } else {
-      html += '<div style="font-size:.72rem;color:var(--muted);margin-top:.4rem;">No stale files found.</div>';
+      html += '<div class="pr-empty">No stale files found.</div>';
       html += `<div class="pr-action-row"><button class="pr-btn" onclick="loadCleanup()">Rescan</button></div>`;
     }
     el.innerHTML = html;
@@ -1029,7 +1106,7 @@ async function loadSecurity() {
     let html = '';
     if (!d.available) {
       html += `<div class="pr-note">pip-audit not installed.</div>`;
-      html += `<div style="font-size:.7rem;color:var(--muted);margin-top:.3rem;">Install with: <code>./arailctl upgrade max</code></div>`;
+      html += `<div class="pr-empty">Install with: <code>./arailctl upgrade max</code></div>`;
     } else {
       const sum = d.summary || {};
       const ts = d.last_run_ts ? d.last_run_ts.substring(0,19).replace('T',' ') : 'never';
@@ -1037,7 +1114,7 @@ async function loadSecurity() {
       if (d.error && !d.findings?.length) {
         html += `<div class="pr-err">Last scan error: ${_prEsc(d.error)}</div>`;
       } else if (sum.total === 0 && d.last_run_ts) {
-        html += `<div style="font-size:.72rem;color:var(--green);margin-top:.3rem;">No vulnerabilities found.</div>`;
+        html += `<div class="pr-ok">No vulnerabilities found.</div>`;
       } else if (sum.total > 0) {
         const parts = [];
         if (sum.critical) parts.push(`<span class="pr-sev-crit">${sum.critical} critical</span>`);
@@ -1139,12 +1216,12 @@ async function loadModels(force) {
           ${_prEsc(m.runtime || 'unknown')}
           · ${m.size_gb != null ? m.size_gb.toFixed(1) + ' GB' : '? GB'}
           · ${m.total_params_b != null ? m.total_params_b + 'B' : '?B'}
-          ${m.loaded ? '· <span style="color:var(--green)">loaded</span>' : ''}
+          ${m.loaded ? '· <span class="models-loaded-flag">loaded</span>' : ''}
         </div>
         <div class="actions">
           <button class="pr-btn" data-action="load" data-id="${_prEsc(m.id)}">${m.loaded ? 'Reload' : 'Load'}</button>
           <button class="pr-btn" data-action="unload" data-id="${_prEsc(m.id)}" ${m.loaded ? '' : 'disabled'}>Unload</button>
-          <span style="font-size:.68rem;color:var(--muted);">CTX</span>
+          <span class="ctx-label">CTX</span>
           <input class="ctx-input" type="number" min="256" max="1000000"
                  value="${m.ctx || ''}" placeholder="—"
                  data-id="${_prEsc(m.id)}">
@@ -1351,7 +1428,7 @@ function loadAssocStatus() {
       </div>
     `;
   }).catch(() => {
-    mountStatus.innerHTML = '<div class="assoc-card" style="color:var(--amber)">Knowledge Canvas status endpoint unavailable. Start the canvas backend to show live association setup.</div>';
+    mountStatus.innerHTML = '<div class="assoc-card assoc-unavailable">Knowledge Canvas status endpoint unavailable. Start the canvas backend to show live association setup.</div>';
   });
 }
 
@@ -1390,8 +1467,8 @@ fetch('/api/system/health').then(r => r.json()).then(d => {
     ? entries.map(([name, up]) =>
         `<span class="svc-chip"><span class="svc-dot ${up ? 'up' : 'down'}"></span>${name}</span>`
       ).join('')
-    : '<span style="color: var(--muted); font-size: 12px;">No services running.</span>';
-  const hint = '<span style="color: var(--muted); font-size: 11px; margin-left: 6px; align-self: center;" title="On-demand services (notebook, marimo, ollama, neo4j, etc.) only appear here when running. See full check list below.">on-demand services hidden when idle</span>';
+    : '<span class="c-muted" style="font-size: 12px;">No services running.</span>';
+  const hint = '<span class="c-muted" style="font-size: 11px; margin-left: 6px; align-self: center;" title="On-demand services (notebook, marimo, ollama, neo4j, etc.) only appear here when running. See full check list below.">on-demand services hidden when idle</span>';
   el.innerHTML = chips + hint;
   renderHealthChecks(d);
 }).catch(() => {
@@ -1414,7 +1491,7 @@ fetch('/api/admin/components').then(r => r.json()).then(data => {
     </tr>`
   ).join('');
 }).catch(() => {
-  document.getElementById('comp-tbody').innerHTML = '<tr><td colspan="5" style="color:var(--red)">Failed to load components</td></tr>';
+  document.getElementById('comp-tbody').innerHTML = '<tr><td colspan="5" class="c-danger">Failed to load components</td></tr>';
 });
 
 // ── Activity Log Viewer ──────────────────────────────────────────────
@@ -1422,7 +1499,7 @@ const logViewer = document.getElementById('log-viewer');
 const logSource = document.getElementById('log-source');
 const logLevel = document.getElementById('log-level');
 const logLive = document.getElementById('log-live');
-const levelColors = {info: 'var(--text)', success: 'var(--green)', warn: 'var(--amber)', error: 'var(--red)'};
+const levelColors = {info: 'var(--text)', success: 'var(--positive)', warn: 'var(--warn)', error: 'var(--danger)'};
 
 function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 
@@ -1430,7 +1507,7 @@ function renderEvent(e) {
   const ts = (e.ts || '').substring(0, 19).replace('T', ' ');
   const color = levelColors[e.level] || 'var(--text)';
   const src = (e.source || '?').padEnd(12);
-  return `<div style="color:${color}"><span style="color:var(--muted)">${esc(ts)}</span>  <span style="color:var(--blue)">${esc(src)}</span>  ${esc(e.message || '')}</div>`;
+  return `<div style="color:${color}"><span class="log-ts">${esc(ts)}</span>  <span class="log-src">${esc(src)}</span>  ${esc(e.message || '')}</div>`;
 }
 
 function loadLogs() {
@@ -1442,9 +1519,9 @@ function loadLogs() {
     );
     logViewer.innerHTML = filtered.length
       ? filtered.map(renderEvent).join('')
-      : '<span style="color:var(--muted)">No matching events.</span>';
+      : '<span class="log-empty">No matching events.</span>';
     logViewer.scrollTop = logViewer.scrollHeight;
-  }).catch(() => { logViewer.innerHTML = '<span style="color:var(--red)">Failed to load activity log.</span>'; });
+  }).catch(() => { logViewer.innerHTML = '<span class="log-err">Failed to load activity log.</span>'; });
 }
 
 // Live tail via SSE
@@ -1481,5 +1558,4 @@ loadModels();
 </script>
 <script src="/static/nav.js"></script>
 {% include '_airgap_modal.html' %}
-</body>
-</html>
+{% endblock %}

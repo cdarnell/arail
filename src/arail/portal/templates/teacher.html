@@ -1,10 +1,8 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{ brand.name }} — The Deep Teacher</title>
-<link rel="stylesheet" href="/static/style.css">
+{% extends "base.html" %}
+{% set active = 'teacher' %}
+{% block title %}{{ brand.name }} — The Deep Teacher{% endblock %}
+
+{% block head %}
 <style>
   /* The Teacher is a slow, reverent surface. Layout is deliberately
      calmer than the dashboard: one big input, one big response column,
@@ -15,76 +13,92 @@
      Expect minutes, not seconds. The UI should make that wait feel
      considered, not frozen — hence the patience banner and live
      token-count + elapsed timer. */
-  :root { --teach-gold: #d4af6a; --teach-gold-dim: #6a5a3a; }
   .t-wrap { max-width: 920px; margin: 20px auto; padding: 0 20px; }
   .t-hero { margin: 14px 0 6px; display:flex; align-items:baseline; gap:10px; }
-  .t-hero h1 { margin: 0; font-size: 24px; color: var(--teach-gold); font-weight: 600; }
-  .t-hero .sub { color: var(--muted, #888); font-size: 13px; }
+  .t-hero h1 { margin: 0; font-size: 24px; color: var(--text-strong); font-weight: 650; }
+  .t-hero .sub { color: var(--text-muted); font-size: 13px; }
 
   .t-chip-row { display:flex; gap:8px; flex-wrap:wrap; margin:8px 0 20px; font-size:12px; }
-  .t-chip { background: #181410; border:1px solid var(--teach-gold-dim); color: var(--teach-gold);
-            padding: 3px 9px; border-radius: 12px; }
-  .t-chip.dim { color: #8a7a5a; }
+  .t-chip { background: var(--surface2); border:1px solid var(--border);
+            color: var(--accent2); font-family: var(--font-mono);
+            font-variant-numeric: tabular-nums;
+            padding: 3px 9px; border-radius: var(--radius-pill); }
+  .t-chip.dim { color: var(--text-muted); }
+  .t-chip-link { text-decoration: none; }
 
-  .t-patience { background: #1a140a; border: 1px solid var(--teach-gold-dim);
-                border-left: 3px solid var(--teach-gold); color: #d4c29a;
-                padding: 12px 16px; border-radius: 6px; font-size: 12px;
+  .t-patience { background: var(--surface); border: 1px solid var(--border);
+                border-left: 3px solid var(--accent); color: var(--text);
+                padding: 12px 16px; border-radius: var(--radius-s); font-size: 12px;
                 line-height: 1.55; margin-bottom: 20px; }
-  .t-patience strong { color: var(--teach-gold); }
+  .t-patience strong { color: var(--text-strong); }
+  .t-patience a { color: var(--accent2); }
+  .t-patience code { font-family: var(--font-mono); color: var(--accent2);
+                     background: var(--accent2-a08); padding: 1px 5px;
+                     border-radius: var(--radius-s); }
 
   .t-ask { margin-bottom: 22px; }
-  .t-ask label { display:block; font-size:12px; color: var(--muted,#888);
-                 text-transform: uppercase; letter-spacing:0.08em; margin-bottom:6px; }
-  .t-ask textarea { width:100%; min-height: 110px; background: #0f0d0a;
-                    color: #e8e0d0; border: 1px solid #2a241a;
-                    border-radius: 6px; padding: 12px 14px; font-family: inherit;
+  .t-ask label { display:block; font-size:12px; color: var(--text-muted);
+                 text-transform: var(--label-transform);
+                 letter-spacing: var(--label-tracking); margin-bottom:6px; }
+  .t-ask textarea { width:100%; min-height: 110px; background: var(--surface2);
+                    color: var(--text-strong); border: 1px solid var(--border);
+                    border-radius: var(--radius-s); padding: 12px 14px; font-family: inherit;
                     font-size: 14px; line-height: 1.5; resize: vertical; }
-  .t-ask textarea:focus { outline: none; border-color: var(--teach-gold-dim); }
+  .t-ask textarea::placeholder { color: var(--text-muted); }
+  .t-ask textarea:focus { outline: none; border-color: var(--accent2);
+                          box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent2) 18%, transparent); }
 
   .t-controls { display:flex; gap:8px; margin-top:10px; align-items:center; flex-wrap:wrap; }
-  .t-btn { background: var(--teach-gold); color: #181410; border:0;
-           padding: 9px 18px; border-radius: 4px; cursor:pointer;
+  .t-btn { background: var(--accent); color: color-mix(in srgb, var(--bg) 45%, black);
+           border:0; padding: 9px 18px; border-radius: var(--radius-s); cursor:pointer;
            font-size: 13px; font-weight: 600; letter-spacing: 0.03em; }
   .t-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-  .t-btn.sec { background: #2a241a; color: #d4c29a; }
+  .t-btn.sec { background: var(--surface2); color: var(--text);
+               border: 1px solid var(--border-strong); }
+  .t-btn.hidden { display: none; }
 
   .t-preset-row { display:flex; gap:4px; flex-wrap:wrap; margin:4px 0 12px; }
-  .t-preset { background: transparent; color: var(--teach-gold-dim);
-              border: 1px solid #2a241a; padding: 3px 9px; border-radius: 12px;
+  .t-preset { background: transparent; color: var(--text-muted);
+              border: 1px solid var(--border); padding: 3px 9px;
+              border-radius: var(--radius-pill);
               font-size: 11px; cursor: pointer; }
-  .t-preset:hover { color: var(--teach-gold); border-color: var(--teach-gold-dim); }
+  .t-preset:hover { color: var(--accent); border-color: var(--accent-a28); }
 
-  .t-ans { background: #110f0c; border:1px solid #2a241a; border-radius:8px;
+  .t-ans { background: var(--surface); border:1px solid var(--border);
+           border-radius: var(--radius-m);
            padding: 20px; min-height: 140px; font-size: 14px; line-height: 1.65;
-           color: #e8e0d0; white-space: pre-wrap; margin-bottom: 22px; }
-  .t-ans.thinking { border-style: dashed; color: #8a7a5a; font-style: italic; }
-  .t-ans .meta { font-size: 11px; color: var(--muted,#888); margin-top:14px;
-                 padding-top:10px; border-top:1px dashed #2a241a; font-style: normal; }
+           color: var(--text); white-space: pre-wrap; margin-bottom: 22px; }
+  .t-ans.thinking { border-style: dashed; color: var(--text-muted); font-style: italic; }
+  .t-ans .meta { font-size: 11px; color: var(--text-muted); margin-top:14px;
+                 padding-top:10px; border-top:1px dashed var(--border);
+                 font-style: normal; font-family: var(--font-mono);
+                 font-variant-numeric: tabular-nums; }
 
-  .t-timer { font-size: 12px; color: var(--teach-gold-dim); font-variant-numeric: tabular-nums; }
-  .t-timer strong { color: var(--teach-gold); }
+  .t-timer { font-size: 12px; color: var(--accent2); font-family: var(--font-mono);
+             font-variant-numeric: tabular-nums; }
+  .t-timer strong { color: var(--accent2); }
 
-  .t-sec h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em;
-              color: var(--muted, #888); margin: 28px 0 12px; font-weight: 500; }
+  .t-sec h2 { font-size: 13px; text-transform: var(--label-transform);
+              letter-spacing: var(--label-tracking);
+              color: var(--text-muted); margin: 28px 0 12px; font-weight: 500; }
 
-  .t-log-entry { background: #0f0d0a; border: 1px solid #2a241a; border-radius: 6px;
+  .t-log-entry { background: var(--surface); border: 1px solid var(--border);
+                 border-radius: var(--radius-s);
                  padding: 12px 14px; margin-bottom: 10px; font-size: 13px; }
-  .t-log-entry .ts { font-size: 11px; color: var(--muted, #888);
+  .t-log-entry .ts { font-size: 11px; color: var(--text-muted); font-family: var(--font-mono);
                      margin-bottom: 4px; font-variant-numeric: tabular-nums; }
-  .t-log-entry .q { color: #d4c29a; margin-bottom: 6px; }
-  .t-log-entry .a { color: #b8b0a0; max-height: 80px; overflow: hidden;
+  .t-log-entry .q { color: var(--text-strong); margin-bottom: 6px; }
+  .t-log-entry .a { color: var(--text-muted); max-height: 80px; overflow: hidden;
                     position: relative; line-height: 1.5; }
-  .t-log-entry details summary { cursor: pointer; color: var(--teach-gold-dim);
+  .t-log-entry details summary { cursor: pointer; color: var(--accent2);
                                  font-size: 11px; margin-top: 6px; }
   .t-log-entry details[open] .a { max-height: none; }
 
-  .t-empty { color: var(--muted, #888); font-style: italic; font-size: 12px; }
+  .t-empty { color: var(--text-muted); font-style: italic; font-size: 12px; }
 </style>
-</head>
-<body>
+{% endblock %}
 
-{% set active = 'teacher' %}{% include "_nav.html" %}
-
+{% block content %}
 <div class="t-wrap">
 
   <div class="t-hero">
@@ -97,7 +111,7 @@
     <span class="t-chip dim" id="t-size">—</span>
     <span class="t-chip dim" id="t-tps" title="Average tok/s across recent runs">— tok/s</span>
     <span class="t-chip dim" title="Every answer saves to lab/pkb/teacher/">auto-saved to PKB</span>
-    <a href="/tuning" class="t-chip" style="text-decoration:none;"
+    <a href="/tuning" class="t-chip t-chip-link"
        title="Benchmark + tune the deep model — AeroLLM MLX sweeps, knob variants, stage timings.">
       ⚙ Tuning cockpit →
     </a>
@@ -108,12 +122,12 @@
     The Teacher runs on a 100B–750B parameter model streamed layer-by-layer
     from disk. A single answer typically takes <strong>2–10 minutes</strong>
     depending on your prompt and the running knob set on
-    <a href="/tuning" style="color:var(--teach-gold);">/tuning</a>.
+    <a href="/tuning">/tuning</a>.
     This page is for <em>depth</em> — strategic reasoning, research
     framing, long-form synthesis. For quick questions use the
-    <a href="/" style="color:var(--teach-gold);">dashboard chat</a>.
+    <a href="/">dashboard chat</a>.
     Every Q&amp;A is saved to
-    <code style="color:var(--teach-gold);background:#1a140a;padding:1px 5px;border-radius:3px;">lab/pkb/teacher/</code>
+    <code>lab/pkb/teacher/</code>
     so wisdom compounds across sessions.
   </div>
 
@@ -130,7 +144,7 @@
     <textarea id="t-input" placeholder="Pose a question that deserves depth. The Teacher will sit with it for a few minutes and answer."></textarea>
     <div class="t-controls">
       <button class="t-btn" id="t-ask-btn">Ask the Teacher</button>
-      <button class="t-btn sec" id="t-cancel" style="display:none;">Cancel</button>
+      <button class="t-btn sec hidden" id="t-cancel">Cancel</button>
       <span class="t-timer" id="t-timer"></span>
     </div>
   </div>
@@ -147,7 +161,9 @@
   </div>
 
 </div>
+{% endblock %}
 
+{% block scripts %}
 <script>
 (function () {
   "use strict";
@@ -398,6 +414,4 @@
   loadHistory();
 })();
 </script>
-
-</body>
-</html>
+{% endblock %}

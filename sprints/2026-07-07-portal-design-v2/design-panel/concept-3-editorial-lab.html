@@ -1,0 +1,883 @@
+<!DOCTYPE html>
+<!--
+  ═══════════════════════════════════════════════════════════════════════════
+  CONCEPT 3 — "EDITORIAL LAB"
+  ═══════════════════════════════════════════════════════════════════════════
+
+  RATIONALE (3 sentences):
+  Editorial Lab treats ARAIL like a beautifully typeset research journal that
+  happens to be an app: big confident sans headings carry the hierarchy,
+  generous whitespace does the work that neon glows used to fake, and flat
+  cards with hairline borders keep every surface quiet and legible. Monospace
+  is reserved strictly for data — numerals, timestamps, model ids, metrics —
+  so wherever it appears it reads as instrumentation against prose, which is
+  the "technical edge" expressed through typography instead of decoration.
+  A single vivid cobalt accent (with a periwinkle second stop for the
+  signature rail) is spent sparingly on links, primary actions and the live
+  goal, so when color speaks, it means something — and because every color,
+  radius and glow flows through :root tokens, the whole personality repaints
+  per-World with zero layout change.
+
+  DEFAULT TOKEN VALUES ("AI Lab" world — sharp technical):
+    --bg:            #0B0E14   deep charcoal-blue page
+    --surface:       #11151E   card body
+    --surface2:      #171C28   nested / raised surface
+    --surface3:      #1E2432   chips, hovers, table header
+    --border:        #232937   hairline
+    --border-strong: #333C50   focused / emphasized hairline
+    --text:          #C8D0DC   body copy         (≈11.7:1 on --bg)
+    --text-strong:   #EEF2F7   headings, numerals
+    --text-muted:    #7E8899   captions, labels  (≈5.1:1 on --surface)
+    --accent:        #5B9DFF   cobalt — the single vivid accent
+    --accent2:       #9D8CFF   periwinkle — rail gradient second stop
+    --positive:      #46C68C
+    --warn:          #E8B04B
+    --danger:        #F0645C
+    --info:          #59B6E0
+    --glow:          transparent (no glow by default — flat editorial)
+    --radius-s: 6px   --radius-m: 10px   --radius-l: 16px
+    --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif
+    --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', 'Cascadia Mono', Menlo, monospace
+
+  THEME PROOF: identical component markup is re-skinned at the bottom of the
+  page via wrapper-scoped token overrides (pink-playful, scholarly-violet),
+  and the optional buttons up top swap the same tokens on :root live.
+  No external fonts, no CDN, no network. Layout never changes per theme.
+  ═══════════════════════════════════════════════════════════════════════════
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ARAIL — Concept 3 · Editorial Lab</title>
+<style>
+  /* ─────────────────────────── TOKENS ─────────────────────────── */
+  :root {
+    --bg:            #0B0E14;
+    --surface:       #11151E;
+    --surface2:      #171C28;
+    --surface3:      #1E2432;
+    --border:        #232937;
+    --border-strong: #333C50;
+    --text:          #C8D0DC;
+    --text-strong:   #EEF2F7;
+    --text-muted:    #7E8899;
+    --accent:        #5B9DFF;
+    --accent2:       #9D8CFF;
+    --positive:      #46C68C;
+    --warn:          #E8B04B;
+    --danger:        #F0645C;
+    --info:          #59B6E0;
+    --glow:          transparent;              /* personality dial: flat by default */
+    --radius-s: 6px;
+    --radius-m: 10px;
+    --radius-l: 16px;
+    --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', 'Cascadia Mono', Menlo, monospace;
+  }
+
+  /* ─────────────────────────── RESET / BASE ─────────────────────────── */
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-sans);
+    font-size: 15.5px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    transition: background .3s ease, color .3s ease;
+  }
+  ::selection { background: color-mix(in srgb, var(--accent) 30%, transparent); color: var(--text-strong); }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; text-underline-offset: 3px; }
+
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 0 32px; }
+
+  /* editorial section headers */
+  .section { margin-top: 72px; }
+  .sec-head { display: flex; align-items: baseline; gap: 16px; border-bottom: 1px solid var(--border); padding-bottom: 14px; margin-bottom: 28px; }
+  .sec-index { font-family: var(--font-mono); font-size: 12px; color: var(--accent); letter-spacing: .12em; }
+  .sec-title { font-size: 22px; font-weight: 650; letter-spacing: -0.015em; color: var(--text-strong); }
+  .sec-note  { margin-left: auto; font-family: var(--font-mono); font-size: 11.5px; color: var(--text-muted); }
+
+  .kicker {
+    font-family: var(--font-mono);
+    font-size: 11px; font-weight: 500;
+    letter-spacing: .16em; text-transform: uppercase;
+    color: var(--accent);
+  }
+  .mono { font-family: var(--font-mono); }
+
+  /* ─────────────────────────── 0 · TOP NAV + RAIL ─────────────────────────── */
+  .topnav { background: color-mix(in srgb, var(--surface) 72%, var(--bg)); }
+  .topnav-inner {
+    max-width: 1180px; margin: 0 auto; padding: 0 32px;
+    display: flex; align-items: center; gap: 36px; height: 64px;
+  }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .brand-mark {
+    width: 22px; height: 22px; border-radius: var(--radius-s);
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    box-shadow: 0 0 18px var(--glow);
+    flex: none;
+  }
+  .brand-name { font-weight: 750; font-size: 17px; letter-spacing: .01em; color: var(--text-strong); }
+  .brand-sub  { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); letter-spacing: .06em; padding-top: 2px; }
+
+  .navlinks { display: flex; gap: 4px; margin-left: 8px; }
+  .navlinks a {
+    position: relative; display: block;
+    padding: 6px 12px; border-radius: var(--radius-s);
+    font-size: 14px; font-weight: 500; color: var(--text-muted);
+    transition: color .16s ease, background .16s ease;
+  }
+  .navlinks a:hover { color: var(--text); background: var(--surface2); text-decoration: none; }
+  .navlinks a.active { color: var(--text-strong); }
+  .navlinks a.active::after {
+    content: ""; position: absolute; left: 12px; right: 12px; bottom: -14px;
+    height: 2px; background: var(--accent); border-radius: 1px;
+  }
+
+  .nav-right { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+
+  .world-badge {
+    display: inline-flex; align-items: center; gap: 9px;
+    padding: 6px 12px 6px 8px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    font-family: var(--font-mono); font-size: 12px; color: var(--text);
+    cursor: pointer;
+    transition: border-color .16s ease, transform .16s ease;
+  }
+  .world-badge:hover { border-color: var(--border-strong); transform: translateY(-1px); }
+  .world-dot {
+    width: 12px; height: 12px; border-radius: 50%;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    box-shadow: 0 0 10px var(--glow);
+  }
+  .world-caret { color: var(--text-muted); font-size: 10px; }
+
+  /* the signature rail */
+  .rail { height: 1px; background: linear-gradient(90deg, var(--accent), var(--accent2)); }
+  .rail-glow { height: 10px; background: linear-gradient(90deg, var(--accent), var(--accent2)); opacity: .12; filter: blur(8px); margin-top: -10px; pointer-events: none; }
+
+  /* ─────────────────────────── 0b · STATUS STRIP ─────────────────────────── */
+  .statusbar {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+  }
+  .statusbar-inner {
+    max-width: 1180px; margin: 0 auto; padding: 0 32px;
+    height: 40px; display: flex; align-items: center; gap: 26px;
+    font-family: var(--font-mono); font-size: 11.5px; color: var(--text-muted);
+    overflow-x: auto; white-space: nowrap;
+  }
+  .mode-badge {
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 3px 10px; border-radius: 999px;
+    background: color-mix(in srgb, var(--positive) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--positive) 35%, transparent);
+    color: var(--positive); letter-spacing: .1em; font-size: 10.5px; font-weight: 600;
+  }
+  .sm b { color: var(--text); font-weight: 500; }
+  .sm em { font-style: normal; color: var(--text-muted); }
+  .live { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; color: var(--text); }
+  .live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--positive); animation: pulse 2.4s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+
+  /* ─────────────────────────── CARDS ─────────────────────────── */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-m);
+    box-shadow: 0 0 24px var(--glow);
+    transition: border-color .18s ease, transform .18s ease, box-shadow .18s ease;
+  }
+  .card:hover { border-color: var(--border-strong); }
+  .card--lift:hover { transform: translateY(-2px); }
+
+  /* ─────────────────────────── 1 · DASHBOARD GRID ─────────────────────────── */
+  .dash { display: grid; grid-template-columns: repeat(12, 1fr); gap: 20px; }
+
+  .hero { grid-column: span 12; padding: 40px 44px; display: grid; grid-template-columns: 1.5fr 1fr; gap: 48px; }
+  .hero h1 {
+    font-size: clamp(26px, 3.2vw, 38px);
+    font-weight: 700; letter-spacing: -0.025em; line-height: 1.18;
+    color: var(--text-strong);
+    margin: 14px 0 14px;
+    max-width: 20ch;
+  }
+  .hero h1 em { font-style: normal; color: var(--accent); }
+  .hero p { color: var(--text-muted); max-width: 52ch; font-size: 15px; }
+  .hero-actions { display: flex; gap: 12px; margin-top: 26px; }
+
+  .hero-side { border-left: 1px solid var(--border); padding-left: 40px; display: flex; flex-direction: column; justify-content: center; gap: 18px; }
+  .progress-label { display: flex; justify-content: space-between; font-family: var(--font-mono); font-size: 11.5px; color: var(--text-muted); }
+  .progress-label b { color: var(--text); font-weight: 500; }
+  .progress { height: 4px; background: var(--surface3); border-radius: 2px; overflow: hidden; }
+  .progress i { display: block; height: 100%; width: 62%; border-radius: 2px; background: linear-gradient(90deg, var(--accent), var(--accent2)); }
+  .hero-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 22px; margin-top: 6px; }
+  .hstat .k { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--text-muted); }
+  .hstat .v { font-family: var(--font-mono); font-size: 17px; color: var(--text-strong); font-variant-numeric: tabular-nums; margin-top: 2px; }
+  .hstat .v small { font-size: 11px; color: var(--text-muted); }
+
+  /* metric cards */
+  .metric { grid-column: span 4; padding: 22px 24px 18px; display: flex; flex-direction: column; gap: 10px; }
+  .metric-top { display: flex; align-items: center; justify-content: space-between; }
+  .metric-label { font-family: var(--font-mono); font-size: 10.5px; font-weight: 500; letter-spacing: .14em; text-transform: uppercase; color: var(--text-muted); }
+  .metric-num {
+    font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+    font-size: 34px; font-weight: 600; letter-spacing: -0.02em;
+    color: var(--text-strong); line-height: 1;
+  }
+  .metric-num small { font-size: 14px; font-weight: 400; color: var(--text-muted); margin-left: 4px; }
+  .delta { display: inline-flex; align-items: center; gap: 5px; font-family: var(--font-mono); font-size: 11.5px; padding: 2px 8px; border-radius: 999px; }
+  .delta--up   { color: var(--positive); background: color-mix(in srgb, var(--positive) 11%, transparent); }
+  .delta--info { color: var(--info);     background: color-mix(in srgb, var(--info) 11%, transparent); }
+  .spark { width: 100%; height: 34px; margin-top: 2px; }
+  .spark path.line { stroke: var(--accent); }
+  .spark path.fill { fill: color-mix(in srgb, var(--accent) 10%, transparent); }
+
+  /* activity feed */
+  .feed { grid-column: span 4; padding: 22px 24px; }
+  .feed h3, .runs h3 { font-size: 15px; font-weight: 650; color: var(--text-strong); letter-spacing: -0.01em; }
+  .feed-sub { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+  .feed ul { list-style: none; margin-top: 18px; }
+  .feed li { display: grid; grid-template-columns: 46px 10px 1fr; gap: 10px; padding: 10px 0; border-top: 1px solid var(--border); align-items: baseline; }
+  .feed li:first-child { border-top: 0; }
+  .feed time { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+  .feed .fdot { width: 7px; height: 7px; border-radius: 50%; align-self: center; }
+  .fdot--ok   { background: var(--positive); }
+  .fdot--info { background: var(--info); }
+  .fdot--warn { background: var(--warn); }
+  .feed .fbody { font-size: 13.5px; color: var(--text); }
+  .feed .fbody b { font-weight: 600; color: var(--text-strong); }
+  .feed .fbody .mono { font-size: 12px; color: var(--text-muted); }
+
+  /* experiment table */
+  .runs { grid-column: span 8; padding: 22px 24px; }
+  .table-scroll { overflow-x: auto; margin-top: 16px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; min-width: 560px; }
+  thead th {
+    text-align: left; font-family: var(--font-mono); font-size: 10.5px; font-weight: 500;
+    letter-spacing: .13em; text-transform: uppercase; color: var(--text-muted);
+    padding: 8px 12px; border-bottom: 1px solid var(--border-strong);
+  }
+  tbody td { padding: 11px 12px; border-bottom: 1px solid var(--border); color: var(--text); }
+  tbody tr { transition: background .14s ease; }
+  tbody tr:hover { background: var(--surface2); }
+  tbody tr:last-child td { border-bottom: 0; }
+  td.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--text-strong); }
+  td .model { font-family: var(--font-mono); font-size: 12px; color: var(--text); }
+  td.dim { color: var(--text-muted); font-family: var(--font-mono); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .d-up { color: var(--positive); } .d-down { color: var(--danger); }
+
+  /* ─────────────────────────── PILLS ─────────────────────────── */
+  .pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; font-family: var(--font-mono); font-size: 11px; font-weight: 500; letter-spacing: .04em; }
+  .pill i { width: 6px; height: 6px; border-radius: 50%; }
+  .pill--ok   { color: var(--positive); background: color-mix(in srgb, var(--positive) 11%, transparent); border: 1px solid color-mix(in srgb, var(--positive) 30%, transparent); }
+  .pill--ok i { background: var(--positive); }
+  .pill--warn { color: var(--warn); background: color-mix(in srgb, var(--warn) 11%, transparent); border: 1px solid color-mix(in srgb, var(--warn) 30%, transparent); }
+  .pill--warn i { background: var(--warn); }
+  .pill--err  { color: var(--danger); background: color-mix(in srgb, var(--danger) 11%, transparent); border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent); }
+  .pill--err i { background: var(--danger); }
+  .pill--info { color: var(--info); background: color-mix(in srgb, var(--info) 11%, transparent); border: 1px solid color-mix(in srgb, var(--info) 30%, transparent); }
+  .pill--info i { background: var(--info); animation: pulse 2s ease-in-out infinite; }
+
+  /* ─────────────────────────── BUTTONS / INPUT ─────────────────────────── */
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-family: var(--font-sans); font-size: 13.5px; font-weight: 600;
+    padding: 9px 18px; border-radius: var(--radius-s);
+    border: 1px solid transparent; cursor: pointer;
+    transition: transform .15s ease, background .15s ease, border-color .15s ease, box-shadow .15s ease;
+  }
+  .btn:active { transform: translateY(1px); }
+  .btn--primary { background: var(--accent); color: var(--bg); }
+  .btn--primary:hover { box-shadow: 0 4px 18px color-mix(in srgb, var(--accent) 35%, transparent); transform: translateY(-1px); }
+  .btn--ghost { background: transparent; color: var(--text); border-color: var(--border-strong); }
+  .btn--ghost:hover { border-color: var(--text-muted); background: var(--surface2); transform: translateY(-1px); }
+  .btn--danger { background: color-mix(in srgb, var(--danger) 10%, transparent); color: var(--danger); border-color: color-mix(in srgb, var(--danger) 40%, transparent); }
+  .btn--danger:hover { background: color-mix(in srgb, var(--danger) 18%, transparent); transform: translateY(-1px); }
+
+  .field label { display: block; font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .13em; text-transform: uppercase; color: var(--text-muted); margin-bottom: 7px; }
+  .input {
+    width: 100%; padding: 10px 13px;
+    background: var(--bg); color: var(--text-strong);
+    border: 1px solid var(--border); border-radius: var(--radius-s);
+    font-family: var(--font-mono); font-size: 13px;
+    outline: none; transition: border-color .15s ease, box-shadow .15s ease;
+  }
+  .input::placeholder { color: var(--text-muted); }
+  .input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }
+  .field .hint { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); margin-top: 7px; }
+
+  /* ─────────────────────────── 2 · ELEMENTS LAYOUT ─────────────────────────── */
+  .elements { display: grid; grid-template-columns: 5fr 7fr; gap: 20px; }
+  .controls { padding: 26px 28px; display: flex; flex-direction: column; gap: 26px; }
+  .ctl-row-label { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .13em; text-transform: uppercase; color: var(--text-muted); margin-bottom: 12px; }
+  .btn-row, .pill-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+
+  /* modal mockup */
+  .modal-stage {
+    position: relative; border-radius: var(--radius-m); overflow: hidden;
+    border: 1px solid var(--border);
+    background:
+      repeating-linear-gradient(-45deg,
+        color-mix(in srgb, var(--surface2) 60%, transparent) 0 10px,
+        transparent 10px 20px),
+      var(--bg);
+    display: flex; align-items: center; justify-content: center;
+    padding: 44px 28px;
+  }
+  .modal-scrim { position: absolute; inset: 0; background: color-mix(in srgb, var(--bg) 62%, transparent); backdrop-filter: blur(1.5px); }
+  .modal {
+    position: relative; width: min(430px, 100%);
+    background: var(--surface2);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-l);
+    box-shadow: 0 24px 60px color-mix(in srgb, var(--bg) 80%, transparent), 0 0 30px var(--glow);
+    padding: 26px 28px 22px;
+  }
+  .modal h4 { font-size: 17px; font-weight: 650; letter-spacing: -0.01em; color: var(--text-strong); }
+  .modal .msub { font-size: 13px; color: var(--text-muted); margin: 4px 0 20px; }
+  .modal .x { position: absolute; top: 18px; right: 20px; color: var(--text-muted); font-size: 14px; cursor: pointer; }
+  .modal-foot { display: flex; justify-content: flex-end; gap: 10px; margin-top: 22px; }
+  .modal .secnote { font-family: var(--font-mono); font-size: 10.5px; color: var(--text-muted); margin-top: 10px; }
+  .modal .secnote b { color: var(--positive); font-weight: 500; }
+
+  /* ─────────────────────────── 3 · CHAT STRIP ─────────────────────────── */
+  .chat { padding: 26px 28px; display: flex; flex-direction: column; gap: 18px; }
+  .msg { display: flex; gap: 12px; max-width: 78%; }
+  .msg--user { align-self: flex-end; flex-direction: row-reverse; }
+  .avatar {
+    flex: none; width: 30px; height: 30px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--font-mono); font-size: 12px; font-weight: 600;
+  }
+  .avatar--buddy { background: linear-gradient(135deg, var(--accent), var(--accent2)); color: var(--bg); box-shadow: 0 0 12px var(--glow); }
+  .avatar--user  { background: var(--surface3); color: var(--text); border: 1px solid var(--border-strong); }
+  .bubble { padding: 12px 16px; border-radius: var(--radius-m); font-size: 14px; }
+  .msg--user .bubble { background: var(--surface3); color: var(--text-strong); border-top-right-radius: var(--radius-s); }
+  .msg--ai .bubble { background: var(--surface2); border: 1px solid var(--border); border-top-left-radius: var(--radius-s); }
+  .bubble .who { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--accent); margin-bottom: 5px; }
+  .bubble code { font-family: var(--font-mono); font-size: 12.5px; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; color: var(--accent); }
+  .msg time { align-self: flex-end; font-family: var(--font-mono); font-size: 10.5px; color: var(--text-muted); }
+
+  .chat-inputrow { display: flex; gap: 10px; align-items: center; border-top: 1px solid var(--border); padding-top: 18px; }
+  .compute-chip {
+    flex: none; display: inline-flex; align-items: center; gap: 8px;
+    padding: 8px 13px; border-radius: 999px;
+    background: var(--surface3); border: 1px solid var(--border-strong);
+    font-family: var(--font-mono); font-size: 11.5px; color: var(--text);
+    cursor: pointer; transition: border-color .15s ease;
+  }
+  .compute-chip:hover { border-color: var(--accent); }
+  .compute-chip .cs-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--positive); }
+  .compute-chip b { color: var(--text-strong); font-weight: 500; }
+  .compute-chip .caret { color: var(--text-muted); font-size: 9px; }
+  .chat-inputrow .input { flex: 1; }
+
+  /* ─────────────────────────── 4 · WORLD SWITCHER ─────────────────────────── */
+  .world-stage { display: flex; gap: 40px; align-items: flex-start; padding: 26px 28px; }
+  .world-anchor { position: relative; flex: none; }
+  .dropdown {
+    margin-top: 10px; width: 300px;
+    background: var(--surface2);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-m);
+    box-shadow: 0 18px 48px color-mix(in srgb, var(--bg) 80%, transparent);
+    overflow: hidden;
+  }
+  .dropdown .dd-head { padding: 12px 16px 10px; font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .13em; text-transform: uppercase; color: var(--text-muted); border-bottom: 1px solid var(--border); }
+  .dd-item { display: grid; grid-template-columns: 26px 1fr auto; gap: 12px; align-items: center; padding: 12px 16px; cursor: pointer; transition: background .14s ease; }
+  .dd-item:hover { background: var(--surface3); }
+  .dd-item + .dd-item { border-top: 1px solid var(--border); }
+  .dd-item.active { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+  .swatch { width: 26px; height: 26px; border-radius: var(--radius-s); border: 1px solid var(--border-strong); }
+  .dd-name { font-size: 13.5px; font-weight: 600; color: var(--text-strong); line-height: 1.3; }
+  .dd-desc { font-family: var(--font-mono); font-size: 10.5px; color: var(--text-muted); }
+  .dd-check { font-family: var(--font-mono); color: var(--accent); font-size: 13px; }
+  .dd-foot { padding: 10px 16px; border-top: 1px solid var(--border); font-family: var(--font-mono); font-size: 10.5px; color: var(--text-muted); }
+  .dd-foot a { font-size: 10.5px; }
+  .world-copy { max-width: 46ch; color: var(--text-muted); font-size: 14px; padding-top: 6px; }
+  .world-copy b { color: var(--text); font-weight: 600; }
+
+  /* ─────────────────────────── 5 · THEME PROOF ─────────────────────────── */
+  .proof-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+  .proof-tile {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-l);
+    padding: 22px;
+    transition: border-color .18s ease;
+  }
+  .proof-tile:hover { border-color: var(--border-strong); }
+  .proof-cap { margin-top: 14px; display: flex; justify-content: space-between; align-items: baseline; }
+  .proof-cap .n { font-size: 13px; font-weight: 650; color: var(--text-strong); }
+  .proof-cap .t { font-family: var(--font-mono); font-size: 10.5px; color: var(--text-muted); }
+  .proof-tile .metric { display: flex; padding: 22px 24px 18px; }
+  .swap-row { display: flex; gap: 10px; align-items: center; }
+  .swap-label { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); margin-right: 4px; }
+  .swap-btn {
+    font-family: var(--font-mono); font-size: 11px; padding: 5px 12px;
+    background: var(--surface2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 999px; cursor: pointer; transition: border-color .15s ease, color .15s ease;
+  }
+  .swap-btn:hover { border-color: var(--accent); color: var(--text-strong); }
+
+  footer { margin: 80px 0 48px; border-top: 1px solid var(--border); padding-top: 20px;
+           display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+           font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); }
+
+  /* ─────────────────────────── RESPONSIVE ─────────────────────────── */
+  @media (max-width: 980px) {
+    .hero { grid-template-columns: 1fr; gap: 28px; }
+    .hero-side { border-left: 0; border-top: 1px solid var(--border); padding-left: 0; padding-top: 24px; }
+    .metric { grid-column: span 6; }
+    .feed, .runs { grid-column: span 12; }
+    .elements { grid-template-columns: 1fr; }
+    .proof-row { grid-template-columns: 1fr; }
+    .navlinks { display: none; }
+    .world-stage { flex-direction: column; }
+  }
+  @media (max-width: 640px) {
+    .wrap, .topnav-inner, .statusbar-inner { padding-left: 18px; padding-right: 18px; }
+    .metric { grid-column: span 12; }
+    .msg { max-width: 100%; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+  }
+</style>
+</head>
+<body>
+
+  <!-- ══════════ TOP NAV ══════════ -->
+  <header class="topnav">
+    <div class="topnav-inner">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span class="brand-name">ARAIL</span>
+        <span class="brand-sub">Autoresearch AI Labs</span>
+      </div>
+      <nav class="navlinks">
+        <a class="active" href="#">Dashboard</a>
+        <a href="#">Chat</a>
+        <a href="#">Autoresearch</a>
+        <a href="#">Knowledge</a>
+        <a href="#">Agents</a>
+        <a href="#">Admin</a>
+      </nav>
+      <div class="nav-right">
+        <button class="world-badge" type="button" aria-label="World switcher">
+          <span class="world-dot"></span> AI&nbsp;Lab <span class="world-caret">▾</span>
+        </button>
+      </div>
+    </div>
+  </header>
+  <div class="rail"></div>
+  <div class="rail-glow"></div>
+
+  <!-- ══════════ STATUS STRIP ══════════ -->
+  <div class="statusbar">
+    <div class="statusbar-inner">
+      <span class="mode-badge"><i class="live-dot" style="width:6px;height:6px;border-radius:50%;background:currentColor;animation:none;"></i>AIRGAPPED</span>
+      <span class="sm"><em>backend</em> <b>MLX · M3&nbsp;Max</b></span>
+      <span class="sm"><em>mem</em> <b>21.4 / 64&nbsp;GB</b></span>
+      <span class="sm"><em>tok/s</em> <b>48.2</b></span>
+      <span class="sm"><em>uptime</em> <b>14:32:07</b></span>
+      <span class="live"><span class="live-dot"></span>3 agents active</span>
+    </div>
+  </div>
+
+  <main class="wrap">
+
+    <!-- ══════════ 01 · DASHBOARD ══════════ -->
+    <section class="section">
+      <div class="sec-head">
+        <span class="sec-index">01</span>
+        <span class="sec-title">Dashboard</span>
+        <span class="sec-note">hero · metrics · feed · runs</span>
+      </div>
+
+      <div class="dash">
+
+        <!-- mission hero -->
+        <article class="card hero">
+          <div>
+            <span class="kicker">Current mission · Autoresearch</span>
+            <h1>Teach a 1-billion-parameter engineer to <em>explain its own reasoning</em>.</h1>
+            <p>The Researcher is sweeping learning rates on <span class="mono" style="font-size:13px;">llama-ai-eng</span>,
+               scoring each run against the self-explanation eval. Buddy files every
+               result into the knowledge base as it lands.</p>
+            <div class="hero-actions">
+              <button class="btn btn--primary">Open autoresearch</button>
+              <button class="btn btn--ghost">View experiment plan</button>
+            </div>
+          </div>
+          <div class="hero-side">
+            <div>
+              <div class="progress-label"><span>SWEEP&nbsp;PROGRESS</span><b>3 / 5&nbsp;· 62%</b></div>
+              <div class="progress" style="margin-top:8px;"><i></i></div>
+            </div>
+            <div class="hero-stats">
+              <div class="hstat"><div class="k">Best score</div><div class="v">0.847</div></div>
+              <div class="hstat"><div class="k">Runs today</div><div class="v">12</div></div>
+              <div class="hstat"><div class="k">Next checkpoint</div><div class="v">18:00</div></div>
+              <div class="hstat"><div class="k">Cloud spend</div><div class="v">$0.00 <small>airgapped</small></div></div>
+            </div>
+          </div>
+        </article>
+
+        <!-- metric cards -->
+        <article class="card card--lift metric">
+          <div class="metric-top">
+            <span class="metric-label">Tokens / sec</span>
+            <span class="delta delta--up">▲ 6.4%</span>
+          </div>
+          <div class="metric-num">48.2</div>
+          <svg class="spark" viewBox="0 0 120 34" preserveAspectRatio="none" aria-hidden="true">
+            <path class="fill" d="M0 28 L15 26 L30 27 L45 21 L60 22 L75 16 L90 17 L105 11 L120 12 L120 34 L0 34 Z" stroke="none"/>
+            <path class="line" d="M0 28 L15 26 L30 27 L45 21 L60 22 L75 16 L90 17 L105 11 L120 12" fill="none" stroke-width="1.5"/>
+          </svg>
+        </article>
+
+        <article class="card card--lift metric">
+          <div class="metric-top">
+            <span class="metric-label">KB documents</span>
+            <span class="delta delta--up">▲ 32 this wk</span>
+          </div>
+          <div class="metric-num">1,284</div>
+          <svg class="spark" viewBox="0 0 120 34" preserveAspectRatio="none" aria-hidden="true">
+            <path class="fill" d="M0 30 L15 29 L30 26 L45 25 L60 20 L75 19 L90 14 L105 13 L120 8 L120 34 L0 34 Z" stroke="none"/>
+            <path class="line" d="M0 30 L15 29 L30 26 L45 25 L60 20 L75 19 L90 14 L105 13 L120 8" fill="none" stroke-width="1.5"/>
+          </svg>
+        </article>
+
+        <article class="card card--lift metric">
+          <div class="metric-top">
+            <span class="metric-label">Experiment runs</span>
+            <span class="delta delta--info">● 3 running</span>
+          </div>
+          <div class="metric-num">217</div>
+          <svg class="spark" viewBox="0 0 120 34" preserveAspectRatio="none" aria-hidden="true">
+            <path class="fill" d="M0 26 L15 27 L30 22 L45 24 L60 18 L75 20 L90 13 L105 15 L120 10 L120 34 L0 34 Z" stroke="none"/>
+            <path class="line" d="M0 26 L15 27 L30 22 L45 24 L60 18 L75 20 L90 13 L105 15 L120 10" fill="none" stroke-width="1.5"/>
+          </svg>
+        </article>
+
+        <!-- activity feed -->
+        <article class="card feed">
+          <h3>Activity</h3>
+          <div class="feed-sub">lab stream · last hour</div>
+          <ul>
+            <li>
+              <time>14:32</time><span class="fdot fdot--info"></span>
+              <span class="fbody"><b>Researcher</b> started sweep run <span class="mono">lr=2e-5</span></span>
+            </li>
+            <li>
+              <time>14:18</time><span class="fdot fdot--ok"></span>
+              <span class="fbody"><b>Buddy</b> filed “Attention Sinks” summary into the KB</span>
+            </li>
+            <li>
+              <time>13:56</time><span class="fdot fdot--warn"></span>
+              <span class="fbody"><b>SRE</b> restarted worker-2 after memory pressure</span>
+            </li>
+            <li>
+              <time>13:41</time><span class="fdot fdot--ok"></span>
+              <span class="fbody"><b>Knowledge</b> indexed 12 new documents from <span class="mono">inbox/</span></span>
+            </li>
+          </ul>
+        </article>
+
+        <!-- experiment table -->
+        <article class="card runs">
+          <h3>Recent experiments</h3>
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr><th>Run</th><th>Model</th><th style="text-align:right;">Eval</th><th style="text-align:right;">Δ</th><th>Status</th><th>Updated</th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td class="dim">run-217</td><td><span class="model">llama-ai-eng</span></td>
+                  <td class="num" style="text-align:right;">0.847</td><td class="num d-up" style="text-align:right;">+0.012</td>
+                  <td><span class="pill pill--info"><i></i>running</span></td><td class="dim">14:32</td>
+                </tr>
+                <tr>
+                  <td class="dim">run-216</td><td><span class="model">ai-engineer-7b</span></td>
+                  <td class="num" style="text-align:right;">0.835</td><td class="num d-up" style="text-align:right;">+0.004</td>
+                  <td><span class="pill pill--ok"><i></i>complete</span></td><td class="dim">12:04</td>
+                </tr>
+                <tr>
+                  <td class="dim">run-215</td><td><span class="model">llama-ai-eng</span></td>
+                  <td class="num" style="text-align:right;">0.831</td><td class="num d-down" style="text-align:right;">−0.009</td>
+                  <td><span class="pill pill--ok"><i></i>complete</span></td><td class="dim">09:47</td>
+                </tr>
+                <tr>
+                  <td class="dim">run-214</td><td><span class="model">qwen2.5-7b-instruct</span></td>
+                  <td class="num" style="text-align:right;">0.840</td><td class="num d-up" style="text-align:right;">+0.021</td>
+                  <td><span class="pill pill--err"><i></i>failed</span></td><td class="dim">08:15</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <!-- ══════════ 02 · ELEMENTS ══════════ -->
+    <section class="section">
+      <div class="sec-head">
+        <span class="sec-index">02</span>
+        <span class="sec-title">Elements</span>
+        <span class="sec-note">buttons · input · pills · modal</span>
+      </div>
+
+      <div class="elements">
+        <article class="card controls">
+          <div>
+            <div class="ctl-row-label">Buttons</div>
+            <div class="btn-row">
+              <button class="btn btn--primary">Run experiment</button>
+              <button class="btn btn--ghost">Preview</button>
+              <button class="btn btn--danger">Stop all agents</button>
+            </div>
+          </div>
+          <div class="field">
+            <div class="ctl-row-label">Input</div>
+            <label for="goal">Measurable goal</label>
+            <input class="input" id="goal" type="text" placeholder="raise self-explanation eval ≥ 0.86" value="">
+            <div class="hint">researcher parses this into an experiment plan</div>
+          </div>
+          <div>
+            <div class="ctl-row-label">Status pills</div>
+            <div class="pill-row">
+              <span class="pill pill--ok"><i></i>healthy</span>
+              <span class="pill pill--warn"><i></i>mem pressure</span>
+              <span class="pill pill--err"><i></i>worker down</span>
+              <span class="pill pill--info"><i></i>indexing</span>
+            </div>
+          </div>
+        </article>
+
+        <!-- static modal mockup -->
+        <div class="modal-stage">
+          <div class="modal-scrim"></div>
+          <div class="modal" role="dialog" aria-label="Manage compute providers">
+            <span class="x">✕</span>
+            <h4>Manage compute providers</h4>
+            <p class="msub">Add a cloud fallback for hybrid mode. Local stays the default.</p>
+            <div class="field">
+              <label for="key">Anthropic API key</label>
+              <input class="input" id="key" type="password" placeholder="sk-ant-••••••••••••••••">
+            </div>
+            <div class="secnote">→ saved to <b>lab/data/secrets.env</b> · chmod 0600 · never echoed back</div>
+            <div class="modal-foot">
+              <button class="btn btn--ghost">Cancel</button>
+              <button class="btn btn--primary">Save &amp; test</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════════ 03 · CHAT ══════════ -->
+    <section class="section">
+      <div class="sec-head">
+        <span class="sec-index">03</span>
+        <span class="sec-title">Chat</span>
+        <span class="sec-note">bubbles · compute-source pivot</span>
+      </div>
+
+      <article class="card chat">
+        <div class="msg msg--user">
+          <span class="avatar avatar--user">CD</span>
+          <div class="bubble">Why did run-215 regress? The learning rate looked fine to me.</div>
+          <time>14:29</time>
+        </div>
+        <div class="msg msg--ai">
+          <span class="avatar avatar--buddy">B</span>
+          <div class="bubble">
+            <div class="who">Buddy · llama-ai-eng</div>
+            It didn’t regress on everything — the eval dropped <span class="mono" style="font-size:12.5px;">−0.009</span> overall,
+            but the failure is concentrated in the chain-of-thought subset. run-215 used
+            <code>warmup=0</code> while 214 and 216 warmed up over 50 steps. I’ve queued a
+            counterfactual with warmup restored; results land in the KB when it finishes.
+          </div>
+          <time>14:30</time>
+        </div>
+        <div class="chat-inputrow">
+          <button class="compute-chip" type="button" aria-label="Compute source">
+            <span class="cs-dot"></span> <b>My Machine</b> · llama-ai-eng <span class="caret">▾</span>
+          </button>
+          <input class="input" type="text" placeholder="Ask the lab anything…">
+          <button class="btn btn--primary">Send</button>
+        </div>
+      </article>
+    </section>
+
+    <!-- ══════════ 04 · WORLD SWITCHER (OPEN) ══════════ -->
+    <section class="section">
+      <div class="sec-head">
+        <span class="sec-index">04</span>
+        <span class="sec-title">World switcher</span>
+        <span class="sec-note">dropdown, open state</span>
+      </div>
+
+      <article class="card world-stage">
+        <div class="world-anchor">
+          <button class="world-badge" type="button">
+            <span class="world-dot"></span> AI&nbsp;Lab <span class="world-caret">▴</span>
+          </button>
+          <div class="dropdown" role="listbox" aria-label="Choose a world">
+            <div class="dd-head">Choose a world</div>
+            <div class="dd-item active" role="option" aria-selected="true">
+              <span class="swatch" style="background:linear-gradient(135deg,#5B9DFF,#9D8CFF);"></span>
+              <span><span class="dd-name">AI Lab</span><br><span class="dd-desc">default · sharp technical</span></span>
+              <span class="dd-check">✓</span>
+            </div>
+            <div class="dd-item" role="option" aria-selected="false">
+              <span class="swatch" style="background:linear-gradient(135deg,#FF6FA5,#FFC15E);"></span>
+              <span><span class="dd-name">Kawaii Lab</span><br><span class="dd-desc">pink · playful · round</span></span>
+              <span></span>
+            </div>
+            <div class="dd-item" role="option" aria-selected="false">
+              <span class="swatch" style="background:linear-gradient(135deg,#A78BFA,#D9B96C);"></span>
+              <span><span class="dd-name">Art History</span><br><span class="dd-desc">scholarly violet · gold leaf</span></span>
+              <span></span>
+            </div>
+            <div class="dd-foot">worlds swap <span style="color:var(--accent);">:root tokens</span> only — <a href="#">create your own →</a></div>
+          </div>
+        </div>
+        <p class="world-copy">A <b>World</b> is a token file, nothing more. Same layout, same components,
+          same muscle memory — the swatch you pick repaints every surface, radius and glow in the lab.
+          That’s how a fork becomes <span class="mono" style="font-size:12.5px;">PeanutLab</span> without touching a template.</p>
+      </article>
+    </section>
+
+    <!-- ══════════ 05 · THEME PROOF ══════════ -->
+    <section class="section">
+      <div class="sec-head">
+        <span class="sec-index">05</span>
+        <span class="sec-title">Theme proof</span>
+        <span class="sec-note">same markup · tokens swapped locally</span>
+        </div>
+
+      <div class="swap-row" style="margin-bottom:22px;">
+        <span class="swap-label">repaint entire page →</span>
+        <button class="swap-btn" onclick="setTheme('default')">AI Lab</button>
+        <button class="swap-btn" onclick="setTheme('kawaii')">Kawaii Lab</button>
+        <button class="swap-btn" onclick="setTheme('scholar')">Art History</button>
+      </div>
+
+      <div class="proof-row">
+
+        <!-- 1 · sharp technical (inherits :root) -->
+        <div class="proof-tile">
+          <article class="card card--lift metric">
+            <div class="metric-top">
+              <span class="metric-label">Tokens / sec</span>
+              <span class="delta delta--up">▲ 6.4%</span>
+            </div>
+            <div class="metric-num">48.2</div>
+            <svg class="spark" viewBox="0 0 120 34" preserveAspectRatio="none" aria-hidden="true">
+              <path class="fill" d="M0 28 L15 26 L30 27 L45 21 L60 22 L75 16 L90 17 L105 11 L120 12 L120 34 L0 34 Z" stroke="none"/>
+              <path class="line" d="M0 28 L15 26 L30 27 L45 21 L60 22 L75 16 L90 17 L105 11 L120 12" fill="none" stroke-width="1.5"/>
+            </svg>
+          </article>
+          <div class="proof-cap"><span class="n">AI Lab</span><span class="t">default · sharp technical</span></div>
+        </div>
+
+        <!-- 2 · pink playful — token overrides only -->
+        <div class="proof-tile" style="
+          --bg:#1A1016; --surface:#241620; --surface2:#2E1B29; --surface3:#392234;
+          --border:#42293C; --border-strong:#5C3A54;
+          --text:#F0D8E4; --text-strong:#FFF0F7; --text-muted:#BB8FA8;
+          --accent:#FF6FA5; --accent2:#FFC15E;
+          --positive:#5DD9A0; --warn:#FFC15E; --danger:#FF6B6B; --info:#6FC3FF;
+          --glow:rgba(255,111,165,.28);
+          --radius-s:12px; --radius-m:18px; --radius-l:26px;">
+          <article class="card card--lift metric">
+            <div class="metric-top">
+              <span class="metric-label">Tokens / sec</span>
+              <span class="delta delta--up">▲ 6.4%</span>
+            </div>
+            <div class="metric-num">48.2</div>
+            <svg class="spark" viewBox="0 0 120 34" preserveAspectRatio="none" aria-hidden="true">
+              <path class="fill" d="M0 28 L15 26 L30 27 L45 21 L60 22 L75 16 L90 17 L105 11 L120 12 L120 34 L0 34 Z" stroke="none"/>
+              <path class="line" d="M0 28 L15 26 L30 27 L45 21 L60 22 L75 16 L90 17 L105 11 L120 12" fill="none" stroke-width="1.5"/>
+            </svg>
+          </article>
+          <div class="proof-cap"><span class="n">Kawaii Lab</span><span class="t">round · glowy · pink</span></div>
+        </div>
+
+        <!-- 3 · scholarly violet — token overrides only -->
+        <div class="proof-tile" style="
+          --bg:#131019; --surface:#1B1626; --surface2:#231D31; --surface3:#2C2440;
+          --border:#322A46; --border-strong:#4A3F66;
+          --text:#D8D2E6; --text-strong:#F3EFFA; --text-muted:#9A8FB5;
+          --accent:#A78BFA; --accent2:#D9B96C;
+          --positive:#4CC38A; --warn:#E3B75A; --danger:#E5484D; --info:#7FB4E8;
+          --glow:transparent;
+          --radius-s:4px; --radius-m:8px; --radius-l:12px;">
+          <article class="card card--lift metric">
+            <div class="metric-top">
+              <span class="metric-label">Tokens / sec</span>
+              <span class="delta delta--up">▲ 6.4%</span>
+            </div>
+            <div class="metric-num">48.2</div>
+            <svg class="spark" viewBox="0 0 120 34" preserveAspectRatio="none" aria-hidden="true">
+              <path class="fill" d="M0 28 L15 26 L30 27 L45 21 L60 22 L75 16 L90 17 L105 11 L120 12 L120 34 L0 34 Z" stroke="none"/>
+              <path class="line" d="M0 28 L15 26 L30 27 L45 21 L60 22 L75 16 L90 17 L105 11 L120 12" fill="none" stroke-width="1.5"/>
+            </svg>
+          </article>
+          <div class="proof-cap"><span class="n">Art History</span><span class="t">crisp · bookish · violet + gold</span></div>
+        </div>
+      </div>
+    </section>
+
+    <footer>
+      <span>ARAIL · concept 3 “editorial lab” · dark scheme · tokens-only theming</span>
+      <span>Inter for prose · JetBrains Mono for data · no network, no CDN</span>
+    </footer>
+  </main>
+
+  <!-- optional tiny theme-swap: proves the page repaints via :root tokens alone -->
+  <script>
+    const THEMES = {
+      default: {
+        '--bg':'#0B0E14','--surface':'#11151E','--surface2':'#171C28','--surface3':'#1E2432',
+        '--border':'#232937','--border-strong':'#333C50',
+        '--text':'#C8D0DC','--text-strong':'#EEF2F7','--text-muted':'#7E8899',
+        '--accent':'#5B9DFF','--accent2':'#9D8CFF',
+        '--positive':'#46C68C','--warn':'#E8B04B','--danger':'#F0645C','--info':'#59B6E0',
+        '--glow':'transparent','--radius-s':'6px','--radius-m':'10px','--radius-l':'16px'
+      },
+      kawaii: {
+        '--bg':'#1A1016','--surface':'#241620','--surface2':'#2E1B29','--surface3':'#392234',
+        '--border':'#42293C','--border-strong':'#5C3A54',
+        '--text':'#F0D8E4','--text-strong':'#FFF0F7','--text-muted':'#BB8FA8',
+        '--accent':'#FF6FA5','--accent2':'#FFC15E',
+        '--positive':'#5DD9A0','--warn':'#FFC15E','--danger':'#FF6B6B','--info':'#6FC3FF',
+        '--glow':'rgba(255,111,165,.28)','--radius-s':'12px','--radius-m':'18px','--radius-l':'26px'
+      },
+      scholar: {
+        '--bg':'#131019','--surface':'#1B1626','--surface2':'#231D31','--surface3':'#2C2440',
+        '--border':'#322A46','--border-strong':'#4A3F66',
+        '--text':'#D8D2E6','--text-strong':'#F3EFFA','--text-muted':'#9A8FB5',
+        '--accent':'#A78BFA','--accent2':'#D9B96C',
+        '--positive':'#4CC38A','--warn':'#E3B75A','--danger':'#E5484D','--info':'#7FB4E8',
+        '--glow':'transparent','--radius-s':'4px','--radius-m':'8px','--radius-l':'12px'
+      }
+    };
+    function setTheme(name){
+      const t = THEMES[name];
+      for (const k in t) document.documentElement.style.setProperty(k, t[k]);
+    }
+  </script>
+</body>
+</html>

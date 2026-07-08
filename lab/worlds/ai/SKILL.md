@@ -1,0 +1,725 @@
+---
+title: "AI & Machine Learning"
+id: world-ai
+name: "AI & Machine Learning"
+domain: ai
+version: "1.0.0"
+tags: [world, knowledge, ai]
+when_to_use:
+  - When the user asks about AI & Machine Learning or its declared categories
+  - When grounding a claim that falls inside this World's domain
+when_not_to_use:
+  - When the question is outside this World's declared categories
+  - When a claim cannot be tied to one of this World's sourced terms (say so; don't invent)
+---
+This lab studies how modern AI systems are built, trained, tuned, quantized, served, and debugged. Every factual claim is grounded in the World's cited sources; the glossary spans fundamentals, architecture, training, fine-tuning, RL & alignment, quantization, inference, performance, formats & runtime, and the training-run clinic (symptoms, conditions, pathologies, remedies).
+
+Every term in this World is grounded in a cited source.
+
+_Answer only from the terms below. Every term lists its source. If a question cannot be answered from these terms, say the World does not cover it — do not invent._
+
+### Architecture
+
+- **Action Space** (`action-space`) — The set of things an agent can do — internal (reason, retrieve) and external (call tools, act in the world).
+  - Source: authored
+- **Agent** (`agent`) — An LLM that takes actions — calls tools, makes decisions — toward a goal, not just chats.
+  - Source: QuKaiZen AI Dictionary
+- **Agent Loop** (`agent-loop`) — The repeating perceive-decide-act cycle that drives an autonomous agent.
+  - Source: authored
+- **Agentic** (`agentic`) — Software built around autonomous, tool-using model agents.
+  - Source: QuKaiZen AI Dictionary
+- **ALiBi** (`alibi`) — Position handling that biases attention scores by distance instead of adding position embeddings.
+  - Source: authored
+- **Attention** (`attention`) — The mechanism that lets each token weigh and pull information from every other token.
+  - Source: authored
+- **Attention Sink** (`attention-sink`) — Initial tokens that attention disproportionately fixates on; preserving them stabilizes long/streaming generation.
+  - Source: authored
+- **Autoencoder** (`autoencoder`) — Encoder-decoder trained to reconstruct its own input — learns a compressed representation.
+  - Source: Goodfellow et al. — Deep Learning ch.14 (autoencoders)
+- **Automation** (`automation`) — Letting software run repeatable work end-to-end with no human in the loop.
+  - Source: QuKaiZen AI Dictionary
+- **Batch normalization** (`batch-normalization`) — Normalizes activations across the batch dimension to stabilize training.
+  - Source: Ioffe & Szegedy — Batch Normalization arXiv:1502.03167; Goodfellow et al. — Deep Learning ch.8
+- **Byte-Pair Encoding** (`bpe`) — A subword tokenization that iteratively merges the most frequent character pairs into tokens.
+  - Source: authored
+- **CoALA** (`coala`) — A framework (Princeton, 2023) organizing language agents into memory modules, an action space, and a decision-making loop.
+  - Source: Sumers, Yao, Narasimhan & Griffiths, 'Cognitive Architectures for Language Agents' (2023), arXiv:2309.02427
+- **Context Window** (`context-window`) — The maximum number of tokens a model can attend to at once — its working span of input plus output.
+  - Source: authored
+- **Cross-Attention** (`cross-attention`) — Attention where queries come from one sequence and keys/values from another.
+  - Source: authored
+- **Decoder-Only** (`decoder-only`) — The autoregressive transformer design used by most LLMs: predict the next token, attending only to the past.
+  - Source: authored
+- **Desired State** (`desired-state`) — The end state you declare; the system's job is to make reality match it.
+  - Source: QuKaiZen AI Dictionary
+- **Drift** (`drift`) — When the real state of a system diverges from its declared desired state over time.
+  - Source: authored
+- **Embedding layer** (`embedding-layer`) — Maps discrete token IDs to dense vectors — the model's vocabulary lookup table.
+  - Source: Goodfellow et al. — Deep Learning ch.12; HF Transformers model architecture docs
+- **Encoder-Decoder** (`encoder-decoder`) — A two-stack design: an encoder reads the full input, a decoder generates output attending to it via cross-attention.
+  - Source: authored
+- **Episodic Memory** (`episodic-memory`) — An agent's memory of specific past experiences — what happened, when, in which session.
+  - Source: authored
+- **Expert Routing** (`expert-routing`) — How a sparse MoE assigns each token to a subset of experts so only part of the model runs per token.
+  - Source: authored
+- **Feed-Forward Network** (`feedforward-network`) — The per-token two-layer MLP in each transformer block, where most parameters and stored knowledge live.
+  - Source: authored
+- **Function Calling** (`function-calling`) — A structured protocol for a model to request a specific tool with typed arguments.
+  - Source: QuKaiZen AI Dictionary
+- **Gating Network** (`gating-network`) — The router in a mixture-of-experts that decides which experts handle each token.
+  - Source: authored
+- **GELU** (`gelu`) — A smooth activation function used in transformer feed-forward layers.
+  - Source: authored
+- **Generative adversarial network (GAN)** (`generative-adversarial-network`) — Generator and discriminator trained adversarially — generator fools the discriminator.
+  - Source: Goodfellow et al. — Generative Adversarial Networks arXiv:1406.2661; Goodfellow et al. — Deep Learning ch.20
+- **Grounding** (`grounding`) — Connecting an agent's language to the real world via tools, environments, or retrieved facts.
+  - Source: authored
+- **Grouped-Query Attention** (`grouped-query-attention`) — Share key/value heads across groups of query heads to shrink the KV-cache with little quality loss.
+  - Source: authored
+- **Handoff** (`handoff`) — Passing control and context from one agent to another so work continues without losing state.
+  - Source: authored
+- **Idempotent** (`idempotent`) — An operation that produces the same result whether applied once or many times.
+  - Source: authored
+- **Knowledge Base** (`knowledge-base`) — An external, queryable store of facts and documents a model retrieves from instead of relying on weights alone.
+  - Source: authored
+- **Layer normalization** (`layer-normalization`) — Normalizes activations across the feature dimension within each example.
+  - Source: Ba et al. — Layer Normalization arXiv:1607.06450; Goodfellow et al. — Deep Learning ch.8
+- **LayerNorm** (`layernorm`) — Normalizes activations within each layer to keep training stable; modern LLMs often use RMSNorm.
+  - Source: authored
+- **Long-Term Memory** (`long-term-memory`) — An agent's durable store that survives across sessions, beyond the context window.
+  - Source: authored
+- **MCP** (`mcp`) — An open standard for connecting models to tools and data sources.
+  - Source: QuKaiZen AI Dictionary
+- **Memory Stream** (`memory-stream`) — A time-ordered log of an agent's observations, scored by recency, importance, and relevance for retrieval.
+  - Source: authored
+- **MoE** (`moe`) — A model split into many expert sub-networks where a router activates only a few per token.
+  - Source: authored
+- **Multi-Agent** (`multi-agent`) — Several specialized agents collaborating, each owning a function.
+  - Source: QuKaiZen AI Dictionary
+- **Multi-Head Attention** (`multi-head-attention`) — Run several attention operations in parallel, each in its own subspace, then concatenate.
+  - Source: authored
+- **Multi-Query Attention** (`multi-query-attention`) — All query heads share a single key/value head — the most aggressive KV-cache reduction.
+  - Source: authored
+- **Orchestration** (`orchestration`) — Coordinating multiple agents or services into one coherent flow.
+  - Source: QuKaiZen AI Dictionary
+- **Planning** (`planning`) — An agent breaks a goal into an ordered set of subtasks before (or while) acting.
+  - Source: authored
+- **Positional Encoding** (`positional-encoding`) — Information added to tokens so the otherwise order-blind transformer knows their sequence positions.
+  - Source: authored
+- **Procedural Memory** (`procedural-memory`) — An agent's memory of how to do things — its skills, routines, and the agent code itself.
+  - Source: authored
+- **RAG** (`rag`) — Fetch relevant documents at query time and feed them to the model as context.
+  - Source: QuKaiZen AI Dictionary
+- **ReAct** (`react`) — An agent pattern that interleaves reasoning steps ('thoughts') with actions ('tool calls') in a loop.
+  - Source: authored
+- **Reconciliation** (`reconcile`) — Continuously closing the gap between the team you declared and the team that's running.
+  - Source: QuKaiZen AI Dictionary
+- **Reflection** (`reflection`) — An agent reviews its own past actions or outputs and writes higher-level lessons or corrections.
+  - Source: authored
+- **Reflexion** (`reflexion`) — An agent loop that converts failure feedback into written self-reflection stored in memory for the next attempt.
+  - Source: authored
+- **ReLU** (`relu`) — Rectified Linear Unit — max(0, x). The most common hidden-layer activation.
+  - Source: Goodfellow et al. — Deep Learning §6.3.1; PyTorch ReLU docs
+- **Residual Connection** (`residual-connection`) — Add a layer's input to its output so gradients and signal can flow straight through deep stacks.
+  - Source: authored
+- **RMSNorm** (`rmsnorm`) — A lighter normalization that scales activations by their root-mean-square, without subtracting the mean.
+  - Source: authored
+- **RoPE** (`rope`) — Encodes token position by rotating query/key vectors — the dominant positional scheme in modern LLMs.
+  - Source: authored
+- **Self-attention** (`self-attention`) — Each token attends to all other tokens in the sequence to build context-aware representations.
+  - Source: Vaswani et al. — Attention Is All You Need arXiv:1706.03762
+- **Semantic Memory** (`semantic-memory`) — An agent's store of general world knowledge and facts, decoupled from any single experience.
+  - Source: authored
+- **Sliding-Window Attention** (`sliding-window-attention`) — Each token attends only to a fixed window of nearby tokens, making attention linear in length.
+  - Source: authored
+- **Sparse Attention** (`sparse-attention`) — Compute attention over only a chosen subset of token pairs instead of all of them.
+  - Source: authored
+- **State-Space Model** (`state-space-model`) — A sequence architecture that carries a recurrent hidden state, scaling linearly with length instead of attention's quadratic cost.
+  - Source: authored
+- **Supervisor Agent** (`supervisor-agent`) — An orchestrating agent that routes work to specialist sub-agents and integrates their results.
+  - Source: authored
+- **SwiGLU** (`swiglu`) — A gated activation for the feed-forward block that tends to beat plain GELU/ReLU at equal size.
+  - Source: authored
+- **Tool Use** (`tool-use`) — A model invoking external tools — APIs, code, search — to act beyond text.
+  - Source: QuKaiZen AI Dictionary
+- **Transformer** (`transformer`) — The attention-based neural architecture behind essentially every modern LLM.
+  - Source: authored
+- **Tree of Thoughts** (`tree-of-thoughts`) — Explore multiple reasoning branches as a search tree, evaluating and backtracking, instead of one chain.
+  - Source: authored
+- **Tri-Attention** (`tri-attention`) — Attention that adds an explicit third 'context' term to the usual query-key interaction, modeling three-way relationships instead of pairwise ones.
+  - Source: authored
+- **Variational autoencoder (VAE)** (`variational-autoencoder`) — A generative model that learns a probabilistic latent space via the ELBO objective.
+  - Source: Kingma & Welling — Auto-Encoding Variational Bayes arXiv:1312.6114; Goodfellow et al. — Deep Learning ch.20
+- **Vision Transformer** (`vision-transformer`) — A transformer that processes images by splitting them into patches treated as tokens.
+  - Source: authored
+- **Watcher** (`watcher`) — A process that observes for changes and triggers reconciliation when state moves.
+  - Source: authored
+- **Workflow** (`workflow`) — A declared sequence of steps an agent or pipeline executes.
+  - Source: QuKaiZen AI Dictionary
+- **Working Memory** (`working-memory`) — An agent's active scratchpad — the small, volatile state it holds for the current decision.
+  - Source: authored
+- **YaRN** (`yarn`) — A method to extend a model's usable context window by rescaling its rotary position frequencies.
+  - Source: authored
+
+### Remedies & Care Actions
+
+- **Add gradient clipping** (`add-gradient-clipping`) — Cap gradient norms before the optimizer step to prevent destabilizing updates.
+  - Source: PyTorch torch.nn.utils.clip_grad_norm_ docs; HF Trainer (max_grad_norm); Goodfellow et al. — Deep Learning §10.11
+- **Add regularization** (`add-regularization`) — Apply dropout, weight decay, or data augmentation to reduce overfitting.
+  - Source: Goodfellow et al. — Deep Learning ch.7; HF Trainer docs (weight_decay); PyTorch Dropout docs
+- **Apply warmup schedule** (`apply-warmup-schedule`) — Ramp the LR from near-zero to peak over N steps before the main schedule.
+  - Source: HF Trainer docs (warmup_steps, lr_scheduler_type='cosine_with_restarts'); NVIDIA training guide; OLMo training config
+- **Increase batch size / accumulation** (`increase-batch-size`) — Use a larger effective batch size to stabilize gradient estimates and improve throughput.
+  - Source: PyTorch gradient accumulation pattern; HF Trainer docs (per_device_train_batch_size, gradient_accumulation_steps); NVIDIA performance guide
+- **Reduce learning rate** (`reduce-learning-rate`) — Lower the peak LR (and/or lengthen warmup) to restabilize.
+  - Source: HF Trainer docs (learning_rate, warmup_steps); NVIDIA training-performance guide; OLMo logbook
+- **Resume from checkpoint** (`resume-from-checkpoint`) — Roll back to a saved state before the failure and restart with corrected hyperparameters.
+  - Source: HF Trainer docs (resume_from_checkpoint, save_steps); PyTorch checkpoint docs
+- **Switch optimizer** (`switch-optimizer`) — Change the optimizer (e.g., SGD → Adam, Adam → AdamW) to better fit the problem.
+  - Source: AdamW: Loshchilov & Hutter arXiv:1711.05101; HF Trainer docs (optim=adamw_hf); PyTorch optimizer docs
+
+### Model Conditions
+
+- **Class imbalance** (`class-imbalance`) — Training data is dominated by a few classes — rare classes are ignored.
+  - Source: Goodfellow et al. — Deep Learning ch.5; PyTorch WeightedRandomSampler docs
+- **Data leakage** (`data-leakage`) — Validation/test data has leaked into training — metrics are invalid.
+  - Source: Goodfellow et al. — Deep Learning ch.5 (evaluation); HF datasets docs (train/test split)
+- **Dead neurons** (`dead-neurons`) — ReLU units stuck at zero — never activate, never learn.
+  - Source: Goodfellow et al. — Deep Learning §6.3.1 (ReLU and variants); PyTorch activation docs
+- **Distribution shift** (`distribution-shift`) — Training and deployment data have different distributions — model degrades at inference.
+  - Source: Goodfellow et al. — Deep Learning ch.7; HF docs on domain adaptation
+- **Internal covariate shift** (`internal-covariate-shift`) — Distribution of layer activations shifts during training, slowing convergence.
+  - Source: Ioffe & Szegedy — Batch Normalization arXiv:1502.03167; Goodfellow et al. — Deep Learning §8.7
+- **Learning rate too high** (`learning-rate-too-high`) — Peak LR exceeds what the schedule/optimizer can stabilize.
+  - Source: HF Trainer docs (lr_scheduler_type, warmup_steps); Goodfellow et al. ch.8; OLMo logbook
+- **Learning rate too low** (`learning-rate-too-low`) — LR is so small that the optimizer barely moves — training stalls.
+  - Source: HF Trainer docs; Goodfellow et al. — Deep Learning ch.8 (hyperparameter tuning)
+- **Mode collapse** (`mode-collapse`) — Generator produces only a few outputs — diversity collapses.
+  - Source: Goodfellow et al. — Deep Learning ch.20 (generative models, GANs); RLHF literature (reward hacking)
+- **Posterior collapse** (`posterior-collapse`) — VAE latent variables collapse to the prior — the encoder becomes useless.
+  - Source: Bowman et al. (2016) — Generating Sentences from a Continuous Space (posterior collapse identification); Goodfellow et al. — Deep Learning ch.20
+
+### Fine-Tuning
+
+- **Adapter layers** (`adapter-layers`) — Small bottleneck modules inserted into transformer layers — trained while base model is frozen.
+  - Source: Houlsby et al. — Parameter-Efficient Transfer Learning arXiv:1902.00751; HF peft docs (AdapterConfig)
+- **Adapters** (`adapters`) — Small trainable modules inserted into a frozen model to add new skills without retraining it.
+  - Source: authored
+- **Born-Again Networks** (`born-again-networks`) — Distill a model into a fresh copy of identical size — the student often beats the teacher.
+  - Source: authored
+- **Continued pretraining** (`continued-pretraining`) — Resume pretraining on domain data before task fine-tuning to build domain fluency.
+  - Source: Gururangan et al. — Don't Stop Pretraining arXiv:2004.10964; HF Trainer docs (language modeling)
+- **Distillation** (`distillation`) — Transfer a big teacher model's behavior into a small student model.
+  - Source: authored
+- **Domain Adaptation** (`domain-adaptation`) — Specialize a general model to a target domain, often via continued pretraining on domain text.
+  - Source: authored
+- **Domain-specialist model** (`domain-specialist-model`) — A model adapted to excel in one domain by fine-tuning, distillation, and domain-adaptive pretraining.
+  - Source: Gururangan et al. — Don't Stop Pretraining arXiv:2004.10964; HF domain adaptation docs; OLMo (EleutherAI) domain specialist experiments
+- **DoRA** (`dora`) — A LoRA refinement that decomposes weight updates into magnitude and direction for better quality.
+  - Source: authored
+- **Fine-tune** (`fine-tune`) — Continue training a pretrained model on new data to specialize it for a task or domain.
+  - Source: authored
+- **Fine-tuning** (`fine-tuning`) — Adapt a pretrained model to a target task or domain by continued gradient updates.
+  - Source: Goodfellow et al. — Deep Learning ch.15 (transfer learning); HF Trainer docs; LoRA arXiv:2106.09685
+- **IA3** (`ia3`) — An extremely lightweight PEFT method that learns to rescale activations with a few vectors.
+  - Source: authored
+- **Instruction Tuning** (`instruction-tuning`) — Fine-tune a base model on instruction-response pairs so it follows natural-language commands.
+  - Source: authored
+- **Knowledge distillation** (`knowledge-distillation`) — Transfer knowledge from a large teacher model to a smaller student model.
+  - Source: Hinton et al. — Distilling the Knowledge in a Neural Network arXiv:1503.02531; Goodfellow et al. — Deep Learning ch.7
+- **LoRA** (`lora`) — Fine-tune a model by training tiny low-rank adapter matrices while the base weights stay frozen.
+  - Source: qukaizen/docs/TECHNIQUES.md
+- **Model Merging** (`model-merging`) — Combine multiple fine-tuned models into one by arithmetic on their weights, no extra training.
+  - Source: authored
+- **Online Distillation** (`online-distillation`) — Teacher and student train together at the same time instead of distilling from a frozen teacher.
+  - Source: authored
+- **PEFT** (`peft`) — An umbrella for methods (LoRA, adapters, prefix-tuning) that tune a tiny fraction of parameters.
+  - Source: authored
+- **Prefix Tuning** (`prefix-tuning`) — Prepend trainable key/value vectors to every layer's attention, freezing the base model.
+  - Source: authored
+- **Prompt Tuning** (`prompt-tuning`) — Learn a small set of continuous 'soft prompt' vectors while freezing the model, to steer behavior cheaply.
+  - Source: authored
+- **QLoRA** (`qlora`) — LoRA on top of a 4-bit quantized base model — fine-tune big models on one consumer GPU.
+  - Source: authored
+- **RAFT** (`raft`) — Fine-tuning that teaches a model to reason over retrieved docs while ignoring distractors.
+  - Source: knowledge_base/wiki/concepts/RAFT.md
+- **Rejection-Sampling Fine-Tuning** (`rejection-sampling-finetuning`) — Sample many answers, keep only the ones that pass a check, then fine-tune on the survivors.
+  - Source: authored
+- **SCoTD** (`scotd`) — Distill a teacher's step-by-step reasoning into a small model via many symbolic CoT traces.
+  - Source: knowledge_base/wiki/concepts/SCoTD.md
+- **Self-Distillation** (`self-distillation`) — A model acts as its own teacher — its current outputs become training targets for a refined version of itself.
+  - Source: authored
+- **Small language model (SLM)** (`small-language-model`) — A language model small enough to run on consumer hardware — typically 1B–13B parameters.
+  - Source: Goodfellow et al. — Deep Learning (model compression); HF model hub SLM examples; NVIDIA deep-learning performance guide
+- **Soft Targets** (`soft-targets`) — A teacher's full probability distribution used as the training target, not just the single correct label.
+  - Source: authored
+- **Task Arithmetic** (`task-arithmetic`) — Treat the weight change from fine-tuning as a 'task vector' you can add or subtract.
+  - Source: authored
+- **Teacher–student training** (`teacher-student-training`) — A large teacher model guides a smaller student model's training.
+  - Source: Hinton et al. — Distilling the Knowledge arXiv:1503.02531; HF trl docs (knowledge distillation)
+- **TIES-Merging** (`ties-merging`) — A merge recipe that trims small changes and resolves sign conflicts between task vectors.
+  - Source: authored
+
+### Formats & Runtime
+
+- **CUDA** (`cuda`) — NVIDIA's platform/language for general-purpose GPU computing — the substrate most ML runs on.
+  - Source: authored
+- **Ed25519** (`ed25519`) — A fast, modern public-key signature scheme used to cryptographically sign and verify artifacts.
+  - Source: authored
+- **GGML** (`ggml`) — The C/C++ tensor library underpinning llama.cpp, enabling efficient CPU and edge inference.
+  - Source: authored
+- **GGUF** (`gguf`) — A single-file binary format for quantized models, built for fast local inference (llama.cpp).
+  - Source: authored
+- **Hugging Face** (`huggingface`) — The hub and libraries (Transformers, Datasets, Hub) that are the de facto registry for open models.
+  - Source: authored
+- **llama.cpp** (`llama-cpp`) — A lean C/C++ inference engine that runs quantized LLMs efficiently on CPUs, Macs, and modest GPUs.
+  - Source: authored
+- **MLX** (`mlx`) — Apple's array framework for running and training models on Apple Silicon's unified memory.
+  - Source: QuKaiZen AI Dictionary
+- **Ollama** (`ollama`) — A local runtime that packages and serves models with one command, built on llama.cpp.
+  - Source: authored
+- **ONNX** (`onnx`) — An open, framework-neutral format for exchanging models between training and inference runtimes.
+  - Source: authored
+- **PyTorch** (`pytorch`) — The dominant deep-learning framework for research and much production, built on eager Python tensors.
+  - Source: authored
+- **SafeTensors** (`safetensors`) — A safe, fast, zero-copy tensor file format — the modern replacement for pickle-based checkpoints.
+  - Source: authored
+- **SentencePiece** (`sentencepiece`) — A language-agnostic tokenizer toolkit that trains subword models directly on raw text.
+  - Source: authored
+- **TensorRT** (`tensorrt`) — NVIDIA's inference optimizer/runtime that compiles models into highly tuned GPU engines.
+  - Source: authored
+- **TGI** (`tgi`) — Hugging Face's production inference server for high-throughput, low-latency LLM serving.
+  - Source: authored
+- **Triton** (`triton`) — A Python-like language for writing fast GPU kernels without hand-writing CUDA C++.
+  - Source: authored
+
+### Fundamentals
+
+- **Ablation** (`ablation`) — Removing one component to measure how much it actually contributes.
+  - Source: QuKaiZen AI Dictionary
+- **Activation Function** (`activation-function`) — The nonlinear function applied to neuron outputs, letting networks model more than straight lines.
+  - Source: authored
+- **Baseline** (`baseline`) — A reference result you compare against to judge whether a change actually helped.
+  - Source: authored
+- **Benchmark** (`benchmark`) — A standardized test set used to measure and compare model capability.
+  - Source: QuKaiZen AI Dictionary
+- **Chain-of-Thought** (`chain-of-thought`) — Prompting a model to show its intermediate steps, which sharply improves reasoning.
+  - Source: QuKaiZen AI Dictionary
+- **Cosine Similarity** (`cosine-similarity`) — A measure of how aligned two vectors are by the angle between them — the standard relevance score for embeddings.
+  - Source: authored
+- **Deep Learning** (`deep-learning`) — Machine learning with many-layered neural networks that learn features automatically from raw data.
+  - Source: authored
+- **Embeddings** (`embeddings`) — Dense numeric vectors representing tokens or text so similar meanings sit close together.
+  - Source: authored
+- **Emergent Abilities** (`emergent-abilities`) — Capabilities that appear only past a certain model scale, absent in smaller models.
+  - Source: authored
+- **Experiment** (`experiment`) — A single tracked training or evaluation run with a fixed configuration, used to test one change against a baseline.
+  - Source: authored
+- **Faithfulness** (`faithfulness`) — Whether a model's output is actually supported by its inputs or stated reasoning — not just plausible.
+  - Source: authored
+- **Few-Shot** (`few-shot`) — Prompting a model with a handful of worked examples to demonstrate the desired task.
+  - Source: authored
+- **Generalization** (`generalization`) — How well a model performs on new, unseen data rather than the data it trained on.
+  - Source: authored
+- **Gradient Descent** (`gradient-descent`) — The core optimization: repeatedly step parameters in the direction that most reduces the loss.
+  - Source: authored
+- **Hallucination** (`hallucination`) — When a model states fluent, confident information that is fabricated or unsupported.
+  - Source: authored
+- **Hidden State** (`hidden-state`) — The vector a model holds for each token at each layer — its evolving internal representation.
+  - Source: authored
+- **Hypothesis** (`hypothesis`) — A testable prediction you set out to confirm or refute with an experiment.
+  - Source: QuKaiZen AI Dictionary
+- **In-Context Learning** (`in-context-learning`) — A model learns a task from examples in its prompt at inference time, with no weight updates.
+  - Source: authored
+- **Inference** (`inference`) — Running a trained model to produce outputs — the deployment side, as opposed to training.
+  - Source: authored
+- **Latent Space** (`latent-space`) — The learned, compressed vector space in which a model represents meaning.
+  - Source: authored
+- **LLM** (`llm`) — A transformer trained on vast text to predict the next token, yielding broad language ability.
+  - Source: QuKaiZen AI Dictionary
+- **Logits** (`logits`) — The model's raw, unnormalized output scores over the vocabulary, before softmax makes them probabilities.
+  - Source: authored
+- **Multimodal** (`multimodal`) — Models that take in or produce more than one kind of data — text, images, audio, video.
+  - Source: authored
+- **Neural Network** (`neural-network`) — Layers of simple weighted units that transform inputs into outputs, learning the weights from data.
+  - Source: authored
+- **N-gram** (`ngram`) — A contiguous sequence of n tokens; the basis of pre-neural language models and still used for metrics.
+  - Source: authored
+- **Parameter** (`parameter`) — A single learned number in a model; their count (e.g. 7B) is the rough measure of model size.
+  - Source: authored
+- **Perplexity** (`perplexity`) — A measure of how surprised a model is by text — lower means it predicts the text better.
+  - Source: authored
+- **Prompt** (`prompt`) — The input text you give a model to steer what it does.
+  - Source: QuKaiZen AI Dictionary
+- **Reasoning** (`reasoning`) — A model working through a problem in intermediate steps instead of answering in one leap.
+  - Source: QuKaiZen AI Dictionary
+- **Research** (`research`) — Systematic inquiry — forming hypotheses, running experiments, and measuring results.
+  - Source: QuKaiZen AI Dictionary
+- **Self-Supervised Learning** (`self-supervised-learning`) — Create the training signal from the data itself — e.g. predict the next token — needing no human labels.
+  - Source: authored
+- **SGD** (`sgd`) — Stochastic gradient descent: estimate the gradient from a small random batch instead of the whole dataset.
+  - Source: authored
+- **Softmax** (`softmax`) — Turns a vector of logits into a probability distribution that sums to 1.
+  - Source: authored
+- **Supervised Learning** (`supervised-learning`) — Learning from labeled examples — inputs paired with the correct outputs.
+  - Source: authored
+- **Tokenizer** (`tokenizer`) — Splits text into tokens (subword units) the model actually reads, and back again.
+  - Source: authored
+- **Transfer Learning** (`transfer-learning`) — Reuse a model trained on one task as the starting point for another, instead of training from scratch.
+  - Source: authored
+- **Unsupervised Learning** (`unsupervised-learning`) — Finding structure in data with no labels — clustering, density, or representation.
+  - Source: authored
+- **Vocabulary** (`vocabulary`) — The fixed set of tokens a model knows; its size sets the width of the input and output layers.
+  - Source: authored
+- **Zero-Shot** (`zero-shot`) — Asking a model to perform a task from instructions alone, with no examples.
+  - Source: authored
+
+### Inference
+
+- **Beam Search** (`beam-search`) — A decoding strategy that keeps the top-k partial sequences each step to find a higher-probability output.
+  - Source: authored
+- **Constrained Decoding** (`constrained-decoding`) — Restrict generation at each step to tokens allowed by a grammar or schema, guaranteeing valid output.
+  - Source: authored
+- **Decode Phase** (`decode-phase`) — The token-by-token generation phase, bottlenecked by memory bandwidth rather than compute.
+  - Source: authored
+- **Determinism** (`determinism`) — Whether a model returns the same output for the same input every time — LLMs are non-deterministic by default.
+  - Source: authored
+- **Greedy Decoding** (`greedy-decoding`) — Always pick the single highest-probability next token — deterministic but can be repetitive.
+  - Source: authored
+- **Prefill** (`prefill`) — The compute-heavy first phase where the model ingests the whole prompt in parallel.
+  - Source: authored
+- **Repetition Penalty** (`repetition-penalty`) — A decoding adjustment that lowers the probability of tokens already generated, reducing loops.
+  - Source: authored
+- **Sampling** (`sampling`) — Drawing the next token randomly from the model's probability distribution rather than always taking the top one.
+  - Source: authored
+- **Self-Consistency** (`self-consistency`) — Sample several reasoning chains and take the majority answer, trading compute for accuracy.
+  - Source: authored
+- **Stop Sequence** (`stop-sequence`) — A string that, once generated, halts decoding — used to bound output and separate turns.
+  - Source: authored
+- **Structured Output** (`structured-output`) — Forcing a model's response into a machine-parseable shape like JSON conforming to a schema.
+  - Source: authored
+- **System Prompt** (`system-prompt`) — A high-priority instruction block that sets a model's role, rules, and behavior before the user's turn.
+  - Source: authored
+- **Temperature** (`temperature`) — A knob for randomness in generation — low is focused/deterministic, high is creative/diverse.
+  - Source: authored
+- **Top-k Sampling** (`top-k`) — Restrict sampling to the k most probable next tokens, then renormalize and draw from those.
+  - Source: authored
+- **Top-p (Nucleus) Sampling** (`top-p`) — Sample from the smallest set of top tokens whose probabilities sum to p — an adaptive cutoff.
+  - Source: authored
+- **vLLM** (`vllm`) — A high-throughput LLM serving engine; its PagedAttention manages the KV-cache like virtual memory.
+  - Source: qukaizen/docs/TECHNIQUES.md
+
+### Data & Numeric Pathologies
+
+- **Duplicate / contaminated data** (`duplicate-contaminated-data`) — Training data contains repeated or benchmark-contaminated examples.
+  - Source: Lee et al. (2022) — Deduplicating Training Data Makes Language Models Better; OLMo data pipeline docs
+- **Float precision loss** (`float-precision-loss`) — Accumulated rounding errors degrade model quality over many steps.
+  - Source: PyTorch AMP docs (fp32 master weights); NVIDIA mixed-precision guide
+- **fp16 overflow (loss scale overflow)** (`fp16-overflow`) — fp16's limited dynamic range causes activations or gradients to overflow to inf.
+  - Source: PyTorch AMP GradScaler docs (pytorch.org/docs/stable/amp.html); NVIDIA mixed-precision guide
+- **Gradient noise** (`gradient-noise`) — High-variance gradient estimates slow convergence and require larger batches or LR tuning.
+  - Source: Goodfellow et al. — Deep Learning ch.8; Karpathy nanoGPT notes
+- **Noisy labels** (`noisy-labels`) — Training data contains incorrectly labeled examples — the model learns corrupted signal.
+  - Source: Goodfellow et al. — Deep Learning ch.7 (regularization against label noise); HF datasets quality guides
+- **Numerical overflow** (`numerical-overflow`) — Values exceed the representable range and become inf — NaN propagates downstream.
+  - Source: PyTorch AMP docs; NVIDIA mixed-precision guide
+- **Numerical underflow** (`numerical-underflow`) — Values become too small to represent and round to zero — silent precision loss.
+  - Source: PyTorch numerical stability docs; NVIDIA mixed-precision guide (numerical formats)
+- **Stale / mismatched checkpoint** (`stale-mismatched-checkpoint`) — Loading a checkpoint whose architecture or tokenizer does not match the current code.
+  - Source: HF Transformers docs (from_pretrained, config matching); OLMo checkpoint management docs
+- **Tokenization mismatch** (`tokenization-mismatch`) — Tokenizer and model are mismatched — inputs are decoded/encoded incorrectly.
+  - Source: HF Transformers tokenizer docs (AutoTokenizer.from_pretrained); OLMo tokenizer documentation
+
+### Performance
+
+- **Arithmetic Intensity** (`arithmetic-intensity`) — The ratio of compute to memory traffic; it determines whether a workload is compute- or memory-bound.
+  - Source: authored
+- **Continuous Batching** (`continuous-batching`) — Swapping requests in and out of a running batch every step to keep the GPU saturated.
+  - Source: QuKaiZen AI Dictionary
+- **CUDA Graphs** (`cuda-graphs`) — Capture a fixed sequence of GPU operations once and replay it, eliminating per-step launch overhead.
+  - Source: authored
+- **Draft Model** (`draft-model`) — The small, fast model that proposes candidate tokens in speculative decoding.
+  - Source: QuKaiZen AI Dictionary
+- **FlashAttention** (`flashattention`) — An exact attention kernel that is fast and memory-light by never materializing the full attention matrix.
+  - Source: authored
+- **FLOPs** (`flops`) — Floating-point operations — the raw arithmetic count used to measure model and training cost.
+  - Source: authored
+- **Kernel Fusion** (`kernel-fusion`) — Combine multiple GPU operations into one kernel to cut memory round-trips and launch overhead.
+  - Source: authored
+- **KV-Cache** (`kv-cache`) — Cached key/value tensors from past tokens so generation does not recompute the whole sequence each step.
+  - Source: authored
+- **Latency** (`latency`) — The delay before and during a model's response — time-to-first-token and per-token time.
+  - Source: QuKaiZen AI Dictionary
+- **Layer Streaming** (`layer-streaming`) — Load one transformer layer from disk, compute, discard — running 400B+ models on tiny VRAM.
+  - Source: knowledge_base/wiki/concepts/Layer_Streaming_Inference.md
+- **Memory Bandwidth** (`memory-bandwidth`) — How fast data moves between memory and compute — the usual bottleneck for LLM inference.
+  - Source: authored
+- **MFU** (`mfu`) — Model FLOPs Utilization — the fraction of a chip's peak FLOP/s your training actually achieves.
+  - Source: authored
+- **PagedAttention** (`paged-attention`) — Storing the KV-cache in non-contiguous pages so long contexts fit without waste.
+  - Source: QuKaiZen AI Dictionary
+- **Prefetch** (`prefetch`) — Loading the next layer from disk while the current compute runs, hiding I/O latency.
+  - Source: QuKaiZen AI Dictionary
+- **Prompt Caching** (`prompt-caching`) — Provider-side cache that bills a repeated prompt prefix at a fraction of fresh-input cost on cache hit.
+  - Source: authored
+- **Speculative Decoding** (`speculative-decoding`) — A small draft model proposes several tokens; the big model verifies them in one pass — lossless speedup.
+  - Source: knowledge_base/wiki/concepts/speculative-decoding.md
+- **Throughput** (`throughput`) — How many tokens a system generates per unit time, across all requests.
+  - Source: QuKaiZen AI Dictionary
+- **torch.compile** (`torch-compile`) — PyTorch's just-in-time compiler that traces and optimizes a model into faster fused kernels.
+  - Source: authored
+- **TTFT** (`ttft`) — Time to first token — how long after a request before the model emits its first output token.
+  - Source: authored
+- **Verifier** (`verifier`) — The target-model pass that accepts or corrects speculatively drafted tokens.
+  - Source: QuKaiZen AI Dictionary
+
+### Quantization
+
+- **AWQ** (`awq`) — Low-bit quantization that protects the small fraction of weights tied to large activations, preserving accuracy.
+  - Source: authored
+- **BF16** (`bf16`) — A 16-bit float with the same exponent range as FP32 — the default precision for training LLMs.
+  - Source: authored
+- **Calibration** (`calibration`) — Running a small representative dataset through a model to set quantization ranges or scales.
+  - Source: authored
+- **Double Quantization** (`double-quantization`) — Quantize the quantization constants themselves to squeeze out extra memory, as in QLoRA.
+  - Source: authored
+- **FP8** (`fp8`) — An 8-bit floating-point format for faster training and inference on H100-class hardware.
+  - Source: authored
+- **GPTQ** (`gptq`) — A one-shot, layer-by-layer post-training quantization method that minimizes per-layer error using second-order info.
+  - Source: authored
+- **INT4** (`int4`) — 4-bit integer weights — the aggressive quantization that makes big models fit on small hardware.
+  - Source: knowledge_base/wiki/concepts/Quantization_SNR_Affine.md
+- **INT8** (`int8`) — 8-bit integer representation — a common, low-risk quantization that roughly halves memory versus 16-bit.
+  - Source: authored
+- **K-Quants** (`k-quants`) — The GGUF family of mixed-bit quantization schemes that allocate more bits to important weights.
+  - Source: authored
+- **Mixed Precision** (`mixed-precision`) — Use lower precision for most math but keep sensitive parts in higher precision for stability.
+  - Source: authored
+- **NF4** (`nf4`) — A 4-bit 'normal float' data type, used in QLoRA, tuned for the bell-curve distribution of weights.
+  - Source: authored
+- **Post-training quantization** (`post-training-quantization`) — Quantize a trained model without further training — fast but some quality loss.
+  - Source: Frantar et al. — GPTQ arXiv:2210.17323; bitsandbytes (load_in_4bit) docs
+- **QAT** (`qat`) — Quantization-aware training: simulate low precision during training so the model learns to tolerate it.
+  - Source: authored
+- **Quantization** (`quantization`) — Storing weights/activations in fewer bits (FP16 to INT4) to shrink models and speed inference.
+  - Source: knowledge_base/wiki/concepts/Quantization_SNR_Affine.md
+- **Quantization-aware training** (`quantization-aware-training`) — Train with simulated quantization so the model adapts to the reduced precision.
+  - Source: Jacob et al. — Quantization and Training of Neural Networks for Efficient Integer-Arithmetic-Only Inference arXiv:1712.05877; PyTorch quantization docs
+- **SmoothQuant** (`smoothquant`) — Shift quantization difficulty from activations to weights so both can go to INT8 cleanly.
+  - Source: authored
+
+### QuKaiZen Stack
+
+- **Adversarial Swarm** (`adversarial-swarm`) — A loop of agents (interrogate, challenge, evaluate, correct) that hardens a model until it stops breaking.
+  - Source: QuKaiZen NUCLEUS_AGENT_PROTOCOL
+- **AeroLLM** (`aerollm`) — QuKaiZen's inference engine that streams frontier models off disk so they run without full GPU residency.
+  - Source: QuKaiZen NUCLEUS_AGENT_PROTOCOL
+- **AeroLLM (SLM runtime)** (`aerollm-runtime`) — [ROADMAP] QuKaiZen's OSS inference engine for running SLMs without full GPU residency.
+  - Source: QuKaiZen CLAUDE.md (AeroLLM — OSS inference engine; 7B@43 tok/s measured); QuKaiZen VISION.md
+- **AutoResearch** (`autoresearch`) — The swarm's brain — it evolves the rubrics every other agent consults.
+  - Source: QuKaiZen AI Dictionary
+- **BAKED (lifecycle stage)** (`baked-stage`) — [ROADMAP] The third stage of the QuKaiZen knowledge lifecycle — RAW → COMPILED → BAKED.
+  - Source: QuKaiZen CLAUDE.md (RAW→COMPILED→BAKED lifecycle); QuKaiZen DAC_ENGINE.md
+- **Buddy** (`buddy`) — ARAIL's local companion agent — a context-aware lab partner you learn alongside, running entirely on your own hardware.
+  - Source: ARAIL
+- **Build-time teacher** (`build-time-teacher`) — [BUILT] Frontier model used only during corpus authoring — never at runtime.
+  - Source: QuKaiZen CLAUDE.md ('the frontier model is the build-time teacher, never the runtime'); QuKaiZen VISION.md
+- **Convergence** (`convergence`) — Graduation by exhaustion — the model is done when the swarm can't break it anymore.
+  - Source: QuKaiZen AI Dictionary
+- **Convergence Graduation** (`convergence-graduation`) — A model graduates when the adversarial swarm gives up trying to break it — not at a fixed cycle limit.
+  - Source: QuKaiZen NUCLEUS_AGENT_PROTOCOL
+- **corpus_sha256 (bake lockfile)** (`corpus-sha256`) — [BUILT] The SHA-256 hash pinning the compiled corpus — the DaC CD lockfile.
+  - Source: QuKaiZen DAC_ENGINE.md (corpus_sha256 = CD lockfile); QuKaiZen CLAUDE.md
+- **Documentation as Code (DaC)** (`documentation-as-code`) — QuKaiZen's framework: a declarative, curated source of truth that compiles into a knowledge app or bakes into a model you own.
+  - Source: QuKaiZen
+- **KICE** (`kice`) — QuKaiZen's agent that extracts certified, verifiable domain knowledge in six layers.
+  - Source: QuKaiZen NUCLEUS_AGENT_PROTOCOL
+- **Nucleus (bake engine)** (`nucleus-bake-engine`) — [ROADMAP] QuKaiZen's training pipeline for baking domain-specialist SLMs.
+  - Source: QuKaiZen CLAUDE.md (Nucleus: company hub, bake pipeline); QuKaiZen THEME.md; QuKaiZen VISION.md
+- **Nucleus Seal** (`nucleus-seal`) — An Ed25519 cryptographic provenance chain proving how a Super Skill model was made.
+  - Source: QuKaiZen NUCLEUS_AGENT_PROTOCOL
+- **Provenance** (`provenance`) — A verifiable record of exactly what went into a model and how it was built.
+  - Source: QuKaiZen AI Dictionary
+- **Rubric** (`rubric`) — The evolving scoring criteria AutoResearch uses to probe and grade the student.
+  - Source: QuKaiZen AI Dictionary
+- **Seal** (`seal`) — A cryptographic signature certifying a model's provenance — what it was distilled from and that it is untampered.
+  - Source: QuKaiZen NUCLEUS_AGENT_PROTOCOL
+- **SSDP** (`ssdp`) — QuKaiZen's pipeline that distills deep reasoning from frontier teacher models into small, owned Super Skill models.
+  - Source: QuKaiZen NUCLEUS_AGENT_PROTOCOL
+- **Student Model** (`student`) — The small model being trained to absorb the teacher's reasoning.
+  - Source: QuKaiZen AI Dictionary
+- **Super Skill** (`super-skill`) — A 1-7B model that durably knows a domain, distilled from a frontier teacher and owned forever.
+  - Source: QuKaiZen NUCLEUS_AGENT_PROTOCOL
+- **Symbolic Chain-of-Thought** (`symbolic-cot`) — Capturing a teacher's reasoning as reusable symbolic structure, not just imitated text traces.
+  - Source: QuKaiZen NUCLEUS_AGENT_PROTOCOL
+- **Teacher Model** (`teacher`) — The large frontier model whose reasoning is distilled into a small student.
+  - Source: QuKaiZen AI Dictionary
+- **The bake (sealed specialist SLM)** (`the-bake`) — [ROADMAP] The sealed domain-specialist SLM produced by the Nucleus pipeline — the one bet.
+  - Source: QuKaiZen CLAUDE.md ('the bake is the moat', 'the one bet'); QuKaiZen THEME.md; QuKaiZen VISION.md
+- **TICE** (`tice`) — QuKaiZen's agent for Layer-7 tacit knowledge — the unwritten expert know-how and gotchas.
+  - Source: QuKaiZen NUCLEUS_AGENT_PROTOCOL
+- **Wisdom per Watt** (`wisdom-per-watt`) — QuKaiZen's core metric: certified, permanently-owned reasoning capability per unit of lifetime energy to mint and run it.
+  - Source: QuKaiZen NUCLEUS_AGENT_PROTOCOL
+
+### RL & Alignment
+
+- **Alignment** (`alignment`) — Making a model's behavior match human intent and values.
+  - Source: QuKaiZen AI Dictionary
+- **Constitutional AI** (`constitutional-ai`) — Align a model to an explicit written set of principles, using the model to critique and revise its own outputs.
+  - Source: authored
+- **DPO** (`dpo`) — Align to preferences directly from good/bad answer pairs — no reward model or RL loop.
+  - Source: authored
+- **GRPO** (`grpo`) — A PPO-style RL method that drops the value network, scoring each sample relative to a group of samples for the same prompt.
+  - Source: authored
+- **Guardrails** (`guardrails`) — Runtime checks around a model that block, filter, or reshape unsafe inputs and outputs.
+  - Source: authored
+- **HHH** (`hhh`) — The 'helpful, honest, harmless' framing of what an aligned assistant should be.
+  - Source: authored
+- **IPO** (`ipo`) — A DPO variant that adds regularization to avoid overfitting to deterministic preferences.
+  - Source: authored
+- **Jailbreak** (`jailbreak`) — An input crafted to bypass a model's safety training and elicit disallowed behavior.
+  - Source: authored
+- **KL Divergence** (`kl-divergence`) — A measure of how far one distribution is from another — used to keep an RL-tuned model near its base.
+  - Source: authored
+- **KTO** (`kto`) — Preference alignment from simple good/bad labels rather than paired comparisons.
+  - Source: authored
+- **ORPO** (`orpo`) — A single-stage method that combines instruction tuning and preference alignment without a separate reward model or reference model.
+  - Source: authored
+- **PPO** (`ppo`) — The RL algorithm classically used to optimize a model against a reward model in RLHF.
+  - Source: authored
+- **Preference Data** (`preference-data`) — Datasets of 'A is better than B' human judgments used to train reward models or do DPO.
+  - Source: authored
+- **Process Reward Model** (`process-reward-model`) — A reward model that scores each step of a reasoning chain, not just the final answer.
+  - Source: authored
+- **Prompt Injection** (`prompt-injection`) — An attack where untrusted input smuggles instructions that override the system's intended ones.
+  - Source: authored
+- **Red-Teaming** (`red-teaming`) — Deliberately probing a model with adversarial inputs to surface harmful, unsafe, or broken behavior.
+  - Source: authored
+- **Reward Hacking** (`reward-hacking`) — When a model maximizes the reward signal in unintended ways that don't reflect true quality.
+  - Source: authored
+- **Reward Model** (`reward-model`) — A model trained to score outputs by human preference, providing the reward signal for RLHF.
+  - Source: authored
+- **RLAIF** (`rlaif`) — Like RLHF, but the preference labels come from an AI judge instead of (or alongside) humans.
+  - Source: authored
+- **RLHF** (`rlhf`) — Align a model to human preferences via a reward model trained on human rankings, then RL.
+  - Source: authored
+- **Sycophancy** (`sycophancy`) — A model's tendency to tell users what they want to hear rather than what's true.
+  - Source: authored
+
+### Training Symptoms
+
+- **Diverging loss** (`diverging-loss`) — Training loss climbs without bound instead of decreasing.
+  - Source: PyTorch amp docs; OLMo training logbook (EleutherAI/OLMo, 2024)
+- **Exploding gradients** (`exploding-gradients`) — Gradient norms spike to very large values, destabilizing updates.
+  - Source: Goodfellow et al. — Deep Learning §10.7 (gradient clipping); PyTorch torch.nn.utils.clip_grad_norm_ docs
+- **Loss plateau** (`loss-plateau`) — Loss stops improving for many steps — training is stalled.
+  - Source: Goodfellow, Bengio & Courville — Deep Learning ch.8; HF Trainer docs (lr_scheduler_type)
+- **Loss spike** (`loss-spike`) — A sharp, transient jump in loss that may or may not recover.
+  - Source: OLMo training logbook; Karpathy nanoGPT notes on loss spikes
+- **NaN loss** (`nan-loss`) — Loss value becomes Not-a-Number — the run is numerically broken.
+  - Source: PyTorch AMP / GradScaler docs (pytorch.org/docs/stable/amp.html); NVIDIA mixed-precision guide
+- **Oscillating loss** (`oscillating-loss`) — Loss bounces between high and low values without a clear downward trend.
+  - Source: Goodfellow et al. — Deep Learning ch.8 (learning rate); PyTorch optimizer docs
+- **Out-of-memory (OOM) error** (`out-of-memory-error`) — GPU runs out of VRAM — the process crashes with a CUDA OOM.
+  - Source: PyTorch memory docs; HF Trainer docs (fp16, gradient_accumulation_steps); NVIDIA deep-learning performance guide
+- **Slow convergence** (`slow-convergence`) — Loss decreases, but far more slowly than expected for the compute budget.
+  - Source: Goodfellow et al. — Deep Learning ch.8; HF Trainer docs; OLMo training logbook
+- **Train/val loss gap** (`train-val-loss-gap`) — Validation loss significantly worse than training loss — generalization failure.
+  - Source: Goodfellow et al. — Deep Learning ch.7 (regularization); HF Trainer docs (evaluation_strategy)
+- **Vanishing gradients** (`vanishing-gradients`) — Gradients shrink toward zero in early layers — no useful learning signal.
+  - Source: Goodfellow et al. — Deep Learning §10.7; Karpathy nanoGPT architectural notes
+
+### Training
+
+- **Activation Checkpointing** (`activation-checkpointing`) — Trade compute for memory by recomputing activations in the backward pass instead of storing them.
+  - Source: authored
+- **Adam optimizer** (`adam-optimizer`) — Adaptive moment estimation — per-parameter adaptive LR via running mean and variance of gradients.
+  - Source: Kingma & Ba — Adam arXiv:1412.6980; Goodfellow et al. — Deep Learning §8.5; PyTorch Adam docs
+- **AdamW** (`adamw`) — The default optimizer for training transformers — Adam with decoupled weight decay.
+  - Source: authored
+- **Backprop** (`backprop`) — The algorithm that computes how to nudge every weight by propagating error gradients backward.
+  - Source: authored
+- **Batch Size** (`batch-size`) — How many training examples are processed before each weight update.
+  - Source: authored
+- **Catastrophic Forgetting** (`catastrophic-forgetting`) — When fine-tuning on a new task erases capabilities the model previously had.
+  - Source: authored
+- **Checkpoint** (`checkpoint`) — A saved snapshot of model weights (and often optimizer state) you can resume or deploy from.
+  - Source: authored
+- **Chinchilla Scaling** (`chinchilla`) — The finding that, for a fixed compute budget, model size and training tokens should grow together.
+  - Source: authored
+- **Cosine Schedule** (`cosine-schedule`) — Decay the learning rate along a cosine curve from its peak down toward zero over training.
+  - Source: authored
+- **Cross-Entropy** (`cross-entropy`) — The standard LM loss: penalize the model by the negative log-probability it gave the correct token.
+  - Source: authored
+- **Curriculum Learning** (`curriculum-learning`) — Train on easier examples first, then progressively harder ones, like a teaching syllabus.
+  - Source: authored
+- **Data Augmentation** (`data-augmentation`) — Expand or vary training data with label-preserving transformations to improve robustness.
+  - Source: authored
+- **Data Contamination** (`data-contamination`) — When benchmark or test data leaks into training, inflating scores and invalidating the eval.
+  - Source: authored
+- **Data Parallelism** (`data-parallelism`) — Replicate the model across devices, split the batch, and average gradients each step.
+  - Source: authored
+- **Dropout** (`dropout`) — Randomly zeroing activations during training to prevent overfitting.
+  - Source: authored
+- **Early Stopping** (`early-stopping`) — Halt training when validation performance stops improving, to avoid overfitting.
+  - Source: authored
+- **EMA** (`ema`) — Exponential moving average of weights kept alongside training for a smoother, often better, final model.
+  - Source: authored
+- **Epoch** (`epoch`) — One full pass of the optimizer over the entire training dataset.
+  - Source: authored
+- **Eval** (`eval`) — The practice of measuring model quality with repeatable tests — from public benchmarks to task-specific graders.
+  - Source: authored
+- **FSDP** (`fsdp`) — Shards model parameters, gradients, and optimizer state across GPUs so huge models fit in training.
+  - Source: authored
+- **Gradient** (`gradient`) — The vector of partial derivatives telling how the loss changes as you tweak each weight.
+  - Source: authored
+- **Gradient Accumulation** (`gradient-accumulation`) — Sum gradients over several micro-batches before updating, simulating a large batch on limited memory.
+  - Source: authored
+- **Gradient Clipping** (`gradient-clipping`) — Cap the gradient's magnitude each step to prevent exploding updates from destabilizing training.
+  - Source: authored
+- **GSM8K** (`gsm8k`) — Around 8,500 grade-school math word problems that test multi-step arithmetic reasoning.
+  - Source: authored
+- **HalluLens** (`hallulens`) — A benchmark for measuring how often an LLM hallucinates — asserts unsupported or fabricated facts.
+  - Source: authored
+- **HELM** (`helm`) — Stanford's broad, multi-metric benchmark suite that scores models across many scenarios, not just accuracy.
+  - Source: authored
+- **IFEval** (`ifeval`) — A benchmark of machine-verifiable instructions that measures how precisely a model obeys format and constraint requests.
+  - Source: authored
+- **Label Smoothing** (`label-smoothing`) — Soften one-hot targets slightly so the model doesn't become over-confident.
+  - Source: authored
+- **Learning Rate** (`learning-rate`) — How big a step the optimizer takes down the gradient — the most consequential training hyperparameter.
+  - Source: authored
+- **Learning rate schedule** (`learning-rate-schedule`) — A plan for how the learning rate changes over the course of training.
+  - Source: HF Trainer docs (lr_scheduler_type, warmup_ratio); Goodfellow et al. — Deep Learning ch.8; NVIDIA training guide
+- **Loss Function** (`loss-function`) — The scalar that measures how wrong a model's predictions are — what training minimizes.
+  - Source: authored
+- **Mixed-precision training** (`mixed-precision-training`) — Use fp16 or bf16 for forward/backward passes while keeping fp32 master weights.
+  - Source: PyTorch AMP docs (torch.cuda.amp); NVIDIA mixed-precision training guide; HF Trainer docs (fp16, bf16)
+- **MMLU** (`mmlu`) — A benchmark of ~16,000 multiple-choice questions across 57 subjects, measuring an LLM's breadth of knowledge.
+  - Source: authored
+- **Overfitting** (`overfitting`) — When a model memorizes training-set quirks and fails to generalize to new data.
+  - Source: authored
+- **Pipeline Parallelism** (`pipeline-parallelism`) — Place different layers on different devices and stream micro-batches through them like an assembly line.
+  - Source: authored
+- **Pretraining** (`pretraining`) — The first, largest training stage: learn general language/knowledge from a huge unlabeled corpus.
+  - Source: authored
+- **Regularization** (`regularization`) — Any technique that constrains a model to generalize better rather than memorize the training set.
+  - Source: authored
+- **Scaling Laws** (`scaling-laws`) — Empirical power-law curves showing model loss falls predictably as parameters, data, and compute grow.
+  - Source: authored
+- **SFT** (`sft`) — Plain supervised training on curated input to output examples — the first step of post-training.
+  - Source: authored
+- **Tensor Parallelism** (`tensor-parallelism`) — Split individual weight matrices across devices so one layer's math is computed in parallel.
+  - Source: authored
+- **Validation Set** (`validation-set`) — Held-out data used to tune and monitor training, kept separate from the final test set.
+  - Source: authored
+- **Warmup** (`warmup`) — Ramping the learning rate up from near zero over the first steps to avoid early instability.
+  - Source: authored
+- **Weight Decay** (`weight-decay`) — A penalty that nudges weights toward zero each step, discouraging overly large parameters and overfitting.
+  - Source: authored
+- **Weight initialization** (`weight-initialization`) — How weights are set before training — a critical determinant of early convergence.
+  - Source: He et al. — Delving Deep into Rectifiers arXiv:1502.01852; Glorot & Bengio (2010) — Understanding Difficulty of Training Deep FFNs; Goodfellow et al. — Deep Learning §8.4
+- **ZeRO** (`zero`) — DeepSpeed's optimizer that partitions optimizer state, gradients, and params to remove memory redundancy.
+  - Source: authored
+
+<!-- dac:world_sha256 df6b682da2dec3694cc5df543a6085016a41940ec20a2c6bae7a52b0e24e175f -->

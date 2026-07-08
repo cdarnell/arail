@@ -36,7 +36,11 @@ class ActivityLog:
 
     def _init(self) -> None:
         self._buffer: deque[Dict[str, Any]] = deque(maxlen=200)
-        self._subscribers: list[asyncio.Queue[Dict[str, Any]]] = []
+        # (queue, owning event loop) — the loop is needed so sync emitters on
+        # OTHER threads can hand the event over with call_soon_threadsafe.
+        self._subscribers: list[
+            tuple[asyncio.Queue[Dict[str, Any]], Optional[asyncio.AbstractEventLoop]]
+        ] = []
         LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
         # Load last events from disk if available
         if LOG_FILE.exists():
@@ -69,15 +73,39 @@ class ActivityLog:
         except OSError as e:
             _log.warning("activity log write failed: %s", e)
 
-        # Fan-out to SSE subscribers
-        dead: list[asyncio.Queue] = []
-        for q in self._subscribers:
-            try:
-                q.put_nowait(event)
-            except asyncio.QueueFull:
-                dead.append(q)
-        for q in dead:
-            self._subscribers.remove(q)
+        # Fan-out to SSE subscribers. asyncio.Queue is NOT thread-safe: a
+        # put_nowait from a foreign thread enqueues the item but does not wake
+        # an idle event loop, so the subscriber's `await q.get()` can sit on a
+        # delivered event until unrelated traffic wakes the loop. Hand the put
+        # to the queue's own loop with call_soon_threadsafe in that case.
+        try:
+            running = asyncio.get_running_loop()
+        except RuntimeError:
+            running = None
+
+        dead: list[tuple[asyncio.Queue, Optional[asyncio.AbstractEventLoop]]] = []
+        for entry in list(self._subscribers):
+            q, loop = entry
+            if loop is None or loop is running:
+                try:
+                    q.put_nowait(event)
+                except asyncio.QueueFull:
+                    dead.append(entry)
+            elif loop.is_closed():
+                dead.append(entry)
+            else:
+                def _put(q: asyncio.Queue = q) -> None:
+                    try:
+                        q.put_nowait(event)
+                    except asyncio.QueueFull:
+                        pass  # subscriber stalled — drop this event for them
+                try:
+                    loop.call_soon_threadsafe(_put)
+                except RuntimeError:
+                    dead.append(entry)  # loop shut down mid-flight
+        for entry in dead:
+            if entry in self._subscribers:
+                self._subscribers.remove(entry)
 
         return event
 
@@ -87,14 +115,15 @@ class ActivityLog:
     async def subscribe(self) -> AsyncGenerator[Dict[str, Any], None]:
         """Yields events as they arrive.  Used by the SSE endpoint."""
         q: asyncio.Queue[Dict[str, Any]] = asyncio.Queue(maxsize=100)
-        self._subscribers.append(q)
+        entry = (q, asyncio.get_running_loop())
+        self._subscribers.append(entry)
         try:
             while True:
                 event = await q.get()
                 yield event
         finally:
-            if q in self._subscribers:
-                self._subscribers.remove(q)
+            if entry in self._subscribers:
+                self._subscribers.remove(entry)
 
 
 # Convenience — importable singleton

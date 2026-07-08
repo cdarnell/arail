@@ -1,70 +1,12 @@
 /* nav.js — shared nav bar logic: clock + mode badge (sync + toggle)
    + goal chip (so the active mission is visible on every page) */
 
-/* ── Theme bootstrap (runs as early as possible to minimize FOUC) ──
-   See docs/design.md §8. Themes are registered here and as
-   [data-theme="…"] blocks in style.css. To add a theme: add a CSS
-   block + a row to THEMES below. */
+/* Theming moved server-side (src/arail/ui_theme.py): the mounted World /
+   LAB_UI_THEME picks the palette and the portal injects it on every page.
+   Clear state left behind by the retired client-side data-theme toggle. */
 (function () {
-  var THEMES = [
-    { id: 'default',    label: 'Default',    swatch: '#00ff41' },
-    { id: 'laser-blue', label: 'Laser Blue', swatch: '#5cf0ff' }
-  ];
-  var STORAGE_KEY = 'arail-theme';
-  var ARAIL = (window.ARAIL = window.ARAIL || {});
-
-  function getTheme() {
-    var stored;
-    try { stored = localStorage.getItem(STORAGE_KEY); } catch (e) {}
-    return THEMES.some(function (t) { return t.id === stored; }) ? stored : 'default';
-  }
-  function applyTheme(id) {
-    document.documentElement.setAttribute('data-theme', id);
-    try { localStorage.setItem(STORAGE_KEY, id); } catch (e) {}
-    var swatch = document.querySelector('.theme-picker .theme-swatch');
-    var label  = document.querySelector('.theme-picker .theme-label');
-    var meta   = THEMES.filter(function (t) { return t.id === id; })[0] || THEMES[0];
-    if (swatch) swatch.style.background = meta.swatch;
-    if (swatch) swatch.style.boxShadow = '0 0 6px ' + meta.swatch;
-    if (label)  label.textContent = meta.label;
-  }
-  function nextTheme() {
-    var cur = getTheme();
-    var i = 0;
-    for (var k = 0; k < THEMES.length; k++) if (THEMES[k].id === cur) { i = k; break; }
-    return THEMES[(i + 1) % THEMES.length].id;
-  }
-  // Apply ASAP — before DOMContentLoaded — to minimize the flash.
-  applyTheme(getTheme());
-
-  ARAIL.theme = {
-    list: THEMES, get: getTheme, set: applyTheme, cycle: function () { applyTheme(nextTheme()); }
-  };
-
-  // Build the picker as a floating action button anchored to the
-  // bottom-right corner. Out of the nav so it doesn't crowd the chrome
-  // and the user can find it from any page.
-  function mountPicker() {
-    if (!document.body || document.querySelector('.theme-picker.theme-fab')) return;
-    var btn = document.createElement('button');
-    btn.className = 'theme-picker theme-fab';
-    btn.type = 'button';
-    btn.title = 'Cycle palette — Default ↔ Laser Blue';
-    var swatch = document.createElement('span');
-    swatch.className = 'theme-swatch';
-    var label = document.createElement('span');
-    label.className = 'theme-label';
-    btn.appendChild(swatch);
-    btn.appendChild(label);
-    btn.addEventListener('click', function () { ARAIL.theme.cycle(); });
-    document.body.appendChild(btn);
-    applyTheme(getTheme()); // refresh swatch/label now that DOM exists
-  }
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', mountPicker);
-  } else {
-    mountPicker();
-  }
+  try { localStorage.removeItem('arail-theme'); } catch (e) {}
+  document.documentElement.removeAttribute('data-theme');
 })();
 
 (function () {
@@ -573,7 +515,15 @@ window.revealSlot = async function revealSlot(slot, subpath) {
       if (opts.path) attrs += ' data-path="' + esc(opts.path) + '"';
     }
     if (opts.reason) attrs += ' title="' + esc(opts.reason) + '"';
-    return '<div ' + attrs + '><span>' + mark + '</span><span>' +
+    // Theme swatch placeholder — rendered empty here, painted afterwards via
+    // style assignment (never interpolated into HTML; values are
+    // server-validated hex and re-checked client-side).
+    var swatch = opts.hasSwatch
+      ? '<span class="ws-swatch" data-swatch-slug="' + esc(opts.slug) + '"' +
+        ' style="width:26px;height:26px;border-radius:8px;flex:none;' +
+        'border:1px solid var(--border-strong);"></span>'
+      : '';
+    return '<div ' + attrs + '><span>' + mark + '</span>' + swatch + '<span>' +
       esc(opts.label) + tail + '</span></div>';
   }
 
@@ -594,6 +544,7 @@ window.revealSlot = async function revealSlot(slot, subpath) {
           slug: w.slug,
           path: w.path,
           active: !!w.mounted,
+          hasSwatch: !!w.theme_preview,
         });
       } else {
         html += row({
@@ -607,8 +558,24 @@ window.revealSlot = async function revealSlot(slot, subpath) {
     // path outside the catalog (a DaC export, a shared World).
     html +=
       '<div style="border-top:1px solid var(--border);margin:.3rem 0;"></div>' +
-      row({ label: '＋ Add a World…', action: 'add' });
+      row({ label: '＋ Add a World…', action: 'add' }) +
+      '<div style="padding:.35rem .6rem .2rem;font-size:.62rem;color:var(--text-muted);' +
+      'font-family:var(--font-sans);">Themes are token swaps — a World changes the ' +
+      'lab’s look and knowledge, nothing else.</div>';
     menu.innerHTML = html;
+
+    // Paint theme swatches (two-stop gradient: world bg → accent).
+    var HEX = /^#[0-9a-fA-F]{6}$/;
+    worlds.forEach(function (w) {
+      var p = w.theme_preview;
+      if (!w.valid || !p || !HEX.test(p.start || '') || !HEX.test(p.end || '')) return;
+      var sel = '.ws-swatch[data-swatch-slug="' +
+        (window.CSS && CSS.escape ? CSS.escape(w.slug) : w.slug) + '"]';
+      var el = menu.querySelector(sel);
+      if (!el) return;
+      el.style.background = 'linear-gradient(135deg, ' + p.start + ' 20%, ' + p.end + ' 80%)';
+      if (p.personality) el.title = p.personality;
+    });
   }
 
   // Swap the menu to an inline path input → POST /api/worlds/import, with a

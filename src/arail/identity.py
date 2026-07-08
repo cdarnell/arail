@@ -161,14 +161,30 @@ def effective_identity(data_dir: Path | None = None) -> Identity:
         intent_description = str(face.get("domain_framing", "")) if has_face else ""
         vocabulary_register = str(face.get("vocabulary_register", "")) if has_face else ""
 
-        # ui_theme — only honour palette_hint if it actually matches a preset
-        # (mirror _write_face_env's old match rule), else default.
+        # ui_theme resolution: validated face.theme block → palette_hint
+        # preset match → default. The theme block goes through the paranoid
+        # world_theme validator (fail-closed); a rejected theme never blocks
+        # identity resolution, it just falls through.
         ui_theme = default_ui_theme()
         palette_hint = str(face.get("palette_hint", "")).strip() if has_face else ""
         if palette_hint:
             resolved = load_ui_theme(palette_hint)
             if resolved.id == palette_hint or resolved.env_value == palette_hint:
                 ui_theme = resolved
+        if has_face and face.get("theme") is not None:
+            try:
+                from arail.world_theme import build_world_ui_theme, parse_world_theme
+
+                spec, reason = parse_world_theme(face.get("theme"), world=record.world)
+                if spec is not None:
+                    ui_theme = build_world_ui_theme(spec, record.world, name)
+                else:
+                    _log.warning(
+                        "identity: world %s theme rejected (%s), falling back to %s",
+                        record.world, reason, ui_theme.id,
+                    )
+            except Exception as e:  # noqa: BLE001
+                _log.warning("identity: world theme resolution failed: %s", e)
 
         return Identity(
             name=name,

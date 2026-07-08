@@ -1,15 +1,12 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{ brand.name }} — Wiki</title>
-<link rel="stylesheet" href="/static/style.css">
-<link rel="stylesheet" href="/static/wiki.css">
-</head>
-<body>
+{% extends "base.html" %}
+{% set active = '' %}
+{% block title %}{{ brand.name }} — Wiki{% endblock %}
 
-{% set active = '' %}{% include "_nav.html" %}
+{% block head %}
+<link rel="stylesheet" href="/static/wiki.css">
+{% endblock %}
+
+{% block content %}
 
 <div class="wiki-landing">
 
@@ -69,13 +66,15 @@
 
     <div class="card full">
       <h2><span class="indicator"></span> Knowledge graph</h2>
-      <p class="empty" style="margin:.3rem 0 .8rem">Visual map of every page and every wikilink.</p>
+      <p class="empty wiki-graph-lead">Visual map of every page and every wikilink.</p>
       <a class="btn btn-primary" href="/wiki/graph">Open full-screen graph →</a>
     </div>
 
   </div>
 </div>
+{% endblock %}
 
+{% block scripts %}
 <script>
 document.getElementById('wiki-rebuild').addEventListener('click', async () => {
   const btn = document.getElementById('wiki-rebuild');
@@ -94,5 +93,4 @@ document.getElementById('wiki-rebuild').addEventListener('click', async () => {
 </script>
 
 <script src="/static/nav.js"></script>
-</body>
-</html>
+{% endblock %}

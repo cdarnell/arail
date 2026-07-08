@@ -1,0 +1,27 @@
+{
+  "schema": "dac.world-bundle/v1",
+  "bundle_version": 1,
+  "world": "ai",
+  "display_name": "AI & Machine Learning",
+  "created_at": "1970-01-01T00:00:00.000Z",
+  "world_sha256": "df6b682da2dec3694cc5df543a6085016a41940ec20a2c6bae7a52b0e24e175f",
+  "files": {
+    "terms.json": "df6b682da2dec3694cc5df543a6085016a41940ec20a2c6bae7a52b0e24e175f",
+    "spec.json": "91d31534d56d6c67ce3e0f0b2b26a27bdcba1d4f625b495625751a543f3c1008",
+    "roster.json": "14a44ecc39b15f8a1845391cc83b8ffdfeabe2703b9f5e8ad6bba6cecb962ee8",
+    "face.json": "9d4b13d9176f2d2c0d8c5a7cd50484800d9eb8db695dc217b769e099df704cc3",
+    "agenda.json": "8ee7953e238c3bc9c4802082cc319b3d1c6d4d4634009fb83589c2cc4f53fa71",
+    "drift-report.json": "eaa14e22e3a414533b1341139f698e8424677db56942a8a82823f1c90a9ca8ab"
+  },
+  "provenance_tier": "sourced",
+  "provenance_counts": {
+    "model": 0,
+    "sourced": 331,
+    "total": 331
+  },
+  "refresh_cadence": "see agenda.json",
+  "compat": {
+    "bundle_schema": 1,
+    "terms_schema": 1
+  }
+}

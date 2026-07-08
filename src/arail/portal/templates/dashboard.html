@@ -1,34 +1,33 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{ brand.name }}</title>
-<link rel="stylesheet" href="/static/style.css">
+{% extends "base.html" %}
+{% set active = 'dashboard' %}
+{% block title %}{{ brand.name }}{% endblock %}
+{% block head %}
 <style>
   /* Disclosure toggles for Phase 1 (PROPOSAL.md §3.2 + §3.3) */
   /* (meter-bar moved to the global status bar in _nav.html) */
   .qa-more-toggle {
     background: transparent;
-    border: 1px dashed var(--border, #333);
-    color: var(--muted, #999);
+    border: 1px dashed var(--border);
+    color: var(--text-muted);
     cursor: pointer;
     font-size: 11px;
     padding: 4px 10px;
-    border-radius: 6px;
+    border-radius: var(--radius-s);
   }
-  .qa-more-toggle:hover { color: var(--text); border-color: var(--accent, var(--blue)); }
+  .qa-more-toggle:hover { color: var(--text); border-color: var(--border-strong); }
   .qa-actions:not(.show-more) .qa-more { display: none; }
 
   /* Quick actions button styling */
   .qa-button {
     padding: 10px 14px;
-    border-radius: 6px;
+    border-radius: var(--radius-s);
     cursor: pointer;
     text-align: left;
     font-size: 12px;
     color: var(--text);
-    transition: all 0.12s;
+    transition: transform var(--dur-1) var(--ease-accent),
+                box-shadow var(--dur-1) var(--ease-accent),
+                background var(--dur-1), border-color var(--dur-1);
     border: 1px solid;
   }
   .qa-button:hover {
@@ -36,33 +35,95 @@
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
   }
   .qa-button.qa-primary {
-    background: rgba(var(--blue-rgb), 0.06);
-    border-color: rgba(var(--blue-rgb), 0.25);
+    background: var(--accent-a08);
+    border-color: var(--accent-a28);
   }
   .qa-button.qa-primary:hover {
-    background: rgba(var(--blue-rgb), 0.12);
-    border-color: rgba(var(--blue-rgb), 0.45);
+    background: var(--accent-a16);
+    border-color: color-mix(in srgb, var(--accent) 45%, transparent);
   }
   .qa-button.qa-warning {
-    background: rgba(var(--amber-rgb), 0.06);
-    border-color: rgba(var(--amber-rgb), 0.25);
+    background: var(--warn-a08);
+    border-color: var(--warn-a28);
   }
   .qa-button.qa-warning:hover {
-    background: rgba(var(--amber-rgb), 0.12);
-    border-color: rgba(var(--amber-rgb), 0.45);
+    background: var(--warn-a16);
+    border-color: color-mix(in srgb, var(--warn) 45%, transparent);
   }
   .qa-title {
     font-weight: 600;
     margin-bottom: 2px;
   }
+  .qa-button.qa-primary .qa-title { color: var(--accent); }
+  .qa-button.qa-warning .qa-title { color: var(--warn); }
+  .qa-button.qa-success .qa-title { color: var(--positive); }
   .qa-button.qa-success {
-    background: rgba(var(--green-rgb), 0.06);
-    border-color: rgba(var(--green-rgb), 0.25);
+    background: var(--positive-a08);
+    border-color: var(--positive-a28);
   }
   .qa-button.qa-success:hover {
-    background: rgba(var(--green-rgb), 0.12);
-    border-color: rgba(var(--green-rgb), 0.45);
+    background: var(--positive-a16);
+    border-color: color-mix(in srgb, var(--positive) 45%, transparent);
   }
+  .qa-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 8px;
+  }
+  .qa-link { text-decoration: none; display: flex; flex-direction: column; justify-content: flex-start; }
+  .qa-footer { margin-top: 8px; display: flex; align-items: center; gap: 12px; }
+  #admin-log { font-size: 12px; color: var(--text-muted); min-height: 18px; flex: 1; }
+  .dash-card { padding: 14px 20px; }
+  .dash-card-title {
+    font-size: 14px; margin: 0 0 10px 0;
+    color: var(--text-muted);
+    text-transform: var(--label-transform);
+    letter-spacing: var(--label-tracking);
+  }
+  .svc-status-row { display: flex; flex-wrap: wrap; gap: 8px; font-size: 12px; }
+  /* Service chips — rendered by refreshServiceStatus(); classes here so
+     the colors repaint when a World swaps the token set. */
+  .svc-chip {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 4px 10px; border-radius: var(--radius-pill);
+    font-size: 12px; border: 1px solid;
+  }
+  .svc-chip .svc-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .svc-chip.up   { background: var(--positive-a08); border-color: var(--positive-a28); color: var(--positive); }
+  .svc-chip.down { background: var(--danger-a08);   border-color: var(--danger-a28);   color: var(--danger); }
+  .svc-idle-toggle {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 4px 10px; border-radius: var(--radius-pill);
+    border: 1px dashed var(--border); background: transparent;
+    font-size: 12px; color: var(--text-muted); cursor: pointer;
+  }
+  .svc-hint { color: var(--text-muted); font-size: 11px; margin-left: 6px; align-self: center; }
+  .svc-none { color: var(--text-muted); font-size: 12px; }
+  .shortcuts-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .shortcut-link {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 7px 14px; border-radius: var(--radius-s);
+    text-decoration: none; font-size: 13px;
+  }
+  .shortcut-link .shortcut-icon { font-size: 15px; }
+  .shortcut-link.shortcut-tuning {
+    background: var(--positive-a08);
+    border: 1px solid var(--positive-a28);
+    color: var(--positive);
+  }
+  .shortcut-link.shortcut-terminal {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+  }
+  .btn-reset-warn { color: var(--warn); }
+  .exp-row { cursor: pointer; }
+  .exp-detail-cell {
+    padding: 0.75rem 1rem;
+    background: color-mix(in srgb, var(--text-strong) 2%, transparent);
+    white-space: pre-wrap;
+  }
+  .dash-subhead { margin-top: 1rem; }
 
   /* ═══ Updates Available banner ═══════════════════════════════════
      Sits below the meter bar. Hidden by default; revealed only when
@@ -74,20 +135,20 @@
     display: none;
     margin: 8px 18px 0 18px;
     padding: 10px 14px;
-    border-radius: 6px;
-    background: rgba(var(--amber-rgb), 0.06);
-    border: 1px solid rgba(var(--amber-rgb), 0.45);
+    border-radius: var(--radius-s);
+    background: var(--warn-a08);
+    border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent);
     color: var(--text);
     font-size: 13px;
     align-items: center;
     gap: 12px;
     cursor: pointer;
-    transition: all 0.15s;
+    transition: background var(--dur-2), border-color var(--dur-2);
     animation: updates-pulse 2.4s ease-in-out infinite;
   }
   .updates-banner:hover {
-    background: rgba(var(--amber-rgb), 0.13);
-    border-color: rgba(var(--amber-rgb), 0.7);
+    background: var(--warn-a16);
+    border-color: color-mix(in srgb, var(--warn) 70%, transparent);
   }
   .updates-banner .updates-badge {
     display: inline-flex;
@@ -96,21 +157,24 @@
     min-width: 22px;
     height: 22px;
     padding: 0 7px;
-    border-radius: 11px;
-    background: rgba(var(--amber-rgb), 0.85);
-    color: #1a1100;
+    border-radius: var(--radius-pill);
+    background: var(--warn);
+    color: color-mix(in srgb, var(--bg) 45%, black);
     font-weight: 700;
     font-size: 12px;
   }
   .updates-banner .updates-text { flex: 1; }
   .updates-banner .updates-cta {
-    color: var(--amber);
+    color: var(--warn);
     font-weight: 600;
     font-size: 12px;
   }
   @keyframes updates-pulse {
-    0%, 100% { box-shadow: 0 0 0 0 rgba(var(--amber-rgb), 0); }
-    50%      { box-shadow: 0 0 0 4px rgba(var(--amber-rgb), 0.18); }
+    0%, 100% { box-shadow: 0 0 0 0 transparent; }
+    50%      { box-shadow: 0 0 0 4px color-mix(in srgb, var(--warn) calc(var(--glow-mix) * 1.8), transparent); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .updates-banner { animation: none; }
   }
 
   /* ═══ Runbook banner — first-run on-ramp to docs/the-lab.md ═══
@@ -121,19 +185,19 @@
     display: none;
     margin: 8px 18px 0 18px;
     padding: 10px 14px;
-    border-radius: 6px;
-    background: rgba(var(--blue-rgb), 0.06);
-    border: 1px solid rgba(var(--blue-rgb), 0.45);
+    border-radius: var(--radius-s);
+    background: var(--accent2-a08);
+    border: 1px solid color-mix(in srgb, var(--accent2) 45%, transparent);
     color: var(--text);
     font-size: 13px;
     align-items: center;
     gap: 12px;
     cursor: pointer;
-    transition: all 0.15s;
+    transition: background var(--dur-2), border-color var(--dur-2);
   }
   .runbook-banner:hover {
-    background: rgba(var(--blue-rgb), 0.13);
-    border-color: rgba(var(--blue-rgb), 0.7);
+    background: var(--accent2-a16);
+    border-color: color-mix(in srgb, var(--accent2) 70%, transparent);
   }
   .runbook-banner .runbook-icon {
     font-size: 16px;
@@ -141,14 +205,14 @@
   }
   .runbook-banner .runbook-text { flex: 1; }
   .runbook-banner .runbook-cta {
-    color: var(--blue);
+    color: var(--accent2);
     font-weight: 600;
     font-size: 12px;
   }
   .runbook-banner .runbook-dismiss {
     background: transparent;
     border: 0;
-    color: var(--muted);
+    color: var(--text-muted);
     font-size: 14px;
     padding: 0 4px;
     cursor: pointer;
@@ -163,57 +227,59 @@
      reveal one at a time as the backend emits events. */
   .lc-overlay {
     position: fixed; inset: 0;
-    background: rgba(0, 0, 0, 0.62);
+    background: color-mix(in srgb, var(--bg) 62%, transparent);
     display: none;
     align-items: center; justify-content: center;
     z-index: 1000;
-    backdrop-filter: blur(2px);
+    backdrop-filter: blur(3px);
   }
   .lc-overlay.open { display: flex; }
   .lc-modal {
     width: min(640px, 92vw);
     max-height: 86vh;
     display: flex; flex-direction: column;
-    background: #0d1117;
-    border: 1px solid #2a3340;
-    border-radius: 10px;
+    background: var(--surface2);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-l);
     box-shadow: 0 12px 48px rgba(0, 0, 0, 0.6);
     overflow: hidden;
   }
   .lc-header {
     padding: 14px 18px;
-    border-bottom: 1px solid #1d2530;
+    border-bottom: 1px solid var(--border);
     display: flex; align-items: center; gap: 12px;
   }
   .lc-header .lc-title {
     flex: 1;
-    font-size: 14px; font-weight: 600;
-    color: var(--text);
-    letter-spacing: 0.02em;
+    font-size: 14px; font-weight: 650;
+    color: var(--text-strong);
+    letter-spacing: -0.015em;
   }
   .lc-header .lc-progress-text {
-    font-size: 12px; color: var(--muted);
+    font-size: 12px; color: var(--text-muted);
+    font-family: var(--font-mono);
     font-variant-numeric: tabular-nums;
   }
   .lc-header .lc-close {
-    background: transparent; border: 0; color: var(--muted);
+    background: transparent; border: 0; color: var(--text-muted);
     font-size: 18px; cursor: pointer; padding: 0 4px;
   }
   .lc-header .lc-close:hover { color: var(--text); }
   .lc-progress-bar {
-    height: 2px; background: #1a2230;
+    height: 2px; background: var(--surface3);
     overflow: hidden; position: relative;
   }
   .lc-progress-bar > div {
     height: 100%; width: 0%;
-    background: linear-gradient(90deg, var(--blue), var(--green));
+    background: var(--accent2);
     transition: width 0.18s ease-out;
   }
   .lc-list {
     flex: 1;
     overflow-y: auto;
     padding: 6px 0;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
     font-size: 12px;
   }
   .lc-row {
@@ -222,7 +288,7 @@
     align-items: center;
     gap: 10px;
     padding: 7px 18px;
-    border-bottom: 1px solid #141b25;
+    border-bottom: 1px solid var(--border);
   }
   .lc-row:last-child { border-bottom: 0; }
   .lc-row .lc-icon {
@@ -233,67 +299,68 @@
     font-size: 11px;
     font-weight: 700;
   }
-  .lc-row.pending .lc-icon { background: #1a2230; color: #4a5568; }
+  .lc-row.pending .lc-icon { background: var(--surface3); color: var(--text-muted); }
   .lc-row.pending .lc-icon::before { content: "⌛"; }
-  .lc-row.running .lc-icon { background: rgba(var(--blue-rgb), 0.18); color: var(--blue); }
+  .lc-row.running .lc-icon { background: var(--accent2-a16); color: var(--accent2); }
   .lc-row.running .lc-icon::before { content: "⏳"; animation: lc-spin 1.4s linear infinite; }
   @keyframes lc-spin { to { transform: rotate(360deg); } }
-  .lc-row.pass    .lc-icon { background: rgba(var(--green-rgb), 0.16); color: var(--green); }
+  @media (prefers-reduced-motion: reduce) {
+    .lc-row.running .lc-icon::before { animation: none; }
+  }
+  .lc-row.pass    .lc-icon { background: var(--positive-a16); color: var(--positive); }
   .lc-row.pass    .lc-icon::before { content: "✓"; }
-  .lc-row.warn    .lc-icon { background: rgba(var(--amber-rgb), 0.16); color: var(--amber); }
+  .lc-row.warn    .lc-icon { background: var(--warn-a16); color: var(--warn); }
   .lc-row.warn    .lc-icon::before { content: "!"; }
-  .lc-row.fail    .lc-icon { background: rgba(255, 64, 96, 0.18); color: #ff6b80; }
+  .lc-row.fail    .lc-icon { background: var(--danger-a16); color: var(--danger); }
   .lc-row.fail    .lc-icon::before { content: "✗"; }
   .lc-row .lc-name { color: var(--text); }
   .lc-row .lc-detail {
     grid-column: 2 / -1;
-    color: var(--muted);
+    color: var(--text-muted);
     font-size: 11px;
     margin-top: 2px;
   }
   .lc-row .lc-time {
-    color: var(--muted);
+    color: var(--text-muted);
     font-size: 11px;
     font-variant-numeric: tabular-nums;
   }
   .lc-footer {
     padding: 10px 18px;
-    border-top: 1px solid #1d2530;
+    border-top: 1px solid var(--border);
     display: flex; align-items: center; gap: 10px;
-    background: #0a0f15;
+    background: var(--surface);
   }
   .lc-footer .lc-summary {
     flex: 1;
     font-size: 12px;
-    color: var(--muted);
+    color: var(--text-muted);
     font-variant-numeric: tabular-nums;
   }
-  .lc-footer .lc-summary .lc-passed { color: var(--green); }
-  .lc-footer .lc-summary .lc-warned { color: var(--amber); }
-  .lc-footer .lc-summary .lc-failed { color: #ff6b80; }
+  .lc-footer .lc-summary .lc-passed { color: var(--positive); }
+  .lc-footer .lc-summary .lc-warned { color: var(--warn); }
+  .lc-footer .lc-summary .lc-failed { color: var(--danger); }
   .lc-btn {
     padding: 6px 12px;
-    border-radius: 5px;
-    border: 1px solid #2a3340;
-    background: #131922;
+    border-radius: var(--radius-s);
+    border: 1px solid var(--border-strong);
+    background: var(--surface2);
     color: var(--text);
     font-size: 12px;
     cursor: pointer;
   }
-  .lc-btn:hover { background: #1a2230; }
+  .lc-btn:hover { background: var(--surface3); }
   .lc-btn.lc-btn-stop {
-    border-color: rgba(255, 64, 96, 0.45);
-    color: #ff6b80;
+    border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+    color: var(--danger);
   }
   .lc-btn.lc-btn-restart {
-    border-color: rgba(var(--blue-rgb), 0.45);
-    color: var(--blue);
+    border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+    color: var(--accent);
   }
 </style>
-</head>
-<body>
-
-{% set active = 'dashboard' %}{% include "_nav.html" %}
+{% endblock %}
+{% block content %}
 
 <!-- ═══ Toast Notifications — corner container for Buddy suggestions ═══ -->
 <div class="toast-container" id="toast-container"></div>
@@ -383,23 +450,25 @@ function dismissRunbookBanner() {
     display: flex; gap: 0.35rem; flex-wrap: wrap;
     padding: 0.5rem 1rem;
     margin: 0 0 0.75rem 0;
-    background: rgba(8, 12, 18, 0.82);
-    backdrop-filter: blur(8px);
-    border-bottom: 1px solid rgba(120, 140, 160, 0.12);
-    font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase;
+    background: color-mix(in srgb, var(--bg) 96%, transparent);
+    border-bottom: 1px solid var(--border);
+    font-size: 0.72rem;
+    font-family: var(--font-mono);
+    letter-spacing: var(--label-tracking);
+    text-transform: var(--label-transform);
   }
   .dash-toc a {
-    color: var(--muted, #8a96a3);
+    color: var(--text-muted);
     text-decoration: none;
     padding: 0.28rem 0.65rem;
-    border: 1px solid rgba(120, 140, 160, 0.18);
-    border-radius: 999px;
-    transition: color .15s, border-color .15s, background .15s;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-pill);
+    transition: color var(--dur-2), border-color var(--dur-2), background var(--dur-2);
   }
   .dash-toc a:hover {
-    color: var(--text-hi, #e6ecf3);
-    border-color: rgba(0, 255, 128, 0.45);
-    background: rgba(0, 255, 128, 0.06);
+    color: var(--text-strong);
+    border-color: color-mix(in srgb, var(--accent2) 45%, transparent);
+    background: var(--accent2-a08);
   }
   html { scroll-behavior: smooth; }
   /* Invisible spans placed just above each card; scroll-margin offsets
@@ -414,52 +483,50 @@ function dismissRunbookBanner() {
 <div class="grid">
 
   <!-- ═══ Quick Actions — 3 hero verbs + ⚙ More for the rest (PROPOSAL §3.3) ═══ -->
-  <div class="card full" style="padding: 14px 20px;">
-    <h2 style="font-size: 14px; margin: 0 0 10px 0; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em;">Quick Actions</h2>
-    <div class="qa-actions" id="qa-actions" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px;">
-      <a href="/chat" class="qa-button qa-success" style="text-decoration: none; display: flex; flex-direction: column; justify-content: flex-start;">
-        <div class="qa-title" style="color: var(--green);">💬 Open Chat</div>
+  <div class="card full dash-card">
+    <h2 class="dash-card-title">Quick Actions</h2>
+    <div class="qa-actions qa-grid" id="qa-actions">
+      <a href="/chat" class="qa-button qa-success qa-link">
+        <div class="qa-title">💬 Open Chat</div>
       </a>
       <button class="qa-button qa-primary" onclick="runLiveChecks('Health Check', '/api/system/health/stream')">
-        <div class="qa-title" style="color: var(--blue);">⊙ Health Check</div>
+        <div class="qa-title">⊙ Health Check</div>
       </button>
       <button class="qa-button qa-primary" onclick="window.open('/graph', '_blank')">
-        <div class="qa-title" style="color: var(--blue);">◆ System Graph</div>
+        <div class="qa-title">◆ System Graph</div>
       </button>
       <button class="qa-button qa-primary qa-more" onclick="checkUpdates()">
-        <div class="qa-title" style="color: var(--blue);">↻ Check Updates</div>
+        <div class="qa-title">↻ Check Updates</div>
       </button>
       <button class="qa-button qa-primary qa-more" onclick="window.location='/plugins'">
-        <div class="qa-title" style="color: var(--blue);">⚙ Plugins</div>
+        <div class="qa-title">⚙ Plugins</div>
       </button>
       <button class="qa-button qa-warning qa-more" onclick="restartLab()">
-        <div class="qa-title" style="color: var(--amber);">⟳ Restart Lab</div>
+        <div class="qa-title">⟳ Restart Lab</div>
       </button>
     </div>
-    <div style="margin-top: 8px; display: flex; align-items: center; gap: 12px;">
+    <div class="qa-footer">
       <button type="button" class="qa-more-toggle" id="qa-more-toggle"
               aria-expanded="false" aria-controls="qa-actions"
               onclick="toggleQaMore(this)">⚙ More</button>
-      <div id="admin-log" style="font-size: 12px; color: var(--muted); min-height: 18px; flex: 1;"></div>
+      <div id="admin-log"></div>
     </div>
   </div>
 
   <!-- ═══ Service Status ═══ -->
-  <div class="card full" style="padding: 14px 20px;">
-    <h2 style="font-size: 14px; margin: 0 0 10px 0; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em;">Service Status</h2>
-    <div id="svc-status" style="display: flex; flex-wrap: wrap; gap: 8px; font-size: 12px;">loading…</div>
+  <div class="card full dash-card">
+    <h2 class="dash-card-title">Service Status</h2>
+    <div id="svc-status" class="svc-status-row">loading…</div>
   </div>
 
   <!-- ═══ Lab Shortcuts ═══ -->
-  <div class="card full" id="shortcuts-card" style="padding:14px 20px;">
-    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
-      <a href="/tuning"
-         style="display:inline-flex;align-items:center;gap:6px;padding:7px 14px;border-radius:6px;background:#0f1a14;border:1px solid #1e3a2a;color:#7ee0a0;text-decoration:none;font-size:13px;">
-        <span style="font-size:15px;">🧪</span> Tuning
+  <div class="card full dash-card" id="shortcuts-card">
+    <div class="shortcuts-row">
+      <a href="/tuning" class="shortcut-link shortcut-tuning">
+        <span class="shortcut-icon">🧪</span> Tuning
       </a>
-      <a href="/terminal"
-         style="display:inline-flex;align-items:center;gap:6px;padding:7px 14px;border-radius:6px;background:#0d1117;border:1px solid #222;color:#8faf97;text-decoration:none;font-size:13px;">
-        <span style="font-size:15px;">⌨️</span> Terminal
+      <a href="/terminal" class="shortcut-link shortcut-terminal">
+        <span class="shortcut-icon">⌨️</span> Terminal
       </a>
     </div>
   </div>
@@ -508,22 +575,23 @@ function dismissRunbookBanner() {
       .profile-pill {
         display: inline-flex; align-items: center; gap: 0.4em;
         padding: 0.25em 0.7em; margin: 0.6em 0;
-        border-radius: 999px; font-size: 0.78em; font-weight: 500;
+        border-radius: var(--radius-pill); font-size: 0.78em; font-weight: 500;
+        font-family: var(--font-mono);
         text-decoration: none; cursor: pointer;
-        border: 1px solid var(--border, #2a2a2a);
-        transition: opacity 0.15s ease, transform 0.15s ease;
+        border: 1px solid var(--border);
+        transition: opacity var(--dur-2) var(--ease-accent), transform var(--dur-2) var(--ease-accent);
       }
       .profile-pill:hover { opacity: 0.85; transform: translateY(-1px); }
       .profile-pill .profile-pill-dot {
         width: 6px; height: 6px; border-radius: 50%; display: inline-block;
       }
       .profile-pill .profile-pill-source { opacity: 0.65; font-weight: 400; }
-      .profile-interactive { background: rgba(34,211,238,0.10); color: #67e8f9; border-color: rgba(34,211,238,0.35); }
-      .profile-interactive .profile-pill-dot { background: #22d3ee; }
-      .profile-balanced { background: rgba(148,163,184,0.10); color: #cbd5e1; border-color: rgba(148,163,184,0.30); }
-      .profile-balanced .profile-pill-dot { background: #94a3b8; }
-      .profile-throughput { background: rgba(251,191,36,0.10); color: #fbbf24; border-color: rgba(251,191,36,0.35); }
-      .profile-throughput .profile-pill-dot { background: #fbbf24; }
+      .profile-interactive { background: var(--accent2-a08); color: var(--accent2); border-color: var(--accent2-a28); }
+      .profile-interactive .profile-pill-dot { background: var(--accent2); }
+      .profile-balanced { background: color-mix(in srgb, var(--text-muted) 10%, transparent); color: var(--text); border-color: color-mix(in srgb, var(--text-muted) 30%, transparent); }
+      .profile-balanced .profile-pill-dot { background: var(--text-muted); }
+      .profile-throughput { background: var(--warn-a08); color: var(--warn); border-color: var(--warn-a28); }
+      .profile-throughput .profile-pill-dot { background: var(--warn); }
     </style>
 
     {# Goal-setting lives in Autoresearch — single entry point. The
@@ -607,8 +675,8 @@ function dismissRunbookBanner() {
               onclick="controlResearch('pause')" style="display:none">⏸ Pause</button>
       <button class="btn btn-sm btn-ghost" id="btn-research-resume"
               onclick="controlResearch('resume')" style="display:none">▶ Resume</button>
-      <button class="btn btn-sm btn-ghost" id="btn-research-reset"
-              onclick="resetResearch()" style="color:var(--amber);">↺ Reset</button>
+      <button class="btn btn-sm btn-ghost btn-reset-warn" id="btn-research-reset"
+              onclick="resetResearch()">↺ Reset</button>
       <span class="research-status" id="research-status">
         {% if research_status == 'running' %}
         <span class="status running">● Researching</span>
@@ -657,18 +725,18 @@ function dismissRunbookBanner() {
     </div>
 
     <!-- Experiments summary -->
-    <h2 style="margin-top:1rem;">Experiments</h2>
+    <h2 class="dash-subhead">Experiments</h2>
     {% if experiments %}
     <table>
       <tr><th>ID</th><th>Hypothesis</th><th>Status</th></tr>
       {% for e in experiments %}
-      <tr class="exp-row" onclick="toggleExpDetail('exp-{{ e.id }}')" style="cursor:pointer;">
+      <tr class="exp-row" onclick="toggleExpDetail('exp-{{ e.id }}')">
         <td><code class="exp-id-link">{{ e.id }}</code></td>
         <td>{{ e.hypothesis[:140] }}{% if e.hypothesis|length > 140 %}&hellip;{% endif %}</td>
         <td><span class="status {{ e.status }}">{{ e.status }}</span></td>
       </tr>
       <tr id="exp-{{ e.id }}" class="exp-detail" style="display:none;">
-        <td colspan="3" style="padding:0.75rem 1rem; background:rgba(255,255,255,0.02); white-space:pre-wrap;">{{ e.hypothesis }}</td>
+        <td colspan="3" class="exp-detail-cell">{{ e.hypothesis }}</td>
       </tr>
       {% endfor %}
     </table>
@@ -798,7 +866,7 @@ function dismissRunbookBanner() {
     </div>
 
     {% if allowed_domains %}
-    <h2 style="margin-top:1.5rem;">Allowed Domains</h2>
+    <h2 class="dash-subhead">Allowed Domains</h2>
     <table>
       <tr><th>Domain</th><th></th></tr>
       {% for d in allowed_domains %}
@@ -813,6 +881,8 @@ function dismissRunbookBanner() {
 
 </div>
 
+{% endblock %}
+{% block scripts %}
 <script>
 /* ═══════════════════════════════════════════════════════════════
    Arail Dashboard — vanilla JS, no framework
@@ -1176,7 +1246,7 @@ function renderGoalBreakdown(data) {
   }
   if (parsed.confidence !== undefined) {
     const pct = Math.round(parsed.confidence * 100);
-    const color = pct >= 60 ? 'var(--green)' : pct >= 40 ? 'var(--amber)' : 'var(--red)';
+    const color = pct >= 60 ? 'var(--positive)' : pct >= 40 ? 'var(--warn)' : 'var(--danger)';
     html += field('Confidence', `<span style="color:${color};font-weight:600;">${pct}%</span>`);
   }
   html += field('Status', '<span class="status pending">● Waiting for approval or researcher start</span>');
@@ -1464,27 +1534,22 @@ async function refreshServiceStatus() {
     const svcs = d.services || {};
     const entries = Object.entries(svcs);
     if (entries.length === 0) {
-      el.innerHTML = '<span style="color: var(--muted); font-size: 12px;">No services running.</span>';
+      el.innerHTML = '<span class="svc-none">No services running.</span>';
       return;
     }
-    const chip = (name, up) => {
-      const bg = up ? 'rgba(var(--green-rgb),0.08)' : 'rgba(255,76,76,0.08)';
-      const bd = up ? 'rgba(var(--green-rgb),0.25)' : 'rgba(255,76,76,0.25)';
-      const fg = up ? 'var(--green)' : 'var(--red)';
-      const dot = `<span style="width: 6px; height: 6px; border-radius: 50%; background: ${fg}; box-shadow: ${up ? '0 0 4px rgba(var(--green-rgb),.4)' : 'none'};"></span>`;
-      return `<span style="display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: 999px; border: 1px solid ${bd}; background: ${bg}; font-size: 12px; color: ${fg};">${dot}${name}</span>`;
-    };
+    const chip = (name, up) =>
+      `<span class="svc-chip ${up ? 'up' : 'down'}"><span class="svc-dot"></span>${name}</span>`;
     const active = entries.filter(([, up]) => up);
     const idle = entries.filter(([, up]) => !up);
     const activeChips = active.map(([n, up]) => chip(n, up)).join('');
     let idleChip = '';
     if (idle.length > 0) {
       const names = idle.map(([n]) => n).join(', ');
-      idleChip = `<button type="button" id="svc-idle-toggle" onclick="toggleSvcIdle(this)" aria-expanded="false" title="${names}" style="display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: 999px; border: 1px dashed var(--border, #333); background: transparent; font-size: 12px; color: var(--muted, #999); cursor: pointer;">(${idle.length} idle)</button>`;
+      idleChip = `<button type="button" id="svc-idle-toggle" class="svc-idle-toggle" onclick="toggleSvcIdle(this)" aria-expanded="false" title="${names}">(${idle.length} idle)</button>`;
       const expanded = idle.map(([n, up]) => chip(n, up)).join('');
       idleChip += `<span id="svc-idle-list" style="display: none;">${expanded}</span>`;
     }
-    const hint = '<span style="color: var(--muted); font-size: 11px; margin-left: 6px; align-self: center;" title="On-demand services (notebook, marimo, ollama, neo4j, etc.) only appear here when running.">on-demand services hidden when idle</span>';
+    const hint = '<span class="svc-hint" title="On-demand services (notebook, marimo, ollama, neo4j, etc.) only appear here when running.">on-demand services hidden when idle</span>';
     el.innerHTML = activeChips + idleChip + hint;
   } catch (e) {
     const el = document.getElementById('svc-status');
@@ -1869,5 +1934,4 @@ async function refreshProgramRow() {
 </script>
 <script src="/static/nav.js"></script>
 {% include '_airgap_modal.html' %}
-</body>
-</html>
+{% endblock %}

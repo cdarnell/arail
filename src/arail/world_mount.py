@@ -202,6 +202,10 @@ class WorldInfo:
     valid: bool          # passed light validation (load_bundle), NOT a seal verify
     mounted: bool        # this slug == current_mount().world
     reason: str = ""     # when valid is False: short operator-facing why
+    # Switcher swatch: {"start","end","accent","personality"} resolved through
+    # the SAME validated path as the live theme (world_theme → palette_hint →
+    # None). Values are validated hex / closed-enum only — safe for CSSOM.
+    theme_preview: Optional[Dict[str, str]] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -211,7 +215,44 @@ class WorldInfo:
             "valid": self.valid,
             "mounted": self.mounted,
             "reason": self.reason,
+            "theme_preview": dict(self.theme_preview) if self.theme_preview else None,
         }
+
+
+def _theme_preview_from_face(face: Any) -> Optional[Dict[str, str]]:
+    """Swatch data for the switcher, from an (untrusted) face mapping.
+
+    Mirrors identity.py's resolution order: validated ``theme`` block first,
+    then ``palette_hint`` preset match, else None. Never raises.
+    """
+    try:
+        if not isinstance(face, dict):
+            return None
+        from arail.world_theme import parse_world_theme
+
+        spec, _reason = parse_world_theme(face.get("theme"))
+        if spec is not None:
+            return {
+                "start": spec.dark.bg,
+                "end": spec.dark.accent,
+                "accent": spec.dark.accent,
+                "personality": spec.personality,
+            }
+        hint = str(face.get("palette_hint", "")).strip()
+        if hint:
+            from arail.ui_theme import load_ui_theme
+
+            preset = load_ui_theme(hint)
+            if preset.id == hint or preset.env_value == hint:
+                return {
+                    "start": preset.preview_start,
+                    "end": preset.preview_end,
+                    "accent": preset.accent,
+                    "personality": preset.personality,
+                }
+        return None
+    except Exception:  # noqa: BLE001 — a broken face never breaks discovery
+        return None
 
 
 # ── Pure (no side effects) ───────────────────────────────────────────────────
@@ -635,6 +676,7 @@ def list_available_worlds(
                     path=str(d.resolve()),
                     valid=True,
                     mounted=(slug == current_slug),
+                    theme_preview=_theme_preview_from_face(bundle.face),
                 ))
             except Exception as e:  # noqa: BLE001
                 out.append(WorldInfo(

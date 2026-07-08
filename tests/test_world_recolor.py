@@ -31,9 +31,13 @@ PHYSICS = FIXTURES / "physics"
 
 MARK = 'id="ui-theme-vars"'
 
-# Default (unmounted) palette = blue-cyan-lab.
-DEFAULT_BG = "#0a0a0f"
-DEFAULT_BLUE = "#00d4ff"
+# Default (unmounted) palette — derived from the module so a default-theme
+# retune doesn't break the flip assertions (what matters is mount/unmount
+# CHANGES the block, and defaults agree with ui_theme.py).
+from arail.ui_theme import default_ui_theme
+
+DEFAULT_BG = default_ui_theme().dark.bg
+DEFAULT_BLUE = default_ui_theme().dark.accent2  # legacy --blue alias
 # Mounted physics palette = slate-violet (retargeted fixture).
 PHYSICS_BG = "#0d1018"
 PHYSICS_PURPLE = "#9e8cff"
@@ -216,7 +220,7 @@ def test_injection_is_xss_safe_by_construction(tmp_path, monkeypatch):
 
     ident = effective_identity(data_dir)
     # Hostile hint did NOT resolve to a preset → fell back to default.
-    assert ident.ui_theme.id == "blue-cyan-lab"
+    assert ident.ui_theme.id == default_ui_theme().id
 
     body = _client().get("/skills").text
     block = _theme_block(body)
@@ -229,18 +233,51 @@ def test_injection_is_xss_safe_by_construction(tmp_path, monkeypatch):
 
 # ═══════════════════ RECOLOR COMPLETENESS (var-ified accents) ═══════════════════
 
-def test_no_hardcoded_accent_literals_in_style_css():
-    """Accent colors in style.css must be var(--…)-driven, not hard-coded hex /
-    rgba triples, so they REPAINT with the mounted World's palette (the recolor
-    var-ification of 2026-06-16). Regression guard against re-introduction."""
+def test_root_defaults_agree_with_default_theme_and_components_stay_var_driven():
+    """Design system v2: style.css :root carries REAL default-theme values (a
+    page renders correctly even if the middleware injection fails) and the
+    injected ui-theme-vars block overrides them per World. Two invariants
+    replace the old blanket no-literals rule:
+
+    1. Every default accent in the :root block equals the default theme's
+       value — style.css can never disagree with ui_theme.py.
+    2. Component rules (everything after the :root block) stay var(--…)-driven
+       — no hard-coded accent literal that would refuse to repaint on mount.
+    """
+    import re
+
+    from arail.ui_theme import default_ui_theme
+
     css = (pathlib.Path(__file__).parents[1]
            / "src/arail/portal/static/style.css").read_text()
-    for lit in ("#00d4ff", "#00ff41", "#ffb000", "#ff3355", "#b48eff",
-                "rgba(0,212,255", "rgba(0, 212, 255",
-                "rgba(0,255,65", "rgba(0, 255, 65",
-                "rgba(255,176,0", "rgba(255, 176, 0",
-                "rgba(255,51,85", "rgba(255, 51, 85"):
-        assert lit not in css, f"hard-coded accent {lit!r} should be var(--…)-driven"
+    root_start = css.index(":root {")
+    root_end = css.index("}", root_start)
+    root_block = css[root_start:root_end]
+    rest = css[root_end:]
+
+    colors = default_ui_theme().dark
+    for token, value in (
+        ("--bg", colors.bg), ("--surface", colors.surface), ("--text", colors.text),
+        ("--accent", colors.accent), ("--accent2", colors.accent2),
+        ("--positive", colors.positive), ("--warn", colors.warn),
+        ("--danger", colors.danger), ("--info", colors.info),
+    ):
+        assert re.search(rf"{token}:\s*{value};", root_block), (
+            f"style.css :root default for {token} must be {value} "
+            "(the default theme's value from ui_theme.py)"
+        )
+
+    # Literal ban derived from the CURRENT default theme (plus the retired
+    # legacy accents, which must never come back either).
+    banned = ["#00d4ff", "#00ff41", "#ffb000", "#ff3355", "#b48eff"]
+    for value in (colors.accent, colors.accent2, colors.positive,
+                  colors.warn, colors.danger, colors.info):
+        r, g, b = int(value[1:3], 16), int(value[3:5], 16), int(value[5:7], 16)
+        banned += [value, f"rgba({r},{g},{b}", f"rgba({r}, {g}, {b}"]
+    for lit in banned:
+        assert lit.lower() not in rest.lower(), (
+            f"hard-coded accent {lit!r} outside :root should be var(--…)-driven"
+        )
 
 
 def test_theme_css_emits_rgb_channel_vars():
@@ -248,9 +285,11 @@ def test_theme_css_emits_rgb_channel_vars():
     rgba(var(--blue-rgb), a) repaints; the default stays identical and a
     different World palette yields different channels."""
     from arail.ui_theme import theme_css, load_ui_theme
-    default_css = theme_css(load_ui_theme("blue-cyan-lab"))
-    assert "--blue-rgb: 0, 212, 255;" in default_css       # unchanged default
+    default_css = theme_css(load_ui_theme("blue-cyan-lab"))  # legacy env alias
+    a2 = default_ui_theme().dark.accent2
+    default_channels = f"{int(a2[1:3], 16)}, {int(a2[3:5], 16)}, {int(a2[5:7], 16)}"
+    assert f"--blue-rgb: {default_channels};" in default_css
     assert "--green-rgb:" in default_css and "--red-rgb:" in default_css
     violet_css = theme_css(load_ui_theme("slate-violet"))
     assert "--blue-rgb:" in violet_css
-    assert "--blue-rgb: 0, 212, 255;" not in violet_css    # repaints
+    assert f"--blue-rgb: {default_channels};" not in violet_css    # repaints
