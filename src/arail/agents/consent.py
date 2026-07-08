@@ -28,11 +28,13 @@ CONSENT_DIR = _DATA_DIR / "consent"
 class ConsentStore:
     """Manages pending requests and the domain allowlist."""
 
-    def __init__(self, data_dir: Path = CONSENT_DIR) -> None:
-        self.data_dir = data_dir
-        self.pending_file = data_dir / "pending.json"
-        self.allowlist_file = data_dir / "allowlist.json"
-        self.history_file = data_dir / "history.json"
+    def __init__(self, data_dir: Optional[Path] = None) -> None:
+        # Late-bind the default so tests (and env changes) that repoint
+        # CONSENT_DIR at construction time are honored.
+        self.data_dir = data_dir if data_dir is not None else CONSENT_DIR
+        self.pending_file = self.data_dir / "pending.json"
+        self.allowlist_file = self.data_dir / "allowlist.json"
+        self.history_file = self.data_dir / "history.json"
         self.data_dir.mkdir(parents=True, exist_ok=True)
 
     # ── Allowlist ────────────────────────────────────────────────────
@@ -108,6 +110,20 @@ class ConsentStore:
             self._append_history(approved)
             if remember_domain:
                 self.add_domain(approved["url"])
+
+    def is_approved(self, request_id: str) -> bool:
+        """True iff ``request_id`` resolved to approved/auto_approved.
+
+        Used by egress.allow_bootstrap_fetch to verify that a scoped
+        airgap exemption is backed by a real recorded consent — the
+        history file is the durable artifact of the user's decision.
+        """
+        for r in self._load(self.history_file, default=[]):
+            if r.get("id") == request_id and r.get("status") in (
+                "approved", "auto_approved",
+            ):
+                return True
+        return False
 
     def deny(self, request_id: str) -> None:
         pending = self.list_pending()
