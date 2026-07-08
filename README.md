@@ -129,6 +129,24 @@ See [docs/INSTALL.md](docs/INSTALL.md) for the long walkthrough.
 
 ## The main surfaces
 
+### 🌍 Worlds *(every tier)*
+
+**Start here.** A World is what your lab studies — a knowledge base of
+terms, categories, and how they relate, plus a matching look. Name any
+subject — *"5th grade mathematics"*, *"differential equations"*,
+*"botany"*, *"indoor plants & their care"* — pick a size (25/50/100
+terms), and your local model **forges** a World in a couple of minutes:
+categories, seeded terms, a discovered association graph, definitions,
+all honestly labeled `model-asserted` until curated. Preview it, then
+**Accept & Mount** — the whole lab's identity, theme, and agent context
+flip to match. Edit terms afterward in **Knowledge → World Terms** (every
+edit re-seals the World and updates its provenance honestly), or ask the
+**Curator** to review it — a model judges terms for miscategorization or
+bad associations and flags them for you to fix. A World is the objective
+starting point; a **goal** (set on the Dashboard) is what you study
+*within* it — Buddy and the autoresearch loop gear toward both together.
+Ships with a pre-curated **AI & Machine Learning** World by default.
+
 ### 📊 Dashboard *(every tier)*
 
 The lab's home screen. Shows the **current mission** (set from
