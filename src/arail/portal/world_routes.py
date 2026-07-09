@@ -938,6 +938,47 @@ async def api_grow_cancel(request: Request):
     return {"ok": True}
 
 
+def _scheduled_growth_enabled() -> bool:
+    return os.getenv("ARAIL_WORLD_GROWTH", "on").strip().lower() not in ("off", "0", "false", "no")
+
+
+async def world_growth_loop() -> None:
+    """'Grows while you sleep': one autonomous growth pass per heavy (overnight)
+    window on the mounted World. Uses the LOCAL brain — scheduled growth never
+    auto-spends on a cloud API; a cloud brain is only ever used when the operator
+    picks it for an on-demand pass. Conservative: heavy window only, not halted,
+    not already running, at most once per calendar day. Started at app boot;
+    returns immediately when disabled (ARAIL_WORLD_GROWTH=off)."""
+    global _grow_state
+    if not _scheduled_growth_enabled():
+        return
+    last_grown_day: Optional[str] = None
+    while True:
+        try:
+            await asyncio.sleep(1800)  # check every 30 min
+            from arail.scheduler import current_window, jobs_halted
+            if current_window() != "heavy" or jobs_halted():
+                continue
+            day = time.strftime("%Y-%m-%d", time.gmtime())
+            if last_grown_day == day or _grow_state.get("state") == "running":
+                continue
+            bundle_dir = _mounted_catalog_dir()
+            if bundle_dir is None:
+                continue
+            spec, terms = _load_terms(bundle_dir)
+            _grow_cancel.clear()
+            _grow_state = {"state": "running", "world": spec.get("slug"),
+                           "stage": "scheduled", "brain": "auto"}
+            last_grown_day = day
+            activity_log.emit("curator",
+                              f"Overnight growth pass on '{spec.get('display_name')}'…", "info")
+            await _run_grow(bundle_dir, spec, terms, "auto")
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:  # noqa: BLE001
+            _log.warning("world growth loop: %s", e)
+
+
 # ═══════════════════════ world-first helpers ══════════════════════════════
 
 @router.get("/api/worlds/goal-suggestions")

@@ -152,3 +152,51 @@ def test_curation_router_provider_bridge(monkeypatch):
 # TestClient as a context manager so lifespan runs once per test.
 def _client_ctx():
     return TestClient(app)
+
+
+def test_scheduled_growth_disabled_returns_immediately(monkeypatch):
+    """ARAIL_WORLD_GROWTH=off → the overnight loop no-ops (no compute)."""
+    import asyncio
+    monkeypatch.setenv("ARAIL_WORLD_GROWTH", "off")
+    # returns promptly (would otherwise loop forever on a 30-min sleep)
+    asyncio.run(asyncio.wait_for(wr.world_growth_loop(), timeout=2))
+
+
+def test_scheduled_growth_gates_on_heavy_window(mounted, monkeypatch):
+    """The loop only grows during the heavy (overnight) window; in the active
+    window it skips. We prove the gate by driving one iteration each way."""
+    import asyncio
+    import arail.scheduler as sched
+
+    # make the loop run exactly one iteration then stop
+    calls = {"grow": 0}
+
+    async def fake_run_grow(bundle_dir, spec, terms, brain):
+        calls["grow"] += 1
+
+    monkeypatch.setattr(wr, "_run_grow", fake_run_grow)
+    monkeypatch.setattr(wr.asyncio, "sleep", _one_then_cancel())
+    monkeypatch.setattr(sched, "current_window", lambda *a, **k: "active")
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(wr.world_growth_loop())
+    assert calls["grow"] == 0, "must NOT grow in the active window"
+
+    monkeypatch.setattr(wr.asyncio, "sleep", _one_then_cancel())
+    monkeypatch.setattr(sched, "current_window", lambda *a, **k: "heavy")
+    monkeypatch.setattr(sched, "jobs_halted", lambda: False)
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(wr.world_growth_loop())
+    assert calls["grow"] == 1, "must grow once in the heavy window"
+
+
+def _one_then_cancel():
+    """An async sleep stub that lets one loop iteration run, then cancels."""
+    import asyncio
+    state = {"n": 0}
+
+    async def _sleep(_secs):
+        state["n"] += 1
+        if state["n"] >= 2:
+            raise asyncio.CancelledError()
+        return None
+    return _sleep

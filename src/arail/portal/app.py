@@ -691,6 +691,13 @@ async def _startup():
 
     asyncio.create_task(_warm_primary_router())
     asyncio.create_task(_inbox_watcher_loop())
+    # 'Grows while you sleep': one autonomous World growth pass per heavy
+    # (overnight) window, local brain only. No-op if ARAIL_WORLD_GROWTH=off.
+    try:
+        from arail.portal.world_routes import world_growth_loop
+        asyncio.create_task(world_growth_loop())
+    except Exception as e:  # noqa: BLE001
+        _log.warning("world growth loop not started: %s", e)
     # Pre-write the Anthropic prompt cache (hybrid + Claude only; no-op
     # everywhere else). Makes the first demo turn read cache, not cold prefix.
     asyncio.create_task(_prewarm_claude_cache_task())
