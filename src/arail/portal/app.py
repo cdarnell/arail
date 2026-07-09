@@ -1301,6 +1301,14 @@ _PROVIDER_META: dict[str, dict[str, str]] = {
 
 _CLOUD_PROVIDERS: set[str] = set(_PROVIDER_KEY_ENVS.keys())
 
+# Local compute sources: run on this machine, no token, allowed in airgapped
+# mode (they never touch the network). "my_machine" is the everyday local
+# runtime; "aerollm" is the in-process AeroLLM deep engine (the sibling
+# inference runtime) — surfaced as a Compute Source so the user can point chat
+# at it to run larger local models cheaply. Distinct from _CLOUD_PROVIDERS,
+# which are token-gated and airgap-blocked.
+_LOCAL_COMPUTE_SOURCES: set[str] = {"my_machine", "aerollm"}
+
 
 def _lab_mode() -> str:
     return os.getenv("LAB_MODE", os.getenv("ARAIL_MODE", "airgapped")).strip().lower()
@@ -1345,7 +1353,7 @@ def _write_secrets(pairs: dict[str, str]) -> None:
 
 def _load_active_provider() -> str:
     provider = os.getenv("COMPUTE_SOURCE", "").strip().lower()
-    if provider in {"my_machine", *_CLOUD_PROVIDERS}:
+    if provider in {*_LOCAL_COMPUTE_SOURCES, *_CLOUD_PROVIDERS}:
         return provider
     return "my_machine"
 
@@ -1367,6 +1375,7 @@ async def providers_status():
         for name, env in _PROVIDER_KEY_ENVS.items()
     }
     known["my_machine"] = True
+    known["aerollm"] = _is_aerollm_installed()  # local deep engine, no token
     mode = _lab_mode()
     return {
         "provider": _load_active_provider(),
@@ -1447,11 +1456,16 @@ async def providers_active(request: Request):
     """Switch the active compute source. Airgapped mode locks to my_machine."""
     body = await request.json()
     provider = (body.get("provider") or "").strip().lower()
-    if provider not in {"my_machine", *_CLOUD_PROVIDERS}:
+    if provider not in {*_LOCAL_COMPUTE_SOURCES, *_CLOUD_PROVIDERS}:
         return {"ok": False, "error": f"unknown provider '{provider}'"}
-    if provider != "my_machine" and _is_airgapped():
+    # Local sources (my_machine, aerollm) run on this machine — allowed even
+    # airgapped. Only cloud providers are locked out.
+    if provider not in _LOCAL_COMPUTE_SOURCES and _is_airgapped():
         return {"ok": False,
-                "error": "Airgapped mode — only My Machine is active. Set LAB_MODE=hybrid to use cloud providers."}
+                "error": "Airgapped mode — only local sources are active. Set LAB_MODE=hybrid to use cloud providers."}
+    if provider == "aerollm" and not _is_aerollm_installed():
+        return {"ok": False,
+                "error": "The AeroLLM engine isn't built on this machine. Run './arailctl deep rebuild' to enable it."}
     os.environ["COMPUTE_SOURCE"] = provider
     activity_log.emit("chat", f"Compute source switched to '{provider}'.", "info")
     # Sprint 2: regenerate_config() THEN restart() — under a single lock.
@@ -7393,8 +7407,13 @@ async def api_chat_models(provider: str = ""):
         "compute_sources": [
             {
                 **source,
-                "requires_token": source["id"] != "my_machine",
-                "available": source["id"] == "my_machine" or bool(_provider_token(source["id"])),
+                # Local sources need no token and are always usable (aerollm is
+                # only listed when its engine is built, so it's available here).
+                "requires_token": source["id"] not in _LOCAL_COMPUTE_SOURCES,
+                "available": (
+                    source["id"] in _LOCAL_COMPUTE_SOURCES
+                    or bool(_provider_token(source["id"]))
+                ),
             }
             for source in _compact_compute_sources(active_provider)
         ],
@@ -7629,6 +7648,7 @@ def _display_provider_name(provider: str) -> str:
     mapping = {
         "my_machine": "Local",
         "local": "Local",
+        "aerollm": "AeroLLM",
         "claude": "Claude",
         "nvidia": "NVIDIA",
         "huggingface": "HF",
@@ -7790,6 +7810,13 @@ def _local_headroom_line(snapshot: dict[str, Any], best_fit: str) -> str | None:
 def _compact_compute_sources(active_provider: str) -> list[dict[str, Any]]:
     sources = [
         ("my_machine", True),
+    ]
+    # AeroLLM slots in as a local source right after My Machine — but only when
+    # the engine is actually built on this host (no dead option). It's the
+    # "run larger local models cheaply" pick, not a cloud provider.
+    if _is_aerollm_installed():
+        sources.append(("aerollm", False))
+    sources += [
         ("claude", False),
         ("nvidia", False),
         ("openrouter", False),
