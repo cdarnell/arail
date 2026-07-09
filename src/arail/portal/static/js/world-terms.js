@@ -18,6 +18,9 @@
     flags: {},           // slug -> flag object from /api/worlds/review
     reviewState: 'idle',
     reviewTimer: null,
+    growState: 'idle',   // world growth engine
+    growTimer: null,
+    growPasses: [],
     query: '',
     drawer: null,        // {backdrop, panel}
   };
@@ -110,6 +113,40 @@
     }
   }
 
+  /* ── growth engine (organic evolution) ──────────────────────── */
+
+  async function pollGrow() {
+    const r = await api('/api/worlds/grow');
+    if (r.ok) {
+      S.growState = r.body.state || 'idle';
+      S.growPasses = r.body.passes || [];
+      if (S.growState === 'running') {
+        S.growTimer = setTimeout(pollGrow, 3000);
+      } else {
+        S.growTimer = null;
+        if (S.growState === 'done') loadTerms();  // pull the newly-grown terms
+      }
+      render();
+    }
+  }
+
+  async function startGrow() {
+    const brain = (document.getElementById('wt-brain') || {}).value || 'auto';
+    const r = await api('/api/worlds/grow', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ brain }),
+    });
+    if (r.status === 202 || r.ok) {
+      S.growState = 'running';
+      render();
+      if (!S.growTimer) S.growTimer = setTimeout(pollGrow, 3000);
+    } else if (r.body && r.body.error === 'grow_busy') {
+      S.growState = 'running';
+      render();
+    }
+  }
+
   /* ── main render ────────────────────────────────────────────── */
 
   function render() {
@@ -130,11 +167,50 @@
     reviewBtn.addEventListener('click', startReview);
     head.appendChild(reviewBtn);
 
+    // Growth engine: pick the curation brain, then let agents evolve the World.
+    const growWrap = el('div', 'wt-grow');
+    const brain = el('select', 'wt-brain');
+    brain.id = 'wt-brain';
+    brain.title = 'Which brain curates and grows this World';
+    [['auto', 'Best local brain'], ['claude', 'Claude (cloud)'],
+     ['openrouter', 'OpenRouter (cloud)'], ['local', 'On-GPU model']]
+      .forEach(([v, label]) => {
+        const o = el('option', null, label); o.value = v; brain.appendChild(o);
+      });
+    if (S._brain) brain.value = S._brain;
+    brain.addEventListener('change', () => { S._brain = brain.value; });
+    const growBtn = el('button', 'wt-btn wt-btn--curator',
+      S.growState === 'running' ? 'Growing…' : '✦ Grow this World');
+    growBtn.type = 'button';
+    growBtn.disabled = S.growState === 'running';
+    growBtn.title = 'Agents correct existing terms and add new ones — reversible, labeled';
+    growBtn.addEventListener('click', startGrow);
+    growWrap.appendChild(brain);
+    growWrap.appendChild(growBtn);
+    head.appendChild(growWrap);
+
     const addBtn = el('button', 'wt-btn wt-btn--primary', '＋ Add term');
     addBtn.type = 'button';
     addBtn.addEventListener('click', () => openDrawer(null));
     head.appendChild(addBtn);
     view.appendChild(head);
+
+    // Evolution summary — the World's growth history (transparency).
+    if (S.growState === 'running' || (S.growPasses && S.growPasses.length)) {
+      const evo = el('div', 'wt-evo');
+      if (S.growState === 'running') {
+        evo.appendChild(el('span', 'wt-evo-live', '✦ Agents are growing this World…'));
+      } else {
+        const last = S.growPasses[S.growPasses.length - 1];
+        const added = (last.added || []).length;
+        const corr = (last.corrections || []).length;
+        evo.appendChild(el('span', null,
+          `✦ Last evolved via ${last.model || 'a model'}: +${added} term${added === 1 ? '' : 's'}, `
+          + `${corr} correction${corr === 1 ? '' : 's'}`
+          + ` · ${S.growPasses.length} pass${S.growPasses.length === 1 ? '' : 'es'} total`));
+      }
+      view.appendChild(evo);
+    }
 
     // Sourced-world edit warning banner (one-time)
     const warnKey = 'arail-world-edit-warn-' + (S.data.world || '');
@@ -565,6 +641,15 @@
         res();
       }).catch(res);
     });
+    // pick up growth history + resume if a pass is running
+    try {
+      const g = await api('/api/worlds/grow');
+      if (g.ok && g.body) {
+        S.growState = g.body.state || 'idle';
+        S.growPasses = g.body.passes || [];
+        if (S.growState === 'running' && !S.growTimer) S.growTimer = setTimeout(pollGrow, 3000);
+      }
+    } catch (e) { /* ignore */ }
     setMode(true); // world mounted → land on World Terms
     render();
   })();

@@ -1307,6 +1307,33 @@ body.wt-mode .kb-layout { display: none; }
   background: transparent;
 }
 
+/* Growth engine controls */
+.wt-grow {
+  display: inline-flex;
+  align-items: stretch;
+  gap: 0;
+}
+.wt-brain {
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  color: var(--text);
+  background: var(--surface2);
+  border: 1px solid var(--border-strong);
+  border-right: none;
+  border-radius: var(--radius-s) 0 0 var(--radius-s);
+  padding: 0 0.5rem;
+}
+.wt-grow .wt-btn--curator {
+  border-radius: 0 var(--radius-s) var(--radius-s) 0;
+}
+/* Evolution summary line */
+.wt-evo {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  padding: 0.35rem 0 0.6rem;
+}
+.wt-evo-live { color: var(--accent2); }
+
 /* Warning banner */
 .wt-banner {
   display: flex;
