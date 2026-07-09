@@ -315,6 +315,8 @@ def browse(pkb_root: Path | None = None) -> dict[str, Any]:
                 try:
                     if _is_low_signal_experiment_file(root, p):
                         continue
+                    if _is_world_machinery(p):
+                        continue
                     stat = p.stat()
                     items.append({
                         "path": str(p.relative_to(root)),
@@ -374,12 +376,26 @@ def _is_low_signal_experiment_file(root: Path, p: Path) -> bool:
 _PKB_TEXT_SUFFIXES = (".md", ".txt", ".rst", ".csv", ".json", ".html")
 
 
+def _is_world_machinery(p: Path) -> bool:
+    """True for staged World bundle-machinery files (agenda/drift/roster/spec/
+    terms.json under sources/world-*/). Excluded from every KB surface — the
+    world's knowledge reaches the KB as per-term pages, not raw bundle JSON.
+    Delegates to the one shared predicate in world_mount; never raises."""
+    try:
+        from arail.world_mount import is_world_machinery_path
+        return is_world_machinery_path(p)
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def _iter_pkb_files(root: Path):
     """Yield (path, text) for every searchable file under ``root``."""
     for p in sorted(root.rglob("*")):
         if not p.is_file() or p.name.startswith("."):
             continue
         if p.suffix not in _PKB_TEXT_SUFFIXES:
+            continue
+        if _is_world_machinery(p):
             continue
         try:
             text = p.read_text(errors="replace")

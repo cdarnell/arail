@@ -418,6 +418,15 @@ def schedule_upsert(path: Path, *, pkb_root: Path | None = None) -> None:
     if not available():
         return
 
+    # Never embed staged World bundle-machinery (agenda/drift/roster/spec/
+    # terms.json) — the world's content is indexed as per-term pages instead.
+    try:
+        from arail.world_mount import is_world_machinery_path
+        if is_world_machinery_path(path):
+            return
+    except Exception:  # noqa: BLE001
+        pass
+
     root = pkb_root or _pkb_root_cache or _pkb_root_from_env()
 
     # Lazily initialize if ensure_ready was never called.

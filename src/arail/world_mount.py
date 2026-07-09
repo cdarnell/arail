@@ -72,6 +72,36 @@ _BUNDLE_FILES = frozenset([
     "terms.json",
 ])
 
+# Staged machinery files: they stay ON DISK (the mount contract reads them via
+# mounted_terms/world_trusted_domains/etc.) but are excluded from every KB
+# surface — pkb.browse, pkb.search/_iter_pkb_files, and pkb_index rows — via
+# the ONE shared predicate is_world_machinery_path(). terms.json is machinery
+# too: its content reaches the KB as per-term pages under terms/ instead of
+# one hashed JSON blob. SKILL.md, world-<slug>.md, face.json and terms/*.md
+# stay indexed.
+WORLD_MACHINERY_FILES = frozenset([
+    "agenda.json",
+    "drift-report.json",
+    "roster.json",
+    "spec.json",
+    "terms.json",
+])
+
+
+def is_world_machinery_path(path: "Path | str") -> bool:
+    """True when *path* is a staged World machinery file directly inside a
+    ``sources/world-*/`` dir. Shared by pkb.browse, pkb._iter_pkb_files and
+    pkb_index — do not duplicate the filename list at call sites. Never raises.
+    """
+    try:
+        p = Path(path)
+        if p.name not in WORLD_MACHINERY_FILES:
+            return False
+        parent = p.parent
+        return parent.name.startswith("world-") and parent.parent.name == "sources"
+    except Exception:  # noqa: BLE001
+        return False
+
 # ── Error hierarchy ──────────────────────────────────────────────────────────
 
 
@@ -979,8 +1009,9 @@ def _stage_files(bundle: Bundle, pkb_root: Path) -> Path:
                 "world_mount: SKILL.md stage failed (continuing): %s", e
             )
 
-    # Emit world-<slug>.md index page
+    # Emit world-<slug>.md index page + one wiki-ready page per term.
     _write_index_page(bundle, staging_dir)
+    _write_term_pages(bundle, staging_dir)
 
     # Swap with the shortest possible "absent" window: step the live dir aside
     # (one rename), bring the new dir live (one rename) — two back-to-back
@@ -1028,18 +1059,207 @@ def _write_index_page(bundle: Bundle, dest_dir: Path) -> None:
     (dest_dir / f"world-{slug}.md").write_text(content, encoding="utf-8")
 
 
-def _index_staged(staged_dir: Path, pkb_root: Path) -> None:
-    """Call ensure_ready + schedule_upsert for all staged files."""
+    # Term-field sanitizers. All term content is untrusted DATA — a hostile
+    # author can seal anything. These reuse world_forge's skill sanitizers
+    # (newline collapse + ZWNJ-neutralized leading control token) so a term
+    # can never forge frontmatter, headings, list items or wikilink targets.
+
+
+_TERM_SLUG_SAFE_RE = re.compile(r"[^a-z0-9-]+")
+_TAG_SAFE_RE = re.compile(r"[^A-Za-z0-9_-]+")
+_ALIAS_UNSAFE_RE = re.compile(r"[\[\],\"'\r\n]+")
+
+
+def _safe_term_slug(raw: Any) -> str:
+    """Reduce an untrusted slug/related target to [a-z0-9-]. May return ''."""
+    return _TERM_SLUG_SAFE_RE.sub("-", str(raw).lower()).strip("-")[:80]
+
+
+def _safe_tag(raw: Any) -> str:
+    return _TAG_SAFE_RE.sub("-", str(raw)).strip("-")[:60]
+
+
+def _safe_alias(raw: Any) -> str:
+    """Alias list items live inside a [a, b] frontmatter literal — strip the
+    characters that could break out of it."""
+    flat = _ALIAS_UNSAFE_RE.sub(" ", str(raw))
+    return re.sub(r"\s+", " ", flat).strip()[:80]
+
+
+def _sanitize_inline(value: Any, cap: int = 4000) -> str:
+    """Flatten an untrusted term field to one safe markdown line."""
     try:
+        from arail.world_forge import sanitize_body_field
+        return sanitize_body_field(str(value))[:cap]
+    except Exception:  # noqa: BLE001 — replicate the ~5-line sanitizer
+        flat = re.sub(r"[\r\n]+", " ", str(value)).strip()
+        return re.sub(r"^([#\->`])", "‌\\1", flat)[:cap]
+
+
+def _fm_scalar(value: Any, cap: int = 300) -> str:
+    """Frontmatter scalar: newline-collapsed, double-quoted, escaped."""
+    try:
+        from arail.world_forge import sanitize_frontmatter_scalar
+        return sanitize_frontmatter_scalar(str(value)[:cap])
+    except Exception:  # noqa: BLE001
+        flat = re.sub(r"[\r\n]+", " ", str(value)[:cap]).strip()
+        return '"' + flat.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def _write_term_pages(bundle: Bundle, dest_dir: Path) -> None:
+    """Write one wiki-ready markdown page per term to ``dest_dir/terms/``.
+
+    THIS is what populates the Knowledge Base: the wiki indexes each page
+    (frontmatter title/tags/aliases feed search), the ``[[related]]``
+    wikilinks become knowledge-graph edges, and LanceDB embeds each page
+    individually instead of one hashed terms.json blob. The term's own slug
+    is emitted as an alias so bare ``[[<term-slug>]]`` targets resolve
+    through wiki.resolve_links' alias lookup. Never raises.
+    """
+    terms = [t for t in bundle.terms if isinstance(t, dict)]
+    if not terms:
+        return
+    world_slug = bundle.slug
+    terms_dir = dest_dir / "terms"
+    terms_dir.mkdir(parents=True, exist_ok=True)
+    for term in terms:
+        slug = _safe_term_slug(term.get("slug", ""))
+        if not slug:
+            continue
+        tags = [f"world-{world_slug}"]
+        category = _safe_tag(term.get("category", ""))
+        if category:
+            tags.append(category)
+        aliases: List[str] = [slug]
+        aka = term.get("aka")
+        if isinstance(aka, list):
+            for a in aka[:8]:
+                clean = _safe_alias(a)
+                if clean and clean not in aliases:
+                    aliases.append(clean)
+
+        lines = [
+            "---",
+            f"title: {_fm_scalar(term.get('term') or slug)}",
+            f"tags: [{', '.join(tags)}]",
+            f"aliases: [{', '.join(aliases)}]",
+            "---",
+            "",
+        ]
+        short = _sanitize_inline(term.get("short", ""), cap=500)
+        if short:
+            lines += [short, ""]
+        definition = _sanitize_inline(term.get("definition", ""), cap=4000)
+        if definition:
+            lines += [definition, ""]
+        example = _sanitize_inline(term.get("example", ""), cap=1000)
+        if example:
+            lines += [f"**Example:** {example}", ""]
+
+        related = term.get("related")
+        rel_slugs: List[str] = []
+        if isinstance(related, list):
+            for r in related[:32]:
+                rs = _safe_term_slug(r)
+                if rs and rs != slug and rs not in rel_slugs:
+                    rel_slugs.append(rs)
+        if rel_slugs:
+            lines += ["## Related", ""]
+            lines += [f"- [[{rs}]]" for rs in rel_slugs]
+            lines.append("")
+
+        source = _sanitize_inline(term.get("source", ""), cap=500)
+        if source:
+            lines += [f"Source: {source}", ""]
+        try:
+            (terms_dir / f"{slug}.md").write_text("\n".join(lines), encoding="utf-8")
+        except Exception as e:  # noqa: BLE001 — one bad term never blocks the mount
+            _log.warning("world_mount: term page write failed for %s: %s", slug, e)
+
+
+def _index_staged(staged_dir: Path, pkb_root: Path) -> str:
+    """Enqueue every staged KB-surface file for LanceDB indexing.
+
+    Returns a status string (never raises):
+      - ``"indexed"``     — ensure_ready ran, KB-surface files were enqueued
+      - ``"unavailable"`` — lancedb is not installed (keyword search still works)
+      - ``"error: …"``    — unexpected failure, logged
+
+    Machinery files (see is_world_machinery_path) are skipped; term pages
+    under terms/ are included via the recursive walk.
+    """
+    try:
+        from arail.vector_index import available
+        if not available():
+            _log.warning(
+                "world_mount: lancedb not installed — semantic index skipped "
+                "(keyword search still works)"
+            )
+            return "unavailable"
         from arail.pkb_index import ensure_ready, schedule_upsert
         ensure_ready(pkb_root)
-        for p in staged_dir.iterdir():
+        for p in sorted(staged_dir.rglob("*")):
+            if not p.is_file() or is_world_machinery_path(p):
+                continue
             try:
                 schedule_upsert(p, pkb_root=pkb_root)
             except Exception as e:
                 _log.warning("world_mount: schedule_upsert failed for %s: %s", p, e)
-    except Exception as e:
+        return "indexed"
+    except Exception as e:  # noqa: BLE001 — indexing must never fail a mount
         _log.warning("world_mount: indexer unavailable: %s", e)
+        return f"error: {e}"
+
+
+def _emit_index_status(world: str, status: str) -> None:
+    """Surface a non-"indexed" semantic-index outcome on the activity stream.
+
+    Best-effort; the mount already succeeded by the time this runs.
+    """
+    try:
+        from arail.activity import activity_log
+        if status == "unavailable":
+            activity_log.emit(
+                "world",
+                "Semantic search index unavailable (lancedb not installed) — "
+                "keyword search still works.",
+                "warn",
+            )
+        elif status.startswith("error"):
+            activity_log.emit(
+                "world",
+                f"World '{world}' KB indexing issue: {status}",
+                "warn",
+            )
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _refresh_kb_surfaces(pkb_root: Path) -> None:
+    """Make a mount/swap/unmount visible in the KB immediately.
+
+    Forces the debounced pkb_index queue to flush now, then rebuilds the
+    wiki — via the async debouncer when an event loop is running, otherwise
+    (CLI mounts) synchronously best-effort. Never raises.
+    """
+    try:
+        from arail.pkb_index import flush_now
+        flush_now()
+    except Exception as e:  # noqa: BLE001
+        _log.warning("world_mount: pkb_index flush failed: %s", e)
+    try:
+        from arail import wiki
+        scheduled = wiki.schedule_rebuild(pkb_root=pkb_root)
+        if not scheduled and wiki._auto_rebuild_enabled():
+            # schedule_rebuild returns False with no running loop (CLI mount)
+            # — build synchronously so the wiki + knowledge graph aren't
+            # silently stale until the next portal boot.
+            try:
+                wiki.compile_wiki(pkb_root)
+            except Exception as e:  # noqa: BLE001
+                _log.warning("world_mount: synchronous wiki build failed: %s", e)
+    except Exception as e:  # noqa: BLE001
+        _log.warning("world_mount: wiki refresh skipped: %s", e)
 
 
 def _adopt_into_catalog(

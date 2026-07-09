@@ -21,7 +21,10 @@ from arail.world_mount import (
     mount,
 )
 
-_EXPECTED_FILES = _BUNDLE_FILES | {f"world-physics.md"}
+# 6 bundle files + the world index page + the per-term pages dir (WK-1:
+# every term is now its own wiki page under terms/, so the graph + search
+# populate instead of one JSON blob).
+_EXPECTED_FILES = _BUNDLE_FILES | {"world-physics.md", "terms"}
 
 
 def test_staged_dir_holds_all_files(tmp_path):
@@ -127,5 +130,5 @@ def test_schedule_upsert_called_per_file(tmp_path, monkeypatch):
     monkeypatch.setattr(wm_mod, "_index_staged", tracking_index)
 
     mount(PHYSICS, pkb_root=pkb_root, data_dir=data_dir)
-    # All 6 bundle files + index page should have been seen
-    assert len(upserted) == 7  # 6 bundle files + world-physics.md
+    # 6 bundle files + world-physics.md index + the terms/ pages dir (WK-1)
+    assert len(upserted) == 8
