@@ -64,6 +64,36 @@ def _arail_password_for_tests(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _allow_testclient_host(monkeypatch):
+    """Let Starlette TestClient's default ``Host: testserver`` through the
+    local_trust_boundary middleware (anti-DNS-rebinding Host allowlist).
+
+    In production only loopback names pass; `testserver` is a synthetic
+    host a real browser can never send while connecting to the lab, so
+    allowing it in tests creates no attack surface. Tests that want to
+    exercise a rejected Host monkeypatch this back or pass an explicit
+    non-loopback Host header.
+    """
+    monkeypatch.setenv("ARAIL_ALLOWED_HOSTS", "testserver")
+
+
+@pytest.fixture(autouse=True)
+def _no_ambient_window_override(monkeypatch, tmp_path_factory):
+    """Isolate the persisted work-window override per test.
+
+    ``scheduler.current_window()`` now consults a persisted override
+    (``lab/data/window_override.json``). Without isolation a developer's
+    (or another test's) ambient override leaks into every scheduler
+    consumer and makes unrelated tests non-deterministic. Point the
+    override file at a fresh tmp path and clear in-memory state.
+    """
+    from arail import scheduler
+    d = tmp_path_factory.mktemp("window_override")
+    monkeypatch.setattr(scheduler, "_override_path", lambda: d / "window_override.json")
+    scheduler._reset_window_override_for_tests()
+
+
+@pytest.fixture(autouse=True)
 def _no_ambient_world_mount(monkeypatch, tmp_path_factory):
     """Hide any World a developer has mounted on this machine from the tests.
 

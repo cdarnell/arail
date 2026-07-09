@@ -497,6 +497,79 @@ async def inject_ui_theme(request, call_next):
     )
 
 
+# ---------------------------------------------------------------------------
+# Local trust-boundary guard — anti-DNS-rebinding Host allowlist + blanket
+# CSRF on state-changing methods. The portal has no auth: loopback is the
+# trust boundary. Two browser-borne attacks this closes:
+#
+#   1. DNS rebinding — an attacker page on evil.com (rebound to 127.0.0.1)
+#      is *same-origin with itself*, so a per-endpoint Origin==Host check
+#      passes. The defense is a positive Host allowlist: after the rebind
+#      the Host header still reads `evil.com`, which is not loopback → 403.
+#      (Django's ALLOWED_HOSTS pattern; ARAIL_ALLOWED_HOSTS extends it for
+#      reverse-proxy / LAN deployments.)
+#   2. Plain cross-origin POST — a page can POST to 127.0.0.1:8080 without
+#      a rebind (it just can't read the response). Blanket Sec-Fetch-Site /
+#      Origin checks on POST/PUT/PATCH/DELETE stop the airgap flip and every
+#      other state mutation (provider save/remove, jobs/halt, …), not just
+#      the two endpoints that opt into _check_local_mutation_request.
+#
+# Registered last so it is the OUTERMOST middleware and rejects before any
+# handler runs. GETs are Host-checked too (rebind can exfiltrate via GET).
+# ---------------------------------------------------------------------------
+_LOOPBACK_HOSTNAMES = frozenset({"127.0.0.1", "::1", "localhost"})
+_MUTATING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+
+
+def _request_hostname(request) -> str:
+    """Bare hostname from the Host header (port stripped, IPv6 unwrapped)."""
+    raw = request.headers.get("host", "").strip().lower()
+    if raw.startswith("[") and "]" in raw:  # [::1]:8080 → ::1
+        return raw[1:raw.index("]")]
+    return raw.rsplit(":", 1)[0] if ":" in raw else raw
+
+
+def _host_is_trusted(hostname: str) -> bool:
+    if hostname in _LOOPBACK_HOSTNAMES:
+        return True
+    extra = os.getenv("ARAIL_ALLOWED_HOSTS", "")
+    if hostname and hostname in {h.strip().lower() for h in extra.split(",") if h.strip()}:
+        return True
+    # Operator bound beyond loopback → they opted into exposure. Accept the
+    # configured bind host (LAN IP); a wildcard bind can't be validated, so
+    # defer to the operator (they must run their own front door).
+    bind = os.getenv("BIND_ADDR", "127.0.0.1").strip().lower()
+    if bind not in _LOOPBACK_HOSTNAMES:
+        if bind in ("0.0.0.0", "::", ""):
+            return True
+        return hostname == bind
+    return False
+
+
+@app.middleware("http")
+async def local_trust_boundary(request, call_next):
+    from fastapi.responses import JSONResponse
+
+    if not _host_is_trusted(_request_hostname(request)):
+        # Untrusted Host = the request reached us via a name that isn't the
+        # lab's own — the signature of a DNS-rebinding attack.
+        return JSONResponse(status_code=403, content={"error": "untrusted_host"})
+
+    if request.method in _MUTATING_METHODS:
+        sfs = request.headers.get("sec-fetch-site", "").strip().lower()
+        if sfs in ("cross-site", "none"):
+            return JSONResponse(status_code=403, content={"error": "cross_site"})
+        origin = request.headers.get("origin", "")
+        if origin:
+            from urllib.parse import urlparse as _urlparse
+            # Present-but-mismatched (incl. `Origin: null` → netloc "") is
+            # hostile; only an exact Origin/Host match passes.
+            if _urlparse(origin).netloc != request.headers.get("host", ""):
+                return JSONResponse(status_code=403, content={"error": "cross_origin"})
+
+    return await call_next(request)
+
+
 app.include_router(wiki_router)
 
 from arail.portal.world_routes import router as world_router  # noqa: E402
@@ -8970,8 +9043,9 @@ def _check_local_mutation_request(request: Request):
     host = request.headers.get("host", "")
     if origin:
         from urllib.parse import urlparse as _urlparse
-        origin_host = _urlparse(origin).netloc
-        if origin_host and origin_host != host:
+        # Present-but-mismatched Origin — including `Origin: null` (netloc "")
+        # from a sandboxed iframe — is hostile. Only an exact match passes.
+        if _urlparse(origin).netloc != host:
             return JSONResponse(status_code=403, content={"error": "cross_origin"})
 
     return None
@@ -9062,7 +9136,16 @@ async def post_airgap_toggle(request: Request):
         from arail.portal.services.opencode import regenerate_config
         regenerate_config(force=True)
     except Exception as exc:  # noqa: BLE001
-        _log.debug("airgap toggle: opencode config regen skipped: %s", exc)
+        # Failing to re-pin opencode to the local provider on an
+        # airgapped flip leaves the subprocess on its prior (possibly
+        # hybrid) config until its next launch — a real egress window,
+        # so log it loudly in that direction.
+        if target == "airgapped":
+            _log.warning("airgap toggle: opencode config regen FAILED on "
+                         "airgapped flip — subprocess keeps prior config "
+                         "until relaunch: %s", exc)
+        else:
+            _log.debug("airgap toggle: opencode config regen skipped: %s", exc)
 
     # ── Audit log ─────────────────────────────────────────────────────
     now_iso = (datetime.now(timezone.utc)
