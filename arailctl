@@ -165,7 +165,7 @@ EOF
     doctor          validate the environment end-to-end
     logs [comp]     tail activity log — filter by component
     reset [mode]    wipe state — models|data|pkb|plugins|env|full|destroy
-    world <op>      DaC WorldBundle: list | mount <dir> [--apply-face] | verify <dir> | swap <dir> | unmount
+    world <op>      DaC WorldBundle: list | mount <dir> [--apply-face] | verify <dir> | verify-shipped [--examples] | swap <dir> | unmount
     pkb <op>        ARAIL lab content: ingest | compile | browse
     wiki <op>       ARAIL docs-as-code: build | info | new <title>
     kb <op>         QuKaiZen Karpathy Wiki: status | compile | lint | query

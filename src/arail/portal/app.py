@@ -689,6 +689,23 @@ async def _startup():
                 "warn",
             )
 
+    # Advisory integrity check of the vendored World bundles (sealed
+    # qukaizen-dac exports committed into lab/worlds/). Loud on failure,
+    # never blocks startup — mount() and /api/worlds already fail safe.
+    async def _check_shipped_worlds():
+        try:
+            from arail.world_mount import verify_shipped_worlds
+            results = await asyncio.to_thread(verify_shipped_worlds)
+            for res in results:
+                if not res["ok"]:
+                    msg = (f"Shipped World '{res['slug']}' failed its seal check — "
+                           f"{res['reason']}. Restore with: git checkout -- lab/worlds/{res['slug']}")
+                    _log.error(msg)
+                    activity_log.emit("system", msg, "error")
+        except Exception as e:  # noqa: BLE001 — advisory only
+            _log.warning("Shipped-World seal check skipped: %s", e)
+
+    asyncio.create_task(_check_shipped_worlds())
     asyncio.create_task(_warm_primary_router())
     asyncio.create_task(_inbox_watcher_loop())
     # 'Grows while you sleep': one autonomous World growth pass per heavy

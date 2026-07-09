@@ -124,6 +124,23 @@ def test_api_worlds_shape_default(tmp_path, monkeypatch):
     assert "worlds" in j and "current" in j
     assert j["current"] is None
     assert any(w["slug"] == "physics" for w in j["worlds"])
+    # Every world dict carries a tagline key (welcome/picker story blurb).
+    assert all("tagline" in w for w in j["worlds"])
+    physics = next(w for w in j["worlds"] if w["slug"] == "physics")
+    assert physics["tagline"].startswith("The SI spine")
+
+
+def test_api_worlds_tagline_roundtrip_and_tolerance(tmp_path):
+    from tests.world_bundle_builder import make_bundle
+    wd = tmp_path / "worlds"
+    wd.mkdir()
+    make_bundle(wd, slug="withtag", display_name="With Tag")
+    make_bundle(wd, slug="notag", display_name="No Tag",
+                drop_face_keys=("tagline",))
+    data = tmp_path / "data"; data.mkdir()
+    worlds = {w.slug: w for w in wm.list_available_worlds(wd, data_dir=data)}
+    assert worlds["withtag"].tagline == "A With Tag World."
+    assert worlds["notag"].tagline == ""
 
 
 def test_api_worlds_current_when_mounted(tmp_path, monkeypatch):

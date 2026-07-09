@@ -236,6 +236,9 @@ class WorldInfo:
     # the SAME validated path as the live theme (world_theme → palette_hint →
     # None). Values are validated hex / closed-enum only — safe for CSSOM.
     theme_preview: Optional[Dict[str, str]] = None
+    # Short story blurb from face.json's ``tagline`` — display copy for
+    # pickers/switchers. Empty string when the face has none.
+    tagline: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -246,6 +249,7 @@ class WorldInfo:
             "mounted": self.mounted,
             "reason": self.reason,
             "theme_preview": dict(self.theme_preview) if self.theme_preview else None,
+            "tagline": self.tagline,
         }
 
 
@@ -283,6 +287,16 @@ def _theme_preview_from_face(face: Any) -> Optional[Dict[str, str]]:
         return None
     except Exception:  # noqa: BLE001 — a broken face never breaks discovery
         return None
+
+
+def _tagline_from_face(face: Any) -> str:
+    """Story blurb for pickers, from an (untrusted) face mapping. Never raises."""
+    try:
+        if not isinstance(face, dict):
+            return ""
+        return str(face.get("tagline", "") or "").strip()[:200]
+    except Exception:  # noqa: BLE001 — a broken face never breaks discovery
+        return ""
 
 
 # ── Pure (no side effects) ───────────────────────────────────────────────────
@@ -707,6 +721,7 @@ def list_available_worlds(
                     valid=True,
                     mounted=(slug == current_slug),
                     theme_preview=_theme_preview_from_face(bundle.face),
+                    tagline=_tagline_from_face(bundle.face),
                 ))
             except Exception as e:  # noqa: BLE001
                 out.append(WorldInfo(
@@ -1583,7 +1598,86 @@ def get_mounted_dict_terms(record: MountRecord) -> List[Dict[str, Any]]:
     return [term_to_dict_entry(t) for t in raw]
 
 
+# ── Shipped-bundle verification (vendored qukaizen-dac exports) ──────────────
+
+
+def verify_shipped_worlds(worlds_dir: Path | None = None) -> List[Dict[str, Any]]:
+    """Run the full verify ladder over every bundle dir in the catalog.
+
+    Shipped Worlds are sealed qukaizen-dac exports committed into the repo;
+    this is the single-repo-install integrity check. Never raises. Returns one
+    result dict per bundle dir: {"slug", "path", "ok", "reason", "terms",
+    "seal"} — ``slug`` falls back to the dir name when the manifest is
+    unreadable.
+    """
+    wd = worlds_dir or _default_worlds_dir()
+    results: List[Dict[str, Any]] = []
+    try:
+        subdirs = sorted(
+            (d for d in wd.iterdir() if d.is_dir() and not d.name.startswith(".")),
+            key=lambda p: p.name,
+        ) if wd.exists() and wd.is_dir() else []
+    except Exception as e:  # noqa: BLE001
+        _log.warning("world_mount: cannot scan worlds dir %s: %s", wd, e)
+        subdirs = []
+
+    for d in subdirs:
+        res: Dict[str, Any] = {
+            "slug": d.name, "path": str(d.resolve()),
+            "ok": False, "reason": "", "terms": 0, "seal": "",
+        }
+        try:
+            bundle = load_bundle(d)
+            res["slug"] = bundle.slug
+            res["terms"] = len(bundle.terms)
+            seal = verify_seal(bundle)
+            if not seal.ok:
+                res["reason"] = seal.user_message
+            else:
+                res["seal"] = seal.computed_sha256
+                check_compat(bundle)
+                check_categories(bundle)
+                res["ok"] = True
+        except Exception as e:  # noqa: BLE001 — report, never raise
+            res["reason"] = getattr(e, "user_message", str(e))[:300]
+        results.append(res)
+    return results
+
+
 # ── __main__ CLI ──────────────────────────────────────────────────────────────
+
+
+_VERIFY_SHIPPED_REMEDY = (
+    "Shipped bundles are committed to git — restore with "
+    "`git checkout -- lab/worlds/<slug>`. Do not hand-edit sealed files; "
+    "resealing lives upstream in qukaizen-dac (portal term edits reseal "
+    "properly on their own)."
+)
+
+
+def _cmd_verify_shipped(args: argparse.Namespace) -> int:
+    """Verify every vendored bundle in the catalog (and optionally examples/)."""
+    dirs: List[Path] = [_default_worlds_dir()]
+    if getattr(args, "examples", False):
+        dirs.append(Path("examples/worlds"))
+
+    all_ok = True
+    any_seen = False
+    for wd in dirs:
+        for res in verify_shipped_worlds(wd):
+            any_seen = True
+            if res["ok"]:
+                print(f"OK   world={res['slug']!r} terms={res['terms']} seal={res['seal'][:16]}… ({res['path']})")
+            else:
+                all_ok = False
+                print(f"FAIL world={res['slug']!r} — {res['reason']} ({res['path']})", file=sys.stderr)
+    if not any_seen:
+        print("No World bundles found to verify.", file=sys.stderr)
+        return 2
+    if not all_ok:
+        print(_VERIFY_SHIPPED_REMEDY, file=sys.stderr)
+        return 2
+    return 0
 
 
 def _cmd_verify(args: argparse.Namespace) -> int:
@@ -1705,6 +1799,14 @@ def _build_parser() -> argparse.ArgumentParser:
     p_verify = sub.add_parser("verify", help="Verify bundle seal + compat + categories")
     p_verify.add_argument("bundle_dir", help="Path to the WorldBundle directory")
 
+    # verify-shipped
+    p_vs = sub.add_parser(
+        "verify-shipped",
+        help="Verify every vendored bundle in lab/worlds/ (sealed qukaizen-dac exports)",
+    )
+    p_vs.add_argument("--examples", action="store_true",
+                      help="Also verify the demo bundles in examples/worlds/")
+
     # list
     sub.add_parser("list", help="Show currently mounted world")
 
@@ -1734,6 +1836,8 @@ if __name__ == "__main__":
 
     if args.command == "verify":
         sys.exit(_cmd_verify(args))
+    elif args.command == "verify-shipped":
+        sys.exit(_cmd_verify_shipped(args))
     elif args.command == "list":
         sys.exit(_cmd_list(args))
     elif args.command == "mount":

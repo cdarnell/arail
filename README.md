@@ -145,7 +145,13 @@ edit re-seals the World and updates its provenance honestly), or ask the
 bad associations and flags them for you to fix. A World is the objective
 starting point; a **goal** (set on the Dashboard) is what you study
 *within* it — Buddy and the autoresearch loop gear toward both together.
-Ships with a pre-curated **AI & Machine Learning** World by default.
+Ships with two pre-curated Worlds — **AI & Machine Learning** and
+**QuKaiZen** (the lab explaining itself) — vendored *inside this repo* as
+sealed, integrity-checked bundles: a single ARAIL download contains every
+World dependency, nothing is fetched. An airgapped lab needs nothing else —
+research material is whatever you drop into the Knowledge Base, and the
+fundamental domain terms come from these in-box Worlds (see
+`lab/worlds/README.md`).
 
 ### 📊 Dashboard *(every tier)*
 
