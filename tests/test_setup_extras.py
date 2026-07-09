@@ -118,6 +118,46 @@ def test_lab_mode_lab_mode_takes_precedence(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# setup.sh network-mode capture (welcome-flow CLI parity)
+# ---------------------------------------------------------------------------
+
+SETUP_SH = Path(__file__).resolve().parent.parent / "scripts" / "setup.sh"
+
+
+@pytest.fixture(scope="module")
+def setup_sh_text() -> str:
+    return SETUP_SH.read_text(encoding="utf-8")
+
+
+def test_setup_defines_capture_mode(setup_sh_text):
+    """CLI parity with the browser welcome flow: a mode prompt exists."""
+    assert "capture_mode()" in setup_sh_text
+    body = setup_sh_text.split("capture_mode()", 1)[1].split("\n}\n", 1)[0]
+    # Non-interactive path honors the standard knobs (ARAIL_MODE is the
+    # existing legacy alias — no third env-var name).
+    assert "ARAIL_NONINTERACTIVE" in body
+    assert "ARAIL_MODE" in body
+    # The crucial education copy: self-provided material + in-box Worlds.
+    assert "YOU provide" in body
+    assert "ship inside ARAIL" in body
+
+
+def test_setup_main_calls_capture_mode(setup_sh_text):
+    assert re.search(r"^\s*capture_mode\s*$", setup_sh_text, re.MULTILINE)
+
+
+def test_setup_persists_lab_mode(setup_sh_text):
+    assert '_set_env_var LAB_MODE "$LAB_MODE"' in setup_sh_text
+
+
+def test_setup_verify_checks_shipped_worlds(setup_sh_text):
+    """Step 11 verifies the vendored bundles (warn, never abort)."""
+    verify_body = setup_sh_text.split("\nverify() {", 1)[1].split("\n}\n", 1)[0]
+    assert "verify-shipped" in verify_body
+    assert "git checkout -- lab/worlds" in verify_body
+
+
+# ---------------------------------------------------------------------------
 # README pointer to PUBLISH.md
 # ---------------------------------------------------------------------------
 

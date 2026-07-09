@@ -57,6 +57,18 @@ def test_qukaizen_graph_is_closed_and_connected():
     assert cats == {"arail", "dac", "nucleus", "aerollm"}
 
 
+def test_ai_world_seals():
+    # The other shipped default — vendored qukaizen-dac export, seal intact.
+    assert wm.verify_seal(wm.load_bundle(CATALOG / "ai")).ok
+
+
+def test_shipped_worlds_have_story_taglines():
+    """The welcome picker renders face.json taglines — both defaults need one."""
+    for slug in DEFAULTS:
+        face = json.loads((CATALOG / slug / "face.json").read_text())
+        assert str(face.get("tagline", "")).strip(), f"{slug} missing tagline"
+
+
 def test_demoted_examples_still_seal_valid():
     # examples remain importable — a broken seal would make import fail
     for slug in DEMOTED:

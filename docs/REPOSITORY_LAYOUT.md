@@ -111,3 +111,12 @@ Separate the repo into four concerns:
 - The repo root looks like a product source tree, not a half-used lab.
 - AeroLLM remains easy to co-develop, but its failures do not make ARAIL look
   broken to blueprint users.
+
+## Vendored World bundles
+
+The World catalog (`lab/worlds/` — the shipped `ai` and `qukaizen` defaults)
+and the demos in `examples/worlds/` are **seed content committed to git**:
+sealed qukaizen-dac exports vendored into this repo so a single ARAIL
+download carries every World dependency (no fetch, no submodule). Integrity
+is checked by `./arailctl world verify-shipped`; see `lab/worlds/README.md`
+for the full vendoring contract.

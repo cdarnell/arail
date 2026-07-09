@@ -1239,6 +1239,62 @@ EOF
 }
 
 # -----------------------------------------------------------------------------
+# Network mode — airgapped (default) vs hybrid.
+#
+# Contract (mirrors capture_tier):
+#   - Existing .env LAB_MODE wins (anything ≠ hybrid folds to airgapped,
+#     matching arail.airgap.lab_mode()'s fail-closed collapse)
+#   - Non-TTY / ARAIL_NONINTERACTIVE=1 → LAB_MODE="${ARAIL_MODE:-airgapped}"
+#     (ARAIL_MODE is the existing legacy alias — no third name)
+#   - Interactive → educate, then prompt with airgapped as the default
+# -----------------------------------------------------------------------------
+capture_mode() {
+    if [[ -f .env ]] && grep -q '^LAB_MODE=' .env; then
+        local existing
+        existing="$(grep -E '^LAB_MODE=' .env | head -n1 | cut -d= -f2- | tr -d '"')"
+        if [[ "$existing" == "hybrid" ]]; then
+            LAB_MODE="hybrid"
+        else
+            LAB_MODE="airgapped"
+        fi
+        info "Network mode: ${BOLD}${LAB_MODE}${RESET} (from .env)"
+        return
+    fi
+
+    if [[ ! -t 0 ]] || [[ "${ARAIL_NONINTERACTIVE:-0}" == "1" ]]; then
+        LAB_MODE="${ARAIL_MODE:-airgapped}"
+        [[ "$LAB_MODE" == "hybrid" ]] || LAB_MODE="airgapped"
+        info "Non-interactive — network mode: ${LAB_MODE}"
+        return
+    fi
+
+    step "4c/11  Choose your network mode"
+    cat <<EOF
+  How should your lab touch the network? Flip anytime later from the
+  shield badge in the dashboard nav, or by editing LAB_MODE in .env.
+
+    ${BOLD}airgapped${RESET}  (recommended, default) Agents never fetch from the
+               public internet. Research runs on material YOU provide —
+               drop papers, notes, and docs into the Knowledge Base and
+               the lab studies those. The fundamental domain terms come
+               from Worlds that ship inside ARAIL itself: sealed,
+               pre-curated term bundles vendored into this repo. No
+               extra downloads, no second install.
+    ${BOLD}hybrid${RESET}     Cloud model providers become reachable and agents
+               may fetch from the web — per-domain, with your consent,
+               and every outbound call lands in the egress audit log.
+EOF
+    echo ""
+    local choice
+    read -rp "  Mode [airgapped]: " choice
+    LAB_MODE="${choice:-airgapped}"
+    case "$LAB_MODE" in
+        airgapped|hybrid) info "Network mode: ${BOLD}${LAB_MODE}${RESET}" ;;
+        *) warn "Unknown mode '$LAB_MODE' — falling back to airgapped."; LAB_MODE="airgapped" ;;
+    esac
+}
+
+# -----------------------------------------------------------------------------
 # Unified passphrase — one secret for IDE + Open Notebook + future auth.
 #
 # Contract:
@@ -1420,6 +1476,11 @@ setup_env() {
     # Persist install tier — the portal reads this to gate the nav.
     if [[ -n "${LAB_TIER:-}" ]]; then
         _set_env_var LAB_TIER "$LAB_TIER"
+    fi
+
+    # Persist network mode — chosen in capture_mode (airgapped by default).
+    if [[ -n "${LAB_MODE:-}" ]]; then
+        _set_env_var LAB_MODE "$LAB_MODE"
     fi
 }
 
@@ -2054,6 +2115,20 @@ verify() {
         tail -n 20 "$log" | sed 's/^/    /' >&2
         error "Inspect setup.log and re-run: ./arailctl setup"
     fi
+
+    # Integrity check of the vendored World bundles (sealed qukaizen-dac
+    # exports committed into lab/worlds/ — the single-repo install includes
+    # them; nothing is fetched). A corrupt bundle must not brick setup: the
+    # lab runs fine World-less and the picker omits broken bundles.
+    info "Verifying shipped World bundles…"
+    if python3 -m arail.world_mount verify-shipped >>"$log" 2>&1; then
+        info "Shipped Worlds verified (sealed bundles intact)."
+    else
+        warn "A shipped World bundle failed its seal check. Recent log lines:"
+        tail -n 10 "$log" | sed 's/^/    /' >&2
+        warn "Restore with: git checkout -- lab/worlds/<slug>  (sealed files must not be hand-edited)."
+        warn "The lab still works — the World picker simply omits broken bundles."
+    fi
 }
 
 # =============================================================================
@@ -2093,6 +2168,7 @@ main() {
     install_services
     ensure_python
     capture_tier
+    capture_mode
     install_core_deps
     load_pyproject_metadata
     install_accel_deps
@@ -2181,6 +2257,10 @@ main() {
         echo "  To rotate later: ./arailctl setup  (answer 'new' when prompted)"
         echo ""
     fi
+
+    echo -e "  Network mode: ${BOLD}${LAB_MODE:-airgapped}${RESET} — flip via the shield badge"
+    echo "  in the dashboard nav, or edit LAB_MODE in .env."
+    echo ""
 }
 
 main "$@"

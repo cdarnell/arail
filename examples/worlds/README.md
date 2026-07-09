@@ -27,6 +27,15 @@ Importing mounts the bundle and **adopts** it into your catalog
 special-cased — they are ordinary sealed bundles that simply live outside the
 scanned catalog directory.
 
+## Provenance
+
+Like the catalog defaults, these are sealed exports from the sibling
+**qukaizen-dac** repo (the offline authoring press), vendored into ARAIL and
+committed to git. Nothing is fetched at install time — a single ARAIL download
+contains every World dependency; qukaizen-dac is dev-time only. Check their
+seals anytime with `./arailctl world verify-shipped --examples`. See
+`lab/worlds/README.md` for the full vendoring contract.
+
 ## The format
 
 Each directory is a `dac.world-bundle/v1`: six sha256-sealed JSON files
