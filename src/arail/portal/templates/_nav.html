@@ -150,7 +150,11 @@
   }
   async function refreshJobs(){
     try{ var r=await fetch('/api/jobs/state'); var s=await r.json();
-      var b=document.getElementById('window-badge'); if(b){ b.textContent=s.label; b.className='mode-badge window-'+s.window; }
+      var b=document.getElementById('window-badge'); if(b){
+        var lbl=s.label;
+        if(s.override&&s.override.expires_at){ lbl+=' · until '+String(s.override.expires_at).slice(11,16); }
+        b.textContent=lbl; b.className='mode-badge window-'+s.window;
+      }
       var h=document.getElementById('btn-halt'), rs=document.getElementById('btn-resume');
       if(h&&rs){ if(s.halted){h.style.display='none';rs.style.display='';} else {h.style.display='';rs.style.display='none';} }
     }catch(e){/* portal may be mid-restart */}

@@ -1,6 +1,15 @@
 /* nav.js — shared nav bar logic: clock + mode badge (sync + toggle)
    + goal chip (so the active mission is visible on every page) */
 
+/* Loaded once from base.html. Guard against a stray second <script> tag —
+   the document-level delegated listeners below would otherwise double-fire
+   (e.g. two POSTs per airgap toggle click). */
+if (window.__arailNavJs) {
+  console.warn('nav.js loaded twice — duplicate ignored');
+  throw new Error('nav.js already loaded');
+}
+window.__arailNavJs = true;
+
 /* Theming moved server-side (src/arail/ui_theme.py): the mounted World /
    LAB_UI_THEME picks the palette and the portal injects it on every page.
    Clear state left behind by the retired client-side data-theme toggle. */
@@ -307,6 +316,154 @@
           setTimeout(function () {
             if (errEl) errEl.style.display = 'none';
           }, 5000);
+        }
+      });
+  });
+})();
+
+/* ── Work-window badge → schedule modal ──────────────────────────
+   Own IIFE (not inside the mode-badge one, which early-returns when
+   #mode-badge is absent). Mirrors the airgap modal pattern: click the
+   badge → populate from /api/jobs/state → open; segmented control
+   POSTs /api/window/override with optimistic flip + revert on error. */
+(function () {
+  var badge = document.getElementById('window-badge');
+  if (!badge) return;
+
+  function renderModal(s) {
+    var pill = document.getElementById('window-mode-pill');
+    if (pill) {
+      pill.textContent = s.window;
+      pill.className = 'mp-pill ' + (s.window === 'heavy' ? 'warn' : 'ok');
+    }
+    var ha = document.getElementById('window-hours-active');
+    if (ha) ha.textContent = s.active_hours || '—';
+    var hh = document.getElementById('window-hours-heavy');
+    if (hh) hh.textContent = s.heavy_hours || '—';
+
+    var status = document.getElementById('window-override-status');
+    if (status) {
+      if (s.override) {
+        var noun = s.override.window === 'active' ? 'Light work' : 'Heavy work';
+        status.textContent = 'Pinned to ' + noun + ' until ' +
+          String(s.override.expires_at).slice(11, 16) + '.';
+        status.style.display = '';
+      } else {
+        status.style.display = 'none';
+      }
+    }
+
+    var current = s.override ? s.override.window : '';
+    document.querySelectorAll('#window-toggle-segmented button[data-window]')
+      .forEach(function (b) {
+        b.classList.toggle('active', b.dataset.window === current);
+        b.disabled = false;
+      });
+  }
+
+  badge.style.cursor = 'pointer';
+  badge.title = 'Work schedule — click to pin light or heavy work';
+  badge.addEventListener('click', function () {
+    var backdrop = document.getElementById('window-backdrop');
+    if (!backdrop) return;
+    fetch('/api/jobs/state')
+      .then(function (r) { return r.json(); })
+      .then(function (s) {
+        renderModal(s);
+        backdrop.classList.add('open');
+      })
+      .catch(function (err) {
+        console.error('[window] state fetch failed:', err);
+      });
+  });
+
+  function wireWindowClose() {
+    var backdrop = document.getElementById('window-backdrop');
+    if (!backdrop) return;
+    backdrop.addEventListener('click', function (e) {
+      if (e.target === backdrop) backdrop.classList.remove('open');
+    });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && backdrop.classList.contains('open')) {
+        backdrop.classList.remove('open');
+      }
+    });
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', wireWindowClose);
+  } else {
+    wireWindowClose();
+  }
+
+  // Segmented control — data-window (NOT data-target) so the airgap
+  // delegated listener above can never match these buttons.
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest('#window-toggle-segmented button[data-window]');
+    if (!btn || btn.disabled) return;
+
+    var w = btn.dataset.window; // '' = follow schedule
+    var allBtns = document.querySelectorAll('#window-toggle-segmented button[data-window]');
+    var prevActive = '';
+    allBtns.forEach(function (b) {
+      if (b.classList.contains('active')) prevActive = b.dataset.window;
+    });
+    if (prevActive === w) return;
+
+    allBtns.forEach(function (b) {
+      b.classList.toggle('active', b.dataset.window === w);
+      b.disabled = true;
+    });
+    var errEl = document.getElementById('window-toggle-error');
+    if (errEl) errEl.style.display = 'none';
+
+    fetch('/api/window/override', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(w ? { window: w } : { window: null, clear: true }),
+    })
+      .then(function (r) {
+        return r.json().then(function (body) {
+          return { ok: r.ok, body: body };
+        });
+      })
+      .then(function (res) {
+        allBtns.forEach(function (b) { b.disabled = false; });
+        if (res.ok) {
+          renderModal(res.body);
+          if (res.body.label) {
+            badge.textContent = res.body.label +
+              (res.body.override ? ' · until ' + String(res.body.override.expires_at).slice(11, 16) : '');
+            badge.className = 'mode-badge window-' + res.body.window;
+          }
+        } else {
+          allBtns.forEach(function (b) {
+            b.classList.toggle('active', b.dataset.window === prevActive);
+          });
+          var errCode = res.body && res.body.error;
+          var msg = 'Save failed — check server log.';
+          if (errCode === 'bind_not_loopback') {
+            msg = 'Override disabled when lab is bound beyond loopback.';
+          } else if (errCode === 'cross_origin' || errCode === 'cross_site') {
+            msg = 'This action must be initiated from the lab UI.';
+          }
+          if (errEl) {
+            errEl.textContent = msg;
+            errEl.style.display = '';
+            setTimeout(function () { if (errEl) errEl.style.display = 'none'; }, 5000);
+          }
+        }
+      })
+      .catch(function (err) {
+        console.error('[window] override error:', err);
+        allBtns.forEach(function (b) {
+          b.disabled = false;
+          b.classList.toggle('active', b.dataset.window === prevActive);
+        });
+        if (errEl) {
+          errEl.textContent = 'Network error — override not saved.';
+          errEl.style.display = '';
+          setTimeout(function () { if (errEl) errEl.style.display = 'none'; }, 5000);
         }
       });
   });

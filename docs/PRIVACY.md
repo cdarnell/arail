@@ -56,10 +56,11 @@ known DNS-trust limit). Denials raise `EgressBlocked` (a
 
 ### Known gaps — what the Python-level guard does NOT catch
 
-The guard wraps `requests` and `urllib.request`. It does NOT wrap:
+The guard wraps `requests`, `urllib.request`, and `httpx` (the httpx
+transport patch also covers SDKs that use it internally — anthropic,
+openai — and the open-notebook / knowledge-canvas clients). It does
+NOT wrap:
 
-- `httpx` — used by the open-notebook integration and the
-  knowledge-canvas client, both for `localhost` only in this tree.
 - `aiohttp` — not used in tree today.
 - Raw sockets (`socket.socket()`) — wrapping these would break
   loopback connection paths underneath the wrapped libraries.

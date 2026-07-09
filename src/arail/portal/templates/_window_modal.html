@@ -1,0 +1,51 @@
+<!-- _window_modal.html — Work-window schedule modal
+     Included by base.html near </body> (after _airgap_modal.html, whose
+     style block defines the shared .mp-* / .airgap-segmented classes).
+     Activated by clicking the #window-badge in nav.js.
+-->
+<div class="mp-backdrop" id="window-backdrop" role="dialog"
+     aria-modal="true" aria-labelledby="window-modal-title">
+  <div class="mp-modal">
+    <div class="mp-head">
+      <h3 id="window-modal-title">
+        <span id="window-mode-pill" class="mp-pill">…</span>
+        Work schedule
+      </h3>
+      <button class="mp-close" id="window-close" type="button" onclick="document.getElementById('window-backdrop').classList.remove('open')">Close</button>
+    </div>
+
+    <p class="chat-sub airgap-definition">
+      The lab paces itself by time of day. During <strong>light work</strong>
+      hours agents stay out of your way: background deep-model runs and
+      batch experiments are held so foreground chat stays snappy. In the
+      <strong>heavy</strong> window the agents open the throttle — background
+      AeroLLM inference, aggressive autoresearch, bigger batches.
+    </p>
+
+    <div class="airgap-row"><code>Light work hours</code><time id="window-hours-active">—</time></div>
+    <div class="airgap-row"><code>Heavy hours</code><time id="window-hours-heavy">—</time></div>
+
+    <div id="window-toggle-section" class="airgap-toggle-section">
+      <div id="window-toggle-segmented" class="airgap-toggle-wrap">
+        <div class="airgap-segmented" role="group" aria-label="Work window">
+          <button type="button" data-window="" id="window-seg-follow">Follow schedule</button>
+          <button type="button" data-window="active" id="window-seg-active">Light work</button>
+          <button type="button" data-window="heavy" id="window-seg-heavy">Heavy work</button>
+        </div>
+        <p class="mp-note airgap-toggle-note" id="window-override-status" style="display:none"></p>
+        <p class="mp-note airgap-toggle-note">
+          A manual pin lasts until the next scheduled boundary, then the
+          clock takes back over. Change the schedule itself with
+          <code>LAB_ACTIVE_HOURS</code> / <code>LAB_HEAVY_HOURS</code> in <code>.env</code>.
+        </p>
+      </div>
+      <div id="window-toggle-error" class="airgap-toggle-error" style="display:none"></div>
+    </div>
+
+    <p class="mp-note">
+      When you're actively using the lab, foreground responsiveness still
+      wins — presence detection keeps chat interactive even inside a
+      heavy window.
+    </p>
+  </div>
+</div>

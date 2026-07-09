@@ -11,6 +11,10 @@
   "color_literals": 0,
   "inline_styles": 11
  },
+ "templates/_window_modal.html": {
+  "color_literals": 0,
+  "inline_styles": 2
+ },
  "templates/admin.html": {
   "color_literals": 0,
   "inline_styles": 9

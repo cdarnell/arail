@@ -1,7 +1,8 @@
 """egress — Python-level outbound network guard.
 
-Installs a custom requests HTTPAdapter and a urllib opener that consult
-``arail.airgap.should_allow_egress`` before passing a request through.
+Installs a custom requests HTTPAdapter, a urllib opener, and guarded
+httpx transports that consult the airgap policy before passing a
+request through.
 
 Usage (called automatically at portal startup and agent-loader time):
 
@@ -105,6 +106,9 @@ _SKIP_MODULES = frozenset({
     "urllib.request",
     "urllib3.connectionpool",
     "urllib3.connection",
+    "httpx",
+    "httpcore",
+    "anthropic",
 })
 
 
@@ -329,6 +333,93 @@ class GuardedHTTPAdapter(requests.adapters.HTTPAdapter):
 
 
 # ---------------------------------------------------------------------------
+# Guarded httpx transports
+# ---------------------------------------------------------------------------
+
+# Originals of the patched httpx transport methods (None until installed).
+_ORIG_HTTPX_SYNC = None
+_ORIG_HTTPX_ASYNC = None
+
+
+def _check_httpx_url(url: str) -> None:
+    """Decision tree for httpx requests — same semantics as
+    ``GuardedHTTPAdapter.send``, including allow-context audit lines
+    (``_check_egress_or_raise`` leaves allow logging to its caller)."""
+    try:
+        host = urlparse(url).hostname or ""
+    except Exception:
+        host = ""
+
+    if host and (is_local_host(host) or is_local_ip(host)):
+        return
+
+    active = _allow_egress_var.get(None)
+    if active is not None:
+        record_allow(url, _current_caller(), active)
+        return
+
+    bootstrap_reason = _bootstrap_allows(host)
+    if bootstrap_reason is not None:
+        record_allow(url, _current_caller(), bootstrap_reason)
+        return
+
+    if is_airgapped():
+        caller = _current_caller()
+        record_block(url, caller, "airgapped")
+        raise EgressBlocked(host or "?", caller, "airgapped")
+
+
+def _install_httpx_guard() -> None:
+    """Patch httpx's transport classes at class level.
+
+    Class-level patching guards every httpx client — including ones built
+    *before* install_guard ran (method lookup happens on the class at call
+    time), which covers SDKs that construct their own internal client
+    (anthropic, openai, huggingface_hub). httpx is an optional dependency
+    (maximus tier); missing httpx is a silent no-op.
+    """
+    global _ORIG_HTTPX_SYNC, _ORIG_HTTPX_ASYNC
+    try:
+        import httpx
+    except ImportError:
+        return
+    if getattr(httpx.HTTPTransport.handle_request, "_arail_guarded", False):
+        return
+
+    _ORIG_HTTPX_SYNC = httpx.HTTPTransport.handle_request
+    _ORIG_HTTPX_ASYNC = httpx.AsyncHTTPTransport.handle_async_request
+    orig_sync, orig_async = _ORIG_HTTPX_SYNC, _ORIG_HTTPX_ASYNC
+
+    def _guarded_handle_request(self, request):
+        _check_httpx_url(str(request.url))
+        return orig_sync(self, request)
+
+    async def _guarded_handle_async_request(self, request):
+        _check_httpx_url(str(request.url))
+        return await orig_async(self, request)
+
+    _guarded_handle_request._arail_guarded = True
+    _guarded_handle_async_request._arail_guarded = True
+    httpx.HTTPTransport.handle_request = _guarded_handle_request
+    httpx.AsyncHTTPTransport.handle_async_request = _guarded_handle_async_request
+
+
+def _reset_httpx_guard() -> None:
+    """TEST USE ONLY — restore the original httpx transport methods."""
+    global _ORIG_HTTPX_SYNC, _ORIG_HTTPX_ASYNC
+    if _ORIG_HTTPX_SYNC is None:
+        return
+    try:
+        import httpx
+    except ImportError:
+        return
+    httpx.HTTPTransport.handle_request = _ORIG_HTTPX_SYNC
+    httpx.AsyncHTTPTransport.handle_async_request = _ORIG_HTTPX_ASYNC
+    _ORIG_HTTPX_SYNC = None
+    _ORIG_HTTPX_ASYNC = None
+
+
+# ---------------------------------------------------------------------------
 # Guarded urllib handlers
 # ---------------------------------------------------------------------------
 
@@ -386,6 +477,10 @@ def install_guard() -> None:
     )
     urllib.request.install_opener(opener)
 
+    # 3. httpx transports (anthropic/openai SDKs, knowledge-canvas,
+    #    open-notebook seed). No-op when httpx isn't installed.
+    _install_httpx_guard()
+
     _INSTALLED = True
     _log.debug("arail.egress: guard installed (mode=%s)", "airgapped" if is_airgapped() else "hybrid")
 
@@ -405,6 +500,7 @@ def _reset_for_tests() -> None:
     global _INSTALLED
     requests.adapters.HTTPAdapter = _ORIGINAL_HTTP_ADAPTER  # type: ignore[misc]
     requests.sessions.HTTPAdapter = _ORIGINAL_HTTP_ADAPTER  # type: ignore[attr-defined]
+    _reset_httpx_guard()
     _INSTALLED = False
 
 

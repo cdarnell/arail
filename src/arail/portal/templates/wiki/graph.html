@@ -44,6 +44,4 @@
 {% include "_graph_canvas.html" %}
 {% endblock %}
 
-{% block scripts %}
-{% if not embed %}<script src="/static/nav.js"></script>{% endif %}
-{% endblock %}
+{% block global_ui %}{% if not embed %}{{ super() }}{% endif %}{% endblock %}

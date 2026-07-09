@@ -9,6 +9,28 @@ from arail.router.backends import (BACKEND_MAP, BaseBackend, ModelResponse,
                                    StreamResult)
 from arail.costs import cost_tracker, current_recap_depth
 
+# Backends whose inference calls leave this machine. Constructing one of
+# these while airgapped is refused up front — the httpx/requests egress
+# guard would block the eventual API call anyway, but failing here gives
+# an immediate, non-network, user-readable error.
+_CLOUD_BACKENDS = frozenset({"claude", "huggingface", "openrouter"})
+
+
+class CloudBackendBlocked(RuntimeError):
+    """A cloud backend was requested while the lab is airgapped."""
+
+
+def _check_cloud_allowed(name: str) -> None:
+    if name in _CLOUD_BACKENDS:
+        from arail.airgap import is_airgapped
+        if is_airgapped():
+            raise CloudBackendBlocked(
+                f"The lab is airgapped — the cloud backend '{name}' is "
+                "blocked. Click the Airgapped pill in the status bar (or set "
+                "LAB_MODE=hybrid in .env) to allow cloud providers, or pick "
+                "a local backend."
+            )
+
 
 class ModelRouter:
     """Instantiate the correct backend based on env / config and expose a
@@ -24,6 +46,7 @@ class ModelRouter:
                 f"Unknown backend '{name}'. "
                 f"Choose from: {', '.join(BACKEND_MAP)}"
             )
+        _check_cloud_allowed(name)
         self.backend_name = name
         self.billing_source = billing_source
         self._backend: BaseBackend = BACKEND_MAP[name]()
@@ -99,5 +122,6 @@ class ModelRouter:
     def switch_backend(self, name: str) -> None:
         if name not in BACKEND_MAP:
             raise ValueError(f"Unknown backend: {name}")
+        _check_cloud_allowed(name)
         self.backend_name = name
         self._backend = BACKEND_MAP[name]()

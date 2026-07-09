@@ -7,7 +7,12 @@
       - block title    — the <title> text
       - block head     — per-page style/link/script tags for the <head>
       - block content  — the page body
-      - block scripts  — trailing script tags (incl. /static/nav.js)
+      - block scripts  — trailing per-page script tags
+
+    base.html itself appends the global UI (block global_ui): the airgap
+    and work-window modals plus /static/nav.js — child pages must NOT
+    include those themselves. Embedded/preview pages that suppress the
+    nav override global_ui the same way they override block nav.
 
     welcome.html is deliberately NOT a child — it is the bespoke, nav-less
     first-run page and injects its theme inline.
@@ -27,5 +32,10 @@
 {% block nav %}{% include "_nav.html" %}{% endblock %}
 {% block content %}{% endblock %}
 {% block scripts %}{% endblock %}
+{% block global_ui %}
+{% include "_airgap_modal.html" %}
+{% include "_window_modal.html" %}
+<script src="/static/nav.js"></script>
+{% endblock %}
 </body>
 </html>
