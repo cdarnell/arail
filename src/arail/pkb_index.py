@@ -261,6 +261,23 @@ def _arm_timer() -> None:
     _timer.start()
 
 
+def flush_now() -> None:
+    """Flush any pending upserts immediately instead of waiting out the
+    debounce window. Used after a World mount/swap so the KB is searchable
+    right away rather than seconds later. Cancels the pending timer, runs the
+    same ``_flush`` synchronously. Never raises; no-op when LanceDB is absent
+    (``_flush`` self-guards)."""
+    global _timer
+    with _lock:
+        if _timer is not None:
+            _timer.cancel()
+            _timer = None
+    try:
+        _flush()
+    except Exception as e:  # noqa: BLE001
+        _log.warning("pkb_index: flush_now failed: %s", e)
+
+
 # ── Public API ────────────────────────────────────────────────────────────
 
 def ensure_ready(pkb_root: Path | None = None) -> None:
@@ -417,6 +434,15 @@ def schedule_upsert(path: Path, *, pkb_root: Path | None = None) -> None:
     from arail.vector_index import available
     if not available():
         return
+
+    # Never embed staged World bundle-machinery (agenda/drift/roster/spec/
+    # terms.json) — the world's content is indexed as per-term pages instead.
+    try:
+        from arail.world_mount import is_world_machinery_path
+        if is_world_machinery_path(path):
+            return
+    except Exception:  # noqa: BLE001
+        pass
 
     root = pkb_root or _pkb_root_cache or _pkb_root_from_env()
 

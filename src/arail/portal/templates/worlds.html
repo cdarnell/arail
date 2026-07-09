@@ -31,10 +31,21 @@
         <button type="button" class="chip-ghost">Espresso brewing</button>
       </div>
 
+      <div class="forge-source" id="forge-source" role="radiogroup" aria-label="Content source">
+        <button type="button" class="source-opt selected" data-source="dream" aria-pressed="true">
+          🧠 Dream locally <span class="source-sub">airgapped · your local model drafts it</span>
+        </button>
+        <button type="button" class="source-opt" data-source="fetch">
+          🌐 Fetch real content <span class="source-sub">one-time Wikipedia fetch · starts <em>sourced</em></span>
+        </button>
+      </div>
+
       <div class="forge-size" id="forge-size" role="radiogroup" aria-label="World size">
         <button type="button" class="size-opt" data-terms="25"><span class="size-n">25</span> · Sketch <span class="size-eta">≈4 min</span></button>
         <button type="button" class="size-opt selected" data-terms="50" aria-pressed="true"><span class="size-n">50</span> · Field guide <span class="size-eta">≈8 min</span></button>
         <button type="button" class="size-opt" data-terms="100"><span class="size-n">100</span> · Compendium <span class="size-eta">≈15 min</span></button>
+        <button type="button" class="size-opt fetch-only" data-terms="250" hidden><span class="size-n">250</span> · Reference <span class="size-eta">≈3 min</span></button>
+        <button type="button" class="size-opt fetch-only" data-terms="512" hidden><span class="size-n">512</span> · Library <span class="size-eta">≈6 min</span></button>
       </div>
 
       <details class="forge-look">
@@ -57,10 +68,19 @@
         </div>
       </details>
 
-      <div class="honesty-banner">
+      <div class="honesty-banner" id="banner-dream">
         Forged terms are dreamed by your local model — honestly labeled model-asserted and unverified until you and your agents curate them.
       </div>
-      <p class="forge-note">Your local model will be busy while forging.</p>
+      <div class="honesty-banner banner-fetch" id="banner-fetch" hidden>
+        <strong>One-time network fetch.</strong> Forging will contact
+        <span class="mono">wikipedia.org</span> just for this world — your click is
+        recorded as consent and every request is audited
+        (<span class="mono">lab/data/egress.jsonl</span>). The lab returns to
+        airgapped the instant the fetch finishes. Terms arrive with real
+        sources, so this world starts <em>sourced</em>, not dreamed.
+      </div>
+      <p class="forge-note" id="note-dream">Your local model will be busy while forging.</p>
+      <p class="forge-note" id="note-fetch" hidden>No local model use — the fetch runs beside your chat.</p>
 
       <div class="forge-actions">
         <button class="btn btn-primary" id="forge-go">Forge</button>

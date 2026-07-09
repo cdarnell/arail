@@ -29,41 +29,49 @@ def make_bundle(
     face_overrides: Optional[Dict[str, Any]] = None,
     *,
     drop_face_keys: tuple = (),
+    terms_list: Optional[list] = None,
+    categories: Optional[list] = None,
 ) -> Path:
-    """Create ``parent/<slug>/`` as a sealed bundle and return its path."""
+    """Create ``parent/<slug>/`` as a sealed bundle and return its path.
+
+    ``terms_list`` / ``categories`` override the single default term for
+    tests that need a multi-term graph (each term: slug/term/category/short/
+    definition/example/related/source); every term's category must appear in
+    ``categories`` or the built bundle won't pass check_categories.
+    """
     bundle = parent / slug
     bundle.mkdir(parents=True, exist_ok=True)
 
-    terms = {
-        "version": 1,
-        "terms": [
-            {
-                "slug": "alpha-term",
-                "term": "Alpha Term",
-                "category": "basics",
-                "short": "A minimal fixture term.",
-                "definition": "A term that exists so the gate has something to pass.",
-                "example": "Alpha Term appears in tests.",
-                "related": [],
-                "source": "https://example.test/spec",
-            }
-        ],
-    }
+    term_items = terms_list if terms_list is not None else [
+        {
+            "slug": "alpha-term",
+            "term": "Alpha Term",
+            "category": "basics",
+            "short": "A minimal fixture term.",
+            "definition": "A term that exists so the gate has something to pass.",
+            "example": "Alpha Term appears in tests.",
+            "related": [],
+            "source": "https://example.test/spec",
+        }
+    ]
+    cats = categories if categories is not None else [{"id": "basics", "label": "Basics"}]
+    slugs = [t["slug"] for t in term_items]
+    terms = {"version": 1, "terms": term_items}
     spec = {
         "slug": slug,
         "display_name": display_name,
-        "categories": [{"id": "basics", "label": "Basics"}],
+        "categories": cats,
         "knowledge_sources": [
             {"kind": "url", "ref": "https://example.test/spec", "trust": "primary"}
         ],
     }
-    roster = {"world": slug, "declared": ["alpha-term"], "gaps": []}
+    roster = {"world": slug, "declared": slugs, "gaps": []}
     agenda = {"schema": "dac.world-agenda/v1", "world": slug, "watches": []}
     drift = {
         "schema": "dac.world-drift/v1",
         "world": slug,
-        "declared": ["alpha-term"],
-        "compiled": ["alpha-term"],
+        "declared": slugs,
+        "compiled": slugs,
         "missing": [],
         "undeclared": [],
     }

@@ -489,7 +489,9 @@ def retrieve_chat_context(
         return []
 
     try:
-        from arail.pkb import search as pkb_search
+        # Gated retrieval: chat RAG builds on the Compiled (approved) KB, not
+        # the raw candidate corpus (falls back to raw when the gate is off).
+        from arail.pkb import search_for_agents as pkb_search
     except Exception:
         return []
 

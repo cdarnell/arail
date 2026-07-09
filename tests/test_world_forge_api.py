@@ -341,3 +341,49 @@ def test_goal_suggestions_empty_when_unmounted(lab):
     with _client() as c:
         got = c.get("/api/worlds/goal-suggestions").json()
         assert got == {"world": None, "suggestions": []}
+
+
+def test_forge_fetch_mode_creates_consent_and_routes_to_bootstrap(lab, monkeypatch):
+    """source=fetch: the endpoint records+approves a Wikipedia consent and drives
+    the bootstrap pipeline (no local model). We stub bootstrap_subject to capture
+    that it was called with an APPROVED consent_id and the 512 size."""
+    import arail.agents.consent as cm
+    monkeypatch.setattr(cm, "CONSENT_DIR", lab[2] / "consent")  # data dir
+
+    seen = {}
+    from arail.world_sources import wikipedia as wk
+
+    def fake_bootstrap(subject, max_terms, *, consent_id, progress_cb=None, cancel=None, session=None):
+        # prove the consent the endpoint created is actually approved
+        assert cm.ConsentStore().is_approved(consent_id), "endpoint must approve the consent"
+        seen.update(subject=subject, max_terms=max_terms, consent_id=consent_id)
+        return wk.BootstrapResult(
+            spec={"slug": "mathematics", "display_name": "Mathematics",
+                  "categories": [{"id": "core-concepts", "label": "Core"}],
+                  "knowledge_sources": [{"kind": "url", "ref": "https://en.wikipedia.org/", "trust": "primary"}]},
+            terms=[{"slug": "algebra", "term": "Algebra", "category": "core-concepts",
+                    "short": "s", "definition": "d", "example": "", "related": [],
+                    "source": "https://en.wikipedia.org/wiki/Algebra"}],
+            tier="sourced", counts={"model": 0, "sourced": 1, "total": 1},
+            stats={"avg_edges": 0.0, "term_count": 1})
+
+    monkeypatch.setattr(wk, "bootstrap_subject", fake_bootstrap)
+
+    with _client() as c:
+        r = c.post("/api/worlds/forge",
+                   json={"subject": "Mathematics", "max_terms": 512, "source": "fetch"},
+                   headers=CSRF_HEADERS)
+        assert r.status_code == 202
+        # let the background task run
+        import time as _t
+        for _ in range(50):
+            st = c.get("/api/worlds/forge/status").json()
+            if st.get("state") in ("done", "error"):
+                break
+            _t.sleep(0.05)
+        assert st["state"] == "done", st
+        assert st.get("source") == "fetch"
+        prev = c.get("/api/worlds/forge/preview").json()
+        assert prev["tier"] == "sourced"
+
+    assert seen["max_terms"] == 512 and seen["subject"] == "Mathematics"

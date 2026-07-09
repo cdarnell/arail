@@ -28,6 +28,7 @@ import contextlib
 import inspect
 import json
 import logging
+import re
 import os
 import socket
 import sys
@@ -255,7 +256,7 @@ def read_recent_blocks(n: int = 5) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 def _check_egress_or_raise(url: str) -> None:
-    """Run the 4-step decision tree; raise EgressBlocked if denied."""
+    """Run the decision tree; raise EgressBlocked if denied."""
     try:
         parsed = urlparse(url)
         host = parsed.hostname or ""
@@ -270,6 +271,12 @@ def _check_egress_or_raise(url: str) -> None:
     active = _allow_egress_var.get(None)
     if active is not None:
         return  # caller logs the allow via record_allow
+
+    # 2b. Consent-scoped bootstrap fetch: host-allowlisted, audited here.
+    bootstrap_reason = _bootstrap_allows(host)
+    if bootstrap_reason is not None:
+        record_allow(url, _current_caller(), bootstrap_reason)
+        return
 
     # 3. Airgapped + non-local + no allow → deny loudly.
     if is_airgapped():
@@ -303,6 +310,12 @@ class GuardedHTTPAdapter(requests.adapters.HTTPAdapter):
         active = _allow_egress_var.get(None)
         if active is not None:
             record_allow(url, _current_caller(), active)
+            return super().send(request, **kwargs)
+
+        # 2b. Consent-scoped bootstrap fetch: host-allowlisted, audited.
+        bootstrap_reason = _bootstrap_allows(host)
+        if bootstrap_reason is not None:
+            record_allow(url, _current_caller(), bootstrap_reason)
             return super().send(request, **kwargs)
 
         # 3. Airgapped + non-local + no allow → deny loudly.
@@ -449,6 +462,89 @@ def allow_egress(reason: str):
         yield reason
     finally:
         _allow_egress_var.reset(token)
+
+
+# ---------------------------------------------------------------------------
+# allow_bootstrap_fetch — the ONE consent-gated exemption that works airgapped
+# ---------------------------------------------------------------------------
+
+# (reason, allowlisted host suffixes) for the active bootstrap scope, or None.
+_bootstrap_fetch_var: ContextVar[Optional[tuple]] = ContextVar(
+    "arail_bootstrap_fetch", default=None
+)
+
+_HOST_SUFFIX_RE = re.compile(r"^[a-z0-9][a-z0-9.-]*\.[a-z]{2,}$")
+
+
+def _bootstrap_allows(host: str) -> Optional[str]:
+    """Reason string if an active bootstrap scope allowlists ``host``."""
+    active = _bootstrap_fetch_var.get(None)
+    if active is None:
+        return None
+    reason, suffixes = active
+    h = (host or "").lower().rstrip(".")
+    if not h:
+        return None
+    for suffix in suffixes:
+        if h == suffix or h.endswith("." + suffix):
+            return reason
+    return None
+
+
+@contextlib.contextmanager
+def allow_bootstrap_fetch(reason: str, hosts, *, consent_id: str):
+    """Consent-gated, host-allowlisted, scoped egress exemption that works
+    in AIRGAPPED mode — the World Forge "sourced bootstrap" seam.
+
+    RE-JUSTIFICATION (per the allow_egress ratchet contract above; sprint
+    2026-07-08-world-kb-bootstrap): the operator explicitly chooses "Fetch
+    real content" when forging a World and consents in the UI to a one-time
+    fetch for that subject. That is a *user-initiated, informed* decision —
+    the exact class of action the airgap exists to protect, made by the
+    person it protects. The exemption is narrower than a LAB_MODE flip in
+    every dimension:
+
+      - CONSENT: entry requires an APPROVED ConsentStore record
+        (``consent_id``) — a durable artifact of the user's decision in
+        lab/data/consent/history.json. No consent, no scope.
+      - HOSTS: only the given lowercase domain suffixes pass (e.g.
+        ``wikipedia.org`` matches ``en.wikipedia.org``); every other host
+        still hard-blocks with EgressBlocked, even inside the scope.
+      - SCOPE: contextvars — one call stack, dies with the with-block;
+        agents/threads outside the block see an unchanged airgap.
+      - AUDIT: every allowed request is appended to lab/data/egress.jsonl
+        via record_allow with this reason.
+
+    The airgapped DEFAULT is unchanged: nothing reaches this scope without
+    the operator forging with the fetch option on.
+    """
+    if not isinstance(reason, str) or not reason or len(reason) > 200:
+        raise ValueError(
+            f"allow_bootstrap_fetch reason must be a non-empty string < 200 chars; got {reason!r}"
+        )
+    suffixes = tuple(str(h).strip().lower().rstrip(".") for h in (hosts or ()))
+    if not suffixes:
+        raise ValueError("allow_bootstrap_fetch requires a non-empty host allowlist")
+    for suffix in suffixes:
+        if not _HOST_SUFFIX_RE.match(suffix) or "/" in suffix or ":" in suffix:
+            raise ValueError(f"allow_bootstrap_fetch host must be a bare domain, got {suffix!r}")
+    if not isinstance(consent_id, str) or not consent_id:
+        raise ValueError("allow_bootstrap_fetch requires a consent_id")
+
+    from arail.agents.consent import ConsentStore
+
+    if not ConsentStore().is_approved(consent_id):
+        caller = _current_caller()
+        raise EgressBlocked(
+            suffixes[0], caller,
+            f"bootstrap fetch denied: consent {consent_id!r} not approved",
+        )
+
+    token = _bootstrap_fetch_var.set((reason, suffixes))
+    try:
+        yield reason
+    finally:
+        _bootstrap_fetch_var.reset(token)
 
 
 # ---------------------------------------------------------------------------

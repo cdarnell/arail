@@ -691,6 +691,13 @@ async def _startup():
 
     asyncio.create_task(_warm_primary_router())
     asyncio.create_task(_inbox_watcher_loop())
+    # 'Grows while you sleep': one autonomous World growth pass per heavy
+    # (overnight) window, local brain only. No-op if ARAIL_WORLD_GROWTH=off.
+    try:
+        from arail.portal.world_routes import world_growth_loop
+        asyncio.create_task(world_growth_loop())
+    except Exception as e:  # noqa: BLE001
+        _log.warning("world growth loop not started: %s", e)
     # Pre-write the Anthropic prompt cache (hybrid + Claude only; no-op
     # everywhere else). Makes the first demo turn read cache, not cold prefix.
     asyncio.create_task(_prewarm_claude_cache_task())
@@ -2629,7 +2636,7 @@ async def _auto_draft_program(goal_record: dict) -> None:
         goal_text = goal_record.get("goal_text", "") or ""
         kb_hits = []
         try:
-            kb_hits = pkb_mod.search(goal_text)[:8]
+            kb_hits = pkb_mod.search_for_agents(goal_text)[:8]
         except Exception:
             pass
         result = await asyncio.to_thread(
@@ -9363,6 +9370,82 @@ async def api_pkb_compile():
         f"Index compiled — {result['total']} items, {len(result['tags'])} tags",
         "info")
     return result
+
+
+def _pkb_write_csrf(request: Request):
+    """Shared CSRF envelope for Compiled-KB writes. Returns a JSONResponse to
+    short-circuit on rejection, else None."""
+    _sfs = request.headers.get("sec-fetch-site", "").strip().lower()
+    if _sfs in ("cross-site", "none"):
+        return JSONResponse(status_code=403, content={"error": "cross_site"})
+    origin = request.headers.get("origin", "")
+    host = request.headers.get("host", "")
+    if origin:
+        from urllib.parse import urlparse as _urlparse
+        if _urlparse(origin).netloc and _urlparse(origin).netloc != host:
+            return JSONResponse(status_code=403, content={"error": "cross_origin"})
+    return None
+
+
+@app.get("/api/pkb/review")
+async def api_pkb_review():
+    """The review queue — raw candidates awaiting a human decision, plus the
+    Compiled-KB state. This is the gate DaC's lifecycle calls for: agents
+    propose (by creating raw content); the human approves what agents may
+    experiment/develop against."""
+    from arail import compiled_kb as ckb
+    return {
+        "pending": ckb.list_pending(),
+        "approved": ckb.list_approved(),
+        "gate_enabled": ckb.gate_enabled(),
+    }
+
+
+@app.post("/api/pkb/promote")
+async def api_pkb_promote(request: Request):
+    """Approve raw candidates into the Compiled KB (batch)."""
+    if (rej := _pkb_write_csrf(request)) is not None:
+        return rej
+    from arail import compiled_kb as ckb
+    body = await request.json()
+    paths = body.get("paths") or []
+    if not isinstance(paths, list):
+        return JSONResponse(status_code=400, content={"error": "bad_paths"})
+    added = ckb.approve(paths)
+    if added:
+        activity_log.emit("pkb",
+            f"Approved {len(added)} item(s) into the Compiled KB", "success")
+    return {"approved": added, "count": len(added)}
+
+
+@app.post("/api/pkb/reject")
+async def api_pkb_reject(request: Request):
+    """Dismiss candidates so they stop resurfacing (reversible)."""
+    if (rej := _pkb_write_csrf(request)) is not None:
+        return rej
+    from arail import compiled_kb as ckb
+    body = await request.json()
+    paths = body.get("paths") or []
+    if not isinstance(paths, list):
+        return JSONResponse(status_code=400, content={"error": "bad_paths"})
+    n = ckb.reject(paths)
+    return {"rejected": n}
+
+
+@app.post("/api/pkb/revoke")
+async def api_pkb_revoke(request: Request):
+    """Remove items from the Compiled KB (un-approve). Raw file stays."""
+    if (rej := _pkb_write_csrf(request)) is not None:
+        return rej
+    from arail import compiled_kb as ckb
+    body = await request.json()
+    paths = body.get("paths") or []
+    if not isinstance(paths, list):
+        return JSONResponse(status_code=400, content={"error": "bad_paths"})
+    n = ckb.revoke(paths)
+    if n:
+        activity_log.emit("pkb", f"Revoked {n} item(s) from the Compiled KB", "info")
+    return {"revoked": n}
 
 
 @app.get("/api/pkb/seeds")

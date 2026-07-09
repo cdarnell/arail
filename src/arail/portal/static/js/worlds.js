@@ -3,7 +3,9 @@
   'use strict';
 
   var HEX_RE = /^#[0-9a-fA-F]{6}$/;
-  var STAGES = ['Spec', 'Seed', 'Discover', 'Link', 'Define', 'Gate'];
+  var STAGES_DREAM = ['Spec', 'Seed', 'Discover', 'Link', 'Define', 'Gate'];
+  var STAGES_FETCH = ['Resolve', 'Harvest', 'Define', 'Link', 'Gate'];
+  var STAGES = STAGES_DREAM; // switched per active forge source
 
   var $ = function (id) { return document.getElementById(id); };
   var panels = {
@@ -38,6 +40,41 @@
   var errEl = $('forge-err');
   var selectedTerms = 50;
   var selectedPalette = null;
+  var selectedSource = 'dream';
+
+  // Fetch mode: no model calls, so ETAs are network-bound and the big sizes open up.
+  var FETCH_ETAS = { 25: '≈1 min', 50: '≈1 min', 100: '≈2 min', 250: '≈3 min', 512: '≈6 min' };
+  var DREAM_ETAS = { 25: '≈4 min', 50: '≈8 min', 100: '≈15 min' };
+
+  function applySource(source) {
+    selectedSource = source;
+    var isFetch = source === 'fetch';
+    document.querySelectorAll('#forge-source .source-opt').forEach(function (b) {
+      var on = b.dataset.source === source;
+      b.classList.toggle('selected', on);
+      if (on) b.setAttribute('aria-pressed', 'true'); else b.removeAttribute('aria-pressed');
+    });
+    document.querySelectorAll('#forge-size .size-opt').forEach(function (b) {
+      var n = parseInt(b.dataset.terms, 10);
+      if (b.classList.contains('fetch-only')) b.hidden = !isFetch;
+      var eta = b.querySelector('.size-eta');
+      if (eta) eta.textContent = (isFetch ? FETCH_ETAS : DREAM_ETAS)[n] || '';
+    });
+    // A fetch-only size can't survive a switch back to dream.
+    if (!isFetch && selectedTerms > 100) {
+      var fallback = document.querySelector('#forge-size .size-opt[data-terms="100"]');
+      if (fallback) fallback.click();
+    }
+    $('banner-dream').hidden = isFetch;
+    $('banner-fetch').hidden = !isFetch;
+    $('note-dream').hidden = isFetch;
+    $('note-fetch').hidden = !isFetch;
+    STAGES = isFetch ? STAGES_FETCH : STAGES_DREAM;
+  }
+
+  document.querySelectorAll('#forge-source .source-opt').forEach(function (btn) {
+    btn.addEventListener('click', function () { applySource(btn.dataset.source); });
+  });
 
   document.querySelectorAll('#forge-chips .chip-ghost').forEach(function (btn) {
     btn.addEventListener('click', function () {
@@ -102,7 +139,7 @@
   $('forge-go').addEventListener('click', function () {
     var subject = subjectInput.value.trim();
     if (!subject) { errEl.textContent = 'Enter a subject to forge.'; subjectInput.focus(); return; }
-    var params = { subject: subject, max_terms: selectedTerms };
+    var params = { subject: subject, max_terms: selectedTerms, source: selectedSource };
     if (selectedPalette) params.palette_hint = selectedPalette;
     var pers = $('forge-personality').value;
     if (pers) params.personality = pers;
@@ -119,6 +156,13 @@
   }
 
   function renderProgress(st) {
+    // Recover the right stage list after a mid-forge page reload: the status
+    // payload's source (or its stage count) says which pipeline is running.
+    if (st.source === 'fetch' || st.stages_total === STAGES_FETCH.length) {
+      STAGES = STAGES_FETCH;
+    } else if (st.source === 'dream' || st.stages_total === STAGES_DREAM.length) {
+      STAGES = STAGES_DREAM;
+    }
     $('prog-subject').textContent = st.subject || '';
     var list = $('stage-list');
     list.textContent = '';

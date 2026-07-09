@@ -27,6 +27,11 @@
 <!-- World Terms structured editor (populated by /static/js/world-terms.js) -->
 <div class="wt-view" id="world-terms-view" hidden></div>
 
+<!-- Compiled KB review queue (populated by /static/js/compiled-kb.js).
+     The human-approved layer agents build on: raw is a candidate pool;
+     nothing crosses the gate without approval. Shown when items await review. -->
+<section class="ckb-panel" id="compiled-kb-panel" hidden aria-live="polite"></section>
+
 <!-- Top toolbar -->
 <div class="kb-toolbar">
   <form class="kb-search" id="kb-search-form">
@@ -350,6 +355,7 @@
 
 {% block scripts %}
 <script src="/static/js/world-terms.js" defer></script>
+<script src="/static/js/compiled-kb.js" defer></script>
 <script>
 /* ═══════════════════════════════════════════════════════════════
    Unified Knowledge Base

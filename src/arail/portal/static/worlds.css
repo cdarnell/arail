@@ -52,6 +52,45 @@
 .chip-ghost:hover { background: var(--surface2); color: var(--text); }
 
 /* size segmented control */
+/* source choice — dream vs fetch. Same segmented pattern as size, but the
+   options carry a sub-line, so they stack their copy vertically. */
+.forge-source {
+  display: flex;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-m);
+  overflow: hidden;
+  margin-bottom: 0.75rem;
+  max-width: 620px;
+}
+.source-opt {
+  flex: 1 1 50%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+  font-family: var(--font-sans);
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: var(--surface2);
+  border: none;
+  border-right: 1px solid var(--border);
+  padding: 0.55rem 0.9rem;
+  cursor: pointer;
+  text-align: left;
+}
+.source-opt:last-child { border-right: none; }
+.source-opt .source-sub {
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--text-muted);
+}
+.source-opt.selected {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+}
+.source-opt.selected .source-sub { color: color-mix(in srgb, var(--accent) 70%, var(--text-muted)); }
+
 .forge-size {
   display: inline-flex;
   border: 1px solid var(--border-strong);
@@ -110,6 +149,17 @@
   padding: 0.6rem 0.9rem;
   margin-bottom: 0.5rem;
 }
+/* fetch consent variant: not italic (it's a disclosure, not a caveat),
+   warn-tinted rule — the one place network is on the table. */
+.honesty-banner.banner-fetch {
+  font-style: normal;
+  border-left-color: var(--warn);
+}
+.honesty-banner.banner-fetch .mono {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
 .forge-note { color: var(--text-muted); font-size: 13px; margin-bottom: 1rem; }
 
 .forge-actions { display: flex; align-items: center; gap: 0.75rem; }
