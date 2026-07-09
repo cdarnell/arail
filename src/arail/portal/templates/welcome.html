@@ -138,12 +138,45 @@
   }
   .wc-skip:hover { color: var(--text); }
   a.wc-world { text-decoration: none; }
+  .wc-world-tag {
+    display: block; color: var(--text-muted); font-size: 0.72rem;
+    font-weight: 400; line-height: 1.4; margin-top: 0.15rem;
+  }
+  /* ── Step 2: network mode picker ── */
+  .wc-mode {
+    display: flex; flex-direction: column; align-items: flex-start; gap: 0.25rem;
+    background: var(--surface2);
+    border: 1px solid var(--border); border-radius: var(--radius-m);
+    padding: 0.7rem 0.9rem; cursor: pointer; text-align: left;
+    font-family: var(--font-sans); font-size: 0.88rem; color: var(--text-strong);
+    width: 100%;
+    transition: border-color var(--dur-2) var(--ease-accent);
+  }
+  .wc-mode:hover { border-color: var(--border-strong); }
+  .wc-mode:focus-visible {
+    outline: none; border-color: var(--accent2);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent2) 18%, transparent);
+  }
+  .wc-mode.selected {
+    border-color: var(--accent2);
+    background: color-mix(in srgb, var(--accent2) 7%, var(--surface2));
+  }
+  .wc-mode-desc {
+    color: var(--text-muted); font-size: 0.74rem; line-height: 1.5;
+    font-weight: 400; margin: 0;
+  }
+  .wc-mode-desc strong { color: var(--text); font-weight: 600; }
+  .wc-mode-note {
+    color: var(--text-muted); font-size: 0.7rem; line-height: 1.5;
+    margin: 0.6rem 0 1rem;
+  }
+  .wc-mode-warn { color: var(--warn); font-size: 0.74rem; margin: 0.5rem 0 0; }
 </style>
 </head>
 <body>
 
 <div class="wc-card" role="main">
-  <div class="wc-kicker" id="wc-kicker">Step 1 of 2 — first run</div>
+  <div class="wc-kicker" id="wc-kicker">Step 1 of 3 — first run</div>
   <h1>Welcome to {{ brand.name }}.</h1>
   <p class="wc-tagline">Pick a passphrase. The lab uses it everywhere a secret is needed.</p>
   <p class="wc-academic">
@@ -232,8 +265,8 @@ form.addEventListener('submit', async (ev) => {
     const data = await r.json();
     if (r.ok && data.ok) {
       setStatus('Saved.', 'ok');
-      // Step 2: pick a World (never trap the user — any failure → '/').
-      showWorldStep();
+      // Step 2: network mode (never trap the user — any failure → onward).
+      showModeStep();
     } else {
       setStatus(data.error || 'Could not save. Check the terminal log.', 'err');
       submit.disabled = false;
@@ -244,12 +277,132 @@ form.addEventListener('submit', async (ev) => {
   }
 });
 
-// ── Step 2 of 2: pick your lab's World ──
 const HEX6 = /^#[0-9a-fA-F]{6}$/;
 
 function goHome() { window.location.href = '/'; }
 
-async function showWorldStep() {
+// ── Step 2 of 3: choose the network mode ──
+const MODES = [
+  {
+    id: 'airgapped',
+    name: 'Airgapped',
+    rec: 'Recommended · default',
+    desc: 'Agents never fetch from the public internet. Research runs on ' +
+      'material you provide — drop papers, notes, and docs into the ' +
+      'Knowledge Base and the lab studies those. The fundamental domain ' +
+      'terms come from Worlds that ship inside ARAIL itself: sealed, ' +
+      'pre-curated term bundles vendored into this repo. No extra ' +
+      'downloads, no second install. You pick one next.',
+  },
+  {
+    id: 'hybrid',
+    name: 'Hybrid',
+    rec: '',
+    desc: 'Cloud model providers become reachable and agents may fetch ' +
+      'from the web — per-domain, with your consent, and every outbound ' +
+      'call is recorded in the egress audit log.',
+  },
+];
+
+function showModeStep() {
+  let chosen = 'airgapped';
+  const card = document.querySelector('.wc-card');
+  card.textContent = '';
+
+  const kicker = document.createElement('div');
+  kicker.className = 'wc-kicker';
+  kicker.textContent = 'Step 2 of 3 — network mode';
+  card.appendChild(kicker);
+
+  const h1 = document.createElement('h1');
+  h1.textContent = 'How should your lab touch the network?';
+  card.appendChild(h1);
+
+  const list = document.createElement('div');
+  list.className = 'wc-worlds';
+
+  const buttons = {};
+  MODES.forEach(function (m) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'wc-mode' + (m.id === chosen ? ' selected' : '');
+    btn.setAttribute('aria-pressed', m.id === chosen ? 'true' : 'false');
+
+    const label = document.createElement('span');
+    label.className = 'wc-world-name';
+    label.textContent = m.name;
+    btn.appendChild(label);
+    if (m.rec) {
+      const rec = document.createElement('span');
+      rec.className = 'wc-world-rec';
+      rec.textContent = m.rec;
+      btn.appendChild(rec);
+    }
+    const desc = document.createElement('p');
+    desc.className = 'wc-mode-desc';
+    desc.textContent = m.desc;
+    btn.appendChild(desc);
+
+    btn.addEventListener('click', function () {
+      chosen = m.id;
+      Object.keys(buttons).forEach(function (id) {
+        buttons[id].classList.toggle('selected', id === chosen);
+        buttons[id].setAttribute('aria-pressed', id === chosen ? 'true' : 'false');
+      });
+    });
+    buttons[m.id] = btn;
+    list.appendChild(btn);
+  });
+  card.appendChild(list);
+
+  const note = document.createElement('p');
+  note.className = 'wc-mode-note';
+  note.textContent = 'You can flip this anytime from the shield badge in the ' +
+    'nav. Airgapped is the default — anything unset falls back to it.';
+  card.appendChild(note);
+
+  const actions = document.createElement('div');
+  actions.className = 'wc-actions';
+  const cont = document.createElement('button');
+  cont.type = 'button';
+  cont.className = 'wc-btn';
+  cont.textContent = 'Continue →';
+  actions.appendChild(cont);
+  card.appendChild(actions);
+
+  const warn = document.createElement('p');
+  warn.className = 'wc-mode-warn';
+  card.appendChild(warn);
+
+  cont.addEventListener('click', async function () {
+    cont.disabled = true;
+    // Always post the explicit choice — the toggle is the one gated .env
+    // writer and its audit log records the first-run decision.
+    let ok = false;
+    try {
+      const r = await fetch('/api/airgap/toggle', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ target: chosen }),
+      });
+      ok = r.ok;
+    } catch (e) { /* never trap */ }
+    if (!ok && chosen === 'hybrid') {
+      // Airgapped is already the on-disk default; only a failed hybrid
+      // switch is worth a note. Show it briefly, then continue.
+      warn.textContent = "Couldn't switch to hybrid — you can flip modes " +
+        'anytime from the shield badge in the nav (or edit .env).';
+      setTimeout(function () { showWorldStep(chosen); }, 1800);
+      return;
+    }
+    showWorldStep(chosen);
+  });
+}
+
+// ── Step 3 of 3: pick your lab's World ──
+
+async function showWorldStep(chosenMode) {
   let worlds = [];
   try {
     const r = await fetch('/api/worlds', { credentials: 'same-origin', cache: 'no-store' });
@@ -264,7 +417,7 @@ async function showWorldStep() {
 
   const kicker = document.createElement('div');
   kicker.className = 'wc-kicker';
-  kicker.textContent = "Step 2 of 2 — pick your lab's World";
+  kicker.textContent = "Step 3 of 3 — pick your lab's World";
   card.appendChild(kicker);
 
   const h1 = document.createElement('h1');
@@ -273,7 +426,11 @@ async function showWorldStep() {
 
   const tagline = document.createElement('p');
   tagline.className = 'wc-tagline';
-  tagline.textContent = "A World is what your lab studies — its starting knowledge base and look. You can change it anytime.";
+  let intro = "A World is what your lab studies — its starting knowledge base and look. You can change it anytime.";
+  if (chosenMode === 'airgapped') {
+    intro += " All of these ship inside ARAIL — sealed term bundles, nothing to download.";
+  }
+  tagline.textContent = intro;
   card.appendChild(tagline);
 
   const list = document.createElement('div');
@@ -303,6 +460,23 @@ async function showWorldStep() {
       rec.className = 'wc-world-rec';
       rec.textContent = "Recommended · AI & Machine Learning — the lab's home World";
       label.appendChild(rec);
+    }
+    if (w.slug === 'qukaizen') {
+      const rec = document.createElement('span');
+      rec.className = 'wc-world-rec';
+      rec.textContent = 'The lab explaining itself';
+      label.appendChild(rec);
+      const story = document.createElement('span');
+      story.className = 'wc-world-tag';
+      story.textContent = 'New here? This World teaches ARAIL its own ' +
+        'vocabulary — Worlds, the sealed bundle, DaC (Documentation as ' +
+        'Code), Nucleus, AeroLLM — 32 sourced terms.';
+      label.appendChild(story);
+    } else if (w.tagline) {
+      const tag = document.createElement('span');
+      tag.className = 'wc-world-tag';
+      tag.textContent = w.tagline;
+      label.appendChild(tag);
     }
     btn.appendChild(label);
 

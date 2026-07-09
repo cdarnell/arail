@@ -172,3 +172,63 @@ def test_dashboard_unblocks_after_onboarding(fresh_lab):
     assert r.json()["ok"] is True
     # Dashboard now reachable.
     assert client.get("/", follow_redirects=False).status_code == 200
+
+
+# ── Welcome mode step (step 2 of 3) ─────────────────────────────────────────
+
+
+def test_airgap_toggle_blocked_before_onboarding(fresh_lab):
+    """The mode step's writer is NOT allowlisted — the gate must 401 it."""
+    client = _new_client()
+    r = client.post("/api/airgap/toggle", json={"target": "hybrid"},
+                    headers={"Origin": "http://testserver"})
+    assert r.status_code == 401
+    assert r.json().get("error") == "lab_not_onboarded"
+
+
+def test_welcome_then_mode_toggle_sequence(fresh_lab, monkeypatch):
+    """The welcome flow's exact call order: passphrase save unlocks the
+    gate, then the mode step's toggle POST persists LAB_MODE."""
+    import arail.portal.app as app_mod
+    env_path = fresh_lab / ".env"
+    audit_path = fresh_lab / "airgap_audit.jsonl"
+    monkeypatch.setattr(app_mod, "_TOGGLE_ENV_PATH", env_path)
+    monkeypatch.setattr(app_mod, "_TOGGLE_AUDIT_PATH", audit_path)
+    monkeypatch.setenv("BIND_ADDR", "127.0.0.1")
+    monkeypatch.setenv("LAB_MODE", "airgapped")
+
+    client = _new_client()
+    r = client.post("/api/welcome/setup", json={
+        "passphrase": "shiny-new-passphrase",
+        "confirm":    "shiny-new-passphrase",
+    })
+    assert r.json()["ok"] is True
+
+    r = client.post("/api/airgap/toggle", json={"target": "hybrid"},
+                    headers={"Origin": "http://testserver"})
+    assert r.status_code == 200, r.text
+    assert r.json()["lab_mode"] == "hybrid"
+    assert "LAB_MODE=hybrid" in env_path.read_text()
+    # The first-run choice lands in the audit log.
+    assert audit_path.exists()
+
+    # Choosing airgapped (the default) also round-trips cleanly.
+    r = client.post("/api/airgap/toggle", json={"target": "airgapped"},
+                    headers={"Origin": "http://testserver"})
+    assert r.status_code == 200
+    assert "LAB_MODE=airgapped" in env_path.read_text()
+
+
+def test_welcome_page_contains_mode_step_copy(fresh_lab):
+    """Template-drift guard: the 3-step flow and its education copy exist."""
+    client = _new_client()
+    html = client.get("/welcome").text
+    assert "Step 1 of 3" in html
+    assert "Airgapped" in html
+    assert "Hybrid" in html
+    # The crucial airgapped education: self-provided research material +
+    # in-box World terms.
+    assert "material you provide" in html
+    assert "ship inside ARAIL itself" in html
+    # Mode writes go through the canonical gated writer.
+    assert "/api/airgap/toggle" in html
