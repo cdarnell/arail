@@ -1644,3 +1644,8 @@ body.wt-mode .kb-layout { display: none; }
 .ckb-approved-toggle:hover { color: var(--text); }
 .ckb-list--approved { margin-top: 0.5rem; }
 .ckb-row--approved { align-items: center; }
+.ckb-approve-world {
+  background: var(--accent2-a08); color: var(--accent2);
+  border: 1px solid var(--accent2-a28); font-weight: 600;
+}
+.ckb-approve-world:hover { background: var(--accent2-a16); }

@@ -98,6 +98,18 @@
       rejectBtn.disabled = !state.selected.size;
       rejectBtn.addEventListener("click", () => act("/api/pkb/reject"));
       bar.appendChild(rejectBtn);
+      // One-tap: bring a freshly forged/mounted world alive without hunting
+      // through mixed candidates. Approves only the world-term pages.
+      const worldTerms = state.pending.filter((p) => p.kind === "world_term");
+      if (worldTerms.length) {
+        const wBtn = el("button", "btn btn-sm ckb-approve-world",
+          "✦ Approve all " + worldTerms.length + " world terms");
+        wBtn.addEventListener("click", async () => {
+          try { await api("/api/pkb/promote", { paths: worldTerms.map((p) => p.path) }); await load(); }
+          catch (e) {}
+        });
+        bar.appendChild(wBtn);
+      }
       panel.appendChild(bar);
 
       const list = el("ul", "ckb-list");
