@@ -1,0 +1,508 @@
+{
+  "version": 1,
+  "terms": [
+    {
+      "slug": "adversarial-swarm",
+      "term": "Adversarial Swarm",
+      "aka": [
+        "swarm"
+      ],
+      "category": "nucleus",
+      "short": "A loop of agents (interrogate, challenge, evaluate, correct) that hardens a model until it stops breaking.",
+      "definition": "The Adversarial Swarm Reactor pits Interrogator, Adversary, Evaluator, and Corrector agents (plus data-collection agents) against the student in cycles, systematically hunting and eliminating hallucination pathways. The model graduates not by passing a fixed test but when the swarm can no longer break it.",
+      "example": "The swarm keeps inventing harder kernel-bug traps until the student answers them all, then it graduates.",
+      "related": [
+        "convergence-graduation",
+        "super-skill",
+        "nucleus-seal"
+      ],
+      "source": "QuKaiZen NUCLEUS_AGENT_PROTOCOL"
+    },
+    {
+      "slug": "aerollm",
+      "term": "AeroLLM",
+      "aka": [
+        "AeroLLM"
+      ],
+      "category": "aerollm",
+      "short": "QuKaiZen's inference engine that streams frontier models off disk so they run without full GPU residency.",
+      "definition": "AeroLLM is the inference layer that makes disk-streamed teachers practical — layer streaming plus speculative decoding to claw back speed. It is how QuKaiZen serves 400B+ teachers on workstations that lack the VRAM to hold them.",
+      "example": "Point the teacher backend at AeroLLM to stream a 405B teacher on a single box instead of an 8x H100 node.",
+      "related": [
+        "layer-streaming",
+        "super-skill"
+      ],
+      "source": "QuKaiZen NUCLEUS_AGENT_PROTOCOL"
+    },
+    {
+      "slug": "autoresearch",
+      "term": "AutoResearch",
+      "category": "arail",
+      "short": "The swarm's brain — it evolves the rubrics every other agent consults.",
+      "definition": "AutoResearch is a first-class meta-agent that evolves the rubrics driving probes, traps, and scoring, and independently fact-checks certification. It is never merged into another service.",
+      "example": "AutoResearch notices repeated failures on edge cases and rewrites the rubric to target them next cycle.",
+      "related": [
+        "rubric",
+        "adversarial-swarm",
+        "convergence"
+      ],
+      "source": "QuKaiZen AI Dictionary"
+    },
+    {
+      "slug": "baked-stage",
+      "term": "BAKED (lifecycle stage)",
+      "category": "dac",
+      "short": "[ROADMAP] The third stage of the QuKaiZen knowledge lifecycle — RAW → COMPILED → BAKED.",
+      "definition": "[ROADMAP] BAKED is the third stage of QuKaiZen's knowledge lifecycle. RAW is unsourced/unverified content; COMPILED is a gate-passed terms.json (produced today by assemble-world.mts); BAKED is a sealed domain-specialist SLM trained on the compiled corpus by Nucleus. The COMPILED stage is BUILT today; the BAKED stage is ROADMAP — it requires the full Nucleus bake pipeline. Once BAKED, the specialist model is the delivery artifact, not the terms.json.",
+      "example": "The ml-engineering World is currently COMPILED (terms.json gate-passed); it will be BAKED when Nucleus runs the training pipeline on the bake corpus and produces a sealed SLM.",
+      "related": [
+        "corpus-sha256",
+        "nucleus-bake-engine",
+        "the-bake"
+      ],
+      "source": "QuKaiZen CLAUDE.md (RAW→COMPILED→BAKED lifecycle); QuKaiZen DAC_ENGINE.md"
+    },
+    {
+      "slug": "buddy",
+      "term": "Buddy",
+      "aka": [
+        "ARAIL Buddy"
+      ],
+      "category": "arail",
+      "short": "ARAIL's local companion agent — a context-aware lab partner you learn alongside, running entirely on your own hardware.",
+      "definition": "ARAIL began with Buddy: a local agent to learn alongside. Buddy needed an environment, and that environment became a lab — pluggable, observable, and entirely owned by you. Buddy drives the lab in plain language and draws on your knowledge base for real context, so it can answer \"what should I do next?\" or \"what's interesting in today's pull?\" — offline, with no telemetry.",
+      "example": "Ask Buddy \"what's worth reading in today's arXiv pull?\" and it answers from your own knowledge base — no cloud round-trip, nothing leaving your machine.",
+      "related": [
+        "super-skill",
+        "aerollm"
+      ],
+      "source": "ARAIL"
+    },
+    {
+      "slug": "build-time-teacher",
+      "term": "Build-time teacher",
+      "category": "nucleus",
+      "short": "[BUILT] Frontier model used only during corpus authoring — never at runtime.",
+      "definition": "[BUILT] The build-time teacher is the frontier LLM (e.g., Claude) used during World authoring and corpus compilation. It assists in drafting definitions, sourcing verification, and knowledge synthesis — but it is never deployed as a runtime component. The pattern is: frontier model as authoring teacher → compiled World → baked SLM as runtime. This ensures the high cost of frontier inference is paid once, at build time, not per query. BUILT: this is the live authoring method for every World including this one.",
+      "example": "Claude Sonnet 4.6 authored and sourced the ml-engineering World terms (build-time teacher); the eventual runtime is the baked 7B specialist, not Claude.",
+      "related": [
+        "the-bake"
+      ],
+      "source": "QuKaiZen CLAUDE.md ('the frontier model is the build-time teacher, never the runtime'); QuKaiZen VISION.md"
+    },
+    {
+      "slug": "convergence",
+      "term": "Convergence",
+      "category": "nucleus",
+      "short": "Graduation by exhaustion — the model is done when the swarm can't break it anymore.",
+      "definition": "Rather than a fixed number of rounds, QuKaiZen runs until convergence: 95%+ evaluator scores, exhausted experiments, and no further reasoning gains. Quality is measured by swarm exhaustion, then verified by three gates.",
+      "example": "After dozens of cycles the swarm finds no new failure patterns; the student converges and is sealed.",
+      "related": [
+        "adversarial-swarm",
+        "convergence-graduation",
+        "seal"
+      ],
+      "source": "QuKaiZen AI Dictionary"
+    },
+    {
+      "slug": "convergence-graduation",
+      "term": "Convergence Graduation",
+      "aka": [
+        "Convergence-Based Graduation"
+      ],
+      "category": "nucleus",
+      "short": "A model graduates when the adversarial swarm gives up trying to break it — not at a fixed cycle limit.",
+      "definition": "Instead of a fixed number of rounds, QuKaiZen runs until convergence: 95%+ evaluator scores, exhausted experiments, and no further reasoning improvement. Quality is measured by swarm exhaustion, then verified by a three-gate certification before the Nucleus Seal is minted.",
+      "example": "After dozens of cycles the swarm finds no new failure patterns; the student converges, passes the gates, and is sealed.",
+      "related": [
+        "adversarial-swarm",
+        "nucleus-seal",
+        "super-skill"
+      ],
+      "source": "QuKaiZen NUCLEUS_AGENT_PROTOCOL"
+    },
+    {
+      "slug": "corpus-sha256",
+      "term": "corpus_sha256 (bake lockfile)",
+      "category": "dac",
+      "short": "[BUILT] The SHA-256 hash pinning the compiled corpus — the DaC CD lockfile.",
+      "definition": "[BUILT] corpus_sha256 is the SHA-256 hash of the compiled terms.json (or bake corpus bundle) stamped by bake-corpus.mts. It serves as the Content-Delivery lockfile for the bake pipeline: any downstream consumer (Nucleus training run, model version tag) pins this hash to guarantee it is training on the exact same compiled corpus. Analogous to a package.lock — the corpus is reproducible and auditable. BUILT: bake-corpus.mts produces and writes this hash today.",
+      "example": "bake-corpus.mts writes corpus_sha256: 'a3f7...' to the manifest; the Nucleus training config pins this hash so the exact corpus can be recovered from git.",
+      "related": [
+        "the-bake",
+        "nucleus-bake-engine",
+        "baked-stage"
+      ],
+      "source": "QuKaiZen DAC_ENGINE.md (corpus_sha256 = CD lockfile); QuKaiZen CLAUDE.md"
+    },
+    {
+      "slug": "documentation-as-code",
+      "term": "Documentation as Code (DaC)",
+      "aka": [
+        "DaC",
+        "doc-as-code"
+      ],
+      "category": "dac",
+      "short": "QuKaiZen's framework: a declarative, curated source of truth that compiles into a knowledge app or bakes into a model you own.",
+      "definition": "Documentation as Code treats knowledge the way engineering treats code. You declare a theme and its trusted sources; an agent swarm gathers, compiles, curates, and gates it (every entry sourced) into a versioned source of truth; then you either serve it as an app or bake it into an owned model. This AI Dictionary is itself a derivative of DaC, one app built from one curated World. The same framework builds any themed knowledge product, or, through Nucleus, a Super Skill you own. The one lever you tune is the number of terms: a World can open as a 101-term primer and deepen, organically, toward an exhaustive corpus.",
+      "example": "Point DaC at \"Astronomy\": agents curate 101 sourced terms into a World, the site renders a dictionary and a docent, and the same corpus can be baked into an astronomy Super Skill.",
+      "related": [
+        "super-skill",
+        "ssdp",
+        "nucleus-seal",
+        "distillation",
+        "provenance"
+      ],
+      "source": "QuKaiZen"
+    },
+    {
+      "slug": "kice",
+      "term": "KICE",
+      "aka": [
+        "Knowledge Injection & Corpus Evolution"
+      ],
+      "category": "nucleus",
+      "short": "QuKaiZen's agent that extracts certified, verifiable domain knowledge in six layers.",
+      "definition": "KICE mines a corpus for rare concepts, edge cases, historical conflicts, subsystem interactions, nuanced reasoning, and ambiguity — knowledge that can be verified against authoritative sources. It feeds the distillation pipeline with high-quality, checkable material.",
+      "example": "For a Linux-kernel skill, KICE surfaces a subtle locking edge case documented in a 2009 mailing-list thread.",
+      "related": [
+        "tice",
+        "super-skill",
+        "distillation"
+      ],
+      "source": "QuKaiZen NUCLEUS_AGENT_PROTOCOL"
+    },
+    {
+      "slug": "nucleus-bake-engine",
+      "term": "Nucleus (bake engine)",
+      "category": "nucleus",
+      "short": "[ROADMAP] QuKaiZen's training pipeline for baking domain-specialist SLMs.",
+      "definition": "[ROADMAP] Nucleus is the QuKaiZen training infrastructure that takes a baked corpus (compiled World + corpus_sha256 manifest) and runs the fine-tuning/distillation pipeline to produce a sealed domain-specialist SLM. The training run lives on the M5 (Apple Silicon); engine-side plumbing (corpus preparation, bake-corpus.mts) exists today, but the full end-to-end Nucleus bake pipeline is in development. ROADMAP because no sealed specialist SLM has been produced yet.",
+      "example": "Nucleus will take the ml-engineering bake corpus (corpus_sha256-pinned) and produce a 7B domain-specialist SLM in the RAW→COMPILED→BAKED lifecycle.",
+      "related": [
+        "the-bake",
+        "corpus-sha256",
+        "baked-stage"
+      ],
+      "source": "QuKaiZen CLAUDE.md (Nucleus: company hub, bake pipeline); QuKaiZen THEME.md; QuKaiZen VISION.md"
+    },
+    {
+      "slug": "nucleus-seal",
+      "term": "Nucleus Seal",
+      "aka": [
+        "Nucleus Seal"
+      ],
+      "category": "nucleus",
+      "short": "An Ed25519 cryptographic provenance chain proving how a Super Skill model was made.",
+      "definition": "The Nucleus Seal binds a model's DNA — teacher hash, corpus hash, pipeline config, audit, and AutoResearch report — into a signed Ed25519 chain. It is cryptographic proof the pipeline distilled the model correctly, and seals are dynamically monitored and revocable.",
+      "example": "Each model version is minted with a Seal linking it to the exact teacher and corpus that produced it, so provenance is verifiable.",
+      "related": [
+        "super-skill",
+        "convergence-graduation",
+        "distillation"
+      ],
+      "source": "QuKaiZen NUCLEUS_AGENT_PROTOCOL"
+    },
+    {
+      "slug": "provenance",
+      "term": "Provenance",
+      "category": "dac",
+      "short": "A verifiable record of exactly what went into a model and how it was built.",
+      "definition": "Provenance is the chain of custody for a model: which teacher, which corpus version, which config and audits. QuKaiZen hashes each artifact and signs the chain so the lineage is tamper-evident.",
+      "example": "The provenance chain lets anyone verify a sealed model was distilled from the stated teacher and corpus.",
+      "related": [
+        "seal"
+      ],
+      "source": "QuKaiZen AI Dictionary"
+    },
+    {
+      "slug": "rubric",
+      "term": "Rubric",
+      "category": "arail",
+      "short": "The evolving scoring criteria AutoResearch uses to probe and grade the student.",
+      "definition": "Rubrics are structured criteria that drive the Interrogator's probes, the Adversary's traps, and the Evaluator's scoring. AutoResearch evolves them over time as new failure modes are discovered.",
+      "example": "A rubric for the kernel domain weights memory-safety reasoning heavily, so the swarm probes it hardest.",
+      "related": [
+        "autoresearch",
+        "adversarial-swarm",
+        "convergence-graduation"
+      ],
+      "source": "QuKaiZen AI Dictionary"
+    },
+    {
+      "slug": "seal",
+      "term": "Seal",
+      "aka": [
+        "Nucleus Seal",
+        "cryptographic seal"
+      ],
+      "category": "dac",
+      "short": "A cryptographic signature certifying a model's provenance — what it was distilled from and that it is untampered.",
+      "definition": "A seal is a cryptographic signature (QuKaiZen uses Ed25519) bound to a finished model, certifying its provenance: which teacher and corpus it came from, which certification gates it passed, and that its weights have not changed since. Anyone can verify the seal offline, so an owned model carries proof of exactly what it is — the Nucleus Seal.",
+      "example": "Before trusting a distilled 3B model in production you verify its Ed25519 seal; if a single weight changed, verification fails.",
+      "related": [
+        "nucleus-seal",
+        "ssdp"
+      ],
+      "source": "QuKaiZen NUCLEUS_AGENT_PROTOCOL"
+    },
+    {
+      "slug": "ssdp",
+      "term": "SSDP",
+      "aka": [
+        "Super Skill Distillation Pipeline"
+      ],
+      "category": "nucleus",
+      "short": "QuKaiZen's pipeline that distills deep reasoning from frontier teacher models into small, owned Super Skill models.",
+      "definition": "The Super Skill Distillation Pipeline (SSDP) extracts deep domain reasoning from 400B+ frontier teacher models and crystallizes it into small 1-7B Super Skill models that run on commodity hardware, air-gapped, and owned forever. It is not RAG — a Super Skill knows its domain. Nucleus implements it: KICE/TICE knowledge extraction, RAFT, Symbolic Chain-of-Thought distillation, an adversarial swarm that trains the student to convergence, three certification gates, and an Ed25519 Nucleus Seal.",
+      "example": "SSDP can take a frontier model's mastery of a regulatory domain and mint a 3B model that answers offline at a fraction of the energy — high Wisdom per Watt.",
+      "related": [
+        "super-skill",
+        "distillation",
+        "kice",
+        "symbolic-cot",
+        "nucleus-seal"
+      ],
+      "source": "QuKaiZen NUCLEUS_AGENT_PROTOCOL"
+    },
+    {
+      "slug": "student",
+      "term": "Student Model",
+      "category": "nucleus",
+      "short": "The small model being trained to absorb the teacher's reasoning.",
+      "definition": "The student is the compact model (1–7B) that learns from the teacher's traces, RAFT data, and adversarial correction — ending as a sealed Super Skill that can beat its teacher in-domain.",
+      "example": "After distillation the 3B student out-reasons its 500B teacher inside the target domain.",
+      "related": [
+        "teacher",
+        "distillation",
+        "super-skill"
+      ],
+      "source": "QuKaiZen AI Dictionary"
+    },
+    {
+      "slug": "super-skill",
+      "term": "Super Skill",
+      "aka": [
+        "Super Skill Model",
+        "SSM"
+      ],
+      "category": "nucleus",
+      "short": "A 1-7B model that durably knows a domain, distilled from a frontier teacher and owned forever.",
+      "definition": "A Super Skill Model is the output of QuKaiZen's pipeline: a small (1-7B) model that crystallizes a frontier teacher's deep reasoning for a domain, runs on commodity or air-gapped hardware, and keeps improving. It knows — it does not look things up like RAG.",
+      "example": "A Linux-Kernel Super Skill trained on 30 years of commits, CVEs, and mailing lists reasons about kernel bugs offline.",
+      "related": [
+        "distillation",
+        "nucleus-seal",
+        "wisdom-per-watt"
+      ],
+      "source": "QuKaiZen NUCLEUS_AGENT_PROTOCOL"
+    },
+    {
+      "slug": "symbolic-cot",
+      "term": "Symbolic Chain-of-Thought",
+      "aka": [
+        "Symbolic CoT",
+        "SCoT"
+      ],
+      "category": "nucleus",
+      "short": "Capturing a teacher's reasoning as reusable symbolic structure, not just imitated text traces.",
+      "definition": "Symbolic Chain-of-Thought captures the structure of a teacher's reasoning — the steps, rules, and relationships — in symbolic form rather than copying surface-level wording. Distilling that structure (SCoTD) teaches a small student to reason faithfully instead of mimicking phrasing, which is what makes a Super Skill robust rather than brittle.",
+      "example": "Instead of memorizing one solution's wording, a student trained on symbolic CoT learns the underlying procedure and applies it to unseen problems.",
+      "related": [
+        "distillation",
+        "super-skill",
+        "ssdp"
+      ],
+      "source": "QuKaiZen NUCLEUS_AGENT_PROTOCOL"
+    },
+    {
+      "slug": "teacher",
+      "term": "Teacher Model",
+      "category": "nucleus",
+      "short": "The large frontier model whose reasoning is distilled into a small student.",
+      "definition": "In distillation the teacher is the big, capable model (400B+) that generates reasoning traces and judgments; the student learns to reproduce its competence in-domain. QuKaiZen uses two-tier teachers for breadth and depth.",
+      "example": "A 400B teacher writes step-by-step solutions that train a 3B student to match it in-domain.",
+      "related": [
+        "student",
+        "distillation"
+      ],
+      "source": "QuKaiZen AI Dictionary"
+    },
+    {
+      "slug": "the-bake",
+      "term": "The bake (sealed specialist SLM)",
+      "category": "nucleus",
+      "short": "[ROADMAP] The sealed domain-specialist SLM produced by the Nucleus pipeline — the one bet.",
+      "definition": "[ROADMAP] 'The bake' is QuKaiZen's term for the sealed, domain-specialist small language model produced at the end of the RAW→COMPILED→BAKED knowledge lifecycle. The baked model is the value-add: a gated, sourced World compiled to a corpus (via bake-corpus.mts), fine-tuned by Nucleus, and sealed for deployment on AeroLLM. 'The one bet' per CLAUDE.md — the bake is the moat, not the framework. ROADMAP because no bake has been produced yet.",
+      "example": "A baked ml-engineering specialist SLM would run on AeroLLM at 43+ tok/s on the M5, answering training-run triage questions from the compiled ml-engineering World.",
+      "related": [
+        "nucleus-bake-engine",
+        "corpus-sha256",
+        "baked-stage",
+        "build-time-teacher"
+      ],
+      "source": "QuKaiZen CLAUDE.md ('the bake is the moat', 'the one bet'); QuKaiZen THEME.md; QuKaiZen VISION.md"
+    },
+    {
+      "slug": "tice",
+      "term": "TICE",
+      "aka": [
+        "Tacit knowledge Injection & Corpus Evolution"
+      ],
+      "category": "nucleus",
+      "short": "QuKaiZen's agent for Layer-7 tacit knowledge — the unwritten expert know-how and gotchas.",
+      "definition": "TICE extracts implicit, tribal knowledge — folklore, gotchas, and esoteric patterns that are not formally documented. It is the highest-value extractor for user-data-enriched (Mode 2/3) Super Skills, capturing expertise that lives only in practitioners' heads.",
+      "example": "TICE captures a farmer's unwritten rule of thumb about soil timing that no manual records, then teaches it to the student.",
+      "related": [
+        "kice",
+        "super-skill",
+        "distillation"
+      ],
+      "source": "QuKaiZen NUCLEUS_AGENT_PROTOCOL"
+    },
+    {
+      "slug": "wisdom-per-watt",
+      "term": "Wisdom per Watt",
+      "aka": [
+        "wisdom-per-watt"
+      ],
+      "category": "nucleus",
+      "short": "QuKaiZen's core metric: certified, permanently-owned reasoning capability per unit of lifetime energy to mint and run it.",
+      "definition": "Renting a frontier model burns full datacenter energy on every query, forever, and you own nothing. QuKaiZen spends energy once to distill that reasoning into a small model you keep — certified by three independent gates, sealed with cryptographic provenance, run locally at near-zero marginal cost. Capability only counts if it is proven and trustworthy: a model that scores high but fails the hallucination gate scores zero. The energy is not a running cost; it is capital spent on an asset you own forever.",
+      "example": "Rent a 400B model and the 100,000th query costs the same datacenter energy as the first — and you still own nothing. Mint a 3B Super Skill and you pay the energy once; after the break-even query, owning beats renting and the gap only widens.",
+      "related": [
+        "super-skill",
+        "distillation",
+        "layer-streaming"
+      ],
+      "source": "QuKaiZen NUCLEUS_AGENT_PROTOCOL"
+    },
+    {
+      "slug": "qukaizen",
+      "term": "QuKaiZen",
+      "category": "arail",
+      "aka": [
+        "QuKaiZen Suite"
+      ],
+      "short": "The umbrella project and company behind ARAIL, Nucleus, and aeroLLM — tools to own your AI reasoning, measured in wisdom per watt.",
+      "definition": "QuKaiZen is the workspace and company spanning three products: ARAIL (a local AI research lab), Nucleus (the Super Skill Distillation Pipeline), and aeroLLM (an inference engine). The thesis is ownership — reasoning you keep and run yourself rather than rent.",
+      "example": "Cloning ARAIL, forging a World, and later baking it into an owned Super Skill with Nucleus is the QuKaiZen arc end to end.",
+      "related": [
+        "arail",
+        "nucleus-bake-engine",
+        "aerollm",
+        "wisdom-per-watt"
+      ],
+      "source": "QuKaiZen workspace CLAUDE.md"
+    },
+    {
+      "slug": "arail",
+      "term": "ARAIL",
+      "category": "arail",
+      "aka": [
+        "Autoresearch AI Labs"
+      ],
+      "short": "Autoresearch AI Labs — a cloneable, local-first blueprint for an AI research bench: chat, a knowledge base, agents, and an overnight research loop, airgapped by default.",
+      "definition": "ARAIL is a blueprint (not a product) you fork and rename. It gives you a dashboard, a chat tab with a swappable Compute Source, an autoresearch loop, an agent-driven knowledge base, and built-in agents — all running on your own machine.",
+      "example": "A hobbyist clones ARAIL, renames it 'PeanutLab', mounts a World, and sets an overnight goal — the lab studies it while they sleep.",
+      "related": [
+        "buddy",
+        "autoresearch",
+        "world",
+        "airgapped-mode",
+        "compute-source"
+      ],
+      "source": "ARAIL README.md"
+    },
+    {
+      "slug": "world",
+      "term": "World",
+      "category": "dac",
+      "aka": [
+        "WorldBundle"
+      ],
+      "short": "A sealed knowledge domain — terms, categories, an association graph, and a theme — the lab studies; the objective starting data set you mount.",
+      "definition": "A World (a DaC WorldBundle) is the lab's starting point: a curated glossary compiled and sha256-sealed. Mounting one reframes the whole lab — its agents, its knowledge base, even its theme — around that domain.",
+      "example": "Mounting the 'AI & Machine Learning' World gives Buddy and the Researcher 331 sourced terms to reason from.",
+      "related": [
+        "documentation-as-code",
+        "compiled-knowledge",
+        "seal"
+      ],
+      "source": "ARAIL README.md; QuKaiZen DaC README"
+    },
+    {
+      "slug": "compiled-knowledge",
+      "term": "Compiled Knowledge Base",
+      "category": "dac",
+      "aka": [
+        "Compiled KB"
+      ],
+      "short": "A World's approved layer — knowledge a human has vetted, sealed with provenance — the truth agents experiment against, distinct from the raw candidate corpus.",
+      "definition": "In the RAW → COMPILED → BAKED lifecycle, COMPILED is the vetted layer: every fact human-approved and provenance-tracked. ARAIL's agents build only on the compiled layer; forged and grown terms remain raw candidates until approved.",
+      "example": "Grown terms sit in the review queue as raw candidates until you approve them into the compiled Knowledge Base.",
+      "related": [
+        "world",
+        "seal",
+        "provenance",
+        "baked-stage"
+      ],
+      "source": "ARAIL Compiled KB (WK-10); QuKaiZen DaC gate"
+    },
+    {
+      "slug": "compute-source",
+      "term": "Compute Source",
+      "category": "arail",
+      "short": "The Chat pivot that swaps the model behind the same persona — a local small model, AeroLLM, a LAN GPU box, or a one-click cloud frontier.",
+      "definition": "Compute Source decouples who you talk to from where it runs. The persona and context stay fixed while you pick the backend: My Machine, AeroLLM for larger local models, or a cloud provider in hybrid mode.",
+      "example": "Switch from the 1B local model to AeroLLM to run a 7B model on the same laptop, without changing the conversation.",
+      "related": [
+        "aerollm",
+        "airgapped-mode",
+        "arail"
+      ],
+      "source": "ARAIL README.md (Compute Source pivot)"
+    },
+    {
+      "slug": "airgapped-mode",
+      "term": "Airgapped Mode",
+      "category": "arail",
+      "short": "ARAIL's default posture — agents can't reach the public internet; cloud providers unlock only in hybrid mode.",
+      "definition": "By default LAB_MODE=airgapped blocks every cloud provider and outbound fetch except explicit, consented, host-scoped exceptions. Flipping to hybrid opens cloud providers as fallbacks. Local runs are always allowed.",
+      "example": "In airgapped mode the Claude Compute Source is locked, while AeroLLM (local) stays available.",
+      "related": [
+        "compute-source",
+        "arail"
+      ],
+      "source": "ARAIL README.md; CLAUDE.md (LAB_MODE)"
+    },
+    {
+      "slug": "layer-streaming",
+      "term": "Layer Streaming",
+      "category": "aerollm",
+      "short": "Running a model by streaming its layers off disk instead of holding them all in GPU memory — how AeroLLM fits huge models on a laptop.",
+      "definition": "Layer streaming keeps the model architecture-resident on disk and streams weights layer-by-layer during a forward pass, trading some latency for the ability to run models far larger than available GPU or unified memory.",
+      "example": "A 70B model runs on a 16 GB laptop by streaming each layer as the forward pass reaches it.",
+      "related": [
+        "aerollm",
+        "wisdom-per-watt"
+      ],
+      "source": "ARAIL research/aerollm; aeroLLM README.md"
+    },
+    {
+      "slug": "distillation",
+      "term": "Distillation",
+      "category": "nucleus",
+      "short": "Transferring a large teacher model's reasoning into a small student model that owns the domain.",
+      "definition": "Distillation is the core Nucleus move: capture how a frontier teacher reasons about a domain and train a small (1-7B) student to reproduce that reasoning — so the capability is owned and runs offline, not rented.",
+      "example": "SSDP distills a 400B teacher's kernel-debugging reasoning into a 7B Super Skill.",
+      "related": [
+        "teacher",
+        "student",
+        "super-skill",
+        "ssdp"
+      ],
+      "source": "QuKaiZen AI Dictionary"
+    }
+  ]
+}

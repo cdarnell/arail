@@ -1,0 +1,34 @@
+{
+  "schema": "dac.world-face/v1",
+  "world": "qukaizen",
+  "name": "QuKaiZen Suite",
+  "tagline": "The lab explaining itself — what ARAIL is, plus the QuKaiZen suite (DaC · Nucleus · AeroLLM) in sourced terms.",
+  "palette_hint": "violet-cyan-brand",
+  "domain_framing": "This World is the lab explaining itself: what ARAIL is, how Worlds and the Compiled Knowledge Base work, how Nucleus distills frontier teachers into small owned Super Skills, and how AeroLLM runs large models locally. Every term is grounded in the QuKaiZen product docs.",
+  "vocabulary_register": "Use the suite's own terms; cite the product doc for every claim.",
+  "provenance_tier": "sourced",
+  "provenance_counts": {
+    "model": 0,
+    "sourced": 32,
+    "total": 32
+  },
+  "theme": {
+    "schema": "dac.world-theme/v1",
+    "personality": "hacker",
+    "dark": {
+      "bg": "#0b0d12",
+      "surface": "#12141c",
+      "surface2": "#191c27",
+      "border": "#262a3a",
+      "text": "#c9cede",
+      "muted": "#7b869d",
+      "accent": "#7c5cff",
+      "accent2": "#22d3ee",
+      "positive": "#34d399",
+      "warn": "#ffb000",
+      "danger": "#ff4d6d",
+      "info": "#8b7bff"
+    },
+    "light": null
+  }
+}

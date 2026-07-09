@@ -1,0 +1,39 @@
+{
+  "slug": "qukaizen",
+  "display_name": "QuKaiZen Suite",
+  "categories": [
+    {
+      "id": "arail",
+      "label": "The Lab (ARAIL)"
+    },
+    {
+      "id": "dac",
+      "label": "Knowledge as Code"
+    },
+    {
+      "id": "nucleus",
+      "label": "Distillation (Nucleus)"
+    },
+    {
+      "id": "aerollm",
+      "label": "Inference (AeroLLM)"
+    }
+  ],
+  "knowledge_sources": [
+    {
+      "kind": "doc",
+      "ref": "ARAIL README.md",
+      "trust": "high"
+    },
+    {
+      "kind": "doc",
+      "ref": "QuKaiZen workspace CLAUDE.md",
+      "trust": "high"
+    },
+    {
+      "kind": "doc",
+      "ref": "aeroLLM README.md",
+      "trust": "high"
+    }
+  ]
+}
