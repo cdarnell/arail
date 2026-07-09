@@ -872,6 +872,41 @@ def _suggest_measurable_metric(goal: Dict[str, Any]) -> Optional[Observation]:
     return None
 
 
+_HYBRID_NUDGE_COOLDOWN_SEC = 24 * 3600  # once a day at most — nudge, not nag
+
+
+def _suggest_hybrid_for_research(goal: Dict[str, Any]) -> Optional[Observation]:
+    """Mirror of _suggest_internet_correlation: fires only while AIRGAPPED,
+    to tell the user that hybrid mode would unlock outside research (paper
+    scans, source fetches) for the active goal. Goes silent automatically
+    once the lab is hybrid; the long cooldown keeps it to one mention a day.
+    """
+    try:
+        from arail.airgap import is_airgapped
+        if not is_airgapped():
+            return None
+    except Exception:
+        return None
+
+    title = str(goal.get("title") or goal.get("text") or "").strip()
+    if not title:
+        return None
+
+    return Observation(
+        watcher="airgap:hybrid-nudge",
+        severity="suggest",
+        fact=(
+            f"We're fully airgapped, so I can't scan for new papers or pull "
+            f"outside sources for '{title[:60]}'. If you want that extra "
+            f"reach, Hybrid mode unlocks it — one click on the Airgapped "
+            f"pill up top, and every outbound call still lands in the "
+            f"audit log. Totally your call."
+        ),
+        cooldown_sec=_HYBRID_NUDGE_COOLDOWN_SEC,
+        suggestion={"kind": "airgap", "target": "hybrid", "link": "/"},
+    )
+
+
 def _suggest_internet_correlation(goal: Dict[str, Any]) -> Optional[Observation]:
     """Surface a recent HuggingFace paper that correlates with the goal.
 
@@ -954,6 +989,7 @@ SUGGESTERS: List[Callable[[Dict[str, Any]], Optional[Observation]]] = [
     _suggest_next_experiment,
     _suggest_measurable_metric,
     _suggest_internet_correlation,
+    _suggest_hybrid_for_research,
 ]
 
 

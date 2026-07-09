@@ -272,8 +272,15 @@ class TestValueSanitisation:
 # ---------------------------------------------------------------------------
 
 class TestGateOrdering:
-    def test_bind_gate_fires_before_origin_check(self, toggle_setup, monkeypatch):
-        """A LAN-bound portal must 403 even with a malicious Origin header."""
+    def test_bind_gate_rejects_lan_bound_toggle(self, toggle_setup, monkeypatch):
+        """A LAN-bound portal must 403 the toggle and not write .env, even
+        for a same-origin request that clears the CSRF checks — the bind
+        gate is the backstop for a deliberately-exposed portal.
+
+        (A *malicious* Origin against a LAN bind is now caught even earlier,
+        by the global local_trust_boundary middleware — see
+        test_local_trust_boundary.py. Here we use a same-origin request so
+        the bind gate itself is what rejects.)"""
         client, env_path, _, _ = toggle_setup
         monkeypatch.setenv("BIND_ADDR", "0.0.0.0")
         mtime_before = env_path.stat().st_mtime_ns
@@ -281,9 +288,8 @@ class TestGateOrdering:
         r = client.post(
             "/api/airgap/toggle",
             json={"target": "hybrid"},
-            headers={"Origin": "http://evil.com"},
+            headers={"Origin": "http://testserver", "Sec-Fetch-Site": "same-origin"},
         )
-        # Bind gate trumps origin check.
         assert r.status_code == 403
         assert r.json()["error"] == "bind_not_loopback"
         assert env_path.stat().st_mtime_ns == mtime_before

@@ -56,10 +56,11 @@ known DNS-trust limit). Denials raise `EgressBlocked` (a
 
 ### Known gaps — what the Python-level guard does NOT catch
 
-The guard wraps `requests` and `urllib.request`. It does NOT wrap:
+The guard wraps `requests`, `urllib.request`, and `httpx` (the httpx
+transport patch also covers SDKs that use it internally — anthropic,
+openai — and the open-notebook / knowledge-canvas clients). It does
+NOT wrap:
 
-- `httpx` — used by the open-notebook integration and the
-  knowledge-canvas client, both for `localhost` only in this tree.
 - `aiohttp` — not used in tree today.
 - Raw sockets (`socket.socket()`) — wrapping these would break
   loopback connection paths underneath the wrapped libraries.
@@ -183,10 +184,34 @@ you need to share the lab, put it behind an auth proxy (nginx + basic auth,
 Tailscale, etc.) and ensure `BIND_ADDR` is **not** `0.0.0.0` unless that
 proxy is in front.
 
-The CSRF defences on `/api/airgap/toggle` (Origin check, Sec-Fetch-Site
-check) exist to prevent a malicious web page from pivoting through the
-user's browser to flip the airgap mode — they are browser-level defences,
-not a substitute for host isolation.
+### Browser-borne attacks the lab *does* defend against
+
+A no-auth loopback service is still reachable from a web page open in the
+same browser. Two classic attacks are blocked at the middleware layer
+(`local_trust_boundary` in `portal/app.py`), so a malicious site cannot
+pivot through your browser to flip the airgap mode or mutate lab state:
+
+- **DNS rebinding.** An attacker domain rebound to `127.0.0.1` would be
+  *same-origin with its own page*, defeating a naive Origin==Host check.
+  The lab enforces a positive **Host allowlist**: requests whose `Host`
+  header isn't `127.0.0.1` / `localhost` / `::1` (or a name you add via
+  `ARAIL_ALLOWED_HOSTS`) are refused with 403 `untrusted_host` — after a
+  rebind the `Host` still reads the attacker domain, so the flip fails.
+- **Cross-origin state mutation.** Every state-changing method
+  (`POST`/`PUT`/`PATCH`/`DELETE`) requires a same-origin request:
+  `Sec-Fetch-Site` must not be `cross-site`/`none`, and a present `Origin`
+  (including `Origin: null`) must exactly match `Host`. This covers *all*
+  mutating endpoints — the airgap toggle, provider save/remove, job
+  halt/resume, the work-window override — not just a hand-picked few.
+
+**Reverse-proxy / LAN note.** If you front the lab with a proxy that
+preserves the client `Host` (e.g. `mylab.local`), add that name to
+`ARAIL_ALLOWED_HOSTS` (comma-separated) or the middleware will reject it.
+Binding to a specific LAN IP auto-allows that IP; a wildcard bind
+(`0.0.0.0`) disables the Host check — put your own front door there.
+
+These are browser-level defences, not a substitute for host isolation: a
+process already running on the host can call any endpoint directly.
 
 ## A note on schools / shared lab machines
 

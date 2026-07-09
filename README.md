@@ -251,8 +251,9 @@ network still work, so a LAN GPU box (Ollama, vLLM, an aerollm node)
 keeps inferring without changes. Cloud-provider APIs are blocked at the
 HTTP layer. The dashboard's **Airgapped** badge is clickable — it shows
 what is and isn't enforced, the recent blocks, and the known gaps
-(`httpx`, raw sockets, subprocess `curl`) the Python-level guard
-doesn't cover. The threat model is well-meaning agent code, not an
+(raw sockets, subprocess `curl`) the Python-level guard
+doesn't cover — `requests`, `urllib`, and `httpx` (incl. the cloud
+SDKs built on it) are all wrapped. The threat model is well-meaning agent code, not an
 adversary on this host — for that, run a host firewall.
 
 Flip to `hybrid` and cloud vendors become fallbacks when the local model

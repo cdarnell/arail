@@ -497,6 +497,79 @@ async def inject_ui_theme(request, call_next):
     )
 
 
+# ---------------------------------------------------------------------------
+# Local trust-boundary guard — anti-DNS-rebinding Host allowlist + blanket
+# CSRF on state-changing methods. The portal has no auth: loopback is the
+# trust boundary. Two browser-borne attacks this closes:
+#
+#   1. DNS rebinding — an attacker page on evil.com (rebound to 127.0.0.1)
+#      is *same-origin with itself*, so a per-endpoint Origin==Host check
+#      passes. The defense is a positive Host allowlist: after the rebind
+#      the Host header still reads `evil.com`, which is not loopback → 403.
+#      (Django's ALLOWED_HOSTS pattern; ARAIL_ALLOWED_HOSTS extends it for
+#      reverse-proxy / LAN deployments.)
+#   2. Plain cross-origin POST — a page can POST to 127.0.0.1:8080 without
+#      a rebind (it just can't read the response). Blanket Sec-Fetch-Site /
+#      Origin checks on POST/PUT/PATCH/DELETE stop the airgap flip and every
+#      other state mutation (provider save/remove, jobs/halt, …), not just
+#      the two endpoints that opt into _check_local_mutation_request.
+#
+# Registered last so it is the OUTERMOST middleware and rejects before any
+# handler runs. GETs are Host-checked too (rebind can exfiltrate via GET).
+# ---------------------------------------------------------------------------
+_LOOPBACK_HOSTNAMES = frozenset({"127.0.0.1", "::1", "localhost"})
+_MUTATING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+
+
+def _request_hostname(request) -> str:
+    """Bare hostname from the Host header (port stripped, IPv6 unwrapped)."""
+    raw = request.headers.get("host", "").strip().lower()
+    if raw.startswith("[") and "]" in raw:  # [::1]:8080 → ::1
+        return raw[1:raw.index("]")]
+    return raw.rsplit(":", 1)[0] if ":" in raw else raw
+
+
+def _host_is_trusted(hostname: str) -> bool:
+    if hostname in _LOOPBACK_HOSTNAMES:
+        return True
+    extra = os.getenv("ARAIL_ALLOWED_HOSTS", "")
+    if hostname and hostname in {h.strip().lower() for h in extra.split(",") if h.strip()}:
+        return True
+    # Operator bound beyond loopback → they opted into exposure. Accept the
+    # configured bind host (LAN IP); a wildcard bind can't be validated, so
+    # defer to the operator (they must run their own front door).
+    bind = os.getenv("BIND_ADDR", "127.0.0.1").strip().lower()
+    if bind not in _LOOPBACK_HOSTNAMES:
+        if bind in ("0.0.0.0", "::", ""):
+            return True
+        return hostname == bind
+    return False
+
+
+@app.middleware("http")
+async def local_trust_boundary(request, call_next):
+    from fastapi.responses import JSONResponse
+
+    if not _host_is_trusted(_request_hostname(request)):
+        # Untrusted Host = the request reached us via a name that isn't the
+        # lab's own — the signature of a DNS-rebinding attack.
+        return JSONResponse(status_code=403, content={"error": "untrusted_host"})
+
+    if request.method in _MUTATING_METHODS:
+        sfs = request.headers.get("sec-fetch-site", "").strip().lower()
+        if sfs in ("cross-site", "none"):
+            return JSONResponse(status_code=403, content={"error": "cross_site"})
+        origin = request.headers.get("origin", "")
+        if origin:
+            from urllib.parse import urlparse as _urlparse
+            # Present-but-mismatched (incl. `Origin: null` → netloc "") is
+            # hostile; only an exact Origin/Host match passes.
+            if _urlparse(origin).netloc != request.headers.get("host", ""):
+                return JSONResponse(status_code=403, content={"error": "cross_origin"})
+
+    return await call_next(request)
+
+
 app.include_router(wiki_router)
 
 from arail.portal.world_routes import router as world_router  # noqa: E402
@@ -5670,7 +5743,18 @@ def _router_signature() -> tuple[str | None, ...]:
         os.getenv("MODEL_API_BASE"),
         os.getenv("MODEL_API_KEY"),
         os.getenv("LOCAL_API_PORT"),
+        # Mode is part of the identity: a cached cloud backend must be
+        # evicted the moment the lab flips to airgapped (and vice versa).
+        os.getenv("LAB_MODE"),
     )
+
+
+def _invalidate_router_cache() -> None:
+    """Drop the cached primary router (e.g. after an airgap toggle)."""
+    global _ROUTER_CACHE, _ROUTER_CACHE_SIGNATURE
+    with _ROUTER_CACHE_LOCK:
+        _ROUTER_CACHE = None
+        _ROUTER_CACHE_SIGNATURE = None
 
 
 def _get_primary_router():
@@ -5969,6 +6053,15 @@ def _prepare_chat_context(
             activity_log.emit("chat",
                               f"Router unavailable: {type(e).__name__}: {e}",
                               "error")
+            from arail.router.core import CloudBackendBlocked
+            if isinstance(e, CloudBackendBlocked):
+                return {
+                    "error_result": {
+                        "reply": str(e),
+                        "backend": None,
+                        "error": str(e),
+                    }
+                }
             return {
                 "error_result": {
                     "reply": (
@@ -8877,9 +8970,9 @@ async def get_airgap_status():
     }
 
     _KNOWN_GAPS = [
-        "httpx (used by open-notebook integration; localhost-only in tree)",
         "raw socket connections (BUDDY_EGRESS_PROBE is the only audited use)",
-        "subprocess-spawned curl/wget (none in tree today)",
+        "subprocess-spawned tools (opencode CLI is config-gated to the local "
+        "provider when airgapped; curl/wget: none in tree today)",
         "aiohttp (not in tree)",
     ]
 
@@ -8941,6 +9034,40 @@ def _toggle_bind_is_loopback() -> bool:
     return bind in {"127.0.0.1", "::1", "localhost"}
 
 
+def _check_local_mutation_request(request: Request):
+    """Shared gate for local-only mutating endpoints (airgap toggle,
+    window override): loopback bind + Sec-Fetch-Site + Origin/Host CSRF.
+
+    Returns an error JSONResponse, or None when the request may proceed.
+    Extracted verbatim from post_airgap_toggle — see its docstring for
+    the decision matrix.
+    """
+    from fastapi.responses import JSONResponse
+
+    if not _toggle_bind_is_loopback():
+        return JSONResponse(status_code=403, content={
+            "error": "bind_not_loopback",
+            "message": "Edit `.env` directly — toggle disabled when bound to non-loopback.",
+        })
+
+    # Browsers force-set Sec-Fetch-Site; JS on an attacker page cannot forge
+    # it. Non-browser clients (curl, pytest TestClient) omit it → fall through.
+    _sfs = request.headers.get("sec-fetch-site", "").strip().lower()
+    if _sfs in ("cross-site", "none"):
+        return JSONResponse(status_code=403, content={"error": "cross_site"})
+
+    origin = request.headers.get("origin", "")
+    host = request.headers.get("host", "")
+    if origin:
+        from urllib.parse import urlparse as _urlparse
+        # Present-but-mismatched Origin — including `Origin: null` (netloc "")
+        # from a sandboxed iframe — is hostile. Only an exact match passes.
+        if _urlparse(origin).netloc != host:
+            return JSONResponse(status_code=403, content={"error": "cross_origin"})
+
+    return None
+
+
 def _append_audit(audit_path: Path, record: dict) -> None:
     """Append one JSON line to the audit log; create with 0o600 if absent."""
     try:
@@ -8984,31 +9111,10 @@ async def post_airgap_toggle(request: Request):
     def _err(code: int, body: dict):
         return JSONResponse(status_code=code, content=body)
 
-    # ── Bind-address gate ──────────────────────────────────────────────
-    if not _toggle_bind_is_loopback():
-        return _err(403, {
-            "error": "bind_not_loopback",
-            "message": "Edit `.env` directly — toggle disabled when bound to non-loopback.",
-        })
-
-    # ── Sec-Fetch-Site defense-in-depth ──────────────────────────────
-    # Browsers force-set this header; JS on an attacker page cannot forge it.
-    # Non-browser clients (curl, pytest TestClient) omit it → fall through.
-    # See ARCHITECTURE.md § Item 4 for the full decision matrix.
-    _sfs = request.headers.get("sec-fetch-site", "").strip().lower()
-    if _sfs in ("cross-site", "none"):
-        return _err(403, {"error": "cross_site"})
-    # "same-origin" / "same-site" → proceed to Origin check below.
-    # Absent or unknown future value → fall through (preserves legacy / CLI paths).
-
-    # ── CSRF Origin check ─────────────────────────────────────────────
-    origin = request.headers.get("origin", "")
-    host = request.headers.get("host", "")
-    if origin:
-        from urllib.parse import urlparse as _urlparse
-        origin_host = _urlparse(origin).netloc
-        if origin_host and origin_host != host:
-            return _err(403, {"error": "cross_origin"})
+    # ── Loopback bind + Sec-Fetch-Site + Origin CSRF gates ────────────
+    gate_error = _check_local_mutation_request(request)
+    if gate_error is not None:
+        return gate_error
 
     # ── Parse body ────────────────────────────────────────────────────
     try:
@@ -9038,6 +9144,25 @@ async def post_airgap_toggle(request: Request):
     os.environ["LAB_MODE"] = target
     os.environ["ARAIL_MODE"] = target
     invalidate_probe_cache()
+    _invalidate_router_cache()
+
+    # Regenerate the opencode CLI config so the subprocess (outside the
+    # Python egress guard) is re-pinned to the local provider immediately
+    # rather than on its next launch. Best-effort.
+    try:
+        from arail.portal.services.opencode import regenerate_config
+        regenerate_config(force=True)
+    except Exception as exc:  # noqa: BLE001
+        # Failing to re-pin opencode to the local provider on an
+        # airgapped flip leaves the subprocess on its prior (possibly
+        # hybrid) config until its next launch — a real egress window,
+        # so log it loudly in that direction.
+        if target == "airgapped":
+            _log.warning("airgap toggle: opencode config regen FAILED on "
+                         "airgapped flip — subprocess keeps prior config "
+                         "until relaunch: %s", exc)
+        else:
+            _log.debug("airgap toggle: opencode config regen skipped: %s", exc)
 
     # ── Audit log ─────────────────────────────────────────────────────
     now_iso = (datetime.now(timezone.utc)
@@ -9118,6 +9243,45 @@ async def set_runtime_profile(request: Request):
         data=snap,
     )
     return {"ok": True, **snap}
+
+
+@app.post("/api/window/override")
+async def post_window_override(request: Request):
+    """Pin the work window (light/heavy) until the next schedule boundary.
+
+    Body: ``{"window": "active"|"heavy"|null}`` — null (or ``clear: true``)
+    reverts to the clock schedule. Same local-only gates as the airgap
+    toggle (loopback bind, Sec-Fetch-Site, Origin CSRF).
+    Returns the full scheduler state, same shape as GET /api/jobs/state.
+    """
+    from fastapi.responses import JSONResponse
+    from arail import scheduler as _sched
+
+    gate_error = _check_local_mutation_request(request)
+    if gate_error is not None:
+        return gate_error
+
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not isinstance(body, dict):
+        body = {}
+
+    window = body.get("window")
+    if window is None or body.get("clear"):
+        _sched.clear_window_override()
+        activity_log.emit("system", "work window override cleared — back on schedule", "info")
+        return JSONResponse(status_code=200, content=_sched.state())
+
+    if window not in ("active", "heavy"):
+        return JSONResponse(status_code=400, content={"error": "invalid_window"})
+
+    record = _sched.set_window_override(window)
+    until = record["expires_at"][11:16]  # HH:MM from the ISO timestamp
+    noun = "light work" if window == "active" else "heavy work"
+    activity_log.emit("system", f"work window overridden to {noun} until {until}", "info")
+    return JSONResponse(status_code=200, content=_sched.state())
 
 
 @app.post("/api/system/reveal")

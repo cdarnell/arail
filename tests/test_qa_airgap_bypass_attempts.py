@@ -10,9 +10,10 @@ Architect's review listed these as the highest-leverage attack surface:
   1. Pre-guard ``requests.Session()`` constructed at module-import
      time (before ``install_guard()`` runs).
   2. DNS rebind — ``evil.example.com`` → ``127.0.0.1``.
-  3. ``httpx``, ``aiohttp``, raw ``socket.connect``,
+  3. ``aiohttp``, raw ``socket.connect``,
      ``subprocess.run(["curl", ...])``, ``os.system("curl ...")`` —
-     declared NOT wrapped (documented gaps).
+     declared NOT wrapped (documented gaps). ``httpx`` used to be on
+     this list; its transports are wrapped now.
   4. ``asyncio.create_task`` contextvars-leak from inside an
      ``@allow_egress`` block (documented behavior).
 
@@ -153,10 +154,13 @@ class TestDNSRebind:
 # ──────────────────────────────────────────────────────────────────────
 
 class TestDocumentedGaps:
-    """The README, PRIVACY.md, and modal copy all list four gaps:
-    ``httpx``, ``aiohttp``, raw socket, subprocess shells. These tests
-    pin the gaps so a future PR that tries to close them (excellent!)
-    triggers a tripwire saying "update the docs and modal too."
+    """The README, PRIVACY.md, and modal copy list the remaining gaps:
+    ``aiohttp``, raw socket, subprocess shells. These tests pin the gaps
+    so a future PR that tries to close them (excellent!) triggers a
+    tripwire saying "update the docs and modal too."
+
+    ``httpx`` WAS on this list; it is wrapped now (see
+    test_httpx_is_guarded_in_airgapped, which pins the closure instead).
     """
 
     def test_raw_socket_connect_bypasses_guard(self, monkeypatch, tmp_path):
@@ -194,14 +198,15 @@ class TestDocumentedGaps:
         finally:
             s.close()
 
-    def test_httpx_bypasses_guard_in_airgapped(self, monkeypatch, tmp_path):
-        """``httpx.Client().get()`` is NOT wrapped by the requests
-        monkey-patch — it has its own transport.
+    def test_httpx_is_guarded_in_airgapped(self, monkeypatch, tmp_path):
+        """``httpx`` is no longer a gap — install_guard() patches its
+        transports (sprint airgapped-mode-toggles), which is what stops
+        the anthropic/openai SDKs from egressing while airgapped.
 
-        Pin: in airgapped mode, an httpx call to a public host does
-        NOT raise EgressBlocked. (It will likely raise a real
-        ConnectionError if the call goes through, or succeed if the
-        host can reach the internet — either way, NOT EgressBlocked.)
+        Pin: in airgapped mode, an httpx call to a public host raises
+        EgressBlocked before any socket I/O. If this starts failing,
+        the httpx guard regressed — that reopens the primary cloud-SDK
+        leak; fix the guard, don't relax this test.
         """
         try:
             import httpx
@@ -215,16 +220,11 @@ class TestDocumentedGaps:
 
         client = httpx.Client(timeout=0.05)
         try:
-            client.get("https://example.com")
-        except arail.airgap.EgressBlocked:
-            pytest.fail(
-                "DOCUMENTED-GAP TRIPWIRE: httpx raised EgressBlocked. "
-                "Has someone wrapped httpx? Update README/PRIVACY.md/modal."
-            )
-        except Exception:
-            pass  # expected — timeout / DNS / etc.
+            with pytest.raises(arail.airgap.EgressBlocked):
+                client.get("https://example.com")
         finally:
             client.close()
+            arail.egress._reset_for_tests()
 
     @pytest.mark.skipif(
         sys.platform == "win32",

@@ -79,23 +79,19 @@ class TestCsrfAttackShapes:
     currently treats *any non-matching netloc* as cross-origin and any
     empty-netloc Origin as same-origin (legacy-compat). Confirm both."""
 
-    def test_origin_null_string_is_treated_as_same_origin(self, toggle_setup):
-        """Origin: null (sandboxed iframe, file://, Privacy Sandbox) has
-        empty netloc, so under current rules it slips past the gate.
-        This is a *documented* legacy-compat behavior — the bind-gate
-        backstops it. Pinning the contract so an accidental tightening
-        is a visible diff."""
+    def test_origin_null_string_is_rejected(self, toggle_setup):
+        """Origin: null (sandboxed iframe, file://, Privacy Sandbox) is now
+        REJECTED — hardened in sprint airgapped-mode-toggles (F2). Previously
+        its empty netloc slipped past a `if origin_host and ...` guard; the
+        gate now rejects any present-but-mismatched Origin, null included."""
         client, env_path, _ = toggle_setup
         r = client.post(
             "/api/airgap/toggle",
             json={"target": "hybrid"},
             headers={"Origin": "null"},
         )
-        # Documented gap: empty netloc bypasses; bind-gate still applies.
-        assert r.status_code == 200, (
-            f"Origin:'null' contract changed; if intentional, update "
-            f"docs and threat model. Got {r.status_code}: {r.text}"
-        )
+        assert r.status_code == 403
+        assert r.json()["error"] == "cross_origin"
 
     def test_cross_origin_different_port_rejected(self, toggle_setup):
         """Host: testserver, Origin: http://testserver:9999 -> 403.
@@ -128,17 +124,18 @@ class TestCsrfAttackShapes:
             f"Scheme-agnostic check changed; got {r.status_code}: {r.text}"
         )
 
-    def test_cross_origin_malformed_no_netloc_passes(self, toggle_setup):
-        """Origin: 'garbage' -> urlparse.netloc == '' -> the `if origin_host`
-        guard skips comparison. Same as no-Origin: legacy-compat."""
+    def test_cross_origin_malformed_no_netloc_rejected(self, toggle_setup):
+        """Origin: 'garbage' -> urlparse.netloc == '' -> now REJECTED
+        (F2 hardening). A present Origin that doesn't parse to the Host is
+        hostile; only an exact netloc match passes."""
         client, _, _ = toggle_setup
         r = client.post(
             "/api/airgap/toggle",
             json={"target": "hybrid"},
             headers={"Origin": "garbage"},
         )
-        # Documented legacy-compat path: malformed Origin treated as same-origin.
-        assert r.status_code == 200
+        assert r.status_code == 403
+        assert r.json()["error"] == "cross_origin"
 
     def test_cross_origin_evil_subdomain_rejected(self, toggle_setup):
         """Cookie-tossing / suffix-match attacks: evil.testserver != testserver."""
