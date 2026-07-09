@@ -49,6 +49,10 @@ router = APIRouter()
 
 ETA_MINUTES = {25: 4, 50: 8, 100: 15}
 ALLOWED_SIZES = (25, 50, 100)
+# Fetch (sourced-bootstrap) mode: no local model, so bigger + faster.
+FETCH_SIZES = (25, 50, 100, 250, 512)
+FETCH_ETA_MINUTES = {25: 1, 50: 1, 100: 2, 250: 3, 512: 6}
+FETCH_STAGES = ("resolve", "harvest", "define", "link", "gate")
 REVIEW_SCHEMA = "arail.world-review/v1"
 REVIEW_BATCH = 16
 
@@ -181,6 +185,51 @@ async def _run_forge(params: wf.ForgeParams) -> None:
         activity_log.emit("forge", f"Forge of '{params.subject}' failed: {e}", "error")
 
 
+def _bootstrap_progress(stage: str, done: int, total: int, note: str) -> None:
+    global _forge_state
+    prior = _forge_state
+    _forge_state = {
+        **prior,
+        "stage": stage,
+        "stage_index": FETCH_STAGES.index(stage) if stage in FETCH_STAGES else 0,
+        "stages_total": len(FETCH_STAGES),
+        "source": "fetch",
+        "terms_found": done if stage in ("define", "harvest") else prior.get("terms_found", 0),
+        "max_terms": total if stage in ("define", "harvest") and total else prior.get("max_terms", 0),
+        "message": note,
+        "elapsed_s": round(time.monotonic() - prior.get("_t0", time.monotonic()), 1),
+    }
+
+
+async def _run_bootstrap(subject: str, slug: str, max_terms: int, consent_id: str) -> None:
+    """Fetch-mode forge: build a sourced World from Wikipedia. No model use, so
+    no inference_slot — the fetch runs beside chat."""
+    global _forge_state, _forge_result
+    from arail.world_sources import wikipedia as wk
+    try:
+        result = await asyncio.to_thread(
+            wk.bootstrap_subject, subject, max_terms,
+            consent_id=consent_id, progress_cb=_bootstrap_progress, cancel=_forge_cancel,
+        )
+        _forge_result = result
+        _forge_state = {**_forge_state, "state": "done", "source": "fetch",
+                        "terms_found": len(result.terms),
+                        "message": f"{len(result.terms)} sourced terms · tier {result.tier}"}
+        activity_log.emit("forge", f"Fetched '{subject}' — {len(result.terms)} sourced terms "
+                                   f"from Wikipedia. Preview it on the Worlds page.", "success")
+    except wk.BootstrapCancelled:
+        _forge_state = {**_forge_state, "state": "cancelled", "message": "cancelled"}
+        activity_log.emit("forge", f"Sourced bootstrap of '{subject}' cancelled.", "info")
+    except wk.BootstrapEmpty as e:
+        _forge_state = {**_forge_state, "state": "error",
+                        "message": f"no usable content — try a broader subject ({e})"}
+        activity_log.emit("forge", f"Sourced bootstrap of '{subject}' found nothing: {e}", "warn")
+    except Exception as e:  # noqa: BLE001
+        _log.warning("world bootstrap failed: %s", e)
+        _forge_state = {**_forge_state, "state": "error", "message": str(e)[:200]}
+        activity_log.emit("forge", f"Sourced bootstrap of '{subject}' failed: {e}", "error")
+
+
 @router.post("/api/worlds/forge")
 async def api_forge_start(request: Request):
     global _forge_state, _forge_result, _forge_face_overrides
@@ -195,11 +244,14 @@ async def api_forge_start(request: Request):
     slug = wf.slugify(str(body.get("slug", "")) or subject)
     if not slug or not wm._SLUG_RE.match(slug):
         return _err(400, {"error": "bad_slug"})
+    source = "fetch" if str(body.get("source", "dream")).strip() == "fetch" else "dream"
     try:
         max_terms = int(body.get("max_terms", 25))
     except (TypeError, ValueError):
         max_terms = 25
-    if max_terms not in ALLOWED_SIZES:
+    if source == "fetch":
+        max_terms = max_terms if max_terms in FETCH_SIZES else max(8, min(512, max_terms))
+    elif max_terms not in ALLOWED_SIZES:
         max_terms = max(8, min(150, max_terms))
 
     overrides: dict = {}
@@ -235,19 +287,37 @@ async def api_forge_start(request: Request):
         _forge_cancel.clear()
         _forge_result = None
         _forge_face_overrides = overrides
+        stages = FETCH_STAGES if source == "fetch" else wf.FORGE_STAGES
         _forge_state = {
-            "state": "running", "subject": subject, "slug": slug,
-            "max_terms": max_terms, "stage": "spec", "stage_index": 0,
-            "stages_total": len(wf.FORGE_STAGES), "terms_found": 0,
+            "state": "running", "subject": subject, "slug": slug, "source": source,
+            "max_terms": max_terms, "stage": stages[0], "stage_index": 0,
+            "stages_total": len(stages), "terms_found": 0,
             "message": "starting…", "started_at": time.time(),
             "_t0": time.monotonic(), "elapsed_s": 0,
         }
-        params = wf.ForgeParams(subject=subject, slug=slug, max_terms=max_terms)
-        asyncio.create_task(_run_forge(params))
+        if source == "fetch":
+            # The operator's explicit "Fetch real content" choice IS the consent
+            # to a one-time Wikipedia fetch for this subject (recorded + audited).
+            from arail.agents.consent import ConsentStore
+            store = ConsentStore()
+            req = store.request_access(
+                "https://en.wikipedia.org/",
+                f"World Forge sourced bootstrap: {subject[:100]}", agent="world-forge")
+            if req.get("status") not in ("approved", "auto_approved"):
+                store.approve(req["id"])
+            asyncio.create_task(_run_bootstrap(subject, slug, max_terms, req["id"]))
+        else:
+            params = wf.ForgeParams(subject=subject, slug=slug, max_terms=max_terms)
+            asyncio.create_task(_run_forge(params))
 
-    activity_log.emit("forge", f"Forging '{subject}' ({max_terms} terms) with the local model…",
-                      "info")
-    eta = ETA_MINUTES.get(max_terms, max(2, max_terms // 8))
+    if source == "fetch":
+        activity_log.emit("forge", f"Fetching '{subject}' ({max_terms} terms) from Wikipedia "
+                                   "(one-time, consented, audited)…", "info")
+        eta = FETCH_ETA_MINUTES.get(max_terms, max(1, max_terms // 90))
+    else:
+        activity_log.emit("forge", f"Forging '{subject}' ({max_terms} terms) with the local model…",
+                          "info")
+        eta = ETA_MINUTES.get(max_terms, max(2, max_terms // 8))
     return JSONResponse(status_code=202,
                         content={"started": True, "slug": slug, "eta_minutes": eta})
 

@@ -461,7 +461,38 @@ def _cmp_key(s: str) -> str:
     return s.casefold()
 
 
-def render_world_skill(spec: dict, face: dict, terms: list[dict], world_sha: str) -> str:
+def _skill_terms_capped(terms: list[dict]) -> tuple[list[dict], Optional[str]]:
+    """Pick which terms SKILL.md carries. skills_loader caps the body at ~56K
+    chars, so a big World (e.g. 512 fetched terms) can't render every term into
+    the agent prompt. Keep the most CONNECTED terms (highest related-degree —
+    the concepts the World hangs off of) up to the char budget, and return an
+    honest note so agents know the full glossary lives in the Knowledge Base.
+    Small Worlds render whole (note=None)."""
+    if estimate_skill_chars(len(terms)) <= SKILL_CHAR_BUDGET:
+        return terms, None
+    # degree = inbound+outbound related edges
+    indeg: dict[str, int] = {}
+    for t in terms:
+        for r in (t.get("related") or []):
+            rs = str(r).strip()
+            if rs:
+                indeg[rs] = indeg.get(rs, 0) + 1
+
+    def _degree(t: dict) -> int:
+        return len(t.get("related") or []) + indeg.get(str(t.get("slug", "")), 0)
+
+    # how many terms fit the budget (estimate_skill_chars is ~linear per term)
+    per_term = max(1, estimate_skill_chars(100) // 100)
+    n = max(1, min(len(terms), SKILL_CHAR_BUDGET // per_term))
+    ranked = sorted(terms, key=lambda t: (-_degree(t), str(t.get("slug", ""))))
+    kept = ranked[:n]
+    note = (f"This World has {len(terms)} terms; the {len(kept)} most connected "
+            "are shown here. The full glossary lives in the Knowledge Base.")
+    return kept, note
+
+
+def render_world_skill(spec: dict, face: dict, terms: list[dict], world_sha: str,
+                       *, extra_note: Optional[str] = None) -> str:
     """SKILL.md in the exact shape skills_loader parses. Pure projection of
     gated fields (slug/term/short/source) — the honesty rail."""
     slug = str(spec.get("slug", ""))
@@ -521,17 +552,22 @@ def render_world_skill(spec: dict, face: dict, terms: list[dict], world_sha: str
         label = sanitize_body_field(cat_label.get(cat, cat))
         sections.append(f"### {label}\n\n" + "\n".join(lines))
 
-    body = "\n".join([
+    body_parts = [
         sanitize_body_field(str(face.get("domain_framing", ""))),
         "",
         prov_line,
+    ]
+    if extra_note:
+        body_parts += ["", f"_{sanitize_body_field(extra_note)}_"]
+    body_parts += [
         "",
         f"_{rail_line}_",
         "",
         "\n\n".join(sections),
         "",
         f"<!-- dac:world_sha256 {world_sha} -->",
-    ])
+    ]
+    body = "\n".join(body_parts)
     return frontmatter + "\n" + body + "\n"
 
 
@@ -701,8 +737,10 @@ def write_bundle(
         files[name] = hashlib.sha256(raw).hexdigest()
     world_sha = files["terms.json"]
 
-    (out_dir / "SKILL.md").write_text(render_world_skill(spec, face, terms, world_sha),
-                                      encoding="utf-8")
+    _skill_terms, _skill_note = _skill_terms_capped(terms)
+    (out_dir / "SKILL.md").write_text(
+        render_world_skill(spec, face, _skill_terms, world_sha, extra_note=_skill_note),
+        encoding="utf-8")
     (out_dir / "capabilities.json").write_bytes(
         _pretty(_build_capabilities(spec, tier, terms, world_sha)))
     (out_dir / "arail-plugin.json").write_bytes(
