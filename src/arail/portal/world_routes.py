@@ -55,6 +55,9 @@ FETCH_ETA_MINUTES = {25: 1, 50: 1, 100: 2, 250: 3, 512: 6}
 FETCH_STAGES = ("resolve", "harvest", "define", "link", "gate")
 REVIEW_SCHEMA = "arail.world-review/v1"
 REVIEW_BATCH = 16
+# Growth pass: judge this many for corrections, propose up to this many new.
+GROW_REVIEW_BATCH = 24
+GROW_NEW_BATCH = 8
 
 
 # ── shared helpers ──────────────────────────────────────────────────────
@@ -778,6 +781,161 @@ async def api_review_get():
             "reviewed_at": doc.get("reviewed_at"),
             "reviewed_count": doc.get("reviewed_count"),
             "flags": flags}
+
+
+# ═══════════════════════ GROWTH ENGINE (organic evolution) ════════════════
+
+_grow_lock = asyncio.Lock()
+_grow_state: dict[str, Any] = {"state": "idle"}
+_grow_cancel = threading.Event()
+GROW_SCHEMA = "arail.world-evolution/v1"
+
+
+def _evolution_path(bundle_dir: Path) -> Path:
+    return bundle_dir / "evolution.json"
+
+
+def _curation_router(brain: str) -> Any:
+    """Which brain curates. 'auto'/'deep' → best local (deep when available);
+    'local' → the on-GPU model; a provider id (e.g. 'claude', 'openrouter') →
+    a router pointed at that cloud gateway, reusing the saved provider token
+    (the exact plumbing the Chat Compute Source uses). Falls back to deep on
+    any provider-setup failure so growth never hard-fails on a missing key."""
+    brain = (brain or "auto").strip().lower()
+    if brain in ("", "auto", "deep"):
+        return _review_router()
+    if brain == "local":
+        from arail.router import ModelRouter
+        return ModelRouter(billing_source="agent")
+    # A cloud provider gateway (claude, openrouter, nim, huggingface, custom).
+    try:
+        from arail.portal.app import _provider_token, _PROVIDER_KEY_ENVS
+        from arail.router import ModelRouter
+        env = _PROVIDER_KEY_ENVS.get(brain)
+        token = _provider_token(brain)
+        if env and token:
+            os.environ[env] = token
+        backend = {"claude": "claude", "openrouter": "openrouter",
+                   "custom": "openai_compat", "nim": "openai_compat",
+                   "huggingface": "huggingface"}.get(brain, brain)
+        return ModelRouter(backend=backend, billing_source="agent")
+    except Exception as e:  # noqa: BLE001
+        _log.warning("curation router for %r failed (%s); using deep/local", brain, e)
+        return _review_router()
+
+
+async def _run_grow(bundle_dir: Path, spec: dict, terms: list[dict], brain: str) -> None:
+    """One growth pass: correct existing terms + add new ones, reversibly."""
+    global _grow_state
+    world = str(spec.get("slug", ""))
+    display = str(spec.get("display_name", world))
+    declared = {str(c.get("id", "")) for c in spec.get("categories", [])}
+    try:
+        router_ = _curation_router(brain)
+        model_name = getattr(router_, "backend_name", None) or "local"
+
+        def _prog(stage, done, total, note=""):
+            global _grow_state
+            _grow_state = {**_grow_state, "stage": stage, "message": note}
+
+        async with scheduler.inference_slot("world-grow"):
+            _grow_state = {**_grow_state, "stage": "reviewing"}
+            flags = await asyncio.to_thread(
+                wf.reconcile_terms, spec, terms, router=router_,
+                limit=GROW_REVIEW_BATCH, cancel=_grow_cancel)
+            _corrected, changes = wf.apply_corrections(terms, flags, declared)
+            _grow_state = {**_grow_state, "stage": "growing"}
+            new_terms = await asyncio.to_thread(
+                wf.propose_new_terms, spec, terms, router=router_,
+                limit=GROW_NEW_BATCH, cancel=_grow_cancel)
+
+        merged = terms + new_terms
+        # Re-gate + reseal + swap (auto-applied; fully reversible via the log).
+        gate = wf.assert_closed_sourced_graph(merged, declared)
+        if not gate.ok:
+            present = {t["slug"] for t in merged}
+            for t in merged:
+                t["related"] = [r for r in t.get("related", []) if r in present and r != t["slug"]]
+        await asyncio.to_thread(wf.reseal_bundle, bundle_dir, merged)
+        await asyncio.to_thread(wm.swap, bundle_dir)
+
+        # Append a reversible evolution record.
+        now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        entry = {
+            "at": now, "model": model_name, "brain": brain,
+            "added": [{"slug": t["slug"], "term": t["term"]} for t in new_terms],
+            "corrections": changes,
+        }
+        doc = {"schema": GROW_SCHEMA, "world": world, "passes": []}
+        if _evolution_path(bundle_dir).exists():
+            try:
+                prev = json.loads(_evolution_path(bundle_dir).read_bytes())
+                if prev.get("schema") == GROW_SCHEMA:
+                    doc = prev
+            except Exception:  # noqa: BLE001
+                pass
+        doc.setdefault("passes", []).append(entry)
+        _evolution_path(bundle_dir).write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
+
+        _grow_state = {"state": "done", "added": len(new_terms), "corrected": len(changes)}
+        activity_log.emit(
+            "curator",
+            f"World '{display}' evolved via {model_name}: +{len(new_terms)} new term"
+            f"{'s' if len(new_terms) != 1 else ''}, {len(changes)} correction"
+            f"{'s' if len(changes) != 1 else ''}. Reversible in the term editor.",
+            "success")
+    except Exception as e:  # noqa: BLE001
+        _log.warning("world grow failed: %s", e)
+        _grow_state = {"state": "error", "message": str(e)[:200]}
+        activity_log.emit("curator", f"Growing '{display}' failed: {e}", "error")
+
+
+@router.post("/api/worlds/grow")
+async def api_grow_start(request: Request):
+    global _grow_state
+    if (rej := _csrf_reject(request)) is not None:
+        return rej
+    bundle_dir = _mounted_catalog_dir()
+    if bundle_dir is None:
+        return _err(409, {"error": "no_world_mounted"})
+    body = await _json_body(request)
+    brain = str(body.get("brain", "auto"))
+    async with _grow_lock:
+        if _grow_state.get("state") == "running":
+            return _err(409, {"error": "grow_busy"})
+        spec, terms = _load_terms(bundle_dir)
+        _grow_cancel.clear()
+        _grow_state = {"state": "running", "world": spec.get("slug"), "stage": "starting", "brain": brain}
+        asyncio.create_task(_run_grow(bundle_dir, spec, terms, brain))
+    activity_log.emit("curator", f"Growing '{spec.get('display_name')}'…", "info")
+    return JSONResponse(status_code=202, content={"started": True})
+
+
+@router.get("/api/worlds/grow")
+async def api_grow_get():
+    bundle_dir = _mounted_catalog_dir()
+    passes: list = []
+    if bundle_dir is not None and _evolution_path(bundle_dir).exists():
+        try:
+            doc = json.loads(_evolution_path(bundle_dir).read_bytes())
+            if doc.get("schema") == GROW_SCHEMA:
+                passes = doc.get("passes", [])
+        except Exception:  # noqa: BLE001
+            pass
+    return {"state": _grow_state.get("state", "idle"),
+            "stage": _grow_state.get("stage", ""),
+            "message": _grow_state.get("message", ""),
+            "added": _grow_state.get("added"),
+            "corrected": _grow_state.get("corrected"),
+            "passes": passes}
+
+
+@router.post("/api/worlds/grow/cancel")
+async def api_grow_cancel(request: Request):
+    if (rej := _csrf_reject(request)) is not None:
+        return rej
+    _grow_cancel.set()
+    return {"ok": True}
 
 
 # ═══════════════════════ world-first helpers ══════════════════════════════
