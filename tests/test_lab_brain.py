@@ -141,7 +141,8 @@ def test_retrieve_chat_context_prefers_exact_phrase(monkeypatch):
             }]
         return []
 
-    monkeypatch.setattr(pkb, "search", fake_search)
+    # chat RAG retrieves through the gated entry point; inject fake hits there
+    monkeypatch.setattr(pkb, "search_for_agents", fake_search)
     results = lab_brain.retrieve_chat_context("vector index", max_results=3)
     assert results[0]["path"] == "notes/vector-index.md"
 
@@ -160,7 +161,8 @@ def test_retrieve_chat_context_reorders_snippets_by_token_coverage(monkeypatch):
             ],
         }]
 
-    monkeypatch.setattr(pkb, "search", fake_search)
+    # chat RAG retrieves through the gated entry point; inject fake hits there
+    monkeypatch.setattr(pkb, "search_for_agents", fake_search)
     results = lab_brain.retrieve_chat_context("retriever ranking", max_results=1)
     assert results[0]["snippets"][0] == "Retriever cache invalidation and ranking behavior."
 

@@ -559,8 +559,12 @@ def _semantic_search(
     *,
     k: int = 12,
     min_score: float = 0.05,
+    approved: set[str] | None = None,
 ) -> list[dict[str, Any]]:
-    """Vector-backed search. Returns [] if LanceDB or the index is absent."""
+    """Vector-backed search. Returns [] if LanceDB or the index is absent.
+
+    When ``approved`` is a set of pkb-relative paths, results are filtered to
+    that set — the Compiled-KB gate (agents build only on approved truth)."""
     from arail.vector_index import VectorIndex, available
 
     if not available():
@@ -570,7 +574,10 @@ def _semantic_search(
         # Lazy first-time indexing — every install ships LanceDB so we
         # build the index on demand instead of failing silently.
         index_all(root)
-    hits = idx.search(query, k=k, min_score=min_score)
+    # Over-fetch when gating so the approved subset still fills k results.
+    hits = idx.search(query, k=(k * 6 if approved is not None else k), min_score=min_score)
+    if approved is not None:
+        hits = [h for h in hits if h.get("path") in approved][:k]
     if not hits:
         return []
 
@@ -603,7 +610,8 @@ def _semantic_search(
     return results
 
 
-def search(query: str, pkb_root: Path | None = None) -> list[dict[str, Any]]:
+def search(query: str, pkb_root: Path | None = None, *,
+           approved_only: bool = False) -> list[dict[str, Any]]:
     """Search the PKB. Vector recall first, regex fallback for exact terms.
 
     The vector path lets fuzzy queries like *"how do I tune AirLLM"* find
@@ -612,18 +620,36 @@ def search(query: str, pkb_root: Path | None = None) -> list[dict[str, Any]]:
     unavailable, or genuinely no semantic match) we drop to the original
     regex substring sweep so exact-token queries (URLs, error codes,
     file names) still resolve.
+
+    ``approved_only`` is the Compiled-KB gate: when True, results are scoped
+    to paths a human has approved into the Compiled KB — the layer agents
+    experiment/develop against, never the raw candidate corpus. Callers pass
+    it through ``search_for_agents`` rather than setting it directly.
     """
     root = pkb_root or _pkb_root()
     if not root.exists():
         return []
 
-    semantic = _semantic_search(query, root)
+    approved: set[str] | None = None
+    if approved_only:
+        from arail.compiled_kb import approved_paths
+        approved = approved_paths(root)
+        if not approved:
+            # Nothing approved yet — the gate honestly returns nothing rather
+            # than leaking the raw corpus. Callers surface an "approve some
+            # knowledge" empty state.
+            return []
+
+    semantic = _semantic_search(query, root, approved=approved)
     if semantic:
         return semantic
 
     # Regex fallback — preserves the historical exact-match contract.
     results: list[dict[str, Any]] = []
     for p, text in _iter_pkb_files(root):
+        rel = p.relative_to(root).as_posix()
+        if approved is not None and rel not in approved:
+            continue
         match_count, snippets = _build_snippets(text, query)
         if match_count:
             results.append({
@@ -635,6 +661,15 @@ def search(query: str, pkb_root: Path | None = None) -> list[dict[str, Any]]:
             })
     results.sort(key=lambda r: r["match_count"], reverse=True)
     return results
+
+
+def search_for_agents(query: str, pkb_root: Path | None = None) -> list[dict[str, Any]]:
+    """Retrieval for agents that experiment/develop (Researcher, chat RAG, goal
+    drafter). Honors the Compiled-KB gate: when the gate is enabled (default),
+    agents build ONLY on approved knowledge. When disabled via
+    ``ARAIL_APPROVED_ONLY=off``, falls back to the full raw corpus."""
+    from arail.compiled_kb import gate_enabled
+    return search(query, pkb_root, approved_only=gate_enabled())
 
 
 # ── Agent Write Helpers ──────────────────────────────────────────────────

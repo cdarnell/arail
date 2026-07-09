@@ -598,7 +598,7 @@ class ResearcherAgent:
 
             try:
                 kb_hits = [
-                    h for h in pkb_mod.search(goal_text)
+                    h for h in pkb_mod.search_for_agents(goal_text)
                     if h.get("path") and not _is_structural(h["path"])
                 ][:5]
             except Exception:
