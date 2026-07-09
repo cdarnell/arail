@@ -1262,6 +1262,38 @@ def _refresh_kb_surfaces(pkb_root: Path) -> None:
         _log.warning("world_mount: wiki refresh skipped: %s", e)
 
 
+def _sweep_other_worlds(pkb_root: Path, keep_slug: str) -> int:
+    """Reset the World-dataset layer of the KB to *only* the current World.
+
+    A World IS the lab's dataset: mounting/switching one makes the Knowledge
+    Base reflect that World's terms, not an accumulation of every World ever
+    mounted. So on mount/swap we remove every other ``sources/world-*/`` staged
+    dir, leaving ``world-<keep_slug>`` plus all NON-world content (the user's
+    own ingested docs/notes under sources/, research/, notes/…) untouched.
+
+    Returns the number of stale World dirs removed. Never raises.
+    """
+    removed = 0
+    try:
+        sources = pkb_root / "sources"
+        if not sources.is_dir():
+            return 0
+        keep = f"world-{keep_slug}"
+        for child in sources.iterdir():
+            if (child.is_dir() and child.name.startswith("world-")
+                    and child.name != keep):
+                try:
+                    shutil.rmtree(child)
+                    removed += 1
+                    # Its stale LanceDB rows are pruned automatically on the
+                    # next flush (_flush drops rows whose files no longer exist).
+                except Exception as e:  # noqa: BLE001
+                    _log.warning("world_mount: could not sweep %s: %s", child.name, e)
+    except Exception as e:  # noqa: BLE001
+        _log.warning("world_mount: world sweep skipped: %s", e)
+    return removed
+
+
 def _adopt_into_catalog(
     bundle_dir: Path,
     slug: str,
@@ -1355,9 +1387,13 @@ def mount(
     # Step 2: stage files
     staged_dir = _stage_files(bundle, pkb)
 
+    # Step 2b: World = dataset — reset the KB's World layer to only this World.
+    _sweep_other_worlds(pkb, bundle.slug)
+
     # Step 3: index (best-effort; LanceDB-absent must not abort mount)
     try:
-        _index_staged(staged_dir, pkb)
+        status = _index_staged(staged_dir, pkb)
+        _emit_index_status(bundle.world, status)
     except Exception as e:
         _log.warning("world_mount: indexing failed (continuing): %s", e)
 
@@ -1379,12 +1415,9 @@ def mount(
     # the bundle already lives under WORLDS_DIR.
     _adopt_into_catalog(bundle_dir, bundle.world, worlds_dir)
 
-    # Step 6: wiki rebuild best-effort
-    try:
-        from arail import wiki
-        wiki.schedule_rebuild()
-    except Exception:
-        pass
+    # Step 6: make it visible in the KB now (flush index + rebuild wiki;
+    # CLI mounts with no loop build synchronously).
+    _refresh_kb_surfaces(pkb)
 
     # Step 7: resolve declared capabilities → sidecar (best-effort, never fails mount)
     try:
@@ -1463,9 +1496,14 @@ def swap(
     check_compat(bundle)
     check_categories(bundle)
 
-    # Stage new
+    # Stage new + reset the World-dataset layer to only this World.
     staged_dir = _stage_files(bundle, pkb)
-    _index_staged(staged_dir, pkb)
+    _sweep_other_worlds(pkb, bundle.slug)
+    try:
+        status = _index_staged(staged_dir, pkb)
+        _emit_index_status(bundle.world, status)
+    except Exception as e:  # noqa: BLE001
+        _log.warning("world_mount: swap indexing failed (continuing): %s", e)
 
     # Flip pointer (write new record over the old one)
     now = datetime.now(timezone.utc).isoformat()
@@ -1480,11 +1518,7 @@ def swap(
     )
     _write_record(record, dd)
 
-    try:
-        from arail import wiki
-        wiki.schedule_rebuild()
-    except Exception:
-        pass
+    _refresh_kb_surfaces(pkb)
 
     # Resolve declared capabilities → sidecar (best-effort, never fails swap)
     try:

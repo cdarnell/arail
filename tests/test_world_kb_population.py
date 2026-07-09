@@ -37,9 +37,11 @@ CATS = [{"id": "plants", "label": "Plants"}, {"id": "care", "label": "Care"}]
 @pytest.fixture()
 def lab(tmp_path, monkeypatch):
     data = tmp_path / "data"; pkb_root = tmp_path / "pkb"
-    data.mkdir(); pkb_root.mkdir()
+    worlds = tmp_path / "worlds"
+    data.mkdir(); pkb_root.mkdir(); worlds.mkdir()
     monkeypatch.setattr(wm, "_default_data_dir", lambda: data)
     monkeypatch.setattr(wm, "_default_pkb_root", lambda: pkb_root)
+    monkeypatch.setattr(wm, "_default_worlds_dir", lambda: worlds)
     return tmp_path, data, pkb_root
 
 
