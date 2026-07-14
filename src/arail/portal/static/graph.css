@@ -112,6 +112,11 @@ canvas:active { cursor: grabbing; }
   position: absolute;
   bottom: 12px;
   left: 12px;
+  /* Leave room for .graph-controls (bottom-right, ~112px incl. gaps) so
+     the legend wraps onto a second line instead of running under it —
+     only visible in narrow embeds (World Terms / dictionary mini-panels),
+     since this component previously only ever rendered full-page. */
+  max-width: calc(100% - 140px);
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-m);

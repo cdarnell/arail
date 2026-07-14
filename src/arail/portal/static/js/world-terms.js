@@ -152,22 +152,34 @@
     const scrollY = view.scrollTop;
     view.textContent = '';
 
-    // Toolbar — World identity (name + tier) lives in the page hero now;
-    // this row is purely the term-editor's actions.
+    // Header — two deliberate rows (main's stable layout, so it doesn't
+    // reshuffle at narrow widths), adapted to the restructured page: World
+    // identity (name + tier) now lives in the page hero above, so row 1
+    // carries the "view in graph" chip + the one primary action (Add term)
+    // in place of the old worldname/tier badge; row 2 is the secondary
+    // curation tools.
     const head = el('div', 'wt-head');
+
+    const headTop = el('div', 'wt-head-top');
     const graphChip = el('button', 'wt-btn wt-btn--ghost', '🕸 View this World in the graph');
     graphChip.type = 'button';
     graphChip.title = 'Scroll to the knowledge graph above';
     graphChip.addEventListener('click', focusGraphOnWorld);
-    head.appendChild(graphChip);
-    head.appendChild(el('div', 'wt-head-spacer'));
+    headTop.appendChild(graphChip);
+    headTop.appendChild(el('div', 'wt-head-spacer'));
+    const addBtn = el('button', 'wt-btn wt-btn--primary', '＋ Add term');
+    addBtn.type = 'button';
+    addBtn.addEventListener('click', () => openDrawer(null));
+    headTop.appendChild(addBtn);
+    head.appendChild(headTop);
 
+    const headActions = el('div', 'wt-head-actions');
     const reviewBtn = el('button', 'wt-btn wt-btn--curator',
       S.reviewState === 'running' ? 'Curator reviewing…' : 'Ask the Curator to review');
     reviewBtn.type = 'button';
     reviewBtn.disabled = S.reviewState === 'running';
     reviewBtn.addEventListener('click', startReview);
-    head.appendChild(reviewBtn);
+    headActions.appendChild(reviewBtn);
 
     // Growth engine: pick the curation brain, then let agents evolve the World.
     const growWrap = el('div', 'wt-grow');
@@ -189,12 +201,8 @@
     growBtn.addEventListener('click', startGrow);
     growWrap.appendChild(brain);
     growWrap.appendChild(growBtn);
-    head.appendChild(growWrap);
-
-    const addBtn = el('button', 'wt-btn wt-btn--primary', '＋ Add term');
-    addBtn.type = 'button';
-    addBtn.addEventListener('click', () => openDrawer(null));
-    head.appendChild(addBtn);
+    headActions.appendChild(growWrap);
+    head.appendChild(headActions);
 
     view.appendChild(head);
 
