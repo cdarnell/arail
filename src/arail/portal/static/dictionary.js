@@ -232,7 +232,7 @@
     return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
   }
   function colorForIndex(i) {
-    return cssVar(GRAPH_PALETTE[i % GRAPH_PALETTE.length]) || "#8888aa";
+    return cssVar(GRAPH_PALETTE[i % GRAPH_PALETTE.length]);
   }
 
   function buildGraph() {
@@ -256,7 +256,7 @@
       var n = {
         id: "term:" + (t.key || t.term), kind: "term", label: t.term || t.key,
         short: t.short_def || "", category: t.category || "",
-        color: ci >= 0 ? colorForIndex(ci) : cssVar("--muted") || "#8888aa",
+        color: ci >= 0 ? colorForIndex(ci) : cssVar("--text-muted"),
         entry: t,
       };
       nodes.push(n); byId[n.id] = n;
@@ -383,7 +383,7 @@
       ctx.globalAlpha = 1;
       if (n.kind === "category") {
         ctx.font = "600 12px var(--font-sans, sans-serif)";
-        ctx.fillStyle = cssVar("--text-hi") || "#eee";
+        ctx.fillStyle = cssVar("--text-strong");
         ctx.textAlign = "center";
         ctx.fillText(n.label, s.x, s.y - r - 6);
       }

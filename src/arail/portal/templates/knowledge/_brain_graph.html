@@ -1,0 +1,43 @@
+{# The lab's brain — the knowledge graph, embedded directly (no iframe).
+   _graph_canvas.html is the shared zero-dep canvas renderer; it reads the
+   Jinja vars set below. Phase 1 shows the full wiki graph; the brain scope
+   (world + approved + candidates) arrives with /api/wiki/graph?scope=brain. #}
+<section class="kb-brain-graph" id="brain-graph" aria-label="Knowledge graph">
+  <div class="kb-section-head">
+    <div class="kb-section-titles">
+      <h2 class="kb-section-title">The lab's brain</h2>
+      <span class="kb-section-sub">what the lab knows — every page, term, and agent finding, linked</span>
+    </div>
+    <a class="btn btn-sm btn-ghost" href="/wiki/graph" target="_blank" rel="noopener"
+       title="Open the full-page graph in a new tab">Open full page ↗</a>
+  </div>
+  {% set graph_api = "/api/wiki/graph" %}
+  {% set show_health = False %}
+  {% set graph_wheel_passthrough = True %}
+  {% set graph_empty_message = "Nothing here yet — drop a document below or mount a World to seed the graph." %}
+  {% set color_map = {
+    "sources":  "var(--accent2)",
+    "agents":   "var(--positive)",
+    "notes":    "var(--info)",
+    "compiled": "var(--warn)",
+    "docs":     "var(--danger)",
+    "inference":"var(--text-muted)"
+  } %}
+  {% set icon_map = {
+    "sources":  "◉",
+    "agents":   "◈",
+    "notes":    "◇",
+    "compiled": "▣",
+    "docs":     "⬡",
+    "inference":"⊕"
+  } %}
+  {% set legend_groups = [
+    {"label": "Sources",  "color": "var(--accent2)"},
+    {"label": "Agents",   "color": "var(--positive)"},
+    {"label": "Notes",    "color": "var(--info)"},
+    {"label": "Compiled", "color": "var(--warn)"},
+    {"label": "Docs",     "color": "var(--danger)"},
+    {"label": "Inference","color": "var(--text-muted)"}
+  ] %}
+  {% include "_graph_canvas.html" %}
+</section>

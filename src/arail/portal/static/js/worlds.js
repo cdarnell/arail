@@ -301,8 +301,7 @@
     return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
   }
   function colorForCategory(index) {
-    var v = cssVar(GRAPH_PALETTE[index % GRAPH_PALETTE.length]);
-    return v || '#8888aa';
+    return cssVar(GRAPH_PALETTE[index % GRAPH_PALETTE.length]);
   }
 
   function buildPreviewGraph(p) {
@@ -440,7 +439,7 @@
       ctx.globalAlpha = 1;
       if (n.kind === 'category') {
         ctx.font = '600 12px var(--font-sans, sans-serif)';
-        ctx.fillStyle = cssVar('--text-strong') || '#eee';
+        ctx.fillStyle = cssVar('--text-strong');
         ctx.textAlign = 'center';
         ctx.fillText(n.label, s.x, s.y - r - 6);
       }

@@ -235,32 +235,8 @@
   color: var(--accent2);
 }
 
-.kb-graph-mini {
-  margin: 0 0 1rem;
-  display: grid;
-  gap: 0.45rem;
-}
-.kb-graph-mini-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-.kb-graph-sub {
-  margin: 0;
-}
-.kb-graph-mini-iframe {
-  position: relative;
-  width: 100%;
-  height: 180px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-m);
-  display: block;
-  background: var(--bg);
-}
-
-.kb-graph-mini-iframe:hover {
-  border-color: var(--border-strong);
-}
+/* (The welcome-pane mini-graph iframe is gone — the graph is embedded
+   directly on the page as the "lab's brain" section, styled below.) */
 
 /* Legacy spotlight styles retained intentionally for compatibility with
    cached templates that may still reference these classes. */
@@ -1065,13 +1041,6 @@ a.kb-reveal-btn { text-decoration: none; }
   font-size: 0.75rem;
 }
 
-/* ── Mini-graph header actions row ──────────────────────────────────── */
-.kb-graph-mini-actions {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-}
-
 /* ── Inbox section, when files are staged but not yet ingested ──────── */
 .kb-section-node.kb-inbox-staged > summary {
   background: var(--warn-a08);
@@ -1224,37 +1193,10 @@ body.wt-mode .kb-layout { display: none; }
   flex-wrap: wrap;
   margin-bottom: 14px;
 }
-.wt-worldname {
-  font-weight: 650;
-  font-size: 1.25rem;
-  color: var(--text-strong);
-  margin: 0;
-}
 .wt-head-spacer { flex: 1 1 auto; }
-
-/* World knowledge graph — the real, tag-scoped KB graph */
-.wt-graph { margin: 0 0 18px; }
-.wt-graph-head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 8px;
-}
-.wt-graph-title {
-  font-size: 0.95rem;
-  font-weight: 600;
-  color: var(--text-strong);
-  margin: 0;
-  flex: 1 1 auto;
-}
 .wt-btn--sm { padding: 4px 10px; font-size: 0.78rem; }
-.wt-graph-iframe {
-  width: 100%;
-  height: 360px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-m);
-  background: var(--surface2);
-}
+/* (World name/tier + the tag-scoped graph iframe left the terms view:
+   identity lives in the page hero, the graph in the brain section.) */
 
 /* Provenance / tier chips */
 .wt-chip {
@@ -1360,29 +1302,8 @@ body.wt-mode .kb-layout { display: none; }
 }
 .wt-evo-live { color: var(--accent2); }
 
-/* Warning banner */
-.wt-banner {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  padding: 10px 14px;
-  margin-bottom: 14px;
-  border-radius: var(--radius-m);
-  color: var(--warn);
-  background: color-mix(in srgb, var(--warn) 12%, transparent);
-  border: 1px solid color-mix(in srgb, var(--warn) 28%, transparent);
-  font-size: 0.85rem;
-}
-.wt-banner-dismiss {
-  margin-left: auto;
-  appearance: none;
-  border: none;
-  background: none;
-  color: var(--warn);
-  cursor: pointer;
-  font-size: 1rem;
-  line-height: 1;
-}
+/* (The sourced-edit warning banner became the hero's ⓘ provenance
+   disclosure — see .kb-hero-prov.) */
 
 /* Search */
 .wt-search {
@@ -1675,3 +1596,236 @@ body.wt-mode .kb-layout { display: none; }
   border: 1px solid var(--accent2-a28); font-weight: 600;
 }
 .ckb-approve-world:hover { background: var(--accent2-a16); }
+
+/* ═══════════════════════════════════════════════════════════════
+   Knowledge page narrative sections
+   [World hero] → [The lab's brain] → [Agent focus] → [Review queue]
+   → [Library] → [footer]. Section shells; the Library's internals
+   reuse all the pre-existing kb-* rules above.
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── Shared section chrome ─────────────────────────────────────── */
+.kb-section-head {
+  display: flex;
+  align-items: flex-end;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin: 0 0 12px;
+}
+.kb-section-titles { flex: 1 1 auto; min-width: 220px; }
+.kb-section-title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 650;
+  color: var(--text-strong);
+}
+.kb-section-sub {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+.kb-brain-graph,
+.kb-focus,
+.kb-library {
+  margin: 0 0 26px;
+}
+
+/* ── World hero ────────────────────────────────────────────────── */
+.kb-hero {
+  margin: 4px 0 26px;
+  padding: 18px 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-l);
+  background:
+    linear-gradient(135deg,
+      color-mix(in srgb, var(--accent2) 7%, transparent),
+      transparent 55%),
+    var(--surface);
+}
+.kb-hero-kicker {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  text-transform: var(--label-transform);
+  letter-spacing: var(--label-tracking);
+  color: var(--accent2);
+  margin-bottom: 4px;
+}
+.kb-hero-title-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.kb-hero-name {
+  margin: 0;
+  font-size: 1.7rem;
+  font-weight: 700;
+  color: var(--text-strong);
+}
+.kb-hero-stats {
+  display: flex;
+  align-items: baseline;
+  gap: 18px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+.kb-hero-stat strong {
+  color: var(--text-strong);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 1rem;
+}
+.kb-hero-stat--approved strong { color: var(--positive); }
+.kb-hero-stat--pending strong { color: var(--warn); }
+.kb-hero-stat--pending a {
+  color: var(--warn);
+  text-decoration: none;
+  border-bottom: 1px dashed color-mix(in srgb, var(--warn) 45%, transparent);
+}
+.kb-hero-dict {
+  margin-left: auto;
+  color: var(--accent2);
+  text-decoration: none;
+  font-size: 0.85rem;
+}
+.kb-hero-dict:hover { text-decoration: underline; }
+
+/* Provenance disclosure — the collapse teaches sealing when expanded. */
+.kb-hero-prov { position: relative; font-size: 0.8rem; }
+.kb-hero-prov > summary {
+  cursor: pointer;
+  list-style: none;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  padding: 2px 10px;
+  user-select: none;
+}
+.kb-hero-prov > summary::-webkit-details-marker { display: none; }
+.kb-hero-prov[open] > summary {
+  color: var(--accent2);
+  border-color: color-mix(in srgb, var(--accent2) 40%, transparent);
+}
+.kb-hero-prov-body {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 30;
+  width: min(440px, 80vw);
+  padding: 12px 14px;
+  background: var(--surface2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-m);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, .35);
+  color: var(--text);
+}
+.kb-hero-prov-body p { margin: 0 0 8px; line-height: 1.5; }
+.kb-hero-prov-body p:last-child { margin-bottom: 0; }
+
+/* Mount-a-World state (no World mounted) */
+.kb-hero-mount-sub {
+  margin: 8px 0 14px;
+  max-width: 60ch;
+  color: var(--text-muted);
+  line-height: 1.55;
+}
+.kb-hero-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+
+/* ── The lab's brain (embedded graph) ──────────────────────────── */
+/* The shared graph.css sizes .graph-wrap for full-page use; inside the
+   knowledge page the two-class selector wins and pins a fixed height. */
+.kb-brain-graph .graph-wrap {
+  height: 480px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+  overflow: hidden;
+}
+
+/* ── Agent focus ───────────────────────────────────────────────── */
+.kb-focus-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+.kb-focus-card {
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.kb-focus-card-title {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: var(--label-transform);
+  letter-spacing: var(--label-tracking);
+  color: var(--text-muted);
+}
+.kb-focus-goal-text {
+  margin: 0;
+  color: var(--text-strong);
+  line-height: 1.45;
+}
+.kb-focus-progress {
+  height: 5px;
+  border-radius: 3px;
+  background: var(--border);
+  overflow: hidden;
+}
+.kb-focus-progress-fill {
+  height: 100%;
+  width: 0;
+  border-radius: 3px;
+  background: var(--accent2);
+  transition: width .4s ease;
+}
+.kb-focus-hint {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+.kb-focus-links { display: flex; gap: 12px; flex-wrap: wrap; }
+.kb-focus-link {
+  color: var(--accent2);
+  text-decoration: none;
+  font-size: 0.82rem;
+}
+.kb-focus-link:hover { text-decoration: underline; }
+.kb-focus-outputs {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 0.82rem;
+}
+.kb-focus-outputs a {
+  color: var(--text);
+  text-decoration: none;
+  border-bottom: 1px dotted var(--border-strong);
+}
+.kb-focus-outputs a:hover { color: var(--accent2); }
+.kb-focus-empty {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  list-style: none;
+}
+.kb-focus-empty a { color: var(--accent2); }
+
+/* ── Footer cross-link (reuses the docs-banner link styles) ────── */
+.kb-footer { margin: 8px 0 20px; }
+
+/* Review queue sits mid-page now — cap the candidate list so 50+ pending
+   items scroll inside the panel instead of pushing the Library below the
+   fold. */
+.ckb-panel .ckb-list { max-height: 380px; overflow-y: auto; }

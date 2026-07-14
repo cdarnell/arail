@@ -1,0 +1,47 @@
+{# Agent focus — what the lab is working on right now. The goal card is
+   server-rendered from the route's `current_goal`; recent agent outputs are
+   filled by knowledge-page.js from the already-fetched PKB tree. Phase 3
+   re-points this section at /api/lab/brief so humans and agents literally
+   read the same context. #}
+<section class="kb-focus" id="kb-focus" aria-label="Agent focus">
+  <div class="kb-section-head">
+    <div class="kb-section-titles">
+      <h2 class="kb-section-title">Agent focus</h2>
+      <span class="kb-section-sub">what your agents are working on right now</span>
+    </div>
+    <a class="btn btn-sm btn-ghost" href="/agents" title="Open the Agents surface">Agents →</a>
+  </div>
+  <div class="kb-focus-grid">
+    <div class="kb-focus-card" id="kb-focus-goal">
+      <h3 class="kb-focus-card-title">Current goal</h3>
+      {% if current_goal and current_goal.goal_text %}
+      <p class="kb-focus-goal-text">{{ current_goal.goal_text }}</p>
+      <div class="kb-focus-progress" role="progressbar"
+           aria-valuemin="0" aria-valuemax="100"
+           aria-valuenow="{{ ((current_goal.progress or 0) * 100) | round | int }}">
+        <div class="kb-focus-progress-fill" id="kb-focus-progress-fill"
+             data-progress="{{ ((current_goal.progress or 0) * 100) | round | int }}"></div>
+      </div>
+      <a class="kb-focus-link" href="/autoresearch">Watch the run →</a>
+      {% else %}
+      <p class="kb-focus-empty">No active goal — set one on the
+      <a href="/">dashboard</a> and the Researcher picks it up.</p>
+      {% endif %}
+    </div>
+    <div class="kb-focus-card" id="kb-focus-program">
+      <h3 class="kb-focus-card-title">Research program</h3>
+      <p class="kb-focus-hint">The measurable-goal contract the autoresearch
+      loop runs on — goals, variants, and stop conditions.</p>
+      <div class="kb-focus-links">
+        <a class="kb-focus-link" href="/knowledge?file=research/program.md">Open program.md</a>
+        <a class="kb-focus-link" href="/autoresearch">Autoresearch →</a>
+      </div>
+    </div>
+    <div class="kb-focus-card" id="kb-focus-outputs">
+      <h3 class="kb-focus-card-title">Recent agent output</h3>
+      <ul class="kb-focus-outputs" id="kb-focus-outputs-list">
+        <li class="kb-focus-empty">Loading…</li>
+      </ul>
+    </div>
+  </div>
+</section>

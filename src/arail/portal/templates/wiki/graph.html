@@ -4,6 +4,12 @@
 {% block title %}{{ brand.name }} — Knowledge Graph{% endblock %}
 
 {% block head %}
+{# Full-page graph: lock page scroll (the canvas pans/zooms instead).
+   This used to live in graph.css but that sheet now also loads inside
+   the Knowledge page, which must keep scrolling. #}
+<style>
+  body { overflow: hidden; }
+</style>
 {% if embed %}
 <style>
   body { margin: 0; }

@@ -1,0 +1,307 @@
+{# Library — the raw corpus and its tools: the World Terms editor and the
+   Files browser (toolbar, ingest hero, tree, reader/editor, web research).
+   Everything here is the pre-existing Knowledge page machinery, relocated;
+   all element IDs are load-bearing for knowledge-files.js / world-terms.js
+   and must not change. #}
+<section class="kb-library" id="kb-library">
+  <div class="kb-section-head">
+    <div class="kb-section-titles">
+      <h2 class="kb-section-title">Library</h2>
+      <span class="kb-section-sub">the raw corpus — candidates stay here until you approve them into the lab's brain</span>
+    </div>
+    <!-- View toggle: Files vs World Terms (shown only when a world is mounted) -->
+    <div class="wt-viewtoggle" id="wt-viewtoggle" hidden role="tablist" aria-label="Knowledge view">
+      <button type="button" class="wt-tab" id="wt-tab-files" role="tab" aria-selected="false">Files</button>
+      <button type="button" class="wt-tab" id="wt-tab-terms" role="tab" aria-selected="false">World Terms</button>
+    </div>
+  </div>
+
+  <!-- World Terms structured editor (populated by /static/js/world-terms.js) -->
+  <div class="wt-view" id="world-terms-view" hidden></div>
+
+  <!-- Top toolbar -->
+  <div class="kb-toolbar">
+    <form class="kb-search" id="kb-search-form">
+      <input id="kb-search-input" type="text"
+             placeholder="search titles, tags, and content…"
+             autocomplete="off" />
+    </form>
+    <button class="btn btn-sm btn-ghost" id="kb-upload-btn" title="Upload files to inbox">
+      📤 Upload
+    </button>
+    <input type="file" id="kb-upload-input" multiple style="display:none" />
+    <button class="btn btn-sm btn-ghost" id="kb-voice-btn"
+            title="Record a voice memo → transcribed on-device into the KB inbox" disabled>
+      🎤 Voice memo
+    </button>
+    <button class="btn btn-sm btn-ghost" id="kb-scan-btn"
+            title="Scan an image → OCR'd on-device into the KB inbox" disabled>
+      📷 Scan
+    </button>
+    <input type="file" id="kb-scan-input" accept="image/png,image/jpeg" style="display:none" />
+    <button class="btn btn-sm btn-ghost" id="kb-process-inbox-btn"
+            title="Process anything currently in lab/pkb/inbox/ (e.g., files you dropped via Finder). The background watcher does this every ~10s — click to trigger immediately.">
+      ⚡ Process inbox
+    </button>
+    <button class="btn btn-sm btn-ghost" id="kb-rebuild-btn" title="Rebuild wiki index + auto-docs">
+      🔨 Rebuild
+    </button>
+    <span class="kb-rebuild-badge" id="kb-rebuild-badge"
+          title="Wiki/graph compile status — flashes while a rebuild is queued or running"
+          aria-live="polite"></span>
+    <a class="btn btn-sm btn-ghost" href="#brain-graph" title="Jump to the knowledge graph">🕸 Graph</a>
+    <span class="kb-meter" id="kb-meter">— pages</span>
+  </div>
+
+  <!-- Per-event reveal toast. Stays below the toolbar; rows for each
+       uploaded file with [Reveal] links pointing at their landing
+       spot. Cleared after 30s or on next upload. -->
+  <div class="kb-reveal-toast" id="kb-reveal-toast" role="status" aria-live="polite"></div>
+
+  <!-- Ingest hero — big drop zone + file-type tiles + starter pack.
+       Sits above the tree/reader layout so new users see the "how do
+       I add things?" answer immediately. -->
+  <section class="kb-ingest-hero">
+    <div class="kb-ingest-copy">
+      <h2 class="kb-ingest-title">
+        Drop anything here
+        <span class="kb-ingest-kicker">one tree — source for wiki, notebooks, and agents</span>
+      </h2>
+    </div>
+
+    <!-- Quick-access folder buttons. Click → opens the OS file browser
+         at the configured path. Two distinct buckets: documents (auto-
+         ingested) and model weights (no processing). -->
+    <div class="kb-folder-row">
+      <button type="button" class="kb-folder-btn" data-reveal-slot="inbox"
+              title="Files dropped into this folder via Finder are detected by a background watcher (~10s) and auto-sorted into sources/&lt;type&gt;/. Wiki/graph rebuild fires after.">
+        <span class="kb-folder-icon">📄</span>
+        <div class="kb-folder-meat">
+          <div class="kb-folder-label">Open documents folder</div>
+          <div class="kb-folder-hint">Drop docs &amp; screenshots here — auto-sorts within ~10s.</div>
+          <code class="kb-folder-path">{{ inbox_path }}</code>
+        </div>
+      </button>
+      <button type="button" class="kb-folder-btn" data-reveal-slot="models"
+              title="Downloaded model weights live here. No auto-processing — used by Compute Source &gt; My Machine.">
+        <span class="kb-folder-icon">🤖</span>
+        <div class="kb-folder-meat">
+          <div class="kb-folder-label">Open models folder</div>
+          <div class="kb-folder-hint">Downloaded model weights live here.</div>
+          <code class="kb-folder-path">{{ models_path }}</code>
+        </div>
+      </button>
+    </div>
+
+    <!-- Ingest surface (PROPOSAL §3.4) — six tiles collapsed behind a
+         single "Add content ▾" disclosure. Existing data-upload-accept
+         handlers + the by-id wiring (kb-ingest-url, kb-install-pack,
+         kb-remove-pack) keep working unchanged; only the default
+         visibility changes. -->
+    <details class="kb-add-content">
+      <summary class="kb-add-content-summary">＋ Add content</summary>
+      <div class="kb-ingest-tiles">
+        <button type="button" class="kb-ingest-tile" data-upload-accept="*">
+          <span class="kb-ingest-icon">📄</span>
+          <span class="kb-ingest-name">Docs</span>
+          <span class="kb-ingest-hint">.md .txt .pdf .html</span>
+        </button>
+        <button type="button" class="kb-ingest-tile" data-upload-accept="image/*">
+          <span class="kb-ingest-icon">🖼</span>
+          <span class="kb-ingest-name">Images</span>
+          <span class="kb-ingest-hint">.png .jpg .svg .gif</span>
+        </button>
+        <button type="button" class="kb-ingest-tile" data-upload-accept="video/*">
+          <span class="kb-ingest-icon">🎥</span>
+          <span class="kb-ingest-name">Video</span>
+          <span class="kb-ingest-hint">.mp4 .mov .webm</span>
+        </button>
+        <button type="button" class="kb-ingest-tile" data-upload-accept="audio/*">
+          <span class="kb-ingest-icon">🎧</span>
+          <span class="kb-ingest-name">Audio</span>
+          <span class="kb-ingest-hint">.mp3 .wav .m4a</span>
+        </button>
+        <button type="button" class="kb-ingest-tile" id="kb-ingest-url"
+                title="Add a URL bookmark to sources/bookmarks.md">
+          <span class="kb-ingest-icon">🔗</span>
+          <span class="kb-ingest-name">URL</span>
+          <span class="kb-ingest-hint">save a bookmark</span>
+        </button>
+        <button type="button" class="kb-ingest-tile kb-ingest-seed" id="kb-install-pack">
+          <span class="kb-ingest-icon">⚡</span>
+          <span class="kb-ingest-name">Starter pack</span>
+          <span class="kb-ingest-hint" id="kb-seed-hint">loading…</span>
+        </button>
+        <button type="button" class="kb-ingest-tile kb-ingest-remove" id="kb-remove-pack"
+                style="display:none"
+                title="Wipe the starter primers — your own files are not touched.">
+          <span class="kb-ingest-icon">🗑</span>
+          <span class="kb-ingest-name">Remove starter</span>
+          <span class="kb-ingest-hint">make room for your work</span>
+        </button>
+      </div>
+    </details>
+    <!-- URL tile inline form — replaces the old blocking prompt(). -->
+    <form class="kb-url-form" id="kb-url-form" style="display:none" autocomplete="off">
+      <label class="kb-url-label" for="kb-url-input">Add URL bookmark</label>
+      <input class="kb-url-input" id="kb-url-input" type="url"
+             placeholder="https://… (lands in sources/bookmarks.md)" required />
+      <button class="btn btn-sm btn-primary" type="submit">Add</button>
+      <button class="btn btn-sm btn-ghost" type="button" id="kb-url-cancel">Cancel</button>
+    </form>
+
+    <div id="kb-seed-banner" class="kb-seed-banner" style="display:none">
+      Your knowledge base is mostly starter content.
+      <a href="#" id="kb-banner-upload">Add your own files</a>
+      or paste a goal on the dashboard to start filling it with what matters to you.
+    </div>
+  </section>
+
+  <div class="kb-layout">
+
+    <!-- ═══ Left sidebar: section tree ═══ -->
+    <aside class="kb-sidebar">
+      <div class="kb-sidebar-scroll" id="kb-tree">
+        <div class="kb-empty-sidebar">Loading…</div>
+      </div>
+    </aside>
+
+    <!-- ═══ Main pane: reader / editor ═══ -->
+    <main class="kb-main">
+
+      <!-- Welcome state (shown when no file is open) -->
+      <div class="kb-welcome" id="kb-welcome">
+        <h1>Your Knowledge Base</h1>
+
+        <p>Click any file in the sidebar to read it. Drag files from
+        your desktop anywhere on this page to ingest. Use
+        <kbd>Cmd/Ctrl</kbd>+<kbd>E</kbd> to edit the open file,
+        <kbd>Cmd/Ctrl</kbd>+<kbd>S</kbd> to save.</p>
+
+        <div class="kb-quick-actions">
+          <button class="kb-quick-btn" id="kb-quick-upload">
+            <span class="kb-quick-icon">📥</span>
+            <span class="kb-quick-label">Upload to inbox</span>
+            <span class="kb-quick-hint">or drag-drop anywhere</span>
+          </button>
+          <button class="kb-quick-btn" id="kb-quick-new-note">
+            <span class="kb-quick-icon">📝</span>
+            <span class="kb-quick-label">New note</span>
+            <span class="kb-quick-hint">creates in notes/</span>
+          </button>
+          <a class="kb-quick-btn" href="#brain-graph">
+            <span class="kb-quick-icon">🕸</span>
+            <span class="kb-quick-label">Knowledge graph</span>
+            <span class="kb-quick-hint">visual map</span>
+          </a>
+          <button class="kb-quick-btn" id="kb-quick-rebuild">
+            <span class="kb-quick-icon">🔨</span>
+            <span class="kb-quick-label">Rebuild wiki</span>
+            <span class="kb-quick-hint">regenerate auto-docs</span>
+          </button>
+        </div>
+
+        <!-- ═══ Web Research Agent ═══ -->
+        <div class="kb-browse-section" id="browse-section">
+          <h3 class="kb-welcome-sub">
+            Web Research
+            {% if mode == "airgapped" %}
+            <span class="browse-blocked-badge">airgapped — enable Hybrid mode to browse</span>
+            {% endif %}
+          </h3>
+
+          {% if mode != "airgapped" %}
+          <div class="browse-input-row">
+            <input type="text" id="browse-chat" class="browse-input"
+                   placeholder="tell the agent what to find — e.g. &quot;Go to arxiv.org and find papers about chain-of-thought reasoning&quot;" />
+            <button class="btn btn-sm btn-primary" id="btn-chat">Research</button>
+          </div>
+          <div class="browse-input-row browse-url-row">
+            <input type="text" id="browse-url" class="browse-input browse-url-input"
+                   placeholder="or paste a direct URL to capture" />
+            <button class="btn btn-sm btn-ghost browse-capture-btn" id="btn-browse">Capture</button>
+          </div>
+
+          <div id="browse-examples" class="browse-suggestions browse-examples-row"></div>
+          <div id="browse-suggestions" class="browse-suggestions"></div>
+          <div id="browse-result" class="browse-result" style="display:none;"></div>
+          {% else %}
+          <p class="browse-blocked-msg">
+            The browser agent is disabled while the lab is airgapped.
+            Click the <strong>Airgapped</strong> badge in the nav bar to switch to
+            <strong>Hybrid</strong> mode and enable web research.
+            Your approval is required for every domain the agent visits.
+          </p>
+          {% endif %}
+        </div>
+
+        <!-- Recent pages live-populated from /api/wiki/pages -->
+        <h3 class="kb-welcome-sub">Recent pages</h3>
+        <ul class="kb-recent" id="kb-recent">
+          <li class="kb-empty">Loading…</li>
+        </ul>
+
+        <!-- Tag cloud live-populated -->
+        <h3 class="kb-welcome-sub">Tags</h3>
+        <div class="kb-tags" id="kb-tag-cloud">
+          <span class="kb-empty">No tags yet.</span>
+        </div>
+      </div>
+
+      <!-- Reader state (shown when a file is open, editor hidden) -->
+      <div class="kb-viewer" id="kb-viewer" hidden>
+        <div class="kb-viewer-header">
+          <div class="kb-breadcrumbs" id="kb-breadcrumbs"></div>
+          <div class="kb-viewer-actions">
+            <button class="btn btn-sm btn-ghost" id="kb-btn-reveal"
+                    title="Reveal this file in Finder/Explorer">📁 Reveal</button>
+            <button class="btn btn-sm btn-ghost" id="kb-btn-edit" title="Edit (Cmd/Ctrl+E)">✏️ Edit</button>
+            <button class="btn btn-sm btn-ghost" id="kb-btn-vim" title="Open in terminal with vim">⌨ Vim</button>
+            <button class="btn btn-sm btn-ghost" id="kb-btn-delete" title="Delete file">🗑</button>
+            <button class="btn btn-sm btn-ghost" id="kb-btn-close" title="Close (Esc)">×</button>
+          </div>
+        </div>
+        <div class="kb-viewer-meta" id="kb-viewer-meta"></div>
+        <article class="kb-rendered wiki-content" id="kb-rendered"></article>
+
+        <!-- Backlinks + graph neighborhood panel (collapsible) -->
+        <aside class="kb-context" id="kb-context">
+          <div class="kb-context-section" id="kb-backlinks-wrap">
+            <h4>Referenced by</h4>
+            <ul id="kb-backlinks"></ul>
+          </div>
+          <div class="kb-context-section" id="kb-outgoing-wrap">
+            <h4>Links to</h4>
+            <ul id="kb-outgoing"></ul>
+          </div>
+        </aside>
+      </div>
+
+      <!-- Editor state (shown when editing) -->
+      <div class="kb-editor" id="kb-editor" hidden>
+        <div class="kb-editor-header">
+          <div class="kb-breadcrumbs">
+            <span id="kb-editor-path"></span>
+            <span class="kb-editor-dirty" id="kb-editor-dirty" hidden>● unsaved</span>
+          </div>
+          <div class="kb-viewer-actions">
+            <label class="kb-vim-toggle">
+              <input type="checkbox" id="kb-editor-vim">
+              <span>vim-lite</span>
+            </label>
+            <button class="btn btn-sm btn-primary" id="kb-btn-save" title="Save (Cmd/Ctrl+S)">💾 Save</button>
+            <button class="btn btn-sm btn-ghost" id="kb-btn-cancel" title="Cancel (Esc)">Cancel</button>
+          </div>
+        </div>
+        <div class="kb-editor-hint" id="kb-editor-hint">
+          <kbd>Cmd/Ctrl</kbd>+<kbd>S</kbd> save · <kbd>Esc</kbd> cancel ·
+          toggle <strong>vim-lite</strong> for hjkl/i/Esc/dd/yy keybindings
+        </div>
+        <textarea id="kb-editor-ta" class="kb-editor-ta"
+                  spellcheck="false" autocomplete="off"></textarea>
+        <div class="kb-editor-status" id="kb-editor-status">—</div>
+      </div>
+
+    </main>
+  </div>
+</section>

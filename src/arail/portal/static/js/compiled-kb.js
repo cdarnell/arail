@@ -50,6 +50,15 @@
     state.gate = !!data.gate_enabled;
     state.selected.clear();
     render();
+    // Broadcast counts for page-level consumers (the World hero's
+    // approved/pending stats) — saves them a duplicate review fetch.
+    window.dispatchEvent(new CustomEvent("arail:kb-review-loaded", {
+      detail: {
+        pending: state.pending.length,
+        approved: state.approved.length,
+        gate: state.gate,
+      },
+    }));
   }
 
   function chip(kind, provenance, world) {

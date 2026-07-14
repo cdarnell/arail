@@ -9464,15 +9464,16 @@ from arail.pkb import (
 
 @app.get("/knowledge", response_class=HTMLResponse)
 async def knowledge_page(request: Request):
+    # The page hydrates its data client-side (/api/pkb/browse, /api/worlds/
+    # terms, /api/pkb/review, /api/wiki/graph); the server renders identity,
+    # the World-hero mount state, and the current goal for the Agent Focus
+    # card. (A full pkb_browse() used to be computed here and never read.)
     from arail.pkb import _pkb_root
-    data = pkb_browse()
     current_goal = goal_store.get_current()
     pkb = _pkb_root()
     models_dir = Path(os.getenv("ARAIL_MODELS_DIR", "lab/models"))
     return templates.TemplateResponse(request, "knowledge.html", {
         **_identity_ctx(),
-        "pkb": data,
-        "pkm": data,
         "mode": _lab_mode(),
         "current_goal": current_goal,
         "inbox_path": str((pkb / "inbox").resolve()),

@@ -12,6 +12,10 @@
 <div class="graph-wrap">
   <canvas id="graph-canvas"></canvas>
 
+  <!-- Load/empty/error affordance — a busy or failed graph must never
+       look like a silently blank one. -->
+  <div class="graph-status" id="graph-status" hidden></div>
+
   <div class="detail-panel" id="detail-panel">
     <h3>
       <span id="detail-icon"></span>
@@ -44,6 +48,7 @@
 
 const GRAPH_API  = "{{ graph_api }}";
 const HEALTH_API = "{{ health_api|default('') }}";
+const GRAPH_EMPTY = {{ graph_empty_message|default('No nodes yet — the graph fills as pages are compiled.')|tojson }};
 
 const canvas = document.getElementById('graph-canvas');
 const ctx = canvas.getContext('2d');
@@ -442,7 +447,12 @@ canvas.addEventListener('mouseup', (e) => {
   panStart = null;
 });
 
+// Embedded graphs (graph_wheel_passthrough) let plain scrolling reach the
+// host page — zoom rides pinch gestures (browsers send them as ctrl+wheel)
+// or the +/− controls. Full-page graphs keep direct wheel-zoom.
+const WHEEL_PASSTHROUGH = {{ graph_wheel_passthrough|default(false)|tojson }};
 canvas.addEventListener('wheel', (e) => {
+  if (WHEEL_PASSTHROUGH && !e.ctrlKey && !e.metaKey) return;
   e.preventDefault();
   const factor = e.deltaY > 0 ? 0.9 : 1.1;
   const rect = canvas.getBoundingClientRect();
@@ -458,24 +468,50 @@ function zoomIn() { camera.zoom = Math.min(4, camera.zoom * 1.3); draw(); }
 function zoomOut() { camera.zoom = Math.max(0.2, camera.zoom / 1.3); draw(); }
 function resetView() { camera = { x: 0, y: 0, zoom: 1 }; draw(); }
 
-async function init() {
-  resize();
-  buildLegend();
+const statusEl = document.getElementById('graph-status');
+function setGraphStatus(msg, kind) {
+  if (!statusEl) return;
+  if (!msg) { statusEl.hidden = true; return; }
+  statusEl.hidden = false;
+  statusEl.textContent = msg;
+  statusEl.className = 'graph-status' + (kind ? ' graph-status--' + kind : '');
+}
 
+// The API the canvas is currently rendering — swappable at runtime via
+// window.arailGraph.setApi() (scope chips) without a page reload.
+let CURRENT_API = GRAPH_API;
+
+async function loadData(api) {
+  if (api) CURRENT_API = api;
+  setGraphStatus('Loading graph…', 'loading');
+  let data;
   try {
-    const resp = await fetch(GRAPH_API);
-    const data = await resp.json();
-    nodes = data.nodes || [];
-    edges = data.edges || [];
+    const resp = await fetch(CURRENT_API);
+    data = await resp.json();
   } catch (e) {
     console.error('graph fetch failed', e);
-    nodes = []; edges = [];
+    nodes = []; edges = []; nodeMap = {};
+    draw();
+    setGraphStatus('Graph failed to load — is the lab server up? Retrying on next refresh.', 'error');
+    return;
   }
-
+  const prevMap = nodeMap;
+  nodes = data.nodes || [];
+  edges = data.edges || [];
   nodeMap = {};
   nodes.forEach(n => { nodeMap[n.id] = n; });
   initPositions();
+  // Keep positions for nodes that survived a reload so the layout stays
+  // stable when a rebuild or scope switch lands.
+  nodes.forEach(n => {
+    const old = prevMap[n.id];
+    if (old && old.x != null) { n.x = old.x; n.y = old.y; n.vx = 0; n.vy = 0; }
+  });
+  setGraphStatus(nodes.length ? '' : GRAPH_EMPTY, 'empty');
 
+  // Re-measure — when embedded, stylesheets may land after first parse.
+  resize();
+  if (animFrame) cancelAnimationFrame(animFrame);
   let steps = 0;
   function tick() {
     const energy = simulate();
@@ -486,10 +522,24 @@ async function init() {
     }
   }
   tick();
+}
+
+// Page-level hook: knowledge-page.js reloads on wiki-rebuild SSE events;
+// scope chips repoint the data source.
+window.arailGraph = {
+  reload() { return loadData(); },
+  setApi(url) { return loadData(url); },
+  api() { return CURRENT_API; },
+};
+
+async function init() {
+  resize();
+  buildLegend();
+  await loadData(GRAPH_API);
 
   setInterval(async () => {
     try {
-      const r = await fetch(GRAPH_API);
+      const r = await fetch(CURRENT_API);
       const d = await r.json();
       (d.nodes || []).forEach(fresh => {
         const existing = nodeMap[fresh.id];

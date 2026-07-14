@@ -3,6 +3,15 @@
 {% set active = '' %}
 {% block title %}{{ brand.name }} — System Graph{% endblock %}
 
+{% block head %}
+{# Full-page graph: lock page scroll (the canvas pans/zooms instead).
+   Moved out of graph.css so embedding the canvas elsewhere doesn't
+   freeze the host page. #}
+<style>
+  body { overflow: hidden; }
+</style>
+{% endblock %}
+
 {% block nav %}{% if not preview %}{{ super() }}{% endif %}{% endblock %}
 
 {% block content %}
