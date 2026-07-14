@@ -1217,12 +1217,26 @@ body.wt-mode .kb-layout { display: none; }
 
 .wt-view { max-width: 1080px; }
 
+/* Two deliberate rows — identity+primary-action, then secondary tools —
+   instead of one flex-wrap row that reshuffles unpredictably at
+   different widths. */
 .wt-head {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.wt-head-top {
   display: flex;
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
-  margin-bottom: 14px;
+}
+.wt-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 .wt-worldname {
   font-weight: 650;
