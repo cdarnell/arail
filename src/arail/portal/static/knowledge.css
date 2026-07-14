@@ -1232,6 +1232,30 @@ body.wt-mode .kb-layout { display: none; }
 }
 .wt-head-spacer { flex: 1 1 auto; }
 
+/* World knowledge graph — the real, tag-scoped KB graph */
+.wt-graph { margin: 0 0 18px; }
+.wt-graph-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.wt-graph-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-strong);
+  margin: 0;
+  flex: 1 1 auto;
+}
+.wt-btn--sm { padding: 4px 10px; font-size: 0.78rem; }
+.wt-graph-iframe {
+  width: 100%;
+  height: 360px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+  background: var(--surface2);
+}
+
 /* Provenance / tier chips */
 .wt-chip {
   display: inline-flex;
@@ -1271,6 +1295,7 @@ body.wt-mode .kb-layout { display: none; }
 /* Buttons */
 .wt-btn {
   appearance: none;
+  display: inline-block;
   font: inherit;
   font-size: 0.85rem;
   padding: 6px 14px;
@@ -1279,6 +1304,7 @@ body.wt-mode .kb-layout { display: none; }
   border: 1px solid var(--border);
   background: var(--surface2);
   color: var(--text);
+  text-decoration: none;
   transition: opacity var(--dur-2) var(--ease-accent);
 }
 .wt-btn:disabled { opacity: 0.55; cursor: default; }

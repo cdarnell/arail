@@ -106,9 +106,20 @@
       <div class="prev-meta">
         <span class="tier-chip" id="prev-tier"></span>
         <span class="mono muted" id="prev-stats"></span>
+        <div class="prev-view-toggle" id="prev-view-toggle" role="tablist" aria-label="Preview view">
+          <button type="button" class="prev-view-btn selected" data-view="graph" role="tab" aria-selected="true">🕸 Graph</button>
+          <button type="button" class="prev-view-btn" data-view="list" role="tab" aria-selected="false">☰ List</button>
+        </div>
       </div>
       <div id="prev-warnings"></div>
-      <div class="prev-cats" id="prev-cats"></div>
+
+      <div class="prev-graph-wrap" id="prev-graph-wrap">
+        <canvas id="prev-graph-canvas"></canvas>
+        <div class="prev-graph-tooltip" id="prev-graph-tooltip" hidden></div>
+        <div class="prev-graph-legend" id="prev-graph-legend"></div>
+      </div>
+      <div class="prev-cats" id="prev-cats" hidden></div>
+
       <div class="forge-actions">
         <button class="btn btn-primary" id="prev-accept">Accept &amp; Mount</button>
         <button class="btn btn-ghost" id="prev-regen">Regenerate</button>

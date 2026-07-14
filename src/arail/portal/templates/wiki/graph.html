@@ -15,7 +15,7 @@
 {% block nav %}{% if not embed %}{{ super() }}{% endif %}{% endblock %}
 
 {% block content %}
-{% set graph_api  = "/api/wiki/graph" %}
+{% set graph_api  = "/api/wiki/graph" + ("?tag=" + tag if tag else "") %}
 {% set show_health = False %}
 {% set color_map = {
   "sources":  "var(--accent2)",
