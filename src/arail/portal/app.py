@@ -1900,16 +1900,23 @@ async def open_notebook_page(request: Request):
     })
 
 
-@app.get("/integrations/knowledge-canvas", response_class=HTMLResponse)
+@app.get("/integrations/knowledge-canvas")
 async def integrations_knowledge_canvas(request: Request):
     """Integration landing page for the knowledge-canvas frontend.
 
-    Embeds the canvas frontend if it's installed under `core/knowledge-canvas/frontend`.
+    Embeds the *built* canvas frontend if `core/knowledge-canvas/frontend/dist`
+    exists. The raw, unbuilt source (which ships in this repo) can't be
+    served directly to a browser — it's TSX/Vite source, not a runnable
+    bundle — so treating "source present" as "frontend installed" (the old
+    behavior) rendered a blank iframe with no indication anything was
+    wrong. Fall back to the always-working, zero-dependency wiki graph
+    instead of a dead end.
     """
-    has_frontend = KC_FRONTEND_DIST_DIR.exists() or KC_FRONTEND_DIR.exists()
+    if not KC_FRONTEND_DIST_DIR.exists():
+        return RedirectResponse(url="/wiki/graph", status_code=302)
     return templates.TemplateResponse(request, "integrations/knowledge_canvas.html", {
         **_identity_ctx(),
-        "has_frontend": has_frontend,
+        "has_frontend": True,
     })
 
 
