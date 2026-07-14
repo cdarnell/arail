@@ -233,6 +233,19 @@ def _build_services_dict(
 _PASSWORD_PLACEHOLDERS = {"", "change-me", "__needs_setup__"}
 
 
+def _env_file_path() -> Path:
+    """The .env file the onboarding flow reads and writes.
+
+    Honors ARAIL_ENV_FILE (tests point it at a tmp file; deployments can
+    relocate it), else the historical cwd-relative .env — the portal is
+    started from the repo root by arailctl, so cwd == repo root in prod.
+    """
+    override = os.getenv("ARAIL_ENV_FILE", "").strip()
+    if override:
+        return Path(override).expanduser()
+    return Path(".env")
+
+
 def _lab_password_set() -> bool:
     """True if a real ARAIL_PASSWORD is configured.
 
@@ -245,7 +258,7 @@ def _lab_password_set() -> bool:
         return True
     # Fall back to the file on disk (covers the post-onboarding window
     # before the running process re-reads the env).
-    env_path = Path(".env")
+    env_path = _env_file_path()
     if env_path.exists():
         try:
             for line in env_path.read_text().splitlines():
@@ -1165,7 +1178,7 @@ async def api_welcome_setup(request: Request):
 def _write_env_kv(key: str, value: str) -> None:
     """Idempotent KEY=VALUE write to .env. Replaces any existing real or
     commented-out entry, otherwise appends. Mirrors setup.sh's helper."""
-    p = Path(".env")
+    p = _env_file_path()
     lines = p.read_text().splitlines() if p.exists() else []
     prefix = f"{key}="
 
@@ -1420,6 +1433,11 @@ def _is_airgapped() -> bool:
 
 
 def _secrets_path() -> Path:
+    # ARAIL_SECRETS_FILE relocates the token store (tests point it at a tmp
+    # file so no test can rewrite a developer's saved provider tokens).
+    override = os.getenv("ARAIL_SECRETS_FILE", "").strip()
+    if override:
+        return Path(override).expanduser()
     return DATA_DIR / "secrets.env"
 
 
@@ -9018,6 +9036,9 @@ def _toggle_env_path() -> Path:
     """Resolve the canonical .env path, or return the test override."""
     if _TOGGLE_ENV_PATH is not None:
         return _TOGGLE_ENV_PATH
+    override = os.getenv("ARAIL_ENV_FILE", "").strip()
+    if override:
+        return Path(override).expanduser()
     # Walk up from this file to find the repo root .env.
     # app.py lives at src/arail/portal/app.py → parents[3] = repo root.
     here = Path(__file__).resolve()
@@ -9032,6 +9053,9 @@ def _toggle_audit_path() -> Path:
     """Path to airgap_audit.jsonl."""
     if _TOGGLE_AUDIT_PATH is not None:
         return _TOGGLE_AUDIT_PATH
+    override = os.getenv("ARAIL_AIRGAP_AUDIT_FILE", "").strip()
+    if override:
+        return Path(override).expanduser()
     from arail.config import DATA_DIR
     return DATA_DIR / "airgap_audit.jsonl"
 

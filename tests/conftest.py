@@ -12,8 +12,29 @@ monkeypatch the env var back to empty.
 from __future__ import annotations
 
 import os
+import tempfile
 
 import pytest
+
+# ---------------------------------------------------------------------------
+# Session-level .env isolation — MUST run before any `import arail.*`.
+#
+# arail.config calls load_dotenv() at import time. Without ARAIL_ENV_FILE it
+# uses python-dotenv's walk-up search, which escapes the checkout (a git
+# worktree finds the parent repo's real .env) and hydrates the developer's
+# lab config (LAB_INTENT, LAB_MODE, COMPUTE_SOURCE, ...) into the test
+# process at collection time — the tests then behave differently than CI.
+# Point it at a file that does not exist inside a session tmp dir so the
+# import-time load is a no-op. The autouse fixture below re-points it at a
+# per-test tmp file for endpoints that WRITE the .env (welcome, airgap
+# toggle), so no test can touch a real checkout's .env either.
+# ---------------------------------------------------------------------------
+_SESSION_ENV_DIR = tempfile.mkdtemp(prefix="arail-pytest-env-")
+os.environ["ARAIL_ENV_FILE"] = os.path.join(_SESSION_ENV_DIR, "portal.env")
+os.environ["ARAIL_AIRGAP_AUDIT_FILE"] = os.path.join(
+    _SESSION_ENV_DIR, "airgap_audit.jsonl"
+)
+os.environ["ARAIL_SECRETS_FILE"] = os.path.join(_SESSION_ENV_DIR, "secrets.env")
 
 
 @pytest.fixture
@@ -51,6 +72,59 @@ def isolated_secrets(monkeypatch, tmp_path):
             os.environ.pop(k, None)
         else:
             os.environ[k] = v
+
+
+@pytest.fixture(autouse=True)
+def _isolated_env_file(monkeypatch, tmp_path):
+    """Point the portal's .env (and airgap audit log) at per-test tmp files.
+
+    ARAIL_ENV_FILE is honored by arail.config's load_dotenv, the onboarding
+    writer/reader (_write_env_kv / _lab_password_set), and the airgap
+    toggle's _toggle_env_path — so a test that hits POST /api/airgap/toggle
+    or /api/welcome/setup without further setup writes tmp files instead of
+    the developer's real .env / lab/data/airgap_audit.jsonl. Tests that
+    monkeypatch app._TOGGLE_ENV_PATH / _TOGGLE_AUDIT_PATH still win (the
+    module override takes precedence); tests that want a specific path can
+    setenv ARAIL_ENV_FILE themselves (their setenv runs after this one).
+    """
+    monkeypatch.setenv("ARAIL_ENV_FILE", str(tmp_path / "portal.env"))
+    monkeypatch.setenv(
+        "ARAIL_AIRGAP_AUDIT_FILE", str(tmp_path / "airgap_audit.jsonl")
+    )
+    # Same treatment for the provider-token store: endpoints that persist
+    # tokens / chat defaults (POST /api/providers/save, /api/chat/default)
+    # must never rewrite a developer's real lab/data/secrets.env. Tests that
+    # use the isolated_secrets fixture replace _secrets_path wholesale, which
+    # still takes precedence over this env default.
+    monkeypatch.setenv("ARAIL_SECRETS_FILE", str(tmp_path / "secrets.env"))
+
+
+@pytest.fixture(autouse=True)
+def _no_ambient_lab_mode_env(monkeypatch):
+    """Delete (and restore after the test) the lab-mode/identity env keys.
+
+    Two leak classes this closes:
+      1. Ambient values from the developer's shell (arailctl sources .env)
+         — e.g. LAB_INTENT=other flips identity defaults the tests assume.
+      2. Endpoints that write os.environ directly (the airgap toggle sets
+         LAB_MODE/ARAIL_MODE, /api/welcome/setup sets LAB_NAME and
+         OPEN_NOTEBOOK_ENCRYPTION_KEY) — monkeypatch snapshots the pre-test
+         state here and restores it on teardown, so a hybrid toggle in one
+         test can't make lab_mode() report hybrid in the next.
+
+    Tests that need one of these set use monkeypatch.setenv in their own
+    body/fixture, which runs after this autouse fixture and wins.
+    """
+    for key in (
+        "LAB_MODE",
+        "ARAIL_MODE",
+        "LAB_INTENT",
+        "LAB_INTENT_NAME",
+        "LAB_INTENT_DESCRIPTION",
+        "LAB_NAME",
+        "OPEN_NOTEBOOK_ENCRYPTION_KEY",
+    ):
+        monkeypatch.delenv(key, raising=False)
 
 
 @pytest.fixture(autouse=True)

@@ -19,7 +19,15 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-load_dotenv()
+# ARAIL_ENV_FILE pins the .env this process reads/writes (tests point it at a
+# tmp file; deployments can relocate it). Unset → python-dotenv's default
+# walk-up search, which can escape the repo (e.g. a git worktree finds the
+# parent checkout's .env) — fine for a real lab, wrong for a test run.
+_ENV_FILE_OVERRIDE = os.getenv("ARAIL_ENV_FILE", "").strip()
+if _ENV_FILE_OVERRIDE:
+    load_dotenv(_ENV_FILE_OVERRIDE)
+else:
+    load_dotenv()
 
 _log = logging.getLogger(__name__)
 

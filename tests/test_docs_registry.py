@@ -43,13 +43,23 @@ import pytest
 
 
 def _fresh_registry(monkeypatch, docs_dir: Path, root_dir: Path) -> ModuleType:
-    """Import (or re-import) docs_registry wired to specific fixture dirs."""
-    # Remove any cached module so we get a fresh module state.
-    mod_name = "arail.portal.docs_registry"
-    if mod_name in sys.modules:
-        del sys.modules[mod_name]
+    """Return docs_registry with fresh module state, wired to fixture dirs.
 
-    mod = importlib.import_module(mod_name)
+    Reload IN PLACE — never ``del sys.modules[...]`` + re-import. Deleting
+    creates a NEW module object while arail.portal.app keeps its import-time
+    ``_docs_registry`` alias to the OLD one; every docs-route test that runs
+    afterwards then monkeypatches a module the app no longer reads (this
+    exact carry-over broke test_docs_routes*.py under full-suite ordering).
+    ``importlib.reload`` re-runs the module body inside the same object, so
+    cache globals reset without changing identity — the same rule
+    test_docs_registry_qa.py documents.
+    """
+    mod_name = "arail.portal.docs_registry"
+    mod = sys.modules.get(mod_name)
+    if mod is None:
+        mod = importlib.import_module(mod_name)
+    else:
+        importlib.reload(mod)
 
     # Point the registry at the test fixture dirs.
     monkeypatch.setattr(mod, "_repo_root", lambda: root_dir)
@@ -381,10 +391,7 @@ def test_concurrent_load_under_lock(monkeypatch, tmp_path):
 def test_python_frontmatter_missing_falls_back_to_empty_registry(monkeypatch, tmp_path, caplog):
     """F13: if python-frontmatter is not importable, all_docs() returns ()."""
     mod_name = "arail.portal.docs_registry"
-    # Remove any cached version.
-    if mod_name in sys.modules:
-        del sys.modules[mod_name]
-    # Also remove the frontmatter module so the import will fail.
+    # Remove the frontmatter module so the reload's import will fail.
     saved = sys.modules.pop("frontmatter", None)
 
     # Sentinel object that raises ImportError on any attribute access.
@@ -396,6 +403,12 @@ def test_python_frontmatter_missing_falls_back_to_empty_registry(monkeypatch, tm
     # The cleanest approach: remove it from sys.modules AND register a broken finder.
     import importlib.abc
     import importlib.machinery
+
+    # Ensure the module is loaded; it is reloaded IN PLACE below (never
+    # `del sys.modules` — a re-imported module would be a new object, leaving
+    # arail.portal.app._docs_registry pointing at the stale one for the rest
+    # of the session, which poisons every later docs-route test).
+    mod = importlib.import_module(mod_name)
 
     class _BlockingFinder(importlib.abc.MetaPathFinder):
         def find_spec(self, fullname, path, target=None):
@@ -409,15 +422,15 @@ def test_python_frontmatter_missing_falls_back_to_empty_registry(monkeypatch, tm
     import logging
     try:
         with caplog.at_level(logging.WARNING):
-            mod = importlib.import_module(mod_name)
+            importlib.reload(mod)
         result = mod.all_docs()
     finally:
         sys.meta_path.remove(finder)
         if saved is not None:
             sys.modules["frontmatter"] = saved
-        # Clean up the re-imported module so other tests get a fresh copy with frontmatter.
-        if mod_name in sys.modules:
-            del sys.modules[mod_name]
+        # Reload again (frontmatter restored) so the SAME module object goes
+        # back to its healthy state for the rest of the suite.
+        importlib.reload(mod)
 
     assert result == ()
     assert any("docs_registry" in r.name and "python-frontmatter" in r.message
