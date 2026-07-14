@@ -181,18 +181,28 @@
     const scrollY = view.scrollTop;
     view.textContent = '';
 
-    // Header
+    // Header — two deliberate rows rather than one flex-wrap row, so the
+    // layout is stable at any width instead of reshuffling unpredictably:
+    // row 1 is identity + the one primary action; row 2 is secondary tools.
     const head = el('div', 'wt-head');
-    head.appendChild(el('h2', 'wt-worldname', S.data.display_name || S.data.world));
-    head.appendChild(tierBadge());
-    head.appendChild(el('div', 'wt-head-spacer'));
 
+    const headTop = el('div', 'wt-head-top');
+    headTop.appendChild(el('h2', 'wt-worldname', S.data.display_name || S.data.world));
+    headTop.appendChild(tierBadge());
+    headTop.appendChild(el('div', 'wt-head-spacer'));
+    const addBtn = el('button', 'wt-btn wt-btn--primary', '＋ Add term');
+    addBtn.type = 'button';
+    addBtn.addEventListener('click', () => openDrawer(null));
+    headTop.appendChild(addBtn);
+    head.appendChild(headTop);
+
+    const headActions = el('div', 'wt-head-actions');
     const reviewBtn = el('button', 'wt-btn wt-btn--curator',
       S.reviewState === 'running' ? 'Curator reviewing…' : 'Ask the Curator to review');
     reviewBtn.type = 'button';
     reviewBtn.disabled = S.reviewState === 'running';
     reviewBtn.addEventListener('click', startReview);
-    head.appendChild(reviewBtn);
+    headActions.appendChild(reviewBtn);
 
     // Growth engine: pick the curation brain, then let agents evolve the World.
     const growWrap = el('div', 'wt-grow');
@@ -214,12 +224,8 @@
     growBtn.addEventListener('click', startGrow);
     growWrap.appendChild(brain);
     growWrap.appendChild(growBtn);
-    head.appendChild(growWrap);
-
-    const addBtn = el('button', 'wt-btn wt-btn--primary', '＋ Add term');
-    addBtn.type = 'button';
-    addBtn.addEventListener('click', () => openDrawer(null));
-    head.appendChild(addBtn);
+    headActions.appendChild(growWrap);
+    head.appendChild(headActions);
 
     view.appendChild(head);
     view.appendChild(buildWorldGraphPanel());
