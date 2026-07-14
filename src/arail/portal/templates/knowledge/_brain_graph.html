@@ -1,21 +1,44 @@
 {# The lab's brain — the knowledge graph, embedded directly (no iframe).
-   _graph_canvas.html is the shared zero-dep canvas renderer; it reads the
-   Jinja vars set below. Phase 1 shows the full wiki graph; the brain scope
-   (world + approved + candidates) arrives with /api/wiki/graph?scope=brain. #}
+   Default scope is `brain`: mounted World terms (solid, center) + human-
+   approved knowledge + agent-output candidates rendered as ghosts that
+   solidify when approved in the review queue below. The chips swap the
+   data source client-side (arailGraph.setApi) — same canvas, no reload.
+   color/icon maps carry BOTH the brain groups and the wiki sections so
+   the "Everything" scope renders fully colored without a map swap. #}
 <section class="kb-brain-graph" id="brain-graph" aria-label="Knowledge graph">
   <div class="kb-section-head">
     <div class="kb-section-titles">
       <h2 class="kb-section-title">The lab's brain</h2>
-      <span class="kb-section-sub">what the lab knows — every page, term, and agent finding, linked</span>
+      <span class="kb-section-sub">what the lab knows — your World, approved knowledge, and candidates awaiting review</span>
     </div>
-    <a class="btn btn-sm btn-ghost" href="/wiki/graph" target="_blank" rel="noopener"
+    <div class="kb-graph-scopes" id="kb-graph-scopes" role="tablist" aria-label="Graph scope">
+      <button type="button" class="kb-scope-chip" data-scope="brain" aria-selected="true"
+              data-api="/api/wiki/graph?scope=brain"
+              data-empty="Nothing approved yet — approve candidates below to grow the brain."
+              data-legend='[{"label":"World terms","color":"var(--accent2)"},{"label":"Approved","color":"var(--positive)"},{"label":"Candidates (pending)","color":"var(--text-muted)","ghost":true}]'
+              title="What the lab knows: World terms + approved knowledge + pending candidates">Brain</button>
+      <button type="button" class="kb-scope-chip" data-scope="world" aria-selected="false" id="kb-scope-world" hidden
+              data-api=""
+              data-empty="This World has no term pages yet — mount or grow a World."
+              data-legend='[{"label":"World terms","color":"var(--accent2)"}]'
+              title="Only this World's term pages and their relations">This World</button>
+      <button type="button" class="kb-scope-chip" data-scope="all" aria-selected="false"
+              data-api="/api/wiki/graph"
+              data-empty="No pages yet — drop a document in the Library to start."
+              data-legend='[{"label":"Sources","color":"var(--accent2)"},{"label":"Agents","color":"var(--positive)"},{"label":"Notes","color":"var(--info)"},{"label":"Compiled","color":"var(--warn)"},{"label":"Docs","color":"var(--danger)"},{"label":"Inference","color":"var(--text-muted)"}]'
+              title="Every wiki page — including raw uploads and generated reference">Everything</button>
+    </div>
+    <a class="btn btn-sm btn-ghost" href="/wiki/graph?scope=brain" target="_blank" rel="noopener"
        title="Open the full-page graph in a new tab">Open full page ↗</a>
   </div>
-  {% set graph_api = "/api/wiki/graph" %}
+  {% set graph_api = "/api/wiki/graph?scope=brain" %}
   {% set show_health = False %}
   {% set graph_wheel_passthrough = True %}
-  {% set graph_empty_message = "Nothing here yet — drop a document below or mount a World to seed the graph." %}
+  {% set graph_empty_message = "Nothing approved yet — approve candidates below to grow the brain." %}
   {% set color_map = {
+    "world":    "var(--accent2)",
+    "approved": "var(--positive)",
+    "candidate":"var(--text-muted)",
     "sources":  "var(--accent2)",
     "agents":   "var(--positive)",
     "notes":    "var(--info)",
@@ -24,6 +47,9 @@
     "inference":"var(--text-muted)"
   } %}
   {% set icon_map = {
+    "world":    "◆",
+    "approved": "●",
+    "candidate":"◌",
     "sources":  "◉",
     "agents":   "◈",
     "notes":    "◇",
@@ -32,12 +58,9 @@
     "inference":"⊕"
   } %}
   {% set legend_groups = [
-    {"label": "Sources",  "color": "var(--accent2)"},
-    {"label": "Agents",   "color": "var(--positive)"},
-    {"label": "Notes",    "color": "var(--info)"},
-    {"label": "Compiled", "color": "var(--warn)"},
-    {"label": "Docs",     "color": "var(--danger)"},
-    {"label": "Inference","color": "var(--text-muted)"}
+    {"label": "World terms", "color": "var(--accent2)"},
+    {"label": "Approved",    "color": "var(--positive)"},
+    {"label": "Candidates (pending)", "color": "var(--text-muted)", "ghost": True}
   ] %}
   {% include "_graph_canvas.html" %}
 </section>

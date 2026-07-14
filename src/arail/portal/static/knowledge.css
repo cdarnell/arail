@@ -1829,3 +1829,34 @@ body.wt-mode .kb-layout { display: none; }
    items scroll inside the panel instead of pushing the Library below the
    fold. */
 .ckb-panel .ckb-list { max-height: 380px; overflow-y: auto; }
+
+/* ── Graph scope chips (Brain / This World / Everything) ───────── */
+.kb-graph-scopes {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+}
+.kb-scope-chip {
+  appearance: none;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: var(--label-tracking);
+  text-transform: var(--label-transform);
+  padding: 5px 12px;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  transition: color var(--dur-2) var(--ease-accent);
+}
+.kb-scope-chip:hover { color: var(--text); }
+.kb-scope-chip[aria-selected="true"] {
+  color: var(--accent2);
+  background: color-mix(in srgb, var(--accent2) 12%, transparent);
+  border-color: color-mix(in srgb, var(--accent2) 30%, transparent);
+}

@@ -114,8 +114,11 @@
         const wBtn = el("button", "btn btn-sm ckb-approve-world",
           "✦ Approve all " + worldTerms.length + " world terms");
         wBtn.addEventListener("click", async () => {
-          try { await api("/api/pkb/promote", { paths: worldTerms.map((p) => p.path) }); await load(); }
-          catch (e) {}
+          try {
+            await api("/api/pkb/promote", { paths: worldTerms.map((p) => p.path) });
+            await load();
+            announceChange("approve", worldTerms.length);
+          } catch (e) {}
         });
         bar.appendChild(wBtn);
       }
@@ -168,19 +171,38 @@
     li.appendChild(main);
     const revoke = el("button", "btn btn-sm btn-ghost", "Revoke");
     revoke.addEventListener("click", async () => {
-      try { await api("/api/pkb/revoke", { paths: [item.path] }); await load(); } catch (e) {}
+      try {
+        await api("/api/pkb/revoke", { paths: [item.path] });
+        await load();
+        announceChange("revoke", 1);
+      } catch (e) {}
     });
     li.appendChild(revoke);
     return li;
   }
 
+  // Tell the page a human decision landed — the brain graph solidifies
+  // (or drops) ghosts and the hero counts refresh off the load() rebroadcast.
+  function announceChange(action, count) {
+    window.dispatchEvent(new CustomEvent("arail:kb-review-changed", {
+      detail: { action: action, count: count },
+    }));
+  }
+
   async function act(path) {
     const paths = Array.from(state.selected);
     if (!paths.length) return;
-    try { await api(path, { paths }); await load(); } catch (e) {}
+    try {
+      await api(path, { paths });
+      await load();
+      announceChange(path.indexOf("promote") >= 0 ? "approve" : "reject", paths.length);
+    } catch (e) {}
   }
 
   document.addEventListener("DOMContentLoaded", load);
   // Refresh when growth/forge/ingest events land (agents propose new candidates).
   window.addEventListener("focus", load);
+  // Cross-tab / agent-driven review changes arrive via SSE (knowledge-page.js
+  // routes data.kb_review here).
+  window.arailReviewReload = load;
 })();

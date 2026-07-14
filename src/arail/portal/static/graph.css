@@ -138,6 +138,18 @@ canvas:active { cursor: grabbing; }
   border-radius: 50%;
   flex-shrink: 0;
 }
+/* Ghost swatch — pending candidates: hollow, dashed, faded. */
+.legend-dot--ghost {
+  background: transparent;
+  border: 1.5px dashed var(--text-muted);
+  opacity: 0.8;
+}
+
+/* Detail-panel approval row (brain scope) */
+.detail-approval { text-decoration: none; }
+.detail-approval--pending  { color: var(--warn); }
+.detail-approval--approved { color: var(--positive); }
+.detail-approval--world    { color: var(--accent2); }
 
 /* ─── Controls ─── */
 .graph-controls {

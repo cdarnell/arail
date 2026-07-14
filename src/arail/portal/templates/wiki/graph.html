@@ -21,8 +21,31 @@
 {% block nav %}{% if not embed %}{{ super() }}{% endif %}{% endblock %}
 
 {% block content %}
-{% set graph_api  = "/api/wiki/graph" + ("?tag=" + tag if tag else "") %}
+{% set _qs = [] %}
+{% if scope %}{% set _ = _qs.append("scope=" ~ scope) %}{% endif %}
+{% if tag %}{% set _ = _qs.append("tag=" ~ tag) %}{% endif %}
+{% set graph_api  = "/api/wiki/graph" + ("?" + _qs|join("&") if _qs else "") %}
 {% set show_health = False %}
+{% if scope == "brain" %}
+{# Brain scope — what the lab knows: World substrate, approved knowledge,
+   and ghosted candidates awaiting review. #}
+{% set graph_empty_message = "Nothing approved yet — the brain fills as you approve knowledge on /knowledge." %}
+{% set color_map = {
+  "world":    "var(--accent2)",
+  "approved": "var(--positive)",
+  "candidate":"var(--text-muted)"
+} %}
+{% set icon_map = {
+  "world":    "◆",
+  "approved": "●",
+  "candidate":"◌"
+} %}
+{% set legend_groups = [
+  {"label": "World terms", "color": "var(--accent2)"},
+  {"label": "Approved",    "color": "var(--positive)"},
+  {"label": "Candidates (pending)", "color": "var(--text-muted)", "ghost": True}
+] %}
+{% else %}
 {% set color_map = {
   "sources":  "var(--accent2)",
   "agents":   "var(--positive)",
@@ -47,6 +70,7 @@
   {"label": "Docs",     "color": "var(--danger)"},
   {"label": "Inference","color": "var(--text-muted)"}
 ] %}
+{% endif %}
 {% include "_graph_canvas.html" %}
 {% endblock %}
 

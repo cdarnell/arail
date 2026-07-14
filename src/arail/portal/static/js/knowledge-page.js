@@ -126,6 +126,36 @@
   window.addEventListener('arail:kb-tree-loaded', renderFocusOutputs);
   renderFocusOutputs();
 
+  /* ── Graph scope chips ────────────────────────────────────────── */
+  // Brain (default) / This World / Everything — each chip carries its
+  // API, legend, and empty-state copy as data attributes; switching is a
+  // client-side re-fetch on the same canvas.
+  (function scopeChips() {
+    const wrap = byId('kb-graph-scopes');
+    if (!wrap) return;
+    window.addEventListener('arail:world-terms-loaded', (e) => {
+      const d = e.detail || {};
+      if (!d.world) return;
+      const chip = byId('kb-scope-world');
+      if (chip) {
+        chip.hidden = false;
+        chip.dataset.api = '/api/wiki/graph?tag=' + encodeURIComponent('world-' + d.world);
+      }
+    });
+    wrap.addEventListener('click', (ev) => {
+      const chip = ev.target.closest('.kb-scope-chip');
+      if (!chip || !chip.dataset.api || !window.arailGraph) return;
+      wrap.querySelectorAll('.kb-scope-chip').forEach((c) => {
+        c.setAttribute('aria-selected', String(c === chip));
+      });
+      let legend = null;
+      try { legend = JSON.parse(chip.dataset.legend || 'null'); } catch (_) { /* keep */ }
+      window.arailGraph.setEmpty(chip.dataset.empty || '');
+      if (legend) window.arailGraph.setLegend(legend);
+      window.arailGraph.setApi(chip.dataset.api);
+    });
+  })();
+
   /* ── Shared SSE dispatcher ────────────────────────────────────── */
   // One EventSource for the whole page. Wiki events drive the rebuild
   // badge + tree/pages/toast refresh (moved verbatim from the old inline
@@ -140,6 +170,12 @@
     }, 1000);
   }
 
+  // Approve/dismiss/revoke in the review queue (same tab) → ghosts
+  // solidify (or vanish) without a page reload. Cross-tab and
+  // agent-driven changes arrive via the SSE data.kb_review payload below;
+  // the debounce collapses the same-tab double signal.
+  window.addEventListener('arail:kb-review-changed', scheduleGraphReload);
+
   (function subscribeActivityStream() {
     const badge = byId('kb-rebuild-badge');
     if (typeof EventSource === 'undefined') return;
@@ -152,6 +188,12 @@
         try { ev = JSON.parse(m.data); } catch (_) { return; }
         if (!ev) return;
         if (ev.source === 'wiki') handleWikiEvent(ev);
+        // Structured review-change events (approve/dismiss/revoke) from
+        // any tab or agent — refresh ghosts + queue + hero counts.
+        if (ev.data && ev.data.kb_review) {
+          scheduleGraphReload();
+          if (typeof window.arailReviewReload === 'function') window.arailReviewReload();
+        }
       };
       es.onerror = () => {
         es.close();

@@ -121,6 +121,18 @@ def is_approved(rel_path: str, pkb_root: Path | None = None) -> bool:
     return rel_path in approved_paths(pkb_root)
 
 
+def rejected_paths(pkb_root: Path | None = None) -> set[str]:
+    """The set of pkb-relative paths a human has dismissed from the review
+    queue. Consumed by the knowledge-graph brain scope (a rejected agent
+    output must not linger as a ghost candidate). Fails open to the empty
+    set — worst case a dismissed item reappears as a ghost, never data loss."""
+    root = pkb_root or _pkb_root()
+    try:
+        return _rejected_set(root)
+    except Exception:  # noqa: BLE001
+        return set()
+
+
 def list_approved(pkb_root: Path | None = None) -> list[dict[str, Any]]:
     root = pkb_root or _pkb_root()
     return sorted(_approved_map(root).values(),
@@ -167,6 +179,12 @@ def _kind_of(rel: str) -> str:
     if rel.startswith("inbox/") or rel.startswith("notes/"):
         return "note"
     return "source"
+
+
+# Public alias — the graph brain-scope and the lab brief classify nodes by
+# the same path rules the review queue uses.
+def kind_of(rel_path: str) -> str:
+    return _kind_of(rel_path)
 
 
 def _provenance_of(rel: str, text: str, kind: str) -> str:

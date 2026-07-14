@@ -9629,8 +9629,11 @@ async def api_pkb_promote(request: Request):
         return JSONResponse(status_code=400, content={"error": "bad_paths"})
     added = ckb.approve(paths)
     if added:
+        # Structured data rides the SSE stream so open Knowledge pages can
+        # solidify ghost nodes + refresh queues without regex-matching text.
         activity_log.emit("pkb",
-            f"Approved {len(added)} item(s) into the Compiled KB", "success")
+            f"Approved {len(added)} item(s) into the Compiled KB", "success",
+            {"kb_review": {"action": "approve", "count": len(added)}})
     return {"approved": added, "count": len(added)}
 
 
@@ -9645,6 +9648,9 @@ async def api_pkb_reject(request: Request):
     if not isinstance(paths, list):
         return JSONResponse(status_code=400, content={"error": "bad_paths"})
     n = ckb.reject(paths)
+    if n:
+        activity_log.emit("pkb", f"Dismissed {n} candidate(s) from review", "info",
+                          {"kb_review": {"action": "reject", "count": n}})
     return {"rejected": n}
 
 
@@ -9660,7 +9666,8 @@ async def api_pkb_revoke(request: Request):
         return JSONResponse(status_code=400, content={"error": "bad_paths"})
     n = ckb.revoke(paths)
     if n:
-        activity_log.emit("pkb", f"Revoked {n} item(s) from the Compiled KB", "info")
+        activity_log.emit("pkb", f"Revoked {n} item(s) from the Compiled KB", "info",
+                          {"kb_review": {"action": "revoke", "count": n}})
     return {"revoked": n}
 
 
