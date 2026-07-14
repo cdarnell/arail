@@ -31,7 +31,7 @@
   "color_literals": 0,
   "inline_styles": 8
  },
- "templates/knowledge.html": {
+ "templates/knowledge/_library.html": {
   "color_literals": 0,
   "inline_styles": 6
  },

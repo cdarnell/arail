@@ -2311,9 +2311,41 @@ def _recently_updated(cats: dict[str, tuple], days: int = 7) -> tuple:
 # Docs Hub route — replaces the redirect at the original docs_landing.
 # ---------------------------------------------------------------------------
 
+def _generated_reference() -> dict[str, list[dict]]:
+    """Docgen output (lab/pkb/compiled/docs) grouped by subdir, read from
+    the cached wiki manifest — a file read, never a rebuild. The Docs hub
+    is the reference manual, so the auto-generated reference lives here
+    (and stays OUT of the knowledge brain graph). ``guides/`` is hidden:
+    it duplicates the repo docs the registry already lists."""
+    groups: dict[str, list[dict]] = {}
+    try:
+        from arail import wiki as wiki_mod
+        pages = wiki_mod.load_manifest().get("pages") or {}
+    except Exception:  # noqa: BLE001
+        return groups
+    marker = "compiled/docs/"
+    for slug, page in pages.items():
+        path = str(page.get("path") or "").replace("\\", "/")
+        if marker not in path:
+            continue
+        rel = path.split(marker, 1)[1]
+        group = rel.split("/", 1)[0] if "/" in rel else "misc"
+        if group == "guides":
+            continue
+        groups.setdefault(group, []).append({
+            "slug": slug,
+            "title": page.get("title") or slug,
+        })
+    for items in groups.values():
+        items.sort(key=lambda d: d["title"].lower())
+    return dict(sorted(groups.items()))
+
+
 @app.get("/docs", response_class=HTMLResponse)
-async def docs_hub(request: Request):
-    """Docs Hub landing — registry-driven library replacing the /docs redirect."""
+async def docs_hub(request: Request, q: str = ""):
+    """Docs Hub landing — the lab's reference manual: the curated registry
+    docs plus the auto-generated reference (docgen), with one search that
+    also reaches the knowledge base."""
     tier = _current_tier()
     raw_cats = _docs_registry.by_category()
     cats = _filter_by_tier(raw_cats, tier)
@@ -2326,6 +2358,8 @@ async def docs_hub(request: Request):
         "recent": recent,
         "tier": tier,
         "nav_active": "docs",
+        "generated": _generated_reference(),
+        "prefill_q": q,
     })
 
 
@@ -9488,17 +9522,27 @@ from arail.pkb import (
 
 @app.get("/knowledge", response_class=HTMLResponse)
 async def knowledge_page(request: Request):
+    # The page hydrates its live data client-side (/api/pkb/browse,
+    # /api/worlds/terms, /api/pkb/review, /api/wiki/graph); the server
+    # renders identity, the World hero (counts from the cached lab brief),
+    # and the Agent Focus section. (A full pkb_browse() used to be computed
+    # here and never read.)
+    from arail import lab_brief
     from arail.pkb import _pkb_root
-    data = pkb_browse()
     current_goal = goal_store.get_current()
     pkb = _pkb_root()
     models_dir = Path(os.getenv("ARAIL_MODELS_DIR", "lab/models"))
+    try:
+        brief = lab_brief.get_cached_brief()
+        brief_md = lab_brief.brief_markdown(brief)
+    except Exception:  # noqa: BLE001
+        brief, brief_md = {}, ""
     return templates.TemplateResponse(request, "knowledge.html", {
         **_identity_ctx(),
-        "pkb": data,
-        "pkm": data,
         "mode": _lab_mode(),
         "current_goal": current_goal,
+        "brief": brief,
+        "brief_md": brief_md,
         "inbox_path": str((pkb / "inbox").resolve()),
         "models_path": str(models_dir.resolve()),
     })
@@ -9626,6 +9670,22 @@ def _pkb_write_csrf(request: Request):
     return None
 
 
+@app.get("/api/lab/brief")
+async def api_lab_brief(format: str = ""):
+    """The lab brief — one shared context for humans and agents: mounted
+    World identity, active goal, research-program headline, operator
+    redirects, and the approved-knowledge digest. The Knowledge page's
+    Agent Focus section renders this JSON; ``?format=md`` returns the
+    exact markdown Buddy and the Researcher get injected. Read-only."""
+    from fastapi.responses import PlainTextResponse
+    from arail import lab_brief
+    brief = lab_brief.get_cached_brief()
+    if format == "md":
+        return PlainTextResponse(lab_brief.brief_markdown(brief),
+                                 media_type="text/markdown")
+    return brief
+
+
 @app.get("/api/pkb/review")
 async def api_pkb_review():
     """The review queue — raw candidates awaiting a human decision, plus the
@@ -9652,8 +9712,11 @@ async def api_pkb_promote(request: Request):
         return JSONResponse(status_code=400, content={"error": "bad_paths"})
     added = ckb.approve(paths)
     if added:
+        # Structured data rides the SSE stream so open Knowledge pages can
+        # solidify ghost nodes + refresh queues without regex-matching text.
         activity_log.emit("pkb",
-            f"Approved {len(added)} item(s) into the Compiled KB", "success")
+            f"Approved {len(added)} item(s) into the Compiled KB", "success",
+            {"kb_review": {"action": "approve", "count": len(added)}})
     return {"approved": added, "count": len(added)}
 
 
@@ -9668,6 +9731,9 @@ async def api_pkb_reject(request: Request):
     if not isinstance(paths, list):
         return JSONResponse(status_code=400, content={"error": "bad_paths"})
     n = ckb.reject(paths)
+    if n:
+        activity_log.emit("pkb", f"Dismissed {n} candidate(s) from review", "info",
+                          {"kb_review": {"action": "reject", "count": n}})
     return {"rejected": n}
 
 
@@ -9683,7 +9749,8 @@ async def api_pkb_revoke(request: Request):
         return JSONResponse(status_code=400, content={"error": "bad_paths"})
     n = ckb.revoke(paths)
     if n:
-        activity_log.emit("pkb", f"Revoked {n} item(s) from the Compiled KB", "info")
+        activity_log.emit("pkb", f"Revoked {n} item(s) from the Compiled KB", "info",
+                          {"kb_review": {"action": "revoke", "count": n}})
     return {"revoked": n}
 
 

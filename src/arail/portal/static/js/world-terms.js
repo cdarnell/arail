@@ -73,20 +73,6 @@
     return el('span', 'wt-chip wt-chip--sourced', 'sourced');
   }
 
-  function tierBadge() {
-    const tier = S.data.tier;
-    if (tier === 'model-asserted') return el('span', 'wt-chip wt-chip--dreamed', 'dreamed');
-    if (tier === 'sourced') return el('span', 'wt-chip wt-chip--sourced', 'sourced');
-    let edited = 0, dreamed = 0;
-    for (const t of S.data.terms) {
-      const p = provOf(t);
-      if (p === 'edited') edited++;
-      else if (p === 'dreamed') dreamed++;
-    }
-    return el('span', 'wt-chip wt-chip--mixed',
-      'mixed · ' + edited + ' edited / ' + dreamed + ' dreamed');
-  }
-
   /* ── curator review ─────────────────────────────────────────── */
 
   async function pollReview() {
@@ -147,31 +133,16 @@
     }
   }
 
-  /* ── World knowledge graph (the real KB graph, scoped to this World) ──
-     Every term is written as a wiki page tagged world-<slug>
-     (world_mount._write_term_pages), so what the lab fundamentally knows
-     — and what agents start from — is exactly this graph. Embed the
-     real thing rather than a synthetic preview, so it stays truthful as
-     terms are added, edited, or grown. */
-  function buildWorldGraphPanel() {
-    const tag = 'world-' + (S.data.world || '');
-    const panel = el('section', 'wt-graph');
-    const head2 = el('div', 'wt-graph-head');
-    head2.appendChild(el('h3', 'wt-graph-title', 'Knowledge graph — what this World starts from'));
-    const openLink = el('a', 'wt-btn wt-btn--ghost wt-btn--sm', 'Open full graph ↗');
-    openLink.href = '/wiki/graph?tag=' + encodeURIComponent(tag);
-    openLink.target = '_blank';
-    openLink.rel = 'noopener';
-    head2.appendChild(openLink);
-    panel.appendChild(head2);
-
-    const iframe = el('iframe', 'wt-graph-iframe');
-    iframe.id = 'wt-graph-iframe';
-    iframe.src = '/wiki/graph?embed=1&tag=' + encodeURIComponent(tag);
-    iframe.title = 'This World’s knowledge graph';
-    iframe.loading = 'lazy';
-    panel.appendChild(iframe);
-    return panel;
+  /* ── World knowledge graph ──────────────────────────────────────
+     The graph lives on the page itself now (the "lab's brain" section,
+     one shared canvas — see _brain_graph.html / window.arailGraph); the
+     terms header offers a chip that scrolls to it. Every term is still a
+     wiki page tagged world-<slug> (world_mount._write_term_pages), so
+     the graph stays truthful as terms are added, edited, or grown. */
+  function focusGraphOnWorld() {
+    const target = document.getElementById('brain-graph');
+    if (!target) return;
+    target.scrollIntoView({ behavior: 'smooth' });
   }
 
   /* ── main render ────────────────────────────────────────────── */
@@ -181,14 +152,20 @@
     const scrollY = view.scrollTop;
     view.textContent = '';
 
-    // Header — two deliberate rows rather than one flex-wrap row, so the
-    // layout is stable at any width instead of reshuffling unpredictably:
-    // row 1 is identity + the one primary action; row 2 is secondary tools.
+    // Header — two deliberate rows (main's stable layout, so it doesn't
+    // reshuffle at narrow widths), adapted to the restructured page: World
+    // identity (name + tier) now lives in the page hero above, so row 1
+    // carries the "view in graph" chip + the one primary action (Add term)
+    // in place of the old worldname/tier badge; row 2 is the secondary
+    // curation tools.
     const head = el('div', 'wt-head');
 
     const headTop = el('div', 'wt-head-top');
-    headTop.appendChild(el('h2', 'wt-worldname', S.data.display_name || S.data.world));
-    headTop.appendChild(tierBadge());
+    const graphChip = el('button', 'wt-btn wt-btn--ghost', '🕸 View this World in the graph');
+    graphChip.type = 'button';
+    graphChip.title = 'Scroll to the knowledge graph above';
+    graphChip.addEventListener('click', focusGraphOnWorld);
+    headTop.appendChild(graphChip);
     headTop.appendChild(el('div', 'wt-head-spacer'));
     const addBtn = el('button', 'wt-btn wt-btn--primary', '＋ Add term');
     addBtn.type = 'button';
@@ -228,7 +205,6 @@
     head.appendChild(headActions);
 
     view.appendChild(head);
-    view.appendChild(buildWorldGraphPanel());
 
     // Evolution summary — the World's growth history (transparency).
     if (S.growState === 'running' || (S.growPasses && S.growPasses.length)) {
@@ -247,23 +223,10 @@
       view.appendChild(evo);
     }
 
-    // Sourced-world edit warning banner (one-time)
-    const warnKey = 'arail-world-edit-warn-' + (S.data.world || '');
-    if (S.data.tier === 'sourced' && !localStorage.getItem(warnKey)) {
-      const banner = el('div', 'wt-banner');
-      banner.appendChild(el('span', null,
-        'Editing re-seals this World locally and flips its provenance to mixed. ' +
-        'Re-importing the original bundle restores it.'));
-      const dis = el('button', 'wt-banner-dismiss', '✕');
-      dis.type = 'button';
-      dis.setAttribute('aria-label', 'Dismiss');
-      dis.addEventListener('click', () => {
-        localStorage.setItem(warnKey, '1');
-        banner.remove();
-      });
-      banner.appendChild(dis);
-      view.appendChild(banner);
-    }
+    // (The sourced-world edit warning moved into the hero's ⓘ provenance
+    // disclosure — knowledge-page.js opens it once per World, same
+    // localStorage key, and it now *explains* sealing instead of just
+    // warning about it.)
 
     // Search
     const search = el('input', 'wt-search');
@@ -664,6 +627,18 @@
     const r = await api('/api/worlds/terms');
     if (!r.ok) return false;
     S.data = r.body;
+    // Broadcast for page-level consumers (the World hero) so they can
+    // hydrate without a second /api/worlds/terms fetch. Re-fires after
+    // every save/delete/grow reload, keeping counts live.
+    window.dispatchEvent(new CustomEvent('arail:world-terms-loaded', {
+      detail: {
+        world: S.data.world || '',
+        display_name: S.data.display_name || S.data.world || '',
+        tier: S.data.tier || '',
+        term_count: (S.data.terms || []).length,
+        category_count: (S.data.categories || []).length,
+      },
+    }));
     return true;
   }
 

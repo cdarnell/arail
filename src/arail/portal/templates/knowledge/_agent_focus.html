@@ -1,0 +1,78 @@
+{# Agent focus — what the lab is working on right now, rendered from the
+   same lab brief agents get injected (route passes `brief` + `brief_md`
+   from arail.lab_brief.get_cached_brief). The goal card uses the route's
+   `current_goal`; knowledge-page.js re-hydrates the volatile bits (recent
+   outputs, raw brief, hero counts) from /api/lab/brief after review or
+   wiki events. #}
+{% set _prog = brief.research_program if brief else None %}
+{% set _outs = brief.recent_agent_outputs if brief else [] %}
+{% set _redirects = brief.redirects if brief else {} %}
+<section class="kb-focus" id="kb-focus" aria-label="Agent focus">
+  <div class="kb-section-head">
+    <div class="kb-section-titles">
+      <h2 class="kb-section-title">Agent focus</h2>
+      <span class="kb-section-sub">what your agents are working on — and the brief they read before working</span>
+    </div>
+    <a class="btn btn-sm btn-ghost" href="/agents" title="Open the Agents surface">Agents →</a>
+  </div>
+  <div class="kb-focus-grid">
+    <div class="kb-focus-card" id="kb-focus-goal">
+      <h3 class="kb-focus-card-title">Current goal</h3>
+      {% if current_goal and current_goal.goal_text %}
+      <p class="kb-focus-goal-text">{{ current_goal.goal_text }}</p>
+      <div class="kb-focus-progress" role="progressbar"
+           aria-valuemin="0" aria-valuemax="100"
+           aria-valuenow="{{ ((current_goal.progress or 0) * 100) | round | int }}">
+        <div class="kb-focus-progress-fill" id="kb-focus-progress-fill"
+             data-progress="{{ ((current_goal.progress or 0) * 100) | round | int }}"></div>
+      </div>
+      <a class="kb-focus-link" href="/autoresearch">Watch the run →</a>
+      {% else %}
+      <p class="kb-focus-empty">No active goal — set one on the
+      <a href="/">dashboard</a> and the Researcher picks it up.</p>
+      {% endif %}
+    </div>
+    <div class="kb-focus-card" id="kb-focus-program">
+      <h3 class="kb-focus-card-title">Research program</h3>
+      {% if _prog and _prog.exists and _prog.objective %}
+      <p class="kb-focus-goal-text">{{ _prog.objective }}</p>
+      {% if _prog.knob_count %}
+      <p class="kb-focus-hint">{{ _prog.knob_count }} tunable knob{{ '' if _prog.knob_count == 1 else 's' }} in the loop.</p>
+      {% endif %}
+      {% else %}
+      <p class="kb-focus-hint">The measurable-goal contract the autoresearch
+      loop runs on — goals, variants, and stop conditions.</p>
+      {% endif %}
+      <div class="kb-focus-links">
+        <a class="kb-focus-link" href="/knowledge?file=research/program.md">Open program.md</a>
+        <a class="kb-focus-link" href="/autoresearch">Autoresearch →</a>
+      </div>
+    </div>
+    {% if _redirects %}
+    <div class="kb-focus-card" id="kb-focus-redirects">
+      <h3 class="kb-focus-card-title">Operator redirects</h3>
+      {% for agent_id, r in _redirects.items() %}
+      <p class="kb-focus-goal-text"><span class="kb-redirect-chip">{{ agent_id }}</span> {{ r.instruction }}</p>
+      {% endfor %}
+    </div>
+    {% endif %}
+    <div class="kb-focus-card" id="kb-focus-outputs">
+      <h3 class="kb-focus-card-title">Recent agent output</h3>
+      <ul class="kb-focus-outputs" id="kb-focus-outputs-list">
+        {% for o in _outs %}
+        <li><a href="#kb-library" data-open-path="{{ o.path }}">{{ o.title }}</a>
+            <span class="kb-focus-out-mark {{ 'kb-focus-out-mark--approved' if o.approved else '' }}">{{ 'approved' if o.approved else 'pending' }}</span></li>
+        {% else %}
+        <li class="kb-focus-empty">No agent output yet — set a goal to put the Researcher to work.</li>
+        {% endfor %}
+      </ul>
+    </div>
+  </div>
+  <details class="kb-focus-raw" id="kb-focus-raw">
+    <summary>Raw brief — exactly what agents read</summary>
+    <pre class="kb-focus-raw-pre" id="kb-focus-raw-pre">{{ brief_md }}</pre>
+    <p class="kb-focus-hint">Buddy gets this in its live-state block; the
+    Researcher prepends it to planning. Also served at
+    <code>/api/lab/brief?format=md</code>.</p>
+  </details>
+</section>

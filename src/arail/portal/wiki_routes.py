@@ -49,6 +49,72 @@ def _repo_root() -> Path | None:
     return None
 
 
+def _brain_scope(
+    graph: dict[str, Any],
+    *,
+    world_slug: str | None,
+    approved: set[str],
+    rejected: set[str],
+) -> dict[str, Any]:
+    """Filter the cached wiki graph down to *what the lab knows*.
+
+    Kept (in precedence order, using each node's pkb-relative ``path`` and
+    ``tags`` — both baked in by ``wiki.build_link_graph``):
+
+    1. ``compiled/`` docgen reference pages → dropped (reference manual
+       material, not lab knowledge — it lives on /docs).
+    2. The mounted World's term pages (tag ``world-<slug>``) → solid,
+       ``group="world"``. The World is the substrate the lab starts from;
+       a freshly mounted World must not render all-ghost (its pending
+       state is the hero count + the review queue).
+    3. Human-approved paths (the Compiled-KB manifest) → solid,
+       ``group="approved"``.
+    4. Agent outputs (``agents/``) not yet approved and not dismissed →
+       kept as **ghosts** (``group="candidate"``, ``ghost=True``) —
+       approving one in the review queue solidifies it.
+    5. Everything else (raw un-approved uploads/notes, inference, other
+       Worlds' pages) → dropped.
+
+    Approval state is read per request from ``approved.json``/
+    ``rejected.json`` — approvals do NOT rebuild the wiki, so this can
+    never be baked into the cached graph without going stale.
+    """
+    world_tag = f"world-{world_slug}" if world_slug else None
+    kept: list[dict[str, Any]] = []
+    for n in graph.get("nodes", []):
+        path = str(n.get("path") or "")
+        tags = n.get("tags") or []
+        if path.startswith("compiled/"):
+            continue
+        node = dict(n)
+        if world_tag and world_tag in tags:
+            node["group"] = "world"
+        elif path in approved:
+            node["group"] = "approved"
+        elif path.startswith("agents/") and path not in rejected:
+            node["group"] = "candidate"
+            node["ghost"] = True
+        else:
+            continue
+        try:
+            from arail import compiled_kb as _ckb
+            node["kind"] = _ckb.kind_of(path)
+        except Exception:  # noqa: BLE001
+            pass
+        kept.append(node)
+
+    ids = {n["id"] for n in kept}
+    ghost_ids = {n["id"] for n in kept if n.get("ghost")}
+    edges: list[dict[str, Any]] = []
+    for e in graph.get("edges", []):
+        if e.get("source") in ids and e.get("target") in ids:
+            edge = dict(e)
+            if e.get("source") in ghost_ids or e.get("target") in ghost_ids:
+                edge["ghost"] = True
+            edges.append(edge)
+    return {"nodes": kept, "edges": edges, "scope": "brain"}
+
+
 # ── HTML pages ──────────────────────────────────────────────────────────
 
 @router.get("/wiki")
@@ -90,10 +156,12 @@ async def wiki_landing(request: Request):
 
 
 @router.get("/wiki/graph", response_class=HTMLResponse)
-async def wiki_graph_page(request: Request, embed: int = 0, tag: str = ""):
+async def wiki_graph_page(request: Request, embed: int = 0, tag: str = "", scope: str = ""):
     return _templates.TemplateResponse(request, "wiki/graph.html", {
         "embed": bool(embed),
         "tag": tag,
+        # Only 'brain' is meaningful; anything else renders the full graph.
+        "scope": "brain" if scope == "brain" else "",
     })
 
 
@@ -232,21 +300,43 @@ async def api_page(slug: str):
 
 
 @router.get("/api/wiki/graph")
-async def api_graph(tag: str = ""):
+async def api_graph(tag: str = "", scope: str = ""):
     manifest = _load_or_build()
     graph = manifest.get("graph", {"nodes": [], "edges": []})
+
+    # scope=brain — "what the lab knows": mounted World terms + approved
+    # knowledge + agent-output candidates (ghosted). Classification happens
+    # here at request time (see _brain_scope), never in the cached graph.
+    if scope == "brain":
+        from arail import compiled_kb as ckb
+        from arail.identity import effective_identity
+        try:
+            world_slug = effective_identity().world
+        except Exception:  # noqa: BLE001
+            world_slug = None
+        graph = _brain_scope(
+            graph,
+            world_slug=world_slug,
+            approved=ckb.approved_paths(),
+            rejected=ckb.rejected_paths(),
+        )
+
     if not tag:
         return graph
     # Scope the graph to one World (or any tag): the World Terms view wants
     # "what does the lab fundamentally know" to mean this World's pages,
-    # not the whole KB (agents, notes, unrelated Worlds) at once.
+    # not the whole KB (agents, notes, unrelated Worlds) at once. Composes
+    # after `scope` when both are present.
     nodes = [n for n in graph.get("nodes", []) if tag in (n.get("tags") or [])]
     ids = {n["id"] for n in nodes}
     edges = [
         e for e in graph.get("edges", [])
         if e.get("source") in ids and e.get("target") in ids
     ]
-    return {"nodes": nodes, "edges": edges}
+    out = {"nodes": nodes, "edges": edges}
+    if graph.get("scope"):
+        out["scope"] = graph["scope"]
+    return out
 
 
 @router.get("/api/wiki/status")

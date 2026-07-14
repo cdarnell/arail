@@ -136,6 +136,70 @@
   }
   .docs-footer a { color: var(--accent2); }
 
+  /* Server (semantic) search results below the instant filter */
+  .docs-server-results { margin-top: 0.8rem; }
+  .docs-server-list {
+    list-style: none;
+    margin: 0.3rem 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    font-size: 0.82rem;
+  }
+  .docs-server-list a { color: var(--text); text-decoration: none; }
+  .docs-server-list a:hover { color: var(--accent2); }
+  .docs-server-kind {
+    margin-left: 0.5rem;
+    font-family: var(--font-mono);
+    font-size: 0.66rem;
+    color: var(--text-muted);
+    text-transform: var(--label-transform);
+    letter-spacing: var(--label-tracking);
+  }
+
+  /* Generated reference (docgen) groups */
+  .docs-generated-hint { color: var(--text-muted); font-size: 0.8rem; margin: 0 0 0.7rem; }
+  .docs-generated-group {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-m);
+    background: var(--surface);
+    margin-bottom: 0.5rem;
+    padding: 0.55rem 0.9rem;
+  }
+  .docs-generated-group > summary {
+    cursor: pointer;
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    user-select: none;
+  }
+  .docs-generated-count { color: var(--text-muted); margin-left: 0.5rem; font-size: 0.72rem; }
+  .docs-generated-list {
+    list-style: none;
+    margin: 0.5rem 0 0.2rem;
+    padding: 0 0 0 0.4rem;
+    columns: 2;
+    font-size: 0.8rem;
+  }
+  .docs-generated-list li { margin-bottom: 0.25rem; break-inside: avoid; }
+  .docs-generated-list a { color: var(--text); text-decoration: none; }
+  .docs-generated-list a:hover { color: var(--accent2); }
+  @media (max-width: 600px) { .docs-generated-list { columns: 1; } }
+
+  /* Lab knowledge cross-card */
+  .docs-knowledge-card {
+    display: block;
+    margin-top: 1.6rem;
+    padding: 0.9rem 1.1rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-m);
+    background: linear-gradient(135deg,
+      color-mix(in srgb, var(--accent2) 8%, transparent), transparent 60%);
+    text-decoration: none;
+  }
+  .docs-knowledge-card:hover { border-color: var(--border-strong); }
+
   /* Responsive collapse */
   @media (max-width: 600px) {
     .docs-featured-strip, .docs-grid { grid-template-columns: 1fr; }
@@ -149,11 +213,18 @@
 
   {# ── Hero ──────────────────────────────────────────────────────────── #}
   <div class="docs-hero">
-    <h1>Lab Docs</h1>
+    <h1>Reference manual</h1>
     <p>New here? Start with <a href="/docs/the-lab.md">the runbook</a> —
-       the lab, end-to-end in ~12 minutes.</p>
-    <input type="search" id="docs-search" placeholder="Filter docs by title, tag, or description…"
-           aria-label="Filter docs" autocomplete="off">
+       the lab, end-to-end in ~12 minutes. Looking for what the lab
+       <em>knows</em>? That's <a href="/knowledge">Knowledge — the lab's brain</a>.</p>
+    <input type="search" id="docs-search" placeholder="Search the manual and the knowledge base…"
+           aria-label="Search docs" autocomplete="off" value="{{ prefill_q or '' }}">
+    {# Semantic hits from the shared index (registry docs + KB) — filled by
+       the debounced server search below; the instant filter is the floor. #}
+    <div class="docs-server-results" id="docs-server-results" hidden>
+      <div class="docs-featured-label">Semantic matches</div>
+      <ul class="docs-server-list" id="docs-server-list"></ul>
+    </div>
   </div>
 
   {# ── AI Dictionary teaser ─────────────────────────────────────────── #}
@@ -237,6 +308,33 @@
 
   {% endif %}{# end if cats #}
 
+  {# ── Generated reference — docgen output, grouped by subject ──────── #}
+  {% if generated %}
+  <div class="docs-category">
+    <div class="docs-category-heading">Generated reference</div>
+    <p class="docs-generated-hint">Auto-built from the lab's own source on
+    every wiki rebuild — modules, scripts, and configuration, always
+    current. Reference material lives here, not in the knowledge graph.</p>
+    {% for group, items in generated.items() %}
+    <details class="docs-generated-group">
+      <summary>{{ group }} <span class="docs-generated-count">{{ items|length }} page{{ '' if items|length == 1 else 's' }}</span></summary>
+      <ul class="docs-generated-list">
+        {% for item in items %}
+        <li><a href="/wiki/{{ item.slug }}">{{ item.title }}</a></li>
+        {% endfor %}
+      </ul>
+    </details>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {# ── Lab knowledge cross-card ─────────────────────────────────────── #}
+  <a class="docs-knowledge-card" href="/knowledge">
+    <div class="fc-title">Lab knowledge →</div>
+    <p class="fc-desc">What your lab knows and is working on — your World,
+    the approved knowledge graph, agent research, and the review queue.</p>
+  </a>
+
   {# ── Footer ───────────────────────────────────────────────────────── #}
   <div class="docs-footer">
     Want to add a doc?
@@ -255,7 +353,43 @@
 (function () {
   var input = document.getElementById('docs-search');
   if (!input) return;
-  input.addEventListener('input', function () {
+
+  /* Debounced server search — the shared LanceDB index covers both the
+     registry docs (indexed as docs/<slug>.md) and the knowledge base, so
+     one box searches the manual AND the lab's memory. The instant filter
+     below remains the no-LanceDB floor. */
+  var resultsWrap = document.getElementById('docs-server-results');
+  var resultsList = document.getElementById('docs-server-list');
+  var serverTimer = null;
+  function serverSearch(q) {
+    if (!resultsWrap || !resultsList) return;
+    if (!q || q.length < 3) { resultsWrap.hidden = true; return; }
+    fetch('/api/pkb/search?q=' + encodeURIComponent(q))
+      .then(function (r) { return r.json(); })
+      .then(function (hits) {
+        resultsList.textContent = '';
+        var rows = (hits || []).slice(0, 8);
+        if (!rows.length) { resultsWrap.hidden = true; return; }
+        rows.forEach(function (h) {
+          var li = document.createElement('li');
+          var a = document.createElement('a');
+          var path = String(h.path || '');
+          var isDoc = /^docs\//.test(path);
+          a.href = isDoc ? '/' + path : '/knowledge?file=' + encodeURIComponent(path);
+          a.textContent = h.name || path;
+          li.appendChild(a);
+          var kind = document.createElement('span');
+          kind.className = 'docs-server-kind';
+          kind.textContent = isDoc ? 'manual' : 'knowledge';
+          li.appendChild(kind);
+          resultsList.appendChild(li);
+        });
+        resultsWrap.hidden = false;
+      })
+      .catch(function () { resultsWrap.hidden = true; });
+  }
+
+  function applyFilter() {
     var q = input.value.trim().toLowerCase();
     var cards = document.querySelectorAll('.doc-card-filterable');
     cards.forEach(function (card) {
@@ -267,7 +401,13 @@
       var visible = group.querySelectorAll('.doc-card-filterable:not([style*="none"])');
       group.style.display = (visible.length === 0 && q) ? 'none' : '';
     });
-  });
+    if (serverTimer) clearTimeout(serverTimer);
+    serverTimer = setTimeout(function () { serverSearch(input.value.trim()); }, 350);
+  }
+
+  input.addEventListener('input', applyFilter);
+  /* ?q= prefill (e.g. the Knowledge page's "search the manual" hand-off) */
+  if (input.value.trim()) applyFilter();
 }());
 </script>
 {% endblock %}

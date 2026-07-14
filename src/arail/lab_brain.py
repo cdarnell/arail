@@ -198,6 +198,32 @@ def _state_block(
             lines.append("- Active goal: **none** — waiting for user to set one")
     except Exception:
         pass
+    # Lab brief — World identity, approved-knowledge digest, redirects,
+    # research-program headline. The same brief the Knowledge page's
+    # Agent Focus renders (goal already printed above; kept deduped).
+    # Volatile block on purpose: never let this reach the frozen cached
+    # prompt prefix.
+    try:
+        from arail.lab_brief import get_cached_brief
+        brief = get_cached_brief()
+        w = brief.get("world")
+        if w:
+            lines.append(
+                f"- World: **{w.get('display_name') or w.get('slug')}** "
+                f"({w.get('provenance_tier') or 'unknown'} · "
+                f"{w.get('term_count') if w.get('term_count') is not None else '?'} terms)")
+        k = brief.get("knowledge") or {}
+        gate = "approved-only" if k.get("gate_enabled") else "raw corpus (gate off)"
+        lines.append(
+            f"- Compiled KB ({gate}): {k.get('approved_total', 0)} approved, "
+            f"{k.get('pending_total', 0)} pending review")
+        for agent_id, r in (brief.get("redirects") or {}).items():
+            lines.append(f"- Operator redirect ({agent_id}): {r['instruction'][:140]}")
+        prog = brief.get("research_program") or {}
+        if prog.get("exists") and prog.get("objective"):
+            lines.append(f"- Research program: {prog['objective'][:120]}")
+    except Exception:
+        pass
     # Agent workflow memory
     try:
         from arail.agent_workflows import list_agent_workflows

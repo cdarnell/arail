@@ -12,6 +12,10 @@
 <div class="graph-wrap">
   <canvas id="graph-canvas"></canvas>
 
+  <!-- Load/empty/error affordance — a busy or failed graph must never
+       look like a silently blank one. -->
+  <div class="graph-status" id="graph-status" hidden></div>
+
   <div class="detail-panel" id="detail-panel">
     <h3>
       <span id="detail-icon"></span>
@@ -44,6 +48,7 @@
 
 const GRAPH_API  = "{{ graph_api }}";
 const HEALTH_API = "{{ health_api|default('') }}";
+let GRAPH_EMPTY = {{ graph_empty_message|default('No nodes yet — the graph fills as pages are compiled.')|tojson }};
 
 const canvas = document.getElementById('graph-canvas');
 const ctx = canvas.getContext('2d');
@@ -51,7 +56,7 @@ let W, H, dpr;
 
 const COLORS = {{ color_map|default({'core':'var(--positive)','agent':'var(--accent2)','skill':'var(--info)','backend':'var(--warn)','plugin':'var(--danger)','service':'var(--text-muted)'})|tojson }};
 const ICONS  = {{ icon_map|default({'core':'◈','agent':'◉','skill':'◇','backend':'⬡','plugin':'⊕','service':'▣'})|tojson }};
-const LEGEND = {{ legend_groups|default([{'label':'Core','color':'var(--positive)'},{'label':'Agent','color':'var(--accent2)'},{'label':'Skill','color':'var(--info)'},{'label':'Backend','color':'var(--warn)'},{'label':'Plugin','color':'var(--danger)'},{'label':'Service','color':'var(--text-muted)'}])|tojson }};
+let LEGEND = {{ legend_groups|default([{'label':'Core','color':'var(--positive)'},{'label':'Agent','color':'var(--accent2)'},{'label':'Skill','color':'var(--info)'},{'label':'Backend','color':'var(--warn)'},{'label':'Plugin','color':'var(--danger)'},{'label':'Service','color':'var(--text-muted)'}])|tojson }};
 
 /* Canvas 2D cannot resolve CSS custom properties — read the live token
    values off :root so the canvas repaints with the mounted World theme. */
@@ -120,6 +125,11 @@ function initPositions() {
     backend: { cx: 0, cy: 250 },
     plugin:  { cx: 300, cy: -150 },
     service: { cx: -300, cy: -150 },
+    // Brain scope — the World at the core, approved knowledge ringing it,
+    // candidates hovering at the edge until a human approves them in.
+    world:     { cx: 0, cy: 0 },
+    approved:  { cx: 0, cy: -240 },
+    candidate: { cx: 340, cy: 200 },
   };
   nodes.forEach(n => {
     const z = zones[n.group] || { cx: Math.random() * 200 - 100, cy: Math.random() * 200 - 100 };
@@ -184,15 +194,22 @@ function drawEdge(e) {
   if (!a || !b) return;
   const sa = toScreen(a.x, a.y), sb = toScreen(b.x, b.y);
 
+  // Ghost edges touch a pending candidate — dashed and faded until the
+  // human approves the node they hang off.
+  const ghost = !!e.ghost;
+  if (ghost) ctx.globalAlpha = 0.45;
+
   ctx.beginPath();
   ctx.moveTo(sa.x, sa.y);
   ctx.lineTo(sb.x, sb.y);
   ctx.strokeStyle = EDGE_COLORS[e.type] || EDGE_COLORS.data;
   ctx.lineWidth = e.type === 'active' ? 2.5 : (e.type === 'available' ? 0.5 : 1.2);
-  if (e.type === 'available') ctx.setLineDash([4, 6]);
+  if (ghost) ctx.setLineDash([3, 5]);
+  else if (e.type === 'available') ctx.setLineDash([4, 6]);
   else ctx.setLineDash([]);
   ctx.stroke();
   ctx.setLineDash([]);
+  if (ghost) { ctx.globalAlpha = 1; return; }
 
   if (e.type !== 'available') {
     const dx = sb.x - sa.x, dy = sb.y - sa.y;
@@ -225,6 +242,11 @@ function drawNode(n) {
   const isHovered = n === hoveredNode;
   const isSelected = n === selectedNode;
 
+  // Pending candidates render as ghosts — translucent, dashed outline, no
+  // status dot — and snap solid the moment they're approved.
+  const ghost = !!n.ghost;
+  if (ghost) ctx.globalAlpha = isHovered || isSelected ? 0.75 : 0.45;
+
   const glowColor = STATUS_GLOW[n.status] || STATUS_GLOW.standby;
   if (isHovered || isSelected || n.status === 'active' || n.status === 'running') {
     ctx.beginPath();
@@ -242,7 +264,9 @@ function drawNode(n) {
   ctx.fill();
   ctx.strokeStyle = isHovered ? cssVar('--text-strong') : resolveColor(COLORS[n.group] || 'var(--text-muted)');
   ctx.lineWidth = isSelected ? 2.5 : (isHovered ? 2 : 1.2);
+  if (ghost) ctx.setLineDash([4, 4]);
   ctx.stroke();
+  ctx.setLineDash([]);
 
   const iconSize = Math.max(10, r * 0.55);
   ctx.font = `${iconSize}px JetBrains Mono, monospace`;
@@ -265,15 +289,18 @@ function drawNode(n) {
     ctx.fillText(n.label, s.x, s.y + r + 4 * camera.zoom);
   }
 
-  const dotColors = {
-    active: cssVar('--positive'), running: cssVar('--accent2'), standby: cssVar('--text-muted'),
-    available: cssVar('--warn'), external: cssVar('--text-muted'), paused: cssVar('--warn'),
-    completed: cssVar('--positive'), error: cssVar('--danger'),
-  };
-  ctx.beginPath();
-  ctx.arc(s.x + r * 0.7, s.y - r * 0.7, 3.5 * camera.zoom, 0, Math.PI * 2);
-  ctx.fillStyle = dotColors[n.status] || cssVar('--text-muted');
-  ctx.fill();
+  if (!ghost) {
+    const dotColors = {
+      active: cssVar('--positive'), running: cssVar('--accent2'), standby: cssVar('--text-muted'),
+      available: cssVar('--warn'), external: cssVar('--text-muted'), paused: cssVar('--warn'),
+      completed: cssVar('--positive'), error: cssVar('--danger'),
+    };
+    ctx.beginPath();
+    ctx.arc(s.x + r * 0.7, s.y - r * 0.7, 3.5 * camera.zoom, 0, Math.PI * 2);
+    ctx.fillStyle = dotColors[n.status] || cssVar('--text-muted');
+    ctx.fill();
+  }
+  if (ghost) ctx.globalAlpha = 1;
 }
 
 function draw() {
@@ -321,6 +348,15 @@ function showDetail(node) {
   let html = '';
   html += row('Status', statusBadge(node.status));
   html += row('Group', node.group);
+  // Brain-scope nodes carry approval state — teach the gate right here.
+  if (node.ghost) {
+    html += row('Approval', `<a href="#compiled-kb-panel" class="detail-approval detail-approval--pending">◌ pending — approve below ↓</a>`);
+  } else if (node.group === 'approved') {
+    html += row('Approval', `<span class="detail-approval detail-approval--approved">● approved</span>`);
+  } else if (node.group === 'world') {
+    html += row('Approval', `<span class="detail-approval detail-approval--world">◆ World substrate</span>`);
+  }
+  if (node.kind) html += row('Kind', esc(node.kind).replace(/_/g, ' '));
   if (node.type) html += row('Type', node.type);
   if (node.path) html += row('Path', `<code>${esc(node.path)}</code>`);
   if (node.source_ref) html += row('Source', `<code>${esc(node.source_ref)}</code>`);
@@ -388,9 +424,12 @@ function esc(s) { const d = document.createElement('div'); d.textContent = s; re
 
 function buildLegend() {
   const el = document.getElementById('legend');
-  el.innerHTML = LEGEND.map(i =>
-    `<div class="legend-item"><div class="legend-dot" style="background:${i.color}"></div>${i.label}</div>`
-  ).join('') + '<div class="legend-item legend-hint">Click nodes for details</div>';
+  el.innerHTML = LEGEND.map(i => {
+    const dot = i.ghost
+      ? `<div class="legend-dot legend-dot--ghost"></div>`
+      : `<div class="legend-dot" style="background:${i.color}"></div>`;
+    return `<div class="legend-item">${dot}${i.label}</div>`;
+  }).join('') + '<div class="legend-item legend-hint">Click nodes for details</div>';
 }
 
 let panStart = null;
@@ -442,7 +481,12 @@ canvas.addEventListener('mouseup', (e) => {
   panStart = null;
 });
 
+// Embedded graphs (graph_wheel_passthrough) let plain scrolling reach the
+// host page — zoom rides pinch gestures (browsers send them as ctrl+wheel)
+// or the +/− controls. Full-page graphs keep direct wheel-zoom.
+const WHEEL_PASSTHROUGH = {{ graph_wheel_passthrough|default(false)|tojson }};
 canvas.addEventListener('wheel', (e) => {
+  if (WHEEL_PASSTHROUGH && !e.ctrlKey && !e.metaKey) return;
   e.preventDefault();
   const factor = e.deltaY > 0 ? 0.9 : 1.1;
   const rect = canvas.getBoundingClientRect();
@@ -456,26 +500,78 @@ canvas.addEventListener('wheel', (e) => {
 
 function zoomIn() { camera.zoom = Math.min(4, camera.zoom * 1.3); draw(); }
 function zoomOut() { camera.zoom = Math.max(0.2, camera.zoom / 1.3); draw(); }
-function resetView() { camera = { x: 0, y: 0, zoom: 1 }; draw(); }
+function resetView() { fitView(); }
 
-async function init() {
-  resize();
-  buildLegend();
+// Frame the graph's core — dense graphs (a 331-term World) must open
+// readable, not as a zoom-1 crop of the hairball's center. Fit to the
+// 5th–95th percentile box: the force sim flings a few unlinked outliers,
+// and a raw bounding box would center the camera on empty space.
+function fitView() {
+  if (!nodes.length) { camera = { x: 0, y: 0, zoom: 1 }; draw(); return; }
+  const xs = nodes.map(n => n.x).sort((a, b) => a - b);
+  const ys = nodes.map(n => n.y).sort((a, b) => a - b);
+  const q = (arr, p) => arr[Math.min(arr.length - 1, Math.max(0, Math.floor(arr.length * p)))];
+  const minX = q(xs, 0.05), maxX = q(xs, 0.95);
+  const minY = q(ys, 0.05), maxY = q(ys, 0.95);
+  const pad = 120;
+  const dx = Math.max(1, (maxX - minX) + pad * 2);
+  const dy = Math.max(1, (maxY - minY) + pad * 2);
+  camera.x = (minX + maxX) / 2;
+  camera.y = (minY + maxY) / 2;
+  camera.zoom = Math.min(1.5, Math.max(0.25, Math.min(W / dx, H / dy)));
+  draw();
+}
 
+const statusEl = document.getElementById('graph-status');
+function setGraphStatus(msg, kind) {
+  if (!statusEl) return;
+  if (!msg) { statusEl.hidden = true; return; }
+  statusEl.hidden = false;
+  statusEl.textContent = msg;
+  statusEl.className = 'graph-status' + (kind ? ' graph-status--' + kind : '');
+}
+
+// The API the canvas is currently rendering — swappable at runtime via
+// window.arailGraph.setApi() (scope chips) without a page reload.
+let CURRENT_API = GRAPH_API;
+
+async function loadData(api) {
+  if (api) CURRENT_API = api;
+  const apiChanged = CURRENT_API !== loadData._lastApi;
+  loadData._lastApi = CURRENT_API;
+  setGraphStatus('Loading graph…', 'loading');
+  let data;
   try {
-    const resp = await fetch(GRAPH_API);
-    const data = await resp.json();
-    nodes = data.nodes || [];
-    edges = data.edges || [];
+    const resp = await fetch(CURRENT_API);
+    data = await resp.json();
   } catch (e) {
     console.error('graph fetch failed', e);
-    nodes = []; edges = [];
+    nodes = []; edges = []; nodeMap = {};
+    draw();
+    setGraphStatus('Graph failed to load — is the lab server up? Retrying on next refresh.', 'error');
+    return;
   }
-
+  const prevMap = nodeMap;
+  nodes = data.nodes || [];
+  edges = data.edges || [];
   nodeMap = {};
   nodes.forEach(n => { nodeMap[n.id] = n; });
   initPositions();
+  // Keep positions for nodes that survived a reload so the layout stays
+  // stable when a rebuild or scope switch lands.
+  nodes.forEach(n => {
+    const old = prevMap[n.id];
+    if (old && old.x != null) { n.x = old.x; n.y = old.y; n.vx = 0; n.vy = 0; }
+  });
+  setGraphStatus(nodes.length ? '' : GRAPH_EMPTY, 'empty');
 
+  // Re-measure — when embedded, stylesheets may land after first parse.
+  resize();
+  if (animFrame) cancelAnimationFrame(animFrame);
+  // Frame the graph when it's genuinely new (first load or a scope
+  // switch); same-source refreshes keep the user's camera — positions
+  // were carried over above, so nothing jumps.
+  const shouldFit = apiChanged || !Object.keys(prevMap).length;
   let steps = 0;
   function tick() {
     const energy = simulate();
@@ -483,13 +579,34 @@ async function init() {
     steps++;
     if (steps < 300 && energy > 0.5) {
       animFrame = requestAnimationFrame(tick);
+    } else if (shouldFit) {
+      fitView();
     }
   }
   tick();
+}
+
+// Page-level hook: knowledge-page.js reloads on wiki-rebuild SSE events
+// and approval changes; scope chips repoint the data source and swap the
+// legend/empty copy to match.
+window.arailGraph = {
+  reload() { return loadData(); },
+  setApi(url) { return loadData(url); },
+  api() { return CURRENT_API; },
+  setLegend(groups) {
+    if (Array.isArray(groups) && groups.length) { LEGEND = groups; buildLegend(); }
+  },
+  setEmpty(msg) { if (msg) GRAPH_EMPTY = msg; },
+};
+
+async function init() {
+  resize();
+  buildLegend();
+  await loadData(GRAPH_API);
 
   setInterval(async () => {
     try {
-      const r = await fetch(GRAPH_API);
+      const r = await fetch(CURRENT_API);
       const d = await r.json();
       (d.nodes || []).forEach(fresh => {
         const existing = nodeMap[fresh.id];
