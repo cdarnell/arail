@@ -272,9 +272,226 @@
         cats.appendChild(det);
       });
       $('prev-err').textContent = '';
+      buildPreviewGraph(p);
       showPanel('preview');
     }).catch(function () { showPanel('form'); });
   }
+
+  /* ══ Preview graph — categories + terms depicted as a graph the moment
+     a World is forged, before the operator ever commits to mounting it. ══ */
+  var previewView = 'graph';
+  var graphState = null; // { nodes, edges, byId } built once per preview load
+
+  $('prev-view-toggle').addEventListener('click', function (e) {
+    var btn = e.target.closest('.prev-view-btn');
+    if (!btn) return;
+    previewView = btn.dataset.view;
+    document.querySelectorAll('#prev-view-toggle .prev-view-btn').forEach(function (b) {
+      var on = b === btn;
+      b.classList.toggle('selected', on);
+      b.setAttribute('aria-selected', String(on));
+    });
+    $('prev-graph-wrap').hidden = previewView !== 'graph';
+    $('prev-cats').hidden = previewView !== 'list';
+    if (previewView === 'graph') drawPreviewGraph();
+  });
+
+  var GRAPH_PALETTE = ['--accent', '--accent2', '--info', '--warn', '--positive', '--danger'];
+  function cssVar(name) {
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  }
+  function colorForCategory(index) {
+    var v = cssVar(GRAPH_PALETTE[index % GRAPH_PALETTE.length]);
+    return v || '#8888aa';
+  }
+
+  function buildPreviewGraph(p) {
+    var categories = p.categories || [];
+    var terms = p.terms || [];
+    var catIndex = {};
+    categories.forEach(function (c, i) { catIndex[c.id] = i; });
+
+    var nodes = [];
+    var byId = {};
+    categories.forEach(function (c, i) {
+      var n = {
+        id: 'cat:' + c.id, kind: 'category', label: c.label || c.id,
+        color: colorForCategory(i), count: c.term_count || 0,
+      };
+      nodes.push(n); byId[n.id] = n;
+    });
+    var termSlugToNode = {};
+    terms.forEach(function (t) {
+      var ci = catIndex.hasOwnProperty(t.category) ? catIndex[t.category] : 0;
+      var n = {
+        id: 'term:' + t.slug, kind: 'term', label: t.term || t.slug,
+        short: t.short || '', category: t.category, color: colorForCategory(ci),
+      };
+      nodes.push(n); byId[n.id] = n;
+      termSlugToNode[t.slug] = n;
+    });
+
+    var edges = [];
+    terms.forEach(function (t) {
+      var catNode = byId['cat:' + t.category];
+      if (catNode) edges.push({ a: catNode.id, b: 'term:' + t.slug, kind: 'hub' });
+      (t.related || []).forEach(function (slug) {
+        if (termSlugToNode[slug]) edges.push({ a: 'term:' + t.slug, b: 'term:' + slug, kind: 'related' });
+      });
+    });
+
+    layoutRadial(nodes, categories.length);
+    graphState = { nodes: nodes, edges: edges, byId: byId, categories: categories };
+    renderGraphLegend(categories);
+    if (previewView === 'graph') drawPreviewGraph();
+  }
+
+  function layoutRadial(nodes, catCount) {
+    var cats = nodes.filter(function (n) { return n.kind === 'category'; });
+    var terms = nodes.filter(function (n) { return n.kind === 'term'; });
+    var byCatTerms = {};
+    terms.forEach(function (t) { (byCatTerms[t.category] = byCatTerms[t.category] || []).push(t); });
+
+    var hubR = Math.max(140, catCount * 40);
+    cats.forEach(function (c, i) {
+      var angle = (i / Math.max(1, cats.length)) * Math.PI * 2 - Math.PI / 2;
+      c.x = Math.cos(angle) * hubR;
+      c.y = Math.sin(angle) * hubR;
+      var catId = c.id.slice(4);
+      var members = byCatTerms[catId] || [];
+      var ringR = Math.min(120, 40 + members.length * 4);
+      members.forEach(function (t, j) {
+        var a = (j / Math.max(1, members.length)) * Math.PI * 2;
+        // Jitter the radius slightly so dense clusters don't form a perfect
+        // ring that reads as a single blob at low zoom.
+        var r = ringR * (0.6 + 0.4 * ((j % 3) / 2));
+        t.x = c.x + Math.cos(a) * r;
+        t.y = c.y + Math.sin(a) * r;
+      });
+    });
+  }
+
+  function renderGraphLegend(categories) {
+    var el = $('prev-graph-legend');
+    el.textContent = '';
+    categories.forEach(function (c, i) {
+      var item = document.createElement('span');
+      item.className = 'prev-graph-legend-item';
+      var dot = document.createElement('span');
+      dot.className = 'prev-graph-legend-dot';
+      dot.style.background = colorForCategory(i);
+      item.appendChild(dot);
+      item.appendChild(document.createTextNode(c.label || c.id));
+      el.appendChild(item);
+    });
+  }
+
+  var previewCanvas = $('prev-graph-canvas');
+  var previewCtx = previewCanvas.getContext('2d');
+  var previewCamera = { zoom: 1 };
+  var previewHover = null;
+
+  function resizePreviewCanvas() {
+    var wrap = $('prev-graph-wrap');
+    var dpr = window.devicePixelRatio || 1;
+    var w = wrap.clientWidth || 600;
+    var h = wrap.clientHeight || 360;
+    previewCanvas.width = w * dpr;
+    previewCanvas.height = h * dpr;
+    previewCanvas.style.width = w + 'px';
+    previewCanvas.style.height = h + 'px';
+    previewCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    return { w: w, h: h };
+  }
+
+  function drawPreviewGraph() {
+    if (!graphState) return;
+    var dims = resizePreviewCanvas();
+    var cx = dims.w / 2, cy = dims.h / 2;
+    var zoom = previewCamera.zoom;
+    var ctx = previewCtx;
+    ctx.clearRect(0, 0, dims.w, dims.h);
+
+    function toScreen(n) { return { x: cx + n.x * zoom, y: cy + n.y * zoom }; }
+
+    ctx.lineWidth = 1;
+    graphState.edges.forEach(function (e) {
+      var a = graphState.byId[e.a], b = graphState.byId[e.b];
+      if (!a || !b) return;
+      var sa = toScreen(a), sb = toScreen(b);
+      ctx.beginPath();
+      ctx.moveTo(sa.x, sa.y);
+      ctx.lineTo(sb.x, sb.y);
+      ctx.strokeStyle = e.kind === 'related'
+        ? 'color-mix(in srgb, ' + a.color + ' 45%, transparent)'
+        : 'color-mix(in srgb, ' + a.color + ' 18%, transparent)';
+      ctx.stroke();
+    });
+
+    graphState.nodes.forEach(function (n) {
+      var s = toScreen(n);
+      var r = n.kind === 'category' ? 10 : 4;
+      var isHover = n === previewHover;
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, isHover ? r + 2 : r, 0, Math.PI * 2);
+      ctx.fillStyle = n.color;
+      ctx.globalAlpha = n.kind === 'category' ? 1 : 0.85;
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      if (n.kind === 'category') {
+        ctx.font = '600 12px var(--font-sans, sans-serif)';
+        ctx.fillStyle = cssVar('--text-strong') || '#eee';
+        ctx.textAlign = 'center';
+        ctx.fillText(n.label, s.x, s.y - r - 6);
+      }
+    });
+  }
+
+  function hitTestPreview(sx, sy) {
+    if (!graphState) return null;
+    var wrap = $('prev-graph-wrap');
+    var cx = wrap.clientWidth / 2, cy = wrap.clientHeight / 2;
+    var zoom = previewCamera.zoom;
+    var best = null, bestDist = 12 * 12;
+    graphState.nodes.forEach(function (n) {
+      var x = cx + n.x * zoom, y = cy + n.y * zoom;
+      var d = (x - sx) * (x - sx) + (y - sy) * (y - sy);
+      if (d < bestDist) { bestDist = d; best = n; }
+    });
+    return best;
+  }
+
+  previewCanvas.addEventListener('mousemove', function (e) {
+    var rect = previewCanvas.getBoundingClientRect();
+    var sx = e.clientX - rect.left, sy = e.clientY - rect.top;
+    var node = hitTestPreview(sx, sy);
+    var tip = $('prev-graph-tooltip');
+    if (node !== previewHover) {
+      previewHover = node;
+      drawPreviewGraph();
+    }
+    if (node) {
+      tip.hidden = false;
+      tip.style.left = (sx + 14) + 'px';
+      tip.style.top = (sy + 10) + 'px';
+      tip.textContent = node.kind === 'category'
+        ? node.label + ' · ' + node.count + ' terms'
+        : node.label + (node.short ? ' — ' + node.short : '');
+    } else {
+      tip.hidden = true;
+    }
+  });
+  previewCanvas.addEventListener('mouseleave', function () {
+    previewHover = null;
+    $('prev-graph-tooltip').hidden = true;
+    drawPreviewGraph();
+  });
+  previewCanvas.addEventListener('wheel', function (e) {
+    e.preventDefault();
+    previewCamera.zoom = Math.min(3, Math.max(0.4, previewCamera.zoom * (e.deltaY > 0 ? 0.9 : 1.1)));
+    drawPreviewGraph();
+  }, { passive: false });
+  window.addEventListener('resize', function () { if (previewView === 'graph') drawPreviewGraph(); });
 
   $('prev-accept').addEventListener('click', function () {
     $('prev-err').textContent = '';

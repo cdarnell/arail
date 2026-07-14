@@ -147,6 +147,33 @@
     }
   }
 
+  /* ── World knowledge graph (the real KB graph, scoped to this World) ──
+     Every term is written as a wiki page tagged world-<slug>
+     (world_mount._write_term_pages), so what the lab fundamentally knows
+     — and what agents start from — is exactly this graph. Embed the
+     real thing rather than a synthetic preview, so it stays truthful as
+     terms are added, edited, or grown. */
+  function buildWorldGraphPanel() {
+    const tag = 'world-' + (S.data.world || '');
+    const panel = el('section', 'wt-graph');
+    const head2 = el('div', 'wt-graph-head');
+    head2.appendChild(el('h3', 'wt-graph-title', 'Knowledge graph — what this World starts from'));
+    const openLink = el('a', 'wt-btn wt-btn--ghost wt-btn--sm', 'Open full graph ↗');
+    openLink.href = '/wiki/graph?tag=' + encodeURIComponent(tag);
+    openLink.target = '_blank';
+    openLink.rel = 'noopener';
+    head2.appendChild(openLink);
+    panel.appendChild(head2);
+
+    const iframe = el('iframe', 'wt-graph-iframe');
+    iframe.id = 'wt-graph-iframe';
+    iframe.src = '/wiki/graph?embed=1&tag=' + encodeURIComponent(tag);
+    iframe.title = 'This World’s knowledge graph';
+    iframe.loading = 'lazy';
+    panel.appendChild(iframe);
+    return panel;
+  }
+
   /* ── main render ────────────────────────────────────────────── */
 
   function render() {
@@ -193,7 +220,9 @@
     addBtn.type = 'button';
     addBtn.addEventListener('click', () => openDrawer(null));
     head.appendChild(addBtn);
+
     view.appendChild(head);
+    view.appendChild(buildWorldGraphPanel());
 
     // Evolution summary — the World's growth history (transparency).
     if (S.growState === 'running' || (S.growPasses && S.growPasses.length)) {
@@ -358,6 +387,13 @@
     panel.setAttribute('aria-modal', 'true');
 
     panel.appendChild(el('h3', 'wt-drawer-title', isNew ? 'Add term' : 'Edit “' + term.term + '”'));
+
+    if (!isNew && term.slug) {
+      const wikiLink = el('a', 'wt-btn wt-btn--ghost', '🕸 View in graph');
+      wikiLink.href = '/wiki/' + encodeURIComponent(term.slug);
+      wikiLink.title = 'Open this term’s wiki page — shows its graph neighborhood and backlinks';
+      panel.appendChild(wikiLink);
+    }
 
     // Curator flag note + apply suggestion
     let related = (term && Array.isArray(term.related)) ? term.related.slice() : [];

@@ -90,9 +90,10 @@ async def wiki_landing(request: Request):
 
 
 @router.get("/wiki/graph", response_class=HTMLResponse)
-async def wiki_graph_page(request: Request, embed: int = 0):
+async def wiki_graph_page(request: Request, embed: int = 0, tag: str = ""):
     return _templates.TemplateResponse(request, "wiki/graph.html", {
         "embed": bool(embed),
+        "tag": tag,
     })
 
 
@@ -231,9 +232,21 @@ async def api_page(slug: str):
 
 
 @router.get("/api/wiki/graph")
-async def api_graph():
+async def api_graph(tag: str = ""):
     manifest = _load_or_build()
-    return manifest.get("graph", {"nodes": [], "edges": []})
+    graph = manifest.get("graph", {"nodes": [], "edges": []})
+    if not tag:
+        return graph
+    # Scope the graph to one World (or any tag): the World Terms view wants
+    # "what does the lab fundamentally know" to mean this World's pages,
+    # not the whole KB (agents, notes, unrelated Worlds) at once.
+    nodes = [n for n in graph.get("nodes", []) if tag in (n.get("tags") or [])]
+    ids = {n["id"] for n in nodes}
+    edges = [
+        e for e in graph.get("edges", [])
+        if e.get("source") in ids and e.get("target") in ids
+    ]
+    return {"nodes": nodes, "edges": edges}
 
 
 @router.get("/api/wiki/status")
