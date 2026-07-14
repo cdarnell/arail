@@ -32,6 +32,10 @@ def fresh_lab(monkeypatch, tmp_path):
     monkeypatch.delenv("ARAIL_PASSWORD", raising=False)
     monkeypatch.delenv("OPEN_NOTEBOOK_ENCRYPTION_KEY", raising=False)
     monkeypatch.chdir(tmp_path)
+    # The autouse _isolated_env_file fixture points ARAIL_ENV_FILE at
+    # tmp_path/"portal.env"; these tests assert on tmp_path/".env", so
+    # re-point the override at that name (chdir alone covers lab.conf).
+    monkeypatch.setenv("ARAIL_ENV_FILE", str(tmp_path / ".env"))
     # Point HOME at the tmp dir so the code-server write doesn't touch
     # the real ~/.config.
     monkeypatch.setenv("HOME", str(tmp_path))
@@ -65,9 +69,13 @@ def test_lab_password_set_rejects_placeholder(monkeypatch, tmp_path):
 
 def test_lab_password_set_falls_back_to_env_file(monkeypatch, tmp_path):
     """Env var empty but .env on disk has a real password — should
-    detect it (and pull it into os.environ for downstream callers)."""
+    detect it (and pull it into os.environ for downstream callers).
+
+    Deliberately drops ARAIL_ENV_FILE to exercise the production
+    cwd-relative fallback path (safe: cwd is a tmp dir here)."""
     from arail.portal.app import _lab_password_set
     monkeypatch.delenv("ARAIL_PASSWORD", raising=False)
+    monkeypatch.delenv("ARAIL_ENV_FILE", raising=False)
     monkeypatch.chdir(tmp_path)
     (tmp_path / ".env").write_text("ARAIL_PASSWORD=hello-from-env-file\n")
     assert _lab_password_set() is True
