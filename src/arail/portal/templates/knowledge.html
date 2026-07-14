@@ -62,7 +62,7 @@
   <span class="kb-rebuild-badge" id="kb-rebuild-badge"
         title="Wiki/graph compile status — flashes while a rebuild is queued or running"
         aria-live="polite"></span>
-  <a class="btn btn-sm btn-ghost" href="/integrations/knowledge-canvas" title="Knowledge graph">🕸 Graph</a>
+  <a class="btn btn-sm btn-ghost" href="/wiki/graph" title="Knowledge graph">🕸 Graph</a>
   <span class="kb-meter" id="kb-meter">— pages</span>
 </div>
 
@@ -218,7 +218,7 @@
           <span class="kb-quick-label">New note</span>
           <span class="kb-quick-hint">creates in notes/</span>
         </button>
-        <a class="kb-quick-btn" href="/integrations/knowledge-canvas">
+        <a class="kb-quick-btn" href="/wiki/graph">
           <span class="kb-quick-icon">🕸</span>
           <span class="kb-quick-label">Knowledge graph</span>
           <span class="kb-quick-hint">visual map</span>
@@ -236,13 +236,13 @@
           <div class="kb-graph-mini-actions">
             <button class="btn btn-sm btn-ghost" id="kb-graph-refresh-btn"
                     title="Re-fetch the graph snapshot — happens automatically after a rebuild, but click to force it.">↻ Refresh</button>
-            <a class="btn btn-sm btn-ghost" href="/integrations/knowledge-canvas">Open Full 3D Graph</a>
+            <a class="btn btn-sm btn-ghost" href="/wiki/graph">Open Full Graph</a>
           </div>
         </div>
         <iframe
           id="kb-graph-mini-iframe"
           class="kb-graph-mini-iframe"
-          src="/_integrations/knowledge-canvas/index.html?embed=1"
+          src="/wiki/graph?embed=1"
           title="Knowledge graph mini view"
           loading="lazy"
         ></iframe>
@@ -1394,7 +1394,7 @@ document.querySelectorAll('.kb-folder-btn[data-reveal-slot]').forEach(btn => {
 function refreshGraph() {
   const iframe = document.getElementById('kb-graph-mini-iframe');
   if (!iframe) return;
-  const base = '/_integrations/knowledge-canvas/index.html?embed=1';
+  const base = '/wiki/graph?embed=1';
   iframe.src = base + '&v=' + Date.now();
 }
 let _graphRefreshTimer = null;

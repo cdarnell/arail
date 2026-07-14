@@ -19,6 +19,10 @@
     <div class="dict-page-actions">
       <input type="search" id="dict-search" placeholder="Search terms…"
              aria-label="Search dictionary terms" autocomplete="off">
+      <div class="dict-view-toggle" id="dict-view-toggle" role="tablist" aria-label="View">
+        <button type="button" class="dict-view-btn selected" data-view="list" role="tab" aria-selected="true">List</button>
+        <button type="button" class="dict-view-btn" data-view="graph" role="tab" aria-selected="false">🕸 Graph</button>
+      </div>
       <button type="button" id="dict-more" class="dict-btn">Generate more</button>
     </div>
   </div>
@@ -45,6 +49,14 @@
 
   <div class="dict-page-status" id="dict-status" hidden></div>
   <div class="dict-grid" id="dict-list"></div>
+
+  {# ── Graph view — same terms/categories/related, drawn as a graph so
+       agents and humans can see the associations at a glance ──────────── #}
+  <div class="dict-graph-wrap" id="dict-graph-wrap" hidden>
+    <canvas id="dict-graph-canvas"></canvas>
+    <div class="dict-graph-tooltip" id="dict-graph-tooltip" hidden></div>
+    <div class="dict-graph-legend" id="dict-graph-legend"></div>
+  </div>
 
 </div>
 {% endblock %}

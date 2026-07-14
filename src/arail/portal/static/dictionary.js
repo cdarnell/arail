@@ -34,6 +34,10 @@
   var activeCat = "";
   var pollTimer = null;
 
+  var viewToggle = document.getElementById("dict-view-toggle");
+  var graphWrap = document.getElementById("dict-graph-wrap");
+  var currentView = "list";
+
   // ── helpers ──────────────────────────────────────────────────────────
   function el(tag, cls, text) {
     var n = document.createElement(tag);
@@ -206,6 +210,248 @@
     if (limit && list.length > limit) list = list.slice(0, limit);
     list.forEach(function (t) { grid.appendChild(termCard(t)); });
     applySearch();
+    buildGraph();
+  }
+
+  /* ── Graph view — the same terms/categories/related, drawn as a graph.
+     This is the "what does the lab fundamentally know" overview: agents
+     and humans see the associations (related terms) and clusters
+     (categories) at a glance, before drilling into any one card. Purely
+     client-side — the dictionary isn't wiki-indexed, so there's no
+     server-side KB graph to embed here the way World Terms does. */
+  var GRAPH_PALETTE = ["--accent", "--accent2", "--info", "--warn", "--positive", "--danger", "--purple"];
+  var graphState = null; // { nodes, edges, byId }
+  var graphCamera = { zoom: 1 };
+  var graphHover = null;
+  var graphCanvas = document.getElementById("dict-graph-canvas");
+  var graphCtx = graphCanvas ? graphCanvas.getContext("2d") : null;
+  var graphTooltip = document.getElementById("dict-graph-tooltip");
+  var graphLegendEl = document.getElementById("dict-graph-legend");
+
+  function cssVar(name) {
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  }
+  function colorForIndex(i) {
+    return cssVar(GRAPH_PALETTE[i % GRAPH_PALETTE.length]) || "#8888aa";
+  }
+
+  function buildGraph() {
+    if (!graphCanvas) return;
+    var cats = [];
+    var catIndex = {};
+    allTerms.forEach(function (t) {
+      var c = t.category || "";
+      if (c && !catIndex.hasOwnProperty(c)) { catIndex[c] = cats.length; cats.push(c); }
+    });
+
+    var nodes = [];
+    var byId = {};
+    var byTermLower = {};
+    cats.forEach(function (c, i) {
+      var n = { id: "cat:" + c, kind: "category", label: c, color: colorForIndex(i), count: 0 };
+      nodes.push(n); byId[n.id] = n;
+    });
+    allTerms.forEach(function (t) {
+      var ci = t.category && catIndex.hasOwnProperty(t.category) ? catIndex[t.category] : -1;
+      var n = {
+        id: "term:" + (t.key || t.term), kind: "term", label: t.term || t.key,
+        short: t.short_def || "", category: t.category || "",
+        color: ci >= 0 ? colorForIndex(ci) : cssVar("--muted") || "#8888aa",
+        entry: t,
+      };
+      nodes.push(n); byId[n.id] = n;
+      byTermLower[(t.term || t.key || "").toLowerCase()] = n;
+      if (ci >= 0) cats[ci] && (byId["cat:" + t.category].count += 1);
+    });
+
+    var edges = [];
+    var seen = {};
+    allTerms.forEach(function (t) {
+      var selfNode = byTermLower[(t.term || t.key || "").toLowerCase()];
+      if (!selfNode) return;
+      if (t.category && byId["cat:" + t.category]) {
+        edges.push({ a: "cat:" + t.category, b: selfNode.id, kind: "hub" });
+      }
+      (t.related || []).forEach(function (r) {
+        var target = byTermLower[String(r || "").toLowerCase()];
+        if (!target || target === selfNode) return;
+        var key = [selfNode.id, target.id].sort().join("|");
+        if (seen[key]) return;
+        seen[key] = 1;
+        edges.push({ a: selfNode.id, b: target.id, kind: "related" });
+      });
+    });
+
+    layoutGraph(nodes, cats.length);
+    graphState = { nodes: nodes, edges: edges, byId: byId };
+    renderGraphLegend(cats);
+    if (currentView === "graph") drawGraph();
+  }
+
+  function layoutGraph(nodes, catCount) {
+    var cats = nodes.filter(function (n) { return n.kind === "category"; });
+    var terms = nodes.filter(function (n) { return n.kind === "term"; });
+    var byCat = {};
+    var uncategorized = [];
+    terms.forEach(function (t) {
+      if (t.category) (byCat[t.category] = byCat[t.category] || []).push(t);
+      else uncategorized.push(t);
+    });
+
+    var hubR = Math.max(140, catCount * 42);
+    cats.forEach(function (c, i) {
+      var angle = (i / Math.max(1, cats.length)) * Math.PI * 2 - Math.PI / 2;
+      c.x = Math.cos(angle) * hubR;
+      c.y = Math.sin(angle) * hubR;
+      var members = byCat[c.label] || [];
+      var ringR = Math.min(130, 40 + members.length * 5);
+      members.forEach(function (t, j) {
+        var a = (j / Math.max(1, members.length)) * Math.PI * 2;
+        var r = ringR * (0.6 + 0.4 * ((j % 3) / 2));
+        t.x = c.x + Math.cos(a) * r;
+        t.y = c.y + Math.sin(a) * r;
+      });
+    });
+    // Uncategorized terms (no category field, e.g. some default-theme
+    // entries) get their own loose ring around the origin.
+    uncategorized.forEach(function (t, j) {
+      var a = (j / Math.max(1, uncategorized.length)) * Math.PI * 2;
+      var r = 60 + (j % 4) * 20;
+      t.x = Math.cos(a) * r;
+      t.y = Math.sin(a) * r;
+    });
+  }
+
+  function renderGraphLegend(cats) {
+    if (!graphLegendEl) return;
+    clearNode(graphLegendEl);
+    cats.forEach(function (c, i) {
+      var item = el("span", "dict-graph-legend-item");
+      var dot = el("span", "dict-graph-legend-dot");
+      dot.style.background = colorForIndex(i);
+      item.appendChild(dot);
+      item.appendChild(document.createTextNode(c));
+      graphLegendEl.appendChild(item);
+    });
+  }
+
+  function resizeGraphCanvas() {
+    var dpr = window.devicePixelRatio || 1;
+    var w = graphWrap.clientWidth || 600;
+    var h = graphWrap.clientHeight || 480;
+    graphCanvas.width = w * dpr;
+    graphCanvas.height = h * dpr;
+    graphCanvas.style.width = w + "px";
+    graphCanvas.style.height = h + "px";
+    graphCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    return { w: w, h: h };
+  }
+
+  function drawGraph() {
+    if (!graphState || !graphCanvas) return;
+    var dims = resizeGraphCanvas();
+    var cx = dims.w / 2, cy = dims.h / 2;
+    var zoom = graphCamera.zoom;
+    var ctx = graphCtx;
+    ctx.clearRect(0, 0, dims.w, dims.h);
+
+    function toScreen(n) { return { x: cx + n.x * zoom, y: cy + n.y * zoom }; }
+
+    ctx.lineWidth = 1;
+    graphState.edges.forEach(function (e) {
+      var a = graphState.byId[e.a], b = graphState.byId[e.b];
+      if (!a || !b) return;
+      var sa = toScreen(a), sb = toScreen(b);
+      ctx.beginPath();
+      ctx.moveTo(sa.x, sa.y);
+      ctx.lineTo(sb.x, sb.y);
+      ctx.strokeStyle = e.kind === "related"
+        ? "color-mix(in srgb, " + a.color + " 45%, transparent)"
+        : "color-mix(in srgb, " + a.color + " 16%, transparent)";
+      ctx.stroke();
+    });
+
+    graphState.nodes.forEach(function (n) {
+      var s = toScreen(n);
+      var r = n.kind === "category" ? 10 : 4;
+      var isHover = n === graphHover;
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, isHover ? r + 2 : r, 0, Math.PI * 2);
+      ctx.fillStyle = n.color;
+      ctx.globalAlpha = n.kind === "category" ? 1 : 0.85;
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      if (n.kind === "category") {
+        ctx.font = "600 12px var(--font-sans, sans-serif)";
+        ctx.fillStyle = cssVar("--text-hi") || "#eee";
+        ctx.textAlign = "center";
+        ctx.fillText(n.label, s.x, s.y - r - 6);
+      }
+    });
+  }
+
+  function hitTestGraph(sx, sy) {
+    if (!graphState) return null;
+    var cx = graphWrap.clientWidth / 2, cy = graphWrap.clientHeight / 2;
+    var zoom = graphCamera.zoom;
+    var best = null, bestDist = 12 * 12;
+    graphState.nodes.forEach(function (n) {
+      var x = cx + n.x * zoom, y = cy + n.y * zoom;
+      var d = (x - sx) * (x - sx) + (y - sy) * (y - sy);
+      if (d < bestDist) { bestDist = d; best = n; }
+    });
+    return best;
+  }
+
+  if (graphCanvas) {
+    graphCanvas.addEventListener("mousemove", function (e) {
+      var rect = graphCanvas.getBoundingClientRect();
+      var sx = e.clientX - rect.left, sy = e.clientY - rect.top;
+      var node = hitTestGraph(sx, sy);
+      if (node !== graphHover) { graphHover = node; drawGraph(); }
+      if (node && graphTooltip) {
+        graphTooltip.hidden = false;
+        graphTooltip.style.left = (sx + 14) + "px";
+        graphTooltip.style.top = (sy + 10) + "px";
+        graphTooltip.textContent = node.kind === "category"
+          ? node.label + " · " + node.count + " terms"
+          : node.label + (node.short ? " — " + node.short : "");
+      } else if (graphTooltip) {
+        graphTooltip.hidden = true;
+      }
+    });
+    graphCanvas.addEventListener("mouseleave", function () {
+      graphHover = null;
+      if (graphTooltip) graphTooltip.hidden = true;
+      drawGraph();
+    });
+    graphCanvas.addEventListener("click", function (e) {
+      var rect = graphCanvas.getBoundingClientRect();
+      var node = hitTestGraph(e.clientX - rect.left, e.clientY - rect.top);
+      if (node && node.kind === "term") jumpToTerm(node.label);
+    });
+    graphCanvas.addEventListener("wheel", function (e) {
+      e.preventDefault();
+      graphCamera.zoom = Math.min(3, Math.max(0.4, graphCamera.zoom * (e.deltaY > 0 ? 0.9 : 1.1)));
+      drawGraph();
+    }, { passive: false });
+    window.addEventListener("resize", function () { if (currentView === "graph") drawGraph(); });
+  }
+
+  if (viewToggle) {
+    viewToggle.addEventListener("click", function (e) {
+      var btn = e.target.closest(".dict-view-btn");
+      if (!btn) return;
+      currentView = btn.dataset.view;
+      viewToggle.querySelectorAll(".dict-view-btn").forEach(function (b) {
+        var on = b === btn;
+        b.classList.toggle("selected", on);
+        b.setAttribute("aria-selected", String(on));
+      });
+      if (grid) grid.hidden = currentView !== "list";
+      if (graphWrap) graphWrap.hidden = currentView !== "graph";
+      if (currentView === "graph") drawGraph();
+    });
   }
 
   function applySearch() {
