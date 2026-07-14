@@ -1294,8 +1294,12 @@ function renderSearchResults(q, results) {
   document.getElementById('kb-viewer-meta').innerHTML =
     `<span class="kb-meta-pill">${results.length} hits</span>`;
   const body = document.getElementById('kb-rendered');
+  // Hand-off row: the same query against the reference manual (/docs).
+  const manualRow = `<p class="kb-search-manual">
+    <a href="/docs?q=${encodeURIComponent(q)}">Search the manual for “${esc(q)}” →</a>
+  </p>`;
   if (!results.length) {
-    body.innerHTML = '<p class="empty">No matches.</p>';
+    body.innerHTML = '<p class="empty">No matches in the knowledge base.</p>' + manualRow;
     return;
   }
   body.innerHTML = '<ul class="kb-search-results">' +
@@ -1305,7 +1309,7 @@ function renderSearchResults(q, results) {
         <span class="kb-meta-pill">${esc(r.section)}</span>
         <span class="kb-meta-pill">score ${r.score}</span>
       </li>
-    `).join('') + '</ul>';
+    `).join('') + '</ul>' + manualRow;
   body.querySelectorAll('[data-slug]').forEach(a => {
     a.addEventListener('click', e => {
       e.preventDefault();

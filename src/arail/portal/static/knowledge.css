@@ -1906,3 +1906,8 @@ body.wt-mode .kb-layout { display: none; }
   max-height: 320px;
   overflow-y: auto;
 }
+
+/* Search hand-off to the reference manual */
+.kb-search-manual { margin-top: 14px; font-size: 0.85rem; }
+.kb-search-manual a { color: var(--accent2); text-decoration: none; }
+.kb-search-manual a:hover { text-decoration: underline; }

@@ -2293,9 +2293,41 @@ def _recently_updated(cats: dict[str, tuple], days: int = 7) -> tuple:
 # Docs Hub route — replaces the redirect at the original docs_landing.
 # ---------------------------------------------------------------------------
 
+def _generated_reference() -> dict[str, list[dict]]:
+    """Docgen output (lab/pkb/compiled/docs) grouped by subdir, read from
+    the cached wiki manifest — a file read, never a rebuild. The Docs hub
+    is the reference manual, so the auto-generated reference lives here
+    (and stays OUT of the knowledge brain graph). ``guides/`` is hidden:
+    it duplicates the repo docs the registry already lists."""
+    groups: dict[str, list[dict]] = {}
+    try:
+        from arail import wiki as wiki_mod
+        pages = wiki_mod.load_manifest().get("pages") or {}
+    except Exception:  # noqa: BLE001
+        return groups
+    marker = "compiled/docs/"
+    for slug, page in pages.items():
+        path = str(page.get("path") or "").replace("\\", "/")
+        if marker not in path:
+            continue
+        rel = path.split(marker, 1)[1]
+        group = rel.split("/", 1)[0] if "/" in rel else "misc"
+        if group == "guides":
+            continue
+        groups.setdefault(group, []).append({
+            "slug": slug,
+            "title": page.get("title") or slug,
+        })
+    for items in groups.values():
+        items.sort(key=lambda d: d["title"].lower())
+    return dict(sorted(groups.items()))
+
+
 @app.get("/docs", response_class=HTMLResponse)
-async def docs_hub(request: Request):
-    """Docs Hub landing — registry-driven library replacing the /docs redirect."""
+async def docs_hub(request: Request, q: str = ""):
+    """Docs Hub landing — the lab's reference manual: the curated registry
+    docs plus the auto-generated reference (docgen), with one search that
+    also reaches the knowledge base."""
     tier = _current_tier()
     raw_cats = _docs_registry.by_category()
     cats = _filter_by_tier(raw_cats, tier)
@@ -2308,6 +2340,8 @@ async def docs_hub(request: Request):
         "recent": recent,
         "tier": tier,
         "nav_active": "docs",
+        "generated": _generated_reference(),
+        "prefill_q": q,
     })
 
 
