@@ -263,8 +263,29 @@ def list_pending(pkb_root: Path | None = None, *, limit: int = 500) -> list[dict
     return out
 
 
+def pending_paths(pkb_root: Path | None = None) -> list[str]:
+    """Candidate paths awaiting review — the cheap variant of list_pending
+    (same walk and filters, but no file reads / titles / hashes). For
+    counts and digests: the lab brief and the hero stats hit this per
+    request, so it must stay glob-only."""
+    root = pkb_root or _pkb_root()
+    if not root.exists():
+        return []
+    approved = approved_paths(root)
+    rejected = _rejected_set(root)
+    out: list[str] = []
+    for p in sorted(root.rglob("*")):
+        if not p.is_file():
+            continue
+        rel = p.relative_to(root).as_posix()
+        if rel in approved or rel in rejected or not _is_candidate(rel):
+            continue
+        out.append(rel)
+    return out
+
+
 def pending_count(pkb_root: Path | None = None) -> int:
-    return len(list_pending(pkb_root))
+    return len(pending_paths(pkb_root))
 
 
 # ── The gate: approve / reject / revoke ──────────────────────────────────

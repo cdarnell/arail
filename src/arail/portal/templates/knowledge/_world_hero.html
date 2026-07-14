@@ -3,13 +3,20 @@
    hydrated by knowledge-page.js from the `arail:world-terms-loaded` and
    `arail:kb-review-loaded` events (no extra fetches — world-terms.js and
    compiled-kb.js already load that data and re-broadcast it). #}
+{% set _w = brief.world if brief else None %}
+{% set _k = brief.knowledge if brief else None %}
 <section class="kb-hero" id="kb-hero" data-world="{{ identity.world or '' }}">
   {% if identity.mounted %}
   <div class="kb-hero-head">
     <span class="kb-hero-kicker">Your World</span>
     <div class="kb-hero-title-row">
-      <h1 class="kb-hero-name" id="kb-hero-name">{{ identity.world|capitalize }}</h1>
+      <h1 class="kb-hero-name" id="kb-hero-name">{{ _w.display_name if _w and _w.display_name else identity.world|capitalize }}</h1>
+      {% if _w and _w.provenance_tier %}
+      <span class="wt-chip {{ 'wt-chip--sourced' if _w.provenance_tier == 'sourced' else ('wt-chip--dreamed' if _w.provenance_tier == 'model-asserted' else 'wt-chip--mixed') }}"
+            id="kb-hero-tier">{{ 'dreamed' if _w.provenance_tier == 'model-asserted' else _w.provenance_tier }}</span>
+      {% else %}
       <span class="wt-chip" id="kb-hero-tier" hidden></span>
+      {% endif %}
       <details class="kb-hero-prov" id="kb-hero-prov">
         <summary title="How provenance and sealing work">ⓘ provenance</summary>
         <div class="kb-hero-prov-body">
@@ -27,11 +34,11 @@
       </details>
     </div>
     <div class="kb-hero-stats" id="kb-hero-stats">
-      <span class="kb-hero-stat"><strong id="kb-hero-terms">—</strong> terms</span>
-      <span class="kb-hero-stat"><strong id="kb-hero-cats">—</strong> categories</span>
-      <span class="kb-hero-stat kb-hero-stat--approved"><strong id="kb-hero-approved">—</strong> approved</span>
-      <span class="kb-hero-stat kb-hero-stat--pending" id="kb-hero-pending-wrap" hidden>
-        <strong id="kb-hero-pending">—</strong> pending
+      <span class="kb-hero-stat"><strong id="kb-hero-terms">{{ _w.term_count if _w and _w.term_count is not none else '—' }}</strong> terms</span>
+      <span class="kb-hero-stat"><strong id="kb-hero-cats">{{ _w.category_count if _w and _w.category_count is not none else '—' }}</strong> categories</span>
+      <span class="kb-hero-stat kb-hero-stat--approved"><strong id="kb-hero-approved">{{ _k.approved_total if _k else '—' }}</strong> approved</span>
+      <span class="kb-hero-stat kb-hero-stat--pending" id="kb-hero-pending-wrap" {{ '' if _k and _k.pending_total else 'hidden' }}>
+        <strong id="kb-hero-pending">{{ _k.pending_total if _k else '—' }}</strong> pending
         <a href="#compiled-kb-panel" title="Jump to the review queue">review ↓</a>
       </span>
       <a class="kb-hero-dict" href="/docs/dictionary"

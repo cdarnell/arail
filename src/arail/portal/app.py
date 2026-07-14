@@ -9464,18 +9464,27 @@ from arail.pkb import (
 
 @app.get("/knowledge", response_class=HTMLResponse)
 async def knowledge_page(request: Request):
-    # The page hydrates its data client-side (/api/pkb/browse, /api/worlds/
-    # terms, /api/pkb/review, /api/wiki/graph); the server renders identity,
-    # the World-hero mount state, and the current goal for the Agent Focus
-    # card. (A full pkb_browse() used to be computed here and never read.)
+    # The page hydrates its live data client-side (/api/pkb/browse,
+    # /api/worlds/terms, /api/pkb/review, /api/wiki/graph); the server
+    # renders identity, the World hero (counts from the cached lab brief),
+    # and the Agent Focus section. (A full pkb_browse() used to be computed
+    # here and never read.)
+    from arail import lab_brief
     from arail.pkb import _pkb_root
     current_goal = goal_store.get_current()
     pkb = _pkb_root()
     models_dir = Path(os.getenv("ARAIL_MODELS_DIR", "lab/models"))
+    try:
+        brief = lab_brief.get_cached_brief()
+        brief_md = lab_brief.brief_markdown(brief)
+    except Exception:  # noqa: BLE001
+        brief, brief_md = {}, ""
     return templates.TemplateResponse(request, "knowledge.html", {
         **_identity_ctx(),
         "mode": _lab_mode(),
         "current_goal": current_goal,
+        "brief": brief,
+        "brief_md": brief_md,
         "inbox_path": str((pkb / "inbox").resolve()),
         "models_path": str(models_dir.resolve()),
     })
@@ -9601,6 +9610,22 @@ def _pkb_write_csrf(request: Request):
         if _urlparse(origin).netloc and _urlparse(origin).netloc != host:
             return JSONResponse(status_code=403, content={"error": "cross_origin"})
     return None
+
+
+@app.get("/api/lab/brief")
+async def api_lab_brief(format: str = ""):
+    """The lab brief — one shared context for humans and agents: mounted
+    World identity, active goal, research-program headline, operator
+    redirects, and the approved-knowledge digest. The Knowledge page's
+    Agent Focus section renders this JSON; ``?format=md`` returns the
+    exact markdown Buddy and the Researcher get injected. Read-only."""
+    from fastapi.responses import PlainTextResponse
+    from arail import lab_brief
+    brief = lab_brief.get_cached_brief()
+    if format == "md":
+        return PlainTextResponse(lab_brief.brief_markdown(brief),
+                                 media_type="text/markdown")
+    return brief
 
 
 @app.get("/api/pkb/review")

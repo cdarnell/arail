@@ -1860,3 +1860,49 @@ body.wt-mode .kb-layout { display: none; }
   background: color-mix(in srgb, var(--accent2) 12%, transparent);
   border-color: color-mix(in srgb, var(--accent2) 30%, transparent);
 }
+
+/* ── Agent focus: brief-driven bits ────────────────────────────── */
+.kb-redirect-chip {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: var(--label-transform);
+  letter-spacing: var(--label-tracking);
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warn) 28%, transparent);
+  border-radius: var(--radius-pill);
+  padding: 1px 8px;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+.kb-focus-out-mark {
+  margin-left: 8px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+}
+.kb-focus-out-mark--approved { color: var(--positive); }
+
+/* Raw brief — the progressive disclosure that shows agents' exact context */
+.kb-focus-raw { margin-top: 12px; font-size: 0.82rem; }
+.kb-focus-raw > summary {
+  cursor: pointer;
+  color: var(--text-muted);
+  user-select: none;
+}
+.kb-focus-raw[open] > summary { color: var(--accent2); }
+.kb-focus-raw-pre {
+  margin: 10px 0 6px;
+  padding: 12px 14px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+  color: var(--text);
+  font-size: 0.78rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-x: auto;
+  max-height: 320px;
+  overflow-y: auto;
+}

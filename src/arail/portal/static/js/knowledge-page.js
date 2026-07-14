@@ -80,51 +80,80 @@
     fill.style.width = pct + '%';
   }
 
-  // Recent agent outputs — newest few files under agents/ from the tree
-  // knowledge-files.js already fetched (exposed as window.KBTree; the
-  // load event may fire before this script runs, so we also render once
-  // at startup from whatever is already there). Clicking one opens it in
-  // the Library's reader (openFile is a knowledge-files.js global).
-  function renderFocusOutputs() {
+  // Recent agent outputs — server-rendered from the lab brief; clicks open
+  // the file in the Library's reader (openFile is a knowledge-files.js
+  // global). Event delegation so brief refreshes don't re-wire handlers.
+  const outputsList = byId('kb-focus-outputs-list');
+  if (outputsList) {
+    outputsList.addEventListener('click', (ev) => {
+      const a = ev.target.closest('a[data-open-path]');
+      if (!a) return;
+      ev.preventDefault();
+      if (typeof window.openFile === 'function') {
+        window.openFile(a.dataset.openPath);
+        const lib = byId('kb-library');
+        if (lib) lib.scrollIntoView({ behavior: 'smooth' });
+      }
+    });
+  }
+
+  function renderFocusOutputs(outs) {
     const list = byId('kb-focus-outputs-list');
     if (!list) return;
-    const tree = window.KBTree || null;
-    const agents = tree && tree.agents;
     list.textContent = '';
-    const outputs = ((agents && agents.items) || []).filter((f) => {
-      const p = f.path || '';
-      // Agent *outputs* only — the writers (write_agent_research & co.)
-      // all emit markdown; skip contracts (AGENT.md), code, and state.
-      return /\.md$/i.test(p) && !/AGENT\.md$/.test(p);
-    });
-    const items = outputs.slice(-5).reverse();
-    if (!items.length) {
+    if (!outs || !outs.length) {
       const li = document.createElement('li');
       li.className = 'kb-focus-empty';
       li.textContent = 'No agent output yet — set a goal to put the Researcher to work.';
       list.appendChild(li);
       return;
     }
-    for (const f of items) {
+    for (const o of outs) {
       const li = document.createElement('li');
       const a = document.createElement('a');
       a.href = '#kb-library';
-      a.textContent = f.name || f.path;
-      a.title = f.path;
-      a.addEventListener('click', (ev) => {
-        ev.preventDefault();
-        if (typeof window.openFile === 'function') {
-          window.openFile(f.path);
-          const lib = byId('kb-library');
-          if (lib) lib.scrollIntoView({ behavior: 'smooth' });
-        }
-      });
+      a.dataset.openPath = o.path;
+      a.textContent = o.title || o.path;
+      a.title = o.path;
       li.appendChild(a);
+      const mark = document.createElement('span');
+      mark.className = 'kb-focus-out-mark' + (o.approved ? ' kb-focus-out-mark--approved' : '');
+      mark.textContent = o.approved ? 'approved' : 'pending';
+      li.appendChild(mark);
       list.appendChild(li);
     }
   }
-  window.addEventListener('arail:kb-tree-loaded', renderFocusOutputs);
-  renderFocusOutputs();
+
+  // Re-hydrate the volatile brief bits (hero counts, recent outputs, the
+  // raw-brief text when its disclosure is open) after review or wiki
+  // events. The initial render is server-side — no loading flash.
+  let _briefTimer = null;
+  function scheduleBriefRefresh() {
+    if (_briefTimer) clearTimeout(_briefTimer);
+    _briefTimer = setTimeout(async () => {
+      _briefTimer = null;
+      try {
+        const b = await (await fetch('/api/lab/brief')).json();
+        const k = b.knowledge || {};
+        const approved = byId('kb-hero-approved');
+        if (approved) approved.textContent = String(k.approved_total ?? '—');
+        const pendingWrap = byId('kb-hero-pending-wrap');
+        const pending = byId('kb-hero-pending');
+        if (pendingWrap && pending) {
+          pendingWrap.hidden = !k.pending_total;
+          pending.textContent = String(k.pending_total ?? 0);
+        }
+        renderFocusOutputs(b.recent_agent_outputs);
+        const raw = byId('kb-focus-raw');
+        const pre = byId('kb-focus-raw-pre');
+        if (raw && raw.open && pre) {
+          const md = await (await fetch('/api/lab/brief?format=md')).text();
+          pre.textContent = md;
+        }
+      } catch (_) { /* transient — next event retries */ }
+    }, 1200);
+  }
+  window.addEventListener('arail:kb-review-changed', scheduleBriefRefresh);
 
   /* ── Graph scope chips ────────────────────────────────────────── */
   // Brain (default) / This World / Everything — each chip carries its
@@ -192,6 +221,7 @@
         // any tab or agent — refresh ghosts + queue + hero counts.
         if (ev.data && ev.data.kb_review) {
           scheduleGraphReload();
+          scheduleBriefRefresh();
           if (typeof window.arailReviewReload === 'function') window.arailReviewReload();
         }
       };
@@ -211,6 +241,7 @@
         badge.textContent = '✓ updated';
         badge.className = 'kb-rebuild-badge done';
         scheduleGraphReload();
+        scheduleBriefRefresh();
         if (typeof window.loadTree === 'function') window.loadTree();
         // Await loadWikiPages so wikiPagesByPath is hot when we
         // enrich the toast — without this race, the [Wiki] links

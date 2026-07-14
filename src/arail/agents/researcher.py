@@ -263,6 +263,20 @@ def _active_redirect() -> dict[str, Any] | None:
         return None
 
 
+def _brief_prompt_block() -> str:
+    """The lab brief, prepended to planning prompts so research grounds
+    itself in what the lab *is* — the mounted World, the approved
+    knowledge digest, redirects, and the program headline. Same text the
+    Knowledge page's raw-brief disclosure shows. Best-effort: empty
+    string when unavailable (a missing brief must never stall a run)."""
+    try:
+        from arail.lab_brief import brief_markdown, get_cached_brief
+        text = brief_markdown(get_cached_brief()).strip()
+        return text + "\n\n" if text else ""
+    except Exception:  # noqa: BLE001
+        return ""
+
+
 def _redirect_prompt_block(redirect: dict[str, Any] | None) -> str:
     if not redirect:
         return ""
@@ -620,6 +634,28 @@ class ResearcherAgent:
                     "info",
                 )
 
+            # Read the lab brief once per run — world identity + approved-KB
+            # digest + redirects ground the planning prompt (visible on the
+            # Knowledge page's Agent Focus so the human sees the same text).
+            brief_block = _brief_prompt_block()
+            if brief_block:
+                try:
+                    from arail.lab_brief import get_cached_brief
+                    _b = get_cached_brief()
+                    _w = (_b.get("world") or {}).get("display_name")
+                    _k = _b.get("knowledge") or {}
+                    activity_log.emit(
+                        "researcher",
+                        "Read the lab brief — "
+                        + (f"world '{_w}', " if _w else "no world mounted, ")
+                        + f"{_k.get('approved_total', 0)} approved items, "
+                        + f"{_k.get('pending_total', 0)} pending review",
+                        "info",
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
+            self._brief_block = brief_block
+
             activity_log.emit("researcher",
                               f"Starting research ({intent_name}): {goal_text}",
                               "success")
@@ -907,7 +943,11 @@ class ResearcherAgent:
         # alternatives.
         # sys_ctx is the stable prefix → cached system block (Claude); the rest
         # is the per-run volatile body. See _llm_complete / build_chat_payload.
+        # The lab brief (fetched once in _run) rides ahead of the redirect —
+        # both are volatile per-run steering; sys_ctx stays the cached prefix.
+        brief_block = getattr(self, "_brief_block", "") or _brief_prompt_block()
         prompt = (
+            f"{brief_block}"
             f"{redirect_block}"
             f"{self._swarm_prompt_block(parsed_goal)}"
             f"Given the goal below, generate 5-8 testable hypotheses "
