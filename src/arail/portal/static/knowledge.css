@@ -1754,7 +1754,7 @@ body.wt-mode .kb-layout { display: none; }
    knowledge page the two-class selector wins and pins a fixed height. */
 .kb-brain-graph .graph-wrap {
   height: 480px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-strong);
   border-radius: var(--radius-m);
   overflow: hidden;
 }
@@ -1925,3 +1925,74 @@ body.wt-mode .kb-layout { display: none; }
 .kb-search-manual { margin-top: 14px; font-size: 0.85rem; }
 .kb-search-manual a { color: var(--accent2); text-decoration: none; }
 .kb-search-manual a:hover { text-decoration: underline; }
+
+/* ── Scope chip count badges + per-scope stats readout ─────────── */
+.kb-scope-count {
+  margin-left: 6px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+.kb-scope-chip[aria-selected="true"] .kb-scope-count { color: var(--accent2); }
+.kb-scope-count:empty { display: none; }
+
+.kb-graph-stats {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin: 10px 0 2px;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+.kb-stat { white-space: nowrap; }
+.kb-stat strong {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+.kb-stat--lead strong { color: var(--text-strong); }
+.kb-stat-sub { color: var(--text-muted); }
+.kb-stat--muted { color: var(--text-muted); font-style: italic; }
+.kb-stat-divider {
+  width: 1px;
+  align-self: stretch;
+  min-height: 1em;
+  background: var(--border-strong);
+}
+/* Group pills echo the graph legend colors so the numbers read as the graph. */
+.kb-stat--group strong { color: var(--text); }
+.kb-stat--world strong    { color: var(--accent2); }
+.kb-stat--approved strong { color: var(--positive); }
+.kb-stat--candidate strong,
+.kb-stat--inference strong { color: var(--text-muted); }
+.kb-stat--sources strong  { color: var(--accent2); }
+.kb-stat--agents strong   { color: var(--positive); }
+.kb-stat--notes strong    { color: var(--info); }
+.kb-stat--compiled strong { color: var(--warn); }
+.kb-stat--docs strong     { color: var(--danger); }
+
+/* ── Contained page column ─────────────────────────────────────────
+   base.html renders {% block content %} straight into <body> with no
+   gutter, so the narrative sections used to run to the window edges
+   (the graph bled out full-width). This wraps the whole tab in a
+   padded, centred column matching the app's 1600px convention, and
+   flattens the Library's own inner max-width/gutters so every section
+   lines up on the same left/right edge. */
+.kb-page {
+  max-width: 1600px;
+  margin: 0 auto;
+  padding: 0 1.5rem 2.5rem;
+}
+.kb-page .kb-toolbar,
+.kb-page .kb-layout {
+  max-width: none;
+  margin-left: 0;
+  margin-right: 0;
+}
+.kb-page .kb-layout {
+  padding-left: 0;
+  padding-right: 0;
+}
+@media (max-width: 600px) {
+  .kb-page { padding: 0 1rem 2rem; }
+}

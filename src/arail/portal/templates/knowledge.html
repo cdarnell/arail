@@ -16,7 +16,8 @@
    (Files view, moved verbatim from the old inline script) and
    static/js/knowledge-page.js (hero/focus/SSE orchestration). #}
 
-<!-- Full-page drop overlay (shows on drag-over) -->
+<!-- Full-page drop overlay (shows on drag-over) — fixed, stays outside the
+     contained page column so it can cover the whole viewport. -->
 <div class="kb-drop-overlay" id="kb-drop-overlay">
   <div class="kb-drop-message">
     <div class="kb-drop-icon">📥</div>
@@ -25,31 +26,37 @@
   </div>
 </div>
 
-{% include "knowledge/_world_hero.html" %}
+{# Contained page column — base.html drops content straight into <body>
+   with no gutter, so every section is wrapped here to keep the tab off the
+   window edges (the graph especially was bleeding out full-width). #}
+<div class="kb-page">
 
-{% include "knowledge/_brain_graph.html" %}
+  {% include "knowledge/_world_hero.html" %}
 
-{% include "knowledge/_agent_focus.html" %}
+  {% include "knowledge/_brain_graph.html" %}
 
-<!-- Compiled KB review queue (populated by /static/js/compiled-kb.js).
-     The human-approved layer agents build on: raw is a candidate pool;
-     nothing crosses the gate without approval. Shown when items await review. -->
-<section class="ckb-panel" id="compiled-kb-panel" hidden aria-live="polite"></section>
+  {% include "knowledge/_agent_focus.html" %}
 
-{% include "knowledge/_library.html" %}
+  <!-- Compiled KB review queue (populated by /static/js/compiled-kb.js).
+       The human-approved layer agents build on: raw is a candidate pool;
+       nothing crosses the gate without approval. Shown when items await review. -->
+  <section class="ckb-panel" id="compiled-kb-panel" hidden aria-live="polite"></section>
 
-{% if 'docs' in tier_surfaces %}
-<footer class="kb-footer">
-  <a href="/docs" class="kb-docs-banner-link">
-    <span class="kb-docs-banner-icon">📖</span>
-    <div class="kb-docs-banner-body">
-      <strong class="kb-docs-banner-title">Reference manual</strong>
-      <span class="kb-docs-banner-hint">Curated lab docs — install, agents, Buddy, API conventions.</span>
-    </div>
-    <span class="kb-docs-banner-arrow">→</span>
-  </a>
-</footer>
-{% endif %}
+  {% include "knowledge/_library.html" %}
+
+  {% if 'docs' in tier_surfaces %}
+  <footer class="kb-footer">
+    <a href="/docs" class="kb-docs-banner-link">
+      <span class="kb-docs-banner-icon">📖</span>
+      <div class="kb-docs-banner-body">
+        <strong class="kb-docs-banner-title">Reference manual</strong>
+        <span class="kb-docs-banner-hint">Curated lab docs — install, agents, Buddy, API conventions.</span>
+      </div>
+      <span class="kb-docs-banner-arrow">→</span>
+    </a>
+  </footer>
+  {% endif %}
+</div>
 {% endblock %}
 
 {% block scripts %}

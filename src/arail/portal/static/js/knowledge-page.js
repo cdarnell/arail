@@ -185,6 +185,121 @@
     });
   })();
 
+  /* ── Per-scope graph stats ────────────────────────────────────── */
+  // A readout under the scope chips: node count, relationships (wikilinks
+  // vs semantic), and the group breakdown for the ACTIVE scope — rendered
+  // from the graph the canvas just loaded (no extra fetch). Chip badges
+  // (Brain N · This World M · Everything K) come from cheap count-only
+  // fetches so you can compare all three at a glance.
+  const fmt = (n) => (n == null ? '—' : n.toLocaleString());
+
+  // Human labels for node groups — brain scope reuses the world/approved/
+  // candidate groups; "everything" uses the wiki sections.
+  const GROUP_LABEL = {
+    world: 'World terms', approved: 'approved', candidate: 'pending',
+    sources: 'sources', agents: 'agent work', notes: 'notes',
+    compiled: 'reference', docs: 'docs', inference: 'inference',
+  };
+  // The order groups read in, so the strip is stable across reloads.
+  const GROUP_ORDER = ['world', 'approved', 'candidate', 'sources', 'agents',
+    'notes', 'compiled', 'docs', 'inference'];
+
+  function statPill(cls, value, label) {
+    const s = document.createElement('span');
+    s.className = 'kb-stat' + (cls ? ' ' + cls : '');
+    const v = document.createElement('strong');
+    v.textContent = fmt(value);
+    s.appendChild(v);
+    s.appendChild(document.createTextNode(' ' + label));
+    return s;
+  }
+
+  const MAX_GROUP_PILLS = 6;
+
+  function renderGraphStats(stats) {
+    const el = byId('kb-graph-stats');
+    if (!el || !stats) return;
+    el.textContent = '';
+    if (!stats.nodes) {
+      const empty = document.createElement('span');
+      empty.className = 'kb-stat kb-stat--muted';
+      empty.textContent = 'no nodes in this scope yet';
+      el.appendChild(empty);
+      return;
+    }
+    const activeScope = (document.querySelector('.kb-scope-chip[aria-selected="true"]') || {})
+      .dataset ? document.querySelector('.kb-scope-chip[aria-selected="true"]').dataset.scope : 'brain';
+
+    // Headline: nodes + relationships (with the wikilink/semantic split —
+    // the "type" of relationship). Accurate in every scope.
+    const nodeWord = activeScope === 'world' ? 'World terms' : (stats.nodes === 1 ? 'node' : 'nodes');
+    el.appendChild(statPill('kb-stat--lead', stats.nodes, nodeWord));
+    const links = stats.byEdge.link || 0;
+    const semantic = stats.byEdge.semantic || 0;
+    const relPill = statPill('kb-stat--lead', stats.edges, stats.edges === 1 ? 'relationship' : 'relationships');
+    if (stats.edges) {
+      const detail = document.createElement('span');
+      detail.className = 'kb-stat-sub';
+      detail.textContent = ' (' + fmt(links) + ' wikilink' + (links === 1 ? '' : 's')
+        + ' · ' + fmt(semantic) + ' semantic)';
+      relPill.appendChild(detail);
+    }
+    el.appendChild(relPill);
+
+    // Group breakdown. Skip for the world scope (every node is a World
+    // term — the headline already says so). Collapse subdir groups
+    // ("agents/buddy" → "agents") so the wiki sections read cleanly, then
+    // cap the list and lump the tail into "other".
+    if (activeScope === 'world') return;
+    const collapsed = {};
+    Object.keys(stats.byGroup).forEach((g) => {
+      const base = String(g).split('/')[0] || 'other';
+      collapsed[base] = (collapsed[base] || 0) + stats.byGroup[g];
+    });
+    let groups = Object.keys(collapsed).sort((a, b) => {
+      const ia = GROUP_ORDER.indexOf(a), ib = GROUP_ORDER.indexOf(b);
+      if (ia !== -1 || ib !== -1) return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+      return collapsed[b] - collapsed[a];
+    });
+    let overflow = 0;
+    if (groups.length > MAX_GROUP_PILLS) {
+      groups.slice(MAX_GROUP_PILLS).forEach((g) => { overflow += collapsed[g]; });
+      groups = groups.slice(0, MAX_GROUP_PILLS);
+    }
+    const sep = document.createElement('span');
+    sep.className = 'kb-stat-divider';
+    sep.setAttribute('aria-hidden', 'true');
+    el.appendChild(sep);
+    groups.forEach((g) => {
+      el.appendChild(statPill('kb-stat--group kb-stat--' + g, collapsed[g], GROUP_LABEL[g] || g));
+    });
+    if (overflow) el.appendChild(statPill('kb-stat--group', overflow, 'other'));
+  }
+  // The canvas fires this on every load (first paint, scope switch, reload).
+  window.addEventListener('arail:graph-loaded', (e) => renderGraphStats(e.detail));
+
+  // Chip badges — one count-only fetch per scope so all three totals show
+  // at once. "This World" waits for its slug (arail:world-terms-loaded).
+  async function setScopeBadge(scope, api) {
+    const badge = document.querySelector('.kb-scope-count[data-scope-count="' + scope + '"]');
+    if (!badge || !api) return;
+    try {
+      const g = await (await fetch(api)).json();
+      badge.textContent = fmt((g.nodes || []).length);
+    } catch (_) { /* leave blank */ }
+  }
+  setScopeBadge('brain', '/api/wiki/graph?scope=brain');
+  setScopeBadge('all', '/api/wiki/graph');
+  window.addEventListener('arail:world-terms-loaded', (e) => {
+    const d = e.detail || {};
+    if (d.world) setScopeBadge('world', '/api/wiki/graph?tag=' + encodeURIComponent('world-' + d.world));
+  });
+  // Approvals/rebuilds change the counts — refresh badges on those signals.
+  window.addEventListener('arail:kb-review-changed', () => {
+    setScopeBadge('brain', '/api/wiki/graph?scope=brain');
+    setScopeBadge('all', '/api/wiki/graph');
+  });
+
   /* ── Shared SSE dispatcher ────────────────────────────────────── */
   // One EventSource for the whole page. Wiki events drive the rebuild
   // badge + tree/pages/toast refresh (moved verbatim from the old inline
