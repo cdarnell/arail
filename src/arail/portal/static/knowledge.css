@@ -1925,3 +1925,48 @@ body.wt-mode .kb-layout { display: none; }
 .kb-search-manual { margin-top: 14px; font-size: 0.85rem; }
 .kb-search-manual a { color: var(--accent2); text-decoration: none; }
 .kb-search-manual a:hover { text-decoration: underline; }
+
+/* ── Scope chip count badges + per-scope stats readout ─────────── */
+.kb-scope-count {
+  margin-left: 6px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+.kb-scope-chip[aria-selected="true"] .kb-scope-count { color: var(--accent2); }
+.kb-scope-count:empty { display: none; }
+
+.kb-graph-stats {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin: 10px 0 2px;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+.kb-stat { white-space: nowrap; }
+.kb-stat strong {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+.kb-stat--lead strong { color: var(--text-strong); }
+.kb-stat-sub { color: var(--text-muted); }
+.kb-stat--muted { color: var(--text-muted); font-style: italic; }
+.kb-stat-divider {
+  width: 1px;
+  align-self: stretch;
+  min-height: 1em;
+  background: var(--border-strong);
+}
+/* Group pills echo the graph legend colors so the numbers read as the graph. */
+.kb-stat--group strong { color: var(--text); }
+.kb-stat--world strong    { color: var(--accent2); }
+.kb-stat--approved strong { color: var(--positive); }
+.kb-stat--candidate strong,
+.kb-stat--inference strong { color: var(--text-muted); }
+.kb-stat--sources strong  { color: var(--accent2); }
+.kb-stat--agents strong   { color: var(--positive); }
+.kb-stat--notes strong    { color: var(--info); }
+.kb-stat--compiled strong { color: var(--warn); }
+.kb-stat--docs strong     { color: var(--danger); }

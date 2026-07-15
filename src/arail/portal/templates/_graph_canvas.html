@@ -565,6 +565,10 @@ async function loadData(api) {
   });
   setGraphStatus(nodes.length ? '' : GRAPH_EMPTY, 'empty');
 
+  // Broadcast counts for any page-level stats readout (knowledge-page.js).
+  // Harmless on the standalone graph pages, which have no listener.
+  window.dispatchEvent(new CustomEvent('arail:graph-loaded', { detail: computeStats() }));
+
   // Re-measure — when embedded, stylesheets may land after first parse.
   resize();
   if (animFrame) cancelAnimationFrame(animFrame);
@@ -586,6 +590,16 @@ async function loadData(api) {
   tick();
 }
 
+// Counts for the current in-memory graph — nodes total, edges split by
+// type (wikilinks vs semantic associations), and a per-group breakdown.
+// Computed from what's already loaded, so it costs nothing extra.
+function computeStats() {
+  const byGroup = {}, byEdge = {};
+  nodes.forEach(n => { const g = n.group || 'other'; byGroup[g] = (byGroup[g] || 0) + 1; });
+  edges.forEach(e => { const t = e.type || 'link'; byEdge[t] = (byEdge[t] || 0) + 1; });
+  return { api: CURRENT_API, nodes: nodes.length, edges: edges.length, byGroup, byEdge };
+}
+
 // Page-level hook: knowledge-page.js reloads on wiki-rebuild SSE events
 // and approval changes; scope chips repoint the data source and swap the
 // legend/empty copy to match.
@@ -593,6 +607,7 @@ window.arailGraph = {
   reload() { return loadData(); },
   setApi(url) { return loadData(url); },
   api() { return CURRENT_API; },
+  stats() { return computeStats(); },
   setLegend(groups) {
     if (Array.isArray(groups) && groups.length) { LEGEND = groups; buildLegend(); }
   },
