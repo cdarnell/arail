@@ -10,6 +10,10 @@ loop that runs experiments while you sleep.
 ARAIL evolves with Autoresearch from Karpathy.   Draft, review and approve a plan to begin experimenting and researching  
 <img width="852" height="639" alt="Screenshot 2026-05-01 at 8 01 48 PM" src="https://github.com/user-attachments/assets/17a0eb3a-2160-4c5f-b980-2289a75424b0" />
 
+<img width="1512" height="954" alt="Screenshot 2026-07-14 at 10 20 38 PM" src="https://github.com/user-attachments/assets/0ce31f7a-c3b7-487f-bffe-bf3b9c42c146" />
+<img width="1512" height="969" alt="Screenshot 2026-07-14 at 10 21 17 PM" src="https://github.com/user-attachments/assets/47596455-f99d-4997-8e79-da72108a6b92" />
+
+
 >
 >
 > *A learn-by-doing AI research lab for friends, family, and the curious.*
