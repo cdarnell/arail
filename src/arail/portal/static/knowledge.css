@@ -1754,7 +1754,7 @@ body.wt-mode .kb-layout { display: none; }
    knowledge page the two-class selector wins and pins a fixed height. */
 .kb-brain-graph .graph-wrap {
   height: 480px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-strong);
   border-radius: var(--radius-m);
   overflow: hidden;
 }
@@ -1970,3 +1970,29 @@ body.wt-mode .kb-layout { display: none; }
 .kb-stat--notes strong    { color: var(--info); }
 .kb-stat--compiled strong { color: var(--warn); }
 .kb-stat--docs strong     { color: var(--danger); }
+
+/* ── Contained page column ─────────────────────────────────────────
+   base.html renders {% block content %} straight into <body> with no
+   gutter, so the narrative sections used to run to the window edges
+   (the graph bled out full-width). This wraps the whole tab in a
+   padded, centred column matching the app's 1600px convention, and
+   flattens the Library's own inner max-width/gutters so every section
+   lines up on the same left/right edge. */
+.kb-page {
+  max-width: 1600px;
+  margin: 0 auto;
+  padding: 0 1.5rem 2.5rem;
+}
+.kb-page .kb-toolbar,
+.kb-page .kb-layout {
+  max-width: none;
+  margin-left: 0;
+  margin-right: 0;
+}
+.kb-page .kb-layout {
+  padding-left: 0;
+  padding-right: 0;
+}
+@media (max-width: 600px) {
+  .kb-page { padding: 0 1rem 2rem; }
+}
