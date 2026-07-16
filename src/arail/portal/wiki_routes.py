@@ -119,11 +119,11 @@ def _brain_scope(
 
 @router.get("/wiki")
 async def wiki_root_redirect():
-    """The unified /knowledge page absorbed the wiki landing. Keep the
+    """The unified /dac page absorbed the wiki landing. Keep the
     old URL alive with a 302 redirect so bookmarks don't break. The
     per-page reader (/wiki/<slug>) and the graph (/wiki/graph) still
     live below for deep-link access."""
-    return RedirectResponse(url="/knowledge", status_code=302)
+    return RedirectResponse(url="/dac", status_code=302)
 
 
 @router.get("/wiki/_legacy_landing", response_class=HTMLResponse)

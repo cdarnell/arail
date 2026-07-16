@@ -22,7 +22,7 @@ contract, every tradeoff, every file that matters. Use it when
 you're building, debugging, or extending.
 
 The user-facing summary lives at [`lab/pkb/agents/README.md`](../lab/pkb/agents/README.md) —
-that's what appears in the Knowledge tab for non-developers.
+that's what appears in the DaC tab for non-developers.
 
 ## What's an agent?
 
@@ -52,7 +52,7 @@ it's the template for the upcoming Agent Forge.
 ## The folder shape
 
 Every personality agent is a **folder**, not a single file. The
-folder lives under the PKB so the wiki indexes it, `/knowledge` can
+folder lives under the PKB so the wiki indexes it, `/dac` can
 browse it, and `./arailctl reset pkb` wipes it cleanly.
 
 ```
@@ -80,11 +80,11 @@ dirs (`agents/research/`, `agents/experiments/`, …):
 
 Five reasons:
 
-1. **Inspectable.** A new user reading `/knowledge/agents/buddy/` sees
+1. **Inspectable.** A new user reading `/dac/agents/buddy/` sees
    everything the agent is in one tree. No hidden state elsewhere.
 2. **Editable without redeploying.** The user-visible `buddy.py` is
    the file the portal actually runs (via dynamic import). Edit it
-   from the Knowledge tab, restart, your changes take effect.
+   from the DaC tab, restart, your changes take effect.
 3. **Wiki-indexed.** AGENT.md, decisions.md, and every dream entry
    appear in the wiki automatically. Backlinks work. Search covers
    them.
@@ -119,9 +119,9 @@ The shim resolves `from arail.agents.buddy import buddy` by:
    the PKB copy has a syntax error or other import failure.
 
 The fallback means a user who breaks their copy while editing from
-the Knowledge tab doesn't take the portal down — Buddy stays online,
+the DaC tab doesn't take the portal down — Buddy stays online,
 the error is visible in the activity feed, and the user fixes the
-file from `/knowledge` with no restart needed.
+file from `/dac` with no restart needed.
 
 ## Memory model
 
@@ -410,12 +410,12 @@ agent" panel, fill in the form, click Deploy.
 Forged agents live under `lab/pkb/agents/<id>/` like every other
 agent. To edit:
 
-- **Voice / schedule / skills** — edit `AGENT.md` from `/knowledge`.
+- **Voice / schedule / skills** — edit `AGENT.md` from `/dac`.
 - **Watchers** (what the agent notices) — edit `<id>.py` and add
   functions to the `WATCHERS` list. The generated file has
   commented examples showing the shape.
 - **Mute** — set `LAB_<AGENT_ID>=off` in `.env`.
-- **Remove** — delete the folder from `/knowledge` and restart.
+- **Remove** — delete the folder from `/dac` and restart.
 
 ### What the Forge doesn't do (yet)
 
@@ -548,4 +548,4 @@ Deploy.
 - [src/arail/activity.py](../src/arail/activity.py) — the shared event stream
 - [src/arail/scheduler.py](../src/arail/scheduler.py) — work windows + halt flag
 - [src/arail/pkb.py](../src/arail/pkb.py) — PKB root resolver + ingest
-- [lab/pkb/agents/README.md](../lab/pkb/agents/README.md) — user-facing overview seeded into the Knowledge tab
+- [lab/pkb/agents/README.md](../lab/pkb/agents/README.md) — user-facing overview seeded into the DaC tab

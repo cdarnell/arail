@@ -8,7 +8,8 @@
 <section class="kb-hero" id="kb-hero" data-world="{{ identity.world or '' }}">
   {% if identity.mounted %}
   <div class="kb-hero-head">
-    <span class="kb-hero-kicker">Your World</span>
+    <span class="kb-hero-kicker"
+          title="DaC — Declarative-as-Code: governed, compiled knowledge; infra-as-code for what your agents know.">DaC · Your World</span>
     <div class="kb-hero-title-row">
       <h1 class="kb-hero-name" id="kb-hero-name">{{ _w.display_name if _w and _w.display_name else identity.world|capitalize }}</h1>
       {% if _w and _w.provenance_tier %}
@@ -47,11 +48,12 @@
   </div>
   {% else %}
   <div class="kb-hero-mount">
-    <span class="kb-hero-kicker">No World mounted</span>
+    <span class="kb-hero-kicker">DaC · No World mounted</span>
     <h1 class="kb-hero-name">Mount a World</h1>
-    <p class="kb-hero-mount-sub">A World gives your lab an identity and a
-    working vocabulary — sourced terms that seed the knowledge graph and give
-    your agents something real to build on.</p>
+    <p class="kb-hero-mount-sub">DaC — Declarative-as-Code — is governed,
+    compiled knowledge: infra-as-code for what your agents know. A World gives
+    your lab an identity and a working vocabulary — sourced terms that seed the
+    knowledge graph and give your agents something real to build on.</p>
     <div class="kb-hero-actions">
       <a class="btn btn-primary" href="/worlds">Browse Worlds →</a>
       <a class="btn btn-ghost" href="/worlds" title="Forge a new World from scratch or from Wikipedia">Forge your own</a>

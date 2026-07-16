@@ -59,7 +59,7 @@ log = logging.getLogger(__name__)
 # These auto-seed their PKB folder on first boot and fall back to
 # the builtin if the PKB copy is broken. User-forged agents don't
 # appear here — they have no fallback.
-_SHIPPED: set[str] = {"buddy", "sre", "presence"}
+_SHIPPED: set[str] = {"buddy", "sre", "presence", "librarian"}
 
 # Singleton cache. Key = agent_id, value = agent instance (or the
 # sentinel _BROKEN if loading failed this session).
@@ -127,6 +127,12 @@ def _seed_if_shipped(agent_id: str) -> None:
             ensure_presence_folder()
         except Exception as e:  # noqa: BLE001
             log.warning("ensure_presence_folder failed: %s", e)
+    elif agent_id == "librarian":
+        try:
+            from arail.agents.builtin_seed import ensure_librarian_folder
+            ensure_librarian_folder()
+        except Exception as e:  # noqa: BLE001
+            log.warning("ensure_librarian_folder failed: %s", e)
 
 
 def _import_from_path(py_file: Path, unique_name: str) -> Optional[Any]:
@@ -216,7 +222,7 @@ def load_one(agent_id: str, pkb_root: Path | None = None) -> Optional[Any]:
             activity_log.emit(
                 "agents",
                 f"{agent_id} PKB copy unavailable — running on builtin fallback. "
-                f"Fix {py_file.relative_to(_pkb_root().parent)} from /knowledge.",
+                f"Fix {py_file.relative_to(_pkb_root().parent)} from /dac.",
                 "warn",
             )
 
@@ -248,6 +254,12 @@ def load_all(pkb_root: Path | None = None) -> Dict[str, Any]:
         _egress.install_guard()
     except Exception as _eg_err:  # noqa: BLE001
         log.warning("Egress guard install failed in load_all: %s", _eg_err)
+
+    # Shipped agents must exist on disk before discover() can see them
+    # on a fresh lab — seeding is idempotent, so this is a no-op after
+    # first boot.
+    for shipped_id in sorted(_SHIPPED):
+        _seed_if_shipped(shipped_id)
 
     out: Dict[str, Any] = {}
     for agent_id, _, _fm in discover(pkb_root=pkb_root):

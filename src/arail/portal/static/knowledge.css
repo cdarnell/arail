@@ -1996,3 +1996,11 @@ body.wt-mode .kb-layout { display: none; }
 @media (max-width: 600px) {
   .kb-page { padding: 0 1rem 2rem; }
 }
+
+/* ── Librarian focus + term proposals (DaC tab) ───────────────────── */
+.kb-librarian-controls { display: flex; align-items: center; gap: .5rem; }
+.dacp-actions { display: flex; flex-direction: column; gap: .35rem; align-items: stretch; }
+.dacp-evidence { margin-top: .3rem; font-size: .78rem; }
+.dacp-evidence > summary { cursor: pointer; color: var(--text-muted); }
+.dacp-evidence-list { margin: .3rem 0 0 1rem; padding: 0; list-style: disc; }
+.dacp-evidence-list code { font-size: .72rem; }

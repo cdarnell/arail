@@ -1154,7 +1154,7 @@ class ResearcherAgent:
         """Render a high-signal experiment entry for the PKB.
 
         Keeps core facts (hypothesis, metrics, outcome) visible so
-        /knowledge isn't filled with opaque ID-only stubs.
+        /dac isn't filled with opaque ID-only stubs.
         """
         results = exp.get("results") or {}
         metrics = exp.get("metrics") or []

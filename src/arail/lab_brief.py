@@ -236,7 +236,26 @@ def build_brief(pkb_root: Path | None = None) -> dict[str, Any]:
         "redirects": _redirects_section(),
         "knowledge": _knowledge_section(root),
         "recent_agent_outputs": _recent_agent_outputs(root),
+        "librarian": _librarian_section(),
     }
+
+
+def _librarian_section() -> dict[str, Any]:
+    """Compiled-knowledge focus: pending term proposals + last scout scan.
+    Degrades to an empty dict when no World is mounted."""
+    try:
+        from arail import librarian_scout as ls
+        side = ls.load_mounted_sidecar()
+        if side is None:
+            return {}
+        return {
+            "pending_proposals": sum(
+                1 for p in side.get("proposals", [])
+                if p.get("status") == "pending"),
+            "last_scan": side.get("last_scan"),
+        }
+    except Exception:  # noqa: BLE001
+        return {}
 
 
 def brief_markdown(brief: dict[str, Any]) -> str:
@@ -286,6 +305,13 @@ def brief_markdown(brief: dict[str, Any]) -> str:
         lines.append("  - recently approved: "
                      + "; ".join(r["title"][:60] for r in k["recent_approved"][:4]))
 
+    lib = brief.get("librarian") or {}
+    if lib.get("pending_proposals"):
+        lines.append(
+            f"- Librarian: {lib['pending_proposals']} scouted term proposal"
+            f"{'s' if lib['pending_proposals'] != 1 else ''} awaiting the "
+            "operator's review on the DaC tab")
+
     outs = brief.get("recent_agent_outputs") or []
     if outs:
         lines.append("- Recent agent outputs:")
@@ -319,6 +345,14 @@ def _cache_key(root: Path) -> tuple:
     except Exception:  # noqa: BLE001
         pass
     kb = root / "compiled" / "kb"
+    scout_mtime = 0.0
+    try:
+        from arail import librarian_scout as ls
+        bundle_dir = ls._mounted_bundle_dir()
+        if bundle_dir is not None:
+            scout_mtime = _mtime(ls.sidecar_path(bundle_dir))
+    except Exception:  # noqa: BLE001
+        pass
     return (
         world,
         _mtime(DATA_DIR / "goals" / "current.json"),
@@ -326,6 +360,7 @@ def _cache_key(root: Path) -> tuple:
         _mtime(kb / "approved.json"),
         _mtime(kb / "rejected.json"),
         _mtime(root / "research" / "program.md"),
+        scout_mtime,
     )
 
 

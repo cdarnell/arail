@@ -1,6 +1,6 @@
 {% extends "base.html" %}
-{% set active = 'knowledge' %}
-{% block title %}{{ brand.name }} — Knowledge{% endblock %}
+{% set active = 'dac' %}
+{% block title %}{{ brand.name }} — DaC{% endblock %}
 
 {% block head %}
 <link rel="stylesheet" href="/static/wiki.css">
@@ -37,6 +37,13 @@
 
   {% include "knowledge/_agent_focus.html" %}
 
+  {% include "knowledge/_librarian.html" %}
+
+  <!-- Term proposals scouted by the Librarian (populated by
+       /static/js/dac-proposals.js). Approve compiles the term into the
+       sealed World via the gate → reseal → swap path. -->
+  <section class="ckb-panel" id="dac-proposals-panel" hidden aria-live="polite"></section>
+
   <!-- Compiled KB review queue (populated by /static/js/compiled-kb.js).
        The human-approved layer agents build on: raw is a candidate pool;
        nothing crosses the gate without approval. Shown when items await review. -->
@@ -63,5 +70,7 @@
 <script src="/static/js/knowledge-files.js" defer></script>
 <script src="/static/js/world-terms.js" defer></script>
 <script src="/static/js/compiled-kb.js" defer></script>
+<script src="/static/js/librarian-panel.js" defer></script>
+<script src="/static/js/dac-proposals.js" defer></script>
 <script src="/static/js/knowledge-page.js" defer></script>
 {% endblock %}

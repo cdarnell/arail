@@ -121,8 +121,8 @@ _METRICS_LOCK = _threading.Lock()
 # Two tiers: minimalist (everyday) and maximus (full bench). Upgrade with
 # ./arailctl upgrade maximus.
 _TIER_SURFACES: dict[str, set[str]] = {
-    "minimalist": {"dashboard", "chat", "research", "knowledge", "agents", "docs"},
-    "maximus": {"dashboard", "chat", "research", "knowledge", "agents",
+    "minimalist": {"dashboard", "chat", "research", "dac", "agents", "docs"},
+    "maximus": {"dashboard", "chat", "research", "dac", "agents",
                 "admin", "docs", "notebooks", "terminal", "tuning", "plugins"},
 }
 
@@ -589,6 +589,10 @@ from arail.portal.world_routes import router as world_router  # noqa: E402
 
 app.include_router(world_router)
 
+from arail.portal.librarian_routes import router as librarian_router  # noqa: E402
+
+app.include_router(librarian_router)
+
 PORTAL_DIR = Path(__file__).parent
 app.mount("/static", StaticFiles(directory=PORTAL_DIR / "static"), name="static")
 # Mount integrations frontend (core/knowledge-canvas/frontend) if present.
@@ -794,13 +798,9 @@ async def _startup():
     asyncio.create_task(_check_shipped_worlds())
     asyncio.create_task(_warm_primary_router())
     asyncio.create_task(_inbox_watcher_loop())
-    # 'Grows while you sleep': one autonomous World growth pass per heavy
-    # (overnight) window, local brain only. No-op if ARAIL_WORLD_GROWTH=off.
-    try:
-        from arail.portal.world_routes import world_growth_loop
-        asyncio.create_task(world_growth_loop())
-    except Exception as e:  # noqa: BLE001
-        _log.warning("world growth loop not started: %s", e)
+    # 'Grows while you sleep' now lives inside the Librarian agent (started
+    # with the other agents via start_all_auto) — it owns the whole compiled-
+    # knowledge lifecycle: overnight growth, term scouting, forge status.
     # Pre-write the Anthropic prompt cache (hybrid + Claude only; no-op
     # everywhere else). Makes the first demo turn read cache, not cold prefix.
     asyncio.create_task(_prewarm_claude_cache_task())
@@ -2812,7 +2812,7 @@ async def _auto_draft_program(goal_record: dict) -> None:
             activity_log.emit(
                 "researcher",
                 "Drafted research program — review at "
-                "/knowledge?file=research/program.md",
+                "/dac?file=research/program.md",
                 "info",
                 {
                     "program_path": str(result.program_path),
@@ -3563,7 +3563,7 @@ async def research_planning_trace():
 #   • program.md  — natural-language instructions / meta-program.
 #                   The "what to optimize" half of the contract.
 # These live under the PKB at lab/pkb/research/ so they're one tree
-# with the rest of the knowledge base — appearing in /knowledge, the
+# with the rest of the knowledge base — appearing in /dac, the
 # wiki, and discoverable by agents via the existing PKB reading path.
 # The /research cockpit links to both so they're one click from the goal.
 
@@ -9520,8 +9520,15 @@ from arail.pkb import (
 )
 
 
-@app.get("/knowledge", response_class=HTMLResponse)
-async def knowledge_page(request: Request):
+@app.get("/knowledge")
+async def knowledge_redirect(request: Request):
+    # Legacy route — the tab is DaC now. 307 preserves ?file= deep-links.
+    q = ("?" + str(request.query_params)) if request.query_params else ""
+    return RedirectResponse(url="/dac" + q, status_code=307)
+
+
+@app.get("/dac", response_class=HTMLResponse)
+async def dac_page(request: Request):
     # The page hydrates its live data client-side (/api/pkb/browse,
     # /api/worlds/terms, /api/pkb/review, /api/wiki/graph); the server
     # renders identity, the World hero (counts from the cached lab brief),
@@ -9537,7 +9544,7 @@ async def knowledge_page(request: Request):
         brief_md = lab_brief.brief_markdown(brief)
     except Exception:  # noqa: BLE001
         brief, brief_md = {}, ""
-    return templates.TemplateResponse(request, "knowledge.html", {
+    return templates.TemplateResponse(request, "dac.html", {
         **_identity_ctx(),
         "mode": _lab_mode(),
         "current_goal": current_goal,
@@ -9628,7 +9635,7 @@ async def api_pkb_ingest():
     """Process whatever's currently in lab/pkb/inbox/ → sources/.
 
     Called from three places: the manual 'Process inbox' button on
-    /knowledge, the background watcher (see _inbox_watcher_loop), and
+    /dac, the background watcher (see _inbox_watcher_loop), and
     the legacy /api/pkm/ingest alias. All of them want the same
     follow-up — wiki/graph rebuild — so we emit it here, mirroring
     the upload endpoint.
@@ -9758,7 +9765,7 @@ async def api_pkb_revoke(request: Request):
 async def api_pkb_seeds():
     """List starter packs + installed status.
 
-    Drives the dashboard Knowledge hero + /knowledge Install button.
+    Drives the dashboard Knowledge hero + /dac Install button.
     """
     from arail.pkb_seed import list_packs
     return {"packs": list_packs()}
@@ -9793,7 +9800,7 @@ async def api_pkb_seeds_remove(pack: str = "model-building"):
     """Remove an installed starter pack.
 
     Wipes only ``lab/pkb/sources/seeds/<pack>/*.md`` — never user
-    content. Idempotent. Used by the Knowledge tab's 🗑 button on
+    content. Idempotent. Used by the DaC tab's 🗑 button on
     the starter-pack tile so users can clear the lab's bootstrapping
     primers once they no longer need them.
     """

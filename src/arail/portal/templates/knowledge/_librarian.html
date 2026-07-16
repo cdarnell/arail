@@ -1,0 +1,45 @@
+{# Librarian focus — the compiled-knowledge counterpart of the AutoResearch
+   panel: what the Librarian is doing right now (growth, scouting, forge),
+   with pause/resume controls. Server renders the shell; librarian-panel.js
+   hydrates from /api/librarian/status and refreshes off the page's shared
+   SSE subscriber (knowledge-page.js routes librarian/forge/curator events
+   to window.arailLibrarianReload). #}
+<section class="kb-focus kb-librarian" id="kb-librarian" aria-label="Librarian focus">
+  <div class="kb-section-head">
+    <div class="kb-section-titles">
+      <h2 class="kb-section-title">📚 Librarian</h2>
+      <span class="kb-section-sub">the agent curating your compiled knowledge — growth, term scouting, provenance</span>
+    </div>
+    <div class="kb-librarian-controls">
+      <span class="wt-chip" id="kb-librarian-status" hidden></span>
+      <button class="btn btn-sm btn-ghost" id="kb-librarian-pause" hidden>⏸ Pause</button>
+      <button class="btn btn-sm btn-primary" id="kb-librarian-resume" hidden>▶ Resume</button>
+    </div>
+  </div>
+  <div class="kb-focus-grid">
+    <div class="kb-focus-card" id="kb-librarian-now">
+      <h3 class="kb-focus-card-title">Right now</h3>
+      <p class="kb-focus-goal-text" id="kb-librarian-activity">Waking up…</p>
+      <p class="kb-focus-hint" id="kb-librarian-forge-line" hidden></p>
+    </div>
+    <div class="kb-focus-card" id="kb-librarian-scout">
+      <h3 class="kb-focus-card-title">Term scout</h3>
+      <p class="kb-focus-goal-text" id="kb-librarian-scout-line">The Librarian
+      watches your inbox, research notes, and approved docs for terms the
+      World is missing.</p>
+      <div class="kb-focus-links">
+        <span class="kb-focus-hint" id="kb-librarian-last-scan"></span>
+        <a class="kb-focus-link" href="#dac-proposals-panel" id="kb-librarian-pending-link" hidden></a>
+        <button class="btn btn-sm btn-ghost" id="kb-librarian-scan-now">Scan now</button>
+      </div>
+    </div>
+    <div class="kb-focus-card" id="kb-librarian-laws">
+      <h3 class="kb-focus-card-title">The three laws</h3>
+      <p class="kb-focus-hint">Every term passes the closed-sourced-graph
+      gate · provenance stays honest
+      (<span class="wt-chip wt-chip--sourced">sourced</span> vs
+      <span class="wt-chip wt-chip--dreamed">dreamed</span>) · nothing
+      compiles in without your approval.</p>
+    </div>
+  </div>
+</section>

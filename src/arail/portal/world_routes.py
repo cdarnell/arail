@@ -136,6 +136,11 @@ def _review_router() -> Any:
 
 # ═══════════════════════════ FORGE ════════════════════════════════════════
 
+# Brains that reach a cloud gateway. An explicit operator choice of one of
+# these must refuse loudly when airgapped (the silent local fallback inside
+# _curation_router is for autonomous growth only).
+_CLOUD_BRAINS = {"claude", "openrouter", "nim", "huggingface", "custom"}
+
 _forge_lock = asyncio.Lock()
 _forge_cancel = threading.Event()
 _forge_state: dict[str, Any] = {"state": "idle"}
@@ -158,14 +163,23 @@ def _forge_progress(stage: str, done: int, total: int, note: str) -> None:
     }
 
 
-async def _run_forge(params: wf.ForgeParams) -> None:
+async def _run_forge(params: wf.ForgeParams, brain: str = "local") -> None:
     global _forge_state, _forge_result
     try:
-        async with scheduler.inference_slot("world-forge"):
+        router_ = _curation_router(brain)
+        if brain in _CLOUD_BRAINS:
+            # Frontier API forge — no local model residency, so no
+            # inference_slot: the cloud calls run beside chat's GPU work.
             result = await asyncio.to_thread(
-                wf.forge_world, params,
+                wf.forge_world, params, router=router_,
                 progress_cb=_forge_progress, cancel=_forge_cancel,
             )
+        else:
+            async with scheduler.inference_slot("world-forge"):
+                result = await asyncio.to_thread(
+                    wf.forge_world, params, router=router_,
+                    progress_cb=_forge_progress, cancel=_forge_cancel,
+                )
         _forge_result = result
         _forge_state = {**_forge_state, "state": "done",
                         "terms_found": len(result.terms),
@@ -248,6 +262,15 @@ async def api_forge_start(request: Request):
     if not slug or not wm._SLUG_RE.match(slug):
         return _err(400, {"error": "bad_slug"})
     source = "fetch" if str(body.get("source", "dream")).strip() == "fetch" else "dream"
+    brain = str(body.get("brain", "local")).strip().lower() or "local"
+    if source == "dream" and brain in _CLOUD_BRAINS:
+        from arail.airgap import is_airgapped
+        if is_airgapped():
+            return _err(409, {
+                "error": "airgapped",
+                "message": "The lab is airgapped — the frontier API can't be "
+                           "reached. Flip the Airgapped pill in the status bar, "
+                           "or forge with the local model."})
     try:
         max_terms = int(body.get("max_terms", 25))
     except (TypeError, ValueError):
@@ -293,6 +316,7 @@ async def api_forge_start(request: Request):
         stages = FETCH_STAGES if source == "fetch" else wf.FORGE_STAGES
         _forge_state = {
             "state": "running", "subject": subject, "slug": slug, "source": source,
+            "brain": brain if source == "dream" else "none",
             "max_terms": max_terms, "stage": stages[0], "stage_index": 0,
             "stages_total": len(stages), "terms_found": 0,
             "message": "starting…", "started_at": time.time(),
@@ -311,14 +335,16 @@ async def api_forge_start(request: Request):
             asyncio.create_task(_run_bootstrap(subject, slug, max_terms, req["id"]))
         else:
             params = wf.ForgeParams(subject=subject, slug=slug, max_terms=max_terms)
-            asyncio.create_task(_run_forge(params))
+            asyncio.create_task(_run_forge(params, brain))
 
     if source == "fetch":
         activity_log.emit("forge", f"Fetching '{subject}' ({max_terms} terms) from Wikipedia "
                                    "(one-time, consented, audited)…", "info")
         eta = FETCH_ETA_MINUTES.get(max_terms, max(1, max_terms // 90))
     else:
-        activity_log.emit("forge", f"Forging '{subject}' ({max_terms} terms) with the local model…",
+        brain_desc = (f"the frontier API ({brain})" if brain in _CLOUD_BRAINS
+                      else "the local model")
+        activity_log.emit("forge", f"Forging '{subject}' ({max_terms} terms) with {brain_desc}…",
                           "info")
         eta = ETA_MINUTES.get(max_terms, max(2, max_terms // 8))
     return JSONResponse(status_code=202,
@@ -357,7 +383,7 @@ async def api_forge_preview():
     shorts = sum(1 for t in r.terms if len(str(t.get("short", "")).strip()) < 12)
     if shorts:
         warnings.append(f"{shorts} terms have very short definitions — the model was terse; "
-                        f"edit them in the Knowledge tab or Regenerate.")
+                        f"edit them in the DaC tab or Regenerate.")
     return {
         "slug": _forge_state.get("slug"),
         "subject": _forge_state.get("subject"),
@@ -942,37 +968,47 @@ def _scheduled_growth_enabled() -> bool:
     return os.getenv("ARAIL_WORLD_GROWTH", "on").strip().lower() not in ("off", "0", "false", "no")
 
 
-async def world_growth_loop() -> None:
-    """'Grows while you sleep': one autonomous growth pass per heavy (overnight)
-    window on the mounted World. Uses the LOCAL brain — scheduled growth never
-    auto-spends on a cloud API; a cloud brain is only ever used when the operator
-    picks it for an on-demand pass. Conservative: heavy window only, not halted,
-    not already running, at most once per calendar day. Started at app boot;
-    returns immediately when disabled (ARAIL_WORLD_GROWTH=off)."""
+async def growth_tick(last_grown_day: Optional[str]) -> Optional[str]:
+    """One conservative autonomous-growth check on the mounted World. Uses the
+    LOCAL brain — scheduled growth never auto-spends on a cloud API; a cloud
+    brain is only ever used when the operator picks it for an on-demand pass.
+    Runs only in the heavy (overnight) window, never while halted or while a
+    grow is already running, and at most once per calendar day. Returns the
+    day a pass ran (feed it back in on the next call). Called from the
+    Librarian agent's loop, which owns the compiled-knowledge lifecycle."""
     global _grow_state
+    if not _scheduled_growth_enabled():
+        return last_grown_day
+    from arail.scheduler import current_window, jobs_halted
+    if current_window() != "heavy" or jobs_halted():
+        return last_grown_day
+    day = time.strftime("%Y-%m-%d", time.gmtime())
+    if last_grown_day == day or _grow_state.get("state") == "running":
+        return last_grown_day
+    bundle_dir = _mounted_catalog_dir()
+    if bundle_dir is None:
+        return last_grown_day
+    spec, terms = _load_terms(bundle_dir)
+    _grow_cancel.clear()
+    _grow_state = {"state": "running", "world": spec.get("slug"),
+                   "stage": "scheduled", "brain": "auto"}
+    activity_log.emit("librarian",
+                      f"Overnight growth pass on '{spec.get('display_name')}'…", "info")
+    await _run_grow(bundle_dir, spec, terms, "auto")
+    return day
+
+
+async def world_growth_loop() -> None:
+    """Legacy standalone loop around growth_tick. The Librarian agent now owns
+    the growth cadence — kept for direct callers/tests; no longer started at
+    app boot. Returns immediately when disabled (ARAIL_WORLD_GROWTH=off)."""
     if not _scheduled_growth_enabled():
         return
     last_grown_day: Optional[str] = None
     while True:
         try:
             await asyncio.sleep(1800)  # check every 30 min
-            from arail.scheduler import current_window, jobs_halted
-            if current_window() != "heavy" or jobs_halted():
-                continue
-            day = time.strftime("%Y-%m-%d", time.gmtime())
-            if last_grown_day == day or _grow_state.get("state") == "running":
-                continue
-            bundle_dir = _mounted_catalog_dir()
-            if bundle_dir is None:
-                continue
-            spec, terms = _load_terms(bundle_dir)
-            _grow_cancel.clear()
-            _grow_state = {"state": "running", "world": spec.get("slug"),
-                           "stage": "scheduled", "brain": "auto"}
-            last_grown_day = day
-            activity_log.emit("curator",
-                              f"Overnight growth pass on '{spec.get('display_name')}'…", "info")
-            await _run_grow(bundle_dir, spec, terms, "auto")
+            last_grown_day = await growth_tick(last_grown_day)
         except asyncio.CancelledError:
             raise
         except Exception as e:  # noqa: BLE001

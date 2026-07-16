@@ -113,7 +113,7 @@ RECOLOR_PAGES = [
     "/admin",
     "/graph",
     "/agents",
-    "/knowledge",
+    "/dac",
     "/tuning",
     "/skills",                # NO _identity_ctx()
     "/design",                # NO _identity_ctx()

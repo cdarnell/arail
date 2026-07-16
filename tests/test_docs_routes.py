@@ -4,7 +4,7 @@ Sprint 1 covers:
 - F18: 'docs' in _TIER_SURFACES['min'] — canary test
 - F19: Docs link renders in a min-tier nav response
 - F20 (max variant): Docs link renders in a max-tier nav response
-- Knowledge cross-link: GET /knowledge contains href="/docs" and "Reference manual"
+- Knowledge cross-link: GET /dac contains href="/docs" and "Reference manual"
 """
 
 from __future__ import annotations
@@ -83,14 +83,14 @@ def test_docs_link_renders_in_max_nav(monkeypatch, tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_knowledge_page_contains_docs_link(monkeypatch, tmp_path):
-    """GET /knowledge must contain both href="/docs" and the banner text.
+    """GET /dac must contain both href="/docs" and the banner text.
 
     The banner moved to the page footer and was retitled "Reference
     manual" in the knowledge-page restructure (Docs = the manual,
     Knowledge = the lab's brain) — the cross-link itself must survive.
     """
     client = _get_client(monkeypatch, tmp_path, lab_tier="min")
-    response = client.get("/knowledge")
+    response = client.get("/dac")
     assert response.status_code in (200, 302, 307), response.status_code
     if response.status_code in (302, 307):
         response = client.get(response.headers["location"])

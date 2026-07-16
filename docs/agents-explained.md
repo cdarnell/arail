@@ -310,7 +310,7 @@ Three design choices, each intentional:
 ### 1. Agents live in markdown + Python, not a database
 
 Everything about an agent — config, code, memory, decisions, dreams
-— is a plain file under the PKB. The wiki indexes them, `/knowledge`
+— is a plain file under the PKB. The wiki indexes them, `/dac`
 browses them, `git` tracks them if you want, `./arailctl reset pkb`
 wipes them cleanly. No hidden state, no mystery DB rows.
 

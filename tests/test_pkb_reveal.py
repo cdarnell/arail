@@ -1,6 +1,6 @@
 """Reveal endpoint + ingest destinations.
 
-Covers the /knowledge UX additions:
+Covers the /dac UX additions:
   * ``pkb.ingest()`` records each moved file's post-ingest path under
     ``destinations`` so callers can offer per-file "Open" links.
   * ``POST /api/pkb/upload`` threads that map through as a top-level

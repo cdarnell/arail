@@ -151,6 +151,59 @@ def test_forge_busy_and_slug_collision(lab, fake_forge, monkeypatch):
         assert r.status_code == 409 and r.json()["error"] == "forge_busy"
 
 
+def test_forge_cloud_brain_refused_when_airgapped(lab, fake_forge, monkeypatch):
+    """An explicit frontier-API choice must fail loudly under airgap — never
+    silently fall back to the local model."""
+    import arail.airgap as airgap
+    monkeypatch.setattr(airgap, "is_airgapped", lambda: True)
+    with _client() as c:
+        r = c.post("/api/worlds/forge",
+                   json={"subject": "botany", "brain": "claude"},
+                   headers=CSRF_HEADERS)
+        assert r.status_code == 409 and r.json()["error"] == "airgapped"
+        # Nothing started.
+        assert wr._forge_state.get("state") == "idle"
+
+
+def test_forge_brain_reaches_forge_router(lab, monkeypatch):
+    """The chosen brain is resolved via _curation_router and handed to
+    forge_world as its router; the status payload records the brain."""
+    import arail.airgap as airgap
+    monkeypatch.setattr(airgap, "is_airgapped", lambda: False)
+    seen = {}
+
+    class _Router:
+        backend_name = "claude"
+
+    def _fake_router(brain):
+        seen["brain"] = brain
+        return _Router()
+
+    monkeypatch.setattr(wr, "_curation_router", _fake_router)
+
+    def _forge(params, *, router=None, progress_cb=None, cancel=None):
+        seen["router"] = router
+        return _fake_result(params.slug, params.subject.title())
+
+    monkeypatch.setattr(wr.wf, "forge_world", _forge)
+    with _client() as c:
+        r = c.post("/api/worlds/forge",
+                   json={"subject": "botany", "brain": "claude"},
+                   headers=CSRF_HEADERS)
+        assert r.status_code == 202
+        s = _wait_state(c, "done")
+        assert s.get("brain") == "claude"
+    assert seen["brain"] == "claude"
+    assert isinstance(seen["router"], _Router)
+
+
+def test_forge_defaults_to_local_brain(lab, fake_forge):
+    with _client() as c:
+        c.post("/api/worlds/forge", json={"subject": "botany"}, headers=CSRF_HEADERS)
+        s = _wait_state(c, "done")
+        assert s.get("brain") == "local"
+
+
 def test_forge_discard_clears_result(lab, fake_forge):
     with _client() as c:
         c.post("/api/worlds/forge", json={"subject": "botany"}, headers=CSRF_HEADERS)

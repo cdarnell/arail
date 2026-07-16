@@ -28,6 +28,7 @@ agents = [
     "researcher",
     "curator",
     "experiment_tracker",
+    "librarian",
 ]
 
 # ── Runtime preferences ──────────────────────────────────────────

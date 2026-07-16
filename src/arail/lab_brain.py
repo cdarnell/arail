@@ -127,7 +127,7 @@ A self-curating wiki at `/wiki` that:
 FastAPI app at http://127.0.0.1:8080 with routes:
 
 - `/` dashboard — goal prompt, activity feed, cost meter, halt switch
-- `/knowledge` — PKB file browser
+- `/dac` — PKB file browser
 - `/wiki` — rendered wiki reader with knowledge graph
 - `/terminal`, `/notebook`, `/plugins`, `/graph` — embedded services
 - `/api/chat` — talks to you, the model, with this system prompt

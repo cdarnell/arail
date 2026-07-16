@@ -8,7 +8,7 @@ operations:
     2. Generate ``AGENT.md`` from the form fields.
     3. Generate ``<id>.py`` from a template (the same shape as Buddy,
        minus the specific watchers — watchers are added post-deploy
-       via the Knowledge tab's markdown editor).
+       via the DaC tab's markdown editor).
 
 Deployment writes the folder under ``lab/pkb/agents/<id>/`` and
 immediately calls ``loader.load_one()`` so the new agent goes live
@@ -25,10 +25,10 @@ what gets deployed; the client preview is a best-effort mirror.
 - One template — "voice-only agent with skills." No watcher builder.
 - No code-level editing in the Forge itself (you get a preview,
   not a textarea of the generated .py). Post-deploy editing goes
-  through ``/knowledge`` on the new `buddy.py`-style file.
+  through ``/dac`` on the new `buddy.py`-style file.
 - No overwrite. Deploying with an id that already exists errors.
 - No deletion. Remove an agent by deleting its folder from
-  ``/knowledge`` and restarting.
+  ``/dac`` and restarting.
 """
 
 from __future__ import annotations
