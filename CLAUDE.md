@@ -181,6 +181,20 @@ parts.
   `lab/pkb/agents/<id>/AGENT.md` + `lab/pkb/agents/<id>/<id>.py`. The
   loader discovers them on start. Don't shortcut by editing the
   built-in agents.
+- **Conversation memory is PKB-rooted and gated.** Chat transcripts live at
+  `lab/pkb/conversations/<id>/transcript.jsonl` — **`.jsonl`, never `.json`**,
+  because `_PKB_TEXT_SUFFIXES` (`pkb.py:376`) includes `.json` and would
+  vector-index every chat turn into the wiki. Under the PKB root, not
+  `lab/data/`, so "wipe the PKB = wipe memory" stays true. The transcript is a
+  raw log and is **never** authoritative about the user: agents read only
+  *approved* distilled facts, via `search_for_agents` and the Compiled-KB gate.
+  Facts are sourced to a verbatim user quote and never distilled from an
+  agent's own output. See `docs/conversation-memory.md`.
+- **Chat memory is not DaC-governed at runtime, deliberately.** DaC is a
+  build-time pipeline with no write API that explicitly defines itself against
+  storing conversation history; we borrow its declare→gate→version discipline,
+  not its pipeline. Don't wire this to DaC without superseding
+  `docs/adr/0002-chat-memory-and-the-dac-boundary.md`.
 - **`.gitignore` is comprehensive** (`models/`, `lab/models/`,
   `node_modules/`, `__pycache__/`, runtime state under `lab/pkb/`).
   The 47M `.git/` history bloat is from a single 42M PDF and
