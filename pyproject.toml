@@ -202,13 +202,27 @@ ai_eng_preview  = "qwen2.5:1.5b"
 #                Apple Silicon Mac AeroLLM ships on"). Operators upgrade
 #                to a frontier model after setup by downloading the
 #                weights and setting AEROLLM_MODEL in .env, e.g.:
-#                  huggingface-cli download mlx-community/Qwen2.5-32B-Instruct-4bit \
+#                  hf download mlx-community/Qwen2.5-32B-Instruct-4bit \
 #                    --local-dir lab/models/Qwen2.5-32B-Instruct-4bit
 #                  echo 'AEROLLM_MODEL=Qwen2.5-32B-Instruct-4bit' >> .env
 #                Pre-7180a8a the maximus default was Qwen2.5-72B-Instruct-4bit
 #                (~40 GB resident, needs 48 GB+); that footgunned every clone
 #                without prebuilt weights or sufficient RAM. Default is now a
 #                proven floor; operators self-select the ceiling.
+#
+# MoE auto-upgrade (scripts/setup.sh, both tiers): when the stock 7B value
+# above is still in effect AND the box has >=16 GB RAM AND a Rust toolchain
+# (cargo) is present, setup.sh swaps AEROLLM_MODEL_ID to
+# InferenceIllusionist/gpt-oss-20b-MLX-4bit (32 experts / 4 active, native
+# selective expert streaming, ~11 GB resident — see aerollm's
+# docs/benchmarks/moe-streaming-efficiency-ledger.md) and auto-downloads it,
+# so a fresh 16 GB+ clone gets two working models out of the box: llama-ai-eng
+# (everyday default, ollama) + gpt-oss-20b (AeroLLM MoE, agent deep-research —
+# AEROLLM_RESEARCH=true wires the Researcher agent to it). Without cargo the
+# wheel can't be built yet, so setup stays on the 7B floor and prints the
+# manual upgrade path instead of downloading weights nothing can run. The
+# 7B ids below are the pre-gate floor, not overridden by editing this file —
+# change setup.sh's gate if you want different auto-upgrade conditions.
 #
 # CUDA hosts fall back to AirLLM with a notice until AeroLLM CUDA lands.
 # Operators can override the runtime value via AEROLLM_MODEL in .env.
