@@ -1,0 +1,312 @@
+{
+  "version": 1,
+  "terms": [
+    {
+      "slug": "are-you-smarter-than-a-5th-grader",
+      "term": "Are You Smarter Than a 5th Grader?",
+      "category": "core-concepts",
+      "short": "Game show franchise",
+      "definition": "Are You Smarter than a 5th Grader? is a game show franchise that was co-created and produced by Mark Burnett, Barry Poznick and John Stevens. Adult contestants answer questions, as if they came from an elementary grade school quiz. The original American version debuted on the Fox Broadcasting network on February 27, 2007, with host Jeff Foxworthy, airing on Fox until 2009, as a syndicated TV series, between 2009 and 2011, and then revived on Fox in 2015, and again on Nickelodeon in 2019, with new host, John Cena. The Are You Smarter than a 5th Grader? format, has since been replicated in sever",
+      "example": "",
+      "related": [],
+      "source": "https://en.wikipedia.org/wiki/Are_You_Smarter_than_a_5th_Grader%3F"
+    },
+    {
+      "slug": "common-core-state-standards-initiative",
+      "term": "Common Core State Standards Initiative",
+      "category": "core-concepts",
+      "short": "Educational initiative in the United States",
+      "definition": "The Common Core State Standards Initiative, also known as simply Common Core, is an American, multi-state educational initiative which began in 2010 with the goal of increasing consistency across state standards, or what K–12 students throughout the United States should know in English language arts and mathematics at the conclusion of each school grade. The initiative was sponsored by the National Governors Association and the Council of Chief State School Officers.",
+      "example": "",
+      "related": [],
+      "source": "https://en.wikipedia.org/wiki/Common_Core"
+    },
+    {
+      "slug": "compulsory-education",
+      "term": "Compulsory education",
+      "category": "core-concepts",
+      "short": "Period of education required for a person",
+      "definition": "Compulsory education refers to a period of education that is required of all people and is imposed by the government. This education may take place at a registered school or at home or other places.",
+      "example": "",
+      "related": [],
+      "source": "https://en.wikipedia.org/wiki/Compulsory_education"
+    },
+    {
+      "slug": "education-in-australia",
+      "term": "Education in Australia",
+      "category": "core-concepts",
+      "short": "Education in Australia encompasses the sectors of early childhood education and primary education, followed by secondary education, and finally tertiary education, which includes higher education and ",
+      "definition": "Education in Australia encompasses the sectors of early childhood education and primary education, followed by secondary education, and finally tertiary education, which includes higher education and vocational education. Regulation and funding of education is primarily the responsibility of the States and territories; however, the Australian Government also contributes to funding.",
+      "example": "",
+      "related": [],
+      "source": "https://en.wikipedia.org/wiki/Education_in_Australia"
+    },
+    {
+      "slug": "education-in-canada",
+      "term": "Education in Canada",
+      "category": "core-concepts",
+      "short": "Education in Canada is for the most part provided publicly, funded and overseen by federal, provincial, and local governments",
+      "definition": "Education in Canada is for the most part provided publicly, funded and overseen by federal, provincial, and local governments. Education is within provincial jurisdiction and the curriculum is overseen by the province. Education in Canada is generally divided into primary education, followed by secondary education and post-secondary. Education in both English and French is available in most places across Canada. Canada has a large number of universities, almost all of which are publicly funded. Established in 1663, Université Laval is the oldest post-secondary institution in Canada. The larges",
+      "example": "",
+      "related": [
+        "compulsory-education"
+      ],
+      "source": "https://en.wikipedia.org/wiki/Education_in_Canada"
+    },
+    {
+      "slug": "education-in-england",
+      "term": "Education in England",
+      "category": "core-concepts",
+      "short": "Education in England is overseen by the Department for Education, a ministerial department of the Government of the United Kingdom",
+      "definition": "Education in England is overseen by the Department for Education, a ministerial department of the Government of the United Kingdom. Local government authorities are responsible for implementing policy for public education and state-funded schools at a local level. State-funded schools may be selective grammar schools or non-selective comprehensive schools. All state schools are subject to assessment and inspection by the government department Ofsted. England also has private schools and home education; legally, parents may choose to educate their children by any suitable means.",
+      "example": "",
+      "related": [
+        "primary-school"
+      ],
+      "source": "https://en.wikipedia.org/wiki/Education_in_England"
+    },
+    {
+      "slug": "education-in-scotland",
+      "term": "Education in Scotland",
+      "category": "core-concepts",
+      "short": "Education in Scotland is provided in state schools, private schools and by individuals through homeschooling",
+      "definition": "Education in Scotland is provided in state schools, private schools and by individuals through homeschooling. Mandatory education in Scotland begins for children in Primary 1 (P1) at primary school and ends in Sixth Year (S6) at secondary school. Overall accountability and control of state–education in Scotland rests with the Scottish Government, and is overseen by its executive agency, Education Scotland, with additional responsibility for nursery schools being the joint responsibility of both Education Scotland and the Care Inspectorate. Scotland's private schools are overseen by the Scottis",
+      "example": "",
+      "related": [
+        "primary-school"
+      ],
+      "source": "https://en.wikipedia.org/wiki/Education_in_Scotland"
+    },
+    {
+      "slug": "education-in-wales",
+      "term": "Education in Wales",
+      "category": "core-concepts",
+      "short": "In Wales, education is compulsory for children between ages 5-16, and is largely state-funded and freely accessible at a primary and secondary level",
+      "definition": "In Wales, education is compulsory for children between ages 5-16, and is largely state-funded and freely accessible at a primary and secondary level. It differs to some extent in structure and content to other parts of the United Kingdom, particularly in relation to the teaching of the Welsh language.",
+      "example": "",
+      "related": [
+        "primary-school"
+      ],
+      "source": "https://en.wikipedia.org/wiki/Education_in_Wales"
+    },
+    {
+      "slug": "education-in-the-philippines",
+      "term": "Education in the Philippines",
+      "category": "core-concepts",
+      "short": "Education in the Philippines is compulsory at the basic education level, composed of kindergarten, elementary school, junior high school, and senior high school",
+      "definition": "Education in the Philippines is compulsory at the basic education level, composed of kindergarten, elementary school, junior high school, and senior high school. The educational system is managed by three government agencies by level of education: the Department of Education (DepEd) for basic education; the Commission on Higher Education (CHED) for higher education; and the Technical Education and Skills Development Authority (TESDA) for technical and vocational education. Public education is funded by the national government.",
+      "example": "",
+      "related": [
+        "compulsory-education",
+        "formal-education",
+        "fourth-grade"
+      ],
+      "source": "https://en.wikipedia.org/wiki/Education_in_the_Philippines"
+    },
+    {
+      "slug": "formal-education",
+      "term": "Formal education",
+      "category": "core-concepts",
+      "short": "Transmission of knowledge and skills",
+      "definition": "Education is the transmission of knowledge and skills and the development of character traits. Formal education happens in a complex institutional framework, like public schools. Non-formal education is also structured but occurs outside the formal schooling system, while informal education is unstructured learning through daily experiences. Formal and non-formal education are divided into levels that include early childhood education, primary education, secondary education, and tertiary education. Other classifications focus on the teaching method, like teacher-centered and student-centered e",
+      "example": "",
+      "related": [],
+      "source": "https://en.wikipedia.org/wiki/Education"
+    },
+    {
+      "slug": "fourth-grade",
+      "term": "Fourth grade",
+      "category": "core-concepts",
+      "short": "Educational year group",
+      "definition": "Fourth grade is the fourth year of formal or compulsory education. It is the fourth year of primary school. Children in fourth grade are usually 9–10 years old.",
+      "example": "",
+      "related": [
+        "compulsory-education"
+      ],
+      "source": "https://en.wikipedia.org/wiki/Fourth_grade"
+    },
+    {
+      "slug": "kazakhstan",
+      "term": "Kazakhstan",
+      "category": "core-concepts",
+      "short": "Country in Eastern Europe and Central Asia",
+      "definition": "Kazakhstan, officially the Republic of Kazakhstan, is a landlocked country situated primarily in Central Asia, with a portion of its territory extending into Eastern Europe. It borders Russia to the north and west, China to the east, Kyrgyzstan to the southeast, Uzbekistan to the south, and Turkmenistan to the southwest, and it has a coastline along the Caspian Sea. The capital is Astana and the country's largest city and principal cultural and economic center is Almaty, which served as the capital until 1997.",
+      "example": "",
+      "related": [],
+      "source": "https://en.wikipedia.org/wiki/Kazakhstan"
+    },
+    {
+      "slug": "middle-school",
+      "term": "Middle school",
+      "category": "core-concepts",
+      "short": "Schooling in-between primary and secondary schools",
+      "definition": "Middle school, also known as intermediate school, senior public school, junior high school, junior secondary school, or lower secondary school, is an educational stage between primary school and secondary school.",
+      "example": "",
+      "related": [
+        "compulsory-education"
+      ],
+      "source": "https://en.wikipedia.org/wiki/Middle_school"
+    },
+    {
+      "slug": "pre-kindergarten",
+      "term": "Pre-kindergarten",
+      "category": "core-concepts",
+      "short": "School program for children before kindergarten",
+      "definition": "Pre-kindergarten is a voluntary classroom-based preschool program for children below the age of five in the United States, Canada, Turkey and Greece. It may be delivered through a preschool or within a reception year in elementary school. Pre-kindergartens play an important role in early childhood education. They have existed in the US since 1922, normally run by private organizations. The U.S. Head Start program, the country's first federally funded pre-kindergarten program, was founded in 1967. This attempts to prepare children to succeed in school.",
+      "example": "",
+      "related": [
+        "compulsory-education",
+        "education-in-canada"
+      ],
+      "source": "https://en.wikipedia.org/wiki/Pre-kindergarten"
+    },
+    {
+      "slug": "primary-school",
+      "term": "Primary school",
+      "category": "core-concepts",
+      "short": "School for children",
+      "definition": "A primary school, elementary school, or grade school, is a school for primary education of children who are usually 4 to 11 years of age. Primary schooling follows preschool and precedes secondary schooling.",
+      "example": "",
+      "related": [],
+      "source": "https://en.wikipedia.org/wiki/Primary_school"
+    },
+    {
+      "slug": "twelfth-grade",
+      "term": "Twelfth grade",
+      "category": "core-concepts",
+      "short": "Twelfth post-kindergarten year of school education in some school systems",
+      "definition": "Twelfth grade is the final year of formal or compulsory education in many parts of the world. It is typically the last year of secondary school and K–12 education. Students in twelfth grade are generally 17–18 years old. While some countries have a thirteenth grade, others may not include a 12th grade/year in their educational system.",
+      "example": "",
+      "related": [],
+      "source": "https://en.wikipedia.org/wiki/Twelfth_grade"
+    },
+    {
+      "slug": "multiplication-and-division",
+      "term": "Multiplication and Division",
+      "category": "core-concepts",
+      "short": "Operations involving the combining of equal groups and the splitting into equal groups.",
+      "definition": "Multiplication is the operation of combining equal groups to find the total, while division is the operation of splitting a total into equal groups or finding how many times one number is contained within another.",
+      "example": "Multiplication: 4 groups of 3 apples each make 12 apples total; Division: 12 apples split into 4 groups of 3 apples each.",
+      "related": [
+        "fractions",
+        "algebraic-thinking",
+        "problem-solving-strategies",
+        "mathematical-reasoning",
+        "geometry-basics"
+      ],
+      "source": "model:qwen2.5-7b-instruct-4bit"
+    },
+    {
+      "slug": "fractions",
+      "term": "Fractions",
+      "category": "core-concepts",
+      "short": "Fractions represent parts of a whole.",
+      "definition": "Fractions consist of a numerator and a denominator, where the numerator indicates how many parts are considered, and the denominator shows the total number of equal parts in the whole.",
+      "example": "If a pizza is divided into 4 equal slices and you eat 1 slice, you have eaten 1/4 of the pizza.",
+      "related": [
+        "multiplication-and-division",
+        "algebraic-thinking",
+        "data-analysis-and-graphing",
+        "problem-solving-strategies",
+        "mathematical-reasoning"
+      ],
+      "source": "model:qwen2.5-7b-instruct-4bit"
+    },
+    {
+      "slug": "geometry-basics",
+      "term": "Geometry Basics",
+      "category": "core-concepts",
+      "short": "Geometry Basics in fifth grade involves understanding and working with shapes, their properties, and basic spatial relationships, such as identifying and classifying angles, lines, and polygons.",
+      "definition": "Geometry Basics in fifth grade involves understanding and working with shapes, their properties, and basic spatial relationships, such as identifying and classifying angles, lines, and polygons.",
+      "example": "For example, students learn to identify and measure different types of angles (acute, obtuse, right) and classify triangles based on their sides and angles.",
+      "related": [
+        "multiplication-and-division",
+        "fractions",
+        "algebraic-thinking",
+        "data-analysis-and-graphing",
+        "problem-solving-strategies"
+      ],
+      "source": "model:qwen2.5-7b-instruct-4bit"
+    },
+    {
+      "slug": "algebraic-thinking",
+      "term": "Algebraic Thinking",
+      "category": "core-concepts",
+      "short": "Algebraic Thinking",
+      "definition": "Understanding and using symbols to represent numbers or quantities in problems and relationships.",
+      "example": "Solving the problem: If 3 apples equal 15 cents, how many apples can you buy with 60 cents? Using algebraic thinking, you might represent this as 3a = 15, where 'a' is the cost of one apple, and then solve for the number of apples you can buy with 60 cents.",
+      "related": [
+        "multiplication-and-division",
+        "fractions",
+        "problem-solving-strategies",
+        "mathematical-reasoning",
+        "geometry-basics"
+      ],
+      "source": "model:qwen2.5-7b-instruct-4bit"
+    },
+    {
+      "slug": "data-analysis-and-graphing",
+      "term": "Data Analysis and Graphing",
+      "category": "core-concepts",
+      "short": "Data Analysis and Graphing involves collecting, organizing, and interpreting data, then representing it visually through graphs and charts to identify patterns and trends.",
+      "definition": "Data Analysis and Graphing involves collecting, organizing, and interpreting data, then representing it visually through graphs and charts to identify patterns and trends.",
+      "example": "For instance, a fifth grader might collect data on the number of hours spent on different activities in a week, then create a bar graph to compare the time spent on each activity.",
+      "related": [
+        "multiplication-and-division",
+        "fractions",
+        "algebraic-thinking",
+        "problem-solving-strategies",
+        "mathematical-reasoning"
+      ],
+      "source": "model:qwen2.5-7b-instruct-4bit"
+    },
+    {
+      "slug": "measurement-and-conversion",
+      "term": "Measurement and Conversion",
+      "category": "core-concepts",
+      "short": "Measuring and converting units within the same system or between different systems.",
+      "definition": "Measurement and conversion involve determining the size, amount, or degree of something using units of measurement and then changing those measurements into different units while maintaining the same value.",
+      "example": "Converting 500 milliliters to liters, which is 0.5 liters, when measuring the volume of a liquid.",
+      "related": [
+        "fractions",
+        "algebraic-thinking",
+        "data-analysis-and-graphing",
+        "problem-solving-strategies",
+        "mathematical-reasoning"
+      ],
+      "source": "model:qwen2.5-7b-instruct-4bit"
+    },
+    {
+      "slug": "problem-solving-strategies",
+      "term": "Problem Solving Strategies",
+      "category": "core-concepts",
+      "short": "Problem-solving strategies are methods used to find solutions to mathematical or real-world problems, involving steps like identifying the problem, gathering information, and applying appropriate tech",
+      "definition": "Problem-solving strategies are methods used to find solutions to mathematical or real-world problems, involving steps like identifying the problem, gathering information, and applying appropriate techniques to reach a solution.",
+      "example": "One concrete example is using the strategy of 'guess and check' to solve a word problem about finding two numbers that add up to a given sum.",
+      "related": [
+        "multiplication-and-division",
+        "fractions",
+        "geometry-basics",
+        "algebraic-thinking",
+        "data-analysis-and-graphing"
+      ],
+      "source": "model:qwen2.5-7b-instruct-4bit"
+    },
+    {
+      "slug": "mathematical-reasoning",
+      "term": "Mathematical Reasoning",
+      "category": "core-concepts",
+      "short": "The ability to think logically about mathematical problems and construct valid arguments to solve them.",
+      "definition": "The ability to think logically about mathematical problems and construct valid arguments to solve them.",
+      "example": "If a student uses deductive reasoning to prove that all rectangles are parallelograms by showing that they share the same properties of having two pairs of parallel sides.",
+      "related": [
+        "multiplication-and-division",
+        "fractions",
+        "geometry-basics",
+        "algebraic-thinking",
+        "data-analysis-and-graphing"
+      ],
+      "source": "model:qwen2.5-7b-instruct-4bit"
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "schema": "dac.world-agenda/v1",
+  "world": "5th-grade-mathematics",
+  "watches": [
+    {
+      "node": "5th-grade-mathematics",
+      "feeds": [
+        "https://en.wikipedia.org/"
+      ],
+      "cadence": "occasional"
+    }
+  ]
+}

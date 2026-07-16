@@ -1,0 +1,13 @@
+{
+  "schema": "arail.world-evolution/v1",
+  "world": "ai",
+  "passes": [
+    {
+      "at": "2026-07-16T12:18:07Z",
+      "model": "aerollm",
+      "brain": "auto",
+      "added": [],
+      "corrections": []
+    }
+  ]
+}

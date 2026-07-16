@@ -1,0 +1,15 @@
+{
+  "schema": "dac.world-face/v1",
+  "world": "5th-grade-mathematics",
+  "name": "Fifth grade",
+  "tagline": "A Fifth grade World.",
+  "palette_hint": "slate-violet",
+  "domain_framing": "This lab studies Fifth grade. Every factual claim is grounded in the World's cited sources. Hypotheses and answers stay within the declared categories (core-concepts).",
+  "vocabulary_register": "Use the World's own terms; cite a source for every factual claim.",
+  "provenance_tier": "mixed",
+  "provenance_counts": {
+    "model": 8,
+    "sourced": 16,
+    "total": 24
+  }
+}

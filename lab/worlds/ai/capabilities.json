@@ -4,7 +4,7 @@
   "capabilities": [
     {
       "id": "knowledge.ground.ai",
-      "purpose": "Answer and ground questions within the AI & Machine Learning World from its 331 sourced terms.",
+      "purpose": "Ground claims about AI & Machine Learning in the World's gated glossary.",
       "desired": true,
       "interface": {
         "kind": "knowledge-grounding",
@@ -32,169 +32,155 @@
     },
     {
       "id": "knowledge.ground.ai.architecture",
-      "purpose": "Ground questions about Architecture (70 sourced terms).",
+      "purpose": "Ground claims about Architecture in AI & Machine Learning.",
       "desired": true,
       "interface": {
         "kind": "knowledge-grounding",
         "world": "ai",
         "category": "architecture",
-        "category_label": "Architecture",
         "term_count": 70
       }
     },
     {
       "id": "knowledge.ground.ai.care-actions",
-      "purpose": "Ground questions about Remedies & Care Actions (7 sourced terms).",
+      "purpose": "Ground claims about Remedies & Care Actions in AI & Machine Learning.",
       "desired": true,
       "interface": {
         "kind": "knowledge-grounding",
         "world": "ai",
         "category": "care-actions",
-        "category_label": "Remedies & Care Actions",
         "term_count": 7
       }
     },
     {
       "id": "knowledge.ground.ai.conditions",
-      "purpose": "Ground questions about Model Conditions (9 sourced terms).",
+      "purpose": "Ground claims about Model Conditions in AI & Machine Learning.",
       "desired": true,
       "interface": {
         "kind": "knowledge-grounding",
         "world": "ai",
         "category": "conditions",
-        "category_label": "Model Conditions",
         "term_count": 9
       }
     },
     {
       "id": "knowledge.ground.ai.fine-tuning",
-      "purpose": "Ground questions about Fine-Tuning (29 sourced terms).",
+      "purpose": "Ground claims about Fine-Tuning in AI & Machine Learning.",
       "desired": true,
       "interface": {
         "kind": "knowledge-grounding",
         "world": "ai",
         "category": "fine-tuning",
-        "category_label": "Fine-Tuning",
         "term_count": 29
       }
     },
     {
       "id": "knowledge.ground.ai.formats-runtime",
-      "purpose": "Ground questions about Formats & Runtime (15 sourced terms).",
+      "purpose": "Ground claims about Formats & Runtime in AI & Machine Learning.",
       "desired": true,
       "interface": {
         "kind": "knowledge-grounding",
         "world": "ai",
         "category": "formats-runtime",
-        "category_label": "Formats & Runtime",
         "term_count": 15
       }
     },
     {
       "id": "knowledge.ground.ai.fundamentals",
-      "purpose": "Ground questions about Fundamentals (39 sourced terms).",
+      "purpose": "Ground claims about Fundamentals in AI & Machine Learning.",
       "desired": true,
       "interface": {
         "kind": "knowledge-grounding",
         "world": "ai",
         "category": "fundamentals",
-        "category_label": "Fundamentals",
         "term_count": 39
       }
     },
     {
       "id": "knowledge.ground.ai.inference",
-      "purpose": "Ground questions about Inference (16 sourced terms).",
+      "purpose": "Ground claims about Inference in AI & Machine Learning.",
       "desired": true,
       "interface": {
         "kind": "knowledge-grounding",
         "world": "ai",
         "category": "inference",
-        "category_label": "Inference",
         "term_count": 16
       }
     },
     {
       "id": "knowledge.ground.ai.pathologies",
-      "purpose": "Ground questions about Data & Numeric Pathologies (9 sourced terms).",
+      "purpose": "Ground claims about Data & Numeric Pathologies in AI & Machine Learning.",
       "desired": true,
       "interface": {
         "kind": "knowledge-grounding",
         "world": "ai",
         "category": "pathologies",
-        "category_label": "Data & Numeric Pathologies",
         "term_count": 9
       }
     },
     {
       "id": "knowledge.ground.ai.performance",
-      "purpose": "Ground questions about Performance (20 sourced terms).",
+      "purpose": "Ground claims about Performance in AI & Machine Learning.",
       "desired": true,
       "interface": {
         "kind": "knowledge-grounding",
         "world": "ai",
         "category": "performance",
-        "category_label": "Performance",
         "term_count": 20
       }
     },
     {
       "id": "knowledge.ground.ai.quantization",
-      "purpose": "Ground questions about Quantization (16 sourced terms).",
+      "purpose": "Ground claims about Quantization in AI & Machine Learning.",
       "desired": true,
       "interface": {
         "kind": "knowledge-grounding",
         "world": "ai",
         "category": "quantization",
-        "category_label": "Quantization",
         "term_count": 16
       }
     },
     {
       "id": "knowledge.ground.ai.qukaizen",
-      "purpose": "Ground questions about QuKaiZen Stack (25 sourced terms).",
+      "purpose": "Ground claims about QuKaiZen Stack in AI & Machine Learning.",
       "desired": true,
       "interface": {
         "kind": "knowledge-grounding",
         "world": "ai",
         "category": "qukaizen",
-        "category_label": "QuKaiZen Stack",
         "term_count": 25
       }
     },
     {
       "id": "knowledge.ground.ai.rl-alignment",
-      "purpose": "Ground questions about RL & Alignment (21 sourced terms).",
+      "purpose": "Ground claims about RL & Alignment in AI & Machine Learning.",
       "desired": true,
       "interface": {
         "kind": "knowledge-grounding",
         "world": "ai",
         "category": "rl-alignment",
-        "category_label": "RL & Alignment",
         "term_count": 21
       }
     },
     {
       "id": "knowledge.ground.ai.symptoms",
-      "purpose": "Ground questions about Training Symptoms (10 sourced terms).",
+      "purpose": "Ground claims about Training Symptoms in AI & Machine Learning.",
       "desired": true,
       "interface": {
         "kind": "knowledge-grounding",
         "world": "ai",
         "category": "symptoms",
-        "category_label": "Training Symptoms",
         "term_count": 10
       }
     },
     {
       "id": "knowledge.ground.ai.training",
-      "purpose": "Ground questions about Training (45 sourced terms).",
+      "purpose": "Ground claims about Training in AI & Machine Learning.",
       "desired": true,
       "interface": {
         "kind": "knowledge-grounding",
         "world": "ai",
         "category": "training",
-        "category_label": "Training",
         "term_count": 45
       }
     }

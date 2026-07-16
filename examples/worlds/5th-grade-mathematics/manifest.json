@@ -1,0 +1,27 @@
+{
+  "schema": "dac.world-bundle/v1",
+  "bundle_version": 1,
+  "world": "5th-grade-mathematics",
+  "display_name": "Fifth grade",
+  "created_at": "2026-07-10T00:21:12.109276Z",
+  "world_sha256": "ac26d4c797685279cfcd20bdc98d337de72114cfd9db6d89f2f53e253fed2a00",
+  "files": {
+    "terms.json": "ac26d4c797685279cfcd20bdc98d337de72114cfd9db6d89f2f53e253fed2a00",
+    "spec.json": "a4f3fa723a8a7570781f95c5bcdebc1f1a372612200ee6fe51fdd2f6d68c1e34",
+    "roster.json": "cdef76fdb5cf4c6cfb1bc05a96c636893cdb7bdf1cf6deeedc542a623e1ebe22",
+    "face.json": "86693dc058cfd02b369fe408836f5d52da0a573f34317509ca3c7e3908f9a9ff",
+    "agenda.json": "ff0609940e3cc5fa40a34c1f08148a9f2bd86c1b2e5bf78ae73be72dca3f2b95",
+    "drift-report.json": "de858c87d7f4c871c55466260b3ecaf00647d0a277f6423878dd16ad6d27ad08"
+  },
+  "provenance_tier": "mixed",
+  "provenance_counts": {
+    "model": 8,
+    "sourced": 16,
+    "total": 24
+  },
+  "refresh_cadence": "see agenda.json",
+  "compat": {
+    "bundle_schema": 1,
+    "terms_schema": 1
+  }
+}

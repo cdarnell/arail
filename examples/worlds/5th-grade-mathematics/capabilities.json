@@ -1,0 +1,32 @@
+{
+  "schema": "dac.world-capabilities/v1",
+  "world": "5th-grade-mathematics",
+  "capabilities": [
+    {
+      "id": "knowledge.ground.5th-grade-mathematics",
+      "purpose": "Ground claims about Fifth grade in the World's gated glossary.",
+      "desired": true,
+      "interface": {
+        "kind": "knowledge-grounding",
+        "world": "5th-grade-mathematics",
+        "world_sha256": "ac26d4c797685279cfcd20bdc98d337de72114cfd9db6d89f2f53e253fed2a00",
+        "categories": [
+          "core-concepts"
+        ],
+        "term_count": 24,
+        "provenance_tier": "mixed"
+      }
+    },
+    {
+      "id": "knowledge.ground.5th-grade-mathematics.core-concepts",
+      "purpose": "Ground claims about Fifth grade: Core Concepts in Fifth grade.",
+      "desired": true,
+      "interface": {
+        "kind": "knowledge-grounding",
+        "world": "5th-grade-mathematics",
+        "category": "core-concepts",
+        "term_count": 24
+      }
+    }
+  ]
+}
