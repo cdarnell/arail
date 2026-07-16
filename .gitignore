@@ -110,3 +110,11 @@ htmlcov/
 
 # Editor backup files
 *.bak
+
+# Librarian scan cache — regenerated wholesale on every scan (schema
+# arail.librarian-scout/v1 carries a `last_scan` stamp), ~290 KB per World.
+# Tracking it re-dirties the tree after each scan and bloats history for
+# zero signal. World `evolution.json` IS tracked: it's an append-only
+# record of evolution passes, not a cache.
+lab/worlds/*/librarian-scout.json
+examples/worlds/*/librarian-scout.json

@@ -1,0 +1,22 @@
+{
+  "schema": "dac.world-roster/v1",
+  "world": "5th-grade-mathematics",
+  "desired": [
+    "are-you-smarter-than-a-5th-grader",
+    "common-core-state-standards-initiative",
+    "compulsory-education",
+    "education-in-australia",
+    "education-in-canada",
+    "education-in-england",
+    "education-in-scotland",
+    "education-in-wales",
+    "education-in-the-philippines",
+    "formal-education",
+    "fourth-grade",
+    "kazakhstan",
+    "middle-school",
+    "pre-kindergarten",
+    "primary-school",
+    "twelfth-grade"
+  ]
+}

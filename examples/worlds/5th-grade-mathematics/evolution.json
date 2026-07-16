@@ -1,0 +1,173 @@
+{
+  "schema": "arail.world-evolution/v1",
+  "world": "5th-grade-mathematics",
+  "passes": [
+    {
+      "at": "2026-07-10T02:38:27Z",
+      "model": "aerollm",
+      "brain": "auto",
+      "added": [
+        {
+          "slug": "multiplication-and-division",
+          "term": "Multiplication and Division"
+        },
+        {
+          "slug": "fractions",
+          "term": "Fractions"
+        },
+        {
+          "slug": "geometry-basics",
+          "term": "Geometry Basics"
+        },
+        {
+          "slug": "algebraic-thinking",
+          "term": "Algebraic Thinking"
+        },
+        {
+          "slug": "data-analysis-and-graphing",
+          "term": "Data Analysis and Graphing"
+        },
+        {
+          "slug": "measurement-and-conversion",
+          "term": "Measurement and Conversion"
+        },
+        {
+          "slug": "problem-solving-strategies",
+          "term": "Problem Solving Strategies"
+        },
+        {
+          "slug": "mathematical-reasoning",
+          "term": "Mathematical Reasoning"
+        }
+      ],
+      "corrections": [
+        {
+          "slug": "education-in-canada",
+          "kind": "unlink",
+          "field": "related",
+          "before": [
+            "compulsory-education",
+            "education-in-australia",
+            "education-in-the-philippines"
+          ],
+          "after": [
+            "compulsory-education"
+          ],
+          "note": "Remove unrelated comparisons."
+        },
+        {
+          "slug": "education-in-england",
+          "kind": "unlink",
+          "field": "related",
+          "before": [
+            "education-in-scotland",
+            "education-in-wales",
+            "primary-school"
+          ],
+          "after": [
+            "primary-school"
+          ],
+          "note": "Too broad, focus on fifth grade concepts."
+        },
+        {
+          "slug": "education-in-scotland",
+          "kind": "unlink",
+          "field": "related",
+          "before": [
+            "education-in-england",
+            "education-in-wales",
+            "primary-school"
+          ],
+          "after": [
+            "primary-school"
+          ],
+          "note": "Too broad, focus on fifth grade concepts."
+        },
+        {
+          "slug": "education-in-wales",
+          "kind": "unlink",
+          "field": "related",
+          "before": [
+            "education-in-england",
+            "education-in-scotland",
+            "primary-school"
+          ],
+          "after": [
+            "primary-school"
+          ],
+          "note": "Too broad, focus on fifth grade concepts."
+        },
+        {
+          "slug": "education-in-the-philippines",
+          "kind": "unlink",
+          "field": "related",
+          "before": [
+            "compulsory-education",
+            "education-in-australia",
+            "education-in-canada",
+            "formal-education",
+            "fourth-grade"
+          ],
+          "after": [
+            "compulsory-education",
+            "formal-education",
+            "fourth-grade"
+          ],
+          "note": "Remove unrelated comparisons."
+        },
+        {
+          "slug": "fourth-grade",
+          "kind": "unlink",
+          "field": "related",
+          "before": [
+            "compulsory-education",
+            "education-in-australia",
+            "education-in-canada",
+            "education-in-england",
+            "education-in-scotland",
+            "education-in-wales"
+          ],
+          "after": [
+            "compulsory-education"
+          ],
+          "note": "Not a core concept, too many country-specific related terms"
+        },
+        {
+          "slug": "middle-school",
+          "kind": "unlink",
+          "field": "related",
+          "before": [
+            "compulsory-education",
+            "education-in-canada",
+            "education-in-england",
+            "education-in-scotland",
+            "education-in-wales",
+            "education-in-the-philippines"
+          ],
+          "after": [
+            "compulsory-education"
+          ],
+          "note": "Too broad, not a core concept. Remove cultural examples."
+        },
+        {
+          "slug": "pre-kindergarten",
+          "kind": "unlink",
+          "field": "related",
+          "before": [
+            "compulsory-education",
+            "education-in-australia",
+            "education-in-canada",
+            "education-in-the-philippines",
+            "fourth-grade",
+            "middle-school"
+          ],
+          "after": [
+            "compulsory-education",
+            "education-in-canada"
+          ],
+          "note": "Too broad, not core-concept."
+        }
+      ]
+    }
+  ]
+}

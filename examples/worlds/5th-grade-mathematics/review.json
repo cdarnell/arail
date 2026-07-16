@@ -1,0 +1,153 @@
+{
+  "schema": "arail.world-review/v1",
+  "world": "5th-grade-mathematics",
+  "reviewed_at": "2026-07-10T00:26:39Z",
+  "model": "aerollm",
+  "reviewed_count": 16,
+  "flags": [
+    {
+      "slug": "are-you-smarter-than-a-5th-grader",
+      "verdict": "reject",
+      "better_category": "",
+      "bad_edges": [],
+      "note": "Not a core concept; add related shows."
+    },
+    {
+      "slug": "common-core-state-standards-initiative",
+      "verdict": "reject",
+      "better_category": "",
+      "bad_edges": [],
+      "note": "Too broad, not specific to fifth grade."
+    },
+    {
+      "slug": "compulsory-education",
+      "verdict": "reject",
+      "better_category": "",
+      "bad_edges": [],
+      "note": "Refine definition, add related concepts"
+    },
+    {
+      "slug": "education-in-australia",
+      "verdict": "reject",
+      "better_category": "",
+      "bad_edges": [],
+      "note": "Too advanced for fifth grade core-concepts"
+    },
+    {
+      "slug": "education-in-canada",
+      "verdict": "reject",
+      "better_category": "",
+      "bad_edges": [
+        "education-in-australia",
+        "education-in-the-philippines"
+      ],
+      "note": "Remove unrelated comparisons."
+    },
+    {
+      "slug": "education-in-england",
+      "verdict": "reject",
+      "better_category": "",
+      "bad_edges": [
+        "education-in-scotland",
+        "education-in-wales"
+      ],
+      "note": "Too broad, focus on fifth grade concepts."
+    },
+    {
+      "slug": "education-in-scotland",
+      "verdict": "reject",
+      "better_category": "",
+      "bad_edges": [
+        "education-in-england",
+        "education-in-wales"
+      ],
+      "note": "Too broad, focus on fifth grade concepts."
+    },
+    {
+      "slug": "education-in-wales",
+      "verdict": "reject",
+      "better_category": "",
+      "bad_edges": [
+        "education-in-england",
+        "education-in-scotland"
+      ],
+      "note": "Too broad, focus on fifth grade concepts."
+    },
+    {
+      "slug": "education-in-the-philippines",
+      "verdict": "reject",
+      "better_category": "",
+      "bad_edges": [
+        "education-in-australia",
+        "education-in-canada"
+      ],
+      "note": "Too broad, focus on Philippines specifics."
+    },
+    {
+      "slug": "formal-education",
+      "verdict": "reject",
+      "better_category": "",
+      "bad_edges": [],
+      "note": "Define core concepts more clearly, add related terms."
+    },
+    {
+      "slug": "fourth-grade",
+      "verdict": "reject",
+      "better_category": "",
+      "bad_edges": [
+        "education-in-australia",
+        "education-in-canada",
+        "education-in-england",
+        "education-in-scotland",
+        "education-in-wales"
+      ],
+      "note": "Not core concept, too country-specific"
+    },
+    {
+      "slug": "kazakhstan",
+      "verdict": "reject",
+      "better_category": "",
+      "bad_edges": [],
+      "note": "Not a core concept; too detailed for a term"
+    },
+    {
+      "slug": "middle-school",
+      "verdict": "reject",
+      "better_category": "",
+      "bad_edges": [
+        "education-in-canada",
+        "education-in-england",
+        "education-in-scotland",
+        "education-in-wales",
+        "education-in-the-philippines"
+      ],
+      "note": "Too broad, not a core concept. Remove cultural examples."
+    },
+    {
+      "slug": "pre-kindergarten",
+      "verdict": "reject",
+      "better_category": "",
+      "bad_edges": [
+        "education-in-australia",
+        "education-in-the-philippines",
+        "fourth-grade",
+        "middle-school"
+      ],
+      "note": "Too broad, not core-concept."
+    },
+    {
+      "slug": "primary-school",
+      "verdict": "reject",
+      "better_category": "",
+      "bad_edges": [],
+      "note": "Too broad for 'core-concepts'."
+    },
+    {
+      "slug": "twelfth-grade",
+      "verdict": "reject",
+      "better_category": "",
+      "bad_edges": [],
+      "note": "Not a core concept, too specific"
+    }
+  ]
+}

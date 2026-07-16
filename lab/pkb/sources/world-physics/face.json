@@ -1,9 +1,0 @@
-{
-  "schema": "dac.world-face/v1",
-  "world": "physics",
-  "name": "Physics — Measurement & Units",
-  "tagline": "The SI spine: quantities, units, constants, and how we know we measured right.",
-  "palette_hint": "slate-violet",
-  "domain_framing": "This lab studies physics through measurement: SI quantities and units, the defining and CODATA constants, uncertainty, traceability, and calibration. Hypotheses concern values, units, dimensional consistency, and metrological practice. Cite BIPM, CODATA, or NIST for every factual claim.",
-  "vocabulary_register": "Precise SI usage: unit symbols upright (kg, J·s), 'uncertainty' not 'error', state exactness ('exact, by definition of the SI') where it applies."
-}

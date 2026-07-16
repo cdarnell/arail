@@ -1,0 +1,33 @@
+{
+  "schema": "dac.world-drift/v1",
+  "world": "5th-grade-mathematics",
+  "declared": [
+    "algebraic-thinking",
+    "are-you-smarter-than-a-5th-grader",
+    "common-core-state-standards-initiative",
+    "compulsory-education",
+    "data-analysis-and-graphing",
+    "education-in-australia",
+    "education-in-canada",
+    "education-in-england",
+    "education-in-scotland",
+    "education-in-the-philippines",
+    "education-in-wales",
+    "formal-education",
+    "fourth-grade",
+    "fractions",
+    "geometry-basics",
+    "kazakhstan",
+    "mathematical-reasoning",
+    "measurement-and-conversion",
+    "middle-school",
+    "multiplication-and-division",
+    "pre-kindergarten",
+    "primary-school",
+    "problem-solving-strategies",
+    "twelfth-grade"
+  ],
+  "missing": [],
+  "extra": [],
+  "ok": true
+}

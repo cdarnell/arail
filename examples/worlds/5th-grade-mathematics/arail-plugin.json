@@ -1,0 +1,17 @@
+{
+  "name": "qukaizen/dac-world-5th-grade-mathematics",
+  "type": "world",
+  "description": "DaC WorldBundle for Fifth grade — 24 terms, mountable in ARAIL.",
+  "version": "1.0.0",
+  "dac": {
+    "schema": "dac.arail-plugin/v1",
+    "world": "5th-grade-mathematics",
+    "world_sha256": "ac26d4c797685279cfcd20bdc98d337de72114cfd9db6d89f2f53e253fed2a00",
+    "bundle": ".",
+    "provides": {
+      "capabilities": "capabilities.json",
+      "skill": "SKILL.md",
+      "bundle_manifest": "manifest.json"
+    }
+  }
+}

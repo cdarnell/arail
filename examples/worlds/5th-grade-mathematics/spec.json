@@ -1,0 +1,18 @@
+{
+  "_bootstrap_notice": "SOURCED from Wikipedia for '5th grade mathematics' (consent 94e67442). Each term cites its article URL.",
+  "slug": "5th-grade-mathematics",
+  "display_name": "Fifth grade",
+  "categories": [
+    {
+      "id": "core-concepts",
+      "label": "Fifth grade: Core Concepts"
+    }
+  ],
+  "knowledge_sources": [
+    {
+      "kind": "url",
+      "ref": "https://en.wikipedia.org/",
+      "trust": "primary"
+    }
+  ]
+}

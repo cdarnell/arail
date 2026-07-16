@@ -1,7 +1,7 @@
 {
   "name": "qukaizen/dac-world-ai",
   "type": "world",
-  "description": "DaC WorldBundle for AI & Machine Learning — 331 sourced terms, mountable in ARAIL.",
+  "description": "DaC WorldBundle for AI & Machine Learning — 331 terms, mountable in ARAIL.",
   "version": "1.0.0",
   "dac": {
     "schema": "dac.arail-plugin/v1",
