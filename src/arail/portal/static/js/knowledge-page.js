@@ -339,6 +339,16 @@
           scheduleBriefRefresh();
           if (typeof window.arailReviewReload === 'function') window.arailReviewReload();
         }
+        // Librarian activity (scout proposals, growth passes, forge) →
+        // refresh the focus card; structured dac_proposals payloads also
+        // reload the term-proposals queue.
+        if (ev.source === 'librarian' || ev.source === 'forge' || ev.source === 'curator') {
+          if (typeof window.arailLibrarianReload === 'function') window.arailLibrarianReload();
+        }
+        if (ev.data && ev.data.dac_proposals) {
+          scheduleBriefRefresh();
+          if (typeof window.arailProposalsReload === 'function') window.arailProposalsReload();
+        }
       };
       es.onerror = () => {
         es.close();

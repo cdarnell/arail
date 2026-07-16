@@ -419,7 +419,7 @@ def _render_program_md(
             lines.append(f"- [{src['title']}]({src['url']})")
         lines.append("")
     if not (kb_section or default_sources or fetched_sources):
-        lines.append("_No sources yet — drop files into the Knowledge tab "
+        lines.append("_No sources yet — drop files into the DaC tab "
                      "or edit this section directly._")
         lines.append("")
 

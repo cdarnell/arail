@@ -688,7 +688,7 @@ function dismissRunbookBanner() {
       <div class="lab-knows-program">
         <span class="lab-knows-col-label">📝 Research program</span>
         <a class="lab-knows-program-link" id="lab-knows-program-link"
-           href="/knowledge?file=research/program.md">research/program.md</a>
+           href="/dac?file=research/program.md">research/program.md</a>
         <span class="lab-knows-program-status" id="lab-knows-program-status">checking…</span>
         <button type="button" class="lab-knows-program-redraft"
                 id="lab-knows-program-redraft"
@@ -817,27 +817,27 @@ function dismissRunbookBanner() {
     <!-- Five type tiles with live counts. Clicking a tile opens
          the Knowledge page scoped to that section. -->
     <div class="kb-type-row" id="kb-type-row">
-      <a class="kb-type-tile" href="/knowledge" data-kind="articles">
+      <a class="kb-type-tile" href="/dac" data-kind="articles">
         <span class="kb-type-icon">📄</span>
         <span class="kb-type-count" data-count="articles">—</span>
         <span class="kb-type-label">Articles</span>
       </a>
-      <a class="kb-type-tile" href="/knowledge" data-kind="images">
+      <a class="kb-type-tile" href="/dac" data-kind="images">
         <span class="kb-type-icon">🖼</span>
         <span class="kb-type-count" data-count="images">—</span>
         <span class="kb-type-label">Images</span>
       </a>
-      <a class="kb-type-tile" href="/knowledge" data-kind="videos">
+      <a class="kb-type-tile" href="/dac" data-kind="videos">
         <span class="kb-type-icon">🎥</span>
         <span class="kb-type-count" data-count="videos">—</span>
         <span class="kb-type-label">Videos</span>
       </a>
-      <a class="kb-type-tile" href="/knowledge" data-kind="audio">
+      <a class="kb-type-tile" href="/dac" data-kind="audio">
         <span class="kb-type-icon">🎧</span>
         <span class="kb-type-count" data-count="audio">—</span>
         <span class="kb-type-label">Audio</span>
       </a>
-      <a class="kb-type-tile" href="/knowledge" data-kind="agents">
+      <a class="kb-type-tile" href="/dac" data-kind="agents">
         <span class="kb-type-icon">🤖</span>
         <span class="kb-type-count" data-count="agents">—</span>
         <span class="kb-type-label">Agent findings</span>
@@ -858,7 +858,7 @@ function dismissRunbookBanner() {
     </div>
 
     <div class="kb-hero-actions">
-      <a class="btn btn-sm btn-primary" href="/knowledge">Open knowledge →</a>
+      <a class="btn btn-sm btn-primary" href="/dac">Open DaC →</a>
       <button class="btn btn-sm btn-ghost" id="kb-hero-seed"
               title="Install the model-building starter pack (9 primers)">
         ⚡ Install starter pack
@@ -1720,7 +1720,7 @@ async function refreshKbHero() {
       list.innerHTML = items.map(it =>
         `<li class="kb-recent-item">
           <span class="kb-recent-icon">${iconForSection(it.section)}</span>
-          <a class="kb-recent-name" href="/knowledge" title="${esc(it.path)}">${esc(it.name)}</a>
+          <a class="kb-recent-name" href="/dac" title="${esc(it.path)}">${esc(it.name)}</a>
           <span class="kb-recent-age">${esc(fmtRelativeTime(it.mtime))}</span>
         </li>`
       ).join('');
@@ -1823,7 +1823,7 @@ async function loadLabKnows(goalText) {
     kbList.innerHTML = usable.map(h => {
       const score = (h.score !== undefined) ? `<span class="lab-knows-score">${(h.score * 100).toFixed(0)}%</span>` : '';
       const src = h.source === 'semantic' ? 'semantic' : 'keyword';
-      const href = '/knowledge?file=' + encodeURIComponent(h.path || '');
+      const href = '/dac?file=' + encodeURIComponent(h.path || '');
       return `<li><a href="${esc(href)}" title="${esc(h.path || '')}">${esc(h.name || h.path || '?')}</a> <span class="lab-knows-meta">${src}</span>${score}</li>`;
     }).join('');
   }).catch(() => renderEmpty(kbList, 'KB search unavailable.'));

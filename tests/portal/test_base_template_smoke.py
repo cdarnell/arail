@@ -30,7 +30,7 @@ PAGE_ROUTES = [
     "/tuning",
     "/teacher",
     "/research",
-    "/knowledge",
+    "/dac",
     "/graph",
     "/agents",
     "/skills",

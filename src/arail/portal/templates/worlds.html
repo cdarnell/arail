@@ -40,6 +40,18 @@
         </button>
       </div>
 
+      <!-- Forge brain — dream mode only. The frontier option is how the very
+           first Worlds were authored (a cloud Opus call); terms stay honestly
+           model-asserted either way. -->
+      <div class="forge-source" id="forge-brain" role="radiogroup" aria-label="Forge brain">
+        <button type="button" class="source-opt selected" data-brain="local" aria-pressed="true">
+          💻 Local model <span class="source-sub">airgapped-safe · runs on your GPU</span>
+        </button>
+        <button type="button" class="source-opt" data-brain="claude" id="brain-frontier">
+          ☁️ Frontier API <span class="source-sub">Claude via your saved key · richer drafts</span>
+        </button>
+      </div>
+
       <div class="forge-size" id="forge-size" role="radiogroup" aria-label="World size">
         <button type="button" class="size-opt" data-terms="25"><span class="size-n">25</span> · Sketch <span class="size-eta">≈4 min</span></button>
         <button type="button" class="size-opt selected" data-terms="50" aria-pressed="true"><span class="size-n">50</span> · Field guide <span class="size-eta">≈8 min</span></button>
@@ -79,7 +91,15 @@
         airgapped the instant the fetch finishes. Terms arrive with real
         sources, so this world starts <em>sourced</em>, not dreamed.
       </div>
+      <div class="honesty-banner banner-fetch" id="banner-frontier" hidden>
+        <strong>Frontier API forge.</strong> This forge calls your configured
+        cloud provider (Claude) with your saved key — each call is billed and
+        metered on the status bar. Terms arrive labeled
+        <em>model-asserted</em> all the same; you review everything before
+        mounting.
+      </div>
       <p class="forge-note" id="note-dream">Your local model will be busy while forging.</p>
+      <p class="forge-note" id="note-frontier" hidden>No local model use — the frontier calls run beside your chat.</p>
       <p class="forge-note" id="note-fetch" hidden>No local model use — the fetch runs beside your chat.</p>
 
       <div class="forge-actions">

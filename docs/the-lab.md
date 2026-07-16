@@ -218,13 +218,13 @@ you let your machine think while you sleep.
 ### 📚 Knowledge Base
 
 The lab's long-term memory. Drop papers, notes, web pages, or PDFs into
-`lab/pkb/inbox/` (the **Reveal inbox** button in the Knowledge tab opens
+`lab/pkb/inbox/` (the **Reveal inbox** button in the DaC tab opens
 the folder for you), and agents ingest them into a LanceDB vector index.
 Both the Chat tab and Autoresearch search the KB — the answers you get
 start citing your own materials. CLI ingest works too:
 `./arailctl pkb ingest <file>`.
 
-The embedded wiki graph at the top of the Knowledge tab updates live
+The embedded wiki graph at the top of the DaC tab updates live
 whenever a doc is ingested or a cross-link is added. Click any node to
 jump to that page; click again to see what cites it.
 

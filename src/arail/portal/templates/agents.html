@@ -494,7 +494,7 @@ function updateBuddyCard() {
 
 function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 
-// ── Mission Feed (moved from Knowledge tab) ─────────────────────
+// ── Mission Feed (moved from DaC tab) ─────────────────────
 function renderMissionFeed() {
   const feed = document.getElementById('ag-mission-feed');
   if (!feed) return;
@@ -1142,12 +1142,12 @@ function renderEvent(e) {
   }
 
   // KB consultation hits — render each cited path as a clickable chip
-  // that deep-links to the Knowledge tab so users can read what the
+  // that deep-links to the DaC tab so users can read what the
   // agent is leaning on.
   if (e.data && Array.isArray(e.data.kb_hits) && e.data.kb_hits.length) {
     const chips = e.data.kb_hits.map(p => {
       const leaf = String(p).split('/').pop();
-      const href = '/knowledge?file=' + encodeURIComponent(p);
+      const href = '/dac?file=' + encodeURIComponent(p);
       return `<a class="ag-kb-chip" href="${href}" title="${esc(p)}">📄 ${esc(leaf)}</a>`;
     }).join('');
     html += `<div class="ag-kb-chip-row">${chips}</div>`;
@@ -1302,7 +1302,7 @@ async function loadMemory() {
       const bStatus = await fetch('/api/agents/status').then(r => r.json());
       const caps = (bStatus.browser || {}).captures || 0;
       if (caps > 0) {
-        capDiv.innerHTML = `<div class="ag-mem-block"><p>${caps} web pages captured. View in <a href="/knowledge">Knowledge</a> &rarr; browser/extracts/</p></div>`;
+        capDiv.innerHTML = `<div class="ag-mem-block"><p>${caps} web pages captured. View in <a href="/dac">DaC</a> &rarr; browser/extracts/</p></div>`;
       } else {
         capDiv.innerHTML = '<span class="ag-empty">No captures yet. Use the Browser agent to research the web.</span>';
       }
@@ -1427,7 +1427,7 @@ async function loadSkillsIntoForge() {
     const d = await r.json();
     const list = document.getElementById('fg-skills-list');
     if (!d.skills || !d.skills.length) {
-      list.innerHTML = '<span class="ag-skills-empty">No skills installed yet. Check the starter pack under /knowledge.</span>';
+      list.innerHTML = '<span class="ag-skills-empty">No skills installed yet. Check the starter pack under /dac.</span>';
       return;
     }
     list.innerHTML = d.skills.map(s => `
@@ -1557,7 +1557,7 @@ loadSkillsIntoForge();
       }
       const top = usable[0];
       const score = top.score !== undefined ? ' (' + (top.score * 100).toFixed(0) + '%)' : '';
-      const href = '/knowledge?file=' + encodeURIComponent(top.path || '');
+      const href = '/dac?file=' + encodeURIComponent(top.path || '');
       kbEl.innerHTML = `<a href="${esc(href)}" title="${esc(top.path || '')}">${esc(top.name || top.path || '?')}</a>${esc(score)}`;
     }).catch(() => { kbEl.textContent = 'KB search unavailable'; });
 

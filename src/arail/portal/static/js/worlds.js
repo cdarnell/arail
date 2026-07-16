@@ -41,6 +41,7 @@
   var selectedTerms = 50;
   var selectedPalette = null;
   var selectedSource = 'dream';
+  var selectedBrain = 'local';
 
   // Fetch mode: no model calls, so ETAs are network-bound and the big sizes open up.
   var FETCH_ETAS = { 25: '≈1 min', 50: '≈1 min', 100: '≈2 min', 250: '≈3 min', 512: '≈6 min' };
@@ -65,16 +66,68 @@
       var fallback = document.querySelector('#forge-size .size-opt[data-terms="100"]');
       if (fallback) fallback.click();
     }
-    $('banner-dream').hidden = isFetch;
-    $('banner-fetch').hidden = !isFetch;
-    $('note-dream').hidden = isFetch;
-    $('note-fetch').hidden = !isFetch;
+    $('forge-brain').hidden = isFetch;
+    updateBanners();
     STAGES = isFetch ? STAGES_FETCH : STAGES_DREAM;
+  }
+
+  function updateBanners() {
+    var isFetch = selectedSource === 'fetch';
+    var isFrontier = !isFetch && selectedBrain !== 'local';
+    $('banner-dream').hidden = isFetch || isFrontier;
+    $('banner-fetch').hidden = !isFetch;
+    $('banner-frontier').hidden = !isFrontier;
+    $('note-dream').hidden = isFetch || isFrontier;
+    $('note-fetch').hidden = !isFetch;
+    $('note-frontier').hidden = !isFrontier;
+  }
+
+  function applyBrain(brain) {
+    selectedBrain = brain;
+    document.querySelectorAll('#forge-brain .source-opt').forEach(function (b) {
+      var on = b.dataset.brain === brain;
+      b.classList.toggle('selected', on);
+      if (on) b.setAttribute('aria-pressed', 'true'); else b.removeAttribute('aria-pressed');
+    });
+    updateBanners();
   }
 
   document.querySelectorAll('#forge-source .source-opt').forEach(function (btn) {
     btn.addEventListener('click', function () { applySource(btn.dataset.source); });
   });
+
+  document.querySelectorAll('#forge-brain .source-opt').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      if (btn.disabled) return;
+      applyBrain(btn.dataset.brain);
+    });
+  });
+
+  // The frontier option is only offered when the lab can actually reach a
+  // cloud gateway: hybrid mode + a saved Claude key. Otherwise it stays
+  // visible-but-disabled so the capability is discoverable.
+  function loadBrainAvailability() {
+    api('GET', '/api/providers/status').then(function (res) {
+      if (!res.ok) return;
+      var d = res.data || {};
+      var frontier = $('brain-frontier');
+      if (!frontier) return;
+      var hasKey = !!(d.available && d.available.claude);
+      if (!d.cloud_enabled) {
+        frontier.disabled = true;
+        frontier.title = d.airgapped_notice ||
+          'Airgapped — set LAB_MODE=hybrid to enable the frontier API.';
+        if (selectedBrain !== 'local') applyBrain('local');
+      } else if (!hasKey) {
+        frontier.disabled = true;
+        frontier.title = 'No Claude key saved — add one under Chat → Compute Source.';
+        if (selectedBrain !== 'local') applyBrain('local');
+      } else {
+        frontier.disabled = false;
+        frontier.title = '';
+      }
+    }).catch(function () {});
+  }
 
   document.querySelectorAll('#forge-chips .chip-ghost').forEach(function (btn) {
     btn.addEventListener('click', function () {
@@ -131,6 +184,7 @@
           e === 'bad_subject' ? 'That subject can’t be forged — try a more concrete topic.' :
           e === 'forge_busy' ? 'A forge is already running.' :
           e === 'slug_exists' ? 'A world with that name already exists. Delete it first, or pick a different subject.' :
+          e === 'airgapped' ? 'The lab is airgapped — the frontier API can’t be reached. Flip the Airgapped pill, or forge with the local model.' :
           'Forge failed (' + res.status + ').';
       }
     }).catch(function () { errEl.textContent = 'Network error — is the lab running?'; });
@@ -140,6 +194,7 @@
     var subject = subjectInput.value.trim();
     if (!subject) { errEl.textContent = 'Enter a subject to forge.'; subjectInput.focus(); return; }
     var params = { subject: subject, max_terms: selectedTerms, source: selectedSource };
+    if (selectedSource === 'dream') params.brain = selectedBrain;
     if (selectedPalette) params.palette_hint = selectedPalette;
     var pers = $('forge-personality').value;
     if (pers) params.personality = pers;
@@ -646,6 +701,7 @@
 
   /* ══ Boot ══ */
   loadPalettes();
+  loadBrainAvailability();
   renderCatalog();
   api('GET', '/api/worlds/forge/status').then(function (res) {
     var st = (res.data || {}).state;

@@ -200,7 +200,7 @@ def load_skills(skill_ids: List[str], pkb_root: Path | None = None) -> List[Skil
 
 def list_installed_skills(pkb_root: Path | None = None) -> List[Skill]:
     """Return every skill currently in lab/pkb/skills/. For the
-    Knowledge tab's skill gallery + future Forge skill picker."""
+    DaC tab's skill gallery + future Forge skill picker."""
     root = _skills_dir(pkb_root)
     if not root.exists():
         return []

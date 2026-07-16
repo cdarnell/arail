@@ -141,7 +141,7 @@ def ensure_starter_skills(pkb_root: Path | None = None) -> Dict[str, Any]:
     (root / "skills").mkdir(parents=True, exist_ok=True)
 
     # Skills index README — drop it next to the skill folders so
-    # users browsing /knowledge see what this tree is for.
+    # users browsing /dac see what this tree is for.
     readme = root / "skills" / "README.md"
     if not readme.exists():
         readme.write_text(_SKILLS_README)

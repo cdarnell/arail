@@ -1586,7 +1586,7 @@ document.getElementById('kb-btn-vim').addEventListener('click', () => {
 // ── Boot ───────────────────────────────────────────────────────────────
 loadWikiPages().then(populateWelcome);
 
-// Deep-link support: visiting /knowledge?file=<tree-path> auto-opens
+// Deep-link support: visiting /dac?file=<tree-path> auto-opens
 // that file once the tree finishes loading. Used by the Agents tab so
 // "Consulting the KB" entries link straight to the cited primer.
 (async function bootKB() {

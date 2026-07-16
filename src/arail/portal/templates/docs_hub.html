@@ -216,7 +216,7 @@
     <h1>Reference manual</h1>
     <p>New here? Start with <a href="/docs/the-lab.md">the runbook</a> —
        the lab, end-to-end in ~12 minutes. Looking for what the lab
-       <em>knows</em>? That's <a href="/knowledge">Knowledge — the lab's brain</a>.</p>
+       <em>knows</em>? That's <a href="/dac">DaC — the lab’s brain</a>.</p>
     <input type="search" id="docs-search" placeholder="Search the manual and the knowledge base…"
            aria-label="Search docs" autocomplete="off" value="{{ prefill_q or '' }}">
     {# Semantic hits from the shared index (registry docs + KB) — filled by
@@ -329,7 +329,7 @@
   {% endif %}
 
   {# ── Lab knowledge cross-card ─────────────────────────────────────── #}
-  <a class="docs-knowledge-card" href="/knowledge">
+  <a class="docs-knowledge-card" href="/dac">
     <div class="fc-title">Lab knowledge →</div>
     <p class="fc-desc">What your lab knows and is working on — your World,
     the approved knowledge graph, agent research, and the review queue.</p>
@@ -375,7 +375,7 @@
           var a = document.createElement('a');
           var path = String(h.path || '');
           var isDoc = /^docs\//.test(path);
-          a.href = isDoc ? '/' + path : '/knowledge?file=' + encodeURIComponent(path);
+          a.href = isDoc ? '/' + path : '/dac?file=' + encodeURIComponent(path);
           a.textContent = h.name || path;
           li.appendChild(a);
           var kind = document.createElement('span');

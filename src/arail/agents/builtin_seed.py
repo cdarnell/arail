@@ -3,7 +3,7 @@
 Mirrors the pattern in ``arail.pkb_seed`` for knowledge starter packs:
 canonical source lives in the installed package (``_builtin_buddy.py``);
 a user-editable copy lives under ``lab/pkb/agents/<name>/`` in the
-PKB where the Knowledge tab can browse and edit it.
+PKB where the DaC tab can browse and edit it.
 
 Runs on every portal start. Idempotent — writes nothing if the
 folder already exists with a ``buddy.py`` inside. After ``./arailctl
@@ -31,7 +31,7 @@ log = logging.getLogger(__name__)
 
 # ── AGENT.md template ──────────────────────────────────────────────
 # Frontmatter is the machine-readable contract. Prose under it is for
-# humans who open the file in /knowledge. v1 only reads the `dream`
+# humans who open the file in /dac. v1 only reads the `dream`
 # and `auto_start_env` fields; the rest document intent and reserve
 # fields for Steps 2-5 (dreams, skills, Forge).
 _AGENT_MD = """---
@@ -167,7 +167,7 @@ Agents live under `lab/pkb/agents/` inside the PKB so every file
 above is:
 
 - Indexed by the wiki (`/wiki`)
-- Browsable from `/knowledge`
+- Browsable from `/dac`
 - Searchable via the unified search
 - Wiped cleanly by `./arailctl reset pkb`
 - Re-seeded on next `./arailctl start` for the shipped agents
@@ -286,7 +286,7 @@ _SRE_PKB_SHIM_SENTINEL = '"""SRE — PKB shim."""'
 # ── Research program template ─────────────────────────────────────
 # First-boot seed for lab/pkb/research/. Ships with the lab's
 # signature research goal baked in: optimize AeroLLM on frontier-
-# scale models. Users override by editing program.md from /knowledge.
+# scale models. Users override by editing program.md from /dac.
 
 _RESEARCH_PROGRAM_MD = """---
 title: SSD-hosted model inference — lab research program
@@ -838,4 +838,83 @@ def ensure_presence_folder(pkb_root: Path | None = None) -> dict:
         "ok": True,
         "created": True,
         "path": str(presence_dir),
+    }
+
+
+# ── Librarian agent seed ───────────────────────────────────────────
+
+_LIBRARIAN_AGENT_MD = """---
+title: Librarian — compiled-knowledge curator
+name: Librarian
+emoji: 📚
+section: agents/librarian
+tags: [agent, librarian, dac, worlds, builtin]
+voice: "Measured curator. Speaks in provenance: what is sourced, what is dreamed, what awaits review."
+tick_interval_sec: 1800
+dream: true
+auto_start_env: LAB_LIBRARIAN
+skills: []
+---
+
+# Librarian — the compiled-knowledge curator
+
+The Librarian owns the lab's DaC lifecycle: it grows the mounted World
+overnight, scouts the lab's own signals for terms the World is missing,
+and keeps the DaC tab's focus panel honest about what the compiled
+knowledge contains.
+
+## What the Librarian does
+
+| Duty | Cadence | Gate |
+|---|---|---|
+| Overnight growth pass | heavy window, once/day, local brain only | every term re-gated + resealed |
+| Term scouting | every `ARAIL_LIBRARIAN_SCAN_HOURS` (default 6h) | proposals only — a human approves |
+| Focus panel status | on demand (`/api/librarian/status`) | read-only |
+
+## The three laws it never breaks
+
+1. Every term goes through the gate (`assert_closed_sourced_graph`).
+2. Provenance stays honest — locally-drafted terms are labeled
+   *model-asserted* ("dreamed"); only a real source earns *sourced*.
+3. Nothing compiles into the sealed World without your approval.
+
+## Tuning
+
+- `LAB_LIBRARIAN=off` — don't auto-start.
+- `LAB_LIBRARIAN_INTERVAL_SEC` — loop cadence (default 1800).
+- `ARAIL_LIBRARIAN_SCAN_HOURS` — scout cadence (default 6).
+- `ARAIL_LIBRARIAN_UBIQUITY` — mentions needed before a candidate
+  ripens into a proposal (default 4; 2 distinct signal kinds also ripen).
+- `ARAIL_WORLD_GROWTH=off` — disable the overnight growth pass.
+
+## Companion files
+
+- [librarian.py](librarian.py) — the agent loop
+- `dreams/` — nightly reflections
+"""
+
+
+def ensure_librarian_folder(pkb_root: Path | None = None) -> dict:
+    """Materialize lab/pkb/agents/librarian/ if missing.
+
+    Idempotent: if ``librarian.py`` exists inside, do nothing. Otherwise
+    write AGENT.md and copy _builtin_librarian.py.
+    """
+    root = pkb_root or _pkb_root()
+    lib_dir = root / "agents" / "librarian"
+
+    lib_py = lib_dir / "librarian.py"
+    if lib_py.exists():
+        return {"ok": True, "created": False}
+
+    lib_dir.mkdir(parents=True, exist_ok=True)
+
+    builtin = Path(__file__).parent / "_builtin_librarian.py"
+    shutil.copy(builtin, lib_py)
+    (lib_dir / "AGENT.md").write_text(_LIBRARIAN_AGENT_MD)
+
+    return {
+        "ok": True,
+        "created": True,
+        "path": str(lib_dir),
     }

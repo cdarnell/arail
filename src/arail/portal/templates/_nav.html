@@ -2,7 +2,7 @@
   Shared top-nav partial. Every page includes this with:
       {% include "_nav.html" with context %}
   ...after setting an `active` variable to one of:
-      dashboard | knowledge | notebooks | research | chat
+      dashboard | dac       | notebooks | research | chat
       agents    | terminal  | admin
   Sub-surfaces reached from their parent page:
       /tuning   — linked from /chat (speed work for the deep model)
@@ -10,7 +10,7 @@
 
   Tier gating — `tier_surfaces` is a set injected by portal/app.py. Items
   only render if their key is in the set. Default tier (minimalist) shows:
-  dashboard, chat, research, knowledge, agents, docs.
+  dashboard, dac, chat, research, agents, docs.
   Upgrade with `./arailctl upgrade maximus`.
 #}
 {% set active = active|default('') %}
@@ -45,6 +45,11 @@
   <a href="/"{% if active == 'dashboard' %} class="active"{% endif %}>Dashboard</a>
   {% endif %}
 
+  {% if 'dac' in _ts %}
+  <a href="/dac"{% if active == 'dac' %} class="active"{% endif %}
+     title="DaC — Declarative-as-Code: governed, compiled knowledge for your agents.">DaC</a>
+  {% endif %}
+
   {% if 'chat' in _ts %}
   <a href="/chat"{% if active in ['chat', 'teacher', 'tuning'] %} class="active"{% endif %}
      title="Chat — pick local or cloud compute, save tokens securely.">Chat</a>
@@ -52,11 +57,6 @@
 
   {% if 'research' in _ts %}
   <a href="/autoresearch"{% if active == 'research' %} class="active"{% endif %}>Autoresearch</a>
-  {% endif %}
-
-  {% if 'knowledge' in _ts %}
-  <a href="/knowledge"{% if active == 'knowledge' %} class="active"{% endif %}
-     title="Knowledge Base — the lab's memory, curated by agents.">Knowledge</a>
   {% endif %}
 
   {% if 'docs' in _ts %}

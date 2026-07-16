@@ -19,7 +19,7 @@ Design (v1, deliberately lean and reversible):
   * The retrieval gate is a query-time filter: ``pkb.search(..., approved_only
     =True)`` keeps only hits whose path is in ``approved_paths()``. Agents that
     experiment/develop (Researcher, chat RAG, goal drafter) pass approved_only;
-    raw stays browsable in the Knowledge tab but is not what agents build on.
+    raw stays browsable in the DaC tab but is not what agents build on.
 
 Never raises on read paths — a missing/corrupt manifest reads as "nothing
 approved yet" (fail-closed: the gate errs toward *less* agent-visible truth,

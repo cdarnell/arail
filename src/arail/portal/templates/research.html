@@ -108,7 +108,7 @@
               title="Choose which file to view">
         <!-- populated by JS: program.md + any .md notes under research/ -->
       </select>
-      <a class="rx-btn" href="/knowledge" id="rx-program-edit-knowledge"
+      <a class="rx-btn" href="/dac" id="rx-program-edit-knowledge"
          title="Open this file in the Knowledge editor">✎ Edit in knowledge</a>
       <button class="rx-btn" type="button" id="rx-program-copy-vim"
               title="Copy `vim lab/pkb/research/…` to clipboard and open Terminal">
@@ -371,7 +371,7 @@ function shortDate(iso) {
   return d.toISOString().slice(0, 10);
 }
 
-// Minimal markdown renderer — same approach as /knowledge's fallback.
+// Minimal markdown renderer — same approach as /dac's fallback.
 function renderMarkdown(text) {
   if (!text) return '';
   let html = esc(text);
@@ -1456,7 +1456,7 @@ async function wireProgramPanel() {
     if (!name) return;
     title.textContent = name;
     pathVal.textContent = 'lab/pkb/research/' + name;
-    editKnow.href = '/knowledge';  // Knowledge editor — user navigates to the file in the tree.
+    editKnow.href = '/dac';  // Knowledge editor — user navigates to the file in the tree.
     render.innerHTML = '<div class="rx-brief-empty">loading…</div>';
     try {
       const r = await fetch('/api/research/file?name=' + encodeURIComponent(name));

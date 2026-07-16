@@ -658,7 +658,7 @@ def _suggest_skill_for_goal(goal: Dict[str, Any]) -> Optional[Observation]:
         suggestion={
             "kind": "skill",
             "target": skill.id,
-            "link": f"/knowledge/skills/{skill.id}",
+            "link": f"/dac/skills/{skill.id}",
         },
     )
 

@@ -144,7 +144,7 @@ Installs supporting CLIs via your platform package manager:
   iframe.
 - **`tmux`** — keeps the browser-terminal scrollback alive across
   iframe reloads.
-- **`agent-browser`** — Node.js CLI used by the Knowledge tab's web
+- **`agent-browser`** — Node.js CLI used by the DaC tab's web
   research agent. Bootstraps Node.js via the platform package manager
   if `npm` is missing.
 - **Ollama** — installed on Linux/CUDA and Intel Macs (Apple Silicon

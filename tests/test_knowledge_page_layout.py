@@ -1,7 +1,7 @@
 """Knowledge page layout — the restructured narrative page.
 
 Covers the Phase-1 restructure guarantees:
-- /knowledge renders (200) with and without a mounted World
+- /dac renders (200) with and without a mounted World
 - the graph canvas is embedded directly (no /wiki/graph iframe)
 - the narrative sections are present in order: hero → brain graph →
   agent focus → review queue → library → docs footer
@@ -25,7 +25,7 @@ def _get_client(monkeypatch, tmp_path, lab_tier: str = "min") -> TestClient:
 
 
 def _get_knowledge_html(client: TestClient) -> str:
-    response = client.get("/knowledge")
+    response = client.get("/dac")
     assert response.status_code in (200, 302, 307), response.status_code
     if response.status_code in (302, 307):
         response = client.get(response.headers["location"])
@@ -73,7 +73,7 @@ def test_knowledge_page_section_order(monkeypatch, tmp_path):
     positions = []
     for a in anchors:
         idx = html.find(a)
-        assert idx != -1, f"Section anchor missing from /knowledge: {a}"
+        assert idx != -1, f"Section anchor missing from /dac: {a}"
         positions.append(idx)
     assert positions == sorted(positions), (
         "Knowledge sections out of order: expected hero → brain graph → "
@@ -114,5 +114,5 @@ def test_standalone_graph_pages_keep_scroll_lock(monkeypatch, tmp_path):
     assert css.status_code == 200
     assert "body { overflow: hidden; }" not in css.text, (
         "graph.css must not restyle the host page body — that freezes "
-        "scrolling on /knowledge where the canvas is embedded."
+        "scrolling on /dac where the canvas is embedded."
     )
