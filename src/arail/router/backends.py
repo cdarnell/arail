@@ -1437,6 +1437,12 @@ def _resolve_kv_budget() -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # AeroLLM  (in-process Rust runtime via the aerollm_api PyO3 wheel)
 # ---------------------------------------------------------------------------
+
+# Fed to the model's own chat template as the system turn. Deliberately
+# family-agnostic prose — the template decides how it gets rendered.
+_AEROLLM_SYSTEM_PROMPT = "You are a concise, helpful assistant."
+
+
 class AeroLLMBackend(BaseBackend):
     """Drive the AeroLLM Rust runtime through its `aerollm_api` PyO3 wheel.
 
@@ -1580,6 +1586,13 @@ class AeroLLMBackend(BaseBackend):
         self._model_path = model_path
         self._draft_path = draft_path
 
+        # The checkpoint's own tokenizer drives prompt wrapping and output
+        # stripping. Without it we'd assume one chat family for every model
+        # (see _wrap_prompt) — the F-1 bug: Qwen2.5 ChatML tags injected into
+        # a gpt-oss/harmony checkpoint produce garbage. None is a supported
+        # state: _wrap_prompt falls back to the historic ChatML wrap.
+        self._tokenizer: Any = self._load_tokenizer(model_path)
+
         # The aerollm_api Runtime is unsendable: PyO3 panics if the handle
         # is touched from a thread other than the one that constructed
         # it (MLX's Metal context is thread-affine). FastAPI's
@@ -1649,15 +1662,91 @@ class AeroLLMBackend(BaseBackend):
         self._runtime = None
 
     @staticmethod
+    def _load_tokenizer(model_path: str) -> Any:
+        """Load the checkpoint's own tokenizer, or None if unavailable.
+
+        Imported lazily: transformers drags in torch, which is heavy and
+        pointless on hosts that never touch the deep path. Any failure —
+        transformers absent, a checkpoint it can't read — is non-fatal;
+        callers degrade to the legacy ChatML wrap rather than refusing to
+        serve."""
+        try:
+            from transformers import AutoTokenizer  # type: ignore[import-untyped]
+            return AutoTokenizer.from_pretrained(model_path)
+        except Exception:
+            return None
+
+    @staticmethod
+    def _template_tokens(tok: Any) -> list[str]:
+        """This tokenizer's turn/template markers.
+
+        bos/pad/unk are excluded deliberately: the tokenizer adds them at
+        encode time, so they never appear in an authored prompt, and
+        stripping them from output would corrupt text that legitimately
+        contains them. eos IS included — it's a turn marker and must be
+        stripped from the continuation."""
+        toks = getattr(tok, "all_special_tokens", None) or []
+        skip = {
+            getattr(tok, attr, None)
+            for attr in ("bos_token", "pad_token", "unk_token")
+        }
+        return [t for t in toks if t and t not in skip]
+
+    def _wrap_prompt(self, prompt: str) -> str:
+        """Wrap a bare prompt using the model's OWN chat template.
+
+        The whole point of F-1: never assume a chat family. Four cases:
+          - no tokenizer      -> legacy Qwen2.5 ChatML (historic behaviour)
+          - already wrapped   -> pass through, don't double-wrap
+          - has a template    -> apply_chat_template, whatever family it is
+          - loads, no template-> send raw; guessing a family is what broke
+        """
+        tok = self._tokenizer
+        if tok is None:
+            return self._wrap_chatml(prompt)
+
+        # Built upstream (e.g. by apply_chat_template) — leave it alone.
+        if any(t in prompt for t in self._template_tokens(tok)):
+            return prompt
+
+        messages = [
+            {"role": "system", "content": _AEROLLM_SYSTEM_PROMPT},
+            {"role": "user", "content": prompt},
+        ]
+        try:
+            return tok.apply_chat_template(
+                messages, tokenize=False, add_generation_prompt=True
+            )
+        except Exception:
+            # No chat_template on this tokenizer. Send the prompt through
+            # unwrapped — a base/completion model wants exactly that, and
+            # slapping on a borrowed family is the bug we're fixing.
+            return prompt
+
+    def _strip_special(self, text: str, wrapped: str) -> str:
+        """Strip echoed prompt + this model's turn markers from output.
+
+        Generic over the tokenizer's own tokens — hardcoding <|im_end|>
+        left harmony's <|return|>/<|message|> in the user's face."""
+        if text.startswith(wrapped):
+            text = text[len(wrapped):]
+        tok = self._tokenizer
+        if tok is None:
+            return text.replace("<|im_end|>", "").strip()
+        for t in self._template_tokens(tok):
+            text = text.replace(t, "")
+        return text.strip()
+
+    @staticmethod
     def _wrap_chatml(prompt: str) -> str:
-        """Wrap a bare prompt in Qwen2.5 ChatML so the instruct tuning
-        actually fires. If the caller already produced ChatML (e.g. via
-        a tokenizer's apply_chat_template upstream), pass it through
-        unchanged to avoid double-wrapping."""
+        """Legacy Qwen2.5 ChatML wrap — the fallback when no tokenizer is
+        available. Prefer _wrap_prompt(), which honours the model's own
+        template; this hardcodes one family by construction and is only
+        correct for ChatML checkpoints."""
         if "<|im_start|>" in prompt:
             return prompt
         return (
-            "<|im_start|>system\nYou are a concise, helpful assistant.<|im_end|>\n"
+            f"<|im_start|>system\n{_AEROLLM_SYSTEM_PROMPT}<|im_end|>\n"
             f"<|im_start|>user\n{prompt}<|im_end|>\n"
             "<|im_start|>assistant\n"
         )
@@ -1675,7 +1764,7 @@ class AeroLLMBackend(BaseBackend):
         if system:
             prompt = f"{system}\n\n{prompt}"
         start = time.time()
-        wrapped = self._wrap_chatml(prompt)
+        wrapped = self._wrap_prompt(prompt)
 
         gen_kwargs: dict[str, Any] = {
             "max_new_tokens": max_tokens,
@@ -1690,13 +1779,11 @@ class AeroLLMBackend(BaseBackend):
             self._generate_on_worker, wrapped, gen_kwargs
         ).result()
 
-        # The runtime returns just the decoded continuation, but it
-        # may include a trailing <|im_end|>; strip it. Older shim
-        # paths sometimes echo the prompt — strip that defensively
-        # too.
-        if text.startswith(wrapped):
-            text = text[len(wrapped):]
-        text = text.replace("<|im_end|>", "").strip()
+        # The runtime returns just the decoded continuation, but it may
+        # carry trailing turn markers; strip them using the model's own
+        # special tokens. Older shim paths sometimes echo the prompt —
+        # strip that defensively too.
+        text = self._strip_special(text, wrapped)
 
         # aerollm_api doesn't surface output-token count yet (planned in
         # a follow-up via generate_with_stats). Approximate with a
