@@ -23,6 +23,78 @@ cd "$REPO_ROOT"
 [[ -f .env ]] && set -a && source .env && set +a
 LAB_NAME="${LAB_NAME:-Arail}"
 
+# ── Runtime paths — mirror src/arail/config.py ───────────────────────
+# The portal decides where the knowledge base actually lives; reset MUST
+# target that same tree. Hardcoding lab/pkb here made `./arailctl reset pkb`
+# report success while a LAB_PKB-relocated KB survived untouched — which
+# silently breaks the privacy contract in docs/agents.md ("Wiping memory is
+# always one command") and Buddy's "wipe the PKB wipes Buddy's memory".
+#
+# Precedence, identical to config.py:
+#   pkb    : LAB_PKB → legacy LAB_PKM → $LAB_ROOT/pkb
+#   data   : ARAIL_DATA_DIR   → $LAB_ROOT/data
+#   models : ARAIL_MODELS_DIR → $LAB_ROOT/models
+# with LAB_ROOT defaulting to "lab". Paths are tilde-expanded, matching
+# config.py's Path(...).expanduser() (leading ~ / ~/ only; ~user is not
+# supported here).
+#
+# These resolvers are pure: stdout is the path and nothing else, so they
+# are safe inside $(...). tests/test_reset_paths.py pins them against the
+# real Python resolver so the two cannot drift.
+_expand_tilde() {
+    local p="${1-}"
+    case "$p" in
+        "~")     printf '%s' "$HOME" ;;
+        "~/"*)   printf '%s%s' "$HOME" "${p#\~}" ;;
+        *)       printf '%s' "$p" ;;
+    esac
+}
+
+_resolve_lab_root() {
+    local r
+    r="$(_expand_tilde "${LAB_ROOT:-lab}")"
+    # Drop a trailing slash so callers can always append "/<name>" cleanly.
+    # "/" collapses to "" and yields "/pkb", matching Python's Path("/")/"pkb".
+    r="${r%/}"
+    printf '%s' "$r"
+}
+
+_resolve_pkb_root() {
+    if [[ -n "${LAB_PKB:-}" ]]; then
+        _expand_tilde "$LAB_PKB"
+    elif [[ -n "${LAB_PKM:-}" ]]; then
+        _expand_tilde "$LAB_PKM"
+    else
+        printf '%s/pkb' "$(_resolve_lab_root)"
+    fi
+}
+
+_resolve_data_dir() {
+    if [[ -n "${ARAIL_DATA_DIR:-}" ]]; then
+        _expand_tilde "$ARAIL_DATA_DIR"
+    else
+        printf '%s/data' "$(_resolve_lab_root)"
+    fi
+}
+
+_resolve_models_dir() {
+    if [[ -n "${ARAIL_MODELS_DIR:-}" ]]; then
+        _expand_tilde "$ARAIL_MODELS_DIR"
+    else
+        printf '%s/models' "$(_resolve_lab_root)"
+    fi
+}
+
+PKB_DIR="$(_resolve_pkb_root)"
+DATA_DIR="$(_resolve_data_dir)"
+MODELS_DIR="$(_resolve_models_dir)"
+
+# config.py logs a deprecation warning for LAB_PKM; mirror it here so the
+# CLI tells the same story. Kept out of the resolver — it must stay pure.
+if [[ -z "${LAB_PKB:-}" && -n "${LAB_PKM:-}" ]]; then
+    warn "LAB_PKM is deprecated — rename to LAB_PKB in your .env. The old name still works for now."
+fi
+
 # ── Stop running services ────────────────────────────────────────────
 stop_services() {
     info "Stopping ${LAB_NAME} services..."
@@ -53,23 +125,23 @@ report_size() {
 # ── Reset modes ──────────────────────────────────────────────────────
 reset_models() {
     local sz
-    sz=$(report_size "lab/models")
-    if [[ -d lab/models ]]; then
-        warn "Removing lab/models/ (${sz})..."
-        rm -rf lab/models
+    sz=$(report_size "$MODELS_DIR")
+    if [[ -d "$MODELS_DIR" ]]; then
+        warn "Removing ${MODELS_DIR}/ (${sz})..."
+        rm -rf "$MODELS_DIR"
         info "Models removed."
     else
-        info "No lab/models/ directory."
+        info "No ${MODELS_DIR}/ directory."
     fi
 }
 
 reset_data() {
-    if [[ -d lab/data ]]; then
+    if [[ -d "$DATA_DIR" ]]; then
         local sz
-        sz=$(report_size "lab/data")
-        warn "Removing lab/data/ (${sz})..."
-        rm -rf lab/data
-        info "lab/data/ removed."
+        sz=$(report_size "$DATA_DIR")
+        warn "Removing ${DATA_DIR}/ (${sz})..."
+        rm -rf "$DATA_DIR"
+        info "${DATA_DIR}/ removed."
     fi
 }
 
@@ -91,10 +163,10 @@ reset_pkb() {
     # report, note, and seed-pack file. The wiki cache goes too so the
     # wiki rebuild starts clean. On next `./arailctl start` the starter
     # packs re-seed automatically.
-    local pkb_dir="lab/pkb"
-    local cache_dir="lab/pkb/.wiki-cache"
+    local pkb_dir="$PKB_DIR"
+    local cache_dir="${PKB_DIR}/.wiki-cache"
     if [[ ! -d "$pkb_dir" ]]; then
-        info "No lab/pkb/ directory."
+        info "No ${pkb_dir}/ directory."
         return
     fi
     local sz
@@ -112,9 +184,9 @@ reset_pkb_seeds() {
     # and uploads are untouched. On next `./arailctl start` the starter
     # packs re-seed automatically — to keep them gone, also disable
     # ARAIL_AUTO_SEED in .env (TODO: not yet honored by the seeder).
-    local seed_dir="lab/pkb/sources/seeds"
+    local seed_dir="${PKB_DIR}/sources/seeds"
     if [[ ! -d "$seed_dir" ]]; then
-        info "No lab/pkb/sources/seeds/ directory — nothing to remove."
+        info "No ${seed_dir}/ directory — nothing to remove."
         return
     fi
     local sz
@@ -131,8 +203,8 @@ reset_skills() {
     # User-authored skills (any folder NOT in a pack) survive.
     # AGENT.md loadouts also survive — they're user-edited even
     # when seeded by ensure_default_loadouts.
-    if [[ ! -d "lab/pkb/skills" ]]; then
-        info "No lab/pkb/skills/ — nothing to remove."
+    if [[ ! -d "${PKB_DIR}/skills" ]]; then
+        info "No ${PKB_DIR}/skills/ — nothing to remove."
         return
     fi
     if [[ ! -f ".venv/bin/python" ]]; then
@@ -162,10 +234,12 @@ reset_program() {
     #
     # The recipe re-drafts on the next ./api/goal POST, OR via the
     # Re-draft button on the dashboard's "Lab knows" panel.
-    local research_dir="lab/pkb/research"
-    local research_sources="lab/pkb/sources/research"
-    local schedule="lab/data/autoresearch-schedule.json"
-    local pkb_cache="lab/pkb/.cache/lancedb"
+    local research_dir="${PKB_DIR}/research"
+    local research_sources="${PKB_DIR}/sources/research"
+    local schedule="${DATA_DIR}/autoresearch-schedule.json"
+    # Note: this is the PKB index cache (pkb.py / pkb_index.py), which is a
+    # different tree from wiki_vectors.py's .wiki-cache/lancedb.
+    local pkb_cache="${PKB_DIR}/.cache/lancedb"
 
     local removed=0
     for f in "${research_dir}/program.md" "${research_dir}/train.py"; do
@@ -301,7 +375,7 @@ interactive_menu() {
 
     # Show sizes
     echo -e "  Current footprint:"
-    for dir in lab/models lab/data lab/pkb .venv; do
+    for dir in "$MODELS_DIR" "$DATA_DIR" "$PKB_DIR" .venv; do
         if [[ -d "$dir" ]]; then
             echo -e "    ${dir}/  $(report_size "$dir")"
         fi
