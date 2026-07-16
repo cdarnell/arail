@@ -139,8 +139,48 @@ Three tiers, in order of durability:
    agents literally re-read their own dreams in the morning. Stub
    lands in this PR; the scheduler wiring comes in Step 2.
 
+4. **User understanding** — markdown at `lab/pkb/understanding/<fact_id>.md`.
+   Durable facts about *the person using the lab*, distilled from chat and
+   carried across sessions. Unlike the three tiers above — which are an agent's
+   memory of *itself* — these are claims about someone else, so they are gated
+   before any agent can see them.
+
 Wiping memory is always one command: delete the file/dir, or run
-`./arailctl reset pkb`.
+`./arailctl reset pkb`. That includes conversation transcripts and user
+understanding, which is why both live under the PKB root.
+
+### User understanding is gated, and dreams are not
+
+Dreams are an agent reflecting on its own day; a wrong dream is a bad mood. A
+wrong *fact about the user* is the lab being confidently wrong about a person,
+and it compounds — an agent that learns from its own generated text hallucinates
+a user and then believes itself. So the fourth tier has two rules the others
+don't:
+
+1. Facts are distilled **only from user turns, never from assistant output**.
+2. A fact with no locatable verbatim quote in a real user turn is **rejected**.
+
+Facts start `raw` and are invisible to agents. Only `approved` facts pass
+`search_for_agents`, which honors the Compiled-KB gate (`ARAIL_APPROVED_ONLY`) —
+the same gate the rest of the lab's knowledge already goes through. Facts are
+superseded, never rewritten, so the lab can tell "changed their mind" from
+"was always true".
+
+Agents reach them through one host method:
+
+```python
+# BuddyHost
+def recall_user_facts(self, kinds: list[str] | None = None, limit: int = 8) -> list[dict]: ...
+```
+
+It is backed by `search_for_agents`, so the gate applies for free. Buddy folds
+the result into `_compose_prompt` alongside the dream block.
+
+**Agents never read the raw transcript.** It is a log, not knowledge, and
+injecting it wholesale would grow the prompt without bound. Schema and
+invariants live in [conversation-memory.md](conversation-memory.md); the
+reasoning — including why this is *not* routed through DaC — is
+[ADR-0002](adr/0002-chat-memory-and-the-dac-boundary.md).
 
 ## How agents interact with the rest of the lab
 
