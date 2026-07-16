@@ -108,6 +108,51 @@
   install: ""
   tier: flagship
 
+# ── AeroLLM native MoE (gpt-oss-20b, selective expert streaming) ─────
+# aeroLLM's Rust runtime ships native selective (active-only) expert
+# streaming for this checkpoint — 32 experts / 4 active, bit-exact vs
+# the whole-layer path (see aerollm's docs/benchmarks/
+# moe-streaming-efficiency-ledger.md, Stage 1b). scripts/setup.sh
+# auto-selects and downloads this on either tier when the box has
+# >=16 GB RAM and a Rust toolchain (cargo); otherwise set
+# AEROLLM_MODEL=gpt-oss-20b-MLX-4bit in .env manually after downloading.
+- id: gpt-oss-20b-MLX-4bit
+  name: GPT-OSS 20B (MoE, AeroLLM)
+  family: gpt-oss
+  size_gb: 13.0
+  released: 2025-08
+  source: mlx
+  good_at: [deep-reasoning, agent, moe]
+  description: "OpenAI's open-weight 20B MoE (32 experts / 4 active) via
+               AeroLLM's native selective expert-streaming backend.
+               License: Apache-2.0."
+  install: "hf download InferenceIllusionist/gpt-oss-20b-MLX-4bit --local-dir $ARAIL_MODELS_DIR/gpt-oss-20b-MLX-4bit"
+  tier: flagship
+
+# ── AeroLLM minimalist-weight MoE (OLMoE-1B-7B) — BLOCKED on aerollm port ──
+# Candidate small MoE for the minimalist tier (7B total / 1B active,
+# Apache-2.0). NOT YET LOADABLE via AeroLLM: aerollm-backend-mlx-native's
+# model_type dispatch (crates/aerollm-backend-mlx-native/src/backend.rs)
+# only recognizes llama/gpt_oss/qwen3/qwen2/gemma today — "olmoe" hits the
+# "unsupported model type" error path. Needs a new architecture module
+# (olmoe.rs, mirroring qwen3_moe.rs: config, decoder layer, MoE block,
+# arch-dispatch wiring, correctness fixture) before this is usable as an
+# AEROLLM_MODEL value. Weights can be pre-downloaded; do not set
+# AEROLLM_MODEL to this id until the port lands and this comment is updated.
+- id: OLMoE-1B-7B-0125-Instruct-4bit
+  name: OLMoE 1B-7B (MoE, pending AeroLLM port)
+  family: olmoe
+  size_gb: 4.0
+  released: 2025-01
+  source: mlx
+  good_at: [chat, moe, efficient]
+  description: "AllenAI OLMoE — 7B total / 1B active MoE, Apache-2.0.
+               Candidate minimalist-tier MoE for AeroLLM; blocked until
+               aerollm's olmoe.rs architecture module ships (see
+               aerollm CLAUDE.md / MILESTONES.md for status)."
+  install: "hf download mlx-community/OLMoE-1B-7B-0125-Instruct-4bit --local-dir $ARAIL_MODELS_DIR/OLMoE-1B-7B-0125-Instruct-4bit"
+  tier: optional
+
 # ── Dormant self-hosted lane preview base ─────────────────────────────
 - id: qwen2.5:1.5b
   name: Qwen 2.5 1.5B
