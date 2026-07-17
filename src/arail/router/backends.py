@@ -1504,7 +1504,7 @@ class AeroLLMBackend(BaseBackend):
                 "aerollm_api wheel not installed. Install the published wheel "
                 "with `./arailctl deep update`, or build from the local sibling "
                 "repo with `./arailctl deep rebuild` (set ARAIL_AEROLLM_REPO if "
-                "it's not at ~/ProJects/aerollm). Do NOT use `maturin develop` — "
+                "it's not at ~/ProJects/qukaizen-aerollm). Do NOT use `maturin develop` — "
                 "see scripts/setup.sh for why."
             ) from e
         # Surface the wheel version for `deep status` / health (best-effort).

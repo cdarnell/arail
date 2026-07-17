@@ -18,7 +18,7 @@ when_not_to_use:
 
 This is the research-methodology skill for the lab's signature goal:
 make AeroLLM noticeably faster on our hardware, then contribute the
-wins back upstream at github.com/cdarnell/aerollm.
+wins back upstream at github.com/cdarnell/qukaizen-aerollm.
 
 ## The metric
 
@@ -102,7 +102,7 @@ Before claiming a throughput win, understand why it's true. Pre-work:
   myself."
 - [evaluate-llm](../evaluate-llm/SKILL.md) — how to measure quality
   delta rigorously.
-- AeroLLM source at https://github.com/cdarnell/aerollm. Read the
+- AeroLLM source at https://github.com/cdarnell/qukaizen-aerollm. Read the
   layer iterator and the prefetch worker first.
 
 ## Contribution pathway

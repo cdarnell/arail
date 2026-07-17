@@ -17,7 +17,7 @@ Arail's product sits at the intersection. No one public (as of April 2026) has c
 
 ## A.1. AeroLLM (upstream) — the reference
 
-**Repo:** `cdarnell/aerollm`
+**Repo:** `cdarnell/qukaizen-aerollm`
 **Status:** active but slower cadence in 2026. Last meaningful optimization PR was Q4 2025.
 **What it does:** layer-by-layer streaming on CUDA. Model's weight shards mmap'd from disk, `cudaMemcpyAsync`'d into VRAM block-by-block, forward pass runs one block hot at a time, evicts. Optional 8-bit block-resident quantization.
 **What it's known to do well:** squeeze a 405B Llama into a 24 GB consumer GPU. Inference works end-to-end.
@@ -200,7 +200,7 @@ Our moat isn't any one of the five; it's that they compound. A batching schedule
 
 | Ref                                  | arXiv / URL        | Section |
 |--------------------------------------|--------------------|---------|
-| AeroLLM                                | github/cdarnell/aerollm | A.1 |
+| AeroLLM                                | github/cdarnell/qukaizen-aerollm | A.1 |
 | vLLM                                  | github/vllm-project/vllm | A.2 |
 | SGLang                                | github/sgl-project/sglang | A.3 |
 | KTransformers                         | github/kvcache-ai/ktransformers | A.4 |

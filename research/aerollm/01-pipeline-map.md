@@ -160,7 +160,7 @@ Expected first rows from memory (to be verified):
 
 ## What's missing from this map (known gaps)
 
-- **Speculative decoding path.** Stage 4 branches: draft model produces k tokens, target verifies. Adds a Stage 4' for verification pass. Out of scope until single-prompt measurements stabilize; see `github.com/cdarnell/aerollm` optimization #3.
+- **Speculative decoding path.** Stage 4 branches: draft model produces k tokens, target verifies. Adds a Stage 4' for verification pass. Out of scope until single-prompt measurements stabilize; see `github.com/cdarnell/qukaizen-aerollm` optimization #3.
 - **MoE router + expert fetch stages.** For DeepSeek-V3 / Kimi K2, Stage 1 splits into "non-expert weights" (always-hot) and "routed experts" (cold-tier fetch). That's its own 3-tier map — see `research/1tb-inference-streaming.md` §4 for the MoE version.
 - **Multi-turn / prompt-cache Stage 5'.** When the system prompt is stable, prior KV can be reused. Net zero Stage 4+5 on the prefix. Separate dimension from batching; compounds with it.
 - **Energy per stage.** The 2508.06978 study found SSD read energy can be ~80% of per-token energy for disk-streamed MoE. Worth a column if RAPL / IPMI exposes it.

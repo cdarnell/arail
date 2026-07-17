@@ -838,7 +838,7 @@ def _slug(label: str) -> str:
 
 # ── "don't stop, won't stop" supervisor ─────────────────────────────
 #
-# AeroLLM is the product under test (github.com/cdarnell/aerollm). This
+# AeroLLM is the product under test (github.com/cdarnell/qukaizen-aerollm). This
 # lab is its performance-engineering partner: we keep sweeping the
 # whitelisted knob space, pass after pass, committing wins to
 # autoresearch/<id> branches so humans can review + cherry-pick.

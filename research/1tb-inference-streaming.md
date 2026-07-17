@@ -172,7 +172,7 @@ Tie the feature work to the teaching mission — every optimization should surfa
 
 ## Sources
 
-- [AeroLLM (Arail's Rust runtime — MLX + CUDA)](https://github.com/cdarnell/aerollm)
+- [AeroLLM (Arail's Rust runtime — MLX + CUDA)](https://github.com/cdarnell/qukaizen-aerollm)
 - [Expert Offloading to CPU or NVMe (apxml)](https://apxml.com/courses/mixture-of-experts-advanced-implementation/chapter-4-efficient-moe-inference/expert-offloading)
 - [Flash-MoE: 397 B on a 48 GB MacBook](https://lilting.ch/en/articles/flash-moe-qwen35-397b-metal-inference)
 - [Flash-MoE benchmarks & quality tradeoffs (2026)](https://www.buildmvpfast.com/blog/flash-moe-weight-streaming-benchmarks-quality-tradeoffs-2026)
