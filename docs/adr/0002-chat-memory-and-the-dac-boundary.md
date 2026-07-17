@@ -63,9 +63,10 @@ facts are instance data, and they live in ARAIL, under the PKB root.
    (chat turns are not authored markdown) and "never commit compiled TOON/BTOON as source"
    (private conversation data must never be committed). DaC's gate requires every term to cite
    a locatable *corpus* source; a user saying "I prefer Rust" has no corpus to cite.
-3. **The existing seam points the other way.** DaC's ADR-0004, Decision 4: "DaC owns the
-   format; ARAIL only reads… ARAIL never writes or edits them." Chat memory requires ARAIL to
-   write at runtime, inverting the one contract that already exists between these repos.
+3. **The existing seam points the other way.** DaC's mount contract
+   (`0004-dac-arail-mount-contract.md`), Decision 4: "DaC owns the format; ARAIL only reads…
+   ARAIL never writes or edits them." Chat memory requires ARAIL to write at runtime,
+   inverting the one contract that already exists between these repos.
 4. **DaC has no runtime.** Build-time scripts plus a git post-commit hook. DaC's `README.md:55`
    marks write paths "deferred/ROADMAP".
 5. **Claiming it would breach DaC's own honesty rail.** DaC's `README.md:57` marks the
@@ -74,19 +75,27 @@ facts are instance data, and they live in ARAIL, under the PKB root.
    "chat memory governed by DaC" while DaC does nothing at runtime is exactly what that
    sentence forbids.
 
-DaC's positioning record — `docs/adr/0005-dac-positioning-declarative-control-plane.md` —
+DaC's positioning record — `docs/adr/0006-dac-positioning-declarative-control-plane.md` —
 canonicalizes it as "the declarative control plane for an agent's I/O boundary." A control
 plane governs a boundary by declaring and enforcing a contract. It does not hold the instances
 that cross it. The split recorded here *is* that positioning applied honestly.
 
-> **Citation caveat (verified 2026-07-16).** Cite that record by *filename*, not by number.
-> DaC's ADR numbering currently collides: two committed `0004-*` records exist, and the number
-> 0005 is taken by the committed `0005-inference-engines-manifest-and-dispatch.md`. The
-> positioning record is **untracked in DaC's working tree** — a real, Accepted-status decision
-> that was never committed, which is why the identity it fixes has already proven re-litigable.
-> Following "DaC's ADR-0005" from this repo lands on the wrong document. The identity is
-> independently load-bearing in DaC's `CLAUDE.md:3` and `PRODUCT.md:1`, so the argument here
-> does not rest on that file alone.
+> **Citation caveat (rev. 2026-07-17; supersedes the 2026-07-16 note).** Treat the filename above
+> as a snapshot. Resolve that record by its **slug**:
+> `git -C ~/ProJects/qukaizen-dac ls-files 'docs/adr/*dac-positioning*'`.
+>
+> The prior note said the record was untracked, and advised citing it "by *filename*, not by
+> number." Both halves have been overtaken. It was committed on 2026-07-16 (DaC `dc729cc`), and it
+> landed **renumbered 0005 → 0006** — the 0005 slot is held by the committed
+> `0005-inference-engines-manifest-and-dispatch.md`. So the advice failed on its own terms: DaC's
+> ADR filenames are number-prefixed, which means the number *is* in the filename, and "by
+> filename" bought no independence from the numbering it was warning about. The slug is the half
+> that held — unchanged across the renumber, and the reason the record stayed findable at all.
+>
+> What stands from that note: DaC's numbering is demonstrably unstable — two committed `0004-*`
+> records collide today — so treat every DaC number in this document as a snapshot too. And the
+> identity does not rest on this file regardless: it is independently load-bearing in DaC's
+> `CLAUDE.md:3` and `PRODUCT.md:1`.
 
 ### Why the discipline nonetheless transfers
 
@@ -114,8 +123,8 @@ construction.
 
 The *schema declaration* — the contract defining what a conversation and a turn are — is the
 one artifact that could legitimately become DaC-emitted later (DaC declares, ARAIL
-instantiates), consistent with ADR-0004's DaC-emits/ARAIL-reads direction. It is named here as
-ROADMAP and left unbuilt. We do not fake the wire.
+instantiates), consistent with the mount contract's DaC-emits/ARAIL-reads direction. It is
+named here as ROADMAP and left unbuilt. We do not fake the wire.
 
 ## Consequences
 
@@ -139,8 +148,8 @@ ROADMAP and left unbuilt. We do not fake the wire.
 
 **Extend DaC to govern chat memory (build a runtime write path).** Rejected. It breaks four
 DaC invariants (OKF-markdown-as-source, never-commit-compiled, the corpus-sourcing gate, and
-ADR-0004's ARAIL-only-reads direction) and requires building a runtime DaC has never had — all
-to ship a chat fix. It would also make DaC's own honesty rail (`README.md:65`) false.
+the mount contract's ARAIL-only-reads direction) and requires building a runtime DaC has never
+had — all to ship a chat fix. It would also make DaC's own honesty rail (`README.md:65`) false.
 
 **Have DaC emit the schema now, and codegen ARAIL's store from it.** Rejected for this pass,
 retained as ROADMAP. It is the honest version of the integration and would create the real
@@ -165,6 +174,9 @@ wipe memory" contract.
   verifiers; the honesty rail
 - DaC `CONTEXT_VM.md:207-212` — MemGPT: "adopt the framing; differ on the substrate", and the
   RAW-tier seam this design independently converged on
-- DaC `docs/adr/0004-dac-arail-mount-contract.md` — Decision 4, DaC owns the format
-- DaC `docs/adr/0005-dac-positioning-declarative-control-plane.md` — DaC as control plane
-  (untracked in DaC's tree; see the citation caveat above — cite by filename, not number)
+- DaC `docs/adr/0004-dac-arail-mount-contract.md` — Decision 4, DaC owns the format (resolve by
+  the `dac-arail-mount-contract` slug; the `0004` number is shared with a second committed
+  record, `0004-leveled-worlds-and-cartographer.md`, so "DaC's ADR-0004" alone is ambiguous)
+- DaC `docs/adr/0006-dac-positioning-declarative-control-plane.md` — DaC as control plane
+  (committed 2026-07-16 as DaC `dc729cc`, renumbered 0005 → 0006 on landing; resolve by the
+  `dac-positioning` slug, not the number — see the citation caveat above)
