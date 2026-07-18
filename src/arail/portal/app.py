@@ -600,6 +600,9 @@ app.include_router(models_router)
 from arail.portal.build_api import build_router  # noqa: E402
 app.include_router(build_router)
 
+from arail.portal.chat_sessions_api import chat_sessions_router  # noqa: E402
+app.include_router(chat_sessions_router)
+
 PORTAL_DIR = Path(__file__).parent
 app.mount("/static", StaticFiles(directory=PORTAL_DIR / "static"), name="static")
 # Mount integrations frontend (core/knowledge-canvas/frontend) if present.
@@ -776,6 +779,23 @@ async def _startup():
         asyncio.create_task(aerollm_preload_loop())
     except Exception:  # noqa: BLE001
         pass
+
+    # Conversation orphan sweep: turns interrupted by the previous shutdown
+    # get their terminal turn.interrupted event (idempotent; contract in
+    # docs/conversation-memory.md).
+    async def _sweep_conversations() -> None:
+        try:
+            from arail.chat.conversations import ConversationStore
+            resolved = await asyncio.to_thread(
+                ConversationStore().sweep_orphans)
+            if resolved:
+                activity_log.emit(
+                    "chat",
+                    f"Marked {resolved} chat turn(s) interrupted by the "
+                    "previous shutdown (partial replies preserved).", "info")
+        except Exception:  # noqa: BLE001
+            pass
+    asyncio.create_task(_sweep_conversations())
 
     if knowledge_canvas_app is not None and not hasattr(knowledge_canvas_app.state, "store"):
         try:
@@ -6906,7 +6926,31 @@ async def api_chat_stream(request: Request):
         body.get("runtime"),
     )
 
+    # Conversation persistence (docs/conversation-memory.md): only when the
+    # client sends a conversation_id — no id means ephemeral (warm pings and
+    # probes never touch the store). The turn.started event lands BEFORE
+    # generation so a crash mid-turn leaves an orphan the boot sweep
+    # resolves to turn.interrupted.
+    conversation_id = str(body.get("conversation_id") or "").strip() or None
+    branch = str(body.get("branch") or "A").strip() or "A"
+    conv_store = None
+    turn_id = None
+    if conversation_id:
+        try:
+            from arail.chat.conversations import ConversationStore
+            conv_store = ConversationStore()
+            if conv_store.get_meta(conversation_id) is not None:
+                turn_id = conv_store.start_turn(
+                    conversation_id, message, branch=branch,
+                    model=stream_model, backend=stream_backend)
+            else:
+                conv_store = None
+        except Exception:  # noqa: BLE001  # persistence never blocks chat
+            conv_store = None
+
     async def _generate() -> AsyncIterator[str]:
+        pieces: list[str] = []
+        final_event: dict | None = None
         async for event in _run_chat_completion_stream(
             message=message,
             history=body.get("history") or [],
@@ -6917,7 +6961,26 @@ async def api_chat_stream(request: Request):
             max_tokens=int(body.get("max_tokens") or 512),
             runtime_override=stream_runtime,
         ):
+            if event.get("type") == "delta":
+                pieces.append(str(event.get("delta") or ""))
+            elif event.get("type") == "final":
+                final_event = event
             yield json.dumps(event, default=str) + "\n"
+        if conv_store is not None and turn_id is not None:
+            try:
+                if final_event is not None and not final_event.get("error"):
+                    conv_store.complete_turn(
+                        conversation_id, turn_id,
+                        str(final_event.get("reply") or "".join(pieces)),
+                        tokens_used=final_event.get("tokens_used"),
+                        latency_ms=final_event.get("latency_ms"))
+                else:
+                    conv_store.fail_turn(
+                        conversation_id, turn_id,
+                        str((final_event or {}).get("error") or "no final event"),
+                        partial_text="".join(pieces))
+            except Exception:  # noqa: BLE001
+                pass
 
     return StreamingResponse(
         _generate(),
