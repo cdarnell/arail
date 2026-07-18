@@ -193,7 +193,7 @@ async def build_jobs() -> Dict[str, Any]:
             return out
         out["trainer"] = client.trainer_progress()
         for job in jobs[:10]:
-            if job.get("phase") in ("completed", "failed", "aborted"):
+            if job.get("phase") in ("completed", "failed", "aborted", "lost"):
                 continue
             try:
                 out["statuses"][job["run_id"]] = client.status(job["run_id"])
@@ -205,6 +205,18 @@ async def build_jobs() -> Dict[str, Any]:
     for job in jobs:
         st = live["statuses"].get(job["run_id"])
         if isinstance(st, dict) and st.get("status"):
+            if (st.get("status") == "not_found"
+                    and live["health"].get("up")
+                    and job.get("phase") not in ("completed", "failed",
+                                                 "aborted", "lost")):
+                # Nucleus is up but forgot the run (restarted) — never
+                # freeze at the stale phase; say what happened.
+                store.update(job["run_id"], phase="lost",
+                             lost_reason="nucleus no longer knows this run "
+                                         "(restarted?)")
+                job["phase"] = "lost"
+                job["lost_reason"] = "nucleus no longer knows this run (restarted?)"
+                continue
             job["last_nucleus_status"] = st
             phase = st.get("current_phase") or st.get("status")
             if phase and phase != job.get("phase"):

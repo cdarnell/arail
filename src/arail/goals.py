@@ -17,6 +17,43 @@ HISTORY_DIR = GOALS_DIR / "history"
 PREVIEW_FILE = GOALS_DIR / "preview.json"
 
 
+# ── Researcher run-state (crash/restart recovery) ────────────────────
+# Written by ResearcherAgent._sync_workflow on every transition; read by
+# the boot reconciliation hook so an interrupted run can auto-resume from
+# its last checkpoint instead of stranding progress. A function (not a
+# constant) so tests can monkeypatch the path.
+
+def run_state_path() -> Path:
+    return GOALS_DIR / "run_state.json"
+
+
+def save_run_state(state: Dict[str, Any]) -> None:
+    try:
+        path = run_state_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(state, indent=2, default=str))
+    except OSError:
+        pass  # best-effort; resume is a convenience, never a crash source
+
+
+def load_run_state() -> Optional[Dict[str, Any]]:
+    path = run_state_path()
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text())
+        return data if isinstance(data, dict) else None
+    except (OSError, ValueError):
+        return None
+
+
+def clear_run_state() -> None:
+    try:
+        run_state_path().unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
 class GoalStore:
     """Manages the active goal and archives old ones."""
 
@@ -184,6 +221,7 @@ class GoalStore:
             _notify_listeners("goal_cleared", {"goal_id": current.get("id")})
         if CURRENT_FILE.exists():
             CURRENT_FILE.unlink()
+        clear_run_state()   # a cleared goal has no run to resume
 
     def list_history(self) -> List[Dict[str, Any]]:
         history = []

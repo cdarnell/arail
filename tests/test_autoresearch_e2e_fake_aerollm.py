@@ -193,8 +193,9 @@ def test_http_research_start_smoke(wired_lab, monkeypatch):
             "get_current": staticmethod(
                 lambda: {"parsed": {"goal": "test goal"}, "progress": 0}),
         })())
-    monkeypatch.setattr(app_mod.researcher, "start",
-                        lambda parsed, *, delay=None: started.append(parsed))
+    monkeypatch.setattr(
+        app_mod.researcher, "start",
+        lambda parsed, *, delay=None, resume_state=None: started.append(parsed))
     monkeypatch.setattr(app_mod, "jobs_halted", lambda: False)
 
     with TestClient(app_mod.app) as client:

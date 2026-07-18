@@ -255,7 +255,8 @@
           return '<tr>'+
             '<td class="bx-mono">'+esc(j.run_id)+
               (j.dry_run?' <span class="bx-flag-sim">SIMULATED</span>':'')+
-              (j.override_red?' <span class="bx-flag-red">RED-OVERRIDE</span>':'')+'</td>'+
+              (j.override_red?' <span class="bx-flag-red">RED-OVERRIDE</span>':'')+
+              (j.phase==='lost'?' <span class="bx-flag-sim" title="'+esc(j.lost_reason||'')+'">LOST</span>':'')+'</td>'+
             '<td>'+esc(j.mode)+'</td><td>'+esc(j.phase||'—')+'</td>'+
             '<td class="bx-mono">'+loss+'</td>'+
             '<td class="bx-mono">'+esc(tps)+'</td>'+

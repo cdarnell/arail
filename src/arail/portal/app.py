@@ -844,6 +844,16 @@ async def _startup():
     except Exception as _wm_err:
         activity_log.emit("system", f"World Mount check failed: {_wm_err}", "warn")
 
+    # ── Interrupted-research reconciliation (before the bootstrap block:
+    #    the two are mutually exclusive — bootstrap only fires with NO
+    #    current goal, an interrupted run means the goal still exists). ──
+    try:
+        _reconcile_interrupted_research()
+    except Exception as _rr_err:  # noqa: BLE001
+        activity_log.emit("researcher",
+                          f"Interrupted-run reconciliation failed: {_rr_err}",
+                          "warn")
+
     # Load bootstrap goal if no active goal exists
     current = goal_store.get_current()
     if not current:
@@ -3507,6 +3517,60 @@ async def api_dictionary_expand(request: Request):
 
 # ── Research API ─────────────────────────────────────────────────────────
 
+def _reconcile_interrupted_research() -> None:
+    """Boot hook: detect a run interrupted by restart/crash and auto-resume
+    it from its persisted checkpoint — or mark it interrupted when the lab
+    is halted. Also sweeps stale 'running' agent-workflow snapshots so the
+    Agents tab never shows a half-alive run."""
+    from arail import goals as goals_mod
+    from arail.agent_workflows import list_agent_workflows, update_agent_workflow
+
+    current = goal_store.get_current()
+    rs = goals_mod.load_run_state()
+    interrupted = (
+        current is not None
+        and isinstance(rs, dict)
+        and rs.get("status") in ("running", "paused")
+        and float(current.get("progress") or 0.0) < 1.0
+    )
+
+    if interrupted:
+        if jobs_halted():
+            goals_mod.save_run_state({**rs, "status": "interrupted"})
+            update_agent_workflow(
+                "researcher", status="interrupted",
+                current_task="Interrupted by restart (lab halted)",
+                pause_reason="lab halted at restart")
+            activity_log.emit(
+                "researcher",
+                "Interrupted research found but jobs are halted — resume it "
+                "from the dashboard when ready.", "warn",
+                {"resume_available": True})
+        else:
+            progress = float(current.get("progress") or 0.0)
+            researcher.start(current["parsed"], resume_state=rs)
+            delay = startup_delay_seconds()
+            activity_log.emit(
+                "researcher",
+                f"Auto-resuming research "
+                f"'{str(current.get('goal_text') or current.get('parsed', {}).get('goal', ''))[:60]}' "
+                f"from progress {progress:.1f} (in {delay}s).",
+                "success", {"resume": True, "progress": progress})
+
+    # Sweep: any workflow snapshot still claiming "running" that we did not
+    # just resume was killed by the restart — say so honestly.
+    try:
+        for wf in list_agent_workflows():
+            if wf.get("status") == "running" and not (
+                    interrupted and wf.get("agent_id") == "researcher"):
+                update_agent_workflow(
+                    wf.get("agent_id") or wf.get("id") or "unknown",
+                    status="interrupted",
+                    current_task="Interrupted by restart")
+    except Exception:  # noqa: BLE001
+        pass
+
+
 @app.post("/api/research/start")
 async def research_start(request: Request):
     current = goal_store.get_current()
@@ -3522,8 +3586,12 @@ async def research_start(request: Request):
     except Exception:
         pass
     delay = 0 if body.get("now") else None
-    researcher.start(current["parsed"], delay=delay)
-    return {"status": researcher.status}
+    resume_state = None
+    if body.get("resume"):
+        from arail import goals as goals_mod
+        resume_state = goals_mod.load_run_state()
+    researcher.start(current["parsed"], delay=delay, resume_state=resume_state)
+    return {"status": researcher.status, "resumed": resume_state is not None}
 
 
 @app.post("/api/research/pause")
@@ -3534,6 +3602,19 @@ async def research_pause():
 
 @app.post("/api/research/resume")
 async def research_resume():
+    # A dead task cannot be revived by flipping _paused (the historical
+    # bug): when the run task is gone but a resumable checkpoint exists,
+    # delegate to start(resume_state=...) so Resume works after a restart.
+    task = getattr(researcher, "_task", None)
+    if task is None or task.done():
+        from arail import goals as goals_mod
+        rs = goals_mod.load_run_state()
+        current = goal_store.get_current()
+        if current and rs and rs.get("status") in ("running", "paused",
+                                                   "interrupted"):
+            rs = {**rs, "paused": False}
+            researcher.start(current["parsed"], delay=0, resume_state=rs)
+            return {"status": researcher.status, "resumed": True}
     researcher.resume()
     return {"status": researcher.status}
 
@@ -3557,11 +3638,13 @@ async def research_reset():
 @app.get("/api/research/status")
 async def research_status():
     current = goal_store.get_current()
+    from arail import goals as goals_mod
     return {
         "status": researcher.status,
         "progress": current["progress"] if current else 0,
         "report": current.get("report") if current else None,
         "redirect": get_agent_redirect("researcher"),
+        "run_state": goals_mod.load_run_state(),
     }
 
 
@@ -4224,19 +4307,29 @@ async def agents_prompts(agent: str = "", limit: int = 30):
 
 @app.post("/api/agents/instruct")
 async def agents_instruct(request: Request):
-    """Send an ad-hoc instruction to an agent."""
+    """Apply an ad-hoc instruction to an agent.
+
+    Historically this only emitted an activity line and returned
+    ``queued: True`` — a no-op that reported success. It now applies the
+    instruction as the agent's active redirect, which the researcher
+    genuinely reads at run start and at the source-gathering step.
+    """
     body = await request.json()
-    agent_name = body.get("agent", "")
+    agent_name = str(body.get("agent") or "researcher").strip() or "researcher"
     instruction = body.get("instruction", "").strip()
     if not instruction:
         return {"error": "instruction required"}
+    from arail.agent_redirects import set_agent_redirect
+    record = set_agent_redirect(agent_name, instruction,
+                                label="Ad-hoc instruction")
     activity_log.emit(
-        agent_name or "user",
-        f"Instruction: {instruction}",
+        agent_name,
+        f"Instruction applied as active redirect: {instruction[:160]}",
         "info",
-        {"instruction": True, "target_agent": agent_name},
+        {"instruction": True, "target_agent": agent_name,
+         "redirect": record},
     )
-    return {"ok": True, "queued": True}
+    return {"ok": True, "applied": "redirect"}
 
 
 @app.post("/api/agents/redirect")

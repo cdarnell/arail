@@ -97,7 +97,17 @@ class NucleusClient:
         })
 
     def status(self, run_id: str) -> Dict[str, Any]:
-        return self._get(f"/pipeline/{run_id}")
+        try:
+            return self._get(f"/pipeline/{run_id}")
+        except Exception as exc:  # noqa: BLE001
+            # A 404 means nucleus no longer knows the run (its in-memory
+            # registry lost it — e.g. an orchestrator restart). Surface a
+            # typed status so callers can mark the job "lost" instead of
+            # freezing at the last-known phase.
+            resp = getattr(exc, "response", None)
+            if getattr(resp, "status_code", None) == 404 or "404" in str(exc):
+                return {"status": "not_found"}
+            raise
 
     def list(self) -> Any:
         return self._get("/pipeline/list")
