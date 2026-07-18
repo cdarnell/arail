@@ -605,7 +605,7 @@ install_accel_deps() {
     # AeroLLM — the Maximus tier deep-mode backend (the "2nd inference").
     # Gated to tier=maximus so Minimalist installs stay lean (ai-eng is enough
     # for the everyday lab; deep streaming is a Maximus escalation). Built from
-    # the LOCAL sibling repo ($ARAIL_AEROLLM_REPO, default ~/ProJects/aerollm)
+    # the LOCAL sibling repo ($ARAIL_AEROLLM_REPO, default ~/ProJects/qukaizen-aerollm)
     # by scripts/build-aerollm.sh — the same helper behind
     # `./arailctl deep rebuild`, so the actively-improving repo flows straight
     # into the lab. That helper uses `cargo build` (NOT `maturin develop`,

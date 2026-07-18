@@ -23,7 +23,7 @@ users are expected to fork, rename, and adapt.
 ARAIL is the umbrella project. Two sibling repos in `~/ProJects` hang
 off it:
 
-- **aerollm** (`~/ProJects/aerollm`) — Streaming inference runtime, a
+- **aerollm** (`~/ProJects/qukaizen-aerollm`) — Streaming inference runtime, a
   product of ARAIL. Origin lives here in `research/aerollm/` (00 through
   04 design docs) before it was extracted to its own repo. As of v1.0.0,
   AeroLLM is the deep-mode backend for the `maximus` tier. CUDA hosts
@@ -220,7 +220,7 @@ parts.
    `case` statement does and what to add.
 5. **For aeroLLM context**: `research/aerollm/00-product-vision.md`
    through `04-measurement-log.md` are the design docs. The actual
-   runtime is `~/ProJects/aerollm`.
+   runtime is `~/ProJects/qukaizen-aerollm`.
 6. **Knowledge Base ingest**: easiest path is the portal —
    `/knowledge` has folder-reveal buttons (`lab/pkb/inbox` for docs,
    `lab/models` for model weights), full-page drag-drop, and a

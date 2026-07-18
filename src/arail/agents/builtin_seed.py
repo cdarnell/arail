@@ -364,7 +364,7 @@ A candidate optimization "ships" when:
 - A human can look at before/after t/min graph and see it.
 
 Anything that clears those bars → PR to
-[github.com/cdarnell/aerollm](https://github.com/cdarnell/aerollm).
+[github.com/cdarnell/qukaizen-aerollm](https://github.com/cdarnell/qukaizen-aerollm).
 Anything that doesn't → stays in the lab's branch as an experiment.
 
 ## Constraints
@@ -404,7 +404,7 @@ every LLM call — edit them to sharpen the agent's approach:
 
 ## Background / prior art
 
-- [AeroLLM source](https://github.com/cdarnell/aerollm)
+- [AeroLLM source](https://github.com/cdarnell/qukaizen-aerollm)
 - Model primers in [lab/pkb/sources/seeds/model-building/](../sources/seeds/model-building/)
 - The existing [evaluate-llm](../skills/evaluate-llm/SKILL.md)
   and [falsify-hypothesis](../skills/falsify-hypothesis/SKILL.md)

@@ -3,7 +3,7 @@
 **Project name.** **AeroLLM** — the Rust runtime with MLX and CUDA
 backends that Arail uses for deep inference. Multi-threaded prefetched
 layer streaming optimized for concurrent research prompts.
-Upstream: [github.com/cdarnell/aerollm](https://github.com/cdarnell/aerollm).
+Upstream: [github.com/cdarnell/qukaizen-aerollm](https://github.com/cdarnell/qukaizen-aerollm).
 
 **What this is.** The engineering workbench for AeroLLM — the inference layer of Arail's distillation product. Layer streaming + batching is *how* we run frontier open-weights teachers on consumer hardware cheaply enough to make symbolic chain-of-thought distillation into task-specific SLMs economically viable.
 
@@ -44,7 +44,7 @@ Economic translation: at 4.85 s/token × batch 500 = ~100 tokens/sec aggregate. 
 
 ## Related docs
 
-- [`github.com/cdarnell/aerollm`](https://github.com/cdarnell/aerollm) — upstream AeroLLM repo: Rust runtime, MLX + CUDA backends, optimization roadmap
+- [`github.com/cdarnell/qukaizen-aerollm`](https://github.com/cdarnell/qukaizen-aerollm) — upstream AeroLLM repo: Rust runtime, MLX + CUDA backends, optimization roadmap
 - [`docs/tuning-loop.md`](../../docs/tuning-loop.md) — autoresearch supervisor loop
 - [`research/1tb-inference-streaming.md`](../1tb-inference-streaming.md) — 1 TB-class model feasibility analysis (dense vs MoE, bandwidth ceilings, 20+ citations)
 - [`config/tuning.yml`](../../config/tuning.yml) / [`config/tuning-mlx.yml`](../../config/tuning-mlx.yml) — the autoresearch-editable knob schemas

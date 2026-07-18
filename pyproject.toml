@@ -123,8 +123,8 @@ langchain = ["langchain>=0.2.0", "langgraph>=0.2.0"]
 dev   = ["pytest>=7.4.0"]
 
 [project.urls]
-Repository = "https://github.com/cdarnell/autoresearch-lab"
-Issues     = "https://github.com/cdarnell/autoresearch-lab/issues"
+Repository = "https://github.com/cdarnell/qukaizen-arail"
+Issues     = "https://github.com/cdarnell/qukaizen-arail/issues"
 
 [tool.arail]
 # Configuration-as-code for the blueprint. Package versions, install sources,
@@ -255,12 +255,12 @@ coder_cpu    = "Qwen/Qwen2.5-Coder-3B-Instruct-GGUF"
 [tool.arail.package-sources]
 # AeroLLM (the deep "2nd inference") is installed by scripts/build-aerollm.sh:
 #   • DEV     — if the local sibling repo ($ARAIL_AEROLLM_REPO, default
-#               ~/ProJects/aerollm) is present, it's built from source via cargo
+#               ~/ProJects/qukaizen-aerollm) is present, it's built from source via cargo
 #               (`./arailctl deep rebuild`) so in-progress changes flow in.
 #   • RELEASE — otherwise the published wheel is pulled from the self-hosted
 #               index below (`./arailctl deep update`), public PyPI as fallback.
 #               Wheels are macOS-arm64-only (no Linux/CUDA build yet).
-# clone ref (source builds): git+https://github.com/cdarnell/aerollm@main
+# clone ref (source builds): git+https://github.com/cdarnell/qukaizen-aerollm@main
 aerollm       = "aerollm-api>=0.1,<0.2"
 aerollm_index = "https://pypi.qukaizen.com/simple/"
 # AirLLM stays declared for opt-in power-user installs (not pulled by default).

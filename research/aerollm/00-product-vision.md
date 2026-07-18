@@ -28,7 +28,7 @@ Arail's bet is that *the latency trade is exactly right for distillation workloa
 The inference layer of this pipeline — Stage 2 below — ships as **AeroLLM** (short: *AeroLLM*).
 
 - **Auto** — the always-on autoresearch loop that sweeps knobs, measures, and lands improvements under `config/tuning.yml` / `config/tuning-mlx.yml` without human handholding. See `docs/tuning-loop.md`.
-- **Air** — credit to the [AeroLLM](https://github.com/cdarnell/aerollm) project (Gavin Li et al.). Their layer-streaming pattern on CUDA is the approach we're porting to Apple Silicon and extending with batching + an autoresearch wrapper.
+- **Air** — credit to the [AeroLLM](https://github.com/cdarnell/qukaizen-aerollm) project (Gavin Li et al.). Their layer-streaming pattern on CUDA is the approach we're porting to Apple Silicon and extending with batching + an autoresearch wrapper.
 
 **Track priority — MLX first.** As of April 2026, no public project ships an AeroLLM equivalent for MLX. CUDA is a solved space (AeroLLM, KTransformers, vLLM, llama.cpp all have working solutions), so our CUDA track is a upstream checkout of upstream AeroLLM plus an application-layer batching scheduler — we carry it for parity and to serve NVIDIA users, not to invent anything. The MLX track is where the engineering risk and the novel research live; it's what the autoresearch loop is optimizing; it's what makes or breaks the economic argument for the distillation product on Apple hardware.
 
