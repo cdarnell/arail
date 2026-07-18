@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException
@@ -14,6 +15,12 @@ log = logging.getLogger(__name__)
 build_router = APIRouter(prefix="/api/build", tags=["build"])
 
 BUILD_MODES = ("local", "anthropix", "hybrid", "dry_run")
+
+# Job modes whose run isn't tracked by the nucleus orchestrator at all — a
+# World-corpus build calls Synthesizer/Trainer directly (see
+# arail.build.world_corpus), so it has no orchestrator run_id and must never
+# be polled/diagnosed through the orchestrator-status code paths below.
+_NON_ORCHESTRATOR_MODES = ("world_corpus",)
 
 
 def _client():
@@ -175,6 +182,88 @@ async def build_start(req: StartRequest) -> Dict[str, Any]:
     return {"job": job, "nucleus": result}
 
 
+class WorldBuildStartRequest(BaseModel):
+    run_id: str
+    world_slug: str = "photography"
+    categories: List[str] = []          # [] -> world_corpus.CRAFT_CATEGORIES
+    tier2_categories: List[str] = []
+    student_model: str = "mlx-community/Qwen2.5-3B-Instruct-4bit"
+
+
+@build_router.post("/world/start")
+async def build_world_start(req: WorldBuildStartRequest) -> Dict[str, Any]:
+    """Start a build sourced from an ARAIL-approved DaC World, bypassing the
+    nucleus orchestrator/KICE entirely (see arail.build.world_corpus).
+
+    Registered ABOVE the /{run_id}/{action} and /{run_id}/detail wildcard
+    routes below — FastAPI matches in registration order, and "world"/"start"
+    would otherwise be captured as run_id="world", action="start".
+
+    This is a 10-60+ minute blocking pipeline (synthesize is fully
+    sequential per-example on the nucleus side) — it runs on a background
+    daemon thread, never on the event loop. Progress/failure land in the
+    job store via world_corpus.py's own updates; poll GET /api/build/jobs
+    and GET /api/build/{run_id}/detail the same way orchestrator jobs are
+    polled.
+    """
+    from arail.activity import activity_log
+    from arail.build.jobs import BuildJobStore
+    from arail.build.manifest import validate_run_id
+    from arail.build.world_corpus import CRAFT_CATEGORIES, build_world_corpus
+
+    try:
+        validate_run_id(req.run_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    store = BuildJobStore()
+    if store.get(req.run_id) is not None:
+        raise HTTPException(status_code=409, detail=f"run_id '{req.run_id}' already exists")
+
+    categories = req.categories or list(CRAFT_CATEGORIES)
+    store.create(
+        req.run_id, mode="world_corpus",
+        manifest_path=f"world:{req.world_slug}",
+        preflight={"world_slug": req.world_slug, "categories": categories,
+                  "tier2_categories": req.tier2_categories},
+        override_red=False, dry_run=False)
+    store.update(req.run_id, phase="submitted", world_slug=req.world_slug,
+                categories=categories, tier2_categories=req.tier2_categories)
+
+    def _run() -> None:
+        try:
+            result = build_world_corpus(
+                req.world_slug, req.run_id,
+                categories=categories,
+                tier2_categories=req.tier2_categories,
+                student_model=req.student_model,
+                job_store=store)
+            store.update(req.run_id, phase="completed", result=result)
+            activity_log.emit(
+                "build",
+                f"World-corpus build '{req.run_id}' completed "
+                f"({result['record_count']} training records from "
+                f"{result['term_count']} approved terms).",
+                "success", {"build": {"run_id": req.run_id, "mode": "world_corpus"}})
+        except Exception as exc:  # noqa: BLE001
+            store.update(req.run_id, phase="failed", error=str(exc)[:500])
+            activity_log.emit(
+                "build", f"World-corpus build '{req.run_id}' failed: "
+                f"{type(exc).__name__}: {str(exc)[:200]}", "error",
+                {"build": {"run_id": req.run_id, "mode": "world_corpus"}})
+
+    threading.Thread(target=_run, name=f"world-build-{req.run_id}",
+                     daemon=True).start()
+    activity_log.emit(
+        "build",
+        f"World-corpus build '{req.run_id}' started — World '{req.world_slug}', "
+        f"{len(categories)} categories"
+        + (f" (+{len(req.tier2_categories)} tier2 hotspot)"
+           if req.tier2_categories else "") + ".",
+        "info", {"build": {"run_id": req.run_id, "mode": "world_corpus"}})
+    return {"job": store.get(req.run_id)}
+
+
 @build_router.get("/jobs")
 async def build_jobs() -> Dict[str, Any]:
     """Local ledger merged with live nucleus status + trainer telemetry."""
@@ -194,6 +283,12 @@ async def build_jobs() -> Dict[str, Any]:
         out["trainer"] = client.trainer_progress()
         for job in jobs[:10]:
             if job.get("phase") in ("completed", "failed", "aborted", "lost"):
+                continue
+            if job.get("mode") in _NON_ORCHESTRATOR_MODES:
+                # No orchestrator run_id exists for this job — its phase is
+                # kept live by world_corpus.py's own job_store.update() calls,
+                # never by polling here. Polling would 404 every time and get
+                # misdiagnosed as "lost" by the block below.
                 continue
             try:
                 out["statuses"][job["run_id"]] = client.status(job["run_id"])
@@ -252,6 +347,13 @@ async def build_detail(run_id: str) -> Dict[str, Any]:
     import anyio
     from arail.build.jobs import BuildJobStore
 
+    job = BuildJobStore().get(run_id)
+    if job is not None and job.get("mode") in _NON_ORCHESTRATOR_MODES:
+        # No orchestrator run to ask — the job's own phase/progress fields
+        # (written by world_corpus.py) ARE the detail view.
+        return {"job": job, "status": None, "events": [],
+               "graduation": None, "seal": None}
+
     def _fetch() -> Dict[str, Any]:
         client = _client()
         out: Dict[str, Any] = {}
@@ -266,5 +368,5 @@ async def build_detail(run_id: str) -> Dict[str, Any]:
         return out
 
     detail = await anyio.to_thread.run_sync(_fetch)
-    detail["job"] = BuildJobStore().get(run_id)
+    detail["job"] = job
     return detail

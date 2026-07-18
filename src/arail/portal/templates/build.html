@@ -64,6 +64,9 @@
     border:1px solid var(--border);border-radius:var(--radius-m);
     padding:.5rem;margin-top:.6rem;}
   #bx-log[hidden]{display:none;}
+  .bx-wcheck{display:flex;flex-wrap:wrap;gap:.4rem .9rem;font-size:.76rem;margin:.3rem 0 .6rem;}
+  .bx-wcheck label{display:inline-flex;align-items:center;gap:.3rem;cursor:pointer;}
+  #bx-world-msg{font-size:.74rem;margin-top:.5rem;color:var(--text-muted);}
 </style>
 {% endblock %}
 
@@ -130,6 +133,34 @@
       <div id="bx-start-msg"></div>
     </section>
   </div>
+
+  <!-- ── World-sourced build ─────────────────────────────────────── -->
+  <section class="bx-card bx-mt">
+    <h2>Or: build from an approved DaC World</h2>
+    <p class="bx-note">
+      Trains directly on ARAIL-approved World content (already curated by DaC and
+      promoted through the Compiled-KB review gate) — bypasses Nucleus's KICE
+      re-tagging entirely, since re-running keyword heuristics over already gate-passed
+      content would only downgrade it. Calls Synthesizer + Trainer directly; no
+      orchestrator run, no manifest.
+    </p>
+    <div class="bx-form">
+      <label>Run id</label><input id="bxw-run-id" placeholder="photography-expert-v1">
+      <label>World</label><select id="bxw-world"><option value="">loading…</option></select>
+    </div>
+    <div class="bx-mt">
+      <div class="bx-muted bx-small">Categories to train on</div>
+      <div class="bx-wcheck" id="bxw-categories"></div>
+    </div>
+    <div class="bx-mt">
+      <div class="bx-muted bx-small">Tier-2 hotspot categories (escalated to a stronger
+        teacher — see docs/persistence.md's World-corpus runbook for the manual
+        teacher-process swap this requires)</div>
+      <div class="bx-wcheck" id="bxw-tier2"></div>
+    </div>
+    <button class="btn btn-primary bx-mt" id="bxw-start-btn">Start World build</button>
+    <div id="bx-world-msg"></div>
+  </section>
 
   <!-- ── Run management ──────────────────────────────────────────── -->
   <section class="bx-card bx-runs">
@@ -250,24 +281,35 @@
         if(!(d.jobs||[]).length){ body.innerHTML='<tr><td colspan="6" class="bx-muted">No builds yet.</td></tr>'; return; }
         body.innerHTML=d.jobs.map(function(j){
           var st=d.statuses&&d.statuses[j.run_id];
+          var isWorld = j.mode === 'world_corpus';
           var loss=(st&&st.loss!=null)?Number(st.loss).toFixed(4):(t&&t.loss!=null?Number(t.loss).toFixed(4):'—');
           var tps=(st&&st.tokens_per_sec)||(t&&t.tokens_per_sec)||'—';
+          var phaseLabel = j.phase||'—';
+          if(isWorld && j.synth_progress){
+            phaseLabel += ' ('+j.synth_progress.batch+'/'+j.synth_progress.of+')';
+          }
+          // World-corpus jobs have no orchestrator run — pause/resume/stop
+          // don't apply (see build_api.py's world/start docstring).
+          var orchestratorActions = isWorld ? '' :
+              '<button class="btn btn-sm" data-act="pause" data-run="'+esc(j.run_id)+'">⏸</button> '+
+              '<button class="btn btn-sm" data-act="resume" data-run="'+esc(j.run_id)+'">▶</button> '+
+              '<button class="btn btn-sm" data-act="stop" data-run="'+esc(j.run_id)+'">■</button> ';
+          var registerBtn = (j.phase==='graduate'||j.phase==='completed')
+                ? '<button class="btn btn-sm btn-primary" data-act="register" data-run="'+esc(j.run_id)+
+                  '" data-world="'+(isWorld?'1':'0')+'">Register model</button>'
+                : '';
           return '<tr>'+
             '<td class="bx-mono">'+esc(j.run_id)+
               (j.dry_run?' <span class="bx-flag-sim">SIMULATED</span>':'')+
               (j.override_red?' <span class="bx-flag-red">RED-OVERRIDE</span>':'')+
-              (j.phase==='lost'?' <span class="bx-flag-sim" title="'+esc(j.lost_reason||'')+'">LOST</span>':'')+'</td>'+
-            '<td>'+esc(j.mode)+'</td><td>'+esc(j.phase||'—')+'</td>'+
+              (j.phase==='lost'?' <span class="bx-flag-sim" title="'+esc(j.lost_reason||'')+'">LOST</span>':'')+
+              (j.phase==='failed'&&j.error?' <span class="bx-flag-red" title="'+esc(j.error)+'">FAILED</span>':'')+'</td>'+
+            '<td>'+esc(j.mode)+'</td><td>'+esc(phaseLabel)+'</td>'+
             '<td class="bx-mono">'+loss+'</td>'+
             '<td class="bx-mono">'+esc(tps)+'</td>'+
             '<td class="bx-actions">'+
               '<button class="btn btn-sm" data-act="logs" data-run="'+esc(j.run_id)+'">logs</button> '+
-              '<button class="btn btn-sm" data-act="pause" data-run="'+esc(j.run_id)+'">⏸</button> '+
-              '<button class="btn btn-sm" data-act="resume" data-run="'+esc(j.run_id)+'">▶</button> '+
-              '<button class="btn btn-sm" data-act="stop" data-run="'+esc(j.run_id)+'">■</button> '+
-              (j.phase==='graduate'||j.phase==='completed'
-                ? '<button class="btn btn-sm btn-primary" data-act="register" data-run="'+esc(j.run_id)+'">Register model</button>'
-                : '')+'</td></tr>';
+              orchestratorActions + registerBtn + '</td></tr>';
         }).join('');
       }).catch(function(){});
   }
@@ -278,12 +320,30 @@
     if(act==='logs'){
       fetch('/api/build/'+encodeURIComponent(run)+'/detail').then(function(r){return r.json();})
         .then(function(d){ var log=$('bx-log'); log.hidden=false;
-          log.textContent=JSON.stringify({status:d.status, events:d.events, graduation:d.graduation}, null, 2); });
+          // World-corpus jobs carry no orchestrator status/events/graduation
+          // — d.job (phase, synth_progress, record_count, result, error) IS
+          // the useful detail for them.
+          var body = (d.job && d.job.mode==='world_corpus')
+            ? d.job : {status:d.status, events:d.events, graduation:d.graduation};
+          log.textContent=JSON.stringify(body, null, 2); });
       return;
     }
     if(act==='register'){
+      var isWorld = b.getAttribute('data-world')==='1';
+      var ggufPath = null;
+      if(isWorld){
+        // World-corpus runs have no orchestrator graduation record to look
+        // up — GGUF conversion is a manual step (merge the LoRA adapter,
+        // convert, per the printed instructions), so the path must be
+        // supplied here rather than resolved server-side.
+        ggufPath = prompt(
+          'World-corpus builds have no automatic graduation record.\n'+
+          'Merge the LoRA adapter and convert to GGUF first, then paste the '+
+          '.gguf path here:');
+        if(!ggufPath) return;
+      }
       fetch('/api/models/register-artifact',{method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({run_id:run})})
+        body:JSON.stringify({run_id:run, gguf_path: ggufPath})})
         .then(function(r){return r.json();})
         .then(function(d){ var log=$('bx-log'); log.hidden=false;
           log.textContent=(d.install_hint||JSON.stringify(d,null,2))+
@@ -298,6 +358,73 @@
 
   refreshHealth(); refreshJobs();
   setInterval(refreshHealth, 15000); setInterval(refreshJobs, 3000);
+
+  // ── World-sourced build ─────────────────────────────────────────
+  // Mirrors arail.build.world_corpus.CRAFT_CATEGORIES — there's no
+  // per-slug "list this World's categories while a DIFFERENT World is
+  // mounted" endpoint today (/api/worlds/terms only reflects the
+  // currently-mounted World), so the picker offers the same fixed set
+  // the server enforces rather than querying it live.
+  var CRAFT_CATEGORIES = ['genres','gear','exposure','light','composition','post-production'];
+  var OTHER_CATEGORIES = ['business','business-entity','web-platform','session-workflow'];
+
+  function renderChecklist(el, categories, checkedByDefault){
+    el.innerHTML = categories.map(function(c){
+      return '<label><input type="checkbox" value="'+esc(c)+'" '+
+        (checkedByDefault?'checked':'')+'> '+esc(c)+'</label>';
+    }).join('');
+  }
+  function checkedValues(el){
+    return Array.prototype.map.call(
+      el.querySelectorAll('input:checked'), function(i){ return i.value; });
+  }
+
+  function initWorldPicker(){
+    renderChecklist($('bxw-categories'), CRAFT_CATEGORIES, true);
+    renderChecklist($('bxw-tier2'), CRAFT_CATEGORIES, false);
+    fetch('/api/worlds', {cache:'no-store'}).then(function(r){return r.json();})
+      .then(function(d){
+        var sel = $('bxw-world');
+        var worlds = d.worlds || [];
+        if(!worlds.length){ sel.innerHTML = '<option value="">no Worlds mounted yet</option>'; return; }
+        sel.innerHTML = worlds.map(function(w){
+          var slug = w.slug || w.world || w.name;
+          return '<option value="'+esc(slug)+'"'+
+            (slug==='photography'?' selected':'')+'>'+esc(slug)+
+            (slug===d.current?' (currently mounted)':'')+'</option>';
+        }).join('');
+      }).catch(function(){
+        $('bxw-world').innerHTML = '<option value="">could not load — is the portal reachable?</option>';
+      });
+  }
+  initWorldPicker();
+
+  $('bxw-start-btn').addEventListener('click', function(){
+    var runId = $('bxw-run-id').value.trim();
+    var world = $('bxw-world').value;
+    if(!runId){ $('bx-world-msg').textContent='Set a run id first.'; return; }
+    if(!world){ $('bx-world-msg').textContent='Pick a World first.'; return; }
+    var categories = checkedValues($('bxw-categories'));
+    if(!categories.length){ $('bx-world-msg').textContent='Pick at least one category.'; return; }
+    var tier2 = checkedValues($('bxw-tier2'));
+    $('bx-world-msg').textContent = 'Starting — pulling approved terms…';
+    fetch('/api/build/world/start', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({run_id: runId, world_slug: world,
+                            categories: categories, tier2_categories: tier2})})
+      .then(function(r){ return r.json().then(function(b){ return {ok:r.ok, body:b}; }); })
+      .then(function(res){
+        if(res.ok){
+          $('bx-world-msg').textContent = 'Started — see Runs below. This runs '+
+            'minutes-to-an-hour+ in the background; the phase column tracks '+
+            'pull → synthesize tier1'+(tier2.length?' → synthesize tier2':'')+' → train.';
+          refreshJobs();
+        } else {
+          var d = res.body.detail;
+          $('bx-world-msg').textContent = 'Blocked: '+(typeof d==='string'?d:JSON.stringify(d));
+        }
+      })
+      .catch(function(e){ $('bx-world-msg').textContent = 'Start failed: '+e; });
+  });
 })();
 </script>
 {% endblock %}
