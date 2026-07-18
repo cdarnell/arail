@@ -769,6 +769,14 @@ async def _startup():
         activity_log.emit("registry",
                           f"Model registry startup failed: {_reg_err}", "warn")
 
+    # Tier-1 background preload (safe-window gated; ARAIL_AEROLLM_PRELOAD=0
+    # to disable). Fire-and-forget; never raises.
+    try:
+        from arail.portal.model_warmth import aerollm_preload_loop
+        asyncio.create_task(aerollm_preload_loop())
+    except Exception:  # noqa: BLE001
+        pass
+
     if knowledge_canvas_app is not None and not hasattr(knowledge_canvas_app.state, "store"):
         try:
             from app.routers import ws as kc_ws  # type: ignore
@@ -1029,9 +1037,23 @@ async def get_ready():
     background tasks (model warmup, security scan, KB index) keep
     running, but the portal can serve normal requests at this point.
     """
+    tier0_status = None
+    try:
+        from arail.registry import get_registry
+        reg = get_registry()
+        reg._ensure_loaded()
+        tier0 = next((e for e in reg.entries.values()
+                      if e.tier == 0 and e.enabled), None)
+        if tier0 is not None:
+            tier0_status = tier0.health.status
+    except Exception:  # noqa: BLE001
+        pass
     return {
         "ready": _READY,
         "warming": not _MODEL_WARM,
+        # Truthful Tier-0 residency (healthy=resident, cold=loads on first
+        # call) — `warming` above only means the boot warm task finished.
+        "tier0": tier0_status,
         "boot_seconds": round(time.perf_counter() - _BOOT_PERF, 2),
     }
 
@@ -5845,10 +5867,42 @@ def _get_primary_router():
 
 
 async def _warm_primary_router() -> None:
+    """Warm the Tier 0 chat model at boot — for real.
+
+    Historically this only CONSTRUCTED the router (an HTTP client for the
+    Ollama backends), so "warmed" never meant "weights resident". It now
+    issues a 1-token completion under the inference slot so Ollama actually
+    loads the model (and the request's keep_alive keeps it resident), then
+    re-probes the registry so the statusbar flips to healthy("resident").
+    Disable the completion with ARAIL_TIER0_BOOT_WARM=0.
+    """
     global _MODEL_WARM
     try:
-        await asyncio.to_thread(_get_primary_router)
-        activity_log.emit("chat", "Primary chat model is loaded and ready.", "info")
+        router = await asyncio.to_thread(_get_primary_router)
+        boot_warm = os.getenv("ARAIL_TIER0_BOOT_WARM", "1").strip().lower() \
+            not in ("0", "false", "no")
+        if boot_warm and getattr(router, "backend_name", "") in (
+                "ollama_native", "openai_compat"):
+            async with scheduler.inference_slot("model-warm"):
+                await asyncio.to_thread(
+                    router.complete, "ok", 1)   # (prompt, max_tokens)
+            # Re-probe so the registry reflects residency immediately.
+            try:
+                from arail.registry import get_registry
+                from arail.registry import health as _reg_health
+                reg = get_registry()
+                reg._ensure_loaded()
+                tier0 = next((e for e in reg.entries.values()
+                              if e.tier == 0 and e.enabled), None)
+                if tier0 is not None:
+                    tier0.health = _reg_health.probe_entry(tier0)
+            except Exception:  # noqa: BLE001
+                pass
+            activity_log.emit("chat",
+                              "Primary chat model warmed (weights resident).",
+                              "info")
+        else:
+            activity_log.emit("chat", "Primary chat model is loaded and ready.", "info")
     except Exception as e:  # noqa: BLE001
         activity_log.emit(
             "chat",
@@ -8173,6 +8227,26 @@ def _render_metrics() -> str:
         "Lab operating mode: 1=hybrid (cloud allowed), 0=airgapped (local only).",
         "gauge", "arail_lab_mode", None, lab_mode_val,
     )
+
+    # -- model residency (registry health; designed in build-and-finetune
+    #    plan as arail_model_resident, implemented here from real probes) --
+    try:
+        from arail.registry import get_registry as _get_reg
+        _reg = _get_reg()
+        _reg._ensure_loaded()
+        for _entry in _reg.entries.values():
+            if _entry.tier is None:
+                continue
+            _emit("Model weights resident (1) or not (0), from health probes.",
+                  "gauge", "arail_model_resident",
+                  {"tier": str(_entry.tier), "entry_id": _entry.id},
+                  1 if _entry.health.status == "healthy" else 0)
+            _emit("Model weight load in flight (1) or not (0).",
+                  "gauge", "arail_model_warming",
+                  {"tier": str(_entry.tier), "entry_id": _entry.id},
+                  1 if _entry.health.status == "warming" else 0)
+    except Exception:  # noqa: BLE001
+        pass
 
     # -- inference capacity --
     snap = _sched_mod.snapshot()

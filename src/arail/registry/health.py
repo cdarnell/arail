@@ -22,6 +22,30 @@ from arail.registry.core import HealthState, ModelEntry, ModelRegistry
 
 _PROBE_TIMEOUT = 2.0
 
+# Entries with a weight-load in flight (boot warm / aerollm preload). A
+# marked entry probes as "warming" until cleared or stale (15 min cap so a
+# wedged load can never freeze the display).
+_WARMING: dict[str, float] = {}
+_WARMING_STALE_SEC = 900.0
+
+
+def mark_warming(entry_id: str) -> None:
+    _WARMING[entry_id] = time.time()
+
+
+def clear_warming(entry_id: str) -> None:
+    _WARMING.pop(entry_id, None)
+
+
+def _is_warming(entry_id: str) -> bool:
+    started = _WARMING.get(entry_id)
+    if started is None:
+        return False
+    if time.time() - started > _WARMING_STALE_SEC:
+        _WARMING.pop(entry_id, None)
+        return False
+    return True
+
 
 def _probe_http_models(endpoint: str, model_id: Optional[str] = None,
                        check_model: bool = False) -> HealthState:
@@ -49,6 +73,21 @@ def _probe_http_models(endpoint: str, model_id: Optional[str] = None,
                                f"({len(ids)} models present)")
             except Exception:  # noqa: BLE001  # shape surprise ≠ down
                 pass
+        # Residency (Ollama only): the server being up does not mean the
+        # weights are loaded — /api/ps lists actually-resident models.
+        # None = can't tell (non-Ollama server / shape surprise) → stay
+        # plain healthy rather than claim cold.
+        if check_model and model_id:
+            resident = _probe_ollama_residency(base, model_id)
+            if resident is False:
+                return HealthState(
+                    status="cold", latency_ms=latency,
+                    checked_at=time.time(), endpoint=endpoint,
+                    detail="server up, model not loaded (loads on first call)")
+            if resident is True:
+                return HealthState(status="healthy", latency_ms=latency,
+                                   checked_at=time.time(), endpoint=endpoint,
+                                   detail="resident")
         return HealthState(status="healthy", latency_ms=latency,
                            checked_at=time.time(), endpoint=endpoint)
     except Exception as exc:  # noqa: BLE001
@@ -57,6 +96,25 @@ def _probe_http_models(endpoint: str, model_id: Optional[str] = None,
             latency_ms=(time.monotonic() - start) * 1000,
             checked_at=time.time(), endpoint=endpoint,
             detail=f"{type(exc).__name__}: {str(exc)[:160]}")
+
+
+def _probe_ollama_residency(base: str, model_id: str) -> Optional[bool]:
+    """True/False iff Ollama's /api/ps says the model is/isn't loaded;
+    None when the endpoint isn't Ollama or the shape surprises us."""
+    import requests
+    root = base[:-3] if base.endswith("/v1") else base
+    try:
+        r = requests.get(f"{root}/api/ps", timeout=_PROBE_TIMEOUT)
+        if r.status_code != 200:
+            return None
+        models = (r.json() or {}).get("models")
+        if models is None:
+            return None
+        short = model_id.split(":", 1)[0]
+        return any(short in (m.get("name") or m.get("model") or "")
+                   for m in models)
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def _probe_aerollm(entry: ModelEntry) -> HealthState:
@@ -91,6 +149,17 @@ def probe_entry(entry: ModelEntry) -> HealthState:
     if not entry.enabled:
         return HealthState(status="unknown", checked_at=time.time(),
                            detail="disabled")
+    if _is_warming(entry.id):
+        # A load is in flight; report it honestly unless the underlying
+        # probe already sees the weights resident.
+        state = (_probe_aerollm(entry) if entry.provider_type == "aerollm"
+                 else None)
+        if state is not None and state.status == "healthy":
+            clear_warming(entry.id)
+            return state
+        return HealthState(status="warming", checked_at=time.time(),
+                           endpoint=entry.endpoint,
+                           detail="loading weights…")
     if entry.provider_type == "aerollm":
         return _probe_aerollm(entry)
 

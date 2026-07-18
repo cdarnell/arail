@@ -35,7 +35,8 @@ class ModelCapabilities:
 @dataclass
 class HealthState:
     """Runtime-only health; never persisted as authority."""
-    status: str = "unknown"   # unknown|healthy|cold|unhealthy|blocked_airgap|not_installed|no_key
+    # unknown|healthy|cold|warming|unhealthy|blocked_airgap|not_installed|no_key
+    status: str = "unknown"
     latency_ms: Optional[float] = None
     checked_at: float = 0.0
     endpoint: Optional[str] = None
@@ -43,9 +44,10 @@ class HealthState:
 
     @property
     def usable(self) -> bool:
-        # "cold" (aerollm importable but not warmed) and "unknown" (not yet
-        # probed) are optimistically usable — failure is caught at call time.
-        return self.status in ("healthy", "cold", "unknown")
+        # "cold" (server up / runtime importable but weights not resident),
+        # "warming" (load in flight) and "unknown" (not yet probed) are
+        # optimistically usable — failure is caught at call time.
+        return self.status in ("healthy", "cold", "warming", "unknown")
 
 
 @dataclass
