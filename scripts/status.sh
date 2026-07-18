@@ -38,6 +38,24 @@ check() {
     fi
 }
 
+# ── supervision ───────────────────────────────────────────────────
+if [[ "$(uname -s)" == "Darwin" ]] && [[ -f "$HOME/Library/LaunchAgents/io.arail.portal.plist" ]]; then
+    echo -e "  ${BOLD}Supervision${RESET}: daemon (launchd)"
+    for label in io.arail.portal io.arail.memory io.arail.mlx; do
+        [[ -f "$HOME/Library/LaunchAgents/$label.plist" ]] || continue
+        line="$(launchctl list "$label" 2>/dev/null | tr -d '\t{};"' | grep -E 'PID|LastExitStatus' | tr '\n' ' ' || true)"
+        if [[ -n "$line" ]]; then
+            ok "${label}: ${line}"
+        else
+            dim "${label}: installed, not loaded"
+        fi
+    done
+    echo ""
+else
+    echo -e "  ${BOLD}Supervision${RESET}: foreground (start.sh) — see ./arailctl install-daemon"
+    echo ""
+fi
+
 check "Portal   " "${PORTAL_PORT:-8080}"   "uvicorn.*arail\.portal\.app"
 check "MLX API  " "${MLX_OPENAI_PORT:-11435}" "uvicorn.*arail\.mlx_openai_server"
 check "Notebook " "${NOTEBOOK_PORT:-8888}" "jupyter-lab"

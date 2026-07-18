@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  io.arail.SERVICE — macOS launchd LaunchAgent template for an ARAIL lab
+  service (portal / memory / mlx). Rendered by scripts/install-daemon.sh,
+  which substitutes every REPLACE_ME_* placeholder and writes the final
+  plist to ~/Library/LaunchAgents/io.arail.<service>.plist.
+
+  Design notes (see docs/persistence.md):
+  - ProgramArguments exec the venv python directly (no bash -lc): launchd
+    supervises the real uvicorn PID and signals reach it unshelled.
+  - NO SECRETS in this file. WorkingDirectory is the repo root and the
+    portal loads ./.env itself (arail.config load_dotenv). Only PATH is
+    exported because launchd's default PATH is bare and the portal shells
+    out to ollama / lsof / brew-installed binaries.
+  - KeepAlive.SuccessfulExit=false → crash (non-zero exit) respawns;
+    a deliberate SIGTERM / clean exit stays stopped ("arailctl stop"
+    unloads the agent entirely, which KeepAlive cannot fight).
+  - ThrottleInterval 15 damps crash-loops (bad .env, port conflicts).
+  - Logs: lab/logs/<service>.{out,err}.log — rotated at (re)load by the
+    installer when >10MB (launchd holds the fd while running).
+  - uvicorn runs at warning level; token-bearing subprocess logs (opencode)
+    already pass through their own redacting writer to a separate file.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>REPLACE_ME_LABEL</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>REPLACE_ME_REPO/.venv/bin/python</string>
+        <string>-m</string>
+        <string>uvicorn</string>
+        <string>REPLACE_ME_APP</string>
+        <string>--host</string>
+        <string>REPLACE_ME_BIND</string>
+        <string>--port</string>
+        <string>REPLACE_ME_PORT</string>
+        <string>--log-level</string>
+        <string>warning</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>REPLACE_ME_REPO</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>REPLACE_ME_HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <key>PYTHONPATH</key>
+        <string>REPLACE_ME_REPO/src</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+
+    <key>ThrottleInterval</key>
+    <integer>15</integer>
+
+    <key>StandardOutPath</key>
+    <string>REPLACE_ME_REPO/lab/logs/REPLACE_ME_SERVICE.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>REPLACE_ME_REPO/lab/logs/REPLACE_ME_SERVICE.err.log</string>
+</dict>
+</plist>
