@@ -1815,12 +1815,31 @@ class OllamaNativeBackend(OpenAICompatBackend):
     `num_ctx` option (F-OLLAMA-SHIM). The native endpoint at /api/chat accepts
     options.num_ctx correctly and reloads the model KV cache accordingly.
 
-    Construction: always via __new__ (F-NEW — the caller must set all required
-    attributes including _num_ctx). complete() reads _num_ctx defensively via
-    getattr(self, '_num_ctx', None) to guard against a partial __new__ build.
+    Construction: two supported paths.
+      1. ``__new__`` + explicit attributes (the chat gallery's runtime-override
+         path — F-NEW: the caller must set all required attributes including
+         _num_ctx). complete() reads _num_ctx defensively via
+         getattr(self, '_num_ctx', None) to guard against a partial build.
+      2. Plain construction via ``ModelRouter()`` / ``BACKEND_MAP`` — handled
+         by ``__init__`` below. Historically this inherited
+         OpenAICompatBackend.__init__'s LM Studio default (localhost:1234),
+         which silently broke every env-configured consumer (AutoResearch,
+         agents) when MODEL_API_BASE was unset. __init__ now defaults to the
+         actual Ollama port (OLLAMA_PORT, 11434); an explicit MODEL_API_BASE
+         still wins.
 
     The root URL is derived by stripping a trailing '/v1' from self.base_url.
     """
+
+    def __init__(self) -> None:
+        super().__init__()
+        # MODEL_API_BASE (explicit) wins; otherwise talk to Ollama itself,
+        # never the inherited LM Studio :1234 default.
+        if not os.getenv("MODEL_API_BASE"):
+            port = os.getenv("OLLAMA_PORT", "11434")
+            self.base_url = f"http://127.0.0.1:{port}/v1"
+        self.backend_name = "ollama:native"
+        self._num_ctx = _resolve_ctx_override(self.model_name, default=None)
 
     def _ollama_root(self) -> str:
         """Return the Ollama root URL (strip trailing /v1 from base_url)."""

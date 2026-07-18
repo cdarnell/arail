@@ -147,6 +147,10 @@ class CostRecord:
     cloud_equivalent_usd: float
     energy_usd: float
     savings_usd: float
+    # Model-registry attribution (arail.registry) — None for legacy callers.
+    provider: Optional[str] = None
+    entry_id: Optional[str] = None
+    tab: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -273,7 +277,10 @@ class CostTracker:
               source: str = "agent",
               recap_depth: Optional[int] = None,
               cache_read_input_tokens: int = 0,
-              cache_creation_input_tokens: int = 0) -> CostRecord:
+              cache_creation_input_tokens: int = 0,
+              provider: Optional[str] = None,
+              entry_id: Optional[str] = None,
+              tab: Optional[str] = None) -> CostRecord:
         """Record one inference call and return the cost breakdown.
 
         ``cache_read_input_tokens`` / ``cache_creation_input_tokens`` are
@@ -352,6 +359,9 @@ class CostTracker:
             cloud_equivalent_usd=billed_usage_total,
             energy_usd=energy_cost,
             savings_usd=savings,
+            provider=provider,
+            entry_id=entry_id,
+            tab=tab,
         )
 
         # Keep last 500 in memory
@@ -369,6 +379,11 @@ class CostTracker:
             "recap_depth": recap_depth,
             "cache_read_tokens": cache_read_input_tokens,
             "cache_creation_tokens": cache_creation_input_tokens,
+            "model": model,
+            "provider": provider,
+            "entry_id": entry_id,
+            "tab": tab,
+            "latency_ms": round(float(latency_ms or 0.0), 1),
         })
         if len(self._history) > 500:
             self._history = self._history[-500:]
