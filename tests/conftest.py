@@ -168,6 +168,17 @@ def _no_ambient_window_override(monkeypatch, tmp_path_factory):
 
 
 @pytest.fixture(autouse=True)
+def _no_ambient_halt_flag(monkeypatch, tmp_path_factory):
+    """Isolate the persisted halt flag per test (same rationale as the
+    window override above — a developer's halted lab must not leak into
+    tests, and a test that halts must not halt the developer's lab)."""
+    from arail import scheduler
+    d = tmp_path_factory.mktemp("halt_flag")
+    monkeypatch.setattr(scheduler, "_halt_path", lambda: d / "halt.json")
+    scheduler._reset_halt_for_tests()
+
+
+@pytest.fixture(autouse=True)
 def _no_ambient_world_mount(monkeypatch, tmp_path_factory):
     """Hide any World a developer has mounted on this machine from the tests.
 
