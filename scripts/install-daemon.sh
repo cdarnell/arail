@@ -121,6 +121,7 @@ fi
 
 echo ""
 echo "✓ Lab supervised by launchd — starts at login, respawns on crash."
+echo "  Portal:   http://${BIND}:${PORTAL_PORT:-8080}"
 echo "  Status:   ./arailctl status   (or: launchctl list | grep io.arail)"
 echo "  Logs:     tail -F $LOG_DIR/portal.{out,err}.log"
 echo "  Stop:     ./arailctl stop     (unloads agents; stays stopped)"

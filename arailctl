@@ -213,8 +213,15 @@ case "$cmd" in
                 launchctl load "$HOME/Library/LaunchAgents/$label.plist" 2>/dev/null || true
             done
             launchctl kickstart "gui/$(id -u)/io.arail.portal" 2>/dev/null || true
+            # Ports live in lab.conf (setup picks free ones), NOT .env —
+            # source both, in the same order as start.sh/status.sh, or we
+            # print a default port the lab isn't actually on.
             # shellcheck disable=SC1091
             [[ -f "$REPO_ROOT/.env" ]] && set -a && source "$REPO_ROOT/.env" && set +a
+            if [[ -f "$REPO_ROOT/lab.conf" ]]; then
+                # shellcheck disable=SC1091
+                set -a && source "$REPO_ROOT/lab.conf" && set +a
+            fi
             echo "Lab supervised by launchd — portal: http://${BIND_ADDR:-127.0.0.1}:${PORTAL_PORT:-8080}"
             exit 0
         fi
