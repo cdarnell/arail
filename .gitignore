@@ -19,7 +19,7 @@ __pycache__/
 *$py.class
 *.egg-info/
 dist/
-build/
+/build/
 *.egg
 .venv/
 venv/

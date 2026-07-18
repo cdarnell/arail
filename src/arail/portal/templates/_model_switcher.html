@@ -3,42 +3,87 @@
     • #model-fallback-banner — visible degradation strip under the statusbar.
       Fed by /api/models/state (ongoing state) + the activity SSE stream
       (instant on new fallback events). Never silent: any fallback or dead
-      tier renders here until it recovers or is dismissed.
+      bound tier renders here until it recovers or is dismissed.
     • #model-switcher-modal — click the statusbar Models pill to open.
       Lab-wide per-profile bindings + per-tab overrides via /api/models/bind.
-      Unhealthy entries show red with the reason; airgap-blocked entries are
-      greyed but NEVER hidden.
-  Also exposes window.ARAIL_MODELS.render(tab, el) for per-tab chips
-  (_model_chip.html).
+      Unhealthy entries show the danger dot with the reason; airgap-blocked
+      entries are dimmed but NEVER hidden.
+  Also exposes window.ARAIL_MODELS.render(tab, el) for the per-tab chips
+  (_model_chip.html). All styling via v2 tokens — no literals, no style=.
 #}
-<div id="model-fallback-banner" hidden
-     style="display:flex;align-items:center;gap:.6rem;padding:.3rem .9rem;
-            font-size:.74rem;border-bottom:1px solid color-mix(in srgb, var(--warning, #d97706) 45%, transparent);
-            background:color-mix(in srgb, var(--warning, #d97706) 12%, transparent);color:var(--text);">
+<style>
+  .msw-dot{display:inline-block;width:.55em;height:.55em;border-radius:50%;
+    margin-right:.35em;background:var(--text-muted);}
+  .msw-dot.healthy{background:var(--positive);}
+  .msw-dot.cold{background:var(--info);}
+  .msw-dot.unhealthy{background:var(--danger);}
+  .msw-dot.not_installed,.msw-dot.no_key{background:var(--warn);}
+  .msw-dot.blocked_airgap{background:var(--info);opacity:.6;}
+  .msw-muted{color:var(--text-muted);}
+  .msw-mono{font-family:var(--font-mono);font-variant-numeric:tabular-nums;}
+
+  #model-fallback-banner{display:flex;align-items:center;gap:.6rem;
+    padding:.3rem .9rem;font-size:.74rem;color:var(--text);
+    border-bottom:1px solid color-mix(in srgb, var(--warn) 45%, transparent);
+    background:color-mix(in srgb, var(--warn) 12%, transparent);}
+  #model-fallback-banner[hidden]{display:none;}
+  #model-fallback-text{flex:1 1 auto;}
+
+  #model-switcher-modal{max-width:640px;width:92vw;color:var(--text);
+    border:1px solid var(--border-strong);border-radius:var(--radius-l);
+    background:var(--surface2);padding:1rem 1.2rem;}
+  #model-switcher-modal .msw-head{display:flex;align-items:center;gap:.6rem;
+    margin-bottom:.6rem;}
+  #model-switcher-modal .msw-head strong{font-size:.95rem;}
+  #msw-statusbar{font-size:.72rem;}
+  #model-switcher-modal .msw-grow{flex:1 1 auto;}
+  #msw-entries{display:flex;flex-direction:column;gap:.3rem;margin-bottom:.9rem;}
+  .msw-entry{display:flex;gap:.5rem;align-items:baseline;font-size:.78rem;}
+  .msw-entry.blocked{opacity:.55;}
+  .msw-entry .msw-name{font-weight:600;}
+  .msw-entry .msw-meta{font-size:.7rem;}
+  .msw-entry .msw-state{font-size:.68rem;}
+  .msw-section{font-size:.72rem;text-transform:uppercase;letter-spacing:.05em;
+    color:var(--text-muted);margin:.4rem 0 .3rem;}
+  .msw-section.later{margin-top:.9rem;}
+  #msw-bindings{display:grid;grid-template-columns:auto 1fr;
+    gap:.35rem .7rem;align-items:center;}
+  #msw-bindings label{font-size:.76rem;font-family:var(--font-mono);}
+  #msw-bindings select,.msw-ov-row select{font-size:.76rem;}
+  .msw-ov-row{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;
+    font-size:.78rem;}
+  #msw-overrides{margin-top:.5rem;font-size:.72rem;color:var(--text-muted);}
+
+  .model-chip{display:inline-flex;align-items:center;gap:.15rem;
+    padding:.08em .55em;border:1px solid var(--border-strong);
+    border-radius:var(--radius-pill);font-size:.68rem;
+    font-family:var(--font-mono);color:var(--text-muted);white-space:nowrap;}
+  .model-chip.degraded{border-color:color-mix(in srgb, var(--warn) 55%, transparent);}
+</style>
+
+<div id="model-fallback-banner" hidden>
   <span aria-hidden="true">⚠</span>
-  <span id="model-fallback-text" style="flex:1 1 auto;"></span>
-  <button class="btn btn-sm" id="model-fallback-dismiss" title="Hide until the model state changes">Dismiss</button>
+  <span id="model-fallback-text"></span>
+  <button class="btn btn-sm" id="model-fallback-dismiss"
+          title="Hide until the model state changes">Dismiss</button>
 </div>
 
-<dialog id="model-switcher-modal"
-        style="max-width:640px;width:92vw;border:1px solid var(--border-strong);
-               border-radius:var(--radius-l);background:var(--surface2);color:var(--text);
-               padding:1rem 1.2rem;">
-  <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.6rem;">
-    <strong style="font-size:.95rem;">Models</strong>
-    <span id="msw-statusbar" style="font-size:.72rem;color:var(--text-muted);font-family:var(--font-mono);"></span>
-    <span style="flex:1 1 auto;"></span>
+<dialog id="model-switcher-modal">
+  <div class="msw-head">
+    <strong>Models</strong>
+    <span id="msw-statusbar" class="msw-muted msw-mono"></span>
+    <span class="msw-grow"></span>
     <button class="btn btn-sm" id="msw-refresh" title="Re-probe all model health now">↻ Health</button>
     <button class="btn btn-sm" id="msw-close">✕</button>
   </div>
 
-  <div id="msw-entries" style="display:flex;flex-direction:column;gap:.3rem;margin-bottom:.9rem;"></div>
+  <div id="msw-entries"></div>
 
-  <div style="font-size:.72rem;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted);margin:.4rem 0 .3rem;">Lab-wide bindings</div>
-  <div id="msw-bindings" style="display:grid;grid-template-columns:auto 1fr;gap:.35rem .7rem;align-items:center;"></div>
+  <div class="msw-section">Lab-wide bindings</div>
+  <div id="msw-bindings"></div>
 
-  <div style="font-size:.72rem;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted);margin:.9rem 0 .3rem;">Per-tab override</div>
-  <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;font-size:.78rem;">
+  <div class="msw-section later">Per-tab override</div>
+  <div class="msw-ov-row">
     <select id="msw-ov-tab"><option value="research">Autoresearch</option>
       <option value="agents">Agents</option><option value="chat">Chat</option>
       <option value="build">Model Building</option></select>
@@ -46,20 +91,14 @@
     <select id="msw-ov-entry"><option value="">(lab default)</option></select>
     <button class="btn btn-sm btn-primary" id="msw-ov-apply">Apply</button>
   </div>
-  <div id="msw-overrides" style="margin-top:.5rem;font-size:.72rem;color:var(--text-muted);"></div>
+  <div id="msw-overrides"></div>
 </dialog>
 
 <script>
 (function(){
   var state = null;
-  var dismissedAt = 0;   // hide the banner until state changes again
 
-  function dot(status){
-    var color = {healthy:'#22c55e', cold:'#38bdf8', unknown:'#a3a3a3',
-                 unhealthy:'#ef4444', not_installed:'#f59e0b',
-                 blocked_airgap:'#8b5cf6', no_key:'#f59e0b'}[status] || '#a3a3a3';
-    return '<span style="display:inline-block;width:.55em;height:.55em;border-radius:50%;background:'+color+';margin-right:.35em;" title="'+status+'"></span>';
-  }
+  function dot(status){ return '<span class="msw-dot '+String(status||'unknown')+'" title="'+esc(status)+'"></span>'; }
   function esc(s){ var d=document.createElement('div'); d.textContent=String(s==null?'':s); return d.innerHTML; }
   function entryById(id){ if(!state)return null;
     return (state.entries||[]).find(function(e){return e.id===id;})||null; }
@@ -70,15 +109,14 @@
     var t0 = (state.entries||[]).find(function(e){return e.tier===0&&e.enabled;});
     var t1 = (state.entries||[]).find(function(e){return e.tier===1&&e.enabled;});
     var html = [];
-    if(t0) html.push(dot(t0.health.status)+esc(t0.display_name)+' <span style="opacity:.6">(resident)</span>');
-    if(t1) html.push(dot(t1.health.status)+esc(t1.display_name)+' <span style="opacity:.6">@ aeroLLM</span>');
-    el.innerHTML = html.join(' <span style="opacity:.5">·</span> ') || '—';
+    if(t0) html.push(dot(t0.health.status)+esc(t0.display_name)+' <span class="msw-muted">(resident)</span>');
+    if(t1) html.push(dot(t1.health.status)+esc(t1.display_name)+' <span class="msw-muted">@ aeroLLM</span>');
+    el.innerHTML = html.join(' <span class="msw-muted">·</span> ') || '—';
   }
 
   // ── degradation banner ──────────────────────────────────────────
   function activeDegradation(){
     if(!state) return null;
-    // 1) a bound tier entry that is currently unusable
     var byId = {};
     (state.entries||[]).forEach(function(e){ byId[e.id]=e; });
     var bad = [];
@@ -91,7 +129,6 @@
       }
     });
     if(bad.length) return bad.join(' &nbsp;·&nbsp; ');
-    // 2) a recent fallback event (last 10 min)
     var evs = state.recent_events||[];
     if(evs.length){
       var ev = evs[evs.length-1];
@@ -124,21 +161,19 @@
     if(wrap){ wrap.innerHTML=(state.entries||[]).map(function(e){
       var blocked = ['blocked_airgap','no_key'].indexOf(e.health.status)>=0;
       var reason = e.health.detail || e.health.status;
-      return '<div style="display:flex;gap:.5rem;align-items:baseline;font-size:.78rem;'+
-             (blocked?'opacity:.55;':'')+'">'+dot(e.health.status)+
-        '<span style="font-weight:600;">'+esc(e.display_name)+'</span>'+
-        '<span style="color:var(--text-muted);font-family:var(--font-mono);font-size:.7rem;">'+
+      return '<div class="msw-entry'+(blocked?' blocked':'')+'">'+dot(e.health.status)+
+        '<span class="msw-name">'+esc(e.display_name)+'</span>'+
+        '<span class="msw-meta msw-muted msw-mono">'+
           esc(e.provider_type)+(e.endpoint?' · '+esc(e.endpoint):' · in-process')+
           (e.params_b?' · '+e.params_b+'B':'')+(e.architecture==='moe'?' · MoE':'')+'</span>'+
-        '<span style="flex:1 1 auto;"></span>'+
-        '<span style="color:var(--text-muted);font-size:.68rem;">'+
+        '<span class="msw-grow"></span>'+
+        '<span class="msw-state msw-muted">'+
           (blocked?('Blocked — '+esc(reason)):esc(e.health.status))+'</span></div>';
     }).join(''); }
     var b=document.getElementById('msw-bindings');
     if(b){ b.innerHTML=''; (state.profiles||[]).forEach(function(profile){
       var lbl=document.createElement('label'); lbl.textContent=profile;
-      lbl.style.cssText='font-size:.76rem;font-family:var(--font-mono);';
-      var sel=document.createElement('select'); sel.style.fontSize='.76rem';
+      var sel=document.createElement('select');
       sel.innerHTML='<option value="">(auto: tier default)</option>'+
         (state.entries||[]).map(function(e){
           return '<option value="'+esc(e.id)+'"'+
@@ -182,12 +217,13 @@
     if(fb && fb.to_id && byId[fb.to_id]){
       var from = byId[fb.from_id]?byId[fb.from_id].display_name:fb.from_id;
       el.innerHTML = dot('unhealthy')+'<span title="'+esc(fb.detail)+'">'+
-        esc(byId[fb.to_id].display_name)+' <i style="opacity:.7">(fallback from '+esc(from)+')</i></span>';
-      el.style.borderColor='color-mix(in srgb, #f59e0b 55%, transparent)';
+        esc(byId[fb.to_id].display_name)+' <i>(fallback from '+esc(from)+')</i></span>';
+      el.classList.add('degraded');
       return;
     }
+    el.classList.remove('degraded');
     if(e){ el.innerHTML = dot(e.health.status)+esc(e.display_name)+
-      ' <span style="opacity:.55">('+esc(profile)+(id!==((state.bindings||{})[profile])?' · tab override':'')+')</span>'; }
+      ' <span class="msw-muted">('+esc(profile)+(id!==((state.bindings||{})[profile])?' · tab override':'')+')</span>'; }
     else { el.innerHTML = dot('unknown')+'no model bound'; }
   }
   function renderChips(){ document.querySelectorAll('[data-model-chip]').forEach(function(el){

@@ -123,7 +123,8 @@ _METRICS_LOCK = _threading.Lock()
 _TIER_SURFACES: dict[str, set[str]] = {
     "minimalist": {"dashboard", "chat", "research", "dac", "agents", "docs"},
     "maximus": {"dashboard", "chat", "research", "dac", "agents",
-                "admin", "docs", "notebooks", "terminal", "tuning", "plugins"},
+                "admin", "docs", "notebooks", "terminal", "tuning", "plugins",
+                "build"},
 }
 
 # v1.0.0 tier rename + the LAB_TIER lookup now live in arail.tier, the single
@@ -595,6 +596,9 @@ app.include_router(librarian_router)
 
 from arail.portal.models_api import models_router  # noqa: E402
 app.include_router(models_router)
+
+from arail.portal.build_api import build_router  # noqa: E402
+app.include_router(build_router)
 
 PORTAL_DIR = Path(__file__).parent
 app.mount("/static", StaticFiles(directory=PORTAL_DIR / "static"), name="static")
@@ -9524,6 +9528,15 @@ async def knowledge_redirect(request: Request):
     # Legacy route — the tab is DaC now. 307 preserves ?file= deep-links.
     q = ("?" + str(request.query_params)) if request.query_params else ""
     return RedirectResponse(url="/dac" + q, status_code=307)
+
+
+@app.get("/build", response_class=HTMLResponse)
+async def build_page(request: Request):
+    """Nucleus MODEL BUILDING tab — thin shell; hydrates from /api/build/*."""
+    return templates.TemplateResponse(request, "build.html", {
+        "active": "build",
+        **_identity_ctx(),
+    })
 
 
 @app.get("/dac", response_class=HTMLResponse)
