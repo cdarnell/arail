@@ -6,6 +6,35 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added (2026-07-18 unified model layer + Nucleus MODEL BUILDING tab)
+
+- **Unified model registry (`arail.registry`).** One resolution layer for every
+  tab: `resolve(task_profile)` over declared `ModelEntry` records (local /
+  aerollm / gateway / anthropic / xai), per-tab overrides persisted in
+  `lab/data/model_registry.json`, startup + interval health probes, and
+  structured `FallbackEvent`s on the activity stream — no silent fallback,
+  ever. Airgap-blocked cloud entries stay visible (greyed), never hidden.
+- **AutoResearch root-cause fix.** `ollama_native` no longer inherits the LM
+  Studio `localhost:1234` default when `MODEL_API_BASE` is unset — the source
+  of every "LLM call failed … using heuristic fallback" ConnectionError. The
+  researcher/agents now bind lazily through the registry (config changes apply
+  without restart); deep steps default to aeroLLM (Tier 1), cheap sub-steps to
+  the Tier 0 resident; every call logs provider, model id, latency, tokens.
+- **Global model visibility.** Status-bar Models pill
+  (`ai-engineer (resident) · gpt-oss-20b @ aeroLLM` with health dots) opening a
+  switcher (lab-wide bindings + per-tab overrides); a persistent degradation
+  banner naming the failed endpoint and the fallback in use; inline model
+  chips on Autoresearch/Agents/Chat/Build showing each tab's actual model.
+- **Nucleus MODEL BUILDING tab (`/build`, maximus tier).** Preflight panel
+  (dataset/tokenizer/seq-len/base-checkpoint/dense-vs-MoE + expert count,
+  heuristic VRAM/RAM/disk/wall-clock estimates, green/amber/red gating — red
+  blocks the run without a recorded override). Build options: Local, Anthropix
+  gateway (accelerated; nucleus teacher tier via the Anthropic API, gated on
+  hybrid + key), Hybrid, Dry run (nucleus `dry_run`, badged SIMULATED). Run
+  management with live loss/throughput, logs, pause/resume/stop/abort, and a
+  Register-model action that lands graduated artifacts in the registry so they
+  become selectable in every tab.
+
 ### Changed (2026-05-31 two-tier model strategy v2 — MODEL-TIERS-V2)
 
 - **Default model → `llama-ai-eng` (Llama-3.2-1B-Instruct + AI-engineer persona, Built with Llama).**
