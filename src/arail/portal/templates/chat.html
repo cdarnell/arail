@@ -1501,7 +1501,8 @@
 
   <main class="studio" id="studio">
     <header class="studio-head">
-      <h1>Chat <span class="accent">Studio</span></h1>
+      <h1>Chat <span class="accent">Studio</span>
+        {% with chip_tab='chat' %}{% include "_model_chip.html" %}{% endwith %}</h1>
       <div class="preset-row" id="presets">
         <button data-preset="balanced" class="active">Balanced</button>
         <button data-preset="fast">Fast</button>

@@ -23,6 +23,7 @@
       <div class="rx-goal-title" id="rx-goal-title">No active goal</div>
       <span class="rx-chip domain" id="rx-goal-domain" hidden></span>
       <span class="rx-pill idle" id="rx-status-pill">idle</span>
+      {% with chip_tab='research' %}{% include "_model_chip.html" %}{% endwith %}
     </div>
 
     <!-- Research program files — the two-file contract the researcher

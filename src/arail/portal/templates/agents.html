@@ -8,7 +8,8 @@
 
 {% block content %}
 <div class="agents-wrap">
-  <h1>Agent Control Center</h1>
+  <h1>Agent Control Center
+    {% with chip_tab='agents' %}{% include "_model_chip.html" %}{% endwith %}</h1>
   <p class="subtitle">
     Monitor, instruct, and understand every agent in the lab.
     <a class="ag-learn-link"

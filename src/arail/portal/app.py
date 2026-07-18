@@ -593,6 +593,9 @@ from arail.portal.librarian_routes import router as librarian_router  # noqa: E4
 
 app.include_router(librarian_router)
 
+from arail.portal.models_api import models_router  # noqa: E402
+app.include_router(models_router)
+
 PORTAL_DIR = Path(__file__).parent
 app.mount("/static", StaticFiles(directory=PORTAL_DIR / "static"), name="static")
 # Mount integrations frontend (core/knowledge-canvas/frontend) if present.
@@ -752,6 +755,15 @@ async def _startup():
     activity_log.emit("system",
                       f"{_boot_ident.name} portal started — {intent_name} lab.",
                       "success")
+
+    # Model registry: startup preflight (both tiers, loud but non-blocking)
+    # + interval health loop. Runs on a daemon thread; never delays _READY.
+    try:
+        from arail.registry import get_registry
+        get_registry().start_background()
+    except Exception as _reg_err:  # noqa: BLE001
+        activity_log.emit("registry",
+                          f"Model registry startup failed: {_reg_err}", "warn")
 
     if knowledge_canvas_app is not None and not hasattr(knowledge_canvas_app.state, "store"):
         try:
@@ -8561,7 +8573,21 @@ async def system_health():
         opencode_up=opencode_up,
     )
 
+    # Model registry tiers — entries + health from arail.registry.
+    try:
+        from arail.registry import get_registry
+        _reg_state = get_registry().to_state()
+        models_section = {
+            "statusbar": _reg_state["statusbar"],
+            "entries": _reg_state["entries"],
+            "bindings": _reg_state["bindings"],
+            "recent_events": _reg_state["recent_events"][-5:],
+        }
+    except Exception:  # noqa: BLE001
+        models_section = None
+
     return {
+        "models": models_section,
         "platform": platform.system(),
         "arch": platform.machine(),
         "cpu_count": cpu_count,

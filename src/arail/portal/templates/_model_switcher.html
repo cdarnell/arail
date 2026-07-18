@@ -1,0 +1,238 @@
+{#
+  Model visibility surfaces (included by _nav.html on EVERY page):
+    • #model-fallback-banner — visible degradation strip under the statusbar.
+      Fed by /api/models/state (ongoing state) + the activity SSE stream
+      (instant on new fallback events). Never silent: any fallback or dead
+      tier renders here until it recovers or is dismissed.
+    • #model-switcher-modal — click the statusbar Models pill to open.
+      Lab-wide per-profile bindings + per-tab overrides via /api/models/bind.
+      Unhealthy entries show red with the reason; airgap-blocked entries are
+      greyed but NEVER hidden.
+  Also exposes window.ARAIL_MODELS.render(tab, el) for per-tab chips
+  (_model_chip.html).
+#}
+<div id="model-fallback-banner" hidden
+     style="display:flex;align-items:center;gap:.6rem;padding:.3rem .9rem;
+            font-size:.74rem;border-bottom:1px solid color-mix(in srgb, var(--warning, #d97706) 45%, transparent);
+            background:color-mix(in srgb, var(--warning, #d97706) 12%, transparent);color:var(--text);">
+  <span aria-hidden="true">⚠</span>
+  <span id="model-fallback-text" style="flex:1 1 auto;"></span>
+  <button class="btn btn-sm" id="model-fallback-dismiss" title="Hide until the model state changes">Dismiss</button>
+</div>
+
+<dialog id="model-switcher-modal"
+        style="max-width:640px;width:92vw;border:1px solid var(--border-strong);
+               border-radius:var(--radius-l);background:var(--surface2);color:var(--text);
+               padding:1rem 1.2rem;">
+  <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.6rem;">
+    <strong style="font-size:.95rem;">Models</strong>
+    <span id="msw-statusbar" style="font-size:.72rem;color:var(--text-muted);font-family:var(--font-mono);"></span>
+    <span style="flex:1 1 auto;"></span>
+    <button class="btn btn-sm" id="msw-refresh" title="Re-probe all model health now">↻ Health</button>
+    <button class="btn btn-sm" id="msw-close">✕</button>
+  </div>
+
+  <div id="msw-entries" style="display:flex;flex-direction:column;gap:.3rem;margin-bottom:.9rem;"></div>
+
+  <div style="font-size:.72rem;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted);margin:.4rem 0 .3rem;">Lab-wide bindings</div>
+  <div id="msw-bindings" style="display:grid;grid-template-columns:auto 1fr;gap:.35rem .7rem;align-items:center;"></div>
+
+  <div style="font-size:.72rem;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted);margin:.9rem 0 .3rem;">Per-tab override</div>
+  <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;font-size:.78rem;">
+    <select id="msw-ov-tab"><option value="research">Autoresearch</option>
+      <option value="agents">Agents</option><option value="chat">Chat</option>
+      <option value="build">Model Building</option></select>
+    <select id="msw-ov-profile"><option value="*">all profiles</option></select>
+    <select id="msw-ov-entry"><option value="">(lab default)</option></select>
+    <button class="btn btn-sm btn-primary" id="msw-ov-apply">Apply</button>
+  </div>
+  <div id="msw-overrides" style="margin-top:.5rem;font-size:.72rem;color:var(--text-muted);"></div>
+</dialog>
+
+<script>
+(function(){
+  var state = null;
+  var dismissedAt = 0;   // hide the banner until state changes again
+
+  function dot(status){
+    var color = {healthy:'#22c55e', cold:'#38bdf8', unknown:'#a3a3a3',
+                 unhealthy:'#ef4444', not_installed:'#f59e0b',
+                 blocked_airgap:'#8b5cf6', no_key:'#f59e0b'}[status] || '#a3a3a3';
+    return '<span style="display:inline-block;width:.55em;height:.55em;border-radius:50%;background:'+color+';margin-right:.35em;" title="'+status+'"></span>';
+  }
+  function esc(s){ var d=document.createElement('div'); d.textContent=String(s==null?'':s); return d.innerHTML; }
+  function entryById(id){ if(!state)return null;
+    return (state.entries||[]).find(function(e){return e.id===id;})||null; }
+
+  // ── statusbar pill ──────────────────────────────────────────────
+  function renderStatusbar(){
+    var el = document.getElementById('sb-models'); if(!el||!state) return;
+    var t0 = (state.entries||[]).find(function(e){return e.tier===0&&e.enabled;});
+    var t1 = (state.entries||[]).find(function(e){return e.tier===1&&e.enabled;});
+    var html = [];
+    if(t0) html.push(dot(t0.health.status)+esc(t0.display_name)+' <span style="opacity:.6">(resident)</span>');
+    if(t1) html.push(dot(t1.health.status)+esc(t1.display_name)+' <span style="opacity:.6">@ aeroLLM</span>');
+    el.innerHTML = html.join(' <span style="opacity:.5">·</span> ') || '—';
+  }
+
+  // ── degradation banner ──────────────────────────────────────────
+  function activeDegradation(){
+    if(!state) return null;
+    // 1) a bound tier entry that is currently unusable
+    var byId = {};
+    (state.entries||[]).forEach(function(e){ byId[e.id]=e; });
+    var bad = [];
+    Object.keys(state.bindings||{}).forEach(function(profile){
+      var id = state.bindings[profile]; var e = id && byId[id];
+      if(e && ['unhealthy','not_installed'].indexOf(e.health.status)>=0){
+        bad.push('<b>'+esc(profile)+'</b>: '+esc(e.display_name)+
+          (e.endpoint?' @ '+esc(e.endpoint):'')+' is '+esc(e.health.status)+
+          (e.health.detail?' — '+esc(e.health.detail):''));
+      }
+    });
+    if(bad.length) return bad.join(' &nbsp;·&nbsp; ');
+    // 2) a recent fallback event (last 10 min)
+    var evs = state.recent_events||[];
+    if(evs.length){
+      var ev = evs[evs.length-1];
+      if((Date.now()/1000 - ev.ts) < 600){
+        var from = byId[ev.from_id] ? byId[ev.from_id].display_name : ev.from_id;
+        var to = ev.to_id && byId[ev.to_id] ? byId[ev.to_id].display_name : ev.to_id;
+        return '<b>'+esc(ev.profile)+'</b>'+(ev.tab?' ('+esc(ev.tab)+')':'')+': '+
+          esc(from)+(ev.endpoint?' @ '+esc(ev.endpoint):'')+' — '+esc(ev.detail)+
+          (to ? ' &nbsp;→ using <b>'+esc(to)+'</b>' : ' &nbsp;<b>no fallback available</b>');
+      }
+    }
+    return null;
+  }
+  function renderBanner(){
+    var banner = document.getElementById('model-fallback-banner');
+    var text = document.getElementById('model-fallback-text');
+    if(!banner||!text||!state) return;
+    var msg = activeDegradation();
+    var stamp = state.config_version + '|' + ((state.recent_events||[]).length);
+    if(msg && stamp !== banner.dataset.dismissedStamp){
+      text.innerHTML = msg; banner.hidden = false;
+    } else if(!msg){ banner.hidden = true; }
+  }
+
+  // ── switcher modal ──────────────────────────────────────────────
+  function renderModal(){
+    if(!state) return;
+    var sb=document.getElementById('msw-statusbar'); if(sb) sb.textContent=state.statusbar||'';
+    var wrap=document.getElementById('msw-entries');
+    if(wrap){ wrap.innerHTML=(state.entries||[]).map(function(e){
+      var blocked = ['blocked_airgap','no_key'].indexOf(e.health.status)>=0;
+      var reason = e.health.detail || e.health.status;
+      return '<div style="display:flex;gap:.5rem;align-items:baseline;font-size:.78rem;'+
+             (blocked?'opacity:.55;':'')+'">'+dot(e.health.status)+
+        '<span style="font-weight:600;">'+esc(e.display_name)+'</span>'+
+        '<span style="color:var(--text-muted);font-family:var(--font-mono);font-size:.7rem;">'+
+          esc(e.provider_type)+(e.endpoint?' · '+esc(e.endpoint):' · in-process')+
+          (e.params_b?' · '+e.params_b+'B':'')+(e.architecture==='moe'?' · MoE':'')+'</span>'+
+        '<span style="flex:1 1 auto;"></span>'+
+        '<span style="color:var(--text-muted);font-size:.68rem;">'+
+          (blocked?('Blocked — '+esc(reason)):esc(e.health.status))+'</span></div>';
+    }).join(''); }
+    var b=document.getElementById('msw-bindings');
+    if(b){ b.innerHTML=''; (state.profiles||[]).forEach(function(profile){
+      var lbl=document.createElement('label'); lbl.textContent=profile;
+      lbl.style.cssText='font-size:.76rem;font-family:var(--font-mono);';
+      var sel=document.createElement('select'); sel.style.fontSize='.76rem';
+      sel.innerHTML='<option value="">(auto: tier default)</option>'+
+        (state.entries||[]).map(function(e){
+          return '<option value="'+esc(e.id)+'"'+
+            ((state.bindings||{})[profile]===e.id?' selected':'')+'>'+
+            esc(e.display_name)+' ['+esc(e.health.status)+']</option>';}).join('');
+      sel.addEventListener('change', function(){ bind(profile, sel.value||null, null); });
+      b.appendChild(lbl); b.appendChild(sel);
+    }); }
+    var op=document.getElementById('msw-ov-profile');
+    if(op && op.options.length<=1){ (state.profiles||[]).forEach(function(p){
+      var o=document.createElement('option'); o.value=p; o.textContent=p; op.appendChild(o); }); }
+    var oe=document.getElementById('msw-ov-entry');
+    if(oe){ oe.innerHTML='<option value="">(clear override — lab default)</option>'+
+      (state.entries||[]).map(function(e){return '<option value="'+esc(e.id)+'">'+esc(e.display_name)+'</option>';}).join(''); }
+    var ov=document.getElementById('msw-overrides');
+    if(ov){ var parts=[]; Object.keys(state.tab_overrides||{}).forEach(function(tab){
+        Object.keys(state.tab_overrides[tab]).forEach(function(p){
+          var e=entryById(state.tab_overrides[tab][p]);
+          parts.push(esc(tab)+' / '+esc(p)+' → '+esc(e?e.display_name:state.tab_overrides[tab][p]));});});
+      ov.innerHTML = parts.length? 'Active overrides: '+parts.join(' · ') : 'No per-tab overrides.'; }
+  }
+
+  function bind(profile, entryId, tab){
+    fetch('/api/models/bind',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({profile:profile, entry_id:entryId, tab:tab})})
+      .then(function(r){return r.json();})
+      .then(function(s){ state=s; renderAll(); })
+      .catch(function(){});
+  }
+
+  // ── per-tab chip (used by _model_chip.html) ─────────────────────
+  function renderChip(tab, el){
+    if(!state||!el) return;
+    var byId={}; (state.entries||[]).forEach(function(e){byId[e.id]=e;});
+    var profile = (tab==='research'||tab==='build') ? 'reasoning' : 'fast';
+    var ov=(state.tab_overrides||{})[tab]||{};
+    var id = ov[profile]||ov['*']||(state.bindings||{})[profile];
+    var e = id && byId[id];
+    var fb = (state.recent_events||[]).filter(function(ev){
+      return ev.tab===tab && (Date.now()/1000-ev.ts)<600; }).pop();
+    if(fb && fb.to_id && byId[fb.to_id]){
+      var from = byId[fb.from_id]?byId[fb.from_id].display_name:fb.from_id;
+      el.innerHTML = dot('unhealthy')+'<span title="'+esc(fb.detail)+'">'+
+        esc(byId[fb.to_id].display_name)+' <i style="opacity:.7">(fallback from '+esc(from)+')</i></span>';
+      el.style.borderColor='color-mix(in srgb, #f59e0b 55%, transparent)';
+      return;
+    }
+    if(e){ el.innerHTML = dot(e.health.status)+esc(e.display_name)+
+      ' <span style="opacity:.55">('+esc(profile)+(id!==((state.bindings||{})[profile])?' · tab override':'')+')</span>'; }
+    else { el.innerHTML = dot('unknown')+'no model bound'; }
+  }
+  function renderChips(){ document.querySelectorAll('[data-model-chip]').forEach(function(el){
+    renderChip(el.getAttribute('data-model-chip'), el); }); }
+
+  function renderAll(){ renderStatusbar(); renderBanner(); renderModal(); renderChips(); }
+
+  function refresh(){
+    fetch('/api/models/state',{cache:'no-store'})
+      .then(function(r){ return r.ok? r.json():null; })
+      .then(function(s){ if(s){ state=s; renderAll(); } })
+      .catch(function(){});
+  }
+
+  // Instant banner on new fallback events via the activity SSE stream.
+  try{
+    var es = new EventSource('/api/activity/stream');
+    es.onmessage = function(m){
+      try{ var ev=JSON.parse(m.data);
+        if(ev && ev.data && ev.data.model_event){ refresh(); } }catch(e){}
+    };
+  }catch(e){/* SSE unavailable — polling still covers it */}
+
+  var wrapEl=document.getElementById('sb-models-wrap');
+  var modal=document.getElementById('model-switcher-modal');
+  if(wrapEl&&modal) wrapEl.addEventListener('click', function(){ refresh(); modal.showModal(); });
+  var closeBtn=document.getElementById('msw-close');
+  if(closeBtn) closeBtn.addEventListener('click', function(){ modal.close(); });
+  var refreshBtn=document.getElementById('msw-refresh');
+  if(refreshBtn) refreshBtn.addEventListener('click', function(){
+    fetch('/api/models/health/refresh',{method:'POST'})
+      .then(function(r){return r.json();}).then(function(s){ state=s; renderAll(); })
+      .catch(function(){}); });
+  var applyBtn=document.getElementById('msw-ov-apply');
+  if(applyBtn) applyBtn.addEventListener('click', function(){
+    bind(document.getElementById('msw-ov-profile').value,
+         document.getElementById('msw-ov-entry').value||null,
+         document.getElementById('msw-ov-tab').value); });
+  var dismissBtn=document.getElementById('model-fallback-dismiss');
+  if(dismissBtn) dismissBtn.addEventListener('click', function(){
+    var banner=document.getElementById('model-fallback-banner');
+    banner.dataset.dismissedStamp = state ? (state.config_version+'|'+((state.recent_events||[]).length)) : '';
+    banner.hidden=true; });
+
+  window.ARAIL_MODELS = {refresh:refresh, render:renderChip};
+  refresh(); setInterval(refresh, 10000);
+})();
+</script>
