@@ -104,10 +104,14 @@ class DrafterAgent:
         if self._router is not None:
             return self._router
         try:
-            from arail.router.core import ModelRouter
-            self._router = ModelRouter()
+            from arail.registry import resolve
+            self._router = resolve("fast", tab="agents").router()
+            if self._router is None:
+                log.warning("DrafterAgent: no usable model for the 'fast' "
+                            "profile; compose() will require an explicit "
+                            "router= (see the model status banner)")
         except Exception as exc:
-            log.warning("DrafterAgent: ModelRouter unavailable (%s); compose() will require an explicit router=", exc)
+            log.warning("DrafterAgent: model resolution failed (%s); compose() will require an explicit router=", exc)
             self._router = None
         return self._router
 

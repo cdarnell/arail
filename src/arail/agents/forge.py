@@ -303,12 +303,11 @@ def _compose_prompt(fact: str) -> str:
 
 def _voice(fact: str) -> str:
     try:
-        from arail.router import ModelRouter
+        from arail.registry import resolve
+        router = resolve("fast", tab="agents").router()
     except Exception:
         return fact
-    try:
-        router = ModelRouter()
-    except Exception:
+    if router is None:
         return fact
     try:
         response = router.complete(

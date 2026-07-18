@@ -5980,38 +5980,11 @@ def _get_runtime_backend(runtime: str, model_id: str):
     if cached is not None:
         return cached
 
-    runtime_bases = {
-        "ollama":      f"http://127.0.0.1:{os.getenv('OLLAMA_PORT', '11434')}/v1",
-        "mlx-openai":  f"http://127.0.0.1:{os.getenv('MLX_OPENAI_PORT', '11435')}/v1",
-        # Future: lmstudio, vllm, lmdeploy, etc. Same shape.
-    }
-    base = runtime_bases.get(runtime)
-    if base is None:
-        raise ValueError(f"unknown runtime: {runtime}")
-
-    import requests as _req
-
-    if runtime == "ollama":
-        # B2 (ARCHITECTURE.md L3): use OllamaNativeBackend so options.num_ctx
-        # reaches the native /api/chat endpoint rather than being silently
-        # dropped by Ollama's OpenAI /v1 shim (F-OLLAMA-SHIM).
-        from arail.router.backends import OllamaNativeBackend, _resolve_ctx_override
-        be = OllamaNativeBackend.__new__(OllamaNativeBackend)
-        be._session = _req.Session()
-        be.base_url = base
-        be.model_name = model_id
-        be.api_key = "not-needed"   # local runtimes ignore auth
-        be.backend_name = "ollama:native"
-        # Resolve ctx override in the branch (not in __init__) per ARCHITECTURE.md.
-        be._num_ctx = _resolve_ctx_override(model_id, default=None)
-    else:
-        from arail.router.backends import OpenAICompatBackend
-        be = OpenAICompatBackend.__new__(OpenAICompatBackend)
-        be._session = _req.Session()
-        be.base_url = base
-        be.model_name = model_id
-        be.api_key = "not-needed"   # local runtimes ignore auth
-        be.backend_name = f"{runtime}:openai_compat"
+    # Construction logic lives in the unified registry now (single place
+    # that knows how to build backends); behavior is identical to the
+    # historical inline body, including backend_name strings.
+    from arail.registry.binding import build_runtime_backend
+    be = build_runtime_backend(runtime, model_id)
 
     _RUNTIME_BACKEND_CACHE[cache_key] = be
     return be

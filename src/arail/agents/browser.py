@@ -161,9 +161,13 @@ def browse_url(url: str) -> dict[str, Any]:
 
 
 def _get_router():
-    """Lazy-init a ModelRouter using the lab's built-in model."""
-    from arail.router import ModelRouter
-    return ModelRouter()
+    """Resolve the fast (Tier 0) router via the model registry."""
+    from arail.registry import resolve
+    router = resolve("fast", tab="agents").router()
+    if router is None:
+        raise RuntimeError("no usable model for the 'fast' profile "
+                           "(see the model status banner)")
+    return router
 
 
 _NAVIGATE_PROMPT = """You are a browser research agent. Given a user instruction, output a JSON object with two keys:

@@ -134,8 +134,8 @@ def load_or_seed(reg: ModelRegistry) -> None:
 
 # ── env seeding ────────────────────────────────────────────────────
 
-_TIER0_ID = "tier0-local"
-_TIER1_ID = "tier1-aerollm"
+TIER0_ID = _TIER0_ID = "tier0-local"
+TIER1_ID = _TIER1_ID = "tier1-aerollm"
 QKZ_2B_ID = "qkz-project-aware-2b"
 
 

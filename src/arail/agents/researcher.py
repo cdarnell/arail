@@ -162,11 +162,15 @@ def _get_system_context(intent: str | None = None) -> str:
 
 
 def _get_router():
-    """Lazy-load ModelRouter — returns None if no backend is available."""
+    """Resolve the fast (Tier 0) router via the model registry.
+
+    Returns None when no usable model exists for the 'fast' profile — the
+    registry has already emitted a visible FallbackEvent in that case, so
+    the degradation is never silent.
+    """
     try:
-        from arail.router.core import ModelRouter
-        router = ModelRouter()
-        return router
+        from arail.registry import resolve
+        return resolve("fast", tab="research").router(billing_source="agent")
     except Exception:
         return None
 
@@ -182,8 +186,14 @@ def _get_deep_router():
     if os.getenv("AEROLLM_RESEARCH", "true").lower() in ("0", "false", "no"):
         return None
     try:
-        from arail.agents import deep_policy
-        return deep_policy.get_deep_router()
+        # Registry resolution honors per-tab overrides (e.g. Claude when
+        # hybrid). The default 'reasoning' binding is the aerollm entry, whose
+        # router wraps deep_policy's shared resident runtime — still a SINGLE
+        # deep model across all agents. allow_fallback=False: _deep_complete
+        # has its own fast fallback; a second hop here would double-fall.
+        from arail.registry import resolve
+        return resolve("reasoning", tab="research",
+                       allow_fallback=False).router(billing_source="agent")
     except Exception:
         return None
 
@@ -212,14 +222,24 @@ def _llm_complete(router, prompt: str, max_tokens: int = 512,
         text = resp.text.strip() if resp.text else None
 
         traced_prompt = f"{system}\n\n{prompt}" if system else prompt
+        # getattr-defensive: tests and bespoke routers pass duck-typed
+        # responses that only guarantee `.text`.
+        model = getattr(resp, "model", None)
+        backend = getattr(resp, "backend", None)
+        where = f", {model} @ {backend}" if model and backend else ""
         activity_log.emit("researcher",
-                          f"LLM call completed ({int(elapsed)}ms)",
+                          f"LLM call completed ({int(elapsed)}ms{where})",
                           "info", {
                               "prompt_trace": {
                                   "prompt": traced_prompt[:3000],
                                   "response": text[:2000] if text else None,
                                   "max_tokens": max_tokens,
                                   "latency_ms": round(elapsed, 1),
+                                  "model": model,
+                                  "backend": backend,
+                                  "provider": getattr(router, "provider", None),
+                                  "entry_id": getattr(router, "entry_id", None),
+                                  "tokens_out": getattr(resp, "tokens_used", None),
                               }
                           })
         if not text:
@@ -253,6 +273,25 @@ def _deep_complete(deep_router, fast_router, prompt: str,
         activity_log.emit("researcher",
                           "Deep engine unavailable, falling back to fast model.",
                           "warn")
+        # Surface the degradation as a registry fallback event so the global
+        # banner shows it — the old warn string above is easy to miss.
+        try:
+            import time as _t
+            from arail.registry import get_registry
+            from arail.registry.core import FallbackEvent
+            reg = get_registry()
+            reg.record_fallback(FallbackEvent(
+                ts=_t.time(), profile="reasoning", tab="research",
+                from_id=getattr(deep_router, "entry_id", None) or "tier1-aerollm",
+                to_id=getattr(fast_router, "entry_id", None) or "tier0-local",
+                reason="error",
+                detail="deep engine returned no result — research is running "
+                       "on the fast model",
+                endpoint=None,
+                status="unhealthy",
+                latency_ms=None))
+        except Exception:
+            pass
     return _llm_complete(fast_router, prompt, max_tokens, system=system)
 
 
@@ -332,7 +371,12 @@ class ResearcherAgent:
         self.goal_store = GoalStore()
         self.tracker = ExperimentTracker()
         self.curator = CuratorAgent()
-        self._router = _get_router()
+        # Fast router is resolved lazily via the `_router` property (below):
+        # this singleton is constructed at import time, before the registry —
+        # or a portal config change — exists. Caching a router here would
+        # freeze a possibly-broken binding until process restart.
+        self._router_cache = None
+        self._router_cfgv: Optional[int] = None
         # Lazy: the deep (aeroLLM) model is multi-GB. Don't load it at boot —
         # _active_deep_router() fetches the shared router on first background-
         # safe use, so an idle maximus lab never carries the 2nd inference.
@@ -351,6 +395,35 @@ class ResearcherAgent:
         # "the Researcher considered N hypotheses, ran these K, set
         # these N-K aside." Reset every time _plan_research runs.
         self._planning_trace: dict[str, Any] | None = None
+
+    @property
+    def _router(self):
+        """Fast (Tier 0) router, re-resolved when the registry config changes.
+
+        Never caches a None permanently: if resolution failed last time we
+        re-attempt on the next access (the registry is the throttle — it just
+        returns the current entry's state, no heavy construction happens).
+        """
+        cfgv = None
+        try:
+            from arail.registry import get_registry
+            cfgv = get_registry().config_version
+        except Exception:
+            pass
+        if self._router_cache is None or cfgv != self._router_cfgv:
+            self._router_cache = _get_router()
+            self._router_cfgv = cfgv
+        return self._router_cache
+
+    @_router.setter
+    def _router(self, value) -> None:
+        # Tests (and callers with a bespoke router) may inject directly.
+        self._router_cache = value
+        try:
+            from arail.registry import get_registry
+            self._router_cfgv = get_registry().config_version
+        except Exception:
+            self._router_cfgv = None
 
     @property
     def status(self) -> str:
