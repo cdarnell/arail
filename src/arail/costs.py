@@ -232,7 +232,22 @@ class CostTracker:
                 self.tokens_by_backend = data.get("tokens_by_backend", {})
                 self.cloud_by_backend = data.get("cloud_by_backend", {})
                 self._started_at = data.get("started_at", time.time())
-            except (json.JSONDecodeError, KeyError):
+                # Durable extras (added 2026-07; legacy files simply lack
+                # them): recent-call history + cache/recap counters used to
+                # reset to empty on every restart.
+                hist = data.get("history")
+                if isinstance(hist, list):
+                    self._history = hist[-500:]
+                recap = data.get("calls_by_recap_depth")
+                if isinstance(recap, dict):
+                    self.calls_by_recap_depth = {
+                        int(k): v for k, v in recap.items()
+                        if str(k).lstrip("-").isdigit()}
+                self.total_cache_read_tokens = data.get(
+                    "total_cache_read_tokens", 0)
+                self.total_cache_creation_tokens = data.get(
+                    "total_cache_creation_tokens", 0)
+            except (json.JSONDecodeError, KeyError, TypeError, ValueError):
                 pass
             # Reconcile historical energy estimates that were latency-only —
             # if the on-disk number is implausibly small for the tokens
@@ -261,6 +276,11 @@ class CostTracker:
             "tokens_by_backend": self.tokens_by_backend,
             "cloud_by_backend": self.cloud_by_backend,
             "started_at": self._started_at,
+            "history": self._history[-500:],
+            "calls_by_recap_depth": {str(k): v for k, v in
+                                     self.calls_by_recap_depth.items()},
+            "total_cache_read_tokens": getattr(self, "total_cache_read_tokens", 0),
+            "total_cache_creation_tokens": getattr(self, "total_cache_creation_tokens", 0),
         }, indent=2))
 
     def _subscription_accrued_usd(self) -> float:

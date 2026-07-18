@@ -281,7 +281,7 @@ for line in sys.stdin:
 "
                 echo ""
                 say "Live tail:"
-                tail -f "$LOG_FILE" | python3 -c "
+                tail -F "$LOG_FILE" | python3 -c "
 import sys, json
 for line in sys.stdin:
     try:
@@ -314,7 +314,7 @@ for line in sys.stdin:
 "
                 echo ""
                 say "Live tail ($COMP only):"
-                tail -f "$LOG_FILE" | grep --line-buffered "\"source\":.*\"$COMP\"" | python3 -c "
+                tail -F "$LOG_FILE" | grep --line-buffered "\"source\":.*\"$COMP\"" | python3 -c "
 import sys, json
 for line in sys.stdin:
     try:

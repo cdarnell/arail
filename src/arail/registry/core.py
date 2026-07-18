@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import threading
 import time
 from collections import deque
@@ -179,7 +180,38 @@ class ModelRegistry:
                 return
             from arail.registry import store
             store.load_or_seed(self)
+            self._rehydrate_events()
             self._loaded = True
+
+    def _rehydrate_events(self) -> None:
+        """Rebuild the fallback-event timeline from activity.jsonl's tail.
+
+        Every event already rode the activity stream (via _emit), so no new
+        state file is needed — the banner/timeline just re-reads the copies
+        after a restart. Best-effort; failures leave an empty deque."""
+        try:
+            from arail.activity import ActivityLog
+            for line in ActivityLog._tail_lines(500):
+                try:
+                    ev = json.loads(line)
+                except ValueError:
+                    continue
+                me = ((ev.get("data") or {}).get("model_event") or {})
+                if me.get("kind") != "fallback" or "from_id" not in me:
+                    continue
+                self.recent_events.append(FallbackEvent(
+                    ts=float(me.get("ts") or 0.0),
+                    profile=str(me.get("profile") or ""),
+                    tab=me.get("tab"),
+                    from_id=str(me.get("from_id") or ""),
+                    to_id=me.get("to_id"),
+                    reason=str(me.get("reason") or ""),
+                    detail=str(me.get("detail") or ""),
+                    endpoint=me.get("endpoint"),
+                    status=str(me.get("status") or ""),
+                    latency_ms=me.get("latency_ms")))
+        except Exception:  # noqa: BLE001
+            pass
 
     # ── mutation ────────────────────────────────────────────────────
     def _bump(self) -> None:
