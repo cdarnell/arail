@@ -200,6 +200,19 @@ class GateRefused(Exception):
         self.gate = gate
 
 
+class ContentInvalid(Exception):
+    """A display/definition string is placeholder-shaped (the XXXX/YYYY incident).
+
+    Raised by ``validate_bundle_content``. Never written to disk when raised —
+    callers (``write_bundle``, ``reseal_bundle``) check this before any file
+    write, mirroring the ``GateRefused`` no-partial-write guarantee.
+    """
+
+    def __init__(self, violations: list[str], message: str = "placeholder/garbage content refused"):
+        super().__init__(message)
+        self.violations = violations
+
+
 @dataclass
 class ForgeParams:
     subject: str
@@ -676,6 +689,71 @@ def _build_plugin_manifest(slug: str, display: str, term_count: int, world_sha: 
     }
 
 
+# ═════════════ content validator (the actual fix for the XXXX incident) ═══
+
+# Full-string anchor: 3+ chars, ENTIRELY X/Y (case-insensitive) — a filler
+# shape ("XXXX", "yxyxyx"), not a substring match, so "X-ray" (mixed chars)
+# never trips it.
+_PLACEHOLDER_SHAPE_RE = re.compile(r"^[XY]{3,}$", re.I)
+_TODO_RE = re.compile(r"\bTODO\b")
+_TBD_RE = re.compile(r"\bTBD\b")
+_LOREM_IPSUM_RE = re.compile(r"lorem ipsum", re.I)
+_PLACEHOLDER_WORD_RE = re.compile(r"\bplaceholder\b", re.I)
+# A run of one repeated non-word character, e.g. "----" or "....." (>=4).
+_REPEATED_CHAR_RE = re.compile(r"(\W)\1{3,}")
+
+# face fields that carry authored prose and must be checked (per the
+# _FACE_DISPLAY_KEYS allow-list, excluding palette_hint/theme which are not
+# free-text prose).
+_FACE_CONTENT_KEYS = ("name", "tagline", "domain_framing", "vocabulary_register")
+
+
+def _check_content_field(value: Any, *, required: bool, path: str, violations: list[str]) -> None:
+    s = str(value or "").strip()
+    if not s:
+        if required:
+            violations.append(f"{path}: empty")
+        return
+    if _PLACEHOLDER_SHAPE_RE.match(s):
+        violations.append(f"{path}: placeholder-shaped (all X/Y characters)")
+    elif _TODO_RE.search(s):
+        violations.append(f"{path}: contains TODO")
+    elif _TBD_RE.search(s):
+        violations.append(f"{path}: contains TBD")
+    elif _LOREM_IPSUM_RE.search(s):
+        violations.append(f"{path}: contains lorem ipsum")
+    elif _PLACEHOLDER_WORD_RE.search(s):
+        violations.append(f"{path}: contains 'placeholder'")
+    elif _REPEATED_CHAR_RE.search(s):
+        violations.append(f"{path}: repeated-character run")
+
+
+def validate_bundle_content(face: dict, spec: dict, terms: list[dict]) -> None:
+    """Refuse placeholder/garbage content before it is ever sealed.
+
+    Pure, deterministic, no I/O. Checks ``face``'s display fields (name,
+    tagline, domain_framing, vocabulary_register) and each term's
+    short/definition (required) and example (optional — the forge legitimately
+    leaves it blank on a bad model call). ``spec`` is accepted for interface
+    parity with the architecture's Interface Contracts section; the fields
+    validated today all live on ``face``/``terms``.
+
+    Raises ``ContentInvalid`` (never writes) on the first pass over all
+    fields — the exception carries every violation found, not just the first,
+    so an operator can fix them all in one pass.
+    """
+    violations: list[str] = []
+    for key in _FACE_CONTENT_KEYS:
+        _check_content_field(face.get(key), required=True, path=f"face.{key}", violations=violations)
+    for t in terms:
+        slug = str(t.get("slug") or "?")
+        _check_content_field(t.get("short"), required=True, path=f"term[{slug}].short", violations=violations)
+        _check_content_field(t.get("definition"), required=True, path=f"term[{slug}].definition", violations=violations)
+        _check_content_field(t.get("example"), required=False, path=f"term[{slug}].example", violations=violations)
+    if violations:
+        raise ContentInvalid(violations)
+
+
 def write_bundle(
     out_dir: Path,
     spec: dict,
@@ -702,6 +780,7 @@ def write_bundle(
     tier, counts = compute_provenance_tier([t.get("source") for t in terms])
 
     face = _build_face(spec, tier, counts, face_overrides)
+    validate_bundle_content(face, spec, terms)
     agenda = {
         "schema": "dac.world-agenda/v1",
         "world": slug,
@@ -788,6 +867,10 @@ def reseal_bundle(bundle_dir: Path, terms: Optional[list[dict]] = None) -> Path:
             overrides = {k: old_face.get(k) for k in _FACE_DISPLAY_KEYS if old_face.get(k) is not None}
         except Exception:  # noqa: BLE001
             overrides = {}
+
+    # F1: reseal preserves display fields verbatim — validate THEM before
+    # re-sealing, or garbage content (e.g. XXXX/YYYY) survives every reseal.
+    validate_bundle_content(overrides, spec, terms)
 
     tmp = bundle_dir.parent / f".{bundle_dir.name}.reseal-tmp"
     old = bundle_dir.parent / f".{bundle_dir.name}.reseal-old"
