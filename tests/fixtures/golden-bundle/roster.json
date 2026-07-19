@@ -1,0 +1,8 @@
+{
+  "schema": "dac.world-roster/v1",
+  "world": "golden",
+  "desired": [
+    "first-term",
+    "second-term"
+  ]
+}

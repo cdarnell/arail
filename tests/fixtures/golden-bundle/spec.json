@@ -1,0 +1,22 @@
+{
+  "slug": "golden",
+  "display_name": "Golden Fixture",
+  "categories": [
+    {
+      "id": "alpha",
+      "label": "Alpha"
+    },
+    {
+      "id": "beta",
+      "label": "Beta"
+    }
+  ],
+  "knowledge_sources": [
+    {
+      "kind": "model",
+      "ref": "model:test",
+      "trust": "model-asserted",
+      "holder": "test"
+    }
+  ]
+}

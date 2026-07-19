@@ -1,10 +1,11 @@
-"""HTTP client for the qukaizen-nucleus SSDP orchestrator + trainer.
+"""HTTP client for the qukaizen-nucleus SSDP orchestrator + trainer + synthesizer.
 
-Endpoints (nucleus PORTS.md): orchestrator :8000, trainer :8006. Both are
-localhost — the egress guard always allows local hosts. The orchestrator's
-default port collides with arail's vLLM/LOCAL_API_PORT convention, so the
-URL is configurable and health() SHAPE-CHECKS the response: a vLLM answering
-:8000 is reported as "something else is on this port", not as nucleus.
+Endpoints (nucleus PORTS.md): orchestrator :8000, synthesizer :8005, trainer
+:8006. All localhost — the egress guard always allows local hosts. The
+orchestrator's default port collides with arail's vLLM/LOCAL_API_PORT
+convention, so the URL is configurable and health() SHAPE-CHECKS the
+response: a vLLM answering :8000 is reported as "something else is on this
+port", not as nucleus.
 
 Auth: mutations need NUCLEUS_API_KEY (X-API-Key header); reads are open.
 """
@@ -28,6 +29,7 @@ class NucleusClient:
     def __init__(self,
                  orchestrator_url: Optional[str] = None,
                  trainer_url: Optional[str] = None,
+                 synthesizer_url: Optional[str] = None,
                  api_key: Optional[str] = None,
                  timeout: float = 5.0) -> None:
         self.orchestrator_url = (orchestrator_url
@@ -36,6 +38,9 @@ class NucleusClient:
         self.trainer_url = (trainer_url
                             or os.getenv("NUCLEUS_TRAINER_URL",
                                          "http://127.0.0.1:8006")).rstrip("/")
+        self.synthesizer_url = (synthesizer_url
+                                or os.getenv("NUCLEUS_SYNTHESIZER_URL",
+                                             "http://127.0.0.1:8005")).rstrip("/")
         self.api_key = api_key or os.getenv("NUCLEUS_API_KEY", "")
         self.timeout = timeout
         import requests
@@ -55,10 +60,12 @@ class NucleusClient:
         r.raise_for_status()
         return r.json()
 
-    def _post(self, path: str, body: Optional[Dict[str, Any]] = None) -> Any:
-        r = self._session.post(f"{self.orchestrator_url}{path}",
+    def _post(self, path: str, body: Optional[Dict[str, Any]] = None,
+             base: Optional[str] = None, timeout: Optional[float] = None) -> Any:
+        r = self._session.post(f"{base or self.orchestrator_url}{path}",
                                headers=self._headers(auth=True),
-                               json=body or {}, timeout=self.timeout)
+                               json=body or {},
+                               timeout=timeout if timeout is not None else self.timeout)
         r.raise_for_status()
         return r.json()
 
@@ -141,3 +148,33 @@ class NucleusClient:
             return self._get("/status", base=self.trainer_url)
         except Exception:  # noqa: BLE001
             return None
+
+    # ── direct synthesizer/trainer calls (World-corpus path) ─────────
+    # These bypass the orchestrator entirely — used when the corpus is
+    # already-curated World content (see arail.build.world_corpus), so
+    # KICE's heuristic re-tagging would only downgrade it. /synthesize is a
+    # long, fully sequential, per-example call (no parallelism on the
+    # nucleus side) — pass a generous timeout, not the client default.
+    def synthesize(self, examples: List[Dict[str, Any]],
+                   corpus_version: int = 0, *,
+                   timeout: float = 600.0) -> Dict[str, Any]:
+        """POST {synthesizer_url}/synthesize. Response's `training_records`
+        is already trainer-ready {"messages": [...]} chat format."""
+        return self._post("/synthesize",
+                          {"examples": examples, "corpus_version": corpus_version},
+                          base=self.synthesizer_url, timeout=timeout)
+
+    def train_direct(self, dataset: List[Dict[str, Any]], *,
+                     run_id: str = "",
+                     config_overrides: Optional[Dict[str, Any]] = None,
+                     timeout: float = 30.0) -> Dict[str, Any]:
+        """POST {trainer_url}/train with an INLINE dataset (not dataset_path
+        — TRAINER_ALLOWED_DATASET_ROOTS would never include an ARAIL-written
+        path; the orchestrator's own node_train already sends data inline
+        for the same host-native-trainer reachability reason). /train just
+        launches a background task and returns immediately — poll
+        trainer_progress() for status, not this call's response."""
+        return self._post("/train",
+                          {"dataset": dataset, "run_id": run_id,
+                           "config_overrides": config_overrides or {}},
+                          base=self.trainer_url, timeout=timeout)

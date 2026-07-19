@@ -23,11 +23,13 @@ class _FakeResponse:
 
 
 class _FakeSession:
-    """Mimics the nucleus orchestrator's /pipeline/* surface."""
+    """Mimics the nucleus orchestrator's /pipeline/* surface, plus a minimal
+    Synthesizer /synthesize and Trainer /train (World-corpus direct path)."""
 
     def __init__(self):
         self.runs = {}
         self.requests = []
+        self.trainer_calls = []
 
     def get(self, url, headers=None, timeout=None):
         self.requests.append(("GET", url, headers))
@@ -56,6 +58,20 @@ class _FakeSession:
                               "dry_run": json.get("dry_run", False),
                               "current_phase": "init"}
             return _FakeResponse(200, self.runs[rid])
+        if url.endswith("/synthesize"):
+            examples = json.get("examples", [])
+            records = [{"messages": [
+                {"role": "system", "content": "You are a photography expert."},
+                {"role": "user", "content": ex["reasoning_prompt"]},
+                {"role": "assistant", "content": f"(distilled from {ex['title']})"},
+            ]} for ex in examples]
+            return _FakeResponse(200, {
+                "dataset_size": len(records), "training_records": records,
+                "metadata": {}, "subdomain_distribution": {}})
+        if url.endswith("/train"):
+            self.trainer_calls.append(json)
+            return _FakeResponse(200, {"status": "started",
+                                       "run_id": json.get("run_id", "")})
         return _FakeResponse(200, {"ok": True})
 
 
@@ -63,7 +79,8 @@ class _FakeSession:
 def client(monkeypatch):
     monkeypatch.setenv("NUCLEUS_API_KEY", "test-key")
     c = NucleusClient(orchestrator_url="http://127.0.0.1:18000",
-                      trainer_url="http://127.0.0.1:18006")
+                      trainer_url="http://127.0.0.1:18006",
+                      synthesizer_url="http://127.0.0.1:18005")
     fake = _FakeSession()
     c._session = fake
     return c, fake
@@ -120,3 +137,33 @@ def test_status_events_trainer(client):
     assert len(c.events("run-2")) == 2
     prog = c.trainer_progress()
     assert prog["loss"] == 2.31 and prog["tokens_per_sec"] == 512
+
+
+def test_synthesize_posts_to_synthesizer_url_not_orchestrator(client):
+    """Regression for the _post(base=...) generalization — before it, ANY
+    _post() call silently hit self.orchestrator_url regardless of base."""
+    c, fake = client
+    examples = [{"id": "e1", "subdomain": "exposure", "layer": 1,
+                "source_type": "world_term", "title": "Depth of Field",
+                "content": "...", "reasoning_prompt": "Explain it.",
+                "quality_score": 0.7}]
+    result = c.synthesize(examples)
+    assert result["dataset_size"] == 1
+    assert result["training_records"][0]["messages"][1]["content"] == "Explain it."
+
+    method, url, headers, body = fake.requests[-1]
+    assert url == "http://127.0.0.1:18005/synthesize"      # NOT :18000
+    assert headers["X-API-Key"] == "test-key"
+    assert body["examples"] == examples
+
+
+def test_train_direct_sends_inline_dataset(client):
+    c, fake = client
+    dataset = [{"messages": [{"role": "user", "content": "hi"}], "source": "tier1"}]
+    result = c.train_direct(dataset, run_id="world-build-1")
+    assert result["status"] == "started"
+    assert fake.trainer_calls[-1]["dataset"] == dataset
+    assert fake.trainer_calls[-1]["run_id"] == "world-build-1"
+    method, url, headers, body = fake.requests[-1]
+    assert url == "http://127.0.0.1:18006/train"           # trainer, not orchestrator
+    assert "dataset_path" not in body                       # inline, never a path

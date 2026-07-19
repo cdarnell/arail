@@ -1,0 +1,17 @@
+{
+  "name": "qukaizen/dac-world-golden",
+  "type": "world",
+  "description": "DaC WorldBundle for Golden Fixture — 2 terms, mountable in ARAIL.",
+  "version": "1.0.0",
+  "dac": {
+    "schema": "dac.arail-plugin/v1",
+    "world": "golden",
+    "world_sha256": "229d5cb842728ded2d139b7ff87378680e2a1a210495b6a1d4cb404bb7a5c3ea",
+    "bundle": ".",
+    "provides": {
+      "capabilities": "capabilities.json",
+      "skill": "SKILL.md",
+      "bundle_manifest": "manifest.json"
+    }
+  }
+}

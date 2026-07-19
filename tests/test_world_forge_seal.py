@@ -13,6 +13,7 @@ import pytest
 import arail.world_mount as wm
 from arail.skills_loader import parse_frontmatter, strip_frontmatter
 from arail.world_forge import (
+    ContentInvalid,
     GateRefused,
     render_world_skill,
     reseal_bundle,
@@ -135,6 +136,82 @@ def test_skill_md_satisfies_skills_loader_contract(tmp_path):
     assert body.count("- Source:") == 2                    # every term cites
     assert "- **Snake Plant** (`snake-plant`)" in body
     assert "dac:world_sha256" in body
+
+
+# ── validate_bundle_content: the placeholder-content regression ─────────
+#
+# Reproduces the actual incident: a physics World sealed with literal
+# XXXX/YYYY placeholder text in face.json's domain_framing/vocabulary_register
+# (valid sha256 hashes over garbage). write_bundle and reseal_bundle must both
+# refuse it, and reseal must catch it even though it normally preserves
+# display fields verbatim (Failure F1).
+
+
+def test_write_bundle_refuses_placeholder_face_content(tmp_path):
+    bad_overrides = {
+        "domain_framing": "XXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+        "vocabulary_register": "YYYYYYYYYYYYYYYYYYYYYYYYYYYY",
+    }
+    with pytest.raises(ContentInvalid):
+        write_bundle(tmp_path / "physics", SPEC, _terms(), face_overrides=bad_overrides)
+    assert not (tmp_path / "physics").exists(), "no files may be written when content is invalid"
+
+
+def test_reseal_bundle_refuses_placeholder_face_content(tmp_path):
+    out = write_bundle(tmp_path / "physics", SPEC, _terms(),
+                       created_at="1970-01-01T00:00:00.000Z")
+    face = json.loads((out / "face.json").read_bytes())
+    face["domain_framing"] = "XXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+    face["vocabulary_register"] = "YYYYYYYYYYYYYYYYYYYYYYYYYYYY"
+    (out / "face.json").write_bytes(json.dumps(face, indent=2).encode("utf-8"))
+    original_manifest = (out / "manifest.json").read_bytes()
+
+    with pytest.raises(ContentInvalid):
+        reseal_bundle(out)
+
+    # No swap happened: the (still-corrupted) bundle is untouched, and no
+    # reseal tmp/old sibling directories were left behind.
+    assert (out / "manifest.json").read_bytes() == original_manifest
+    assert not (out.parent / f".{out.name}.reseal-tmp").exists()
+    assert not (out.parent / f".{out.name}.reseal-old").exists()
+
+
+@pytest.mark.parametrize("bad_field,bad_value", [
+    ("definition", "TODO"),
+    ("definition", "This concept is a TBD placeholder for later research."),
+    ("short", "Lorem ipsum dolor sit amet."),
+    ("short", "This is a PLACEHOLDER short description."),
+    ("short", "----"),
+    ("definition", "   "),
+])
+def test_write_bundle_refuses_placeholder_term_content(tmp_path, bad_field, bad_value):
+    terms = _terms()
+    terms[0][bad_field] = bad_value
+    with pytest.raises(ContentInvalid):
+        write_bundle(tmp_path / "x", SPEC, terms)
+    assert not (tmp_path / "x").exists()
+
+
+def test_write_bundle_accepts_legitimate_scientific_content(tmp_path):
+    """Positive-path regression: real prose with units/hyphens/repeated-but-
+    short substrings must NOT trip the validator (guards against an overzealous
+    regex false-positiving on legitimate physics/chemistry content)."""
+    terms = _terms()
+    terms.append({
+        "slug": "x-ray", "term": "X-ray", "category": "care",
+        "short": "A form of electromagnetic radiation with high photon energy.",
+        "definition": ("X-rays are measured in units such as kg, J·s (joule-seconds) "
+                       "and are used in medical imaging and crystallography."),
+        "example": "A chest X-ray uses a brief burst of ionizing radiation.",
+        "related": [], "source": "model:test",
+    })
+    out = write_bundle(tmp_path / "physics", SPEC, terms,
+                       face_overrides={"domain_framing": "This lab studies physics, "
+                                                          "measured in units like kg, J·s.",
+                                       "vocabulary_register": "Use SI units (kg, J·s) "
+                                                               "and cite a source for every claim."})
+    bundle = wm.load_bundle(out)
+    assert wm.verify_seal(bundle).ok
 
 
 @pytest.mark.parametrize("payload", [

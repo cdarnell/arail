@@ -162,3 +162,176 @@ def test_jobs_merge_status_and_trainer(client, fake_nucleus):
     job = next(j for j in body["jobs"] if j["run_id"] == "qkz-j1")
     assert job["phase"] == "init"
     assert job["preflight"]["overall"] in ("green", "amber")
+
+
+# ── World-corpus build path ──────────────────────────────────────────
+
+@pytest.fixture
+def sync_thread(monkeypatch):
+    """Run the World-build's background thread synchronously so tests are
+    deterministic — no real threading, no waiting/polling for completion."""
+    from arail.portal import build_api
+
+    class _SyncThread:
+        def __init__(self, target=None, name=None, daemon=None):
+            self._target = target
+
+        def start(self):
+            self._target()
+
+    monkeypatch.setattr(build_api.threading, "Thread", _SyncThread)
+
+
+@pytest.fixture
+def fake_world_corpus(monkeypatch):
+    """Fake arail.build.world_corpus.build_world_corpus — avoids any real
+    network call to Synthesizer/Trainer."""
+    import arail.build.world_corpus as wc_mod
+    calls = []
+
+    def _fake(world_slug, run_id, *, categories, tier2_categories,
+              student_model, job_store, **kw):
+        calls.append({"world_slug": world_slug, "run_id": run_id,
+                      "categories": list(categories),
+                      "tier2_categories": list(tier2_categories)})
+        job_store.update(run_id, phase="train")
+        return {"world_slug": world_slug, "categories": list(categories),
+               "tier2_categories": list(tier2_categories),
+               "term_count": 5, "record_count": 5,
+               "train_result": {"status": "started"}}
+
+    monkeypatch.setattr(wc_mod, "build_world_corpus", _fake)
+    return calls
+
+
+def test_world_build_start_launches_and_completes(client, sync_thread,
+                                                   fake_world_corpus):
+    r = client.post("/api/build/world/start", json={
+        "run_id": "photo-1", "world_slug": "photography",
+        "categories": ["exposure", "light"]})
+    assert r.status_code == 200, r.text
+    assert fake_world_corpus == [{
+        "world_slug": "photography", "run_id": "photo-1",
+        "categories": ["exposure", "light"], "tier2_categories": []}]
+
+    job = client.get("/api/build/jobs").json()
+    row = next(j for j in job["jobs"] if j["run_id"] == "photo-1")
+    assert row["mode"] == "world_corpus"
+    assert row["phase"] == "completed"          # sync thread already ran
+    assert row["result"]["record_count"] == 5
+
+
+def test_world_build_default_categories_when_omitted(client, sync_thread,
+                                                      fake_world_corpus):
+    # Default now comes from the WORLD's own spec.json (all_categories),
+    # not a hardcoded photography-specific tuple — proven by comparing
+    # against the real bundle's full category list, which includes the
+    # business/session-workflow categories CRAFT_CATEGORIES used to exclude.
+    from arail.build.world_corpus import all_categories
+    expected = all_categories("photography")
+    assert "business" in expected            # sanity: this IS the full set
+    client.post("/api/build/world/start", json={
+        "run_id": "photo-2", "world_slug": "photography"})
+    assert fake_world_corpus[0]["categories"] == expected
+
+
+def test_world_build_duplicate_run_id_conflicts(client, sync_thread,
+                                                fake_world_corpus):
+    client.post("/api/build/world/start",
+                json={"run_id": "photo-3", "world_slug": "photography"})
+    r = client.post("/api/build/world/start",
+                    json={"run_id": "photo-3", "world_slug": "photography"})
+    assert r.status_code == 409
+
+
+def test_world_build_bad_run_id_rejected(client):
+    r = client.post("/api/build/world/start",
+                    json={"run_id": "bad id!", "world_slug": "photography"})
+    assert r.status_code == 400
+
+
+def test_world_build_failure_recorded_on_job(client, sync_thread, monkeypatch):
+    import arail.build.world_corpus as wc_mod
+
+    def _boom(*a, **k):
+        raise ValueError("no approved terms found")
+    monkeypatch.setattr(wc_mod, "build_world_corpus", _boom)
+
+    r = client.post("/api/build/world/start",
+                    json={"run_id": "photo-4", "world_slug": "photography"})
+    assert r.status_code == 200            # launch itself always succeeds
+    job = client.get("/api/build/jobs").json()
+    row = next(j for j in job["jobs"] if j["run_id"] == "photo-4")
+    assert row["phase"] == "failed"
+    assert "no approved terms" in row["error"]
+
+
+def test_jobs_endpoint_never_polls_orchestrator_for_world_corpus_jobs(
+        client, fake_nucleus):
+    """Regression: world_corpus jobs have no orchestrator run_id — polling
+    client.status() for one would always 404 and get misdiagnosed as
+    'lost' by the not_found-handling block."""
+    from arail.build.jobs import BuildJobStore
+    BuildJobStore().create("photo-5", mode="world_corpus",
+                           manifest_path="world:photography",
+                           preflight=None, override_red=False, dry_run=False)
+    BuildJobStore().update("photo-5", phase="synthesize_tier1")
+
+    r = client.get("/api/build/jobs")
+    body = r.json()
+    assert "photo-5" not in body["statuses"]     # never polled
+    row = next(j for j in body["jobs"] if j["run_id"] == "photo-5")
+    assert row["phase"] == "synthesize_tier1"    # NOT marked "lost"
+
+
+def test_build_detail_returns_job_only_for_world_corpus_mode(client, fake_nucleus):
+    from arail.build.jobs import BuildJobStore
+    BuildJobStore().create("photo-6", mode="world_corpus",
+                           manifest_path="world:photography",
+                           preflight=None, override_red=False, dry_run=False)
+    BuildJobStore().update("photo-6", phase="synthesize_tier2",
+                           synth_progress={"tier": 2, "batch": 1, "of": 2})
+
+    r = client.get("/api/build/photo-6/detail")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["status"] is None and body["events"] == []
+    assert body["graduation"] is None and body["seal"] is None
+    assert body["job"]["phase"] == "synthesize_tier2"
+    assert body["job"]["synth_progress"]["batch"] == 1
+    # No orchestrator status/events/graduation/seal calls were made for it.
+    assert "photo-6" not in fake_nucleus.runs
+
+
+def test_build_page_renders_world_corpus_section(client, monkeypatch):
+    import arail.tier
+    monkeypatch.setattr(arail.tier, "get_current_tier", lambda: "maximus")
+    r = client.get("/build")
+    assert r.status_code == 200
+    assert "World-sourced build" in r.text
+    assert "bxw-start-btn" in r.text
+    assert "bxw-world" in r.text
+    # Dynamic hero strip + category checklist container.
+    assert 'id="bxw-hero"' in r.text
+    assert 'id="bxw-categories"' in r.text
+    # Tier-2 escalation is a collapsed advanced disclosure, not inline.
+    assert 'class="bxw-advanced' in r.text
+    assert "<details" in r.text
+    # Hardcoded photography-only category literals are gone.
+    assert "'genres'" not in r.text
+    assert "'post-production'" not in r.text
+
+
+def test_world_categories_endpoint_shape(client):
+    r = client.get("/api/build/world/photography/categories")
+    assert r.status_code == 200
+    body = r.json()
+    assert "categories" in body
+    assert body["categories"], "photography should have at least one category"
+    row = body["categories"][0]
+    assert set(row) == {"id", "label", "term_count", "approved_count"}
+
+
+def test_world_categories_404_for_unmounted_slug(client):
+    r = client.get("/api/build/world/definitely-not-a-mounted-world/categories")
+    assert r.status_code == 404

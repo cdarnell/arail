@@ -42,6 +42,7 @@ from arail import world_forge as wf
 from arail import world_mount as wm
 from arail.activity import activity_log
 from arail.portal import scheduler
+from arail.world_theme import parse_world_theme
 
 _log = logging.getLogger(__name__)
 
@@ -417,7 +418,8 @@ async def api_forge_confirm(request: Request):
     if tmp.exists():
         shutil.rmtree(tmp)
     try:
-        wf.write_bundle(tmp, r.spec, r.terms, face_overrides=_forge_face_overrides or None)
+        wf.write_bundle(tmp, r.spec, r.terms, face_overrides=_forge_face_overrides or None,
+                        theme_validator=parse_world_theme)
         if catalog.exists():
             old = catalog.parent / f".{slug}.forge-old"
             if old.exists():
@@ -534,7 +536,8 @@ async def _reseal_and_swap(bundle_dir: Path, terms: list[dict]) -> Optional[JSON
                           "unsourced": gate.unsourced,
                           "undeclared": gate.undeclared_category})
     try:
-        await asyncio.to_thread(wf.reseal_bundle, bundle_dir, terms)
+        await asyncio.to_thread(wf.reseal_bundle, bundle_dir, terms,
+                                theme_validator=parse_world_theme)
         await asyncio.to_thread(wm.swap, bundle_dir)
     except Exception as e:  # noqa: BLE001
         _log.warning("world reseal/swap failed: %s", e)
@@ -882,7 +885,8 @@ async def _run_grow(bundle_dir: Path, spec: dict, terms: list[dict], brain: str)
             present = {t["slug"] for t in merged}
             for t in merged:
                 t["related"] = [r for r in t.get("related", []) if r in present and r != t["slug"]]
-        await asyncio.to_thread(wf.reseal_bundle, bundle_dir, merged)
+        await asyncio.to_thread(wf.reseal_bundle, bundle_dir, merged,
+                                theme_validator=parse_world_theme)
         await asyncio.to_thread(wm.swap, bundle_dir)
 
         # Append a reversible evolution record.

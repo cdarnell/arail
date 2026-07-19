@@ -1,0 +1,44 @@
+{
+  "schema": "dac.world-capabilities/v1",
+  "world": "golden",
+  "capabilities": [
+    {
+      "id": "knowledge.ground.golden",
+      "purpose": "Ground claims about Golden Fixture in the World's gated glossary.",
+      "desired": true,
+      "interface": {
+        "kind": "knowledge-grounding",
+        "world": "golden",
+        "world_sha256": "229d5cb842728ded2d139b7ff87378680e2a1a210495b6a1d4cb404bb7a5c3ea",
+        "categories": [
+          "alpha",
+          "beta"
+        ],
+        "term_count": 2,
+        "provenance_tier": "model-asserted"
+      }
+    },
+    {
+      "id": "knowledge.ground.golden.alpha",
+      "purpose": "Ground claims about Alpha in Golden Fixture.",
+      "desired": true,
+      "interface": {
+        "kind": "knowledge-grounding",
+        "world": "golden",
+        "category": "alpha",
+        "term_count": 1
+      }
+    },
+    {
+      "id": "knowledge.ground.golden.beta",
+      "purpose": "Ground claims about Beta in Golden Fixture.",
+      "desired": true,
+      "interface": {
+        "kind": "knowledge-grounding",
+        "world": "golden",
+        "category": "beta",
+        "term_count": 1
+      }
+    }
+  ]
+}
