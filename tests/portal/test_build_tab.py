@@ -223,10 +223,16 @@ def test_world_build_start_launches_and_completes(client, sync_thread,
 
 def test_world_build_default_categories_when_omitted(client, sync_thread,
                                                       fake_world_corpus):
-    from arail.build.world_corpus import CRAFT_CATEGORIES
+    # Default now comes from the WORLD's own spec.json (all_categories),
+    # not a hardcoded photography-specific tuple — proven by comparing
+    # against the real bundle's full category list, which includes the
+    # business/session-workflow categories CRAFT_CATEGORIES used to exclude.
+    from arail.build.world_corpus import all_categories
+    expected = all_categories("photography")
+    assert "business" in expected            # sanity: this IS the full set
     client.post("/api/build/world/start", json={
         "run_id": "photo-2", "world_slug": "photography"})
-    assert fake_world_corpus[0]["categories"] == list(CRAFT_CATEGORIES)
+    assert fake_world_corpus[0]["categories"] == expected
 
 
 def test_world_build_duplicate_run_id_conflicts(client, sync_thread,
@@ -305,3 +311,27 @@ def test_build_page_renders_world_corpus_section(client, monkeypatch):
     assert "World-sourced build" in r.text
     assert "bxw-start-btn" in r.text
     assert "bxw-world" in r.text
+    # Dynamic hero strip + category checklist container.
+    assert 'id="bxw-hero"' in r.text
+    assert 'id="bxw-categories"' in r.text
+    # Tier-2 escalation is a collapsed advanced disclosure, not inline.
+    assert 'class="bxw-advanced' in r.text
+    assert "<details" in r.text
+    # Hardcoded photography-only category literals are gone.
+    assert "'genres'" not in r.text
+    assert "'post-production'" not in r.text
+
+
+def test_world_categories_endpoint_shape(client):
+    r = client.get("/api/build/world/photography/categories")
+    assert r.status_code == 200
+    body = r.json()
+    assert "categories" in body
+    assert body["categories"], "photography should have at least one category"
+    row = body["categories"][0]
+    assert set(row) == {"id", "label", "term_count", "approved_count"}
+
+
+def test_world_categories_404_for_unmounted_slug(client):
+    r = client.get("/api/build/world/definitely-not-a-mounted-world/categories")
+    assert r.status_code == 404

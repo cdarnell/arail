@@ -105,7 +105,10 @@ def synthetic_world(tmp_path):
     ]
     (bundle_dir / "terms.json").write_text(json.dumps({"terms": terms}))
     (bundle_dir / "spec.json").write_text(json.dumps({"categories": [
-        {"id": "exposure"}, {"id": "light"}, {"id": "web-platform"}]}))
+        {"id": "exposure", "label": "Exposure"},
+        {"id": "light", "label": "Light"},
+        {"id": "web-platform", "label": "Web Platform"},
+        {"id": "empty-cat", "label": "Empty Category"}]}))
 
     pkb_root = tmp_path / "pkb"
     kb_dir = pkb_root / "compiled" / "kb"
@@ -240,6 +243,46 @@ def test_build_world_corpus_tier2_split(synthetic_world):
     tier1 = [r for r in dataset if r["source"] == "tier1"]
     tier2 = [r for r in dataset if r["source"] == "tier2"]
     assert len(tier1) == 1 and len(tier2) == 1
+
+
+# ── all_categories / category_breakdown ────────────────────────────────
+
+def test_all_categories_returns_spec_order(synthetic_world):
+    cats = wc.all_categories(
+        synthetic_world["slug"], worlds_dir=synthetic_world["worlds_dir"])
+    assert cats == ["exposure", "light", "web-platform", "empty-cat"]
+
+
+def test_category_breakdown_counts_and_labels(synthetic_world):
+    breakdown = wc.category_breakdown(
+        synthetic_world["slug"],
+        worlds_dir=synthetic_world["worlds_dir"],
+        pkb_root=synthetic_world["pkb_root"])
+    by_id = {row["id"]: row for row in breakdown}
+
+    assert by_id["exposure"]["label"] == "Exposure"
+    assert by_id["exposure"]["term_count"] == 2      # wide-aperture + not-approved-yet
+    assert by_id["exposure"]["approved_count"] == 1  # only wide-aperture approved
+
+    assert by_id["light"]["term_count"] == 1
+    assert by_id["light"]["approved_count"] == 1
+
+    assert by_id["web-platform"]["term_count"] == 1
+    assert by_id["web-platform"]["approved_count"] == 1
+
+    # zero-approved-count / disabled-row case: declared in spec.json but no
+    # terms.json entries and nothing approved.
+    assert by_id["empty-cat"]["label"] == "Empty Category"
+    assert by_id["empty-cat"]["term_count"] == 0
+    assert by_id["empty-cat"]["approved_count"] == 0
+
+    assert [row["id"] for row in breakdown] == \
+        ["exposure", "light", "web-platform", "empty-cat"]
+
+
+def test_category_breakdown_missing_world_raises(tmp_path):
+    with pytest.raises(FileNotFoundError):
+        wc.category_breakdown("nonexistent", worlds_dir=tmp_path / "worlds")
 
 
 def test_build_world_corpus_raises_when_nothing_approved(tmp_path):

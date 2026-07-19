@@ -84,6 +84,63 @@ def resolve_world_bundle(world_slug: str,
     return {"terms": terms, "spec": spec_data, "bundle_dir": bundle_dir}
 
 
+def all_categories(world_slug: str,
+                   worlds_dir: Optional[Path] = None) -> List[str]:
+    """Every category id declared in this World's own spec.json, in spec
+    order — the generalized "nothing specified" default. Replaces a fixed
+    tuple like CRAFT_CATEGORIES (which encodes a photography-specific
+    judgment call and is wrong for every other World) with whatever THIS
+    World actually declares."""
+    bundle = resolve_world_bundle(world_slug, worlds_dir=worlds_dir)
+    return [c.get("id") for c in bundle["spec"].get("categories", [])
+            if isinstance(c, dict) and c.get("id")]
+
+
+def category_breakdown(
+    world_slug: str, *,
+    worlds_dir: Optional[Path] = None,
+    pkb_root: Optional[Path] = None,
+) -> List[Dict[str, Any]]:
+    """Per-category term counts for a build-scope picker: spec order, each
+    entry {id, label, term_count, approved_count}. Pure aggregation over
+    terms.json + compiled_kb.approved_paths() — no new approval semantics,
+    just counting what pull_approved_terms would otherwise return as full
+    term objects. approved_count fails closed to 0 (via approved_paths'
+    own fail-closed behavior) rather than raising, so a KB read error never
+    crashes the picker — it just shows nothing as approved yet."""
+    from arail import compiled_kb
+
+    bundle = resolve_world_bundle(world_slug, worlds_dir=worlds_dir)
+    approved = compiled_kb.approved_paths(pkb_root=pkb_root)
+
+    total_by_cat: Dict[str, int] = {}
+    approved_by_cat: Dict[str, int] = {}
+    for term in bundle["terms"]:
+        if not isinstance(term, dict):
+            continue
+        cat = term.get("category", "")
+        total_by_cat[cat] = total_by_cat.get(cat, 0) + 1
+        slug = _safe_term_slug(term.get("slug", ""))
+        if not slug:
+            continue
+        rel_path = f"sources/world-{world_slug}/terms/{slug}.md"
+        if rel_path in approved:
+            approved_by_cat[cat] = approved_by_cat.get(cat, 0) + 1
+
+    out: List[Dict[str, Any]] = []
+    for cat in bundle["spec"].get("categories", []):
+        if not isinstance(cat, dict) or not cat.get("id"):
+            continue
+        cid = cat["id"]
+        out.append({
+            "id": cid,
+            "label": cat.get("label") or cid,
+            "term_count": total_by_cat.get(cid, 0),
+            "approved_count": approved_by_cat.get(cid, 0),
+        })
+    return out
+
+
 # ── approved + filtered pull ────────────────────────────────────────
 
 def pull_approved_terms(

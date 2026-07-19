@@ -182,10 +182,28 @@ async def build_start(req: StartRequest) -> Dict[str, Any]:
     return {"job": job, "nucleus": result}
 
 
+@build_router.get("/world/{slug}/categories")
+async def build_world_categories(slug: str) -> Dict[str, Any]:
+    """Per-category term counts for the World-corpus build-scope picker —
+    real labels + live approved/total counts, generalized to any mounted
+    World (no photography-specific assumptions)."""
+    import anyio
+    from arail.build.world_corpus import category_breakdown
+
+    try:
+        categories = await anyio.to_thread.run_sync(
+            lambda: category_breakdown(slug))
+    except FileNotFoundError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail=f"World '{slug}' isn't exported/mounted yet: {exc}")
+    return {"categories": categories}
+
+
 class WorldBuildStartRequest(BaseModel):
     run_id: str
     world_slug: str = "photography"
-    categories: List[str] = []          # [] -> world_corpus.CRAFT_CATEGORIES
+    categories: List[str] = []          # [] -> world_corpus.all_categories()
     tier2_categories: List[str] = []
     student_model: str = "mlx-community/Qwen2.5-3B-Instruct-4bit"
 
@@ -209,7 +227,7 @@ async def build_world_start(req: WorldBuildStartRequest) -> Dict[str, Any]:
     from arail.activity import activity_log
     from arail.build.jobs import BuildJobStore
     from arail.build.manifest import validate_run_id
-    from arail.build.world_corpus import CRAFT_CATEGORIES, build_world_corpus
+    from arail.build.world_corpus import all_categories, build_world_corpus
 
     try:
         validate_run_id(req.run_id)
@@ -220,7 +238,15 @@ async def build_world_start(req: WorldBuildStartRequest) -> Dict[str, Any]:
     if store.get(req.run_id) is not None:
         raise HTTPException(status_code=409, detail=f"run_id '{req.run_id}' already exists")
 
-    categories = req.categories or list(CRAFT_CATEGORIES)
+    if req.categories:
+        categories = req.categories
+    else:
+        try:
+            categories = all_categories(req.world_slug)
+        except FileNotFoundError as exc:
+            raise HTTPException(
+                status_code=404,
+                detail=f"World '{req.world_slug}' isn't exported/mounted yet: {exc}")
     store.create(
         req.run_id, mode="world_corpus",
         manifest_path=f"world:{req.world_slug}",

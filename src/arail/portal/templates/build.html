@@ -66,7 +66,18 @@
   #bx-log[hidden]{display:none;}
   .bx-wcheck{display:flex;flex-wrap:wrap;gap:.4rem .9rem;font-size:.76rem;margin:.3rem 0 .6rem;}
   .bx-wcheck label{display:inline-flex;align-items:center;gap:.3rem;cursor:pointer;}
+  .bx-wcheck label.bxw-disabled{opacity:.5;cursor:not-allowed;}
+  .bx-wcheck .bxw-count{color:var(--text-muted);font-size:.68rem;}
   #bx-world-msg{font-size:.74rem;margin-top:.5rem;color:var(--text-muted);}
+  .bxw-hero{margin-top:.6rem;padding:.6rem .8rem;border-radius:var(--radius-m);
+    border:1px solid var(--border-strong);background:var(--surface);
+    border-left-width:4px;border-left-color:var(--bxw-accent, var(--accent));}
+  .bxw-hero-name{font-weight:600;font-size:.85rem;}
+  .bxw-hero-tagline{color:var(--text-muted);font-size:.76rem;margin-top:.15rem;}
+  .bxw-advanced{border:1px solid var(--border-strong);border-radius:var(--radius-m);
+    padding:.5rem .7rem;}
+  .bxw-advanced summary{cursor:pointer;}
+  .bxw-advanced .bx-note{margin:.4rem 0;}
 </style>
 {% endblock %}
 
@@ -136,29 +147,34 @@
 
   <!-- ── World-sourced build ─────────────────────────────────────── -->
   <section class="bx-card bx-mt">
-    <h2>Or: build from an approved DaC World</h2>
+    <h2>Build an expert from an approved World</h2>
     <p class="bx-note">
-      Trains directly on ARAIL-approved World content (already curated by DaC and
-      promoted through the Compiled-KB review gate) — bypasses Nucleus's KICE
-      re-tagging entirely, since re-running keyword heuristics over already gate-passed
-      content would only downgrade it. Calls Synthesizer + Trainer directly; no
-      orchestrator run, no manifest.
+      Trains directly on ARAIL-approved knowledge — already curated by DaC and
+      promoted through the Compiled-KB review gate, so the model learns from what
+      the lab has actually vetted, not a raw re-scrape of the web.
     </p>
     <div class="bx-form">
-      <label>Run id</label><input id="bxw-run-id" placeholder="photography-expert-v1">
+      <label>Run id</label><input id="bxw-run-id" placeholder="my-expert-v1">
       <label>World</label><select id="bxw-world"><option value="">loading…</option></select>
     </div>
-    <div class="bx-mt">
-      <div class="bx-muted bx-small">Categories to train on</div>
-      <div class="bx-wcheck" id="bxw-categories"></div>
+    <div class="bxw-hero" id="bxw-hero" hidden>
+      <div class="bxw-hero-name" id="bxw-hero-name"></div>
+      <div class="bxw-hero-tagline" id="bxw-hero-tagline"></div>
     </div>
     <div class="bx-mt">
-      <div class="bx-muted bx-small">Tier-2 hotspot categories (escalated to a stronger
-        teacher — see docs/persistence.md's World-corpus runbook for the manual
-        teacher-process swap this requires)</div>
+      <div class="bx-muted bx-small" id="bxw-categories-label">What should it learn?</div>
+      <div class="bx-wcheck" id="bxw-categories"><em class="bx-muted">pick a World above…</em></div>
+    </div>
+    <details class="bxw-advanced bx-mt">
+      <summary class="bx-muted bx-small">Advanced: give extra reasoning depth to specific topics</summary>
+      <p class="bx-note">
+        Escalates the selected topics to a stronger teacher model for deeper reasoning
+        chains. Requires a one-time manual setup step (swapping the teacher process to
+        the accelerated backend) — see the build log after starting for instructions.
+      </p>
       <div class="bx-wcheck" id="bxw-tier2"></div>
-    </div>
-    <button class="btn btn-primary bx-mt" id="bxw-start-btn">Start World build</button>
+    </details>
+    <button class="btn btn-primary bx-mt" id="bxw-start-btn">Start build</button>
     <div id="bx-world-msg"></div>
   </section>
 
@@ -360,43 +376,91 @@
   setInterval(refreshHealth, 15000); setInterval(refreshJobs, 3000);
 
   // ── World-sourced build ─────────────────────────────────────────
-  // Mirrors arail.build.world_corpus.CRAFT_CATEGORIES — there's no
-  // per-slug "list this World's categories while a DIFFERENT World is
-  // mounted" endpoint today (/api/worlds/terms only reflects the
-  // currently-mounted World), so the picker offers the same fixed set
-  // the server enforces rather than querying it live.
-  var CRAFT_CATEGORIES = ['genres','gear','exposure','light','composition','post-production'];
-  var OTHER_CATEGORIES = ['business','business-entity','web-platform','session-workflow'];
+  // Both the category list AND the World's identity (name/tagline/accent)
+  // are fetched live, per selected World — no hardcoded category set.
+  // GET /api/worlds already carries display_name/tagline/theme_preview for
+  // every World (reused for the hero, no extra fetch); GET
+  // /api/build/world/{slug}/categories is the new per-slug aggregation
+  // (arail.build.world_corpus.category_breakdown) for real labels + counts.
+  var worldsBySlug = {};
 
-  function renderChecklist(el, categories, checkedByDefault){
-    el.innerHTML = categories.map(function(c){
-      return '<label><input type="checkbox" value="'+esc(c)+'" '+
-        (checkedByDefault?'checked':'')+'> '+esc(c)+'</label>';
-    }).join('');
-  }
   function checkedValues(el){
     return Array.prototype.map.call(
       el.querySelectorAll('input:checked'), function(i){ return i.value; });
   }
 
+  function renderCategoryChecklist(el, categories, checkedByDefault){
+    if(!categories.length){
+      el.innerHTML = '<em class="bx-muted">no categories in this World yet</em>';
+      return;
+    }
+    el.innerHTML = categories.map(function(c){
+      var disabled = c.approved_count === 0;
+      var checked = checkedByDefault && !disabled;
+      return '<label class="'+(disabled?'bxw-disabled':'')+'" '+
+        (disabled?'title="not yet approved — see the PKB review queue"':'')+'>'+
+        '<input type="checkbox" value="'+esc(c.id)+'" '+
+        (checked?'checked':'')+(disabled?' disabled':'')+'> '+
+        esc(c.label)+' <span class="bxw-count">— '+c.term_count+' terms'+
+        (disabled?' (0 approved)':' ('+c.approved_count+' approved)')+'</span></label>';
+    }).join('');
+  }
+
+  function renderWorldHero(world){
+    var hero=$('bxw-hero');
+    if(!world || (!world.display_name && !world.tagline)){ hero.hidden=true; return; }
+    hero.hidden=false;
+    $('bxw-hero-name').textContent = world.display_name || world.slug;
+    $('bxw-hero-tagline').textContent = world.tagline || '';
+    var accent = world.theme_preview && world.theme_preview.accent;
+    hero.style.setProperty('--bxw-accent', accent || '');
+  }
+
+  function loadWorldCategories(slug){
+    $('bxw-categories').innerHTML = '<em class="bx-muted">loading…</em>';
+    $('bxw-tier2').innerHTML = '';
+    if(!slug) return;
+    fetch('/api/build/world/'+encodeURIComponent(slug)+'/categories', {cache:'no-store'})
+      .then(function(r){ return r.json().then(function(b){ return {ok:r.ok, body:b}; }); })
+      .then(function(res){
+        if(!res.ok){
+          $('bxw-categories').innerHTML = '<span class="bx-status red">●</span> '+
+            esc((res.body&&res.body.detail)||'could not load this World’s categories');
+          return;
+        }
+        var cats = res.body.categories || [];
+        renderCategoryChecklist($('bxw-categories'), cats, true);
+        renderCategoryChecklist($('bxw-tier2'), cats, false);
+      })
+      .catch(function(){
+        $('bxw-categories').innerHTML = '<span class="bx-status red">●</span> could not reach the portal';
+      });
+  }
+
   function initWorldPicker(){
-    renderChecklist($('bxw-categories'), CRAFT_CATEGORIES, true);
-    renderChecklist($('bxw-tier2'), CRAFT_CATEGORIES, false);
     fetch('/api/worlds', {cache:'no-store'}).then(function(r){return r.json();})
       .then(function(d){
         var sel = $('bxw-world');
         var worlds = d.worlds || [];
         if(!worlds.length){ sel.innerHTML = '<option value="">no Worlds mounted yet</option>'; return; }
+        worldsBySlug = {};
+        worlds.forEach(function(w){ worldsBySlug[w.slug] = w; });
+        var initial = worlds.some(function(w){return w.slug===d.current;}) ? d.current : worlds[0].slug;
         sel.innerHTML = worlds.map(function(w){
-          var slug = w.slug || w.world || w.name;
-          return '<option value="'+esc(slug)+'"'+
-            (slug==='photography'?' selected':'')+'>'+esc(slug)+
-            (slug===d.current?' (currently mounted)':'')+'</option>';
+          return '<option value="'+esc(w.slug)+'"'+
+            (w.slug===initial?' selected':'')+'>'+esc(w.display_name||w.slug)+
+            (w.slug===d.current?' (currently mounted)':'')+'</option>';
         }).join('');
+        renderWorldHero(worldsBySlug[initial]);
+        loadWorldCategories(initial);
       }).catch(function(){
         $('bxw-world').innerHTML = '<option value="">could not load — is the portal reachable?</option>';
       });
   }
+  $('bxw-world').addEventListener('change', function(){
+    renderWorldHero(worldsBySlug[this.value]);
+    loadWorldCategories(this.value);
+  });
   initWorldPicker();
 
   $('bxw-start-btn').addEventListener('click', function(){
