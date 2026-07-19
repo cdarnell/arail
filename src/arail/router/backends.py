@@ -1815,12 +1815,44 @@ class OllamaNativeBackend(OpenAICompatBackend):
     `num_ctx` option (F-OLLAMA-SHIM). The native endpoint at /api/chat accepts
     options.num_ctx correctly and reloads the model KV cache accordingly.
 
-    Construction: always via __new__ (F-NEW — the caller must set all required
-    attributes including _num_ctx). complete() reads _num_ctx defensively via
-    getattr(self, '_num_ctx', None) to guard against a partial __new__ build.
+    Construction: two supported paths.
+      1. ``__new__`` + explicit attributes (the chat gallery's runtime-override
+         path — F-NEW: the caller must set all required attributes including
+         _num_ctx). complete() reads _num_ctx defensively via
+         getattr(self, '_num_ctx', None) to guard against a partial build.
+      2. Plain construction via ``ModelRouter()`` / ``BACKEND_MAP`` — handled
+         by ``__init__`` below. Historically this inherited
+         OpenAICompatBackend.__init__'s LM Studio default (localhost:1234),
+         which silently broke every env-configured consumer (AutoResearch,
+         agents) when MODEL_API_BASE was unset. __init__ now defaults to the
+         actual Ollama port (OLLAMA_PORT, 11434); an explicit MODEL_API_BASE
+         still wins.
 
     The root URL is derived by stripping a trailing '/v1' from self.base_url.
     """
+
+    def __init__(self) -> None:
+        super().__init__()
+        # MODEL_API_BASE (explicit) wins; otherwise talk to Ollama itself,
+        # never the inherited LM Studio :1234 default.
+        if not os.getenv("MODEL_API_BASE"):
+            port = os.getenv("OLLAMA_PORT", "11434")
+            self.base_url = f"http://127.0.0.1:{port}/v1"
+        self.backend_name = "ollama:native"
+        self._num_ctx = _resolve_ctx_override(self.model_name, default=None)
+
+    @staticmethod
+    def _keep_alive() -> "str | None":
+        """Ollama keep_alive for every request ("2h" default, "" = omit).
+
+        Without it Ollama evicts the model ~5 min after the last call, so
+        the "resident" Tier 0 quietly went cold between interactions. 2h
+        (not -1) by default: pinning forever fights the aeroLLM preload's
+        0.60 memory-pressure ceiling and the 0.75 chat guard on small
+        boxes; operators can set ARAIL_OLLAMA_KEEP_ALIVE=-1 to pin.
+        """
+        value = os.getenv("ARAIL_OLLAMA_KEEP_ALIVE", "2h").strip()
+        return value or None
 
     def _ollama_root(self) -> str:
         """Return the Ollama root URL (strip trailing /v1 from base_url)."""
@@ -1847,6 +1879,9 @@ class OllamaNativeBackend(OpenAICompatBackend):
         # options.num_ctx only included when set (else Ollama uses its default)
         if num_ctx is not None:
             body["options"] = {"num_ctx": int(num_ctx)}
+        keep_alive = self._keep_alive()
+        if keep_alive is not None:
+            body["keep_alive"] = keep_alive
 
         resp = self._session.post(
             f"{self._ollama_root()}/api/chat",   # F-OLLAMA-SHIM: native endpoint
@@ -1887,6 +1922,9 @@ class OllamaNativeBackend(OpenAICompatBackend):
         }
         if num_ctx is not None:
             body["options"] = {"num_ctx": int(num_ctx)}
+        keep_alive = self._keep_alive()
+        if keep_alive is not None:
+            body["keep_alive"] = keep_alive
 
         full_text = ""
         eval_count = 0

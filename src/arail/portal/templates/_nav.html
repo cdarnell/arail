@@ -69,6 +69,11 @@
      title="Agents — Status · Skills · Activity">Agents</a>
   {% endif %}
 
+  {% if 'build' in _ts %}
+  <a href="/build"{% if active == 'build' %} class="active"{% endif %}
+     title="Model Building — build, distill, and register models via the Nucleus pipeline.">Model Building</a>
+  {% endif %}
+
   {% if 'notebooks' in _ts %}
   <a href="/notebooks"{% if active == 'notebooks' %} class="active"{% endif %}>Workbench</a>
   {% endif %}
@@ -102,6 +107,9 @@
     <span class="sb-label">Inferences</span><span class="sb-value" id="sb-count">—</span></span>
   <span class="sb-metric" title="Most-recent / most-active backend">
     <span class="sb-label">Backend</span><span class="sb-value" id="sb-backend">—</span></span>
+  <span class="sb-metric" id="sb-models-wrap"
+        title="Active models (Tier 0 resident · Tier 1 reasoning) — click to switch">
+    <span class="sb-label">Models</span><span class="sb-value" id="sb-models">—</span></span>
   <span class="sb-metric" title="Average inference response time">
     <span class="sb-label">Avg resp</span><span class="sb-value" id="sb-latency">—</span></span>
   <span class="sb-grow"></span>
@@ -110,6 +118,7 @@
   <button class="btn btn-sm btn-primary" id="btn-resume" style="display:none"
           title="Resume scheduler">▶ Resume</button>
 </div>
+{% include "_model_switcher.html" %}
 <style>
   /* Status bar — measured things in mono (STYLE-SPEC §e). */
   .lab-statusbar{display:flex;align-items:center;gap:.55rem;flex-wrap:wrap;
@@ -125,6 +134,7 @@
   .lab-statusbar .sb-value{color:var(--text);font-weight:500;}
   .lab-statusbar .sb-value.savings{color:var(--positive);}
   .lab-statusbar .sb-grow{flex:1 1 auto;}
+  .lab-statusbar #sb-models-wrap{cursor:pointer;}
   .lab-statusbar .btn{font-size:.7rem;}
 </style>
 <script>

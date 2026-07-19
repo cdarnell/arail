@@ -147,6 +147,10 @@ class CostRecord:
     cloud_equivalent_usd: float
     energy_usd: float
     savings_usd: float
+    # Model-registry attribution (arail.registry) — None for legacy callers.
+    provider: Optional[str] = None
+    entry_id: Optional[str] = None
+    tab: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -228,7 +232,22 @@ class CostTracker:
                 self.tokens_by_backend = data.get("tokens_by_backend", {})
                 self.cloud_by_backend = data.get("cloud_by_backend", {})
                 self._started_at = data.get("started_at", time.time())
-            except (json.JSONDecodeError, KeyError):
+                # Durable extras (added 2026-07; legacy files simply lack
+                # them): recent-call history + cache/recap counters used to
+                # reset to empty on every restart.
+                hist = data.get("history")
+                if isinstance(hist, list):
+                    self._history = hist[-500:]
+                recap = data.get("calls_by_recap_depth")
+                if isinstance(recap, dict):
+                    self.calls_by_recap_depth = {
+                        int(k): v for k, v in recap.items()
+                        if str(k).lstrip("-").isdigit()}
+                self.total_cache_read_tokens = data.get(
+                    "total_cache_read_tokens", 0)
+                self.total_cache_creation_tokens = data.get(
+                    "total_cache_creation_tokens", 0)
+            except (json.JSONDecodeError, KeyError, TypeError, ValueError):
                 pass
             # Reconcile historical energy estimates that were latency-only —
             # if the on-disk number is implausibly small for the tokens
@@ -257,6 +276,11 @@ class CostTracker:
             "tokens_by_backend": self.tokens_by_backend,
             "cloud_by_backend": self.cloud_by_backend,
             "started_at": self._started_at,
+            "history": self._history[-500:],
+            "calls_by_recap_depth": {str(k): v for k, v in
+                                     self.calls_by_recap_depth.items()},
+            "total_cache_read_tokens": getattr(self, "total_cache_read_tokens", 0),
+            "total_cache_creation_tokens": getattr(self, "total_cache_creation_tokens", 0),
         }, indent=2))
 
     def _subscription_accrued_usd(self) -> float:
@@ -273,7 +297,10 @@ class CostTracker:
               source: str = "agent",
               recap_depth: Optional[int] = None,
               cache_read_input_tokens: int = 0,
-              cache_creation_input_tokens: int = 0) -> CostRecord:
+              cache_creation_input_tokens: int = 0,
+              provider: Optional[str] = None,
+              entry_id: Optional[str] = None,
+              tab: Optional[str] = None) -> CostRecord:
         """Record one inference call and return the cost breakdown.
 
         ``cache_read_input_tokens`` / ``cache_creation_input_tokens`` are
@@ -352,6 +379,9 @@ class CostTracker:
             cloud_equivalent_usd=billed_usage_total,
             energy_usd=energy_cost,
             savings_usd=savings,
+            provider=provider,
+            entry_id=entry_id,
+            tab=tab,
         )
 
         # Keep last 500 in memory
@@ -369,6 +399,11 @@ class CostTracker:
             "recap_depth": recap_depth,
             "cache_read_tokens": cache_read_input_tokens,
             "cache_creation_tokens": cache_creation_input_tokens,
+            "model": model,
+            "provider": provider,
+            "entry_id": entry_id,
+            "tab": tab,
+            "latency_ms": round(float(latency_ms or 0.0), 1),
         })
         if len(self._history) > 500:
             self._history = self._history[-500:]

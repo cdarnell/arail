@@ -1,0 +1,11 @@
+{#
+  Inline model chip — shows the model a tab is ACTUALLY using, next to its
+  output. Include with:
+      {% with chip_tab='research' %}{% include "_model_chip.html" %}{% endwith %}
+  Hydrated by the shared script in _model_switcher.html (data-model-chip
+  elements are re-rendered on every /api/models/state refresh). Turns amber
+  with an explicit "(fallback from …)" note whenever this tab is degraded.
+  Styles live in _model_switcher.html's .model-chip rules (v2 tokens).
+#}
+<span class="model-chip" data-model-chip="{{ chip_tab|default('chat') }}"
+      title="Model in use for this tab — click the Models pill in the status bar to change">…</span>

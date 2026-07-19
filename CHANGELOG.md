@@ -6,6 +6,73 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added (2026-07-18 lab persistence)
+
+- **launchd daemon mode** (`arailctl install-daemon`/`uninstall-daemon`): portal +
+  memory (+ mlx when configured) run as LaunchAgents — start at login, respawn on
+  crash (KeepAlive, ThrottleInterval 15), survive terminal close; per-service logs
+  under `lab/logs/`; `start/stop/restart/status` are daemon-aware; double-start is
+  guarded in both directions. `start.sh` remains the dev/foreground mode.
+- **Truthful model warmth.** Ollama requests carry `keep_alive`
+  (`ARAIL_OLLAMA_KEEP_ALIVE`, default 2h — Tier 0 used to be evicted ~5 min after
+  the last call); the registry probes `/api/ps` so `healthy("resident")` vs
+  `cold("server up, model not loaded")` is honest; boot issues a real 1-token
+  warm under the inference slot; the Tier 1 deep model preloads in the background
+  when safe (`background_safe()` gate); new `warming` health status; 
+  `arail_model_resident`/`arail_model_warming` gauges in /metrics.
+- **Auto-resume research.** Run state persists on every transition; an interrupted
+  run auto-resumes from its checkpoint at boot (≥0.3 reloads experiments from the
+  tracker and skips completed ones; below that it honestly re-plans). A halted lab
+  never auto-resumes — and the halt flag itself now persists across restarts.
+  Stale "running" workflow snapshots sweep to "interrupted"; Resume revives dead
+  tasks; nucleus-forgotten build runs show a visible `lost` phase.
+- **Chat conversations** per `docs/conversation-memory.md`: event-log transcripts
+  under `lab/pkb/conversations/` (PKB-wipe contract, `.jsonl` invariant),
+  restore-on-open with a session picker, orphan turns marked `interrupted` at boot
+  with partial replies preserved. Streaming survival + Tier-2 understanding remain
+  roadmap (sprint doc is the design of record).
+- **Durability polish.** Cost recent-history and cache/recap counters persist;
+  the registry's fallback timeline rehydrates from the activity log;
+  `activity.jsonl` rotates at 10MB and boots via tail-read (was unbounded +
+  whole-file read); `/api/agents/instruct` now actually applies the instruction
+  as the agent's active redirect (was a `queued:true` no-op).
+
+### Fixed (2026-07-18 lab persistence)
+
+- `reset.sh stop_services` killed ANY uvicorn on the box (bare `pgrep -f uvicorn`);
+  patterns are now arail-scoped with SIGTERM → SIGKILL escalation.
+- `/api/research/resume` only flipped the pause flag and could not revive a run
+  whose task died with the process.
+
+### Added (2026-07-18 unified model layer + Nucleus MODEL BUILDING tab)
+
+- **Unified model registry (`arail.registry`).** One resolution layer for every
+  tab: `resolve(task_profile)` over declared `ModelEntry` records (local /
+  aerollm / gateway / anthropic / xai), per-tab overrides persisted in
+  `lab/data/model_registry.json`, startup + interval health probes, and
+  structured `FallbackEvent`s on the activity stream — no silent fallback,
+  ever. Airgap-blocked cloud entries stay visible (greyed), never hidden.
+- **AutoResearch root-cause fix.** `ollama_native` no longer inherits the LM
+  Studio `localhost:1234` default when `MODEL_API_BASE` is unset — the source
+  of every "LLM call failed … using heuristic fallback" ConnectionError. The
+  researcher/agents now bind lazily through the registry (config changes apply
+  without restart); deep steps default to aeroLLM (Tier 1), cheap sub-steps to
+  the Tier 0 resident; every call logs provider, model id, latency, tokens.
+- **Global model visibility.** Status-bar Models pill
+  (`ai-engineer (resident) · gpt-oss-20b @ aeroLLM` with health dots) opening a
+  switcher (lab-wide bindings + per-tab overrides); a persistent degradation
+  banner naming the failed endpoint and the fallback in use; inline model
+  chips on Autoresearch/Agents/Chat/Build showing each tab's actual model.
+- **Nucleus MODEL BUILDING tab (`/build`, maximus tier).** Preflight panel
+  (dataset/tokenizer/seq-len/base-checkpoint/dense-vs-MoE + expert count,
+  heuristic VRAM/RAM/disk/wall-clock estimates, green/amber/red gating — red
+  blocks the run without a recorded override). Build options: Local, Anthropix
+  gateway (accelerated; nucleus teacher tier via the Anthropic API, gated on
+  hybrid + key), Hybrid, Dry run (nucleus `dry_run`, badged SIMULATED). Run
+  management with live loss/throughput, logs, pause/resume/stop/abort, and a
+  Register-model action that lands graduated artifacts in the registry so they
+  become selectable in every tab.
+
 ### Changed (2026-05-31 two-tier model strategy v2 — MODEL-TIERS-V2)
 
 - **Default model → `llama-ai-eng` (Llama-3.2-1B-Instruct + AI-engineer persona, Built with Llama).**

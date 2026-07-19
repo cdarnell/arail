@@ -17,6 +17,7 @@ import asyncio
 import json
 import os
 import re
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from arail import pkb as pkb_mod
@@ -162,11 +163,15 @@ def _get_system_context(intent: str | None = None) -> str:
 
 
 def _get_router():
-    """Lazy-load ModelRouter — returns None if no backend is available."""
+    """Resolve the fast (Tier 0) router via the model registry.
+
+    Returns None when no usable model exists for the 'fast' profile — the
+    registry has already emitted a visible FallbackEvent in that case, so
+    the degradation is never silent.
+    """
     try:
-        from arail.router.core import ModelRouter
-        router = ModelRouter()
-        return router
+        from arail.registry import resolve
+        return resolve("fast", tab="research").router(billing_source="agent")
     except Exception:
         return None
 
@@ -182,8 +187,14 @@ def _get_deep_router():
     if os.getenv("AEROLLM_RESEARCH", "true").lower() in ("0", "false", "no"):
         return None
     try:
-        from arail.agents import deep_policy
-        return deep_policy.get_deep_router()
+        # Registry resolution honors per-tab overrides (e.g. Claude when
+        # hybrid). The default 'reasoning' binding is the aerollm entry, whose
+        # router wraps deep_policy's shared resident runtime — still a SINGLE
+        # deep model across all agents. allow_fallback=False: _deep_complete
+        # has its own fast fallback; a second hop here would double-fall.
+        from arail.registry import resolve
+        return resolve("reasoning", tab="research",
+                       allow_fallback=False).router(billing_source="agent")
     except Exception:
         return None
 
@@ -212,14 +223,24 @@ def _llm_complete(router, prompt: str, max_tokens: int = 512,
         text = resp.text.strip() if resp.text else None
 
         traced_prompt = f"{system}\n\n{prompt}" if system else prompt
+        # getattr-defensive: tests and bespoke routers pass duck-typed
+        # responses that only guarantee `.text`.
+        model = getattr(resp, "model", None)
+        backend = getattr(resp, "backend", None)
+        where = f", {model} @ {backend}" if model and backend else ""
         activity_log.emit("researcher",
-                          f"LLM call completed ({int(elapsed)}ms)",
+                          f"LLM call completed ({int(elapsed)}ms{where})",
                           "info", {
                               "prompt_trace": {
                                   "prompt": traced_prompt[:3000],
                                   "response": text[:2000] if text else None,
                                   "max_tokens": max_tokens,
                                   "latency_ms": round(elapsed, 1),
+                                  "model": model,
+                                  "backend": backend,
+                                  "provider": getattr(router, "provider", None),
+                                  "entry_id": getattr(router, "entry_id", None),
+                                  "tokens_out": getattr(resp, "tokens_used", None),
                               }
                           })
         if not text:
@@ -253,6 +274,25 @@ def _deep_complete(deep_router, fast_router, prompt: str,
         activity_log.emit("researcher",
                           "Deep engine unavailable, falling back to fast model.",
                           "warn")
+        # Surface the degradation as a registry fallback event so the global
+        # banner shows it — the old warn string above is easy to miss.
+        try:
+            import time as _t
+            from arail.registry import get_registry
+            from arail.registry.core import FallbackEvent
+            reg = get_registry()
+            reg.record_fallback(FallbackEvent(
+                ts=_t.time(), profile="reasoning", tab="research",
+                from_id=getattr(deep_router, "entry_id", None) or "tier1-aerollm",
+                to_id=getattr(fast_router, "entry_id", None) or "tier0-local",
+                reason="error",
+                detail="deep engine returned no result — research is running "
+                       "on the fast model",
+                endpoint=None,
+                status="unhealthy",
+                latency_ms=None))
+        except Exception:
+            pass
     return _llm_complete(fast_router, prompt, max_tokens, system=system)
 
 
@@ -332,7 +372,12 @@ class ResearcherAgent:
         self.goal_store = GoalStore()
         self.tracker = ExperimentTracker()
         self.curator = CuratorAgent()
-        self._router = _get_router()
+        # Fast router is resolved lazily via the `_router` property (below):
+        # this singleton is constructed at import time, before the registry —
+        # or a portal config change — exists. Caching a router here would
+        # freeze a possibly-broken binding until process restart.
+        self._router_cache = None
+        self._router_cfgv: Optional[int] = None
         # Lazy: the deep (aeroLLM) model is multi-GB. Don't load it at boot —
         # _active_deep_router() fetches the shared router on first background-
         # safe use, so an idle maximus lab never carries the 2nd inference.
@@ -353,30 +398,70 @@ class ResearcherAgent:
         self._planning_trace: dict[str, Any] | None = None
 
     @property
+    def _router(self):
+        """Fast (Tier 0) router, re-resolved when the registry config changes.
+
+        Never caches a None permanently: if resolution failed last time we
+        re-attempt on the next access (the registry is the throttle — it just
+        returns the current entry's state, no heavy construction happens).
+        """
+        cfgv = None
+        try:
+            from arail.registry import get_registry
+            cfgv = get_registry().config_version
+        except Exception:
+            pass
+        if self._router_cache is None or cfgv != self._router_cfgv:
+            self._router_cache = _get_router()
+            self._router_cfgv = cfgv
+        return self._router_cache
+
+    @_router.setter
+    def _router(self, value) -> None:
+        # Tests (and callers with a bespoke router) may inject directly.
+        self._router_cache = value
+        try:
+            from arail.registry import get_registry
+            self._router_cfgv = get_registry().config_version
+        except Exception:
+            self._router_cfgv = None
+
+    @property
     def status(self) -> str:
         return self._status
 
     # ── Control ──────────────────────────────────────────────────────
 
-    def start(self, parsed_goal: Dict[str, Any], *, delay: int | None = None) -> None:
+    def start(self, parsed_goal: Dict[str, Any], *, delay: int | None = None,
+              resume_state: Dict[str, Any] | None = None) -> None:
+        """Start a run — or, with ``resume_state``, re-enter an interrupted
+        one at its last persisted checkpoint (see _run's resume semantics)."""
         if self._task and not self._task.done():
             self._task.cancel()
-        self._swarm_plan_snapshot = self._swarm_plan(parsed_goal)
-        self._paused = False
-        self._status = "running"
+        self._swarm_plan_snapshot = self._swarm_plan(parsed_goal) or (
+            resume_state.get("swarm_plan_snapshot") if resume_state else None)
+        self._paused = bool(resume_state.get("paused")) if resume_state else False
+        self._status = "paused" if self._paused else "running"
         self._objective = parsed_goal.get("goal", parsed_goal.get("primary_objective", ""))
         if self._swarm_plan_snapshot:
             self._objective = str(
                 self._swarm_plan_snapshot.get("mission_brief")
                 or self._objective
             )
-        self._completed_steps = []
-        self._current_task = "Queued for research"
-        self._next_step = "Plan research hypotheses"
-        self._pause_reason = None
-        self._sync_workflow(progress=0.0)
+        if resume_state:
+            self._completed_steps = list(resume_state.get("completed_steps") or [])
+            self._planning_trace = resume_state.get("planning_trace")
+            self._current_task = "Resuming interrupted research"
+            self._next_step = resume_state.get("next_step") or "Continue from checkpoint"
+        else:
+            self._completed_steps = []
+            self._current_task = "Queued for research"
+            self._next_step = "Plan research hypotheses"
+        self._pause_reason = resume_state.get("pause_reason") if resume_state else None
+        self._sync_workflow()
         delay_sec = startup_delay_seconds() if delay is None else max(0, delay)
-        self._task = asyncio.create_task(self._run(parsed_goal, delay_sec))
+        self._task = asyncio.create_task(
+            self._run(parsed_goal, delay_sec, resume_state=resume_state))
 
     def pause(self) -> None:
         self._paused = True
@@ -409,6 +494,7 @@ class ResearcherAgent:
     def _sync_workflow(self, *, progress: float | None = None) -> None:
         current = self.goal_store.get_current() or {}
         redirect = _active_redirect()
+        self._persist_run_state(current)
         update_agent_workflow(
             "researcher",
             status=self._status,
@@ -427,6 +513,33 @@ class ResearcherAgent:
                 "redirect": redirect,
             },
         )
+
+    def _persist_run_state(self, current: Dict[str, Any]) -> None:
+        """Durable snapshot of the in-memory run state (crash recovery).
+
+        Written on every _sync_workflow transition; cleared when the run
+        reaches a state with nothing to resume. The boot reconciliation
+        hook reads this to decide whether (and where) to auto-resume.
+        """
+        from arail import goals as goals_mod
+        try:
+            if self._status in ("idle", "completed") or not current:
+                goals_mod.clear_run_state()
+                return
+            goals_mod.save_run_state({
+                "goal_id": current.get("id"),
+                "status": self._status,
+                "paused": self._paused,
+                "pause_reason": self._pause_reason,
+                "current_task": self._current_task,
+                "next_step": self._next_step,
+                "completed_steps": list(self._completed_steps),
+                "planning_trace": self._planning_trace,
+                "swarm_plan_snapshot": self._swarm_plan_snapshot,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            })
+        except Exception:  # noqa: BLE001  # persistence must never break a run
+            pass
 
     def _advance_workflow(self, completed_step: str | None, current_task: str, next_step: str | None, *, progress: float | None = None) -> None:
         if completed_step:
@@ -564,7 +677,46 @@ class ResearcherAgent:
 
     # ── Core loop ────────────────────────────────────────────────────
 
-    async def _run(self, parsed_goal: Dict[str, Any], delay_sec: int = 0) -> None:
+    def _reload_experiments(self) -> list[Dict[str, Any]]:
+        """Reload this goal's experiments from the tracker's on-disk records
+        (full definition + status + observations survive restarts)."""
+        current = self.goal_store.get_current() or {}
+        out: list[Dict[str, Any]] = []
+        for exp_id in current.get("experiments", []) or []:
+            try:
+                out.append(self.tracker._load(exp_id))
+            except Exception:  # noqa: BLE001  # missing file → just skip it
+                continue
+        return out
+
+    async def _run(self, parsed_goal: Dict[str, Any], delay_sec: int = 0,
+                   resume_state: Dict[str, Any] | None = None) -> None:
+        # ── Resume checkpoint (crash/restart recovery) ────────────────
+        # Honest semantics: below 0.3 nothing reusable was persisted
+        # (hypotheses never hit disk) so resume == fresh re-plan; from 0.3
+        # experiments live in the tracker and steps re-enter after the
+        # last completed checkpoint, skipping already-completed work.
+        resume_p = 0.0
+        if resume_state is not None:
+            current0 = self.goal_store.get_current() or {}
+            try:
+                resume_p = float(current0.get("progress") or 0.0)
+            except (TypeError, ValueError):
+                resume_p = 0.0
+            if resume_p >= 0.3:
+                activity_log.emit(
+                    "researcher",
+                    f"Resuming from checkpoint (progress {resume_p:.1f}) — "
+                    f"{len(current0.get('experiments', []) or [])} experiments on disk.",
+                    "info", {"resume": True, "progress": resume_p})
+            else:
+                activity_log.emit(
+                    "researcher",
+                    "Resuming interrupted research from planning (no experiment "
+                    "checkpoint yet) — re-planning from the top.",
+                    "info", {"resume": True})
+                resume_p = 0.0
+
         goal_text = parsed_goal.get("goal", parsed_goal.get("primary_objective", ""))
         domain = parsed_goal.get("domain", "general")
         intent = parsed_goal.get("intent", _get_lab_intent())
@@ -694,128 +846,156 @@ class ResearcherAgent:
             self._advance_workflow(None, "Planning research hypotheses", "Design experiments", progress=0.0)
 
             # Step 1: Plan research — generate hypotheses
-            await self._wait_if_paused()
-            hypotheses = self._plan_research(parsed_goal)
-            activity_log.emit("researcher",
-                              f"Generated {len(hypotheses)} research hypotheses.",
-                              "info", {"hypotheses": hypotheses, "progress": 0.1})
-            self.goal_store.update_progress(0.1)
-            if swarm_plan:
-                shape_phase = next((phase for phase in swarm_plan.get("phases", []) if phase.get("id") == "shape"), {})
-                self._sync_swarm_phase(parsed_goal, "branch", completed_worker_ids=set(shape_phase.get("worker_ids") or []))
-            self._advance_workflow("Planned research hypotheses", "Designing experiments", "Gather sources", progress=0.1)
-
             # Step 2: Design experiments for each hypothesis
-            await self._wait_if_paused()
-            experiments = []
-            for i, hyp in enumerate(hypotheses):
-                exp = self._design_experiment(hyp, domain)
-                experiments.append(exp)
-                self.goal_store.link_experiment(exp["id"])
+            # (resume ≥0.3: both already done — experiments reload from the
+            #  tracker's on-disk records instead of re-planning)
+            if resume_p < 0.3:
+                await self._wait_if_paused()
+                hypotheses = self._plan_research(parsed_goal)
                 activity_log.emit("researcher",
-                                  f"Created experiment {exp['id']}: {exp['hypothesis'][:80]}",
-                                  "info", {"experiment_id": exp["id"]})
-                await asyncio.sleep(0.5)  # pacing for UX
-            activity_log.emit("researcher", "Experiments designed.", "info", {"progress": 0.3})
-            self.goal_store.update_progress(0.3)
-            self._advance_workflow("Designed experiments", "Gathering sources", "Run experiments", progress=0.3)
+                                  f"Generated {len(hypotheses)} research hypotheses.",
+                                  "info", {"hypotheses": hypotheses, "progress": 0.1})
+                self.goal_store.update_progress(0.1)
+                if swarm_plan:
+                    shape_phase = next((phase for phase in swarm_plan.get("phases", []) if phase.get("id") == "shape"), {})
+                    self._sync_swarm_phase(parsed_goal, "branch", completed_worker_ids=set(shape_phase.get("worker_ids") or []))
+                self._advance_workflow("Planned research hypotheses", "Designing experiments", "Gather sources", progress=0.1)
 
-            # Step 3: Gather sources via Curator
-            await self._wait_if_paused()
-            redirect = _active_redirect()
-            redirect_flags = redirect_profile(redirect)
-            if redirect_flags["skip_fetch"]:
+                await self._wait_if_paused()
+                experiments = []
+                for i, hyp in enumerate(hypotheses):
+                    exp = self._design_experiment(hyp, domain)
+                    experiments.append(exp)
+                    self.goal_store.link_experiment(exp["id"])
+                    activity_log.emit("researcher",
+                                      f"Created experiment {exp['id']}: {exp['hypothesis'][:80]}",
+                                      "info", {"experiment_id": exp["id"]})
+                    await asyncio.sleep(0.5)  # pacing for UX
+                activity_log.emit("researcher", "Experiments designed.", "info", {"progress": 0.3})
+                self.goal_store.update_progress(0.3)
+                self._advance_workflow("Designed experiments", "Gathering sources", "Run experiments", progress=0.3)
+            else:
+                experiments = self._reload_experiments()
+                done_count = sum(1 for e in experiments
+                                 if str(e.get("status")) == "completed")
                 activity_log.emit(
                     "researcher",
-                    "Redirect active — skipping new source fetching and tightening the eval path instead.",
-                    "warn",
-                    {"redirect": redirect, "progress": 0.5},
-                )
-            else:
-                activity_log.emit("researcher",
-                                  "Querying curator for relevant data sources...", "info")
-                proposals = self.curator.propose_sources(parsed_goal)
-                if proposals:
-                    consent_results = self.curator.submit_proposals(proposals)
-                    approved = [r for r in consent_results if r["status"] == "auto_approved"]
-                    pending = [r for r in consent_results if r["status"] == "pending"]
-                    if approved:
-                        activity_log.emit("researcher",
-                                          f"{len(approved)} sources auto-approved from allowlist.",
-                                          "success")
-                    if pending:
-                        activity_log.emit("researcher",
-                                          f"{len(pending)} sources awaiting your approval.",
-                                          "warn")
+                    f"Checkpoint restore: {len(experiments)} experiments "
+                    f"reloaded, {done_count} already complete.",
+                    "info", {"resume": True})
+
+            # Step 3: Gather sources via Curator (resume ≥0.5: already done)
+            if resume_p < 0.5:
+                await self._wait_if_paused()
+                redirect = _active_redirect()
+                redirect_flags = redirect_profile(redirect)
+                if redirect_flags["skip_fetch"]:
+                    activity_log.emit(
+                        "researcher",
+                        "Redirect active — skipping new source fetching and tightening the eval path instead.",
+                        "warn",
+                        {"redirect": redirect, "progress": 0.5},
+                    )
                 else:
                     activity_log.emit("researcher",
-                                      "No external sources needed — running fully local.",
-                                      "info")
-            activity_log.emit("researcher", "Source gathering complete.", "info", {"progress": 0.5})
-            self.goal_store.update_progress(0.5)
-            self._advance_workflow("Gathered sources", "Running experiments", "Analyze results", progress=0.5)
+                                      "Querying curator for relevant data sources...", "info")
+                    proposals = self.curator.propose_sources(parsed_goal)
+                    if proposals:
+                        consent_results = self.curator.submit_proposals(proposals)
+                        approved = [r for r in consent_results if r["status"] == "auto_approved"]
+                        pending = [r for r in consent_results if r["status"] == "pending"]
+                        if approved:
+                            activity_log.emit("researcher",
+                                              f"{len(approved)} sources auto-approved from allowlist.",
+                                              "success")
+                        if pending:
+                            activity_log.emit("researcher",
+                                              f"{len(pending)} sources awaiting your approval.",
+                                              "warn")
+                    else:
+                        activity_log.emit("researcher",
+                                          "No external sources needed — running fully local.",
+                                          "info")
+                activity_log.emit("researcher", "Source gathering complete.", "info", {"progress": 0.5})
+                self.goal_store.update_progress(0.5)
+                self._advance_workflow("Gathered sources", "Running experiments", "Analyze results", progress=0.5)
 
             # Step 4: Run experiments — each one simulates meaningful
             # work over LAB_EXP_RUNTIME_SEC seconds (default 60s), emitting
             # several intermediate observations so the UI shows a running
             # process, not a blink. Budget × N experiments = total runtime.
             # Users can shorten for demos with LAB_EXP_RUNTIME_SEC=5.
-            await self._wait_if_paused()
-            exp_runtime = max(1, int(os.getenv("LAB_EXP_RUNTIME_SEC", "60")))
-            # 4 observations per experiment feels "alive" without being noisy.
-            obs_per_exp = 4
-            slice_sec = max(1, exp_runtime // obs_per_exp)
-            for exp in experiments:
-                self.tracker.start(exp["id"])
-                activity_log.emit("researcher",
-                                  f"Running experiment {exp['id']} "
-                                  f"({exp_runtime}s budget)…", "info")
-                self._current_task = f"Running experiment {exp['id']}"
-                self._next_step = "Analyze results"
-                self._sync_workflow(progress=0.5)
-                for k in range(obs_per_exp):
-                    # Cooperatively wait — respects pause/halt in <1s granules.
-                    waited = 0
-                    while waited < slice_sec:
-                        if jobs_halted():
-                            activity_log.emit("researcher",
-                                              f"Halted during experiment {exp['id']}.",
-                                              "warn")
-                            self._status = "idle"
-                            return
-                        await self._wait_if_paused()
-                        await asyncio.sleep(min(1, slice_sec - waited))
-                        waited += 1
-                    observation = self._generate_observation(exp, domain, intent)
-                    self.tracker.observe(exp["id"], observation)
+            if resume_p < 0.7:
+                await self._wait_if_paused()
+                exp_runtime = max(1, int(os.getenv("LAB_EXP_RUNTIME_SEC", "60")))
+                # 4 observations per experiment feels "alive" without being noisy.
+                obs_per_exp = 4
+                slice_sec = max(1, exp_runtime // obs_per_exp)
+                for exp in experiments:
+                    if str(exp.get("status")) == "completed":
+                        # Idempotent re-entry: a crash after tracker.complete
+                        # must not re-run finished work.
+                        continue
+                    self.tracker.start(exp["id"])
                     activity_log.emit("researcher",
-                                      f"[{exp['id']} · {k + 1}/{obs_per_exp}] {observation[:80]}",
-                                      "info")
-            activity_log.emit("researcher", "Experiments complete.", "info", {"progress": 0.7})
-            self.goal_store.update_progress(0.7)
-            if swarm_plan:
-                branch_phase = next((phase for phase in swarm_plan.get("phases", []) if phase.get("id") == "branch"), {})
-                branch_done = set(branch_phase.get("worker_ids") or [])
-                self._sync_swarm_phase(parsed_goal, "challenge", completed_worker_ids=branch_done)
-            self._advance_workflow("Ran experiments", "Analyzing results", "Generate report", progress=0.7)
+                                      f"Running experiment {exp['id']} "
+                                      f"({exp_runtime}s budget)…", "info")
+                    self._current_task = f"Running experiment {exp['id']}"
+                    self._next_step = "Analyze results"
+                    self._sync_workflow(progress=0.5)
+                    for k in range(obs_per_exp):
+                        # Cooperatively wait — respects pause/halt in <1s granules.
+                        waited = 0
+                        while waited < slice_sec:
+                            if jobs_halted():
+                                activity_log.emit("researcher",
+                                                  f"Halted during experiment {exp['id']}.",
+                                                  "warn")
+                                self._status = "idle"
+                                return
+                            await self._wait_if_paused()
+                            await asyncio.sleep(min(1, slice_sec - waited))
+                            waited += 1
+                        observation = self._generate_observation(exp, domain, intent)
+                        self.tracker.observe(exp["id"], observation)
+                        activity_log.emit("researcher",
+                                          f"[{exp['id']} · {k + 1}/{obs_per_exp}] {observation[:80]}",
+                                          "info")
+                activity_log.emit("researcher", "Experiments complete.", "info", {"progress": 0.7})
+                self.goal_store.update_progress(0.7)
+                if swarm_plan:
+                    branch_phase = next((phase for phase in swarm_plan.get("phases", []) if phase.get("id") == "branch"), {})
+                    branch_done = set(branch_phase.get("worker_ids") or [])
+                    self._sync_swarm_phase(parsed_goal, "challenge", completed_worker_ids=branch_done)
+                self._advance_workflow("Ran experiments", "Analyzing results", "Generate report", progress=0.7)
 
             # Step 5: Analyze and complete experiments
-            await self._wait_if_paused()
-            activity_log.emit("researcher", "Analyzing results...", "info")
             completed_experiments: list[dict[str, Any]] = []
-            for exp in experiments:
-                results = self._analyze_experiment(exp, domain, intent)
-                conclusion = results.pop("conclusion", "See results.")
-                success = results.pop("success", True)
-                completed = self.tracker.complete(exp["id"], results, conclusion, success)
-                completed_experiments.append(completed)
+            if resume_p < 0.9:
+                await self._wait_if_paused()
+                activity_log.emit("researcher", "Analyzing results...", "info")
+                for exp in experiments:
+                    if str(exp.get("status")) == "completed":
+                        completed_experiments.append(exp)   # analysis on disk
+                        continue
+                    results = self._analyze_experiment(exp, domain, intent)
+                    conclusion = results.pop("conclusion", "See results.")
+                    success = results.pop("success", True)
+                    completed = self.tracker.complete(exp["id"], results, conclusion, success)
+                    completed_experiments.append(completed)
+                    activity_log.emit("researcher",
+                                      f"Experiment {exp['id']} completed — {'supported' if success else 'not supported'}.",
+                                      "success" if success else "warn")
+                    await asyncio.sleep(0.5)
+                activity_log.emit("researcher", "Analysis complete.", "info", {"progress": 0.9})
+                self.goal_store.update_progress(0.9)
+                self._advance_workflow("Analyzed experiment results", "Generating report", "Write report to knowledge base", progress=0.9)
+            else:
+                completed_experiments = [e for e in experiments
+                                         if str(e.get("status")) == "completed"]
                 activity_log.emit("researcher",
-                                  f"Experiment {exp['id']} completed — {'supported' if success else 'not supported'}.",
-                                  "success" if success else "warn")
-                await asyncio.sleep(0.5)
-            activity_log.emit("researcher", "Analysis complete.", "info", {"progress": 0.9})
-            self.goal_store.update_progress(0.9)
-            self._advance_workflow("Analyzed experiment results", "Generating report", "Write report to knowledge base", progress=0.9)
+                                  "Analysis already complete (checkpoint) — "
+                                  "generating the report.", "info")
 
             # Step 6: Generate report
             await self._wait_if_paused()

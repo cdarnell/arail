@@ -98,17 +98,43 @@ fi
 # ── Stop running services ────────────────────────────────────────────
 stop_services() {
     info "Stopping ${LAB_NAME} services..."
+    # Patterns are ARAIL-SCOPED (module paths / lab ports) — a bare
+    # "uvicorn" pattern used to kill any unrelated uvicorn on the box.
+    local patterns=(
+        "uvicorn.*arail\.portal\.app"
+        "uvicorn.*arail\.memory_service"
+        "uvicorn.*arail\.mlx_openai_server"
+        "ttyd.*${TERMINAL_PORT:-7681}"
+        "jupyter-lab.*${NOTEBOOK_PORT:-8888}"
+        "code-server.*${IDE_PORT:-8443}"
+    )
     local pids=()
-    for proc in "uvicorn" "ttyd" "jupyter-lab" "jupyter-lab-script" "code-server"; do
+    for pattern in "${patterns[@]}"; do
         local p
-        p=$(pgrep -f "$proc" 2>/dev/null || true)
+        p=$(pgrep -f "$pattern" 2>/dev/null || true)
         [[ -n "$p" ]] && pids+=($p)
     done
     if (( ${#pids[@]} > 0 )); then
         kill "${pids[@]}" 2>/dev/null || true
+        # SIGTERM → up to 2s grace → SIGKILL stragglers (opencode shape).
+        local waited=0
+        while (( waited < 20 )); do
+            local alive=""
+            for pid in "${pids[@]}"; do
+                kill -0 "$pid" 2>/dev/null && alive="1"
+            done
+            [[ -z "$alive" ]] && break
+            sleep 0.1; waited=$((waited + 1))
+        done
+        for pid in "${pids[@]}"; do
+            kill -0 "$pid" 2>/dev/null && kill -9 "$pid" 2>/dev/null || true
+        done
         info "Stopped ${#pids[@]} process(es)."
     else
         info "No running services found."
+    fi
+    if [[ "$(uname -s)" == "Darwin" ]] && launchctl list io.arail.portal >/dev/null 2>&1; then
+        info "NOTE: launchd agents are loaded — use ./arailctl stop to keep the lab down."
     fi
 }
 

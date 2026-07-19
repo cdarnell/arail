@@ -30,6 +30,15 @@ export PATH="$HOME/.local/bin:$PATH"
 BIND="${BIND_ADDR:-127.0.0.1}"
 LANCE_PORT="${LANCE_PORT:-7414}"
 
+# Daemon mode guard: when launchd supervises the lab, a foreground start
+# would fight the agents over the ports. Use the supervised commands.
+if [[ "$(uname -s)" == "Darwin" ]] && launchctl list io.arail.portal >/dev/null 2>&1; then
+    echo "Daemon mode is active (launchd supervises the lab)."
+    echo "  Restart:  ./arailctl restart"
+    echo "  Dev mode: ./arailctl uninstall-daemon && ./arailctl start"
+    exit 1
+fi
+
 [[ -f .venv/bin/activate ]] || { echo "no .venv — run ./arailctl setup"; exit 1; }
 # shellcheck disable=SC1091
 source .venv/bin/activate

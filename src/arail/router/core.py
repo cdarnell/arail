@@ -52,6 +52,24 @@ class ModelRouter:
         self._backend: BaseBackend = BACKEND_MAP[name]()
 
     # ------------------------------------------------------------------
+    @classmethod
+    def from_backend(cls, backend: BaseBackend, name: str, *,
+                     billing_source: str = "agent") -> "ModelRouter":
+        """Wrap an already-constructed backend in a router.
+
+        Used by the model registry (arail.registry) so registry-built
+        backends keep flowing through cost_tracker like every other call.
+        Optional attributes ``provider`` / ``entry_id`` / ``tab`` may be set
+        on the returned router by the caller; complete()/stream_complete()
+        forward them to cost tracking when present.
+        """
+        self = cls.__new__(cls)
+        self.backend_name = name
+        self.billing_source = billing_source
+        self._backend = backend
+        return self
+
+    # ------------------------------------------------------------------
     @staticmethod
     def _auto_detect() -> str:
         """Best-effort platform detection (mirrors setup.sh logic)."""
@@ -86,6 +104,9 @@ class ModelRouter:
             recap_depth=current_recap_depth(),
             cache_read_input_tokens=response.cache_read_input_tokens,
             cache_creation_input_tokens=response.cache_creation_input_tokens,
+            provider=getattr(self, "provider", None),
+            entry_id=getattr(self, "entry_id", None),
+            tab=getattr(self, "tab", None),
         )
         return response
 
@@ -113,6 +134,9 @@ class ModelRouter:
                     source=self.billing_source,
                     cache_read_input_tokens=item.cache_read_input_tokens,
                     cache_creation_input_tokens=item.cache_creation_input_tokens,
+                    provider=getattr(self, "provider", None),
+                    entry_id=getattr(self, "entry_id", None),
+                    tab=getattr(self, "tab", None),
                 )
             yield item
 

@@ -448,6 +448,11 @@
       line-height: 1.4;
     }
     .icon-btn:hover { color: var(--text-strong); border-color: var(--border-strong); background: var(--surface2); text-decoration: none; }
+    .conv-bar { display: inline-flex; gap: 0.25rem; align-items: center; }
+    .conv-picker { max-width: 200px; font-size: var(--fs-sm);
+      font-family: var(--font-mono); background: var(--surface);
+      color: var(--text); border: 1px solid var(--border);
+      border-radius: var(--radius-m); padding: 0.22rem 0.4rem; }
 
     /* Loader strip (hidden when state=ready) */
     .loader-strip {
@@ -1501,7 +1506,8 @@
 
   <main class="studio" id="studio">
     <header class="studio-head">
-      <h1>Chat <span class="accent">Studio</span></h1>
+      <h1>Chat <span class="accent">Studio</span>
+        {% with chip_tab='chat' %}{% include "_model_chip.html" %}{% endwith %}</h1>
       <div class="preset-row" id="presets">
         <button data-preset="balanced" class="active">Balanced</button>
         <button data-preset="fast">Fast</button>
@@ -1511,6 +1517,12 @@
         <button data-preset="json">JSON</button>
       </div>
       <div class="head-spacer"></div>
+      <span class="conv-bar" title="Conversations persist server-side (lab/pkb/conversations) and survive reloads and restarts — delete forgets forever.">
+        <select id="conv-picker" class="conv-picker"></select>
+        <button class="icon-btn" id="conv-new" title="New conversation">＋</button>
+        <button class="icon-btn" id="conv-rename" title="Rename conversation">✎</button>
+        <button class="icon-btn" id="conv-delete" title="Delete conversation (forgets it forever)">🗑</button>
+      </span>
       <button class="icon-btn" id="btn-conn" title="Connections (tokens)">⚙ Connections</button>
       <a class="icon-btn" href="/docs/tunables.md" target="_blank" title="Glossary of every tunable">📖 Glossary</a>
       <button class="icon-btn" id="btn-toggle-left"  title="Scroll to model rail">◧ Models</button>
@@ -1888,6 +1900,9 @@
       sources: [],
       activeSource: 'my_machine',
       history: [],
+      // Server-side conversation (lab/pkb/conversations). localStorage
+      // holds the POINTER only — content lives on the server.
+      conversationId: localStorage.getItem('arail.chat.conversationId') || null,
       streaming: true,
       preset: 'balanced',
       tunables: defaultTunables(),
@@ -2753,6 +2768,8 @@
       const isDeepRuntime = runtime === 'aerollm' || runtime === 'airllm';
       return {
         message: text,
+        conversation_id: State.conversationId || undefined,
+        branch: side,
         history: State.history.slice(-20),
         backend: isDeepRuntime ? runtime : pickBackend(),
         runtime,
@@ -3537,11 +3554,112 @@
       });
     }
 
+    // ── Server-side conversations (restore-on-open + picker) ─────────
+    function appendAssistantStatic(side, msg) {
+      const t = trEl(side);
+      const wrap = document.createElement('div');
+      wrap.className = 'msg assistant';
+      const who = (msg.backend || msg.model)
+        ? `${escapeHtml(msg.backend || '')}${msg.backend && msg.model ? ' · ' : ''}${escapeHtml(msg.model || '')}`
+        : 'assistant';
+      const note = msg.status === 'interrupted' ? ' · interrupted by restart'
+                 : msg.status === 'failed' ? ' · failed' : '';
+      wrap.innerHTML = `<div class="who">${who}</div><div class="body"></div>` +
+        `<div class="stats-line"><span class="seg">restored${note}</span></div>`;
+      try { wrap.querySelector('.body').innerHTML = renderMarkdown(msg.content || ''); }
+      catch (e) { wrap.querySelector('.body').textContent = msg.content || ''; }
+      t.appendChild(wrap);
+    }
+
+    async function loadConversation(cid) {
+      const r = await fetch('/api/chat/conversations/' + encodeURIComponent(cid));
+      if (!r.ok) return false;
+      const data = await r.json();
+      const t = trEl('A');
+      if (t) t.innerHTML = '';
+      State.history = [];
+      for (const msg of (data.messages || [])) {
+        if (msg.role === 'user') { hideEmpty('A'); appendUser('A', msg.content); }
+        else { hideEmpty('A'); appendAssistantStatic('A', msg); }
+        State.history.push({ role: msg.role, content: msg.content });
+      }
+      scrollToBottom('A');
+      return true;
+    }
+
+    async function refreshConversationPicker() {
+      const sel = $('conv-picker');
+      if (!sel) return;
+      try {
+        const r = await fetch('/api/chat/conversations');
+        const list = (await r.json()).conversations || [];
+        sel.innerHTML = list.map(c =>
+          `<option value="${escapeHtml(c.conversation_id)}"` +
+          `${c.conversation_id === State.conversationId ? ' selected' : ''}>` +
+          `${escapeHtml(c.title)} (${c.turns})</option>`).join('');
+      } catch (e) { /* portal mid-restart */ }
+    }
+
+    async function initConversations() {
+      const sel = $('conv-picker');
+      if (!sel) return;
+      try {
+        // Validate the stored pointer; create a conversation when none.
+        let ok = false;
+        if (State.conversationId) ok = await loadConversation(State.conversationId);
+        if (!ok) {
+          const r = await fetch('/api/chat/conversations', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ title: '' }) });
+          const meta = await r.json();
+          State.conversationId = meta.conversation_id;
+          localStorage.setItem('arail.chat.conversationId', State.conversationId);
+        }
+        await refreshConversationPicker();
+        sel.addEventListener('change', async () => {
+          State.conversationId = sel.value;
+          localStorage.setItem('arail.chat.conversationId', sel.value);
+          await loadConversation(sel.value);
+        });
+        $('conv-new')?.addEventListener('click', async () => {
+          const r = await fetch('/api/chat/conversations', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ title: '' }) });
+          const meta = await r.json();
+          State.conversationId = meta.conversation_id;
+          localStorage.setItem('arail.chat.conversationId', meta.conversation_id);
+          const t = trEl('A'); if (t) t.innerHTML = '';
+          State.history = [];
+          await refreshConversationPicker();
+        });
+        $('conv-rename')?.addEventListener('click', async () => {
+          const title = prompt('Conversation name:');
+          if (!title || !State.conversationId) return;
+          await fetch('/api/chat/conversations/' + encodeURIComponent(State.conversationId), {
+            method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ title }) });
+          await refreshConversationPicker();
+        });
+        $('conv-delete')?.addEventListener('click', async () => {
+          if (!State.conversationId) return;
+          if (!confirm('Delete this conversation? It is forgotten forever (PKB wipe contract).')) return;
+          await fetch('/api/chat/conversations/' + encodeURIComponent(State.conversationId),
+                      { method: 'DELETE' });
+          localStorage.removeItem('arail.chat.conversationId');
+          State.conversationId = null;
+          const t = trEl('A'); if (t) t.innerHTML = '';
+          State.history = [];
+          await initConversations();
+        });
+      } catch (e) { console.warn('[chat] conversations unavailable:', e); }
+    }
+
     async function init() {
       measureNav();
       window.addEventListener('resize', measureNav);
       renderTunables();
       renderConn();
+      initConversations();
 
       // System prompt textarea ↔ State binding
       const sp = $('sys-prompt');

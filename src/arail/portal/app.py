@@ -123,7 +123,8 @@ _METRICS_LOCK = _threading.Lock()
 _TIER_SURFACES: dict[str, set[str]] = {
     "minimalist": {"dashboard", "chat", "research", "dac", "agents", "docs"},
     "maximus": {"dashboard", "chat", "research", "dac", "agents",
-                "admin", "docs", "notebooks", "terminal", "tuning", "plugins"},
+                "admin", "docs", "notebooks", "terminal", "tuning", "plugins",
+                "build"},
 }
 
 # v1.0.0 tier rename + the LAB_TIER lookup now live in arail.tier, the single
@@ -593,6 +594,15 @@ from arail.portal.librarian_routes import router as librarian_router  # noqa: E4
 
 app.include_router(librarian_router)
 
+from arail.portal.models_api import models_router  # noqa: E402
+app.include_router(models_router)
+
+from arail.portal.build_api import build_router  # noqa: E402
+app.include_router(build_router)
+
+from arail.portal.chat_sessions_api import chat_sessions_router  # noqa: E402
+app.include_router(chat_sessions_router)
+
 PORTAL_DIR = Path(__file__).parent
 app.mount("/static", StaticFiles(directory=PORTAL_DIR / "static"), name="static")
 # Mount integrations frontend (core/knowledge-canvas/frontend) if present.
@@ -753,6 +763,40 @@ async def _startup():
                       f"{_boot_ident.name} portal started — {intent_name} lab.",
                       "success")
 
+    # Model registry: startup preflight (both tiers, loud but non-blocking)
+    # + interval health loop. Runs on a daemon thread; never delays _READY.
+    try:
+        from arail.registry import get_registry
+        get_registry().start_background()
+    except Exception as _reg_err:  # noqa: BLE001
+        activity_log.emit("registry",
+                          f"Model registry startup failed: {_reg_err}", "warn")
+
+    # Tier-1 background preload (safe-window gated; ARAIL_AEROLLM_PRELOAD=0
+    # to disable). Fire-and-forget; never raises.
+    try:
+        from arail.portal.model_warmth import aerollm_preload_loop
+        asyncio.create_task(aerollm_preload_loop())
+    except Exception:  # noqa: BLE001
+        pass
+
+    # Conversation orphan sweep: turns interrupted by the previous shutdown
+    # get their terminal turn.interrupted event (idempotent; contract in
+    # docs/conversation-memory.md).
+    async def _sweep_conversations() -> None:
+        try:
+            from arail.chat.conversations import ConversationStore
+            resolved = await asyncio.to_thread(
+                ConversationStore().sweep_orphans)
+            if resolved:
+                activity_log.emit(
+                    "chat",
+                    f"Marked {resolved} chat turn(s) interrupted by the "
+                    "previous shutdown (partial replies preserved).", "info")
+        except Exception:  # noqa: BLE001
+            pass
+    asyncio.create_task(_sweep_conversations())
+
     if knowledge_canvas_app is not None and not hasattr(knowledge_canvas_app.state, "store"):
         try:
             from app.routers import ws as kc_ws  # type: ignore
@@ -819,6 +863,16 @@ async def _startup():
             )
     except Exception as _wm_err:
         activity_log.emit("system", f"World Mount check failed: {_wm_err}", "warn")
+
+    # ── Interrupted-research reconciliation (before the bootstrap block:
+    #    the two are mutually exclusive — bootstrap only fires with NO
+    #    current goal, an interrupted run means the goal still exists). ──
+    try:
+        _reconcile_interrupted_research()
+    except Exception as _rr_err:  # noqa: BLE001
+        activity_log.emit("researcher",
+                          f"Interrupted-run reconciliation failed: {_rr_err}",
+                          "warn")
 
     # Load bootstrap goal if no active goal exists
     current = goal_store.get_current()
@@ -1013,9 +1067,23 @@ async def get_ready():
     background tasks (model warmup, security scan, KB index) keep
     running, but the portal can serve normal requests at this point.
     """
+    tier0_status = None
+    try:
+        from arail.registry import get_registry
+        reg = get_registry()
+        reg._ensure_loaded()
+        tier0 = next((e for e in reg.entries.values()
+                      if e.tier == 0 and e.enabled), None)
+        if tier0 is not None:
+            tier0_status = tier0.health.status
+    except Exception:  # noqa: BLE001
+        pass
     return {
         "ready": _READY,
         "warming": not _MODEL_WARM,
+        # Truthful Tier-0 residency (healthy=resident, cold=loads on first
+        # call) — `warming` above only means the boot warm task finished.
+        "tier0": tier0_status,
         "boot_seconds": round(time.perf_counter() - _BOOT_PERF, 2),
     }
 
@@ -3469,6 +3537,60 @@ async def api_dictionary_expand(request: Request):
 
 # ── Research API ─────────────────────────────────────────────────────────
 
+def _reconcile_interrupted_research() -> None:
+    """Boot hook: detect a run interrupted by restart/crash and auto-resume
+    it from its persisted checkpoint — or mark it interrupted when the lab
+    is halted. Also sweeps stale 'running' agent-workflow snapshots so the
+    Agents tab never shows a half-alive run."""
+    from arail import goals as goals_mod
+    from arail.agent_workflows import list_agent_workflows, update_agent_workflow
+
+    current = goal_store.get_current()
+    rs = goals_mod.load_run_state()
+    interrupted = (
+        current is not None
+        and isinstance(rs, dict)
+        and rs.get("status") in ("running", "paused")
+        and float(current.get("progress") or 0.0) < 1.0
+    )
+
+    if interrupted:
+        if jobs_halted():
+            goals_mod.save_run_state({**rs, "status": "interrupted"})
+            update_agent_workflow(
+                "researcher", status="interrupted",
+                current_task="Interrupted by restart (lab halted)",
+                pause_reason="lab halted at restart")
+            activity_log.emit(
+                "researcher",
+                "Interrupted research found but jobs are halted — resume it "
+                "from the dashboard when ready.", "warn",
+                {"resume_available": True})
+        else:
+            progress = float(current.get("progress") or 0.0)
+            researcher.start(current["parsed"], resume_state=rs)
+            delay = startup_delay_seconds()
+            activity_log.emit(
+                "researcher",
+                f"Auto-resuming research "
+                f"'{str(current.get('goal_text') or current.get('parsed', {}).get('goal', ''))[:60]}' "
+                f"from progress {progress:.1f} (in {delay}s).",
+                "success", {"resume": True, "progress": progress})
+
+    # Sweep: any workflow snapshot still claiming "running" that we did not
+    # just resume was killed by the restart — say so honestly.
+    try:
+        for wf in list_agent_workflows():
+            if wf.get("status") == "running" and not (
+                    interrupted and wf.get("agent_id") == "researcher"):
+                update_agent_workflow(
+                    wf.get("agent_id") or wf.get("id") or "unknown",
+                    status="interrupted",
+                    current_task="Interrupted by restart")
+    except Exception:  # noqa: BLE001
+        pass
+
+
 @app.post("/api/research/start")
 async def research_start(request: Request):
     current = goal_store.get_current()
@@ -3484,8 +3606,12 @@ async def research_start(request: Request):
     except Exception:
         pass
     delay = 0 if body.get("now") else None
-    researcher.start(current["parsed"], delay=delay)
-    return {"status": researcher.status}
+    resume_state = None
+    if body.get("resume"):
+        from arail import goals as goals_mod
+        resume_state = goals_mod.load_run_state()
+    researcher.start(current["parsed"], delay=delay, resume_state=resume_state)
+    return {"status": researcher.status, "resumed": resume_state is not None}
 
 
 @app.post("/api/research/pause")
@@ -3496,6 +3622,19 @@ async def research_pause():
 
 @app.post("/api/research/resume")
 async def research_resume():
+    # A dead task cannot be revived by flipping _paused (the historical
+    # bug): when the run task is gone but a resumable checkpoint exists,
+    # delegate to start(resume_state=...) so Resume works after a restart.
+    task = getattr(researcher, "_task", None)
+    if task is None or task.done():
+        from arail import goals as goals_mod
+        rs = goals_mod.load_run_state()
+        current = goal_store.get_current()
+        if current and rs and rs.get("status") in ("running", "paused",
+                                                   "interrupted"):
+            rs = {**rs, "paused": False}
+            researcher.start(current["parsed"], delay=0, resume_state=rs)
+            return {"status": researcher.status, "resumed": True}
     researcher.resume()
     return {"status": researcher.status}
 
@@ -3519,11 +3658,13 @@ async def research_reset():
 @app.get("/api/research/status")
 async def research_status():
     current = goal_store.get_current()
+    from arail import goals as goals_mod
     return {
         "status": researcher.status,
         "progress": current["progress"] if current else 0,
         "report": current.get("report") if current else None,
         "redirect": get_agent_redirect("researcher"),
+        "run_state": goals_mod.load_run_state(),
     }
 
 
@@ -4186,19 +4327,29 @@ async def agents_prompts(agent: str = "", limit: int = 30):
 
 @app.post("/api/agents/instruct")
 async def agents_instruct(request: Request):
-    """Send an ad-hoc instruction to an agent."""
+    """Apply an ad-hoc instruction to an agent.
+
+    Historically this only emitted an activity line and returned
+    ``queued: True`` — a no-op that reported success. It now applies the
+    instruction as the agent's active redirect, which the researcher
+    genuinely reads at run start and at the source-gathering step.
+    """
     body = await request.json()
-    agent_name = body.get("agent", "")
+    agent_name = str(body.get("agent") or "researcher").strip() or "researcher"
     instruction = body.get("instruction", "").strip()
     if not instruction:
         return {"error": "instruction required"}
+    from arail.agent_redirects import set_agent_redirect
+    record = set_agent_redirect(agent_name, instruction,
+                                label="Ad-hoc instruction")
     activity_log.emit(
-        agent_name or "user",
-        f"Instruction: {instruction}",
+        agent_name,
+        f"Instruction applied as active redirect: {instruction[:160]}",
         "info",
-        {"instruction": True, "target_agent": agent_name},
+        {"instruction": True, "target_agent": agent_name,
+         "redirect": record},
     )
-    return {"ok": True, "queued": True}
+    return {"ok": True, "applied": "redirect"}
 
 
 @app.post("/api/agents/redirect")
@@ -5829,10 +5980,42 @@ def _get_primary_router():
 
 
 async def _warm_primary_router() -> None:
+    """Warm the Tier 0 chat model at boot — for real.
+
+    Historically this only CONSTRUCTED the router (an HTTP client for the
+    Ollama backends), so "warmed" never meant "weights resident". It now
+    issues a 1-token completion under the inference slot so Ollama actually
+    loads the model (and the request's keep_alive keeps it resident), then
+    re-probes the registry so the statusbar flips to healthy("resident").
+    Disable the completion with ARAIL_TIER0_BOOT_WARM=0.
+    """
     global _MODEL_WARM
     try:
-        await asyncio.to_thread(_get_primary_router)
-        activity_log.emit("chat", "Primary chat model is loaded and ready.", "info")
+        router = await asyncio.to_thread(_get_primary_router)
+        boot_warm = os.getenv("ARAIL_TIER0_BOOT_WARM", "1").strip().lower() \
+            not in ("0", "false", "no")
+        if boot_warm and getattr(router, "backend_name", "") in (
+                "ollama_native", "openai_compat"):
+            async with scheduler.inference_slot("model-warm"):
+                await asyncio.to_thread(
+                    router.complete, "ok", 1)   # (prompt, max_tokens)
+            # Re-probe so the registry reflects residency immediately.
+            try:
+                from arail.registry import get_registry
+                from arail.registry import health as _reg_health
+                reg = get_registry()
+                reg._ensure_loaded()
+                tier0 = next((e for e in reg.entries.values()
+                              if e.tier == 0 and e.enabled), None)
+                if tier0 is not None:
+                    tier0.health = _reg_health.probe_entry(tier0)
+            except Exception:  # noqa: BLE001
+                pass
+            activity_log.emit("chat",
+                              "Primary chat model warmed (weights resident).",
+                              "info")
+        else:
+            activity_log.emit("chat", "Primary chat model is loaded and ready.", "info")
     except Exception as e:  # noqa: BLE001
         activity_log.emit(
             "chat",
@@ -5980,38 +6163,11 @@ def _get_runtime_backend(runtime: str, model_id: str):
     if cached is not None:
         return cached
 
-    runtime_bases = {
-        "ollama":      f"http://127.0.0.1:{os.getenv('OLLAMA_PORT', '11434')}/v1",
-        "mlx-openai":  f"http://127.0.0.1:{os.getenv('MLX_OPENAI_PORT', '11435')}/v1",
-        # Future: lmstudio, vllm, lmdeploy, etc. Same shape.
-    }
-    base = runtime_bases.get(runtime)
-    if base is None:
-        raise ValueError(f"unknown runtime: {runtime}")
-
-    import requests as _req
-
-    if runtime == "ollama":
-        # B2 (ARCHITECTURE.md L3): use OllamaNativeBackend so options.num_ctx
-        # reaches the native /api/chat endpoint rather than being silently
-        # dropped by Ollama's OpenAI /v1 shim (F-OLLAMA-SHIM).
-        from arail.router.backends import OllamaNativeBackend, _resolve_ctx_override
-        be = OllamaNativeBackend.__new__(OllamaNativeBackend)
-        be._session = _req.Session()
-        be.base_url = base
-        be.model_name = model_id
-        be.api_key = "not-needed"   # local runtimes ignore auth
-        be.backend_name = "ollama:native"
-        # Resolve ctx override in the branch (not in __init__) per ARCHITECTURE.md.
-        be._num_ctx = _resolve_ctx_override(model_id, default=None)
-    else:
-        from arail.router.backends import OpenAICompatBackend
-        be = OpenAICompatBackend.__new__(OpenAICompatBackend)
-        be._session = _req.Session()
-        be.base_url = base
-        be.model_name = model_id
-        be.api_key = "not-needed"   # local runtimes ignore auth
-        be.backend_name = f"{runtime}:openai_compat"
+    # Construction logic lives in the unified registry now (single place
+    # that knows how to build backends); behavior is identical to the
+    # historical inline body, including backend_name strings.
+    from arail.registry.binding import build_runtime_backend
+    be = build_runtime_backend(runtime, model_id)
 
     _RUNTIME_BACKEND_CACHE[cache_key] = be
     return be
@@ -6770,7 +6926,31 @@ async def api_chat_stream(request: Request):
         body.get("runtime"),
     )
 
+    # Conversation persistence (docs/conversation-memory.md): only when the
+    # client sends a conversation_id — no id means ephemeral (warm pings and
+    # probes never touch the store). The turn.started event lands BEFORE
+    # generation so a crash mid-turn leaves an orphan the boot sweep
+    # resolves to turn.interrupted.
+    conversation_id = str(body.get("conversation_id") or "").strip() or None
+    branch = str(body.get("branch") or "A").strip() or "A"
+    conv_store = None
+    turn_id = None
+    if conversation_id:
+        try:
+            from arail.chat.conversations import ConversationStore
+            conv_store = ConversationStore()
+            if conv_store.get_meta(conversation_id) is not None:
+                turn_id = conv_store.start_turn(
+                    conversation_id, message, branch=branch,
+                    model=stream_model, backend=stream_backend)
+            else:
+                conv_store = None
+        except Exception:  # noqa: BLE001  # persistence never blocks chat
+            conv_store = None
+
     async def _generate() -> AsyncIterator[str]:
+        pieces: list[str] = []
+        final_event: dict | None = None
         async for event in _run_chat_completion_stream(
             message=message,
             history=body.get("history") or [],
@@ -6781,7 +6961,26 @@ async def api_chat_stream(request: Request):
             max_tokens=int(body.get("max_tokens") or 512),
             runtime_override=stream_runtime,
         ):
+            if event.get("type") == "delta":
+                pieces.append(str(event.get("delta") or ""))
+            elif event.get("type") == "final":
+                final_event = event
             yield json.dumps(event, default=str) + "\n"
+        if conv_store is not None and turn_id is not None:
+            try:
+                if final_event is not None and not final_event.get("error"):
+                    conv_store.complete_turn(
+                        conversation_id, turn_id,
+                        str(final_event.get("reply") or "".join(pieces)),
+                        tokens_used=final_event.get("tokens_used"),
+                        latency_ms=final_event.get("latency_ms"))
+                else:
+                    conv_store.fail_turn(
+                        conversation_id, turn_id,
+                        str((final_event or {}).get("error") or "no final event"),
+                        partial_text="".join(pieces))
+            except Exception:  # noqa: BLE001
+                pass
 
     return StreamingResponse(
         _generate(),
@@ -8185,6 +8384,26 @@ def _render_metrics() -> str:
         "gauge", "arail_lab_mode", None, lab_mode_val,
     )
 
+    # -- model residency (registry health; designed in build-and-finetune
+    #    plan as arail_model_resident, implemented here from real probes) --
+    try:
+        from arail.registry import get_registry as _get_reg
+        _reg = _get_reg()
+        _reg._ensure_loaded()
+        for _entry in _reg.entries.values():
+            if _entry.tier is None:
+                continue
+            _emit("Model weights resident (1) or not (0), from health probes.",
+                  "gauge", "arail_model_resident",
+                  {"tier": str(_entry.tier), "entry_id": _entry.id},
+                  1 if _entry.health.status == "healthy" else 0)
+            _emit("Model weight load in flight (1) or not (0).",
+                  "gauge", "arail_model_warming",
+                  {"tier": str(_entry.tier), "entry_id": _entry.id},
+                  1 if _entry.health.status == "warming" else 0)
+    except Exception:  # noqa: BLE001
+        pass
+
     # -- inference capacity --
     snap = _sched_mod.snapshot()
     _emit("Maximum concurrent inference slots.", "gauge",
@@ -8588,7 +8807,21 @@ async def system_health():
         opencode_up=opencode_up,
     )
 
+    # Model registry tiers — entries + health from arail.registry.
+    try:
+        from arail.registry import get_registry
+        _reg_state = get_registry().to_state()
+        models_section = {
+            "statusbar": _reg_state["statusbar"],
+            "entries": _reg_state["entries"],
+            "bindings": _reg_state["bindings"],
+            "recent_events": _reg_state["recent_events"][-5:],
+        }
+    except Exception:  # noqa: BLE001
+        models_section = None
+
     return {
+        "models": models_section,
         "platform": platform.system(),
         "arch": platform.machine(),
         "cpu_count": cpu_count,
@@ -9525,6 +9758,15 @@ async def knowledge_redirect(request: Request):
     # Legacy route — the tab is DaC now. 307 preserves ?file= deep-links.
     q = ("?" + str(request.query_params)) if request.query_params else ""
     return RedirectResponse(url="/dac" + q, status_code=307)
+
+
+@app.get("/build", response_class=HTMLResponse)
+async def build_page(request: Request):
+    """Nucleus MODEL BUILDING tab — thin shell; hydrates from /api/build/*."""
+    return templates.TemplateResponse(request, "build.html", {
+        "active": "build",
+        **_identity_ctx(),
+    })
 
 
 @app.get("/dac", response_class=HTMLResponse)

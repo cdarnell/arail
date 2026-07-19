@@ -23,6 +23,7 @@
       <div class="rx-goal-title" id="rx-goal-title">No active goal</div>
       <span class="rx-chip domain" id="rx-goal-domain" hidden></span>
       <span class="rx-pill idle" id="rx-status-pill">idle</span>
+      {% with chip_tab='research' %}{% include "_model_chip.html" %}{% endwith %}
     </div>
 
     <!-- Research program files — the two-file contract the researcher
@@ -647,9 +648,14 @@ function renderControls() {
   const st = RESEARCH.status;
   const has = !!RESEARCH.goal;
   const b = id => document.getElementById(id);
+  // A restart-interrupted run is resumable from its checkpoint (run_state
+  // persisted server-side) even though the live status reads idle.
+  const interrupted = !!(RESEARCH.run_state &&
+    ['interrupted','running','paused'].includes(RESEARCH.run_state.status) &&
+    st !== 'running');
   b('rx-btn-run').disabled    = !has || st === 'running' || st === 'paused';
   b('rx-btn-pause').disabled  = st !== 'running';
-  b('rx-btn-resume').disabled = st !== 'paused';
+  b('rx-btn-resume').disabled = !(st === 'paused' || interrupted);
   b('rx-btn-stop').disabled   = !(st === 'running' || st === 'paused');
   b('rx-btn-new').disabled    = false;
 }
@@ -1143,6 +1149,7 @@ async function setNewGoal(text, opts) {
 async function refreshStatus() {
   const s = await fetchStatus();
   RESEARCH.status = s.status || 'idle';
+  RESEARCH.run_state = s.run_state || null;
   if (typeof s.progress === 'number') RESEARCH.progress = s.progress;
   renderCockpit();
 }
@@ -1155,6 +1162,7 @@ async function refreshAll() {
   RESEARCH.preview = preview;
   RESEARCH.experiments = exps;
   RESEARCH.status = status.status || 'idle';
+  RESEARCH.run_state = status.run_state || null;
   RESEARCH.progress = (typeof status.progress === 'number') ? status.progress
                     : (goal && typeof goal.progress === 'number' ? goal.progress : 0);
   renderCockpit();

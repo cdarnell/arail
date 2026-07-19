@@ -214,13 +214,54 @@ def _reset_window_override_for_tests() -> None:
 
 
 # ── Global halt flag ─────────────────────────────────────────────────
+# Persisted (like the window override) so a portal restart cannot silently
+# un-halt the lab: an operator who halted jobs expects them to STAY halted
+# until an explicit resume — including across crashes and daemon respawns.
 
 _halt_lock = threading.Lock()
 _halted = False
+_halt_loaded = False
+
+
+def _halt_path():
+    from arail.config import DATA_DIR
+    return DATA_DIR / "halt.json"
+
+
+def _load_halt_locked() -> None:
+    global _halted, _halt_loaded
+    if _halt_loaded:
+        return
+    _halt_loaded = True
+    path = _halt_path()
+    if not path.exists():
+        return
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return
+    if isinstance(data, dict):
+        _halted = bool(data.get("halted", False))
+
+
+def _persist_halt_locked() -> None:
+    path = _halt_path()
+    try:
+        if not _halted:
+            path.unlink(missing_ok=True)
+        else:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps({
+                "halted": True,
+                "changed_at": datetime.now().isoformat(timespec="seconds"),
+            }, indent=2))
+    except OSError:
+        pass  # best-effort persistence; in-memory state still applies
 
 
 def jobs_halted() -> bool:
     with _halt_lock:
+        _load_halt_locked()
         return _halted
 
 
@@ -228,13 +269,25 @@ def halt_all_jobs() -> None:
     """Flip the halt flag. Agents poll this and abort their current tick."""
     global _halted
     with _halt_lock:
+        _load_halt_locked()
         _halted = True
+        _persist_halt_locked()
 
 
 def resume_all_jobs() -> None:
     global _halted
     with _halt_lock:
+        _load_halt_locked()
         _halted = False
+        _persist_halt_locked()
+
+
+def _reset_halt_for_tests() -> None:
+    global _halted, _halt_loaded
+    with _halt_lock:
+        _halted = False
+        _halt_loaded = True
+        _halt_path().unlink(missing_ok=True)
 
 
 def state() -> dict:

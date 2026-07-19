@@ -154,9 +154,11 @@ EOF
 
   Commands:
     setup           first-time provisioning — pick a tier, deps, model
-    start           launch portal + terminal + notebook + IDE
-    stop            stop running lab services
-    restart         stop then start (quick bounce)
+    start           launch the lab (foreground start.sh, or launchd in daemon mode)
+    stop            stop lab services (unloads launchd agents in daemon mode)
+    restart         stop then start (launchctl kickstart -k in daemon mode)
+    install-daemon  supervise the lab with launchd — starts at login, respawns on crash
+    uninstall-daemon  remove launchd supervision (back to dev/foreground mode)
     upgrade <tier>  switch install tier — minimalist | maximus
     deep <op>       AeroLLM 2nd inference: rebuild (source) | update (wheel) | status
     update          check for and apply component updates
@@ -187,12 +189,63 @@ EOF
 
 cmd="${1:-help}"; shift || true
 
+# ── launchd daemon mode ──────────────────────────────────────────────
+# When install-daemon has been run, start/stop/restart drive launchctl
+# instead of the foreground start.sh (which refuses to run in daemon mode).
+daemon_installed() { [[ -f "$HOME/Library/LaunchAgents/io.arail.portal.plist" ]]; }
+
+daemon_agents() {
+    local label
+    for label in io.arail.portal io.arail.memory io.arail.mlx; do
+        [[ -f "$HOME/Library/LaunchAgents/$label.plist" ]] && echo "$label"
+    done
+    return 0
+}
+
 case "$cmd" in
     setup)     exec bash "$REPO_ROOT/scripts/setup.sh" "$@" ;;
     blueprint) exec bash "$REPO_ROOT/scripts/blueprint.sh" "$@" ;;
-    start)   exec bash "$REPO_ROOT/scripts/start.sh" "$@" ;;
-    stop)    exec bash "$REPO_ROOT/scripts/reset.sh" stop ;;
-    restart) bash "$REPO_ROOT/scripts/reset.sh" stop && exec bash "$REPO_ROOT/scripts/start.sh" "$@" ;;
+    install-daemon)   exec bash "$REPO_ROOT/scripts/install-daemon.sh" ;;
+    uninstall-daemon) exec bash "$REPO_ROOT/scripts/install-daemon.sh" --uninstall ;;
+    start)
+        if daemon_installed; then
+            for label in $(daemon_agents); do
+                launchctl load "$HOME/Library/LaunchAgents/$label.plist" 2>/dev/null || true
+            done
+            launchctl kickstart "gui/$(id -u)/io.arail.portal" 2>/dev/null || true
+            # Ports live in lab.conf (setup picks free ones), NOT .env —
+            # source both, in the same order as start.sh/status.sh, or we
+            # print a default port the lab isn't actually on.
+            # shellcheck disable=SC1091
+            [[ -f "$REPO_ROOT/.env" ]] && set -a && source "$REPO_ROOT/.env" && set +a
+            if [[ -f "$REPO_ROOT/lab.conf" ]]; then
+                # shellcheck disable=SC1091
+                set -a && source "$REPO_ROOT/lab.conf" && set +a
+            fi
+            echo "Lab supervised by launchd — portal: http://${BIND_ADDR:-127.0.0.1}:${PORTAL_PORT:-8080}"
+            exit 0
+        fi
+        exec bash "$REPO_ROOT/scripts/start.sh" "$@"
+        ;;
+    stop)
+        if daemon_installed; then
+            for label in $(daemon_agents); do
+                launchctl unload "$HOME/Library/LaunchAgents/$label.plist" 2>/dev/null || true
+            done
+            echo "Lab agents unloaded — they stay stopped until ./arailctl start."
+            exit 0
+        fi
+        exec bash "$REPO_ROOT/scripts/reset.sh" stop
+        ;;
+    restart)
+        if daemon_installed; then
+            for label in $(daemon_agents); do
+                launchctl kickstart -k "gui/$(id -u)/$label" 2>/dev/null || true
+            done
+            echo "Lab agents restarted (launchctl kickstart -k)."
+            exit 0
+        fi
+        bash "$REPO_ROOT/scripts/reset.sh" stop && exec bash "$REPO_ROOT/scripts/start.sh" "$@" ;;
     upgrade) exec bash "$REPO_ROOT/scripts/upgrade.sh" "$@" ;;
     deep)
         # AeroLLM 2nd-inference: rebuild (source) | update (published wheel) | status.
@@ -235,7 +288,7 @@ for line in sys.stdin:
 "
                 echo ""
                 say "Live tail:"
-                tail -f "$LOG_FILE" | python3 -c "
+                tail -F "$LOG_FILE" | python3 -c "
 import sys, json
 for line in sys.stdin:
     try:
@@ -268,7 +321,7 @@ for line in sys.stdin:
 "
                 echo ""
                 say "Live tail ($COMP only):"
-                tail -f "$LOG_FILE" | grep --line-buffered "\"source\":.*\"$COMP\"" | python3 -c "
+                tail -F "$LOG_FILE" | grep --line-buffered "\"source\":.*\"$COMP\"" | python3 -c "
 import sys, json
 for line in sys.stdin:
     try:

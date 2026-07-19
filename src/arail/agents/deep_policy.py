@@ -120,24 +120,29 @@ def get_deep_router():
         return _deep_router
 
 
+_fast_cfgv: "int | None" = None
+
+
 def _get_fast_router():
-    global _fast_router
-    if _fast_router is _FAILED:
-        return None
-    if _fast_router is not None:
-        return _fast_router
+    """Fast (Tier 0) router via the model registry.
+
+    Cached per registry config_version — a binding change in the portal
+    reaches the agents without a restart (the old module-level _FAILED
+    sentinel could permanently latch a transient failure)."""
+    global _fast_router, _fast_cfgv
     with _lock:
-        if _fast_router is _FAILED:
-            return None
-        if _fast_router is not None:
-            return _fast_router
         try:
-            from arail.router.core import ModelRouter
-            _fast_router = ModelRouter(billing_source="agent")
+            from arail.registry import get_registry
+            reg = get_registry()
+            res = reg.resolve("fast", tab="agents")
+            if (_fast_router is not None and _fast_router is not _FAILED
+                    and _fast_cfgv == res.config_version):
+                return _fast_router
+            _fast_router = res.router(billing_source="agent")
+            _fast_cfgv = res.config_version
+            return _fast_router
         except Exception:  # noqa: BLE001
-            _fast_router = _FAILED
             return None
-        return _fast_router
 
 
 def complete_preferring_deep(
@@ -165,8 +170,15 @@ def complete_preferring_deep(
                 text = (resp.text or "").strip() if resp else ""
                 if text:
                     return text
-            except Exception:  # noqa: BLE001
-                pass  # fall through to fast — never crash, never OOM
+            except Exception as exc:  # noqa: BLE001
+                # Fall through to fast — never crash, never OOM — but make
+                # the degradation VISIBLE via the registry health state.
+                try:
+                    from arail.registry import get_registry
+                    from arail.registry.store import TIER1_ID
+                    get_registry().report_failure(TIER1_ID, exc)
+                except Exception:  # noqa: BLE001
+                    pass
     fr = fast_router or _get_fast_router()
     if fr is None:
         return None
