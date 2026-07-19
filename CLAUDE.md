@@ -195,6 +195,20 @@ parts.
   storing conversation history; we borrow its declare→gate→version discipline,
   not its pipeline. Don't wire this to DaC without superseding
   `docs/adr/0002-chat-memory-and-the-dac-boundary.md`.
+- **The "no cross-repo runtime imports" DaC boundary has one scoped exception:
+  `dac_world`.** World generation's core code (`forge_world`/`write_bundle`/
+  `reseal_bundle`/`render_world_skill`/`validate_bundle_content`) moved out of
+  this repo's `src/arail/world_forge.py` into a shared, DaC-owned package
+  (`dac_world`, in `qukaizen-dac`) that ARAIL now imports as a runtime
+  dependency; `world_forge.py` is a thin re-export shim over it. This is a
+  deliberate, narrow reversal of the boundary ADR-0002 guards for chat
+  memory — it applies **only** to `dac_world` (World forging/sealing), not to
+  chat memory or any other DaC surface, and `dac_world` itself is model-free
+  and ARAIL-free (no `import arail`, enforced by DaC's own CI). See
+  `docs/adr/0004-world-generation-shared-dac-world-package.md` and
+  `qukaizen-dac`'s `docs/adr/0007-world-generation-shared-dac-world-package.md`.
+  ARAIL still owns the router, portal, async plumbing, and where sealed
+  bundles are hosted (`lab/worlds/`) — only the generator code is shared.
 - **`.gitignore` is comprehensive** (`models/`, `lab/models/`,
   `node_modules/`, `__pycache__/`, runtime state under `lab/pkb/`).
   The 47M `.git/` history bloat is from a single 42M PDF and
