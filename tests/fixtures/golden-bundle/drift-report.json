@@ -1,0 +1,11 @@
+{
+  "schema": "dac.world-drift/v1",
+  "world": "golden",
+  "declared": [
+    "first-term",
+    "second-term"
+  ],
+  "missing": [],
+  "extra": [],
+  "ok": true
+}

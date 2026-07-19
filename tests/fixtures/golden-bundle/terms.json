@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "terms": [
+    {
+      "slug": "first-term",
+      "term": "First Term",
+      "category": "alpha",
+      "short": "The first fixture term.",
+      "definition": "A stable, hand-authored fixture term used for cross-repo parity testing.",
+      "example": "Used identically in both repos' golden-bundle tests.",
+      "related": [
+        "second-term"
+      ],
+      "source": "model:test"
+    },
+    {
+      "slug": "second-term",
+      "term": "Second Term",
+      "category": "beta",
+      "short": "The second fixture term.",
+      "definition": "Pairs with First Term to exercise category + related-graph closure.",
+      "example": "Also used identically in both repos' golden-bundle tests.",
+      "related": [
+        "first-term"
+      ],
+      "source": "model:test"
+    }
+  ]
+}

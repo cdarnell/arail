@@ -1,0 +1,27 @@
+{
+  "schema": "dac.world-bundle/v1",
+  "bundle_version": 1,
+  "world": "golden",
+  "display_name": "Golden Fixture",
+  "created_at": "1970-01-01T00:00:00.000Z",
+  "world_sha256": "229d5cb842728ded2d139b7ff87378680e2a1a210495b6a1d4cb404bb7a5c3ea",
+  "files": {
+    "terms.json": "229d5cb842728ded2d139b7ff87378680e2a1a210495b6a1d4cb404bb7a5c3ea",
+    "spec.json": "841132f7f00ed7a1366ecb59ca881e0552e5cf03ce5daa9b2b41ebe2ae4caab8",
+    "roster.json": "6edce4773cab091793dc756a5ad5756df80434bf6e2e07d5981d3f59f9a8238b",
+    "face.json": "80d9bf65d83e3a33047fbd19b7c8b63e390004f1ee6fbd85788e85c120bc32aa",
+    "agenda.json": "64386d309deec03569516867c76d89cc68eb2b27a3254957a7347a7b947f931b",
+    "drift-report.json": "e8dbdd33fa5c7eccccdd9eb41fca787e9f14fc515b084b9c4d8a47337dcb3f92"
+  },
+  "provenance_tier": "model-asserted",
+  "provenance_counts": {
+    "model": 2,
+    "sourced": 0,
+    "total": 2
+  },
+  "refresh_cadence": "see agenda.json",
+  "compat": {
+    "bundle_schema": 1,
+    "terms_schema": 1
+  }
+}
