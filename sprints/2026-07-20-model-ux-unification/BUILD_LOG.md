@@ -35,12 +35,86 @@ step 8's server probe vs. client rendering may be two commits).
 
 ## Execution
 
-(filled in as each step lands — see below)
+### Step 3 — F-HEADER, both twins
+`chat.html`: `Local · GPU (≤ 8B)` → `Local · GPU`; `Local · SSD (streamed)`
+→ `Local · aeroLLM` at all four sites (rail-card headers ×2, picker-popup
+section headers ×2), plus the deep rail-card subtitle. No plan delta.
+Test: `tests/test_model_ux_phase0_headers.py` (T-HEADER).
+Commit: `bf34aee`.
+
+### Step 4 — F-OVERSELL full site sweep + Gemma license fix
+`chat.html`: fixed every aeroLLM-attributed streaming/layer-stream/SSD
+claim (col-chip-B tooltip+hint, References panel, both streamed-badge
+titles, comparison-strip cell + cs-why note + setCompare comment,
+picker-B header, disabled-B-button tooltip, and the central
+`deepEntries.fit.verdict` mapping — now branches on backend id instead
+of `o.installed ? 'streaming' : ...`). Extended `fitClass()` with
+`resident`/`not install` branches so the new verdict vocabulary gets a
+sane chip color. `models_catalog.yaml`: fixed the deep-model-placeholder
+comment and the gpt-oss-20b-MLX-4bit entry (dropped the "native
+selective expert-streaming backend"/"bit-exact" claims — AERO_MOE_SELECT
+is off and absent from src/). Folded in the Gemma Apache-2.0 mislabel
+fix per ARCHITECTURE.md's "Folded into this sprint" note.
+No plan delta. Test: `tests/test_model_ux_phase0_oversell_copy.py` (T-COPY).
+Commit: `c2fc531`.
+
+### Step 5 — C5 honest `/api/chat/eject`
+`app.py`: rewrote the terminal `return {"ok": True, ...}` to compute
+`ok`/`requires_restart` per runtime (aerollm/airllm always `ok=false`;
+ollama tracks the real subprocess returncode; mlx-openai/mlx/cpu/cuda
+always `ok=false, requires_restart=true`; blank/unknown `ok=bool(freed)`).
+
+**Delta from plan (discovered gap, fixed inline, not a redesign):**
+ARCHITECTURE.md's Security section assumed `model` was "validated by
+`_validate_local_model_id_relaxed`... before `subprocess.run`" — it
+wasn't; eject passed the raw body field straight to `ollama stop`. Added
+the validation call as part of this same edit (same function, same
+contract, zero design risk) rather than leaving the assumption false.
+Test: `tests/test_model_ux_phase0_eject_honesty.py` (T-EJECT-AERO,
+T-EJECT-OLLAMA-FAIL + the validation regression). T-EJECT-OLLAMA
+(happy-path real-daemon check) is out of unit-test reach per
+ARCHITECTURE.md's own Test Strategy — QA's Persistence & Honesty suite
+runs it on real hardware.
+Commit: `d01bcd6`.
+
+### Step 8 — F-WARMDOT warmth probe
+`app.py`: added `_ollama_ps_resident_ids()` (live `/api/ps`, ≤1s
+timeout, cached-last-known fallback — Performance guard) feeding a new
+`warm` field on Ollama-runtime local entries; added a real `resident`
+field to `optional_backends` (`model_warmth._tier1_resident()` for
+aeroLLM, wrapper-cache presence for AirLLM); corrected aeroLLM's dead
+`"streamed": True` field to `False` in the same edit (F-OVERSELL,
+directly adjacent to the line being touched).
+`chat.html`: seeds `State.warmModels` from this server truth on every
+model-list fetch instead of only from the current session's own
+load/eject clicks; deep rows (aeroLLM/AirLLM) now get warmth-driven,
+backend-accurate badge copy and never render an Unload/Eject button in
+either the rail card or the active/mini card (C4/C5 finding 6) — Load
+only.
+No plan delta beyond the `streamed: False` inline fix noted above.
+Test: `tests/test_model_ux_phase0_warmth_probe.py` (T-WARMDOT).
+Commit: `7bc0ef2`.
+
+### Step 9 — Persistence & Honesty (display subset) checkpoint
+Added one end-to-end integration test replaying VISION.md's exact
+scenario (gemma-4-26b-a4b, 13.45 GB, 7.1 GB free) through a single
+`GET /api/chat/models` call, asserting the full gap-closure list holds
+together (hardware nested once, fit chip never "Good", estimate based
+on real disk size not active-params, warm/resident present, no
+`backend_notice`, no header lies) — the automated form of the Test
+Strategy's "re-run the exact live in-browser test" gate.
+Test: `tests/test_model_ux_phase0_integration.py`.
+Commit: `7447107`.
+
+**Phase 0 (display fidelity) is closed as of `7447107`.**
 
 ## Architect feedback required
 
-(empty unless a gap is found — see bottom of this file if populated)
+(empty — no plan gap surfaced; the one discovered item, step 5's missing
+`_validate_local_model_id_relaxed` call, was a factual gap between
+ARCHITECTURE.md's stated assumption and the code, fixed inline per the
+"low-risk, same-contract, document it" rule, not a design question.)
 
 ## Final state
 
-(filled in at handoff)
+(filled in at handoff, after Phase 0b)
