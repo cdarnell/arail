@@ -5608,6 +5608,11 @@ async def admin_models_load(request: Request):
                         model=model_id,
                         runtime=detected_runtime,
                         provider=None,
+                        # Already inside `async with scheduler.inference_slot(
+                        # "admin-model-load")` above (line ~5586) — the shared
+                        # semaphore is not reentrant; re-acquiring it inside
+                        # _prepare_chat_model_load would self-deadlock (C6.2).
+                        _caller_holds_inference_slot=True,
                     )
                     if load_state.get("state") == "error":
                         return JSONResponse(
@@ -7412,7 +7417,20 @@ async def _prepare_chat_model_load(
     model: str | None,
     runtime: str | None,
     provider: str | None,
+    _caller_holds_inference_slot: bool = False,
 ) -> dict[str, Any]:
+    """`_caller_holds_inference_slot`: set by the ONE existing caller
+    (`/api/admin/models/load`'s non-streamed branch) that already runs
+    inside its own `async with scheduler.inference_slot("admin-model-
+    load")`. `inference_slot()` is backed by a single process-wide
+    semaphore shared across every label (not one semaphore per label) —
+    acquiring it again from within an already-held acquisition on the
+    SAME semaphore would self-deadlock (`asyncio.Semaphore` is not
+    reentrant): the outer holder blocks forever awaiting a permit only
+    its own release could free. Discovered while wiring C6.2/F-LOADRACE
+    (this sprint added the internal acquire below) — fixed inline as a
+    correctness requirement of that same change, not a design question.
+    """
     label = _compact_model_label(model) or _display_provider_name(provider or "my_machine")
 
     # C6.2/F-TIMEOUT-ORPHAN: exactly one load in flight. No `await` between
@@ -7490,10 +7508,15 @@ async def _prepare_chat_model_load(
             _get_primary_router()
 
     async def _run() -> None:
-        # C6.2/F-LOADRACE: serialize against aerollm-preload/admin-model-load
-        # via the shared inference slot at default concurrency (A8).
-        async with scheduler.inference_slot("chat-model-load"):
+        if _caller_holds_inference_slot:
+            # See the docstring above — the caller already holds the
+            # shared semaphore; acquiring it again here would deadlock.
             await asyncio.to_thread(_do_load)
+        else:
+            # C6.2/F-LOADRACE: serialize against aerollm-preload/admin-model-load
+            # via the shared inference slot at default concurrency (A8).
+            async with scheduler.inference_slot("chat-model-load"):
+                await asyncio.to_thread(_do_load)
 
     task = asyncio.ensure_future(_run())
     task.add_done_callback(_release_inflight_once)
