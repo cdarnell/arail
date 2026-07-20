@@ -139,6 +139,11 @@ def test_chat_model_load_endpoints_prepare_and_report_state(monkeypatch):
     assert status.status_code == 200
     assert status.json()["state"] == "ready"
 
+    # C6.4/F-CANCEL: no load in progress (the one above already finished)
+    # — cancel is an honest no-op, never a fake "canceled" state.
     canceled = client.post("/api/chat/model-load/cancel")
     assert canceled.status_code == 200
-    assert canceled.json()["state"] == "canceled"
+    canceled_body = canceled.json()
+    assert canceled_body["state"] == "ready"
+    assert canceled_body["ok"] is False
+    assert "no load in progress" in canceled_body["note"]

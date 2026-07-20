@@ -7243,6 +7243,21 @@ def _get_chat_model_load_state() -> dict[str, Any]:
         return dict(_CHAT_MODEL_LOAD_STATE)
 
 
+def _load_max_sec() -> float:
+    """ARAIL_LOAD_MAX_SEC — wall-clock guard for a chat model load.
+
+    Bounds *harm* (a timed-out load can't be followed by a second, doubly-
+    resident load — C6.5); it does NOT bound the load itself, which keeps
+    running in the background regardless (A4: asyncio.to_thread cannot be
+    cancelled or killed externally). Default 180s, floor 5s so a
+    misconfigured value can't make every load instantly time out.
+    """
+    try:
+        return max(float(os.getenv("ARAIL_LOAD_MAX_SEC", "180")), 5.0)
+    except (TypeError, ValueError):
+        return 180.0
+
+
 async def _prepare_chat_model_load(
     *,
     model: str | None,
@@ -7250,6 +7265,31 @@ async def _prepare_chat_model_load(
     provider: str | None,
 ) -> dict[str, Any]:
     label = _compact_model_label(model) or _display_provider_name(provider or "my_machine")
+
+    # C6.2/F-TIMEOUT-ORPHAN: exactly one load in flight. No `await` between
+    # the check and the acquire, so this is race-free within the single-
+    # threaded event loop (same reasoning as scheduler._get_semaphore()).
+    # A second Load while one is running is refused outright, not queued
+    # behind it — queuing would silently double the wait with no signal.
+    if _CHAT_MODEL_LOAD_INFLIGHT.locked():
+        return {
+            **_get_chat_model_load_state(),
+            "message": "a load is already in progress",
+        }
+    await _CHAT_MODEL_LOAD_INFLIGHT.acquire()
+
+    # C6.5/F-TIMEOUT-ORPHAN: the inflight lock is released by this
+    # callback when the background work actually SETTLES — not when a
+    # wall-clock timeout merely stops us from waiting for it. Idempotent
+    # so it's safe regardless of which path below fires it.
+    released = False
+
+    def _release_inflight_once(_task: "asyncio.Task[Any] | None" = None) -> None:
+        nonlocal released
+        if not released:
+            released = True
+            _CHAT_MODEL_LOAD_INFLIGHT.release()
+
     state = _set_chat_model_load_state(
         state="loading",
         blocking=True,
@@ -7261,26 +7301,41 @@ async def _prepare_chat_model_load(
         provider=provider,
     )
 
-    try:
-        # C6.2/F-LOADRACE: at default concurrency (ARAIL_INFERENCE_CONCURRENCY=1,
-        # A8) a chat model load previously did NOT take the shared inference
-        # slot, so it could race the aerollm-preload loop / an admin model
-        # load toward the memory ceiling. Serializing here closes that at
-        # default config; >1 is a pre-existing, operator-opted-in property
-        # of the scheduler (dated follow-up, not silently relied on).
+    def _do_load() -> None:
+        if provider in _OPTIONAL_CHAT_BACKEND_CONFIG:
+            _get_optional_chat_backend(str(provider))
+        elif runtime in ("ollama", "mlx-openai") and model:
+            _get_runtime_backend(str(runtime), str(model))
+        else:
+            _get_primary_router()
+
+    async def _run() -> None:
+        # C6.2/F-LOADRACE: serialize against aerollm-preload/admin-model-load
+        # via the shared inference slot at default concurrency (A8).
         async with scheduler.inference_slot("chat-model-load"):
-            if provider in _OPTIONAL_CHAT_BACKEND_CONFIG:
-                await asyncio.to_thread(_get_optional_chat_backend, str(provider))
-            elif runtime in ("ollama", "mlx-openai") and model:
-                await asyncio.to_thread(_get_runtime_backend, str(runtime), str(model))
-            else:
-                await asyncio.to_thread(_get_primary_router)
+            await asyncio.to_thread(_do_load)
+
+    task = asyncio.ensure_future(_run())
+    task.add_done_callback(_release_inflight_once)
+
+    try:
+        # A4: the underlying to_thread work cannot be cancelled or killed
+        # externally once it starts. shield() means a timeout below stops
+        # US from waiting on `task` — it does NOT stop `task` itself, which
+        # keeps running to completion in the background; the done-callback
+        # above still fires (and releases the inflight lock) when it does.
+        await asyncio.wait_for(asyncio.shield(task), timeout=_load_max_sec())
+    except asyncio.TimeoutError:
         state = _set_chat_model_load_state(
-            state="ready",
+            state="error",
             blocking=False,
-            message=f"{label} ready",
-            eta_seconds=0,
-            progress=1.0,
+            message=(
+                f"{label} is taking longer than {int(_load_max_sec())}s — it may "
+                f"still be loading in the background; check back, or Unload it "
+                f"once it finishes if you no longer want it."
+            ),
+            eta_seconds=None,
+            progress=None,
             model=model,
             runtime=runtime,
             provider=provider,
@@ -7291,6 +7346,17 @@ async def _prepare_chat_model_load(
             blocking=False,
             message=f"Load failed: {type(exc).__name__}: {exc}",
             eta_seconds=None,
+            progress=None,
+            model=model,
+            runtime=runtime,
+            provider=provider,
+        )
+    else:
+        state = _set_chat_model_load_state(
+            state="ready",
+            blocking=False,
+            message=f"{label} ready",
+            eta_seconds=0,
             progress=1.0,
             model=model,
             runtime=runtime,
@@ -7319,13 +7385,26 @@ async def api_chat_model_load(request: Request):
 
 @app.post("/api/chat/model-load/cancel")
 async def api_chat_model_load_cancel():
-    return _set_chat_model_load_state(
-        state="canceled",
-        blocking=False,
-        message="Model load canceled",
-        eta_seconds=0,
-        progress=0.0,
-    )
+    """C6.4/F-CANCEL: honest absence, never a fake `canceled` transition.
+
+    The load runs in a non-cancellable `asyncio.to_thread` (A4) — there is
+    nothing this endpoint can truly interrupt. The previous implementation
+    set `state="canceled"` and returned while the thread kept loading the
+    model fully into memory: a lie of exactly the class this sprint kills.
+    `_CHAT_MODEL_LOAD_STATE` is never mutated here; `state` is always
+    exactly one of `{idle, loading, ready, error}`.
+    """
+    current = _get_chat_model_load_state()
+    if current.get("state") != "loading":
+        return {**current, "ok": False, "note": "no load in progress to cancel"}
+    return {
+        **current,
+        "ok": False,
+        "note": (
+            "a load in progress cannot be interrupted; wait for it to "
+            "finish, then Unload if unwanted"
+        ),
+    }
 
 
 def _get_optional_chat_backend(name: str):

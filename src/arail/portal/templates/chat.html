@@ -1556,6 +1556,19 @@
                popup is gone. The chip above is the visible affordance now. -->
           <div id="model-picker" hidden><div id="picker-pop"></div></div>
 
+          <!-- C6.4 (sprints/2026-07-20-model-ux-unification/ARCHITECTURE.md):
+               this strip has NO JS wiring — nothing ever adds `.visible`
+               (see .loader-strip.visible above) or touches ls-model/ls-bar/
+               ls-pct/ls-eta/ls-cancel. That's intentional, not an oversight:
+               the actual rail Load affordance goes through loadModel() (a
+               1-token /api/chat/stream ping), never /api/chat/model-load.
+               A load-widget/ETA UI here is explicitly gated behind
+               disconfirming-evidence #1 in the architecture's Leash — do
+               NOT wire ls-cancel to POST /api/chat/model-load/cancel
+               expecting a "canceled" transition; the endpoint is honest
+               (never reports canceled — A4, the load can't actually be
+               interrupted) but a naive wiring could still mislead a user
+               into thinking a click did something it didn't. -->
           <div class="loader-strip" id="loader-strip">
             <span class="label">load</span>
             <span class="model" id="ls-model">—</span>
