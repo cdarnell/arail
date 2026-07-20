@@ -7757,6 +7757,8 @@ async def api_chat_models(provider: str = ""):
             "huggingface-cli login or export HF_TOKEN before downloading."
         )
 
+    from arail.portal.model_warmth import _tier1_resident
+
     optional_backends = []
     if _show_airllm():
         optional_backends.append({
@@ -7770,6 +7772,10 @@ async def api_chat_models(provider: str = ""):
             "description": "Layer-streaming deep backend — opt-in on CUDA / Linux x86. Deep model is operator-configured (set AIRLLM_MODEL in .env; see NOTICE and docs). Subprocess-isolated so Metal aborts can't kill the portal.",
             # AirLLM always streams (layer-streaming); mark for picker badge.
             "streamed": True,
+            # F-WARMDOT: AirLLM has no equivalent of aeroLLM's _shared probe
+            # (it's subprocess-isolated); presence in the thin wrapper cache
+            # is the best-effort warmth signal available.
+            "resident": "airllm" in _OPTIONAL_CHAT_BACKEND_CACHE,
         })
     optional_backends.append({
         "id": "aerollm",
@@ -7780,8 +7786,13 @@ async def api_chat_models(provider: str = ""):
         "gated": aero_model_name.lower().startswith("meta-llama/"),
         "install_command": "./arailctl deep rebuild",
         "description": "In-process Rust runtime — primary deep backend on Apple Silicon (Qwen2.5-7B-4bit default, ~4 GB resident; max tier ships Qwen2.5-72B-Instruct-4bit, ~40 GB resident, requires 48 GB+). Single Metal command buffer per generation; ~3× faster than mlx_lm baseline.",
-        # AeroLLM is also streaming by design.
-        "streamed": True,
+        # C4/F-OVERSELL: aeroLLM keeps its model resident once loaded — it
+        # does not stream (AERO_MOE_SELECT is off and absent from src/).
+        "streamed": False,
+        # C4/F-WARMDOT: the real residency probe (model_warmth._tier1_resident()
+        # inspects AeroLLMBackend._shared without constructing anything) — not
+        # `installed`, which only says the weights exist on disk.
+        "resident": _tier1_resident(),
     })
     for entry in optional_backends:
         if entry["gated"]:
@@ -7806,6 +7817,10 @@ async def api_chat_models(provider: str = ""):
                    "error": f"{type(e).__name__}: {e}"}
 
     memory_snapshot = _local_memory_snapshot()
+    # F-WARMDOT (step 8): one live `ollama ps` probe for the whole rail,
+    # not one per model — a short-timeout, cached-on-failure snapshot of
+    # which Ollama-runtime rows are actually resident right now.
+    ollama_warm_ids = _ollama_ps_resident_ids()
     local_entries = [
         _build_local_model_entry(
             entry.get("id", ""),
@@ -7816,6 +7831,8 @@ async def api_chat_models(provider: str = ""):
             current=current,
             detected_gb=float(memory_snapshot.get("total_gb") or 0.0),
             free_gb=float(memory_snapshot.get("free_gb") or 0.0),
+            warm=(str(entry.get("runtime") or "") == "ollama"
+                  and str(entry.get("id") or "") in ollama_warm_ids),
         )
         for entry in gallery.get("installed", [])
         if entry.get("id")
@@ -8185,6 +8202,43 @@ def _fit_actions(verdict: str) -> list[str]:
     return []
 
 
+# Cache the last-known warm-id set so a hung/slow `ollama ps` probe never
+# adds latency to the request path — Performance guard in ARCHITECTURE.md
+# (§ "Performance"): probe with a ≤1s timeout, fall back to last-known on
+# timeout/failure rather than blocking or reporting everything cold.
+_OLLAMA_PS_LAST_KNOWN: set[str] = set()
+
+
+def _ollama_ps_resident_ids(host: str = "127.0.0.1", port: int = 11434) -> set[str]:
+    """F-WARMDOT: real, live warmth for Ollama rows — never derived from
+    `installed` or client-side in-memory state. Queries Ollama's native
+    `/api/ps` (currently-resident models), NOT `/api/tags` (installed-but-
+    possibly-cold). A ≤1s timeout keeps this off the hot path; on timeout
+    or any failure, returns the last successful reading rather than
+    silently reporting every row as cold (which would be its own lie).
+    """
+    global _OLLAMA_PS_LAST_KNOWN
+    import urllib.request
+    try:
+        req = urllib.request.Request(f"http://{host}:{port}/api/ps", method="GET")
+        with urllib.request.urlopen(req, timeout=1.0) as resp:
+            if resp.status != 200:
+                return set(_OLLAMA_PS_LAST_KNOWN)
+            data = json.loads(resp.read())
+    except Exception:  # noqa: BLE001
+        return set(_OLLAMA_PS_LAST_KNOWN)
+
+    ids: set[str] = set()
+    for m in data.get("models") or []:
+        if not isinstance(m, dict):
+            continue
+        name = m.get("name") or m.get("model")
+        if name:
+            ids.add(str(name))
+    _OLLAMA_PS_LAST_KNOWN = ids
+    return set(ids)
+
+
 def _local_memory_snapshot() -> dict[str, Any]:
     total_gb = 0.0
     used_gb = 0.0
@@ -8298,6 +8352,7 @@ def _build_local_model_entry(
     current: str | None,
     detected_gb: float,
     free_gb: float,
+    warm: bool = False,
 ) -> dict[str, Any]:
     spec: dict[str, Any] | None = None
     try:
@@ -8337,6 +8392,12 @@ def _build_local_model_entry(
         "endpoint": endpoint,
         "estimated_vram_gb": estimate_gb,
         "streamed": _streamed,
+        # F-WARMDOT: real, live warmth (from `_ollama_ps_resident_ids()`
+        # for Ollama rows) — never derived from `installed` or client-side
+        # in-memory state. Non-Ollama local runtimes (mlx/mlx-openai) have
+        # no equivalent live-residency probe yet; they default to False
+        # rather than guessing (an honest "don't know" over a fake dot).
+        "warm": bool(warm),
         "fit": {
             "verdict": verdict,
             "summary": _headroom_summary(estimate_gb, free_gb),
