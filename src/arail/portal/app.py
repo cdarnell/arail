@@ -7258,6 +7258,155 @@ def _load_max_sec() -> float:
         return 180.0
 
 
+class _ChatBackendModelMismatch(Exception):
+    """C6.3/F-SWITCH: an optional deep backend (aeroLLM/AirLLM) is already
+    resident with a different model than the one requested. The singleton
+    is single-model per AEROLLM_MODEL/AIRLLM_MODEL and cannot hot-swap
+    (A3) — this signals `_prepare_chat_model_load` to report an honest
+    refusal instead of falsely claiming `ready` for the resident model.
+    """
+
+    def __init__(self, backend_name: str, resident_model: str, requested_model: str):
+        self.backend_name = backend_name
+        self.resident_model = resident_model
+        self.requested_model = requested_model
+        super().__init__(
+            f"{backend_name} already resident with {resident_model!r}; "
+            f"requested {requested_model!r}"
+        )
+
+
+# C6.6: rolling median of observed load throughput, per runtime — the
+# basis for a real ETA instead of a hardcoded constant. Populated by
+# _record_load_throughput() after each successful load; falls back to
+# ARAIL_LOAD_THROUGHPUT_MBPS (default ~500 MB/s) until enough samples
+# accumulate. The spec's ±20% NVMe-probe accuracy target is explicitly
+# descoped (ARCHITECTURE.md Tech debt / INFO-6) — this derived estimate,
+# approximate until warmed, is the shipped behavior.
+_LOAD_THROUGHPUT_SAMPLES_MAX = 20
+_LOAD_THROUGHPUT_SAMPLES: dict[str, list[float]] = {}
+
+
+def _record_load_throughput(runtime: str | None, bytes_loaded: float, seconds: float) -> None:
+    if bytes_loaded <= 0 or seconds <= 0:
+        return
+    mbps = (bytes_loaded / seconds) / (1024 * 1024)
+    key = runtime or "_unknown"
+    samples = _LOAD_THROUGHPUT_SAMPLES.setdefault(key, [])
+    samples.append(mbps)
+    del samples[: len(samples) - _LOAD_THROUGHPUT_SAMPLES_MAX]
+
+
+def _load_throughput_mbps(runtime: str | None) -> float:
+    samples = _LOAD_THROUGHPUT_SAMPLES.get(runtime or "_unknown")
+    if samples:
+        ordered = sorted(samples)
+        mid = len(ordered) // 2
+        if len(ordered) % 2:
+            return ordered[mid]
+        return (ordered[mid - 1] + ordered[mid]) / 2
+    try:
+        return max(float(os.getenv("ARAIL_LOAD_THROUGHPUT_MBPS", "500")), 1.0)
+    except (TypeError, ValueError):
+        return 500.0
+
+
+def _real_on_disk_gb(runtime: str | None, model: str | None) -> float | None:
+    """C6.6: the model's REAL, currently-installed on-disk size — a fresh
+    re-scan at click time (not the catalog's manifest guess). Returns
+    None when the model can't be resolved (not installed, or size
+    unknown), which callers must treat as "no fabricated ETA" (F-FAKEETA).
+    """
+    if not model:
+        return None
+    try:
+        from arail.chat import detect_installed_models
+        installed = detect_installed_models() or []
+    except Exception:  # noqa: BLE001
+        return None
+    for entry in installed:
+        if entry.get("id") != model:
+            continue
+        if runtime and entry.get("runtime") != runtime:
+            continue
+        size = entry.get("size_gb")
+        if isinstance(size, (int, float)) and size > 0:
+            return float(size)
+    return None
+
+
+_SIZE_DISAGREEMENT_TOLERANCE = 0.30  # generous — catches truncated/partial
+# blobs without false-flagging normal quantization/rounding drift.
+
+
+def _catalog_declared_size_gb(model_id: str) -> float | None:
+    """The curated catalog's declared size for an exact model-id match.
+
+    Known limitation: Ollama-runtime ids often carry a `:tag` suffix
+    (e.g. `gemma-4-26b-a4b:latest`) the catalog entry doesn't (`gemma-4-
+    26b-a4b`) — an exact-match miss here safely no-ops the corruption
+    check (never a false "corrupt" flag) rather than attempting fuzzy
+    matching, which risks false positives on a legitimately different
+    quantization of the same family.
+    """
+    try:
+        from arail.chat import load_catalog
+    except Exception:  # noqa: BLE001
+        return None
+    for entry in load_catalog():
+        if entry.id == model_id and entry.size_gb:
+            return float(entry.size_gb)
+    return None
+
+
+def _model_looks_corrupt(model_id: str | None, real_size_gb: float | None) -> bool:
+    """F-CORRUPT: real on-disk size disagrees with the catalog's declared
+    size beyond tolerance — a signal of a truncated/partial download."""
+    if not model_id or real_size_gb is None or real_size_gb <= 0:
+        return False
+    declared = _catalog_declared_size_gb(model_id)
+    if declared is None or declared <= 0:
+        return False
+    return abs(real_size_gb - declared) > declared * _SIZE_DISAGREEMENT_TOLERANCE
+
+
+def _estimate_load_eta_seconds(runtime: str | None, real_size_gb: float) -> float | None:
+    """C6.6: `eta_seconds = on_disk_bytes / throughput_bytes_per_sec`."""
+    throughput_mbps = _load_throughput_mbps(runtime)
+    if throughput_mbps <= 0:
+        return None
+    bytes_total = real_size_gb * (1024 ** 3)
+    bytes_per_sec = throughput_mbps * (1024 ** 2)
+    return round(bytes_total / bytes_per_sec)
+
+
+def _friendly_load_error(exc: BaseException) -> str:
+    """C6.8/F-DAEMONDOWN: never surface a raw traceback/exception-repr to
+    the operator — the full exception is logged server-side only. Detects
+    the daemon-down case (connection refused / `ollama` not on PATH)
+    specifically so the operator gets an actionable banner instead of a
+    generic failure.
+    """
+    _log.warning("chat model load failed: %s: %s", type(exc).__name__, exc, exc_info=exc)
+    text = str(exc).lower()
+    name = type(exc).__name__.lower()
+    daemon_markers = (
+        "connection refused",
+        "econnrefused",
+        "failed to establish a new connection",
+        "ollama binary not on path",
+        "no such file or directory",
+    )
+    if (
+        isinstance(exc, FileNotFoundError)
+        or "connectionerror" in name
+        or "connectionrefused" in name
+        or any(marker in text for marker in daemon_markers)
+    ):
+        return "Ollama isn't running — start it with 'ollama serve', then retry."
+    return f"Couldn't load this model ({type(exc).__name__}). See the activity log for details."
+
+
 async def _prepare_chat_model_load(
     *,
     model: str | None,
@@ -7290,12 +7439,40 @@ async def _prepare_chat_model_load(
             released = True
             _CHAT_MODEL_LOAD_INFLIGHT.release()
 
+    # C6.7/F-REFIT: fit is a click-time precondition, not a stale render-
+    # time snapshot — re-read free memory now (the preload loop may have
+    # warmed something since the rail last rendered) and recompute the
+    # target's verdict. Still allowed to proceed even if "Requires
+    # streaming" (the operator's call) — but the message is honest about
+    # it instead of silently loading against a stale "Marginal" chip.
+    real_size_gb = _real_on_disk_gb(runtime, model)
+    fit_note = ""
+    if real_size_gb is not None:
+        fresh_snapshot = _local_memory_snapshot()
+        fresh_free_gb = float(fresh_snapshot.get("free_gb") or 0.0)
+        estimate_gb = _estimate_model_memory_gb(model, size_gb=real_size_gb)
+        fresh_verdict = _fit_verdict_label(estimate_gb, fresh_free_gb)
+        if fresh_verdict == "Requires streaming":
+            fit_note = f" (~{estimate_gb:.0f} GB needed, ~{fresh_free_gb:.0f} GB free — may swap or fail)"
+
+    # C6.6/F-FAKEETA, F-CORRUPT: real ETA from the fresh on-disk bytes, not
+    # a hardcoded constant. A size that disagrees with the catalog's
+    # declared value beyond tolerance (F-CORRUPT) degrades to no ETA
+    # rather than a plausible-looking but fabricated countdown.
+    eta_seconds: float | None = None
+    load_start = time.monotonic()
+    if real_size_gb is not None and not _model_looks_corrupt(model, real_size_gb):
+        eta_seconds = _estimate_load_eta_seconds(runtime, real_size_gb)
+
     state = _set_chat_model_load_state(
         state="loading",
         blocking=True,
-        message=f"Loading {label}…",
-        eta_seconds=15,
-        progress=0.15,
+        message=f"Loading {label}…{fit_note}",
+        eta_seconds=eta_seconds,
+        # C6.6: a blocking asyncio.to_thread load exposes no incremental
+        # signal — progress is indeterminate (spinner + ETA countdown),
+        # never a fake filling bar.
+        progress=None,
         model=model,
         runtime=runtime,
         provider=provider,
@@ -7303,7 +7480,10 @@ async def _prepare_chat_model_load(
 
     def _do_load() -> None:
         if provider in _OPTIONAL_CHAT_BACKEND_CONFIG:
-            _get_optional_chat_backend(str(provider))
+            # C6.3/F-SWITCH: identity-checked — a resident singleton on a
+            # different model raises _ChatBackendModelMismatch instead of
+            # silently reporting ready for the wrong model.
+            _get_optional_chat_backend(str(provider), expected_model=model)
         elif runtime in ("ollama", "mlx-openai") and model:
             _get_runtime_backend(str(runtime), str(model))
         else:
@@ -7340,11 +7520,29 @@ async def _prepare_chat_model_load(
             runtime=runtime,
             provider=provider,
         )
-    except Exception as exc:  # noqa: BLE001
+    except _ChatBackendModelMismatch as exc:
+        # C6.3/F-SWITCH: honest refusal, never a false "ready" for the
+        # previously-loaded model.
         state = _set_chat_model_load_state(
             state="error",
             blocking=False,
-            message=f"Load failed: {type(exc).__name__}: {exc}",
+            message=(
+                f"{exc.backend_name} already resident with {exc.resident_model}; "
+                f"switching models requires a portal restart"
+            ),
+            eta_seconds=None,
+            progress=None,
+            model=model,
+            runtime=runtime,
+            provider=provider,
+        )
+    except Exception as exc:  # noqa: BLE001
+        # C6.8/F-DAEMONDOWN: a friendly, operator-legible message — never a
+        # raw traceback/exception-repr; full detail is logged server-side.
+        state = _set_chat_model_load_state(
+            state="error",
+            blocking=False,
+            message=_friendly_load_error(exc),
             eta_seconds=None,
             progress=None,
             model=model,
@@ -7352,6 +7550,10 @@ async def _prepare_chat_model_load(
             provider=provider,
         )
     else:
+        if real_size_gb is not None:
+            _record_load_throughput(
+                runtime, real_size_gb * (1024 ** 3), time.monotonic() - load_start
+            )
         state = _set_chat_model_load_state(
             state="ready",
             blocking=False,
@@ -7407,10 +7609,24 @@ async def api_chat_model_load_cancel():
     }
 
 
-def _get_optional_chat_backend(name: str):
+def _get_optional_chat_backend(name: str, *, expected_model: str | None = None):
+    """Return the cached (or newly-constructed) optional backend instance.
+
+    C6.3/F-SWITCH: when `expected_model` is given and a resident instance
+    already exists for a DIFFERENT model, raises `_ChatBackendModelMismatch`
+    instead of silently returning the wrong-model instance as if it were
+    the requested one. The singleton is single-model per AEROLLM_MODEL/
+    AIRLLM_MODEL (A3) and cannot hot-swap mid-process.
+    """
     config = _OPTIONAL_CHAT_BACKEND_CONFIG.get(name)
     if config is None:
         raise ValueError(f"Unknown optional chat backend: {name}")
+
+    def _check_identity(backend: Any) -> Any:
+        resident_model = str(getattr(backend, "model_name", "") or "")
+        if expected_model and resident_model and expected_model != resident_model:
+            raise _ChatBackendModelMismatch(name, resident_model, expected_model)
+        return backend
 
     # C6.2/F-CACHERACE: the check is locked, but a cache MISS falls through
     # to construction (potentially multi-second, disk-heavy) OUTSIDE the
@@ -7420,23 +7636,25 @@ def _get_optional_chat_backend(name: str):
     # thread for however long that takes.
     with _OPTIONAL_CHAT_BACKEND_CACHE_LOCK:
         backend = _OPTIONAL_CHAT_BACKEND_CACHE.get(name)
-    if backend is None:
-        from arail.router import backends as router_backends
+    if backend is not None:
+        return _check_identity(backend)
 
-        backend_cls = getattr(router_backends, config["class_name"])
-        backend = backend_cls()
-        backend.backend_name = name
-        with _OPTIONAL_CHAT_BACKEND_CACHE_LOCK:
-            # Double-checked: another caller may have raced us and already
-            # stored one while we were constructing ours. Keep whichever
-            # won rather than risk two near-simultaneous writes corrupting
-            # the dict — both instances are equally valid fresh backends.
-            existing = _OPTIONAL_CHAT_BACKEND_CACHE.get(name)
-            if existing is not None:
-                backend = existing
-            else:
-                _OPTIONAL_CHAT_BACKEND_CACHE[name] = backend
-    return backend
+    from arail.router import backends as router_backends
+
+    backend_cls = getattr(router_backends, config["class_name"])
+    backend = backend_cls()
+    backend.backend_name = name
+    with _OPTIONAL_CHAT_BACKEND_CACHE_LOCK:
+        # Double-checked: another caller may have raced us and already
+        # stored one while we were constructing ours. Keep whichever
+        # won rather than risk two near-simultaneous writes corrupting
+        # the dict — both instances are equally valid fresh backends.
+        existing = _OPTIONAL_CHAT_BACKEND_CACHE.get(name)
+        if existing is not None:
+            backend = existing
+        else:
+            _OPTIONAL_CHAT_BACKEND_CACHE[name] = backend
+    return _check_identity(backend)
 
 
 def _optional_backend_error_result(name: str | None, error: Exception) -> dict[str, Any]:
