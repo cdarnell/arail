@@ -13,18 +13,33 @@ load's wall-clock guard reports `error` while the inflight lock stays
 held until the background thread actually settles — so a second Load
 cannot double-reside the model (the OOM vector on the 32 GB target).
 
-Test-design note: these tests simulate a slow/hung load WITHOUT a real
-OS thread. An earlier version blocked a genuine background thread on
-`threading.Event().wait(...)` inside the real `asyncio.to_thread` — this
-was reliable in isolation and in small combined runs, but proved
-flaky under the FULL test suite (3000+ tests, ~10 minutes, heavy
-aggregate system load): real OS thread-pool scheduling is subject to
-system-wide contention that a fixed-iteration `asyncio.sleep`-based
-polling loop cannot bound. Replacing the real thread with a fully-async
-stand-in for `asyncio.to_thread` (an `asyncio.Event`-gated coroutine)
-keeps the same behavioral contract under test — a task the caller cannot
-truly interrupt — while making the test's timing fully deterministic
-and independent of real OS thread scheduling.
+Test-design note — this file went through two prior designs before this
+one, both of which were reliable in isolation and in every combined
+run tried (up to 8x repeated), but proved flaky specifically under the
+FULL test suite (3000+ tests, ~10 minutes, heavy aggregate load):
+  1. A real background OS thread blocked on `threading.Event().wait()`
+     inside the real `asyncio.to_thread` — real thread-pool scheduling
+     turned out to be sensitive to full-suite system load in a way no
+     fixed-iteration polling loop could bound.
+  2. A fully-async stand-in for `asyncio.to_thread` (pure coroutine
+     scheduling, no real thread) — this ALSO reproduced the failure
+     under the full suite, including on a test with NO scheduling or
+     waiting whatsoever, which proves the earlier "real thread
+     scheduling" diagnosis, while a real contributing factor, was not
+     the complete picture: the module-level `_CHAT_MODEL_LOAD_STATE` /
+     `_CHAT_MODEL_LOAD_LOCK` / `_CHAT_MODEL_LOAD_INFLIGHT` globals are
+     shared by the ENTIRE test session, and something elsewhere in a
+     3000+-test run can still observe/mutate them during this file's
+     narrow execution window in a way three rounds of investigation did
+     not fully pin down.
+
+This design (3) removes the dependency entirely: `_get_chat_model_load_state`
+and `_set_chat_model_load_state` — the only two functions through which
+`_prepare_chat_model_load` and `api_chat_model_load_cancel` ever touch
+the shared globals — are monkeypatched to closures over a dict private
+to each test. No shared module-level object is read or written by these
+tests at all, so no other test running anywhere in the same session can
+possibly interact with them, regardless of mechanism.
 """
 
 from __future__ import annotations
@@ -32,28 +47,42 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
-import threading
 
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if os.path.join(_REPO_ROOT, "src") not in sys.path:
     sys.path.insert(0, os.path.join(_REPO_ROOT, "src"))
 
 
-def _scoped_load_state(monkeypatch, app_mod):
-    """Swap in a fresh copy of the load-state dict + fresh locks so this
-    test's mutations never leak into other tests in the same process."""
-    monkeypatch.setattr(app_mod, "_CHAT_MODEL_LOAD_STATE", dict(app_mod._CHAT_MODEL_LOAD_STATE))
+def _install_private_load_state(monkeypatch, app_mod, *, initial: dict | None = None):
+    """Redirect `_get_chat_model_load_state`/`_set_chat_model_load_state`
+    to a dict private to this test — no shared module-level object is
+    touched, so nothing else running anywhere in the same pytest session
+    can observe or mutate it. Returns the private dict for direct
+    inspection/seeding by the caller."""
+    state = dict(initial or {
+        "state": "idle", "blocking": False, "message": "No model loaded",
+        "eta_seconds": None, "progress": 0.0, "model": None,
+        "runtime": None, "provider": None, "updated_at": 0.0,
+    })
+
+    def _get():
+        return dict(state)
+
+    def _set(**changes):
+        state.update(changes)
+        return dict(state)
+
+    monkeypatch.setattr(app_mod, "_get_chat_model_load_state", _get)
+    monkeypatch.setattr(app_mod, "_set_chat_model_load_state", _set)
     monkeypatch.setattr(app_mod, "_CHAT_MODEL_LOAD_INFLIGHT", asyncio.Lock())
-    monkeypatch.setattr(app_mod, "_CHAT_MODEL_LOAD_LOCK", threading.Lock())
+    return state
 
 
 def _install_deterministic_to_thread(monkeypatch, app_mod, release_evt: asyncio.Event):
     """Replace `asyncio.to_thread` with a fully-async stand-in that waits
     on `release_evt` before calling the wrapped function — same
     "un-cancellable once started" contract as the real thing (A4), but
-    with zero dependency on real OS thread-pool scheduling, which is what
-    made the thread-based version of this test flaky under the full
-    suite's aggregate system load."""
+    with zero dependency on real OS thread-pool scheduling."""
     async def _fake_to_thread(func, *args, **kwargs):
         await release_evt.wait()
         return func(*args, **kwargs)
@@ -62,10 +91,8 @@ def _install_deterministic_to_thread(monkeypatch, app_mod, release_evt: asyncio.
 
 
 async def _yield_until(predicate, *, attempts: int = 2000) -> None:
-    """Cooperative-only wait (pure coroutine scheduling, no real thread /
-    OS scheduling involved) for `predicate()` to become true. Bounded by
-    iteration count, not wall-clock, so it is not sensitive to how fast
-    or slow the host machine happens to be."""
+    """Cooperative-only wait (pure coroutine scheduling) for `predicate()`
+    to become true. Bounded by iteration count, not wall-clock."""
     for _ in range(attempts):
         if predicate():
             return
@@ -84,7 +111,7 @@ def test_cancel_never_reports_canceled_state_while_a_load_is_in_flight(monkeypat
     import arail.portal.app as app_mod
     from arail.portal import scheduler
 
-    _scoped_load_state(monkeypatch, app_mod)
+    private_state = _install_private_load_state(monkeypatch, app_mod)
     monkeypatch.setattr(scheduler, "_SEM", None)
     monkeypatch.setattr(app_mod, "_get_primary_router", lambda: object())
 
@@ -96,9 +123,7 @@ def test_cancel_never_reports_canceled_state_while_a_load_is_in_flight(monkeypat
             app_mod._prepare_chat_model_load(model=None, runtime=None, provider=None)
         )
         try:
-            await _yield_until(
-                lambda: app_mod._get_chat_model_load_state()["state"] == "loading"
-            )
+            await _yield_until(lambda: private_state["state"] == "loading")
 
             cancel_body = await app_mod.api_chat_model_load_cancel()
             assert cancel_body["state"] != "canceled"
@@ -106,8 +131,8 @@ def test_cancel_never_reports_canceled_state_while_a_load_is_in_flight(monkeypat
             assert cancel_body["ok"] is False
             assert "cannot be interrupted" in cancel_body["note"]
 
-            # At no point did the module-level state hold "canceled".
-            assert app_mod._get_chat_model_load_state()["state"] != "canceled"
+            # At no point did the private state hold "canceled".
+            assert private_state["state"] != "canceled"
         finally:
             # ALWAYS release the simulated in-flight work, regardless of
             # whether the assertions above passed, so this task settles
@@ -122,8 +147,11 @@ def test_cancel_never_reports_canceled_state_while_a_load_is_in_flight(monkeypat
 
 def test_cancel_with_nothing_in_progress_is_an_honest_noop(monkeypatch):
     import arail.portal.app as app_mod
-    _scoped_load_state(monkeypatch, app_mod)
-    app_mod._CHAT_MODEL_LOAD_STATE.update(state="idle", model=None)
+    _install_private_load_state(monkeypatch, app_mod, initial={
+        "state": "idle", "blocking": False, "message": "No model loaded",
+        "eta_seconds": None, "progress": 0.0, "model": None,
+        "runtime": None, "provider": None, "updated_at": 0.0,
+    })
 
     async def _scenario():
         body = await app_mod.api_chat_model_load_cancel()
@@ -173,7 +201,7 @@ def test_timed_out_load_reports_error_but_keeps_inflight_lock_until_thread_settl
     import arail.portal.app as app_mod
     from arail.portal import scheduler
 
-    _scoped_load_state(monkeypatch, app_mod)
+    private_state = _install_private_load_state(monkeypatch, app_mod)
     monkeypatch.setattr(scheduler, "_SEM", None)
     # Shrink the wall-clock guard so the test doesn't wait for the real
     # default — monkeypatch the resolved timeout function itself rather
