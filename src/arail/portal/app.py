@@ -7262,12 +7262,19 @@ async def _prepare_chat_model_load(
     )
 
     try:
-        if provider in _OPTIONAL_CHAT_BACKEND_CONFIG:
-            await asyncio.to_thread(_get_optional_chat_backend, str(provider))
-        elif runtime in ("ollama", "mlx-openai") and model:
-            await asyncio.to_thread(_get_runtime_backend, str(runtime), str(model))
-        else:
-            await asyncio.to_thread(_get_primary_router)
+        # C6.2/F-LOADRACE: at default concurrency (ARAIL_INFERENCE_CONCURRENCY=1,
+        # A8) a chat model load previously did NOT take the shared inference
+        # slot, so it could race the aerollm-preload loop / an admin model
+        # load toward the memory ceiling. Serializing here closes that at
+        # default config; >1 is a pre-existing, operator-opted-in property
+        # of the scheduler (dated follow-up, not silently relied on).
+        async with scheduler.inference_slot("chat-model-load"):
+            if provider in _OPTIONAL_CHAT_BACKEND_CONFIG:
+                await asyncio.to_thread(_get_optional_chat_backend, str(provider))
+            elif runtime in ("ollama", "mlx-openai") and model:
+                await asyncio.to_thread(_get_runtime_backend, str(runtime), str(model))
+            else:
+                await asyncio.to_thread(_get_primary_router)
         state = _set_chat_model_load_state(
             state="ready",
             blocking=False,
