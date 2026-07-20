@@ -220,6 +220,29 @@
   install: "ollama pull gemma3:12b"
   tier: optional
 
+# ── Google Gemma 4 26B-A4B — MoE, 4B active params, official QAT GGUF ──
+# NOTE: `ollama pull hf.co/google/gemma-4-26B-A4B-it-qat-q4_0-gguf` currently
+# 400s (empty error body) — ollama.com's remote HF-import resolver hasn't
+# added support for the brand-new "gemma4" GGUF architecture yet. The LOCAL
+# ollama runtime (>=0.32.1) already ships gemma4 support (x/models/gemma4),
+# so the workaround is to download the GGUF directly and `ollama create`
+# from it, bypassing the broken remote resolver entirely. Verified working
+# 2026-07-19 on ollama 0.32.1 — revisit the one-line hf.co pull periodically.
+- id: gemma-4-26b-a4b
+  name: Gemma 4 26B-A4B (MoE)
+  family: gemma
+  size_gb: 14.4
+  released: 2026-03
+  source: hf
+  good_at: [chat, reasoning, moe, multilingual]
+  description: "Google's Gemma 4 MoE — 26.5B total / ~4B active params,
+               official QAT q4_0 GGUF (Apache-2.0). Full model resides in
+               memory but only ~4B params activate per token — strong
+               reasoning at fast-model speed. Requires ollama >=0.32.1."
+  install: "hf download google/gemma-4-26B-A4B-it-qat-q4_0-gguf gemma-4-26B_q4_0-it.gguf --local-dir $ARAIL_MODELS_DIR/gemma-4-26B-A4B-it-qat-q4_0-gguf
+           # then: printf 'FROM %s/gemma-4-26B-A4B-it-qat-q4_0-gguf/gemma-4-26B_q4_0-it.gguf\\n' \"$ARAIL_MODELS_DIR\" > /tmp/Modelfile.gemma4-26b && ollama create gemma-4-26b-a4b -f /tmp/Modelfile.gemma4-26b"
+  tier: optional
+
 # ── Qwen 3 + Qwen 2.5 Coder — Alibaba family, very strong ──────────
 - id: qwen3:4b
   name: Qwen 3 4B
