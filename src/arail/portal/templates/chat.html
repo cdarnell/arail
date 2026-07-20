@@ -1728,16 +1728,23 @@
            below the chat — see #active-strip above.) -->
 
       <div class="rail-card">
-        <div class="rc-head"><span>Local · GPU (&le; 8B)</span><span class="count" id="count-local">0</span></div>
+        <!-- F-HEADER: no "(<= 8B)" — this column also renders the real
+             gemma-4-26b-a4b MoE row (13.4 GB resident) once installed;
+             the size claim was a static lie the real fit chip contradicts. -->
+        <div class="rc-head"><span>Local · GPU</span><span class="count" id="count-local">0</span></div>
         <div id="rail-models-local" class="rail-list"></div>
       </div>
 
       <div class="rail-card">
-        <div class="rc-head"><span>Local · SSD (streamed)</span><span class="count" id="count-deep">0</span></div>
+        <!-- F-HEADER twin: aeroLLM keeps the deep model RESIDENT once
+             loaded (not streamed from disk per-token) — AERO_MOE_SELECT
+             (real expert-streaming) is off and absent from src/. Only
+             AirLLM (the opt-in CUDA/x86 backend) actually layer-streams. -->
+        <div class="rc-head"><span>Local · aeroLLM</span><span class="count" id="count-deep">0</span></div>
         <div id="rail-models-deep" class="rail-list"></div>
         <div class="rc-body tight-top">
           <div class="rc-note">
-            30B+ models streamed from disk via AeroLLM.
+            Large models kept resident by AeroLLM once loaded.
             Set <code class="inline-path">AEROLLM_MODEL</code> in <code class="inline-path">.env</code>.
           </div>
         </div>
@@ -2167,24 +2174,28 @@
                     ? `${State.gallery.compact.hardware.label} · ${State.gallery.compact.hardware.free_gb||'?'} GB free`
                     : '';
 
-      // Section: gallery (on-disk) models that fit in GPU VRAM (under 8B).
+      // Section: gallery (on-disk) local-GPU models — real fit chip decides
+      // whether any given row is Good/Marginal/Requires streaming; the
+      // header itself makes no size claim (F-HEADER).
       const localModels = State.models.filter(m => m.badge !== 'deep');
       if (localModels.length) {
         const sec = document.createElement('div');
         sec.className = 'section';
-        sec.innerHTML = `<div class="head"><span>Local · GPU (&le; 8B)</span><span class="hw">${hwLabel}</span></div>`;
+        sec.innerHTML = `<div class="head"><span>Local · GPU</span><span class="hw">${hwLabel}</span></div>`;
         pop.appendChild(sec);
         localModels.forEach(m =>
           pop.appendChild(makeOpt(m, State.currentId, x => { selectModel(x); closePicker(); }))
         );
       }
 
-      // Section: SSD-streamed deep backends (AeroLLM) — 30B+ on modest VRAM.
+      // Section: deep backends (AeroLLM resident, AirLLM opt-in layer-
+      // streamed). F-HEADER twin fix: aeroLLM keeps its model resident
+      // once loaded, unlike the disk-per-token claim the old header made.
       const deep = State.models.filter(m => m.badge === 'deep');
       if (deep.length) {
         const sec = document.createElement('div');
         sec.className = 'section';
-        sec.innerHTML = `<div class="head"><span>Local · SSD (streamed)</span><span class="hw">30B+ via layer-stream</span></div>`;
+        sec.innerHTML = `<div class="head"><span>Local · aeroLLM</span><span class="hw">30B+ deep backends</span></div>`;
         pop.appendChild(sec);
         deep.forEach(m =>
           pop.appendChild(makeOpt(m, State.currentId, x => { selectModel(x); closePicker(); }))
