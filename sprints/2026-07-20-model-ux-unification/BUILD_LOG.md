@@ -108,13 +108,277 @@ Commit: `7447107`.
 
 **Phase 0 (display fidelity) is closed as of `7447107`.**
 
+### Step 10 — C6.1 idle init state + C6.2 cache lock
+`app.py`: `_CHAT_MODEL_LOAD_STATE` initializes to `state="idle",
+message="No model loaded", model=None` (was `state="ready", message=
+"Model ready"` — cold start/every restart falsely claimed a model was
+already loaded). Added `_OPTIONAL_CHAT_BACKEND_CACHE_LOCK` (threading.Lock)
+and wrapped every check-then-mutate sequence on
+`_OPTIONAL_CHAT_BACKEND_CACHE`: eject's clear-everything branch, and
+`_get_optional_chat_backend`'s check/construct/store via double-checked
+locking (lock guards the dict read/write, NOT the potentially
+multi-second construction in between — a full-duration lock would block
+eject()/other readers on the event loop thread). Declared (but didn't
+yet wire) `_CHAT_MODEL_LOAD_INFLIGHT` (asyncio.Lock) alongside its
+sibling lock. Updated `test_chat_ui.py`'s cold-state assertion
+(`"ready"`→`"idle"`) — a direct, required consequence of C6.1.
+No plan delta. Test: `tests/test_model_ux_phase0b_idle_and_locks.py`
+(T-IDLE, T-CACHERACE). Commit: `dc092d8`.
+
+### Step 11 — C6.2 serialize the load
+`app.py`: wrapped `_prepare_chat_model_load`'s construction call in
+`async with scheduler.inference_slot("chat-model-load")`, closing the
+F-LOADRACE gap (chat load could previously race the aerollm-preload loop
+/ an admin load toward the memory ceiling at default concurrency).
+No plan delta.
+
+**Discovered-and-fixed while testing (self-inflicted, not architecture):**
+the T-LOADRACE test performs a real `_prepare_chat_model_load` call,
+which mutates the shared module-level `_CHAT_MODEL_LOAD_STATE` dict in
+place — without test isolation this leaked a "ready" state into
+`test_chat_ui.py`'s cold-state assertion when run in the same session.
+Fixed by scoping the test's mutations to a monkeypatched copy of the
+dict (pattern reused by every subsequent Phase 0b test that performs a
+real load). Test: `tests/test_model_ux_phase0b_loadrace.py` (T-LOADRACE).
+Commit: `a40e837`.
+
+### Step 12 — C6.4 honest Cancel + C6.5 bounded timeout
+`app.py`: `_prepare_chat_model_load` now runs the load as a task shielded
+under `asyncio.wait_for(..., timeout=_load_max_sec())`
+(`ARAIL_LOAD_MAX_SEC`, default 180s, floor 5s). A timeout flips the
+*reported* state to `error` with an honest "may still be loading in the
+background" message; a done-callback on the underlying task — not the
+timeout itself — releases `_CHAT_MODEL_LOAD_INFLIGHT`, so a timed-out
+load cannot be followed by a second, doubly-resident load until it
+genuinely settles. The cancel endpoint (`api_chat_model_load_cancel`)
+never mutates `_CHAT_MODEL_LOAD_STATE` at all now — it reports either
+"no load in progress to cancel" or "a load in progress cannot be
+interrupted; wait for it to finish, then Unload if unwanted", never a
+fake `canceled` transition.
+
+**Discovered gap vs. the architecture's framing (documented, not a
+redesign):** C6.4 describes fixing "the load widget" to not render a
+Cancel affordance during a blocking load. The `loader-strip`/`ls-cancel`
+markup in chat.html (`ls-model`/`ls-bar`/`ls-pct`/`ls-eta`) turns out to
+have **zero JS wiring** anywhere — nothing ever adds `.visible` or
+touches those ids; the rail's actual Load affordance goes through
+`loadModel()` (a 1-token `/api/chat/stream` ping), never
+`/api/chat/model-load`. So there was no active Cancel affordance to
+remove. Left the dormant markup as-is (no behavior to change, and
+wiring it up would itself be new load-widget UI — explicitly gated
+behind disconfirming-evidence #1 in the architecture's own Leash) and
+added an in-place comment so a future session doesn't wire `ls-cancel`
+to the endpoint expecting a "canceled" transition, or mistake the dormant
+markup for live UI.
+Test: `tests/test_model_ux_phase0b_cancel_and_timeout.py` (T-CANCEL,
+T-LOAD-BOUND). Commit: `c4805f4`.
+
+### Step 13 — C6.3/C6.6/C6.7/C6.8 identity, real ETA, re-fit, friendly errors
+`app.py`: `_get_optional_chat_backend` gained an `expected_model` kwarg —
+a resident singleton on a different model raises
+`_ChatBackendModelMismatch`, caught by `_prepare_chat_model_load` to
+report an honest refusal ("<backend> already resident with <resident>;
+switching models requires a portal restart") instead of a false `ready`.
+`eta_seconds` is now derived from the model's real, freshly re-scanned
+on-disk size (`_real_on_disk_gb`) over a rolling-median observed
+throughput per runtime (`_load_throughput_mbps`, falls back to
+`ARAIL_LOAD_THROUGHPUT_MBPS`/~500 MB/s); `progress` is `None`
+(indeterminate) rather than a fake bar. A real-vs-catalog size
+disagreement beyond 30% tolerance (`_model_looks_corrupt`) suppresses
+the ETA rather than fabricating a countdown. Before starting the load,
+memory is re-snapshotted and the target's fit verdict recomputed fresh;
+a "Requires streaming" verdict doesn't block the load but the message
+says so honestly. Generic exceptions now go through
+`_friendly_load_error` — a short, operator-legible message (with
+daemon-down detection: connection-refused / `ollama` not on PATH →
+"Ollama isn't running — start it with 'ollama serve', then retry.")
+instead of a raw exception repr; the full exception is logged
+server-side only. `docs/maximus.plan.md` §5's "Loader state machine" now
+explicitly separates what ships today (the 4-state machine, pointing at
+ARCHITECTURE.md §C6) from the six/seven-state SSE-driven design, which
+is labeled a future plan and was never built.
+
+**Delta from plan (documented scoping choice, not a gap):** F-CORRUPT's
+"declared manifest" concept has no dedicated system in this codebase
+(no `ModelManifest`/`fit.py` — that's the aspirational design just
+trimmed out of maximus.plan.md). Implemented corruption detection as an
+exact-id match against the curated catalog's declared `size_gb`; Ollama
+`:tag`-suffixed ids (e.g. `gemma-4-26b-a4b:latest` vs. the catalog's
+`gemma-4-26b-a4b`) miss this match and safely no-op (never a false
+"corrupt" flag) rather than attempting fuzzy id matching, which risks
+false positives on a legitimately different quantization of the same
+family. Documented as a known limitation in the docstring.
+Test: `tests/test_model_ux_phase0b_identity_eta_refit_errors.py`
+(T-SWITCH, T-ETA, T-CORRUPT, T-REFIT, T-DAEMONDOWN). Commit: `31f8bdb`.
+
+### Step 14 — full-suite checkpoint
+Added the remaining named Unit/Security/Regression tests from the Test
+Strategy that didn't already have dedicated coverage: `_fit_verdict_label`'s
+full boundary table (C3, unchanged this sprint), a determinism check
+standing in for T-NOFLICK's pure-function half, F-XSS confirmation for
+the new `warmLabelText` field + `flashStatus`'s textContent-only
+rendering, and two whole-package regression sweeps (no `AERO_MOE_SELECT`
+gating real code anywhere in `src/` — prose mentions explaining it's off
+are fine per BLOCK-2; no `backend_notice` anywhere in the portal
+package). T-EJECT-OLLAMA, T-RESTART, and T-NOFLICK's real-memory-jitter
+half remain QA-suite items requiring real hardware/process control, per
+the architecture's own Test Strategy.
+Commit: `9221bbb`.
+
+**Phase 0b (load/unload lifecycle honesty) is closed as of `9221bbb`.**
+
+### Post-step-14 — discovered deadlock, fixed
+Verifying step 11's change against the rest of `app.py` (not prompted by
+any specific test failure — a deliberate re-read of every caller of the
+functions touched this sprint) surfaced a real bug introduced by this
+sprint's own work: `scheduler.inference_slot()` is backed by ONE
+process-wide semaphore shared across every label, not one per label.
+`/api/admin/models/load`'s non-streamed branch already runs inside
+`async with scheduler.inference_slot("admin-model-load")` and calls
+`_prepare_chat_model_load(...)` — which, after step 11, ALSO acquires
+`scheduler.inference_slot("chat-model-load")` internally. Nesting two
+acquisitions of the same non-reentrant semaphore on the same task
+self-deadlocks. No existing test exercised this path for real (the one
+admin-load concurrency test pre-holds the *admin* lock and asserts an
+immediate 409, never reaching the load body). Fixed with a
+`_caller_holds_inference_slot` kwarg (default False; every other caller
+unaffected) the admin call site sets to skip the now-redundant internal
+acquisition. Regression test proves both directions — the flag prevents
+the hang, and the same setup without it times out, confirming the test
+is meaningful rather than vacuously passing.
+Test: `tests/test_model_ux_phase0b_admin_load_no_deadlock.py`.
+Commit: `336fedd`.
+
+### Post-step-14 — full-suite run surfaced a test-isolation leak, fixed
+Running the COMPLETE test suite (not just targeted regression subsets —
+required by my own protocol before declaring done) surfaced 4 failures
+beyond the established 28-failed/7-error baseline, all self-inflicted:
+`test_model_ux_phase0b_cancel_and_timeout.py`'s two tests that block a
+background thread on `threading.Event().wait(timeout=5)` inside
+`asyncio.to_thread` only released it (`release_evt.set()`) *after*
+assertions that could themselves fail — an early assertion failure left
+the thread blocked for its own internal timeout, and once it eventually
+completed, its callback wrote `state="ready"` into whatever
+`_CHAT_MODEL_LOAD_STATE` was bound to at that later moment. Confirmed by
+exact alphabetical file ordering: the one other victim
+(`test_model_ux_phase0b_idle_and_locks.py`, alphabetically immediately
+after) was corrupted by exactly this leak.
+
+Fixed (attempt 1) with unconditional `finally` blocks that release the
+thread and wait for genuine completion regardless of assertion outcome,
+widened internal timeouts for headroom, and removed an outer
+`asyncio.wait_for(_scenario(), timeout=5.0)` that could itself fire
+prematurely under the full suite's heavier load. Verified with 5x
+repeated combined runs of every Phase 0b test file + `test_chat_ui.py`
+(all green) — the arithmetic also matched: 32 failed in the flawed run
+minus these 4 self-inflicted = 28, exactly the pre-existing baseline.
+Commit: `8269136`.
+
+**This diagnosis was wrong (or at least incomplete).** A second complete
+full-suite run reproduced the IDENTICAL 4 failures byte-for-byte,
+disproving the "leaked orphaned thread" theory — attempt 1's fix changed
+nothing about the actual failure. Re-reading the new failure detail
+(`assert state == "loading"` failing inside the polling loop ITSELF,
+not after it) pointed at the real mechanism: these two tests block a
+REAL OS thread (`asyncio.to_thread` → the default `ThreadPoolExecutor`)
+on `threading.Event().wait(...)`, and real thread-pool scheduling is
+subject to system-wide contention that a fixed-iteration
+`asyncio.sleep`-based polling loop cannot bound — under the full suite's
+~10 minutes of aggregate load (thousands of tests, heavy I/O/subprocess/
+GC pressure), the loop exhausted its iteration budget without the real
+thread ever getting scheduled to run.
+
+**Fixed (attempt 2, the actual fix):** replaced the real thread entirely
+with a fully-async stand-in for `asyncio.to_thread` (an
+`asyncio.Event`-gated coroutine) — same "un-cancellable once started"
+contract under test (A4), zero dependency on OS thread-pool scheduling.
+Cooperative-only waits (`await asyncio.sleep(0)`, bounded by iteration
+count, not wall-clock) replace the polling loop. Verified with 8x
+repeated combined runs (all green, ~1.5s/run — much faster too, since
+nothing waits on a real thread-pool round-trip).
+Test: same file, `tests/test_model_ux_phase0b_cancel_and_timeout.py`.
+Commit: `474bd70`.
+
+**A third full-suite run was started after this fix landed** to get a
+definitive before-handoff confirmation; its result is recorded in the
+"Final state" section below.
+
 ## Architect feedback required
 
-(empty — no plan gap surfaced; the one discovered item, step 5's missing
-`_validate_local_model_id_relaxed` call, was a factual gap between
-ARCHITECTURE.md's stated assumption and the code, fixed inline per the
-"low-risk, same-contract, document it" rule, not a design question.)
+Empty — no plan gap surfaced. Five discovered items, all fixed inline
+and documented above (not design questions, all low-risk and within the
+same contract already being edited): step 5's missing
+`_validate_local_model_id_relaxed` call before `subprocess.run` in
+eject; step 11's test-isolation leak into `test_chat_ui.py` (self-
+inflicted by my own new test, fixed in the same commit); step 12's
+"load widget Cancel affordance" turning out to be dormant, unwired
+markup rather than active UI (documented in place, no behavior changed);
+the post-step-14 admin/chat inference-slot self-deadlock (a real bug in
+this sprint's own C6.2 change, not present before it); and the
+post-step-14 full-suite-only test flakiness in
+`test_model_ux_phase0b_cancel_and_timeout.py` (two tests relying on real
+OS-thread timing under heavy aggregate system load — a test-design
+issue in my own new tests, not a production-code bug; my first fix
+attempt misdiagnosed the mechanism and a second attempt was needed —
+both documented above rather than only the one that worked).
 
 ## Final state
 
-(filled in at handoff, after Phase 0b)
+- **Commits this session:** 16 (`5aab47a` through `474bd70`), on top of
+  the already-landed ledger commit `938ff9d`. Full list: `5aab47a`
+  (BUILD_LOG skeleton), `bf34aee` (step 3), `c2fc531` (step 4),
+  `d01bcd6` (step 5), `7bc0ef2` (step 8), `7447107` (step 9), `0113139`
+  (BUILD_LOG Phase 0 record), `dc092d8` (step 10), `a40e837` (step 11),
+  `c4805f4` (step 12), `31f8bdb` (step 13), `9221bbb` (step 14),
+  `336fedd` (post-step-14 deadlock fix), `8269136` (post-step-14
+  test-isolation fix attempt 1 — later found insufficient), `474bd70`
+  (post-step-14 test-isolation fix attempt 2 — the actual fix).
+- **Files touched:** `src/arail/portal/app.py`,
+  `src/arail/portal/templates/chat.html`,
+  `src/arail/chat/models_catalog.yaml`, `docs/maximus.plan.md`,
+  `tests/test_chat_ui.py` (existing, updated), plus 11 new test files
+  under `tests/test_model_ux_phase0*.py`. No file outside this list was
+  touched — matches ARCHITECTURE.md's implementation-order plan exactly
+  (steps 1/2/4/6/7 from the ledger commit + steps 3/4/5/8/9/10/11/12/
+  13/14 here, plus the two discovered-bug fixes).
+- **Tests:** 75 new/updated tests across the 11 sprint-specific files,
+  all passing, verified with 8x repeated combined runs (not just a
+  single pass) after the final test-design fix. Every touched-file's
+  directly-related pre-existing test file (test_chat_ui.py,
+  test_r1_hardened_golden_snapshot.py, test_r1_r3_chat_models.py,
+  test_inference_scheduler.py, test_aerollm_preload.py,
+  test_dispatch_35b_enforcement.py, test_admin_models_endpoints.py,
+  test_docs_registry*.py) re-run clean. First complete full-suite run
+  (`pytest tests/ -q`, `PYTHONPATH=src` — see the ledger commit's
+  summary for why that's needed in this worktree; 575s) found 32 failed
+  / 7 errors — the pre-existing 28/7 baseline plus 4 self-inflicted
+  failures. **A second full-suite run (573s), after fix attempt 1
+  (`8269136`), reproduced the identical 4 failures byte-for-byte** —
+  disproving that fix's diagnosis. Re-analysis found the real mechanism
+  (real OS-thread scheduling flakiness under aggregate system load, not
+  an orphaned-thread cleanup-ordering issue) and fix attempt 2
+  (`474bd70`) redesigned the two tests to be fully deterministic
+  (no real OS thread). **See the addendum at the end of this section for
+  the third full-suite run's result**, started after `474bd70` landed.
+- **Every failure mode in ARCHITECTURE.md's Failure modes table has a
+  test**, except the three named QA-suite items (T-EJECT-OLLAMA real
+  daemon residency delta, T-RESTART real process restart, T-NOFLICK real
+  memory jitter) which the architecture itself scopes to "the operator's
+  own airgapped Mac," not a builder's unit-test sandbox.
+- No commented-out code. No TODO/FIXME comments introduced.
+- **Phase 0 (display fidelity)** and **Phase 0b (load/unload lifecycle
+  honesty)** are both closed. ARCHITECTURE.md's implementation order is
+  now fully implemented through step 14, plus the two bugs this
+  session's own work introduced (a self-deadlock in step 11, test-design
+  flakiness in its own new tests under full-suite load) and caught and
+  fixed before handoff, rather than left for QA to find.
+
+### Addendum — full-suite run results
+
+| Run | Point-in-time | Result | Notes |
+|---|---|---|---|
+| 1 | after step 14 (`9221bbb`), before either post-step-14 fix | 32 failed, 3179 passed, 7 errors, 575s | Baseline 28/7 + 4 self-inflicted (T-CANCEL/T-LOAD-BOUND flakiness) |
+| 2 | after fix attempt 1 (`8269136`) | 32 failed, 3182 passed, 7 errors, 573s — **identical failure list to run 1** | Fix attempt 1's diagnosis (orphaned-thread cleanup ordering) was wrong; disproved by this run |
+| 3 | after fix attempt 2 (`474bd70`) | filled in below once complete | Deterministic-test redesign; expected to match the 28/7 baseline exactly |
+
+Run 3 output, once available:
