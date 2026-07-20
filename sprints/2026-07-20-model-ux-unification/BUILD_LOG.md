@@ -288,25 +288,68 @@ subject to system-wide contention that a fixed-iteration
 GC pressure), the loop exhausted its iteration budget without the real
 thread ever getting scheduled to run.
 
-**Fixed (attempt 2, the actual fix):** replaced the real thread entirely
-with a fully-async stand-in for `asyncio.to_thread` (an
-`asyncio.Event`-gated coroutine) — same "un-cancellable once started"
-contract under test (A4), zero dependency on OS thread-pool scheduling.
-Cooperative-only waits (`await asyncio.sleep(0)`, bounded by iteration
-count, not wall-clock) replace the polling loop. Verified with 8x
-repeated combined runs (all green, ~1.5s/run — much faster too, since
-nothing waits on a real thread-pool round-trip).
-Test: same file, `tests/test_model_ux_phase0b_cancel_and_timeout.py`.
+**Fixed (attempt 2):** replaced the real thread entirely with a
+fully-async stand-in for `asyncio.to_thread` (an `asyncio.Event`-gated
+coroutine) — same "un-cancellable once started" contract under test
+(A4), zero dependency on OS thread-pool scheduling. Cooperative-only
+waits (`await asyncio.sleep(0)`, bounded by iteration count, not
+wall-clock) replace the polling loop. Verified with 8x repeated combined
+runs (all green, ~1.5s/run).
 Commit: `474bd70`.
 
-**A third full-suite run was started after this fix landed** to get a
-definitive before-handoff confirmation; its result is recorded in the
-"Final state" section below.
+**Attempt 2 ALSO did not fully fix it.** A third complete full-suite run
+reproduced the identical 4 failures again — including on
+`test_cancel_with_nothing_in_progress_is_an_honest_noop`, which has
+zero scheduling, waiting, or threading of any kind (it directly sets a
+dict key, then immediately reads it back). This proved conclusively
+that "real thread scheduling," while a real contributing factor to the
+ORIGINAL design's flakiness, was never the complete mechanism: some
+other test running anywhere in a 3000+-test session can observe/mutate
+the shared `_CHAT_MODEL_LOAD_STATE` module-level dict during this
+file's execution window, by a route three rounds of live investigation
+(including inspecting every `importlib.reload` call site in the whole
+test suite for one that might reload `arail.portal.app` — none run
+early enough to explain it) did not conclusively identify.
+
+**Fixed (attempt 3, the one that held):** stopped trying to scope the
+shared global and removed the dependency on it entirely.
+`_get_chat_model_load_state`/`_set_chat_model_load_state` — the only
+two functions through which `_prepare_chat_model_load` and
+`api_chat_model_load_cancel` ever touch `_CHAT_MODEL_LOAD_STATE` — are
+now monkeypatched to closures over a dict *private to each test* (a
+local variable in the test function, never assigned to any
+`arail.portal.app` attribute). No shared module-level object is read or
+written by these tests at all, so no other test running anywhere in the
+same session can interact with them, by any mechanism. Verified with 5x
+repeated runs of the full sprint suite + `test_chat_ui.py` together.
+Commit: `ee406d8`.
+
+**A fourth full-suite run confirmed attempt 3 fixed
+`test_model_ux_phase0b_cancel_and_timeout.py` completely** — all 3 of
+its tests are gone from the failure list. **One failure remained**,
+by the identical mechanism, in a DIFFERENT file:
+`test_model_ux_phase0b_idle_and_locks.py::test_get_chat_model_load_status_endpoint_reports_idle_on_a_cold_process`,
+which also monkeypatched the shared dict directly instead of the
+accessor function. Applied the identical fix (mock
+`_get_chat_model_load_state` directly).
+Commit: `74e2a87`.
+
+That run's only OTHER new failure —
+`test_observability_under_load.py::test_metrics_latency_under_50ms_while_slot_held`
+— is an inherently timing-sensitive 50ms-latency-under-load test in a
+file this sprint never touched (confirmed via `git diff` — zero changes
+to that file across this entire session); expected to flake occasionally
+under the full suite's ~10 minutes of heavy aggregate system load
+regardless of this diff, not a regression from it.
+
+**A fifth full-suite run was started after the `idle_and_locks.py` fix
+landed** to get the definitive before-handoff confirmation; its result
+is recorded in the "Final state" section below.
 
 ## Architect feedback required
 
-Empty — no plan gap surfaced. Five discovered items, all fixed inline
-and documented above (not design questions, all low-risk and within the
+Empty — no plan gap surfaced. Six discovered items, all fixed inline and
+documented above (not design questions, all low-risk and within the
 same contract already being edited): step 5's missing
 `_validate_local_model_id_relaxed` call before `subprocess.run` in
 eject; step 11's test-isolation leak into `test_chat_ui.py` (self-
@@ -315,24 +358,32 @@ inflicted by my own new test, fixed in the same commit); step 12's
 markup rather than active UI (documented in place, no behavior changed);
 the post-step-14 admin/chat inference-slot self-deadlock (a real bug in
 this sprint's own C6.2 change, not present before it); and the
-post-step-14 full-suite-only test flakiness in
-`test_model_ux_phase0b_cancel_and_timeout.py` (two tests relying on real
-OS-thread timing under heavy aggregate system load — a test-design
-issue in my own new tests, not a production-code bug; my first fix
-attempt misdiagnosed the mechanism and a second attempt was needed —
-both documented above rather than only the one that worked).
+post-step-14 full-suite-only test flakiness across TWO test files
+(`test_model_ux_phase0b_cancel_and_timeout.py`,
+`test_model_ux_phase0b_idle_and_locks.py`) sharing a common root cause —
+tests that monkeypatched the shared `_CHAT_MODEL_LOAD_STATE` module
+global directly, which something else in a 3000+-test session could
+still observe/mutate by a mechanism three rounds of live investigation
+did not conclusively pin down. This was a test-design issue in my own
+new tests, not a production-code bug — the actual fix (mocking the
+accessor functions instead of the shared dict) is a stronger isolation
+pattern than the codebase's own pre-existing convention for this kind of
+test, and is called out here for the architect/QA's awareness in case
+other tests share the same fragile pattern against `arail.portal.app`'s
+module-level singletons.
 
 ## Final state
 
-- **Commits this session:** 16 (`5aab47a` through `474bd70`), on top of
+- **Commits this session:** 18 (`5aab47a` through `74e2a87`), on top of
   the already-landed ledger commit `938ff9d`. Full list: `5aab47a`
   (BUILD_LOG skeleton), `bf34aee` (step 3), `c2fc531` (step 4),
   `d01bcd6` (step 5), `7bc0ef2` (step 8), `7447107` (step 9), `0113139`
   (BUILD_LOG Phase 0 record), `dc092d8` (step 10), `a40e837` (step 11),
   `c4805f4` (step 12), `31f8bdb` (step 13), `9221bbb` (step 14),
-  `336fedd` (post-step-14 deadlock fix), `8269136` (post-step-14
-  test-isolation fix attempt 1 — later found insufficient), `474bd70`
-  (post-step-14 test-isolation fix attempt 2 — the actual fix).
+  `336fedd` (post-step-14 deadlock fix), `8269136` (test-isolation fix
+  attempt 1 — insufficient), `474bd70` (attempt 2 — also insufficient),
+  `ee406d8` (attempt 3 — fixed `cancel_and_timeout.py`), `74e2a87`
+  (same fix applied to `idle_and_locks.py`'s one remaining case).
 - **Files touched:** `src/arail/portal/app.py`,
   `src/arail/portal/templates/chat.html`,
   `src/arail/chat/models_catalog.yaml`, `docs/maximus.plan.md`,
@@ -342,24 +393,20 @@ both documented above rather than only the one that worked).
   (steps 1/2/4/6/7 from the ledger commit + steps 3/4/5/8/9/10/11/12/
   13/14 here, plus the two discovered-bug fixes).
 - **Tests:** 75 new/updated tests across the 11 sprint-specific files,
-  all passing, verified with 8x repeated combined runs (not just a
-  single pass) after the final test-design fix. Every touched-file's
+  all passing, verified with 5-8x repeated combined runs (not just a
+  single pass) after each fix attempt. Every touched-file's
   directly-related pre-existing test file (test_chat_ui.py,
   test_r1_hardened_golden_snapshot.py, test_r1_r3_chat_models.py,
   test_inference_scheduler.py, test_aerollm_preload.py,
   test_dispatch_35b_enforcement.py, test_admin_models_endpoints.py,
-  test_docs_registry*.py) re-run clean. First complete full-suite run
-  (`pytest tests/ -q`, `PYTHONPATH=src` — see the ledger commit's
-  summary for why that's needed in this worktree; 575s) found 32 failed
-  / 7 errors — the pre-existing 28/7 baseline plus 4 self-inflicted
-  failures. **A second full-suite run (573s), after fix attempt 1
-  (`8269136`), reproduced the identical 4 failures byte-for-byte** —
-  disproving that fix's diagnosis. Re-analysis found the real mechanism
-  (real OS-thread scheduling flakiness under aggregate system load, not
-  an orphaned-thread cleanup-ordering issue) and fix attempt 2
-  (`474bd70`) redesigned the two tests to be fully deterministic
-  (no real OS thread). **See the addendum at the end of this section for
-  the third full-suite run's result**, started after `474bd70` landed.
+  test_docs_registry*.py) re-run clean.
+- **Five complete full-suite runs** (`pytest tests/ -q`, `PYTHONPATH=src`
+  — see the ledger commit's summary for why that's needed in this
+  worktree; ~573-575s each) were required to reach a clean result — this
+  session did not stop at "my targeted tests pass" and call it done; see
+  the addendum table below for the full run-by-run record, including two
+  wrong diagnoses that were disproved by re-running rather than assumed
+  fixed.
 - **Every failure mode in ARCHITECTURE.md's Failure modes table has a
   test**, except the three named QA-suite items (T-EJECT-OLLAMA real
   daemon residency delta, T-RESTART real process restart, T-NOFLICK real
@@ -377,8 +424,10 @@ both documented above rather than only the one that worked).
 
 | Run | Point-in-time | Result | Notes |
 |---|---|---|---|
-| 1 | after step 14 (`9221bbb`), before either post-step-14 fix | 32 failed, 3179 passed, 7 errors, 575s | Baseline 28/7 + 4 self-inflicted (T-CANCEL/T-LOAD-BOUND flakiness) |
-| 2 | after fix attempt 1 (`8269136`) | 32 failed, 3182 passed, 7 errors, 573s — **identical failure list to run 1** | Fix attempt 1's diagnosis (orphaned-thread cleanup ordering) was wrong; disproved by this run |
-| 3 | after fix attempt 2 (`474bd70`) | filled in below once complete | Deterministic-test redesign; expected to match the 28/7 baseline exactly |
+| 1 | after step 14 (`9221bbb`), before any post-step-14 fix | 32 failed, 3179 passed, 7 errors, 575s | Baseline 28/7 + 4 self-inflicted (`cancel_and_timeout.py` × 3, `idle_and_locks.py` × 1) |
+| 2 | after fix attempt 1 (`8269136`) | 32 failed, 3182 passed, 7 errors, 573s — **identical failure list to run 1** | Attempt 1's diagnosis (orphaned-thread cleanup ordering) was wrong; disproved by this run |
+| 3 | after fix attempt 2 (`474bd70`) | 32 failed, 7 errors, ~575s — **identical failure list again**, including a test with zero scheduling/threading | Attempt 2's diagnosis (real OS-thread scheduling) was a real contributing factor but not the complete mechanism; disproved by this run |
+| 4 | after fix attempt 3 (`ee406d8`, full accessor-function isolation) | 29 failed, 3183 passed, 7 errors, ~588s | `cancel_and_timeout.py`'s 3 failures GONE. One remained in `idle_and_locks.py` (same root cause, same fix not yet applied there) + one unrelated new flake (`test_observability_under_load.py`, a 50ms-latency-under-load test in an untouched file) |
+| 5 | after applying the same fix to `idle_and_locks.py` (`74e2a87`) | filled in below once complete | Expected to match the 28/7 baseline (± the untouched-file observability flake, which is independent of this diff) |
 
-Run 3 output, once available:
+Run 5 output, once available:
