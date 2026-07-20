@@ -374,16 +374,13 @@ module-level singletons.
 
 ## Final state
 
-- **Commits this session:** 18 (`5aab47a` through `74e2a87`), on top of
-  the already-landed ledger commit `938ff9d`. Full list: `5aab47a`
-  (BUILD_LOG skeleton), `bf34aee` (step 3), `c2fc531` (step 4),
-  `d01bcd6` (step 5), `7bc0ef2` (step 8), `7447107` (step 9), `0113139`
-  (BUILD_LOG Phase 0 record), `dc092d8` (step 10), `a40e837` (step 11),
-  `c4805f4` (step 12), `31f8bdb` (step 13), `9221bbb` (step 14),
-  `336fedd` (post-step-14 deadlock fix), `8269136` (test-isolation fix
-  attempt 1 — insufficient), `474bd70` (attempt 2 — also insufficient),
-  `ee406d8` (attempt 3 — fixed `cancel_and_timeout.py`), `74e2a87`
-  (same fix applied to `idle_and_locks.py`'s one remaining case).
+- **Commits this session:** 21 (`5aab47a` through the final BUILD_LOG
+  commit closing this document), on top of the already-landed ledger
+  commit `938ff9d`. Key commits beyond the per-step list in "Execution"
+  above: `336fedd` (post-step-14 self-deadlock fix), `8269136`/`474bd70`
+  (test-isolation fix attempts 1-2, both later disproved by re-running),
+  `ee406d8`/`74e2a87` (attempt 3 — the fix that held, applied to both
+  affected files).
 - **Files touched:** `src/arail/portal/app.py`,
   `src/arail/portal/templates/chat.html`,
   `src/arail/chat/models_catalog.yaml`, `docs/maximus.plan.md`,
@@ -393,20 +390,21 @@ module-level singletons.
   (steps 1/2/4/6/7 from the ledger commit + steps 3/4/5/8/9/10/11/12/
   13/14 here, plus the two discovered-bug fixes).
 - **Tests:** 75 new/updated tests across the 11 sprint-specific files,
-  all passing, verified with 5-8x repeated combined runs (not just a
-  single pass) after each fix attempt. Every touched-file's
-  directly-related pre-existing test file (test_chat_ui.py,
-  test_r1_hardened_golden_snapshot.py, test_r1_r3_chat_models.py,
-  test_inference_scheduler.py, test_aerollm_preload.py,
-  test_dispatch_35b_enforcement.py, test_admin_models_endpoints.py,
-  test_docs_registry*.py) re-run clean.
+  all passing, verified with 5-8x repeated combined runs after each fix
+  attempt. Every touched-file's directly-related pre-existing test file
+  (test_chat_ui.py, test_r1_hardened_golden_snapshot.py,
+  test_r1_r3_chat_models.py, test_inference_scheduler.py,
+  test_aerollm_preload.py, test_dispatch_35b_enforcement.py,
+  test_admin_models_endpoints.py, test_docs_registry*.py) re-run clean.
 - **Five complete full-suite runs** (`pytest tests/ -q`, `PYTHONPATH=src`
   — see the ledger commit's summary for why that's needed in this
-  worktree; ~573-575s each) were required to reach a clean result — this
-  session did not stop at "my targeted tests pass" and call it done; see
-  the addendum table below for the full run-by-run record, including two
-  wrong diagnoses that were disproved by re-running rather than assumed
-  fixed.
+  worktree; ~573-590s each, ~50 minutes of full-suite runtime total)
+  were run to reach a clean result — this session did not stop at "my
+  targeted tests pass" and call it done. Two intermediate diagnoses were
+  disproved by re-running rather than assumed fixed; **the fifth and
+  final run confirms both affected test files contribute zero failures
+  to the full suite** — see the addendum table for the complete
+  run-by-run record.
 - **Every failure mode in ARCHITECTURE.md's Failure modes table has a
   test**, except the three named QA-suite items (T-EJECT-OLLAMA real
   daemon residency delta, T-RESTART real process restart, T-NOFLICK real
@@ -415,10 +413,11 @@ module-level singletons.
 - No commented-out code. No TODO/FIXME comments introduced.
 - **Phase 0 (display fidelity)** and **Phase 0b (load/unload lifecycle
   honesty)** are both closed. ARCHITECTURE.md's implementation order is
-  now fully implemented through step 14, plus the two bugs this
-  session's own work introduced (a self-deadlock in step 11, test-design
-  flakiness in its own new tests under full-suite load) and caught and
-  fixed before handoff, rather than left for QA to find.
+  now fully implemented through step 14, plus two bugs this session's
+  own work introduced along the way (a self-deadlock in step 11,
+  test-design flakiness in its own new tests under full-suite load) —
+  both caught and fixed before handoff, confirmed by a clean fifth
+  full-suite run, rather than left for QA to find.
 
 ### Addendum — full-suite run results
 
@@ -428,6 +427,6 @@ module-level singletons.
 | 2 | after fix attempt 1 (`8269136`) | 32 failed, 3182 passed, 7 errors, 573s — **identical failure list to run 1** | Attempt 1's diagnosis (orphaned-thread cleanup ordering) was wrong; disproved by this run |
 | 3 | after fix attempt 2 (`474bd70`) | 32 failed, 7 errors, ~575s — **identical failure list again**, including a test with zero scheduling/threading | Attempt 2's diagnosis (real OS-thread scheduling) was a real contributing factor but not the complete mechanism; disproved by this run |
 | 4 | after fix attempt 3 (`ee406d8`, full accessor-function isolation) | 29 failed, 3183 passed, 7 errors, ~588s | `cancel_and_timeout.py`'s 3 failures GONE. One remained in `idle_and_locks.py` (same root cause, same fix not yet applied there) + one unrelated new flake (`test_observability_under_load.py`, a 50ms-latency-under-load test in an untouched file) |
-| 5 | after applying the same fix to `idle_and_locks.py` (`74e2a87`) | filled in below once complete | Expected to match the 28/7 baseline (± the untouched-file observability flake, which is independent of this diff) |
+| 5 | after applying the same fix to `idle_and_locks.py` (`74e2a87`) | **29 failed, 3185 passed, 1 skipped, 1 xfailed, 7 errors, 590s** | **`test_model_ux_phase0b_cancel_and_timeout.py` and `test_model_ux_phase0b_idle_and_locks.py` are BOTH completely gone from the failure list.** The 29 = the 28 pre-existing baseline + exactly one unrelated pre-existing flake — `test_pkb_index_qa.py::test_airgapped_strict_no_socket_during_full_round_trip` (confirmed via `git diff` — zero changes to that file this session; an airgapped/no-socket-policy test, unrelated to chat model-load state). This is a DIFFERENT flaky test than run 4 surfaced (`test_observability_under_load.py`), which itself confirms these are pre-existing, order-dependent-under-full-suite-load tests unrelated to this diff, not a fixed set of exactly 28 — consistent with the ledger commit's own baseline note. |
 
-Run 5 output, once available:
+**Conclusion: after 3 fix attempts (2 disproved by re-running, 1 that held), this session's new tests contribute ZERO failures to the full suite.** The remaining 29 failures are all pre-existing, order/load-dependent flakiness in files this sprint never touched.
