@@ -6934,9 +6934,13 @@ async def api_chat_eject(request: Request):
         # whether anything was actually cleared — but any deep backend
         # among what was cleared still needs a restart to free real
         # memory (A3), which the note discloses.
-        names = list(_OPTIONAL_CHAT_BACKEND_CACHE.keys())
-        for name in names:
-            del _OPTIONAL_CHAT_BACKEND_CACHE[name]
+        # C6.2/F-CACHERACE: snapshot-and-clear under the cache lock so a
+        # concurrent load landing mid-iteration can't race a `del` into a
+        # KeyError.
+        with _OPTIONAL_CHAT_BACKEND_CACHE_LOCK:
+            names = list(_OPTIONAL_CHAT_BACKEND_CACHE.keys())
+            for name in names:
+                del _OPTIONAL_CHAT_BACKEND_CACHE[name]
         if names:
             freed.extend(f"{name} cache" for name in names)
             activity_log.emit("chat", "Ejected all optional chat backends.", "info")
@@ -7043,14 +7047,29 @@ async def api_chat_stream(request: Request):
 # disk-heavy model init. Cache whichever one the user picks so later
 # chat turns reuse the loaded instance.
 _OPTIONAL_CHAT_BACKEND_CACHE: dict[str, Any] = {}
+# C6.2/F-CACHERACE: all reads-then-mutate sequences on the cache above
+# (load-path construct-and-store, eject's check-then-del) go under this
+# lock — the previous check-then-`del` pattern was a TOCTOU race between
+# a load and an eject landing at the same time.
+_OPTIONAL_CHAT_BACKEND_CACHE_LOCK = threading.Lock()
 
 _CHAT_MODEL_LOAD_LOCK = threading.Lock()
+# C6.2/F-LOADRACE, F-TIMEOUT-ORPHAN: exactly one chat-model load may be in
+# flight at a time. A second Load while one is running is refused, not
+# silently double-loaded — see _prepare_chat_model_load. On a timeout
+# (C6.5) this lock stays held until the background thread actually
+# settles, not until the wall-clock guard fires.
+_CHAT_MODEL_LOAD_INFLIGHT = asyncio.Lock()
+# C6.1/F-INITREADY: cold start (and any restart) must never claim a model
+# is "ready" — nothing has been loaded yet. States are exactly
+# {idle, loading, ready, error}; there is no "canceled" terminal state
+# (C6.4 — Cancel is honest absence, not a fake transition).
 _CHAT_MODEL_LOAD_STATE: dict[str, Any] = {
-    "state": "ready",
+    "state": "idle",
     "blocking": False,
-    "message": "Model ready",
-    "eta_seconds": 0,
-    "progress": 1.0,
+    "message": "No model loaded",
+    "eta_seconds": None,
+    "progress": 0.0,
     "model": None,
     "runtime": None,
     "provider": None,
@@ -7306,14 +7325,31 @@ def _get_optional_chat_backend(name: str):
     config = _OPTIONAL_CHAT_BACKEND_CONFIG.get(name)
     if config is None:
         raise ValueError(f"Unknown optional chat backend: {name}")
-    backend = _OPTIONAL_CHAT_BACKEND_CACHE.get(name)
+
+    # C6.2/F-CACHERACE: the check is locked, but a cache MISS falls through
+    # to construction (potentially multi-second, disk-heavy) OUTSIDE the
+    # lock — this function normally runs inside asyncio.to_thread from the
+    # load path, and holding a shared lock for the duration of a slow
+    # construction would block eject()/other readers on the event loop
+    # thread for however long that takes.
+    with _OPTIONAL_CHAT_BACKEND_CACHE_LOCK:
+        backend = _OPTIONAL_CHAT_BACKEND_CACHE.get(name)
     if backend is None:
         from arail.router import backends as router_backends
 
         backend_cls = getattr(router_backends, config["class_name"])
         backend = backend_cls()
         backend.backend_name = name
-        _OPTIONAL_CHAT_BACKEND_CACHE[name] = backend
+        with _OPTIONAL_CHAT_BACKEND_CACHE_LOCK:
+            # Double-checked: another caller may have raced us and already
+            # stored one while we were constructing ours. Keep whichever
+            # won rather than risk two near-simultaneous writes corrupting
+            # the dict — both instances are equally valid fresh backends.
+            existing = _OPTIONAL_CHAT_BACKEND_CACHE.get(name)
+            if existing is not None:
+                backend = existing
+            else:
+                _OPTIONAL_CHAT_BACKEND_CACHE[name] = backend
     return backend
 
 

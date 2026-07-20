@@ -64,7 +64,9 @@ def test_api_chat_models_exposes_compact_selector_payload(monkeypatch, tmp_path)
     assert body["onboarding"]["title"] == "Local Models — How to add"
     assert body["onboarding"]["folder"] == str(tmp_path / "models")
     assert str(tmp_path / "models") in body["onboarding"]["cli_example"]
-    assert body["model_load"]["state"] == "ready"
+    # C6.1/F-INITREADY: cold start reports idle, never a false "ready"
+    # with nothing loaded.
+    assert body["model_load"]["state"] == "idle"
     assert body["model_load"]["blocking"] is False
 
 
