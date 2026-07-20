@@ -41,8 +41,12 @@ R1_REQUIRED_TOP_KEYS = {
     "backend", "provider", "current", "models", "switchable",
     "local_models", "install_hint", "optional_backends",
     "default_optional_backend", "deep", "gallery", "compact",
-    "onboarding", "local_model_entries", "fit", "hardware", "model_load",
+    "onboarding", "local_model_entries", "fit", "model_load",
 }
+# NOTE: top-level "hardware" was DELETED (sprint 2026-07-20-model-ux-unification,
+# §2.1/BLOCK-1) — it's now nested at compact.hardware, the only place the
+# frontend reads it. See test_r1_hardened_golden_snapshot.py for the
+# compact.hardware coverage.
 
 R1_REQUIRED_GALLERY_KEYS = {"installed", "catalog", "runtime_counts"}
 

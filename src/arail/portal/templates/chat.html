@@ -1807,7 +1807,7 @@
             <div class="ref-h">model definitions</div>
             <ul class="ref-list">
               <li><code class="inline-path">src/arail/model_specs.py</code><span class="ref-note">add params · license · benchmarks · notes</span></li>
-              <li><code class="inline-path">src/arail/chat/gallery.py</code><span class="ref-note">how models get scanned + rendered for the picker</span></li>
+              <li><code class="inline-path">src/arail/chat/__init__.py</code><span class="ref-note">gallery_view() / detect_installed_models() — how models get scanned + rendered for the picker</span></li>
               <li><code class="inline-path">src/arail/router/backends.py</code><span class="ref-note">backend adapters (MLX, Ollama, AeroLLM, Claude, …)</span></li>
             </ul>
           </div>
@@ -3293,7 +3293,11 @@
         list.forEach(m => {
           const isCurrent = m.id === State.currentId;
           const isWarm    = State.warmModels.has(m.id);
-          const verdict = m.fit && m.fit.verdict ? m.fit.verdict : 'good';
+          // F-FAKEFIT: a missing verdict must never render as a fake "good" —
+          // 'Unknown' matches the real backend's own out-of-band value
+          // (_fit_verdict_label returns "Unknown" when required/available
+          // memory can't be determined).
+          const verdict = m.fit && m.fit.verdict ? m.fit.verdict : 'Unknown';
           const sizeStr = m.size_gb ? `${m.size_gb.toFixed(1)} GB` : (m.estimated_vram_gb ? `~${Number(m.estimated_vram_gb).toFixed(1)} GB vram` : '');
           const card = document.createElement('div');
           card.className = 'model-card' + (isCurrent ? ' current' : '') + (isWarm ? ' warm' : '');
@@ -3372,7 +3376,8 @@
       const wrap = $('active-card');
       if (!m) { wrap.innerHTML = '<div class="rc-loading">no model</div>'; return; }
       const { provider, model } = transformProvider(m.id, m.runtime);
-      const verdict = m.fit && m.fit.verdict ? m.fit.verdict : 'good';
+      // F-FAKEFIT (active-mini-fit twin of the rail default above).
+      const verdict = m.fit && m.fit.verdict ? m.fit.verdict : 'Unknown';
       $('active-mini-fit').innerHTML = `<span class="fit-chip ${fitClass(verdict)}">${escapeHtml(verdict)}</span>`;
       const bModel = State.compareOn && State.bModel
         ? `<div class="mc-meta mt-2">B · ${escapeHtml(State.bRuntime||'')} · ${escapeHtml(State.bId||'')}
@@ -3704,7 +3709,11 @@
         const d = await r.json();
         State.gallery = d;
         State.deep = d.deep || null;   // deep_info: 2nd-inference model + tier/frontier flags
-        State.models = (d.gallery && d.gallery.installed) || [];
+        // §2.2 fix: d.gallery.installed carries no `fit` verdict (every card
+        // silently defaulted to a fake "good"). d.compact.local_models.items
+        // is the SAME set of local models enriched by _build_local_model_entry
+        // with the real fit.verdict computed from free_gb (F-FAKEFIT).
+        State.models = (d.compact && d.compact.local_models && d.compact.local_models.items) || [];
 
         // Fold optional deep backends (AirLLM, AeroLLM) into the picker
         // as virtual entries — they're full-fledged backends but live

@@ -6121,20 +6121,9 @@ def _build_chat_result(response: ModelResponse, *, wants_deep: bool) -> dict[str
                       f"{response.latency_ms:.0f} ms · {tokens_per_sec} t/s",
                       "info")
 
-    # F5/F8: Honest backend notice surfaced to the chat UI.
-    # When AirLLM fallback is active, the response is notably slower (layer-
-    # streaming subprocess). Labeling it prevents the latency from being hidden.
-    # When AeroLLM is active, confirm the local/fast nature (no cloud egress).
-    _backend_notices: dict[str, str] = {
-        "airllm": "via AirLLM fallback (slower)",
-        "aerollm": "via AeroLLM (local, fast)",
-    }
-    backend_notice = _backend_notices.get(response.backend)
-
     return {
         "reply": reply,
         "backend": response.backend,
-        "backend_notice": backend_notice,
         "model": response.model,
         "latency_ms": response.latency_ms,
         "tokens_used": response.tokens_used,
@@ -7836,6 +7825,11 @@ async def api_chat_models(provider: str = ""):
             "visible_when": "custom",
         },
         "overlay": onboarding,
+        # §2.1 fix: the frontend's only reader of hardware telemetry is
+        # `compact.hardware` (chat.html tele-hw/tele-vram + autoWarmBoxes);
+        # nest the real snapshot here instead of leaving it stranded at the
+        # top level where nothing reads it (F-BLANK).
+        "hardware": memory_snapshot,
     }
 
     current_fit = best_local_entry.get("fit") if best_local_entry else None
@@ -7862,7 +7856,9 @@ async def api_chat_models(provider: str = ""):
         "onboarding": onboarding,
         "local_model_entries": local_entries,
         "fit": current_fit,
-        "hardware": memory_snapshot,
+        # (§2.1 / BLOCK-1) top-level `hardware` deleted — the only reader was
+        # the frontend, which now reads `compact.hardware` (nested above).
+        # Do not re-add a second, unread copy of this field.
         "model_load": load_state,
     }
 
@@ -8161,7 +8157,12 @@ def _local_memory_snapshot() -> dict[str, Any]:
                 total_gb = round(int(subprocess.check_output(
                     ["sysctl", "-n", "hw.memsize"], timeout=3,
                 ).strip()) / (1024 ** 3), 1)
-                free_gb = total_gb
+                # F-FALLBACKLIE: do NOT set free_gb = total_gb here. sysctl
+                # gives us total RAM, not what's actually free, and claiming
+                # free==total is a fabricated-optimistic number that would
+                # falsely render a "Good" fit verdict. Leave free_gb at its
+                # 0.0 default so `_fit_verdict_label` reports "Unknown"
+                # instead of a lie.
             except Exception:  # noqa: BLE001
                 pass
 
@@ -8278,6 +8279,15 @@ def _build_local_model_entry(
         "source": "local",
         "current": bool(current and model_id == current),
         "size_gb": size_gb,
+        # Top-level mirror of overlay.endpoint below (kept for back-compat).
+        # chat.html's selectModel()/renderModelInfo()/chat-send payload read
+        # `m.endpoint` directly (it's the routing target for non-default
+        # local backends, e.g. the MLX OpenAI server) — gallery.installed[]
+        # carried this at the top level, so compact.local_models.items must
+        # too or picking a local model from the rail silently drops its
+        # endpoint (§2.2 data-source swap — discovered while wiring, not a
+        # new capability).
+        "endpoint": endpoint,
         "estimated_vram_gb": estimate_gb,
         "streamed": _streamed,
         "fit": {

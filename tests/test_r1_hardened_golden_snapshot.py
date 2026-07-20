@@ -129,8 +129,12 @@ _R1_EXPECTED_TOP_KEYS = {
     "backend", "provider", "current", "models", "switchable",
     "local_models", "install_hint", "optional_backends",
     "default_optional_backend", "deep", "gallery", "compact",
-    "onboarding", "local_model_entries", "fit", "hardware", "model_load",
+    "onboarding", "local_model_entries", "fit", "model_load",
 }
+# NOTE: top-level "hardware" was DELETED (sprint 2026-07-20-model-ux-unification,
+# §2.1/BLOCK-1, F-DEADFIELD). The frontend's only reader was `compact.hardware`,
+# which the response never populated (F-BLANK) — the snapshot is now nested
+# there instead of duplicated at the top level where nothing read it.
 
 
 def test_r1_snapshot_top_keys_exact(monkeypatch):
@@ -242,11 +246,12 @@ def test_r1_snapshot_deep_has_required_keys(monkeypatch):
 
 def test_r1_snapshot_compact_has_required_keys(monkeypatch):
     """R1: compact dict must have {label, compute_sources, hosting_line, local_models,
-    custom_override, overlay}."""
+    custom_override, overlay, hardware}."""
     body = _capture_golden_payload(monkeypatch)
     compact = body.get("compact", {})
     required_compact_keys = {"label", "compute_sources", "hosting_line",
-                             "local_models", "custom_override", "overlay"}
+                             "local_models", "custom_override", "overlay",
+                             "hardware"}
     missing = required_compact_keys - compact.keys()
     assert not missing, (
         f"R1: compact dict missing keys: {sorted(missing)}"
@@ -254,13 +259,26 @@ def test_r1_snapshot_compact_has_required_keys(monkeypatch):
 
 
 def test_r1_snapshot_hardware_has_required_keys(monkeypatch):
-    """R1: hardware dict must have {total_gb, free_gb, used_gb, label}."""
+    """R1: compact.hardware dict must have {total_gb, free_gb, used_gb, label}
+    (§2.1 — nested under compact; F-BLANK's fix. There is no top-level
+    `hardware` key any more — see test_r1_snapshot_no_top_level_hardware)."""
     body = _capture_golden_payload(monkeypatch)
-    hardware = body.get("hardware", {})
+    hardware = body.get("compact", {}).get("hardware", {})
     required_hw_keys = {"total_gb", "free_gb", "used_gb", "label"}
     missing = required_hw_keys - hardware.keys()
     assert not missing, (
-        f"R1: hardware dict missing keys: {sorted(missing)}"
+        f"R1: compact.hardware dict missing keys: {sorted(missing)}"
+    )
+
+
+def test_r1_snapshot_no_top_level_hardware(monkeypatch):
+    """F-DEADFIELD (BLOCK-1): the top-level `hardware` key must be gone, not
+    lingering alongside compact.hardware as a second, unread copy."""
+    body = _capture_golden_payload(monkeypatch)
+    assert "hardware" not in body, (
+        "R1 regression: a top-level 'hardware' key reappeared — "
+        "the frontend only reads compact.hardware; a top-level duplicate "
+        "is exactly the dead-field pattern this sprint removed (BLOCK-1)."
     )
 
 
