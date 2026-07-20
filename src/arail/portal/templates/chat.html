@@ -1579,10 +1579,10 @@
         <!-- ── Column B (secondary, hidden until Compare) ── -->
         <section class="col" data-col="B" hidden>
           <div class="col-quickbar">
-            <div class="col-chip" id="col-chip-B" title="2nd inference — aeroLLM. Layer-streams a frontier (70B+) model from disk so it coexists with your on-GPU model. Slower per-token, far bigger brain.">
+            <div class="col-chip" id="col-chip-B" title="2nd inference — aeroLLM. Keeps a frontier (70B+) model resident so it coexists with your on-GPU model. Slower per-token, far bigger brain.">
               <span class="qb-label">2nd · aeroLLM</span>
               <span class="chip-name" id="picker-label-B">—</span>
-              <span class="chip-hint">layer-stream · slower · big params</span>
+              <span class="chip-hint">resident · slower · big params</span>
             </div>
             <div class="qb-slider" data-quickkey="temperature">
               <span class="qb-label">temp</span>
@@ -1821,7 +1821,7 @@
           <div class="ref-group">
             <div class="ref-h">deep backends</div>
             <ul class="ref-list">
-              <li><a href="https://github.com/cdarnell/aerollm" target="_blank" rel="noopener noreferrer">AeroLLM ↗</a><span class="ref-note">ARAIL's Rust runtime for 30B+ via layer-streaming · set <code>AEROLLM_MODEL</code></span></li>
+              <li><a href="https://github.com/cdarnell/aerollm" target="_blank" rel="noopener noreferrer">AeroLLM ↗</a><span class="ref-note">ARAIL's Rust runtime for 30B+ local models, kept resident once loaded · set <code>AEROLLM_MODEL</code></span></li>
             </ul>
           </div>
           <div class="ref-group">
@@ -2064,6 +2064,11 @@
       const v = (verdict || '').toLowerCase();
       if (v.startsWith('good')) return 'good';
       if (v.startsWith('marg')) return 'marginal';
+      // Deep-row (C4) verdicts aren't a memory-fit judgment — a resident
+      // aeroLLM backend is exactly as ready as a "Good"-fit local model,
+      // and "not installed" is informational, not a fit warning.
+      if (v.startsWith('resident')) return 'good';
+      if (v.startsWith('not install')) return 'marginal';
       return 'streaming';
     }
     function makeOpt(m, currentId, onPick) {
@@ -2080,7 +2085,7 @@
           <span class="runtime">· ${escapeHtml(m.runtime || '')}</span>
           ${isNew ? '<span class="new-badge">new</span>' : ''}
           ${isDeep ? '<span class="deep-badge">deep</span>' : ''}
-          ${isStreamed ? '<span class="streamed-badge" title="Layer-streamed via AirLLM (model exceeds local hardware floor)">streamed</span>' : ''}
+          ${isStreamed ? '<span class="streamed-badge" title="Exceeds the local hardware floor — routes through a deep backend (AeroLLM resident · AirLLM layer-streamed)">streamed</span>' : ''}
         </div>
         <div class="meta">
           <span class="size">${sizeStr}</span>
@@ -2671,10 +2676,10 @@
         + '<div class="cs-row"><span>runs</span><span>' + escapeHtml(runs) + '</span></div></div>';
       let html = cell('a', '1st inference · on-GPU', aModel, aSpec.params || '≤ floor', 'resident in GPU')
                + cell('b', '2nd inference · aeroLLM', bModel,
-                      bSpec.params || deep.param_hint || '70B+', 'layer-streamed from disk');
+                      bSpec.params || deep.param_hint || '70B+', 'resident via aeroLLM');
       if (isFrontier(a.id)) {
         html += '<div class="cs-why">“' + escapeHtml(aModel) + '” is a frontier 70B+ model — '
-              + 'routed to the 2nd inference (aeroLLM) so it can layer-stream from disk '
+              + 'routed to the 2nd inference (aeroLLM), which keeps it resident '
               + 'alongside your on-GPU model.</div>';
       }
       el.innerHTML = html;
@@ -2684,8 +2689,9 @@
     // Column B is intentionally restricted to *deep backends* (AeroLLM,
     // or AirLLM when the operator has opted in via ARAIL_DEV_AIRLLM=1
     // on non-arm64). Loading two competing local models would over-
-    // subscribe VRAM; the deep backends layer-stream from disk so they
-    // coexist with the on-GPU primary at the cost of slower inference.
+    // subscribe VRAM; the deep backends (AeroLLM resident, AirLLM
+    // layer-streamed) coexist with the on-GPU primary at the cost of
+    // slower inference.
     function setCompare(on) {
       State.compareOn = on;
       // Persist the user's choice so closing Box B sticks across reloads
@@ -2736,7 +2742,7 @@
       if (deep.length) {
         const sec = document.createElement('div');
         sec.className = 'section';
-        sec.innerHTML = `<div class="head"><span>Deep backends</span><span class="hw">layer-streaming</span></div>`;
+        sec.innerHTML = `<div class="head"><span>Deep backends</span><span class="hw">30B+ deep backends</span></div>`;
         pop.appendChild(sec);
         deep.forEach(m => pop.appendChild(makeOpt(m, State.bId, onPick)));
       }
@@ -3318,7 +3324,7 @@
               <div class="mc-name">${escapeHtml(m.label || m.id)}</div>
               ${m.badge === 'deep' ? '<span class="deep-badge">deep</span>' : ''}
               ${m.badge === 'new'  ? '<span class="new-badge">new</span>'  : ''}
-              ${m.streamed ? '<span class="streamed-badge" title="Layer-streamed via AirLLM">streamed</span>' : ''}
+              ${m.streamed ? '<span class="streamed-badge" title="Exceeds the local hardware floor — routes through a deep backend (AeroLLM resident · AirLLM layer-streamed)">streamed</span>' : ''}
             </div>
             <div class="mc-meta">
               <span class="runtime">${escapeHtml(m.runtime || '')}</span>
@@ -3332,7 +3338,7 @@
               <button class="mc-act primary"   data-act="A">use as A</button>
               ${m.badge === 'deep'
                 ? '<button class="mc-act secondary" data-act="B">use as B</button>'
-                : '<button class="mc-act secondary disabled" data-act="B" disabled title="Column B uses a deep layer-streaming backend (AirLLM/AeroLLM) so it can fit alongside model A on the same GPU.">B · deep only</button>'}
+                : '<button class="mc-act secondary disabled" data-act="B" disabled title="Column B uses a deep backend (AeroLLM resident · AirLLM layer-streamed) so it can fit alongside model A on the same GPU.">B · deep only</button>'}
               ${isWarm
                 ? '<button class="mc-act eject" data-act="eject" title="Free this model from VRAM/RAM">eject</button>'
                 : '<button class="mc-act load"  data-act="load"  title="Warm this model with a 1-token call so it loads quickly next time">load</button>'}
@@ -3739,7 +3745,21 @@
             runtime: o.id,                 // 'airllm' or 'aerollm'
             size_gb: null,
             estimated_vram_gb: null,
-            fit: { verdict: o.installed ? 'streaming' : 'not installed', summary: o.description || '' },
+            // C4/F-OVERSELL: never 'streaming' for aeroLLM — it keeps its
+            // model resident once loaded (AERO_MOE_SELECT, the real
+            // expert-streaming feature, is off and absent from src/).
+            // `o.resident` is the real warmth probe (_tier1_resident() for
+            // aeroLLM) wired in the warmth-probe step; until it's present
+            // this degrades to the honest (not-yet-confirmed) "Ready to
+            // load" rather than ever claiming a fake "streaming".
+            fit: {
+              verdict: !o.installed
+                ? 'Not installed'
+                : (o.id === 'aerollm'
+                    ? (o.resident ? 'Resident' : 'Ready to load')
+                    : 'Streaming'),
+              summary: o.description || '',
+            },
             endpoint: null,
             badge: 'deep',
             installed: !!o.installed,
@@ -3820,7 +3840,8 @@
       if (!eligible) return;
 
       // Honor the OOM-pressure memory: skip Box B auto-warm if free RAM is
-      // tight. The deep model adds a few GB resident even when streamed.
+      // tight. The deep model adds several GB once resident (aeroLLM) or
+      // while layer-streaming (AirLLM).
       const freeGb = Number(hw && hw.free_gb) || 0;
       if (freeGb > 0 && freeGb < 6) {
         flashStatus('skipped 2nd box auto-load — free RAM low (<6 GB)');
