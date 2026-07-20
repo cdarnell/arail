@@ -6401,6 +6401,7 @@ async def _run_chat_completion_stream(
     top_p: float | None,
     max_tokens: int,
     runtime_override: str | None = None,
+    think: bool | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
     context = _prepare_chat_context(
         message=message,
@@ -6474,12 +6475,21 @@ async def _run_chat_completion_stream(
             # worker thread and emit the whole reply as one delta.
             # Keeps the UI happy (it expects deltas + final) without
             # forcing per-runtime streaming bridges.
+            # `think` only means anything to OllamaNativeBackend (Ollama's
+            # native /api/chat option) — forward it only there so other
+            # runtime backends' complete() signatures aren't disturbed.
+            think_kwargs = (
+                {"think": think}
+                if think is not None and getattr(runtime_backend, "backend_name", "") == "ollama:native"
+                else {}
+            )
             async with scheduler.inference_slot("chat-stream-runtime"):
                 response = await asyncio.to_thread(
                     runtime_backend.complete,
                     prompt, max_tokens, temperature, top_p,
                     system=context.get("frozen_system"),
                     messages=context.get("claude_messages"),
+                    **think_kwargs,
                 )
             from arail.costs import cost_tracker
             cost_tracker.track(
@@ -6948,6 +6958,9 @@ async def api_chat_stream(request: Request):
         except Exception:  # noqa: BLE001  # persistence never blocks chat
             conv_store = None
 
+    think_raw = body.get("think")
+    think = bool(think_raw) if isinstance(think_raw, bool) else None
+
     async def _generate() -> AsyncIterator[str]:
         pieces: list[str] = []
         final_event: dict | None = None
@@ -6960,6 +6973,7 @@ async def api_chat_stream(request: Request):
             top_p=top_p,
             max_tokens=int(body.get("max_tokens") or 512),
             runtime_override=stream_runtime,
+            think=think,
         ):
             if event.get("type") == "delta":
                 pieces.append(str(event.get("delta") or ""))

@@ -3445,6 +3445,11 @@
           temperature: 0,
           top_p: 1,
           max_tokens: 1,
+          // This is a health-check ping, not a real chat turn — reasoning
+          // models (gemma4, deepseek-r1, ...) can otherwise burn minutes on
+          // a hidden "thinking" pass before returning the capped 1-token
+          // answer, making "load" look permanently stuck.
+          think: false,
         };
         const r = await fetch('/api/chat/stream', {
           method: 'POST',
