@@ -6834,23 +6834,36 @@ async def api_chat(request: Request):
 
 @app.post("/api/chat/eject")
 async def api_chat_eject(request: Request):
-    """Free a chat model from VRAM/RAM.
+    """Free a chat model from VRAM/RAM — or say honestly that it can't yet.
 
     Body (all optional):
         runtime: 'airllm' | 'aerollm' | 'ollama' | 'mlx-openai' | 'mlx'
         model:   model id (required for runtime='ollama' to target a specific model)
 
-    Behavior per runtime:
-        airllm/aerollm — drop the cached backend instance from
-            _OPTIONAL_CHAT_BACKEND_CACHE so the next call re-inits fresh.
-        ollama         — invoke `ollama stop <model>` to evict it from VRAM.
-        mlx-openai     — best-effort: ask the local MLX OpenAI server for
-                         a /v1/models?action=unload (no-op if unsupported).
-        mlx (in-proc)  — clears the AirLLM/AeroLLM cache as those wrap MLX
-                         in this lab; for the in-proc MLX backend a real
-                         restart is required (return guidance).
+    C5 (sprints/2026-07-20-model-ux-unification/ARCHITECTURE.md): the
+    terminal return computes `ok`/`requires_restart` from what actually
+    happened — it is never an unconditional `{"ok": True}` (F-EJECTLIE,
+    F-EJECT-OLLAMA-FALSE). Behavior per runtime:
 
-    Returns: {ok, freed: [..], notes: [..]}
+        airllm/aerollm — CANNOT be hot-freed this sprint (A3): the resident
+            weights live in `AeroLLMBackend._shared` / `deep_policy.
+            _deep_router`, not in the thin `_OPTIONAL_CHAT_BACKEND_CACHE`
+            wrapper this endpoint could drop. Always `ok=False,
+            requires_restart=True`; `freed` stays empty — dropping the
+            wrapper frees nothing real, so it is never reported as freed.
+        ollama         — invoke `ollama stop <model>`. `ok` tracks the real
+                         subprocess result (`returncode == 0`, no exception)
+                         — a failure is `ok=False`, never a false success.
+        mlx-openai     — best-effort guidance only; nothing is actually
+                         freed in-process. `ok=False, requires_restart=True`.
+        mlx/cpu/cuda   — in-process backend; restart required.
+                         `ok=False, requires_restart=True`.
+        (blank/unknown) — clears every cached optional backend wrapper;
+                         `ok=bool(freed)`, plus a note that any cleared
+                         deep backend still needs a portal restart to
+                         actually free memory.
+
+    Returns: {ok, freed: [..], notes: [..], requires_restart}
     """
     body = {}
     try: body = await request.json()
@@ -6859,45 +6872,79 @@ async def api_chat_eject(request: Request):
     model   = (body.get("model") or "").strip()
     freed: list[str] = []
     notes: list[str] = []
+    ok = False
+    requires_restart = False
 
     if runtime in ("airllm", "aerollm"):
+        label = _OPTIONAL_CHAT_BACKEND_CONFIG.get(runtime, {}).get("label", runtime)
         if runtime in _OPTIONAL_CHAT_BACKEND_CACHE:
-            del _OPTIONAL_CHAT_BACKEND_CACHE[runtime]
-            freed.append(f"{runtime} cache")
-            activity_log.emit("chat", f"Ejected {runtime} from chat backend cache.", "info")
+            restart_note = f"resident ({label}) · frees on next portal restart"
+            if runtime == "aerollm":
+                restart_note += (
+                    " (auto-preload re-warms within ~5 min unless "
+                    "ARAIL_AEROLLM_PRELOAD=0)"
+                )
+            notes.append(restart_note)
         else:
-            notes.append(f"{runtime} not loaded.")
+            notes.append(f"{label} not loaded.")
+        # Never ok:True and never claim `freed` — the wrapper cache isn't
+        # where the resident weights live (A3); dropping it frees nothing
+        # real (finding 6).
+        ok = False
+        requires_restart = True
     elif runtime == "ollama":
         if not model:
-            return {"ok": False, "error": "model required for ollama eject"}
+            return {"ok": False, "error": "model required for ollama eject",
+                     "freed": [], "notes": [], "requires_restart": False}
+        ok_id, err_id = _validate_local_model_id_relaxed(model)
+        if not ok_id:
+            return {"ok": False, "error": err_id,
+                     "freed": [], "notes": [], "requires_restart": False}
         import subprocess as sp
         try:
             r = sp.run(["ollama", "stop", model], capture_output=True, text=True, timeout=15)
             if r.returncode == 0:
                 freed.append(f"ollama:{model}")
                 activity_log.emit("chat", f"Stopped ollama model {model}.", "info")
+                ok = True
             else:
                 notes.append(f"ollama stop returned {r.returncode}: {r.stderr.strip()[:200]}")
+                ok = False
         except FileNotFoundError:
             notes.append("ollama binary not on PATH")
+            ok = False
         except Exception as e:
             notes.append(f"ollama stop failed: {type(e).__name__}: {e}")
+            ok = False
     elif runtime == "mlx-openai":
-        # The mlx_openai_server holds a single model in memory. Ask it
-        # to unload via a (non-standard) admin endpoint; if absent,
-        # surface guidance to restart the server.
+        # The mlx_openai_server holds a single model in memory. Nothing is
+        # actually freed in-process by this call — restart is required.
         notes.append("mlx-openai server holds one model; restart the server "
                      "(scripts/start.sh) to free it.")
-    elif runtime in ("mlx", "cpu", "cuda", "airllm", "aerollm"):
+        ok = False
+        requires_restart = True
+    elif runtime in ("mlx", "cpu", "cuda"):
         notes.append(f"{runtime} in-process backend cannot hot-eject; "
                      f"restart the portal to drop it.")
+        ok = False
+        requires_restart = True
     else:
-        # No runtime specified — clear EVERYTHING optional.
-        for name in list(_OPTIONAL_CHAT_BACKEND_CACHE.keys()):
+        # No runtime specified — clear every cached optional-backend
+        # wrapper. This IS a real (if partial) action, so `ok` tracks
+        # whether anything was actually cleared — but any deep backend
+        # among what was cleared still needs a restart to free real
+        # memory (A3), which the note discloses.
+        names = list(_OPTIONAL_CHAT_BACKEND_CACHE.keys())
+        for name in names:
             del _OPTIONAL_CHAT_BACKEND_CACHE[name]
-            freed.append(f"{name} cache")
-        activity_log.emit("chat", "Ejected all optional chat backends.", "info")
-    return {"ok": True, "freed": freed, "notes": notes}
+        if names:
+            freed.extend(f"{name} cache" for name in names)
+            activity_log.emit("chat", "Ejected all optional chat backends.", "info")
+            notes.append("in-process deep backends (aeroLLM/AirLLM) still "
+                         "need a portal restart to actually free memory.")
+        ok = bool(freed)
+        requires_restart = bool(names)
+    return {"ok": ok, "freed": freed, "notes": notes, "requires_restart": requires_restart}
 
 
 @app.post("/api/chat/stream")
