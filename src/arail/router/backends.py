@@ -1876,9 +1876,19 @@ class OllamaNativeBackend(OpenAICompatBackend):
             "messages": [{"role": "user", "content": prompt}],
             "stream": False,
         }
-        # options.num_ctx only included when set (else Ollama uses its default)
+        # options.num_ctx / num_predict only included when set (else Ollama
+        # uses its own defaults). Without num_predict, Ollama ignores
+        # max_tokens entirely and generates until natural stop or context
+        # limit — catastrophic for reasoning models (e.g. gemma4) whose
+        # "thinking" traces can run for minutes on what should be a
+        # cheap capped call (a 1-token warm-up ping never returns).
+        options: dict = {}
         if num_ctx is not None:
-            body["options"] = {"num_ctx": int(num_ctx)}
+            options["num_ctx"] = int(num_ctx)
+        if max_tokens is not None:
+            options["num_predict"] = int(max_tokens)
+        if options:
+            body["options"] = options
         keep_alive = self._keep_alive()
         if keep_alive is not None:
             body["keep_alive"] = keep_alive
@@ -1920,8 +1930,15 @@ class OllamaNativeBackend(OpenAICompatBackend):
             "messages": [{"role": "user", "content": prompt}],
             "stream": True,
         }
+        # See complete()'s comment: num_predict must be forwarded or Ollama
+        # ignores max_tokens and streams until natural stop / context limit.
+        options: dict[str, Any] = {}
         if num_ctx is not None:
-            body["options"] = {"num_ctx": int(num_ctx)}
+            options["num_ctx"] = int(num_ctx)
+        if max_tokens is not None:
+            options["num_predict"] = int(max_tokens)
+        if options:
+            body["options"] = options
         keep_alive = self._keep_alive()
         if keep_alive is not None:
             body["keep_alive"] = keep_alive
