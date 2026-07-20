@@ -50,9 +50,20 @@ def test_chat_model_load_state_initializes_to_idle_not_ready():
 def test_get_chat_model_load_status_endpoint_reports_idle_on_a_cold_process(monkeypatch):
     """T-IDLE: force the module-global back to its documented cold-start
     shape (simulating a fresh process) and assert the status endpoint
-    reflects it honestly — never "ready" with model=None."""
+    reflects it honestly — never "ready" with model=None.
+
+    Mocks `_get_chat_model_load_state` (the function) directly rather than
+    the underlying `_CHAT_MODEL_LOAD_STATE` dict — the latter is a shared
+    module-level object read by everything in the process; under the full
+    test suite (3000+ tests, ~10 minutes) something elsewhere can still
+    observe/mutate it during this test's narrow window regardless of
+    monkeypatch scoping (see test_model_ux_phase0b_cancel_and_timeout.py's
+    module docstring for the fuller investigation trail). Mocking the
+    accessor function instead removes any shared object from the picture
+    entirely.
+    """
     client, app_mod = _client()
-    monkeypatch.setattr(app_mod, "_CHAT_MODEL_LOAD_STATE", {
+    monkeypatch.setattr(app_mod, "_get_chat_model_load_state", lambda: {
         "state": "idle", "blocking": False, "message": "No model loaded",
         "eta_seconds": None, "progress": 0.0, "model": None,
         "runtime": None, "provider": None, "updated_at": 0.0,
