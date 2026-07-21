@@ -342,6 +342,18 @@
 
     .stream-toggle.compact { gap: var(--s-1); padding: 0; }
     .icon-btn.compact      { padding: 0.22rem 0.55rem; font-size: var(--fs-xs); }
+    /* The 2nd-column close was a bare 24x22px "✕" lost between a temp
+       slider and a checkbox — reported as "no way to minimize it".
+       Give it a label and real visual weight so it reads as its own
+       control, not a stray glyph. */
+    .close-compare-btn {
+      margin-left: auto;
+      color: var(--danger);
+      border-color: var(--danger-a28);
+      background: var(--danger-a08);
+      font-weight: 600;
+    }
+    .close-compare-btn:hover { background: var(--danger-a20, var(--danger-a28)); }
 
     /* Per-column transcript — min-height ensures usable space even on
        short responses, while scroll kicks in for long ones. */
@@ -1606,7 +1618,7 @@
             <label class="stream-toggle compact">
               <input type="checkbox" id="stream-toggle-B" checked> stream
             </label>
-            <button class="icon-btn compact" id="btn-compare-close" title="Close compare">✕</button>
+            <button class="icon-btn compact close-compare-btn" id="btn-compare-close" title="Close the 2nd inference column">✕ close</button>
           </div>
           <div id="model-picker-B" hidden><div id="picker-pop-B"></div></div>
 
