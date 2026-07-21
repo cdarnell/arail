@@ -151,6 +151,12 @@ def test_prepare_chat_model_load_no_eta_when_corrupt(monkeypatch):
     monkeypatch.setattr(app_mod, "_real_on_disk_gb", lambda runtime, model: 2.0)
     monkeypatch.setattr(app_mod, "_model_looks_corrupt", lambda model, size: True)
     monkeypatch.setattr(app_mod, "_get_primary_router", lambda: object())
+    # F-FAKEREADY fix: _do_load() now actually warms ollama/mlx-openai
+    # runtimes via backend.complete(...) instead of just constructing the
+    # wrapper — this test only cares about the pre-load "loading" state
+    # capture (below), so stub the backend rather than hit the real
+    # (possibly absent) Ollama daemon. Matches the sibling test below.
+    monkeypatch.setattr(app_mod, "_get_runtime_backend", lambda runtime, model: object())
 
     captured = {}
     real_set_state = app_mod._set_chat_model_load_state

@@ -7503,7 +7503,23 @@ async def _prepare_chat_model_load(
             # silently reporting ready for the wrong model.
             _get_optional_chat_backend(str(provider), expected_model=model)
         elif runtime in ("ollama", "mlx-openai") and model:
-            _get_runtime_backend(str(runtime), str(model))
+            # F-FAKEREADY: _get_runtime_backend only constructs the thin
+            # HTTP-client wrapper — it makes no network call, so the
+            # runtime (Ollama/MLX server) never actually reads the model's
+            # weights into memory. Without this warm-up call, this whole
+            # honest load-state machine would report "ready" in under
+            # 100ms for a model that is provably NOT resident (verified
+            # live: ollama ps showed nothing loaded after a "ready"
+            # response) — the exact class of lie this sprint exists to
+            # kill, just moved one level deeper. A real 1-token, capped,
+            # non-thinking call forces the runtime to actually load.
+            backend = _get_runtime_backend(str(runtime), str(model))
+            warm_kwargs = (
+                {"think": False}
+                if getattr(backend, "backend_name", "") == "ollama:native"
+                else {}
+            )
+            backend.complete("ok", 1, 0.0, 1.0, **warm_kwargs)
         else:
             _get_primary_router()
 

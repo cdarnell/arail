@@ -477,6 +477,10 @@
       background: var(--accent2);
       transition: width 0.4s ease;
     }
+    /* The backend load-state machine is honest that progress is
+       indeterminate for a blocking load (no incremental signal to
+       report) — a pulsing full-width bar, never a fabricated fill %. */
+    .loader-strip .bar.indeterminate > i { width: 100%; animation: warm-pulse 1.2s ease-in-out infinite; }
     .loader-strip .pct, .loader-strip .eta { color: var(--text-muted); font-variant-numeric: tabular-nums; }
     .loader-strip .cancel {
       color: var(--danger);
@@ -1556,19 +1560,15 @@
                popup is gone. The chip above is the visible affordance now. -->
           <div id="model-picker" hidden><div id="picker-pop"></div></div>
 
-          <!-- C6.4 (sprints/2026-07-20-model-ux-unification/ARCHITECTURE.md):
-               this strip has NO JS wiring — nothing ever adds `.visible`
-               (see .loader-strip.visible above) or touches ls-model/ls-bar/
-               ls-pct/ls-eta/ls-cancel. That's intentional, not an oversight:
-               the actual rail Load affordance goes through loadModel() (a
-               1-token /api/chat/stream ping), never /api/chat/model-load.
-               A load-widget/ETA UI here is explicitly gated behind
-               disconfirming-evidence #1 in the architecture's Leash — do
-               NOT wire ls-cancel to POST /api/chat/model-load/cancel
-               expecting a "canceled" transition; the endpoint is honest
-               (never reports canceled — A4, the load can't actually be
-               interrupted) but a naive wiring could still mislead a user
-               into thinking a click did something it didn't. -->
+          <!-- Wired post-Phase-0b (disconfirming-evidence #1 fired
+               immediately: fidelity alone left the load experience
+               visibly silent). loadModel() now drives this strip via
+               /api/chat/model-load + polling — see that function.
+               ls-cancel deliberately does NOT claim a "canceled" state;
+               the load runs in a non-cancellable asyncio.to_thread (A4),
+               so the button calls /api/chat/model-load/cancel and shows
+               its honest "can't interrupt" note instead of pretending a
+               click stopped anything. -->
           <div class="loader-strip" id="loader-strip">
             <span class="label">load</span>
             <span class="model" id="ls-model">—</span>
@@ -2736,6 +2736,19 @@
     $('btn-compare').addEventListener('click', () => setCompare(!State.compareOn));
     $('btn-compare-close').addEventListener('click', () => setCompare(false));
 
+    // Honest Cancel: never claims a "canceled" state (A4 — the load can't
+    // actually be interrupted). Shows the endpoint's own note instead of
+    // hiding the strip or pretending the click did something it didn't.
+    $('ls-cancel').addEventListener('click', async () => {
+      try {
+        const r = await fetch('/api/chat/model-load/cancel', { method: 'POST' });
+        const d = await r.json();
+        flashStatus(d.note || 'a load in progress cannot be interrupted');
+      } catch (e) {
+        flashStatus('cancel check failed: ' + e.message);
+      }
+    });
+
     // ── Secondary model picker (column B) ──────────────────────────
     function renderPickerB() {
       const pop = $('picker-pop-B');
@@ -3364,11 +3377,21 @@
               ${m.badge === 'deep'
                 ? '<button class="mc-act secondary" data-act="B">use as B</button>'
                 : '<button class="mc-act secondary disabled" data-act="B" disabled title="Column B uses a deep backend (AeroLLM resident · AirLLM layer-streamed) so it can fit alongside model A on the same GPU.">B · deep only</button>'}
-              ${isDeep
-                ? '<button class="mc-act load" data-act="load" title="Warm this deep backend with a 1-token call">load</button>'
-                : (isWarm
-                    ? '<button class="mc-act eject" data-act="eject" title="Free this model from VRAM/RAM">eject</button>'
-                    : '<button class="mc-act load"  data-act="load"  title="Warm this model with a 1-token call so it loads quickly next time">load</button>')}
+              ${(() => {
+                // QA-1: /api/chat/eject can only ever really free a warm
+                // Ollama-runtime model (see its docstring) — mlx/mlx-
+                // openai/cpu/cuda always come back ok:false,
+                // requires_restart:true. Offering an "eject" button that
+                // titles itself "Free this model from VRAM/RAM" on those
+                // runtimes over-promises on exactly the honesty axis this
+                // sprint owns, even though the endpoint itself stays
+                // truthful. Only render it where it can actually work.
+                const canFree = m.runtime === 'ollama';
+                if (isDeep) return '<button class="mc-act load" data-act="load" title="Warm this deep backend with a 1-token call">load</button>';
+                if (isWarm && canFree) return '<button class="mc-act eject" data-act="eject" title="Free this model from VRAM/RAM">eject</button>';
+                if (isWarm) return `<button class="mc-act eject disabled" data-act="eject-unavailable" disabled title="${escapeHtml(m.runtime || 'this runtime')} cannot hot-free in-process — restart the portal to release it.">can't hot-free</button>`;
+                return '<button class="mc-act load"  data-act="load"  title="Warm this model with a 1-token call so it loads quickly next time">load</button>';
+              })()}
             </div>`;
           card.querySelector('[data-act="A"]').addEventListener('click', e => {
             e.stopPropagation(); selectModel(m); renderModelRail();
@@ -3398,10 +3421,15 @@
               });
               if (r.status === 404) { flashStatus('eject endpoint not registered — restart ./arail'); return; }
               const d = await r.json();
-              State.warmModels.delete(m.id);
-              flashStatus(d.ok ? `ejected ${m.id}` : `eject failed: ${d.error || ''}`);
-              if (wasA) { State.currentModel = null; State.currentId = null; renderActiveCard(); }
-              if (wasB) { State.bModel = null; State.bId = null; renderActiveCard(); }
+              // HON-1: only clear the warm dot once the endpoint confirms
+              // it actually freed something — otherwise a failed eject
+              // (or a runtime that can't hot-free) flips the dot to cold
+              // while the model is still resident. Matches the active-
+              // card eject path below, which already gated on d.ok.
+              if (d.ok) State.warmModels.delete(m.id);
+              flashStatus(d.ok ? `ejected ${m.id}` : `eject failed: ${(d.notes && d.notes[0]) || d.error || 'not freed'}`);
+              if (d.ok && wasA) { State.currentModel = null; State.currentId = null; renderActiveCard(); }
+              if (d.ok && wasB) { State.bModel = null; State.bId = null; renderActiveCard(); }
               renderModelRail();
               const wm = $('tele-warm');
               if (wm) {
@@ -3487,59 +3515,73 @@
        Parses the NDJSON stream and surfaces any {type:'error'} event so a
        failed warm shows the real reason (missing weights, Metal crash, …)
        instead of falsely marking the model WARM. */
+    // ── Load-progress strip (sprints/2026-07-20-model-ux-unification) ──
+    // Wires the rail's Load button to the honest /api/chat/model-load
+    // state machine (real ETA from measured throughput, friendly errors,
+    // never a fake filling bar — see that endpoint's own docstring) so
+    // the operator sees the real memory/timing situation WHILE loading,
+    // not just before/after. Polls GET for live state while the POST
+    // (which blocks server-side until the load settles) is in flight.
+    let _loadPollTimer = null;
+    function _stopLoadPoll() {
+      if (_loadPollTimer) { clearInterval(_loadPollTimer); _loadPollTimer = null; }
+    }
+    function _fmtEta(sec) {
+      if (sec === null || sec === undefined) return 'eta —';
+      if (sec <= 0) return 'eta <1s';
+      if (sec < 60) return `eta ~${Math.ceil(sec)}s`;
+      return `eta ~${Math.ceil(sec / 60)}m`;
+    }
+    function _showLoaderStrip(label) {
+      const strip = $('loader-strip');
+      if (!strip) return;
+      strip.classList.add('visible');
+      $('ls-model').textContent = label;
+      $('ls-pct').textContent = '';
+      $('ls-eta').textContent = 'eta —';
+      const bar = strip.querySelector('.bar');
+      if (bar) bar.classList.add('indeterminate');
+    }
+    function _hideLoaderStrip() {
+      const strip = $('loader-strip');
+      if (!strip) return;
+      strip.classList.remove('visible');
+      const bar = strip.querySelector('.bar');
+      if (bar) bar.classList.remove('indeterminate');
+    }
+    async function _pollLoadStateOnce() {
+      try {
+        const r = await fetch('/api/chat/model-load');
+        if (!r.ok) return;
+        const d = await r.json();
+        if (d.state === 'loading') {
+          if (d.message) $('ls-model').textContent = d.message;
+          $('ls-eta').textContent = _fmtEta(d.eta_seconds);
+        }
+      } catch { /* a missed poll tick isn't worth surfacing */ }
+    }
+
     async function loadModel(m) {
       if (!m) return;
-      flashStatus(`loading ${m.label || m.id}…`);
+      const label = m.label || m.id;
+      flashStatus(`loading ${label}…`);
+      _showLoaderStrip(label);
+      _stopLoadPoll();
+      _loadPollTimer = setInterval(_pollLoadStateOnce, 600);
       try {
-        const body = {
-          message: 'ok',
-          history: [],
-          backend: m.runtime === 'airllm' || m.runtime === 'aerollm' ? m.runtime : undefined,
-          runtime: m.runtime,
-          model:   m.id,
-          temperature: 0,
-          top_p: 1,
-          max_tokens: 1,
-          // This is a health-check ping, not a real chat turn — reasoning
-          // models (gemma4, deepseek-r1, ...) can otherwise burn minutes on
-          // a hidden "thinking" pass before returning the capped 1-token
-          // answer, making "load" look permanently stuck.
-          think: false,
-        };
-        const r = await fetch('/api/chat/stream', {
+        const isDeepProvider = m.runtime === 'airllm' || m.runtime === 'aerollm';
+        const r = await fetch('/api/chat/model-load', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
+          body: JSON.stringify({
+            model: m.id,
+            runtime: isDeepProvider ? undefined : m.runtime,
+            provider: isDeepProvider ? m.runtime : undefined,
+          }),
         });
         if (!r.ok) throw new Error('HTTP ' + r.status);
-        // Parse NDJSON, mirroring streamChat()'s event handling. Bail on
-        // the first {type:'error'} or a final event carrying an error.
-        const reader = r.body.getReader();
-        const dec = new TextDecoder();
-        let buf = '';
-        let errMsg = null;
-        outer: while (true) {
-          const { value, done } = await reader.read();
-          if (done) break;
-          buf += dec.decode(value, { stream: true });
-          let nl;
-          while ((nl = buf.indexOf('\n')) >= 0) {
-            const line = buf.slice(0, nl).trim();
-            buf = buf.slice(nl + 1);
-            if (!line) continue;
-            let evt;
-            try { evt = JSON.parse(line); } catch { continue; }
-            if (evt && evt.type === 'error') {
-              errMsg = evt.error || evt.message || 'unknown error';
-              break outer;
-            }
-            if (evt && evt.type === 'final' && evt.error) {
-              errMsg = evt.error;
-              break outer;
-            }
-          }
-        }
-        if (errMsg) throw new Error(errMsg);
+        const d = await r.json();
+        if (d.state === 'error') throw new Error(d.message || 'load failed');
         State.warmModels.add(m.id);
         renderModelRail();
         const wm = $('tele-warm');
@@ -3547,9 +3589,12 @@
           const list = Array.from(State.warmModels);
           wm.innerHTML = list.map(x => `<span class="warm-pill">${escapeHtml(transformProvider(x,'').model)}</span>`).join(' ');
         }
-        flashStatus(`loaded ${m.label || m.id}`);
+        flashStatus(d.message || `loaded ${label}`);
       } catch (e) {
         flashStatus(`load failed: ${e.message}`);
+      } finally {
+        _stopLoadPoll();
+        _hideLoaderStrip();
       }
     }
 
