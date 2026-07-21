@@ -342,6 +342,18 @@
 
     .stream-toggle.compact { gap: var(--s-1); padding: 0; }
     .icon-btn.compact      { padding: 0.22rem 0.55rem; font-size: var(--fs-xs); }
+    /* The 2nd-column close was a bare 24x22px "✕" lost between a temp
+       slider and a checkbox — reported as "no way to minimize it".
+       Give it a label and real visual weight so it reads as its own
+       control, not a stray glyph. */
+    .close-compare-btn {
+      margin-left: auto;
+      color: var(--danger);
+      border-color: var(--danger-a28);
+      background: var(--danger-a08);
+      font-weight: 600;
+    }
+    .close-compare-btn:hover { background: var(--danger-a20, var(--danger-a28)); }
 
     /* Per-column transcript — min-height ensures usable space even on
        short responses, while scroll kicks in for long ones. */
@@ -1606,7 +1618,7 @@
             <label class="stream-toggle compact">
               <input type="checkbox" id="stream-toggle-B" checked> stream
             </label>
-            <button class="icon-btn compact" id="btn-compare-close" title="Close compare">✕</button>
+            <button class="icon-btn compact close-compare-btn" id="btn-compare-close" title="Close the 2nd inference column">✕ close</button>
           </div>
           <div id="model-picker-B" hidden><div id="picker-pop-B"></div></div>
 
@@ -3374,9 +3386,14 @@
             </div>
             <div class="mc-actions">
               <button class="mc-act primary"   data-act="A">use as A</button>
-              ${m.badge === 'deep'
-                ? '<button class="mc-act secondary" data-act="B">use as B</button>'
-                : '<button class="mc-act secondary disabled" data-act="B" disabled title="Column B uses a deep backend (AeroLLM resident · AirLLM layer-streamed) so it can fit alongside model A on the same GPU.">B · deep only</button>'}
+              <!-- Column B used to hard-block every non-deep model — with
+                   only one deep backend ever installed (today: aeroLLM/
+                   gpt-oss-20b-MLX-4bit), that left operators with zero
+                   real choice for B, reported directly as "I can't change
+                   the models." Any model can go in B now; the real fit
+                   chip (already computed from live free memory) is the
+                   informed-choice signal instead of a hard block. -->
+              <button class="mc-act secondary" data-act="B" title="${m.badge === 'deep' ? 'Coexists with model A — layer-streamed/resident, not competing for the same VRAM.' : 'Loads alongside model A — check the fit chip above for whether both fit in free memory.'}">use as B</button>${m.badge !== 'deep' && verdict === 'Requires streaming' ? '<span class="dot">·</span><span class="fit-chip streaming" title="Both models resident at once may exceed free memory — the load itself will still tell you honestly if it fails.">tight fit</span>' : ''}
               ${(() => {
                 // QA-1: /api/chat/eject can only ever really free a warm
                 // Ollama-runtime model (see its docstring) — mlx/mlx-
@@ -3387,6 +3404,13 @@
                 // sprint owns, even though the endpoint itself stays
                 // truthful. Only render it where it can actually work.
                 const canFree = m.runtime === 'ollama';
+                // Deep rows (aeroLLM/AirLLM) never render a working eject —
+                // the resident singleton can't be hot-freed this sprint
+                // (A3) — but a WARM deep row showing only "load" with no
+                // unload signal at all is worse than the mlx/cpu/cuda case
+                // below: at least those explain themselves. Match that
+                // honesty here instead of going silent.
+                if (isDeep && isWarm) return `<button class="mc-act eject disabled" data-act="eject-unavailable" disabled title="${escapeHtml(deepBackendLabel)} keeps its model resident once loaded — it can't be hot-freed in-process. Restart the portal to release it.">can't hot-free</button>`;
                 if (isDeep) return '<button class="mc-act load" data-act="load" title="Warm this deep backend with a 1-token call">load</button>';
                 if (isWarm && canFree) return '<button class="mc-act eject" data-act="eject" title="Free this model from VRAM/RAM">eject</button>';
                 if (isWarm) return `<button class="mc-act eject disabled" data-act="eject-unavailable" disabled title="${escapeHtml(m.runtime || 'this runtime')} cannot hot-free in-process — restart the portal to release it.">can't hot-free</button>`;
