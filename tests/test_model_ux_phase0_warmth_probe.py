@@ -226,3 +226,16 @@ def test_chat_html_warm_deep_row_explains_why_it_cant_be_unloaded():
     assert "if (isDeep && isWarm) return" in text
     assert "keeps its model resident once loaded" in text
     assert "can't be hot-freed in-process" in text
+
+
+def test_chat_html_use_as_b_is_never_hard_disabled():
+    """Column B used to hard-block every non-deep model card — with only
+    one deep backend ever installed in practice, that left operators with
+    zero real alternative for B. Reported directly: "I can't change the
+    models." The button must now always be enabled; the fit chip (real,
+    computed from live free memory) is the informed-choice signal instead
+    of a hard block."""
+    text = _chat_html_text()
+    assert 'B · deep only' not in text
+    assert 'data-act="B" disabled' not in text
+    assert '<button class="mc-act secondary" data-act="B"' in text
