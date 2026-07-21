@@ -304,6 +304,28 @@ def fit(model: ModelManifest, sys: SystemSnapshot, ctx_tokens: int = 8192) -> Fi
 
 ### Loader state machine
 
+**What actually ships today (`/api/chat/model-load`, `arail/portal/app.py`):**
+a four-state machine, `idle → loading → ready | error` — no `canceled`
+terminal state. The load runs in a non-cancellable `asyncio.to_thread`
+(the executor can't kill it once started), so Cancel is honest absence
+rather than a fake interrupt, and a wall-clock timeout
+(`ARAIL_LOAD_MAX_SEC`) flips the *reported* state to `error` without
+actually stopping the background thread — the in-flight lock stays held
+until it genuinely settles, so a timeout can't be followed by a second,
+doubly-resident load. See
+`sprints/2026-07-20-model-ux-unification/ARCHITECTURE.md` §C6 for the
+full contract (concurrency, model-identity refusal, real-bytes ETA,
+click-time re-fit, friendly errors) and its Phase 0b build log.
+
+**The six/seven-state design below is a future plan, not shipped
+behavior.** It described a fuller job/SSE-driven loader
+(`/models/{id}/load`, `/models/{id}/status/stream`) with sharding,
+multi-GPU assignment, and a progress-ring UI — none of which exists in
+`src/` today. Presenting it without that caveat previously implied a
+richer, resumable-progress loader than what's actually live; trimmed
+here so this doc doesn't outrun the code (the six/seven-state machine
+was never built — do not treat it as documenting current behavior):
+
 ```
 unloaded ─► loading-prep ─► loading-weights ─► warming ─► resident
                 │                │                │
@@ -314,9 +336,9 @@ unloaded ─► loading-prep ─► loading-weights ─► warming ─► reside
                                             unloading ─► unloaded
 ```
 
-Each transition emits a `loader.state` event with: state, progress (0..1), bytes_loaded, eta_seconds, strategy, gpu_assignment. The portal's loader UI (per `design.md` §4 — `progress-ring` + `step-context`) subscribes via SSE and **blocks the chat input** until `resident`.
+Each transition would emit a `loader.state` event with: state, progress (0..1), bytes_loaded, eta_seconds, strategy, gpu_assignment. The portal's loader UI (per `design.md` §4 — `progress-ring` + `step-context`) would subscribe via SSE and **block the chat input** until `resident`. This remains the long-term direction for a job-queue-backed, multi-GPU loader; the endpoints below are that future design, not a current API surface.
 
-### Endpoints
+### Endpoints (future design — not implemented)
 
 ```yaml
 /models/{id}/load:
