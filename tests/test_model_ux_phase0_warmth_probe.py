@@ -214,3 +214,15 @@ def test_chat_html_deep_row_badge_text_is_warmth_driven_and_backend_accurate():
 def test_chat_html_seeds_warm_models_from_server_truth_not_only_client_actions():
     text = _chat_html_text()
     assert "if (m.warm || m.resident) State.warmModels.add(m.id);" in text
+
+
+def test_chat_html_warm_deep_row_explains_why_it_cant_be_unloaded():
+    """A WARM deep row (aeroLLM/AirLLM) must never render a bare "load"
+    button with zero unload signal — that's silent, not honest, and a
+    real operator flagged it as indistinguishable from a missing/broken
+    eject button. It should get the same disabled "can't hot-free"
+    affordance a warm mlx/cpu/cuda row gets, not go quiet instead."""
+    text = _chat_html_text()
+    assert "if (isDeep && isWarm) return" in text
+    assert "keeps its model resident once loaded" in text
+    assert "can't be hot-freed in-process" in text

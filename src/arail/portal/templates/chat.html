@@ -3387,6 +3387,13 @@
                 // sprint owns, even though the endpoint itself stays
                 // truthful. Only render it where it can actually work.
                 const canFree = m.runtime === 'ollama';
+                // Deep rows (aeroLLM/AirLLM) never render a working eject —
+                // the resident singleton can't be hot-freed this sprint
+                // (A3) — but a WARM deep row showing only "load" with no
+                // unload signal at all is worse than the mlx/cpu/cuda case
+                // below: at least those explain themselves. Match that
+                // honesty here instead of going silent.
+                if (isDeep && isWarm) return `<button class="mc-act eject disabled" data-act="eject-unavailable" disabled title="${escapeHtml(deepBackendLabel)} keeps its model resident once loaded — it can't be hot-freed in-process. Restart the portal to release it.">can't hot-free</button>`;
                 if (isDeep) return '<button class="mc-act load" data-act="load" title="Warm this deep backend with a 1-token call">load</button>';
                 if (isWarm && canFree) return '<button class="mc-act eject" data-act="eject" title="Free this model from VRAM/RAM">eject</button>';
                 if (isWarm) return `<button class="mc-act eject disabled" data-act="eject-unavailable" disabled title="${escapeHtml(m.runtime || 'this runtime')} cannot hot-free in-process — restart the portal to release it.">can't hot-free</button>`;
