@@ -63,6 +63,37 @@ not the same, and only one runs automatically at setup:
    are trained. It sits one nav click from `/build`, so it's easy to confuse —
    it isn't the same thing.
 
+## Shared checkpoints (machine-level convention, not an ARAIL default)
+
+On machines shared across QuKaiZen products, large MLX checkpoints live in one
+world-readable location instead of per-account copies:
+
+| | |
+|---|---|
+| Canonical path | `/Users/Shared/models/` |
+| Back-compat | `~/models` is a symlink to it, so existing `~/models/...` paths keep working |
+| Permissions | world-readable (`chmod -R a+rX`) — any macOS account can read them |
+| Why | these are openly-licensed weights (Qwen, Llama, gpt-oss …), and aeroLLM's GA gate #6 (cross-user bit-identical replay, ADR 0007/0013) needs a second macOS account reading the *same* checkpoints rather than duplicating 400+ GB |
+
+**This is not ARAIL's default, and shouldn't become one.** ARAIL is a blueprint
+other people clone onto their own machines, so its default stays repo-relative
+(`ARAIL_MODELS_DIR` → `lab/models`). To use the shared checkpoints on a machine
+that has them, point the env var at the canonical path:
+
+```bash
+# .env
+ARAIL_MODELS_DIR=/Users/Shared/models
+```
+
+`AEROLLM_MODEL` then resolves against it — e.g. `AEROLLM_MODEL=Qwen2.5-7B-Instruct-4bit`
+finds `/Users/Shared/models/Qwen2.5-7B-Instruct-4bit`.
+
+**When downloading new checkpoints on such a machine**, prefer
+`/Users/Shared/models/` (or via the `~/models` symlink) over a private
+home-directory path, so the convention stays consistent across products sharing
+the box. Nothing in ARAIL hardcodes a home-directory model path, so the move
+required no code changes.
+
 ## Frequently asked
 
 - **"I ran setup — what model do I have?"** `llama-ai-eng` in Ollama (the

@@ -201,6 +201,16 @@ parts.
   storing conversation history; we borrow its declare→gate→version discipline,
   not its pipeline. Don't wire this to DaC without superseding
   `docs/adr/0002-chat-memory-and-the-dac-boundary.md`.
+- **Model checkpoint paths stay relative / env-driven — never a home dir.**
+  ARAIL's model location is `ARAIL_MODELS_DIR` (default `lab/models`,
+  repo-relative). Don't hardcode absolute paths; ARAIL is a blueprint other
+  people run on their own machines. *Machine-level convention:* on boxes shared
+  across QuKaiZen products, MLX checkpoints are pooled world-readable at
+  `/Users/Shared/models/` (with `~/models` symlinked to it) so multiple macOS
+  accounts read one copy — required by aeroLLM's GA gate #6 cross-user replay.
+  Opt in per-machine with `ARAIL_MODELS_DIR=/Users/Shared/models`; prefer that
+  location when downloading new checkpoints there. Do **not** make it a product
+  default. See `docs/models-on-disk.md`.
 - **`.gitignore` is comprehensive** (`models/`, `lab/models/`,
   `node_modules/`, `__pycache__/`, runtime state under `lab/pkb/`).
   The 47M `.git/` history bloat is from a single 42M PDF and
