@@ -313,3 +313,35 @@ covers the primary naming confusion.
 
 **Tests:** new `test_conversations_excluded_from_index`; pkb / pkb_index /
 chat_conversations suites green (30).
+
+## WP7 — Onboarding & first-run truth
+
+**Goal:** a non-expert reaches a real, measured win in five minutes; one name
+for the first action; a truthful footprint.
+
+**Changes**
+
+- **Default first goal** (`setup.sh`) — the `ai`-intent Enter-to-accept goal
+  changed from the expert "Optimize AirLLM 70B KV-cache sweep" (about a backend
+  that isn't installed) to **"Find the best small model for my laptop — measure
+  the speed and responsiveness of the model(s) I have installed"** — directly
+  runnable by WP5's `model_throughput` archetype, so the first Enter-press
+  produces measured results.
+- **One name for the first action** — "Set Research Goal" (matches the real
+  UI button). Fixed `setup.sh`'s "Run Research" next-step and the portal boot
+  tip (`app.py`, "Open Autoresearch and press Set Research Goal").
+- **Truthful footprint** — `setup.sh download_model` no longer pulls the ~5 GB
+  Qwen3-8B streaming model on the **minimalist** tier (it's a maximus/deep
+  asset); minimalist now truly installs only `llama-ai-eng` (~0.9 GB), with the
+  fetch-later command printed. Matches the README claim.
+- **Dead-end removed** — the Agents "Activity" tab (a "coming soon" stub) is
+  hidden until the feed ships.
+
+**Deferred (noted, higher-risk / lower-value for this pass):** the
+`/welcome?step=world` first-run World-wizard redirect for CLI-onboarded users
+(risks redirect loops, touches the onboarding gate); `examples/peanut_farmer`
+README; `docs/missions.md` "Draft Swarm Plan" rewrite (tied to the pre-existing
+swarm-surface test drift). These are onboarding P1/P2s for a follow-up.
+
+**Tests:** agents page no longer renders the Activity stub tab; setup-ladder
+(30) + world-recolor green.

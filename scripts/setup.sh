@@ -1760,6 +1760,21 @@ download_model() {
     local model_dir="lab/models"
     mkdir -p "$model_dir"
 
+    # The ~5 GB Qwen3-8B streaming model is a DEEP/maximus asset, not the
+    # everyday minimalist model. Keep minimalist's footprint honest (~0.9 GB =
+    # llama-ai-eng only, installed via ollama earlier). On minimalist, print the
+    # command to fetch it later instead of silently pulling 5 GB.
+    local _tier_norm="${LAB_TIER:-minimalist}"
+    [[ "$_tier_norm" == "min" ]] && _tier_norm="minimalist"
+    [[ "$_tier_norm" == "max" || "$_tier_norm" == "med" ]] && _tier_norm="maximus"
+    if [[ "$_tier_norm" != "maximus" ]]; then
+        info "Minimalist tier: your everyday model is llama-ai-eng (~0.9 GB, already set up)."
+        info "The larger streaming model is a maximus asset. Fetch it later with:"
+        echo "  python3 -c \"from huggingface_hub import snapshot_download; snapshot_download('${MODEL_MLX_ID}', local_dir='lab/models/Qwen3-8B-4bit')\""
+        echo "  # or just: ./arailctl upgrade maximus"
+        return
+    fi
+
     if [[ "$ACCEL" == "mlx" ]]; then
         local model="$MODEL_MLX_ID"
         if [[ -d "${model_dir}/Qwen3-8B-4bit" ]]; then
@@ -1918,12 +1933,13 @@ capture_goal() {
     # still get the free-form prompt.
     local default_goal=""
     if [[ "$intent" == "ai" ]]; then
-        default_goal="Optimize AirLLM's tokens-per-second when streaming a 70B Llama from disk. Measure baseline TTFT and decode rate, sweep KV-cache quantization and prefill chunk size, compare before/after, write findings back into the knowledge base."
-        echo "  Press Enter to accept the lab's signature research goal —"
-        echo "  ${BOLD}Optimize AirLLM throughput${RESET} (tune the deep"
-        echo "  layer-streaming engine), or type a custom one."
-        echo ""
-        echo "  See lab/pkb/research/program.md for the full plan."
+        # An inviting first goal that the Researcher can ACTUALLY measure on a
+        # fresh laptop (the model_throughput archetype), not an expert AirLLM
+        # sweep about a backend that isn't installed.
+        default_goal="Find the best small model for my laptop — measure the speed and responsiveness of the model(s) I have installed."
+        echo "  Press Enter to accept a friendly starter goal —"
+        echo "  ${BOLD}Find the best small model for my laptop${RESET} (the lab"
+        echo "  measures real speed/responsiveness of what you have), or type a custom one."
     else
         echo "  What do you want the lab to research? One sentence is fine."
         echo "  Examples:"
@@ -1935,7 +1951,7 @@ capture_goal() {
     read -rp "  Goal${default_goal:+ [Enter for default]}: " goal
     if [[ -z "${goal// }" && -n "$default_goal" ]]; then
         goal="$default_goal"
-        info "Using the lab's signature research goal (optimize AirLLM)."
+        info "Using the starter goal (find the best small model for your laptop)."
     elif [[ -z "${goal// }" ]]; then
         warn "Empty goal — skipping capture. You can set one from the dashboard after ./arailctl start."
         return
@@ -2278,7 +2294,7 @@ main() {
     echo "  Next steps:"
     echo -e "    1) Start the lab:      ${BOLD}${start_cmd}${RESET}"
     echo -e "    2) Open the dashboard: ${BOLD}http://127.0.0.1:${PORTAL_PORT:-8080}${RESET}"
-    echo -e "    3) Type your goal and click ${BOLD}Run Research${RESET}"
+    echo -e "    3) Open ${BOLD}Autoresearch${RESET}, set your goal with ${BOLD}Set Research Goal${RESET}, then press ${BOLD}▶ Run${RESET}"
     echo ""
 
     if [[ -n "$PATH_INSTALLED" ]]; then

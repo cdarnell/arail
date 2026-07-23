@@ -43,7 +43,7 @@ no-auto-checks frictionless boot, and inviting onboarding, plus security quick w
 | build WP4 — model-surface truth | DONE | /build explainer + actionable nucleus state, docs/models-on-disk.md, /tuning banner, unbuilt-plan banners, adapter stub relabel |
 | build WP5 — mini experiment engine | DONE | 3 measured archetypes, fabrication deleted, provenance UI; 11 new tests + resume adapted |
 | build WP6 — KB/DaC button-up | DONE | index leak closed, wipe-contract override, classifier unified, ROADMAP banners, nav→Knowledge |
-| build WP7 — onboarding truth | PENDING | default goal, one action name, wizard for CLI users |
+| build WP7 — onboarding truth | DONE | inviting default goal, one action name, honest footprint, Activity stub hidden |
 | build WP8 — docs drift & pruning | PENDING | CLAUDE.md refresh, legacy names, dead surfaces |
 | review (architect) | PENDING | over cumulative diff |
 | test (qa) | PENDING | arail gating: 30% setup / 30% Buddy / 20% security / 10% happy / 10% regression |

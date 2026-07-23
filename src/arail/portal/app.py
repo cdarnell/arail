@@ -961,7 +961,7 @@ async def _startup():
 
     if not goal_store.get_current():
         activity_log.emit("system",
-            "Welcome to Arail. Type a goal above to begin — the researcher agent will take it from there.",
+            "Welcome to Arail. Open Autoresearch and press Set Research Goal to begin — the researcher agent will take it from there.",
             "info")
         activity_log.emit("system",
             "Tip: Goals can be anything — 'grow peanuts in zone 7', 'build a trading bot', 'learn Rust'.",
