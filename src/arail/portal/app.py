@@ -11175,6 +11175,11 @@ async def tuning_page(request: Request):
         return gate
     aerollm_model = os.getenv("AEROLLM_MODEL", "")
     airllm_model = os.getenv("AIRLLM_MODEL", "__TODO_DEEP_MODEL__")
+    # Never surface the raw sentinel — show a friendly "not configured" label
+    # and a flag the template can use to prompt the user to set AIRLLM_MODEL.
+    airllm_configured = airllm_model != "__TODO_DEEP_MODEL__"
+    if not airllm_configured:
+        airllm_model = "Not configured — set AIRLLM_MODEL in .env"
     # Blueprint default: AirLLM is the only visible deep backend. Flip
     # LAB_SHOW_AEROLLM=1 in .env to bring the AeroLLM MLX + CUDA tabs
     # back (one env-var toggle for the operator who's ready to run
@@ -11184,6 +11189,7 @@ async def tuning_page(request: Request):
         **_identity_ctx(),
         "aerollm_model": aerollm_model,
         "airllm_model": airllm_model,
+        "airllm_configured": airllm_configured,
         "show_aerollm": show_aerollm,
     })
 

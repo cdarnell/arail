@@ -29,6 +29,10 @@
   .bx-pill.green{background:color-mix(in srgb, var(--positive) 15%, transparent);color:var(--positive);}
   .bx-pill.amber{background:color-mix(in srgb, var(--warn) 15%, transparent);color:var(--warn);}
   .bx-pill.red{background:color-mix(in srgb, var(--danger) 15%, transparent);color:var(--danger);}
+  .bx-explainer{margin:.4rem 0 .9rem;font-size:.8rem;border:1px solid var(--border);border-radius:var(--radius-m);padding:.5rem .75rem;background:color-mix(in srgb, var(--text-strong) 2%, transparent);}
+  .bx-explainer summary{cursor:pointer;color:var(--text-strong);font-weight:600;}
+  .bx-explainer ul{margin:.5rem 0 .3rem;padding-left:1.1rem;line-height:1.5;}
+  .bx-explainer li{margin:.25rem 0;}
   .bx-status{color:var(--text-muted);}
   .bx-status.green{color:var(--positive);}
   .bx-status.amber{color:var(--warn);}
@@ -90,6 +94,27 @@
     Build, distill, and register models through the QuKaiZen Nucleus (SSDP) pipeline.
     Preflight first — a run never starts red without an explicit override.
   </p>
+
+  <!-- What can I build here? — the four surfaces are easy to conflate. -->
+  <details class="bx-explainer">
+    <summary>What can I build here? (and what needs a separate install)</summary>
+    <ul>
+      <li><b>Your default model</b> (<code>llama-ai-eng</code>) is a persona wrap
+        over <code>llama3.2:1b</code>, built at setup — not weight training.
+        Customize it by editing a <code>Modelfile</code> in <code>models/ai-eng/</code>.</li>
+      <li><b>This tab (Nucleus)</b> trains/distills a real student model, but it's
+        a client for the <b>separate <code>qukaizen-nucleus</code> pipeline</b>,
+        which setup does <b>not</b> install. Preflight works offline; a build
+        needs Nucleus running (see the status strip below).</li>
+      <li><b>The one runnable local pipeline today</b> is
+        <code>scripts/build_ai_eng.sh</code> (CLI only) — download → fuse → bench
+        → GGUF → Ollama.</li>
+      <li><b>The <a href="/tuning">Tuning</a> tab is NOT model building</b> — it
+        tunes inference <i>speed</i> of a large model, not weights.</li>
+    </ul>
+    <p class="bx-muted">Where every artifact lands on disk:
+      <a href="/docs/models-on-disk.md">docs/models-on-disk.md</a>.</p>
+  </details>
 
   <!-- Nucleus connectivity strip -->
   <div class="bx-strip" id="bx-nucleus-strip">
@@ -278,8 +303,12 @@
         $('bx-nucleus-dot').className = 'bx-dot '+(h.up?'up':'down');
         $('bx-nucleus-text').innerHTML = h.up
           ? 'Nucleus orchestrator online at <code>'+esc(h.url)+'</code> ('+Math.round(h.latency_ms||0)+'ms)'
-          : '<b>Nucleus orchestrator offline</b> at <code>'+esc(h.url)+'</code> — '+esc(h.detail)+
-            ' &nbsp;<span class="bx-muted">Start it in qukaizen-nucleus; preflight still works.</span>';
+          : '<b>Model building needs the Nucleus pipeline — not running.</b> '+
+            '<span class="bx-muted">Nucleus is a <b>separate install</b> (the '+
+            '<code>qukaizen-nucleus</code> repo) that this lab\'s setup does not start. '+
+            'Preflight below still works offline; a real build needs Nucleus up at '+
+            '<code>'+esc(h.url)+'</code>. See '+
+            '<a href="/docs/models-on-disk.md">what you can build here</a>.</span>';
         document.querySelectorAll('#bx-jobs button').forEach(function(b){
           if(b.getAttribute('data-act')!=='logs') b.disabled=!h.up; });
       }).catch(function(){});

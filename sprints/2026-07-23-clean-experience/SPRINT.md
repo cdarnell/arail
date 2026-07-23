@@ -40,7 +40,7 @@ no-auto-checks frictionless boot, and inviting onboarding, plus security quick w
 | build WP1 — quiet boot | DONE | ARAIL_AUTOCHECKS master gate, parse_offline, doctor; tests green (see BUILD_LOG.md) |
 | build WP2 — egress honesty | DONE | Buddy HF consent-gated + local correlation, browser consent, chmod 0600; tests green |
 | build WP3 — security quick wins | DONE | tier guards on 11 routes, plugin confirm, chmod 0600, Marimo URL, hand-off + bind warnings; tests green |
-| build WP4 — model-surface truth | PENDING | /build explainer, docs/models-on-disk.md |
+| build WP4 — model-surface truth | DONE | /build explainer + actionable nucleus state, docs/models-on-disk.md, /tuning banner, unbuilt-plan banners, adapter stub relabel |
 | build WP5 — mini experiment engine | PENDING | the new subsystem; fabrication deleted |
 | build WP6 — KB/DaC button-up | PENDING | index leak, wipe contract, classifiers, banners |
 | build WP7 — onboarding truth | PENDING | default goal, one action name, wizard for CLI users |

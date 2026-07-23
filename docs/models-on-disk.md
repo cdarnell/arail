@@ -1,0 +1,77 @@
+# Where your models (and experiments) land on disk
+
+> Short version: **chat models live in Ollama's own store** (outside this repo),
+> **downloaded weights live in `lab/models/`**, and **anything you build** lands
+> in `build/`, `models/graduated/`, or the sibling Nucleus repo depending on
+> which path you used. This page is the map. Nothing here is guessed — each
+> location is the real path the code writes to.
+
+ARAIL has several different notions of "a model," and they don't all live in the
+same place. That's the single most confusing thing about model building here, so
+start with the table, then read the path that matches what you did.
+
+## The map
+
+| What | Where it lands | Set by |
+|---|---|---|
+| **Chat personas** (`llama-ai-eng`, `ai-engineer`) — the default lab models | **Ollama's own store**, `~/.ollama/models` (outside this repo) | `ollama create` in `scripts/setup.sh` |
+| **Downloaded weights** (GGUF / safetensors for AirLLM / AeroLLM streaming) | `lab/models/` | `ARAIL_MODELS_DIR` (`src/arail/config.py`) — git-ignored |
+| **`build_ai_eng.sh` output** (the real local distillation pipeline) | `build/` at the repo root (e.g. `build/ai-eng-1.5b-v2.1.Q4_K_M.gguf`) | `ARAIL_BUILD_DIR` (default `./build`) — git-ignored |
+| **Graduated LoRA adapters** (from a Nucleus run) | `models/graduated/<id>/` | committed via git-lfs |
+| **`/build` tab manifests** (the spec you submit) | the **sibling Nucleus repo**: `~/ProJects/qukaizen-nucleus/configs/arail-generated/<run_id>.yaml` | `NUCLEUS_CONFIGS_DIR` (`src/arail/build/manifest.py`) |
+| **Nucleus-trained student model** | wherever the Nucleus trainer writes it (outside ARAIL); re-imported into ARAIL via `POST /api/models/register-artifact` | the Nucleus pipeline |
+| **Experiment records** (Autoresearch measured runs) | `lab/data/experiments/<id>.json` (raw) + `lab/pkb/agents/experiments/*.md` (KB, until you promote them) | the Researcher agent |
+
+> **"Wipe the PKB = forget me"** covers `lab/pkb/` (knowledge + chat memory).
+> It does **not** wipe `lab/models/`, `build/`, or `lab/data/experiments/` —
+> those are model/build artifacts, not knowledge. Delete them by hand if you
+> want the disk back.
+
+## The four ways to "build a model" (and where each one puts things)
+
+There are four different surfaces that all sound like "build a model." They are
+not the same, and only one runs automatically at setup:
+
+1. **The default persona (`llama-ai-eng`).** This is a *system-prompt wrap* over
+   Meta's `llama3.2:1b` — `ollama pull llama3.2:1b` then `ollama create
+   llama-ai-eng -f models/ai-eng/Modelfile.default`. It's two commands, it runs
+   at setup, and it lands in **Ollama's store**. This is not weight training —
+   it's giving a stock model a persona. To make your own, edit a `Modelfile` in
+   `models/ai-eng/` and run `ollama create <name> -f <modelfile>`.
+
+2. **`scripts/build_ai_eng.sh`** — the one genuine, runnable **distillation**
+   pipeline today. It downloads a LoRA adapter, fuses it, benchmarks, converts
+   to GGUF, and registers with Ollama. Output lands in **`build/`**. It's
+   CLI-only (not in the portal), needs a `.venv` with `peft`/`mlx_lm`, llama.cpp,
+   ~16 GB RAM and ~30 GB disk, and some lanes point at placeholder HF repos
+   today — read the script's header before running:
+   `./scripts/build_ai_eng.sh --help`.
+
+3. **The `/build` tab (Nucleus SSDP pipeline).** This is the "Build, distill,
+   and register models" UI. It is a **thin client for a separate program** —
+   the `qukaizen-nucleus` repo's orchestrator/synthesizer/trainer, which ARAIL's
+   setup does **not** install or start. On a fresh clone the tab shows "Nucleus
+   orchestrator offline" and a build returns an error until you install and run
+   Nucleus yourself. Preflight (the readiness estimate) works offline; the
+   actual build does not. Manifests you submit land in the **sibling Nucleus
+   repo's `configs/arail-generated/`**; the trained model lands on the Nucleus
+   side and is re-imported via the Models registry.
+
+4. **The `/tuning` tab** — this is **not** model building at all. It tunes the
+   *inference throughput* of a very large (≥1 TB) model by sweeping AeroLLM
+   runtime knobs and committing the winners to `config/tuning.yml`. No weights
+   are trained. It sits one nav click from `/build`, so it's easy to confuse —
+   it isn't the same thing.
+
+## Frequently asked
+
+- **"I ran setup — what model do I have?"** `llama-ai-eng` in Ollama (the
+  minimalist default). Check with `ollama list` or `./arailctl doctor`.
+- **"The `/build` tab is red / 502s."** That's expected without Nucleus running.
+  See surface 3 above — it's a separate install, by design for now.
+- **"Where did my Autoresearch experiment results go?"** `lab/data/experiments/`
+  (raw JSON) and `lab/pkb/agents/experiments/` (markdown you can promote into the
+  Knowledge Base). See `docs/agents-explained.md`.
+
+The forward plan for a one-click local distillation (bake → seal → compact) is
+tracked in `sprints/2026-07-22-distill-now/`; it is not shipped yet.

@@ -176,3 +176,43 @@ failures seen mid-work were this, not the tier guard.
 - Non-loopback `BIND_ADDR` emits a security warning at boot. ✓
 - `stat` 0600 on secret files: left for QA on a real setup (unit paths use
   tmp dirs).
+
+## WP4 — Truth-in-UI: the five model surfaces
+
+**Goal:** a newcomer can tell the four "build a model" surfaces apart, sees an
+actionable message instead of a silent 502, and can find where every artifact
+lands. (The real bake→seal→compact path stays the separate distill-now sprint.)
+
+**Changes**
+
+- **New `docs/models-on-disk.md`** — the artifact-location map (Ollama store /
+  `lab/models/` / `build/` / `models/graduated/` / the sibling Nucleus configs
+  tree / experiment records) plus a plain-language "four ways to build a model"
+  section and an FAQ. Auto-surfaces in the Docs tab (docs_registry walks `docs/`).
+- **`/build` explainer** (`templates/build.html`) — a "What can I build here?"
+  disclosure distinguishing persona-wrap vs Nucleus `/build` vs
+  `build_ai_eng.sh` vs `/tuning`, linking to the new doc. The nucleus-down
+  status now reads "Model building needs the Nucleus pipeline — not running… a
+  separate install this lab's setup does not start," linking to the doc, instead
+  of a bare red dot.
+- **`/tuning` banner** (`templates/tuning.html`) — "This tunes inference speed,
+  not model weights," pointing to `/build`. The raw `__TODO_DEEP_MODEL__`
+  sentinel no longer reaches the template (shown as "Not configured — set
+  AIRLLM_MODEL in .env"; new `airllm_configured` flag).
+- **Doc de-duplication + unbuilt banner** — `docs/maximus.plan.md` gains a
+  prominent "DESIGN PLAN — NOT BUILT" banner (its `src/arail/models/`,
+  `src/arail/jobs/`, `scripts/arail-model` don't exist); the near-identical
+  `docs/build-and-finetune-plan.md` is reduced to a short pointer stub.
+- **Graduated-adapter honesty** — the 1.2 KB metadata-only stub
+  `adapters.safetensors` renamed to `adapters.safetensors.placeholder`;
+  `superskill-spec.yaml` now states it's a placeholder (not a real 15 MB
+  git-lfs adapter) via `adapter_placeholder: true` and `shipping:
+  placeholder-only`. No code references the old path (only build_ai_eng's own
+  build-dir file, which is unaffected).
+
+**Tests / verification**
+
+- Render check (maximus TestClient): `/build` shows the explainer + doc link;
+  `/tuning` shows the "inference speed, not weights" banner and no raw
+  `__TODO_DEEP_MODEL__`. ✓
+- `token_compliance` + `test_build_tab` green (all new styling uses classes).
