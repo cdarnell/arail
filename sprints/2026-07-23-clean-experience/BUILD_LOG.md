@@ -216,3 +216,65 @@ lands. (The real bake→seal→compact path stays the separate distill-now sprin
   `/tuning` shows the "inference speed, not weights" banner and no raw
   `__TODO_DEEP_MODEL__`. ✓
 - `token_compliance` + `test_build_tab` green (all new styling uses classes).
+
+## WP5 — Real mini experiment engine (the new subsystem)
+
+**Goal (owner decision):** replace the fabricated research path with genuinely
+measured on-device experiments. No invented metrics; honest "cannot_run" /
+"unmeasured" outcomes; provenance on everything.
+
+**New module: `src/arail/research/mini_experiments.py`** (~430 lines) — the
+Researcher's real measurement engine, importing no network/portal state (a
+`ExperimentContext` is injected). Three airgapped-safe archetypes:
+- `model_throughput` — N=3 median TTFT / decode tok-s / latency of the resolved
+  model (bench.py's warmup technique). No model → `cannot_run`.
+- `prompt_variant` — 2–3 prompt variants × k=3, scored by deterministic proxies
+  (bullet-format compliance, latency, Jaccard consistency) — never a model
+  self-score. No model → `cannot_run`.
+- `retrieval_quality` — probes the APPROVED KB (coverage, self-retrieval top-1,
+  median score); needs **no model**. 0 approved docs → honest `cannot_run`
+  pointing at the Knowledge page.
+Deterministic `select_archetype()`; unmappable hypotheses → `unmeasured`
+(recorded, zero metrics, never success). Results carry
+`provenance ∈ {measured, cannot_run, unmeasured}`, `success` computed per
+archetype (never defaults True), and an optional 1–2 sentence `interpretation`
+labeled `model-narrated` (nothing when no model).
+
+**`src/arail/agents/researcher.py`:**
+- `_design_experiment` tags each experiment with its archetype + real metric
+  names/methodology (was `improvement_rate`/`confidence_score`).
+- Step 4 sleep-loop **deleted** → real `run_experiment` with per-repetition
+  measured observations; completion happens here.
+- `_analyze_experiment` and `_generate_observation` (the LLM-invention +
+  hardcoded `0.15/0.72/24/success=True` fallbacks) **deleted entirely**.
+- `_experiment_markdown` gains a provenance header + renders measured metrics /
+  cannot-run reason / model-narrated interpretation.
+- `_generate_report` receives the measured-metrics digest + provenance summary;
+  the false "All experiments completed with data collection and analysis" line
+  is gone; heuristic fallback prints the real numbers.
+- New `_build_experiment_context` / `_log_experiment_observation`; the "70B+
+  model" deep-inference string is now backend-agnostic.
+
+**`templates/research.html` + `static/research.css`:** provenance badges
+(measured / could-not-run / unmeasured), nested-metrics rendering, cannot-run
+reason, model-narrated interpretation label; the "every experiment is a git
+branch" tagline rescoped to the Tuning loop. Added a `## The research loop`
+section to `docs/agents-explained.md` (fixes the dead `#the-research-loop`
+learn-link).
+
+**Tests**
+
+- New `tests/test_mini_experiments.py` (11): archetype selection; each
+  archetype measured + cannot_run; unmeasured; success-never-defaults-true; a
+  **regression** asserting `0.15`/`0.72`/`data_points` never appear in engine
+  output; provenance_line.
+- `tests/test_research_resume.py` adapted to the engine surface (patches
+  `mini_experiments.run_experiment` instead of the deleted methods); 5 pass.
+- `test_experiments`, planning-trace, swarm, autoresearch-e2e green.
+- Regression sweep: 355 pass; only the 2 pre-existing `test_opencode_*` reds
+  (fail on the untouched parent) remain.
+
+**Verification (WP5 gate)** — engine-proven: with a model, throughput/variant
+produce real numbers; with none, experiments return visible `cannot_run` and
+**zero** numeric metrics; `grep improvement_rate.*0.15` over engine output is
+empty. Live "tok/s changes between runs" is inherent (measured wall-clock).

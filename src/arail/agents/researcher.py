@@ -266,7 +266,7 @@ def _deep_complete(deep_router, fast_router, prompt: str,
     """
     if deep_router is not None:
         activity_log.emit("researcher",
-                          "Deep inference — 70B+ model from disk, this takes time…",
+                          "Deep inference — the larger reasoning model, this takes time…",
                           "info", {"mode": "deep"})
         result = _llm_complete(deep_router, prompt, max_tokens, system=system)
         if result:
@@ -926,82 +926,64 @@ class ResearcherAgent:
                 self.goal_store.update_progress(0.5)
                 self._advance_workflow("Gathered sources", "Running experiments", "Analyze results", progress=0.5)
 
-            # Step 4: Run experiments — each one simulates meaningful
-            # work over LAB_EXP_RUNTIME_SEC seconds (default 60s), emitting
-            # several intermediate observations so the UI shows a running
-            # process, not a blink. Budget × N experiments = total runtime.
-            # Users can shorten for demos with LAB_EXP_RUNTIME_SEC=5.
-            if resume_p < 0.7:
+            # Step 4: Run experiments — for REAL. Each experiment is a genuine
+            # on-device measurement (throughput / prompt-variant / KB-retrieval)
+            # via the mini-experiments engine. The liveness the old sleep loop
+            # faked now comes from actual work; every observation is measured.
+            # Completion happens here too (the old fabricated "analyze" step is
+            # gone), so a crash-resume finds finished experiments and skips them.
+            if resume_p < 0.9:
                 await self._wait_if_paused()
-                exp_runtime = max(1, int(os.getenv("LAB_EXP_RUNTIME_SEC", "60")))
-                # 4 observations per experiment feels "alive" without being noisy.
-                obs_per_exp = 4
-                slice_sec = max(1, exp_runtime // obs_per_exp)
+                ctx = self._build_experiment_context(intent)
                 for exp in experiments:
                     if str(exp.get("status")) == "completed":
-                        # Idempotent re-entry: a crash after tracker.complete
-                        # must not re-run finished work.
+                        # Idempotent re-entry: never re-run finished work.
                         continue
+                    if jobs_halted():
+                        activity_log.emit("researcher", "Halted before running "
+                                          f"experiment {exp['id']}.", "warn")
+                        self._status = "idle"
+                        return
                     self.tracker.start(exp["id"])
+                    archetype = (exp.get("variables") or {}).get("archetype", "?")
                     activity_log.emit("researcher",
                                       f"Running experiment {exp['id']} "
-                                      f"({exp_runtime}s budget)…", "info")
+                                      f"({archetype}, measured)…", "info")
                     self._current_task = f"Running experiment {exp['id']}"
-                    self._next_step = "Analyze results"
-                    self._sync_workflow(progress=0.5)
-                    for k in range(obs_per_exp):
-                        # Cooperatively wait — respects pause/halt in <1s granules.
-                        waited = 0
-                        while waited < slice_sec:
-                            if jobs_halted():
-                                activity_log.emit("researcher",
-                                                  f"Halted during experiment {exp['id']}.",
-                                                  "warn")
-                                self._status = "idle"
-                                return
-                            await self._wait_if_paused()
-                            await asyncio.sleep(min(1, slice_sec - waited))
-                            waited += 1
-                        observation = self._generate_observation(exp, domain, intent)
-                        self.tracker.observe(exp["id"], observation)
-                        activity_log.emit("researcher",
-                                          f"[{exp['id']} · {k + 1}/{obs_per_exp}] {observation[:80]}",
-                                          "info")
+                    self._next_step = "Generate report"
+                    self._sync_workflow(progress=0.6)
+
+                    from arail.research import mini_experiments as mx
+                    exp_id = exp["id"]
+                    ctx.observe = (lambda text, data, _id=exp_id:
+                                   self._log_experiment_observation(_id, text, data))
+                    result = await mx.run_experiment(exp, ctx)
+                    mx.maybe_interpret(result, ctx)
+                    self.tracker.complete(
+                        exp_id, result.to_results_payload(ctx),
+                        result.conclusion, result.success)
+                    level = ("success" if result.success else
+                             "warn" if result.provenance == "measured" else "info")
+                    activity_log.emit("researcher",
+                                      f"Experiment {exp_id} — {result.outcome} "
+                                      f"({result.provenance}).", level)
                 activity_log.emit("researcher", "Experiments complete.", "info", {"progress": 0.7})
                 self.goal_store.update_progress(0.7)
                 if swarm_plan:
                     branch_phase = next((phase for phase in swarm_plan.get("phases", []) if phase.get("id") == "branch"), {})
                     branch_done = set(branch_phase.get("worker_ids") or [])
                     self._sync_swarm_phase(parsed_goal, "challenge", completed_worker_ids=branch_done)
-                self._advance_workflow("Ran experiments", "Analyzing results", "Generate report", progress=0.7)
+                self._advance_workflow("Ran experiments", "Generating report", "Write report to knowledge base", progress=0.7)
 
-            # Step 5: Analyze and complete experiments
+            # Step 5: Collect completed experiments (measurement + analysis both
+            # happened in Step 4 — reload the finished records for the report).
             completed_experiments: list[dict[str, Any]] = []
-            if resume_p < 0.9:
-                await self._wait_if_paused()
-                activity_log.emit("researcher", "Analyzing results...", "info")
-                for exp in experiments:
-                    if str(exp.get("status")) == "completed":
-                        completed_experiments.append(exp)   # analysis on disk
-                        continue
-                    results = self._analyze_experiment(exp, domain, intent)
-                    conclusion = results.pop("conclusion", "See results.")
-                    success = results.pop("success", True)
-                    completed = self.tracker.complete(exp["id"], results, conclusion, success)
-                    completed_experiments.append(completed)
-                    activity_log.emit("researcher",
-                                      f"Experiment {exp['id']} completed — {'supported' if success else 'not supported'}.",
-                                      "success" if success else "warn")
-                    await asyncio.sleep(0.5)
-                activity_log.emit("researcher", "Analysis complete.", "info", {"progress": 0.9})
-                self.goal_store.update_progress(0.9)
-                self._advance_workflow("Analyzed experiment results", "Generating report", "Write report to knowledge base", progress=0.9)
-            else:
-                completed_experiments = [e for e in experiments
-                                         if str(e.get("status")) == "completed"]
-                activity_log.emit("researcher",
-                                  "Analysis already complete (checkpoint) — "
-                                  "generating the report.", "info")
+            for exp in experiments:
+                try:
+                    completed_experiments.append(self.tracker._load(exp["id"]))
+                except Exception:
+                    completed_experiments.append(exp)
+            self.goal_store.update_progress(0.9)
 
             # Step 6: Generate report
             await self._wait_if_paused()
@@ -1252,89 +1234,71 @@ class ResearcherAgent:
         }
 
     def _design_experiment(self, hypothesis: str, domain: str) -> Dict[str, Any]:
-        """Create an experiment from a hypothesis."""
+        """Create an experiment from a hypothesis, tagged with the on-device
+        measurement archetype the engine will actually run (or 'unmeasured')."""
+        from arail.research import mini_experiments as mx
         redirect = _active_redirect()
-        redirect_flags = redirect_profile(redirect)
-        methodology = "Test the hypothesis through controlled observation and data collection."
-        metrics = ["improvement_rate", "confidence_score"]
-        if redirect_flags["focus_measurement"]:
-            methodology = (
-                "Define measurable success criteria, an evaluation harness, and clear instrumentation "
-                "before widening retrieval or source gathering."
-            )
-            metrics = ["measurement_quality", "evaluation_readiness", "confidence_score"]
-        if redirect_flags["prefer_autoresearch"] and "autoresearch_readiness" not in metrics:
-            metrics.append("autoresearch_readiness")
+        archetype = mx.select_archetype(hypothesis) or "unmeasured"
+        methodology = mx.ARCHETYPE_METHODOLOGY.get(archetype, "")
+        metrics = mx.ARCHETYPE_METRICS.get(archetype, [])
         return self.tracker.create(
             hypothesis=hypothesis,
             methodology=methodology,
             variables={
                 "domain": domain,
+                "archetype": archetype,
                 "redirect_preset": str((redirect or {}).get("preset") or ""),
             },
-            duration_days=7,
+            duration_days=None,
             metrics=metrics,
             domain=domain,
         )
 
-    def _generate_observation(self, exp: Dict[str, Any], domain: str,
-                               intent: str | None = None) -> str:
-        """Generate an observation — LLM-enhanced with fallback."""
-        sys_ctx = _get_system_context(intent)
-        redirect_block = _redirect_prompt_block(_active_redirect())
-        prompt = (
-            f"{redirect_block}"
-            f"You are running an experiment about: {exp['hypothesis'][:100]}\n"
-            f"Domain: {domain}\n"
-            f"Write a single concise observation (1-2 sentences) from initial data collection."
-        )
-        llm_text = _llm_complete(self._router, prompt, max_tokens=100, system=sys_ctx)
-        if llm_text:
-            return llm_text[:200]
-        return (
-            f"Initial data collection for '{exp['hypothesis'][:50]}...' shows "
-            f"promising patterns. Baseline metrics established."
-        )
+    def _build_experiment_context(self, intent: str | None):
+        """Assemble the injected context the mini-experiments engine runs in —
+        the fast router, an approved-KB search, halt/pause callbacks, and the
+        per-experiment time budget. No fabricated data ever enters here."""
+        from arail.research.mini_experiments import ExperimentContext
+        from arail import pkb as pkb_mod
+        model_name = ""
+        backend_name = ""
+        try:
+            from arail.registry import resolve
+            entry = resolve("fast", tab="research").entry
+            if entry is not None:
+                model_name = getattr(entry, "display_name", "") or getattr(entry, "model_id", "")
+                backend_name = getattr(entry, "backend", "") or ""
+        except Exception:
+            pass
 
-    def _analyze_experiment(self, exp: Dict[str, Any], domain: str,
-                             intent: str | None = None) -> Dict[str, Any]:
-        """Analyze experiment results — LLM-enhanced with fallback."""
-        sys_ctx = _get_system_context(intent)
-        redirect_block = _redirect_prompt_block(_active_redirect())
-        prompt = (
-            f"{redirect_block}"
-            f"Analyze this experiment and provide results.\n"
-            f"Hypothesis: {exp['hypothesis'][:100]}\n"
-            f"Domain: {domain}\n"
-            f"Provide a JSON object with keys: improvement_rate (0-1), "
-            f"confidence_score (0-1), data_points (int), conclusion (string), success (bool).\n"
-            f"JSON:"
-        )
-        llm_text = _deep_complete(self._active_deep_router(), self._router, prompt, max_tokens=200, system=sys_ctx)
-        if llm_text:
+        def _kb_search(query: str, k: int = 5):
             try:
-                # Try to extract JSON from response
-                import re
-                match = re.search(r'\{[^}]+\}', llm_text)
-                if match:
-                    parsed = json.loads(match.group())
-                    # Ensure required keys
-                    return {
-                        "improvement_rate": float(parsed.get("improvement_rate", 0.15)),
-                        "confidence_score": float(parsed.get("confidence_score", 0.72)),
-                        "data_points": int(parsed.get("data_points", 24)),
-                        "conclusion": str(parsed.get("conclusion", "See results.")),
-                        "success": bool(parsed.get("success", True)),
-                    }
-            except (json.JSONDecodeError, ValueError):
-                pass
-        return {
-            "improvement_rate": 0.15,
-            "confidence_score": 0.72,
-            "data_points": 24,
-            "conclusion": f"Experiment supports the hypothesis with moderate confidence.",
-            "success": True,
-        }
+                return pkb_mod.search_for_agents(query)[:k]
+            except Exception:
+                return []
+
+        def _kb_titles():
+            try:
+                from arail.compiled_kb import approved_paths
+                from pathlib import Path as _P
+                return sorted({_P(p).stem for p in approved_paths()})
+            except Exception:
+                return []
+
+        budget = max(1.0, float(os.getenv("LAB_EXP_RUNTIME_SEC", "60")))
+        return ExperimentContext(
+            router=self._router, kb_search=_kb_search, kb_approved_titles=_kb_titles,
+            halt_check=jobs_halted, pause_wait=self._wait_if_paused,
+            time_budget_sec=budget, model_name=model_name, backend_name=backend_name)
+
+    def _log_experiment_observation(self, exp_id: str, text: str,
+                                    data: Dict[str, Any]) -> None:
+        """Record a REAL, measured observation from a running experiment."""
+        try:
+            self.tracker.observe(exp_id, text, data or {})
+        except Exception:
+            pass
+        activity_log.emit("researcher", f"[{exp_id}] {text[:90]}", "info")
 
     def _experiment_markdown(self, exp: Dict[str, Any]) -> str:
         """Render a high-signal experiment entry for the PKB.
@@ -1342,44 +1306,44 @@ class ResearcherAgent:
         Keeps core facts (hypothesis, metrics, outcome) visible so
         /dac isn't filled with opaque ID-only stubs.
         """
+        from arail.research import mini_experiments as mx
         results = exp.get("results") or {}
-        metrics = exp.get("metrics") or []
         observations = exp.get("observations") or []
-        supported = bool(exp.get("hypothesis_supported", False))
-        outcome = "supported" if supported else "not supported"
-        badge = "positive" if supported else "negative"
+        outcome = str(results.get("outcome") or
+                      ("supported" if exp.get("hypothesis_supported") else "not supported"))
 
         lines = [
             f"# Experiment {exp['id']}",
             "",
-            f"**Outcome:** {outcome} ({badge})",
+            mx.provenance_line(results),   # measured / NOT RUN / unmeasured — always honest
+            f"**Outcome:** {outcome}",
             f"**Domain:** {exp.get('domain', 'general')}",
-            f"**Status:** {exp.get('status', 'completed')}",
             f"**Hypothesis:** {exp.get('hypothesis', '')}",
             f"**Methodology:** {exp.get('methodology', '')}",
             "",
-            "## What was measured",
-            "",
         ]
 
+        metrics = results.get("metrics") or {}
         if metrics:
-            for m in metrics:
-                lines.append(f"- {m}")
-        else:
-            lines.append("- improvement_rate")
-            lines.append("- confidence_score")
-            lines.append("- data_points")
-
-        if results:
-            lines.extend(["", "## Results", ""])
-            for k, v in results.items():
+            lines.extend(["## Measured metrics", ""])
+            for k, v in metrics.items():
+                if isinstance(v, dict):
+                    continue  # skip nested per-variant detail in the summary
                 lines.append(f"- **{k}**: {v}")
+            lines.append("")
+        elif results.get("provenance") == "cannot_run":
+            lines.extend([f"_Could not run: {results.get('cannot_run_reason', '')}._", ""])
 
-        lines.extend(["", "## Conclusion", "", str(exp.get("conclusion", "See results."))])
+        interp = results.get("interpretation")
+        if isinstance(interp, dict) and interp.get("text"):
+            lines.extend(["## Interpretation (model-narrated)", "",
+                          str(interp["text"]), ""])
+
+        lines.extend(["## Conclusion", "", str(exp.get("conclusion", "See results."))])
 
         if observations:
-            lines.extend(["", "## Observations", ""])
-            for ob in observations[-5:]:
+            lines.extend(["", "## Observations (measured)", ""])
+            for ob in observations[-6:]:
                 lines.append(f"- {ob.get('date', '')}: {ob.get('observation', '')}")
 
         return "\n".join(lines) + "\n"
@@ -1387,6 +1351,7 @@ class ResearcherAgent:
     def _generate_report(self, parsed_goal: Dict[str, Any],
                          experiments: List[Dict[str, Any]]) -> str:
         """Generate a markdown research report — LLM-enhanced with fallback."""
+        from arail.research.mini_experiments import provenance_line as mx_provenance_line
         goal_text = parsed_goal.get("goal", "")
         domain = parsed_goal.get("domain", "general")
         intent = parsed_goal.get("intent", _get_lab_intent())
@@ -1395,59 +1360,85 @@ class ResearcherAgent:
         redirect_block = _redirect_prompt_block(_active_redirect())
         n = len(experiments)
 
-        # Try LLM for a richer report
-        exp_summaries = "\n".join(
-            f"- {exp['hypothesis'][:80]}" for exp in experiments
-        )
+        # Provenance summary — how many experiments were actually measured.
+        def _prov(exp):
+            return str(((exp.get("results") or {}).get("provenance")) or "unmeasured")
+        n_measured = sum(1 for e in experiments if _prov(e) == "measured")
+        n_cannot = sum(1 for e in experiments if _prov(e) == "cannot_run")
+        n_unmeasured = n - n_measured - n_cannot
+
+        # A compact, truthful metrics digest handed to the LLM AND printed in the
+        # heuristic fallback — the report is grounded in the measured numbers.
+        def _digest(exp):
+            r = exp.get("results") or {}
+            m = {k: v for k, v in (r.get("metrics") or {}).items()
+                 if not isinstance(v, dict)}
+            tag = _prov(exp)
+            head = f"- [{tag}] {exp.get('hypothesis', '')[:70]}"
+            if tag == "measured" and m:
+                return head + " → " + ", ".join(f"{k}={v}" for k, v in list(m.items())[:4])
+            if tag == "cannot_run":
+                return head + f" → could not run: {r.get('cannot_run_reason', '')[:60]}"
+            return head + " → not measurable on-device"
+        digest = "\n".join(_digest(e) for e in experiments)
+
         prompt = (
             f"{redirect_block}"
             f"{self._swarm_prompt_block(parsed_goal)}"
-            f"Write a concise research report in Markdown.\n\n"
+            f"Write a concise research report in Markdown from these MEASURED "
+            f"results. Do not invent numbers — use only what's given.\n\n"
             f"Goal: {goal_text}\nDomain: {domain}\n"
-            f"Experiments ({n}):\n{exp_summaries}\n\n"
-            f"Include: Summary, Key Findings, Recommendations.\n"
-            f"Keep it under 300 words.\n\nReport:"
+            f"Experiments ({n}): {n_measured} measured, {n_cannot} could-not-run, "
+            f"{n_unmeasured} unmeasured.\n{digest}\n\n"
+            f"Include: Summary, Key Findings (cite the measured metrics), "
+            f"Recommendations. Under 300 words.\n\nReport:"
         )
         llm_text = _deep_complete(self._active_deep_router(), self._router, prompt, max_tokens=600, system=sys_ctx)
         if llm_text and len(llm_text) > 50:
-            return llm_text
+            return (llm_text.rstrip() +
+                    f"\n\n---\n*Provenance: {n_measured} measured · "
+                    f"{n_unmeasured} unmeasured · {n_cannot} could-not-run. "
+                    "Narrative is model-written; metrics are code-measured.*")
 
-        # Heuristic fallback
+        # Heuristic fallback — prints the actual measured numbers, no fabrication.
         report_lines = [
-            f"# Research Report",
-            f"",
+            "# Research Report",
+            "",
             f"**Goal:** {goal_text}",
             f"**Domain:** {domain}",
-            f"**Experiments conducted:** {n}",
-            f"",
-            f"## Summary",
-            f"",
-            f"Conducted {n} experiments to systematically explore approaches to the stated goal.",
-            f"All experiments completed with data collection and analysis.",
-            f"",
-            f"## Experiments",
-            f"",
+            f"**Experiments:** {n} ({n_measured} measured · {n_unmeasured} unmeasured · "
+            f"{n_cannot} could-not-run)",
+            "",
+            "## Results",
+            "",
         ]
         for exp in experiments:
-            report_lines.append(f"### Experiment `{exp['id']}`")
-            report_lines.append(f"- **Hypothesis:** {exp['hypothesis']}")
-            report_lines.append(f"- **Status:** completed")
-            report_lines.append(f"")
+            r = exp.get("results") or {}
+            report_lines.append(f"### `{exp['id']}` — {exp.get('hypothesis', '')[:70]}")
+            report_lines.append(f"- {mx_provenance_line(r)}")
+            report_lines.append(f"- **Conclusion:** {exp.get('conclusion', 'See results.')}")
+            metrics = {k: v for k, v in (r.get("metrics") or {}).items()
+                       if not isinstance(v, dict)}
+            for k, v in metrics.items():
+                report_lines.append(f"  - {k}: {v}")
+            report_lines.append("")
 
         report_lines.extend([
-            f"## Recommendations",
-            f"",
-            f"1. Continue data collection to increase confidence scores",
-            f"2. Design follow-up experiments targeting specific variables",
-            f"3. Consider expanding data sources for broader validation",
+            "## Recommendations",
+            "",
         ])
+        if n_cannot:
+            report_lines.append("1. Some experiments could not run (e.g. no local "
+                                "model, or no approved knowledge). Install a model "
+                                "and approve documents on the Knowledge page, then re-run.")
+        if n_measured:
+            report_lines.append(f"{'2' if n_cannot else '1'}. Build on the measured "
+                                "results above; re-run to confirm stability.")
         if redirect_flags["prefer_autoresearch"]:
-            report_lines.append(f"4. Convert the strongest measurement path into a repeatable Autoresearch loop with explicit stop conditions")
-        report_lines.extend([
-            f"",
-            f"---",
-            f"*Generated by Arail Researcher Agent*",
-        ])
+            report_lines.append("Convert the strongest measured path into a repeatable "
+                                "loop with explicit stop conditions.")
+        report_lines.extend(["", "---", "*Generated by Arail Researcher Agent — "
+                             "metrics are code-measured on this machine.*"])
         return "\n".join(report_lines)
 
 

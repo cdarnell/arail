@@ -39,8 +39,16 @@ def lab(monkeypatch, tmp_path):
     monkeypatch.setenv("LAB_EXP_RUNTIME_SEC", "1")
     monkeypatch.setattr(res_mod.researcher, "_plan_research",
                         lambda parsed: ["h1", "h2"])
-    monkeypatch.setattr(res_mod.researcher, "_generate_observation",
-                        lambda exp, domain, intent: "observed")
+    # The experiment engine runs for real; in tests, stub it to a deterministic,
+    # instant measured result so resume/checkpoint logic is what's exercised.
+    from arail.research import mini_experiments as mx_mod
+
+    async def _fake_run(exp, ctx):
+        return mx_mod.MiniResult(
+            archetype="model_throughput", provenance="measured",
+            outcome="supported", success=True,
+            metrics={"decode_tok_per_sec": 10.0}, runs=1, conclusion="ok")
+    monkeypatch.setattr(mx_mod, "run_experiment", _fake_run)
     monkeypatch.setattr(res_mod.researcher, "_generate_report",
                         lambda parsed, completed: "# report")
     monkeypatch.setattr(res_mod.researcher, "_brief_block", "", raising=False)
@@ -79,16 +87,21 @@ def test_resume_skips_completed_experiment(lab, monkeypatch):
     store, tracker, res_mod = lab
     parsed, done_id, open_id = _seed_interrupted_run(store, tracker)
 
-    analyzed = []
-    monkeypatch.setattr(
-        res_mod.researcher, "_analyze_experiment",
-        lambda exp, domain, intent: analyzed.append(exp["id"]) or
-        {"conclusion": "ok", "success": True, "metric": 2})
+    ran = []
+    from arail.research import mini_experiments as mx_mod
+
+    async def _tracking_run(exp, ctx):
+        ran.append(exp["id"])
+        return mx_mod.MiniResult(
+            archetype="model_throughput", provenance="measured",
+            outcome="supported", success=True,
+            metrics={"decode_tok_per_sec": 10.0}, runs=1, conclusion="ok")
+    monkeypatch.setattr(mx_mod, "run_experiment", _tracking_run)
 
     rs = goals_mod.load_run_state()
     asyncio.run(res_mod.researcher._run(parsed, 0, resume_state=rs))
 
-    assert analyzed == [open_id]                 # completed one NOT re-analyzed
+    assert ran == [open_id]                      # completed one NOT re-run
     current = store.get_current()
     assert current["progress"] == 1.0            # continued past checkpoint
     assert current.get("report")
@@ -107,11 +120,9 @@ def test_resume_below_checkpoint_replans(lab, monkeypatch):
     monkeypatch.setattr(
         res_mod.researcher, "_design_experiment",
         lambda hyp, domain: designed.append(hyp) or
-        tracker.create(hypothesis=hyp, methodology="m", variables={},
+        tracker.create(hypothesis=hyp, methodology="m",
+                       variables={"archetype": "model_throughput"},
                        domain=domain))
-    monkeypatch.setattr(
-        res_mod.researcher, "_analyze_experiment",
-        lambda exp, domain, intent: {"conclusion": "ok", "success": True})
     asyncio.run(res_mod.researcher._run(
         parsed, 0, resume_state=goals_mod.load_run_state()))
     assert designed == ["h1", "h2"]              # honest re-plan from the top
