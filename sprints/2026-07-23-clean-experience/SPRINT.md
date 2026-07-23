@@ -45,8 +45,8 @@ no-auto-checks frictionless boot, and inviting onboarding, plus security quick w
 | build WP6 — KB/DaC button-up | DONE | index leak closed, wipe-contract override, classifier unified, ROADMAP banners, nav→Knowledge |
 | build WP7 — onboarding truth | DONE | inviting default goal, one action name, honest footprint, Activity stub hidden |
 | build WP8 — docs drift & pruning | DONE | CLAUDE.md refresh, tier-name sweep, .env model copy, ROADMAP themes, .gitattributes fix |
-| review (architect) | PENDING | over cumulative diff |
-| test (qa) | PENDING | arail gating: 30% setup / 30% Buddy / 20% security / 10% happy / 10% regression |
+| review (architect) | DONE | WEAK_PASS, no blocks; A4 fixed, index-rebuild perf deferred (REVIEW.md) |
+| test (qa) | DONE | PASS; new tests green, 2 pre-existing reds documented (TEST_REPORT.md) |
 
 ## QA gating (arail, per workspace CLAUDE.md)
 

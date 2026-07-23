@@ -871,6 +871,27 @@ class ResearcherAgent:
                                       f"Created experiment {exp['id']}: {exp['hypothesis'][:80]}",
                                       "info", {"experiment_id": exp["id"]})
                     await asyncio.sleep(0.5)  # pacing for UX
+                # Guarantee at least one genuinely-measurable experiment: if every
+                # hypothesis mapped to 'unmeasured', append a lab-capability
+                # baseline so a run always produces a real measured-or-refused
+                # result rather than only paper hypotheses (ARCHITECTURE §A4).
+                def _archetype_of(e):
+                    return (e.get("variables") or {}).get("archetype", "unmeasured")
+                if experiments and all(_archetype_of(e) == "unmeasured" for e in experiments):
+                    kind = ("model_throughput" if self._router is not None
+                            else "retrieval_quality")
+                    baseline = self.tracker.create(
+                        hypothesis=f"Baseline: measure this lab's {'model responsiveness' if kind == 'model_throughput' else 'approved-knowledge retrieval'} for '{domain}'.",
+                        methodology="Lab-capability baseline (auto-added because no "
+                                    "hypothesis was measurable on-device).",
+                        variables={"domain": domain, "archetype": kind,
+                                   "auto_baseline": True},
+                        duration_days=None, metrics=[], domain=domain)
+                    experiments.append(baseline)
+                    self.goal_store.link_experiment(baseline["id"])
+                    activity_log.emit("researcher",
+                                      "Added a measurable lab-capability baseline "
+                                      "(no hypothesis was measurable on-device).", "info")
                 activity_log.emit("researcher", "Experiments designed.", "info", {"progress": 0.3})
                 self.goal_store.update_progress(0.3)
                 self._advance_workflow("Designed experiments", "Gathering sources", "Run experiments", progress=0.3)
