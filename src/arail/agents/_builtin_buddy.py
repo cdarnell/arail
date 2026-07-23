@@ -907,15 +907,48 @@ def _suggest_hybrid_for_research(goal: Dict[str, Any]) -> Optional[Observation]:
     )
 
 
+# HuggingFace endpoint Buddy scans for trending papers. Deliberately a FIXED,
+# un-parameterized URL — the user's goal text is NEVER placed in a third-party
+# query string. Correlation to the goal happens locally, after fetch.
+_HF_PAPERS_URL = "https://huggingface.co/api/daily_papers"
+
+
+def _ensure_hf_consent_request(store: Any) -> None:
+    """Create a single pending consent request for huggingface.co (idempotent).
+
+    Avoids re-appending a duplicate pending entry on every Buddy cycle.
+    """
+    try:
+        from urllib.parse import urlparse
+        domain = urlparse(_HF_PAPERS_URL).netloc
+        for r in store.list_pending():
+            if r.get("domain") == domain:
+                return  # already awaiting the user's decision
+        store.request_access(
+            _HF_PAPERS_URL,
+            reason="Scan HuggingFace trending papers and correlate them with "
+                   "your current research goal (correlation runs locally; your "
+                   "goal text is never sent to HuggingFace).",
+            agent="buddy",
+        )
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def _suggest_internet_correlation(goal: Dict[str, Any]) -> Optional[Observation]:
     """Surface a recent HuggingFace paper that correlates with the goal.
 
-    Gated by hybrid mode — disabled by default in airgapped.  Uses
-    stdlib urllib only; no new dependencies. Falls back silently on
-    any network or parse error.
+    Two gates, both must pass:
+      1. Hybrid mode (airgapped disables all egress — the canonical
+         is_airgapped() from arail.airgap).
+      2. Per-domain user consent (ConsentStore). On the first attempt with no
+         consent, Buddy creates ONE pending consent request and suggests the
+         user approve web access — it does NOT fetch. Nothing reaches the
+         network until the user says yes.
 
-    Note: LAB_INTERNET_ENABLED was removed in sprint airgap-honest-mode
-    (2026-05-05). Gate is now the canonical is_airgapped() from arail.airgap.
+    Privacy: the fetch URL is fixed (_HF_PAPERS_URL) — the user's goal text is
+    never placed in a third-party query string. Goal correlation is computed
+    locally from the returned paper titles/summaries. Stdlib urllib only.
     """
     try:
         from arail.airgap import is_airgapped
@@ -924,42 +957,76 @@ def _suggest_internet_correlation(goal: Dict[str, Any]) -> Optional[Observation]
     except Exception:
         return None
 
+    # Per-domain consent gate. No consent → request it once, suggest approval,
+    # and return without fetching.
+    try:
+        from arail.agents.consent import ConsentStore
+        store = ConsentStore()
+        if not store.is_allowed(_HF_PAPERS_URL):
+            _ensure_hf_consent_request(store)
+            return Observation(
+                watcher="internet:consent",
+                severity="suggest",
+                fact="Buddy can scan HuggingFace for papers related to your "
+                     "goal — approve web access for huggingface.co to turn it "
+                     "on (your goal text stays local).",
+                cooldown_sec=24 * 3600,
+                suggestion={"kind": "consent", "target": "huggingface.co",
+                            "link": "/agents"},
+            )
+    except Exception:
+        return None
+
     parsed = goal.get("parsed") or {}
     title = str(goal.get("title") or goal.get("text") or "")
     sub_obj = parsed.get("sub_objectives") or []
 
-    # Build a short keyword query from the goal title + first sub-objective
-    tokens = title.split()[:6]
-    if sub_obj:
-        tokens += str(sub_obj[0]).split()[:4]
-    query = " ".join(tokens).strip()
-    if not query:
+    # Build a local keyword set from the goal (used for on-device correlation
+    # only — never sent anywhere).
+    tokens = [t.lower().strip(".,;:!?()[]\"'")
+              for t in (title.split()[:6]
+                        + (str(sub_obj[0]).split()[:4] if sub_obj else []))]
+    keywords = {t for t in tokens if len(t) > 3}
+    goal_keyword = (title.split()[0] if title.split() else "your goal")
+    if not keywords:
         return None
-
-    # Pick the most prominent keyword for the suggestion fact
-    goal_keyword = tokens[0] if tokens else "your goal"
 
     try:
         import json as _json
-        import urllib.parse
         import urllib.request
 
-        encoded = urllib.parse.quote(query)
-        url = f"https://huggingface.co/api/papers?search={encoded}&limit=3"
-        req = urllib.request.Request(url, headers={"User-Agent": "ARAIL-Buddy/1.0"})
+        req = urllib.request.Request(
+            _HF_PAPERS_URL, headers={"User-Agent": "ARAIL-Buddy/1.0"})
         with urllib.request.urlopen(req, timeout=6) as resp:
             data = _json.loads(resp.read().decode())
 
-        papers = data if isinstance(data, list) else (data.get("papers") or [])
-        if not papers:
+        rows = data if isinstance(data, list) else (data.get("papers") or [])
+        if not rows:
             return None
 
-        paper = papers[0]
-        paper_title = str(paper.get("title") or "").strip()
-        paper_id = str(paper.get("id") or paper.get("arxiv_id") or "").strip()
-        if not paper_title:
+        # Local correlation: score each paper by keyword overlap with title +
+        # summary. Only surface a paper that ACTUALLY matches the goal — no
+        # match → no suggestion (honest: we don't pretend an unrelated trending
+        # paper connects to the goal).
+        best = None
+        best_score = 0
+        for row in rows:
+            paper = row.get("paper") if isinstance(row, dict) and "paper" in row else row
+            if not isinstance(paper, dict):
+                continue
+            paper_title = str(paper.get("title") or "").strip()
+            summary = str(paper.get("summary") or paper.get("abstract") or "")
+            haystack = (paper_title + " " + summary).lower()
+            score = sum(1 for k in keywords if k in haystack)
+            if score > best_score and paper_title:
+                best_score = score
+                best = paper
+
+        if best is None or best_score == 0:
             return None
 
+        paper_title = str(best.get("title") or "").strip()
+        paper_id = str(best.get("id") or best.get("arxiv_id") or "").strip()
         short_title = paper_title[:80]
         link_suffix = f"/papers/{paper_id}" if paper_id else ""
         return Observation(

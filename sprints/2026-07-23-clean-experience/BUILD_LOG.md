@@ -68,3 +68,48 @@ an interval unless the user opts in (`ARAIL_AUTOCHECKS`) or explicitly asks
 - Deferred: live "time ./arailctl start → first byte < 5s" needs a booted
   portal + venv on the target box (no venv in the worktree) — left for the QA
   pass on Charlie's machine.
+
+## WP2 — Egress honesty (live privacy bug + browser consent)
+
+**Goal:** the "agents only touch approved knowledge and don't phone home"
+contract is true, enforced, and honestly documented — no undisclosed egress,
+no private user text in third-party URLs.
+
+**Changes**
+
+- **`src/arail/agents/_builtin_buddy.py` `_suggest_internet_correlation`:**
+  - Now consent-gated: in hybrid with no consent for `huggingface.co`, Buddy
+    creates ONE pending consent request (idempotent — no duplicate spam) and
+    returns a "approve web access" suggestion instead of fetching. Nothing
+    reaches the network until the user approves.
+  - **Goal text removed from the URL.** The fetch target is a fixed,
+    un-parameterized `_HF_PAPERS_URL` (`…/api/daily_papers`); goal correlation
+    is computed locally from returned titles/summaries by keyword overlap. No
+    match → no suggestion (honest — no pretending an unrelated paper connects).
+- **`src/arail/agents/browser.py`:** new `_consent_gate()` — `browse_url` and
+  `chat` now check `ConsentStore.is_allowed(domain)` before any fetch; an
+  un-approved domain creates one pending request and returns an
+  `awaiting_consent` result. For `chat` the gate runs after Phase-1 URL
+  resolution (a local model call) and before the network `open`. Module
+  docstring corrected to "consent-gated per domain when hybrid" (was
+  overclaiming).
+- **`src/arail/agents/researcher.py`:** reworded the source messaging — it now
+  says approval records *permission* (nothing is fetched/downloaded), removing
+  the implication that approved sources are pulled.
+- **`src/arail/agents/consent.py`:** `_save` now `chmod 0600` (allowlist /
+  pending / history are owner-only, matching secrets.env).
+
+**Tests**
+
+- New `tests/test_buddy_internet_consent.py` (4): airgapped → no network;
+  hybrid+no-consent → one pending request, no fetch, no duplicate on re-run;
+  hybrid+consent → fetches the fixed URL (asserts no goal words / no `?` in
+  URL) and correlates locally; no keyword match → None.
+- Regression: buddy/browser/curator/egress suites (108 assertions across the
+  touched files) pass.
+
+**Verification (WP2 gate)**
+
+- Buddy hybrid cycle without consent performs no HuggingFace request and
+  leaves a single pending consent entry; the fetched URL never contains goal
+  words. ✓ (unit-proven; live egress.jsonl check left for QA on a hybrid box)

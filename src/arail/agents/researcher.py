@@ -904,14 +904,20 @@ class ResearcherAgent:
                         consent_results = self.curator.submit_proposals(proposals)
                         approved = [r for r in consent_results if r["status"] == "auto_approved"]
                         pending = [r for r in consent_results if r["status"] == "pending"]
+                        # Note: this records *permission* to reach these
+                        # domains — it does not download anything. The lab runs
+                        # on your approved local knowledge; approval just clears
+                        # a source for a future explicit fetch.
                         if approved:
                             activity_log.emit("researcher",
-                                              f"{len(approved)} sources auto-approved from allowlist.",
-                                              "success")
+                                              f"{len(approved)} source domain(s) already permitted "
+                                              "(on your allowlist). Nothing fetched.",
+                                              "info")
                         if pending:
                             activity_log.emit("researcher",
-                                              f"{len(pending)} sources awaiting your approval.",
-                                              "warn")
+                                              f"{len(pending)} source domain(s) noted — approve them on "
+                                              "the Agents page to permit future access. Nothing fetched yet.",
+                                              "info")
                     else:
                         activity_log.emit("researcher",
                                           "No external sources needed — running fully local.",
