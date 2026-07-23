@@ -113,3 +113,66 @@ no private user text in third-party URLs.
 - Buddy hybrid cycle without consent performs no HuggingFace request and
   leaves a single pending consent entry; the fetched URL never contains goal
   words. ✓ (unit-proven; live egress.jsonl check left for QA on a hybrid box)
+
+## WP3 — Security quick wins
+
+**Goal:** make tier a real access boundary, stop the plugin installer from
+running unconfirmed, keep the passphrase off disk-world-readable + out of the
+Marimo URL, and warn on the hand-off / non-loopback-bind cases. (Full dashboard
+auth deferred, per owner.)
+
+**Changes** (all `src/arail/portal/app.py` unless noted)
+
+- **Server-side tier guards.** New `_require_surface(name)` (generalizes the
+  old `_require_workbench`, now a thin alias) 404s when the surface isn't in the
+  current tier. Applied to `/terminal`, `/notebook`, `/notebooks`, `/marimo`,
+  `/plugins`, `/admin`, `/build`, `/tuning` (GET) and `/api/notebook/start`,
+  `/api/marimo/start`, `/api/plugins/install` (POST). Routes/URLs unchanged;
+  minimalist users get 404 (existence not disclosed) instead of the full page.
+- **Plugin install confirmation.** `/api/plugins/install` now requires
+  `confirm_code_execution=true` in the body (server-side) and the plugins.html
+  form both shows a persistent warning and raises a `confirm()` dialog that
+  spells out "git clone + pip install runs arbitrary code as you".
+- **Passphrase file perms.** New `_chmod_600` helper; `.env`, `lab.conf`, and
+  `~/.config/code-server/config.yaml` writes are now owner-only (were
+  world-readable), matching secrets.env.
+- **Marimo URL.** Removed `?access_token=<ARAIL_PASSWORD>` from the iframe /
+  pop-out URL (it leaked the passphrase into browser history). The token is now
+  a click-to-reveal "Access token" button (copies to clipboard); Marimo prompts
+  for it once. (`templates/marimo.html`)
+- **Hand-off warning.** welcome.html gains a warning card: the dashboard has no
+  login — anyone at this browser is treated as you (can run code, flip egress,
+  read tokens). A loud startup log + activity-log `security` warning now fires
+  when `BIND_ADDR` is non-loopback.
+- **Design tokens.** All new banner/button styling uses CSS classes, not inline
+  `style=` (keeps the token-compliance ratchet green).
+
+**Tests**
+
+- New `tests/test_tier_route_guards.py` (3): minimalist 404s on all 11 maximus
+  routes; maximus serves them; plugin install without confirmation is refused.
+- Adapted `test_world_recolor.py` (autouse maximus fixture) and
+  `test_admin_models_html_safety.py` (maximus env) — they render maximus-only
+  pages that now correctly 404 on minimalist.
+- Fixed a pre-existing token-compliance false positive (the hex regex counted
+  `href="#dac-proposals-panel"` as a color); it now requires a real color
+  boundary. Verified this hid no genuine literal (no file dropped below
+  baseline).
+- Full portal sweep: 379 pass. The only 2 reds
+  (`test_opencode_*` log-rotation / config-env) are **pre-existing** — they fail
+  identically on the untouched parent checkout.
+
+**Environment note:** the worktree was missing the vendored
+`lab/worlds/{photography,physics}` bundles the parent has (git-ignored runtime
+state); restored them for test parity (not committed). The 4 `test_build_tab`
+failures seen mid-work were this, not the tier guard.
+
+**Verification (WP3 gate)**
+
+- `LAB_TIER=minimalist` → 404 on `/plugins`, `/admin`, `/build`, `/tuning`,
+  `/terminal`, notebooks/marimo, and the POST endpoints. ✓
+- Plugin install without `confirm_code_execution` → refused, no clone/pip. ✓
+- Marimo template contains no `access_token=` in any URL. ✓
+- Non-loopback `BIND_ADDR` emits a security warning at boot. ✓
+- `stat` 0600 on secret files: left for QA on a real setup (unit paths use
+  tmp dirs).

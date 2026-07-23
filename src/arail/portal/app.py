@@ -759,6 +759,22 @@ async def _startup():
     global _MODEL_WARM
     from arail import autochecks
     _autochecks_on = autochecks.enabled()
+
+    # Loud warning when the portal is bound off loopback: the dashboard has no
+    # login, so a non-loopback bind exposes an unauthenticated, code-execution-
+    # capable surface to the LAN (a wildcard bind also disables the Host
+    # allowlist). This is a deliberate operator choice — surface it clearly.
+    if not _toggle_bind_is_loopback():
+        _bind = os.getenv("BIND_ADDR", "127.0.0.1")
+        _msg = (f"Portal is bound to {_bind} (not loopback). The dashboard has "
+                "NO login — anyone who can reach this address can run code, flip "
+                "egress, and read tokens. Bind to 127.0.0.1 unless you intend LAN "
+                "exposure.")
+        _log.warning(_msg)
+        activity_log.emit("security", _msg, "warn",
+                          {"security_event": {"kind": "non_loopback_bind",
+                                              "bind": _bind}})
+
     _boot_ident = effective_identity()
     intent_name = _boot_ident.intent_name
     activity_log.emit("system",
@@ -1276,6 +1292,14 @@ async def api_welcome_setup(request: Request):
     return {"ok": True, "ide_written": ide_written}
 
 
+def _chmod_600(p: Path) -> None:
+    """Best-effort owner-only permissions for a secret-bearing file."""
+    try:
+        p.chmod(0o600)
+    except OSError:
+        pass
+
+
 def _write_env_kv(key: str, value: str) -> None:
     """Idempotent KEY=VALUE write to .env. Replaces any existing real or
     commented-out entry, otherwise appends. Mirrors setup.sh's helper."""
@@ -1303,6 +1327,9 @@ def _write_env_kv(key: str, value: str) -> None:
             out.append("")
         out.append(f"{key}={value}")
     p.write_text("\n".join(out) + "\n")
+    # .env holds ARAIL_PASSWORD (and the notebook encryption key) — keep it
+    # owner-only, matching lab/data/secrets.env.
+    _chmod_600(p)
 
 
 def _patch_lab_conf_password(passphrase: str) -> None:
@@ -1319,6 +1346,7 @@ def _patch_lab_conf_password(passphrase: str) -> None:
             f"IDE_PASSWORD={passphrase}\n"
             "BIND_ADDR=127.0.0.1\n"
         )
+        _chmod_600(p)
         return
     lines = p.read_text().splitlines()
     out, replaced = [], False
@@ -1331,6 +1359,7 @@ def _patch_lab_conf_password(passphrase: str) -> None:
     if not replaced:
         out.append(f"IDE_PASSWORD={passphrase}")
     p.write_text("\n".join(out) + "\n")
+    _chmod_600(p)
 
 
 def _write_code_server_password(passphrase: str) -> None:
@@ -1345,6 +1374,7 @@ def _write_code_server_password(passphrase: str) -> None:
         f"password: {passphrase}\n"
         "cert: false\n"
     )
+    _chmod_600(cfg)
 
 
 # ── Pages ────────────────────────────────────────────────────────────────
@@ -1856,6 +1886,8 @@ async def _ttyd_context() -> dict:
 async def terminal_page(request: Request):
     """Serve the terminal iframe if ttyd is running, otherwise show
     install help so the user can get unblocked without leaving the UI."""
+    if (gate := _require_surface("terminal")) is not None:
+        return gate
     ctx = await _ttyd_context()
     return templates.TemplateResponse(request, "terminal.html", {**ctx, **_identity_ctx()})
 
@@ -1865,6 +1897,8 @@ async def notebook_page(request: Request):
     """Serve the Jupyter Lab iframe if jupyter is running, otherwise
     show install help. Same three-state pattern as /terminal so the
     two services feel consistent."""
+    if (gate := _require_surface("notebooks")) is not None:
+        return gate
     import shutil, platform
     jupyter_installed = shutil.which("jupyter") is not None
     jupyter_running = False
@@ -1885,6 +1919,8 @@ async def notebook_page(request: Request):
 @app.post("/api/notebook/start")
 async def notebook_start():
     """Start Jupyter Lab as a background process."""
+    if (gate := _require_surface("notebooks")) is not None:
+        return gate
     import shutil
     if not shutil.which("jupyter"):
         return {"ok": False, "error": "jupyter not installed"}
@@ -1946,19 +1982,25 @@ async def notebook_stop():
 # ── opencode (max-tier only, direct iframe to 127.0.0.1:4096) ─────────────
 
 
-def _require_workbench():
-    """Gate: 404 when caller is on min tier (F-GATE-1, F-GATE-2, F-GATE-3).
+def _require_surface(surface: str):
+    """Server-side tier gate: 404 when *surface* is not in the current tier.
 
-    Returns a Flask/FastAPI abort(404) Response when the surface is not
-    available; returns None when the request may proceed.
-    404 (not 403) so route existence is not disclosed to min-tier users.
-    This helper must be the FIRST call in every /opencode* handler —
-    before any logging, body parse, or subprocess (F-GATE-3).
+    Tier had been enforced only in the nav (visibility) — a minimalist user who
+    typed a maximus URL (/build, /admin, /plugins, /terminal, notebooks…) got
+    the full page, and its state-changing / code-exec endpoints. This makes the
+    tier an actual access boundary. 404 (not 403) so route existence isn't
+    disclosed to lower-tier users. Must be the FIRST call in the handler,
+    before any body parse, logging, or subprocess.
     """
     from fastapi import Response as _Response
-    if "notebooks" not in _visible_surfaces():
+    if surface not in _visible_surfaces():
         return _Response(status_code=404)
     return None
+
+
+def _require_workbench():
+    """Back-compat alias for the opencode/notebooks gate (see _require_surface)."""
+    return _require_surface("notebooks")
 
 
 @app.get("/opencode", response_class=HTMLResponse)
@@ -2180,6 +2222,8 @@ async def notebooks_page(request: Request):
     All state is pulled client-side from /api/notebooks/status, so this
     route is a pure template render.
     """
+    if (gate := _require_surface("notebooks")) is not None:
+        return gate
     return templates.TemplateResponse(request, "notebooks.html", {**_identity_ctx()})
 
 
@@ -2261,11 +2305,13 @@ async def notebooks_status():
 async def marimo_page(request: Request):
     """3-state Marimo page: docker missing / not running / running.
 
-    When running, shows the Marimo iframe with the token baked into the
-    URL (same ``?access_token=<ARAIL_PASSWORD>`` contract Marimo itself
-    prints on startup). When not running, shows a one-click Start button
-    that calls /api/marimo/start.
+    When running, shows the Marimo iframe. The access token is NOT baked into
+    the iframe URL (that would leak the lab passphrase into browser history);
+    the user enters it once at Marimo's own prompt. A click-to-reveal token is
+    provided in the page for convenience.
     """
+    if (gate := _require_surface("notebooks")) is not None:
+        return gate
     docker_ok = _docker_available()
     running = _container_running("arail-marimo") if docker_ok else False
     password = os.getenv("ARAIL_PASSWORD", "arail")
@@ -2282,6 +2328,8 @@ async def marimo_page(request: Request):
 @app.post("/api/marimo/start")
 async def marimo_start():
     """Bring up the Marimo container via docker compose."""
+    if (gate := _require_surface("notebooks")) is not None:
+        return gate
     if not _docker_available():
         return {"ok": False, "error": "Docker not available"}
     result = subprocess.run(
@@ -2309,6 +2357,8 @@ async def marimo_stop():
 
 @app.get("/plugins", response_class=HTMLResponse)
 async def plugins_page(request: Request):
+    if (gate := _require_surface("plugins")) is not None:
+        return gate
     plugins = plugin_mgr.list_plugins()
     return templates.TemplateResponse(request, "plugins.html", {
         **_identity_ctx(),
@@ -4064,8 +4114,22 @@ async def get_experiment_branch(branch: str = ""):
 
 @app.post("/api/plugins/install")
 async def install_plugin(request: Request):
+    # Tier gate FIRST — installing a plugin git-clones + pip-installs arbitrary
+    # code as the user (arbitrary local code execution). Minimalist labs can't
+    # reach this at all.
+    if (gate := _require_surface("plugins")) is not None:
+        return gate
     body = await request.json()
     url = body.get("github_url", "")
+    # Server-side confirmation: the client must explicitly acknowledge that this
+    # runs untrusted code. Prevents a bare/scripted POST from installing.
+    if not body.get("confirm_code_execution"):
+        return {
+            "error": "confirmation_required",
+            "warning": "Installing a plugin runs `git clone` + `pip install` on "
+                       f"{url or 'the given repo'} — arbitrary code executes as "
+                       "you. Re-submit with confirm_code_execution=true to proceed.",
+        }
     try:
         result = plugin_mgr.install(url)
         return result
@@ -4159,6 +4223,8 @@ async def graph_page(request: Request):
 @app.get("/admin", response_class=HTMLResponse)
 async def admin_page(request: Request):
     """Lab administration — services, components, updates, help."""
+    if (gate := _require_surface("admin")) is not None:
+        return gate
     health = {}
     try:
         health = (await system_health())
@@ -9814,6 +9880,8 @@ async def knowledge_redirect(request: Request):
 @app.get("/build", response_class=HTMLResponse)
 async def build_page(request: Request):
     """Nucleus MODEL BUILDING tab — thin shell; hydrates from /api/build/*."""
+    if (gate := _require_surface("build")) is not None:
+        return gate
     return templates.TemplateResponse(request, "build.html", {
         "active": "build",
         **_identity_ctx(),
@@ -11103,6 +11171,8 @@ def _normalize_backend(backend: str | None) -> str:
 
 @app.get("/tuning", response_class=HTMLResponse)
 async def tuning_page(request: Request):
+    if (gate := _require_surface("tuning")) is not None:
+        return gate
     aerollm_model = os.getenv("AEROLLM_MODEL", "")
     airllm_model = os.getenv("AIRLLM_MODEL", "__TODO_DEEP_MODEL__")
     # Blueprint default: AirLLM is the only visible deep backend. Flip

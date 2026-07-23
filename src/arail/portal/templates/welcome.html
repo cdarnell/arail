@@ -71,6 +71,9 @@
   }
   .wc-protect strong { color: var(--accent2); }
   .wc-protect ul { margin: 0.4rem 0 0; padding-left: 1.2rem; color: var(--text-muted); }
+  .wc-protect--warn { border-left: 3px solid var(--warn); padding-left: 0.7rem; margin-top: 0.75rem; }
+  .wc-protect--warn strong { color: var(--warn); }
+  .wc-protect--warn p { margin: 0.4rem 0 0; font-size: 0.8rem; }
   .wc-actions { display: flex; gap: 0.6rem; align-items: center; }
   .wc-btn {
     background: var(--accent);
@@ -192,6 +195,18 @@
       <li>Open Notebook's at-rest data encryption (when you install it)</li>
       <li>Future per-tab guards as the lab grows</li>
     </ul>
+  </div>
+
+  <div class="wc-protect wc-protect--warn">
+    <strong>⚠ Before you hand this machine to someone else:</strong>
+    <p>
+      The dashboard itself has <em>no login</em> — anyone who can open this
+      browser on this machine is treated as you. They can run code (terminal,
+      notebooks, plugins), flip the lab to Hybrid (allowing cloud egress), and
+      read your saved API tokens. The passphrase guards the IDE and encryption,
+      not the dashboard. Keep the lab bound to <code>127.0.0.1</code> and don't
+      leave it open on a shared or unlocked machine.
+    </p>
   </div>
 
   <form id="wc-form" autocomplete="off">

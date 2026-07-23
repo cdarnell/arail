@@ -43,6 +43,15 @@ PHYSICS_BG = "#0d1018"
 PHYSICS_PURPLE = "#9e8cff"
 
 
+@pytest.fixture(autouse=True)
+def _maximus_tier(monkeypatch):
+    # RECOLOR_PAGES includes maximus-only surfaces (/admin, /tuning) which are
+    # now 404 on minimalist (server-side tier guard). This test is about theme
+    # injection across representative pages, not tier gating — run as maximus so
+    # every representative page is reachable.
+    monkeypatch.setenv("LAB_TIER", "maximus")
+
+
 def _client():
     return TestClient(portal_app.app)
 

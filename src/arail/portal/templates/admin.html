@@ -208,6 +208,8 @@
     color: var(--text-muted);
     background: color-mix(in srgb, var(--text-strong) 1%, transparent);
   }
+  .admin-pane-head--split { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .comp-probe-btn { font-size: 11px; padding: 2px 8px; }
   .admin-pane-body { padding: 0.6rem 0.7rem 0.75rem; }
 
   .admin-graph-wrap {
@@ -752,9 +754,9 @@
     <h2>Installed Components &amp; Graph Associations</h2>
     <div class="admin-split">
       <section class="admin-pane" aria-label="Installed components">
-        <div class="admin-pane-head" style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+        <div class="admin-pane-head admin-pane-head--split">
           <span>Installed Components</span>
-          <button id="comp-probe-btn" class="btn-ghost" style="font-size:11px;padding:2px 8px;"
+          <button id="comp-probe-btn" class="btn-ghost comp-probe-btn"
                   title="Run version_cmd probes (ollama --version, npm outdated, etc.). Not run automatically — a plain page load never shells out.">Check versions</button>
         </div>
         <div class="admin-pane-body">
