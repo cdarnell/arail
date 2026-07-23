@@ -91,20 +91,15 @@ def _build_row(abs_path: Path, rel_posix: str, source_kind: str) -> dict[str, An
 
 
 def _source_kind_for_path(rel_posix: str) -> str:
-    """Infer source_kind from the relative path prefix."""
-    if rel_posix.startswith("agents/research/"):
-        return "agent_research"
-    if rel_posix.startswith("agents/experiments/"):
-        return "agent_experiment"
-    if rel_posix.startswith("agents/synthesis/"):
-        return "agent_synthesis"
-    if rel_posix.startswith("agents/recommendations/"):
-        return "agent_recommendation"
-    if rel_posix.startswith("agents/buddy/dreams/"):
-        return "agent_buddy_dream"
-    if rel_posix.startswith("teacher/"):
-        return "teacher_qa"
-    return "user"
+    """Infer source_kind from the relative path prefix.
+
+    Delegates to the single implementation in ``arail.pkb`` so the two indexing
+    paths (full rebuild vs incremental upsert) can never drift apart. (The
+    review-queue's ``compiled_kb.kind_of`` is a deliberately separate vocabulary
+    — e.g. it labels dreams ``agent_dream`` and adds ``world_term`` — and is not
+    merged here.)"""
+    from arail.pkb import _source_kind_for_rel
+    return _source_kind_for_rel(rel_posix)
 
 
 def _open_table(db, name: str):

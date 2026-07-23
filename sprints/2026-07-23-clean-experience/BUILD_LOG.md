@@ -278,3 +278,38 @@ learn-link).
 produce real numbers; with none, experiments return visible `cannot_run` and
 **zero** numeric metrics; `grep improvement_rate.*0.15` over engine output is
 empty. Live "tok/s changes between runs" is inherent (measured wall-clock).
+
+## WP6 — KB / DaC button-up
+
+**Goal:** make "agents build only on approved local knowledge, nothing leaks"
+true and honestly documented.
+
+**Changes**
+
+- **Index leak closed** — `_iter_pkb_files` (`pkb.py`) now skips
+  `lab/pkb/conversations/`, so conversation `meta.json` (user-authored titles)
+  no longer enters the ungated `/api/pkb/search` index. Transcripts (`.jsonl`)
+  were already unindexed; this closes the sibling `.json` leak.
+- **Wipe contract** — `reset.sh reset_pkb()` now also removes an
+  `ARAIL_CONVERSATIONS_DIR` override path that points outside the PKB root, so
+  "wipe the PKB = forget me" holds even when transcripts are relocated;
+  documented in `docs/PRIVACY.md`.
+- **Classifier unification** — `pkb_index._source_kind_for_path` now delegates
+  to the single `pkb._source_kind_for_rel` (the two were byte-identical
+  duplicates — a drift risk). No stored-label values change. compiled_kb's
+  separate review-queue vocabulary (`agent_dream`, `world_term`) is left
+  distinct by design.
+- **Tier-2 fact-store ROADMAP banners** — `docs/conversation-memory.md`,
+  `docs/agents.md` (tier 4), and `docs/adr/0002` now state the user-understanding
+  fact store is designed but **not built** (no code / directory exists), so no
+  future work assumes fact-recall runs.
+- **Nav rename** — the "DaC" tab label → **"Knowledge"** (route `/dac`
+  unchanged), with the acronym explained in the tooltip.
+
+**Deferred sub-item:** disambiguating headers on the two JS-`innerHTML`-populated
+DaC review panels — a static header would be clobbered by the panel JS, so it
+belongs in that JS; left out of this pass to avoid breakage. The nav rename
+covers the primary naming confusion.
+
+**Tests:** new `test_conversations_excluded_from_index`; pkb / pkb_index /
+chat_conversations suites green (30).

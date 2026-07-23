@@ -190,3 +190,19 @@ def test_base_model_primer_installs_to_disk(tmp_path: Path):
     assert len(installed_md) == 10, (
         f"expected 10 installed primers, got {len(installed_md)}: {installed_md}"
     )
+
+
+def test_conversations_excluded_from_index(tmp_path: Path):
+    """WP6: conversation memory (incl. meta.json titles) is never yielded by the
+    searchable-file iterator — closes the meta.json title leak into /api/pkb/search."""
+    root = tmp_path / "pkb"
+    (root / "conversations" / "c1").mkdir(parents=True)
+    (root / "conversations" / "c1" / "meta.json").write_text('{"title": "SECRET-XYZ"}')
+    (root / "conversations" / "c1" / "transcript.jsonl").write_text('{"e": 1}\n')
+    (root / "sources").mkdir(parents=True)
+    (root / "sources" / "note.md").write_text("indexable knowledge")
+
+    yielded = [p.name for p, _ in pkm._iter_pkb_files(root)]
+    assert "note.md" in yielded              # real KB content still indexed
+    assert "meta.json" not in yielded         # title leak closed
+    assert "transcript.jsonl" not in yielded  # chat log never indexed

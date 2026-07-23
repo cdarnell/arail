@@ -201,6 +201,14 @@ reset_pkb() {
     warn "This wipes every note, upload, agent finding, and seeded primer."
     rm -rf "$pkb_dir"
     rm -rf "$cache_dir" 2>/dev/null || true
+    # Honor the ARAIL_CONVERSATIONS_DIR override: if chat memory lives OUTSIDE
+    # the PKB root, wiping the PKB alone would silently leave transcripts behind
+    # (breaking "wipe the PKB = forget me"). Wipe the override path too.
+    local conv_override="${ARAIL_CONVERSATIONS_DIR:-}"
+    if [[ -n "$conv_override" && -d "$conv_override" && "$conv_override" != "$pkb_dir"* ]]; then
+        warn "Also removing ARAIL_CONVERSATIONS_DIR (${conv_override}) — chat memory."
+        rm -rf "$conv_override"
+    fi
     info "Knowledge base removed. Starter packs will re-seed on next ./arailctl start."
 }
 
