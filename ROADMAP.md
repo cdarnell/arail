@@ -51,7 +51,7 @@ retained behind `?legacy=1` for one release after M5.
 
 - [x] Token scale (palette, alpha tiers, spacing, type, elevation).
 - [x] Rail line under nav (signature visual).
-- [x] Theme system (`default` + `laser-blue`) with cycle button.
+- [x] Theme system (`LAB_UI_THEME`: `blue-cyan-lab`, `emerald-terminal`, `night-amber`, `slate-violet`) with cycle button.
 - [x] Mission Status step-context.
 - [x] Whisper toast component (scaffold; agent integration pending).
 - [ ] Per-template `<head>` theme bootstrap to eliminate first-paint flash.

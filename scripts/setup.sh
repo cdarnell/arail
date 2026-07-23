@@ -1123,7 +1123,7 @@ _slugify() {
 }
 
 # -----------------------------------------------------------------------------
-# Install tier — min / med / max. Captured once, persisted to .env.
+# Install tier — minimalist / maximus (legacy min/med/max still accepted). Captured once, persisted to .env.
 #
 #   min → Dashboard, Chat, Autoresearch
 #   med → + Knowledge Base, Agents, LanceDB vectors

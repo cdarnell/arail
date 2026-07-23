@@ -239,7 +239,7 @@ Use the Agent Forge, or add `lab/pkb/agents/<id>/AGENT.md` plus
 System health, plugin manager, tier status, diagnostics. It's where the lab
 admits what's broken.
 
-### 📖 Docs *(max)*
+### 📖 Docs *(every tier)*
 
 Curated operator docs rendered inside the lab. Use it for setup notes,
 agent architecture, design specs, and the platform-porting manifest without

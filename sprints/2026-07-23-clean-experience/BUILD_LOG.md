@@ -345,3 +345,36 @@ swarm-surface test drift). These are onboarding P1/P2s for a follow-up.
 
 **Tests:** agents page no longer renders the Activity stub tab; setup-ladder
 (30) + world-recolor green.
+
+## WP8 — Docs drift & pruning
+
+**Goal:** docs describe what exists; kill the noisy git warning; one canonical
+naming.
+
+**Changes**
+
+- **`.gitattributes`** — fixed the malformed line 31 (`*.bin … (max file size:
+  >100MB)`), which git parsed as attributes and warned on *every* git command
+  ("max is not a valid attribute name"). Now a proper comment + clean pattern.
+- **CLAUDE.md** — refreshed the stale "Current state" (114 commits/2026-04-28 →
+  650+/2026-07-23, real recent work incl. this sprint); corrected the surfaces
+  list (Docs/Knowledge/Worlds are every-tier; maximus-only surfaces are now
+  server-side tier-gated); fixed the symlink table (`arail` and `qkz` are
+  symlinks to `arailctl`, not the other way round).
+- **Tier naming** — legacy `min/med/max` → `minimalist/maximus` in
+  `AGENTS.md`, `BLUEPRINTS.md`, `docs/REPOSITORY_LAYOUT.md`, `.env.example`,
+  `setup.sh` comments. README/CLAUDE Docs-tier corrected to every-tier.
+- **`.env.example`** — the default-model copy no longer advertises a "3B
+  Opus-4.7-derived Nucleus ai-eng" that never shipped; it's `llama-ai-eng`
+  (Llama-3.2-1B, ~0.9 GB).
+- **`ROADMAP.md`** — theme names corrected to the real `LAB_UI_THEME` ids
+  (`blue-cyan-lab`/`emerald-terminal`/`night-amber`/`slate-violet`).
+- **Clone URL + action name** — `AGENTS.md` clone URL reconciled to
+  `github.com/qukaizen/arail.git`; its "click Run Research" test step updated to
+  the real "Set Research Goal → Run".
+
+**Deferred (risk > value for this pass):** deleting `teacher.html` + the
+`/api/teacher/*` routes — that surface shares the chat core (`app.py:6684`) and
+is referenced by `notebook.html`, so removing it needs its own scoped change,
+not a docs-pass drive-by. The `/api/pkm/*` back-compat aliases have no callers
+and are harmless; left in place. Both noted for a follow-up pruning sprint.
