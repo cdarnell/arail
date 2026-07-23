@@ -1143,7 +1143,10 @@ async function checkUpdatesQuiet() {
     }
   } catch (_) { /* offline / endpoint not ready — silent */ }
 }
-window.addEventListener('load', checkUpdatesQuiet);
+// No auto-fire on dashboard load: update checks are explicit only (the
+// "Check Updates" button uses the /stream live-checks modal). This keeps a
+// plain dashboard open from probing the network / shelling out on every load.
+// checkUpdatesQuiet() remains callable if a manual "refresh banner" is wired.
 
 async function restartLab() {
   if (!confirm('Restart all lab services? The portal will go offline briefly.')) return;

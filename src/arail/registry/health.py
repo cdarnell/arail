@@ -252,11 +252,18 @@ def run_preflight(reg: ModelRegistry, *, announce: bool = True) -> None:
 
 
 def start_background(reg: ModelRegistry) -> None:
-    """Startup preflight + interval re-probe on a daemon thread."""
+    """Startup preflight + interval re-probe on a daemon thread.
+
+    ``MODEL_HEALTH_INTERVAL_SEC=0`` runs a single startup preflight and skips
+    the re-probe loop entirely (one-shot, no recurring "MODEL TIER DOWN" noise).
+    Any positive value is the loop cadence (floored at 5s).
+    """
     interval = float(os.getenv("MODEL_HEALTH_INTERVAL_SEC", "60"))
 
     def _loop() -> None:
         run_preflight(reg, announce=True)
+        if interval <= 0:
+            return  # one-shot preflight; no interval re-probe
         while True:
             time.sleep(max(interval, 5.0))
             try:

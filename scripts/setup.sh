@@ -796,6 +796,25 @@ install_services() {
             return
         fi
 
+        # Fail-fast, don't hang. Skip the (multi-minute) model download when:
+        #   • ARAIL_SKIP_MODEL_DOWNLOAD=1 is set explicitly, OR
+        #   • the ollama daemon isn't reachable (a pull would otherwise hang
+        #     until the timeout instead of failing immediately).
+        # In both cases we print the one command to run later — setup never
+        # appears to freeze for 15 minutes on a slow/offline machine. The pull
+        # timeouts below are also capped at 180s (was 900s) as a second guard.
+        if [[ "${ARAIL_SKIP_MODEL_DOWNLOAD:-0}" == "1" ]]; then
+            warn "ARAIL_SKIP_MODEL_DOWNLOAD=1 — skipping model install. Run later:"
+            warn "  ollama pull llama3.2:1b && ollama create llama-ai-eng -f models/ai-eng/Modelfile.default"
+            return
+        fi
+        if ! _arail_timeout 5 ollama list &>/dev/null; then
+            warn "Ollama daemon not reachable — skipping model download (would hang)."
+            warn "Start ollama, then run:"
+            warn "  ollama pull llama3.2:1b && ollama create llama-ai-eng -f models/ai-eng/Modelfile.default"
+            return
+        fi
+
         # ── Phase B (gated, DORMANT): Gemma 2B default-floor — qkz-project-aware-2b ──
         # Make the minimalist default brain a ~2B Gemma generalist (a stronger floor
         # than the 1B for technical Worlds like physics). OFF by default — fires only
@@ -842,7 +861,7 @@ install_services() {
             info "Installing the 1B default (llama-ai-eng) separately…"
             _install_llama_ai_eng() {
                 info "Pulling llama3.2:1b (Llama-3.2-1B-Instruct, ~0.9 GB)…"
-                if _arail_timeout 900 ollama pull llama3.2:1b 2>&1 | tail -5; then
+                if _arail_timeout 180 ollama pull llama3.2:1b 2>&1 | tail -5; then
                     info "Creating llama-ai-eng persona from Modelfile.default…"
                     if _arail_timeout 300 ollama create llama-ai-eng -f "${_modelfile_dir}/Modelfile.default" 2>&1 | tail -5; then
                         info "llama-ai-eng ready (AI engineer persona, built with Llama)."
@@ -882,7 +901,7 @@ install_services() {
                 local _sha256="${ARAIL_AI_ENG_SHA256:-__PLACEHOLDER_SHA256__}"
 
                 info "Fetching ai-eng (self-hosted HuggingFace primary)…"
-                if _arail_timeout 900 ollama pull "hf.co/${_hf_repo}:${_quant}" 2>&1 | tail -5; then
+                if _arail_timeout 180 ollama pull "hf.co/${_hf_repo}:${_quant}" 2>&1 | tail -5; then
                     info "ai-eng fetched from HuggingFace. Done."
                     _ai_eng_ok=1
                 else
@@ -947,7 +966,7 @@ install_services() {
                     warn "Self-hosted ai-eng artifact not reachable — falling back to preview net."
                     local _preview_base="qwen2.5:1.5b"
                     local _preview_mf="${_modelfile_dir}/Modelfile.preview"
-                    if _arail_timeout 900 ollama pull "$_preview_base" 2>&1 | tail -5; then
+                    if _arail_timeout 180 ollama pull "$_preview_base" 2>&1 | tail -5; then
                         if [[ -f "$_preview_mf" ]]; then
                             if _arail_timeout 300 ollama create ai-eng -f "$_preview_mf" 2>&1 | tail -5; then
                                 info "ai-eng (preview) ready. Re-run setup after the GGUF is uploaded."
@@ -966,7 +985,7 @@ install_services() {
                 # ── DEFAULT PATH: simple persona-wrap (MODEL-TIERS-V2 §2) ────
                 info "Installing Llama AI Engineer (built with Llama-3.2-1B-Instruct)…"
                 info "Pulling llama3.2:1b (~0.9 GB) — this may take a minute…"
-                if _arail_timeout 900 ollama pull llama3.2:1b 2>&1 | tail -5; then
+                if _arail_timeout 180 ollama pull llama3.2:1b 2>&1 | tail -5; then
                     info "Creating llama-ai-eng persona (AI engineer, Built with Llama)…"
                     if _arail_timeout 300 ollama create llama-ai-eng -f "${_modelfile_dir}/Modelfile.default" 2>&1 | tail -5; then
                         info "llama-ai-eng ready. Default AI engineer is installed."
@@ -989,7 +1008,7 @@ install_services() {
                 info "ai-engineer (deep 7B persona) already present — skipping."
             elif [[ "${ARAIL_INSTALL_DEEP_PERSONA:-0}" == "1" ]]; then
                 info "ARAIL_INSTALL_DEEP_PERSONA=1 — installing deep AI engineer persona (7B)…"
-                if _arail_timeout 900 ollama pull qwen2.5:7b 2>&1 | tail -5; then
+                if _arail_timeout 180 ollama pull qwen2.5:7b 2>&1 | tail -5; then
                     if _arail_timeout 300 ollama create ai-engineer -f "${_modelfile_dir}/Modelfile.deep" 2>&1 | tail -5; then
                         info "ai-engineer (deep 7B persona) ready."
                     else

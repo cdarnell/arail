@@ -49,7 +49,7 @@ cd arail
 3. Pull `llama3.2:1b` (~0.9 GB) and wrap it with the AI-engineer persona as `llama-ai-eng` — the only model that auto-installs (Built with Llama; see [NOTICE](../NOTICE))
 4. Ask for your research goal and work windows, write them to `lab/data/goals/bootstrap_goal.json` and `.env`
 
-Then `./arailctl start` brings up the dashboard at <http://127.0.0.1:8080> along with the in-browser terminal (ttyd), Jupyter Lab, and VS Code Server. The researcher agent auto-starts on your captured goal after a 5-minute courtesy delay (configurable via `LAB_STARTUP_DELAY_SEC`).
+Then `./arailctl start` brings up the dashboard at <http://127.0.0.1:8080> along with the in-browser terminal (ttyd), Jupyter Lab, and VS Code Server. Your captured goal is **staged** on the dashboard — research does not start on its own; open the Autoresearch page and press **Approve & Run** when you're ready. (The lab boots quiet by design: no model/version probes or background warmers unless you opt in with `ARAIL_AUTOCHECKS=1`. Run `./arailctl doctor` any time for an explicit checkup.)
 
 ## Intel Macs
 

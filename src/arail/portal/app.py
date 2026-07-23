@@ -756,29 +756,36 @@ async def _startup():
         activity_log.emit("system",
             f"Egress guard install failed: {_eg_err}", "warn")
 
-    global _knowledge_canvas_store
+    global _MODEL_WARM
+    from arail import autochecks
+    _autochecks_on = autochecks.enabled()
     _boot_ident = effective_identity()
     intent_name = _boot_ident.intent_name
     activity_log.emit("system",
                       f"{_boot_ident.name} portal started — {intent_name} lab.",
                       "success")
 
-    # Model registry: startup preflight (both tiers, loud but non-blocking)
-    # + interval health loop. Runs on a daemon thread; never delays _READY.
-    try:
-        from arail.registry import get_registry
-        get_registry().start_background()
-    except Exception as _reg_err:  # noqa: BLE001
-        activity_log.emit("registry",
-                          f"Model registry startup failed: {_reg_err}", "warn")
+    # Model registry: startup preflight (both tiers) + interval health loop.
+    # Gated behind ARAIL_AUTOCHECKS (default off) — a quiet boot never probes
+    # Ollama or emits "MODEL TIER DOWN". Entries stay `unknown`, which resolves
+    # as optimistically-usable (probe on first call); an explicit re-probe is
+    # the Models pill / `./arailctl doctor`. Runs on a daemon thread when on.
+    if _autochecks_on:
+        try:
+            from arail.registry import get_registry
+            get_registry().start_background()
+        except Exception as _reg_err:  # noqa: BLE001
+            activity_log.emit("registry",
+                              f"Model registry startup failed: {_reg_err}", "warn")
 
     # Tier-1 background preload (safe-window gated; ARAIL_AEROLLM_PRELOAD=0
-    # to disable). Fire-and-forget; never raises.
-    try:
-        from arail.portal.model_warmth import aerollm_preload_loop
-        asyncio.create_task(aerollm_preload_loop())
-    except Exception:  # noqa: BLE001
-        pass
+    # to disable). Behind the autochecks master switch. Fire-and-forget.
+    if _autochecks_on:
+        try:
+            from arail.portal.model_warmth import aerollm_preload_loop
+            asyncio.create_task(aerollm_preload_loop())
+        except Exception:  # noqa: BLE001
+            pass
 
     # Conversation orphan sweep: turns interrupted by the previous shutdown
     # get their terminal turn.interrupted event (idempotent; contract in
@@ -797,12 +804,21 @@ async def _startup():
             pass
     asyncio.create_task(_sweep_conversations())
 
-    if knowledge_canvas_app is not None and not hasattr(knowledge_canvas_app.state, "store"):
+    # Knowledge Canvas backend (maximus/canvas only). The Neo4j connect can
+    # block if the graph DB is down, so it's deferred off the critical path
+    # into a background task — first byte never waits on it. Skip entirely with
+    # ARAIL_SKIP_CANVAS=1.
+    async def _init_knowledge_canvas() -> None:
+        global _knowledge_canvas_store
+        if os.getenv("ARAIL_SKIP_CANVAS", "0").strip().lower() in ("1", "true", "yes", "on"):
+            return
+        if knowledge_canvas_app is None or hasattr(knowledge_canvas_app.state, "store"):
+            return
         try:
             from app.routers import ws as kc_ws  # type: ignore
             from app.services.graph_store import GraphStore  # type: ignore
 
-            _knowledge_canvas_store = GraphStore(
+            store = GraphStore(
                 lance_path=os.getenv("LANCE_PATH", "./data/lance"),
                 neo4j_uri=os.getenv("NEO4J_URI", "bolt://localhost:7687"),
                 neo4j_auth=(
@@ -810,10 +826,11 @@ async def _startup():
                     os.getenv("NEO4J_PASSWORD", "changeme-please"),
                 ),
             )
-            await _knowledge_canvas_store.init()
-            knowledge_canvas_app.state.store = _knowledge_canvas_store
+            await store.init()
+            _knowledge_canvas_store = store
+            knowledge_canvas_app.state.store = store
             knowledge_canvas_app.state.ws_broadcaster = kc_ws.broadcaster
-            _register_canvas_goal_listener(_knowledge_canvas_store)
+            _register_canvas_goal_listener(store)
             activity_log.emit("system", "Knowledge Canvas backend ready.", "info")
         except Exception as e:  # noqa: BLE001
             _knowledge_canvas_store = None
@@ -822,6 +839,8 @@ async def _startup():
                 f"Knowledge Canvas startup skipped: {type(e).__name__}: {e}",
                 "warn",
             )
+
+    asyncio.create_task(_init_knowledge_canvas())
 
     # Advisory integrity check of the vendored World bundles (sealed
     # qukaizen-dac exports committed into lab/worlds/). Loud on failure,
@@ -840,14 +859,23 @@ async def _startup():
             _log.warning("Shipped-World seal check skipped: %s", e)
 
     asyncio.create_task(_check_shipped_worlds())
-    asyncio.create_task(_warm_primary_router())
+    # Boot model-warm issues a real 1-token completion (loads weights) — a
+    # probe/warmer, so it's gated behind the autochecks master switch. When
+    # skipped, flip _MODEL_WARM now so the /api/ready overlay dismisses
+    # instantly instead of waiting for a warm that will never run.
+    if _autochecks_on:
+        asyncio.create_task(_warm_primary_router())
+    else:
+        _MODEL_WARM = True
     asyncio.create_task(_inbox_watcher_loop())
     # 'Grows while you sleep' now lives inside the Librarian agent (started
     # with the other agents via start_all_auto) — it owns the whole compiled-
     # knowledge lifecycle: overnight growth, term scouting, forge status.
     # Pre-write the Anthropic prompt cache (hybrid + Claude only; no-op
     # everywhere else). Makes the first demo turn read cache, not cold prefix.
-    asyncio.create_task(_prewarm_claude_cache_task())
+    # A network warmer — gated behind the autochecks master switch.
+    if _autochecks_on:
+        asyncio.create_task(_prewarm_claude_cache_task())
 
     # World Mount: detect and announce any mounted WorldBundle.
     try:
@@ -884,10 +912,11 @@ async def _startup():
                 bg = json.loads(bootstrap_goal_path.read_text())
                 goal_text = bg.get("goal", "")
                 if goal_text:
-                    try:
-                        parsed = parser.parse(goal_text)
-                    except Exception:
-                        parsed = parser.parse_offline(goal_text)
+                    # Heuristic-only parse at boot: no LLM subprocess (which
+                    # could block first byte up to 60s on a cold/absent model).
+                    # The bootstrap goal is short and the heuristic parse is
+                    # sufficient to stage it; the user refines it on the page.
+                    parsed = parser.parse_offline(goal_text)
                     # Carry intent from bootstrap (live identity as fallback)
                     parsed["intent"] = bg.get("intent", _boot_ident.intent)
                     parsed["intent_name"] = bg.get("intent_name", _boot_ident.intent_name)
@@ -898,14 +927,15 @@ async def _startup():
                     if bootstrap_desc:
                         parsed["intent_description"] = bootstrap_desc
                     goal_store.set_goal(parsed)
+                    # Stage the goal only — do NOT auto-start research. Starting
+                    # a compute loop at boot is a side-effect the user didn't
+                    # ask for; they press "Set Research Goal" / Approve & Run
+                    # on the Autoresearch page when ready.
                     activity_log.emit("system",
-                        f"Bootstrap goal loaded: {goal_text[:80]}", "info")
-                    # Auto-start research — scheduler applies the courtesy delay.
-                    researcher.start(parsed)
-                    delay = startup_delay_seconds()
+                        f"Goal loaded: {goal_text[:80]}", "info")
                     activity_log.emit("researcher",
-                        f"Auto-starting research in {delay}s (courtesy delay). "
-                        f"Use 'Halt jobs' to cancel.",
+                        "Open Autoresearch and press Approve & Run to start "
+                        "researching this goal.",
                         "info")
             except (json.JSONDecodeError, OSError) as e:
                 activity_log.emit("system",
@@ -984,15 +1014,18 @@ async def _startup():
             f"Research program seeding failed: {type(e).__name__}: {e}", "error")
 
     # KB index readiness — ensure the pkb_pages LanceDB table has the current
-    # schema and is not stale. This call is idempotent and fast on a clean
-    # install (just opens the table and compares mtimes). On first boot after
-    # the incremental-persistence sprint lands it triggers a one-time rebuild.
-    try:
-        from arail.pkb_index import ensure_ready as _pkb_ensure_ready
-        _pkb_ensure_ready()
-    except Exception as e:  # noqa: BLE001
-        activity_log.emit("pkb",
-            f"KB index readiness check failed: {type(e).__name__}: {e}", "warn")
+    # schema and is not stale. Idempotent and fast on a clean install, but on
+    # first boot it can trigger a one-time rebuild, so it runs in a background
+    # thread — first byte never waits on a LanceDB rebuild. Searches degrade
+    # gracefully until it finishes (upserts are debounced).
+    async def _kb_index_ready() -> None:
+        try:
+            from arail.pkb_index import ensure_ready as _pkb_ensure_ready
+            await asyncio.to_thread(_pkb_ensure_ready)
+        except Exception as e:  # noqa: BLE001
+            activity_log.emit("pkb",
+                f"KB index readiness check failed: {type(e).__name__}: {e}", "warn")
+    asyncio.create_task(_kb_index_ready())
 
     # Agent loader — discover every lab/pkb/agents/<name>/AGENT.md,
     # instantiate each, start the ones that opt in via their
@@ -1025,12 +1058,12 @@ async def _startup():
                 "warn")
 
     # Boot security scan — hybrid mode only (LAB_MODE=airgapped stays default;
-    # no involuntary outbound calls).  Deferred past the startup quiet window
-    # (boot_grace_seconds, default 1 h; min 30 s settle) so initial startup
-    # stays smooth and free of pip-audit contention.  The task is cancelled
-    # cleanly on shutdown (CancelledError is re-raised so asyncio can cancel
-    # the task — D3 mitigation).
-    if _lab_mode() == "hybrid":
+    # no involuntary outbound calls) AND behind the autochecks master switch
+    # (pip-audit is a subprocess package probe — off unless the user opts in;
+    # the explicit surface is `./arailctl doctor --updates` and the Admin
+    # security button).  Deferred past the startup quiet window so initial
+    # startup stays smooth.  Cancelled cleanly on shutdown (D3 mitigation).
+    if _autochecks_on and _lab_mode() == "hybrid":
         async def _boot_security_scan():
             await asyncio.sleep(max(30, boot_grace_seconds()))
             try:
@@ -4752,8 +4785,15 @@ async def api_agents_forge_preview(name: str = "", emoji: str = "",
 
 
 @app.get("/api/admin/components")
-async def admin_components():
-    """Read components.json and resolve current versions."""
+async def admin_components(probe: int = 0):
+    """Read components.json and resolve current versions.
+
+    By default this does NO subprocess work — Python package versions come
+    from importlib.metadata, and shell-only components (ollama/npm/docker/git,
+    whose version_cmd shells out) report "not checked". Pass ``?probe=1`` (the
+    explicit "Check versions" button in Admin) to run the version_cmd probes.
+    This keeps a plain Admin page load from shelling out `pip list` etc.
+    """
     import re
     import subprocess as sp
     from importlib import metadata as importlib_metadata
@@ -4795,13 +4835,24 @@ async def admin_components():
         manifest = json.loads(manifest_path.read_text())
         for c in manifest.get("components", []):
             ver = None
+            # Prefer a zero-subprocess importlib.metadata lookup when the
+            # component names its Python package. Only shell out to version_cmd
+            # when explicitly probing (?probe=1) — a plain page load must not
+            # run pip list / ollama --version / git on every open.
+            pkg = c.get("package") or ""
+            pkg_name = pkg.split()[0] if pkg else ""
+            if pkg_name:
+                ver = _pkg_version(pkg_name)
             vcmd = c.get("version_cmd")
-            if vcmd:
-                try:
-                    r = sp.run(vcmd, shell=True, capture_output=True, text=True, timeout=10)
-                    ver = r.stdout.strip().split("\n")[0] if r.returncode == 0 else None
-                except Exception:
-                    pass
+            if ver is None and vcmd:
+                if probe:
+                    try:
+                        r = sp.run(vcmd, shell=True, capture_output=True, text=True, timeout=10)
+                        ver = r.stdout.strip().split("\n")[0] if r.returncode == 0 else None
+                    except Exception:
+                        pass
+                else:
+                    ver = c.get("current_version") or "not checked"
             out.append({
                 "name": c["name"],
                 "type": c.get("type", ""),

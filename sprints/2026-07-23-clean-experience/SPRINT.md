@@ -37,7 +37,7 @@ no-auto-checks frictionless boot, and inviting onboarding, plus security quick w
 | think (assessment) | DONE | 9-dimension multi-agent sweep + verified synthesis (`ASSESSMENT.md`) |
 | plan (architecture) | DONE | Design pass re-verified all anchors on disk (`ARCHITECTURE.md`); plan approved by owner |
 | build WP0 — sprint artifacts | DONE | this commit |
-| build WP1 — quiet boot | PENDING | ARAIL_AUTOCHECKS master gate, parse_offline, doctor |
+| build WP1 — quiet boot | DONE | ARAIL_AUTOCHECKS master gate, parse_offline, doctor; tests green (see BUILD_LOG.md) |
 | build WP2 — egress honesty | PENDING | Buddy HF consent gate, no goal text in URLs |
 | build WP3 — security quick wins | PENDING | tier guards, secret perms, Marimo URL, hand-off card |
 | build WP4 — model-surface truth | PENDING | /build explainer, docs/models-on-disk.md |
