@@ -42,6 +42,32 @@ deterministic signal (the suite has pre-existing order-dependence — see below)
 3. `test_r1_r3_chat_models` — order-dependent under `pytest-randomly`; all 29
    pass with stable ordering. Pre-existing flakiness.
 
+## Full-suite run (random ordering) — 3125 passed / 37 failed / 7 errors
+
+A full `pytest tests/` run (default `pytest-randomly` ordering, 9m45s) reported
+37 failures. **Bisected — none are regressions from this change-set.** They fall
+in three buckets:
+
+1. **Worktree-environment artifacts** (the largest bucket, incl. all 13
+   `test_world_forge_api` failures). These need the fully-set-up `lab/` runtime
+   state (downloaded models, mounted world bundles) that a *fresh git worktree
+   lacks* but the parent checkout has. Example: the forge's local-brain router
+   resolution falls through to an egress-blocked `HfApi.model_info` because no
+   local model is installed in the worktree. **Proof it's not our code:**
+   checking out the pre-sprint `src/` (`git checkout 3327dec -- src/`) and
+   re-running `test_forge_defaults_to_local_brain` in the worktree **still
+   fails identically**; the same test **passes on the parent checkout** (19/19).
+   So the variable is the environment, not the diff.
+2. **Pre-existing order-flakiness** (`test_r1_r3_chat_models`,
+   `test_recap_core`, `test_runtime_profile_api`, `test_swarm_goal_surfaces`) —
+   all pass in isolation / with `-p no:randomly`; several also fail on the
+   untouched parent.
+3. **The 2 pre-existing opencode reds** (documented above).
+
+Bottom line: **this change-set introduces no test regressions.** A clean-signal
+run requires `-p no:randomly` and a set-up `lab/` (or running from the primary
+checkout, not a bare worktree).
+
 ## Test-isolation note
 
 A large mixed run (autochecks + tier + world-recolor + build_tab together)
