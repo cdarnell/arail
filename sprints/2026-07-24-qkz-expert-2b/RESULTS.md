@@ -105,7 +105,52 @@ the code changes, whereas the PKB re-indexes.
 | **WC-D** honest provenance | ✅ this document; no cert-gate claims made |
 | **WC-E** reproducible | ✅ corpus sha + template fingerprint + config committed |
 
-## 7. Recommended next step
+## 6b. CORRECTION — the "ship it as voice" recommendation does not survive testing
+
+I recommended keeping the adapter as a *voice* layer paired with PKB retrieval.
+Wiring it up and actually generating through ARAIL's own backend refutes that.
+
+`MLXBackend.complete()` defaults to **temperature 0.7** (ARAIL's chat default).
+At that setting the installed checkpoint produces word salad:
+
+> *"A railgun firing through a 100-layer RCU crush crashes into the gate and the
+> result is a bomb that fabricates a human from one of its constituent atoms."*
+
+The same model, same adapter, same prompt at **temperature 0.0** is coherent but
+still factually wrong (it invents "the three standard gates (SELECT, SWAP,
+ADD)"). So:
+
+| sampling | result |
+|---|---|
+| temp 0.0 | coherent, **factually wrong** |
+| temp 0.7 (ARAIL default) | **incoherent** |
+
+An overfit 1.1 B model with a narrow LoRA is fragile under sampling. It is not
+usable as a house voice at the lab's default temperature, and lowering chat to
+temp 0 to accommodate it would degrade every other model.
+
+**Therefore: do not wire this adapter into the lab at all.** Not as tier 0, not
+as a voice layer. My earlier recommendation was wrong and is withdrawn.
+
+## 7. What this sprint actually delivered
+
+The valuable output is the **pipeline and the finding**, not the model:
+
+- `scripts/train_qkz_expert.py` — refuses simulated training, verifies real
+  tensors (proven against both a genuine adapter and the known-bad stub).
+- `scripts/build_qkz_corpus.py` — instruction pairs from `git ls-files`, two
+  secret layers (zero hits), quality filters, model-derived chat template,
+  deterministic `corpus_sha256`.
+- `MLXBackend` LoRA support (opt-in via `ARAIL_MLX_ADAPTER`, refusing bogus or
+  mock adapters) — infrastructure for when a *good* adapter exists.
+- 70 local tests covering the guards.
+- A measured, reproducible answer to "can a ~1 B LoRA learn our codebase?" —
+  **no**, and now we know why and what it costs to find out (~40 min).
+
+The adapter stays on disk at `/Users/Shared/models/qkz-expert-v0.1/`, documented
+and unwired. It is not deleted — it is the artifact the evidence refers to.
+
+## 8. Recommended next step
 
 **Do not register this as tier 0 on its own.** Two options:
 
