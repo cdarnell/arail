@@ -93,6 +93,58 @@ are silently truncated, so those answers lose their tails and teach incomplete
 responses. Fix by raising `max_seq_length` to ~1536 and/or lowering
 `MAX_ANSWER_CHARS` in the corpus builder so pairs fit whole.
 
+---
+
+# Calibration run 2 — after the template fix
+
+**Verdict: gate PASSED, full run launched.**
+
+The fix: `build_qkz_corpus.py` now formats every pair with
+`tokenizer.apply_chat_template()` from the actual checkpoint, and **hard-fails**
+if the template cannot be read. Emitting a guessed format is the bug we already
+paid for, so it is no longer reachable. The receipt records a template
+fingerprint (`markers: ['<bos>', '<turn|>', '<|turn>']`) so a future
+model/template swap is detectable from the corpus alone.
+
+Ground truth read off the tokenizer:
+
+```
+<bos><|turn>user\n{question}<turn|>\n<|turn>model\n{answer}<turn|>\n
+```
+
+Note `<|turn>` … `<turn|>` (asymmetric close) and role **`model`**, not
+`assistant`. Nothing like the `<start_of_turn>` format run 1 used.
+
+Also fixed: `MAX_ANSWER_CHARS` 4000 → 2400 (~600 tokens) and
+`max_seq_length` 1024 → 1536, so pairs fit whole.
+
+| | run 1 (wrong template) | run 2 (fixed) |
+|---|---|---|
+| Val loss @ iter 1 | 8.483 | **5.298** ← recognizes the format |
+| Val loss @ 200 | 2.449 | **2.350** |
+| Truncation warnings | many (up to 1394 tok) | **none** |
+| Wall clock / 200 iters | 101 s | 89 s |
+| Peak train mem | 18.0 GB | 16.4 GB |
+| Generation | **degenerate loop** | **coherent, terminates** |
+
+Generation after 200 iters:
+
+> *"AeroLLM auto-checks. The auto-checks are run in the background. If a check
+> fails, the user sees a warning banner."*
+
+Coherent and properly terminated — the blocker is gone. The **content is still
+wrong** (it conflates AeroLLM with ARAIL and invents a warning banner), which is
+expected: 200 iters × batch 2 = 400 of 4,983 examples ≈ 8 % of one epoch. The
+calibration proves the *pipeline*; facts require the full run.
+
+## Full run (launched)
+
+`/Users/Shared/models/qkz-expert-v0.1/train.yaml` — 5,000 iters (~2 epochs),
+rank 16, 16 layers, batch 2, seq 1536, lr 1e-4, **dropout 0.05** (added for the
+longer run: 13.6 M trainable params over only 4,983 examples will otherwise
+overfit), eval every 250, checkpoint every 500 so the best val loss can be
+chosen rather than assuming the last step is best.
+
 ## Next actions (in order)
 
 1. Fix the corpus to emit the model's native template (A2 change) — **blocking**.

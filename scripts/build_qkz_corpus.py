@@ -72,7 +72,10 @@ SECRET_CONTENT_PATTERNS = [
 ]
 
 MIN_ANSWER_CHARS = 80      # below this a "pair" teaches nothing
-MAX_ANSWER_CHARS = 4000    # keep sequences trainable
+MAX_ANSWER_CHARS = 2400    # ~600 tokens; keeps pairs inside a 1024-token
+                           # window WITH the question + template overhead.
+                           # The A3 calibration truncated answers up to 1394
+                           # tokens, teaching incomplete responses.
 MIN_QUESTION_CHARS = 10
 # An answer that is pure code/diagram with no explanation is not instructional.
 MIN_PROSE_CHARS = 120
@@ -325,10 +328,71 @@ def build(repos: list[Path], *, seed: int = 1729,
     return corpus, records[n_hold:], records[:n_hold]
 
 
-def to_chat(rec: dict) -> dict:
-    """Gemma chat format — matches what the A0 spike trained against."""
-    return {"text": (f"<start_of_turn>user\n{rec['question']}<end_of_turn>\n"
-                     f"<start_of_turn>model\n{rec['answer']}<end_of_turn>")}
+DEFAULT_MODEL = "/Users/Shared/models/gemma-4-e2b-it-OptiQ-4bit"
+
+
+class TemplateUnavailable(SystemExit):
+    """Raised when the model's real chat template cannot be loaded."""
+
+
+def load_chat_formatter(model_path: str):
+    """Return ``fn(question, answer) -> str`` using the MODEL'S OWN template.
+
+    Why this is not optional: the A3 calibration run
+    (``sprints/2026-07-24-qkz-expert-2b/CALIBRATION.md``) trained on a
+    hardcoded Gemma 2/3 ``<start_of_turn>`` format while this checkpoint uses
+    the Gemma 4 Canonical template (``<|turn>…<turn|>``, role ``model``). Loss
+    fell beautifully and the model's output collapsed into a repetition loop,
+    because every example taught a turn structure it does not use.
+
+    So: derive the format from the tokenizer, and **hard-fail** if we cannot.
+    Silently emitting a guessed format is the bug we already paid for.
+    """
+    try:
+        from transformers import AutoTokenizer  # type: ignore
+    except ImportError as exc:
+        raise TemplateUnavailable(
+            "REFUSING TO BUILD: transformers is unavailable, so the model's real "
+            "chat template cannot be read. Emitting a guessed format is exactly "
+            "what produced the degenerate calibration model (see CALIBRATION.md). "
+            "Install transformers, or pass --model pointing at a local checkpoint."
+        ) from exc
+
+    try:
+        tok = AutoTokenizer.from_pretrained(model_path)
+    except Exception as exc:  # noqa: BLE001
+        raise TemplateUnavailable(
+            f"REFUSING TO BUILD: could not load a tokenizer from {model_path!r} "
+            f"({type(exc).__name__}: {exc}). The corpus format must come from the "
+            "model, not from a hardcoded guess."
+        ) from exc
+
+    if not getattr(tok, "chat_template", None):
+        raise TemplateUnavailable(
+            f"REFUSING TO BUILD: {model_path!r} exposes no chat_template. "
+            "Cannot format training text faithfully."
+        )
+
+    def fmt(question: str, answer: str) -> str:
+        return tok.apply_chat_template(
+            [{"role": "user", "content": question},
+             {"role": "assistant", "content": answer}],
+            tokenize=False,
+        )
+
+    return fmt, tok
+
+
+def template_fingerprint(fmt) -> dict:
+    """Record which turn markers the corpus actually used, so a future
+    model/template swap is detectable from the receipt alone."""
+    sample = fmt("Q", "A")
+    return {
+        "sample": sample,
+        "markers": sorted({m for m in ("<|turn>", "<turn|>", "<start_of_turn>",
+                                       "<end_of_turn>", "<|channel>", "<bos>")
+                           if m in sample}),
+    }
 
 
 def write_jsonl(path: Path, rows: list[dict]) -> None:
@@ -343,6 +407,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--out", default="lab/data/corpus", help="output directory")
     ap.add_argument("--repos", nargs="*", default=None,
                     help="repo paths (default: the four QuKaiZen repos in ~/ProJects)")
+    ap.add_argument("--model", default=DEFAULT_MODEL,
+                    help="checkpoint whose chat template formats the corpus")
     ap.add_argument("--seed", type=int, default=1729)
     ap.add_argument("--holdout", type=float, default=0.10)
     args = ap.parse_args(argv)
@@ -362,9 +428,16 @@ def main(argv: list[str] | None = None) -> int:
         print("corpus is empty — refusing to write", file=sys.stderr)
         return 1
 
+    # Format with the MODEL'S template — never a hardcoded guess (see
+    # CALIBRATION.md finding 1). Hard-fails if it cannot be read.
+    fmt, _tok = load_chat_formatter(args.model)
+    fp = template_fingerprint(fmt)
+
     out = Path(args.out)
-    write_jsonl(out / "train.jsonl", [to_chat(r) for r in train])
-    write_jsonl(out / "valid.jsonl", [to_chat(r) for r in valid])
+    write_jsonl(out / "train.jsonl",
+                [{"text": fmt(r["question"], r["answer"])} for r in train])
+    write_jsonl(out / "valid.jsonl",
+                [{"text": fmt(r["question"], r["answer"])} for r in valid])
     # Provenance sidecar: which record came from which file (NOT trained on).
     write_jsonl(out / "provenance.jsonl", train + valid)
 
@@ -375,6 +448,8 @@ def main(argv: list[str] | None = None) -> int:
 
     receipt = {
         "corpus_sha256": corpus_sha,
+        "model": args.model,
+        "chat_template": fp,
         "seed": args.seed,
         "holdout": args.holdout,
         "records_total": len(train) + len(valid),
@@ -398,6 +473,7 @@ def main(argv: list[str] | None = None) -> int:
     }
     (out / "RECEIPT.json").write_text(json.dumps(receipt, indent=2) + "\n")
 
+    print(f"chat template : {', '.join(fp['markers'])}")
     print(f"corpus_sha256 : {corpus_sha}")
     print(f"train / holdout: {len(train)} / {len(valid)}")
     for s in corpus.stats:

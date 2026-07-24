@@ -24,16 +24,21 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
 from build_qkz_corpus import (  # noqa: E402
+    MAX_ANSWER_CHARS,
     MIN_PROSE_CHARS,
+    TemplateUnavailable,
     build,
     is_junk_heading,
     is_secret_path,
+    load_chat_formatter,
     looks_secret,
     prose_chars,
-    to_chat,
+    template_fingerprint,
     LOW_VALUE_PATH_PATTERNS,
     TEST_PATH_PATTERNS,
 )
+
+BASE_MODEL = Path("/Users/Shared/models/gemma-4-e2b-it-OptiQ-4bit")
 
 
 def _mk_repo(root: Path, files: dict[str, str]) -> Path:
@@ -205,12 +210,46 @@ def test_holdout_is_disjoint_from_train(tmp_path):
     assert not ({r["question"] for r in train} & {r["question"] for r in valid})
 
 
-def test_chat_format_matches_gemma_template():
-    rec = {"question": "Q?", "answer": "A."}
-    text = to_chat(rec)["text"]
-    assert text.startswith("<start_of_turn>user\nQ?<end_of_turn>")
-    assert "<start_of_turn>model\nA.<end_of_turn>" in text
-
-
 def test_min_prose_constant_is_meaningful():
     assert MIN_PROSE_CHARS >= 100
+
+
+def test_answer_cap_fits_the_training_window():
+    """Pairs must fit whole. Run 1 truncated answers up to 1394 tokens at a
+    1024 window, teaching incomplete responses; ~2400 chars ≈ 600 tokens."""
+    assert MAX_ANSWER_CHARS <= 2400
+
+
+# ── the chat template must come from the MODEL, never a guess ────────
+#
+# This is the regression guard for CALIBRATION.md finding 1: run 1 trained on a
+# hardcoded Gemma 2/3 format while the checkpoint speaks Gemma 4 Canonical, and
+# the model's output collapsed into a repetition loop.
+
+def test_refuses_when_template_cannot_be_read(tmp_path):
+    """No silent fallback: an unreadable template must abort the build."""
+    with pytest.raises(TemplateUnavailable):
+        load_chat_formatter(str(tmp_path / "not-a-model"))
+
+
+@pytest.mark.skipif(not BASE_MODEL.exists(), reason="base checkpoint not present")
+def test_formatter_uses_the_checkpoints_own_template():
+    fmt, _tok = load_chat_formatter(str(BASE_MODEL))
+    text = fmt("Q?", "A.")
+    # Gemma 4 Canonical: <|turn>…<turn|> with role "model".
+    assert "<|turn>user" in text and "<|turn>model" in text
+    assert "<turn|>" in text
+    # The format run 1 wrongly used must NOT appear.
+    assert "<start_of_turn>" not in text
+    assert "<end_of_turn>" not in text
+    assert "Q?" in text and "A." in text
+
+
+@pytest.mark.skipif(not BASE_MODEL.exists(), reason="base checkpoint not present")
+def test_fingerprint_records_the_markers_actually_used():
+    """The receipt must make a future template swap detectable."""
+    fmt, _ = load_chat_formatter(str(BASE_MODEL))
+    fp = template_fingerprint(fmt)
+    assert "<|turn>" in fp["markers"]
+    assert "<start_of_turn>" not in fp["markers"]
+    assert fp["sample"]
