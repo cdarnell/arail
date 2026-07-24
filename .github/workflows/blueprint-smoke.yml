@@ -32,6 +32,14 @@ jobs:
           python-version: "3.11"
           cache: pip
 
+      # pyproject pins `dac_world` to the PRIVATE qukaizen-dac repo over SSH,
+      # so pip must be able to `git clone` it. Requires the DAC_DEPLOY_KEY repo
+      # secret (a read-only deploy key on cdarnell/qukaizen-dac).
+      - name: Authenticate to private dac_world repo
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.DAC_DEPLOY_KEY }}
+
       - name: Install dev dependencies
         shell: bash
         run: |
@@ -68,6 +76,13 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
+
+      # `./arailctl setup` pip-installs the package, which pulls the private
+      # dac_world dependency over SSH — same key requirement as the job above.
+      - name: Authenticate to private dac_world repo
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.DAC_DEPLOY_KEY }}
 
       - name: Create artifact directory
         shell: bash
