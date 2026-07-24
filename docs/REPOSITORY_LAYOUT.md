@@ -55,7 +55,7 @@ Separate the repo into four concerns:
 
 ### Phase 0 — immediate hygiene
 
-- Keep the public contract on two tiers only: `min` and `max`.
+- Keep the public contract on two tiers only: `minimalist` and `maximus`.
 - Scope default pytest discovery to `tests/`.
 - Treat AeroLLM as optional development work, not part of the default ARAIL
   release smoke test.

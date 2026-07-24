@@ -375,3 +375,34 @@ one sitting.
   the nightly reflection scheduler.
 - [`docs/agents.md`](agents.md) — the full reference (architecture,
   contracts, rationale). Read this when you're ready to ship an agent.
+
+## The research loop
+
+The **Researcher** agent runs the Autoresearch page. Its loop is deliberately
+small and honest:
+
+1. **Plan** — turn the goal into a handful of hypotheses (with a visible
+   planning trace showing which were considered vs chosen).
+2. **Design** — each hypothesis is mapped to a measurable *archetype*:
+   - `model_throughput` — measures real TTFT / decode tokens-per-second of the
+     locally-resolved model.
+   - `prompt_variant` — compares prompt phrasings, scored by deterministic,
+     code-computed proxies (format compliance, latency, output consistency) —
+     never a model self-score.
+   - `retrieval_quality` — measures how well the **approved** Knowledge Base
+     answers goal-related probes (needs no model).
+3. **Run** — the experiment runs for real on your machine
+   (`src/arail/research/mini_experiments.py`). Every number shown was measured,
+   or the experiment reports an honest **could-not-run** (e.g. no local model,
+   or no approved knowledge) — it never fabricates a result.
+4. **Report** — results are written to the Knowledge Base with a **provenance**
+   line (`measured` / `NOT RUN` / `unmeasured`). Any model-written narrative is
+   labeled *model-narrated*; the metrics themselves are code-measured.
+
+Where the artifacts land: raw records in `lab/data/experiments/`, KB candidates
+in `lab/pkb/agents/experiments/` (raw until you promote them through the
+Compiled-KB gate), and the report in `lab/pkb/agents/research/`. See
+[`docs/models-on-disk.md`](models-on-disk.md).
+
+This is distinct from the **Tuning** page's git-branch-per-experiment loop,
+which tunes inference *speed* rather than running research experiments.

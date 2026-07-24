@@ -26,8 +26,12 @@
             aria-selected="{{ 'true' if default_view|default('status') == 'status' else 'false' }}">Status</button>
     <button class="ag-seg-btn" role="tab" data-seg="skills"
             aria-selected="{{ 'true' if default_view|default('status') == 'skills' else 'false' }}">Skills</button>
+    {# Activity feed is not built yet — hide the tab rather than show a
+       "coming soon" dead end. Re-enable when the feed ships. #}
+    {% if false %}
     <button class="ag-seg-btn" role="tab" data-seg="activity"
             aria-selected="{{ 'true' if default_view|default('status') == 'activity' else 'false' }}">Activity</button>
+    {% endif %}
   </div>
 
   <!-- ═══ Status view ═══ -->

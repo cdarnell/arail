@@ -11,8 +11,10 @@
   <span class="rx-tagline-icon">◆</span>
   <span class="rx-tagline-text">
     <strong>ARAIL · A rail for experiments.</strong>
-    Every experiment is a git branch. The git history is the experiment ledger.
-    If you can measure it, we can improve it.
+    The Researcher measures small experiments on your machine — real numbers,
+    labeled by provenance. If you can measure it, we can improve it.
+    <span class="rx-tagline-note">(The git-branch-per-experiment ledger is the
+    separate <a href="/tuning">Tuning</a> loop.)</span>
   </span>
 </div>
 
@@ -964,6 +966,14 @@ function renderExperimentCard(exp) {
   const status = exp.status || 'planning';
   const running = status === 'in_progress';
 
+  // Provenance badge — every result is labeled measured / could-not-run /
+  // unmeasured so nothing reads as a measured number when it isn't.
+  const prov = (exp.results && exp.results.provenance) || '';
+  let provBadge = '';
+  if (prov === 'measured') provBadge = '<span class="rx-exp-badge measured" title="Numbers were measured on this machine">measured</span>';
+  else if (prov === 'cannot_run') provBadge = '<span class="rx-exp-badge cannot-run" title="Could not run — see details">could not run</span>';
+  else if (prov === 'unmeasured') provBadge = '<span class="rx-exp-badge unmeasured" title="Not measurable on-device">unmeasured</span>';
+
   const head = `
     <div class="rx-exp-head">
       <div class="rx-exp-hyp">${esc(exp.hypothesis || '(no hypothesis)')}</div>
@@ -972,7 +982,7 @@ function renderExperimentCard(exp) {
     <div class="rx-exp-meta">
       <span class="rx-exp-status ${status}"><span class="rx-dot"></span>${esc(status.replace('_', ' '))}</span>
       ${exp.domain ? `<span class="rx-chip">${esc(exp.domain)}</span>` : ''}
-      ${exp.start_date ? `<span>${esc(exp.start_date)}${exp.end_date && exp.end_date !== exp.start_date ? ' → ' + esc(exp.end_date) : ''}</span>` : ''}
+      ${provBadge}
       ${exp.hypothesis_supported === true  ? '<span class="rx-exp-badge supported">supported</span>' : ''}
       ${exp.hypothesis_supported === false ? '<span class="rx-exp-badge not-supported">not supported</span>' : ''}
     </div>
@@ -995,9 +1005,13 @@ function renderExperimentCard(exp) {
         );
       });
     }
-    if (exp.results && typeof exp.results === 'object' && Object.keys(exp.results).length) {
-      partsB.push(`<h4>Results</h4><div class="rx-metrics">`);
-      Object.entries(exp.results).forEach(([k, v]) => {
+    const R = exp.results && typeof exp.results === 'object' ? exp.results : null;
+    if (R && R.provenance === 'cannot_run') {
+      partsB.push(`<h4>Could not run</h4><p class="rx-cannot">${esc(R.cannot_run_reason || 'This experiment could not run.')}</p>`);
+    } else if (R && R.metrics && typeof R.metrics === 'object' && Object.keys(R.metrics).length) {
+      partsB.push(`<h4>Measured metrics</h4><div class="rx-metrics">`);
+      Object.entries(R.metrics).forEach(([k, v]) => {
+        if (v && typeof v === 'object') return;  // skip nested per-variant detail
         const num = typeof v === 'number';
         const display = num ? (v < 1 && v > -1 ? v.toFixed(2) : String(v)) : String(v);
         partsB.push(
@@ -1008,6 +1022,9 @@ function renderExperimentCard(exp) {
         );
       });
       partsB.push(`</div>`);
+      if (R.interpretation && R.interpretation.text) {
+        partsB.push(`<h4>Interpretation <span class="rx-narrated">model-narrated</span></h4><p>${esc(R.interpretation.text)}</p>`);
+      }
     }
     if (Array.isArray(exp.observations) && exp.observations.length) {
       partsB.push(`<h4>Observations</h4>`);

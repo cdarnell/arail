@@ -25,7 +25,10 @@ import re
 PORTAL = pathlib.Path(__file__).parents[2] / "src/arail/portal"
 BASELINE_PATH = pathlib.Path(__file__).parent / "token_compliance_baseline.json"
 
-_HEX_RE = re.compile(r"#[0-9a-fA-F]{3,8}\b")
+# A hex color is #abc / #aabbcc etc. NOT followed by more name characters —
+# this rejects anchor hrefs like href="#dac-proposals-panel" (where "dac" is
+# coincidentally valid hex) which are not colors.
+_HEX_RE = re.compile(r"#[0-9a-fA-F]{3,8}(?![-0-9a-zA-Z_])")
 _RGBA_RE = re.compile(r"rgba?\(")
 _ALLOWED_RGBA = re.compile(r"rgba?\(\s*(?:0\s*,\s*0\s*,\s*0|var\(--)")
 _INLINE_STYLE_RE = re.compile(r"\bstyle\s*=\s*\"")

@@ -796,6 +796,25 @@ install_services() {
             return
         fi
 
+        # Fail-fast, don't hang. Skip the (multi-minute) model download when:
+        #   • ARAIL_SKIP_MODEL_DOWNLOAD=1 is set explicitly, OR
+        #   • the ollama daemon isn't reachable (a pull would otherwise hang
+        #     until the timeout instead of failing immediately).
+        # In both cases we print the one command to run later — setup never
+        # appears to freeze for 15 minutes on a slow/offline machine. The pull
+        # timeouts below are also capped at 180s (was 900s) as a second guard.
+        if [[ "${ARAIL_SKIP_MODEL_DOWNLOAD:-0}" == "1" ]]; then
+            warn "ARAIL_SKIP_MODEL_DOWNLOAD=1 — skipping model install. Run later:"
+            warn "  ollama pull llama3.2:1b && ollama create llama-ai-eng -f models/ai-eng/Modelfile.default"
+            return
+        fi
+        if ! _arail_timeout 5 ollama list &>/dev/null; then
+            warn "Ollama daemon not reachable — skipping model download (would hang)."
+            warn "Start ollama, then run:"
+            warn "  ollama pull llama3.2:1b && ollama create llama-ai-eng -f models/ai-eng/Modelfile.default"
+            return
+        fi
+
         # ── Phase B (gated, DORMANT): Gemma 2B default-floor — qkz-project-aware-2b ──
         # Make the minimalist default brain a ~2B Gemma generalist (a stronger floor
         # than the 1B for technical Worlds like physics). OFF by default — fires only
@@ -842,7 +861,7 @@ install_services() {
             info "Installing the 1B default (llama-ai-eng) separately…"
             _install_llama_ai_eng() {
                 info "Pulling llama3.2:1b (Llama-3.2-1B-Instruct, ~0.9 GB)…"
-                if _arail_timeout 900 ollama pull llama3.2:1b 2>&1 | tail -5; then
+                if _arail_timeout 180 ollama pull llama3.2:1b 2>&1 | tail -5; then
                     info "Creating llama-ai-eng persona from Modelfile.default…"
                     if _arail_timeout 300 ollama create llama-ai-eng -f "${_modelfile_dir}/Modelfile.default" 2>&1 | tail -5; then
                         info "llama-ai-eng ready (AI engineer persona, built with Llama)."
@@ -882,7 +901,7 @@ install_services() {
                 local _sha256="${ARAIL_AI_ENG_SHA256:-__PLACEHOLDER_SHA256__}"
 
                 info "Fetching ai-eng (self-hosted HuggingFace primary)…"
-                if _arail_timeout 900 ollama pull "hf.co/${_hf_repo}:${_quant}" 2>&1 | tail -5; then
+                if _arail_timeout 180 ollama pull "hf.co/${_hf_repo}:${_quant}" 2>&1 | tail -5; then
                     info "ai-eng fetched from HuggingFace. Done."
                     _ai_eng_ok=1
                 else
@@ -947,7 +966,7 @@ install_services() {
                     warn "Self-hosted ai-eng artifact not reachable — falling back to preview net."
                     local _preview_base="qwen2.5:1.5b"
                     local _preview_mf="${_modelfile_dir}/Modelfile.preview"
-                    if _arail_timeout 900 ollama pull "$_preview_base" 2>&1 | tail -5; then
+                    if _arail_timeout 180 ollama pull "$_preview_base" 2>&1 | tail -5; then
                         if [[ -f "$_preview_mf" ]]; then
                             if _arail_timeout 300 ollama create ai-eng -f "$_preview_mf" 2>&1 | tail -5; then
                                 info "ai-eng (preview) ready. Re-run setup after the GGUF is uploaded."
@@ -966,7 +985,7 @@ install_services() {
                 # ── DEFAULT PATH: simple persona-wrap (MODEL-TIERS-V2 §2) ────
                 info "Installing Llama AI Engineer (built with Llama-3.2-1B-Instruct)…"
                 info "Pulling llama3.2:1b (~0.9 GB) — this may take a minute…"
-                if _arail_timeout 900 ollama pull llama3.2:1b 2>&1 | tail -5; then
+                if _arail_timeout 180 ollama pull llama3.2:1b 2>&1 | tail -5; then
                     info "Creating llama-ai-eng persona (AI engineer, Built with Llama)…"
                     if _arail_timeout 300 ollama create llama-ai-eng -f "${_modelfile_dir}/Modelfile.default" 2>&1 | tail -5; then
                         info "llama-ai-eng ready. Default AI engineer is installed."
@@ -989,7 +1008,7 @@ install_services() {
                 info "ai-engineer (deep 7B persona) already present — skipping."
             elif [[ "${ARAIL_INSTALL_DEEP_PERSONA:-0}" == "1" ]]; then
                 info "ARAIL_INSTALL_DEEP_PERSONA=1 — installing deep AI engineer persona (7B)…"
-                if _arail_timeout 900 ollama pull qwen2.5:7b 2>&1 | tail -5; then
+                if _arail_timeout 180 ollama pull qwen2.5:7b 2>&1 | tail -5; then
                     if _arail_timeout 300 ollama create ai-engineer -f "${_modelfile_dir}/Modelfile.deep" 2>&1 | tail -5; then
                         info "ai-engineer (deep 7B persona) ready."
                     else
@@ -1104,7 +1123,7 @@ _slugify() {
 }
 
 # -----------------------------------------------------------------------------
-# Install tier — min / med / max. Captured once, persisted to .env.
+# Install tier — minimalist / maximus (legacy min/med/max still accepted). Captured once, persisted to .env.
 #
 #   min → Dashboard, Chat, Autoresearch
 #   med → + Knowledge Base, Agents, LanceDB vectors
@@ -1741,6 +1760,21 @@ download_model() {
     local model_dir="lab/models"
     mkdir -p "$model_dir"
 
+    # The ~5 GB Qwen3-8B streaming model is a DEEP/maximus asset, not the
+    # everyday minimalist model. Keep minimalist's footprint honest (~0.9 GB =
+    # llama-ai-eng only, installed via ollama earlier). On minimalist, print the
+    # command to fetch it later instead of silently pulling 5 GB.
+    local _tier_norm="${LAB_TIER:-minimalist}"
+    [[ "$_tier_norm" == "min" ]] && _tier_norm="minimalist"
+    [[ "$_tier_norm" == "max" || "$_tier_norm" == "med" ]] && _tier_norm="maximus"
+    if [[ "$_tier_norm" != "maximus" ]]; then
+        info "Minimalist tier: your everyday model is llama-ai-eng (~0.9 GB, already set up)."
+        info "The larger streaming model is a maximus asset. Fetch it later with:"
+        echo "  python3 -c \"from huggingface_hub import snapshot_download; snapshot_download('${MODEL_MLX_ID}', local_dir='lab/models/Qwen3-8B-4bit')\""
+        echo "  # or just: ./arailctl upgrade maximus"
+        return
+    fi
+
     if [[ "$ACCEL" == "mlx" ]]; then
         local model="$MODEL_MLX_ID"
         if [[ -d "${model_dir}/Qwen3-8B-4bit" ]]; then
@@ -1899,12 +1933,13 @@ capture_goal() {
     # still get the free-form prompt.
     local default_goal=""
     if [[ "$intent" == "ai" ]]; then
-        default_goal="Optimize AirLLM's tokens-per-second when streaming a 70B Llama from disk. Measure baseline TTFT and decode rate, sweep KV-cache quantization and prefill chunk size, compare before/after, write findings back into the knowledge base."
-        echo "  Press Enter to accept the lab's signature research goal —"
-        echo "  ${BOLD}Optimize AirLLM throughput${RESET} (tune the deep"
-        echo "  layer-streaming engine), or type a custom one."
-        echo ""
-        echo "  See lab/pkb/research/program.md for the full plan."
+        # An inviting first goal that the Researcher can ACTUALLY measure on a
+        # fresh laptop (the model_throughput archetype), not an expert AirLLM
+        # sweep about a backend that isn't installed.
+        default_goal="Find the best small model for my laptop — measure the speed and responsiveness of the model(s) I have installed."
+        echo "  Press Enter to accept a friendly starter goal —"
+        echo "  ${BOLD}Find the best small model for my laptop${RESET} (the lab"
+        echo "  measures real speed/responsiveness of what you have), or type a custom one."
     else
         echo "  What do you want the lab to research? One sentence is fine."
         echo "  Examples:"
@@ -1916,7 +1951,7 @@ capture_goal() {
     read -rp "  Goal${default_goal:+ [Enter for default]}: " goal
     if [[ -z "${goal// }" && -n "$default_goal" ]]; then
         goal="$default_goal"
-        info "Using the lab's signature research goal (optimize AirLLM)."
+        info "Using the starter goal (find the best small model for your laptop)."
     elif [[ -z "${goal// }" ]]; then
         warn "Empty goal — skipping capture. You can set one from the dashboard after ./arailctl start."
         return
@@ -2259,7 +2294,7 @@ main() {
     echo "  Next steps:"
     echo -e "    1) Start the lab:      ${BOLD}${start_cmd}${RESET}"
     echo -e "    2) Open the dashboard: ${BOLD}http://127.0.0.1:${PORTAL_PORT:-8080}${RESET}"
-    echo -e "    3) Type your goal and click ${BOLD}Run Research${RESET}"
+    echo -e "    3) Open ${BOLD}Autoresearch${RESET}, set your goal with ${BOLD}Set Research Goal${RESET}, then press ${BOLD}▶ Run${RESET}"
     echo ""
 
     if [[ -n "$PATH_INSTALLED" ]]; then

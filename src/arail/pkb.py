@@ -397,6 +397,13 @@ def _iter_pkb_files(root: Path):
             continue
         if _is_world_machinery(p):
             continue
+        # Conversation memory is raw chat state, never searchable KB content.
+        # Its meta.json (user-authored titles) has a .json suffix and would
+        # otherwise leak into the ungated /api/pkb/search index. Transcripts are
+        # .jsonl (not indexed), but exclude the whole dir to close the sibling
+        # meta.json leak and keep chat memory out of the wiki/KB.
+        if "conversations" in p.relative_to(root).parts:
+            continue
         try:
             text = p.read_text(errors="replace")
         except OSError:

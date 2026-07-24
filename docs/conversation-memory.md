@@ -17,6 +17,13 @@ related:
 
 # Conversation memory
 
+> **⚠ STATUS (2026-07-23):** Tier 1 (the append-only `transcript.jsonl` log) is
+> **shipped**. The **Tier-2 "user understanding" fact store** described below —
+> `lab/pkb/understanding/<fact_id>.md`, fact distillation from user quotes,
+> `recall_user_facts`, gated fact injection — is **ROADMAP / not yet built**
+> (no such code or directory exists). Read the Tier-2 sections as the intended
+> design, not current behavior. Do not assume fact-recall runs today.
+
 The lab remembers chat in **two tiers**, and the difference between them is the whole design.
 
 | Tier | What it is | Authoritative about the user? | Who reads it |

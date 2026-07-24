@@ -16,7 +16,7 @@ have.
 ## What ARAIL is, in two sentences
 
 A local-first AI lab blueprint. Users clone the repo, run
-`./arailctl setup && ./arailctl start`, pick a tier (min / med / max), and
+`./arailctl setup && ./arailctl start`, pick a tier (minimalist / maximus), and
 get a dashboard + chat + autoresearch running on their own hardware
 with their own models.
 
@@ -119,7 +119,7 @@ this manually" behavior).
 
 ```bash
 # Fresh VM of your target distro
-git clone https://github.com/cdarnell/arail.git arail
+git clone https://github.com/qukaizen/arail.git arail
 cd arail
 
 # Non-interactive mode confirms the whole pipeline works without human input
@@ -131,7 +131,7 @@ ARAIL_NONINTERACTIVE=1 ./arailctl setup
 # End-to-end — portal should come up with agents running
 ./arailctl start
 
-# Visit http://127.0.0.1:8080 — type a goal, click Run Research,
+# Visit http://127.0.0.1:8080 — open Autoresearch, Set Research Goal, press Run,
 # confirm the research activity log lights up.
 ```
 

@@ -208,6 +208,8 @@
     color: var(--text-muted);
     background: color-mix(in srgb, var(--text-strong) 1%, transparent);
   }
+  .admin-pane-head--split { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .comp-probe-btn { font-size: 11px; padding: 2px 8px; }
   .admin-pane-body { padding: 0.6rem 0.7rem 0.75rem; }
 
   .admin-graph-wrap {
@@ -752,7 +754,11 @@
     <h2>Installed Components &amp; Graph Associations</h2>
     <div class="admin-split">
       <section class="admin-pane" aria-label="Installed components">
-        <div class="admin-pane-head">Installed Components</div>
+        <div class="admin-pane-head admin-pane-head--split">
+          <span>Installed Components</span>
+          <button id="comp-probe-btn" class="btn-ghost comp-probe-btn"
+                  title="Run version_cmd probes (ollama --version, npm outdated, etc.). Not run automatically — a plain page load never shells out.">Check versions</button>
+        </div>
         <div class="admin-pane-body">
           <div class="comp-table-wrap">
             <table class="comp-table">
@@ -1475,24 +1481,38 @@ fetch('/api/system/health').then(r => r.json()).then(d => {
   document.getElementById('svc-status').textContent = 'Could not reach health API.';
 });
 
-// Load components from manifest
-fetch('/api/admin/components').then(r => r.json()).then(data => {
-  const tbody = document.getElementById('comp-tbody');
-  tbody.innerHTML = data.components.map(c =>
-    `<tr>
-      <td class="comp-name">${c.name}</td>
-      <td class="comp-ver">${c.version || '—'}</td>
-      <td class="comp-type">${c.type}</td>
-      <td>${[
-        c.image ? `<span class="comp-ver">${c.image}</span>` : '',
-        c.package ? `<span>${c.package}</span>` : ''
-      ].filter(Boolean).join('<br>') || '—'}</td>
-      <td>${c.source_url ? `<a href="${c.source_url}" target="_blank" rel="noopener">${c.source_url.replace('https://github.com/','')}</a>` : '—'}</td>
-    </tr>`
-  ).join('');
-}).catch(() => {
-  document.getElementById('comp-tbody').innerHTML = '<tr><td colspan="5" class="c-danger">Failed to load components</td></tr>';
-});
+// Load components from manifest. Default load does NO subprocess work: Python
+// package versions come from importlib.metadata; shell-only components show
+// "not checked" until the user presses "Check versions" (probe=1).
+function loadComponents(probe) {
+  fetch('/api/admin/components' + (probe ? '?probe=1' : '')).then(r => r.json()).then(data => {
+    const tbody = document.getElementById('comp-tbody');
+    tbody.innerHTML = data.components.map(c =>
+      `<tr>
+        <td class="comp-name">${c.name}</td>
+        <td class="comp-ver">${c.version || '—'}</td>
+        <td class="comp-type">${c.type}</td>
+        <td>${[
+          c.image ? `<span class="comp-ver">${c.image}</span>` : '',
+          c.package ? `<span>${c.package}</span>` : ''
+        ].filter(Boolean).join('<br>') || '—'}</td>
+        <td>${c.source_url ? `<a href="${c.source_url}" target="_blank" rel="noopener">${c.source_url.replace('https://github.com/','')}</a>` : '—'}</td>
+      </tr>`
+    ).join('');
+  }).catch(() => {
+    document.getElementById('comp-tbody').innerHTML = '<tr><td colspan="5" class="c-danger">Failed to load components</td></tr>';
+  });
+}
+loadComponents(false);
+{
+  const _cpb = document.getElementById('comp-probe-btn');
+  if (_cpb) _cpb.addEventListener('click', () => {
+    _cpb.disabled = true; _cpb.textContent = 'Checking…';
+    Promise.resolve(loadComponents(true)).finally(() => {
+      setTimeout(() => { _cpb.disabled = false; _cpb.textContent = 'Check versions'; }, 800);
+    });
+  });
+}
 
 // ── Activity Log Viewer ──────────────────────────────────────────────
 const logViewer = document.getElementById('log-viewer');

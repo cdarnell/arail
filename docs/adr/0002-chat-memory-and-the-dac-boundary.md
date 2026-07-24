@@ -18,7 +18,13 @@ related:
 
 # ADR-0002: Conversation Memory and the DaC Boundary
 
-**Status:** Accepted
+> **⚠ IMPLEMENTATION STATUS (2026-07-23):** the boundary decision holds and
+> Tier-1 chat memory is shipped, but the **Tier-2 user-understanding fact
+> store** this ADR references (`recall_user_facts`, fact distillation,
+> `lab/pkb/understanding/`) is **not yet built**. Treat Tier-2 mentions as the
+> ratified design, not current behavior.
+
+**Status:** Accepted (Tier-2 fact store: design ratified, not yet implemented)
 **Date:** 2026-07-16
 **Deciders:** QuKaiZen
 **Relates:** `docs/conversation-memory.md` (the schema contract), `docs/agents.md` (memory model),

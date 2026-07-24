@@ -1,5 +1,15 @@
 # ARAIL — Build, Model Management & Fine-Tuning Pipeline
 
+> **⚠ STATUS: DESIGN PLAN — NOT BUILT.** This document describes an intended
+> model-management subsystem (`src/arail/models/`, `src/arail/jobs/`, a
+> `scripts/arail-model` CLI, `/models`/`/jobs`/`/infer` endpoints). **None of
+> that exists on disk yet** — do not go looking for those files. What ships
+> today is: the persona-wrap default model, the CLI `scripts/build_ai_eng.sh`
+> distillation pipeline, and the Nucleus-backed `/build` tab (which needs the
+> separate `qukaizen-nucleus` pipeline running). For where real artifacts land,
+> see [`models-on-disk.md`](./models-on-disk.md); for the shipped build
+> surfaces, see the `/build` tab explainer. Keep this as the forward design.
+
 > Implementation plan for the local model lifecycle: download → register → fit-check → load (full / streaming / hybrid) → infer → fine-tune → re-register. Owns the contract between AeroLLM, the QuKaizen swarm, and the portal UI.
 >
 > Companion docs: [`design.md`](./design.md) (visual contract for the loader UI), [`tuning-loop.md`](./tuning-loop.md) (chat-side speed work), [`agents.md`](./agents.md) (orchestrator agents).

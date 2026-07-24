@@ -231,6 +231,16 @@ under each user account. The `.venv`, `.env`, `lab/`, and
 handles multi-user naturally as long as no two students share a
 Unix account.
 
+## Wiping memory — "wipe the PKB = forget me"
+
+Chat memory lives under the PKB root (`lab/pkb/conversations/`), so
+`./arailctl reset pkb` forgets it along with the rest of the knowledge base.
+**If you set `ARAIL_CONVERSATIONS_DIR`** to relocate transcripts *outside* the
+PKB root, `reset pkb` now also wipes that override path — so the "wipe = forget
+me" guarantee still holds. (Transcripts are `.jsonl` and are never indexed into
+the searchable KB; the sibling `meta.json` conversation titles are excluded from
+the index too.)
+
 ## opencode Workbench (max-tier only)
 
 opencode is an external binary (MIT, by SST) that runs as a subprocess

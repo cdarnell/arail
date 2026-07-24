@@ -56,6 +56,43 @@ def _is_airgapped() -> bool:
     return is_airgapped()
 
 
+def _consent_gate(url: str, *, reason: str) -> dict[str, Any] | None:
+    """Per-domain consent check for a browse target.
+
+    Returns None when the domain is on the user's allowlist (proceed).
+    Otherwise creates ONE pending consent request (idempotent per domain) and
+    returns an 'awaiting consent' result dict — the caller must NOT fetch.
+    This makes the module's documented "consent-gated when hybrid" contract
+    real: browsing a new domain waits for the user's explicit approval.
+    """
+    try:
+        from urllib.parse import urlparse
+        from arail.agents.consent import ConsentStore
+        store = ConsentStore()
+        if store.is_allowed(url):
+            return None
+        domain = urlparse(url).netloc or url
+        if not any(r.get("domain") == domain for r in store.list_pending()):
+            store.request_access(url, reason=reason, agent="browser")
+        activity_log.emit(
+            "browser",
+            f"Web access to {domain} needs your approval — approve it on the "
+            "Agents page to let the Browser agent continue.", "info")
+        return {
+            "success": False,
+            "awaiting_consent": True,
+            "domain": domain,
+            "error": f"Awaiting your approval to reach {domain}. Approve web "
+                     "access on the Agents page, then retry.",
+        }
+    except Exception:  # noqa: BLE001 — never fail open into a silent fetch
+        return {
+            "success": False,
+            "awaiting_consent": True,
+            "error": "Web access needs consent, which could not be recorded.",
+        }
+
+
 def _ab_available() -> bool:
     return shutil.which("agent-browser") is not None
 
@@ -91,7 +128,7 @@ def browse_url(url: str) -> dict[str, Any]:
     """Navigate to a URL, take a screenshot, extract text.
 
     Returns dict with keys: success, url, title, text, screenshot_path, timestamp.
-    Blocked when airgapped.
+    Blocked when airgapped; consent-gated per domain when hybrid.
     """
     if _is_airgapped():
         return {
@@ -99,6 +136,9 @@ def browse_url(url: str) -> dict[str, Any]:
             "error": "Blocked — lab is in airgapped mode. Toggle to Hybrid to enable browsing.",
             "airgapped": True,
         }
+    gate = _consent_gate(url, reason=f"Browse {url} for research")
+    if gate is not None:
+        return gate
     if not _ab_available():
         return {
             "success": False,
@@ -289,6 +329,14 @@ def chat(instruction: str) -> dict[str, Any]:
         search_term = None
         if not url:
             return {"success": False, "error": f"Could not determine URL from instruction: {e}"}
+
+    # Per-domain consent gate — now that the target URL is resolved (Phase 1 is
+    # a local model call, no egress), require the user's approval before the
+    # actual fetch reaches the network.
+    gate = _consent_gate(url, reason=f"Browser task: {instruction[:80]}")
+    if gate is not None:
+        gate["commands_executed"] = executed_commands
+        return gate
 
     # Open the page
     open_result = run_and_log(["open", url], timeout=30)
