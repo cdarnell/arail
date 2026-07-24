@@ -195,7 +195,38 @@ class MLXBackend(BaseBackend):
         model_dir = os.path.join(os.getenv("ARAIL_MODELS_DIR", "lab/models"),
                                  self.model_name.split("/")[-1])
         path = model_dir if os.path.isdir(model_dir) else self.model_name
-        self.model, self.tokenizer = self._load(path)
+
+        # Optional LoRA adapter (e.g. the qkz-expert "house voice" adapter).
+        # ARAIL_MLX_ADAPTER points at a directory containing
+        # adapters.safetensors. Unset -> unchanged behaviour.
+        #
+        # If it IS set we fail loudly rather than quietly serving the base
+        # model: the operator asked for a specific adapter, and silently
+        # answering as a different model is the "looks fine but isn't" failure
+        # this codebase keeps paying for. The size floor is the same signal the
+        # training guard uses (scripts/train_qkz_expert.py) — a simulation-mode
+        # mock checkpoint is ~1KB, a real adapter is megabytes.
+        self.adapter_path = (os.getenv("ARAIL_MLX_ADAPTER", "") or "").strip() or None
+        if self.adapter_path:
+            weights = os.path.join(self.adapter_path, "adapters.safetensors")
+            if not os.path.isdir(self.adapter_path) or not os.path.isfile(weights):
+                raise RuntimeError(
+                    f"ARAIL_MLX_ADAPTER={self.adapter_path!r} has no "
+                    "adapters.safetensors. Refusing to silently serve the base "
+                    "model under an adapter's name — unset the variable or fix "
+                    "the path."
+                )
+            if os.path.getsize(weights) < 1_000_000:
+                raise RuntimeError(
+                    f"ARAIL_MLX_ADAPTER={self.adapter_path!r} is "
+                    f"{os.path.getsize(weights)} bytes — too small to be real "
+                    "LoRA weights (a simulated/mock checkpoint is ~1KB). "
+                    "Verify with: python scripts/train_qkz_expert.py "
+                    "--verify-only <path>"
+                )
+            self.model, self.tokenizer = self._load(path, adapter_path=self.adapter_path)
+        else:
+            self.model, self.tokenizer = self._load(path)
 
         # Install a Metal soft memory limit so the allocator swaps instead
         # of throwing kIOGPUCommandBufferCallbackErrorOutOfMemory — which

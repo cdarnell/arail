@@ -1,0 +1,17 @@
+model: "/Users/Shared/models/gemma-4-e2b-it-OptiQ-4bit"
+train: true
+data: "/Users/netsushi/ProJects/qukaizen-arail/.claude/worktrees/friendly-antonelli-32054b/lab/data/corpus"
+adapter_path: "/Users/Shared/models/qkz-expert-v0.1/adapters"
+num_layers: 16
+batch_size: 2
+iters: 5000
+max_seq_length: 1536
+learning_rate: 1.0e-4
+steps_per_report: 250
+steps_per_eval: 250
+val_batches: 25
+save_every: 500
+lora_parameters:
+  rank: 16
+  scale: 20.0
+  dropout: 0.05
