@@ -14,7 +14,8 @@ description: >
   Lightweight (2B) domain-specialized model trained on QuKaiZen's own projects.
   Understands Nucleus (training pipeline), AeroLLM (inference), ARAIL (agent lab),
   and qukaizen-dac (data infrastructure). Optimized for code navigation, architecture
-  explanation, and cross-project reasoning. Apache 2.0 licensed (Gemma 4 base).
+  explanation, and cross-project reasoning. Built with Gemma — governed by the
+  Gemma Terms of Use (NOT Apache-2.0); see the `license` block below.
 
 pipeline:
   mode: 1                          # Mode 1: Domain Distillation
@@ -80,7 +81,20 @@ graduation:
       from actual project code. All three certification gates pass. Next step:
       v1.1 with full adversarial swarm convergence for production quality.
 
-license: apache-2.0  # Inherited from Gemma 4 base
+# CORRECTED 2026-07-24: this previously read `apache-2.0`, which was wrong.
+# A Gemma derivative is governed by the Gemma Terms of Use, not Apache-2.0.
+# Redistributing it as Apache-2.0 would be a licensing misstatement.
+license: gemma-terms-of-use
+license_files:
+  - licenses/GEMMA-TERMS-OF-USE.txt
+  - licenses/GEMMA-PROHIBITED-USE-POLICY.txt
+license_notes: >
+  Built with Gemma. Derived from a Gemma base model and therefore subject to the
+  Gemma Terms of Use and the Gemma Prohibited Use Policy, which travel with any
+  redistribution. Per the live Terms, the disclosure "Built with Gemma" must be
+  displayed, but the model NAME is not required to contain "Gemma" — so
+  `qkz-project-aware-2b` needs no rename. (Contrast: Llama requires the name to
+  begin with "Llama".) See CLAUDE.md § Gemma disclosure exception.
 
 deployment:
   inference_backend: mlx
