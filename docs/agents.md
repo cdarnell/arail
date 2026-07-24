@@ -144,6 +144,10 @@ Three tiers, in order of durability:
    carried across sessions. Unlike the three tiers above — which are an agent's
    memory of *itself* — these are claims about someone else, so they are gated
    before any agent can see them.
+   **⚠ ROADMAP / not yet built (2026-07-23):** this fourth tier is design only —
+   no `lab/pkb/understanding/` writer, no `recall_user_facts`, no fact
+   distillation exists in code. Tiers 1–3 (agent self-memory) and Tier-1 chat
+   transcripts are real; this one is not yet.
 
 Wiping memory is always one command: delete the file/dir, or run
 `./arailctl reset pkb`. That includes conversation transcripts and user

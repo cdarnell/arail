@@ -514,6 +514,12 @@
 }
 .rx-exp-badge.supported     { color: var(--positive); background: var(--positive-a08); border: 1px solid var(--positive-a28); }
 .rx-exp-badge.not-supported { color: var(--warn);     background: var(--warn-a08);     border: 1px solid var(--warn-a28); }
+.rx-exp-badge.measured      { color: var(--positive); background: var(--positive-a08); border: 1px solid var(--positive-a28); }
+.rx-exp-badge.cannot-run    { color: var(--warn);     background: var(--warn-a08);     border: 1px solid var(--warn-a28); }
+.rx-exp-badge.unmeasured    { color: var(--text-muted); background: var(--text-strong-a08, transparent); border: 1px solid var(--border); }
+.rx-narrated { font-family: var(--font-mono); font-size: 0.6rem; color: var(--text-muted); text-transform: var(--label-transform); letter-spacing: var(--label-tracking); }
+.rx-cannot { color: var(--warn); }
+.rx-tagline-note { color: var(--text-muted); }
 
 .rx-exp-body {
   margin-top: 0.7rem;

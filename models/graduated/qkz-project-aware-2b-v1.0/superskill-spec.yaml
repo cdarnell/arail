@@ -52,7 +52,11 @@ training:
   max_seq_length: 4096
 
 artifacts:
-  adapter: adapters/adapters.safetensors
+  # NOTE: adapters.safetensors.placeholder is a metadata-only STUB (~1 KB), not
+  # real LoRA weights. This is a POC record, not a loadable adapter — the real
+  # weights were not committed. Do not attempt to load/fuse this as-is.
+  adapter: adapters/adapters.safetensors.placeholder
+  adapter_placeholder: true
   adapter_config: adapters/adapter_config.json
   training_config: training_config.json
   examples: examples.jsonl
@@ -87,7 +91,7 @@ deployment:
 
 distribution:
   format: lora-adapter
-  total_size_gb: 9.5  # Gemma 4-2B model
-  adapter_size_mb: 15  # LoRA weights (estimate)
+  total_size_gb: 9.5  # Gemma 4-2B model (if the real adapter existed)
+  adapter_size_mb: 15  # target size for the REAL adapter; the committed file is a ~1KB stub
   location: models/graduated/qkz-project-aware-2b-v1.0/
-  shipping: git-lfs
+  shipping: placeholder-only  # real weights were never committed (see artifacts.adapter_placeholder)

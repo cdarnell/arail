@@ -62,6 +62,8 @@
       Notebooks live at <code>lab/notebooks/</code> as plain <code>.py</code> files.
     </p>
     <div class="mar-topbar-actions">
+      <button class="btn btn-sm btn-ghost" id="mar-token"
+              title="Reveal the access token to paste into Marimo's prompt">🔑 Access token</button>
       <button class="btn btn-sm btn-ghost" id="mar-restart" title="Restart container">↻ Restart</button>
       <button class="btn btn-sm btn-ghost mar-btn-stop" id="mar-stop" title="Stop container">■ Stop</button>
       <button class="btn btn-sm btn-ghost" id="mar-popout"
@@ -70,11 +72,22 @@
       </button>
     </div>
   </div>
+  <!-- The access token is NOT baked into the iframe/pop-out URL — that would
+       leak the lab passphrase into browser history. Marimo prompts for it once;
+       use the "Access token" button to reveal + copy it. -->
   <iframe class="mar-frame"
-          src="http://127.0.0.1:{{ ui_port }}?access_token={{ password }}"
+          src="http://127.0.0.1:{{ ui_port }}"
           title="Marimo"></iframe>
   <script>
-  const MARIMO_URL = 'http://127.0.0.1:{{ ui_port }}?access_token={{ password }}';
+  const MARIMO_URL = 'http://127.0.0.1:{{ ui_port }}';
+  const MARIMO_TOKEN = {{ password | tojson }};
+  document.getElementById('mar-token').addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(MARIMO_TOKEN);
+      alert('Access token copied to clipboard — paste it into Marimo\'s prompt.');
+    } catch (_) {
+      window.prompt('Marimo access token (copy it, then paste into Marimo):', MARIMO_TOKEN);
+    }
+  });
   document.getElementById('mar-popout').addEventListener('click', () => {
     window.open(MARIMO_URL, '{{ brand.short_name }}-marimo',
                 'width=1400,height=900,noopener');

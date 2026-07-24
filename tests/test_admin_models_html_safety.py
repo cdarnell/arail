@@ -175,6 +175,7 @@ def test_render_does_not_emit_legacy_onclick_with_json_stringify():
 def test_admin_page_renders_models_section(monkeypatch, tmp_path):
     """GET /admin returns 200 and the rendered HTML includes the Models card."""
     monkeypatch.setenv("ARAIL_MODELS_DIR", str(tmp_path / "models"))
+    monkeypatch.setenv("LAB_TIER", "maximus")  # /admin is a maximus-only surface
     (tmp_path / "models").mkdir(parents=True)
 
     from arail.portal.app import app
@@ -193,6 +194,7 @@ def test_admin_page_renders_models_section(monkeypatch, tmp_path):
 def test_admin_page_models_section_has_no_broken_quoting(monkeypatch, tmp_path):
     """Defense-in-depth: the SERVED HTML has no broken pattern either."""
     monkeypatch.setenv("ARAIL_MODELS_DIR", str(tmp_path / "models"))
+    monkeypatch.setenv("LAB_TIER", "maximus")  # /admin is a maximus-only surface
     (tmp_path / "models").mkdir(parents=True)
     from arail.portal.app import app
     r = TestClient(app).get("/admin")

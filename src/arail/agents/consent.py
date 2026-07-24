@@ -151,6 +151,12 @@ class ConsentStore:
 
     def _save(self, path: Path, data: Any) -> None:
         path.write_text(json.dumps(data, indent=2, default=str))
+        # Consent state (allowlist / pending / history) records where agents
+        # may reach — keep it owner-only, matching lab/data/secrets.env.
+        try:
+            path.chmod(0o600)
+        except OSError:
+            pass
 
 
 def _now() -> str:

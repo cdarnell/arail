@@ -64,7 +64,9 @@ def test_api_chat_models_exposes_compact_selector_payload(monkeypatch, tmp_path)
     assert body["onboarding"]["title"] == "Local Models — How to add"
     assert body["onboarding"]["folder"] == str(tmp_path / "models")
     assert str(tmp_path / "models") in body["onboarding"]["cli_example"]
-    assert body["model_load"]["state"] == "ready"
+    # C6.1/F-INITREADY: cold start reports idle, never a false "ready"
+    # with nothing loaded.
+    assert body["model_load"]["state"] == "idle"
     assert body["model_load"]["blocking"] is False
 
 
@@ -137,6 +139,11 @@ def test_chat_model_load_endpoints_prepare_and_report_state(monkeypatch):
     assert status.status_code == 200
     assert status.json()["state"] == "ready"
 
+    # C6.4/F-CANCEL: no load in progress (the one above already finished)
+    # — cancel is an honest no-op, never a fake "canceled" state.
     canceled = client.post("/api/chat/model-load/cancel")
     assert canceled.status_code == 200
-    assert canceled.json()["state"] == "canceled"
+    canceled_body = canceled.json()
+    assert canceled_body["state"] == "ready"
+    assert canceled_body["ok"] is False
+    assert "no load in progress" in canceled_body["note"]

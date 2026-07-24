@@ -64,10 +64,10 @@ ship under [`blueprints/`](./blueprints/):
 
 | Blueprint                                            | Tier | Default model | Goal                                                           |
 |------------------------------------------------------|------|---------------|----------------------------------------------------------------|
-| [`autoresearch`](./blueprints/autoresearch/)         | min  | Qwen3-8B      | Researcher + curator + experiment tracker on a topic you set   |
-| [`status-digest`](./blueprints/status-digest/)       | min  | Qwen2.5-3B    | Monday-morning brief — what shipped, blocked, needs attention  |
-| [`inbox-triager`](./blueprints/inbox-triager/)       | min  | Qwen2.5-7B    | Email classification + reply-drafting (consent-gated, never auto-sends) |
-| [`client-followup`](./blueprints/client-followup/)   | max  | Qwen2.5-7B    | Post-meeting follow-up + relationship cadence for consultants  |
+| [`autoresearch`](./blueprints/autoresearch/)         | minimalist | Qwen3-8B      | Researcher + curator + experiment tracker on a topic you set   |
+| [`status-digest`](./blueprints/status-digest/)       | minimalist | Qwen2.5-3B    | Monday-morning brief — what shipped, blocked, needs attention  |
+| [`inbox-triager`](./blueprints/inbox-triager/)       | minimalist | Qwen2.5-7B    | Email classification + reply-drafting (consent-gated, never auto-sends) |
+| [`client-followup`](./blueprints/client-followup/)   | maximus | Qwen2.5-7B    | Post-meeting follow-up + relationship cadence for consultants  |
 
 Each blueprint directory has its own README documenting which
 agents the blueprint expects (some exist today; some are

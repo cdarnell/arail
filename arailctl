@@ -371,6 +371,11 @@ LOGSEOF
             || die "import check failed"
         for bin in uvicorn; do command -v "$bin" >/dev/null || warn "missing: $bin"; done
         for bin in jupyter ttyd code-server; do command -v "$bin" >/dev/null || warn "optional missing: $bin"; done
+        # Full checkup — models, KB index, components, egress. This is the
+        # explicit home for every probe the quiet boot no longer runs on its
+        # own (ARAIL_AUTOCHECKS default off). Pass --updates for the remote
+        # update check (hybrid mode only).
+        python -m arail.doctor "$@" || warn "doctor checkup reported problems (see above)"
         say "doctor: OK"
         ;;
     pkb)

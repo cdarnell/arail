@@ -756,29 +756,52 @@ async def _startup():
         activity_log.emit("system",
             f"Egress guard install failed: {_eg_err}", "warn")
 
-    global _knowledge_canvas_store
+    global _MODEL_WARM
+    from arail import autochecks
+    _autochecks_on = autochecks.enabled()
+
+    # Loud warning when the portal is bound off loopback: the dashboard has no
+    # login, so a non-loopback bind exposes an unauthenticated, code-execution-
+    # capable surface to the LAN (a wildcard bind also disables the Host
+    # allowlist). This is a deliberate operator choice — surface it clearly.
+    if not _toggle_bind_is_loopback():
+        _bind = os.getenv("BIND_ADDR", "127.0.0.1")
+        _msg = (f"Portal is bound to {_bind} (not loopback). The dashboard has "
+                "NO login — anyone who can reach this address can run code, flip "
+                "egress, and read tokens. Bind to 127.0.0.1 unless you intend LAN "
+                "exposure.")
+        _log.warning(_msg)
+        activity_log.emit("security", _msg, "warn",
+                          {"security_event": {"kind": "non_loopback_bind",
+                                              "bind": _bind}})
+
     _boot_ident = effective_identity()
     intent_name = _boot_ident.intent_name
     activity_log.emit("system",
                       f"{_boot_ident.name} portal started — {intent_name} lab.",
                       "success")
 
-    # Model registry: startup preflight (both tiers, loud but non-blocking)
-    # + interval health loop. Runs on a daemon thread; never delays _READY.
-    try:
-        from arail.registry import get_registry
-        get_registry().start_background()
-    except Exception as _reg_err:  # noqa: BLE001
-        activity_log.emit("registry",
-                          f"Model registry startup failed: {_reg_err}", "warn")
+    # Model registry: startup preflight (both tiers) + interval health loop.
+    # Gated behind ARAIL_AUTOCHECKS (default off) — a quiet boot never probes
+    # Ollama or emits "MODEL TIER DOWN". Entries stay `unknown`, which resolves
+    # as optimistically-usable (probe on first call); an explicit re-probe is
+    # the Models pill / `./arailctl doctor`. Runs on a daemon thread when on.
+    if _autochecks_on:
+        try:
+            from arail.registry import get_registry
+            get_registry().start_background()
+        except Exception as _reg_err:  # noqa: BLE001
+            activity_log.emit("registry",
+                              f"Model registry startup failed: {_reg_err}", "warn")
 
     # Tier-1 background preload (safe-window gated; ARAIL_AEROLLM_PRELOAD=0
-    # to disable). Fire-and-forget; never raises.
-    try:
-        from arail.portal.model_warmth import aerollm_preload_loop
-        asyncio.create_task(aerollm_preload_loop())
-    except Exception:  # noqa: BLE001
-        pass
+    # to disable). Behind the autochecks master switch. Fire-and-forget.
+    if _autochecks_on:
+        try:
+            from arail.portal.model_warmth import aerollm_preload_loop
+            asyncio.create_task(aerollm_preload_loop())
+        except Exception:  # noqa: BLE001
+            pass
 
     # Conversation orphan sweep: turns interrupted by the previous shutdown
     # get their terminal turn.interrupted event (idempotent; contract in
@@ -797,12 +820,21 @@ async def _startup():
             pass
     asyncio.create_task(_sweep_conversations())
 
-    if knowledge_canvas_app is not None and not hasattr(knowledge_canvas_app.state, "store"):
+    # Knowledge Canvas backend (maximus/canvas only). The Neo4j connect can
+    # block if the graph DB is down, so it's deferred off the critical path
+    # into a background task — first byte never waits on it. Skip entirely with
+    # ARAIL_SKIP_CANVAS=1.
+    async def _init_knowledge_canvas() -> None:
+        global _knowledge_canvas_store
+        if os.getenv("ARAIL_SKIP_CANVAS", "0").strip().lower() in ("1", "true", "yes", "on"):
+            return
+        if knowledge_canvas_app is None or hasattr(knowledge_canvas_app.state, "store"):
+            return
         try:
             from app.routers import ws as kc_ws  # type: ignore
             from app.services.graph_store import GraphStore  # type: ignore
 
-            _knowledge_canvas_store = GraphStore(
+            store = GraphStore(
                 lance_path=os.getenv("LANCE_PATH", "./data/lance"),
                 neo4j_uri=os.getenv("NEO4J_URI", "bolt://localhost:7687"),
                 neo4j_auth=(
@@ -810,10 +842,11 @@ async def _startup():
                     os.getenv("NEO4J_PASSWORD", "changeme-please"),
                 ),
             )
-            await _knowledge_canvas_store.init()
-            knowledge_canvas_app.state.store = _knowledge_canvas_store
+            await store.init()
+            _knowledge_canvas_store = store
+            knowledge_canvas_app.state.store = store
             knowledge_canvas_app.state.ws_broadcaster = kc_ws.broadcaster
-            _register_canvas_goal_listener(_knowledge_canvas_store)
+            _register_canvas_goal_listener(store)
             activity_log.emit("system", "Knowledge Canvas backend ready.", "info")
         except Exception as e:  # noqa: BLE001
             _knowledge_canvas_store = None
@@ -822,6 +855,8 @@ async def _startup():
                 f"Knowledge Canvas startup skipped: {type(e).__name__}: {e}",
                 "warn",
             )
+
+    asyncio.create_task(_init_knowledge_canvas())
 
     # Advisory integrity check of the vendored World bundles (sealed
     # qukaizen-dac exports committed into lab/worlds/). Loud on failure,
@@ -840,14 +875,23 @@ async def _startup():
             _log.warning("Shipped-World seal check skipped: %s", e)
 
     asyncio.create_task(_check_shipped_worlds())
-    asyncio.create_task(_warm_primary_router())
+    # Boot model-warm issues a real 1-token completion (loads weights) — a
+    # probe/warmer, so it's gated behind the autochecks master switch. When
+    # skipped, flip _MODEL_WARM now so the /api/ready overlay dismisses
+    # instantly instead of waiting for a warm that will never run.
+    if _autochecks_on:
+        asyncio.create_task(_warm_primary_router())
+    else:
+        _MODEL_WARM = True
     asyncio.create_task(_inbox_watcher_loop())
     # 'Grows while you sleep' now lives inside the Librarian agent (started
     # with the other agents via start_all_auto) — it owns the whole compiled-
     # knowledge lifecycle: overnight growth, term scouting, forge status.
     # Pre-write the Anthropic prompt cache (hybrid + Claude only; no-op
     # everywhere else). Makes the first demo turn read cache, not cold prefix.
-    asyncio.create_task(_prewarm_claude_cache_task())
+    # A network warmer — gated behind the autochecks master switch.
+    if _autochecks_on:
+        asyncio.create_task(_prewarm_claude_cache_task())
 
     # World Mount: detect and announce any mounted WorldBundle.
     try:
@@ -884,10 +928,11 @@ async def _startup():
                 bg = json.loads(bootstrap_goal_path.read_text())
                 goal_text = bg.get("goal", "")
                 if goal_text:
-                    try:
-                        parsed = parser.parse(goal_text)
-                    except Exception:
-                        parsed = parser.parse_offline(goal_text)
+                    # Heuristic-only parse at boot: no LLM subprocess (which
+                    # could block first byte up to 60s on a cold/absent model).
+                    # The bootstrap goal is short and the heuristic parse is
+                    # sufficient to stage it; the user refines it on the page.
+                    parsed = parser.parse_offline(goal_text)
                     # Carry intent from bootstrap (live identity as fallback)
                     parsed["intent"] = bg.get("intent", _boot_ident.intent)
                     parsed["intent_name"] = bg.get("intent_name", _boot_ident.intent_name)
@@ -898,14 +943,15 @@ async def _startup():
                     if bootstrap_desc:
                         parsed["intent_description"] = bootstrap_desc
                     goal_store.set_goal(parsed)
+                    # Stage the goal only — do NOT auto-start research. Starting
+                    # a compute loop at boot is a side-effect the user didn't
+                    # ask for; they press "Set Research Goal" / Approve & Run
+                    # on the Autoresearch page when ready.
                     activity_log.emit("system",
-                        f"Bootstrap goal loaded: {goal_text[:80]}", "info")
-                    # Auto-start research — scheduler applies the courtesy delay.
-                    researcher.start(parsed)
-                    delay = startup_delay_seconds()
+                        f"Goal loaded: {goal_text[:80]}", "info")
                     activity_log.emit("researcher",
-                        f"Auto-starting research in {delay}s (courtesy delay). "
-                        f"Use 'Halt jobs' to cancel.",
+                        "Open Autoresearch and press Approve & Run to start "
+                        "researching this goal.",
                         "info")
             except (json.JSONDecodeError, OSError) as e:
                 activity_log.emit("system",
@@ -915,7 +961,7 @@ async def _startup():
 
     if not goal_store.get_current():
         activity_log.emit("system",
-            "Welcome to Arail. Type a goal above to begin — the researcher agent will take it from there.",
+            "Welcome to Arail. Open Autoresearch and press Set Research Goal to begin — the researcher agent will take it from there.",
             "info")
         activity_log.emit("system",
             "Tip: Goals can be anything — 'grow peanuts in zone 7', 'build a trading bot', 'learn Rust'.",
@@ -984,15 +1030,18 @@ async def _startup():
             f"Research program seeding failed: {type(e).__name__}: {e}", "error")
 
     # KB index readiness — ensure the pkb_pages LanceDB table has the current
-    # schema and is not stale. This call is idempotent and fast on a clean
-    # install (just opens the table and compares mtimes). On first boot after
-    # the incremental-persistence sprint lands it triggers a one-time rebuild.
-    try:
-        from arail.pkb_index import ensure_ready as _pkb_ensure_ready
-        _pkb_ensure_ready()
-    except Exception as e:  # noqa: BLE001
-        activity_log.emit("pkb",
-            f"KB index readiness check failed: {type(e).__name__}: {e}", "warn")
+    # schema and is not stale. Idempotent and fast on a clean install, but on
+    # first boot it can trigger a one-time rebuild, so it runs in a background
+    # thread — first byte never waits on a LanceDB rebuild. Searches degrade
+    # gracefully until it finishes (upserts are debounced).
+    async def _kb_index_ready() -> None:
+        try:
+            from arail.pkb_index import ensure_ready as _pkb_ensure_ready
+            await asyncio.to_thread(_pkb_ensure_ready)
+        except Exception as e:  # noqa: BLE001
+            activity_log.emit("pkb",
+                f"KB index readiness check failed: {type(e).__name__}: {e}", "warn")
+    asyncio.create_task(_kb_index_ready())
 
     # Agent loader — discover every lab/pkb/agents/<name>/AGENT.md,
     # instantiate each, start the ones that opt in via their
@@ -1025,12 +1074,12 @@ async def _startup():
                 "warn")
 
     # Boot security scan — hybrid mode only (LAB_MODE=airgapped stays default;
-    # no involuntary outbound calls).  Deferred past the startup quiet window
-    # (boot_grace_seconds, default 1 h; min 30 s settle) so initial startup
-    # stays smooth and free of pip-audit contention.  The task is cancelled
-    # cleanly on shutdown (CancelledError is re-raised so asyncio can cancel
-    # the task — D3 mitigation).
-    if _lab_mode() == "hybrid":
+    # no involuntary outbound calls) AND behind the autochecks master switch
+    # (pip-audit is a subprocess package probe — off unless the user opts in;
+    # the explicit surface is `./arailctl doctor --updates` and the Admin
+    # security button).  Deferred past the startup quiet window so initial
+    # startup stays smooth.  Cancelled cleanly on shutdown (D3 mitigation).
+    if _autochecks_on and _lab_mode() == "hybrid":
         async def _boot_security_scan():
             await asyncio.sleep(max(30, boot_grace_seconds()))
             try:
@@ -1243,6 +1292,14 @@ async def api_welcome_setup(request: Request):
     return {"ok": True, "ide_written": ide_written}
 
 
+def _chmod_600(p: Path) -> None:
+    """Best-effort owner-only permissions for a secret-bearing file."""
+    try:
+        p.chmod(0o600)
+    except OSError:
+        pass
+
+
 def _write_env_kv(key: str, value: str) -> None:
     """Idempotent KEY=VALUE write to .env. Replaces any existing real or
     commented-out entry, otherwise appends. Mirrors setup.sh's helper."""
@@ -1270,6 +1327,9 @@ def _write_env_kv(key: str, value: str) -> None:
             out.append("")
         out.append(f"{key}={value}")
     p.write_text("\n".join(out) + "\n")
+    # .env holds ARAIL_PASSWORD (and the notebook encryption key) — keep it
+    # owner-only, matching lab/data/secrets.env.
+    _chmod_600(p)
 
 
 def _patch_lab_conf_password(passphrase: str) -> None:
@@ -1286,6 +1346,7 @@ def _patch_lab_conf_password(passphrase: str) -> None:
             f"IDE_PASSWORD={passphrase}\n"
             "BIND_ADDR=127.0.0.1\n"
         )
+        _chmod_600(p)
         return
     lines = p.read_text().splitlines()
     out, replaced = [], False
@@ -1298,6 +1359,7 @@ def _patch_lab_conf_password(passphrase: str) -> None:
     if not replaced:
         out.append(f"IDE_PASSWORD={passphrase}")
     p.write_text("\n".join(out) + "\n")
+    _chmod_600(p)
 
 
 def _write_code_server_password(passphrase: str) -> None:
@@ -1312,6 +1374,7 @@ def _write_code_server_password(passphrase: str) -> None:
         f"password: {passphrase}\n"
         "cert: false\n"
     )
+    _chmod_600(cfg)
 
 
 # ── Pages ────────────────────────────────────────────────────────────────
@@ -1823,6 +1886,8 @@ async def _ttyd_context() -> dict:
 async def terminal_page(request: Request):
     """Serve the terminal iframe if ttyd is running, otherwise show
     install help so the user can get unblocked without leaving the UI."""
+    if (gate := _require_surface("terminal")) is not None:
+        return gate
     ctx = await _ttyd_context()
     return templates.TemplateResponse(request, "terminal.html", {**ctx, **_identity_ctx()})
 
@@ -1832,6 +1897,8 @@ async def notebook_page(request: Request):
     """Serve the Jupyter Lab iframe if jupyter is running, otherwise
     show install help. Same three-state pattern as /terminal so the
     two services feel consistent."""
+    if (gate := _require_surface("notebooks")) is not None:
+        return gate
     import shutil, platform
     jupyter_installed = shutil.which("jupyter") is not None
     jupyter_running = False
@@ -1852,6 +1919,8 @@ async def notebook_page(request: Request):
 @app.post("/api/notebook/start")
 async def notebook_start():
     """Start Jupyter Lab as a background process."""
+    if (gate := _require_surface("notebooks")) is not None:
+        return gate
     import shutil
     if not shutil.which("jupyter"):
         return {"ok": False, "error": "jupyter not installed"}
@@ -1913,19 +1982,25 @@ async def notebook_stop():
 # ── opencode (max-tier only, direct iframe to 127.0.0.1:4096) ─────────────
 
 
-def _require_workbench():
-    """Gate: 404 when caller is on min tier (F-GATE-1, F-GATE-2, F-GATE-3).
+def _require_surface(surface: str):
+    """Server-side tier gate: 404 when *surface* is not in the current tier.
 
-    Returns a Flask/FastAPI abort(404) Response when the surface is not
-    available; returns None when the request may proceed.
-    404 (not 403) so route existence is not disclosed to min-tier users.
-    This helper must be the FIRST call in every /opencode* handler —
-    before any logging, body parse, or subprocess (F-GATE-3).
+    Tier had been enforced only in the nav (visibility) — a minimalist user who
+    typed a maximus URL (/build, /admin, /plugins, /terminal, notebooks…) got
+    the full page, and its state-changing / code-exec endpoints. This makes the
+    tier an actual access boundary. 404 (not 403) so route existence isn't
+    disclosed to lower-tier users. Must be the FIRST call in the handler,
+    before any body parse, logging, or subprocess.
     """
     from fastapi import Response as _Response
-    if "notebooks" not in _visible_surfaces():
+    if surface not in _visible_surfaces():
         return _Response(status_code=404)
     return None
+
+
+def _require_workbench():
+    """Back-compat alias for the opencode/notebooks gate (see _require_surface)."""
+    return _require_surface("notebooks")
 
 
 @app.get("/opencode", response_class=HTMLResponse)
@@ -2147,6 +2222,8 @@ async def notebooks_page(request: Request):
     All state is pulled client-side from /api/notebooks/status, so this
     route is a pure template render.
     """
+    if (gate := _require_surface("notebooks")) is not None:
+        return gate
     return templates.TemplateResponse(request, "notebooks.html", {**_identity_ctx()})
 
 
@@ -2228,11 +2305,13 @@ async def notebooks_status():
 async def marimo_page(request: Request):
     """3-state Marimo page: docker missing / not running / running.
 
-    When running, shows the Marimo iframe with the token baked into the
-    URL (same ``?access_token=<ARAIL_PASSWORD>`` contract Marimo itself
-    prints on startup). When not running, shows a one-click Start button
-    that calls /api/marimo/start.
+    When running, shows the Marimo iframe. The access token is NOT baked into
+    the iframe URL (that would leak the lab passphrase into browser history);
+    the user enters it once at Marimo's own prompt. A click-to-reveal token is
+    provided in the page for convenience.
     """
+    if (gate := _require_surface("notebooks")) is not None:
+        return gate
     docker_ok = _docker_available()
     running = _container_running("arail-marimo") if docker_ok else False
     password = os.getenv("ARAIL_PASSWORD", "arail")
@@ -2249,6 +2328,8 @@ async def marimo_page(request: Request):
 @app.post("/api/marimo/start")
 async def marimo_start():
     """Bring up the Marimo container via docker compose."""
+    if (gate := _require_surface("notebooks")) is not None:
+        return gate
     if not _docker_available():
         return {"ok": False, "error": "Docker not available"}
     result = subprocess.run(
@@ -2276,6 +2357,8 @@ async def marimo_stop():
 
 @app.get("/plugins", response_class=HTMLResponse)
 async def plugins_page(request: Request):
+    if (gate := _require_surface("plugins")) is not None:
+        return gate
     plugins = plugin_mgr.list_plugins()
     return templates.TemplateResponse(request, "plugins.html", {
         **_identity_ctx(),
@@ -4031,8 +4114,22 @@ async def get_experiment_branch(branch: str = ""):
 
 @app.post("/api/plugins/install")
 async def install_plugin(request: Request):
+    # Tier gate FIRST — installing a plugin git-clones + pip-installs arbitrary
+    # code as the user (arbitrary local code execution). Minimalist labs can't
+    # reach this at all.
+    if (gate := _require_surface("plugins")) is not None:
+        return gate
     body = await request.json()
     url = body.get("github_url", "")
+    # Server-side confirmation: the client must explicitly acknowledge that this
+    # runs untrusted code. Prevents a bare/scripted POST from installing.
+    if not body.get("confirm_code_execution"):
+        return {
+            "error": "confirmation_required",
+            "warning": "Installing a plugin runs `git clone` + `pip install` on "
+                       f"{url or 'the given repo'} — arbitrary code executes as "
+                       "you. Re-submit with confirm_code_execution=true to proceed.",
+        }
     try:
         result = plugin_mgr.install(url)
         return result
@@ -4126,6 +4223,8 @@ async def graph_page(request: Request):
 @app.get("/admin", response_class=HTMLResponse)
 async def admin_page(request: Request):
     """Lab administration — services, components, updates, help."""
+    if (gate := _require_surface("admin")) is not None:
+        return gate
     health = {}
     try:
         health = (await system_health())
@@ -4752,8 +4851,15 @@ async def api_agents_forge_preview(name: str = "", emoji: str = "",
 
 
 @app.get("/api/admin/components")
-async def admin_components():
-    """Read components.json and resolve current versions."""
+async def admin_components(probe: int = 0):
+    """Read components.json and resolve current versions.
+
+    By default this does NO subprocess work — Python package versions come
+    from importlib.metadata, and shell-only components (ollama/npm/docker/git,
+    whose version_cmd shells out) report "not checked". Pass ``?probe=1`` (the
+    explicit "Check versions" button in Admin) to run the version_cmd probes.
+    This keeps a plain Admin page load from shelling out `pip list` etc.
+    """
     import re
     import subprocess as sp
     from importlib import metadata as importlib_metadata
@@ -4795,13 +4901,24 @@ async def admin_components():
         manifest = json.loads(manifest_path.read_text())
         for c in manifest.get("components", []):
             ver = None
+            # Prefer a zero-subprocess importlib.metadata lookup when the
+            # component names its Python package. Only shell out to version_cmd
+            # when explicitly probing (?probe=1) — a plain page load must not
+            # run pip list / ollama --version / git on every open.
+            pkg = c.get("package") or ""
+            pkg_name = pkg.split()[0] if pkg else ""
+            if pkg_name:
+                ver = _pkg_version(pkg_name)
             vcmd = c.get("version_cmd")
-            if vcmd:
-                try:
-                    r = sp.run(vcmd, shell=True, capture_output=True, text=True, timeout=10)
-                    ver = r.stdout.strip().split("\n")[0] if r.returncode == 0 else None
-                except Exception:
-                    pass
+            if ver is None and vcmd:
+                if probe:
+                    try:
+                        r = sp.run(vcmd, shell=True, capture_output=True, text=True, timeout=10)
+                        ver = r.stdout.strip().split("\n")[0] if r.returncode == 0 else None
+                    except Exception:
+                        pass
+                else:
+                    ver = c.get("current_version") or "not checked"
             out.append({
                 "name": c["name"],
                 "type": c.get("type", ""),
@@ -10274,6 +10391,8 @@ async def knowledge_redirect(request: Request):
 @app.get("/build", response_class=HTMLResponse)
 async def build_page(request: Request):
     """Nucleus MODEL BUILDING tab — thin shell; hydrates from /api/build/*."""
+    if (gate := _require_surface("build")) is not None:
+        return gate
     return templates.TemplateResponse(request, "build.html", {
         "active": "build",
         **_identity_ctx(),
@@ -11563,8 +11682,15 @@ def _normalize_backend(backend: str | None) -> str:
 
 @app.get("/tuning", response_class=HTMLResponse)
 async def tuning_page(request: Request):
+    if (gate := _require_surface("tuning")) is not None:
+        return gate
     aerollm_model = os.getenv("AEROLLM_MODEL", "")
     airllm_model = os.getenv("AIRLLM_MODEL", "__TODO_DEEP_MODEL__")
+    # Never surface the raw sentinel — show a friendly "not configured" label
+    # and a flag the template can use to prompt the user to set AIRLLM_MODEL.
+    airllm_configured = airllm_model != "__TODO_DEEP_MODEL__"
+    if not airllm_configured:
+        airllm_model = "Not configured — set AIRLLM_MODEL in .env"
     # Blueprint default: AirLLM is the only visible deep backend. Flip
     # LAB_SHOW_AEROLLM=1 in .env to bring the AeroLLM MLX + CUDA tabs
     # back (one env-var toggle for the operator who's ready to run
@@ -11574,6 +11700,7 @@ async def tuning_page(request: Request):
         **_identity_ctx(),
         "aerollm_model": aerollm_model,
         "airllm_model": airllm_model,
+        "airllm_configured": airllm_configured,
         "show_aerollm": show_aerollm,
     })
 

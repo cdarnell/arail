@@ -251,8 +251,8 @@ def test_sec_xss_malicious_model_id_escaped_in_render(monkeypatch):
     an XSS payload. The server passes it through verbatim (it's data), so the
     DEFENSE is the frontend escapeHtml. This test (a) confirms the server does not
     itself inject it unescaped anywhere AND (b) re-implements the exact escapeHtml
-    from chat.legacy.html and proves the payload is neutralized before DOM
-    insertion. Locks the XSS contract that protects labs running on others'
+    from chat.html's inline <script> and proves the payload is neutralized before
+    DOM insertion. Locks the XSS contract that protects labs running on others'
     machines."""
     from arail.portal import app as portal_app
 
@@ -268,7 +268,7 @@ def test_sec_xss_malicious_model_id_escaped_in_render(monkeypatch):
     ids = [e["id"] for e in body["gallery"]["catalog"]]
     assert payload in ids, "server stores the raw id (escaping is the frontend's job)"
 
-    # Mirror chat.legacy.html escapeHtml() exactly (lines 856-860).
+    # Mirror chat.html's escapeHtml() exactly.
     def escape_html(s: str) -> str:
         return (str(s)
                 .replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
@@ -282,31 +282,75 @@ def test_sec_xss_malicious_model_id_escaped_in_render(monkeypatch):
         assert "onerror=" not in esc or "&quot;" in esc  # quotes neutralized
 
 
-def test_sec_chat_legacy_html_escapes_every_cloud_id_insertion():
-    """SEC-2 (F7 source audit): grep the template — every place a cloud model id
-    (or provider) is interpolated into innerHTML must wrap it in escapeHtml().
-    A raw ${id} / ${provider} in a cloud-card template literal would be an XSS
-    hole. This pins the source so a future edit can't drop the escape."""
-    tpl = Path(_REPO_ROOT) / "src/arail/portal/templates/chat.legacy.html"
+def test_sec_chat_html_escapes_every_model_identity_field_insertion():
+    """SEC-2 (F7 source audit — repointed 2026-07-21): grep the LIVE template —
+    every place a model's id/label/runtime/provider is interpolated into
+    innerHTML by the picker/rail/active-card renderers must wrap it in
+    escapeHtml().
+
+    Originally this pinned chat.legacy.html's per-provider "cloud card" grid
+    (fetched via GET /api/chat/models?provider=<p>, rendered with CSS markers
+    fmp-cloud-card / fmp-cloud-card-name / fmp-cloud-chip). chat.legacy.html
+    was deleted as dead code in c3c401a (portal-design-v2 sprint, 2026-07-07)
+    — per that sprint's ARCHITECTURE.md it "has no route" and was already
+    unreachable before deletion, so this test had been pinning dead code for
+    some time before the delete turned that into a hard failure (missing
+    file).
+
+    The live chat.html has no per-provider catalog render path at all: the
+    Compute Source pivot only flips State.activeSource (never fetches a
+    provider's model list), and the one GET /api/chat/models call at init
+    carries no provider param. Every model row — local, deep (aeroLLM/
+    AirLLM), and the active/current selection — instead flows through
+    makeOpt() / renderModelRail() / renderActiveCard(). Those three are the
+    live descendants of the old cloud-card concept and carry the identical
+    escaping obligation, so this test now pins them instead: a future edit
+    still can't drop the escape on a model id, whatever its source.
+    """
+    import re
+
+    tpl = Path(_REPO_ROOT) / "src/arail/portal/templates/chat.html"
     text = tpl.read_text()
 
-    # The cloud-card render block (B1 fix region). Every interpolation of id/
-    # provider into the grid.innerHTML must be escapeHtml()-wrapped.
-    # Find the cloud card template literal and assert no bare ${id} / ${provider}.
-    import re
-    # bare ${id} or ${provider} (not preceded by escapeHtml( ... ) on the line)
+    def extract_function(name: str) -> str:
+        marker = f"function {name}("
+        start = text.index(marker)  # raises if the render function was removed/renamed
+        nxt = re.search(r"\n {4}(?:async )?function \w+\(", text[start + 1:])
+        end = start + 1 + nxt.start() if nxt else len(text)
+        return text[start:end]
+
+    # Fields that carry model/provider identity (local, deep, or — if the
+    # per-provider catalog ever gets wired back into the picker — cloud).
+    risky = re.compile(
+        r"\bm\.id\b|\bm\.label\b|\bm\.runtime\b|\bprovider\b|\bcurrentId\b"
+        r"|State\.bId\b|State\.bRuntime\b"
+    )
+    # Only consider lines actually building an HTML tag (an innerHTML sink).
+    # Excludes e.g. renderModelRail's flashStatus(`ejected ${m.id}`) — plain
+    # status text through .textContent, not a DOM-insertion hole.
+    looks_like_html = re.compile(r"<[a-zA-Z]")
+
     suspicious = []
-    for ln in text.splitlines():
-        if "fmp-cloud-card" in ln or "fmp-cloud-card-name" in ln or "fmp-cloud-chip" in ln:
-            # within the cloud card block lines; flag bare interpolations
+    bodies = {}
+    for fn in ("makeOpt", "renderModelRail", "renderActiveCard"):
+        body = extract_function(fn)
+        bodies[fn] = body
+        for ln in body.splitlines():
+            if "escapeHtml" in ln or not looks_like_html.search(ln):
+                continue
             for m in re.finditer(r"\$\{([^}]+)\}", ln):
                 expr = m.group(1).strip()
-                if expr in ("id", "provider", "currentId") and "escapeHtml" not in ln:
-                    suspicious.append((ln.strip(), expr))
-    assert not suspicious, f"unescaped id/provider in cloud render: {suspicious}"
+                if risky.search(expr):
+                    suspicious.append((fn, ln.strip(), expr))
+    assert not suspicious, f"unescaped model-identity interpolation: {suspicious}"
 
-    # Positive: escapeHtml is actually used in the cloud render
-    assert "escapeHtml(id)" in text or "escapeHtml(provider)" in text
+    # Positive: escapeHtml is actually applied to these fields (not vacuous —
+    # e.g. if a render function got renamed/gutted, the loop above would
+    # silently find nothing to flag).
+    combined = "\n".join(bodies.values())
+    assert "escapeHtml(m.label || m.id)" in combined, "id/label no longer escaped in the render path"
+    assert "escapeHtml(provider)" in combined, "provider no longer escaped in the render path"
+    assert "escapeHtml(m.runtime" in combined, "runtime no longer escaped in the render path"
 
 
 @pytest.mark.parametrize("provider", [

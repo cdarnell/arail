@@ -4,6 +4,7 @@
 {% block head %}
 <style>
   /* Hoisted from inline style= attributes */
+  .install-warn { color: var(--warn); font-size: 13px; margin: 4px 0 10px; }
   .install-status { margin-top: 0.75rem; }
   .install-status .st-busy { color: var(--accent2); }
   .install-status .st-ok   { color: var(--positive); }
@@ -22,6 +23,10 @@
   <!-- ═══ Install Plugin ═══ -->
   <div class="card full">
     <h2><span class="indicator"></span> Install from GitHub</h2>
+    <p class="install-warn">
+      ⚠ Installing runs <code>git clone</code> + <code>pip install</code> on the repo —
+      its code executes on your machine as you. Only install repos you trust.
+    </p>
     <form class="install-form" id="install-form">
       <span class="prompt-prefix">git clone</span>
       <input id="plugin-url" type="text"
@@ -86,6 +91,11 @@ document.getElementById('install-form').addEventListener('submit', async (e) => 
   e.preventDefault();
   const url = document.getElementById('plugin-url').value.trim();
   if (!url) return;
+  // Installing runs `git clone` + `pip install` on the repo — arbitrary code
+  // executes as you. Require an explicit, informed confirmation.
+  if (!confirm('Install ' + url + '?\n\nThis runs `git clone` then `pip install` '
+      + 'on that repository — its code executes on your machine as you. Only '
+      + 'install repos you trust. Continue?')) return;
   const status = document.getElementById('install-status');
   status.innerHTML = '<span class="st-busy">Cloning and installing…</span>';
 
@@ -93,7 +103,7 @@ document.getElementById('install-form').addEventListener('submit', async (e) => 
     const resp = await fetch('/api/plugins/install', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({github_url: url})
+      body: JSON.stringify({github_url: url, confirm_code_execution: true})
     });
     const data = await resp.json();
     if (resp.ok) {

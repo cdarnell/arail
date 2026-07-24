@@ -117,8 +117,13 @@ and (more deeply) `docs/agents-explained.md`:
    (autoresearch engine). User-defined agents drop into
    `lab/pkb/agents/<id>/` with `AGENT.md` + `<id>.py`.
 
-`max` adds **Admin** (system health, plugin manager, diagnostics) and
-**Docs** (curated operator docs rendered inside the lab).
+`maximus` adds **Admin** (system health, plugin manager, diagnostics),
+**Notebooks/Workbench**, **Tuning**, **Plugins**, and **Model Building** (`/build`).
+**Docs** and the **Knowledge (`/dac`)** and **Worlds** surfaces are every-tier
+(both minimalist and maximus — the source of truth is `_TIER_SURFACES` in
+`src/arail/portal/app.py`). These maximus-only surfaces are now server-side
+tier-gated (a minimalist user who types the URL gets a 404), not just hidden in
+the nav.
 
 ## Repo layout (orientation)
 
@@ -126,8 +131,9 @@ The top of the tree is dense; the parts that matter:
 
 | Path                          | What's there                                                                       |
 |-------------------------------|------------------------------------------------------------------------------------|
-| `arail` (file)                | Main shell entry point — `./arailctl setup`, `./arailctl start`, etc.                    |
-| `qkz` → `arail` (symlink)     | Shorthand alias                                                                    |
+| `arailctl` (file)             | Main shell entry point — `./arailctl setup`, `./arailctl start`, etc.                    |
+| `arail` → `arailctl` (symlink)| Back-compat alias for the entry point                                              |
+| `qkz` → `arailctl` (symlink)  | Shorthand alias (NOT the qukaizen-nucleus Rust `qkz`)                              |
 | `scripts/setup.sh`            | Platform-detect → service install → model download. `AGENTS.md` is the porting doc |
 | `src/arail/`                  | Python package (portal app, agents, knowledge base, pipelines)                     |
 | `src/arail/portal/`           | FastAPI app + templates (dashboard, chat, agents, knowledge, tuning, research)       |
@@ -146,14 +152,14 @@ The top of the tree is dense; the parts that matter:
 
 ## Current state
 
-114 commits, latest 2026-04-28. Recent work has been on the portal
-experience (Chat Studio rebuild, Knowledge Canvas iframe loading, live
-checks modal, design system rollout) plus the cross-repo workflow
-(branch names like `cdarnell/qukaizen/suspicious-napier-54a283` show
-that there's tooling that auto-generates qukaizen-style branches even
-in this repo). The `arailctl benchmark_models` CLI was added recently as
-the local benchmarking entry point — useful when comparing AirLLM (today)
-against aeroLLM (when it lands).
+650+ commits, latest 2026-07-23. Recent work has been on **Worlds / DaC**
+(world-forge, world-mount, the `/dac` "Knowledge" surface), **chat memory**
+(Tier-1 transcripts; the Tier-2 fact store is designed but not built), **lab
+persistence**, and the **2026-07-23 "clean experience" sprint** (quiet boot with
+no auto-checks, egress honesty, tier-gate hardening, a real on-device experiment
+engine replacing simulated research, and truth-in-UI for the model surfaces —
+see `sprints/2026-07-23-clean-experience/`). Cross-repo tooling still
+auto-generates qukaizen-style branch names in this repo.
 
 The code is more mature than aeroLLM's (it predates the extraction);
 treat the portal and the agent loader as stable surfaces, the
@@ -195,6 +201,16 @@ parts.
   storing conversation history; we borrow its declare→gate→version discipline,
   not its pipeline. Don't wire this to DaC without superseding
   `docs/adr/0002-chat-memory-and-the-dac-boundary.md`.
+- **Model checkpoint paths stay relative / env-driven — never a home dir.**
+  ARAIL's model location is `ARAIL_MODELS_DIR` (default `lab/models`,
+  repo-relative). Don't hardcode absolute paths; ARAIL is a blueprint other
+  people run on their own machines. *Machine-level convention:* on boxes shared
+  across QuKaiZen products, MLX checkpoints are pooled world-readable at
+  `/Users/Shared/models/` (with `~/models` symlinked to it) so multiple macOS
+  accounts read one copy — required by aeroLLM's GA gate #6 cross-user replay.
+  Opt in per-machine with `ARAIL_MODELS_DIR=/Users/Shared/models`; prefer that
+  location when downloading new checkpoints there. Do **not** make it a product
+  default. See `docs/models-on-disk.md`.
 - **`.gitignore` is comprehensive** (`models/`, `lab/models/`,
   `node_modules/`, `__pycache__/`, runtime state under `lab/pkb/`).
   The 47M `.git/` history bloat is from a single 42M PDF and

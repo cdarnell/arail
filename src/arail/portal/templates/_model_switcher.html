@@ -99,7 +99,9 @@
 (function(){
   var state = null;
 
-  function dot(status){ return '<span class="msw-dot '+String(status||'unknown')+'" title="'+esc(status)+'"></span>'; }
+  function dot(status){ var s=String(status||'unknown');
+    var title = s==='unknown' ? 'not checked yet — press Refresh (or run ./arailctl doctor)' : s;
+    return '<span class="msw-dot '+s+'" title="'+esc(title)+'"></span>'; }
   function esc(s){ var d=document.createElement('div'); d.textContent=String(s==null?'':s); return d.innerHTML; }
   function entryById(id){ if(!state)return null;
     return (state.entries||[]).find(function(e){return e.id===id;})||null; }

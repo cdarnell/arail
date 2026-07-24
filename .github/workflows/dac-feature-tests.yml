@@ -38,6 +38,16 @@ jobs:
           python-version: "3.11"
           cache: pip
 
+      # pyproject pins `dac_world` to the PRIVATE qukaizen-dac repo over SSH,
+      # so pip must be able to `git clone` it. Without a key the install step
+      # dies with "Permission denied (publickey)" before any test runs.
+      # Requires the DAC_DEPLOY_KEY repo secret (a read-only deploy key on
+      # cdarnell/qukaizen-dac).
+      - name: Authenticate to private dac_world repo
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.DAC_DEPLOY_KEY }}
+
       - name: Install dev dependencies
         shell: bash
         run: |

@@ -7,6 +7,9 @@
      view stays legible and doesn't drag in the research cockpit's
      complexity. Colors come only from the semantic token contract. */
   .tn-wrap      { max-width: 1180px; margin: 20px auto; padding: 0 20px; }
+  .tn-note-weights { margin: 4px 0 16px; padding: 8px 12px; font-size: 13px; line-height: 1.5;
+     border: 1px solid var(--border); border-left: 3px solid var(--info);
+     border-radius: var(--radius-m); background: color-mix(in srgb, var(--info) 6%, transparent); }
   .tn-hero      { margin: 14px 0 22px; }
   .tn-hero h1   { margin: 0 0 6px; font-size: 22px; font-weight: 650; color: var(--text-strong); }
   .tn-hero .sub { color: var(--text-muted); font-size: 13px; }
@@ -173,6 +176,13 @@
 {% block content %}
 
 <div class="tn-wrap">
+
+  <div class="tn-note-weights">
+    <b>This tunes inference speed, not model weights.</b> Tuning sweeps runtime
+    knobs to make a large model <i>run faster</i> on your hardware — it does not
+    train or fine-tune a model. To build/distill a model, use the
+    <a href="/build">Model Building</a> tab.
+  </div>
 
   <div class="tn-hero">
     <h1 id="tn-hero-title">Frontier LLM Hosting on Consumer-Grade Hardware</h1>
