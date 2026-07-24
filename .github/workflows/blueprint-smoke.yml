@@ -40,12 +40,29 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.DAC_DEPLOY_KEY }}
 
+      # Retry: the `dac_world` dependency is a private git+ssh requirement, and
+      # pip clones it with `--filter=blob:none`. A blobless clone needs a SECOND
+      # authenticated fetch at checkout time, so any GitHub SSH/codeload
+      # flakiness surfaces as:
+      #   "Clone succeeded, but checkout failed"
+      #   "could not fetch <sha> from promisor remote"
+      #   "git@github.com: Permission denied (publickey)"
+      # even though the credential is valid. Retry with backoff rather than
+      # failing a whole run on a transient.
       - name: Install dev dependencies
         shell: bash
         run: |
           set -euo pipefail
           python -m pip install --upgrade pip
-          python -m pip install -e ".[dev]"
+          for attempt in 1 2 3; do
+            if python -m pip install -e ".[dev]"; then
+              exit 0
+            fi
+            echo "::warning::dependency install attempt ${attempt}/3 failed (likely the private dac_world clone); retrying in $((attempt * 20))s"
+            sleep $((attempt * 20))
+          done
+          echo "::error::dependency install failed after 3 attempts"
+          exit 1
 
       - name: Run import smoke tests
         shell: bash
@@ -83,6 +100,26 @@ jobs:
         uses: webfactory/ssh-agent@v0.9.0
         with:
           ssh-private-key: ${{ secrets.DAC_DEPLOY_KEY }}
+
+      # `./arailctl setup` pip-installs the package itself, which pulls the
+      # private dac_world dep through the same fragile blobless-clone path (see
+      # the import-routes job). Pre-install it here WITH RETRIES so setup's own
+      # install is an already-satisfied no-op and a transient SSH failure can't
+      # take down the whole golden path.
+      - name: Pre-install dependencies (retried)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          for attempt in 1 2 3; do
+            if python -m pip install -e ".[dev]"; then
+              exit 0
+            fi
+            echo "::warning::dependency install attempt ${attempt}/3 failed (likely the private dac_world clone); retrying in $((attempt * 20))s"
+            sleep $((attempt * 20))
+          done
+          echo "::error::dependency install failed after 3 attempts"
+          exit 1
 
       - name: Create artifact directory
         shell: bash
