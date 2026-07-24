@@ -89,8 +89,9 @@
   install: "ollama pull llama3.2:1b"
   tier: optional
 
-# ── Deep model placeholder (AirLLM frontier lane, operator-configured) ──
-# The AirLLM/AeroLLM layer-streaming frontier lane (Surface B) is operator-configured.
+# ── Deep model placeholder (AirLLM/AeroLLM frontier lane, operator-configured) ──
+# The deep-backend frontier lane (Surface B) is operator-configured — AirLLM
+# layer-streams from disk; AeroLLM keeps the model resident once loaded.
 # Set AIRLLM_MODEL or AEROLLM_MODEL in .env to your chosen model id
 # and download it on demand (not a setup auto-install).
 # See NOTICE and sprints/2026-05-30-model-hosting-reframe/ARCHITECTURE.md
@@ -108,14 +109,16 @@
   install: ""
   tier: flagship
 
-# ── AeroLLM native MoE (gpt-oss-20b, selective expert streaming) ─────
-# aeroLLM's Rust runtime ships native selective (active-only) expert
-# streaming for this checkpoint — 32 experts / 4 active, bit-exact vs
-# the whole-layer path (see aerollm's docs/benchmarks/
-# moe-streaming-efficiency-ledger.md, Stage 1b). scripts/setup.sh
-# auto-selects and downloads this on either tier when the box has
-# >=16 GB RAM and a Rust toolchain (cargo); otherwise set
-# AEROLLM_MODEL=gpt-oss-20b-MLX-4bit in .env manually after downloading.
+# ── AeroLLM MoE (gpt-oss-20b) — resident, all experts loaded ─────────
+# aeroLLM loads this checkpoint's full weight set resident in memory once
+# loaded (32 experts, ~4 active per token computed) — NOT selective /
+# streamed expert loading. Native selective (active-only) expert
+# streaming (AERO_MOE_SELECT) is a real, named non-goal that is off and
+# absent from src/ — see sprints/2026-07-20-model-ux-unification/
+# ARCHITECTURE.md non-goals (F-OVERSELL). scripts/setup.sh auto-selects
+# and downloads this on either tier when the box has >=16 GB RAM and a
+# Rust toolchain (cargo); otherwise set AEROLLM_MODEL=gpt-oss-20b-MLX-4bit
+# in .env manually after downloading.
 - id: gpt-oss-20b-MLX-4bit
   name: GPT-OSS 20B (MoE, AeroLLM)
   family: gpt-oss
@@ -123,9 +126,8 @@
   released: 2025-08
   source: mlx
   good_at: [deep-reasoning, agent, moe]
-  description: "OpenAI's open-weight 20B MoE (32 experts / 4 active) via
-               AeroLLM's native selective expert-streaming backend.
-               License: Apache-2.0."
+  description: "OpenAI's open-weight 20B MoE (32 experts / 4 active) —
+               resident (aeroLLM) once loaded. License: Apache-2.0."
   install: "hf download InferenceIllusionist/gpt-oss-20b-MLX-4bit --local-dir $ARAIL_MODELS_DIR/gpt-oss-20b-MLX-4bit"
   tier: flagship
 
@@ -218,6 +220,30 @@
   description: Mid-range Gemma 3 — best general-purpose option in
                the 8-10 GB band when you want balanced reasoning.
   install: "ollama pull gemma3:12b"
+  tier: optional
+
+# ── Google Gemma 4 26B-A4B — MoE, 4B active params, official QAT GGUF ──
+# NOTE: `ollama pull hf.co/google/gemma-4-26B-A4B-it-qat-q4_0-gguf` currently
+# 400s (empty error body) — ollama.com's remote HF-import resolver hasn't
+# added support for the brand-new "gemma4" GGUF architecture yet. The LOCAL
+# ollama runtime (>=0.32.1) already ships gemma4 support (x/models/gemma4),
+# so the workaround is to download the GGUF directly and `ollama create`
+# from it, bypassing the broken remote resolver entirely. Verified working
+# 2026-07-19 on ollama 0.32.1 — revisit the one-line hf.co pull periodically.
+- id: gemma-4-26b-a4b
+  name: Gemma 4 26B-A4B (MoE)
+  family: gemma
+  size_gb: 14.4
+  released: 2026-03
+  source: hf
+  good_at: [chat, reasoning, moe, multilingual]
+  description: "Google's Gemma 4 MoE — 26.5B total / ~4B active params,
+               official QAT q4_0 GGUF. Built with Gemma · Gemma Terms of Use
+               (ai.google.dev/gemma/terms). Full model resides in
+               memory but only ~4B params activate per token — strong
+               reasoning at fast-model speed. Requires ollama >=0.32.1."
+  install: "hf download google/gemma-4-26B-A4B-it-qat-q4_0-gguf gemma-4-26B_q4_0-it.gguf --local-dir $ARAIL_MODELS_DIR/gemma-4-26B-A4B-it-qat-q4_0-gguf
+           # then: printf 'FROM %s/gemma-4-26B-A4B-it-qat-q4_0-gguf/gemma-4-26B_q4_0-it.gguf\\n' \"$ARAIL_MODELS_DIR\" > /tmp/Modelfile.gemma4-26b && ollama create gemma-4-26b-a4b -f /tmp/Modelfile.gemma4-26b"
   tier: optional
 
 # ── Qwen 3 + Qwen 2.5 Coder — Alibaba family, very strong ──────────

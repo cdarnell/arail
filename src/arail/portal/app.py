@@ -5608,6 +5608,11 @@ async def admin_models_load(request: Request):
                         model=model_id,
                         runtime=detected_runtime,
                         provider=None,
+                        # Already inside `async with scheduler.inference_slot(
+                        # "admin-model-load")` above (line ~5586) — the shared
+                        # semaphore is not reentrant; re-acquiring it inside
+                        # _prepare_chat_model_load would self-deadlock (C6.2).
+                        _caller_holds_inference_slot=True,
                     )
                     if load_state.get("state") == "error":
                         return JSONResponse(
@@ -6121,20 +6126,9 @@ def _build_chat_result(response: ModelResponse, *, wants_deep: bool) -> dict[str
                       f"{response.latency_ms:.0f} ms · {tokens_per_sec} t/s",
                       "info")
 
-    # F5/F8: Honest backend notice surfaced to the chat UI.
-    # When AirLLM fallback is active, the response is notably slower (layer-
-    # streaming subprocess). Labeling it prevents the latency from being hidden.
-    # When AeroLLM is active, confirm the local/fast nature (no cloud egress).
-    _backend_notices: dict[str, str] = {
-        "airllm": "via AirLLM fallback (slower)",
-        "aerollm": "via AeroLLM (local, fast)",
-    }
-    backend_notice = _backend_notices.get(response.backend)
-
     return {
         "reply": reply,
         "backend": response.backend,
-        "backend_notice": backend_notice,
         "model": response.model,
         "latency_ms": response.latency_ms,
         "tokens_used": response.tokens_used,
@@ -6401,6 +6395,7 @@ async def _run_chat_completion_stream(
     top_p: float | None,
     max_tokens: int,
     runtime_override: str | None = None,
+    think: bool | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
     context = _prepare_chat_context(
         message=message,
@@ -6474,12 +6469,21 @@ async def _run_chat_completion_stream(
             # worker thread and emit the whole reply as one delta.
             # Keeps the UI happy (it expects deltas + final) without
             # forcing per-runtime streaming bridges.
+            # `think` only means anything to OllamaNativeBackend (Ollama's
+            # native /api/chat option) — forward it only there so other
+            # runtime backends' complete() signatures aren't disturbed.
+            think_kwargs = (
+                {"think": think}
+                if think is not None and getattr(runtime_backend, "backend_name", "") == "ollama:native"
+                else {}
+            )
             async with scheduler.inference_slot("chat-stream-runtime"):
                 response = await asyncio.to_thread(
                     runtime_backend.complete,
                     prompt, max_tokens, temperature, top_p,
                     system=context.get("frozen_system"),
                     messages=context.get("claude_messages"),
+                    **think_kwargs,
                 )
             from arail.costs import cost_tracker
             cost_tracker.track(
@@ -6835,23 +6839,36 @@ async def api_chat(request: Request):
 
 @app.post("/api/chat/eject")
 async def api_chat_eject(request: Request):
-    """Free a chat model from VRAM/RAM.
+    """Free a chat model from VRAM/RAM — or say honestly that it can't yet.
 
     Body (all optional):
         runtime: 'airllm' | 'aerollm' | 'ollama' | 'mlx-openai' | 'mlx'
         model:   model id (required for runtime='ollama' to target a specific model)
 
-    Behavior per runtime:
-        airllm/aerollm — drop the cached backend instance from
-            _OPTIONAL_CHAT_BACKEND_CACHE so the next call re-inits fresh.
-        ollama         — invoke `ollama stop <model>` to evict it from VRAM.
-        mlx-openai     — best-effort: ask the local MLX OpenAI server for
-                         a /v1/models?action=unload (no-op if unsupported).
-        mlx (in-proc)  — clears the AirLLM/AeroLLM cache as those wrap MLX
-                         in this lab; for the in-proc MLX backend a real
-                         restart is required (return guidance).
+    C5 (sprints/2026-07-20-model-ux-unification/ARCHITECTURE.md): the
+    terminal return computes `ok`/`requires_restart` from what actually
+    happened — it is never an unconditional `{"ok": True}` (F-EJECTLIE,
+    F-EJECT-OLLAMA-FALSE). Behavior per runtime:
 
-    Returns: {ok, freed: [..], notes: [..]}
+        airllm/aerollm — CANNOT be hot-freed this sprint (A3): the resident
+            weights live in `AeroLLMBackend._shared` / `deep_policy.
+            _deep_router`, not in the thin `_OPTIONAL_CHAT_BACKEND_CACHE`
+            wrapper this endpoint could drop. Always `ok=False,
+            requires_restart=True`; `freed` stays empty — dropping the
+            wrapper frees nothing real, so it is never reported as freed.
+        ollama         — invoke `ollama stop <model>`. `ok` tracks the real
+                         subprocess result (`returncode == 0`, no exception)
+                         — a failure is `ok=False`, never a false success.
+        mlx-openai     — best-effort guidance only; nothing is actually
+                         freed in-process. `ok=False, requires_restart=True`.
+        mlx/cpu/cuda   — in-process backend; restart required.
+                         `ok=False, requires_restart=True`.
+        (blank/unknown) — clears every cached optional backend wrapper;
+                         `ok=bool(freed)`, plus a note that any cleared
+                         deep backend still needs a portal restart to
+                         actually free memory.
+
+    Returns: {ok, freed: [..], notes: [..], requires_restart}
     """
     body = {}
     try: body = await request.json()
@@ -6860,45 +6877,83 @@ async def api_chat_eject(request: Request):
     model   = (body.get("model") or "").strip()
     freed: list[str] = []
     notes: list[str] = []
+    ok = False
+    requires_restart = False
 
     if runtime in ("airllm", "aerollm"):
+        label = _OPTIONAL_CHAT_BACKEND_CONFIG.get(runtime, {}).get("label", runtime)
         if runtime in _OPTIONAL_CHAT_BACKEND_CACHE:
-            del _OPTIONAL_CHAT_BACKEND_CACHE[runtime]
-            freed.append(f"{runtime} cache")
-            activity_log.emit("chat", f"Ejected {runtime} from chat backend cache.", "info")
+            restart_note = f"resident ({label}) · frees on next portal restart"
+            if runtime == "aerollm":
+                restart_note += (
+                    " (auto-preload re-warms within ~5 min unless "
+                    "ARAIL_AEROLLM_PRELOAD=0)"
+                )
+            notes.append(restart_note)
         else:
-            notes.append(f"{runtime} not loaded.")
+            notes.append(f"{label} not loaded.")
+        # Never ok:True and never claim `freed` — the wrapper cache isn't
+        # where the resident weights live (A3); dropping it frees nothing
+        # real (finding 6).
+        ok = False
+        requires_restart = True
     elif runtime == "ollama":
         if not model:
-            return {"ok": False, "error": "model required for ollama eject"}
+            return {"ok": False, "error": "model required for ollama eject",
+                     "freed": [], "notes": [], "requires_restart": False}
+        ok_id, err_id = _validate_local_model_id_relaxed(model)
+        if not ok_id:
+            return {"ok": False, "error": err_id,
+                     "freed": [], "notes": [], "requires_restart": False}
         import subprocess as sp
         try:
             r = sp.run(["ollama", "stop", model], capture_output=True, text=True, timeout=15)
             if r.returncode == 0:
                 freed.append(f"ollama:{model}")
                 activity_log.emit("chat", f"Stopped ollama model {model}.", "info")
+                ok = True
             else:
                 notes.append(f"ollama stop returned {r.returncode}: {r.stderr.strip()[:200]}")
+                ok = False
         except FileNotFoundError:
             notes.append("ollama binary not on PATH")
+            ok = False
         except Exception as e:
             notes.append(f"ollama stop failed: {type(e).__name__}: {e}")
+            ok = False
     elif runtime == "mlx-openai":
-        # The mlx_openai_server holds a single model in memory. Ask it
-        # to unload via a (non-standard) admin endpoint; if absent,
-        # surface guidance to restart the server.
+        # The mlx_openai_server holds a single model in memory. Nothing is
+        # actually freed in-process by this call — restart is required.
         notes.append("mlx-openai server holds one model; restart the server "
                      "(scripts/start.sh) to free it.")
-    elif runtime in ("mlx", "cpu", "cuda", "airllm", "aerollm"):
+        ok = False
+        requires_restart = True
+    elif runtime in ("mlx", "cpu", "cuda"):
         notes.append(f"{runtime} in-process backend cannot hot-eject; "
                      f"restart the portal to drop it.")
+        ok = False
+        requires_restart = True
     else:
-        # No runtime specified — clear EVERYTHING optional.
-        for name in list(_OPTIONAL_CHAT_BACKEND_CACHE.keys()):
-            del _OPTIONAL_CHAT_BACKEND_CACHE[name]
-            freed.append(f"{name} cache")
-        activity_log.emit("chat", "Ejected all optional chat backends.", "info")
-    return {"ok": True, "freed": freed, "notes": notes}
+        # No runtime specified — clear every cached optional-backend
+        # wrapper. This IS a real (if partial) action, so `ok` tracks
+        # whether anything was actually cleared — but any deep backend
+        # among what was cleared still needs a restart to free real
+        # memory (A3), which the note discloses.
+        # C6.2/F-CACHERACE: snapshot-and-clear under the cache lock so a
+        # concurrent load landing mid-iteration can't race a `del` into a
+        # KeyError.
+        with _OPTIONAL_CHAT_BACKEND_CACHE_LOCK:
+            names = list(_OPTIONAL_CHAT_BACKEND_CACHE.keys())
+            for name in names:
+                del _OPTIONAL_CHAT_BACKEND_CACHE[name]
+        if names:
+            freed.extend(f"{name} cache" for name in names)
+            activity_log.emit("chat", "Ejected all optional chat backends.", "info")
+            notes.append("in-process deep backends (aeroLLM/AirLLM) still "
+                         "need a portal restart to actually free memory.")
+        ok = bool(freed)
+        requires_restart = bool(names)
+    return {"ok": ok, "freed": freed, "notes": notes, "requires_restart": requires_restart}
 
 
 @app.post("/api/chat/stream")
@@ -6948,6 +7003,9 @@ async def api_chat_stream(request: Request):
         except Exception:  # noqa: BLE001  # persistence never blocks chat
             conv_store = None
 
+    think_raw = body.get("think")
+    think = bool(think_raw) if isinstance(think_raw, bool) else None
+
     async def _generate() -> AsyncIterator[str]:
         pieces: list[str] = []
         final_event: dict | None = None
@@ -6960,6 +7018,7 @@ async def api_chat_stream(request: Request):
             top_p=top_p,
             max_tokens=int(body.get("max_tokens") or 512),
             runtime_override=stream_runtime,
+            think=think,
         ):
             if event.get("type") == "delta":
                 pieces.append(str(event.get("delta") or ""))
@@ -6993,14 +7052,29 @@ async def api_chat_stream(request: Request):
 # disk-heavy model init. Cache whichever one the user picks so later
 # chat turns reuse the loaded instance.
 _OPTIONAL_CHAT_BACKEND_CACHE: dict[str, Any] = {}
+# C6.2/F-CACHERACE: all reads-then-mutate sequences on the cache above
+# (load-path construct-and-store, eject's check-then-del) go under this
+# lock — the previous check-then-`del` pattern was a TOCTOU race between
+# a load and an eject landing at the same time.
+_OPTIONAL_CHAT_BACKEND_CACHE_LOCK = threading.Lock()
 
 _CHAT_MODEL_LOAD_LOCK = threading.Lock()
+# C6.2/F-LOADRACE, F-TIMEOUT-ORPHAN: exactly one chat-model load may be in
+# flight at a time. A second Load while one is running is refused, not
+# silently double-loaded — see _prepare_chat_model_load. On a timeout
+# (C6.5) this lock stays held until the background thread actually
+# settles, not until the wall-clock guard fires.
+_CHAT_MODEL_LOAD_INFLIGHT = asyncio.Lock()
+# C6.1/F-INITREADY: cold start (and any restart) must never claim a model
+# is "ready" — nothing has been loaded yet. States are exactly
+# {idle, loading, ready, error}; there is no "canceled" terminal state
+# (C6.4 — Cancel is honest absence, not a fake transition).
 _CHAT_MODEL_LOAD_STATE: dict[str, Any] = {
-    "state": "ready",
+    "state": "idle",
     "blocking": False,
-    "message": "Model ready",
-    "eta_seconds": 0,
-    "progress": 1.0,
+    "message": "No model loaded",
+    "eta_seconds": None,
+    "progress": 0.0,
     "model": None,
     "runtime": None,
     "provider": None,
@@ -7174,47 +7248,356 @@ def _get_chat_model_load_state() -> dict[str, Any]:
         return dict(_CHAT_MODEL_LOAD_STATE)
 
 
+def _load_max_sec() -> float:
+    """ARAIL_LOAD_MAX_SEC — wall-clock guard for a chat model load.
+
+    Bounds *harm* (a timed-out load can't be followed by a second, doubly-
+    resident load — C6.5); it does NOT bound the load itself, which keeps
+    running in the background regardless (A4: asyncio.to_thread cannot be
+    cancelled or killed externally). Default 180s, floor 5s so a
+    misconfigured value can't make every load instantly time out.
+    """
+    try:
+        return max(float(os.getenv("ARAIL_LOAD_MAX_SEC", "180")), 5.0)
+    except (TypeError, ValueError):
+        return 180.0
+
+
+class _ChatBackendModelMismatch(Exception):
+    """C6.3/F-SWITCH: an optional deep backend (aeroLLM/AirLLM) is already
+    resident with a different model than the one requested. The singleton
+    is single-model per AEROLLM_MODEL/AIRLLM_MODEL and cannot hot-swap
+    (A3) — this signals `_prepare_chat_model_load` to report an honest
+    refusal instead of falsely claiming `ready` for the resident model.
+    """
+
+    def __init__(self, backend_name: str, resident_model: str, requested_model: str):
+        self.backend_name = backend_name
+        self.resident_model = resident_model
+        self.requested_model = requested_model
+        super().__init__(
+            f"{backend_name} already resident with {resident_model!r}; "
+            f"requested {requested_model!r}"
+        )
+
+
+# C6.6: rolling median of observed load throughput, per runtime — the
+# basis for a real ETA instead of a hardcoded constant. Populated by
+# _record_load_throughput() after each successful load; falls back to
+# ARAIL_LOAD_THROUGHPUT_MBPS (default ~500 MB/s) until enough samples
+# accumulate. The spec's ±20% NVMe-probe accuracy target is explicitly
+# descoped (ARCHITECTURE.md Tech debt / INFO-6) — this derived estimate,
+# approximate until warmed, is the shipped behavior.
+_LOAD_THROUGHPUT_SAMPLES_MAX = 20
+_LOAD_THROUGHPUT_SAMPLES: dict[str, list[float]] = {}
+
+
+def _record_load_throughput(runtime: str | None, bytes_loaded: float, seconds: float) -> None:
+    if bytes_loaded <= 0 or seconds <= 0:
+        return
+    mbps = (bytes_loaded / seconds) / (1024 * 1024)
+    key = runtime or "_unknown"
+    samples = _LOAD_THROUGHPUT_SAMPLES.setdefault(key, [])
+    samples.append(mbps)
+    del samples[: len(samples) - _LOAD_THROUGHPUT_SAMPLES_MAX]
+
+
+def _load_throughput_mbps(runtime: str | None) -> float:
+    samples = _LOAD_THROUGHPUT_SAMPLES.get(runtime or "_unknown")
+    if samples:
+        ordered = sorted(samples)
+        mid = len(ordered) // 2
+        if len(ordered) % 2:
+            return ordered[mid]
+        return (ordered[mid - 1] + ordered[mid]) / 2
+    try:
+        return max(float(os.getenv("ARAIL_LOAD_THROUGHPUT_MBPS", "500")), 1.0)
+    except (TypeError, ValueError):
+        return 500.0
+
+
+def _real_on_disk_gb(runtime: str | None, model: str | None) -> float | None:
+    """C6.6: the model's REAL, currently-installed on-disk size — a fresh
+    re-scan at click time (not the catalog's manifest guess). Returns
+    None when the model can't be resolved (not installed, or size
+    unknown), which callers must treat as "no fabricated ETA" (F-FAKEETA).
+    """
+    if not model:
+        return None
+    try:
+        from arail.chat import detect_installed_models
+        installed = detect_installed_models() or []
+    except Exception:  # noqa: BLE001
+        return None
+    for entry in installed:
+        if entry.get("id") != model:
+            continue
+        if runtime and entry.get("runtime") != runtime:
+            continue
+        size = entry.get("size_gb")
+        if isinstance(size, (int, float)) and size > 0:
+            return float(size)
+    return None
+
+
+_SIZE_DISAGREEMENT_TOLERANCE = 0.30  # generous — catches truncated/partial
+# blobs without false-flagging normal quantization/rounding drift.
+
+
+def _catalog_declared_size_gb(model_id: str) -> float | None:
+    """The curated catalog's declared size for an exact model-id match.
+
+    Known limitation: Ollama-runtime ids often carry a `:tag` suffix
+    (e.g. `gemma-4-26b-a4b:latest`) the catalog entry doesn't (`gemma-4-
+    26b-a4b`) — an exact-match miss here safely no-ops the corruption
+    check (never a false "corrupt" flag) rather than attempting fuzzy
+    matching, which risks false positives on a legitimately different
+    quantization of the same family.
+    """
+    try:
+        from arail.chat import load_catalog
+    except Exception:  # noqa: BLE001
+        return None
+    for entry in load_catalog():
+        if entry.id == model_id and entry.size_gb:
+            return float(entry.size_gb)
+    return None
+
+
+def _model_looks_corrupt(model_id: str | None, real_size_gb: float | None) -> bool:
+    """F-CORRUPT: real on-disk size disagrees with the catalog's declared
+    size beyond tolerance — a signal of a truncated/partial download."""
+    if not model_id or real_size_gb is None or real_size_gb <= 0:
+        return False
+    declared = _catalog_declared_size_gb(model_id)
+    if declared is None or declared <= 0:
+        return False
+    return abs(real_size_gb - declared) > declared * _SIZE_DISAGREEMENT_TOLERANCE
+
+
+def _estimate_load_eta_seconds(runtime: str | None, real_size_gb: float) -> float | None:
+    """C6.6: `eta_seconds = on_disk_bytes / throughput_bytes_per_sec`."""
+    throughput_mbps = _load_throughput_mbps(runtime)
+    if throughput_mbps <= 0:
+        return None
+    bytes_total = real_size_gb * (1024 ** 3)
+    bytes_per_sec = throughput_mbps * (1024 ** 2)
+    return round(bytes_total / bytes_per_sec)
+
+
+def _friendly_load_error(exc: BaseException) -> str:
+    """C6.8/F-DAEMONDOWN: never surface a raw traceback/exception-repr to
+    the operator — the full exception is logged server-side only. Detects
+    the daemon-down case (connection refused / `ollama` not on PATH)
+    specifically so the operator gets an actionable banner instead of a
+    generic failure.
+    """
+    _log.warning("chat model load failed: %s: %s", type(exc).__name__, exc, exc_info=exc)
+    text = str(exc).lower()
+    name = type(exc).__name__.lower()
+    daemon_markers = (
+        "connection refused",
+        "econnrefused",
+        "failed to establish a new connection",
+        "ollama binary not on path",
+        "no such file or directory",
+    )
+    if (
+        isinstance(exc, FileNotFoundError)
+        or "connectionerror" in name
+        or "connectionrefused" in name
+        or any(marker in text for marker in daemon_markers)
+    ):
+        return "Ollama isn't running — start it with 'ollama serve', then retry."
+    return f"Couldn't load this model ({type(exc).__name__}). See the activity log for details."
+
+
 async def _prepare_chat_model_load(
     *,
     model: str | None,
     runtime: str | None,
     provider: str | None,
+    _caller_holds_inference_slot: bool = False,
 ) -> dict[str, Any]:
+    """`_caller_holds_inference_slot`: set by the ONE existing caller
+    (`/api/admin/models/load`'s non-streamed branch) that already runs
+    inside its own `async with scheduler.inference_slot("admin-model-
+    load")`. `inference_slot()` is backed by a single process-wide
+    semaphore shared across every label (not one semaphore per label) —
+    acquiring it again from within an already-held acquisition on the
+    SAME semaphore would self-deadlock (`asyncio.Semaphore` is not
+    reentrant): the outer holder blocks forever awaiting a permit only
+    its own release could free. Discovered while wiring C6.2/F-LOADRACE
+    (this sprint added the internal acquire below) — fixed inline as a
+    correctness requirement of that same change, not a design question.
+    """
     label = _compact_model_label(model) or _display_provider_name(provider or "my_machine")
+
+    # C6.2/F-TIMEOUT-ORPHAN: exactly one load in flight. No `await` between
+    # the check and the acquire, so this is race-free within the single-
+    # threaded event loop (same reasoning as scheduler._get_semaphore()).
+    # A second Load while one is running is refused outright, not queued
+    # behind it — queuing would silently double the wait with no signal.
+    if _CHAT_MODEL_LOAD_INFLIGHT.locked():
+        return {
+            **_get_chat_model_load_state(),
+            "message": "a load is already in progress",
+        }
+    await _CHAT_MODEL_LOAD_INFLIGHT.acquire()
+
+    # C6.5/F-TIMEOUT-ORPHAN: the inflight lock is released by this
+    # callback when the background work actually SETTLES — not when a
+    # wall-clock timeout merely stops us from waiting for it. Idempotent
+    # so it's safe regardless of which path below fires it.
+    released = False
+
+    def _release_inflight_once(_task: "asyncio.Task[Any] | None" = None) -> None:
+        nonlocal released
+        if not released:
+            released = True
+            _CHAT_MODEL_LOAD_INFLIGHT.release()
+
+    # C6.7/F-REFIT: fit is a click-time precondition, not a stale render-
+    # time snapshot — re-read free memory now (the preload loop may have
+    # warmed something since the rail last rendered) and recompute the
+    # target's verdict. Still allowed to proceed even if "Requires
+    # streaming" (the operator's call) — but the message is honest about
+    # it instead of silently loading against a stale "Marginal" chip.
+    real_size_gb = _real_on_disk_gb(runtime, model)
+    fit_note = ""
+    if real_size_gb is not None:
+        fresh_snapshot = _local_memory_snapshot()
+        fresh_free_gb = float(fresh_snapshot.get("free_gb") or 0.0)
+        estimate_gb = _estimate_model_memory_gb(model, size_gb=real_size_gb)
+        fresh_verdict = _fit_verdict_label(estimate_gb, fresh_free_gb)
+        if fresh_verdict == "Requires streaming":
+            fit_note = f" (~{estimate_gb:.0f} GB needed, ~{fresh_free_gb:.0f} GB free — may swap or fail)"
+
+    # C6.6/F-FAKEETA, F-CORRUPT: real ETA from the fresh on-disk bytes, not
+    # a hardcoded constant. A size that disagrees with the catalog's
+    # declared value beyond tolerance (F-CORRUPT) degrades to no ETA
+    # rather than a plausible-looking but fabricated countdown.
+    eta_seconds: float | None = None
+    load_start = time.monotonic()
+    if real_size_gb is not None and not _model_looks_corrupt(model, real_size_gb):
+        eta_seconds = _estimate_load_eta_seconds(runtime, real_size_gb)
+
     state = _set_chat_model_load_state(
         state="loading",
         blocking=True,
-        message=f"Loading {label}…",
-        eta_seconds=15,
-        progress=0.15,
+        message=f"Loading {label}…{fit_note}",
+        eta_seconds=eta_seconds,
+        # C6.6: a blocking asyncio.to_thread load exposes no incremental
+        # signal — progress is indeterminate (spinner + ETA countdown),
+        # never a fake filling bar.
+        progress=None,
         model=model,
         runtime=runtime,
         provider=provider,
     )
 
-    try:
+    def _do_load() -> None:
         if provider in _OPTIONAL_CHAT_BACKEND_CONFIG:
-            await asyncio.to_thread(_get_optional_chat_backend, str(provider))
+            # C6.3/F-SWITCH: identity-checked — a resident singleton on a
+            # different model raises _ChatBackendModelMismatch instead of
+            # silently reporting ready for the wrong model.
+            _get_optional_chat_backend(str(provider), expected_model=model)
         elif runtime in ("ollama", "mlx-openai") and model:
-            await asyncio.to_thread(_get_runtime_backend, str(runtime), str(model))
+            # F-FAKEREADY: _get_runtime_backend only constructs the thin
+            # HTTP-client wrapper — it makes no network call, so the
+            # runtime (Ollama/MLX server) never actually reads the model's
+            # weights into memory. Without this warm-up call, this whole
+            # honest load-state machine would report "ready" in under
+            # 100ms for a model that is provably NOT resident (verified
+            # live: ollama ps showed nothing loaded after a "ready"
+            # response) — the exact class of lie this sprint exists to
+            # kill, just moved one level deeper. A real 1-token, capped,
+            # non-thinking call forces the runtime to actually load.
+            backend = _get_runtime_backend(str(runtime), str(model))
+            warm_kwargs = (
+                {"think": False}
+                if getattr(backend, "backend_name", "") == "ollama:native"
+                else {}
+            )
+            backend.complete("ok", 1, 0.0, 1.0, **warm_kwargs)
         else:
-            await asyncio.to_thread(_get_primary_router)
+            _get_primary_router()
+
+    async def _run() -> None:
+        if _caller_holds_inference_slot:
+            # See the docstring above — the caller already holds the
+            # shared semaphore; acquiring it again here would deadlock.
+            await asyncio.to_thread(_do_load)
+        else:
+            # C6.2/F-LOADRACE: serialize against aerollm-preload/admin-model-load
+            # via the shared inference slot at default concurrency (A8).
+            async with scheduler.inference_slot("chat-model-load"):
+                await asyncio.to_thread(_do_load)
+
+    task = asyncio.ensure_future(_run())
+    task.add_done_callback(_release_inflight_once)
+
+    try:
+        # A4: the underlying to_thread work cannot be cancelled or killed
+        # externally once it starts. shield() means a timeout below stops
+        # US from waiting on `task` — it does NOT stop `task` itself, which
+        # keeps running to completion in the background; the done-callback
+        # above still fires (and releases the inflight lock) when it does.
+        await asyncio.wait_for(asyncio.shield(task), timeout=_load_max_sec())
+    except asyncio.TimeoutError:
         state = _set_chat_model_load_state(
-            state="ready",
+            state="error",
             blocking=False,
-            message=f"{label} ready",
-            eta_seconds=0,
-            progress=1.0,
+            message=(
+                f"{label} is taking longer than {int(_load_max_sec())}s — it may "
+                f"still be loading in the background; check back, or Unload it "
+                f"once it finishes if you no longer want it."
+            ),
+            eta_seconds=None,
+            progress=None,
+            model=model,
+            runtime=runtime,
+            provider=provider,
+        )
+    except _ChatBackendModelMismatch as exc:
+        # C6.3/F-SWITCH: honest refusal, never a false "ready" for the
+        # previously-loaded model.
+        state = _set_chat_model_load_state(
+            state="error",
+            blocking=False,
+            message=(
+                f"{exc.backend_name} already resident with {exc.resident_model}; "
+                f"switching models requires a portal restart"
+            ),
+            eta_seconds=None,
+            progress=None,
             model=model,
             runtime=runtime,
             provider=provider,
         )
     except Exception as exc:  # noqa: BLE001
+        # C6.8/F-DAEMONDOWN: a friendly, operator-legible message — never a
+        # raw traceback/exception-repr; full detail is logged server-side.
         state = _set_chat_model_load_state(
             state="error",
             blocking=False,
-            message=f"Load failed: {type(exc).__name__}: {exc}",
+            message=_friendly_load_error(exc),
             eta_seconds=None,
+            progress=None,
+            model=model,
+            runtime=runtime,
+            provider=provider,
+        )
+    else:
+        if real_size_gb is not None:
+            _record_load_throughput(
+                runtime, real_size_gb * (1024 ** 3), time.monotonic() - load_start
+            )
+        state = _set_chat_model_load_state(
+            state="ready",
+            blocking=False,
+            message=f"{label} ready",
+            eta_seconds=0,
             progress=1.0,
             model=model,
             runtime=runtime,
@@ -7243,28 +7626,74 @@ async def api_chat_model_load(request: Request):
 
 @app.post("/api/chat/model-load/cancel")
 async def api_chat_model_load_cancel():
-    return _set_chat_model_load_state(
-        state="canceled",
-        blocking=False,
-        message="Model load canceled",
-        eta_seconds=0,
-        progress=0.0,
-    )
+    """C6.4/F-CANCEL: honest absence, never a fake `canceled` transition.
+
+    The load runs in a non-cancellable `asyncio.to_thread` (A4) — there is
+    nothing this endpoint can truly interrupt. The previous implementation
+    set `state="canceled"` and returned while the thread kept loading the
+    model fully into memory: a lie of exactly the class this sprint kills.
+    `_CHAT_MODEL_LOAD_STATE` is never mutated here; `state` is always
+    exactly one of `{idle, loading, ready, error}`.
+    """
+    current = _get_chat_model_load_state()
+    if current.get("state") != "loading":
+        return {**current, "ok": False, "note": "no load in progress to cancel"}
+    return {
+        **current,
+        "ok": False,
+        "note": (
+            "a load in progress cannot be interrupted; wait for it to "
+            "finish, then Unload if unwanted"
+        ),
+    }
 
 
-def _get_optional_chat_backend(name: str):
+def _get_optional_chat_backend(name: str, *, expected_model: str | None = None):
+    """Return the cached (or newly-constructed) optional backend instance.
+
+    C6.3/F-SWITCH: when `expected_model` is given and a resident instance
+    already exists for a DIFFERENT model, raises `_ChatBackendModelMismatch`
+    instead of silently returning the wrong-model instance as if it were
+    the requested one. The singleton is single-model per AEROLLM_MODEL/
+    AIRLLM_MODEL (A3) and cannot hot-swap mid-process.
+    """
     config = _OPTIONAL_CHAT_BACKEND_CONFIG.get(name)
     if config is None:
         raise ValueError(f"Unknown optional chat backend: {name}")
-    backend = _OPTIONAL_CHAT_BACKEND_CACHE.get(name)
-    if backend is None:
-        from arail.router import backends as router_backends
 
-        backend_cls = getattr(router_backends, config["class_name"])
-        backend = backend_cls()
-        backend.backend_name = name
-        _OPTIONAL_CHAT_BACKEND_CACHE[name] = backend
-    return backend
+    def _check_identity(backend: Any) -> Any:
+        resident_model = str(getattr(backend, "model_name", "") or "")
+        if expected_model and resident_model and expected_model != resident_model:
+            raise _ChatBackendModelMismatch(name, resident_model, expected_model)
+        return backend
+
+    # C6.2/F-CACHERACE: the check is locked, but a cache MISS falls through
+    # to construction (potentially multi-second, disk-heavy) OUTSIDE the
+    # lock — this function normally runs inside asyncio.to_thread from the
+    # load path, and holding a shared lock for the duration of a slow
+    # construction would block eject()/other readers on the event loop
+    # thread for however long that takes.
+    with _OPTIONAL_CHAT_BACKEND_CACHE_LOCK:
+        backend = _OPTIONAL_CHAT_BACKEND_CACHE.get(name)
+    if backend is not None:
+        return _check_identity(backend)
+
+    from arail.router import backends as router_backends
+
+    backend_cls = getattr(router_backends, config["class_name"])
+    backend = backend_cls()
+    backend.backend_name = name
+    with _OPTIONAL_CHAT_BACKEND_CACHE_LOCK:
+        # Double-checked: another caller may have raced us and already
+        # stored one while we were constructing ours. Keep whichever
+        # won rather than risk two near-simultaneous writes corrupting
+        # the dict — both instances are equally valid fresh backends.
+        existing = _OPTIONAL_CHAT_BACKEND_CACHE.get(name)
+        if existing is not None:
+            backend = existing
+        else:
+            _OPTIONAL_CHAT_BACKEND_CACHE[name] = backend
+    return _check_identity(backend)
 
 
 def _optional_backend_error_result(name: str | None, error: Exception) -> dict[str, Any]:
@@ -7707,6 +8136,8 @@ async def api_chat_models(provider: str = ""):
             "huggingface-cli login or export HF_TOKEN before downloading."
         )
 
+    from arail.portal.model_warmth import _tier1_resident
+
     optional_backends = []
     if _show_airllm():
         optional_backends.append({
@@ -7720,6 +8151,10 @@ async def api_chat_models(provider: str = ""):
             "description": "Layer-streaming deep backend — opt-in on CUDA / Linux x86. Deep model is operator-configured (set AIRLLM_MODEL in .env; see NOTICE and docs). Subprocess-isolated so Metal aborts can't kill the portal.",
             # AirLLM always streams (layer-streaming); mark for picker badge.
             "streamed": True,
+            # F-WARMDOT: AirLLM has no equivalent of aeroLLM's _shared probe
+            # (it's subprocess-isolated); presence in the thin wrapper cache
+            # is the best-effort warmth signal available.
+            "resident": "airllm" in _OPTIONAL_CHAT_BACKEND_CACHE,
         })
     optional_backends.append({
         "id": "aerollm",
@@ -7730,8 +8165,13 @@ async def api_chat_models(provider: str = ""):
         "gated": aero_model_name.lower().startswith("meta-llama/"),
         "install_command": "./arailctl deep rebuild",
         "description": "In-process Rust runtime — primary deep backend on Apple Silicon (Qwen2.5-7B-4bit default, ~4 GB resident; max tier ships Qwen2.5-72B-Instruct-4bit, ~40 GB resident, requires 48 GB+). Single Metal command buffer per generation; ~3× faster than mlx_lm baseline.",
-        # AeroLLM is also streaming by design.
-        "streamed": True,
+        # C4/F-OVERSELL: aeroLLM keeps its model resident once loaded — it
+        # does not stream (AERO_MOE_SELECT is off and absent from src/).
+        "streamed": False,
+        # C4/F-WARMDOT: the real residency probe (model_warmth._tier1_resident()
+        # inspects AeroLLMBackend._shared without constructing anything) — not
+        # `installed`, which only says the weights exist on disk.
+        "resident": _tier1_resident(),
     })
     for entry in optional_backends:
         if entry["gated"]:
@@ -7756,6 +8196,10 @@ async def api_chat_models(provider: str = ""):
                    "error": f"{type(e).__name__}: {e}"}
 
     memory_snapshot = _local_memory_snapshot()
+    # F-WARMDOT (step 8): one live `ollama ps` probe for the whole rail,
+    # not one per model — a short-timeout, cached-on-failure snapshot of
+    # which Ollama-runtime rows are actually resident right now.
+    ollama_warm_ids = _ollama_ps_resident_ids()
     local_entries = [
         _build_local_model_entry(
             entry.get("id", ""),
@@ -7766,6 +8210,8 @@ async def api_chat_models(provider: str = ""):
             current=current,
             detected_gb=float(memory_snapshot.get("total_gb") or 0.0),
             free_gb=float(memory_snapshot.get("free_gb") or 0.0),
+            warm=(str(entry.get("runtime") or "") == "ollama"
+                  and str(entry.get("id") or "") in ollama_warm_ids),
         )
         for entry in gallery.get("installed", [])
         if entry.get("id")
@@ -7822,6 +8268,11 @@ async def api_chat_models(provider: str = ""):
             "visible_when": "custom",
         },
         "overlay": onboarding,
+        # §2.1 fix: the frontend's only reader of hardware telemetry is
+        # `compact.hardware` (chat.html tele-hw/tele-vram + autoWarmBoxes);
+        # nest the real snapshot here instead of leaving it stranded at the
+        # top level where nothing reads it (F-BLANK).
+        "hardware": memory_snapshot,
     }
 
     current_fit = best_local_entry.get("fit") if best_local_entry else None
@@ -7848,7 +8299,9 @@ async def api_chat_models(provider: str = ""):
         "onboarding": onboarding,
         "local_model_entries": local_entries,
         "fit": current_fit,
-        "hardware": memory_snapshot,
+        # (§2.1 / BLOCK-1) top-level `hardware` deleted — the only reader was
+        # the frontend, which now reads `compact.hardware` (nested above).
+        # Do not re-add a second, unread copy of this field.
         "model_load": load_state,
     }
 
@@ -8128,6 +8581,43 @@ def _fit_actions(verdict: str) -> list[str]:
     return []
 
 
+# Cache the last-known warm-id set so a hung/slow `ollama ps` probe never
+# adds latency to the request path — Performance guard in ARCHITECTURE.md
+# (§ "Performance"): probe with a ≤1s timeout, fall back to last-known on
+# timeout/failure rather than blocking or reporting everything cold.
+_OLLAMA_PS_LAST_KNOWN: set[str] = set()
+
+
+def _ollama_ps_resident_ids(host: str = "127.0.0.1", port: int = 11434) -> set[str]:
+    """F-WARMDOT: real, live warmth for Ollama rows — never derived from
+    `installed` or client-side in-memory state. Queries Ollama's native
+    `/api/ps` (currently-resident models), NOT `/api/tags` (installed-but-
+    possibly-cold). A ≤1s timeout keeps this off the hot path; on timeout
+    or any failure, returns the last successful reading rather than
+    silently reporting every row as cold (which would be its own lie).
+    """
+    global _OLLAMA_PS_LAST_KNOWN
+    import urllib.request
+    try:
+        req = urllib.request.Request(f"http://{host}:{port}/api/ps", method="GET")
+        with urllib.request.urlopen(req, timeout=1.0) as resp:
+            if resp.status != 200:
+                return set(_OLLAMA_PS_LAST_KNOWN)
+            data = json.loads(resp.read())
+    except Exception:  # noqa: BLE001
+        return set(_OLLAMA_PS_LAST_KNOWN)
+
+    ids: set[str] = set()
+    for m in data.get("models") or []:
+        if not isinstance(m, dict):
+            continue
+        name = m.get("name") or m.get("model")
+        if name:
+            ids.add(str(name))
+    _OLLAMA_PS_LAST_KNOWN = ids
+    return set(ids)
+
+
 def _local_memory_snapshot() -> dict[str, Any]:
     total_gb = 0.0
     used_gb = 0.0
@@ -8147,7 +8637,12 @@ def _local_memory_snapshot() -> dict[str, Any]:
                 total_gb = round(int(subprocess.check_output(
                     ["sysctl", "-n", "hw.memsize"], timeout=3,
                 ).strip()) / (1024 ** 3), 1)
-                free_gb = total_gb
+                # F-FALLBACKLIE: do NOT set free_gb = total_gb here. sysctl
+                # gives us total RAM, not what's actually free, and claiming
+                # free==total is a fabricated-optimistic number that would
+                # falsely render a "Good" fit verdict. Leave free_gb at its
+                # 0.0 default so `_fit_verdict_label` reports "Unknown"
+                # instead of a lie.
             except Exception:  # noqa: BLE001
                 pass
 
@@ -8236,6 +8731,7 @@ def _build_local_model_entry(
     current: str | None,
     detected_gb: float,
     free_gb: float,
+    warm: bool = False,
 ) -> dict[str, Any]:
     spec: dict[str, Any] | None = None
     try:
@@ -8264,8 +8760,23 @@ def _build_local_model_entry(
         "source": "local",
         "current": bool(current and model_id == current),
         "size_gb": size_gb,
+        # Top-level mirror of overlay.endpoint below (kept for back-compat).
+        # chat.html's selectModel()/renderModelInfo()/chat-send payload read
+        # `m.endpoint` directly (it's the routing target for non-default
+        # local backends, e.g. the MLX OpenAI server) — gallery.installed[]
+        # carried this at the top level, so compact.local_models.items must
+        # too or picking a local model from the rail silently drops its
+        # endpoint (§2.2 data-source swap — discovered while wiring, not a
+        # new capability).
+        "endpoint": endpoint,
         "estimated_vram_gb": estimate_gb,
         "streamed": _streamed,
+        # F-WARMDOT: real, live warmth (from `_ollama_ps_resident_ids()`
+        # for Ollama rows) — never derived from `installed` or client-side
+        # in-memory state. Non-Ollama local runtimes (mlx/mlx-openai) have
+        # no equivalent live-residency probe yet; they default to False
+        # rather than guessing (an honest "don't know" over a fake dot).
+        "warm": bool(warm),
         "fit": {
             "verdict": verdict,
             "summary": _headroom_summary(estimate_gb, free_gb),

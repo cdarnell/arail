@@ -342,6 +342,18 @@
 
     .stream-toggle.compact { gap: var(--s-1); padding: 0; }
     .icon-btn.compact      { padding: 0.22rem 0.55rem; font-size: var(--fs-xs); }
+    /* The 2nd-column close was a bare 24x22px "✕" lost between a temp
+       slider and a checkbox — reported as "no way to minimize it".
+       Give it a label and real visual weight so it reads as its own
+       control, not a stray glyph. */
+    .close-compare-btn {
+      margin-left: auto;
+      color: var(--danger);
+      border-color: var(--danger-a28);
+      background: var(--danger-a08);
+      font-weight: 600;
+    }
+    .close-compare-btn:hover { background: var(--danger-a20, var(--danger-a28)); }
 
     /* Per-column transcript — min-height ensures usable space even on
        short responses, while scroll kicks in for long ones. */
@@ -477,6 +489,10 @@
       background: var(--accent2);
       transition: width 0.4s ease;
     }
+    /* The backend load-state machine is honest that progress is
+       indeterminate for a blocking load (no incremental signal to
+       report) — a pulsing full-width bar, never a fabricated fill %. */
+    .loader-strip .bar.indeterminate > i { width: 100%; animation: warm-pulse 1.2s ease-in-out infinite; }
     .loader-strip .pct, .loader-strip .eta { color: var(--text-muted); font-variant-numeric: tabular-nums; }
     .loader-strip .cancel {
       color: var(--danger);
@@ -1556,6 +1572,15 @@
                popup is gone. The chip above is the visible affordance now. -->
           <div id="model-picker" hidden><div id="picker-pop"></div></div>
 
+          <!-- Wired post-Phase-0b (disconfirming-evidence #1 fired
+               immediately: fidelity alone left the load experience
+               visibly silent). loadModel() now drives this strip via
+               /api/chat/model-load + polling — see that function.
+               ls-cancel deliberately does NOT claim a "canceled" state;
+               the load runs in a non-cancellable asyncio.to_thread (A4),
+               so the button calls /api/chat/model-load/cancel and shows
+               its honest "can't interrupt" note instead of pretending a
+               click stopped anything. -->
           <div class="loader-strip" id="loader-strip">
             <span class="label">load</span>
             <span class="model" id="ls-model">—</span>
@@ -1579,10 +1604,10 @@
         <!-- ── Column B (secondary, hidden until Compare) ── -->
         <section class="col" data-col="B" hidden>
           <div class="col-quickbar">
-            <div class="col-chip" id="col-chip-B" title="2nd inference — aeroLLM. Layer-streams a frontier (70B+) model from disk so it coexists with your on-GPU model. Slower per-token, far bigger brain.">
+            <div class="col-chip" id="col-chip-B" title="2nd inference — aeroLLM. Keeps a frontier (70B+) model resident so it coexists with your on-GPU model. Slower per-token, far bigger brain.">
               <span class="qb-label">2nd · aeroLLM</span>
               <span class="chip-name" id="picker-label-B">—</span>
-              <span class="chip-hint">layer-stream · slower · big params</span>
+              <span class="chip-hint">resident · slower · big params</span>
             </div>
             <div class="qb-slider" data-quickkey="temperature">
               <span class="qb-label">temp</span>
@@ -1593,7 +1618,7 @@
             <label class="stream-toggle compact">
               <input type="checkbox" id="stream-toggle-B" checked> stream
             </label>
-            <button class="icon-btn compact" id="btn-compare-close" title="Close compare">✕</button>
+            <button class="icon-btn compact close-compare-btn" id="btn-compare-close" title="Close the 2nd inference column">✕ close</button>
           </div>
           <div id="model-picker-B" hidden><div id="picker-pop-B"></div></div>
 
@@ -1728,16 +1753,23 @@
            below the chat — see #active-strip above.) -->
 
       <div class="rail-card">
-        <div class="rc-head"><span>Local · GPU (&le; 8B)</span><span class="count" id="count-local">0</span></div>
+        <!-- F-HEADER: no "(<= 8B)" — this column also renders the real
+             gemma-4-26b-a4b MoE row (13.4 GB resident) once installed;
+             the size claim was a static lie the real fit chip contradicts. -->
+        <div class="rc-head"><span>Local · GPU</span><span class="count" id="count-local">0</span></div>
         <div id="rail-models-local" class="rail-list"></div>
       </div>
 
       <div class="rail-card">
-        <div class="rc-head"><span>Local · SSD (streamed)</span><span class="count" id="count-deep">0</span></div>
+        <!-- F-HEADER twin: aeroLLM keeps the deep model RESIDENT once
+             loaded (not streamed from disk per-token) — AERO_MOE_SELECT
+             (real expert-streaming) is off and absent from src/. Only
+             AirLLM (the opt-in CUDA/x86 backend) actually layer-streams. -->
+        <div class="rc-head"><span>Local · aeroLLM</span><span class="count" id="count-deep">0</span></div>
         <div id="rail-models-deep" class="rail-list"></div>
         <div class="rc-body tight-top">
           <div class="rc-note">
-            30B+ models streamed from disk via AeroLLM.
+            Large models kept resident by AeroLLM once loaded.
             Set <code class="inline-path">AEROLLM_MODEL</code> in <code class="inline-path">.env</code>.
           </div>
         </div>
@@ -1807,14 +1839,14 @@
             <div class="ref-h">model definitions</div>
             <ul class="ref-list">
               <li><code class="inline-path">src/arail/model_specs.py</code><span class="ref-note">add params · license · benchmarks · notes</span></li>
-              <li><code class="inline-path">src/arail/chat/gallery.py</code><span class="ref-note">how models get scanned + rendered for the picker</span></li>
+              <li><code class="inline-path">src/arail/chat/__init__.py</code><span class="ref-note">gallery_view() / detect_installed_models() — how models get scanned + rendered for the picker</span></li>
               <li><code class="inline-path">src/arail/router/backends.py</code><span class="ref-note">backend adapters (MLX, Ollama, AeroLLM, Claude, …)</span></li>
             </ul>
           </div>
           <div class="ref-group">
             <div class="ref-h">deep backends</div>
             <ul class="ref-list">
-              <li><a href="https://github.com/cdarnell/aerollm" target="_blank" rel="noopener noreferrer">AeroLLM ↗</a><span class="ref-note">ARAIL's Rust runtime for 30B+ via layer-streaming · set <code>AEROLLM_MODEL</code></span></li>
+              <li><a href="https://github.com/cdarnell/aerollm" target="_blank" rel="noopener noreferrer">AeroLLM ↗</a><span class="ref-note">ARAIL's Rust runtime for 30B+ local models, kept resident once loaded · set <code>AEROLLM_MODEL</code></span></li>
             </ul>
           </div>
           <div class="ref-group">
@@ -2057,6 +2089,11 @@
       const v = (verdict || '').toLowerCase();
       if (v.startsWith('good')) return 'good';
       if (v.startsWith('marg')) return 'marginal';
+      // Deep-row (C4) verdicts aren't a memory-fit judgment — a resident
+      // aeroLLM backend is exactly as ready as a "Good"-fit local model,
+      // and "not installed" is informational, not a fit warning.
+      if (v.startsWith('resident')) return 'good';
+      if (v.startsWith('not install')) return 'marginal';
       return 'streaming';
     }
     function makeOpt(m, currentId, onPick) {
@@ -2073,7 +2110,7 @@
           <span class="runtime">· ${escapeHtml(m.runtime || '')}</span>
           ${isNew ? '<span class="new-badge">new</span>' : ''}
           ${isDeep ? '<span class="deep-badge">deep</span>' : ''}
-          ${isStreamed ? '<span class="streamed-badge" title="Layer-streamed via AirLLM (model exceeds local hardware floor)">streamed</span>' : ''}
+          ${isStreamed ? '<span class="streamed-badge" title="Exceeds the local hardware floor — routes through a deep backend (AeroLLM resident · AirLLM layer-streamed)">streamed</span>' : ''}
         </div>
         <div class="meta">
           <span class="size">${sizeStr}</span>
@@ -2167,24 +2204,28 @@
                     ? `${State.gallery.compact.hardware.label} · ${State.gallery.compact.hardware.free_gb||'?'} GB free`
                     : '';
 
-      // Section: gallery (on-disk) models that fit in GPU VRAM (under 8B).
+      // Section: gallery (on-disk) local-GPU models — real fit chip decides
+      // whether any given row is Good/Marginal/Requires streaming; the
+      // header itself makes no size claim (F-HEADER).
       const localModels = State.models.filter(m => m.badge !== 'deep');
       if (localModels.length) {
         const sec = document.createElement('div');
         sec.className = 'section';
-        sec.innerHTML = `<div class="head"><span>Local · GPU (&le; 8B)</span><span class="hw">${hwLabel}</span></div>`;
+        sec.innerHTML = `<div class="head"><span>Local · GPU</span><span class="hw">${hwLabel}</span></div>`;
         pop.appendChild(sec);
         localModels.forEach(m =>
           pop.appendChild(makeOpt(m, State.currentId, x => { selectModel(x); closePicker(); }))
         );
       }
 
-      // Section: SSD-streamed deep backends (AeroLLM) — 30B+ on modest VRAM.
+      // Section: deep backends (AeroLLM resident, AirLLM opt-in layer-
+      // streamed). F-HEADER twin fix: aeroLLM keeps its model resident
+      // once loaded, unlike the disk-per-token claim the old header made.
       const deep = State.models.filter(m => m.badge === 'deep');
       if (deep.length) {
         const sec = document.createElement('div');
         sec.className = 'section';
-        sec.innerHTML = `<div class="head"><span>Local · SSD (streamed)</span><span class="hw">30B+ via layer-stream</span></div>`;
+        sec.innerHTML = `<div class="head"><span>Local · aeroLLM</span><span class="hw">30B+ deep backends</span></div>`;
         pop.appendChild(sec);
         deep.forEach(m =>
           pop.appendChild(makeOpt(m, State.currentId, x => { selectModel(x); closePicker(); }))
@@ -2660,10 +2701,10 @@
         + '<div class="cs-row"><span>runs</span><span>' + escapeHtml(runs) + '</span></div></div>';
       let html = cell('a', '1st inference · on-GPU', aModel, aSpec.params || '≤ floor', 'resident in GPU')
                + cell('b', '2nd inference · aeroLLM', bModel,
-                      bSpec.params || deep.param_hint || '70B+', 'layer-streamed from disk');
+                      bSpec.params || deep.param_hint || '70B+', 'resident via aeroLLM');
       if (isFrontier(a.id)) {
         html += '<div class="cs-why">“' + escapeHtml(aModel) + '” is a frontier 70B+ model — '
-              + 'routed to the 2nd inference (aeroLLM) so it can layer-stream from disk '
+              + 'routed to the 2nd inference (aeroLLM), which keeps it resident '
               + 'alongside your on-GPU model.</div>';
       }
       el.innerHTML = html;
@@ -2673,8 +2714,9 @@
     // Column B is intentionally restricted to *deep backends* (AeroLLM,
     // or AirLLM when the operator has opted in via ARAIL_DEV_AIRLLM=1
     // on non-arm64). Loading two competing local models would over-
-    // subscribe VRAM; the deep backends layer-stream from disk so they
-    // coexist with the on-GPU primary at the cost of slower inference.
+    // subscribe VRAM; the deep backends (AeroLLM resident, AirLLM
+    // layer-streamed) coexist with the on-GPU primary at the cost of
+    // slower inference.
     function setCompare(on) {
       State.compareOn = on;
       // Persist the user's choice so closing Box B sticks across reloads
@@ -2706,6 +2748,19 @@
     $('btn-compare').addEventListener('click', () => setCompare(!State.compareOn));
     $('btn-compare-close').addEventListener('click', () => setCompare(false));
 
+    // Honest Cancel: never claims a "canceled" state (A4 — the load can't
+    // actually be interrupted). Shows the endpoint's own note instead of
+    // hiding the strip or pretending the click did something it didn't.
+    $('ls-cancel').addEventListener('click', async () => {
+      try {
+        const r = await fetch('/api/chat/model-load/cancel', { method: 'POST' });
+        const d = await r.json();
+        flashStatus(d.note || 'a load in progress cannot be interrupted');
+      } catch (e) {
+        flashStatus('cancel check failed: ' + e.message);
+      }
+    });
+
     // ── Secondary model picker (column B) ──────────────────────────
     function renderPickerB() {
       const pop = $('picker-pop-B');
@@ -2725,7 +2780,7 @@
       if (deep.length) {
         const sec = document.createElement('div');
         sec.className = 'section';
-        sec.innerHTML = `<div class="head"><span>Deep backends</span><span class="hw">layer-streaming</span></div>`;
+        sec.innerHTML = `<div class="head"><span>Deep backends</span><span class="hw">30B+ deep backends</span></div>`;
         pop.appendChild(sec);
         deep.forEach(m => pop.appendChild(makeOpt(m, State.bId, onPick)));
       }
@@ -3292,9 +3347,25 @@
         }
         list.forEach(m => {
           const isCurrent = m.id === State.currentId;
+          const isDeep    = m.badge === 'deep';
           const isWarm    = State.warmModels.has(m.id);
-          const verdict = m.fit && m.fit.verdict ? m.fit.verdict : 'good';
+          // F-FAKEFIT: a missing verdict must never render as a fake "good" —
+          // 'Unknown' matches the real backend's own out-of-band value
+          // (_fit_verdict_label returns "Unknown" when required/available
+          // memory can't be determined).
+          const verdict = m.fit && m.fit.verdict ? m.fit.verdict : 'Unknown';
           const sizeStr = m.size_gb ? `${m.size_gb.toFixed(1)} GB` : (m.estimated_vram_gb ? `~${Number(m.estimated_vram_gb).toFixed(1)} GB vram` : '');
+          // C4: deep rows get warmth-driven, backend-accurate copy instead
+          // of the generic WARM/cold label — "resident (aeroLLM)" / cold →
+          // "installed (aeroLLM) · load to warm" — and never "streaming"
+          // for aeroLLM (finding 3, F-OVERSELL). AirLLM is AirLLM, not
+          // aeroLLM (finding 5).
+          const deepBackendLabel = m.runtime === 'aerollm' ? 'aeroLLM'
+                                  : m.runtime === 'airllm'  ? 'AirLLM'
+                                  : (m.runtime || 'deep backend');
+          const warmLabelText = isDeep
+            ? (isWarm ? `resident (${deepBackendLabel})` : `installed (${deepBackendLabel}) · load to warm`)
+            : (isWarm ? 'WARM' : 'cold');
           const card = document.createElement('div');
           card.className = 'model-card' + (isCurrent ? ' current' : '') + (isWarm ? ' warm' : '');
           card.innerHTML = `
@@ -3303,7 +3374,7 @@
               <div class="mc-name">${escapeHtml(m.label || m.id)}</div>
               ${m.badge === 'deep' ? '<span class="deep-badge">deep</span>' : ''}
               ${m.badge === 'new'  ? '<span class="new-badge">new</span>'  : ''}
-              ${m.streamed ? '<span class="streamed-badge" title="Layer-streamed via AirLLM">streamed</span>' : ''}
+              ${m.streamed ? '<span class="streamed-badge" title="Exceeds the local hardware floor — routes through a deep backend (AeroLLM resident · AirLLM layer-streamed)">streamed</span>' : ''}
             </div>
             <div class="mc-meta">
               <span class="runtime">${escapeHtml(m.runtime || '')}</span>
@@ -3311,16 +3382,40 @@
               <span class="dot">·</span>
               <span class="fit-chip ${fitClass(verdict)}">${escapeHtml(verdict)}</span>
               <span class="dot">·</span>
-              <span class="${isWarm ? 'warm-label' : 'cold-label'}">${isWarm ? 'WARM' : 'cold'}</span>
+              <span class="${isWarm ? 'warm-label' : 'cold-label'}">${escapeHtml(warmLabelText)}</span>
             </div>
             <div class="mc-actions">
               <button class="mc-act primary"   data-act="A">use as A</button>
-              ${m.badge === 'deep'
-                ? '<button class="mc-act secondary" data-act="B">use as B</button>'
-                : '<button class="mc-act secondary disabled" data-act="B" disabled title="Column B uses a deep layer-streaming backend (AirLLM/AeroLLM) so it can fit alongside model A on the same GPU.">B · deep only</button>'}
-              ${isWarm
-                ? '<button class="mc-act eject" data-act="eject" title="Free this model from VRAM/RAM">eject</button>'
-                : '<button class="mc-act load"  data-act="load"  title="Warm this model with a 1-token call so it loads quickly next time">load</button>'}
+              <!-- Column B used to hard-block every non-deep model — with
+                   only one deep backend ever installed (today: aeroLLM/
+                   gpt-oss-20b-MLX-4bit), that left operators with zero
+                   real choice for B, reported directly as "I can't change
+                   the models." Any model can go in B now; the real fit
+                   chip (already computed from live free memory) is the
+                   informed-choice signal instead of a hard block. -->
+              <button class="mc-act secondary" data-act="B" title="${m.badge === 'deep' ? 'Coexists with model A — layer-streamed/resident, not competing for the same VRAM.' : 'Loads alongside model A — check the fit chip above for whether both fit in free memory.'}">use as B</button>${m.badge !== 'deep' && verdict === 'Requires streaming' ? '<span class="dot">·</span><span class="fit-chip streaming" title="Both models resident at once may exceed free memory — the load itself will still tell you honestly if it fails.">tight fit</span>' : ''}
+              ${(() => {
+                // QA-1: /api/chat/eject can only ever really free a warm
+                // Ollama-runtime model (see its docstring) — mlx/mlx-
+                // openai/cpu/cuda always come back ok:false,
+                // requires_restart:true. Offering an "eject" button that
+                // titles itself "Free this model from VRAM/RAM" on those
+                // runtimes over-promises on exactly the honesty axis this
+                // sprint owns, even though the endpoint itself stays
+                // truthful. Only render it where it can actually work.
+                const canFree = m.runtime === 'ollama';
+                // Deep rows (aeroLLM/AirLLM) never render a working eject —
+                // the resident singleton can't be hot-freed this sprint
+                // (A3) — but a WARM deep row showing only "load" with no
+                // unload signal at all is worse than the mlx/cpu/cuda case
+                // below: at least those explain themselves. Match that
+                // honesty here instead of going silent.
+                if (isDeep && isWarm) return `<button class="mc-act eject disabled" data-act="eject-unavailable" disabled title="${escapeHtml(deepBackendLabel)} keeps its model resident once loaded — it can't be hot-freed in-process. Restart the portal to release it.">can't hot-free</button>`;
+                if (isDeep) return '<button class="mc-act load" data-act="load" title="Warm this deep backend with a 1-token call">load</button>';
+                if (isWarm && canFree) return '<button class="mc-act eject" data-act="eject" title="Free this model from VRAM/RAM">eject</button>';
+                if (isWarm) return `<button class="mc-act eject disabled" data-act="eject-unavailable" disabled title="${escapeHtml(m.runtime || 'this runtime')} cannot hot-free in-process — restart the portal to release it.">can't hot-free</button>`;
+                return '<button class="mc-act load"  data-act="load"  title="Warm this model with a 1-token call so it loads quickly next time">load</button>';
+              })()}
             </div>`;
           card.querySelector('[data-act="A"]').addEventListener('click', e => {
             e.stopPropagation(); selectModel(m); renderModelRail();
@@ -3335,7 +3430,9 @@
           }
           const loadBtn = card.querySelector('[data-act="load"]');
           if (loadBtn) loadBtn.addEventListener('click', e => { e.stopPropagation(); loadModel(m); });
-          const ejectBtn = card.querySelector('[data-act="eject"]');
+          // C5/finding 6: deep rows (aeroLLM/AirLLM) never render an eject
+          // button — the singleton cannot be hot-freed this sprint (A3).
+          const ejectBtn = isDeep ? null : card.querySelector('[data-act="eject"]');
           if (ejectBtn) ejectBtn.addEventListener('click', async e => {
             e.stopPropagation();
             // Use the existing eject endpoint with this card's runtime/model
@@ -3348,10 +3445,15 @@
               });
               if (r.status === 404) { flashStatus('eject endpoint not registered — restart ./arail'); return; }
               const d = await r.json();
-              State.warmModels.delete(m.id);
-              flashStatus(d.ok ? `ejected ${m.id}` : `eject failed: ${d.error || ''}`);
-              if (wasA) { State.currentModel = null; State.currentId = null; renderActiveCard(); }
-              if (wasB) { State.bModel = null; State.bId = null; renderActiveCard(); }
+              // HON-1: only clear the warm dot once the endpoint confirms
+              // it actually freed something — otherwise a failed eject
+              // (or a runtime that can't hot-free) flips the dot to cold
+              // while the model is still resident. Matches the active-
+              // card eject path below, which already gated on d.ok.
+              if (d.ok) State.warmModels.delete(m.id);
+              flashStatus(d.ok ? `ejected ${m.id}` : `eject failed: ${(d.notes && d.notes[0]) || d.error || 'not freed'}`);
+              if (d.ok && wasA) { State.currentModel = null; State.currentId = null; renderActiveCard(); }
+              if (d.ok && wasB) { State.bModel = null; State.bId = null; renderActiveCard(); }
               renderModelRail();
               const wm = $('tele-warm');
               if (wm) {
@@ -3372,18 +3474,23 @@
       const wrap = $('active-card');
       if (!m) { wrap.innerHTML = '<div class="rc-loading">no model</div>'; return; }
       const { provider, model } = transformProvider(m.id, m.runtime);
-      const verdict = m.fit && m.fit.verdict ? m.fit.verdict : 'good';
+      // F-FAKEFIT (active-mini-fit twin of the rail default above).
+      const verdict = m.fit && m.fit.verdict ? m.fit.verdict : 'Unknown';
       $('active-mini-fit').innerHTML = `<span class="fit-chip ${fitClass(verdict)}">${escapeHtml(verdict)}</span>`;
+      // C5/finding 6: no Unload/Eject on deep rows (aeroLLM/AirLLM) here
+      // either — the mini "active card" mirrors the rail card's rule.
+      const isDeepActive = m.badge === 'deep';
+      const bIsDeep = State.bModel && State.bModel.badge === 'deep';
       const bModel = State.compareOn && State.bModel
         ? `<div class="mc-meta mt-2">B · ${escapeHtml(State.bRuntime||'')} · ${escapeHtml(State.bId||'')}
-             <button class="mc-act eject" data-eject="B" title="Free model B from VRAM/RAM">eject B</button>
+             ${bIsDeep ? '' : '<button class="mc-act eject" data-eject="B" title="Free model B from VRAM/RAM">eject B</button>'}
            </div>`
         : '';
       wrap.innerHTML = `
         <div class="mc-name live">${escapeHtml(model)}</div>
         <div class="mc-meta">${escapeHtml(provider)} · <span class="runtime">${escapeHtml(m.runtime||'')}</span></div>
         <div class="active-actions">
-          <button class="mc-act eject" data-eject="A" title="Free this model from VRAM/RAM">eject from VRAM</button>
+          ${isDeepActive ? '' : '<button class="mc-act eject" data-eject="A" title="Free this model from VRAM/RAM">eject from VRAM</button>'}
           <button class="mc-act swap"  data-swap title="Swap to another model — opens the rail picker">swap →</button>
         </div>
         ${bModel}`;
@@ -3432,54 +3539,73 @@
        Parses the NDJSON stream and surfaces any {type:'error'} event so a
        failed warm shows the real reason (missing weights, Metal crash, …)
        instead of falsely marking the model WARM. */
+    // ── Load-progress strip (sprints/2026-07-20-model-ux-unification) ──
+    // Wires the rail's Load button to the honest /api/chat/model-load
+    // state machine (real ETA from measured throughput, friendly errors,
+    // never a fake filling bar — see that endpoint's own docstring) so
+    // the operator sees the real memory/timing situation WHILE loading,
+    // not just before/after. Polls GET for live state while the POST
+    // (which blocks server-side until the load settles) is in flight.
+    let _loadPollTimer = null;
+    function _stopLoadPoll() {
+      if (_loadPollTimer) { clearInterval(_loadPollTimer); _loadPollTimer = null; }
+    }
+    function _fmtEta(sec) {
+      if (sec === null || sec === undefined) return 'eta —';
+      if (sec <= 0) return 'eta <1s';
+      if (sec < 60) return `eta ~${Math.ceil(sec)}s`;
+      return `eta ~${Math.ceil(sec / 60)}m`;
+    }
+    function _showLoaderStrip(label) {
+      const strip = $('loader-strip');
+      if (!strip) return;
+      strip.classList.add('visible');
+      $('ls-model').textContent = label;
+      $('ls-pct').textContent = '';
+      $('ls-eta').textContent = 'eta —';
+      const bar = strip.querySelector('.bar');
+      if (bar) bar.classList.add('indeterminate');
+    }
+    function _hideLoaderStrip() {
+      const strip = $('loader-strip');
+      if (!strip) return;
+      strip.classList.remove('visible');
+      const bar = strip.querySelector('.bar');
+      if (bar) bar.classList.remove('indeterminate');
+    }
+    async function _pollLoadStateOnce() {
+      try {
+        const r = await fetch('/api/chat/model-load');
+        if (!r.ok) return;
+        const d = await r.json();
+        if (d.state === 'loading') {
+          if (d.message) $('ls-model').textContent = d.message;
+          $('ls-eta').textContent = _fmtEta(d.eta_seconds);
+        }
+      } catch { /* a missed poll tick isn't worth surfacing */ }
+    }
+
     async function loadModel(m) {
       if (!m) return;
-      flashStatus(`loading ${m.label || m.id}…`);
+      const label = m.label || m.id;
+      flashStatus(`loading ${label}…`);
+      _showLoaderStrip(label);
+      _stopLoadPoll();
+      _loadPollTimer = setInterval(_pollLoadStateOnce, 600);
       try {
-        const body = {
-          message: 'ok',
-          history: [],
-          backend: m.runtime === 'airllm' || m.runtime === 'aerollm' ? m.runtime : undefined,
-          runtime: m.runtime,
-          model:   m.id,
-          temperature: 0,
-          top_p: 1,
-          max_tokens: 1,
-        };
-        const r = await fetch('/api/chat/stream', {
+        const isDeepProvider = m.runtime === 'airllm' || m.runtime === 'aerollm';
+        const r = await fetch('/api/chat/model-load', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
+          body: JSON.stringify({
+            model: m.id,
+            runtime: isDeepProvider ? undefined : m.runtime,
+            provider: isDeepProvider ? m.runtime : undefined,
+          }),
         });
         if (!r.ok) throw new Error('HTTP ' + r.status);
-        // Parse NDJSON, mirroring streamChat()'s event handling. Bail on
-        // the first {type:'error'} or a final event carrying an error.
-        const reader = r.body.getReader();
-        const dec = new TextDecoder();
-        let buf = '';
-        let errMsg = null;
-        outer: while (true) {
-          const { value, done } = await reader.read();
-          if (done) break;
-          buf += dec.decode(value, { stream: true });
-          let nl;
-          while ((nl = buf.indexOf('\n')) >= 0) {
-            const line = buf.slice(0, nl).trim();
-            buf = buf.slice(nl + 1);
-            if (!line) continue;
-            let evt;
-            try { evt = JSON.parse(line); } catch { continue; }
-            if (evt && evt.type === 'error') {
-              errMsg = evt.error || evt.message || 'unknown error';
-              break outer;
-            }
-            if (evt && evt.type === 'final' && evt.error) {
-              errMsg = evt.error;
-              break outer;
-            }
-          }
-        }
-        if (errMsg) throw new Error(errMsg);
+        const d = await r.json();
+        if (d.state === 'error') throw new Error(d.message || 'load failed');
         State.warmModels.add(m.id);
         renderModelRail();
         const wm = $('tele-warm');
@@ -3487,9 +3613,12 @@
           const list = Array.from(State.warmModels);
           wm.innerHTML = list.map(x => `<span class="warm-pill">${escapeHtml(transformProvider(x,'').model)}</span>`).join(' ');
         }
-        flashStatus(`loaded ${m.label || m.id}`);
+        flashStatus(d.message || `loaded ${label}`);
       } catch (e) {
         flashStatus(`load failed: ${e.message}`);
+      } finally {
+        _stopLoadPoll();
+        _hideLoaderStrip();
       }
     }
 
@@ -3699,7 +3828,11 @@
         const d = await r.json();
         State.gallery = d;
         State.deep = d.deep || null;   // deep_info: 2nd-inference model + tier/frontier flags
-        State.models = (d.gallery && d.gallery.installed) || [];
+        // §2.2 fix: d.gallery.installed carries no `fit` verdict (every card
+        // silently defaulted to a fake "good"). d.compact.local_models.items
+        // is the SAME set of local models enriched by _build_local_model_entry
+        // with the real fit.verdict computed from free_gb (F-FAKEFIT).
+        State.models = (d.compact && d.compact.local_models && d.compact.local_models.items) || [];
 
         // Fold optional deep backends (AirLLM, AeroLLM) into the picker
         // as virtual entries — they're full-fledged backends but live
@@ -3714,10 +3847,26 @@
             runtime: o.id,                 // 'airllm' or 'aerollm'
             size_gb: null,
             estimated_vram_gb: null,
-            fit: { verdict: o.installed ? 'streaming' : 'not installed', summary: o.description || '' },
+            // C4/F-OVERSELL: never 'streaming' for aeroLLM — it keeps its
+            // model resident once loaded (AERO_MOE_SELECT, the real
+            // expert-streaming feature, is off and absent from src/).
+            // `o.resident` is the real warmth probe — `_tier1_resident()`
+            // for aeroLLM (inspects AeroLLMBackend._shared without
+            // constructing anything), wrapper-cache presence for AirLLM.
+            fit: {
+              verdict: !o.installed
+                ? 'Not installed'
+                : (o.id === 'aerollm'
+                    ? (o.resident ? 'Resident' : 'Ready to load')
+                    : 'Streaming'),
+              summary: o.description || '',
+            },
             endpoint: null,
             badge: 'deep',
             installed: !!o.installed,
+            // F-WARMDOT: carried through so State.warmModels can be seeded
+            // from real residency, not client-side in-memory guesswork.
+            resident: !!o.resident,
             install_command: o.install_command,
             spec: {
               params: o.param_hint || '70B+',
@@ -3739,6 +3888,16 @@
         State.deepEntries = deepEntries;
         // Append to gallery so they show up in BOTH columns' pickers.
         State.models = State.models.concat(deepEntries);
+
+        // F-WARMDOT: seed the client's warm-tracking Set from real,
+        // server-probed residency (Ollama rows: live `ollama ps`; aeroLLM:
+        // `_tier1_resident()`; AirLLM: wrapper-cache presence) instead of
+        // starting cold every page load regardless of what's actually
+        // resident. Subsequent load/eject actions keep mutating this Set
+        // exactly as before — this only fixes the *initial* reading.
+        State.models.forEach(m => {
+          if (m.warm || m.resident) State.warmModels.add(m.id);
+        });
 
         State.sources = (d.compact && d.compact.compute_sources) || [];
         State.activeSource = (State.sources.find(s => s.active) || {}).id || 'my_machine';
@@ -3795,7 +3954,8 @@
       if (!eligible) return;
 
       // Honor the OOM-pressure memory: skip Box B auto-warm if free RAM is
-      // tight. The deep model adds a few GB resident even when streamed.
+      // tight. The deep model adds several GB once resident (aeroLLM) or
+      // while layer-streaming (AirLLM).
       const freeGb = Number(hw && hw.free_gb) || 0;
       if (freeGb > 0 && freeGb < 6) {
         flashStatus('skipped 2nd box auto-load — free RAM low (<6 GB)');

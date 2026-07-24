@@ -1865,7 +1865,8 @@ class OllamaNativeBackend(OpenAICompatBackend):
                  temperature: float = 0.7,
                  top_p: Optional[float] = None,
                  *, system: Optional[str] = None,
-                 messages: Optional[list] = None) -> ModelResponse:
+                 messages: Optional[list] = None,
+                 think: Optional[bool] = None) -> ModelResponse:
         if system:
             prompt = f"{system}\n\n{prompt}"
         start = time.time()
@@ -1876,9 +1877,25 @@ class OllamaNativeBackend(OpenAICompatBackend):
             "messages": [{"role": "user", "content": prompt}],
             "stream": False,
         }
-        # options.num_ctx only included when set (else Ollama uses its default)
+        # options.num_ctx / num_predict only included when set (else Ollama
+        # uses its own defaults). num_predict caps *visible* output only —
+        # reasoning models (e.g. gemma4) still burn an unbounded number of
+        # hidden "thinking" tokens first, so a capped call can still run for
+        # minutes. `think` (below) is what actually bounds that.
+        options: dict = {}
         if num_ctx is not None:
-            body["options"] = {"num_ctx": int(num_ctx)}
+            options["num_ctx"] = int(num_ctx)
+        if max_tokens is not None:
+            options["num_predict"] = int(max_tokens)
+        if options:
+            body["options"] = options
+        # think=False disables the hidden reasoning pass entirely (Ollama
+        # >=0.32 native /api/chat option). Callers that just need a fast,
+        # bounded call — e.g. the chat UI's warm-up ping — pass think=False
+        # explicitly; real chat turns leave it unset so reasoning models
+        # keep their thinking traces.
+        if think is not None:
+            body["think"] = think
         keep_alive = self._keep_alive()
         if keep_alive is not None:
             body["keep_alive"] = keep_alive
@@ -1907,7 +1924,8 @@ class OllamaNativeBackend(OpenAICompatBackend):
                         temperature: float = 0.7,
                         top_p: Optional[float] = None,
                         *, system: Optional[str] = None,
-                        messages: Optional[list] = None) -> Iterator[StreamResult]:
+                        messages: Optional[list] = None,
+                        think: Optional[bool] = None) -> Iterator[StreamResult]:
         """Symmetry with OpenAICompatBackend; chat path only calls complete().
         Streams via /api/chat with stream:true, yields deltas then ModelResponse."""
         if system:
@@ -1920,8 +1938,18 @@ class OllamaNativeBackend(OpenAICompatBackend):
             "messages": [{"role": "user", "content": prompt}],
             "stream": True,
         }
+        # See complete()'s comments: num_predict must be forwarded or Ollama
+        # ignores max_tokens; think=False is what actually bounds hidden
+        # reasoning tokens for models like gemma4.
+        options: dict[str, Any] = {}
         if num_ctx is not None:
-            body["options"] = {"num_ctx": int(num_ctx)}
+            options["num_ctx"] = int(num_ctx)
+        if max_tokens is not None:
+            options["num_predict"] = int(max_tokens)
+        if options:
+            body["options"] = options
+        if think is not None:
+            body["think"] = think
         keep_alive = self._keep_alive()
         if keep_alive is not None:
             body["keep_alive"] = keep_alive
