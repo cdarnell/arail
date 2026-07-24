@@ -113,6 +113,45 @@ speculative decoding later, rather than only tiered routing.
 
 ---
 
+## Finding 6 — A0 LoRA-compatibility spike: **PASSED** (executed 2026-07-24)
+
+Disconfirmer 1 asked whether `mlx_lm` can LoRA a *mixed* 4/8-bit OptiQ
+checkpoint. Run end-to-end on the real base. **It does not fire.**
+
+| Check | Result |
+|---|---|
+| Download `mlx-community/gemma-4-e2b-it-OptiQ-4bit` → `/Users/Shared/models/` | 4.9 GB on disk (4.0 GB LM + 908 MB vision tower) |
+| `mlx_lm.load()` | **OK — 1.14 B params** (matches hub metadata; the vision tower is not loaded as text params) |
+| Architecture | `Gemma4ForConditionalGeneration` — a VLM; `mlx_lm` loads the text LM only |
+| LoRA train, 10 iters, 4 layers, 20-example corpus | **Ran.** Val loss **9.448 → 6.393**; train loss 9.113 → 7.138 |
+| Trainable params | 1.704 M (0.037 % of 4628.6 M as counted incl. vision/PLE) |
+| Peak memory (training) | **4.752 GB** |
+| Throughput | 1274 tokens/sec at iter 10 |
+
+**Emitted adapter passes the WC-A real-tensor check:**
+
+| | this spike | the v1.0 "graduated" stub |
+|---|---|---|
+| bytes | **6,822,619** (6.8 MB) | **1,210** |
+| tensors | **56**, all > 1000 elements | none (JSON metadata only) |
+| params | 1.704 M | — |
+| dtype / sample | float32 `(12288, 8)`, nonzero | — |
+
+A **5,600× size difference.** The ARCHITECTURE A1 criteria (> 1 MB, tensor
+count > 0, ≥1 float tensor with numel > 1000) separate real from simulated
+cleanly — confirmed against both a genuine artifact and the known-bad stub.
+
+**Consequences for the plan:**
+
+- Base is **confirmed usable**; no fallback to `gemma-4-e2b-it-4bit` needed.
+- ⚠ **WC-C (≤ 3 GB resident) is now the live risk, not LoRA compat.** The folder
+  is 4.9 GB and training peaked at 4.75 GB. Training memory ≠ inference
+  residency, but resident footprint must be *measured* before claiming the
+  "1–3 B in memory" property. If it exceeds 3 GB, consider the text-only or
+  plain 4-bit variant, or drop the vision tower.
+- LoRA rank defaulted to 8 (`lora_a` shape `(12288, 8)`); A3's rank-16 plan is a
+  deliberate step up, not the default.
+
 ## Verdict
 
 **GO.** No disconfirmer fires fatally. Recommended shape:

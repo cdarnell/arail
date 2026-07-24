@@ -33,8 +33,17 @@ LoRA may refuse it. Resolve before any corpus work.
 4. **Assert:** `MLX_AVAILABLE is True`, and the emitted adapter contains real
    tensors.
 
-**Exit:** works → proceed. Fails on the quant → fall back to
-`mlx-community/gemma-4-e2b-it-4bit`, else a bf16 E2B. Record which in the receipt.
+**RESULT (2026-07-24): PASSED — see [`SPIKE.md`](./SPIKE.md) Finding 6.**
+LoRA trains on the OptiQ mixed 4/8-bit quant; val loss 9.448 → 6.393 in 10 iters;
+emitted adapter is 6.8 MB / 56 real tensors (vs the 1210-byte known-bad stub).
+`mlx_lm` loads the text LM at 1.14 B params. **No fallback base needed** — the
+`gemma-4-e2b-it-4bit` / bf16 contingency is unused. Proceed to A1.
+
+⚠ **Risk moved:** LoRA compatibility is settled, so **WC-C (≤ 3 GB resident) is
+now the live risk.** The base folder is 4.9 GB and training peaked at 4.75 GB.
+Training memory ≠ inference residency — measure resident footprint in A5 before
+claiming the "1–3 B in memory" property; if it exceeds 3 GB, evaluate a
+text-only/plain-4bit variant or strip the vision tower.
 
 ---
 
