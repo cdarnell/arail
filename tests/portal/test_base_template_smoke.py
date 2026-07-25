@@ -28,7 +28,6 @@ PAGE_ROUTES = [
     "/mission",
     "/chat",
     "/tuning",
-    "/teacher",
     "/research",
     "/dac",
     "/graph",
