@@ -55,6 +55,52 @@ uvicorn arail.portal.app:app \
     --log-level warning &
 PIDS+=($!)
 
+# Ollama backs the default chat model (llama-ai-eng) regardless of
+# MODEL_BACKEND/tier — setup.sh installs it and pulls/creates the model,
+# but `ollama pull`/`ollama create` only auto-launch the daemon as a
+# side effect *at setup time*; nothing keeps it running afterward, so a
+# fresh terminal session (or a reboot) leaves chat unable to reach it.
+# We only ever manage an Ollama we started ourselves here — an Ollama
+# the user runs independently (brew services, their own `ollama serve`,
+# another project) is left alone entirely, matching stop_services()'s
+# "never touch what we didn't start" rule in reset.sh. A PID file
+# (removed by the cleanup trap below, and by `./arailctl stop` via
+# reset.sh) records that this session is the owner.
+# Same precedence + tilde-expansion as reset.sh's _resolve_data_dir() —
+# must agree exactly, since reset.sh's stop_services() reads this pidfile.
+_expand_tilde_for_ollama() {
+    case "${1-}" in
+        "~")   printf '%s' "$HOME" ;;
+        "~/"*) printf '%s%s' "$HOME" "${1#\~}" ;;
+        *)     printf '%s' "${1-}" ;;
+    esac
+}
+if [[ -n "${ARAIL_DATA_DIR:-}" ]]; then
+    OLLAMA_DATA_DIR="$(_expand_tilde_for_ollama "$ARAIL_DATA_DIR")"
+else
+    OLLAMA_DATA_DIR="$(_expand_tilde_for_ollama "${LAB_ROOT:-lab}")"
+    OLLAMA_DATA_DIR="${OLLAMA_DATA_DIR%/}/data"
+fi
+OLLAMA_PIDFILE="${OLLAMA_DATA_DIR%/}/.ollama-started-by-arail.pid"
+if command -v ollama &>/dev/null; then
+    if curl -sf -m 2 "http://${OLLAMA_HOST:-127.0.0.1:11434}/api/version" >/dev/null 2>&1; then
+        info "Ollama     → http://${OLLAMA_HOST:-127.0.0.1:11434} (already running)"
+    else
+        info "Ollama     → http://${OLLAMA_HOST:-127.0.0.1:11434} (starting)"
+        ollama serve &
+        OLLAMA_PID=$!
+        PIDS+=("$OLLAMA_PID")
+        mkdir -p "$(dirname "$OLLAMA_PIDFILE")"
+        echo "$OLLAMA_PID" > "$OLLAMA_PIDFILE"
+        for _ in 1 2 3 4 5 6 7 8 9 10; do
+            curl -sf -m 1 "http://${OLLAMA_HOST:-127.0.0.1:11434}/api/version" >/dev/null 2>&1 && break
+            sleep 0.5
+        done
+    fi
+else
+    info "Ollama     → (not installed — chat's default local model needs it: https://ollama.com)"
+fi
+
 if [[ "${MODEL_BACKEND:-auto}" == "mlx" ]]; then
     info "MLX API    → http://${BIND}:${MLX_OPENAI_PORT:-11435}/v1"
     uvicorn arail.mlx_openai_server:app \
@@ -155,6 +201,7 @@ echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━�
 echo -e "  ${BOLD}All services running.${RESET}  Press Ctrl+C to stop."
 echo ""
 echo -e "  Dashboard:  ${BOLD}http://${BIND}:${PORTAL_PORT:-8080}${RESET}"
+echo -e "  Ollama:     ${BOLD}http://${OLLAMA_HOST:-127.0.0.1:11434}${RESET}"
 echo -e "  MLX API:    ${BOLD}http://${BIND}:${MLX_OPENAI_PORT:-11435}/v1${RESET}"
 echo -e "  Memory:     ${BOLD}http://${BIND}:${LANCE_PORT}${RESET}"
 echo -e "  Terminal:   ${BOLD}http://${BIND}:${TERMINAL_PORT:-7681}${RESET}"
@@ -183,6 +230,10 @@ cleanup() {
     info "Shutting down…"
     for pid in "${PIDS[@]}"; do kill "$pid" 2>/dev/null || true; done
     wait 2>/dev/null || true
+    # Only remove the pidfile if we're the ones who wrote it — a plain
+    # `[[ -f ]]` check would also fire (harmlessly) if a separate
+    # ./arailctl stop already cleaned it up first.
+    [[ -n "${OLLAMA_PID:-}" && -f "$OLLAMA_PIDFILE" ]] && rm -f "$OLLAMA_PIDFILE"
     info "All services stopped."
 }
 trap cleanup INT TERM
