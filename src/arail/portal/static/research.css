@@ -1648,3 +1648,64 @@
   color: var(--text-muted);
   font-style: italic;
 }
+
+/* ── Design an experiment (generic runtime-inputs form) ─────────────── */
+.rx-design {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding: 0.75rem;
+  margin: 0.5rem 0.75rem;
+  background: var(--surface2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-s);
+}
+.rx-design-label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+.rx-design textarea,
+.rx-design select,
+.rx-design input {
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-s);
+  color: var(--text);
+  font-size: 0.78rem;
+  padding: 0.4rem 0.5rem;
+  font-family: var(--font-sans);
+}
+.rx-design-hint {
+  margin: 0;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  font-style: italic;
+}
+.rx-design-vars-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 0.35rem;
+}
+.rx-design-var-row {
+  display: grid;
+  grid-template-columns: 1fr 2fr auto;
+  gap: 0.35rem;
+  margin-bottom: 0.35rem;
+}
+.rx-design-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+.rx-design-status {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}

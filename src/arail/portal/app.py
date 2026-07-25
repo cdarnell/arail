@@ -2787,8 +2787,18 @@ async def research_page(request: Request):
 
     All the live state is populated client-side via /api/goal,
     /api/experiments, /api/research/status, and the SSE activity stream.
-    The page just needs to render an empty shell."""
-    return templates.TemplateResponse(request, "research.html", {**_identity_ctx()})
+    The page just needs to render an empty shell — plus the engine's real
+    archetype catalog so the design-an-experiment form only ever offers
+    what mini_experiments actually implements."""
+    from arail.research import mini_experiments as mx
+    archetypes = {
+        k: {"methodology": mx.ARCHETYPE_METHODOLOGY.get(k, ""),
+            "metrics": mx.ARCHETYPE_METRICS.get(k, [])}
+        for k in sorted(mx.ARCHETYPE_METRICS) if k != "unmeasured"
+    }
+    return templates.TemplateResponse(
+        request, "research.html",
+        {**_identity_ctx(), "archetypes": archetypes})
 
 
 # ── SSE Activity Stream ─────────────────────────────────────────────────
@@ -4025,15 +4035,76 @@ async def search_experiments(q: str, k: int = 5, status: str | None = None):
 
 @app.post("/api/experiments")
 async def create_experiment(request: Request):
-    body = await request.json()
+    """Create an experiment the Researcher will pick up on its next run.
+
+    This is the generic "design an experiment" input path: any archetype,
+    any variables (e.g. a benchmark command + tunables for
+    game_config_optimization, corpus knobs for retrieval_quality). Variables
+    are runtime inputs — per-user, never part of any World bundle (ADR-0002).
+    """
+    if (rej := _pkb_write_csrf(request)) is not None:
+        return rej
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse(status_code=400, content={"error": "invalid_json"})
+    if not isinstance(body, dict):
+        return JSONResponse(status_code=400, content={"error": "invalid_json"})
+
+    from arail.research import mini_experiments as mx
+
+    hypothesis = str(body.get("hypothesis") or "").strip()
+    if not hypothesis or len(hypothesis) > 500:
+        return JSONResponse(status_code=400,
+                            content={"error": "hypothesis_required",
+                                     "detail": "1-500 characters"})
+
+    variables = body.get("variables", {})
+    if not isinstance(variables, dict) or \
+            not all(isinstance(k, str) for k in variables):
+        return JSONResponse(status_code=400,
+                            content={"error": "variables_must_be_object"})
+    try:
+        if len(json.dumps(variables)) > 8192:
+            return JSONResponse(status_code=400,
+                                content={"error": "variables_too_large",
+                                         "detail": "8 KB serialized max"})
+    except (TypeError, ValueError):
+        return JSONResponse(status_code=400,
+                            content={"error": "variables_not_serializable"})
+
+    # archetype: top-level convenience or already inside variables; either
+    # way it must be one the engine actually implements — no aspirational
+    # archetypes that would silently record "unmeasured".
+    archetype = str(body.get("archetype") or variables.get("archetype") or "").strip()
+    if archetype:
+        if archetype not in mx.ARCHETYPE_METRICS or archetype == "unmeasured":
+            return JSONResponse(status_code=400,
+                                content={"error": "unknown_archetype",
+                                         "known": sorted(
+                                             k for k in mx.ARCHETYPE_METRICS
+                                             if k != "unmeasured")})
+        variables = {**variables, "archetype": archetype}
+
+    methodology = str(body.get("methodology") or "").strip()
+    if not methodology and archetype:
+        methodology = mx.ARCHETYPE_METHODOLOGY.get(archetype, "")
+    metrics = body.get("metrics") or (
+        mx.ARCHETYPE_METRICS.get(archetype, []) if archetype else [])
+    if not isinstance(metrics, list):
+        return JSONResponse(status_code=400, content={"error": "metrics_must_be_list"})
+
     exp = tracker.create(
-        hypothesis=body["hypothesis"],
-        methodology=body["methodology"],
-        variables=body.get("variables", {}),
+        hypothesis=hypothesis,
+        methodology=methodology,
+        variables=variables,
         duration_days=body.get("duration_days"),
-        metrics=body.get("metrics", []),
-        domain=body.get("domain", "general"),
+        metrics=[str(m)[:80] for m in metrics][:16],
+        domain=str(body.get("domain") or "general")[:80],
     )
+    activity_log.emit("research",
+                      f"Experiment designed by the operator: {hypothesis[:120]}",
+                      "info")
     return exp
 
 

@@ -166,6 +166,8 @@ def _title_of(rel: str, text: str) -> str:
 def _kind_of(rel: str) -> str:
     if _WORLD_TERM_RE.match(rel):
         return "world_term"
+    if rel.startswith("sources/scout/"):
+        return "scout_finding"
     if rel.startswith("agents/research/"):
         return "agent_research"
     if rel.startswith("agents/experiments/"):
@@ -195,6 +197,12 @@ def _provenance_of(rel: str, text: str, kind: str) -> str:
         if m:
             return m.group(1).strip()[:200]
         return "world-term"
+    if kind == "scout_finding":
+        # agenda_watch findings carry the watched feed URL as a Source: line
+        m = re.search(r"^Source:\s*(.+)$", text, re.MULTILINE)
+        if m:
+            return m.group(1).strip()[:200]
+        return "scout-finding"
     if kind.startswith("agent_"):
         return kind
     if kind == "note":
@@ -256,9 +264,11 @@ def list_pending(pkb_root: Path | None = None, *, limit: int = 500) -> list[dict
         })
         if len(out) >= limit:
             break
-    # world terms first (the headline promotion case), then agent outputs, notes
-    order = {"world_term": 0, "agent_research": 1, "agent_experiment": 1,
-             "agent_synthesis": 1, "agent_recommendation": 1, "note": 2}
+    # world terms first (the headline promotion case), then scout findings
+    # (time-sensitive "the agents noticed something" items), agent outputs, notes
+    order = {"world_term": 0, "scout_finding": 1, "agent_research": 2,
+             "agent_experiment": 2, "agent_synthesis": 2,
+             "agent_recommendation": 2, "note": 3}
     out.sort(key=lambda r: (order.get(r["kind"], 3), r["title"].lower()))
     return out
 
