@@ -1,5 +1,12 @@
 # Sprint: 2026-07-07-portal-design-v2
 
+**Status:** ✅ SHIPPED — closed retroactively 2026-07-25. The ledger below froze
+mid-flight during the sprint; the work all landed on `main` (base.html + the v2
+token contract, self-hosted Inter/JetBrains-Mono fonts, `chat.legacy.html`
+removed, per-surface recolor, and the DaC world-theme block via qukaizen-dac
+PR #21). The status cells are corrected here so `/sprint --resume` cannot
+reopen a completed sprint.
+
 **Branch:** `qukaizen/portal-design-v2`
 **Goal:** Complete visual overhaul of the ARAIL portal — "Modern Lab, Technical Edge" design system v2 with a token architecture that DaC World themes can drive (Sprint 2 follow-up: `world-theme-data`).
 
@@ -9,13 +16,13 @@
 |---|---|---|---|
 | think | Win condition locked by user-approved plan (aesthetic, world theming depth, light-readiness, scope) | done (plan approval supersedes VISION.md) | ARCHITECTURE.md §Decisions |
 | plan | Architecture from exploration + Plan agent, approved by user | done | ARCHITECTURE.md |
-| build 0 | Prep: branch, launch.json, delete chat.legacy.html, pytest baseline | in progress | BUILD_LOG.md |
-| build A | Foundation: base.html, token contract v2, ui_theme.py restructure, self-hosted fonts, retire nav.js theming | pending | BUILD_LOG.md |
-| build B | Ultracode design panel → default theme + component pass | pending | BUILD_LOG.md, design mockups |
+| build 0 | Prep: branch, launch.json, delete chat.legacy.html, pytest baseline | done | BUILD_LOG.md |
+| build A | Foundation: base.html, token contract v2, ui_theme.py restructure, self-hosted fonts, retire nav.js theming | done | BUILD_LOG.md |
+| build B | Ultracode design panel → default theme + component pass | done | BUILD_LOG.md, design mockups |
 | build C | Per-surface fan-out (C1–C6) | done | BUILD_LOG.md |
 | build D | World theme block + validator + AI World (DaC) | done | (qukaizen-dac PR #21) |
 | test | Smoke, recolor regression, token-compliance lint, visual pass | done | TEST_REPORT.md |
-| ship | Open PR to main | in progress | — |
+| ship | Open PR to main | done | merged to main |
 
 ## Cross-repo
 - qukaizen-dac PR #21 — `dac.world-theme/v1` emission + validator + the AI & ML World bundle. Contract: `docs/world-theme-contract.md`.
