@@ -426,27 +426,184 @@ function showModeStep() {
       // switch is worth a note. Show it briefly, then continue.
       warn.textContent = "Couldn't switch to hybrid — you can flip modes " +
         'anytime from the shield badge in the nav (or edit .env).';
-      setTimeout(function () { showWorldStep(chosen); }, 1800);
+      setTimeout(function () { showWorldStep({ mode: chosen, boot: false }); }, 1800);
       return;
     }
-    showWorldStep(chosen);
+    showWorldStep({ mode: chosen, boot: false });
   });
 }
 
 // ── Step 3 of 3: pick your lab's World ──
 
-async function showWorldStep(chosenMode) {
-  let worlds = [];
-  try {
-    const r = await fetch('/api/worlds', { credentials: 'same-origin', cache: 'no-store' });
-    if (!r.ok) { goHome(); return; }
-    const data = await r.json();
-    worlds = (data && data.worlds) || [];
-  } catch (e) { goHome(); return; }
-  if (!worlds.length) { goHome(); return; }
+// Concept-teaching strip (C5): generalizable examples of "a World of X",
+// explicitly labeled as illustrations — NEVER as shipped features. If a
+// bundle with the same slug is actually present in the catalog (e.g.
+// video-games, PR #141), it renders as its own real card with its own
+// prose line below, and its illustrative line here is dropped so nothing
+// is said twice.
+const WORLD_EXAMPLES = [
+  {
+    slug: 'photography',
+    label: 'Photography',
+    text: 'agents and the knowledge base reorient around lenses, lighting, ' +
+      'and editing workflows; autoresearch could compare develop settings ' +
+      'or gear tradeoffs.',
+  },
+  {
+    slug: 'biology',
+    label: 'Advanced Biology',
+    text: 'the lab orients around a research domain — papers, terms, and ' +
+      'methods — with agents summarizing and connecting findings.',
+  },
+  {
+    slug: 'video-games',
+    label: 'Video Games',
+    text: '(vivid, and honestly bounded) mount a Video Games World pointed ' +
+      "at a driving sim, and the lab's agents read the game's manual, " +
+      'learn your hardware, and run real, measured experiments to find ' +
+      "your optimal settings — the same measure-don't-guess loop the " +
+      'Researcher already runs today, applied to a new domain.',
+  },
+];
+
+function renderConceptStrip(card, validWorlds) {
+  const mountedSlugs = {};
+  validWorlds.forEach(function (w) { mountedSlugs[w.slug] = true; });
+  const examples = WORLD_EXAMPLES.filter(function (ex) { return !mountedSlugs[ex.slug]; });
+  if (!examples.length) return;
+
+  const wrap = document.createElement('div');
+  wrap.className = 'wc-concept-strip';
+
+  const heading = document.createElement('p');
+  heading.className = 'wc-academic';
+  heading.textContent = 'What a World of X could mean — examples of the ' +
+    'pattern, not shipped features:';
+  wrap.appendChild(heading);
+
+  examples.forEach(function (ex) {
+    const line = document.createElement('p');
+    line.className = 'wc-academic wc-concept-example';
+    const strong = document.createElement('strong');
+    strong.textContent = ex.label + ': ';
+    line.appendChild(strong);
+    line.appendChild(document.createTextNode(ex.text));
+    wrap.appendChild(line);
+  });
+
+  card.appendChild(wrap);
+}
+
+// Honest failure states (C6) — replacing the three swallowed goHome() calls
+// on catalog load. Never auto-navigates; always offers Skip and a retry.
+function renderCatalogUnavailable(card, info) {
+  card.textContent = '';
+  const kicker = document.createElement('div');
+  kicker.className = 'wc-kicker';
+  kicker.textContent = "Step 3 of 3 — pick your lab's World";
+  card.appendChild(kicker);
+
+  const h1 = document.createElement('h1');
+  h1.textContent = "Couldn't load the World catalog";
+  card.appendChild(h1);
+
+  const msg = document.createElement('p');
+  msg.className = 'wc-tagline wc-catalog-error';
+  msg.textContent = info.threw
+    ? 'A network error kept the World catalog from loading. Nothing was ' +
+      'mounted. You can retry, or skip for now — AI & ML (the default) is ' +
+      'used until you pick one.'
+    : "The World catalog couldn't be loaded right now. Nothing was mounted. " +
+      'You can retry, or skip for now — AI & ML (the default) is used ' +
+      'until you pick one.';
+  card.appendChild(msg);
+
+  const actions = document.createElement('div');
+  actions.className = 'wc-actions';
+  const retry = document.createElement('button');
+  retry.type = 'button';
+  retry.className = 'wc-btn';
+  retry.textContent = 'Retry';
+  retry.addEventListener('click', function () { showWorldStep(info.retryOpts); });
+  actions.appendChild(retry);
+  const skip = document.createElement('a');
+  skip.className = 'wc-skip';
+  skip.href = '/';
+  skip.textContent = 'Skip for now';
+  actions.appendChild(skip);
+  card.appendChild(actions);
+}
+
+function renderNoWorldsFound(card) {
+  card.textContent = '';
+  const kicker = document.createElement('div');
+  kicker.className = 'wc-kicker';
+  kicker.textContent = "Step 3 of 3 — pick your lab's World";
+  card.appendChild(kicker);
+
+  const h1 = document.createElement('h1');
+  h1.textContent = 'No Worlds found in this lab';
+  card.appendChild(h1);
+
+  const msg = document.createElement('p');
+  msg.className = 'wc-tagline wc-no-worlds';
+  msg.textContent = 'This lab has no mountable Worlds yet. You can forge ' +
+    'your own, or skip for now.';
+  card.appendChild(msg);
+
+  const list = document.createElement('div');
+  list.className = 'wc-worlds';
+  const forge = document.createElement('a');
+  forge.className = 'wc-world';
+  forge.href = '/worlds';
+  const forgeName = document.createElement('span');
+  forgeName.className = 'wc-world-name';
+  forgeName.textContent = '✦ Forge your own…';
+  forge.appendChild(forgeName);
+  list.appendChild(forge);
+  card.appendChild(list);
+
+  const skip = document.createElement('a');
+  skip.className = 'wc-skip';
+  skip.href = '/';
+  skip.textContent = 'Skip for now';
+  card.appendChild(skip);
+}
+
+// C5: showWorldStep(opts), opts = { mode: 'airgapped'|'hybrid'|null, boot: bool }.
+// Exactly one other call site (the end of Step 2); no positional back-compat.
+async function showWorldStep(opts) {
+  opts = opts || {};
+  const mode = opts.mode || null;
 
   const card = document.querySelector('.wc-card');
   card.textContent = '';
+
+  let fetchThrew = false;
+  let fetchFailed = false;
+  let data = null;
+  try {
+    const r = await fetch('/api/worlds', { credentials: 'same-origin', cache: 'no-store' });
+    if (!r.ok) {
+      fetchFailed = true;
+    } else {
+      data = await r.json();
+    }
+  } catch (e) {
+    fetchThrew = true;
+  }
+
+  if (fetchFailed || fetchThrew) {
+    renderCatalogUnavailable(card, { threw: fetchThrew, retryOpts: opts });
+    return;
+  }
+
+  const worlds = (data && data.worlds) || [];
+  const validWorlds = worlds.filter(function (w) { return w.valid; });
+  if (!validWorlds.length) {
+    renderNoWorldsFound(card);
+    return;
+  }
 
   const kicker = document.createElement('div');
   kicker.className = 'wc-kicker';
@@ -459,17 +616,29 @@ async function showWorldStep(chosenMode) {
 
   const tagline = document.createElement('p');
   tagline.className = 'wc-tagline';
-  let intro = "A World is what your lab studies — its starting knowledge base and look. You can change it anytime.";
-  if (chosenMode === 'airgapped') {
-    intro += " All of these ship inside ARAIL — sealed term bundles, nothing to download.";
+  let intro = 'A World is what your lab studies — not just a theme, but ' +
+    'the whole lab re-oriented: its knowledge base, what its agents pay ' +
+    'attention to, its vocabulary, its look. AI & Machine Learning is the ' +
+    'recommended default — mount it and you both use AI and learn AI, ' +
+    "because the World's own knowledge base teaches the concepts as you " +
+    'work. You can change this anytime.';
+  if (mode === 'airgapped') {
+    intro += ' All of these ship inside ARAIL — sealed term bundles, ' +
+      'nothing to download.';
   }
   tagline.textContent = intro;
   card.appendChild(tagline);
 
+  renderConceptStrip(card, validWorlds);
+
   const list = document.createElement('div');
   list.className = 'wc-worlds';
 
-  worlds.filter(function (w) { return w.valid; }).forEach(function (w) {
+  const mountError = document.createElement('p');
+  mountError.className = 'wc-tagline wc-mount-error';
+  mountError.hidden = true;
+
+  validWorlds.forEach(function (w) {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'wc-world';
@@ -517,19 +686,66 @@ async function showWorldStep(chosenMode) {
       tag.textContent = w.tagline;
       label.appendChild(tag);
     }
+
+    // C2: term-count + provenance-tier chip. Truth rule — omit entirely
+    // when the data is missing; never a placeholder or fabricated value.
+    if (typeof w.term_count === 'number') {
+      const chip = document.createElement('span');
+      chip.className = 'wc-world-tag wc-world-chip';
+      let chipText = w.term_count + ' terms';
+      if (w.provenance_tier) chipText += ' · ' + w.provenance_tier + ' provenance';
+      chip.textContent = chipText;
+      label.appendChild(chip);
+    }
+    if (Array.isArray(w.categories) && w.categories.length) {
+      const cats = document.createElement('span');
+      cats.className = 'wc-world-tag wc-world-cats';
+      cats.textContent = w.categories.slice(0, 3).join(' · ');
+      label.appendChild(cats);
+    }
+
     btn.appendChild(label);
 
     btn.addEventListener('click', async function () {
       list.querySelectorAll('button').forEach(function (b) { b.disabled = true; });
+      mountError.hidden = true;
+      let res = null;
+      let threw = false;
       try {
-        await fetch('/api/worlds/select', {
+        res = await fetch('/api/worlds/select', {
           method: 'POST',
           credentials: 'same-origin',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ slug: w.slug }),
         });
-      } catch (e) { /* fall through — never trap */ }
-      goHome();
+      } catch (e) {
+        threw = true;
+      }
+
+      if (threw) {
+        mountError.textContent = 'Network error while mounting — nothing ' +
+          'was changed. Try again, or skip for now.';
+        mountError.hidden = false;
+        list.querySelectorAll('button').forEach(function (b) { b.disabled = false; });
+        return;
+      }
+      if (res.ok) {
+        goHome();
+        return;
+      }
+      let body = {};
+      try { body = await res.json(); } catch (e) { body = {}; }
+      if (res.status === 409) {
+        mountError.textContent = body.message ||
+          "That World's bundle didn't pass its integrity check, so nothing " +
+          'was mounted. Try a different one, or skip for now.';
+      } else {
+        mountError.textContent = body.message ||
+          "Couldn't mount that World right now — nothing was changed. " +
+          'Try again, or skip for now.';
+      }
+      mountError.hidden = false;
+      list.querySelectorAll('button').forEach(function (b) { b.disabled = false; });
     });
     list.appendChild(btn);
   });
@@ -548,6 +764,7 @@ async function showWorldStep(chosenMode) {
   list.appendChild(forge);
 
   card.appendChild(list);
+  card.appendChild(mountError);
 
   const skip = document.createElement('a');
   skip.className = 'wc-skip';
@@ -559,7 +776,7 @@ async function showWorldStep(chosenMode) {
 // A5: server→client boot-flag channel. The server is the sole arbiter of
 // which step renders; client JS never parses location.search itself.
 if (window.__ARAIL_BOOT_STEP === 'world') {
-  showWorldStep(null);
+  showWorldStep({ mode: null, boot: true });
 }
 </script>
 </body>
