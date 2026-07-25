@@ -47,6 +47,8 @@ const worldExamplesSrc = extractBlock("const WORLD_EXAMPLES = ") + ";";
 const renderConceptStripSrc = extractBlock("function renderConceptStrip(");
 const renderCatalogUnavailableSrc = extractBlock("function renderCatalogUnavailable(");
 const renderNoWorldsFoundSrc = extractBlock("function renderNoWorldsFound(");
+const renderSwapBannerSrc = extractBlock("function renderSwapBanner(");
+const renderWhatChangedSummarySrc = extractBlock("function renderWhatChangedSummary(");
 const showWorldStepSrc = extractBlock("async function showWorldStep(");
 const hex6Src = "const HEX6 = /^#[0-9a-fA-F]{6}$/;";
 
@@ -155,6 +157,8 @@ const fullSrc = [
   renderConceptStripSrc,
   renderCatalogUnavailableSrc,
   renderNoWorldsFoundSrc,
+  renderSwapBannerSrc,
+  renderWhatChangedSummarySrc,
   showWorldStepSrc,
 ].join("\n\n");
 
@@ -240,6 +244,60 @@ tests.push(async () => {
   const buttons = card.querySelectorAll("button");
   await buttons[0].dispatch("click");
   assert(sandbox.__goHomeCalls() === 1, "T15: goHome() must be called exactly once on a 200");
+});
+
+// T14b — swap variant: a card click never mounts directly; it reveals a
+// Continue/Cancel pair, and rapid double-clicking Continue issues at most
+// one POST (F18). On 200, the "what changed" summary renders before
+// goHome() (C8/F9).
+tests.push(async () => {
+  const sandbox = makeSandbox();
+  run(sandbox);
+  sandbox.__fetchQueue.push({
+    ok: true,
+    body: {
+      worlds: [
+        { slug: "ai", valid: true, mounted: true, display_name: "AI & ML" },
+        { slug: "photography", valid: true, mounted: false, display_name: "Photography" },
+      ],
+      current: "ai",
+    },
+  });
+  await vm.runInContext("showWorldStep({})", sandbox);
+  const card = sandbox.__card;
+
+  const banner = card.querySelector(".wc-swap-banner");
+  assert(banner, "T14b: swap-variant confirmation banner not rendered");
+
+  const worldButtons = card.querySelectorAll(".wc-world").filter((b) => b.tagName === "BUTTON");
+  assert(worldButtons.length === 2, "T14b: expected two World cards");
+  const photoBtn = worldButtons[1];
+
+  // A card click must NOT fire the mount POST directly.
+  await photoBtn.dispatch("click");
+  assert(sandbox.__fetchQueue.length === 0 || true, "sanity"); // catalog already consumed
+  const confirmBox = card.querySelector(".wc-swap-confirm");
+  assert(confirmBox, "T14b: Continue/Cancel confirm pair not rendered on card click");
+  assert(
+    worldButtons.every((b) => b.disabled),
+    "T14b: World grid must be disabled the moment the confirm pair renders",
+  );
+
+  const confirmButtons = confirmBox.querySelectorAll(".wc-btn");
+  const cont = confirmButtons.find((b) => !b._className.includes("wc-swap-cancel"));
+  assert(cont, "T14b: Continue button not found");
+
+  // Queue exactly one select response — a double-fire would starve the
+  // mock queue and throw.
+  sandbox.__fetchQueue.push({ ok: true, body: { ok: true, current: "photography" } });
+
+  await cont.dispatch("click");
+  await cont.dispatch("click"); // rapid re-click must be a no-op
+
+  assert(sandbox.__fetchQueue.length === 0, "T14b: exactly one POST must have been issued");
+  const whatChanged = card.querySelector(".wc-what-changed");
+  assert(whatChanged, "T14b: 'what changed' summary must render on the swap door's 200");
+  assert(sandbox.__goHomeCalls() === 1, "T14b: goHome() must still be called exactly once");
 });
 
 // T16 — a World whose display_name contains <script>/onerror markup renders

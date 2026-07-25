@@ -570,6 +570,52 @@ function renderNoWorldsFound(card) {
   card.appendChild(skip);
 }
 
+// C8 — swap-variant confirmation. Text is built entirely from
+// EXPERIENCE_SPEC §0.4's verified "what a mount really changes" table —
+// no aspirational claims.
+function renderSwapBanner(card, currentName) {
+  const banner = document.createElement('div');
+  banner.className = 'wc-protect wc-swap-banner';
+
+  const strong = document.createElement('strong');
+  strong.textContent = 'Currently studying ' + currentName + '.';
+  banner.appendChild(strong);
+
+  const p = document.createElement('p');
+  p.textContent = "Switching Worlds re-stocks the lab's knowledge base, " +
+    'changes what your agents focus on, and updates the look — your ' +
+    "current World's added knowledge base pages will be removed (the " +
+    'sealed World bundle itself is never deleted and can always be ' +
+    're-mounted). Pick a World below, then confirm.';
+  banner.appendChild(p);
+
+  card.appendChild(banner);
+}
+
+// C8: "what changed" summary, replacing the first-win card on this door.
+// Drawn only from the same "what a mount really changes" table — theme,
+// agent focus/vocabulary, and knowledge base. No sidecar-success claims
+// (F9) — mount() is verify-first and the pointer write is the only thing
+// this summary asserts happened.
+function renderWhatChangedSummary(card, newName) {
+  card.textContent = '';
+  const kicker = document.createElement('div');
+  kicker.className = 'wc-kicker';
+  kicker.textContent = 'World switched';
+  card.appendChild(kicker);
+
+  const h1 = document.createElement('h1');
+  h1.textContent = 'Your lab now studies ' + newName + '.';
+  card.appendChild(h1);
+
+  const summary = document.createElement('p');
+  summary.className = 'wc-tagline wc-what-changed';
+  summary.textContent = "What changed: the lab's theme and look, the " +
+    'vocabulary and focus its agents use, and the knowledge base — ' +
+    "re-stocked with " + newName + "'s terms.";
+  card.appendChild(summary);
+}
+
 // C5: showWorldStep(opts), opts = { mode: 'airgapped'|'hybrid'|null, boot: bool }.
 // Exactly one other call site (the end of Step 2); no positional back-compat.
 async function showWorldStep(opts) {
@@ -613,6 +659,16 @@ async function showWorldStep(opts) {
   const h1 = document.createElement('h1');
   h1.textContent = 'What should your lab study?';
   card.appendChild(h1);
+
+  // C8/A8: swap-variant trigger — GET /api/worlds' existing `current` field,
+  // never a new context variable. Never true on the one-shot nudge door
+  // (guardrail d already prevents that path from reaching a mounted state).
+  const currentSlug = (data && data.current) || null;
+  if (currentSlug) {
+    const currentEntry = validWorlds.find(function (w) { return w.mounted; });
+    const currentName = (currentEntry && (currentEntry.display_name || currentEntry.slug)) || currentSlug;
+    renderSwapBanner(card, currentName);
+  }
 
   const tagline = document.createElement('p');
   tagline.className = 'wc-tagline';
@@ -706,7 +762,14 @@ async function showWorldStep(opts) {
 
     btn.appendChild(label);
 
-    btn.addEventListener('click', async function () {
+    // C8/F18: on the swap door, a card click never mounts directly — it
+    // reveals a Continue/Cancel confirm pair first. One confirmation, not
+    // two; rapid double-clicks issue at most one POST (T14b).
+    let posted = false;
+
+    async function performMount() {
+      if (posted) return;
+      posted = true;
       list.querySelectorAll('button').forEach(function (b) { b.disabled = true; });
       mountError.hidden = true;
       let res = null;
@@ -726,10 +789,14 @@ async function showWorldStep(opts) {
         mountError.textContent = 'Network error while mounting — nothing ' +
           'was changed. Try again, or skip for now.';
         mountError.hidden = false;
+        posted = false;
         list.querySelectorAll('button').forEach(function (b) { b.disabled = false; });
         return;
       }
       if (res.ok) {
+        if (currentSlug) {
+          renderWhatChangedSummary(card, w.display_name || w.slug);
+        }
         goHome();
         return;
       }
@@ -745,7 +812,43 @@ async function showWorldStep(opts) {
           'Try again, or skip for now.';
       }
       mountError.hidden = false;
+      posted = false;
       list.querySelectorAll('button').forEach(function (b) { b.disabled = false; });
+    }
+
+    btn.addEventListener('click', function () {
+      if (!currentSlug) { return performMount(); }
+
+      // Swap door: reveal Continue/Cancel; disable the grid immediately.
+      list.querySelectorAll('button').forEach(function (b) { b.disabled = true; });
+      const confirmBox = document.createElement('div');
+      confirmBox.className = 'wc-actions wc-swap-confirm';
+
+      let confirmed = false;
+      const cont = document.createElement('button');
+      cont.type = 'button';
+      cont.className = 'wc-btn';
+      cont.textContent = 'Continue →';
+      cont.addEventListener('click', function () {
+        if (confirmed) return;
+        confirmed = true;
+        cont.disabled = true;
+        cancel.disabled = true;
+        return performMount();
+      });
+      confirmBox.appendChild(cont);
+
+      const cancel = document.createElement('button');
+      cancel.type = 'button';
+      cancel.className = 'wc-btn wc-swap-cancel';
+      cancel.textContent = 'Cancel';
+      cancel.addEventListener('click', function () {
+        confirmBox.remove ? confirmBox.remove() : null;
+        list.querySelectorAll('button').forEach(function (b) { b.disabled = false; });
+      });
+      confirmBox.appendChild(cancel);
+
+      card.appendChild(confirmBox);
     });
     list.appendChild(btn);
   });
