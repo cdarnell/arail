@@ -154,9 +154,9 @@ async def welcome_page(request: Request):
     })
 ```
 
-- **Promises:** 200 + world-step HTML iff (onboarded ∧ `step == "world"`); 302 → `/` iff (onboarded ∧ `step != "world"`); 200 + Step-1 HTML iff not onboarded, **regardless of `step`**.
+- **Promises:** 200 + world-step HTML iff (onboarded ∧ `step.strip().lower() == "world"`); 302 → `/` iff (onboarded ∧ that normalized value `!= "world"`); 200 + Step-1 HTML iff not onboarded, **regardless of `step`**.
 - **Requires:** nothing new. No middleware ordering change; `onboarding_gate` is untouched.
-- **Bad input:** unknown/garbage/repeated `step` values (`?step=WORLD`, `?step=../`, `?step=world&step=x`) fall through to today's behavior. Comparison is exact, lowercased, whitespace-stripped — never used to index a dict or build a path. `step` is never echoed into the response body.
+- **Correction (resolved 2026-07-25, post-build):** an earlier draft of this bullet listed `?step=WORLD` as a "falls through" example, which contradicted the pseudocode above and its own "lowercased" clause in the same sentence — the pseudocode is authoritative and stands as originally written. Casing/whitespace variants of `world` (`WORLD`, `world ` with trailing space, etc.) **do** match and render the World step; this is deliberate (a URL fragment shouldn't be case-sensitively fragile). Genuine bad-input examples that correctly fall through to today's 302: `?step=../`, `?step=mode`, `?step=world&step=x` (repeated param — `query_params.get` returns the *last* value, so this compares `"x" != "world"`). Comparison is never used to index a dict or build a path; `step` is never echoed into the response body. Implemented and tested exactly this way in `tests/test_world_first_impression.py::test_t8_welcome_page_step_matrix`.
 - **Non-goal:** `?step=1` / `?step=mode` are **not** implemented. One addressable step only.
 
 ### C2 — `WorldInfo` + `GET /api/worlds` — additive fields (`world_mount.py:226-256`, `app.py:3069-3079`)

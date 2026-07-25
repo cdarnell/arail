@@ -139,26 +139,24 @@ Commit: `cfa0383`.
 
 ## Architect feedback required
 
-1. **C1 case-sensitivity contradiction.** C1's pseudocode does
-   `step = (...).strip().lower()` before `if step == "world"` — this
-   makes `?step=WORLD`, `?step=World`, and `?step=world ` (trailing
-   whitespace) all match and render the World step (200). But C1's own
-   "Bad input" prose, one paragraph below the pseudocode, lists
-   `?step=WORLD` as an example of an "unknown/garbage" value that "falls
-   through to today's behavior" (302) — directly contradicting the code
-   block three lines above it. The Test strategy section's T8 row
-   repeats the prose's claim ("`?step=WORLD` ... all 302 / except the
-   exact lowercase match"), so the inconsistency is carried into the
-   test spec too, not just the prose. **I implemented the pseudocode
-   exactly as written** (the more specific, executable artifact) and
-   wrote T8 to assert what the code actually does, with an inline
-   comment flagging the discrepancy. If the intent was case-sensitive
-   exact match only, the fix is a one-line drop of `.lower()` from C1's
-   pseudocode and a one-line test change — trivial either way, but it's
-   the architect's call, not mine to guess silently.
+1. **C1 case-sensitivity contradiction — RESOLVED 2026-07-25.** C1's
+   pseudocode does `step = (...).strip().lower()` before
+   `if step == "world"` — this makes `?step=WORLD`, `?step=World`, and
+   `?step=world ` (trailing whitespace) all match and render the World
+   step (200). C1's own "Bad input" prose, one paragraph below the
+   pseudocode, had listed `?step=WORLD` as an "unknown/garbage" example
+   that "falls through" (302) — directly contradicting the code block
+   and the same sentence's own "lowercased" clause. **Resolution: the
+   pseudocode stands; the prose was wrong and has been corrected in
+   ARCHITECTURE.md** (case-insensitive matching is the deliberate,
+   correct behavior — a URL fragment shouldn't be case-sensitively
+   fragile). The implementation and `test_t8_welcome_page_step_matrix`
+   in `tests/test_world_first_impression.py` already match this; no code
+   or test change was needed, only the doc correction.
 
 2. **Steps 5-9 are unbuilt.** Not a plan defect — a budget/scope
-   boundary I'm calling out rather than rushing. See "Remaining work."
+   boundary called out rather than rushed. See "Remaining work." A
+   follow-up build session is picking these up now.
 
 ## Remaining work (not started)
 
