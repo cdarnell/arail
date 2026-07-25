@@ -10388,9 +10388,8 @@ async def system_destroy():
 
 
 # ── PKB (Personal Knowledge Base) API ──────────────────────────────────
-# Legacy /api/pkm/* routes are aliased below for one release of backwards
-# compatibility — they delegate to the new handlers and emit a deprecation
-# note on the activity log.
+# (The legacy /api/pkm/* aliases were removed after their one-release
+# deprecation window — every caller uses /api/pkb/* now.)
 
 from arail.pkb import (
     browse as pkb_browse,
@@ -10526,11 +10525,10 @@ async def api_pkb_search(q: str = ""):
 async def api_pkb_ingest():
     """Process whatever's currently in lab/pkb/inbox/ → sources/.
 
-    Called from three places: the manual 'Process inbox' button on
-    /dac, the background watcher (see _inbox_watcher_loop), and
-    the legacy /api/pkm/ingest alias. All of them want the same
-    follow-up — wiki/graph rebuild — so we emit it here, mirroring
-    the upload endpoint.
+    Called from two places: the manual 'Process inbox' button on
+    /dac and the background watcher (see _inbox_watcher_loop). Both
+    want the same follow-up — wiki/graph rebuild — so we emit it here,
+    mirroring the upload endpoint.
     """
     result = pkb_ingest()
     if result["moved"] or result["urls_fetched"]:
@@ -11640,33 +11638,6 @@ async def _inbox_watcher_loop() -> None:
             activity_log.emit("pkb",
                               f"Inbox watcher error: {type(e).__name__}: {e}",
                               "warn")
-
-
-# ── Legacy /api/pkm/* aliases (deprecated, kept for one release) ──────
-
-@app.get("/api/pkm/browse")
-async def api_pkm_browse_legacy():
-    return await api_pkb_browse()
-
-
-@app.get("/api/pkm/search")
-async def api_pkm_search_legacy(q: str = ""):
-    return await api_pkb_search(q=q)
-
-
-@app.post("/api/pkm/ingest")
-async def api_pkm_ingest_legacy():
-    return await api_pkb_ingest()
-
-
-@app.post("/api/pkm/compile")
-async def api_pkm_compile_legacy():
-    return await api_pkb_compile()
-
-
-@app.get("/api/pkm/file")
-async def api_pkm_file_legacy(path: str = ""):
-    return await api_pkb_file(path=path)
 
 
 # ═══════════════════════════════════════════════════════════════════════
