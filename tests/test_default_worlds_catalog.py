@@ -115,7 +115,12 @@ def test_video_games_capabilities_declare_layer_b():
     for cap in caps:
         if cap.id in layer_b:
             assert cap.desired is True
-            assert "not yet implemented" in cap.purpose
+            # Layer B/C code now exists (mini_experiments.py / scouting.py),
+            # but no capability adapter is registered for these ids yet, so
+            # they still resolve declared_unavailable — the purpose text
+            # must say so honestly rather than claim they're live.
+            assert "no capability adapter is registered" in cap.purpose
+            assert "unavailable" in cap.purpose
 
 
 def test_video_games_skill_carries_research_method_and_seal_trailer():

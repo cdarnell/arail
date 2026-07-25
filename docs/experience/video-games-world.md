@@ -1,9 +1,12 @@
 # The Video Games World — what it means today
 
-> EXPERIENCE-facing note for onboarding copy. Written for Layer A
-> (`lab/worlds/video-games/`, forged by `scripts/forge_video_games_world.py`).
-> See [`docs/briefs/video-games-world-build.md`](../briefs/video-games-world-build.md)
-> for the full build brief and Layers B/C.
+> EXPERIENCE-facing note for onboarding copy. Covers Layer A
+> (`lab/worlds/video-games/`, forged by `scripts/forge_video_games_world.py`),
+> the Layer B measurement engine (`arail.research.mini_experiments`, archetype
+> `game_config_optimization`), and the Layer C gating scaffold
+> (`arail.research.scouting`). See
+> [`docs/briefs/video-games-world-build.md`](../briefs/video-games-world-build.md)
+> for the full build brief.
 
 ## What mounting it means today
 
@@ -22,16 +25,29 @@ Compiled-KB approval gate. Once approved (one tap on `/dac`), chat, the wiki,
 and the dictionary answer gaming questions with citations — "Grounded in N
 sources" chips pointing at the exact glossary entries used.
 
-## What it deliberately does not do yet
+## What's built, and what still isn't
 
-The brief's flagship feature — a lab that measures your actual hardware and
-finds your optimal in-game settings while you're away, and (opt-in) watches
-for driver updates or new game releases — is **declared, not implemented**.
-`capabilities.json` lists three desired-but-not-yet-built capabilities
-(`research.game-config-optimization`, `scout.driver-watch`,
-`scout.release-watch`); ARAIL resolves and shows them honestly as
-unavailable until Layers B and C ship. Nothing in this World pretends that
-work is done.
+The measurement engine for the brief's flagship feature exists:
+`arail.research.mini_experiments`'s `game_config_optimization` archetype runs
+a real, one-variable-at-a-time search — change a setting, run your benchmark
+command, compare avg FPS and 1% lows against baseline, keep the value only if
+both improve. It never fabricates: with no benchmark configured, or one that
+fails, it reports `cannot_run` and zero metrics, exactly like every other
+archetype in this engine.
+
+What's still missing is the wiring around it: there's no portal UI yet to
+enter a game's tunable settings or point at a benchmark command, so today
+this only runs via a hand-built experiment record. The opt-in driver/release
+scouting from the brief (`arail.research.scouting`) has its full honesty
+gate built and tested — hybrid-mode-only, consent-required, never installs
+anything, never auto-approves a finding — but no production fetcher is wired
+to a real vendor endpoint yet.
+
+`capabilities.json` declares all three (`research.game-config-optimization`,
+`scout.driver-watch`, `scout.release-watch`) as desired. They still resolve
+`declared_unavailable` in the capability panel — not because the code is
+missing, but because no capability adapter is registered for research
+archetypes yet. Nothing here claims more than what's actually wired.
 
 ## What it will never do
 

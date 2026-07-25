@@ -8,6 +8,8 @@ unmeasured path, and a regression assertion that the old hardcoded constants
 from __future__ import annotations
 
 import asyncio
+import sys
+import textwrap
 
 import pytest
 
@@ -133,6 +135,7 @@ def test_success_never_defaults_true_without_measurement():
     for r in [
         asyncio.run(mx.run_experiment(_exp("model_throughput"), _ctx(router=None))),
         asyncio.run(mx.run_experiment(_exp("unmeasured"), _ctx())),
+        asyncio.run(mx.run_experiment(_exp("game_config_optimization"), _ctx())),
     ]:
         assert r.success is False
 
@@ -150,6 +153,133 @@ def test_no_legacy_fabricated_constants():
     assert "0.15" not in blob
     assert "0.72" not in blob
     assert "data_points" not in blob
+
+
+# ── game config optimization ─────────────────────────────────────────
+
+def _bench_script(tmp_path, body: str) -> list[str]:
+    """Write a tiny real benchmark script and return its argv prefix — the
+    archetype always runs a real subprocess, never a mocked call."""
+    path = tmp_path / "bench.py"
+    path.write_text(textwrap.dedent(body))
+    return [sys.executable, str(path)]
+
+
+def _bench_exp(cmd, tunables, variable=None, hypothesis="tune graphics settings for fps"):
+    variables = {"archetype": "game_config_optimization",
+                 "benchmark_command": cmd, "game_tunables": tunables}
+    if variable is not None:
+        variables["variable"] = variable
+    return {"id": "e1", "hypothesis": hypothesis, "variables": variables,
+            "observations": []}
+
+
+_BENCH_IMPROVES = """
+    import sys, json
+    value = None
+    if "--set" in sys.argv:
+        value = sys.argv[sys.argv.index("--set") + 1].split("=", 1)[1]
+    if value == "high":
+        print(json.dumps({"avg_fps": 75.0, "one_percent_low_fps": 50.0}))
+    else:
+        print(json.dumps({"avg_fps": 60.0, "one_percent_low_fps": 40.0}))
+    """
+
+_BENCH_NO_IMPROVEMENT = """
+    import sys, json
+    value = None
+    if "--set" in sys.argv:
+        value = sys.argv[sys.argv.index("--set") + 1].split("=", 1)[1]
+    if value == "low":
+        print(json.dumps({"avg_fps": 45.0, "one_percent_low_fps": 25.0}))
+    else:
+        print(json.dumps({"avg_fps": 60.0, "one_percent_low_fps": 40.0}))
+    """
+
+_BENCH_GARBAGE_BASELINE = """
+    print("not json at all")
+    """
+
+_BENCH_BASELINE_OK_CANDIDATES_GARBAGE = """
+    import sys, json
+    if "--set" in sys.argv:
+        print("not json at all")
+    else:
+        print(json.dumps({"avg_fps": 60.0, "one_percent_low_fps": 40.0}))
+    """
+
+
+def test_game_config_measured_success(tmp_path):
+    cmd = _bench_script(tmp_path, _BENCH_IMPROVES)
+    exp = _bench_exp(cmd, {"shadow_quality": ["high", "low"]})
+    r = asyncio.run(mx.run_experiment(exp, _ctx()))
+    assert r.provenance == "measured"
+    assert r.success is True
+    assert r.metrics["best_value"] == "high"
+    assert r.metrics["best_avg_fps"] > r.metrics["baseline_avg_fps"]
+    assert r.metrics["best_one_percent_low_fps"] >= r.metrics["baseline_one_percent_low_fps"]
+
+
+def test_game_config_measured_inconclusive(tmp_path):
+    cmd = _bench_script(tmp_path, _BENCH_NO_IMPROVEMENT)
+    exp = _bench_exp(cmd, {"shadow_quality": ["low"]})
+    r = asyncio.run(mx.run_experiment(exp, _ctx()))
+    assert r.provenance == "measured"
+    assert r.success is False
+    assert r.outcome == "inconclusive"
+
+
+def test_game_config_no_benchmark_command_cannot_run():
+    exp = {"id": "e1", "hypothesis": "tune fps",
+           "variables": {"archetype": "game_config_optimization",
+                         "game_tunables": {"x": ["a"]}},
+           "observations": []}
+    r = asyncio.run(mx.run_experiment(exp, _ctx()))
+    assert r.provenance == "cannot_run"
+    assert r.success is False
+    assert r.metrics == {}
+    assert "no benchmark command" in r.cannot_run_reason
+
+
+def test_game_config_no_tunables_cannot_run(tmp_path):
+    cmd = _bench_script(tmp_path, _BENCH_IMPROVES)
+    exp = _bench_exp(cmd, {})
+    r = asyncio.run(mx.run_experiment(exp, _ctx()))
+    assert r.provenance == "cannot_run"
+    assert r.success is False
+    assert "tunables" in r.cannot_run_reason
+
+
+def test_game_config_missing_binary_cannot_run():
+    exp = _bench_exp(["/no/such/benchmark-binary"], {"x": ["a"]})
+    r = asyncio.run(mx.run_experiment(exp, _ctx()))
+    assert r.provenance == "cannot_run"
+    assert r.success is False
+    assert r.metrics == {}
+
+
+def test_game_config_garbage_baseline_cannot_run(tmp_path):
+    cmd = _bench_script(tmp_path, _BENCH_GARBAGE_BASELINE)
+    exp = _bench_exp(cmd, {"x": ["a"]})
+    r = asyncio.run(mx.run_experiment(exp, _ctx()))
+    assert r.provenance == "cannot_run"
+    assert r.success is False
+    assert "baseline" in r.cannot_run_reason
+
+
+def test_game_config_all_candidates_fail_cannot_run(tmp_path):
+    cmd = _bench_script(tmp_path, _BENCH_BASELINE_OK_CANDIDATES_GARBAGE)
+    exp = _bench_exp(cmd, {"x": ["a", "b"]})
+    r = asyncio.run(mx.run_experiment(exp, _ctx()))
+    assert r.provenance == "cannot_run"
+    assert r.success is False
+    assert "did not run for any candidate" in r.cannot_run_reason
+
+
+def test_game_config_select_archetype():
+    assert mx.select_archetype(
+        "will lowering shadow quality improve my fps and 1% lows") == \
+        "game_config_optimization"
 
 
 def test_provenance_line():

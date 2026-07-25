@@ -78,41 +78,42 @@
     },
     {
       "id": "research.game-config-optimization",
-      "purpose": "Desired, not yet implemented: a measured search over a game's settings on the user's own hardware — change one variable, benchmark, keep the win. Shown unavailable until the runtime ships this archetype.",
+      "purpose": "Implemented in the research engine (arail.research.mini_experiments, archetype game_config_optimization): a measured, one-variable-at-a-time search over a game's settings via a benchmark command you configure, comparing avg FPS and 1% lows against baseline — never a fabricated number, cannot_run when nothing is configured or the benchmark fails. There is no portal UI yet to configure a game's benchmark command and tunables, and no capability adapter is registered, so this still shows unavailable in the capability panel until that wiring lands.",
       "desired": true,
       "interface": {
         "kind": "experiment-archetype",
         "archetype": "game_config_optimization",
         "inputs": [
           "hardware-profile",
-          "game-tunables"
+          "game-tunables",
+          "benchmark-command"
         ],
         "objective": "measured avg FPS + 1% lows / frame-time stability",
-        "status": "desired"
+        "status": "implemented-no-adapter"
       }
     },
     {
       "id": "scout.driver-watch",
-      "purpose": "Desired, not yet implemented; hybrid-mode only, consent-gated: watch GPU driver releases and surface a reviewable is-it-worth-installing finding. Never auto-installs; shown unavailable until implemented.",
+      "purpose": "Gating and finding pipeline implemented (arail.research.scouting): hybrid-mode only (airgapped hard-blocks via allow_egress), consent-gated per a ConsentStore-approved request, never auto-installs a driver. No production fetcher is wired to a real vendor endpoint yet, and no capability adapter is registered, so this shows unavailable until both land.",
       "desired": true,
       "interface": {
         "kind": "scouting",
         "mode": "hybrid-only",
         "consent": "required",
         "target": "gpu-driver-releases",
-        "status": "desired"
+        "status": "implemented-no-fetcher"
       }
     },
     {
       "id": "scout.release-watch",
-      "purpose": "Desired, not yet implemented; hybrid-mode only, consent-gated: notice newly released games and stage them for HUMAN review through the compiled-KB gate. Never auto-approved; shown unavailable until implemented.",
+      "purpose": "Gating and finding pipeline implemented (arail.research.scouting): hybrid-mode only, consent-gated, produces a reviewable finding that is never auto-approved into the knowledge base — staging it through the Compiled-KB gate is left to the caller. No production fetcher is wired to a real vendor/release endpoint yet, and no capability adapter is registered, so this shows unavailable until both land.",
       "desired": true,
       "interface": {
         "kind": "scouting",
         "mode": "hybrid-only",
         "consent": "required",
         "target": "game-releases",
-        "status": "desired"
+        "status": "implemented-no-fetcher"
       }
     }
   ]
