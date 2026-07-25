@@ -158,6 +158,40 @@ def test_setup_verify_checks_shipped_worlds(setup_sh_text):
 
 
 # ---------------------------------------------------------------------------
+# Tier-0 everyday-model binding must match what setup actually installs
+# ---------------------------------------------------------------------------
+#
+# Regression guard: setup auto-installs llama-ai-eng (Ollama) on minimalist and
+# deliberately does NOT download the ~5 GB MLX Qwen3-8B there. So setup_env()
+# must bind the everyday model to the Ollama persona on minimalist, not to the
+# un-downloaded MLX model — otherwise a fresh minimalist lab opens the chat tab
+# onto a broken default.
+
+def _setup_env_body(setup_sh_text: str) -> str:
+    return setup_sh_text.split("\nsetup_env() {", 1)[1].split("\n}\n", 1)[0]
+
+
+def test_minimalist_binds_everyday_model_to_installed_ollama_persona(setup_sh_text):
+    body = _setup_env_body(setup_sh_text)
+    assert "MODEL_BACKEND=ollama_native" in body
+    assert "MODEL_NAME=llama-ai-eng" in body
+
+
+def test_env_binding_is_tier_gated_not_unconditional_mlx(setup_sh_text):
+    """The MLX/CUDA/CPU Qwen3-8B binding must sit under a maximus-only branch,
+    so minimalist never inherits a model download_model() skips."""
+    body = _setup_env_body(setup_sh_text)
+    # The Ollama persona bind must appear BEFORE the accel-native Qwen binding,
+    # i.e. inside the minimalist branch of a tier gate.
+    ollama_at = body.find("MODEL_NAME=llama-ai-eng")
+    mlx_at = body.find("MODEL_NAME=${MODEL_MLX_ID}")
+    assert ollama_at != -1 and mlx_at != -1
+    assert ollama_at < mlx_at, "minimalist Ollama bind should precede the maximus MLX bind"
+    # And the maximus bind must be reachable only when the tier is maximus.
+    assert 'if [[ "$_env_tier" != "maximus" ]]' in body
+
+
+# ---------------------------------------------------------------------------
 # README pointer to PUBLISH.md
 # ---------------------------------------------------------------------------
 

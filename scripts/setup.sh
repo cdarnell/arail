@@ -1456,17 +1456,35 @@ setup_env() {
         # Patch detected backend. Match any existing value (the .env.example
         # default has changed before — `auto`, `cpu`, `mlx` — so don't bind
         # the regex to a specific source value).
-        case "$ACCEL" in
-            mlx)  sed -i.bak 's|^MODEL_BACKEND=.*|MODEL_BACKEND=mlx|'  .env ;;
-            cuda) sed -i.bak 's|^MODEL_BACKEND=.*|MODEL_BACKEND=cuda|' .env ;;
-            cpu)  sed -i.bak 's|^MODEL_BACKEND=.*|MODEL_BACKEND=cpu|'  .env ;;
-        esac
-
-        case "$ACCEL" in
-            mlx)  sed -i.bak "s|^MODEL_NAME=.*|MODEL_NAME=${MODEL_MLX_ID}|" .env ;;
-            cuda) sed -i.bak "s|^MODEL_NAME=.*|MODEL_NAME=${MODEL_HF_ID}|" .env ;;
-            cpu)  sed -i.bak "s|^MODEL_NAME=.*|MODEL_NAME=${MODEL_GGUF_ID}|" .env ;;
-        esac
+        # Bind the everyday model to what setup ACTUALLY installs. On
+        # minimalist that's llama-ai-eng (an Ollama model, auto-pulled above);
+        # the ~5 GB MLX/CUDA/CPU Qwen3-8B is a maximus-only asset that
+        # download_model() deliberately does NOT fetch on minimalist. Writing
+        # MODEL_BACKEND=mlx + MODEL_NAME=Qwen3-8B here would point a fresh
+        # minimalist lab at a model that was never downloaded — the chat tab
+        # opens onto a broken default that contradicts setup's own
+        # "your everyday model is llama-ai-eng" message. So: tier-gate it.
+        local _env_tier="${LAB_TIER:-minimalist}"
+        [[ "$_env_tier" == "min" ]] && _env_tier="minimalist"
+        [[ "$_env_tier" == "max" || "$_env_tier" == "med" ]] && _env_tier="maximus"
+        if [[ "$_env_tier" != "maximus" ]]; then
+            # Minimalist: everyday model is the installed Ollama persona.
+            sed -i.bak 's|^MODEL_BACKEND=.*|MODEL_BACKEND=ollama_native|' .env
+            sed -i.bak 's|^MODEL_NAME=.*|MODEL_NAME=llama-ai-eng|' .env
+        else
+            # Maximus: the accel-native Qwen3-8B streaming model, which
+            # download_model() fetches for this tier.
+            case "$ACCEL" in
+                mlx)  sed -i.bak 's|^MODEL_BACKEND=.*|MODEL_BACKEND=mlx|'  .env ;;
+                cuda) sed -i.bak 's|^MODEL_BACKEND=.*|MODEL_BACKEND=cuda|' .env ;;
+                cpu)  sed -i.bak 's|^MODEL_BACKEND=.*|MODEL_BACKEND=cpu|'  .env ;;
+            esac
+            case "$ACCEL" in
+                mlx)  sed -i.bak "s|^MODEL_NAME=.*|MODEL_NAME=${MODEL_MLX_ID}|" .env ;;
+                cuda) sed -i.bak "s|^MODEL_NAME=.*|MODEL_NAME=${MODEL_HF_ID}|" .env ;;
+                cpu)  sed -i.bak "s|^MODEL_NAME=.*|MODEL_NAME=${MODEL_GGUF_ID}|" .env ;;
+            esac
+        fi
 
         sed -i.bak "s|^AIRLLM_MODEL=.*|AIRLLM_MODEL=${AIRLLM_MODEL_ID}|" .env
         sed -i.bak "s|^AEROLLM_MODEL=.*|AEROLLM_MODEL=${AEROLLM_MODEL_ID}|" .env
