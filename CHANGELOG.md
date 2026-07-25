@@ -6,6 +6,43 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added (2026-07-25 first-impression experience — one World moment, three doors)
+
+- **`/welcome?step=world`** — the existing welcome-flow World picker is now
+  independently addressable. Reachable from three doors: the browser
+  cold-start flow (unchanged position), a strictly one-shot redirect for
+  CLI-onboarded users who previously never saw it (`GET /` marks
+  `lab/data/.world-prompt-seen` *before* redirecting — write-then-redirect
+  ordering is the structural fix for the historical redirect-loop risk),
+  and new in-portal "Change World" entry points (nav switcher, the `/dac`
+  empty state, the dashboard nudge).
+- **World-concept explainer + illustrative-examples strip** on the picker,
+  teaching what a World means with generalizable examples (photography,
+  biology, video games) — any example that happens to also be a real,
+  mounted-catalog bundle (e.g. `video-games`) renders once as its own real
+  card, never double-narrated.
+- **Richer World cards**: term count, provenance tier, and category chips,
+  sourced from each bundle's `manifest.json`/`spec.json` — omitted entirely
+  (never a placeholder) when a bundle doesn't declare the data.
+- **Honest World-picker failure states**: a failed catalog fetch, an empty
+  catalog, and a refused mount (409) now render an explanatory,
+  never-auto-navigating state instead of silently landing on the dashboard
+  as if nothing happened.
+- **Swap confirmation**: swapping into a new World from the picker now
+  shows the currently-mounted World, a confirmation gate (Continue/Cancel),
+  and a "what changed" summary on success, before returning home.
+- **`reset pkb` fix**: no longer leaves a dangling `world-mount.json`
+  pointing at a World whose staged knowledge-base pages it just deleted;
+  also re-arms the one-shot World-prompt marker.
+- **First-win card** on the dashboard: a one-time, dismissible pointer at
+  a real measured first action (Autoresearch's staged goal, or a single
+  chat message) — no fabricated numbers, points at where they get produced.
+
+See `sprints/2026-07-25-first-impression/` for the full design and build
+record (`VISION.md`, `EXPERIENCE_SPEC.md`, `ARCHITECTURE.md`,
+`BUILD_LOG.md`). Live/screenshot verification against a running portal is
+a documented, not-yet-done follow-up.
+
 ### Added (2026-07-18 lab persistence)
 
 - **launchd daemon mode** (`arailctl install-daemon`/`uninstall-daemon`): portal +
