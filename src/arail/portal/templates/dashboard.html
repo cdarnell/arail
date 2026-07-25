@@ -220,6 +220,34 @@
   }
   .runbook-banner .runbook-dismiss:hover { color: var(--text); }
 
+  /* ═══ First-win card (C9) — same hand-rolled pattern as .runbook-banner;
+       see D5, a third occurrence should become a shared helper. ═══ */
+  .firstwin-banner {
+    display: none;
+    margin: 8px 18px 0 18px;
+    padding: 10px 14px;
+    border-radius: var(--radius-s);
+    background: var(--accent2-a08);
+    border: 1px solid color-mix(in srgb, var(--accent2) 45%, transparent);
+    color: var(--text);
+    font-size: 13px;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  .firstwin-banner .firstwin-icon { font-size: 16px; line-height: 1.3; }
+  .firstwin-banner .firstwin-text { flex: 1; line-height: 1.5; }
+  .firstwin-banner .firstwin-text strong { display: block; margin-bottom: 2px; }
+  .firstwin-banner .firstwin-dismiss {
+    background: transparent;
+    border: 0;
+    color: var(--text-muted);
+    font-size: 14px;
+    padding: 0 4px;
+    cursor: pointer;
+    line-height: 1;
+  }
+  .firstwin-banner .firstwin-dismiss:hover { color: var(--text); }
+
   /* ═══ Live Checks modal ════════════════════════════════════════
      Reusable modal driven by SSE events. Powers Health Check today;
      designed so Restart Lab + Check Updates can plug in without
@@ -406,6 +434,51 @@
 function dismissRunbookBanner() {
   try { localStorage.setItem('arailRunbookDismissed', '1'); } catch (e) {}
   var el = document.getElementById('runbook-banner');
+  if (el) el.style.display = 'none';
+}
+</script>
+
+<!-- ═══ First-win card (C9) — a real first thing to try, shown once after
+     any successful mount or explicit skip, from any of the three World
+     doors. No backend flag, no new context variable — dismiss state lives
+     entirely in localStorage, same pattern as the runbook banner above. -->
+<div class="firstwin-banner" id="firstwin-banner">
+  <span class="firstwin-icon">▶</span>
+  <span class="firstwin-text">
+    <strong>Your lab is set. Here's a real first thing to try.</strong>
+    {% if current_goal and current_goal.goal_text %}
+    Your lab's opening research goal — “{{ current_goal.goal_text }}” — is
+    already staged in Autoresearch.
+    {% else %}
+    Your lab has a research goal composer in Autoresearch, ready whenever
+    you are.
+    {% endif %}
+    Press <strong>▶ Run</strong> to start a real, measured experiment (this
+    can take a few minutes). Want something faster? Send one message in
+    Chat — the reply shows real measured speed in seconds. And the lab's
+    agents keep working on your research goals while you're away, and
+    report back what they actually found — never a guess, never a canned
+    result.
+  </span>
+  <button class="firstwin-dismiss" id="firstwin-dismiss" type="button"
+          onclick="dismissFirstWinCard()"
+          aria-label="Dismiss first-win card">✕</button>
+</div>
+<script>
+(function () {
+  var banner = document.getElementById('firstwin-banner');
+  if (!banner) return;
+  try {
+    if (localStorage.getItem('arailFirstWinDismissed') !== '1') {
+      banner.style.display = 'flex';
+    }
+  } catch (e) {
+    banner.style.display = 'flex';
+  }
+})();
+function dismissFirstWinCard() {
+  try { localStorage.setItem('arailFirstWinDismissed', '1'); } catch (e) {}
+  var el = document.getElementById('firstwin-banner');
   if (el) el.style.display = 'none';
 }
 </script>
