@@ -197,8 +197,8 @@ def test_empty_label_normalises_to_unknown(scheduler):
 # ---------------------------------------------------------------------------
 
 def test_fast_path_prefixes_does_not_include_chat(scheduler):
-    """A9 mitigation: chat / teacher / agent ask MUST NOT be fast-pathed."""
-    forbidden = ("/api/chat", "/api/teacher/ask", "/api/agents/ask")
+    """A9 mitigation: chat / agent ask MUST NOT be fast-pathed."""
+    forbidden = ("/api/chat", "/api/agents/ask")
     for path in forbidden:
         # Direct membership is the design intent; substring check would let
         # a future "/api/chat-something" silently slip in too.

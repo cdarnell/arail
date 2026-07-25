@@ -6705,13 +6705,13 @@ async def _run_chat_completion(
     max_tokens: int,
     runtime_override: str | None = None,
 ) -> dict:
-    """Shared core of /api/chat and /api/teacher/ask.
+    """Core of the /api/chat non-streaming path.
 
-    Returns the same dict the /api/chat endpoint emits so both surfaces
-    look identical to the UI layer: {reply, backend, model, latency_ms,
-    tokens_used, tokens_per_sec, cloud_cost_usd, energy_cost_usd,
-    deep, error}. On failure the dict carries a user-readable ``reply``
-    plus an ``error`` string — callers never need to catch."""
+    Returns the dict the /api/chat endpoint emits: {reply, backend, model,
+    latency_ms, tokens_used, tokens_per_sec, cloud_cost_usd,
+    energy_cost_usd, deep, error}. On failure the dict carries a
+    user-readable ``reply`` plus an ``error`` string — callers never need
+    to catch."""
     context = _prepare_chat_context(
         message=message,
         history=history,
@@ -12086,160 +12086,14 @@ async def api_perf_summary(hardware: str | None = None, model: str | None = None
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# /teacher — AeroLLM-backed deep consultation surface.
-#
-# Every Q&A routes through AeroLLM (multi-minute answers from a frontier
-# model) and auto-saves to lab/pkb/teacher/<ts>.md so wisdom compounds
-# across sessions. The page is deliberately slow and calm — see
-# templates/teacher.html for the UX.
-#
-#   GET  /teacher                 — page
-#   POST /api/teacher/ask         — one question; returns answer + saved_to
-#   GET  /api/teacher/history     — recent consultations from PKB
+# /teacher — retired. It was a separate AeroLLM-backed deep-consultation
+# page, but its whole capability (deep answers, PKB persistence) now lives
+# in the unified Chat surface via the deep backend. The standalone page and
+# its /api/teacher/* endpoints were removed; /teacher stays only as a
+# back-compat redirect so old bookmarks don't 404. (pkb.write_teacher_qa is
+# retained as a general PKB writer.)
 # ═══════════════════════════════════════════════════════════════════════
 
 @app.get("/teacher")
 async def teacher_page(request: Request):
-    # /teacher now aliases the unified Chat surface.
     return RedirectResponse(url="/chat", status_code=307)
-
-
-def _save_teacher_result(message: str, result: dict[str, Any]) -> dict[str, Any]:
-    if result.get("error") or not result.get("reply"):
-        return result
-
-    saved = dict(result)
-    try:
-        from arail.pkb import write_teacher_qa
-
-        path = write_teacher_qa(
-            message, saved["reply"], saved.get("model") or "aerollm",
-        )
-        try:
-            saved["saved_to"] = str(path.relative_to(Path.cwd().resolve()))
-        except ValueError:
-            saved["saved_to"] = str(path)
-    except Exception as exc:  # noqa: BLE001
-        activity_log.emit(
-            "teacher",
-            f"PKB save failed: {type(exc).__name__}: {exc}",
-            "warn",
-        )
-        saved["saved_to"] = None
-    return saved
-
-
-@app.post("/api/teacher/ask")
-async def api_teacher_ask(request: Request):
-    """One consultation with the Deep Teacher. Forces backend=aerollm so
-    the user never accidentally hits the fast path from this surface.
-    Saves the Q&A to PKB on success."""
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    message = (body.get("message") or "").strip()
-    if not message:
-        return {"error": "message required", "reply": ""}
-
-    result = await _run_chat_completion(
-        message=message,
-        history=body.get("history") or [],
-        backend_override=body.get("backend") or _default_teacher_backend(),
-        model_override=body.get("model"),
-        temperature=0.7,
-        top_p=None,
-        max_tokens=int(body.get("max_tokens") or 1024),
-    )
-    return _save_teacher_result(message, result)
-
-
-@app.post("/api/teacher/stream")
-async def api_teacher_stream(request: Request):
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    message = (body.get("message") or "").strip()
-    if not message:
-        async def _empty() -> AsyncIterator[str]:
-            yield json.dumps(
-                {"type": "final", "error": "message required", "reply": ""}
-            ) + "\n"
-        return StreamingResponse(_empty(), media_type="application/x-ndjson")
-
-    async def _generate() -> AsyncIterator[str]:
-        async for event in _run_chat_completion_stream(
-            message=message,
-            history=body.get("history") or [],
-            backend_override=body.get("backend") or _default_teacher_backend(),
-            model_override=body.get("model"),
-            temperature=0.7,
-            top_p=None,
-            max_tokens=int(body.get("max_tokens") or 1024),
-        ):
-            if event.get("type") == "final":
-                event = _save_teacher_result(message, event)
-            yield json.dumps(event, default=str) + "\n"
-
-    return StreamingResponse(
-        _generate(),
-        media_type="application/x-ndjson",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-    )
-
-
-@app.get("/api/teacher/history")
-async def api_teacher_history(limit: int = 25):
-    """Return recent Teacher consultations from lab/pkb/teacher/, newest
-    first. Files are small (one Q&A each) and there will rarely be more
-    than a few dozen, so we just read them all and sort."""
-    from arail.pkb import _pkb_root
-    teacher_dir = _pkb_root() / "teacher"
-    items: list[dict] = []
-    if teacher_dir.is_dir():
-        paths = sorted(teacher_dir.glob("*.md"), reverse=True)[
-            : max(1, min(limit, 200))
-        ]
-        for p in paths:
-            try:
-                text = p.read_text()
-            except Exception:
-                continue
-            # Parse the frontmatter + "## Question" / "## Answer" sections
-            # that write_teacher_qa produces. Keep it lenient in case a
-            # user hand-edited the file.
-            model = ""
-            ts = ""
-            q_body = ""
-            a_body = ""
-            if text.startswith("---\n"):
-                end = text.find("\n---\n", 4)
-                if end > 0:
-                    fm = text[4:end]
-                    for line in fm.splitlines():
-                        if line.startswith("title:"):
-                            ts = line.split(":", 1)[1].strip()
-                    text_body = text[end + 5 :]
-                else:
-                    text_body = text
-            else:
-                text_body = text
-            for line in text_body.splitlines()[:4]:
-                if line.lower().startswith("**model:**"):
-                    model = line.split("**", 2)[-1].strip(" *:")
-                if line.lower().startswith("**asked:**"):
-                    ts = line.split("**", 2)[-1].strip(" *:")
-            q_idx = text_body.find("## Question")
-            a_idx = text_body.find("## Answer")
-            if q_idx >= 0 and a_idx > q_idx:
-                q_body = text_body[q_idx + len("## Question") : a_idx].strip()
-                a_body = text_body[a_idx + len("## Answer") :].strip()
-            items.append({
-                "ts": ts or p.stem,
-                "model": model or "—",
-                "question": q_body,
-                "answer": a_body,
-                "path": str(p),
-            })
-    return {"items": items, "count": len(items)}
