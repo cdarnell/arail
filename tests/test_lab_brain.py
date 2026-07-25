@@ -114,6 +114,48 @@ def test_build_chat_messages_appends_pkb_context(monkeypatch):
     assert "Important local fact" in messages[0]["content"]
 
 
+def test_chat_context_sources_shapes_hits_for_display():
+    sources = lab_brain.chat_context_sources([
+        {"path": "docs/pkb.md", "name": "pkb.md",
+         "snippets": ["Approved facts only", "second"], "score": 99},
+        {"path": "", "snippets": ["dropped — no path"]},
+        {"path": "notes/x.md"},
+    ])
+    # Empty-path hit is dropped; internals (score) are not leaked.
+    assert [s["path"] for s in sources] == ["docs/pkb.md", "notes/x.md"]
+    first = sources[0]
+    assert first == {"path": "docs/pkb.md", "name": "pkb.md",
+                     "snippet": "Approved facts only"}
+    # A hit with no snippets still yields a usable citation.
+    assert sources[1] == {"path": "notes/x.md", "name": "x.md", "snippet": ""}
+
+
+def test_chat_context_sources_handles_empty():
+    assert lab_brain.chat_context_sources([]) == []
+    assert lab_brain.chat_context_sources(None) == []
+
+
+def test_build_chat_messages_uses_passed_retrieved_without_re_querying(monkeypatch):
+    """When the caller passes ``retrieved=`` the builder must NOT call
+    retrieve_chat_context again — the endpoint retrieves once and shares it."""
+    def _boom(*_a, **_k):
+        raise AssertionError("retrieve_chat_context must not be called")
+    monkeypatch.setattr(lab_brain, "retrieve_chat_context", _boom)
+    messages = lab_brain.build_chat_messages(
+        "q", None,
+        retrieved=[{"path": "docs/a.md", "snippets": ["local fact"], "match_count": 1}],
+    )
+    assert "docs/a.md" in messages[0]["content"]
+    assert "local fact" in messages[0]["content"]
+
+
+def test_build_chat_messages_empty_retrieved_skips_context(monkeypatch):
+    monkeypatch.setattr(lab_brain, "retrieve_chat_context",
+                        lambda *a, **k: (_ for _ in ()).throw(AssertionError("no call")))
+    messages = lab_brain.build_chat_messages("q", None, retrieved=[])
+    assert "Retrieved knowledge base context" not in messages[0]["content"]
+
+
 def test_retrieve_chat_context_prefers_exact_phrase(monkeypatch):
     import arail.pkb as pkb
 
