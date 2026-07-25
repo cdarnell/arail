@@ -6224,7 +6224,12 @@ def _clean_chat_reply(text: str) -> str:
     return reply
 
 
-def _build_chat_result(response: ModelResponse, *, wants_deep: bool) -> dict[str, Any]:
+def _build_chat_result(
+    response: ModelResponse,
+    *,
+    wants_deep: bool,
+    sources: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     reply = _clean_chat_reply(response.text or "")
     latency_sec = max(response.latency_ms / 1000.0, 0.001)
     tokens_per_sec = round(response.tokens_used / latency_sec, 1)
@@ -6253,6 +6258,7 @@ def _build_chat_result(response: ModelResponse, *, wants_deep: bool) -> dict[str
         "cloud_cost_usd": cloud_cost_usd,
         "energy_cost_usd": energy_cost_usd,
         "deep": bool(wants_deep),
+        "sources": list(sources or []),
         "error": None,
     }
 
@@ -6424,11 +6430,23 @@ def _prepare_chat_context(
     # Ollama nemotron3:33b.
     active_backend_name = str(getattr(active_backend, "backend_name", "") or "").strip()
     active_model_name = str(getattr(active_backend, "model_name", "") or "").strip()
+
+    # Retrieve approved-KB context ONCE here so we can both feed it to the
+    # prompt builders and surface the grounding sources back to the user.
+    # Without this the retrieval happens invisibly inside build_chat_* and
+    # the endpoint never learns which docs grounded the reply.
+    try:
+        retrieved = lab_brain.retrieve_chat_context(message)
+    except Exception:
+        retrieved = []
+    chat_sources = lab_brain.chat_context_sources(retrieved)
+
     messages = lab_brain.build_chat_messages(
         message,
         history,
         active_backend_name=active_backend_name or None,
         active_model_name=active_model_name or None,
+        retrieved=retrieved,
     )
     prompt = _render_messages_for_backend(messages, active_backend)
 
@@ -6448,6 +6466,7 @@ def _prepare_chat_context(
                 history,
                 active_backend_name=active_backend_name or None,
                 active_model_name=active_model_name or None,
+                retrieved=retrieved,
             )
     except Exception:
         frozen_system, claude_messages = None, None
@@ -6463,6 +6482,7 @@ def _prepare_chat_context(
         "claude_messages": claude_messages,
         "optional_backend_name": optional_backend_name,
         "wants_deep": wants_deep,
+        "sources": chat_sources,
     }
 
 
@@ -6574,7 +6594,7 @@ async def _run_chat_completion_stream(
             clean_reply = _clean_chat_reply(response.text)
             if clean_reply:
                 yield {"type": "delta", "delta": clean_reply}
-            yield {"type": "final", **_build_chat_result(response, wants_deep=wants_deep)}
+            yield {"type": "final", **_build_chat_result(response, wants_deep=wants_deep, sources=context.get("sources"))}
             return
 
         final_response: ModelResponse | None = None
@@ -6614,7 +6634,7 @@ async def _run_chat_completion_stream(
             clean_reply = _clean_chat_reply(response.text)
             if clean_reply:
                 yield {"type": "delta", "delta": clean_reply}
-            yield {"type": "final", **_build_chat_result(response, wants_deep=wants_deep)}
+            yield {"type": "final", **_build_chat_result(response, wants_deep=wants_deep, sources=context.get("sources"))}
             return
 
         if router is None:
@@ -6655,7 +6675,7 @@ async def _run_chat_completion_stream(
                 cost_usd=0.0,
             )
 
-        yield {"type": "final", **_build_chat_result(final_response, wants_deep=wants_deep)}
+        yield {"type": "final", **_build_chat_result(final_response, wants_deep=wants_deep, sources=context.get("sources"))}
     except Exception as e:  # noqa: BLE001
         activity_log.emit("chat",
                           f"Inference failed: {type(e).__name__}: {str(e)[:120]}",
@@ -6795,7 +6815,7 @@ async def _run_chat_completion(
     finally:
         _restore_chat_context(context)
 
-    return _build_chat_result(response, wants_deep=wants_deep)
+    return _build_chat_result(response, wants_deep=wants_deep, sources=context.get("sources"))
 
 
 def _apply_chat_defaults(

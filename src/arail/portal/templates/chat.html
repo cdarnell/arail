@@ -1510,6 +1510,23 @@
     .rc-note.stats-note, .stats-body { margin-top: .5em; }
     .seg.seg-error { color: var(--danger); }
 
+    /* Grounding-sources row: shows which approved-KB docs informed a reply. */
+    .kb-sources {
+      margin-top: var(--s-2);
+      display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-1);
+      font-size: var(--fs-xs, .72rem); line-height: 1.5;
+    }
+    .kb-sources[hidden] { display: none; }
+    .kb-src-label { color: var(--text-dim, var(--muted)); font-style: italic; }
+    .kb-src-chip {
+      display: inline-flex; align-items: center; gap: .25em;
+      padding: .1em .5em; border-radius: 999px;
+      background: var(--surface-2, rgba(127,127,127,.12));
+      border: 1px solid var(--border, rgba(127,127,127,.25));
+      color: var(--accent2, var(--text)); cursor: default;
+      max-width: 22ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+
     @media (prefers-reduced-motion: reduce) {
       .rail-card.flash, .tunable.tunable-changed, .model-card.warm .warm-dot,
       .mic-btn.recording, .msg .body .caret { animation: none; }
@@ -2986,6 +3003,7 @@
         console.warn('[chat] final renderMarkdown failed; rendering as text:', e);
         slot.bodyEl.textContent = reply;
       }
+      renderSources(slot.srcEl, final.sources);
 
       // Numeric guards — every value that flows into toFixed must be a
       // finite number. AirLLM has been known to return weird shapes.
@@ -3027,6 +3045,7 @@
       const d = await r.json();
       const reply = d.reply || '';
       slot.bodyEl.innerHTML = renderMarkdown(reply);
+      renderSources(slot.srcEl, d.sources);
       const latency = d.latency_ms || Math.round(performance.now() - t0);
       const tokens = d.tokens_used || d.tokens || roughTok(reply);
       const tps = tokens > 0 && latency > 0 ? (tokens / (latency / 1000)) : 0;
@@ -3111,6 +3130,25 @@
       if (!root) return;
       root.querySelectorAll('.empty').forEach(e => e.remove());
     }
+    // Render the approved-KB documents that grounded a reply. Retrieval is
+    // otherwise invisible; showing the sources is how the user can see (and
+    // trust) that the answer is anchored in the local knowledge base rather
+    // than the model's parametric memory. No-op when there were no hits.
+    function renderSources(srcEl, sources) {
+      if (!srcEl) return;
+      const list = Array.isArray(sources) ? sources.filter(s => s && s.path) : [];
+      if (!list.length) { srcEl.hidden = true; srcEl.innerHTML = ''; return; }
+      const label = list.length === 1 ? '1 source' : `${list.length} sources`;
+      const chips = list.map(s => {
+        const name = String(s.name || s.path).trim();
+        const path = String(s.path).trim();
+        const snip = String(s.snippet || '').trim();
+        return `<span class="kb-src-chip" title="${escapeHtml(path)}${snip ? ' — ' + escapeHtml(snip) : ''}">📄 ${escapeHtml(name)}</span>`;
+      }).join('');
+      srcEl.innerHTML = `<span class="kb-src-label">Grounded in ${label} from your knowledge base:</span> ${chips}`;
+      srcEl.hidden = false;
+    }
+
     function appendUser(side, text) {
       const t = trEl(side);
       const wrap = document.createElement('div');
@@ -3130,11 +3168,13 @@
       wrap.innerHTML = `
         <div class="who">${escapeHtml(provider)} · ${escapeHtml(model)}</div>
         <div class="body"><span class="caret"></span></div>
+        <div class="kb-sources" hidden></div>
         <div class="stats-line"><span class="seg">streaming…</span></div>`;
       t.appendChild(wrap);
       scrollToBottom(side);
       return {
         bodyEl: wrap.querySelector('.body'),
+        srcEl: wrap.querySelector('.kb-sources'),
         statsEl: wrap.querySelector('.stats-line'),
         side,
       };

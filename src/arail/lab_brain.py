@@ -582,6 +582,30 @@ def retrieve_chat_context(
     return ordered[:max_results]
 
 
+def chat_context_sources(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Shape retrieval hits into compact, display-ready source citations.
+
+    The chat UI shows these under a grounded reply so the user can see
+    *which* approved knowledge-base documents informed the answer — the
+    retrieval is otherwise invisible. Kept deliberately small: path, a
+    human name, and one representative snippet. No scores or internals.
+    """
+    sources: list[dict[str, Any]] = []
+    for item in results or []:
+        path = str(item.get("path") or "").strip()
+        if not path:
+            continue
+        snippets = [
+            str(s).strip() for s in (item.get("snippets") or []) if str(s).strip()
+        ]
+        sources.append({
+            "path": path,
+            "name": str(item.get("name") or path.rsplit("/", 1)[-1]).strip(),
+            "snippet": snippets[0] if snippets else "",
+        })
+    return sources
+
+
 def _format_chat_context(results: list[dict[str, Any]]) -> str | None:
     if not results:
         return None
@@ -609,8 +633,14 @@ def build_chat_messages(
     include_state: bool = True,
     active_backend_name: Optional[str] = None,
     active_model_name: Optional[str] = None,
+    retrieved: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, str]]:
     """Build chat-style messages for chat-capable models.
+
+    ``retrieved`` lets the caller pass pre-computed PKB hits (from
+    ``retrieve_chat_context``) so retrieval isn't run twice — once here
+    and once by the endpoint that wants to surface the sources. When
+    ``None`` the retrieval is performed internally as before.
 
     ``active_backend_name`` / ``active_model_name`` are the actually-
     routed backend identifiers for *this* request. Pass them in so the
@@ -620,7 +650,8 @@ def build_chat_messages(
     leaves the system prompt advertising the wrong identity, and the
     model dutifully parrots it back to the user.
     """
-    context_block = _format_chat_context(retrieve_chat_context(user_message))
+    results = retrieved if retrieved is not None else retrieve_chat_context(user_message)
+    context_block = _format_chat_context(results)
     system = build_system_prompt(
         include_capabilities=include_capabilities,
         include_state=include_state,
@@ -649,6 +680,7 @@ def build_chat_payload(
     include_state: bool = True,
     active_backend_name: Optional[str] = None,
     active_model_name: Optional[str] = None,
+    retrieved: list[dict[str, Any]] | None = None,
 ) -> tuple[str, list[dict]]:
     """Build a cache-friendly chat payload: ``(frozen_system, messages)``.
 
@@ -666,7 +698,8 @@ def build_chat_payload(
     across turns. Used only for the Claude backend; local backends keep their
     existing flat-prompt path unchanged.
     """
-    context_block = _format_chat_context(retrieve_chat_context(user_message))
+    results = retrieved if retrieved is not None else retrieve_chat_context(user_message)
+    context_block = _format_chat_context(results)
     frozen, volatile = build_system_prompt_parts(
         include_capabilities=include_capabilities,
         include_state=include_state,
