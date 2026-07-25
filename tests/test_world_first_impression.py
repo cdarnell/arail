@@ -194,6 +194,52 @@ def test_t17_marker_touch_does_not_dirty_git_status(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# T8 — welcome_page() ?step= matrix (C1, F14)
+# ---------------------------------------------------------------------------
+
+def test_t8_welcome_page_step_matrix():
+    client = _client()  # ARAIL_PASSWORD set by the autouse conftest fixture
+
+    # onboarded + ?step=world → 200, world-step boot flag present
+    res = client.get("/welcome?step=world")
+    assert res.status_code == 200
+    assert '__ARAIL_BOOT_STEP = "world"' in res.text
+
+    # onboarded + no param → 302 /
+    res = client.get("/welcome", follow_redirects=False)
+    assert res.status_code == 302
+    assert res.headers["location"] == "/"
+
+    # non-matching step values → 302 /, and the raw value never appears
+    # in the response body
+    for bad in ("mode", "../../etc/passwd"):
+        res = client.get("/welcome", params={"step": bad}, follow_redirects=False)
+        assert res.status_code == 302, bad
+        assert res.headers["location"] == "/", bad
+
+    # ARCHITECTURE.md's C1 pseudocode does `.strip().lower()` before the
+    # exact-match comparison, so casing/whitespace variants of "world"
+    # DO match (this deviates from C1's own prose bad-input example list,
+    # which names "?step=WORLD" as an "unknown/garbage" case that falls
+    # through — that line is inconsistent with C1's own pseudocode.
+    # Implemented per the pseudocode, the authoritative contract; see
+    # BUILD_LOG.md "Architect feedback required").
+    for normalizes in ("WORLD", "world "):
+        res = client.get("/welcome", params={"step": normalizes}, follow_redirects=False)
+        assert res.status_code == 200, normalizes
+
+    # repeated param — Starlette's query_params.get returns the LAST
+    # value, so ?step=world&step=x compares "x" != "world" → 302
+    res = client.get("/welcome?step=world&step=x", follow_redirects=False)
+    assert res.status_code == 302
+    assert res.headers["location"] == "/"
+
+    # the raw param is never echoed into any response body
+    res = client.get("/welcome", params={"step": "<script>evil</script>"})
+    assert "<script>evil</script>" not in res.text
+
+
+# ---------------------------------------------------------------------------
 # T11/T12 — WorldInfo / GET /api/worlds additive fields (C2, F15, F16)
 # ---------------------------------------------------------------------------
 

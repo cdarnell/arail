@@ -1241,14 +1241,30 @@ _register_openai_compat(app)
 @app.get("/welcome", response_class=HTMLResponse)
 async def welcome_page(request: Request):
     """First-run onboarding form. Allowed by the middleware regardless
-    of password state, so a fresh lab can land here on first open."""
-    # If they're already onboarded, send them home — nothing to do here.
+    of password state, so a fresh lab can land here on first open.
+
+    ``?step=world`` (C1) addresses the World-picker step directly for
+    already-onboarded visitors — the one-shot nudge (C3/C4) and the swap
+    doors (C7) both land here. Any other/garbage ``step`` value, or none,
+    keeps today's unconditional 302 home for onboarded visitors. The
+    param is never echoed into the response body (F14).
+    """
+    step = (request.query_params.get("step") or "").strip().lower()
     if _lab_password_set():
+        if step == "world":
+            return templates.TemplateResponse(request, "welcome.html", {
+                **_identity_ctx(),
+                "current_lab_name": effective_identity().name,
+                "world_step": True,
+                "lab_mode": _lab_mode(),
+            })
         from fastapi.responses import RedirectResponse
         return RedirectResponse(url="/", status_code=302)
     return templates.TemplateResponse(request, "welcome.html", {
         **_identity_ctx(),
         "current_lab_name": effective_identity().name,
+        "world_step": False,
+        "lab_mode": _lab_mode(),
     })
 
 

@@ -178,6 +178,7 @@
 </head>
 <body>
 
+{% if not world_step %}
 <div class="wc-card" role="main">
   <div class="wc-kicker" id="wc-kicker">Step 1 of 3 — first run</div>
   <h1>Welcome to {{ brand.name }}.</h1>
@@ -239,6 +240,20 @@
     prompts there instead. Either path lands at the same place.
   </div>
 </div>
+{% else %}
+<!-- A6: the boot-flag path (CLI-onboarded Door 2, or a swap door) renders
+     the World step directly. A neutral placeholder avoids a Step-1
+     passphrase-form flash before showWorldStep() paints (F12). -->
+<div class="wc-card" role="main">
+  <div class="wc-kicker" id="wc-kicker">Loading your lab's World…</div>
+</div>
+{% endif %}
+
+<script>
+{% if world_step %}
+window.__ARAIL_BOOT_STEP = "world";
+{% endif %}
+</script>
 
 <script>
 const form = document.getElementById('wc-form');
@@ -246,10 +261,12 @@ const submit = document.getElementById('wc-submit');
 const status = document.getElementById('wc-status');
 
 function setStatus(text, kind) {
+  if (!status) return;
   status.textContent = text;
   status.className = 'wc-status' + (kind ? ' ' + kind : '');
 }
 
+if (form) {
 form.addEventListener('submit', async (ev) => {
   ev.preventDefault();
   const pass = document.getElementById('wc-pass').value;
@@ -291,6 +308,7 @@ form.addEventListener('submit', async (ev) => {
     submit.disabled = false;
   }
 });
+}
 
 const HEX6 = /^#[0-9a-fA-F]{6}$/;
 
@@ -536,6 +554,12 @@ async function showWorldStep(chosenMode) {
   skip.href = '/';
   skip.textContent = 'Skip for now';
   card.appendChild(skip);
+}
+
+// A5: server→client boot-flag channel. The server is the sole arbiter of
+// which step renders; client JS never parses location.search itself.
+if (window.__ARAIL_BOOT_STEP === 'world') {
+  showWorldStep(null);
 }
 </script>
 </body>
