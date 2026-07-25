@@ -1,0 +1,119 @@
+{
+  "schema": "dac.world-capabilities/v1",
+  "world": "video-games",
+  "capabilities": [
+    {
+      "id": "knowledge.ground.video-games",
+      "purpose": "Ground claims about Video Games in the World's gated glossary.",
+      "desired": true,
+      "interface": {
+        "kind": "knowledge-grounding",
+        "world": "video-games",
+        "world_sha256": "dae307da72c039c99af680f6b0f744e21a37d9de75bf79c7f6bfb46ab8ec2bb2",
+        "categories": [
+          "drivers",
+          "graphics-settings",
+          "hardware",
+          "performance-metrics",
+          "sim-racing"
+        ],
+        "term_count": 69,
+        "provenance_tier": "sourced"
+      }
+    },
+    {
+      "id": "knowledge.ground.video-games.drivers",
+      "purpose": "Ground claims about Drivers in Video Games.",
+      "desired": true,
+      "interface": {
+        "kind": "knowledge-grounding",
+        "world": "video-games",
+        "category": "drivers",
+        "term_count": 8
+      }
+    },
+    {
+      "id": "knowledge.ground.video-games.graphics-settings",
+      "purpose": "Ground claims about Graphics Settings in Video Games.",
+      "desired": true,
+      "interface": {
+        "kind": "knowledge-grounding",
+        "world": "video-games",
+        "category": "graphics-settings",
+        "term_count": 24
+      }
+    },
+    {
+      "id": "knowledge.ground.video-games.hardware",
+      "purpose": "Ground claims about Hardware in Video Games.",
+      "desired": true,
+      "interface": {
+        "kind": "knowledge-grounding",
+        "world": "video-games",
+        "category": "hardware",
+        "term_count": 13
+      }
+    },
+    {
+      "id": "knowledge.ground.video-games.performance-metrics",
+      "purpose": "Ground claims about Performance Metrics in Video Games.",
+      "desired": true,
+      "interface": {
+        "kind": "knowledge-grounding",
+        "world": "video-games",
+        "category": "performance-metrics",
+        "term_count": 12
+      }
+    },
+    {
+      "id": "knowledge.ground.video-games.sim-racing",
+      "purpose": "Ground claims about Sim Racing in Video Games.",
+      "desired": true,
+      "interface": {
+        "kind": "knowledge-grounding",
+        "world": "video-games",
+        "category": "sim-racing",
+        "term_count": 12
+      }
+    },
+    {
+      "id": "research.game-config-optimization",
+      "purpose": "Desired, not yet implemented: a measured search over a game's settings on the user's own hardware — change one variable, benchmark, keep the win. Shown unavailable until the runtime ships this archetype.",
+      "desired": true,
+      "interface": {
+        "kind": "experiment-archetype",
+        "archetype": "game_config_optimization",
+        "inputs": [
+          "hardware-profile",
+          "game-tunables"
+        ],
+        "objective": "measured avg FPS + 1% lows / frame-time stability",
+        "status": "desired"
+      }
+    },
+    {
+      "id": "scout.driver-watch",
+      "purpose": "Desired, not yet implemented; hybrid-mode only, consent-gated: watch GPU driver releases and surface a reviewable is-it-worth-installing finding. Never auto-installs; shown unavailable until implemented.",
+      "desired": true,
+      "interface": {
+        "kind": "scouting",
+        "mode": "hybrid-only",
+        "consent": "required",
+        "target": "gpu-driver-releases",
+        "status": "desired"
+      }
+    },
+    {
+      "id": "scout.release-watch",
+      "purpose": "Desired, not yet implemented; hybrid-mode only, consent-gated: notice newly released games and stage them for HUMAN review through the compiled-KB gate. Never auto-approved; shown unavailable until implemented.",
+      "desired": true,
+      "interface": {
+        "kind": "scouting",
+        "mode": "hybrid-only",
+        "consent": "required",
+        "target": "game-releases",
+        "status": "desired"
+      }
+    }
+  ]
+}

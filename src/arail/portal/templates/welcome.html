@@ -476,6 +476,12 @@ async function showWorldStep(chosenMode) {
       rec.textContent = "Recommended · AI & Machine Learning — the lab's home World";
       label.appendChild(rec);
     }
+    if (w.slug === 'video-games') {
+      const rec = document.createElement('span');
+      rec.className = 'wc-world-rec';
+      rec.textContent = 'New — tune your games with sourced answers';
+      label.appendChild(rec);
+    }
     if (w.slug === 'qukaizen') {
       const rec = document.createElement('span');
       rec.className = 'wc-world-rec';

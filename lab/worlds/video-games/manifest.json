@@ -1,0 +1,27 @@
+{
+  "schema": "dac.world-bundle/v1",
+  "bundle_version": 1,
+  "world": "video-games",
+  "display_name": "Video Games",
+  "created_at": "2026-07-25T00:00:00.000Z",
+  "world_sha256": "dae307da72c039c99af680f6b0f744e21a37d9de75bf79c7f6bfb46ab8ec2bb2",
+  "files": {
+    "terms.json": "dae307da72c039c99af680f6b0f744e21a37d9de75bf79c7f6bfb46ab8ec2bb2",
+    "spec.json": "bac480a1ef83f33c4e226f61dcdbc685a73c10017113593d0e3458148b9a95c1",
+    "roster.json": "e5ac8727687b465dd7e4c7e5917e4d1fba78fa575aba8d2b9d53ae0ebb62f447",
+    "face.json": "a02f5ca6e9d4019eed6719d924300b80069a0e2add9318d1183b8d10b996a1e6",
+    "agenda.json": "0b5a7f681d272bed2706badcd93d3703735053a33138e4a2360cea3ba9d1267f",
+    "drift-report.json": "9bd1296fe7b8f2085035d3c78482f3c6aec604aaf1edcc7b915daf790dd16e07"
+  },
+  "provenance_tier": "sourced",
+  "provenance_counts": {
+    "model": 0,
+    "sourced": 69,
+    "total": 69
+  },
+  "refresh_cadence": "see agenda.json",
+  "compat": {
+    "bundle_schema": 1,
+    "terms_schema": 1
+  }
+}

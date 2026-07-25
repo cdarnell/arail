@@ -1,0 +1,17 @@
+{
+  "name": "qukaizen/dac-world-video-games",
+  "type": "world",
+  "description": "DaC WorldBundle for Video Games — 69 terms, mountable in ARAIL.",
+  "version": "1.0.0",
+  "dac": {
+    "schema": "dac.arail-plugin/v1",
+    "world": "video-games",
+    "world_sha256": "dae307da72c039c99af680f6b0f744e21a37d9de75bf79c7f6bfb46ab8ec2bb2",
+    "bundle": ".",
+    "provides": {
+      "capabilities": "capabilities.json",
+      "skill": "SKILL.md",
+      "bundle_manifest": "manifest.json"
+    }
+  }
+}

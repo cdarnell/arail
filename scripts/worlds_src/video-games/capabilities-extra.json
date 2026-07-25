@@ -1,0 +1,38 @@
+[
+  {
+    "id": "research.game-config-optimization",
+    "purpose": "Desired, not yet implemented: a measured search over a game's settings on the user's own hardware — change one variable, benchmark, keep the win. Shown unavailable until the runtime ships this archetype.",
+    "desired": true,
+    "interface": {
+      "kind": "experiment-archetype",
+      "archetype": "game_config_optimization",
+      "inputs": ["hardware-profile", "game-tunables"],
+      "objective": "measured avg FPS + 1% lows / frame-time stability",
+      "status": "desired"
+    }
+  },
+  {
+    "id": "scout.driver-watch",
+    "purpose": "Desired, not yet implemented; hybrid-mode only, consent-gated: watch GPU driver releases and surface a reviewable is-it-worth-installing finding. Never auto-installs; shown unavailable until implemented.",
+    "desired": true,
+    "interface": {
+      "kind": "scouting",
+      "mode": "hybrid-only",
+      "consent": "required",
+      "target": "gpu-driver-releases",
+      "status": "desired"
+    }
+  },
+  {
+    "id": "scout.release-watch",
+    "purpose": "Desired, not yet implemented; hybrid-mode only, consent-gated: notice newly released games and stage them for HUMAN review through the compiled-KB gate. Never auto-approved; shown unavailable until implemented.",
+    "desired": true,
+    "interface": {
+      "kind": "scouting",
+      "mode": "hybrid-only",
+      "consent": "required",
+      "target": "game-releases",
+      "status": "desired"
+    }
+  }
+]
