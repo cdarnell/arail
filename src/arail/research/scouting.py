@@ -97,6 +97,13 @@ def _run(kind: str, ctx: ScoutContext, summarize: Callable[[Any], dict]) -> Scou
                        finding=finding)
 
 
+def check_watch(kind: str, ctx: ScoutContext) -> ScoutResult:
+    """Generic watch check for any World-declared horizon source (the
+    agenda_watch consumer). Same gate, same never-auto-approve contract as
+    the named wrappers below."""
+    return _run(kind, ctx, lambda data: {"watch_data": data})
+
+
 def check_driver_watch(ctx: ScoutContext) -> ScoutResult:
     """Look for a new GPU driver release worth reviewing. Never installs
     anything — the finding is a reviewable note, not an action."""

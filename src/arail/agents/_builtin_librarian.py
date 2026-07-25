@@ -125,16 +125,42 @@ class LibrarianAgent:
 
         if grown:
             return
-        if time.time() - self._last_scan_ts < _scan_interval_sec():
-            return
         try:
             from arail.scheduler import current_window, jobs_halted
             if current_window() == "quiet" or jobs_halted():
                 return
         except Exception:  # noqa: BLE001
             return
+
+        # Horizon watch: act on the mounted World's declared agenda.json
+        # watches (hybrid-only, consent-gated, findings staged for review —
+        # see arail.research.agenda_watch). Airgapped labs no-op inside.
+        await self.watch_horizon()
+
+        if time.time() - self._last_scan_ts < _scan_interval_sec():
+            return
         self._last_scan_ts = time.time()
         await self.scout_once()
+
+    async def watch_horizon(self) -> dict:
+        """One agenda-watch pass: the World's declared sources, checked on
+        their own cadence, changes staged as review findings. Best-effort —
+        a watch failure never breaks the Librarian's tick."""
+        try:
+            from arail.research import agenda_watch
+            summary = await asyncio.to_thread(agenda_watch.tick)
+        except Exception as e:  # noqa: BLE001
+            log.warning("librarian: agenda watch failed: %s", e)
+            return {"ok": False, "reason": str(e)[:200]}
+        found = int(summary.get("findings", 0) or 0)
+        if found:
+            world = summary.get("world", "the mounted World")
+            self._emit(
+                f"Horizon watch: {found} change{'s' if found != 1 else ''} at "
+                f"sources '{world}' declares — staged for your review on the "
+                "DaC tab (Compiled KB queue).", "info",
+                {"agenda_watch": {"action": "finding", "count": found}})
+        return summary
 
     # ── term scouting (the MCP-in-2023 loop) ───────────────────────
 

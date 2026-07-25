@@ -35,19 +35,29 @@ both improve. It never fabricates: with no benchmark configured, or one that
 fails, it reports `cannot_run` and zero metrics, exactly like every other
 archetype in this engine.
 
-What's still missing is the wiring around it: there's no portal UI yet to
-enter a game's tunable settings or point at a benchmark command, so today
-this only runs via a hand-built experiment record. The opt-in driver/release
-scouting from the brief (`arail.research.scouting`) has its full honesty
-gate built and tested — hybrid-mode-only, consent-required, never installs
-anything, never auto-approves a finding — but no production fetcher is wired
-to a real vendor endpoint yet.
+The wiring around it now exists too, and both pieces are world-generic by
+design — nothing in them is gaming-specific:
 
-`capabilities.json` declares all three (`research.game-config-optimization`,
-`scout.driver-watch`, `scout.release-watch`) as desired. They still resolve
-`declared_unavailable` in the capability panel — not because the code is
-missing, but because no capability adapter is registered for research
-archetypes yet. Nothing here claims more than what's actually wired.
+- **Design an experiment** (`/research`, "＋ design"): enter a hypothesis,
+  pick any real archetype, and supply its runtime inputs as variables — for
+  this World, a `benchmark_command` and `game_tunables`. The Researcher
+  picks the experiment up on its next pass. Inputs are per-user runtime
+  data and never enter a World bundle (ADR-0002).
+- **Horizon watch** (`docs/horizon-watch.md`): the Librarian acts on the
+  agenda this World sealed — its Wikipedia and PC Gaming Wiki feeds are
+  checked in hybrid mode, per-feed consent-gated, and a change surfaces as
+  a reviewable finding in the `/dac` queue. The same loop watches arxiv.org
+  when the AI World is mounted. Free-text agenda entries (like "vendor
+  documentation (NVIDIA, AMD, …)") are honestly skipped, never guessed
+  into URLs; adding a real driver-page URL to the World's
+  `knowledge_sources` and re-forging is all it takes to watch it.
+
+`capabilities.json` declares `research.game-config-optimization`,
+`scout.driver-watch`, and `scout.release-watch` as desired. They still
+resolve `declared_unavailable` in the capability panel — not because the
+code is missing, but because no capability adapter is registered for
+research archetypes yet. Nothing here claims more than what's actually
+wired.
 
 ## What it will never do
 

@@ -201,8 +201,41 @@
   <main class="rx-pane">
     <header class="rx-pane-head">
       <span class="rx-pane-title">🧪 Experiments</span>
-      <span id="rx-exp-meta">—</span>
+      <span>
+        <button class="rx-btn" id="rx-design-toggle" type="button"
+                title="Design an experiment with your own inputs — any archetype, any variables">＋ design</button>
+        <span id="rx-exp-meta">—</span>
+      </span>
     </header>
+
+    <!-- Design an experiment: the generic runtime-inputs form. Variables are
+         per-user runtime inputs (e.g. a benchmark command for
+         game_config_optimization) — they never enter a World bundle. -->
+    <form class="rx-design" id="rx-design" hidden>
+      <label class="rx-design-label">Hypothesis
+        <textarea id="rx-design-hypothesis" rows="2" maxlength="500" required
+                  placeholder="e.g. Lowering shadow quality improves my 1% lows without hurting average FPS"></textarea>
+      </label>
+      <label class="rx-design-label">Archetype
+        <select id="rx-design-archetype">
+          {% for name, info in archetypes.items() %}
+          <option value="{{ name }}" data-methodology="{{ info.methodology }}">{{ name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <p class="rx-design-hint" id="rx-design-hint"></p>
+      <div class="rx-design-vars" id="rx-design-vars">
+        <div class="rx-design-vars-head">
+          <span>Inputs (variables)</span>
+          <button type="button" class="rx-btn" id="rx-design-add-var">＋ input</button>
+        </div>
+      </div>
+      <div class="rx-design-actions">
+        <button type="submit" class="rx-btn rx-btn-primary">Create — the Researcher runs it next pass</button>
+        <span class="rx-design-status" id="rx-design-status"></span>
+      </div>
+    </form>
+
     <div class="rx-pane-body" id="rx-experiments">
       <div class="rx-brief-empty">Loading…</div>
     </div>
@@ -1385,9 +1418,89 @@ document.addEventListener('DOMContentLoaded', () => {
   // Program panel — inline renderer for program.md + notes.
   wireProgramPanel();
 
+  // Design-an-experiment form (generic runtime inputs, any archetype).
+  wireDesignForm();
+
   // Boot
   refreshAll().then(connectStream);
 });
+
+// ── Design an experiment ─────────────────────────────────────────────
+// Generic inputs editor: hypothesis + archetype + key/value variables.
+// Values that parse as JSON are sent typed (lists, numbers, objects —
+// e.g. a benchmark_command argv list); everything else is a string.
+
+function wireDesignForm() {
+  const form = document.getElementById('rx-design');
+  const toggle = document.getElementById('rx-design-toggle');
+  const archetypeSel = document.getElementById('rx-design-archetype');
+  const hint = document.getElementById('rx-design-hint');
+  if (!form || !toggle) return;
+
+  toggle.addEventListener('click', () => {
+    form.hidden = !form.hidden;
+    if (!form.hidden && !form.querySelector('.rx-design-var-row')) addVarRow();
+  });
+
+  const showHint = () => {
+    const opt = archetypeSel.selectedOptions[0];
+    hint.textContent = opt ? (opt.dataset.methodology || '') : '';
+  };
+  archetypeSel.addEventListener('change', showHint);
+  showHint();
+
+  document.getElementById('rx-design-add-var')
+    .addEventListener('click', addVarRow);
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const status = document.getElementById('rx-design-status');
+    const variables = {};
+    for (const row of form.querySelectorAll('.rx-design-var-row')) {
+      const k = row.querySelector('.rx-var-key').value.trim();
+      if (!k) continue;
+      const raw = row.querySelector('.rx-var-val').value.trim();
+      try { variables[k] = JSON.parse(raw); }
+      catch { variables[k] = raw; }
+    }
+    status.textContent = 'creating…';
+    try {
+      const r = await fetch('/api/experiments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          hypothesis: document.getElementById('rx-design-hypothesis').value.trim(),
+          archetype: archetypeSel.value,
+          variables,
+        }),
+      });
+      const d = await r.json();
+      if (!r.ok) {
+        status.textContent = 'error: ' + (d.error || r.status);
+        return;
+      }
+      status.textContent = 'created — the Researcher picks it up on its next pass';
+      form.reset();
+      form.querySelectorAll('.rx-design-var-row').forEach(el => el.remove());
+      showHint();
+      await refreshAll();
+    } catch (err) {
+      status.textContent = 'error: ' + err;
+    }
+  });
+}
+
+function addVarRow() {
+  const wrap = document.getElementById('rx-design-vars');
+  const row = document.createElement('div');
+  row.className = 'rx-design-var-row';
+  row.innerHTML =
+    '<input class="rx-var-key" placeholder="name (e.g. benchmark_command)">' +
+    '<input class="rx-var-val" placeholder=\'value — JSON allowed (e.g. ["python", "bench.py"])\'>' +
+    '<button type="button" class="rx-btn rx-var-del" title="remove">✕</button>';
+  row.querySelector('.rx-var-del').addEventListener('click', () => row.remove());
+  wrap.appendChild(row);
+}
 
 async function openProgramFile(name) {
   const modal = document.getElementById('rx-pf-modal');
