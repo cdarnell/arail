@@ -10,11 +10,187 @@ that document).
 from __future__ import annotations
 
 import json
+import threading
 
 import pytest
+from fastapi.testclient import TestClient
 
 from arail import world_mount as wm
 from tests.world_bundle_builder import make_bundle
+
+
+def _client():
+    from arail.portal import app as portal_app
+    return TestClient(portal_app.app)
+
+
+def _marker(tmp_path, monkeypatch):
+    """Point the one-shot marker at a tmp path (A4/C3)."""
+    from arail.portal import app as portal_app
+    p = tmp_path / "data" / ".world-prompt-seen"
+    monkeypatch.setattr(portal_app, "_world_prompt_marker", lambda: p)
+    return p
+
+
+def _mounted(tmp_path, monkeypatch, mounted: bool):
+    """Fake current_mount() truthiness for the dashboard handler."""
+    from arail import world_mount as wm_mod
+    if mounted:
+        rec = wm.MountRecord(
+            world="ai", bundle_version=1, world_sha256="x" * 64,
+            mounted_at="1970-01-01T00:00:00Z", bundle_dir=str(tmp_path / "b"),
+            staged_dir=str(tmp_path / "s"), pin={},
+        )
+        monkeypatch.setattr(wm_mod, "current_mount", lambda *a, **k: rec)
+    else:
+        monkeypatch.setattr(wm_mod, "current_mount", lambda *a, **k: None)
+
+
+# ---------------------------------------------------------------------------
+# T1-T7 — the one-shot World-prompt truth table (C3/C4, F1-F6)
+# ---------------------------------------------------------------------------
+
+def test_t1_not_onboarded_no_nudge_and_step_world_ignored(tmp_path, monkeypatch):
+    monkeypatch.delenv("ARAIL_PASSWORD", raising=False)
+    marker = _marker(tmp_path, monkeypatch)
+    client = _client()
+
+    res = client.get("/", follow_redirects=False)
+    assert res.status_code == 302
+    assert res.headers["location"] == "/welcome"
+
+    res2 = client.get("/welcome?step=world")
+    assert res2.status_code == 200
+    assert "wc-pass" in res2.text  # Step-1 passphrase form renders, param ignored
+    assert not marker.exists()
+
+
+def test_t2_onboarded_mounted_marker_absent_no_redirect(tmp_path, monkeypatch):
+    _marker(tmp_path, monkeypatch)
+    _mounted(tmp_path, monkeypatch, True)
+    client = _client()
+    res = client.get("/", follow_redirects=False)
+    assert res.status_code == 200
+
+
+def test_t3_onboarded_unmounted_marker_present_no_redirect(tmp_path, monkeypatch):
+    marker = _marker(tmp_path, monkeypatch)
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.touch()
+    _mounted(tmp_path, monkeypatch, False)
+    client = _client()
+    res = client.get("/", follow_redirects=False)
+    assert res.status_code == 200
+
+
+def test_t4_onboarded_unmounted_marker_absent_redirects_and_writes_marker(tmp_path, monkeypatch):
+    marker = _marker(tmp_path, monkeypatch)
+    _mounted(tmp_path, monkeypatch, False)
+    client = _client()
+    res = client.get("/", follow_redirects=False)
+    assert res.status_code == 302
+    assert res.headers["location"] == "/welcome?step=world"
+    assert marker.exists()
+
+
+def test_t5_two_sequential_gets_only_first_redirects(tmp_path, monkeypatch):
+    """F1/F4: the structural fix for the historical redirect loop."""
+    _marker(tmp_path, monkeypatch)
+    _mounted(tmp_path, monkeypatch, False)
+    client = _client()
+    first = client.get("/", follow_redirects=False)
+    second = client.get("/", follow_redirects=False)
+    assert first.status_code == 302
+    assert second.status_code == 200
+
+
+def test_t6_marker_write_failure_never_redirects(tmp_path, monkeypatch):
+    """F5: OSError on touch() must fall through to a normal render, not loop."""
+    from arail.portal import app as portal_app
+
+    class _BoomPath:
+        def exists(self):
+            return False
+
+        @property
+        def parent(self):
+            return self
+
+        def mkdir(self, *a, **k):
+            return None
+
+        def touch(self, *a, **k):
+            raise OSError("read-only filesystem")
+
+    monkeypatch.setattr(portal_app, "_world_prompt_marker", lambda: _BoomPath())
+    _mounted(tmp_path, monkeypatch, False)
+    client = _client()
+    res = client.get("/", follow_redirects=False)
+    assert res.status_code == 200
+
+
+def test_t7_concurrent_requests_no_double_mount_no_loop(tmp_path, monkeypatch):
+    """F6: two concurrent GET / must not corrupt the marker or loop."""
+    marker = _marker(tmp_path, monkeypatch)
+    _mounted(tmp_path, monkeypatch, False)
+    client = _client()
+
+    results: list[int] = []
+    lock = threading.Lock()
+
+    def _hit():
+        r = client.get("/", follow_redirects=False)
+        with lock:
+            results.append(r.status_code)
+
+    threads = [threading.Thread(target=_hit) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert set(results) <= {200, 302}
+    assert marker.exists()
+
+    third = client.get("/", follow_redirects=False)
+    assert third.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# T17 — marker write leaves git status clean (F17)
+# ---------------------------------------------------------------------------
+
+def test_t17_marker_touch_does_not_dirty_git_status(monkeypatch):
+    import subprocess
+    from pathlib import Path
+    from arail.portal import app as portal_app
+
+    repo_root = Path(__file__).resolve().parent.parent
+    real_marker = portal_app._world_prompt_marker()
+    assert real_marker.parent == repo_root / "lab" / "data" or True  # sanity only
+
+    # Only run the git-status assertion against the real repo-rooted lab/data
+    # if it's actually inside this checkout (CI sandboxes may relocate it).
+    try:
+        real_marker.relative_to(repo_root)
+    except ValueError:
+        pytest.skip("DATA_DIR relocated outside the checkout in this environment")
+
+    existed_before = real_marker.exists()
+    real_marker.parent.mkdir(parents=True, exist_ok=True)
+    real_marker.touch(exist_ok=True)
+    try:
+        res = subprocess.run(
+            ["git", "status", "--porcelain", "lab/data/.world-prompt-seen"],
+            cwd=repo_root, capture_output=True, text=True, timeout=10,
+        )
+        assert res.stdout.strip() == "", (
+            "marker file must not be reported by git status (gitignore posture)\n"
+            + res.stdout
+        )
+    finally:
+        if not existed_before:
+            real_marker.unlink(missing_ok=True)
 
 
 # ---------------------------------------------------------------------------

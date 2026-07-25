@@ -168,7 +168,13 @@ def test_welcome_setup_refuses_overwrite_when_already_onboarded(monkeypatch, tmp
 
 
 def test_dashboard_unblocks_after_onboarding(fresh_lab):
-    """End-to-end: blocked → onboard → dashboard reachable."""
+    """End-to-end: blocked → onboard → dashboard reachable.
+
+    Post-onboarding, with no World mounted and the one-shot World-prompt
+    marker unset, the FIRST dashboard request now redirects to the World
+    step (Door 2, C3/C4) rather than rendering the dashboard directly. A
+    second request (marker now written) reaches the dashboard.
+    """
     client = _new_client()
     # First request: blocked.
     assert client.get("/", follow_redirects=False).status_code == 302
@@ -178,7 +184,11 @@ def test_dashboard_unblocks_after_onboarding(fresh_lab):
         "confirm":    "shiny-new-passphrase",
     })
     assert r.json()["ok"] is True
-    # Dashboard now reachable.
+    # Onboarded, no World mounted yet → the one-shot World-prompt nudge fires.
+    first = client.get("/", follow_redirects=False)
+    assert first.status_code == 302
+    assert first.headers["location"] == "/welcome?step=world"
+    # Dashboard now reachable on the next request (marker already written).
     assert client.get("/", follow_redirects=False).status_code == 200
 
 
