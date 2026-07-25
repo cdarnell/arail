@@ -25,6 +25,14 @@ That means the coupling is by vendoring, not by fetching:
 |--------|--------------|-------|-----------------|--------|
 | `ai` | AI & Machine Learning | 331 | sourced | qukaizen-dac export |
 | `qukaizen` | QuKaiZen | 32 | sourced | qukaizen-dac export |
+| `video-games` | Video Games | 69 | sourced | in-repo forge (`scripts/forge_video_games_world.py`) |
+
+`video-games` is authored a third way: its inputs live in
+`scripts/worlds_src/video-games/` (reviewable JSON + a persona markdown file,
+committed) and its sealed bytes are produced by the same shared `dac_world`
+sealer the qukaizen-dac exporter uses — re-exported in-repo as
+`arail.world_forge` — via a committed script, no vendoring step. Same format,
+same seal.
 
 Three more example bundles live in `examples/worlds/` (same format, same
 provenance) — import them from the Worlds page when you want them.
@@ -55,6 +63,13 @@ picker until restored.
   re-exports never conflict with it.
 - Worlds you forge in-lab are sealed by ARAIL's own `world_forge` and need no
   upstream at all.
+- **`video-games` specifically**: the sealer regenerates `capabilities.json`
+  and `SKILL.md` on every reseal (including a portal term edit), which would
+  wipe its declared Layer-B capabilities and its authored "Research method"
+  persona section — both are merged in by
+  `scripts/forge_video_games_world.py` *after* sealing. If you edit its terms
+  through the portal, re-run that script afterward to restore them;
+  `tests/test_default_worlds_catalog.py` fails if they ever go missing.
 
 > Naming note: new user-facing copy standardizes on **"Documentation as Code
 > (DaC)"** (as the shipped `qukaizen` World defines it). qukaizen-dac's own

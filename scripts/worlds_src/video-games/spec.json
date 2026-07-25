@@ -1,0 +1,16 @@
+{
+  "slug": "video-games",
+  "display_name": "Video Games",
+  "categories": [
+    { "id": "graphics-settings", "label": "Graphics Settings" },
+    { "id": "hardware", "label": "Hardware" },
+    { "id": "sim-racing", "label": "Sim Racing" },
+    { "id": "drivers", "label": "Drivers" },
+    { "id": "performance-metrics", "label": "Performance Metrics" }
+  ],
+  "knowledge_sources": [
+    { "kind": "url", "ref": "https://en.wikipedia.org", "trust": "primary" },
+    { "kind": "url", "ref": "https://www.pcgamingwiki.com", "trust": "primary" },
+    { "kind": "url", "ref": "vendor documentation (NVIDIA, AMD, Intel, Microsoft, Khronos)", "trust": "primary" }
+  ]
+}

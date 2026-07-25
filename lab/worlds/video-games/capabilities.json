@@ -1,0 +1,120 @@
+{
+  "schema": "dac.world-capabilities/v1",
+  "world": "video-games",
+  "capabilities": [
+    {
+      "id": "knowledge.ground.video-games",
+      "purpose": "Ground claims about Video Games in the World's gated glossary.",
+      "desired": true,
+      "interface": {
+        "kind": "knowledge-grounding",
+        "world": "video-games",
+        "world_sha256": "dae307da72c039c99af680f6b0f744e21a37d9de75bf79c7f6bfb46ab8ec2bb2",
+        "categories": [
+          "drivers",
+          "graphics-settings",
+          "hardware",
+          "performance-metrics",
+          "sim-racing"
+        ],
+        "term_count": 69,
+        "provenance_tier": "sourced"
+      }
+    },
+    {
+      "id": "knowledge.ground.video-games.drivers",
+      "purpose": "Ground claims about Drivers in Video Games.",
+      "desired": true,
+      "interface": {
+        "kind": "knowledge-grounding",
+        "world": "video-games",
+        "category": "drivers",
+        "term_count": 8
+      }
+    },
+    {
+      "id": "knowledge.ground.video-games.graphics-settings",
+      "purpose": "Ground claims about Graphics Settings in Video Games.",
+      "desired": true,
+      "interface": {
+        "kind": "knowledge-grounding",
+        "world": "video-games",
+        "category": "graphics-settings",
+        "term_count": 24
+      }
+    },
+    {
+      "id": "knowledge.ground.video-games.hardware",
+      "purpose": "Ground claims about Hardware in Video Games.",
+      "desired": true,
+      "interface": {
+        "kind": "knowledge-grounding",
+        "world": "video-games",
+        "category": "hardware",
+        "term_count": 13
+      }
+    },
+    {
+      "id": "knowledge.ground.video-games.performance-metrics",
+      "purpose": "Ground claims about Performance Metrics in Video Games.",
+      "desired": true,
+      "interface": {
+        "kind": "knowledge-grounding",
+        "world": "video-games",
+        "category": "performance-metrics",
+        "term_count": 12
+      }
+    },
+    {
+      "id": "knowledge.ground.video-games.sim-racing",
+      "purpose": "Ground claims about Sim Racing in Video Games.",
+      "desired": true,
+      "interface": {
+        "kind": "knowledge-grounding",
+        "world": "video-games",
+        "category": "sim-racing",
+        "term_count": 12
+      }
+    },
+    {
+      "id": "research.game-config-optimization",
+      "purpose": "Implemented in the research engine (arail.research.mini_experiments, archetype game_config_optimization): a measured, one-variable-at-a-time search over a game's settings via a benchmark command you configure, comparing avg FPS and 1% lows against baseline — never a fabricated number, cannot_run when nothing is configured or the benchmark fails. There is no portal UI yet to configure a game's benchmark command and tunables, and no capability adapter is registered, so this still shows unavailable in the capability panel until that wiring lands.",
+      "desired": true,
+      "interface": {
+        "kind": "experiment-archetype",
+        "archetype": "game_config_optimization",
+        "inputs": [
+          "hardware-profile",
+          "game-tunables",
+          "benchmark-command"
+        ],
+        "objective": "measured avg FPS + 1% lows / frame-time stability",
+        "status": "implemented-no-adapter"
+      }
+    },
+    {
+      "id": "scout.driver-watch",
+      "purpose": "Gating and finding pipeline implemented (arail.research.scouting): hybrid-mode only (airgapped hard-blocks via allow_egress), consent-gated per a ConsentStore-approved request, never auto-installs a driver. No production fetcher is wired to a real vendor endpoint yet, and no capability adapter is registered, so this shows unavailable until both land.",
+      "desired": true,
+      "interface": {
+        "kind": "scouting",
+        "mode": "hybrid-only",
+        "consent": "required",
+        "target": "gpu-driver-releases",
+        "status": "implemented-no-fetcher"
+      }
+    },
+    {
+      "id": "scout.release-watch",
+      "purpose": "Gating and finding pipeline implemented (arail.research.scouting): hybrid-mode only, consent-gated, produces a reviewable finding that is never auto-approved into the knowledge base — staging it through the Compiled-KB gate is left to the caller. No production fetcher is wired to a real vendor/release endpoint yet, and no capability adapter is registered, so this shows unavailable until both land.",
+      "desired": true,
+      "interface": {
+        "kind": "scouting",
+        "mode": "hybrid-only",
+        "consent": "required",
+        "target": "game-releases",
+        "status": "implemented-no-fetcher"
+      }
+    }
+  ]
+}

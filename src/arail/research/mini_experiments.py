@@ -11,10 +11,13 @@ It is DISTINCT from ``arail.experiments`` (the /tuning inference-tuning loop,
 which owns git branches and tuning.yml). This engine owns the Autoresearch
 page's experiments.
 
-Three v1 archetypes, all airgapped-safe (no network imports):
-  • ``model_throughput``  — measured TTFT / decode-rate / latency (needs a model)
-  • ``prompt_variant``    — prompt variants scored by deterministic proxies (needs a model)
-  • ``retrieval_quality`` — quality of the APPROVED KB (needs no model)
+Four v1 archetypes, all airgapped-safe (no network imports):
+  • ``model_throughput``        — measured TTFT / decode-rate / latency (needs a model)
+  • ``prompt_variant``          — prompt variants scored by deterministic proxies (needs a model)
+  • ``retrieval_quality``       — quality of the APPROVED KB (needs no model)
+  • ``game_config_optimization`` — measured one-variable-at-a-time game-config
+    search via a user-configured benchmark command (needs no model; needs a
+    real, user-supplied benchmark — never fabricates a frame rate)
 
 Only one piece of output is model-authored: an optional 1–2 sentence
 ``interpretation`` OF the measured numbers, always labeled ``model-narrated``.
@@ -24,6 +27,7 @@ With no model there is no interpretation — never a canned "looks promising".
 from __future__ import annotations
 
 import asyncio
+import json
 import platform
 import re
 import statistics
@@ -44,6 +48,9 @@ _PROMPT_KW = ("prompt", "phrasing", "instruction", "format", "wording",
 _RETRIEVAL_KW = ("knowledge", "retrieval", "retrieve", "source", "kb",
                  "grounding", "grounded", "citation", "corpus", "search",
                  "index", "document", "recall")
+_GAME_CONFIG_KW = ("fps", "frame rate", "framerate", "frame time", "1% low",
+                   "one percent low", "graphics setting", "game config",
+                   "in-game setting", "game settings")
 
 
 def select_archetype(hypothesis: str) -> Optional[str]:
@@ -60,6 +67,7 @@ def select_archetype(hypothesis: str) -> Optional[str]:
         "model_throughput": _score(_THROUGHPUT_KW),
         "prompt_variant": _score(_PROMPT_KW),
         "retrieval_quality": _score(_RETRIEVAL_KW),
+        "game_config_optimization": _score(_GAME_CONFIG_KW),
     }
     best = max(scores, key=lambda k: scores[k])
     return best if scores[best] > 0 else None
@@ -72,6 +80,10 @@ ARCHETYPE_METRICS: Dict[str, List[str]] = {
                        "median_latency_ms", "consistency"],
     "retrieval_quality": ["approved_docs_count", "coverage",
                           "self_retrieval_top1", "median_score"],
+    "game_config_optimization": ["variable_tested", "baseline_value", "best_value",
+                                 "baseline_avg_fps", "baseline_one_percent_low_fps",
+                                 "best_avg_fps", "best_one_percent_low_fps",
+                                 "candidates_ok"],
     "unmeasured": [],
 }
 
@@ -87,6 +99,12 @@ ARCHETYPE_METHODOLOGY: Dict[str, str] = {
         "Probe the human-APPROVED knowledge base with goal keywords and each "
         "approved document's own title; measure coverage and self-retrieval "
         "rank. Needs no model.",
+    "game_config_optimization":
+        "Change one game setting at a time and measure avg FPS + 1% lows via a "
+        "user-configured benchmark command (never a model, never a guess); keep "
+        "the value only if both improve over baseline. Needs a real benchmark "
+        "command — with none configured, or none that runs, this reports "
+        "cannot_run rather than a recommendation.",
     "unmeasured":
         "Recorded for the record — this hypothesis is not measurable on-device "
         "with the current engine, so no metrics are produced.",
@@ -418,10 +436,159 @@ async def _run_retrieval(exp: Dict[str, Any], ctx: ExperimentContext,
             "More/better-titled documents would help."))
 
 
+# ── game config optimization ─────────────────────────────────────────
+#
+# INPUTS (runtime, user-provided, never sealed into a World bundle — see
+# ADR-0002): exp["variables"] must carry
+#   "benchmark_command": List[str]   — argv prefix for the user's own benchmark
+#                                       script/binary for THIS game.
+#   "game_tunables":      Dict[str, List[Any]]  — setting name -> candidate
+#                                       values to try (the game's "manual").
+# Optional: "variable" (which tunable to test; defaults to the first, sorted,
+# key) and "timeout_sec" per run (defaults to 30s, capped by the experiment's
+# time budget).
+#
+# PROTOCOL: each invocation is `benchmark_command [--set KEY=VALUE]`, and the
+# benchmark process must print, as its last non-empty stdout line, a JSON
+# object with numeric "avg_fps" and "one_percent_low_fps" keys. Anything else
+# (missing binary, non-zero exit, timeout, unparsable output) counts as that
+# run failing — never a fabricated number standing in for it.
+
+def _parse_benchmark_output(stdout: bytes) -> Optional[Dict[str, float]]:
+    lines = [ln for ln in stdout.decode("utf-8", "replace").splitlines() if ln.strip()]
+    if not lines:
+        return None
+    try:
+        payload = json.loads(lines[-1])
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    avg_fps = payload.get("avg_fps")
+    one_pct = payload.get("one_percent_low_fps")
+    if not isinstance(avg_fps, (int, float)) or not isinstance(one_pct, (int, float)):
+        return None
+    if avg_fps <= 0 or one_pct <= 0:
+        return None
+    return {"avg_fps": float(avg_fps), "one_percent_low_fps": float(one_pct)}
+
+
+async def _run_benchmark(cmd: List[str], extra_args: List[str],
+                         timeout: float) -> Optional[Dict[str, float]]:
+    """Invoke the user's benchmark command; return measured fps metrics, or
+    None if it could not be run or its output could not be trusted. Never
+    raises — a broken benchmark command is a failed run, not an engine crash."""
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd, *extra_args,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
+    except (OSError, ValueError):
+        return None
+    try:
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+    except asyncio.TimeoutError:
+        proc.kill()
+        await proc.wait()
+        return None
+    if proc.returncode != 0:
+        return None
+    return _parse_benchmark_output(stdout)
+
+
+async def _run_game_config_optimization(exp: Dict[str, Any], ctx: ExperimentContext,
+                                        started: str, t0: float) -> MiniResult:
+    variables = exp.get("variables") or {}
+    cmd = variables.get("benchmark_command")
+    tunables = variables.get("game_tunables")
+    if not isinstance(cmd, list) or not cmd or not all(isinstance(c, str) for c in cmd):
+        return _cannot_run(
+            "game_config_optimization",
+            "no benchmark command configured for this game — this World can "
+            "only measure a config against a real benchmark you provide",
+            started, t0)
+    if not isinstance(tunables, dict) or not tunables:
+        return _cannot_run(
+            "game_config_optimization",
+            "no game tunables configured — read the game's settings manual "
+            "and provide at least one setting with candidate values",
+            started, t0)
+    variable = variables.get("variable")
+    if not isinstance(variable, str) or variable not in tunables:
+        variable = sorted(tunables.keys())[0]
+    candidates = tunables.get(variable) or []
+    if not isinstance(candidates, list) or not candidates:
+        return _cannot_run(
+            "game_config_optimization",
+            f"no candidate values configured for '{variable}'", started, t0)
+    timeout = min(float(variables.get("timeout_sec", 30.0)), ctx.time_budget_sec)
+
+    baseline = await _run_benchmark(cmd, [], timeout)
+    _emit(ctx, "baseline: " + ("measured" if baseline else "benchmark did not run"),
+          baseline or {})
+    if baseline is None:
+        return _cannot_run(
+            "game_config_optimization",
+            "the configured benchmark command did not produce a usable "
+            "baseline measurement — check it runs and prints avg_fps / "
+            "one_percent_low_fps as JSON", started, t0)
+
+    results: Dict[Any, Dict[str, float]] = {}
+    for value in candidates:
+        if ctx.halt_check and ctx.halt_check():
+            break
+        if (time.monotonic() - t0) > ctx.time_budget_sec:
+            break
+        measured = await _run_benchmark(cmd, ["--set", f"{variable}={value}"], timeout)
+        if measured is not None:
+            results[value] = measured
+            _emit(ctx, f"{variable}={value}: {measured['avg_fps']:.1f} avg fps, "
+                       f"{measured['one_percent_low_fps']:.1f} 1% low", measured)
+        else:
+            _emit(ctx, f"{variable}={value}: benchmark did not run", {})
+
+    if not results:
+        return _cannot_run(
+            "game_config_optimization",
+            f"the benchmark command did not run for any candidate value of "
+            f"'{variable}'", started, t0)
+
+    best_value = max(results, key=lambda v: results[v]["avg_fps"])
+    best = results[best_value]
+    success = (best["avg_fps"] > baseline["avg_fps"]
+               and best["one_percent_low_fps"] >= baseline["one_percent_low_fps"])
+    metrics = {
+        "variable_tested": variable,
+        "baseline_value": "current",
+        "best_value": best_value,
+        "baseline_avg_fps": baseline["avg_fps"],
+        "baseline_one_percent_low_fps": baseline["one_percent_low_fps"],
+        "best_avg_fps": best["avg_fps"],
+        "best_one_percent_low_fps": best["one_percent_low_fps"],
+        "candidates_ok": len(results),
+        "candidates_attempted": len(candidates),
+    }
+    return MiniResult(
+        archetype="game_config_optimization", provenance="measured",
+        outcome="supported" if success else "inconclusive", success=success,
+        metrics=metrics, runs=len(results) + 1, started_at=started,
+        duration_sec=time.monotonic() - t0,
+        conclusion=(
+            f"Setting {variable}={best_value} measured {best['avg_fps']:.1f} avg fps "
+            f"/ {best['one_percent_low_fps']:.1f} 1% low, both better than the "
+            f"current value ({baseline['avg_fps']:.1f} / "
+            f"{baseline['one_percent_low_fps']:.1f})."
+            if success else
+            f"No tested value of {variable} measurably beat the current config "
+            f"({baseline['avg_fps']:.1f} avg fps / "
+            f"{baseline['one_percent_low_fps']:.1f} 1% low) without a smoothness "
+            "regression."))
+
+
 _RUNNERS = {
     "model_throughput": _run_throughput,
     "prompt_variant": _run_prompt_variant,
     "retrieval_quality": _run_retrieval,
+    "game_config_optimization": _run_game_config_optimization,
 }
 
 

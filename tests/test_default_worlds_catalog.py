@@ -1,9 +1,9 @@
 """WK-6 + WK-7: the shipped default World catalog.
 
-Defaults (in lab/worlds/, scanned into the catalog): the `ai` World and the
-`qukaizen` product World. The three demo Worlds (art-history, horticulture,
-physics) are demoted to examples/worlds/ — not offered as defaults, but still
-sealed and importable by path.
+Defaults (in lab/worlds/, scanned into the catalog): the `ai` World, the
+`qukaizen` product World, and the `video-games` World. The three demo Worlds
+(art-history, horticulture, physics) are demoted to examples/worlds/ — not
+offered as defaults, but still sealed and importable by path.
 """
 
 from __future__ import annotations
@@ -12,12 +12,13 @@ import json
 from pathlib import Path
 
 from arail import world_mount as wm
+from arail.capabilities.spec import parse_capabilities_file
 
 REPO = Path(__file__).resolve().parents[1]
 CATALOG = REPO / "lab" / "worlds"
 EXAMPLES = REPO / "examples" / "worlds"
 
-DEFAULTS = {"ai", "qukaizen"}
+DEFAULTS = {"ai", "qukaizen", "video-games"}
 DEMOTED = {"art-history", "horticulture", "physics"}
 
 
@@ -26,7 +27,7 @@ def _bundle_dirs(root: Path) -> set[str]:
             if d.is_dir() and (d / "manifest.json").exists()}
 
 
-def test_catalog_holds_exactly_the_two_defaults():
+def test_catalog_holds_exactly_the_shipped_defaults():
     assert _bundle_dirs(CATALOG) == DEFAULTS
 
 
@@ -73,3 +74,58 @@ def test_demoted_examples_still_seal_valid():
     # examples remain importable — a broken seal would make import fail
     for slug in DEMOTED:
         assert wm.verify_seal(wm.load_bundle(EXAMPLES / slug)).ok, slug
+
+
+def test_video_games_world_seals_and_is_sourced():
+    b = wm.load_bundle(CATALOG / "video-games")
+    assert wm.verify_seal(b).ok
+    man = json.loads((CATALOG / "video-games" / "manifest.json").read_text())
+    assert man["provenance_tier"] == "sourced"
+    assert man["provenance_counts"]["model"] == 0
+
+
+def test_video_games_graph_is_closed_and_categories_exact():
+    terms = json.loads((CATALOG / "video-games" / "terms.json").read_text())["terms"]
+    slugs = {t["slug"] for t in terms}
+    for t in terms:
+        for r in t.get("related", []):
+            assert r in slugs, f"{t['slug']} links dangling {r}"
+        assert t.get("source"), f"{t['slug']} missing provenance"
+    cats = {t["category"] for t in terms}
+    assert cats == {"graphics-settings", "hardware", "sim-racing",
+                     "drivers", "performance-metrics"}
+
+
+def test_video_games_capabilities_declare_layer_b():
+    """The forge script merges Layer-B capabilities post-seal (world_forge.py's
+    sealer only ever emits knowledge-grounding entries). This is a tripwire:
+    a portal reseal regenerates capabilities.json and would silently drop
+    these — if it ever does, this test catches it.
+    """
+    caps = parse_capabilities_file(CATALOG / "video-games" / "capabilities.json")
+    ids = {c.id for c in caps}
+    assert "knowledge.ground.video-games" in ids
+    for cat in ("graphics-settings", "hardware", "sim-racing",
+                "drivers", "performance-metrics"):
+        assert f"knowledge.ground.video-games.{cat}" in ids
+
+    layer_b = {"research.game-config-optimization", "scout.driver-watch",
+               "scout.release-watch"}
+    assert layer_b <= ids
+    for cap in caps:
+        if cap.id in layer_b:
+            assert cap.desired is True
+            # Layer B/C code now exists (mini_experiments.py / scouting.py),
+            # but no capability adapter is registered for these ids yet, so
+            # they still resolve declared_unavailable — the purpose text
+            # must say so honestly rather than claim they're live.
+            assert "no capability adapter is registered" in cap.purpose
+            assert "unavailable" in cap.purpose
+
+
+def test_video_games_skill_carries_research_method_and_seal_trailer():
+    """Same tripwire as above, for the SKILL.md merge."""
+    skill = (CATALOG / "video-games" / "SKILL.md").read_text()
+    assert "### Research method" in skill
+    man = json.loads((CATALOG / "video-games" / "manifest.json").read_text())
+    assert f"dac:world_sha256 {man['world_sha256']}" in skill

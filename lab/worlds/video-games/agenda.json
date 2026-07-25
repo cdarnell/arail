@@ -1,0 +1,27 @@
+{
+  "schema": "dac.world-agenda/v1",
+  "world": "video-games",
+  "watches": [
+    {
+      "node": "video-games",
+      "feeds": [
+        "https://en.wikipedia.org"
+      ],
+      "cadence": "occasional"
+    },
+    {
+      "node": "video-games",
+      "feeds": [
+        "https://www.pcgamingwiki.com"
+      ],
+      "cadence": "occasional"
+    },
+    {
+      "node": "video-games",
+      "feeds": [
+        "vendor documentation (NVIDIA, AMD, Intel, Microsoft, Khronos)"
+      ],
+      "cadence": "occasional"
+    }
+  ]
+}

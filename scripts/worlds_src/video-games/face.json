@@ -1,0 +1,39 @@
+{
+  "name": "Video Games",
+  "tagline": "Tune the game, not the vibes — a sourced glossary of graphics settings, hardware, sim racing, drivers, and the numbers that prove a config works.",
+  "domain_framing": "This lab studies how games actually perform on real hardware: graphics settings and what they cost, GPU/CPU/RAM behavior, sim-racing feel, driver hygiene, and the metrics that decide a config (frame time, 1% lows, latency). Every factual claim is grounded in the World's cited sources. The method is measured autoresearch: change one variable, measure, keep the win. Unmeasured suggestions are labeled advice — this World never invents benchmark numbers.",
+  "vocabulary_register": "Use the World's own terms; cite a source for every factual claim; never state an FPS or benchmark figure that was not measured.",
+  "palette_hint": "slate-violet",
+  "theme": {
+    "schema": "dac.world-theme/v1",
+    "personality": "playful",
+    "dark": {
+      "bg": "#0b0b12",
+      "surface": "#12121c",
+      "surface2": "#191927",
+      "border": "#262638",
+      "text": "#e8e6f2",
+      "muted": "#9a94b8",
+      "accent": "#ff2d95",
+      "accent2": "#00e5ff",
+      "positive": "#2bd97c",
+      "warn": "#ffb020",
+      "danger": "#ff4d4d",
+      "info": "#7aa2ff"
+    },
+    "light": {
+      "bg": "#f7f5fb",
+      "surface": "#ffffff",
+      "surface2": "#eeeaf6",
+      "border": "#d8d2e6",
+      "text": "#241f33",
+      "muted": "#5c5575",
+      "accent": "#c40072",
+      "accent2": "#0072a3",
+      "positive": "#0a7d3e",
+      "warn": "#8a5a00",
+      "danger": "#c21f3a",
+      "info": "#4f46b8"
+    }
+  }
+}
