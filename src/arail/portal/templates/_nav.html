@@ -5,8 +5,9 @@
       dashboard | dac       | notebooks | research | chat
       agents    | terminal  | admin
   Sub-surfaces reached from their parent page:
-      /tuning   — linked from /chat (speed work for the deep model)
-      /plugins  — linked from /admin  (one tap away from core lab config)
+      /tuning    — linked from /chat  (speed work for the deep model)
+      /plugins   — linked from /admin (one tap away from core lab config)
+      /notebooks — linked from /admin (Workbench, folded under Admin)
 
   Tier gating — `tier_surfaces` is a set injected by portal/app.py. Items
   only render if their key is in the set. Default tier (minimalist) shows:
@@ -74,12 +75,8 @@
      title="Model Building — build, distill, and register models via the Nucleus pipeline.">Model Building</a>
   {% endif %}
 
-  {% if 'notebooks' in _ts %}
-  <a href="/notebooks"{% if active == 'notebooks' %} class="active"{% endif %}>Workbench</a>
-  {% endif %}
-
   {% if 'admin' in _ts %}
-  <a href="/admin"{% if active in ['admin', 'plugins'] %} class="active"{% endif %}>Admin</a>
+  <a href="/admin"{% if active in ['admin', 'plugins', 'notebooks'] %} class="active"{% endif %}>Admin</a>
   {% endif %}
 
 </nav>
