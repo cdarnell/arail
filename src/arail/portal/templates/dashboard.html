@@ -1982,7 +1982,7 @@ async function refreshProgramRow() {
         hint.className = 'gs-hint';
         hint.textContent = 'Your lab studies nothing yet — ';
         const link = document.createElement('a');
-        link.href = '/worlds';
+        link.href = '/welcome?step=world';
         link.textContent = 'mount or forge a World →';
         hint.appendChild(link);
         holder.appendChild(hint);
