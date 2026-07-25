@@ -48,12 +48,24 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.DAC_DEPLOY_KEY }}
 
+      # Retry: pip clones the private `dac_world` dep with `--filter=blob:none`,
+      # which needs a SECOND authenticated fetch at checkout. GitHub SSH/codeload
+      # flakiness then shows up as "Clone succeeded, but checkout failed" /
+      # "Permission denied (publickey)" despite a valid credential.
       - name: Install dev dependencies
         shell: bash
         run: |
           set -euo pipefail
           python -m pip install --upgrade pip
-          python -m pip install -e ".[dev]"
+          for attempt in 1 2 3; do
+            if python -m pip install -e ".[dev]"; then
+              exit 0
+            fi
+            echo "::warning::dependency install attempt ${attempt}/3 failed (likely the private dac_world clone); retrying in $((attempt * 20))s"
+            sleep $((attempt * 20))
+          done
+          echo "::error::dependency install failed after 3 attempts"
+          exit 1
 
       - name: Run DaC feature tests (live hardware tests excluded)
         shell: bash
