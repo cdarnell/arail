@@ -239,6 +239,11 @@ class WorldInfo:
     # Short story blurb from face.json's ``tagline`` — display copy for
     # pickers/switchers. Empty string when the face has none.
     tagline: str = ""
+    # Best-effort, optional. None/""/[] when the underlying data is missing
+    # or malformed — never fabricated. See C2.
+    term_count: Optional[int] = None
+    provenance_tier: str = ""
+    categories: List[str] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -250,7 +255,47 @@ class WorldInfo:
             "reason": self.reason,
             "theme_preview": dict(self.theme_preview) if self.theme_preview else None,
             "tagline": self.tagline,
+            "term_count": self.term_count,
+            "provenance_tier": self.provenance_tier,
+            "categories": list(self.categories),
         }
+
+
+def _catalog_extras_from_manifest_and_spec(
+    manifest: Any, spec: Any
+) -> tuple[Optional[int], str, List[str]]:
+    """Best-effort (term_count, provenance_tier, categories) for a card (C2).
+
+    Never raises. Each field is independently None/""/[] on missing or
+    malformed data — no fabrication, no placeholder.
+    """
+    term_count: Optional[int] = None
+    provenance_tier = ""
+    categories: List[str] = []
+    try:
+        if isinstance(manifest, dict):
+            counts = manifest.get("provenance_counts")
+            if isinstance(counts, dict):
+                total = counts.get("total")
+                if isinstance(total, int) and not isinstance(total, bool):
+                    term_count = total
+            tier = manifest.get("provenance_tier")
+            if isinstance(tier, str):
+                provenance_tier = tier
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        if isinstance(spec, dict):
+            cats = spec.get("categories")
+            if isinstance(cats, list):
+                for c in cats[:3]:
+                    if isinstance(c, dict):
+                        label = c.get("label")
+                        if isinstance(label, str) and label:
+                            categories.append(label)
+    except Exception:  # noqa: BLE001
+        pass
+    return term_count, provenance_tier, categories
 
 
 def _theme_preview_from_face(face: Any) -> Optional[Dict[str, str]]:
@@ -714,6 +759,9 @@ def list_available_worlds(
                     ))
                     continue
                 seen_slugs.add(slug)
+                term_count, provenance_tier, categories = (
+                    _catalog_extras_from_manifest_and_spec(bundle.manifest, bundle.spec)
+                )
                 out.append(WorldInfo(
                     slug=slug,
                     display_name=str(bundle.manifest.get("display_name", slug)),
@@ -722,6 +770,9 @@ def list_available_worlds(
                     mounted=(slug == current_slug),
                     theme_preview=_theme_preview_from_face(bundle.face),
                     tagline=_tagline_from_face(bundle.face),
+                    term_count=term_count,
+                    provenance_tier=provenance_tier,
+                    categories=categories,
                 ))
             except Exception as e:  # noqa: BLE001
                 out.append(WorldInfo(
@@ -739,6 +790,8 @@ def list_available_worlds(
     # Append the currently-mounted World if it isn't already represented.
     if current_slug and not any(w.mounted for w in out):
         display = current.world
+        manifest: Any = None
+        spec: Any = None
         try:
             manifest = json.loads(
                 (Path(current.bundle_dir) / "manifest.json").read_bytes()
@@ -746,6 +799,13 @@ def list_available_worlds(
             display = str(manifest.get("display_name", current.world))
         except Exception:  # noqa: BLE001
             display = current.world
+        try:
+            spec = json.loads((Path(current.bundle_dir) / "spec.json").read_bytes())
+        except Exception:  # noqa: BLE001
+            spec = None
+        term_count, provenance_tier, categories = (
+            _catalog_extras_from_manifest_and_spec(manifest, spec)
+        )
         out.append(WorldInfo(
             slug=current.world,
             display_name=display,
@@ -753,6 +813,9 @@ def list_available_worlds(
             valid=True,
             mounted=True,
             reason="",
+            term_count=term_count,
+            provenance_tier=provenance_tier,
+            categories=categories,
         ))
 
     return out

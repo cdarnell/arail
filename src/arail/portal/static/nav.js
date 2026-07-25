@@ -687,6 +687,18 @@ window.revealSlot = async function revealSlot(slot, subpath) {
   function render(json) {
     _lastJson = json;
     var html = '';
+    // C7 — new first row: navigates to the welcome World-step component
+    // (the same honest-failure-state, confirmation-gated surface as the
+    // welcome flow) rather than mounting directly. The existing per-World
+    // rows below keep their direct-POST behavior this sprint (see
+    // ARCHITECTURE.md C7 / Tech debt D3) — this new row is not a
+    // replacement for them, just an additional, safer door.
+    html +=
+      '<div class="world-row" role="menuitem" data-action="change-world" ' +
+      'style="display:flex;align-items:center;gap:.4rem;padding:.4rem .6rem;' +
+      'border-radius:7px;font-size:.78rem;white-space:nowrap;cursor:pointer;">' +
+      '<span>&nbsp;&nbsp;</span><span>Change World…</span></div>' +
+      '<div style="border-top:1px solid var(--border);margin:.3rem 0;"></div>';
     html += row({
       label: 'AI Lab (default)',
       action: 'default',
@@ -862,6 +874,7 @@ window.revealSlot = async function revealSlot(slot, subpath) {
     var el = e.target.closest('.world-row[data-action]');
     if (!el || busy) return;
     var action = el.getAttribute('data-action');
+    if (action === 'change-world') { window.location.href = '/welcome?step=world'; return; }
     if (action === 'forge') { window.location.href = '/worlds'; return; }
     if (action === 'add') { showImport(); return; }
     var slug = el.getAttribute('data-slug') || '';

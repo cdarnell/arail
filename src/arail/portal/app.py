@@ -276,6 +276,36 @@ def _lab_password_set() -> bool:
     return False
 
 
+def _world_prompt_marker() -> Path:
+    """Path of the one-shot 'we already offered the World step' sentinel.
+
+    Presence-only (A2): nothing reads its contents, mtime, or size.
+    Resolves DATA_DIR lazily, per call — module-scope import would bind the
+    pre-test value and break monkeypatching (see app.py's identical
+    bootstrap_goal.json pattern above).
+    """
+    from arail.config import DATA_DIR
+    return Path(DATA_DIR) / ".world-prompt-seen"
+
+
+def _world_prompt_pending() -> bool:
+    """True iff the one-shot World nudge should fire for this request.
+
+    onboarded AND no World mounted AND marker absent. Never raises — any
+    OSError is caught and treated as "don't nudge" (fail-quiet toward
+    rendering the dashboard, never toward redirecting).
+    """
+    try:
+        if not _lab_password_set():
+            return False
+        from arail.world_mount import current_mount
+        if current_mount() is not None:
+            return False
+        return not _world_prompt_marker().exists()
+    except OSError:
+        return False
+
+
 app = FastAPI(title=load_brand().name, docs_url="/api/docs")
 
 
@@ -1211,14 +1241,30 @@ _register_openai_compat(app)
 @app.get("/welcome", response_class=HTMLResponse)
 async def welcome_page(request: Request):
     """First-run onboarding form. Allowed by the middleware regardless
-    of password state, so a fresh lab can land here on first open."""
-    # If they're already onboarded, send them home — nothing to do here.
+    of password state, so a fresh lab can land here on first open.
+
+    ``?step=world`` (C1) addresses the World-picker step directly for
+    already-onboarded visitors — the one-shot nudge (C3/C4) and the swap
+    doors (C7) both land here. Any other/garbage ``step`` value, or none,
+    keeps today's unconditional 302 home for onboarded visitors. The
+    param is never echoed into the response body (F14).
+    """
+    step = (request.query_params.get("step") or "").strip().lower()
     if _lab_password_set():
+        if step == "world":
+            return templates.TemplateResponse(request, "welcome.html", {
+                **_identity_ctx(),
+                "current_lab_name": effective_identity().name,
+                "world_step": True,
+                "lab_mode": _lab_mode(),
+            })
         from fastapi.responses import RedirectResponse
         return RedirectResponse(url="/", status_code=302)
     return templates.TemplateResponse(request, "welcome.html", {
         **_identity_ctx(),
         "current_lab_name": effective_identity().name,
+        "world_step": False,
+        "lab_mode": _lab_mode(),
     })
 
 
@@ -1381,6 +1427,15 @@ def _write_code_server_password(passphrase: str) -> None:
 
 @app.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request):
+    if _world_prompt_pending():
+        try:
+            _world_prompt_marker().parent.mkdir(parents=True, exist_ok=True)
+            _world_prompt_marker().touch(exist_ok=True)     # marker FIRST
+        except OSError:
+            pass                                            # F4/F5: fall through, render normally
+        else:
+            from fastapi.responses import RedirectResponse
+            return RedirectResponse(url="/welcome?step=world", status_code=302)
     experiments = tracker.list_all()
     allowed_domains = consent_store.list_allowed()
     pending = consent_store.list_pending()

@@ -209,6 +209,12 @@ reset_pkb() {
         warn "Also removing ARAIL_CONVERSATIONS_DIR (${conv_override}) — chat memory."
         rm -rf "$conv_override"
     fi
+    # A World's staged pages live under $PKB_DIR/sources/world-<slug>/ and were
+    # just deleted; leaving lab/data/world-mount.json behind would advertise a
+    # World whose knowledge base no longer exists. Drop the pointer, and re-arm
+    # the one-shot World prompt so the next boot offers the picker again.
+    rm -f "${DATA_DIR}/world-mount.json" 2>/dev/null || true
+    rm -f "${DATA_DIR}/.world-prompt-seen" 2>/dev/null || true
     info "Knowledge base removed. Starter packs will re-seed on next ./arailctl start."
 }
 
