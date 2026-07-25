@@ -272,7 +272,7 @@ coder_cpu    = "Qwen/Qwen2.5-Coder-3B-Instruct-GGUF"
 #               index below (`./arailctl deep update`), public PyPI as fallback.
 #               Wheels are macOS-arm64-only (no Linux/CUDA build yet).
 # clone ref (source builds): git+https://github.com/cdarnell/qukaizen-aerollm@main
-aerollm       = "aerollm-api>=0.1,<0.2"
+aerollm       = "aerollm-api>=1.0,<2.0"
 aerollm_index = "https://pypi.qukaizen.com/simple/"
 # AirLLM stays declared for opt-in power-user installs (not pulled by default).
 airllm  = "airllm>=2.0"
