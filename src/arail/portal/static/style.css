@@ -3157,6 +3157,59 @@ code {
   .dict-box-actions, .dict-page-actions { margin-left: 0; width: 100%; }
 }
 
+/* ── Cold-start warming overlay (_boot_overlay.html) ────────────────
+   Time-based only — see the partial's own JS. `[hidden]` is the default,
+   non-JS-safe state; the script clears it for the remaining boot-warmup
+   budget, then re-adds it after the fade-out below finishes. */
+.arail-boot-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10050;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  opacity: 1;
+  transition: opacity 0.2s ease;
+}
+.arail-boot-overlay[hidden] { display: none; }
+.arail-boot-overlay--out { opacity: 0; }
+.arail-boot-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.9rem;
+  padding: 2rem 2.25rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: 0 8px 32px color-mix(in srgb, var(--bg) 55%, transparent);
+  text-align: center;
+  max-width: 22rem;
+}
+.arail-boot-spinner {
+  width: 30px;
+  height: 30px;
+  border: 3px solid var(--border-hi);
+  border-top-color: var(--accent2);
+  border-radius: 50%;
+  animation: arail-boot-spin 0.8s linear infinite;
+  flex: none;
+}
+@keyframes arail-boot-spin { to { transform: rotate(360deg); } }
+.arail-boot-title {
+  font-weight: 600;
+  color: var(--text);
+  font-size: 1rem;
+}
+.arail-boot-sub {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
 /* ═══════════════════════════════════════════════════════════════════
    Motion kill-switch — STYLE-SPEC §d / do-not #9. Every decorative
    transition and animation in this sheet dies under reduced motion.

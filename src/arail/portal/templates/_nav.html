@@ -177,64 +177,13 @@
 })();
 </script>
 
-<!-- Warmup overlay — hidden until the first /api/ready probe confirms the
-     portal is still booting OR the primary chat model hasn't warmed yet.
-     This avoids a flash on hot navigations (server already warm) while
-     still showing a clear signal when work IS pending. Self-dismisses
-     once ready && !warming, or after a 30s hard cap so the user is
-     never trapped behind a stuck spinner. -->
-<div id="lab-warmup-overlay" style="
-     position:fixed;inset:0;z-index:9999;display:none;
-     flex-direction:column;align-items:center;justify-content:center;
-     gap:1rem;background:color-mix(in srgb, var(--bg) 94%, transparent);color:var(--text);
-     font-family:var(--font-sans);backdrop-filter:blur(2px);">
-  <div style="
-       width:42px;height:42px;border:3px solid color-mix(in srgb, var(--accent) 22%, transparent);
-       border-top-color:var(--accent);border-radius:50%;animation:lab-spin 0.9s linear infinite;"></div>
-  <div style="font-size:0.95rem;letter-spacing:0.04em;">Lab is warming up…</div>
-  <div id="lab-warmup-elapsed" style="font-size:0.72rem;color:var(--text-muted);letter-spacing:0.06em;font-family:var(--font-mono);">0.0s</div>
-  <style>@keyframes lab-spin { to { transform: rotate(360deg); } }</style>
-</div>
-<script>
-(function () {
-  var overlay = document.getElementById('lab-warmup-overlay');
-  if (!overlay) return;
-  var elapsedEl = document.getElementById('lab-warmup-elapsed');
-  var t0 = performance.now();
-  var maxMs = 30000; // hard cap — never trap the user past 30s
-  var visible = false;
-  function show() {
-    if (visible) return;
-    visible = true;
-    overlay.style.display = 'flex';
-  }
-  function dismiss() {
-    if (!visible) { overlay.remove(); return; }
-    overlay.style.transition = 'opacity 220ms';
-    overlay.style.opacity = '0';
-    setTimeout(function () { overlay.remove(); }, 240);
-  }
-  function check(initial) {
-    var elapsed = performance.now() - t0;
-    if (elapsedEl) elapsedEl.textContent = (elapsed / 1000).toFixed(1) + 's';
-    if (elapsed > maxMs) { dismiss(); return; }
-    fetch('/api/ready', { cache: 'no-store' })
-      .then(function (r) { return r.ok ? r.json() : null; })
-      .then(function (data) {
-        if (data && data.ready && !data.warming) { dismiss(); return; }
-        // Only reveal the overlay once we've confirmed work is pending.
-        // On a warm server the first probe returns ready && !warming and
-        // we dismiss without ever flashing the overlay.
-        show();
-        setTimeout(check, 400);
-      })
-      .catch(function () {
-        // Network error talking to our own portal — likely mid-restart.
-        // Surface the overlay so the user has a signal, then keep polling.
-        show();
-        setTimeout(check, 600);
-      });
-  }
-  check(true);
-})();
-</script>
+<!-- The cold-start warmup overlay used to live here, polling /api/ready
+     every 400ms for up to 30s. Replaced 2026-07-25 by _boot_overlay.html
+     (included once from base.html's global_ui block): a purely
+     time-based cue with zero network calls. The polling version had a
+     real failure mode — its own /api/ready fetch competed with the same
+     server-side congestion that makes the rest of the page unresponsive
+     during a genuine cold start, so it could silently fail to appear
+     exactly when it was needed most. /api/ready itself is untouched
+     (still used by tests / potential future explicit diagnostics), only
+     this auto-polling caller is gone. -->
