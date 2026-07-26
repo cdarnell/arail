@@ -3,6 +3,9 @@
 .env.local
 .env.*.local
 .gh-token
+
+# Per-machine model defaults (see model_defaults.yaml.example)
+model_defaults.yaml
 lab.conf
 # Provider tokens saved from Chat > Compute Source (chmod 0600).
 lab/data/secrets.env
