@@ -14,7 +14,8 @@ def tmp_registry(monkeypatch, tmp_path):
     """Fresh registry singleton persisted to a per-test tmp file.
 
     Also pins the model env to the known lab default (ollama_native +
-    ai-engineer + aerollm gpt-oss-20b) so seeding is deterministic.
+    ai-engineer + aerollm Qwen2.5-7B-Instruct-4bit) so seeding is
+    deterministic.
     """
     from arail.registry import core as reg_core
 
@@ -24,7 +25,7 @@ def tmp_registry(monkeypatch, tmp_path):
     monkeypatch.setenv("MODEL_NAME", "ai-engineer:latest")
     monkeypatch.delenv("MODEL_API_BASE", raising=False)
     monkeypatch.delenv("OLLAMA_PORT", raising=False)
-    monkeypatch.setenv("AEROLLM_MODEL", "gpt-oss-20b-MLX-4bit")
+    monkeypatch.setenv("AEROLLM_MODEL", "Qwen2.5-7B-Instruct-4bit")
     monkeypatch.setenv("AEROLLM_RESEARCH", "true")
     monkeypatch.setenv("LAB_MODE", "airgapped")
 

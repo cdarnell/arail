@@ -8,7 +8,7 @@
 # Format per entry:
 #   id            ollama model id (model:tag) — also the install handle
 #   name          display name
-#   family        gpt-oss | gemma | qwen | llama | phi | mistral | deepseek
+#   family        gemma | qwen | llama | phi | mistral | deepseek
 #   size_gb       approximate download size
 #   released      YYYY-MM (when the weights or this tag were published)
 #   source        ollama | mlx | hf
@@ -109,28 +109,6 @@
   install: ""
   tier: flagship
 
-# ── AeroLLM MoE (gpt-oss-20b) — resident, all experts loaded ─────────
-# aeroLLM loads this checkpoint's full weight set resident in memory once
-# loaded (32 experts, ~4 active per token computed) — NOT selective /
-# streamed expert loading. Native selective (active-only) expert
-# streaming (AERO_MOE_SELECT) is a real, named non-goal that is off and
-# absent from src/ — see sprints/2026-07-20-model-ux-unification/
-# ARCHITECTURE.md non-goals (F-OVERSELL). scripts/setup.sh auto-selects
-# and downloads this on either tier when the box has >=16 GB RAM and a
-# Rust toolchain (cargo); otherwise set AEROLLM_MODEL=gpt-oss-20b-MLX-4bit
-# in .env manually after downloading.
-- id: gpt-oss-20b-MLX-4bit
-  name: GPT-OSS 20B (MoE, AeroLLM)
-  family: gpt-oss
-  size_gb: 13.0
-  released: 2025-08
-  source: mlx
-  good_at: [deep-reasoning, agent, moe]
-  description: "OpenAI's open-weight 20B MoE (32 experts / 4 active) —
-               resident (aeroLLM) once loaded. License: Apache-2.0."
-  install: "hf download InferenceIllusionist/gpt-oss-20b-MLX-4bit --local-dir $ARAIL_MODELS_DIR/gpt-oss-20b-MLX-4bit"
-  tier: flagship
-
 # ── AeroLLM minimalist-weight MoE (OLMoE-1B-7B) — BLOCKED on aerollm port ──
 # Candidate small MoE for the minimalist tier (7B total / 1B active,
 # Apache-2.0). NOT YET LOADABLE via AeroLLM: aerollm-backend-mlx-native's
@@ -183,19 +161,6 @@
                everyday default. Move up to llama-ai-eng (1B) when you can."
   install: "ollama pull qwen2.5:0.5b-instruct-q4_K_M"
   tier: optional
-
-# ── OpenAI's open-weight reasoning models — gpt-oss ────────────────
-- id: gpt-oss:20b
-  name: GPT-OSS 20B
-  family: gpt-oss
-  size_gb: 13
-  released: 2025-08
-  source: ollama
-  good_at: [reasoning, agent, chat, tool-use]
-  description: OpenAI's open-weight 20B reasoning model — strong on
-               agent + tool-use benchmarks, MoE under the hood.
-  install: "ollama pull gpt-oss:20b"
-  tier: flagship
 
 # ── Google Gemma 3 — small, capable, fast on Apple silicon ─────────
 - id: gemma3:4b

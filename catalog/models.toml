@@ -255,42 +255,6 @@ mlx_status      = "supported"
 cuda_status     = "supported"
 cpu_status      = "not-applicable"
 
-# ── gpt-oss MoE — Phase 4 in AeroLLM ────────────────────────────
-
-[[model]]
-id              = "gpt_oss_20b_bf16"
-label           = "gpt-oss-20b"
-hf_repo         = "openai/gpt-oss-20b"
-arch            = "gpt-oss-moe"
-moe             = true
-params_total_b  = 21.0
-params_active_b = 3.6
-size_gb_bf16    = 42.0
-lab_tier        = "large"
-aerollm_status  = "planned"
-airllm_status   = "supported"
-mlx_status      = "unverified"
-cuda_status     = "supported"
-cpu_status      = "not-applicable"
-notes           = "Mixture-of-experts; small active footprint makes it lab-friendly once AeroLLM's MoE router lands."
-
-[[model]]
-id              = "gpt_oss_120b_bf16"
-label           = "gpt-oss-120b"
-hf_repo         = "openai/gpt-oss-120b"
-arch            = "gpt-oss-moe"
-moe             = true
-params_total_b  = 117.0
-params_active_b = 5.1
-size_gb_bf16    = 234.0
-lab_tier        = "frontier"
-aerollm_status  = "planned"
-airllm_status   = "supported"
-mlx_status      = "unverified"
-cuda_status     = "supported"
-cpu_status      = "not-applicable"
-notes           = "Active footprint is small (5.1B), but full bf16 weights stream from NVMe."
-
 # ── GLM / DeepSeek MoE — Phase 4 in AeroLLM ─────────────────────
 
 [[model]]

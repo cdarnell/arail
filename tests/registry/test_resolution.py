@@ -19,11 +19,11 @@ def test_seed_from_env(tmp_registry):
     assert tier0.tier == 0
 
     tier1 = reg.entries["tier1-aerollm"]
-    assert tier1.model_id == "gpt-oss-20b-MLX-4bit"
+    assert tier1.model_id == "Qwen2.5-7B-Instruct-4bit"
     assert tier1.provider_type == "aerollm"
     assert tier1.endpoint is None          # in-process, no HTTP server
-    assert tier1.architecture == "moe"
-    assert tier1.moe and tier1.moe["num_experts"] == 32
+    assert tier1.architecture == "dense"
+    assert tier1.moe is None
 
     # Cloud entries are present and VISIBLE even while airgapped.
     assert "cloud-anthropic" in ids and "cloud-xai" in ids
