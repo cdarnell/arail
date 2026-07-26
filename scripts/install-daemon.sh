@@ -7,10 +7,13 @@
 # install-trainer-launchd.sh.
 #
 # Services: portal (always), memory/LanceDB (always), mlx OpenAI server
-# (only when MODEL_BACKEND=mlx in .env). ttyd/jupyter/code-server stay in
-# the dev/foreground start.sh deliberately — they hold no lab state and
-# auto-respawning browser-reachable shells at login is attack surface with
-# no persistence upside.
+# (only when MODEL_BACKEND=mlx in .env). Ollama — the default chat model's
+# backend, regardless of tier — is supervised via `brew services` rather
+# than an io.arail.* plist, since it's a shared machine-wide binary, not
+# ARAIL's own code (see the ollama block below). ttyd/jupyter/code-server
+# stay in the dev/foreground start.sh deliberately — they hold no lab
+# state and auto-respawning browser-reachable shells at login is attack
+# surface with no persistence upside.
 #
 # Idempotent: re-running re-renders and reloads only when changed.
 #
@@ -119,9 +122,28 @@ if [[ "${MODEL_BACKEND:-auto}" != "mlx" ]] && [[ -f "$AGENTS_DIR/io.arail.mlx.pl
     echo "✓ Removed io.arail.mlx (MODEL_BACKEND is not mlx)"
 fi
 
+# Ollama backs the default chat model regardless of MODEL_BACKEND/tier.
+# Unlike portal/memory/mlx it's not ARAIL's own code, so it doesn't get
+# an io.arail.* plist — Homebrew's own service definition already
+# supervises it persistently (start at login, respawn on crash), and
+# `brew services start` is idempotent (a no-op if already running). We
+# deliberately never `brew services stop` it on --uninstall: it's a
+# shared, machine-wide resource other tools may depend on, and this
+# script only ever starts things, never tears down what it doesn't own.
+ollama_daemon_note="(not installed — chat's default local model needs it: https://ollama.com)"
+if command -v ollama &>/dev/null; then
+    if command -v brew &>/dev/null; then
+        brew services start ollama >/dev/null 2>&1 || true
+        ollama_daemon_note="supervised by brew services (starts at login, respawns on crash)"
+    else
+        ollama_daemon_note="installed, but no Homebrew to supervise it persistently — run 'ollama serve' yourself, or install Homebrew"
+    fi
+fi
+
 echo ""
 echo "✓ Lab supervised by launchd — starts at login, respawns on crash."
 echo "  Portal:   http://${BIND}:${PORTAL_PORT:-8080}"
+echo "  Ollama:   ${ollama_daemon_note}"
 echo "  Status:   ./arailctl status   (or: launchctl list | grep io.arail)"
 echo "  Logs:     tail -F $LOG_DIR/portal.{out,err}.log"
 echo "  Stop:     ./arailctl stop     (unloads agents; stays stopped)"

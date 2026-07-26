@@ -114,6 +114,15 @@ stop_services() {
         p=$(pgrep -f "$pattern" 2>/dev/null || true)
         [[ -n "$p" ]] && pids+=($p)
     done
+    # Ollama is a shared, machine-wide service (only one instance can
+    # bind :11434), not ARAIL's own code — unlike the patterns above, we
+    # never pattern-match for it. We only ever stop the specific PID
+    # start.sh recorded when IT was the one that launched Ollama; one the
+    # user runs independently (brew services, another project, manually)
+    # is left completely alone, pidfile absent, nothing touched.
+    local ollama_pid
+    ollama_pid="$(_ollama_pid_if_we_started_it)"
+    [[ -n "$ollama_pid" ]] && pids+=("$ollama_pid")
     if (( ${#pids[@]} > 0 )); then
         kill "${pids[@]}" 2>/dev/null || true
         # SIGTERM → up to 2s grace → SIGKILL stragglers (opencode shape).
@@ -133,9 +142,31 @@ stop_services() {
     else
         info "No running services found."
     fi
+    rm -f "${DATA_DIR}/.ollama-started-by-arail.pid"
     if [[ "$(uname -s)" == "Darwin" ]] && launchctl list io.arail.portal >/dev/null 2>&1; then
         info "NOTE: launchd agents are loaded — use ./arailctl stop to keep the lab down."
     fi
+}
+
+# Returns the PID on stdout iff the pidfile exists AND that PID is still
+# alive; empty otherwise. Never touches the pidfile — callers decide
+# whether to kill the process and/or remove the file.
+_ollama_pid_if_we_started_it() {
+    local pidfile="${DATA_DIR}/.ollama-started-by-arail.pid"
+    [[ -f "$pidfile" ]] || return 0
+    local pid
+    pid="$(cat "$pidfile" 2>/dev/null || true)"
+    # Explicit `if` + trailing `return 0`, not a bare `&&` chain: under
+    # `set -e`, a stale/dead PID makes `kill -0` fail, and the caller
+    # (`ollama_pid="$(_ollama_pid_if_we_started_it)"`) is a plain
+    # assignment — not itself part of an if/while/&&/||, so it is NOT
+    # exempt from errexit. A non-zero return here would silently abort
+    # the entire reset/stop run the very first time a lab's Ollama had
+    # already died on its own. This function must always return 0.
+    if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+        printf '%s' "$pid"
+    fi
+    return 0
 }
 
 # ── Size report ──────────────────────────────────────────────────────
@@ -162,6 +193,16 @@ reset_models() {
 }
 
 reset_data() {
+    # Stop an Ollama we started BEFORE the rm -rf below deletes its
+    # pidfile out from under it — otherwise the process survives, now
+    # untracked, with nothing left able to find or stop it later (the
+    # same dangling-state shape C10 fixed for a lingering World mount
+    # pointer). Never touches an Ollama we didn't start.
+    local ollama_pid
+    ollama_pid="$(_ollama_pid_if_we_started_it)"
+    if [[ -n "$ollama_pid" ]]; then
+        kill "$ollama_pid" 2>/dev/null || true
+    fi
     if [[ -d "$DATA_DIR" ]]; then
         local sz
         sz=$(report_size "$DATA_DIR")
