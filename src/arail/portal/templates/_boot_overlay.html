@@ -1,0 +1,68 @@
+{#- _boot_overlay.html — the cold-start "warming up" overlay.
+
+    Included once from base.html's global_ui block, so it's present on
+    every portal page (welcome.html is nav-less and deliberately excluded
+    from base.html entirely — this doesn't apply to onboarding).
+
+    Purely time-based: `boot_epoch_ms` (wall-clock ms) is stamped into
+    every page from a plain Python global — see app.py, where it's
+    re-stamped at the END of the startup handler (not at import) so the
+    window is anchored to "the app can actually serve a request," not to
+    raw import start; a real cold boot was measured taking ~10s just to
+    reach that point, so anchoring any earlier would have left the whole
+    budget already spent before any browser could load the first page.
+    The client compares that stamp against its own Date.now() once, on
+    load, and either shows the overlay for the remaining budget or does
+    nothing at all. No fetch, no XHR, no polling, no repeated timers — a
+    single comparison and exactly one setTimeout — deliberately not even
+    a local setInterval for a ticking elapsed-time readout, since a
+    recurring timer is still "an update happening post boot" in the
+    literal sense the operator ruled out, even with zero network cost.
+    This is deliberate: the lab's quiet-boot contract means nothing probes or
+    checks readiness after boot unless the user asks, and this overlay
+    holds to that same rule as strictly as the server side does — an
+    earlier implementation here polled /api/ready every 400ms, which had
+    a real failure mode (that fetch could itself stall behind the same
+    congestion making the rest of the page unresponsive, so it could
+    silently fail to appear exactly when needed most); this version
+    can't fail that way because it depends on nothing but the clock.
+
+    Fails open: if JS never runs (disabled, blocked, whatever), the
+    overlay's default state is invisible and non-blocking — the page
+    underneath is fully usable immediately. The overlay can only ever
+    make a fresh cold start feel more confident; it can never lock
+    anyone out of a working page. -#}
+<div id="arail-boot-overlay" class="arail-boot-overlay" hidden aria-hidden="true">
+  <div class="arail-boot-card" role="status" aria-live="polite">
+    <div class="arail-boot-spinner" aria-hidden="true"></div>
+    <div class="arail-boot-title">Warming up {{ brand.name if brand is defined else "your lab" }}…</div>
+    <div class="arail-boot-sub">First boot takes a few seconds — this clears on its own, nothing to click yet.</div>
+  </div>
+</div>
+<script>
+(function () {
+  var bootEpochMs = {{ boot_epoch_ms | default(0) }};
+  var windowMs = {{ boot_overlay_ms | default(10000) }};
+  if (!bootEpochMs || !windowMs) return;
+  var remaining = (bootEpochMs + windowMs) - Date.now();
+  if (remaining <= 0) return;  // well past boot — the common case; do nothing at all
+
+  var el = document.getElementById('arail-boot-overlay');
+  if (!el) return;
+  el.hidden = false;
+  el.removeAttribute('aria-hidden');
+
+  var dismissed = false;
+  function dismiss() {
+    if (dismissed) return;
+    dismissed = true;
+    el.classList.add('arail-boot-overlay--out');
+    // Match the CSS fade-out duration below before removing from the a11y tree.
+    setTimeout(function () {
+      el.hidden = true;
+      el.setAttribute('aria-hidden', 'true');
+    }, 220);
+  }
+  setTimeout(dismiss, remaining);
+})();
+</script>

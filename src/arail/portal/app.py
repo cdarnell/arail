@@ -56,6 +56,12 @@ from arail.portal import docs_registry as _docs_registry
 # handlers stay < 10 ms and < 50 ms respectively).
 # ---------------------------------------------------------------------------
 _BOOT_PERF: float = time.perf_counter()  # perf_counter at process import
+_BOOT_EPOCH_MS: int = int(time.time() * 1000)  # wall-clock ms at process import —
+# unlike _BOOT_PERF (monotonic, process-relative) this is comparable to the
+# browser's Date.now(), which is what the cold-start overlay (base.html's
+# global_ui block, _boot_overlay.html) needs. A static value captured once at
+# import, not a check: no I/O, no probe, nothing recomputed per request —
+# same posture as _BOOT_PERF/asset_v just below.
 _READY: bool = False  # flipped True at the end of @app.on_event("startup")
 _MODEL_WARM: bool = False  # flipped True once _warm_primary_router() finishes
 
@@ -758,6 +764,13 @@ def _identity_ctx() -> dict:
 # guarantees clients pick up new assets without a hard-reload. Bound to
 # the process import time so it changes per restart, not per request.
 templates.env.globals["asset_v"] = f"{_BOOT_VERSION}-{int(_BOOT_PERF * 1000)}"
+# Cold-start overlay: the client compares this against its own Date.now()
+# to decide whether it's still within the warm-up window — see
+# _boot_overlay.html. Zero request-time cost (a plain int already computed
+# at import) and zero client-side polling (a one-shot comparison + a single
+# setTimeout, never a fetch) — the boot-time equivalent of quiet boot.
+templates.env.globals["boot_epoch_ms"] = _BOOT_EPOCH_MS
+templates.env.globals["boot_overlay_ms"] = int(os.getenv("ARAIL_BOOT_OVERLAY_MS", "10000"))
 
 consent_store = ConsentStore()
 goal_store = GoalStore()
@@ -1131,11 +1144,24 @@ async def _startup():
                 )
         asyncio.create_task(_boot_security_scan())
 
-    # All startup work scheduled — flip the readiness flag so the UI
-    # overlay can dismiss. Background tasks (security scan, warmup) keep
-    # running independently; "ready" here means the portal can serve.
+    # All startup work scheduled — flip the readiness flag. Background
+    # tasks (security scan, warmup) keep running independently; "ready"
+    # here means the portal can serve. /api/ready still reports this for
+    # diagnostics; the boot overlay no longer polls it (see below).
     global _READY
     _READY = True
+
+    # Re-stamp the cold-start overlay's clock to the moment the app can
+    # ACTUALLY serve a request, not raw module-import start (set earlier,
+    # near _BOOT_PERF). On a real cold boot the gap between those two
+    # points — imports, world_forge/dac_world, LanceDB, etc. — was
+    # measured at ~10s on a real machine during development; anchoring to
+    # import time would have left the overlay's whole budget already
+    # spent by the time any browser could even reach the first page,
+    # defeating the entire point. Startup's lifespan contract guarantees
+    # no request is served before this handler returns, so every
+    # template render from here on sees this corrected value.
+    templates.env.globals["boot_epoch_ms"] = int(time.time() * 1000)
 
 
 @app.get("/api/ready")
