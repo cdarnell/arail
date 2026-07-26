@@ -69,7 +69,7 @@ def _client(monkeypatch):
 
 def test_compact_hardware_is_the_real_snapshot_not_undefined(monkeypatch, tmp_path):
     """F-BLANK: compact.hardware must carry the real _local_memory_snapshot()
-    values — the frontend's tele-hw/tele-vram/autoWarmBoxes read exactly this
+    values — the frontend's tele-hw/tele-vram telemetry reads exactly this
     path (chat.html: `const hw = d.compact && d.compact.hardware;`)."""
     client, app_mod = _client(monkeypatch)
     import arail.chat as chat_mod

@@ -3961,10 +3961,6 @@
           $('tele-hw').textContent = `${hw.label || '—'} · ${hw.total_gb || '?'} GB total`;
           $('tele-vram').textContent = `${hw.free_gb || '?'} GB`;
         }
-        // Auto-warm both boxes so the chat is usable the moment the page
-        // settles. Deferred via queueMicrotask so the initial paint and
-        // event wiring complete first.
-        queueMicrotask(() => autoWarmBoxes(hw));
       } catch (e) {
         console.error('[chat init] failed:', e);
         $('picker-label').textContent = 'load failed — see console';
@@ -3973,43 +3969,23 @@
       console.info('[chat init] done · models=', State.models.length, '· current=', State.currentId);
     }
 
-    /* AUTO-WARM — warm Box A on init; if the deep backend is available on
-       this tier + installed + not user-opted-out + machine has enough
-       free RAM, also open Box B and warm the deep model. Sequential
-       (not parallel) so a slow Ollama cold-start doesn't race the
-       heavier aeroLLM init. */
-    async function autoWarmBoxes(hw) {
-      if (!State.currentModel) return;
-      try { await loadModel(State.currentModel); }
-      catch (e) { console.warn('[auto-warm] Box A failed:', e); /* loadModel already flashed */ }
-
-      const deep = State.deep || {};
-      const userOptOut = (() => {
-        try { return localStorage.getItem('arail.chat.compareOn') === '0'; } catch (_) { return false; }
-      })();
-      const eligible = deep.available_in_tier === true
-        && deep.installed === true
-        && deep.default_enabled === true
-        && !userOptOut;
-      if (!eligible) return;
-
-      // Honor the OOM-pressure memory: skip Box B auto-warm if free RAM is
-      // tight. The deep model adds several GB once resident (aeroLLM) or
-      // while layer-streaming (AirLLM).
-      const freeGb = Number(hw && hw.free_gb) || 0;
-      if (freeGb > 0 && freeGb < 6) {
-        flashStatus('skipped 2nd box auto-load — free RAM low (<6 GB)');
-        return;
-      }
-
-      // setCompare(true) picks the aerollm deep entry into State.bModel.
-      setCompare(true);
-      if (State.bModel) {
-        try { await loadModel(State.bModel); }
-        catch (e) { console.warn('[auto-warm] Box B failed:', e); }
-      }
-    }
-
+    // AUTO-WARM removed 2026-07-26 — chat page load used to silently
+    // (a) warm Box A and, if it decided conditions looked "eligible,"
+    // (b) turn Compare ON and load a second, heavy deep-backend model
+    // (aeroLLM/AirLLM) — with zero user action. That's exactly the kind
+    // of unsolicited post-boot activity the operator ruled out (see
+    // _boot_overlay.html's docstring for the earlier /api/ready-polling
+    // removal, same principle), and it's almost certainly what made the
+    // "2nd chat box" auto-load a misconfigured model and freeze the
+    // whole event loop before anyone had touched Compare at all.
+    // send() doesn't need a prior warm — it posts straight to
+    // /api/chat/stream and Ollama cold-loads on first request the same
+    // way it always does; the only change is that cost is now paid
+    // honestly inline on the user's first real message, in the visible
+    // "sending…" state, instead of invisibly before they've done
+    // anything. The explicit load-a-model mechanism itself is
+    // untouched — the per-card Load button still calls it directly,
+    // which is the correct, user-initiated path.
     init();
   })();
   </script>
