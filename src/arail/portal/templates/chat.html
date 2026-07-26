@@ -2708,17 +2708,26 @@
       el.classList.remove('nudge'); el.hidden = false;
       const a = State.currentModel || {};
       const aSpec = a.spec || {};
-      const bSpec = (State.bModel && State.bModel.spec) || deep.spec || {};
+      const bSpec = (State.bModel && State.bModel.spec) || {};
       const aModel = transformProvider(a.id || '—', a.runtime || '').model || (a.id || '—');
-      const bModel = State.bId || deep.model || 'aeroLLM';
       const cell = (cls, head, model, params, runs) =>
         '<div class="cs-col ' + cls + '"><div class="cs-h">' + head + '</div>'
         + '<div class="cs-row"><span>model</span><span>' + escapeHtml(String(model)) + '</span></div>'
         + '<div class="cs-row"><span>params</span><span>' + escapeHtml(String(params)) + '</span></div>'
         + '<div class="cs-row"><span>runs</span><span>' + escapeHtml(runs) + '</span></div></div>';
-      let html = cell('a', '1st inference · on-GPU', aModel, aSpec.params || '≤ floor', 'resident in GPU')
-               + cell('b', '2nd inference · aeroLLM', bModel,
-                      bSpec.params || deep.param_hint || '70B+', 'resident via aeroLLM');
+      let html = cell('a', '1st inference · on-GPU', aModel, aSpec.params || '≤ floor', 'resident in GPU');
+      // Honest empty state: State.bId is the ONLY signal that a model is
+      // genuinely selected. `deep.model` used to be a silent fallback
+      // here — it names the CONFIGURED default even when that default
+      // was never downloaded, making the strip claim a selection that
+      // doesn't exist (the exact bug that made Compare look like it
+      // defaulted to a broken model after the auto-pick fix already
+      // correctly refused to select it).
+      html += State.bId
+        ? cell('b', '2nd inference · aeroLLM', State.bId,
+               bSpec.params || deep.param_hint || '70B+', 'resident via aeroLLM')
+        : '<div class="cs-col b"><div class="cs-h">2nd inference · aeroLLM</div>'
+          + '<div class="cs-row"><span>not selected yet</span></div></div>';
       if (isFrontier(a.id)) {
         html += '<div class="cs-why">“' + escapeHtml(aModel) + '” is a frontier 70B+ model — '
               + 'routed to the 2nd inference (aeroLLM), which keeps it resident '
@@ -2748,14 +2757,23 @@
         const cmd = (State.deep && State.deep.upgrade_command) || './arailctl upgrade maximus';
         flashStatus('2nd inference (aeroLLM) needs the maximus tier — ' + cmd);
       } else if (!State.bId) {
-        // Auto-pick AeroLLM if present, otherwise the first installed deep
-        // backend. Never auto-pick a regular local model.
-        const deeps = State.models.filter(m => m.badge === 'deep' && m.installed);
+        // Auto-pick AeroLLM if present AND its configured model's weights
+        // actually exist — not just "the package imports" (installed),
+        // which used to be treated as "ready to use" and defaulted
+        // Compare to a model that was guaranteed to fail with "model dir
+        // not found." Never auto-pick a regular local model (deliberate —
+        // Box B is for a genuinely different, deeper comparison, not a
+        // duplicate of Box A) — so when nothing deep is truly ready, say
+        // so honestly instead of picking anything.
+        const deeps = State.models.filter(m => m.badge === 'deep' && m.installed && m.model_ready);
         if (deeps.length) {
           selectModelB(deeps.find(m => m.runtime === 'aerollm') || deeps[0]);
           flashStatus('compare on · column B = 2nd inference (aeroLLM)');
         } else {
-          flashStatus('compare on, but the 2nd inference (aeroLLM) isn’t built — run ./arailctl deep rebuild');
+          const notInstalled = !State.models.some(m => m.badge === 'deep' && m.installed);
+          flashStatus(notInstalled
+            ? 'compare on, but the 2nd inference (aeroLLM) isn’t built — run ./arailctl deep rebuild'
+            : 'compare on, but no deep model is downloaded yet — set AEROLLM_MODEL in .env to a model you have locally, or pick one from Models');
         }
       } else {
         flashStatus('compare on · column B = 2nd inference (aeroLLM)');
@@ -3904,6 +3922,12 @@
             endpoint: null,
             badge: 'deep',
             installed: !!o.installed,
+            // installed means "the package imports"; this means "the
+            // specific configured model's weights are actually on disk."
+            // setCompare()'s auto-pick must not default to a selection
+            // that's installed-but-not-ready — that's exactly the state
+            // that made Compare silently pick a model guaranteed to fail.
+            model_ready: !!o.model_ready,
             // F-WARMDOT: carried through so State.warmModels can be seeded
             // from real residency, not client-side in-memory guesswork.
             resident: !!o.resident,
