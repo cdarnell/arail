@@ -8383,7 +8383,15 @@ async def api_chat_models(provider: str = ""):
         # Whether any deep backend is available. AeroLLM is preferred;
         # AirLLM shown only when _show_airllm() permits (non-arm64,
         # ARAIL_DEV_AIRLLM=1). When False, the UI shows an install hint.
+        # NOTE: this means "the package is importable," NOT "this model's
+        # weights are present" — see model_ready below for that.
         "installed": _is_aerollm_installed() or (_show_airllm() and _is_airllm_installed()),
+        # Whether `deep_model_name`'s weights actually exist on disk —
+        # the check the chat page's Compare auto-pick must consult before
+        # defaulting to this entry. installed=true + model_ready=false is
+        # the exact "package fine, model never downloaded" state that
+        # used to make Compare silently default to a doomed selection.
+        "model_ready": _aerollm_model_ready(deep_model_name) if deep_model_name != "__TODO_DEEP_MODEL__" else False,
         # Rough size hint the UI can render in the chip. We extract
         # a parameter count from the model name when present
         # (e.g. "Qwen3-235B-A22B" → "235B"); the user-entered
@@ -8450,6 +8458,10 @@ async def api_chat_models(provider: str = ""):
         "label": "AeroLLM",
         "model": aero_model_name,
         "installed": _is_aerollm_installed(),
+        # See deep_info's model_ready above — "installed" is package-level
+        # only; this is the "will loading aero_model_name actually work"
+        # check the chat page's Compare auto-pick must consult.
+        "model_ready": _aerollm_model_ready(aero_model_name),
         "param_hint": _extract_param_hint(aero_model_name),
         "gated": aero_model_name.lower().startswith("meta-llama/"),
         "install_command": "./arailctl deep rebuild",
@@ -8693,6 +8705,29 @@ def _is_aerollm_installed() -> bool:
     eligibility check."""
     import importlib.util
     return importlib.util.find_spec("aerollm_api") is not None
+
+
+def _aerollm_model_ready(model_name: str) -> bool:
+    """True iff `model_name`'s weights are actually present on disk.
+
+    `_is_aerollm_installed()` (above) only answers "is the aerollm_api
+    package importable" — a fully separate question from "will loading
+    THIS configured model actually work." The chat UI was treating the
+    former as the latter: deep.installed/optional_backends[].installed
+    reported true even when AEROLLM_MODEL pointed at a checkpoint that
+    was never downloaded, so the chat page's Compare auto-pick defaulted
+    to a model guaranteed to fail with "AeroLLM model dir not found."
+
+    Mirrors AeroLLMBackend.__init__'s own resolution exactly
+    (router/backends.py:1552-1562) without importing the heavy backend
+    module: bare names resolve against ARAIL_MODELS_DIR, absolute paths
+    are used as-is, and the directory must actually exist.
+    """
+    if not model_name:
+        return False
+    models_dir = os.getenv("ARAIL_MODELS_DIR", "lab/models")
+    model_path = model_name if os.path.isabs(model_name) else os.path.join(models_dir, model_name)
+    return os.path.isdir(model_path)
 
 
 def _is_airllm_installed() -> bool:
