@@ -35,6 +35,15 @@ os.environ["ARAIL_AIRGAP_AUDIT_FILE"] = os.path.join(
     _SESSION_ENV_DIR, "airgap_audit.jsonl"
 )
 os.environ["ARAIL_SECRETS_FILE"] = os.path.join(_SESSION_ENV_DIR, "secrets.env")
+# Same isolation, same reason, for model_defaults.yaml (arail.model_defaults):
+# arail.config applies it at import time too, and a developer's real
+# model_defaults.yaml specifying an Ollama tag as default_a can crash a
+# test whose sandboxed MODEL_BACKEND resolves to a non-Ollama backend
+# (a real bug this exact isolation gap produced once already — see
+# tests/test_model_defaults.py). Point at a file that will never exist.
+os.environ["ARAIL_MODEL_DEFAULTS_FILE"] = os.path.join(
+    _SESSION_ENV_DIR, "model_defaults.yaml"
+)
 
 
 @pytest.fixture
