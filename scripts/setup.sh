@@ -1239,40 +1239,15 @@ EOF
     # 16 GB = 17179869184 bytes.
     local _ram_16gb_floor=17179869184
 
-    # MoE upgrade: aeroLLM ships native selective (active-only) expert
-    # streaming for gpt-oss-20b (32 experts / 4 active, ~11 GB resident —
-    # see aerollm's docs/benchmarks/moe-streaming-efficiency-ledger.md,
-    # Stage 1b), which beats the dense 7B default for agent deep-research
-    # while still fitting the same 16 GB floor. Auto-select it — on either
-    # tier — when the box has the RAM *and* a Rust toolchain is present to
-    # build the aerollm_api wheel (`./arailctl deep rebuild`); otherwise
-    # stay on the proven 7B-dense floor so a fresh clone never footguns
-    # itself on a download it can't use yet. Only overrides the built-in
-    # stock default — an operator's own pyproject.toml override always wins.
-    if [[ "$AEROLLM_MODEL_ID" == "mlx-community/Qwen2.5-7B-Instruct-4bit" ]] \
-       && [[ "$ram_bytes" -ge "$_ram_16gb_floor" ]] \
-       && command -v cargo >/dev/null 2>&1; then
-        AEROLLM_MODEL_ID="InferenceIllusionist/gpt-oss-20b-MLX-4bit"
-        info "16 GB+ RAM and a Rust toolchain detected — defaulting AeroLLM"
-        info "to the MoE model (gpt-oss-20b, native selective expert"
-        info "streaming, ~11 GB resident) for agent deep-research calls."
-    elif [[ "$AEROLLM_MODEL_ID" == "mlx-community/Qwen2.5-7B-Instruct-4bit" ]] \
-         && [[ "$ram_bytes" -ge "$_ram_16gb_floor" ]]; then
-        info "16 GB+ RAM detected, but no Rust toolchain (cargo) found —"
-        info "staying on the 7B default. Install Rust and re-run"
-        info "./arailctl deep rebuild, then set AEROLLM_MODEL=gpt-oss-20b-MLX-4bit"
-        info "in .env to use the MoE model for deeper agent research."
-    fi
-
     info "AeroLLM deep model for ${LAB_TIER}: ${BOLD}${AEROLLM_MODEL_ID}${RESET}"
 
     # RAM-headroom hint for operators who manually upgrade AEROLLM_MODEL in .env
-    # to a frontier (32B+) checkpoint. With the 7B/MoE-20B defaults the warning
-    # is informational, not a footgun — both fit comfortably on 16 GB+.
+    # to a frontier (32B+) checkpoint. With the 7B default the warning
+    # is informational, not a footgun — it fits comfortably on 16 GB+.
     if [[ "$LAB_TIER" == "maximus" ]]; then
-        # F7: 16 GB floor for maximus. 7B-4bit is ~4 GB resident (gpt-oss-20b
-        # ~11 GB); combined with portal + browser, 8 GB cannot reliably run
-        # maximus without swapping.
+        # F7: 16 GB floor for maximus. 7B-4bit is ~4 GB resident; combined
+        # with portal + browser, 8 GB cannot reliably run maximus without
+        # swapping.
         if [[ "$ram_bytes" -gt 0 && "$ram_bytes" -lt "$_ram_16gb_floor" ]]; then
             warn "This machine has < 16 GB RAM. maximus (7B-4bit ~4 GB resident)"
             warn "may cause swapping or slowness on this hardware."
@@ -1489,13 +1464,6 @@ setup_env() {
         sed -i.bak "s|^AIRLLM_MODEL=.*|AIRLLM_MODEL=${AIRLLM_MODEL_ID}|" .env
         sed -i.bak "s|^AEROLLM_MODEL=.*|AEROLLM_MODEL=${AEROLLM_MODEL_ID}|" .env
 
-        # Wire the Researcher agent to the MoE model when it was auto-selected
-        # above — that's the "deeper research" use case gpt-oss-20b is for.
-        if [[ "$AEROLLM_MODEL_ID" == "InferenceIllusionist/gpt-oss-20b-MLX-4bit" ]] \
-           && grep -q '^AEROLLM_RESEARCH=' .env; then
-            sed -i.bak "s|^AEROLLM_RESEARCH=.*|AEROLLM_RESEARCH=true|" .env
-        fi
-
         # AeroLLM weights-present guard. AEROLLM_MODEL_ID is a HF repo path
         # like "mlx-community/Qwen2.5-7B-Instruct-4bit"; AeroLLMBackend
         # resolves it as the basename under lab/models/. If those weights
@@ -1505,25 +1473,10 @@ setup_env() {
         local _aero_basename="${AEROLLM_MODEL_ID##*/}"
         local _aero_dir="lab/models/${_aero_basename}"
         if [[ ! -d "$_aero_dir" ]]; then
-            if [[ "$AEROLLM_MODEL_ID" == "InferenceIllusionist/gpt-oss-20b-MLX-4bit" ]] \
-               && command -v hf >/dev/null 2>&1; then
-                # Auto-selected the MoE model above (16 GB+ RAM + cargo
-                # present) — pull it now so setup ends "just works", same
-                # spirit as the llama-ai-eng ollama auto-pull. ~13 GB.
-                info "Auto-downloading AeroLLM MoE weights (gpt-oss-20b, ~13 GB)…"
-                if _arail_timeout 1800 hf download "$AEROLLM_MODEL_ID" \
-                    --local-dir "$_aero_dir" 2>&1 | tail -5; then
-                    info "AeroLLM MoE weights downloaded to ${_aero_dir} ✓"
-                else
-                    warn "Auto-download of ${AEROLLM_MODEL_ID} failed (offline or network issue)."
-                    warn "Run manually:  hf download ${AEROLLM_MODEL_ID} --local-dir ${_aero_dir}"
-                fi
-            else
-                warn "AeroLLM weights missing at ${_aero_dir}."
-                warn "The deep (2nd inference) box won't load until you run:"
-                warn "  hf download ${AEROLLM_MODEL_ID} --local-dir ${_aero_dir}"
-                warn "Or downgrade AEROLLM_MODEL in .env to a model whose weights you have."
-            fi
+            warn "AeroLLM weights missing at ${_aero_dir}."
+            warn "The deep (2nd inference) box won't load until you run:"
+            warn "  hf download ${AEROLLM_MODEL_ID} --local-dir ${_aero_dir}"
+            warn "Or downgrade AEROLLM_MODEL in .env to a model whose weights you have."
         else
             info "AeroLLM weights present at ${_aero_dir} ✓"
         fi

@@ -1619,8 +1619,8 @@ class AeroLLMBackend(BaseBackend):
 
         # The checkpoint's own tokenizer drives prompt wrapping and output
         # stripping. Without it we'd assume one chat family for every model
-        # (see _wrap_prompt) — the F-1 bug: Qwen2.5 ChatML tags injected into
-        # a gpt-oss/harmony checkpoint produce garbage. None is a supported
+        # (see _wrap_prompt) — the F-1 bug: ChatML tags from the wrong chat
+        # family injected into a checkpoint produce garbage. None is a supported
         # state: _wrap_prompt falls back to the historic ChatML wrap.
         self._tokenizer: Any = self._load_tokenizer(model_path)
 

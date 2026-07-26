@@ -123,13 +123,3 @@ def test_models_catalog_gemma_moe_entry_is_not_labeled_apache():
     )
     assert "Gemma Terms of Use" in desc
     assert "Built with Gemma" in desc
-
-
-def test_models_catalog_gpt_oss_entry_does_not_claim_selective_expert_streaming():
-    entries = yaml.safe_load(_catalog_text())
-    entry = next(e for e in entries if e.get("id") == "gpt-oss-20b-MLX-4bit")
-    desc = entry["description"]
-    low = desc.lower()
-    assert "selective expert-streaming" not in low
-    assert "bit-exact" not in low
-    assert "resident (aerollm)" in low or "resident (aeroLLM)".lower() in low

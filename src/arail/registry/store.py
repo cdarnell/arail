@@ -197,10 +197,10 @@ def _seed_from_env(reg: ModelRegistry) -> bool:
         changed = True
 
     # ── Tier 1 — aeroLLM deep reasoning ────────────────────────────
-    aero_model = os.getenv("AEROLLM_MODEL", "gpt-oss-20b-MLX-4bit")
+    aero_model = os.getenv("AEROLLM_MODEL", "Qwen2.5-7B-Instruct-4bit")
     aero_enabled = os.getenv("AEROLLM_RESEARCH", "true").lower() not in (
         "0", "false", "no")
-    is_moe = "gpt-oss" in aero_model.lower() or "moe" in aero_model.lower()
+    is_moe = "moe" in aero_model.lower()
     ctx1, params1 = _specs_for(aero_model)
     existing = reg.entries.get(_TIER1_ID)
     if (existing is None or existing.model_id != aero_model
@@ -213,10 +213,9 @@ def _seed_from_env(reg: ModelRegistry) -> bool:
             endpoint=None,   # in-process PyO3 runtime (no HTTP server)
             model_id=aero_model,
             context_window=ctx1,
-            params_b=params1 or (20.9 if "gpt-oss-20b" in aero_model else None),
+            params_b=params1,
             architecture="moe" if is_moe else "dense",
-            moe=({"num_experts": 32, "top_k": 4, "active_params_b": 3.6}
-                 if "gpt-oss-20b" in aero_model else None),
+            moe=None,
             tier=1,
             tags=["reasoning", "build", "long_context"],
             enabled=aero_enabled,

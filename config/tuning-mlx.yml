@@ -25,19 +25,20 @@
 # This is the model the loop benchmarks. Must actually fit in the
 # target machine's unified memory with headroom for OS + app.
 research_model:
-  name: "InferenceIllusionist/gpt-oss-20b-MLX-4bit"
+  name: "mlx-community/Qwen2.5-7B-Instruct-4bit"
   # Selection rationale:
-  #   20B dense at 4-bit quant = ~11 GB on disk and ~11-13 GB resident
-  #   during generation on a 24 GB M5. Largest model on the user's
-  #   machine as of Apr 2026 — real stress test for KV-cache knobs
-  #   without swap. Swap to gpt-oss-20b-MLX-8bit (21 GB) if the host
-  #   has 32+ GB of unified memory.
+  #   Matches the AeroLLM MLX default used elsewhere in the repo
+  #   (scripts/setup.sh AEROLLM_MODEL_ID, src/arail/router/backends.py).
+  #   7B dense at 4-bit quant fits comfortably in 24 GB unified memory
+  #   with headroom for OS + app. The prior gpt-oss-20b MoE entry was
+  #   removed — that checkpoint caused runaway generation and was
+  #   dropped from the lab entirely.
   precision: "q4"                   # q2, q4, q6, q8, fp16
-  expected_disk_gb: 11
+  expected_disk_gb: 5
   family: "dense"                   # moe | dense
-  active_params_b: 20
-  total_params_b: 20
-  huggingface_id: "InferenceIllusionist/gpt-oss-20b-MLX-4bit"
+  active_params_b: 7
+  total_params_b: 7
+  huggingface_id: "mlx-community/Qwen2.5-7B-Instruct-4bit"
 
 # ── Small models (fast path — NOT tuned here) ────────────────────────
 # Apple-resident MLX models that don't need tuning.
@@ -264,20 +265,17 @@ knobs:
         system prompt; zero benefit for independent one-shot bench
         prompts (which is what the default AeroLLM bench prompt is).
   model_quant_variant:
-    current: "InferenceIllusionist/gpt-oss-20b-MLX-4bit"
+    current: "mlx-community/Qwen2.5-7B-Instruct-4bit"
     schema:
       type: string
       choices:
-        - "InferenceIllusionist/gpt-oss-20b-MLX-4bit"
-        - "lmstudio-community/gpt-oss-20b-MLX-8bit"
+        - "mlx-community/Qwen2.5-7B-Instruct-4bit"
         # Add more variants here as they get downloaded. The agent
         # may only swap to choices present in this list.
       rationale: |
         Which quantization of the research model to run against.
         MLX model quantization is baked in at download time, so
-        swapping "quant level" means swapping model identity. 8bit
-        is ~21 GB and doesn't fit on a 24 GB box — listed only so
-        the loop refuses it gracefully rather than OOM'ing.
+        swapping "quant level" means swapping model identity.
   bench_runs_per_config:
     current: 3
     schema:
