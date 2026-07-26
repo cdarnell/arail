@@ -29,6 +29,13 @@ if _ENV_FILE_OVERRIDE:
 else:
     load_dotenv()
 
+# model_defaults.yaml (if present) is the authoritative source for the
+# two most-asked-about settings — which model chat defaults to, and
+# which model AeroLLM loads — and overrides whatever .env set for them.
+# See arail.model_defaults for why this exists.
+from arail import model_defaults as _model_defaults  # noqa: E402
+_model_defaults.apply()
+
 _log = logging.getLogger(__name__)
 
 
