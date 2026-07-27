@@ -879,3 +879,120 @@ defect class, on the guardrail branch the provenance work did not reach.
 4. Add the `:359` comment explaining why the prose/body check overlap is
    safe (INFO).
 5. Re-review after (1). QA still should not run.
+
+---
+
+# Re-review addendum 4 — round 5
+
+**Date:** 2026-07-27
+**Build:** commit `69d5aa9` (BLOCK-6 fix)
+**Verdict: BLOCK** (BLOCK-7)
+
+## BLOCK-6 — CLOSED
+
+The masking approach is sound. `quoted_spans` are blanked out of a copy of
+`text` before `_EVALUATIVE_RE` runs; the institutional-character branch
+explicitly runs on the original unmasked `text`, with a comment saying so.
+The longest-first sort is real and correct for the containment case (a
+shorter span that is a substring of a longer one no longer corrupts the
+longer span's literal before its own `.replace`). BLOCK-1 through BLOCK-5
+are **not** reopened: `quoted_spans` cannot smuggle an institutional-
+character claim past the other branch, because that branch never sees the
+masked string.
+
+## BLOCK-7 — the same defect, in the sibling fields the fix skipped
+
+`quoted_spans` was populated from *some* of the non-agent-authored free-text
+fields rendered into the body, not all of them. Two live instances, both
+verified by two-sided repro against the built code:
+
+**(a) Consolidation Analyzer — `r.institution`.**
+`_build_output` masks `r.product`, `r.source`, `r.as_of` but not
+`r.institution`, which is rendered on the same line (`:361`), drawn from the
+same operator-typed `candidate_scenarios` entry, and already carries the
+strongest provenance marker in the codebase — literally "(as you entered
+it)". Repro (empty vetted set, operator-typed scenario):
+
+```
+'Best Egg'                 -> BLOCKED: evaluative or imperative language detected
+'Best Buy'                 -> BLOCKED
+'Lowest Rate Credit Union' -> BLOCKED
+'Egg Financial'            -> PASS   (control: same line, no evaluative word)
+'LightStream'              -> PASS   (control)
+```
+
+Best Egg is a top-tier real US debt-consolidation lender — the single most
+likely `candidate_scenarios.institution` this agent will ever see. Best Buy
+is one of the most common retail cards in an American debts list. The
+findings document is suppressed forever, exactly as in BLOCK-6.
+
+**(b) Debt Advisor — `v.verification_source` (and `v.name`).**
+`_build_output` masks `feed`/`path` but not the vetted-institution roster
+line (`:300-304`), which renders `v.name`, `v.institution_type`, and
+`v.verification_source` — a URL, i.e. precisely the field class BLOCK-6 was
+about. Repro:
+
+```
+verification_source='https://ncua.gov/lookup'                  -> PASS
+verification_source='https://www.nerdwallet.com/best-credit-unions' -> BLOCKED
+```
+
+That is the *same nerdwallet URL family from the BLOCK-6 finding*, in the
+sibling field. A citation to a "best credit unions" roundup is an entirely
+ordinary way to verify a credit union's character claim — and here it is
+World-sealed content, so the operator cannot fix it without re-authoring the
+bundle.
+
+This is not a hypothetical: ARCHITECTURE.md §13.10's own new correction text
+(committed in 69d5aa9) states that the scenario's `institution` "is drawn
+from the same `candidate_scenarios` entry that produced the line" — the exact
+provenance argument used to justify masking the other three fields. The
+reasoning was written down and then not applied to the field it describes.
+
+Test evidence supports the "made my own repro pass" reading: 107/107 pass,
+but no test in `tests/test_debt_finance_agents.py` puts an evaluative word in
+a scenario `institution`, a `v.name`, or a `verification_source`.
+
+## ASK-C — global `.replace` over-masks
+
+Masking uses `text.replace(span, ...)`, which blanks *every* occurrence of
+the span anywhere in the body, not the code-inserted position. A short
+operator-supplied value therefore de-fangs the check on unrelated text:
+
+```
+as_of='st'  ->  "...this is the best option."  passes the evaluative check
+```
+
+Degrades open, not closed. Mitigated for `_framing_prose` (self-checks with
+an empty span set first) but not for other body text. Fix by masking at known
+insertion offsets, or at minimum refusing spans below a length floor.
+Not a BLOCK on its own; must not be shipped undocumented.
+
+## Round-4 secondary items
+
+1. **ASK-B branch message** — [ASK] Branching on `REASON_EVALUATIVE` vs
+   `REASON_INSTITUTIONAL_PREFIX` is correct and now names the right branch.
+   But the evaluative hint lists only `product`, `source`, `as_of` — omitting
+   `institution`, which is where BLOCK-7(a) actually fires. Once BLOCK-7 is
+   fixed the residual misdirection shrinks; the hint should still name every
+   field that can trip the branch.
+2. **§13.10 correction** — [INFO] Factually right this time. It withdraws the
+   false "only free-text path" claim, names the actual free-text paths, and
+   states a narrower, checkable unreachability argument plus a sharper
+   tripwire. Accepted.
+3. **`operator_names`-scope comment** — [INFO] Honest, not papered over, and
+   its load-bearing claim verifies: `_framing_prose` is appended with a
+   trailing `\n` and joined with `\n`, so it is its own chunk under
+   `_SENTENCE_SPLIT_RE`, and its standalone self-check (`:264`) passes empty
+   name *and* empty span sets. Accepted.
+
+## Required actions before merge
+
+1. Add `r.institution` to the analyzer's `quoted_spans`, and `v.name` /
+   `v.institution_type` / `v.verification_source` to the advisor's.
+2. Tests: evaluative word in a scenario `institution` ("Best Egg"), in a
+   vetted `v.name`, and in a `verification_source` URL — each with a
+   matching negative control proving the evaluative branch is not gutted.
+3. Document or fix ASK-C (offset-based masking, or a span length floor).
+4. Extend the ASK-B evaluative hint to name `institution`.
+5. Re-review after (1)-(2). QA still should not run.
