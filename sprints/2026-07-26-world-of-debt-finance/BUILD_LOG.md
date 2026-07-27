@@ -832,4 +832,166 @@ because I enumerated every literal-string interpolation in both
 two categories I chose not to touch (World-sealer-authored institution
 records; date strings) are structurally different from the category
 BLOCK-6 was about, and I've stated the actual reasoning above rather than
-asserting it from "tests pass."
+
+---
+
+## Post-review fixes, round 5
+
+**Reviewed:** `sprints/2026-07-26-world-of-debt-finance/REVIEW.md`,
+re-review addendum 4 (round 5), verdict BLOCK, at commit `6a2eb83`.
+**This round's fix commit:** see `git log` for the commit immediately
+following this entry.
+
+### What round 4 got wrong
+
+Round 4's enumeration paragraph above (the one ending "I'm confident there
+is no unaddressed live instance...") explicitly *named* `v.name` /
+`r.institution` as a category it considered and chose not to mask, on the
+reasoning that BLOCK-6 was about "arbitrary third-party or open-web text,"
+not "institutions' own legal names." The review's addendum-4 correction is
+right and mine was wrong: the institution-name fields sit on the *exact
+same rendered line*, come from the *exact same provenance class*
+(operator-typed `candidate_scenarios` entry; World-sealed vetted-roster
+entry) as the sibling fields I did mask, and my own round-4 correction to
+ARCHITECTURE.md §13.10 already said so in as many words — I just never
+connected that sentence back to the masking call sites. The "narrower
+edge case" framing was a rationalization, not a structural distinction:
+`_EVALUATIVE_RE`'s vocabulary (`best`, `lowest`, `top pick`, ...) is
+extremely common in real institution and lender brand names ("Best Egg",
+"LendingClub's Best Rate program", a NerdWallet "best-credit-unions"
+citation), not a rare collision.
+
+### BLOCK-7 fix
+
+- **Consolidation Analyzer** (`_builtin_consolidation_analyzer.py`,
+  `_build_output`): added `r.institution` to the `quoted_spans` frozenset
+  passed to `check_guardrail`, alongside the existing `r.product`,
+  `r.source`, `r.as_of`.
+- **Debt Advisor** (`_builtin_debt_advisor.py`, `_build_output`): added
+  `v.name`, `v.institution_type`, and `v.verification_source` (for every
+  vetted institution rendered into the roster) to the `quoted_spans`
+  frozenset, unioned with the existing `feed`/`path` set from findings.
+  (`v.institution_type` included per REVIEW.md's required-actions list,
+  even though BLOCK-7(b)'s live repro only named `v.name` and
+  `v.verification_source` — it is structurally the same class: a
+  World-sealed structured field rendered verbatim on the same roster
+  line, e.g. a hypothetical `institution_type` value containing "top" or
+  "best" would have the identical defect shape.)
+- **ASK-B hint** (`_builtin_consolidation_analyzer.py`, the
+  `REASON_EVALUATIVE` branch message): extended to name `institution`
+  alongside `product`/`source`/`as_of`, since BLOCK-7(a) fires on exactly
+  that field. Reworded to also flag the ASK-C short-value caveat below.
+
+### ASK-C fix
+
+`check_guardrail` in `debt_finance_compliance.py` now filters `quoted_spans`
+by a `_MIN_QUOTED_SPAN_LEN = 5` floor before masking: any span shorter
+than 5 characters is never used to blank text ahead of the evaluative
+check, and instead the body is left fully evaluative-checked at that
+location (degrades closed, not open). Offset-based masking (blanking only
+the exact insertion range) was not practical without threading tracked
+offsets through the `f"..."`-based body assembly in both agents' render
+loops — a much larger structural change to two independently-evolving
+render functions for a defect whose blast radius the length floor already
+closes. The floor is documented in both the module-level comment and the
+`check_guardrail` docstring, including the exact tradeoff being made and
+why.
+
+### Exhaustive field-by-field checklist (every literal interpolation into
+guardrail-checked text, both agents)
+
+**Consolidation Analyzer — `_build_output`, from `candidate_scenarios`/`debts`:**
+
+| Field | Rendered where | Masked (quoted_spans)? | Why |
+|---|---|---|---|
+| `r.institution` | scenario line, `**{institution}**` | **Yes (this round)** | Operator-typed `candidate_scenarios` field; same line/provenance as `product`/`source`/`as_of`; carries "(as you entered it)" marker. Missed in round 4 — BLOCK-7(a). |
+| `r.product` | scenario line, `— {product} (as entered)` | Yes (round 4) | Operator-typed free text, code-inserted verbatim. |
+| `r.source` | scenario line, `Source: {source} (as entered)` | Yes (round 4) | Operator-typed citation URL, code-inserted verbatim. |
+| `r.as_of` | scenario line, `as of {as_of} (as entered)` | Yes (round 4) | Operator-typed date string, code-inserted verbatim. |
+| `apr` (computed) | "Current blended APR: {apr:.2f}%" | N/A — numeric, code-computed | Not free text; cannot contain `_EVALUATIVE_RE` vocabulary. |
+| `len(debts)` | "Debts entered: {n}" | N/A — numeric | Same. |
+| `r.rate`, `r.fee_pct`, `r.fee_amount`, `r.monthly_savings`, `r.breakeven` | scenario line | N/A — numeric, code-computed | Same. |
+| `_framing_prose()` output | top-of-document sentence | **Not masked, by design** | This is the one field in this document that is genuinely model-generated when the LLM path is live; it is separately self-checked with an *empty* `quoted_spans`/name set before being used (zero-exemption gate), and the deterministic fallback sentence is a hardcoded literal with no evaluative vocabulary. Masking it here would be backwards — it must get *less* exemption than everything else, not more. |
+| Static headings / labels ("## Current position", "No candidate scenarios staged.", etc.) | throughout | N/A — hardcoded literal strings, code-authored | Fixed strings audited once; contain no `_EVALUATIVE_RE` vocabulary and never will unless someone hand-edits the source, at which point ordinary code review catches it. |
+
+**Debt Advisor — `_build_output`, from the mounted World's roster / approved scouting findings:**
+
+| Field | Rendered where | Masked (quoted_spans)? | Why |
+|---|---|---|---|
+| `v.name` | roster line, `**{name}**` | **Yes (this round)** | World-sealed structured field, third-party institution's own name; same line/provenance as `institution_type`/`verification_source`. Missed in round 4 — BLOCK-7(b). |
+| `v.institution_type` | roster line, `({character}, verification source: ...)` | **Yes (this round)** | World-sealed structured field (`.replace("-", " ")` of an enum-like value in `terms.json`); same provenance/line as `v.name`/`v.verification_source`. Included per REVIEW.md's explicit required-actions list. |
+| `v.verification_source` | roster line, `verification source: {url}` | **Yes (this round)** | World-sealed citation URL, third-party-authored. Missed in round 4 — BLOCK-7(b), the live repro (NerdWallet "best-credit-unions" URL). |
+| `v.verified_as_of` | roster line, `verified as of {date}` | Not masked | Date string; no realistic path to `_EVALUATIVE_RE` vocabulary, and a malformed value here is itself worth surfacing as a block rather than being silently exempted. |
+| `f.get('feed')` | findings line, `Found via {feed}` | Yes (round 4) | Externally-authored RSS feed title, code-inserted verbatim. |
+| `f.get('path')` | findings line, `` see `{path}` `` | Yes (round 4) | Mounted-World-relative file path, code-inserted verbatim. |
+| `f.get('checked')` | findings line, `checked {checked}` | Not masked | Date string; same reasoning as `verified_as_of`. |
+| `_framing_prose(vetted, findings)` output | top-of-document sentence | **Not masked, by design** | Same reasoning as the analyzer's framing prose: this is the genuinely model-generated field, self-checked separately with an empty exemption set, with the additional per-vetted-name rejection (`v.name.lower() in lowered`) the analyzer doesn't need since it has no vetted set of its own. |
+| Static headings / labels | throughout | N/A — hardcoded literal strings | Same as analyzer. |
+
+Every row in both tables is now either (a) in `quoted_spans` because it is
+a code-inserted verbatim echo of operator- or World-sealer-authored
+structured data, (b) a numeric/date value structurally incapable of
+carrying evaluative vocabulary in a way that would matter, or (c) the
+framing-prose sentence, which is deliberately given *zero* exemption
+because it is the one place genuinely model-generated text can enter
+either document. There is no fourth category and no remaining call site —
+`grep` for `f"` / `f'` interpolations inside both `_build_output`
+functions was re-run against this table line by line, and every match is
+accounted for above.
+
+### Do I believe every field is now accounted for?
+
+Yes, with the caveat that this is the second time a "masked some but not
+all provenance-equivalent fields" mistake reached review, and the
+mechanism that caused it both times was the same: enumerating fields
+individually against BLOCK-6/7's letter ("is this an arbitrary
+third-party/open-web string?") rather than mechanically enumerating every
+`f"..."`-interpolated field in each render function first and *then*
+classifying each one. This round used the mechanical enumeration first
+(the tables above), which is why it also caught `v.institution_type` —
+not called out by BLOCK-7's live repro, but flagged by REVIEW.md's
+required-actions list as the same class — before another review round had
+to point it out. I am not aware of a fourth provenance-equivalent field in
+either write path; the tables above are the complete set of interpolated
+fields in both `_build_output` functions, not a subset chosen because it
+matched the review's named examples.
+
+### Tests added
+
+- `TestConsolidationAnalyzerInstitutionQuotedSpan` (3 tests,
+  `tests/test_debt_finance_agents.py`): the "Best Egg" repro passes and is
+  written verbatim; "Egg Financial" control still passes; genuinely
+  agent-generated evaluative prose (`llm_complete` stubbed to return
+  "Best Egg is the guaranteed top pick for you.") still falls back to the
+  deterministic sentence.
+- `TestDebtAdvisorVettedRosterQuotedSpans` (4 tests, same file): the
+  NerdWallet "best-credit-unions" `verification_source` repro passes and
+  is written verbatim; the NCUA control URL still passes; a vetted
+  institution's own name containing "Best" passes; genuinely
+  agent-generated evaluative prose is still blocked via a direct
+  `check_guardrail` call.
+- `test_short_quoted_span_does_not_globally_mask_unrelated_evaluative_word`,
+  `test_short_quoted_span_below_floor_is_itself_still_fully_checked`,
+  `test_quoted_span_at_or_above_floor_still_masks_correctly`
+  (`tests/test_debt_finance_compliance.py`): the exact `as_of='st'` ASK-C
+  repro no longer bypasses the check on an unrelated "best"; a short span
+  that is itself evaluative-sounding is not masked and is still caught
+  (documents the degrade-closed tradeoff); a realistic-length span is
+  still masked correctly (no regression).
+
+### Test results
+
+- `tests/test_debt_finance_agents.py` + `tests/test_debt_finance_compliance.py`:
+  84 passed (was 107 pre-this-round across the broader debt-finance
+  selection below; these two files' local count).
+- Full debt-finance selection (`pytest tests/ -k "debt_finance or
+  debt-finance"`): **117 passed**, 0 failed.
+- Full repo suite (`pytest tests/`, 629.9s): 46 failed, 3508 passed, 2
+  skipped, 1 xfailed, 7 errors — **zero of the 46 failures/7 errors are in
+  any debt-finance file** (`grep -i debt` against the failure list is
+  empty). All failures are pre-existing red in unrelated areas
+  (`test_world_forge_api.py`, `test_dashboard_layout_v2.py`,
+  `test_r1_r3_chat_models.py`, `test_qa_provider_dropdown_paranoid.py`,
+  etc.) — the same pre-existing-red pattern prior rounds' full-suite
+  `git stash` methodology established. No regression introduced by this
+  round's changes.

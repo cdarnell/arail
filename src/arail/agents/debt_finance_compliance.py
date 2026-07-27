@@ -81,6 +81,26 @@ _VERIFICATION_STALENESS_DAYS = 365
 # a chunk-wide candidate list reintroduces a positional tautology.
 _PROXIMITY_WINDOW_CHARS = 40
 
+# Minimum length, in characters, a ``quoted_spans`` entry must have before
+# it is eligible for masking ahead of the evaluative-language check. A
+# global ``text.replace(span, ...)`` over a short, common substring (the
+# review's own example: an operator-typed ``as_of='st'``) blanks that
+# substring everywhere it occurs in the assembled body — including inside
+# an unrelated word like "best" — which would silently defang the
+# evaluative check for content that has nothing to do with the short value
+# (REVIEW.md re-review addendum 4, ASK-C). Offset-based masking (blanking
+# only the exact byte range where a span was interpolated into the
+# template) would close this precisely, but the body is assembled by
+# ordinary string formatting with no tracked insertion offsets, so instead
+# any span shorter than this floor is simply never masked and falls back to
+# being fully evaluative-checked. That degrades *closed* — a short
+# operator-typed date fragment can, in principle, cause a false block — which
+# the review explicitly judged a far smaller cost than a global word-level
+# bypass. Chosen length covers realistic short trigger substrings ("best",
+# "top") plus one character of margin; genuine quoted spans (URLs,
+# institution names, feed titles) are always well above this floor.
+_MIN_QUOTED_SPAN_LEN = 5
+
 # A candidate proper-noun institution name: a run of one or more
 # capitalized-initial words (allowing internal connectors like "&"/"of").
 # Used to find "the entity this sentence is actually naming" near an
@@ -221,6 +241,15 @@ def check_guardrail(
     an empty set here — model-generated prose gets no exemption of any
     kind, on either branch).
 
+    Spans shorter than ``_MIN_QUOTED_SPAN_LEN`` are never masked, even if
+    present in this set: masking is a global substring replace over the
+    whole assembled body (there is no tracked insertion offset), so a
+    short, common quoted value would otherwise blank itself out of
+    unrelated words too (e.g. ``as_of='st'`` matching inside "be**st**") and
+    silently defang the evaluative check for content that has nothing to
+    do with it. Short spans instead fall back to being fully
+    evaluative-checked, which degrades closed rather than open.
+
     Institutional-character language is checked chunk by chunk, where a
     chunk is a sentence *or* a newline-delimited line (BLOCK-4: a rendered
     list item without terminal punctuation is a unit of assertion on its
@@ -248,7 +277,10 @@ def check_guardrail(
     # surrounding "best"/"-cards" fragments of the URL unmasked and the
     # evaluative check still tripped on them.
     masked_for_evaluative = text
-    for span in sorted((s for s in quoted_spans if s), key=len, reverse=True):
+    for span in sorted(
+        (s for s in quoted_spans if s and len(s) >= _MIN_QUOTED_SPAN_LEN),
+        key=len, reverse=True,
+    ):
         masked_for_evaluative = masked_for_evaluative.replace(span, " " * len(span))
     if _EVALUATIVE_RE.search(masked_for_evaluative):
         return GuardrailResult(

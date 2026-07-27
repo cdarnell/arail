@@ -332,8 +332,22 @@ def _build_output(bundle_dir: Path, terms: List[Dict[str, Any]],
         lines.append("- No approved scouting findings yet.")
     lines.append("")
 
+    # ``v.name``, ``v.institution_type``, and ``v.verification_source`` are
+    # the same World-sealed, structured-field provenance class as
+    # ``feed``/``path`` below — rendered on the exact same roster line —
+    # and were missed in the first BLOCK-6 fix (REVIEW.md re-review addendum
+    # 4, BLOCK-7(b)). A citation URL such as
+    # ".../best-credit-unions" in ``verification_source``, or an
+    # institution's own name, must not be able to suppress the whole
+    # document; unlike the operator-authored fields, this content is
+    # World-sealed, so the operator could not even work around a false
+    # block by rephrasing their own input.
     quoted_spans = frozenset(
         str(v) for f in findings for v in (f.get("feed"), f.get("path")) if v
+    ) | frozenset(
+        str(v) for entry in vetted
+        for v in (entry.name, entry.institution_type, entry.verification_source)
+        if v
     )
 
     body = "\n".join(lines)

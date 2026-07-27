@@ -170,6 +170,51 @@ def test_quoted_spans_does_not_exempt_the_institutional_character_branch():
     assert result.reason.startswith(REASON_INSTITUTIONAL_PREFIX)
 
 
+def test_short_quoted_span_does_not_globally_mask_unrelated_evaluative_word():
+    """REVIEW.md re-review addendum 4, ASK-C: a short operator-typed value
+    (e.g. ``as_of='st'``) must not, via a global string replace, blank the
+    substring "st" out of an unrelated word like "best" elsewhere in the
+    body — that would degrade the evaluative check open for content that
+    has nothing to do with the short value. Below the length floor, the
+    span is not masked at all, and the genuinely evaluative "best" is still
+    caught."""
+    text = "Verified as of st. This is the best option for you."
+    result = check_guardrail(
+        text, frozenset(),
+        quoted_spans=frozenset({"st"}),
+    )
+    assert result.ok is False
+    assert result.reason == REASON_EVALUATIVE
+
+
+def test_short_quoted_span_below_floor_is_itself_still_fully_checked():
+    """A short quoted span that itself happens to be evaluative-sounding is
+    not masked (it's below the floor), so it is fully evaluative-checked —
+    this is the "degrades closed" side of the ASK-C tradeoff, not a
+    regression: it is not exempted, but it also is not being used to
+    silently gut the check elsewhere."""
+    text = "Rate: best"
+    result = check_guardrail(
+        text, frozenset(),
+        quoted_spans=frozenset({"best"}),
+    )
+    assert result.ok is False
+    assert result.reason == REASON_EVALUATIVE
+
+
+def test_quoted_span_at_or_above_floor_still_masks_correctly():
+    """No regression: a realistic-length quoted span (well above the
+    floor) is still masked and does not block."""
+    text = "Sourced from https://www.nerdwallet.com/best-balance-transfer-cards."
+    result = check_guardrail(
+        text, frozenset(),
+        quoted_spans=frozenset({
+            "https://www.nerdwallet.com/best-balance-transfer-cards"
+        }),
+    )
+    assert result.ok is True
+
+
 def test_guardrail_allows_descriptive_sourced_language():
     text = (
         "PenFed advertised a personal-loan rate as of 2026-07-01, "

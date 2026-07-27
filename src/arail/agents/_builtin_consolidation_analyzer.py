@@ -369,8 +369,16 @@ def _build_output(debts: List[Dict[str, Any]], scenarios: List[Dict[str, Any]],
         lines.append("- No candidate scenarios staged.")
     lines.append("")
 
+    # ``r.institution`` is the same operator-typed ``candidate_scenarios``
+    # field as ``r.product``/``r.source``/``r.as_of`` above, rendered on the
+    # exact same line, and already carries the "(as you entered it)" marker
+    # — the identical provenance class, missed in the first BLOCK-6 fix
+    # (REVIEW.md re-review addendum 4, BLOCK-7(a)). A real lender name such
+    # as "Best Egg" must not be able to suppress the whole document any
+    # more than a citation URL in ``source`` can.
     quoted_spans = frozenset(
-        str(v) for r in results for v in (r.product, r.source, r.as_of) if v
+        str(v) for r in results
+        for v in (r.institution, r.product, r.source, r.as_of) if v
     )
 
     body = "\n".join(lines)
@@ -547,11 +555,13 @@ class ConsolidationAnalyzerAgent:
             # (BLOCK-6). Branch the hint on which reason actually fired.
             if reason == REASON_EVALUATIVE:
                 hint = (
-                    "Check the `product`, `source`, and `as_of` text in "
-                    f"{_balances_file()} for wording that reads as "
-                    "evaluative or imperative (e.g. 'best', 'guaranteed', "
-                    "'you should') — that language is blocked even when "
-                    "it's quoted from a citation or offer name."
+                    "Check the `institution`, `product`, `source`, and "
+                    f"`as_of` text in {_balances_file()} for wording that "
+                    "reads as evaluative or imperative (e.g. 'best', "
+                    "'guaranteed', 'you should') — very short values in "
+                    "those fields are not exempted, so this can also fire "
+                    "on an unrelated short value that happens to be a "
+                    "substring of an evaluative word elsewhere."
                 )
             elif reason.startswith(REASON_INSTITUTIONAL_PREFIX):
                 hint = (

@@ -371,6 +371,80 @@ class TestDebtAdvisorEvaluativeQuotedSpans:
             )
 
 
+class TestDebtAdvisorVettedRosterQuotedSpans:
+    """REVIEW.md re-review addendum 4, BLOCK-7(b): the vetted-institution
+    roster line renders ``v.name``, ``v.institution_type``, and
+    ``v.verification_source`` — the same World-sealed, structured-field
+    provenance class as ``feed``/``path`` — and these were missed from
+    ``quoted_spans`` in the first BLOCK-6 fix. Unlike the operator-authored
+    fields, this content is World-sealed, so a false block here cannot be
+    worked around by rephrasing operator input."""
+
+    def test_nerdwallet_style_verification_source_no_longer_blocks(
+        self, debt_advisor_module
+    ):
+        """Exact repro from REVIEW.md addendum 4: a citation to a 'best
+        credit unions' roundup is an ordinary way to verify a credit
+        union's character claim and must not block."""
+        from arail.agents import _builtin_debt_advisor as mod
+
+        terms_doc = json.loads(json.dumps(_TERMS))
+        for t in terms_doc["terms"]:
+            if t["slug"] == "penfed-credit-union":
+                t["verification_source"] = (
+                    "https://www.nerdwallet.com/best-credit-unions"
+                )
+        body = mod._build_output(
+            _bundle_dir_for(debt_advisor_module), terms_doc["terms"], []
+        )
+        assert "https://www.nerdwallet.com/best-credit-unions" in body
+
+    def test_ncua_verification_source_control_still_passes(
+        self, debt_advisor_module
+    ):
+        """Control from REVIEW.md addendum 4: same line shape, no
+        evaluative word in the URL — must pass."""
+        from arail.agents import _builtin_debt_advisor as mod
+
+        terms = json.loads(json.dumps(_TERMS))["terms"]
+        body = mod._build_output(
+            _bundle_dir_for(debt_advisor_module), terms, []
+        )
+        assert "https://mapping.ncua.gov/ResearchCreditUnion" in body
+
+    def test_vetted_name_containing_evaluative_word_no_longer_blocks(
+        self, debt_advisor_module
+    ):
+        """Same defect class applied to ``v.name`` itself: a real
+        institution whose own marketed name contains an evaluative-sounding
+        word must not suppress the document."""
+        from arail.agents import _builtin_debt_advisor as mod
+
+        terms_doc = json.loads(json.dumps(_TERMS))
+        for t in terms_doc["terms"]:
+            if t["slug"] == "penfed-credit-union":
+                t["term"] = "Best Rate Credit Union"
+        body = mod._build_output(
+            _bundle_dir_for(debt_advisor_module), terms_doc["terms"], []
+        )
+        assert "**Best Rate Credit Union**" in body
+
+    def test_agent_generated_evaluative_prose_still_blocked_no_regression(
+        self, debt_advisor_module
+    ):
+        """Confirms genuinely agent-generated evaluative prose is still
+        blocked after widening ``quoted_spans`` to cover the vetted roster
+        fields — the exemption must stay scoped to code-inserted literal
+        spans, never the model's own words."""
+        from arail.agents.debt_finance_compliance import check_guardrail
+
+        result = check_guardrail(
+            "This is the best option for you.",
+            frozenset(),
+        )
+        assert result.ok is False
+
+
 def _bundle_dir_for(mod) -> Path:
     """The mounted bundle dir the ``debt_advisor_module``/``consolidation_
     module`` fixtures wired ``find_mounted_bundle_dir`` to return."""
@@ -702,6 +776,82 @@ class TestConsolidationAnalyzerEvaluativeQuotedSpans:
         )
         assert result.ok is False
         assert "institutional-character" in result.reason
+
+
+class TestConsolidationAnalyzerInstitutionQuotedSpan:
+    """REVIEW.md re-review addendum 4, BLOCK-7(a): ``r.institution`` is the
+    same operator-typed ``candidate_scenarios`` field, on the same line, as
+    ``product``/``source``/``as_of`` — and was missed from ``quoted_spans``
+    in the first BLOCK-6 fix. A real lender name like "Best Egg" must not
+    suppress the whole document."""
+
+    def test_best_egg_institution_name_no_longer_blocks(
+        self, consolidation_module, data_dir
+    ):
+        """Exact repro from REVIEW.md addendum 4: 'Best Egg' is a real,
+        common consolidation-lender name and must not block."""
+        _write_balances(data_dir, {
+            "debts": [{"id": "card-1", "kind": "credit-card",
+                       "balance": 1000.0, "apr": 20.0}],
+            "candidate_scenarios": [
+                {"institution": "Best Egg",
+                 "product": "personal-loan", "rate": 5.0, "fee_pct": 3.0,
+                 "term_months": 24,
+                 "source": "https://example.invalid/rates",
+                 "as_of": "2026-07-01"},
+            ],
+        })
+        agent = consolidation_module.ConsolidationAnalyzerAgent()
+        agent.tick()
+
+        findings = (data_dir / "user-import" / "debt-finance" / "findings"
+                    / "consolidation_analyzer.md")
+        assert findings.exists()
+        assert "**Best Egg**" in findings.read_text()
+
+    def test_egg_financial_control_still_passes(
+        self, consolidation_module, data_dir
+    ):
+        """Control from REVIEW.md addendum 4: same line shape, no
+        evaluative word — must pass (confirms this isn't masking a real
+        pre-existing failure)."""
+        _write_balances(data_dir, {
+            "debts": [{"id": "card-1", "kind": "credit-card",
+                       "balance": 1000.0, "apr": 20.0}],
+            "candidate_scenarios": [
+                {"institution": "Egg Financial",
+                 "product": "personal-loan", "rate": 5.0, "fee_pct": 3.0,
+                 "term_months": 24,
+                 "source": "https://example.invalid/rates",
+                 "as_of": "2026-07-01"},
+            ],
+        })
+        agent = consolidation_module.ConsolidationAnalyzerAgent()
+        agent.tick()
+
+        findings = (data_dir / "user-import" / "debt-finance" / "findings"
+                    / "consolidation_analyzer.md")
+        assert findings.exists()
+        assert "**Egg Financial**" in findings.read_text()
+
+    def test_agent_generated_evaluative_prose_still_blocked_no_regression(
+        self, monkeypatch, consolidation_module, data_dir
+    ):
+        """Confirms genuinely agent-generated evaluative prose is still
+        blocked after widening ``quoted_spans`` to include ``institution``
+        — the exemption must stay scoped to code-inserted literal spans,
+        never the model's own words."""
+        monkeypatch.setattr(
+            consolidation_module._host, "llm_complete",
+            lambda prompt, max_tokens=120, temperature=0.4: (
+                "Best Egg is the guaranteed top pick for you."
+            ),
+        )
+        prose = consolidation_module._framing_prose()
+        assert prose == (
+            "Computed comparison of your staged balances against staged "
+            "candidate scenarios."
+        )
 
 
 class TestConsolidationAnalyzerNoOp:
