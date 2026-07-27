@@ -646,3 +646,190 @@ two institution names on one line. Both are explicitly out of scope for
 this round per the review's own instructions, not things I judged safe —
 the review said "documented debt," and I've recorded them as such rather
 than silently deciding they're fine.
+
+## Post-review fixes, round 4
+
+Fourth architect review (REVIEW.md re-review addendum 3, commit `5abf008`)
+returned **BLOCK** on **BLOCK-6**: the evaluative-language branch of
+`check_guardrail` (`_EVALUATIVE_RE.search(text)`) ran on the entire
+assembled body with zero provenance distinction, while the institutional-
+character branch had already been made provenance-aware. Both agents
+render non-agent-authored free text into the body — the analyzer's
+`r.product`/`r.source`/`r.as_of` (operator-typed, verbatim from
+`candidate_scenarios`) and the advisor's `feed`/`path` (externally-authored
+RSS text from an approved scouting finding) — so an ordinary,
+non-adversarial citation URL or feed title containing a word like "best"
+(e.g. a NerdWallet "best-balance-transfer-cards" page, or a "Best Balance
+Transfer Cards - Bankrate" feed title) suppressed the entire findings
+document, permanently (the no-op hash only saves on a successful write).
+
+### Fix — `quoted_spans` parameter on `check_guardrail`
+
+Added `quoted_spans: frozenset[str] = frozenset()` to `check_guardrail`
+(`debt_finance_compliance.py`): the evaluative branch's analogue of
+`operator_names`, but scoped to exact literal substrings rather than a
+named-entity set. The `_EVALUATIVE_RE` check now runs against a masked copy
+of the text with every `quoted_spans` occurrence blanked out first; the
+institutional-character branch is unaffected and still runs against the
+original, unmasked text (a comment at the mask site makes this explicit).
+This is deliberately **not** a vocabulary widening — the architect ruled
+that out explicitly, since it would let the model's own generated prose
+say "best"/"guaranteed" freely too. `quoted_spans` only ever narrows what
+counts as "this exact code-inserted echo," never the trigger-word list
+itself.
+
+**Bug caught during implementation, fixed before commit:** the first
+version of the masking loop iterated `quoted_spans` in arbitrary set order
+and used sequential `str.replace()`. When one quoted span is a substring of
+another (e.g. `"balance-transfer"` is a substring of the citation URL
+`".../best-balance-transfer-cards"`), masking the shorter span first
+corrupts the longer span's text so the longer `.replace()` no longer finds
+an exact match — leaving the surrounding `"best-"`/`"-cards"` fragments of
+the URL unmasked and the evaluative check still (incorrectly) tripping.
+Fixed by sorting spans longest-first before masking. Caught by running the
+exact NerdWallet-URL repro against the live code before writing it up as
+done, not by trusting the test suite alone — the repro initially still
+failed with the naive implementation.
+
+Call sites:
+- **Consolidation Analyzer** (`_build_output`): `quoted_spans` is built
+  from `r.product`, `r.source`, `r.as_of` across all computed scenario
+  results. The rendered line now marks these fields `(as entered)`,
+  matching the existing `(as you entered it)` marker style on the
+  institution name, so a reader can tell they're the operator's own words
+  quoted back, not the agent's characterization.
+- **Debt Advisor** (`_build_output`): `quoted_spans` is built from
+  `f.get('feed')`/`f.get('path')` across approved findings. The rendered
+  line now marks these `(quoted verbatim)`.
+
+`v.institution_type`/`v.name`/`v.verification_source` (Debt Advisor's
+vetted-institution roster) and `r.institution` (Analyzer) were deliberately
+**not** added to `quoted_spans` — see "fifth-order check" below.
+
+### Secondary items (also required this round)
+
+1. **ASK-B message fix**: the analyzer's guardrail-block message hardcoded
+   an institutional-character explanation pointing at `balances.json`'s
+   `institution` fields, which was wrong for the evaluative branch (the
+   branch that fires in realistic practice per BLOCK-6). Added
+   `REASON_EVALUATIVE` and `REASON_INSTITUTIONAL_PREFIX` constants to
+   `debt_finance_compliance.py` so the agent can branch its hint on which
+   reason actually fired, instead of guessing/hardcoding. The Debt
+   Advisor's message was already correct for both branches (per the
+   review) and was left unchanged.
+2. **ARCHITECTURE.md §13.10 correction**: the previous justification for
+   the proximity-window tripwire being "genuinely unreachable" claimed
+   "the only free-text path (`_framing_prose`) self-checks against an
+   empty vetted set" — false, since the analyzer's scenario line and the
+   advisor's findings line are both free-text paths with no self-check.
+   Replaced with the actual reason: on the analyzer's scenario line, the
+   only name that can appear there (the scenario's own institution) is,
+   by construction, always a member of `operator_names`, so a second
+   *unvetted* name can never legitimately co-occur on that line today.
+   Tightened the tripwire condition to match.
+3. **INFO note on `operator_names` scope**: added a comment at the
+   analyzer's `check_guardrail` call site explaining why re-checking
+   `_framing_prose` inside the body with `operator_names` in scope is safe
+   despite reading as a docstring violation — the framing sentence is its
+   own newline-delimited chunk (can't merge with scenario lines) and was
+   already rejected by the zero-exemption standalone gate if it contained
+   a trigger phrase.
+
+### Regression tests added
+
+- `tests/test_debt_finance_compliance.py`: `quoted_spans` unit tests
+  (exempts a marketing URL; default empty means no exemption; does not
+  exempt agent-generated prose; does not leak into the institutional-
+  character branch) plus a test asserting the `REASON_*` constants match
+  actual `check_guardrail` output.
+- `tests/test_debt_finance_agents.py`:
+  - `TestConsolidationAnalyzerEvaluativeQuotedSpans` — the exact
+    NerdWallet-URL repro now writes successfully (a); genuine
+    model-generated evaluative prose (`_framing_prose` with a mocked LLM
+    response) still falls back to the deterministic sentence (b); a benign
+    non-URL source is unaffected (c, no regression); an adversarial body
+    combining a code-inserted evaluative word (in a quoted span) with an
+    unvetted institutional-character claim on the SAME body still blocks
+    on the institutional branch (d).
+  - `TestDebtAdvisorEvaluativeQuotedSpans` — the exact "Best Balance
+    Transfer Cards - Bankrate" feed-title repro now writes successfully;
+    a code-authored `institution_type` value containing "best" (injected
+    directly, not via `quoted_spans`) still blocks, confirming the fix did
+    not widen the exemption to vetted-institution roster content.
+  - Updated the one `check_guardrail` monkeypatch lambda
+    (`TestDebtAdvisorGuardrail`) to accept the new `quoted_spans` keyword,
+    since the call sites now always pass it.
+
+Full debt-finance suite (`pytest tests/ -k debt_finance`): **107 passed**,
+0 failed. The four compliance/agent test files plus the seed/seal tests all
+pass. A whole-repo `pytest tests/` run was attempted but is slow/flaky in
+this environment for reasons unrelated to this diff (many pre-existing
+failures scattered across unrelated portal/integration tests appear before
+the debt-finance test files are even reached, at the same rate whether or
+not this round's diff is applied); the debt-finance-scoped run is the
+authoritative signal for this change per the review's own instruction to
+"run the full debt-finance test suite."
+
+### Fifth-order defect-class check (provenance-unaware checks on mixed
+### agent/non-agent assembled text) — none found beyond what's fixed above
+
+Per the round's instruction, before declaring done I looked deliberately
+for another instance of this same defect class (a check that runs on
+assembled text mixing agent-generated and non-agent content, without
+provenance awareness) anywhere else in either agent's write path.
+
+**Candidates considered and why each is not a live instance:**
+
+- **`v.verification_source` and `v.institution_type`/`character`** (Debt
+  Advisor's vetted-institution roster line, rendered from `terms.json`).
+  These are literal, non-agent-generated strings, structurally similar to
+  `feed`/`path`. I considered adding them to `quoted_spans` too, but
+  rejected it: unlike `feed`/`path` (arbitrary open-web RSS text an
+  operator has zero control over) or `product`/`source` (arbitrary text an
+  operator pastes into their own file), `institution_type` and
+  `verification_source` are authored at **World-sealing time** by the same
+  trusted party who curates the vetted-institution list itself — the
+  review's own required regression assertion 4 explicitly demands that an
+  evaluative word injected via `institution_type` **still blocks** (this
+  round's `test_code_authored_institution_type_with_evaluative_word_still_
+  blocks` encodes exactly that). Extending the exemption to
+  `verification_source` would be the same category of content by the same
+  author, so leaving it unmasked is consistent with that explicit
+  instruction, not an oversight.
+- **`v.name` / `r.institution`** (the institution's own name, in both
+  agents). Also literal, non-agent-generated, and also not in
+  `quoted_spans`. I did not add these either: masking them would only
+  matter if a genuine institution's own name contained one of
+  `_EVALUATIVE_RE`'s literal trigger words (e.g. a hypothetical
+  "BestPoint Credit Union"), which is a real but narrow edge distinct from
+  BLOCK-6's shape — BLOCK-6 was about *arbitrary third-party or open-web
+  text* an agent has no control over and that commonly contains marketing
+  language (citation URLs, RSS titles), not about institutions' own legal
+  names, which is a much rarer collision and which the institutional-
+  character branch already treats correctly today (the proximity/
+  substring-match logic that answers "is this name vetted" is unaffected
+  by anything in this fix, since it always runs on unmasked text). I did
+  not silently leave this alone without noting it: this paragraph is that
+  note, and it should be revisited if a real institution with an
+  evaluative-sounding legal name is ever sealed into a World.
+- **`f.get('checked')`** (a scouting finding's checked-date string). Also
+  literal and non-agent-generated, but a date string has no realistic path
+  to containing `_EVALUATIVE_RE`'s vocabulary; if it somehow did, that
+  would indicate malformed metadata worth surfacing as a block, so leaving
+  it unmasked is the more defensible default, not an oversight.
+- **No other `check_guardrail` call sites exist.** `grep` for
+  `check_guardrail`/`_build_output` across `src/arail/agents/` confirms
+  the only two production write paths are `_builtin_consolidation_
+  analyzer.py` and `_builtin_debt_advisor.py`'s `_build_output` functions,
+  both addressed above, plus each agent's own `_framing_prose` standalone
+  self-check (unchanged, zero-exemption on every parameter, by design).
+
+I'm confident there is no unaddressed live instance of BLOCK-6's exact
+shape (an *arbitrary, operator-or-web-authored* free-text field escaping
+the evaluative check's provenance policy) in either agent's write path,
+because I enumerated every literal-string interpolation in both
+`_build_output` functions and classified each by author/trust level. The
+two categories I chose not to touch (World-sealer-authored institution
+records; date strings) are structurally different from the category
+BLOCK-6 was about, and I've stated the actual reasoning above rather than
+asserting it from "tests pass."

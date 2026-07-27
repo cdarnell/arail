@@ -36,6 +36,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
 
 from arail.agents.debt_finance_compliance import (
+    REASON_EVALUATIVE,
+    REASON_INSTITUTIONAL_PREFIX,
     check_guardrail,
     find_mounted_bundle_dir,
     is_verification_fresh,
@@ -343,20 +345,51 @@ def _build_output(debts: List[Dict[str, Any]], scenarios: List[Dict[str, Any]],
                 " (as you entered it)"
                 if r.institution.lower() in operator_names else ""
             )
+            # ``r.product``/``r.source``/``r.as_of`` are the same
+            # code-inserted echo of the operator's own ``candidate_scenarios``
+            # entry as ``r.institution`` above, and are marked "(as
+            # entered)" for the same reason: a reader must be able to tell
+            # these are the operator's own words quoted back, not this
+            # agent's characterization. They are also passed to
+            # ``check_guardrail`` as ``quoted_spans`` below (REVIEW.md
+            # re-review addendum 3, BLOCK-6) so a citation URL like
+            # ".../best-balance-transfer-cards" pasted into ``source``
+            # cannot suppress the whole document — the evaluative-language
+            # check is scoped to these exact literal spans, not widened for
+            # any text that happens to look like them.
             lines.append(
-                f"- **{r.institution}**{marker} — {r.product}, "
+                f"- **{r.institution}**{marker} — {r.product} (as entered), "
                 f"rate {r.rate:.2f}%, "
                 f"fee {r.fee_pct:.2f}% (${r.fee_amount:.2f}), "
                 f"monthly savings ${r.monthly_savings:.2f}, "
                 f"breakeven {breakeven_text}. "
-                f"Source: {r.source}, as of {r.as_of}."
+                f"Source: {r.source} (as entered), as of {r.as_of} (as entered)."
             )
     else:
         lines.append("- No candidate scenarios staged.")
     lines.append("")
 
+    quoted_spans = frozenset(
+        str(v) for r in results for v in (r.product, r.source, r.as_of) if v
+    )
+
     body = "\n".join(lines)
-    guard = check_guardrail(body, vetted_names, operator_names=operator_names)
+    # ``operator_names`` stays in scope for this call even though
+    # ``_framing_prose`` above already self-checked its own sentence against
+    # an *empty* name set (REVIEW.md re-review addendum 3, item 1 [INFO]).
+    # That is not a docstring violation in practice: the framing sentence is
+    # its own newline-delimited chunk (``_SENTENCE_SPLIT_RE`` splits on
+    # newlines as well as sentence punctuation — BLOCK-4), so it can never
+    # merge with the scenario lines below it into one chunk, and it was
+    # already rejected outright by the zero-exemption standalone gate if it
+    # contained a trigger phrase at all. Re-running it here with
+    # ``operator_names`` in scope therefore re-checks a chunk that cannot
+    # host a trigger phrase or donate a proper noun across the newline
+    # boundary into another chunk's proximity window — defense-in-depth,
+    # not a live exemption of framing prose.
+    guard = check_guardrail(
+        body, vetted_names, operator_names=operator_names, quoted_spans=quoted_spans
+    )
     if not guard.ok:
         raise _GuardrailBlocked(guard.reason)
     return body
@@ -505,18 +538,36 @@ class ConsolidationAnalyzerAgent:
             reason = exc.args[0] if exc.args else ""
             # REVIEW.md addendum 2 [ASK-B]: once BLOCK-5 lands, a block is
             # rare and always the operator's to fix — "see logs" gave no
-            # actionable next step. Name the reason and point at the fix
-            # (an institution field in balances.json) rather than a bare
-            # pointer to logs.
+            # actionable next step. Name the reason and point at the fix.
+            #
+            # REVIEW.md re-review addendum 3, item 3: the original message
+            # hardcoded an institutional-character explanation pointing at
+            # `institution` fields, which is wrong for the evaluative
+            # branch — the branch that fires in realistic practice
+            # (BLOCK-6). Branch the hint on which reason actually fired.
+            if reason == REASON_EVALUATIVE:
+                hint = (
+                    "Check the `product`, `source`, and `as_of` text in "
+                    f"{_balances_file()} for wording that reads as "
+                    "evaluative or imperative (e.g. 'best', 'guaranteed', "
+                    "'you should') — that language is blocked even when "
+                    "it's quoted from a citation or offer name."
+                )
+            elif reason.startswith(REASON_INSTITUTIONAL_PREFIX):
+                hint = (
+                    "Check the `institution` fields in "
+                    f"{_balances_file()} — an institutional-character claim "
+                    "(e.g. 'credit union', 'nonprofit') must be paired with "
+                    "an institution name you typed yourself or one this "
+                    "World has verified."
+                )
+            else:
+                hint = f"Check the content staged in {_balances_file()}."
             _host.emit(
                 AGENT_ID,
                 "Consolidation Analyzer: generated output failed the "
                 f"language-safety check ({reason}) and was not written. "
-                "Check the `institution` fields in "
-                f"{_balances_file()} — an institutional-character claim "
-                "(e.g. 'credit union', 'nonprofit') must be paired with an "
-                "institution name you typed yourself or one this World has "
-                "verified.",
+                f"{hint}",
                 "warn",
                 data={"reason": reason},
             )

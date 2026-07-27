@@ -38,6 +38,16 @@ _EVALUATIVE_RE = re.compile(
     re.I,
 )
 
+# Reason strings returned by ``check_guardrail``. Exposed as constants (not
+# just inline literals) so callers can branch a user-facing failure message
+# on *which* branch fired without re-deriving the guardrail's own regex
+# match text (REVIEW.md re-review addendum 3, item 3 — the ASK-B message was
+# misdirecting operators at ``institution`` fields for evaluative-branch
+# blocks). ``REASON_INSTITUTIONAL_PREFIX`` is a prefix, not an exact string,
+# because that branch's message interpolates the matched phrase.
+REASON_EVALUATIVE = "evaluative or imperative language detected"
+REASON_INSTITUTIONAL_PREFIX = "institutional-character language ("
+
 # Institutional-character language that may only be paired with a vetted
 # institution name (one present in the World's terms.json institutions set
 # with its own verification source).
@@ -170,6 +180,7 @@ def check_guardrail(
     text: str,
     vetted_institutions: frozenset[str],
     operator_names: frozenset[str] = frozenset(),
+    quoted_spans: frozenset[str] = frozenset(),
 ) -> GuardrailResult:
     """Deterministic pre-write check on an assembled output string.
 
@@ -188,6 +199,27 @@ def check_guardrail(
     frozenset here for any text that is not a literal, code-inserted echo
     of the operator's own data (World-sourced text and all
     model-generated/framing prose get no exemption of any kind).
+
+    ``quoted_spans`` is the evaluative branch's analogue of
+    ``operator_names``: a set of exact, literal, code-inserted substrings
+    of ``text`` that are *quoted back verbatim* from a source other than
+    the calling agent's own generated prose (REVIEW.md re-review addendum
+    3, BLOCK-6) — e.g. a citation URL an operator pasted into
+    ``candidate_scenarios.source``, or a scouted RSS feed's own title. The
+    ``_EVALUATIVE_RE`` check is run against a *masked* copy of ``text``
+    with every ``quoted_spans`` occurrence blanked out first, so a
+    "best-balance-transfer-cards"-shaped URL or feed title can never
+    suppress a whole document — while any evaluative word the agent's own
+    prose contributes (which is never a member of ``quoted_spans``) is
+    still caught. This is deliberately scoped to exact literal spans, not
+    a vocabulary exemption: widening the word list itself would let the
+    model's own generated prose say "best" freely too, which is the
+    defect this parameter exists to avoid reintroducing. Callers must pass
+    an empty frozenset here for any text whose evaluative-sounding words
+    are not a literal, code-inserted echo of a non-agent source (in
+    particular, ``_framing_prose``'s standalone self-check always passes
+    an empty set here — model-generated prose gets no exemption of any
+    kind, on either branch).
 
     Institutional-character language is checked chunk by chunk, where a
     chunk is a sentence *or* a newline-delimited line (BLOCK-4: a rendered
@@ -208,14 +240,30 @@ def check_guardrail(
     BLOCK-1 found: a vetted *concept* term whose name IS the trigger phrase
     itself would satisfy that check for any institution, vetted or not).
     """
-    if _EVALUATIVE_RE.search(text):
+    # Longest-first: a shorter quoted span that happens to be a substring of
+    # a longer one (e.g. "balance-transfer" inside a
+    # ".../best-balance-transfer-cards" URL) must not be masked first —
+    # doing so would corrupt the longer span's text so the longer
+    # ``.replace()`` no longer finds an exact match, leaving the
+    # surrounding "best"/"-cards" fragments of the URL unmasked and the
+    # evaluative check still tripped on them.
+    masked_for_evaluative = text
+    for span in sorted((s for s in quoted_spans if s), key=len, reverse=True):
+        masked_for_evaluative = masked_for_evaluative.replace(span, " " * len(span))
+    if _EVALUATIVE_RE.search(masked_for_evaluative):
         return GuardrailResult(
             ok=False,
-            reason="evaluative or imperative language detected",
+            reason=REASON_EVALUATIVE,
         )
 
     allowed_names = vetted_institutions | operator_names
 
+    # NOTE: the institutional-character check below always runs against the
+    # original, unmasked ``text`` — ``quoted_spans`` only ever narrows the
+    # evaluative-language check above. A quoted span containing
+    # institutional-character language is not exempted by this parameter;
+    # that provenance question is what ``operator_names``/
+    # ``vetted_institutions`` already answer for this branch.
     for chunk in _SENTENCE_SPLIT_RE.split(text):
         for match in _INSTITUTIONAL_CHARACTER_RE.finditer(chunk):
             window_start = max(0, match.start() - _PROXIMITY_WINDOW_CHARS)
@@ -231,9 +279,9 @@ def check_guardrail(
                 return GuardrailResult(
                     ok=False,
                     reason=(
-                        "institutional-character language "
-                        f"({match.group(0)!r}) not paired with a vetted, "
-                        "specifically-named institution near that claim"
+                        f"{REASON_INSTITUTIONAL_PREFIX}{match.group(0)!r}) "
+                        "not paired with a vetted, specifically-named "
+                        "institution near that claim"
                     ),
                 )
 

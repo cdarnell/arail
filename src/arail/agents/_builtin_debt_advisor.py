@@ -310,10 +310,21 @@ def _build_output(bundle_dir: Path, terms: List[Dict[str, Any]],
     lines.append("## Approved scouting findings (public sources only)\n")
     if findings:
         for f in findings:
+            # ``feed`` and ``path`` are the externally-authored (RSS
+            # source's own title / mounted-World-relative path) text this
+            # agent quotes back verbatim — not this agent's own
+            # characterization of anything. Marked "(quoted verbatim)" for
+            # the same reason a vetted institution's name is marked above:
+            # a reader must be able to tell this is a third party's own
+            # wording, not Debt Advisor's. Also passed to ``check_guardrail``
+            # as ``quoted_spans`` below (REVIEW.md re-review addendum 3,
+            # BLOCK-6), so a feed title like "Best Balance Transfer Cards -
+            # Bankrate" cannot suppress the whole document.
             lines.append(
-                f"- Found via {f.get('feed', '?')}, checked "
-                f"{f.get('checked', '?')} — see `{f.get('path', '?')}` for "
-                "the reviewed excerpt. No institutional-character label is "
+                f"- Found via {f.get('feed', '?')} (quoted verbatim), "
+                f"checked {f.get('checked', '?')} — see "
+                f"`{f.get('path', '?')}` (quoted verbatim) for the "
+                "reviewed excerpt. No institutional-character label is "
                 "attached unless the source is also a vetted institution "
                 "above."
             )
@@ -321,10 +332,16 @@ def _build_output(bundle_dir: Path, terms: List[Dict[str, Any]],
         lines.append("- No approved scouting findings yet.")
     lines.append("")
 
+    quoted_spans = frozenset(
+        str(v) for f in findings for v in (f.get("feed"), f.get("path")) if v
+    )
+
     body = "\n".join(lines)
     # Debt Advisor's content is entirely World-sourced — the operator-names
     # exemption never applies here (REVIEW.md addendum, question 2, item 3).
-    guard = check_guardrail(body, vetted_names, operator_names=frozenset())
+    guard = check_guardrail(
+        body, vetted_names, operator_names=frozenset(), quoted_spans=quoted_spans
+    )
     if not guard.ok:
         raise _GuardrailBlocked(guard.reason)
     return body

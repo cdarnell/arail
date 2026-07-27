@@ -14,6 +14,8 @@ import pytest
 
 from arail.agents.debt_finance_compliance import (
     CANONICAL_PHRASE,
+    REASON_EVALUATIVE,
+    REASON_INSTITUTIONAL_PREFIX,
     check_guardrail,
     is_verification_fresh,
     read_disclaimer,
@@ -100,6 +102,72 @@ def test_guardrail_blocks_evaluative_and_imperative_language(phrase):
     result = check_guardrail(phrase, frozenset())
     assert result.ok is False
     assert "evaluative" in result.reason or "imperative" in result.reason
+
+
+def test_guardrail_reason_constants_match_actual_reasons():
+    """REVIEW.md re-review addendum 3, item 3: agents branch a
+    failure-message hint on these exact constants, so the constants must
+    actually match what check_guardrail returns."""
+    result = check_guardrail("Our top pick this year.", frozenset())
+    assert result.reason == REASON_EVALUATIVE
+
+    result = check_guardrail("Acme Lending is a credit union.", frozenset())
+    assert result.reason.startswith(REASON_INSTITUTIONAL_PREFIX)
+
+
+# ── check_guardrail — quoted_spans (REVIEW.md re-review addendum 3,
+#    BLOCK-6): a scoped, per-span exemption for the evaluative-language
+#    branch, distinct from (and narrower than) widening the vocabulary.
+
+def test_quoted_spans_exempts_a_marketing_style_citation_url():
+    """Exact repro from REVIEW.md's addendum 3: a NerdWallet-style citation
+    URL, quoted verbatim, must not suppress the document."""
+    text = (
+        "Sourced from https://www.nerdwallet.com/best-balance-transfer-cards "
+        "for terms."
+    )
+    result = check_guardrail(
+        text, frozenset(),
+        quoted_spans=frozenset({
+            "https://www.nerdwallet.com/best-balance-transfer-cards"
+        }),
+    )
+    assert result.ok is True
+
+
+def test_quoted_spans_default_is_empty_no_exemption_by_default():
+    """Callers that do not pass quoted_spans get no exemption — the
+    default must not accidentally widen the evaluative check."""
+    text = "Sourced from https://www.nerdwallet.com/best-balance-transfer-cards."
+    result = check_guardrail(text, frozenset())
+    assert result.ok is False
+    assert result.reason == REASON_EVALUATIVE
+
+
+def test_quoted_spans_does_not_exempt_agent_generated_evaluative_prose():
+    """The exemption is scoped to the exact literal span supplied, not to
+    the vocabulary — agent-generated prose asserting "best" independently
+    of any quoted span must still block."""
+    text = "This is the best option for you."
+    result = check_guardrail(
+        text, frozenset(),
+        quoted_spans=frozenset({"https://www.nerdwallet.com/rates"}),
+    )
+    assert result.ok is False
+    assert result.reason == REASON_EVALUATIVE
+
+
+def test_quoted_spans_does_not_exempt_the_institutional_character_branch():
+    """quoted_spans only narrows the evaluative check; an institutional-
+    character claim inside (or outside) a quoted span still needs a vetted/
+    operator name near it."""
+    text = "Payday Express is a credit union, best-in-class service."
+    result = check_guardrail(
+        text, frozenset(),
+        quoted_spans=frozenset({"best-in-class service"}),
+    )
+    assert result.ok is False
+    assert result.reason.startswith(REASON_INSTITUTIONAL_PREFIX)
 
 
 def test_guardrail_allows_descriptive_sourced_language():

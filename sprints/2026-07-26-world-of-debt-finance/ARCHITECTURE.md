@@ -1055,11 +1055,29 @@ this sprint:
     unvetted claim ride along on a vetted one purely because the offset
     happens to fall inside the window, while a slightly longer join of the
     exact same claim correctly blocks (REVIEW.md re-review addendum 2,
-    ASK-A). This is genuinely unreachable in the current build — every line
-    either agent's assembler emits is one institution-bearing assertion per
-    line, and the only free-text path (`_framing_prose`) self-checks against
-    an *empty* vetted set, so it can never carry a proximity match to
-    exploit. **Tripwire:** if any future change ever renders two institution
-    names on the same line or in the same LLM-generated sentence, this
-    proximity-window heuristic reopens as a live BLOCK, not documented debt
-    — re-review the guardrail before shipping such a change.
+    ASK-A). This is genuinely unreachable in the current build —
+    **correction (REVIEW.md re-review addendum 3, item 2):** the previous
+    version of this entry justified that unreachability by claiming
+    `_framing_prose` is "the only free-text path" and that it self-checks
+    against an empty vetted set. That is false: the analyzer's scenario
+    line (`_build_output`, Consolidation Analyzer) renders three
+    operator-authored free-text fields (`product`, `source`, `as_of`) on
+    the same line as an institution name, and the advisor's findings line
+    renders externally-authored `feed`/`path` text — both are free-text
+    paths with no self-check of their own. The actual reason this is not
+    currently exploitable is narrower and specific to this build: on the
+    analyzer's scenario line, every name that could appear there (the
+    scenario's own `institution`) is, by construction, always a member of
+    `operator_names` (it is drawn from the same `candidate_scenarios` entry
+    that produced the line), so a second, *unvetted* institution name can
+    never legitimately co-occur on that line today — a `product` value
+    like `"transfer to PenFed Credit Union"` puts a second name on the
+    line, but that name is either also in `operator_names`/
+    `vetted_institutions` or the line blocks outright on its own unvetted
+    claim, not via a proximity-window false-pass. **Tripwire:** if any
+    future change ever renders two institution names on the same line
+    where one of them is *not* guaranteed to be in `operator_names` or
+    `vetted_institutions` by construction, or renders two names in the
+    same LLM-generated sentence, this proximity-window heuristic reopens
+    as a live BLOCK, not documented debt — re-review the guardrail before
+    shipping such a change.

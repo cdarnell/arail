@@ -317,7 +317,7 @@ class TestDebtAdvisorGuardrail:
         monkeypatch.setattr(mod, "find_mounted_bundle_dir", lambda: world_bundle)
         monkeypatch.setattr(
             mod, "check_guardrail",
-            lambda text, vetted, operator_names=frozenset(): GuardrailResult(
+            lambda text, vetted, operator_names=frozenset(), quoted_spans=frozenset(): GuardrailResult(
                 ok=False, reason="forced block for test"),
         )
         agent = mod.DebtAdvisorAgent()
@@ -325,6 +325,56 @@ class TestDebtAdvisorGuardrail:
         findings = host._data_dir / "user-import" / "debt-finance" / "findings" / "debt_advisor.md"
         assert not findings.exists()
         assert any("failed the language-safety check" in e["message"] for e in host.events)
+
+
+class TestDebtAdvisorEvaluativeQuotedSpans:
+    """REVIEW.md re-review addendum 3, BLOCK-6: an approved scouting
+    finding's own ``feed`` title (externally-authored RSS text, not
+    agent-generated) must not suppress the whole document merely because it
+    contains an evaluative-sounding word like "best"."""
+
+    def test_best_balance_transfer_feed_title_no_longer_blocks(
+        self, debt_advisor_module
+    ):
+        """Exact repro shape from REVIEW.md's addendum 3: this document
+        must now be written, and the feed name must appear verbatim."""
+        from arail.agents import _builtin_debt_advisor as mod
+
+        terms = json.loads(json.dumps(_TERMS))["terms"]
+        findings = [{
+            "feed": "Best Balance Transfer Cards - Bankrate",
+            "checked": "2026-07-01",
+            "path": "sources/scout/debt-finance-bankrate.md",
+        }]
+        body = mod._build_output(
+            _bundle_dir_for(debt_advisor_module), terms, findings
+        )
+        assert "Best Balance Transfer Cards - Bankrate" in body
+
+    def test_code_authored_institution_type_with_evaluative_word_still_blocks(
+        self, debt_advisor_module
+    ):
+        """Regression (d)-equivalent for Debt Advisor: a code-authored
+        field (``institution_type``, never a member of ``quoted_spans``)
+        containing an evaluative word must still block — the fix must not
+        widen the exemption to institution roster content."""
+        from arail.agents import _builtin_debt_advisor as mod
+
+        terms_doc = json.loads(json.dumps(_TERMS))
+        for t in terms_doc["terms"]:
+            if t["slug"] == "penfed-credit-union":
+                t["institution_type"] = "best-credit-union"
+
+        with pytest.raises(mod._GuardrailBlocked):
+            mod._build_output(
+                _bundle_dir_for(debt_advisor_module), terms_doc["terms"], []
+            )
+
+
+def _bundle_dir_for(mod) -> Path:
+    """The mounted bundle dir the ``debt_advisor_module``/``consolidation_
+    module`` fixtures wired ``find_mounted_bundle_dir`` to return."""
+    return mod.find_mounted_bundle_dir()
 
 
 # ── Consolidation Analyzer ────────────────────────────────────────────
@@ -527,6 +577,131 @@ class TestConsolidationAnalyzerOperatorNamesExemption:
             operator_names=operator_names,
         )
         assert result.ok is False
+
+
+class TestConsolidationAnalyzerEvaluativeQuotedSpans:
+    """REVIEW.md re-review addendum 3, BLOCK-6: the evaluative-language
+    branch of ``check_guardrail`` ran on the whole assembled body with no
+    provenance distinction, so an ordinary marketing-style citation URL
+    pasted into ``candidate_scenarios.source`` (e.g. a NerdWallet
+    "best-balance-transfer-cards" page) suppressed the entire findings
+    document forever. ``quoted_spans`` scopes the exemption to the exact
+    literal ``product``/``source``/``as_of`` echoes, not to the vocabulary
+    itself."""
+
+    def test_nerdwallet_style_citation_url_no_longer_blocks(
+        self, consolidation_module, data_dir
+    ):
+        """Exact repro from REVIEW.md's addendum 3: this document must now
+        be written, and the URL must appear verbatim."""
+        _write_balances(data_dir, {
+            "debts": [{"id": "card-1", "kind": "credit-card",
+                       "balance": 1000.0, "apr": 20.0}],
+            "candidate_scenarios": [
+                {"institution": "Anytown Credit Union",
+                 "product": "balance-transfer", "rate": 5.0, "fee_pct": 3.0,
+                 "term_months": 24,
+                 "source": "https://www.nerdwallet.com/best-balance-transfer-cards",
+                 "as_of": "2026-07-01"},
+            ],
+        })
+        agent = consolidation_module.ConsolidationAnalyzerAgent()
+        agent.tick()
+
+        findings = (data_dir / "user-import" / "debt-finance" / "findings"
+                    / "consolidation_analyzer.md")
+        assert findings.exists()
+        text = findings.read_text()
+        assert "https://www.nerdwallet.com/best-balance-transfer-cards" in text
+
+    def test_agent_generated_evaluative_prose_is_still_blocked(
+        self, monkeypatch, consolidation_module, data_dir
+    ):
+        """Genuine model-generated evaluative prose — not quoted from
+        source data — must still be blocked. ``_framing_prose`` is
+        exercised directly since ``FakeHost.llm_complete`` returns "" (the
+        deterministic-fallback path) in the ordinary fixture."""
+        monkeypatch.setattr(
+            consolidation_module._host, "llm_complete",
+            lambda prompt, max_tokens=120, temperature=0.4: (
+                "This is the best option for you."
+            ),
+        )
+        prose = consolidation_module._framing_prose()
+        assert prose == (
+            "Computed comparison of your staged balances against staged "
+            "candidate scenarios."
+        )
+
+    def test_benign_non_url_source_passes_no_regression(
+        self, consolidation_module, data_dir
+    ):
+        """A benign agent-rendered line with no evaluative language at all
+        must pass exactly as before — quoted_spans must not change ordinary
+        behavior."""
+        _write_balances(data_dir, {
+            "debts": [{"id": "card-1", "kind": "credit-card",
+                       "balance": 1000.0, "apr": 20.0}],
+            "candidate_scenarios": [
+                {"institution": "Anytown Credit Union",
+                 "product": "balance-transfer", "rate": 5.0, "fee_pct": 3.0,
+                 "term_months": 24,
+                 "source": "https://example.invalid/rates",
+                 "as_of": "2026-07-01"},
+            ],
+        })
+        agent = consolidation_module.ConsolidationAnalyzerAgent()
+        agent.tick()
+
+        findings = (data_dir / "user-import" / "debt-finance" / "findings"
+                    / "consolidation_analyzer.md")
+        assert findings.exists()
+        assert "https://example.invalid/rates" in findings.read_text()
+
+    def test_evaluative_word_plus_unvetted_institution_still_blocks_on_institutional_branch(
+        self, consolidation_module, data_dir
+    ):
+        """Adversarial case (REVIEW.md addendum 3, regression (d)): an
+        evaluative word AND an unvetted institutional-character claim in
+        the same assembled body must still block, on the institutional-
+        character branch, even with the evaluative branch now correctly
+        scoped to quoted spans only. The evaluative word here lives in the
+        ``product`` field, which IS a quoted span and therefore does not
+        itself trip the evaluative branch — but the unrelated, unvetted
+        "Payday Express is a credit union" institutional claim must still
+        be caught."""
+        _write_balances(data_dir, {
+            "debts": [{"id": "card-1", "kind": "credit-card",
+                       "balance": 1000.0, "apr": 20.0,
+                       "institution": "Payday Express"}],
+            "candidate_scenarios": [
+                {"institution": "Anytown Credit Union",
+                 "product": "best balance transfer", "rate": 5.0,
+                 "fee_pct": 3.0, "term_months": 24,
+                 "source": "https://example.invalid/rates",
+                 "as_of": "2026-07-01"},
+            ],
+        })
+        # Directly exercise the guardrail with an adversarial body that
+        # combines a code-inserted evaluative-word product name with an
+        # unvetted institutional-character claim naming a DIFFERENT,
+        # unvetted institution — the shape the review's regression (d)
+        # calls for.
+        from arail.agents.debt_finance_compliance import check_guardrail
+
+        body = (
+            "- **Anytown Credit Union** (as you entered it) — "
+            "best balance transfer (as entered), rate 5.00%.\n"
+            "Payday Express is a credit union offering fast approval."
+        )
+        result = check_guardrail(
+            body,
+            frozenset(),
+            operator_names=frozenset({"anytown credit union"}),
+            quoted_spans=frozenset({"best balance transfer"}),
+        )
+        assert result.ok is False
+        assert "institutional-character" in result.reason
 
 
 class TestConsolidationAnalyzerNoOp:
