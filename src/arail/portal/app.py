@@ -10423,7 +10423,8 @@ async def api_system_reveal(request: Request):
 
     Body: ``{"slot": "<name>", "subpath": "<optional>"}``.
 
-    Slots: ``inbox``, ``models``, ``pkb_root``, ``sources``, ``compiled``.
+    Slots: ``inbox``, ``models``, ``pkb_root``, ``sources``, ``compiled``,
+    ``user_data``.
     ``subpath`` is joined onto the slot root and then path-checked to
     refuse traversal escapes. Missing dirs are created. Spawns
     ``open`` (mac) / ``xdg-open`` (linux) / ``explorer`` (win); when
@@ -10448,12 +10449,21 @@ async def api_system_reveal(request: Request):
     # runtime overrides take effect — matches the pattern used by
     # the other model-aware endpoints in this module.
     models_dir = Path(os.getenv("ARAIL_MODELS_DIR", "lab/models"))
+    # Local import (not the module-level DATA_DIR at the top of this file) —
+    # matches the pattern above: test fixtures and runtime overrides that
+    # monkeypatch DATA_DIR only take effect on a fresh import.
+    from arail.config import DATA_DIR
     slots = {
-        "inbox":    pkb / "inbox",
-        "sources":  pkb / "sources",
-        "compiled": pkb / "compiled",
-        "pkb_root": pkb,
-        "models":   models_dir,
+        "inbox":     pkb / "inbox",
+        "sources":   pkb / "sources",
+        "compiled":  pkb / "compiled",
+        "pkb_root":  pkb,
+        "models":    models_dir,
+        # Generic personal-data findings slot — covers
+        # lab/data/user-import/<any-world-slug>/findings/ for every current
+        # and future personal-data World (debt-finance today), not a
+        # finance-specific slot. Never resolves into lab/pkb/.
+        "user_data": Path(DATA_DIR) / "user-import",
     }
     if slot not in slots:
         return JSONResponse(
