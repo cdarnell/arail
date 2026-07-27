@@ -59,7 +59,10 @@ log = logging.getLogger(__name__)
 # These auto-seed their PKB folder on first boot and fall back to
 # the builtin if the PKB copy is broken. User-forged agents don't
 # appear here — they have no fallback.
-_SHIPPED: set[str] = {"buddy", "sre", "presence", "librarian"}
+_SHIPPED: set[str] = {
+    "buddy", "sre", "presence", "librarian",
+    "debt_advisor", "consolidation_analyzer",
+}
 
 # Singleton cache. Key = agent_id, value = agent instance (or the
 # sentinel _BROKEN if loading failed this session).
@@ -133,6 +136,18 @@ def _seed_if_shipped(agent_id: str) -> None:
             ensure_librarian_folder()
         except Exception as e:  # noqa: BLE001
             log.warning("ensure_librarian_folder failed: %s", e)
+    elif agent_id == "debt_advisor":
+        try:
+            from arail.agents.builtin_seed import ensure_debt_advisor_folder
+            ensure_debt_advisor_folder()
+        except Exception as e:  # noqa: BLE001
+            log.warning("ensure_debt_advisor_folder failed: %s", e)
+    elif agent_id == "consolidation_analyzer":
+        try:
+            from arail.agents.builtin_seed import ensure_consolidation_analyzer_folder
+            ensure_consolidation_analyzer_folder()
+        except Exception as e:  # noqa: BLE001
+            log.warning("ensure_consolidation_analyzer_folder failed: %s", e)
 
 
 def _import_from_path(py_file: Path, unique_name: str) -> Optional[Any]:
