@@ -713,3 +713,169 @@ all three before PASS.
 3. Address or file **ASK-B**.
 4. Re-review after (1). QA still should not run: the current build produces
    no output at all for the analyzer's most likely input.
+
+---
+
+# Re-review addendum 3 (round 4) — verdict: BLOCK
+
+**Build:** `eb0070a`
+**Reviewed:** the diff and the current source of
+`_builtin_consolidation_analyzer.py`, `_builtin_debt_advisor.py`,
+`debt_finance_compliance.py` — not the builder's summary.
+
+## 1. BLOCK-5 is genuinely closed
+
+`_operator_institution_names(debts, scenarios)` unions both fields
+(`_builtin_consolidation_analyzer.py:295-305`) and the single call site
+passes both (`:500`). Verified live:
+
+    debts=[Chase], candidate_scenarios=[Anytown Credit Union]
+    -> frozenset({'anytown credit union', 'chase'})
+
+**`_framing_prose` still gets ZERO exemption**, on both agents —
+analyzer `:262` `check_guardrail(text, frozenset())`, advisor `:260`
+same, plus the advisor's additional vetted-name rejection. Debt Advisor's
+body check passes `operator_names=frozenset()` explicitly (`:327`) with
+the reason in a comment. That property holds.
+
+One [INFO], not a block: the prose is later re-checked *inside* the body
+with `operator_names` in scope (`:314` + `:359`), which is contrary to the
+letter of `check_guardrail`'s docstring ("all model-generated/framing prose
+get no exemption of any kind"). It is not exploitable, because prose
+containing any trigger phrase is already rejected by the zero-exemption
+standalone gate and prose is newline-separated from every other line, so it
+can neither host a trigger nor donate a proper noun into another chunk's
+window. Defense-in-depth only — worth a comment at `:359` noting *why* the
+overlap is safe, since the docstring currently reads as if it were violated.
+
+## 2. BLOCK-6 — the provenance policy was applied to only one of the
+guardrail's two branches; the other suppresses the modal real input
+
+`check_guardrail` has two branches. The institutional-character branch is
+now provenance-aware (vetted / operator-quoted / neither — §13.8). The
+evaluative branch is not:
+
+    debt_finance_compliance.py:211
+        if _EVALUATIVE_RE.search(text):
+            return GuardrailResult(ok=False, ...)
+
+It runs on the **entire assembled body**, before chunking, with no
+provenance distinction of any kind. The guardrail exists to stop ARAIL from
+*asserting* an evaluative claim. This branch instead polices text ARAIL is
+*quoting* — and both agents render operator- and third-party-authored free
+text into the body:
+
+- Analyzer `:346-353` renders `r.product`, `r.source`, `r.as_of` verbatim.
+  `_EVALUATIVE_RE` includes `best|lowest|guaranteed`, and `\b` treats a
+  hyphen as a boundary, so an ordinary pasted citation URL matches.
+- Advisor `:313-319` renders `f.get('feed')` and `f.get('path')`, parsed
+  out of an approved scouting finding — i.e. externally-authored RSS text.
+
+Verified live, both agents, with non-adversarial inputs:
+
+    Analyzer: source = "https://www.nerdwallet.com/best-balance-transfer-cards"
+      -> BLOCKED: evaluative or imperative language detected
+    Advisor:  feed   = "Best Balance Transfer Cards - Bankrate"
+      -> BLOCKED: evaluative or imperative language detected
+
+This is BLOCK-5's exact defect shape one branch over: the single most
+likely thing an operator will paste into `source` — a NerdWallet or
+Bankrate "best-balance-transfer-cards" URL — suppresses the entire findings
+document, on every tick (the input hash is only saved on success, so it
+re-blocks and re-warns forever). The agent asserts nothing evaluative; it
+quotes the operator's own citation back to them.
+
+96/96 tests pass because every fixture URL is sanitized
+(`example.invalid/rates`, `penfed.org/personal-loans`, `example.gov/...`,
+`ncua.gov/...`) — the suite has no realistic marketing URL or feed title
+anywhere. Same reason rounds 1-3 passed green while failing the real input.
+
+### Required fix
+
+Do **not** widen the vocabulary exemption globally — that would let the
+model's own prose say "best". Make the evaluative branch provenance-aware
+the same way the character branch already is. The straightforward shape:
+
+- Check `_EVALUATIVE_RE` against the **agent-authored** portion of the body
+  only, and exempt the code-inserted verbatim echo spans (`r.source`,
+  `r.product`, `r.as_of`; advisor `feed`/`path`). Passing the assembled
+  string and hoping is what created this.
+- If a quoted span is exempted, it must still be *marked* as a quote in the
+  rendered line, the same way `institution` gets "(as you entered it)" —
+  otherwise a "best balance transfer" product name reads as ARAIL's
+  characterization. Today `product`/`source`/`as_of` carry no provenance
+  marker at all even though `institution` on the same line does.
+- Note that `_framing_prose`'s standalone gate must keep checking
+  `_EVALUATIVE_RE` with no exemption (it does — the whole-text branch runs
+  regardless of the empty name set). Do not break that.
+
+Regression assertions required:
+
+1. Analyzer: scenario with `source` =
+   `https://www.nerdwallet.com/best-balance-transfer-cards` -> document is
+   written, and the URL appears verbatim.
+2. Advisor: approved finding with `feed` = `Best Balance Transfer Cards -
+   Bankrate` -> document is written, and the feed name appears verbatim.
+3. Analyzer: `_framing_prose` returning `"This is the best option for you"`
+   -> falls back to the deterministic sentence (model prose gets no
+   evaluative exemption).
+4. Advisor: a *code-authored* line containing "best" (inject via a term's
+   `institution_type`) -> still blocks.
+
+## 3. ASK-B fix is incomplete, and currently misdirects
+
+The new analyzer message (`:511-522`) interpolates the reason but then
+hardcodes an institutional-character explanation and points the operator at
+their `institution` fields. For the evaluative branch — which per BLOCK-6
+is the branch that will actually fire in practice — that guidance is
+wrong: the operator's `institution` fields are fine and the offending text
+is in `source` or `product`. The message tells them to look at the one
+field that is not the problem.
+
+Branch the message on the reason, or (better, once BLOCK-6 is fixed) have
+`GuardrailResult` carry the offending field/span so the message can name it
+instead of guessing. The Debt Advisor message (`:447-457`) has the same
+shape but is less harmful because pointing at "the World's content" is
+correct for both branches there.
+
+## 4. ARCHITECTURE.md §13 record-don't-fix entries — satisfactory, with
+one correction owed
+
+§13.8 (three-way provenance), §13.9 (re-verification obligation) and
+§13.10 (`_PROXIMITY_WINDOW_CHARS` tripwire) are all present and are written
+at the right level of specificity — §13.10 in particular states its
+tripwire condition precisely enough to be actionable. That instruction was
+followed.
+
+One factual correction is owed in §13.10, which justifies the "genuinely
+unreachable" claim with: *"the only free-text path (`_framing_prose`)
+self-checks against an empty vetted set."* That is not true. The analyzer's
+scenario line (`:346-353`) renders three operator-authored free-text fields
+(`product`, `source`, `as_of`) **on the same line as an institution name**,
+and the advisor's findings line renders externally-authored `feed`/`path`.
+Those are free-text paths with no self-check, and a `product` value such as
+`"transfer to PenFed Credit Union"` puts a second institution name on a
+line that already has one — the exact tripwire condition §13.10 says is
+unreachable. Update the justification. I am not calling this a live BLOCK,
+because in the analyzer every name on that line is inside `operator_names`
+anyway, but the stated reason for safety is wrong and a future reader will
+rely on it.
+
+## Verdict
+
+**BLOCK.** BLOCK-5 is closed and closed correctly; the prose-exemption
+property holds; the §13 entries are satisfactory. BLOCK-6 is a new, live,
+independently-verified defect on the most probable real input, in the same
+defect class, on the guardrail branch the provenance work did not reach.
+
+## Required actions before merge
+
+1. Fix **BLOCK-6** — make the evaluative branch provenance-aware; add the
+   four regression assertions above. Add at least one realistic marketing
+   URL and one realistic feed title to the fixtures permanently.
+2. Fix the ASK-B message so it does not point at `institution` fields for
+   an evaluative-branch block.
+3. Correct §13.10's "only free-text path" justification.
+4. Add the `:359` comment explaining why the prose/body check overlap is
+   safe (INFO).
+5. Re-review after (1). QA still should not run.
