@@ -592,3 +592,124 @@ New, to be recorded in ARCHITECTURE.md §13:
 6. Address the failure-message **[ASK]** or file it.
 7. Re-review after 1-4. QA still should not run: the current suite would
    certify BLOCK-4's merged-line pass as correct.
+
+---
+
+# Re-review addendum 2 (round 3) — fix commit `7cd07f3`
+
+**Date:** 2026-07-27
+**Verdict: BLOCK** — one new finding (BLOCK-5), one documented-debt ASK, one unmet housekeeping action.
+
+## What is closed
+
+- **BLOCK-4 — closed.** Newline-aware chunking + `finditer` are both in.
+  The adjacent-lines repro from addendum 1 now returns
+  `GuardrailResult(ok=False, ...)`, as does the comma-joined two-institution
+  sentence. The builder's self-found second-order case (a vetted name
+  anywhere in an unsplit chunk vetting an unrelated trigger) is real, was
+  correctly diagnosed, and the per-occurrence proximity window closes it.
+  Flagging it explicitly rather than silently widening scope was the right
+  call and I want it on the record as such.
+- **Condition (b), `verified_as_of` — closed and correctly fail-closed.**
+  Verified directly: fresh terms yield both institutions; terms with a
+  2020 date yield `[]`; terms with the field removed yield `[]`. It gates
+  set *membership*, not a log line, in both agents. Rendered in output.
+- **Condition (a), roster heading — closed and real.** The heading is
+  `## Institutions whose character claims this World verified` and the
+  not-exhaustive / not-a-recommendation line is appended unconditionally
+  in `_build_output`, code-inserted, above the `if vetted:` branch — it
+  renders even when the roster is empty. Not an unused string.
+- **Question 2, items 2/3/4/5 — closed.** Matching is identical to vetted
+  matching; Debt Advisor passes `frozenset()` explicitly; both agents'
+  `_framing_prose` self-checks with empty vetted *and* default-empty
+  operator sets, so model prose can never exploit either exemption; the
+  `(as you entered it)` marker is code-inserted and conditional.
+
+## BLOCK-5 — the operator-names exemption is scoped to the wrong field and does not fix the failure mode it exists to fix
+
+Required action 2 item 1 specified `operator_names` as built "from the
+`institution` fields of the parsed `balances.json`." The implementation
+builds it from `debts` only and deliberately excludes `candidate_scenarios`
+(`_operator_institution_names`, docstring). But `candidate_scenarios` is the
+*only* place the analyzer renders an institution name at all — the "Current
+position" section emits counts and a blended APR, no names. So the exemption
+can fire only when a scenario's institution coincidentally duplicates one of
+the operator's existing debts. That is the rare case. The common case is
+untouched:
+
+```
+debts     = [{"institution": "Chase", ...}]
+scenarios = [{"institution": "Anytown Credit Union", "product": "Consolidation Loan", ...}]
+-> operator_names = frozenset({'chase'})
+-> _GuardrailBlocked: institutional-character language ('Credit Union') not
+   paired with a vetted, specifically-named institution near that claim
+```
+
+This is the exact repro from addendum 1, still live: the whole document —
+blended APR, every scenario, the entire findings file — is suppressed on
+every tick, forever, with "failed the language-safety check — see logs." An
+operator staging a credit-union consolidation offer is not an edge case; it
+is the modal input to this agent, and consolidation offers come from credit
+unions more often than from anything else.
+
+The builder's counter-reasoning ("a candidate scenario's institution is a
+claim about who is *offering* a comparison product") is engaged with, and
+rejected. The exemption is keyed to **provenance**, not to semantics.
+`candidate_scenarios` and `debts` live in the same file, typed by the same
+person. The agent is not asserting the offer exists; the operator typed it,
+and the analyzer is quoting them back to themselves — which is precisely
+what the `(as you entered it)` marker was specified to make honest. The
+builder built the marker and then gated it on the set that never reaches it.
+
+**Required fix:** build `operator_names` from the `institution` fields of
+both `debts` and `candidate_scenarios` in the parsed `balances.json` —
+nothing else, still never scouting findings and never World terms. Keep the
+strict matching rule and the marker. Add a regression test asserting the
+Chase/Anytown-Credit-Union input above produces a document (not a block),
+that the scenario line carries `(as you entered it)`, and that an
+institutional-character claim about a name in *neither* list still blocks.
+
+## [ASK-A] Residual proximity leak — heuristic limit, documented debt, not a block
+
+`_PROXIMITY_WINDOW_CHARS = 40` is offset luck, not a property. Verified:
+
+```
+"PenFed Credit Union; Acme Lending is a nonprofit."   -> ok=True   (leaks)
+"PenFed Credit Union and Acme Lending are nonprofit." -> ok=False  (blocks)
+```
+
+Same shape, opposite outcomes, decided by four characters of offset. I am
+*not* blocking on this, and the distinction from BLOCK-1/BLOCK-4 matters:
+those were tautologies reachable in the actual assembled document. This one
+is not. Every remaining line in both assemblers is code-inserted, one
+assertion per line, and the only free-text path (`_framing_prose`) is
+self-checked against an *empty* vetted set, so it cannot exploit a
+proximity match at all. Semicolons, em-dashes and list continuations are
+therefore unreachable in practice today. Record it as debt; any future
+change that renders two institution names on one line reopens it as a
+blocker.
+
+## [ASK-B, carried] Failure message
+
+Required action 6 was not addressed and no ticket was filed. Once BLOCK-5
+lands, a guardrail block becomes rare and always the operator's to fix, so
+"see logs" is the wrong terminal message. Name the offending field/line
+value and say what to change, or file it.
+
+## Housekeeping — required action not done
+
+`ARCHITECTURE.md` was not touched in `7cd07f3`. The two debt items from
+addendum 1 (three-way provenance policy needs a real design if a fourth
+provenance appears; named institutions carry an indefinite re-verification
+obligation) are still unrecorded in §13, and ASK-A above is a third. Record
+all three before PASS.
+
+## Required actions before merge
+
+1. Fix **BLOCK-5** — widen `operator_names` to `candidate_scenarios`,
+   with the three regression assertions above. Reseal if any bundle file
+   changes (it should not).
+2. Record ASK-A and the two addendum-1 debt items in `ARCHITECTURE.md` §13.
+3. Address or file **ASK-B**.
+4. Re-review after (1). QA still should not run: the current build produces
+   no output at all for the analyzer's most likely input.
