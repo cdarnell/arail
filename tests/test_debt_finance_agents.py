@@ -38,7 +38,8 @@ _TERMS = {
          "category": "institutions", "institution_type": "credit-union",
          "short": "x", "definition": "x", "related": [],
          "source": "https://www.penfed.org/personal-loans",
-         "verification_source": "https://mapping.ncua.gov/ResearchCreditUnion"},
+         "verification_source": "https://mapping.ncua.gov/ResearchCreditUnion",
+         "verified_as_of": "2026-07-27"},
         {"slug": "balance-transfer", "term": "Balance Transfer",
          "category": "strategies", "short": "x", "definition": "x",
          "related": [], "source": "https://example.gov/balance-transfer"},
@@ -134,6 +135,33 @@ class TestDebtAdvisorHappyPath:
         # cause) — it carries no institution_type and is excluded.
         assert "**Credit Union**" not in text
 
+    def test_roster_heading_is_not_a_shortlist(self, debt_advisor_module, data_dir):
+        """REVIEW.md addendum, condition (a): the heading must describe the
+        verification mechanism, not read as "vetted institutions" (a
+        shortlist), and a code-inserted not-exhaustive/not-a-recommendation
+        line must sit immediately under it."""
+        agent = debt_advisor_module.DebtAdvisorAgent()
+        agent.tick()
+        text = (data_dir / "user-import" / "debt-finance" / "findings"
+                / "debt_advisor.md").read_text()
+        assert "## Institutions whose character claims this World verified" in text
+        assert "## Vetted institutions" not in text
+        assert "not exhaustive" in text
+        assert "not a recommendation" in text
+
+    def test_verified_as_of_date_rendered_near_citation(self, debt_advisor_module, data_dir):
+        """REVIEW.md addendum, condition (b): the verification date must be
+        visible on the document's face, not just internal bookkeeping."""
+        agent = debt_advisor_module.DebtAdvisorAgent()
+        agent.tick()
+        text = (data_dir / "user-import" / "debt-finance" / "findings"
+                / "debt_advisor.md").read_text()
+        assert (
+            "**PenFed Credit Union** (credit union, verification source: "
+            "https://mapping.ncua.gov/ResearchCreditUnion, verified as of "
+            "2026-07-27)"
+        ) in text
+
     def test_disclaimer_appended(self, debt_advisor_module, data_dir):
         agent = debt_advisor_module.DebtAdvisorAgent()
         agent.tick()
@@ -219,6 +247,68 @@ class TestDebtAdvisorStateFile:
         assert "penfed.org" not in blob
 
 
+class TestDebtAdvisorVerifiedAsOfGate:
+    """REVIEW.md addendum, condition (b): verified_as_of is REQUIRED for an
+    institution to enter the vetted set at all. Missing or stale ⇒
+    excluded ⇒ any character claim about it is blocked, not passed."""
+
+    def _terms_with_penfed_verified_as_of(self, value):
+        terms = json.loads(json.dumps(_TERMS))
+        for t in terms["terms"]:
+            if t["slug"] == "penfed-credit-union":
+                if value is None:
+                    t.pop("verified_as_of", None)
+                else:
+                    t["verified_as_of"] = value
+        return terms
+
+    def test_missing_verified_as_of_excludes_institution_from_vetted_set(
+        self, monkeypatch, host, tmp_path
+    ):
+        from arail.agents import _builtin_debt_advisor as mod
+        bundle = tmp_path / "bundle-missing-date"
+        (bundle / "compliance").mkdir(parents=True)
+        (bundle / "compliance" / "DISCLAIMER.md").write_text(_GOOD_DISCLAIMER)
+        (bundle / "terms.json").write_text(
+            json.dumps(self._terms_with_penfed_verified_as_of(None))
+        )
+        monkeypatch.setattr(mod, "_host", host)
+        monkeypatch.setattr(mod, "find_mounted_bundle_dir", lambda: bundle)
+
+        agent = mod.DebtAdvisorAgent()
+        agent.tick()
+
+        findings = host._data_dir / "user-import" / "debt-finance" / "findings" / "debt_advisor.md"
+        # Excluded from vetted set, but the institution's category term
+        # never appears in prose either, so the write should still
+        # succeed — it's the *vetted-institution roster* that must now be
+        # empty for PenFed, never printed as verified.
+        if findings.exists():
+            text = findings.read_text()
+            assert "PenFed Credit Union" not in text
+
+    def test_stale_verified_as_of_excludes_institution_from_vetted_set(
+        self, monkeypatch, host, tmp_path
+    ):
+        from arail.agents import _builtin_debt_advisor as mod
+        bundle = tmp_path / "bundle-stale-date"
+        (bundle / "compliance").mkdir(parents=True)
+        (bundle / "compliance" / "DISCLAIMER.md").write_text(_GOOD_DISCLAIMER)
+        (bundle / "terms.json").write_text(
+            json.dumps(self._terms_with_penfed_verified_as_of("2020-01-01"))
+        )
+        monkeypatch.setattr(mod, "_host", host)
+        monkeypatch.setattr(mod, "find_mounted_bundle_dir", lambda: bundle)
+
+        agent = mod.DebtAdvisorAgent()
+        agent.tick()
+
+        findings = host._data_dir / "user-import" / "debt-finance" / "findings" / "debt_advisor.md"
+        if findings.exists():
+            text = findings.read_text()
+            assert "PenFed Credit Union" not in text
+
+
 class TestDebtAdvisorGuardrail:
     def test_guardrail_block_prevents_write_and_flags(self, monkeypatch, host, world_bundle):
         from arail.agents import _builtin_debt_advisor as mod
@@ -227,7 +317,8 @@ class TestDebtAdvisorGuardrail:
         monkeypatch.setattr(mod, "find_mounted_bundle_dir", lambda: world_bundle)
         monkeypatch.setattr(
             mod, "check_guardrail",
-            lambda text, vetted: GuardrailResult(ok=False, reason="forced block for test"),
+            lambda text, vetted, operator_names=frozenset(): GuardrailResult(
+                ok=False, reason="forced block for test"),
         )
         agent = mod.DebtAdvisorAgent()
         agent.tick()
@@ -327,6 +418,66 @@ class TestConsolidationAnalyzerArithmeticSubstitution:
         agent.tick()
         path = data_dir / "user-import" / "debt-finance" / "findings" / "consolidation_analyzer.md"
         assert stat.S_IMODE(path.stat().st_mode) == 0o600
+
+
+class TestConsolidationAnalyzerOperatorNamesExemption:
+    """REVIEW.md addendum, question 2: a correctly-functioning guardrail
+    must not permanently block the operator's own real institution name
+    typed into their own balances.json. The exemption is keyed to the
+    operator's own debts (existing card/loan issuers), never to
+    candidate_scenarios, and is marked "(as you entered it)" in output."""
+
+    def test_operator_own_institution_name_passes_and_is_marked(
+        self, consolidation_module, data_dir
+    ):
+        _write_balances(data_dir, {
+            "debts": [
+                {"id": "card-1", "kind": "credit-card", "balance": 1000.0,
+                 "apr": 20.0, "institution": "Anytown Credit Union"},
+            ],
+            "candidate_scenarios": [
+                {"institution": "Anytown Credit Union",
+                 "product": "balance-transfer", "rate": 5.0, "fee_pct": 3.0,
+                 "term_months": 24, "source": "https://example.invalid/rates",
+                 "as_of": "2026-07-01"},
+            ],
+        })
+        agent = consolidation_module.ConsolidationAnalyzerAgent()
+        agent.tick()
+
+        findings = (data_dir / "user-import" / "debt-finance" / "findings"
+                    / "consolidation_analyzer.md")
+        assert findings.exists()
+        text = findings.read_text()
+        assert "**Anytown Credit Union** (as you entered it) —" in text
+
+    def test_unvetted_institution_not_in_debts_still_blocks(
+        self, consolidation_module, data_dir, host
+    ):
+        """The exemption is keyed to the operator's own debts, not to the
+        analyzer module generally — a name that appears only in
+        candidate_scenarios (never in the operator's own debts) gets no
+        exemption and is still blocked, same as any World-sourced claim."""
+        _write_balances(data_dir, {
+            "debts": [
+                {"id": "card-1", "kind": "credit-card", "balance": 1000.0,
+                 "apr": 20.0, "institution": "Anytown Credit Union"},
+            ],
+            "candidate_scenarios": [
+                {"institution": "Payday Express Credit Union",
+                 "product": "balance-transfer", "rate": 5.0, "fee_pct": 3.0,
+                 "term_months": 24, "source": "https://example.invalid/rates",
+                 "as_of": "2026-07-01"},
+            ],
+        })
+        agent = consolidation_module.ConsolidationAnalyzerAgent()
+        agent.tick()
+
+        findings = (data_dir / "user-import" / "debt-finance" / "findings"
+                    / "consolidation_analyzer.md")
+        assert not findings.exists()
+        assert any("failed the language-safety check" in e["message"]
+                   for e in host.events)
 
 
 class TestConsolidationAnalyzerNoOp:

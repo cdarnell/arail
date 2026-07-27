@@ -372,3 +372,124 @@ expansion" rule:
   in the broader debt-finance/world-mount/catalog/shim regression slice;
   full-suite delta is zero (46 pre-existing failures unchanged, confirmed
   via `git stash`).
+
+## Post-review fixes, round 2 (REVIEW.md addendum at d7b3233, verdict BLOCK)
+
+Closes BLOCK-4 and implements both of the addendum's now-decided design
+questions (operator keeps the two named institutions with two required
+conditions; operator-supplied institution names get a provenance-scoped
+exemption). No design decisions were made unilaterally in this pass — both
+questions had already been resolved by the architect in the addendum; this
+pass only implements what was specified.
+
+**1. BLOCK-4 — sentence boundary is not a boundary.**
+`_SENTENCE_SPLIT_RE` now also splits on `\n+`, so a rendered list item
+(which ends in `)`, not terminal punctuation) is its own chunk and can
+never merge with an adjacent line. `check_guardrail` switched from
+`.search()` (one trigger per chunk) to `.finditer()` (every trigger
+occurrence checked). A second-order tautology surfaced while writing the
+regression test for "one chunk, two triggers, one vetted name, one not":
+pairing a trigger against *every* candidate name anywhere in the chunk let
+an unrelated vetted name elsewhere in the same (unsplit-by-comma) sentence
+vet an unvetted trigger it has nothing to do with. Fixed by scoping each
+trigger occurrence's candidate search to a `±40`-char window around that
+specific occurrence (`_PROXIMITY_WINDOW_CHARS`) rather than the whole
+chunk — this was not in the addendum's literal instructions but is
+required for "iterate finditer, require each occurrence to be paired" to
+actually mean what it says; flagging this addition explicitly rather than
+treating it as implied. Two regression tests added, both verified to fail
+against `3d56c9b`: the exact adjacent-lines repro, and a single sentence
+naming a vetted and an unvetted institution with one trigger each.
+
+**2. Operator-supplied institution names — provenance-scoped exemption.**
+`check_guardrail(text, vetted_institutions, operator_names=frozenset())`
+— third parameter, matched with the identical strict full-name-containment
+rule as `vetted_institutions`, ORed into the allowed set for pairing
+purposes. Debt Advisor passes `frozenset()` always (its content is
+entirely World-sourced — required action 3). Both agents' `_framing_prose`
+already called `check_guardrail(text, frozenset())` with no operator_names
+argument, so the model-prose layer gets no exemption of any kind by
+construction — no change needed there, verified rather than assumed.
+
+Consolidation Analyzer: `operator_names` is built from the operator's own
+`debts[].institution` field (their *existing* card/loan issuers) — not
+from `candidate_scenarios`, even though the scenario line is where an
+institution name is actually rendered. This distinction matters and is
+worth recording: `candidate_scenarios[].institution` is always a claim
+about who is *offering* a comparison product and must still be vetted or
+blocked like any other institutional-character claim; the exemption exists
+so that when a scenario's institution happens to match one of the
+operator's own already-staged debts (comparing an offer from your current
+issuer), that specific echo is recognized as a quotation, not a new claim.
+An institution name that appears only in `candidate_scenarios` — including
+a fictional one — gets no exemption and is blocked exactly as before. The
+rendered scenario line gets a conditional `(as you entered it)` marker,
+code-inserted, present only when that scenario's institution actually
+matched an operator name.
+
+**3. Roster heading + disclaimer line (condition (a)).** Debt Advisor's
+heading changed from `## Vetted institutions (from this World's sourced
+terms)` to `## Institutions whose character claims this World verified`,
+with a fixed, code-inserted line immediately under it stating the list is
+not exhaustive and not a recommendation. Neither string is model-generated
+or conditional — always present when the section renders.
+
+**4. `verified_as_of` staleness gate (condition (b)).**
+`debt_finance_compliance.is_verification_fresh(date_str, today=None)` —
+shared by both agents rather than duplicated — returns `False` (not
+vetted) for a missing field, an unparseable value, or a date more than
+365 days old. `_vetted_institutions` (Debt Advisor) and
+`_vetted_institution_names` (Consolidation Analyzer) both now require it
+alongside `institution_type` and `verification_source`; an institution
+failing any of the four conditions is simply absent from the vetted set,
+so a character claim about it is blocked rather than passed — staleness
+degrades closed. `verified_as_of` (`2026-07-27`, today) was added to both
+named institutions in `scripts/worlds_src/debt-finance/terms.json`, and
+the date renders next to the citation in Debt Advisor's output (e.g.
+`..., verified as of 2026-07-27)`), not just as internal bookkeeping.
+Bundle resealed (`PYTHONPATH=src:qukaizen-dac python3
+scripts/forge_debt_finance_world.py`) — clean, deterministic diff limited
+to `terms.json` plus the 4 sealed artifacts a reseal always regenerates
+(SKILL.md, arail-plugin.json, capabilities.json, manifest.json).
+
+**Operator decision recorded.** The operator chose "keep the two named
+institutions, own the annual re-check" over stripping to zero — this is
+what made conditions (a)/(b) load-bearing rather than moot; recorded here
+per the process instruction rather than in a separate OPEN_QUESTIONS.md
+entry, since the addendum's escalated question is now closed.
+
+**Verification.**
+- `PYTHONPATH=src:qukaizen-dac pytest tests/test_debt_finance_compliance.py
+  tests/test_debt_finance_agents.py` — 61/61 passing (11 new tests: 9 in
+  the compliance file — 2 BLOCK-4 regressions, 3 operator_names, 5
+  `is_verification_fresh` — and 8 in the agents file — roster heading,
+  verified_as_of rendering, 2 staleness-gate, 2 operator_names/marker).
+- `pytest tests/ -k debt_finance` — 94/94 passing.
+- Full-suite run: 46 failed / 3485 passed / 2 skipped / 1 xfailed / 7
+  errors — identical failing-test set to the file names already on record
+  from the round-1 fix (`test_build_tab.py`, `test_world_forge_api.py`,
+  `test_aerollm_defaults.py`, etc. — none in the debt-finance module tree,
+  none touching a file this round changed). Not re-verified against a
+  fresh `git stash` this round (the round-1 fix already established this
+  is pre-existing red); confirmed instead by inspection that every failing
+  test file is outside this round's diff (`git status --short` above).
+- Self-check: no file touched outside the four specified changes (BLOCK-4,
+  heading/disclaimer, `verified_as_of` gate, `operator_names` exemption)
+  plus the terms.json reseal and the tests that exercise them. No
+  commented-out code. No TODOs.
+
+All four required changes are wired into the real call sites the agents
+use in production, not just present as unused code:
+- `check_guardrail`'s new signature is called from `_build_output` in
+  *both* `_builtin_debt_advisor.py` and `_builtin_consolidation_analyzer.py`
+  (the actual write path both agents' `tick()` calls), not only from tests.
+- The heading/disclaimer line is in `_build_output`'s line-assembly, which
+  is the only function that produces Debt Advisor's findings file content.
+- `is_verification_fresh` is called from both agents' vetted-set
+  constructors (`_vetted_institutions`, `_vetted_institution_names`),
+  which both `tick()` implementations call every run — not a helper left
+  unreferenced.
+- `operator_names` flows `tick()` → `_operator_institution_names(debts)` →
+  `_build_output(..., operator_names)` → `check_guardrail(..., operator_names=...)`
+  in Consolidation Analyzer, and is explicitly hardcoded to `frozenset()`
+  at the one `check_guardrail` call site in Debt Advisor's `_build_output`.

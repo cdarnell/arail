@@ -88,4 +88,4 @@ _Answer only from the terms below. Every term lists its source. If a question ca
 - **Transfer Fee** (`transfer-fee`) — A one-time fee (typically 3-5%) charged to move a balance.
   - Source: https://creditcards.chase.com/balance-transfer-credit-cards
 
-<!-- dac:world_sha256 8affe6cf9a02bece9475620a3d84b6c22b05281157f7dc1d0382acfa7a290357 -->
+<!-- dac:world_sha256 be954c4fc1144e79668f2ed0a3acfea316515d996f55440dadb0b81e7ad19cf1 -->

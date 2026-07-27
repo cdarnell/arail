@@ -15,6 +15,7 @@ import pytest
 from arail.agents.debt_finance_compliance import (
     CANONICAL_PHRASE,
     check_guardrail,
+    is_verification_fresh,
     read_disclaimer,
 )
 
@@ -206,3 +207,103 @@ def test_real_sealed_bundle_guardrail_allows_its_own_vetted_institution():
     text = "PenFed Credit Union is a credit union, NCUA-insured."
     result = check_guardrail(text, vetted)
     assert result.ok is True
+
+
+# ── check_guardrail — regression: BLOCK-4, the sentence boundary is not a
+#    boundary. A rendered list item with no terminal punctuation (e.g.
+#    "...)") must not merge with the following line into one "sentence"
+#    and let an unvetted institution on the following line ride along on a
+#    vetted name written on the line above it. Both cases below must fail
+#    against the pre-fix code (3d56c9b).
+
+def test_guardrail_blocks_adjacent_unpunctuated_vetted_line_and_unvetted_line():
+    """The exact repro from REVIEW.md's addendum: Debt Advisor's own
+    vetted-institution line ends in ')' with no terminal punctuation, so it
+    must not merge with an adjacent unvetted institutional-character claim
+    into a single "sentence" that the vetted name then satisfies."""
+    vetted = frozenset({"penfed credit union"})
+    text = (
+        "- **PenFed Credit Union** (credit union, verification source: "
+        "https://x)\n"
+        "- **Payday Express** is a credit union."
+    )
+    result = check_guardrail(text, vetted)
+    assert result.ok is False
+    assert "institutional-character" in result.reason
+
+
+def test_guardrail_checks_every_trigger_occurrence_in_one_chunk_independently():
+    """A single sentence/line naming both a vetted and an unvetted
+    institution, each with their own trigger phrase, must block on the
+    unvetted one — the first (vetted) occurrence must not short-circuit the
+    check for the second (unvetted) occurrence in the same chunk."""
+    vetted = frozenset({"penfed credit union"})
+    text = (
+        "PenFed Credit Union is a credit union, and Payday Express is also "
+        "a credit union."
+    )
+    result = check_guardrail(text, vetted)
+    assert result.ok is False
+    assert "institutional-character" in result.reason
+
+
+# ── check_guardrail — operator_names exemption (REVIEW.md addendum,
+#    question 2): a distinct, narrower provenance than vetted_institutions,
+#    sourced only from the operator's own data, matched with the identical
+#    strict rule, and never applied to World-sourced or model-generated text.
+
+def test_guardrail_operator_names_exempts_the_operators_own_unvetted_institution():
+    text = "Anytown Credit Union is a credit union offering a personal loan."
+    result = check_guardrail(
+        text, frozenset(), operator_names=frozenset({"anytown credit union"})
+    )
+    assert result.ok is True
+
+
+def test_guardrail_operator_names_does_not_exempt_a_name_not_in_the_set():
+    """The exemption must be keyed to the specific operator name supplied,
+    not act as a blanket relaxation of the check."""
+    text = "Payday Express is a credit union offering fast approval."
+    result = check_guardrail(
+        text, frozenset(), operator_names=frozenset({"anytown credit union"})
+    )
+    assert result.ok is False
+
+
+def test_guardrail_operator_names_default_is_empty_no_exemption_by_default():
+    """Callers that do not pass operator_names get no exemption at all —
+    the default must not accidentally widen the vetted set."""
+    text = "Anytown Credit Union is a credit union offering a personal loan."
+    result = check_guardrail(text, frozenset())
+    assert result.ok is False
+
+
+# ── is_verification_fresh — REVIEW.md addendum, condition (b): staleness
+#    degrades closed (missing/unparseable/stale ⇒ not fresh ⇒ not vetted).
+
+def test_is_verification_fresh_true_for_todays_date():
+    import datetime
+    today = datetime.date(2026, 7, 27)
+    assert is_verification_fresh("2026-07-27", today=today) is True
+
+
+def test_is_verification_fresh_true_within_one_year():
+    import datetime
+    today = datetime.date(2026, 7, 27)
+    assert is_verification_fresh("2025-08-01", today=today) is True
+
+
+def test_is_verification_fresh_false_older_than_one_year():
+    import datetime
+    today = datetime.date(2026, 7, 27)
+    assert is_verification_fresh("2025-07-01", today=today) is False
+
+
+def test_is_verification_fresh_false_when_missing():
+    assert is_verification_fresh("") is False
+    assert is_verification_fresh(None) is False
+
+
+def test_is_verification_fresh_false_when_unparseable():
+    assert is_verification_fresh("not-a-date") is False
+    assert is_verification_fresh("07/27/2026") is False

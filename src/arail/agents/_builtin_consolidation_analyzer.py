@@ -38,6 +38,7 @@ from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
 from arail.agents.debt_finance_compliance import (
     check_guardrail,
     find_mounted_bundle_dir,
+    is_verification_fresh,
     read_disclaimer,
 )
 
@@ -263,8 +264,32 @@ def _framing_prose() -> str:
     return text
 
 
+def _operator_institution_names(debts: List[Dict[str, Any]]) -> frozenset[str]:
+    """Institution names sourced ONLY from the operator's own parsed
+    ``balances.json`` ``debts`` — their existing card/loan issuers, never
+    from scouting findings, never from the World's terms, and never from
+    ``candidate_scenarios`` (REVIEW.md addendum, question 2).
+
+    A candidate scenario's institution is always a claim about who is
+    *offering* a comparison product; it must still be vetted or blocked
+    like any other institutional-character claim. This set exists purely
+    so the analyzer can recognize when a scenario's institution happens to
+    match one of the operator's own existing debts — i.e. the operator is
+    comparing an offer from their own current issuer — and, only then, mark
+    that echo as a quotation of the operator's own data rather than an
+    agent-verified claim. An unvetted institution that does NOT appear in
+    the operator's own debts gets no exemption at all.
+    """
+    return frozenset(
+        str(d.get("institution") or "").lower()
+        for d in debts
+        if d.get("institution")
+    )
+
+
 def _build_output(debts: List[Dict[str, Any]], scenarios: List[Dict[str, Any]],
-                   vetted_names: frozenset[str]) -> str:
+                   vetted_names: frozenset[str],
+                   operator_names: frozenset[str]) -> str:
     apr = blended_apr(debts)
     results = _compute_scenarios(debts, scenarios)
 
@@ -286,8 +311,22 @@ def _build_output(debts: List[Dict[str, Any]], scenarios: List[Dict[str, Any]],
                 f"{r.breakeven} months" if r.breakeven is not None
                 else "does not break even at this rate/fee"
             )
+            # "(as you entered it)" is code-inserted, never model-inserted,
+            # and appears ONLY when this scenario's institution matches one
+            # of the operator's own existing debts (operator_names) — i.e.
+            # the operator is comparing an offer from their own current
+            # issuer, and the product is quoting their own data back to
+            # them rather than asserting anything new. A scenario naming
+            # some other, unvetted institution gets no marker and is still
+            # subject to the ordinary guardrail check below (REVIEW.md
+            # addendum, question 2, items 2/5/6).
+            marker = (
+                " (as you entered it)"
+                if r.institution.lower() in operator_names else ""
+            )
             lines.append(
-                f"- **{r.institution}** — {r.product}, rate {r.rate:.2f}%, "
+                f"- **{r.institution}**{marker} — {r.product}, "
+                f"rate {r.rate:.2f}%, "
                 f"fee {r.fee_pct:.2f}% (${r.fee_amount:.2f}), "
                 f"monthly savings ${r.monthly_savings:.2f}, "
                 f"breakeven {breakeven_text}. "
@@ -298,7 +337,7 @@ def _build_output(debts: List[Dict[str, Any]], scenarios: List[Dict[str, Any]],
     lines.append("")
 
     body = "\n".join(lines)
-    guard = check_guardrail(body, vetted_names)
+    guard = check_guardrail(body, vetted_names, operator_names=operator_names)
     if not guard.ok:
         raise _GuardrailBlocked(guard.reason)
     return body
@@ -323,7 +362,13 @@ def _vetted_institution_names(bundle_dir: Path) -> frozenset[str]:
     ``_builtin_debt_advisor._vetted_institutions`` for why ``category ==
     "institutions"`` alone is not enough: that category also holds generic
     glossary/concept terms. Only entries carrying an ``institution_type``
-    field (and a third-party ``verification_source``) count as vetted."""
+    field (and a third-party ``verification_source``) count as vetted.
+
+    Also requires a fresh ``verified_as_of`` date (``is_verification_fresh``)
+    — an institution missing this field, or whose verification has gone
+    stale, degrades out of the vetted set rather than being trusted
+    forever. See ``_builtin_debt_advisor._vetted_institutions`` for the
+    identical rule."""
     try:
         doc = json.loads((bundle_dir / "terms.json").read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
@@ -332,7 +377,8 @@ def _vetted_institution_names(bundle_dir: Path) -> frozenset[str]:
     names = set()
     for t in terms or []:
         if (t.get("category") == "institutions" and t.get("institution_type")
-                and t.get("verification_source")):
+                and t.get("verification_source")
+                and is_verification_fresh(str(t.get("verified_as_of") or ""))):
             names.add(str(t.get("term") or t.get("slug") or "").lower())
     return frozenset(names)
 
@@ -432,9 +478,10 @@ class ConsolidationAnalyzerAgent:
         debts = data.get("debts") or []
         scenarios = data.get("candidate_scenarios") or []
         vetted = _vetted_institution_names(bundle_dir) if bundle_dir else frozenset()
+        operator_names = _operator_institution_names(debts)
 
         try:
-            body = _build_output(debts, scenarios, vetted)
+            body = _build_output(debts, scenarios, vetted, operator_names)
         except _GuardrailBlocked as exc:
             _host.emit(
                 AGENT_ID,

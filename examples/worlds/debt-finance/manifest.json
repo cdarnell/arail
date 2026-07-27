@@ -4,9 +4,9 @@
   "world": "debt-finance",
   "display_name": "World of Debt Finance",
   "created_at": "2026-07-26T00:00:00.000Z",
-  "world_sha256": "8affe6cf9a02bece9475620a3d84b6c22b05281157f7dc1d0382acfa7a290357",
+  "world_sha256": "be954c4fc1144e79668f2ed0a3acfea316515d996f55440dadb0b81e7ad19cf1",
   "files": {
-    "terms.json": "8affe6cf9a02bece9475620a3d84b6c22b05281157f7dc1d0382acfa7a290357",
+    "terms.json": "be954c4fc1144e79668f2ed0a3acfea316515d996f55440dadb0b81e7ad19cf1",
     "spec.json": "8b090640670db46b29c06864ebf1ea81398816aa2e63aee44c0da55426f5b040",
     "roster.json": "ae4baf83656b01d3221c6aef5063c844b1a496ed55166837f353f423eb80edb7",
     "face.json": "f4fd2f28f67ebeda7907f1f2a5e6f5f98df84832f3ac73c79b9732dd0dc3f6b6",
