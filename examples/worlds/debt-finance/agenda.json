@@ -1,0 +1,27 @@
+{
+  "schema": "dac.world-agenda/v1",
+  "world": "debt-finance",
+  "watches": [
+    {
+      "node": "debt-finance",
+      "feeds": [
+        "https://www.consumerfinance.gov/consumer-tools/credit-cards/answers/balance-transfer/"
+      ],
+      "cadence": "occasional"
+    },
+    {
+      "node": "debt-finance",
+      "feeds": [
+        "https://www.ncua.gov/consumers/consumer-resources"
+      ],
+      "cadence": "occasional"
+    },
+    {
+      "node": "debt-finance",
+      "feeds": [
+        "https://www.penfed.org/personal-loans"
+      ],
+      "cadence": "occasional"
+    }
+  ]
+}

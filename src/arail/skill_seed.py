@@ -109,13 +109,167 @@ something "good" to say.
 """
 
 
+# ── debt-finance World skills ──────────────────────────────────────
+# Inlined here (not a skill_packs domain pack) for the same reason as
+# observe-lab: these four are load-bearing for two shipped agents
+# (Debt Advisor, Consolidation Analyzer — see
+# src/arail/agents/_builtin_debt_advisor.py /
+# _builtin_consolidation_analyzer.py) and must exist before
+# skills_loader.load_agent_skills() is asked for them, or it silently
+# returns nothing rather than erroring.
+
+_DEBT_STRATEGY_SUMMARY = """---
+title: Summarize a debt payoff strategy
+id: debt-strategy-summary
+name: Debt Strategy Summary
+domain: debt-finance
+version: 1.0.0
+tags: [skill, debt-finance, strategy]
+when_to_use:
+  - When narrating the World's debt-payoff strategy terms (avalanche, snowball) or credit-product terms in plain English
+  - When framing a code-inserted rate or institution name with surrounding explanation
+when_not_to_use:
+  - When choosing or naming a number, rate, or institution — that value must be code-inserted, never generated here
+  - When ranking a "best" option for the user — that crosses into personalized advice, which this agent never gives
+---
+
+# Summarize a debt payoff strategy
+
+Procedural knowledge for Debt Advisor's narration layer.
+
+## What this skill covers
+
+- Explain a payoff strategy or credit product **descriptively**: what it is,
+  how it works, what it typically costs — never prescriptively ("you should
+  do X").
+- Every rate, fee, or institution name in the output must already be present
+  in the structured data handed to you (a `terms.json` field or an approved
+  scouting finding) — you narrate around it, you never invent or paraphrase
+  the number itself.
+- Distinguish a vetted institution (verified in the World's `terms.json`,
+  carrying a verification source) from an unverified scouting finding — never
+  attach "credit union," "nonprofit," or "member-owned" language to a lender
+  that isn't vetted.
+
+## Language rules (hard constraints, also enforced in code)
+
+- No evaluative language: "best," "guaranteed," "top pick," "lowest."
+- No imperative language: "you should," "you must," "refinance now."
+- Always date a figure: "as of [date], source: [link]" — never presented as
+  a live, current quote.
+- One clear sentence or short paragraph per fact. No hype.
+"""
+
+_CITE_APPROVED_FINDINGS = """---
+title: Cite only approved findings
+id: cite-approved-findings
+name: Cite Approved Findings
+domain: debt-finance
+version: 1.0.0
+tags: [skill, debt-finance, sourcing]
+when_to_use:
+  - When referencing a rate or institution surfaced by scouting rather than the World's sealed terms.json
+  - When deciding whether a fact is safe to reference at all
+when_not_to_use:
+  - When the fact is already in the World's sealed terms.json (cite that directly, no approval-gate needed)
+---
+
+# Cite only approved findings
+
+Procedural knowledge for sourcing discipline.
+
+## The rule
+
+Any scouting finding (a page fetched via the World's `agenda.json` watches)
+must have cleared the `/dac` Compiled-KB review queue — i.e. a human
+approved it — before Debt Advisor treats it as citable. An unapproved
+finding is not referenced at all, in any form.
+
+## How to phrase an approved finding
+
+"Found via [feed], approved [date]: [lender] advertised [rate] as of
+[fetch date] — see [link]." Never drop the approval date or the source link.
+Never label an approved-but-unvetted lender with institutional-character
+language ("credit union," "nonprofit") unless that lender also appears in
+the World's vetted `institutions` terms with its own verification source —
+those are two separate gates, and both must pass.
+"""
+
+_BLENDED_APR_CALC = """---
+title: Blended APR calculation
+id: blended-apr-calc
+name: Blended APR Calc
+domain: debt-finance
+version: 1.0.0
+tags: [skill, debt-finance, arithmetic]
+when_to_use:
+  - When narrating a blended-APR figure that Consolidation Analyzer's code already computed
+when_not_to_use:
+  - When computing the number yourself — the number is always computed by code, never estimated or paraphrased by this model
+---
+
+# Blended APR calculation
+
+Procedural knowledge for narrating a balance-weighted blended APR.
+
+## What "blended APR" means
+
+The single effective annual rate across several debts, weighted by each
+debt's outstanding balance: `sum(balance_i * apr_i) / sum(balance_i)`.
+
+## Your job here
+
+The number is computed by code before you ever see it. Your only job is to
+narrate around it — e.g., "Your current blended APR across N debts is
+[code-inserted number]%, computed from the balances and rates you entered."
+Never retype, round, or restate the figure in a way that could introduce a
+transposition error; reference the exact code-inserted string.
+"""
+
+_BREAKEVEN_CALC = """---
+title: Break-even timeline calculation
+id: breakeven-calc
+name: Breakeven Calc
+domain: debt-finance
+version: 1.0.0
+tags: [skill, debt-finance, arithmetic]
+when_to_use:
+  - When narrating a break-even month figure for a balance-transfer or consolidation-loan scenario
+when_not_to_use:
+  - When computing the number yourself — break-even is always computed by code from the operator's staged data
+---
+
+# Break-even timeline calculation
+
+Procedural knowledge for narrating a transfer-fee break-even result.
+
+## What "break-even" means here
+
+The number of months of interest savings from a lower-rate scenario needed
+to offset that scenario's one-time transfer or origination fee. Computed by
+code as `fee / monthly_interest_savings`, rounded up to a whole month.
+
+## Your job here
+
+Narrate the code-inserted break-even month count and its inputs (fee,
+monthly savings) exactly as given — e.g., "At this rate and fee, the
+transfer breaks even in [code-inserted N] months, after which it saves
+money each month it's carried." Never compute or restate the number from
+memory; always reference the code-inserted value.
+"""
+
 # Inline-only skills — anything that must ship with the lab even
 # when a user has uninstalled every domain pack. observe-lab is the
-# only one today: it's tied to Buddy's personality and the dashboard
-# expects Buddy to always have something to say. Everything else
-# lives in arail.skill_packs and is managed via the Skills tab.
+# only one today for Buddy's own personality; the four debt-finance
+# skills above are load-bearing for the two debt-finance agents.
+# Everything else lives in arail.skill_packs and is managed via the
+# Skills tab.
 _SKILLS: Dict[str, Dict[str, Any]] = {
     "observe-lab": {"content": _OBSERVE_LAB},
+    "debt-strategy-summary": {"content": _DEBT_STRATEGY_SUMMARY},
+    "cite-approved-findings": {"content": _CITE_APPROVED_FINDINGS},
+    "blended-apr-calc": {"content": _BLENDED_APR_CALC},
+    "breakeven-calc": {"content": _BREAKEVEN_CALC},
 }
 
 

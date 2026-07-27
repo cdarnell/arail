@@ -1,0 +1,39 @@
+{
+  "name": "World of Debt Finance",
+  "tagline": "A sourced glossary of debt types, credit products, payoff strategies, and the institutions behind them — descriptive, never prescriptive.",
+  "domain_framing": "This lab studies consumer debt as a knowledge domain: what a balance transfer, a debt-consolidation loan, and a home-equity line of credit each are, how avalanche/snowball payoff strategies compare, and what distinguishes a vetted, NCUA-insured credit union from an unverified lender. Every factual claim is grounded in the World's cited public sources (CFPB, NCUA, IRS, and named institutions' own public rate pages). This World never ranks a personalized 'best option,' never presents a static figure as a live quote, and is not a substitute for a licensed financial advisor.",
+  "vocabulary_register": "Use the World's own terms; cite a source for every factual claim; describe, never prescribe — no 'best,' no 'guaranteed,' no 'you should.'",
+  "palette_hint": "slate-teal",
+  "theme": {
+    "schema": "dac.world-theme/v1",
+    "personality": "scholarly",
+    "dark": {
+      "bg": "#0a1210",
+      "surface": "#101a18",
+      "surface2": "#162220",
+      "border": "#233330",
+      "text": "#e4efe9",
+      "muted": "#8fa39c",
+      "accent": "#2bd9a3",
+      "accent2": "#4fb8ff",
+      "positive": "#2bd97c",
+      "warn": "#ffb020",
+      "danger": "#ff4d4d",
+      "info": "#4fb8ff"
+    },
+    "light": {
+      "bg": "#f5faf8",
+      "surface": "#ffffff",
+      "surface2": "#e9f3ef",
+      "border": "#d3e3dd",
+      "text": "#132420",
+      "muted": "#5a6f68",
+      "accent": "#0a8f6c",
+      "accent2": "#0072a3",
+      "positive": "#0a7d3e",
+      "warn": "#8a5a00",
+      "danger": "#c21f3a",
+      "info": "#0f5fa8"
+    }
+  }
+}

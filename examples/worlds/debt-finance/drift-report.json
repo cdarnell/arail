@@ -1,0 +1,33 @@
+{
+  "schema": "dac.world-drift/v1",
+  "world": "debt-finance",
+  "declared": [
+    "401k-loan",
+    "adjustable-rate-mortgage",
+    "apr",
+    "auto-loan",
+    "avalanche-method",
+    "balance-transfer",
+    "credit-card-debt",
+    "credit-counseling-agency",
+    "credit-union",
+    "debt-consolidation-loan",
+    "debt-snowball-method",
+    "debt-to-income-ratio",
+    "hardship-program",
+    "home-equity-line-of-credit",
+    "introductory-apr",
+    "low-fee-consumer-finance-practices",
+    "minimum-payment",
+    "ncua-insured",
+    "nonprofit-credit-counseling",
+    "personal-loan",
+    "secured-loan",
+    "student-loan",
+    "transfer-fee",
+    "unsecured-loan"
+  ],
+  "missing": [],
+  "extra": [],
+  "ok": true
+}
