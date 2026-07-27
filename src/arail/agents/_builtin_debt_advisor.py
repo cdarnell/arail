@@ -438,12 +438,22 @@ class DebtAdvisorAgent:
         try:
             body = _build_output(bundle_dir, terms, findings)
         except _GuardrailBlocked as exc:
+            reason = exc.args[0] if exc.args else ""
+            # REVIEW.md addendum 2 [ASK-B]: name the reason rather than a
+            # bare "see logs" pointer. Unlike Consolidation Analyzer, this
+            # path is entirely World content (terms.json / scouting
+            # findings) — nothing the operator typed can fix it, so point at
+            # the mounted World instead.
             _host.emit(
                 AGENT_ID,
                 "Debt Advisor: generated output failed the language-safety "
-                "check and was not written — see logs.",
+                f"check ({reason}) and was not written. This indicates the "
+                "mounted World's terms.json or an approved scouting finding "
+                "names an institution with institutional-character language "
+                "that isn't in this World's vetted set — check the World's "
+                "content, not your own data.",
                 "warn",
-                data={"reason": exc.args[0] if exc.args else ""},
+                data={"reason": reason},
             )
             return
 

@@ -421,11 +421,13 @@ class TestConsolidationAnalyzerArithmeticSubstitution:
 
 
 class TestConsolidationAnalyzerOperatorNamesExemption:
-    """REVIEW.md addendum, question 2: a correctly-functioning guardrail
-    must not permanently block the operator's own real institution name
-    typed into their own balances.json. The exemption is keyed to the
-    operator's own debts (existing card/loan issuers), never to
-    candidate_scenarios, and is marked "(as you entered it)" in output."""
+    """REVIEW.md addendum, question 2, and re-review addendum 2 [BLOCK-5]:
+    a correctly-functioning guardrail must not permanently block the
+    operator's own real institution name typed into their own
+    balances.json — in EITHER field. The exemption is keyed to provenance
+    (did the operator type this name into their own file?), not to
+    offer-vs-debt semantics, and is marked "(as you entered it)" in
+    output."""
 
     def test_operator_own_institution_name_passes_and_is_marked(
         self, consolidation_module, data_dir
@@ -451,20 +453,25 @@ class TestConsolidationAnalyzerOperatorNamesExemption:
         text = findings.read_text()
         assert "**Anytown Credit Union** (as you entered it) —" in text
 
-    def test_unvetted_institution_not_in_debts_still_blocks(
-        self, consolidation_module, data_dir, host
+    def test_operator_scenario_only_institution_passes_and_is_marked(
+        self, consolidation_module, data_dir
     ):
-        """The exemption is keyed to the operator's own debts, not to the
-        analyzer module generally — a name that appears only in
-        candidate_scenarios (never in the operator's own debts) gets no
-        exemption and is still blocked, same as any World-sourced claim."""
+        """[BLOCK-5] exact repro from REVIEW.md re-review addendum 2: the
+        operator's existing debt is with a DIFFERENT institution than the
+        candidate scenario's institution — the modal real-world input to
+        this agent (comparing an existing card against a credit union's
+        consolidation offer). Before the BLOCK-5 fix, ``operator_names``
+        was built from ``debts`` only, so "Anytown Credit Union" (which
+        appears only in the scenario) was never exempted and the guardrail
+        raised ``_GuardrailBlocked`` on the *entire* document — this test
+        must fail against the pre-fix code."""
         _write_balances(data_dir, {
             "debts": [
                 {"id": "card-1", "kind": "credit-card", "balance": 1000.0,
-                 "apr": 20.0, "institution": "Anytown Credit Union"},
+                 "apr": 20.0, "institution": "Chase"},
             ],
             "candidate_scenarios": [
-                {"institution": "Payday Express Credit Union",
+                {"institution": "Anytown Credit Union",
                  "product": "balance-transfer", "rate": 5.0, "fee_pct": 3.0,
                  "term_months": 24, "source": "https://example.invalid/rates",
                  "as_of": "2026-07-01"},
@@ -475,9 +482,51 @@ class TestConsolidationAnalyzerOperatorNamesExemption:
 
         findings = (data_dir / "user-import" / "debt-finance" / "findings"
                     / "consolidation_analyzer.md")
-        assert not findings.exists()
-        assert any("failed the language-safety check" in e["message"]
-                   for e in host.events)
+        assert findings.exists()
+        text = findings.read_text()
+        assert "**Anytown Credit Union** (as you entered it) —" in text
+
+    def test_debts_only_institution_still_exempted_no_regression(
+        self, consolidation_module, data_dir
+    ):
+        """[BLOCK-5] regression assertion 2: a debts-only institution must
+        still be exempted exactly as before the widening — the fix must be
+        additive, not a replacement of the debts-sourced half of the set."""
+        debts = [
+            {"id": "card-1", "kind": "credit-card", "balance": 1000.0,
+             "apr": 20.0, "institution": "Anytown Credit Union"},
+        ]
+        scenarios: List[Dict[str, Any]] = []
+        names = consolidation_module._operator_institution_names(debts, scenarios)
+        assert "anytown credit union" in names
+
+    def test_institution_in_neither_field_still_blocks(self, consolidation_module):
+        """[BLOCK-5] regression assertion 3: an institution that is
+        genuinely NOT operator-stated (absent from both ``debts`` and
+        ``candidate_scenarios``) gets no exemption at all and still blocks
+        on institutional-character language — confirming the widening did
+        not make the guardrail permissive for arbitrary names. Exercised
+        directly against ``check_guardrail`` because, by design, the only
+        institution names the analyzer ever renders come from ``debts``/
+        ``candidate_scenarios`` themselves (see ``_operator_institution_
+        names`` docstring) — there is no end-to-end path left by which a
+        genuinely third-party institution name reaches this agent's output
+        at all, which is itself the point of the fix."""
+        from arail.agents.debt_finance_compliance import check_guardrail
+
+        debts = [{"institution": "Chase"}]
+        scenarios = [{"institution": "Anytown Credit Union"}]
+        operator_names = consolidation_module._operator_institution_names(
+            debts, scenarios
+        )
+        assert operator_names == frozenset({"chase", "anytown credit union"})
+
+        result = check_guardrail(
+            "Payday Express is a credit union.",
+            frozenset(),
+            operator_names=operator_names,
+        )
+        assert result.ok is False
 
 
 class TestConsolidationAnalyzerNoOp:
@@ -542,9 +591,22 @@ class TestRealSealedBundle:
         assert "**Credit Union**" not in text
         assert "**Credit Counseling Agency**" not in text
 
-    def test_consolidation_analyzer_blocks_a_fictional_unvetted_institution(
+    def test_consolidation_analyzer_allows_operator_typed_fictional_institution_as_quotation(
         self, monkeypatch, host, data_dir
     ):
+        """[BLOCK-5] Against the REAL sealed bundle: "Payday Express Credit
+        Union" is not a World-vetted institution, but the operator typed it
+        themselves into their own ``candidate_scenarios`` — so it is a
+        quotation, not an agent-verified claim, and must produce a document
+        with the "(as you entered it)" marker rather than being blocked.
+
+        Before REVIEW.md's re-review addendum 2 (BLOCK-5), the guardrail
+        blocked this exact input — the single most likely real one for this
+        agent — because ``operator_names`` was scoped to ``debts`` only and
+        never saw ``candidate_scenarios``. This test replaces
+        ``test_consolidation_analyzer_blocks_a_fictional_unvetted_institution``,
+        whose premise (that an operator-typed scenario institution should be
+        blocked like a World-sourced claim) was the defect BLOCK-5 fixed."""
         from arail.agents import _builtin_consolidation_analyzer as mod
         monkeypatch.setattr(mod, "_host", host)
         monkeypatch.setattr(mod, "find_mounted_bundle_dir", lambda: _REAL_BUNDLE)
@@ -565,9 +627,9 @@ class TestRealSealedBundle:
 
         findings = (data_dir / "user-import" / "debt-finance" / "findings"
                     / "consolidation_analyzer.md")
-        assert not findings.exists()
-        assert any("failed the language-safety check" in e["message"]
-                   for e in host.events)
+        assert findings.exists()
+        text = findings.read_text()
+        assert "**Payday Express Credit Union** (as you entered it) —" in text
 
     def test_consolidation_analyzer_allows_its_real_vetted_institution(
         self, monkeypatch, host, data_dir

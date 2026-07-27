@@ -264,27 +264,45 @@ def _framing_prose() -> str:
     return text
 
 
-def _operator_institution_names(debts: List[Dict[str, Any]]) -> frozenset[str]:
+def _operator_institution_names(
+    debts: List[Dict[str, Any]], scenarios: List[Dict[str, Any]]
+) -> frozenset[str]:
     """Institution names sourced ONLY from the operator's own parsed
-    ``balances.json`` ``debts`` — their existing card/loan issuers, never
-    from scouting findings, never from the World's terms, and never from
-    ``candidate_scenarios`` (REVIEW.md addendum, question 2).
+    ``balances.json`` — both ``debts`` (their existing card/loan issuers)
+    AND ``candidate_scenarios`` (offers they've staged themselves) — never
+    from scouting findings and never from the World's terms.
 
-    A candidate scenario's institution is always a claim about who is
-    *offering* a comparison product; it must still be vetted or blocked
-    like any other institutional-character claim. This set exists purely
-    so the analyzer can recognize when a scenario's institution happens to
-    match one of the operator's own existing debts — i.e. the operator is
-    comparing an offer from their own current issuer — and, only then, mark
-    that echo as a quotation of the operator's own data rather than an
-    agent-verified claim. An unvetted institution that does NOT appear in
-    the operator's own debts gets no exemption at all.
+    REVIEW.md addendum 2 (BLOCK-5): an earlier version of this function
+    scoped the exemption to ``debts`` only, on the theory that a scenario's
+    institution is a claim about who is *offering* a comparison product and
+    should therefore still be vetted like any other institutional-character
+    claim. The architect rejected that reasoning: the exemption is keyed to
+    *provenance*, not to offer-vs-debt semantics. Both fields live in the
+    same file, typed by the same person the analyzer is reporting back to.
+    The analyzer never asserts a scenario's institution has any character —
+    it quotes the operator's own entry back to them (marked "(as you
+    entered it)" in ``_build_output``). Scoping the exemption to ``debts``
+    only meant it could never fire for the one place the analyzer actually
+    renders an institution name (``candidate_scenarios``), so the guardrail
+    permanently blocked the single most likely real input to this agent: a
+    plain credit-union consolidation offer.
+
+    An institution that appears in NEITHER ``debts`` nor
+    ``candidate_scenarios`` is not operator-stated and gets no exemption —
+    it is still vetted or blocked like any other institutional-character
+    claim.
     """
-    return frozenset(
+    names = {
         str(d.get("institution") or "").lower()
         for d in debts
         if d.get("institution")
-    )
+    }
+    names |= {
+        str(s.get("institution") or "").lower()
+        for s in scenarios
+        if s.get("institution")
+    }
+    return frozenset(names)
 
 
 def _build_output(debts: List[Dict[str, Any]], scenarios: List[Dict[str, Any]],
@@ -312,14 +330,15 @@ def _build_output(debts: List[Dict[str, Any]], scenarios: List[Dict[str, Any]],
                 else "does not break even at this rate/fee"
             )
             # "(as you entered it)" is code-inserted, never model-inserted,
-            # and appears ONLY when this scenario's institution matches one
-            # of the operator's own existing debts (operator_names) — i.e.
-            # the operator is comparing an offer from their own current
-            # issuer, and the product is quoting their own data back to
-            # them rather than asserting anything new. A scenario naming
-            # some other, unvetted institution gets no marker and is still
-            # subject to the ordinary guardrail check below (REVIEW.md
-            # addendum, question 2, items 2/5/6).
+            # and appears whenever this scenario's institution is one the
+            # operator themselves typed into balances.json — either an
+            # existing debt's issuer or a candidate scenario's institution
+            # (operator_names, built from both fields; REVIEW.md addendum 2,
+            # BLOCK-5). The product is quoting the operator's own data back
+            # to them, never asserting anything new about a third party. A
+            # name that appears in neither of the operator's own fields gets
+            # no marker and is still subject to the ordinary guardrail check
+            # below (REVIEW.md addendum, question 2, items 2/5/6).
             marker = (
                 " (as you entered it)"
                 if r.institution.lower() in operator_names else ""
@@ -478,17 +497,28 @@ class ConsolidationAnalyzerAgent:
         debts = data.get("debts") or []
         scenarios = data.get("candidate_scenarios") or []
         vetted = _vetted_institution_names(bundle_dir) if bundle_dir else frozenset()
-        operator_names = _operator_institution_names(debts)
+        operator_names = _operator_institution_names(debts, scenarios)
 
         try:
             body = _build_output(debts, scenarios, vetted, operator_names)
         except _GuardrailBlocked as exc:
+            reason = exc.args[0] if exc.args else ""
+            # REVIEW.md addendum 2 [ASK-B]: once BLOCK-5 lands, a block is
+            # rare and always the operator's to fix — "see logs" gave no
+            # actionable next step. Name the reason and point at the fix
+            # (an institution field in balances.json) rather than a bare
+            # pointer to logs.
             _host.emit(
                 AGENT_ID,
                 "Consolidation Analyzer: generated output failed the "
-                "language-safety check and was not written — see logs.",
+                f"language-safety check ({reason}) and was not written. "
+                "Check the `institution` fields in "
+                f"{_balances_file()} — an institutional-character claim "
+                "(e.g. 'credit union', 'nonprofit') must be paired with an "
+                "institution name you typed yourself or one this World has "
+                "verified.",
                 "warn",
-                data={"reason": exc.args[0] if exc.args else ""},
+                data={"reason": reason},
             )
             return
 

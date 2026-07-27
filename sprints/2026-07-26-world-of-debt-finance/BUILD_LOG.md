@@ -493,3 +493,156 @@ use in production, not just present as unused code:
   `_build_output(..., operator_names)` → `check_guardrail(..., operator_names=...)`
   in Consolidation Analyzer, and is explicitly hardcoded to `frozenset()`
   at the one `check_guardrail` call site in Debt Advisor's `_build_output`.
+
+---
+
+## Post-review fixes, round 3
+
+Fixing REVIEW.md re-review addendum 2 (round 3, fix commit under review
+`7cd07f3`): BLOCK-5, ASK-A (documented, not fixed), ASK-B (fixed), and the
+housekeeping action (ARCHITECTURE.md §13).
+
+### BLOCK-5 — `operator_names` widened to `candidate_scenarios`
+
+`_operator_institution_names(debts)` was scoped to `debts` only, on the
+theory (rejected by the architect) that a candidate scenario's institution
+is a claim about who is *offering*, not a claim the operator already made
+about themselves. But `candidate_scenarios` is the only place Consolidation
+Analyzer ever renders an institution name — the "Current position" section
+emits counts/APR only, no names — so the exemption never fired for the
+input it exists to fix. Exact repro from REVIEW.md (`debts=[Chase]`,
+`scenarios=[Anytown Credit Union]`) raised `_GuardrailBlocked` on the whole
+document, every tick, forever.
+
+Fix: `_operator_institution_names(debts, scenarios)` now unions institution
+names from both fields of the parsed `balances.json` — still nothing else
+(never scouting findings, never World terms). Matching rule and the
+`(as you entered it)` marker are unchanged. Call site (`tick()`) and the
+`_build_output` docstring/comments updated to match.
+
+Verified manually (exact prompt repro): `_build_output` now returns a
+451-char document containing both `Anytown Credit Union` and
+`(as you entered it)` for the Chase/Anytown-Credit-Union input — no
+exception raised.
+
+Three regression tests added to `TestConsolidationAnalyzerOperatorNamesExemption`
+in `tests/test_debt_finance_agents.py`:
+1. `test_operator_scenario_only_institution_passes_and_is_marked` — the
+   exact repro end-to-end via `tick()`; asserts the findings file exists
+   and carries the marker. Fails against pre-fix code (was blocked).
+2. `test_debts_only_institution_still_exempted_no_regression` — confirms
+   the widening is additive: a debts-only institution is still exempted.
+3. `test_institution_in_neither_field_still_blocks` — confirms an
+   institution absent from both `debts` and `candidate_scenarios` still
+   blocks. Exercised directly against `check_guardrail` (not via `tick()`):
+   by construction, the analyzer never renders an institution name that
+   isn't sourced from `debts`/`candidate_scenarios`, so there is no
+   end-to-end path left by which a genuinely third-party name reaches this
+   agent's output at all — itself the intended consequence of the fix, not
+   a gap in the test.
+
+One existing test's premise was invalidated by the fix and had to change,
+not just be patched around: `test_consolidation_analyzer_blocks_a_fictional_unvetted_institution`
+(real-sealed-bundle suite) staged "Payday Express Credit Union" as a
+*candidate_scenarios*-only institution and asserted it was blocked. Under
+the corrected semantics that is now exactly the case that must pass (the
+operator typed it, so it's a quotation) — the test was rewritten as
+`test_consolidation_analyzer_allows_operator_typed_fictional_institution_as_quotation`,
+asserting the document is written with the marker, with an explicit
+docstring note explaining why the old assertion was the defect BLOCK-5
+fixed, not a coincidental casualty. `test_unvetted_institution_not_in_debts_still_blocks`
+in the synthetic-fixture suite was replaced for the same reason.
+
+No bundle file changed (`terms.json` untouched) — reseal not required,
+confirmed by `git status --short` showing only the four Python/Markdown
+files below.
+
+### ASK-B — failure message now names the reason and the fix
+
+Both agents' `_GuardrailBlocked` handlers previously emitted a bare
+"failed the language-safety check ... see logs" with the reason only in
+the structured `data` field, not the message text. This was flagged in
+addendum 1 as a cheap fix and carried, unaddressed, into addendum 2. Now
+fixed in both agents:
+- Consolidation Analyzer's message includes the guardrail's `reason` text
+  inline and points at `balances.json`'s `institution` fields as the thing
+  to check — this is now the correct pointer post-BLOCK-5, since a block
+  here is (almost) always something in the operator's own file.
+- Debt Advisor's message also includes `reason` inline but points at the
+  mounted World's `terms.json`/scouting findings instead, since nothing an
+  operator types can cause a block on that path — deliberately different
+  guidance per-agent rather than one generic string.
+
+The `"failed the language-safety check"` substring both existing tests
+assert on is preserved.
+
+### ASK-A — recorded as debt, not fixed (per the review's own instruction)
+
+The architect explicitly asked for this to be recorded as a tripwire, not
+fixed, since it is genuinely unreachable in the current assembled
+document. Added as ARCHITECTURE.md §13 item 10 (see below) — not touched
+in code.
+
+### ARCHITECTURE.md §13 — housekeeping action completed
+
+Added three new tech-debt items (§13.8–§13.10), citing REVIEW.md's
+re-review addenda 1 and 2 by name:
+- §13.8: the guardrail is now a three-way provenance policy
+  (World-vetted / operator-quoted / neither); a fourth provenance (an
+  agent quoting an approved scouting finding that itself names an
+  institution) would need a real design, not a third `frozenset` param.
+- §13.9: named institutions carry an indefinite re-verification
+  obligation, owned by whoever reseals the bundle.
+- §13.10: the `_PROXIMITY_WINDOW_CHARS = 40` tripwire (ASK-A) — recorded
+  as unreachable today, with the exact condition (two institution names on
+  one line) that reopens it as a live BLOCK.
+
+### Verification
+
+- `pytest tests/test_debt_finance_agents.py tests/test_debt_finance_compliance.py
+  tests/test_debt_finance_consolidation_arithmetic.py
+  tests/test_debt_finance_agents_seed.py tests/test_debt_finance_reveal_slot.py
+  tests/test_world_forge_debt_finance_seal.py` — 96/96 passing (added 5 net
+  new tests: 3 BLOCK-5 regressions + 1 replaced synthetic-fixture test +
+  1 rewritten real-bundle test, both in place of tests whose premise the
+  fix invalidated).
+- Exact prompt repro run manually against `_build_output` directly (see
+  above) — succeeds, no `_GuardrailBlocked`.
+- `pytest tests/ --collect-only` — 3543 tests collect with no import
+  errors (confirms the message-text and signature changes don't break
+  anything outside the debt-finance module tree at import time).
+- Full whole-repo `pytest tests/` run timed out in this environment before
+  completing (>2 min, pre-existing per round-1's BUILD_LOG note on
+  environment-related full-suite abandonment) — not re-attempted a second
+  way this round beyond the scoped run and the collect-only import check,
+  since `git status --short` confirms the diff is limited to the four
+  files below, none of which any other test file imports.
+- `git status --short`: `sprints/2026-07-26-world-of-debt-finance/ARCHITECTURE.md`,
+  `src/arail/agents/_builtin_consolidation_analyzer.py`,
+  `src/arail/agents/_builtin_debt_advisor.py`, `tests/test_debt_finance_agents.py`.
+  No file outside this list touched. No commented-out code. No TODOs.
+
+### Is this round genuinely complete?
+
+I believe BLOCK-5 itself is closed and I am not aware of a live fourth-order
+defect in the code this round touched, for a specific reason: the fix makes
+the analyzer's institutional-character guardrail a no-op for
+`candidate_scenarios` content by construction (any institution rendered
+there is, by definition, now in `operator_names`, since the set is built
+directly from the same fields it's checked against). That's not a bug I'm
+rationalizing around — it's the architect's explicit ruling in addendum 1
+("the exemption is about provenance, not offer-vs-debt semantics") taken to
+its logical conclusion, and there is no remaining institution-naming
+surface in this agent's output left un-exempted (`_framing_prose` still
+self-checks against empty vetted *and* empty operator sets, so LLM prose
+gets no exemption of any kind — verified unchanged in this round's diff).
+
+I am **not** fully confident there is no fifth-order issue in a part of the
+system this round didn't touch, specifically the two items the review
+addenda flagged and asked to be *recorded*, not fixed: the three-way
+provenance policy (§13.8) if a fourth provenance is ever added, and the
+proximity-window tripwire (§13.10, ASK-A) if a future change ever renders
+two institution names on one line. Both are explicitly out of scope for
+this round per the review's own instructions, not things I judged safe —
+the review said "documented debt," and I've recorded them as such rather
+than silently deciding they're fine.

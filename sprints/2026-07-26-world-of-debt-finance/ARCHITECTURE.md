@@ -1031,3 +1031,35 @@ this sprint:
    extending to. Worth revisiting once a second personal-data World exists
    and the convenience cost of two "open the file yourself" stories starts
    to add up.
+8. **The guardrail is now a three-way provenance policy** (World-vetted /
+   operator-quoted / neither) implemented as set membership plus a regex
+   (REVIEW.md re-review addendum 1). It is still the heuristic §13.2
+   already flags, now with a second provenance axis layered on top. If a
+   third provenance ever appears — most plausibly an agent quoting an
+   *approved scouting finding* that itself names an institution — this
+   function needs a real design (e.g. a tagged-provenance type), not a
+   third `frozenset` parameter bolted onto `check_guardrail`.
+9. **Named institutions carry an indefinite re-verification obligation.**
+   `verified_as_of` degrades the vetted set closed after
+   `_VERIFICATION_STALENESS_DAYS`, but that only prevents a *stale* claim
+   from being trusted — it does not verify anything itself. Whoever reseals
+   `examples/worlds/debt-finance/terms.json` owns a recurring (realistically
+   annual) re-check of PenFed's NCUA charter and GreenPath's NFCC membership
+   against their respective registries before bumping `verified_as_of`
+   (REVIEW.md re-review addendum 1, resolution of flagged question 1).
+10. **[ASK-A, documented tripwire, not a live defect]** `check_guardrail`'s
+    `_PROXIMITY_WINDOW_CHARS = 40` is a fixed-offset heuristic, not a
+    property: two institution names on the same line, separated by roughly
+    that many characters (a semicolon- or em-dash-joined list, e.g.
+    `"PenFed Credit Union; Acme Lending is a nonprofit."`), can let an
+    unvetted claim ride along on a vetted one purely because the offset
+    happens to fall inside the window, while a slightly longer join of the
+    exact same claim correctly blocks (REVIEW.md re-review addendum 2,
+    ASK-A). This is genuinely unreachable in the current build — every line
+    either agent's assembler emits is one institution-bearing assertion per
+    line, and the only free-text path (`_framing_prose`) self-checks against
+    an *empty* vetted set, so it can never carry a proximity match to
+    exploit. **Tripwire:** if any future change ever renders two institution
+    names on the same line or in the same LLM-generated sentence, this
+    proximity-window heuristic reopens as a live BLOCK, not documented debt
+    — re-review the guardrail before shipping such a change.
