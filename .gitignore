@@ -9,6 +9,11 @@ model_defaults.yaml
 lab.conf
 # Provider tokens saved from Chat > Compute Source (chmod 0600).
 lab/data/secrets.env
+# Personal financial data (debt-finance World input + agent findings) —
+# chmod 0600, never PKB-indexed, never committed. Redundant with the
+# broader lab/data/ rule below, same precedent as the secrets.env line
+# above: named explicitly for human-scannability.
+lab/data/user-import/
 
 # Logs (anything ending in .log, plus a couple of historical names)
 *.log
