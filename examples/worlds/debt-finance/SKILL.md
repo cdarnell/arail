@@ -46,6 +46,10 @@ _Answer only from the terms below. Every term lists its source. If a question ca
   - Source: https://www.consumerfinance.gov/consumer-tools/credit-cards/answers/balance-transfer/
 - **Credit Union** (`credit-union`) — Member-owned, not-for-profit financial cooperative.
   - Source: https://www.ncua.gov/consumers/consumer-resources
+- **GreenPath Financial Wellness** (`greenpath-financial-wellness`) — A specific, named, NFCC-member nonprofit credit-counseling agency.
+  - Source: https://www.greenpath.com/
+- **PenFed Credit Union** (`penfed-credit-union`) — A specific, named, federally chartered credit union.
+  - Source: https://www.penfed.org/personal-loans
 
 ### Retirement & Secured Credit
 
@@ -84,4 +88,4 @@ _Answer only from the terms below. Every term lists its source. If a question ca
 - **Transfer Fee** (`transfer-fee`) — A one-time fee (typically 3-5%) charged to move a balance.
   - Source: https://creditcards.chase.com/balance-transfer-credit-cards
 
-<!-- dac:world_sha256 45f597a919d405537b95f6e82a590a7d96e326430caf03324f0271df04e0fd07 -->
+<!-- dac:world_sha256 8affe6cf9a02bece9475620a3d84b6c22b05281157f7dc1d0382acfa7a290357 -->

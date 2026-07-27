@@ -9,8 +9,8 @@
   "provenance_tier": "sourced",
   "provenance_counts": {
     "model": 0,
-    "sourced": 24,
-    "total": 24
+    "sourced": 26,
+    "total": 26
   },
   "theme": {
     "schema": "dac.world-theme/v1",

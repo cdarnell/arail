@@ -4,20 +4,20 @@
   "world": "debt-finance",
   "display_name": "World of Debt Finance",
   "created_at": "2026-07-26T00:00:00.000Z",
-  "world_sha256": "45f597a919d405537b95f6e82a590a7d96e326430caf03324f0271df04e0fd07",
+  "world_sha256": "8affe6cf9a02bece9475620a3d84b6c22b05281157f7dc1d0382acfa7a290357",
   "files": {
-    "terms.json": "45f597a919d405537b95f6e82a590a7d96e326430caf03324f0271df04e0fd07",
+    "terms.json": "8affe6cf9a02bece9475620a3d84b6c22b05281157f7dc1d0382acfa7a290357",
     "spec.json": "8b090640670db46b29c06864ebf1ea81398816aa2e63aee44c0da55426f5b040",
-    "roster.json": "f51964733183d7d7c5e8ea4a1dc80e97395f361ddbdaa220e7aa3e1927ecc404",
-    "face.json": "ba2baeade308ca9b77cb3cae5cf0de662d399cbb3fa21a09064270b8a3a389f5",
+    "roster.json": "ae4baf83656b01d3221c6aef5063c844b1a496ed55166837f353f423eb80edb7",
+    "face.json": "f4fd2f28f67ebeda7907f1f2a5e6f5f98df84832f3ac73c79b9732dd0dc3f6b6",
     "agenda.json": "82ddb04372820edba05e4cd3df584974dce2324789d2ed6349a82974efa5be42",
-    "drift-report.json": "3ede9626018264a46781a7637eaebc959f9ee1211ece5f6b9660705f76c6dff9"
+    "drift-report.json": "61150a85270a24d889124193bcba4605e81aad28d4982da5c19d2b1db37e5c3e"
   },
   "provenance_tier": "sourced",
   "provenance_counts": {
     "model": 0,
-    "sourced": 24,
-    "total": 24
+    "sourced": 26,
+    "total": 26
   },
   "refresh_cadence": "see agenda.json",
   "compat": {

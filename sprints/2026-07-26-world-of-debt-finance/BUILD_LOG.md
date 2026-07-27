@@ -209,3 +209,166 @@ for visibility instead.
 - Commits (in order): World bundle seal (Phase A) · agent shipping plumbing
   (Phase B) · agent bodies (Phase C) · `.gitignore` staging entry (Phase D) ·
   reveal button (Phase E) · Phase F test suite · this final BUILD_LOG update.
+
+## Post-review fixes (REVIEW.md at 2c7dce1, verdict BLOCK)
+
+Addresses required actions 1–3 and 6; see "Architect feedback required"
+below for actions 4–5, which are product/scope decisions this pass did not
+make unilaterally.
+
+**Root cause (shared by BLOCK-1 and BLOCK-2):** `terms.json`'s
+`institutions` category conflated two different things: generic glossary
+concepts ("Credit Union", "Credit Counseling Agency" — explaining what a
+kind of institution IS) and specific, named, verified institutions. Because
+both lived under `category == "institutions"`, and the concept term's own
+name literally IS the guardrail's trigger phrase, the "vetted institutions"
+set the code built from that category alone was tautological: any window
+containing the trigger phrase necessarily contained a "vetted" name.
+
+**Fix, by required action:**
+
+1. **BLOCK-2 (hardcoded label).** `_builtin_debt_advisor.py`'s output
+   assembler now prints each institution's own `institution_type` field
+   (e.g. `credit-union`, `nonprofit-credit-counseling-agency`) instead of a
+   hardcoded literal `"credit union"` applied to every institutions-category
+   term.
+2. **BLOCK-1 (tautological guardrail).**
+   - `terms.json`: the two generic glossary terms ("Credit Union", "Credit
+     Counseling Agency") are now explicitly documented in their own
+     `definition` field as concepts, not institutions, and carry no
+     `institution_type` field. Two new, specific, named, verified
+     institutions were added — **PenFed Credit Union**
+     (`institution_type: credit-union`, `verification_source`: NCUA's own
+     charter lookup, distinct from PenFed's own site) and **GreenPath
+     Financial Wellness** (`institution_type: nonprofit-credit-counseling-
+     agency`, `verification_source`: NFCC's member directory) — giving the
+     vetted-institution mechanism real data to operate on for the first
+     time, and closing the VISION win-condition-(1) gap REVIEW.md's
+     "Deviations" section flagged.
+   - `_builtin_debt_advisor._vetted_institutions` and
+     `_builtin_consolidation_analyzer._vetted_institution_names` now build
+     the vetted set from `category == "institutions"` **AND** a truthy
+     `institution_type` **AND** a `verification_source` field — the
+     distinguishing marker that separates a named, verified institution from
+     a bare glossary concept. A concept term can never enter the vetted set,
+     regardless of category.
+   - `debt_finance_compliance.check_guardrail` no longer treats "any vetted
+     name is a substring of an 80-char window" as sufficient. It now splits
+     the text into sentences, and for each sentence containing an
+     institutional-character trigger phrase, extracts the sentence's
+     candidate proper-noun institution name(s) and requires the *full* text
+     of a vetted institution's name to appear inside one of them
+     (one-directional containment — checking the reverse direction would
+     let a bare capitalized trigger word match any vetted name that happens
+     to contain that word, reintroducing the same tautology in a different
+     shape).
+3. **BLOCK-3 (fixture realism).** `tests/test_debt_finance_compliance.py`
+   gained tests that load `examples/worlds/debt-finance/terms.json` directly
+   (not the synthetic fixture) and assert: the generic concepts are never in
+   the vetted set; the real named institutions are; a fictional lender is
+   blocked; the real vetted institution's true claim passes.
+   `tests/test_debt_finance_agents.py` gained a `TestRealSealedBundle` class
+   that mounts the actual sealed bundle end-to-end for both agents:
+   confirms Debt Advisor prints both real institutions with their correct
+   (non-hardcoded) character labels and never prints the two concept terms
+   as if they were named institutions; confirms Consolidation Analyzer
+   blocks a fictional "Payday Express Credit Union" scenario and allows the
+   real "PenFed Credit Union" one. The pre-existing synthetic `_TERMS`
+   fixture was updated to include a genuine `institution_type`/
+   `verification_source` pair (so it still exercises the happy path) plus a
+   bare concept term with no `institution_type` (so the fixture itself now
+   also regression-tests the category-alone trap).
+4. **Adversarial regression tests (the one BLOCK-1 should have started
+   with).** Added to `test_debt_finance_compliance.py`: an unvetted
+   fictional name ("Payday Express") paired with "is a credit union"
+   is blocked even when real vetted credit unions exist elsewhere in the
+   vetted set; a vetted institution whose own name contains "Credit Union"
+   (the exact failure-mode swing REVIEW.md's ASK flagged) still passes; a
+   near-miss unvetted name ("PenFed Lending Group") does not ride along on
+   a similarly-named vetted institution's credibility.
+5. **Digit-check ASK (action 6).** Both agents' `_framing_prose` now reject
+   a model-generated sentence containing a digit (`_builtin_debt_advisor`
+   additionally rejects one containing a vetted institution's name),
+   falling back to the existing deterministic sentence — closing the last
+   live path by which a model-generated number could reach a findings file.
+
+**Re-sealed the bundle:** `PYTHONPATH=src python
+scripts/forge_debt_finance_world.py` (with the sibling `dac_world` repo on
+`PYTHONPATH`) — sealed cleanly, 26 terms (up from 24), fully sourced, new
+`world_sha256`. One preflight rejection along the way (the edited "Credit
+Union" concept's `definition` exceeded the 600-char budget by 22 chars) —
+trimmed and resealed clean.
+
+**Verification:**
+- `pytest tests/test_debt_finance_compliance.py tests/test_debt_finance_agents.py`
+  → **45 passed** (34 pre-existing + 11 new), including all six new
+  adversarial/real-bundle regression tests, confirmed to exercise the real
+  fix (they were run against the actual sealed bundle, not a hand-built
+  fixture, per BLOCK-3's own finding about why the previous 67 tests missed
+  this).
+- `pytest tests/ -k "debt_finance or world_mount or default_worlds_catalog or sre_shim"`
+  → **117 passed**, zero regressions in the broader mount/catalog/shim
+  surface this fix touches indirectly (the vetted-set and guardrail
+  signature didn't change, only their internals).
+- Full unscoped `pytest tests/` (3514 collected): **46 failed, 3469 passed,
+  2 skipped, 1 xfailed, 7 errors**. Confirmed by `git stash` + re-run that
+  every one of those 46 failures/7 errors is pre-existing and identical with
+  this fix stashed out — they are in `test_deep_default_and_tier.py`,
+  `test_model_hosting_reframe_qa.py`, `test_model_ux_phase0_warmth_probe.py`,
+  `test_qa_model_ux_memory_and_eject_fidelity.py`,
+  `test_qa_provider_dropdown_paranoid.py`, `test_r1_r3_chat_models.py`,
+  `test_reset_stop_scope.py`, `test_runtime_profile_api.py`,
+  `test_swarm_goal_surfaces.py`, and `test_world_forge_api.py` — none of
+  which this fix touches. Not attributable to this change.
+
+## Architect feedback required
+
+REVIEW.md's required actions 4 and 5 are product/scope decisions, not code
+defects this pass resolved unilaterally, per this role's "no silent scope
+expansion" rule:
+
+- **Action 4 — named-institution decision.** REVIEW.md asked for an
+  explicit decision on whether v1 shipping with no named institution from
+  World content is acceptable, "or whether `terms.json` gains named-
+  institution entries." This pass *did* add two named institutions
+  (PenFed Credit Union, GreenPath Financial Wellness) as the mechanical fix
+  BLOCK-1 required — but that was a required-by-construction side effect of
+  fixing the tautology (the vetted mechanism needed real data to test
+  against), not a deliberated product decision about which specific
+  institutions belong in the World, how many, or what disclosure/liability
+  posture citing them implies long-term. `OPEN_QUESTIONS.md` does not yet
+  exist in this sprint directory; recommend the architect review this
+  choice explicitly (institution selection, verification-source freshness
+  policy, and whether "two hand-picked examples" is the intended long-term
+  shape or a placeholder) before treating it as settled.
+- **Action 5 — operator-supplied institution names.** REVIEW.md's ASK
+  flagged that once BLOCK-1 is genuinely fixed, an operator staging a
+  `balances.json` scenario for their own real institution (e.g. "Anytown
+  Credit Union," not in `terms.json`) will have that scenario permanently
+  guardrail-blocked on every tick, because Consolidation Analyzer's vetted
+  set is the same World-content vetted set Debt Advisor uses, and an
+  arbitrary real institution's own name containing "Credit Union" now
+  correctly fails to match anything in it. This pass fixed the guardrail
+  to be *correct* (vetted passes, unvetted blocks) per the concrete
+  instruction given for this fix, but did not resolve the underlying
+  product question REVIEW.md raised: whether operator-supplied institution
+  names (the user's own data, not a claim the product is making) should be
+  exempt from World-content vetting entirely, subject to a different
+  (weaker or absent) check, or intentionally blocked pending the operator
+  adding their own institution to a personal allowlist. Left open,
+  surfaced here rather than decided silently — this is a policy question
+  about what the product should do for the single most likely real input,
+  not a code defect.
+
+## Final state (post-review fixes)
+
+- Files changed: 2 terms.json (authoring + sealed, plus the 6 other sealed
+  artifacts a reseal regenerates), 3 agent-side Python modules, 2 test
+  files. 14 files touched, +421/-45 lines.
+- New tests: 11 (5 in `test_debt_finance_compliance.py`, 6 in
+  `test_debt_finance_agents.py`, including the required real-sealed-bundle
+  path and the adversarial fictional-institution regression).
+- Test suite: 45/45 passing in the two debt-finance files; 117/117 passing
+  in the broader debt-finance/world-mount/catalog/shim regression slice;
+  full-suite delta is zero (46 pre-existing failures unchanged, confirmed
+  via `git stash`).

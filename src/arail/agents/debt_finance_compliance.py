@@ -45,6 +45,21 @@ _INSTITUTIONAL_CHARACTER_RE = re.compile(
     re.I,
 )
 
+# Splits assembled output into sentence-ish chunks so the institutional-
+# character check reasons about "the sentence that made the claim", not an
+# arbitrary character window that can accidentally straddle an unrelated
+# vetted name written elsewhere in the same output.
+_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
+
+# A candidate proper-noun institution name: a run of one or more
+# capitalized-initial words (allowing internal connectors like "&"/"of").
+# Used to find "the entity this sentence is actually naming" near an
+# institutional-character trigger phrase, rather than treating "any vetted
+# name is a substring somewhere in this window" as sufficient — the latter
+# is what let a vetted *concept* term's own name ("Credit Union") silently
+# vet the trigger phrase itself.
+_PROPER_NOUN_RE = re.compile(r"\b[A-Z][\w&'.-]*(?:\s+[A-Z][\w&'.-]*)*\b")
+
 
 @dataclass
 class GuardrailResult:
@@ -89,13 +104,45 @@ def read_disclaimer(bundle_dir: Optional[Path] = None) -> Optional[str]:
     return text
 
 
+def _candidate_names(sentence: str) -> list[str]:
+    """Capitalized-word-run substrings of ``sentence`` — candidate proper
+    nouns that could be the institution the sentence is actually naming."""
+    return [m.group(0) for m in _PROPER_NOUN_RE.finditer(sentence)]
+
+
+def _names_match(candidate_lower: str, vetted_lower: str) -> bool:
+    """True only if the candidate proper noun contains the vetted
+    institution's *full* name as a substring.
+
+    Deliberately one-directional: checking "is the candidate a substring of
+    the vetted name" too would let a bare capitalized trigger word (e.g. a
+    capitalized "Credit Union" written as part of the evaluative phrase
+    itself) match any vetted institution whose name happens to contain that
+    word (e.g. "PenFed Credit Union") — reintroducing the exact tautology
+    this function exists to close. Requiring the *full* vetted name inside
+    the candidate means a fictional or unvetted institution's name is never
+    close enough by accident.
+    """
+    return vetted_lower in candidate_lower
+
+
 def check_guardrail(text: str, vetted_institutions: frozenset[str]) -> GuardrailResult:
     """Deterministic pre-write check on an assembled output string.
 
-    ``vetted_institutions`` is the lowercase set of institution names that
-    appear in the mounted World's ``terms.json`` institutions category with
-    a verification source — the only names allowed to sit near
-    institutional-character language.
+    ``vetted_institutions`` is the lowercase set of specific, named,
+    verified institutions' names — never a generic glossary/concept term
+    (see ``terms.json``'s ``institutions`` category, where only entries
+    carrying an ``institution_type`` field are named institutions). The
+    only names allowed to sit near institutional-character language.
+
+    Institutional-character language is checked sentence by sentence: for
+    each sentence containing a trigger phrase, this extracts the candidate
+    proper-noun institution name(s) actually present in *that* sentence and
+    requires one of them to match a vetted name. This is deliberately
+    stricter than "a vetted name appears anywhere in an 80-char window"
+    (the tautology BLOCK-1 found: a vetted *concept* term whose name IS the
+    trigger phrase itself would satisfy that check for any institution,
+    vetted or not).
     """
     if _EVALUATIVE_RE.search(text):
         return GuardrailResult(
@@ -103,18 +150,23 @@ def check_guardrail(text: str, vetted_institutions: frozenset[str]) -> Guardrail
             reason="evaluative or imperative language detected",
         )
 
-    for match in _INSTITUTIONAL_CHARACTER_RE.finditer(text):
-        # Look at a window of text around the match for a vetted name.
-        start = max(0, match.start() - 80)
-        end = min(len(text), match.end() + 80)
-        window = text[start:end].lower()
-        if not any(name in window for name in vetted_institutions):
+    for sentence in _SENTENCE_SPLIT_RE.split(text):
+        match = _INSTITUTIONAL_CHARACTER_RE.search(sentence)
+        if match is None:
+            continue
+        candidates_lower = [c.lower() for c in _candidate_names(sentence)]
+        matched = any(
+            _names_match(candidate, vetted)
+            for candidate in candidates_lower
+            for vetted in vetted_institutions
+        )
+        if not matched:
             return GuardrailResult(
                 ok=False,
                 reason=(
                     "institutional-character language "
-                    f"({match.group(0)!r}) not paired with a vetted "
-                    "institution name"
+                    f"({match.group(0)!r}) not paired with a vetted, "
+                    "specifically-named institution in the same sentence"
                 ),
             )
 

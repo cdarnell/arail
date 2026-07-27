@@ -28,6 +28,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import stat
 import time
 from dataclasses import dataclass
@@ -242,14 +243,22 @@ def _content_hash() -> str:
 #  4. WRITE PATH
 # ══════════════════════════════════════════════════════════════════════
 
+_DIGIT_RE = re.compile(r"\d")
+
+
 def _framing_prose() -> str:
+    """See ``_builtin_debt_advisor._framing_prose`` — same digit-rejection
+    fix for the same [ASK] (REVIEW.md): a model-generated sentence
+    containing a digit is rejected in favor of the deterministic fallback,
+    since the prompt asking the model not to emit a number was previously
+    unenforced."""
     prompt = (
         "Write one short, plain, non-evaluative sentence introducing a "
         "computed debt-consolidation comparison. Do not name any "
         "institution, rate, or number. Do not say 'best' or give advice."
     )
     text = _host.llm_complete(prompt, max_tokens=60).strip()
-    if not text or not check_guardrail(text, frozenset()).ok:
+    if not text or not check_guardrail(text, frozenset()).ok or _DIGIT_RE.search(text):
         return "Computed comparison of your staged balances against staged candidate scenarios."
     return text
 
@@ -310,6 +319,11 @@ def _write_findings(text: str, disclaimer: str) -> None:
 
 
 def _vetted_institution_names(bundle_dir: Path) -> frozenset[str]:
+    """Specific, named, verified institutions — see
+    ``_builtin_debt_advisor._vetted_institutions`` for why ``category ==
+    "institutions"`` alone is not enough: that category also holds generic
+    glossary/concept terms. Only entries carrying an ``institution_type``
+    field (and a third-party ``verification_source``) count as vetted."""
     try:
         doc = json.loads((bundle_dir / "terms.json").read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
@@ -317,7 +331,8 @@ def _vetted_institution_names(bundle_dir: Path) -> frozenset[str]:
     terms = doc.get("terms") if isinstance(doc, dict) else doc
     names = set()
     for t in terms or []:
-        if t.get("category") == "institutions" and t.get("source"):
+        if (t.get("category") == "institutions" and t.get("institution_type")
+                and t.get("verification_source")):
             names.add(str(t.get("term") or t.get("slug") or "").lower())
     return frozenset(names)
 

@@ -101,7 +101,7 @@
       "term": "Credit Union",
       "category": "institutions",
       "short": "Member-owned, not-for-profit financial cooperative.",
-      "definition": "A financial cooperative owned by its members rather than shareholders; profits are returned to members as lower rates and fees rather than distributed to outside investors. Legal-character claims like this require a verification source distinct from the institution's own marketing (an NCUA charter lookup or equivalent).",
+      "definition": "A financial cooperative owned by its members rather than shareholders; profits are returned to members as lower rates and fees rather than distributed to outside investors. This is a glossary entry describing the concept, not a claim about any specific institution — it carries no `institution_type` field and is never a vetted named institution. A claim about a specific institution requires a verification source distinct from that institution's own marketing (an NCUA charter lookup or equivalent) — see this category's named entries for examples that carry one.",
       "related": [
         "ncua-insured",
         "debt-consolidation-loan"
@@ -113,12 +113,42 @@
       "term": "Credit Counseling Agency",
       "category": "institutions",
       "short": "An organization that provides budget and debt-management counseling.",
-      "definition": "A nonprofit or for-profit organization offering budget counseling, debt-management plans, and creditor negotiation; NFCC-member agencies are independently accredited nonprofits.",
+      "definition": "A nonprofit or for-profit organization offering budget counseling, debt-management plans, and creditor negotiation; NFCC-member agencies are independently accredited nonprofits. This is a definitional/glossary entry describing the concept, not a claim about any specific institution — it carries no `institution_type` field and must never be treated as a vetted named institution.",
       "related": [
         "nonprofit-credit-counseling",
         "hardship-program"
       ],
       "source": "https://www.consumerfinance.gov/consumer-tools/credit-cards/answers/balance-transfer/"
+    },
+    {
+      "slug": "penfed-credit-union",
+      "term": "PenFed Credit Union",
+      "category": "institutions",
+      "institution_type": "credit-union",
+      "short": "A specific, named, federally chartered credit union.",
+      "definition": "Pentagon Federal Credit Union (PenFed) is a federally chartered, member-owned credit union offering personal loans and other consumer credit products. Unlike the generic 'Credit Union' glossary entry above, this is a specific named institution: its institutional-character claim (credit union, NCUA-insured) is verified against the NCUA's own charter/insurance lookup, a source distinct from PenFed's own marketing pages.",
+      "related": [
+        "credit-union",
+        "personal-loan",
+        "debt-consolidation-loan"
+      ],
+      "source": "https://www.penfed.org/personal-loans",
+      "verification_source": "https://mapping.ncua.gov/ResearchCreditUnion"
+    },
+    {
+      "slug": "greenpath-financial-wellness",
+      "term": "GreenPath Financial Wellness",
+      "category": "institutions",
+      "institution_type": "nonprofit-credit-counseling-agency",
+      "short": "A specific, named, NFCC-member nonprofit credit-counseling agency.",
+      "definition": "GreenPath Financial Wellness is a nonprofit credit-counseling agency offering budget counseling and debt-management plans. Unlike the generic 'Credit Counseling Agency' glossary entry above, this is a specific named institution: its institutional-character claim (nonprofit, NFCC-member) is verified against the National Foundation for Credit Counseling's own member directory, a source distinct from GreenPath's own marketing pages.",
+      "related": [
+        "credit-counseling-agency",
+        "hardship-program",
+        "nonprofit-credit-counseling"
+      ],
+      "source": "https://www.greenpath.com/",
+      "verification_source": "https://www.nfcc.org/member-agencies/"
     },
     {
       "slug": "balance-transfer",

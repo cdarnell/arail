@@ -19,6 +19,9 @@ from typing import Any, Dict, List, Optional
 
 import pytest
 
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+_REAL_BUNDLE = _REPO_ROOT / "examples" / "worlds" / "debt-finance"
+
 
 _GOOD_DISCLAIMER = (
     "# Disclaimer\n\n"
@@ -28,9 +31,14 @@ _GOOD_DISCLAIMER = (
 _TERMS = {
     "version": 1,
     "terms": [
-        {"slug": "penfed-credit-union", "term": "PenFed Credit Union",
+        {"slug": "credit-union", "term": "Credit Union",
          "category": "institutions", "short": "x", "definition": "x",
-         "related": [], "source": "https://www.penfed.org/personal-loans"},
+         "related": [], "source": "https://www.ncua.gov/consumers/consumer-resources"},
+        {"slug": "penfed-credit-union", "term": "PenFed Credit Union",
+         "category": "institutions", "institution_type": "credit-union",
+         "short": "x", "definition": "x", "related": [],
+         "source": "https://www.penfed.org/personal-loans",
+         "verification_source": "https://mapping.ncua.gov/ResearchCreditUnion"},
         {"slug": "balance-transfer", "term": "Balance Transfer",
          "category": "strategies", "short": "x", "definition": "x",
          "related": [], "source": "https://example.gov/balance-transfer"},
@@ -114,7 +122,17 @@ class TestDebtAdvisorHappyPath:
         text = (data_dir / "user-import" / "debt-finance" / "findings"
                 / "debt_advisor.md").read_text()
         assert "PenFed Credit Union" in text
-        assert "https://www.penfed.org/personal-loans" in text
+        # The verification source is the structured field actually printed
+        # (a third-party check, distinct from the institution's own site) —
+        # not "source", which is only used for citing rate/product pages.
+        assert "https://mapping.ncua.gov/ResearchCreditUnion" in text
+        # The character label is the term's own institution_type, not a
+        # hardcoded "credit union" string (BLOCK-2).
+        assert "**PenFed Credit Union** (credit union, verification source:" in text
+        # The generic "Credit Union" glossary concept must never be printed
+        # here as if it were a named, vetted institution (BLOCK-1's root
+        # cause) — it carries no institution_type and is excluded.
+        assert "**Credit Union**" not in text
 
     def test_disclaimer_appended(self, debt_advisor_module, data_dir):
         agent = debt_advisor_module.DebtAdvisorAgent()
@@ -333,6 +351,98 @@ class TestConsolidationAnalyzerStateFile:
         blob = json.dumps(state)
         for forbidden in ("1000", "3000", "20.0", "10.0", "PenFed"):
             assert forbidden not in blob
+
+
+# ── Real sealed bundle end-to-end (BLOCK-3 regression) ─────────────────
+#
+# Everything above this point runs against the synthetic `_TERMS`/`world_
+# bundle` fixture, which is what let BLOCK-1 and BLOCK-2 reach "67 passed"
+# undetected (REVIEW.md). These tests mount `examples/worlds/debt-finance/`
+# itself — the bundle this product actually ships — and must fail against
+# the pre-fix code (a hardcoded "(credit union, ...)" label and a tautological
+# vetted-institutions set built from mere `category == "institutions"`).
+
+@pytest.mark.skipif(not _REAL_BUNDLE.exists(),
+                     reason="sealed debt-finance bundle not forged")
+class TestRealSealedBundle:
+    def test_debt_advisor_never_mislabels_the_credit_counseling_agency(
+        self, monkeypatch, host, data_dir
+    ):
+        from arail.agents import _builtin_debt_advisor as mod
+        monkeypatch.setattr(mod, "_host", host)
+        monkeypatch.setattr(mod, "find_mounted_bundle_dir", lambda: _REAL_BUNDLE)
+
+        agent = mod.DebtAdvisorAgent()
+        agent.tick()
+
+        text = (data_dir / "user-import" / "debt-finance" / "findings"
+                / "debt_advisor.md").read_text()
+
+        # The two named, verified institutions this World ships are printed
+        # with their own institution_type — never a hardcoded "credit
+        # union" applied to every institutions-category term (BLOCK-2).
+        assert "**PenFed Credit Union** (credit union, verification source:" in text
+        assert ("**GreenPath Financial Wellness** "
+                "(nonprofit credit counseling agency, verification source:") in text
+        # The exact mislabel REVIEW.md quoted must never appear.
+        assert "Credit Counseling Agency** (credit union" not in text
+        # The generic glossary concepts are never printed as if they were
+        # named, vetted institutions (BLOCK-1's root cause).
+        assert "**Credit Union**" not in text
+        assert "**Credit Counseling Agency**" not in text
+
+    def test_consolidation_analyzer_blocks_a_fictional_unvetted_institution(
+        self, monkeypatch, host, data_dir
+    ):
+        from arail.agents import _builtin_consolidation_analyzer as mod
+        monkeypatch.setattr(mod, "_host", host)
+        monkeypatch.setattr(mod, "find_mounted_bundle_dir", lambda: _REAL_BUNDLE)
+
+        _write_balances(data_dir, {
+            "debts": [{"id": "card-1", "kind": "credit-card",
+                       "balance": 1000.0, "apr": 20.0}],
+            "candidate_scenarios": [
+                {"institution": "Payday Express Credit Union",
+                 "product": "balance-transfer", "rate": 5.0, "fee_pct": 3.0,
+                 "term_months": 24, "source": "https://example.invalid/rates",
+                 "as_of": "2026-07-01"},
+            ],
+        })
+
+        agent = mod.ConsolidationAnalyzerAgent()
+        agent.tick()
+
+        findings = (data_dir / "user-import" / "debt-finance" / "findings"
+                    / "consolidation_analyzer.md")
+        assert not findings.exists()
+        assert any("failed the language-safety check" in e["message"]
+                   for e in host.events)
+
+    def test_consolidation_analyzer_allows_its_real_vetted_institution(
+        self, monkeypatch, host, data_dir
+    ):
+        from arail.agents import _builtin_consolidation_analyzer as mod
+        monkeypatch.setattr(mod, "_host", host)
+        monkeypatch.setattr(mod, "find_mounted_bundle_dir", lambda: _REAL_BUNDLE)
+
+        _write_balances(data_dir, {
+            "debts": [{"id": "card-1", "kind": "credit-card",
+                       "balance": 1000.0, "apr": 20.0}],
+            "candidate_scenarios": [
+                {"institution": "PenFed Credit Union",
+                 "product": "balance-transfer", "rate": 5.0, "fee_pct": 3.0,
+                 "term_months": 24, "source": "https://www.penfed.org/personal-loans",
+                 "as_of": "2026-07-01"},
+            ],
+        })
+
+        agent = mod.ConsolidationAnalyzerAgent()
+        agent.tick()
+
+        findings = (data_dir / "user-import" / "debt-finance" / "findings"
+                    / "consolidation_analyzer.md")
+        assert findings.exists()
+        assert "PenFed Credit Union" in findings.read_text()
 
 
 class TestConsolidationAnalyzerCompliance:
