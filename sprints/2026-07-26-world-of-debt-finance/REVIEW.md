@@ -996,3 +996,234 @@ Not a BLOCK on its own; must not be shipped undocumented.
 3. Document or fix ASK-C (offset-based masking, or a span length floor).
 4. Extend the ASK-B evaluative hint to name `institution`.
 5. Re-review after (1)-(2). QA still should not run.
+
+---
+
+# Re-review addendum 5 (round 6)
+
+**Date:** 2026-07-27
+**Build:** BUILD_LOG.md "Post-review fixes, round 5" at `b7cbda9`
+**Prior:** addendum 4 (round 5) at `6a2eb83` — BLOCK-7(a)/(b), ASK-C
+
+## Verdict: WEAK_PASS
+
+BLOCK-7(a), BLOCK-7(b) and ASK-C are closed. One new finding, ASK-D, is a
+real defect in the round-5 fix but degrades **closed**, is unreachable with
+any realistic `terms.json` value, and does not justify a seventh blocking
+round. It is filed below with a recommended structural fix that also closes
+the defect family instead of extending it by one more field.
+
+## 1. Independent re-derivation of the interpolated-field list
+
+I re-derived both field lists from the render loops directly, without
+consulting BUILD_LOG's tables first, then diffed against them.
+
+**Analyzer `_build_output` (`:307-364`)** — `_framing_prose()`,
+`len(debts)`, `apr`, `r.institution`, `marker`, `r.product`, `r.rate`,
+`r.fee_pct`, `r.fee_amount`, `r.monthly_savings`, `breakeven_text`
+(wrapping `r.breakeven`), `r.source`, `r.as_of`, plus static headings.
+The four string-typed operator fields are exactly
+`{institution, product, source, as_of}` and all four are now in
+`quoted_spans`. `marker` and `breakeven_text` are code-authored literals
+containing no `_EVALUATIVE_RE` vocabulary. `debts` entries are never
+rendered individually — only `len(debts)` and the computed `apr` — so no
+debt-side string reaches the body. **Complete; matches BUILD_LOG.**
+
+**Advisor `_build_output` (`:266-355`)** — `_framing_prose(vetted,
+findings)`, `v.name`, `character` (= `v.institution_type.replace("-"," ")`),
+`v.verification_source`, `v.verified_as_of`, `f.get('feed')`,
+`f.get('checked')`, `f.get('path')`, plus static headings and the
+non-exhaustiveness disclaimer. That is the whole set. **Complete; matches
+BUILD_LOG.**
+
+I independently checked the two rows BUILD_LOG declined to mask, since
+"it's a date string" is exactly the kind of unverified claim that produced
+BLOCK-5 through BLOCK-7:
+
+- `v.verified_as_of` — [INFO] Claim verified. `_vetted_institutions`
+  (`:167-171`) admits an entry only if `is_verification_fresh(verified_as_of)`
+  returns true, which requires a parseable ISO date. A value carrying
+  `_EVALUATIVE_RE` vocabulary cannot reach the roster line at all, because
+  the entry is dropped before rendering. Not masking it is correct and the
+  stated reasoning is sound.
+- `f.get('checked')` — [INFO] Claim verified. The only writer is
+  `research/agenda_watch.py:156`, `datetime.now(timezone.utc).isoformat()`,
+  code-generated. The one residual path is an operator hand-editing an
+  approved scout file's `- Checked:` line in their own PKB; that degrades
+  closed (false block on their own edit) and is not worth masking.
+
+The framing-prose rows are right and the reasoning is the right way round:
+model-generated text must get *less* exemption, not more. Both agents'
+standalone self-checks pass an empty span set (`analyzer:262`,
+`advisor:261`), so the exemption genuinely cannot leak to model output.
+
+One documentation nit, not a defect: BUILD_LOG describes `f.get('feed')` as
+an "RSS feed title". `_approved_findings` parses the `- Feed:` line, which
+`agenda_watch` writes as `feed.url`. It is still third-party-authored and
+still correctly masked; only the table's description is off.
+
+## 2. Is `_MIN_QUOTED_SPAN_LEN = 5` a safe floor, or does it move the threshold?
+
+The floor is safe, and for a stronger reason than the one BUILD_LOG gives.
+
+BUILD_LOG argues the floor "covers realistic short trigger substrings
+plus one character of margin." That argument is weak on its own — it is a
+length coincidence, not an invariant, and would break the moment someone
+adds a longer trigger word to `_EVALUATIVE_RE`. The floor being 5 does not
+by itself prevent a *long* span from blanking a trigger word elsewhere: a
+span like `"Best Egg"` (8 chars) is masked globally, and would blank a
+`"Best Egg"` occurrence anywhere else in the body too.
+
+What actually makes this safe is that there is no "elsewhere" for it to
+defang. The only non-quoted text in either body is (a) static code-authored
+headings, audited to contain no trigger vocabulary, and (b) the framing
+sentence, which has already passed a zero-exemption `check_guardrail` and
+therefore provably contains no `_EVALUATIVE_RE` match before it is ever
+concatenated. A global replace can only blank trigger words that live
+inside quoted content, which is precisely what the exemption is for. The
+floor is a belt-and-braces measure on top of that.
+
+To the specific question asked — a realistic 5+ character institution name
+or value that accidentally contains "best"/"lowest" as a substring and
+thereby defeats the check for that substring elsewhere: yes, such values
+exist ("Best Egg", "Bestow", "LowestRates.ca", a "best-credit-unions" URL),
+and yes they are masked globally. But defeating the check "elsewhere"
+requires an elsewhere that is both agent-generated and contains the same
+literal substring, and the framing-prose pre-check makes that set empty.
+Accepted, with one required addition below.
+
+- [ASK-E] The safety argument above depends on an invariant BUILD_LOG never
+  states: *the only non-`quoted_spans` text in either body is static
+  literals plus a sentence that has already passed a zero-exemption check.*
+  That invariant, not the number 5, is what makes global-substring masking
+  sound. It is currently undocumented, which means a future change that
+  introduces a third source of unquoted text into either body (a
+  per-scenario code-authored note, a computed caveat sentence) would
+  silently invalidate it with no tripwire. Record it as a comment on
+  `_MIN_QUOTED_SPAN_LEN` and in ARCHITECTURE.md §13.10. Follow-up, not
+  merge-blocking.
+
+## 3. Was including `v.institution_type` correct scope?
+
+**Correct scope — keep it, do not revert.** The builder was right to
+include it and right to flag rather than decide silently. It is rendered on
+the same roster line, from the same World-sealed structured record, as
+`v.name` and `v.verification_source`; the fact that my live repro only
+exercised two of the three fields is a property of my repro, not a
+structural distinction. Reverting it would rebuild the exact reasoning that
+produced BLOCK-7 — "the review only named these, so only these are in
+scope" — which BUILD_LOG's own round-5 post-mortem correctly identifies as
+the recurring root cause.
+
+However, the implementation of that row does not work:
+
+- [ASK-D] **`v.institution_type` is masked as its raw value, but rendered
+  as its hyphen-replaced value**, so the mask is a no-op for any hyphenated
+  value — i.e. for every realistic value, since `terms.json` uses
+  `credit-union`, `credit-counseling-agency`. `advisor:300` renders
+  `character = v.institution_type.replace("-", " ")` while `advisor:349`
+  puts `entry.institution_type` (raw) into `quoted_spans`. Confirmed by
+  direct execution: with `institution_type="best-rate-lender"`, rendering
+  `"best rate lender"`, passing the raw value as a span still returns
+  `ok=False, reason='evaluative or imperative language detected'`; passing
+  the rendered value returns `ok=True`. The three tests added this round
+  cover `v.name` and `v.verification_source` and do not exercise this path,
+  which is why it passed 117/117.
+
+  Severity is ASK, not BLOCK: it fails **closed** (a spurious block, never
+  a bypass), and no real `institution_type` value carries `_EVALUATIVE_RE`
+  vocabulary, so it is unreachable today. Fix is one line —
+  `entry.institution_type.replace("-", " ")` — plus a test at that value.
+
+ASK-D is also the most interesting finding of this round, because it is not
+another missed field. The enumeration *did* catch the field. What it missed
+is that masking must key on the **rendered string**, not the source field —
+a second dimension the field-by-field checklist does not have a column for.
+
+## 4. Is the defect family exhausted? — no, and the approach is the problem
+
+Asked directly: I do not believe a seventh instance is unlikely, and I
+think the field-by-field masking pattern is the wrong general fix.
+
+Five rounds have each found the same class, and the countermeasures have
+each been one level of thoroughness deeper than the last: match the named
+example (round 3), match the sibling field (round 4), enumerate every field
+mechanically (round 5). Round 5's enumeration was genuinely better work and
+it did catch a field no review had named. It still produced ASK-D, because
+the failure moved from *which fields* to *what transform is applied between
+the field and the text being searched*. That is the signature of a
+countermeasure chasing a defect rather than eliminating it. The next
+variant is predictable in shape: a field enumerated correctly, masked
+correctly, but rendered through a new transform (truncation, `title()`,
+markdown escaping, a `textwrap` wrap that inserts a newline mid-span and
+breaks the substring match) — and a newline inserted mid-span would break
+masking exactly the way the hyphen does.
+
+The structural root cause is that both agents assemble a flat string and
+then try to *reconstruct* provenance from it by substring search. Provenance
+is known exactly at assembly time and is being thrown away, then guessed at.
+Every fix so far has improved the guess.
+
+**Recommended structural fix (follow-up sprint, not this merge):** have
+both `_build_output` functions assemble the body as an ordered list of
+`(text, provenance)` segments — `AGENT` for headings, framing prose, and
+code-authored connective text; `QUOTED` for every interpolated non-agent
+value — and have `check_guardrail` run `_EVALUATIVE_RE` over the
+concatenation of the `AGENT` segments only, with `"".join(all segments)`
+still used for the institutional-character/chunking pass that legitimately
+needs the whole rendered document. This deletes `quoted_spans`,
+`_MIN_QUOTED_SPAN_LEN`, the global-replace masking, the raw-vs-rendered
+class of bug, and the possibility of a span accidentally matching unrelated
+text — all at once, and it makes "did you enumerate every field?" a
+non-question, because a field that is not wrapped as a segment is
+inescapably `AGENT` and therefore fails closed by construction. It is a
+contained change: two render loops and one function, both already fully
+covered by the 117 tests, which become the regression harness for it.
+
+I am recommending this as a follow-up rather than a BLOCK because the
+current state is safe — every known failure mode in this family now
+degrades closed — and because a sixth consecutive blocking round on a
+build whose remaining defect is unreachable is not the highest-value next
+step. The honest read requested: this build is done as a *guardrail
+correctness* matter. It is not done as a *design* matter, and the right
+place to finish it is a scoped refactor sprint with a clear goal, not
+another review round on this diff.
+
+## Findings summary
+
+- [ASK-D] `v.institution_type` masked raw, rendered hyphen-replaced — mask
+  inert for all realistic values. Fails closed. One-line fix + test.
+- [ASK-E] The invariant that makes global-substring masking sound is
+  undocumented; no tripwire if a third source of unquoted text is added.
+- [INFO] BLOCK-7(a) closed — `r.institution` in analyzer `quoted_spans`.
+- [INFO] BLOCK-7(b) closed — `v.name` / `v.verification_source` in advisor
+  `quoted_spans`; scope extension to `v.institution_type` correct.
+- [INFO] ASK-C closed — short-span floor; safety argument holds for a
+  better reason than the one given (see §2).
+- [INFO] Field enumeration independently re-derived and confirmed complete
+  for both `_build_output` functions; both "date string" exclusions
+  verified against their actual writers rather than accepted on assertion.
+- [INFO] BUILD_LOG describes `f.get('feed')` as an RSS title; it is
+  `feed.url`. Cosmetic.
+
+## Tech debt delta
+
+Added, beyond ARCHITECTURE.md's prediction: the `quoted_spans` masking
+mechanism itself is now the largest single source of defects in this sprint
+(5 of 7 BLOCKs). Record it in ARCHITECTURE.md §13.10 as known debt with the
+segment-provenance refactor as its retirement plan.
+
+## Required actions before merge
+
+1. Fix ASK-D: mask `entry.institution_type.replace("-", " ")`, with a test
+   using a hyphenated value that renders to evaluative vocabulary.
+
+## Follow-up tickets (do not block merge)
+
+2. ASK-E: document the "no unquoted agent text other than pre-checked
+   framing prose" invariant on `_MIN_QUOTED_SPAN_LEN` and in §13.10.
+3. Refactor to segment-provenance assembly (§4); retire `quoted_spans`,
+   `_MIN_QUOTED_SPAN_LEN`, and global-substring masking.
+4. Correct the `f.get('feed')` description in BUILD_LOG's table.
+5. QA may run once (1) lands. The remaining items are design debt, not
+   correctness gates.
