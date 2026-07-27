@@ -316,3 +316,279 @@ New debt not anticipated by §13, to be added there:
    live path by which a model-generated number reaches a findings file).
 7. Re-review after 1–3. QA should not run until then — the current suite
    would certify the mislabel as correct.
+
+---
+
+# Review addendum — post-fix re-review
+
+**Date:** 2026-07-27
+**Fix under review:** commit `3d56c9b` ("fix(debt-finance): close the
+vetted-institution guardrail tautology (BLOCK-1/2/3)")
+**Prior verdict:** BLOCK at `2c7dce1` (BLOCK-1, BLOCK-2, BLOCK-3)
+
+## Verdict: BLOCK
+
+BLOCK-1, BLOCK-2 and BLOCK-3 are genuinely fixed, and the reasoning behind
+the BLOCK-1 fix is better than the fix I asked for. But the new guardrail
+carries a reproducible residual of the same defect class, and the two
+questions the builder correctly refused to decide unilaterally have answers
+that require code changes. All remaining work is narrow and fully specified
+below; this is a short round trip, not a redesign.
+
+---
+
+## What the fix got right
+
+- **BLOCK-2 — closed.** `_builtin_debt_advisor.py:271` now renders
+  `v.institution_type.replace("-", " ")` from the term's own structured
+  field. No hardcoded character literal survives in either assembler. The
+  "credit counseling agency labelled as a credit union" output is gone.
+- **BLOCK-1 — closed, at the right layer.** I asked for either proper-noun
+  matching or a distinct vetted-named-institution source; the builder did
+  both, and the data-model half is the more important one. Splitting
+  `institutions` into *concept terms* (no `institution_type`) and *named
+  institutions* (`institution_type` + third-party `verification_source`)
+  fixes the category error rather than papering over it, and requiring all
+  three conditions in `_vetted_institutions` / `_vetted_institution_names`
+  means the concept terms can never re-enter the vetted set by any route.
+  `_names_match`'s one-directional containment, and the docstring explaining
+  *why* the reverse direction reintroduces the tautology in a different
+  shape, is exactly the kind of reasoning I want recorded at the point of
+  the check. The verification sources chosen (NCUA charter lookup, NFCC
+  member directory) are third-party and distinct from the institutions' own
+  marketing, which is what the design required and what the previous bundle
+  did not have.
+- **BLOCK-3 — closed.** `TestRealSealedBundle` mounts
+  `examples/worlds/debt-finance/` itself. I verified independently that the
+  adversarial case fails against the old code path and passes against the
+  new one. The "PenFed Lending Group does not ride along on PenFed Credit
+  Union" near-miss test is the test I would have written and did not think
+  to ask for.
+- **`_framing_prose` digit check — closed** in both agents; Debt Advisor
+  additionally rejects a vetted institution's name. The last live path for a
+  model-generated fact into a findings file is shut.
+- **Full-suite delta verified by `git stash` re-run.** Correct methodology
+  for a repo with pre-existing red. Accepted as stated.
+
+---
+
+## [BLOCK-4] The sentence boundary is not a boundary — unvetted institutions still ride along on adjacent vetted ones
+
+`_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")` splits only *after*
+terminal punctuation. Output lines that do not end in `.`/`!`/`?` are
+therefore merged with the following line into a single "sentence", and the
+check's pairing rule ("some candidate proper noun in this sentence matches
+some vetted name") then vets everything in the merged blob.
+
+This is not hypothetical. Debt Advisor's own vetted-institution renderer
+(`_builtin_debt_advisor.py:272-274`) emits lines ending in `)` — no terminal
+punctuation — so the shipped output already contains merge-prone lines,
+directly adjacent to the approved-scouting-finding metadata block. Verified
+against the current code:
+
+```
+>>> v = frozenset({"penfed credit union"})
+>>> check_guardrail(
+...   "- **PenFed Credit Union** (credit union, verification source: https://x)\n"
+...   "- **Payday Express** is a credit union.", v)
+GuardrailResult(ok=True, reason='')          # <-- passes
+>>> check_guardrail("- **Payday Express** is a credit union.", v)
+GuardrailResult(ok=False, ...)               # <-- blocks, correctly
+```
+
+The identical unvetted claim is blocked alone and waved through when it
+follows an unpunctuated vetted line. The Payday Express adversarial test
+passes only because it is exercised in isolation.
+
+Second instance of the same class, same function: the loop calls
+`_INSTITUTIONAL_CHARACTER_RE.search(sentence)` — **one** trigger per
+sentence. A single genuine sentence carrying two triggers, one vetted and
+one not, is vetted by the first.
+
+**Required fix.** Both are one function:
+1. Split on newlines as well as terminal punctuation —
+   `re.compile(r"(?<=[.!?])\s+|\n+")`. A list item is a unit of assertion;
+   treat it as one.
+2. Iterate `finditer`, not `search`, and require *each* trigger occurrence
+   in a chunk to be paired.
+3. Regression test for each: the two-line merge above, and a single sentence
+   naming a vetted and an unvetted institution with a trigger each. Both
+   must fail against `3d56c9b`.
+
+I am flagging this rather than waving it because it is the same defect the
+last round blocked on — a check whose passing condition is satisfiable
+without the property it claims to enforce — and because the reason it
+survived is the same reason the first one did: the adversarial tests
+construct the input, and the constructed input does not look like the
+assembled document. Test the assembled document.
+
+---
+
+## Resolution — flagged question 1: roster shape and the posture of naming real institutions
+
+**Decided, with conditions. The two named institutions stay. The roster
+policy is: named institutions exist to give the vetting mechanism something
+real to be correct about, and for no other purpose.** They are a
+demonstration of the verification standard, not a directory, not a shortlist,
+and not a set that should grow because more names would be useful.
+
+Reasoning, so this is not just a ruling:
+
+- The picks themselves are defensible and I sign off on them. Both claims
+  are *character* claims only (charter type, insurance status, NFCC
+  membership), both are verifiable against a registry maintained by someone
+  other than the institution, both registries are the authoritative one for
+  the claim being made, and neither statement is comparative, evaluative, or
+  a recommendation. PenFed and GreenPath also happen to sit on opposite
+  sides of the concept split (a lender and a counseling agency), which
+  exercises the `institution_type` renderer meaningfully. If I were picking
+  from scratch I would pick these.
+- Two is the right number and I do not want a third added without a reason
+  that is about the mechanism, not about coverage. The moment the roster
+  reads as "here are the good options," the World has started giving
+  financial advice through its data rather than its prose, and every
+  compliance property in §7 is being defended in the wrong place.
+
+**Two conditions, both required before merge:**
+
+**(a) The roster must not render as a shortlist.** The current heading is
+`## Vetted institutions (from this World's sourced terms)`, followed by
+exactly two entries: a consolidation lender and a credit counselor, inside a
+document about paying down debt. Neutral prose does not survive that layout —
+a two-item list under that heading in that context reads as a recommendation
+set regardless of what the sentences say, and this is the single
+highest-liability line the product emits. Rename to something that describes
+the mechanism (`## Institutions whose character claims this World verified`)
+and add a code-inserted, non-model line immediately under it stating that the
+list is not exhaustive, is not a recommendation, and exists to show what
+verification of an institutional-character claim looks like. That line is a
+constant in the assembler, not persona text.
+
+**(b) Verification claims must be time-scoped.** A sealed, versioned,
+immutable bundle currently asserts "GreenPath is an NFCC member" with no
+expiry. NFCC membership and NCUA charters lapse; the bundle cannot notice.
+Add a `verified_as_of` date field to each named-institution term, require it
+alongside `institution_type` + `verification_source` in both agents' vetted-set
+construction (so an institution without one is simply not vetted, and the
+mechanism degrades closed), and render it in the output: *verified against
+<source> as of <date>*. This converts an eternal unqualified claim into a
+dated one, which is the only honest thing a sealed artifact can say about a
+third party's current status.
+
+**One thing I am escalating to the operator rather than deciding**, because
+it is about what obligation they are willing to carry, not about engineering:
+
+> Naming PenFed and GreenPath in a sealed, versioned bundle in a repo bearing
+> your name creates a small, indefinite maintenance obligation: if either
+> institution's status changes, the shipped bundle keeps asserting the old
+> status until someone reseals it, and condition (b) makes that visible
+> ("verified as of 2026-07-27") but does not make it false. Are you willing
+> to own a recurring re-verification pass on this roster — realistically
+> annual — or would you rather the World ship with *zero* named institutions
+> and the vetting mechanism proven only by test fixtures, accepting that
+> VISION win condition (1) is then met only through the operator's own
+> `balances.json`?
+
+Both answers are respectable. I recommend keeping the two names *with* condition
+(b), because an annual re-check of two registry lookups is a cheap obligation
+and the alternative leaves a shipped safety mechanism with no live data. But
+this is your call, and it is the only part of question 1 that is.
+
+---
+
+## Resolution — flagged question 2: operator-supplied institution names
+
+**Decided. Yes, a distinct code path is required. This is an engineering
+question, not a risk-tolerance question, and I am deciding it rather than
+escalating it.**
+
+The reason it is not the operator's call: the guardrail's stated purpose
+(§4.3, §7.2, §7.5) is to prevent *the agent* from asserting institutional
+character it cannot source. When the operator writes `"institution": "Anytown
+Credit Union"` into their own `balances.json`, and the analyzer echoes that
+string back inside a summary of the operator's own accounts, the product is
+not asserting anything about Anytown Credit Union. It is quoting the user to
+the user. Blocking that is not the guardrail being strict; it is the
+guardrail firing on the wrong subject, because
+`_INSTITUTIONAL_CHARACTER_RE` cannot distinguish "the words 'credit union'
+appear inside a proper name the user typed" from "the agent claims this
+entity is a credit union." Verified against current code:
+
+```
+>>> check_guardrail("- **Anytown Credit Union** — Personal Loan, rate 8.99%.",
+...                 frozenset({"penfed credit union"}))
+GuardrailResult(ok=False, ...)
+```
+
+And the consequence is severe, not cosmetic: `_build_output` raises
+`_GuardrailBlocked` on the *whole document*, so one such scenario suppresses
+the blended APR, every other scenario, and the entire findings file, on every
+tick, forever, with an unactionable message. For the most likely input a
+real user will ever stage, this World produces nothing. That is a broken
+product, not a conservative one.
+
+**Required design — provenance-scoped exemption, not a weakened check:**
+
+1. `check_guardrail(text, vetted_institutions, operator_names=frozenset())`.
+   `operator_names` is built in the analyzer from the `institution` fields of
+   the parsed `balances.json` — from the operator's own file, nowhere else.
+2. Matching for `operator_names` is identical to vetted matching (full-name
+   containment in a candidate proper noun in the same chunk). No looser.
+3. Debt Advisor passes `frozenset()` for `operator_names`. Its content is
+   entirely World content; the exemption must not exist on that path.
+4. `_framing_prose` continues to pass `frozenset()` for **both** sets. Model
+   prose gets no exemption of any kind — an operator's institution name is
+   exempt as a *quotation*, never as license for generated text.
+5. The echo must be marked in the rendered output, because an unmarked name
+   in a product-generated document is an implicit assertion. Render the
+   analyzer's scenario line as e.g.
+   `- **Anytown Credit Union** (as you entered it) — ...`, code-inserted,
+   never model-inserted. With that marker the document asserts nothing about
+   the institution and the exemption is honest on its face.
+6. Tests: the operator's own unvetted name passes; the *same* name appearing
+   in Debt Advisor's World-content path still blocks; an unvetted name that
+   is **not** in `balances.json` still blocks in the analyzer (i.e. the
+   exemption is keyed to the operator's file, not to the analyzer module);
+   and `_framing_prose` output naming the operator's institution is still
+   rejected.
+
+**Related, [ASK] not blocking:** guardrail failure is all-or-nothing and the
+operator-facing message is "failed the language-safety check — see logs."
+Once (1)-(6) land, a block should be rare and always the operator's to fix,
+so the event should name the offending field or line and say what to do.
+Please fix it in the same pass if it is cheap; file it if not.
+
+---
+
+## Tech debt delta vs. the prior review
+
+Repaid: all three items I added last round (vetted mechanism had no data;
+hardcoded character string; tests coupled to a synthetic fixture).
+
+New, to be recorded in ARCHITECTURE.md §13:
+1. The guardrail is now a three-way policy (World-vetted / operator-quoted /
+   neither) implemented as set membership plus a regex. It is still a
+   heuristic (§13.2's original prediction), and it now has a second
+   provenance axis. If a third provenance ever appears — an agent quoting an
+   approved scouting finding that names an institution — this function needs
+   a real design, not a third frozenset parameter.
+2. Named institutions carry an indefinite re-verification obligation
+   (condition (b) above), owned by whoever reseals the bundle.
+
+## Required actions before merge
+
+1. Fix **BLOCK-4** — newline-aware chunking, `finditer` over `search`, plus
+   the two regression tests that must fail against `3d56c9b`.
+2. Implement the **question-2** design, items 1-6 verbatim.
+3. Apply **condition (a)** — rename the roster heading, add the
+   code-inserted not-a-recommendation / not-exhaustive line.
+4. Apply **condition (b)** — `verified_as_of` on both named institutions,
+   required in both agents' vetted-set construction (absent ⇒ not vetted),
+   rendered in output. Reseal.
+5. Answer the escalated operator question above and record the answer in the
+   sprint directory. If the answer is "ship with zero named institutions,"
+   stop and come back to me — that reopens actions 3 and 4 and changes what
+   the real-bundle tests can assert.
+6. Address the failure-message **[ASK]** or file it.
+7. Re-review after 1-4. QA still should not run: the current suite would
+   certify BLOCK-4's merged-line pass as correct.
