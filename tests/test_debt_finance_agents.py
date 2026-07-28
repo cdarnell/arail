@@ -138,8 +138,19 @@ class TestDebtAdvisorHappyPath:
     def test_roster_heading_is_not_a_shortlist(self, debt_advisor_module, data_dir):
         """REVIEW.md addendum, condition (a): the heading must describe the
         verification mechanism, not read as "vetted institutions" (a
-        shortlist), and a code-inserted not-exhaustive/not-a-recommendation
-        line must sit immediately under it."""
+        shortlist), and a code-inserted not-exhaustive/no-endorsement line
+        must sit immediately under it.
+
+        TEST_REPORT.md F4: the line used to read "...is not a
+        recommendation", but the QA adversarial pass required expanding
+        ``_EVALUATIVE_RE`` to include "recommend"/"recommendation" (the
+        vocabulary a small instruct model actually reaches for when giving
+        advice) — which then made this fixed, code-inserted, *negated*
+        disclaimer line trip the guardrail's own check against itself.
+        Rephrased to carry the identical meaning ("this is not a shortlist
+        and endorses nothing") without the trigger word, rather than
+        weakening the newly-required vocabulary.
+        """
         agent = debt_advisor_module.DebtAdvisorAgent()
         agent.tick()
         text = (data_dir / "user-import" / "debt-finance" / "findings"
@@ -147,7 +158,7 @@ class TestDebtAdvisorHappyPath:
         assert "## Institutions whose character claims this World verified" in text
         assert "## Vetted institutions" not in text
         assert "not exhaustive" in text
-        assert "not a recommendation" in text
+        assert "does not rank or endorse" in text
 
     def test_verified_as_of_date_rendered_near_citation(self, debt_advisor_module, data_dir):
         """REVIEW.md addendum, condition (b): the verification date must be

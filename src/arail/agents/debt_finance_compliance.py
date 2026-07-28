@@ -34,7 +34,9 @@ CANONICAL_PHRASE = "not licensed financial advisors"
 # §13.2) — it closes the "zero backstop" review finding, it does not claim
 # to catch every adversarially-phrased attempt.
 _EVALUATIVE_RE = re.compile(
-    r"\b(best|guaranteed|top[- ]pick|top choice|lowest|you should|you must)\b",
+    r"\b(best|guaranteed|top[- ]pick|top choice|lowest|you should|you must|"
+    r"recommend(?:ed|ation|s)?|advice|advis(?:e[sd]?|able)|optimal|cheapest|"
+    r"smartest|better off|no[- ]brainer)\b",
     re.I,
 )
 
@@ -110,6 +112,20 @@ _MIN_QUOTED_SPAN_LEN = 5
 # vet the trigger phrase itself.
 _PROPER_NOUN_RE = re.compile(r"\b[A-Z][\w&'.-]*(?:\s+[A-Z][\w&'.-]*)*\b")
 
+# Minimum length, after whitespace-collapse and casefold, an allowed name
+# (an ``operator_names`` or ``vetted_institutions`` entry) must have before
+# it is eligible to pair-match an institutional-character claim at all.
+# QA (TEST_REPORT.md F2) found ``_names_match`` was unanchored substring
+# containment with no floor: a 1-char operator-typed institution name (or a
+# whitespace-only one) is a substring of nearly every capitalized proper
+# noun, so it "vetted" institutions the operator never named and the World
+# never verified. This is the same defect class ``_MIN_QUOTED_SPAN_LEN``
+# closes on the evaluative branch, applied here to the branch it was never
+# applied to. Chosen length is short enough to admit real short lender
+# names ("SoFi", "USAA", "PNC") while excluding single characters and
+# whitespace.
+_MIN_ALLOWED_NAME_LEN = 3
+
 
 @dataclass
 class GuardrailResult:
@@ -181,8 +197,8 @@ def _candidate_names(sentence: str) -> list[str]:
 
 
 def _names_match(candidate_lower: str, vetted_lower: str) -> bool:
-    """True only if the candidate proper noun contains the vetted
-    institution's *full* name as a substring.
+    """True only if the candidate text contains the vetted institution's
+    *full* name as a whole-word-bounded, whitespace/case-normalized phrase.
 
     Deliberately one-directional: checking "is the candidate a substring of
     the vetted name" too would let a bare capitalized trigger word (e.g. a
@@ -192,8 +208,27 @@ def _names_match(candidate_lower: str, vetted_lower: str) -> bool:
     this function exists to close. Requiring the *full* vetted name inside
     the candidate means a fictional or unvetted institution's name is never
     close enough by accident.
+
+    TEST_REPORT.md F2/F3: two further hardenings over the original bare
+    ``vetted_lower in candidate_lower`` substring check:
+
+    1. A length floor (``_MIN_ALLOWED_NAME_LEN``) — a 1-char or
+       whitespace-only allowed name is never eligible to match anything, no
+       matter how it got into ``operator_names``/``vetted_institutions``.
+    2. Word-boundary anchoring instead of bare containment — "ally" must
+       not match inside "alliance"; only a whole-word (or whole-phrase)
+       occurrence counts.
+
+    Whitespace is collapsed and casing is folded (``str.casefold()``, not
+    ``.lower()``, so non-ASCII initials normalize consistently) on the
+    vetted side before matching, so a hand-typed trailing space or an
+    accented initial letter doesn't cause a spurious non-match.
     """
-    return vetted_lower in candidate_lower
+    vetted_norm = " ".join(vetted_lower.split()).casefold()
+    if len(vetted_norm) < _MIN_ALLOWED_NAME_LEN:
+        return False
+    candidate_norm = candidate_lower.casefold()
+    return re.search(rf"\b{re.escape(vetted_norm)}\b", candidate_norm) is not None
 
 
 def check_guardrail(
@@ -307,6 +342,37 @@ def check_guardrail(
                 for candidate in candidates_lower
                 for allowed in allowed_names
             )
+            # TEST_REPORT.md F3: ``_PROPER_NOUN_RE`` requires an ASCII
+            # capital initial, but the trigger regex above (and this
+            # module's whole matching design) is case-insensitive. An
+            # operator who types their own institution name in lowercase,
+            # or whose name starts with a non-ASCII letter (e.g. "Éole"),
+            # never produces a capitalized candidate at all — so the exact,
+            # documented-as-case-insensitive exemption path can never fire
+            # for them. Fall back to matching an allowed name directly
+            # against the raw window text (case-folded, word-boundary
+            # anchored via ``_names_match``) so the candidate-name
+            # extraction step is consistent with the rest of the
+            # guardrail's case-insensitive design, rather than a second,
+            # stricter gate in front of it.
+            if not matched:
+                # Guard against reintroducing BLOCK-1's tautology: an
+                # allowed name whose normalized form is *identical* to the
+                # trigger phrase's own matched text (e.g. a vetted set
+                # naively containing the bare generic term "credit union"
+                # itself) must never satisfy this fallback — that would let
+                # the trigger phrase vet itself, telling us nothing about
+                # any actual institution's identity. A genuine institution
+                # name that happens to *contain* the trigger phrase as part
+                # of a longer name (e.g. "Navy Federal Credit Union") is
+                # unaffected: it is not identical to the bare trigger text,
+                # only a superset of it.
+                match_norm = " ".join(match.group(0).split()).casefold()
+                matched = any(
+                    _names_match(window, allowed)
+                    for allowed in allowed_names
+                    if " ".join(allowed.split()).casefold() != match_norm
+                )
             if not matched:
                 return GuardrailResult(
                     ok=False,
