@@ -46,7 +46,40 @@ except subprocess.TimeoutExpired:
 }
 
 WORK="$(mktemp -d)"
-cleanup() { chmod -R u+w "$WORK" 2>/dev/null; rm -rf "$WORK"; }
+
+# Kill any instance a scenario actually managed to bring up, BEFORE removing
+# the sandbox. Needed since the QA-fix pass closed QA-B1: the stub `uvicorn`
+# below is shadowed by `source .venv/bin/activate` (which prepends the venv's
+# own bin to PATH), so start.sh spawns the REAL uvicorn — and now that
+# /api/instance answers 200 pre-onboarding, a scenario that reaches stage
+# [6/8] SUCCEEDS and its launcher blocks in `wait` forever. Before the fix
+# every such launch died at the 60s probe timeout, so nothing leaked and this
+# was invisible. Without this, a driver run strands a live portal on :8090
+# (observed) and the next run's bind check fails against its own leftovers.
+_kill_leaked_instances() {
+    local reg rec pid
+    for reg in "$WORK"/*/lab/instances/registry.d/*.json; do
+        [[ -e "$reg" ]] || continue
+        for pid in $(sed -n 's/.*"\(portal_pid\|memory_pid\|launcher_pid\)": *\([0-9]*\).*/\2/p' "$reg" 2>/dev/null); do
+            kill -9 "$pid" 2>/dev/null || true
+        done
+    done
+    # Belt and braces: any uvicorn whose --app-dir is inside this sandbox.
+    for pid in $(pgrep -f "uvicorn.*--app-dir ${WORK}" 2>/dev/null); do
+        kill -9 "$pid" 2>/dev/null || true
+    done
+    for pid in $(pgrep -f "uvicorn arail.*--port 809[0-9]" 2>/dev/null); do
+        # only ours: verify the process's cwd is under $WORK
+        case "$(lsof -p "$pid" -a -d cwd 2>/dev/null | tail -1)" in
+            *"$WORK"*) kill -9 "$pid" 2>/dev/null || true ;;
+        esac
+    done
+}
+cleanup() {
+    _kill_leaked_instances
+    chmod -R u+w "$WORK" 2>/dev/null
+    rm -rf "$WORK"
+}
 trap cleanup EXIT
 
 FAKE_HOME="$WORK/home"
@@ -58,6 +91,12 @@ _make_stub_bin() {
     # uvicorn dies instantly — never binds, never answers /api/instance, so
     # stage [6/8]'s readiness poll fails fast on child death instead of
     # burning the 60s cap.
+    #
+    # CAVEAT (real, and why cleanup() above kills leaked instances): this stub
+    # is only effective until start.sh runs `source .venv/bin/activate`, which
+    # PREPENDS the venv's own bin to PATH and therefore shadows it. Scenarios
+    # that get past stage [4/8] spawn the REAL uvicorn. Do not rely on this
+    # stub for anything past the env-pack stage.
     printf '#!/usr/bin/env bash\nexit 1\n' > "$bin/uvicorn"
     for b in ollama open xdg-open; do printf '#!/usr/bin/env bash\nexit 0\n' > "$bin/$b"; done
     chmod +x "$bin"/*
