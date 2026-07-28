@@ -4,7 +4,11 @@
 **Build:** [BUILD_LOG.md](./BUILD_LOG.md) at `eb296cd`
 **Review:** [REVIEW.md](./REVIEW.md) — WEAK_PASS after 6 rounds
 **New tests:** `tests/test_debt_finance_qa_adversarial.py` (37 tests, 31 failing)
-**Verdict:** **FAIL**
+**Verdict (round 1):** **FAIL**
+**Verdict (round 2, after `2d5513f`/`63d818d`/`393fcc7`/`e3c0e9a`): FAIL — see
+[Round 2](#round-2--re-verification-after-the-builder-fixes) at the bottom of
+this file.** F1/F2/F3 are genuinely closed, but the F3 fix opened a new escape
+of the same family (F10, BLOCK).
 
 Three BLOCK-severity findings. Two of them are the seventh and eighth
 escape routes in the same guardrail the architect closed six times, and the
@@ -387,3 +391,170 @@ loop was exercised at all. 37 tests added, covering all of those.
   `findings/` directory and `mkdir(parents=True, exist_ok=True)` races were
   not exercised); the seal-time `knowledge_sources[]` ordering check from
   §3.2.
+
+---
+---
+
+# Round 2 — re-verification after the builder fixes
+
+**Date:** 2026-07-27
+**Commits reviewed:** `2d5513f` (my round-1 tests) · `63d818d` (F2/F3/F4) ·
+`393fcc7` (F1/F5–F9) · `e3c0e9a` (BUILD_LOG)
+**New tests:** 6 added to `tests/test_debt_finance_qa_adversarial.py` (43 total)
+**Verdict:** **FAIL** — one new BLOCK (F10), introduced by the F3 fix.
+
+I re-ran my own adversarial file rather than trusting the report, read the
+diffs in all four commits line by line, and probed specifically for the
+"one level deeper" pattern that took the architect six rounds to close on
+this same guardrail. That pattern is present again.
+
+## What is genuinely closed
+
+| Round-1 finding | Status | How I verified |
+|---|---|---|
+| F1 [BLOCK] malformed value crashes tick + kills loop | **Closed** | All 6 malformed-value classes pass; `_validate_numeric_field` rejects non-numeric / `bool` / non-finite / negative / `>1e12`; both agents' `_run` now wrap `self.tick()` in `except Exception` with `CancelledError` re-raised first — read the diff, the ordering is correct. |
+| F2 [BLOCK] no length floor / unanchored containment in `_names_match` | **Closed for the reported repro** | 1-char and whitespace-only allowed names no longer match (`_MIN_ALLOWED_NAME_LEN`, casefold, `\b` anchoring). "ally" no longer matches inside "alliance". **But see F10** — the defect *class* is not closed, it moved. |
+| F3 [BLOCK] lowercase/accented operator names permanently over-blocked | **Closed** | `sofi is a credit union…` and `éole is a credit union…` now pass with the corresponding `operator_names` entry. |
+| F4 [MEDIUM] evaluative vocabulary gaps | **Fixed** | recommend/advice/advis*/optimal/cheapest/smartest/"better off"/"no-brainer" added. Builder correctly chose to rephrase its own template line rather than narrow the new vocabulary — the right direction. |
+| F5 [MEDIUM] symlink-followed findings write | **Fixed** | `os.O_WRONLY\|O_CREAT\|O_TRUNC\|O_NOFOLLOW` at create time, not an `islink()` pre-check (no TOCTOU), in **both** agents; callers check the `False` return and skip the success emit. Residual LOW: only the final path component is `O_NOFOLLOW`-protected, and a pre-existing attacker-owned *regular* file (or hard link) at that path is still truncated into. Not new, not worth blocking on for a fixed, non-operator-controlled path under `lab/data/`. |
+| F6 [MEDIUM] no-op fingerprint gaps | **Fixed** | Analyzer hashes (balances, disclaimer text, vetted names) + findings-file-exists; Advisor hashes approved-finding *identity* rather than a bare count. Covers all four gaps I named. |
+| F7/F8/F9 [LOW] | **Fixed** | `_relative_pointer()` in both modules; negatives folded into `_validate_numeric_field`; `_load_terms` filters to dict entries. |
+
+**Credit where due:** the builder disclosed a self-inflicted regression it
+caught during the F3 work (an early case-insensitive approach reintroduced
+the BLOCK-1 tautology), and disclosed that it could not run a full-repo
+before/after diff in its sandbox. Both disclosures are accurate and both are
+the behavior I want. The problem below is not a disclosure failure — it is
+that the guard the builder added against that self-inflicted regression is
+one level too shallow.
+
+## New failures
+
+| # | Test | Symptom | Minimal repro | Severity |
+|---|---|---|---|---|
+| F10 | `test_allowed_name_that_is_a_word_of_the_trigger_phrase_does_not_self_vet` (+4 siblings) | An allowed name that is a *word of* the trigger phrase — or any ≥3-char common word in the proximity window — vets every institutional-character claim in the document. **Regression:** these inputs were correctly blocked before `63d818d`. | below | **BLOCK** |
+| F11 | `test_capitalized_trigger_phrase_does_not_self_vet_via_candidate_path` | BLOCK-1's tautology still fires on the *primary* candidate path when the trigger phrase appears capitalized in the text. Pre-existing, not a regression — but it shows the new tautology guard was added to only one of the two paths. | below | MEDIUM |
+
+### F10 — [BLOCK] the F3 window-fallback reintroduces BLOCK-1 at word granularity
+
+The F3 fix matches an allowed name against the **raw proximity window**
+instead of against an extracted proper-noun candidate. The window
+necessarily contains the trigger phrase's own text and the ordinary English
+prose around it, so the fallback admits matches the candidate path
+structurally could not. The tautology guard added alongside it excludes only
+an allowed name whose *whole normalized form is identical* to the trigger's
+matched text. It does not exclude an allowed name that is a single **word
+of** that text.
+
+```python
+from arail.agents.debt_finance_compliance import check_guardrail
+F = frozenset
+
+check_guardrail("Payday Express is a credit union.", F(), F({"Union"})).ok
+# -> True   (guardrail defeated; "union" is found inside the trigger itself)
+# pre-63d818d: False  (correctly blocked)
+
+check_guardrail("Payday Express is a credit union.", F(), F({"Credit"})).ok
+# -> True
+
+check_guardrail("Payday Express is the credit union.", F(), F({"the"})).ok
+# -> True   ("the" clears _MIN_ALLOWED_NAME_LEN=3 and is in every window)
+# pre-63d818d: False
+
+check_guardrail("Payday Express is a credit union.", F(), F({"is a"})).ok
+# -> True   (not a name at all — an arbitrary prose fragment)
+```
+
+Blast radius is document-wide, exactly as in F2: one such entry in
+`operator_names` (or `vetted_institutions`) suppresses the guardrail for
+every claim in the output, verified with a two-claim text. Reachability is
+the same operator-typed `balances.json` path F2 used — `union`, `credit`,
+`loan`, `bank`, `trust`, `first` are all plausible short operator-typed
+account labels, and `union`/`credit` are additionally *inside the trigger
+phrase*, which makes them a pure tautology rather than a coincidence.
+
+The root cause is structural, and matches the note I filed in round 1: the
+length floor is a *magnitude* defense against what is a *provenance*
+problem. `_MIN_ALLOWED_NAME_LEN = 3` stops `"x"` and stops `" "`; it cannot
+stop `"the"`. Two properties the fallback needs and doesn't have:
+
+1. The matched span must not **overlap** the trigger phrase's own matched
+   text — not merely "not be identical to it". (`match.span()` is already in
+   hand at the call site; a span-overlap test is a two-line change.)
+2. The fallback should match against the window with the trigger occurrence
+   **excised**, or require the match to look like a name (e.g. not a member
+   of a stopword set, or ≥2 tokens, or bounded by non-prose context) —
+   otherwise "matched a common English word in prose" and "matched the
+   operator's institution name" remain indistinguishable.
+
+I am not prescribing the fix; both notes are for the builder's judgment.
+What must hold is that all 6 new tests pass **and** the existing 155 keep
+passing — in particular the round-1 BLOCK-1 control
+(`"Payday Express is a credit union"` with an unvetted set) and the F3
+lowercase-`sofi` case, which pull in opposite directions and are where the
+builder's first attempt went wrong.
+
+### F11 — [MEDIUM] the tautology guard covers only one of the two match paths
+
+```python
+check_guardrail("Payday Express is a Credit Union.", F({"credit union"})).ok
+# -> True   (also True before 63d818d — pre-existing, not a regression)
+```
+
+`_PROPER_NOUN_RE` extracts `"Credit Union"` as a candidate, which matches a
+generic vetted entry exactly. Whether this is live depends on `terms.json`
+never carrying a generic `institution_type` entry — which is the invariant
+the architect's BLOCK-1 closure rests on, so the guardrail is currently
+relying on data hygiene for a property it claims to enforce in code. The
+same `match.span()`-overlap defense that fixes F10 fixes this too, which is
+why I am filing it here rather than deferring it.
+
+Related and lower: a vetted entry that is a generic *superset* of the
+trigger (`"federal credit union"`) also vets an unrelated institution
+(`"Payday Express is a federal credit union."` → `ok=True`). Same root
+cause, same fix.
+
+## Regression
+
+Full suite at HEAD, same interpreter (`PYTHONPATH=src`, repo venv):
+
+```
+47 failed, 3545 passed, 2 skipped, 1 xfailed, 7 errors  (661 s)
+```
+
+None of the 47 failures or 7 errors are in a debt-finance module. They are
+in `test_build_tab`, `test_aerollm_*`, `test_world_forge_api`,
+`test_r1_r3_chat_models`, and peers — the same environment-dependent,
+untracked-runtime-state set documented in round 1's regression section.
+**No regression attributable to `63d818d`/`393fcc7`.**
+
+Debt-finance selection: **155 passed** before my 6 new tests; **155 + 37
+passed / 6 failed** after. The 6 failures are F10/F11 only.
+
+## Security review (round 2, delta only)
+
+| Surface | What I actually checked | Findings |
+|---|---|---|
+| Guardrail bypass (institutional branch) | Read the new `_names_match` and the F3 fallback rather than trusting the 155 green tests; enumerated 16 probes against the fallback (sub-word-of-trigger, generic superset of trigger, stopwords at the length floor, multi-word prose fragments, regex metacharacters in the allowed name, zero-width joiners, embedded newlines, plural/hyphen forms, whitespace/case normalization of both sides), and diffed each result against the pre-fix implementation to separate regressions from pre-existing behavior. | **F10 BLOCK, F11 MEDIUM.** Regex metacharacters are correctly `re.escape`d; zero-width and newline variants correctly fail closed; the length floor and `\b` anchoring do what they claim. |
+| Loop liveness (F1) | Read both `_run` bodies: `except asyncio.CancelledError: raise` precedes `except Exception`, so cancellation still terminates. Residual LOW, not filed as a finding: if `_host.emit` itself raises inside the handler the loop still dies — narrow, and `emit` is a local append. | Clean |
+| File I/O (F5) | `O_NOFOLLOW` at create in both modules, no `islink()` pre-check, callers branch on the `False` return. Residual noted in the table above (pre-existing regular-file/hard-link at the target path). | Clean, LOW residual |
+| Info leakage (F7) | `_relative_pointer` falls back to `path.name` on `ValueError`, so no absolute path escapes on either branch; checked every interpolation site in both modules. | Clean |
+| Data isolation (§0.1) | Not re-run; the round-1 end-to-end scan holds and none of these four commits touch the state-file key sets. | Unchanged |
+
+## Notes for the next QA pass
+
+- **The F10 pattern is round 1's note coming true verbatim.** I wrote:
+  "when a fix introduces a defensive constant, immediately ask which other
+  call site has the same shape." The F3 fix introduced a defensive
+  *identity* check and did not ask which weaker relation (overlap,
+  containment, sub-word) the same tautology survives under. Identity
+  guards on a matching predicate are almost always one level too shallow.
+- **The two directions are still fighting each other.** Every fix that
+  widens matching to close a false *block* (F3) reopens a false *pass*
+  (F10), and vice versa. This guardrail has now had 8 escapes and 1
+  over-block across 7 rounds. The next fix should come with the two
+  control cases pinned in the same test (unvetted-blocks, lowercase-real-
+  name-passes) so the pull is visible in one place.
+- Still not covered: concurrent ticks racing on `findings/`,
+  `find_mounted_bundle_dir` changing mid-tick, §3.2 seal-time
+  `knowledge_sources[]` ordering.

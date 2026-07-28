@@ -552,3 +552,91 @@ def test_findings_content_is_never_world_readable_even_transiently(
     _stage(data_dir, json.dumps(_REAL_SHAPED))
     analyzer.ConsolidationAnalyzerAgent().tick()
     assert oct(os.stat(stale).st_mode & 0o777) == "0o600"
+
+
+# ══════════════════════════════════════════════════════════════════════
+#  QA ROUND 2 — regressions introduced by the F2/F3 fix (63d818d)
+#
+#  The F3 fix added a fallback that matches an allowed name against the
+#  *raw proximity window* rather than against an extracted proper-noun
+#  candidate. The window necessarily contains the trigger phrase's own
+#  text and the ordinary English prose around it, so the fallback admits
+#  matches the candidate path structurally could not. The tautology guard
+#  added alongside it only excludes an allowed name whose *whole
+#  normalized form is identical* to the trigger's matched text — it does
+#  not exclude an allowed name that is a single *word of* that text, nor
+#  one that is a common word occurring elsewhere in the window.
+# ══════════════════════════════════════════════════════════════════════
+
+
+def test_allowed_name_that_is_a_word_of_the_trigger_phrase_does_not_self_vet():
+    """F10: BLOCK-1's tautology at word granularity. An allowed name of
+    "union" is found inside the trigger phrase "credit union" itself, so
+    every institutional-character claim in the document self-vets. Blocked
+    before the F3 fix; admitted after it."""
+    result = check_guardrail(
+        "Payday Express is a credit union.",
+        frozenset(),
+        operator_names=frozenset({"Union"}),
+    )
+    assert not result.ok, "an allowed name inside the trigger phrase self-vetted"
+
+
+def test_allowed_name_that_is_a_word_of_the_trigger_does_not_vet_document_wide():
+    """F10, document-wide blast radius: one such entry suppresses the
+    guardrail for every claim in the text, not just the first."""
+    result = check_guardrail(
+        "Payday Express is a credit union. Loan Shark LLC is a credit union.",
+        frozenset(),
+        operator_names=frozenset({"union"}),
+    )
+    assert not result.ok
+
+
+def test_allowed_name_that_is_a_generic_domain_word_does_not_vet_by_proximity():
+    """F10: "credit" is both a plausible operator-typed account label and a
+    word of the trigger phrase. Same escape, reachable through the same
+    operator-data path F2 was."""
+    result = check_guardrail(
+        "Payday Express is a credit union.",
+        frozenset(),
+        operator_names=frozenset({"Credit"}),
+    )
+    assert not result.ok
+
+
+def test_short_common_english_word_in_the_window_does_not_vet():
+    """F10: the _MIN_ALLOWED_NAME_LEN floor of 3 stops single characters
+    but not "the" — which the window fallback now finds in ordinary prose
+    with no proper noun involved at all. Blocked before the F3 fix."""
+    result = check_guardrail(
+        "Payday Express is the credit union.",
+        frozenset(),
+        operator_names=frozenset({"the"}),
+    )
+    assert not result.ok
+
+
+def test_multiword_prose_fragment_as_allowed_name_does_not_vet():
+    """F10: the fallback matches arbitrary phrases against raw prose, so a
+    degenerate multi-word entry ("is a") that is not a name at all still
+    satisfies the guardrail."""
+    result = check_guardrail(
+        "Payday Express is a credit union.",
+        frozenset(),
+        operator_names=frozenset({"is a"}),
+    )
+    assert not result.ok
+
+
+def test_capitalized_trigger_phrase_does_not_self_vet_via_candidate_path():
+    """F11 (pre-existing, not a regression): the tautology guard was added
+    only to the F3 fallback. On the *primary* candidate path, a generic
+    vetted entry equal to the trigger phrase still self-vets whenever the
+    trigger appears capitalized in the text — "Credit Union" is extracted
+    as a proper-noun candidate and matches the entry exactly."""
+    result = check_guardrail(
+        "Payday Express is a Credit Union.",
+        frozenset({"credit union"}),
+    )
+    assert not result.ok
