@@ -1372,3 +1372,147 @@ exactly the fields that cannot cause it.
    heuristic, now with a documented, verified escape (date/URL voucher) and a
    documented semantic conflation (OPERATOR-as-character-voucher). Do not
    mark §13.11 closed.
+
+---
+
+## Re-review addendum 7 (round 8, 2026-07-27) — `is_name` provenance tag
+
+**Reviewed:** e775da9 (core fix), 871f772 (F9 parity), 6c26893 (stale hint),
+523c6e2 (docs, §13.11 CLOSED).
+
+### Verdict: WEAK_PASS — ship. This is terminal; do not schedule a round 9.
+
+### 1. Is `is_name` tagged correctly and completely?
+
+Yes. Full enumeration of every non-AGENT `Segment` construction site in the
+codebase (`grep -rn --include="*.py" "Segment\." src scripts`; there are no
+others outside the two agents and the compliance module):
+
+**Debt Advisor `_build_output`** — 7 non-AGENT sites:
+
+| Site | Field | `is_name` | Correct? |
+|---|---|---|---|
+| L349 | `v.name` | **True** | yes — the institution's own name |
+| L351 | `character` (`v.institution_type`) | False | yes — a character label, not a name |
+| L353 | `v.verification_source` | False | yes — URL |
+| L355 | `v.verified_as_of` | False | yes — date |
+| L380 | `f["feed"]` | False | yes — an RSS source title, not an institution being characterized |
+| L382 | `f["checked"]` | False | yes — date |
+| L384 | `f["path"]` | False | yes — a bundle-relative path |
+
+**Consolidation Analyzer `_build_output`** — 4 non-AGENT sites:
+
+| Site | Field | `is_name` | Correct? |
+|---|---|---|---|
+| L385 | `r.institution` | **True** | yes |
+| L387 | `r.product` | False | yes — product name |
+| L394 | `r.source` | False | yes — URL |
+| L396 | `r.as_of` | False | yes — date |
+
+No fourth candidate exists. The analyzer's "Current position" block renders
+only `len(debts)` and a computed blended APR — the `institution` field on
+`balances.json`'s `debts` entries is never rendered at all, so there is no
+untagged name hiding there. The builder found both sites; the enumeration is
+complete.
+
+### 2. Could a segment be mistagged at too coarse a granularity?
+
+No. Both `is_name=True` sites wrap a bare field access (`v.name`,
+`r.institution`) with no concatenation, no formatting, and no surrounding
+literal. The name segment's `text` is exactly the name and nothing else, so
+the tag cannot be laundered onto adjacent prose. This is the property that
+makes the fix hold, and it holds.
+
+### 3. Does this close the entire defect family? — Partly. Verified live.
+
+The reported defect is genuinely closed. Both round-7 repros now block, as
+does the OPERATOR-provenance variant:
+
+```
+[world("2026-01-15"),        agent(" - Acme Bank is a nonprofit credit union.")]  -> ok=False
+[world("https://ncua.gov/x"), agent(" Globex is a member-owned credit union.")]   -> ok=False
+[operator("Personal Loan"),   agent(" Payday Express is a credit union.")]        -> ok=False
+```
+
+But the builder's structural claim — repeated verbatim in ARCHITECTURE.md as
+"There is no adjacency math... no positional reasoning of any kind left in the
+institutional-character branch" — is **not accurate**, and I verified it:
+
+```
+# Case 1 still trusts a non-AGENT trigger segment with NO name pairing at all:
+[agent("Payday Express is a "),   world("credit union")]        -> ok=True
+[agent("Payday Express offers a "), operator("credit union loan")] -> ok=True
+
+# Case 2 still uses immediate-neighbour ADJACENCY to decide WHICH name a
+# trigger is about — a real vetted name vouches for a claim about a
+# different, agent-invented one in the same or an adjacent AGENT span:
+[world("PenFed",is_name=True), agent(" and Payday Express is a credit union, unlike "), world("Navy Federal",is_name=True)] -> ok=True
+[agent("Payday Express is a credit union "), world("PenFed",is_name=True), agent(" Globex is a credit union")]              -> ok=True
+```
+
+So the coarse-property-for-fine-question shape **is** still present: the check
+treats "an AGENT segment" as the atomic unit for the question "which name is
+this claim about." What `is_name` correctly eliminated is the strictly weaker
+error "any non-AGENT text counts as a name." That is a real and complete
+closure of the *reported* defect, not of all positional inference.
+
+Neither residual is reachable today, and I checked why rather than assuming:
+the only model-generated AGENT text in either agent is `_framing_prose`, which
+occupies its own line, is neighboured on both sides by `agent("\n")`, is itself
+run through `check_guardrail`, and in the Debt Advisor is additionally rejected
+if it contains any vetted institution's name. Every AGENT segment adjacent to a
+non-AGENT one is a hardcoded literal. Fail-closed holds.
+
+### 4. Ruling on §13.11: **CLOSED is accepted.**
+
+I am overriding my own addendum-6 instruction. The reason I said "narrow, keep
+open" was that every prior fix had closed one inference method and left the
+next one available. `is_name` is categorically different: it replaces an
+inference with a fact asserted at the one call site that knows it, defaulting
+closed for anyone who forgets. The builder's reasoning about *why* to close is
+right even though its supporting claim about *what* was removed is overstated.
+Reopening a defect whose reported shape is structurally unreachable would be
+process theatre.
+
+The residuals in §3 above are **not** §13.11. They belong to §13.10 (a single
+AGENT segment spanning two disjoint institution mentions), which remains open
+and separately tracked, and which must now explicitly own both verified shapes
+— the case-1 no-name-pairing path and the name-vouches-across-an-AGENT-span
+path. That is a documentation move, not a reopening.
+
+### Findings
+
+- [INFO] `is_name` tagging is complete and correctly granular (§1, §2).
+- [INFO] F9 `isinstance` parity, the stale `REASON_EVALUATIVE` hint, and the
+  OPERATOR-vs-WORLD docstring clarification (addendum-6 actions 2, 3, 4) are
+  all correctly addressed.
+- [ASK] ARCHITECTURE.md §13.11's closure paragraph asserts "no positional
+  reasoning of any kind left" and "no adjacency math." Both are false as
+  verified above. An overstated safety claim in the architecture record is the
+  precise mechanism by which the next reviewer stops looking. Correct the
+  sentence to what is actually true: *the check no longer infers whether a
+  neighbour is a name; it still uses segment adjacency to associate a claim
+  with a name, which is why §13.10 stays open.*
+- [ASK] The new template-invariant test
+  (`test_template_invariant_no_agent_segment_adjacent_to_non_agent_carries_a_trigger_or_is_dynamic`)
+  **hand-copies** both `_build_output` templates into the test body rather than
+  calling them. It calls `_da._vetted_institutions` and `_ca._compute_scenarios`
+  but reconstructs the segment list with its own `S.agent(...)` literals. It
+  therefore cannot fail on the exact drift it was written to catch: a future
+  edit adding a trigger-bearing AGENT segment next to a non-AGENT one in the
+  real `_build_output` leaves this test green. Addendum-6 action 1 asked for
+  the invariant to become "a checked property rather than a reviewed one";
+  as delivered it is still a reviewed one, now with a green test next to it.
+  Make it call the real `_build_output` with `_host.llm_complete` monkeypatched
+  and the guardrail's segment list captured.
+
+Neither ASK is a correctness defect in shipped code — the `is_name` check is
+the load-bearing control and it fails closed independent of both. They ship as
+follow-ups.
+
+### Required actions (follow-up tickets, not merge blockers)
+
+1. Correct the two overstated sentences in ARCHITECTURE.md §13.11's closure
+   paragraph; move the two verified residual shapes into §13.10's scope.
+2. Rewrite the template-invariant test to exercise the real `_build_output`
+   for both agents instead of a hand-copied replica.
