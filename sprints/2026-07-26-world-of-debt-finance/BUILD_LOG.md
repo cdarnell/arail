@@ -995,3 +995,97 @@ matched the review's named examples.
   etc.) — the same pre-existing-red pattern prior rounds' full-suite
   `git stash` methodology established. No regression introduced by this
   round's changes.
+
+## Post-review fixes, round 6 (final)
+
+**REVIEW.md at 3610d04 ("Re-review addendum 5 (round 6)"), verdict
+WEAK_PASS.** One required fix (ASK-D) before merge; one documentation-only
+tech-debt entry; everything else in that round was accepted as-is (BLOCK-7,
+ASK-C closed; field enumeration independently re-derived and confirmed
+complete).
+
+### ASK-D fix
+
+`_builtin_debt_advisor.py`'s `_build_output` renders
+`character = v.institution_type.replace("-", " ")` (line ~300) but the
+`quoted_spans` frozenset it builds for the guardrail's evaluative-branch
+exemption (line ~349, prior to this fix) put in the *raw*
+`entry.institution_type` — never the hyphen-replaced string that actually
+appears in the rendered document. For any realistic hyphenated value
+(`terms.json` uses `credit-union`, `credit-counseling-agency`), the mask
+never matched what was rendered: masking the raw span left `ok=False`
+(spurious block), while masking the rendered span correctly returns
+`ok=True`. Confirmed independently by the architect before this fix landed.
+Degrades closed (over-blocks, never a bypass) and is unreachable against
+the two real institutions in today's sealed bundle — not a live BLOCK, but
+a real one-line bug in the round-5 fix.
+
+**Fix:** `quoted_spans` now includes `entry.institution_type.replace("-",
+" ")`, matching the exact transform `_build_output` applies before
+rendering — not the raw field.
+
+**Test:** replaced the now-stale
+`test_code_authored_institution_type_with_evaluative_word_still_blocks`
+(which asserted institution_type was "never a member of quoted_spans" — a
+premise round 5 deliberately overturned when it correctly widened scope to
+include this field) with
+`test_hyphenated_institution_type_with_trigger_word_no_longer_blocks`,
+using a test fixture value (`"best-rate-lender"`) that only exposes an
+`_EVALUATIVE_RE` trigger word once its hyphens are stripped for display.
+This test fails against the pre-fix code (raises `_GuardrailBlocked`) and
+passes against the fix. Added
+`test_genuinely_agent_authored_evaluative_text_still_blocks` as a negative
+control confirming the fix only changed which rendered string is masked,
+not whether genuinely agent-authored text remains blocked.
+
+### ARCHITECTURE.md §13 — tech-debt entry added, not implemented
+
+Added §13.11, documenting the architect's recommended segment-based
+provenance refactor (assemble `(text, provenance)` segments at render time
+instead of reconstructing provenance from a flat string via substring
+search) as a candidate for its own future, separately-scoped sprint,
+referencing REVIEW.md's "Re-review addendum 5 (round 6)" as the source.
+**Not implemented** — the architect was explicit that this belongs in its
+own scoped sprint, not another round on this diff, and this build's own
+implementation stayed within the ASK-D scope only.
+
+### Test results
+
+- `tests/test_debt_finance_agents.py` + `tests/test_debt_finance_compliance.py`
+  + `tests/test_debt_finance_agents_seed.py` + `tests/test_debt_finance_reveal_slot.py`
+  + `tests/test_world_forge_debt_finance_seal.py` (targeted local run): 110
+  passed, 0 failed.
+- Full debt-finance selection (`pytest tests/ -k "debt_finance or
+  debt-finance" -q`, from the worktree root, with
+  `PYTHONPATH=src:.../qukaizen-dac`): **118 passed**, 3447 deselected, 0
+  failed. (117 -> 118: net +1 from replacing one stale test with two new
+  ones.)
+- Full repo suite: not independently re-run this round beyond the targeted
+  debt-finance selection above. Round 5's full-suite baseline (46
+  pre-existing failures, all outside debt-finance) is unchanged by this
+  round's diff, which touches only `_builtin_debt_advisor.py`'s
+  `quoted_spans` construction, `tests/test_debt_finance_agents.py`, and
+  `ARCHITECTURE.md`.
+
+### Commit
+
+`2a74ab7` — `fix(debt-finance): mask institution_type's rendered form, not
+raw field (ASK-D)`. Single atomic commit: the one-line production fix, the
+two-test regression/negative-control pair, and the documentation-only
+ARCHITECTURE.md §13 tech-debt entry.
+
+## Closing summary
+
+Review history on this build: base review at `2c7dce1` returned **BLOCK**
+(BLOCK-1/2/3); five subsequent re-review rounds each returned **BLOCK**
+(BLOCK-4 at round 2; BLOCK-5 at round 3; BLOCK-6 at round 4; BLOCK-7(a)/(b)
+at round 5) as the review progressively found deeper instances of the same
+provenance-masking defect class; round 6 (this round) returned
+**WEAK_PASS**, with the one required fix (ASK-D) closed above and the
+architect's structural recommendation filed as tracked tech debt rather
+than implemented.
+
+**Current status: ready for `/qa`.** All required actions from REVIEW.md's
+round-6 addendum are complete. No BLOCK findings remain open. The
+segment-based provenance refactor is explicitly out of scope for this
+sprint and tracked in ARCHITECTURE.md §13.11 for a future sprint.
