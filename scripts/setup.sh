@@ -1544,15 +1544,39 @@ key, value, file = sys.argv[1], sys.argv[2], sys.argv[3]
 prefix = f"{key}="
 
 # Quote any value containing characters bash would reinterpret when
-# the file is sourced. Use double quotes (consistent with the existing
-# .env.example) and escape embedded backslashes / dollar / backtick /
-# double-quote so the round-trip is faithful.
+# the file is sourced.
+#
+# QA-9 (sprints/2026-07-28-concurrent-worlds/TEST_REPORT.md, A32.5):
+# double-quote escaping (\$, \`) is a BASH-only convention — python-dotenv
+# does not recognise those two escapes (its double-quote decode table is
+# \\ \' \" \a \b \f \n \r \t \v only) and leaves the backslash in place,
+# so bash and dotenv disagreed for any value containing $ or a backtick.
+# Single quotes are fully literal in BOTH readers for those two
+# characters (bash never expands inside '...'; dotenv's single-quote
+# decode table is \\ and \' only), so prefer single quotes whenever the
+# value itself contains no single quote — the two mechanisms can then
+# agree with ZERO escaping instead of a bash-specific one.
+# (Residual, documented gap: python-dotenv unconditionally interpolates
+# a literal ${NAME} substring — regardless of quote style or escaping,
+# there is no escape hatch for it in this library — so a value containing
+# that exact brace syntax still diverges. Not reachable via this writer's
+# callers today: slugs are jailed, ports are numeric, and paths/names
+# don't legitimately need ${...} syntax.)
 _NEEDS_QUOTE = re.compile(r"[\s\"'$`\\#&|;<>(){}*?!~\[\]]")
 def shell_safe(v: str) -> str:
-    if v == "" or _NEEDS_QUOTE.search(v):
-        escaped = v.replace("\\", "\\\\").replace('"', '\\"').replace("$", "\\$").replace("`", "\\`")
-        return f'"{escaped}"'
-    return v
+    if v == "":
+        return '""'
+    if not _NEEDS_QUOTE.search(v):
+        return v
+    if "'" not in v:
+        return "'" + v + "'"
+    # Contains a literal single quote — single-quoting can't represent it
+    # without the '\'' dance, so fall back to the double-quote scheme
+    # (pre-existing behaviour; the QA-9 divergence is latent here too, but
+    # this combination — a $ / backtick AND a literal single quote in the
+    # same value — is outside QA-9's reported repro set).
+    escaped = v.replace("\\", "\\\\").replace('"', '\\"').replace("$", "\\$").replace("`", "\\`")
+    return f'"{escaped}"'
 
 # A real assignment is either "KEY=..." or a single-#-prefixed
 # commented-out default like "#KEY=...". Anything with whitespace

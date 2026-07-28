@@ -23,6 +23,7 @@ import json
 import os
 import shutil
 import subprocess
+import tempfile
 import textwrap
 from pathlib import Path
 
@@ -432,32 +433,28 @@ def test_env_pack_round_trips_a_hostile_display_name_through_bash(
     assert "ROOT<" + str(fake_repo / "lab" / "instances" / "qa") + ">" in out
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="QA-9 (OPEN): A32.5 is falsified for values containing $, backtick or "
-           "backslash. _set_env_var escapes them for bash's double-quote rules; "
-           "python-dotenv does not un-escape \\$ or \\`, so the two mechanisms "
-           "ARCHITECTURE §6.1 calls 'deliberately redundant' disagree. "
-           "(A literal backslash DOES agree — dotenv un-escapes \\\\ but not "
-           "\\$ or \\`.) See TEST_REPORT.md.",
-)
-@pytest.mark.parametrize("name", ["World $(id)", "World `id`", "World ${HOME}"])
+@pytest.mark.parametrize("name", ["World $(id)", "World `id`"])
 def test_bash_and_python_dotenv_agree_on_the_env_pack(fake_repo: Path, name: str) -> None:
-    """A32.5: "python-dotenv and bash source agree on the env pack."
+    """QA-9 (FIXED for $/backtick/backslash): "python-dotenv and bash source
+    agree on the env pack" — A32.5.
 
     ARCHITECTURE §6.1 leans on this: mechanism (1) is ``set -a; source`` in
     start.sh, mechanism (2) is ``ARAIL_ENV_FILE`` → ``load_dotenv`` in
-    config.py, and the design states they "cannot disagree." They do, for any
-    value containing ``$``, a backtick, or a backslash.
+    config.py. They used to disagree for any value containing ``$`` or a
+    backtick: ``_set_env_var`` escaped them for bash's double-quote rules,
+    and python-dotenv does not recognise ``\\$``/`` \\` `` as escapes at all
+    (its double-quote decode table is ``\\\\ \\' \\" \\a \\b \\f \\n \\r \\t
+    \\v`` only), so it kept reading the literal backslash.
 
-    Reachable two ways: a World's ``display_name`` (cosmetic — LAB_NAME renders
-    with stray backslashes for a process launched WITHOUT the shell wrapper),
-    and — the one that matters — a **checkout path containing any of those
-    characters**, which is legal on macOS and Linux. There LAB_ROOT /
-    ARAIL_DATA_DIR / LAB_PKB would resolve to different directories depending
-    on how the process was started, while still passing the §6.4 boot assertion
-    (both variants are absolute). That is an isolation-relevant divergence, not
-    a cosmetic one.
+    Fix: prefer single-quoting whenever the value contains no literal single
+    quote (``scripts/setup.sh``'s ``shell_safe``) — single quotes are fully
+    literal for ``$`` and backtick in BOTH readers, so the two mechanisms
+    agree with zero escaping instead of a bash-specific one.
+
+    Reachable two ways: a World's ``display_name`` (cosmetic — LAB_NAME used
+    to render with stray backslashes for a process launched WITHOUT the shell
+    wrapper), and — the one that matters — a **checkout path containing
+    ``$``**, which is legal on macOS and Linux (see the companion test below).
     """
     from dotenv import dotenv_values  # noqa: PLC0415
 
@@ -471,14 +468,55 @@ def test_bash_and_python_dotenv_agree_on_the_env_pack(fake_repo: Path, name: str
     )
 
 
-def test_a_checkout_path_containing_a_dollar_sign_diverges_between_the_two_loaders(
+@pytest.mark.xfail(
+    strict=True,
+    reason="QA-9 residual, ACCEPTED (not the reachable case QA-9 reported): "
+           "python-dotenv unconditionally interpolates a literal ${NAME} "
+           "substring on read, regardless of quote style or escaping — there "
+           "is no escape hatch for it in this library version (verified "
+           "against dotenv/variables.py: the interpolation regex runs on the "
+           "already-decoded value with no awareness of what quoted/escaped "
+           "it). Bash reads 'World ${HOME}' literally; dotenv_values() "
+           "expands it to the real $HOME. Not reachable via this writer's "
+           "callers today: World display_name and instance paths have no "
+           "reason to contain literal ${...} syntax. See "
+           "sprints/2026-07-28-concurrent-worlds/BUILD_LOG.md 'QA-fix pass'.",
+)
+def test_bash_and_python_dotenv_agree_on_a_braces_style_reference() -> None:
+    """The one QA-9 shape quoting alone cannot fix: ``${NAME}`` braces syntax.
+
+    Split out from ``test_bash_and_python_dotenv_agree_on_the_env_pack``
+    (whose other two parametrized values — ``$(id)``, `` `id` `` — are now
+    fixed and asserted for real above) because this one genuinely can't be:
+    python-dotenv's own interpolation pass has no escape mechanism, so no
+    value written to the pack can make ``dotenv_values()`` read a literal
+    ``${...}`` substring back unchanged.
+    """
+    from dotenv import dotenv_values  # noqa: PLC0415
+
+    tmp = Path(tempfile.mkdtemp())
+    p = tmp / "instance.env"
+    p.write_text("LAB_NAME='World ${HOME}'\n", encoding="utf-8")
+    r = subprocess.run(
+        [_BASH, "-c", f'set -a; source "{p}"; set +a; printf "%s" "$LAB_NAME"'],
+        capture_output=True, text=True, timeout=10,
+    )
+    bash_value = r.stdout
+    vals = dotenv_values(str(p))
+    assert vals.get("LAB_NAME") == bash_value, (
+        f"python-dotenv read {vals.get('LAB_NAME')!r}; bash read {bash_value!r}"
+    )
+
+
+def test_a_checkout_path_containing_a_dollar_sign_no_longer_diverges(
     fake_repo: Path,
 ) -> None:
-    """The reachable-and-harmful half of QA-9, stated as a path, not a name.
-
-    This test asserts the CURRENT behaviour so the divergence is visible in the
-    suite even while QA-9 is open; when QA-9 is fixed this test flips and must
-    be updated alongside it.
+    """QA-9 (FIXED), the reachable-and-harmful half, stated as a path, not a
+    name: a checkout path containing ``$`` (legal on macOS/Linux) used to
+    make ``LAB_ROOT``/``ARAIL_DATA_DIR``/``LAB_PKB`` resolve to DIFFERENT
+    directories depending on how the process was started, while still
+    passing the §6.4 boot assertion (both variants were absolute) — an
+    isolation-relevant divergence, not a cosmetic one.
     """
     from dotenv import dotenv_values  # noqa: PLC0415
 
@@ -497,10 +535,9 @@ def test_a_checkout_path_containing_a_dollar_sign_diverges_between_the_two_loade
     assert f"ROOT<{weird_root}>" in r.stdout, "bash must read the literal path"
 
     vals = dotenv_values(str(fake_repo / "lab" / "instances" / "qa" / "instance.env"))
-    assert vals.get("LAB_ROOT") == "/tmp/arail\\$qa/lab/instances/qa", (
-        "QA-9 appears to be fixed — python-dotenv now agrees with bash. Retire "
-        "this test and the xfail marker on "
-        "test_bash_and_python_dotenv_agree_on_the_env_pack."
+    assert vals.get("LAB_ROOT") == weird_root, (
+        f"python-dotenv read {vals.get('LAB_ROOT')!r}; bash read {weird_root!r} — "
+        "the two loaders disagree again"
     )
 
 
