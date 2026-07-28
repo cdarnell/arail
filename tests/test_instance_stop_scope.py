@@ -374,6 +374,32 @@ def test_status_command_under_two_seconds_with_three_instances(tmp_path):
     assert elapsed < 2.0, f"./arailctl status took {elapsed:.2f}s with 3 instances (want < 2s)"
 
 
+def test_status_renders_unreadable_row_for_corrupt_registry_record(tmp_path):
+    """REVIEW.md M7: a corrupt registry record must render `✗ unreadable`
+    in `status`, not silently vanish. Before the fix, inst_list_slugs
+    pre-filtered (and quarantined) corrupt records itself, so the slug
+    never reached status.sh's own classification code at all — F16's
+    "row rendered unreadable" was unreachable."""
+    fake_repo = tmp_path / "repo"
+    shutil.copytree(REPO_ROOT / "scripts", fake_repo / "scripts")
+    (fake_repo / "lab").mkdir(parents=True, exist_ok=True)
+    (fake_repo / "lab.conf").write_text("PORTAL_PORT=8080\n", encoding="utf-8")
+    registry = fake_repo / "lab" / "instances" / "registry.d"
+    registry.mkdir(parents=True, exist_ok=True)
+    (registry / "x.json").write_text("{oops", encoding="utf-8")
+
+    result = subprocess.run(
+        ["bash", "scripts/status.sh"],
+        cwd=fake_repo,
+        capture_output=True, text=True, timeout=10,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "unreadable" in result.stdout, result.stdout
+    assert "x" in result.stdout
+    assert (registry / "x.json.bad").exists()
+    assert not (registry / "x.json").exists()
+
+
 def test_status_json_is_valid_and_includes_registered_slugs(tmp_path):
     fake_repo = tmp_path / "repo"
     shutil.copytree(REPO_ROOT / "scripts", fake_repo / "scripts")

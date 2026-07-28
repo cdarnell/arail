@@ -152,7 +152,14 @@ def test_corrupt_json_is_quarantined_not_fatal(tmp_path):
     assert (registry / "broken.json.bad").exists(), "corrupt record must be quarantined to <slug>.json.bad"
 
 
-def test_list_slugs_skips_corrupt_and_lists_valid(tmp_path):
+def test_list_slugs_lists_valid_and_readable_and_corrupt_alike(tmp_path):
+    """REVIEW.md M7: inst_list_slugs must yield EVERY *.json basename,
+    readable or not — it must NOT pre-filter via its own inst_read_record
+    call, or a caller's own read (which classifies + quarantines) never
+    gets a chance to run, and F16's "row rendered unreadable" becomes
+    unreachable (the corrupt slug simply vanishes with no message at all).
+    Quarantine is the CALLER's job now (see status.sh / F16), not
+    inst_list_slugs's — it must not read the file itself."""
     rec = _sample_record(slug="ai")
     payload = json.dumps(rec)
     registry = tmp_path / "lab" / "instances" / "registry.d"
@@ -165,7 +172,11 @@ def test_list_slugs_skips_corrupt_and_lists_valid(tmp_path):
     assert res.returncode == 0, res.stderr
     slugs = res.stdout.split()
     assert "ai" in slugs
-    assert "broken" not in slugs
+    assert "broken" in slugs
+    # And the corrupt file must NOT have been quarantined by inst_list_slugs
+    # itself — it hasn't been read yet.
+    assert (registry / "broken.json").exists()
+    assert not (registry / "broken.json.bad").exists()
 
 
 # ---------------------------------------------------------------------------

@@ -163,17 +163,24 @@ print(val if val is not None else "")
 
 # ── Registry: list / prune ────────────────────────────────────────────────
 
-# inst_list_slugs — every slug with a *parseable* registry record, one per
-# line. Corrupt files are quarantined as a side effect (matches
-# inst_read_record's F16 contract) but are not listed.
+# inst_list_slugs — every slug with a *.json file in the registry, one per
+# line — READABLE OR NOT. REVIEW.md M7: this used to pre-filter via its
+# OWN inst_read_record call, which quarantines a corrupt file to
+# <slug>.json.bad as a side effect of merely checking readability — so by
+# the time a caller (e.g. status.sh) did its OWN inst_read_record call to
+# classify the row, the file was already gone and the slug had never been
+# yielded at all. F16's "row rendered ✗ unreadable" was unreachable: a
+# corrupt record vanished from `status` with NO message. Emitting every
+# basename here and letting the caller classify (via its own
+# inst_read_record call, which still quarantines — exactly once, not
+# twice) makes that row reachable again.
 inst_list_slugs() {
-    local dir f slug
+    local dir f
     dir="$(inst_registry_dir)"
     [[ -d "$dir" ]] || return 0
     for f in "$dir"/*.json; do
         [[ -e "$f" ]] || continue
-        slug="$(basename "$f" .json)"
-        inst_read_record "$slug" >/dev/null 2>&1 && echo "$slug"
+        basename "$f" .json
     done
     return 0
 }
