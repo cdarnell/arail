@@ -24,7 +24,7 @@ from typing import Any, Dict, List, Optional
 
 import pytest
 
-from arail.agents.debt_finance_compliance import check_guardrail
+from arail.agents.debt_finance_compliance import Segment, check_guardrail
 
 _GOOD_DISCLAIMER = (
     "# Disclaimer\n\nThese agents are not licensed financial advisors.\n"
@@ -226,60 +226,101 @@ def test_negative_balances_and_aprs_do_not_produce_a_nonsense_finding(
 
 
 # ══════════════════════════════════════════════════════════════════════
-#  SECURITY / AGENT QUALITY — guardrail escape and over-block probes
-#  Adjacent to BLOCK-1..7. _names_match is unanchored substring
-#  containment with NO minimum length and NO word boundary — the exact
-#  defect class _MIN_QUOTED_SPAN_LEN was added to close on the *other*
-#  branch of the same function.
+#  SECURITY / AGENT QUALITY — the flat-text guardrail escape family
+#  (F2/F3/F10/F11/F14/F15/F16, all closed structurally, not patched)
+#
+#  Every finding in this family — a short/whitespace-only allowed name
+#  defeating a length floor, unanchored substring containment ("ally"
+#  vetting "Alliance"), a word-of-the-trigger-phrase self-vetting, span
+#  overlap arithmetic, casefold-length divergence between coordinate
+#  systems — was a symptom of the SAME root cause: check_guardrail used to
+#  *reconstruct* provenance by matching text against a set of allowed
+#  strings, and every fix made that reconstruction one level more precise
+#  without changing its fundamentally approximate nature.
+#
+#  ARCHITECTURE.md §13.11's segment-based refactor eliminates the entire
+#  family by construction: there is no longer a name, a length floor, a
+#  proximity window, a span-overlap predicate, or a casefold step anywhere
+#  in the institutional-character check. Legitimacy is decided by which
+#  Segment a piece of text lives in — a question with no textual content to
+#  attack. The tests below pin that guarantee directly, replacing the old
+#  flat-text repros (which no longer typecheck against the new API and
+#  would not exercise anything meaningful even if they did).
 # ══════════════════════════════════════════════════════════════════════
 
-_SMUGGLE = (
-    "- **A** (as you entered it) — PenFed Credit Union member loan "
-    "(as entered), rate 5.00%."
-)
 
+def test_a_1char_operator_segment_only_legitimizes_its_own_neighbouring_trigger():
+    """F2's failure mode (a 1-char allowed name universally satisfying the
+    institutional branch via substring containment) has no analogue here:
+    an OPERATOR segment's *content* is never matched against anything. It
+    only ever legitimizes a trigger phrase in its own segment or an
+    immediately adjacent one — never an unrelated, unvetted institution
+    named elsewhere in the document, no matter how short or generic the
+    operator segment's text is.
 
-def test_short_operator_name_does_not_universally_satisfy_the_institutional_branch():
-    """A one-character operator-typed institution name is a substring of
-    almost every candidate proper noun, so it satisfies the pairing rule
-    for institutional-character claims about *other*, unvetted entities
-    named elsewhere on the line (here: via the `product` field)."""
-    blocked_without = check_guardrail(
-        _SMUGGLE, frozenset(), operator_names=frozenset({"mybank"}))
-    assert not blocked_without.ok, "control case should block"
-
-    smuggled = check_guardrail(
-        _SMUGGLE, frozenset(), operator_names=frozenset({"a"}))
-    assert not smuggled.ok, (
-        "a 1-char operator institution name defeated the institutional-"
-        "character guardrail for an unrelated, unvetted institution"
+    Segments are as fine-grained as ``_build_output`` actually produces
+    (a short AGENT connective piece around each field boundary, never one
+    undifferentiated blob spanning two unrelated claims) — see
+    ARCHITECTURE.md §13.10's tripwire for the one shape this design does
+    not attempt to cover: a *single* AGENT segment containing two disjoint
+    institution mentions with no field boundary between them, which no
+    current template ever produces."""
+    segments = [
+        Segment.agent("- **"), Segment.operator("A"),
+        Segment.agent("** (as you entered it) — "),
+        # A hypothetical *mis-tagged* field: if a future bug ever forgot to
+        # tag an interpolated value as OPERATOR/WORLD, this is what it
+        # would look like — an untagged AGENT segment carrying a trigger.
+        # It must still fail closed rather than inherit legitimacy from
+        # the unrelated "A" segment two positions away.
+        Segment.agent("PenFed Credit Union member loan"),
+        Segment.agent(" (as entered), rate 5.00%.\n"),
+        Segment.agent("Payday Express is a credit union offering fast approval."),
+    ]
+    result = check_guardrail(segments)
+    assert not result.ok, (
+        "a 1-char OPERATOR segment vetted an unrelated, unvetted "
+        "institutional-character claim elsewhere in the document"
     )
+    assert "institutional-character" in result.reason
 
 
-def test_whitespace_only_operator_name_does_not_satisfy_the_pairing_rule():
-    """`institution: " "` is truthy, survives the `if d.get("institution")`
-    filter, lowercases to " ", and is a substring of every multi-word
-    proper noun."""
-    result = check_guardrail(
-        _SMUGGLE, frozenset(), operator_names=frozenset({" "}))
-    assert not result.ok
+def test_a_whitespace_only_operator_segment_still_legitimizes_its_own_trigger():
+    """A whitespace-only operator-typed name is exactly as legitimate as
+    any other operator-typed value for its OWN claim — there is no name
+    comparison left to defeat with degenerate content. This is not a
+    regression of F2: F2 was about a degenerate name vetting an *unrelated*
+    claim, which the neighbour-adjacency test above confirms is closed."""
+    result = check_guardrail([
+        Segment.operator(" "),
+        Segment.agent(" is a credit union."),
+    ])
+    assert result.ok
 
 
-def test_allowed_names_match_on_word_boundaries_not_bare_substrings():
-    """"Ally" (a real 4-char lender) must not vet "Alliance Credit Union"."""
-    text = "- **Alliance Credit Union** — consolidation loan."
-    result = check_guardrail(text, frozenset(), operator_names=frozenset({"ally"}))
+def test_ally_does_not_vet_alliance_credit_union_there_is_no_containment_check_at_all():
+    """F2's exact repro ("ally" vetting "Alliance Credit Union" via
+    unanchored substring containment) cannot arise: nothing compares
+    "ally" against "Alliance Credit Union" as strings any more. A WORLD/
+    OPERATOR segment legitimizes the trigger in its own neighbourhood
+    regardless of what any *other* segment's text happens to look like."""
+    result = check_guardrail([
+        Segment.agent("- **Alliance Credit Union** — consolidation loan."),
+    ])
+    # No WORLD/OPERATOR segment anywhere near this trigger at all — blocks,
+    # exactly as it should for a wholly agent-authored claim with no
+    # provenance-tagged institution name attached to it.
     assert not result.ok
 
 
 def test_operator_typed_lowercase_institution_is_not_falsely_blocked(
     analyzer, data_dir, host
 ):
-    """_PROPER_NOUN_RE requires a capitalized initial, but the trigger
-    regex is case-insensitive — so an operator who types their own
-    institution in lowercase (an extremely ordinary thing to do) gets a
-    permanent block, with a hint telling them to pair the claim with a
-    name they typed themselves, which they did."""
+    """F3's failure mode (a case-sensitive proper-noun regex meant an
+    operator who typed their own institution in lowercase got a permanent
+    block) cannot recur: _build_output tags r.institution as
+    Segment.operator(...) directly from the parsed field, with no regex
+    extraction step in between — case is irrelevant to a provenance tag."""
     _stage(data_dir, json.dumps({
         "debts": [{"institution": "navy federal credit union",
                    "balance": 8000, "apr": 21.5}],
@@ -300,21 +341,129 @@ def test_operator_typed_lowercase_institution_is_not_falsely_blocked(
 
 
 def test_operator_typed_name_with_trailing_whitespace_is_not_falsely_blocked():
-    """The exemption is documented as whitespace-normalized; the actual
-    normalization is `.lower()` only."""
-    text = "- **Ecole Populaire Credit Union** — loan."
-    result = check_guardrail(
-        text, frozenset(),
-        operator_names=frozenset({"ecole populaire credit union "}))
+    """No normalization step exists to be inconsistent about any more —
+    the segment's raw text is never compared against anything."""
+    result = check_guardrail([
+        Segment.operator("Ecole Populaire Credit Union "),
+        Segment.agent(" — loan."),
+    ])
     assert result.ok
 
 
 def test_non_ascii_initial_institution_name_is_not_falsely_blocked():
-    """_PROPER_NOUN_RE's `[A-Z]` is ASCII-only, so a name whose first
-    letter is accented never becomes a candidate at all."""
-    text = "- **Éole Credit Union** — loan."
-    result = check_guardrail(
-        text, frozenset(), operator_names=frozenset({"éole credit union"}))
+    """No proper-noun-candidate regex (with its ASCII-only capital-letter
+    class) exists any more — an accented initial is exactly as legitimate
+    a neighbour as any other operator-typed text."""
+    result = check_guardrail([
+        Segment.operator("Éole Credit Union"),
+        Segment.agent(" — loan."),
+    ])
+    assert result.ok
+
+
+def test_word_of_trigger_phrase_as_operator_segment_does_not_self_vet_elsewhere():
+    """F10/F14's failure mode (an allowed name that is a single word of the
+    trigger phrase itself — "union", "credit" — self-vetting via a
+    proximity window or a span-overlap miscalculation) cannot recur: there
+    is no proximity window, no span-overlap arithmetic, and no window
+    fallback anywhere in the new check. An OPERATOR segment whose text
+    happens to be "Union" only ever legitimizes a trigger in its own
+    immediate neighbourhood, never a different, unrelated claim elsewhere
+    in the document."""
+    segments = [
+        Segment.agent("- **"), Segment.operator("Union"),
+        Segment.agent("** (as you entered it) is a member benefit.\n"),
+        Segment.agent(
+            "Payday Express is a credit union offering fast approval."
+        ),
+    ]
+    result = check_guardrail(segments)
+    assert not result.ok, (
+        "an operator segment whose text is a word of the trigger phrase "
+        "vetted an unrelated, unvetted claim elsewhere in the document"
+    )
+
+
+def test_multiword_prose_fragment_as_operator_segment_does_not_vet_elsewhere():
+    """F10's degenerate-multiword-entry variant ("is a") — same structural
+    closure as above; content is never compared, only adjacency."""
+    segments = [
+        Segment.operator("is a"),
+        Segment.agent(" note.\n"),
+        Segment.agent("Payday Express is a credit union offering fast approval."),
+    ]
+    result = check_guardrail(segments)
+    assert not result.ok
+
+
+def test_capitalized_trigger_phrase_does_not_self_vet_via_a_world_segment():
+    """F11's failure mode (a generic vetted entry equal to the trigger
+    phrase itself, e.g. a "Credit Union" concept term, self-vetting any
+    capitalized occurrence) cannot recur either: this codebase's own
+    _vetted_institutions filter never lets a generic concept term (no
+    institution_type field) reach a WORLD segment at all — see
+    _builtin_debt_advisor._vetted_institutions's docstring. Structurally,
+    even if it did, a WORLD segment identical to the trigger text is no
+    different from any other WORLD segment here: it legitimizes its own
+    immediate neighbourhood, nothing document-wide."""
+    segments = [
+        Segment.agent("Payday Express is a "),
+        Segment.world("Credit Union"),
+        Segment.agent("."),
+    ]
+    # The WORLD segment IS adjacent to (in fact contains) the trigger
+    # phrase's own occurrence here, so this specific claim is judged
+    # legitimate by adjacency — but note it can never vet a SEPARATE,
+    # disjoint claim elsewhere, which is what the historical findings were
+    # actually about (see the neighbour-scoped tests above).
+    assert check_guardrail(segments).ok
+    # A second, disjoint claim — separated from the WORLD segment by an
+    # intervening AGENT connective segment carrying no trigger of its own
+    # (the shape a real per-bullet template produces), not fused into one
+    # undifferentiated blob (see ARCHITECTURE.md §13.10's tripwire for why
+    # that shape is explicitly out of scope for this design).
+    disjoint = check_guardrail([
+        Segment.agent("Payday Express is a "),
+        Segment.world("Credit Union"),
+        Segment.agent(". Loan Shark LLC is also a "),
+        Segment.agent("credit union."),
+    ])
+    assert not disjoint.ok, (
+        "a WORLD segment vetted a second, disjoint institutional-character "
+        "claim elsewhere in the same document"
+    )
+
+
+def test_lowercase_operator_segment_and_capitalized_operator_segment_behave_identically():
+    """F15's regression (a fallback that only matched when the trigger
+    phrase was literally a substring of the allowed name, silently
+    reintroducing F3's casing-only block for every trigger except the one
+    F3's own test happened to use) cannot recur: casing has no bearing on
+    provenance."""
+    lower = check_guardrail([
+        Segment.operator("navy federal"),
+        Segment.agent(" is a nonprofit."),
+    ])
+    upper = check_guardrail([
+        Segment.operator("Navy Federal"),
+        Segment.agent(" is a nonprofit."),
+    ])
+    assert lower.ok
+    assert upper.ok
+
+
+def test_no_coordinate_system_divergence_is_possible_expanding_unicode_case_fold():
+    """F16's failure mode (``_fallback_match_spans`` measuring spans in
+    ``casefold()``-transformed coordinates while comparing against a
+    trigger span in raw coordinates — ``str.casefold`` is not
+    length-preserving for characters like 'ﬁ') has no analogue: there is no
+    casefolding, and no span-coordinate system, anywhere in the new check.
+    An expanding-casefold character next to a trigger phrase is exactly as
+    legitimate a neighbour as any other operator-typed text."""
+    result = check_guardrail([
+        Segment.operator("ﬁrst national"),
+        Segment.agent(" is a credit union."),
+    ])
     assert result.ok
 
 
@@ -328,11 +477,13 @@ def test_non_ascii_initial_institution_name_is_not_falsely_blocked():
     "Our advice is to consolidate.",
 ])
 def test_evaluative_regex_covers_ordinary_advice_vocabulary(sentence):
-    """_EVALUATIVE_RE lists 7 alternations. §5.4 says ranking a product for
-    a specific person is 'a line this product must not cross regardless',
-    and §7.2 makes the code check the structural enforcement of that. These
-    are the phrasings a small instruct model actually produces."""
-    assert not check_guardrail(sentence, frozenset()).ok, (
+    """_EVALUATIVE_RE lists several alternations. §5.4 says ranking a
+    product for a specific person is 'a line this product must not cross
+    regardless', and §7.2 makes the code check the structural enforcement
+    of that. These are the phrasings a small instruct model actually
+    produces, and the check runs over AGENT-provenance text exactly as it
+    always did."""
+    assert not check_guardrail([Segment.agent(sentence)]).ok, (
         f"evaluative language not detected: {sentence!r}"
     )
 
@@ -552,91 +703,3 @@ def test_findings_content_is_never_world_readable_even_transiently(
     _stage(data_dir, json.dumps(_REAL_SHAPED))
     analyzer.ConsolidationAnalyzerAgent().tick()
     assert oct(os.stat(stale).st_mode & 0o777) == "0o600"
-
-
-# ══════════════════════════════════════════════════════════════════════
-#  QA ROUND 2 — regressions introduced by the F2/F3 fix (63d818d)
-#
-#  The F3 fix added a fallback that matches an allowed name against the
-#  *raw proximity window* rather than against an extracted proper-noun
-#  candidate. The window necessarily contains the trigger phrase's own
-#  text and the ordinary English prose around it, so the fallback admits
-#  matches the candidate path structurally could not. The tautology guard
-#  added alongside it only excludes an allowed name whose *whole
-#  normalized form is identical* to the trigger's matched text — it does
-#  not exclude an allowed name that is a single *word of* that text, nor
-#  one that is a common word occurring elsewhere in the window.
-# ══════════════════════════════════════════════════════════════════════
-
-
-def test_allowed_name_that_is_a_word_of_the_trigger_phrase_does_not_self_vet():
-    """F10: BLOCK-1's tautology at word granularity. An allowed name of
-    "union" is found inside the trigger phrase "credit union" itself, so
-    every institutional-character claim in the document self-vets. Blocked
-    before the F3 fix; admitted after it."""
-    result = check_guardrail(
-        "Payday Express is a credit union.",
-        frozenset(),
-        operator_names=frozenset({"Union"}),
-    )
-    assert not result.ok, "an allowed name inside the trigger phrase self-vetted"
-
-
-def test_allowed_name_that_is_a_word_of_the_trigger_does_not_vet_document_wide():
-    """F10, document-wide blast radius: one such entry suppresses the
-    guardrail for every claim in the text, not just the first."""
-    result = check_guardrail(
-        "Payday Express is a credit union. Loan Shark LLC is a credit union.",
-        frozenset(),
-        operator_names=frozenset({"union"}),
-    )
-    assert not result.ok
-
-
-def test_allowed_name_that_is_a_generic_domain_word_does_not_vet_by_proximity():
-    """F10: "credit" is both a plausible operator-typed account label and a
-    word of the trigger phrase. Same escape, reachable through the same
-    operator-data path F2 was."""
-    result = check_guardrail(
-        "Payday Express is a credit union.",
-        frozenset(),
-        operator_names=frozenset({"Credit"}),
-    )
-    assert not result.ok
-
-
-def test_short_common_english_word_in_the_window_does_not_vet():
-    """F10: the _MIN_ALLOWED_NAME_LEN floor of 3 stops single characters
-    but not "the" — which the window fallback now finds in ordinary prose
-    with no proper noun involved at all. Blocked before the F3 fix."""
-    result = check_guardrail(
-        "Payday Express is the credit union.",
-        frozenset(),
-        operator_names=frozenset({"the"}),
-    )
-    assert not result.ok
-
-
-def test_multiword_prose_fragment_as_allowed_name_does_not_vet():
-    """F10: the fallback matches arbitrary phrases against raw prose, so a
-    degenerate multi-word entry ("is a") that is not a name at all still
-    satisfies the guardrail."""
-    result = check_guardrail(
-        "Payday Express is a credit union.",
-        frozenset(),
-        operator_names=frozenset({"is a"}),
-    )
-    assert not result.ok
-
-
-def test_capitalized_trigger_phrase_does_not_self_vet_via_candidate_path():
-    """F11 (pre-existing, not a regression): the tautology guard was added
-    only to the F3 fallback. On the *primary* candidate path, a generic
-    vetted entry equal to the trigger phrase still self-vets whenever the
-    trigger appears capitalized in the text — "Credit Union" is extracted
-    as a proper-noun candidate and matches the entry exactly."""
-    result = check_guardrail(
-        "Payday Express is a Credit Union.",
-        frozenset({"credit union"}),
-    )
-    assert not result.ok

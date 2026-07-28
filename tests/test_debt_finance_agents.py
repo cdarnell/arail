@@ -328,7 +328,7 @@ class TestDebtAdvisorGuardrail:
         monkeypatch.setattr(mod, "find_mounted_bundle_dir", lambda: world_bundle)
         monkeypatch.setattr(
             mod, "check_guardrail",
-            lambda text, vetted, operator_names=frozenset(), quoted_spans=frozenset(): GuardrailResult(
+            lambda segments: GuardrailResult(
                 ok=False, reason="forced block for test"),
         )
         agent = mod.DebtAdvisorAgent()
@@ -395,9 +395,9 @@ class TestDebtAdvisorEvaluativeQuotedSpans:
         ``check_guardrail`` with no exemption) must still block. Confirms
         the ASK-D fix only changed *which* rendered string is masked, not
         whether code-authored/model-authored text is exempt."""
-        from arail.agents.debt_finance_compliance import check_guardrail
+        from arail.agents.debt_finance_compliance import Segment, check_guardrail
 
-        result = check_guardrail("This is the best option for you.", frozenset())
+        result = check_guardrail([Segment.agent("This is the best option for you.")])
         assert result.ok is False
 
 
@@ -466,11 +466,10 @@ class TestDebtAdvisorVettedRosterQuotedSpans:
         blocked after widening ``quoted_spans`` to cover the vetted roster
         fields — the exemption must stay scoped to code-inserted literal
         spans, never the model's own words."""
-        from arail.agents.debt_finance_compliance import check_guardrail
+        from arail.agents.debt_finance_compliance import Segment, check_guardrail
 
         result = check_guardrail(
-            "This is the best option for you.",
-            frozenset(),
+            [Segment.agent("This is the best option for you.")]
         )
         assert result.ok is False
 
@@ -640,46 +639,45 @@ class TestConsolidationAnalyzerOperatorNamesExemption:
         text = findings.read_text()
         assert "**Anytown Credit Union** (as you entered it) —" in text
 
-    def test_debts_only_institution_still_exempted_no_regression(
-        self, consolidation_module, data_dir
+    def test_operator_provenance_segment_is_exempt_regardless_of_field(
+        self, consolidation_module
     ):
-        """[BLOCK-5] regression assertion 2: a debts-only institution must
-        still be exempted exactly as before the widening — the fix must be
-        additive, not a replacement of the debts-sourced half of the set."""
-        debts = [
-            {"id": "card-1", "kind": "credit-card", "balance": 1000.0,
-             "apr": 20.0, "institution": "Anytown Credit Union"},
-        ]
-        scenarios: List[Dict[str, Any]] = []
-        names = consolidation_module._operator_institution_names(debts, scenarios)
-        assert "anytown credit union" in names
+        """[BLOCK-5], re-expressed structurally per ARCHITECTURE.md §13.11:
+        there is no longer an ``_operator_institution_names`` set built and
+        threaded through as a name-matching exemption — ``_build_output``
+        tags ``r.institution``/``r.product``/``r.source``/``r.as_of`` as
+        ``Segment.operator(...)`` directly, because all four are parsed
+        from the SAME operator-authored ``candidate_scenarios`` entry, by
+        construction, regardless of which field (or which sibling field)
+        an institution name happens to also appear in. This test pins the
+        underlying guarantee directly against ``check_guardrail``'s
+        segment API — the offer-vs-debt distinction the old set had to
+        reason about no longer exists as a question."""
+        from arail.agents.debt_finance_compliance import Segment, check_guardrail
 
-    def test_institution_in_neither_field_still_blocks(self, consolidation_module):
-        """[BLOCK-5] regression assertion 3: an institution that is
-        genuinely NOT operator-stated (absent from both ``debts`` and
-        ``candidate_scenarios``) gets no exemption at all and still blocks
-        on institutional-character language — confirming the widening did
-        not make the guardrail permissive for arbitrary names. Exercised
-        directly against ``check_guardrail`` because, by design, the only
-        institution names the analyzer ever renders come from ``debts``/
-        ``candidate_scenarios`` themselves (see ``_operator_institution_
-        names`` docstring) — there is no end-to-end path left by which a
-        genuinely third-party institution name reaches this agent's output
-        at all, which is itself the point of the fix."""
-        from arail.agents.debt_finance_compliance import check_guardrail
+        result = check_guardrail([
+            Segment.operator("Anytown Credit Union"),
+            Segment.agent(" is a credit union offering a personal loan."),
+        ])
+        assert result.ok is True
 
-        debts = [{"institution": "Chase"}]
-        scenarios = [{"institution": "Anytown Credit Union"}]
-        operator_names = consolidation_module._operator_institution_names(
-            debts, scenarios
-        )
-        assert operator_names == frozenset({"chase", "anytown credit union"})
+    def test_agent_named_institution_still_blocks_no_regression(
+        self, consolidation_module
+    ):
+        """[BLOCK-5] regression assertion, re-expressed structurally: a
+        name that exists only inside AGENT-provenance text — never typed
+        by the operator, never World-sealed — still blocks. It is
+        impossible for ``_build_output`` to ever emit an institution
+        segment this way (every rendered institution name is
+        ``Segment.operator(...)`` by construction, see its docstring), but
+        ``check_guardrail`` itself must still fail closed if it ever did —
+        confirming the structural refactor did not make the guardrail
+        permissive for arbitrary names."""
+        from arail.agents.debt_finance_compliance import Segment, check_guardrail
 
-        result = check_guardrail(
-            "Payday Express is a credit union.",
-            frozenset(),
-            operator_names=operator_names,
-        )
+        result = check_guardrail([
+            Segment.agent("Payday Express is a credit union."),
+        ])
         assert result.ok is False
 
 
@@ -765,45 +763,26 @@ class TestConsolidationAnalyzerEvaluativeQuotedSpans:
     def test_evaluative_word_plus_unvetted_institution_still_blocks_on_institutional_branch(
         self, consolidation_module, data_dir
     ):
-        """Adversarial case (REVIEW.md addendum 3, regression (d)): an
-        evaluative word AND an unvetted institutional-character claim in
-        the same assembled body must still block, on the institutional-
-        character branch, even with the evaluative branch now correctly
-        scoped to quoted spans only. The evaluative word here lives in the
-        ``product`` field, which IS a quoted span and therefore does not
-        itself trip the evaluative branch — but the unrelated, unvetted
-        "Payday Express is a credit union" institutional claim must still
-        be caught."""
-        _write_balances(data_dir, {
-            "debts": [{"id": "card-1", "kind": "credit-card",
-                       "balance": 1000.0, "apr": 20.0,
-                       "institution": "Payday Express"}],
-            "candidate_scenarios": [
-                {"institution": "Anytown Credit Union",
-                 "product": "best balance transfer", "rate": 5.0,
-                 "fee_pct": 3.0, "term_months": 24,
-                 "source": "https://example.invalid/rates",
-                 "as_of": "2026-07-01"},
-            ],
-        })
-        # Directly exercise the guardrail with an adversarial body that
-        # combines a code-inserted evaluative-word product name with an
-        # unvetted institutional-character claim naming a DIFFERENT,
-        # unvetted institution — the shape the review's regression (d)
-        # calls for.
-        from arail.agents.debt_finance_compliance import check_guardrail
+        """Adversarial case (REVIEW.md addendum 3, regression (d)),
+        re-expressed structurally: an evaluative-sounding word AND an
+        unvetted institutional-character claim in the same assembled
+        document must still block, on the institutional-character branch.
+        The evaluative word here lives in an OPERATOR segment (the
+        ``product`` field) and is therefore never evaluative-checked at
+        all by construction — but the unrelated, all-AGENT "Payday Express
+        is a credit union" institutional claim must still be caught."""
+        from arail.agents.debt_finance_compliance import Segment, check_guardrail
 
-        body = (
-            "- **Anytown Credit Union** (as you entered it) — "
-            "best balance transfer (as entered), rate 5.00%.\n"
-            "Payday Express is a credit union offering fast approval."
-        )
-        result = check_guardrail(
-            body,
-            frozenset(),
-            operator_names=frozenset({"anytown credit union"}),
-            quoted_spans=frozenset({"best balance transfer"}),
-        )
+        segments = [
+            Segment.agent("- **"), Segment.operator("Anytown Credit Union"),
+            Segment.agent("** (as you entered it) — "),
+            Segment.operator("best balance transfer"),
+            Segment.agent(" (as entered), rate 5.00%.\n"),
+            Segment.agent(
+                "Payday Express is a credit union offering fast approval."
+            ),
+        ]
+        result = check_guardrail(segments)
         assert result.ok is False
         assert "institutional-character" in result.reason
 
