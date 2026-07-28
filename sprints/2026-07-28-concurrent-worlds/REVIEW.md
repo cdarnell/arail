@@ -1,0 +1,481 @@
+# Review: Concurrent Worlds as independent instances
+
+**Date:** 2026-07-28
+**Build:** [BUILD_LOG.md](./BUILD_LOG.md) at `5cef466`
+**Architecture:** [ARCHITECTURE.md](./ARCHITECTURE.md) at `f28e525`
+**Diff reviewed:** `a2bb7f8..5cef466 -- . ':!sprints'` (29 files, +4411/−61)
+**Mode:** review
+
+## Verdict: BLOCK
+
+Two BLOCKER findings. Both are on the `arailctl` entry-point paths — the exact
+surfaces this sprint set out to make trustworthy — and both fail *silently*,
+which is the failure shape VISION named as the harm. Everything else is good
+work: the registry design is sound, the O_EXCL claim is correct, the kill path
+is genuinely verified for the two uvicorn PIDs, and 86 new tests pass.
+
+---
+
+## 1. Failure-mode cross-reference (F1–F17)
+
+| # | Status | Evidence / assessment |
+|---|---|---|
+| F1 | **PARTIAL** | Child-death detection works (`start.sh:521-523`), but the readiness probe (`start.sh:524`) only checks that `/api/instance` returns 200 — it never compares `token` or `checkout`, which §3.5 stage 5 requires verbatim ("require token **and** checkout match"). The named error text (`port … was taken during startup`) is also absent; the operator gets the generic `portal did not come up`. See **M1**. |
+| F2 | **DONE** | `inst_prune`/`inst_prune_all` (`instances.sh:185-206`), pruned by `status` after render (`status.sh:173`) and by `start` stage 3 (`start.sh:389`). Data untouched. |
+| F3 | **PARTIAL** | Portal + memory PIDs verified on module *and* port (`reset.sh:206-221`) — correct. The **launcher** check (`reset.sh:226`) is a bare substring test and is unsound. See **M2**. |
+| F4 | **DONE (fragile)** | `status --probe` renders the mismatch line (`status.sh:156-158`). `checkout` is `Path.cwd()` in the portal (`app.py:3304`) vs `REPO_ROOT` from `cd … && pwd` in the shell — logical vs physical path; symlinked checkouts make step 4 fail permanently. See **m5**. |
+| F5 | **DONE for `start`** | `_instance_resolve_world` (`start.sh:249-295`) applies `_SLUG_RE` + prefix jail + `verify_seal`, and runs at stage 2 — **before** any directory is created (stage 4). Verified. Not applied to `stop --world`; see **M5**. |
+| F6 | **PARTIAL** | `set -o noclobber` in a subshell (`start.sh:400`) is a correct O_EXCL race guard, and the 120 s stale-break is present (`start.sh:392-399`). But the spec says "trap … **EXIT** removes the claim on every exit path"; only `INT` and `TERM` traps are installed (`start.sh:402-403`). See **M4**. |
+| F7 | **DONE** | `data_root_missing` computed (`status.sh:67-69`), rendered (`status.sh:161-162`), record not pruned. |
+| F8 | **NOT REACHABLE** | `start.sh:317-322` implements the refusal, but `arailctl:225-241` intercepts `start` first when `daemon_active` and never reaches `start.sh`. See **B2**. |
+| F9 | **DONE** | `daemon_active` = plist + numeric launchctl PID (`instances.sh:299-310`); `start.sh:59-61` prints the dim informational line. The trap is retired. Pinned by `test_daemon_predicate.py`. |
+| F10 | **DONE** | `start.sh:326-342`; refuses, prints roster + stop command, no eviction; `LAB_MAX_INSTANCES ≥ 4` soft-warns per §3.7. |
+| F11 | **DONE** | 409 `instance_live` inserted after the path jail and after the CSRF envelope (`app.py:3403-3421`). Keyed on `bundle_dir.name`. |
+| F12 | **DONE** | 20 s cap, warn-and-continue (`start.sh:546-558`). |
+| F13 | **DONE** | Ollama probe warn-and-continue; pidfile written to the instance's own data dir (`start.sh:563-580`). |
+| F14 | **DONE** | `_assert_instance_paths_absolute()` at import (`app.py:65-90`), gated on `ARAIL_INSTANCE`, names the offending key. Root lab unaffected. Subprocess-level test present. |
+| F15 | **REGRESSED** | The port-scoping is present (`reset.sh:120-122`) and does stop root-lab-stop from reaching instances — but `reset.sh` never sources `lab.conf`, so on any machine where setup bumped a port the root lab is no longer stopped at all. See **B1**. Also defeated by the launcher-trap path, **M3**. |
+| F16 | **PARTIAL** | Quarantine works (`instances.sh:141-143`). The `✗ unreadable` row (`status.sh:61-64`, `status.sh:147-149`) is **unreachable**: `inst_list_slugs` (`instances.sh:176`) already calls `inst_read_record`, which quarantines the file, so the slug never enters the loop. Corrupt records disappear with no operator-visible message. See **M7**. |
+| F17 | **PARTIAL** | Stage 5 refuses on a busy port and prints the `lsof` command (`start.sh:502-506`), but does not list the PID holding the port as §8 F17 specifies. No auto-kill — correct. |
+
+**Scorecard: 9 implemented as specified, 6 partial, 1 regressed, 1 unreachable.**
+
+---
+
+## 2. Findings by severity
+
+### BLOCKER
+
+**B1 — `./arailctl stop` silently stops nothing on a port-bumped machine.**
+`scripts/reset.sh:120-122` (introduced by WP5)
+
+```
+"uvicorn.*arail\.portal\.app.*--port ${PORTAL_PORT:-8080}"
+"uvicorn.*arail\.memory_service.*--port ${LANCE_PORT:-7414}"
+"uvicorn.*arail\.mlx_openai_server.*--port ${MLX_OPENAI_PORT:-11435}"
+```
+
+`reset.sh` sources `.env` (`:31`) but **never `lab.conf`** (verified: `lab.conf`
+appears in `reset.sh` only at `:484` and `:570`, both unrelated). `lab.conf` is
+where `setup.sh:1637-1646` writes the *resolved* — possibly auto-bumped —
+`PORTAL_PORT`/`MLX_OPENAI_PORT`, and `.env.example:335` ships a static
+`PORTAL_PORT=8080`. `start.sh:30-32` sources both, so the lab runs on the
+lab.conf port; `reset.sh` matches the `.env`/default port. Result: on every
+machine where 8080 (or 11435) was occupied at setup time, `./arailctl stop`
+prints `No running services found.` and leaves the lab running. Before this
+sprint the pattern was port-agnostic and worked.
+
+This is a silent regression on the primary stop path, and the ARCHITECTURE's own
+§6.2 ruling ("`lab.conf` without `set -a` — IN SCOPE") was applied to `start.sh`
+but not extended to the file that newly *depends* on those values.
+
+*Fix:* add, immediately after `reset.sh:31`:
+`[[ -f lab.conf ]] && set -a && source lab.conf && set +a`
+and add a `test_instance_stop_scope.py` case with `lab.conf` pinning a bumped
+`PORTAL_PORT` asserting `stop_services` still matches.
+
+---
+
+**B2 — `./arailctl start --world <slug>` silently discards `--world` under
+daemon mode.**
+`arailctl:224-243`
+
+```
+start)
+    if daemon_active; then
+        for label in $(daemon_agents); do launchctl load … ; done
+        launchctl kickstart "gui/$(id -u)/io.arail.portal" …
+        echo "Lab supervised by launchd — portal: http://…:${PORTAL_PORT:-8080}"
+        exit 0
+    fi
+    exec bash "$REPO_ROOT/scripts/start.sh" "$@"
+```
+
+`"$@"` is never inspected in the daemon branch. On a daemon-active machine,
+`./arailctl start --world finance` kickstarts the **root lab**, prints a success
+line naming the wrong lab, and **exits 0**. F8's named refusal and the two-line
+remedy (`start.sh:317-322`, `ARCHITECTURE §4.4`) are dead code — nothing can
+reach them, because `arailctl` short-circuits first.
+
+This re-introduces, in a new place, precisely the defect §3.1 forbids
+("Silently ignoring argv is the bug we are fixing; do not re-introduce it in a
+new place") and it does so on the *daemon* path, i.e. the same trap family that
+motivated the sprint.
+
+*Fix:* in `arailctl`'s `start)` branch, before the `daemon_active` test, detect
+`--world`/`--list`/`--help` in `"$*"` and `exec` `start.sh` unconditionally for
+those (letting `start.sh:317-322` own the refusal message); or move the whole
+daemon branch into `start.sh` after arg parsing. Add a `test_daemon_predicate.py`
+case driving the real `arailctl` `start)` branch with `--world` and a stubbed
+`launchctl`, asserting exit ≠ 0 and that the message names the slug.
+
+---
+
+### MAJOR
+
+**M1 — The readiness probe does not verify the token or the checkout.**
+`scripts/start.sh:524`
+
+```
+if curl -sf -m 0.7 "http://${BIND}:${portal_port}/api/instance" >/dev/null 2>&1; then
+```
+
+§3.5 stage 5 and §2.3 step 4 both require token **and** checkout equality here;
+this only requires HTTP 200. The registry record is written on the strength of
+this check (`start.sh:614`), so §2.2's core guarantee — "a record's existence
+means this instance was, at some point, actually serving" — is downgraded to
+"*something* answered on this port." The window is narrow (uvicorn exits on
+`EADDRINUSE`, and the loop breaks on child death), but it is exactly F1's
+scenario, and it is wide open on any host without `lsof`/`ss`, where
+`_port_in_use` (`setup.sh:298-306`) returns "assume free" and stage 5 is a no-op.
+
+*Fix:* capture the response body, and require
+`token == $instance_token && checkout == $REPO_ROOT` before setting
+`portal_ready=1`. On mismatch, kill the child and emit the F1 message naming the
+port. A driver scenario with a stub server answering `/api/instance` with a
+foreign token should assert exit 1 and no registry record.
+
+---
+
+**M2 — Launcher-PID "verification" is a substring test that matches any ARAIL
+launcher.**
+`scripts/reset.sh:226`
+
+```
+if [[ -n "$cmd" && "$cmd" == *"start.sh"* && "$cmd" == *"$slug"* ]]; then
+```
+
+The launcher cmdline is `bash /Users/…/qukaizen-arail/scripts/start.sh --world finance`.
+For the slug `ai` — the architecture's own worked example (§1.1, §4.1) — the
+substring `ai` is present in `arail` in the *path*, so **every** ARAIL
+`start.sh` process passes this check. A stale `ai` record whose `launcher_pid`
+has been recycled onto the `finance` launcher means `./arailctl stop --world ai`
+SIGTERMs the finance lab. §4.2 step 2 says an unverified PID is "skipped and
+reported — never killed"; this check does not deliver that.
+
+*Fix:* require the exact token pair, e.g.
+`[[ "$cmd" == *"/scripts/start.sh"* && "$cmd" == *"--world $slug"* ]]`
+(and accept `--world=$slug`). Add a stop-scope test with slug `ai` and a decoy
+`start.sh --world finance` process asserting it is skipped.
+
+---
+
+**M3 — `stop --world X` can kill the machine-shared Ollama out from under
+instance Y.**
+`scripts/reset.sh:239` (kill of the launcher) → `scripts/start.sh:403,639,234-245`
+
+`stop_instance` SIGTERMs the launcher; the launcher's TERM trap runs
+`_instance_cleanup_and_exit`, which kills **every** PID in `_INST_PIDS` —
+including `ollama_pid` when this instance was the one that started
+`ollama serve` (`start.sh:567-569`). That fires *before* and *regardless of*
+`stop_instance`'s careful `remaining == 0` last-instance guard at
+`reset.sh:262-271`. Ctrl-C on the same launcher does the same thing. Net: the
+shared model backend can die while a sibling instance is live — a cross-instance
+side effect §11 forbids ("Nothing cross-instance") and A32.4 depends on not
+happening.
+
+*Fix:* exclude the Ollama PID from `_INST_PIDS`; track it separately and, in
+`_instance_cleanup_and_exit`, kill it only when no other slug satisfies
+`inst_alive`. Same guard the `stop_instance` path already implements — it just
+needs to live in the launcher too. Regression test: two stub instances, TERM the
+first launcher, assert the ollama stub survives.
+
+---
+
+**M4 — No `EXIT` trap: a `set -e` abort between stage 3 and the record write
+leaks the claim.**
+`scripts/start.sh:400-403`
+
+Only `INT` and `TERM` are trapped. Every *explicit* failure path correctly calls
+`_instance_cleanup_and_exit`, but the implicit `set -euo pipefail` aborts do not:
+`inst_write_env_pack` failing (`:435`, `:471`), `source "$pack_file"` failing
+(`:496`), `inst_load_port_helpers` failing (`:501`), the `python3` record
+serialiser failing (`:600-613`), or `SIGHUP` from a closed terminal. F6's text is
+explicit: "trap … **EXIT** removes the claim on **every** exit path." The 120 s
+stale-break bounds the damage, but within that window a retry is refused with
+`another start for 'X' is in progress (pid <dead pid>)` — a misleading message
+for a wedged slug.
+
+*Fix:* `trap '_instance_cleanup_and_exit $?' EXIT` immediately after the claim
+succeeds, and clear it (`trap - EXIT`) once the launcher enters its final `wait`.
+
+---
+
+**M5 — `stop --world` has no slug jail: path traversal read plus arbitrary
+`*.json` deletion.**
+`scripts/reset.sh:649,689` → `scripts/lib/instances.sh:71-74,193,272`
+
+`STOP_WORLD` is taken verbatim from argv and passed straight to `stop_instance`,
+which calls `inst_read_record` → `inst_registry_file` →
+`"$REPO_ROOT/lab/instances/registry.d/${slug}.json"`. Nothing calls
+`inst_valid_slug`. `./arailctl stop --world ../../../../tmp/x` reads
+`/tmp/x.json`, and if it parses as JSON, `reset.sh:272`'s
+`rm -f "$(inst_registry_file "$slug")"` **deletes it**. §9 Security #2 requires
+the jail on `--world`; `start.sh` has it (stage 2), the destructive path does
+not.
+
+*Fix:* at `reset.sh:687`, `inst_valid_slug "$STOP_WORLD" || { error "invalid
+World slug"; exit 2; }`. Same for any future `--world` consumer. Add a security
+test asserting `--world ../foo` exits 2 and touches nothing.
+
+---
+
+**M6 — Instance PKBs are unreachable by every `reset` mode; the "wipe the PKB =
+wipe memory" contract is silently broken for instances.**
+`scripts/reset.sh:316,338,371` (all target the root `MODELS_DIR`/`DATA_DIR`/`pkb_dir`)
+
+`reset pkb`, `reset data`, and `reset full` all operate on the root lab's
+`config.py`-resolved paths. `lab/instances/<slug>/pkb/` — which holds that
+instance's conversations, staged World layer, and LanceDB index — is untouched
+by all of them, and `lab/instances/<slug>/data/secrets.env` survives `reset env`.
+CLAUDE.md states the contract flatly ("wipe the PKB = wipe memory"), and
+`docs/conversation-memory.md` and `docs/agents.md` both lean on it. Neither
+`docs/concurrent-worlds.md` nor `CHANGELOG.md` mentions the gap (grepped: no
+occurrence of `reset`/`wipe` in `docs/concurrent-worlds.md`).
+
+This is a privacy-contract regression, not merely a missing feature. It was not
+anticipated in ARCHITECTURE §8 or §12 — file it as new debt (see §5).
+
+*Fix (minimum, this sprint):* document it loudly in
+`docs/concurrent-worlds.md` and `CHANGELOG.md`, and make `reset pkb`/`reset data`
+either (a) refuse with a list of instance roots they will not touch, or
+(b) accept `--world <slug>`. Silence is not acceptable here.
+
+---
+
+**M7 — F16's `✗ unreadable` row can never render.**
+`scripts/lib/instances.sh:176` vs `scripts/status.sh:56-64`
+
+`inst_list_slugs` calls `inst_read_record` to filter, which quarantines the
+corrupt file to `<slug>.json.bad` and then does not echo the slug. By the time
+`_status_build_rows` re-reads, the record is gone, so the `rc == 2` branch is
+dead and the `unreadable` renderer at `status.sh:147-149` is unreachable. Net
+behaviour: a corrupt registry record vanishes from `status` with no message at
+all — the opposite of F16's "row rendered `✗ unreadable`".
+
+*Fix:* have `inst_list_slugs` emit every `*.json` basename without reading, and
+let the caller classify; or emit `<slug>\tunreadable` lines. Add a test that
+writes `registry.d/x.json` containing `{oops` and asserts `status` prints
+`unreadable` and the `.bad` file exists.
+
+---
+
+### MINOR
+
+- **m1 — `status.sh:27` sources `lab.conf` without `set -a`.** ARCHITECTURE §6.2
+  names both files explicitly ("One line in `start.sh` and one in
+  `status.sh:16`"); only `start.sh` got it. No functional impact today (nothing
+  in `status.sh` forks a python that reads `PORTAL_PORT`), but the stated fix is
+  half-applied. *Fix:* `[[ -f lab.conf ]] && set -a && source lab.conf && set +a`.
+- **m2 — `start.sh:54-61`'s daemon guard runs before argument parsing.**
+  `./arailctl start --help` and `--list` on a daemon-active machine exit 1 with
+  the wrong message (when B2 is fixed and they reach `start.sh` at all). The
+  §4.4-specific message at `start.sh:317-322` is dead. *Fix:* move the guard
+  below the `while` arg loop and delete the duplicate.
+- **m3 — F17 doesn't name the PID holding the port.** `start.sh:504` prints only
+  the `lsof` command. *Fix:* run `lsof -tiTCP:$portal_port -sTCP:LISTEN` and
+  include the PID and its cmdline in the error.
+- **m4 — `/api/instances` forks one `ps` per registry record per request**
+  (`app.py:3252-3265`), and `test_instance_api.py:153-159`'s "never spawns a
+  process" assertion inspects only the two decorated functions' own source and
+  does not ban `subprocess.run`. The assertion reads stronger than it is. *Fix:*
+  add `subprocess.` to the banned list and inspect
+  `_instance_record_alive`/`_read_instance_records` too, then either bless the
+  `ps` call with an explicit comment or replace it with `psutil`/`/proc` reads.
+- **m5 — `checkout` comparison is logical-vs-physical.** `app.py:3304` uses
+  `Path.cwd()` (symlink-resolved); `start.sh:4` uses `cd … && pwd` (logical).
+  A checkout reached through a symlink makes predicate step 4 fail forever —
+  attach never works and `status --probe` cries wolf. *Fix:* `pwd -P` in
+  `start.sh`, or `os.path.realpath` on both sides.
+- **m6 — Pack re-read does not undo the writer's escaping.** `start.sh:422,430-431`
+  use `grep | cut -d= -f2- | tr -d '"'`, but `_set_env_var` escapes `\`, `"`,
+  `$`, and backtick. A path containing any of those round-trips wrong. Ports are
+  numeric so this is latent. *Fix:* re-read via `set -a; source` into a subshell
+  and echo the variable, as the code already does at `:494-496`.
+- **m7 — `arailctl:249` `[[ "$*" == *--all* ]]` is an unanchored substring match**
+  — `stop --allocate-nothing` would route to the instance path. *Fix:* iterate
+  `"$@"` and match whole tokens.
+- **m8 — `Path.cwd()`-rooted reads leak the root lab into instance processes.**
+  `app.py:9753-9754` (`lab/data/activity.jsonl`, `agent_workflows.json`) and
+  `app.py:10029` (`.env`) are read by an instance's diagnostics surface. A32.1
+  claims `egress.py:92` is "the one known bypass"; it is not. Read-only today, so
+  low impact, but `test_instance_isolation.py` should pin the claim. *Fix:* add
+  an assertion to `test_instance_isolation.py` enumerating `Path.cwd()`-rooted
+  filesystem sites and pinning the allowed set.
+- **m9 — `reset.sh:649` `--world) STOP_WORLD="${2:-}"; shift 2`** aborts under
+  `set -e` when `--world` is the final token (`shift 2` returns non-zero).
+  *Fix:* `shift; [[ $# -gt 0 ]] && shift`.
+- **m10 — `arailctl_version` is the literal string `concurrent-worlds-wp4`**
+  (`start.sh:613`); §2.1 specifies `git describe` or a version string. *Fix:*
+  `git -C "$REPO_ROOT" describe --tags --always 2>/dev/null || echo unknown`.
+- **m11 — Ctrl-C on an instance leaves a live-looking registry record.**
+  `_instance_cleanup_and_exit` (`start.sh:234-245`) removes the claim but not the
+  record. Self-heals on the next `status`/`start` prune, so this is within F2 —
+  but the roster in the *other* instance's nav shows a phantom `● :8090` until
+  someone runs `status`. *Fix:* remove the record in the cleanup path when
+  `_INST_CLAIM_FILE` is empty (i.e. we owned it).
+- **m12 — The "falsifiable core" test never uses a second process.**
+  `test_instance_isolation.py` drives `wm.mount(..., pkb_root=..., data_dir=...)`.
+  §3.5's REFINEMENT explicitly blesses this ("the kwargs stay for tests"), and
+  `test_instance_paths.py` covers pack→`arail.config` in a real subprocess, so
+  the two halves are each covered — but no single test proves the *composition*.
+  Acceptable; QA should close it with the manual two-World launch.
+
+### NIT
+
+- Stage banners read `[1/8]`…`[8/8]` but there are nine stages (Ollama has no
+  number) — §3.5's table has stages 0–8. Cosmetic.
+- `inst_record_field` (`instances.sh:150-162`) prints a Python `repr` for
+  non-scalar values; every current field is scalar.
+- `instances.sh:20`'s `set -uo pipefail` mutates the *sourcing* shell's options.
+  Every current caller already sets them, but it is a surprising side effect for
+  a library.
+
+---
+
+## 3. Deviations assessment (the five documented in BUILD_LOG.md)
+
+| # | Deviation | Verdict |
+|---|---|---|
+| 1 | **WP2 `reset.sh` touch** (bare `launchctl list` inside `stop_services`) | **Sound.** The WP2 gate is literal ("appear in exactly one place each") and the string was genuinely there. The conditional source + `command -v daemon_active` guard is the right shape for a file that is unit-tested as a standalone copy, and the NOTE degrades to silence rather than to a wrong claim. No design change smuggled. |
+| 2 | **WP3 extraction instead of `export -f`** | **Sound, correctly reasoned.** `export -f` propagates only to child processes of the same shell; extraction is what actually satisfies §10's "do not copy them" across independent invocations, and it reuses a technique already established in `shell_source_safety_driver.sh`. One caveat to record as debt: `awk "/^${name}\(\)/,/^}/"` truncates at the first column-0 `}`, so it is brittle against future edits to `setup.sh`'s formatting. Worth a comment in `setup.sh` above `_port_in_use`/`_set_env_var` saying "extracted by `scripts/lib/instances.sh` — keep the closing brace at column 0." |
+| 3 | **WP4 `face.json` → `LAB_THEME`/`LAB_INTENT` mapping** | **Sound, ratified.** §1.2 deliberately left the mapping open and the values are cosmetic pre-mount fallbacks superseded by `effective_identity()`. `theme.personality` and `LAB_INTENT = slug` are both defensible; `LAB_INTENT = slug` in particular dodges the prose-vs-enum mismatch the BRIEF flagged. No further change needed. |
+| 4 | **WP7 `worlds.js` + `app.py` Jinja global** | **Sound and mechanically necessary.** `worlds.html` genuinely contains no button markup — the matrix cannot be built without `worlds.js`, and the title suffix needs a value only Python has. The one-line `templates.env.globals["portal_port"]` is the minimum. Correctly flagged up front rather than done silently. |
+| 5 | **WP8 `test_launchd_render.py` fixture fix** | **Sound fix, but it exposes a process gap worth naming.** The fixture was right to be updated. What it reveals is that WP2 made `install-daemon.sh:26` source `scripts/lib/instances.sh` **unconditionally**, while `reset.sh:28` got a `[[ -f ]]` guard — an inconsistency that only surfaced because a test happened to sandbox one file and not the other. Recommend giving `install-daemon.sh` the same guard, and recording the lesson: per-WP targeted regression subsets missed a real break for six work packages. WP8's baseline-diff methodology (disposable worktree at `9c51502`, byte-for-byte failure-set diff) is exemplary and should become the standard closing gate. |
+
+**None of the five smuggled in a design change.** All were file-list or
+mechanism gaps between what the architecture named and what the code required,
+and all were flagged before the fact rather than discovered in review. That is
+the behaviour the process is supposed to produce.
+
+---
+
+## 4. Non-goals check (§11)
+
+| Non-goal | Status |
+|---|---|
+| No per-instance model processes | **Respected.** The instance path starts portal + memory only; ttyd/jupyter/code-server/MLX are root-lab-exclusive (`start.sh:725-804` is below the instance return). |
+| No unification with `blueprint create` / repo-root `instances/` / `ARAIL_HOME` | **Respected.** `scripts/blueprint.sh` received a 10-line header comment only, which §12's mitigation clause explicitly calls for. `sprints/BACKLOG.md` filed. |
+| No launchd multi-instance | **Respected.** Guard present (though unreachable via `arailctl` — see B2). |
+| Nothing cross-instance | **VIOLATED in effect.** The shared-Ollama kill paths (**M3**) are a cross-instance side effect. Design intent was right; implementation leaks. |
+| Do not remove `POST /api/worlds/select` | **Respected.** Endpoint intact, 409 added. The UI narrows the affordance for the in-place-switch case, but that is §5.3's own matrix, not drift. |
+| No eviction / quotas / auto-shutdown | **Respected.** |
+| `GET /api/pkb/search` stays open | **Respected** — untouched. |
+| No Windows/WSL work beyond not regressing | **Respected.** `daemon_active` gates on `uname -s == Darwin`; `stat -f`/`stat -c` fallback at `start.sh:394`; `lsof`/`ss` capability check inherited. |
+| No portal redesign | **Respected.** Four surgical edits as specified. |
+| No change to `_sweep_other_worlds` | **Respected.** `src/arail/world_mount.py` is not in the diff. |
+
+---
+
+## 5. Test coverage assessment
+
+- **86/86 new instance tests pass** on the shared venv (independently re-run
+  during this review: `test_instance_registry` · `test_instance_paths` ·
+  `test_instance_ports` · `test_daemon_predicate` · `test_instance_stop_scope` ·
+  `test_instance_api` · `test_worlds_ui` · `test_instance_isolation` ·
+  `test_instance_secrets`). `test_instance_start.py` (10 driver scenarios) is
+  venv-gated and skips cleanly.
+- **Full-suite baseline diff** (47 failed / 3477 passed vs 47 / 3390 at
+  `9c51502`, failure-set byte-identical) is the right gate and I accept it.
+- **Coverage on changed lines is good in breadth, weak on the destructive and
+  daemon-entry paths.** Specific gaps, each tied to a finding above:
+  - No test drives `arailctl`'s own `start)`/`stop)` dispatch → **B2** invisible.
+  - No test pins `stop_services` against a bumped `lab.conf` → **B1** invisible.
+  - No test feeds `stop --world` a traversal slug → **M5** invisible.
+  - No test uses a slug that is a substring of the repo path → **M2** invisible.
+  - No test asserts the readiness probe rejects a foreign token → **M1** invisible.
+  - No test writes a corrupt `registry.d/*.json` and asserts the `unreadable`
+    row → **M7** invisible.
+- **Security allocation (§9's 20 %)** is partially met: slug injection into the
+  pack is tested at both layers (good — `test_instance_ports.py`'s hostile
+  `LAB_NAME` case is the right test), traversal on `start --world` is tested,
+  secrets 0600/no-copy/no-log is well covered (`test_instance_secrets.py`, 7
+  tests, including a source-level guard against `shutil.copy`/`os.symlink`).
+  Traversal on `stop --world` and the no-spawn assertion's depth are the two
+  holes.
+
+**Token-as-non-credential assessment: accepted.** It is generated per boot,
+never written to the pack (`start.sh:512-513` exports it into the child env
+only), never persisted except inside the gitignored registry, and no endpoint
+accepts it as authorization. The `/api/instance` docstring documents this
+correctly and warns against repurposing it. Serving it on a loopback-bound
+endpoint is not a disclosure. `secrets.env` never enters the pack, the record,
+or any log — verified by reading the key set at `start.sh:601-613`.
+
+---
+
+## 6. Performance assessment
+
+`status` with 3 registered instances is well under the 2 s win condition
+(no-network predicate; measured ~0.2–0.4 s per BUILD_LOG, test asserts < 2.0).
+
+One note not in the architecture: `inst_write_env_pack` invokes `_set_env_var`
+once per key, and `_set_env_var` spawns a python interpreter that reads and
+rewrites the whole file each time — 15 python processes and 15 full rewrites per
+first boot (~1–2 s). Correct, and only on first boot, so it does not threaten
+the 60 s launch budget. Worth a one-line comment so a future reader does not
+"optimise" it into a hand-rolled writer and lose the quoting discipline.
+
+`/api/instances` forking a `ps` per record per request (**m4**) is the only hot-path
+concern, and the nav dropdown calls it on every open.
+
+---
+
+## 7. Tech debt delta vs ARCHITECTURE §12
+
+**Predicted and confirmed added:** the second "instances" namespace (backlog item
+filed), the fourth path-resolution site, the liveness nonce, cross-instance nav
+tiles. All four landed as forecast.
+
+**Predicted repaid — 8 of 10 confirmed.** Not delivered as predicted:
+- #3 "`reset.sh`'s port-agnostic kill-everything is scoped" — scoped, but into a
+  *new* silent-failure mode (**B1**). Net worse until fixed.
+- #10 "`start.sh` silently discarding argv — fixed" — fixed in `start.sh`,
+  re-created one level up in `arailctl` (**B2**).
+
+**New debt not anticipated by §12 — must be recorded before any PASS:**
+1. **Instance PKB/data/secrets are unreachable by every `reset` mode** (**M6**).
+   This is a privacy-contract gap, not cosmetic. Add to `sprints/BACKLOG.md` and
+   to ARCHITECTURE §12 "Added".
+2. **The `awk`-range function-extraction coupling** between
+   `scripts/lib/instances.sh` and `scripts/setup.sh`'s formatting (deviation 2).
+3. **Two parallel liveness implementations** (bash `inst_alive`, python
+   `_instance_record_alive`) with no shared conformance test. §2.3 sanctions the
+   parallelism; nothing pins them to the same truth table. Add a conformance test
+   or a shared fixture.
+4. **`Path.cwd()`-rooted reads in `app.py`** as an isolation bypass class beyond
+   the single `egress.py:92` A32.1 acknowledged (**m8**).
+
+---
+
+## 8. Required actions before merge
+
+**Must fix (BLOCKER):**
+1. `reset.sh` — source `lab.conf` before `stop_services` uses the ports, plus a
+   bumped-port regression test. (**B1**)
+2. `arailctl` — stop discarding `--world`/`--list`/`--help` in the
+   `daemon_active` branch; make F8's refusal reachable, with a test that drives
+   the real `arailctl` dispatch. (**B2**)
+
+**Must fix (MAJOR) — all are small and all are on safety paths:**
+3. Readiness probe must compare `token` and `checkout`. (**M1**)
+4. Launcher-PID verification must match `--world <slug>`, not a bare substring. (**M2**)
+5. Ollama must not be killed by a launcher's cleanup while a sibling instance is
+   live. (**M3**)
+6. Install a `trap … EXIT` on the claim. (**M4**)
+7. Jail the slug on `stop --world`. (**M5**)
+8. Document (at minimum) that `reset pkb`/`reset data`/`reset env` do not touch
+   instance roots, in `docs/concurrent-worlds.md` and `CHANGELOG.md`; file the
+   `--world`-aware reset as a backlog item. (**M6**)
+9. Make the `✗ unreadable` row reachable. (**M7**)
+
+**Must record before re-review:**
+10. Add the four new debt items above to ARCHITECTURE §12 and `sprints/BACKLOG.md`.
+
+**MINOR findings m1–m12** may be taken as follow-up tickets rather than
+re-review blockers, except **m5** (symlinked-checkout probe failure), which
+should be fixed alongside M1 since it is the same predicate.
+
+Re-review after 1–9. QA should not run until the BLOCKERs are cleared — several
+of the deferred manual gates (two-World launch, attach-on-running) sit directly
+downstream of M1 and B2.
