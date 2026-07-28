@@ -347,11 +347,26 @@ print(json.dumps({
 PY
 }
 
+# _json_field <json-or-garbage> <field> — never raises, never aborts the
+# caller under `set -euo pipefail`. QA-8 / REVIEW.md n2: the probe at stage
+# [6/8] feeds this whatever answered the port with HTTP 200 — which, once
+# QA-B1 is fixed and the probe actually receives real bodies, can be
+# anything (a foreign web app's HTML, a JSON array/scalar). A bare
+# json.loads()/`.get()` with no try/except turned that into a raw
+# JSONDecodeError/AttributeError that aborted the stage instead of letting
+# M1's named "token/checkout mismatch" error fire. Prints "" (not an
+# error) on anything that isn't a JSON object — mirrors
+# inst_record_field's "empty string, not an error" contract.
 _json_field() {
     python3 -c '
 import json, sys
-data = json.loads(sys.argv[1])
-val = data.get(sys.argv[2], "")
+try:
+    data = json.loads(sys.argv[1])
+    if not isinstance(data, dict):
+        raise TypeError("not a JSON object")
+    val = data.get(sys.argv[2], "")
+except Exception:
+    val = ""
 print(val if val is not None else "")
 ' "$1" "$2"
 }
@@ -587,17 +602,29 @@ _instance_start() {
     # mistaken for a successful boot. The registry record is only written
     # after this check passes (§2.2's "a record's existence means this
     # instance was, at some point, actually serving").
-    local waited=0 portal_ready=0 portal_mismatch=0
+    # QA-B1: `curl -sf` alone collapses "gated" (401), "crashed" (5xx), and
+    # "not listening yet" (connection refused/timeout) into the same empty
+    # string, so a future onboarding_gate regression would burn the full
+    # 60s cap and report the generic "portal did not come up" — naming the
+    # wrong cause, exactly like this defect did. `-w '\n%{http_code}'`
+    # rides alongside `-sf` (curl still writes the format string on a
+    # failed/refused request; `-f` only affects whether the BODY is kept)
+    # so a real HTTP error status is distinguishable from no answer at
+    # all, without weakening the existing -f/-m 0.7 behaviour.
+    local waited=0 portal_ready=0 portal_mismatch=0 portal_last_status=""
     while (( waited < 240 )); do  # 240 * 0.25s = 60s cap
         if ! kill -0 "$portal_pid" 2>/dev/null; then
             break
         fi
-        local probe_response
-        probe_response="$(curl -sf -m 0.7 "http://${BIND}:${portal_port}/api/instance" 2>/dev/null || true)"
-        if [[ -n "$probe_response" ]]; then
+        local probe_raw probe_status probe_body
+        probe_raw="$(curl -sf -m 0.7 -w '\n%{http_code}' "http://${BIND}:${portal_port}/api/instance" 2>/dev/null || true)"
+        probe_status="${probe_raw##*$'\n'}"
+        probe_body="${probe_raw%$'\n'*}"
+        [[ -n "$probe_status" && "$probe_status" != "000" ]] && portal_last_status="$probe_status"
+        if [[ -n "$probe_body" ]]; then
             local probe_token probe_checkout
-            probe_token="$(_json_field "$probe_response" token)"
-            probe_checkout="$(_json_field "$probe_response" checkout)"
+            probe_token="$(_json_field "$probe_body" token)"
+            probe_checkout="$(_json_field "$probe_body" checkout)"
             if [[ -n "$probe_token" && "$probe_token" == "$instance_token" \
                   && -n "$probe_checkout" && "$probe_checkout" == "$REPO_ROOT" ]]; then
                 portal_ready=1
@@ -616,7 +643,11 @@ _instance_start() {
     fi
     if [[ "$portal_ready" != "1" ]]; then
         echo "✗"
-        echo "  portal did not come up — tail $(inst_log_dir "$slug")/portal.log" >&2
+        if [[ -n "$portal_last_status" && "$portal_last_status" != "200" ]]; then
+            echo "  /api/instance answered HTTP ${portal_last_status}, not 200 — check onboarding_gate's allow-list: tail $(inst_log_dir "$slug")/portal.log" >&2
+        else
+            echo "  portal did not come up — tail $(inst_log_dir "$slug")/portal.log" >&2
+        fi
         tail -n 30 "$(inst_log_dir "$slug")/portal.log" >&2 2>/dev/null || true
         _instance_cleanup_and_exit 1
     fi

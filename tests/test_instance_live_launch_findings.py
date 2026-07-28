@@ -8,9 +8,10 @@ finally happened and found something no stubbed test could: the WP4 driver and
 tests/test_instance_start.py both use a stub ``uvicorn`` that exits immediately
 and never binds, so nothing in the suite had ever spoken HTTP to a real portal.
 
-The two BLOCKER-class findings (QA-B1, QA-B2) are pinned with strict xfail so
-the suite stays green while they are open and goes red the moment they are
-fixed without the marker being removed.
+QA-fix pass (sprints/2026-07-28-concurrent-worlds/BUILD_LOG.md): findings are
+fixed one at a time; each fixed finding's xfail marker is removed and its
+assertions flipped to pin the CORRECT behaviour, in the same commit as the
+fix. See BUILD_LOG.md's "QA-fix pass" section for the fix->commit mapping.
 """
 from __future__ import annotations
 
@@ -50,15 +51,9 @@ def _onboarding_gate_allowlist() -> list[str]:
 # QA-B1 — the readiness probe's endpoint is blocked by the onboarding gate
 # ---------------------------------------------------------------------------
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="QA-B1 (OPEN, BLOCKER): /api/instance is not on onboarding_gate's "
-           "allow-list, so a fresh instance 401s the stage [6/8] readiness "
-           "probe forever. `./arailctl start --world <slug>` cannot complete a "
-           "first boot on any machine. See TEST_REPORT.md.",
-)
 def test_api_instance_is_reachable_before_the_lab_is_onboarded() -> None:
-    """A brand-new instance root has never been onboarded — by construction.
+    """QA-B1 (FIXED): a brand-new instance root has never been onboarded — by
+    construction.
 
     ``_lab_password_set()`` resolves ``ARAIL_PASSWORD`` from the env, else from
     ``ARAIL_ENV_FILE`` — which for an instance is its own ``instance.env``, a
@@ -94,20 +89,23 @@ def test_the_readiness_probe_targets_api_instance() -> None:
                      body), "stage [6/8] no longer probes /api/instance"
 
 
-def test_the_probe_cannot_distinguish_a_401_from_no_answer() -> None:
-    """``curl -sf`` collapses "gated", "crashed", and "not listening" into one
-    empty string, which is why QA-B1 surfaces as the generic
-    "portal did not come up". Pinned so a fix that adds ``-w '%{http_code}'``
-    (or drops ``-f``) is visible as a deliberate change.
+def test_the_probe_now_distinguishes_an_http_error_from_no_answer() -> None:
+    """QA-B1 (FIXED, mechanism half): ``curl -sf`` alone collapses "gated",
+    "crashed", and "not listening" into one empty string. The fix rides
+    ``-w '%{http_code}'`` alongside the pre-existing ``-sf`` (curl still
+    writes the format string on a failed/refused request — ``-f`` only
+    affects whether the body is kept), so a real HTTP error status is
+    distinguishable from no answer at all, and a FUTURE gate regression
+    would be named instead of reported as "portal did not come up".
     """
     body = START_SH.read_text(encoding="utf-8")
     probe = [ln for ln in body.splitlines()
              if "/api/instance" in ln and "curl" in ln]
     assert probe, "no curl probe against /api/instance found"
     assert all("-sf" in ln for ln in probe)
-    assert not any("http_code" in ln for ln in probe), (
-        "the probe now captures a status code — QA-B1's diagnosis may be "
-        "fixed; re-check the allow-list assertion above"
+    assert any("http_code" in ln for ln in probe), (
+        "the probe no longer captures a status code — QA-B1's future-"
+        "regression diagnosis has regressed"
     )
 
 

@@ -366,6 +366,12 @@ async def onboarding_gate(request, call_next):
       - /welcome and /api/welcome/* (the onboarding flow itself)
       - /static/* (so the welcome page can load CSS)
       - /api/system/health (so health checks keep working pre-onboarding)
+      - /api/instance(s) (QA-B1, sprints/2026-07-28-concurrent-worlds: the
+        stage [6/8] readiness probe and the liveness predicate's step 4 both
+        target GET /api/instance, and a brand-new World instance has by
+        construction never been onboarded — without this, first boot 401s
+        forever. Read-only, loopback-bound, returns a documented
+        non-credential nonce (§5.1) — same reasoning as /api/system/health.)
       - /health, /healthz, /metrics (liveness + Prometheus probes — OBS4)
       - /favicon.ico
     HTML routes get a 302 to /welcome; API routes get a 401 with a hint.
@@ -386,6 +392,7 @@ async def onboarding_gate(request, call_next):
         "/static/",
         "/api/system/health",
         "/api/system/metrics",  # platform metrics — anonymous on loopback
+        "/api/instance",  # QA-B1 — also covers /api/instances (startswith)
         "/favicon.ico",
         "/health",    # liveness probe — OBS4
         "/healthz",   # liveness probe alias — OBS4

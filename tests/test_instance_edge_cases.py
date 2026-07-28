@@ -599,14 +599,8 @@ def test_claim_is_per_slug_and_does_not_serialise_different_worlds(
 # 6. _json_field — REVIEW.md n2, still open
 # ---------------------------------------------------------------------------
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="QA-8 / REVIEW.md n2 (OPEN): _json_field has no try/except, so a "
-           "non-JSON HTTP-200 probe body aborts stage [6/8] with a raw "
-           "JSONDecodeError instead of M1's named error. See TEST_REPORT.md.",
-)
 def test_json_field_does_not_abort_start_sh_on_a_non_json_probe_response() -> None:
-    """QA-8 / REVIEW.md n2: ``_json_field`` has no try/except.
+    """QA-8 / REVIEW.md n2 (FIXED): ``_json_field`` used to have no try/except.
 
     The readiness probe at stage [6/8] feeds it whatever answered the port with
     HTTP 200. A code-server / jupyter / unrelated web app returns HTML, and
@@ -643,13 +637,9 @@ def test_json_field_does_not_abort_start_sh_on_a_non_json_probe_response() -> No
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="QA-8 (OPEN), second shape: a valid-JSON non-object 200 body. "
-           "See TEST_REPORT.md.",
-)
 def test_json_field_handles_a_json_scalar_and_a_json_array_body() -> None:
-    """Same defect class, other shapes: a 200 body of ``[]`` or ``"ok"`` is
+    """QA-8 (FIXED), second shape: a valid-JSON non-object 200 body. Same
+    defect class, other shapes: a 200 body of ``[]`` or ``"ok"`` is
     valid JSON but has no ``.get``.
     """
     body = START_SH.read_text(encoding="utf-8")
