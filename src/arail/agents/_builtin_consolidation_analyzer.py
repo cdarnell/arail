@@ -38,6 +38,7 @@ from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
 from arail.agents.debt_finance_compliance import (
     REASON_EVALUATIVE,
     REASON_INSTITUTIONAL_PREFIX,
+    Segment,
     check_guardrail,
     find_mounted_bundle_dir,
     is_verification_fresh,
@@ -331,143 +332,82 @@ def _framing_prose() -> str:
         "institution, rate, or number. Do not say 'best' or give advice."
     )
     text = _host.llm_complete(prompt, max_tokens=60).strip()
-    if not text or not check_guardrail(text, frozenset()).ok or _DIGIT_RE.search(text):
+    if not text or not check_guardrail([Segment.agent(text)]).ok or _DIGIT_RE.search(text):
         return "Computed comparison of your staged balances against staged candidate scenarios."
     return text
 
 
-def _operator_institution_names(
-    debts: List[Dict[str, Any]], scenarios: List[Dict[str, Any]]
-) -> frozenset[str]:
-    """Institution names sourced ONLY from the operator's own parsed
-    ``balances.json`` — both ``debts`` (their existing card/loan issuers)
-    AND ``candidate_scenarios`` (offers they've staged themselves) — never
-    from scouting findings and never from the World's terms.
+def _build_output(debts: List[Dict[str, Any]],
+                   scenarios: List[Dict[str, Any]]) -> str:
+    """Assemble the findings document as an ordered list of provenance-
+    tagged segments (ARCHITECTURE.md §13.11's structural refactor, now
+    implemented) rather than a flat f-string.
 
-    REVIEW.md addendum 2 (BLOCK-5): an earlier version of this function
-    scoped the exemption to ``debts`` only, on the theory that a scenario's
-    institution is a claim about who is *offering* a comparison product and
-    should therefore still be vetted like any other institutional-character
-    claim. The architect rejected that reasoning: the exemption is keyed to
-    *provenance*, not to offer-vs-debt semantics. Both fields live in the
-    same file, typed by the same person the analyzer is reporting back to.
-    The analyzer never asserts a scenario's institution has any character —
-    it quotes the operator's own entry back to them (marked "(as you
-    entered it)" in ``_build_output``). Scoping the exemption to ``debts``
-    only meant it could never fire for the one place the analyzer actually
-    renders an institution name (``candidate_scenarios``), so the guardrail
-    permanently blocked the single most likely real input to this agent: a
-    plain credit-union consolidation offer.
-
-    An institution that appears in NEITHER ``debts`` nor
-    ``candidate_scenarios`` is not operator-stated and gets no exemption —
-    it is still vetted or blocked like any other institutional-character
-    claim.
+    ``r.institution``, ``r.product``, ``r.source``, and ``r.as_of`` are all
+    parsed verbatim from the SAME operator-authored ``candidate_scenarios``
+    entry — every one of them is a ``Segment.operator(...)``, by
+    construction, never a value matched against a name set. This is what
+    the old ``operator_names``/``quoted_spans`` machinery (REVIEW.md's
+    BLOCK-5/BLOCK-6/BLOCK-7 history) was trying to approximate from flat
+    text: the "(as you entered it)" marker is unconditional here because a
+    candidate scenario's institution is *always* the operator's own typed
+    entry, never a third party's claim — there is no other way for a name
+    to reach this line.
     """
-    names = {
-        str(d.get("institution") or "").lower()
-        for d in debts
-        if d.get("institution")
-    }
-    names |= {
-        str(s.get("institution") or "").lower()
-        for s in scenarios
-        if s.get("institution")
-    }
-    return frozenset(names)
-
-
-def _build_output(debts: List[Dict[str, Any]], scenarios: List[Dict[str, Any]],
-                   vetted_names: frozenset[str],
-                   operator_names: frozenset[str]) -> str:
     apr = blended_apr(debts)
     results = _compute_scenarios(debts, scenarios)
 
-    lines: List[str] = ["# Consolidation Analyzer — Findings\n", _framing_prose() + "\n"]
+    lines: List[List[Segment]] = [
+        [Segment.agent("# Consolidation Analyzer — Findings\n")],
+        [Segment.agent(_framing_prose() + "\n")],
+    ]
 
-    lines.append("## Current position\n")
-    lines.append(f"- Debts entered: {len(debts)}")
+    lines.append([Segment.agent("## Current position\n")])
+    lines.append([Segment.agent(f"- Debts entered: {len(debts)}")])
     if apr is not None:
         # apr is a code-computed float — inserted verbatim, never retyped.
-        lines.append(f"- Current blended APR: {apr:.2f}%")
+        lines.append([Segment.agent(f"- Current blended APR: {apr:.2f}%")])
     else:
-        lines.append("- Current blended APR: not computable (zero total balance)")
-    lines.append("")
+        lines.append([Segment.agent(
+            "- Current blended APR: not computable (zero total balance)"
+        )])
+    lines.append([Segment.agent("")])
 
-    lines.append("## Candidate scenarios\n")
+    lines.append([Segment.agent("## Candidate scenarios\n")])
     if results:
         for r in results:
             breakeven_text = (
                 f"{r.breakeven} months" if r.breakeven is not None
                 else "does not break even at this rate/fee"
             )
-            # "(as you entered it)" is code-inserted, never model-inserted,
-            # and appears whenever this scenario's institution is one the
-            # operator themselves typed into balances.json — either an
-            # existing debt's issuer or a candidate scenario's institution
-            # (operator_names, built from both fields; REVIEW.md addendum 2,
-            # BLOCK-5). The product is quoting the operator's own data back
-            # to them, never asserting anything new about a third party. A
-            # name that appears in neither of the operator's own fields gets
-            # no marker and is still subject to the ordinary guardrail check
-            # below (REVIEW.md addendum, question 2, items 2/5/6).
-            marker = (
-                " (as you entered it)"
-                if r.institution.lower() in operator_names else ""
-            )
-            # ``r.product``/``r.source``/``r.as_of`` are the same
-            # code-inserted echo of the operator's own ``candidate_scenarios``
-            # entry as ``r.institution`` above, and are marked "(as
-            # entered)" for the same reason: a reader must be able to tell
-            # these are the operator's own words quoted back, not this
-            # agent's characterization. They are also passed to
-            # ``check_guardrail`` as ``quoted_spans`` below (REVIEW.md
-            # re-review addendum 3, BLOCK-6) so a citation URL like
-            # ".../best-balance-transfer-cards" pasted into ``source``
-            # cannot suppress the whole document — the evaluative-language
-            # check is scoped to these exact literal spans, not widened for
-            # any text that happens to look like them.
-            lines.append(
-                f"- **{r.institution}**{marker} — {r.product} (as entered), "
-                f"rate {r.rate:.2f}%, "
-                f"fee {r.fee_pct:.2f}% (${r.fee_amount:.2f}), "
-                f"monthly savings ${r.monthly_savings:.2f}, "
-                f"breakeven {breakeven_text}. "
-                f"Source: {r.source} (as entered), as of {r.as_of} (as entered)."
-            )
+            lines.append([
+                Segment.agent("- **"),
+                Segment.operator(r.institution),
+                Segment.agent("** (as you entered it) — "),
+                Segment.operator(r.product),
+                Segment.agent(
+                    f" (as entered), rate {r.rate:.2f}%, "
+                    f"fee {r.fee_pct:.2f}% (${r.fee_amount:.2f}), "
+                    f"monthly savings ${r.monthly_savings:.2f}, "
+                    f"breakeven {breakeven_text}. Source: "
+                ),
+                Segment.operator(r.source),
+                Segment.agent(" (as entered), as of "),
+                Segment.operator(r.as_of),
+                Segment.agent(" (as entered)."),
+            ])
     else:
-        lines.append("- No candidate scenarios staged.")
-    lines.append("")
+        lines.append([Segment.agent("- No candidate scenarios staged.")])
+    lines.append([Segment.agent("")])
 
-    # ``r.institution`` is the same operator-typed ``candidate_scenarios``
-    # field as ``r.product``/``r.source``/``r.as_of`` above, rendered on the
-    # exact same line, and already carries the "(as you entered it)" marker
-    # — the identical provenance class, missed in the first BLOCK-6 fix
-    # (REVIEW.md re-review addendum 4, BLOCK-7(a)). A real lender name such
-    # as "Best Egg" must not be able to suppress the whole document any
-    # more than a citation URL in ``source`` can.
-    quoted_spans = frozenset(
-        str(v) for r in results
-        for v in (r.institution, r.product, r.source, r.as_of) if v
-    )
+    segments: List[Segment] = []
+    for i, line_segments in enumerate(lines):
+        if i:
+            segments.append(Segment.agent("\n"))
+        segments.extend(line_segments)
 
-    body = "\n".join(lines)
-    # ``operator_names`` stays in scope for this call even though
-    # ``_framing_prose`` above already self-checked its own sentence against
-    # an *empty* name set (REVIEW.md re-review addendum 3, item 1 [INFO]).
-    # That is not a docstring violation in practice: the framing sentence is
-    # its own newline-delimited chunk (``_SENTENCE_SPLIT_RE`` splits on
-    # newlines as well as sentence punctuation — BLOCK-4), so it can never
-    # merge with the scenario lines below it into one chunk, and it was
-    # already rejected outright by the zero-exemption standalone gate if it
-    # contained a trigger phrase at all. Re-running it here with
-    # ``operator_names`` in scope therefore re-checks a chunk that cannot
-    # host a trigger phrase or donate a proper noun across the newline
-    # boundary into another chunk's proximity window — defense-in-depth,
-    # not a live exemption of framing prose.
-    guard = check_guardrail(
-        body, vetted_names, operator_names=operator_names, quoted_spans=quoted_spans
-    )
+    body = "".join(s.text for s in segments)
+    guard = check_guardrail(segments)
     if not guard.ok:
         raise _GuardrailBlocked(guard.reason)
     return body
@@ -675,10 +615,9 @@ class ConsolidationAnalyzerAgent:
 
         debts = data.get("debts") or []
         scenarios = data.get("candidate_scenarios") or []
-        operator_names = _operator_institution_names(debts, scenarios)
 
         try:
-            body = _build_output(debts, scenarios, vetted, operator_names)
+            body = _build_output(debts, scenarios)
         except _GuardrailBlocked as exc:
             reason = exc.args[0] if exc.args else ""
             # REVIEW.md addendum 2 [ASK-B]: once BLOCK-5 lands, a block is
