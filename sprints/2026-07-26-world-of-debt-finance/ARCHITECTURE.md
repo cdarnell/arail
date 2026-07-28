@@ -1081,8 +1081,32 @@ this sprint:
     same LLM-generated sentence, this proximity-window heuristic reopens
     as a live BLOCK, not documented debt — re-review the guardrail before
     shipping such a change.
-11. **[Recommended structural refactor, out of scope for this sprint —
-    REVIEW.md re-review addendum 5.]** The `quoted_spans` masking mechanism
+11. **[IMPLEMENTED — see BUILD_LOG.md's "Structural refactor: segment-based
+    provenance" entry, 2026-07-27.]** The recommendation below (originally
+    filed as out-of-scope tech debt per REVIEW.md re-review addendum 5) is
+    now built: `check_guardrail` takes an ordered list of
+    `Segment(text, provenance)` pieces (`AGENT`/`WORLD`/`OPERATOR`) instead
+    of a flat string plus `quoted_spans`/`operator_names`/
+    `vetted_institutions` matching sets. The evaluative-language check runs
+    only over `AGENT`-provenance segments; the institutional-character
+    check runs over the full concatenation but judges legitimacy by the
+    provenance of the trigger's own segment and its immediate neighbours,
+    never by string matching. `quoted_spans`, `operator_names` (as a
+    flat-text matching parameter), `_names_match`, `_fallback_match_spans`,
+    `_is_legitimate_candidate_span`, `_is_legitimate_fallback_span`,
+    `_PROPER_NOUN_RE`, `_PROXIMITY_WINDOW_CHARS`, `_MIN_ALLOWED_NAME_LEN`,
+    and `_MIN_QUOTED_SPAN_LEN` are deleted. The trigger for implementing it
+    now (rather than continuing to defer it) was TEST_REPORT.md's
+    cumulative history reaching 10 findings in this exact family across 7
+    review rounds — the closing recommendation there matches this section
+    verbatim. §13.10's tripwire (a single undifferentiated AGENT segment
+    spanning two disjoint institution mentions) is **not** resolved by this
+    refactor and remains documented, tracked residual scope — no current
+    template produces that shape, but a future one that does must re-review
+    this guardrail before shipping. The original recommendation text
+    follows, preserved for the historical record:
+
+    The `quoted_spans` masking mechanism
     (both `_build_output` functions building a `frozenset` of interpolated
     field values, then `check_guardrail` blanking each literal occurrence
     out of a copy of the assembled body before running `_EVALUATIVE_RE`) is

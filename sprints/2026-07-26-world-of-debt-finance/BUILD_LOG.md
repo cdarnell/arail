@@ -1327,3 +1327,174 @@ TEST_REPORT.md's Round 2 section.
 None. F10/F11 had a clean implementation within the existing design —
 the fix is a positional refinement of the same guardrail contract, not a
 new exemption or a new architecture-level concept.
+
+---
+
+## Structural refactor: segment-based provenance
+
+**Date:** 2026-07-27
+**Trigger:** TEST_REPORT.md's cumulative history — 10 findings (F1–F16,
+BLOCK-1..7) across 7 architect review rounds and 3 QA rounds, all in the
+same defect family living in `check_guardrail`'s flat-text
+provenance-reconstruction machinery (`quoted_spans` masking,
+`operator_names`/`vetted_institutions` name-matching, `_names_match`'s
+containment rule, `_PROPER_NOUN_RE` candidate extraction, the
+`_PROXIMITY_WINDOW_CHARS` fallback, and the span-overlap predicates added
+to patch that fallback). Each fix closed the named repro and reopened (or
+left open) an adjacent one at the same shape one level deeper. ARCHITECTURE.md
+§13.11 (architect, round 6 / REVIEW.md addendum 5) had already recommended
+the fix and explicitly deferred it as its own sprint; this pass implements
+it rather than patching finding #17 in the same family.
+
+### What changed
+
+**`src/arail/agents/debt_finance_compliance.py`** — `check_guardrail` no
+longer takes a flat string plus three optional matching sets. It takes an
+ordered list of `Segment(text, provenance)` pieces, where `provenance` is
+one of `Provenance.AGENT` (model-generated or hardcoded-by-this-codebase
+prose), `Provenance.WORLD` (World-sealed content — a vetted institution's
+name/`institution_type`/`verification_source`/`verified_as_of`, or a
+scouting finding's `feed`/`path`), or `Provenance.OPERATOR` (parsed
+verbatim from the operator's own `balances.json`, both `debts` and
+`candidate_scenarios`). Provenance is asserted once, at the point each
+agent's `_build_output` constructs a segment — never re-derived from the
+text afterward.
+
+- **Evaluative/imperative check** now runs only over the concatenation of
+  `AGENT`-provenance segments. A `WORLD` or `OPERATOR` segment is never a
+  candidate for this check at all, regardless of what words it contains —
+  this is what makes a citation URL containing "best" (BLOCK-6/BLOCK-7) or
+  a real institution's own marketed name (the vetted-roster variant of the
+  same finding) structurally impossible to reintroduce, rather than
+  defended against by an ever-growing set of masked spans.
+- **Institutional-character check** still runs over the concatenation of
+  every segment in order (per §13.11's own design intent — an agent could
+  in principle pair a real vetted name with an unvetted one in its own
+  connective prose), but for each trigger occurrence (found within one
+  segment's own text), legitimacy is decided by whether the trigger's own
+  segment, or either of its immediate neighbouring segments, carries
+  `WORLD` or `OPERATOR` provenance. There is no name comparison, no length
+  floor, no word-boundary regex, no proximity window, and no span-overlap
+  arithmetic anywhere in this path any more.
+- **Deleted, not left behind:** `quoted_spans` and `operator_names`/
+  `vetted_institutions` as flat-text matching parameters, `_names_match`,
+  `_fallback_match_spans`, `_is_legitimate_candidate_span`,
+  `_is_legitimate_fallback_span`, `_PROPER_NOUN_RE`,
+  `_PROXIMITY_WINDOW_CHARS`, `_MIN_ALLOWED_NAME_LEN`,
+  `_MIN_QUOTED_SPAN_LEN`, `_span_contains`, `_SENTENCE_SPLIT_RE`. All of
+  this existed solely to approximate provenance from flat text; the
+  segment design makes it unreachable dead code once segments carry
+  provenance directly, so it is gone rather than retained "just in case".
+
+**`src/arail/agents/_builtin_debt_advisor.py`** — `_build_output` now
+assembles the findings document as an ordered list of per-line segment
+lists (mirroring the previous `"\n".join(lines)` shape exactly, so the
+rendered document is byte-identical for byte-identical inputs). Every
+institution name, character label, verification-source URL,
+verified-as-of date, and scouting feed/path is `Segment.world(...)`,
+inserted verbatim from a term's or finding's structured field. Everything
+else (headings, connective prose, the framing sentence) is
+`Segment.agent(...)`. Debt Advisor renders no operator-typed value, so no
+`Segment.operator(...)` appears in its output. `_framing_prose`'s
+self-check now calls `check_guardrail([Segment.agent(text)])`.
+
+**`src/arail/agents/_builtin_consolidation_analyzer.py`** — `_build_output`
+drops its `vetted_names`/`operator_names` parameters entirely (the
+World-vetted-institution set is still computed in `tick()` for the no-op
+fingerprint, unchanged; it is simply no longer threaded into the
+guardrail). `r.institution`, `r.product`, `r.source`, and `r.as_of` are
+all `Segment.operator(...)` — parsed verbatim from the SAME
+operator-authored `candidate_scenarios` entry, by construction, which is
+also why the `"(as you entered it)"` marker is now rendered
+unconditionally rather than gated on an `operator_names` membership check
+that was always true by construction anyway (verified: no behavioral
+change, the rendered text is identical to before for every existing test
+fixture). `_operator_institution_names` is deleted — it existed only to
+build a name-matching exemption set that the segment design no longer
+needs; the two agent-level tests that called it directly
+(`test_debts_only_institution_still_exempted_no_regression`,
+`test_institution_in_neither_field_still_blocks`) are replaced with
+`test_operator_provenance_segment_is_exempt_regardless_of_field` and
+`test_agent_named_institution_still_blocks_no_regression`, which pin the
+same underlying guarantee directly against `check_guardrail`'s new API.
+
+### Tests
+
+- `tests/test_debt_finance_compliance.py` — fully rewritten around the
+  segment API (37 tests): every existing guarantee (evaluative-language
+  blocking, vetted/unvetted institutional pairing, BLOCK-1's tautology,
+  BLOCK-4's line-merge bug, the operator-name exemption, staleness gating)
+  re-expressed as segment constructions, plus new tests the flat-text API
+  could not express at all: `test_agent_segment_with_the_same_text_still_blocks`
+  (an AGENT segment containing the exact text a WORLD segment could
+  legitimately carry still blocks — the provenance tag decides, not the
+  text) and `test_guardrail_allows_trigger_word_inside_its_own_world_segment`
+  / `test_guardrail_next_segment_can_also_legitimize` (the two forms of
+  "own segment" and "neighbour segment" legitimacy).
+- `tests/test_debt_finance_agents.py` — 6 tests updated to the new
+  `check_guardrail(segments)` signature and the `_operator_institution_names`
+  removal; all other tests (output-content assertions, tick behavior,
+  security/isolation checks) required no changes because the rendered
+  document text is unchanged.
+- `tests/test_debt_finance_qa_adversarial.py` — the entire F2/F3/F10/F11/
+  F14/F15/F16 flat-text-repro section (previously ~150 lines spanning "QA
+  round 2" and "QA round 3") is replaced with segment-based tests that pin
+  the same underlying security properties structurally: a 1-char or
+  whitespace-only OPERATOR segment, an OPERATOR segment whose text is a
+  bare word of the trigger phrase ("Union", "Credit", "is a"), and an
+  expanding-casefold Unicode character (the literal F16 repro,
+  `"ﬁrst national"`) are all exercised directly against the new API and
+  confirmed to either legitimize only their own neighbourhood or (when
+  unrelated) never leak legitimacy to a disjoint claim elsewhere in the
+  document. `test_fallback_spans_are_measured_against_the_rendered_string`
+  (which tested the now-deleted `_fallback_match_spans` directly) is
+  replaced by `test_no_coordinate_system_divergence_is_possible_expanding_unicode_case_fold`,
+  which demonstrates the same Unicode input is simply legitimate now, with
+  no coordinate system left to diverge.
+
+### Known, documented residual scope (not a regression)
+
+§13.10's tripwire — a *single*, undifferentiated AGENT segment containing
+two disjoint institution mentions with no field-boundary segment between
+them — is unchanged by this refactor and remains out of scope, for the
+same reason it always was: no current template in either agent ever
+produces that shape (`_build_output` always inserts a short AGENT
+connective segment immediately around each field boundary, never fuses
+two unrelated claims into one opaque blob). `tests/test_debt_finance_qa_adversarial.py`'s
+adversarial tests are constructed at the same segment granularity
+`_build_output` actually produces, and their docstrings note this
+boundary explicitly. If a future template ever renders two institution
+mentions inside one un-split AGENT segment, re-review this guardrail
+before shipping — the same tripwire the architect already flagged, now
+scoped to segment granularity discipline at construction time rather than
+to a character-count heuristic.
+
+### Verification
+
+- Full debt-finance selection (`pytest tests/ -k "debt_finance or
+  debt-finance" -q`): 150 passed (plus 3 pre-existing, environment-only
+  failures in `test_debt_finance_agents_seed.py` — `ModuleNotFoundError:
+  dotenv` — confirmed identical on the pre-refactor parent commit via
+  `git stash`; not attributable to this change).
+- All 10 prior findings' named repros (F1–F16, BLOCK-1..7) re-run by hand
+  against the new API as a final sanity sweep — all hold.
+- `examples/worlds/debt-finance/terms.json` unchanged (`git diff --stat`
+  confirms no diff under `examples/worlds/debt-finance/`) — no reseal
+  needed; `test_world_forge_debt_finance_seal.py` (16 tests) still passes
+  unmodified.
+- No commented-out code; no TODOs left without an owner.
+
+### Commits
+
+1. `feat(debt-finance): segment-based provenance in check_guardrail` —
+   the compliance-module rewrite (`debt_finance_compliance.py`) plus its
+   test file.
+2. `refactor(debt-finance): rewire Debt Advisor output assembly to segments`
+   — `_builtin_debt_advisor.py`.
+3. `refactor(debt-finance): rewire Consolidation Analyzer output assembly
+   to segments` — `_builtin_consolidation_analyzer.py`.
+4. `test(debt-finance): adapt agent and QA-adversarial tests to the
+   segment API` — `test_debt_finance_agents.py` and
+   `test_debt_finance_qa_adversarial.py`.
+5. `docs(debt-finance): record the segment-based provenance refactor in
+   BUILD_LOG and ARCHITECTURE §13.11`.
