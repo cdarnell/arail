@@ -287,6 +287,35 @@ def test_stop_matches_bumped_lab_conf_port_not_default(tmp_path):
             proc.wait(timeout=5)
 
 
+# ---------------------------------------------------------------------------
+# REVIEW.md M5 — `stop --world` had no slug jail: path traversal read plus
+# arbitrary *.json deletion. Drives the REAL scripts/reset.sh entry point
+# (not the extracted-function driver) since the jail lives in the argv
+# dispatch, not inside stop_instance() itself.
+# ---------------------------------------------------------------------------
+
+def test_stop_world_traversal_slug_is_rejected_before_touching_disk(tmp_path):
+    fake_repo = tmp_path / "repo"
+    shutil.copytree(REPO_ROOT / "scripts", fake_repo / "scripts")
+    (fake_repo / "lab").mkdir(parents=True, exist_ok=True)
+
+    # A file a traversal slug could plausibly reach if the jail were absent
+    # (registry.d/<slug>.json — "../foo" would resolve outside lab/instances/).
+    victim = tmp_path / "foo.json"
+    victim.write_text('{"not":"a registry record"}', encoding="utf-8")
+    victim_mtime_before = victim.stat().st_mtime_ns
+
+    result = subprocess.run(
+        ["bash", "scripts/reset.sh", "stop", "--world", "../foo", "--yes"],
+        cwd=fake_repo,
+        capture_output=True, text=True, timeout=15,
+    )
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "invalid" in (result.stdout + result.stderr).lower()
+    assert victim.exists(), "traversal slug must never touch a file outside the registry"
+    assert victim.stat().st_mtime_ns == victim_mtime_before
+
+
 def test_root_lab_stop_still_excludes_foreign_uvicorn(tmp_path):
     """Regression: the pre-existing module-scoping guarantee is preserved
     alongside the new port-scoping (test_reset_stop_scope.py pins the same

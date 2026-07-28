@@ -704,6 +704,17 @@ case "${MODE:-}" in
         # stop_services() when scripts/lib/instances.sh isn't sourced
         # (sandboxed single-file test copies of reset.sh).
         if [[ -n "$STOP_WORLD" ]]; then
+            # REVIEW.md M5: STOP_WORLD is argv, taken verbatim into
+            # inst_registry_file()'s path join with no jail — unlike
+            # start.sh's stage 1 (which jails --world before ever touching
+            # disk), `stop --world ../../../../tmp/x` would read (and, via
+            # stop_instance's `rm -f`, DELETE) an arbitrary *.json file
+            # outside lab/instances/registry.d/. Jail it the same way
+            # start.sh does before it ever reaches a filesystem call.
+            if command -v inst_valid_slug >/dev/null 2>&1 && ! inst_valid_slug "$STOP_WORLD"; then
+                error "invalid World slug: ${STOP_WORLD}"
+                exit 2
+            fi
             if command -v inst_read_record >/dev/null 2>&1; then
                 stop_instance "$STOP_WORLD"
             else
