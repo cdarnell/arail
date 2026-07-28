@@ -479,3 +479,220 @@ should be fixed alongside M1 since it is the same predicate.
 Re-review after 1–9. QA should not run until the BLOCKERs are cleared — several
 of the deferred manual gates (two-World launch, attach-on-running) sit directly
 downstream of M1 and B2.
+
+---
+---
+
+# Re-review (fix pass)
+
+**Date:** 2026-07-28
+**Fix pass:** `9c7e120..893ea23` (11 commits) on top of `5cef466`
+**Reviewed:** BUILD_LOG.md "## Review-fix pass", the full product diff
+`git diff 5cef466..893ea23 -- arailctl scripts/`, the four touched/new test
+files, plus re-run verification.
+
+## FINAL VERDICT: WEAK_PASS
+
+Both BLOCKERs and all seven MAJORs are genuinely closed — not papered over.
+Every fix is the one this review prescribed, implemented at the site named, with
+an end-to-end regression test that drives the *real* script rather than a
+re-implementation. Three new MINOR findings fell out of the fix diffs; none is a
+BLOCKER or MAJOR. Ship with the follow-up ticket list in §R4.
+
+### Verification performed
+
+- `pytest` over the 11 instance-adjacent suites → **98 passed**.
+- `pytest` over the 9 pinned "must stay green" + reset/launchd suites →
+  **86 passed, 3 failed** — the same three pre-existing failures
+  (`test_reset_stop_scope.py`'s two `awk`-extraction cases,
+  `test_shell_source_safety.py`'s `tomllib`-on-3.9 case). Baseline unchanged.
+- `tests/instance_start_driver.sh` → **11/11 scenarios pass** (including M4's new
+  claim-leak scenario).
+- Read every hunk of the product diff; independently reproduced the one new
+  hazard I claim (n2) in a shell harness.
+
+---
+
+## R1. Per-finding closure table
+
+| # | Claim | Verified | Assessment |
+|---|---|---|---|
+| **B1** | `reset.sh` sources `lab.conf` | ✅ **CLOSED** | `reset.sh:32-42` — `[[ -f lab.conf ]] && set -a && source lab.conf && set +a`, placed after `.env` and well before `stop_services()` at `:117`. `test_stop_matches_bumped_lab_conf_port_not_default` is a genuine end-to-end test: real `reset.sh`, `.env` pinning 8080, `lab.conf` pinning 9321, a real backgrounded process whose argv carries `--port 9321`, asserting `No running services found.` is absent. This would have failed hard before the fix. |
+| **B2** | `--world`/`--list`/`--help` always reach `start.sh` | ✅ **CLOSED** | `arailctl:225-242` scans `"$@"` and `exec`s `start.sh` before the `daemon_active` branch; `start.sh:99-128` now hosts the guard *after* arg parsing and renders §4.4's slug-naming refusal. `_instance_start`'s duplicate check is deleted (`start.sh:369-374`) — correctly, since the top-level guard is now the single site. Both tests drive the real `arailctl` with a stubbed `HOME`/`launchctl`/`uname`; the negative assertion (`"Lab supervised by launchd" not in out`) is exactly the right one. F8 is now reachable. **Caveat: the forward list is not exhaustive — see n1.** |
+| **M1** | Probe verifies token AND checkout | ✅ **CLOSED** | `start.sh:583-616`. Captures the body, requires `token == $instance_token && checkout == $REPO_ROOT`, and on mismatch emits the F1-named message (`port N was taken during startup … token/checkout mismatch`) and calls `_instance_cleanup_and_exit 1`. Correctly rejects a *root lab* answering on the port (its `token` is `null` → empty → `-n` fails). **m5 folded in and closed**: `REPO_ROOT` is now `pwd -P` (`start.sh:4-9`), matching `Path.cwd()`. 4 extraction tests pin the comparison matrix. **Caveat: the harness runs without `set -e` — see n2.** |
+| **M2** | Launcher verification is an exact token | ✅ **CLOSED (correctness)** | `reset.sh:234-249` — requires `*"scripts/start.sh"*` **and** an exact `--world <slug>`/`--world=<slug>`. `test_stop_instance_launcher_verification_rejects_slug_substring_match` uses slug `ai` against a decoy path containing `arail`, which is the precise case I raised. The unsound substring test is gone. **Caveat: over-tight for picker-launched instances — see n3.** |
+| **M3** | Ollama survives a sibling | ✅ **CLOSED** | `start.sh:260-269, 284-296, 652-660`. `_INST_OLLAMA_PID` is tracked outside `_INST_PIDS`, and `_instance_cleanup_and_exit` kills it only after walking `inst_list_slugs`/`inst_alive` for a live sibling — the same "last one out" guard `stop_instance` already applied. The `stop --world X` → launcher-TERM → trap → shared-Ollama-death chain is severed at the trap, which is the right layer. Two tests cover both branches. |
+| **M4** | `EXIT` trap on the claim | ✅ **CLOSED** | `start.sh:457-466` installs `trap '_instance_cleanup_and_exit $?' EXIT` immediately after the claim; `:729-737` clears it once the record is written and the claim removed; `_instance_cleanup_and_exit` disarms all three traps on entry (`:271`) so it cannot recurse. Driver scenario 11 forces a `set -e` abort mid-stage-4 by breaking `_set_env_var` and asserts no claim survives — a real fail-before test. F6's "every exit path" is now literally true. |
+| **M5** | `stop --world` jails the slug | ✅ **CLOSED** | `reset.sh:709-718` — `inst_valid_slug` rejection with exit 2, placed *before* `stop_instance`/`inst_read_record`, so no filesystem call is reached. `test_stop_world_traversal_slug_is_rejected_before_touching_disk` asserts exit 2, the message, and that a decoy `foo.json` outside the registry is untouched by mtime-ns. Exactly the prescribed fix. |
+| **M6** | Reset gap documented | ✅ **CLOSED at the agreed minimum** | New section in `docs/concurrent-worlds.md`, a `CHANGELOG.md` entry, and a `sprints/BACKLOG.md` item with a named manual workaround. This is precisely the minimum my review allowed ("Document (at minimum) … file the `--world`-aware reset as a backlog item"). The privacy-contract *gap itself* remains open by design; it now has a home and is discoverable. |
+| **M7** | `✗ unreadable` row reachable | ✅ **CLOSED** | `instances.sh:166-184` — `inst_list_slugs` now emits every basename unread and lets the caller classify, exactly as prescribed. I traced the downstream consumers (`inst_prune`, `inst_prune_all`, `inst_any_alive`, `stop_all_instances`, the ceiling counter, the picker, `_instance_print_roster`): all call `inst_read_record`/`inst_alive`, which handle the corrupt case non-fatally, so admitting unreadable slugs to the list is safe. `test_status_renders_unreadable_row_for_corrupt_registry_record` writes `{oops` and asserts the row renders, `.json.bad` exists, and `.json` is gone. |
+| **m2** | Guard moved below arg parsing | ✅ **CLOSED** | Folded into B2, correctly — `--list` must bypass the guard for B2's fix to be coherent. Duplicate at `_instance_start` deleted. |
+| **m9** | `shift 2` on a trailing `--world` | ✅ **CLOSED** | `reset.sh:668` — `shift; [[ $# -gt 0 ]] && shift`. |
+| **m5** | Logical-vs-physical checkout | ✅ **CLOSED** | Folded into M1 via `pwd -P`. |
+
+**Closure: 9/9 BLOCKER+MAJOR, plus m2, m5, m9. Zero regressions.**
+
+Two additional latent fixes landed unrequested and are correct: `start.sh:34-42`
+now guards `source lab.conf` with `[[ -f ]]` (the bash 3.2 `|| true` landmine
+already fixed in `status.sh:27`), and `_instance_cleanup_and_exit` disarms its
+own traps. Both are in files the pass already rewrote; neither is scope drift.
+
+---
+
+## R2. New findings from the fix diffs
+
+All three are MINOR. None blocks.
+
+**n1 — B2's forward list is not exhaustive; `--port`/`--no-browser`/`--yes`/
+unknown flags are still silently discarded under daemon mode.**
+`arailctl:232-236`
+
+```
+case "$_arail_start_arg" in
+    --world|--world=*|--list|-h|--help) _arail_start_forwards_argv=1; break ;;
+esac
+```
+
+`./arailctl start --port 9000` on a daemon-active machine still falls into the
+launchd branch, kickstarts the root lab on its own port, prints
+`Lab supervised by launchd — portal: …:8080`, and exits **0**. So does
+`./arailctl start --bogus`, which should be a usage error with exit 2. This is
+the same defect class B2 fixed, narrowed rather than eliminated.
+
+*Fix:* forward whenever `[[ $# -gt 0 ]]` and let `start.sh` — which already owns
+both the daemon refusal and the unknown-flag exit 2 — be the single authority on
+`start`'s argv. That is strictly simpler than the current allow-list and removes
+the possibility of a future flag being forgotten.
+
+---
+
+**n2 — A non-JSON probe response aborts stage `[6/8]` with a Python traceback
+instead of M1's named error.**
+`scripts/start.sh:297-304` (`_json_field`) consumed at `:594-595`
+
+```
+probe_token="$(_json_field "$probe_response" token)"
+```
+
+`_json_field` has no `try/except` (unlike `inst_record_field`,
+`instances.sh:150-162`, which does). A foreign process that answers the probe
+with HTTP 200 and a non-JSON body makes `json.loads` raise; the command
+substitution fails; under `set -euo pipefail` the assignment aborts the script.
+Reproduced in a harness:
+
+```
+json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+SUBSTITUTION FAILED rc=1
+```
+
+Consequence is bounded — M4's new `EXIT` trap fires, so the child uvicorn is
+killed and the claim is removed, and the exit code is non-zero — but the operator
+gets a raw traceback rather than
+`port N was taken during startup … token/checkout mismatch`, which is the very
+message M1 exists to deliver, in the most likely foreign-responder case (a
+code-server / jupyter / unrelated web app on that port). `curl -sf` filters
+non-2xx, so only a 200-with-non-JSON triggers it.
+
+*Note on test coverage:* `test_instance_readiness_probe.py:_run_probe` drives the
+extracted block under `set -uo pipefail` — deliberately **without `-e`** — so it
+cannot observe this. The tests pin the comparison matrix correctly but not the
+errexit behaviour of the surrounding stage.
+
+*Fix:* give `_json_field` the same `try/except → print("")` shape
+`inst_record_field` already has (5 lines), or call `inst_record_field` directly.
+Add a `_run_probe` case with `curl_body="<html>"` asserting the named message.
+
+---
+
+**n3 — M2's exact-token launcher check never verifies a picker-launched or
+auto-selected instance.**
+`scripts/reset.sh:242-243`
+
+The launcher's cmdline only contains `--world <slug>` when the operator typed it.
+Both other entry paths — `|W| == 1` auto-select (`start.sh:181-182`) and the
+interactive picker (`start.sh:193-227`) — call `_instance_start "$TARGET_SLUG"`
+from a process whose argv is bare `bash …/scripts/start.sh`. For those
+instances `stop --world X` now always prints
+`launcher pid N did not verify — skipped, not killed` and leaves the launcher
+running.
+
+Impact is small: the launcher is blocked in `wait`, so once portal and memory are
+killed it returns and exits on its own. But (a) the warning is alarming for an
+entirely normal case, and (b) the launcher's `INT/TERM` trap never runs, so the
+instance's `.ollama-started-by-arail.pid` is left behind by that path
+(`stop_instance`'s own Ollama block still handles the actual process, so nothing
+leaks but the file).
+
+This is a real trade — M2's fix is unambiguously right for the substring hazard;
+the verification predicate just needs a second accepted shape.
+
+*Fix:* also accept a cmdline matching `*scripts/start.sh*` when the recorded
+`instance_root` appears in the process's environment or when
+`ARAIL_INSTANCE=<slug>` is in `ps -p <pid> -o command=`'s sibling `ps -E` output;
+simplest and sufficient: have `_instance_start` re-`exec` itself with the slug in
+argv, or record a launcher marker in the registry at start time. Add a stop-scope
+test driving a launcher whose argv has no `--world`.
+
+---
+
+## R3. Hazard review of the fixes themselves
+
+Checked specifically, as instructed:
+
+- **B2's argv forwarding.** `for … in "$@"` with an empty `$@` is a no-op; the
+  trailing `unset` of a never-assigned `_arail_start_arg` is safe under the
+  `set -u` that `instances.sh:20` imposes on the sourcing shell. `exec` preserves
+  argv exactly. No new hazard beyond n1's incompleteness.
+- **M1's probe under `set -e`.** The token/checkout comparisons themselves are
+  `[[ ]]` inside an `if`, correctly exempt. The `curl` call is `|| true`-guarded.
+  The one unguarded failure is `_json_field` — n2.
+- **M4's `EXIT` trap.** Cannot double-fire (disarmed on entry to the handler),
+  cannot kill a successfully-launched instance (cleared at `:737` before `wait`),
+  and covers the SIGHUP/implicit-abort class it was added for. Correct.
+- **M3's cleanup.** Spawns `python3` via `inst_list_slugs`/`inst_alive` from
+  inside a signal handler. Acceptable during shutdown; worth knowing if Ctrl-C
+  latency is ever measured.
+- **M7's widened `inst_list_slugs`.** Traced all seven consumers; all tolerate a
+  slug whose record does not parse. No caller assumes readability.
+- **B1's `set -a` on `lab.conf` in `reset.sh`.** This now exports `IDE_PASSWORD`
+  (written into `lab.conf` by `setup.sh:1656`) into the environment of every
+  child `reset.sh` spawns. `start.sh` has always done this, so it is consistent
+  with existing practice and not a new class of exposure — but `reset.sh`'s
+  `destroy` path shells out far more than `start.sh` does, and it writes
+  `/tmp/arail-destroy.log`. I checked: nothing on that path dumps the
+  environment, so this is a NIT, not a finding. Flagging it so it is on the
+  record.
+
+---
+
+## R4. Open items at ship time (follow-up tickets, not merge blockers)
+
+**New, from this pass:** n1 (complete B2's argv forwarding), n2 (`_json_field`
+needs `try/except`; harden the probe test with `set -e`), n3 (launcher
+verification for picker-launched instances).
+
+**Carried, acknowledged by the builder:** m1, m3, m4, m6, m7, m8, m10, m11, m12,
+plus the three NITs from §2. The deferral reasoning in BUILD_LOG.md is sound in
+every case — each is genuinely outside the touched-file set or not one-line-class,
+and none is on a data-loss or silent-failure path.
+
+**Debt to record in ARCHITECTURE §12 / `sprints/BACKLOG.md`** (from §7 of this
+review, still outstanding): the instance-reset gap (now filed via M6), the
+`awk`-range coupling to `setup.sh`'s formatting, the two unconformed parallel
+liveness implementations, and the `Path.cwd()` bypass class.
+
+## R5. Why WEAK_PASS and not PASS
+
+No BLOCKs remain and the fix quality is high — the tests added are end-to-end
+against the real scripts, which is what made them able to fail before the fix.
+Fourteen MINORs are open, though, and two of the three new ones (n2, n3) sit
+directly on paths this pass just rewrote: n2 defeats M1's own named-error promise
+in its most likely case, and n3 makes a normal stop emit a scary
+"did not verify" warning. Neither is severe enough to hold the merge, and both
+have one-line-class fixes. Ship with notes; file n1–n3 before QA so the manual
+two-World launch is run against a known list.
+
+**QA is now unblocked.** The two deferred manual gates — a real two-World launch
+on 8090/8100 with matching `/api/instance` tokens, and the two-tab visual
+distinctness check — should be the first thing run, since M1 and B2 were the
+findings standing between them and a meaningful result.

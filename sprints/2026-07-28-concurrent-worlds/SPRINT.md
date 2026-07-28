@@ -24,7 +24,7 @@ progress. Full brief with grounding facts: `BRIEF.md` (this dir).
 | think | visionary | VISION.md | DONE | 2026-07-28 11:25 | 2026-07-28 11:30 | proceed |
 | plan | architect (design) | ARCHITECTURE.md | DONE | 2026-07-28 11:32 | 2026-07-28 11:40 | complete (8 WPs) |
 | build | builder | BUILD_LOG.md | DONE | 2026-07-28 11:45 | 2026-07-28 14:00 | WP1–8 done; zero regressions vs pre-sprint baseline (47 reds pre-existing, confirmed byte-identical) |
-| review | architect (review) | REVIEW.md | pending | — | — | — |
+| review | architect (review) | REVIEW.md | DONE | 2026-07-28 14:05 | 2026-07-28 15:35 | WEAK_PASS after fix loop (B1,B2,M1–M7 closed; 3 new minors n1–n3 noted for QA) |
 | test | qa | TEST_REPORT.md | pending | — | — | — |
 | ship | — | commits on branch | pending | — | — | — |
 
