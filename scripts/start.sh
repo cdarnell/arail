@@ -26,10 +26,15 @@ GREEN="\033[0;32m"; CYAN="\033[0;36m"; BOLD="\033[1m"; RESET="\033[0m"; YELLOW="
 # default 8080 — the same drift arailctl's launchd branch already avoids.
 # ARCHITECTURE.md §6.2 — fix is in scope for this WP (restructuring this file
 # anyway; leaving a known drift bug in it is not defensible).
+# Guard with [[ -f ]] rather than relying on `|| true`: under bash 3.2
+# (macOS's shipped /bin/bash — confirmed while adding the B2 regression
+# driver test in this checkout, which has no lab.conf), a "file not found"
+# `source` error aborts a non-interactive shell outright even under a
+# trailing `|| true` — the same landmine status.sh:27 was already fixed
+# for (ARCHITECTURE.md §10's "Ruling on the two latent fixes"), left
+# un-guarded here.
 # shellcheck disable=SC1091
-set -a
-source lab.conf 2>/dev/null || true
-set +a
+[[ -f lab.conf ]] && set -a && source lab.conf && set +a
 
 LAB_NAME="${LAB_NAME:-Arail}"
 LAB_SHORT_NAME="${LAB_SHORT_NAME:-arail}"
@@ -44,25 +49,6 @@ warn() { echo -e "${YELLOW}[${LAB_SHORT_NAME}]${RESET} $*"; }
 export PATH="$HOME/.local/bin:$PATH"
 BIND="${BIND_ADDR:-127.0.0.1}"
 LANCE_PORT="${LANCE_PORT:-7414}"
-
-# Daemon mode guard: when launchd supervises the lab, a foreground start
-# would fight the agents over the ports. Use the supervised commands.
-# daemon_active() (scripts/lib/instances.sh) requires BOTH the plist file
-# AND a live launchctl PID — a plist that exists but isn't loaded (e.g.
-# after `./arailctl stop`, which unloads but keeps plists) no longer trips
-# this guard, retiring the plist-existence trap (F9).
-if daemon_active; then
-    echo "Daemon mode is active (launchd supervises the lab)."
-    echo "  Restart:  ./arailctl restart"
-    echo "  Dev mode: ./arailctl uninstall-daemon && ./arailctl start"
-    exit 1
-elif daemon_plist_installed; then
-    echo "launchd plists installed but inactive — starting in the foreground."
-fi
-
-[[ -f .venv/bin/activate ]] || { echo "no .venv — run ./arailctl setup"; exit 1; }
-# shellcheck disable=SC1091
-source .venv/bin/activate
 
 # =============================================================================
 #  Concurrent Worlds — argument parsing, picker, instance launch
@@ -104,6 +90,42 @@ if [[ -n "$PORT_OVERRIDE" ]] && ! [[ "$PORT_OVERRIDE" =~ ^[0-9]+$ ]]; then
     echo "--port must be a number, got: $PORT_OVERRIDE" >&2
     exit 2
 fi
+
+# Daemon mode guard: when launchd supervises the lab, a foreground start
+# would fight the agents over the ports. Use the supervised commands.
+# daemon_active() (scripts/lib/instances.sh) requires BOTH the plist file
+# AND a live launchctl PID — a plist that exists but isn't loaded (e.g.
+# after `./arailctl stop`, which unloads but keeps plists) no longer trips
+# this guard, retiring the plist-existence trap (F9).
+#
+# Runs AFTER argument parsing (REVIEW.md m2 — was before it): `--list` is
+# side-effect-free and must work regardless of daemon state; `--help`
+# already exited during parsing above. `--world` names the slug in the
+# refusal (ARCHITECTURE.md §4.4) instead of a generic message — this is now
+# the ONLY place this check runs; `_instance_start`'s stage [1/8] no longer
+# duplicates it, since this guard has already refused before that stage
+# could ever be reached (REVIEW.md m2: "delete the duplicate").
+if [[ "$LIST_ONLY" != "1" ]]; then
+    if daemon_active; then
+        if [[ -n "$WORLD_SLUG" ]]; then
+            echo "Daemon mode is active (launchd supervises the lab on :${PORTAL_PORT:-8080})."
+            echo "Daemon mode is single-instance: it cannot host a second World."
+            echo "  To run Worlds side by side:  ./arailctl uninstall-daemon && ./arailctl start --world ${WORLD_SLUG}"
+            echo "  To keep the daemon:          use the lab it already serves at http://${BIND:-127.0.0.1}:${PORTAL_PORT:-8080}"
+        else
+            echo "Daemon mode is active (launchd supervises the lab)."
+            echo "  Restart:  ./arailctl restart"
+            echo "  Dev mode: ./arailctl uninstall-daemon && ./arailctl start"
+        fi
+        exit 1
+    elif daemon_plist_installed; then
+        echo "launchd plists installed but inactive — starting in the foreground."
+    fi
+fi
+
+[[ -f .venv/bin/activate ]] || { echo "no .venv — run ./arailctl setup"; exit 1; }
+# shellcheck disable=SC1091
+source .venv/bin/activate
 
 # Absolute, shared roots — computed once here (from the ROOT .env, which may
 # set a relative override) so every instance pack pins the SAME weights/
@@ -313,13 +335,12 @@ _instance_start() {
     echo ""
 
     # ── [1/8] Preflight ──────────────────────────────────────────────
+    # The daemon-active check used to be duplicated here; it is now the
+    # top-level guard's job (runs once, after arg parsing — REVIEW.md m2),
+    # so by the time _instance_start is ever called, daemon_active is
+    # already known false. Not re-checked here to avoid two sources of
+    # truth for the same predicate.
     printf '[1/8] Preflight… '
-    if daemon_active; then
-        echo "✗"
-        echo "  Daemon mode is active — it cannot host a second World." >&2
-        echo "  To run Worlds side by side: ./arailctl uninstall-daemon && ./arailctl start --world ${slug}" >&2
-        exit 1
-    fi
     if [[ ! -f .venv/bin/activate ]]; then
         echo "✗"; echo "  no .venv — run ./arailctl setup" >&2; exit 1
     fi

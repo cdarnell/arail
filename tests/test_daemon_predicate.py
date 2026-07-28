@@ -105,13 +105,18 @@ def test_daemon_active_true_only_with_pid_line(tmp_path):
 # in the foreground with an informational line when installed-but-inactive.
 # ---------------------------------------------------------------------------
 
-def _run_start_guard(home: Path, plist_present: bool, launchctl_pid: str | None) -> subprocess.CompletedProcess:
+def _run_start_guard(
+    home: Path, plist_present: bool, launchctl_pid: str | None,
+    list_only: bool = False, world_slug: str = "",
+) -> subprocess.CompletedProcess:
     """Drive just start.sh's daemon guard block via a stubbed environment.
 
     Sources instances.sh the same way start.sh does, then re-runs the exact
     guard block extracted from start.sh so this stays pinned to the real
     file (not a reimplementation), mirroring tests/test_reset_stop_scope.py's
-    extraction pattern.
+    extraction pattern. The guard now runs AFTER arg parsing (REVIEW.md m2),
+    so it reads LIST_ONLY/WORLD_SLUG/BIND/PORTAL_PORT from the caller —
+    exactly the variables start.sh's own arg-parsing block would have set.
     """
     start_sh = (REPO_ROOT / "scripts" / "start.sh").read_text(encoding="utf-8")
     marker_start = "# Daemon mode guard"
@@ -135,6 +140,9 @@ def _run_start_guard(home: Path, plist_present: bool, launchctl_pid: str | None)
         REPO_ROOT="{REPO_ROOT}"
         HOME="{home}"
         export HOME
+        BIND="127.0.0.1"
+        LIST_ONLY="{1 if list_only else 0}"
+        WORLD_SLUG="{world_slug}"
         uname() {{ echo Darwin; }}
         launchctl() {{ {launchctl_body}; }}
         # shellcheck disable=SC1091
@@ -168,3 +176,70 @@ def test_start_proceeds_silently_when_no_plist(tmp_path):
     assert res.returncode == 0, res.stderr
     assert "Daemon mode is active" not in res.stdout
     assert "GUARD_PASSED" in res.stdout
+
+
+# ---------------------------------------------------------------------------
+# REVIEW.md B2 — `./arailctl start --world <slug>` must not be silently
+# swallowed by arailctl's daemon_active branch. Drives the REAL arailctl
+# dispatch (never a reimplementation): with a stubbed HOME/launchctl/uname
+# making daemon_active() true, `start --world <slug>` must still reach
+# start.sh's own refusal, which names the slug (F8, ARCHITECTURE.md §4.4) —
+# not the generic "Lab supervised by launchd" success line the daemon
+# branch used to print unconditionally, discarding --world.
+# ---------------------------------------------------------------------------
+
+ARAILCTL = REPO_ROOT / "arailctl"
+
+
+def _stub_bin_dir(tmp_path: Path, launchctl_pid: int) -> Path:
+    bin_dir = tmp_path / "stubbin"
+    bin_dir.mkdir()
+    (bin_dir / "uname").write_text("#!/usr/bin/env bash\necho Darwin\n", encoding="utf-8")
+    (bin_dir / "launchctl").write_text(
+        "#!/usr/bin/env bash\n"
+        'if [[ "$1" == "list" ]]; then\n'
+        f'    printf \'{{\\n\\t"PID" = {launchctl_pid};\\n}};\\n\'\n'
+        "    exit 0\n"
+        "fi\n"
+        "exit 0\n",
+        encoding="utf-8",
+    )
+    for name in ("uname", "launchctl"):
+        (bin_dir / name).chmod(0o755)
+    return bin_dir
+
+
+def _run_arailctl(tmp_path: Path, argv: list[str], daemon_active: bool) -> subprocess.CompletedProcess:
+    home = tmp_path / "home"
+    agents_dir = home / "Library" / "LaunchAgents"
+    agents_dir.mkdir(parents=True)
+    (agents_dir / "io.arail.portal.plist").write_text("<plist/>", encoding="utf-8")
+    stub_bin = _stub_bin_dir(tmp_path, launchctl_pid=4242 if daemon_active else 0)
+    env = {
+        "HOME": str(home),
+        "PATH": f"{stub_bin}:/usr/bin:/bin:/usr/sbin:/sbin",
+    }
+    return subprocess.run(
+        [_BASH, str(ARAILCTL), *argv],
+        capture_output=True, text=True, timeout=20, env=env,
+    )
+
+
+def test_arailctl_start_world_reaches_refusal_naming_slug_when_daemon_active(tmp_path):
+    res = _run_arailctl(tmp_path, ["start", "--world", "finance"], daemon_active=True)
+    out = res.stdout + res.stderr
+    assert res.returncode != 0, out
+    assert "finance" in out
+    assert "Daemon mode is active" in out
+    # Must NOT silently kickstart the ROOT lab and claim success — the B2 bug.
+    assert "Lab supervised by launchd" not in out
+
+
+def test_arailctl_start_list_bypasses_daemon_guard_entirely(tmp_path):
+    """--list is side-effect-free and must reach start.sh's catalog printer
+    even when daemon_active is true, per REVIEW.md m2 (the guard moved
+    below arg parsing so --list/--help aren't blocked by it)."""
+    res = _run_arailctl(tmp_path, ["start", "--list"], daemon_active=True)
+    out = res.stdout + res.stderr
+    # Must reach start.sh (forwarded), not stop at arailctl's daemon branch.
+    assert "Lab supervised by launchd" not in out

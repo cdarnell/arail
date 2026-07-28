@@ -222,6 +222,24 @@ case "$cmd" in
     install-daemon)   exec bash "$REPO_ROOT/scripts/install-daemon.sh" ;;
     uninstall-daemon) exec bash "$REPO_ROOT/scripts/install-daemon.sh" --uninstall ;;
     start)
+        # B2 fix: --world/--list/--help must ALWAYS reach start.sh, even
+        # when the daemon is active — start.sh itself owns the daemon-mode
+        # refusal (naming the World slug when one was requested, F8) and
+        # the --list/--help paths are side-effect-free and must work
+        # regardless of daemon state. Silently discarding argv in this
+        # branch was the exact bug this sprint set out to fix, re-created
+        # one level up (ARCHITECTURE.md §3.1) — see REVIEW.md B2.
+        _arail_start_forwards_argv=0
+        for _arail_start_arg in "$@"; do
+            case "$_arail_start_arg" in
+                --world|--world=*|--list|-h|--help) _arail_start_forwards_argv=1; break ;;
+            esac
+        done
+        if [[ "$_arail_start_forwards_argv" == "1" ]]; then
+            unset _arail_start_forwards_argv _arail_start_arg
+            exec bash "$REPO_ROOT/scripts/start.sh" "$@"
+        fi
+        unset _arail_start_forwards_argv _arail_start_arg
         if daemon_active; then
             for label in $(daemon_agents); do
                 launchctl load "$HOME/Library/LaunchAgents/$label.plist" 2>/dev/null || true
