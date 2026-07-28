@@ -787,6 +787,11 @@ templates = Jinja2Templates(directory=PORTAL_DIR / "templates")
 templates.env.globals["tier_surfaces"] = _visible_surfaces()
 templates.env.globals["lab_tier"] = _current_tier()
 templates.env.globals["ui_themes"] = list_ui_themes()
+# Concurrent Worlds (ARCHITECTURE.md §5.5): the port this PROCESS bound —
+# fixed for the process's lifetime (unlike identity, which flips live with
+# the mounted World), so a plain global is correct here, and it must come
+# from the same env the process actually bound or the title lies.
+templates.env.globals["portal_port"] = int(os.getenv("PORTAL_PORT", "8080") or "8080")
 
 
 def _identity_ctx() -> dict:

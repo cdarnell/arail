@@ -13,7 +13,8 @@
 | WP3 | `scripts/lib/instances.sh`, `scripts/setup.sh` (export `_port_in_use`/`_find_free_port`), `tests/test_instance_ports.py` (new) | Env pack writer, first-boot scaffold, block port allocation + pinning, exclusion list, sub-9100 hard stop. | `test_instance_ports.py` + `test_instance_paths.py`; hand-written pack round-trip | pending |
 | WP4 | `scripts/start.sh`, `arailctl` (usage text), `tests/instance_start_driver.sh` (new), `tests/test_instance_start.py` (new) | Arg parsing, picker, attach-on-running, 8-stage launch, claim/trap, instance-service gating, `warn()` fix, `set -a` around `lab.conf`. | `instance_start_driver.sh` suite; manual two-World launch (deferred to QA per orchestrator note) | pending |
 | WP5 | `scripts/status.sh`, `scripts/reset.sh`, `arailctl`, `tests/test_instance_stop_scope.py` (new) | Instance table (+`--json`, `--probe`), stale prune, `stop --world/--all` with verified-PID kill, port-scoped legacy `stop_services` patterns, `check()`'s port-agnostic Portal/MLX match fixed. | `test_instance_stop_scope.py` + `test_reset_stop_scope.py` + `test_reset_paths.py`; timed `status` < 2s w/ 3 stub records | `80c134b` |
-| WP6 | `src/arail/portal/app.py`, `tests/test_instance_api.py` (new) | `GET /api/instance`, `GET /api/instances`, the absolute-path boot assertion (F14), `POST /api/worlds/select` → 409 `instance_live` (F11). | `test_instance_api.py`; `test_world_switcher.py` + `test_world_mount.py` stay green | pending |
+| WP6 | `src/arail/portal/app.py`, `tests/test_instance_api.py` (new) | `GET /api/instance`, `GET /api/instances`, the absolute-path boot assertion (F14), `POST /api/worlds/select` → 409 `instance_live` (F11). | `test_instance_api.py`; `test_world_switcher.py` + `test_world_mount.py` stay green | `69c1858` |
+| WP7 | `src/arail/portal/static/nav.js`, `templates/worlds.html`, `templates/base.html`, **+`static/js/worlds.js`, `src/arail/portal/app.py`** (both narrow, undeclared-but-necessary — see deviation note), `tests/test_worlds_ui.py` (new) | Liveness dots + port in the nav roster; Mount/Launch/Open/Unmount matrix; copy-the-command Launch; deprecation notice; `· :<port>` in the title. | `test_worlds_ui.py`; `test_world_switcher.py` + `test_world_identity_flip.py` green; manual two-tab check deferred to QA | pending |
 
 ## Execution
 
@@ -561,6 +562,96 @@ preservation (a cross-site request is still 403'd first).
   named in ARCHITECTURE.md §9's "must stay green" list.
 - Full-suite regression run started in the background; see the "Final
   state" section for the tallied result once WP8 closes it out.
+
+Commit: `pending`
+
+### WP7 — UI: roster, button semantics, notice, title
+
+**Deviation, file list (flagged up front, not silently expanded):**
+ARCHITECTURE.md's WP7 file list is `nav.js`, `templates/worlds.html`,
+`templates/base.html`. Verified on disk: the Mount/Unmount button that
+§5.3's matrix describes is rendered by `static/js/worlds.js`'s
+`worldCard()` — `worlds.html` itself contains no button markup, only the
+`<div id="catalog-grid">` mount point `worlds.js` populates. The matrix
+cannot be built without touching the file that actually renders the
+buttons. Also, the page title's port suffix needs a value only Python
+knows (`PORTAL_PORT`) exposed as a Jinja global — one line in
+`src/arail/portal/app.py` (`templates.env.globals["portal_port"] = ...`).
+Both are narrow, mechanically necessary, and documented here rather than
+silently touching files outside the named list — same posture as WP2's
+`reset.sh` touch and WP4's `face.json`-mapping judgment call.
+
+**`static/js/worlds.js`** — `renderCatalog()` now fetches `/api/worlds`
+and `/api/instances` in parallel (`Promise.all`) and passes an
+`instancesBySlug` map + the current mount slug into `worldCard()`, which
+renders the four-way button per §5.3's matrix: **Open** (live instance —
+`window.open` to `http://<bind>:<port>`, non-mutating) → **Unmount**
+(this World is mounted here) → **Mount** (nothing mounted here yet, no
+live instance — the surviving first-bind case, unchanged behavior) →
+**Launch** (something ELSE is mounted here, no live instance — renders
+the exact `./arailctl start --world <slug>` command via
+`showLaunchCommand()`, copies to clipboard, `window.alert`s it; never
+spawns anything, per §5.3's explicit refinement/overrule of VISION's
+one-click-Launch wording). A live instance also gets a small `● :<port>`
+pill next to the existing `MOUNTED` pill. The two mutating
+`/api/worlds/select` call sites (Mount, Unmount) now surface the response
+`message` via `window.alert` on failure — previously silent no-ops —
+wired specifically because WP6 just added the 409 `instance_live` case
+this UI needs to explain, not a general error-handling redesign.
+
+**`static/nav.js`** — `load()` fetches `/api/worlds` + `/api/instances` in
+parallel; `render(json, instJson)` now takes the instance roster and, per
+valid World row: **live** → non-mutating `action: 'open'` row with a
+`● :<port>` badge (click → `window.open`, new tab); **not live, something
+else mounted here** → disabled row whose `title` tooltip is the exact
+launch command (reuses the existing disabled+reason rendering path, no
+new markup shape); **not live, first-bind or already-mounted-here** →
+unchanged mutating `select` row. `_lastInstJson` added alongside the
+existing `_lastJson` cache so the "cancel import" path re-renders with
+the same liveness data instead of losing it. `row()` gained `live`/
+`port`/`url` fields for the dot/badge and the `data-url` attribute the
+new `action === 'open'` click handler reads.
+
+**`templates/base.html`** — `<title>{% block title %}...{% endblock %} ·
+:{{ portal_port }}</title>`: the port suffix rides OUTSIDE every child
+page's `{% block title %}`, so no other template needed editing and two
+tabs on two different instances (or an instance vs. the root lab) render
+textually different titles. `portal_port` is a Jinja global (process
+lifetime, not per-request — unlike `identity`, which flips live with the
+mounted World) sourced from the same `PORTAL_PORT` env var the process
+actually bound.
+
+**`templates/worlds.html`** — a dismissible notice (plain `<div class="card">`,
+not a modal) above the catalog grid, exact copy from ARCHITECTURE.md §5.5,
+with the `./arailctl start --world <slug>` command inline. Dismissal
+persists via `localStorage` (same try/catch-guarded pattern
+`chat.html`'s existing model-hint dismiss already uses), never a server
+round-trip.
+
+Wrote `tests/test_worlds_ui.py` (8 tests): the title suffix renders and
+differs across two different `portal_port` globals; the deprecation
+notice is present, dismissible, not wrapped in a `<dialog>`; `nav.js`
+fetches `/api/instances` and routes live rows to a non-mutating
+`open` action with no process-spawn API anywhere in the file;
+`worlds.js` exposes all four button states and its `Launch` path only
+ever copies a command (same no-process-spawn assertion).
+
+**Manual two-tab visual check (VISION/ARCHITECTURE's "visually
+unmistakable" requirement): DEFERRED TO QA**, per the task's explicit
+instruction — this sandbox has no way to actually launch two World
+instances and open two browser tabs. Everything verifiable headlessly
+(title text differs, notice renders, button labels/actions are correct
+in the rendered HTML/JS source) is covered above.
+
+**Gate result:** PASS.
+- `node --check` clean on `nav.js` and `worlds.js`.
+- A Jinja2 `Environment(FileSystemLoader(...))` parse of `base.html` and
+  `worlds.html` succeeds (template syntax valid).
+- `PYTHONPATH=src <venv>/bin/python -m pytest tests/test_worlds_ui.py -q`
+  → **8 passed**.
+- `PYTHONPATH=src <venv>/bin/python -m pytest tests/test_worlds_ui.py
+  tests/test_world_switcher.py tests/test_world_identity_flip.py -q` →
+  **39 passed** — both suites named in the gate stay green.
 
 Commit: `pending`
 
