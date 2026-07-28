@@ -6,6 +6,51 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added (2026-07-28 concurrent Worlds — run more than one lab at once)
+
+- **`./arailctl start --world <slug>`** launches a World as its OWN process,
+  rooted at `lab/instances/<slug>/`, on its own portal + memory-service
+  ports (allocated once, pinned forever after — `:8090`, `:8100`, …),
+  sharing only the machine's model weights and the Ollama daemon. Up to
+  `LAB_MAX_INSTANCES` (default 3) run side by side; a second `start` for
+  a running World attaches (prints its URL, opens the browser) instead of
+  respawning or silently dying. Bare `./arailctl start` with 2+ Worlds
+  configured shows an interactive picker (including the root lab); with
+  0 or 1 World it behaves exactly as before.
+- **`./arailctl status`** now leads with a registry-driven instance table
+  (`--json` for scripts, `--probe` to also check each instance is
+  answering from the checkout its registry record claims — catches a
+  crash-looped daemon serving stale code from a different checkout).
+  Replaces four previously-disagreeing liveness checks
+  (`arailctl`/`start.sh`/`status.sh`/`install-daemon.sh` each re-derived
+  their own) with one predicate.
+- **`./arailctl stop [--world <slug>] [--all]`** — stops one instance, all
+  instances, or (with no World instances running) the root lab exactly as
+  before. A plain `./arailctl stop` with 2+ instances running now refuses
+  and names the roster + exact command, rather than guessing. Fixes a
+  real data-loss bug: an un-scoped root-lab stop used to be able to kill a
+  live World instance's portal/memory processes mid-write.
+- **Per-instance isolation**: each instance's knowledge base, chat memory,
+  LanceDB index, and `secrets.env` (provider API keys) are separate trees
+  — never shared, never auto-copied between instances or from the root
+  lab. `lab/models/` (weights) and `lab/worlds/` (the World library) stay
+  shared, since duplicating multi-GB weights per World would be absurd.
+- **`/worlds` and the nav World switcher** now show **Open** (not Mount)
+  for a World that's already running as its own instance, and **Launch**
+  (a copy-to-clipboard `./arailctl start --world <slug>` command, never a
+  one-click spawn from the browser) for a World that isn't live but
+  something else is already mounted in the current lab. In-place Mount is
+  deprecated — announced this release, removed next.
+- **`GET /api/instance`** / **`GET /api/instances`** — new read-only
+  portal endpoints: self-report (which instance is this process?) and the
+  registry-driven roster, used by both the CLI's liveness check and the
+  new UI.
+
+See `sprints/2026-07-28-concurrent-worlds/` for the full design record
+(`VISION.md`, `ARCHITECTURE.md`, `BUILD_LOG.md`) and
+[`docs/concurrent-worlds.md`](docs/concurrent-worlds.md) for the operator
+guide.
+
 ### Added (2026-07-25 first-impression experience — one World moment, three doors)
 
 - **`/welcome?step=world`** — the existing welcome-flow World picker is now

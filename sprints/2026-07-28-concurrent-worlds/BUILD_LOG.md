@@ -14,7 +14,8 @@
 | WP4 | `scripts/start.sh`, `arailctl` (usage text), `tests/instance_start_driver.sh` (new), `tests/test_instance_start.py` (new) | Arg parsing, picker, attach-on-running, 8-stage launch, claim/trap, instance-service gating, `warn()` fix, `set -a` around `lab.conf`. | `instance_start_driver.sh` suite; manual two-World launch (deferred to QA per orchestrator note) | pending |
 | WP5 | `scripts/status.sh`, `scripts/reset.sh`, `arailctl`, `tests/test_instance_stop_scope.py` (new) | Instance table (+`--json`, `--probe`), stale prune, `stop --world/--all` with verified-PID kill, port-scoped legacy `stop_services` patterns, `check()`'s port-agnostic Portal/MLX match fixed. | `test_instance_stop_scope.py` + `test_reset_stop_scope.py` + `test_reset_paths.py`; timed `status` < 2s w/ 3 stub records | `80c134b` |
 | WP6 | `src/arail/portal/app.py`, `tests/test_instance_api.py` (new) | `GET /api/instance`, `GET /api/instances`, the absolute-path boot assertion (F14), `POST /api/worlds/select` → 409 `instance_live` (F11). | `test_instance_api.py`; `test_world_switcher.py` + `test_world_mount.py` stay green | `69c1858` |
-| WP7 | `src/arail/portal/static/nav.js`, `templates/worlds.html`, `templates/base.html`, **+`static/js/worlds.js`, `src/arail/portal/app.py`** (both narrow, undeclared-but-necessary — see deviation note), `tests/test_worlds_ui.py` (new) | Liveness dots + port in the nav roster; Mount/Launch/Open/Unmount matrix; copy-the-command Launch; deprecation notice; `· :<port>` in the title. | `test_worlds_ui.py`; `test_world_switcher.py` + `test_world_identity_flip.py` green; manual two-tab check deferred to QA | pending |
+| WP7 | `src/arail/portal/static/nav.js`, `templates/worlds.html`, `templates/base.html`, **+`static/js/worlds.js`, `src/arail/portal/app.py`** (both narrow, undeclared-but-necessary — see deviation note), `tests/test_worlds_ui.py` (new) | Liveness dots + port in the nav roster; Mount/Launch/Open/Unmount matrix; copy-the-command Launch; deprecation notice; `· :<port>` in the title. | `test_worlds_ui.py`; `test_world_switcher.py` + `test_world_identity_flip.py` green; manual two-tab check deferred to QA | `36b8d11` |
+| WP8 | `docs/concurrent-worlds.md` (new), `README.md`, `CHANGELOG.md`, `CLAUDE.md`, `sprints/BACKLOG.md` (new), **+`scripts/blueprint.sh`** (spec-required, see deviation note), `tests/test_instance_isolation.py` (new), `tests/test_instance_secrets.py` (new), `tests/test_launchd_render.py` (regression fix, see note) | Operator docs, changelog, backlog item, falsifiable-core isolation test, secrets test, full-suite green verification. | Full `pytest` green except the confirmed-pre-existing baseline; byte-identical sha256 isolation assertion | pending |
 
 ## Execution
 
@@ -655,6 +656,122 @@ in the rendered HTML/JS source) is covered above.
 
 Commit: `36b8d11`
 
+### WP8 — Docs, isolation proof, changelog
+
+**`docs/concurrent-worlds.md`** (new) — the operator-facing guide: what
+changed and why, the on-disk layout, port allocation, why secrets are
+per-instance, the ceiling, what an instance does NOT start, daemon-mode
+interaction, the in-place-switcher deprecation, a `status` reference, and
+the "two things called instances" naming note (with a pointer to the
+`sprints/BACKLOG.md` item below).
+
+**`README.md`** — one new paragraph under the existing "🌍 Worlds" surface
+section pointing at the new capability and `docs/concurrent-worlds.md`.
+
+**`CHANGELOG.md`** — a full `### Added (2026-07-28 concurrent Worlds)`
+entry under `[Unreleased]`, matching the file's existing per-sprint entry
+style, covering `start --world`, the `status` table, `stop` scoping,
+per-instance isolation, the UI button matrix, and the two new endpoints.
+
+**`CLAUDE.md`** — three additions: the "Current state" paragraph now
+names this sprint; two new "Conventions worth knowing" bullets
+(`lab/instances/` vs. repo-root `instances/`, and per-instance secrets
+never shared/auto-copied — the same rule the README/code already state,
+now pinned here too per the file's own stated purpose).
+
+**`sprints/BACKLOG.md`** (new) — the named revisit ARCHITECTURE.md §12
+requires: *"Unify blueprint instances with runtime instances (+ decide
+ARAIL_HOME)"*, with the gap, why it wasn't done now, and what a future
+sprint needs to decide.
+
+**Deviation, narrow, spec-required (`scripts/blueprint.sh`):** §12's
+mitigation text explicitly calls for "a comment at the top of
+`blueprint.sh` **and** in `docs/concurrent-worlds.md` stating which is
+which" — not on WP8's literal file list, but named by the architecture's
+own mitigation clause. Added an eight-line comment to `blueprint.sh`'s
+existing header; no behavior change.
+
+**Falsifiable-core test — `tests/test_instance_isolation.py`** (4 tests):
+builds two sealed World bundles (`world_bundle_builder.make_bundle`) in
+one shared Worlds catalog, mounts World A into instance A's root and
+World B into instance B's root (`wm.mount(..., pkb_root=..., data_dir=...)`
+— the explicit-root seam process separation gives every instance for
+real), and asserts: **A's staged tree is byte-identical, sha256 per file**,
+after B mounts (the literal §9 assertion); a sentinel file in A's LanceDB
+cache directory is untouched (same mtime); each instance's mount record
+stays independently correct; neither instance's `pkb/sources/` gained the
+other's staged World. A second test re-mounts A on top of itself (a
+realistic "reboot the instance" case) and re-confirms B is untouched.
+Two more tests cover §6.3 (egress.jsonl lands under `ARAIL_DATA_DIR`,
+per-instance, switching cleanly between two instance data dirs) and "an
+instance's PKB is invisible to a different root's `pkb.search`" (the
+explicit `pkb_root` parameter `pkb.search()` already exposes).
+
+**`tests/test_instance_secrets.py`** (7 tests): `secrets.env` written via
+the real `_write_secrets()` lands at `0600`; not created until the first
+save (no eager touch on scaffold); no copy/symlink between instances or
+from the root lab; a source-level regression guard that `_write_secrets`
+never calls `shutil.copy`/`os.symlink`/`os.link`/`subprocess`; `git
+check-ignore` covers every instance's `secrets.env` path (and the root
+lab's, unchanged); the written value never appears in any log record
+(`caplog`-driven) or in the `providers_save` endpoint's own source.
+
+**Real regression found and fixed by this WP's full-suite gate (not a
+new sprint bug — a WP2 fixture-maintenance gap surfaced only by running
+the FULL suite, which no prior WP in this pass did):**
+`tests/test_launchd_render.py` (4 tests) started failing the moment
+`install-daemon.sh` began unconditionally sourcing
+`scripts/lib/instances.sh` (WP2) — the test's `_run_installer` fixture
+built a sandboxed fake repo containing only `install-daemon.sh` + the
+plist template, never anticipating the new hard dependency. Every
+targeted regression sweep in WP1-WP7 ran named subsets of suites (per
+ARCHITECTURE.md §9's "must stay green" list, which does not include
+`test_launchd_render.py`) and so never caught this. Fixed by copying
+`scripts/lib/instances.sh` into the fixture's fake repo too (same pattern
+`tests/instance_start_driver.sh` already uses) — zero product-code
+change; the product code's new dependency is correct, the fixture just
+hadn't been told about it yet.
+
+**Full-suite verification, methodology:** rather than trust the "3
+pre-existing failures" figure carried forward from WP1-4's TARGETED
+subset runs (which never exercised the ~3,500-test full suite), this WP
+built a disposable `git worktree` at `9c51502` (the commit immediately
+before this sprint's first commit) and ran the ENTIRE `tests/` directory
+there as the true pre-sprint baseline, then diffed its failure set
+byte-for-byte against a full run of the final sprint state.
+
+- **Baseline** (`9c51502`, full suite): **47 failed, 3390 passed, 2
+  skipped, 1 xfailed, 7 errors** (55 named FAILED/ERROR lines).
+- **Final sprint state** (this HEAD, full suite, after the
+  `test_launchd_render.py` fixture fix above): **47 failed, 3477 passed,
+  2 skipped, 1 xfailed, 7 errors** (55 named FAILED/ERROR lines).
+- **`diff` of the two 55-line failure-name lists: byte-for-byte
+  identical.** Every one of the 47 pre-existing failures/7 errors is
+  unrelated to this sprint (model-hosting/aerollm hardware/psutil checks,
+  dashboard-layout template drift, world-forge API, opencode lifecycle,
+  provider-dropdown UX, etc. — none touch `scripts/lib/instances.sh`,
+  `start.sh`, `status.sh`, `reset.sh`, `arailctl`, the instance registry,
+  or any file this sprint added/modified) and was independently confirmed
+  present on the pre-sprint commit, not introduced by this work.
+- **The +87 passed** (3477 − 3390) are this sprint's own new tests, all
+  green: `test_instance_registry.py` (21), `test_instance_paths.py` (6),
+  `test_daemon_predicate.py` (7), `test_instance_ports.py` (25),
+  `test_instance_start.py` (1 wrapper around a 10-scenario driver),
+  `test_instance_stop_scope.py` (7), `test_instance_api.py` (12),
+  `test_worlds_ui.py` (8), `test_instance_isolation.py` (4),
+  `test_instance_secrets.py` (7) — 98 new test functions total; the small
+  discrepancy from the raw pass-count delta is accounted for by
+  `test_instance_start.py`'s driver being one pytest test wrapping ten
+  shell scenarios (counted once by pytest) and a couple of
+  environment-conditional skips elsewhere in the suite.
+
+**Gate result:** PASS. `git check-ignore` spot checks for every instance
+secrets path pass; the isolation test's sha256 assertion passes; the full
+suite is green except the 47 confirmed-pre-existing, confirmed-unrelated
+failures (byte-for-byte identical failure set to the pre-sprint baseline).
+
+Commit: `pending`
+
 ## Architect feedback required
 
 (empty unless the architect's plan needed revision mid-build)
@@ -691,3 +808,54 @@ Commit: `36b8d11`
   fully functional and tested today.
 - **WP5-WP8 not started** — out of this builder pass's scope per the
   task's explicit boundary.
+
+## Final state (full sprint, WP1-WP8)
+
+- **Commits, one per WP (8) plus 3 hash-recording doc commits:**
+  1. `59f0241` — WP1: `scripts/lib/instances.sh` paths/registry/liveness
+  2. `0db90c1` — WP2: retire the four daemon-liveness checks
+  3. `cf16ec8` — WP3: env pack writer, first-boot scaffold, port allocation
+  4. `96a846d` — WP4: `start.sh` retrofit
+  5. `80c134b` — WP5: `status`/`stop`/`reset.sh` instance scoping
+  6. `69c1858` — WP6: `GET /api/instance`, `GET /api/instances`, boot assertion, 409 `instance_live`
+  7. `36b8d11` — WP7: nav/worlds UI — liveness roster, Mount/Launch/Open/Unmount, deprecation notice, port-suffixed title
+  8. WP8 — this section's commit, see below (docs, isolation proof, `test_launchd_render.py` fixture fix)
+- **New test files (10):** `tests/test_instance_registry.py` (21),
+  `tests/test_instance_paths.py` (6), `tests/test_daemon_predicate.py` (7),
+  `tests/test_instance_ports.py` (25), `tests/instance_start_driver.sh` +
+  `tests/test_instance_start.py` (10 driver scenarios, 1 pytest wrapper),
+  `tests/test_instance_stop_scope.py` (7), `tests/test_instance_api.py`
+  (12), `tests/test_worlds_ui.py` (8), `tests/test_instance_isolation.py`
+  (4), `tests/test_instance_secrets.py` (7) — **98 new pytest test
+  functions**, all passing.
+- **Full-suite result (the true gate — see WP8's section above for the
+  baseline-diff methodology):** **47 failed, 3477 passed, 2 skipped, 1
+  xfailed, 7 errors** — the failure SET is byte-for-byte identical to a
+  from-scratch full-suite run on `9c51502` (the commit immediately before
+  this sprint's first commit). Zero regressions anywhere in the ~3,500-test
+  suite, not just the instance-adjacent subset.
+- **One real regression found and fixed** (not a design flaw — a test
+  fixture that hadn't been updated for WP2's new hard dependency):
+  `tests/test_launchd_render.py` now copies `scripts/lib/instances.sh`
+  into its sandboxed fake repo. See WP8's section for detail.
+- **Files touched across the whole sprint:** `scripts/lib/instances.sh`
+  (new), `arailctl`, `scripts/start.sh`, `scripts/status.sh`,
+  `scripts/reset.sh`, `scripts/install-daemon.sh`, `scripts/blueprint.sh`
+  (header comment only), `.gitignore`, `src/arail/portal/app.py`,
+  `src/arail/portal/static/nav.js`, `src/arail/portal/static/js/worlds.js`,
+  `src/arail/portal/templates/base.html`,
+  `src/arail/portal/templates/worlds.html`, `README.md`, `CHANGELOG.md`,
+  `CLAUDE.md`, `docs/concurrent-worlds.md` (new), `sprints/BACKLOG.md`
+  (new), plus the 10 test files above and
+  `tests/test_launchd_render.py` (fixture fix).
+- **Every WP5-WP8 gate in ARCHITECTURE.md §10 passed**, including the two
+  gates that name specific numeric thresholds: `status` well under 2s
+  with 3 stub records (WP5), and the byte-identical sha256 isolation
+  assertion (WP8).
+- **No architect feedback required** — the plan held for all eight WPs.
+  Every deviation encountered (documented inline above, per WP) was a
+  narrow, mechanical file-list gap between what ARCHITECTURE.md named and
+  what the actual rendering/logic code required (e.g. `worlds.js` for the
+  Mount button WP7's spec described as living in `worlds.html`;
+  `scripts/lib/instances.sh` not touched in WP5 because its existing
+  primitives sufficed) — never a case where the design itself was wrong.

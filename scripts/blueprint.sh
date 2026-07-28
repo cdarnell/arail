@@ -15,6 +15,16 @@
 #   at the repo root (./.env, ./lab.conf). New instances scaffolded
 #   by `create` live under ./instances/<name>/. Nothing migrates;
 #   nothing breaks.
+#
+# NOT the same thing as lab/instances/ — repo-root ./instances/ here is a
+# config-only scaffold (.env/lab.conf/blueprint.toml); nothing under
+# src/arail/ reads it, and `create` never spawns a running process.
+# lab/instances/ (sprints/2026-07-28-concurrent-worlds/, see
+# docs/concurrent-worlds.md) is the REAL runtime home for a concurrently-
+# running World instance (registry, per-instance data/pkb/env-pack). Two
+# directories named "instances" meaning different things is a known,
+# tracked point of confusion — see sprints/BACKLOG.md "Unify blueprint
+# instances with runtime instances (+ decide ARAIL_HOME)".
 
 set -euo pipefail
 
