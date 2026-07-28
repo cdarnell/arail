@@ -257,6 +257,15 @@ fi
 
 _INST_PIDS=()
 _INST_CLAIM_FILE=""
+# REVIEW.md M3: Ollama is machine-SHARED (§11 "Nothing cross-instance",
+# §4.2 step 5) — it must NEVER be a member of _INST_PIDS, or this
+# launcher's own Ctrl-C/TERM cleanup would kill it out from under a
+# sibling instance that is still using it, regardless of whether that
+# sibling is alive. Tracked separately; killed here only if no OTHER
+# World instance is still alive (same "last one out" guard reset.sh's
+# stop_instance() already applies on the explicit-stop path).
+_INST_OLLAMA_PID=""
+_INST_CURRENT_SLUG=""
 
 _instance_cleanup_and_exit() {
     local code="${1:-0}"
@@ -266,6 +275,18 @@ _instance_cleanup_and_exit() {
     done
     if [[ ${#_INST_PIDS[@]} -gt 0 ]]; then
         wait 2>/dev/null || true
+    fi
+    if [[ -n "$_INST_OLLAMA_PID" ]]; then
+        local other_alive=0 other_slug
+        while IFS= read -r other_slug; do
+            [[ -n "$other_slug" && "$other_slug" != "$_INST_CURRENT_SLUG" ]] || continue
+            inst_alive "$other_slug" && other_alive=1
+        done < <(inst_list_slugs)
+        if (( other_alive == 0 )); then
+            kill "$_INST_OLLAMA_PID" 2>/dev/null || true
+            wait "$_INST_OLLAMA_PID" 2>/dev/null || true
+            rm -f "$(inst_data_dir "$_INST_CURRENT_SLUG")/.ollama-started-by-arail.pid" 2>/dev/null || true
+        fi
     fi
     [[ -n "$_INST_CLAIM_FILE" ]] && rm -f "$_INST_CLAIM_FILE" 2>/dev/null || true
     exit "$code"
@@ -334,6 +355,7 @@ print(val if val is not None else "")
 _instance_start() {
     local slug="$1"
     local display_name="$slug"
+    _INST_CURRENT_SLUG="$slug"
 
     echo ""
     echo -e "${CYAN}${BOLD}Starting World: ${slug}${RESET}"
@@ -614,7 +636,11 @@ _instance_start() {
         else
             ollama serve >> "$(inst_log_dir "$slug")/ollama.log" 2>&1 &
             local ollama_pid=$!
-            _INST_PIDS+=("$ollama_pid")
+            # NOT added to _INST_PIDS (REVIEW.md M3) — Ollama is
+            # machine-shared; _INST_OLLAMA_PID is killed by
+            # _instance_cleanup_and_exit only when no sibling instance is
+            # still alive, never unconditionally alongside portal/memory.
+            _INST_OLLAMA_PID="$ollama_pid"
             mkdir -p "$(inst_data_dir "$slug")"
             echo "$ollama_pid" > "$(inst_data_dir "$slug")/.ollama-started-by-arail.pid"
             for _ in 1 2 3 4 5 6 7 8 9 10; do
