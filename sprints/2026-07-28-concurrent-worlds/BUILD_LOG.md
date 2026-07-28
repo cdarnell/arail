@@ -15,7 +15,7 @@
 | WP5 | `scripts/status.sh`, `scripts/reset.sh`, `arailctl`, `tests/test_instance_stop_scope.py` (new) | Instance table (+`--json`, `--probe`), stale prune, `stop --world/--all` with verified-PID kill, port-scoped legacy `stop_services` patterns, `check()`'s port-agnostic Portal/MLX match fixed. | `test_instance_stop_scope.py` + `test_reset_stop_scope.py` + `test_reset_paths.py`; timed `status` < 2s w/ 3 stub records | `80c134b` |
 | WP6 | `src/arail/portal/app.py`, `tests/test_instance_api.py` (new) | `GET /api/instance`, `GET /api/instances`, the absolute-path boot assertion (F14), `POST /api/worlds/select` → 409 `instance_live` (F11). | `test_instance_api.py`; `test_world_switcher.py` + `test_world_mount.py` stay green | `69c1858` |
 | WP7 | `src/arail/portal/static/nav.js`, `templates/worlds.html`, `templates/base.html`, **+`static/js/worlds.js`, `src/arail/portal/app.py`** (both narrow, undeclared-but-necessary — see deviation note), `tests/test_worlds_ui.py` (new) | Liveness dots + port in the nav roster; Mount/Launch/Open/Unmount matrix; copy-the-command Launch; deprecation notice; `· :<port>` in the title. | `test_worlds_ui.py`; `test_world_switcher.py` + `test_world_identity_flip.py` green; manual two-tab check deferred to QA | `36b8d11` |
-| WP8 | `docs/concurrent-worlds.md` (new), `README.md`, `CHANGELOG.md`, `CLAUDE.md`, `sprints/BACKLOG.md` (new), **+`scripts/blueprint.sh`** (spec-required, see deviation note), `tests/test_instance_isolation.py` (new), `tests/test_instance_secrets.py` (new), `tests/test_launchd_render.py` (regression fix, see note) | Operator docs, changelog, backlog item, falsifiable-core isolation test, secrets test, full-suite green verification. | Full `pytest` green except the confirmed-pre-existing baseline; byte-identical sha256 isolation assertion | pending |
+| WP8 | `docs/concurrent-worlds.md` (new), `README.md`, `CHANGELOG.md`, `CLAUDE.md`, `sprints/BACKLOG.md` (new), **+`scripts/blueprint.sh`** (spec-required, see deviation note), `tests/test_instance_isolation.py` (new), `tests/test_instance_secrets.py` (new), `tests/test_launchd_render.py` (regression fix, see note) | Operator docs, changelog, backlog item, falsifiable-core isolation test, secrets test, full-suite green verification. | Full `pytest` green except the confirmed-pre-existing baseline; byte-identical sha256 isolation assertion | `01776e8` |
 
 ## Execution
 
@@ -770,7 +770,7 @@ secrets path pass; the isolation test's sha256 assertion passes; the full
 suite is green except the 47 confirmed-pre-existing, confirmed-unrelated
 failures (byte-for-byte identical failure set to the pre-sprint baseline).
 
-Commit: `pending`
+Commit: `01776e8`
 
 ## Architect feedback required
 
