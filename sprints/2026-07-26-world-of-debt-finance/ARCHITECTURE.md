@@ -1081,6 +1081,40 @@ this sprint:
     same LLM-generated sentence, this proximity-window heuristic reopens
     as a live BLOCK, not documented debt — re-review the guardrail before
     shipping such a change.
+
+    **Residual scope moved here from §13.11 (REVIEW.md re-review addendum 7,
+    round 8):** the `is_name` fix (§13.11, CLOSED) eliminated the "any
+    non-AGENT text counts as a name" inference, but two narrower shapes still
+    rely on segment adjacency rather than a stated fact, and both are
+    currently unreachable for the same reason the rest of this tripwire is —
+    the only model-generated AGENT text in either agent is `_framing_prose`,
+    which always sits alone on its own line, neighboured on both sides by
+    `agent("\n")`. Verified live by the round-8 reviewer:
+
+    ```python
+    # Shape A — a non-AGENT trigger segment is trusted with no name pairing
+    # at all when the trigger is itself WORLD/OPERATOR provenance:
+    [agent("Payday Express is a "), world("credit union")]  # -> ok=True
+
+    # Shape B — adjacency, not the tagged fact, decides WHICH name a trigger
+    # is about: a real vetted name can vouch for a claim about a different,
+    # agent-invented name in the same or an adjacent AGENT span:
+    [world("PenFed", is_name=True),
+     agent(" and Payday Express is a credit union, unlike "),
+     world("Navy Federal", is_name=True)]  # -> ok=True
+    ```
+
+    Both shapes require a template to place a second, unrelated institution
+    mention inside or adjacent to the same AGENT span that already has a
+    legitimate name neighbour — the same "single undifferentiated AGENT
+    segment spanning two disjoint institution mentions" shape this tripwire
+    already tracks. No current template produces it. **Tripwire (extended):**
+    if any future template change ever lets an AGENT span reference, or sit
+    adjacent to, more than one institution's name, or lets a WORLD/OPERATOR
+    segment with no adjacent name-tagged neighbour serve as an
+    institutional-character trigger, re-review `check_guardrail`'s
+    institutional-character branch before shipping — the `is_name` tag alone
+    does not close this case.
 11. **[IMPLEMENTED — see BUILD_LOG.md's "Structural refactor: segment-based
     provenance" entry, 2026-07-27.]** The recommendation below (originally
     filed as out-of-scope tech debt per REVIEW.md re-review addendum 5) is
@@ -1174,19 +1208,30 @@ this sprint:
     needing an adjacent name, because that text is itself verbatim vetted
     content, not an agent claim about something else.
 
-    This closes the reachable half of the family: this is no longer a
-    positional/proximity approximation at all — it is a direct assertion,
-    made once at the one call site that actually knows it is writing a
-    name, checked by the guardrail as a boolean flag rather than inferred
-    from segment position. There is no adjacency math, no character
-    offsets, no "which segment is this text in" reconstruction — the
-    caller states the fact once, and the checker reads it. A future finding
-    in this exact shape (an unrelated, non-name WORLD/OPERATOR segment
-    vouching for an agent-invented name) is not possible against this
-    design, because the check no longer asks "is *any* non-AGENT text
-    nearby" — it asks "is *the* segment tagged as this institution's name
-    nearby", which cannot be satisfied by an untagged neighbour regardless
-    of its provenance or content.
+    This closes the reachable half of the family: the check no longer infers
+    whether a neighbour *is a name* from its provenance, casing, or content —
+    that is now a direct assertion, made once at the one call site that
+    actually knows it is writing a name, checked by the guardrail as a
+    boolean flag rather than inferred. A future finding in the previously
+    reported shape (an unrelated, non-name WORLD/OPERATOR segment — a date,
+    URL, product, or source field — vouching for an agent-invented name) is
+    not possible against this design, because the check no longer asks "is
+    *any* non-AGENT text nearby" — it asks "is *the* segment tagged as this
+    institution's name nearby", which cannot be satisfied by an untagged
+    neighbour regardless of its provenance or content.
+
+    **Correction (REVIEW.md re-review addendum 7, round 8):** this section
+    previously claimed "no adjacency math" and "no positional reasoning of
+    any kind left in the institutional-character branch." That overstates
+    what shipped. The check still uses segment *adjacency* to decide which
+    name a claim is about — it no longer infers *whether* a neighbour is a
+    name, but it still relies on the neighbour relationship itself. Two
+    residual shapes that use adjacency this way (a non-AGENT trigger segment
+    trusted with no name pairing at all, and a real vetted name vouching for
+    a claim about a different, agent-invented name via adjacency) were found
+    live by the round-8 reviewer and are documented, with tripwire, in
+    §13.10 — they are not part of §13.11's closure and were never eliminated
+    by it.
 
     Also fixed in the same pass, per REVIEW.md's addendum 6 required
     actions: (a) a template-invariant test asserting no AGENT segment
@@ -1230,12 +1275,21 @@ this sprint:
     call site that already sets `provenance`, using the same "caller
     knows, checker reads, never re-derived" contract that closed the
     evaluative-language half of this same defect family in round 7's first
-    pass. There is no positional reasoning of any kind left in the
-    institutional-character branch for the AGENT-own-segment case (case 2
-    in `check_guardrail`'s docstring); the only remaining "adjacency" is a
-    boolean AND between "is this neighbour non-AGENT" and "is this
-    neighbour tagged as a name", not a proximity heuristic over content.
-    §13.11 is now CLOSED — the residual §13.10 tripwire (a single
-    undifferentiated AGENT segment spanning two disjoint institution
-    mentions) remains separately tracked, unrelated to this fix, and still
-    requires no current template producing that shape.
+    pass. For the AGENT-own-segment case (case 2 in `check_guardrail`'s
+    docstring), the check no longer reasons about *whether* a neighbour is a
+    name from its content or provenance — it reads a boolean AND between "is
+    this neighbour non-AGENT" and "is this neighbour tagged as a name",
+    instead of a proximity heuristic over content. **This is not the same as
+    "no adjacency math" or "no positional reasoning of any kind left"** — the
+    check still uses adjacency itself to decide *which* name a claim is
+    about, and REVIEW.md re-review addendum 7 (round 8) verified two shapes
+    that exploit that: a non-AGENT trigger trusted with no name pairing at
+    all, and a real vetted name vouching for a claim about a different,
+    agent-invented name across an AGENT span. Both are documented, with
+    tripwire, in §13.10, not eliminated by this fix. §13.11 is CLOSED for the
+    defect it was actually reported against — "any non-AGENT text counts as
+    a name" — not for positional reasoning in general. The residual §13.10
+    tripwire (a single undifferentiated AGENT segment spanning two disjoint
+    institution mentions, now including the two shapes above) remains
+    separately tracked, unrelated to this fix, and still requires no current
+    template producing that shape.

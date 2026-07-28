@@ -1652,3 +1652,72 @@ escape — a WORLD/OPERATOR segment whose own text is trusted directly but
 was never actually vetted), that would be a new finding against a
 different mechanism (Case 1's "own-segment trust", not Case 2's `is_name`
 tag), not a reopening of this one.
+
+## Round 8: round-7 follow-ups (REVIEW.md re-review addendum 7)
+
+Architect round 8 returned **WEAK_PASS — terminal, do not schedule a round
+9**, accepting §13.11 CLOSED but flagging two non-blocking follow-ups (both
+documentation/test-quality, not shipped-code defects — the `is_name` check
+itself fails closed independent of both):
+
+1. ARCHITECTURE.md §13.11's closure paragraph overstated what shipped
+   ("no adjacency math," "no positional reasoning of any kind left"). The
+   check still uses segment adjacency to decide *which* name a claim is
+   about — it only stopped inferring *whether* a neighbour is a name. Fixed
+   by correcting both overstated sentences (the round-7 fix's own closing
+   paragraph, and the item-11/§13.11 tripwire summary) to state the actual,
+   narrower claim, and by moving the two residual adjacency-dependent
+   shapes the reviewer verified live (a non-AGENT trigger trusted with no
+   name pairing; a real vetted name vouching for a different, agent-invented
+   name across an AGENT span) into §13.10's existing tripwire — both remain
+   unreachable today for the same reason the rest of §13.10 is (the only
+   model-generated AGENT text, `_framing_prose`, always sits alone on its
+   own line), but are now documented residual scope rather than omitted.
+2. The round-7 template-invariant test
+   (`test_template_invariant_no_agent_segment_adjacent_to_non_agent_carries_a_trigger_or_is_dynamic`)
+   hand-copied both agents' `_build_output` templates into the test body
+   instead of calling them, so it could never fail on the exact drift (a
+   future template edit breaking the invariant) it was written to catch.
+   Rewritten to call the real `_build_output` in both agents, with
+   `_host.llm_complete` monkeypatched to a deterministic stub (no live model
+   needed) and each module's `check_guardrail` reference monkeypatched to a
+   recording wrapper that forwards to the real implementation and captures
+   the exact segment list passed to it. The invariant is now checked against
+   that captured, real list — a future template edit that violates it will
+   fail this test.
+
+### Verification (round 8)
+
+- `PYTHONPATH=src python3 -m pytest tests/test_debt_finance_compliance.py
+  tests/test_debt_finance_agents.py tests/test_debt_finance_qa_adversarial.py
+  -q`: **130 passed**, 0 failed.
+- `PYTHONPATH=src python3 -m pytest tests/test_debt_finance_agents.py
+  tests/test_debt_finance_agents_seed.py tests/test_debt_finance_compliance.py
+  tests/test_debt_finance_consolidation_arithmetic.py
+  tests/test_debt_finance_qa_adversarial.py
+  tests/test_world_forge_debt_finance_seal.py -q`: **156 passed, 3 failed**
+  — the 3 failures (`test_debt_finance_agents_seed.py`, missing `dotenv`
+  module in this sandbox's environment) confirmed byte-for-byte identical
+  via `git stash`/`git stash pop` against the pre-round-8 commit; not
+  attributable to this change.
+- Full `pytest tests/ -k "debt_finance or debt-finance" -q` cannot collect
+  in this sandbox (114 unrelated pre-existing collection errors across the
+  whole repo — missing `fastapi`/`dotenv` etc. in this environment,
+  confirmed identical count/names on `git stash` against the pre-round-8
+  commit); the debt-finance-scoped run above is the real signal.
+- No commented-out code; no TODOs left without an owner.
+
+### Commits (round 8)
+
+1. `docs(debt-finance): correct §13.11 overstated closure claims, move
+   residual adjacency shapes into §13.10 (REVIEW.md addendum 7)` —
+   `ARCHITECTURE.md`.
+2. `test(debt-finance): rewrite template-invariant test to exercise real
+   _build_output (REVIEW.md addendum 7)` — `test_debt_finance_compliance.py`.
+
+### Status
+
+This closes architect review: **terminal WEAK_PASS, round 8**. Both
+follow-ups from re-review addendum 7 are addressed; no further architect
+round is scheduled per the round-8 ruling. Sprint is ready for a final QA
+confirmation pass.
