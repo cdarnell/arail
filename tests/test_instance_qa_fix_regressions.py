@@ -40,10 +40,24 @@ set -euo pipefail
 info() { :; }
 LAB_NAME=test
 REPO_ROOT=/repo
+DATA_DIR=/repo/lab/data
 PROCS="$PROCS_FILE"
 pgrep() {
     local pattern="${2:-$1}"
     awk -F'\t' -v pat="$pattern" '$2 ~ pat {print $1}' "$PROCS"
+}
+# QA-17's fallback pattern verifies a candidate pid's full command via `ps`
+# before accepting it (never trusts the port-only pattern alone) — stub it
+# against the same fake process table pgrep() reads.
+ps() {
+    local pid=""
+    while (($#)); do
+        case "$1" in
+            -p) pid="$2"; shift 2 ;;
+            *) shift ;;
+        esac
+    done
+    awk -F'\t' -v p="$pid" '$1 == p {print $2}' "$PROCS"
 }
 KILLED="$KILLED_FILE"
 kill() {
@@ -54,6 +68,13 @@ kill() {
 launchctl() { return 1; }
 sleep() { :; }
 uname() { echo Darwin; }
+# stop_services() unconditionally calls _ollama_pid_if_we_started_it, which
+# is defined LATER in reset.sh and so is not captured by the awk range below
+# (same pre-existing extraction gap tests/test_reset_stop_scope.py already
+# documents). Stub it to a no-op here so this driver actually exercises the
+# pgrep/kill scoping under test instead of erroring before stop_services can
+# run at all.
+_ollama_pid_if_we_started_it() { :; }
 eval "$(awk '/^stop_services\(\)/,/^}/' "$RESET_SH")"
 stop_services
 """
@@ -182,33 +203,31 @@ def test_identity_keys_written_by_onboarding_are_inert_for_an_instance() -> None
 
 
 # ---------------------------------------------------------------------------
-# QA-17 — QA-11's argv marker is invisible on an already-running lab
+# QA-17 — FIXED (hardening micro-pass): QA-11's argv marker now tolerates
+# an upgraded checkout's marker drift instead of going silently unstoppable.
 # ---------------------------------------------------------------------------
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="QA-17 (OPEN): QA-11's fix matches on `--app-dir <REPO_ROOT>`, an "
-           "argv marker only processes started by the NEW start.sh carry. "
-           "After upgrading, `./arailctl stop` cannot see a lab that is "
-           "already running and prints 'No running services found.' — the "
-           "exact silent-stop shape REVIEW.md B1 blocked on. See TEST_REPORT.md.",
-)
 def test_root_lab_stop_can_still_stop_a_lab_started_before_the_upgrade() -> None:
     """QA-11 traded one silent-stop failure for a narrower one.
 
-    ``stop_services``' patterns now require ``--app-dir <REPO_ROOT>`` in the
-    uvicorn argv. That marker is emitted by the *new* ``start.sh``. A lab that
-    was already running when the operator pulled this change has the *old*
-    argv, so no pattern matches it.
+    ``stop_services``' strict patterns require ``--app-dir <REPO_ROOT>`` in
+    the uvicorn argv. That marker is emitted by the *new* ``start.sh`` only.
+    A lab that was already running when the operator pulled this change has
+    the *old* argv, so the strict pattern alone doesn't match it.
 
-    Reproduced 2026-07-28 with a process whose argv is exactly the pre-upgrade
-    invocation: the new pattern found nothing, the old (port-only) pattern
-    found it, and ``reset.sh stop`` reported "No running services found."
-    while the process kept running.
+    Was reproduced 2026-07-28 with a process whose argv is exactly the
+    pre-upgrade invocation: the new pattern found nothing, the old
+    (port-only) pattern found it, and ``reset.sh stop`` reported "No running
+    services found." while the process kept running.
 
-    Every existing user hits this once, on the first stop after upgrading.
-    A checkout check that does not depend on the target's argv — e.g.
-    verifying the matched PID's actual cwd — would cover both generations.
+    Fixed: ``stop_services`` now ALSO tries a port-only fallback pattern for
+    the three uvicorn services, but only accepts a fallback match whose real
+    argv (verified via ``ps -p <pid> -o command=``, never trusted from the
+    pattern alone) carries NO ``--app-dir`` at all — i.e. it genuinely
+    predates the upgrade. A process from a foreign, already-upgraded
+    checkout (its own, different ``--app-dir``) is excluded from the
+    fallback and stays untouched — see the companion test below, which is
+    QA-11's own scenario re-asserted against the fallback path.
 
     This drives the REAL ``stop_services`` against a stubbed process table
     (same extraction harness as ``tests/test_reset_stop_scope.py``) rather
@@ -229,6 +248,29 @@ def test_root_lab_stop_can_still_stop_a_lab_started_before_the_upgrade() -> None
         "a root lab started before this upgrade is invisible to `./arailctl "
         "stop` — it prints 'No running services found.' and leaves the lab "
         "running (REVIEW.md B1's silent-stop shape, re-created)"
+    )
+
+
+def test_the_fallback_does_not_resurrect_qa11s_cross_checkout_kill() -> None:
+    """QA-11's own motivating incident, re-run against QA-17's fallback path.
+
+    A port-only fallback pattern with no other discriminator WOULD kill a
+    foreign, already-upgraded checkout's same-port process too (it satisfies
+    "module + port" just as well as a genuinely pre-upgrade one) — silently
+    undoing QA-11. The fallback must only accept a candidate whose real argv
+    carries NO ``--app-dir`` at all; a foreign checkout's own ``--app-dir``
+    marks it as excluded, not as "ours."
+    """
+    killed = _run_stop_services(
+        [
+            # A DIFFERENT, already-upgraded checkout on the same default
+            # port — QA-11's exact incident shape.
+            ("401", 'python -m uvicorn arail.portal.app:app --app-dir /other-repo --port 8080'),
+        ]
+    )
+    assert "401" not in killed, (
+        "the QA-17 fallback killed a foreign checkout's already-upgraded "
+        "process — QA-11's cross-checkout protection has regressed"
     )
 
 

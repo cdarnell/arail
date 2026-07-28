@@ -146,12 +146,58 @@ stop_services() {
         "jupyter-lab.*${NOTEBOOK_PORT:-8888}"
         "code-server.*${IDE_PORT:-8443}"
     )
+    # QA-17: the --app-dir marker above is only emitted by the uvicorn
+    # invocations of THIS (post-QA-11) start.sh. A root lab that was already
+    # running when the operator upgraded has argv without it, so the strict
+    # patterns alone leave it permanently unstoppable — "No running services
+    # found." while the lab keeps running (REVIEW.md B1's silent-stop shape,
+    # re-created narrower). Fall back to the pre-QA-11, port-only pattern for
+    # the three uvicorn services so a pre-upgrade process is still reachable.
+    # This is the SAME cross-checkout risk QA-11 already accepted and shipped
+    # as MEDIUM prior to that fix — it now applies only to a process that
+    # predates the upgrade; any process started by the current start.sh
+    # carries the marker and stays fully checkout-scoped via the patterns
+    # above. A single restart after upgrading re-arms full scoping.
+    local fallback_patterns=(
+        "uvicorn.*arail\.portal\.app.*--port ${PORTAL_PORT:-8080}"
+        "uvicorn.*arail\.memory_service.*--port ${LANCE_PORT:-7414}"
+        "uvicorn.*arail\.mlx_openai_server.*--port ${MLX_OPENAI_PORT:-11435}"
+    )
     local pids=()
+    local i=0
     for pattern in "${patterns[@]}"; do
         local p
         p=$(pgrep -f "$pattern" 2>/dev/null || true)
         [[ -n "$p" ]] && pids+=($p)
+        if (( i < ${#fallback_patterns[@]} )); then
+            local fp fpid fcmd
+            fp=$(pgrep -f "${fallback_patterns[$i]}" 2>/dev/null || true)
+            for fpid in $fp; do
+                # The fallback pattern has no app-dir requirement at all, so
+                # by itself it would re-open QA-11's cross-checkout kill for
+                # any OTHER checkout that HAS upgraded (its argv carries its
+                # own, different --app-dir). Only take a fallback match when
+                # it genuinely predates the upgrade (no --app-dir anywhere in
+                # its argv) — never one that names a foreign checkout.
+                fcmd="$(ps -p "$fpid" -o command= 2>/dev/null || true)"
+                if [[ "$fcmd" != *"--app-dir "* ]]; then
+                    pids+=("$fpid")
+                fi
+            done
+        fi
+        i=$((i + 1))
     done
+    # De-dupe: the strict and fallback patterns can both match a single
+    # current-style process (it satisfies the port-only pattern too).
+    # Bash 3.2 (macOS's shipped /bin/bash) has no associative arrays, so
+    # dedupe with sort -u rather than a hash.
+    if (( ${#pids[@]} > 1 )); then
+        local _uniq=()
+        while IFS= read -r p; do
+            [[ -n "$p" ]] && _uniq+=("$p")
+        done < <(printf '%s\n' "${pids[@]}" | sort -un)
+        pids=("${_uniq[@]}")
+    fi
     # Ollama is a shared, machine-wide service (only one instance can
     # bind :11434), not ARAIL's own code — unlike the patterns above, we
     # never pattern-match for it. We only ever stop the specific PID
