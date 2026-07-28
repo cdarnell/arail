@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# `pwd -P` (physical, symlinks resolved), not plain `pwd` (logical) — must
+# match Python's Path.cwd()/os.getcwd(), which the OS always returns
+# physical (REVIEW.md m5). A checkout reached through a symlinked
+# directory component would otherwise make the readiness probe's checkout
+# comparison (§2.3 step 4 / M1 below) fail forever.
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 cd "$REPO_ROOT"
 
 # shellcheck disable=SC1091
@@ -537,18 +542,40 @@ _instance_start() {
     local portal_pid=$!
     _INST_PIDS+=("$portal_pid")
 
-    local waited=0 portal_ready=0
+    # REVIEW.md M1: an HTTP 200 alone does not prove OUR instance is
+    # answering — §3.5 stage 5 / §2.3 step 4 require the response's token
+    # AND checkout to match, so a foreign process that grabbed the port
+    # first (or a stale process from a different checkout) is never
+    # mistaken for a successful boot. The registry record is only written
+    # after this check passes (§2.2's "a record's existence means this
+    # instance was, at some point, actually serving").
+    local waited=0 portal_ready=0 portal_mismatch=0
     while (( waited < 240 )); do  # 240 * 0.25s = 60s cap
         if ! kill -0 "$portal_pid" 2>/dev/null; then
             break
         fi
-        if curl -sf -m 0.7 "http://${BIND}:${portal_port}/api/instance" >/dev/null 2>&1; then
-            portal_ready=1
+        local probe_response
+        probe_response="$(curl -sf -m 0.7 "http://${BIND}:${portal_port}/api/instance" 2>/dev/null || true)"
+        if [[ -n "$probe_response" ]]; then
+            local probe_token probe_checkout
+            probe_token="$(_json_field "$probe_response" token)"
+            probe_checkout="$(_json_field "$probe_response" checkout)"
+            if [[ -n "$probe_token" && "$probe_token" == "$instance_token" \
+                  && -n "$probe_checkout" && "$probe_checkout" == "$REPO_ROOT" ]]; then
+                portal_ready=1
+            else
+                portal_mismatch=1
+            fi
             break
         fi
         sleep 0.25
         waited=$((waited + 1))
     done
+    if [[ "$portal_mismatch" == "1" ]]; then
+        echo "✗"
+        echo "  port ${portal_port} was taken during startup — a different process answered /api/instance (token/checkout mismatch): try lsof -iTCP:${portal_port} -sTCP:LISTEN" >&2
+        _instance_cleanup_and_exit 1
+    fi
     if [[ "$portal_ready" != "1" ]]; then
         echo "✗"
         echo "  portal did not come up — tail $(inst_log_dir "$slug")/portal.log" >&2
