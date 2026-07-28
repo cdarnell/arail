@@ -12,7 +12,7 @@
 | WP2 | `arailctl`, `scripts/start.sh:35`, `scripts/status.sh:42`, `scripts/install-daemon.sh:76-79`, `tests/test_daemon_predicate.py` (new) | Every liveness-check site calls `daemon_active`/`inst_*` from `scripts/lib/instances.sh`. Plist-trap fix (F9). | grep for stray plist/launchctl strings; `test_daemon_predicate.py` | pending |
 | WP3 | `scripts/lib/instances.sh`, `scripts/setup.sh` (export `_port_in_use`/`_find_free_port`), `tests/test_instance_ports.py` (new) | Env pack writer, first-boot scaffold, block port allocation + pinning, exclusion list, sub-9100 hard stop. | `test_instance_ports.py` + `test_instance_paths.py`; hand-written pack round-trip | pending |
 | WP4 | `scripts/start.sh`, `arailctl` (usage text), `tests/instance_start_driver.sh` (new), `tests/test_instance_start.py` (new) | Arg parsing, picker, attach-on-running, 8-stage launch, claim/trap, instance-service gating, `warn()` fix, `set -a` around `lab.conf`. | `instance_start_driver.sh` suite; manual two-World launch (deferred to QA per orchestrator note) | pending |
-| WP5 | `scripts/status.sh`, `scripts/reset.sh`, `arailctl`, `tests/test_instance_stop_scope.py` (new) | Instance table (+`--json`, `--probe`), stale prune, `stop --world/--all` with verified-PID kill, port-scoped legacy `stop_services` patterns, `check()`'s port-agnostic Portal/MLX match fixed. | `test_instance_stop_scope.py` + `test_reset_stop_scope.py` + `test_reset_paths.py`; timed `status` < 2s w/ 3 stub records | pending |
+| WP5 | `scripts/status.sh`, `scripts/reset.sh`, `arailctl`, `tests/test_instance_stop_scope.py` (new) | Instance table (+`--json`, `--probe`), stale prune, `stop --world/--all` with verified-PID kill, port-scoped legacy `stop_services` patterns, `check()`'s port-agnostic Portal/MLX match fixed. | `test_instance_stop_scope.py` + `test_reset_stop_scope.py` + `test_reset_paths.py`; timed `status` < 2s w/ 3 stub records | `80c134b` |
 
 ## Execution
 
@@ -478,7 +478,7 @@ real backgrounded stub processes registered) and `--json` output validity
 - `ARAIL_TEST_VENV=<venv> pytest tests/test_instance_start.py -q` → **1
   passed** (WP4's driver, confirming WP5 introduced no regression there).
 
-Commit: `pending`
+Commit: `80c134b`
 
 ## Architect feedback required
 
