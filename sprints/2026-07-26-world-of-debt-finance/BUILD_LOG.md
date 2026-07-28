@@ -1172,3 +1172,158 @@ was found. The one tension encountered (F4's vocabulary expansion vs. a
 fixed template's own wording) was resolved by rephrasing the template, not
 by narrowing the guardrail — consistent with the architect's own precedent
 of degrading closed rather than reintroducing an exemption.
+
+## Post-QA fixes, round 2 (response to TEST_REPORT.md Round 2 — F10 BLOCK, F11 MEDIUM)
+
+TEST_REPORT.md's Round 2 re-verification (commit `2d5513f` tests re-run
+against `63d818d`/`393fcc7`) found the F3 fix itself opened a new escape:
+the tautology guard it added compared the *literal text* of an allowed
+name against the trigger phrase's literal matched text for equality. A
+name that is merely a **word inside** the trigger phrase (`"Union"`,
+`"Credit"`, or even an unrelated word like `"the"`/`"is a"` that happens to
+sit inside the 40-char proximity window) still satisfied the fallback,
+because it was never equal to the whole trigger text. This is BLOCK-1's
+original tautology recurring one level down, at word/position granularity
+instead of phrase granularity — the eighth finding in this same guardrail
+module.
+
+### Root cause
+
+`check_guardrail`'s two match paths (proper-noun candidate path; F3's raw
+window-text fallback path) both asked "does an allowed name's text appear
+somewhere near the trigger?" with no regard to *where*, relative to the
+trigger's own `match.span()`. Fixing this required switching both paths
+from identity/substring-existence checks to span-position checks — but the
+two paths needed **different** legitimacy rules, not the same one:
+
+- **Primary (proper-noun candidate) path.** The everyday, intended case is
+  a candidate span *disjoint* from the trigger span (a named institution
+  written elsewhere in the sentence, e.g. `"PenFed Credit Union ... is a
+  credit union"`) — that must stay legitimate. A candidate span that
+  properly *contains* the trigger span (e.g. `"Navy Federal Credit Union"`,
+  where the trigger's own case-insensitive "credit union" match is the
+  tail of a longer capitalized name) is also legitimate — the exact case
+  the F3 fix's own docstring called out as "unaffected." The **only**
+  illegitimate case is a candidate span that is entirely contained in (or
+  equal to) the trigger span — the trigger phrase extracted as its own
+  "candidate" (F11's capitalized self-vet), or a fragment of it.
+  `_is_legitimate_candidate_span` implements: illegitimate iff
+  `trigger_span` contains `candidate_span`.
+
+- **Fallback (raw window-text) path.** This path exists only to re-find,
+  via case-insensitive text search, the *same* institution name the
+  primary path would have found had it been capitalized (the F3
+  rationale: an operator-typed lowercase name, or a non-ASCII initial,
+  never produces a `_PROPER_NOUN_RE` candidate at all). Because this path
+  has no proper-noun requirement to keep it honest, a match here is only
+  legitimate if it **properly contains** the trigger's own span — i.e. it
+  is (a superset of) the very text the trigger matched, spelled without
+  the capitals. A match *disjoint* from the trigger span (`"the"`, `"is
+  a"` sitting elsewhere in the window) or a *subset* of it (`"Union"`,
+  `"Credit"` inside `"credit union"`) is never legitimate here — unlike
+  the primary path, disjoint is **not** safe on this path, because nothing
+  about a bare word floating in a 40-char window ties it to the specific
+  institutional claim being checked. `_is_legitimate_fallback_span`
+  implements: legitimate iff `match_span` properly contains `trigger_span`
+  (contains and not equal).
+
+Both rules are span-overlap checks against `match.span()` as QA specified,
+but they are not the *same* check — collapsing them to one (e.g. "any
+overlap is legitimate" or "any overlap is illegitimate") reopens either
+F10 (if overlap-tolerant) or the legitimate lowercase-full-name case from
+the F3 fix (if overlap-intolerant). Confirmed by running the acceptance
+matrix by hand before writing the implementation (see the degenerate-edge
+section below).
+
+### Degenerate edge considered before shipping
+
+Per the task's explicit prompt: could span-overlap checking have its own
+degenerate edge?
+
+- **Zero-width span.** Neither `_PROPER_NOUN_RE` nor the fallback's
+  word-boundary regex can produce a zero-length match (both require at
+  least one non-boundary character), and `_MIN_ALLOWED_NAME_LEN` (3) rules
+  out single-character allowed names before a span is even computed. Not
+  reachable.
+- **Adjacent-but-not-overlapping span.** Exactly the `"the"`/`"is a"` test
+  cases — a match immediately before/after the trigger span, not
+  overlapping it at all. Handled explicitly: disjoint is illegitimate on
+  the fallback path (no shared position with the trigger means the
+  fallback found an unrelated word, not the trigger's own institution
+  name) and legitimate on the candidate path (disjoint means a distinct,
+  separately-named institution, the intended everyday case).
+- **Allowed name as a superset containing the trigger, rather than the
+  reverse.** This is not a degenerate edge to guard against — it is the
+  one case that *must* stay legitimate on both paths (`"Navy Federal
+  Credit Union"`, `"navy federal credit union"`), and both
+  `_is_legitimate_*` functions are written around exactly that asymmetry:
+  contains-and-not-equal is safe; contained-in-or-equal-to is not.
+
+### Implementation
+
+- `src/arail/agents/debt_finance_compliance.py`:
+  - Added `_span_contains`, `_is_legitimate_candidate_span`,
+    `_is_legitimate_fallback_span` (span-position predicates, each with a
+    docstring explaining why its rule differs from the other path's).
+  - Added `_fallback_match_spans` — companion to `_names_match` that
+    returns *where* (not just whether) an allowed name occurs in a window,
+    since F10 is fundamentally a positional bug.
+  - Removed `_candidate_names` (now unused — the main loop iterates
+    `_PROPER_NOUN_RE.finditer(window)` directly so it has spans to check,
+    not just matched text) and the old string-identity tautology guard
+    (superseded by `_is_legitimate_fallback_span`, which subsumes it: an
+    allowed name identical to the trigger text produces a span equal to
+    the trigger span, which the new predicate already excludes).
+  - Both match paths in `check_guardrail`'s main loop now compute
+    `trigger_span` (the trigger `match`'s span translated into the local
+    `window`'s coordinates) once per trigger occurrence and gate on the
+    appropriate `_is_legitimate_*` predicate.
+
+### Tests
+
+QA's 6 new tests in `tests/test_debt_finance_qa_adversarial.py`
+(`test_allowed_name_that_is_a_word_of_the_trigger_phrase_does_not_self_vet`,
+`..._does_not_vet_document_wide`,
+`test_allowed_name_that_is_a_generic_domain_word_does_not_vet_by_proximity`,
+`test_short_common_english_word_in_the_window_does_not_vet`,
+`test_multiword_prose_fragment_as_allowed_name_does_not_vet`,
+`test_capitalized_trigger_phrase_does_not_self_vet_via_candidate_path`) all
+pass unmodified — no test was adjusted to fit the implementation.
+
+### Test results (this round)
+
+```
+uv run --with pytest pytest tests/test_debt_finance_qa_adversarial.py -q
+43 passed
+
+uv run --with pytest pytest tests/ -k "debt_finance or debt-finance" -q
+161 passed, 3447 deselected
+```
+
+No regressions: the BLOCK-1 control case (bare trigger phrase as its own
+vetted entry) and the lowercase-full-name-passes case from the F3 fix —
+the two cases QA flagged as pulling in opposite directions — both verified
+by hand pre-commit:
+
+```python
+check_guardrail("Payday Express is a credit union.", frozenset(),
+                 operator_names=frozenset({"Union"})).ok   # -> False (blocked, correct)
+check_guardrail("Payday Express is the credit union.", frozenset(),
+                 operator_names=frozenset({"the"})).ok     # -> False (blocked, correct)
+check_guardrail("Payday Express is a credit union.", frozenset(),
+                 operator_names=frozenset({"is a"})).ok    # -> False (blocked, correct)
+check_guardrail("- **Ecole Populaire Credit Union** — loan.", frozenset(),
+                 operator_names=frozenset({"ecole populaire credit union "})).ok
+                                                            # -> True (still passes, correct)
+```
+
+### Commits
+
+See git log for this round's commit, referencing F10/F11 and
+TEST_REPORT.md's Round 2 section.
+
+### Architect feedback required
+
+None. F10/F11 had a clean implementation within the existing design —
+the fix is a positional refinement of the same guardrail contract, not a
+new exemption or a new architecture-level concept.
