@@ -341,6 +341,11 @@ inst_scaffold_instance_root() {
              "$(inst_pkb_dir "$slug")/sources" \
              "$(inst_pkb_dir "$slug")/notes" \
              "$(inst_log_dir "$slug")"
+    # QA-10 / ARCHITECTURE.md §7: data/ will hold secrets.env — a bare
+    # mkdir -p leaves its mode at the operator's umask (commonly 0755).
+    # secrets.env itself is still written 0600, so this is defence in
+    # depth, not today's actual disclosure surface.
+    chmod 0700 "$(inst_data_dir "$slug")" 2>/dev/null || true
     printf '%s\n' "$root"
 }
 
