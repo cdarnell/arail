@@ -503,7 +503,19 @@ _instance_start() {
 
     # ── [3/8] Claim ──────────────────────────────────────────────────
     printf '[3/8] Claim… '
-    mkdir -p "$(inst_registry_dir)"
+    local reg_dir
+    reg_dir="$(inst_registry_dir)"
+    mkdir -p "$reg_dir" 2>/dev/null || true
+    # QA-3: `( set -o noclobber; echo > file )` fails identically for
+    # EEXIST (a real concurrent start) and EACCES (an unwritable
+    # registry.d) — the claim branch below then reports "another start …
+    # (pid ?)" for a plain permissions problem. Distinguish the two BEFORE
+    # attempting the claim, so a permissions issue is named as one.
+    if [[ ! -w "$reg_dir" ]]; then
+        echo "✗"
+        echo "  ${reg_dir} is not writable — check permissions (e.g. chmod u+w ${reg_dir})" >&2
+        exit 1
+    fi
     inst_prune "$slug"
     local claim_file
     claim_file="$(inst_claim_file "$slug")"

@@ -197,11 +197,12 @@ grep -q '"portal_port": *8090' "$F3/lab/instances/registry.d/fin.json" \
 ok_scenario
 
 # ---------------------------------------------------------------------------
-# 4) QA-3 — an UNWRITABLE registry.d makes stage [3/8] blame a phantom
-#    concurrent start. `( set -o noclobber; echo > file )` fails identically for
-#    EEXIST and EACCES, so a permissions problem is reported as
-#    "another start for 'ai' is in progress (pid ?)". The literal `?` (there is
-#    no claim file to read a pid from) is the tell that the diagnosis is wrong.
+# 4) QA-3 (FIXED) — an UNWRITABLE registry.d used to make stage [3/8] blame
+#    a phantom concurrent start. `( set -o noclobber; echo > file )` fails
+#    identically for EEXIST and EACCES, so a permissions problem used to be
+#    reported as "another start for 'ai' is in progress (pid ?)". A
+#    writability check now runs BEFORE the claim attempt and names the
+#    real cause.
 # ---------------------------------------------------------------------------
 F4="$(_make_fake_repo r4)"
 _make_world "$F4" ai "AI World" || fail "s4: could not build fixture World"
@@ -209,14 +210,10 @@ mkdir -p "$F4/lab/instances/registry.d"
 chmod 0500 "$F4/lab/instances/registry.d"
 out="$(_run_start "$F4" --world ai)"
 chmod 0700 "$F4/lab/instances/registry.d"
-if [[ "$out" == *"another start for 'ai' is in progress (pid ?)"* ]]; then
-    xfail "QA-3 unwritable registry.d misdiagnosed as a concurrent start"
-elif [[ "$out" == *"permission"* || "$out" == *"Permission"* \
-        || "$out" == *"not writable"* ]]; then
-    fail "s4: QA-3 appears FIXED — remove this scenario's xfail branch"
-else
-    fail "s4: unexpected unwritable-registry behaviour: $out"
-fi
+[[ "$out" == *"not writable"* ]] \
+    || fail "s4: QA-3 — unwritable registry.d must name the real cause: $out"
+[[ "$out" != *"another start for 'ai' is in progress"* ]] \
+    || fail "s4: QA-3 — still misdiagnosed as a concurrent start: $out"
 [[ ! -f "$F4/lab/instances/registry.d/ai.json" ]] \
     || fail "s4: no record may be written when the claim failed"
 ok_scenario

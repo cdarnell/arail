@@ -13,8 +13,8 @@ A bug therefore cannot be fixed *or* silently re-introduced without a test
 change.
 
 QA-fix pass (sprints/2026-07-28-concurrent-worlds/BUILD_LOG.md): QA-1, QA-2,
-and QA-5 are now fixed — the driver's `--port` scenarios were updated to
-assert the CORRECT behaviour and no longer print an XFAIL line for them.
+QA-3, and QA-5 are now fixed — the driver's scenarios were updated to assert
+the CORRECT behaviour and no longer print any XFAIL line.
 """
 from __future__ import annotations
 
@@ -30,9 +30,9 @@ DRIVER = REPO_ROOT / "tests" / "instance_qa_driver.sh"
 _BASH = shutil.which("bash")
 
 # Defect ids the driver is expected to observe today. Each was filed in
-# sprints/2026-07-28-concurrent-worlds/TEST_REPORT.md; QA-1/2/5 are fixed
-# (see BUILD_LOG.md's "QA-fix pass"), leaving only QA-3 open here.
-EXPECTED_OPEN_DEFECTS = {"QA-3"}
+# sprints/2026-07-28-concurrent-worlds/TEST_REPORT.md; QA-1/2/3/5 are fixed
+# (see BUILD_LOG.md's "QA-fix pass"), so this set is now empty.
+EXPECTED_OPEN_DEFECTS: set[str] = set()
 
 pytestmark = pytest.mark.skipif(_BASH is None, reason="bash required")
 
