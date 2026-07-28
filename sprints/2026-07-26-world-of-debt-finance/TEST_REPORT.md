@@ -558,3 +558,259 @@ passed / 6 failed** after. The 6 failures are F10/F11 only.
 - Still not covered: concurrent ticks racing on `findings/`,
   `find_mounted_bundle_dir` changing mid-tick, §3.2 seal-time
   `knowledge_sources[]` ordering.
+
+---
+
+# Round 3 — final confirmation pass
+
+**Date:** 2026-07-27
+**Build:** `d4c19e4` (branch `qukaizen/modern-finance-world-plan-a34437`), tree clean
+**Baseline for regression:** `9c51502` (main)
+**Verdict:** **WEAK_PASS**
+
+Invoked after the architect's round-8 terminal WEAK_PASS ("ship it, do not
+schedule a round 9"). Scope was five explicit questions; all five are
+answered below. Four came back clean. The fifth (regression) came back
+clean, and a **new, adjacent finding (F12) surfaced while verifying the
+trust boundary that the round-7/8 work leans on** — the authoring-time half
+of the guardrail, which no round of this review has actually exercised.
+
+## Test inventory
+
+| # | Test | Category | Covers | Status |
+|---|---|---|---|---|
+| R3-1 | `test_future_dated_verification_is_treated_as_fresh` | edge | `is_verification_fresh` negative timedelta | PASS (documents F13) |
+| R3-2 | `test_verification_exactly_at_boundary` | edge | 365/366-day boundary | PASS |
+| R3-3 | `test_degenerate_name_segment_still_vouches` | edge | `""`, `"   "`, `"\n"`, `"-"`, `"0"` as `is_name` voucher | PASS (documents F14) |
+| R3-4 | `test_trigger_split_across_two_agent_segments_is_not_detected` | edge | per-segment `finditer` vs. docstring's "full concatenation" | PASS (documented precondition) |
+| R3-5 | `test_residual_shape_2_unreachable_agent_trigger_next_to_name` | security | ARCH §13.10 residual shape 2, both agents, benign + adversarial data | PASS |
+| R3-6 | `test_no_trigger_ever_spans_a_segment_boundary_in_real_templates` | security | proves R3-4's precondition holds in real templates | PASS |
+| R3-7 | `test_no_agent_segment_is_operator_or_world_derived` | security | untrusted text never lands in an AGENT segment | PASS |
+| R3-8 | `test_evaluative_phrase_split_across_agent_segments_is_not_detected` | edge | `" ".join` fusion/splitting | PASS (unreachable) |
+| R3-9 | `test_unicode_homoglyph_name_still_only_vouches_by_tag` | security | homoglyph name cannot fake vetting | PASS |
+| R3-10 | `test_no_user_figure_or_institution_reaches_the_pkb_tree` | security | **original BLOCK**, fresh end-to-end | PASS |
+| R3-11 | `test_state_json_for_both_agents_holds_only_a_hash_and_a_timestamp` | security | both `state.json` files, opaque-digest assertion | PASS |
+| R3-12 | `test_findings_land_outside_the_pkb_tree_and_do_contain_the_figures` | happy | positive control for R3-10 | PASS |
+| R3-13 | `test_activity_events_never_carry_a_figure_or_institution_name` | security | F7 regression, activity stream | PASS |
+| R3-14 | `test_forge_evaluative_vocabulary_matches_the_runtime_guardrail` | security | seal-time/runtime vocabulary parity | **FAIL → F12a** |
+| R3-15 | `test_preflight_scans_the_fields_that_actually_become_world_segments` | security | preflight field coverage (4 params) | **FAIL → F12b** |
+| R3-16 | `test_evaluative_world_name_reaches_the_rendered_findings_document` | security | end-to-end consequence of F12 | PASS (demonstrates the escape) |
+
+Plus: the full 163-test debt-finance suite, a 218-test Worlds/agent-loader
+subset, and the whole 3602-test repo suite.
+
+## Answers to the five questions asked
+
+**1. Can the `is_name` mechanism itself be broken?**
+No, not by content. `is_name` is a constructor-set boolean, so no string —
+homoglyph, casing, whitespace, unicode — can change it (R3-9). Two
+*degenerate* weaknesses exist but are unreachable (F13, F14 below).
+
+**2. Are the §13.10 residual shapes actually unreachable through real code
+paths?** Yes — verified against the real `_build_output` of both agents (not
+hand-built `Segment` lists), under both benign and deliberately hostile
+World/operator data, by capturing the real segment list via a recording
+`check_guardrail` (R3-5). In both templates the only AGENT segments adjacent
+to an `is_name=True` voucher are the static literals `"- **"` and
+`"** ("` / `"** (as you entered it) — "`, none of which can carry a trigger.
+Cross-line vouching is additionally blocked because every line is separated
+by an AGENT `"\n"` segment. R3-6 separately proves no trigger phrase ever
+spans a segment boundary in either real template, which is the documented
+precondition for `check_guardrail`'s per-segment `finditer`.
+
+**3. Round-1/round-2 adversarial suite re-run at HEAD?** Yes.
+`tests/test_debt_finance_qa_adversarial.py` 42/42, full debt-finance suite
+163/163. F1–F11 all remain closed.
+
+**4. Original data-isolation constraint, re-verified fresh?** Yes, and it
+holds. Driving both agents' real `tick()` end-to-end with distinctive
+markers, the *only* files written under `lab/pkb/` are the two
+`agents/<id>/state.json`, and neither contains any balance, APR,
+institution, product, or source string. Every `state.json` value is either a
+64-char hex digest or a float timestamp — including
+`approved_finding_count`, which is stored as a **sha256 of the count**, not
+the count. Activity-stream messages carry only the relative pointer
+`user-import/debt-finance/findings/<agent>.md`. A positive control confirms
+the figures genuinely *are* written — to `lab/data/`, outside the PKB walk —
+so R3-10 cannot pass trivially. The seeded `lab/pkb/agents/*/AGENT.md` files
+contain only prose about the rule, no figures.
+
+**5. Regressions in shared Worlds/agent-loader paths?** None. A 218-test
+Worlds/forge/mount/scout/loader subset is fully green. The full repo suite
+shows 47 failures across 8 files — every one of them reproduced identically
+on baseline `9c51502` (main), with environmental signatures (blocked egress
+to `huggingface.co`, absent local `lab/worlds/photography` runtime state,
+process/shell probes). Main's failure set is a strict superset of the
+branch's. **Zero regressions attributable to this sprint.** `horticulture`,
+`physics` and `video-games` all mount and scout correctly
+(`test_default_worlds_catalog.py`, `test_world_mount.py` green).
+
+## Failures
+
+### F12 — [MEDIUM] the seal-time preflight does not back the trust boundary the runtime exemption is documented to rest on
+
+`debt_finance_compliance.py`'s module docstring makes an explicit, load-bearing
+claim about why WORLD segments may skip the evaluative check:
+
+> a World's own authoring-time content (including its `terms.json`
+> institution entries) is expected to pass the preflight evaluative-language
+> scan in `scripts/forge_debt_finance_world.py` before it is ever sealed —
+> [...] that seal-time check is what actually keeps evaluative language out
+> of WORLD segments today. If that preflight check is ever removed,
+> **weakened**, or bypassed for a reseal, this runtime exemption stops being
+> backed by anything and this section must be revisited.
+
+ARCHITECTURE §13.11 records this as "confirmed present as of this fix".
+Presence was confirmed; **coverage was not**. It is weakened in two
+independent ways.
+
+**F12a — the vocabulary has already silently drifted.**
+`forge_debt_finance_world.py:63` keeps a hand-maintained copy of the runtime
+regex, with a comment asserting the discipline: *"kept as an
+independently-maintained copy [...] so a change to one is a deliberate edit
+to both, not a silent shared dependency."* That discipline has already
+failed once, with no test to catch it. Runtime has 16 alternations; the
+forge copy has 7. Missing from the forge:
+
+```
+recommend(ed|ation|s)?   advice   advis(e[sd]?|able)
+optimal   cheapest   smartest   better off   no-brainer
+```
+
+`recommend`/`recommendation` were added to the runtime regex deliberately
+(documented at `tests/test_debt_finance_agents.py:146`) and never propagated.
+
+**F12b — the preflight scans fields that no agent renders, and skips every field that does.**
+Preflight scans `short`, `definition`, `example`. Neither agent's
+`_build_output` renders any of those three. The four term fields that
+actually become `Segment.world(...)` in Debt Advisor are **`term`**
+(→ `v.name`, the `is_name=True` segment), **`institution_type`**,
+**`verification_source`**, and **`verified_as_of`** — none are scanned.
+
+**Minimal repro (F12b + end-to-end consequence):**
+
+```python
+terms = [{"term": "Best Rate Credit Union", "category": "institutions",
+          "institution_type": "credit-union",
+          "verification_source": "https://mapping.ncua.gov/x",
+          "verified_as_of": "2026-07-27"}]
+
+# seal time: passes, no 'language:' problem reported
+[p for p in forge.preflight(spec, terms, face) if p.startswith("language:")]
+# -> []
+
+# run time: WORLD segments are evaluative-exempt by construction
+body = _builtin_debt_advisor._build_output(Path("/unused"), terms, [])
+# -> "- **Best Rate Credit Union** (credit union, verification source: ...)"
+```
+
+The evaluative phrase lands verbatim in the findings document, under the
+heading *"Institutions whose character claims this World verified"*, with no
+"as the World states it" marker — a gap the module docstring itself already
+flags ("a reader cannot tell WORLD voice from AGENT voice on the page").
+This is exactly the outcome §7.2's guardrail exists to prevent, reachable by
+exactly the actor the seal-time check was designed against.
+
+**Why MEDIUM and not BLOCK.** Mounting a World is an explicit, documented
+trust act; the shipped `examples/worlds/debt-finance` bundle is first-party
+and clean; a hostile World's blast radius here is marketing prose in a local
+markdown file, not data exfiltration or code execution. Runtime behaviour is
+unchanged from all 8 review rounds — this is not a late regression. The
+serious half is that the **documentation asserts a protection that does not
+exist**, and a future reviewer would reasonably rely on it.
+
+**Note for the builder — this is a design trade, not a typo.** Naively
+scanning `term` would false-block legitimate institution names ("Best Buy
+Credit Union" is a real institution). The fix should be a deliberate
+decision — widen coverage to `institution_type`/`verification_source`/
+`verified_as_of` (where evaluative language is never legitimate), decide
+`term` explicitly, add a vocabulary-parity test, and correct the docstring's
+claim to match whatever ships.
+
+### F13 — [LOW] future-dated `verified_as_of` is treated as fresh forever
+
+`is_verification_fresh` computes `(today - parsed).days <= 365`. A
+far-future date yields a large negative value, which satisfies `<= 365`.
+
+```python
+is_verification_fresh("2999-01-01", today=date(2026, 7, 27))  # -> True
+```
+
+The check is documented to "degrade closed"; on this input it degrades open,
+and permanently. Unreachable in the shipped World (`verified_as_of` is
+`2026-07-27` throughout) and only settable by a World author, who is already
+trusted for the vetted set. Suggested fix: `0 <= (today - parsed).days <= 365`.
+
+### F14 — [LOW] a degenerate `is_name` segment still vouches
+
+`_is_name_voucher` checks only `provenance is not AGENT and is_name`. It
+does not require the segment to be non-empty, so an empty or whitespace-only
+name vouches for an adjacent AGENT institutional-character claim:
+
+```python
+check_guardrail([Segment.agent("This is a credit union offering "),
+                 Segment.operator("", is_name=True),
+                 Segment.agent(" rates.")]).ok    # -> True
+```
+
+Unreachable today: it requires an AGENT segment carrying a trigger to be
+adjacent to a name voucher, which R3-5 proves neither template produces. It
+is the same *shape* as §13.10's tripwire and should be closed with it. Fix
+is one clause: `and s.text.strip()`.
+
+## Security review
+
+| Surface | What I actually checked | Findings |
+|---|---|---|
+| Provenance/`is_name` tagging | That `is_name=True` is set at exactly 2 sites (`v.name`, `r.institution`), defaults `False`, and cannot be influenced by text content — verified via captured real segment lists under hostile input | Clean; F14 (degenerate value, unreachable) |
+| Untrusted-input containment | That no operator- or World-supplied string ever lands in an AGENT segment — asserted with marker strings against both real `_build_output`s | Clean |
+| Guardrail bypass | Trigger-splitting across segments, evaluative-phrase splitting, homoglyph/unicode names, casing | All unreachable in real templates (R3-6 proves the precondition) |
+| Data isolation (`lab/pkb/`) | Walked the entire PKB tree after both real `tick()`s; only 2 `state.json` written; asserted every value is a hex digest or float; positive control that figures land in `lab/data/` | Clean |
+| Activity stream | Serialized every emitted event, asserted no balance/APR/institution/product/source marker; F7 relative-pointer fix still in place | Clean |
+| Seal-time preflight (authoring-time trust boundary) | Ran the real `preflight()` against the 4 term fields that actually render as WORLD segments; diffed the forge's evaluative vocabulary against the runtime's alternation-by-alternation | **F12a, F12b** |
+| Staleness clock | Boundary (365/366) and future-dated input | F13 |
+| Deserialization | `terms.json`/`balances.json` parsed with `json` only; non-dict entries filtered in both agents (F9 symmetry fix verified present) | Clean |
+| Crypto | Only sha256 as an opacity/fingerprint device (`state.json` digests, no-op fingerprint). No secrets, no key material, no comparison of secrets — constant-time compare not applicable | Clean |
+| File I/O | F5 symlink fix still present in `_write_findings`; findings paths derived from the host's data dir, never operator-controlled | Clean |
+
+## Performance
+
+N/A. Not a hot path; both agents are tick-driven over a handful of JSON
+entries. No benchmark warranted.
+
+## Regression
+
+Full repo suite: 3553 passed / 47 failed / 2 skipped / 1 xfailed / 7 errors.
+All 47 failures reproduce identically on baseline `9c51502` and are
+environmental. Debt-finance: 163/163. Worlds/agent-loader subset: 218/218.
+
+## Verdict
+
+**WEAK_PASS.** Every question this round was convened to answer came back
+clean: the `is_name` mechanism holds against adversarial input, the §13.10
+residual shapes are genuinely unreachable through real code paths, the
+round-1/2 findings stay closed, the original data-isolation BLOCK survives
+intact with a positive control, and there are zero regressions.
+
+F12 is real and reproducible but does not block: it is an authoring-time
+gap with a low-impact blast radius, unchanged across all 8 rounds, in a
+World the project ships clean. It is filed as a follow-up rather than a
+return-to-builder because the honest summary of this feature's runtime
+guardrail is: **it is done.**
+
+## Notes for the next QA pass
+
+- **The pattern across all three of my rounds and the architect's eight:
+  the mechanism gets fixed, the prose overclaims what the fix covers.**
+  §13.11's "no adjacency math", §13.10's residual shapes, and now the
+  docstring's preflight claim are three instances. Read every load-bearing
+  prose claim as an untested assertion and go run it.
+- **The authoring-time half of this feature has never been adversarially
+  tested.** Eight rounds went into `check_guardrail`; `preflight()` got one
+  presence check. F12 was sitting in the first place nobody looked.
+- Duplicated-regex-with-a-comment-promising-discipline is a recurring
+  antipattern here. Any such pair needs a parity test at birth.
+- Both `_framing_prose` functions are the only non-static AGENT text. If a
+  future template ever interpolates a dynamic value into an AGENT segment,
+  or splits AGENT prose around a WORLD/OPERATOR value, R3-5/R3-6/R3-7 are
+  the tests that will catch it — they belong in the repo, not my scratchpad.
