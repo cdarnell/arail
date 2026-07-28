@@ -563,7 +563,7 @@ preservation (a cross-site request is still 403'd first).
 - Full-suite regression run started in the background; see the "Final
   state" section for the tallied result once WP8 closes it out.
 
-Commit: `pending`
+Commit: `69c1858`
 
 ### WP7 — UI: roster, button semantics, notice, title
 
@@ -653,7 +653,7 @@ in the rendered HTML/JS source) is covered above.
   tests/test_world_switcher.py tests/test_world_identity_flip.py -q` →
   **39 passed** — both suites named in the gate stay green.
 
-Commit: `pending`
+Commit: `36b8d11`
 
 ## Architect feedback required
 
