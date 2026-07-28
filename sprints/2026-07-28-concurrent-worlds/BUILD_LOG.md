@@ -948,3 +948,119 @@ original build).
   `tests/test_instance_ollama_cross_instance.py` (new),
   `docs/concurrent-worlds.md`, `CHANGELOG.md`, `sprints/BACKLOG.md`. No
   file outside the WP1-8 original list plus these was touched.
+
+---
+
+## QA-fix pass
+
+Fixes TEST_REPORT.md's FAIL verdict at `5098b8d` (1 BLOCKER, 1 HIGH, 8
+MEDIUM). QA filed 16 strict-xfail regression tests (commit `b417159`) plus
+one non-strict `pytest.xfail()` call (QA-10) pinning the open defects; every
+finding below is fixed exactly as TEST_REPORT.md's "Required before re-QA"
+list (or, for QA-1/2/3/5/6/9/11, the orchestrator's explicit instruction)
+prescribed — no redesign, no scope beyond the finding list.
+
+| # | Finding | Fix applied | xfail(s) flipped | Commit |
+|---|---|---|---|---|
+| QA-B1 | `/api/instance` 401'd behind `onboarding_gate` — a fresh instance has never been onboarded, so stage `[6/8]`'s readiness probe (and attach-on-running, `status --probe`) could never succeed. `curl -sf` also swallowed the 401. | Added `/api/instance` (covers `/api/instances` too, via `startswith`) to `onboarding_gate`'s allow-list — read-only, loopback-bound, non-credential nonce, same reasoning as `/api/system/health`. Probe now captures `%{http_code}` alongside the existing `-sf` and names a non-200 answer instead of the generic "portal did not come up". | `test_api_instance_is_reachable_before_the_lab_is_onboarded`, mechanism test flipped to assert HTTP-status capture | `6206067` |
+| QA-8 / REVIEW n2 | `_json_field` had no try/except; a non-JSON or valid-JSON-non-object 200 body aborted stage `[6/8]` with a raw traceback instead of M1's named token/checkout-mismatch error. Shipped WITH QA-B1 per QA's ruling — QA-B1's fix is what makes the probe start receiving real bodies. | `_json_field`'s python now wraps `json.loads`/`isinstance`/`.get` in one try/except, printing `""` (not an error) on anything that isn't a JSON object. | `test_json_field_does_not_abort_start_sh_on_a_non_json_probe_response`, `test_json_field_handles_a_json_scalar_and_a_json_array_body` | `6206067` |
+| QA-B2 | `POST /api/welcome/setup` wrote `ARAIL_PASSWORD`/`OPEN_NOTEBOOK_ENCRYPTION_KEY` in plaintext into `instance.env` — 0644, secret-free by design (§1.2) — and `inst_write_env_pack` truncates + re-chmod-0644s that file on every `--port` rewrite, so a later `start --world X --port N` would silently destroy the credential. | `_env_file_path()` now redirects an instance process's onboarding write to `_secrets_path()` (`<instance>/data/secrets.env`, 0600) instead of `ARAIL_ENV_FILE`. Added a regression test that a pack rewrite (the exact `--port`-change operation) cannot touch the secrets store. | `test_the_onboarding_writer_never_targets_the_instance_env_pack` | `110a646` |
+| QA-4 | Stage `[7/8]` probed `GET /` on the memory service (no `/` route, 404) — every instance launch reported a false 20s degradation while `/health` was healthy the whole time. | Probe now targets `GET /health`. | `test_the_memory_readiness_probe_uses_a_route_the_service_serves` | `288159f` |
+| QA-1 | `--port` on the RE-BOOT branch of stage `[4/8]` skipped `inst_port_excluded` entirely — a port a first boot correctly refused was silently pinned on the second invocation. | Bundled with QA-2/QA-5 (see below) — routed through the shared `_instance_validate_port_override`. | driver scenario 1 (`instance_qa_driver.sh`), no longer prints `XFAIL: QA-1` | `5d91b3a` |
+| QA-2 | `--port` validated `^[0-9]+$` only — `--port 0` pinned an ephemeral port permanently; `--port 70000` passed the bind check vacuously. | Range-validated (1-65535) at argv-parse time, before any World is resolved. | driver scenarios 2/2b, no longer prints `XFAIL: QA-2` | `5d91b3a` |
+| QA-5 | `--port` on first boot skipped the registry-collision check `inst_allocate_ports` itself performs — two Worlds could be permanently pinned to the same block. | New `_instance_validate_port_override` (exclusion list + a new `_instance_port_conflicts_with_other_slug` registry-collision check) called on both the first-boot and re-boot branches. | driver scenario 3, no longer prints `XFAIL: QA-5` | `5d91b3a` |
+| QA-3 | An unwritable `registry.d` was misdiagnosed as "another start … (pid ?)" — `( set -o noclobber; echo > file )` fails identically for EEXIST and EACCES. | A `[[ -w "$reg_dir" ]]` check now runs before the claim attempt, naming the real cause. | driver scenario 4, no longer prints `XFAIL: QA-3`; `instance_qa_driver.sh` reports zero open defects | `9848517` |
+| QA-6 | A registry file holding valid-JSON-non-object content (`[1,2,3]`, `"x"`, `42`, `null`, `true`) parsed successfully in `inst_read_record` (try/except covered only `json.load`) and then raised in `inst_record_field`'s `data.get(...)` (outside its own try/except) — 6 raw tracebacks, no `✗ unreadable` row, no `.bad` quarantine, then silently deleted by `inst_prune_all`. | Both functions now raise `TypeError` for a non-dict payload INSIDE their existing try/except — quarantined by `inst_read_record`, empty-string by `inst_record_field`. | 5 parametrized cases of `test_inst_record_field_survives_a_non_object_record` + `test_status_reports_a_non_object_registry_record_instead_of_deleting_it` (6 total) | `3e04a9b` |
+| QA-9 | A32.5 falsified: `_set_env_var` escaped `$`/`` ` `` for bash's double-quote rules; python-dotenv doesn't recognise those two escapes and kept the literal backslash, so bash and dotenv disagreed on any value containing `$` or a backtick — reachable via a checkout path containing `$` (legal on macOS/Linux), making `LAB_ROOT`/`ARAIL_DATA_DIR`/`LAB_PKB` resolve to different directories depending on launch method. | `shell_safe` now prefers single-quoting whenever the value has no literal single quote — both readers treat single quotes as fully literal for `$`/backtick, so they agree with zero escaping. Values containing a literal single quote still fall back to the pre-existing double-quote scheme. | 2 of 3 parametrized cases of `test_bash_and_python_dotenv_agree_on_the_env_pack` (`$(id)`, `` `id` ``) + `test_a_checkout_path_containing_a_dollar_sign_no_longer_diverges` (3 total) | `b50e6fa` |
+| QA-10 | `<instance>/data` was created 0755 (bare `mkdir -p`, operator's umask), not the 0700 §7 specifies for the directory that will hold `secrets.env`. | `inst_scaffold_instance_root` now `chmod 0700`s the data dir after creating it. | `test_an_instance_data_dir_is_not_world_readable_by_default` (non-strict `pytest.xfail()` call; no longer hits the xfail branch) | `00f5c04` |
+| QA-11 | `stop_services()`'s uvicorn patterns were port-scoped but not checkout-scoped — two ARAIL checkouts on one machine both default to 8080/7414, so `./arailctl stop` in checkout A killed checkout B's root-lab services (the BRIEF's motivating incident, reproduced live during QA). | `start.sh`'s root-lab uvicorn invocations now pass `--app-dir "$REPO_ROOT"` (functionally a no-op — uvicorn already defaults `--app-dir` to cwd, and start.sh already `cd`s there) so the argv carries a checkout-scoped, grep-able marker; `reset.sh`'s patterns now require it. | `test_root_lab_stop_patterns_are_scoped_to_this_checkout` | `711faf1` |
+
+**16 of 16 strict-xfail tests flipped**, plus QA-10's non-strict `pytest.xfail()` call. `instance_qa_driver.sh` reports zero open defect ids; `instance_start_driver.sh` is 11/11.
+
+### QA-9 residual, accepted (not a Blocker, not silently dropped)
+
+python-dotenv unconditionally interpolates a literal `${NAME}` substring on
+read — regardless of quote style or escaping — verified directly against
+`dotenv/variables.py`/`main.py`: the interpolation pass runs on the
+already-parsed value with no awareness of what quoted or escaped it, and
+there is no escape mechanism for it in this library version. This means A32.5
+cannot be fully restored for that one shape: `shell_safe`'s single-quote fix
+closes the `$(...)`/backtick/bare-`$path` cases QA-9 actually reported as
+reachable-and-harmful, but a value containing literal `${...}` braces still
+diverges between bash (reads it literally) and `dotenv_values()` (expands
+it). Not reachable via this writer's callers today — World `display_name`
+and instance paths have no reason to contain `${...}` syntax — so this is
+filed as an accepted, pinned gap (`test_bash_and_python_dotenv_agree_on_a_braces_style_reference`,
+`strict=True` xfail) rather than silently dropped or force-fitted with a
+redesign of python-dotenv's read path (out of this pass's scope — it would
+require `load_dotenv(..., interpolate=False)` in `config.py`, a
+production-behavior change to every `.env` read in the app, not just the
+instance pack, and even then wouldn't make the *test* — which exercises
+`dotenv_values()` at its default settings, deliberately, since that's what
+QA's own repro used — pass without also editing the test). No architect
+feedback needed: this is a documented library limitation discovered mid-fix,
+not an ARCHITECTURE.md conflict.
+
+### Findings NOT taken: none conflicted with ARCHITECTURE.md
+
+Every BLOCKER/HIGH/MEDIUM's prescribed fix was directly implementable
+without touching ARCHITECTURE.md's design intent. QA-3, QA-7, QA-10, QA-12,
+QA-13, QA-14 were filed by TEST_REPORT.md as "acceptable as filed
+follow-ups" (not required before re-QA); QA-3, QA-6, QA-9, QA-10, and QA-11
+were nonetheless fixed in this pass per the orchestrator's explicit
+instruction (the LOW-severity ones — QA-7, QA-12, QA-13, QA-14 — were left
+as filed, per the task's own scope: "LOWs: fix one-line-class ones in files
+you touch" — none of these four are one-line-class or in a file this pass
+otherwise touched).
+
+### Atomic-commit methodology note
+
+Every fix in this pass was applied to the full working tree first, verified
+end-to-end, THEN split into per-finding commits by resetting the touched
+files to `HEAD` and replaying each finding's edit in isolation (verified
+against the fully-edited target content after each replay) — so each commit
+above contains exactly, and only, the diff its row describes, not a
+snapshot of everything fixed so far. `scripts/start.sh` (touched by 6
+findings), `src/arail/portal/app.py` (2), `scripts/lib/instances.sh` (2),
+and `tests/test_instance_edge_cases.py` / `tests/test_instance_live_launch_findings.py`
+/ `tests/instance_qa_driver.sh` (each touched by 2-4 findings) required this;
+every other touched file was exclusive to one finding.
+
+### Final state (QA-fix pass)
+
+- **9 commits**, one per finding or tightly-coupled finding-group,
+  `6206067` → `711faf1` (see table above for individual SHAs).
+- **Targeted regression sweep** (all instance test files + the pinned
+  `test_reset_paths.py`/`test_reset_stop_scope.py`/`test_shell_source_safety.py`/
+  `test_world_switcher.py`/`test_world_mount.py`/`test_world_reset.py`/
+  `test_world_identity_flip.py`/`test_default_worlds_catalog.py`/
+  `test_launchd_render.py`): **272 passed, 3 failed, 1 xfailed** — the 3
+  failures are the same pre-existing `test_reset_stop_scope.py` (`awk`-
+  extraction driver never loads `_ollama_pid_if_we_started_it`) and
+  `test_shell_source_safety.py` (`tomllib`-on-system-Python-3.9) failures
+  confirmed pre-existing throughout every prior pass in this sprint; the 1
+  xfail is QA-9's accepted `${...}`-braces residual (above).
+- **`instance_qa_driver.sh`**: `OK: 10 scenario(s)`, zero `XFAIL:` lines
+  (was 4: QA-1/2/3/5). **`instance_start_driver.sh`**: 11/11.
+- **Full-suite run** (`pytest tests/ -q`, twice, to rule out order-
+  dependent flake): **47 failed, 3579 passed, 2 skipped, 2 xfailed, 7
+  errors** on the second run; a first run showed 48 failed with one extra
+  name (`test_mini_experiments.py::test_no_legacy_fabricated_constants`, a
+  numeric-substring assertion unrelated to any file this pass touched,
+  passing standalone and on rerun — a pre-existing order/timing flake, not
+  a regression from this pass). **The 47-line failed+error name set is
+  byte-for-byte identical** between the two runs and to the pre-QA-fix
+  baseline this pass started from (`diff` clean) — zero regressions. The
+  2 xfailed (vs. the review-fix pass's 1) is QA-9's newly-filed accepted
+  residual.
+- **Files touched this pass:** `scripts/start.sh`, `scripts/lib/instances.sh`,
+  `scripts/setup.sh`, `scripts/reset.sh`, `src/arail/portal/app.py`,
+  `tests/test_instance_edge_cases.py`, `tests/test_instance_live_launch_findings.py`,
+  `tests/test_instance_qa_start.py`, `tests/instance_qa_driver.sh`,
+  `tests/test_instance_secrets.py`, `tests/test_instance_stop_scope.py`,
+  `tests/test_reset_stop_scope.py`. No file outside the QA-fix pass's own
+  scope was touched.
+- **No "Architect feedback required" entry** — QA-9's residual (above) is
+  a discovered library limitation, documented and pinned, not an
+  ARCHITECTURE.md conflict; every other finding's prescribed fix landed
+  exactly as specified.
