@@ -1081,3 +1081,48 @@ this sprint:
     same LLM-generated sentence, this proximity-window heuristic reopens
     as a live BLOCK, not documented debt — re-review the guardrail before
     shipping such a change.
+11. **[Recommended structural refactor, out of scope for this sprint —
+    REVIEW.md re-review addendum 5.]** The `quoted_spans` masking mechanism
+    (both `_build_output` functions building a `frozenset` of interpolated
+    field values, then `check_guardrail` blanking each literal occurrence
+    out of a copy of the assembled body before running `_EVALUATIVE_RE`) is
+    now the largest single source of defects in this sprint (5 of 7 BLOCKs
+    across the review's six rounds). Each fix has been one level deeper
+    than the last — match the named example, then the sibling field, then
+    a mechanical enumeration of every interpolated field — and the round-6
+    fix (ASK-D) shows the failure mode has moved again, from *which field*
+    to *what transform is applied between the field and the text being
+    matched* (masking a field's raw value when a different, transformed
+    value is what actually gets rendered). The reviewer's assessment: this
+    is a countermeasure chasing a defect class rather than eliminating it,
+    and the next variant is predictable in shape (a field enumerated and
+    masked correctly, but rendered through a new transform — truncation,
+    `title()`, markdown escaping, a wrap that inserts a newline mid-span).
+
+    The root cause: both agents assemble a flat string and then try to
+    *reconstruct* provenance from it by substring search, when provenance
+    is known exactly at assembly time and is discarded before the check
+    runs.
+
+    Recommended fix (candidate for its own future, separately-scoped
+    sprint — **do not implement as part of this sprint**): have both
+    `_build_output` functions assemble the body as an ordered list of
+    `(text, provenance)` segments — `AGENT` for headings, framing prose,
+    and code-authored connective text; `QUOTED` for every interpolated
+    non-agent value (operator-typed or World-sealed) — and have
+    `check_guardrail` run `_EVALUATIVE_RE` over the concatenation of the
+    `AGENT` segments only, while the institutional-character/proximity-
+    window pass still runs over `"".join(all segments)` (the full rendered
+    document, which is what that check legitimately needs). This deletes
+    `quoted_spans`, `_MIN_QUOTED_SPAN_LEN`, the global-substring masking,
+    the raw-vs-rendered class of bug entirely, and the possibility of a
+    span accidentally matching unrelated text elsewhere in the body — and
+    makes "did you enumerate every field?" a non-question, because any
+    field not explicitly wrapped as a `QUOTED` segment is inescapably
+    `AGENT` and therefore fails closed by construction, rather than fails
+    open by omission. The 117+ existing agent tests, unchanged in intent,
+    become the regression harness for the refactor. See REVIEW.md's
+    "Re-review addendum 5 (round 6)", §4, for the reviewer's full reasoning
+    and the current build's safety argument for why this ships as WEAK_PASS
+    without the refactor (every known failure mode in this family currently
+    degrades closed).

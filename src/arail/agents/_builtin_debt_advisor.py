@@ -346,7 +346,17 @@ def _build_output(bundle_dir: Path, terms: List[Dict[str, Any]],
         str(v) for f in findings for v in (f.get("feed"), f.get("path")) if v
     ) | frozenset(
         str(v) for entry in vetted
-        for v in (entry.name, entry.institution_type, entry.verification_source)
+        for v in (
+            entry.name,
+            # Mask the same hyphen-replaced string that actually gets
+            # rendered on line ~300 above (``character = v.institution_type
+            # .replace("-", " ")``), not the raw field. The raw value never
+            # appears in the document, so masking it left the check
+            # comparing against text that was never rendered (REVIEW.md
+            # re-review addendum 5, ASK-D).
+            entry.institution_type.replace("-", " "),
+            entry.verification_source,
+        )
         if v
     )
 

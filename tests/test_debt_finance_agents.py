@@ -351,24 +351,43 @@ class TestDebtAdvisorEvaluativeQuotedSpans:
         )
         assert "Best Balance Transfer Cards - Bankrate" in body
 
-    def test_code_authored_institution_type_with_evaluative_word_still_blocks(
+    def test_hyphenated_institution_type_with_trigger_word_no_longer_blocks(
         self, debt_advisor_module
     ):
-        """Regression (d)-equivalent for Debt Advisor: a code-authored
-        field (``institution_type``, never a member of ``quoted_spans``)
-        containing an evaluative word must still block — the fix must not
-        widen the exemption to institution roster content."""
+        """REVIEW.md re-review addendum 5, ASK-D: ``quoted_spans`` must
+        mask the same hyphen-replaced string that ``_build_output`` actually
+        renders (``v.institution_type.replace("-", " ")``), not the raw
+        field. Before the fix, a hyphenated value that only contains a
+        trigger word once its hyphens are stripped for display (e.g.
+        ``"best-rate-lender"`` -> rendered ``"best rate lender"``) was
+        masked against the never-rendered raw string and spuriously
+        blocked the whole document even though the exemption was intended
+        to cover this exact field (addendum 5, section 3: "keep it, do not
+        revert"). This test must fail against the pre-fix code."""
         from arail.agents import _builtin_debt_advisor as mod
 
         terms_doc = json.loads(json.dumps(_TERMS))
         for t in terms_doc["terms"]:
             if t["slug"] == "penfed-credit-union":
-                t["institution_type"] = "best-credit-union"
+                t["institution_type"] = "best-rate-lender"
 
-        with pytest.raises(mod._GuardrailBlocked):
-            mod._build_output(
-                _bundle_dir_for(debt_advisor_module), terms_doc["terms"], []
-            )
+        body = mod._build_output(
+            _bundle_dir_for(debt_advisor_module), terms_doc["terms"], []
+        )
+        assert "best rate lender" in body
+
+    def test_genuinely_agent_authored_evaluative_text_still_blocks(
+        self, debt_advisor_module
+    ):
+        """Negative control for ASK-D: text that is NOT a member of
+        ``quoted_spans`` at all (framing prose, checked directly against
+        ``check_guardrail`` with no exemption) must still block. Confirms
+        the ASK-D fix only changed *which* rendered string is masked, not
+        whether code-authored/model-authored text is exempt."""
+        from arail.agents.debt_finance_compliance import check_guardrail
+
+        result = check_guardrail("This is the best option for you.", frozenset())
+        assert result.ok is False
 
 
 class TestDebtAdvisorVettedRosterQuotedSpans:
