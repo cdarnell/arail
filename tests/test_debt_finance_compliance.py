@@ -462,16 +462,42 @@ def test_guardrail_operator_name_field_still_legitimizes_when_actually_tagged():
 #    a checked property. Defense in depth — the is_name fix above already
 #    closes the underlying defect independent of this invariant.
 
-def test_template_invariant_no_agent_segment_adjacent_to_non_agent_carries_a_trigger_or_is_dynamic():
-    import re as _re
+def test_template_invariant_no_agent_segment_adjacent_to_non_agent_carries_a_trigger_or_is_dynamic(
+    monkeypatch,
+):
+    """REVIEW.md re-review addendum 7 (round 8): the previous version of this
+    test hand-copied both ``_build_output`` templates into the test body
+    instead of calling them, so it could never fail on the exact drift (a
+    future template edit breaking the invariant) it exists to catch.
 
+    This version calls the REAL ``_build_output`` in both agents, with the
+    LLM-call seam (``_host.llm_complete``) monkeypatched to a deterministic
+    stub so no live model is needed, and captures the REAL segment list by
+    monkeypatching each agent module's ``check_guardrail`` reference to a
+    thin recorder that forwards to the real implementation. The invariant is
+    then checked against that captured, real list.
+    """
     from arail.agents import _builtin_consolidation_analyzer as _ca
     from arail.agents import _builtin_debt_advisor as _da
-    from arail.agents.debt_finance_compliance import _INSTITUTIONAL_CHARACTER_RE
+    from arail.agents.debt_finance_compliance import (
+        _INSTITUTIONAL_CHARACTER_RE,
+        check_guardrail as _real_check_guardrail,
+    )
 
-    # A minimal, deterministic exercise of each agent's real _build_output:
-    # exact field values don't matter for this invariant — only the shape
-    # of the segment list it produces.
+    captured: list = []
+
+    def _recording_check_guardrail(segments):
+        captured.append(list(segments))
+        return _real_check_guardrail(segments)
+
+    monkeypatch.setattr(_da, "check_guardrail", _recording_check_guardrail)
+    monkeypatch.setattr(_ca, "check_guardrail", _recording_check_guardrail)
+    # Deterministic, guardrail-clean framing text — stands in for the model
+    # so this test needs no live inference backend. Its exact content is
+    # irrelevant to the invariant under test.
+    monkeypatch.setattr(_da._host, "llm_complete", lambda *a, **k: "")
+    monkeypatch.setattr(_ca._host, "llm_complete", lambda *a, **k: "")
+
     da_terms = [{
         "term": "PenFed Credit Union", "category": "institutions",
         "institution_type": "credit-union",
@@ -479,97 +505,21 @@ def test_template_invariant_no_agent_segment_adjacent_to_non_agent_carries_a_tri
         "verified_as_of": "2026-07-01",
     }]
     da_findings = [{"feed": "Some Feed", "checked": "2026-07-01", "path": "x.md"}]
+    _da._build_output(Path("/unused"), da_terms, da_findings)
 
-    def _segments_for_debt_advisor():
-        # Re-derive the same ordered segment list _build_output assembles,
-        # without needing a mounted bundle_dir (bundle_dir is unused by
-        # _build_output itself — only by its caller for the disclaimer).
-        vetted = _da._vetted_institutions(da_terms)
-        lines = []
-        from arail.agents.debt_finance_compliance import Segment as S
-        # Use the deterministic fallback sentence directly rather than
-        # calling the real _framing_prose (which would invoke a live
-        # model) — this invariant test only cares about segment shape,
-        # not the LLM-generated framing text's exact content.
-        lines.append([S.agent("# Debt Advisor — Findings\n")])
-        lines.append([S.agent(
-            "Educational summary of this World's debt-finance terms and "
-            "any approved findings.\n"
-        )])
-        lines.append([S.agent("## Institutions whose character claims this World verified\n")])
-        lines.append([S.agent("_boilerplate_\n")])
-        for v in vetted:
-            character = v.institution_type.replace("-", " ")
-            lines.append([
-                S.agent("- **"), S.world(v.name, is_name=True), S.agent("** ("),
-                S.world(character), S.agent(", verification source: "),
-                S.world(v.verification_source), S.agent(", verified as of "),
-                S.world(v.verified_as_of), S.agent(")"),
-            ])
-        lines.append([S.agent("")])
-        lines.append([S.agent("## Approved scouting findings (public sources only)\n")])
-        for f in da_findings:
-            lines.append([
-                S.agent("- Found via "), S.world(f.get("feed", "?")),
-                S.agent(" (quoted verbatim), checked "), S.world(f.get("checked", "?")),
-                S.agent(" — see `"), S.world(f.get("path", "?")),
-                S.agent("` (quoted verbatim) for the reviewed excerpt."),
-            ])
-        lines.append([S.agent("")])
-        segments = []
-        for i, line_segments in enumerate(lines):
-            if i:
-                segments.append(S.agent("\n"))
-            segments.extend(line_segments)
-        return segments
+    ca_debts = [{"balance": 1000, "apr": 20}]
+    ca_scenarios = [{
+        "institution": "Acme Consolidation", "product": "Personal Loan",
+        "rate": 12.0, "fee_pct": 1.0, "source": "https://x", "as_of": "2026-01-01",
+    }]
+    _ca._build_output(ca_debts, ca_scenarios)
 
-    def _segments_for_consolidation_analyzer():
-        from arail.agents.debt_finance_compliance import Segment as S
-        debts = [{"balance": 1000, "apr": 20}]
-        scenarios = [{
-            "institution": "Acme Consolidation", "product": "Personal Loan",
-            "rate": 12.0, "fee_pct": 1.0, "source": "https://x", "as_of": "2026-01-01",
-        }]
-        results = _ca._compute_scenarios(debts, scenarios)
-        lines = [
-            [S.agent("# Consolidation Analyzer — Findings\n")],
-            [S.agent(
-                "Computed comparison of your staged balances against "
-                "staged candidate scenarios.\n"
-            )],
-            [S.agent("## Current position\n")],
-            [S.agent("- Debts entered: 1")],
-        ]
-        lines.append([S.agent("")])
-        lines.append([S.agent("## Candidate scenarios\n")])
-        for r in results:
-            breakeven_text = (
-                f"{r.breakeven} months" if r.breakeven is not None
-                else "does not break even at this rate/fee"
-            )
-            lines.append([
-                S.agent("- **"), S.operator(r.institution, is_name=True),
-                S.agent("** (as you entered it) — "), S.operator(r.product),
-                S.agent(
-                    f" (as entered), rate {r.rate:.2f}%, fee {r.fee_pct:.2f}% "
-                    f"(${r.fee_amount:.2f}), monthly savings ${r.monthly_savings:.2f}, "
-                    f"breakeven {breakeven_text}. Source: "
-                ),
-                S.operator(r.source), S.agent(" (as entered), as of "),
-                S.operator(r.as_of), S.agent(" (as entered)."),
-            ])
-        lines.append([S.agent("")])
-        segments = []
-        for i, line_segments in enumerate(lines):
-            if i:
-                segments.append(S.agent("\n"))
-            segments.extend(line_segments)
-        return segments
+    assert len(captured) == 2, (
+        "expected exactly one check_guardrail call captured per agent's "
+        "real _build_output"
+    )
 
-    for segments in (
-        _segments_for_debt_advisor(),
-        _segments_for_consolidation_analyzer(),
-    ):
+    for segments in captured:
         for idx, seg in enumerate(segments):
             if seg.provenance is not Provenance.AGENT:
                 continue
