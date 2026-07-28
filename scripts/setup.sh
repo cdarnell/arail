@@ -1556,14 +1556,39 @@ prefix = f"{key}="
 # decode table is \\ and \' only), so prefer single quotes whenever the
 # value itself contains no single quote — the two mechanisms can then
 # agree with ZERO escaping instead of a bash-specific one.
-# (Residual, documented gap: python-dotenv unconditionally interpolates
-# a literal ${NAME} substring — regardless of quote style or escaping,
-# there is no escape hatch for it in this library — so a value containing
-# that exact brace syntax still diverges. Not reachable via this writer's
-# callers today: slugs are jailed, ports are numeric, and paths/names
-# don't legitimately need ${...} syntax.)
+# (python-dotenv unconditionally interpolates a literal ${NAME} substring
+# on read — regardless of quote style or escaping, there is no escape
+# hatch for it in this library — so a value containing that exact brace
+# syntax could diverge, and worse, expand to a real environment secret.
+# QA-18 closes this below: shell_safe() rejects the "${" adjacency before
+# it ever reaches quoting, so no pack value can trigger it.)
 _NEEDS_QUOTE = re.compile(r"[\s\"'$`\\#&|;<>(){}*?!~\[\]]")
+
+# QA-18 (sprints/2026-07-28-concurrent-worlds/TEST_REPORT.md, hardening
+# micro-pass): python-dotenv's interpolation regex (variables.py's
+# ``\$\{...\}``) fires on ANY value containing a literal "${" substring,
+# for EITHER quote style, with no escape hatch — it runs on the
+# already-decoded text with no awareness of what quoted or escaped it.
+# Verified: even the pre-existing ``\$``-escaping in the double-quote
+# branch below does not help, because dotenv's double-quote escape table
+# (``\\ \' \" \a \b \f \n \r \t \v``) does not include ``\$``, so the
+# backslash survives literally in the decoded text and the "$" it
+# precedes is still immediately followed by "{" — the regex only cares
+# about that adjacency, not what comes before the "$". And bash's
+# single-quote path performs ZERO character transformation between the
+# quotes, so nothing at the quoting layer can neutralise dotenv's read
+# without identically changing bash's read — they parse the same bytes.
+# A World display_name (or any other pack value) has no legitimate need
+# to contain "${" (ARCHITECTURE.md never specifies brace-interpolation
+# syntax for any pack field), so reject the adjacency at the source
+# instead of trying to out-escape a library with no escape mechanism for
+# it: a literal "${" can never survive into the pack.
+def _reject_brace_interpolation(v: str) -> str:
+    return v.replace("${", "$")
+
+
 def shell_safe(v: str) -> str:
+    v = _reject_brace_interpolation(v)
     if v == "":
         return '""'
     if not _NEEDS_QUOTE.search(v):

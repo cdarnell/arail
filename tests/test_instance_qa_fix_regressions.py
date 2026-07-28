@@ -238,18 +238,10 @@ def test_the_app_dir_marker_is_actually_emitted_by_start_sh() -> None:
 
 
 # ---------------------------------------------------------------------------
-# QA-18 — the accepted "${NAME}" residual is an env-var exfiltration primitive
+# QA-18 — FIXED (hardening micro-pass): the "${NAME}" residual was an
+# env-var exfiltration primitive, not a cosmetic divergence.
 # ---------------------------------------------------------------------------
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="QA-18 (OPEN, security): a World display_name of '${IDE_PASSWORD}' "
-           "is written literally to the pack, read literally by bash, and "
-           "EXPANDED TO THE REAL SECRET by python-dotenv — which then sets it "
-           "as LAB_NAME, a value rendered in the UI. The QA-fix pass filed "
-           "this shape as an accepted cosmetic residual; it is not cosmetic. "
-           "See TEST_REPORT.md.",
-)
 def test_a_braces_reference_in_a_display_name_cannot_expand_to_an_env_secret(
     tmp_path: Path,
 ) -> None:
@@ -259,7 +251,7 @@ def test_a_braces_reference_in_a_display_name_cannot_expand_to_an_env_secret(
     is to be safe against one that isn't, and World bundles are authored by
     fork users and shared between them.
 
-    Demonstrated 2026-07-28 end-to-end through the real
+    Was demonstrated 2026-07-28 end-to-end through the real
     ``inst_write_env_pack`` → real ``_set_env_var``:
 
         pack line          LAB_NAME='${IDE_PASSWORD}'
@@ -267,22 +259,18 @@ def test_a_braces_reference_in_a_display_name_cannot_expand_to_an_env_secret(
         dotenv_values()    SUPERSECRET-ide-pw       (the real value)
         load_dotenv()      SUPERSECRET-ide-pw       (into os.environ)
 
-    ``LAB_NAME`` is a displayed field (page title, nav, brand), so this turns a
-    World bundle into a read primitive for any variable in the portal
+    ``LAB_NAME`` is a displayed field (page title, nav, brand), so this turned
+    a World bundle into a read primitive for any variable in the portal
     process's environment — which, because ``start.sh`` does
     ``set -a; source lab.conf``, includes ``IDE_PASSWORD``.
 
-    Why it is MEDIUM and not HIGH: the production launch path exports LAB_NAME
-    via ``set -a; source pack`` *before* uvicorn starts, and ``load_dotenv``
-    defaults to ``override=False``, so the literal value wins there. The
-    expansion lands on §6.1's *second*, explicitly-designed-for mechanism — a
-    process started without the shell wrapper — and on any caller using
-    ``dotenv_values()``.
-
-    The fix belongs at the writer (reject or neutralise a literal ``${`` in a
-    pack value — a display name has no legitimate need for it), not at
-    ``config.py``'s ``interpolate=False``, which would change how every
-    ``.env`` in the app is read.
+    Fixed at the writer (``scripts/setup.sh``'s ``shell_safe`` /
+    ``_reject_brace_interpolation``): a "${" adjacency can never survive into
+    the pack — it is rewritten to a bare "$" before quoting, for both quote
+    branches, so bash and dotenv both read the SAME (non-interpolatable)
+    literal text. Not ``config.py``'s ``interpolate=False``, which would
+    change how every ``.env`` in the app is read — the fix stays local to the
+    one writer whose output can carry attacker-authored World metadata.
     """
     from dotenv import dotenv_values  # noqa: PLC0415
 
@@ -295,14 +283,24 @@ def test_a_braces_reference_in_a_display_name_cannot_expand_to_an_env_secret(
         [_BASH, "-c",
          f'set -uo pipefail; REPO_ROOT="{repo}"; source "{instances_sh}"; '
          'inst_write_env_pack qa LAB_ROOT /tmp/x PORTAL_PORT 8090 '
-         'LAB_NAME "$1" LAB_SHORT_NAME qa',
+         'LAB_NAME "$1" LAB_SHORT_NAME qa; '
+         'pack="$(inst_env_file qa)"; '
+         '( set -a; source "$pack"; set +a; printf "%s" "$LAB_NAME" )',
          "bash", "${IDE_PASSWORD}"],
         capture_output=True, text=True, timeout=60,
         env={"PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "HOME": str(tmp_path)},
     )
     assert r.returncode == 0, r.stderr
+    bash_value = r.stdout
 
     pack = repo / "lab" / "instances" / "qa" / "instance.env"
+    assert "${" not in pack.read_text(encoding="utf-8"), (
+        "a literal '${' survived into the pack file"
+    )
+    assert "${" not in bash_value, (
+        "bash's own read-back still contains a '${' adjacency"
+    )
+
     import os as _os  # noqa: PLC0415
 
     prev = _os.environ.get("IDE_PASSWORD")
@@ -319,6 +317,10 @@ def test_a_braces_reference_in_a_display_name_cannot_expand_to_an_env_secret(
         "a World display_name of '${IDE_PASSWORD}' expanded to the real "
         "secret when the pack was read via python-dotenv — LAB_NAME is a "
         "displayed field, so this exfiltrates an environment secret into the UI"
+    )
+    assert got == bash_value, (
+        f"bash and dotenv disagree on the neutralised value: "
+        f"bash={bash_value!r} dotenv={got!r}"
     )
 
 

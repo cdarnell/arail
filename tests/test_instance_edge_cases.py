@@ -361,7 +361,11 @@ _HOSTILE_NAMES = [
     'World "quoted"',
     "World $(touch /tmp/arail-qa-pwned)",
     "World `touch /tmp/arail-qa-pwned2`",
-    "World ${HOME}",
+    # "World ${HOME}" deliberately excluded: QA-18's fix rewrites any "${"
+    # adjacency before quoting, so this shape no longer round-trips
+    # byte-for-byte through bash (by design — see
+    # test_instance_qa_fix_regressions.py's QA-18 test, which covers the
+    # neutralised-not-interpolated behaviour instead).
     "World\\backslash",
     "  leading and trailing  ",
     "Ünïcödé Wörld \U0001f30d",
@@ -470,27 +474,34 @@ def test_bash_and_python_dotenv_agree_on_the_env_pack(fake_repo: Path, name: str
 
 @pytest.mark.xfail(
     strict=True,
-    reason="QA-9 residual, ACCEPTED (not the reachable case QA-9 reported): "
+    reason="Still pinned OPEN, but NARROWER than before QA-18's fix: "
            "python-dotenv unconditionally interpolates a literal ${NAME} "
            "substring on read, regardless of quote style or escaping — there "
            "is no escape hatch for it in this library version (verified "
            "against dotenv/variables.py: the interpolation regex runs on the "
            "already-decoded value with no awareness of what quoted/escaped "
-           "it). Bash reads 'World ${HOME}' literally; dotenv_values() "
-           "expands it to the real $HOME. Not reachable via this writer's "
-           "callers today: World display_name and instance paths have no "
-           "reason to contain literal ${...} syntax. See "
-           "sprints/2026-07-28-concurrent-worlds/BUILD_LOG.md 'QA-fix pass'.",
+           "it). This test writes 'instance.env' BY HAND (p.write_text(...)), "
+           "bypassing scripts/setup.sh's shell_safe() entirely — so QA-18's "
+           "fix (which rejects '${' adjacency at THAT writer, before "
+           "quoting) cannot reach it. Every real pack-write path DOES go "
+           "through shell_safe() (see "
+           "test_a_braces_reference_in_a_display_name_cannot_expand_to_an_env_secret "
+           "in test_instance_qa_fix_regressions.py, which is no longer "
+           "xfailed) — this test now documents the residual for a "
+           "hypothetical writer that skips shell_safe(), not a reachable one.",
 )
 def test_bash_and_python_dotenv_agree_on_a_braces_style_reference() -> None:
-    """The one QA-9 shape quoting alone cannot fix: ``${NAME}`` braces syntax.
+    """The one shape quoting alone cannot fix: ``${NAME}`` braces syntax, for
+    a file NOT written through ``shell_safe()`` (see the xfail reason above
+    for why every real writer is unaffected after QA-18).
 
     Split out from ``test_bash_and_python_dotenv_agree_on_the_env_pack``
-    (whose other two parametrized values — ``$(id)``, `` `id` `` — are now
+    (whose other two parametrized values — ``$(id)``, `` `id` `` — are
     fixed and asserted for real above) because this one genuinely can't be:
-    python-dotenv's own interpolation pass has no escape mechanism, so no
-    value written to the pack can make ``dotenv_values()`` read a literal
-    ``${...}`` substring back unchanged.
+    python-dotenv's own interpolation pass has no escape mechanism, so a
+    value written directly to a ``.env`` file — bypassing the writer that
+    now rejects the adjacency — still can't make ``dotenv_values()`` read a
+    literal ``${...}`` substring back unchanged.
     """
     from dotenv import dotenv_values  # noqa: PLC0415
 
