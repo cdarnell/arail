@@ -1064,3 +1064,89 @@ every other touched file was exclusive to one finding.
   a discovered library limitation, documented and pinned, not an
   ARCHITECTURE.md conflict; every other finding's prescribed fix landed
   exactly as specified.
+
+---
+
+## Hardening micro-pass
+
+Bounded post-verdict pass on TEST_REPORT.md's **WEAK_PASS** re-test
+(`sprints/2026-07-28-concurrent-worlds/TEST_REPORT.md`, "## Re-test (QA-fix
+pass)" section). Ship is not blocked; this pass closes exactly three of the
+four MEDIUM findings that re-test surfaced — QA-18, QA-15, QA-17 — because
+QA-18 is a secret-exfiltration primitive in new code. QA-16 (LOW, dead
+write) is explicitly out of scope and left for backlog, per the task's own
+boundary.
+
+| # | Finding | Fix applied | Regression test | Commit |
+|---|---|---|---|---|
+| QA-18 | `python-dotenv`'s interpolation regex fires on any decoded value containing a literal `${` substring, for either quote style, with no escape hatch — a World `display_name` of `${IDE_PASSWORD}` round-tripped safely through bash but expanded to the real secret via `dotenv_values()`/`load_dotenv()`, landing in `LAB_NAME`, a displayed field. Neither existing quote branch in `shell_safe()` can out-escape this (verified empirically: bash's single-quote path performs zero transformation; the double-quote branch's pre-existing `\$` escaping still leaves `$` immediately adjacent to `{` in dotenv's decoded text, since dotenv's double-quote escape table doesn't recognise `\$`). | `shell_safe()` now rejects the adjacency at the source: `_reject_brace_interpolation()` rewrites any `${` to `$` before quoting, for both quote branches, so the sequence can never survive into the pack for either reader to disagree — or exfiltrate — on. | `test_a_braces_reference_in_a_display_name_cannot_expand_to_an_env_secret` (un-xfailed, strengthened: also asserts bash and dotenv now agree byte-for-byte on the neutralised value). The generic hostile-name byte-round-trip parametrize (`test_env_pack_round_trips_a_hostile_display_name_through_bash`) had `"World ${HOME}"` removed — deliberately, since round-tripping that exact shape byte-for-byte is the vulnerability, not a property to preserve; documented inline. The still-open, narrower residual (`test_bash_and_python_dotenv_agree_on_a_braces_style_reference`) stays strict-xfail — it writes a pack file BY HAND, bypassing `shell_safe()` entirely, so it documents a hypothetical writer this fix cannot reach, not a reachable path. | `dd5cd15` |
+| QA-15 | `_patch_lab_conf_password` still wrote `IDE_PASSWORD=<passphrase>` into the CWD-relative, checkout-**shared** `lab.conf` from inside an instance process (QA-B2 only fixed the onboarding handler's OTHER credential write). Two instances sharing one checkout root clobbered each other's IDE passphrase in the shared file, and since `start.sh`/`reset.sh` both `set -a; source lab.conf`, the last-onboarded instance's passphrase silently became every other instance's process-environment value too. | `_patch_lab_conf_password` now no-ops entirely for an instance process (`ARAIL_INSTANCE` set) instead of redirecting to yet another sink — `IDE_PASSWORD` governs code-server, which §3.6 says an instance never starts, so there is no legitimate per-instance target for this write at all. Root lab (no `ARAIL_INSTANCE`) is unaffected — still the sole writer of the root lab's `lab.conf`. | `test_the_onboarding_handler_writes_no_credential_outside_the_instance_root` (un-xfailed, rewritten from a source-grep into a real behavioural test: drives the real function against a real `lab.conf` in a scratch CWD for both the instance-guarded and root-lab cases). | `1702e7a` |
+| QA-17 | QA-11's fix scoped `stop_services`' uvicorn patterns to processes carrying `--app-dir "$REPO_ROOT"` in argv — a marker only the CURRENT `start.sh` emits. A root lab already running when the operator upgrades has the old argv, so the strict pattern alone matches nothing: `./arailctl stop` reports "No running services found." while the lab keeps running (REVIEW.md B1's silent-stop shape, re-created narrower). | `stop_services` now also tries a port-only `fallback_patterns` array for the three uvicorn services, but only accepts a fallback match after verifying — via a real `ps -p <pid> -o command=`, never trusted from the pgrep pattern alone — that the candidate's actual argv carries **no** `--app-dir` at all, i.e. it genuinely predates the upgrade. A process from a foreign, already-upgraded checkout still carries its own (different) `--app-dir` and is excluded, so QA-11's cross-checkout protection is not reopened for any checkout that has restarted since the upgrade. | `test_root_lab_stop_can_still_stop_a_lab_started_before_the_upgrade` (un-xfailed: a pre-upgrade process is now stoppable) + new `test_the_fallback_does_not_resurrect_qa11s_cross_checkout_kill` (QA-11's own motivating incident re-run against the new fallback path — a foreign, already-upgraded checkout on the same default port still survives). Also fixed a latent bug in this test file's own driver (`_ollama_pid_if_we_started_it: command not found` — the same pre-existing awk-extraction gap `test_reset_stop_scope.py` already has two known failures from) by stubbing it as a no-op, and stubbed `ps` against the same fake process table `pgrep` already reads. | `f87a07c` |
+| — | `test_root_lab_stop_patterns_are_scoped_to_this_checkout` (QA-11's own pinning test) asserted every uvicorn pgrep pattern string in `stop_services` contains `REPO_ROOT`. QA-17's `fallback_patterns` array is intentionally a *second* array without that marker in the pattern text (the whole point — it exists to catch pre-upgrade processes the strict pattern can't see), so the blanket assertion no longer held once QA-17 landed. | Narrowed the assertion to the strict `patterns` array only; added a direct source check that the fallback path is gated by the real per-pid `--app-dir` verification, not the pattern match alone. QA-11's actual contract (a foreign checkout survives) is still enforced — now via that gate plus the two new QA-17 behavioural tests above. | `test_root_lab_stop_patterns_are_scoped_to_this_checkout` (still green, assertion re-scoped) | `92c7d41` |
+
+**Not taken:** QA-16 (LOW, `/api/welcome/setup` routes `LAB_NAME`/`LAB_SHORT_NAME`
+through `_write_env_kv`, landing in an instance's `secrets.env` where
+`config.py` never reads them — a silent dead write, not a security issue).
+Explicitly out of this pass's three-finding scope per the task brief; left
+for backlog as filed.
+
+**No "Architect feedback required" entry** — all three fixes landed exactly
+at the sites QA's re-test prescribed (the env-pack writer for QA-18, the
+onboarding handler for QA-15, `stop_services`'s pattern set for QA-17), with
+no ARCHITECTURE.md conflict and no fix exceeding the ~50-line-per-finding
+bound (each product-code fix is well under that; the largest single diff is
+QA-17's fallback-pattern block in `reset.sh`, ~25 lines).
+
+### Self-check (per commit, per the builder protocol)
+
+- **Scope drift:** none. Every touched file is either the exact site QA's
+  re-test named for its finding (`scripts/setup.sh`, `src/arail/portal/app.py`,
+  `scripts/reset.sh`) or a test file backing that finding's regression
+  coverage (`tests/test_instance_edge_cases.py`,
+  `tests/test_instance_qa_fix_regressions.py`,
+  `tests/test_instance_live_launch_findings.py` — the last only because
+  QA-17's fix broke QA-11's own pinning assertion, a direct consequence, not
+  an unrelated touch). `sprints/2026-07-28-concurrent-worlds/SPRINT.md` shows
+  as modified in `git status` throughout this pass but was **not** touched by
+  this pass — it was already dirty before this pass started (a pre-existing
+  uncommitted change, left alone and never staged into any of these commits).
+- **Atomicity:** four commits, one per finding (QA-18, QA-15, QA-17, plus the
+  one-line-class QA-17 follow-up to QA-11's own pinning test, which could not
+  be folded into the QA-17 commit itself without breaking that commit's own
+  gate — `test_instance_live_launch_findings.py` needed to be run and
+  observed failing under the QA-17 diff before its fix was known, so it is
+  its own commit rather than bundled).
+- **Commit messages:** each names the finding id, the mechanism (not just
+  the symptom), and why the fix is safe (what it does NOT reopen).
+
+### Final state (hardening micro-pass)
+
+- **4 commits:** `dd5cd15` (QA-18), `1702e7a` (QA-15), `f87a07c` (QA-17),
+  `92c7d41` (QA-11 pinning-test follow-up).
+- **Targeted suites** (instance test files + QA suites + shell drivers +
+  `test_shell_source_safety.py` + the five pinned World suites +
+  `test_launchd_render.py`): **274 passed, 2 failed, 3 skipped, 1 xfailed**
+  — the 2 failures are the same pre-existing `test_reset_stop_scope.py`
+  `awk`-extraction-gap failures documented in every prior pass of this
+  sprint (confirmed via `git stash` before this pass's first commit, same
+  failure signature, unrelated to any file this pass touched).
+- **`instance_start_driver.sh`:** 11/11. **`instance_qa_driver.sh`:**
+  `OK: 10 scenario(s)`, zero `XFAIL:` lines.
+- **Full-suite run** (`pytest tests/ -q`, 3,637 tests, ~12 min): **46
+  failed, 3587 passed, 2 skipped, 2 xfailed, 7 errors.** Diffed byte-for-byte
+  against the `full_baseline.txt` captured during the QA re-test pass
+  (54 named FAILED/ERROR lines there): **53 named lines here, 1 fewer** —
+  `test_shell_source_safety.py::test_shell_sourced_configs_are_injection_safe`
+  no longer fails. This is **not** a fix from this pass: that test's driver
+  invokes a bare `python3` from `PATH`, and this pass's verification runs
+  had a venv activated ahead of the system Python on `PATH` (the venv's
+  Python 3.11 has `tomllib`; the system `/usr/bin/python3` 3.9.6, documented
+  as the pre-existing cause throughout this sprint, does not) — an
+  environment artifact of how this pass ran its verification, not a product
+  change. No other line differs in either direction. **Zero regressions.**
+- **Files touched:** `scripts/setup.sh`, `src/arail/portal/app.py`,
+  `scripts/reset.sh`, `tests/test_instance_edge_cases.py`,
+  `tests/test_instance_qa_fix_regressions.py`,
+  `tests/test_instance_live_launch_findings.py`. No file outside this list
+  was modified by this pass.
+- **No "Architect feedback required" entry.**
