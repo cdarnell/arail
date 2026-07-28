@@ -296,4 +296,21 @@ echo "$out10" | grep -qi "starting lab services" || fail "zero worlds: root-lab 
 echo "$out10" | grep -q "\[1/8\]" && fail "zero worlds: instance staged output leaked into the root-lab path — output:\n$out10"
 ok_scenario
 
+# ---------------------------------------------------------------------------
+# 11) REVIEW.md M4: an IMPLICIT `set -e` abort between the claim (stage
+#     [3/8]) and the record write must still remove the claim — via the
+#     EXIT trap, not just the two explicit INT/TERM traps. Simulated by
+#     breaking _set_env_var (so inst_write_env_pack, called as a bare
+#     statement in stage [4/8], returns 1 and set -e aborts the WHOLE
+#     script immediately — no explicit _instance_cleanup_and_exit call on
+#     this path at all).
+# ---------------------------------------------------------------------------
+fake11="$(_make_fake_repo repo11)"
+_make_world "$fake11" claimtest "Claim Test World"
+sed -i.bak 's/^_set_env_var()/_set_env_var_DISABLED()/' "$fake11/scripts/setup.sh"
+out11="$(_run_start "$fake11" --world claimtest --yes 2>&1)"; rc11=$?
+[[ "$rc11" != "0" ]] || fail "M4 abort: expected a non-zero exit — output:\n$out11"
+[[ ! -f "$fake11/lab/instances/registry.d/claimtest.claim" ]] || fail "M4 abort: claim file was NOT removed by the EXIT trap (leaked on an implicit set -e abort) — output:\n$out11"
+ok_scenario
+
 echo "OK: ${pass_count} scenario(s) passed — scripts/start.sh Concurrent-Worlds retrofit"

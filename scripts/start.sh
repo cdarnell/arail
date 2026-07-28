@@ -268,6 +268,11 @@ _INST_OLLAMA_PID=""
 _INST_CURRENT_SLUG=""
 
 _instance_cleanup_and_exit() {
+    # Disarm the EXIT trap FIRST — this function itself calls `exit` below,
+    # and a still-armed EXIT trap would otherwise fire a second time as
+    # that exit unwinds the shell (harmless since every step here is
+    # idempotent, but needless and potentially confusing in logs).
+    trap - EXIT INT TERM
     local code="${1:-0}"
     local pid
     for pid in "${_INST_PIDS[@]:-}"; do
@@ -449,6 +454,17 @@ _instance_start() {
         _INST_CLAIM_FILE="$claim_file"
         trap '_instance_cleanup_and_exit 130' INT
         trap '_instance_cleanup_and_exit 143' TERM
+        # REVIEW.md M4: only INT/TERM were trapped. Every EXPLICIT failure
+        # path in this function already calls _instance_cleanup_and_exit,
+        # but an IMPLICIT `set -euo pipefail` abort (a failing
+        # inst_write_env_pack, a failing `source "$pack_file"`, a failing
+        # python3 record serialiser, SIGHUP from a closed terminal, …)
+        # would skip straight past all of them and leak the claim for the
+        # full 120s stale window — F6's text is explicit: "removes the
+        # claim on EVERY exit path." An EXIT trap catches all of those;
+        # cleared just before the final `wait` below, once the launch has
+        # actually succeeded and INT/TERM take over as the only exit paths.
+        trap '_instance_cleanup_and_exit $?' EXIT
     else
         echo "✗"
         local holder
@@ -710,6 +726,15 @@ print(json.dumps({
         ) &
     fi
 
+    # Clear the M4 EXIT trap here (REVIEW.md's prescribed fix): the launch
+    # has now genuinely succeeded (record written, claim already removed
+    # above) — the ONLY intended exit paths from here on are INT/TERM,
+    # which are already handled explicitly. An EXIT trap left armed past
+    # this point would double-invoke _instance_cleanup_and_exit on every
+    # ordinary Ctrl-C (once from the TERM/INT trap, once from EXIT as the
+    # shell unwinds) — harmless (idempotent) but noisy, and no longer
+    # needed since the claim it existed to protect is already gone.
+    trap - EXIT
     trap '_instance_cleanup_and_exit 0' INT TERM
     wait
 }
