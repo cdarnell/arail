@@ -190,10 +190,57 @@ def is_verification_fresh(verified_as_of: str, today: Optional[_dt.date] = None)
     return (now - parsed).days <= _VERIFICATION_STALENESS_DAYS
 
 
-def _candidate_names(sentence: str) -> list[str]:
-    """Capitalized-word-run substrings of ``sentence`` — candidate proper
-    nouns that could be the institution the sentence is actually naming."""
-    return [m.group(0) for m in _PROPER_NOUN_RE.finditer(sentence)]
+def _span_contains(outer: tuple[int, int], inner: tuple[int, int]) -> bool:
+    """True if ``inner`` falls entirely within (or equals) ``outer``."""
+    return outer[0] <= inner[0] and inner[1] <= outer[1]
+
+
+def _is_legitimate_candidate_span(
+    candidate_span: tuple[int, int], trigger_span: tuple[int, int]
+) -> bool:
+    """TEST_REPORT.md F10/F11: is a *proper-noun candidate's* span (primary
+    match path) a real, distinct institution name rather than the trigger
+    phrase talking about itself?
+
+    A candidate is illegitimate only if it is entirely contained in (or
+    equal to) the trigger phrase's own matched span — e.g. the trigger
+    itself renders capitalized ("Credit Union") and is extracted as its own
+    "candidate", or a truncated capitalized run sits fully inside the
+    trigger text. Any candidate that is disjoint from the trigger span (the
+    ordinary case: a named institution written elsewhere nearby, e.g.
+    "PenFed Credit Union ... is a credit union") or that properly *contains*
+    the trigger span (e.g. "Navy Federal Credit Union", where the trigger's
+    own case-insensitive match for "credit union" happens to be the tail of
+    a longer capitalized name) is a distinct, real name and stays eligible.
+    """
+    return not _span_contains(trigger_span, candidate_span)
+
+
+def _is_legitimate_fallback_span(
+    match_span: tuple[int, int], trigger_span: tuple[int, int]
+) -> bool:
+    """TEST_REPORT.md F10: is a *raw-window* allowed-name occurrence
+    (fallback match path, added for F3) actually the name the trigger
+    phrase is naming, rather than an unrelated word that merely happens to
+    sit somewhere in the 40-char proximity window?
+
+    Unlike the proper-noun candidate path, a fallback match that is
+    *disjoint* from the trigger span is never legitimate here: this path
+    exists only to re-find, via raw case-insensitive text search, the same
+    institution name the primary path would have found had it been
+    capitalized — i.e. an allowed name that IS (a superset of) the trigger's
+    own occurrence, just spelled without the capital letters
+    ``_PROPER_NOUN_RE`` requires. A generic word floating elsewhere in the
+    window ("the", "is a") is disjoint from the trigger and must not vet
+    anything through this path — that was BLOCK-1's tautology recurring at
+    word granularity. The match is legitimate only when it *properly
+    contains* the trigger span (extends beyond it on at least one side);
+    equal spans are the trigger phrase self-vetting and stay excluded,
+    exactly as subset spans ("Union" inside "credit union") do.
+    """
+    return (
+        _span_contains(match_span, trigger_span) and match_span != trigger_span
+    )
 
 
 def _names_match(candidate_lower: str, vetted_lower: str) -> bool:
@@ -229,6 +276,27 @@ def _names_match(candidate_lower: str, vetted_lower: str) -> bool:
         return False
     candidate_norm = candidate_lower.casefold()
     return re.search(rf"\b{re.escape(vetted_norm)}\b", candidate_norm) is not None
+
+
+def _fallback_match_spans(window: str, vetted_lower: str) -> list[tuple[int, int]]:
+    """All whole-word, case-folded occurrences of ``vetted_lower`` in
+    ``window``, as spans in ``window``'s own coordinates.
+
+    Companion to ``_names_match`` for the F3 raw-window fallback path: that
+    function only answers "does a match exist somewhere", which is exactly
+    what let F10 through (a match's *position* matters there, not just its
+    existence). Same length floor and word-boundary anchoring as
+    ``_names_match``; an allowed name below ``_MIN_ALLOWED_NAME_LEN`` never
+    yields a span.
+    """
+    vetted_norm = " ".join(vetted_lower.split()).casefold()
+    if len(vetted_norm) < _MIN_ALLOWED_NAME_LEN:
+        return []
+    window_norm = window.casefold()
+    return [
+        m.span()
+        for m in re.finditer(rf"\b{re.escape(vetted_norm)}\b", window_norm)
+    ]
 
 
 def check_guardrail(
@@ -336,10 +404,18 @@ def check_guardrail(
             window_start = max(0, match.start() - _PROXIMITY_WINDOW_CHARS)
             window_end = min(len(chunk), match.end() + _PROXIMITY_WINDOW_CHARS)
             window = chunk[window_start:window_end]
-            candidates_lower = [c.lower() for c in _candidate_names(window)]
+            # Trigger's own matched span, translated into ``window``'s local
+            # coordinates — both candidate-path and fallback-path legitimacy
+            # below are judged against this, not against the trigger's
+            # literal matched *text* (TEST_REPORT.md F10/F11: an
+            # identical-text check only excludes an allowed name that is the
+            # whole trigger phrase, not one that is a word *of* it or that
+            # occurs elsewhere in the window unrelated to it).
+            trigger_span = (match.start() - window_start, match.end() - window_start)
             matched = any(
-                _names_match(candidate, allowed)
-                for candidate in candidates_lower
+                _names_match(proper_noun.group(0).lower(), allowed)
+                and _is_legitimate_candidate_span(proper_noun.span(), trigger_span)
+                for proper_noun in _PROPER_NOUN_RE.finditer(window)
                 for allowed in allowed_names
             )
             # TEST_REPORT.md F3: ``_PROPER_NOUN_RE`` requires an ASCII
@@ -351,27 +427,26 @@ def check_guardrail(
             # documented-as-case-insensitive exemption path can never fire
             # for them. Fall back to matching an allowed name directly
             # against the raw window text (case-folded, word-boundary
-            # anchored via ``_names_match``) so the candidate-name
-            # extraction step is consistent with the rest of the
-            # guardrail's case-insensitive design, rather than a second,
-            # stricter gate in front of it.
+            # anchored) so the candidate-name extraction step is consistent
+            # with the rest of the guardrail's case-insensitive design,
+            # rather than a second, stricter gate in front of it.
+            #
+            # TEST_REPORT.md F10: a bare "does this allowed name occur
+            # *somewhere* in the window" check (the original F3 fix) admits
+            # any word of the trigger phrase itself ("union", "credit") or
+            # any unrelated word floating in the 40-char window ("the",
+            # "is a") — a positional tautology, not just a textual one.
+            # ``_is_legitimate_fallback_span`` requires the occurrence to
+            # *properly contain* the trigger's own span: it must be (a
+            # superset of) the very text the trigger matched, spelled
+            # without the capitals ``_PROPER_NOUN_RE`` would have required —
+            # never a fragment of it, and never an unrelated word merely
+            # nearby.
             if not matched:
-                # Guard against reintroducing BLOCK-1's tautology: an
-                # allowed name whose normalized form is *identical* to the
-                # trigger phrase's own matched text (e.g. a vetted set
-                # naively containing the bare generic term "credit union"
-                # itself) must never satisfy this fallback — that would let
-                # the trigger phrase vet itself, telling us nothing about
-                # any actual institution's identity. A genuine institution
-                # name that happens to *contain* the trigger phrase as part
-                # of a longer name (e.g. "Navy Federal Credit Union") is
-                # unaffected: it is not identical to the bare trigger text,
-                # only a superset of it.
-                match_norm = " ".join(match.group(0).split()).casefold()
                 matched = any(
-                    _names_match(window, allowed)
+                    _is_legitimate_fallback_span(span, trigger_span)
                     for allowed in allowed_names
-                    if " ".join(allowed.split()).casefold() != match_norm
+                    for span in _fallback_match_spans(window, allowed)
                 )
             if not matched:
                 return GuardrailResult(
