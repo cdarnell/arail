@@ -639,15 +639,23 @@ class ConsolidationAnalyzerAgent:
             # `institution` fields, which is wrong for the evaluative
             # branch — the branch that fires in realistic practice
             # (BLOCK-6). Branch the hint on which reason actually fired.
+            #
+            # REVIEW.md re-review addendum 6, item 4: since the
+            # segment-based provenance refactor, `institution`, `product`,
+            # `source`, and `as_of` are all OPERATOR segments, which are
+            # never evaluative-checked at all (see debt_finance_compliance
+            # module docstring) — this branch can no longer fire on those
+            # fields. The only AGENT-provenance, non-hardcoded text in this
+            # agent's output is the LLM-generated framing sentence, so that
+            # is what can actually trigger this reason now.
             if reason == REASON_EVALUATIVE:
                 hint = (
-                    "Check the `institution`, `product`, `source`, and "
-                    f"`as_of` text in {_relative_pointer(_balances_file())} "
-                    "for wording that reads as evaluative or imperative "
-                    "(e.g. 'best', 'guaranteed', 'you should') — very short "
-                    "values in those fields are not exempted, so this can "
-                    "also fire on an unrelated short value that happens to "
-                    "be a substring of an evaluative word elsewhere."
+                    "The generated framing sentence read as evaluative or "
+                    "imperative (e.g. 'best', 'guaranteed', 'you should'). "
+                    "This is model output, not something staged in "
+                    f"{_relative_pointer(_balances_file())} — retry the "
+                    "tick; if it recurs, the fallback framing sentence "
+                    "should have been used instead."
                 )
             elif reason.startswith(REASON_INSTITUTIONAL_PREFIX):
                 hint = (
