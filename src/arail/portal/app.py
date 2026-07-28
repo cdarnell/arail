@@ -1478,7 +1478,24 @@ def _write_env_kv(key: str, value: str) -> None:
 
 
 def _patch_lab_conf_password(passphrase: str) -> None:
-    """Update IDE_PASSWORD in lab.conf in place (or write a fresh one)."""
+    """Update IDE_PASSWORD in lab.conf in place (or write a fresh one).
+
+    Instance guard (QA-15, sprints/2026-07-28-concurrent-worlds): ``lab.conf``
+    is ``Path("lab.conf")`` — CWD-relative, and every World instance shares
+    one CWD (the checkout root, unlike its own per-instance root). QA-B2
+    redirected the onboarding handler's OTHER credential write
+    (``_env_file_path`` → per-instance ``secrets.env``) but this one still
+    targeted the shared file: instance A's passphrase left A's root entirely,
+    and since ``start.sh``/``reset.sh`` both ``set -a; source lab.conf``, the
+    LAST instance to onboard clobbered every other instance's ``IDE_PASSWORD``
+    in their shared process environment (§7: "Isolation that has an exception
+    is not isolation"). ``IDE_PASSWORD`` governs code-server, which §3.6 says
+    an instance never starts — so for an instance this write has no
+    legitimate target at all. Skip it outright rather than redirect it to a
+    per-instance file nothing reads.
+    """
+    if os.getenv("ARAIL_INSTANCE", "").strip():
+        return
     p = Path("lab.conf")
     if not p.exists():
         # No lab.conf yet — write the minimum shape setup.sh would emit.

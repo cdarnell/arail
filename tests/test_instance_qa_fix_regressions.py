@@ -91,49 +91,56 @@ def _fn_source(name: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# QA-15 — onboarding still writes a credential OUTSIDE the instance root
+# QA-15 — FIXED (hardening micro-pass): onboarding no longer writes a
+# credential outside the instance root.
 # ---------------------------------------------------------------------------
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="QA-15 (OPEN): _patch_lab_conf_password writes IDE_PASSWORD=<the "
-           "operator's passphrase> into the CWD-relative, checkout-SHARED "
-           "lab.conf from inside an instance process. QA-B2's fix redirected "
-           "the instance.env write but not this one. Reproduced live: alpha "
-           "onboarded, then beta onboarded, and beta's passphrase overwrote "
-           "alpha's in the one shared file. See TEST_REPORT.md.",
-)
-def test_the_onboarding_handler_writes_no_credential_outside_the_instance_root() -> None:
+def test_the_onboarding_handler_writes_no_credential_outside_the_instance_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """§7: "Isolation that has an exception is not isolation."
 
     ``POST /api/welcome/setup`` performs two credential writes. QA-B2 fixed the
-    first (``_write_env_kv`` → ``_env_file_path`` → now the per-instance 0600
-    ``secrets.env``). The second, ``_patch_lab_conf_password``, still targets a
-    bare ``Path("lab.conf")`` — CWD-relative, and every instance shares one CWD
-    (the checkout root), so:
+    first (``_write_env_kv`` → ``_env_file_path`` → the per-instance 0600
+    ``secrets.env``). ``_patch_lab_conf_password`` used to target a bare
+    ``Path("lab.conf")`` regardless — CWD-relative, and every instance shares
+    one CWD (the checkout root), so:
 
-      * instance A's passphrase leaves A's root entirely;
+      * instance A's passphrase left A's root entirely;
       * ``start.sh``/``reset.sh`` both ``set -a; source lab.conf``, so **A's
-        process environment ends up carrying B's passphrase** as
+        process environment ended up carrying B's passphrase** as
         ``IDE_PASSWORD`` — the work-lab/personal-lab separation the BRIEF names
         as the audience expectation;
-      * last writer wins, so A's IDE password silently stops being A's.
+      * last writer won, so A's IDE password silently stopped being A's.
 
-    Verified live 2026-07-28 in a two-instance sandbox: after alpha
+    Verified live 2026-07-28 in a two-instance sandbox (pre-fix): after alpha
     (``CANARY-alpha-pw-1``) then beta (``CANARY-beta-pw-2``), the shared
     ``lab.conf`` contained only ``IDE_PASSWORD=CANARY-beta-pw-2``, while each
     instance's own ``secrets.env`` correctly held its own value at 0600.
 
-    Mitigating (why this is MEDIUM, not HIGH): ``lab.conf`` is chmod 0600, so
-    no *other* OS user can read it, and ``IDE_PASSWORD`` governs code-server,
-    which §3.6 says an instance never starts. The contract violation is real;
-    the exploit surface is same-user only.
+    Fixed: ``_patch_lab_conf_password`` now no-ops for an instance process
+    (``ARAIL_INSTANCE`` set) instead of redirecting to yet another file —
+    ``IDE_PASSWORD`` governs code-server, which §3.6 says an instance never
+    starts, so there is no legitimate per-instance target for this write at
+    all. This is a real, behavioural regression test (not a source grep):
+    drives the real function against a real ``lab.conf`` in a scratch CWD.
     """
-    src = _fn_source("_patch_lab_conf_password")
-    assert "ARAIL_INSTANCE" in src, (
-        "_patch_lab_conf_password has no instance guard — an instance process "
-        "writes the operator's passphrase into the checkout-shared lab.conf"
+    from arail.portal import app as app_module
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ARAIL_INSTANCE", "beta")
+    app_module._patch_lab_conf_password("CANARY-beta-pw-2")
+    assert not (tmp_path / "lab.conf").exists(), (
+        "an instance process wrote lab.conf — the checkout-shared credential "
+        "leak QA-15 reported is back"
     )
+
+    # The root lab (no ARAIL_INSTANCE) must be completely unaffected — this
+    # is still the only writer of the root lab's lab.conf.
+    monkeypatch.delenv("ARAIL_INSTANCE", raising=False)
+    app_module._patch_lab_conf_password("root-lab-pw")
+    conf = (tmp_path / "lab.conf").read_text(encoding="utf-8")
+    assert "IDE_PASSWORD=root-lab-pw" in conf
 
 
 def test_the_instance_onboarding_secret_sink_is_per_instance_and_0600() -> None:
