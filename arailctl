@@ -49,6 +49,13 @@ REPO_ROOT="$(cd "$(dirname "$_arail_self")" && pwd)"
 # would crash under `set -u` without this.
 export REPO_ROOT
 unset _arail_self _arail_link
+
+# scripts/lib/instances.sh is THE single source of truth for daemon
+# liveness and the World-instance registry (see
+# sprints/2026-07-28-concurrent-worlds/ARCHITECTURE.md §2.6). Sourced here
+# so daemon_active() replaces the old file-existence-only daemon_installed().
+# shellcheck disable=SC1091
+source "$REPO_ROOT/scripts/lib/instances.sh"
 # Remember where the user actually invoked us — needed by `kb`'s upward search
 # so that running `qkz kb status` from inside the KB Just Works.
 INVOCATION_PWD="$PWD"
@@ -190,10 +197,12 @@ EOF
 cmd="${1:-help}"; shift || true
 
 # ── launchd daemon mode ──────────────────────────────────────────────
-# When install-daemon has been run, start/stop/restart drive launchctl
-# instead of the foreground start.sh (which refuses to run in daemon mode).
-daemon_installed() { [[ -f "$HOME/Library/LaunchAgents/io.arail.portal.plist" ]]; }
-
+# When install-daemon has been run AND the daemon is actually loaded and
+# running, start/stop/restart drive launchctl instead of the foreground
+# start.sh. daemon_active() (scripts/lib/instances.sh) checks BOTH the
+# plist file AND a live launchctl PID — a plist that exists but was
+# unloaded (e.g. by a prior `./arailctl stop`) no longer routes here, which
+# is the fix for the plist-existence trap this sprint retires.
 daemon_agents() {
     local label
     for label in io.arail.portal io.arail.memory io.arail.mlx; do
@@ -208,7 +217,7 @@ case "$cmd" in
     install-daemon)   exec bash "$REPO_ROOT/scripts/install-daemon.sh" ;;
     uninstall-daemon) exec bash "$REPO_ROOT/scripts/install-daemon.sh" --uninstall ;;
     start)
-        if daemon_installed; then
+        if daemon_active; then
             for label in $(daemon_agents); do
                 launchctl load "$HOME/Library/LaunchAgents/$label.plist" 2>/dev/null || true
             done
@@ -228,7 +237,7 @@ case "$cmd" in
         exec bash "$REPO_ROOT/scripts/start.sh" "$@"
         ;;
     stop)
-        if daemon_installed; then
+        if daemon_active; then
             for label in $(daemon_agents); do
                 launchctl unload "$HOME/Library/LaunchAgents/$label.plist" 2>/dev/null || true
             done
@@ -238,7 +247,7 @@ case "$cmd" in
         exec bash "$REPO_ROOT/scripts/reset.sh" stop
         ;;
     restart)
-        if daemon_installed; then
+        if daemon_active; then
             for label in $(daemon_agents); do
                 launchctl kickstart -k "gui/$(id -u)/$label" 2>/dev/null || true
             done

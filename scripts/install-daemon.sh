@@ -23,6 +23,8 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck disable=SC1091
+source "$REPO_ROOT/scripts/lib/instances.sh"
 TEMPLATE="$REPO_ROOT/scripts/launchd/io.arail.service.plist.template"
 AGENTS_DIR="$HOME/Library/LaunchAgents"
 LAUNCHCTL="${LAUNCHCTL:-launchctl}"
@@ -72,8 +74,14 @@ fi
 [[ -f "$TEMPLATE" ]] || die "Template not found: $TEMPLATE"
 [[ -x "$REPO_ROOT/.venv/bin/python" ]] || die "No .venv — run ./arailctl setup first"
 
-# Refuse to install over a running foreground lab (double-start = port war).
-if pgrep -f "uvicorn.*arail\.portal\.app" >/dev/null 2>&1 \
+# Refuse to install over a running World instance (launchd is single-
+# instance — ARCHITECTURE.md §4.4 — so a live instance must be stopped
+# first). Registry-driven check names which instance blocks; pgrep is the
+# fallback for a legacy root lab that predates the instance registry.
+_blocking_instance="$(inst_any_alive || true)"
+if [[ -n "$_blocking_instance" ]]; then
+    die "World instance '${_blocking_instance}' is live (lab/instances/${_blocking_instance}) — stop it first: ./arailctl stop"
+elif pgrep -f "uvicorn.*arail\.portal\.app" >/dev/null 2>&1 \
         && ! "$LAUNCHCTL" list io.arail.portal >/dev/null 2>&1; then
     die "A foreground lab is running (start.sh). Stop it first: ./arailctl stop"
 fi

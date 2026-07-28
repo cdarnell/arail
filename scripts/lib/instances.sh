@@ -267,6 +267,23 @@ inst_probe_matches() {
     return 0
 }
 
+# inst_any_alive — prints the slug of the first live instance found (if
+# any) on stdout and returns 0; returns 1 with no output when none are
+# alive. Used by install-daemon.sh's refusal guard (ARCHITECTURE.md §2.6:
+# "inst_any_alive() (registry-driven) || pgrep fallback for a legacy root
+# lab; message names which instance blocks").
+inst_any_alive() {
+    local slug
+    while IFS= read -r slug; do
+        [[ -n "$slug" ]] || continue
+        if inst_alive "$slug"; then
+            printf '%s\n' "$slug"
+            return 0
+        fi
+    done < <(inst_list_slugs)
+    return 1
+}
+
 # ── Daemon-mode predicate (ARCHITECTURE.md §2.6, §4.4) ───────────────────
 # daemon_plist_installed — plist FILE existence only (today's arailctl:195
 # check). Kept as a separate, narrower helper because status.sh wants to

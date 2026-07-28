@@ -5,6 +5,9 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
+# shellcheck disable=SC1091
+source "$REPO_ROOT/scripts/lib/instances.sh"
+
 BOLD="\033[1m"; GREEN="\033[0;32m"; YELLOW="\033[0;33m"; DIM="\033[2m"; RESET="\033[0m"
 ok()   { echo -e "  ${GREEN}✓${RESET} $*"; }
 warn() { echo -e "  ${YELLOW}⚠${RESET} $*"; }
@@ -39,7 +42,10 @@ check() {
 }
 
 # ── supervision ───────────────────────────────────────────────────
-if [[ "$(uname -s)" == "Darwin" ]] && [[ -f "$HOME/Library/LaunchAgents/io.arail.portal.plist" ]]; then
+# daemon_active() is the verdict (plist exists AND launchctl reports a live
+# PID); plist-exists-alone only earns an "installed, inactive" footnote —
+# see ARCHITECTURE.md §2.6 (status.sh:42 row) and the plist-trap fix (F9).
+if daemon_active; then
     echo -e "  ${BOLD}Supervision${RESET}: daemon (launchd)"
     for label in io.arail.portal io.arail.memory io.arail.mlx; do
         [[ -f "$HOME/Library/LaunchAgents/$label.plist" ]] || continue
@@ -50,6 +56,9 @@ if [[ "$(uname -s)" == "Darwin" ]] && [[ -f "$HOME/Library/LaunchAgents/io.arail
             dim "${label}: installed, not loaded"
         fi
     done
+    echo ""
+elif daemon_plist_installed; then
+    echo -e "  ${BOLD}Supervision${RESET}: foreground (start.sh) — launchd plists installed but inactive"
     echo ""
 else
     echo -e "  ${BOLD}Supervision${RESET}: foreground (start.sh) — see ./arailctl install-daemon"

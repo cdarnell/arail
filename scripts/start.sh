@@ -4,6 +4,9 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
+# shellcheck disable=SC1091
+source "$REPO_ROOT/scripts/lib/instances.sh"
+
 # macOS Sequoia emits a harmless but noisy line from libsystem_malloc
 # whenever a child Python process spawns: "Python(PID) MallocStackLogging:
 # can't turn off malloc stack logging because it was not enabled." Filter
@@ -32,11 +35,17 @@ LANCE_PORT="${LANCE_PORT:-7414}"
 
 # Daemon mode guard: when launchd supervises the lab, a foreground start
 # would fight the agents over the ports. Use the supervised commands.
-if [[ "$(uname -s)" == "Darwin" ]] && launchctl list io.arail.portal >/dev/null 2>&1; then
+# daemon_active() (scripts/lib/instances.sh) requires BOTH the plist file
+# AND a live launchctl PID — a plist that exists but isn't loaded (e.g.
+# after `./arailctl stop`, which unloads but keeps plists) no longer trips
+# this guard, retiring the plist-existence trap (F9).
+if daemon_active; then
     echo "Daemon mode is active (launchd supervises the lab)."
     echo "  Restart:  ./arailctl restart"
     echo "  Dev mode: ./arailctl uninstall-daemon && ./arailctl start"
     exit 1
+elif daemon_plist_installed; then
+    echo "launchd plists installed but inactive — starting in the foreground."
 fi
 
 [[ -f .venv/bin/activate ]] || { echo "no .venv — run ./arailctl setup"; exit 1; }

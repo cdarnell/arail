@@ -73,6 +73,81 @@ boot-assertion test belongs in WP6's pass alongside the assertion it tests.
   `test_shell_source_safety.py` (1 failed, same pre-existing `tomllib` cause).
   None of these three pre-existing failures touch instance code.
 
+Commit: `59f0241`
+
+### WP2 — Retire the four liveness checks
+
+Every named site now sources `scripts/lib/instances.sh` and calls
+`daemon_active()`/`daemon_plist_installed()` instead of re-deriving the
+check:
+
+- `arailctl` — sources the lib right after `REPO_ROOT` is exported; removed
+  the local `daemon_installed()` definition; `start`/`stop`/`restart`
+  branches now call `daemon_active`.
+- `scripts/start.sh:35` — the daemon guard now calls `daemon_active`; added
+  the F9 completion (one dim informational line: "launchd plists installed
+  but inactive — starting in the foreground.") when
+  `daemon_plist_installed` is true but `daemon_active` is false.
+- `scripts/status.sh:42` — supervision block now branches on
+  `daemon_active` (full daemon table) / `daemon_plist_installed`
+  ("installed but inactive" footnote) / neither ("see
+  ./arailctl install-daemon"). `check()`'s port-agnostic pgrep match is
+  untouched — that fix is WP5 scope per ARCHITECTURE.md §10.
+- `scripts/install-daemon.sh:76-79` — refusal guard now checks
+  `inst_any_alive()` first (names which World instance blocks), falling
+  back to the legacy `pgrep`+`launchctl` check for a pre-instance root lab.
+
+**Deviation (documented, required by the gate itself, not scope drift):**
+`scripts/reset.sh:146` also contained a bare
+`launchctl list io.arail.portal` check (an informational NOTE inside
+`stop_services()`, not named in ARCHITECTURE.md's WP2 file list, but present
+on disk and caught by the WP2 grep gate as literally specified — "the
+strings ... appear in exactly one place each"). Fixed with a minimal,
+defensively-guarded touch: `scripts/lib/instances.sh` is sourced
+conditionally (`[[ -f ... ]] && source ...`) since `reset.sh` is unit-tested
+via a sandboxed copy of *only* `reset.sh` (`tests/test_reset_paths.py`,
+`tests/test_world_reset.py`); the NOTE line itself is gated behind
+`command -v daemon_active >/dev/null 2>&1 && daemon_active` so it degrades
+to "skip the NOTE" (never "print a wrong NOTE") when the sibling file isn't
+present. No test asserts on this NOTE's text, and `stop_services()`'s kill
+logic — the actual WP5 scoping work — is untouched. This is the smallest
+change that satisfies WP2's own literal gate; flagged here per the "avoid
+scope drift" instruction rather than silently expanding scope.
+
+Also added `inst_any_alive()` to `scripts/lib/instances.sh` (not listed
+among WP2's files, but required by the architecture's own §2.6 table entry
+for `install-daemon.sh`, which names the function explicitly).
+
+Wrote `tests/test_daemon_predicate.py` (7 tests): the grep gate itself
+pinned as a regression test; `daemon_active`/`daemon_plist_installed`
+truth tables for F8 (no plist) and F9 (plist-installed-but-inactive, the
+trap); and three tests driving the *real* `start.sh` guard block (extracted
+verbatim, same technique as `test_reset_stop_scope.py`) confirming it
+refuses when active, proceeds with the informational line when
+installed-but-inactive, and proceeds silently with no plist at all.
+
+**Gate result:** PASS.
+- `grep -rn 'LaunchAgents/io\.arail\.portal\.plist\|launchctl list io\.arail\.portal' arailctl scripts/`
+  → hits in `scripts/lib/instances.sh` only (lines 11-12 are comments, 292
+  and 304 are the two implementations).
+- `bash -n` clean on all six touched files.
+- `shellcheck` clean on all six (pre-existing SC2043/SC2088/SC2206 warnings
+  in `arailctl`/`start.sh`/`reset.sh` predate this sprint and are outside
+  the lines this WP touched).
+- `PYTHONPATH=src <venv>/bin/python -m pytest tests/test_daemon_predicate.py -q`
+  → **7 passed**.
+- Full regression sweep (`test_instance_registry.py test_instance_paths.py
+  test_daemon_predicate.py test_reset_paths.py test_reset_stop_scope.py
+  test_shell_source_safety.py test_world_switcher.py test_world_mount.py`)
+  → **77 passed, 3 failed**, the 3 failures identical to the pre-existing
+  baseline confirmed via `git stash` before any WP1/WP2 change (system
+  `/usr/bin/python3` 3.9.6 lacks `tomllib`; a stop-scope `awk`-extraction
+  ordering issue). One additional run produced a 4th, non-reproducing
+  failure (`test_world_switcher.py::test_select_default_unmounts_and_reverts`)
+  that did not recur across 3 immediate reruns — confirmed as test-order/
+  timing flake, not a regression from this WP's changes (reproduced the
+  clean 3-failures-only baseline 3/3 times after).
+
 Commit: `<pending — see report>`
 
 ## Architect feedback required

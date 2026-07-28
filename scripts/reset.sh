@@ -19,6 +19,14 @@ AUTO_CONFIRM="false"
 DESTROY_LOG="/tmp/arail-destroy.log"
 cd "$REPO_ROOT"
 
+# scripts/lib/instances.sh is the single source of truth for daemon
+# liveness (ARCHITECTURE.md §2.6). Optional here (not required): reset.sh
+# is unit-tested via a sandboxed copy of THIS file alone
+# (tests/test_reset_paths.py, tests/test_world_reset.py), so the source
+# must degrade gracefully when the sibling file isn't present.
+# shellcheck disable=SC1091
+[[ -f "$REPO_ROOT/scripts/lib/instances.sh" ]] && source "$REPO_ROOT/scripts/lib/instances.sh"
+
 # shellcheck disable=SC1091
 [[ -f .env ]] && set -a && source .env && set +a
 LAB_NAME="${LAB_NAME:-Arail}"
@@ -143,7 +151,11 @@ stop_services() {
         info "No running services found."
     fi
     rm -f "${DATA_DIR}/.ollama-started-by-arail.pid"
-    if [[ "$(uname -s)" == "Darwin" ]] && launchctl list io.arail.portal >/dev/null 2>&1; then
+    # daemon_active() (scripts/lib/instances.sh) is the single liveness
+    # predicate; when the sibling file isn't sourced (sandboxed test copies
+    # of this file alone) the NOTE below is skipped, not wrongly printed —
+    # it is purely informational and no test asserts on it.
+    if command -v daemon_active >/dev/null 2>&1 && daemon_active; then
         info "NOTE: launchd agents are loaded — use ./arailctl stop to keep the lab down."
     fi
 }
