@@ -208,6 +208,58 @@ def test_root_lab_stop_leaves_instance_on_different_port_alive(tmp_path):
     assert "201" not in killed and "202" not in killed
 
 
+def test_stop_matches_bumped_lab_conf_port_not_default(tmp_path):
+    """REVIEW.md B1: reset.sh must source lab.conf (the RESOLVED, possibly
+    auto-bumped port setup.sh picked) before building stop_services()'s kill
+    patterns — not just .env/the 8080 default. Runs the REAL scripts/reset.sh
+    end-to-end (not the extracted-function driver above, since B1 is
+    specifically about the top-of-file sourcing order that the extraction
+    driver bypasses) against a REAL backgrounded process bound to a bumped
+    port, matched via a real `pgrep -f`.
+    """
+    fake_repo = tmp_path / "repo"
+    shutil.copytree(REPO_ROOT / "scripts", fake_repo / "scripts")
+    (fake_repo / "lab" / "data").mkdir(parents=True, exist_ok=True)
+    # .env pins the OLD default; lab.conf pins the RESOLVED, bumped port —
+    # exactly setup.sh's documented precedence (ARCHITECTURE.md §6.2).
+    (fake_repo / ".env").write_text("PORTAL_PORT=8080\nLAB_NAME=test\n", encoding="utf-8")
+    (fake_repo / "lab.conf").write_text("PORTAL_PORT=9321\n", encoding="utf-8")
+
+    # A real process whose full command line contains the bumped-port
+    # pattern stop_services() must match: uvicorn.*arail\.portal\.app.*--port 9321
+    proc = subprocess.Popen([
+        "python3", "-c", "import time; time.sleep(30)",
+        "uvicorn", "arail.portal.app", "--port", "9321",
+    ])
+    try:
+        for _ in range(20):
+            out = subprocess.run(
+                ["pgrep", "-f", r"uvicorn.*arail\.portal\.app.*--port 9321"],
+                capture_output=True, text=True,
+            )
+            if out.stdout.strip():
+                break
+            time.sleep(0.1)
+        else:
+            pytest.skip("pgrep could not see the fixture process on this platform")
+
+        result = subprocess.run(
+            ["bash", "scripts/reset.sh", "stop", "--yes"],
+            cwd=fake_repo,
+            capture_output=True, text=True, timeout=15,
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert "No running services found." not in result.stdout, (
+            "stop matched the .env/default port (8080), not lab.conf's "
+            f"bumped PORTAL_PORT (9321) — B1 regression:\n{result.stdout}"
+        )
+        proc.wait(timeout=5)
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait(timeout=5)
+
+
 def test_root_lab_stop_still_excludes_foreign_uvicorn(tmp_path):
     """Regression: the pre-existing module-scoping guarantee is preserved
     alongside the new port-scoping (test_reset_stop_scope.py pins the same

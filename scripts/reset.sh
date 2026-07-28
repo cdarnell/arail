@@ -29,6 +29,17 @@ cd "$REPO_ROOT"
 
 # shellcheck disable=SC1091
 [[ -f .env ]] && set -a && source .env && set +a
+# lab.conf holds the ports setup.sh actually picked (possibly auto-bumped
+# off the .env/default values, e.g. when 8080 was taken at setup time —
+# setup.sh:1637-1646 writes the RESOLVED ports here). stop_services()
+# below builds its kill patterns from these same PORTAL_PORT/LANCE_PORT/
+# MLX_OPENAI_PORT variables; without sourcing lab.conf, `./arailctl stop`
+# matches the .env/default port instead of the port the lab is actually
+# running on and silently stops nothing on any machine where a port was
+# bumped (REVIEW.md B1 — a silent regression: before this sprint the kill
+# patterns were port-agnostic and worked regardless of lab.conf).
+# shellcheck disable=SC1091
+[[ -f lab.conf ]] && set -a && source lab.conf && set +a
 LAB_NAME="${LAB_NAME:-Arail}"
 
 # ── Runtime paths — mirror src/arail/config.py ───────────────────────
