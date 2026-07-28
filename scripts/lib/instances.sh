@@ -131,6 +131,14 @@ import json, sys
 try:
     with open(sys.argv[1], "r", encoding="utf-8") as fh:
         data = json.load(fh)
+    if not isinstance(data, dict):
+        # QA-6: valid JSON that is not an object ([1,2,3], "x", 42, null,
+        # true) used to parse successfully here and be handed to callers
+        # (inst_record_field, status.sh) that assume a dict, raising
+        # AttributeError/TypeError downstream. Quarantine this class the
+        # same way a JSON-parse failure already is — F16 makes no
+        # distinction between "unparseable" and "not a record".
+        raise TypeError("record is not a JSON object")
 except Exception:
     sys.exit(1)
 json.dump(data, sys.stdout)
@@ -153,10 +161,15 @@ inst_record_field() {
 import json, sys
 try:
     data = json.loads(sys.argv[1])
+    if not isinstance(data, dict):
+        # QA-6: the try/except used to wrap json.loads only — a
+        # valid-JSON-wrong-type record ([1,2,3], "x", 42, null, true)
+        # parsed fine and then raised on data.get(...) OUTSIDE this
+        # block, leaking a raw traceback under set -euo pipefail.
+        raise TypeError("record is not a JSON object")
+    val = data.get(sys.argv[2], "")
 except Exception:
-    print("")
-    sys.exit(0)
-val = data.get(sys.argv[2], "")
+    val = ""
 print(val if val is not None else "")
 ' "$json" "$field"
 }

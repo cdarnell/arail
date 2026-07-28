@@ -209,14 +209,9 @@ def test_slug_jail_rejects_a_trailing_newline_that_python_slug_re_accepts() -> N
 _NON_OBJECT_BODIES = ["[1,2,3]", '"hello"', "42", "null", "true"]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="QA-6 (OPEN): inst_record_field's try/except wraps json.loads only; "
-           "data.get() raises on a valid-JSON non-object record. See TEST_REPORT.md.",
-)
 @pytest.mark.parametrize("body", _NON_OBJECT_BODIES)
 def test_inst_record_field_survives_a_non_object_record(fake_repo: Path, body: str) -> None:
-    """QA-6: ``inst_record_field`` tracebacks on valid-JSON-wrong-type input.
+    """QA-6 (FIXED): ``inst_record_field`` tracebacks on valid-JSON-wrong-type input.
 
     ``inst_read_record``'s try/except covers ``json.load`` only, so a registry
     file holding an array/scalar parses fine (no quarantine, F16's ``.bad`` file
@@ -243,16 +238,10 @@ def test_inst_record_field_survives_a_non_object_record(fake_repo: Path, body: s
     assert r.returncode == 0
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="QA-6 (OPEN): status prints 6 raw tracebacks, renders no ✗ unreadable "
-           "row, writes no .bad quarantine, then prunes the record away. F16 "
-           "violated for the valid-JSON-wrong-type class. See TEST_REPORT.md.",
-)
 def test_status_reports_a_non_object_registry_record_instead_of_deleting_it(
     fake_repo: Path,
 ) -> None:
-    """QA-6 (operator-visible half): ``status`` must never silently drop a record.
+    """QA-6 (FIXED, operator-visible half): ``status`` must never silently drop a record.
 
     Observed today: six Python tracebacks on stderr, no ``✗ unreadable`` row,
     no ``<slug>.json.bad`` quarantine — and ``inst_prune_all`` then classifies
