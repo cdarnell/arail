@@ -1227,3 +1227,148 @@ segment-provenance refactor as its retirement plan.
 4. Correct the `f.get('feed')` description in BUILD_LOG's table.
 5. QA may run once (1) lands. The remaining items are design debt, not
    correctness gates.
+
+---
+
+## Re-review addendum 6 — segment-based provenance refactor (round 7)
+
+**Date:** 2026-07-27
+**Commits reviewed:** 689383a, 3bed0e0, ccc2b61, d105fed, fe3d344
+**Verdict: WEAK_PASS**
+
+I proposed this refactor in addendum 5. It was implemented substantially as
+intended, and it does structurally close half the defect family. It does not
+structurally close the other half — but nothing in the remaining half is
+reachable through either agent's templates today, so there is no live BLOCK.
+
+### What is now genuinely structural (closed, not patched)
+
+The **evaluative/imperative check** is sound as a general primitive. It
+concatenates only AGENT segments and does zero positional reasoning — no
+offsets, no masking, no windows, no name sets. BLOCK-6/BLOCK-7 (a benign
+WORLD URL containing "best") and the vetted-roster marketed-name variant are
+not "fixed"; they are no longer expressible. The joining of AGENT segments
+with a space also correctly prevents two adjacent AGENT segments fusing into
+a word neither contains. This half of §13.11 is closed.
+
+### What is NOT structural — the neighbour rule is a proximity window in
+### segment units
+
+`check_guardrail` legitimizes an institutional-character trigger if the
+trigger's own segment *or either immediate neighbour* is non-AGENT. That is
+a ±1 window. It has replaced `_PROXIMITY_WINDOW_CHARS` with a window
+measured in segments rather than characters — it has not removed the
+positional inference. BUILD_LOG's claim that there is "no proximity window
+... anywhere in this path any more" is inaccurate as written.
+
+Adjacency does not establish that the vouching segment is a *name*.
+Verified empirically against the new API:
+
+    [world("2026-01-15"), agent(" — Acme Bank is a nonprofit credit union.")]  -> ok=True
+    [world("https://ncua.gov/x"), agent(" Globex is a member-owned credit union.")] -> ok=True
+
+A verified-as-of **date** and a citation **URL** each vouch for a character
+claim about an entirely different, unvetted, agent-invented name. This is
+the same shape as every prior finding in the family: a positional proxy
+standing in for a referential question.
+
+### The reported `[operator("navy federal"), agent(" is a nonprofit.")]` case
+
+Confirmed `ok=True`. **Not reachable today.** I traced every AGENT segment
+that can sit adjacent to a WORLD/OPERATOR segment in both `_build_output`s:
+all are hardcoded literals in this repo containing no trigger word. The only
+non-hardcoded AGENT text in either agent is `_framing_prose`, and in both
+agents it is always its own `lines` entry, and lines are joined with
+`Segment.agent("\n")` separators — so a model-generated segment's immediate
+neighbours are *always* AGENT joiners and it can never acquire a non-AGENT
+voucher. That property is what makes the design safe today.
+
+It is held by inspection of two files. Nothing asserts it: no test, no
+runtime check, no comment at the construction sites. It is one plausible
+future edit away — `agent(" — a member-owned option")` placed next to
+`operator(r.institution)` — from becoming a live escape with no test failing.
+
+Separately, and independent of reachability: **OPERATOR provenance is being
+treated as vouching for a character claim, and it does not.** WORLD
+provenance has real character semantics (`_vetted_institutions` requires
+`institution_type` + `verification_source` + a fresh `verified_as_of`).
+OPERATOR provenance means only "the human typed this string into
+balances.json" — it vouches that a name is not hallucinated, not that the
+institution *is* a nonprofit. The module docstring conflates the two. So the
+reported case is not merely a residual gap like §13.10's tripwire; it is a
+semantic conflation in the primitive itself.
+
+### WORLD/OPERATOR evaluative exemption — a real trust-boundary trade
+
+Exempting these segments entirely is defensible for OPERATOR (all four
+rendered fields carry an explicit "(as you entered it)"/"(as entered)"
+marker). It is a genuine coverage trade for WORLD, because a World bundle is
+third-party-authorable and mountable. Verified:
+
+    [agent("- **"), world("SomeBank"), agent("** ("),
+     world("best guaranteed nonprofit"), agent(")")]  -> ok=True
+
+A World's `institution_type` renders as the character label with **no**
+"as the World states it" marker, unlike every operator field. The docstring
+frames WORLD exemption as unconditionally safe ("never the agent's own words
+by construction") and is silent on the fact that a reader cannot distinguish
+World voice from agent voice on the rendered line. I accept the trade —
+mounting a World is an explicit trust act — but it must be stated, not
+implied.
+
+### Prior findings' behavioral guarantees — one is not preserved
+
+BLOCK-2 (mislabeling), staleness degrade-closed, F10/F11 (moot by
+construction), F1's loop backstop: all preserved. **F9 is not preserved in
+the Consolidation Analyzer.** `_vetted_institution_names` still iterates
+`terms or []` calling `t.get(...)` without the `isinstance(t, dict)` filter
+that 393fcc7 added to the Debt Advisor via `_load_terms`. Verified: a
+`terms.json` with a stray string entry raises `AttributeError` out of that
+function, called unguarded from `tick()`. F1's backstop catches it, so it is
+not loop death — it is a silent permanent stall (every tick logs "skipped
+this cycle" and no findings are ever written again). Pre-existing, but
+ccc2b61 rewired this function's role and left the asymmetry.
+
+### Stale operator guidance
+
+The analyzer's `REASON_EVALUATIVE` hint still tells the operator to inspect
+`institution`/`product`/`source`/`as_of` "for wording that reads as
+evaluative", and still warns about short values matching substrings. Those
+fields are now OPERATOR segments and are never evaluative-checked; the
+substring-fusion concern is deleted machinery. That branch is in fact now
+effectively unreachable in the analyzer. The hint points the operator at
+exactly the fields that cannot cause it.
+
+### Findings
+
+- [ASK] Institutional check's ±1 neighbour rule is a proximity window, not a
+  referential link; a WORLD date/URL vouches for an unrelated AGENT name.
+- [ASK] OPERATOR provenance conflated with character vetting in the docstring
+  and in the neighbour rule.
+- [ASK] The invariant that makes both of the above unreachable ("no
+  trigger-bearing or model-generated AGENT segment is ever adjacent to a
+  non-AGENT segment") is unasserted and untested.
+- [ASK] WORLD evaluative exemption is an unstated trust-boundary trade;
+  `institution_type` renders unmarked while operator fields are marked.
+- [ASK] F9's non-dict-terms hardening never applied to
+  `_vetted_institution_names`; silent permanent stall.
+- [INFO] BUILD_LOG's "no proximity window anywhere in this path any more" is
+  inaccurate.
+
+### Required actions before merge
+
+1. Add a test asserting the template invariant directly: for both agents'
+   `_build_output` segment lists, every AGENT segment adjacent to a non-AGENT
+   segment is a hardcoded literal free of `_INSTITUTIONAL_CHARACTER_RE`
+   matches. This is what makes today's safety a checked property rather than
+   a reviewed one.
+2. Correct BUILD_LOG's "no proximity window" claim and the module docstring's
+   WORLD/OPERATOR conflation; state plainly that OPERATOR vouches for name
+   authenticity, not institutional character.
+3. Apply the F9 `isinstance(t, dict)` filter to `_vetted_institution_names`.
+4. Fix the analyzer's stale `REASON_EVALUATIVE` operator hint.
+5. Keep ARCHITECTURE.md §13.11 **OPEN** as tech debt, narrowed: the
+   evaluative half is closed; the institutional half remains a positional
+   heuristic, now with a documented, verified escape (date/URL voucher) and a
+   documented semantic conflation (OPERATOR-as-character-voucher). Do not
+   mark §13.11 closed.
