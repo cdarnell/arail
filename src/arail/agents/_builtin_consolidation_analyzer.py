@@ -463,7 +463,15 @@ def _vetted_institution_names(bundle_dir: Path) -> frozenset[str]:
     — an institution missing this field, or whose verification has gone
     stale, degrades out of the vetted set rather than being trusted
     forever. See ``_builtin_debt_advisor._vetted_institutions`` for the
-    identical rule."""
+    identical rule.
+
+    Filters non-dict entries the same way ``_builtin_debt_advisor._load_terms``
+    does (F1/F9): a stray malformed ``terms.json`` entry (e.g. a bare
+    string) must be skipped, not raise ``AttributeError`` out of an
+    unguarded ``.get()`` call here. Left unfiltered, that exception
+    propagates out of ``tick()``'s F1 backstop as a silent *permanent*
+    stall — every subsequent tick logs "skipped this cycle" and no findings
+    are ever written again — rather than a clean skip of the bad entry."""
     try:
         doc = json.loads((bundle_dir / "terms.json").read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
@@ -471,6 +479,8 @@ def _vetted_institution_names(bundle_dir: Path) -> frozenset[str]:
     terms = doc.get("terms") if isinstance(doc, dict) else doc
     names = set()
     for t in terms or []:
+        if not isinstance(t, dict):
+            continue
         if (t.get("category") == "institutions" and t.get("institution_type")
                 and t.get("verification_source")
                 and is_verification_fresh(str(t.get("verified_as_of") or ""))):
