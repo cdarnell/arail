@@ -382,7 +382,7 @@ def _build_output(debts: List[Dict[str, Any]],
             )
             lines.append([
                 Segment.agent("- **"),
-                Segment.operator(r.institution),
+                Segment.operator(r.institution, is_name=True),
                 Segment.agent("** (as you entered it) — "),
                 Segment.operator(r.product),
                 Segment.agent(

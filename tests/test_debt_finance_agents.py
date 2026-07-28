@@ -652,11 +652,14 @@ class TestConsolidationAnalyzerOperatorNamesExemption:
         an institution name happens to also appear in. This test pins the
         underlying guarantee directly against ``check_guardrail``'s
         segment API — the offer-vs-debt distinction the old set had to
-        reason about no longer exists as a question."""
+        reason about no longer exists as a question. (REVIEW.md re-review
+        addendum 6: only the specific segment tagged ``is_name=True`` — the
+        institution field itself — vouches; ``_build_output`` tags exactly
+        that field this way, never ``product``/``source``/``as_of``.)"""
         from arail.agents.debt_finance_compliance import Segment, check_guardrail
 
         result = check_guardrail([
-            Segment.operator("Anytown Credit Union"),
+            Segment.operator("Anytown Credit Union", is_name=True),
             Segment.agent(" is a credit union offering a personal loan."),
         ])
         assert result.ok is True

@@ -346,7 +346,7 @@ def _build_output(bundle_dir: Path, terms: List[Dict[str, Any]],
             character = v.institution_type.replace("-", " ")
             lines.append([
                 Segment.agent("- **"),
-                Segment.world(v.name),
+                Segment.world(v.name, is_name=True),
                 Segment.agent("** ("),
                 Segment.world(character),
                 Segment.agent(", verification source: "),

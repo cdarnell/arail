@@ -49,23 +49,70 @@ which was a distinct historical finding here.
   ``balances.json`` (``institution``, ``product``, ``source``, ``as_of``
   from both ``debts`` and ``candidate_scenarios``).
 
+**Provenance answers "is this text trustworthy", not "is this text a
+name".** ``Segment`` carries a second, independent tag, ``is_name``, fixed
+at the same construction site, for exactly that reason:
+
+- A WORLD-provenance ``verified_as_of`` date or ``verification_source`` URL
+  is exactly as trustworthy as a WORLD-provenance institution name — but it
+  is not a name, and must never be usable to vouch for an institutional-
+  character claim about some *other*, unrelated name. Only the segment the
+  caller explicitly tagged ``is_name=True`` at construction (``v.name`` in
+  Debt Advisor, ``r.institution`` in Consolidation Analyzer) can vouch.
+- ``Provenance.OPERATOR`` means only "the operator typed this string into
+  ``balances.json`` themselves" — **name authenticity**, not institutional
+  character. It is exactly as strong a voucher for "this name was not
+  hallucinated by the model" as ``Provenance.WORLD``, but WORLD provenance
+  additionally carries real character verification (an institution only
+  enters the vetted set with a structured ``institution_type`` +
+  ``verification_source`` + a fresh ``verified_as_of`` — see
+  ``is_verification_fresh``). OPERATOR provenance carries no such
+  verification. The design intent is: the operator vouches for their own
+  institution's *name* (so the agent can safely repeat it back without
+  inventing or altering it), but the agent must still never assert an
+  institutional-character claim ("credit union", "nonprofit", etc.) that
+  the operator did not themselves state as part of their own entry — see
+  ``check_guardrail``'s docstring for how the check enforces this.
+
 The evaluative/imperative-language check runs ONLY over the concatenation
 of ``AGENT`` segments — a ``WORLD`` or ``OPERATOR`` segment can never be
 evaluative-checked at all, regardless of what words it happens to contain,
 because it is never the agent's own words by construction.
 
+**This exemption is a trust boundary, and it is asymmetric between the two
+provenances it covers.** For OPERATOR segments the trust is unconditional
+and safe: every rendered OPERATOR field carries an explicit "(as you
+entered it)"/"(as entered)" marker on the page, so a reader can always tell
+it is the operator's own unreviewed text, not this agent's claim. For
+WORLD segments the trust is a genuine coverage trade, not a free
+guarantee: a World bundle is third-party-authorable and mountable, and its
+content renders with **no** "as the World states it" marker — a reader
+cannot tell WORLD voice from AGENT voice on the page. This trade is
+accepted because a World's own authoring-time content (including its
+``terms.json`` institution entries) is expected to pass the preflight
+evaluative-language scan in ``scripts/forge_debt_finance_world.py`` before
+it is ever sealed — mounting a World is an explicit trust act, and that
+seal-time check is what actually keeps evaluative language out of WORLD
+segments today. If that preflight check is ever removed, weakened, or
+bypassed for a reseal, this runtime exemption stops being backed by
+anything and this section must be revisited.
+
 The institutional-character check still runs over the full, in-order
 concatenation of every segment (it legitimately needs the whole rendered
 line — an agent could in principle pair a real vetted name with an
 unvetted one in its own connective prose) but answers "is the name this
-trigger is pairing with actually trusted" by looking at the *provenance* of
-the text immediately surrounding the trigger's own segment — the trigger's
-own segment, or either of its immediate neighbours — rather than by
-re-finding a name via regex/substring matching against a set of allowed
-strings. A candidate name that lives only inside an ``AGENT`` segment can
-never be treated as vetted or operator-stated, because there is no
-provenance-tagged escape hatch for it — it fails closed by construction,
-not by omission of yet another special case.
+trigger is pairing with actually trusted" by looking at the *provenance
+and name-tag* of the text immediately surrounding the trigger's own
+segment — the trigger's own segment, or either of its immediate
+neighbours — rather than by re-finding a name via regex/substring matching
+against a set of allowed strings, and rather than treating any non-AGENT
+neighbour as sufficient regardless of whether it is actually a name. A
+candidate name that lives only inside an ``AGENT`` segment can never be
+treated as vetted or operator-stated, because there is no provenance- and
+name-tagged escape hatch for it — it fails closed by construction, not by
+omission of yet another special case. And a WORLD/OPERATOR segment that is
+*not* a name (a date, a URL, a verification source) can never stand in for
+one, for the same reason.
 """
 
 from __future__ import annotations
@@ -142,10 +189,26 @@ class Segment:
     an ordered list of these — never a flat f-string — so
     ``check_guardrail`` can answer every provenance question by construction
     instead of by re-deriving it from string content.
+
+    ``is_name`` is a second, independent tag fixed at the same construction
+    site: it is ``True`` only for the segment that carries an institution's
+    actual *name* (``v.name`` in Debt Advisor, ``r.institution`` in
+    Consolidation Analyzer) — never for a date, a URL, a verification
+    source, or a character label, even though those are equally WORLD- or
+    OPERATOR-provenance. This exists because provenance alone answers "is
+    this text trustworthy" but not "is this text a *name*" — a WORLD-tagged
+    ``verified_as_of`` date or ``verification_source`` URL is exactly as
+    trustworthy as a WORLD-tagged name, but it cannot vouch for an
+    institutional-character claim about some *other*, unrelated name,
+    because it is not a name at all. Defaulting ``is_name`` to ``False``
+    means every call site must opt a segment in explicitly to have it treat
+    as a naming voucher — the check fails closed for any segment nobody
+    thought to mark, rather than trusting anything non-AGENT by default.
     """
 
     text: str
     provenance: Provenance
+    is_name: bool = False
 
     @classmethod
     def agent(cls, text: str) -> "Segment":
@@ -153,15 +216,25 @@ class Segment:
         return cls(text, Provenance.AGENT)
 
     @classmethod
-    def world(cls, text: str) -> "Segment":
+    def world(cls, text: str, *, is_name: bool = False) -> "Segment":
         """World-sealed content (a vetted institution's structured fields,
-        or a scouting finding's feed/path metadata)."""
-        return cls(text, Provenance.WORLD)
+        or a scouting finding's feed/path metadata).
+
+        Pass ``is_name=True`` only when ``text`` is the institution's own
+        name field — never for a date, URL, or character label."""
+        return cls(text, Provenance.WORLD, is_name=is_name)
 
     @classmethod
-    def operator(cls, text: str) -> "Segment":
-        """Parsed verbatim from the operator's own ``balances.json``."""
-        return cls(text, Provenance.OPERATOR)
+    def operator(cls, text: str, *, is_name: bool = False) -> "Segment":
+        """Parsed verbatim from the operator's own ``balances.json``.
+
+        Pass ``is_name=True`` only when ``text`` is the institution-name
+        field (e.g. ``institution``) — never for a product, source, or date
+        field. This tags *name authenticity* only ("the operator typed this
+        string") — it is not, and must never be read as, a character
+        verification of the institution (see ``check_guardrail``'s
+        docstring for why the two are distinct)."""
+        return cls(text, Provenance.OPERATOR, is_name=is_name)
 
 
 @dataclass
@@ -251,12 +324,29 @@ def check_guardrail(segments: Sequence[Segment]) -> GuardrailResult:
     its own connective prose). For each occurrence of an institutional-
     character trigger phrase (found within one segment's own text — by
     construction, this codebase never splits a literal trigger phrase
-    across a segment boundary), the claim is legitimate only if the
-    trigger's own segment, or either of its immediate neighbouring
-    segments, carries ``WORLD`` or ``OPERATOR`` provenance. A name that
-    exists only inside ``AGENT``-provenance text — invented or altered by
-    the model — can never satisfy this, because there is no string it could
-    be altered *to* that would change its segment's provenance tag.
+    across a segment boundary), legitimacy is decided in one of two ways:
+
+    1. The trigger's own segment already carries ``WORLD`` or ``OPERATOR``
+       provenance. The trigger text itself is then, by construction, a
+       verbatim vetted/operator-stated field (e.g. a vetted institution's
+       own ``institution_type``) — no adjacent name is needed, because the
+       claim did not come from the agent's own words at all.
+    2. The trigger's own segment is ``AGENT``-provenance. Then the claim is
+       legitimate only if one of its immediate neighbouring segments is
+       *specifically* the segment the caller tagged ``is_name=True`` at
+       construction — the segment carrying the institution's actual name —
+       and that segment carries ``WORLD`` or ``OPERATOR`` provenance.
+
+    Case 2 is a provenance-and-role check, not a proximity check on
+    content: it is not enough for a neighbouring segment to merely be
+    non-AGENT (a ``verified_as_of`` date or a ``verification_source`` URL
+    is WORLD-provenance too, but neither is a *name*, and neither can vouch
+    for a character claim about some other, unrelated name). The neighbour
+    must specifically be tagged as carrying the institution's own name. A
+    name that exists only inside ``AGENT``-provenance text — invented or
+    altered by the model — can never satisfy this, because there is no
+    string it could be altered *to* that would change its segment's
+    provenance or name tag.
     """
     agent_text = " ".join(
         s.text for s in segments if s.provenance is Provenance.AGENT
@@ -264,14 +354,22 @@ def check_guardrail(segments: Sequence[Segment]) -> GuardrailResult:
     if _EVALUATIVE_RE.search(agent_text):
         return GuardrailResult(ok=False, reason=REASON_EVALUATIVE)
 
+    def _is_name_voucher(s: Segment) -> bool:
+        return s.provenance is not Provenance.AGENT and s.is_name
+
     for idx, seg in enumerate(segments):
         for match in _INSTITUTIONAL_CHARACTER_RE.finditer(seg.text):
-            neighbours = [seg.provenance]
+            if seg.provenance is not Provenance.AGENT:
+                # Case 1: the trigger text is itself verbatim vetted/
+                # operator-stated content — trusted on its own, no name
+                # pairing required.
+                continue
+            neighbours = []
             if idx > 0:
-                neighbours.append(segments[idx - 1].provenance)
+                neighbours.append(segments[idx - 1])
             if idx + 1 < len(segments):
-                neighbours.append(segments[idx + 1].provenance)
-            if any(p is not Provenance.AGENT for p in neighbours):
+                neighbours.append(segments[idx + 1])
+            if any(_is_name_voucher(n) for n in neighbours):
                 continue
             return GuardrailResult(
                 ok=False,

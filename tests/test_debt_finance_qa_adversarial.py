@@ -292,7 +292,7 @@ def test_a_whitespace_only_operator_segment_still_legitimizes_its_own_trigger():
     regression of F2: F2 was about a degenerate name vetting an *unrelated*
     claim, which the neighbour-adjacency test above confirms is closed."""
     result = check_guardrail([
-        Segment.operator(" "),
+        Segment.operator(" ", is_name=True),
         Segment.agent(" is a credit union."),
     ])
     assert result.ok
@@ -344,7 +344,7 @@ def test_operator_typed_name_with_trailing_whitespace_is_not_falsely_blocked():
     """No normalization step exists to be inconsistent about any more —
     the segment's raw text is never compared against anything."""
     result = check_guardrail([
-        Segment.operator("Ecole Populaire Credit Union "),
+        Segment.operator("Ecole Populaire Credit Union ", is_name=True),
         Segment.agent(" — loan."),
     ])
     assert result.ok
@@ -355,7 +355,7 @@ def test_non_ascii_initial_institution_name_is_not_falsely_blocked():
     class) exists any more — an accented initial is exactly as legitimate
     a neighbour as any other operator-typed text."""
     result = check_guardrail([
-        Segment.operator("Éole Credit Union"),
+        Segment.operator("Éole Credit Union", is_name=True),
         Segment.agent(" — loan."),
     ])
     assert result.ok
@@ -441,11 +441,11 @@ def test_lowercase_operator_segment_and_capitalized_operator_segment_behave_iden
     F3's own test happened to use) cannot recur: casing has no bearing on
     provenance."""
     lower = check_guardrail([
-        Segment.operator("navy federal"),
+        Segment.operator("navy federal", is_name=True),
         Segment.agent(" is a nonprofit."),
     ])
     upper = check_guardrail([
-        Segment.operator("Navy Federal"),
+        Segment.operator("Navy Federal", is_name=True),
         Segment.agent(" is a nonprofit."),
     ])
     assert lower.ok
@@ -461,7 +461,7 @@ def test_no_coordinate_system_divergence_is_possible_expanding_unicode_case_fold
     An expanding-casefold character next to a trigger phrase is exactly as
     legitimate a neighbour as any other operator-typed text."""
     result = check_guardrail([
-        Segment.operator("ﬁrst national"),
+        Segment.operator("ﬁrst national", is_name=True),
         Segment.agent(" is a credit union."),
     ])
     assert result.ok
