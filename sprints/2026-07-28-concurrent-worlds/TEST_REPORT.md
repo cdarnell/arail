@@ -302,3 +302,181 @@ QA-3, QA-7, QA-9, QA-10, QA-12, QA-13, QA-14 are acceptable as filed follow-ups.
 - `lab/instances/` is gitignored wholesale, so a corrupted pack or a wedged
   claim is invisible to `git status`. `./arailctl status` is the only window;
   QA-6 shows it can lose a record without saying so.
+
+---
+---
+
+# Re-test (QA-fix pass)
+
+**Date:** 2026-07-28
+**Fix pass:** `6206067..0218c43` (10 commits) on top of `b417159`
+**Re-verified:** the four QA suites + the driver, a fresh **live two-World
+first boot with no workaround**, the QA-B2 credential trace, and a full-suite
+parity run.
+
+## FINAL VERDICT: **WEAK_PASS**
+
+**The BLOCKER is genuinely, verifiably dead.** I rebuilt the two-World sandbox
+from scratch and ran a cold first boot with **no `ARAIL_PASSWORD` workaround**:
+
+```
+[6/8] Portal up… ✓
+[7/8] Memory up… ✓
+[8/8] World bound + index… ✓ (2 term(s) staged)
+  Alpha World is running.   Dashboard: http://127.0.0.1:8090
+  Beta World is running.    Dashboard: http://127.0.0.1:8100
+```
+
+`/api/instance` now answers **HTTP 200** pre-onboarding on both ports, tokens
+and checkouts match their records, `status --probe` verifies both in 0.77 s,
+attach-on-running exits 0, F11 returns 409, `stop --world alpha` kills exactly
+3 verified PIDs while beta and the shared Ollama survive, and alpha's staged
+tree is preserved. **16/16 strict xfails flipped, verified independently.**
+
+Not a PASS, because re-testing surfaced **four new findings, three of them
+created or newly exposed by the fixes themselves** — including one the fix
+pass explicitly classified as an accepted cosmetic residual which is in fact
+an environment-variable exfiltration primitive.
+
+None is a blocker. All four are narrow, same-user, and have one-line-class
+fixes. Ship with them filed; do not ship with them unrecorded.
+
+## Fix quality
+
+I diffed every change to my own test files. **No assertion was weakened.**
+xfail markers were removed and the underlying assertions inverted to pin the
+correct behaviour; several got *stronger* (the QA-9 path test now asserts
+byte-equality with the literal path rather than the escaped form; the driver's
+scenarios now assert refusal messages *and* that no env pack is left behind).
+The `EXPECTED_OPEN_DEFECTS` set was correctly emptied rather than deleted, so
+the two-way lock still holds. The atomic-commit methodology described in
+BUILD_LOG.md checks out against the diffs.
+
+## Per-finding closure
+
+| # | Sev | Claimed | Verified | Evidence |
+|---|---|---|---|---|
+| **QA-B1** | BLOCKER | fixed | ✅ **CLOSED** | `/api/instance` on `onboarding_gate`'s allow-list (`app.py:407`; `startswith` covers `/api/instances`). **Live cold first boot completed on both Worlds with no workaround** — the exact scenario that failed 100 % before. Probe now also captures `%{http_code}`, so a future gate regression is named rather than reported as "portal did not come up". |
+| **QA-B2** | HIGH | fixed | ✅ **CLOSED (for the pack)** | `_env_file_path()` redirects an instance to `_secrets_path()`. Live trace: onboarded alpha → `instance.env` **byte-unchanged** (1623 b, same mtime), no credential; `<instance>/data/secrets.env` created **0600** with the passphrase. Blast radius checked — only 2 callers, both secret-related. **But the same handler's second write is still unfixed → QA-15.** |
+| **QA-8 / n2** | LOW→MED | fixed | ✅ **CLOSED** | `_json_field` try/except covers `json.loads`, `isinstance`, and `.get`. Both shapes pass under production `set -euo pipefail`. |
+| **QA-4** | MED | fixed | ✅ **CLOSED** | Probe targets `/health`. Live: `[7/8] Memory up… ✓` on both instances — previously a guaranteed false 20 s degradation. Reclaims 20 s of the launch budget. |
+| **QA-1** | MED | fixed | ✅ **CLOSED** | Re-boot `--port 8888` now refused; pack stays pinned at 8090. |
+| **QA-2** | MED | fixed | ✅ **CLOSED** | `--port 0` and `--port 70000` rejected at argv-parse time; no env pack left behind. |
+| **QA-5** | MED | fixed | ✅ **CLOSED** | `--port 8090` against another record's pinned block refused; the pre-existing record untouched. |
+| **QA-3** | MED | fixed | ✅ **CLOSED** | Unwritable `registry.d` now names the real cause instead of a phantom concurrent start. |
+| **QA-6** | MED | fixed | ✅ **CLOSED** | Non-object records (`[1,2,3]`, `"x"`, `42`, `null`, `true`) raise inside the existing try/except → quarantined by `inst_read_record`, empty string from `inst_record_field`. `status` renders `✗ unreadable`, writes `.bad`, no tracebacks, record not deleted. |
+| **QA-9** | MED | fixed (1 residual) | ⚠️ **PARTIALLY CLOSED** | Single-quoting fixes `$(…)`, backtick, and the reachable-and-harmful `$`-in-checkout-path case (now asserts byte-equality). The `${NAME}` shape remains — and is **worse than filed → QA-18**. |
+| **QA-10** | LOW | fixed | ✅ **CLOSED** | Live: both instance data dirs are mode **700**. |
+| **QA-11** | MED | fixed | ⚠️ **CLOSED WITH A NEW GAP** | `--app-dir "$REPO_ROOT"` marker + checkout-scoped patterns; a foreign checkout's same-port uvicorn survives. **But the marker is invisible on an already-running lab → QA-17.** |
+
+**10 of 12 fully closed. 2 closed-with-a-successor.** Every fix is at the site
+my report named; none is a workaround.
+
+## Live launch result
+
+| Check | Result |
+|---|---|
+| Cold first boot, two Worlds, **no workaround** | **PASS** — `[6/8] ✓` both |
+| `/api/instance` pre-onboarding | **200** on 8090 and 8100 (was 401) |
+| token + checkout match record | **PASS** both |
+| `[7/8] Memory up` | **✓** both (QA-4 closed) |
+| `status --probe`, 2 live | **PASS**, 0.77 s (< 2 s) |
+| Page titles | `Alpha World — first run` / `Beta World — first run` — distinct |
+| attach-on-running | **PASS**, exit 0, names the instance |
+| `/api/instances` roster from both portals | **PASS** |
+| F11 `instance_live` | **409**, alpha's staged tree intact |
+| `stop --world alpha` | 3 verified PIDs; beta up; **Ollama survived**; alpha data preserved |
+| `stop --all`, no leaked listeners | **PASS** |
+| instance data dir mode | **700** both |
+| staged trees disjoint | `world-alpha` / `world-beta` |
+
+Cold boot fit inside the 60 s cap this time — QA-4's fix reclaiming 20 s is
+what bought the headroom. That margin is still thin; see Notes.
+
+## New findings
+
+| # | Symptom | Repro | Site | Sev |
+|---|---|---|---|---|
+| **QA-18** | **The "accepted cosmetic residual" is an env-var exfiltration primitive.** A World `display_name` of `${IDE_PASSWORD}` is written literally to the pack, read literally by bash, and **expanded to the real secret** by python-dotenv, which sets it as `LAB_NAME` — a field rendered in the page title/nav/brand. `start.sh` exports `IDE_PASSWORD` into the environment via `set -a; source lab.conf`, so the variable is present. **Mitigated in the primary path only** by ordering: `set -a; source pack` pre-sets `LAB_NAME` and `load_dotenv` defaults to `override=False`. The expansion lands on §6.1's *second, explicitly-designed-for* mechanism (a process started without the shell wrapper) and on any `dotenv_values()` caller. | End-to-end through the real writer: pack line `LAB_NAME='${IDE_PASSWORD}'` → bash `${IDE_PASSWORD}` → `dotenv_values()` `SUPERSECRET-ide-pw` | `setup.sh` `shell_safe` / `inst_write_env_pack` | **MED** |
+| **QA-15** | QA-B2 fixed one of the onboarding handler's two credential writes. `_patch_lab_conf_password` still writes `IDE_PASSWORD=<passphrase>` into the **CWD-relative, checkout-shared** `lab.conf` from inside an instance process. Live: alpha onboarded (`CANARY-alpha-pw-1`), then beta (`CANARY-beta-pw-2`) — the shared file ended up holding **only beta's**. Since `start.sh`/`reset.sh` do `set -a; source lab.conf`, **alpha's process environment carries beta's passphrase**. That is the work-lab/personal-lab separation the BRIEF names, breached on the credential path (§7: "Isolation that has an exception is not isolation"). Mitigating: `lab.conf` is 0600 (same-user only) and `IDE_PASSWORD` governs code-server, which §3.6 says instances never start. | onboard two instances with different passphrases; `cat lab.conf` | `app.py:1480` `_patch_lab_conf_password` | **MED** |
+| **QA-17** | QA-11's fix keys on `--app-dir <REPO_ROOT>`, an argv marker only the **new** `start.sh` emits. A lab already running when the operator upgrades has the old argv, so `stop_services` matches nothing: `./arailctl stop` prints **"No running services found."** and leaves it running. This is REVIEW.md **B1's exact silent-stop shape**, re-created in a narrower form, and every upgrading user hits it once. A cwd check on the matched PID would cover both generations. | process with pre-upgrade argv → new pattern no match, old pattern matches, `reset.sh stop` reports nothing running | `reset.sh:131-133` | **MED** |
+| **QA-16** | `/api/welcome/setup` also routes `LAB_NAME`/`LAB_SHORT_NAME` through `_write_env_kv`, so for an instance they now land in `secrets.env` — which `config.py` never loads. The welcome flow's "name your lab" step is a **silent dead write** for an instance (the pack's World-derived name wins). Arguably correct behaviour, but unsignalled; also puts identity keys in a file named for secrets. | onboard an instance with `lab_name`; `grep LAB_NAME <instance>/data/secrets.env` | `app.py:1401-1403` | **LOW** |
+
+### Also fixed (my own test defect, found while re-verifying)
+
+`instance_qa_driver.sh` leaked a **real** portal onto :8090. The stub `uvicorn`
+is shadowed by `source .venv/bin/activate`, which prepends the venv's bin to
+`PATH` — so scenarios past stage [4/8] spawn the real binary. Before QA-B1 was
+fixed those all died at the probe timeout and nothing leaked; **now they
+succeed and the launcher blocks in `wait` forever.** I observed an orphan
+holding :8090 from the builder's own verification run. Added a cleanup trap
+that kills registry-recorded PIDs and any sandbox-cwd uvicorn, and documented
+the stub's real limits. Driver re-runs 10/10 with zero leaks.
+
+## Ruling on the `${NAME}` residual (item 4)
+
+**A strict-xfail pin is *not* an acceptable ship state on its own.** The fix
+pass's reasoning — "not reachable via this writer's callers today; World
+`display_name` and instance paths have no reason to contain literal `${...}`"
+— is a statement about *well-behaved* input, and the writer's whole job is to
+be safe against input that isn't. World bundles are authored by fork users and
+shared between them; the sprint's own §9 security allocation treats
+`display_name` as an attacker-controlled field, which is why hostile-name
+tests exist at all.
+
+The residual is not a cosmetic divergence. It is a read primitive for the
+portal process's environment, landing in a **displayed** field. The correct
+fix is at the writer — reject or neutralise a literal `${` in a pack value
+(a display name has no legitimate need for it) — **not** `config.py`'s
+`interpolate=False`, which the builder correctly identified as too broad.
+
+That said, the primary launch path is protected by ordering, so this is
+MEDIUM, not a blocker. **Ship-acceptable as a filed, pinned follow-up
+(QA-18); not acceptable as an "accepted cosmetic residual."** The
+classification is what I am overruling, not the decision to ship.
+
+## No new failure modes
+
+- My four suites: **88 passed, 1 xfailed** (the residual, now re-filed as QA-18).
+- New file `test_instance_qa_fix_regressions.py`: **4 passed, 3 xfailed**.
+- `instance_qa_driver.sh`: **OK: 10 scenario(s)**, zero `XFAIL:` lines, zero leaks.
+- Full suite: **47 failed / 3579 passed / 7 errors / 2 skipped** — the 54-line
+  failed+error name set is **byte-for-byte identical** to the pre-QA baseline
+  (`diff` clean). **Zero regressions.**
+- Blast-radius checks done by hand: `_env_file_path`'s 2 callers are both
+  secret-related (no config read was rerouted); `_write_env_kv` still
+  `_chmod_600`s; `--app-dir` precedes `--port` on all three root-lab
+  invocations (pattern-order dependency pinned by a new test).
+- Environment left clean: no leaked listeners, ports released, Ollama healthy.
+
+## Required before ship
+
+Nothing. All four new findings are filed, pinned, and non-blocking.
+
+## Recommended next (one sprint, all one-line-class)
+
+1. **QA-18** — reject/neutralise `${` in env-pack values at the writer.
+2. **QA-15** — give `_patch_lab_conf_password` the same instance guard
+   `_env_file_path` just got.
+3. **QA-17** — verify the matched PID's cwd instead of trusting an argv marker,
+   so a pre-upgrade lab is still stoppable.
+4. **QA-16** — either honour or explicitly decline the welcome flow's lab name
+   for an instance; don't write it somewhere nothing reads.
+5. Carried and still open: QA-7, QA-12, QA-13, QA-14 (all LOW, unchanged).
+
+## Notes for the next QA pass
+
+- **Three of four new findings were created or exposed by the fixes.** A fix
+  pass on an isolation boundary needs its own adversarial re-read, not just a
+  re-run of the tests that prompted it — the tests that caught the original bug
+  are exactly the ones that cannot see its replacement.
+- **Argv markers are a fragile identity mechanism** (QA-17). Anything that
+  identifies a process by a flag it was started with breaks across upgrades.
+  Prefer a property of the running process (cwd, an fd, a pidfile).
+- The `/api/welcome/setup` handler writes to **three** places (env file,
+  `lab.conf`, and now the instance secret store). QA-B2 and QA-15 are the same
+  omission found twice. Any future change there should enumerate all sinks
+  first.
+- The 60 s stage-[6/8] cap still has little headroom on a cold boot; it only
+  fits now because QA-4's fix returned 20 s. Measure on a slow disk before
+  treating win condition #3 as settled.
