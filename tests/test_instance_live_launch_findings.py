@@ -167,15 +167,8 @@ def test_the_env_pack_writer_truncates_and_widens_the_file_it_rewrites() -> None
 # QA-4 — the memory readiness probe checks a route that does not exist
 # ---------------------------------------------------------------------------
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="QA-4 (OPEN): stage [7/8] probes GET / on the memory service, which "
-           "has no / route and returns 404. `curl -sf` treats 404 as failure, "
-           "so EVERY instance launch reports a false 20 s degradation. "
-           "See TEST_REPORT.md.",
-)
 def test_the_memory_readiness_probe_uses_a_route_the_service_serves() -> None:
-    """Observed live: both instances printed
+    """QA-4 (FIXED). Observed live: both instances printed
     "memory service did not answer within 20 s — chat works, memory features
     degrade" while ``GET :LANCE_PORT/health`` returned
     ``{"service":"arail-memory","status":"ok", ...}`` with a correctly

@@ -663,7 +663,9 @@ _instance_start() {
     local mem_waited=0 mem_ready=0
     while (( mem_waited < 80 )); do  # 80 * 0.25s = 20s cap
         if ! kill -0 "$memory_pid" 2>/dev/null; then break; fi
-        if curl -sf -m 0.7 "http://${BIND}:${lance_port}/" >/dev/null 2>&1; then mem_ready=1; break; fi
+        # QA-4: GET / has no route on the memory service (404); the probe
+        # must target the route the service actually serves.
+        if curl -sf -m 0.7 "http://${BIND}:${lance_port}/health" >/dev/null 2>&1; then mem_ready=1; break; fi
         sleep 0.25
         mem_waited=$((mem_waited + 1))
     done
