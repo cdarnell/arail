@@ -7,10 +7,14 @@ this file makes them visible to `pytest tests/` and to CI.
 
 The second test is the load-bearing one — it asserts the exact set of
 CURRENTLY-OPEN defect ids the driver expects to observe. If a builder fixes
-QA-1/2/3/5, the driver's own `fail` branch fires (it detects the fixed
+one of them, the driver's own `fail` branch fires (it detects the fixed
 behaviour explicitly) and this file goes red until the scenario is retired.
 A bug therefore cannot be fixed *or* silently re-introduced without a test
 change.
+
+QA-fix pass (sprints/2026-07-28-concurrent-worlds/BUILD_LOG.md): QA-1, QA-2,
+and QA-5 are now fixed — the driver's `--port` scenarios were updated to
+assert the CORRECT behaviour and no longer print an XFAIL line for them.
 """
 from __future__ import annotations
 
@@ -25,9 +29,10 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 DRIVER = REPO_ROOT / "tests" / "instance_qa_driver.sh"
 _BASH = shutil.which("bash")
 
-# Defect ids the driver is expected to observe today. Each is filed in
-# sprints/2026-07-28-concurrent-worlds/TEST_REPORT.md.
-EXPECTED_OPEN_DEFECTS = {"QA-1", "QA-2", "QA-3", "QA-5"}
+# Defect ids the driver is expected to observe today. Each was filed in
+# sprints/2026-07-28-concurrent-worlds/TEST_REPORT.md; QA-1/2/5 are fixed
+# (see BUILD_LOG.md's "QA-fix pass"), leaving only QA-3 open here.
+EXPECTED_OPEN_DEFECTS = {"QA-3"}
 
 pytestmark = pytest.mark.skipif(_BASH is None, reason="bash required")
 

@@ -91,9 +91,18 @@ while [[ $# -gt 0 ]]; do
 done
 export ARAIL_NO_BROWSER="${ARAIL_NO_BROWSER:-0}"
 
-if [[ -n "$PORT_OVERRIDE" ]] && ! [[ "$PORT_OVERRIDE" =~ ^[0-9]+$ ]]; then
-    echo "--port must be a number, got: $PORT_OVERRIDE" >&2
-    exit 2
+# QA-2: `--port` used to accept anything matching ^[0-9]+$ — including 0
+# (privileged/ephemeral-request port; uvicorn then binds a real ephemeral
+# port the readiness probe can never reach) and values above the 65535 TCP
+# ceiling (the bind check at stage [5/8] passes vacuously, since
+# _port_in_use can never find a listener on an impossible port). Reject
+# both here, before any World is even resolved.
+if [[ -n "$PORT_OVERRIDE" ]]; then
+    if ! [[ "$PORT_OVERRIDE" =~ ^[0-9]+$ ]] \
+        || (( 10#$PORT_OVERRIDE < 1 || 10#$PORT_OVERRIDE > 65535 )); then
+        echo "--port ${PORT_OVERRIDE} is not a valid port (must be 1-65535)" >&2
+        exit 2
+    fi
 fi
 
 # Daemon mode guard: when launchd supervises the lab, a foreground start
@@ -371,6 +380,47 @@ print(val if val is not None else "")
 ' "$1" "$2"
 }
 
+# _instance_port_conflicts_with_other_slug <this-slug> <port> — true iff
+# <port> (portal or lance) is already pinned in ANOTHER instance's registry
+# record (live or not — a registered-but-not-live record still owns its
+# ports, mirroring inst_ports_registered's own contract). Excludes <this-
+# slug>'s own record so a re-boot re-pinning its OWN already-owned port
+# is never treated as a collision with itself.
+_instance_port_conflicts_with_other_slug() {
+    local this_slug="$1" port="$2"
+    local other_slug rec p
+    while IFS= read -r other_slug; do
+        [[ -n "$other_slug" && "$other_slug" != "$this_slug" ]] || continue
+        rec="$(inst_read_record "$other_slug" 2>/dev/null)" || continue
+        p="$(inst_record_field "$rec" portal_port)"
+        [[ -n "$p" && "$p" == "$port" ]] && return 0
+        p="$(inst_record_field "$rec" lance_port)"
+        [[ -n "$p" && "$p" == "$port" ]] && return 0
+    done < <(inst_list_slugs)
+    return 1
+}
+
+# _instance_validate_port_override <slug> <portal> <lance> — QA-1/QA-2/QA-5:
+# `--port` used to reach the pack unchecked on BOTH the first-boot and the
+# re-boot branch, skipping every check inst_allocate_ports itself performs
+# (the exclusion list, the registry-collision check). Route both branches
+# through the same two checks here so a pinned override can never land on a
+# reserved port or a port another World instance already owns. Prints the
+# named reason on stderr and returns 1; the caller handles the "✗" + exit.
+_instance_validate_port_override() {
+    local slug="$1" portal="$2" lance="$3"
+    if inst_port_excluded "$portal" || inst_port_excluded "$lance"; then
+        echo "  --port ${portal} collides with a reserved port" >&2
+        return 1
+    fi
+    if _instance_port_conflicts_with_other_slug "$slug" "$portal" \
+        || _instance_port_conflicts_with_other_slug "$slug" "$lance"; then
+        echo "  --port ${portal} collides with a port already registered to another World instance" >&2
+        return 1
+    fi
+    return 0
+}
+
 # The 8-stage instance launch. ARCHITECTURE.md §3.5.
 _instance_start() {
     local slug="$1"
@@ -509,8 +559,18 @@ _instance_start() {
         portal_port="$(grep -E '^PORTAL_PORT=' "$pack_file" | head -n1 | cut -d= -f2- | tr -d '"')"
         lance_port="$(grep -E '^LANCE_PORT=' "$pack_file" | head -n1 | cut -d= -f2- | tr -d '"')"
         if [[ -n "$PORT_OVERRIDE" && "$PORT_OVERRIDE" != "$portal_port" ]]; then
-            portal_port="$PORT_OVERRIDE"
-            lance_port=$(( portal_port + INST_PORT_LANCE_OFFSET - INST_PORT_PORTAL_OFFSET ))
+            local reboot_portal reboot_lance
+            reboot_portal="$PORT_OVERRIDE"
+            reboot_lance=$(( reboot_portal + INST_PORT_LANCE_OFFSET - INST_PORT_PORTAL_OFFSET ))
+            # QA-1: this branch (re-boot) used to skip inst_port_excluded
+            # entirely — a --port that a FIRST boot correctly refuses was
+            # silently pinned on the second invocation.
+            if ! _instance_validate_port_override "$slug" "$reboot_portal" "$reboot_lance"; then
+                echo "✗"
+                _instance_cleanup_and_exit 1
+            fi
+            portal_port="$reboot_portal"
+            lance_port="$reboot_lance"
             inst_write_env_pack "$slug" \
                 ARAIL_INSTANCE "$slug" \
                 ARAIL_ENV_FILE "$pack_file" \
@@ -533,9 +593,11 @@ _instance_start() {
         if [[ -n "$PORT_OVERRIDE" ]]; then
             portal_port="$PORT_OVERRIDE"
             lance_port=$(( portal_port + INST_PORT_LANCE_OFFSET - INST_PORT_PORTAL_OFFSET ))
-            if inst_port_excluded "$portal_port" || inst_port_excluded "$lance_port"; then
+            # QA-5: a --port on first boot used to skip the registry-
+            # collision check inst_allocate_ports itself performs, so two
+            # Worlds could be permanently pinned to the same block.
+            if ! _instance_validate_port_override "$slug" "$portal_port" "$lance_port"; then
                 echo "✗"
-                echo "  --port ${portal_port} collides with a reserved port" >&2
                 _instance_cleanup_and_exit 1
             fi
         else

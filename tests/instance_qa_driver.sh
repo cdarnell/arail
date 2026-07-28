@@ -124,10 +124,11 @@ _pack_port() {
 }
 
 # ---------------------------------------------------------------------------
-# 1) QA-1 — `--port` on the RE-BOOT path skips the reserved-port exclusion list.
-#    First boot correctly refuses `--port 8888` (jupyter). A second invocation,
-#    once instance.env exists, takes the other branch of stage [4/8] and pins
-#    the reserved port with no check at all.
+# 1) QA-1 (FIXED) — `--port` on the RE-BOOT path used to skip the
+#    reserved-port exclusion list. First boot correctly refuses `--port
+#    8888` (jupyter). A second invocation, once instance.env exists, now
+#    goes through the SAME _instance_validate_port_override check and is
+#    refused identically — the pack must stay pinned at its original ports.
 # ---------------------------------------------------------------------------
 F1="$(_make_fake_repo r1)"
 _make_world "$F1" ai "AI World" || fail "s1: could not build fixture World"
@@ -142,55 +143,40 @@ ok_scenario
 _seed_pack "$F1" ai 8090 8094
 out="$(_run_start "$F1" --world ai --port 8888)"
 p="$(_pack_port "$F1" PORTAL_PORT ai)"
-if [[ "$p" == "8888" ]]; then
-    xfail "QA-1 reboot --port bypasses inst_port_excluded (pinned PORTAL_PORT=8888)"
-    [[ "$(_pack_port "$F1" LANCE_PORT ai)" == "8892" ]] \
-        || fail "s1b: unexpected LANCE_PORT for the bypass case"
-elif [[ "$out" == *"collides with a reserved port"* && "$p" == "8090" ]]; then
-    fail "s1b: QA-1 appears FIXED — remove this scenario's xfail branch"
-else
-    fail "s1b: unexpected reboot --port behaviour (PORTAL_PORT=$p): $out"
-fi
+[[ "$out" == *"collides with a reserved port"* ]] \
+    || fail "s1b: QA-1 — reboot --port must be refused too: $out"
+[[ "$p" == "8090" ]] \
+    || fail "s1b: QA-1 — a refused reboot --port must not repin the pack (got $p)"
 ok_scenario
 
 # ---------------------------------------------------------------------------
-# 2) QA-2 — `--port` accepts values outside the valid TCP range.
-#    `--port 0` pins PORTAL_PORT=0 / LANCE_PORT=4 (a privileged port) into the
-#    pack permanently; uvicorn --port 0 binds an ephemeral port the readiness
-#    probe can never reach, so every subsequent boot of that World burns the
-#    full 60s cap and reports the generic "portal did not come up".
+# 2) QA-2 (FIXED) — `--port` used to accept values outside the valid TCP
+#    range. `--port 0` used to pin PORTAL_PORT=0 / LANCE_PORT=4 (a
+#    privileged port) into the pack permanently; `--port 70000` used to
+#    pass the bind check vacuously. Both are now rejected at argv-parse
+#    time, before any World is resolved or instance root created.
 # ---------------------------------------------------------------------------
 F2="$(_make_fake_repo r2)"
 _make_world "$F2" ai "AI World" || fail "s2: could not build fixture World"
 out="$(_run_start "$F2" --world ai --port 0)"
-p="$(_pack_port "$F2" PORTAL_PORT ai)"; l="$(_pack_port "$F2" LANCE_PORT ai)"
-if [[ "$p" == "0" ]]; then
-    xfail "QA-2 --port 0 accepted and pinned (PORTAL_PORT=0 LANCE_PORT=$l)"
-    [[ "$l" == "4" ]] || fail "s2: expected LANCE_PORT=4 for --port 0, got $l"
-elif [[ "$out" == *"must be a number"* || "$out" == *"not a valid port"* \
-        || "$out" == *"out of range"* ]]; then
-    fail "s2: QA-2 appears FIXED — remove this scenario's xfail branch"
-else
-    fail "s2: unexpected --port 0 behaviour (PORTAL_PORT=$p): $out"
-fi
+[[ "$out" == *"not a valid port"* ]] \
+    || fail "s2: QA-2 — --port 0 must be refused: $out"
+[[ ! -f "$F2/lab/instances/ai/instance.env" ]] \
+    || fail "s2: QA-2 — a refused --port must not leave an env pack behind"
 ok_scenario
 
-rm -rf "$F2/lab/instances"
 out="$(_run_start "$F2" --world ai --port 70000)"
-p="$(_pack_port "$F2" PORTAL_PORT ai)"
-if [[ "$p" == "70000" ]]; then
-    xfail "QA-2 --port 70000 accepted and pinned (above the 65535 TCP ceiling)"
-    [[ "$out" == *"[5/8] Bind ports… ✓"* ]] \
-        || fail "s2b: expected the bind check to pass vacuously on an impossible port"
-else
-    fail "s2b: QA-2 appears FIXED for the upper bound — update this scenario"
-fi
+[[ "$out" == *"not a valid port"* ]] \
+    || fail "s2b: QA-2 — --port 70000 must be refused: $out"
+[[ ! -f "$F2/lab/instances/ai/instance.env" ]] \
+    || fail "s2b: QA-2 — a refused --port must not leave an env pack behind"
 ok_scenario
 
 # ---------------------------------------------------------------------------
-# 3) QA-5 — `--port` skips the registry-collision check `inst_allocate_ports`
-#    performs. Pin World B to the exact ports an existing (registered but not
-#    live) record already owns; nothing refuses.
+# 3) QA-5 (FIXED) — `--port` used to skip the registry-collision check
+#    `inst_allocate_ports` itself performs. Pin World B to the exact ports
+#    an existing (registered but not live) record already owns — must
+#    now refuse, and the pre-existing record must be untouched.
 # ---------------------------------------------------------------------------
 F3="$(_make_fake_repo r3)"
 _make_world "$F3" ai "AI World" || fail "s3: could not build fixture World"
@@ -202,14 +188,12 @@ cat > "$F3/lab/instances/registry.d/fin.json" <<'EOF'
  "token":"t","started_at":"2026-07-28T00:00:00Z"}
 EOF
 out="$(_run_start "$F3" --world ai --port 8090)"
-p="$(_pack_port "$F3" PORTAL_PORT ai)"
-if [[ "$p" == "8090" ]]; then
-    xfail "QA-5 --port collides with a port already pinned to another instance record"
-    grep -q '"portal_port": *8090' "$F3/lab/instances/registry.d/fin.json" \
-        || fail "s3: the pre-existing record was mutated — it must not be"
-else
-    fail "s3: QA-5 appears FIXED (PORTAL_PORT=$p) — update this scenario"
-fi
+[[ "$out" == *"already registered to another World instance"* ]] \
+    || fail "s3: QA-5 — --port collision with an existing record must be refused: $out"
+grep -q '"portal_port": *8090' "$F3/lab/instances/registry.d/fin.json" \
+    || fail "s3: the pre-existing record was mutated — it must not be"
+[[ ! -f "$F3/lab/instances/ai/instance.env" ]] \
+    || fail "s3: QA-5 — a refused --port must not leave an env pack behind"
 ok_scenario
 
 # ---------------------------------------------------------------------------
