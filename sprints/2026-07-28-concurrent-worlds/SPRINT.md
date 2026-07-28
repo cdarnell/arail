@@ -21,7 +21,7 @@ progress. Full brief with grounding facts: `BRIEF.md` (this dir).
 
 | Phase | Subagent | Artifact | Status | Started | Finished | Verdict |
 |---|---|---|---|---|---|---|
-| think | visionary | VISION.md | pending | — | — | — |
+| think | visionary | VISION.md | DONE | 2026-07-28 11:25 | 2026-07-28 11:30 | proceed |
 | plan | architect (design) | ARCHITECTURE.md | pending | — | — | — |
 | build | builder | BUILD_LOG.md | pending | — | — | — |
 | review | architect (review) | REVIEW.md | pending | — | — | — |
@@ -34,6 +34,7 @@ progress. Full brief with grounding facts: `BRIEF.md` (this dir).
 |---|---|---|
 | 2026-07-28 | Operator: run the full sprint autonomously once ARCHITECTURE.md exists; the architect's answers to the open questions (incl. the dropdown's fate) are binding. | Chosen at plan approval over a pause-after-design gate. |
 | 2026-07-28 | VISION.md and ARCHITECTURE.md are produced before any code changes. | Operator instruction in the sprint request. |
+| 2026-07-28 | Visionary rulings (VISION.md): L2 isolation — per-World `LAB_ROOT` (pkb/data/LanceDB/mount-pointer/secrets) + own ports, shared model weights + Ollama daemon. **Replace the dropdown**, deprecate over one release; `POST /api/worlds/select` survives only for first-bind/unbind-to-default in an empty root. Picker on bare `start` when >1 World; `--world <slug>` direct; already-running → attach, never error. Ceiling 3 concurrent, soft-warn at 4, no auto-eviction, `LAB_MAX_INSTANCES` override. `arailctl status` = one source of liveness truth. | The dropdown mount is destructive (`_sweep_other_worlds` rmtree's other worlds' staged KB) — switching was never non-destructive, so concurrency requires disjoint data roots by construction. Shared backend costs ~300 MB/instance (measured); dedicated 7B per instance would exclude the 16 GB minimalist floor. |
 
 ## Skipped phases
 
