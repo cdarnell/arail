@@ -665,7 +665,9 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --yes|-y) AUTO_CONFIRM="true"; shift ;;
         --all)    STOP_ALL="true"; shift ;;
-        --world)  STOP_WORLD="${2:-}"; shift 2 ;;
+        # m9: a plain `shift 2` errors (aborting under `set -e`) when
+        # `--world` is the final token and there's no $2 to shift past.
+        --world)  STOP_WORLD="${2:-}"; shift; [[ $# -gt 0 ]] && shift ;;
         --world=*) STOP_WORLD="${1#--world=}"; shift ;;
         *)
             if [[ -z "$MODE" ]]; then
