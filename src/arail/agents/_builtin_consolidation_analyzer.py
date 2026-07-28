@@ -122,6 +122,26 @@ def _findings_file() -> Path:
     return _import_dir() / "findings" / "consolidation_analyzer.md"
 
 
+def _relative_pointer(path: Path) -> str:
+    """A short, non-identifying pointer to ``path`` for the activity
+    stream (ARCHITECTURE.md §6: "a short, non-identifying pointer to the
+    findings file").
+
+    TEST_REPORT.md F7: the previous code interpolated the absolute path
+    directly, which on a real install is rooted under the operator's home
+    directory and carries their OS username — and ``activity.jsonl``
+    renders on the dashboard. Relative to the data root keeps the pointer
+    short and stable across machines without leaking the filesystem
+    location it sits in.
+    """
+    data_dir = _host.get_data_dir()
+    root = data_dir if data_dir is not None else Path("lab/data")
+    try:
+        return str(path.relative_to(root))
+    except ValueError:
+        return path.name
+
+
 # ══════════════════════════════════════════════════════════════════════
 #  2. ARITHMETIC — pure, independently unit-testable, zero I/O
 # ══════════════════════════════════════════════════════════════════════
@@ -205,9 +225,54 @@ class _MalformedInput(Exception):
     pass
 
 
+# TEST_REPORT.md F1/F8: an upper magnitude bound on any numeric field this
+# module does arithmetic over. Not a realistic domain limit by itself (no
+# one's balance is anywhere near this) — it exists to reject the
+# ``json.loads``-legal-but-not-domain-legal shapes (``1e308``) that are
+# individually finite but overflow to ``inf`` the moment two of them are
+# multiplied together downstream, which then raises ``OverflowError`` out of
+# ``math.ceil`` in ``breakeven_months``. Rejecting at parse time keeps the
+# "malformed input never crashes the tick" contract (§6.1) true without
+# threading finiteness checks through every arithmetic call site.
+_MAX_REASONABLE_VALUE = 1e12
+
+
+def _validate_numeric_field(entry: Dict[str, Any], key: str) -> None:
+    """Raise ``_MalformedInput`` if ``entry[key]`` is present but is not a
+    finite, non-negative, in-range real number.
+
+    Absent keys are left alone — the arithmetic layer's own ``.get(key,
+    0.0)`` default is the schema's documented behavior for a missing field.
+    This only guards a field that *is* present with a value that would
+    otherwise crash or silently corrupt downstream arithmetic (§6.1's
+    "malformed" bucket, not "missing"):
+
+    - non-numeric (a string like ``"1,200.00"`` or ``"19.99%"``, or ``null``)
+    - ``bool`` (Python's ``bool`` is an ``int`` subclass; a stray ``true``/
+      ``false`` in a numeric field is not a number the schema means)
+    - non-finite (JSON's bare ``NaN``/``Infinity``, both accepted by
+      ``json.loads`` by default, but neither is a valid finite balance/rate)
+    - negative (not part of this schema; see TEST_REPORT.md F8 — a negative
+      balance/APR/rate/fee is not an adversarial input worth rendering
+      verbatim, it's malformed)
+    - out of the reasonable domain range (``_MAX_REASONABLE_VALUE``)
+    """
+    if key not in entry:
+        return
+    value = entry[key]
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise _MalformedInput()
+    if not math.isfinite(value):
+        raise _MalformedInput()
+    if value < 0 or abs(value) > _MAX_REASONABLE_VALUE:
+        raise _MalformedInput()
+
+
 def _load_balances() -> Optional[Dict[str, Any]]:
     """Returns None if the file is absent (a normal no-op, not an error).
-    Raises _MalformedInput if present but unparsable / schema-invalid —
+    Raises _MalformedInput if present but unparsable / schema-invalid, or if
+    any numeric field's *value* (not just its container shape) is
+    non-finite, non-numeric, negative, or out of domain range —
     callers must not echo any content from the exception."""
     path = _balances_file()
     if not path.exists():
@@ -227,9 +292,14 @@ def _load_balances() -> Optional[Dict[str, Any]]:
     for d in (debts or []):
         if not isinstance(d, dict):
             raise _MalformedInput()
+        _validate_numeric_field(d, "balance")
+        _validate_numeric_field(d, "apr")
     for s in (scenarios or []):
         if not isinstance(s, dict):
             raise _MalformedInput()
+        _validate_numeric_field(s, "rate")
+        _validate_numeric_field(s, "fee_pct")
+        _validate_numeric_field(s, "term_months")
     return data
 
 
@@ -407,14 +477,39 @@ class _GuardrailBlocked(Exception):
     pass
 
 
-def _write_findings(text: str, disclaimer: str) -> None:
+def _write_findings(text: str, disclaimer: str) -> bool:
+    """Write the findings file, refusing to follow a pre-placed symlink.
+
+    TEST_REPORT.md F5: ``Path.write_text`` writes *through* a symlink, and a
+    subsequent ``chmod`` retargets the victim file's mode — on the
+    documented shared-machine convention (multiple accounts on one box),
+    another local user who pre-creates the findings path as a symlink gets
+    an arbitrary-file-overwrite-plus-chmod primitive running as the
+    operator. ``os.O_NOFOLLOW`` at open time (not a ``islink()`` check
+    beforehand, which would be a TOCTOU race against the same attacker)
+    makes the open itself fail if the final path component is a symlink.
+    Returns False (and writes nothing) in that case.
+    """
     path = _findings_file()
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text.rstrip() + "\n\n---\n\n" + disclaimer, encoding="utf-8")
+    content = text.rstrip() + "\n\n---\n\n" + disclaimer
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        fd = os.open(path, flags, 0o600)
+    except OSError:
+        return False
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(content)
+    except OSError:
+        return False
     try:
         os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)  # 0600
     except OSError:
         pass
+    return True
 
 
 def _vetted_institution_names(bundle_dir: Path) -> frozenset[str]:
@@ -499,7 +594,30 @@ class ConsolidationAnalyzerAgent:
         try:
             while True:
                 await asyncio.sleep(interval)
-                self.tick()
+                try:
+                    self.tick()
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    # TEST_REPORT.md F1: any exception escaping a single
+                    # tick's body used to propagate out of this while-loop
+                    # entirely — the surrounding try only caught
+                    # CancelledError — permanently killing the agent while
+                    # `.status` kept reporting "running". ARCHITECTURE.md
+                    # §6.1 is explicit that malformed input "does not crash"
+                    # the tick; this is the backstop for any *other* future
+                    # field/bug shape that isn't already caught by
+                    # `_load_balances`'s own validation, so no single bad
+                    # tick can end the agent's lifetime. Mirrors the
+                    # malformed-input warning: non-specific, no content
+                    # echo.
+                    _host.emit(
+                        AGENT_ID,
+                        "Consolidation Analyzer: an unexpected error "
+                        "occurred during a scheduled check — skipped this "
+                        "cycle.",
+                        "warn",
+                    )
         except asyncio.CancelledError:
             return
 
@@ -514,18 +632,38 @@ class ConsolidationAnalyzerAgent:
             _host.emit(
                 AGENT_ID,
                 "Consolidation Analyzer: could not read "
-                f"{_balances_file()} — check its format.",
+                f"{_relative_pointer(_balances_file())} — check its format.",
                 "warn",
             )
             return
         if data is None:
             return
 
-        if current_hash == self._last_input_hash:
-            return  # True no-op.
-
         bundle_dir = find_mounted_bundle_dir()
         disclaimer = read_disclaimer(bundle_dir) if bundle_dir else None
+        vetted = _vetted_institution_names(bundle_dir) if bundle_dir else frozenset()
+
+        # TEST_REPORT.md F6: the no-op fingerprint used to be the raw
+        # balances.json content hash alone. The disclaimer text and the
+        # vetted-institution set both come from the mounted World and both
+        # affect the rendered output, but neither was hashed — so editing
+        # compliance/DISCLAIMER.md never propagated to an existing findings
+        # file. Folding both into the fingerprint (plus checking whether the
+        # findings file still exists, so an operator-deleted findings file
+        # per §6.5's documented v1 "forget" story gets regenerated rather
+        # than permanently suppressed) closes both gaps.
+        fingerprint = hashlib.sha256(
+            " ".join([
+                current_hash,
+                disclaimer or "",
+                ",".join(sorted(vetted)),
+            ]).encode("utf-8")
+        ).hexdigest()
+        findings_path = _findings_file()
+
+        if fingerprint == self._last_input_hash and findings_path.exists():
+            return  # True no-op.
+
         if disclaimer is None:
             _host.emit(
                 AGENT_ID,
@@ -537,7 +675,6 @@ class ConsolidationAnalyzerAgent:
 
         debts = data.get("debts") or []
         scenarios = data.get("candidate_scenarios") or []
-        vetted = _vetted_institution_names(bundle_dir) if bundle_dir else frozenset()
         operator_names = _operator_institution_names(debts, scenarios)
 
         try:
@@ -556,23 +693,26 @@ class ConsolidationAnalyzerAgent:
             if reason == REASON_EVALUATIVE:
                 hint = (
                     "Check the `institution`, `product`, `source`, and "
-                    f"`as_of` text in {_balances_file()} for wording that "
-                    "reads as evaluative or imperative (e.g. 'best', "
-                    "'guaranteed', 'you should') — very short values in "
-                    "those fields are not exempted, so this can also fire "
-                    "on an unrelated short value that happens to be a "
-                    "substring of an evaluative word elsewhere."
+                    f"`as_of` text in {_relative_pointer(_balances_file())} "
+                    "for wording that reads as evaluative or imperative "
+                    "(e.g. 'best', 'guaranteed', 'you should') — very short "
+                    "values in those fields are not exempted, so this can "
+                    "also fire on an unrelated short value that happens to "
+                    "be a substring of an evaluative word elsewhere."
                 )
             elif reason.startswith(REASON_INSTITUTIONAL_PREFIX):
                 hint = (
                     "Check the `institution` fields in "
-                    f"{_balances_file()} — an institutional-character claim "
-                    "(e.g. 'credit union', 'nonprofit') must be paired with "
-                    "an institution name you typed yourself or one this "
-                    "World has verified."
+                    f"{_relative_pointer(_balances_file())} — an "
+                    "institutional-character claim (e.g. 'credit union', "
+                    "'nonprofit') must be paired with an institution name "
+                    "you typed yourself or one this World has verified."
                 )
             else:
-                hint = f"Check the content staged in {_balances_file()}."
+                hint = (
+                    "Check the content staged in "
+                    f"{_relative_pointer(_balances_file())}."
+                )
             _host.emit(
                 AGENT_ID,
                 "Consolidation Analyzer: generated output failed the "
@@ -583,15 +723,25 @@ class ConsolidationAnalyzerAgent:
             )
             return
 
-        _write_findings(body, disclaimer)
-        self._last_input_hash = current_hash
+        if not _write_findings(body, disclaimer):
+            # TEST_REPORT.md F5: refuses rather than following a
+            # pre-placed symlink at the findings path. Non-specific,
+            # matches the malformed-input warning shape.
+            _host.emit(
+                AGENT_ID,
+                "Consolidation Analyzer: could not write the findings "
+                "file — the destination is not a regular file.",
+                "warn",
+            )
+            return
+        self._last_input_hash = fingerprint
         self._last_run_at = time.time()
         self._save_state()
 
         _host.emit(
             AGENT_ID,
             "Consolidation Analyzer produced a new finding — see "
-            f"{_findings_file()}",
+            f"{_relative_pointer(_findings_file())}",
             "info",
         )
 

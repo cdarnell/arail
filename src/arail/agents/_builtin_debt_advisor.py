@@ -116,6 +116,18 @@ def _findings_file() -> Path:
     return root / "user-import" / WORLD_SLUG / "findings" / "debt_advisor.md"
 
 
+def _relative_pointer(path: Path) -> str:
+    """A short, non-identifying pointer to ``path`` for the activity
+    stream — see ``_builtin_consolidation_analyzer._relative_pointer``
+    (TEST_REPORT.md F7); identical fix, same reasoning, applied here too."""
+    data_dir = _host.get_data_dir()
+    root = data_dir if data_dir is not None else Path("lab/data")
+    try:
+        return str(path.relative_to(root))
+    except ValueError:
+        return path.name
+
+
 # ══════════════════════════════════════════════════════════════════════
 #  2. FACTS — deterministic extraction from the mounted World
 # ══════════════════════════════════════════════════════════════════════
@@ -129,15 +141,27 @@ class VettedInstitution:
 
 
 def _load_terms(bundle_dir: Path) -> List[Dict[str, Any]]:
+    """Returns only dict entries from ``terms.json``'s ``terms`` list.
+
+    TEST_REPORT.md F9: a hand-edited ``terms.json`` with a non-dict entry
+    (e.g. a stray string) used to raise ``AttributeError`` out of
+    ``_vetted_institutions``'s ``t.get(...)`` calls — the same
+    permanent-loop-death shape as F1, sourced from the World bundle rather
+    than operator input. Filtering non-dict entries here, rather than at
+    every downstream ``.get()`` call site, keeps this the single place that
+    enforces "an entry is a dict" for this file.
+    """
     try:
         doc = json.loads((bundle_dir / "terms.json").read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return []
     if isinstance(doc, dict):
-        return list(doc.get("terms") or [])
-    if isinstance(doc, list):
-        return doc
-    return []
+        raw = list(doc.get("terms") or [])
+    elif isinstance(doc, list):
+        raw = doc
+    else:
+        return []
+    return [t for t in raw if isinstance(t, dict)]
 
 
 def _vetted_institutions(terms: List[Dict[str, Any]]) -> List[VettedInstitution]:
@@ -281,10 +305,10 @@ def _build_output(bundle_dir: Path, terms: List[Dict[str, Any]],
     # character claim looks like, not to recommend or exhaustively list
     # institutions.
     lines.append(
-        "_This list is not exhaustive and is not a recommendation. It "
-        "exists to show what verification of an institutional-character "
-        "claim looks like, against a source other than the institution's "
-        "own marketing._\n"
+        "_This list is not exhaustive and does not rank or endorse any "
+        "institution. It exists to show what verification of an "
+        "institutional-character claim looks like, against a source other "
+        "than the institution's own marketing._\n"
     )
     if vetted:
         for v in vetted:
@@ -375,14 +399,32 @@ class _GuardrailBlocked(Exception):
     pass
 
 
-def _write_findings(text: str, disclaimer: str) -> None:
+def _write_findings(text: str, disclaimer: str) -> bool:
+    """Write the findings file, refusing to follow a pre-placed symlink.
+
+    See ``_builtin_consolidation_analyzer._write_findings``
+    (TEST_REPORT.md F5) — identical fix, same reasoning, applied here too.
+    """
     path = _findings_file()
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text.rstrip() + "\n\n---\n\n" + disclaimer, encoding="utf-8")
+    content = text.rstrip() + "\n\n---\n\n" + disclaimer
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        fd = os.open(path, flags, 0o600)
+    except OSError:
+        return False
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(content)
+    except OSError:
+        return False
     try:
         os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)  # 0600
     except OSError:
         pass
+    return True
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -394,7 +436,7 @@ class DebtAdvisorAgent:
         self._task: Optional[asyncio.Task] = None
         self._status = "idle"
         self._last_terms_hash = ""
-        self._last_finding_count = -1
+        self._last_finding_count = ""
         self._last_run_at: float = 0.0
 
     @property
@@ -413,7 +455,11 @@ class DebtAdvisorAgent:
         # never a raw balance/APR/institution name (ARCHITECTURE.md §7 new
         # constraint; enforced by construction, this is all we ever store).
         self._last_terms_hash = str(data.get("terms_hash") or "")
-        self._last_finding_count = int(data.get("approved_finding_count", -1))
+        # TEST_REPORT.md F6: this field now stores a fingerprint over the
+        # approved findings' *identity* (see tick()), not a bare count —
+        # kept under the same state.json key (schema/key-set unchanged) for
+        # back-compat, but read back as a string rather than cast to int.
+        self._last_finding_count = str(data.get("approved_finding_count") or "")
         self._last_run_at = float(data.get("last_run_at") or 0.0)
 
     def _save_state(self) -> None:
@@ -445,7 +491,22 @@ class DebtAdvisorAgent:
         try:
             while True:
                 await asyncio.sleep(interval)
-                self.tick()
+                try:
+                    self.tick()
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    # TEST_REPORT.md F1: same tick-loop robustness fix as
+                    # Consolidation Analyzer — this agent shares the
+                    # identical bare-except-CancelledError-only structure,
+                    # so any future bug in World-content parsing (see also
+                    # F9) must not permanently kill the loop.
+                    _host.emit(
+                        AGENT_ID,
+                        "Debt Advisor: an unexpected error occurred during "
+                        "a scheduled check — skipped this cycle.",
+                        "warn",
+                    )
         except asyncio.CancelledError:
             return
 
@@ -460,9 +521,22 @@ class DebtAdvisorAgent:
         terms = _load_terms(bundle_dir)
         terms_hash = _terms_content_hash(bundle_dir)
         pkb_root = _host.get_pkb_root()
-        finding_count = _approved_finding_count(pkb_root)
+        findings = _approved_findings(pkb_root)
+        # TEST_REPORT.md F6: fingerprint on the approved findings' identity
+        # (path/feed/checked-date), not a bare count — swapping one approved
+        # finding for another at the same total count used to leave the
+        # cited feed/date metadata silently stale. Also check whether the
+        # findings file still exists, so an operator-deleted findings file
+        # (§6.5's documented v1 "forget" story) gets regenerated rather than
+        # permanently suppressed.
+        findings_fingerprint = hashlib.sha256(
+            json.dumps(findings, sort_keys=True).encode("utf-8")
+        ).hexdigest()
+        findings_path = _findings_file()
 
-        if terms_hash == self._last_terms_hash and finding_count == self._last_finding_count:
+        if (terms_hash == self._last_terms_hash
+                and findings_fingerprint == self._last_finding_count
+                and findings_path.exists()):
             return  # True no-op: no LLM call, no write, no activity event.
 
         disclaimer = read_disclaimer(bundle_dir)
@@ -475,7 +549,6 @@ class DebtAdvisorAgent:
             )
             return
 
-        findings = _approved_findings(pkb_root)
         try:
             body = _build_output(bundle_dir, terms, findings)
         except _GuardrailBlocked as exc:
@@ -498,16 +571,25 @@ class DebtAdvisorAgent:
             )
             return
 
-        _write_findings(body, disclaimer)
+        if not _write_findings(body, disclaimer):
+            # TEST_REPORT.md F5: refuses rather than following a
+            # pre-placed symlink at the findings path.
+            _host.emit(
+                AGENT_ID,
+                "Debt Advisor: could not write the findings file — the "
+                "destination is not a regular file.",
+                "warn",
+            )
+            return
         self._last_terms_hash = terms_hash
-        self._last_finding_count = finding_count
+        self._last_finding_count = findings_fingerprint
         self._last_run_at = time.time()
         self._save_state()
 
         _host.emit(
             AGENT_ID,
             "Debt Advisor produced a new finding — see "
-            f"{_findings_file()}",
+            f"{_relative_pointer(_findings_file())}",
             "info",
         )
 
