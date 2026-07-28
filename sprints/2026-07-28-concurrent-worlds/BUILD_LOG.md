@@ -859,3 +859,92 @@ Commit: `01776e8`
   Mount button WP7's spec described as living in `worlds.html`;
   `scripts/lib/instances.sh` not touched in WP5 because its existing
   primitives sufficed) — never a case where the design itself was wrong.
+
+---
+
+## Review-fix pass
+
+Fixes REVIEW.md's BLOCK verdict at `5cef466` (2 BLOCKERs, 7 MAJORs, 12
+MINORs, 3 NITs). Every finding below is fixed exactly as REVIEW.md's
+concrete fix prescribed — no redesign, no scope beyond the finding list.
+
+| # | Finding | Fix applied | Test added | Commit |
+|---|---|---|---|---|
+| B1 | `stop` silently stops nothing on a port-bumped machine | `reset.sh` now sources `lab.conf` (guarded, `set -a`) right after `.env`, before `stop_services()` builds its kill patterns | `test_instance_stop_scope.py::test_stop_matches_bumped_lab_conf_port_not_default` — real `reset.sh` vs a real backgrounded process on a bumped port | `f96d9f8` |
+| B2 | `start --world` silently discarded under daemon mode | `arailctl`'s `start)` branch forwards `--world`/`--list`/`--help` to `start.sh` unconditionally, before the `daemon_active` check; `start.sh`'s own guard moved after arg parsing (m2) and now names the slug | `test_daemon_predicate.py::test_arailctl_start_world_reaches_refusal_naming_slug_when_daemon_active`, `::test_arailctl_start_list_bypasses_daemon_guard_entirely` | `9c7e120` |
+| M1 | Readiness probe didn't verify token/checkout | Stage `[6/8]` captures the response body, requires `token == $instance_token && checkout == $REPO_ROOT`; mismatch kills the child and names the port. Also fixes m5 (`REPO_ROOT` via `pwd -P`) | `test_instance_readiness_probe.py` (4 tests, extraction-based) | `6e0dbf2` |
+| M2 | Launcher-PID verification was a bare substring test | `reset.sh`'s `stop_instance()` now requires an exact `--world <slug>`/`--world=<slug>` token, not `*$slug*` | `test_instance_stop_scope.py::test_stop_instance_launcher_verification_rejects_slug_substring_match` | `6902eee` |
+| M3 | Ollama could be killed by a launcher's own cleanup while a sibling instance is live | Ollama PID tracked separately (`_INST_OLLAMA_PID`, never in `_INST_PIDS`); killed in cleanup only when no sibling instance is alive | `test_instance_ollama_cross_instance.py` (2 tests) | `9223db4` |
+| M4 | No `EXIT` trap on the claim | `trap '_instance_cleanup_and_exit $?' EXIT` installed right after the claim succeeds; cleared before the final `wait`; cleanup disarms all three traps on entry | `instance_start_driver.sh` scenario 11 (breaks `_set_env_var` to force a `set -e` abort mid stage `[4/8]`) | `aacfec1` |
+| M5 | `stop --world` had no slug jail | `reset.sh`'s `stop` dispatch rejects an invalid slug (`inst_valid_slug`) before `stop_instance`/`inst_read_record` are ever called | `test_instance_stop_scope.py::test_stop_world_traversal_slug_is_rejected_before_touching_disk` | `2b49e10` |
+| M6 | Instance PKB/data/secrets unreachable by every `reset` mode | Documented (per REVIEW's stated minimum) in `docs/concurrent-worlds.md` (new section) and `CHANGELOG.md`; filed as a `sprints/BACKLOG.md` item with a manual workaround named | — (documentation finding; no code path to regression-test) | `a947873` |
+| M7 | `✗ unreadable` row unreachable in `status` | `inst_list_slugs` now emits every `*.json` basename unread, letting the caller (already-correct `status.sh`) classify + quarantine | `test_instance_stop_scope.py::test_status_renders_unreadable_row_for_corrupt_registry_record`; `test_instance_registry.py`'s list-slugs test updated for the new contract | `0ab5614` |
+| m2 | Daemon guard ran before arg parsing | Folded into the B2 commit (moving the guard is what makes B2's fix coherent — `--list`/`--help` must bypass it) | covered by the B2 tests above | `9c7e120` |
+| m9 | `reset.sh --world` as the final token aborted under `set -e` | `shift; [[ $# -gt 0 ]] && shift` instead of a bare `shift 2` | (one-line defensive fix; exercised incidentally by every `--world <slug>` test above) | `78169ad` |
+
+### MINORs acknowledged, deferred (not one-line-class or outside touched files)
+
+- **m1** — `status.sh:27` sources `lab.conf` without `set -a`. No functional
+  impact today; deferred as a follow-up ticket rather than touching
+  `status.sh` in this pass.
+- **m3** — F17 doesn't name the PID holding the port (only the `lsof`
+  command). Deferred.
+- **m4** — `/api/instances`'s "never spawns a process" test assertion
+  doesn't ban `subprocess.run` explicitly. Deferred (test-hardening only,
+  `app.py`/test not otherwise touched this pass).
+- **m6** — Pack re-read (`start.sh`) doesn't undo `_set_env_var`'s escaping
+  for `\`/`"`/`` ` ``/`$` in a path. Latent (ports are numeric today).
+  Deferred — would need its own test and is unrelated to the BLOCK/MAJOR
+  findings.
+- **m7** — `arailctl:249`'s `[[ "$*" == *--all* ]]` is an unanchored
+  substring match. Deferred — same file (`arailctl`) touched for B2, but
+  this is a distinct, unrelated argv-parsing site; bundling it would not
+  be an atomic fix.
+- **m8** — `Path.cwd()`-rooted reads in `app.py` beyond the one acknowledged
+  `egress.py:92` bypass. Deferred — `app.py` not touched by any BLOCKER/
+  MAJOR fix in this pass.
+- **m10** — `arailctl_version` is a literal string, not `git describe`.
+  Cosmetic; deferred.
+- **m11** — Ctrl-C leaves a live-looking registry record until the next
+  `status`/`start` prune. Self-heals per F2; deferred.
+- **m12** — No single test proves the full in-process composition of the
+  isolation seam. REVIEW.md itself calls this "Acceptable; QA should close
+  it with the manual two-World launch" — not a builder-pass item.
+
+### Findings NOT taken: none conflicted with ARCHITECTURE.md
+
+Every BLOCKER and MAJOR's prescribed fix was directly implementable
+without touching ARCHITECTURE.md's design intent — no "Architect feedback
+required" entry was needed for this pass (see below, unchanged from the
+original build).
+
+### Final state (review-fix pass)
+
+- **10 commits**, one per finding/finding-group, `9c7e120` → `a947873`
+  (see table above for individual SHAs).
+- **Targeted regression sweep** (the 9 named instance test files +
+  `test_reset_stop_scope.py` + `test_reset_paths.py` +
+  `test_world_switcher.py` + `test_world_mount.py`, plus this pass's new
+  files `test_instance_readiness_probe.py` and
+  `test_instance_ollama_cross_instance.py`): **148 passed, 2 failed** — the
+  2 failures are `test_reset_stop_scope.py`'s pre-existing `awk`-extraction
+  ordering issue (documented in WP1/WP5's sections above; unrelated to
+  this pass).
+- **Full-suite run** (`pytest tests/ -q`): **47 failed, 3488 passed, 3
+  skipped, 1 xfailed, 7 errors** — the failed count is byte-identical to
+  the 47 pre-existing failures the original build's WP8 baseline-diff
+  established; the +11 passed (3488 − 3477) are this pass's new regression
+  tests. Zero new regressions.
+- **`instance_start_driver.sh`**: 11/11 scenarios pass (10 original + 1
+  new, M4's claim-leak scenario); no leaked listening sockets after a full
+  run.
+- **New test files (2):** `tests/test_instance_readiness_probe.py` (4),
+  `tests/test_instance_ollama_cross_instance.py` (2).
+- **Files touched this pass:** `arailctl`, `scripts/start.sh`,
+  `scripts/reset.sh`, `scripts/lib/instances.sh`,
+  `tests/test_daemon_predicate.py`, `tests/test_instance_stop_scope.py`,
+  `tests/test_instance_registry.py`, `tests/instance_start_driver.sh`,
+  `tests/test_instance_readiness_probe.py` (new),
+  `tests/test_instance_ollama_cross_instance.py` (new),
+  `docs/concurrent-worlds.md`, `CHANGELOG.md`, `sprints/BACKLOG.md`. No
+  file outside the WP1-8 original list plus these was touched.
