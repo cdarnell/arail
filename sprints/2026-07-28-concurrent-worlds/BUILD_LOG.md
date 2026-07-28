@@ -13,6 +13,7 @@
 | WP3 | `scripts/lib/instances.sh`, `scripts/setup.sh` (export `_port_in_use`/`_find_free_port`), `tests/test_instance_ports.py` (new) | Env pack writer, first-boot scaffold, block port allocation + pinning, exclusion list, sub-9100 hard stop. | `test_instance_ports.py` + `test_instance_paths.py`; hand-written pack round-trip | pending |
 | WP4 | `scripts/start.sh`, `arailctl` (usage text), `tests/instance_start_driver.sh` (new), `tests/test_instance_start.py` (new) | Arg parsing, picker, attach-on-running, 8-stage launch, claim/trap, instance-service gating, `warn()` fix, `set -a` around `lab.conf`. | `instance_start_driver.sh` suite; manual two-World launch (deferred to QA per orchestrator note) | pending |
 | WP5 | `scripts/status.sh`, `scripts/reset.sh`, `arailctl`, `tests/test_instance_stop_scope.py` (new) | Instance table (+`--json`, `--probe`), stale prune, `stop --world/--all` with verified-PID kill, port-scoped legacy `stop_services` patterns, `check()`'s port-agnostic Portal/MLX match fixed. | `test_instance_stop_scope.py` + `test_reset_stop_scope.py` + `test_reset_paths.py`; timed `status` < 2s w/ 3 stub records | `80c134b` |
+| WP6 | `src/arail/portal/app.py`, `tests/test_instance_api.py` (new) | `GET /api/instance`, `GET /api/instances`, the absolute-path boot assertion (F14), `POST /api/worlds/select` → 409 `instance_live` (F11). | `test_instance_api.py`; `test_world_switcher.py` + `test_world_mount.py` stay green | pending |
 
 ## Execution
 
@@ -479,6 +480,89 @@ real backgrounded stub processes registered) and `--json` output validity
   passed** (WP4's driver, confirming WP5 introduced no regression there).
 
 Commit: `80c134b`
+
+### WP6 — Portal endpoints + boot assertion
+
+**`src/arail/portal/app.py`** — four additions, all inside the file WP6
+names:
+
+1. **Boot assertion** (§6.4, F14): `_assert_instance_paths_absolute()`,
+   called at module import time (before the FastAPI app object is even
+   built), asserts `LAB_ROOT`/`DATA_DIR`(`ARAIL_DATA_DIR`)/`PKB_ROOT`
+   (`LAB_PKB`)/`MODELS_DIR`(`ARAIL_MODELS_DIR`)/`WORLDS_DIR`
+   (`ARAIL_WORLDS_DIR`) are all `.is_absolute()` — but ONLY when
+   `ARAIL_INSTANCE` is set; the root lab (unset) is untouched, preserving
+   today's CWD-relative-default behaviour exactly. Raises `RuntimeError`
+   naming the offending env key on failure — fails loud at process
+   startup, before uvicorn ever binds a port, so a broken env pack
+   surfaces as an immediate, named crash instead of a silently-misrouted
+   instance.
+2. **`GET /api/instance`** (§5.1): self-report shape per spec
+   (`slug`/`token`/`portal_port`/`checkout`/`data_root`/`world`/
+   `display_name`/`started_at`); root lab (no `ARAIL_INSTANCE`) returns
+   `{"slug": "root", "token": None, ...}`. Read-only; `checkout` is
+   `Path.cwd()` (the process's CWD, which `start.sh` never changes away
+   from `REPO_ROOT` before spawning uvicorn — the same assumption several
+   existing root-lab call sites in this file already make, e.g. the
+   `Path.cwd() / "lab" / "data" / ...` sites near the diagnostics routes).
+3. **`GET /api/instances`** (§5.2): reads `<cwd>/lab/instances/registry.d/
+   *.json` directly (the CLI's own registry — no cross-instance HTTP, no
+   discovery protocol, no shared in-process state), computes liveness via
+   predicate steps 1-3 only (`os.kill(pid, 0)` + `ps -p <pid> -o
+   command=` module/port match) — deliberately NO network probe from a
+   request handler (an HTTP fan-out inside a handler is a stall risk, per
+   spec). Corrupt records are skipped, never crash the endpoint (mirrors
+   the CLI's F16 contract, minus quarantine — read-only introspection
+   doesn't mutate the registry).
+4. **`POST /api/worlds/select` → 409 `instance_live`** (§5.3, F11):
+   inserted between the existing path-jail resolve and the `mount()` call
+   — if the resolved bundle dir's name (`bundle_dir.name`, the World's
+   catalog slug) has a live registry record, refuse with
+   `{"error": "instance_live", "message": "..."}` before touching disk.
+   Runs AFTER the existing CSRF envelope (cross-site/origin), so the new
+   guard adds a check, never weakens one — verified by a dedicated test.
+
+**Deviation, narrow (helper placement):** the registry-read/liveness
+helpers (`_instance_registry_dir`, `_read_instance_records`,
+`_instance_record_alive`) are private module-level functions in
+`app.py`, not a shared library call — WP6's file list is `app.py` only,
+and the portal's liveness check is intentionally a SEPARATE, simpler
+Python re-implementation of predicate steps 1-3 (no bash, no sourcing
+`scripts/lib/instances.sh` from a Python process) rather than a shared
+dependency across languages. This mirrors how the shell side (`inst_alive`)
+and the Python side were already designed as parallel, spec-pinned
+implementations of the same predicate (ARCHITECTURE.md §2.3), not a single
+shared implementation — there is no existing Python↔bash bridge in this
+codebase to reuse, and building one is out of WP6's scope.
+
+Wrote `tests/test_instance_api.py` (12 tests): `/api/instance` shape for
+root and instance (token, port, display_name); read-only (no filesystem
+mutation); `/api/instances` roster (portal_port passthrough, no-network
+liveness renders a dead-PID record as not-live, empty registry, corrupt
+record skipped not crashed); a grep-style source-inspection test that
+neither endpoint's source contains a process-spawn call (§9 Security #3);
+the boot assertion both ways (root lab unaffected; a relative `LAB_ROOT`
+under `ARAIL_INSTANCE` crashes the import, naming `LAB_ROOT` in the
+error) via a real subprocess import (not an in-process monkeypatch, since
+the assertion fires at IMPORT time); the 409 `instance_live` guard (blocks
+mount, leaves the current mount unchanged) and its CSRF-envelope
+preservation (a cross-site request is still 403'd first).
+
+**Gate result:** PASS.
+- `python -c "import ast; ast.parse(...)"` clean; a real `from
+  arail.portal.app import app` import succeeds (root lab).
+- `PYTHONPATH=src <venv>/bin/python -m pytest tests/test_instance_api.py -q`
+  → **12 passed**.
+- `PYTHONPATH=src <venv>/bin/python -m pytest tests/test_instance_api.py
+  tests/test_world_switcher.py tests/test_world_mount.py
+  tests/test_world_identity_flip.py tests/test_default_worlds_catalog.py -q`
+  → **66 passed** — both named-in-the-gate suites (`test_world_switcher.py`,
+  `test_world_mount.py`) stay fully green, plus the two other World suites
+  named in ARCHITECTURE.md §9's "must stay green" list.
+- Full-suite regression run started in the background; see the "Final
+  state" section for the tallied result once WP8 closes it out.
+
+Commit: `pending`
 
 ## Architect feedback required
 
