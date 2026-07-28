@@ -358,7 +358,7 @@ explicit pre-authorization:**
   test_world_switcher.py test_world_mount.py`) → **98 passed, 3 failed**,
   the same 3 pre-existing failures as every prior WP (confirmed unchanged).
 
-Commit: `<pending — see report>`
+Commit: `96a846d`
 
 ## Architect feedback required
 
@@ -370,7 +370,7 @@ Commit: `<pending — see report>`
   1. `59f0241` — WP1: `scripts/lib/instances.sh` paths/registry/liveness
   2. `0db90c1` — WP2: retire the four daemon-liveness checks
   3. `cf16ec8` — WP3: env pack writer, first-boot scaffold, port allocation
-  4. *(this WP)* — WP4: `start.sh` retrofit
+  4. `96a846d` — WP4: `start.sh` retrofit
 - **New test files:** `tests/test_instance_registry.py` (21),
   `tests/test_instance_paths.py` (6), `tests/test_daemon_predicate.py` (7),
   `tests/test_instance_ports.py` (25), `tests/instance_start_driver.sh` +
