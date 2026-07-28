@@ -104,14 +104,22 @@ if [[ -z "${LAB_PKB:-}" && -n "${LAB_PKM:-}" ]]; then
 fi
 
 # ── Stop running services ────────────────────────────────────────────
+# stop_services — stops the ROOT lab only. Patterns are ARAIL-SCOPED
+# (module paths) AND, for the uvicorn processes, PORT-scoped
+# (ARCHITECTURE.md §4.2 "Fixing reset.sh's kill-everything"): a bare
+# "uvicorn.*arail\.portal\.app" pattern matches ANY portal on the box, so
+# the moment a second World instance exists, an un-scoped root-lab stop
+# would silently kill it mid-write (F15). Appending the root lab's own
+# PORTAL_PORT/LANCE_PORT/MLX_OPENAI_PORT to the pattern means this
+# function only ever touches the root lab's own processes; instance
+# processes are stopped exclusively via stop_instance() below, using
+# registry-verified PIDs.
 stop_services() {
     info "Stopping ${LAB_NAME} services..."
-    # Patterns are ARAIL-SCOPED (module paths / lab ports) — a bare
-    # "uvicorn" pattern used to kill any unrelated uvicorn on the box.
     local patterns=(
-        "uvicorn.*arail\.portal\.app"
-        "uvicorn.*arail\.memory_service"
-        "uvicorn.*arail\.mlx_openai_server"
+        "uvicorn.*arail\.portal\.app.*--port ${PORTAL_PORT:-8080}"
+        "uvicorn.*arail\.memory_service.*--port ${LANCE_PORT:-7414}"
+        "uvicorn.*arail\.mlx_openai_server.*--port ${MLX_OPENAI_PORT:-11435}"
         "ttyd.*${TERMINAL_PORT:-7681}"
         "jupyter-lab.*${NOTEBOOK_PORT:-8888}"
         "code-server.*${IDE_PORT:-8443}"
@@ -160,11 +168,119 @@ stop_services() {
     fi
 }
 
+# stop_instance <slug> — instance-scoped kill (ARCHITECTURE.md §4.2).
+# Only ever kills a PID that VERIFIES against the registry record (module +
+# port for portal/memory, "start.sh ... <slug>" for the launcher). An
+# unverified PID (F3: reused by an unrelated process) is skipped and
+# reported — never killed. Removes the registry record only; NEVER touches
+# lab/instances/<slug>/ data. Requires scripts/lib/instances.sh to be
+# sourced (guarded by the caller — this function is only invoked when
+# `command -v inst_read_record` succeeds).
+stop_instance() {
+    local slug="$1"
+    local rec rc
+    if rec="$(inst_read_record "$slug" 2>/dev/null)"; then
+        rc=0
+    else
+        rc=$?
+    fi
+    if (( rc != 0 )); then
+        warn "No (readable) registry record for '${slug}' — nothing to stop."
+        return 0
+    fi
+
+    local portal_pid memory_pid launcher_pid portal_port lance_port
+    portal_pid="$(inst_record_field "$rec" portal_pid)"
+    memory_pid="$(inst_record_field "$rec" memory_pid)"
+    launcher_pid="$(inst_record_field "$rec" launcher_pid)"
+    portal_port="$(inst_record_field "$rec" portal_port)"
+    lance_port="$(inst_record_field "$rec" lance_port)"
+
+    info "Stopping World instance '${slug}'..."
+
+    local verified_pids=()
+    local cmd
+
+    if [[ -n "$portal_pid" ]]; then
+        cmd="$(ps -p "$portal_pid" -o command= 2>/dev/null || true)"
+        if [[ -n "$cmd" && "$cmd" =~ uvicorn.*arail\.portal\.app ]] \
+           && { [[ "$cmd" == *"--port $portal_port"* ]] || [[ "$cmd" == *"--port=$portal_port"* ]]; }; then
+            verified_pids+=("$portal_pid")
+        else
+            warn "  portal pid ${portal_pid} did not verify (module/port mismatch) — skipped, not killed."
+        fi
+    fi
+
+    if [[ -n "$memory_pid" ]]; then
+        cmd="$(ps -p "$memory_pid" -o command= 2>/dev/null || true)"
+        if [[ -n "$cmd" && "$cmd" =~ uvicorn.*arail\.memory_service ]] \
+           && { [[ "$cmd" == *"--port $lance_port"* ]] || [[ "$cmd" == *"--port=$lance_port"* ]]; }; then
+            verified_pids+=("$memory_pid")
+        else
+            warn "  memory pid ${memory_pid} did not verify (module/port mismatch) — skipped, not killed."
+        fi
+    fi
+
+    if [[ -n "$launcher_pid" ]]; then
+        cmd="$(ps -p "$launcher_pid" -o command= 2>/dev/null || true)"
+        if [[ -n "$cmd" && "$cmd" == *"start.sh"* && "$cmd" == *"$slug"* ]]; then
+            verified_pids+=("$launcher_pid")
+        else
+            warn "  launcher pid ${launcher_pid} did not verify — skipped, not killed."
+        fi
+    fi
+
+    if (( ${#verified_pids[@]} > 0 )); then
+        kill "${verified_pids[@]}" 2>/dev/null || true
+        # SIGTERM → up to 2s grace → SIGKILL stragglers, same shape as
+        # stop_services() above.
+        local waited=0
+        while (( waited < 20 )); do
+            local alive=""
+            for pid in "${verified_pids[@]}"; do
+                kill -0 "$pid" 2>/dev/null && alive="1"
+            done
+            [[ -z "$alive" ]] && break
+            sleep 0.1; waited=$((waited + 1))
+        done
+        for pid in "${verified_pids[@]}"; do
+            kill -0 "$pid" 2>/dev/null && kill -9 "$pid" 2>/dev/null || true
+        done
+        info "  stopped ${#verified_pids[@]} verified process(es)."
+    else
+        info "  no verified processes to stop."
+    fi
+
+    # Ollama: only if THIS was the last live World instance, and only the
+    # pidfile in THIS instance's own data dir (never pattern-matched, never
+    # an Ollama we didn't start — same rule as the root lab).
+    local remaining=0 other_slug
+    while IFS= read -r other_slug; do
+        [[ -n "$other_slug" && "$other_slug" != "$slug" ]] || continue
+        inst_alive "$other_slug" && remaining=$((remaining + 1))
+    done < <(inst_list_slugs)
+    if (( remaining == 0 )); then
+        local inst_data ollama_pid
+        inst_data="$(inst_data_dir "$slug")"
+        ollama_pid="$(_ollama_pid_if_we_started_it "$inst_data")"
+        if [[ -n "$ollama_pid" ]]; then
+            kill "$ollama_pid" 2>/dev/null || true
+            rm -f "${inst_data}/.ollama-started-by-arail.pid"
+        fi
+    fi
+
+    # Remove ONLY the registry record — never lab/instances/<slug>/ data.
+    rm -f "$(inst_registry_file "$slug")"
+}
+
 # Returns the PID on stdout iff the pidfile exists AND that PID is still
 # alive; empty otherwise. Never touches the pidfile — callers decide
 # whether to kill the process and/or remove the file.
+# Optional $1: a data dir to check instead of the root lab's $DATA_DIR —
+# used by stop_instance() to check a World instance's OWN pidfile
+# (ARCHITECTURE.md §4.2 step 5: "the pidfile in THAT instance's data dir").
 _ollama_pid_if_we_started_it() {
-    local pidfile="${DATA_DIR}/.ollama-started-by-arail.pid"
+    local pidfile="${1:-$DATA_DIR}/.ollama-started-by-arail.pid"
     [[ -f "$pidfile" ]] || return 0
     local pid
     pid="$(cat "$pidfile" 2>/dev/null || true)"
@@ -520,17 +636,38 @@ confirm_and_run() {
 }
 
 # ── Entry point ──────────────────────────────────────────────────────
+# --world/--all only matter to `stop` mode (ARCHITECTURE.md §4.2); a
+# plain for-loop can't consume "--world <slug>" as two tokens, so this is
+# a while loop now (was a for loop before this WP).
 MODE=""
-for arg in "$@"; do
-    case "$arg" in
-        --yes|-y) AUTO_CONFIRM="true" ;;
+STOP_WORLD=""
+STOP_ALL="false"
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --yes|-y) AUTO_CONFIRM="true"; shift ;;
+        --all)    STOP_ALL="true"; shift ;;
+        --world)  STOP_WORLD="${2:-}"; shift 2 ;;
+        --world=*) STOP_WORLD="${1#--world=}"; shift ;;
         *)
             if [[ -z "$MODE" ]]; then
-                MODE="$arg"
+                MODE="$1"
             fi
+            shift
             ;;
     esac
 done
+
+# stop_all_instances — every LIVE World instance, via stop_instance()
+# (registry-verified kill). No-op if instances.sh isn't sourced (sandboxed
+# test copies of this file alone).
+stop_all_instances() {
+    command -v inst_list_slugs >/dev/null 2>&1 || return 0
+    local s
+    while IFS= read -r s; do
+        [[ -n "$s" ]] || continue
+        inst_alive "$s" && stop_instance "$s"
+    done < <(inst_list_slugs)
+}
 
 case "${MODE:-}" in
     models)  confirm_and_run "models" reset_models ;;
@@ -543,7 +680,42 @@ case "${MODE:-}" in
     env)     confirm_and_run "environment" reset_env ;;
     full)    confirm_and_run "FULL WIPE" full_wipe ;;
     destroy) confirm_and_run "DESTROY LAB" destroy_lab ;;
-    stop)    stop_services ;;
+    stop)
+        # Instance-aware dispatch (ARCHITECTURE.md §4.2). Degrades to plain
+        # stop_services() when scripts/lib/instances.sh isn't sourced
+        # (sandboxed single-file test copies of reset.sh).
+        if [[ -n "$STOP_WORLD" ]]; then
+            if command -v inst_read_record >/dev/null 2>&1; then
+                stop_instance "$STOP_WORLD"
+            else
+                error "instance support unavailable in this context"; exit 1
+            fi
+        elif [[ "$STOP_ALL" == "true" ]]; then
+            stop_all_instances
+            stop_services
+        elif command -v inst_list_slugs >/dev/null 2>&1; then
+            LIVE_SLUGS=()
+            while IFS= read -r s; do
+                [[ -n "$s" ]] && inst_alive "$s" && LIVE_SLUGS+=("$s")
+            done < <(inst_list_slugs)
+            if (( ${#LIVE_SLUGS[@]} == 0 )); then
+                stop_services
+            elif (( ${#LIVE_SLUGS[@]} == 1 )); then
+                info "Stopping '${LIVE_SLUGS[0]}' (the only running World instance)..."
+                stop_instance "${LIVE_SLUGS[0]}"
+                stop_services
+            else
+                error "Multiple World instances are running — specify which to stop:"
+                for s in "${LIVE_SLUGS[@]}"; do
+                    echo "    ./arailctl stop --world ${s}"
+                done
+                echo "    ./arailctl stop --all"
+                exit 1
+            fi
+        else
+            stop_services
+        fi
+        ;;
     -h|--help) usage; exit 0 ;;
     "")      interactive_menu ;;
     *)       usage; exit 1 ;;

@@ -1,8 +1,8 @@
-# Build log: Concurrent Worlds as independent instances (WP1-WP4)
+# Build log: Concurrent Worlds as independent instances
 
 **Architecture:** [ARCHITECTURE.md](./ARCHITECTURE.md)
 **Started:** 2026-07-28
-**Builder scope this pass:** WP1-WP4 only. WP5-WP8 belong to a second builder pass.
+**Pass 1 scope:** WP1-WP4 (see below). **Pass 2 scope (this section's tail):** WP5-WP8.
 
 ## Plan
 
@@ -12,6 +12,7 @@
 | WP2 | `arailctl`, `scripts/start.sh:35`, `scripts/status.sh:42`, `scripts/install-daemon.sh:76-79`, `tests/test_daemon_predicate.py` (new) | Every liveness-check site calls `daemon_active`/`inst_*` from `scripts/lib/instances.sh`. Plist-trap fix (F9). | grep for stray plist/launchctl strings; `test_daemon_predicate.py` | pending |
 | WP3 | `scripts/lib/instances.sh`, `scripts/setup.sh` (export `_port_in_use`/`_find_free_port`), `tests/test_instance_ports.py` (new) | Env pack writer, first-boot scaffold, block port allocation + pinning, exclusion list, sub-9100 hard stop. | `test_instance_ports.py` + `test_instance_paths.py`; hand-written pack round-trip | pending |
 | WP4 | `scripts/start.sh`, `arailctl` (usage text), `tests/instance_start_driver.sh` (new), `tests/test_instance_start.py` (new) | Arg parsing, picker, attach-on-running, 8-stage launch, claim/trap, instance-service gating, `warn()` fix, `set -a` around `lab.conf`. | `instance_start_driver.sh` suite; manual two-World launch (deferred to QA per orchestrator note) | pending |
+| WP5 | `scripts/status.sh`, `scripts/reset.sh`, `arailctl`, `tests/test_instance_stop_scope.py` (new) | Instance table (+`--json`, `--probe`), stale prune, `stop --world/--all` with verified-PID kill, port-scoped legacy `stop_services` patterns, `check()`'s port-agnostic Portal/MLX match fixed. | `test_instance_stop_scope.py` + `test_reset_stop_scope.py` + `test_reset_paths.py`; timed `status` < 2s w/ 3 stub records | pending |
 
 ## Execution
 
@@ -359,6 +360,125 @@ explicit pre-authorization:**
   the same 3 pre-existing failures as every prior WP (confirmed unchanged).
 
 Commit: `96a846d`
+
+### WP5 — `status` / `stop` / `reset.sh` scoping
+
+**`scripts/status.sh`** — new instance table (§4.1) rendered before the
+existing venv/services/scheduler/runtime-state sections (unchanged below
+the new block): registry-driven, no-network by default (predicate steps
+1-3 only, via `inst_alive`); `--probe` adds step 4 (`inst_probe_matches`)
+and renders a `⚠ serving from a DIFFERENT checkout: <path>` line on
+mismatch (F4); `--json` prints ONLY the row array and exits (a clean,
+scriptable, non-mixed-output mode — human mode prints the header +
+sections as before); unreadable/corrupt records render `✗ unreadable`
+(F16); a live record whose `data_dir` no longer exists on disk renders
+`⚠ data root missing` without being pruned (F7); stale records render
+`✗ stale (pid N gone)` and are pruned as a side effect AFTER rendering
+(§2.5 — a pruned record must still be shown once). `check()`'s
+port-agnostic match (§2.6 finding) is fixed for the two uvicorn checks
+(Portal, MLX API) by folding the port into the pattern argument; the
+three non-instance-startable services (ttyd/jupyter/code-server, §3.6)
+are left as module-name matches since a World instance never starts them
+and their real command lines don't carry a `--port <n>` flag anyway
+(ttyd: `-p`, jupyter: `--port=`, code-server: `--bind-addr`) — a blind
+port suffix would have broken those three, not fixed anything.
+
+**`scripts/reset.sh`** — `stop_services()` (root-lab only) patterns are
+now port-scoped for the three uvicorn processes (`--port <PORTAL_PORT>`
+etc.), closing F15 (a bare module-name pgrep pattern used to match ANY
+World instance's portal/memory process too, so an un-scoped root-lab stop
+could kill a live instance mid-write the moment a second instance
+existed). New `stop_instance <slug>` function: kills ONLY registry-PIDs
+that VERIFY (portal: module + `--port <portal_port>`; memory: module +
+`--port <lance_port>`; launcher: cmdline contains both `start.sh` and the
+slug) — an unverified PID (F3, PID reuse) is skipped and reported, never
+killed; TERM → 2s grace → KILL, same shape as `stop_services()`; stops a
+World's OWN Ollama only if it was this instance's last live sibling AND
+the pidfile lives in THAT instance's own data dir (never pattern-matched,
+never touches an Ollama the instance didn't start); removes only the
+registry record, never `lab/instances/<slug>/`. `_ollama_pid_if_we_started_it`
+generalized to take an optional pidfile-dir argument (default `$DATA_DIR`,
+unchanged for the root lab) so `stop_instance` can reuse it instead of a
+second copy. Entry-point arg parsing changed from a `for` loop to a
+`while` loop (a `for` can't consume `--world <slug>` as two tokens); `stop`
+mode now dispatches per §4.2's table (0/1/≥2 live instances) and honors
+`--world`/`--all`, degrading to plain `stop_services()` when
+`scripts/lib/instances.sh` isn't sourced (the same sandboxed-single-file
+test-copy scenario WP2 already documented for the daemon-active NOTE).
+
+**`arailctl`** — `stop [--world <slug>] [--all]` now bypasses the
+daemon-active branch entirely when either flag is present (§4.3: stopping
+an instance is orthogonal to root-lab daemon supervision) and forwards
+`"$@"` to `reset.sh stop` either way. Help text updated for `stop` and
+`status`.
+
+**Bug found and fixed while restructuring `status.sh` (not a deviation —
+same class of latent `set -e` landmine WP4 already ruled in-scope for
+files being rewritten anyway, §10's "Ruling on the two latent fixes"):**
+`source lab.conf 2>/dev/null || true` does **not** reach the `\|\| true`
+in bash 3.2 (macOS's shipped `/bin/bash`) when `lab.conf` is entirely
+absent — a "file not found" `source` error aborts a non-interactive shell
+outright, bypassing the trailing `\|\|`. On a fresh checkout before
+`./arailctl setup` has ever run, a bare `./arailctl status` would crash
+silently (no message, exit 1). Discovered because the new instance-table
+test harness runs `status.sh` in a fixture repo with no `lab.conf`, which
+no existing test had ever done. Fixed by guarding with `[[ -f lab.conf ]]`
+(matching the `.env` line immediately above it, which was already
+correctly guarded).
+
+**Deviation, narrow (file list):** WP5's file list is `status.sh`,
+`reset.sh`, `arailctl`. `scripts/lib/instances.sh` was **not** touched —
+`stop_instance()`/`stop_all_instances()` live in `reset.sh` and consume
+only the generic `inst_*` primitives WP1 already shipped
+(`inst_read_record`, `inst_record_field`, `inst_alive`, `inst_list_slugs`,
+`inst_data_dir`, `inst_registry_file`), so no new function needed to be
+added to the shared library. This keeps the diff exactly on the WP5 file
+list.
+
+Wrote `tests/test_instance_stop_scope.py` (7 tests, same extraction
+technique as `test_reset_stop_scope.py`: real `scripts/lib/instances.sh`
+sourced, `stop_instance`/`stop_services`/`_ollama_pid_if_we_started_it`
+extracted from the real `reset.sh` via the same `awk` range, `ps`/`pgrep`/
+`kill` overridden as bash FUNCTIONS — not PATH executables, since `kill`
+is a builtin and only a function definition can shadow it, per the WP4
+BUILD_LOG note): verified-PID-only kill; F3 (unverified/recycled PID
+skipped, reported, not killed); unknown-slug no-op; F15 (root-lab
+`stop_services` leaves a different-port instance alive) plus the
+pre-existing module-scoping regression check; `status` timing (< 2s, 3
+real backgrounded stub processes registered) and `--json` output validity
+(includes the registered slug; a genuinely-dead PID renders `state:
+"stale"`, not `"live"`).
+
+**Gate result:** PASS.
+- `bash -n` clean on `status.sh`, `reset.sh`, `arailctl`; `shellcheck`
+  clean on all three (only the same pre-existing warnings from prior WPs:
+  SC2088/SC2206 in `reset.sh`, SC2034/SC2043 in `arailctl`, none on lines
+  this WP touched).
+- `PYTHONPATH=src <venv>/bin/python -m pytest tests/test_instance_stop_scope.py
+  tests/test_reset_stop_scope.py tests/test_reset_paths.py -q` →
+  **7/7 new tests pass**; `test_reset_stop_scope.py` shows its 2
+  pre-existing failures unchanged (confirmed: both fail on
+  `_ollama_pid_if_we_started_it: command not found` — that driver only
+  `awk`-extracts the single `stop_services` function, and
+  `_ollama_pid_if_we_started_it` is defined further down the file; this
+  was already true of the ORIGINAL `stop_services` before WP5, since it
+  already called that helper — pre-existing, unrelated to this WP's
+  edits); `test_reset_paths.py` 10/10 green.
+- Timed `status` with 3 stub records (real backgrounded processes,
+  registry rows built by `_write_record`) → **well under 2s** (measured
+  ~0.2-0.4s locally; the test asserts `< 2.0`).
+- Full targeted regression sweep (`test_instance_registry.py
+  test_instance_paths.py test_daemon_predicate.py test_instance_ports.py
+  test_instance_stop_scope.py test_reset_stop_scope.py test_reset_paths.py
+  test_shell_source_safety.py test_world_switcher.py test_world_mount.py
+  test_world_reset.py test_world_identity_flip.py
+  test_default_worlds_catalog.py`) → **136 passed, 3 failed** — the same 3
+  pre-existing failures as every prior WP (2 in `test_reset_stop_scope.py`
+  per above, 1 `tomllib`-on-Python-3.9 gap in `test_shell_source_safety.py`).
+- `ARAIL_TEST_VENV=<venv> pytest tests/test_instance_start.py -q` → **1
+  passed** (WP4's driver, confirming WP5 introduced no regression there).
+
+Commit: `pending`
 
 ## Architect feedback required
 

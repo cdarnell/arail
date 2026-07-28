@@ -167,6 +167,7 @@ EOF
                     — with 2+ Worlds configured, bare 'start' picks interactively;
                     a running World is attached to, never respawned
     stop            stop lab services (unloads launchd agents in daemon mode)
+                    [--world <slug>] [--all] — target one/all World instances
     restart         stop then start (launchctl kickstart -k in daemon mode)
     install-daemon  supervise the lab with launchd — starts at login, respawns on crash
     uninstall-daemon  remove launchd supervision (back to dev/foreground mode)
@@ -174,7 +175,7 @@ EOF
     deep <op>       AeroLLM 2nd inference: rebuild (source) | update (wheel) | status
     update          check for and apply component updates
     version         show installed component versions
-    status          show what's running
+    status [--json] [--probe]  show what's running (World instances + root lab)
     doctor          validate the environment end-to-end
     logs [comp]     tail activity log — filter by component
     reset [mode]    wipe state — models|data|pkb|plugins|env|full|destroy
@@ -241,6 +242,13 @@ case "$cmd" in
         exec bash "$REPO_ROOT/scripts/start.sh" "$@"
         ;;
     stop)
+        # --world/--all target a specific World instance (or all of them) —
+        # orthogonal to daemon supervision of the ROOT lab (ARCHITECTURE.md
+        # §4.3: stop never unloads plists as a side effect of stopping an
+        # instance), so these bypass the daemon branch below entirely.
+        if [[ "$*" == *--world* || "$*" == *--all* ]]; then
+            exec bash "$REPO_ROOT/scripts/reset.sh" stop "$@"
+        fi
         if daemon_active; then
             for label in $(daemon_agents); do
                 launchctl unload "$HOME/Library/LaunchAgents/$label.plist" 2>/dev/null || true
@@ -248,7 +256,7 @@ case "$cmd" in
             echo "Lab agents unloaded — they stay stopped until ./arailctl start."
             exit 0
         fi
-        exec bash "$REPO_ROOT/scripts/reset.sh" stop
+        exec bash "$REPO_ROOT/scripts/reset.sh" stop "$@"
         ;;
     restart)
         if daemon_active; then
