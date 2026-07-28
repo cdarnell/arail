@@ -1498,3 +1498,157 @@ to a character-count heuristic.
    `test_debt_finance_qa_adversarial.py`.
 5. `docs(debt-finance): record the segment-based provenance refactor in
    BUILD_LOG and ARCHITECTURE §13.11`.
+
+## Round 7: provenance-and-name-tag fix (2026-07-27)
+
+**Trigger:** REVIEW.md re-review addendum 6 (round 7), verdict WEAK_PASS on
+commits 689383a/3bed0e0/ccc2b61/d105fed/fe3d344. The evaluative-language
+check was confirmed structural and closed. The institutional-character
+check's neighbour rule was found to still be a proximity window measured
+in segments, not characters: it accepted *any* non-AGENT neighbouring
+segment as a legitimate voucher, without checking that the neighbour
+actually held a *name*. Confirmed live:
+
+```
+check_guardrail([Segment.world("2026-01-15"), Segment.agent(" — Acme Bank is a nonprofit credit union.")])
+# -> ok=True (wrong: a verified-as-of DATE vouching for an unrelated, invented name)
+check_guardrail([Segment.world("https://ncua.gov/x"), Segment.agent(" Globex is a member-owned credit union.")])
+# -> ok=True (wrong: a citation URL vouching for an unrelated, invented name)
+```
+
+### The fix — `is_name`, a second independent tag on `Segment`
+
+`Segment` gained a third field, `is_name: bool = False`, defaulting closed.
+`Segment.world(...)` and `Segment.operator(...)` both take an `is_name=`
+keyword now. It is set `True` only at the two call sites in the whole
+codebase that actually write an institution's own name:
+`Segment.world(v.name, is_name=True)` in `_builtin_debt_advisor._build_output`,
+and `Segment.operator(r.institution, is_name=True)` in
+`_builtin_consolidation_analyzer._build_output`. Every other WORLD/OPERATOR
+call site (`verification_source`, `verified_as_of`, `institution_type`,
+`product`, `source`, `as_of`, `feed`, `checked`, `path`) is left at the
+default `is_name=False`.
+
+`check_guardrail`'s institutional-character branch now has two paths,
+documented in its own docstring:
+
+1. The trigger's own segment is already WORLD/OPERATOR — trusted directly
+   (it is itself verbatim vetted/operator-stated content, e.g. a vetted
+   institution's `institution_type`), no adjacent name needed.
+2. The trigger's own segment is AGENT — legitimate only if an immediate
+   neighbour is a segment that is both non-AGENT *and* `is_name=True`.
+   Adjacency to a non-AGENT segment that is not tagged as a name (a date,
+   URL, product, or source field) is no longer sufficient.
+
+This is not a narrower proximity window — it removes positional inference
+from case 2 entirely. The check no longer asks "is *some* non-AGENT text
+nearby"; it asks "is *the* segment the caller tagged as this institution's
+name nearby." An untagged neighbour, regardless of provenance or content,
+cannot satisfy it.
+
+**Delta from the literal REVIEW.md required-actions list:** REVIEW.md's
+addendum 6 asked for the invariant test, docstring fixes, F9 parity, and
+the stale hint fix, then said to leave §13.11 "OPEN as tech debt, narrowed"
+because the adjacency issue was believed unreachable but unfixed. This
+build closes the adjacency issue itself, per the orchestrating prompt's
+explicit instruction to implement the structural fix (trace the actual
+name span back to its owning segment) rather than merely document the gap
+as accepted debt. §13.11 is marked CLOSED below on that basis — see
+ARCHITECTURE.md's updated §13.11 entry for the reasoning on why this is
+believed to exhaust the defect family, not just pass today's tests.
+
+### Also fixed, per addendum 6's required actions
+
+- **F9 asymmetry:** `_vetted_institution_names` (Consolidation Analyzer)
+  now filters non-dict `terms.json` entries with the same
+  `isinstance(t, dict)` guard `_builtin_debt_advisor._load_terms` already
+  had — a stray malformed entry previously raised `AttributeError`
+  unguarded from `tick()`, which F1's backstop turned into a *silent
+  permanent stall* (every tick logs "skipped this cycle", no findings ever
+  written again) rather than a clean skip.
+- **Stale `REASON_EVALUATIVE` hint:** the analyzer's operator-facing
+  message pointed at `institution`/`product`/`source`/`as_of` — all
+  OPERATOR segments, structurally exempt from the evaluative check since
+  the round-7-part-1 refactor. Updated to name the actual live cause: the
+  LLM-generated framing sentence, the only AGENT-provenance,
+  non-hardcoded text either agent emits.
+- **WORLD evaluative-exemption trust boundary documented:** the module
+  docstring now states explicitly that exempting WORLD segments from the
+  evaluative check is a genuine coverage trade (WORLD content renders with
+  no "as the World states it" marker, unlike every OPERATOR field), backed
+  by `scripts/forge_debt_finance_world.py`'s seal-time `preflight()`
+  evaluative-language scan — confirmed present and wired into the forge's
+  seal path (`preflight()` called at line 173, checks `_EVALUATIVE_RE`
+  against every term's rendered fields) as of this fix.
+- **OPERATOR-vs-WORLD provenance semantics clarified:** the docstring no
+  longer conflates the two. OPERATOR provenance means name authenticity
+  only ("the operator typed this string themselves"); WORLD provenance
+  additionally carries real character verification (`institution_type` +
+  `verification_source` + a fresh `verified_as_of`). The code now reflects
+  this: only a segment explicitly tagged `is_name=True` vouches for a
+  character claim in case 2, regardless of which of the two provenances it
+  carries — OPERATOR is not treated as blanket character-vetting.
+- **Template invariant test added** (defense in depth, not load-bearing
+  for the fix's safety): `test_template_invariant_no_agent_segment_adjacent_to_non_agent_carries_a_trigger_or_is_dynamic`
+  independently re-derives both agents' real `_build_output` segment
+  shapes and asserts no AGENT segment adjacent to a non-AGENT one carries
+  an institutional-character trigger — converting the architect's
+  by-hand-inspection finding into a checked property.
+
+### Test changes
+
+Existing institutional-character tests in `test_debt_finance_compliance.py`,
+`test_debt_finance_agents.py`, and `test_debt_finance_qa_adversarial.py`
+that constructed a bare `Segment.world(...)`/`Segment.operator(...)` to
+stand in for an institution's name were updated to pass `is_name=True` (or
+`name=True` via the local `W`/`O` test helpers) — these were all,
+inspected individually, actually exercising the name field; none were
+exercising a non-name field as a voucher, so no test's intent changed,
+only its explicit tagging. Six new tests added: two direct regressions for
+the date/URL escape (now correctly blocked), one for the OPERATOR analogue
+(a non-name OPERATOR field must not vouch either), one confirming the
+reported `[operator("navy federal", is_name=True), agent(" is a
+nonprofit.")]` shape still legitimizes once actually tagged, one asserting
+`Segment`'s `is_name` factory-default contract, and the template-invariant
+test described above.
+
+### Verification
+
+- `pytest tests/ -k "debt_finance or debt-finance" -q`: 163 passed, 0
+  failed (up from 150 passed at the prior round — 13 net new tests).
+- Every prior round's named repro (BLOCK-1 through BLOCK-7, F1 through
+  F16) re-run by hand against the current API — all hold, no regressions.
+- Both of this round's new repros (date voucher, URL voucher) and the
+  `navy federal` case re-run by hand post-fix — all now behave as
+  required (see commit diff / test file for exact invocations).
+- Full repo suite (`pytest tests/ -q`): 75 pre-existing failures, 14
+  pre-existing errors — confirmed byte-for-byte identical (same test
+  names) on the pre-round-7 commit via `git stash`; none touch
+  `debt_finance_compliance.py`, `_builtin_debt_advisor.py`,
+  `_builtin_consolidation_analyzer.py`, or any `test_debt_finance_*`
+  module. Not attributable to this change.
+- No commented-out code; no TODOs left without an owner.
+
+### Commits (round 7)
+
+1. `fix(debt-finance): add is_name provenance tag, close date/URL voucher
+   escape in institutional-character check` — `debt_finance_compliance.py`,
+   `_builtin_debt_advisor.py`, `_builtin_consolidation_analyzer.py`.
+2. `fix(debt-finance): F9 parity — filter non-dict terms.json entries in
+   _vetted_institution_names` — `_builtin_consolidation_analyzer.py`.
+3. `fix(debt-finance): correct stale REASON_EVALUATIVE operator hint` —
+   `_builtin_consolidation_analyzer.py`.
+4. `test(debt-finance): is_name regression tests, operator/world adjacency
+   escapes, template invariant` — `test_debt_finance_compliance.py`,
+   `test_debt_finance_agents.py`, `test_debt_finance_qa_adversarial.py`.
+5. `docs(debt-finance): close ARCHITECTURE §13.11, record round-7 fix in
+   BUILD_LOG`.
+
+### Architect feedback required
+
+None — the core defect is closed structurally, not deferred. If a future
+architect review disagrees with the "CLOSED" call (e.g. finds a case 1
+escape — a WORLD/OPERATOR segment whose own text is trusted directly but
+was never actually vetted), that would be a new finding against a
+different mechanism (Case 1's "own-segment trust", not Case 2's `is_name`
+tag), not a reopening of this one.

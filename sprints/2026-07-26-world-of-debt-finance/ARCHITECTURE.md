@@ -1150,3 +1150,92 @@ this sprint:
     and the current build's safety argument for why this ships as WEAK_PASS
     without the refactor (every known failure mode in this family currently
     degrades closed).
+
+    **[CLOSED — round 7 follow-up, 2026-07-27, see BUILD_LOG.md's "Round 7:
+    provenance-and-name-tag fix" entry.]** REVIEW.md's re-review addendum 6
+    found the institutional-character check's neighbour rule was still a
+    proximity window measured in segments rather than characters: it
+    treated *any* non-AGENT neighbouring segment as a legitimate voucher,
+    without checking that the neighbour was actually a *name* (a WORLD
+    ``verified_as_of`` date or ``verification_source`` URL could
+    illegitimately vouch for an institutional-character claim about a
+    completely unrelated, agent-invented name). Fixed by adding a second,
+    independent tag to `Segment` — `is_name` — set `True` only at the
+    specific construction site where a caller writes an institution's own
+    name (`v.name` in Debt Advisor, `r.institution` in Consolidation
+    Analyzer; both were previously bare `Segment.world(...)`/
+    `Segment.operator(...)` calls). `check_guardrail`'s institutional-
+    character branch now accepts a claim in an `AGENT` segment only if an
+    immediate neighbour is specifically tagged `is_name=True` (and is
+    non-AGENT) — adjacency to a non-AGENT segment that is not a name (a
+    date, URL, product, or source field) is no longer sufficient. A trigger
+    whose *own* segment is already WORLD/OPERATOR (e.g. a vetted
+    institution's own `institution_type` literal) remains trusted without
+    needing an adjacent name, because that text is itself verbatim vetted
+    content, not an agent claim about something else.
+
+    This closes the reachable half of the family: this is no longer a
+    positional/proximity approximation at all — it is a direct assertion,
+    made once at the one call site that actually knows it is writing a
+    name, checked by the guardrail as a boolean flag rather than inferred
+    from segment position. There is no adjacency math, no character
+    offsets, no "which segment is this text in" reconstruction — the
+    caller states the fact once, and the checker reads it. A future finding
+    in this exact shape (an unrelated, non-name WORLD/OPERATOR segment
+    vouching for an agent-invented name) is not possible against this
+    design, because the check no longer asks "is *any* non-AGENT text
+    nearby" — it asks "is *the* segment tagged as this institution's name
+    nearby", which cannot be satisfied by an untagged neighbour regardless
+    of its provenance or content.
+
+    Also fixed in the same pass, per REVIEW.md's addendum 6 required
+    actions: (a) a template-invariant test asserting no AGENT segment
+    adjacent to a non-AGENT segment in either agent's real `_build_output`
+    carries an institutional-character trigger or is model-generated
+    (`test_template_invariant_no_agent_segment_adjacent_to_non_agent_carries_a_trigger_or_is_dynamic`
+    in `tests/test_debt_finance_compliance.py`) — defense in depth, kept
+    even though the `is_name` fix no longer depends on this invariant for
+    safety; (b) the Consolidation Analyzer's `_vetted_institution_names`
+    now filters non-dict `terms.json` entries the same way
+    `_builtin_debt_advisor._load_terms` does (F9's asymmetry — a stray
+    malformed entry no longer raises `AttributeError` out of an unguarded
+    `tick()`, which F1's backstop would otherwise turn into a silent
+    permanent stall); (c) the module docstring now states the WORLD
+    evaluative-exemption trust boundary explicitly, including that it
+    depends on `scripts/forge_debt_finance_world.py`'s seal-time preflight
+    evaluative-language scan remaining in place and actually run before any
+    reseal (confirmed present as of this fix); (d) the analyzer's
+    `REASON_EVALUATIVE` operator-facing hint no longer points at
+    `institution`/`product`/`source`/`as_of` (all OPERATOR segments,
+    structurally exempt from this check) — it now correctly names the
+    LLM-generated framing sentence as the only text that can trigger this
+    branch; (e) the docstring now states explicitly that `Provenance.
+    OPERATOR` means name authenticity ("the operator typed this string"),
+    distinct from `Provenance.WORLD`'s actual character verification
+    (`institution_type` + `verification_source` + a fresh
+    `verified_as_of`) — and the code enforces this distinction via
+    `is_name` rather than treating OPERATOR provenance as blanket
+    character-vetting.
+
+    **Why this is believed structurally complete, not just tested:** every
+    prior finding in this ten-plus-finding family shared one shape — a
+    matcher approximating "is this text trustworthy for this specific
+    claim" from something *inferred* about the text (containment, casing,
+    character offsets, segment adjacency) rather than from a fact stated
+    once at the only point that actually knows it. Each fix closed the
+    specific inference method reported and left the next inference method
+    (position, adjacency) available as an escape, because the check was
+    still *inferring* an answer rather than being *told* one. `is_name` is
+    not another inference method — it is a boolean fact set by the same
+    call site that already sets `provenance`, using the same "caller
+    knows, checker reads, never re-derived" contract that closed the
+    evaluative-language half of this same defect family in round 7's first
+    pass. There is no positional reasoning of any kind left in the
+    institutional-character branch for the AGENT-own-segment case (case 2
+    in `check_guardrail`'s docstring); the only remaining "adjacency" is a
+    boolean AND between "is this neighbour non-AGENT" and "is this
+    neighbour tagged as a name", not a proximity heuristic over content.
+    §13.11 is now CLOSED — the residual §13.10 tripwire (a single
+    undifferentiated AGENT segment spanning two disjoint institution
+    mentions) remains separately tracked, unrelated to this fix, and still
+    requires no current template producing that shape.
