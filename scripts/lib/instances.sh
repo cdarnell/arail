@@ -308,3 +308,160 @@ daemon_active() {
     pid="$(printf '%s' "$line" | grep -oE '[0-9]+' | head -n1 || true)"
     [[ -n "$pid" ]]
 }
+
+# ── First-boot scaffold (ARCHITECTURE.md §1.1) ─────────────────────────────
+
+# inst_scaffold_instance_root <slug> — mkdir the fixed instance tree.
+# Idempotent: safe to call on every boot, not just the first.
+inst_scaffold_instance_root() {
+    local slug="$1"
+    local root
+    root="$(inst_instance_dir "$slug")"
+    mkdir -p "$(inst_data_dir "$slug")" \
+             "$(inst_pkb_dir "$slug")/sources" \
+             "$(inst_pkb_dir "$slug")/notes" \
+             "$(inst_log_dir "$slug")"
+    printf '%s\n' "$root"
+}
+
+# ── Reuse of scripts/setup.sh's proven helpers (ARCHITECTURE.md §3.4, §10) ──
+# setup.sh cannot be `source`d directly — it unconditionally runs `main "$@"`
+# at EOF — so the specific functions we need are extracted (awk range over
+# the named function's body) and eval'd into THIS shell, never copied. Same
+# extraction technique tests/test_reset_paths.py and
+# tests/shell_source_safety_driver.sh already use to keep shell logic from
+# forking into a second copy that can drift.
+inst_load_setup_functions() {
+    local setup_sh="$REPO_ROOT/scripts/setup.sh"
+    [[ -f "$setup_sh" ]] || return 1
+    local name fn_body
+    for name in "$@"; do
+        declare -F "$name" >/dev/null 2>&1 && continue  # already loaded — idempotent
+        fn_body="$(awk "/^${name}\\(\\)/,/^}/" "$setup_sh")"
+        [[ -n "$fn_body" ]] || return 1
+        eval "$fn_body"
+    done
+}
+
+# inst_load_port_helpers — pulls in the real _port_in_use / _find_free_port
+# from setup.sh:298-329 (verified). ARCHITECTURE.md §10 WP3 scope: "export
+# _port_in_use/_find_free_port for reuse — do not copy them."
+inst_load_port_helpers() {
+    inst_load_setup_functions _port_in_use _find_free_port
+}
+
+# inst_load_env_writer — pulls in the real _set_env_var from setup.sh:1539,
+# the same shell-safe-quoting function tests/shell_source_safety_driver.sh
+# already proves against hostile input (embedded $, backticks, quotes,
+# command substitution). The env pack reuses that exact discipline rather
+# than re-deriving quoting rules (ARCHITECTURE.md §1.2).
+inst_load_env_writer() {
+    inst_load_setup_functions _set_env_var
+}
+
+# ── Port allocation (ARCHITECTURE.md §3.4) ──────────────────────────────────
+# Block k, base B_k = INST_PORT_BASE + k*INST_PORT_BLOCK_SIZE. Portal =
+# B_k+INST_PORT_PORTAL_OFFSET, Lance = B_k+INST_PORT_LANCE_OFFSET. Offsets
+# 1-3/5-9 are reserved (future per-instance ttyd/notebook/IDE/MLX) so a
+# later sprint needs no renumbering.
+
+# inst_port_excluded <port> — the explicit exclusion list from §3.4. None of
+# these fall inside 8090-8114 given the ceiling below, but the exclusion is
+# spelled out in code (not just "implied by the range") so a future range
+# change can't silently collide.
+inst_port_excluded() {
+    case "$1" in
+        8443|8888|7681|7414|11434|11435) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+# inst_ports_registered — every portal_port/lance_port value already pinned
+# to ANY instance record (live or not — a stopped-but-still-registered
+# instance still owns its ports; a genuinely stale record is pruned by
+# `status`/`start`'s own prune step, not by allocation). One per line.
+inst_ports_registered() {
+    local dir f slug rec
+    dir="$(inst_registry_dir)"
+    [[ -d "$dir" ]] || return 0
+    for f in "$dir"/*.json; do
+        [[ -e "$f" ]] || continue
+        slug="$(basename "$f" .json)"
+        rec="$(inst_read_record "$slug" 2>/dev/null)" || continue
+        inst_record_field "$rec" portal_port
+        inst_record_field "$rec" lance_port
+    done
+    return 0
+}
+
+# inst_allocate_ports — first boot only. Walks k=0,1,2… and takes the first
+# block where both ports are free (bind-test via _port_in_use), not
+# excluded, and not already claimed by another instance's registry record.
+# Prints "<portal_port> <lance_port>" on success. Hard stop: refuses (exit
+# 1, message on stderr) at or above INST_PORT_CEILING, even under a raised
+# ceiling elsewhere — this function enforces its own floor regardless of
+# caller-supplied limits (ARCHITECTURE.md §3.4: "Hard stop: refuse any
+# allocation at or above 9100, even under a raised LAB_MAX_INSTANCES").
+inst_allocate_ports() {
+    inst_load_port_helpers || {
+        echo "inst_allocate_ports: could not load port helpers from scripts/setup.sh" >&2
+        return 1
+    }
+    local taken
+    taken="$(inst_ports_registered)"
+    local k=0 base portal lance
+    while true; do
+        base=$(( INST_PORT_BASE + k * INST_PORT_BLOCK_SIZE ))
+        if (( base >= INST_PORT_CEILING )); then
+            echo "inst_allocate_ports: no free port block below ${INST_PORT_CEILING} (checked $((k)) block(s) starting at ${INST_PORT_BASE}) — stop an existing instance or free a port" >&2
+            return 1
+        fi
+        portal=$(( base + INST_PORT_PORTAL_OFFSET ))
+        lance=$(( base + INST_PORT_LANCE_OFFSET ))
+        if inst_port_excluded "$portal" || inst_port_excluded "$lance"; then
+            k=$((k + 1)); continue
+        fi
+        if printf '%s\n' "$taken" | grep -qx "$portal" || printf '%s\n' "$taken" | grep -qx "$lance"; then
+            k=$((k + 1)); continue
+        fi
+        if _port_in_use "$portal" || _port_in_use "$lance"; then
+            k=$((k + 1)); continue
+        fi
+        printf '%s %s\n' "$portal" "$lance"
+        return 0
+    done
+}
+
+# ── Env pack writer (ARCHITECTURE.md §1.2) ──────────────────────────────────
+# inst_write_env_pack <slug> KEY1 VALUE1 [KEY2 VALUE2 ...]
+# Writes lab/instances/<slug>/instance.env from scratch (the pack is written
+# once at first boot and read verbatim after — never incrementally patched;
+# see §1.2) using the exact shell-safe quoting discipline
+# tests/shell_source_safety_driver.sh already pins for lab.conf and
+# blueprint .env files. Caller decides the key set and order — WP4's stage 3
+# passes exactly the table in ARCHITECTURE.md §1.2 (ARAIL_INSTANCE,
+# ARAIL_ENV_FILE, LAB_ROOT, ARAIL_DATA_DIR, LAB_PKB, ARAIL_EXPERIMENTS_DIR,
+# ARAIL_MODELS_DIR, ARAIL_WORLDS_DIR, PORTAL_PORT, LANCE_PORT, BIND_ADDR,
+# LAB_NAME, LAB_SHORT_NAME, LAB_THEME, LAB_INTENT). Never pass LAB_MODE,
+# ARAIL_AUTOCHECKS, or any secret/token — the pack format has no field for
+# them by design (§1.2 "Not in the pack").
+inst_write_env_pack() {
+    local slug="$1"; shift
+    inst_load_env_writer || {
+        echo "inst_write_env_pack: could not load _set_env_var from scripts/setup.sh" >&2
+        return 1
+    }
+    local env_file
+    env_file="$(inst_env_file "$slug")"
+    mkdir -p "$(dirname "$env_file")"
+    : > "$env_file"
+    while [[ $# -gt 0 ]]; do
+        [[ $# -ge 2 ]] || {
+            echo "inst_write_env_pack: odd number of KEY VALUE arguments" >&2
+            return 1
+        }
+        _set_env_var "$1" "$2" "$env_file"
+        shift 2
+    done
+    chmod 0644 "$env_file"
+}

@@ -148,6 +148,80 @@ installed-but-inactive, and proceeds silently with no plist at all.
   timing flake, not a regression from this WP's changes (reproduced the
   clean 3-failures-only baseline 3/3 times after).
 
+Commit: `0db90c1`
+
+### WP3 — Env pack, first-boot scaffold, port allocation
+
+Extended `scripts/lib/instances.sh`:
+
+- `inst_scaffold_instance_root <slug>` — idempotent `mkdir -p` of
+  `data/`, `pkb/{sources,notes}`, `log/`.
+- `inst_load_setup_functions <name>...` — extracts named function bodies out
+  of `scripts/setup.sh` via `awk` range and `eval`s them into the caller's
+  shell (same technique `tests/test_reset_paths.py` and
+  `tests/shell_source_safety_driver.sh` already use); `setup.sh` cannot be
+  `source`d directly (it unconditionally runs `main "$@"` at EOF).
+  `inst_load_port_helpers` pulls `_port_in_use`/`_find_free_port`
+  (`setup.sh:298-329`) — reused, never copied, per ARCHITECTURE.md §10's WP3
+  ruling. `inst_load_env_writer` pulls `_set_env_var` (`setup.sh:1539`), the
+  proven shell-safe-quoting function `tests/shell_source_safety_driver.sh`
+  already round-trips against hostile input — reused rather than
+  re-deriving the quoting discipline.
+- `inst_port_excluded`, `inst_ports_registered`, `inst_allocate_ports` —
+  block allocation per §3.4: walk `k=0,1,2…`, base `8090+10k`, portal
+  `+0`/lance `+4`, skip the explicit exclusion list (8443/8888/7681/7414/
+  11434/11435), skip ports already pinned to another registry record, bind-
+  test the survivors via `_port_in_use`, hard-refuse at/above 9100 with a
+  named error (never wraps, never exceeds the ceiling).
+- `inst_write_env_pack <slug> KEY VALUE [...]` — writes `instance.env` from
+  scratch each call (never incrementally patched) via `_set_env_var`,
+  `chmod 0644`.
+
+`scripts/setup.sh` itself is unmodified — WP3's file list said "export
+_port_in_use/_find_free_port for reuse", and the extraction approach above
+achieves that without adding an `export -f` (which would only propagate to
+child *processes* of the same shell, not to a script sourced independently
+in `arailctl`/`start.sh`'s process — the extraction technique is the one
+that actually satisfies "for reuse" across separate invocations, and the
+codebase already established this exact pattern for the same reason).
+**Deviation, narrow and consistent with §10's stated principle** ("do not
+copy them"): flagged here since the mechanism (extraction vs. `export -f`)
+differs from the literal word "export" in the WP3 line, though the outcome
+— setup.sh's functions are the single implementation, never duplicated —
+matches the ruling's intent exactly.
+
+Wrote `tests/test_instance_ports.py` (25 tests): port-helper/env-writer
+extraction proofs; exclusion-list coverage (all 6 named ports); first
+allocation is the base block (8090/8094); allocation skips a block already
+pinned in another instance's registry record; allocation skips a block with
+an actually-bound socket (not just a registered one); the 9100 hard stop
+(every block 8090..9090 pre-registered, allocation must refuse, never
+wrap); portal+lance always allocated as a pair (`lance == portal + 4`); env
+pack round-trips plain values and a hostile `LAB_NAME` (embedded `$()`,
+backticks, quotes — command substitution never executes); pack is written
+from scratch (stale keys from a prior write don't survive); pack file mode
+is 0644; scaffold creates the fixed tree and is idempotent (doesn't clobber
+existing data).
+
+**Gate result:** PASS.
+- `PYTHONPATH=src <venv>/bin/python -m pytest tests/test_instance_ports.py
+  tests/test_instance_paths.py -q` → **25 passed**.
+- Hand-written pack round-trip (manual, per the gate's literal wording):
+  `bash -c 'set -euo pipefail; set -a; source pack.env; set +a'` → clean;
+  `PYTHONPATH=src ARAIL_ENV_FILE=pack.env <venv>/bin/python -c
+  "from arail.config import LAB_ROOT, ...; print(LAB_ROOT.is_absolute())"`
+  → `True`, all five paths absolute and correctly split between the
+  instance tree (`LAB_ROOT`/`DATA_DIR`/`PKB_ROOT`) and the shared roots
+  (`MODELS_DIR`/`WORLDS_DIR`).
+- `bash -n` + `shellcheck` clean (same pre-existing SC2034 constant-unused
+  warnings from WP1, now consumed by this WP's code — no longer flagged for
+  `INST_PORT_*`/`INST_PORT_CEILING`; only `INST_MAX_INSTANCES_DEFAULT` and
+  `INST_CLAIM_STALE_SECONDS` remain unused, reserved for WP4).
+- Full regression sweep (all instance test files +
+  `test_reset_paths.py test_reset_stop_scope.py test_shell_source_safety.py
+  test_world_switcher.py test_world_mount.py`) → **97 passed, 3 failed**,
+  the same 3 pre-existing failures as WP1/WP2 (confirmed unchanged).
+
 Commit: `<pending — see report>`
 
 ## Architect feedback required
