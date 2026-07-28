@@ -234,7 +234,15 @@ stop_instance() {
 
     if [[ -n "$launcher_pid" ]]; then
         cmd="$(ps -p "$launcher_pid" -o command= 2>/dev/null || true)"
-        if [[ -n "$cmd" && "$cmd" == *"start.sh"* && "$cmd" == *"$slug"* ]]; then
+        # REVIEW.md M2: a bare "*start.sh* && *$slug*" substring test matches
+        # ANY ARAIL start.sh process whose checkout PATH happens to contain
+        # the slug as a substring — e.g. slug "ai" is a substring of "arail"
+        # itself, so every start.sh launcher on the box would verify. Require
+        # the exact "--world <slug>" (or "--world=<slug>") token instead of a
+        # bare substring, matching the mechanism the record's own --world
+        # flag was launched with.
+        if [[ -n "$cmd" && "$cmd" == *"scripts/start.sh"* ]] \
+           && { [[ "$cmd" == *"--world $slug"* ]] || [[ "$cmd" == *"--world=$slug"* ]]; }; then
             verified_pids+=("$launcher_pid")
         else
             warn "  launcher pid ${launcher_pid} did not verify — skipped, not killed."

@@ -182,6 +182,33 @@ def test_stop_instance_skips_unverified_pid_pid_reuse(tmp_path):
     assert not (fake_repo / "lab" / "instances" / "registry.d" / "finance.json").exists()
 
 
+def test_stop_instance_launcher_verification_rejects_slug_substring_match(tmp_path):
+    """REVIEW.md M2: slug "ai" is a substring of "arail" itself, so a bare
+    `*start.sh* && *ai*` match would verify ANY ARAIL start.sh launcher —
+    including a decoy running a DIFFERENT World ("finance"). The launcher
+    must only verify against an exact `--world ai` token, and an
+    unverified launcher_pid must be skipped, not killed (portal/memory
+    still get killed via their own independent module+port verification).
+    """
+    _write_record(
+        tmp_path / "repo", "ai",
+        portal_pid=401, memory_pid=402, launcher_pid=403,
+        portal_port=9190, lance_port=9194,
+    )
+    ps_map = [
+        (401, "python -m uvicorn arail.portal.app:app --port 9190"),
+        (402, "python -m uvicorn arail.memory_service:app --port 9194"),
+        # Decoy: a DIFFERENT World's launcher, whose checkout path contains
+        # "arail" (hence the substring "ai") but was launched for "finance".
+        (403, "bash /Users/dev/qukaizen-arail/scripts/start.sh --world finance --yes"),
+    ]
+    fake_repo, result, killed = _run_stop_driver(tmp_path, [], ps_map, ["stop_instance", "ai"])
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert killed == {"401", "402"}
+    assert "403" not in killed
+    assert "did not verify" in result.stdout
+
+
 def test_stop_instance_unknown_slug_is_a_noop(tmp_path):
     fake_repo, result, killed = _run_stop_driver(tmp_path, [], [], ["stop_instance", "nosuchslug"])
     assert result.returncode == 0, result.stdout + result.stderr
