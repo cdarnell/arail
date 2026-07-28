@@ -1089,3 +1089,86 @@ than implemented.
 round-6 addendum are complete. No BLOCK findings remain open. The
 segment-based provenance refactor is explicitly out of scope for this
 sprint and tracked in ARCHITECTURE.md §13.11 for a future sprint.
+
+---
+
+## Post-QA fixes (round 7 — response to TEST_REPORT.md FAIL)
+
+QA's adversarial pass (`tests/test_debt_finance_qa_adversarial.py`, 37
+tests, 31 initially failing) found 3 BLOCK findings and 6 MEDIUM/LOW
+findings after the round-6 WEAK_PASS. This round closes all 3 BLOCKs, all 4
+non-LOW MEDIUMs, and both LOW findings; see the "Deferred" note at the end
+for what was deliberately left as tracked tech debt vs. fixed.
+
+| Finding | Fix | File(s) |
+|---|---|---|
+| F1 BLOCK — malformed field *values* crash the tick, killing the loop | `_validate_numeric_field` (finite, non-negative, in-range, non-bool numeric check) applied to every debt/scenario numeric field in `_load_balances`; `_run`'s `while True` now wraps `self.tick()` in `try/except Exception` (re-raising `CancelledError`), logging a non-specific warning and continuing to the next tick instead of dying. Same loop-robustness fix applied to Debt Advisor's `_run` even though its own crash path (F9) is separate. | `_builtin_consolidation_analyzer.py`, `_builtin_debt_advisor.py` |
+| F2 BLOCK — `_names_match` has no length floor / word boundary | Added `_MIN_ALLOWED_NAME_LEN = 3`; `_names_match` now casefolds + collapses whitespace + rejects anything under the floor + matches on `\b`-anchored phrase, not bare substring containment. | `debt_finance_compliance.py` |
+| F3 BLOCK — lowercase/accented-initial real institution names permanently blocked | Institutional-character loop now falls back to a direct case-folded, word-boundary match of each allowed name against the *raw* proximity window (not just ASCII-capitalized candidate extraction) when the capitalized-candidate path finds nothing — with an explicit guard excluding any allowed name that normalizes identically to the trigger phrase's own matched text, so this doesn't reopen the BLOCK-1 tautology (a vetted set naively containing the bare word "credit union" must still be blocked; verified by the existing `test_guardrail_is_not_a_tautology_when_generic_concept_term_is_vetted`, which failed transiently mid-fix and was restored to green before this round's commit). | `debt_finance_compliance.py` |
+| F4 MEDIUM — evaluative regex misses `recommend`/`advice`/`optimal`/`cheapest`/etc. | Extended `_EVALUATIVE_RE`'s alternation. This immediately tripped a **fixed, code-inserted template line** in Debt Advisor ("...is not a recommendation") against itself — the QA report's own closing note ("add a test asserting no template literal matches `_EVALUATIVE_RE`") predicted exactly this. Rephrased the line to "does not rank or endorse any institution" (identical intent, no trigger word) rather than weakening the new vocabulary, and updated the one pre-existing test (`test_roster_heading_is_not_a_shortlist`) that asserted the literal old phrase — this is a direct, narrowly-scoped consequence of the required F4 fix, not independent scope drift. | `debt_finance_compliance.py`, `_builtin_debt_advisor.py`, `tests/test_debt_finance_agents.py` |
+| F5 MEDIUM — `_write_findings` follows a pre-placed symlink | Both agents' `_write_findings` now open with `os.O_NOFOLLOW \| O_CREAT \| O_WRONLY \| O_TRUNC` at mode `0o600` instead of `Path.write_text` + after-the-fact `chmod`; refuses (returns `False`, emits a non-specific warning) rather than following a symlink at the findings path. | `_builtin_consolidation_analyzer.py`, `_builtin_debt_advisor.py` |
+| F6 MEDIUM — no-op fingerprint misses disclaimer edits / World changes / approved-finding churn / deletion | Consolidation Analyzer's no-op check now hashes `(balances content hash, disclaimer text, sorted vetted-institution names)` and additionally requires the findings file to still exist. Debt Advisor's check now hashes the approved-findings list's own identity (path/feed/checked, JSON-serialized) instead of a bare count, plus the same findings-file-exists check. `state.json`'s `approved_finding_count` key now holds a hash string rather than an int — same key name (schema/key-set test unaffected), read back as `str` instead of cast to `int`. | `_builtin_consolidation_analyzer.py`, `_builtin_debt_advisor.py` |
+| F7 LOW — absolute path (with OS username) in activity-stream messages | Added `_relative_pointer()` to both agent modules; all `_host.emit(...)` messages that used to interpolate `_findings_file()`/`_balances_file()` directly now interpolate a path relative to `DATA_DIR`. | `_builtin_consolidation_analyzer.py`, `_builtin_debt_advisor.py` |
+| F8 LOW — negative balances/APRs/rates accepted and rendered verbatim | Folded into F1's `_validate_numeric_field`: any present numeric field with a negative value is treated as malformed (rejected before arithmetic), same bucket as non-finite/non-numeric — not a separate code path. | `_builtin_consolidation_analyzer.py` |
+| F9 LOW — `_load_terms` doesn't type-check entries (same loop-death path as F1, via the World bundle) | `_load_terms` now filters the parsed `terms` list to dict entries only before returning, closing the `AttributeError` on `.get()` for a stray non-dict entry. | `_builtin_debt_advisor.py` |
+
+### A regression introduced and caught during this round, not shipped
+
+While implementing F3's fallback direct-window match, an early version
+reintroduced the exact BLOCK-1 tautology the architect closed in round 1:
+a vetted set naively containing the bare generic term "credit union" would
+satisfy its own trigger phrase. Caught by re-running the full pre-existing
+debt-finance suite (not just the new adversarial tests) before treating F3
+as done; fixed by excluding, from the fallback match only, any allowed
+name whose normalized form is identical to the trigger's own matched text.
+
+### Test results (this round)
+
+- `tests/test_debt_finance_qa_adversarial.py`: **37 passed, 0 failed**
+  (Python 3.11, `PYTHONPATH=src`). All 37 were run against the fixed code;
+  none were weakened or skipped to force a pass.
+- Full debt-finance-specific selection — `tests/test_debt_finance_agents.py`,
+  `tests/test_debt_finance_agents_seed.py`, `tests/test_debt_finance_compliance.py`,
+  `tests/test_debt_finance_consolidation_arithmetic.py`,
+  `tests/test_debt_finance_qa_adversarial.py`, `tests/test_world_forge_debt_finance_seal.py`
+  (all files that pass in this environment): **151 passed, 0 failed**
+  (Python 3.11, `PYTHONPATH=src`). Includes `tests/test_debt_finance_agents.py`'s
+  one updated assertion (F4's direct consequence, documented above).
+- `tests/test_debt_finance_reveal_slot.py` (4 tests): **could not run in
+  this environment** — its fixture imports the full portal `app.py`, which
+  transitively imports `dac_world`, a private `git+ssh://` dependency
+  (`pyproject.toml` line 45) not installable in this sandbox (no SSH
+  credentials/network access to `github.com/cdarnell/qukaizen-dac`). This
+  is an environment gap, not a code regression: the failure is a bare
+  `ModuleNotFoundError` at import time, identical regardless of this
+  round's diff, and does not touch any file this round changed.
+- Broader regression check: ran `pytest tests/ -q --continue-on-collection-errors
+  --ignore=tests/portal --ignore=tests/router -k "not world_forge and not dac
+  and not scouting and not researcher"` (725 failed, 1643 passed, 26 skipped,
+  190 errors) — the overwhelming majority of failures/errors are
+  `ModuleNotFoundError`s for the same `dac_world` dependency (and other
+  packages not installed in this sandboxed environment, e.g. anything
+  importing the full portal app), not attributable to this round's diff.
+  **A true before/after regression diff against a clean baseline was not
+  possible in this environment** (no access to install the private
+  `dac_world` git dependency to reproduce TEST_REPORT.md's own baseline
+  run). This is a real limitation of this round's verification, disclosed
+  rather than papered over — the targeted debt-finance suite above (151
+  tests, all files this diff can affect, plus the shared `tests/test_builtin_seed_*`
+  and `tests/test_qa_sre_shim_fork_respect.py` shim tests, which also pass
+  unchanged) is the strongest evidence available in this sandbox that the
+  fix is scoped correctly.
+
+### Commits
+
+See git log for this round's commit(s), each referencing the TEST_REPORT.md
+finding(s) it closes.
+
+### Architect feedback required
+
+None. All three BLOCK findings and all MEDIUM/LOW findings had a clean
+implementation within the existing design — no architecture-level conflict
+was found. The one tension encountered (F4's vocabulary expansion vs. a
+fixed template's own wording) was resolved by rephrasing the template, not
+by narrowing the guardrail — consistent with the architect's own precedent
+of degrading closed rather than reintroducing an exemption.
