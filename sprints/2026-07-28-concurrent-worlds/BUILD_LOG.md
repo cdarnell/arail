@@ -222,12 +222,177 @@ existing data).
   test_world_switcher.py test_world_mount.py`) → **97 passed, 3 failed**,
   the same 3 pre-existing failures as WP1/WP2 (confirmed unchanged).
 
+Commit: `cf16ec8`
+
+### WP4 — `start.sh` retrofit
+
+Rewrote `scripts/start.sh` to add, above the (byte-for-byte preserved)
+legacy root-lab body:
+
+- **Two latent fixes named in-scope by ARCHITECTURE.md §10:** `warn()` is
+  now defined (was called at the ttyd-present/tmux-absent line and would
+  abort under `set -euo pipefail` — now fixed, two lines); `lab.conf` is
+  now sourced under `set -a`/`set +a` (previously `PORTAL_PORT` reached
+  uvicorn's argv but not `os.getenv`, the same drift `arailctl`'s launchd
+  branch already avoided — §6.2).
+- **Argument parsing**: `--world <slug>`, `--port <n>`, `--no-browser`,
+  `--list`, `--yes`. Unknown flag → exit 2 with usage (retires "start.sh
+  discards all arguments").
+- **Picker rules** (§3.2): `|W|==0` → falls straight into the unmodified
+  root-lab body (no picker, no extra output — this is the byte-identical
+  contract). `|W|==1` → auto-selects that World, no picker. `|W|>=2` with
+  a TTY and no `--yes` → interactive numbered picker with liveness dots
+  and a `0) <root lab>` row. `|W|>=2` with no TTY or `--yes` → exit 2,
+  roster + exact `--world` commands, never guesses.
+- **Attach-on-running** (§3.3): `inst_alive <slug> --probe` before
+  anything is spawned; prints URL/data-root/started-at and exits 0.
+- **The 8-stage launch** (§3.5): preflight (daemon guard, venv, ceiling —
+  §3.7, no eviction) → resolve World (slug jail + `verify_seal`, F5) →
+  claim (`set -o noclobber`, stale-claim breaking at 120s, F6) → instance
+  root + env pack (first-boot allocate-and-pin via `inst_allocate_ports`/
+  `inst_write_env_pack`, or re-boot read-and-assert-absolute, with
+  `--port` re-pinning the pack) → bind-port check (`_port_in_use`) →
+  portal up (spawns uvicorn under the instance's `ARAIL_INSTANCE_TOKEN`,
+  polls `GET /api/instance` to a 60s cap, fails fast if the child dies) →
+  memory up (20s cap, warn-and-continue) → Ollama (machine-shared,
+  instance-scoped pidfile, unchanged ownership rule) → World mount + a
+  staged-term-count report (mount failure warns and leaves the instance up
+  unmounted, never fails the launch). Record write only after the portal
+  answers; claim removed immediately after.
+- **Instance-service gating** (§3.6): the instance path never starts
+  ttyd/jupyter/code-server/MLX — only portal + memory + shared Ollama.
+- `arailctl`'s help banner and command list gained one line each
+  documenting `--world`/`--port`/etc. and the attach-not-respawn contract.
+
+**Deviation, judgment call (face.json → LAB_THEME/LAB_INTENT mapping):**
+ARCHITECTURE.md §1.2 says these come "from face.json" but does not specify
+an exact field/algorithm, and identity.py's LAB_THEME/LAB_INTENT are
+cosmetic pre-mount fallbacks only (superseded by `effective_identity()`
+once stage 8's mount completes) — not load-bearing for any named failure
+mode. Implemented as: `LAB_THEME` = `face.json`'s `theme.personality` if
+present else empty; `LAB_INTENT` = the World's own slug (sidesteps the
+prose-vs-enum mismatch BRIEF flagged for `blueprint.sh`'s `LAB_INTENT`).
+Flagged here as a reasonable best-effort choice, not a redesign — happy to
+revise if the architect wants a specific mapping.
+
+**Bugs found and fixed during driver development (not deviations — plain
+defects caught by running the real script, same as any implementation
+work):** two Python f-strings in the World-catalog/`--list` output used
+`f"...{w[\"slug\"]}..."`, which is a `SyntaxError` on Python < 3.12
+("f-string expression part cannot include a backslash") — rewritten as
+plain string concatenation.
+
+Wrote `tests/instance_start_driver.sh` (self-contained bash driver, same
+OK/FAIL contract as `tests/shell_source_safety_driver.sh`) and
+`tests/test_instance_start.py` (pytest wrapper, same pattern as
+`test_shell_source_safety.py`). 10 scenarios, driving the REAL
+`scripts/start.sh` against a throwaway fake repo (real `scripts/`, a
+symlinked real `.venv`, stub `uvicorn`/`ollama`/`open`/`xdg-open`, real
+`curl`/`python3`/`ps`/`launchctl`) and (where needed)
+`tests/world_bundle_builder.py` fixture Worlds:
+1. Unknown flag → exit 2 + usage.
+2. `--world nosuchworld` → exit 2 (F5), no half-built instance root.
+3. `--world '../../etc'` → rejected by the slug jail (F5).
+4. Pre-existing fresh claim file → concurrent start refused, names the
+   holder (F6).
+5. 3 live-looking instance records at the default ceiling → a 4th
+   refuses, names the roster and the stop command, no eviction (F10).
+6. A port already bound blocks stage `[5/8]` before any uvicorn spawns,
+   named `lsof` hint (the scriptable half of F1/F17 in this environment —
+   see note below).
+7. `--list` is side-effect-free (no `lab/instances/` created) for both 0
+   and 2+ Worlds, and lists every slug.
+8. `|W|>=2`, no TTY, no `--yes` → exit 2, exact `--world` commands for
+   every slug (never guesses).
+9. `|W|==1` auto-selects the instance path (no picker) — verified via the
+   `[1/8]` staged banner, not the root-lab banner.
+10. `|W|==0` reaches the unmodified root-lab path (its banner text
+    present, no instance staged output) — the practical, scriptable proxy
+    for "byte-identical to today" in an environment with no real uvicorn
+    server to diff against.
+
+**Real defect found while building scenario 5, fixed in the test not the
+product:** `kill` is a bash *builtin* — a same-named executable prepended
+to `PATH` is silently ignored for a bare `kill -0 <pid>` (unlike `ps`,
+which is not a builtin and DOES respect a `PATH` stub). The ceiling
+scenario now uses real backgrounded `sleep` processes as stand-ins for
+"alive" PIDs instead of trying to stub `kill`.
+
+**Gate result — PARTIAL PASS, one item deferred to QA per the orchestrator's
+explicit pre-authorization:**
+- `instance_start_driver.sh` suite: **PASS — 10/10 scenarios**, run via
+  `ARAIL_TEST_VENV=/Users/netsushi/ProJects/qukaizen-arail/.venv bash
+  tests/instance_start_driver.sh` (this worktree ships no `.venv` of its
+  own — see the orchestrator's environment note; the driver also falls back
+  to a sibling-checkout `.venv` automatically, and `SKIP`s cleanly with
+  code 0 if none is found at all, so it never false-fails in a venv-less
+  CI leg).
+- Root-lab zero-Worlds behavior: **verified via the driver's scenario 10**
+  (banner text present, no instance staged output, no extra side effects)
+  — this is the scriptable proxy; a byte-for-byte diff against a real
+  service-startup run needs actual `uvicorn`/`ollama`/`ttyd` binaries this
+  sandbox doesn't exercise end-to-end.
+- **DEFERRED to QA (pre-authorized by the orchestrator's task brief):**
+  "real manual launch of two Worlds on 8090/8100 with both `/api/instance`
+  tokens matching." Two compounding reasons, both already flagged by the
+  orchestrator before this WP started: (1) this worktree has no `.venv` /
+  completed `./arailctl setup`, so a genuine `uvicorn arail.portal.app`
+  process cannot be brought up here; (2) **`GET /api/instance` does not
+  exist yet** — it is a WP6 deliverable (`src/arail/portal/app.py`), out of
+  this builder pass's scope. Stage `[6/8]`'s readiness probe already polls
+  `GET /api/instance` per ARCHITECTURE.md §3.5, so once WP6 ships the same
+  code path will start succeeding without further changes here — but until
+  then, **a real `./arailctl start --world <slug>` will time out at stage
+  `[6/8]` in any environment lacking that endpoint**, and the attach-on-
+  running check (§3.3, which explicitly requires the probe) cannot
+  currently succeed either — a second concurrent `start --world X` while X
+  is running will hit the bind-conflict path instead of a clean attach.
+  This is a known, bounded gap inherent to the architecture's own WP
+  ordering (WP4 before WP6), not a defect introduced by this pass; QA
+  should re-verify the full two-World launch once WP6 lands.
+- `bash -n` + `shellcheck` clean on `scripts/start.sh` (pre-existing
+  SC1091/SC1090/SC2088 info/warnings only, same class as WP1-3) and on
+  `tests/instance_start_driver.sh` (fully clean).
+- Full regression sweep (all instance test files + `test_reset_paths.py
+  test_reset_stop_scope.py test_shell_source_safety.py
+  test_world_switcher.py test_world_mount.py`) → **98 passed, 3 failed**,
+  the same 3 pre-existing failures as every prior WP (confirmed unchanged).
+
 Commit: `<pending — see report>`
 
 ## Architect feedback required
 
 (empty unless the architect's plan needed revision mid-build)
 
-## Final state
+## Final state (WP1-WP4 builder pass)
 
-(numbers: tests passing, coverage delta, lines changed — filled in at the end)
+- **Commits (4, one per WP):**
+  1. `59f0241` — WP1: `scripts/lib/instances.sh` paths/registry/liveness
+  2. `0db90c1` — WP2: retire the four daemon-liveness checks
+  3. `cf16ec8` — WP3: env pack writer, first-boot scaffold, port allocation
+  4. *(this WP)* — WP4: `start.sh` retrofit
+- **New test files:** `tests/test_instance_registry.py` (21),
+  `tests/test_instance_paths.py` (6), `tests/test_daemon_predicate.py` (7),
+  `tests/test_instance_ports.py` (25), `tests/instance_start_driver.sh` +
+  `tests/test_instance_start.py` (10 driver scenarios, 1 pytest wrapper).
+  **60 new pytest test functions total**, all passing.
+- **Full regression sweep** (all new instance tests + the five pinned
+  existing suites named in the task brief): **98 passed, 3 failed** — the
+  3 failures are pre-existing (confirmed via `git stash` before any WP1
+  change): a `tomllib`-on-Python-3.9 gap in `test_shell_source_safety.py`'s
+  blueprint-render case, and a matching `awk`-extraction ordering issue in
+  two `test_reset_stop_scope.py` cases. None touch instance code; none
+  regressed by this pass.
+- **Files touched:** `scripts/lib/instances.sh` (new, ~430 lines),
+  `arailctl`, `scripts/start.sh`, `scripts/status.sh`,
+  `scripts/install-daemon.sh`, `scripts/reset.sh` (minimal, gate-required
+  touch only — see WP2), `.gitignore`. No file outside this list was
+  modified.
+- **Known gap, bounded and pre-authorized:** end-to-end instance boot
+  (stage `[6/8]`'s `GET /api/instance` probe, and therefore
+  attach-on-running) cannot succeed until WP6 adds that endpoint to
+  `src/arail/portal/app.py`. Everything up to and including stage `[5/8]`
+  (preflight, resolve, claim, instance root/env pack, port bind-check) is
+  fully functional and tested today.
+- **WP5-WP8 not started** — out of this builder pass's scope per the
+  task's explicit boundary.

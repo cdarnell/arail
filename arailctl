@@ -4,6 +4,7 @@
 #  Usage: ./arailctl <command> [args]   (or: qkz <command> [args])
 #    setup    first-time provisioning — pick a tier, install deps, download model
 #    start    launch portal + terminal + notebook + IDE
+#             (or a single World instance: --world <slug> — see `start --help`)
 #    stop     stop running lab services
 #    restart  stop then start
 #    upgrade  switch install tier — minimalist | maximus
@@ -162,6 +163,9 @@ EOF
   Commands:
     setup           first-time provisioning — pick a tier, deps, model
     start           launch the lab (foreground start.sh, or launchd in daemon mode)
+                    [--world <slug>] [--port <n>] [--no-browser] [--list] [--yes]
+                    — with 2+ Worlds configured, bare 'start' picks interactively;
+                    a running World is attached to, never respawned
     stop            stop lab services (unloads launchd agents in daemon mode)
     restart         stop then start (launchctl kickstart -k in daemon mode)
     install-daemon  supervise the lab with launchd — starts at login, respawns on crash

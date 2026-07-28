@@ -15,19 +15,31 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
     exec 2> >(grep -v 'MallocStackLogging: ' >&2)
 fi
 
-GREEN="\033[0;32m"; CYAN="\033[0;36m"; BOLD="\033[1m"; RESET="\033[0m"
+GREEN="\033[0;32m"; CYAN="\033[0;36m"; BOLD="\033[1m"; RESET="\033[0m"; YELLOW="\033[0;33m"
 
 # Load .env first (for LAB_NAME and friends) before anything else.
 # shellcheck disable=SC1091
 [[ -f .env ]] && set -a && source .env && set +a
+# lab.conf holds the ports setup.sh picked. Without `set -a` here, PORTAL_PORT
+# reaches uvicorn's argv (shell-local expansion) but is never exported, so a
+# child python process reading os.getenv("PORTAL_PORT") falls back to .env/
+# default 8080 — the same drift arailctl's launchd branch already avoids.
+# ARCHITECTURE.md §6.2 — fix is in scope for this WP (restructuring this file
+# anyway; leaving a known drift bug in it is not defensible).
 # shellcheck disable=SC1091
+set -a
 source lab.conf 2>/dev/null || true
+set +a
 
 LAB_NAME="${LAB_NAME:-Arail}"
 LAB_SHORT_NAME="${LAB_SHORT_NAME:-arail}"
 LAB_LOGO="${LAB_LOGO:-⟨${LAB_NAME}⟩}"
 
 info() { echo -e "${GREEN}[${LAB_SHORT_NAME}]${RESET} $*"; }
+# `warn` was called (ttyd-present/tmux-absent path, below) but never defined —
+# a command-not-found abort under `set -euo pipefail`. ARCHITECTURE.md §10
+# names this IN SCOPE for this WP: two lines, fixed here.
+warn() { echo -e "${YELLOW}[${LAB_SHORT_NAME}]${RESET} $*"; }
 
 export PATH="$HOME/.local/bin:$PATH"
 BIND="${BIND_ADDR:-127.0.0.1}"
@@ -51,6 +63,592 @@ fi
 [[ -f .venv/bin/activate ]] || { echo "no .venv — run ./arailctl setup"; exit 1; }
 # shellcheck disable=SC1091
 source .venv/bin/activate
+
+# =============================================================================
+#  Concurrent Worlds — argument parsing, picker, instance launch
+#  (sprints/2026-07-28-concurrent-worlds/ARCHITECTURE.md §3)
+# =============================================================================
+
+WORLD_SLUG=""
+PORT_OVERRIDE=""
+LIST_ONLY=0
+ASSUME_YES=0
+
+_start_usage() {
+    echo "Usage: ./arailctl start [--world <slug>] [--port <n>] [--no-browser] [--list] [--yes]"
+}
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --world)
+            [[ $# -ge 2 ]] || { echo "--world requires a slug" >&2; _start_usage >&2; exit 2; }
+            WORLD_SLUG="$2"; shift 2 ;;
+        --world=*) WORLD_SLUG="${1#--world=}"; shift ;;
+        --port)
+            [[ $# -ge 2 ]] || { echo "--port requires a number" >&2; _start_usage >&2; exit 2; }
+            PORT_OVERRIDE="$2"; shift 2 ;;
+        --port=*) PORT_OVERRIDE="${1#--port=}"; shift ;;
+        --no-browser) ARAIL_NO_BROWSER=1; shift ;;
+        --list) LIST_ONLY=1; shift ;;
+        --yes) ASSUME_YES=1; shift ;;
+        -h|--help) _start_usage; exit 0 ;;
+        *)
+            echo "Unknown flag: $1" >&2
+            _start_usage >&2
+            exit 2 ;;
+    esac
+done
+export ARAIL_NO_BROWSER="${ARAIL_NO_BROWSER:-0}"
+
+if [[ -n "$PORT_OVERRIDE" ]] && ! [[ "$PORT_OVERRIDE" =~ ^[0-9]+$ ]]; then
+    echo "--port must be a number, got: $PORT_OVERRIDE" >&2
+    exit 2
+fi
+
+# Absolute, shared roots — computed once here (from the ROOT .env, which may
+# set a relative override) so every instance pack pins the SAME weights/
+# Worlds directories regardless of the instance's own LAB_ROOT.
+_instance_abs_path() {
+    local p="${1:-}"
+    case "$p" in
+        /*) printf '%s' "$p" ;;
+        "") printf '%s' "$REPO_ROOT" ;;
+        *)  printf '%s/%s' "$REPO_ROOT" "$p" ;;
+    esac
+}
+_INST_MODELS_DIR_ABS="$(_instance_abs_path "${ARAIL_MODELS_DIR:-lab/models}")"
+_INST_WORLDS_DIR_ABS="$(_instance_abs_path "${ARAIL_WORLDS_DIR:-lab/worlds}")"
+
+# ── World catalog (only Worlds THIS lab can see; never raises) ─────────────
+_instance_world_catalog() {
+    ARAIL_WORLDS_DIR="$_INST_WORLDS_DIR_ABS" python3 - <<'PY'
+import json
+from arail.world_mount import list_available_worlds
+worlds = [w for w in list_available_worlds() if w.valid]
+print(json.dumps([{"slug": w.slug, "display_name": w.display_name} for w in worlds]))
+PY
+}
+
+_instance_print_known_slugs() {
+    printf '%s' "$WORLD_CATALOG_JSON" | python3 -c '
+import json, sys
+worlds = json.load(sys.stdin)
+if not worlds:
+    print("  (no Worlds configured — see ./arailctl world list)")
+else:
+    for w in worlds:
+        print("  " + w["slug"])
+'
+}
+
+_instance_print_roster() {
+    local slug live rec port
+    while IFS= read -r slug; do
+        [[ -n "$slug" ]] || continue
+        if inst_alive "$slug"; then
+            rec="$(inst_read_record "$slug")"
+            port="$(inst_record_field "$rec" portal_port)"
+            live="running :${port}"
+        else
+            live="not running"
+        fi
+        echo "  ${slug}  (${live})  — ./arailctl stop --world ${slug}"
+    done < <(inst_list_slugs)
+}
+
+WORLD_CATALOG_JSON="$(_instance_world_catalog)"
+WORLD_COUNT="$(printf '%s' "$WORLD_CATALOG_JSON" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))')"
+
+if [[ "$LIST_ONLY" == "1" ]]; then
+    printf '%s' "$WORLD_CATALOG_JSON" | python3 -c '
+import json, sys
+worlds = json.load(sys.stdin)
+if not worlds:
+    print("No Worlds available — this lab runs the root AI Lab only.")
+else:
+    for w in worlds:
+        print(w["slug"].ljust(20) + " " + w["display_name"])
+'
+    exit 0
+fi
+
+# ── Resolve which slug (if any) we are starting as an instance ─────────────
+TARGET_SLUG=""
+if [[ -n "$WORLD_SLUG" ]]; then
+    TARGET_SLUG="$WORLD_SLUG"
+elif [[ "$WORLD_COUNT" == "0" ]]; then
+    TARGET_SLUG=""  # legacy root lab — falls straight into the unchanged path below
+elif [[ "$WORLD_COUNT" == "1" ]]; then
+    TARGET_SLUG="$(printf '%s' "$WORLD_CATALOG_JSON" | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["slug"])')"
+else
+    if [[ "$ASSUME_YES" == "1" ]] || [[ ! -t 0 ]]; then
+        echo "Multiple Worlds are configured — pick one:" >&2
+        printf '%s' "$WORLD_CATALOG_JSON" | python3 -c '
+import json, sys
+for w in json.load(sys.stdin):
+    print("  ./arailctl start --world " + w["slug"], file=sys.stderr)
+'
+        exit 2
+    fi
+    echo ""
+    echo "Multiple Worlds are configured. Which lab do you want?"
+    echo ""
+    echo "  0) ${LAB_NAME} (default — the root lab on :${PORTAL_PORT:-8080})"
+    _rows="$(printf '%s' "$WORLD_CATALOG_JSON" | python3 -c '
+import json, sys
+for w in json.load(sys.stdin):
+    print(w["slug"] + "\t" + w["display_name"])
+')"
+    _slugs=()
+    _i=1
+    while IFS=$'\t' read -r _row_slug _row_name; do
+        [[ -n "$_row_slug" ]] || continue
+        if inst_alive "$_row_slug"; then
+            _rec="$(inst_read_record "$_row_slug")"
+            _port="$(inst_record_field "$_rec" portal_port)"
+            _live="● running :${_port}"
+        else
+            _live="○ not running"
+        fi
+        printf '  %d) %-22s %s\n' "$_i" "$_row_name" "$_live"
+        _slugs+=("$_row_slug")
+        _i=$((_i + 1))
+    done <<< "$_rows"
+    echo ""
+    read -rp "  Choice [0-$((_i - 1))]: " _choice
+    if [[ -z "$_choice" || "$_choice" == "0" ]]; then
+        TARGET_SLUG=""
+    elif [[ "$_choice" =~ ^[0-9]+$ ]] && (( _choice >= 1 && _choice < _i )); then
+        TARGET_SLUG="${_slugs[$((_choice - 1))]}"
+    else
+        echo "Invalid choice." >&2
+        exit 2
+    fi
+fi
+
+# ── Instance-mode support functions ─────────────────────────────────────────
+
+_INST_PIDS=()
+_INST_CLAIM_FILE=""
+
+_instance_cleanup_and_exit() {
+    local code="${1:-0}"
+    local pid
+    for pid in "${_INST_PIDS[@]:-}"; do
+        [[ -n "$pid" ]] && kill "$pid" 2>/dev/null || true
+    done
+    if [[ ${#_INST_PIDS[@]} -gt 0 ]]; then
+        wait 2>/dev/null || true
+    fi
+    [[ -n "$_INST_CLAIM_FILE" ]] && rm -f "$_INST_CLAIM_FILE" 2>/dev/null || true
+    exit "$code"
+}
+
+# Resolve + jail + seal-verify a World slug. Prints a JSON object; never
+# raises. ARCHITECTURE.md §3.5 stage 1 / F5.
+_instance_resolve_world() {
+    local slug="$1"
+    ARAIL_WORLDS_DIR="$_INST_WORLDS_DIR_ABS" python3 - "$slug" <<'PY'
+import json, sys
+from arail.world_mount import _SLUG_RE, _default_worlds_dir, load_bundle, verify_seal
+
+slug = sys.argv[1]
+
+def fail(reason):
+    print(json.dumps({"ok": False, "reason": reason}))
+    sys.exit(0)
+
+if not _SLUG_RE.match(slug):
+    fail("invalid World slug: " + slug)
+
+worlds_root = _default_worlds_dir().resolve()
+candidate = (worlds_root / slug).resolve()
+root_s, cand_s = str(worlds_root), str(candidate)
+if not (cand_s == root_s or cand_s.startswith(root_s + "/")):
+    fail("path escapes the Worlds directory")
+if not candidate.is_dir():
+    fail("no such World: " + slug)
+
+try:
+    bundle = load_bundle(candidate)
+except Exception as e:  # noqa: BLE001
+    fail(str(e))
+
+seal = verify_seal(bundle)
+if not seal.ok:
+    fail(seal.user_message)
+
+theme = ""
+try:
+    if bundle.face:
+        theme = str(bundle.face.get("theme", {}).get("personality", ""))
+except Exception:  # noqa: BLE001
+    pass
+
+print(json.dumps({
+    "ok": True,
+    "bundle_dir": str(candidate),
+    "display_name": str(bundle.manifest.get("display_name", slug)),
+    "theme": theme,
+}))
+PY
+}
+
+_json_field() {
+    python3 -c '
+import json, sys
+data = json.loads(sys.argv[1])
+val = data.get(sys.argv[2], "")
+print(val if val is not None else "")
+' "$1" "$2"
+}
+
+# The 8-stage instance launch. ARCHITECTURE.md §3.5.
+_instance_start() {
+    local slug="$1"
+    local display_name="$slug"
+
+    echo ""
+    echo -e "${CYAN}${BOLD}Starting World: ${slug}${RESET}"
+    echo ""
+
+    # ── [1/8] Preflight ──────────────────────────────────────────────
+    printf '[1/8] Preflight… '
+    if daemon_active; then
+        echo "✗"
+        echo "  Daemon mode is active — it cannot host a second World." >&2
+        echo "  To run Worlds side by side: ./arailctl uninstall-daemon && ./arailctl start --world ${slug}" >&2
+        exit 1
+    fi
+    if [[ ! -f .venv/bin/activate ]]; then
+        echo "✗"; echo "  no .venv — run ./arailctl setup" >&2; exit 1
+    fi
+    if ! inst_alive "$slug"; then
+        local ceiling live_n
+        ceiling="${LAB_MAX_INSTANCES:-$INST_MAX_INSTANCES_DEFAULT}"
+        live_n=0
+        while IFS= read -r s; do
+            [[ -n "$s" ]] && inst_alive "$s" && live_n=$((live_n + 1))
+        done < <(inst_list_slugs)
+        if (( live_n >= ceiling )) && (( ceiling < 4 )); then
+            echo "✗"
+            echo "  At the instance ceiling (${ceiling}). Running Worlds:" >&2
+            _instance_print_roster >&2
+            echo "  Stop one first, or raise LAB_MAX_INSTANCES." >&2
+            exit 1
+        elif (( live_n >= ceiling )); then
+            warn "over the default instance ceiling (${ceiling}) — LAB_MAX_INSTANCES raised; proceeding."
+        fi
+    fi
+    echo "✓"
+
+    # Attach-on-running — never respawn, never error (VISION §3, §3.3).
+    if inst_alive "$slug" --probe; then
+        local rec port started pid dn url
+        rec="$(inst_read_record "$slug")"
+        port="$(_json_field "$rec" portal_port)"
+        started="$(_json_field "$rec" started_at)"
+        pid="$(_json_field "$rec" portal_pid)"
+        dn="$(_json_field "$rec" display_name)"
+        url="http://${BIND}:${port}"
+        echo ""
+        echo "${dn:-$slug} is already running."
+        echo "  URL:        ${url}"
+        echo "  Data root:  $(inst_instance_dir "$slug")"
+        echo "  Started:    ${started} (pid ${pid})"
+        if [[ "${ARAIL_NO_BROWSER:-0}" != "1" ]] && [[ -t 1 ]]; then
+            echo "Opening in your browser… (suppress with ARAIL_NO_BROWSER=1)"
+            if command -v open >/dev/null; then open "$url"
+            elif command -v xdg-open >/dev/null; then xdg-open "$url" >/dev/null 2>&1
+            fi
+        fi
+        exit 0
+    fi
+
+    # ── [2/8] Resolve World ──────────────────────────────────────────
+    printf '[2/8] Resolve World… '
+    local resolve_json resolve_ok reason bundle_dir theme
+    resolve_json="$(_instance_resolve_world "$slug")"
+    resolve_ok="$(_json_field "$resolve_json" ok)"
+    if [[ "$resolve_ok" != "True" ]]; then
+        echo "✗"
+        reason="$(_json_field "$resolve_json" reason)"
+        echo "  ${reason}" >&2
+        echo "  Known Worlds:" >&2
+        _instance_print_known_slugs >&2
+        exit 2
+    fi
+    bundle_dir="$(_json_field "$resolve_json" bundle_dir)"
+    display_name="$(_json_field "$resolve_json" display_name)"
+    theme="$(_json_field "$resolve_json" theme)"
+    echo "✓"
+
+    # ── [3/8] Claim ──────────────────────────────────────────────────
+    printf '[3/8] Claim… '
+    mkdir -p "$(inst_registry_dir)"
+    inst_prune "$slug"
+    local claim_file
+    claim_file="$(inst_claim_file "$slug")"
+    if [[ -f "$claim_file" ]]; then
+        local claim_mtime claim_age
+        claim_mtime="$(stat -f %m "$claim_file" 2>/dev/null || stat -c %Y "$claim_file" 2>/dev/null || echo 0)"
+        claim_age=$(( $(date +%s) - claim_mtime ))
+        if (( claim_age > INST_CLAIM_STALE_SECONDS )); then
+            rm -f "$claim_file"
+        fi
+    fi
+    if ( set -o noclobber; echo "$$" > "$claim_file" ) 2>/dev/null; then
+        _INST_CLAIM_FILE="$claim_file"
+        trap '_instance_cleanup_and_exit 130' INT
+        trap '_instance_cleanup_and_exit 143' TERM
+    else
+        echo "✗"
+        local holder
+        holder="$(cat "$claim_file" 2>/dev/null || echo '?')"
+        echo "  another start for '${slug}' is in progress (pid ${holder})" >&2
+        exit 1
+    fi
+    echo "✓"
+
+    # ── [4/8] Instance root ──────────────────────────────────────────
+    printf '[4/8] Instance root… '
+    local instance_root pack_file portal_port lance_port
+    instance_root="$(inst_scaffold_instance_root "$slug")"
+    pack_file="$(inst_env_file "$slug")"
+
+    if [[ -f "$pack_file" ]]; then
+        # Re-boot: read the pinned pack, assert absolute paths (§6.4 guard 1).
+        local prior_lab_root
+        prior_lab_root="$(grep -E '^LAB_ROOT=' "$pack_file" | head -n1 | cut -d= -f2- | tr -d '"')"
+        case "$prior_lab_root" in
+            /*) : ;;
+            *)
+                echo "✗"
+                echo "  instance.env has a non-absolute LAB_ROOT — refusing to boot: ${pack_file}" >&2
+                _instance_cleanup_and_exit 1 ;;
+        esac
+        portal_port="$(grep -E '^PORTAL_PORT=' "$pack_file" | head -n1 | cut -d= -f2- | tr -d '"')"
+        lance_port="$(grep -E '^LANCE_PORT=' "$pack_file" | head -n1 | cut -d= -f2- | tr -d '"')"
+        if [[ -n "$PORT_OVERRIDE" && "$PORT_OVERRIDE" != "$portal_port" ]]; then
+            portal_port="$PORT_OVERRIDE"
+            lance_port=$(( portal_port + INST_PORT_LANCE_OFFSET - INST_PORT_PORTAL_OFFSET ))
+            inst_write_env_pack "$slug" \
+                ARAIL_INSTANCE "$slug" \
+                ARAIL_ENV_FILE "$pack_file" \
+                LAB_ROOT "$instance_root" \
+                ARAIL_DATA_DIR "$instance_root/data" \
+                LAB_PKB "$instance_root/pkb" \
+                ARAIL_EXPERIMENTS_DIR "$instance_root/data/experiments" \
+                ARAIL_MODELS_DIR "$_INST_MODELS_DIR_ABS" \
+                ARAIL_WORLDS_DIR "$_INST_WORLDS_DIR_ABS" \
+                PORTAL_PORT "$portal_port" \
+                LANCE_PORT "$lance_port" \
+                BIND_ADDR "$BIND" \
+                LAB_NAME "$display_name" \
+                LAB_SHORT_NAME "$slug" \
+                LAB_THEME "$theme" \
+                LAB_INTENT "$slug"
+        fi
+    else
+        # First boot: allocate ports (or honor --port), write the pack once.
+        if [[ -n "$PORT_OVERRIDE" ]]; then
+            portal_port="$PORT_OVERRIDE"
+            lance_port=$(( portal_port + INST_PORT_LANCE_OFFSET - INST_PORT_PORTAL_OFFSET ))
+            if inst_port_excluded "$portal_port" || inst_port_excluded "$lance_port"; then
+                echo "✗"
+                echo "  --port ${portal_port} collides with a reserved port" >&2
+                _instance_cleanup_and_exit 1
+            fi
+        else
+            local alloc
+            if ! alloc="$(inst_allocate_ports)"; then
+                echo "✗"
+                _instance_cleanup_and_exit 1
+            fi
+            portal_port="${alloc%% *}"
+            lance_port="${alloc##* }"
+        fi
+        inst_write_env_pack "$slug" \
+            ARAIL_INSTANCE "$slug" \
+            ARAIL_ENV_FILE "$pack_file" \
+            LAB_ROOT "$instance_root" \
+            ARAIL_DATA_DIR "$instance_root/data" \
+            LAB_PKB "$instance_root/pkb" \
+            ARAIL_EXPERIMENTS_DIR "$instance_root/data/experiments" \
+            ARAIL_MODELS_DIR "$_INST_MODELS_DIR_ABS" \
+            ARAIL_WORLDS_DIR "$_INST_WORLDS_DIR_ABS" \
+            PORTAL_PORT "$portal_port" \
+            LANCE_PORT "$lance_port" \
+            BIND_ADDR "$BIND" \
+            LAB_NAME "$display_name" \
+            LAB_SHORT_NAME "$slug" \
+            LAB_THEME "$theme" \
+            LAB_INTENT "$slug"
+        if [[ -f "$REPO_ROOT/lab/data/secrets.env" ]]; then
+            info "Provider keys are per-instance — add this instance's keys via ⚙ Manage providers."
+        fi
+    fi
+    echo "✓"
+
+    # From here on, this shell IS the instance: load the pinned pack.
+    set -a
+    # shellcheck disable=SC1091
+    source "$pack_file"
+    set +a
+
+    # ── [5/8] Bind ports ─────────────────────────────────────────────
+    printf '[5/8] Bind ports… '
+    inst_load_port_helpers
+    if _port_in_use "$portal_port" || _port_in_use "$lance_port"; then
+        echo "✗"
+        echo "  port ${portal_port}/${lance_port} already taken — try: lsof -iTCP:${portal_port} -sTCP:LISTEN" >&2
+        _instance_cleanup_and_exit 1
+    fi
+    echo "✓"
+
+    # ── [6/8] Portal up ──────────────────────────────────────────────
+    printf '[6/8] Portal up… '
+    local instance_token
+    instance_token="$(python3 -c 'import uuid; print(uuid.uuid4())')"
+    ARAIL_INSTANCE_TOKEN="$instance_token" uvicorn arail.portal.app:app \
+        --host "$BIND" --port "$portal_port" \
+        --log-level warning >> "$(inst_log_dir "$slug")/portal.log" 2>&1 &
+    local portal_pid=$!
+    _INST_PIDS+=("$portal_pid")
+
+    local waited=0 portal_ready=0
+    while (( waited < 240 )); do  # 240 * 0.25s = 60s cap
+        if ! kill -0 "$portal_pid" 2>/dev/null; then
+            break
+        fi
+        if curl -sf -m 0.7 "http://${BIND}:${portal_port}/api/instance" >/dev/null 2>&1; then
+            portal_ready=1
+            break
+        fi
+        sleep 0.25
+        waited=$((waited + 1))
+    done
+    if [[ "$portal_ready" != "1" ]]; then
+        echo "✗"
+        echo "  portal did not come up — tail $(inst_log_dir "$slug")/portal.log" >&2
+        tail -n 30 "$(inst_log_dir "$slug")/portal.log" >&2 2>/dev/null || true
+        _instance_cleanup_and_exit 1
+    fi
+    echo "✓"
+
+    # ── [7/8] Memory up ──────────────────────────────────────────────
+    printf '[7/8] Memory up… '
+    uvicorn arail.memory_service:app \
+        --host "$BIND" --port "$lance_port" \
+        --log-level warning >> "$(inst_log_dir "$slug")/memory.log" 2>&1 &
+    local memory_pid=$!
+    _INST_PIDS+=("$memory_pid")
+    local mem_waited=0 mem_ready=0
+    while (( mem_waited < 80 )); do  # 80 * 0.25s = 20s cap
+        if ! kill -0 "$memory_pid" 2>/dev/null; then break; fi
+        if curl -sf -m 0.7 "http://${BIND}:${lance_port}/" >/dev/null 2>&1; then mem_ready=1; break; fi
+        sleep 0.25
+        mem_waited=$((mem_waited + 1))
+    done
+    if [[ "$mem_ready" == "1" ]]; then
+        echo "✓"
+    else
+        echo "⚠"
+        warn "memory service did not answer within 20s — chat works, memory features degrade."
+    fi
+
+    # Ollama — machine-shared, unchanged. Started only if unreachable, owned
+    # via a pidfile in THIS instance's data dir (mirrors start.sh's root-lab
+    # block; never pattern-matched, never touches an Ollama we didn't start).
+    if command -v ollama &>/dev/null; then
+        if curl -sf -m 2 "http://${OLLAMA_HOST:-127.0.0.1:11434}/api/version" >/dev/null 2>&1; then
+            info "Ollama     → http://${OLLAMA_HOST:-127.0.0.1:11434} (already running)"
+        else
+            ollama serve >> "$(inst_log_dir "$slug")/ollama.log" 2>&1 &
+            local ollama_pid=$!
+            _INST_PIDS+=("$ollama_pid")
+            mkdir -p "$(inst_data_dir "$slug")"
+            echo "$ollama_pid" > "$(inst_data_dir "$slug")/.ollama-started-by-arail.pid"
+            for _ in 1 2 3 4 5 6 7 8 9 10; do
+                curl -sf -m 1 "http://${OLLAMA_HOST:-127.0.0.1:11434}/api/version" >/dev/null 2>&1 && break
+                sleep 0.5
+            done
+            info "Ollama     → http://${OLLAMA_HOST:-127.0.0.1:11434} (starting)"
+        fi
+    else
+        info "Ollama     → (not installed — chat's default local model needs it: https://ollama.com)"
+    fi
+
+    # ── [8/8] World bound + index ────────────────────────────────────
+    printf '[8/8] World bound + index… '
+    local mount_out mount_rc=0
+    mount_out="$(python -m arail.world_mount mount "$bundle_dir" 2>&1)" || mount_rc=$?
+    if [[ "$mount_rc" != "0" ]]; then
+        echo "⚠"
+        warn "World mount failed — instance is up unmounted; /worlds can retry."
+        warn "$(printf '%s' "$mount_out" | tail -n 3)"
+    else
+        local staged_dir term_n
+        staged_dir="$(inst_pkb_dir "$slug")/sources/world-${slug}"
+        term_n="$(find "$staged_dir" -type f -name '*.md' 2>/dev/null | wc -l | tr -d ' ')"
+        echo "✓ (${term_n} term(s) staged)"
+    fi
+
+    # ── Record + URL ─────────────────────────────────────────────────
+    local checkout record_json now
+    checkout="$REPO_ROOT"
+    now="$(python3 -c 'import datetime; print(datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))')"
+    record_json="$(python3 -c '
+import json, sys
+print(json.dumps({
+    "schema": "arail.instance-registry/v1",
+    "slug": sys.argv[1], "display_name": sys.argv[2], "checkout": sys.argv[3],
+    "instance_root": sys.argv[4], "data_dir": sys.argv[5], "pkb_root": sys.argv[6],
+    "bind": sys.argv[7], "portal_port": int(sys.argv[8]), "lance_port": int(sys.argv[9]),
+    "launcher_pid": int(sys.argv[10]), "portal_pid": int(sys.argv[11]), "memory_pid": int(sys.argv[12]),
+    "token": sys.argv[13], "started_at": sys.argv[14], "arailctl_version": sys.argv[15],
+}))
+' "$slug" "$display_name" "$checkout" "$instance_root" "$(inst_data_dir "$slug")" "$(inst_pkb_dir "$slug")" \
+      "$BIND" "$portal_port" "$lance_port" "$$" "$portal_pid" "$memory_pid" \
+      "$instance_token" "$now" "concurrent-worlds-wp4")"
+    inst_write_record "$slug" "$record_json"
+    rm -f "$_INST_CLAIM_FILE" 2>/dev/null || true
+    _INST_CLAIM_FILE=""
+
+    local url="http://${BIND}:${portal_port}"
+    echo ""
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
+    echo -e "  ${BOLD}${display_name} is running.${RESET}  Press Ctrl+C to stop."
+    echo ""
+    echo -e "  Dashboard:  ${BOLD}${url}${RESET}"
+    echo -e "  Data root:  ${BOLD}${instance_root}${RESET}"
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
+
+    if [[ "${ARAIL_NO_BROWSER:-0}" != "1" ]] && [[ -t 1 ]]; then
+        (
+            for _ in 1 2 3 4 5 6 7 8 9 10; do
+                curl -sf -o /dev/null "$url" 2>/dev/null && break
+                sleep 0.5
+            done
+            if command -v open >/dev/null; then open "$url"
+            elif command -v xdg-open >/dev/null; then xdg-open "$url" >/dev/null 2>&1
+            fi
+        ) &
+    fi
+
+    trap '_instance_cleanup_and_exit 0' INT TERM
+    wait
+}
+
+if [[ -n "$TARGET_SLUG" ]]; then
+    _instance_start "$TARGET_SLUG"
+    exit 0
+fi
+
+# =============================================================================
+#  Legacy root lab — unchanged below this point (VISION §3: |W|==0, or the
+#  operator picked the root lab from the picker, behaves byte-identically).
+# =============================================================================
 
 PIDS=()
 
