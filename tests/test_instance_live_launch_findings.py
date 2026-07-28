@@ -216,17 +216,40 @@ def test_root_lab_stop_patterns_are_scoped_to_this_checkout() -> None:
     Reproduced 2026-07-28: ``reset.sh stop --all`` inside a sandbox checkout
     killed a ``uvicorn arail.memory_service --port 7414`` process belonging to
     a different checkout on the same machine.
+
+    QA-17 hardening pass note: ``stop_services`` now ALSO tries a port-only
+    ``fallback_patterns`` array (no ``REPO_ROOT`` in the pgrep pattern text)
+    so a root lab started before an ``--app-dir`` upgrade is still stoppable.
+    That array is intentionally excluded from the checkout-scoping assertion
+    below — its scoping is enforced a different way, at accept time (a real
+    ``ps -p <pid> -o command=`` check that rejects any candidate whose actual
+    argv carries a *different* ``--app-dir``, i.e. a foreign, already-
+    upgraded checkout), not baked into the pgrep pattern string. Asserted
+    directly against the source below, and behaviourally in
+    ``test_instance_qa_fix_regressions.py``'s QA-17 tests (a pre-upgrade
+    process is stoppable; a foreign upgraded checkout on the same default
+    port still survives).
     """
     body = RESET_SH.read_text(encoding="utf-8")
     start = body.index("stop_services() {")
     end = body.index("\n}\n", start)
     fn = body[start:end]
-    patterns = re.findall(r'"(uvicorn\.\*arail[^"]+)"', fn)
+    fb_start = fn.index("local fallback_patterns=(")
+    fb_end = fn.index(")\n", fb_start)
+    strict_fn = fn[:fb_start] + fn[fb_end:]
+    patterns = re.findall(r'"(uvicorn\.\*arail[^"]+)"', strict_fn)
     assert patterns, "stop_services' uvicorn patterns not found"
     for p in patterns:
         assert "REPO_ROOT" in p or "checkout" in p, (
             f"pattern is not checkout-scoped: {p}"
         )
+    # The fallback candidates must be gated by a real per-pid argv check,
+    # never accepted from the pattern match alone.
+    assert '"$fcmd" != *"--app-dir "*' in fn, (
+        "fallback pids are no longer verified against --app-dir before being "
+        "added to the kill list — QA-11's cross-checkout protection can "
+        "regress for any already-upgraded foreign checkout"
+    )
 
 
 def test_instance_stop_is_checkout_scoped_via_the_registry() -> None:
