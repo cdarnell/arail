@@ -21,6 +21,9 @@ _DRIVER = r"""
 set -euo pipefail
 info() { :; }
 LAB_NAME=test
+# QA-11: stop_services()'s uvicorn patterns are now checkout-scoped via
+# REPO_ROOT (start.sh passes --app-dir "$REPO_ROOT" so the argv carries it).
+REPO_ROOT=/repo
 # Stub process table: pid<TAB>command
 PROCS="$PROCS_FILE"
 pgrep() {
@@ -62,13 +65,21 @@ def _run_stop(tmp_path, procs):
 
 
 def test_foreign_uvicorn_survives(tmp_path):
+    # QA-11 (FIXED): patterns are now checkout-scoped via `--app-dir
+    # "$REPO_ROOT"` (start.sh adds it to argv; REPO_ROOT=/repo here). 103/104
+    # are the motivating incident's exact reproduction — a same-port,
+    # same-module uvicorn belonging to a DIFFERENT checkout (no --app-dir
+    # /repo in its argv) must survive a stop in THIS checkout too.
     killed = _run_stop(tmp_path, [
-        ("101", "python -m uvicorn arail.portal.app:app --port 8080"),
-        ("102", "python -m uvicorn arail.memory_service:app --port 7414"),
+        ("101", "python -m uvicorn arail.portal.app:app --app-dir /repo --port 8080"),
+        ("102", "python -m uvicorn arail.memory_service:app --app-dir /repo --port 7414"),
+        ("103", "python -m uvicorn arail.portal.app:app --app-dir /other/checkout --port 8080"),
+        ("104", "python -m uvicorn arail.memory_service:app --app-dir /other/checkout --port 7414"),
         ("666", "python -m uvicorn other.project.app:app --port 9000"),
         ("667", "uvicorn somebody_elses:app"),
     ])
     assert "101" in killed and "102" in killed
+    assert "103" not in killed and "104" not in killed
     assert "666" not in killed and "667" not in killed
 
 

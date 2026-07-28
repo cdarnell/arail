@@ -221,13 +221,17 @@ def test_stop_instance_unknown_slug_is_a_noop(tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_root_lab_stop_leaves_instance_on_different_port_alive(tmp_path):
+    # QA-11 (FIXED): stop_services()'s patterns are now checkout-scoped via
+    # --app-dir "$REPO_ROOT" — match it here too (REPO_ROOT == fake_repo,
+    # tmp_path/"repo", per _run_stop_driver).
+    fake_repo_path = str(tmp_path / "repo")
     procs = [
-        ("101", "python -m uvicorn arail.portal.app:app --port 8080"),
-        ("102", "python -m uvicorn arail.memory_service:app --port 7414"),
+        ("101", f"python -m uvicorn arail.portal.app:app --app-dir {fake_repo_path} --port 8080"),
+        ("102", f"python -m uvicorn arail.memory_service:app --app-dir {fake_repo_path} --port 7414"),
         # A World instance's portal/memory, on DIFFERENT ports — must survive
         # a plain root-lab `stop_services` call (F15).
-        ("201", "python -m uvicorn arail.portal.app:app --port 9190"),
-        ("202", "python -m uvicorn arail.memory_service:app --port 9194"),
+        ("201", f"python -m uvicorn arail.portal.app:app --app-dir {fake_repo_path} --port 9190"),
+        ("202", f"python -m uvicorn arail.memory_service:app --app-dir {fake_repo_path} --port 9194"),
     ]
     fake_repo, result, killed = _run_stop_driver(tmp_path, procs, [], ["stop_services"])
     assert result.returncode == 0, result.stdout + result.stderr
@@ -253,10 +257,12 @@ def test_stop_matches_bumped_lab_conf_port_not_default(tmp_path):
     (fake_repo / "lab.conf").write_text("PORTAL_PORT=9321\n", encoding="utf-8")
 
     # A real process whose full command line contains the bumped-port
-    # pattern stop_services() must match: uvicorn.*arail\.portal\.app.*--port 9321
+    # pattern stop_services() must match: uvicorn.*arail\.portal\.app.*--port
+    # 9321. QA-11 (FIXED): the pattern is now checkout-scoped via --app-dir
+    # "$REPO_ROOT" — start.sh's REAL invocation would pass fake_repo here.
     proc = subprocess.Popen([
         "python3", "-c", "import time; time.sleep(30)",
-        "uvicorn", "arail.portal.app", "--port", "9321",
+        "uvicorn", "arail.portal.app", "--app-dir", str(fake_repo), "--port", "9321",
     ])
     try:
         for _ in range(20):
@@ -320,8 +326,9 @@ def test_root_lab_stop_still_excludes_foreign_uvicorn(tmp_path):
     """Regression: the pre-existing module-scoping guarantee is preserved
     alongside the new port-scoping (test_reset_stop_scope.py pins the same
     contract against the un-touched module patterns)."""
+    fake_repo_path = str(tmp_path / "repo")
     procs = [
-        ("101", "python -m uvicorn arail.portal.app:app --port 8080"),
+        ("101", f"python -m uvicorn arail.portal.app:app --app-dir {fake_repo_path} --port 8080"),
         ("666", "python -m uvicorn other.project.app:app --port 8080"),
     ]
     fake_repo, result, killed = _run_stop_driver(tmp_path, procs, [], ["stop_services"])

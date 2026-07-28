@@ -127,10 +127,21 @@ fi
 # registry-verified PIDs.
 stop_services() {
     info "Stopping ${LAB_NAME} services..."
+    # QA-11: these patterns used to be port-scoped only, not checkout-
+    # scoped. Two ARAIL checkouts on one machine both default to
+    # 8080/7414, so `./arailctl stop` in checkout A killed checkout B's
+    # root-lab services — the BRIEF's motivating incident, reproduced live
+    # during QA. uvicorn's argv carries no checkout path by default; start.sh
+    # now passes `--app-dir "$REPO_ROOT"` explicitly (functionally a no-op —
+    # uvicorn already defaults --app-dir to cwd, which start.sh already `cd`s
+    # to REPO_ROOT before spawning) SPECIFICALLY so this pattern has
+    # something checkout-scoped to match against. The instance path
+    # (stop_instance, below) never pattern-matches at all — only the legacy
+    # root-lab path needed this.
     local patterns=(
-        "uvicorn.*arail\.portal\.app.*--port ${PORTAL_PORT:-8080}"
-        "uvicorn.*arail\.memory_service.*--port ${LANCE_PORT:-7414}"
-        "uvicorn.*arail\.mlx_openai_server.*--port ${MLX_OPENAI_PORT:-11435}"
+        "uvicorn.*arail\.portal\.app.*--app-dir ${REPO_ROOT}.*--port ${PORTAL_PORT:-8080}"
+        "uvicorn.*arail\.memory_service.*--app-dir ${REPO_ROOT}.*--port ${LANCE_PORT:-7414}"
+        "uvicorn.*arail\.mlx_openai_server.*--app-dir ${REPO_ROOT}.*--port ${MLX_OPENAI_PORT:-11435}"
         "ttyd.*${TERMINAL_PORT:-7681}"
         "jupyter-lab.*${NOTEBOOK_PORT:-8888}"
         "code-server.*${IDE_PORT:-8443}"

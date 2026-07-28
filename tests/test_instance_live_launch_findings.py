@@ -8,18 +8,17 @@ finally happened and found something no stubbed test could: the WP4 driver and
 tests/test_instance_start.py both use a stub ``uvicorn`` that exits immediately
 and never binds, so nothing in the suite had ever spoken HTTP to a real portal.
 
-QA-fix pass (sprints/2026-07-28-concurrent-worlds/BUILD_LOG.md): findings are
-fixed one at a time; each fixed finding's xfail marker is removed and its
-assertions flipped to pin the CORRECT behaviour, in the same commit as the
-fix. See BUILD_LOG.md's "QA-fix pass" section for the fix->commit mapping.
+QA-fix pass (sprints/2026-07-28-concurrent-worlds/BUILD_LOG.md): all four
+findings in this file (QA-B1, QA-B2, QA-4, QA-11) are now fixed; every xfail
+marker has been removed and the underlying assertions flipped to pin the
+CORRECT behaviour. See BUILD_LOG.md's "QA-fix pass" section for the
+fix->commit mapping.
 """
 from __future__ import annotations
 
 import ast
 import re
 from pathlib import Path
-
-import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 APP_PY = REPO_ROOT / "src" / "arail" / "portal" / "app.py"
@@ -202,15 +201,8 @@ def test_the_memory_service_serves_health_but_not_root() -> None:
 # QA-11 — root-lab stop is port-scoped but not checkout-scoped
 # ---------------------------------------------------------------------------
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="QA-11 (OPEN): stop_services()'s pgrep patterns match on module + "
-           "port but not on checkout, so `./arailctl stop` in checkout A kills "
-           "checkout B's root-lab services (both default to 8080/7414). "
-           "Reproduced accidentally during this QA pass. See TEST_REPORT.md.",
-)
 def test_root_lab_stop_patterns_are_scoped_to_this_checkout() -> None:
-    """F15 scoped ``stop_services`` by PORT. Two checkouts of ARAIL on one
+    """QA-11 (FIXED). F15 scoped ``stop_services`` by PORT. Two checkouts of ARAIL on one
     machine both default to ``PORTAL_PORT=8080`` / ``LANCE_PORT=7414``, so the
     port adds no discrimination between them.
 

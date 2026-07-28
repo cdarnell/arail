@@ -863,7 +863,12 @@ echo -e "${CYAN}${BOLD}${LAB_LOGO} Starting lab services…${RESET}"
 echo ""
 
 info "Portal     → http://${BIND}:${PORTAL_PORT:-8080}"
+# --app-dir "$REPO_ROOT" is functionally a no-op (uvicorn already defaults
+# --app-dir to cwd, and this script already `cd`s to REPO_ROOT above) — it
+# is here so the process's argv carries a checkout-scoped, grep-able
+# marker (QA-11: reset.sh's stop_services() patterns match on it).
 uvicorn arail.portal.app:app \
+    --app-dir "$REPO_ROOT" \
     --host "$BIND" --port "${PORTAL_PORT:-8080}" \
     --log-level warning &
 PIDS+=($!)
@@ -917,6 +922,7 @@ fi
 if [[ "${MODEL_BACKEND:-auto}" == "mlx" ]]; then
     info "MLX API    → http://${BIND}:${MLX_OPENAI_PORT:-11435}/v1"
     uvicorn arail.mlx_openai_server:app \
+        --app-dir "$REPO_ROOT" \
         --host "$BIND" --port "${MLX_OPENAI_PORT:-11435}" \
         --log-level warning &
     PIDS+=($!)
@@ -924,6 +930,7 @@ fi
 
 info "Memory     → http://${BIND}:${LANCE_PORT}"
 uvicorn arail.memory_service:app \
+    --app-dir "$REPO_ROOT" \
     --host "$BIND" --port "$LANCE_PORT" \
     --log-level warning &
 PIDS+=($!)
