@@ -289,7 +289,22 @@ def _env_file_path() -> Path:
     Honors ARAIL_ENV_FILE (tests point it at a tmp file; deployments can
     relocate it), else the historical cwd-relative .env — the portal is
     started from the repo root by arailctl, so cwd == repo root in prod.
+
+    Instance guard (QA-B2, sprints/2026-07-28-concurrent-worlds): an
+    instance process (ARAIL_INSTANCE set) MUST NEVER have ARAIL_ENV_FILE —
+    the World-instance's world-readable, 0644 ``instance.env`` pack —
+    treated as a credential sink. ARCHITECTURE.md §1.2 declares that file
+    secret-free by design, and ``inst_write_env_pack`` recreates it from
+    scratch (truncate + re-chmod 0644) on every first boot AND on every
+    ``--port`` rewrite — writing a passphrase there means a later
+    ``start --world X --port N`` silently destroys it. Onboarding for an
+    instance instead targets the same 0600 per-instance secret store the
+    provider-key save path already uses (``_secrets_path()``, under
+    ``<instance>/data/secrets.env``) — never shared, never auto-copied
+    (§7).
     """
+    if os.getenv("ARAIL_INSTANCE", "").strip():
+        return _secrets_path()
     override = os.getenv("ARAIL_ENV_FILE", "").strip()
     if override:
         return Path(override).expanduser()
@@ -1428,9 +1443,12 @@ def _chmod_600(p: Path) -> None:
 
 
 def _write_env_kv(key: str, value: str) -> None:
-    """Idempotent KEY=VALUE write to .env. Replaces any existing real or
-    commented-out entry, otherwise appends. Mirrors setup.sh's helper."""
+    """Idempotent KEY=VALUE write to .env (or, for an instance, its
+    per-instance secrets.env — see _env_file_path's QA-B2 guard). Replaces
+    any existing real or commented-out entry, otherwise appends. Mirrors
+    setup.sh's helper."""
     p = _env_file_path()
+    p.parent.mkdir(parents=True, exist_ok=True)
     lines = p.read_text().splitlines() if p.exists() else []
     prefix = f"{key}="
 

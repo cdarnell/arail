@@ -113,18 +113,11 @@ def test_the_probe_now_distinguishes_an_http_error_from_no_answer() -> None:
 # QA-B2 — onboarding writes a credential into the 0644 env pack
 # ---------------------------------------------------------------------------
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="QA-B2 (OPEN, HIGH): POST /api/welcome/setup writes ARAIL_PASSWORD "
-           "and OPEN_NOTEBOOK_ENCRYPTION_KEY into ARAIL_ENV_FILE, which for an "
-           "instance is instance.env — a file ARCHITECTURE §1.2 declares must "
-           "hold no secret and which inst_write_env_pack recreates 0644 and "
-           "truncates on any --port change. See TEST_REPORT.md.",
-)
 def test_the_onboarding_writer_never_targets_the_instance_env_pack() -> None:
-    """``_env_file_path()`` honours ``ARAIL_ENV_FILE``. The env pack sets
-    ``ARAIL_ENV_FILE=<instance>/instance.env`` (§1.2 — it is "the load-bearing
-    line"). So the onboarding flow's credential write lands in the pack.
+    """QA-B2 (FIXED): ``_env_file_path()`` used to honour ``ARAIL_ENV_FILE``
+    unconditionally. The env pack sets ``ARAIL_ENV_FILE=<instance>/instance.env``
+    (§1.2 — it is "the load-bearing line"), so the onboarding flow's credential
+    write used to land in the pack.
 
     Verified live on 2026-07-28: after ``POST /api/welcome/setup`` against a
     running instance, ``instance.env`` contained
