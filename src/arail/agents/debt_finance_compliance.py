@@ -1,7 +1,9 @@
 """Shared compliance module for the debt-finance World's two agents.
 
-Per ``sprints/2026-07-26-world-of-debt-finance/ARCHITECTURE.md`` §7.1/§7.2,
-both ``debt_advisor`` and ``consolidation_analyzer`` share exactly one
+Per ``sprints/2026-07-26-world-of-debt-finance/ARCHITECTURE.md`` §7.1/§7.2/
+§13.11 (now implemented, not just recorded — see that section's history and
+BUILD_LOG.md's "Structural refactor: segment-based provenance" entry), both
+``debt_advisor`` and ``consolidation_analyzer`` share exactly one
 implementation of:
 
 1. ``read_disclaimer()`` — reads the mounted World's ``compliance/
@@ -9,20 +11,71 @@ implementation of:
    the very next tick.
 2. ``check_guardrail()`` — a deterministic, code-level (not LLM-based)
    evaluative-language + institutional-character check that runs on every
-   assembled output string before it's ever written to a findings file.
+   assembled output before it's ever written to a findings file.
 
 Neither function ever touches ``lab/pkb/`` for *content* it returns to the
 caller — this module is arithmetic/string logic over the mounted World's
-own sealed files and the caller-supplied text, nothing more.
+own sealed files and the caller-supplied segments, nothing more.
+
+## Segment-based provenance (structural refactor)
+
+``check_guardrail`` used to take a single flat *string* plus three optional
+sets (``operator_names``, ``vetted_institutions``, ``quoted_spans``) and try
+to *reconstruct*, after the fact, which parts of that string were
+agent-generated versus quoted verbatim from a trusted source — by masking
+substrings, matching names with fuzzy containment rules, and reasoning about
+character-offset proximity windows. Ten findings across seven review rounds
+(see TEST_REPORT.md) all trace to that same shape of bug: a matcher
+approximating a provenance question from flat text will always have another
+escape one level deeper, because the flat string has already thrown the
+provenance information away.
+
+The fix: both agents now assemble their output as an ordered list of
+``Segment(text, provenance)`` pieces, where ``provenance`` is fixed at
+construction time — the caller *knows*, when it writes
+``Segment.world(v.name)``, that ``v.name`` came from the sealed World's
+vetted terms, not from the model. ``check_guardrail`` never re-derives this;
+it only ever asks "what provenance tag did the caller attach to this text",
+which cannot be spoofed by clever phrasing, casing, whitespace, or a
+transform applied between a field and its rendered form — every one of
+which was a distinct historical finding here.
+
+- ``Provenance.AGENT`` — model-generated or hardcoded-by-this-codebase
+  prose (headings, connective text, framing sentences).
+- ``Provenance.WORLD`` — World-sealed content: a vetted institution's name,
+  ``institution_type``, ``verification_source``, ``verified_as_of``, or a
+  scouting finding's ``feed``/``path``.
+- ``Provenance.OPERATOR`` — parsed verbatim from the operator's own
+  ``balances.json`` (``institution``, ``product``, ``source``, ``as_of``
+  from both ``debts`` and ``candidate_scenarios``).
+
+The evaluative/imperative-language check runs ONLY over the concatenation
+of ``AGENT`` segments — a ``WORLD`` or ``OPERATOR`` segment can never be
+evaluative-checked at all, regardless of what words it happens to contain,
+because it is never the agent's own words by construction.
+
+The institutional-character check still runs over the full, in-order
+concatenation of every segment (it legitimately needs the whole rendered
+line — an agent could in principle pair a real vetted name with an
+unvetted one in its own connective prose) but answers "is the name this
+trigger is pairing with actually trusted" by looking at the *provenance* of
+the text immediately surrounding the trigger's own segment — the trigger's
+own segment, or either of its immediate neighbours — rather than by
+re-finding a name via regex/substring matching against a set of allowed
+strings. A candidate name that lives only inside an ``AGENT`` segment can
+never be treated as vetted or operator-stated, because there is no
+provenance-tagged escape hatch for it — it fails closed by construction,
+not by omission of yet another special case.
 """
 
 from __future__ import annotations
 
 import datetime as _dt
+import enum
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Sequence
 
 # The single canonical phrase used as the disclaimer's precondition check.
 # Kept as a short, fixed substring per ARCHITECTURE.md §7.1 — if this phrase
@@ -32,7 +85,11 @@ CANONICAL_PHRASE = "not licensed financial advisors"
 # Evaluative / imperative vocabulary the guardrail blocks. Documented as a
 # defense-in-depth heuristic, not a safety classifier (ARCHITECTURE.md §7.2,
 # §13.2) — it closes the "zero backstop" review finding, it does not claim
-# to catch every adversarially-phrased attempt.
+# to catch every adversarially-phrased attempt. This check now only ever
+# runs over AGENT-provenance text (see module docstring), so a genuinely
+# quoted WORLD/OPERATOR string can never trip it no matter what words it
+# contains — the historical "quoted URL contains 'best'" defect class is
+# gone by construction, not by a masking countermeasure.
 _EVALUATIVE_RE = re.compile(
     r"\b(best|guaranteed|top[- ]pick|top choice|lowest|you should|you must|"
     r"recommend(?:ed|ation|s)?|advice|advis(?:e[sd]?|able)|optimal|cheapest|"
@@ -43,33 +100,18 @@ _EVALUATIVE_RE = re.compile(
 # Reason strings returned by ``check_guardrail``. Exposed as constants (not
 # just inline literals) so callers can branch a user-facing failure message
 # on *which* branch fired without re-deriving the guardrail's own regex
-# match text (REVIEW.md re-review addendum 3, item 3 — the ASK-B message was
-# misdirecting operators at ``institution`` fields for evaluative-branch
-# blocks). ``REASON_INSTITUTIONAL_PREFIX`` is a prefix, not an exact string,
-# because that branch's message interpolates the matched phrase.
+# match text. ``REASON_INSTITUTIONAL_PREFIX`` is a prefix, not an exact
+# string, because that branch's message interpolates the matched phrase.
 REASON_EVALUATIVE = "evaluative or imperative language detected"
 REASON_INSTITUTIONAL_PREFIX = "institutional-character language ("
 
-# Institutional-character language that may only be paired with a vetted
-# institution name (one present in the World's terms.json institutions set
-# with its own verification source).
+# Institutional-character language that may only be paired with a name whose
+# provenance is WORLD (a vetted institution) or OPERATOR (the operator's own
+# stated name) — never a name that exists only inside AGENT-provenance text.
 _INSTITUTIONAL_CHARACTER_RE = re.compile(
     r"\b(credit union|nonprofit|non-profit|member-owned)\b",
     re.I,
 )
-
-# Splits assembled output into sentence-ish chunks so the institutional-
-# character check reasons about "the sentence that made the claim", not an
-# arbitrary character window that can accidentally straddle an unrelated
-# vetted name written elsewhere in the same output.
-#
-# Also splits on newlines (BLOCK-4): a rendered list item (e.g. Debt
-# Advisor's vetted-institution line, which ends in `)` with no terminal
-# punctuation) is a unit of assertion on its own line, and must never merge
-# with the following line into one "sentence" — that merge is exactly what
-# let an unvetted institution on one line ride along on a vetted name on the
-# line above it.
-_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+|\n+")
 
 # A sealed named-institution's verification is only trusted for this many
 # days past its `verified_as_of` date before the mechanism degrades closed
@@ -77,54 +119,49 @@ _SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+|\n+")
 # matches the operator's own annual re-check commitment.
 _VERIFICATION_STALENESS_DAYS = 365
 
-# How far, in characters, to either side of a trigger-phrase occurrence to
-# look for the proper-noun name it's actually naming. Local to the
-# occurrence, not the whole chunk — see check_guardrail's docstring for why
-# a chunk-wide candidate list reintroduces a positional tautology.
-_PROXIMITY_WINDOW_CHARS = 40
 
-# Minimum length, in characters, a ``quoted_spans`` entry must have before
-# it is eligible for masking ahead of the evaluative-language check. A
-# global ``text.replace(span, ...)`` over a short, common substring (the
-# review's own example: an operator-typed ``as_of='st'``) blanks that
-# substring everywhere it occurs in the assembled body — including inside
-# an unrelated word like "best" — which would silently defang the
-# evaluative check for content that has nothing to do with the short value
-# (REVIEW.md re-review addendum 4, ASK-C). Offset-based masking (blanking
-# only the exact byte range where a span was interpolated into the
-# template) would close this precisely, but the body is assembled by
-# ordinary string formatting with no tracked insertion offsets, so instead
-# any span shorter than this floor is simply never masked and falls back to
-# being fully evaluative-checked. That degrades *closed* — a short
-# operator-typed date fragment can, in principle, cause a false block — which
-# the review explicitly judged a far smaller cost than a global word-level
-# bypass. Chosen length covers realistic short trigger substrings ("best",
-# "top") plus one character of margin; genuine quoted spans (URLs,
-# institution names, feed titles) are always well above this floor.
-_MIN_QUOTED_SPAN_LEN = 5
+class Provenance(enum.Enum):
+    """Where a piece of assembled output text actually came from.
 
-# A candidate proper-noun institution name: a run of one or more
-# capitalized-initial words (allowing internal connectors like "&"/"of").
-# Used to find "the entity this sentence is actually naming" near an
-# institutional-character trigger phrase, rather than treating "any vetted
-# name is a substring somewhere in this window" as sufficient — the latter
-# is what let a vetted *concept* term's own name ("Credit Union") silently
-# vet the trigger phrase itself.
-_PROPER_NOUN_RE = re.compile(r"\b[A-Z][\w&'.-]*(?:\s+[A-Z][\w&'.-]*)*\b")
+    Fixed at the point each agent's ``_build_output`` constructs a
+    ``Segment`` — never re-derived from the text itself. See the module
+    docstring for what each value means and why this replaces the old
+    flat-string masking/matching machinery.
+    """
 
-# Minimum length, after whitespace-collapse and casefold, an allowed name
-# (an ``operator_names`` or ``vetted_institutions`` entry) must have before
-# it is eligible to pair-match an institutional-character claim at all.
-# QA (TEST_REPORT.md F2) found ``_names_match`` was unanchored substring
-# containment with no floor: a 1-char operator-typed institution name (or a
-# whitespace-only one) is a substring of nearly every capitalized proper
-# noun, so it "vetted" institutions the operator never named and the World
-# never verified. This is the same defect class ``_MIN_QUOTED_SPAN_LEN``
-# closes on the evaluative branch, applied here to the branch it was never
-# applied to. Chosen length is short enough to admit real short lender
-# names ("SoFi", "USAA", "PNC") while excluding single characters and
-# whitespace.
-_MIN_ALLOWED_NAME_LEN = 3
+    AGENT = "agent"
+    WORLD = "world"
+    OPERATOR = "operator"
+
+
+@dataclass(frozen=True)
+class Segment:
+    """One piece of assembled output text, tagged with where it came from.
+
+    Both agents' ``_build_output`` build their entire rendered document as
+    an ordered list of these — never a flat f-string — so
+    ``check_guardrail`` can answer every provenance question by construction
+    instead of by re-deriving it from string content.
+    """
+
+    text: str
+    provenance: Provenance
+
+    @classmethod
+    def agent(cls, text: str) -> "Segment":
+        """Model-generated or hardcoded-by-this-codebase prose."""
+        return cls(text, Provenance.AGENT)
+
+    @classmethod
+    def world(cls, text: str) -> "Segment":
+        """World-sealed content (a vetted institution's structured fields,
+        or a scouting finding's feed/path metadata)."""
+        return cls(text, Provenance.WORLD)
+
+    @classmethod
+    def operator(cls, text: str) -> "Segment":
+        """Parsed verbatim from the operator's own ``balances.json``."""
+        return cls(text, Provenance.OPERATOR)
 
 
 @dataclass
@@ -190,272 +227,59 @@ def is_verification_fresh(verified_as_of: str, today: Optional[_dt.date] = None)
     return (now - parsed).days <= _VERIFICATION_STALENESS_DAYS
 
 
-def _span_contains(outer: tuple[int, int], inner: tuple[int, int]) -> bool:
-    """True if ``inner`` falls entirely within (or equals) ``outer``."""
-    return outer[0] <= inner[0] and inner[1] <= outer[1]
+def check_guardrail(segments: Sequence[Segment]) -> GuardrailResult:
+    """Deterministic pre-write check on an assembled, segment-tagged output.
 
+    ``segments`` is the ordered list of ``Segment`` pieces that, concatenated
+    in order, form the exact text that would be written to the findings
+    file. Provenance is answered by construction — see the module
+    docstring — never by re-deriving it from the text.
 
-def _is_legitimate_candidate_span(
-    candidate_span: tuple[int, int], trigger_span: tuple[int, int]
-) -> bool:
-    """TEST_REPORT.md F10/F11: is a *proper-noun candidate's* span (primary
-    match path) a real, distinct institution name rather than the trigger
-    phrase talking about itself?
+    **Evaluative/imperative language check:** runs only over the
+    concatenation of ``AGENT``-provenance segments (joined with a single
+    space, so two adjacent AGENT segments can never fuse into a word neither
+    of them contains on their own). A ``WORLD`` or ``OPERATOR`` segment is
+    never evaluative-checked, no matter what words it contains — this is
+    what makes a citation URL or a real institution's own marketed name
+    (both historical false-block findings) impossible to reintroduce: they
+    are simply never candidates for this check at all.
 
-    A candidate is illegitimate only if it is entirely contained in (or
-    equal to) the trigger phrase's own matched span — e.g. the trigger
-    itself renders capitalized ("Credit Union") and is extracted as its own
-    "candidate", or a truncated capitalized run sits fully inside the
-    trigger text. Any candidate that is disjoint from the trigger span (the
-    ordinary case: a named institution written elsewhere nearby, e.g.
-    "PenFed Credit Union ... is a credit union") or that properly *contains*
-    the trigger span (e.g. "Navy Federal Credit Union", where the trigger's
-    own case-insensitive match for "credit union" happens to be the tail of
-    a longer capitalized name) is a distinct, real name and stays eligible.
+    **Institutional-character check:** runs over the full, in-order
+    concatenation of every segment (this branch legitimately needs the
+    whole rendered line, per ARCHITECTURE.md §13.11's design intent — an
+    agent could in principle pair a real vetted name with an unvetted one in
+    its own connective prose). For each occurrence of an institutional-
+    character trigger phrase (found within one segment's own text — by
+    construction, this codebase never splits a literal trigger phrase
+    across a segment boundary), the claim is legitimate only if the
+    trigger's own segment, or either of its immediate neighbouring
+    segments, carries ``WORLD`` or ``OPERATOR`` provenance. A name that
+    exists only inside ``AGENT``-provenance text — invented or altered by
+    the model — can never satisfy this, because there is no string it could
+    be altered *to* that would change its segment's provenance tag.
     """
-    return not _span_contains(trigger_span, candidate_span)
-
-
-def _is_legitimate_fallback_span(
-    match_span: tuple[int, int], trigger_span: tuple[int, int]
-) -> bool:
-    """TEST_REPORT.md F10: is a *raw-window* allowed-name occurrence
-    (fallback match path, added for F3) actually the name the trigger
-    phrase is naming, rather than an unrelated word that merely happens to
-    sit somewhere in the 40-char proximity window?
-
-    Unlike the proper-noun candidate path, a fallback match that is
-    *disjoint* from the trigger span is never legitimate here: this path
-    exists only to re-find, via raw case-insensitive text search, the same
-    institution name the primary path would have found had it been
-    capitalized — i.e. an allowed name that IS (a superset of) the trigger's
-    own occurrence, just spelled without the capital letters
-    ``_PROPER_NOUN_RE`` requires. A generic word floating elsewhere in the
-    window ("the", "is a") is disjoint from the trigger and must not vet
-    anything through this path — that was BLOCK-1's tautology recurring at
-    word granularity. The match is legitimate only when it *properly
-    contains* the trigger span (extends beyond it on at least one side);
-    equal spans are the trigger phrase self-vetting and stay excluded,
-    exactly as subset spans ("Union" inside "credit union") do.
-    """
-    return (
-        _span_contains(match_span, trigger_span) and match_span != trigger_span
+    agent_text = " ".join(
+        s.text for s in segments if s.provenance is Provenance.AGENT
     )
+    if _EVALUATIVE_RE.search(agent_text):
+        return GuardrailResult(ok=False, reason=REASON_EVALUATIVE)
 
-
-def _names_match(candidate_lower: str, vetted_lower: str) -> bool:
-    """True only if the candidate text contains the vetted institution's
-    *full* name as a whole-word-bounded, whitespace/case-normalized phrase.
-
-    Deliberately one-directional: checking "is the candidate a substring of
-    the vetted name" too would let a bare capitalized trigger word (e.g. a
-    capitalized "Credit Union" written as part of the evaluative phrase
-    itself) match any vetted institution whose name happens to contain that
-    word (e.g. "PenFed Credit Union") — reintroducing the exact tautology
-    this function exists to close. Requiring the *full* vetted name inside
-    the candidate means a fictional or unvetted institution's name is never
-    close enough by accident.
-
-    TEST_REPORT.md F2/F3: two further hardenings over the original bare
-    ``vetted_lower in candidate_lower`` substring check:
-
-    1. A length floor (``_MIN_ALLOWED_NAME_LEN``) — a 1-char or
-       whitespace-only allowed name is never eligible to match anything, no
-       matter how it got into ``operator_names``/``vetted_institutions``.
-    2. Word-boundary anchoring instead of bare containment — "ally" must
-       not match inside "alliance"; only a whole-word (or whole-phrase)
-       occurrence counts.
-
-    Whitespace is collapsed and casing is folded (``str.casefold()``, not
-    ``.lower()``, so non-ASCII initials normalize consistently) on the
-    vetted side before matching, so a hand-typed trailing space or an
-    accented initial letter doesn't cause a spurious non-match.
-    """
-    vetted_norm = " ".join(vetted_lower.split()).casefold()
-    if len(vetted_norm) < _MIN_ALLOWED_NAME_LEN:
-        return False
-    candidate_norm = candidate_lower.casefold()
-    return re.search(rf"\b{re.escape(vetted_norm)}\b", candidate_norm) is not None
-
-
-def _fallback_match_spans(window: str, vetted_lower: str) -> list[tuple[int, int]]:
-    """All whole-word, case-folded occurrences of ``vetted_lower`` in
-    ``window``, as spans in ``window``'s own coordinates.
-
-    Companion to ``_names_match`` for the F3 raw-window fallback path: that
-    function only answers "does a match exist somewhere", which is exactly
-    what let F10 through (a match's *position* matters there, not just its
-    existence). Same length floor and word-boundary anchoring as
-    ``_names_match``; an allowed name below ``_MIN_ALLOWED_NAME_LEN`` never
-    yields a span.
-    """
-    vetted_norm = " ".join(vetted_lower.split()).casefold()
-    if len(vetted_norm) < _MIN_ALLOWED_NAME_LEN:
-        return []
-    window_norm = window.casefold()
-    return [
-        m.span()
-        for m in re.finditer(rf"\b{re.escape(vetted_norm)}\b", window_norm)
-    ]
-
-
-def check_guardrail(
-    text: str,
-    vetted_institutions: frozenset[str],
-    operator_names: frozenset[str] = frozenset(),
-    quoted_spans: frozenset[str] = frozenset(),
-) -> GuardrailResult:
-    """Deterministic pre-write check on an assembled output string.
-
-    ``vetted_institutions`` is the lowercase set of specific, named,
-    verified institutions' names — never a generic glossary/concept term
-    (see ``terms.json``'s ``institutions`` category, where only entries
-    carrying an ``institution_type`` field are named institutions). The
-    only World-sourced names allowed to sit near institutional-character
-    language.
-
-    ``operator_names`` is a distinct, narrower exemption: names sourced
-    *only* from the operator's own parsed ``balances.json`` — the product
-    quoting the user back to themselves, not asserting anything about a
-    third party. Matched with the identical strict rule as
-    ``vetted_institutions``, never looser. Callers must pass an empty
-    frozenset here for any text that is not a literal, code-inserted echo
-    of the operator's own data (World-sourced text and all
-    model-generated/framing prose get no exemption of any kind).
-
-    ``quoted_spans`` is the evaluative branch's analogue of
-    ``operator_names``: a set of exact, literal, code-inserted substrings
-    of ``text`` that are *quoted back verbatim* from a source other than
-    the calling agent's own generated prose (REVIEW.md re-review addendum
-    3, BLOCK-6) — e.g. a citation URL an operator pasted into
-    ``candidate_scenarios.source``, or a scouted RSS feed's own title. The
-    ``_EVALUATIVE_RE`` check is run against a *masked* copy of ``text``
-    with every ``quoted_spans`` occurrence blanked out first, so a
-    "best-balance-transfer-cards"-shaped URL or feed title can never
-    suppress a whole document — while any evaluative word the agent's own
-    prose contributes (which is never a member of ``quoted_spans``) is
-    still caught. This is deliberately scoped to exact literal spans, not
-    a vocabulary exemption: widening the word list itself would let the
-    model's own generated prose say "best" freely too, which is the
-    defect this parameter exists to avoid reintroducing. Callers must pass
-    an empty frozenset here for any text whose evaluative-sounding words
-    are not a literal, code-inserted echo of a non-agent source (in
-    particular, ``_framing_prose``'s standalone self-check always passes
-    an empty set here — model-generated prose gets no exemption of any
-    kind, on either branch).
-
-    Spans shorter than ``_MIN_QUOTED_SPAN_LEN`` are never masked, even if
-    present in this set: masking is a global substring replace over the
-    whole assembled body (there is no tracked insertion offset), so a
-    short, common quoted value would otherwise blank itself out of
-    unrelated words too (e.g. ``as_of='st'`` matching inside "be**st**") and
-    silently defang the evaluative check for content that has nothing to
-    do with it. Short spans instead fall back to being fully
-    evaluative-checked, which degrades closed rather than open.
-
-    Institutional-character language is checked chunk by chunk, where a
-    chunk is a sentence *or* a newline-delimited line (BLOCK-4: a rendered
-    list item without terminal punctuation is a unit of assertion on its
-    own and must never merge with an adjacent line). Within a chunk, every
-    occurrence of a trigger phrase is checked independently (``finditer``,
-    not ``search`` — a single chunk naming both a vetted and an unvetted
-    institution must still block on the unvetted one): for each occurrence,
-    candidate proper-noun names are drawn only from a local window around
-    *that* occurrence (``_PROXIMITY_WINDOW_CHARS`` on each side, clipped to
-    the chunk), not from the whole chunk — otherwise a vetted name written
-    anywhere in a chunk that also names an unvetted institution would
-    satisfy every trigger in that chunk regardless of which claim it is
-    actually attached to (the same tautology class as BLOCK-1, one level
-    down). One of the local candidates must match a vetted or operator
-    name. This is deliberately stricter than "a vetted name appears
-    anywhere in an 80-char window" as a *chunk-wide* rule (the tautology
-    BLOCK-1 found: a vetted *concept* term whose name IS the trigger phrase
-    itself would satisfy that check for any institution, vetted or not).
-    """
-    # Longest-first: a shorter quoted span that happens to be a substring of
-    # a longer one (e.g. "balance-transfer" inside a
-    # ".../best-balance-transfer-cards" URL) must not be masked first —
-    # doing so would corrupt the longer span's text so the longer
-    # ``.replace()`` no longer finds an exact match, leaving the
-    # surrounding "best"/"-cards" fragments of the URL unmasked and the
-    # evaluative check still tripped on them.
-    masked_for_evaluative = text
-    for span in sorted(
-        (s for s in quoted_spans if s and len(s) >= _MIN_QUOTED_SPAN_LEN),
-        key=len, reverse=True,
-    ):
-        masked_for_evaluative = masked_for_evaluative.replace(span, " " * len(span))
-    if _EVALUATIVE_RE.search(masked_for_evaluative):
-        return GuardrailResult(
-            ok=False,
-            reason=REASON_EVALUATIVE,
-        )
-
-    allowed_names = vetted_institutions | operator_names
-
-    # NOTE: the institutional-character check below always runs against the
-    # original, unmasked ``text`` — ``quoted_spans`` only ever narrows the
-    # evaluative-language check above. A quoted span containing
-    # institutional-character language is not exempted by this parameter;
-    # that provenance question is what ``operator_names``/
-    # ``vetted_institutions`` already answer for this branch.
-    for chunk in _SENTENCE_SPLIT_RE.split(text):
-        for match in _INSTITUTIONAL_CHARACTER_RE.finditer(chunk):
-            window_start = max(0, match.start() - _PROXIMITY_WINDOW_CHARS)
-            window_end = min(len(chunk), match.end() + _PROXIMITY_WINDOW_CHARS)
-            window = chunk[window_start:window_end]
-            # Trigger's own matched span, translated into ``window``'s local
-            # coordinates — both candidate-path and fallback-path legitimacy
-            # below are judged against this, not against the trigger's
-            # literal matched *text* (TEST_REPORT.md F10/F11: an
-            # identical-text check only excludes an allowed name that is the
-            # whole trigger phrase, not one that is a word *of* it or that
-            # occurs elsewhere in the window unrelated to it).
-            trigger_span = (match.start() - window_start, match.end() - window_start)
-            matched = any(
-                _names_match(proper_noun.group(0).lower(), allowed)
-                and _is_legitimate_candidate_span(proper_noun.span(), trigger_span)
-                for proper_noun in _PROPER_NOUN_RE.finditer(window)
-                for allowed in allowed_names
+    for idx, seg in enumerate(segments):
+        for match in _INSTITUTIONAL_CHARACTER_RE.finditer(seg.text):
+            neighbours = [seg.provenance]
+            if idx > 0:
+                neighbours.append(segments[idx - 1].provenance)
+            if idx + 1 < len(segments):
+                neighbours.append(segments[idx + 1].provenance)
+            if any(p is not Provenance.AGENT for p in neighbours):
+                continue
+            return GuardrailResult(
+                ok=False,
+                reason=(
+                    f"{REASON_INSTITUTIONAL_PREFIX}{match.group(0)!r}) "
+                    "not paired with a vetted, specifically-named "
+                    "institution near that claim"
+                ),
             )
-            # TEST_REPORT.md F3: ``_PROPER_NOUN_RE`` requires an ASCII
-            # capital initial, but the trigger regex above (and this
-            # module's whole matching design) is case-insensitive. An
-            # operator who types their own institution name in lowercase,
-            # or whose name starts with a non-ASCII letter (e.g. "Éole"),
-            # never produces a capitalized candidate at all — so the exact,
-            # documented-as-case-insensitive exemption path can never fire
-            # for them. Fall back to matching an allowed name directly
-            # against the raw window text (case-folded, word-boundary
-            # anchored) so the candidate-name extraction step is consistent
-            # with the rest of the guardrail's case-insensitive design,
-            # rather than a second, stricter gate in front of it.
-            #
-            # TEST_REPORT.md F10: a bare "does this allowed name occur
-            # *somewhere* in the window" check (the original F3 fix) admits
-            # any word of the trigger phrase itself ("union", "credit") or
-            # any unrelated word floating in the 40-char window ("the",
-            # "is a") — a positional tautology, not just a textual one.
-            # ``_is_legitimate_fallback_span`` requires the occurrence to
-            # *properly contain* the trigger's own span: it must be (a
-            # superset of) the very text the trigger matched, spelled
-            # without the capitals ``_PROPER_NOUN_RE`` would have required —
-            # never a fragment of it, and never an unrelated word merely
-            # nearby.
-            if not matched:
-                matched = any(
-                    _is_legitimate_fallback_span(span, trigger_span)
-                    for allowed in allowed_names
-                    for span in _fallback_match_spans(window, allowed)
-                )
-            if not matched:
-                return GuardrailResult(
-                    ok=False,
-                    reason=(
-                        f"{REASON_INSTITUTIONAL_PREFIX}{match.group(0)!r}) "
-                        "not paired with a vetted, specifically-named "
-                        "institution near that claim"
-                    ),
-                )
 
     return GuardrailResult(ok=True)
