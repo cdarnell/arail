@@ -125,6 +125,31 @@ registry entry). A record whose data directory has vanished out from
 under a still-running process renders `⚠ data root missing` and is left
 alone — the operator decides what to do, `status` never guesses.
 
+## `./arailctl reset` does NOT touch instance data — yet
+
+**This is a real gap, not a cosmetic one — read this before you assume
+`reset pkb`/`reset data`/`reset env` wipes a World instance.** Every
+`./arailctl reset <mode>` (`pkb`, `data`, `env`, `full`, …) operates on the
+ROOT lab's `lab/pkb/`, `lab/data/`, `.env`/`lab.conf` only. A running or
+stopped World instance's own tree —
+`lab/instances/<slug>/{pkb,data}/` (its knowledge base, chat memory,
+LanceDB index, and `secrets.env`) — is **not reached by any reset mode**.
+`reset env` in particular does not remove a World instance's
+`secrets.env`, even though it removes the root lab's.
+
+If you need to wipe a World instance's data today, do it directly:
+
+```
+./arailctl stop --world <slug>          # stop it first
+rm -rf lab/instances/<slug>              # then remove its tree by hand
+```
+
+A `--world`-aware `reset` (or an explicit refusal naming the untouched
+instance roots) is filed as backlog work — see `sprints/BACKLOG.md`:
+*"`./arailctl reset` should be instance-aware."* Until that lands, this
+gap is the one place "wipe the PKB = wipe memory" (CLAUDE.md's stated
+contract) is not yet true for a World instance.
+
 ## Naming note: two things called "instances"
 
 `lab/instances/` (this sprint, real, gitignored runtime state) and the

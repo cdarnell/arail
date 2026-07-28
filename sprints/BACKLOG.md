@@ -49,3 +49,38 @@ own VISION pass, not a rider on this one.
 **Mitigation until this is scheduled:** the naming distinction is
 documented in `docs/concurrent-worlds.md`'s "Naming note" section and in
 `scripts/blueprint.sh`'s own header comment.
+
+---
+
+## `./arailctl reset` should be instance-aware
+
+**Filed by:** `sprints/2026-07-28-concurrent-worlds/REVIEW.md` finding
+M6 (architect-review pass).
+
+**The gap.** `reset pkb`, `reset data`, `reset env`, and `reset full` all
+operate on the ROOT lab's `config.py`-resolved paths (`lab/pkb/`,
+`lab/data/`, `.env`/`lab.conf`). `lab/instances/<slug>/{pkb,data}/` —
+which holds a World instance's own knowledge base, chat memory, LanceDB
+index, and `secrets.env` — is untouched by every one of them. CLAUDE.md
+states the privacy contract flatly ("wipe the PKB = wipe memory");
+that contract is not yet true for a World instance. Minimum mitigation
+shipped this sprint: documented loudly in `docs/concurrent-worlds.md`
+and `CHANGELOG.md`, with a manual `rm -rf lab/instances/<slug>` workaround
+named. No code change to `reset.sh`'s destructive paths — REVIEW.md M6
+ruled that in scope for documentation only, not a redesign, this pass.
+
+**What a future sprint needs to decide:**
+1. Does `reset pkb`/`reset data`/`reset env` grow a `--world <slug>` flag
+   that targets one instance's tree instead of (or in addition to) the
+   root lab's?
+2. Should `reset full`/`reset pkb` at minimum REFUSE and list the
+   untouched instance roots when any exist, rather than silently
+   completing as if the whole lab were wiped?
+3. Whatever is decided must not let a reset command delete instance data
+   for a WORLD THAT IS CURRENTLY RUNNING out from under a live process —
+   the same "verify before touching" discipline `stop_instance()` already
+   applies to killing PIDs should extend to any future data-deleting path.
+
+**Mitigation until this is scheduled:** documented in
+`docs/concurrent-worlds.md`'s "`./arailctl reset` does NOT touch instance
+data — yet" section, with the manual two-command workaround.

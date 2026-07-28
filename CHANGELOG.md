@@ -46,6 +46,16 @@ project adheres to [Semantic Versioning](https://semver.org/).
   registry-driven roster, used by both the CLI's liveness check and the
   new UI.
 
+### Known gap (2026-07-28 concurrent Worlds)
+
+- **`./arailctl reset` (`pkb`/`data`/`env`/`full`) does not touch World
+  instance data.** Only the root lab's `lab/pkb/`/`lab/data/`/`.env`/
+  `lab.conf` are wiped; a World instance's own `lab/instances/<slug>/`
+  tree (knowledge base, chat memory, LanceDB index, `secrets.env`) is
+  untouched by every reset mode. See `docs/concurrent-worlds.md`'s
+  "`./arailctl reset` does NOT touch instance data — yet" section for the
+  manual workaround and `sprints/BACKLOG.md` for the filed follow-up.
+
 See `sprints/2026-07-28-concurrent-worlds/` for the full design record
 (`VISION.md`, `ARCHITECTURE.md`, `BUILD_LOG.md`) and
 [`docs/concurrent-worlds.md`](docs/concurrent-worlds.md) for the operator
