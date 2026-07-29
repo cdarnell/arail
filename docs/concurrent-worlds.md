@@ -137,6 +137,14 @@ the catalog whenever this happens (checked on every catalog render), and
 state (`unmount()` operates on the mount record, never the bundle dir on
 disk — see `world_mount.py`).
 
+**`./arailctl world swap <dir>` still exists, deliberately.** It is a
+direct CLI-only escape hatch to `world_mount.swap()` — a single-step
+in-place switch — kept for scripting/operator use and reachable from no
+UI surface (the browser, the nav dropdown, and the welcome flow all only
+ever call `/api/worlds/select`, which enforces the removal above). If you
+want the guaranteed-safe two-step swap, use `./arailctl world unmount`
+then `./arailctl world mount <dir>` instead.
+
 ## `status` reference
 
 ```
