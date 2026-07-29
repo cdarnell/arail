@@ -26,8 +26,8 @@ the road to begin testing."
 | Phase | Subagent | Artifact | Status | Started | Finished | Verdict |
 |---|---|---|---|---|---|---|
 | plan | architect (design) | ARCHITECTURE.md | DONE | 2026-07-28 | 2026-07-28 | complete (3 WPs) |
-| build | builder | BUILD_LOG.md | pending | — | — | — |
-| review | architect (review) | REVIEW.md | pending | — | — | — |
+| build | builder | BUILD_LOG.md | DONE | 2026-07-28 | 2026-07-28 | WP1–3 + review-fix pass; 169 passed/0 failed |
+| review | architect (review) | REVIEW.md | DONE | 2026-07-28 | 2026-07-28 | PASS after fix loop (BLOCK-1 import-zip guard + 3 ASKs closed) |
 | test | qa | TEST_REPORT.md | pending | — | — | — |
 | ship | — | PR | pending | — | — | — |
 

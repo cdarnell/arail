@@ -260,3 +260,119 @@ INFO-level and belong in `sprints/BACKLOG.md`, not in this sprint.
 
 Re-review after 1; 2–4 may ship in the same pass. Actions 2–4 alone would be a
 WEAK_PASS; action 1 is what makes this a BLOCK.
+
+---
+
+# Re-review (fix pass)
+
+**Date:** 2026-07-29
+**Fix commits:** `b02cc9e`, `27a748b`, `57c3a47`, `820aa02`, `ab6b363`
+**Reviewer runs:** `pytest tests/test_world_import_zip.py tests/test_world_import.py
+tests/test_world_switcher.py tests/test_worlds_ui.py tests/test_worlds_docs_consistency.py
+tests/test_instance_api.py tests/test_world_mount.py -q` → **83 passed**;
+`node tests/js/world_step_harness.mjs` → **7/7**.
+
+## FINAL VERDICT: PASS
+
+All five required actions closed. Verified by reading each diff, not by trusting
+the build log. One new INFO, filed rather than blocking.
+
+## Per-finding closure
+
+### [BLOCK-1] CLOSED — `app.py:3720-3736`
+
+Implemented exactly as prescribed, including the parts that were easy to get
+subtly wrong:
+
+- **Placement verified by line order**, which is the whole point of this fix:
+  `current_mount()` at `:3727` → `await request.form()` at `:3741` →
+  `tempfile.mkdtemp()` at `:3761`. A refused request therefore never parses the
+  multipart body and never creates a staging dir — **no temp-file residue on
+  rejection**, which was the reason for putting the guard here rather than next
+  to `mount()`. The `finally: shutil.rmtree(staging)` block is unreachable on
+  this path because `staging` is never created.
+- **No identical-bundle exemption**, and the comment explains *why* the `!=`
+  from the sibling endpoints must not be copied here. That is the right kind of
+  comment — it answers the question the next reader will actually have.
+- **Both directions tested**: `test_import_zip_over_mounted_root_refused`
+  carries the anti-`rmtree` assertion (`pkb/sources/world-<slug>` still exists
+  after the 409), and `test_import_zip_into_empty_root_still_works` pins that the
+  guard doesn't over-refuse. A guard tested only in the refusing direction is
+  half a test; both are here.
+- The stale `nav.js:640-643` comment is corrected and now names both import
+  doors. The claim it makes is finally true.
+
+### [ASK-1] CLOSED — `app.py:3486-3489`, `app.py:3585-3590`
+
+Narrow option (a) taken (`cur.world != target_slug` added to both guards),
+option (b) filed in `sprints/BACKLOG.md` with an honest description of why the
+narrow fix is a second notion of "same World". `test_reselect_by_slug_after_external_import_allowed`
+reproduces my exact repro case and now asserts 200. The F7 protection is intact:
+the `world-a`/`world-b` fixtures have `cur.world == "physics"` while
+`target_slug` is the *directory* basename `world-b`, so the exemption does not
+fire and `test_swap_by_path_while_mounted_refused` still passes — I confirmed
+this by running it, since an exemption that silently defeats the sprint's own
+F7 test would be the worst possible outcome here.
+
+### [ASK-2] CLOSED — `worlds.js:647-676`, `worlds.html:168-173`
+
+Did both the prescribed fix and the "at minimum" alternative rather than
+choosing between them. `renderStrayMountHint(currentSlug, anyCardMounted)`
+renders the standalone Unmount control precisely when `currentSlug` is truthy
+and no card claims `mounted` — the stray-mount condition — and it is called on
+every `renderCatalog()`, so it re-evaluates after any state change. The control
+posts `{slug: 'default'}`, which the server handles before every guard
+(`app.py:3442-3444`), so the un-brick path is now closed end to end: API layer
+(`test_unmount_with_bundle_dir_deleted_still_frees_root`), UI layer (two new
+source-level tests), and CLI (documented). The invariant "the root can always be
+freed from the UI" is now structural.
+
+### [ASK-3] CLOSED — `docs/concurrent-worlds.md:130-145`
+
+Chose "keep the verb, document it" over retiring it, with the correct
+justification (retiring a CLI verb is outside this sprint's non-goals and is a
+design decision, not a docs fix). The paragraph is honest about what `world
+swap` is — a single-step in-place switch, CLI-only, reachable from no UI — and
+points at the safe two-step alternative. `tests/test_worlds_docs_consistency.py`
+pins the reconciliation so the contradiction can't silently reappear. Pinning a
+docs *consistency* property in a test, rather than the docs prose itself, is the
+right granularity.
+
+### [INFO ×3] DISPOSITIONED
+
+Guard-helper extraction and `showLaunchCommand` duplication are both in
+`sprints/BACKLOG.md`. The builder's reason for not extracting the helper in this
+pass — it would bundle a refactor into BLOCK/ASK fix commits and break their
+atomicity — is correct and is the answer I would have given. Dead-CSS: no action
+needed, as established. Required action 5 is satisfied.
+
+## New findings
+
+### [INFO] The ASK-1 exemption keys on a directory basename — `app.py:3487`
+
+`cur.world` (a World *name* from the mount record) is compared against
+`target_slug` (a directory *basename*). They coincide only because
+`_adopt_into_catalog()` names the catalog dir after `bundle.world`. A
+hand-crafted path such as `lab/worlds/backup/physics` — different bundle,
+same basename, still inside the jail — would now be allowed to re-bind over a
+mounted `physics`. This is a same-identity re-stage rather than a switch to
+another World, it destroys nothing belonging to a *different* World (the sweep
+keeps that slug), and it requires the user to type a nested path by hand, so it
+is not a reachable data-loss path. It is, however, exactly the "path/slug
+divergence" the BACKLOG entry predicts, and the canonical-record fix (option b)
+dissolves it. No action this sprint; the BACKLOG entry already carries it.
+
+## Regression risk
+
+`test_instance_api.py` and `test_world_mount.py` green and untouched across both
+passes; the instance runtime, registry, and the 409 `instance_live` path were
+never modified. 83 passed in my run, consistent with the builder's 169-passed
+wider run. The builder also reports fail-before/pass-after verification for every
+new test — the discipline that separates a regression test from decoration.
+
+## Ship notes
+
+Nothing outstanding blocks merge. Three BACKLOG items now exist as this sprint's
+declared debt (canonicalize the mount record, extract the guard helper,
+de-duplicate `showLaunchCommand`), all INFO-level and none load-bearing on the
+one-lab-one-World invariant. Hand off to `/qa`.
