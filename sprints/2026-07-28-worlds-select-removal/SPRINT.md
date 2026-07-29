@@ -25,7 +25,7 @@ the road to begin testing."
 
 | Phase | Subagent | Artifact | Status | Started | Finished | Verdict |
 |---|---|---|---|---|---|---|
-| plan | architect (design) | ARCHITECTURE.md | pending | — | — | — |
+| plan | architect (design) | ARCHITECTURE.md | DONE | 2026-07-28 | 2026-07-28 | complete (3 WPs) |
 | build | builder | BUILD_LOG.md | pending | — | — | — |
 | review | architect (review) | REVIEW.md | pending | — | — | — |
 | test | qa | TEST_REPORT.md | pending | — | — | — |
