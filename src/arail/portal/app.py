@@ -3284,7 +3284,12 @@ def _is_same_mounted_world(cur, bundle_dir: "Path") -> bool:
     if cur.bundle_dir == str(bundle_dir):
         return True
     try:
-        canonical = (_default_worlds_dir().resolve() / cur.world).resolve()
+        catalog_entry = _default_worlds_dir().resolve() / cur.world
+        # A symlink planted at the catalog slot would make the exemption
+        # recognize whatever it points at as "the mounted World" (QA-4).
+        if catalog_entry.is_symlink():
+            return False
+        canonical = catalog_entry.resolve()
     except Exception:  # noqa: BLE001
         return False
     return canonical.is_dir() and canonical == bundle_dir

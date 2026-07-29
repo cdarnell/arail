@@ -408,16 +408,9 @@ def test_refused_select_leaves_the_mount_record_byte_identical(lab):
 # pin the two directions it must not drift in (spoofable / over-refusing).
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason="QA-4 (LOW, accepted): the canonical arm of _is_same_mounted_world() "
-           "resolves WORLDS_DIR/<cur.world>, so a SYMLINK planted at that name "
-           "makes /api/worlds/import mount a foreign bundle as a re-bind. "
-           "Planting it needs write access to lab/worlds/ — an attacker with "
-           "that can edit world-mount.json directly — so this is inside the "
-           "existing trust boundary. Non-strict: it is a hardening property, "
-           "not a ship blocker.",
-)
+# QA-4 fixed post-verdict: the canonical arm now refuses when the catalog
+# slot is a symlink (app.py _is_same_mounted_world). Flipped from a
+# non-strict xfail to a plain assert.
 def test_symlinked_catalog_entry_cannot_launder_a_foreign_bundle(lab):
     """QA-4: the canonical arm resolves ``WORLDS_DIR/<cur.world>``. If that
     name is a *symlink* to a foreign bundle, both sides resolve to the same
