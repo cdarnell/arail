@@ -195,3 +195,117 @@ classes on `POST /api/worlds/select`, and first-ever coverage of
 3. **A suite that is red for environmental reasons is a suite nobody reads.**
    `test_world_forge_api.py` has been dark long enough that a whole endpoint
    family stopped being regression-covered.
+
+---
+
+# Re-test (QA-fix pass)
+
+**Date:** 2026-07-29
+**Fix commits:** `5aefa1a` (QA-1), `b6c84bc` (QA-2/QA-3), `3bf1de2` (log)
+**Tests added this pass:** `tests/test_worlds_select_removal_qa.py` +7 cases, commit `95ac7eb`
+**FINAL VERDICT: WEAK_PASS**
+
+All three findings are closed, verified by re-running the live repros rather
+than by reading the diff. One new LOW finding, accepted as a follow-up and
+pinned by a non-strict xfail — it is what makes this a WEAK_PASS rather than a
+PASS.
+
+## Closures
+
+| # | Repro, re-run live | Result |
+|---|---|---|
+| QA-1 | mount `physics` → forge `botany` → `POST /api/worlds/forge/confirm` | `409 in_place_switch_removed` · `current == physics` · staged `{world-physics}` · **`lab/worlds/botany` was never created** — the refusal precedes the rename dance, so the forged bundle isn't half-written to the catalog on refusal. CLOSED |
+| QA-2 | mount `worlds/physics` → `select {"path": ".../worlds/backup/physics"}` (validly sealed, declares slug `impostor`) | `409 in_place_switch_removed` · `current == physics` · staged `{world-physics}`. CLOSED |
+| QA-3 | mount `physics` → `import ~/Downloads/physics/` holding a `chemistry` bundle | `409 in_place_switch_removed`, mount record untouched. CLOSED |
+
+`_is_same_mounted_world()` (`app.py:3250-3291`) is the right shape: it admits
+exactly two structurally-derived paths (the exact resolved bundle dir, and
+`WORLDS_DIR/<cur.world>`) and no name, slug, or content comparison. That is
+what lets it thread the corridor TEST_REPORT.md flagged — ASK-1's *same
+directory reached two ways* must allow, F7's *two directories with
+byte-identical content* must refuse — which no name- or content-based check
+could do. The docs claim at `docs/concurrent-worlds.md:139-142` is corrected
+and now names forge-confirm as the one browser surface that reaches `swap()`.
+
+## Over-refusal checks (the other direction of every guard)
+
+| Case | Result |
+|---|---|
+| Forge into an empty root | 200, binds, staged `{world-botany}` |
+| Re-forge of the *already-mounted* World (`overwrite: true`) | 200, same World stays bound, staged set unchanged |
+| ASK-1: external import, then re-select by catalog slug (record holds the pre-adoption source path) | 200 — the canonical arm still works |
+| F7: `world-a` mounted, select `world-b` by path (byte-identical content) | 409 `in_place_switch_removed` |
+| Welcome first-bind + mounted read-only variant (JS harness) | 7/7 |
+
+Note for the record: a re-forge is only startable with `overwrite: true`
+(`world_routes.py:311` returns 409 `slug_exists` otherwise), so the guard's
+same-slug allowance is narrower in practice than it reads.
+
+## New findings
+
+### [QA-4] LOW, accepted — a symlinked catalog entry satisfies the canonical arm
+
+`_is_same_mounted_world()`'s second arm resolves `WORLDS_DIR/<cur.world>`. If
+that name is a **symlink** to a foreign bundle, both sides resolve to the same
+real path and the check reports "same World".
+
+- `POST /api/worlds/select` is unaffected — `_resolve_world_dir`'s jail
+  resolves the symlink first, sees an out-of-jail target, and returns 400.
+- `POST /api/worlds/import` **is** affected, because it is deliberately
+  unjailed: importing that path returns 200 and switches the lab to the foreign
+  bundle.
+
+Planting the symlink requires write access to `lab/worlds/` — an attacker with
+that can edit `lab/data/world-mount.json` directly and skip the endpoint
+entirely, so this does not cross a trust boundary. Pinned as a hardening
+property by `test_symlinked_catalog_entry_cannot_launder_a_foreign_bundle`
+(non-strict xfail, so it neither reds the suite nor breaks if it is fixed).
+Suggested follow-up alongside the BACKLOG's canonical-mount-record item:
+require `canonical` to be a real directory and not a symlink
+(`canonical.is_dir() and not canonical.is_symlink()`).
+
+### [QA-5] Closed by construction — traversal-shaped World names
+
+`canonical = WORLDS_DIR / cur.world` interpolates a manifest field into a path,
+so a World declaring `world: "../outside/target"` would point the canonical arm
+outside the catalog, where the unjailed import door could meet it. Probed:
+`mount()` rejects such a bundle outright, so the canonical arm cannot be
+reached with one. No action; the probe is committed as a documented skip so the
+property is not silently lost if `mount()`'s validation is ever relaxed.
+
+### Case sensitivity
+
+A path differing only in case (macOS APFS) does not satisfy either arm and
+fails closed with 400/409. Correct direction.
+
+## Full-suite parity
+
+`pytest -q` → **3618 passed, 53 failed, 9 skipped, 3 xfailed, 7 errors**
+(13m04s), against the pre-fix QA baseline of **3611 passed, 53 failed, 8
+skipped, 5 xfailed, 7 errors**. Failure count identical (53), error count
+identical (7), and the failing *file set* is byte-for-byte the same 25 files as
+the baseline — `test_world_forge_api.py` (5F+7E, pre-existing blocked-egress)
+plus 24 files already red on merge base `022a711`. Movement is entirely from
+this pass's own tests (3 xfails flipped to passing asserts, +7 new cases, one
+skip, one non-strict xfail). **Zero new failures; the builder's parity claim
+holds.**
+
+Blast-radius suites, re-run together: **214 passed, 2 skipped, 1 xfailed**
+across `test_world_switcher`, `test_world_import`, `test_world_import_zip`,
+`test_instance_api`, `test_worlds_ui`, `test_world_mount`,
+`test_worlds_docs_consistency`, `test_world_identity_flip`,
+`test_world_forge_seal`, `test_onboarding`, `test_world_step_dom`,
+`test_world_first_impression`, `test_instance_isolation`, `test_boot_overlay`,
+`test_default_worlds_catalog`, `test_world_growth`, `test_world_reset`,
+`test_worlds_select_removal_qa`. JS harnesses 10/10.
+
+## Why WEAK_PASS and not PASS
+
+Every finding above LOW is closed and re-verified live; the fixes are
+structurally sound rather than patched-around; nothing over-refuses; full-suite
+parity holds. QA-4 is a low-severity hardening item inside an already-trusted
+boundary, documented with a one-line suggested fix and a test that will notice
+when it changes. That is a ship-with-a-follow-up, not a hold.
+
+**Ship. File QA-4 in `sprints/BACKLOG.md` next to the canonical-mount-record
+entry — the same fix touches both.**

@@ -28,8 +28,8 @@ the road to begin testing."
 | plan | architect (design) | ARCHITECTURE.md | DONE | 2026-07-28 | 2026-07-28 | complete (3 WPs) |
 | build | builder | BUILD_LOG.md | DONE | 2026-07-28 | 2026-07-28 | WP1–3 + review-fix pass; 169 passed/0 failed |
 | review | architect (review) | REVIEW.md | DONE | 2026-07-28 | 2026-07-28 | PASS after fix loop (BLOCK-1 import-zip guard + 3 ASKs closed) |
-| test | qa | TEST_REPORT.md | pending | — | — | — |
-| ship | — | PR | pending | — | — | — |
+| test | qa | TEST_REPORT.md | DONE | 2026-07-28 | 2026-07-28 | WEAK_PASS after fix loop (QA-1 forge door + QA-2/3 impostor exemption closed; QA-4 LOW closed post-verdict by orchestrator, one line + test flip) |
+| ship | — | PR | DONE | 2026-07-28 | 2026-07-28 | pushed; PR to main (link in Notes) |
 
 ## Decisions log
 
