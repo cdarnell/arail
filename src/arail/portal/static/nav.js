@@ -643,6 +643,7 @@ window.revealSlot = async function revealSlot(slot, subpath) {
   var loaded = false;
   var busy = false;
   var _lastJson = null;
+  var _lastInstJson = null;
 
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -651,7 +652,7 @@ window.revealSlot = async function revealSlot(slot, subpath) {
   }
 
   function row(opts) {
-    // opts: {label, action, slug, path, active, disabled, reason}
+    // opts: {label, action, slug, path, active, disabled, reason, live, port, url}
     var active = opts.active;
     var disabled = opts.disabled;
     var style =
@@ -661,18 +662,26 @@ window.revealSlot = async function revealSlot(slot, subpath) {
         ? 'opacity:.45;pointer-events:none;cursor:default;'
         : 'cursor:pointer;') +
       (active ? 'font-weight:700;' : '');
-    var mark = active ? '✓ ' : '  ';
+    var mark = active ? '\u2713 ' : '  ';
     var tail = disabled
       ? ' <span style="opacity:.7;font-size:.68rem;">(unavailable)</span>'
       : '';
+    // Concurrent Worlds (ARCHITECTURE.md \u00a75.4): a liveness dot + :port
+    // for a World running as its own instance -- the roster-viewer half of
+    // the dropdown, alongside the existing per-World select/mount rows.
+    if (opts.live) {
+      tail += ' <span style="opacity:.75;font-size:.68rem;color:var(--green,#3a3);">' +
+        '\u25cf :' + esc(String(opts.port || '')) + '</span>';
+    }
     var attrs = 'class="world-row" role="menuitem" style="' + style + '"';
     if (!disabled) {
       attrs += ' data-action="' + esc(opts.action || '') + '"';
       if (opts.slug) attrs += ' data-slug="' + esc(opts.slug) + '"';
       if (opts.path) attrs += ' data-path="' + esc(opts.path) + '"';
+      if (opts.url) attrs += ' data-url="' + esc(opts.url) + '"';
     }
     if (opts.reason) attrs += ' title="' + esc(opts.reason) + '"';
-    // Theme swatch placeholder — rendered empty here, painted afterwards via
+    // Theme swatch placeholder -- rendered empty here, painted afterwards via
     // style assignment (never interpolated into HTML; values are
     // server-validated hex and re-checked client-side).
     var swatch = opts.hasSwatch
@@ -684,14 +693,22 @@ window.revealSlot = async function revealSlot(slot, subpath) {
       esc(opts.label) + tail + '</span></div>';
   }
 
-  function render(json) {
+  function render(json, instJson) {
     _lastJson = json;
+    _lastInstJson = instJson;
+    // Concurrent Worlds (ARCHITECTURE.md §5.4): a per-slug liveness
+    // lookup from /api/instances -- the SAME registry-driven roster the
+    // CLI reads, no cross-instance HTTP, no in-memory shared state.
+    var instancesBySlug = {};
+    ((instJson && instJson.instances) || []).forEach(function (inst) {
+      if (inst && inst.slug) instancesBySlug[inst.slug] = inst;
+    });
     var html = '';
-    // C7 — new first row: navigates to the welcome World-step component
+    // C7 -- new first row: navigates to the welcome World-step component
     // (the same honest-failure-state, confirmation-gated surface as the
     // welcome flow) rather than mounting directly. The existing per-World
     // rows below keep their direct-POST behavior this sprint (see
-    // ARCHITECTURE.md C7 / Tech debt D3) — this new row is not a
+    // ARCHITECTURE.md C7 / Tech debt D3) -- this new row is not a
     // replacement for them, just an additional, safer door.
     html +=
       '<div class="world-row" role="menuitem" data-action="change-world" ' +
@@ -706,24 +723,57 @@ window.revealSlot = async function revealSlot(slot, subpath) {
     });
     var worlds = (json && json.worlds) || [];
     worlds.forEach(function (w) {
-      if (w.valid) {
-        html += row({
-          label: w.display_name || w.slug,
-          action: 'select',
-          slug: w.slug,
-          path: w.path,
-          active: !!w.mounted,
-          hasSwatch: !!w.theme_preview,
-        });
-      } else {
+      if (!w.valid) {
         html += row({
           label: w.display_name || w.slug,
           disabled: true,
           reason: w.reason || 'unavailable',
         });
+        return;
       }
+      var inst = instancesBySlug[w.slug];
+      var live = !!(inst && inst.live);
+      if (live) {
+        // Route to Open (non-mutating) instead of the mutating select POST
+        // -- a live World is running as its own instance; mounting it here
+        // too would race the very process that's serving it.
+        var bind = inst.bind || '127.0.0.1';
+        html += row({
+          label: w.display_name || w.slug,
+          action: 'open',
+          slug: w.slug,
+          url: 'http://' + bind + ':' + inst.portal_port,
+          live: true,
+          port: inst.portal_port,
+          hasSwatch: !!w.theme_preview,
+        });
+        return;
+      }
+      // Not live: the mutating select POST stays ONLY for the first-bind
+      // (nothing mounted here yet) and the already-mounted-here (re-select
+      // is a harmless no-op) cases. Once something ELSE is mounted here,
+      // selecting from the dropdown would in-place remount (the "Launch"
+      // case, ARCHITECTURE.md §5.3) -- show the CLI command instead of
+      // silently doing it.
+      var launchable = json.current && json.current !== w.slug;
+      if (launchable) {
+        html += row({
+          label: w.display_name || w.slug,
+          disabled: true,
+          reason: 'Running side by side: ./arailctl start --world ' + w.slug,
+        });
+        return;
+      }
+      html += row({
+        label: w.display_name || w.slug,
+        action: 'select',
+        slug: w.slug,
+        path: w.path,
+        active: !!w.mounted,
+        hasSwatch: !!w.theme_preview,
+      });
     });
-    // Consumer-side "Add a World" affordance — import a sealed bundle from a
+    // Consumer-side "Add a World" affordance -- import a sealed bundle from a
     // path outside the catalog (a DaC export, a shared World).
     html +=
       '<div style="border-top:1px solid var(--border);margin:.3rem 0;"></div>' +
@@ -779,7 +829,7 @@ window.revealSlot = async function revealSlot(slot, subpath) {
     if (input) input.focus();
     var go = document.getElementById('world-import-go');
     var cancel = document.getElementById('world-import-cancel');
-    if (cancel) cancel.addEventListener('click', function () { render(_lastJson); });
+    if (cancel) cancel.addEventListener('click', function () { render(_lastJson, _lastInstJson); });
     if (go) go.addEventListener('click', doImport);
     if (input) input.addEventListener('keydown', function (e) {
       if (e.key === 'Enter') doImport();
@@ -856,9 +906,21 @@ window.revealSlot = async function revealSlot(slot, subpath) {
   function load() {
     menu.innerHTML =
       '<div style="padding:.4rem .6rem;font-size:.72rem;opacity:.7;">Loading…</div>';
-    fetch('/api/worlds', { cache: 'no-store', credentials: 'same-origin' })
-      .then(function (r) { return r.ok ? r.json() : Promise.reject(r); })
-      .then(function (json) { loaded = true; render(json); })
+    // Fetch the catalog and the instance roster in parallel — same posture
+    // as worlds.js's renderCatalog() (ARCHITECTURE.md §5.4). A failed
+    // /api/instances fetch degrades to "no liveness info", never blocks
+    // the catalog itself.
+    Promise.all([
+      fetch('/api/worlds', { cache: 'no-store', credentials: 'same-origin' })
+        .then(function (r) { return r.ok ? r.json() : Promise.reject(r); }),
+      fetch('/api/instances', { cache: 'no-store', credentials: 'same-origin' })
+        .then(function (r) { return r.ok ? r.json() : { instances: [] }; })
+        .catch(function () { return { instances: [] }; }),
+    ])
+      .then(function (results) {
+        loaded = true;
+        render(results[0], results[1]);
+      })
       .catch(function () {
         menu.innerHTML =
           '<div style="padding:.4rem .6rem;font-size:.72rem;opacity:.7;">' +
@@ -877,6 +939,12 @@ window.revealSlot = async function revealSlot(slot, subpath) {
     if (action === 'change-world') { window.location.href = '/welcome?step=world'; return; }
     if (action === 'forge') { window.location.href = '/worlds'; return; }
     if (action === 'add') { showImport(); return; }
+    if (action === 'open') {
+      // Live instance — a plain link, never a mutation (ARCHITECTURE.md §5.4).
+      var url = el.getAttribute('data-url') || '';
+      if (url) window.open(url, '_blank');
+      return;
+    }
     var slug = el.getAttribute('data-slug') || '';
     var path = el.getAttribute('data-path') || '';
     busy = true;

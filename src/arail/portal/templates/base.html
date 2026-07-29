@@ -25,7 +25,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{% block title %}{{ brand.name }}{% endblock %}</title>
+{#- Concurrent Worlds (ARCHITECTURE.md §5.5): "· :<port>" always appended,
+    outside the child block, so two tabs on two instances of the SAME World
+    are never textually identical — the cheapest place to fix the
+    two-identical-tabs harm VISION §6 calls out. Every child page's
+    {% block title %} keeps working unmodified; the suffix rides along. -#}
+<title>{% block title %}{{ brand.name }}{% endblock %} · :{{ portal_port }}</title>
 <link rel="stylesheet" href="/static/style.css">
 {% block head %}{% endblock %}
 </head>

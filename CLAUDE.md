@@ -158,8 +158,12 @@ The top of the tree is dense; the parts that matter:
 persistence**, and the **2026-07-23 "clean experience" sprint** (quiet boot with
 no auto-checks, egress honesty, tier-gate hardening, a real on-device experiment
 engine replacing simulated research, and truth-in-UI for the model surfaces —
-see `sprints/2026-07-23-clean-experience/`). Cross-repo tooling still
-auto-generates qukaizen-style branch names in this repo.
+see `sprints/2026-07-23-clean-experience/`), and the **2026-07-28 concurrent
+Worlds sprint** (`./arailctl start --world <slug>` runs a World as its own
+isolated process/data-root, side by side with others — see
+`docs/concurrent-worlds.md` and `sprints/2026-07-28-concurrent-worlds/`).
+Cross-repo tooling still auto-generates qukaizen-style branch names in
+this repo.
 
 The code is more mature than aeroLLM's (it predates the extraction);
 treat the portal and the agent loader as stable surfaces, the
@@ -220,6 +224,25 @@ parts.
 - **The `qkz` symlink** in this repo points at `./arailctl`. It is **not**
   the qukaizen-nucleus Rust CLI; that lives in `~/ProJects/qukaizen-nucleus/qkz/`.
   Don't confuse the two.
+- **`lab/instances/` is the runtime home for concurrently-running World
+  instances** (`./arailctl start --world <slug>`) — registry, per-instance
+  `data/`/`pkb/`/env-pack. **Not the same thing as** repo-root
+  `instances/`, which `./arailctl blueprint create` scaffolds
+  (config-only, nothing under `src/arail/` reads it, never itself
+  instantiated into a running process). See `docs/concurrent-worlds.md`
+  and `sprints/BACKLOG.md`'s "Unify blueprint instances with runtime
+  instances" entry — a known, tracked, not-yet-scheduled unification.
+  `scripts/lib/instances.sh` is the single source of truth for the
+  registry/liveness logic; `arailctl`, `scripts/start.sh`,
+  `scripts/status.sh`, `scripts/reset.sh`, and
+  `scripts/install-daemon.sh` all source it rather than re-deriving a
+  liveness check locally — don't add a sixth implementation.
+- **Per-instance secrets are never shared or auto-copied.** Each World
+  instance's `secrets.env` lives in its own `data/` dir, `0600`, created
+  only when a key is first saved there. A shared/symlinked secrets file
+  across instances would silently let one lab read another's provider
+  keys — treat any code path that copies or links a `secrets.env` between
+  instances (or from the root lab) as a bug, not a convenience.
 
 ## Where to start when you pick a task
 

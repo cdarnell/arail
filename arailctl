@@ -4,6 +4,7 @@
 #  Usage: ./arailctl <command> [args]   (or: qkz <command> [args])
 #    setup    first-time provisioning — pick a tier, install deps, download model
 #    start    launch portal + terminal + notebook + IDE
+#             (or a single World instance: --world <slug> — see `start --help`)
 #    stop     stop running lab services
 #    restart  stop then start
 #    upgrade  switch install tier — minimalist | maximus
@@ -49,6 +50,13 @@ REPO_ROOT="$(cd "$(dirname "$_arail_self")" && pwd)"
 # would crash under `set -u` without this.
 export REPO_ROOT
 unset _arail_self _arail_link
+
+# scripts/lib/instances.sh is THE single source of truth for daemon
+# liveness and the World-instance registry (see
+# sprints/2026-07-28-concurrent-worlds/ARCHITECTURE.md §2.6). Sourced here
+# so daemon_active() replaces the old file-existence-only daemon_installed().
+# shellcheck disable=SC1091
+source "$REPO_ROOT/scripts/lib/instances.sh"
 # Remember where the user actually invoked us — needed by `kb`'s upward search
 # so that running `qkz kb status` from inside the KB Just Works.
 INVOCATION_PWD="$PWD"
@@ -155,7 +163,11 @@ EOF
   Commands:
     setup           first-time provisioning — pick a tier, deps, model
     start           launch the lab (foreground start.sh, or launchd in daemon mode)
+                    [--world <slug>] [--port <n>] [--no-browser] [--list] [--yes]
+                    — with 2+ Worlds configured, bare 'start' picks interactively;
+                    a running World is attached to, never respawned
     stop            stop lab services (unloads launchd agents in daemon mode)
+                    [--world <slug>] [--all] — target one/all World instances
     restart         stop then start (launchctl kickstart -k in daemon mode)
     install-daemon  supervise the lab with launchd — starts at login, respawns on crash
     uninstall-daemon  remove launchd supervision (back to dev/foreground mode)
@@ -163,7 +175,7 @@ EOF
     deep <op>       AeroLLM 2nd inference: rebuild (source) | update (wheel) | status
     update          check for and apply component updates
     version         show installed component versions
-    status          show what's running
+    status [--json] [--probe]  show what's running (World instances + root lab)
     doctor          validate the environment end-to-end
     logs [comp]     tail activity log — filter by component
     reset [mode]    wipe state — models|data|pkb|plugins|env|full|destroy
@@ -190,10 +202,12 @@ EOF
 cmd="${1:-help}"; shift || true
 
 # ── launchd daemon mode ──────────────────────────────────────────────
-# When install-daemon has been run, start/stop/restart drive launchctl
-# instead of the foreground start.sh (which refuses to run in daemon mode).
-daemon_installed() { [[ -f "$HOME/Library/LaunchAgents/io.arail.portal.plist" ]]; }
-
+# When install-daemon has been run AND the daemon is actually loaded and
+# running, start/stop/restart drive launchctl instead of the foreground
+# start.sh. daemon_active() (scripts/lib/instances.sh) checks BOTH the
+# plist file AND a live launchctl PID — a plist that exists but was
+# unloaded (e.g. by a prior `./arailctl stop`) no longer routes here, which
+# is the fix for the plist-existence trap this sprint retires.
 daemon_agents() {
     local label
     for label in io.arail.portal io.arail.memory io.arail.mlx; do
@@ -208,7 +222,25 @@ case "$cmd" in
     install-daemon)   exec bash "$REPO_ROOT/scripts/install-daemon.sh" ;;
     uninstall-daemon) exec bash "$REPO_ROOT/scripts/install-daemon.sh" --uninstall ;;
     start)
-        if daemon_installed; then
+        # B2 fix: --world/--list/--help must ALWAYS reach start.sh, even
+        # when the daemon is active — start.sh itself owns the daemon-mode
+        # refusal (naming the World slug when one was requested, F8) and
+        # the --list/--help paths are side-effect-free and must work
+        # regardless of daemon state. Silently discarding argv in this
+        # branch was the exact bug this sprint set out to fix, re-created
+        # one level up (ARCHITECTURE.md §3.1) — see REVIEW.md B2.
+        _arail_start_forwards_argv=0
+        for _arail_start_arg in "$@"; do
+            case "$_arail_start_arg" in
+                --world|--world=*|--list|-h|--help) _arail_start_forwards_argv=1; break ;;
+            esac
+        done
+        if [[ "$_arail_start_forwards_argv" == "1" ]]; then
+            unset _arail_start_forwards_argv _arail_start_arg
+            exec bash "$REPO_ROOT/scripts/start.sh" "$@"
+        fi
+        unset _arail_start_forwards_argv _arail_start_arg
+        if daemon_active; then
             for label in $(daemon_agents); do
                 launchctl load "$HOME/Library/LaunchAgents/$label.plist" 2>/dev/null || true
             done
@@ -228,17 +260,24 @@ case "$cmd" in
         exec bash "$REPO_ROOT/scripts/start.sh" "$@"
         ;;
     stop)
-        if daemon_installed; then
+        # --world/--all target a specific World instance (or all of them) —
+        # orthogonal to daemon supervision of the ROOT lab (ARCHITECTURE.md
+        # §4.3: stop never unloads plists as a side effect of stopping an
+        # instance), so these bypass the daemon branch below entirely.
+        if [[ "$*" == *--world* || "$*" == *--all* ]]; then
+            exec bash "$REPO_ROOT/scripts/reset.sh" stop "$@"
+        fi
+        if daemon_active; then
             for label in $(daemon_agents); do
                 launchctl unload "$HOME/Library/LaunchAgents/$label.plist" 2>/dev/null || true
             done
             echo "Lab agents unloaded — they stay stopped until ./arailctl start."
             exit 0
         fi
-        exec bash "$REPO_ROOT/scripts/reset.sh" stop
+        exec bash "$REPO_ROOT/scripts/reset.sh" stop "$@"
         ;;
     restart)
-        if daemon_installed; then
+        if daemon_active; then
             for label in $(daemon_agents); do
                 launchctl kickstart -k "gui/$(id -u)/$label" 2>/dev/null || true
             done
