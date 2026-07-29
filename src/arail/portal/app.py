@@ -3395,12 +3395,21 @@ async def api_worlds_select(request: Request):
     ``{"slug": "default"}`` | ``{"default": true}``. CSRF envelope mirrors
     ``post_airgap_toggle`` (Sec-Fetch-Site + Origin/Host). Mount is atomic — any
     bundle/seal failure refuses before touching disk, so the current World is
-    unchanged. Expected failures: 409 (seal/partial/schema/category/slug) or 400
-    (bad slug / traversal); never 500 for those.
+    unchanged. Expected failures: 409 (seal/partial/schema/category/slug,
+    instance_live, in_place_switch_removed) or 400 (bad slug / traversal);
+    never 500 for those.
+
+    In-place World switching is removed (VISION.md §2 of the concurrent-worlds
+    sprint, executed by worlds-select-removal): this endpoint survives only for
+    the first bind into an empty root and unbind-to-default, plus the idempotent
+    re-bind of the identical bundle already mounted here. Mounting a *different*
+    World over one already mounted is refused with 409
+    ``in_place_switch_removed`` — the sweep that would run is destructive of the
+    other World's staged layer. See ``docs/concurrent-worlds.md``.
     """
     from fastapi.responses import JSONResponse
     from arail.world_mount import (
-        mount, unmount, _SLUG_RE,
+        mount, unmount, current_mount, _SLUG_RE,
         SealMismatch, PartialBundle, SchemaSkew, GateViolation, SlugInvalid,
     )
 
@@ -3461,6 +3470,25 @@ async def api_worlds_select(request: Request):
                 ),
             })
 
+    # ── In-place switching removed: refuse a mount over a DIFFERENT World ──
+    # already bound here. Checked after instance_live (ordering ruling: when
+    # both apply, "it's live elsewhere, go there" is more actionable) and
+    # before mount() (never touches disk). The identical bundle re-bind is
+    # explicitly allowed — it's the only way to re-index a re-sealed bundle
+    # in place, and the sweep has nothing else to remove.
+    cur = current_mount()
+    if cur is not None and cur.bundle_dir != str(bundle_dir):
+        return _err(409, {
+            "error": "in_place_switch_removed",
+            "message": (
+                f"'{cur.world}' is mounted in this lab. Switching Worlds in "
+                "place was removed — one lab, one World. Run "
+                f"'{target_slug}' as its own instance:  "
+                f"./arailctl start --world {target_slug}   — or unmount first "
+                "(AI Lab default) and then mount it here."
+            ),
+        })
+
     # ── Mount (atomic; refuses before touching disk on any error) ──
     try:
         rec = mount(bundle_dir)
@@ -3498,11 +3526,12 @@ async def api_worlds_import(request: Request):
 
     Body: ``{"path": "<abs path to a bundle dir>"}``. Expected failures: 403
     (cross-site/origin), 400 (missing/blank/not-a-dir), 409 (seal/partial/
-    schema/category/slug). Never 500 for those.
+    schema/category/slug, in_place_switch_removed — see api_worlds_select).
+    Never 500 for those.
     """
     from fastapi.responses import JSONResponse
     from arail.world_mount import (
-        mount,
+        mount, current_mount,
         SealMismatch, PartialBundle, SchemaSkew, GateViolation, SlugInvalid,
     )
 
@@ -3542,6 +3571,24 @@ async def api_worlds_import(request: Request):
     if not is_dir:
         return _err(400, {"error": "not_a_dir",
                           "message": f"Not a directory: {raw_path}"})
+
+    # ── In-place switching removed: same guard as api_worlds_select. Import
+    # is a second door onto the same destructive sweep, so it gets the same
+    # refusal (ARCHITECTURE.md, worlds-select-removal). Identical-bundle
+    # re-import is allowed (idempotent re-index).
+    cur = current_mount()
+    if cur is not None and cur.bundle_dir != str(bundle_dir):
+        target_slug = bundle_dir.name
+        return _err(409, {
+            "error": "in_place_switch_removed",
+            "message": (
+                f"'{cur.world}' is mounted in this lab. Switching Worlds in "
+                "place was removed — one lab, one World. Run "
+                f"'{target_slug}' as its own instance:  "
+                f"./arailctl start --world {target_slug}   — or unmount first "
+                "(AI Lab default) and then mount it here."
+            ),
+        })
 
     # ── Mount (atomic; full seal/compat/category gates; adopts into catalog) ──
     try:
