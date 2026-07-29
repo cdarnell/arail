@@ -138,19 +138,50 @@ cover the same DOM/fetch contracts the manual smoke would exercise.
 
 Commit: (recorded below after commit)
 
+### WP3 — Docs
+
+`docs/concurrent-worlds.md`: `## The in-place World switcher is being
+deprecated` → `## In-place World switching has been removed`; describes the
+409 code, the instance_live-before-in_place_switch_removed ordering, and the
+two survivors (instances; unmount-then-mount). `README.md:166-169`: dropped
+"still works this release" / "deprecation timeline", states the removal
+plainly. `CHANGELOG.md`: added a `### Removed (2026-07-28/29
+worlds-select-removal — in-place World switching)` entry under `[Unreleased]`
+covering the 409 code, the nav/welcome/worlds-page UI removals, and what
+still works; edited the existing concurrent-Worlds "In-place Mount is
+deprecated — announced this release, removed next" line to point at the new
+entry instead of repeating the now-stale "removed next" framing.
+`CLAUDE.md`: re-verified via grep — no mention of the dropdown's mutating
+behavior — no change made.
+
+**Gate:** `grep -rln "still works this release\|removed in the next
+release\|In-place Mount is deprecated" --include="*.md" .` returns only the
+two prior sprints' `ARCHITECTURE.md` files (historical spec artifacts under
+`sprints/`, correctly excluded by the gate's intent) — zero hits in
+`README.md`, `docs/`, or `CHANGELOG.md`.
+
+Commit: (recorded below after commit)
+
 ## Architect feedback required
 
-(none — WP1 and WP2 both matched the spec exactly; no gaps found)
+(none — all three WPs matched the spec exactly; no gaps found)
 
-## Final state (partial — WP1 + WP2)
+## Final state
 
-- Server + nav + welcome + worlds-page tests: 89/89 pytest (targeted gate
-  suites) + 10/10 `test_worlds_ui.py` + 7/7 JS harness assertions. Zero new
-  failures against the pre-existing baseline.
+- All three WPs complete. Final combined regression run (server +
+  nav/welcome/worlds-page + JS harnesses + onboarding/first-impression/
+  boot-overlay/default-catalog suites): **163 pytest passed, 1 skipped
+  (pre-existing, unrelated), 0 failed** + `tests/js/*.mjs` **10/10** (7
+  world-step + 3 cloud-render).
+- No commented-out code. No TODO comments added.
 - Files changed: `src/arail/portal/app.py`, `src/arail/portal/static/nav.js`,
   `src/arail/portal/static/js/worlds.js`,
   `src/arail/portal/templates/welcome.html`,
-  `src/arail/portal/templates/worlds.html`, `tests/test_world_switcher.py`,
+  `src/arail/portal/templates/worlds.html`, `docs/concurrent-worlds.md`,
+  `README.md`, `CHANGELOG.md`, `tests/test_world_switcher.py`,
   `tests/test_world_import.py`, `tests/test_worlds_ui.py`,
-  `tests/js/world_step_harness.mjs`.
-- WP3 (docs) not yet started.
+  `tests/js/world_step_harness.mjs`, this `BUILD_LOG.md`.
+- One self-caught deviation during WP2 (documented above under WP2's
+  execution notes): a dropped `return` in the welcome.html click handler,
+  fixed before the gate passed. No architect feedback required — the spec
+  matched the codebase exactly at every WP.
