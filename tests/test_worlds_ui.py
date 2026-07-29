@@ -120,3 +120,22 @@ def test_worlds_js_launch_copies_command_never_spawns():
 def test_worlds_js_fetches_instances_for_button_state():
     src = WORLDS_JS.read_text(encoding="utf-8")
     assert "/api/instances" in src
+
+
+# ---------------------------------------------------------------------------
+# worlds.js — stray-mount escape hatch (F3, REVIEW.md ASK-2): a standalone
+# Unmount control renders when the root is mounted but no catalog card
+# claims it (the bundle dir vanished/was corrupted out from under it).
+# ---------------------------------------------------------------------------
+
+def test_worlds_js_has_stray_mount_unmount_escape_hatch():
+    src = WORLDS_JS.read_text(encoding="utf-8")
+    assert "renderStrayMountHint" in src
+    assert "stray-mount-hint" in src
+    assert "{ slug: 'default' }" in src
+
+
+def test_worlds_page_has_stray_mount_hint_container():
+    client = _client()
+    body = client.get("/worlds").text
+    assert 'id="stray-mount-hint"' in body

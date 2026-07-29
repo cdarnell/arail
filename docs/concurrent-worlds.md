@@ -127,6 +127,16 @@ switches — every row either opens a live instance (a plain link) or reveals
 the `./arailctl start --world <slug>` command for one that isn't running.
 Mounting/unmounting live only on `/worlds`.
 
+**The un-brick path.** If the mounted World's bundle dir vanishes from
+`lab/worlds/` (moved, deleted, or corrupted out from under the mount
+record), `/worlds`' catalog can no longer render a per-World Unmount
+button for it — no card claims `mounted`. Two doors still free the root:
+`/worlds` itself renders a standalone "Unmount current World" control above
+the catalog whenever this happens (checked on every catalog render), and
+`./arailctl world unmount` always works from the CLI regardless of catalog
+state (`unmount()` operates on the mount record, never the bundle dir on
+disk — see `world_mount.py`).
+
 ## `status` reference
 
 ```
