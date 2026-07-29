@@ -126,6 +126,25 @@ def test_import_reimport_identical_bundle_allowed(client, isolated):
     assert r2.status_code == 200, r2.text
 
 
+def test_reselect_by_slug_after_external_import_allowed(client, isolated):
+    # REVIEW.md ASK-1: mount() records the SOURCE path pre-adoption, while
+    # re-selecting the World by its catalog slug resolves to the ADOPTED
+    # copy under WORLDS_DIR -- two different strings for one World. The
+    # narrow fix allows the re-bind when cur.world == target_slug, even
+    # though bundle_dir differs.
+    pkb, data, worlds = isolated
+    r1 = client.post("/api/worlds/import", json={"path": str(PHYSICS)},
+                     headers=SAME_ORIGIN)
+    assert r1.status_code == 200, r1.text
+    slug = r1.json()["current"]
+    assert (worlds / slug).is_dir()  # adopted into the catalog
+
+    r2 = client.post("/api/worlds/select", json={"slug": slug},
+                     headers=SAME_ORIGIN)
+    assert r2.status_code == 200, r2.text
+    assert r2.json()["current"] == slug
+
+
 # ── Happy path ───────────────────────────────────────────────────────────────
 
 def test_external_bundle_imports_and_lands_in_catalog(client, isolated):

@@ -3473,11 +3473,18 @@ async def api_worlds_select(request: Request):
     # ── In-place switching removed: refuse a mount over a DIFFERENT World ──
     # already bound here. Checked after instance_live (ordering ruling: when
     # both apply, "it's live elsewhere, go there" is more actionable) and
-    # before mount() (never touches disk). The identical bundle re-bind is
-    # explicitly allowed — it's the only way to re-index a re-sealed bundle
-    # in place, and the sweep has nothing else to remove.
+    # before mount() (never touches disk). Allowed as a re-bind, not a
+    # switch: (a) the identical bundle dir — the only way to re-index a
+    # re-sealed bundle in place, the sweep has nothing else to remove; (b)
+    # ``cur.world == target_slug`` — an externally-imported World's mount
+    # record keeps the SOURCE path (mount() records pre-adoption,
+    # world_mount.py), while re-selecting it by its catalog slug resolves to
+    # the ADOPTED copy under WORLDS_DIR; those are two different strings for
+    # one World, and a bundle_dir-only comparison would wrongly refuse a
+    # World re-binding to itself (REVIEW.md ASK-1, narrow fix (a); the
+    # canonical-record fix (b) is filed in sprints/BACKLOG.md).
     cur = current_mount()
-    if cur is not None and cur.bundle_dir != str(bundle_dir):
+    if cur is not None and cur.bundle_dir != str(bundle_dir) and cur.world != target_slug:
         return _err(409, {
             "error": "in_place_switch_removed",
             "message": (
@@ -3575,10 +3582,12 @@ async def api_worlds_import(request: Request):
     # ── In-place switching removed: same guard as api_worlds_select. Import
     # is a second door onto the same destructive sweep, so it gets the same
     # refusal (ARCHITECTURE.md, worlds-select-removal). Identical-bundle
-    # re-import is allowed (idempotent re-index).
+    # re-import is allowed (idempotent re-index), and so is a World
+    # re-binding to itself via ``cur.world == target_slug`` — see the
+    # matching comment in api_worlds_select (REVIEW.md ASK-1).
+    target_slug = bundle_dir.name
     cur = current_mount()
-    if cur is not None and cur.bundle_dir != str(bundle_dir):
-        target_slug = bundle_dir.name
+    if cur is not None and cur.bundle_dir != str(bundle_dir) and cur.world != target_slug:
         return _err(409, {
             "error": "in_place_switch_removed",
             "message": (

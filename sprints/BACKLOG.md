@@ -84,3 +84,56 @@ ruled that in scope for documentation only, not a redesign, this pass.
 **Mitigation until this is scheduled:** documented in
 `docs/concurrent-worlds.md`'s "`./arailctl reset` does NOT touch instance
 data — yet" section, with the manual two-command workaround.
+
+---
+
+## Canonicalize the mount record's `bundle_dir` on adopted Worlds
+
+**Filed by:** `sprints/2026-07-28-worlds-select-removal/REVIEW.md` ASK-1.
+
+**The gap.** `mount()` records the SOURCE path a World was mounted/imported
+from (`world_mount.py`), then `_adopt_into_catalog()` copies it into
+`WORLDS_DIR/<slug>`. For an externally-imported World those are two
+different strings for the same World, so the `in_place_switch_removed`
+guard's `cur.bundle_dir != str(bundle_dir)` comparison alone would wrongly
+refuse that World re-binding to itself via its catalog slug. This sprint
+shipped the narrow fix: the guard also allows when `cur.world ==
+target_slug`. That is correct but is a second, string-slug-based notion of
+"same World" living alongside the path-based one — a future path/slug
+divergence (two dirs sharing a slug, ASK-1's own F7 fixture pattern) could
+reintroduce an asymmetry.
+
+**The real fix (not done this sprint):** have `mount()` write the ADOPTED
+catalog dir into the mount record when `_adopt_into_catalog()` succeeds, so
+one World has exactly one canonical `bundle_dir` regardless of which door
+(select/import/import-zip) it arrived through. Touches mount-record
+semantics — deserves its own sprint, not a rider fix.
+
+---
+
+## Extract `_refuse_in_place_switch()` — third guard-body copy
+
+**Filed by:** `sprints/2026-07-28-worlds-select-removal/REVIEW.md` INFO.
+
+**The gap.** The `in_place_switch_removed` refusal body is now duplicated
+three times (`api_worlds_select`, `api_worlds_import`,
+`api_worlds_import_zip`) — ARCHITECTURE.md accepted two copies and named
+three as the threshold for extracting a shared helper
+(`_refuse_in_place_switch(cur, target_slug) -> Optional[JSONResponse]`).
+Not done this pass to keep the review-fix commits minimal and reviewable;
+worth doing the next time any of these three endpoints is touched.
+
+---
+
+## De-duplicate `showLaunchCommand()` (welcome.html / worlds.js)
+
+**Filed by:** `sprints/2026-07-28-worlds-select-removal/BUILD_LOG.md` /
+`REVIEW.md` INFO.
+
+**The gap.** `welcome.html` and `src/arail/portal/static/js/worlds.js` each
+carry their own copy of `showLaunchCommand(slug)` (copy the `./arailctl
+start --world <slug>` command to the clipboard + alert). The two templates
+don't currently share a JS module, so extracting a common helper means
+introducing that sharing mechanism first — out of scope for a UI-removal
+sprint. Worth doing if a third copy appears (`nav.js`'s `reveal()` posture
+is close but not identical).
