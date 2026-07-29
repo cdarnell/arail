@@ -3247,6 +3247,49 @@ def _resolve_world_dir(slug: str, raw_path: str):
     return None
 
 
+def _is_same_mounted_world(cur, bundle_dir: "Path") -> bool:
+    """Is ``bundle_dir`` a re-bind of the World already mounted at ``cur``,
+    rather than a switch to a different one?
+
+    Two — and only two — cases count as "the same World", both structural
+    facts about the filesystem, never a name/slug comparison an attacker (or
+    an accidental same-named folder) can spoof:
+
+    1. **Exact bundle dir match.** ``bundle_dir`` resolves to literally the
+       same directory ``cur`` was mounted from (the re-select / re-index
+       case, F6).
+    2. **The canonical catalog copy of the mounted World.** ``mount()``
+       adopts an externally-mounted bundle into ``WORLDS_DIR/<world>``
+       (``_adopt_into_catalog``) but records the pre-adoption SOURCE path as
+       ``cur.bundle_dir`` — so re-selecting that same World later by its
+       catalog slug resolves to a *different* string,
+       ``WORLDS_DIR/<cur.world>``, for the identical World (ASK-1). That
+       exact, structurally-derived path — never an attacker-supplied
+       basename or declared slug — is the only second match this function
+       allows.
+
+    Deliberately does **not** compare ``cur.world`` against the candidate's
+    directory basename or its manifest-declared slug: a validly-sealed
+    bundle can declare any slug while sitting in a directory whose basename
+    happens to match the mounted World's name (QA-2/QA-3, TEST_REPORT.md) —
+    that must still refuse. Two directories that both happen to hold
+    byte-identical content (F7's ``world-a``/``world-b`` fixtures) must also
+    still refuse: this function only recognizes ONE canonical location per
+    mounted World, derived structurally, never by content or declared
+    identity.
+    """
+    from arail.world_mount import _default_worlds_dir
+
+    bundle_dir = Path(bundle_dir).resolve()
+    if cur.bundle_dir == str(bundle_dir):
+        return True
+    try:
+        canonical = (_default_worlds_dir().resolve() / cur.world).resolve()
+    except Exception:  # noqa: BLE001
+        return False
+    return canonical.is_dir() and canonical == bundle_dir
+
+
 # ---------------------------------------------------------------------------
 # Concurrent Worlds — instance registry (ARCHITECTURE.md §2, §5.1, §5.2).
 #
@@ -3473,18 +3516,13 @@ async def api_worlds_select(request: Request):
     # ── In-place switching removed: refuse a mount over a DIFFERENT World ──
     # already bound here. Checked after instance_live (ordering ruling: when
     # both apply, "it's live elsewhere, go there" is more actionable) and
-    # before mount() (never touches disk). Allowed as a re-bind, not a
-    # switch: (a) the identical bundle dir — the only way to re-index a
-    # re-sealed bundle in place, the sweep has nothing else to remove; (b)
-    # ``cur.world == target_slug`` — an externally-imported World's mount
-    # record keeps the SOURCE path (mount() records pre-adoption,
-    # world_mount.py), while re-selecting it by its catalog slug resolves to
-    # the ADOPTED copy under WORLDS_DIR; those are two different strings for
-    # one World, and a bundle_dir-only comparison would wrongly refuse a
-    # World re-binding to itself (REVIEW.md ASK-1, narrow fix (a); the
-    # canonical-record fix (b) is filed in sprints/BACKLOG.md).
+    # before mount() (never touches disk). ``_is_same_mounted_world`` allows
+    # only two structurally-derived re-binds (exact bundle dir; the
+    # canonical adopted catalog copy of the mounted World) — NOT a
+    # basename/slug comparison, which a validly-sealed impostor bundle in a
+    # same-named directory could spoof (QA-2, TEST_REPORT.md).
     cur = current_mount()
-    if cur is not None and cur.bundle_dir != str(bundle_dir) and cur.world != target_slug:
+    if cur is not None and not _is_same_mounted_world(cur, bundle_dir):
         return _err(409, {
             "error": "in_place_switch_removed",
             "message": (
@@ -3579,15 +3617,14 @@ async def api_worlds_import(request: Request):
         return _err(400, {"error": "not_a_dir",
                           "message": f"Not a directory: {raw_path}"})
 
-    # ── In-place switching removed: same guard as api_worlds_select. Import
-    # is a second door onto the same destructive sweep, so it gets the same
-    # refusal (ARCHITECTURE.md, worlds-select-removal). Identical-bundle
-    # re-import is allowed (idempotent re-index), and so is a World
-    # re-binding to itself via ``cur.world == target_slug`` — see the
-    # matching comment in api_worlds_select (REVIEW.md ASK-1).
+    # ── In-place switching removed: same guard as api_worlds_select, same
+    # structural (never basename/slug) identity check — QA-2/QA-3,
+    # TEST_REPORT.md. Import's path is deliberately NOT jailed (that's the
+    # whole point of import), which makes a same-named-folder collision more
+    # plausible here than at select, not less.
     target_slug = bundle_dir.name
     cur = current_mount()
-    if cur is not None and cur.bundle_dir != str(bundle_dir) and cur.world != target_slug:
+    if cur is not None and not _is_same_mounted_world(cur, bundle_dir):
         return _err(409, {
             "error": "in_place_switch_removed",
             "message": (

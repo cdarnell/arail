@@ -163,16 +163,14 @@ def test_forge_confirm_into_an_empty_root_still_mounts(lab, fake_forge):
 # ══════════════ the basename-keyed exemption (REVIEW.md's open INFO) ═════════
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="QA-2 (MEDIUM): the ASK-1 exemption compares cur.world (a World "
-           "name) with target_slug (a DIRECTORY basename), app.py:3487. A "
-           "validly-sealed bundle declaring a different slug, in a directory "
-           "whose basename matches the mounted World, is mounted with 200 and "
-           "_sweep_other_worlds() deletes the bound World's staged layer. "
-           "REVIEW.md's open INFO rated this non-destructive; it is not. Flip "
-           "to a plain assert when the mount record is canonicalised.",
-)
+# QA-2 (MEDIUM, fixed): the ASK-1 exemption used to compare cur.world (a
+# World name) with target_slug (a DIRECTORY basename), app.py:3487 — a
+# validly-sealed bundle declaring a different slug, in a directory whose
+# basename matched the mounted World, would mount with 200 and
+# _sweep_other_worlds() would delete the bound World's staged layer.
+# Replaced with `_is_same_mounted_world()`: structural (exact bundle dir, or
+# the canonical WORLDS_DIR/<cur.world> adopted copy) identity, never a
+# basename/slug comparison. Flipped from strict-xfail to a plain assert.
 def test_impostor_bundle_in_a_nested_dir_cannot_take_the_mounted_slug(lab):
     """QA-2: the ``cur.world == target_slug`` exemption keys on a *directory
     basename*, not on World identity.
@@ -278,16 +276,11 @@ def test_non_dict_and_oversized_bodies_are_tolerated(lab):
     assert wm.current_mount() is not None
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="QA-3 (MEDIUM): the same basename-keyed exemption on "
-           "/api/worlds/import (app.py:3589), where the path is NOT jailed and "
-           "comes straight from the nav 'Add a World…' dialog rendered on every "
-           "page. Importing a friend's bundle that merely SITS IN a folder named "
-           "like the mounted World switches the lab and sweeps its staged layer. "
-           "No hand-crafted path required — this is the UI-reachable form of "
-           "QA-2. Flip to a plain assert when fixed.",
-)
+# QA-3 (MEDIUM, fixed): the same basename-keyed exemption on
+# /api/worlds/import (app.py:3589), where the path is NOT jailed and comes
+# straight from the nav "Add a World…" dialog rendered on every page — fixed
+# by the same `_is_same_mounted_world()` structural comparison used at
+# select. Flipped from strict-xfail to a plain assert.
 def test_import_of_a_foreign_bundle_in_a_same_named_folder_is_refused(lab, tmp_path):
     """QA-3: the UI-reachable form of the basename exemption."""
     from tests.world_bundle_builder import make_bundle
