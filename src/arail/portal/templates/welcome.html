@@ -570,50 +570,37 @@ function renderNoWorldsFound(card) {
   card.appendChild(skip);
 }
 
-// C8 — swap-variant confirmation. Text is built entirely from
-// EXPERIENCE_SPEC §0.4's verified "what a mount really changes" table —
-// no aspirational claims.
-function renderSwapBanner(card, currentName) {
-  const banner = document.createElement('div');
-  banner.className = 'wc-protect wc-swap-banner';
-
-  const strong = document.createElement('strong');
-  strong.textContent = 'Currently studying ' + currentName + '.';
-  banner.appendChild(strong);
+// worlds-select-removal: in-place switching is gone, so the swap-variant
+// banner/confirm pair/summary above are retired. When a World is already
+// mounted, the world step is read-only — a one-line hint pointing at the
+// two survivors (instances, or Unmount on /worlds), never a mount POST.
+function renderMountedHint(card, currentName) {
+  const hint = document.createElement('div');
+  hint.className = 'wc-protect wc-mounted-hint';
 
   const p = document.createElement('p');
-  p.textContent = "Switching Worlds re-stocks the lab's knowledge base, " +
-    'changes what your agents focus on, and updates the look — your ' +
-    "current World's added knowledge base pages will be removed (the " +
-    'sealed World bundle itself is never deleted and can always be ' +
-    're-mounted). Pick a World below, then confirm.';
-  banner.appendChild(p);
+  p.textContent = 'This lab is bound to ' + currentName + '. To work in ' +
+    'another World, run it as its own lab: ./arailctl start --world <slug> ' +
+    '— or ';
+  const link = document.createElement('a');
+  link.href = '/worlds';
+  link.textContent = 'unmount from the Worlds page';
+  p.appendChild(link);
+  p.appendChild(document.createTextNode('.'));
+  hint.appendChild(p);
 
-  card.appendChild(banner);
+  card.appendChild(hint);
 }
 
-// C8: "what changed" summary, replacing the first-win card on this door.
-// Drawn only from the same "what a mount really changes" table — theme,
-// agent focus/vocabulary, and knowledge base. No sidecar-success claims
-// (F9) — mount() is verify-first and the pointer write is the only thing
-// this summary asserts happened.
-function renderWhatChangedSummary(card, newName) {
-  card.textContent = '';
-  const kicker = document.createElement('div');
-  kicker.className = 'wc-kicker';
-  kicker.textContent = 'World switched';
-  card.appendChild(kicker);
-
-  const h1 = document.createElement('h1');
-  h1.textContent = 'Your lab now studies ' + newName + '.';
-  card.appendChild(h1);
-
-  const summary = document.createElement('p');
-  summary.className = 'wc-tagline wc-what-changed';
-  summary.textContent = "What changed: the lab's theme and look, the " +
-    'vocabulary and focus its agents use, and the knowledge base — ' +
-    "re-stocked with " + newName + "'s terms.";
-  card.appendChild(summary);
+// Read-only card posture (mounted lab): reveal the instance launch command
+// instead of mounting directly — same non-mutating, copy-the-command shape
+// worlds.js's showLaunchCommand() and nav.js's reveal use elsewhere.
+function showLaunchCommand(slug) {
+  const cmd = './arailctl start --world ' + slug;
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(cmd).catch(function () {});
+  }
+  window.alert('Run this in your terminal (copied to clipboard):\n\n' + cmd);
 }
 
 // C5: showWorldStep(opts), opts = { mode: 'airgapped'|'hybrid'|null, boot: bool }.
@@ -660,14 +647,14 @@ async function showWorldStep(opts) {
   h1.textContent = 'What should your lab study?';
   card.appendChild(h1);
 
-  // C8/A8: swap-variant trigger — GET /api/worlds' existing `current` field,
-  // never a new context variable. Never true on the one-shot nudge door
-  // (guardrail d already prevents that path from reaching a mounted state).
+  // Mounted-lab trigger — GET /api/worlds' existing `current` field, never a
+  // new context variable. If truthy, the step below renders read-only (no
+  // mount POST is ever issued; in-place switching is removed).
   const currentSlug = (data && data.current) || null;
   if (currentSlug) {
     const currentEntry = validWorlds.find(function (w) { return w.mounted; });
     const currentName = (currentEntry && (currentEntry.display_name || currentEntry.slug)) || currentSlug;
-    renderSwapBanner(card, currentName);
+    renderMountedHint(card, currentName);
   }
 
   const tagline = document.createElement('p');
@@ -762,9 +749,10 @@ async function showWorldStep(opts) {
 
     btn.appendChild(label);
 
-    // C8/F18: on the swap door, a card click never mounts directly — it
-    // reveals a Continue/Cancel confirm pair first. One confirmation, not
-    // two; rapid double-clicks issue at most one POST (T14b).
+    // current == null (the first-bind case, the only case a fresh lab ever
+    // sees): unchanged — one POST, one navigation. current != null: the
+    // grid is read-only — a click reveals the launch command and issues
+    // ZERO fetch calls to /api/worlds/select (in-place switching removed).
     let posted = false;
 
     async function performMount() {
@@ -794,9 +782,6 @@ async function showWorldStep(opts) {
         return;
       }
       if (res.ok) {
-        if (currentSlug) {
-          renderWhatChangedSummary(card, w.display_name || w.slug);
-        }
         goHome();
         return;
       }
@@ -816,40 +801,11 @@ async function showWorldStep(opts) {
       list.querySelectorAll('button').forEach(function (b) { b.disabled = false; });
     }
 
-    btn.addEventListener('click', function () {
-      if (!currentSlug) { return performMount(); }
-
-      // Swap door: reveal Continue/Cancel; disable the grid immediately.
-      list.querySelectorAll('button').forEach(function (b) { b.disabled = true; });
-      const confirmBox = document.createElement('div');
-      confirmBox.className = 'wc-actions wc-swap-confirm';
-
-      let confirmed = false;
-      const cont = document.createElement('button');
-      cont.type = 'button';
-      cont.className = 'wc-btn';
-      cont.textContent = 'Continue →';
-      cont.addEventListener('click', function () {
-        if (confirmed) return;
-        confirmed = true;
-        cont.disabled = true;
-        cancel.disabled = true;
-        return performMount();
-      });
-      confirmBox.appendChild(cont);
-
-      const cancel = document.createElement('button');
-      cancel.type = 'button';
-      cancel.className = 'wc-btn wc-swap-cancel';
-      cancel.textContent = 'Cancel';
-      cancel.addEventListener('click', function () {
-        confirmBox.remove ? confirmBox.remove() : null;
-        list.querySelectorAll('button').forEach(function (b) { b.disabled = false; });
-      });
-      confirmBox.appendChild(cancel);
-
-      card.appendChild(confirmBox);
-    });
+    if (currentSlug) {
+      btn.addEventListener('click', function () { showLaunchCommand(w.slug); });
+    } else {
+      btn.addEventListener('click', function () { return performMount(); });
+    }
     list.appendChild(btn);
   });
 

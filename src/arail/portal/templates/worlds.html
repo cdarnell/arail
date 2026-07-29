@@ -157,34 +157,13 @@
 
   </section>
 
-  <!-- ═══ Deprecation notice (sprints/2026-07-28-concurrent-worlds/
-       ARCHITECTURE.md §5.5) — dismissible, above the grid, not a modal. ═══ -->
-  <div class="card" id="worlds-deprecation-notice" hidden
-       style="display:flex;align-items:flex-start;gap:.6rem;padding:.7rem .9rem;margin-bottom:1rem;">
-    <span style="flex:1;font-size:.82rem;line-height:1.5;">
-      Switching Worlds in place is being replaced by instances — one World per
-      lab, side by side. <code>./arailctl start --world &lt;slug&gt;</code>.
-      In-place Mount is removed in the next release.
-    </span>
-    <button type="button" class="btn btn-ghost btn-sm" id="worlds-deprecation-dismiss">Dismiss</button>
-  </div>
-  <script>
-    (function () {
-      var KEY = 'arail.worlds.deprecation-dismissed';
-      var el = document.getElementById('worlds-deprecation-notice');
-      var btn = document.getElementById('worlds-deprecation-dismiss');
-      if (!el) return;
-      var dismissed = false;
-      try { dismissed = localStorage.getItem(KEY) === '1'; } catch (e) { /* ignore */ }
-      el.hidden = dismissed;
-      if (btn) {
-        btn.addEventListener('click', function () {
-          el.hidden = true;
-          try { localStorage.setItem(KEY, '1'); } catch (e) { /* ignore */ }
-        });
-      }
-    })();
-  </script>
+  <!-- ═══ Static instances hint (worlds-select-removal: the transitional
+       dismissible deprecation notice comes down — one lab, one World is
+       the shipped behavior now, not a future one). ═══ -->
+  <p id="worlds-instances-hint" style="font-size:.8rem;opacity:.75;margin:0 0 1rem;">
+    One World per lab. To work in another World, run it as its own lab:
+    <code>./arailctl start --world &lt;slug&gt;</code>.
+  </p>
 
   <!-- ═══ Catalog ═══ -->
   <section class="worlds-catalog">

@@ -63,13 +63,94 @@ WP1 server change alone.
 
 Commit: (recorded below after commit)
 
+### WP2 — UI: nav roster, welcome step, worlds page
+
+`src/arail/portal/static/nav.js`: deleted the mutating `fetch('/api/worlds/select', …)`
+block and its `busy` lock (the `busy` flag stays, now guarding only the
+`/api/worlds/import` path, which is unaffected by this sprint). Deleted the
+`change-world` row and its `/welcome?step=world` route. "AI Lab (default)"
+row now routes to `/worlds` when a World is mounted, otherwise renders inert
+(active + disabled, no `data-action`). Non-live World rows are always
+disabled now, showing the launch command in `title`/`reason` (previously
+only when something else was mounted — "launchable" case). A currently-
+mounted World's row is inert (✓ marker, `active + disabled`), never
+clickable.
+
+`src/arail/portal/static/js/worlds.js`: the Mount button's click handler now
+re-fetches (`renderCatalog()`) after a refusal, so a same-page race (another
+tab mounted between render and click, F4) re-renders the button matrix from
+the server's authoritative state instead of leaving a stale "Mount" button.
+The 409 message was already surfaced via the existing `r.data.message` alert
+path — no separate plumbing needed.
+
+`src/arail/portal/templates/welcome.html`: deleted `renderSwapBanner`,
+`renderWhatChangedSummary`, and the Continue/Cancel confirm-pair block
+entirely. Added `renderMountedHint(card, currentName)` (one line + a
+`/worlds` link) and `showLaunchCommand(slug)` (copy-to-clipboard + alert,
+same shape as `worlds.js`'s helper of the same name — welcome.html's is a
+separate copy since the two templates don't share a JS module; noted as
+tech debt, not fixed here — out of this sprint's scope). `current == null`
+path (first-bind) is byte-for-byte unchanged except removing the now-dead
+`if (currentSlug) { renderWhatChangedSummary(...) }` branch inside the
+200-response handler. `current != null` path never calls `performMount()`;
+a card click calls `showLaunchCommand(w.slug)` instead — zero fetches to
+`/api/worlds/select`.
+
+`src/arail/portal/templates/worlds.html`: replaced the dismissible
+`#worlds-deprecation-notice` card (+ inline script + the
+`arail.worlds.deprecation-dismissed` localStorage key) with a static
+one-line `<p id="worlds-instances-hint">` above the catalog grid. No script,
+no dismiss button, nothing to persist.
+
+Test changes:
+- `tests/test_worlds_ui.py::test_worlds_page_has_dismissible_deprecation_notice`
+  → `test_worlds_page_has_static_instances_hint` (asserts the hint text + the
+  `--world` command; asserts the dismiss button and the localStorage key are
+  gone).
+- Added `test_nav_js_never_posts_to_worlds_select` (no `/api/worlds/select`,
+  no `change-world`, no `?step=world` in `nav.js` source) and
+  `test_nav_js_still_fetches_instances_and_renders_open_link` (roster fetch +
+  Open-link behavior survive).
+- `tests/js/world_step_harness.mjs`: swapped the `renderSwapBanner`/
+  `renderWhatChangedSummary` extraction for `renderMountedHint`/
+  `showLaunchCommand`; added `navigator`/`window.alert` stubs to the sandbox
+  (needed by `showLaunchCommand`). Replaced the old T14b (swap-variant
+  confirm pair) with two tests matching the architecture's numbering: T15
+  (current == null — exactly one POST, one navigation, no mounted hint) and
+  T16 (current != null — mounted-hint + `/worlds` link rendered, a card
+  click reveals the launch command via `window.alert`, zero fetches to
+  `/api/worlds/select`, `goHome()` never called).
+
+**Deviation from spec, self-caught:** the first pass of the click-handler
+rewrite in `welcome.html` used `btn.addEventListener('click', function () { performMount(); })` — dropping the `return` that the original code had. Since
+`dispatch()` in the test harness does `await fn({})`, this silently broke
+awaiting `performMount()`'s promise and made T14 flaky/failing (the fetch
+mock queue and the assertion both ran out of order). Caught by the gate
+(T14 failed), fixed by restoring `return performMount();`. No spec change
+needed — this was an implementation slip, not an architecture gap.
+
+**Gate:** `node tests/js/world_step_harness.mjs` → 7/7 assertions passed.
+`node tests/js/cloud_render_harness.mjs` (unrelated harness, run for
+completeness) → 3/3 passed. `pytest tests/test_worlds_ui.py` → 10/10 passed.
+Manual smoke deferred to QA per SPRINT.md's regression-heavy tilt (no
+browser available in this environment); the source-level assertions above
+cover the same DOM/fetch contracts the manual smoke would exercise.
+
+Commit: (recorded below after commit)
+
 ## Architect feedback required
 
-(none yet — WP1 matched the spec exactly, no gaps found)
+(none — WP1 and WP2 both matched the spec exactly; no gaps found)
 
-## Final state (partial — WP1 only)
+## Final state (partial — WP1 + WP2)
 
-- Tests passing (targeted gate suites): 88/88.
-- Files changed: `src/arail/portal/app.py` (+~45 lines), `tests/test_world_switcher.py`
-  (+~120 lines, 2 rewrites), `tests/test_world_import.py` (+~25 lines).
-- WP2, WP3 not yet started.
+- Server + nav + welcome + worlds-page tests: 89/89 pytest (targeted gate
+  suites) + 10/10 `test_worlds_ui.py` + 7/7 JS harness assertions. Zero new
+  failures against the pre-existing baseline.
+- Files changed: `src/arail/portal/app.py`, `src/arail/portal/static/nav.js`,
+  `src/arail/portal/static/js/worlds.js`,
+  `src/arail/portal/templates/welcome.html`,
+  `src/arail/portal/templates/worlds.html`, `tests/test_world_switcher.py`,
+  `tests/test_world_import.py`, `tests/test_worlds_ui.py`,
+  `tests/js/world_step_harness.mjs`.
+- WP3 (docs) not yet started.

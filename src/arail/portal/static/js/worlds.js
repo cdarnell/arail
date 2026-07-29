@@ -735,8 +735,13 @@
       mnt.disabled = !w.valid;
       mnt.addEventListener('click', function () {
         api('POST', '/api/worlds/select', { slug: w.slug }).then(function (r) {
-          if (r.ok) location.reload();
-          else if (r.data && r.data.message) window.alert(r.data.message);
+          if (r.ok) { location.reload(); return; }
+          // Race: another tab mounted between render and click -- the
+          // server is authoritative (in_place_switch_removed). Surface its
+          // message, then re-fetch so the button matrix reflects reality
+          // instead of trusting stale client state.
+          if (r.data && r.data.message) window.alert(r.data.message);
+          renderCatalog();
         });
       });
       actions.appendChild(mnt);
