@@ -26,7 +26,7 @@ progress. Full brief with grounding facts: `BRIEF.md` (this dir).
 | build | builder | BUILD_LOG.md | DONE | 2026-07-28 11:45 | 2026-07-28 14:00 | WP1–8 done; zero regressions vs pre-sprint baseline (47 reds pre-existing, confirmed byte-identical) |
 | review | architect (review) | REVIEW.md | DONE | 2026-07-28 14:05 | 2026-07-28 15:35 | WEAK_PASS after fix loop (B1,B2,M1–M7 closed; 3 new minors n1–n3 noted for QA) |
 | test | qa | TEST_REPORT.md | DONE | 2026-07-28 15:40 | 2026-07-28 18:10 | WEAK_PASS after fix loop + re-test (live two-World cold boot green end-to-end; isolation, status<2s, legible-launch win conditions MET) |
-| ship | — | commits on branch | DONE | 2026-07-28 18:15 | 2026-07-28 18:20 | All commits on `qukaizen/arailctl-concurrent-worlds-33db65`; push/PR awaits operator |
+| ship | — | PR | DONE | 2026-07-28 18:15 | 2026-07-28 | Pushed; PR #151 open → main (https://github.com/cdarnell/qukaizen-arail/pull/151) |
 
 ## Decisions log
 
