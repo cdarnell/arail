@@ -111,8 +111,9 @@ def fake_forge(monkeypatch):
                         lambda brain="local": type("R", (), {"backend_name": "test"})())
 
 
-def _forge_to_done(c, subject):
-    r = c.post("/api/worlds/forge", json={"subject": subject}, headers=CSRF)
+def _forge_to_done(c, subject, overwrite=False):
+    r = c.post("/api/worlds/forge",
+               json={"subject": subject, "overwrite": overwrite}, headers=CSRF)
     assert r.status_code == 202, r.text
     t0 = time.time()
     while time.time() - t0 < 10:
@@ -399,3 +400,158 @@ def test_refused_select_leaves_the_mount_record_byte_identical(lab):
                       headers=CSRF).status_code == 409
     assert rec_path.read_bytes() == before
     assert _staged_world_dirs(pkb) == staged_before
+
+
+# ══════════ re-test: adversarial probe of _is_same_mounted_world() ═══════════
+# The QA-fix pass replaced the basename-keyed exemption with a structural
+# identity check (app.py:3250). These cases attack that check directly, and
+# pin the two directions it must not drift in (spoofable / over-refusing).
+
+
+@pytest.mark.xfail(
+    strict=False,
+    reason="QA-4 (LOW, accepted): the canonical arm of _is_same_mounted_world() "
+           "resolves WORLDS_DIR/<cur.world>, so a SYMLINK planted at that name "
+           "makes /api/worlds/import mount a foreign bundle as a re-bind. "
+           "Planting it needs write access to lab/worlds/ — an attacker with "
+           "that can edit world-mount.json directly — so this is inside the "
+           "existing trust boundary. Non-strict: it is a hardening property, "
+           "not a ship blocker.",
+)
+def test_symlinked_catalog_entry_cannot_launder_a_foreign_bundle(lab):
+    """QA-4: the canonical arm resolves ``WORLDS_DIR/<cur.world>``. If that
+    name is a *symlink* to a foreign bundle, both sides resolve to the same
+    real path and the re-bind arm would admit it.
+
+    Placing the symlink requires write access to ``lab/worlds/``, so this is a
+    hardening property, not an exploit — but it is the one way the structural
+    check can still be pointed at a bundle the user never adopted.
+    """
+    from tests.world_bundle_builder import make_bundle
+
+    _tmp, worlds, data, pkb = lab
+    physics = make_bundle(worlds, slug="physics", display_name="Physics")
+    wm.mount(physics, pkb_root=pkb, data_dir=data)
+
+    outside = _tmp / "elsewhere"
+    outside.mkdir()
+    foreign = make_bundle(outside, slug="foreign", display_name="Foreign")
+
+    # Repoint the mounted World's catalog name at the foreign bundle.
+    shutil.rmtree(physics)
+    physics.symlink_to(foreign, target_is_directory=True)
+
+    with _client() as c:
+        by_slug = c.post("/api/worlds/select", json={"slug": "physics"}, headers=CSRF)
+        by_import = c.post("/api/worlds/import", json={"path": str(physics)},
+                           headers=CSRF)
+
+    # select: the WORLDS_DIR jail resolves the symlink and sees an out-of-jail
+    # target first, so it never reaches the identity check (400 bad_request).
+    assert by_slug.status_code != 200, by_slug.text
+    # import: deliberately unjailed, so the canonical arm is the only gate.
+    assert by_import.status_code != 200, (
+        "a symlinked catalog entry laundered a foreign bundle through the "
+        "canonical arm of _is_same_mounted_world()"
+    )
+    assert wm.current_mount().world == "physics"
+
+
+def test_a_world_named_with_traversal_cannot_reach_outside_the_catalog(lab):
+    """QA-5: ``canonical = WORLDS_DIR / cur.world`` interpolates a manifest
+    field into a path. A World whose declared name contains ``..`` would make
+    the canonical arm point outside ``lab/worlds/`` — and ``/api/worlds/import``
+    accepts an unjailed path, so the two could meet."""
+    from tests.world_bundle_builder import make_bundle
+
+    _tmp, worlds, data, pkb = lab
+    evil_home = _tmp / "outside"
+    evil_home.mkdir()
+    victim = make_bundle(worlds, slug="victim", display_name="Victim")
+
+    # Rewrite the mounted World's declared name to a traversal string.
+    man = json.loads((victim / "manifest.json").read_text())
+    if "world" not in man:
+        pytest.skip("manifest has no 'world' field to poison in this fixture")
+    man["world"] = "../outside/target"
+    (victim / "manifest.json").write_text(json.dumps(man))
+    target = make_bundle(evil_home, slug="target", display_name="Target")
+
+    try:
+        wm.mount(victim, pkb_root=pkb, data_dir=data)
+    except Exception:
+        pytest.skip("mount() rejects a traversal-shaped world name outright — "
+                    "the canonical arm is unreachable with one")
+
+    with _client() as c:
+        r = c.post("/api/worlds/import", json={"path": str(target)}, headers=CSRF)
+    assert r.status_code == 409, (
+        "a traversal-shaped World name let the canonical arm match a bundle "
+        "outside lab/worlds/"
+    )
+
+
+def test_case_variant_path_does_not_match_the_canonical_arm(lab):
+    """Edge (macOS case-insensitive APFS): a path differing only in case must
+    not silently satisfy the re-bind arm; failing closed (409) is correct."""
+    from tests.world_bundle_builder import make_bundle
+
+    _tmp, worlds, data, pkb = lab
+    physics = make_bundle(worlds, slug="physics", display_name="Physics")
+    wm.mount(physics, pkb_root=pkb, data_dir=data)
+    other = make_bundle(worlds, slug="other", display_name="Other")
+    with _client() as c:
+        r = c.post("/api/worlds/select", json={"path": str(other).upper()},
+                   headers=CSRF)
+    assert r.status_code in (400, 409)
+    assert wm.current_mount().world == "physics"
+
+
+# ═══════════════ re-test: the fixes must not over-refuse ═════════════════════
+
+
+def test_reforge_of_the_already_mounted_world_still_confirms(lab, fake_forge):
+    """The QA-1 guard keys on the forged slug; re-forging the World you are
+    bound to is the one forge-confirm that must still be allowed."""
+    _tmp, worlds, data, pkb = lab
+    with _client() as c:
+        _forge_to_done(c, "botany")
+        assert c.post("/api/worlds/forge/confirm", headers=CSRF).status_code == 200
+        first = wm.current_mount().world
+        _forge_to_done(c, "botany", overwrite=True)
+        r = c.post("/api/worlds/forge/confirm", headers=CSRF)
+    assert r.status_code == 200, r.text
+    assert wm.current_mount().world == first
+    assert _staged_world_dirs(pkb) == {"world-botany"}
+
+
+def test_external_import_can_still_rebind_to_itself_by_catalog_slug(lab, tmp_path):
+    """ASK-1's regression, re-verified against the new structural check: the
+    mount record holds the SOURCE path, re-selecting by slug resolves to the
+    ADOPTED copy, and that must still be 200."""
+    from tests.world_bundle_builder import make_bundle
+
+    _tmp, worlds, data, pkb = lab
+    external = make_bundle(tmp_path / "ext", slug="physics", display_name="Physics")
+    with _client() as c:
+        assert c.post("/api/worlds/import", json={"path": str(external)},
+                      headers=CSRF).status_code == 200
+        rec = wm.current_mount()
+        assert rec.bundle_dir == str(external.resolve())   # pre-adoption source
+        r = c.post("/api/worlds/select", json={"slug": "physics"}, headers=CSRF)
+    assert r.status_code == 200, r.text
+    assert wm.current_mount().world == "physics"
+
+
+def test_identical_content_in_two_dirs_is_still_a_refused_switch(lab):
+    """F7's corridor: byte-identical bundles in two dirs must NOT be treated
+    as the same World by the structural check."""
+    _tmp, worlds, data, pkb = lab
+    a = _copy_world(worlds, PHYSICS, "world-a")
+    b = _copy_world(worlds, PHYSICS, "world-b")
+    wm.mount(a, pkb_root=pkb, data_dir=data)
+    with _client() as c:
+        r = c.post("/api/worlds/select", json={"path": str(b)}, headers=CSRF)
+    assert r.status_code == 409
+    assert r.json()["error"] == "in_place_switch_removed"
+    assert wm.current_mount().bundle_dir == str(a.resolve())
