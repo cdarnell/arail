@@ -185,3 +185,43 @@ Commit: (recorded below after commit)
   execution notes): a dropped `return` in the welcome.html click handler,
   fixed before the gate passed. No architect feedback required — the spec
   matched the codebase exactly at every WP.
+
+## Review-fix pass
+
+Architect review verdict: **BLOCK**. [REVIEW.md](./REVIEW.md) at `557c5a7`.
+All prescribed fixes applied per its concrete instructions; no ambiguity or
+ARCHITECTURE.md conflict encountered on any finding, so nothing is recorded
+under "## Blockers" for this pass.
+
+| Finding | Disposition | Fix | Commit |
+|---|---|---|---|
+| BLOCK-1 — `/api/worlds/import-zip` unguarded | **Fixed**, exactly per the prescribed patch (guard after CSRF, before upload read, no identical-bundle exemption). Fixed the now-stale `nav.js:640-643` comment. | `src/arail/portal/app.py`, `src/arail/portal/static/nav.js`; regression `tests/test_world_import_zip.py::test_import_zip_over_mounted_root_refused` (anti-rmtree) + `test_import_zip_into_empty_root_still_works` (no over-refusal) | `b02cc9e` |
+| ASK-1 — externally-imported World can't re-bind to itself | **Fixed**, narrow option (a): `cur.world == target_slug` allowed in both `api_worlds_select` and `api_worlds_import`. Option (b) (canonicalize the mount record) filed in `sprints/BACKLOG.md` as prescribed. | `src/arail/portal/app.py`; regression `tests/test_world_import.py::test_reselect_by_slug_after_external_import_allowed` | `27a748b` |
+| ASK-2 — no browser Unmount door for a stray mount (F3) | **Fixed** per the prescribed shape: `renderStrayMountHint()` in `worlds.js` renders a standalone "Unmount current World" control when `data.current` is truthy but no card has `w.mounted`. Also documented `./arailctl world unmount` as the CLI escape hatch, per the "at minimum" alternative — did both, not just the minimum. | `src/arail/portal/static/js/worlds.js`, `src/arail/portal/templates/worlds.html`, `docs/concurrent-worlds.md`; source-level regressions `tests/test_worlds_ui.py::test_worlds_js_has_stray_mount_unmount_escape_hatch` + `test_worlds_page_has_stray_mount_hint_container` (no runtime JS harness exists for `worlds.js`, matching the file's existing all-source-level test convention) | `57c3a47` |
+| ASK-3 — `./arailctl world swap` contradicts the removal docs | **Fixed**, chose "keep the CLI verb, document it as a deliberate CLI-only escape hatch" over retiring it — retiring a CLI verb is out of this sprint's non-goals (no CLI/instance-runtime changes: ARCHITECTURE.md "Non-goals") and is a redesign decision, not a docs fix. | `docs/concurrent-worlds.md`; regression `tests/test_worlds_docs_consistency.py` | `820aa02` |
+| INFO — duplicated guard body (now 3 copies) | **Noted, not fixed this pass.** ARCHITECTURE.md named 3 copies as the extraction threshold, but the review-fix pass already touches all three endpoints across 3 separate commits; bundling a refactor into a BLOCK/ASK fix commit would violate atomicity. Filed in `sprints/BACKLOG.md` for the next endpoint touch. | — | (BACKLOG.md entry, no code) |
+| INFO — `showLaunchCommand()` duplicated (welcome.html/worlds.js) | **Noted, not fixed.** Builder already flagged and declined in WP2; review confirmed the disposition. Filed in `sprints/BACKLOG.md`. | — | (BACKLOG.md entry, no code) |
+| INFO — dead CSS check | **No action — reviewer confirmed clean.** `wc-swap-banner`/`wc-swap-confirm`/`wc-swap-cancel`/`wc-what-changed` have zero remaining references; the orphaned `arail.worlds.deprecation-dismissed` localStorage key is inert per Assumption 4. Nothing to do. | — | — |
+
+**Regression discipline:** every BLOCK/ASK fix above was verified
+fail-before (reverting only the relevant file via `git stash push -- <file>`,
+confirming the new test fails) and pass-after, before committing. No test was
+written and trusted without seeing it fail first.
+
+**Final combined regression run** (the WP-gate suites + all four new/updated
+test files from this pass): `pytest tests/test_world_switcher.py
+tests/test_instance_api.py tests/test_world_forge_seal.py
+tests/test_world_import.py tests/test_world_import_zip.py
+tests/test_world_mount.py tests/test_world_identity_flip.py
+tests/test_worlds_ui.py tests/test_onboarding.py
+tests/test_world_first_impression.py tests/test_world_step_dom.py
+tests/test_boot_overlay.py tests/test_default_worlds_catalog.py
+tests/test_worlds_docs_consistency.py -q` → **169 passed, 1 skipped
+(pre-existing, unrelated), 0 failed.** `node tests/js/world_step_harness.mjs`
+→ 7/7. `node tests/js/cloud_render_harness.mjs` → 3/3. Zero new failures
+against the pre-review-fix baseline (163 passed / 1 skipped / 10 JS).
+
+## Blockers
+
+(none — all BLOCK/ASK prescriptions in REVIEW.md were unambiguous and did not
+conflict with ARCHITECTURE.md; nothing required escalation this pass)
