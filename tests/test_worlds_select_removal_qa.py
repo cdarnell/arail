@@ -122,14 +122,11 @@ def _forge_to_done(c, subject):
     raise AssertionError("forge never reached 'done'")
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="QA-1 (HIGH): POST /api/worlds/forge/confirm calls wm.swap() when a "
-           "DIFFERENT World is already mounted (world_routes.py:433) — an "
-           "unguarded in-place World switch that sweeps the mounted World's "
-           "staged KB layer. The three guarded doors were enumerated by hand and "
-           "this one was missed. Flip to a plain assert when guarded.",
-)
+# QA-1 (HIGH, fixed): POST /api/worlds/forge/confirm now refuses with
+# 409 in_place_switch_removed before touching the catalog when a DIFFERENT
+# World is already mounted (world_routes.py:433). Was: unguarded wm.swap()
+# call, an in-place World switch that swept the mounted World's staged KB
+# layer. Flipped from strict-xfail to a plain assert.
 def test_forge_confirm_over_a_mounted_world_is_refused(lab, fake_forge):
     """A forge confirm must not switch the lab out of the World it is bound to."""
     _tmp, worlds, data, pkb = lab

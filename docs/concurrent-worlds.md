@@ -139,10 +139,16 @@ disk — see `world_mount.py`).
 
 **`./arailctl world swap <dir>` still exists, deliberately.** It is a
 direct CLI-only escape hatch to `world_mount.swap()` — a single-step
-in-place switch — kept for scripting/operator use and reachable from no
-UI surface (the browser, the nav dropdown, and the welcome flow all only
-ever call `/api/worlds/select`, which enforces the removal above). If you
-want the guaranteed-safe two-step swap, use `./arailctl world unmount`
+in-place switch — kept for scripting/operator use. `/api/worlds/select`,
+`/api/worlds/import`, and `/api/worlds/import-zip` all enforce the removal
+above and never call `swap()`. **One browser surface still does:**
+`POST /api/worlds/forge/confirm` (the Forge flow's "confirm" step) also
+calls `world_mount.swap()` when a World is already mounted, and — like the
+other three doors before this sprint's fixes — is refused with
+`409 in_place_switch_removed` when the mounted World differs from the one
+just forged. Confirming a forge of the *already-mounted* World (a re-forge,
+same slug), or forging into an empty root, both still mount normally. If
+you want the guaranteed-safe two-step swap, use `./arailctl world unmount`
 then `./arailctl world mount <dir>` instead.
 
 ## `status` reference
