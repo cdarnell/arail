@@ -225,3 +225,67 @@ against the pre-review-fix baseline (163 passed / 1 skipped / 10 JS).
 
 (none — all BLOCK/ASK prescriptions in REVIEW.md were unambiguous and did not
 conflict with ARCHITECTURE.md; nothing required escalation this pass)
+
+## QA-fix pass
+
+QA verdict: **FAIL**. [TEST_REPORT.md](./TEST_REPORT.md), tests added in
+`tests/test_worlds_select_removal_qa.py` (commit `31cd90d`). All prescribed
+fixes applied; no ambiguity or ARCHITECTURE.md conflict on any finding — no
+"## Blockers" entry needed for this pass either.
+
+| Finding | Severity | Disposition | Fix | xfail flip | Commit |
+|---|---|---|---|---|---|
+| QA-1 — `POST /api/worlds/forge/confirm` (fourth door, `world_routes.py:433`) called `wm.swap()` unguarded, sweeping a different mounted World's staged KB | HIGH | **Fixed.** Guard added before any disk write: refuse `409 in_place_switch_removed` when `current_mount().world != slug` (the forged slug). Empty root and re-forge of the already-mounted World (same slug) still mount. Corrected the falsified claim at `docs/concurrent-worlds.md:139-142` ("reachable from no UI surface") — it names forge-confirm as the one browser surface that does reach `swap()`, and that it's now guarded. | `test_forge_confirm_over_a_mounted_world_is_refused`: strict-xfail → plain assert | `5aefa1a` |
+| QA-2 — the ASK-1 exemption at `app.py:3487` keyed on `cur.world == target_slug` (World name vs. directory basename); an impostor bundle declaring a different slug in a same-named dir mounted and swept the bound World | MEDIUM | **Fixed.** Replaced with `_is_same_mounted_world(cur, bundle_dir)`: allows only (a) exact resolved bundle-dir match, or (b) the canonical `WORLDS_DIR/<cur.world>` adopted-catalog copy — both structural facts, never a declared-slug or directory-basename comparison an impostor bundle can spoof. Verified F7 (`world-a`/`world-b`, byte-identical content, different dirs) and ASK-1's regression (external re-select by catalog slug) both still pass under the narrower check. | `test_impostor_bundle_in_a_nested_dir_cannot_take_the_mounted_slug`: strict-xfail → plain assert | `b6c84bc` |
+| QA-3 — same exemption on `/api/worlds/import` (`app.py:3589`), UI-reachable via the nav's unjailed "Add a World…" path input on every page | MEDIUM | **Fixed** — same `_is_same_mounted_world()` call at the import site. | `test_import_of_a_foreign_bundle_in_a_same_named_folder_is_refused`: strict-xfail → plain assert | `b6c84bc` |
+
+**Why option (b)-shaped, not a slug patch.** TEST_REPORT.md flagged that any
+re-fix must keep both `test_reselect_by_slug_after_external_import_allowed`
+(ASK-1) and `test_swap_by_path_while_mounted_refused` (F7) green — a narrow
+corridor a content- or slug-based comparison can't thread (F7's fixtures are
+byte-identical content in two different directories and must still refuse;
+ASK-1's case is the *same* directory reached two different ways and must
+allow). `_is_same_mounted_world()` resolves this by recognizing exactly one
+canonical location per mounted World (its exact bundle dir, or its one
+adopted catalog path) rather than any notion of "same content" or "same
+name" — both of which the two regression tests deliberately pull in opposite
+directions.
+
+**Regression discipline:** each fix verified fail-before via the QA-authored
+strict-xfail (an unexpected PASS under `strict=True` turns the test suite
+red, which is exactly what ran before each fix landed) and pass-after by
+flipping the marker and re-running. No xfail was flipped without first
+confirming the underlying test failed for the right reason.
+
+**Test counts.** `tests/test_worlds_select_removal_qa.py`: 22/22 passed, 0
+xfail remaining (was 19 passed / 3 strict-xfail). Combined regression
+(WP-gate suites + review-fix suites + this file):
+`pytest tests/test_world_switcher.py tests/test_instance_api.py
+tests/test_world_forge_seal.py tests/test_world_import.py
+tests/test_world_import_zip.py tests/test_world_mount.py
+tests/test_world_identity_flip.py tests/test_worlds_ui.py
+tests/test_onboarding.py tests/test_world_first_impression.py
+tests/test_world_step_dom.py tests/test_boot_overlay.py
+tests/test_default_worlds_catalog.py tests/test_worlds_docs_consistency.py
+tests/test_worlds_select_removal_qa.py tests/test_instance_isolation.py -q`
+→ **195 passed, 1 skipped (pre-existing, unrelated), 0 failed.**
+`node tests/js/world_step_harness.mjs` → 7/7; `node
+tests/js/cloud_render_harness.mjs` → 3/3.
+
+**Full-suite parity (final).** `pytest tests/ -q` → **53 failed, 3614
+passed, 8 skipped, 2 xfailed, 7 errors** (769.01s / 12m49s). Exact parity
+with QA's recorded baseline (**3611 passed, 53 failed, 7 errors, 8 skipped,
+5 xfailed**): failed count identical (53), error count identical (7),
+skipped count identical (8); passed rose by exactly 3 (3611→3614) and
+xfailed dropped by exactly 3 (5→2) — the three QA strict-xfails flipping to
+plain passing asserts, and nothing else moved. Scanned the 53 failures by
+name: none touch this sprint's blast radius (`test_world_switcher.py`,
+`test_world_import.py`, `test_world_import_zip.py`, `test_world_mount.py`,
+`test_worlds_ui.py`, `test_instance_api.py`,
+`test_worlds_select_removal_qa.py`, `test_instance_isolation.py`,
+`test_worlds_docs_consistency.py`, `world_routes.py`'s forge-confirm path)
+— they're `test_world_forge_api.py` (5F + 7E, the pre-existing
+blocked-egress cause QA already diagnosed and ruled out of scope) plus 24
+unrelated files (dashboard, provider dropdown, chat models, reset scope,
+etc.) that were already red on the merge base per QA's own spot-check.
+**Zero new failures.**
