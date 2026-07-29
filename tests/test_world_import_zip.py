@@ -125,6 +125,44 @@ def test_non_bundle_zip_is_409(client, isolated):
     assert wm.current_mount(data) is None
 
 
+# ── In-place switching removed (worlds-select-removal REVIEW.md BLOCK-1) ────
+
+def test_import_zip_over_mounted_root_refused(client, isolated):
+    """import-zip is a third door onto the same destructive sweep as select/
+    import; it must refuse — before any extraction — when something is
+    already mounted here. No identical-bundle exemption: the zip is always
+    extracted to a fresh tempdir, so a "re-import" is never actually the same
+    bundle_dir. Anti-rmtree assertion is the point (mirrors
+    test_switch_a_to_b_refused_record_stays_on_a)."""
+    pkb, data, worlds = isolated
+    r1 = client.post("/api/worlds/import", json={"path": str(PHYSICS)},
+                     headers=SAME_ORIGIN)
+    assert r1.status_code == 200, r1.text
+    mounted_slug = r1.json()["current"]
+
+    other = FIXTURES / "art-history-skill"
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for f in sorted(other.iterdir()):
+            zf.write(f, arcname=f.name)
+
+    r2 = _post_zip(client, buf.getvalue())
+    assert r2.status_code == 409
+    assert r2.json()["error"] == "in_place_switch_removed"
+    assert wm.current_mount(data).world == mounted_slug  # unchanged
+    assert (pkb / "sources" / f"world-{mounted_slug}").exists()  # staged dir survives
+
+
+def test_import_zip_into_empty_root_still_works(client, isolated):
+    """The guard must not over-refuse: an empty root still imports fine."""
+    pkb, data, worlds = isolated
+    assert wm.current_mount(data) is None
+    r = _post_zip(client, _zip_bytes())
+    assert r.status_code == 200, r.text
+    assert r.json()["ok"] is True
+    assert wm.current_mount(data) is not None
+
+
 # ── Happy path ───────────────────────────────────────────────────────────────
 
 def test_flat_zip_imports_and_lands_in_catalog(client, isolated):

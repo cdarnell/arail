@@ -3681,13 +3681,15 @@ async def api_worlds_import_zip(request: Request):
     nothing of value lives in staging after the call.
 
     Form field: ``file`` (the ``.zip``, multipart/form-data). Expected
-    failures: 403 (cross-site/origin), 400 (no file / not a zip / corrupt /
-    unsafe archive), 409 (non-bundle or seal/compat/category/slug refusal).
+    failures: 403 (cross-site/origin), 409 in_place_switch_removed (something
+    else already mounted here — checked before any extraction), 400 (no file
+    / not a zip / corrupt / unsafe archive), 409 (non-bundle or seal/compat/
+    category/slug refusal).
     """
     import tempfile
     from fastapi.responses import JSONResponse
     from arail.world_mount import (
-        mount,
+        mount, current_mount,
         SealMismatch, PartialBundle, SchemaSkew, GateViolation, SlugInvalid,
     )
 
@@ -3705,6 +3707,25 @@ async def api_worlds_import_zip(request: Request):
         origin_host = _urlparse(origin).netloc
         if origin_host and origin_host != host:
             return _err(403, {"error": "cross_origin"})
+
+    # ── In-place switching removed: refuse unconditionally when anything is
+    # mounted here, before extracting a single byte of the untrusted archive.
+    # NO identical-bundle exemption — the zip is always extracted to a fresh
+    # tempfile.mkdtemp() staging dir below, so bundle_dir can never equal
+    # cur.bundle_dir; a re-import of "the same" World is a different dir on
+    # disk every time. Do not copy the `!=` comparison from the other two
+    # endpoints (REVIEW.md BLOCK-1).
+    cur = current_mount()
+    if cur is not None:
+        return _err(409, {
+            "error": "in_place_switch_removed",
+            "message": (
+                f"'{cur.world}' is mounted in this lab. Switching Worlds in "
+                "place was removed — one lab, one World. Unmount first (AI "
+                "Lab default) on the Worlds page, then import this .zip "
+                "here — or run the imported World as its own instance."
+            ),
+        })
 
     # ── Pull the uploaded .zip out of the multipart body ──
     try:

@@ -636,9 +636,11 @@ window.revealSlot = async function revealSlot(slot, subpath) {
    (default)" (routes to /worlds when a World is mounted, otherwise
    inert), then each discovered World — a live instance opens as a
    link, a non-live World reveals its launch command, the currently
-   mounted World is an inert ✓ row. Import stays here (it only mutates
-   an EMPTY root; see api_worlds_import's own in_place_switch_removed
-   guard for the mounted case). Outside-click / Escape closes. Vanilla,
+   mounted World is an inert ✓ row. Import (path and .zip) stays here —
+   both /api/worlds/import and /api/worlds/import-zip carry their own
+   in_place_switch_removed guard, refusing server-side when this root
+   is already mounted, so the affordance degrades to a 409 + toast
+   rather than a silent sweep. Outside-click / Escape closes. Vanilla,
    airgap-safe. */
 (function () {
   var details = document.getElementById('world-switcher');
