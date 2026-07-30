@@ -276,7 +276,53 @@ jobs:
                   last_error = str(exc)
                   time.sleep(2)
           else:
-              raise SystemExit(f'health checks timed out: {last_error}')
+              # Two straight timeout bumps (120s, then 300s) failed the exact
+              # same way -- "connection refused" for the ENTIRE window, never
+              # a single transient success -- while the backgrounded
+              # ./arailctl start process's own log later showed a complete,
+              # successful boot (all 8 stages, including an internal
+              # token-matched readiness probe on this same port). That
+              # combination means guessing a third timeout number is the
+              # wrong move: something about *this* runner's state at failure
+              # time needs to be captured directly, not inferred after the
+              # fact from a log the launcher writes to a redacted artifact.
+              import subprocess
+
+              # `::add-mask::` (Redact setup logs, earlier in this job) only
+              # scrubs the VIEWABLE workflow log -- it does nothing for a raw
+              # file written to disk and uploaded as an artifact, which is
+              # exactly what this diagnostics dump is. Redact independently,
+              # the same way the existing step does for
+              # setup.stdout/stderr/doctor.log/start.log.
+              secret = None
+              env_file = Path('.env')
+              if env_file.exists():
+                  for line in env_file.read_text().splitlines():
+                      if line.startswith('ARAIL_PASSWORD='):
+                          secret = line.split('=', 1)[1]
+                          break
+
+              diag = Path('ci-artifacts/diagnostics.txt')
+              diag.parent.mkdir(parents=True, exist_ok=True)
+              with diag.open('w') as f:
+                  for label, cmd in (
+                      ('ps aux', ['ps', 'aux']),
+                      ('ss -tlnp (listening sockets)', ['ss', '-tlnp']),
+                      ('start.pid + is it alive', ['bash', '-c', 'p=$(cat ci-artifacts/start.pid 2>/dev/null); echo "pid=$p"; kill -0 "$p" 2>&1 && echo alive || echo dead']),
+                      ('lab/instances tree', ['find', 'lab/instances', '-maxdepth', '4']),
+                      ('portal.log (tail)', ['bash', '-c', 'tail -n 80 lab/instances/*/log/portal.log 2>&1']),
+                      ('memory.log (tail)', ['bash', '-c', 'tail -n 40 lab/instances/*/log/memory.log 2>&1']),
+                  ):
+                      f.write(f'\n===== {label} =====\n')
+                      try:
+                          out = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+                          text = out.stdout + out.stderr
+                      except Exception as diag_exc:  # noqa: BLE001
+                          text = f'(diagnostic command failed: {diag_exc})\n'
+                      if secret:
+                          text = text.replace(secret, '[REDACTED]')
+                      f.write(text)
+              raise SystemExit(f'health checks timed out: {last_error} -- see ci-artifacts/diagnostics.txt')
 
           output_dir = Path('ci-artifacts/http')
           output_dir.mkdir(parents=True, exist_ok=True)
