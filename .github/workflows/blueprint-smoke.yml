@@ -238,25 +238,65 @@ jobs:
               'memory-health': 'http://127.0.0.1:7414/health',
           }
 
-          # 120s, then 300s, both failed identically -- the diagnostics.txt
-          # dump added afterward finally proved why: at the moment of
-          # failure, uvicorn WAS alive and correctly bound to 127.0.0.1:8080
-          # (`ss -tlnp`), it just hadn't finished yet. portal.log's last
-          # lines showed it still creating two LanceDB datasets from
-          # scratch (agent_workflows.lance, pkb_pages.lance) -- Concurrent
-          # Worlds gives each World its own fully separate PKB root
-          # (lab/instances/<slug>/pkb/), so this "ai" instance re-embeds and
-          # re-indexes everything from zero on every fresh boot, duplicate
-          # work the old shared single lab/pkb/ design never had to pay.
-          # That's genuinely slow on a cache-less, GPU-less Ubuntu runner.
-          # This is evidence-based, not a third blind guess: the job's own
-          # 20-minute ceiling has ~15 minutes of headroom left after setup,
-          # so 600s here still leaves comfortable margin for stop/upload.
+          # 120s, then 300s, then 600s all failed with "connection refused"
+          # for the ENTIRE window -- and critically, the two most recent
+          # runs' portal.log tails were byte-for-byte IDENTICAL despite one
+          # waiting twice as long as the other: both stop dead at "No
+          # existing dataset ... it will be created" for the same two
+          # LanceDB tables (agent_workflows.lance, pkb_pages.lance), with
+          # zero further log lines either time. If this were merely slow,
+          # doubling the wait should show SOME additional progress. It
+          # didn't -- which points at a hang, not a cold-start cost, and no
+          # amount of waiting fixes a genuine hang. Widening the deadline
+          # again would just burn another CI cycle re-confirming that.
+          #
+          # Kept 600s as a ceiling (still well inside the job's 20-minute
+          # budget) but stopped trying to fix this by guessing timeouts.
+          # Instead: log a lightweight timeline every 15s -- a raw TCP
+          # connect probe to the portal port, plus portal.log's current
+          # byte length -- to ci-artifacts/timeline.txt. That directly
+          # answers the open question (does portal.log ever grow at all
+          # during the wait, and exactly when -- if ever -- does the port
+          # become connectable) instead of inferring it from a single
+          # end-of-run snapshot.
+          import socket
+
+          def _port_open(port: int) -> bool:
+              try:
+                  with socket.create_connection(('127.0.0.1', port), timeout=1):
+                      return True
+              except OSError:
+                  return False
+
+          def _portal_log_size() -> int:
+              for p in Path('lab/instances').glob('*/log/portal.log'):
+                  try:
+                      return p.stat().st_size
+                  except OSError:
+                      pass
+              return -1
+
+          timeline = Path('ci-artifacts/timeline.txt')
+          timeline.parent.mkdir(parents=True, exist_ok=True)
+          timeline_fh = timeline.open('a')
+          start_time = time.time()
+          last_timeline_at = 0.0
+
           deadline = time.time() + 600
           last_error: str | None = None
           responses: dict[str, str] = {}
 
           while time.time() < deadline:
+              if time.time() - last_timeline_at >= 15:
+                  last_timeline_at = time.time()
+                  elapsed = round(time.time() - start_time, 1)
+                  line = (
+                      f'{elapsed}s  8080_open={_port_open(8080)}  '
+                      f'7414_open={_port_open(7414)}  '
+                      f'portal.log_bytes={_portal_log_size()}\n'
+                  )
+                  timeline_fh.write(line)
+                  timeline_fh.flush()
               try:
                   current: dict[str, str] = {}
                   for name, url in endpoints.items():
