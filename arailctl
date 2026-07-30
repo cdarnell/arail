@@ -337,6 +337,17 @@ case "$cmd" in
                 _arail_daemon_body="$(curl -sf -m 0.7 "${_arail_daemon_url}/api/instance" 2>/dev/null || true)"
                 if declare -F svc_identity_root >/dev/null 2>&1 && svc_identity_root "$_arail_daemon_body" "$REPO_ROOT"; then
                     say "Lab supervised by launchd — portal: ${_arail_daemon_url}"
+                    # ARCHITECTURE.md §11.2: daemon mode's env is fixed by
+                    # the plist — there is no per-invocation child to pass
+                    # ARAIL_TIER0_BOOT_WARM=1 to, unlike the foreground
+                    # paths. Hint instead of silently ignoring --warm.
+                    for _arail_warm_arg in "$@"; do
+                        if [[ "$_arail_warm_arg" == "--warm" ]]; then
+                            echo "warm-up: — daemon mode: set ARAIL_TIER0_BOOT_WARM=1 in .env, then ./arailctl restart"
+                            break
+                        fi
+                    done
+                    unset _arail_warm_arg
                     exit 0
                 fi
             fi
@@ -423,6 +434,16 @@ case "$cmd" in
                 _restart_body="$(curl -sf -m 0.7 "${_restart_url}/api/instance" 2>/dev/null || true)"
                 if declare -F svc_identity_root >/dev/null 2>&1 && svc_identity_root "$_restart_body" "$REPO_ROOT"; then
                     say "Lab agents restarted (launchctl kickstart -k) — portal: ${_restart_url}"
+                    # ARCHITECTURE.md §11.2 — same daemon-mode hint as
+                    # start's daemon branch (also reachable as
+                    # `restart --warm`, per §11.1).
+                    for _restart_warm_arg in "$@"; do
+                        if [[ "$_restart_warm_arg" == "--warm" ]]; then
+                            echo "warm-up: — daemon mode: set ARAIL_TIER0_BOOT_WARM=1 in .env, then ./arailctl restart"
+                            break
+                        fi
+                    done
+                    unset _restart_warm_arg
                     exit 0
                 fi
             fi

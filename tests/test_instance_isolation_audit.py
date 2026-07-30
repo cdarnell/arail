@@ -327,7 +327,11 @@ def test_api_instance_and_api_instances_expose_no_field_beyond_spec():
     in the lab.
     """
     allowed_instance = {"slug", "token", "portal_port", "checkout", "data_root",
-                        "world", "display_name", "started_at"}
+                        "world", "display_name", "started_at",
+                        # sprints/2026-07-29-elite-cli ARCHITECTURE.md §11.1 /
+                        # F16 (WP6, warm-up): additive, booleans/ints/backend-
+                        # class only — explicitly NOT a model id.
+                        "warm", "warm_ms", "warm_skipped", "backend"}
     allowed_roster = {"slug", "display_name", "portal_port", "bind", "checkout",
                       "started_at", "live", "instances"}  # "instances" = envelope
 

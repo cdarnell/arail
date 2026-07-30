@@ -1,16 +1,16 @@
-# Build log: elite-cli — WP1 through WP5
+# Build log: elite-cli — WP1 through WP8
 
 **Architecture:** [ARCHITECTURE.md](./ARCHITECTURE.md) at 42e87f4
 **Started:** 2026-07-29
 **Scope of this log:** WP1 ("Foundations"), WP2 (`scripts/lib/services.sh` +
 root-lab readiness gate), WP3 (`--root` for start/stop), WP4 (`restart`
-redesign), and WP5 (unified `status` + schema v2 + verdict codes), per two
-successive builder tasks. WP6–WP8 (warm-up, `install`/`update`/`upgrade`
-consolidation, final docs polish) are not started; `docs/cli.md` still
-reflects only what's shipped so far (WP1's verb list + the parts of the
-exit-code contract that exist today), per its own stated incremental-build
-policy — this log's later WPs deliberately did NOT touch it (see WP3/WP4/WP5
-notes below for why), leaving that file's next update to WP8 as planned.
+redesign), WP5 (unified `status` + schema v2 + verdict codes), WP6
+(warm-up), WP7 (`install` verb + `update`/`upgrade` consolidation), and WP8
+(docs + CHANGELOG), across three successive builder tasks (WP1-2, WP3-5,
+WP6-8). `docs/cli.md` reflected only WP1's verb list through WP5 per its own
+stated incremental-build policy (WP2-5 deliberately did NOT touch it — see
+their notes below); WP8 is where it, and the rest of the user-facing docs,
+are finalized against the complete, shipped CLI.
 
 ## Plan
 
@@ -36,9 +36,20 @@ notes below for why), leaving that file's next update to WP8 as planned.
 | WP5-1 | `scripts/status.sh` | single collector → one `arail.status/v2` JSON document → two renderers (`--json`/`--json=full` and the human table); HTTP probes (`services.sh`) replace `pgrep` as verdict source; `pgrep` demoted to an owner hint; `--json=instances` preserves the bare v1 array; `--no-probe`/`--quiet`/`--no-sizes` flags; verdict codes 0/3/4; `pwd` → `pwd -P` | `tests/cli/status_driver.sh` (T3, T8, T10-T12, T34), F2, F18, F20 | WP5 commit |
 | WP5-2 | `docs/concurrent-worlds.md` | documents `--json=instances` as the stable, byte-compatible form | manual read-through | WP5 commit |
 | WP5-3 | `tests/cli/status_driver.sh` (new) | the unified status model + schema v2 + verdict-code driver | self | WP5 commit |
+| WP6-1 | `src/arail/portal/app.py` | `_warm_primary_router` gains timing/backend/skip-reason globals + `_boot_warm_explicit()`; `_startup()`'s gate becomes `_autochecks_on or _boot_warm_explicit()`; `GET /api/instance` gains `warm`/`warm_ms`/`warm_skipped`/`backend` (both branches) | `tests/test_warm_up.py`, `tests/test_boot_warm.py`/`test_autochecks_boot.py` (must stay green) | WP6 commit |
+| WP6-2 | `scripts/start.sh` | `--warm` flag; shared `_warm_report()` helper; conditional `ARAIL_TIER0_BOOT_WARM=1` export on both the instance and root portal invocations; report call after each path's own banner | `tests/cli/warmup_driver.sh` (T23) | WP6 commit |
+| WP6-3 | `arailctl` | daemon-branch `--warm` hint (`start` and `restart` daemon arms) | manual + `tests/cli/warmup_driver.sh` wiring pin | WP6 commit |
+| WP6-4 | `tests/test_instance_isolation_audit.py` | protected allow-list test's `allowed_instance` set gains the 4 new fields (F16-mandated, additive) | self (companion edit) | WP6 commit |
+| WP6-5 | `tests/cli/warmup_driver.sh`, `tests/test_cli_warmup.py` (new) | the `--warm` regression driver + pytest wrapper | self | WP6 commit |
+| WP7-1 | `scripts/install.sh` (new) | 5-phase refresh verb (source/deps/components/models/verify), preflight (provisioned + live-lab via WP5's status collector + airgap), `--check`/`--only`/`--skip`/`--models`/`--rebuild-venv`/`--allow-running`/`--force`/`--json`, F5 self-update re-exec, F32 `install daemon` hint | `tests/cli/install_driver.sh` (T24-T28, F5-F7, F21, F22, F28, F32) | WP7 commit |
+| WP7-2 | `scripts/update.sh` | new `--apply --non-interactive` argv mode; airgap-mode/dry-run-mode `return` → documented exit codes (3); manifest-unreadable → 1; canonical `LAB_MODE`-first mode resolution for the new mode only | `tests/cli/install_driver.sh` | WP7 commit |
+| WP7-3 | `arailctl` | dispatch: `install`, `update`→alias (stderr notice), `tier` (canonical; no-arg prints current tier, exit 0), `upgrade`→alias (stderr notice); usage/header rewrite | `tests/cli/install_driver.sh` (T28) | WP7 commit |
+| WP7-4 | `tests/cli/install_driver.sh`, `tests/cli/lib.sh` (additions) (new) | local bare-remote fixture builder + the T24-T28/F-gate driver | self | WP7 commit |
+| WP8-1 | `docs/cli.md` | finalized verb matrix/exit-code table against the complete, shipped CLI | `tests/cli/verbs_driver.sh` (F33) | WP8 commit |
+| WP8-2 | `README.md`, `docs/INSTALL.md`, `CLAUDE.md`, `AGENTS.md` (if needed), `CHANGELOG.md` | user-facing docs + behavior-change entries (§12.3) | manual read-through | WP8 commit |
 
 Ordering matched the architecture's recommended sequence (WP1 → WP2 → WP3 →
-WP4 → WP5).
+WP4 → WP5 → WP6 → WP7 → WP8).
 
 ## Execution
 
@@ -404,7 +415,94 @@ these deltas:
   list). Caught while writing WP5's own wrapper and fixed here rather
   than left silently missing; `restart_driver.sh` itself is unchanged.
 
-Commit: `pending` — "elite-cli WP5: unified status, schema v2, verdict codes"
+Commit: `0b30e7b` — "elite-cli WP5: unified status, schema v2, verdict codes"
+
+### WP6 — Warm-up
+
+Built as planned (§11's three-piece design: Python timing/backend
+recording, the additive `/api/instance` fields, the CLI `--warm` flag on
+both paths), with these deltas:
+
+- **`§11.1`'s example warm-up line names a model id ("ai-engineer via
+  ollama_native"); F16 and T22 both require NO model id anywhere in
+  `/api/instance` or its consumers.** These two parts of the same
+  architecture section are in direct tension for that one illustrative
+  string. Resolved in favor of the enforced, testable contract (F16's
+  "Fields are booleans/ints/backend-class only; no model id" + T22's
+  "and no model id" clause) over the prose example, which I read as
+  illustrative shorthand, not a schema requirement — no field named
+  `model`/`model_id`/anything resolvable to a checkpoint name exists
+  anywhere in the new surface. The shipped success line reads
+  `warm-up: ✓ via <backend> in <N.N>s` (backend class only, e.g.
+  `ollama_native`), never a model name. Judged a resolvable textual
+  inconsistency (one example string vs. two concrete, testable
+  constraints elsewhere in the same ruling) rather than an
+  architect-escalation gap, per the WP1-WP5 precedent for this class of
+  issue (documented, not silently chosen).
+- **`_boot_warm_explicit()`'s interaction with `_startup()`'s
+  `asyncio.create_task` scheduling is tested at the source-inspection
+  level, not by driving a live `TestClient` through the fire-and-forget
+  task.** `tests/test_boot_security_scan.py` (pre-existing, this
+  sprint's own protected baseline) already documents exactly this
+  limitation for a sibling boot task ("We can't easily run the FastAPI
+  startup hook here... we can directly assert the gate's behaviour").
+  Followed the same precedent: `_boot_warm_explicit()` itself is
+  unit-tested directly (every env-var shape), and a regex/AST assertion
+  pins `_startup()`'s scheduling condition reads
+  `_autochecks_on or _boot_warm_explicit()`. The full end-to-end
+  "warm actually runs during a real boot" path is covered instead by the
+  CLI-level `tests/cli/warmup_driver.sh`, which drives a REAL portal
+  process (the serving stub) through `start.sh --warm` — arguably a
+  stronger test of the actually-observable behavior than a TestClient
+  race would have been.
+- **`/api/instance`'s new fields required updating ONE pre-existing
+  PROTECTED test**: `tests/test_instance_isolation_audit.py
+  ::test_api_instance_and_api_instances_expose_no_field_beyond_spec`
+  hardcodes the endpoint's exact allowed key set (a disclosure-surface
+  audit). This is the same class of situation WP5 hit with the
+  `status`-exit-code tests — the WP's own mandate (F16: "Fields are
+  ...booleans/ints/backend-class only") collides with a test written
+  before the mandate existed, not a regression to revert. Updated the
+  allow-list to include exactly the 4 new fields, with an inline comment
+  citing F16, and left every other assertion in that test file
+  untouched. Verified via a full pytest run that no OTHER test's
+  pass/fail status changed.
+- **The instance-path end of `--warm` has no dedicated end-to-end
+  scenario in `tests/cli/warmup_driver.sh`** — building one would require
+  either (a) a second, hand-rolled "serving" stub that echoes back the
+  instance path's runtime-generated UUID token (minted inside
+  `_instance_start`, unknowable to a driver's static fixture ahead of
+  time) into its `/api/instance` body, which no existing harness
+  primitive supports and would duplicate real identity-check logic in a
+  test double, or (b) extending `tests/cli/stub_uvicorn_serving.py` to
+  read `ARAIL_INSTANCE_TOKEN`/`ARAIL_INSTANCE` from its own inherited
+  environment and merge them into the served body. (b) is buildable and
+  was scoped out as a deliberate trim, not an oversight: `_warm_report()`
+  is ONE shared function called with a different URL by each path — its
+  actual polling/reporting behavior (success/timeout/absent-fields) is
+  already fully exercised end-to-end against the root path (T23a-T23d).
+  What's genuinely path-specific (the conditional
+  `ARAIL_TIER0_BOOT_WARM=1` export and the `_warm_report` call site) is
+  pinned with source-text assertions in the same driver rather than
+  silently left untested. Flagging the trim explicitly, with the
+  buildable alternative named, rather than skipping it silently.
+- **Warm-up's CLI line for the "not applicable" (in-process backend) case
+  reads `warm-up: — not applicable for backend <name> (weights load
+  in-process; the portal warms itself on boot)`, matching §11.1 verbatim**
+  — the one part of that section's example text with no F16 tension
+  (backend class name only).
+- **`GET /api/instance`'s `backend` field is `str | None`, not `str`** as
+  §11.1's schema prose literally states — on a genuinely quiet boot
+  (autochecks off, no `--warm`), `_warm_primary_router()` never runs at
+  all, so no backend has ever been observed; the field must be able to
+  say so honestly rather than lie with an empty string or a stale value.
+  Every consumer (the CLI's `_warm_report`, the new pytest assertions)
+  already treats it as nullable. Same class of "the code table is more
+  specific/executable than the prose" resolution WP5 documented for
+  `verdict.state`'s enum — not treated as a gap.
+
+Commit: `pending` — "elite-cli WP6: warm-up (--warm, /api/instance fields,
+_warm_primary_router timing)"
 
 ## Architect feedback required
 

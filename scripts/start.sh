@@ -87,9 +87,14 @@ ASSUME_YES=0
 # `--world root` — a World literally named "root" must stay startable
 # (F11), so the two must never collapse into one code path.
 ROOT_ONLY=0
+# ARCHITECTURE.md §11 (sprints/2026-07-29-elite-cli, Ruling 6 — "warm-up"):
+# an explicit, honest opt-in to the warmer that already exists in-process
+# (app.py:_warm_primary_router) — never a second warm path. Applies to
+# BOTH the instance path and the root path below.
+WARM_UP=0
 
 _start_usage() {
-    echo "Usage: ./arailctl start [--world <slug>] [--root] [--port <n>] [--no-browser] [--list] [--yes]"
+    echo "Usage: ./arailctl start [--world <slug>] [--root] [--port <n>] [--no-browser] [--list] [--yes] [--warm]"
 }
 
 while [[ $# -gt 0 ]]; do
@@ -106,6 +111,7 @@ while [[ $# -gt 0 ]]; do
         --no-browser) ARAIL_NO_BROWSER=1; shift ;;
         --list) LIST_ONLY=1; shift ;;
         --yes) ASSUME_YES=1; shift ;;
+        --warm) WARM_UP=1; shift ;;
         -h|--help) _start_usage; exit 0 ;;
         *)
             echo "Unknown flag: $1" >&2
@@ -455,6 +461,53 @@ print(val if val is not None else "")
 ' "$1" "$2"
 }
 
+# _warm_report <api-instance-url> — ARCHITECTURE.md §11.1 (sprints/2026-07-
+# 29-elite-cli, Ruling 6 — "warm-up"). Polls GET <url> (the portal's OWN
+# /api/instance — no new endpoint) every 0.5s up to ARAIL_WARM_TIMEOUT_SEC
+# (default 90) for "warm": true, then prints exactly ONE honest line. Shared
+# by both the instance path and the root path below (both pass
+# ARAIL_TIER0_BOOT_WARM=1 to their own portal invocation when --warm was
+# given, then call this against their own /api/instance).
+#
+# F14: never gates readiness, never touches the exit code — every path
+# through this function `return 0`s. Called strictly AFTER the caller has
+# already declared the lab up (after the record + URL banner), never before.
+_warm_report() {
+    local url="$1"
+    local timeout_sec="${ARAIL_WARM_TIMEOUT_SEC:-90}"
+    [[ "$timeout_sec" =~ ^[0-9]+$ ]] && (( timeout_sec > 0 )) || timeout_sec=90
+    if ! command -v curl >/dev/null 2>&1; then
+        echo "warm-up: — curl not found, cannot poll warm-up status"
+        return 0
+    fi
+    local cap=$(( timeout_sec * 2 )) waited=0
+    local body warm backend warm_ms warm_skipped secs
+    while (( waited < cap )); do
+        body="$(curl -sf -m 0.7 "$url" 2>/dev/null || true)"
+        if [[ -n "$body" ]]; then
+            warm="$(_json_field "$body" warm)"
+            if [[ "$warm" == "True" ]]; then
+                backend="$(_json_field "$body" backend)"
+                warm_ms="$(_json_field "$body" warm_ms)"
+                warm_skipped="$(_json_field "$body" warm_skipped)"
+                if [[ -n "$warm_skipped" ]]; then
+                    echo "warm-up: — not applicable for backend ${backend:-unknown} (weights load in-process; the portal warms itself on boot)"
+                elif [[ -n "$warm_ms" ]]; then
+                    secs="$(python3 -c 'import sys; print(f"{int(sys.argv[1]) / 1000:.1f}")' "$warm_ms" 2>/dev/null || echo '?')"
+                    echo "warm-up: ✓ via ${backend:-the primary router} in ${secs}s"
+                else
+                    echo "warm-up: ✓ ready (via ${backend:-the primary router})"
+                fi
+                return 0
+            fi
+        fi
+        sleep 0.5
+        waited=$((waited + 1))
+    done
+    echo "warm-up: ⚠ not complete within ${timeout_sec}s — the first chat message will be slower"
+    return 0
+}
+
 # _instance_port_conflicts_with_other_slug <this-slug> <port> — true iff
 # <port> (portal or lance) is already pinned in ANOTHER instance's registry
 # record (live or not — a registered-but-not-live record still owns its
@@ -738,6 +791,15 @@ _instance_start() {
     printf '[6/8] Portal up… '
     local instance_token
     instance_token="$(python3 -c 'import uuid; print(uuid.uuid4())')"
+    # ARCHITECTURE.md §11.1: --warm passes ARAIL_TIER0_BOOT_WARM=1 on THIS
+    # invocation only (exactly how ARAIL_INSTANCE_TOKEN is already passed) —
+    # the env pack (instance.env) is never touched, since a warm flag is
+    # per-invocation, not per-instance state. `export` (not an inline
+    # prefix) so the bash-3.2 "empty array under set -u" class of landmine
+    # (ARCHITECTURE.md A2 / this sprint's WP4 notes) never applies here.
+    if [[ "$WARM_UP" == "1" ]]; then
+        export ARAIL_TIER0_BOOT_WARM=1
+    fi
     ARAIL_INSTANCE_TOKEN="$instance_token" uvicorn arail.portal.app:app \
         --host "$BIND" --port "$portal_port" \
         --log-level warning >> "$(inst_log_dir "$slug")/portal.log" 2>&1 &
@@ -896,6 +958,10 @@ print(json.dumps({
     echo -e "  Data root:  ${BOLD}${instance_root}${RESET}"
     echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
 
+    # ARCHITECTURE.md §11.1: after the record is written and the URL banner
+    # printed — never before — and only when --warm was given.
+    [[ "$WARM_UP" == "1" ]] && _warm_report "http://${BIND}:${portal_port}/api/instance"
+
     if [[ "${ARAIL_NO_BROWSER:-0}" != "1" ]] && [[ -t 1 ]]; then
         (
             for _ in 1 2 3 4 5 6 7 8 9 10; do
@@ -976,6 +1042,13 @@ echo -e "${CYAN}${BOLD}${LAB_LOGO} Starting lab services…${RESET}"
 echo ""
 
 info "Portal     → http://${BIND}:${PORTAL_PORT:-8080}"
+# ARCHITECTURE.md §11.1: same --warm wiring as the instance path above —
+# ARAIL_TIER0_BOOT_WARM=1 for THIS process only, via export (not an inline
+# prefix) for the same bash-3.2 reason documented at the instance path's
+# call site.
+if [[ "$WARM_UP" == "1" ]]; then
+    export ARAIL_TIER0_BOOT_WARM=1
+fi
 # --app-dir "$REPO_ROOT" is functionally a no-op (uvicorn already defaults
 # --app-dir to cwd, and this script already `cd`s to REPO_ROOT above) — it
 # is here so the process's argv carries a checkout-scoped, grep-able
@@ -1283,6 +1356,10 @@ if command -v code-server &>/dev/null && [[ "$_root_ide_ok" == "1" ]]; then
 fi
 echo ""
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
+
+# ARCHITECTURE.md §11.1: after the readiness banner — never before — and
+# only when --warm was given. Same shared helper the instance path uses.
+[[ "$WARM_UP" == "1" ]] && _warm_report "http://${BIND}:${PORTAL_PORT:-8080}/api/instance"
 
 # Auto-open the dashboard unless suppressed or headless.
 if [[ "${ARAIL_NO_BROWSER:-0}" != "1" ]] && [[ -t 1 ]]; then
