@@ -783,11 +783,45 @@ while [[ $# -gt 0 ]]; do
         --root)   STOP_ROOT="true"; shift ;;
         # m9: a plain `shift 2` errors (aborting under `set -e`) when
         # `--world` is the final token and there's no $2 to shift past.
-        --world)  STOP_WORLD="${2:-}"; shift; [[ $# -gt 0 ]] && shift ;;
-        --world=*) STOP_WORLD="${1#--world=}"; shift ;;
+        --world)
+            # TEST_REPORT.md Q3b: a value-less `--world` used to fall
+            # through to "${2:-}" -> "" -> [[ -n "$STOP_WORLD" ]] false
+            # below -> the UNSCOPED auto-resolution branch, silently
+            # widening a targeted stop into "stop the lone live World AND
+            # the root lab" at exit 0. Require a real, non-flag-looking
+            # value the same way start.sh's --world/--port already do.
+            if [[ $# -lt 2 || -z "${2:-}" || "$2" == -* ]]; then
+                error "--world requires a slug argument"
+                exit 2
+            fi
+            STOP_WORLD="$2"; shift 2 ;;
+        --world=*)
+            STOP_WORLD="${1#--world=}"
+            if [[ -z "$STOP_WORLD" ]]; then
+                error "--world requires a slug argument"
+                exit 2
+            fi
+            shift ;;
+        -*)
+            # TEST_REPORT.md Q3a: this arm used to be the catch-all below,
+            # which silently swallowed an unrecognized flag (a typo'd
+            # --wrold, or --rot for --root) instead of rejecting it — the
+            # typo then fell through to the same unscoped auto-resolution
+            # branch as the value-less --world above, taking down a live
+            # World AND the root lab at exit 0. Any unrecognized `-`
+            # token is now a usage error: reject the narrower, wrong
+            # interpretation rather than silently doing the broader,
+            # destructive thing.
+            error "unknown flag: $1"
+            usage >&2
+            exit 2 ;;
         *)
             if [[ -z "$MODE" ]]; then
                 MODE="$1"
+            else
+                error "unexpected argument: $1"
+                usage >&2
+                exit 2
             fi
             shift
             ;;

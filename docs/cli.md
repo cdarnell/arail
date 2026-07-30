@@ -208,7 +208,9 @@ Stop lab services (unloads launchd agents in daemon mode).
 Exit: `0` always (including "nothing was running" — a stop verb's
 contract is the post-condition) · `1` multiple live instances with no
 target (bare `stop`, neither flag given) / instance support unavailable ·
-`2` invalid slug.
+`2` invalid slug, unknown/malformed flag (including a value-less
+`--world`) — a usage mistake is always reported as one and never
+silently widens the stop's scope.
 
 ### `restart`
 
