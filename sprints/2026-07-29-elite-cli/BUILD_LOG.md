@@ -906,6 +906,40 @@ error introduced and caught within the same fix pass, not shipped.
 - Full `pytest` suite (see `## Final state — review-fix pass` below for
   the exact before/after counts).
 
+### Re-review closes (WEAK_PASS → clean PASS, REVIEW.md `b69ad71`)
+
+The re-review verified every B1/B2/B3 fix independently (including
+reverting each one and watching its regression scenario fail) and returned
+**WEAK_PASS** for one remaining reason: required action #9 (file the
+unanticipated debt) was still outstanding, plus one dormant test gate.
+Both closed in one commit:
+
+1. **Required action #9.** Amended `ARCHITECTURE.md` §18 with a new
+   "Unanticipated (found during the review-fix pass)" table (7 rows) and
+   filed 7 corresponding `sprints/BACKLOG.md` entries — the accepted-as-is
+   nits n4/n6/n7, the two items from the original §8 unanticipated-debt
+   list that the review-fix pass didn't already moot (`status.sh`'s `-e`
+   omission, `install`'s preflight mutating the registry via
+   `inst_prune_all`), and the re-review's two named residuals: B2's narrow
+   same-port/mid-boot window (§R6.3 — the claim-file close is filed as a
+   follow-up only, per the coordinator's explicit instruction NOT to
+   implement it here; write-after-ready is a protected invariant and the
+   close deserves its own review cycle) and `test_reset_stop_scope.py`'s
+   pre-existing failure leaving B2 unit-untested (§R6.4).
+2. **m7's dormant cases (§R6.2).** Cases #7/#8 (the F4 extension) were
+   appended AFTER case #6's `python3 render.py` call
+   (`shell_source_safety_driver.sh:59`), which dies on any box whose
+   system `python3` predates 3.11 (no `tomllib`) — including this one
+   (3.9.6). Applied the reviewer's named one-line remedy: moved #7/#8
+   above #6. Verified on this exact box (3.9.6, "a perfect test bed" per
+   the coordinator): a scratch copy with case #6 stripped out reaches and
+   passes #5/#7/#8 cleanly (`OK: ...`); the real, unmodified file now
+   correctly fails at #6 for the same pre-existing, unrelated reason as
+   before — but only AFTER #7/#8 have already run and passed, proving
+   they are no longer dormant. Separately confirmed the full driver
+   (including #6) passes end-to-end with a `python3.11` PATH shim, same
+   as the original review-fix pass's own validation method.
+
 ## Architect feedback required
 
 None. No part of the architecture's WP1–WP8 spec was found to be wrong in

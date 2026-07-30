@@ -45,25 +45,17 @@ _set_env_var IDE_PASSWORD "$H" lab.conf
 got="$(_get_env_var IDE_PASSWORD lab.conf)"
 [ "$got" = "$H" ] || fail "lab.conf password read round-trip mismatch: [$got]"
 
-# ---- #6: blueprint per-instance .env (shell-sourced) -----------------------
-mkdir -p inst
-cat > inst/blueprint.toml <<'TOML'
-id = "x"
-label = "My $(touch PWNED3) Lab"
-description = "has \"quotes\", $HOME, and `date`"
-tier = "min"
-goal_prompt = "Study A; rm -rf / & echo $PATH"
-TOML
-sed -n "/python3 - \"\$idir\" \"\$instance\" \"\$port_base\" <<'PY'/,/^PY\$/p" "$BLUEPRINT" \
-    | sed '1d;$d' > render.py
-python3 render.py "$work/inst" inst 9000 || fail "blueprint render failed"
-( set -a; source inst/.env; set +a; [ "$LAB_INTENT" = 'Study A; rm -rf / & echo $PATH' ] ) \
-    || fail "instance .env LAB_INTENT did not round-trip through source"
-{ [ -e PWNED3 ] || [ -e inst/PWNED3 ]; } && fail "sourcing instance .env executed an embedded command"
-
 # ---- #7: install.sh's guarded sources (.env, scripts/lib/instances.sh)
 #          never abort under `set -euo pipefail` when the target file is
 #          absent (F4, extended per REVIEW.md m7) ---------------------------
+# REVIEW.md re-review §R6.2: moved ABOVE #6 (blueprint render, below) —
+# #6's `python3 render.py` dies on any box whose SYSTEM python3 predates
+# 3.11 (no `tomllib`), which made cases #7/#8 unreachable in the default
+# invocation (both the bare driver and the pytest wrapper never put the
+# venv's python3.11 on PATH). #7/#8 need nothing from #5/#6 and are
+# self-contained, so ordering them first means they always execute and
+# get their own pass/fail signal even when #6's unrelated, pre-existing
+# gap fires.
 mkdir -p case7
 guard_line_inst="$(grep -F '[[ -f "$REPO_ROOT/scripts/lib/instances.sh" ]] && source "$REPO_ROOT/scripts/lib/instances.sh"' "$INSTALL")" \
     || fail "install.sh's instances.sh guard line not found verbatim — extraction target moved, update this driver"
@@ -97,5 +89,21 @@ rc8=$?
 [ "$rc8" -eq 0 ] || fail "a services.sh caller's guarded source aborted under set -euo pipefail with services.sh absent (F4): $out8"
 echo "$out8" | grep -q REACHED_END \
     || fail "the services.sh guard pattern did not reach the end of the script: $out8"
+
+# ---- #6: blueprint per-instance .env (shell-sourced) -----------------------
+mkdir -p inst
+cat > inst/blueprint.toml <<'TOML'
+id = "x"
+label = "My $(touch PWNED3) Lab"
+description = "has \"quotes\", $HOME, and `date`"
+tier = "min"
+goal_prompt = "Study A; rm -rf / & echo $PATH"
+TOML
+sed -n "/python3 - \"\$idir\" \"\$instance\" \"\$port_base\" <<'PY'/,/^PY\$/p" "$BLUEPRINT" \
+    | sed '1d;$d' > render.py
+python3 render.py "$work/inst" inst 9000 || fail "blueprint render failed"
+( set -a; source inst/.env; set +a; [ "$LAB_INTENT" = 'Study A; rm -rf / & echo $PATH' ] ) \
+    || fail "instance .env LAB_INTENT did not round-trip through source"
+{ [ -e PWNED3 ] || [ -e inst/PWNED3 ]; } && fail "sourcing instance .env executed an embedded command"
 
 echo "OK: shell-sourced config files (.env, lab.conf) are injection-safe, and install.sh/services.sh callers' guarded sources never abort on a missing file (F4)"

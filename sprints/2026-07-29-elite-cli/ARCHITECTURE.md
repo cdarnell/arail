@@ -1045,6 +1045,22 @@ growing a second liveness check.
 | `docs/cli.md` is a hand-maintained mirror of the verb matrix | Generating it from the `case` statement is more machinery than it is worth | Mitigated now by the drift test (F33) |
 | Color-gating conditional duplicated in 8 scripts | A shared `lib/tty.sh` would add a `source` dependency to `reset.sh`, which is tested as a standalone copy — the known `source <missing-file>` landmine class (A2) | None; revisit only if a `lib/` source becomes mandatory for other reasons |
 
+### Unanticipated (found during the review-fix pass, required action #9)
+
+REVIEW.md's original pass (§8) and its re-review (§R6.1) both required these be
+filed as the condition of a clean PASS rather than a WEAK_PASS. All seven now
+have a home in `sprints/BACKLOG.md` (one entry each, named below):
+
+| Debt | Why accepted | Follow-up |
+|---|---|---|
+| `status.sh` runs under `set -uo pipefail` — no `-e` — an undocumented posture change from a 782-line rewrite (m4) | Probe helpers return nonzero as DATA (down/unreadable/unknown), not failure; running the whole file under `-e` would turn every expected-degraded state into an undiagnosed abort (F20's exact bug class). Documented as a landmine note in the file header | `sprints/BACKLOG.md` — "`status.sh`'s deliberate `set -e` omission" |
+| `install`'s live-lab preflight shells out to `status.sh --json=full`, whose read path (`inst_list_slugs`/`inst_prune_all`) prunes stale registry records as a side effect — a "read-only" preflight that mutates state | Correct-ish (`inst_prune`'s own contract: only removes provably-dead records) but surprising for a preflight check | `sprints/BACKLOG.md` — "`install`'s preflight silently mutates the registry" |
+| `scripts/lib/services.sh`'s `[[ -f ]]`-guarded source (in `start.sh`/`status.sh`/`arailctl`) degrades WITHOUT crashing when the file is missing (F4 holds — confirmed by this pass's own driver extension), but the degrade is not USEFUL — every root start still fails, just with a worse message (n6) | A real hard-dependency-vs-honest-degrade design decision, not a fix-if-trivial line change | `sprints/BACKLOG.md` — "`services.sh`/`setup.sh`: hard dependency or a real degrade" |
+| `install --json` emits no JSON on its three early exits (unprovisioned, lab live, bad flag) — unlike `status --json`'s F18 doctrine (n4) | A documented scope trim (§5.1 names the schema; no numbered test requires early-exit JSON); the two `--json` verbs now behave differently under failure | `sprints/BACKLOG.md` — "`install --json`'s early-exit paths emit no JSON" |
+| `start --warm`/`restart --warm` `export ARAIL_TIER0_BOOT_WARM=1` leaks into every subsequently spawned child (memory service, ttyd, jupyter, code-server), not just the portal (n7) | Harmless today (only the portal reads it); an inline per-invocation prefix instead of `export` would need touching every spawn call site for one cosmetic tightening | `sprints/BACKLOG.md` — "`ARAIL_TIER0_BOOT_WARM`'s export blast radius" |
+| `stop --root`/`restart --root` can still stop a live World instance during ITS OWN `[6/8]`→`[8/8]` boot window if it shares the root's configured port — the review-fix pass's B2 exclusion set is built from WRITTEN registry records only, and write-after-ready (`start.sh:948`, after the portal spawns at `:807`) is a protected invariant from the Concurrent-Worlds sprint that must not change | Much narrower than the shipped B2 bug (which fired unconditionally); requires a same-port collision AND a concurrent boot. The cheap close (consulting the pre-spawn `.claim` file) is real but is itself a change adjacent to a protected write-ordering invariant — deserves its own review cycle, not a rider on this fix pass | `sprints/BACKLOG.md` — "B2's residual: `stop --root` during a same-port World's boot window" |
+| `tests/test_reset_stop_scope.py`'s 2 pre-existing failures (`_ollama_pid_if_we_started_it: command not found`, an unrelated awk-extraction gap) mean the *unit*-level test of `stop_services`'s scoping does not exercise the review-fix pass's new instance-exclusion clause — only the driver-level B2 scenarios do | Pre-existing, unrelated to this sprint's own changes (confirmed: the new code is correctly outside the extracted range); the driver-level coverage is real (confirmed fail-pre-fix), just not doubled at the unit level | `sprints/BACKLOG.md` — "`test_reset_stop_scope.py`'s pre-existing failure leaves B2 unit-untested" |
+
 ### Repaid
 
 - The `pgrep`-pattern service check (port-agnostic, cross-checkout-fragile) stops
