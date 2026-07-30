@@ -238,14 +238,21 @@ jobs:
               'memory-health': 'http://127.0.0.1:7414/health',
           }
 
-          # Concurrent Worlds' instance-mode startup does real per-instance
-          # provisioning (claim file, registry record, per-World PKB
-          # embedding) that a bare single-process boot never had to do --
-          # `Run non-interactive setup` in this same job now takes ~3.5
-          # minutes on a cold Ubuntu runner for comparable indexing work, so
-          # 120s was tuned for a startup path that no longer exists. Bumped
-          # to match that observed scale rather than re-guessing a number.
-          deadline = time.time() + 300
+          # 120s, then 300s, both failed identically -- the diagnostics.txt
+          # dump added afterward finally proved why: at the moment of
+          # failure, uvicorn WAS alive and correctly bound to 127.0.0.1:8080
+          # (`ss -tlnp`), it just hadn't finished yet. portal.log's last
+          # lines showed it still creating two LanceDB datasets from
+          # scratch (agent_workflows.lance, pkb_pages.lance) -- Concurrent
+          # Worlds gives each World its own fully separate PKB root
+          # (lab/instances/<slug>/pkb/), so this "ai" instance re-embeds and
+          # re-indexes everything from zero on every fresh boot, duplicate
+          # work the old shared single lab/pkb/ design never had to pay.
+          # That's genuinely slow on a cache-less, GPU-less Ubuntu runner.
+          # This is evidence-based, not a third blind guess: the job's own
+          # 20-minute ceiling has ~15 minutes of headroom left after setup,
+          # so 600s here still leaves comfortable margin for stop/upload.
+          deadline = time.time() + 600
           last_error: str | None = None
           responses: dict[str, str] = {}
 
