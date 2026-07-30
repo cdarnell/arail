@@ -5,11 +5,38 @@
 # =============================================================================
 set -euo pipefail
 
-BOLD="\033[1m"
-GREEN="\033[0;32m"
-YELLOW="\033[0;33m"
-RED="\033[0;31m"
-RESET="\033[0m"
+# shellcheck disable=SC2024
+# Every `sudo <cmd> >>"$log"` below deliberately runs the REDIRECT as the
+# invoking (non-root) user — only <cmd> itself is elevated. That is the
+# correct behavior, not a bug: setup.log must stay user-owned so later
+# user-mode appends (this script re-run, `./arailctl doctor`, etc.) can
+# still write it. The "obvious" shellcheck fix (`sudo sh -c '... >>log'`)
+# would create a ROOT-owned log that a later non-sudo run can no longer
+# append to (ARCHITECTURE.md sprints/2026-07-29-elite-cli §13, F23) — do
+# not "fix" this warning by restructuring the redirects.
+
+# ── ANSI color gating (ARCHITECTURE.md §13 "ANSI leaks into non-tty
+# output", F25) — see arailctl's identical block for the full rationale.
+# $'...' (ANSI-C quoting), not "...": several of this file's help
+# banners below (capture_tier/capture_mode) interpolate ${BOLD}/${RESET}
+# inside a plain `cat <<EOF` heredoc, which does no escape processing at
+# all — a double-quoted "\033[1m" would render as the literal 4
+# characters backslash/0/3/3 there, not a color code. This was a latent
+# bug in those heredocs before this sprint; ANSI-C quoting fixes it at
+# the source instead of routing every call site through `printf`.
+if [[ -t 1 && "${ARAIL_COLOR:-auto}" != "never" && -z "${NO_COLOR:-}" ]] || [[ "${ARAIL_COLOR:-auto}" == "always" ]]; then
+    BOLD=$'\033[1m'
+    GREEN=$'\033[0;32m'
+    YELLOW=$'\033[0;33m'
+    RED=$'\033[0;31m'
+    RESET=$'\033[0m'
+else
+    BOLD=""
+    GREEN=""
+    YELLOW=""
+    RED=""
+    RESET=""
+fi
 
 info()  { echo -e "${GREEN}[arail]${RESET} $*"; }
 warn()  { echo -e "${YELLOW}[arail]${RESET} $*"; }
@@ -2243,11 +2270,25 @@ verify() {
 # =============================================================================
 main() {
     # ── Argument parsing (must be first) ──────────────────────────────────
+    # ARCHITECTURE.md §5.1: --yes|-y is sugar for ARAIL_NONINTERACTIVE=1
+    # (confirm()/capture_*() above already default-yes off a set variable
+    # — this flag only sets it, it does not duplicate their logic);
+    # --quiet masks the passphrase in the end-of-setup banner (also via
+    # ARAIL_QUIET=1, or automatically whenever stdout is not a tty — see
+    # main()'s final block). Unknown flags now exit 2 instead of being
+    # silently ignored (previously the trailing `*) ;;` swallowed a typo
+    # like `--wtih-coder` with no feedback at all).
     for arg in "$@"; do
         case "$arg" in
             --with-coder)  WITH_CODER=1 ;;
             --no-coder)    WITH_CODER=0 ;;
-            *) ;;
+            --yes|-y)      ARAIL_NONINTERACTIVE=1 ;;
+            --quiet)       ARAIL_QUIET=1 ;;
+            *)
+                echo -e "${RED}[arail]${RESET} unknown flag: $arg" >&2
+                echo "  usage: ./arailctl setup [--with-coder|--no-coder] [--yes|-y] [--quiet]" >&2
+                exit 2
+                ;;
         esac
     done
 
@@ -2354,7 +2395,17 @@ main() {
         echo "  Your lab passphrase (unlocks the IDE at :${IDE_PORT:-8443}"
         echo "  and encrypts Open Notebook data):"
         echo ""
-        echo -e "        ${BOLD}${ARAIL_PASSWORD}${RESET}"
+        # ARCHITECTURE.md §13 "setup prints the passphrase to stdout" /
+        # F24: mask it when --quiet / ARAIL_QUIET=1 / stdout is not a tty
+        # (the real case — CI redirects setup's stdout to a file and then
+        # runs a separate redaction step; masking at the source makes that
+        # belt-and-braces). The masked line still names both files that
+        # hold the real value, so it's never unrecoverable.
+        if [[ "${ARAIL_QUIET:-0}" == "1" ]] || [[ ! -t 1 ]]; then
+            echo -e "        ${BOLD}********${RESET}  (masked — see .env / lab.conf below)"
+        else
+            echo -e "        ${BOLD}${ARAIL_PASSWORD}${RESET}"
+        fi
         echo ""
         echo "  Also saved in:"
         echo "    .env        →  ARAIL_PASSWORD, OPEN_NOTEBOOK_ENCRYPTION_KEY"

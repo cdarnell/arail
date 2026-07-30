@@ -4,11 +4,25 @@
 # =============================================================================
 set -euo pipefail
 
-BOLD="\033[1m"
-RED="\033[0;31m"
-GREEN="\033[0;32m"
-YELLOW="\033[0;33m"
-RESET="\033[0m"
+# ── ANSI color gating (ARCHITECTURE.md §13 "ANSI leaks into non-tty
+# output", F25) — see arailctl's identical block for the full rationale.
+# Inlined here too (not sourced from a shared lib): this file is
+# unit-tested as a STANDALONE COPY of itself (tests/test_reset_paths.py),
+# so it must never gain a new `source` dependency (A2). $'...' (ANSI-C
+# quoting) so the variables hold real ESC bytes.
+if [[ -t 1 && "${ARAIL_COLOR:-auto}" != "never" && -z "${NO_COLOR:-}" ]] || [[ "${ARAIL_COLOR:-auto}" == "always" ]]; then
+    BOLD=$'\033[1m'
+    RED=$'\033[0;31m'
+    GREEN=$'\033[0;32m'
+    YELLOW=$'\033[0;33m'
+    RESET=$'\033[0m'
+else
+    BOLD=""
+    RED=""
+    GREEN=""
+    YELLOW=""
+    RESET=""
+fi
 
 info()  { echo -e "  ${GREEN}✓${RESET} $*"; }
 warn()  { echo -e "  ${YELLOW}⚠${RESET} $*"; }

@@ -21,8 +21,16 @@ cd "$REPO_ROOT"
 # shellcheck disable=SC1091
 [[ -f .env ]] && set -a && source .env && set +a
 
-BOLD="\033[1m"; GREEN="\033[0;32m"; CYAN="\033[0;36m"
-YELLOW="\033[0;33m"; RED="\033[0;31m"; DIM="\033[2m"; RESET="\033[0m"
+# ── ANSI color gating (ARCHITECTURE.md §13 "ANSI leaks into non-tty
+# output", F25) — see arailctl's identical block for the full rationale.
+# $'...' (ANSI-C quoting) so the variables hold real ESC bytes.
+if [[ -t 1 && "${ARAIL_COLOR:-auto}" != "never" && -z "${NO_COLOR:-}" ]] || [[ "${ARAIL_COLOR:-auto}" == "always" ]]; then
+    BOLD=$'\033[1m'; GREEN=$'\033[0;32m'; CYAN=$'\033[0;36m'
+    YELLOW=$'\033[0;33m'; RED=$'\033[0;31m'; DIM=$'\033[2m'; RESET=$'\033[0m'
+else
+    BOLD=""; GREEN=""; CYAN=""
+    YELLOW=""; RED=""; DIM=""; RESET=""
+fi
 
 LAB_NAME="${LAB_NAME:-Arail}"
 LAB_SHORT_NAME="${LAB_SHORT_NAME:-arail}"

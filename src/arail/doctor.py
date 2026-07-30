@@ -14,8 +14,16 @@ Sections:
   • Updates        — remote update check (``--updates``; hybrid only)
 
 Run: ``python -m arail.doctor`` or ``python -m arail.doctor --updates``.
-Exit code is 0 unless a hard problem is found (import failure, missing venv);
-model-not-installed and airgapped are reported, not treated as failures.
+
+Exit-code contract (ARCHITECTURE.md sprints/2026-07-29-elite-cli §12/§13):
+  0  healthy — every required check passed (optional/info findings are
+     reported but never fail the run by default)
+  3  degraded — a required check failed (egress guard not installed, PKB
+     root unwritable), OR ``--strict`` promoted an info-level finding
+     (e.g. no model installed) to degraded
+This module never returns 1 itself — "broken" (no .venv, `import arail`
+fails) is caught by ``./arailctl doctor``'s bash wrapper before this module
+is even importable.
 """
 
 from __future__ import annotations
@@ -23,7 +31,30 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+from dataclasses import dataclass
 from importlib import metadata as importlib_metadata
+
+
+@dataclass
+class Finding:
+    """One doctor check's outcome.
+
+    level="required": a failure (ok=False) always degrades the exit code.
+    level="info": a failure only degrades under --strict (ARCHITECTURE.md
+    §5.2: "optional binaries/models missing = INFO").
+    """
+
+    name: str
+    level: str  # "required" | "info"
+    ok: bool
+    detail: str = ""
+
+
+_FINDINGS: list[Finding] = []
+
+
+def _record(name: str, level: str, ok: bool, detail: str = "") -> None:
+    _FINDINGS.append(Finding(name, level, ok, detail))
 
 
 def _p(line: str = "") -> None:
@@ -53,8 +84,13 @@ def check_environment() -> None:
         egress.install_guard()
         installed = bool(getattr(egress, "_INSTALLED", False))
         _p(f"  egress guard      : {'installed' if installed else 'NOT installed'}")
+        # Required check (ARCHITECTURE.md §5.2): the guard is expected to be
+        # installable in every supported environment (including CI, A8) —
+        # if it isn't, that's a real problem, not an optional one.
+        _record("egress_guard", "required", installed)
     except Exception as e:  # noqa: BLE001
         _p(f"  egress guard      : ? ({type(e).__name__}: {e})")
+        _record("egress_guard", "required", False, str(e))
     _p(f"  ARAIL_AUTOCHECKS  : {os.getenv('ARAIL_AUTOCHECKS', '0')} "
        "(background checks/warmers; default off = quiet boot)")
 
@@ -71,11 +107,18 @@ def check_models() -> None:
         entries = list(reg.entries.values())
         if not entries:
             _p("  (no models configured)")
+            # Info, not required (ARCHITECTURE.md §5.2: "optional
+            # binaries/models missing = INFO") — the CI runner legitimately
+            # has none pulled (A8); --strict is what promotes this.
+            _record("model_installed", "info", False, "no models configured")
             return
+        any_healthy = False
         for e in entries:
             if not e.enabled:
                 continue
             h = e.health
+            if h.status == "healthy":
+                any_healthy = True
             where = e.endpoint or ("aerollm (in-process)"
                                    if e.provider_type == "aerollm" else "local")
             lat = f", {h.latency_ms:.0f}ms" if h.latency_ms is not None else ""
@@ -83,6 +126,7 @@ def check_models() -> None:
             tier = f"tier{e.tier}" if e.tier is not None else "     "
             _p(f"  [{tier}] {e.display_name} @ {where} "
                f"({h.status}{lat}){detail}")
+        _record("model_installed", "info", any_healthy)
     except Exception as e:  # noqa: BLE001
         _p(f"  model check failed: {type(e).__name__}: {e}")
 
@@ -95,11 +139,20 @@ def check_knowledge_base() -> None:
         _p("  pkb_pages index   : ready")
     except Exception as e:  # noqa: BLE001
         _p(f"  pkb_pages index   : NOT ready ({type(e).__name__}: {e})")
+    # Required check (ARCHITECTURE.md §5.2/§13): "PKB root unwritable" is one
+    # of doctor's named degraded conditions. Probed with os.access rather
+    # than an actual write, so a healthy run never leaves a stray file.
     try:
         from arail.pkb import _pkb_root
-        _p(f"  pkb root          : {_pkb_root()}")
-    except Exception:  # noqa: BLE001
-        pass
+        root = _pkb_root()
+        _p(f"  pkb root          : {root}")
+        writable = os.access(str(root), os.W_OK) if root.exists() \
+            else os.access(str(root.parent), os.W_OK)
+        if not writable:
+            _p("  pkb root writable : NO")
+        _record("pkb_writable", "required", writable, str(root))
+    except Exception as e:  # noqa: BLE001
+        _record("pkb_writable", "required", False, str(e))
 
 
 def check_components() -> None:
@@ -173,8 +226,12 @@ def main(argv: list[str] | None = None) -> int:
         description="Explicit lab checkup (models, KB, components, egress).")
     ap.add_argument("--updates", action="store_true",
                     help="also run the remote update check (hybrid mode only)")
+    ap.add_argument("--strict", action="store_true",
+                    help="promote optional/info findings (missing model, "
+                         "missing optional binary) to degraded")
     args = ap.parse_args(argv)
 
+    _FINDINGS.clear()
     _p("ARAIL doctor — explicit checkup (nothing here runs automatically at boot)")
     check_environment()
     check_models()
@@ -182,9 +239,23 @@ def main(argv: list[str] | None = None) -> int:
     check_components()
     if args.updates:
         check_updates()
+
+    # Exit-code contract (ARCHITECTURE.md §12/§13): a failed "required"
+    # finding always degrades; a failed "info" finding only does under
+    # --strict. ./arailctl doctor's bash wrapper folds this module's exit
+    # code into its own findings tally (uvicorn presence, optional
+    # binaries) to produce the final `doctor` exit code.
+    degraded = any(
+        not f.ok and (f.level == "required" or args.strict)
+        for f in _FINDINGS
+    )
     _p()
-    _p("doctor: done")
-    return 0
+    if degraded:
+        _p("doctor: degraded — see findings above"
+            + (" (--strict)" if args.strict else ""))
+    else:
+        _p("doctor: done")
+    return 3 if degraded else 0
 
 
 if __name__ == "__main__":

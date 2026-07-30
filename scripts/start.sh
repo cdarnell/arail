@@ -20,7 +20,17 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
     exec 2> >(grep -v 'MallocStackLogging: ' >&2)
 fi
 
-GREEN="\033[0;32m"; CYAN="\033[0;36m"; BOLD="\033[1m"; RESET="\033[0m"; YELLOW="\033[0;33m"
+# ── ANSI color gating (ARCHITECTURE.md §13 "ANSI leaks into non-tty
+# output", F25) — see arailctl's identical block for the full rationale
+# (inlined per-script, not a shared lib/tty.sh, per A2). $'...' (ANSI-C
+# quoting), not "...", so the variables hold real ESC bytes rather than
+# the literal 4-char sequence `echo -e`/`printf` would otherwise need to
+# reinterpret (arailctl's block has the full story).
+if [[ -t 1 && "${ARAIL_COLOR:-auto}" != "never" && -z "${NO_COLOR:-}" ]] || [[ "${ARAIL_COLOR:-auto}" == "always" ]]; then
+    GREEN=$'\033[0;32m'; CYAN=$'\033[0;36m'; BOLD=$'\033[1m'; RESET=$'\033[0m'; YELLOW=$'\033[0;33m'
+else
+    GREEN=""; CYAN=""; BOLD=""; RESET=""; YELLOW=""
+fi
 
 # Load .env first (for LAB_NAME and friends) before anything else.
 # shellcheck disable=SC1091

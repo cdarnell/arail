@@ -95,6 +95,41 @@ discover_kb_root() {
     return 1
 }
 
+# kb_usage [<kb_root>] — the ONE `qkz kb help` body, called both before KB_ROOT
+# is known (pre-discovery `kb help`) and after (in-case `kb help`, which used
+# to be a second, hand-maintained heredoc that had already drifted from this
+# one — this one is the complete, current text; ARCHITECTURE.md §13 "duplicate
+# kb help heredocs": "Output text preserved (it is user-facing documentation)").
+kb_usage() {
+    local root="${1:-}"
+    cat <<KBUSAGE
+
+  qkz kb — QuKaiZen Karpathy LLM Wiki${root:+ ($root)}
+
+    qkz kb status                Counts, drift, last compile
+    qkz kb compile               Incremental: only new raw/ files
+    qkz kb compile all           Full recompile from raw/
+    qkz kb compile <file>        One specific raw/ file
+    qkz kb lint                  Heuristic health check via Claude
+    qkz kb validate [path]       Strict PAGESPEC.md compliance (no Claude)
+    qkz kb query "question"      Ask the wiki; writes outputs/<date>_<slug>/
+    qkz kb ingest --url|--file|--youtube|--dir ARG
+    qkz kb search "term" [--tags X] [--type T] [--wiki|--raw]
+    qkz kb index                 Regenerate _INDEX.md from disk
+    qkz kb where                 Print discovered KB_ROOT
+
+  KB discovery order:
+    1. \$QKZ_KB_ROOT environment variable
+    2. Upward search from CWD (looking for AGENTS.md + wiki/_INDEX.md)
+    3. \$HOME/{ProJects,projects,Projects}/knowledge_base
+    4. \$HOME/knowledge_base
+  No hardcoded paths.
+  Schema: \$KB_ROOT/PAGESPEC.md is the single source of truth for page format.
+  Read \$KB_ROOT/AGENTS.md to understand why this beats RAG.
+
+KBUSAGE
+}
+
 # Load .env so LAB_NAME / LAB_TAGLINE reach the help banner.
 # shellcheck disable=SC1091
 [[ -f .env ]] && set -a && source .env && set +a
@@ -109,7 +144,25 @@ case "$LAB_TIER" in
     max)  LAB_TIER="maximus"    ;;
 esac
 
-BOLD="\033[1m"; GREEN="\033[0;32m"; CYAN="\033[0;36m"; YELLOW="\033[0;33m"; RED="\033[0;31m"; RESET="\033[0m"
+# ── ANSI color gating (ARCHITECTURE.md §13 "ANSI leaks into non-tty
+# output", F25): auto = colors iff stdout is a tty and NO_COLOR is unset;
+# ARAIL_COLOR=always|never overrides both tests. Inlined per-script (not a
+# shared lib/tty.sh) — reset.sh is unit-tested as a standalone copy of
+# itself (tests/test_reset_paths.py) and must not gain a new `source`
+# dependency (the source-<missing-file> landmine class, A2).
+# $'...' (ANSI-C quoting), not "..." — a plain double-quoted "\033[1m" is
+# the LITERAL 4 characters backslash/0/3/3, not an escape byte; that only
+# renders as color through `echo -e`/`printf`'s own escape processing.
+# usage()'s heredoc below is plain `cat`, which does no escape processing
+# at all, so the variables themselves must already hold real ESC bytes
+# (found while wiring ${BOLD}/${RESET} into that heredoc for this sprint —
+# setup.sh's capture_tier/capture_mode heredocs have the same latent bug,
+# fixed the same way in the same commit).
+if [[ -t 1 && "${ARAIL_COLOR:-auto}" != "never" && -z "${NO_COLOR:-}" ]] || [[ "${ARAIL_COLOR:-auto}" == "always" ]]; then
+    BOLD=$'\033[1m'; GREEN=$'\033[0;32m'; CYAN=$'\033[0;36m'; YELLOW=$'\033[0;33m'; RED=$'\033[0;31m'; RESET=$'\033[0m'
+else
+    BOLD=""; GREEN=""; CYAN=""; YELLOW=""; RED=""; RESET=""
+fi
 say()  { echo -e "${GREEN}[${LAB_SHORT_NAME}]${RESET} $*"; }
 warn() { echo -e "${YELLOW}[${LAB_SHORT_NAME}]${RESET} $*"; }
 die()  { echo -e "${RED}[${LAB_SHORT_NAME}]${RESET} $*" >&2; exit 1; }
@@ -138,7 +191,7 @@ usage() {
 
     cat <<EOF
 
-  $(printf '\033[1m')${LAB_NAME}$(printf '\033[0m') — ${LAB_TAGLINE}
+  ${BOLD}${LAB_NAME}${RESET} — ${LAB_TAGLINE}
   Install tier: ${LAB_TIER}
 
   Usage: ${invocation}
@@ -402,19 +455,59 @@ LOGSEOF
         esac
         ;;
     doctor)
+        # Exit-code contract (ARCHITECTURE.md §12/§13): 0 healthy · 1 broken
+        # (no .venv, import failure) · 3 degraded (a required check failed,
+        # or --strict promoted an optional/info finding). CI
+        # (.github/workflows/blueprint-smoke.yml:206) runs this under
+        # `set -euo pipefail` on a runner that legitimately lacks ttyd,
+        # code-server, and any pulled model (A8) — those stay INFO-only
+        # (never degrade) unless --strict is passed, so the smoke job keeps
+        # exiting 0.
+        _doctor_strict=0
+        for _doctor_arg in "$@"; do
+            case "$_doctor_arg" in
+                --strict) _doctor_strict=1 ;;
+            esac
+        done
         say "Checking environment…"
         [[ -d .venv ]] || { warn "missing .venv — run ./arailctl setup"; exit 1; }
         # shellcheck disable=SC1091
         source .venv/bin/activate
         python -c "import arail; from arail.portal.app import app; from arail.pkb import _pkb_root; print('python: OK'); print('pkb root:', _pkb_root())" \
             || die "import check failed"
-        for bin in uvicorn; do command -v "$bin" >/dev/null || warn "missing: $bin"; done
-        for bin in jupyter ttyd code-server; do command -v "$bin" >/dev/null || warn "optional missing: $bin"; done
+
+        # Findings tally: a required check failing sets _doctor_degraded;
+        # an optional (INFO) one only does under --strict. Replaces the old
+        # single-item `for bin in uvicorn` loop (ARCHITECTURE.md §13) — its
+        # disappearance and the exit contract are the same edit.
+        _doctor_degraded=0
+        if command -v uvicorn >/dev/null 2>&1; then
+            :
+        else
+            warn "missing: uvicorn"
+            _doctor_degraded=1
+        fi
+        for bin in jupyter ttyd code-server; do
+            if ! command -v "$bin" >/dev/null 2>&1; then
+                warn "optional missing: $bin"
+                [[ "$_doctor_strict" == "1" ]] && _doctor_degraded=1
+            fi
+        done
+
         # Full checkup — models, KB index, components, egress. This is the
         # explicit home for every probe the quiet boot no longer runs on its
         # own (ARAIL_AUTOCHECKS default off). Pass --updates for the remote
-        # update check (hybrid mode only).
-        python -m arail.doctor "$@" || warn "doctor checkup reported problems (see above)"
+        # update check (hybrid mode only); --strict promotes its own
+        # optional findings (e.g. no model installed) to degraded too.
+        if ! python -m arail.doctor "$@"; then
+            warn "doctor checkup reported problems (see above)"
+            _doctor_degraded=1
+        fi
+
+        if [[ "$_doctor_degraded" == "1" ]]; then
+            warn "doctor: degraded"
+            exit 3
+        fi
         say "doctor: OK"
         ;;
     pkb)
@@ -488,32 +581,7 @@ TEMPLATE
         kb_op="${1:-help}"; shift || true
         # `help` works without KB discovery — it's general info.
         if [[ "$kb_op" == "help" || "$kb_op" == "-h" || "$kb_op" == "--help" ]]; then
-            cat <<KBHELP
-
-  qkz kb — QuKaiZen Karpathy LLM Wiki
-
-    qkz kb status                Counts, drift, last compile
-    qkz kb compile               Incremental: only new raw/ files
-    qkz kb compile all           Full recompile from raw/
-    qkz kb compile <file>        One specific raw/ file
-    qkz kb lint                  Heuristic health check via Claude
-    qkz kb validate [path]       Strict PAGESPEC.md compliance (no Claude)
-    qkz kb query "question"      Ask the wiki; writes outputs/<date>_<slug>/
-    qkz kb ingest --url|--file|--youtube|--dir ARG
-    qkz kb search "term" [--tags X] [--type T] [--wiki|--raw]
-    qkz kb index                 Regenerate _INDEX.md from disk
-    qkz kb where                 Print discovered KB_ROOT
-
-  KB discovery order:
-    1. \$QKZ_KB_ROOT environment variable
-    2. Upward search from CWD (looking for AGENTS.md + wiki/_INDEX.md)
-    3. \$HOME/{ProJects,projects,Projects}/knowledge_base
-    4. \$HOME/knowledge_base
-  No hardcoded paths.
-  Schema: \$KB_ROOT/PAGESPEC.md is the single source of truth for page format.
-  Read \$KB_ROOT/AGENTS.md to understand why this beats RAG.
-
-KBHELP
+            kb_usage
             exit 0
         fi
         if ! KB_ROOT="$(discover_kb_root)"; then
@@ -540,26 +608,7 @@ Use [[wikilinks]] for every cross-reference. Be precise; this knowledge compound
                 echo "$KB_ROOT"
                 ;;
             help|-h|--help)
-                cat <<KBEOF
-
-  qkz kb — QuKaiZen Karpathy LLM Wiki ($KB_ROOT)
-
-    qkz kb status                Counts, drift, last compile
-    qkz kb compile               Incremental: only new raw/ files
-    qkz kb compile all           Full recompile from raw/
-    qkz kb compile <file>        One specific raw/ file
-    qkz kb lint                  Health check: broken [[wikilinks]], orphans
-    qkz kb query "question"      Ask the wiki; writes outputs/<date>_<slug>/
-    qkz kb ingest --url|--file|--youtube|--dir ARG
-    qkz kb search "term" [--tags X] [--type T] [--wiki|--raw]
-    qkz kb index                 Regenerate _INDEX.md from disk
-    qkz kb where                 Print discovered KB_ROOT
-
-  Discovery order: \$QKZ_KB_ROOT  →  upward search from CWD  →
-                   standard \$HOME locations.
-  Read \$KB_ROOT/AGENTS.md to understand why this beats RAG.
-
-KBEOF
+                kb_usage "$KB_ROOT"
                 ;;
             status)
                 cd "$KB_ROOT"
