@@ -160,8 +160,19 @@ cli_test_fabricate_live_instance_portal_like() {
     mkdir -p "$fake/lab/instances/registry.d" "$fake/fake-world-portal"
     cat > "$fake/fake-world-portal/uvicorn" <<'EOF'
 #!/usr/bin/env bash
-trap 'exit 0' TERM INT
+# `trap 'exit 0' TERM INT` alone (no child cleanup) ORPHANS the `sleep 300`
+# child on SIGTERM — found the hard way via a pytest wrapper
+# (tests/test_cli_restart.py, no _timeout process-group safety net,
+# unlike every *_driver.sh script's own `_timeout` calls) that hung for a
+# full 180s: subprocess.communicate() cannot see EOF on stdout/stderr
+# until every process holding those inherited fds exits, and an
+# orphaned, un-reaped `sleep 300` holds them for up to 300s. Kill the
+# child explicitly before exiting, same as write_stub_uvicorn_serving's
+# wrapper already does.
+_fabricated_child=""
+trap 'kill "$_fabricated_child" 2>/dev/null; wait "$_fabricated_child" 2>/dev/null; exit 0' TERM INT
 sleep 300 &
+_fabricated_child=$!
 wait
 EOF
     chmod +x "$fake/fake-world-portal/uvicorn"
