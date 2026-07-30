@@ -86,13 +86,25 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --check|--dry-run) CHECK_MODE=1; shift ;;
         --only)
-            [[ $# -ge 2 ]] || { echo "--only requires a phase list" >&2; _install_usage >&2; exit 2; }
+            [[ $# -ge 2 && -n "${2:-}" ]] || { echo "--only requires a non-empty phase list" >&2; _install_usage >&2; exit 2; }
             ONLY_PHASES="$2"; shift 2 ;;
-        --only=*) ONLY_PHASES="${1#--only=}"; shift ;;
+        --only=*)
+            # TEST_REPORT.md Q6: an EMPTY --only= value used to bypass
+            # _install_phase_list_valid entirely (guarded on `-n
+            # "$ONLY_PHASES"`) and _install_phase_enabled then read the
+            # empty list as "no filter" — so `--only=` silently ran all
+            # five phases, including `deps`/`source`, instead of the "run
+            # nothing" or usage-error an empty selector should mean.
+            ONLY_PHASES="${1#--only=}"
+            [[ -n "$ONLY_PHASES" ]] || { echo "--only requires a non-empty phase list" >&2; _install_usage >&2; exit 2; }
+            shift ;;
         --skip)
-            [[ $# -ge 2 ]] || { echo "--skip requires a phase list" >&2; _install_usage >&2; exit 2; }
+            [[ $# -ge 2 && -n "${2:-}" ]] || { echo "--skip requires a non-empty phase list" >&2; _install_usage >&2; exit 2; }
             SKIP_PHASES="$2"; shift 2 ;;
-        --skip=*) SKIP_PHASES="${1#--skip=}"; shift ;;
+        --skip=*)
+            SKIP_PHASES="${1#--skip=}"
+            [[ -n "$SKIP_PHASES" ]] || { echo "--skip requires a non-empty phase list" >&2; _install_usage >&2; exit 2; }
+            shift ;;
         --models) WANT_MODELS=1; shift ;;
         --rebuild-venv) REBUILD_VENV=1; shift ;;
         --allow-running) ALLOW_RUNNING=1; shift ;;

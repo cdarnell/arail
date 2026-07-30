@@ -569,19 +569,37 @@ case "$cmd" in
             fi
         fi
 
+        # TEST_REPORT.md Q1: F13's DOWN notice below claims a state change
+        # ("the root lab was stopped") — that claim is only true when the
+        # stop phase actually stopped something. On a fresh clone (nothing
+        # was ever up), reset.sh's own stop prints "No running services
+        # found." / "no verified processes to stop." and still exits 0; a
+        # subsequent start failure is then a bare start failure, not a
+        # state change, and must not be announced as one. Capture the stop
+        # phase's own narration (still echoed, same content/order as
+        # before) so the DOWN notice can be gated on it having reported an
+        # actual stop.
+        _restart_something_was_stopped=1
         if [[ "$_restart_target_kind" == "world" ]]; then
             _restart_label="World instance '${_restart_target_slug}'"
-            if ! bash "$REPO_ROOT/scripts/reset.sh" stop --world "$_restart_target_slug"; then
+            if ! _restart_stop_output="$(bash "$REPO_ROOT/scripts/reset.sh" stop --world "$_restart_target_slug" 2>&1)"; then
+                echo "$_restart_stop_output"
                 echo "restart: stopping ${_restart_label} failed — start not attempted." >&2
                 exit 1
             fi
+            echo "$_restart_stop_output"
+            [[ "$_restart_stop_output" == *"no verified processes to stop"* ]] && _restart_something_was_stopped=0
         else
             _restart_label="the root lab"
-            if ! bash "$REPO_ROOT/scripts/reset.sh" stop --root; then
+            if ! _restart_stop_output="$(bash "$REPO_ROOT/scripts/reset.sh" stop --root 2>&1)"; then
+                echo "$_restart_stop_output"
                 echo "restart: stopping ${_restart_label} failed — start not attempted." >&2
                 exit 1
             fi
+            echo "$_restart_stop_output"
+            [[ "$_restart_stop_output" == *"No running services found."* ]] && _restart_something_was_stopped=0
         fi
+        unset _restart_stop_output
 
         _restart_start_argv=("$@")
         if [[ "$_restart_target_kind" == "world" && -z "$_restart_world" ]]; then
@@ -623,7 +641,8 @@ case "$cmd" in
         # "the start failed" is technically true but misleading for an
         # operator who just interrupted it on purpose; only a GENUINE
         # start failure gets the DOWN notice.
-        if (( _restart_rc != 0 && _restart_rc != 130 && _restart_rc != 143 )); then
+        if (( _restart_rc != 0 && _restart_rc != 130 && _restart_rc != 143 )) \
+            && [[ "$_restart_something_was_stopped" == "1" ]]; then
             echo "" >&2
             echo "restart: ${_restart_label} was stopped, and the start failed (above) — the lab is now DOWN." >&2
         fi
@@ -837,7 +856,18 @@ LOGSEOF
         # own (ARAIL_AUTOCHECKS default off). Pass --updates for the remote
         # update check (hybrid mode only); --strict promotes its own
         # optional findings (e.g. no model installed) to degraded too.
-        if ! python -m arail.doctor "$@"; then
+        # TEST_REPORT.md Q2: this used to fold EVERY non-zero from
+        # `python -m arail.doctor` into the degraded exit (3) — including
+        # argparse's own 2 for an unrecognized flag, which docs/cli.md and
+        # ARCHITECTURE §5.2 both document as 2. That made "this lab is
+        # degraded" (act on it) indistinguishable from "I typo'd a flag"
+        # (fix the script). Preserve argparse's own 2 verbatim; only fold
+        # every OTHER non-zero into the degraded verdict.
+        _doctor_module_rc=0
+        python -m arail.doctor "$@" || _doctor_module_rc=$?
+        if [[ "$_doctor_module_rc" == "2" ]]; then
+            exit 2
+        elif [[ "$_doctor_module_rc" != "0" ]]; then
             warn "doctor checkup reported problems (see above)"
             _doctor_degraded=1
         fi

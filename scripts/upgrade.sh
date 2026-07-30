@@ -29,6 +29,11 @@ fi
 info()  { echo -e "${GREEN}[arail]${RESET} $*"; }
 warn()  { echo -e "${YELLOW}[arail]${RESET} $*"; }
 die()   { echo -e "${RED}[arail]${RESET} $*" >&2; exit 1; }
+# TEST_REPORT.md Q7: docs/cli.md and ARCHITECTURE §5.1 both document `2`
+# for "unknown tier" (distinct from `1`, "pip/tier failure") — die() always
+# exits 1, so an unknown-tier usage mistake used to be indistinguishable
+# from a real pip failure. die_usage() is die()'s twin for that one case.
+die_usage() { echo -e "${RED}[arail]${RESET} $*" >&2; exit 2; }
 
 RAW="${1:-}"
 case "$RAW" in
@@ -40,7 +45,7 @@ case "$RAW" in
     med)     warn "Tier 'med' retired — rolling forward to 'maximus' (it owned a subset of maximus)."
              TIER="maximus" ;;
     "")      die "usage: ./arailctl upgrade <minimalist|maximus> [--with-coder]" ;;
-    *)       die "unknown tier '$RAW' — valid: minimalist | maximus" ;;
+    *)       die_usage "unknown tier '$RAW' — valid: minimalist | maximus" ;;
 esac
 
 # Sprint 2: --with-coder downloads Qwen2.5-Coder-3B to lab/models/ so the
