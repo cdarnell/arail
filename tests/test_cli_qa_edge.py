@@ -1,15 +1,14 @@
 """QA pass for the 2026-07-29-elite-cli sprint — the wrapper for
-tests/cli/qa_edge_driver.sh plus the strict-xfail pins for every product
-defect this pass found (Q1-Q6 in
-sprints/2026-07-29-elite-cli/TEST_REPORT.md).
+tests/cli/qa_edge_driver.sh plus the regression tests for every product
+defect this pass found (Q1-Q7 in sprints/2026-07-29-elite-cli/TEST_REPORT.md).
 
-Why xfail and not a fix: QA reports, the builder fixes. Each test below
-asserts the CORRECT behaviour (per docs/cli.md's exit-code contract or
-ARCHITECTURE.md's own failure-mode table), so it fails today and turns
-green the moment the defect is fixed. ``strict=True`` makes an
-un-announced fix loud: the test XPASSes, pytest fails the run, and whoever
-fixed it is told to delete the marker instead of leaving a permanently
-misleading "expected failure" behind.
+Q1, Q2, Q3a, Q3b, Q4, Q5, Q6, and Q7 were originally pinned as
+``xfail(strict=True)`` so an un-announced fix would XPASS and fail the
+suite until the marker was deleted. The builder's QA fix pass
+(sprints/2026-07-29-elite-cli/BUILD_LOG.md, "QA fixes") closed all of
+them; the markers are gone and each test now asserts the CORRECT behaviour
+as a normal passing regression test. Q8 (performance, in-budget) and Q9
+(test-gate, already fixed by QA itself) never had a test here.
 
 Same wrapper/skip idioms as tests/test_cli_status.py.
 """
@@ -129,14 +128,9 @@ def test_qa_edge_driver_scenarios():
 # Q1 — `restart` announces a state change that never happened.
 # ---------------------------------------------------------------------------
 
-@pytest.mark.xfail(strict=True, reason=(
-    "Q1 (TEST_REPORT.md): arailctl's F13 notice fires on ANY non-zero start "
-    "code, even when the stop phase stopped nothing at all. On a fresh "
-    "clone — the first thing a new user's `./arailctl restart` hits — the "
-    "CLI reports 'the root lab was stopped ... the lab is now DOWN' about a "
-    "lab that was never up. F13's own wording ('the operator does not "
-    "realize the state changed') presumes a state change occurred."))
 def test_q1_restart_does_not_claim_a_stop_that_never_happened(tmp_path):
+    # Q1 (TEST_REPORT.md) — FIXED: the F13 DOWN notice is now gated on the
+    # stop phase's own narration having reported an actual stop.
     repo = _fresh_clone(tmp_path / "repo")
     home = tmp_path / "home"
     home.mkdir()
@@ -150,14 +144,10 @@ def test_q1_restart_does_not_claim_a_stop_that_never_happened(tmp_path):
 # Q2 — doctor's bad-flag exit code contradicts the documented contract.
 # ---------------------------------------------------------------------------
 
-@pytest.mark.xfail(strict=True, reason=(
-    "Q2 (TEST_REPORT.md): docs/cli.md's exit-code table assigns 2 to 'usage "
-    "error — bad flag ... every verb with flags', and ARCHITECTURE.md §5.2's "
-    "doctor row says '2 bad flag'. arailctl folds EVERY non-zero from "
-    "`python -m arail.doctor` (including argparse's own 2) into 3 "
-    "('degraded'), so a script cannot tell 'this lab is degraded' from 'I "
-    "typo'd a flag'."))
 def test_q2_doctor_rejects_an_unknown_flag_with_exit_2(tmp_path):
+    # Q2 (TEST_REPORT.md) — FIXED: arailctl now preserves argparse's own
+    # exit 2 for an unrecognized `doctor` flag instead of folding it into
+    # the degraded verdict (3).
     venv = _find_test_venv()
     if venv is None:
         pytest.skip("doctor needs a real .venv")
@@ -181,18 +171,12 @@ def test_q2_doctor_rejects_an_unknown_flag_with_exit_2(tmp_path):
 # you find", instead of rejecting it.
 # ---------------------------------------------------------------------------
 
-@pytest.mark.xfail(strict=True, reason=(
-    "Q3a (TEST_REPORT.md): docs/cli.md's canonical exit-code table assigns 2 "
-    "to 'usage error — bad flag, missing flag value ... every verb with "
-    "flags', while `stop`'s own section says '0 always ... 2 invalid slug' — "
-    "the doc contradicts itself, and the code follows neither: reset.sh's "
-    "parser swallows an unknown flag in its catch-all `*)` arm and a "
-    "value-less `--world` as an empty slug, and BOTH fall through to the "
-    "unscoped auto-resolution branch (see Q3b for why that is the part that "
-    "matters) and exit 0. Whichever half of the doc is meant to win, one of "
-    "the two must change."))
 @pytest.mark.parametrize("argv", [("stop", "--zzz-bogus"), ("stop", "--world")])
 def test_q3a_stop_rejects_a_malformed_target_with_exit_2(tmp_path, argv):
+    # Q3a (TEST_REPORT.md) — FIXED: reset.sh's parser now rejects an
+    # unrecognized `-`-prefixed flag and a value-less `--world` as usage
+    # errors (exit 2) instead of silently falling through to the unscoped
+    # auto-resolution branch.
     repo = _provisioned_repo(tmp_path / "repo")
     home = tmp_path / "home"
     home.mkdir()
@@ -202,14 +186,11 @@ def test_q3a_stop_rejects_a_malformed_target_with_exit_2(tmp_path, argv):
     )
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "Q3b (TEST_REPORT.md): the exit code above is cosmetic; the scope "
-    "escalation is not. `stop --world` with its value missing (or a typo'd "
-    "`--wrold ai`) becomes a bare `stop`, whose auto-resolution branch stops "
-    "the lone live World AND then the root services — the operator asked to "
-    "stop ONE World by name and got everything. Same family as REVIEW.md B2, "
-    "reached through the argv parser instead of the pid fallback."))
 def test_q3b_a_valueless_world_flag_does_not_stop_the_lone_live_world(tmp_path):
+    # Q3b (TEST_REPORT.md) — FIXED: a value-less `--world` is now a usage
+    # error (Q3a) that exits before the auto-resolution branch is ever
+    # reached, so the lone live World it used to silently take down now
+    # survives.
     if _find_test_venv() is None:
         pytest.skip("needs the cli harness venv for the live-instance fixture")
     res = _run_harness_snippet(f"""
@@ -238,16 +219,11 @@ def test_q3b_a_valueless_world_flag_does_not_stop_the_lone_live_world(tmp_path):
 _HALF_WRITTEN_LAB_CONF = "PORTAL_PORT=not-a-number\nBIND_ADDR=127.0.0.1\n"
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "Q4 (TEST_REPORT.md): ARCHITECTURE.md F3 names this exact input ('half-"
-    "written lab.conf (interrupted setup) => non-numeric PORTAL_PORT') and "
-    "specifies the recovery: 'New readers validate ^[0-9]+$ before use ... "
-    "Warn once, fall back to the documented default, record in warnings[]; "
-    "never abort.' None of that happens: status.sh's service-row emitter "
-    "calls int() on the raw value, the ValueError traceback goes to stderr, "
-    "and the portal row is silently DROPPED from root.services[] while "
-    "warnings[] stays empty."))
 def test_q4_half_written_lab_conf_degrades_honestly(tmp_path):
+    # Q4 / F3 (TEST_REPORT.md, ARCHITECTURE.md §15) — FIXED: status.sh now
+    # validates every port variable (`^[0-9]+$`) before use, falls back to
+    # the documented default on a bad value, and records the fallback in
+    # warnings[] instead of raising a raw ValueError and dropping the row.
     repo = _provisioned_repo(tmp_path / "repo", lab_conf=_HALF_WRITTEN_LAB_CONF)
     home = tmp_path / "home"
     home.mkdir()
@@ -263,17 +239,11 @@ def test_q4_half_written_lab_conf_degrades_honestly(tmp_path):
 # Q5 — control bytes from a shared World's display_name reach the terminal.
 # ---------------------------------------------------------------------------
 
-@pytest.mark.xfail(strict=True, reason=(
-    "Q5 (TEST_REPORT.md, pre-existing but inside this sprint's rewritten "
-    "surface): a World bundle is made to be SHARED (world-forge / "
-    "world-mount), so manifest.display_name is not the operator's own text. "
-    "status.sh prints it verbatim, so a bundle can emit CSI sequences (clear "
-    "screen, colour), a CR to overwrite the line it is on, or a newline to "
-    "forge an extra status row — even when stdout is a pipe, which the same "
-    "sprint's F25/gap-10 work made ANSI-free for the CLI's OWN colours. The "
-    "--json renderer is already safe (json.dumps escapes control bytes); "
-    "only the human one is not."))
 def test_q5_hostile_display_name_cannot_emit_control_bytes(tmp_path):
+    # Q5 (TEST_REPORT.md) — FIXED: the human renderer now sanitizes
+    # display_name/lab_name at the render boundary — control bytes are
+    # stripped and the field is length-capped so a forged row fragment
+    # cannot fit even without any control bytes at all.
     repo = _provisioned_repo(tmp_path / "repo")
     home = tmp_path / "home"
     home.mkdir()
@@ -301,15 +271,11 @@ def test_q5_hostile_display_name_cannot_emit_control_bytes(tmp_path):
 # Q7 — the tier verb's documented unknown-tier code is not the one it uses.
 # ---------------------------------------------------------------------------
 
-@pytest.mark.xfail(strict=True, reason=(
-    "Q7 (TEST_REPORT.md): docs/cli.md:130-131 states, for `tier`, "
-    "'Exit: 0 success ... 1 pip/tier failure - 2 unknown tier', and "
-    "ARCHITECTURE.md §5.1's tier row says the same. scripts/upgrade.sh "
-    "reaches an unknown tier through its generic `die`, which is exit 1 — "
-    "indistinguishable from 'the pip install failed', which is precisely "
-    "the distinction the documented contract makes."))
 @pytest.mark.parametrize("verb", ["tier", "upgrade"])
 def test_q7_unknown_tier_is_a_usage_error(tmp_path, verb):
+    # Q7 (TEST_REPORT.md) — FIXED: upgrade.sh now uses a dedicated
+    # die_usage() (exit 2) for an unknown tier, distinct from die()'s
+    # exit 1 for a real pip/tier failure.
     repo = _provisioned_repo(tmp_path / "repo")
     home = tmp_path / "home"
     home.mkdir()
@@ -323,13 +289,10 @@ def test_q7_unknown_tier_is_a_usage_error(tmp_path, verb):
 # Q6 — an empty --only/--skip value is accepted as "no filter".
 # ---------------------------------------------------------------------------
 
-@pytest.mark.xfail(strict=True, reason=(
-    "Q6 (TEST_REPORT.md): `--only` with a value is validated against the "
-    "closed phase vocabulary, but `--only=` (empty) skips validation "
-    "entirely and _install_phase_enabled reads an empty list as 'no filter' "
-    "— so an operator who meant to run ONE phase silently runs all five. "
-    "docs/cli.md's table calls a missing flag value a usage error (2)."))
 def test_q6_install_rejects_an_empty_phase_list(tmp_path):
+    # Q6 (TEST_REPORT.md) — FIXED: install.sh now rejects an empty
+    # --only=/--skip= value as a usage error (exit 2) instead of silently
+    # reading it as "no filter" and running every phase.
     if _find_test_venv() is None:
         pytest.skip("install's preflight needs a .venv to consider the lab provisioned")
     res = _run_harness_snippet(f"""
