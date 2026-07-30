@@ -356,13 +356,22 @@ case "$cmd" in
             _arail_daemon_port="${PORTAL_PORT:-8080}"
             _arail_daemon_url="http://${_arail_daemon_bind}:${_arail_daemon_port}"
             _arail_daemon_ready=0
+            _arail_daemon_degrade_reason=""
             if declare -F svc_wait_http_ready >/dev/null 2>&1; then
                 # No pid to early-out on in daemon mode — launchd owns the
                 # process, not this shell — so a genuinely-stuck daemon
                 # waits the full cap, same as the real thing would.
                 if svc_wait_http_ready "${_arail_daemon_url}/api/instance" 300 >/dev/null; then
                     _arail_daemon_ready=1
+                elif [[ $? == "2" ]]; then
+                    # REVIEW.md m2 / A4/F30: "tool absent" (no curl) must
+                    # never be reported as "service down" — this used to
+                    # fall straight into the same `die` as a genuinely
+                    # unreachable portal.
+                    _arail_daemon_degrade_reason="curl not found — cannot verify readiness"
                 fi
+            else
+                _arail_daemon_degrade_reason="scripts/lib/services.sh not found — cannot verify readiness"
             fi
             if [[ "$_arail_daemon_ready" == "1" ]]; then
                 _arail_daemon_body="$(curl -sf -m 0.7 "${_arail_daemon_url}/api/instance" 2>/dev/null || true)"
@@ -381,6 +390,13 @@ case "$cmd" in
                     unset _arail_warm_arg
                     exit 0
                 fi
+            fi
+            if [[ -n "$_arail_daemon_degrade_reason" ]]; then
+                # Pre-readiness-gate behavior: print the URL and exit 0 —
+                # this box just can't tell us whether it actually came up.
+                warn "$_arail_daemon_degrade_reason — assuming launchd kickstart succeeded"
+                say "Lab supervised by launchd — portal: ${_arail_daemon_url}"
+                exit 0
             fi
             die "launchd kickstart issued but the portal did not answer within 30s — tail lab/logs/portal.err.log"
         fi
@@ -457,9 +473,17 @@ case "$cmd" in
             _restart_bind="${BIND_ADDR:-127.0.0.1}"
             _restart_url="http://${_restart_bind}:${PORTAL_PORT:-8080}"
             _restart_ready=0
-            if declare -F svc_wait_http_ready >/dev/null 2>&1 \
-                && svc_wait_http_ready "${_restart_url}/api/instance" 300 >/dev/null; then
-                _restart_ready=1
+            _restart_degrade_reason=""
+            if declare -F svc_wait_http_ready >/dev/null 2>&1; then
+                if svc_wait_http_ready "${_restart_url}/api/instance" 300 >/dev/null; then
+                    _restart_ready=1
+                elif [[ $? == "2" ]]; then
+                    # REVIEW.md m2 / A4/F30: "tool absent" (no curl) must
+                    # never be reported as "service down".
+                    _restart_degrade_reason="curl not found — cannot verify readiness"
+                fi
+            else
+                _restart_degrade_reason="scripts/lib/services.sh not found — cannot verify readiness"
             fi
             if [[ "$_restart_ready" == "1" ]]; then
                 _restart_body="$(curl -sf -m 0.7 "${_restart_url}/api/instance" 2>/dev/null || true)"
@@ -477,6 +501,13 @@ case "$cmd" in
                     unset _restart_warm_arg
                     exit 0
                 fi
+            fi
+            if [[ -n "$_restart_degrade_reason" ]]; then
+                # Pre-readiness-gate behavior: print the URL and exit 0 —
+                # this box just can't tell us whether it actually came up.
+                warn "$_restart_degrade_reason — assuming launchctl kickstart -k succeeded"
+                say "Lab agents restarted (launchctl kickstart -k) — portal: ${_restart_url}"
+                exit 0
             fi
             die "launchd kickstart -k issued but the portal did not answer within 30s — tail lab/logs/portal.err.log"
         fi
@@ -588,7 +619,11 @@ case "$cmd" in
                 _restart_rc=$?
             fi
         fi
-        if (( _restart_rc != 0 )); then
+        # REVIEW.md n2: 130/143 (SIGINT/SIGTERM) are a deliberate Ctrl-C —
+        # "the start failed" is technically true but misleading for an
+        # operator who just interrupted it on purpose; only a GENUINE
+        # start failure gets the DOWN notice.
+        if (( _restart_rc != 0 && _restart_rc != 130 && _restart_rc != 143 )); then
             echo "" >&2
             echo "restart: ${_restart_label} was stopped, and the start failed (above) — the lab is now DOWN." >&2
         fi

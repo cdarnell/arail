@@ -54,33 +54,48 @@ def test_verbs_driver_scenarios():
 
 
 # ---------------------------------------------------------------------------
-# T33: setup.sh's passphrase-masking predicate (F24). Mirrors the exact
-# conditional in scripts/setup.sh's main() end-of-run banner rather than
-# running the real (system-mutating) setup.sh end to end — same
-# established pattern as tests/test_with_coder_flag.py's
-# TestSetupShArgParsing, which mirrors setup.sh's argument-parsing loop
-# for the identical reason.
+# T33: setup.sh's passphrase-masking predicate (F24).
+#
+# REVIEW.md m6: this used to be a hand-RETYPED copy of setup.sh's
+# conditional — deleting the real mask in setup.sh would not have failed
+# this test, since nothing here ever reads setup.sh. Extracted verbatim
+# instead (the SAME `_run_start_guard`/`inst_load_setup_functions`
+# extraction-pins-the-literal-block discipline this repo already uses
+# elsewhere, e.g. tests/test_daemon_predicate.py), never running the real
+# (system-mutating) setup.sh end to end — same reasoning as
+# tests/test_with_coder_flag.py's TestSetupShArgParsing, which mirrors
+# setup.sh's argument-parsing loop for the identical reason.
 # ---------------------------------------------------------------------------
 
-_PASSPHRASE_MASK_SNIPPET = textwrap.dedent("""
-    ARAIL_PASSWORD="super-secret-value"
-    if [[ "${ARAIL_QUIET:-0}" == "1" ]] || [[ ! -t 1 ]]; then
-        echo "MASKED"
-    else
-        echo "$ARAIL_PASSWORD"
-    fi
-""")
+SETUP_SH = REPO_ROOT / "scripts" / "setup.sh"
+
+
+def _extract_passphrase_mask_conditional() -> str:
+    src = SETUP_SH.read_text(encoding="utf-8")
+    marker_start = 'if [[ "${ARAIL_QUIET:-0}" == "1" ]] || [[ ! -t 1 ]]; then'
+    marker_end = "fi"
+    start_idx = src.index(marker_start)
+    end_idx = src.index(marker_end, start_idx) + len(marker_end)
+    return src[start_idx:end_idx]
+
+
+_PASSPHRASE_MASK_CONDITIONAL = _extract_passphrase_mask_conditional()
 
 
 def _run_snippet(env: dict | None = None) -> subprocess.CompletedProcess:
     # subprocess.run's captured stdout is always a pipe, never a tty — this
     # is the real-world case that matters (T33: CI redirects setup's
     # stdout to a file). A real tty is not simulated here.
+    script = textwrap.dedent(f"""
+        BOLD=""; RESET=""
+        ARAIL_PASSWORD="super-secret-value"
+        {_PASSPHRASE_MASK_CONDITIONAL}
+    """)
     base_env = {**os.environ}
     if env:
         base_env.update(env)
     return subprocess.run(
-        ["bash", "-c", _PASSPHRASE_MASK_SNIPPET],
+        ["bash", "-c", script],
         capture_output=True,
         text=True,
         timeout=5,
@@ -94,10 +109,10 @@ class TestPassphraseMasking:
         subprocess.run capture below) -> masked. This is the real-world CI
         case (T33)."""
         result = _run_snippet()
-        assert "MASKED" in result.stdout
+        assert "********" in result.stdout
         assert "super-secret-value" not in result.stdout
 
     def test_masked_when_quiet_env_set(self):
         result = _run_snippet(env={"ARAIL_QUIET": "1"})
-        assert "MASKED" in result.stdout
+        assert "********" in result.stdout
         assert "super-secret-value" not in result.stdout

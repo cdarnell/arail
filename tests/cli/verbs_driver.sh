@@ -34,7 +34,18 @@ while IFS= read -r v; do
     case "$v" in
         min|max) continue ;;  # tier-name case arm, not a verb
     esac
-    grep -qF "$v" "$CLI_TEST_REPO/docs/cli.md" || _missing="${_missing}${v} "
+    # REVIEW.md n5: a plain `grep -qF` matches "install" vacuously inside
+    # "install-daemon"'s own heading — this would pass even if `install`
+    # itself had no documented section at all. Anchor to a real
+    # `### ... \`<verb>\`...` heading line instead: the verb must appear
+    # backtick-quoted, immediately followed by a word boundary (closing
+    # backtick, space, or `[`) — never just as a prefix of a longer verb's
+    # name. Matches every documented heading shape in docs/cli.md today:
+    # `### \`install\``, `### \`tier [<minimalist|maximus>]\``,
+    # `### \`install-daemon\` / \`uninstall-daemon\``, and alias mentions
+    # like `### \`update\` (alias for \`install\`)`.
+    grep -qE "^###.*\`${v}([ \`\[])" "$CLI_TEST_REPO/docs/cli.md" \
+        || _missing="${_missing}${v} "
 done <<< "$_arailctl_verbs"
 if [[ -n "$_missing" ]]; then
     fail "F33: docs/cli.md is missing these arailctl verbs: $_missing"

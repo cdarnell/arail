@@ -99,6 +99,16 @@ project adheres to [Semantic Versioning](https://semver.org/).
 - **ANSI color codes never leak into piped/redirected output** anywhere
   in the CLI now (`NO_COLOR`, `ARAIL_COLOR=always|never|auto` — the
   de-facto standard plus an explicit override).
+- **`./arailctl update --component <x>` on an airgapped lab now exits `3`
+  instead of `0`** — this fix was deliberately applied to BOTH the new
+  `install`-backed path and the old interactive `--component` muscle
+  memory, so a refused, did-nothing airgap check no longer reports
+  success on either path.
+- **`./arailctl update` (bare, no `--component`) now inherits `install`'s
+  live-lab preflight and refuses with exit `1` while the lab is
+  running** — it never checked this before. Stop the lab first
+  (`./arailctl stop`), or pass `--allow-running` if you know what you're
+  doing.
 
 ### Added (2026-07-28 concurrent Worlds — run more than one lab at once)
 

@@ -9,6 +9,27 @@
 # a port is already known to be listening. Exit codes are additive: the
 # historic `0` stays "ok", new `3` (degraded) and `4` (nothing running)
 # join it (§12.1) — `status` never exited non-zero before this WP.
+#
+# REVIEW.md m4 — LANDMINE, read before touching error handling in this
+# file: `set -uo pipefail`, deliberately WITHOUT `-e`. Every other
+# `scripts/*.sh` in this repo runs under `set -euo pipefail`; this one
+# does not, and it is not an oversight from the WP5 rewrite that produced
+# this file's current shape. The probe helpers this file calls
+# (scripts/lib/services.sh's svc_listening/svc_http_status/etc., and this
+# file's own instance-record readers) use a NON-zero return as DATA —
+# "down"/"unreadable"/"unknown" are legitimate outcomes on the way to
+# building the status document, not failures that should abort the
+# collector. Running the whole file under `-e` would turn every one of
+# those expected-degraded states into an immediate, undiagnosed exit,
+# which is exactly the "while read ... aborts a $( ) assignment" class of
+# bug F20 already names. The NEXT maintainer should not assume errexit is
+# still on here just because it is everywhere else in this repo — grep for
+# `set -e` failing silently on a probe helper's nonzero return before
+# reaching for it. (A narrower, `set +e`/`set -e` pair scoped tightly
+# around just the probe block was considered and NOT done in this
+# same-sprint review-fix pass — it would touch every probe call site in a
+# 782-line file with no numbered test currently pinning the scoped
+# boundary, which is a larger, riskier change than this fix's own scope.)
 set -uo pipefail
 
 # `pwd -P` (physical, symlinks resolved) — NOT plain `pwd` (logical). Must
@@ -228,15 +249,11 @@ if [[ -d "$_status_reg_dir" && ! -r "$_status_reg_dir" ]]; then
     STATUS_WARNINGS+=("registry directory is unreadable: ${_status_reg_dir}")
 fi
 
-INSTANCES_JSON="$(_status_build_rows | python3 -c '
-import json, sys
-rows = []
-for line in sys.stdin:
-    line = line.strip()
-    if line:
-        rows.append(json.loads(line))
-print(json.dumps(rows))
-')"
+# REVIEW.md n1: this used to re-inline a second, byte-identical copy of
+# _status_json_lines_to_array's own python reducer instead of calling it —
+# the ONE thing every other JSON-lines-to-array site in this file
+# (AGENTS_JSON, ROOT_SERVICES_JSON, below) already does.
+INSTANCES_JSON="$(_status_build_rows | _status_json_lines_to_array)"
 
 ANY_LIVE_COUNT=0
 ANY_LIVE_SLUG=""
@@ -746,10 +763,16 @@ PYEOF
 RENDER_RC=$?
 
 if [[ "$MODE" == "human" ]]; then
-    # ── Scheduler (unchanged from the pre-WP5 file) ──────────────────
-    if command -v curl >/dev/null && curl -sf "http://${BIND}:${PORTAL_PORT_EFF}/api/jobs/state" >/dev/null 2>&1; then
+    # ── Scheduler ──────────────────────────────────────────────────────
+    # REVIEW.md n3: this probe still used $BIND directly (the pre-WP5
+    # shape) instead of the loopback-normalized $PROBE_HOST (F29) every
+    # other probe in this file already switched to — under
+    # BIND_ADDR=0.0.0.0 it silently never fired, since probing
+    # http://0.0.0.0:<port> is unreliable on macOS. Display still uses
+    # $BIND (the configured address); only the probe target changes.
+    if command -v curl >/dev/null && curl -sf "http://${PROBE_HOST}:${PORTAL_PORT_EFF}/api/jobs/state" >/dev/null 2>&1; then
         echo ""
-        state_json="$(curl -sf "http://${BIND}:${PORTAL_PORT_EFF}/api/jobs/state")"
+        state_json="$(curl -sf "http://${PROBE_HOST}:${PORTAL_PORT_EFF}/api/jobs/state")"
         window=$(echo "$state_json"  | python3 -c "import sys,json;print(json.load(sys.stdin).get('label','?'))" 2>/dev/null || echo "?")
         halted=$(echo "$state_json"  | python3 -c "import sys,json;print(json.load(sys.stdin).get('halted','?'))" 2>/dev/null || echo "?")
         echo -e "  ${BOLD}Scheduler${RESET}"

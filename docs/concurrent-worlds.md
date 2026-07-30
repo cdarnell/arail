@@ -184,11 +184,16 @@ to always exit `0`. It now carries a verdict: `0` something expected is up
 and nothing is wrong, `3` degraded (a service is down, a record is stale,
 or a foreign process answers the root portal port), `4` nothing running at
 all, `1` an internal collector fault (e.g. an unreadable
-`lab/instances/registry.d`), `2` a bad flag. Existing scripts that only
-ever parsed `--json`'s stdout and ignored the exit code are unaffected;
-scripts that assumed exit `0` unconditionally should switch to
-`--json=instances` (whose *output* shape hasn't changed) or start reading
-the new codes.
+`lab/instances/registry.d`), `2` a bad flag. **This exit-code change
+applies to every `status` form, including `--json=instances`** — it is not
+something switching flags can opt out of (REVIEW.md m8: verified live,
+`status --json=instances` on a lab with nothing running prints `[]` and
+exits `4`, same as every other form). Existing scripts that only ever
+parsed `--json`'s stdout and ignored the exit code are unaffected by the
+exit-code change; scripts that assumed exit `0` unconditionally must
+either stop checking `$?` (only stdout is byte-compatible for
+`--json=instances`) or start reading the new codes — `--json=instances`
+does not make the exit code go away, it only pins the *output* shape.
 
 ## `./arailctl reset` does NOT touch instance data — yet
 

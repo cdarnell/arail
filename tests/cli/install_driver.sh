@@ -283,6 +283,44 @@ wait "$fab26_pid" 2>/dev/null || true
 ok_scenario
 
 # ---------------------------------------------------------------------------
+# REVIEW.md m3: --_post-source is NOT a real bypass. It used to be trusted
+# at face value — `./arailctl install --_post-source x --rebuild-venv`
+# disabled the F21/F22 live-lab refusal for anyone who typed the flag by
+# hand. Reuses T26's exact live-instance fixture: (a) the flag alone, no
+# env marker, must still hit the SAME "stop it first" refusal and leave
+# .venv untouched; (b) even hand-setting the internal env marker doesn't
+# help without a sha naming a real commit.
+# ---------------------------------------------------------------------------
+fakeM3="$WORK/repoM3"; bareM3="$WORK/remoteM3.git"
+cli_test_make_git_install_repo "$fakeM3" "$bareM3"
+cli_test_mark_provisioned "$fakeM3" hybrid
+mkdir -p "$fakeM3/stubbin"
+portM3="$(cli_test_random_port)"
+cli_test_assert_port_safe "$portM3"
+cli_test_write_stub_ps_for_slugs "$fakeM3/stubbin" "finance:${portM3}"
+cli_test_fabricate_live_instance "$fakeM3" finance "$portM3"
+fabM3_pid="$CLI_TEST_LAST_FABRICATED_PID"
+realsha_m3="$(git -C "$fakeM3" rev-parse HEAD)"
+
+outM3a="$( cd "$fakeM3" && HOME="$FAKE_HOME" PATH="$fakeM3/stubbin:$SAFE_PATH" \
+    _timeout 15 bash scripts/install.sh --_post-source "$realsha_m3" --rebuild-venv --only verify </dev/null 2>&1 )"
+rcM3a=$?
+[[ "$rcM3a" == "1" ]] || fail "m3a: expected exit 1 (--_post-source alone must not bypass the live-lab refusal), got $rcM3a — output:\n$outM3a"
+echo "$outM3a" | grep -qi "stop it first" || fail "m3a: refusal did not name the stop command — output:\n$outM3a"
+[[ -d "$fakeM3/.venv" ]] || fail "m3a: .venv was deleted despite the refusal (F21 violation via the --_post-source bypass)"
+
+outM3b="$( cd "$fakeM3" && HOME="$FAKE_HOME" PATH="$fakeM3/stubbin:$SAFE_PATH" _ARAIL_INSTALL_POST_SOURCE=1 \
+    _timeout 15 bash scripts/install.sh --_post-source deadbeefdeadbeefdeadbeefdeadbeefdeadbeef --rebuild-venv --only verify </dev/null 2>&1 )"
+rcM3b=$?
+[[ "$rcM3b" == "1" ]] || fail "m3b: expected exit 1 (a bogus sha must not bypass, even with the env marker set), got $rcM3b — output:\n$outM3b"
+echo "$outM3b" | grep -qi "stop it first" || fail "m3b: refusal did not name the stop command — output:\n$outM3b"
+[[ -d "$fakeM3/.venv" ]] || fail "m3b: .venv was deleted despite the refusal (bogus-sha bypass)"
+
+kill "$fabM3_pid" 2>/dev/null || true
+wait "$fabM3_pid" 2>/dev/null || true
+ok_scenario
+
+# ---------------------------------------------------------------------------
 # T27 / F32: --check pending -> 3, nothing mutated; --check up-to-date -> 0;
 # `install daemon` -> 2 + install-daemon hint; unprovisioned -> 1 + setup.
 # ---------------------------------------------------------------------------

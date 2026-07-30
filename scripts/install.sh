@@ -157,8 +157,25 @@ _install_line() {
 
 # ── Preflight (§4.3) ─────────────────────────────────────────────────────
 
-if [[ -z "$POST_SOURCE_SHA" ]]; then
-    # Skipped on the F5 re-exec leg — the ORIGINAL invocation already
+# REVIEW.md m3: --_post-source alone used to be sufficient to skip this
+# whole block (POST_SOURCE_SHA non-empty was the ONLY condition) — nothing
+# validated the flag or marked it internal, so
+# `./arailctl install --_post-source x --rebuild-venv` disabled the
+# provisioned check AND the F21/F22 live-lab refusal for anyone who typed
+# it. POST_SOURCE_ACTIVE additionally requires the env marker ONLY the F5
+# re-exec's own `exec` line sets (inline, never exported, never
+# documented) and that the sha names a real commit in THIS repo — either
+# check failing means treat --_post-source as though it was never passed
+# (run the full preflight), never silently trust an unverifiable claim.
+POST_SOURCE_ACTIVE=0
+if [[ -n "$POST_SOURCE_SHA" && "${_ARAIL_INSTALL_POST_SOURCE:-}" == "1" ]] \
+    && git -C "$REPO_ROOT" cat-file -e "${POST_SOURCE_SHA}^{commit}" 2>/dev/null; then
+    POST_SOURCE_ACTIVE=1
+fi
+unset _ARAIL_INSTALL_POST_SOURCE
+
+if [[ "$POST_SOURCE_ACTIVE" != "1" ]]; then
+    # Skipped on a GENUINE F5 re-exec leg — the ORIGINAL invocation already
     # passed every preflight check before it ever pulled.
     if [[ ! -d "$REPO_ROOT/.venv" || ! -f "$REPO_ROOT/.env" ]]; then
         echo "install: this lab is not provisioned yet — run: ./arailctl setup" >&2
@@ -216,11 +233,12 @@ INSTALL_HARD_FAIL=0
 
 # ── [1/5] source ─────────────────────────────────────────────────────────
 _install_source_phase() {
-    if [[ -n "$POST_SOURCE_SHA" ]]; then
-        # F5: this IS the re-exec leg — the pull already happened in the
-        # process that exec'd us. Report it from the captured old sha
-        # rather than re-pulling (which would be a no-op anyway, but would
-        # also lose the "old...new" range this phase exists to report).
+    if [[ "$POST_SOURCE_ACTIVE" == "1" ]]; then
+        # F5: this IS a verified re-exec leg (POST_SOURCE_ACTIVE, above) —
+        # the pull already happened in the process that exec'd us. Report
+        # it from the captured old sha rather than re-pulling (which would
+        # be a no-op anyway, but would also lose the "old...new" range
+        # this phase exists to report).
         local new_sha n
         new_sha="$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null || echo "?")"
         n="$(git -C "$REPO_ROOT" rev-list --count "${POST_SOURCE_SHA}..${new_sha}" 2>/dev/null || echo "?")"
@@ -303,10 +321,21 @@ _install_source_phase() {
     # safe substitute (it silently turns "zero args" into "one empty-string
     # arg", which this script's own parser would then reject as an unknown
     # argument). Guard the count explicitly instead.
+    # REVIEW.md m3: --_post-source alone used to be trusted at face value,
+    # bypassing BOTH the provisioned check and the F21/F22 live-lab
+    # refusal for anyone who typed it — a documented-`--help`-adjacent
+    # flag, reachable by name even though it's internal. _ARAIL_INSTALL_POST_SOURCE=1
+    # is set ONLY on this exec's own environment (inline on the command,
+    # never exported by anything else, never documented) — the re-exec'd
+    # process requires it AND a sha that names a real commit before it
+    # will skip the preflight; either check failing makes the fresh
+    # process treat --_post-source as though it was never passed.
     if (( ${#ORIGINAL_ARGV[@]} > 0 )); then
-        exec bash "$REPO_ROOT/scripts/install.sh" --_post-source "$old_sha" "${ORIGINAL_ARGV[@]}"
+        _ARAIL_INSTALL_POST_SOURCE=1 \
+            exec bash "$REPO_ROOT/scripts/install.sh" --_post-source "$old_sha" "${ORIGINAL_ARGV[@]}"
     else
-        exec bash "$REPO_ROOT/scripts/install.sh" --_post-source "$old_sha"
+        _ARAIL_INSTALL_POST_SOURCE=1 \
+            exec bash "$REPO_ROOT/scripts/install.sh" --_post-source "$old_sha"
     fi
 }
 
