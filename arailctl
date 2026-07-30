@@ -362,14 +362,186 @@ case "$cmd" in
         exec bash "$REPO_ROOT/scripts/reset.sh" stop "$@"
         ;;
     restart)
+        # ARCHITECTURE.md §9 (sprints/2026-07-29-elite-cli, Ruling 4):
+        # restart forwards every start flag; its stop phase is scoped to
+        # EXACTLY ONE target, never a sibling World (the motivating bug —
+        # `restart --world a` used to run an unscoped `reset.sh stop`,
+        # which stopped every World AND the root lab). Target resolution
+        # is a READ-ONLY argv scan + a registry read — restart never
+        # re-parses flags (that is start.sh's job; a second parser is how
+        # the B2 bug happened) and never mutates $@.
         if daemon_active; then
+            # F9(a): `restart --world x` / `restart --root` while launchd
+            # supervises the lab used to silently kickstart the ROOT
+            # daemon instead of the thing actually asked for. Refuse by
+            # name instead, mirroring start.sh's own daemon-active guard
+            # (§8.3) — this is a read-only scan, not a second parser.
+            _restart_daemon_world="" _restart_daemon_root=0 _restart_prev=""
+            for _restart_arg in "$@"; do
+                case "$_restart_arg" in
+                    --world=*) _restart_daemon_world="${_restart_arg#--world=}" ;;
+                    --root) _restart_daemon_root=1 ;;
+                esac
+                [[ "$_restart_prev" == "--world" ]] && _restart_daemon_world="$_restart_arg"
+                _restart_prev="$_restart_arg"
+            done
+            unset _restart_prev _restart_arg
+            if [[ -n "$_restart_daemon_world" ]]; then
+                echo "Daemon mode is active (launchd supervises the lab on :${PORTAL_PORT:-8080})."
+                echo "Daemon mode is single-instance: it cannot host a second World."
+                echo "  To run Worlds side by side:  ./arailctl uninstall-daemon && ./arailctl restart --world ${_restart_daemon_world}"
+                exit 1
+            fi
+            if [[ "$_restart_daemon_root" == "1" ]]; then
+                echo "Daemon mode is active (launchd already supervises the root lab on this box)."
+                echo "  --root is redundant here — use: ./arailctl restart"
+                exit 1
+            fi
+            unset _restart_daemon_world _restart_daemon_root
             for label in $(daemon_agents); do
                 launchctl kickstart -k "gui/$(id -u)/$label" 2>/dev/null || true
             done
-            echo "Lab agents restarted (launchctl kickstart -k)."
-            exit 0
+            # §8.3: identical readiness gate to start's daemon branch —
+            # kickstart -k used to print success unconditionally; now it
+            # polls /api/instance and confirms identity first.
+            # shellcheck disable=SC1091
+            [[ -f "$REPO_ROOT/.env" ]] && set -a && source "$REPO_ROOT/.env" && set +a
+            if [[ -f "$REPO_ROOT/lab.conf" ]]; then
+                # shellcheck disable=SC1091
+                set -a && source "$REPO_ROOT/lab.conf" && set +a
+            fi
+            # shellcheck disable=SC1091
+            [[ -f "$REPO_ROOT/scripts/lib/services.sh" ]] && source "$REPO_ROOT/scripts/lib/services.sh"
+            _restart_bind="${BIND_ADDR:-127.0.0.1}"
+            _restart_url="http://${_restart_bind}:${PORTAL_PORT:-8080}"
+            _restart_ready=0
+            if declare -F svc_wait_http_ready >/dev/null 2>&1 \
+                && svc_wait_http_ready "${_restart_url}/api/instance" 300 >/dev/null; then
+                _restart_ready=1
+            fi
+            if [[ "$_restart_ready" == "1" ]]; then
+                _restart_body="$(curl -sf -m 0.7 "${_restart_url}/api/instance" 2>/dev/null || true)"
+                if declare -F svc_identity_root >/dev/null 2>&1 && svc_identity_root "$_restart_body" "$REPO_ROOT"; then
+                    say "Lab agents restarted (launchctl kickstart -k) — portal: ${_restart_url}"
+                    exit 0
+                fi
+            fi
+            die "launchd kickstart -k issued but the portal did not answer within 30s — tail lab/logs/portal.err.log"
         fi
-        bash "$REPO_ROOT/scripts/reset.sh" stop && exec bash "$REPO_ROOT/scripts/start.sh" "$@" ;;
+
+        # Foreground. --all is an explicit refusal (§3.2): a foreground
+        # start hosts exactly one target; restarting N>=2 instances needs a
+        # supervisor this sprint deliberately does not build.
+        _restart_world="" _restart_root=0 _restart_all=0 _restart_prev=""
+        for _restart_arg in "$@"; do
+            case "$_restart_arg" in
+                --world=*) _restart_world="${_restart_arg#--world=}" ;;
+                --root) _restart_root=1 ;;
+                --all)  _restart_all=1 ;;
+            esac
+            [[ "$_restart_prev" == "--world" ]] && _restart_world="$_restart_arg"
+            _restart_prev="$_restart_arg"
+        done
+        unset _restart_prev _restart_arg
+
+        if [[ "$_restart_all" == "1" ]]; then
+            echo "restart --all is not supported: a foreground start hosts exactly one target." >&2
+            echo "  (ARCHITECTURE.md §3.2 — multi-instance restart needs a supervisor, not built this sprint)" >&2
+            echo "  Use:  ./arailctl stop --all, then in separate terminals:" >&2
+            echo "        ./arailctl start --world <slug>   and/or   ./arailctl start --root" >&2
+            exit 2
+        fi
+        if [[ -n "$_restart_world" && "$_restart_root" == "1" ]]; then
+            echo "--root and --world are mutually exclusive" >&2
+            exit 2
+        fi
+
+        _restart_target_kind="" _restart_target_slug=""
+        if [[ -n "$_restart_world" ]]; then
+            _restart_target_kind="world"; _restart_target_slug="$_restart_world"
+        elif [[ "$_restart_root" == "1" ]]; then
+            _restart_target_kind="root"
+        else
+            # Bare restart: read the registry BEFORE any stop runs (the
+            # snapshot must be taken first — stop_instance deletes the
+            # record it would otherwise be read from).
+            _restart_live=()
+            while IFS= read -r _restart_s; do
+                [[ -n "$_restart_s" ]] && inst_alive "$_restart_s" && _restart_live+=("$_restart_s")
+            done < <(inst_list_slugs)
+            unset _restart_s
+            if (( ${#_restart_live[@]} == 0 )); then
+                _restart_target_kind="root"  # start does its own resolution/picker
+            elif (( ${#_restart_live[@]} == 1 )); then
+                _restart_target_kind="world"; _restart_target_slug="${_restart_live[0]}"
+            else
+                # F12: silently picking one of >=2 live instances is the
+                # bug this WP retires — name each command instead.
+                echo "Multiple World instances are running — specify which to restart:" >&2
+                for _restart_s in "${_restart_live[@]}"; do
+                    echo "  ./arailctl restart --world ${_restart_s}" >&2
+                done
+                echo "  ./arailctl restart --root" >&2
+                exit 2
+            fi
+        fi
+
+        if [[ "$_restart_target_kind" == "world" ]]; then
+            _restart_label="World instance '${_restart_target_slug}'"
+            if ! bash "$REPO_ROOT/scripts/reset.sh" stop --world "$_restart_target_slug"; then
+                echo "restart: stopping ${_restart_label} failed — start not attempted." >&2
+                exit 1
+            fi
+        else
+            _restart_label="the root lab"
+            if ! bash "$REPO_ROOT/scripts/reset.sh" stop --root; then
+                echo "restart: stopping ${_restart_label} failed — start not attempted." >&2
+                exit 1
+            fi
+        fi
+
+        _restart_start_argv=("$@")
+        if [[ "$_restart_target_kind" == "world" && -z "$_restart_world" ]]; then
+            # The "exactly 1 live instance, neither flag given" branch:
+            # inject --world <slug> FIRST so an explicit later --world in
+            # the original argv would still win (start.sh's parser keeps
+            # the LAST occurrence of a repeated flag).
+            _restart_start_argv=("--world" "$_restart_target_slug" "$@")
+        fi
+
+        # Not a literal `exec`: F13 requires a LOUD notice when the start
+        # that follows a successful stop then fails, which needs the exit
+        # code observed here, not discarded by a process-image replacement.
+        # The final code returned to the caller is still start's own code
+        # either way (§14.1) — just obtained via capture-then-propagate
+        # instead of exec.
+        #
+        # bash 3.2 (A2): `"${arr[@]}"` on a ZERO-element array aborts under
+        # `set -u` with "unbound variable" (fixed only in bash 4.4+) — a
+        # real trap here, since `_restart_start_argv` is legitimately empty
+        # for a bare `./arailctl restart` with 0 live instances (T20b).
+        # `${arr[@]:-}` is not a safe substitute: it silently turns "zero
+        # args" into "one empty-string arg", which start.sh's parser would
+        # then reject as an unknown flag. Guard the count explicitly instead.
+        if (( ${#_restart_start_argv[@]} > 0 )); then
+            if bash "$REPO_ROOT/scripts/start.sh" "${_restart_start_argv[@]}"; then
+                _restart_rc=0
+            else
+                _restart_rc=$?
+            fi
+        else
+            if bash "$REPO_ROOT/scripts/start.sh"; then
+                _restart_rc=0
+            else
+                _restart_rc=$?
+            fi
+        fi
+        if (( _restart_rc != 0 )); then
+            echo "" >&2
+            echo "restart: ${_restart_label} was stopped, and the start failed (above) — the lab is now DOWN." >&2
+        fi
+        exit "$_restart_rc"
+        ;;
     upgrade) exec bash "$REPO_ROOT/scripts/upgrade.sh" "$@" ;;
     deep)
         # AeroLLM 2nd-inference: rebuild (source) | update (published wheel) | status.

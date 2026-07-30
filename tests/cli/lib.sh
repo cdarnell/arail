@@ -103,9 +103,17 @@ make_bundle(Path('$fake/lab/worlds'), slug='$slug', display_name='$name')
 # process (standing in for portal_pid/memory_pid/launcher_pid alike, the
 # same trick tests/instance_start_driver.sh's ceiling scenario already
 # uses) so inst_alive() reports it live WITHOUT running the full 8-stage
-# boot. Prints the sleep pid on stdout — the caller kills it during
-# cleanup if reset.sh's own stop path didn't already reap it. Requires a
-# stub `ps` on PATH that returns a cmdline containing
+# boot. Sets CLI_TEST_LAST_FABRICATED_PID — the caller reads it right
+# after the call and kills it during cleanup if reset.sh's own stop path
+# didn't already reap it. Deliberately NOT `pid=$(cli_test_fabricate...)`:
+# a background job started inside a command-substitution subshell does
+# not survive that subshell's own exit here (confirmed empirically while
+# building this driver — the sleep died within ~0.3s, silently, exactly
+# the failure mode a "gap-3 regression" scenario cannot afford to have as
+# a FALSE negative). Same class of lesson root_start_driver.sh's
+# _new_scenario() already documents for plain variable globals — this is
+# the process-lifetime version of it.
+# Requires a stub `ps` on PATH that returns a cmdline containing
 # "uvicorn.*arail.portal.app", "--port <port>", "scripts/start.sh", and
 # "--world <slug>" for whatever pid is queried (see
 # cli_test_write_stub_ps_for_slugs, below) — this function does not write
@@ -115,7 +123,8 @@ cli_test_fabricate_live_instance() {
     local fake="$1" slug="$2" port="$3"
     mkdir -p "$fake/lab/instances/registry.d"
     sleep 30 &
-    local pid=$!
+    CLI_TEST_LAST_FABRICATED_PID=$!
+    local pid="$CLI_TEST_LAST_FABRICATED_PID"
     cat > "$fake/lab/instances/registry.d/${slug}.json" <<EOF
 {"schema":"arail.instance-registry/v1","slug":"${slug}","display_name":"${slug}",
  "checkout":"$fake","instance_root":"$fake/lab/instances/${slug}",
@@ -124,7 +133,6 @@ cli_test_fabricate_live_instance() {
  "launcher_pid":${pid},"portal_pid":${pid},"memory_pid":${pid},"token":"t",
  "started_at":"2026-01-01T00:00:00Z","arailctl_version":"test"}
 EOF
-    printf '%s' "$pid"
 }
 
 # cli_test_write_stub_ps_for_slugs <bindir> <slug1>:<port1> [<slug2>:<port2> ...]

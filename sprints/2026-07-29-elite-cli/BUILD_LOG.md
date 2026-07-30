@@ -215,44 +215,130 @@ Built as planned, with these deltas:
   `_fixture`-style JSON body for the root-lab identity check — no second
   World-bundle builder, no second serving stub.
 
-Commit: `pending` — "elite-cli WP3: --root for start/stop"
+Commit: `98269f5` — "elite-cli WP3: --root for start/stop"
+
+### WP4 — `restart` redesign
+
+Built as planned (§9's target-resolution table, F9/F12/F13), with these
+deltas:
+
+- **F13's exact mechanics required NOT using a literal `exec` for the start
+  phase**, in tension with one clause of §14.1 ("the start is exec'd, so
+  the final code is still the child's") and one reading of F13's own
+  parenthetical ("the pre-`exec` notice is printed unconditionally...
+  before `exec`, so it survives the exec"). The DOWN notice's own wording
+  — `"...and the start failed (above)..."` — only makes grammatical sense
+  if printed AFTER observing a failure (the numbered test, T21, is
+  unambiguous: "whose start fails after a successful stop ⇒ the 'lab is
+  now DOWN' line appears" — a conditional, not an unconditional, print).
+  A literal `exec` cannot support that: once the process image is
+  replaced, this script cannot run another `echo` afterward no matter
+  what start.sh's own exit code turns out to be. Resolved by capturing
+  start's exit code (`if bash scripts/start.sh ...; then rc=0; else
+  rc=$?; fi`) instead of `exec`ing it, printing the notice only when
+  `rc != 0`, then `exit "$rc"` — which still satisfies "the final code is
+  still the child's" (§14.1's essential contract: numerically identical
+  to what `start.sh` itself would have exited with) via propagation
+  rather than a literal process-image replacement. Judged a resolvable
+  internal ambiguity (one prose clause vs. one concrete, executable test)
+  rather than an architect-escalation gap: no external interface,
+  exit-code table entry, or behavioral contract had to change to resolve
+  it, and the concrete numbered test settles it unambiguously. Documented
+  here per the "implementation-level judgment call" precedent WP1/WP2/WP3
+  already set, not silently.
+- **Found and fixed a bash-3.2 "empty array + `set -u`" trap while wiring
+  the capture-not-exec change above.** `"${_restart_start_argv[@]}"`
+  aborts with `unbound variable` when the array has ZERO elements — a
+  real case here, since a bare `./arailctl restart` with 0 live World
+  instances legitimately has nothing to inject (T20b). This is a
+  documented bash bug fixed only in 4.4+ (macOS's shipped `/bin/bash` is
+  3.2 — A2). `"${arr[@]:-}"` is NOT a safe substitute: verified
+  empirically that it silently turns "zero args" into "one empty-string
+  arg", which start.sh's parser would then reject as an unknown flag
+  (`exit 2`) — a subtly wrong behavior masquerading as a fix. Guarded
+  with an explicit `(( ${#arr[@]} > 0 ))` branch instead (two call
+  shapes, no default-value expansion). Caught by T20b failing, not by
+  static review — flagging the general class (any new `"${arr[@]}"` on a
+  possibly-empty array under this repo's `set -euo pipefail` convention)
+  as worth a grep sweep some day, not urgent enough to do unprompted here.
+- **Found and fixed the same "subshell swallows the background job"
+  class of bug the harness already knows about, in a NEW shape.**
+  `tests/cli/lib.sh`'s new `cli_test_fabricate_live_instance` originally
+  returned its fabricated `sleep` pid via `printf` for the caller to
+  capture as `pid=$(cli_test_fabricate_live_instance ...)` — but a
+  background job started INSIDE a command-substitution subshell does not
+  survive that subshell's own exit in this environment (confirmed
+  empirically: the `sleep` was dead within ~0.3s, silently). This is the
+  process-lifetime analogue of the lesson `root_start_driver.sh`'s
+  `_new_scenario()` already documents for plain variable globals ("NOT
+  called inside `$( )`"), discovered here because T19 (the gap-3
+  regression net — the one test this whole WP exists to protect) would
+  otherwise have reported a FALSE NEGATIVE: "b survived" only because b
+  was already dead for an unrelated reason, not because `restart --world
+  a` actually left it alone. Fixed by having the function set a global
+  (`CLI_TEST_LAST_FABRICATED_PID`) instead of printing to stdout, so
+  every call site invokes it directly (never inside `$( )`).
+- **T19 and T21(b) share one fixture** (two fabricated live instances,
+  neither with a real World bundle so the subsequent start fails fast and
+  deterministically at stage `[2/8]`) rather than two separate ones — the
+  same failed start that proves T19's "b survives" is also the trigger
+  T21(b) needs for the DOWN notice, and standing up the fixture twice
+  bought no additional coverage.
+- **T21(a) (stop phase fails) swaps in tiny stand-in `reset.sh`/`start.sh`
+  scripts for that ONE scenario only** — a deliberate, narrow exception
+  to "always drive the real scripts." The real `stop_instance`/
+  `stop_services` are best-effort by design (matching `stop`'s own "0 =
+  it is down now" contract, §12.1) and do not have an obvious real
+  failure path to construct in a black-box driver; this scenario targets
+  `arailctl`'s OWN stop-then-start control flow (does it abort before
+  starting when the stop's exit code is nonzero?), not `reset.sh`'s
+  internal stop logic (covered elsewhere — `tests/test_reset_stop_scope.py`,
+  `tests/instance_start_driver.sh`).
+- **No dedicated scenario for the daemon-mode HAPPY path** (kickstart -k
+  + readiness gate reaching success for `restart`). It is a near-line-for-
+  line copy of already-tested logic (`root_start_driver.sh`'s T17a, same
+  poll-then-identity-check shape) applied to a new call site; F9's two
+  refusal scenarios exercise the actually-new, actually-risky code (the
+  argv scan + refusal branches) directly. Judged a reasonable scope trim,
+  not a gap — flagging the choice rather than silently skipping it.
+
+Commit: `pending` — "elite-cli WP4: restart redesign"
 
 ## Architect feedback required
 
-None. No part of the architecture's WP1–WP3 spec was found to be wrong,
-ambiguous in a way that blocked implementation, or in conflict with
-another interface contract. The deviations above are implementation-level
-judgment calls (color-quoting fix, test strategy for a system-mutating
-script, minor helper-return-code extension, timing looseness, the
-`arailctl` bypass-list companion edit, the `test_daemon_predicate.py`
-extraction-harness update) — all documented, none requiring a design
-change.
+None. No part of the architecture's WP1–WP4 spec was found to be wrong in
+a way that blocked implementation or conflicted with another interface
+contract. WP4's F13/§14.1 tension (above) was resolved as an
+implementation-level judgment call — a concrete, numbered test (T21)
+unambiguously settled an internal wording ambiguity, no interface or
+exit-code contract changed. All other deviations above (color-quoting
+fix, test strategy for a system-mutating script, minor helper-return-code
+extension, timing looseness, the `arailctl` bypass-list companion edit,
+the `test_daemon_predicate.py` extraction-harness update, the bash-3.2
+empty-array guard, the subshell-swallows-background-job harness fix) are
+documented, none requiring a design change.
 
-## Final state (through WP3)
+## Final state (through WP4)
 
-- **Commits:** 3 (`fa93992` WP1, `7daeb43` WP2, WP3 pending — see git log).
-- **Files changed (WP3):** `arailctl`, `scripts/start.sh`, `scripts/reset.sh`,
-  `tests/test_daemon_predicate.py` modified; `tests/cli/lib.sh` extended
-  (`cli_test_make_world`, `cli_test_fabricate_live_instance`,
-  `cli_test_write_stub_ps_for_slugs` — the last two built for WP4's reuse,
-  added now since they belong in the shared library); `tests/cli/restart_driver.sh`
-  new.
-- **New test scenarios (WP3):** `tests/cli/restart_driver.sh` — 4 scenarios
-  (T18a/b/c, F11), all green.
+- **Commits:** 4 (`fa93992` WP1, `7daeb43` WP2, `98269f5` WP3, WP4 pending —
+  see git log).
+- **Files changed (WP4):** `arailctl` modified (the `restart` case
+  rewritten); `tests/cli/restart_driver.sh` extended with T19-T21/F9/F12/F13;
+  `tests/cli/lib.sh`'s `cli_test_fabricate_live_instance` fixed (global-pid
+  handoff, not a stdout `$( )` capture — see WP4 notes).
+- **New test scenarios (WP3+WP4 combined, one driver file):**
+  `tests/cli/restart_driver.sh` — 12 scenarios (T18a/b/c, F11, T19/T21b
+  combined, T20a, T20b, T20c/F12, T20d, T21a, F9a, F9b), all green.
 - **Protected baseline:** `tests/instance_start_driver.sh` (11/11),
   `tests/instance_qa_driver.sh` (10/10), `tests/cli/root_start_driver.sh`
   (6/6), `tests/cli/color_driver.sh` (5/5), `tests/cli/verbs_driver.sh`
-  (6/6) — all still green.
-- **Full pytest suite diffed against a `git stash` baseline** (the
-  pre-WP3 tree): identical 88 pre-existing failures/errors before and
-  after (an environment gap — several optional packages, e.g. `mlx`, are
-  not installed in this `.venv`, plus one apparently order-dependent
-  flake in the 3800+-test full run that reproduces green in isolation
-  both before and after this change) — **zero net regressions**. The one
-  test that DID fail immediately after the `--root` edit
-  (`test_daemon_predicate.py::test_start_refuses_when_daemon_active`) was
-  fixed in the same commit (see WP3 notes above) and is included in the
-  "after" run's green set.
+  (6/6) — all still green after WP4.
+- **Full pytest suite diffed against a `git stash` baseline** at each of
+  WP3 and WP4: identical 88 pre-existing failures/errors before and after
+  both (an environment gap — several optional packages, e.g. `mlx`, are
+  not installed in this `.venv`, plus one apparently order-dependent flake
+  in the 3800+-test full run that reproduces green in isolation both
+  before and after) — **zero net regressions** at either checkpoint.
 - **Pre-existing, unrelated failure found (not caused by this build):**
   `tests/test_reset_stop_scope.py::test_foreign_uvicorn_survives` and
   `::test_port_scoped_helpers` fail on `main` before this sprint's changes
@@ -260,9 +346,9 @@ change.
   test's `awk`-extracted `stop_services()` body calls
   `_ollama_pid_if_we_started_it`, a helper defined outside the extracted
   range, so the sandboxed driver aborts with "command not found". Not
-  touched (out of scope; `reset.sh`'s changes for WP1/WP3 are color
-  gating and the `--root` arm respectively, neither of which touch
-  `stop_services()`'s body). Flagging for the reviewer/QA pass.
+  touched (out of scope for WP1-WP4; none of this sprint's `reset.sh`
+  changes touch `stop_services()`'s body). Flagging for the reviewer/QA
+  pass.
 - **Doctor/status smoke:** `./arailctl doctor` exits 0 on this checkout
   (healthy); `ARAIL_NO_BROWSER=1 ./arailctl status` (human + `--json`)
   exits 0, unchanged (status.sh is WP5's target, not touched yet).
