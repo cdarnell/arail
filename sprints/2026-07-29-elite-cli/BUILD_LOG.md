@@ -302,43 +302,163 @@ deltas:
   argv scan + refusal branches) directly. Judged a reasonable scope trim,
   not a gap — flagging the choice rather than silently skipping it.
 
-Commit: `pending` — "elite-cli WP4: restart redesign"
+Commit: `1743a3f` — "elite-cli WP4: restart redesign"
+
+### WP5 — Unified `status` + schema v2 + verdict codes
+
+Built as planned (§7's collector/document/renderer split, §7.1's root-state
+priority table, §7.2's probe rules, §7.3's schema, §12's exit codes), with
+these deltas:
+
+- **Found and fixed a real bug while smoke-testing the first cut**:
+  `svc_listening` (`scripts/lib/services.sh`) requires `_port_in_use`
+  already loaded into the CALLING shell via `inst_load_port_helpers` —
+  `services.sh`'s own header says so explicitly, and `start.sh` already
+  does this before its readiness phase. The first draft of `status.sh`
+  never called it, so every `svc_listening` call silently reported
+  "undetectable" (bash's own `declare -F _port_in_use` failing), making
+  every service render `state: "unknown"` regardless of whether it was
+  actually up or down. Caught by manual smoke-testing against the real
+  checkout (a genuinely running `.venv` with real `lsof` should never
+  report "no lsof/ss" — output that was allowed to `warnings[]` in F30's
+  intended shape but not in THIS shape), not by the driver — flagging the
+  general lesson (verify a probe's OWN "why did this say unknown" path
+  once, don't just trust the happy-path assertions) for whoever extends
+  this file next.
+- **The exit-code contract change broke 3 pre-existing, PROTECTED tests**
+  (`tests/test_instance_stop_scope.py::test_status_command_under_two_seconds_with_three_instances`,
+  `::test_status_renders_unreadable_row_for_corrupt_registry_record`,
+  `::test_status_json_is_valid_and_includes_registered_slugs`) — each
+  hardcoded `returncode == 0`, which is exactly the behavior
+  ARCHITECTURE.md §12.3 names as an intentional, documented breaking
+  change ("`status` now exits `3`/`4` instead of always `0`"). This is
+  not a regression to revert: it is the WP's own mandate colliding with a
+  test written before the mandate existed. Updated each assertion to the
+  correct NEW exit code for its exact scenario (3 in all three cases —
+  stale/unreadable records degrade the verdict) with an inline comment
+  explaining why, leaving every other assertion in those tests (rendering,
+  timing, quarantine-file behavior) untouched. Verified via a full
+  `git stash`-diffed pytest run before and after this specific edit that
+  no OTHER test's failure set changed.
+- **`docs/cli.md` deliberately NOT touched**, even though `status`'s verb
+  row and the exit-code table both describe now-superseded behavior. The
+  work-package table (§17) assigns `docs/cli.md`'s next update to WP8
+  ("final" polish, after every verb is done); WP3/WP4 already established
+  this precedent (their touch lists don't include it either) and
+  `docs/cli.md`'s own header explicitly says it "reflects the verbs and
+  behavior that exist **today**... grows as later work packages land."
+  `docs/concurrent-worlds.md` — the file §17 DOES name for WP5 — is
+  updated instead, documenting `--json=instances` as the byte-compatible
+  stable form and naming the new exit codes.
+- **`--quiet`/`-q`'s exact effect is a judgment call**: the architecture
+  lists it as a new flag (§5.2) but never pins its behavior in prose, and
+  no numbered test gates it. Implemented as "suppress the top banner and
+  the `Runtime state` (`du`) section" — the two most obviously decorative
+  parts of the human view — documented here since a future WP could
+  reasonably want something narrower or broader.
+- **`root.state`'s "up"/"degraded" split for the OTHER root services
+  (memory/mlx/terminal/notebook/ide) is computed AFTER the portal probe**,
+  not folded into one pass, because "expected" for those services is
+  itself conditioned on `root.state != not-started` (§7.1's per-service
+  table) — a genuine ordering dependency, not a stylistic choice: portal
+  must be probed and root.state derived FIRST, then the other five probes
+  run, and only then can "up" be downgraded to "degraded" if any of them
+  came back down. Mirrors `start.sh`'s own root-readiness phase shape
+  (spawn/probe portal first, degrade-track the rest) rather than
+  inventing a new pattern.
+- **verdict.state gains a 4th value, `"error"`, for the registry-unreadable
+  case (exit `1`)** — §7.3's prose only lists `{ok, degraded, not-running}`
+  for the 3-way `verdict.state` enum, but §12.1's own exit-code table
+  defines code `1` as a distinct "internal failure" condition with no
+  state-string counterpart. Treated as an incomplete enum in the prose
+  (the code table is more specific and was written to be executable/T8-
+  testable), not a conflict requiring escalation — `"error"` is additive,
+  never emitted for any of the three originally-documented cases.
+- **The verdict combinator (root contribution + per-instance contributions
+  → one code) is not spelled out anywhere in the architecture as a formula**
+  — only as prose examples and T8's four concrete cases. Implemented as:
+  registry-unreadable forces `1`; else if ANY contribution is `3`
+  (degraded), that wins; else if ANY contribution is `0` (something
+  healthy is up), that wins; else `4`. This is the minimal combinator that
+  satisfies T8's four cases exactly (verified by test) and is the only
+  one under which "not-started"'s documented neutrality ("never degrades
+  the verdict") and a live instance's own health can coexist correctly.
+  Documented here as a resolved ambiguity, not a gap, since no numbered
+  test contradicts it and every one confirms it.
+- **`tests/cli/status_driver.sh` surfaced a second copy of WP4's
+  subshell-swallows-a-background-job class of bug in its OWN plumbing**:
+  the first draft's `_run_status()` helper omitted the per-scenario
+  `<fake>/stubbin` directory from `PATH`, so `inst_alive`'s `ps -p <pid>`
+  check silently fell through to the REAL system `ps` for several
+  scenarios that had carefully built a stub — making a "live + stale"
+  scenario (T8c) accidentally test "stale + stale" and still pass, for
+  the wrong reason. Fixed by always prepending `<fake>/stubbin` to `PATH`
+  in the helper (harmless when a scenario never created one). Flagging
+  the general lesson again: a driver scenario passing is not evidence it
+  tested what its name says until the fixture's actual liveness is
+  independently confirmed (T19 in WP4 hit the literal same shape once
+  already).
+- **`test_cli_restart.py` (a WP4 gap) added in this commit** —
+  `restart_driver.sh` shipped in WP3/WP4 without the pytest-discoverable
+  wrapper every other `tests/cli/*_driver.sh` gets (§16.1's own file
+  list). Caught while writing WP5's own wrapper and fixed here rather
+  than left silently missing; `restart_driver.sh` itself is unchanged.
+
+Commit: `pending` — "elite-cli WP5: unified status, schema v2, verdict codes"
 
 ## Architect feedback required
 
-None. No part of the architecture's WP1–WP4 spec was found to be wrong in
+None. No part of the architecture's WP1–WP5 spec was found to be wrong in
 a way that blocked implementation or conflicted with another interface
-contract. WP4's F13/§14.1 tension (above) was resolved as an
-implementation-level judgment call — a concrete, numbered test (T21)
-unambiguously settled an internal wording ambiguity, no interface or
-exit-code contract changed. All other deviations above (color-quoting
-fix, test strategy for a system-mutating script, minor helper-return-code
-extension, timing looseness, the `arailctl` bypass-list companion edit,
-the `test_daemon_predicate.py` extraction-harness update, the bash-3.2
-empty-array guard, the subshell-swallows-background-job harness fix) are
-documented, none requiring a design change.
+contract. WP5's two most notable resolved ambiguities — the verdict
+combinator formula (no explicit formula given, only prose + T8's four
+cases) and verdict.state's incomplete 3-value enum vs. §12.1's 4-code
+table — were both resolved in directions the concrete numbered tests
+either require or are silent-but-consistent with, documented above rather
+than treated as blockers. WP4's F13/§14.1 tension (documented in the WP4
+section) was resolved the same way. All other deviations across WP1-WP5
+(color-quoting fix, test strategy for a system-mutating script, minor
+helper-return-code extension, timing looseness, the `arailctl` bypass-list
+companion edit, the `test_daemon_predicate.py` extraction-harness update,
+the bash-3.2 empty-array guard, two separate instances of the subshell-
+swallows-a-background-job harness bug, the `--quiet` scope judgment call,
+the three protected-test exit-code updates, the missing `test_cli_restart.py`
+wrapper) are documented, none requiring a design change.
 
-## Final state (through WP4)
+## Final state (through WP5)
 
-- **Commits:** 4 (`fa93992` WP1, `7daeb43` WP2, `98269f5` WP3, WP4 pending —
-  see git log).
-- **Files changed (WP4):** `arailctl` modified (the `restart` case
-  rewritten); `tests/cli/restart_driver.sh` extended with T19-T21/F9/F12/F13;
-  `tests/cli/lib.sh`'s `cli_test_fabricate_live_instance` fixed (global-pid
-  handoff, not a stdout `$( )` capture — see WP4 notes).
-- **New test scenarios (WP3+WP4 combined, one driver file):**
-  `tests/cli/restart_driver.sh` — 12 scenarios (T18a/b/c, F11, T19/T21b
-  combined, T20a, T20b, T20c/F12, T20d, T21a, F9a, F9b), all green.
+- **Commits:** 5 (`fa93992` WP1, `7daeb43` WP2, `98269f5` WP3, `1743a3f`
+  WP4, WP5 pending — see git log).
+- **Files changed (WP5):** `scripts/status.sh` rewritten (single collector
+  → `arail.status/v2` document → two renderers; `pwd -P`); `arailctl`
+  unchanged this WP (status is invoked via the existing `status)` case,
+  unmodified); `docs/concurrent-worlds.md` updated (`--json=instances`,
+  the new exit codes); `tests/cli/lib.sh` extended
+  (`cli_test_spawn_stub_portal`); `tests/cli/status_driver.sh` new;
+  `tests/test_cli_status.py`, `tests/test_cli_restart.py` new (the latter
+  a WP4 gap, see WP5 notes); `tests/test_instance_stop_scope.py` — 3
+  pre-existing assertions updated for the intentional, documented
+  `status` exit-code change (§12.3), not reverted.
+- **New test scenarios:** `tests/cli/status_driver.sh` — 13 scenarios
+  (T8a/F20, T8b/T10, T8c, T8d/T11/F2, F2-symlink, T12, T34, T8e/F18a,
+  F18b, T3/--probe-mismatch, T3/daemon-a, T3/daemon-b), all green.
 - **Protected baseline:** `tests/instance_start_driver.sh` (11/11),
   `tests/instance_qa_driver.sh` (10/10), `tests/cli/root_start_driver.sh`
   (6/6), `tests/cli/color_driver.sh` (5/5), `tests/cli/verbs_driver.sh`
-  (6/6) — all still green after WP4.
+  (6/6), `tests/cli/restart_driver.sh` (12/12) — all still green after
+  WP5.
 - **Full pytest suite diffed against a `git stash` baseline** at each of
-  WP3 and WP4: identical 88 pre-existing failures/errors before and after
-  both (an environment gap — several optional packages, e.g. `mlx`, are
-  not installed in this `.venv`, plus one apparently order-dependent flake
-  in the 3800+-test full run that reproduces green in isolation both
-  before and after) — **zero net regressions** at either checkpoint.
+  WP3, WP4, and WP5: WP3/WP4 showed identical 88 pre-existing
+  failures/errors before and after (an environment gap — several optional
+  packages, e.g. `mlx`, are not installed in this `.venv`, plus one
+  apparently order-dependent flake in the 3800+-test full run that
+  reproduces green in isolation both before and after). WP5 initially
+  showed 3 NEW failures — `tests/test_instance_stop_scope.py`'s three
+  `status.sh` tests, each hardcoding the pre-WP5 `returncode == 0`
+  contract the architecture explicitly retires (§12.3) — fixed by
+  updating those three assertions to the correct new exit code (see WP5
+  notes); the diff was re-run after the fix and is clean again (identical
+  88 pre-existing failures, **zero net regressions**).
 - **Pre-existing, unrelated failure found (not caused by this build):**
   `tests/test_reset_stop_scope.py::test_foreign_uvicorn_survives` and
   `::test_port_scoped_helpers` fail on `main` before this sprint's changes
@@ -346,10 +466,17 @@ documented, none requiring a design change.
   test's `awk`-extracted `stop_services()` body calls
   `_ollama_pid_if_we_started_it`, a helper defined outside the extracted
   range, so the sandboxed driver aborts with "command not found". Not
-  touched (out of scope for WP1-WP4; none of this sprint's `reset.sh`
-  changes touch `stop_services()`'s body). Flagging for the reviewer/QA
-  pass.
+  touched across WP1-WP5 (no `reset.sh` change in this sprint touches
+  `stop_services()`'s body). Also unrelated:
+  `tests/shell_source_safety_driver.sh` fails on `main` (pre-existing,
+  confirmed via `git stash`) with `ModuleNotFoundError: No module named
+  'tomllib'` from a `blueprint render` step invoked with the system
+  `python3` (not this repo's `.venv` python3.11) — unrelated to any
+  script this sprint touches (`arailctl`, `start.sh`, `reset.sh`,
+  `status.sh`). Both flagged for the reviewer/QA pass.
 - **Doctor/status smoke:** `./arailctl doctor` exits 0 on this checkout
-  (healthy); `ARAIL_NO_BROWSER=1 ./arailctl status` (human + `--json`)
-  exits 0, unchanged (status.sh is WP5's target, not touched yet).
+  (healthy); `ARAIL_NO_BROWSER=1 ./arailctl status` (human + `--json` +
+  `--json=instances`) all produce well-formed output; the human and
+  `--json` runs both correctly exit `4` on this checkout (nothing
+  running) — the FIRST time `status` has ever exited non-zero, by design.
 - **No TODO comments without owner/date added.** No commented-out code.

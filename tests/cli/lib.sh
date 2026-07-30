@@ -222,6 +222,23 @@ link_real_uvicorn() {
     ln -sf "$REAL_VENV/bin/uvicorn" "$fake/.venv/bin/uvicorn"
 }
 
+# cli_test_spawn_stub_portal <port> <fixture-json-path> [http-status] —
+# runs tests/cli/stub_uvicorn_serving.py DIRECTLY (no uvicorn shim, no
+# start.sh) bound to 127.0.0.1:<port>, answering /api/instance with
+# <fixture-json-path>'s body at the given HTTP status (default 200). For
+# scenarios (status_driver.sh) that only need SOMETHING real answering the
+# root portal port — never a start.sh boot. Sets
+# CLI_TEST_LAST_FABRICATED_PID (same global-handoff convention as
+# cli_test_fabricate_live_instance — NOT `pid=$(...)`, for the identical
+# subshell-swallows-the-background-job reason documented there).
+cli_test_spawn_stub_portal() {
+    local port="$1" fixture="$2" http_status="${3:-200}"
+    [[ -n "$REAL_VENV" ]] || return 1
+    STUB_FIXTURE="$fixture" STUB_STATUS="$http_status" \
+        "$REAL_VENV/bin/python" "$CLI_TEST_DIR/stub_uvicorn_serving.py" "arail.portal.app:app" "127.0.0.1" "$port" &
+    CLI_TEST_LAST_FABRICATED_PID=$!
+}
+
 # ── The "serving" stub uvicorn (§16.1's enabling capability): actually
 # BINDS <host>:<port> and answers /api/instance and /health for real,
 # dialed per-scenario via env vars (see tests/cli/stub_uvicorn_serving.py's
