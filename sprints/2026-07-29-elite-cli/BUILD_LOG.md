@@ -648,7 +648,7 @@ behavior-change entries), with these deltas:
   matching this file's own established convention (e.g. the 2026-07-18
   entry's Added/Fixed split) rather than inventing a new section shape.
 
-Commit: `pending` — "elite-cli WP8: docs + CHANGELOG"
+Commit: `22f817d` — "elite-cli WP8: docs + CHANGELOG"
 
 ## Architect feedback required
 
@@ -680,8 +680,7 @@ design change.
 ## Final state
 
 - **Commits:** 8 — `fa93992` WP1, `7daeb43` WP2, `98269f5` WP3, `1743a3f`
-  WP4, `0b30e7b` WP5, `320734a` WP6, `7689fba` WP7, WP8 pending (see git
-  log for the final sha once committed).
+  WP4, `0b30e7b` WP5, `320734a` WP6, `7689fba` WP7, `22f817d` WP8.
 - **Files changed, WP6-8** (WP1-5 are summarized in their own sections
   above): `src/arail/portal/app.py` (`_warm_primary_router` timing +
   `_boot_warm_explicit()`, `/api/instance` warm fields);
