@@ -106,8 +106,11 @@ browse and pull on demand. AirLLM is opt-in via `ARAIL_INSTALL_AIRLLM=1`.
 Upgrade any time:
 
 ```bash
-./arailctl upgrade maximus
+./arailctl tier maximus
 ```
+
+(`./arailctl upgrade maximus` still works — `upgrade` is a permanent
+alias for `tier`. Bare `./arailctl tier` prints the tier you're on.)
 
 Knowledge Base and Agents are part of `minimalist` on purpose — research
 needs memory to work. Both tiers ship with the embedded LanceDB-backed KB;
@@ -294,6 +297,8 @@ so imports don't break — only the display rebrands.
 
 ## Where to read next
 
+- [docs/cli.md](docs/cli.md) — the full `arailctl` reference: every verb,
+  flag, exit code, and tty/non-tty behavior.
 - [docs/INSTALL.md](docs/INSTALL.md) — tier choice, platform setup, upgrades.
 - [docs/PUBLISH.md](docs/PUBLISH.md) — publishing your lab to the public internet (nginx/Caddy, Cloudflare Access, hardening checklist).
 - [docs/MACOS.md](docs/MACOS.md) — Apple Silicon specifics (MLX).

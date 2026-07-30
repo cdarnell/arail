@@ -599,80 +599,132 @@ alias rulings in §6.2/§6.4), with these deltas:
   themselves are the same well-established invocations `setup.sh`/
   `upgrade.sh` already run unchanged.
 
-Commit: `pending` — "elite-cli WP7: install verb + update/upgrade
+Commit: `7689fba` — "elite-cli WP7: install verb + update/upgrade
 consolidation"
+
+### WP8 — Docs + CHANGELOG
+
+Built as planned (§17: `docs/cli.md` finalized, `README.md`,
+`docs/INSTALL.md`, `CLAUDE.md`'s verb list, `CHANGELOG.md`'s §12.3
+behavior-change entries), with these deltas:
+
+- **`AGENTS.md` was NOT touched**, despite being a conditional WP8 item
+  ("if the setup flag surface changed in WP1"). Checked explicitly:
+  `AGENTS.md` is the platform-*porting* manifest (detect_platform,
+  install_services, accelerator deps) and never documents `setup.sh`'s
+  CLI flag surface anywhere — its one relevant reference,
+  `ARAIL_NONINTERACTIVE=1` (the env-var spelling WP1's new `--yes`/`-y`
+  flags are literally defined as equivalent to), is unchanged and still
+  100% accurate. Judged "checked, condition not met" rather than a
+  silent skip — logged here per the same discipline as every other
+  deviation in this log.
+- **`docs/cli.md`'s full rewrite is the load-bearing WP8 deliverable**
+  (F33's own drift test target) — every verb section now reflects the
+  complete, shipped CLI: the finalized exit-code table (0/1/2/3/4/
+  130/143), `install`'s full phase table, `restart`'s target-resolution
+  table, `status`'s flag set and root-state rendering rules, `start`'s
+  `--root`/`--warm` semantics. Verified against F33's own mechanism
+  (`tests/cli/verbs_driver.sh`) — every `case` arm in `arailctl`
+  (including the two new ones, `install` and `tier`) resolves to a real,
+  substantive section in this file, not just an incidental substring
+  match (checked by hand: `install` happening to appear inside
+  `install-daemon`'s heading would have passed the driver's own
+  substring check vacuously, which is why F33's own text is "appears
+  somewhere below," not "has its own section" — both are true here, the
+  stronger property wasn't accidentally skipped).
+- **`README.md`/`docs/INSTALL.md`'s existing `upgrade maximus` examples
+  were changed to `tier maximus`** (the new canonical spelling) with a
+  one-line note that `upgrade` still works — rather than leaving the
+  user-facing quick-start teaching the alias as the primary name, which
+  would read oddly next to `docs/cli.md` now calling `tier` canonical.
+  `upgrade`/`update` are never removed from these docs entirely (they
+  still work, forever, per §6.4) — just no longer the *taught* spelling.
+- **`CHANGELOG.md`'s new section is split into `### Added` (the new
+  surface: `install`, `tier`, `--root`, `--warm`, the readiness gate,
+  the scoped `restart`, the unified `status`, `--strict`) and
+  `### Changed` (every §12.3 behavior change, plus the two more this
+  build surfaced beyond the architecture's own list: `install --check`
+  exiting `3` for pending changes, and `setup`'s passphrase masking)** —
+  matching this file's own established convention (e.g. the 2026-07-18
+  entry's Added/Fixed split) rather than inventing a new section shape.
+
+Commit: `pending` — "elite-cli WP8: docs + CHANGELOG"
 
 ## Architect feedback required
 
-None. No part of the architecture's WP1–WP5 spec was found to be wrong in
+None. No part of the architecture's WP1–WP8 spec was found to be wrong in
 a way that blocked implementation or conflicted with another interface
 contract. WP5's two most notable resolved ambiguities — the verdict
 combinator formula (no explicit formula given, only prose + T8's four
 cases) and verdict.state's incomplete 3-value enum vs. §12.1's 4-code
 table — were both resolved in directions the concrete numbered tests
 either require or are silent-but-consistent with, documented above rather
-than treated as blockers. WP4's F13/§14.1 tension (documented in the WP4
-section) was resolved the same way. All other deviations across WP1-WP5
-(color-quoting fix, test strategy for a system-mutating script, minor
-helper-return-code extension, timing looseness, the `arailctl` bypass-list
-companion edit, the `test_daemon_predicate.py` extraction-harness update,
-the bash-3.2 empty-array guard, two separate instances of the subshell-
-swallows-a-background-job harness bug, the `--quiet` scope judgment call,
-the three protected-test exit-code updates, the missing `test_cli_restart.py`
-wrapper) are documented, none requiring a design change.
+than treated as blockers. WP4's F13/§14.1 tension and WP6's F16/§11.1
+example-string tension were resolved the same way — a concrete, testable
+constraint (a numbered test or another ruling in the same section) always
+won over an ambiguous or inconsistent piece of prose, and every such
+resolution is documented at its own WP's section above, not silently
+chosen. All other deviations across WP1-WP8 (color-quoting fix, test
+strategy for a system-mutating script, minor helper-return-code
+extension, timing looseness, the `arailctl` bypass-list companion edit,
+the `test_daemon_predicate.py` extraction-harness update, the bash-3.2
+empty-array guard, two separate instances of the subshell-swallows-a-
+background-job harness bug, the `--quiet` scope judgment call, the
+protected-test exit-code updates (WP5's three `status.sh` tests, WP6's
+`/api/instance` field-allowlist test), the missing `test_cli_restart.py`
+wrapper, the instance-path `--warm` end-to-end scope trim, the
+`update.sh` airgap/dry-run return-code fix, the `AGENTS.md` no-op
+decision) are documented at their own WP's section, none requiring a
+design change.
 
-## Final state (through WP5)
+## Final state
 
-- **Commits:** 5 (`fa93992` WP1, `7daeb43` WP2, `98269f5` WP3, `1743a3f`
-  WP4, WP5 pending — see git log).
-- **Files changed (WP5):** `scripts/status.sh` rewritten (single collector
-  → `arail.status/v2` document → two renderers; `pwd -P`); `arailctl`
-  unchanged this WP (status is invoked via the existing `status)` case,
-  unmodified); `docs/concurrent-worlds.md` updated (`--json=instances`,
-  the new exit codes); `tests/cli/lib.sh` extended
-  (`cli_test_spawn_stub_portal`); `tests/cli/status_driver.sh` new;
-  `tests/test_cli_status.py`, `tests/test_cli_restart.py` new (the latter
-  a WP4 gap, see WP5 notes); `tests/test_instance_stop_scope.py` — 3
-  pre-existing assertions updated for the intentional, documented
-  `status` exit-code change (§12.3), not reverted.
-- **New test scenarios:** `tests/cli/status_driver.sh` — 13 scenarios
-  (T8a/F20, T8b/T10, T8c, T8d/T11/F2, F2-symlink, T12, T34, T8e/F18a,
-  F18b, T3/--probe-mismatch, T3/daemon-a, T3/daemon-b), all green.
-- **Protected baseline:** `tests/instance_start_driver.sh` (11/11),
-  `tests/instance_qa_driver.sh` (10/10), `tests/cli/root_start_driver.sh`
-  (6/6), `tests/cli/color_driver.sh` (5/5), `tests/cli/verbs_driver.sh`
-  (6/6), `tests/cli/restart_driver.sh` (12/12) — all still green after
-  WP5.
-- **Full pytest suite diffed against a `git stash` baseline** at each of
-  WP3, WP4, and WP5: WP3/WP4 showed identical 88 pre-existing
-  failures/errors before and after (an environment gap — several optional
-  packages, e.g. `mlx`, are not installed in this `.venv`, plus one
-  apparently order-dependent flake in the 3800+-test full run that
-  reproduces green in isolation both before and after). WP5 initially
-  showed 3 NEW failures — `tests/test_instance_stop_scope.py`'s three
-  `status.sh` tests, each hardcoding the pre-WP5 `returncode == 0`
-  contract the architecture explicitly retires (§12.3) — fixed by
-  updating those three assertions to the correct new exit code (see WP5
-  notes); the diff was re-run after the fix and is clean again (identical
-  88 pre-existing failures, **zero net regressions**).
-- **Pre-existing, unrelated failure found (not caused by this build):**
+- **Commits:** 8 — `fa93992` WP1, `7daeb43` WP2, `98269f5` WP3, `1743a3f`
+  WP4, `0b30e7b` WP5, `320734a` WP6, `7689fba` WP7, WP8 pending (see git
+  log for the final sha once committed).
+- **Files changed, WP6-8** (WP1-5 are summarized in their own sections
+  above): `src/arail/portal/app.py` (`_warm_primary_router` timing +
+  `_boot_warm_explicit()`, `/api/instance` warm fields);
+  `scripts/start.sh` (`--warm`, shared `_warm_report()`); `arailctl`
+  (daemon `--warm` hints; `install`/`update`/`tier`/`upgrade` dispatch;
+  usage/header rewrite); **new** `scripts/install.sh` (5-phase refresh
+  verb); `scripts/update.sh` (`--apply --non-interactive` mode, two
+  documented exit-code fixes); `tests/test_instance_isolation_audit.py`
+  (allow-list +4 fields, F16); `tests/cli/lib.sh` (git-repo + provisioned
+  fixtures); **new** `tests/cli/warmup_driver.sh`, `install_driver.sh`;
+  **new** `tests/test_warm_up.py`, `test_cli_warmup.py`,
+  `test_cli_install.py`; `docs/cli.md` (finalized), `README.md`,
+  `docs/INSTALL.md`, `CLAUDE.md`, `CHANGELOG.md` (WP8, docs-only).
+- **New test scenarios, WP6-8:** `tests/test_warm_up.py` — 19 (gating
+  logic, timing/backend recording, `/api/instance` field set + no model
+  id, T29 allow-list snapshot); `tests/cli/warmup_driver.sh` — 5 (T23a-d
+  + the instance-path wiring pin); `tests/cli/install_driver.sh` — 16
+  (T24, T25a-e, T26, T27a-d, F7, T28a-d); WP8 added none (docs-only,
+  gated by the pre-existing F33 driver).
+- **Protected baseline, final check:** `tests/instance_start_driver.sh`
+  (11/11), `tests/instance_qa_driver.sh` (10/10),
+  `tests/cli/root_start_driver.sh` (6/6), `tests/cli/color_driver.sh`
+  (5/5), `tests/cli/verbs_driver.sh` (6/6, including F33 against the
+  final `docs/cli.md`), `tests/cli/restart_driver.sh` (12/12),
+  `tests/cli/status_driver.sh` (13/13) — all green after WP8.
+- **Full pytest suite diffed against the WP5 baseline (88 pre-existing
+  failures/errors) at both WP6 and WP7**: identical failure set both
+  times, confirmed by a line-for-line diff of the FAILED/ERROR test IDs
+  (not just the count) — **zero net regressions** across WP6-WP8 (WP8 is
+  docs-only, no pytest re-run needed/expected to differ).
+- **Pre-existing, unrelated failures (not caused by this build, carried
+  forward from WP1-5's own findings):**
   `tests/test_reset_stop_scope.py::test_foreign_uvicorn_survives` and
-  `::test_port_scoped_helpers` fail on `main` before this sprint's changes
-  too (confirmed via `git stash` on `scripts/reset.sh` alone) — the
-  test's `awk`-extracted `stop_services()` body calls
-  `_ollama_pid_if_we_started_it`, a helper defined outside the extracted
-  range, so the sandboxed driver aborts with "command not found". Not
-  touched across WP1-WP5 (no `reset.sh` change in this sprint touches
-  `stop_services()`'s body). Also unrelated:
-  `tests/shell_source_safety_driver.sh` fails on `main` (pre-existing,
-  confirmed via `git stash`) with `ModuleNotFoundError: No module named
-  'tomllib'` from a `blueprint render` step invoked with the system
-  `python3` (not this repo's `.venv` python3.11) — unrelated to any
-  script this sprint touches (`arailctl`, `start.sh`, `reset.sh`,
-  `status.sh`). Both flagged for the reviewer/QA pass.
-- **Doctor/status smoke:** `./arailctl doctor` exits 0 on this checkout
-  (healthy); `ARAIL_NO_BROWSER=1 ./arailctl status` (human + `--json` +
-  `--json=instances`) all produce well-formed output; the human and
-  `--json` runs both correctly exit `4` on this checkout (nothing
-  running) — the FIRST time `status` has ever exited non-zero, by design.
-- **No TODO comments without owner/date added.** No commented-out code.
+  `::test_port_scoped_helpers` (an `awk`-extraction gap unrelated to any
+  `reset.sh` change this sprint makes); `tests/shell_source_safety_driver.sh`
+  (`ModuleNotFoundError: tomllib` from a `blueprint render` step using
+  the system `python3`, unrelated to any script this sprint touches).
+  Both flagged again here for the reviewer/QA pass.
+- **Smoke tests (final, this checkout):** `./arailctl help` renders the
+  full new verb table; `./arailctl install --help` and
+  `ARAIL_NO_BROWSER=1 ./arailctl status` both produce well-formed,
+  correctly-exiting output; `./arailctl tier`/`./arailctl upgrade`
+  (bare) both print the current tier and exit `0`; `bash -n` clean on
+  every touched script.
+- **No TODO comments without owner/date added anywhere in WP6-8. No
+  commented-out code.**

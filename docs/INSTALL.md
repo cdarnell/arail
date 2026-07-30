@@ -57,7 +57,9 @@ cd arail
 
 ## 2. Decide on a tier
 
-Two tiers. You can change your mind later with `./arailctl upgrade maximus`.
+Two tiers. You can change your mind later with `./arailctl tier maximus`
+(`./arailctl upgrade maximus` still works — `upgrade` is a permanent
+alias for `tier`).
 
 Legacy `min`/`max` tier names are accepted with a deprecation warning
 (compat shim removed in v1.1.0).
@@ -335,14 +337,28 @@ Open [http://127.0.0.1:8080](http://127.0.0.1:8080). You're in.
 When you're ready for more:
 
 ```bash
-./arailctl upgrade maximus     # installs AeroLLM + adds notebook/cloud orchestration extras
+./arailctl tier maximus        # installs AeroLLM + adds notebook/cloud orchestration extras
 ./arailctl restart             # pick up the new nav
 ```
 
-`./arailctl upgrade minimalist` is a downgrade — it doesn't uninstall
-packages, it just hides the extra tabs. Hit `upgrade maximus` any time
-to get them back. Legacy `min`/`max` tier names still work via a
-one-release compat shim (removed in v1.1.0).
+(`./arailctl upgrade maximus` is the same thing — `upgrade` is a
+permanent alias for `tier`.) `./arailctl tier minimalist` is a downgrade
+— it doesn't uninstall packages, it just hides the extra tabs. Hit
+`tier maximus` any time to get them back. Legacy `min`/`max` tier names
+still work via a one-release compat shim (removed in v1.1.0).
+
+To refresh an already-set-up lab to the latest source, dependencies,
+components, and (optionally) models in one step:
+
+```bash
+./arailctl install             # source -> deps -> components -> models -> verify
+./arailctl install --check     # detect-only: what WOULD change, nothing mutated
+./arailctl install --models    # also apply the detected model drift fix
+```
+
+(`./arailctl update` is the same thing — `update` is a permanent alias
+for `install`.) See [docs/cli.md](cli.md#install) for the full phase
+breakdown and exit-code contract.
 
 ---
 
