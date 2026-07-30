@@ -568,11 +568,42 @@ export GREEN BOLD YELLOW DIM RESET
 python3 <<'PYEOF'
 import json
 import os
+import re
 import sys
 
 
 def _b(v):
     return v == "true" or v == "1"
+
+
+# TEST_REPORT.md Q5: a World bundle is MADE to be shared (world-forge /
+# world-mount) — manifest.display_name is not the operator's own text, it
+# arrives verbatim from whoever built the bundle. Printed raw, it can carry
+# CSI/CR/LF/BEL and forge a fake extra row on a real terminal, even piped
+# (`cat -v` reveals it). The --json renderer already escapes control bytes
+# (json.dumps) — this is the human renderer's equivalent, at the render
+# boundary only (the stored record stays faithful; only what reaches the
+# terminal is sanitised). Strips C0 controls (incl. ESC/CR/LF/BEL) and C1
+# controls; everything else (including non-BMP text) passes through.
+_CONTROL_BYTES_RE = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+# Stripping control bytes alone still leaves the PLAIN TEXT of a hostile
+# display_name intact — a bundle author can pad an ordinary-looking row
+# fragment (no ESC/CR needed) into the name and have it print inline right
+# after the real one. Cap the length too: this is the same ~18-column
+# width the table already formats the name field to (`{name:<18}`), so
+# nothing legible is lost that the column wasn't already going to
+# misalign on, and it is short enough that a forged row fragment cannot
+# fit inside it.
+_DISPLAY_NAME_MAX = 32
+
+
+def _sanitize_for_terminal(s):
+    if not isinstance(s, str):
+        return s
+    s = _CONTROL_BYTES_RE.sub("", s)
+    if len(s) > _DISPLAY_NAME_MAX:
+        s = s[: _DISPLAY_NAME_MAX - 1] + "…"
+    return s
 
 
 facts = json.loads(os.environ["FACTS_JSON"])
@@ -699,7 +730,7 @@ def dim(msg):
 
 if not quiet:
     print("")
-    print(f"{BOLD}{facts['lab_name']} — Status{RESET}")
+    print(f"{BOLD}{_sanitize_for_terminal(facts['lab_name'])} — Status{RESET}")
     print("")
 
 print(f"  {BOLD}Instances{RESET}  (checkout: {facts['checkout']})")
@@ -712,7 +743,7 @@ for r in instances:
     if state == "unreadable":
         print(f"  ✗ {slug:<10} unreadable (corrupt registry record — quarantined)")
         continue
-    name = r.get("display_name") or slug
+    name = _sanitize_for_terminal(r.get("display_name")) or slug
     port = r.get("portal_port", "?")
     pid = r.get("portal_pid", "?")
     if state == "stale":
