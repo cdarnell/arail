@@ -39,12 +39,39 @@ project adheres to [Semantic Versioning](https://semver.org/).
   for a World that's already running as its own instance, and **Launch**
   (a copy-to-clipboard `./arailctl start --world <slug>` command, never a
   one-click spawn from the browser) for a World that isn't live but
-  something else is already mounted in the current lab. In-place Mount is
-  deprecated — announced this release, removed next.
+  something else is already mounted in the current lab. See below —
+  in-place Mount is removed later in this same Unreleased section.
 - **`GET /api/instance`** / **`GET /api/instances`** — new read-only
   portal endpoints: self-report (which instance is this process?) and the
   registry-driven roster, used by both the CLI's liveness check and the
   new UI.
+
+### Removed (2026-07-28/29 worlds-select-removal — in-place World switching)
+
+- **`POST /api/worlds/select` (and `/api/worlds/import`) no longer switch
+  Worlds in place.** They survive for exactly two cases: the *first* bind
+  into a lab with no World mounted, and unbind-to-default (plus the
+  idempotent re-bind of the identical bundle already mounted, for
+  re-indexing after a re-seal). Mounting a *different* World while one is
+  already mounted now returns `409 in_place_switch_removed` — that path used
+  to `rmtree` the other World's staged knowledge-base layer
+  (`_sweep_other_worlds()`), and the announced deprecation from the
+  concurrent-Worlds release above is now executed, not just planned. To
+  work in another World: run it as its own instance (`./arailctl start
+  --world <slug>`, recommended), or Unmount then Mount on `/worlds` (two
+  deliberate steps).
+- **The nav dropdown no longer mutates anything.** The `change-world` row
+  (which routed to `/welcome?step=world`) and the mutating POST to
+  `/api/worlds/select` are both gone; the dropdown is a pure roster —
+  Open a live instance, or reveal the `./arailctl start --world <slug>`
+  command for one that isn't running.
+- **The welcome flow's World step swap door is retired.** On a lab that
+  already has a World mounted, the step now renders read-only: a one-line
+  hint plus a `/worlds` link, and clicking a card reveals its launch
+  command instead of attempting to remount. The first-bind case (a
+  genuinely fresh lab) is unchanged.
+- **The `/worlds` page's dismissible deprecation banner is gone**, replaced
+  by a static one-line hint above the catalog grid.
 
 ### Known gap (2026-07-28 concurrent Worlds)
 

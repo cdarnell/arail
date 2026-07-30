@@ -629,19 +629,26 @@ window.revealSlot = async function revealSlot(slot, subpath) {
 };
 
 /* ── World switcher dropdown ──────────────────────────────────────
-   The nav badge is a <details> popover. On first open we fetch the
-   catalog (/api/worlds) and render: "AI Lab (default)", then each
-   discovered World (valid → clickable, invalid → disabled w/ reason),
-   with a ✓ active marker. Click → POST /api/worlds/select → reload on
-   success; on error an amber whisper toast, current World unchanged.
-   Outside-click / Escape closes. Vanilla, airgap-safe. */
+   The nav badge is a <details> popover: a pure roster/viewer, not a
+   mutator (worlds-select-removal, ARCHITECTURE.md — "nav does not
+   mutate at all"). On first open we fetch the catalog (/api/worlds)
+   and the instance roster (/api/instances) and render: "AI Lab
+   (default)" (routes to /worlds when a World is mounted, otherwise
+   inert), then each discovered World — a live instance opens as a
+   link, a non-live World reveals its launch command, the currently
+   mounted World is an inert ✓ row. Import (path and .zip) stays here —
+   both /api/worlds/import and /api/worlds/import-zip carry their own
+   in_place_switch_removed guard, refusing server-side when this root
+   is already mounted, so the affordance degrades to a 409 + toast
+   rather than a silent sweep. Outside-click / Escape closes. Vanilla,
+   airgap-safe. */
 (function () {
   var details = document.getElementById('world-switcher');
   var menu = document.getElementById('world-menu');
   if (!details || !menu) return;
 
   var loaded = false;
-  var busy = false;
+  var busy = false;  // import-only lock; the switcher itself never mutates
   var _lastJson = null;
   var _lastInstJson = null;
 
@@ -704,23 +711,15 @@ window.revealSlot = async function revealSlot(slot, subpath) {
       if (inst && inst.slug) instancesBySlug[inst.slug] = inst;
     });
     var html = '';
-    // C7 -- new first row: navigates to the welcome World-step component
-    // (the same honest-failure-state, confirmation-gated surface as the
-    // welcome flow) rather than mounting directly. The existing per-World
-    // rows below keep their direct-POST behavior this sprint (see
-    // ARCHITECTURE.md C7 / Tech debt D3) -- this new row is not a
-    // replacement for them, just an additional, safer door.
-    html +=
-      '<div class="world-row" role="menuitem" data-action="change-world" ' +
-      'style="display:flex;align-items:center;gap:.4rem;padding:.4rem .6rem;' +
-      'border-radius:7px;font-size:.78rem;white-space:nowrap;cursor:pointer;">' +
-      '<span>&nbsp;&nbsp;</span><span>Change World…</span></div>' +
-      '<div style="border-top:1px solid var(--border);margin:.3rem 0;"></div>';
-    html += row({
-      label: 'AI Lab (default)',
-      action: 'default',
-      active: json.current === null || json.current === undefined,
-    });
+    var mounted = json.current !== null && json.current !== undefined;
+    // "AI Lab (default)" row: non-mutating. When a World is mounted it
+    // routes to /worlds -- unmount lives on one surface, the Worlds page --
+    // otherwise it's just the (already active) inert row.
+    if (mounted) {
+      html += row({ label: 'AI Lab (default)', action: 'goto-worlds' });
+    } else {
+      html += row({ label: 'AI Lab (default)', active: true, disabled: true });
+    }
     var worlds = (json && json.worlds) || [];
     worlds.forEach(function (w) {
       if (!w.valid) {
@@ -734,9 +733,7 @@ window.revealSlot = async function revealSlot(slot, subpath) {
       var inst = instancesBySlug[w.slug];
       var live = !!(inst && inst.live);
       if (live) {
-        // Route to Open (non-mutating) instead of the mutating select POST
-        // -- a live World is running as its own instance; mounting it here
-        // too would race the very process that's serving it.
+        // Live instance -- a plain link, never a mutation.
         var bind = inst.bind || '127.0.0.1';
         html += row({
           label: w.display_name || w.slug,
@@ -749,27 +746,24 @@ window.revealSlot = async function revealSlot(slot, subpath) {
         });
         return;
       }
-      // Not live: the mutating select POST stays ONLY for the first-bind
-      // (nothing mounted here yet) and the already-mounted-here (re-select
-      // is a harmless no-op) cases. Once something ELSE is mounted here,
-      // selecting from the dropdown would in-place remount (the "Launch"
-      // case, ARCHITECTURE.md §5.3) -- show the CLI command instead of
-      // silently doing it.
-      var launchable = json.current && json.current !== w.slug;
-      if (launchable) {
+      if (w.mounted) {
+        // Currently mounted here: inert, checkmark only. In-place switching
+        // is removed -- clicking another World's row must never mutate.
         html += row({
           label: w.display_name || w.slug,
+          active: true,
           disabled: true,
-          reason: 'Running side by side: ./arailctl start --world ' + w.slug,
+          hasSwatch: !!w.theme_preview,
         });
         return;
       }
+      // Not live, not mounted here: non-mutating. Reveal the instance
+      // launch command instead of a select POST (worlds-select-removal --
+      // the nav dropdown never mounts).
       html += row({
         label: w.display_name || w.slug,
-        action: 'select',
-        slug: w.slug,
-        path: w.path,
-        active: !!w.mounted,
+        disabled: true,
+        reason: 'Run as its own lab: ./arailctl start --world ' + w.slug,
         hasSwatch: !!w.theme_preview,
       });
     });
@@ -936,42 +930,18 @@ window.revealSlot = async function revealSlot(slot, subpath) {
     var el = e.target.closest('.world-row[data-action]');
     if (!el || busy) return;
     var action = el.getAttribute('data-action');
-    if (action === 'change-world') { window.location.href = '/welcome?step=world'; return; }
+    if (action === 'goto-worlds') { window.location.href = '/worlds'; return; }
     if (action === 'forge') { window.location.href = '/worlds'; return; }
     if (action === 'add') { showImport(); return; }
     if (action === 'open') {
-      // Live instance — a plain link, never a mutation (ARCHITECTURE.md §5.4).
+      // Live instance — a plain link, never a mutation.
       var url = el.getAttribute('data-url') || '';
       if (url) window.open(url, '_blank');
       return;
     }
-    var slug = el.getAttribute('data-slug') || '';
-    var path = el.getAttribute('data-path') || '';
-    busy = true;
-    menu.style.pointerEvents = 'none';
-    menu.style.opacity = '.6';
-    fetch('/api/worlds/select', {
-      method: 'POST',
-      credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(
-        action === 'default'
-          ? { slug: 'default' }
-          : { slug: slug, path: path }
-      ),
-    })
-      .then(function (r) {
-        if (r.ok) { window.location.reload(); return null; }
-        return r.json().catch(function () { return {}; }).then(function (b) {
-          whisper((b && b.message) || 'World load failed');
-        });
-      })
-      .catch(function () { whisper('World load failed'); })
-      .then(function () {
-        busy = false;
-        menu.style.pointerEvents = '';
-        menu.style.opacity = '';
-      });
+    // No other row mutates. Non-live/non-mounted rows are disabled (their
+    // launch command is in the title/reason), and the dropdown never mounts
+    // or unmounts a World.
   });
 
   // Outside-click closes the popover.

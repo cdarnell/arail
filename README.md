@@ -164,9 +164,9 @@ that genuinely cannot see each other, side by side, up to
 `LAB_MAX_INSTANCES` (default 3). `./arailctl status` shows every running
 instance; `./arailctl stop --world <slug>` stops just one. See
 [`docs/concurrent-worlds.md`](docs/concurrent-worlds.md). In-place
-World-switching (the Mount button, the nav dropdown's select) still works
-this release but is being replaced by instances — see that doc for the
-deprecation timeline.
+World-switching (mounting a *different* World over one already mounted in
+this lab) has been removed — `/worlds`' Mount button now only performs the
+first bind or an unmount; use instances to run more than one World at once.
 
 ### 📊 Dashboard *(every tier)*
 

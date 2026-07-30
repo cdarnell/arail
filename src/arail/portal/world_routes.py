@@ -414,6 +414,25 @@ async def api_forge_confirm(request: Request):
     subject = str(_forge_state.get("subject", slug))
     catalog = wm._default_worlds_dir() / slug
 
+    # ── In-place switching removed: forge-confirm is a fourth door onto the
+    # same wm.swap()/_sweep_other_worlds() primitive as select/import/
+    # import-zip (QA-1, TEST_REPORT.md). An empty root, or a re-forge of the
+    # ALREADY-mounted World (same slug — swap() would sweep only its own
+    # staged layer), stays allowed; forging over a DIFFERENT mounted World is
+    # refused before any disk write (the rename dance below never runs).
+    cur = wm.current_mount()
+    if cur is not None and cur.world != slug:
+        return _err(409, {
+            "error": "in_place_switch_removed",
+            "message": (
+                f"'{cur.world}' is mounted in this lab. Switching Worlds in "
+                "place was removed — one lab, one World. Unmount first (AI "
+                "Lab default) on the Worlds page, then confirm this forge — "
+                "or run the forged World as its own instance once it's in "
+                f"the catalog: ./arailctl start --world {slug}"
+            ),
+        })
+
     tmp = catalog.parent / f".{slug}.forge-tmp"
     if tmp.exists():
         shutil.rmtree(tmp)

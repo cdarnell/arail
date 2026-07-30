@@ -181,9 +181,11 @@ def test_select_default_unmounts_and_reverts(tmp_path, monkeypatch):
     assert "◆ Physics World" not in body
 
 
-def test_switch_a_to_b_leaves_record_on_b(tmp_path, monkeypatch):
+def test_switch_a_to_b_refused_record_stays_on_a(tmp_path, monkeypatch):
     # A and B are distinct bundle DIRS (same physics slug — fixtures are sealed
-    # copies). mount(B) overwrites A's record atomically; the current lab is B.
+    # copies). In-place switching is removed: the select of B while A is
+    # mounted is refused, A's record is untouched, and A's staged dir survives
+    # (the anti-rmtree assertion is the point of this test).
     wd, data, pkb = _worlds(
         tmp_path, monkeypatch,
         ("physics", "world-a"), ("physics", "world-b"),
@@ -193,20 +195,22 @@ def test_switch_a_to_b_leaves_record_on_b(tmp_path, monkeypatch):
     rec_a = wm.current_mount(data)
     assert rec_a.bundle_dir == str((wd / "world-a").resolve())
     r = client.post("/api/worlds/select", json={"path": str((wd / "world-b").resolve())})
-    assert r.status_code == 200
-    rec_b = wm.current_mount(data)
-    assert rec_b.bundle_dir == str((wd / "world-b").resolve())  # fully B, no stale
-    assert (pkb / "sources" / "world-physics").exists()
+    assert r.status_code == 409
+    assert r.json()["error"] == "in_place_switch_removed"
+    rec_after = wm.current_mount(data)
+    assert rec_after.bundle_dir == str((wd / "world-a").resolve())  # still A
+    assert (pkb / "sources" / "world-physics").exists()  # A's staged dir survives
 
 
 # ════════════════════════════ SECURITY (~20%) ════════════════════════════════
 
 def test_select_tampered_bundle_409_unchanged(tmp_path, monkeypatch):
+    # Selected into an UNMOUNTED root, so the in_place_switch_removed guard
+    # (which fires first when something else is mounted) doesn't shadow the
+    # seal check this test exists to exercise.
     wd, data, pkb = _worlds(tmp_path, monkeypatch, "physics", "tampered")
     client = _client()
-    # Mount physics first; the tampered select must NOT change the current World.
-    client.post("/api/worlds/select", json={"slug": "physics"})
-    before = wm.current_mount(data)
+    assert wm.current_mount(data) is None
     r = client.post(
         "/api/worlds/select",
         json={"path": str((wd / "tampered").resolve())},
@@ -214,8 +218,7 @@ def test_select_tampered_bundle_409_unchanged(tmp_path, monkeypatch):
     assert r.status_code == 409
     assert r.json()["error"] == "mount_refused"
     assert r.json()["message"]
-    after = wm.current_mount(data)
-    assert after.bundle_dir == before.bundle_dir  # unchanged
+    assert wm.current_mount(data) is None  # still unmounted
 
 
 def test_select_slug_traversal_rejected(tmp_path, monkeypatch):
@@ -257,3 +260,136 @@ def test_nav_renders_active_badge_when_mounted(tmp_path, monkeypatch):
     body = _client().get("/").text
     assert 'id="world-switcher"' in body
     assert "◆ Physics World" in body
+
+
+# ═══════════════════ IN-PLACE SWITCH REMOVAL (ARCHITECTURE.md WP1) ═══════════
+
+def test_swap_by_slug_while_mounted_refused(tmp_path, monkeypatch):
+    # F7: refused when addressed by slug.
+    wd, data, pkb = _worlds(tmp_path, monkeypatch, "physics", "art-history-skill")
+    client = _client()
+    client.post("/api/worlds/select", json={"slug": "physics"})
+    r = client.post("/api/worlds/select", json={"slug": "art-history-skill"})
+    assert r.status_code == 409
+    body = r.json()
+    assert body["error"] == "in_place_switch_removed"
+    assert "art-history-skill" in body["message"]
+    assert "./arailctl start --world" in body["message"]
+    assert wm.current_mount(data).world == "physics"
+
+
+def test_swap_by_path_while_mounted_refused(tmp_path, monkeypatch):
+    # F7: refused when addressed by path (world-a/world-b share the "physics"
+    # slug, so the guard must compare resolved bundle dirs, not slugs).
+    wd, data, pkb = _worlds(
+        tmp_path, monkeypatch,
+        ("physics", "world-a"), ("physics", "world-b"),
+    )
+    client = _client()
+    client.post("/api/worlds/select", json={"path": str((wd / "world-a").resolve())})
+    r = client.post("/api/worlds/select", json={"path": str((wd / "world-b").resolve())})
+    assert r.status_code == 409
+    assert r.json()["error"] == "in_place_switch_removed"
+    assert wm.current_mount(data).bundle_dir == str((wd / "world-a").resolve())
+
+
+def test_two_step_swap_unmount_then_mount_allowed(tmp_path, monkeypatch):
+    # The explicitly-permitted two-step path: mount A, unmount, mount B.
+    wd, data, pkb = _worlds(
+        tmp_path, monkeypatch,
+        ("physics", "world-a"), ("physics", "world-b"),
+    )
+    client = _client()
+    client.post("/api/worlds/select", json={"path": str((wd / "world-a").resolve())})
+    r_unmount = client.post("/api/worlds/select", json={"slug": "default"})
+    assert r_unmount.status_code == 200
+    assert wm.current_mount(data) is None
+    r_mount_b = client.post("/api/worlds/select", json={"path": str((wd / "world-b").resolve())})
+    assert r_mount_b.status_code == 200
+    assert wm.current_mount(data).bundle_dir == str((wd / "world-b").resolve())
+
+
+def test_rebind_identical_bundle_allowed(tmp_path, monkeypatch):
+    # F6: re-selecting the same already-mounted bundle dir is an idempotent
+    # re-index, not a switch — 200, not 409.
+    wd, data, pkb = _worlds(tmp_path, monkeypatch, "physics")
+    client = _client()
+    client.post("/api/worlds/select", json={"slug": "physics"})
+    r = client.post("/api/worlds/select", json={"slug": "physics"})
+    assert r.status_code == 200
+    assert r.json()["current"] == "physics"
+
+
+def test_refused_swap_touches_nothing_on_disk(tmp_path, monkeypatch):
+    # F4/F7: a refused swap must not mutate the mount record or the staged dir.
+    wd, data, pkb = _worlds(
+        tmp_path, monkeypatch,
+        ("physics", "world-a"), ("physics", "world-b"),
+    )
+    client = _client()
+    client.post("/api/worlds/select", json={"path": str((wd / "world-a").resolve())})
+    record_path = data / "world-mount.json"
+    before_bytes = record_path.read_bytes()
+    staged = pkb / "sources" / "world-physics"
+    before_mtime = staged.stat().st_mtime_ns
+
+    r = client.post("/api/worlds/select", json={"path": str((wd / "world-b").resolve())})
+    assert r.status_code == 409
+
+    assert record_path.read_bytes() == before_bytes
+    assert staged.stat().st_mtime_ns == before_mtime
+
+
+def test_swap_precedence_instance_live_over_in_place_switch(tmp_path, monkeypatch):
+    # Ordering ruling: instance_live is checked before in_place_switch_removed.
+    from arail.portal import app as portal_app
+
+    wd, data, pkb = _worlds(
+        tmp_path, monkeypatch,
+        ("physics", "world-a"), ("physics", "world-b"),
+    )
+    client = _client()
+    client.post("/api/worlds/select", json={"path": str((wd / "world-a").resolve())})
+
+    fake_record = {
+        "slug": "world-b",
+        "portal_port": 8090,
+        "started_at": "2026-07-29T00:00:00Z",
+    }
+    monkeypatch.setattr(portal_app, "_read_instance_records", lambda: [fake_record])
+    monkeypatch.setattr(portal_app, "_instance_record_alive", lambda rec: True)
+
+    r = client.post("/api/worlds/select", json={"path": str((wd / "world-b").resolve())})
+    assert r.status_code == 409
+    assert r.json()["error"] == "instance_live"
+
+
+def test_cross_site_swap_attempt_while_mounted_is_403(tmp_path, monkeypatch):
+    # F2: the CSRF envelope still short-circuits before the new guard.
+    wd, data, pkb = _worlds(
+        tmp_path, monkeypatch,
+        ("physics", "world-a"), ("physics", "world-b"),
+    )
+    client = _client()
+    client.post("/api/worlds/select", json={"path": str((wd / "world-a").resolve())})
+    r = client.post(
+        "/api/worlds/select",
+        json={"path": str((wd / "world-b").resolve())},
+        headers={"sec-fetch-site": "cross-site"},
+    )
+    assert r.status_code == 403
+    assert r.json()["error"] == "cross_site"
+
+
+def test_unmount_with_bundle_dir_deleted_still_frees_root(tmp_path, monkeypatch):
+    # F3, the un-brick path: a mounted bundle dir vanishes from disk; unmount
+    # (default) must still succeed and free the root.
+    wd, data, pkb = _worlds(tmp_path, monkeypatch, "physics")
+    client = _client()
+    client.post("/api/worlds/select", json={"slug": "physics"})
+    shutil.rmtree(wd / "physics")
+
+    r = client.post("/api/worlds/select", json={"slug": "default"})
+    assert r.status_code == 200
+    assert r.json() == {"ok": True, "current": None}
+    assert wm.current_mount(data) is None

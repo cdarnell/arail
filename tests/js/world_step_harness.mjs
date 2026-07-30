@@ -47,8 +47,8 @@ const worldExamplesSrc = extractBlock("const WORLD_EXAMPLES = ") + ";";
 const renderConceptStripSrc = extractBlock("function renderConceptStrip(");
 const renderCatalogUnavailableSrc = extractBlock("function renderCatalogUnavailable(");
 const renderNoWorldsFoundSrc = extractBlock("function renderNoWorldsFound(");
-const renderSwapBannerSrc = extractBlock("function renderSwapBanner(");
-const renderWhatChangedSummarySrc = extractBlock("function renderWhatChangedSummary(");
+const renderMountedHintSrc = extractBlock("function renderMountedHint(");
+const showLaunchCommandSrc = extractBlock("function showLaunchCommand(");
 const showWorldStepSrc = extractBlock("async function showWorldStep(");
 const hex6Src = "const HEX6 = /^#[0-9a-fA-F]{6}$/;";
 
@@ -135,6 +135,10 @@ function makeSandbox() {
   let goHomeCalls = 0;
   function goHome() { goHomeCalls++; }
 
+  let alertCalls = [];
+  const navigator = { clipboard: undefined }; // no clipboard API in the harness
+  const window = { alert: (msg) => { alertCalls.push(msg); } };
+
   const sandbox = {
     document,
     fetch: fetchMock,
@@ -143,9 +147,12 @@ function makeSandbox() {
     JSON,
     Array,
     Promise,
+    navigator,
+    window,
     __fetchQueue: fetchQueue,
     __card: card,
     __goHomeCalls: () => goHomeCalls,
+    __alertCalls: () => alertCalls,
   };
   vm.createContext(sandbox);
   return sandbox;
@@ -157,8 +164,8 @@ const fullSrc = [
   renderConceptStripSrc,
   renderCatalogUnavailableSrc,
   renderNoWorldsFoundSrc,
-  renderSwapBannerSrc,
-  renderWhatChangedSummarySrc,
+  renderMountedHintSrc,
+  showLaunchCommandSrc,
   showWorldStepSrc,
 ].join("\n\n");
 
@@ -246,10 +253,33 @@ tests.push(async () => {
   assert(sandbox.__goHomeCalls() === 1, "T15: goHome() must be called exactly once on a 200");
 });
 
-// T14b — swap variant: a card click never mounts directly; it reveals a
-// Continue/Cancel pair, and rapid double-clicking Continue issues at most
-// one POST (F18). On 200, the "what changed" summary renders before
-// goHome() (C8/F9).
+// T15 (welcome step, current == null) — the regression that matters most:
+// a fresh lab's onboarding still mounts directly, exactly one POST, one
+// navigation. Already covered above (the un-suffixed T15 test); re-asserted
+// here as the explicit "current == null" contract per ARCHITECTURE.md's
+// test-strategy numbering (worlds-select-removal, test 15).
+tests.push(async () => {
+  const sandbox = makeSandbox();
+  run(sandbox);
+  sandbox.__fetchQueue.push({
+    ok: true,
+    body: { worlds: [{ slug: "ai", valid: true, display_name: "AI & ML" }], current: null },
+  });
+  sandbox.__fetchQueue.push({ ok: true, body: { ok: true, current: "ai" } });
+  await vm.runInContext("showWorldStep({})", sandbox);
+  const card = sandbox.__card;
+  assert(!card.querySelector(".wc-mounted-hint"), "T15: no mounted hint on a fresh lab");
+  const buttons = card.querySelectorAll("button");
+  await buttons[0].dispatch("click");
+  assert(sandbox.__fetchQueue.length === 0, "T15: exactly one POST issued");
+  assert(sandbox.__goHomeCalls() === 1, "T15: goHome() called exactly once on a 200");
+});
+
+// T16 (welcome step, current != null, worlds-select-removal F5) — a mounted
+// lab renders the read-only hint + a /worlds link, and a card click reveals
+// the launch command instead of mounting: ZERO fetch calls to
+// /api/worlds/select. In-place switching is removed; the swap door and its
+// Continue/Cancel confirm pair no longer exist.
 tests.push(async () => {
   const sandbox = makeSandbox();
   run(sandbox);
@@ -266,38 +296,25 @@ tests.push(async () => {
   await vm.runInContext("showWorldStep({})", sandbox);
   const card = sandbox.__card;
 
-  const banner = card.querySelector(".wc-swap-banner");
-  assert(banner, "T14b: swap-variant confirmation banner not rendered");
+  const hint = card.querySelector(".wc-mounted-hint");
+  assert(hint, "T16: mounted-lab read-only hint not rendered");
+  const link = hint.querySelectorAll("a")[0];
+  assert(link, "T16: hint must link somewhere");
+  assert(link.href === "/worlds", "T16: hint link must point at /worlds");
 
   const worldButtons = card.querySelectorAll(".wc-world").filter((b) => b.tagName === "BUTTON");
-  assert(worldButtons.length === 2, "T14b: expected two World cards");
+  assert(worldButtons.length === 2, "T16: expected two World cards");
   const photoBtn = worldButtons[1];
 
-  // A card click must NOT fire the mount POST directly.
   await photoBtn.dispatch("click");
-  assert(sandbox.__fetchQueue.length === 0 || true, "sanity"); // catalog already consumed
-  const confirmBox = card.querySelector(".wc-swap-confirm");
-  assert(confirmBox, "T14b: Continue/Cancel confirm pair not rendered on card click");
-  assert(
-    worldButtons.every((b) => b.disabled),
-    "T14b: World grid must be disabled the moment the confirm pair renders",
-  );
+  await photoBtn.dispatch("click"); // a second click must also be a no-op fetch-wise
 
-  const confirmButtons = confirmBox.querySelectorAll(".wc-btn");
-  const cont = confirmButtons.find((b) => !b._className.includes("wc-swap-cancel"));
-  assert(cont, "T14b: Continue button not found");
-
-  // Queue exactly one select response — a double-fire would starve the
-  // mock queue and throw.
-  sandbox.__fetchQueue.push({ ok: true, body: { ok: true, current: "photography" } });
-
-  await cont.dispatch("click");
-  await cont.dispatch("click"); // rapid re-click must be a no-op
-
-  assert(sandbox.__fetchQueue.length === 0, "T14b: exactly one POST must have been issued");
-  const whatChanged = card.querySelector(".wc-what-changed");
-  assert(whatChanged, "T14b: 'what changed' summary must render on the swap door's 200");
-  assert(sandbox.__goHomeCalls() === 1, "T14b: goHome() must still be called exactly once");
+  assert(sandbox.__fetchQueue.length === 0, "sanity: catalog fetch already consumed");
+  assert(!card.querySelector(".wc-swap-confirm"), "T16: no swap-confirm pair (removed)");
+  assert(sandbox.__goHomeCalls() === 0, "T16: goHome() must never fire from a read-only card click");
+  assert(sandbox.__alertCalls().length === 2, "T16: each click reveals the launch command");
+  assert(sandbox.__alertCalls()[0].includes("./arailctl start --world photography"),
+    "T16: revealed command must name the target slug");
 });
 
 // T16 — a World whose display_name contains <script>/onerror markup renders

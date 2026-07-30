@@ -3247,6 +3247,54 @@ def _resolve_world_dir(slug: str, raw_path: str):
     return None
 
 
+def _is_same_mounted_world(cur, bundle_dir: "Path") -> bool:
+    """Is ``bundle_dir`` a re-bind of the World already mounted at ``cur``,
+    rather than a switch to a different one?
+
+    Two — and only two — cases count as "the same World", both structural
+    facts about the filesystem, never a name/slug comparison an attacker (or
+    an accidental same-named folder) can spoof:
+
+    1. **Exact bundle dir match.** ``bundle_dir`` resolves to literally the
+       same directory ``cur`` was mounted from (the re-select / re-index
+       case, F6).
+    2. **The canonical catalog copy of the mounted World.** ``mount()``
+       adopts an externally-mounted bundle into ``WORLDS_DIR/<world>``
+       (``_adopt_into_catalog``) but records the pre-adoption SOURCE path as
+       ``cur.bundle_dir`` — so re-selecting that same World later by its
+       catalog slug resolves to a *different* string,
+       ``WORLDS_DIR/<cur.world>``, for the identical World (ASK-1). That
+       exact, structurally-derived path — never an attacker-supplied
+       basename or declared slug — is the only second match this function
+       allows.
+
+    Deliberately does **not** compare ``cur.world`` against the candidate's
+    directory basename or its manifest-declared slug: a validly-sealed
+    bundle can declare any slug while sitting in a directory whose basename
+    happens to match the mounted World's name (QA-2/QA-3, TEST_REPORT.md) —
+    that must still refuse. Two directories that both happen to hold
+    byte-identical content (F7's ``world-a``/``world-b`` fixtures) must also
+    still refuse: this function only recognizes ONE canonical location per
+    mounted World, derived structurally, never by content or declared
+    identity.
+    """
+    from arail.world_mount import _default_worlds_dir
+
+    bundle_dir = Path(bundle_dir).resolve()
+    if cur.bundle_dir == str(bundle_dir):
+        return True
+    try:
+        catalog_entry = _default_worlds_dir().resolve() / cur.world
+        # A symlink planted at the catalog slot would make the exemption
+        # recognize whatever it points at as "the mounted World" (QA-4).
+        if catalog_entry.is_symlink():
+            return False
+        canonical = catalog_entry.resolve()
+    except Exception:  # noqa: BLE001
+        return False
+    return canonical.is_dir() and canonical == bundle_dir
+
+
 # ---------------------------------------------------------------------------
 # Concurrent Worlds — instance registry (ARCHITECTURE.md §2, §5.1, §5.2).
 #
@@ -3395,12 +3443,21 @@ async def api_worlds_select(request: Request):
     ``{"slug": "default"}`` | ``{"default": true}``. CSRF envelope mirrors
     ``post_airgap_toggle`` (Sec-Fetch-Site + Origin/Host). Mount is atomic — any
     bundle/seal failure refuses before touching disk, so the current World is
-    unchanged. Expected failures: 409 (seal/partial/schema/category/slug) or 400
-    (bad slug / traversal); never 500 for those.
+    unchanged. Expected failures: 409 (seal/partial/schema/category/slug,
+    instance_live, in_place_switch_removed) or 400 (bad slug / traversal);
+    never 500 for those.
+
+    In-place World switching is removed (VISION.md §2 of the concurrent-worlds
+    sprint, executed by worlds-select-removal): this endpoint survives only for
+    the first bind into an empty root and unbind-to-default, plus the idempotent
+    re-bind of the identical bundle already mounted here. Mounting a *different*
+    World over one already mounted is refused with 409
+    ``in_place_switch_removed`` — the sweep that would run is destructive of the
+    other World's staged layer. See ``docs/concurrent-worlds.md``.
     """
     from fastapi.responses import JSONResponse
     from arail.world_mount import (
-        mount, unmount, _SLUG_RE,
+        mount, unmount, current_mount, _SLUG_RE,
         SealMismatch, PartialBundle, SchemaSkew, GateViolation, SlugInvalid,
     )
 
@@ -3461,6 +3518,27 @@ async def api_worlds_select(request: Request):
                 ),
             })
 
+    # ── In-place switching removed: refuse a mount over a DIFFERENT World ──
+    # already bound here. Checked after instance_live (ordering ruling: when
+    # both apply, "it's live elsewhere, go there" is more actionable) and
+    # before mount() (never touches disk). ``_is_same_mounted_world`` allows
+    # only two structurally-derived re-binds (exact bundle dir; the
+    # canonical adopted catalog copy of the mounted World) — NOT a
+    # basename/slug comparison, which a validly-sealed impostor bundle in a
+    # same-named directory could spoof (QA-2, TEST_REPORT.md).
+    cur = current_mount()
+    if cur is not None and not _is_same_mounted_world(cur, bundle_dir):
+        return _err(409, {
+            "error": "in_place_switch_removed",
+            "message": (
+                f"'{cur.world}' is mounted in this lab. Switching Worlds in "
+                "place was removed — one lab, one World. Run "
+                f"'{target_slug}' as its own instance:  "
+                f"./arailctl start --world {target_slug}   — or unmount first "
+                "(AI Lab default) and then mount it here."
+            ),
+        })
+
     # ── Mount (atomic; refuses before touching disk on any error) ──
     try:
         rec = mount(bundle_dir)
@@ -3498,11 +3576,12 @@ async def api_worlds_import(request: Request):
 
     Body: ``{"path": "<abs path to a bundle dir>"}``. Expected failures: 403
     (cross-site/origin), 400 (missing/blank/not-a-dir), 409 (seal/partial/
-    schema/category/slug). Never 500 for those.
+    schema/category/slug, in_place_switch_removed — see api_worlds_select).
+    Never 500 for those.
     """
     from fastapi.responses import JSONResponse
     from arail.world_mount import (
-        mount,
+        mount, current_mount,
         SealMismatch, PartialBundle, SchemaSkew, GateViolation, SlugInvalid,
     )
 
@@ -3542,6 +3621,25 @@ async def api_worlds_import(request: Request):
     if not is_dir:
         return _err(400, {"error": "not_a_dir",
                           "message": f"Not a directory: {raw_path}"})
+
+    # ── In-place switching removed: same guard as api_worlds_select, same
+    # structural (never basename/slug) identity check — QA-2/QA-3,
+    # TEST_REPORT.md. Import's path is deliberately NOT jailed (that's the
+    # whole point of import), which makes a same-named-folder collision more
+    # plausible here than at select, not less.
+    target_slug = bundle_dir.name
+    cur = current_mount()
+    if cur is not None and not _is_same_mounted_world(cur, bundle_dir):
+        return _err(409, {
+            "error": "in_place_switch_removed",
+            "message": (
+                f"'{cur.world}' is mounted in this lab. Switching Worlds in "
+                "place was removed — one lab, one World. Run "
+                f"'{target_slug}' as its own instance:  "
+                f"./arailctl start --world {target_slug}   — or unmount first "
+                "(AI Lab default) and then mount it here."
+            ),
+        })
 
     # ── Mount (atomic; full seal/compat/category gates; adopts into catalog) ──
     try:
@@ -3634,13 +3732,15 @@ async def api_worlds_import_zip(request: Request):
     nothing of value lives in staging after the call.
 
     Form field: ``file`` (the ``.zip``, multipart/form-data). Expected
-    failures: 403 (cross-site/origin), 400 (no file / not a zip / corrupt /
-    unsafe archive), 409 (non-bundle or seal/compat/category/slug refusal).
+    failures: 403 (cross-site/origin), 409 in_place_switch_removed (something
+    else already mounted here — checked before any extraction), 400 (no file
+    / not a zip / corrupt / unsafe archive), 409 (non-bundle or seal/compat/
+    category/slug refusal).
     """
     import tempfile
     from fastapi.responses import JSONResponse
     from arail.world_mount import (
-        mount,
+        mount, current_mount,
         SealMismatch, PartialBundle, SchemaSkew, GateViolation, SlugInvalid,
     )
 
@@ -3658,6 +3758,25 @@ async def api_worlds_import_zip(request: Request):
         origin_host = _urlparse(origin).netloc
         if origin_host and origin_host != host:
             return _err(403, {"error": "cross_origin"})
+
+    # ── In-place switching removed: refuse unconditionally when anything is
+    # mounted here, before extracting a single byte of the untrusted archive.
+    # NO identical-bundle exemption — the zip is always extracted to a fresh
+    # tempfile.mkdtemp() staging dir below, so bundle_dir can never equal
+    # cur.bundle_dir; a re-import of "the same" World is a different dir on
+    # disk every time. Do not copy the `!=` comparison from the other two
+    # endpoints (REVIEW.md BLOCK-1).
+    cur = current_mount()
+    if cur is not None:
+        return _err(409, {
+            "error": "in_place_switch_removed",
+            "message": (
+                f"'{cur.world}' is mounted in this lab. Switching Worlds in "
+                "place was removed — one lab, one World. Unmount first (AI "
+                "Lab default) on the Worlds page, then import this .zip "
+                "here — or run the imported World as its own instance."
+            ),
+        })
 
     # ── Pull the uploaded .zip out of the multipart body ──
     try:

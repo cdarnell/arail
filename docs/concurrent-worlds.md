@@ -92,20 +92,64 @@ only. `./arailctl start --world <slug>` refuses while the daemon is
 active and tells you the two options: `./arailctl uninstall-daemon` first
 (to run Worlds side by side), or keep using the daemon-served lab as-is.
 
-## The in-place World switcher is being deprecated
+## In-place World switching has been removed
 
-`/worlds`' Mount button and the nav dropdown's per-World select still
-work this release, but a World that's running as its own live instance
-now shows **Open** instead of **Mount** — clicking it takes you to the
-running instance rather than trying to remount it here (which the server
-now refuses with `409 instance_live`, to stop an in-place mount from
-sweeping a live instance's data out from under it). A World that isn't
-live, but you already have something else mounted in the current lab,
-shows **Launch** — a copy-to-clipboard `./arailctl start --world <slug>`
-command, not a one-click spawn (turning a loopback endpoint into a
-process-execution surface was a threat-model line this sprint declined to
-cross). In-place Mount/Unmount is removed entirely in the next release;
-use instances.
+`POST /api/worlds/select` (and `/api/worlds/import`) now survive for exactly
+two non-destructive cases: the *first* bind of a World into a lab that has
+none mounted, and unbind-to-default. Mounting a *different* World over one
+already mounted is refused with `409 in_place_switch_removed` — that path
+used to run `_sweep_other_worlds()`, an `rmtree` of the other World's staged
+knowledge-base layer, and this sprint retired the one UI affordance that
+could trigger it by accident.
+
+A World that's running as its own live instance shows **Open** instead of
+**Mount** — clicking it takes you to the running instance rather than trying
+to remount it here (which the server also refuses, with `409
+instance_live`, checked *before* `in_place_switch_removed` — if both apply,
+"it's already running on :8090, go there" is the more actionable message).
+A World that isn't live, but something else is already mounted in the
+current lab, shows **Launch** — a copy-to-clipboard `./arailctl start
+--world <slug>` command, not a one-click spawn (turning a loopback endpoint
+into a process-execution surface was a threat-model line this project
+declined to cross).
+
+The two survivors for "I want a different World than what's mounted here":
+
+- **Run it as its own instance** (recommended): `./arailctl start --world
+  <slug>` — a second, isolated lab, side by side with this one.
+- **Unmount, then mount** — two deliberate steps on `/worlds`: click
+  Unmount (back to AI Lab default), then Mount the other World. Destructive
+  of nothing in any *other* root, by construction — a root only ever holds
+  one World.
+
+The nav dropdown is a pure roster now: it never mounts, unmounts, or
+switches — every row either opens a live instance (a plain link) or reveals
+the `./arailctl start --world <slug>` command for one that isn't running.
+Mounting/unmounting live only on `/worlds`.
+
+**The un-brick path.** If the mounted World's bundle dir vanishes from
+`lab/worlds/` (moved, deleted, or corrupted out from under the mount
+record), `/worlds`' catalog can no longer render a per-World Unmount
+button for it — no card claims `mounted`. Two doors still free the root:
+`/worlds` itself renders a standalone "Unmount current World" control above
+the catalog whenever this happens (checked on every catalog render), and
+`./arailctl world unmount` always works from the CLI regardless of catalog
+state (`unmount()` operates on the mount record, never the bundle dir on
+disk — see `world_mount.py`).
+
+**`./arailctl world swap <dir>` still exists, deliberately.** It is a
+direct CLI-only escape hatch to `world_mount.swap()` — a single-step
+in-place switch — kept for scripting/operator use. `/api/worlds/select`,
+`/api/worlds/import`, and `/api/worlds/import-zip` all enforce the removal
+above and never call `swap()`. **One browser surface still does:**
+`POST /api/worlds/forge/confirm` (the Forge flow's "confirm" step) also
+calls `world_mount.swap()` when a World is already mounted, and — like the
+other three doors before this sprint's fixes — is refused with
+`409 in_place_switch_removed` when the mounted World differs from the one
+just forged. Confirming a forge of the *already-mounted* World (a re-forge,
+same slug), or forging into an empty root, both still mount normally. If
+you want the guaranteed-safe two-step swap, use `./arailctl world unmount`
+then `./arailctl world mount <dir>` instead.
 
 ## `status` reference
 

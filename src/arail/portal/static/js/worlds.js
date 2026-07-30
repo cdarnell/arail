@@ -624,9 +624,12 @@
       var currentSlug = worldsRes.data.current || null;
       var grid = $('catalog-grid');
       grid.textContent = '';
-      (worldsRes.data.worlds || []).forEach(function (w) {
+      var worlds = worldsRes.data.worlds || [];
+      var anyCardMounted = worlds.some(function (w) { return w.mounted; });
+      worlds.forEach(function (w) {
         grid.appendChild(worldCard(w, instancesBySlug, currentSlug));
       });
+      renderStrayMountHint(currentSlug, anyCardMounted);
       // Import hint card
       var imp = document.createElement('div');
       imp.className = 'world-card import-card';
@@ -639,6 +642,39 @@
       imp.appendChild(d);
       grid.appendChild(imp);
     });
+  }
+
+  // Stray-mount escape hatch (F3, REVIEW.md ASK-2): if the root is mounted
+  // but its bundle dir vanished/was corrupted out from under it, no
+  // catalog card claims `mounted`, so no per-card Unmount button renders
+  // anywhere -- and the nav dropdown's old catalog-independent unbind door
+  // was removed this sprint. Render a standalone Unmount control above the
+  // grid so the root can always be freed from the UI, not just the CLI
+  // (`./arailctl world unmount`).
+  function renderStrayMountHint(currentSlug, anyCardMounted) {
+    var host = $('stray-mount-hint');
+    if (!host) return;
+    host.textContent = '';
+    if (!currentSlug || anyCardMounted) return;
+    var box = document.createElement('div');
+    box.className = 'card stray-mount-hint';
+    box.style.cssText = 'display:flex;align-items:center;gap:.6rem;padding:.6rem .9rem;margin-bottom:1rem;';
+    var msg = document.createElement('span');
+    msg.style.cssText = 'flex:1;font-size:.82rem;';
+    msg.textContent = 'This lab is bound to "' + currentSlug + '", but its files ' +
+      "aren't in the catalog below (moved, deleted, or corrupted).";
+    box.appendChild(msg);
+    var btn = document.createElement('button');
+    btn.className = 'btn btn-ghost btn-sm';
+    btn.textContent = 'Unmount current World (' + currentSlug + ')';
+    btn.addEventListener('click', function () {
+      api('POST', '/api/worlds/select', { slug: 'default' }).then(function (r) {
+        if (r.ok) location.reload();
+        else if (r.data && r.data.message) window.alert(r.data.message);
+      });
+    });
+    box.appendChild(btn);
+    host.appendChild(box);
   }
 
   // Launch never spawns a process from the browser — it renders the exact
@@ -735,8 +771,13 @@
       mnt.disabled = !w.valid;
       mnt.addEventListener('click', function () {
         api('POST', '/api/worlds/select', { slug: w.slug }).then(function (r) {
-          if (r.ok) location.reload();
-          else if (r.data && r.data.message) window.alert(r.data.message);
+          if (r.ok) { location.reload(); return; }
+          // Race: another tab mounted between render and click -- the
+          // server is authoritative (in_place_switch_removed). Surface its
+          // message, then re-fetch so the button matrix reflects reality
+          // instead of trusting stale client state.
+          if (r.data && r.data.message) window.alert(r.data.message);
+          renderCatalog();
         });
       });
       actions.appendChild(mnt);
