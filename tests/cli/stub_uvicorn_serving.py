@@ -95,5 +95,15 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             os._exit(0)
 
 
+# REVIEW.md B2/T35: a golden-path scenario stops this stub and immediately
+# rebinds the SAME port for a fresh instance (stop --root; restart --root).
+# Without SO_REUSEADDR, macOS leaves the just-closed listening socket in a
+# state that makes the very next bind() fail with "Address already in
+# use" (Errno 48) even though nothing is actually still listening — the
+# same reuse gap tests/cli/lib.sh:write_stub_listen_only's python stub
+# already avoids via setsockopt(SO_REUSEADDR). allow_reuse_address is
+# TCPServer's documented equivalent.
+socketserver.TCPServer.allow_reuse_address = True
+
 with socketserver.TCPServer((_host, _port), _Handler) as httpd:
     httpd.serve_forever()

@@ -296,6 +296,22 @@ write_stub_uvicorn_serving() {
 # argv (module target + --host/--port) to hand off to the python stub
 # server; every behavior knob is an env var the driver sets before it
 # invokes start.sh/arailctl (see stub_uvicorn_serving.py).
+#
+# REVIEW.md B2/T35: deliberately NOT \`exec\`ing into python3 (the original
+# shape). exec would REPLACE this wrapper's own argv with python3's — which
+# drops --app-dir/--port from what pgrep -f / ps -o command= can see,
+# since the python stub only receives the 3 positional args it needs. A
+# golden-path scenario that drives a REAL \`stop --root\` (reset.sh's
+# stop_services(), which finds its kill candidates via pgrep -f against
+# the ORIGINAL uvicorn-shaped argv, exactly as production's real uvicorn
+# binary is invoked) needs this wrapper's OWN argv — "uvicorn <module>
+# --host H --app-dir D --port P --log-level L", byte-for-byte what
+# start.sh actually passed — to stay visible the whole time it runs.
+# Backgrounding the python child and forwarding TERM/INT to it (instead of
+# exec) preserves that, with no change to the externally-observable
+# behavior any existing scenario (T13-T17, T18a, warmup) depends on: the
+# recorded pid still answers HTTP the instant it's up and still frees the
+# port the instant it's killed.
 module=""; host="127.0.0.1"; port="8080"
 while [[ \$# -gt 0 ]]; do
     case "\$1" in
@@ -306,7 +322,10 @@ while [[ \$# -gt 0 ]]; do
         *) [[ -z "\$module" ]] && module="\$1"; shift ;;
     esac
 done
-exec "$fake/.venv/bin/python3" "$fake/.venv/stub_uvicorn_serving.py" "\$module" "\$host" "\$port"
+"$fake/.venv/bin/python3" "$fake/.venv/stub_uvicorn_serving.py" "\$module" "\$host" "\$port" &
+_stub_child=\$!
+trap 'kill "\$_stub_child" 2>/dev/null; wait "\$_stub_child" 2>/dev/null; exit 0' TERM INT
+wait "\$_stub_child"
 EOF
     chmod +x "$fake/.venv/bin/uvicorn"
 }

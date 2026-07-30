@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # tests/cli/root_start_driver.sh — regression driver for the root-lab
 # readiness gate (sprints/2026-07-29-elite-cli/ARCHITECTURE.md §8, WP2).
-# Gates: T13-T17, F1, F29, F30, F31.
+# Gates: T13-T17, F1, F29, F30, F31, T35 (§16.2 happy path).
 #
 # Drives the REAL scripts/start.sh (and, for T17, the REAL arailctl daemon
 # branch) against a throwaway fake repo with a REAL-BINDING stub uvicorn
@@ -258,4 +258,97 @@ rc17b=$?
 echo "$out17b" | grep -qi "portal.err.log" || fail "T17b: no log-tail hint — output:\n$out17b"
 ok_scenario
 
-echo "OK: ${pass_count} scenario(s) passed — root-lab readiness gate (T13-T17)"
+# ---------------------------------------------------------------------------
+# T35 (§16.2 happy path, REVIEW.md m10): golden path on a clean fake repo —
+# start --root --no-browser -> status (0) -> restart --root -> status (0)
+# -> stop --root -> status (4). Every step non-tty, every exit code
+# asserted. This is also the only end-to-end coverage `restart --root`'s
+# FOREGROUND path has at all (root_start_driver.sh's T13-T17 only ever
+# drive `start`; restart_driver.sh's --root scenarios stop short of a
+# real re-start), and — since it drives a REAL `stop --root` against a
+# REAL running root lab spawned by a REAL `start --root` — it is the one
+# scenario that would have caught B2 in its original, unscoped-fallback
+# shape even without a fabricated sibling instance.
+#
+# `start --root` and `restart --root` both block in a foreground `wait`
+# once up (same shape as T13/T18a), so each is backgrounded via a tiny
+# exec-wrapper script — `exec`, not `cmd &` inside `( )`, so the
+# backgrounded pid IS start.sh's own pid (no subshell indirection): a
+# SIGTERM sent to that pid reaches start.sh's own `trap cleanup INT TERM`
+# directly, exactly like a real terminal Ctrl-C would.
+# ---------------------------------------------------------------------------
+_new_scenario repo35; fake35="$FAKE"
+fixture35="$(_fixture "$fake35")"
+
+cat > "$WORK/t35_run_start.sh" <<EOF
+#!/usr/bin/env bash
+cd "$fake35"
+export HOME="$FAKE_HOME" PATH="$SAFE_PATH" ARAIL_NO_BROWSER=1
+export STUB_FIXTURE="$fixture35" STUB_STATUS=200
+exec bash scripts/start.sh --root --no-browser
+EOF
+chmod +x "$WORK/t35_run_start.sh"
+cat > "$WORK/t35_run_restart.sh" <<EOF
+#!/usr/bin/env bash
+cd "$fake35"
+export HOME="$FAKE_HOME" PATH="$SAFE_PATH" ARAIL_NO_BROWSER=1
+export STUB_FIXTURE="$fixture35" STUB_STATUS=200
+exec bash arailctl restart --root
+EOF
+chmod +x "$WORK/t35_run_restart.sh"
+
+# _t35_wait_for_marker <logfile> <ERE> — NOT a curl/port poll. `restart
+# --root`'s stop phase (a REAL stop_services() call) can take up to ~2s to
+# confirm the OLD portal is dead before the start phase even begins
+# re-spawning a NEW one; polling the port alone cannot tell "the OLD
+# server is still up because the restart hasn't gotten to the stop yet"
+# apart from "the NEW server came up for real" — the first check can
+# succeed instantly against the STILL-LIVE old process, sending this
+# scenario on to its next step (a second `stop --root`) while restart's
+# own stop-then-start is still in flight underneath it (found by running
+# this scenario back-to-back after T13-T17: flaked once in ~8 runs with a
+# genuinely torn state — Portal up, Memory down — exactly what that race
+# produces). Waiting for start.sh's own "✓ Portal" readiness line in the
+# invocation's OWN log is unambiguous: it only ever prints once, after
+# THIS invocation's identity-gated readiness probe (§8.2) itself passed.
+_t35_wait_for_marker() {
+    local log="$1" marker="$2" i
+    for i in $(seq 1 100); do
+        grep -qE "$marker" "$log" 2>/dev/null && return 0
+        sleep 0.1
+    done
+    return 1
+}
+_t35_run_status() {
+    ( cd "$fake35" && HOME="$FAKE_HOME" PATH="$SAFE_PATH" _timeout 10 bash arailctl status </dev/null 2>&1 )
+}
+
+"$WORK/t35_run_start.sh" > "$WORK/t35_start.log" 2>&1 &
+t35_start_pid=$!
+_t35_wait_for_marker "$WORK/t35_start.log" '✓ Portal' || fail "T35: start --root never became ready — log:\n$(cat "$WORK/t35_start.log")"
+
+t35_out_status1="$(_t35_run_status)"; t35_rc_status1=$?
+[[ "$t35_rc_status1" == "0" ]] || fail "T35: status after start --root expected exit 0, got $t35_rc_status1 — output:\n$t35_out_status1"
+
+"$WORK/t35_run_restart.sh" > "$WORK/t35_restart.log" 2>&1 &
+t35_restart_pid=$!
+_t35_wait_for_marker "$WORK/t35_restart.log" '✓ Portal' || fail "T35: restart --root never became ready — log:\n$(cat "$WORK/t35_restart.log")"
+echo "$(cat "$WORK/t35_restart.log")" | grep -qi "the lab is now DOWN" && fail "T35: restart --root reported the lab as DOWN — log:\n$(cat "$WORK/t35_restart.log")"
+
+t35_out_status2="$(_t35_run_status)"; t35_rc_status2=$?
+[[ "$t35_rc_status2" == "0" ]] || fail "T35: status after restart --root expected exit 0, got $t35_rc_status2 — output:\n$t35_out_status2"
+
+t35_out_stop="$( cd "$fake35" && HOME="$FAKE_HOME" PATH="$SAFE_PATH" _timeout 10 bash arailctl stop --root </dev/null 2>&1 )"
+t35_rc_stop=$?
+[[ "$t35_rc_stop" == "0" ]] || fail "T35: stop --root expected exit 0, got $t35_rc_stop — output:\n$t35_out_stop"
+
+sleep 0.3
+t35_out_status3="$(_t35_run_status)"; t35_rc_status3=$?
+[[ "$t35_rc_status3" == "4" ]] || fail "T35: status after stop --root expected exit 4 (nothing running), got $t35_rc_status3 — output:\n$t35_out_status3"
+ok_scenario
+
+cli_test_kill_port_listener "$PORTAL"
+kill "$t35_start_pid" "$t35_restart_pid" 2>/dev/null || true
+wait "$t35_start_pid" "$t35_restart_pid" 2>/dev/null || true
+
+echo "OK: ${pass_count} scenario(s) passed — root-lab readiness gate (T13-T17, T35)"
