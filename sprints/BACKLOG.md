@@ -380,6 +380,28 @@ collision during the ~1-2 second `[6/8]`→`[8/8]` boot span) and requires an
 operator to have already chosen to run a World on the root lab's own
 configured port — an unusual, non-default configuration.
 
+**Addendum (QA pass, `sprints/2026-07-29-elite-cli/TEST_REPORT.md` §8):**
+the residual has a SECOND, non-timing route to the same outcome. The
+exclusion set `stop_services` builds is populated only from **readable**
+live registry records (`inst_read_record` succeeding). A **corrupt**
+registry record — the same "unreadable/truncated JSON" shape `status
+--json` already has to tolerate elsewhere in this sprint (QA-4) — makes
+`inst_read_record` fail for that slug, so the record's pids are silently
+absent from the exclusion set even though the instance itself may be
+genuinely alive and matched by the fallback pattern. No concurrent boot or
+same-port timing is required to hit this route — a corrupt-on-disk record
+is sufficient by itself. Same narrow blast radius as the boot-window
+residual above (still requires the fallback's other preconditions: a
+same-port collision and no `--app-dir` in the process's argv), and the
+same `.claim`-file-based remedy proposed above would not close this second
+route on its own — a corrupt *record* is a different failure shape than a
+*missing* one, and the fix would need to treat "registry entry exists but
+is unreadable" as itself grounds to withhold the fallback (fail closed)
+rather than silently proceeding as if no instance were there at all. Filed
+here rather than as a new entry since it shares the same root component,
+the same fallback mechanism, and the same recommended review-cycle
+treatment as the timing residual above.
+
 ---
 
 ## `test_reset_stop_scope.py`'s pre-existing failure leaves B2 unit-untested
