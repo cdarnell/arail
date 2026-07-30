@@ -107,7 +107,7 @@ def test_daemon_active_true_only_with_pid_line(tmp_path):
 
 def _run_start_guard(
     home: Path, plist_present: bool, launchctl_pid: str | None,
-    list_only: bool = False, world_slug: str = "",
+    list_only: bool = False, world_slug: str = "", root_only: bool = False,
 ) -> subprocess.CompletedProcess:
     """Drive just start.sh's daemon guard block via a stubbed environment.
 
@@ -115,8 +115,12 @@ def _run_start_guard(
     guard block extracted from start.sh so this stays pinned to the real
     file (not a reimplementation), mirroring tests/test_reset_stop_scope.py's
     extraction pattern. The guard now runs AFTER arg parsing (REVIEW.md m2),
-    so it reads LIST_ONLY/WORLD_SLUG/BIND/PORTAL_PORT from the caller —
-    exactly the variables start.sh's own arg-parsing block would have set.
+    so it reads LIST_ONLY/WORLD_SLUG/ROOT_ONLY/BIND/PORTAL_PORT from the
+    caller — exactly the variables start.sh's own arg-parsing block would
+    have set. ROOT_ONLY (sprints/2026-07-29-elite-cli/ARCHITECTURE.md §10)
+    is set here for the same reason WORLD_SLUG already is: the guard block
+    now reads it under `set -u`, so an extraction that doesn't supply it
+    would abort with "unbound variable" rather than exercising the guard.
     """
     start_sh = (REPO_ROOT / "scripts" / "start.sh").read_text(encoding="utf-8")
     marker_start = "# Daemon mode guard"
@@ -143,6 +147,7 @@ def _run_start_guard(
         BIND="127.0.0.1"
         LIST_ONLY="{1 if list_only else 0}"
         WORLD_SLUG="{world_slug}"
+        ROOT_ONLY="{1 if root_only else 0}"
         uname() {{ echo Darwin; }}
         launchctl() {{ {launchctl_body}; }}
         # shellcheck disable=SC1091
@@ -161,6 +166,17 @@ def test_start_refuses_when_daemon_active(tmp_path):
     res = _run_start_guard(tmp_path / "home", plist_present=True, launchctl_pid="4242")
     assert res.returncode == 1
     assert "Daemon mode is active" in res.stdout
+    assert "GUARD_PASSED" not in res.stdout
+
+
+def test_start_refuses_root_only_when_daemon_active(tmp_path):
+    # ARCHITECTURE.md §4.2/§10 (sprints/2026-07-29-elite-cli): --root gets
+    # the same symmetric refusal --world already has — named, not the
+    # generic message, and never a silent fall-through to a kickstart.
+    res = _run_start_guard(tmp_path / "home", plist_present=True, launchctl_pid="4242", root_only=True)
+    assert res.returncode == 1
+    assert "Daemon mode is active" in res.stdout
+    assert "--root is redundant here" in res.stdout
     assert "GUARD_PASSED" not in res.stdout
 
 

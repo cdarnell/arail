@@ -1,11 +1,16 @@
-# Build log: elite-cli — WP1 & WP2
+# Build log: elite-cli — WP1 through WP5
 
 **Architecture:** [ARCHITECTURE.md](./ARCHITECTURE.md) at 42e87f4
 **Started:** 2026-07-29
-**Scope of this log:** WP1 ("Foundations") and WP2 ("`scripts/lib/services.sh` +
-root-lab readiness gate") only, per the builder's task. WP3–WP8 are not
-started; `docs/cli.md` and the exit-code contract are written to reflect
-only what WP1+WP2 actually ship, not the full sprint vision.
+**Scope of this log:** WP1 ("Foundations"), WP2 (`scripts/lib/services.sh` +
+root-lab readiness gate), WP3 (`--root` for start/stop), WP4 (`restart`
+redesign), and WP5 (unified `status` + schema v2 + verdict codes), per two
+successive builder tasks. WP6–WP8 (warm-up, `install`/`update`/`upgrade`
+consolidation, final docs polish) are not started; `docs/cli.md` still
+reflects only what's shipped so far (WP1's verb list + the parts of the
+exit-code contract that exist today), per its own stated incremental-build
+policy — this log's later WPs deliberately did NOT touch it (see WP3/WP4/WP5
+notes below for why), leaving that file's next update to WP8 as planned.
 
 ## Plan
 
@@ -21,8 +26,19 @@ only what WP1+WP2 actually ship, not the full sprint vision.
 | WP2-2 | `scripts/start.sh` | root path: cleanup trap armed before first spawn, pre-spawn port check, per-service readiness phase, honest banner | `tests/cli/root_start_driver.sh` (T13-T16) | WP2 commit |
 | WP2-3 | `arailctl` | daemon-mode `start` readiness gate (poll + identity check instead of print-and-exit-0) | `tests/cli/root_start_driver.sh` (T17) | WP2 commit |
 | WP2-4 | `tests/cli/stub_uvicorn_serving.py`, `root_start_driver.sh` (new); `tests/cli/lib.sh` (additions) | the real-binding stub server + its driver | self | WP2 commit |
+| WP3-1 | `scripts/start.sh` | `--root` flag (`ROOT_ONLY`), mutual exclusion with `--world`, daemon-guard refusal, picker/refusal text gains `--root` + F11 disambiguation | `tests/cli/restart_driver.sh` (T18, F11) | WP3 commit |
+| WP3-2 | `scripts/reset.sh` | `--root` arm on `stop` — dispatches straight to `stop_services`, skips auto-resolution | `tests/cli/restart_driver.sh` (T18 exercises it indirectly via `start --root`'s own path; no dedicated `stop --root` scenario — see WP3 notes) | WP3 commit |
+| WP3-3 | `arailctl` | `start`'s daemon-branch argv-forward bypass list gains `--root` (companion edit — see WP3 notes) | `tests/test_daemon_predicate.py::test_start_refuses_root_only_when_daemon_active` | WP3 commit |
+| WP3-4 | `tests/cli/lib.sh` (additions), `tests/cli/restart_driver.sh` (new) | `cli_test_make_world`, `cli_test_fabricate_live_instance`, `cli_test_write_stub_ps_for_slugs` + the T18/F11 driver | self | WP3 commit |
+| WP3-5 | `tests/test_daemon_predicate.py` | extraction harness gains `root_only=` (the guard block it pins now reads `$ROOT_ONLY`) + a direct refusal test | self | WP3 commit |
+| WP4-1 | `arailctl` | `restart` rewritten: daemon-mode refusal for `--world`/`--root` (F9) + readiness gate; foreground target resolution (registry snapshot, scoped stop, injected `--world`, `--all` refusal, ≥2-live refusal), DOWN notice on post-stop start failure (F13) | `tests/cli/restart_driver.sh` (T19-T21, F9, F12, F13) | WP4 commit |
+| WP4-2 | `tests/cli/restart_driver.sh` (extended) | T19-T21/F9/F12/F13 scenarios | self | WP4 commit |
+| WP5-1 | `scripts/status.sh` | single collector → one `arail.status/v2` JSON document → two renderers (`--json`/`--json=full` and the human table); HTTP probes (`services.sh`) replace `pgrep` as verdict source; `pgrep` demoted to an owner hint; `--json=instances` preserves the bare v1 array; `--no-probe`/`--quiet`/`--no-sizes` flags; verdict codes 0/3/4; `pwd` → `pwd -P` | `tests/cli/status_driver.sh` (T3, T8, T10-T12, T34), F2, F18, F20 | WP5 commit |
+| WP5-2 | `docs/concurrent-worlds.md` | documents `--json=instances` as the stable, byte-compatible form | manual read-through | WP5 commit |
+| WP5-3 | `tests/cli/status_driver.sh` (new) | the unified status model + schema v2 + verdict-code driver | self | WP5 commit |
 
-Ordering matched the architecture's recommended sequence (WP1 → WP2).
+Ordering matched the architecture's recommended sequence (WP1 → WP2 → WP3 →
+WP4 → WP5).
 
 ## Execution
 
@@ -144,36 +160,99 @@ Built as planned, with these deltas:
   table assigns `restart`'s redesign to WP4, which is out of scope for
   this delivery. Only `start`'s daemon branch in `arailctl` was changed.
 
-Commit: `<to be filled after commit>` — "elite-cli WP2: scripts/lib/services.sh
+Commit: `7daeb43` — "elite-cli WP2: scripts/lib/services.sh
 + root-lab readiness gate"
+
+### WP3 — `--root` for start / stop
+
+Built as planned, with these deltas:
+
+- **`arailctl`'s `start`-case argv-forward bypass list also gained `--root`**
+  (`--world|--world=*|--list|-h|--help` → `...|--root`) — not in this WP's
+  literal `Touches` list in §17 (which names only `scripts/start.sh` and
+  `scripts/reset.sh`), but required to make `start --root` under an active
+  daemon reach the SAME symmetric refusal `--world` already gets
+  (§4.2: "daemon_active? yes + (`--world`|`--root`) → refuse"), rather than
+  silently falling through to the existing kickstart branch and discarding
+  the flag. This is a one-line addition to a bypass mechanism that already
+  exists for exactly this purpose (added for `--world` in WP2), not a new
+  mechanism — logged here per the same "small necessary companion edit"
+  precedent WP1 set for `src/arail/doctor.py` (also not in WP1's literal
+  file list, also required to satisfy the WP's own described behavior).
+- **`tests/test_daemon_predicate.py` needed a matching update, not just a
+  new test.** `_run_start_guard()` extracts start.sh's daemon-guard block
+  verbatim and re-sources it under a controlled environment with
+  `LIST_ONLY`/`WORLD_SLUG` pre-set — the guard now also reads `$ROOT_ONLY`
+  under `set -u`, so the extraction aborted with "unbound variable" the
+  moment `--root`'s new `elif` branch was added, failing a PROTECTED test
+  (`test_start_refuses_when_daemon_active`). Fixed by adding a `root_only=`
+  parameter (mirroring `world_slug=`) and a new direct test
+  (`test_start_refuses_root_only_when_daemon_active`) exercising the new
+  branch's exact wording. This is the same class of "extraction pins the
+  literal block" maintenance the architecture already anticipated for this
+  file (F4/T2's baseline) — not a design change, just keeping the pin
+  current.
+- **`stop --root` has no dedicated scenario in this WP's driver.** T18/F11
+  are both `start`-side per the numbered test list; `reset.sh`'s `--root`
+  arm is a straight-line dispatch to the already-well-tested
+  `stop_services()` (unchanged itself), so its own new code is the
+  three-line `case` arm plus the `elif` dispatch — both exercised
+  indirectly (`stop_services` runs as part of every `full`/`env`/bare-stop
+  scenario already in `tests/test_reset_paths.py`); a dedicated
+  `stop --root` scenario was judged low-value relative to the T18/F11
+  scenarios that exercise the actually-novel logic (`ROOT_ONLY`'s
+  short-circuit, the mutual-exclusion check, the F11 disambiguation text).
+  Flagging this explicitly rather than silently skipping it.
+- **F11's disambiguation text is a single NOTE line**, present in both the
+  non-interactive refusal and the interactive picker header — worded to
+  name the exact fix (`--world root` for the World, `--root` for the root
+  lab) rather than just warning something is ambiguous.
+- **Reused, did not duplicate, the existing test-harness patterns**: the
+  new `--root` driver reuses `tests/world_bundle_builder.py` (via a new
+  `cli_test_make_world` wrapper in `tests/cli/lib.sh`, mirroring
+  `tests/instance_start_driver.sh`'s own `_make_world`) for the fixture
+  World bundles, and the existing `write_stub_uvicorn_serving` +
+  `_fixture`-style JSON body for the root-lab identity check — no second
+  World-bundle builder, no second serving stub.
+
+Commit: `pending` — "elite-cli WP3: --root for start/stop"
 
 ## Architect feedback required
 
-None. No part of the architecture's WP1/WP2 spec was found to be wrong,
+None. No part of the architecture's WP1–WP3 spec was found to be wrong,
 ambiguous in a way that blocked implementation, or in conflict with
 another interface contract. The deviations above are implementation-level
 judgment calls (color-quoting fix, test strategy for a system-mutating
-script, minor helper-return-code extension, timing looseness) — all
-documented, none requiring a design change.
+script, minor helper-return-code extension, timing looseness, the
+`arailctl` bypass-list companion edit, the `test_daemon_predicate.py`
+extraction-harness update) — all documented, none requiring a design
+change.
 
-## Final state
+## Final state (through WP3)
 
-- **Commits:** 2 (`fa93992` WP1, plus WP2 — see git log for the second SHA).
-- **Files changed:** WP1 — 14 files (8 modified, 6 new). WP2 — adds
-  `scripts/lib/services.sh`, `tests/cli/stub_uvicorn_serving.py`,
-  `tests/cli/root_start_driver.sh`, `tests/test_cli_root_start.py` (new);
-  modifies `scripts/start.sh`, `arailctl`, `tests/cli/lib.sh`.
-- **New test drivers:** `tests/cli/color_driver.sh` (5 scenarios),
-  `tests/cli/verbs_driver.sh` (6 scenarios), `tests/cli/root_start_driver.sh`
-  (6 scenarios: T13-T15, T16, T17a/b) — 17 new scenarios total, all
-  green.
+- **Commits:** 3 (`fa93992` WP1, `7daeb43` WP2, WP3 pending — see git log).
+- **Files changed (WP3):** `arailctl`, `scripts/start.sh`, `scripts/reset.sh`,
+  `tests/test_daemon_predicate.py` modified; `tests/cli/lib.sh` extended
+  (`cli_test_make_world`, `cli_test_fabricate_live_instance`,
+  `cli_test_write_stub_ps_for_slugs` — the last two built for WP4's reuse,
+  added now since they belong in the shared library); `tests/cli/restart_driver.sh`
+  new.
+- **New test scenarios (WP3):** `tests/cli/restart_driver.sh` — 4 scenarios
+  (T18a/b/c, F11), all green.
 - **Protected baseline:** `tests/instance_start_driver.sh` (11/11),
-  `tests/instance_qa_driver.sh` (10/10), `tests/shell_source_safety_driver.sh`,
-  and the full pytest suite for `test_instance_*`, `test_daemon_predicate`,
-  `test_reset_paths`, `test_shell_source_safety`, `test_setup_extras`,
-  `test_with_coder_flag`, `test_qa_airgap_toggle_setup_happy`,
-  `setup_ladder/`, `test_boot_warm`, `test_autochecks_boot` — all still
-  green after both commits (260+ pytest cases, 0 regressions).
+  `tests/instance_qa_driver.sh` (10/10), `tests/cli/root_start_driver.sh`
+  (6/6), `tests/cli/color_driver.sh` (5/5), `tests/cli/verbs_driver.sh`
+  (6/6) — all still green.
+- **Full pytest suite diffed against a `git stash` baseline** (the
+  pre-WP3 tree): identical 88 pre-existing failures/errors before and
+  after (an environment gap — several optional packages, e.g. `mlx`, are
+  not installed in this `.venv`, plus one apparently order-dependent
+  flake in the 3800+-test full run that reproduces green in isolation
+  both before and after this change) — **zero net regressions**. The one
+  test that DID fail immediately after the `--root` edit
+  (`test_daemon_predicate.py::test_start_refuses_when_daemon_active`) was
+  fixed in the same commit (see WP3 notes above) and is included in the
+  "after" run's green set.
 - **Pre-existing, unrelated failure found (not caused by this build):**
   `tests/test_reset_stop_scope.py::test_foreign_uvicorn_survives` and
   `::test_port_scoped_helpers` fail on `main` before this sprint's changes
@@ -181,8 +260,10 @@ documented, none requiring a design change.
   test's `awk`-extracted `stop_services()` body calls
   `_ollama_pid_if_we_started_it`, a helper defined outside the extracted
   range, so the sandboxed driver aborts with "command not found". Not
-  touched (out of WP1/WP2 scope; `reset.sh`'s only WP1 change is color
-  gating). Flagging for the reviewer/QA pass.
+  touched (out of scope; `reset.sh`'s changes for WP1/WP3 are color
+  gating and the `--root` arm respectively, neither of which touch
+  `stop_services()`'s body). Flagging for the reviewer/QA pass.
 - **Doctor/status smoke:** `./arailctl doctor` exits 0 on this checkout
-  (healthy); `ARAIL_NO_BROWSER=1 ./arailctl status` exits 0.
+  (healthy); `ARAIL_NO_BROWSER=1 ./arailctl status` (human + `--json`)
+  exits 0, unchanged (status.sh is WP5's target, not touched yet).
 - **No TODO comments without owner/date added.** No commented-out code.

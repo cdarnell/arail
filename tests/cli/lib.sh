@@ -83,6 +83,73 @@ make_fake_repo() {
     printf '%s' "$fake"
 }
 
+# cli_test_make_world <fake-repo> <slug> <display-name> — a real, seal-valid
+# World bundle under <fake-repo>/lab/worlds/<slug>, built via the SAME
+# fixture builder tests/instance_start_driver.sh already uses
+# (tests/world_bundle_builder.py) rather than a second, hand-rolled bundle
+# layout. Requires REAL_VENV (world_mount's seal check needs `arail.*`).
+cli_test_make_world() {
+    local fake="$1" slug="$2" name="$3"
+    [[ -n "$REAL_VENV" ]] || return 1
+    PYTHONPATH="$CLI_TEST_REPO/tests" "$REAL_VENV/bin/python" -c "
+from pathlib import Path
+from world_bundle_builder import make_bundle
+make_bundle(Path('$fake/lab/worlds'), slug='$slug', display_name='$name')
+"
+}
+
+# cli_test_fabricate_live_instance <fake-repo> <slug> — registers a
+# registry/v1 record for <slug> backed by a REAL long-lived `sleep`
+# process (standing in for portal_pid/memory_pid/launcher_pid alike, the
+# same trick tests/instance_start_driver.sh's ceiling scenario already
+# uses) so inst_alive() reports it live WITHOUT running the full 8-stage
+# boot. Prints the sleep pid on stdout — the caller kills it during
+# cleanup if reset.sh's own stop path didn't already reap it. Requires a
+# stub `ps` on PATH that returns a cmdline containing
+# "uvicorn.*arail.portal.app", "--port <port>", "scripts/start.sh", and
+# "--world <slug>" for whatever pid is queried (see
+# cli_test_write_stub_ps_for_slugs, below) — this function does not write
+# that stub itself, since a scenario with multiple fabricated instances
+# needs exactly ONE stub answering for all of them.
+cli_test_fabricate_live_instance() {
+    local fake="$1" slug="$2" port="$3"
+    mkdir -p "$fake/lab/instances/registry.d"
+    sleep 30 &
+    local pid=$!
+    cat > "$fake/lab/instances/registry.d/${slug}.json" <<EOF
+{"schema":"arail.instance-registry/v1","slug":"${slug}","display_name":"${slug}",
+ "checkout":"$fake","instance_root":"$fake/lab/instances/${slug}",
+ "data_dir":"$fake/lab/instances/${slug}/data","pkb_root":"$fake/lab/instances/${slug}/pkb",
+ "bind":"127.0.0.1","portal_port":${port},"lance_port":$((port + 4)),
+ "launcher_pid":${pid},"portal_pid":${pid},"memory_pid":${pid},"token":"t",
+ "started_at":"2026-01-01T00:00:00Z","arailctl_version":"test"}
+EOF
+    printf '%s' "$pid"
+}
+
+# cli_test_write_stub_ps_for_slugs <bindir> <slug1>:<port1> [<slug2>:<port2> ...]
+# — a `ps` stub whose cmdline output contains every given "--port <n>" AND
+# "--world <slug>" needed to satisfy stop_instance()'s (scripts/reset.sh)
+# per-field substring verification, regardless of which pid was actually
+# queried (this stub ignores its own -p argument entirely, same shape as
+# tests/instance_start_driver.sh's ceiling-scenario `ps` stub — a single
+# fixed cmdline satisfying multiple records' checks via substring matches).
+cli_test_write_stub_ps_for_slugs() {
+    local bin="$1"; shift
+    mkdir -p "$bin"
+    local line="python -m uvicorn arail.portal.app:app scripts/start.sh"
+    local pair slug port
+    for pair in "$@"; do
+        slug="${pair%%:*}"; port="${pair##*:}"
+        line="${line} --port ${port} --world ${slug}"
+    done
+    cat > "$bin/ps" <<EOF
+#!/usr/bin/env bash
+echo "${line}"
+EOF
+    chmod +x "$bin/ps"
+}
+
 # ── Fake venv: a REAL, working python (site-packages symlinked from the
 # real venv, so `import arail` works) but a `uvicorn` this harness fully
 # controls. Needed because `source .venv/bin/activate` (start.sh, and

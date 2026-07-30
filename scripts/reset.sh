@@ -662,6 +662,7 @@ usage() {
     echo "              Chain with 'pkb' if you truly want everything gone."
     echo "    destroy   Delete the entire local lab copy and app data"
     echo "    stop      Just stop running services"
+    echo "              [--world <slug>] [--root] [--all] — target one/root/all"
     echo ""
     echo "  If no mode given, interactive menu is shown."
     echo ""
@@ -732,10 +733,17 @@ confirm_and_run() {
 MODE=""
 STOP_WORLD=""
 STOP_ALL="false"
+# ARCHITECTURE.md §10 (sprints/2026-07-29-elite-cli, Ruling 5): --root
+# dispatches straight to stop_services (the root lab only), skipping the
+# auto-resolution branch entirely — so `stop --root` is well-defined and
+# non-failing even while World instances are live, mirroring start.sh's
+# own --root/--world split.
+STOP_ROOT="false"
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --yes|-y) AUTO_CONFIRM="true"; shift ;;
         --all)    STOP_ALL="true"; shift ;;
+        --root)   STOP_ROOT="true"; shift ;;
         # m9: a plain `shift 2` errors (aborting under `set -e`) when
         # `--world` is the final token and there's no $2 to shift past.
         --world)  STOP_WORLD="${2:-}"; shift; [[ $# -gt 0 ]] && shift ;;
@@ -795,6 +803,12 @@ case "${MODE:-}" in
             fi
         elif [[ "$STOP_ALL" == "true" ]]; then
             stop_all_instances
+            stop_services
+        elif [[ "$STOP_ROOT" == "true" ]]; then
+            # Root only — deliberately skips the auto-resolution branch
+            # below (which would otherwise also stop a lone live World
+            # instance). Non-failing even while instances are live: a World
+            # instance is never touched by this arm.
             stop_services
         elif command -v inst_list_slugs >/dev/null 2>&1; then
             LIVE_SLUGS=()

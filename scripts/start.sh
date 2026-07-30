@@ -81,9 +81,15 @@ WORLD_SLUG=""
 PORT_OVERRIDE=""
 LIST_ONLY=0
 ASSUME_YES=0
+# ARCHITECTURE.md §10 (sprints/2026-07-29-elite-cli, Ruling 5 — "non-
+# interactive root start"): the only spelling for "start the root lab",
+# even with |W|>=1 configured. Deliberately its own flag, never
+# `--world root` — a World literally named "root" must stay startable
+# (F11), so the two must never collapse into one code path.
+ROOT_ONLY=0
 
 _start_usage() {
-    echo "Usage: ./arailctl start [--world <slug>] [--port <n>] [--no-browser] [--list] [--yes]"
+    echo "Usage: ./arailctl start [--world <slug>] [--root] [--port <n>] [--no-browser] [--list] [--yes]"
 }
 
 while [[ $# -gt 0 ]]; do
@@ -92,6 +98,7 @@ while [[ $# -gt 0 ]]; do
             [[ $# -ge 2 ]] || { echo "--world requires a slug" >&2; _start_usage >&2; exit 2; }
             WORLD_SLUG="$2"; shift 2 ;;
         --world=*) WORLD_SLUG="${1#--world=}"; shift ;;
+        --root) ROOT_ONLY=1; shift ;;
         --port)
             [[ $# -ge 2 ]] || { echo "--port requires a number" >&2; _start_usage >&2; exit 2; }
             PORT_OVERRIDE="$2"; shift 2 ;;
@@ -107,6 +114,16 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 export ARAIL_NO_BROWSER="${ARAIL_NO_BROWSER:-0}"
+
+# ARCHITECTURE.md §10: --root and --world are mutually exclusive by
+# construction — checked immediately after parsing, before anything else
+# (including the daemon guard) touches either flag, so a usage mistake is
+# always reported as one regardless of daemon/World state.
+if [[ "$ROOT_ONLY" == "1" && -n "$WORLD_SLUG" ]]; then
+    echo "--root and --world are mutually exclusive" >&2
+    _start_usage >&2
+    exit 2
+fi
 
 # QA-2: `--port` used to accept anything matching ^[0-9]+$ — including 0
 # (privileged/ephemeral-request port; uvicorn then binds a real ephemeral
@@ -143,6 +160,18 @@ if [[ "$LIST_ONLY" != "1" ]]; then
             echo "Daemon mode is single-instance: it cannot host a second World."
             echo "  To run Worlds side by side:  ./arailctl uninstall-daemon && ./arailctl start --world ${WORLD_SLUG}"
             echo "  To keep the daemon:          use the lab it already serves at http://${BIND:-127.0.0.1}:${PORTAL_PORT:-8080}"
+        elif [[ "$ROOT_ONLY" == "1" ]]; then
+            # ARCHITECTURE.md §4.2/§8.3: symmetric with the --world refusal
+            # above — launchd already runs the root lab, so --root here is
+            # redundant rather than impossible, but it is still refused
+            # (was: silently ignored, falling through to a kickstart one
+            # level up in arailctl) so the operator's explicit ask is never
+            # silently discarded.
+            echo "Daemon mode is active (launchd supervises the lab on :${PORTAL_PORT:-8080})."
+            echo "--root is redundant here — launchd already runs the root lab."
+            echo "  To use it now:    http://${BIND:-127.0.0.1}:${PORTAL_PORT:-8080}"
+            echo "  To restart it:    ./arailctl restart --root"
+            echo "  Dev mode:         ./arailctl uninstall-daemon && ./arailctl start --root"
         else
             echo "Daemon mode is active (launchd supervises the lab)."
             echo "  Restart:  ./arailctl restart"
@@ -209,6 +238,19 @@ _instance_print_roster() {
     done < <(inst_list_slugs)
 }
 
+# F11: a World bundle can be validly named "root" (INST_SLUG_RE has no
+# reserved words) — that is NOT the same thing as --root, which always
+# means the root lab. True iff such a bundle is in the catalog, so the
+# picker (both its interactive and non-interactive forms) can spell out
+# the disambiguation rather than let the two silently look alike.
+_instance_world_named_root_exists() {
+    printf '%s' "$WORLD_CATALOG_JSON" | python3 -c '
+import json, sys
+worlds = json.load(sys.stdin)
+sys.exit(0 if any(w["slug"] == "root" for w in worlds) else 1)
+'
+}
+
 WORLD_CATALOG_JSON="$(_instance_world_catalog)"
 WORLD_COUNT="$(printf '%s' "$WORLD_CATALOG_JSON" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))')"
 
@@ -227,7 +269,13 @@ fi
 
 # ── Resolve which slug (if any) we are starting as an instance ─────────────
 TARGET_SLUG=""
-if [[ -n "$WORLD_SLUG" ]]; then
+if [[ "$ROOT_ONLY" == "1" ]]; then
+    # ARCHITECTURE.md §10: checked FIRST, ahead of --world/|W| counting/the
+    # picker — --root short-circuits all of it straight to the legacy root
+    # path below. Mutual exclusion with --world was already enforced right
+    # after parsing, so WORLD_SLUG is guaranteed empty by this point.
+    TARGET_SLUG=""
+elif [[ -n "$WORLD_SLUG" ]]; then
     TARGET_SLUG="$WORLD_SLUG"
 elif [[ "$WORLD_COUNT" == "0" ]]; then
     TARGET_SLUG=""  # legacy root lab — falls straight into the unchanged path below
@@ -241,12 +289,22 @@ import json, sys
 for w in json.load(sys.stdin):
     print("  ./arailctl start --world " + w["slug"], file=sys.stderr)
 '
+        # ARCHITECTURE.md §10: the non-interactive refusal must teach
+        # --root alongside the per-World lines — this is the entire fix
+        # for "CI/daemons cannot start the root lab" (gap 2).
+        echo "  ./arailctl start --root       (the root lab, not a World)" >&2
+        if _instance_world_named_root_exists; then
+            echo "  NOTE: a World is also named 'root' — --root always means the root lab; use --world root for that World (F11)." >&2
+        fi
         exit 2
     fi
     echo ""
     echo "Multiple Worlds are configured. Which lab do you want?"
     echo ""
-    echo "  0) ${LAB_NAME} (default — the root lab on :${PORTAL_PORT:-8080})"
+    echo "  0) ${LAB_NAME} (the root lab on :${PORTAL_PORT:-8080} — non-interactive: --root)"
+    if _instance_world_named_root_exists; then
+        echo "     NOTE: a World is also named 'root' below — that is a different thing from option 0 (F11)."
+    fi
     _rows="$(printf '%s' "$WORLD_CATALOG_JSON" | python3 -c '
 import json, sys
 for w in json.load(sys.stdin):

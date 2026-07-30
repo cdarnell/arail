@@ -282,10 +282,15 @@ case "$cmd" in
         # regardless of daemon state. Silently discarding argv in this
         # branch was the exact bug this sprint set out to fix, re-created
         # one level up (ARCHITECTURE.md §3.1) — see REVIEW.md B2.
+        # --root (sprints/2026-07-29-elite-cli/ARCHITECTURE.md §4.2/§10)
+        # joins the same bypass list for the same reason: start.sh's own
+        # daemon-active guard refuses it by name (redundant, not
+        # impossible) instead of this branch silently discarding it and
+        # kickstarting the daemon anyway.
         _arail_start_forwards_argv=0
         for _arail_start_arg in "$@"; do
             case "$_arail_start_arg" in
-                --world|--world=*|--list|-h|--help) _arail_start_forwards_argv=1; break ;;
+                --world|--world=*|--list|-h|--help|--root) _arail_start_forwards_argv=1; break ;;
             esac
         done
         if [[ "$_arail_start_forwards_argv" == "1" ]]; then
