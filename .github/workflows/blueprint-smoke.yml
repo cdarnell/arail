@@ -238,7 +238,14 @@ jobs:
               'memory-health': 'http://127.0.0.1:7414/health',
           }
 
-          deadline = time.time() + 120
+          # Concurrent Worlds' instance-mode startup does real per-instance
+          # provisioning (claim file, registry record, per-World PKB
+          # embedding) that a bare single-process boot never had to do --
+          # `Run non-interactive setup` in this same job now takes ~3.5
+          # minutes on a cold Ubuntu runner for comparable indexing work, so
+          # 120s was tuned for a startup path that no longer exists. Bumped
+          # to match that observed scale rather than re-guessing a number.
+          deadline = time.time() + 300
           last_error: str | None = None
           responses: dict[str, str] = {}
 
