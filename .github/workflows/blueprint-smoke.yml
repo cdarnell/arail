@@ -209,7 +209,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ./arailctl start > ci-artifacts/start.log 2>&1 &
+          # Concurrent Worlds (sprints/2026-07-28-concurrent-worlds/) made bare
+          # `arailctl start` require an explicit --world whenever more than one
+          # World is catalogued under lab/worlds/ and stdin isn't a TTY — this
+          # checkout ships several (ai, qukaizen, video-games), so the old bare
+          # invocation now exits 2 with a picker prompt instead of starting
+          # anything. Pin an explicit World and the health-check's hardcoded
+          # port so this golden-path smoke test keeps checking the base app,
+          # not a specific World's own content.
+          ./arailctl start --world ai --port 8080 > ci-artifacts/start.log 2>&1 &
           echo $! > ci-artifacts/start.pid
 
       - name: Wait for local health surfaces
