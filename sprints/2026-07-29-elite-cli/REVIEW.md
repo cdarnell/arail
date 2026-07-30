@@ -6,9 +6,17 @@
 **Spec (frozen input):** [../PROMPT-elite-cli.md](../PROMPT-elite-cli.md)
 **Reviewed surface:** `git diff 42e87f4..HEAD` — 40 files, +6718/−285
 
+> **Superseded — see [Re-review (2026-07-30)](#re-review-2026-07-30) at the
+> end of this file.** The builder landed a fix pass (`13461d7`, `3d57749`,
+> `08dacac`, `75b63aa`, `ca9c8aa`, `189439b`, `a362aad`). **Current verdict:
+> WEAK_PASS.** Everything from here to the Re-review section is the original
+> 2026-07-30 review, kept verbatim for the record — its findings are what
+> the fix pass answers, and its numbering (B1–B3, m1–m10, n1–n7) is what
+> the Re-review refers to.
+
 ---
 
-## Verdict: **BLOCK**
+## Verdict (original pass): **BLOCK**
 
 3 BLOCK · 10 must-fix minors · 7 nits.
 
@@ -566,3 +574,294 @@ being able to kill a sibling World" is not yet true.
 Re-review after 1–5 and 7–9. Items 6 and 10 can land in the same pass or as
 a documented follow-up ticket, but the sprint should not ship claiming a
 20 % security allocation while T30/T31/T32 do not exist.
+
+---
+
+# Re-review (2026-07-30)
+
+**Fix pass:** `13461d7` (B1 + m1) · `3d57749` (B2) · `08dacac` (B3) ·
+`75b63aa` (T30–T32, T35, F4/m7) · `ca9c8aa` (m2–m4, m6, m8–m9, n1–n3, n5) ·
+`189439b` (fixture-introduced hang) · `a362aad` (BUILD_LOG "Review fixes")
+**Re-reviewed surface:** `git diff 70bed95..HEAD` — 21 files, +1342/−64
+
+## Verdict: **WEAK_PASS**
+
+All 3 BLOCKs are fixed and **independently verified — including by
+reverting each fix and watching its new regression scenario fail.** All 10
+must-fix minors are addressed. 4 of 7 nits fixed; the 3 remaining
+dispositions are accepted (below). Nothing outstanding is a correctness,
+security, or data-loss defect.
+
+Ship with 4 documented follow-ups (§R6). One of them — the ARCHITECTURE
+§18 debt filing — was an explicit required action from the original pass
+and is the only reason this is not a clean PASS.
+
+---
+
+## R1. Verification performed (not taken on trust)
+
+**Drivers, all re-run at HEAD.** 68 CLI scenarios (was 57) + 21 protected:
+
+| Driver | Result | Δ |
+|---|---|---|
+| `color_driver.sh` | 5/5 | — |
+| `verbs_driver.sh` | 6/6 | F33 now anchored (n5) |
+| `status_driver.sh` | 13/13 | — |
+| `root_start_driver.sh` | 7/7 | **+T35 golden path** |
+| `restart_driver.sh` | 14/14 | **+2 B2 sibling-survival** |
+| `warmup_driver.sh` | 5/5 | — |
+| `install_driver.sh` | 18/18 | **+B1 zero-argv, +m3 bypass** |
+| `instance_start_driver.sh` | 11/11 | protected, unchanged |
+| `instance_qa_driver.sh` | 10/10 | protected, unchanged |
+
+**pytest.** 66 passed across 12 modules (was 54 across 10) — adds
+`test_cli_security_scan.py` (T30–T32) and
+`test_cli_daemon_readiness_degrade.py` (m2). Separately:
+`test_reset_paths.py`, `test_instance_stop_scope.py`, `test_boot_warm.py`,
+`test_autochecks_boot.py` → 39 passed. `test_reset_stop_scope.py`'s 2
+failures persist with **byte-identical** text
+(`_ollama_pid_if_we_started_it: command not found`; line number moved
+105→142 only because the extracted `stop_services` body grew) — still the
+pre-existing extraction gap, not a new regression.
+
+**Live smokes at HEAD.** `help` 0 · `status` 4 · `status --json` valid JSON
++ 4 · `--json=instances` `[]` + 4 · `--json=bogus` 2 · `doctor` 0 ·
+`doctor --strict` 3 · `install --help` 0 · `install daemon` 2 · `tier` 0 ·
+zero ANSI escapes in piped `status`.
+
+### B1 — fixed, and the net is real
+
+`scripts/install.sh:329-336` now guards on `${#ORIGINAL_ARGV[@]}` with two
+`exec` shapes (not `${arr[@]:-}`, correctly). My own pre-fix reproduction
+script now runs to completion:
+
+```
+  [1/5] source      ✓ 5ce09bd…d262e42 (1 commit(s))
+  [1/5] source      ✓ 5ce09bd…d262e42 (1 commit(s)) — resumed after self-update
+  [2/5] deps        ✗ pip install failed — see above     ← fixture has no pyproject.toml
+install: hard failure — see above.
+```
+
+The re-exec carries argv through to phase 2 and the run ends on a verdict
+line, not a bash error. **Fail-pre-fix confirmed independently:** I
+reverted *only* the count guard in a scratch tree and re-ran the driver —
+
+```
+FAIL: B1: bare zero-flag install crashed with a bash internal error
+scripts/install.sh: line 333: ORIGINAL_ARGV[@]: unbound variable
+```
+
+**Guard-idiom sweep (as asked).** Every `"${arr[@]}"` expansion in every
+sprint-touched shell file is now either count-guarded or provably
+non-empty: `arailctl:564` (inside the ≥2 branch), `:610`
+(`(( ${#_restart_start_argv[@]} > 0 ))`); `install.sh:133` (`read -ra` on a
+non-empty string always yields ≥1 — verified), `:335` (guarded), `:387/389`
+(literal 2-element); `start.sh:1023` (guarded, m1), `:1152` (`TTYD_OPTS`,
+always populated); `reset.sh:212` (guarded by the new
+`_stop_services_pid_is_instance_owned` count check), `:219/249/250/262/267/273/361/367/373/866`
+(all inside pre-existing `(( ${#…} > … ))` guards); `update.sh:403`
+(literal). No unguarded expansion remains.
+
+### B2 — fixed, and the net is real
+
+`scripts/reset.sh:180-215` builds `_inst_owned_pids` from live registry
+records via `inst_list_slugs`/`inst_alive`/`inst_read_record` — instances.sh
+stays the single source of truth — and `:234` excludes them from the
+**fallback** match only. Reading it closely, the scoping is right:
+
+- The strict patterns still require `--app-dir ${REPO_ROOT}`, which an
+  instance never carries, so they cannot reach an instance regardless.
+- Only *live* records are protected. A dead/reused pid is deliberately not
+  excluded, which preserves QA-17's fallback for a genuinely pre-upgrade
+  root-lab process — the right call, and correctly explained in-comment.
+- `command -v inst_list_slugs` guards the sandboxed single-file test copies.
+- The empty-array expansion is count-guarded.
+
+**Fail-pre-fix confirmed independently:** I reverted *only* the
+`&& ! _stop_services_pid_is_instance_owned "$fpid"` clause and re-ran
+`restart_driver.sh` —
+
+```
+FAIL: B2(stop --root): the sibling World instance was KILLED by 'stop --root'
+```
+
+The two new scenarios use `cli_test_fabricate_live_instance_portal_like`,
+a fixture whose *real* argv matches an instance portal — necessary because
+`stop_services` finds candidates via a real `pgrep -f` that no `ps` stub can
+influence. That is the same technique my own repro needed; the builder
+reached it independently and documented why.
+
+### B3 — fixed, verified at the **value** level
+
+`app.py:117` introduces `_MODEL_WARM_SKIP_REASON_ON_EXCEPTION =
+"warm failed — see the activity log"`; `app.py:6725` assigns it instead of
+`f"{type(e).__name__}: {e}"`; the real text still reaches `activity_log`
+(authenticated surface). I drove a live `TestClient` with an exception
+carrying every shape F16 bans at once — a credentialed provider URL, a
+`$HOME` path, and a model id:
+
+```
+warm_skipped: "warm failed — see the activity log"
+backend:      "openai_compat"
+  clean: provider.example.com · sk-secret · Qwen2.5 · config.json · ConnectionError · Errno · ://
+```
+
+The only `/Users` occurrence in the whole response is the pre-existing
+`checkout` field — the readiness probe's own identity field, shipped and
+audited since the Concurrent-Worlds sprint, out of this sprint's scope.
+
+I also closed the loop on the sibling `backend` field, which F16 constrains
+to "backend-class only": `ModelRouter.__init__` restricts `backend_name` to
+`BACKEND_MAP` keys, and the only other writer,
+`ModelRouter.from_backend`, is called with exactly four string literals
+(`registry/binding.py:116,126,132` → `"aerollm"`, `"claude"`,
+`"ollama_native"`, `"openai_compat"`). It is a genuinely closed set — no
+model id can reach it.
+
+The new `test_warm_skipped_value_is_a_closed_vocabulary`
+(`test_instance_isolation_audit.py:356`) is the right shape: an AST
+assertion that the except-handler's *only* assignment is the bare constant
+`Name`, plus a shape check on the constant itself. That pins the invariant
+against re-introduction, which the key-set audit alone never could.
+
+---
+
+## R2. Dropped gates — now built
+
+- **T30/T31/T32** (`tests/test_cli_security_scan.py`, 5 tests) — static
+  scans with correct carve-outs (`kill -0`) and, importantly, **positive
+  controls**: `saw_the_pids_kill` and the `PIDS+=("$OLLAMA_PID")` assertion
+  mean the scans cannot pass vacuously if the mechanism they audit is
+  renamed away. This is the detail that separates a real gate from a
+  green-forever grep.
+- **T35** (`root_start_driver.sh:261-353`) — a genuine golden path:
+  `start --root` → `status` 0 → `restart --root` → `status` 0 →
+  `stop --root` → `status` 4, all non-tty, every code asserted. It is now
+  the only end-to-end coverage `restart --root`'s foreground path has. The
+  builder found and fixed a real flake while building it (port-polling
+  couldn't distinguish "old server still up" from "new server ready";
+  replaced with a marker wait on start.sh's own `✓ Portal` line) and
+  reported the ~1-in-8 flake rate rather than burying it. Correct
+  engineering.
+- **T36** — I discharged it myself in §6 of the original review. **The
+  builder's disposition is accepted.**
+
+## R3. Minors — dispositions
+
+| # | Fix | Ruling |
+|---|---|---|
+| m1 | `start.sh:1016-1024` count-guards `${PIDS[@]}` in the early-armed trap | **Accepted** |
+| m2 | Both daemon gates branch on rc 2 / missing `services.sh` → warn + URL + exit 0; `test_cli_daemon_readiness_degrade.py` drives the **extracted real blocks** | **Accepted.** I verified the `elif [[ $? == "2" ]]` idiom empirically in bash 3.2 — `$?` after a failed `if` condition is that condition's status; returns 2 → degrade, returns 1 → `die`. Correct |
+| m3 | `--_post-source` now requires the inline-only `_ARAIL_INSTALL_POST_SOURCE=1` marker **and** `git cat-file -e <sha>^{commit}`; two driver scenarios prove both halves still hit the live-lab refusal with `.venv` intact | **Accepted** — this is a footgun guard, not a security boundary (an operator can set the env var), which is exactly what m3 asked for |
+| m4 | 20-line LANDMINE header on `status.sh:12` explaining the deliberate `-e` omission, and recording that the scoped `set +e`/`set -e` alternative was considered and rejected as out of fix-pass scope | **Accepted** — the ask was documentation, and this documents the road not taken too |
+| m6 | `test_cli_verbs.py` now **extracts** the conditional from `scripts/setup.sh` instead of re-typing it | **Accepted.** Deleting the mask makes `src.index()` raise at import — loud, which is the point |
+| m8 | `docs/concurrent-worlds.md:187-196` now states plainly that the exit code applies to `--json=instances` too | **Accepted** |
+| m9 | Both alias-path behavior changes added to CHANGELOG `### Changed` | **Accepted** |
+| m5 | see R2 | **Accepted** |
+| m7 | `shell_source_safety_driver.sh` extended (cases #7/#8) | **Accepted with a caveat — see R6.2** |
+| m10 | see R2 (T35) | **Accepted** |
+
+## R4. Nits
+
+Fixed: **n1** (`INSTANCES_JSON` now calls `_status_json_lines_to_array`),
+**n2** (DOWN notice excludes 130/143), **n3** (scheduler probe uses
+`$PROBE_HOST`), **n5** (F33 anchored to a real `###` heading with a word
+boundary — `install` can no longer match vacuously inside
+`install-daemon`).
+
+Left as-is, **all three dispositions accepted:**
+
+- **n4** (`install --json` emits nothing on early exits) — a consistency
+  wart against `status --json`'s F18 doctrine, not a defect; the
+  architecture never required it. Accepted.
+- **n6** (bare `inst_load_port_helpers` under `set -e`; the `services.sh`
+  guard being illusory) — correctly identified as a real
+  hard-dependency-vs-real-degrade design decision, not a fix-if-trivial.
+  Accepted **on condition it is filed** (R6.1).
+- **n7** (`ARAIL_TIER0_BOOT_WARM` export scope) — harmless today,
+  restructuring is a real change. Accepted.
+
+## R5. Fix-pass regressions — none found, one self-caught
+
+The fix pass changed shared harness code (`write_stub_uvicorn_serving` no
+longer `exec`s, so the wrapper's uvicorn-shaped argv stays visible to
+`pgrep -f`). That is a behavioral change to the stub every one of
+T13–T17/T18a/warmup depends on. All of those scenarios still pass, and the
+early-out contract is preserved: the wrapper `wait`s on the python child, so
+it dies immediately after a crash-stub exits. `SO_REUSEADDR` on the stub
+server is the right fix for the stop-then-rebind race T35 introduced.
+
+The builder also introduced, caught, diagnosed, and fixed an orphaned-child
+hang in its own new fixture (`189439b`) inside the same pass, and wrote it
+up. That is the discipline this repo wants.
+
+## R6. Still open (follow-ups — none ship-blocking)
+
+**R6.1 — Required action #9 was not completed.** ARCHITECTURE.md §18 was
+not amended, `sprints/BACKLOG.md` was not touched, and BUILD_LOG's fix
+section contains no debt entry. Two of the five items I listed are now
+moot (the `stop_services` fallback is scoped; `--_post-source` is gated),
+but these still need a home, and accepting n4/n6/n7 "as-is" only means
+something if they land somewhere durable:
+
+1. `status.sh` runs without errexit (now documented in-file — file it as
+   standing debt with the scoped-`set +e` option named).
+2. `install`'s preflight shells out to `status.sh`, which calls
+   `inst_prune_all` — a read-only preflight mutates the registry.
+3. **n6** — the `services.sh`/`setup.sh` hard-dependency-vs-degrade call.
+4. **n4** — `install --json`'s early-exit paths.
+5. R6.3 below (B2's residual boot window).
+
+**R6.2 — m7's new coverage never executes in the default invocation.**
+Cases #7/#8 were appended *after* case #6's
+`python3 render.py … || fail "blueprint render failed"`
+(`shell_source_safety_driver.sh:59`), which dies on any box whose **system**
+`python3` predates 3.11 — including this one (3.9.6) and anything invoking
+the driver through `tests/test_shell_source_safety.py`, which does not put
+the venv on `PATH`. Both the bare driver and the pytest wrapper are red
+before reaching the new cases. I confirmed the new cases are correct by
+running the driver with a 3.11 `python3` on `PATH`:
+
+```
+OK: shell-sourced config files (.env, lab.conf) are injection-safe, and
+install.sh/services.sh callers' guarded sources never abort on a missing file (F4)
+```
+
+So the content is right and the gate is dormant. One-line remedy: move
+#7/#8 above #6, or skip #6 when `tomllib` is unimportable.
+
+**R6.3 — B2 has a narrow residual: the instance boot window.** The
+exclusion set is built from *written* registry records, but
+`_instance_start` spawns the portal at `[6/8]` (`start.sh:807`) and writes
+the record at `[8/8]` (`start.sh:948`) — write-after-ready is a protected
+invariant from the previous sprint, so this ordering is correct and must
+not be changed. Consequence: a `stop --root` fired while another World is
+mid-boot **on the same port** can still take it via the fallback. Much
+narrower than the shipped bug (which fired always), and it requires a
+same-port collision plus a concurrent boot. The cheap close, if it is worth
+doing: `stop_services` already has a signal available — the claim file
+(`registry.d/<slug>.claim`, written with the launcher pid at
+`start.sh:658`, i.e. *before* the spawn). Refusing the fallback while any
+fresh claim exists would cover the window without touching the protected
+write ordering.
+
+**R6.4 — `test_reset_stop_scope.py` is still red**, so the *unit*-level
+test of `stop_services`' scoping does not exercise the new exclusion; only
+the driver-level B2 scenarios do (which I confirmed fail-pre-fix, so the
+coverage is real, just not at both levels). Pre-existing, unrelated to this
+sprint, worth a ticket of its own since it is the natural home for a
+scoping unit test.
+
+## R7. Verdict rationale
+
+No BLOCKs remain. Every ASK is either fixed or documented as a follow-up
+with a named remedy. The three original BLOCKs were each fixed at the root
+cause, each netted by a regression scenario I verified fails without the
+fix, and — in B3's case — pinned by an AST assertion that constrains the
+*value*, which is what the original audit was missing.
+
+**WEAK_PASS** rather than PASS for one reason: required action #9 (file the
+unanticipated debt) was not done, and it is the mechanism by which the
+three accepted-as-is nits and the two residuals above stop being invisible.
+File R6.1's five items and R6.2's one-line driver reorder, and this is a
+clean PASS — neither needs another review cycle.
