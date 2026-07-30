@@ -1089,3 +1089,225 @@ design change.
   scenarios that spawn real background processes).
 - **No TODO comments without owner/date added anywhere in this pass. No
   commented-out code.**
+
+---
+
+## QA fixes (post-TEST_REPORT.md, cc7de32)
+
+Fixes Q1–Q7 from `TEST_REPORT.md`. Q8 (performance, in-budget) not chased
+per instruction. Q9 was already fixed by QA itself. Each `xfail(strict=True)`
+pin in `tests/test_cli_qa_edge.py` was removed and the corresponding test
+now runs as a normal passing regression test — confirmed via `--runxfail`
+(all XPASS before marker removal) and then a plain run (all PASS, no
+markers left).
+
+### Q3 — malformed `stop` target silently escalates scope (Medium, fixed first)
+
+**File:** `scripts/reset.sh`'s argv `while` loop (the `stop --world` and
+catch-all `*)` arms).
+
+**Root cause:** `--world` with no following token (or one that looked like
+another flag) fell through to `STOP_WORLD="${2:-}"` → empty string; the
+generic `*)` catch-all silently accepted *any* unrecognized token
+(including an unknown `-`-prefixed flag) as either the ignored extra
+positional or nothing at all. Both paths left `STOP_WORLD`/`STOP_ROOT`
+unset, so `stop` fell into the *unscoped auto-resolution* branch — stopping
+the lone live World and the root services at exit `0`.
+
+**Fix:** `--world` now requires a real, non-flag-looking value (mirrors
+`start.sh`'s own `--world`/`--port` guard) — a missing or flag-shaped value
+is a usage error, exit `2`. A new explicit `-*)` arm rejects any
+unrecognized flag with exit `2` before it can reach the catch-all. The
+catch-all's silent "extra positional args are ignored" behavior is now also
+a usage error, for the same reason: never let a parser hole decide "do the
+narrower thing I asked" vs "do the broader, more destructive thing."
+
+**Repro-then-fixed transcript** (fabricated repo, no live instance needed
+— the bug lives entirely in the parser, before any pid touches the
+filesystem):
+
+```
+$ git stash   # pre-fix tree
+$ HOME=$TMP/home PATH=/usr/bin:/bin:/usr/sbin:/sbin \
+  bash arailctl stop --wrold ai </dev/null
+  ✓ Stopping QA services...
+  ✓ No running services found.
+
+  ✓ Done.
+rc=0                                    # <- silently ran the bare-stop
+                                         #    auto-resolution branch
+$ git stash pop   # post-fix tree
+$ HOME=$TMP/home PATH=/usr/bin:/bin:/usr/sbin:/sbin \
+  bash arailctl stop --wrold ai </dev/null
+  ✗ unknown flag: --wrold
+  <usage> ...
+rc=2                                    # <- rejected before touching
+                                         #    anything
+```
+
+`docs/cli.md`'s `stop` section was also amended (it previously named only
+"invalid slug" for its own `2`, while the canonical table already covered
+"unknown/malformed flag" for every verb — one line added so the two halves
+agree instead of contradicting).
+
+### Q3 — parser audit across every verb that grew flags this sprint
+
+Per the task's instruction, every verb touched by this sprint's flag
+growth was re-read for the same hole (unrecognized/malformed flag silently
+falling through to the broader/default behavior instead of a usage error):
+
+| Verb | Parser | Unknown flag | Value-less flag needing a value | Verdict |
+|---|---|---|---|---|
+| `start` (`scripts/start.sh`) | `while`/`case`, catch-all `*)` | `echo "Unknown flag: $1"; exit 2` (already present) | `--world`/`--port` already guard on `[[ $# -ge 2 ]]` | **Already safe — no change needed** |
+| `install` (`scripts/install.sh`) | `while`/`case`, `-*)` + catch-all `*)` | Already rejects with exit 2 | `--only`/`--skip` already guard on `[[ $# -ge 2 ]]`, but an *empty* value (`--only=`) bypassed validation | **Fixed here (Q6, see below) — same audit, adjacent hole** |
+| `status` (`scripts/status.sh`) | `for`/`case`, catch-all `*)` | `echo "Unknown flag: ..."; exit 2` (already present) | N/A (no value-taking flags besides `--json=<x>`, itself validated) | **Already safe — no change needed** |
+| `stop`/`reset` (`scripts/reset.sh`) | `while`/`case`, catch-all `*)` | Silently accepted (the bug) | `--world` with no value silently became an empty slug (the bug) | **Fixed (Q3, above)** |
+| `restart`, `tier`, `upgrade`, `doctor` (`arailctl`'s own dispatch) | `arailctl` reads these verbs' own flags via a read-only argv *scan* (never re-parses per §14.1) or forwards verbatim to a sub-script that owns its own parser | N/A — no second parser to drift | N/A | **Not applicable — `arailctl` deliberately never re-parses a sub-script's flags (the B2/Q3 lesson already encoded in ARCHITECTURE §14.1)** |
+
+**Finding:** `reset.sh`'s `stop` parser was the only script with the hole.
+`start.sh`, `status.sh`, and `install.sh` already reject an unknown or
+malformed flag with exit `2` — the pattern this sprint established
+elsewhere was correctly applied everywhere except the one file (`reset.sh`)
+that predates this sprint's own `--root` addition, which is exactly why
+Q3 escaped review (REVIEW.md's own B2 finding was in the *same file*,
+fixed via the pid-fallback exclusion, not the argv parser — two different
+holes in one file, only one of which the original review caught).
+
+### Q4 — F3 (half-written `lab.conf`) specified but not implemented (Medium)
+
+**File:** `scripts/status.sh`.
+
+**Root cause:** `PORTAL_PORT_EFF="${PORTAL_PORT:-8080}"` and its siblings
+(`LANCE_PORT`, `MLX_OPENAI_PORT`, `TERMINAL_PORT`, `NOTEBOOK_PORT`,
+`IDE_PORT`) only apply bash's `:-` default for an *unset/empty* variable —
+a `lab.conf` with `PORTAL_PORT=not-a-number` is neither, so the malformed
+value flowed straight to `_status_emit_service_json`'s Python `int()`,
+raising an uncaught `ValueError` (stderr traceback) and aborting the row
+build before the portal service ever got appended to `root.services[]`.
+`warnings[]` never got a chance to see it either.
+
+**Fix:** a new `_status_sanitize_port` validates every port variable with
+`^[0-9]+$` (and a 1–65535 range check) immediately after `lab.conf` is
+sourced, before anything downstream reads one — exactly where §15 F3
+specifies. An invalid value now falls back to the documented default and
+is recorded in `STATUS_WARNINGS[]` (which now initializes once, at the top
+of the file, instead of being re-zeroed later — the earlier code
+re-initialized it after the curl/lsof checks, which would have silently
+discarded this new warning).
+
+**Bug found while building the fix:** the first attempt wrote
+`local varname="$1" default="$2" current="${!varname:-}"` as one `local`
+statement — bash expands every word of a compound `local` command *before*
+any of that command's own assignments take effect, so the indirect
+expansion `${!varname}` saw the *outer* scope's `varname` (unset), not the
+one the same statement was in the middle of assigning, and silently
+returned empty every time. Split into `local varname="$1" default="$2"
+current` followed by a separate `current="${!varname:-}"` statement; caught
+by the test itself (`warnings[]` stayed empty on the first run) rather than
+missed.
+
+**Verification:**
+
+```
+$ printf 'PORTAL_PORT=not-a-number\nBIND_ADDR=127.0.0.1\n' > lab.conf
+$ ./arailctl status --json 2>err.log
+$ cat err.log            # empty — no traceback
+$ python3 -c 'import json;d=json.load(open("/dev/stdin"))' < <(./arailctl status --json)
+$ ./arailctl status --json | python3 -c 'import json,sys; d=json.load(sys.stdin); \
+  print(d["warnings"]); print([s["name"] for s in d["root"]["services"]])'
+["PORTAL_PORT='not-a-number' is not a valid port (1-65535) — falling back to the default 8080"]
+['portal', 'memory', 'mlx', 'terminal', 'notebook', 'ide']
+```
+
+Portal row present, warning recorded, no traceback — all three contract
+breaks TEST_REPORT.md named are closed.
+
+### Low cluster — Q1, Q2, Q6, Q7
+
+**Q1 — `restart` claims a stop that never happened.** `arailctl`'s
+`restart` case now captures `scripts/reset.sh stop`'s own stdout/stderr
+(still echoed, same content and order as before) and checks it for
+`"No running services found."` (root) / `"no verified processes to stop"`
+(World) before deciding whether the F13 DOWN notice — which asserts a
+state change occurred — is honest to print. On a fresh clone, `restart`
+now reports the start failure plainly, without the misleading "the lab is
+now DOWN" (nothing was ever up to bring down).
+
+**Q2 — `doctor --bogus` exits `3`, documented `2`.** `arailctl`'s `doctor`
+case used to fold every non-zero from `python -m arail.doctor "$@"` into
+the degraded exit `3`, including argparse's own `2` for an unrecognized
+flag. The module's own exit code is now captured and `2` is propagated
+verbatim (a usage mistake), with every other non-zero still folding into
+the degraded verdict as before.
+
+**Q6 — `install --only=` (empty value) silently means "all five phases".**
+`install.sh`'s `--only`/`--skip` (both the space-separated and `=`-joined
+forms) now reject an empty value with exit `2` instead of leaving
+`ONLY_PHASES`/`SKIP_PHASES` empty, which `_install_phase_enabled` used to
+read as "no filter" — silently running `deps`/`source` alongside whatever
+single phase the operator actually meant.
+
+**Q7 — unknown tier exits `1`, documented `2`.** `scripts/upgrade.sh`
+gains `die_usage()` (exit `2`), a sibling of the existing `die()` (exit
+`1`), used only for the "unknown tier" case — the one row docs/cli.md and
+ARCHITECTURE §5.1 document as `2`, distinct from a real pip/tier failure.
+Both `tier bogus` and `upgrade bogus` inherit the fix (both delegate to
+the same script).
+
+### Q5 — control bytes from a shared World's display_name (Low, security)
+
+**Decision: fixed, not filed.** The suggested mitigation ("sanitise
+control characters in the human renderer's `name` [and `lab_name`] — one
+`re.sub` at the render boundary") was genuinely contained: the human
+renderer is a single Python heredoc in `scripts/status.sh`, and the two
+print sites (`facts['lab_name']`, the per-instance `name`) are both inside
+it. Adding a module-level `_sanitize_for_terminal()` there touched no
+other file and required no `--json` change (already correct, per QA-5).
+
+**One addition beyond QA's suggestion, found while verifying the fix:**
+stripping control bytes alone is not sufficient — a hostile
+`display_name` can embed an ordinary-looking row fragment as *plain text*
+(no ESC/CR required) and have it print inline right after the real row.
+Verified live: after stripping control bytes from the QA fixture's payload,
+the literal substring `"root       Real Lab"` (part of the forged-row
+text, not generated by any escape code) still survived in the output. The
+sanitizer therefore also caps the field at 32 characters (matching the
+`{name:<18}` column the table already formats to, with slack for
+reasonably long real names) — short enough that a forged row fragment
+cannot fit inside it, whether or not it carries control bytes.
+
+### Filed, not fixed
+
+**B2's second non-timing residual** (a corrupt registry record also
+excludes its own pids from `stop_services`'s exclusion set, no concurrent
+boot required) appended to the existing "B2's residual" entry in
+`sprints/BACKLOG.md` — same root component (`stop_services`'s fallback),
+same recommended review-cycle treatment as the already-filed timing
+residual, not a new entry.
+
+### Verification summary
+
+- `bash -n` clean on every touched script (`arailctl`, `scripts/reset.sh`,
+  `scripts/status.sh`, `scripts/install.sh`, `scripts/upgrade.sh`).
+- `tests/test_cli_qa_edge.py` — 11/11 pass, zero `xfail` markers remain,
+  zero XPASS (confirmed via `--runxfail` before marker removal, then a
+  plain run after).
+- All 9 `tests/cli/*_driver.sh` — all green (`color` 5/5, `install` 18/18,
+  `qa_edge` 10/10, `restart` 14/14, `root_start` 7/7, `status` 13/13,
+  `verbs` 6/6, `warmup` 5/5).
+- Protected baseline — `tests/instance_start_driver.sh` (11/11),
+  `tests/instance_qa_driver.sh` (10/10) — unchanged scenario counts.
+- Full pytest suite: **77 failed, 3852 passed, 4 skipped, 2 xfailed, 14
+  errors** — identical failed/error counts to the documented baseline (77
+  failed / 14 errors), `passed` up by exactly 10 (the flipped xfail
+  tests), `xfailed` down by exactly 10 (12 → 2, the two remaining are
+  unrelated pre-existing markers). No new failing test ID; confirmed by
+  inspecting the full FAILED/ERROR list — every entry matches a
+  pre-existing, already-tracked gap (`test_reset_stop_scope.py`,
+  `test_shell_source_safety.py`, and others outside this sprint's touched
+  files).
+- Smokes: `ARAIL_NO_BROWSER=1 ./arailctl status` → `4`; `./arailctl help`
+  → `0`; `stop --zzz-bogus` → `2`; `stop --world` (no value) → `2`; `tier
+  bogus` → `2`; `upgrade bogus` → `2`.
+- No leftover processes after any driver run. No commented-out code, no
+  unattributed TODOs.
