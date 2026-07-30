@@ -307,8 +307,35 @@ case "$cmd" in
                 # shellcheck disable=SC1091
                 set -a && source "$REPO_ROOT/lab.conf" && set +a
             fi
-            echo "Lab supervised by launchd — portal: http://${BIND_ADDR:-127.0.0.1}:${PORTAL_PORT:-8080}"
-            exit 0
+            # ARCHITECTURE.md §8.3: this used to print the URL and exit 0
+            # immediately after issuing kickstart — the same "printed
+            # success before the portal actually answered" lie the root
+            # foreground path had (§8.2), one level up. Real readiness gate:
+            # poll /api/instance for up to 30s, then confirm identity
+            # (slug=="root" + checkout match, A7) so a foreign process
+            # squatting the port is never mistaken for our boot.
+            # shellcheck disable=SC1091
+            [[ -f "$REPO_ROOT/scripts/lib/services.sh" ]] && source "$REPO_ROOT/scripts/lib/services.sh"
+            _arail_daemon_bind="${BIND_ADDR:-127.0.0.1}"
+            _arail_daemon_port="${PORTAL_PORT:-8080}"
+            _arail_daemon_url="http://${_arail_daemon_bind}:${_arail_daemon_port}"
+            _arail_daemon_ready=0
+            if declare -F svc_wait_http_ready >/dev/null 2>&1; then
+                # No pid to early-out on in daemon mode — launchd owns the
+                # process, not this shell — so a genuinely-stuck daemon
+                # waits the full cap, same as the real thing would.
+                if svc_wait_http_ready "${_arail_daemon_url}/api/instance" 300 >/dev/null; then
+                    _arail_daemon_ready=1
+                fi
+            fi
+            if [[ "$_arail_daemon_ready" == "1" ]]; then
+                _arail_daemon_body="$(curl -sf -m 0.7 "${_arail_daemon_url}/api/instance" 2>/dev/null || true)"
+                if declare -F svc_identity_root >/dev/null 2>&1 && svc_identity_root "$_arail_daemon_body" "$REPO_ROOT"; then
+                    say "Lab supervised by launchd — portal: ${_arail_daemon_url}"
+                    exit 0
+                fi
+            fi
+            die "launchd kickstart issued but the portal did not answer within 30s — tail lab/logs/portal.err.log"
         fi
         exec bash "$REPO_ROOT/scripts/start.sh" "$@"
         ;;

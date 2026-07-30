@@ -11,6 +11,13 @@ cd "$REPO_ROOT"
 
 # shellcheck disable=SC1091
 source "$REPO_ROOT/scripts/lib/instances.sh"
+# Root-lab per-service readiness probing (ARCHITECTURE.md
+# sprints/2026-07-29-elite-cli §8.1) — guarded per the same source
+# discipline as everything else in this file (A2/F4): this script is
+# copied wholesale into throwaway test repos, so a missing sibling file
+# must degrade, never abort a non-interactive shell.
+# shellcheck disable=SC1091
+[[ -f "$REPO_ROOT/scripts/lib/services.sh" ]] && source "$REPO_ROOT/scripts/lib/services.sh"
 
 # macOS Sequoia emits a harmless but noisy line from libsystem_malloc
 # whenever a child Python process spawns: "Python(PID) MallocStackLogging:
@@ -862,11 +869,49 @@ if [[ -n "$TARGET_SLUG" ]]; then
 fi
 
 # =============================================================================
-#  Legacy root lab — unchanged below this point (VISION §3: |W|==0, or the
-#  operator picked the root lab from the picker, behaves byte-identically).
+#  Legacy root lab (VISION §3: |W|==0, or the operator picked the root lab
+#  from the picker). ARCHITECTURE.md §8.2 (sprints/2026-07-29-elite-cli)
+#  ADDS a readiness gate, a pre-spawn port check, and an early cleanup
+#  trap here — additions and one moved line, not a rewrite; the spawn
+#  order and every existing message below are unchanged.
 # =============================================================================
 
 PIDS=()
+
+# ARCHITECTURE.md §8.2 step 1: arm the cleanup trap IMMEDIATELY after
+# PIDS=() — it used to be armed only after the (unconditional) success
+# banner, below. Without moving it up here FIRST, the new "portal never
+# came up -> exit 1" path (added below, after the spawns) would leak every
+# already-spawned child (F1's "kill list is ${PIDS[@]} only" still holds —
+# this only changes WHEN the trap is armed, never what it kills). Same
+# lesson `_instance_start` already learned as REVIEW.md M4 (the EXIT-trap
+# fix), applied here to the root path for the first time.
+cleanup() {
+    echo ""
+    info "Shutting down…"
+    for pid in "${PIDS[@]}"; do kill "$pid" 2>/dev/null || true; done
+    wait 2>/dev/null || true
+    # Only remove the pidfile if we're the ones who wrote it — a plain
+    # `[[ -f ]]` check would also fire (harmlessly) if a separate
+    # ./arailctl stop already cleaned it up first.
+    [[ -n "${OLLAMA_PID:-}" && -f "${OLLAMA_PIDFILE:-}" ]] && rm -f "$OLLAMA_PIDFILE"
+    info "All services stopped."
+}
+trap cleanup INT TERM
+
+# ARCHITECTURE.md §8.2 / F31: the instance path has always refused a bind
+# conflict BEFORE spawning (stage [5/8]); the root path never has. Without
+# this, a second `./arailctl start` against an already-running root lab
+# would spawn a doomed uvicorn, and the NEW readiness gate below would see
+# the FIRST (already-running) lab answering /api/instance and misreport
+# success — "readiness passes because a previous root lab is still
+# listening" (F31's exact failure mode).
+inst_load_port_helpers
+if declare -F _port_in_use >/dev/null 2>&1 && _port_in_use "${PORTAL_PORT:-8080}"; then
+    echo "Root lab already running — try: ./arailctl status" >&2
+    echo "  (or a foreign process is on :${PORTAL_PORT:-8080} — lsof -iTCP:${PORTAL_PORT:-8080} -sTCP:LISTEN)" >&2
+    exit 1
+fi
 
 echo ""
 echo -e "${CYAN}${BOLD}${LAB_LOGO} Starting lab services…${RESET}"
@@ -881,7 +926,8 @@ uvicorn arail.portal.app:app \
     --app-dir "$REPO_ROOT" \
     --host "$BIND" --port "${PORTAL_PORT:-8080}" \
     --log-level warning &
-PIDS+=($!)
+_ROOT_PORTAL_PID=$!
+PIDS+=("$_ROOT_PORTAL_PID")
 
 # Ollama backs the default chat model (llama-ai-eng) regardless of
 # MODEL_BACKEND/tier — setup.sh installs it and pulls/creates the model,
@@ -935,7 +981,8 @@ if [[ "${MODEL_BACKEND:-auto}" == "mlx" ]]; then
         --app-dir "$REPO_ROOT" \
         --host "$BIND" --port "${MLX_OPENAI_PORT:-11435}" \
         --log-level warning &
-    PIDS+=($!)
+    _ROOT_MLX_PID=$!
+    PIDS+=("$_ROOT_MLX_PID")
 fi
 
 info "Memory     → http://${BIND}:${LANCE_PORT}"
@@ -943,7 +990,8 @@ uvicorn arail.memory_service:app \
     --app-dir "$REPO_ROOT" \
     --host "$BIND" --port "$LANCE_PORT" \
     --log-level warning &
-PIDS+=($!)
+_ROOT_MEMORY_PID=$!
+PIDS+=("$_ROOT_MEMORY_PID")
 
 if command -v ttyd &>/dev/null; then
     info "Terminal   → http://${BIND}:${TERMINAL_PORT:-7681}"
@@ -970,7 +1018,8 @@ if command -v ttyd &>/dev/null; then
         warn "install: brew install tmux (mac) · sudo apt install tmux (linux)"
         ttyd "${TTYD_OPTS[@]}" "${SHELL:-bash}" &
     fi
-    PIDS+=($!)
+    _ROOT_TERMINAL_PID=$!
+    PIDS+=("$_ROOT_TERMINAL_PID")
 else
     platform_hint=""
     if [[ "$(uname -s)" == "Darwin" ]]; then
@@ -1009,7 +1058,8 @@ JLTHEME
         --NotebookApp.token="" \
         --NotebookApp.password="" \
         --ServerApp.tornado_settings='{"headers":{"Content-Security-Policy":"frame-ancestors '\''self'\'' http://127.0.0.1:* http://localhost:*"}}' &
-    PIDS+=($!)
+    _ROOT_NOTEBOOK_PID=$!
+    PIDS+=("$_ROOT_NOTEBOOK_PID")
 else
     info "Notebook   → (jupyter not installed — skipping)"
 fi
@@ -1021,22 +1071,158 @@ if command -v code-server &>/dev/null; then
         --auth password \
         --disable-telemetry \
         . &
-    PIDS+=($!)
+    _ROOT_IDE_PID=$!
+    PIDS+=("$_ROOT_IDE_PID")
 else
     info "IDE        → (code-server not installed — skipping)"
 fi
 
+# ── NEW readiness phase (ARCHITECTURE.md §8.2) ──────────────────────────
+# Portal is REQUIRED: unlike everything below, its failure aborts the
+# launch (cleanup + exit 1) rather than degrading. This ports the instance
+# path's stage [6/8] identity-gated readiness probe to the root process
+# (A7: root has no token, so svc_identity_root's slug=="root" + checkout
+# match stands in for the instance path's token+checkout pair) — the root
+# path has never had ANY readiness detection before this.
+echo ""
+echo -e "${BOLD}Readiness:${RESET}"
+_root_have_curl=0
+command -v curl >/dev/null 2>&1 && _root_have_curl=1
+_root_portal_url="http://${BIND}:${PORTAL_PORT:-8080}/api/instance"
+_root_portal_ready=0
+_root_portal_last_status=""
+if [[ "$_root_have_curl" == "1" ]] && declare -F svc_wait_http_ready >/dev/null 2>&1; then
+    if _root_portal_last_status="$(svc_wait_http_ready "$_root_portal_url" 600 "$_ROOT_PORTAL_PID")"; then
+        _root_portal_ready=1
+    fi
+fi
+if [[ "$_root_portal_ready" == "1" ]]; then
+    _root_portal_body="$(curl -sf -m 0.7 "$_root_portal_url" 2>/dev/null || true)"
+    if declare -F svc_identity_root >/dev/null 2>&1 && svc_identity_root "$_root_portal_body" "$REPO_ROOT"; then
+        echo -e "  ${GREEN}✓${RESET} Portal     ${_root_portal_url%/api/instance}"
+    else
+        echo "  ✗ Portal     port ${PORTAL_PORT:-8080} is answered by a DIFFERENT checkout/process — try: lsof -iTCP:${PORTAL_PORT:-8080} -sTCP:LISTEN" >&2
+        cleanup
+        exit 1
+    fi
+else
+    if [[ -n "$_root_portal_last_status" && "$_root_portal_last_status" != "000" ]]; then
+        echo "  ✗ Portal     /api/instance answered HTTP ${_root_portal_last_status}, not 200 — see the uvicorn output above" >&2
+    else
+        echo "  ✗ Portal     did not come up — see the uvicorn output above" >&2
+    fi
+    cleanup
+    exit 1
+fi
+
+# The rest degrade, never abort (ARCHITECTURE.md §8.2 table). Each helper
+# call is set -e-safe (it's the condition of an `if`) and never touches a
+# pid it did not spawn (F1) — only svc_* probes, no kill/pkill/pgrep.
+_root_wait_http_degrade() {
+    local label="$1" url="$2" cap_ds="$3" pid="$4" failmsg="$5"
+    if [[ "$_root_have_curl" != "1" ]] || ! declare -F svc_wait_http_ready >/dev/null 2>&1; then
+        echo "  ⚠ ${label}   curl not found — HTTP probes skipped"
+        return 1
+    fi
+    if svc_wait_http_ready "$url" "$cap_ds" "$pid" >/dev/null; then
+        echo -e "  ${GREEN}✓${RESET} ${label}   ${url%/health}"
+        return 0
+    fi
+    echo "  ⚠ ${failmsg}"
+    return 1
+}
+
+_root_wait_listen_degrade() {
+    local label="$1" port="$2" cap_ds="$3" pid="$4" failmsg="$5" okurl="$6"
+    if declare -F svc_wait_listening >/dev/null 2>&1 && svc_wait_listening "$port" "$cap_ds" "$pid"; then
+        echo -e "  ${GREEN}✓${RESET} ${label}   ${okurl}"
+        return 0
+    fi
+    echo "  ⚠ ${failmsg}"
+    return 1
+}
+
+_root_memory_ok=0
+if _root_wait_http_degrade "Memory  " "http://${BIND}:${LANCE_PORT}/health" 200 "$_ROOT_MEMORY_PID" \
+    "memory service did not answer within 20s — chat works, memory features degrade."; then
+    _root_memory_ok=1
+fi
+
+_root_mlx_ok=1
+if [[ "${MODEL_BACKEND:-auto}" == "mlx" ]]; then
+    _root_mlx_ok=0
+    if _root_wait_http_degrade "MLX     " "http://${BIND}:${MLX_OPENAI_PORT:-11435}/health" 200 "${_ROOT_MLX_PID:-}" \
+        "MLX API unavailable — chat falls back per router config."; then
+        _root_mlx_ok=1
+    fi
+fi
+
+_root_terminal_ok=1
+if command -v ttyd &>/dev/null; then
+    _root_terminal_ok=0
+    if _root_wait_listen_degrade "Terminal" "${TERMINAL_PORT:-7681}" 100 "${_ROOT_TERMINAL_PID:-}" \
+        ":${TERMINAL_PORT:-7681} did not answer in 10s — the Terminal tab will show help" \
+        "http://${BIND}:${TERMINAL_PORT:-7681}"; then
+        _root_terminal_ok=1
+    fi
+fi
+
+_root_notebook_ok=1
+if command -v jupyter &>/dev/null; then
+    _root_notebook_ok=0
+    if _root_wait_listen_degrade "Notebook" "${NOTEBOOK_PORT:-8888}" 100 "${_ROOT_NOTEBOOK_PID:-}" \
+        ":${NOTEBOOK_PORT:-8888} did not answer in 10s — the Notebook tab will show help" \
+        "http://${BIND}:${NOTEBOOK_PORT:-8888}"; then
+        _root_notebook_ok=1
+    fi
+fi
+
+_root_ide_ok=1
+if command -v code-server &>/dev/null; then
+    _root_ide_ok=0
+    if _root_wait_listen_degrade "IDE     " "${IDE_PORT:-8443}" 100 "${_ROOT_IDE_PID:-}" \
+        ":${IDE_PORT:-8443} did not answer in 10s — the IDE tab will show help" \
+        "http://${BIND}:${IDE_PORT:-8443}"; then
+        _root_ide_ok=1
+    fi
+fi
+
+_root_degraded=()
+[[ "$_root_memory_ok" == "1" ]] || _root_degraded+=("memory")
+[[ "$_root_mlx_ok" == "1" ]] || _root_degraded+=("mlx")
+[[ "$_root_terminal_ok" == "1" ]] || _root_degraded+=("terminal")
+[[ "$_root_notebook_ok" == "1" ]] || _root_degraded+=("notebook")
+[[ "$_root_ide_ok" == "1" ]] || _root_degraded+=("ide")
+
 echo ""
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
-echo -e "  ${BOLD}All services running.${RESET}  Press Ctrl+C to stop."
+if (( ${#_root_degraded[@]} == 0 )); then
+    echo -e "  ${BOLD}All services running.${RESET}  Press Ctrl+C to stop."
+else
+    _root_degraded_csv="$(IFS=,; echo "${_root_degraded[*]}")"
+    _root_degraded_csv="${_root_degraded_csv//,/, }"
+    echo -e "  ${BOLD}Lab running — degraded: ${_root_degraded_csv}.${RESET}  Press Ctrl+C to stop."
+fi
 echo ""
 echo -e "  Dashboard:  ${BOLD}http://${BIND}:${PORTAL_PORT:-8080}${RESET}"
 echo -e "  Ollama:     ${BOLD}http://${OLLAMA_HOST:-127.0.0.1:11434}${RESET}"
-echo -e "  MLX API:    ${BOLD}http://${BIND}:${MLX_OPENAI_PORT:-11435}/v1${RESET}"
-echo -e "  Memory:     ${BOLD}http://${BIND}:${LANCE_PORT}${RESET}"
-echo -e "  Terminal:   ${BOLD}http://${BIND}:${TERMINAL_PORT:-7681}${RESET}"
-echo -e "  Notebook:   ${BOLD}http://${BIND}:${NOTEBOOK_PORT:-8888}${RESET}"
-echo -e "  IDE:        ${BOLD}http://${BIND}:${IDE_PORT:-8443}${RESET}  (password in ${BOLD}lab.conf${RESET})"
+# URL block: only services that actually answered (ARCHITECTURE.md §8.2
+# point 4 — kills the "URL block can lie" half of gap 6, and the
+# MLX/Notebook/IDE lines that used to print unconditionally even when the
+# binary isn't installed).
+if [[ "${MODEL_BACKEND:-auto}" == "mlx" && "$_root_mlx_ok" == "1" ]]; then
+    echo -e "  MLX API:    ${BOLD}http://${BIND}:${MLX_OPENAI_PORT:-11435}/v1${RESET}"
+fi
+[[ "$_root_memory_ok" == "1" ]] && echo -e "  Memory:     ${BOLD}http://${BIND}:${LANCE_PORT}${RESET}"
+if command -v ttyd &>/dev/null && [[ "$_root_terminal_ok" == "1" ]]; then
+    echo -e "  Terminal:   ${BOLD}http://${BIND}:${TERMINAL_PORT:-7681}${RESET}"
+fi
+if command -v jupyter &>/dev/null && [[ "$_root_notebook_ok" == "1" ]]; then
+    echo -e "  Notebook:   ${BOLD}http://${BIND}:${NOTEBOOK_PORT:-8888}${RESET}"
+fi
+if command -v code-server &>/dev/null && [[ "$_root_ide_ok" == "1" ]]; then
+    echo -e "  IDE:        ${BOLD}http://${BIND}:${IDE_PORT:-8443}${RESET}  (password in ${BOLD}lab.conf${RESET})"
+fi
 echo ""
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
 
@@ -1055,17 +1241,7 @@ if [[ "${ARAIL_NO_BROWSER:-0}" != "1" ]] && [[ -t 1 ]]; then
     ) &
 fi
 
-cleanup() {
-    echo ""
-    info "Shutting down…"
-    for pid in "${PIDS[@]}"; do kill "$pid" 2>/dev/null || true; done
-    wait 2>/dev/null || true
-    # Only remove the pidfile if we're the ones who wrote it — a plain
-    # `[[ -f ]]` check would also fire (harmlessly) if a separate
-    # ./arailctl stop already cleaned it up first.
-    [[ -n "${OLLAMA_PID:-}" && -f "$OLLAMA_PIDFILE" ]] && rm -f "$OLLAMA_PIDFILE"
-    info "All services stopped."
-}
-trap cleanup INT TERM
-
+# cleanup() + `trap cleanup INT TERM` are armed once, near the top of the
+# root-lab block (right after PIDS=()) — see the ARCHITECTURE.md §8.2
+# comment there for why arming it this early matters (F1).
 wait

@@ -146,3 +146,89 @@ link_real_uvicorn() {
     [[ -n "$REAL_VENV" && -e "$REAL_VENV/bin/uvicorn" ]] || return 1
     ln -sf "$REAL_VENV/bin/uvicorn" "$fake/.venv/bin/uvicorn"
 }
+
+# ── The "serving" stub uvicorn (§16.1's enabling capability): actually
+# BINDS <host>:<port> and answers /api/instance and /health for real,
+# dialed per-scenario via env vars (see tests/cli/stub_uvicorn_serving.py's
+# own header for the exact controls: STUB_STATUS, STUB_FIXTURE,
+# STUB_CRASH_AFTER, STUB_NEVER_BIND).
+write_stub_uvicorn_serving() {
+    local fake="$1"
+    cp "$CLI_TEST_DIR/stub_uvicorn_serving.py" "$fake/.venv/stub_uvicorn_serving.py"
+    cat > "$fake/.venv/bin/uvicorn" <<EOF
+#!/usr/bin/env bash
+# A REAL-BINDING stub uvicorn (ARCHITECTURE.md §16.1) — parses just enough
+# argv (module target + --host/--port) to hand off to the python stub
+# server; every behavior knob is an env var the driver sets before it
+# invokes start.sh/arailctl (see stub_uvicorn_serving.py).
+module=""; host="127.0.0.1"; port="8080"
+while [[ \$# -gt 0 ]]; do
+    case "\$1" in
+        --host) host="\$2"; shift 2 ;;
+        --port) port="\$2"; shift 2 ;;
+        --app-dir) shift 2 ;;
+        --log-level) shift 2 ;;
+        *) [[ -z "\$module" ]] && module="\$1"; shift ;;
+    esac
+done
+exec "$fake/.venv/bin/python3" "$fake/.venv/stub_uvicorn_serving.py" "\$module" "\$host" "\$port"
+EOF
+    chmod +x "$fake/.venv/bin/uvicorn"
+}
+
+# ── Listen-only stubs (ttyd / jupyter / code-server): either bind <port>
+# and hold it open, or (never_bind=1) start but never bind at all —
+# simulating "installed, but the tab never comes up" (T15).
+write_stub_listen_only() {
+    local fake="$1" name="$2" port="$3" never_bind="${4:-0}"
+    if [[ "$never_bind" == "1" ]]; then
+        cat > "$fake/.venv/bin/$name" <<'EOF'
+#!/usr/bin/env bash
+trap 'exit 0' TERM INT
+sleep 300 &
+wait
+EOF
+    else
+        cat > "$fake/.venv/bin/$name" <<EOF
+#!/usr/bin/env bash
+exec "$fake/.venv/bin/python3" -c "
+import socket, signal, sys
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+s.bind(('127.0.0.1', $port))
+s.listen(5)
+signal.signal(signal.SIGTERM, lambda *a: sys.exit(0))
+signal.signal(signal.SIGINT, lambda *a: sys.exit(0))
+signal.pause()
+"
+EOF
+    fi
+    chmod +x "$fake/.venv/bin/$name"
+}
+
+# cli_test_kill_port_listener <port> — best-effort cleanup for a scenario
+# that simulates launchd/a supervisor spawning a REAL process this harness
+# does not otherwise track in a PIDS array (e.g. a stub `launchctl
+# kickstart` backgrounding a serving stub — nothing in that path is a
+# child this driver's own `_timeout` process-group kill would reach, since
+# the real production equivalent is "launchd owns it", which this harness
+# only simulates). Never fails a driver on its own.
+cli_test_kill_port_listener() {
+    local port="$1" pid
+    pid="$(lsof -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null | head -n1)"
+    [[ -n "$pid" ]] && kill "$pid" 2>/dev/null
+    return 0
+}
+
+# ── lab.conf writer: F26/F27-safe random ports, all distinct.
+write_lab_conf() {
+    local fake="$1" portal="$2" lance="$3" terminal="$4" notebook="$5" ide="$6"
+    cat > "$fake/lab.conf" <<EOF
+PORTAL_PORT=${portal}
+LANCE_PORT=${lance}
+TERMINAL_PORT=${terminal}
+NOTEBOOK_PORT=${notebook}
+IDE_PORT=${ide}
+BIND_ADDR=127.0.0.1
+EOF
+}
