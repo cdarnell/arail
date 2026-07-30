@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # tests/cli/install_driver.sh — regression driver for `install`
 # (sprints/2026-07-29-elite-cli/ARCHITECTURE.md §6, WP7).
-# Gates: T24-T28, F5-F7, F21, F22, F28, F32.
+# Gates: T24-T28, F5-F7, F21, F22, F28, F32, REVIEW.md B1.
 #
 # Drives the REAL scripts/install.sh, scripts/update.sh, and arailctl
 # against a throwaway fake repo tracking a REAL local bare git "remote"
@@ -132,6 +132,37 @@ rc24=$?
 echo "$out24" | grep -q "T24_REEXEC_MARKER" || fail "T24: the re-exec did not run the NEW script's bytes — output:\n$out24"
 echo "$out24" | grep -Eq '✓ [0-9a-f]{7}…[0-9a-f]{7} \(1 commit' || fail "T24: no old...new sha range printed — output:\n$out24"
 echo "$out24" | grep -q "toplevel:" || fail "T24/F28: branch+toplevel not printed before pulling — output:\n$out24"
+ok_scenario
+
+# ---------------------------------------------------------------------------
+# REVIEW.md B1: the FLAGSHIP invocation — bare `./arailctl install`, ZERO
+# flags — against a fixture one commit behind a local bare remote. This is
+# deliberately NOT `--only source` (unlike T24): the bug only reproduces
+# when ORIGINAL_ARGV=("$@") is a genuinely zero-element array, which only a
+# truly bare invocation produces. Under bash 3.2 (A2), `"${ORIGINAL_ARGV[@]}"`
+# on that zero-element array used to abort the whole re-exec with "line 297:
+# ORIGINAL_ARGV[@]: unbound variable" — right after the source phase
+# succeeded, before deps/components/models/verify ever ran.
+#
+# The fixture fabricated by make_fake_repo has no pyproject.toml, so the
+# deps phase's real `pip install -e` legitimately (and locally — no
+# network) hard-fails here; that is a fixture limitation, not evidence of
+# anything under test, so this scenario asserts forward progress and a
+# clean, non-crashed shutdown (a real "[2/5] deps" line and a real verdict
+# line), not phase-by-phase success.
+# ---------------------------------------------------------------------------
+fake24z="$WORK/repo24z"; bare24z="$WORK/remote24z.git"
+cli_test_make_git_install_repo "$fake24z" "$bare24z"
+cli_test_mark_provisioned "$fake24z" hybrid
+cli_test_publish_git_change "$bare24z" main "README.md" "one commit ahead" >/dev/null
+out24z="$(_run_install "$fake24z")"
+rc24z=$?
+echo "$out24z" | grep -qi "unbound variable" && fail "B1: bare zero-flag install crashed with a bash internal error — output:\n$out24z"
+echo "$out24z" | grep -q "\[1/5\] source" || fail "B1: source phase never ran — output:\n$out24z"
+echo "$out24z" | grep -Eq '✓ [0-9a-f]{7}…[0-9a-f]{7} \(1 commit' || fail "B1: source phase did not pull+re-exec — output:\n$out24z"
+echo "$out24z" | grep -q "\[2/5\] deps" || fail "B1: the re-exec did not carry through to the deps phase (argv lost) — output:\n$out24z"
+echo "$out24z" | grep -Eq "install: (ok|degraded|hard failure)" || fail "B1: no clean verdict line — the run crashed instead of finishing — output:\n$out24z"
+[[ "$rc24z" == "0" || "$rc24z" == "1" || "$rc24z" == "3" ]] || fail "B1: exit code $rc24z is not one of install's own verdict codes — output:\n$out24z"
 ok_scenario
 
 # ---------------------------------------------------------------------------

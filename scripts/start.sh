@@ -1013,7 +1013,15 @@ PIDS=()
 cleanup() {
     echo ""
     info "Shutting down…"
-    for pid in "${PIDS[@]}"; do kill "$pid" 2>/dev/null || true; done
+    # REVIEW.md m1 / bash 3.2 (A2, same class as B1): `"${PIDS[@]}"` on a
+    # ZERO-element array aborts under `set -u`. The trap is armed here
+    # before the first `PIDS+=` (below), so a signal in that ~100-300ms
+    # window — before any child has spawned — hits this with PIDS still
+    # empty. Guard the count explicitly, matching the idiom used at
+    # `_restart_start_argv`/`ORIGINAL_ARGV`.
+    if (( ${#PIDS[@]} > 0 )); then
+        for pid in "${PIDS[@]}"; do kill "$pid" 2>/dev/null || true; done
+    fi
     wait 2>/dev/null || true
     # Only remove the pidfile if we're the ones who wrote it — a plain
     # `[[ -f ]]` check would also fire (harmlessly) if a separate

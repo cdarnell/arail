@@ -294,7 +294,20 @@ _install_source_phase() {
     # be a no-op that loses the "old...new" range). --_post-source also
     # prevents a re-exec loop: the fresh process takes the branch above,
     # not this one.
-    exec bash "$REPO_ROOT/scripts/install.sh" --_post-source "$old_sha" "${ORIGINAL_ARGV[@]}"
+    #
+    # REVIEW.md B1 / bash 3.2 (A2): `"${arr[@]}"` on a ZERO-element array
+    # aborts under `set -u` with "unbound variable" — the exact case for a
+    # bare `./arailctl install` (the flagship, zero-flag invocation), whose
+    # ORIGINAL_ARGV is empty. Same class WP4 already fixed for
+    # `_restart_start_argv` in arailctl; `"${ORIGINAL_ARGV[@]:-}"` is NOT a
+    # safe substitute (it silently turns "zero args" into "one empty-string
+    # arg", which this script's own parser would then reject as an unknown
+    # argument). Guard the count explicitly instead.
+    if (( ${#ORIGINAL_ARGV[@]} > 0 )); then
+        exec bash "$REPO_ROOT/scripts/install.sh" --_post-source "$old_sha" "${ORIGINAL_ARGV[@]}"
+    else
+        exec bash "$REPO_ROOT/scripts/install.sh" --_post-source "$old_sha"
+    fi
 }
 
 # ── [2/5] deps ───────────────────────────────────────────────────────────
