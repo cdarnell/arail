@@ -650,6 +650,262 @@ behavior-change entries), with these deltas:
 
 Commit: `22f817d` — "elite-cli WP8: docs + CHANGELOG"
 
+## Review fixes
+
+**Review:** [REVIEW.md](./REVIEW.md) at `70bed95` — verdict BLOCK (3 blocks,
+10 must-fix minors, 7 nits, 5 dropped test gates + F4's detection mechanism
+never extended to the two new scripts). This section documents the fix pass
+in commit order: `13461d7` (B1), `3d57749` (B2), `08dacac` (B3), `75b63aa`
+(dropped gates), `ca9c8aa` (minors m2–m4/m6/m8–m9 + nits n1–n3/n5),
+`189439b` (a real bug this fix pass's own new test fixture introduced,
+found and fixed before it could ship).
+
+### B1 — `install` dies on a bare, zero-flag invocation
+
+**Finding:** `scripts/install.sh:307`'s F5 re-exec, `exec bash
+"$REPO_ROOT/scripts/install.sh" --_post-source "$old_sha"
+"${ORIGINAL_ARGV[@]}"`, aborts under bash 3.2's `set -u` with
+`ORIGINAL_ARGV[@]: unbound variable` whenever `ORIGINAL_ARGV` is a
+genuinely zero-element array — exactly the case for the flagship, zero-flag
+`./arailctl install` invocation once the source phase actually pulls a
+change.
+
+**Fix:** the guarded-length idiom WP4 already used for `_restart_start_argv`
+in `arailctl` (`(( ${#arr[@]} > 0 ))`, never `${arr[@]:-}`), applied at both
+call sites of the re-exec. Swept the sprint's other new/edited scripts for
+the same pattern (arailctl, install.sh, reset.sh, start.sh, status.sh) and
+found one more real instance: `scripts/start.sh`'s root-path `cleanup()`
+trap is armed before the first `PIDS+=`, so a signal in that window hits
+the identical abort (**m1**, fixed in the same commit). Every other new
+`"${arr[@]}"` in the sprint's diff was either a literal non-empty array or
+already count-guarded.
+
+**Evidence:** reproduced against the pre-fix tree via a fixture one commit
+behind a local bare remote:
+```
+  [1/5] source      ✓ 1dad235…bb8da64 (1 commit(s))
+scripts/install.sh: line 297: ORIGINAL_ARGV[@]: unbound variable
+rc=1
+```
+Post-fix, the same fixture reaches the deps phase (a real, unrelated
+failure there — the fixture repo has no `pyproject.toml` — proves the
+re-exec's argv survived). Added a zero-argv scenario to
+`tests/cli/install_driver.sh` (18/18 green, was 16/16 pre-review).
+
+### B2 — `stop --root` / `restart --root` kill a live World instance
+
+**Finding:** World-instance portals are spawned by `start.sh`'s instance
+path without `--app-dir` (uvicorn already defaults it to the instance's own
+cwd). `reset.sh`'s pre-QA-11 `stop_services()` fallback matches any uvicorn
+on the root's configured port with no `--app-dir` requirement — so a World
+started on the root lab's own port (`./arailctl start --world ai --port
+8080`, the exact shape `.github/workflows/blueprint-smoke.yml:220` uses)
+was indistinguishable from a genuine pre-upgrade root-lab process and got
+killed by a "root only" stop. Contradicted `docs/cli.md:205` and
+re-created the sibling-killing shape this sprint exists to retire.
+
+**Fix:** `instances.sh` stays the sole source of truth for what is an
+instance. `stop_services()` now builds the set of LIVE registered
+instances' portal/memory pids (`inst_list_slugs` + `inst_alive` +
+`inst_read_record`) before the fallback loop runs, and excludes them
+explicitly — the fallback still reaches a genuinely pre-upgrade root-lab
+process (QA-17's own reason for existing), just never a pid instances.sh
+already accounts for.
+
+**Evidence:** reproduced against the pre-fix tree (`git stash` of just
+`scripts/reset.sh`) with a real process carrying the instance-portal argv
+shape, pinned to the fake repo's own randomized "root" port:
+```
+world-instance-like pid=14898 argv: bash …/fake-world-portal/uvicorn arail.portal.app:app --host 127.0.0.1 --port 31898 --log-level warning
+  ✓ Stopping Test Lab services...
+  ✓ Stopped 1 process(es).
+RESULT: instance was KILLED by 'stop --root'  <-- contradicts docs/cli.md
+```
+Post-fix, same repro:
+```
+  ✓ Stopping Test Lab services...
+  ✓ No running services found.
+RESULT: instance SURVIVED 'stop --root' (correct)
+```
+Confirmed identically for `restart --root`. WP3's "no dedicated `stop
+--root` scenario" trim (explicitly REJECTED by the review) is filled in:
+two new sibling-survival scenarios (the T19 shape, `--root` target) in
+`tests/cli/restart_driver.sh`, backed by a new fixture
+(`cli_test_fabricate_live_instance_portal_like`, `tests/cli/lib.sh`) that
+spawns a REAL process with an instance-portal-shaped argv — required
+because `stop_services()` finds its candidates via a real `pgrep -f`,
+which no stubbed `ps` can influence.
+
+### B3 — `warm_skipped` leaks exception text on the anonymous `/api/instance`
+
+**Finding:** `_MODEL_WARM_SKIP_REASON = f"{type(e).__name__}: {e}"`
+surfaced the verbatim exception text — in practice an absolute path (hence
+the OS username) for a missing model file, or the configured provider
+host/URL for a connection failure — on `GET /api/instance`'s
+`warm_skipped` field, reachable with no passphrase set (`onboarding_gate`'s
+allow-list, A6). Violates F16 ("no model id, no path, no secret").
+
+**Fix:** `warm_skipped`'s exception case is now the single fixed sentence
+`_MODEL_WARM_SKIP_REASON_ON_EXCEPTION = "warm failed — see the activity
+log"` — a closed vocabulary alongside the three cases that were already
+closed. The real exception text still reaches `activity_log`
+(authenticated surface), unchanged.
+
+**Evidence:** `tests/test_instance_isolation_audit.py`'s F16 allow-list had
+widened the KEY set with no VALUE constraint — the gap that let this
+through. Added `test_warm_skipped_value_is_a_closed_vocabulary`, which
+statically confirms the exception handler's only assignment to
+`_MODEL_WARM_SKIP_REASON` is the fixed constant, never anything built from
+the caught exception. Re-pointed `tests/test_warm_up.py:167` (which
+actively pinned the leak — `assert "ConnectionError" in
+_MODEL_WARM_SKIP_REASON`) at the new contract, simulating an exception
+carrying a fake path/model-id/URL and asserting none of it survives. Both
+new assertions verified to FAIL against the pre-fix code (`git stash`)
+before verifying they pass against the fix.
+
+### Dropped test gates — T30–T32, T35, T36, F4/m7
+
+- **T30/T31/T32** (new `tests/test_cli_security_scan.py`, the 20% security
+  allocation's static half): source-text scans mirroring
+  `test_instance_isolation_audit.py`'s existing style. T30 — `secrets.env`
+  never referenced outside a comment in install.sh/services.sh/status.sh.
+  T31 — services.sh contains no `kill`/`pkill`/`pgrep` except `kill -0` (the
+  carve-out BUILD_LOG's WP2 section already flagged); start.sh's root path
+  signals only `${PIDS[@]}`. T32 — install.sh/status.sh never
+  stop/kill ollama; start.sh's root readiness gate folds its own
+  `OLLAMA_PID` into `${PIDS[@]}` rather than a separate kill path. Each
+  assertion verified to fail against a deliberately-broken copy of its
+  target before verifying it passes against the real file.
+- **T35** (`tests/cli/root_start_driver.sh`): golden path — `start --root
+  --no-browser` → `status` (0) → `restart --root` → `status` (0) → `stop
+  --root` → `status` (4). The only end-to-end coverage `restart --root`'s
+  foreground path has at all, and would have caught B2 on its own even
+  without a fabricated sibling instance. Building a real stop/restart cycle
+  against the CLI harness's serving stub surfaced two real stub bugs (not
+  product bugs — test infrastructure only), fixed as part of building this
+  gate: `write_stub_uvicorn_serving`'s wrapper used to `exec` into the
+  python stub, dropping `--app-dir`/`--port` from the process's own argv
+  (invisible to `stop_services()`'s real `pgrep -f`); now backgrounds the
+  child and forwards TERM/INT instead. `stub_uvicorn_serving.py` never set
+  `SO_REUSEADDR`, so an immediate re-bind of the same port (the restart
+  cycle) intermittently failed with "Address already in use" — added.
+  Both fixes verified against every other consumer (root_start_driver.sh,
+  restart_driver.sh, warmup_driver.sh, status_driver.sh) before landing.
+  T35 flaked once in early iterations from a genuine race in the test's
+  OWN readiness detection (polling the port cannot distinguish "the OLD
+  server is still up" from "the NEW one came up for real" — fixed by
+  waiting for start.sh's own `✓ Portal` log line instead); 5 consecutive
+  clean runs with no leftover process after the fix.
+- **T36**: not a test to build — ARCHITECTURE.md §16.2 names it a
+  "reviewer checklist item" when a live CI run isn't feasible locally, and
+  REVIEW.md §6 already discharged it. No further action.
+- **F4/m7** (`tests/shell_source_safety_driver.sh` extended): install.sh's
+  `.env`/`instances.sh` guards and a services.sh caller's guard (start.sh's)
+  are each extracted verbatim (`grep -F`) and run under `set -euo pipefail`
+  with the target file absent, asserting the shell reaches the end of the
+  script rather than aborting — F4's exact failure mode. The driver's
+  pre-existing red status (system `python3` 3.9.6, no `tomllib`, via
+  `blueprint.sh`'s render step — confirmed unrelated, both by the original
+  build and by REVIEW.md) meant the two new sections had to be validated
+  with a `python3.11` PATH shim standing in for that unrelated step.
+
+### Must-fix minors
+
+- **m2** — arailctl's two daemon-mode readiness gates (`start`, `restart`)
+  treated `svc_wait_http_ready`'s rc 2 (curl absent) and a missing
+  `scripts/lib/services.sh` the same as a genuinely-down portal (A4/F30
+  violation). Both gates now degrade (print the URL, warn once, exit 0) on
+  either "cannot verify" case, still die on a real failure. New
+  `tests/test_cli_daemon_readiness_degrade.py` drives both gates' real code
+  extracted verbatim from arailctl; all 4 new assertions verified to fail
+  against the pre-fix arailctl.
+- **m3** — `install.sh --_post-source <sha>` was trusted at face value,
+  bypassing the provisioned check AND the F21/F22 live-lab refusal for
+  anyone who typed the flag by hand. `_ARAIL_INSTALL_POST_SOURCE=1` (set
+  only inline on the F5 exec's own command line) plus a `git cat-file -e`
+  check on the sha are now both required; either failing means treat
+  `--_post-source` as though it was never passed. New install_driver.sh
+  scenarios (both the flag alone, and the env marker with a bogus sha)
+  proved the pre-fix bypass (exit 3, degraded, .venv survives only by
+  accident) and now assert the correct refusal (exit 1, "stop it first").
+- **m4** — `status.sh` runs under `set -uo pipefail` without `-e`
+  (undocumented). Documented as a landmine note in the file header; the
+  narrower "scope set +e/-e around just the probe block" alternative was
+  considered and not attempted (no numbered test pins that boundary — a
+  materially larger, riskier change than this fix's scope).
+- **m6** — `test_cli_verbs.py`'s T33 asserted a hand-retyped copy of
+  setup.sh's passphrase-masking conditional. Extracted verbatim instead;
+  verified it now fails both when the real conditional is removed
+  (extraction target moved — a collection-time error, impossible to pass
+  silently) and when its logic is quietly broken (masking assertion
+  fails).
+- **m8** — `docs/concurrent-worlds.md` claimed switching to
+  `--json=instances` was a compat path for scripts that assumed exit 0.
+  Verified live that `--json=instances` also exits the verdict code (`4`
+  on an idle checkout). Reworded: the exit-code change applies to every
+  status form; only stdout is byte-compatible for `--json=instances`.
+- **m9** — two shipped behavior changes were missing from CHANGELOG:
+  `update --component <x>` on an airgapped lab now exits 3 (both the new
+  install-backed path and the old interactive muscle memory), and bare
+  `update` now inherits install's live-lab preflight (refuses, exit 1,
+  while the lab is running).
+
+m1, m5, m7, m10 are covered above (bundled with B1, the dropped-gates
+commit, and F4 respectively).
+
+### Nits taken
+
+n1 (status.sh's `INSTANCES_JSON` now calls the shared
+`_status_json_lines_to_array` reducer instead of re-inlining an identical
+copy), n2 (restart's DOWN notice excludes 130/143 — a deliberate Ctrl-C
+isn't "the start failed"), n3 (the Scheduler probe uses the
+loopback-normalized `$PROBE_HOST` instead of raw `$BIND`, matching F29's
+normalization everywhere else in the file), n5 (verbs_driver.sh's F33
+drift check anchors to a real `### ...`<verb>`...` heading instead of a
+vacuous substring match — verified against both a removed heading and a
+de-backtick'd one).
+
+### Nits deliberately left as-is
+
+n4, n6, n7 each require a real behavior change beyond "fix-if-trivial"
+(new `--json` emission paths on install's early exits; a genuine
+hard-dependency-or-real-degrade design decision for a missing
+`scripts/setup.sh`; restructuring `ARAIL_TIER0_BOOT_WARM`'s export scope)
+and none is ship-blocking on its own per REVIEW.md's own framing. Left
+undone, documented here rather than silently skipped.
+
+### A bug this fix pass's own new test infrastructure introduced (and fixed)
+
+While building B2's `cli_test_fabricate_live_instance_portal_like` fixture
+(`tests/cli/lib.sh`), its `trap 'exit 0' TERM INT` exited immediately on
+SIGTERM without killing its own `sleep 300` child — orphaning it. Every
+`*_driver.sh` script survives this harmlessly (each runs under
+`_timeout`'s own process-group SIGKILL); the new
+`tests/test_cli_restart.py` pytest wrapper does not, so
+`subprocess.communicate()` blocked for the full 180s waiting for EOF on
+stdout/stderr held open by the orphan — discovered via the full pytest
+run's FAILED list, isolated by reproducing the exact `subprocess.run()`
+call directly (`Popen` showed `returncode: 0` well before the reported
+`TimeoutExpired`). Fixed to kill+wait its own child first, matching
+`write_stub_uvicorn_serving`'s already-correct pattern (commit `189439b`).
+Flagged here per this build's own deviation-logging discipline — an
+error introduced and caught within the same fix pass, not shipped.
+
+### Verification
+
+- `bash -n` clean on every touched script.
+- Protected baseline: `tests/instance_start_driver.sh` (11/11),
+  `tests/instance_qa_driver.sh` (10/10) — unchanged.
+- Every `tests/cli/*_driver.sh`: `color` (5/5), `verbs` (6/6, F33's
+  stricter n5 check), `status` (13/13, n1/n3/m4 changes), `root_start`
+  (7/7, +T35), `restart` (14/14, +2 B2 scenarios), `warmup` (5/5),
+  `install` (18/18, +B1 zero-argv, +2 m3 scenarios).
+- `./arailctl help` renders the full verb table (exit 0);
+  `ARAIL_NO_BROWSER=1 ./arailctl status` exits `4` on this idle checkout
+  with well-formed output.
+- Full `pytest` suite (see `## Final state — review-fix pass` below for
+  the exact before/after counts).
+
 ## Architect feedback required
 
 None. No part of the architecture's WP1–WP8 spec was found to be wrong in
@@ -726,4 +982,76 @@ design change.
   (bare) both print the current tier and exit `0`; `bash -n` clean on
   every touched script.
 - **No TODO comments without owner/date added anywhere in WP6-8. No
+  commented-out code.**
+
+## Final state — review-fix pass
+
+- **Commits:** 6 — `13461d7` (B1 + m1), `3d57749` (B2), `08dacac` (B3),
+  `75b63aa` (dropped gates T30-T32/T35/T36/F4/m7), `ca9c8aa` (minors
+  m2-m4/m6/m8-m9 + nits n1-n3/n5), `189439b` (fix for a bug this pass's
+  own new test fixture introduced).
+- **Findings disposition:** B1/B2/B3 fixed and evidenced (repro-then-fixed
+  transcripts in the "Review fixes" section above). m1-m10 all addressed
+  (m1/m5/m7/m10 bundled into their respective BLOCK/dropped-gate commits;
+  m2/m3/m4/m6/m8/m9 in the minors commit). T30, T31, T32, T35 built; T36
+  confirmed a reviewer-checklist item, already discharged by REVIEW.md
+  itself, no test to build. F4 extended to install.sh and services.sh.
+  n1/n2/n3/n5 taken; n4/n6/n7 assessed and left, each requiring a real
+  behavior change beyond "fix-if-trivial," documented above rather than
+  silently skipped.
+- **Files changed:** 20 (`git diff 70bed95..HEAD --stat`, excluding
+  SPRINT.md which this build did not touch): `arailctl`, `scripts/{install,
+  reset,start,status}.sh`, `src/arail/portal/app.py`, `docs/concurrent-worlds.md`,
+  `CHANGELOG.md`; **new** `tests/test_cli_security_scan.py`,
+  `tests/test_cli_daemon_readiness_degrade.py`; extended
+  `tests/cli/{install,restart,root_start,verbs}_driver.sh`,
+  `tests/cli/lib.sh`, `tests/cli/stub_uvicorn_serving.py`,
+  `tests/shell_source_safety_driver.sh`, `tests/test_cli_verbs.py`,
+  `tests/test_instance_isolation_audit.py`, `tests/test_warm_up.py`.
+  1014 insertions, 64 deletions.
+- **New test coverage:** 1 zero-argv `install` scenario (B1); 2
+  sibling-survival `--root` scenarios (B2); 2 new pytest assertions +
+  1 static AST-level assertion (B3); 5 security static-scan tests (T30-T32);
+  1 golden-path scenario (T35, +2 fixed test-infrastructure bugs found
+  while building it); 2 F4-extension driver sections; 6 daemon-readiness-
+  degrade pytest tests (m2); 2 `--_post-source` bypass-attempt scenarios
+  (m3); 2 passphrase-mask extraction tests, now real (m6, was already 2,
+  now actually pinned to setup.sh).
+- **Protected baseline (final):** `tests/instance_start_driver.sh` (11/11),
+  `tests/instance_qa_driver.sh` (10/10) — byte-identical to pre-review.
+- **`tests/cli/*_driver.sh` (final):** `color` 5/5, `verbs` 6/6, `status`
+  13/13, `root_start` 7/7 (was 6/6), `restart` 14/14 (was 12/12), `warmup`
+  5/5, `install` 18/18 (was 16/16).
+- **Full pytest suite:** run twice on the final tree — 77 failed, 3817
+  passed, 4 skipped, 2 xfailed, 14 errors (91 failed+errors) both times,
+  byte-identical except for exactly one line each run: `test_cli_restart.py`
+  disappeared from the FAILED list after the `189439b` fix (confirmed via a
+  before/after run of that one commit), and one of two known
+  order-dependent, timing-sensitive tests unrelated to this build
+  (`test_autochecks_boot.py::test_health_interval_zero_is_one_shot`,
+  `test_runtime_profile_api.py::test_post_emits_activity_event` — a
+  model-registry health-thread `join(timeout=2.0)` and an unrelated
+  activity-log timing assertion, respectively) surfaced depending on
+  collection-order shifts from the new test files. Both confirmed to pass
+  in isolation and in a 19-file targeted rerun (110/113 passed, only the 3
+  genuinely pre-existing failures below).
+- **Pre-existing failures, re-confirmed via a git-worktree checkout of the
+  PRE-review-fix tree (`70bed95`) running the identical targeted test
+  set:** `tests/test_reset_stop_scope.py::test_foreign_uvicorn_survives`
+  and `::test_port_scoped_helpers` (the same `_ollama_pid_if_we_started_it:
+  command not found` awk-extraction gap, unaffected by this pass's
+  `reset.sh` change — its new code is inside `stop_services()`, correctly
+  outside the awk-extracted range: the nested function's closing brace is
+  indented, never at column 0) and `tests/test_shell_source_safety.py`
+  (the tomllib gap, unaffected by this pass's driver extension — the two
+  new sections are never reached because the pre-existing failure happens
+  first, in an unrelated blueprint-render step).
+- **Smoke tests:** `bash -n` clean on every touched script;
+  `ARAIL_NO_BROWSER=1 ./arailctl status` exits `4` on this idle checkout
+  with well-formed output; `./arailctl help` exits `0` and renders the full
+  verb table; `./arailctl install --help` exits `0`.
+- **No leftover processes** after any driver run (verified via `ps aux`
+  after every `*_driver.sh` invocation in this pass, including the T35/B2
+  scenarios that spawn real background processes).
+- **No TODO comments without owner/date added anywhere in this pass. No
   commented-out code.**
