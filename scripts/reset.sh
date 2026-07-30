@@ -177,6 +177,43 @@ stop_services() {
         "uvicorn.*arail\.memory_service.*--port ${LANCE_PORT:-7414}"
         "uvicorn.*arail\.mlx_openai_server.*--port ${MLX_OPENAI_PORT:-11435}"
     )
+    # REVIEW.md B2: a World instance's portal/memory service is spawned by
+    # start.sh's INSTANCE path deliberately WITHOUT --app-dir (uvicorn
+    # already defaults --app-dir to the instance's own cwd) — so an
+    # instance started on the same port as this checkout's configured
+    # PORTAL_PORT/LANCE_PORT (e.g. `./arailctl start --world ai --port
+    # 8080`) satisfies the fallback pattern above exactly like a genuine
+    # pre-upgrade root-lab process would, and used to get killed by a
+    # "root only" stop. instances.sh (scripts/lib/instances.sh) is the
+    # single source of truth for what is an instance (ARCHITECTURE.md
+    # §2.6) — build the set of LIVE instance-owned pids here and exclude
+    # them from the fallback match below, before it ever reaches `kill`.
+    # A record whose OWN liveness check (inst_alive) fails is not added:
+    # a dead/reused pid is not a live instance to protect, and excluding
+    # it too would silently defeat the QA-17 fallback for a genuinely
+    # pre-upgrade root-lab process. No-op (empty set) when instances.sh
+    # isn't sourced (sandboxed single-file test copies of this file).
+    local _inst_owned_pids=()
+    if command -v inst_list_slugs >/dev/null 2>&1; then
+        local _inst_slug _inst_rec _inst_ppid _inst_mpid
+        while IFS= read -r _inst_slug; do
+            [[ -n "$_inst_slug" ]] || continue
+            inst_alive "$_inst_slug" || continue
+            _inst_rec="$(inst_read_record "$_inst_slug" 2>/dev/null)" || continue
+            _inst_ppid="$(inst_record_field "$_inst_rec" portal_pid)"
+            _inst_mpid="$(inst_record_field "$_inst_rec" memory_pid)"
+            [[ -n "$_inst_ppid" ]] && _inst_owned_pids+=("$_inst_ppid")
+            [[ -n "$_inst_mpid" ]] && _inst_owned_pids+=("$_inst_mpid")
+        done < <(inst_list_slugs)
+    fi
+    _stop_services_pid_is_instance_owned() {
+        local needle="$1" p
+        (( ${#_inst_owned_pids[@]} > 0 )) || return 1
+        for p in "${_inst_owned_pids[@]}"; do
+            [[ "$p" == "$needle" ]] && return 0
+        done
+        return 1
+    }
     local pids=()
     local i=0
     for pattern in "${patterns[@]}"; do
@@ -194,7 +231,7 @@ stop_services() {
                 # it genuinely predates the upgrade (no --app-dir anywhere in
                 # its argv) — never one that names a foreign checkout.
                 fcmd="$(ps -p "$fpid" -o command= 2>/dev/null || true)"
-                if [[ "$fcmd" != *"--app-dir "* ]]; then
+                if [[ "$fcmd" != *"--app-dir "* ]] && ! _stop_services_pid_is_instance_owned "$fpid"; then
                     pids+=("$fpid")
                 fi
             done
@@ -808,7 +845,10 @@ case "${MODE:-}" in
             # Root only — deliberately skips the auto-resolution branch
             # below (which would otherwise also stop a lone live World
             # instance). Non-failing even while instances are live: a World
-            # instance is never touched by this arm.
+            # instance is never touched by this arm — stop_services()'s own
+            # QA-17 fallback excludes every live registered instance's
+            # portal/memory pid (REVIEW.md B2), even one sharing this
+            # checkout's root portal/memory port.
             stop_services
         elif command -v inst_list_slugs >/dev/null 2>&1; then
             LIVE_SLUGS=()

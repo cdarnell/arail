@@ -135,6 +135,49 @@ cli_test_fabricate_live_instance() {
 EOF
 }
 
+# cli_test_fabricate_live_instance_portal_like <fake-repo> <slug> <port> —
+# REVIEW.md B2: registers a registry/v1 record for <slug> backed by a REAL,
+# long-lived process whose OWN argv is INDISTINGUISHABLE from a genuine
+# World-instance portal — "uvicorn arail.portal.app:app --host 127.0.0.1
+# --port <port> --log-level warning", deliberately with NO --app-dir
+# (start.sh's instance path never adds one — B2's exact shape).
+#
+# Unlike cli_test_fabricate_live_instance (a bare `sleep`, whose real argv
+# is just "sleep 30"), this fixture is needed because reset.sh's
+# stop_services() finds its fallback kill candidates via a REAL `pgrep -f`
+# — a kernel-level process-table query that no stubbed `ps` on PATH can
+# influence. So both `pgrep -f` AND `ps -p <pid> -o command=` (which
+# inst_alive() also calls) must see the SAME real, matching argv — achieved
+# here by literally naming the stub executable "uvicorn" and invoking it
+# with the exact instance-portal argv shape; no `ps` stub is needed at all
+# for THIS fixture (unlike cli_test_fabricate_live_instance's sibling
+# scenarios), since the real system `ps` already reports the right thing.
+# Sets CLI_TEST_LAST_FABRICATED_PID (same global-handoff convention as
+# cli_test_fabricate_live_instance, for the identical subshell-swallows-a-
+# background-job reason — NOT `pid=$(...)`).
+cli_test_fabricate_live_instance_portal_like() {
+    local fake="$1" slug="$2" port="$3"
+    mkdir -p "$fake/lab/instances/registry.d" "$fake/fake-world-portal"
+    cat > "$fake/fake-world-portal/uvicorn" <<'EOF'
+#!/usr/bin/env bash
+trap 'exit 0' TERM INT
+sleep 300 &
+wait
+EOF
+    chmod +x "$fake/fake-world-portal/uvicorn"
+    "$fake/fake-world-portal/uvicorn" arail.portal.app:app --host 127.0.0.1 --port "$port" --log-level warning &
+    CLI_TEST_LAST_FABRICATED_PID=$!
+    local pid="$CLI_TEST_LAST_FABRICATED_PID"
+    cat > "$fake/lab/instances/registry.d/${slug}.json" <<EOF
+{"schema":"arail.instance-registry/v1","slug":"${slug}","display_name":"${slug}",
+ "checkout":"$fake","instance_root":"$fake/lab/instances/${slug}",
+ "data_dir":"$fake/lab/instances/${slug}/data","pkb_root":"$fake/lab/instances/${slug}/pkb",
+ "bind":"127.0.0.1","portal_port":${port},"lance_port":$((port + 4)),
+ "launcher_pid":${pid},"portal_pid":${pid},"memory_pid":${pid},"token":"t",
+ "started_at":"2026-01-01T00:00:00Z","arailctl_version":"test"}
+EOF
+}
+
 # cli_test_write_stub_ps_for_slugs <bindir> <slug1>:<port1> [<slug2>:<port2> ...]
 # — a `ps` stub whose cmdline output contains every given "--port <n>" AND
 # "--world <slug>" needed to satisfy stop_instance()'s (scripts/reset.sh)

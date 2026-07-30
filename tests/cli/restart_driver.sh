@@ -6,6 +6,7 @@
 # WP4 ("restart redesign", grown into this same file — both are grouped
 # under the architecture's single "--root / restart:" test heading):
 # T19-T21, F9, F12, F13.
+# REVIEW.md B2: stop --root / restart --root sibling-World-survival.
 #
 # Drives the REAL scripts/start.sh, scripts/reset.sh, and arailctl (never a
 # reimplementation). F26/F27: every port here is randomized >= 18000 and
@@ -93,6 +94,61 @@ rc18c=$?
 [[ "$rc18c" == "2" ]] || fail "T18c: expected exit 2, got $rc18c — output:\n$out18c"
 echo "$out18c" | grep -qi "mutually exclusive" || fail "T18c: no mutual-exclusion message — output:\n$out18c"
 ok_scenario
+
+# ---------------------------------------------------------------------------
+# REVIEW.md B2 (stop --root): a World instance whose portal happens to
+# share the ROOT lab's own configured PORTAL_PORT — the exact shape of
+# `./arailctl start --world ai --port 8080`, which
+# .github/workflows/blueprint-smoke.yml:220 uses against the real default
+# port — must survive `stop --root`. World-instance portals are spawned by
+# start.sh's instance path WITHOUT --app-dir (deliberately), so
+# stop_services()'s pre-QA-11 port-only fallback used to match and kill
+# them; docs/cli.md:205 promises "never touches a live World instance,
+# even while one is running" and this is the scenario that promise must
+# hold under. cli_test_fabricate_live_instance_portal_like is required
+# here (not the plain cli_test_fabricate_live_instance) because
+# stop_services() finds its fallback candidates via a REAL `pgrep -f`,
+# which no stubbed `ps` on PATH can influence.
+# ---------------------------------------------------------------------------
+FAKEB2S="$WORK/repob2stop"
+make_fake_repo "$FAKEB2S" >/dev/null
+PORTALB2S="$(cli_test_random_port)"; cli_test_assert_port_safe "$PORTALB2S"
+write_lab_conf "$FAKEB2S" "$PORTALB2S" "$((PORTALB2S + 1))" "$((PORTALB2S + 2))" "$((PORTALB2S + 3))" "$((PORTALB2S + 4))"
+cli_test_fabricate_live_instance_portal_like "$FAKEB2S" ai "$PORTALB2S"
+pid_b2s="$CLI_TEST_LAST_FABRICATED_PID"
+sleep 0.3
+
+out_b2s="$( cd "$FAKEB2S" && HOME="$FAKE_HOME" PATH="$SAFE_PATH" \
+    _timeout 15 bash arailctl stop --root </dev/null 2>&1 )"
+rc_b2s=$?
+[[ "$rc_b2s" == "0" ]] || fail "B2(stop --root): expected exit 0, got $rc_b2s — output:\n$out_b2s"
+kill -0 "$pid_b2s" 2>/dev/null || fail "B2(stop --root): the sibling World instance was KILLED by 'stop --root' — output:\n$out_b2s"
+[[ -f "$FAKEB2S/lab/instances/registry.d/ai.json" ]] || fail "B2(stop --root): the sibling's registry record was removed by 'stop --root'"
+ok_scenario
+kill "$pid_b2s" 2>/dev/null || true; wait "$pid_b2s" 2>/dev/null || true
+
+# ---------------------------------------------------------------------------
+# REVIEW.md B2 (restart --root): same collision, via restart --root's own
+# stop phase (`reset.sh stop --root`, the identical stop_services() call).
+# The fixture has no .venv/lab.conf-backed root lab of its own, so the
+# subsequent START phase fails fast (F13's DOWN notice) — irrelevant to
+# what this scenario asserts: the STOP phase must never touch the sibling.
+# ---------------------------------------------------------------------------
+FAKEB2R="$WORK/repob2restart"
+make_fake_repo "$FAKEB2R" >/dev/null
+PORTALB2R="$(cli_test_random_port)"; cli_test_assert_port_safe "$PORTALB2R"
+write_lab_conf "$FAKEB2R" "$PORTALB2R" "$((PORTALB2R + 1))" "$((PORTALB2R + 2))" "$((PORTALB2R + 3))" "$((PORTALB2R + 4))"
+cli_test_fabricate_live_instance_portal_like "$FAKEB2R" ai "$PORTALB2R"
+pid_b2r="$CLI_TEST_LAST_FABRICATED_PID"
+sleep 0.3
+
+out_b2r="$( cd "$FAKEB2R" && HOME="$FAKE_HOME" PATH="$SAFE_PATH" \
+    _timeout 15 bash arailctl restart --root </dev/null 2>&1 )"
+rc_b2r=$?
+kill -0 "$pid_b2r" 2>/dev/null || fail "B2(restart --root): the sibling World instance was KILLED by 'restart --root' — output:\n$out_b2r"
+[[ -f "$FAKEB2R/lab/instances/registry.d/ai.json" ]] || fail "B2(restart --root): the sibling's registry record was removed by 'restart --root'"
+ok_scenario
+kill "$pid_b2r" 2>/dev/null || true; wait "$pid_b2r" 2>/dev/null || true
 
 # ---------------------------------------------------------------------------
 # T19 / T21b / F13: two fabricated LIVE World instances ("a", "b" — real
