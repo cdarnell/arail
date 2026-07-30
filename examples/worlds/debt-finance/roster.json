@@ -1,0 +1,32 @@
+{
+  "schema": "dac.world-roster/v1",
+  "world": "debt-finance",
+  "desired": [
+    "credit-card-debt",
+    "student-loan",
+    "auto-loan",
+    "secured-loan",
+    "unsecured-loan",
+    "debt-consolidation-loan",
+    "personal-loan",
+    "hardship-program",
+    "credit-union",
+    "credit-counseling-agency",
+    "penfed-credit-union",
+    "greenpath-financial-wellness",
+    "balance-transfer",
+    "avalanche-method",
+    "debt-snowball-method",
+    "low-fee-consumer-finance-practices",
+    "introductory-apr",
+    "transfer-fee",
+    "ncua-insured",
+    "nonprofit-credit-counseling",
+    "apr",
+    "minimum-payment",
+    "debt-to-income-ratio",
+    "adjustable-rate-mortgage",
+    "home-equity-line-of-credit",
+    "401k-loan"
+  ]
+}

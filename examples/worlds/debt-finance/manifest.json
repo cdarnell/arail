@@ -1,0 +1,27 @@
+{
+  "schema": "dac.world-bundle/v1",
+  "bundle_version": 1,
+  "world": "debt-finance",
+  "display_name": "World of Debt Finance",
+  "created_at": "2026-07-26T00:00:00.000Z",
+  "world_sha256": "be954c4fc1144e79668f2ed0a3acfea316515d996f55440dadb0b81e7ad19cf1",
+  "files": {
+    "terms.json": "be954c4fc1144e79668f2ed0a3acfea316515d996f55440dadb0b81e7ad19cf1",
+    "spec.json": "8b090640670db46b29c06864ebf1ea81398816aa2e63aee44c0da55426f5b040",
+    "roster.json": "ae4baf83656b01d3221c6aef5063c844b1a496ed55166837f353f423eb80edb7",
+    "face.json": "f4fd2f28f67ebeda7907f1f2a5e6f5f98df84832f3ac73c79b9732dd0dc3f6b6",
+    "agenda.json": "82ddb04372820edba05e4cd3df584974dce2324789d2ed6349a82974efa5be42",
+    "drift-report.json": "61150a85270a24d889124193bcba4605e81aad28d4982da5c19d2b1db37e5c3e"
+  },
+  "provenance_tier": "sourced",
+  "provenance_counts": {
+    "model": 0,
+    "sourced": 26,
+    "total": 26
+  },
+  "refresh_cadence": "see agenda.json",
+  "compat": {
+    "bundle_schema": 1,
+    "terms_schema": 1
+  }
+}

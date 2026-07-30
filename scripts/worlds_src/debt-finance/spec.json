@@ -1,0 +1,27 @@
+{
+  "slug": "debt-finance",
+  "display_name": "World of Debt Finance",
+  "categories": [
+    { "id": "debt-types", "label": "Debt Types" },
+    { "id": "credit-products", "label": "Credit Products" },
+    { "id": "institutions", "label": "Lenders & Institutions" },
+    { "id": "strategies", "label": "Payoff & Consolidation Strategies" },
+    { "id": "terminology", "label": "Terminology" },
+    { "id": "retirement-and-secured-credit", "label": "Retirement & Secured Credit" }
+  ],
+  "knowledge_sources": [
+    { "kind": "url", "ref": "https://www.consumerfinance.gov/consumer-tools/credit-cards/answers/balance-transfer/",
+      "trust": "high", "holder": "CFPB", "license": "public guidance cited by attribution" },
+    { "kind": "url", "ref": "https://www.ncua.gov/consumers/consumer-resources",
+      "trust": "high", "holder": "NCUA", "license": "public guidance cited by attribution" },
+    { "kind": "url", "ref": "https://www.penfed.org/personal-loans",
+      "trust": "medium", "holder": "PenFed Credit Union (NCUA-insured)", "license": "public rate page cited by attribution" },
+
+    { "kind": "url", "ref": "https://creditcards.chase.com/balance-transfer-credit-cards",
+      "trust": "medium", "holder": "Chase", "license": "public offer page cited by attribution" },
+    { "kind": "institution", "ref": "National Foundation for Credit Counseling (NFCC) member agencies",
+      "trust": "high", "holder": "NFCC", "license": "public guidance cited by attribution" },
+    { "kind": "reference", "ref": "Standard consumer-credit reference texts (APR/amortization mechanics)",
+      "trust": "high", "holder": "various publishers", "license": "facts cited by attribution — no verbatim text" }
+  ]
+}

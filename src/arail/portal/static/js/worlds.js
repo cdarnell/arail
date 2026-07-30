@@ -764,6 +764,17 @@
         });
       });
       actions.appendChild(un);
+
+      // Generic reveal button — opens lab/data/user-import/<slug>/findings/
+      // in the OS file browser. Harmless no-op (creates an empty folder) for
+      // Worlds with no personal-data agents writing findings there.
+      var reveal = document.createElement('button');
+      reveal.className = 'btn btn-ghost btn-sm';
+      reveal.textContent = 'Reveal findings';
+      reveal.addEventListener('click', function () {
+        window.revealSlot('user_data', w.slug + '/findings');
+      });
+      actions.appendChild(reveal);
     } else if (!currentSlug) {
       var mnt = document.createElement('button');
       mnt.className = 'btn btn-primary btn-sm';

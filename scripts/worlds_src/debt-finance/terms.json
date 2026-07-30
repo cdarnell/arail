@@ -1,0 +1,313 @@
+{
+  "version": 1,
+  "terms": [
+    {
+      "slug": "credit-card-debt",
+      "term": "Credit Card Debt",
+      "category": "debt-types",
+      "short": "Revolving balance owed on a credit card.",
+      "definition": "Unsecured revolving debt that carries a balance forward when not paid in full each cycle, typically accruing interest at the card's APR from the transaction date or after a grace period.",
+      "related": [
+        "apr",
+        "minimum-payment"
+      ],
+      "source": "https://www.consumerfinance.gov/consumer-tools/credit-cards/answers/balance-transfer/"
+    },
+    {
+      "slug": "student-loan",
+      "term": "Student Loan",
+      "category": "debt-types",
+      "short": "A loan borrowed to pay for education, federal or private.",
+      "definition": "Federal and private loans used to fund education costs; federal loans carry standardized terms and income-driven repayment options that private loans typically do not.",
+      "related": [
+        "unsecured-loan"
+      ],
+      "source": "https://www.consumerfinance.gov/consumer-tools/student-loans/"
+    },
+    {
+      "slug": "auto-loan",
+      "term": "Auto Loan",
+      "category": "debt-types",
+      "short": "A secured loan used to purchase a vehicle.",
+      "definition": "An installment loan secured by the vehicle itself; the lender can repossess the car if payments are missed.",
+      "related": [
+        "secured-loan"
+      ],
+      "source": "https://www.consumerfinance.gov/consumer-tools/auto-loans/"
+    },
+    {
+      "slug": "secured-loan",
+      "term": "Secured Loan",
+      "category": "debt-types",
+      "short": "A loan backed by collateral the lender can claim on default.",
+      "definition": "Debt in which the borrower pledges an asset (a home, a car, a savings account) as collateral, which typically lowers the interest rate but puts the asset at risk.",
+      "related": [
+        "auto-loan",
+        "home-equity-line-of-credit"
+      ],
+      "source": "https://www.consumerfinance.gov/consumer-tools/auto-loans/"
+    },
+    {
+      "slug": "unsecured-loan",
+      "term": "Unsecured Loan",
+      "category": "debt-types",
+      "short": "A loan not backed by collateral.",
+      "definition": "Debt extended based on creditworthiness alone, with no specific asset pledged; unsecured loans typically carry higher rates than secured loans because the lender has no collateral to recover on default.",
+      "related": [
+        "student-loan",
+        "personal-loan"
+      ],
+      "source": "https://www.consumerfinance.gov/consumer-tools/student-loans/"
+    },
+    {
+      "slug": "debt-consolidation-loan",
+      "term": "Debt Consolidation Loan",
+      "category": "credit-products",
+      "short": "A single loan used to pay off multiple higher-rate debts.",
+      "definition": "An installment loan whose proceeds are used to pay off several existing debts, replacing multiple payments and rates with one loan and one rate.",
+      "related": [
+        "credit-union",
+        "avalanche-method",
+        "personal-loan"
+      ],
+      "source": "https://www.consumerfinance.gov/consumer-tools/credit-cards/answers/balance-transfer/"
+    },
+    {
+      "slug": "personal-loan",
+      "term": "Personal Loan",
+      "category": "credit-products",
+      "short": "An unsecured installment loan for general use, including consolidation.",
+      "definition": "A fixed-term, fixed-payment loan issued based on creditworthiness rather than collateral; commonly used to consolidate higher-rate revolving debt into one lower, predictable payment.",
+      "related": [
+        "unsecured-loan",
+        "debt-consolidation-loan"
+      ],
+      "source": "https://www.penfed.org/personal-loans"
+    },
+    {
+      "slug": "hardship-program",
+      "term": "Hardship Program",
+      "category": "credit-products",
+      "short": "A lender or counseling-agency plan that temporarily eases repayment terms.",
+      "definition": "A negotiated, temporary adjustment to a loan or card's payment terms (reduced rate, waived fee, or paused payment) offered by a lender or arranged through a nonprofit credit-counseling agency during financial hardship.",
+      "related": [
+        "nonprofit-credit-counseling",
+        "credit-counseling-agency"
+      ],
+      "source": "https://www.consumerfinance.gov/consumer-tools/credit-cards/answers/balance-transfer/"
+    },
+    {
+      "slug": "credit-union",
+      "term": "Credit Union",
+      "category": "institutions",
+      "short": "Member-owned, not-for-profit financial cooperative.",
+      "definition": "A financial cooperative owned by its members rather than shareholders; profits are returned to members as lower rates and fees rather than distributed to outside investors. This is a glossary entry describing the concept, not a claim about any specific institution — it carries no `institution_type` field and is never a vetted named institution. A claim about a specific institution requires a verification source distinct from that institution's own marketing (an NCUA charter lookup or equivalent) — see this category's named entries for examples that carry one.",
+      "related": [
+        "ncua-insured",
+        "debt-consolidation-loan"
+      ],
+      "source": "https://www.ncua.gov/consumers/consumer-resources"
+    },
+    {
+      "slug": "credit-counseling-agency",
+      "term": "Credit Counseling Agency",
+      "category": "institutions",
+      "short": "An organization that provides budget and debt-management counseling.",
+      "definition": "A nonprofit or for-profit organization offering budget counseling, debt-management plans, and creditor negotiation; NFCC-member agencies are independently accredited nonprofits. This is a definitional/glossary entry describing the concept, not a claim about any specific institution — it carries no `institution_type` field and must never be treated as a vetted named institution.",
+      "related": [
+        "nonprofit-credit-counseling",
+        "hardship-program"
+      ],
+      "source": "https://www.consumerfinance.gov/consumer-tools/credit-cards/answers/balance-transfer/"
+    },
+    {
+      "slug": "penfed-credit-union",
+      "term": "PenFed Credit Union",
+      "category": "institutions",
+      "institution_type": "credit-union",
+      "short": "A specific, named, federally chartered credit union.",
+      "definition": "Pentagon Federal Credit Union (PenFed) is a federally chartered, member-owned credit union offering personal loans and other consumer credit products. Unlike the generic 'Credit Union' glossary entry above, this is a specific named institution: its institutional-character claim (credit union, NCUA-insured) is verified against the NCUA's own charter/insurance lookup, a source distinct from PenFed's own marketing pages.",
+      "related": [
+        "credit-union",
+        "personal-loan",
+        "debt-consolidation-loan"
+      ],
+      "source": "https://www.penfed.org/personal-loans",
+      "verification_source": "https://mapping.ncua.gov/ResearchCreditUnion",
+      "verified_as_of": "2026-07-27"
+    },
+    {
+      "slug": "greenpath-financial-wellness",
+      "term": "GreenPath Financial Wellness",
+      "category": "institutions",
+      "institution_type": "nonprofit-credit-counseling-agency",
+      "short": "A specific, named, NFCC-member nonprofit credit-counseling agency.",
+      "definition": "GreenPath Financial Wellness is a nonprofit credit-counseling agency offering budget counseling and debt-management plans. Unlike the generic 'Credit Counseling Agency' glossary entry above, this is a specific named institution: its institutional-character claim (nonprofit, NFCC-member) is verified against the National Foundation for Credit Counseling's own member directory, a source distinct from GreenPath's own marketing pages.",
+      "related": [
+        "credit-counseling-agency",
+        "hardship-program",
+        "nonprofit-credit-counseling"
+      ],
+      "source": "https://www.greenpath.com/",
+      "verification_source": "https://www.nfcc.org/member-agencies/",
+      "verified_as_of": "2026-07-27"
+    },
+    {
+      "slug": "balance-transfer",
+      "term": "Balance Transfer",
+      "category": "strategies",
+      "short": "Moving revolving balances to a card with a lower introductory APR.",
+      "definition": "Transferring one or more credit-card balances onto a new or existing card offering a temporary reduced (often 0%) introductory APR, usually for a one-time fee, to reduce interest cost during the promotional window.",
+      "related": [
+        "introductory-apr",
+        "transfer-fee"
+      ],
+      "source": "https://www.consumerfinance.gov/consumer-tools/credit-cards/answers/balance-transfer/"
+    },
+    {
+      "slug": "avalanche-method",
+      "term": "Avalanche Method",
+      "category": "strategies",
+      "short": "Paying off debts ordered by highest interest rate first.",
+      "definition": "A payoff strategy that directs any extra payment toward the debt with the highest interest rate first, while making minimum payments on the rest, minimizing total interest paid over time.",
+      "related": [
+        "debt-consolidation-loan"
+      ],
+      "source": "https://www.consumerfinance.gov/consumer-tools/credit-cards/answers/balance-transfer/"
+    },
+    {
+      "slug": "debt-snowball-method",
+      "term": "Debt Snowball Method",
+      "category": "strategies",
+      "short": "Paying off debts ordered by smallest balance first, popularized by Dave Ramsey.",
+      "definition": "A payoff strategy, popularized by financial author Dave Ramsey (\"list your debts smallest to largest\"), that directs extra payments at the smallest balance first regardless of interest rate, aiming for early psychological wins to sustain motivation.",
+      "related": [
+        "avalanche-method"
+      ],
+      "source": "https://www.ramseysolutions.com/debt/how-debt-snowball-method-works"
+    },
+    {
+      "slug": "low-fee-consumer-finance-practices",
+      "term": "Low Fee Consumer Finance Practices",
+      "category": "strategies",
+      "short": "Comparing total fees and rates before consolidating, a theme consumer advocate Clark Howard emphasizes.",
+      "definition": "A consumer-finance discipline, emphasized by consumer advocate Clark Howard, of comparing total cost (rate plus fees) across offers rather than headline rate alone before consolidating or transferring debt.",
+      "related": [
+        "transfer-fee",
+        "balance-transfer"
+      ],
+      "source": "https://clark.com/credit/best-low-interest-credit-cards/"
+    },
+    {
+      "slug": "introductory-apr",
+      "term": "Introductory APR",
+      "category": "terminology",
+      "short": "A temporary reduced interest rate offered for a limited period.",
+      "definition": "A promotional interest rate, often 0%, applied for a fixed introductory window (commonly 12-21 months) before reverting to the card's standard ongoing APR.",
+      "related": [
+        "balance-transfer",
+        "apr"
+      ],
+      "source": "https://creditcards.chase.com/balance-transfer-credit-cards"
+    },
+    {
+      "slug": "transfer-fee",
+      "term": "Transfer Fee",
+      "category": "terminology",
+      "short": "A one-time fee (typically 3-5%) charged to move a balance.",
+      "definition": "A one-time fee, usually 3-5% of the transferred amount, charged by the receiving card issuer at the time of a balance transfer.",
+      "related": [
+        "balance-transfer"
+      ],
+      "source": "https://creditcards.chase.com/balance-transfer-credit-cards"
+    },
+    {
+      "slug": "ncua-insured",
+      "term": "NCUA Insured",
+      "category": "terminology",
+      "short": "Deposits insured up to $250k by the National Credit Union Administration.",
+      "definition": "A federal designation meaning member deposits at a credit union are insured up to $250,000 per account, the credit-union analogue to FDIC deposit insurance for banks.",
+      "related": [
+        "credit-union"
+      ],
+      "source": "https://www.ncua.gov/consumers/consumer-resources"
+    },
+    {
+      "slug": "nonprofit-credit-counseling",
+      "term": "Nonprofit Credit Counseling",
+      "category": "terminology",
+      "short": "Budget/debt counseling provided by an accredited nonprofit agency.",
+      "definition": "Counseling and debt-management services provided by a nonprofit organization, often free or low-cost, distinguished from for-profit debt-settlement companies by fee structure and accreditation.",
+      "related": [
+        "credit-counseling-agency"
+      ],
+      "source": "https://www.consumerfinance.gov/consumer-tools/credit-cards/answers/balance-transfer/"
+    },
+    {
+      "slug": "apr",
+      "term": "APR",
+      "category": "terminology",
+      "short": "Annual Percentage Rate — the yearly cost of borrowing, expressed as a rate.",
+      "definition": "The Annual Percentage Rate expresses the yearly cost of a loan or credit line, including interest and (for some products) certain fees, as a single percentage for comparison across offers.",
+      "related": [
+        "credit-card-debt",
+        "introductory-apr"
+      ],
+      "source": "https://www.consumerfinance.gov/consumer-tools/credit-cards/answers/balance-transfer/"
+    },
+    {
+      "slug": "minimum-payment",
+      "term": "Minimum Payment",
+      "category": "terminology",
+      "short": "The smallest amount a lender requires paid each billing cycle.",
+      "definition": "The smallest payment a credit-card or loan agreement requires each cycle to remain current; paying only the minimum extends payoff time and total interest substantially.",
+      "related": [
+        "credit-card-debt"
+      ],
+      "source": "https://www.consumerfinance.gov/consumer-tools/credit-cards/answers/balance-transfer/"
+    },
+    {
+      "slug": "debt-to-income-ratio",
+      "term": "Debt To Income Ratio",
+      "category": "terminology",
+      "short": "Monthly debt payments divided by monthly gross income.",
+      "definition": "A ratio lenders use to gauge repayment capacity: total monthly debt obligations divided by gross monthly income, expressed as a percentage.",
+      "related": [
+        "personal-loan"
+      ],
+      "source": "https://www.consumerfinance.gov/consumer-tools/auto-loans/"
+    },
+    {
+      "slug": "adjustable-rate-mortgage",
+      "term": "Adjustable Rate Mortgage",
+      "category": "retirement-and-secured-credit",
+      "short": "A mortgage whose interest rate changes periodically after an initial fixed period.",
+      "definition": "A mortgage with an interest rate that is fixed for an initial period and then adjusts periodically based on a market index, which can raise or lower the monthly payment over the loan's life.",
+      "related": [
+        "home-equity-line-of-credit"
+      ],
+      "source": "https://www.consumerfinance.gov/ask-cfpb/what-is-an-adjustable-rate-mortgage-arm-en-99/"
+    },
+    {
+      "slug": "home-equity-line-of-credit",
+      "term": "Home Equity Line Of Credit",
+      "category": "retirement-and-secured-credit",
+      "short": "A revolving credit line secured by the borrower's home equity.",
+      "definition": "A revolving line of credit secured by the equity in a home, allowing the borrower to draw and repay funds up to a limit during a set draw period; the home is collateral, so missed payments risk foreclosure.",
+      "related": [
+        "adjustable-rate-mortgage",
+        "secured-loan"
+      ],
+      "source": "https://www.consumerfinance.gov/ask-cfpb/what-is-a-home-equity-line-of-credit-heloc-en-135/"
+    },
+    {
+      "slug": "401k-loan",
+      "term": "401(K) Loan",
+      "category": "retirement-and-secured-credit",
+      "short": "A loan borrowed against the borrower's own 401(k) balance.",
+      "definition": "A loan taken against the borrower's own vested 401(k) balance, repaid via payroll deduction with interest paid back into the borrower's own account; unpaid balances at job separation can be treated as a taxable distribution.",
+      "related": [],
+      "source": "https://www.irs.gov/retirement-plans/plan-participant-employee/retirement-topics-loans"
+    }
+  ]
+}

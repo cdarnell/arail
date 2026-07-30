@@ -268,7 +268,7 @@ parts.
    auto-refresh on a "Wiki rebuilt" SSE event from
    `wiki.schedule_rebuild()`; the reveal endpoint is
    `POST /api/system/reveal` with whitelisted slots
-   (`inbox`/`models`/`pkb_root`/`sources`/`compiled`). LanceDB
+   (`inbox`/`models`/`pkb_root`/`sources`/`compiled`/`user_data`). LanceDB
    index lives at `lab/pkb/.wiki-cache/lancedb/`.
 
 ## Files to read first

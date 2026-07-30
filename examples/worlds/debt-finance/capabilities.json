@@ -1,0 +1,92 @@
+{
+  "schema": "dac.world-capabilities/v1",
+  "world": "debt-finance",
+  "capabilities": [
+    {
+      "id": "knowledge.ground.debt-finance",
+      "purpose": "Ground claims about World of Debt Finance in the World's gated glossary.",
+      "desired": true,
+      "interface": {
+        "kind": "knowledge-grounding",
+        "world": "debt-finance",
+        "world_sha256": "be954c4fc1144e79668f2ed0a3acfea316515d996f55440dadb0b81e7ad19cf1",
+        "categories": [
+          "credit-products",
+          "debt-types",
+          "institutions",
+          "retirement-and-secured-credit",
+          "strategies",
+          "terminology"
+        ],
+        "term_count": 26,
+        "provenance_tier": "sourced"
+      }
+    },
+    {
+      "id": "knowledge.ground.debt-finance.credit-products",
+      "purpose": "Ground claims about Credit Products in World of Debt Finance.",
+      "desired": true,
+      "interface": {
+        "kind": "knowledge-grounding",
+        "world": "debt-finance",
+        "category": "credit-products",
+        "term_count": 3
+      }
+    },
+    {
+      "id": "knowledge.ground.debt-finance.debt-types",
+      "purpose": "Ground claims about Debt Types in World of Debt Finance.",
+      "desired": true,
+      "interface": {
+        "kind": "knowledge-grounding",
+        "world": "debt-finance",
+        "category": "debt-types",
+        "term_count": 5
+      }
+    },
+    {
+      "id": "knowledge.ground.debt-finance.institutions",
+      "purpose": "Ground claims about Lenders & Institutions in World of Debt Finance.",
+      "desired": true,
+      "interface": {
+        "kind": "knowledge-grounding",
+        "world": "debt-finance",
+        "category": "institutions",
+        "term_count": 4
+      }
+    },
+    {
+      "id": "knowledge.ground.debt-finance.retirement-and-secured-credit",
+      "purpose": "Ground claims about Retirement & Secured Credit in World of Debt Finance.",
+      "desired": true,
+      "interface": {
+        "kind": "knowledge-grounding",
+        "world": "debt-finance",
+        "category": "retirement-and-secured-credit",
+        "term_count": 3
+      }
+    },
+    {
+      "id": "knowledge.ground.debt-finance.strategies",
+      "purpose": "Ground claims about Payoff & Consolidation Strategies in World of Debt Finance.",
+      "desired": true,
+      "interface": {
+        "kind": "knowledge-grounding",
+        "world": "debt-finance",
+        "category": "strategies",
+        "term_count": 4
+      }
+    },
+    {
+      "id": "knowledge.ground.debt-finance.terminology",
+      "purpose": "Ground claims about Terminology in World of Debt Finance.",
+      "desired": true,
+      "interface": {
+        "kind": "knowledge-grounding",
+        "world": "debt-finance",
+        "category": "terminology",
+        "term_count": 7
+      }
+    }
+  ]
+}
