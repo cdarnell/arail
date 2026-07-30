@@ -211,38 +211,79 @@ run_update() {
     local auto_yes=false
     local force=false
     local target_component=""
+    # ARCHITECTURE.md §14.3 (sprints/2026-07-29-elite-cli, WP7): new,
+    # additive argv mode — `update.sh --apply --non-interactive` is how
+    # install.sh's components phase drives this file. The pre-existing
+    # interactive path (bare `update`, `update --component X`) is
+    # UNTOUCHED by this flag's presence/absence.
+    local non_interactive=false
 
     # Parse flags
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            --check|--dry-run) dry_run=true ;;
-            --yes|-y)          auto_yes=true ;;
-            --force)           force=true ;;
-            --component)       shift; target_component="${1:-}" ;;
-            *)                 warn "Unknown flag: $1" ;;
+            --check|--dry-run)  dry_run=true ;;
+            --yes|-y)           auto_yes=true ;;
+            --apply)            dry_run=false ;;
+            --non-interactive)  auto_yes=true; non_interactive=true ;;
+            --force)            force=true ;;
+            --component)        shift; target_component="${1:-}" ;;
+            *)                  warn "Unknown flag: $1" ;;
         esac
         shift
     done
 
     detect_platform
-    local mode="${ARAIL_MODE:-airgapped}"
+    local mode
+    if [[ "$non_interactive" == "true" ]]; then
+        # install.sh's own preflight already resolves LAB_MODE (with
+        # ARAIL_MODE as the legacy fallback — the canonical precedence
+        # every other script in this repo uses). The pre-existing
+        # interactive path below is left exactly as it was (ARAIL_MODE
+        # only) — not touched, since this sprint's mandate is a NEW argv
+        # mode, not a behavior change to the muscle-memory
+        # `update --component X` path.
+        mode="${LAB_MODE:-${ARAIL_MODE:-airgapped}}"
+    else
+        mode="${ARAIL_MODE:-airgapped}"
+    fi
 
-    echo ""
-    echo -e "${BOLD}${LAB_NAME} — Update Check${RESET}"
-    echo -e "${DIM}Platform: ${PLATFORM}  |  Mode: ${mode}${RESET}"
-    echo ""
+    if [[ "$non_interactive" != "true" ]]; then
+        echo ""
+        echo -e "${BOLD}${LAB_NAME} — Update Check${RESET}"
+        echo -e "${DIM}Platform: ${PLATFORM}  |  Mode: ${mode}${RESET}"
+        echo ""
+    fi
 
     if [[ "$mode" == "airgapped" ]]; then
         warn "Lab is airgapped — skipping remote update checks."
         warn "Switch to Hybrid mode or use --force to update from local cache."
         if [[ "$force" != "true" ]]; then
             echo ""
-            return
+            # Previously a bare `return` (implicit 0) regardless of mode —
+            # §12.1's exit-code doctrine treats "refused, did nothing" as
+            # degraded (3), not success. Applies to BOTH the interactive
+            # and non-interactive paths: nobody currently checks this
+            # exit code (§6.4's own "previously exited 0 always" note),
+            # so there is nothing to silently break, and install.sh's own
+            # airgap doctrine (a hard constraint of this sprint) depends
+            # on this phase actually reporting "refused" rather than "ok".
+            return 3
         fi
+    fi
+
+    # §14.3: "1 (manifest unreadable)" — only meaningfully distinguishable
+    # from "0 updates available" when this run actually needed the
+    # manifest, i.e. the non-interactive contract. Gated to that mode so
+    # the pre-existing interactive path's behavior on a missing manifest
+    # (today: the while-loop below silently sees nothing) is unchanged.
+    if [[ "$non_interactive" == "true" && ! -f "$MANIFEST" ]]; then
+        err "components manifest not found: $MANIFEST"
+        return 1
     fi
 
     local updates_available=0
     local update_list=""
+    local apply_failed_count=0
 
     while IFS=$'\x1f' read -r name type optional version_cmd check_cmd update_cmd post_cmd desc; do
         # Filter to target component if specified
@@ -296,14 +337,20 @@ run_update() {
 
     if [[ $updates_available -eq 0 ]]; then
         info "All components are up to date."
-        return
+        return 0
     fi
 
     info "${updates_available} update(s) available."
 
     if [[ "$dry_run" == "true" ]]; then
         info "Dry run — no changes applied."
-        return
+        # §6.4 (sprints/2026-07-29-elite-cli): `update --check` previously
+        # exited 0 always — an intentional, documented behavior change.
+        # `install --check` (§5.1) needs exactly this signal to report its
+        # own "pending changes" degraded verdict; applies to the
+        # interactive path too (same rationale as the airgap-refusal
+        # return above — nobody currently depends on this being 0).
+        return 3
     fi
 
     # Check for breaking changes (only if the available version actually crosses the threshold)
@@ -362,6 +409,7 @@ run_update() {
                 info "${name} updated."
             else
                 warn "${name} update failed — continuing."
+                apply_failed_count=$((apply_failed_count + 1))
                 continue
             fi
 
@@ -397,6 +445,16 @@ PY
     echo ""
     info "Update complete. Run ${BOLD}./arailctl restart${RESET} to pick up changes."
     echo ""
+
+    # §14.3's apply-mode exit contract — gated to the new argv mode only
+    # (the pre-existing interactive path falls through exactly as before:
+    # whatever the last command above returned, historically always 0).
+    if [[ "$non_interactive" == "true" ]]; then
+        if (( apply_failed_count > 0 )); then
+            return 3
+        fi
+        return 0
+    fi
 }
 
 # ═════════════════════════════════════════════════════════════════════

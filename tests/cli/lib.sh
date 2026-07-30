@@ -324,3 +324,76 @@ IDE_PORT=${ide}
 BIND_ADDR=127.0.0.1
 EOF
 }
+
+# ── install.sh fixtures (sprints/2026-07-29-elite-cli/ARCHITECTURE.md §6,
+# WP7) — a REAL git repo tracking a REAL local bare "remote" (§16.1: "phases
+# against a local bare git 'remote'"), never a simulation of git plumbing.
+#
+# cli_test_make_git_install_repo <fake-dir> <bare-remote-dir> [<branch>] —
+# builds <fake-dir> via make_fake_repo (the real scripts/ + arailctl), adds
+# a .gitignore covering everything a scenario's OWN fixture setup touches
+# afterward (.venv/, lab/, .env, model_defaults.yaml, lab.conf) so those
+# never make the worktree look dirty on their own, commits everything else,
+# and pushes to a freshly-created bare remote with upstream tracking
+# already configured — install.sh's source-phase preconditions (clean,
+# attached HEAD, tracking branch) all pass by construction. A scenario that
+# needs to test the DIRTY-worktree refusal (T25) does so by touching a
+# TRACKED file afterward.
+cli_test_make_git_install_repo() {
+    local fake="$1" bare="$2" branch="${3:-main}"
+    git init --quiet --bare -b "$branch" "$bare" >/dev/null
+    make_fake_repo "$fake" >/dev/null
+    cat > "$fake/.gitignore" <<'EOF'
+.venv/
+lab/
+.env
+model_defaults.yaml
+lab.conf
+EOF
+    git -C "$fake" init --quiet -b "$branch" >/dev/null
+    git -C "$fake" config user.email "cli-test@example.com"
+    git -C "$fake" config user.name "cli-test"
+    git -C "$fake" add -A
+    git -C "$fake" commit --quiet -m "initial" >/dev/null
+    git -C "$fake" remote add origin "$bare"
+    git -C "$fake" push --quiet -u origin "$branch" >/dev/null
+}
+
+# cli_test_publish_git_change <bare-remote-dir> <branch> <relpath> <content>
+# — commits <content> to <relpath> DIRECTLY INTO THE BARE REMOTE via a
+# throwaway clone (never touches the fake repo's own worktree — this is
+# the "an operator pushed a new commit upstream" half of T24/F5, kept
+# separate from the fake repo under test so a re-exec's "new code" is
+# genuinely different bytes on disk, not a same-shell illusion). Prints
+# the new commit's sha on stdout.
+cli_test_publish_git_change() {
+    local bare="$1" branch="$2" relpath="$3" content="$4"
+    local tmp
+    tmp="$(mktemp -d)"
+    git clone --quiet "$bare" "$tmp" >/dev/null 2>&1
+    git -C "$tmp" checkout --quiet "$branch" >/dev/null 2>&1 || true
+    mkdir -p "$(dirname "$tmp/$relpath")"
+    printf '%s' "$content" > "$tmp/$relpath"
+    git -C "$tmp" add -A
+    git -C "$tmp" -c user.email=cli-test@example.com -c user.name=cli-test commit --quiet -m "update $relpath" >/dev/null
+    git -C "$tmp" push --quiet origin "$branch" >/dev/null
+    git -C "$tmp" rev-parse HEAD
+    rm -rf "$tmp"
+}
+
+# cli_test_mark_provisioned <fake-dir> [<lab_mode>] — the minimum an
+# install.sh scenario needs to pass the "provisioned?" preflight check
+# (.venv dir + .env file present). Uses the REAL working venv (via
+# make_fake_venv, so `arailctl doctor`'s own `source .venv/bin/activate`
+# succeeds and `import arail` works) when REAL_VENV is available — always
+# true here (install_driver.sh self-skips otherwise) — falling back to a
+# bare directory only for scenarios that never reach a phase needing it.
+cli_test_mark_provisioned() {
+    local fake="$1" lab_mode="${2:-hybrid}"
+    if [[ -n "$REAL_VENV" ]]; then
+        make_fake_venv "$fake"
+    else
+        mkdir -p "$fake/.venv/bin"
+    fi
+    printf 'LAB_MODE=%s\nLAB_TIER=minimalist\n' "$lab_mode" > "$fake/.env"
+}

@@ -501,8 +501,106 @@ both paths), with these deltas:
   specific/executable than the prose" resolution WP5 documented for
   `verdict.state`'s enum — not treated as a gap.
 
-Commit: `pending` — "elite-cli WP6: warm-up (--warm, /api/instance fields,
-_warm_primary_router timing)"
+Commit: `320734a` — "elite-cli WP6: warm-up (--warm, /api/instance fields,
+timing)"
+
+### WP7 — `install` verb + `update`/`upgrade` consolidation
+
+Built as planned (§6's five-phase design, the preflight order in §4.3, the
+alias rulings in §6.2/§6.4), with these deltas:
+
+- **`update.sh`'s pre-existing airgap-refusal and dry-run branches used to
+  `return` bare (implicit exit 0) regardless of what they actually did.**
+  Neither is named in §14.3's contract (which only documents the NEW
+  `--apply --non-interactive` mode's exit codes), but both are load-bearing
+  for THIS WP's own hard constraint ("no egress in airgapped mode... no
+  scope drift" + "`install --check` exits 3 when changes are pending",
+  §5.1). Changed both to `return 3` — airgap-refused now degrades instead
+  of silently reporting success, and a pending-updates dry run now signals
+  it. This is the SAME class of situation §6.4 itself already documents
+  ("`update --check` previously exited 0 always" — an explicitly announced
+  behavior change), extended to the airgap-refusal branch by the same
+  reasoning: nothing currently checks either exit code (confirmed via a
+  grep sweep, same method A9 used originally), so there was nothing to
+  silently break, and `install`'s own airgap doctrine is unsatisfiable
+  without it. Applies to BOTH the interactive and non-interactive callers
+  of `update.sh` (a deliberate, minimal, documented scope decision, not an
+  accidental side effect — the alternative, gating it behind
+  `--non-interactive` only, would leave `./arailctl update --check` lying
+  about airgap refusals exactly as it does today).
+- **`update.sh`'s pre-existing interactive-path mode read
+  (`${ARAIL_MODE:-airgapped}`, missing the canonical `LAB_MODE` precedence
+  every other script in this repo uses) was found while wiring the new
+  `--apply --non-interactive` mode and left UNTOUCHED for that path** —
+  the new mode reads mode via `${LAB_MODE:-${ARAIL_MODE:-airgapped}}`
+  instead, so `install`'s own airgap doctrine (this sprint's explicit hard
+  constraint) is correct without silently changing the muscle-memory
+  `update --component X` path's pre-existing (if arguably already-buggy)
+  behavior. Logged here per precedent (WP5's "found and fixed a real bug"
+  entries) — a real latent bug, but the FIX is scoped to only the new code
+  path that depends on it, not a blanket "fix" of old behavior nobody
+  asked to touch.
+- **`install --json`'s `arail.install/v1` document is intentionally
+  minimal** — `{"schema", "check", "verdict": {"code", "state"}}`, no
+  per-phase array. §5.1 names the schema but no numbered test (T24-T28,
+  F5-F7/F21/F22/F28/F32) asserts its exact shape; the phase-by-phase detail
+  that DOES need machine parsing already exists as the exit code + the
+  stderr narration (still available to an operator running `--json`
+  interactively — §14.1's "no human decoration on stdout" moves it to
+  stderr, it doesn't delete it). A follow-up could add a `phases: [...]`
+  array without a schema-version bump (additive), and is flagged here as a
+  deliberate scope trim rather than left silently thin.
+- **The five refusal reasons in F6 (not a git repo · dirty · detached ·
+  no upstream · diverged) are each a SEPARATE precondition check run
+  in order**, so "diverged" specifically means "every precondition passed,
+  but `git pull --ff-only` itself still failed" — the one case genuinely
+  indistinguishable from "some other pull failure" without deeper
+  inspection, and the one case the architecture's own phrasing implies is
+  detected by the pull's own failure rather than a precondition (§6.3:
+  "diverged (non-ff)" reads as `pull --ff-only`'s own natural failure
+  mode, unlike the other four which are all `git` state queryable before
+  ever touching the remote).
+- **T24's re-exec marker had to be a PREPENDED line, not an appended
+  one** — an appended `echo` after the script's own `exit "$VERDICT_CODE"`
+  is dead code (discovered empirically: the first version of the driver's
+  fixture silently never printed the marker, output otherwise looking
+  completely correct — the re-exec genuinely happened, `--_post-source`
+  genuinely worked, but the test's OWN marker placement was the bug, not
+  install.sh). Fixed at the fixture, not flagged as an install.sh defect.
+- **T26's `--allow-running` scenario asserts the ABSENCE of the liveness-
+  refusal message, not a specific exit code** — with `--only verify`, the
+  fake repo's fabricated `.venv` has no real `uvicorn` installed, so
+  `doctor` itself legitimately degrades (exit 3) even once the liveness
+  gate is bypassed; asserting "no 'stop it first' text" is the precise,
+  correct signal for what T26c is actually testing (F21/F22's own
+  refusal, not verify's independent cleanliness).
+- **The `models` phase's airgap refusal (only reached under `--models`)
+  is NOT spelled out in §6.3's per-phase table** (only "ollama absent /
+  daemon unreachable → ⚠ skipped" is listed there) — added anyway,
+  because the DETECTION half (`ollama list`) is local-only and always
+  safe (A5: loopback/local state, not "network"), while the APPLY half
+  (`ollama pull`) is genuine egress, and the task's own hard constraint
+  ("no egress in airgapped mode without the spec'd explicit override")
+  applies to every install phase that can reach out, not just the three
+  the table happens to spell out. Resolved in favor of the hard
+  constraint (an incomplete table cell, not a deliberate carve-out for
+  models specifically — every other network-touching phase in this same
+  ruling gets the identical refusal).
+- **No dedicated scenario for a REAL `pip install`/`ollama pull` network
+  success path** — both would need real network access (or a fully
+  mocked pip/ollama toolchain) this harness doesn't have elsewhere either
+  (the existing `instance_start_driver.sh`/`root_start_driver.sh` never
+  exercise a real `pip install` or `ollama pull` for the same reason).
+  `--only <phase>` isolation is what makes T24-T28/F5-F7/F21/F22/F28/F32
+  testable without one; the deps/models phases' OWN control flow (airgap
+  gate, --check no-op, --models gate, error mapping) is exercised via
+  those phase-selection scenarios and F7's synthetic-manifest apply
+  failure — the underlying `pip install -e`/`ollama pull` COMMANDS
+  themselves are the same well-established invocations `setup.sh`/
+  `upgrade.sh` already run unchanged.
+
+Commit: `pending` — "elite-cli WP7: install verb + update/upgrade
+consolidation"
 
 ## Architect feedback required
 

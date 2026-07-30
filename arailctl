@@ -4,14 +4,18 @@
 #  Usage: ./arailctl <command> [args]   (or: qkz <command> [args])
 #    setup    first-time provisioning — pick a tier, install deps, download model
 #    start    launch portal + terminal + notebook + IDE
-#             (or a single World instance: --world <slug> — see `start --help`)
+#             (or a single World instance: --world <slug>; or the root lab
+#             over instances: --root — see `start --help`)
 #    stop     stop running lab services
-#    restart  stop then start
-#    upgrade  switch install tier — minimalist | maximus
-#    update   check for and apply component updates
+#    restart  stop then start (scoped to exactly one target — see `restart --help`)
+#    install  refresh an already-provisioned lab: source, deps, components,
+#             models, verify (sprints/2026-07-29-elite-cli/ARCHITECTURE.md §6)
+#             — `update` is a permanent alias
+#    tier     switch (or print) the feature-set tier — minimalist | maximus
+#             — `upgrade` is a permanent alias
 #    version  show installed component versions
 #    reset    wipe models/data/env/plugins (see: ./arailctl reset help)
-#    status   show what's running and where
+#    status   show what's running and where (World instances + root lab)
 #    doctor   validate the environment end-to-end
 #    logs     tail activity log — filter by component
 #    pkb      ARAIL knowledge base ops (lab content): ingest | compile | browse
@@ -19,6 +23,12 @@
 #    kb       QuKaiZen Karpathy LLM Wiki ops: status | compile | lint | query |
 #             search | ingest | index | where  (discoverable, no hardcoded paths)
 #    help     show this message
+#
+#  `install`/`tier` are the canonical names for the refresh and feature-set
+#  axes (sprints/2026-07-29-elite-cli §6, Ruling 1); `update`/`upgrade` are
+#  permanent aliases — ARAIL is a forked blueprint, so a verb removal would
+#  break other people's scripts silently. See docs/cli.md for the full
+#  verb-by-verb reference (flags, exit codes, tty/non-tty behavior).
 #
 #  Discoverability:
 #    REPO_ROOT (ARAIL repo)  resolved by walking the symlink chain — works
@@ -216,20 +226,30 @@ EOF
   Commands:
     setup           first-time provisioning — pick a tier, deps, model
     start           launch the lab (foreground start.sh, or launchd in daemon mode)
-                    [--world <slug>] [--port <n>] [--no-browser] [--list] [--yes]
-                    — with 2+ Worlds configured, bare 'start' picks interactively;
+                    [--world <slug>] [--root] [--port <n>] [--no-browser]
+                    [--list] [--yes] [--warm]
+                    — with 2+ Worlds configured, bare 'start' picks interactively
+                    (non-interactive: exit 2 naming every --world/--root command);
                     a running World is attached to, never respawned
     stop            stop lab services (unloads launchd agents in daemon mode)
-                    [--world <slug>] [--all] — target one/all World instances
-    restart         stop then start (launchctl kickstart -k in daemon mode)
+                    [--world <slug>] [--root] [--all] — target one/all instances
+    restart         stop then start — scoped to exactly one target, never a
+                    sibling World (forwards every start flag, incl. --warm;
+                    launchctl kickstart -k in daemon mode)
+    install         refresh an already-provisioned lab: source, deps,
+                    components, models, verify
+                    [--check] [--only <phase>,..] [--skip <phase>,..] [--models]
+                    [--rebuild-venv] [--allow-running] [--force] [--json]
+                    ('update' is a permanent alias — see docs/cli.md)
     install-daemon  supervise the lab with launchd — starts at login, respawns on crash
     uninstall-daemon  remove launchd supervision (back to dev/foreground mode)
-    upgrade <tier>  switch install tier — minimalist | maximus
+    tier [<tier>]   switch (or print) the feature-set tier — minimalist | maximus
+                    ('upgrade' is a permanent alias — see docs/cli.md)
     deep <op>       AeroLLM 2nd inference: rebuild (source) | update (wheel) | status
-    update          check for and apply component updates
     version         show installed component versions
-    status [--json] [--probe]  show what's running (World instances + root lab)
-    doctor          validate the environment end-to-end
+    status [--json[=full|instances]] [--probe|--no-probe] [--quiet]  show what's
+                    running (World instances + root lab); exits 0/3/4 — see docs/cli.md
+    doctor [--strict]  validate the environment end-to-end
     logs [comp]     tail activity log — filter by component
     reset [mode]    wipe state — models|data|pkb|plugins|env|full|destroy
     world <op>      DaC WorldBundle: list | mount <dir> [--apply-face] | verify <dir> | verify-shipped [--examples] | swap <dir> | unmount
@@ -267,6 +287,17 @@ daemon_agents() {
         [[ -f "$HOME/Library/LaunchAgents/$label.plist" ]] && echo "$label"
     done
     return 0
+}
+
+# ARCHITECTURE.md §6.2/§6.4 (sprints/2026-07-29-elite-cli, Ruling 1): bare
+# `tier` (and its alias `upgrade`, no argument) prints the current tier
+# plus the two switch commands and exits 0 — replaces `upgrade.sh`'s own
+# `die "usage: ..."` (exit 1) for the no-arg case. Shared by both case arms
+# below so the two spellings can never drift.
+_arail_print_tier_status() {
+    echo "Current tier: ${LAB_TIER}"
+    echo "  ./arailctl tier minimalist"
+    echo "  ./arailctl tier maximus"
 }
 
 case "$cmd" in
@@ -563,7 +594,28 @@ case "$cmd" in
         fi
         exit "$_restart_rc"
         ;;
-    upgrade) exec bash "$REPO_ROOT/scripts/upgrade.sh" "$@" ;;
+    tier)
+        # ARCHITECTURE.md §6.2 (Ruling 1): the canonical name for the
+        # feature-set axis (minimalist|maximus). scripts/upgrade.sh itself
+        # is untouched — same argv, same behavior — for an explicit tier.
+        if [[ $# -eq 0 ]]; then
+            _arail_print_tier_status
+            exit 0
+        fi
+        exec bash "$REPO_ROOT/scripts/upgrade.sh" "$@"
+        ;;
+    upgrade)
+        # ARCHITECTURE.md §6.2/§6.4: permanent alias for 'tier' — ARAIL is
+        # a forked blueprint; a verb removal breaks scripts silently, so
+        # this alias has no removal date. Notice on stderr only (stdout
+        # stays parseable).
+        echo "note: 'upgrade' is now an alias for 'tier' (same behavior; see docs/cli.md)." >&2
+        if [[ $# -eq 0 ]]; then
+            _arail_print_tier_status
+            exit 0
+        fi
+        exec bash "$REPO_ROOT/scripts/upgrade.sh" "$@"
+        ;;
     deep)
         # AeroLLM 2nd-inference: rebuild (source) | update (published wheel) | status.
         op="${1:-status}"; shift || true
@@ -574,7 +626,33 @@ case "$cmd" in
             *) die "deep op must be one of: rebuild | update | status" ;;
         esac
         ;;
-    update)  exec bash "$REPO_ROOT/scripts/update.sh" "$@" ;;
+    install)
+        exec bash "$REPO_ROOT/scripts/install.sh" "$@"
+        ;;
+    update)
+        # ARCHITECTURE.md §6.2/§6.4 (Ruling 1): 'update' is now a permanent
+        # alias for 'install' — the components-manifest engine
+        # (scripts/update.sh) becomes install's OWN components phase
+        # (§14.3's --apply --non-interactive mode). One carve-out: the
+        # legacy `--component <name>` muscle memory is forwarded VERBATIM
+        # to the OLD interactive scripts/update.sh path — no behavior
+        # change there, so no alias notice either (nothing about it is
+        # aliased; it never reaches install.sh at all).
+        _arail_update_has_component=0
+        for _arail_update_arg in "$@"; do
+            [[ "$_arail_update_arg" == "--component" ]] && _arail_update_has_component=1
+        done
+        unset _arail_update_arg
+        if [[ "$_arail_update_has_component" == "1" ]]; then
+            unset _arail_update_has_component
+            exec bash "$REPO_ROOT/scripts/update.sh" "$@"
+        fi
+        unset _arail_update_has_component
+        # stdout stays clean (§6.4: "update --json | jq works") — the
+        # notice is stderr-only.
+        echo "note: 'update' is now an alias for 'install' (same behavior; see docs/cli.md)." >&2
+        exec bash "$REPO_ROOT/scripts/install.sh" "$@"
+        ;;
     version) exec bash "$REPO_ROOT/scripts/update.sh" --version-only ;;
     reset)   exec bash "$REPO_ROOT/scripts/reset.sh" "$@" ;;
     status)  exec bash "$REPO_ROOT/scripts/status.sh" "$@" ;;
