@@ -6,6 +6,88 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added (2026-07-28 concurrent Worlds — run more than one lab at once)
+
+- **`./arailctl start --world <slug>`** launches a World as its OWN process,
+  rooted at `lab/instances/<slug>/`, on its own portal + memory-service
+  ports (allocated once, pinned forever after — `:8090`, `:8100`, …),
+  sharing only the machine's model weights and the Ollama daemon. Up to
+  `LAB_MAX_INSTANCES` (default 3) run side by side; a second `start` for
+  a running World attaches (prints its URL, opens the browser) instead of
+  respawning or silently dying. Bare `./arailctl start` with 2+ Worlds
+  configured shows an interactive picker (including the root lab); with
+  0 or 1 World it behaves exactly as before.
+- **`./arailctl status`** now leads with a registry-driven instance table
+  (`--json` for scripts, `--probe` to also check each instance is
+  answering from the checkout its registry record claims — catches a
+  crash-looped daemon serving stale code from a different checkout).
+  Replaces four previously-disagreeing liveness checks
+  (`arailctl`/`start.sh`/`status.sh`/`install-daemon.sh` each re-derived
+  their own) with one predicate.
+- **`./arailctl stop [--world <slug>] [--all]`** — stops one instance, all
+  instances, or (with no World instances running) the root lab exactly as
+  before. A plain `./arailctl stop` with 2+ instances running now refuses
+  and names the roster + exact command, rather than guessing. Fixes a
+  real data-loss bug: an un-scoped root-lab stop used to be able to kill a
+  live World instance's portal/memory processes mid-write.
+- **Per-instance isolation**: each instance's knowledge base, chat memory,
+  LanceDB index, and `secrets.env` (provider API keys) are separate trees
+  — never shared, never auto-copied between instances or from the root
+  lab. `lab/models/` (weights) and `lab/worlds/` (the World library) stay
+  shared, since duplicating multi-GB weights per World would be absurd.
+- **`/worlds` and the nav World switcher** now show **Open** (not Mount)
+  for a World that's already running as its own instance, and **Launch**
+  (a copy-to-clipboard `./arailctl start --world <slug>` command, never a
+  one-click spawn from the browser) for a World that isn't live but
+  something else is already mounted in the current lab. See below —
+  in-place Mount is removed later in this same Unreleased section.
+- **`GET /api/instance`** / **`GET /api/instances`** — new read-only
+  portal endpoints: self-report (which instance is this process?) and the
+  registry-driven roster, used by both the CLI's liveness check and the
+  new UI.
+
+### Removed (2026-07-28/29 worlds-select-removal — in-place World switching)
+
+- **`POST /api/worlds/select` (and `/api/worlds/import`) no longer switch
+  Worlds in place.** They survive for exactly two cases: the *first* bind
+  into a lab with no World mounted, and unbind-to-default (plus the
+  idempotent re-bind of the identical bundle already mounted, for
+  re-indexing after a re-seal). Mounting a *different* World while one is
+  already mounted now returns `409 in_place_switch_removed` — that path used
+  to `rmtree` the other World's staged knowledge-base layer
+  (`_sweep_other_worlds()`), and the announced deprecation from the
+  concurrent-Worlds release above is now executed, not just planned. To
+  work in another World: run it as its own instance (`./arailctl start
+  --world <slug>`, recommended), or Unmount then Mount on `/worlds` (two
+  deliberate steps).
+- **The nav dropdown no longer mutates anything.** The `change-world` row
+  (which routed to `/welcome?step=world`) and the mutating POST to
+  `/api/worlds/select` are both gone; the dropdown is a pure roster —
+  Open a live instance, or reveal the `./arailctl start --world <slug>`
+  command for one that isn't running.
+- **The welcome flow's World step swap door is retired.** On a lab that
+  already has a World mounted, the step now renders read-only: a one-line
+  hint plus a `/worlds` link, and clicking a card reveals its launch
+  command instead of attempting to remount. The first-bind case (a
+  genuinely fresh lab) is unchanged.
+- **The `/worlds` page's dismissible deprecation banner is gone**, replaced
+  by a static one-line hint above the catalog grid.
+
+### Known gap (2026-07-28 concurrent Worlds)
+
+- **`./arailctl reset` (`pkb`/`data`/`env`/`full`) does not touch World
+  instance data.** Only the root lab's `lab/pkb/`/`lab/data/`/`.env`/
+  `lab.conf` are wiped; a World instance's own `lab/instances/<slug>/`
+  tree (knowledge base, chat memory, LanceDB index, `secrets.env`) is
+  untouched by every reset mode. See `docs/concurrent-worlds.md`'s
+  "`./arailctl reset` does NOT touch instance data — yet" section for the
+  manual workaround and `sprints/BACKLOG.md` for the filed follow-up.
+
+See `sprints/2026-07-28-concurrent-worlds/` for the full design record
+(`VISION.md`, `ARCHITECTURE.md`, `BUILD_LOG.md`) and
+[`docs/concurrent-worlds.md`](docs/concurrent-worlds.md) for the operator
+guide.
+
 ### Added (2026-07-25 first-impression experience — one World moment, three doors)
 
 - **`/welcome?step=world`** — the existing welcome-flow World picker is now

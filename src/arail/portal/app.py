@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import datetime as _dt
 import logging
 import secrets
 import time
@@ -28,7 +29,7 @@ from arail.activity import activity_log
 from arail.agent_redirects import clear_agent_redirect, get_agent_redirect, set_agent_redirect
 from arail.agent_workflows import get_agent_workflow, list_agent_workflows
 from arail.agents.consent import ConsentStore
-from arail.config import DATA_DIR
+from arail.config import DATA_DIR, LAB_ROOT, MODELS_DIR, PKB_ROOT, WORLDS_DIR
 from arail.goals import GoalStore
 from arail.agents.researcher import researcher
 from arail.agents.buddy import buddy
@@ -51,6 +52,45 @@ from arail.ui_theme import list_ui_themes, load_ui_theme, theme_css
 from arail.portal import docs_registry as _docs_registry
 
 # ---------------------------------------------------------------------------
+# Concurrent Worlds — boot assertion (ARCHITECTURE.md §6.4, F14).
+#
+# config.py's _resolve() falls back to a bare CWD-relative Path when an env
+# var is unset. That default never fires in practice for the ROOT lab
+# (start.sh always `cd`s to REPO_ROOT first), but a World INSTANCE's env
+# pack is supposed to set every one of these five paths explicitly and
+# absolutely (§1.2) — if it somehow didn't (a hand-edited pack, a future
+# regression in the pack writer), the instance would silently read/write
+# the wrong tree with no indication anything was wrong. Fail loud at
+# import time instead: an instance process (ARAIL_INSTANCE set) whose
+# paths are not ALL absolute refuses to start, naming the offending key.
+# The root lab (ARAIL_INSTANCE unset) is unaffected — this assertion is a
+# no-op for it, preserving today's CWD-relative-default behaviour exactly.
+# ---------------------------------------------------------------------------
+def _assert_instance_paths_absolute() -> None:
+    if not os.getenv("ARAIL_INSTANCE", "").strip():
+        return
+    _checks = {
+        "LAB_ROOT": LAB_ROOT,
+        "ARAIL_DATA_DIR": DATA_DIR,
+        "LAB_PKB": PKB_ROOT,
+        "ARAIL_MODELS_DIR": MODELS_DIR,
+        "ARAIL_WORLDS_DIR": WORLDS_DIR,
+    }
+    for _key, _path in _checks.items():
+        if not _path.is_absolute():
+            raise RuntimeError(
+                f"Concurrent Worlds boot assertion failed: {_key} resolved to a "
+                f"relative path ({_path!r}) inside a World instance process "
+                f"(ARAIL_INSTANCE={os.getenv('ARAIL_INSTANCE')!r}). An instance's "
+                "env pack must set every runtime path absolutely — refusing to "
+                "start rather than silently writing this instance's data into "
+                "the wrong tree. See ARCHITECTURE.md §6.4 / F14."
+            )
+
+
+_assert_instance_paths_absolute()
+
+# ---------------------------------------------------------------------------
 # Observability boot-time constants (OBS9: version fallback chain; OBS2: no I/O at
 # request time — both are resolved once at import so the /health and /metrics
 # handlers stay < 10 ms and < 50 ms respectively).
@@ -64,6 +104,9 @@ _BOOT_EPOCH_MS: int = int(time.time() * 1000)  # wall-clock ms at process import
 # same posture as _BOOT_PERF/asset_v just below.
 _READY: bool = False  # flipped True at the end of @app.on_event("startup")
 _MODEL_WARM: bool = False  # flipped True once _warm_primary_router() finishes
+# GET /api/instance's "started_at" — a static value captured once at import,
+# same posture as _BOOT_EPOCH_MS just above.
+_PROCESS_STARTED_AT: str = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _read_version() -> str:
@@ -246,7 +289,22 @@ def _env_file_path() -> Path:
     Honors ARAIL_ENV_FILE (tests point it at a tmp file; deployments can
     relocate it), else the historical cwd-relative .env — the portal is
     started from the repo root by arailctl, so cwd == repo root in prod.
+
+    Instance guard (QA-B2, sprints/2026-07-28-concurrent-worlds): an
+    instance process (ARAIL_INSTANCE set) MUST NEVER have ARAIL_ENV_FILE —
+    the World-instance's world-readable, 0644 ``instance.env`` pack —
+    treated as a credential sink. ARCHITECTURE.md §1.2 declares that file
+    secret-free by design, and ``inst_write_env_pack`` recreates it from
+    scratch (truncate + re-chmod 0644) on every first boot AND on every
+    ``--port`` rewrite — writing a passphrase there means a later
+    ``start --world X --port N`` silently destroys it. Onboarding for an
+    instance instead targets the same 0600 per-instance secret store the
+    provider-key save path already uses (``_secrets_path()``, under
+    ``<instance>/data/secrets.env``) — never shared, never auto-copied
+    (§7).
     """
+    if os.getenv("ARAIL_INSTANCE", "").strip():
+        return _secrets_path()
     override = os.getenv("ARAIL_ENV_FILE", "").strip()
     if override:
         return Path(override).expanduser()
@@ -323,6 +381,12 @@ async def onboarding_gate(request, call_next):
       - /welcome and /api/welcome/* (the onboarding flow itself)
       - /static/* (so the welcome page can load CSS)
       - /api/system/health (so health checks keep working pre-onboarding)
+      - /api/instance(s) (QA-B1, sprints/2026-07-28-concurrent-worlds: the
+        stage [6/8] readiness probe and the liveness predicate's step 4 both
+        target GET /api/instance, and a brand-new World instance has by
+        construction never been onboarded — without this, first boot 401s
+        forever. Read-only, loopback-bound, returns a documented
+        non-credential nonce (§5.1) — same reasoning as /api/system/health.)
       - /health, /healthz, /metrics (liveness + Prometheus probes — OBS4)
       - /favicon.ico
     HTML routes get a 302 to /welcome; API routes get a 401 with a hint.
@@ -343,6 +407,7 @@ async def onboarding_gate(request, call_next):
         "/static/",
         "/api/system/health",
         "/api/system/metrics",  # platform metrics — anonymous on loopback
+        "/api/instance",  # QA-B1 — also covers /api/instances (startswith)
         "/favicon.ico",
         "/health",    # liveness probe — OBS4
         "/healthz",   # liveness probe alias — OBS4
@@ -744,6 +809,11 @@ templates = Jinja2Templates(directory=PORTAL_DIR / "templates")
 templates.env.globals["tier_surfaces"] = _visible_surfaces()
 templates.env.globals["lab_tier"] = _current_tier()
 templates.env.globals["ui_themes"] = list_ui_themes()
+# Concurrent Worlds (ARCHITECTURE.md §5.5): the port this PROCESS bound —
+# fixed for the process's lifetime (unlike identity, which flips live with
+# the mounted World), so a plain global is correct here, and it must come
+# from the same env the process actually bound or the title lies.
+templates.env.globals["portal_port"] = int(os.getenv("PORTAL_PORT", "8080") or "8080")
 
 
 def _identity_ctx() -> dict:
@@ -1373,9 +1443,12 @@ def _chmod_600(p: Path) -> None:
 
 
 def _write_env_kv(key: str, value: str) -> None:
-    """Idempotent KEY=VALUE write to .env. Replaces any existing real or
-    commented-out entry, otherwise appends. Mirrors setup.sh's helper."""
+    """Idempotent KEY=VALUE write to .env (or, for an instance, its
+    per-instance secrets.env — see _env_file_path's QA-B2 guard). Replaces
+    any existing real or commented-out entry, otherwise appends. Mirrors
+    setup.sh's helper."""
     p = _env_file_path()
+    p.parent.mkdir(parents=True, exist_ok=True)
     lines = p.read_text().splitlines() if p.exists() else []
     prefix = f"{key}="
 
@@ -1405,7 +1478,24 @@ def _write_env_kv(key: str, value: str) -> None:
 
 
 def _patch_lab_conf_password(passphrase: str) -> None:
-    """Update IDE_PASSWORD in lab.conf in place (or write a fresh one)."""
+    """Update IDE_PASSWORD in lab.conf in place (or write a fresh one).
+
+    Instance guard (QA-15, sprints/2026-07-28-concurrent-worlds): ``lab.conf``
+    is ``Path("lab.conf")`` — CWD-relative, and every World instance shares
+    one CWD (the checkout root, unlike its own per-instance root). QA-B2
+    redirected the onboarding handler's OTHER credential write
+    (``_env_file_path`` → per-instance ``secrets.env``) but this one still
+    targeted the shared file: instance A's passphrase left A's root entirely,
+    and since ``start.sh``/``reset.sh`` both ``set -a; source lab.conf``, the
+    LAST instance to onboard clobbered every other instance's ``IDE_PASSWORD``
+    in their shared process environment (§7: "Isolation that has an exception
+    is not isolation"). ``IDE_PASSWORD`` governs code-server, which §3.6 says
+    an instance never starts — so for an instance this write has no
+    legitimate target at all. Skip it outright rather than redirect it to a
+    per-instance file nothing reads.
+    """
+    if os.getenv("ARAIL_INSTANCE", "").strip():
+        return
     p = Path("lab.conf")
     if not p.exists():
         # No lab.conf yet — write the minimum shape setup.sh would emit.
@@ -3157,6 +3247,181 @@ def _resolve_world_dir(slug: str, raw_path: str):
     return None
 
 
+def _is_same_mounted_world(cur, bundle_dir: "Path") -> bool:
+    """Is ``bundle_dir`` a re-bind of the World already mounted at ``cur``,
+    rather than a switch to a different one?
+
+    Two — and only two — cases count as "the same World", both structural
+    facts about the filesystem, never a name/slug comparison an attacker (or
+    an accidental same-named folder) can spoof:
+
+    1. **Exact bundle dir match.** ``bundle_dir`` resolves to literally the
+       same directory ``cur`` was mounted from (the re-select / re-index
+       case, F6).
+    2. **The canonical catalog copy of the mounted World.** ``mount()``
+       adopts an externally-mounted bundle into ``WORLDS_DIR/<world>``
+       (``_adopt_into_catalog``) but records the pre-adoption SOURCE path as
+       ``cur.bundle_dir`` — so re-selecting that same World later by its
+       catalog slug resolves to a *different* string,
+       ``WORLDS_DIR/<cur.world>``, for the identical World (ASK-1). That
+       exact, structurally-derived path — never an attacker-supplied
+       basename or declared slug — is the only second match this function
+       allows.
+
+    Deliberately does **not** compare ``cur.world`` against the candidate's
+    directory basename or its manifest-declared slug: a validly-sealed
+    bundle can declare any slug while sitting in a directory whose basename
+    happens to match the mounted World's name (QA-2/QA-3, TEST_REPORT.md) —
+    that must still refuse. Two directories that both happen to hold
+    byte-identical content (F7's ``world-a``/``world-b`` fixtures) must also
+    still refuse: this function only recognizes ONE canonical location per
+    mounted World, derived structurally, never by content or declared
+    identity.
+    """
+    from arail.world_mount import _default_worlds_dir
+
+    bundle_dir = Path(bundle_dir).resolve()
+    if cur.bundle_dir == str(bundle_dir):
+        return True
+    try:
+        catalog_entry = _default_worlds_dir().resolve() / cur.world
+        # A symlink planted at the catalog slot would make the exemption
+        # recognize whatever it points at as "the mounted World" (QA-4).
+        if catalog_entry.is_symlink():
+            return False
+        canonical = catalog_entry.resolve()
+    except Exception:  # noqa: BLE001
+        return False
+    return canonical.is_dir() and canonical == bundle_dir
+
+
+# ---------------------------------------------------------------------------
+# Concurrent Worlds — instance registry (ARCHITECTURE.md §2, §5.1, §5.2).
+#
+# The registry lives at <checkout>/lab/instances/registry.d/*.json, shared
+# by every process launched from the same checkout regardless of which
+# World (if any) that process is itself an instance of. scripts/start.sh
+# never `cd`s away from REPO_ROOT before spawning uvicorn (only the LAB_ROOT
+# env var is repointed at the instance's own tree), so Path.cwd() IS the
+# checkout root for the lifetime of the process — the same assumption
+# several existing root-lab-only call sites in this file already make
+# (e.g. the ``Path.cwd() / "lab" / "data" / ...`` sites above).
+# ---------------------------------------------------------------------------
+
+def _instance_registry_dir() -> Path:
+    return Path.cwd() / "lab" / "instances" / "registry.d"
+
+
+def _read_instance_records() -> list[dict]:
+    """Every PARSEABLE registry record, one dict per file. Never raises —
+    mirrors ``list_available_worlds()``'s never-raises contract (§2.2);
+    a corrupt file is skipped (not quarantined here — quarantine is the
+    CLI's job, this is a read-only introspection endpoint)."""
+    reg_dir = _instance_registry_dir()
+    records: list[dict] = []
+    try:
+        entries = sorted(reg_dir.glob("*.json"))
+    except OSError:
+        return records
+    for f in entries:
+        try:
+            data = json.loads(f.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001
+            continue
+        if isinstance(data, dict):
+            records.append(data)
+    return records
+
+
+def _instance_record_alive(rec: dict) -> bool:
+    """Liveness predicate steps 1-3 (ARCHITECTURE.md §2.3) — no network probe
+    (step 4) from a request handler: an HTTP fan-out inside a handler is a
+    stall risk (§5.2), so /api/instances reports the same no-network
+    liveness ``status`` defaults to."""
+    pid = rec.get("portal_pid")
+    port = rec.get("portal_port")
+    if not isinstance(pid, int):
+        return False
+    try:
+        os.kill(pid, 0)
+    except (ProcessLookupError, PermissionError, OSError):
+        return False
+    try:
+        out = subprocess.run(
+            ["ps", "-p", str(pid), "-o", "command="],
+            capture_output=True, text=True, timeout=2,
+        )
+    except Exception:  # noqa: BLE001
+        return False
+    cmd = (out.stdout or "").strip()
+    if not cmd or "uvicorn" not in cmd or "arail.portal.app" not in cmd:
+        return False
+    if port is not None and f"--port {port}" not in cmd and f"--port={port}" not in cmd:
+        return False
+    return True
+
+
+@app.get("/api/instance")
+async def api_instance():
+    """Self-report of the process answering — load-bearing for the
+    liveness predicate's step 4 (ARCHITECTURE.md §2.3, §5.1).
+
+    Read-only, no side effects, airgap-safe (local state only). The
+    ``token`` is a liveness NONCE, not a credential — it grants nothing
+    (no endpoint accepts it as auth), so serving it on a loopback-bound
+    endpoint is not a secret disclosure; it exists solely so a caller who
+    already knows the expected token (because IT wrote the registry
+    record) can distinguish "the right process is answering on this port"
+    from "some unrelated process now owns this port" (PID reuse / a
+    different checkout crash-looping here). Do not repurpose it as auth.
+    """
+    slug = os.getenv("ARAIL_INSTANCE", "").strip()
+    if not slug:
+        return {
+            "slug": "root",
+            "token": None,
+            "portal_port": int(os.getenv("PORTAL_PORT", "8080")),
+            "checkout": str(Path.cwd()),
+            "data_root": str(DATA_DIR),
+            "world": None,
+            "display_name": os.getenv("LAB_NAME", "Arail"),
+            "started_at": _PROCESS_STARTED_AT,
+        }
+    return {
+        "slug": slug,
+        "token": os.getenv("ARAIL_INSTANCE_TOKEN", ""),
+        "portal_port": int(os.getenv("PORTAL_PORT", "0") or "0"),
+        "checkout": str(Path.cwd()),
+        "data_root": str(DATA_DIR),
+        "world": slug,
+        "display_name": os.getenv("LAB_NAME", slug),
+        "started_at": _PROCESS_STARTED_AT,
+    }
+
+
+@app.get("/api/instances")
+async def api_instances():
+    """The roster — read from registry.d/ (ARCHITECTURE.md §5.2).
+
+    Portal A learns about instance B by reading the SAME registry the CLI
+    uses — no cross-instance HTTP, no discovery protocol, no in-memory
+    shared state. Liveness is no-network (predicate steps 1-3 only; see
+    ``_instance_record_alive``). Read-only.
+    """
+    rows = []
+    for rec in _read_instance_records():
+        rows.append({
+            "slug": rec.get("slug"),
+            "display_name": rec.get("display_name"),
+            "portal_port": rec.get("portal_port"),
+            "bind": rec.get("bind"),
+            "checkout": rec.get("checkout"),
+            "started_at": rec.get("started_at"),
+            "live": _instance_record_alive(rec),
+        })
+    return {"instances": rows}
+
+
 @app.get("/api/worlds")
 async def api_worlds_list():
     """Catalog of mountable Worlds in ``lab/worlds/`` plus the current mount.
@@ -3178,12 +3443,21 @@ async def api_worlds_select(request: Request):
     ``{"slug": "default"}`` | ``{"default": true}``. CSRF envelope mirrors
     ``post_airgap_toggle`` (Sec-Fetch-Site + Origin/Host). Mount is atomic — any
     bundle/seal failure refuses before touching disk, so the current World is
-    unchanged. Expected failures: 409 (seal/partial/schema/category/slug) or 400
-    (bad slug / traversal); never 500 for those.
+    unchanged. Expected failures: 409 (seal/partial/schema/category/slug,
+    instance_live, in_place_switch_removed) or 400 (bad slug / traversal);
+    never 500 for those.
+
+    In-place World switching is removed (VISION.md §2 of the concurrent-worlds
+    sprint, executed by worlds-select-removal): this endpoint survives only for
+    the first bind into an empty root and unbind-to-default, plus the idempotent
+    re-bind of the identical bundle already mounted here. Mounting a *different*
+    World over one already mounted is refused with 409
+    ``in_place_switch_removed`` — the sweep that would run is destructive of the
+    other World's staged layer. See ``docs/concurrent-worlds.md``.
     """
     from fastapi.responses import JSONResponse
     from arail.world_mount import (
-        mount, unmount, _SLUG_RE,
+        mount, unmount, current_mount, _SLUG_RE,
         SealMismatch, PartialBundle, SchemaSkew, GateViolation, SlugInvalid,
     )
 
@@ -3225,6 +3499,46 @@ async def api_worlds_select(request: Request):
             "message": "Provide a known slug or a path under WORLDS_DIR, or 'default'.",
         })
 
+    # ── F11: refuse if a LIVE instance is already serving this World ──
+    # Mounting it here would _sweep_other_worlds() a staged layer another
+    # process is actively serving out from under it (ARCHITECTURE.md §5.3 —
+    # "a genuine data-loss path"). Registry-driven, no-network (same
+    # posture as GET /api/instances).
+    target_slug = bundle_dir.name
+    for rec in _read_instance_records():
+        if rec.get("slug") == target_slug and _instance_record_alive(rec):
+            return _err(409, {
+                "error": "instance_live",
+                "message": (
+                    f"'{target_slug}' is already running as its own instance "
+                    f"on port {rec.get('portal_port')} — mounting it here would "
+                    "delete its staged layer out from under it. Open the "
+                    "running instance instead, or stop it first: "
+                    f"./arailctl stop --world {target_slug}"
+                ),
+            })
+
+    # ── In-place switching removed: refuse a mount over a DIFFERENT World ──
+    # already bound here. Checked after instance_live (ordering ruling: when
+    # both apply, "it's live elsewhere, go there" is more actionable) and
+    # before mount() (never touches disk). ``_is_same_mounted_world`` allows
+    # only two structurally-derived re-binds (exact bundle dir; the
+    # canonical adopted catalog copy of the mounted World) — NOT a
+    # basename/slug comparison, which a validly-sealed impostor bundle in a
+    # same-named directory could spoof (QA-2, TEST_REPORT.md).
+    cur = current_mount()
+    if cur is not None and not _is_same_mounted_world(cur, bundle_dir):
+        return _err(409, {
+            "error": "in_place_switch_removed",
+            "message": (
+                f"'{cur.world}' is mounted in this lab. Switching Worlds in "
+                "place was removed — one lab, one World. Run "
+                f"'{target_slug}' as its own instance:  "
+                f"./arailctl start --world {target_slug}   — or unmount first "
+                "(AI Lab default) and then mount it here."
+            ),
+        })
+
     # ── Mount (atomic; refuses before touching disk on any error) ──
     try:
         rec = mount(bundle_dir)
@@ -3262,11 +3576,12 @@ async def api_worlds_import(request: Request):
 
     Body: ``{"path": "<abs path to a bundle dir>"}``. Expected failures: 403
     (cross-site/origin), 400 (missing/blank/not-a-dir), 409 (seal/partial/
-    schema/category/slug). Never 500 for those.
+    schema/category/slug, in_place_switch_removed — see api_worlds_select).
+    Never 500 for those.
     """
     from fastapi.responses import JSONResponse
     from arail.world_mount import (
-        mount,
+        mount, current_mount,
         SealMismatch, PartialBundle, SchemaSkew, GateViolation, SlugInvalid,
     )
 
@@ -3306,6 +3621,25 @@ async def api_worlds_import(request: Request):
     if not is_dir:
         return _err(400, {"error": "not_a_dir",
                           "message": f"Not a directory: {raw_path}"})
+
+    # ── In-place switching removed: same guard as api_worlds_select, same
+    # structural (never basename/slug) identity check — QA-2/QA-3,
+    # TEST_REPORT.md. Import's path is deliberately NOT jailed (that's the
+    # whole point of import), which makes a same-named-folder collision more
+    # plausible here than at select, not less.
+    target_slug = bundle_dir.name
+    cur = current_mount()
+    if cur is not None and not _is_same_mounted_world(cur, bundle_dir):
+        return _err(409, {
+            "error": "in_place_switch_removed",
+            "message": (
+                f"'{cur.world}' is mounted in this lab. Switching Worlds in "
+                "place was removed — one lab, one World. Run "
+                f"'{target_slug}' as its own instance:  "
+                f"./arailctl start --world {target_slug}   — or unmount first "
+                "(AI Lab default) and then mount it here."
+            ),
+        })
 
     # ── Mount (atomic; full seal/compat/category gates; adopts into catalog) ──
     try:
@@ -3398,13 +3732,15 @@ async def api_worlds_import_zip(request: Request):
     nothing of value lives in staging after the call.
 
     Form field: ``file`` (the ``.zip``, multipart/form-data). Expected
-    failures: 403 (cross-site/origin), 400 (no file / not a zip / corrupt /
-    unsafe archive), 409 (non-bundle or seal/compat/category/slug refusal).
+    failures: 403 (cross-site/origin), 409 in_place_switch_removed (something
+    else already mounted here — checked before any extraction), 400 (no file
+    / not a zip / corrupt / unsafe archive), 409 (non-bundle or seal/compat/
+    category/slug refusal).
     """
     import tempfile
     from fastapi.responses import JSONResponse
     from arail.world_mount import (
-        mount,
+        mount, current_mount,
         SealMismatch, PartialBundle, SchemaSkew, GateViolation, SlugInvalid,
     )
 
@@ -3422,6 +3758,25 @@ async def api_worlds_import_zip(request: Request):
         origin_host = _urlparse(origin).netloc
         if origin_host and origin_host != host:
             return _err(403, {"error": "cross_origin"})
+
+    # ── In-place switching removed: refuse unconditionally when anything is
+    # mounted here, before extracting a single byte of the untrusted archive.
+    # NO identical-bundle exemption — the zip is always extracted to a fresh
+    # tempfile.mkdtemp() staging dir below, so bundle_dir can never equal
+    # cur.bundle_dir; a re-import of "the same" World is a different dir on
+    # disk every time. Do not copy the `!=` comparison from the other two
+    # endpoints (REVIEW.md BLOCK-1).
+    cur = current_mount()
+    if cur is not None:
+        return _err(409, {
+            "error": "in_place_switch_removed",
+            "message": (
+                f"'{cur.world}' is mounted in this lab. Switching Worlds in "
+                "place was removed — one lab, one World. Unmount first (AI "
+                "Lab default) on the Worlds page, then import this .zip "
+                "here — or run the imported World as its own instance."
+            ),
+        })
 
     # ── Pull the uploaded .zip out of the multipart body ──
     try:

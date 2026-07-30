@@ -22,10 +22,18 @@ def _run_installer(tmp_path, env_lines, *, uninstall=False):
     """Run the installer against a sandbox repo dir with a stub launchctl."""
     fake_repo = tmp_path / "repo"
     (fake_repo / "scripts" / "launchd").mkdir(parents=True)
+    (fake_repo / "scripts" / "lib").mkdir(parents=True)
     (fake_repo / ".venv" / "bin").mkdir(parents=True)
     (fake_repo / ".venv" / "bin" / "python").write_text("#!/bin/sh\n")
     (fake_repo / ".venv" / "bin" / "python").chmod(0o755)
     shutil.copy(SCRIPT, fake_repo / "scripts" / "install-daemon.sh")
+    # install-daemon.sh unconditionally sources scripts/lib/instances.sh as
+    # of the concurrent-worlds sprint's WP2 (ARCHITECTURE.md §2.6: the
+    # daemon-liveness/registry helpers live there now) — the fake repo
+    # needs a copy too, same as every other fixture that drives a real
+    # script sourcing it (see tests/instance_start_driver.sh).
+    shutil.copy(REPO / "scripts" / "lib" / "instances.sh",
+                fake_repo / "scripts" / "lib" / "instances.sh")
     shutil.copy(REPO / "scripts" / "launchd" / "io.arail.service.plist.template",
                 fake_repo / "scripts" / "launchd" / "io.arail.service.plist.template")
     (fake_repo / ".env").write_text("\n".join(env_lines) + "\n")

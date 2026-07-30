@@ -157,6 +157,17 @@ research material is whatever you drop into the Knowledge Base, and the
 fundamental domain terms come from these in-box Worlds (see
 `lab/worlds/README.md`).
 
+**Run more than one World at once.** `./arailctl start --world <slug>`
+launches a World as its own process, on its own port, with its own
+isolated knowledge base and secrets — a *work* lab and a *personal* lab
+that genuinely cannot see each other, side by side, up to
+`LAB_MAX_INSTANCES` (default 3). `./arailctl status` shows every running
+instance; `./arailctl stop --world <slug>` stops just one. See
+[`docs/concurrent-worlds.md`](docs/concurrent-worlds.md). In-place
+World-switching (mounting a *different* World over one already mounted in
+this lab) has been removed — `/worlds`' Mount button now only performs the
+first bind or an unmount; use instances to run more than one World at once.
+
 ### 📊 Dashboard *(every tier)*
 
 The lab's home screen. Shows the **current mission** (set from

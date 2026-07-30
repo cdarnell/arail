@@ -157,6 +157,20 @@
 
   </section>
 
+  <!-- ═══ Static instances hint (worlds-select-removal: the transitional
+       dismissible deprecation notice comes down — one lab, one World is
+       the shipped behavior now, not a future one). ═══ -->
+  <p id="worlds-instances-hint" style="font-size:.8rem;opacity:.75;margin:0 0 1rem;">
+    One World per lab. To work in another World, run it as its own lab:
+    <code>./arailctl start --world &lt;slug&gt;</code>.
+  </p>
+
+  <!-- ═══ Stray-mount escape hatch (F3, REVIEW.md ASK-2): rendered by
+       worlds.js only when the root is mounted but no catalog card claims
+       it (the bundle dir vanished/was corrupted out from under the mount
+       record) — the catalog-independent Unmount door. ═══ -->
+  <div id="stray-mount-hint"></div>
+
   <!-- ═══ Catalog ═══ -->
   <section class="worlds-catalog">
     <h2 class="micro-label">Your worlds</h2>

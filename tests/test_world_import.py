@@ -94,6 +94,57 @@ def test_non_bundle_dir_is_409(client, isolated, tmp_path):
     assert wm.current_mount(data) is None
 
 
+# ── In-place switching removed (worlds-select-removal) ─────────────────────
+
+def test_import_over_mounted_root_refused(client, isolated):
+    # Import is a second door onto the same destructive sweep as select; it
+    # gets the same in_place_switch_removed refusal when something else is
+    # already mounted here.
+    pkb, data, worlds = isolated
+    r1 = client.post("/api/worlds/import", json={"path": str(PHYSICS)},
+                     headers=SAME_ORIGIN)
+    assert r1.status_code == 200, r1.text
+    mounted_slug = r1.json()["current"]
+
+    other = FIXTURES / "art-history-skill"
+    r2 = client.post("/api/worlds/import", json={"path": str(other)},
+                     headers=SAME_ORIGIN)
+    assert r2.status_code == 409
+    assert r2.json()["error"] == "in_place_switch_removed"
+    assert wm.current_mount(data).world == mounted_slug  # unchanged
+
+
+def test_import_reimport_identical_bundle_allowed(client, isolated):
+    # mount() records bundle_dir as the resolved SOURCE path (pre-adoption),
+    # so re-importing the same external path is the identical-bundle case.
+    pkb, data, worlds = isolated
+    r1 = client.post("/api/worlds/import", json={"path": str(PHYSICS)},
+                     headers=SAME_ORIGIN)
+    assert r1.status_code == 200, r1.text
+    r2 = client.post("/api/worlds/import", json={"path": str(PHYSICS)},
+                     headers=SAME_ORIGIN)
+    assert r2.status_code == 200, r2.text
+
+
+def test_reselect_by_slug_after_external_import_allowed(client, isolated):
+    # REVIEW.md ASK-1: mount() records the SOURCE path pre-adoption, while
+    # re-selecting the World by its catalog slug resolves to the ADOPTED
+    # copy under WORLDS_DIR -- two different strings for one World. The
+    # narrow fix allows the re-bind when cur.world == target_slug, even
+    # though bundle_dir differs.
+    pkb, data, worlds = isolated
+    r1 = client.post("/api/worlds/import", json={"path": str(PHYSICS)},
+                     headers=SAME_ORIGIN)
+    assert r1.status_code == 200, r1.text
+    slug = r1.json()["current"]
+    assert (worlds / slug).is_dir()  # adopted into the catalog
+
+    r2 = client.post("/api/worlds/select", json={"slug": slug},
+                     headers=SAME_ORIGIN)
+    assert r2.status_code == 200, r2.text
+    assert r2.json()["current"] == slug
+
+
 # ── Happy path ───────────────────────────────────────────────────────────────
 
 def test_external_bundle_imports_and_lands_in_catalog(client, isolated):

@@ -629,20 +629,28 @@ window.revealSlot = async function revealSlot(slot, subpath) {
 };
 
 /* ── World switcher dropdown ──────────────────────────────────────
-   The nav badge is a <details> popover. On first open we fetch the
-   catalog (/api/worlds) and render: "AI Lab (default)", then each
-   discovered World (valid → clickable, invalid → disabled w/ reason),
-   with a ✓ active marker. Click → POST /api/worlds/select → reload on
-   success; on error an amber whisper toast, current World unchanged.
-   Outside-click / Escape closes. Vanilla, airgap-safe. */
+   The nav badge is a <details> popover: a pure roster/viewer, not a
+   mutator (worlds-select-removal, ARCHITECTURE.md — "nav does not
+   mutate at all"). On first open we fetch the catalog (/api/worlds)
+   and the instance roster (/api/instances) and render: "AI Lab
+   (default)" (routes to /worlds when a World is mounted, otherwise
+   inert), then each discovered World — a live instance opens as a
+   link, a non-live World reveals its launch command, the currently
+   mounted World is an inert ✓ row. Import (path and .zip) stays here —
+   both /api/worlds/import and /api/worlds/import-zip carry their own
+   in_place_switch_removed guard, refusing server-side when this root
+   is already mounted, so the affordance degrades to a 409 + toast
+   rather than a silent sweep. Outside-click / Escape closes. Vanilla,
+   airgap-safe. */
 (function () {
   var details = document.getElementById('world-switcher');
   var menu = document.getElementById('world-menu');
   if (!details || !menu) return;
 
   var loaded = false;
-  var busy = false;
+  var busy = false;  // import-only lock; the switcher itself never mutates
   var _lastJson = null;
+  var _lastInstJson = null;
 
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -651,7 +659,7 @@ window.revealSlot = async function revealSlot(slot, subpath) {
   }
 
   function row(opts) {
-    // opts: {label, action, slug, path, active, disabled, reason}
+    // opts: {label, action, slug, path, active, disabled, reason, live, port, url}
     var active = opts.active;
     var disabled = opts.disabled;
     var style =
@@ -661,18 +669,26 @@ window.revealSlot = async function revealSlot(slot, subpath) {
         ? 'opacity:.45;pointer-events:none;cursor:default;'
         : 'cursor:pointer;') +
       (active ? 'font-weight:700;' : '');
-    var mark = active ? '✓ ' : '  ';
+    var mark = active ? '\u2713 ' : '  ';
     var tail = disabled
       ? ' <span style="opacity:.7;font-size:.68rem;">(unavailable)</span>'
       : '';
+    // Concurrent Worlds (ARCHITECTURE.md \u00a75.4): a liveness dot + :port
+    // for a World running as its own instance -- the roster-viewer half of
+    // the dropdown, alongside the existing per-World select/mount rows.
+    if (opts.live) {
+      tail += ' <span style="opacity:.75;font-size:.68rem;color:var(--green,#3a3);">' +
+        '\u25cf :' + esc(String(opts.port || '')) + '</span>';
+    }
     var attrs = 'class="world-row" role="menuitem" style="' + style + '"';
     if (!disabled) {
       attrs += ' data-action="' + esc(opts.action || '') + '"';
       if (opts.slug) attrs += ' data-slug="' + esc(opts.slug) + '"';
       if (opts.path) attrs += ' data-path="' + esc(opts.path) + '"';
+      if (opts.url) attrs += ' data-url="' + esc(opts.url) + '"';
     }
     if (opts.reason) attrs += ' title="' + esc(opts.reason) + '"';
-    // Theme swatch placeholder — rendered empty here, painted afterwards via
+    // Theme swatch placeholder -- rendered empty here, painted afterwards via
     // style assignment (never interpolated into HTML; values are
     // server-validated hex and re-checked client-side).
     var swatch = opts.hasSwatch
@@ -684,46 +700,74 @@ window.revealSlot = async function revealSlot(slot, subpath) {
       esc(opts.label) + tail + '</span></div>';
   }
 
-  function render(json) {
+  function render(json, instJson) {
     _lastJson = json;
-    var html = '';
-    // C7 — new first row: navigates to the welcome World-step component
-    // (the same honest-failure-state, confirmation-gated surface as the
-    // welcome flow) rather than mounting directly. The existing per-World
-    // rows below keep their direct-POST behavior this sprint (see
-    // ARCHITECTURE.md C7 / Tech debt D3) — this new row is not a
-    // replacement for them, just an additional, safer door.
-    html +=
-      '<div class="world-row" role="menuitem" data-action="change-world" ' +
-      'style="display:flex;align-items:center;gap:.4rem;padding:.4rem .6rem;' +
-      'border-radius:7px;font-size:.78rem;white-space:nowrap;cursor:pointer;">' +
-      '<span>&nbsp;&nbsp;</span><span>Change World…</span></div>' +
-      '<div style="border-top:1px solid var(--border);margin:.3rem 0;"></div>';
-    html += row({
-      label: 'AI Lab (default)',
-      action: 'default',
-      active: json.current === null || json.current === undefined,
+    _lastInstJson = instJson;
+    // Concurrent Worlds (ARCHITECTURE.md §5.4): a per-slug liveness
+    // lookup from /api/instances -- the SAME registry-driven roster the
+    // CLI reads, no cross-instance HTTP, no in-memory shared state.
+    var instancesBySlug = {};
+    ((instJson && instJson.instances) || []).forEach(function (inst) {
+      if (inst && inst.slug) instancesBySlug[inst.slug] = inst;
     });
+    var html = '';
+    var mounted = json.current !== null && json.current !== undefined;
+    // "AI Lab (default)" row: non-mutating. When a World is mounted it
+    // routes to /worlds -- unmount lives on one surface, the Worlds page --
+    // otherwise it's just the (already active) inert row.
+    if (mounted) {
+      html += row({ label: 'AI Lab (default)', action: 'goto-worlds' });
+    } else {
+      html += row({ label: 'AI Lab (default)', active: true, disabled: true });
+    }
     var worlds = (json && json.worlds) || [];
     worlds.forEach(function (w) {
-      if (w.valid) {
-        html += row({
-          label: w.display_name || w.slug,
-          action: 'select',
-          slug: w.slug,
-          path: w.path,
-          active: !!w.mounted,
-          hasSwatch: !!w.theme_preview,
-        });
-      } else {
+      if (!w.valid) {
         html += row({
           label: w.display_name || w.slug,
           disabled: true,
           reason: w.reason || 'unavailable',
         });
+        return;
       }
+      var inst = instancesBySlug[w.slug];
+      var live = !!(inst && inst.live);
+      if (live) {
+        // Live instance -- a plain link, never a mutation.
+        var bind = inst.bind || '127.0.0.1';
+        html += row({
+          label: w.display_name || w.slug,
+          action: 'open',
+          slug: w.slug,
+          url: 'http://' + bind + ':' + inst.portal_port,
+          live: true,
+          port: inst.portal_port,
+          hasSwatch: !!w.theme_preview,
+        });
+        return;
+      }
+      if (w.mounted) {
+        // Currently mounted here: inert, checkmark only. In-place switching
+        // is removed -- clicking another World's row must never mutate.
+        html += row({
+          label: w.display_name || w.slug,
+          active: true,
+          disabled: true,
+          hasSwatch: !!w.theme_preview,
+        });
+        return;
+      }
+      // Not live, not mounted here: non-mutating. Reveal the instance
+      // launch command instead of a select POST (worlds-select-removal --
+      // the nav dropdown never mounts).
+      html += row({
+        label: w.display_name || w.slug,
+        disabled: true,
+        reason: 'Run as its own lab: ./arailctl start --world ' + w.slug,
+        hasSwatch: !!w.theme_preview,
+      });
     });
-    // Consumer-side "Add a World" affordance — import a sealed bundle from a
+    // Consumer-side "Add a World" affordance -- import a sealed bundle from a
     // path outside the catalog (a DaC export, a shared World).
     html +=
       '<div style="border-top:1px solid var(--border);margin:.3rem 0;"></div>' +
@@ -779,7 +823,7 @@ window.revealSlot = async function revealSlot(slot, subpath) {
     if (input) input.focus();
     var go = document.getElementById('world-import-go');
     var cancel = document.getElementById('world-import-cancel');
-    if (cancel) cancel.addEventListener('click', function () { render(_lastJson); });
+    if (cancel) cancel.addEventListener('click', function () { render(_lastJson, _lastInstJson); });
     if (go) go.addEventListener('click', doImport);
     if (input) input.addEventListener('keydown', function (e) {
       if (e.key === 'Enter') doImport();
@@ -856,9 +900,21 @@ window.revealSlot = async function revealSlot(slot, subpath) {
   function load() {
     menu.innerHTML =
       '<div style="padding:.4rem .6rem;font-size:.72rem;opacity:.7;">Loading…</div>';
-    fetch('/api/worlds', { cache: 'no-store', credentials: 'same-origin' })
-      .then(function (r) { return r.ok ? r.json() : Promise.reject(r); })
-      .then(function (json) { loaded = true; render(json); })
+    // Fetch the catalog and the instance roster in parallel — same posture
+    // as worlds.js's renderCatalog() (ARCHITECTURE.md §5.4). A failed
+    // /api/instances fetch degrades to "no liveness info", never blocks
+    // the catalog itself.
+    Promise.all([
+      fetch('/api/worlds', { cache: 'no-store', credentials: 'same-origin' })
+        .then(function (r) { return r.ok ? r.json() : Promise.reject(r); }),
+      fetch('/api/instances', { cache: 'no-store', credentials: 'same-origin' })
+        .then(function (r) { return r.ok ? r.json() : { instances: [] }; })
+        .catch(function () { return { instances: [] }; }),
+    ])
+      .then(function (results) {
+        loaded = true;
+        render(results[0], results[1]);
+      })
       .catch(function () {
         menu.innerHTML =
           '<div style="padding:.4rem .6rem;font-size:.72rem;opacity:.7;">' +
@@ -874,36 +930,18 @@ window.revealSlot = async function revealSlot(slot, subpath) {
     var el = e.target.closest('.world-row[data-action]');
     if (!el || busy) return;
     var action = el.getAttribute('data-action');
-    if (action === 'change-world') { window.location.href = '/welcome?step=world'; return; }
+    if (action === 'goto-worlds') { window.location.href = '/worlds'; return; }
     if (action === 'forge') { window.location.href = '/worlds'; return; }
     if (action === 'add') { showImport(); return; }
-    var slug = el.getAttribute('data-slug') || '';
-    var path = el.getAttribute('data-path') || '';
-    busy = true;
-    menu.style.pointerEvents = 'none';
-    menu.style.opacity = '.6';
-    fetch('/api/worlds/select', {
-      method: 'POST',
-      credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(
-        action === 'default'
-          ? { slug: 'default' }
-          : { slug: slug, path: path }
-      ),
-    })
-      .then(function (r) {
-        if (r.ok) { window.location.reload(); return null; }
-        return r.json().catch(function () { return {}; }).then(function (b) {
-          whisper((b && b.message) || 'World load failed');
-        });
-      })
-      .catch(function () { whisper('World load failed'); })
-      .then(function () {
-        busy = false;
-        menu.style.pointerEvents = '';
-        menu.style.opacity = '';
-      });
+    if (action === 'open') {
+      // Live instance — a plain link, never a mutation.
+      var url = el.getAttribute('data-url') || '';
+      if (url) window.open(url, '_blank');
+      return;
+    }
+    // No other row mutates. Non-live/non-mounted rows are disabled (their
+    // launch command is in the title/reason), and the dropdown never mounts
+    // or unmounts a World.
   });
 
   // Outside-click closes the popover.

@@ -601,15 +601,35 @@
     setTimeout(finish, 6000);
   }
 
-  /* ══ Catalog ══ */
+  /* ══ Catalog ══
+     Concurrent Worlds (sprints/2026-07-28-concurrent-worlds/ARCHITECTURE.md
+     §5.3): the Mount button's label is now a pure function of two facts —
+     whether the TARGET World has a live instance elsewhere (/api/instances,
+     the same registry-driven roster the CLI reads) and whether the CURRENT
+     root already has a World mounted (/api/worlds' `current`). */
   function renderCatalog() {
-    api('GET', '/api/worlds').then(function (res) {
-      if (!res.ok) return;
+    Promise.all([
+      api('GET', '/api/worlds'),
+      api('GET', '/api/instances'),
+    ]).then(function (results) {
+      var worldsRes = results[0];
+      var instRes = results[1];
+      if (!worldsRes.ok) return;
+      var instancesBySlug = {};
+      if (instRes.ok) {
+        (instRes.data.instances || []).forEach(function (inst) {
+          if (inst && inst.slug) instancesBySlug[inst.slug] = inst;
+        });
+      }
+      var currentSlug = worldsRes.data.current || null;
       var grid = $('catalog-grid');
       grid.textContent = '';
-      (res.data.worlds || []).forEach(function (w) {
-        grid.appendChild(worldCard(w));
+      var worlds = worldsRes.data.worlds || [];
+      var anyCardMounted = worlds.some(function (w) { return w.mounted; });
+      worlds.forEach(function (w) {
+        grid.appendChild(worldCard(w, instancesBySlug, currentSlug));
       });
+      renderStrayMountHint(currentSlug, anyCardMounted);
       // Import hint card
       var imp = document.createElement('div');
       imp.className = 'world-card import-card';
@@ -624,7 +644,53 @@
     });
   }
 
-  function worldCard(w) {
+  // Stray-mount escape hatch (F3, REVIEW.md ASK-2): if the root is mounted
+  // but its bundle dir vanished/was corrupted out from under it, no
+  // catalog card claims `mounted`, so no per-card Unmount button renders
+  // anywhere -- and the nav dropdown's old catalog-independent unbind door
+  // was removed this sprint. Render a standalone Unmount control above the
+  // grid so the root can always be freed from the UI, not just the CLI
+  // (`./arailctl world unmount`).
+  function renderStrayMountHint(currentSlug, anyCardMounted) {
+    var host = $('stray-mount-hint');
+    if (!host) return;
+    host.textContent = '';
+    if (!currentSlug || anyCardMounted) return;
+    var box = document.createElement('div');
+    box.className = 'card stray-mount-hint';
+    box.style.cssText = 'display:flex;align-items:center;gap:.6rem;padding:.6rem .9rem;margin-bottom:1rem;';
+    var msg = document.createElement('span');
+    msg.style.cssText = 'flex:1;font-size:.82rem;';
+    msg.textContent = 'This lab is bound to "' + currentSlug + '", but its files ' +
+      "aren't in the catalog below (moved, deleted, or corrupted).";
+    box.appendChild(msg);
+    var btn = document.createElement('button');
+    btn.className = 'btn btn-ghost btn-sm';
+    btn.textContent = 'Unmount current World (' + currentSlug + ')';
+    btn.addEventListener('click', function () {
+      api('POST', '/api/worlds/select', { slug: 'default' }).then(function (r) {
+        if (r.ok) location.reload();
+        else if (r.data && r.data.message) window.alert(r.data.message);
+      });
+    });
+    box.appendChild(btn);
+    host.appendChild(box);
+  }
+
+  // Launch never spawns a process from the browser — it renders the exact
+  // CLI command and copies it to the clipboard (ARCHITECTURE.md §5.3's
+  // refinement/partial-overrule of VISION §2: a one-click launch would be a
+  // CSRF-reachable process-execution surface). Same fallback shape nav.js's
+  // reveal() already uses for "can't act directly, so copy + tell the user".
+  function showLaunchCommand(slug) {
+    var cmd = './arailctl start --world ' + slug;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(cmd).catch(function () {});
+    }
+    window.alert('Run this in your terminal (copied to clipboard):\n\n' + cmd);
+  }
+
+  function worldCard(w, instancesBySlug, currentSlug) {
     var card = document.createElement('div');
     card.className = 'world-card' + (w.valid ? '' : ' invalid');
     if (!w.valid && w.reason) card.title = String(w.reason);
@@ -659,17 +725,42 @@
       pill.textContent = 'MOUNTED';
       top.appendChild(pill);
     }
+    var inst = instancesBySlug[w.slug];
+    var live = !!(inst && inst.live);
+    if (live) {
+      var livePill = document.createElement('span');
+      livePill.className = 'mounted-pill';
+      livePill.textContent = '● :' + inst.portal_port;
+      livePill.title = 'Running as its own instance';
+      top.appendChild(livePill);
+    }
     card.appendChild(top);
 
+    // Mount / Launch / Open / Unmount — a pure function of two facts
+    // (ARCHITECTURE.md §5.3's matrix):
+    //   live instance                       -> Open   (new tab, non-mutating)
+    //   currently mounted HERE               -> Unmount
+    //   nothing mounted here, no live instance -> Mount (the first-bind case)
+    //   something ELSE mounted here, no live instance -> Launch (copy command)
     var actions = document.createElement('div');
     actions.className = 'world-actions';
-    if (w.mounted) {
+    if (live) {
+      var open = document.createElement('button');
+      open.className = 'btn btn-primary btn-sm';
+      open.textContent = 'Open';
+      open.addEventListener('click', function () {
+        var bind = inst.bind || '127.0.0.1';
+        window.open('http://' + bind + ':' + inst.portal_port, '_blank');
+      });
+      actions.appendChild(open);
+    } else if (w.mounted) {
       var un = document.createElement('button');
       un.className = 'btn btn-ghost btn-sm';
       un.textContent = 'Unmount';
       un.addEventListener('click', function () {
         api('POST', '/api/worlds/select', { slug: 'default' }).then(function (r) {
           if (r.ok) location.reload();
+          else if (r.data && r.data.message) window.alert(r.data.message);
         });
       });
       actions.appendChild(un);
@@ -684,17 +775,31 @@
         window.revealSlot('user_data', w.slug + '/findings');
       });
       actions.appendChild(reveal);
-    } else {
+    } else if (!currentSlug) {
       var mnt = document.createElement('button');
       mnt.className = 'btn btn-primary btn-sm';
       mnt.textContent = 'Mount';
       mnt.disabled = !w.valid;
       mnt.addEventListener('click', function () {
         api('POST', '/api/worlds/select', { slug: w.slug }).then(function (r) {
-          if (r.ok) location.reload();
+          if (r.ok) { location.reload(); return; }
+          // Race: another tab mounted between render and click -- the
+          // server is authoritative (in_place_switch_removed). Surface its
+          // message, then re-fetch so the button matrix reflects reality
+          // instead of trusting stale client state.
+          if (r.data && r.data.message) window.alert(r.data.message);
+          renderCatalog();
         });
       });
       actions.appendChild(mnt);
+    } else {
+      var launch = document.createElement('button');
+      launch.className = 'btn btn-primary btn-sm';
+      launch.textContent = 'Launch';
+      launch.disabled = !w.valid;
+      launch.title = './arailctl start --world ' + w.slug;
+      launch.addEventListener('click', function () { showLaunchCommand(w.slug); });
+      actions.appendChild(launch);
     }
     var del = document.createElement('button');
     del.className = 'btn btn-danger btn-sm';

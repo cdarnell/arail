@@ -41,6 +41,12 @@ node_modules/
 .transfer/
 lab/data/
 lab/models/
+# Per-World instance runtime (concurrent Worlds) — instance roots, env
+# packs, the liveness registry, and per-instance secrets. See
+# sprints/2026-07-28-concurrent-worlds/ARCHITECTURE.md §1.4. No negation
+# for registry.d/ — it is machine state (absolute paths, PIDs) and must
+# never be committed.
+lab/instances/
 # Top-level models/ holds Ollama Modelfile scaffolds (tracked) plus any
 # fetched weights (ignored). The /*/* pattern matches files inside
 # subdirs so the parent dirs themselves stay un-excluded — which is
