@@ -33,7 +33,7 @@ renumbered or reused for a different meaning (`sprints/2026-07-29-elite-cli/ARCH
 | `0` | Success / affirmative verdict | every verb |
 | `1` | Failure or refusal — couldn't do the thing, or refuse to (no `.venv`, daemon active with `--world`/`--root`, claim held, instance ceiling, bind conflict, root portal never came up, multiple live instances with no `restart` target, lab not provisioned, lab live without `--allow-running`, deps refresh failed, doctor broken) | `start`, `restart`, `stop`, `install`, `doctor` |
 | `2` | Usage error — bad flag, missing flag value, invalid slug, ambiguous non-interactive target, unknown `--json` value, `install daemon` (typo) | every verb with flags |
-| `3` | **Degraded** — partially up, a phase refused/failed but the lab is still usable, `--check`/`--component` pending changes | `status`, `doctor`, `install`, `update` |
+| `3` | **Degraded** — partially up, a phase refused/failed but the lab is still usable, `--check` pending changes | `status`, `doctor`, `install`, `update` |
 | `4` | **Nothing running** | `status` only |
 | `130` / `143` | Killed by SIGINT / SIGTERM | `start --world <slug>` (foreground instance/root path) |
 
@@ -98,7 +98,7 @@ reason unless `--force`.
 | `[5/5] verify` | `./arailctl doctor` — its exit code folds straight through (`3`→degraded, `1`→hard failure) | — |
 
 Exit: `0` all phases ok/no-op · `3` degraded (a phase refused or failed,
-lab still usable; also `--check`/`--component` pending changes) · `1`
+lab still usable; also `--check` pending changes) · `1`
 hard failure (deps refresh failed, not provisioned, lab live without
 `--allow-running`, verify broken) · `2` bad flags (including
 `install daemon`, a typo for `install-daemon` — hinted, not run).
