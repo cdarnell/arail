@@ -79,6 +79,42 @@ LAB_TIER_EFF="${LAB_TIER:-minimalist}"
 LAB_MODE_EFF="${LAB_MODE:-${ARAIL_MODE:-airgapped}}"
 LANCE_PORT="${LANCE_PORT:-7414}"
 
+# F3 (ARCHITECTURE.md §15, sprints/2026-07-29-elite-cli): a half-written
+# lab.conf (interrupted `setup`) can leave a non-numeric port value, e.g.
+# PORTAL_PORT=not-a-number. Left unguarded, that reaches _status_emit_
+# service_json's `int()` as a raw ValueError traceback AND silently drops
+# the affected row out of root.services[] (the caller never gets that far).
+# Validate every port variable ONCE, here, before anything downstream reads
+# one: an invalid value warns once, falls back to the documented default,
+# and the row is built normally — never abort, never drop a row (§7.2/7.3).
+STATUS_WARNINGS=()
+_status_valid_port() {
+    [[ "$1" =~ ^[0-9]+$ ]] && (( 10#$1 >= 1 && 10#$1 <= 65535 ))
+}
+_status_sanitize_port() {
+    local varname="$1" default="$2" current
+    # NOT `local varname=... current="${!varname:-}"` on one line: bash
+    # expands every word of a compound `local` statement BEFORE any of
+    # that statement's assignments take effect, so `${!varname}` there
+    # sees the OUTER scope's `varname` (unset), not the one just assigned
+    # — silently reading empty every time. Assign, THEN indirect-expand.
+    current="${!varname:-}"
+    if [[ -z "$current" ]]; then
+        printf -v "$varname" '%s' "$default"
+        return
+    fi
+    if ! _status_valid_port "$current"; then
+        STATUS_WARNINGS+=("${varname}='${current}' is not a valid port (1-65535) — falling back to the default ${default}")
+        printf -v "$varname" '%s' "$default"
+    fi
+}
+_status_sanitize_port PORTAL_PORT 8080
+_status_sanitize_port LANCE_PORT 7414
+_status_sanitize_port MLX_OPENAI_PORT 11435
+_status_sanitize_port TERMINAL_PORT 7681
+_status_sanitize_port NOTEBOOK_PORT 8888
+_status_sanitize_port IDE_PORT 8443
+
 _status_usage() {
     echo "Usage: ./arailctl status [--json[=full|instances]] [--probe|--no-probe] [--quiet|-q] [--no-sizes]"
 }
@@ -142,7 +178,6 @@ HAVE_LISTEN_TOOL=0
 # as "down" (A4).
 declare -F svc_listening >/dev/null 2>&1 && inst_load_port_helpers >/dev/null 2>&1
 
-STATUS_WARNINGS=()
 [[ "$HAVE_CURL" == "0" ]] && STATUS_WARNINGS+=("curl not found — HTTP probes skipped")
 [[ "$HAVE_LISTEN_TOOL" == "0" ]] && STATUS_WARNINGS+=("lsof/ss not found — listen probes skipped (state: unknown)")
 
