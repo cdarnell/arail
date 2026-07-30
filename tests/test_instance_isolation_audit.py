@@ -353,6 +353,63 @@ def test_api_instance_and_api_instances_expose_no_field_beyond_spec():
         )
 
 
+def test_warm_skipped_value_is_a_closed_vocabulary():
+    """REVIEW.md B3/F16 — the sibling test above only pinned warm_skipped's
+    KEY, admitting it into ``allowed_instance`` with no constraint on its
+    VALUE. That gap let
+    ``_MODEL_WARM_SKIP_REASON = f"{type(e).__name__}: {e}"`` ship on
+    ``GET /api/instance`` — reachable with no passphrase set (A6) — and
+    ``{e}`` can be an absolute path (hence the OS username), a model id, or
+    a provider URL, all of which F16 explicitly bans.
+
+    Statically confirms the ONLY assignment to ``_MODEL_WARM_SKIP_REASON``
+    inside ``_warm_primary_router()``'s exception handler is the fixed,
+    module-level ``_MODEL_WARM_SKIP_REASON_ON_EXCEPTION`` constant — never
+    an f-string (or anything else) built from the caught exception object.
+    The two non-exception branches interpolate ``backend_name`` only
+    (already reviewed and accepted: a backend *class* name, not a leak).
+    """
+    src = _endpoint_source("_warm_primary_router")
+    tree = ast.parse(src)
+    except_handler = next(
+        (n for n in ast.walk(tree)
+         if isinstance(n, ast.ExceptHandler) and n.name == "e"),
+        None,
+    )
+    assert except_handler is not None, (
+        "_warm_primary_router() no longer has an `except Exception as e:` "
+        "block — update this test to match its new shape"
+    )
+    assigns = [
+        stmt for stmt in ast.walk(except_handler)
+        if isinstance(stmt, ast.Assign)
+        and any(isinstance(t, ast.Name) and t.id == "_MODEL_WARM_SKIP_REASON"
+                for t in stmt.targets)
+    ]
+    assert len(assigns) == 1, (
+        f"expected exactly one _MODEL_WARM_SKIP_REASON assignment in the "
+        f"except block, found {len(assigns)}"
+    )
+    value_node = assigns[0].value
+    assert isinstance(value_node, ast.Name) \
+        and value_node.id == "_MODEL_WARM_SKIP_REASON_ON_EXCEPTION", (
+        "the exception branch must assign the fixed "
+        "_MODEL_WARM_SKIP_REASON_ON_EXCEPTION constant, never anything "
+        f"built from the caught exception `e` — found: {ast.dump(value_node)}"
+    )
+
+    import arail.portal.app as app_mod
+    reason = app_mod._MODEL_WARM_SKIP_REASON_ON_EXCEPTION
+    assert isinstance(reason, str) and reason, (
+        "_MODEL_WARM_SKIP_REASON_ON_EXCEPTION must be a fixed, non-empty string"
+    )
+    # It must not itself be an f-string artifact — a plain, closed sentence.
+    for looks_leaky in ("/", "http://", "https://", "$HOME", "Errno"):
+        assert looks_leaky not in reason, (
+            f"_MODEL_WARM_SKIP_REASON_ON_EXCEPTION looks path/URL-shaped: {reason!r}"
+        )
+
+
 def test_neither_instance_endpoint_can_spawn_a_process():
     """§5.3's refinement: no HTTP surface may become process execution.
 

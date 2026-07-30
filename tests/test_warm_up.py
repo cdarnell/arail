@@ -154,17 +154,29 @@ def test_warm_records_skip_reason_for_in_process_backend(wired, monkeypatch):
 
 
 def test_warm_records_skip_reason_on_failure(wired, monkeypatch):
+    """REVIEW.md B3/F16: warm_skipped is reachable anonymously, pre-
+    onboarding (GET /api/instance) — it must NEVER carry the verbatim
+    exception text, which can embed an absolute path (hence $HOME/the OS
+    username), a model id, or a provider URL. Only the fixed,
+    closed-vocabulary sentence may appear; the real text goes to
+    activity_log (authenticated) instead — asserted here by simulating an
+    exception whose message contains exactly the shapes F16 forbids."""
     app_mod, fake = wired
 
     def _boom(*a, **k):
-        raise ConnectionError("ollama down")
+        raise ConnectionError(
+            "https://provider.example.com/v1: connection refused "
+            "(/Users/alice/lab/models/ai-engineer/config.json)")
     monkeypatch.setattr(fake, "complete", _boom)
     app_mod._MODEL_WARM = False
     asyncio.run(app_mod._warm_primary_router())
     assert app_mod._MODEL_WARM is True     # overlay must never trap the user
     assert app_mod._MODEL_WARM_MS is None
-    assert app_mod._MODEL_WARM_SKIP_REASON is not None
-    assert "ConnectionError" in app_mod._MODEL_WARM_SKIP_REASON
+    assert app_mod._MODEL_WARM_SKIP_REASON == app_mod._MODEL_WARM_SKIP_REASON_ON_EXCEPTION
+    assert "ConnectionError" not in app_mod._MODEL_WARM_SKIP_REASON
+    assert "provider.example.com" not in app_mod._MODEL_WARM_SKIP_REASON
+    assert "/Users/alice" not in app_mod._MODEL_WARM_SKIP_REASON
+    assert "ai-engineer" not in app_mod._MODEL_WARM_SKIP_REASON
 
 
 # ---------------------------------------------------------------------------

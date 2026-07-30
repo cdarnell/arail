@@ -114,6 +114,15 @@ _MODEL_WARM: bool = False  # flipped True once _warm_primary_router() finishes
 _MODEL_WARM_MS: int | None = None  # elapsed ms of the 1-token completion, if one was issued
 _MODEL_WARM_BACKEND: str | None = None  # router.backend_name — class only, never a model id (F16)
 _MODEL_WARM_SKIP_REASON: str | None = None  # why no completion was issued/succeeded, if so
+# REVIEW.md B3: GET /api/instance is reachable anonymously, pre-onboarding
+# (onboarding_gate's allow-list, A6) — warm_skipped must stay a CLOSED,
+# enumerable vocabulary (F16: "no model id, no path, no secret"), never the
+# verbatim text of whatever _get_primary_router()/router.complete() raised
+# (an absolute path incl. $HOME, a model id, or a provider URL, depending
+# on the failure). The fixed sentence below is the entire exception-case
+# vocabulary; the real exception text still reaches activity_log, which is
+# authenticated surface (F16's reviewer-checklist companion).
+_MODEL_WARM_SKIP_REASON_ON_EXCEPTION = "warm failed — see the activity log"
 # GET /api/instance's "started_at" — a static value captured once at import,
 # same posture as _BOOT_EPOCH_MS just above.
 _PROCESS_STARTED_AT: str = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -6713,7 +6722,12 @@ async def _warm_primary_router() -> None:
                 "nothing to warm via a completion call")
             activity_log.emit("chat", "Primary chat model is loaded and ready.", "info")
     except Exception as e:  # noqa: BLE001
-        _MODEL_WARM_SKIP_REASON = f"{type(e).__name__}: {e}"
+        # REVIEW.md B3/F16: never surface type(e)/str(e) on the anonymous
+        # /api/instance field — the real text (which can carry an absolute
+        # path incl. $HOME, a model id, or a provider URL) goes only to
+        # activity_log, which is authenticated. warm_skipped gets the one
+        # fixed, closed-vocabulary sentence for every exception shape.
+        _MODEL_WARM_SKIP_REASON = _MODEL_WARM_SKIP_REASON_ON_EXCEPTION
         activity_log.emit(
             "chat",
             f"Primary chat preload skipped: {type(e).__name__}: {e}",
