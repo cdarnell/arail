@@ -104,6 +104,25 @@ _BOOT_EPOCH_MS: int = int(time.time() * 1000)  # wall-clock ms at process import
 # same posture as _BOOT_PERF/asset_v just below.
 _READY: bool = False  # flipped True at the end of @app.on_event("startup")
 _MODEL_WARM: bool = False  # flipped True once _warm_primary_router() finishes
+# The three companions to _MODEL_WARM (sprints/2026-07-29-elite-cli
+# ARCHITECTURE.md §11.1, Ruling 6 — warm-up): populated by
+# _warm_primary_router(), read (never written) by GET /api/instance so a
+# `--warm` caller gets an honest report. All three stay None until that
+# function has actually run once (quiet boot with no explicit warm request
+# never runs it — _MODEL_WARM still flips True immediately so the overlay
+# dismisses, but these stay unset).
+_MODEL_WARM_MS: int | None = None  # elapsed ms of the 1-token completion, if one was issued
+_MODEL_WARM_BACKEND: str | None = None  # router.backend_name — class only, never a model id (F16)
+_MODEL_WARM_SKIP_REASON: str | None = None  # why no completion was issued/succeeded, if so
+# REVIEW.md B3: GET /api/instance is reachable anonymously, pre-onboarding
+# (onboarding_gate's allow-list, A6) — warm_skipped must stay a CLOSED,
+# enumerable vocabulary (F16: "no model id, no path, no secret"), never the
+# verbatim text of whatever _get_primary_router()/router.complete() raised
+# (an absolute path incl. $HOME, a model id, or a provider URL, depending
+# on the failure). The fixed sentence below is the entire exception-case
+# vocabulary; the real exception text still reaches activity_log, which is
+# authenticated surface (F16's reviewer-checklist companion).
+_MODEL_WARM_SKIP_REASON_ON_EXCEPTION = "warm failed — see the activity log"
 # GET /api/instance's "started_at" — a static value captured once at import,
 # same posture as _BOOT_EPOCH_MS just above.
 _PROCESS_STARTED_AT: str = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -992,7 +1011,14 @@ async def _startup():
     # probe/warmer, so it's gated behind the autochecks master switch. When
     # skipped, flip _MODEL_WARM now so the /api/ready overlay dismisses
     # instantly instead of waiting for a warm that will never run.
-    if _autochecks_on:
+    #
+    # `or _boot_warm_explicit()` (sprints/2026-07-29-elite-cli ARCHITECTURE.md
+    # §11.1): `./arailctl start --warm` sets ARAIL_TIER0_BOOT_WARM=1 on this
+    # process's own env specifically to ask for a warm-up report even on an
+    # otherwise-quiet boot (autochecks off). Quiet boot is preserved exactly
+    # for everyone else: unset + autochecks off ⇒ _boot_warm_explicit() is
+    # False ⇒ this branch is unchanged from before.
+    if _autochecks_on or _boot_warm_explicit():
         asyncio.create_task(_warm_primary_router())
     else:
         _MODEL_WARM = True
@@ -3375,6 +3401,17 @@ async def api_instance():
     from "some unrelated process now owns this port" (PID reuse / a
     different checkout crash-looping here). Do not repurpose it as auth.
     """
+    # Warm-up fields (sprints/2026-07-29-elite-cli ARCHITECTURE.md §11.1,
+    # F16): module globals only — zero I/O per request. Deliberately no
+    # model identifier here (backend *class* only, e.g. "ollama_native");
+    # a model id is not on the pre-onboarding allow-list's disclosure
+    # budget the way this endpoint's other fields already are.
+    warm_fields = {
+        "warm": _MODEL_WARM,
+        "warm_ms": _MODEL_WARM_MS,
+        "warm_skipped": _MODEL_WARM_SKIP_REASON,
+        "backend": _MODEL_WARM_BACKEND,
+    }
     slug = os.getenv("ARAIL_INSTANCE", "").strip()
     if not slug:
         return {
@@ -3386,6 +3423,7 @@ async def api_instance():
             "world": None,
             "display_name": os.getenv("LAB_NAME", "Arail"),
             "started_at": _PROCESS_STARTED_AT,
+            **warm_fields,
         }
     return {
         "slug": slug,
@@ -3396,6 +3434,7 @@ async def api_instance():
         "world": slug,
         "display_name": os.getenv("LAB_NAME", slug),
         "started_at": _PROCESS_STARTED_AT,
+        **warm_fields,
     }
 
 
@@ -6608,6 +6647,25 @@ def _get_primary_router():
     return _ROUTER_CACHE
 
 
+def _boot_warm_explicit() -> bool:
+    """True only when ARAIL_TIER0_BOOT_WARM is EXPLICITLY set to a truthy
+    value in this process's environment (sprints/2026-07-29-elite-cli
+    ARCHITECTURE.md §11.1).
+
+    Deliberately distinct from _warm_primary_router()'s own read of the same
+    variable (which defaults to truthy when unset, so the completion fires
+    whenever warming runs at all) — this one answers a different question:
+    "did the caller explicitly ask to warm on an otherwise-quiet boot?".
+    Unset ⇒ False, so a plain quiet boot (no --warm, autochecks off) is
+    completely unaffected. An explicit "0"/"false"/"no" also answers False
+    (not-explicitly-true), matching autochecks.py's own _TRUTHY convention.
+    """
+    raw = os.getenv("ARAIL_TIER0_BOOT_WARM")
+    if raw is None:
+        return False
+    return raw.strip().lower() in ("1", "true", "yes", "on")
+
+
 async def _warm_primary_router() -> None:
     """Warm the Tier 0 chat model at boot — for real.
 
@@ -6617,17 +6675,29 @@ async def _warm_primary_router() -> None:
     loads the model (and the request's keep_alive keeps it resident), then
     re-probes the registry so the statusbar flips to healthy("resident").
     Disable the completion with ARAIL_TIER0_BOOT_WARM=0.
+
+    Records timing/backend/skip-reason into the three module globals beside
+    _MODEL_WARM (sprints/2026-07-29-elite-cli ARCHITECTURE.md §11.1) so
+    GET /api/instance can report an honest warm-up summary to a `--warm`
+    caller — additive, no existing caller of this function is affected.
     """
-    global _MODEL_WARM
+    global _MODEL_WARM, _MODEL_WARM_MS, _MODEL_WARM_BACKEND, _MODEL_WARM_SKIP_REASON
+    _MODEL_WARM_MS = None
+    _MODEL_WARM_BACKEND = None
+    _MODEL_WARM_SKIP_REASON = None
     try:
         router = await asyncio.to_thread(_get_primary_router)
+        backend_name = getattr(router, "backend_name", "") or ""
+        _MODEL_WARM_BACKEND = backend_name or None
         boot_warm = os.getenv("ARAIL_TIER0_BOOT_WARM", "1").strip().lower() \
             not in ("0", "false", "no")
-        if boot_warm and getattr(router, "backend_name", "") in (
+        if boot_warm and backend_name in (
                 "ollama_native", "openai_compat"):
+            _warm_t0 = time.monotonic()
             async with scheduler.inference_slot("model-warm"):
                 await asyncio.to_thread(
                     router.complete, "ok", 1)   # (prompt, max_tokens)
+            _MODEL_WARM_MS = int((time.monotonic() - _warm_t0) * 1000)
             # Re-probe so the registry reflects residency immediately.
             try:
                 from arail.registry import get_registry
@@ -6643,9 +6713,21 @@ async def _warm_primary_router() -> None:
             activity_log.emit("chat",
                               "Primary chat model warmed (weights resident).",
                               "info")
+        elif not boot_warm:
+            _MODEL_WARM_SKIP_REASON = "ARAIL_TIER0_BOOT_WARM=0"
+            activity_log.emit("chat", "Primary chat model is loaded and ready.", "info")
         else:
+            _MODEL_WARM_SKIP_REASON = (
+                f"backend {backend_name or 'unknown'} loads weights in-process — "
+                "nothing to warm via a completion call")
             activity_log.emit("chat", "Primary chat model is loaded and ready.", "info")
     except Exception as e:  # noqa: BLE001
+        # REVIEW.md B3/F16: never surface type(e)/str(e) on the anonymous
+        # /api/instance field — the real text (which can carry an absolute
+        # path incl. $HOME, a model id, or a provider URL) goes only to
+        # activity_log, which is authenticated. warm_skipped gets the one
+        # fixed, closed-vocabulary sentence for every exception shape.
+        _MODEL_WARM_SKIP_REASON = _MODEL_WARM_SKIP_REASON_ON_EXCEPTION
         activity_log.emit(
             "chat",
             f"Primary chat preload skipped: {type(e).__name__}: {e}",

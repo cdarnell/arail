@@ -4,14 +4,18 @@
 #  Usage: ./arailctl <command> [args]   (or: qkz <command> [args])
 #    setup    first-time provisioning — pick a tier, install deps, download model
 #    start    launch portal + terminal + notebook + IDE
-#             (or a single World instance: --world <slug> — see `start --help`)
+#             (or a single World instance: --world <slug>; or the root lab
+#             over instances: --root — see `start --help`)
 #    stop     stop running lab services
-#    restart  stop then start
-#    upgrade  switch install tier — minimalist | maximus
-#    update   check for and apply component updates
+#    restart  stop then start (scoped to exactly one target — see `restart --help`)
+#    install  refresh an already-provisioned lab: source, deps, components,
+#             models, verify (sprints/2026-07-29-elite-cli/ARCHITECTURE.md §6)
+#             — `update` is a permanent alias
+#    tier     switch (or print) the feature-set tier — minimalist | maximus
+#             — `upgrade` is a permanent alias
 #    version  show installed component versions
 #    reset    wipe models/data/env/plugins (see: ./arailctl reset help)
-#    status   show what's running and where
+#    status   show what's running and where (World instances + root lab)
 #    doctor   validate the environment end-to-end
 #    logs     tail activity log — filter by component
 #    pkb      ARAIL knowledge base ops (lab content): ingest | compile | browse
@@ -19,6 +23,12 @@
 #    kb       QuKaiZen Karpathy LLM Wiki ops: status | compile | lint | query |
 #             search | ingest | index | where  (discoverable, no hardcoded paths)
 #    help     show this message
+#
+#  `install`/`tier` are the canonical names for the refresh and feature-set
+#  axes (sprints/2026-07-29-elite-cli §6, Ruling 1); `update`/`upgrade` are
+#  permanent aliases — ARAIL is a forked blueprint, so a verb removal would
+#  break other people's scripts silently. See docs/cli.md for the full
+#  verb-by-verb reference (flags, exit codes, tty/non-tty behavior).
 #
 #  Discoverability:
 #    REPO_ROOT (ARAIL repo)  resolved by walking the symlink chain — works
@@ -95,6 +105,41 @@ discover_kb_root() {
     return 1
 }
 
+# kb_usage [<kb_root>] — the ONE `qkz kb help` body, called both before KB_ROOT
+# is known (pre-discovery `kb help`) and after (in-case `kb help`, which used
+# to be a second, hand-maintained heredoc that had already drifted from this
+# one — this one is the complete, current text; ARCHITECTURE.md §13 "duplicate
+# kb help heredocs": "Output text preserved (it is user-facing documentation)").
+kb_usage() {
+    local root="${1:-}"
+    cat <<KBUSAGE
+
+  qkz kb — QuKaiZen Karpathy LLM Wiki${root:+ ($root)}
+
+    qkz kb status                Counts, drift, last compile
+    qkz kb compile               Incremental: only new raw/ files
+    qkz kb compile all           Full recompile from raw/
+    qkz kb compile <file>        One specific raw/ file
+    qkz kb lint                  Heuristic health check via Claude
+    qkz kb validate [path]       Strict PAGESPEC.md compliance (no Claude)
+    qkz kb query "question"      Ask the wiki; writes outputs/<date>_<slug>/
+    qkz kb ingest --url|--file|--youtube|--dir ARG
+    qkz kb search "term" [--tags X] [--type T] [--wiki|--raw]
+    qkz kb index                 Regenerate _INDEX.md from disk
+    qkz kb where                 Print discovered KB_ROOT
+
+  KB discovery order:
+    1. \$QKZ_KB_ROOT environment variable
+    2. Upward search from CWD (looking for AGENTS.md + wiki/_INDEX.md)
+    3. \$HOME/{ProJects,projects,Projects}/knowledge_base
+    4. \$HOME/knowledge_base
+  No hardcoded paths.
+  Schema: \$KB_ROOT/PAGESPEC.md is the single source of truth for page format.
+  Read \$KB_ROOT/AGENTS.md to understand why this beats RAG.
+
+KBUSAGE
+}
+
 # Load .env so LAB_NAME / LAB_TAGLINE reach the help banner.
 # shellcheck disable=SC1091
 [[ -f .env ]] && set -a && source .env && set +a
@@ -109,7 +154,25 @@ case "$LAB_TIER" in
     max)  LAB_TIER="maximus"    ;;
 esac
 
-BOLD="\033[1m"; GREEN="\033[0;32m"; CYAN="\033[0;36m"; YELLOW="\033[0;33m"; RED="\033[0;31m"; RESET="\033[0m"
+# ── ANSI color gating (ARCHITECTURE.md §13 "ANSI leaks into non-tty
+# output", F25): auto = colors iff stdout is a tty and NO_COLOR is unset;
+# ARAIL_COLOR=always|never overrides both tests. Inlined per-script (not a
+# shared lib/tty.sh) — reset.sh is unit-tested as a standalone copy of
+# itself (tests/test_reset_paths.py) and must not gain a new `source`
+# dependency (the source-<missing-file> landmine class, A2).
+# $'...' (ANSI-C quoting), not "..." — a plain double-quoted "\033[1m" is
+# the LITERAL 4 characters backslash/0/3/3, not an escape byte; that only
+# renders as color through `echo -e`/`printf`'s own escape processing.
+# usage()'s heredoc below is plain `cat`, which does no escape processing
+# at all, so the variables themselves must already hold real ESC bytes
+# (found while wiring ${BOLD}/${RESET} into that heredoc for this sprint —
+# setup.sh's capture_tier/capture_mode heredocs have the same latent bug,
+# fixed the same way in the same commit).
+if [[ -t 1 && "${ARAIL_COLOR:-auto}" != "never" && -z "${NO_COLOR:-}" ]] || [[ "${ARAIL_COLOR:-auto}" == "always" ]]; then
+    BOLD=$'\033[1m'; GREEN=$'\033[0;32m'; CYAN=$'\033[0;36m'; YELLOW=$'\033[0;33m'; RED=$'\033[0;31m'; RESET=$'\033[0m'
+else
+    BOLD=""; GREEN=""; CYAN=""; YELLOW=""; RED=""; RESET=""
+fi
 say()  { echo -e "${GREEN}[${LAB_SHORT_NAME}]${RESET} $*"; }
 warn() { echo -e "${YELLOW}[${LAB_SHORT_NAME}]${RESET} $*"; }
 die()  { echo -e "${RED}[${LAB_SHORT_NAME}]${RESET} $*" >&2; exit 1; }
@@ -138,7 +201,7 @@ usage() {
 
     cat <<EOF
 
-  $(printf '\033[1m')${LAB_NAME}$(printf '\033[0m') — ${LAB_TAGLINE}
+  ${BOLD}${LAB_NAME}${RESET} — ${LAB_TAGLINE}
   Install tier: ${LAB_TIER}
 
   Usage: ${invocation}
@@ -163,20 +226,30 @@ EOF
   Commands:
     setup           first-time provisioning — pick a tier, deps, model
     start           launch the lab (foreground start.sh, or launchd in daemon mode)
-                    [--world <slug>] [--port <n>] [--no-browser] [--list] [--yes]
-                    — with 2+ Worlds configured, bare 'start' picks interactively;
+                    [--world <slug>] [--root] [--port <n>] [--no-browser]
+                    [--list] [--yes] [--warm]
+                    — with 2+ Worlds configured, bare 'start' picks interactively
+                    (non-interactive: exit 2 naming every --world/--root command);
                     a running World is attached to, never respawned
     stop            stop lab services (unloads launchd agents in daemon mode)
-                    [--world <slug>] [--all] — target one/all World instances
-    restart         stop then start (launchctl kickstart -k in daemon mode)
+                    [--world <slug>] [--root] [--all] — target one/all instances
+    restart         stop then start — scoped to exactly one target, never a
+                    sibling World (forwards every start flag, incl. --warm;
+                    launchctl kickstart -k in daemon mode)
+    install         refresh an already-provisioned lab: source, deps,
+                    components, models, verify
+                    [--check] [--only <phase>,..] [--skip <phase>,..] [--models]
+                    [--rebuild-venv] [--allow-running] [--force] [--json]
+                    ('update' is a permanent alias — see docs/cli.md)
     install-daemon  supervise the lab with launchd — starts at login, respawns on crash
     uninstall-daemon  remove launchd supervision (back to dev/foreground mode)
-    upgrade <tier>  switch install tier — minimalist | maximus
+    tier [<tier>]   switch (or print) the feature-set tier — minimalist | maximus
+                    ('upgrade' is a permanent alias — see docs/cli.md)
     deep <op>       AeroLLM 2nd inference: rebuild (source) | update (wheel) | status
-    update          check for and apply component updates
     version         show installed component versions
-    status [--json] [--probe]  show what's running (World instances + root lab)
-    doctor          validate the environment end-to-end
+    status [--json[=full|instances]] [--probe|--no-probe] [--quiet]  show what's
+                    running (World instances + root lab); exits 0/3/4 — see docs/cli.md
+    doctor [--strict]  validate the environment end-to-end
     logs [comp]     tail activity log — filter by component
     reset [mode]    wipe state — models|data|pkb|plugins|env|full|destroy
     world <op>      DaC WorldBundle: list | mount <dir> [--apply-face] | verify <dir> | verify-shipped [--examples] | swap <dir> | unmount
@@ -216,6 +289,17 @@ daemon_agents() {
     return 0
 }
 
+# ARCHITECTURE.md §6.2/§6.4 (sprints/2026-07-29-elite-cli, Ruling 1): bare
+# `tier` (and its alias `upgrade`, no argument) prints the current tier
+# plus the two switch commands and exits 0 — replaces `upgrade.sh`'s own
+# `die "usage: ..."` (exit 1) for the no-arg case. Shared by both case arms
+# below so the two spellings can never drift.
+_arail_print_tier_status() {
+    echo "Current tier: ${LAB_TIER}"
+    echo "  ./arailctl tier minimalist"
+    echo "  ./arailctl tier maximus"
+}
+
 case "$cmd" in
     setup)     exec bash "$REPO_ROOT/scripts/setup.sh" "$@" ;;
     blueprint) exec bash "$REPO_ROOT/scripts/blueprint.sh" "$@" ;;
@@ -229,10 +313,15 @@ case "$cmd" in
         # regardless of daemon state. Silently discarding argv in this
         # branch was the exact bug this sprint set out to fix, re-created
         # one level up (ARCHITECTURE.md §3.1) — see REVIEW.md B2.
+        # --root (sprints/2026-07-29-elite-cli/ARCHITECTURE.md §4.2/§10)
+        # joins the same bypass list for the same reason: start.sh's own
+        # daemon-active guard refuses it by name (redundant, not
+        # impossible) instead of this branch silently discarding it and
+        # kickstarting the daemon anyway.
         _arail_start_forwards_argv=0
         for _arail_start_arg in "$@"; do
             case "$_arail_start_arg" in
-                --world|--world=*|--list|-h|--help) _arail_start_forwards_argv=1; break ;;
+                --world|--world=*|--list|-h|--help|--root) _arail_start_forwards_argv=1; break ;;
             esac
         done
         if [[ "$_arail_start_forwards_argv" == "1" ]]; then
@@ -254,8 +343,62 @@ case "$cmd" in
                 # shellcheck disable=SC1091
                 set -a && source "$REPO_ROOT/lab.conf" && set +a
             fi
-            echo "Lab supervised by launchd — portal: http://${BIND_ADDR:-127.0.0.1}:${PORTAL_PORT:-8080}"
-            exit 0
+            # ARCHITECTURE.md §8.3: this used to print the URL and exit 0
+            # immediately after issuing kickstart — the same "printed
+            # success before the portal actually answered" lie the root
+            # foreground path had (§8.2), one level up. Real readiness gate:
+            # poll /api/instance for up to 30s, then confirm identity
+            # (slug=="root" + checkout match, A7) so a foreign process
+            # squatting the port is never mistaken for our boot.
+            # shellcheck disable=SC1091
+            [[ -f "$REPO_ROOT/scripts/lib/services.sh" ]] && source "$REPO_ROOT/scripts/lib/services.sh"
+            _arail_daemon_bind="${BIND_ADDR:-127.0.0.1}"
+            _arail_daemon_port="${PORTAL_PORT:-8080}"
+            _arail_daemon_url="http://${_arail_daemon_bind}:${_arail_daemon_port}"
+            _arail_daemon_ready=0
+            _arail_daemon_degrade_reason=""
+            if declare -F svc_wait_http_ready >/dev/null 2>&1; then
+                # No pid to early-out on in daemon mode — launchd owns the
+                # process, not this shell — so a genuinely-stuck daemon
+                # waits the full cap, same as the real thing would.
+                if svc_wait_http_ready "${_arail_daemon_url}/api/instance" 300 >/dev/null; then
+                    _arail_daemon_ready=1
+                elif [[ $? == "2" ]]; then
+                    # REVIEW.md m2 / A4/F30: "tool absent" (no curl) must
+                    # never be reported as "service down" — this used to
+                    # fall straight into the same `die` as a genuinely
+                    # unreachable portal.
+                    _arail_daemon_degrade_reason="curl not found — cannot verify readiness"
+                fi
+            else
+                _arail_daemon_degrade_reason="scripts/lib/services.sh not found — cannot verify readiness"
+            fi
+            if [[ "$_arail_daemon_ready" == "1" ]]; then
+                _arail_daemon_body="$(curl -sf -m 0.7 "${_arail_daemon_url}/api/instance" 2>/dev/null || true)"
+                if declare -F svc_identity_root >/dev/null 2>&1 && svc_identity_root "$_arail_daemon_body" "$REPO_ROOT"; then
+                    say "Lab supervised by launchd — portal: ${_arail_daemon_url}"
+                    # ARCHITECTURE.md §11.2: daemon mode's env is fixed by
+                    # the plist — there is no per-invocation child to pass
+                    # ARAIL_TIER0_BOOT_WARM=1 to, unlike the foreground
+                    # paths. Hint instead of silently ignoring --warm.
+                    for _arail_warm_arg in "$@"; do
+                        if [[ "$_arail_warm_arg" == "--warm" ]]; then
+                            echo "warm-up: — daemon mode: set ARAIL_TIER0_BOOT_WARM=1 in .env, then ./arailctl restart"
+                            break
+                        fi
+                    done
+                    unset _arail_warm_arg
+                    exit 0
+                fi
+            fi
+            if [[ -n "$_arail_daemon_degrade_reason" ]]; then
+                # Pre-readiness-gate behavior: print the URL and exit 0 —
+                # this box just can't tell us whether it actually came up.
+                warn "$_arail_daemon_degrade_reason — assuming launchd kickstart succeeded"
+                say "Lab supervised by launchd — portal: ${_arail_daemon_url}"
+                exit 0
+            fi
+            die "launchd kickstart issued but the portal did not answer within 30s — tail lab/logs/portal.err.log"
         fi
         exec bash "$REPO_ROOT/scripts/start.sh" "$@"
         ;;
@@ -277,15 +420,256 @@ case "$cmd" in
         exec bash "$REPO_ROOT/scripts/reset.sh" stop "$@"
         ;;
     restart)
+        # ARCHITECTURE.md §9 (sprints/2026-07-29-elite-cli, Ruling 4):
+        # restart forwards every start flag; its stop phase is scoped to
+        # EXACTLY ONE target, never a sibling World (the motivating bug —
+        # `restart --world a` used to run an unscoped `reset.sh stop`,
+        # which stopped every World AND the root lab). Target resolution
+        # is a READ-ONLY argv scan + a registry read — restart never
+        # re-parses flags (that is start.sh's job; a second parser is how
+        # the B2 bug happened) and never mutates $@.
         if daemon_active; then
+            # F9(a): `restart --world x` / `restart --root` while launchd
+            # supervises the lab used to silently kickstart the ROOT
+            # daemon instead of the thing actually asked for. Refuse by
+            # name instead, mirroring start.sh's own daemon-active guard
+            # (§8.3) — this is a read-only scan, not a second parser.
+            _restart_daemon_world="" _restart_daemon_root=0 _restart_prev=""
+            for _restart_arg in "$@"; do
+                case "$_restart_arg" in
+                    --world=*) _restart_daemon_world="${_restart_arg#--world=}" ;;
+                    --root) _restart_daemon_root=1 ;;
+                esac
+                [[ "$_restart_prev" == "--world" ]] && _restart_daemon_world="$_restart_arg"
+                _restart_prev="$_restart_arg"
+            done
+            unset _restart_prev _restart_arg
+            if [[ -n "$_restart_daemon_world" ]]; then
+                echo "Daemon mode is active (launchd supervises the lab on :${PORTAL_PORT:-8080})."
+                echo "Daemon mode is single-instance: it cannot host a second World."
+                echo "  To run Worlds side by side:  ./arailctl uninstall-daemon && ./arailctl restart --world ${_restart_daemon_world}"
+                exit 1
+            fi
+            if [[ "$_restart_daemon_root" == "1" ]]; then
+                echo "Daemon mode is active (launchd already supervises the root lab on this box)."
+                echo "  --root is redundant here — use: ./arailctl restart"
+                exit 1
+            fi
+            unset _restart_daemon_world _restart_daemon_root
             for label in $(daemon_agents); do
                 launchctl kickstart -k "gui/$(id -u)/$label" 2>/dev/null || true
             done
-            echo "Lab agents restarted (launchctl kickstart -k)."
+            # §8.3: identical readiness gate to start's daemon branch —
+            # kickstart -k used to print success unconditionally; now it
+            # polls /api/instance and confirms identity first.
+            # shellcheck disable=SC1091
+            [[ -f "$REPO_ROOT/.env" ]] && set -a && source "$REPO_ROOT/.env" && set +a
+            if [[ -f "$REPO_ROOT/lab.conf" ]]; then
+                # shellcheck disable=SC1091
+                set -a && source "$REPO_ROOT/lab.conf" && set +a
+            fi
+            # shellcheck disable=SC1091
+            [[ -f "$REPO_ROOT/scripts/lib/services.sh" ]] && source "$REPO_ROOT/scripts/lib/services.sh"
+            _restart_bind="${BIND_ADDR:-127.0.0.1}"
+            _restart_url="http://${_restart_bind}:${PORTAL_PORT:-8080}"
+            _restart_ready=0
+            _restart_degrade_reason=""
+            if declare -F svc_wait_http_ready >/dev/null 2>&1; then
+                if svc_wait_http_ready "${_restart_url}/api/instance" 300 >/dev/null; then
+                    _restart_ready=1
+                elif [[ $? == "2" ]]; then
+                    # REVIEW.md m2 / A4/F30: "tool absent" (no curl) must
+                    # never be reported as "service down".
+                    _restart_degrade_reason="curl not found — cannot verify readiness"
+                fi
+            else
+                _restart_degrade_reason="scripts/lib/services.sh not found — cannot verify readiness"
+            fi
+            if [[ "$_restart_ready" == "1" ]]; then
+                _restart_body="$(curl -sf -m 0.7 "${_restart_url}/api/instance" 2>/dev/null || true)"
+                if declare -F svc_identity_root >/dev/null 2>&1 && svc_identity_root "$_restart_body" "$REPO_ROOT"; then
+                    say "Lab agents restarted (launchctl kickstart -k) — portal: ${_restart_url}"
+                    # ARCHITECTURE.md §11.2 — same daemon-mode hint as
+                    # start's daemon branch (also reachable as
+                    # `restart --warm`, per §11.1).
+                    for _restart_warm_arg in "$@"; do
+                        if [[ "$_restart_warm_arg" == "--warm" ]]; then
+                            echo "warm-up: — daemon mode: set ARAIL_TIER0_BOOT_WARM=1 in .env, then ./arailctl restart"
+                            break
+                        fi
+                    done
+                    unset _restart_warm_arg
+                    exit 0
+                fi
+            fi
+            if [[ -n "$_restart_degrade_reason" ]]; then
+                # Pre-readiness-gate behavior: print the URL and exit 0 —
+                # this box just can't tell us whether it actually came up.
+                warn "$_restart_degrade_reason — assuming launchctl kickstart -k succeeded"
+                say "Lab agents restarted (launchctl kickstart -k) — portal: ${_restart_url}"
+                exit 0
+            fi
+            die "launchd kickstart -k issued but the portal did not answer within 30s — tail lab/logs/portal.err.log"
+        fi
+
+        # Foreground. --all is an explicit refusal (§3.2): a foreground
+        # start hosts exactly one target; restarting N>=2 instances needs a
+        # supervisor this sprint deliberately does not build.
+        _restart_world="" _restart_root=0 _restart_all=0 _restart_prev=""
+        for _restart_arg in "$@"; do
+            case "$_restart_arg" in
+                --world=*) _restart_world="${_restart_arg#--world=}" ;;
+                --root) _restart_root=1 ;;
+                --all)  _restart_all=1 ;;
+            esac
+            [[ "$_restart_prev" == "--world" ]] && _restart_world="$_restart_arg"
+            _restart_prev="$_restart_arg"
+        done
+        unset _restart_prev _restart_arg
+
+        if [[ "$_restart_all" == "1" ]]; then
+            echo "restart --all is not supported: a foreground start hosts exactly one target." >&2
+            echo "  (ARCHITECTURE.md §3.2 — multi-instance restart needs a supervisor, not built this sprint)" >&2
+            echo "  Use:  ./arailctl stop --all, then in separate terminals:" >&2
+            echo "        ./arailctl start --world <slug>   and/or   ./arailctl start --root" >&2
+            exit 2
+        fi
+        if [[ -n "$_restart_world" && "$_restart_root" == "1" ]]; then
+            echo "--root and --world are mutually exclusive" >&2
+            exit 2
+        fi
+
+        _restart_target_kind="" _restart_target_slug=""
+        if [[ -n "$_restart_world" ]]; then
+            _restart_target_kind="world"; _restart_target_slug="$_restart_world"
+        elif [[ "$_restart_root" == "1" ]]; then
+            _restart_target_kind="root"
+        else
+            # Bare restart: read the registry BEFORE any stop runs (the
+            # snapshot must be taken first — stop_instance deletes the
+            # record it would otherwise be read from).
+            _restart_live=()
+            while IFS= read -r _restart_s; do
+                [[ -n "$_restart_s" ]] && inst_alive "$_restart_s" && _restart_live+=("$_restart_s")
+            done < <(inst_list_slugs)
+            unset _restart_s
+            if (( ${#_restart_live[@]} == 0 )); then
+                _restart_target_kind="root"  # start does its own resolution/picker
+            elif (( ${#_restart_live[@]} == 1 )); then
+                _restart_target_kind="world"; _restart_target_slug="${_restart_live[0]}"
+            else
+                # F12: silently picking one of >=2 live instances is the
+                # bug this WP retires — name each command instead.
+                echo "Multiple World instances are running — specify which to restart:" >&2
+                for _restart_s in "${_restart_live[@]}"; do
+                    echo "  ./arailctl restart --world ${_restart_s}" >&2
+                done
+                echo "  ./arailctl restart --root" >&2
+                exit 2
+            fi
+        fi
+
+        # TEST_REPORT.md Q1: F13's DOWN notice below claims a state change
+        # ("the root lab was stopped") — that claim is only true when the
+        # stop phase actually stopped something. On a fresh clone (nothing
+        # was ever up), reset.sh's own stop prints "No running services
+        # found." / "no verified processes to stop." and still exits 0; a
+        # subsequent start failure is then a bare start failure, not a
+        # state change, and must not be announced as one. Capture the stop
+        # phase's own narration (still echoed, same content/order as
+        # before) so the DOWN notice can be gated on it having reported an
+        # actual stop.
+        _restart_something_was_stopped=1
+        if [[ "$_restart_target_kind" == "world" ]]; then
+            _restart_label="World instance '${_restart_target_slug}'"
+            if ! _restart_stop_output="$(bash "$REPO_ROOT/scripts/reset.sh" stop --world "$_restart_target_slug" 2>&1)"; then
+                echo "$_restart_stop_output"
+                echo "restart: stopping ${_restart_label} failed — start not attempted." >&2
+                exit 1
+            fi
+            echo "$_restart_stop_output"
+            [[ "$_restart_stop_output" == *"no verified processes to stop"* ]] && _restart_something_was_stopped=0
+        else
+            _restart_label="the root lab"
+            if ! _restart_stop_output="$(bash "$REPO_ROOT/scripts/reset.sh" stop --root 2>&1)"; then
+                echo "$_restart_stop_output"
+                echo "restart: stopping ${_restart_label} failed — start not attempted." >&2
+                exit 1
+            fi
+            echo "$_restart_stop_output"
+            [[ "$_restart_stop_output" == *"No running services found."* ]] && _restart_something_was_stopped=0
+        fi
+        unset _restart_stop_output
+
+        _restart_start_argv=("$@")
+        if [[ "$_restart_target_kind" == "world" && -z "$_restart_world" ]]; then
+            # The "exactly 1 live instance, neither flag given" branch:
+            # inject --world <slug> FIRST so an explicit later --world in
+            # the original argv would still win (start.sh's parser keeps
+            # the LAST occurrence of a repeated flag).
+            _restart_start_argv=("--world" "$_restart_target_slug" "$@")
+        fi
+
+        # Not a literal `exec`: F13 requires a LOUD notice when the start
+        # that follows a successful stop then fails, which needs the exit
+        # code observed here, not discarded by a process-image replacement.
+        # The final code returned to the caller is still start's own code
+        # either way (§14.1) — just obtained via capture-then-propagate
+        # instead of exec.
+        #
+        # bash 3.2 (A2): `"${arr[@]}"` on a ZERO-element array aborts under
+        # `set -u` with "unbound variable" (fixed only in bash 4.4+) — a
+        # real trap here, since `_restart_start_argv` is legitimately empty
+        # for a bare `./arailctl restart` with 0 live instances (T20b).
+        # `${arr[@]:-}` is not a safe substitute: it silently turns "zero
+        # args" into "one empty-string arg", which start.sh's parser would
+        # then reject as an unknown flag. Guard the count explicitly instead.
+        if (( ${#_restart_start_argv[@]} > 0 )); then
+            if bash "$REPO_ROOT/scripts/start.sh" "${_restart_start_argv[@]}"; then
+                _restart_rc=0
+            else
+                _restart_rc=$?
+            fi
+        else
+            if bash "$REPO_ROOT/scripts/start.sh"; then
+                _restart_rc=0
+            else
+                _restart_rc=$?
+            fi
+        fi
+        # REVIEW.md n2: 130/143 (SIGINT/SIGTERM) are a deliberate Ctrl-C —
+        # "the start failed" is technically true but misleading for an
+        # operator who just interrupted it on purpose; only a GENUINE
+        # start failure gets the DOWN notice.
+        if (( _restart_rc != 0 && _restart_rc != 130 && _restart_rc != 143 )) \
+            && [[ "$_restart_something_was_stopped" == "1" ]]; then
+            echo "" >&2
+            echo "restart: ${_restart_label} was stopped, and the start failed (above) — the lab is now DOWN." >&2
+        fi
+        exit "$_restart_rc"
+        ;;
+    tier)
+        # ARCHITECTURE.md §6.2 (Ruling 1): the canonical name for the
+        # feature-set axis (minimalist|maximus). scripts/upgrade.sh itself
+        # is untouched — same argv, same behavior — for an explicit tier.
+        if [[ $# -eq 0 ]]; then
+            _arail_print_tier_status
             exit 0
         fi
-        bash "$REPO_ROOT/scripts/reset.sh" stop && exec bash "$REPO_ROOT/scripts/start.sh" "$@" ;;
-    upgrade) exec bash "$REPO_ROOT/scripts/upgrade.sh" "$@" ;;
+        exec bash "$REPO_ROOT/scripts/upgrade.sh" "$@"
+        ;;
+    upgrade)
+        # ARCHITECTURE.md §6.2/§6.4: permanent alias for 'tier' — ARAIL is
+        # a forked blueprint; a verb removal breaks scripts silently, so
+        # this alias has no removal date. Notice on stderr only (stdout
+        # stays parseable).
+        echo "note: 'upgrade' is now an alias for 'tier' (same behavior; see docs/cli.md)." >&2
+        if [[ $# -eq 0 ]]; then
+            _arail_print_tier_status
+            exit 0
+        fi
+        exec bash "$REPO_ROOT/scripts/upgrade.sh" "$@"
+        ;;
     deep)
         # AeroLLM 2nd-inference: rebuild (source) | update (published wheel) | status.
         op="${1:-status}"; shift || true
@@ -296,7 +680,33 @@ case "$cmd" in
             *) die "deep op must be one of: rebuild | update | status" ;;
         esac
         ;;
-    update)  exec bash "$REPO_ROOT/scripts/update.sh" "$@" ;;
+    install)
+        exec bash "$REPO_ROOT/scripts/install.sh" "$@"
+        ;;
+    update)
+        # ARCHITECTURE.md §6.2/§6.4 (Ruling 1): 'update' is now a permanent
+        # alias for 'install' — the components-manifest engine
+        # (scripts/update.sh) becomes install's OWN components phase
+        # (§14.3's --apply --non-interactive mode). One carve-out: the
+        # legacy `--component <name>` muscle memory is forwarded VERBATIM
+        # to the OLD interactive scripts/update.sh path — no behavior
+        # change there, so no alias notice either (nothing about it is
+        # aliased; it never reaches install.sh at all).
+        _arail_update_has_component=0
+        for _arail_update_arg in "$@"; do
+            [[ "$_arail_update_arg" == "--component" ]] && _arail_update_has_component=1
+        done
+        unset _arail_update_arg
+        if [[ "$_arail_update_has_component" == "1" ]]; then
+            unset _arail_update_has_component
+            exec bash "$REPO_ROOT/scripts/update.sh" "$@"
+        fi
+        unset _arail_update_has_component
+        # stdout stays clean (§6.4: "update --json | jq works") — the
+        # notice is stderr-only.
+        echo "note: 'update' is now an alias for 'install' (same behavior; see docs/cli.md)." >&2
+        exec bash "$REPO_ROOT/scripts/install.sh" "$@"
+        ;;
     version) exec bash "$REPO_ROOT/scripts/update.sh" --version-only ;;
     reset)   exec bash "$REPO_ROOT/scripts/reset.sh" "$@" ;;
     status)  exec bash "$REPO_ROOT/scripts/status.sh" "$@" ;;
@@ -402,19 +812,70 @@ LOGSEOF
         esac
         ;;
     doctor)
+        # Exit-code contract (ARCHITECTURE.md §12/§13): 0 healthy · 1 broken
+        # (no .venv, import failure) · 3 degraded (a required check failed,
+        # or --strict promoted an optional/info finding). CI
+        # (.github/workflows/blueprint-smoke.yml:206) runs this under
+        # `set -euo pipefail` on a runner that legitimately lacks ttyd,
+        # code-server, and any pulled model (A8) — those stay INFO-only
+        # (never degrade) unless --strict is passed, so the smoke job keeps
+        # exiting 0.
+        _doctor_strict=0
+        for _doctor_arg in "$@"; do
+            case "$_doctor_arg" in
+                --strict) _doctor_strict=1 ;;
+            esac
+        done
         say "Checking environment…"
         [[ -d .venv ]] || { warn "missing .venv — run ./arailctl setup"; exit 1; }
         # shellcheck disable=SC1091
         source .venv/bin/activate
         python -c "import arail; from arail.portal.app import app; from arail.pkb import _pkb_root; print('python: OK'); print('pkb root:', _pkb_root())" \
             || die "import check failed"
-        for bin in uvicorn; do command -v "$bin" >/dev/null || warn "missing: $bin"; done
-        for bin in jupyter ttyd code-server; do command -v "$bin" >/dev/null || warn "optional missing: $bin"; done
+
+        # Findings tally: a required check failing sets _doctor_degraded;
+        # an optional (INFO) one only does under --strict. Replaces the old
+        # single-item `for bin in uvicorn` loop (ARCHITECTURE.md §13) — its
+        # disappearance and the exit contract are the same edit.
+        _doctor_degraded=0
+        if command -v uvicorn >/dev/null 2>&1; then
+            :
+        else
+            warn "missing: uvicorn"
+            _doctor_degraded=1
+        fi
+        for bin in jupyter ttyd code-server; do
+            if ! command -v "$bin" >/dev/null 2>&1; then
+                warn "optional missing: $bin"
+                [[ "$_doctor_strict" == "1" ]] && _doctor_degraded=1
+            fi
+        done
+
         # Full checkup — models, KB index, components, egress. This is the
         # explicit home for every probe the quiet boot no longer runs on its
         # own (ARAIL_AUTOCHECKS default off). Pass --updates for the remote
-        # update check (hybrid mode only).
-        python -m arail.doctor "$@" || warn "doctor checkup reported problems (see above)"
+        # update check (hybrid mode only); --strict promotes its own
+        # optional findings (e.g. no model installed) to degraded too.
+        # TEST_REPORT.md Q2: this used to fold EVERY non-zero from
+        # `python -m arail.doctor` into the degraded exit (3) — including
+        # argparse's own 2 for an unrecognized flag, which docs/cli.md and
+        # ARCHITECTURE §5.2 both document as 2. That made "this lab is
+        # degraded" (act on it) indistinguishable from "I typo'd a flag"
+        # (fix the script). Preserve argparse's own 2 verbatim; only fold
+        # every OTHER non-zero into the degraded verdict.
+        _doctor_module_rc=0
+        python -m arail.doctor "$@" || _doctor_module_rc=$?
+        if [[ "$_doctor_module_rc" == "2" ]]; then
+            exit 2
+        elif [[ "$_doctor_module_rc" != "0" ]]; then
+            warn "doctor checkup reported problems (see above)"
+            _doctor_degraded=1
+        fi
+
+        if [[ "$_doctor_degraded" == "1" ]]; then
+            warn "doctor: degraded"
+            exit 3
+        fi
         say "doctor: OK"
         ;;
     pkb)
@@ -488,32 +949,7 @@ TEMPLATE
         kb_op="${1:-help}"; shift || true
         # `help` works without KB discovery — it's general info.
         if [[ "$kb_op" == "help" || "$kb_op" == "-h" || "$kb_op" == "--help" ]]; then
-            cat <<KBHELP
-
-  qkz kb — QuKaiZen Karpathy LLM Wiki
-
-    qkz kb status                Counts, drift, last compile
-    qkz kb compile               Incremental: only new raw/ files
-    qkz kb compile all           Full recompile from raw/
-    qkz kb compile <file>        One specific raw/ file
-    qkz kb lint                  Heuristic health check via Claude
-    qkz kb validate [path]       Strict PAGESPEC.md compliance (no Claude)
-    qkz kb query "question"      Ask the wiki; writes outputs/<date>_<slug>/
-    qkz kb ingest --url|--file|--youtube|--dir ARG
-    qkz kb search "term" [--tags X] [--type T] [--wiki|--raw]
-    qkz kb index                 Regenerate _INDEX.md from disk
-    qkz kb where                 Print discovered KB_ROOT
-
-  KB discovery order:
-    1. \$QKZ_KB_ROOT environment variable
-    2. Upward search from CWD (looking for AGENTS.md + wiki/_INDEX.md)
-    3. \$HOME/{ProJects,projects,Projects}/knowledge_base
-    4. \$HOME/knowledge_base
-  No hardcoded paths.
-  Schema: \$KB_ROOT/PAGESPEC.md is the single source of truth for page format.
-  Read \$KB_ROOT/AGENTS.md to understand why this beats RAG.
-
-KBHELP
+            kb_usage
             exit 0
         fi
         if ! KB_ROOT="$(discover_kb_root)"; then
@@ -540,26 +976,7 @@ Use [[wikilinks]] for every cross-reference. Be precise; this knowledge compound
                 echo "$KB_ROOT"
                 ;;
             help|-h|--help)
-                cat <<KBEOF
-
-  qkz kb — QuKaiZen Karpathy LLM Wiki ($KB_ROOT)
-
-    qkz kb status                Counts, drift, last compile
-    qkz kb compile               Incremental: only new raw/ files
-    qkz kb compile all           Full recompile from raw/
-    qkz kb compile <file>        One specific raw/ file
-    qkz kb lint                  Health check: broken [[wikilinks]], orphans
-    qkz kb query "question"      Ask the wiki; writes outputs/<date>_<slug>/
-    qkz kb ingest --url|--file|--youtube|--dir ARG
-    qkz kb search "term" [--tags X] [--type T] [--wiki|--raw]
-    qkz kb index                 Regenerate _INDEX.md from disk
-    qkz kb where                 Print discovered KB_ROOT
-
-  Discovery order: \$QKZ_KB_ROOT  →  upward search from CWD  →
-                   standard \$HOME locations.
-  Read \$KB_ROOT/AGENTS.md to understand why this beats RAG.
-
-KBEOF
+                kb_usage "$KB_ROOT"
                 ;;
             status)
                 cd "$KB_ROOT"

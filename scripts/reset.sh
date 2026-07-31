@@ -4,11 +4,25 @@
 # =============================================================================
 set -euo pipefail
 
-BOLD="\033[1m"
-RED="\033[0;31m"
-GREEN="\033[0;32m"
-YELLOW="\033[0;33m"
-RESET="\033[0m"
+# ── ANSI color gating (ARCHITECTURE.md §13 "ANSI leaks into non-tty
+# output", F25) — see arailctl's identical block for the full rationale.
+# Inlined here too (not sourced from a shared lib): this file is
+# unit-tested as a STANDALONE COPY of itself (tests/test_reset_paths.py),
+# so it must never gain a new `source` dependency (A2). $'...' (ANSI-C
+# quoting) so the variables hold real ESC bytes.
+if [[ -t 1 && "${ARAIL_COLOR:-auto}" != "never" && -z "${NO_COLOR:-}" ]] || [[ "${ARAIL_COLOR:-auto}" == "always" ]]; then
+    BOLD=$'\033[1m'
+    RED=$'\033[0;31m'
+    GREEN=$'\033[0;32m'
+    YELLOW=$'\033[0;33m'
+    RESET=$'\033[0m'
+else
+    BOLD=""
+    RED=""
+    GREEN=""
+    YELLOW=""
+    RESET=""
+fi
 
 info()  { echo -e "  ${GREEN}✓${RESET} $*"; }
 warn()  { echo -e "  ${YELLOW}⚠${RESET} $*"; }
@@ -163,6 +177,43 @@ stop_services() {
         "uvicorn.*arail\.memory_service.*--port ${LANCE_PORT:-7414}"
         "uvicorn.*arail\.mlx_openai_server.*--port ${MLX_OPENAI_PORT:-11435}"
     )
+    # REVIEW.md B2: a World instance's portal/memory service is spawned by
+    # start.sh's INSTANCE path deliberately WITHOUT --app-dir (uvicorn
+    # already defaults --app-dir to the instance's own cwd) — so an
+    # instance started on the same port as this checkout's configured
+    # PORTAL_PORT/LANCE_PORT (e.g. `./arailctl start --world ai --port
+    # 8080`) satisfies the fallback pattern above exactly like a genuine
+    # pre-upgrade root-lab process would, and used to get killed by a
+    # "root only" stop. instances.sh (scripts/lib/instances.sh) is the
+    # single source of truth for what is an instance (ARCHITECTURE.md
+    # §2.6) — build the set of LIVE instance-owned pids here and exclude
+    # them from the fallback match below, before it ever reaches `kill`.
+    # A record whose OWN liveness check (inst_alive) fails is not added:
+    # a dead/reused pid is not a live instance to protect, and excluding
+    # it too would silently defeat the QA-17 fallback for a genuinely
+    # pre-upgrade root-lab process. No-op (empty set) when instances.sh
+    # isn't sourced (sandboxed single-file test copies of this file).
+    local _inst_owned_pids=()
+    if command -v inst_list_slugs >/dev/null 2>&1; then
+        local _inst_slug _inst_rec _inst_ppid _inst_mpid
+        while IFS= read -r _inst_slug; do
+            [[ -n "$_inst_slug" ]] || continue
+            inst_alive "$_inst_slug" || continue
+            _inst_rec="$(inst_read_record "$_inst_slug" 2>/dev/null)" || continue
+            _inst_ppid="$(inst_record_field "$_inst_rec" portal_pid)"
+            _inst_mpid="$(inst_record_field "$_inst_rec" memory_pid)"
+            [[ -n "$_inst_ppid" ]] && _inst_owned_pids+=("$_inst_ppid")
+            [[ -n "$_inst_mpid" ]] && _inst_owned_pids+=("$_inst_mpid")
+        done < <(inst_list_slugs)
+    fi
+    _stop_services_pid_is_instance_owned() {
+        local needle="$1" p
+        (( ${#_inst_owned_pids[@]} > 0 )) || return 1
+        for p in "${_inst_owned_pids[@]}"; do
+            [[ "$p" == "$needle" ]] && return 0
+        done
+        return 1
+    }
     local pids=()
     local i=0
     for pattern in "${patterns[@]}"; do
@@ -180,7 +231,7 @@ stop_services() {
                 # it genuinely predates the upgrade (no --app-dir anywhere in
                 # its argv) — never one that names a foreign checkout.
                 fcmd="$(ps -p "$fpid" -o command= 2>/dev/null || true)"
-                if [[ "$fcmd" != *"--app-dir "* ]]; then
+                if [[ "$fcmd" != *"--app-dir "* ]] && ! _stop_services_pid_is_instance_owned "$fpid"; then
                     pids+=("$fpid")
                 fi
             done
@@ -648,6 +699,7 @@ usage() {
     echo "              Chain with 'pkb' if you truly want everything gone."
     echo "    destroy   Delete the entire local lab copy and app data"
     echo "    stop      Just stop running services"
+    echo "              [--world <slug>] [--root] [--all] — target one/root/all"
     echo ""
     echo "  If no mode given, interactive menu is shown."
     echo ""
@@ -718,17 +770,58 @@ confirm_and_run() {
 MODE=""
 STOP_WORLD=""
 STOP_ALL="false"
+# ARCHITECTURE.md §10 (sprints/2026-07-29-elite-cli, Ruling 5): --root
+# dispatches straight to stop_services (the root lab only), skipping the
+# auto-resolution branch entirely — so `stop --root` is well-defined and
+# non-failing even while World instances are live, mirroring start.sh's
+# own --root/--world split.
+STOP_ROOT="false"
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --yes|-y) AUTO_CONFIRM="true"; shift ;;
         --all)    STOP_ALL="true"; shift ;;
+        --root)   STOP_ROOT="true"; shift ;;
         # m9: a plain `shift 2` errors (aborting under `set -e`) when
         # `--world` is the final token and there's no $2 to shift past.
-        --world)  STOP_WORLD="${2:-}"; shift; [[ $# -gt 0 ]] && shift ;;
-        --world=*) STOP_WORLD="${1#--world=}"; shift ;;
+        --world)
+            # TEST_REPORT.md Q3b: a value-less `--world` used to fall
+            # through to "${2:-}" -> "" -> [[ -n "$STOP_WORLD" ]] false
+            # below -> the UNSCOPED auto-resolution branch, silently
+            # widening a targeted stop into "stop the lone live World AND
+            # the root lab" at exit 0. Require a real, non-flag-looking
+            # value the same way start.sh's --world/--port already do.
+            if [[ $# -lt 2 || -z "${2:-}" || "$2" == -* ]]; then
+                error "--world requires a slug argument"
+                exit 2
+            fi
+            STOP_WORLD="$2"; shift 2 ;;
+        --world=*)
+            STOP_WORLD="${1#--world=}"
+            if [[ -z "$STOP_WORLD" ]]; then
+                error "--world requires a slug argument"
+                exit 2
+            fi
+            shift ;;
+        -*)
+            # TEST_REPORT.md Q3a: this arm used to be the catch-all below,
+            # which silently swallowed an unrecognized flag (a typo'd
+            # --wrold, or --rot for --root) instead of rejecting it — the
+            # typo then fell through to the same unscoped auto-resolution
+            # branch as the value-less --world above, taking down a live
+            # World AND the root lab at exit 0. Any unrecognized `-`
+            # token is now a usage error: reject the narrower, wrong
+            # interpretation rather than silently doing the broader,
+            # destructive thing.
+            error "unknown flag: $1"
+            usage >&2
+            exit 2 ;;
         *)
             if [[ -z "$MODE" ]]; then
                 MODE="$1"
+            else
+                error "unexpected argument: $1"
+                usage >&2
+                exit 2
             fi
             shift
             ;;
@@ -781,6 +874,15 @@ case "${MODE:-}" in
             fi
         elif [[ "$STOP_ALL" == "true" ]]; then
             stop_all_instances
+            stop_services
+        elif [[ "$STOP_ROOT" == "true" ]]; then
+            # Root only — deliberately skips the auto-resolution branch
+            # below (which would otherwise also stop a lone live World
+            # instance). Non-failing even while instances are live: a World
+            # instance is never touched by this arm — stop_services()'s own
+            # QA-17 fallback excludes every live registered instance's
+            # portal/memory pid (REVIEW.md B2), even one sharing this
+            # checkout's root portal/memory port.
             stop_services
         elif command -v inst_list_slugs >/dev/null 2>&1; then
             LIVE_SLUGS=()

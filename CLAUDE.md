@@ -85,11 +85,20 @@ README/catalog/persona prompt, NOTICE + `licenses/GEMMA-TERMS-OF-USE.txt` +
 ai.google.dev/gemma/terms"). UNLIKE Llama, Gemma does **not** require "Gemma" in the
 model name (confirmed from the live Terms) — so `qkz-project-aware-2b` needs no rename.
 
-The CLI is `./arailctl` (also reachable via `./qkz`). The main verbs:
+The CLI is `./arailctl` (also reachable via `./qkz`). The main verbs —
+full reference in `docs/cli.md` (every flag, exit code, tty/non-tty
+behavior):
 
 - `./arailctl setup` — pick a tier, install deps, download a starter model.
-- `./arailctl start` — open `http://127.0.0.1:8080`.
-- `./arailctl upgrade {minimalist|maximus}` — change tier.
+- `./arailctl start` — open `http://127.0.0.1:8080` (`--world <slug>` /
+  `--root` for Concurrent Worlds; `--warm` to report boot-time model
+  warm-up).
+- `./arailctl install` — refresh an already-provisioned lab: source, deps,
+  components, models, verify (`update` is a permanent alias).
+- `./arailctl tier {minimalist|maximus}` — change the feature-set tier
+  (`upgrade` is a permanent alias).
+- `./arailctl status` — what's running, World instances + root lab; exits
+  `0`/`3`/`4` (up / degraded / nothing running).
 - `./arailctl pkb ingest <file>` — push a doc into the LanceDB-backed KB.
 - `./arailctl benchmark_models` (alias `aerollm`) — local model benchmark.
 
@@ -162,8 +171,16 @@ see `sprints/2026-07-23-clean-experience/`), and the **2026-07-28 concurrent
 Worlds sprint** (`./arailctl start --world <slug>` runs a World as its own
 isolated process/data-root, side by side with others — see
 `docs/concurrent-worlds.md` and `sprints/2026-07-28-concurrent-worlds/`).
-Cross-repo tooling still auto-generates qukaizen-style branch names in
-this repo.
+The **2026-07-29 elite-cli sprint** turned the rest of `./arailctl` into
+the same caliber of surface: an honest, readiness-gated root-lab `start`
+(`--root`, `--warm`), a scoped `restart` that can no longer stop a
+sibling World, a unified `status` with a documented `arail.status/v2`
+schema and a real exit-code contract (`0`/`3`/`4`), and the new `install`
+verb (`update` alias) + `tier` verb (`upgrade` alias) consolidating what
+used to be three overlapping version-management verbs — see
+`docs/cli.md` (the canonical reference) and
+`sprints/2026-07-29-elite-cli/`. Cross-repo tooling still auto-generates
+qukaizen-style branch names in this repo.
 
 The code is more mature than aeroLLM's (it predates the extraction);
 treat the portal and the agent loader as stable surfaces, the

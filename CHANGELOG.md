@@ -6,6 +6,110 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added (2026-07-29 elite-cli — a documented, testable, machine-readable CLI)
+
+- **`./arailctl install`** — refresh an already-provisioned lab in one
+  command: `source` (git pull --ff-only) → `deps` (pip install) →
+  `components` (the `components.json` manifest engine) → `models`
+  (detect drift against the expected default chat model; apply with
+  `--models`) → `verify` (`doctor`). Requires a provisioned lab, refuses
+  while the lab is live (`stop it first`, unless `--allow-running`),
+  honors `LAB_MODE=airgapped` on every network-touching phase, and
+  never deletes `.venv` or downloads a model unless explicitly asked
+  (`--rebuild-venv` / `--models`). Self-updates safely: if its own
+  `source` phase pulls new code, it re-execs itself so it never finishes
+  the run on stale bytes. `--check` for a dry run, `--only`/`--skip` to
+  target specific phases, `--json` for scripts.
+- **`./arailctl update`** is now a permanent alias for `install` (a
+  one-line notice on stderr; stdout stays clean for `--json` scripts).
+  The `components.json` engine that used to be `update`'s whole job is
+  now `install`'s components phase; `update --component <name>` still
+  reaches the old interactive path unchanged.
+- **`./arailctl tier [<minimalist|maximus>]`** is the new canonical name
+  for the feature-set axis (`upgrade` is now its permanent alias). Bare
+  `tier`/`upgrade` prints the current tier instead of failing.
+- **`./arailctl start --root`** starts the root lab explicitly, even with
+  Worlds configured — the fix for "a CI job or daemon can no longer start
+  the root lab once a second World exists." `--world root` still means a
+  World literally named `root`; the two are deliberately never the same
+  flag.
+- **`./arailctl start --warm`** (also `restart --warm`) reports the
+  boot-time model warm-up honestly: `warm-up: ✓ via <backend> in N.Ns`,
+  a timeout warning, or "not applicable" for a backend that loads
+  in-process. Rides the warmer that already existed — no new inference
+  is triggered by this flag, and no model identifier is exposed anywhere
+  it wasn't already.
+- **The root-lab `start` path now has a real readiness gate**, ported
+  from the Concurrent-Worlds instance path: a pre-spawn port check
+  refuses before spawning anything if the lab is already running, and
+  every service is polled after spawning (portal required, everything
+  else degrade-only) instead of printing "All services running" before
+  uvicorn has even bound a socket. Daemon-mode `start`/`restart` get the
+  identical honesty after `launchctl kickstart`.
+- **`./arailctl restart` is now scoped to exactly one target** — it can
+  no longer stop a sibling World instance while restarting another one
+  (the motivating bug). With ≥2 live instances and no `--world`/`--root`
+  given, it lists the exact command for each instead of guessing.
+  `restart --all` is an explicit, explained refusal (a foreground start
+  hosts one target; multi-instance restart needs a supervisor this
+  sprint does not build).
+- **`./arailctl status`** is now one collector, one `arail.status/v2`
+  JSON document, and two renderers (the human table and `--json`) that
+  can never disagree. Loopback HTTP/port probes (not `pgrep` patterns)
+  are the verdict source, so a crashed root portal is reported as down
+  instead of "running" because a process pattern happened to match, and
+  a live World instance with no root lab started gets one honest line
+  instead of five dim "not running" rows. New: `--json=full` (the whole
+  document), `--json=instances` (the byte-compatible old rows array),
+  `--no-probe` (deterministic, zero-HTTP CI mode), `--quiet`/`-q`,
+  `--no-sizes`.
+- **`./arailctl doctor --strict`** promotes optional/info findings (a
+  missing optional binary, no model installed) to degraded instead of
+  info-only.
+- A documented, executable exit-code contract across the whole CLI:
+  `0` success, `1` failure/refusal, `2` usage error, `3` degraded
+  (new), `4` nothing running (`status` only, new). See
+  [docs/cli.md](docs/cli.md) for the full table.
+- [docs/cli.md](docs/cli.md) — the canonical, verb-by-verb CLI reference
+  (every flag, every exit code, tty/non-tty behavior), checked against
+  `arailctl`'s actual verb list by a regression test.
+
+### Changed (2026-07-29 elite-cli — behavior changes to know about)
+
+- **`status` now exits `3` (degraded) or `4` (nothing running) instead
+  of always `0`.** Scripts that only ever parsed `--json`'s stdout and
+  ignored the exit code are unaffected.
+- **`update --check` (and `install --check`) now exits `3` when changes
+  are pending** — previously `update --check` always exited `0`.
+- **`arailctl upgrade` (and `tier`) with no argument now prints the
+  current tier and exits `0`** — previously `upgrade` with no argument
+  exited `1` with a usage message.
+- **`setup` now rejects unknown flags with exit `2`** — previously an
+  unrecognized flag was silently ignored.
+- **`start`/`restart` in daemon mode now refuse `--world`/`--root` with
+  exit `1`** instead of silently kickstarting the single-instance root
+  daemon in place of the World (or root lab) actually asked for.
+- **Root-lab `start` now exits `1` if the portal never comes up**
+  (previously it printed success and blocked forever with no way to
+  tell it had failed).
+- **`setup`'s end-of-run passphrase banner is masked** whenever stdout
+  isn't a tty, `--quiet` is passed, or `ARAIL_QUIET=1` — the value is
+  still recoverable (`grep ARAIL_PASSWORD .env`), it's just no longer
+  echoed into redirected logs by default.
+- **ANSI color codes never leak into piped/redirected output** anywhere
+  in the CLI now (`NO_COLOR`, `ARAIL_COLOR=always|never|auto` — the
+  de-facto standard plus an explicit override).
+- **`./arailctl update --component <x>` on an airgapped lab now exits `3`
+  instead of `0`** — this fix was deliberately applied to BOTH the new
+  `install`-backed path and the old interactive `--component` muscle
+  memory, so a refused, did-nothing airgap check no longer reports
+  success on either path.
+- **`./arailctl update` (bare, no `--component`) now inherits `install`'s
+  live-lab preflight and refuses with exit `1` while the lab is
+  running** — it never checked this before. Stop the lab first
+  (`./arailctl stop`), or pass `--allow-running` if you know what you're
+  doing.
+
 ### Added (2026-07-28 concurrent Worlds — run more than one lab at once)
 
 - **`./arailctl start --world <slug>`** launches a World as its OWN process,

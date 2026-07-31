@@ -377,7 +377,14 @@ def test_status_command_under_two_seconds_with_three_instances(tmp_path):
             proc.kill()
             proc.wait(timeout=5)
 
-    assert result.returncode == 0, result.stdout + result.stderr
+    # sprints/2026-07-29-elite-cli/ARCHITECTURE.md §12.3 (WP5): `status`
+    # now carries a verdict instead of always exiting 0. These 3 records
+    # point at real `sleep` PIDs, but with no `ps` stub on PATH the real
+    # system `ps` reports "sleep 5" — never matching the uvicorn pattern —
+    # so inst_alive() reports all 3 "stale", same as it always has; the
+    # NEW behavior is that `status` now says so with its exit code (3 =
+    # degraded), not the timing or rendering this test actually verifies.
+    assert result.returncode == 3, result.stdout + result.stderr
     assert elapsed < 2.0, f"./arailctl status took {elapsed:.2f}s with 3 instances (want < 2s)"
 
 
@@ -400,7 +407,12 @@ def test_status_renders_unreadable_row_for_corrupt_registry_record(tmp_path):
         cwd=fake_repo,
         capture_output=True, text=True, timeout=10,
     )
-    assert result.returncode == 0, result.stdout + result.stderr
+    # ARCHITECTURE.md §12.3 (WP5): an unreadable/corrupt record is a
+    # verdict-degrading condition (verdict.reasons carries
+    # "instance:x:unreadable") — `status` no longer always exits 0. The
+    # actual behavior this test guards (the row still renders, the file
+    # is still quarantined) is unchanged.
+    assert result.returncode == 3, result.stdout + result.stderr
     assert "unreadable" in result.stdout, result.stdout
     assert "x" in result.stdout
     assert (registry / "x.json.bad").exists()
@@ -419,8 +431,18 @@ def test_status_json_is_valid_and_includes_registered_slugs(tmp_path):
         cwd=fake_repo,
         capture_output=True, text=True, timeout=10,
     )
-    assert result.returncode == 0, result.stdout + result.stderr
-    rows = json.loads(result.stdout)
+    # ARCHITECTURE.md §12.3 (WP5): `--json` is now `--json=full` (the whole
+    # arail.status/v2 document, not the bare rows array) and its exit code
+    # carries the verdict — a stale instance degrades it to 3. Scripts that
+    # only ever wanted the bare rows array should use `--json=instances`
+    # (byte-compatible with this old `--json` output); this test is updated
+    # to the new document shape rather than moved, since it is exactly the
+    # "does the instances collector still work" regression WP5 must not
+    # break (T3).
+    assert result.returncode == 3, result.stdout + result.stderr
+    doc = json.loads(result.stdout)
+    assert doc["schema"] == "arail.status/v2"
+    rows = doc["instances"]
     assert isinstance(rows, list)
     assert any(r.get("slug") == "finance" for r in rows)
     # A dead PID (999999 essentially never exists) must render as stale, not live.
