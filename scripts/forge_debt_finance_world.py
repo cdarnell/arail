@@ -33,7 +33,14 @@ architecture's Technical-Feasibility review:
    do and nobody knows why" later.
 
 The seal-exempt ``compliance/DISCLAIMER.md`` sibling is merged in after
-sealing, the same tier as ``SKILL.md``/``capabilities.json``.
+sealing, the same tier as ``SKILL.md``/``capabilities.json``. A second
+seal-exempt sidecar, ``scout-patterns.json``, is merged the same way — it
+declares World-generic value-extraction patterns (regex, not finance-
+specific) that ``arail.research.agenda_watch`` runs over fetched pages
+when present. Its format is validated at preflight time using the exact
+same generic loader agenda_watch itself uses at runtime, so a malformed
+sidecar is caught here rather than silently producing zero candidates
+later.
 """
 
 from __future__ import annotations
@@ -46,6 +53,7 @@ from pathlib import Path
 
 from arail import world_forge as wf
 from arail import world_mount as wm
+from arail.research.agenda_watch import _load_scout_patterns
 from arail.world_theme import parse_world_theme
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -109,6 +117,24 @@ def preflight(spec: dict, terms: list[dict], face: dict) -> list[str]:
     if tier != "sourced" or counts.get("model"):
         problems.append(f"provenance: expected a fully sourced World, got {tier} {counts}")
 
+    # New: the optional scout-patterns.json sidecar, validated with the exact
+    # same generic loader agenda_watch uses at runtime — a typo here should
+    # fail the build loudly, not silently produce zero candidate values later.
+    patterns_path = SRC / "scout-patterns.json"
+    if patterns_path.exists():
+        try:
+            raw = json.loads(patterns_path.read_text(encoding="utf-8"))
+        except Exception as exc:  # noqa: BLE001
+            problems.append(f"scout-patterns: not valid JSON: {exc}")
+            raw = None
+        if raw is not None:
+            loaded = _load_scout_patterns(SRC)
+            declared_count = len(raw.get("patterns", [])) if isinstance(raw, dict) else 0
+            if len(loaded) != declared_count:
+                problems.append(
+                    f"scout-patterns: {declared_count} pattern(s) declared but only "
+                    f"{len(loaded)} validated — check schema/regex/label on each entry")
+
     # New: evaluative/imperative language must never reach sealed content —
     # this is the authoring-time half of the runtime guardrail.
     for t in terms:
@@ -135,6 +161,18 @@ def merge_compliance_disclaimer() -> None:
     dest_dir = OUT / "compliance"
     dest_dir.mkdir(parents=True, exist_ok=True)
     shutil.copy2(src, dest_dir / "DISCLAIMER.md")
+
+
+def merge_scout_patterns() -> None:
+    """Copy the seal-exempt scout-patterns.json sidecar into the bundle, if
+    authored. Same tier as compliance/DISCLAIMER.md — not one of the six
+    sealed files, so this doesn't touch verify_seal. Absent is fine: a World
+    with no declared patterns just gets zero candidate-value extraction,
+    the same as before this mechanism existed."""
+    src = SRC / "scout-patterns.json"
+    if not src.exists():
+        return
+    shutil.copy2(src, OUT / "scout-patterns.json")
 
 
 def assert_agenda_ordering(spec: dict) -> list[str]:
@@ -182,6 +220,7 @@ def main() -> int:
                     theme_validator=parse_world_theme,
                     created_at=CREATED_AT)
     merge_compliance_disclaimer()
+    merge_scout_patterns()
 
     bundle = wm.load_bundle(OUT)
     seal = wm.verify_seal(bundle)
@@ -199,6 +238,10 @@ def main() -> int:
 
     if not (OUT / "compliance" / "DISCLAIMER.md").exists():
         print("compliance/DISCLAIMER.md missing after merge", file=sys.stderr)
+        return 1
+
+    if (SRC / "scout-patterns.json").exists() and not (OUT / "scout-patterns.json").exists():
+        print("scout-patterns.json authored but missing after merge", file=sys.stderr)
         return 1
 
     manifest = json.loads((OUT / "manifest.json").read_text(encoding="utf-8"))

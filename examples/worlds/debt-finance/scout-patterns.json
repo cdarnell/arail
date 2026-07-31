@@ -1,0 +1,11 @@
+{
+  "schema": "arail.scout-patterns/v1",
+  "patterns": [
+    { "label": "apr_percent",
+      "regex": "\\b\\d{1,2}\\.\\d{2}%\\s*APR\\b",
+      "max_matches": 10 },
+    { "label": "generic_percent_rate",
+      "regex": "\\b\\d{1,2}\\.\\d{1,2}%\\b",
+      "max_matches": 10 }
+  ]
+}

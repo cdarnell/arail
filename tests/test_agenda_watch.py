@@ -6,6 +6,7 @@ change findings staged as PENDING review items — never auto-approved.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -149,7 +150,35 @@ def test_first_fetch_is_baseline_change_becomes_pending_finding(tmp_path, monkey
     assert compiled_kb.approved_paths(tmp_path / "pkb") == set()
 
 
-def test_superseded_unapproved_finding_is_pruned(tmp_path, monkeypatch):
+def test_finding_history_retained_up_to_cap(tmp_path, monkeypatch):
+    """Unlike the original single-slot behavior, unreviewed findings for the
+    same feed are now RETAINED up to a cap (oldest pruned first) rather than
+    collapsed to just the latest — a person checking in weekly shouldn't
+    lose every intermediate change."""
+    monkeypatch.setenv("LAB_MODE", "hybrid")
+    content = {"v": "one"}
+    monkeypatch.setattr(aw, "_fetch_text", lambda url: content["v"])
+    _tick(tmp_path, now=1000.0)
+    _approve_all_pending()
+    interval = aw._watch_interval_sec()
+    _tick(tmp_path, now=1000.0 + interval + 1)            # baseline
+
+    n_changes = aw._MAX_UNREVIEWED_PER_FEED + 2  # deliberately exceed the cap
+    for i in range(2, n_changes + 2):
+        content["v"] = f"revision {i}"
+        _tick(tmp_path, now=1000.0 + i * (interval + 1))
+
+    scout_dir = tmp_path / "pkb" / aw.SCOUT_SUBDIR
+    per_feed: dict[str, int] = {}
+    for f in scout_dir.glob("*.md"):
+        stem = f.name.rsplit("-", 1)[0]
+        per_feed[stem] = per_feed.get(stem, 0) + 1
+    assert per_feed
+    # capped, but not collapsed to one — real history survives
+    assert all(n == aw._MAX_UNREVIEWED_PER_FEED for n in per_feed.values())
+
+
+def test_approved_findings_are_never_pruned(tmp_path, monkeypatch):
     monkeypatch.setenv("LAB_MODE", "hybrid")
     content = {"v": "one"}
     monkeypatch.setattr(aw, "_fetch_text", lambda url: content["v"])
@@ -158,15 +187,22 @@ def test_superseded_unapproved_finding_is_pruned(tmp_path, monkeypatch):
     interval = aw._watch_interval_sec()
     _tick(tmp_path, now=1000.0 + interval + 1)            # baseline
     content["v"] = "two"
-    _tick(tmp_path, now=1000.0 + 2 * (interval + 1))      # finding A
-    content["v"] = "three"
-    _tick(tmp_path, now=1000.0 + 3 * (interval + 1))      # finding B replaces A
+    out = _tick(tmp_path, now=1000.0 + 2 * (interval + 1))
+    assert out["findings"] > 0
+    from arail import compiled_kb
+    compiled_kb.approve(out["finding_paths"], tmp_path / "pkb")
+    approved_before = set(compiled_kb.approved_paths(tmp_path / "pkb"))
+    assert approved_before
+
+    for i in range(3, aw._MAX_UNREVIEWED_PER_FEED + 5):
+        content["v"] = f"revision {i}"
+        _tick(tmp_path, now=1000.0 + i * (interval + 1))
+
     scout_dir = tmp_path / "pkb" / aw.SCOUT_SUBDIR
-    per_feed: dict[str, int] = {}
-    for f in scout_dir.glob("*.md"):
-        stem = f.name.rsplit("-", 1)[0]
-        per_feed[stem] = per_feed.get(stem, 0) + 1
-    assert per_feed and all(n == 1 for n in per_feed.values())
+    still_present = {
+        f.relative_to(tmp_path / "pkb").as_posix() for f in scout_dir.glob("*.md")
+    }
+    assert approved_before <= still_present
 
 
 def test_cadence_respected(tmp_path, monkeypatch):
@@ -207,3 +243,150 @@ def test_module_never_composes_urls():
     import inspect
     src = inspect.getsource(aw)
     assert "https://" not in src.replace("https?://", "")  # only the regex
+
+
+# ── visible-text extraction (generic) ───────────────────────────────
+
+def test_visible_text_strips_script_style_head():
+    html = (
+        "<html><head><title>t</title><style>.x{color:red}</style></head>"
+        "<body><script>var x = 1;</script>"
+        "<p>Real balance-transfer rate: 7.99% APR</p></body></html>"
+    )
+    text = aw._visible_text(html)
+    assert "7.99% APR" in text
+    assert "var x" not in text
+    assert ".x{color:red}" not in text
+    assert "<title>t</title>" not in text  # head is stripped wholesale
+
+
+def test_visible_text_passes_plain_text_through_unchanged():
+    plain = "driver 101.0 available"
+    assert aw._visible_text(plain) == plain
+
+
+def test_visible_text_never_raises_on_malformed_markup():
+    broken = "<div><p>unterminated tags <span>oops"
+    # must not raise; content is still recoverable
+    assert "oops" in aw._visible_text(broken)
+
+
+# ── diff instead of head-of-document excerpt ────────────────────────
+
+def test_finding_shows_diff_once_a_prior_snapshot_exists(tmp_path, monkeypatch):
+    monkeypatch.setenv("LAB_MODE", "hybrid")
+    content = {"v": "<html><body><p>Rate: 8.99% APR</p></body></html>"}
+    monkeypatch.setattr(aw, "_fetch_text", lambda url: content["v"])
+    _tick(tmp_path, now=1000.0)
+    _approve_all_pending()
+    interval = aw._watch_interval_sec()
+    _tick(tmp_path, now=1000.0 + interval + 1)  # baseline — no finding yet
+
+    content["v"] = "<html><body><p>Rate: 7.49% APR</p></body></html>"
+    out = _tick(tmp_path, now=1000.0 + 2 * (interval + 1))
+    assert out["findings"] > 0
+    path = tmp_path / "pkb" / out["finding_paths"][0]
+    body = path.read_text()
+    assert "## Change (unified diff" in body
+    assert "7.49% APR" in body
+    assert "<html>" not in body  # markup stripped before diffing/rendering
+
+
+def test_first_change_with_no_snapshot_falls_back_to_excerpt(tmp_path, monkeypatch):
+    # Baseline write happens on first successful fetch, so this specifically
+    # exercises the excerpt fallback path via a fresh feed with no snapshot.
+    body = aw._finding_markdown(
+        "testworld", aw.WatchFeed(node="n", url="https://feeds.example/a",
+                                   cadence="occasional"),
+        text="some fresh content here", old_sha="a" * 8, new_sha="b" * 8,
+        old_text=None, candidates={})
+    assert "## Excerpt" in body
+    assert "some fresh content here" in body
+
+
+# ── World-declared extraction patterns (generic mechanism) ──────────
+
+def _write_patterns(staged_dir, patterns):
+    (staged_dir / aw.SCOUT_PATTERNS_FILE).write_text(json.dumps({
+        "schema": "arail.scout-patterns/v1",
+        "patterns": patterns,
+    }))
+
+
+def test_candidate_values_extracted_and_rendered(tmp_path, monkeypatch):
+    _write_patterns(tmp_path / "staged", [
+        {"label": "apr_percent", "regex": r"\b\d{1,2}\.\d{2}%\s*APR\b",
+         "max_matches": 5},
+    ])
+    monkeypatch.setenv("LAB_MODE", "hybrid")
+    content = {"v": "Intro rate 0.00% APR then 24.99% APR after 18 months"}
+    monkeypatch.setattr(aw, "_fetch_text", lambda url: content["v"])
+    _tick(tmp_path, now=1000.0)
+    _approve_all_pending()
+    interval = aw._watch_interval_sec()
+    _tick(tmp_path, now=1000.0 + interval + 1)  # baseline
+    content["v"] = "Intro rate 0.00% APR then 19.99% APR after 18 months"
+    out = _tick(tmp_path, now=1000.0 + 2 * (interval + 1))
+    assert out["findings"] > 0
+    body = (tmp_path / "pkb" / out["finding_paths"][0]).read_text()
+    assert "Candidate values (code-extracted, unverified)" in body
+    assert "0.00% APR" in body and "19.99% APR" in body
+    assert "not verified" in body
+
+
+def test_works_identically_for_a_non_finance_pattern(tmp_path, monkeypatch):
+    """The same mechanism, with a driver-version-shaped pattern instead of an
+    APR one — proves the module has no finance-specific knowledge baked in."""
+    _write_patterns(tmp_path / "staged", [
+        {"label": "driver_version", "regex": r"\b\d{3}\.\d{2}\b",
+         "max_matches": 3},
+    ])
+    monkeypatch.setenv("LAB_MODE", "hybrid")
+    content = {"v": "Latest driver: 551.23"}
+    monkeypatch.setattr(aw, "_fetch_text", lambda url: content["v"])
+    _tick(tmp_path, now=1000.0)
+    _approve_all_pending()
+    interval = aw._watch_interval_sec()
+    _tick(tmp_path, now=1000.0 + interval + 1)  # baseline
+    content["v"] = "Latest driver: 560.45"
+    out = _tick(tmp_path, now=1000.0 + 2 * (interval + 1))
+    body = (tmp_path / "pkb" / out["finding_paths"][0]).read_text()
+    assert "560.45" in body
+    assert "driver_version" in body
+
+
+def test_missing_scout_patterns_file_changes_nothing():
+    # Absent sidecar (the common case for most Worlds) → empty pattern list,
+    # not an error.
+    assert aw._load_scout_patterns(Path("/nonexistent/staged/dir")) == []
+
+
+def test_malformed_scout_patterns_file_ignored_not_crashed(tmp_path, caplog):
+    staged = tmp_path / "staged"  # already created by the autouse _iso fixture
+    (staged / aw.SCOUT_PATTERNS_FILE).write_text("not valid json {{{")
+    assert aw._load_scout_patterns(staged) == []
+
+    (staged / aw.SCOUT_PATTERNS_FILE).write_text(json.dumps({
+        "schema": "arail.scout-patterns/v1",
+        "patterns": [{"label": "bad", "regex": "("}],  # invalid regex
+    }))
+    assert aw._load_scout_patterns(staged) == []
+
+
+def test_oversized_pattern_regex_rejected(tmp_path):
+    staged = tmp_path / "staged"  # already created by the autouse _iso fixture
+    _write_patterns(staged, [
+        {"label": "too_long", "regex": "x" * (aw._MAX_PATTERN_LEN + 1)},
+    ])
+    assert aw._load_scout_patterns(staged) == []
+
+
+def test_pattern_match_count_is_bounded(tmp_path):
+    staged = tmp_path / "staged"  # already created by the autouse _iso fixture
+    _write_patterns(staged, [
+        {"label": "digits", "regex": r"\d", "max_matches": 1000},
+    ])
+    patterns = aw._load_scout_patterns(staged)
+    assert patterns[0]["max_matches"] == aw._MAX_PATTERN_MATCHES
+    candidates = aw._extract_candidates("1234567890" * 5, patterns)
+    assert len(candidates["digits"]) == aw._MAX_PATTERN_MATCHES
