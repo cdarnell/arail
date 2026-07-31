@@ -299,18 +299,25 @@ class TestDebtAdvisorProposedScenarios:
         path = data_dir / "user-import" / "debt-finance" / "proposed_scenarios.md"
         assert stat.S_IMODE(path.stat().st_mode) == 0o600
 
-    def test_candidate_containing_evaluative_word_does_not_block_main_findings(
+    def test_candidate_containing_evaluative_word_is_rejected_not_promoted(
             self, debt_advisor_module, pkb_root, data_dir, host):
         # A hostile/careless World pattern could match a phrase containing
-        # "best" — since it's a WORLD segment it must never be evaluative-
-        # checked (same treatment feed titles already get), and even if it
-        # somehow were blocked, the main findings write must be unaffected.
+        # "best" — a candidate value is SCOUTED_UNVERIFIED, not WORLD,
+        # provenance (BLOCK-8), so it IS evaluative-checked and this whole
+        # proposed_scenarios.md write must be rejected. The finding itself,
+        # and the main findings.md write, are unaffected either way.
         adversarial = _FINDING_WITH_CANDIDATES.replace(
             "`7.99% APR`, `9.99% APR`", "`the best rate today`")
         self._stage_approved_finding(pkb_root, adversarial)
         debt_advisor_module.DebtAdvisorAgent().tick()
         findings = data_dir / "user-import" / "debt-finance" / "findings" / "debt_advisor.md"
         assert findings.exists()  # main write always succeeds regardless
+        proposed = data_dir / "user-import" / "debt-finance" / "proposed_scenarios.md"
+        assert not proposed.exists()  # the adversarial candidate must never reach a document
+        assert any(
+            "candidate values" in e["message"] and "failed the language-safety check" in e["message"]
+            for e in host.events
+        )
 
 
 class TestDebtAdvisorCompliance:
@@ -877,6 +884,60 @@ class TestConsolidationAnalyzerOperatorNamesExemption:
             Segment.agent("Payday Express is a credit union."),
         ])
         assert result.ok is False
+
+
+class TestScoutedUnverifiedProvenance:
+    """REVIEW.md addendum 8, BLOCK-8: a scouting finding's candidate value
+    is live-fetched, third-party text that never passed the World's
+    seal-time evaluative-language scan — it must not get WORLD provenance's
+    evaluative-check exemption, and it must not be able to vouch for an
+    institutional-character claim either."""
+
+    def test_evaluative_word_in_scouted_segment_blocks(self):
+        from arail.agents.debt_finance_compliance import Segment, check_guardrail
+
+        result = check_guardrail([
+            Segment.agent("- **rate**: `"),
+            Segment.scouted_unverified("the best rate today"),
+            Segment.agent("`"),
+        ])
+        assert result.ok is False
+
+    def test_scouted_segment_cannot_vouch_for_institutional_character(self):
+        """Fifth-order check: a candidate value is not just evaluative-
+        checked, it also cannot serve as the vetted-name neighbour a
+        SCOUTED_UNVERIFIED-adjacent institutional-character trigger would
+        need — only WORLD/OPERATOR name segments can vouch."""
+        from arail.agents.debt_finance_compliance import Segment, check_guardrail
+
+        result = check_guardrail([
+            Segment.scouted_unverified("Anytown Credit Union"),
+            Segment.agent(" is a credit union offering a personal loan."),
+        ])
+        assert result.ok is False
+
+    def test_scouted_segment_containing_institutional_phrase_itself_blocks(self):
+        """A candidate value's OWN text tripping the institutional-character
+        trigger must not be treated as case-1 trusted-verbatim (that is
+        WORLD/OPERATOR-only) — SCOUTED_UNVERIFIED needs a real vetted-name
+        neighbour just like AGENT text does, and here there is none."""
+        from arail.agents.debt_finance_compliance import Segment, check_guardrail
+
+        result = check_guardrail([
+            Segment.agent("Rate found: "),
+            Segment.scouted_unverified("member-owned credit union special"),
+        ])
+        assert result.ok is False
+
+    def test_scouted_segment_with_no_trigger_words_passes(self):
+        from arail.agents.debt_finance_compliance import Segment, check_guardrail
+
+        result = check_guardrail([
+            Segment.agent("- **apr_percent**: `"),
+            Segment.scouted_unverified("7.99% APR"),
+            Segment.agent("`"),
+        ])
+        assert result.ok is True
 
 
 class TestConsolidationAnalyzerEvaluativeQuotedSpans:

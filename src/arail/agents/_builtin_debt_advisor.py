@@ -346,13 +346,22 @@ def _build_proposed_scenarios(findings: List[Dict[str, str]],
     ``None`` if no approved finding currently has any candidate values (the
     common case — most Worlds, and most findings, have none).
 
-    Every candidate value is a ``Segment.world(...)`` — the identical
-    treatment a scouting finding's ``feed``/``path`` already gets in
-    ``_build_output`` above: quoted third-party text, never this agent's
-    own claim, and never evaluative-checked no matter what words it
-    contains (see ``debt_finance_compliance``'s module docstring — this
-    isn't a new trust decision, it's the same one already made for feed
-    titles, extended to a second field the same generic writer produces).
+    Every candidate value is a ``Segment.scouted_unverified(...)`` — a
+    literal substring matched out of live-fetched, third-party page text at
+    tick time, not World-sealed content. It is deliberately *not*
+    ``Segment.world(...)``: a candidate value never passed the preflight
+    evaluative-language scan a World's own authoring-time content is
+    expected to pass before sealing (see ``debt_finance_compliance``'s
+    module docstring), so it is not entitled to WORLD provenance's
+    evaluative-check exemption. ``check_guardrail`` evaluative-checks
+    ``SCOUTED_UNVERIFIED`` segments exactly like ``AGENT`` ones — if any
+    candidate value here trips it, this whole proposed-scenarios document is
+    rejected (``_GuardrailBlocked``, caught by the caller) and simply not
+    written; the finding itself, and the main findings.md write, are
+    unaffected either way. The ``feed``/``checked``/``path`` metadata lines
+    below stay ``Segment.world(...)`` — those are the same World-sealed
+    scouting-finding fields ``_build_output`` already trusts, not a
+    candidate value.
     """
     if not any(candidates_by_path.get(f["path"]) for f in findings):
         return None
@@ -387,7 +396,7 @@ def _build_proposed_scenarios(findings: List[Dict[str, str]],
                 if i:
                     value_line.append(Segment.agent(", "))
                 value_line.append(Segment.agent("`"))
-                value_line.append(Segment.world(v))
+                value_line.append(Segment.scouted_unverified(v))
                 value_line.append(Segment.agent("`"))
             lines.append(value_line)
         lines.append([Segment.agent("")])

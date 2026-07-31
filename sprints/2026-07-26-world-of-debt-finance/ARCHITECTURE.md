@@ -697,9 +697,27 @@ A product-capability audit after the sprint above shipped found the World
 under-delivered on three of the operator's actual goals — the safety layer
 worked, but the World itself surfaced a curated content list, not live
 deals; the term corpus was a thin glossary; and nothing remembered a value
-across ticks. Three follow-on workstreams closed this, all preserving every
-invariant established above (segment/provenance guardrail, state.json
-hash-only convention, PKB isolation, generic-scouting rule):
+across ticks. Three follow-on workstreams closed this.
+
+**Correction (REVIEW.md addendum 8, BLOCK-8):** an earlier version of this
+section claimed the workstreams preserved "every invariant established
+above (segment/provenance guardrail, state.json hash-only convention, PKB
+isolation, generic-scouting rule)." That was false for the segment/
+provenance guardrail specifically: the first cut of the deal-finding
+workstream (below) tagged a scouting finding's live-fetched "candidate
+values" as `Segment.world(...)` — the same provenance a finding's
+`feed`/`path` metadata correctly gets — even though a candidate value is
+fetched and matched entirely at tick time and never passes the World's
+seal-time evaluative-language scan that is WORLD provenance's whole
+justification. This was a real trust-boundary escape (an
+adversarial-or-careless World pattern could surface arbitrary evaluative
+third-party text as if it were sealed World content), fixed by adding a
+fourth provenance tier, `Provenance.SCOUTED_UNVERIFIED`
+(`debt_finance_compliance.py`), that is evaluative-checked exactly like
+`AGENT` text and can never vouch for an institutional-character claim —
+see that module's docstring. The state.json hash-only convention, PKB
+isolation, and the generic-scouting rule held throughout and needed no
+correction. The two required fixes below (workstreams as actually shipped):
 
 - **Education**: the term corpus grew from 26 to 44 entries (worked
   `example` fields, a fixed `related[]` graph with zero sinks — both named
@@ -725,8 +743,9 @@ hash-only convention, PKB isolation, generic-scouting rule):
   activity alert on a threshold crossing. Debt Advisor gained
   `lab/data/user-import/debt-finance/proposed_scenarios.md`: when an
   approved finding has candidate values, they're quoted back to the
-  operator (`Segment.world(...)`, the identical treatment a finding's feed
-  title already gets) with explicit hand-copy-into-`balances.json`
+  operator (`Segment.scouted_unverified(...)` — **not** `Segment.world(...)`,
+  see the BLOCK-8 correction above — evaluative-checked before ever
+  reaching this document) with explicit hand-copy-into-`balances.json`
   instructions — the operator remains the sole confirmer of any figure that
   ever reaches a `candidate_scenarios` entry; nothing here writes to
   `balances.json` automatically.
