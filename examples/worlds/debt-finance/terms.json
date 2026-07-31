@@ -148,7 +148,7 @@
       ],
       "source": "https://www.penfed.org/personal-loans",
       "verification_source": "https://mapping.ncua.gov/ResearchCreditUnion",
-      "verified_as_of": "2026-07-31"
+      "verified_as_of": "2026-07-27"
     },
     {
       "slug": "navy-federal-credit-union",
@@ -181,7 +181,7 @@
       ],
       "source": "https://www.greenpath.com/",
       "verification_source": "https://www.nfcc.org/member-agencies/",
-      "verified_as_of": "2026-07-31"
+      "verified_as_of": "2026-07-27"
     },
     {
       "slug": "balance-transfer",

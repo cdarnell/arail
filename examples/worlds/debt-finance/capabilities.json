@@ -9,7 +9,7 @@
       "interface": {
         "kind": "knowledge-grounding",
         "world": "debt-finance",
-        "world_sha256": "1d4b6f0006d5c414b36d18a314a081c90e00ae327a71c47a3fa33b33146ba21d",
+        "world_sha256": "7a121526e5674ce038b396c5c6df6895df94adcc7fed16ea7528effbb5564075",
         "categories": [
           "credit-products",
           "debt-types",

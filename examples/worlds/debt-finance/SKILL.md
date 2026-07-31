@@ -124,4 +124,4 @@ _Answer only from the terms below. Every term lists its source. If a question ca
 - **Variable Rate** (`variable-rate`) — An interest rate that can change over time based on a market index.
   - Source: https://www.consumerfinance.gov/ask-cfpb/what-is-the-difference-between-a-fixed-apr-and-a-variable-apr-en-45/
 
-<!-- dac:world_sha256 1d4b6f0006d5c414b36d18a314a081c90e00ae327a71c47a3fa33b33146ba21d -->
+<!-- dac:world_sha256 7a121526e5674ce038b396c5c6df6895df94adcc7fed16ea7528effbb5564075 -->
