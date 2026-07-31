@@ -814,3 +814,308 @@ guardrail is: **it is done.**
   future template ever interpolates a dynamic value into an AGENT segment,
   or splits AGENT prose around a WORLD/OPERATOR value, R3-5/R3-6/R3-7 are
   the tests that will catch it — they belong in the repo, not my scratchpad.
+
+---
+
+# QA round 12 — post-review gate on the capability upgrade (2026-07-31)
+
+**Date:** 2026-07-31
+**Build:** [BUILD_LOG.md](./BUILD_LOG.md) at `e6a4cdc`
+**Reviewed against:** [REVIEW.md](./REVIEW.md) addendum 10 (round 11, WEAK_PASS)
+**New tests:** `tests/test_debt_finance_qa_round12.py` (60 passing, 6 xfail)
+**Verdict: FAIL** — 4 tests in this sprint's own new code fail in the
+canonical `pytest tests` invocation and pass in isolation. Everything the
+round-11 review asserted about the trust boundary, PKB isolation, activity
+honesty and the seal re-verified clean.
+
+## How this run was invoked
+
+Per INFO-18, every run used
+`PYTHONPATH="$(pwd)/src:/Users/netsushi/ProJects/qukaizen-dac"` with
+`.venv/bin/python3 -m pytest`. A pre-sprint baseline was taken by adding a
+worktree at `73f02d9` and running the identical full suite there, so
+"pre-existing" is a measurement, not an assumption.
+
+| run | result |
+|---|---|
+| base `73f02d9`, full suite | 55 failed, 3867 passed, 7 errors |
+| branch `e6a4cdc`, full suite | 60 failed, 3978 passed, 7 errors |
+| branch, `tests/test_agenda_watch.py` alone | 29 passed |
+| branch, new QA round-12 file alone | 60 passed, 6 xfailed |
+
+Set-differencing the two failure lists: **the only new failures attributable
+to this sprint's files are the four `tests/test_agenda_watch.py` ones below.**
+The other ~55 (aerollm defaults, model-UX, dashboard, world-forge, swarm,
+shell-source-safety, reset-scope) are present identically at `73f02d9` and
+are unrelated to this sprint. Three `tests/test_cli_*` driver failures differ
+in granularity between the two runs but sit in files this sprint does not
+touch (`git diff --stat 73f02d9..HEAD -- src scripts tests` is 11 files, all
+debt-finance/agenda-watch); treating them as machine noise.
+
+## Test inventory
+
+| # | Test | Category | Covers | Status |
+|---|---|---|---|---|
+| 1 | `test_proposed_scenarios_write_refuses_a_pre_placed_symlink` | security | new Workstream-C write path vs F5 invariant | PASS |
+| 2 | `test_history_jsonl_write_refuses_a_pre_placed_symlink` | security | new Workstream-C write path vs F5 invariant | PASS |
+| 3 | `test_symlinked_directory_component_is_still_refused` | security | O_NOFOLLOW's known parent-dir limit, pinned | PASS |
+| 4 | `test_snapshot_write_refuses_a_pre_placed_tmp_symlink` | security | QA-1 | XFAIL |
+| 5 | `test_state_write_refuses_a_pre_placed_tmp_symlink` | security | QA-1 | XFAIL |
+| 6 | `test_finding_write_refuses_a_pre_placed_symlink` | security | QA-1 | XFAIL |
+| 7 | `test_shipped_world_feed_slugs_are_currently_distinct` | regression | guards the sealed agenda against a future colliding feed | PASS |
+| 8 | `test_shipped_feed_urls_are_at_the_truncation_boundary` | edge | documents the zero margin | PASS |
+| 9–10 | `test_two_long_sibling_urls_do_not_share_a_{snapshot,finding_stem}` | edge | QA-2 | XFAIL |
+| 11 | `test_snapshot_collision_shows_the_wrong_feeds_text_in_a_diff` | edge | QA-2's user-visible consequence | PASS |
+| 12 | `test_backtick_and_newline_in_a_candidate_escape_the_inline_wrap` | security | ASK-19, confirmed empirically | PASS |
+| 13 | `test_the_agent_side_parser_does_not_propagate_the_injected_line` | security | ASK-19 blast radius is bounded at the agent reader | PASS |
+| 14 | `test_excerpt_fence_breakout_is_neutralised` | security | the excerpt fence still holds | PASS |
+| 15 | `test_enormous_candidate_value_is_rendered_unbounded` | edge | ASK-20 witness | PASS |
+| 16–22 | `TestScoutedUnverifiedIsNeverPromoted` (7) | security | provenance tier cannot be spoofed or vouched | PASS |
+| 23–26 | `TestPkbIsolationOfEveryNewFile` / state+activity honesty | security/regression | §0.1 BLOCK across every new artifact | PASS |
+| 27–31 | threshold-crossing boundary/None/no-refire | edge | Workstream C arithmetic edges | PASS |
+| 32–48 | malformed `history.jsonl` (9 shapes) + `scout-patterns.json` (10 shapes) | edge | new read paths never raise | PASS |
+| 49–52 | `TestSpawnDependsOnParentProcessState` | concurrency/failure-injection | QA-3 | PASS (see failures) |
+| 53–61 | `TestVisibleTextBoundaries` (9) | edge | comments, entities, nesting, unclosed script, binary | PASS (1 XFAIL = INFO-22) |
+
+## Failures
+
+| # | Test | Symptom | Minimal repro | Severity |
+|---|---|---|---|---|
+| QA-3 | `test_candidate_values_extracted_and_rendered`, `test_works_identically_for_a_non_finance_pattern`, `test_extract_candidates_bounded_returns_result_of_fast_pattern`, `test_large_but_fast_result_is_not_mistaken_for_a_hang` | All 4 fail under `pytest tests`; all 4 pass under `pytest tests/test_agenda_watch.py`. Candidate extraction returns `{}`. | see below | **HIGH** |
+
+### QA-3 — candidate extraction is silently disabled by parent-process state, and the log blames the wrong thing
+
+`_extract_candidates_bounded` uses `mp.get_context("spawn")`. `spawn`
+re-derives the child from the **parent's** cwd, `sys.path`, and `__main__`
+module, and pays a full interpreter+import startup out of the same 2.0 s
+`_EXTRACT_TIMEOUT_SEC` budget that is supposed to bound *matching*. Rounds
+9–11 verified the child's behaviour thoroughly and the start-method choice
+correctly; nobody tested what the parent's state does to it.
+
+Deterministic repro (no test-suite state needed):
+
+```python
+import os, re, tempfile
+from arail.research import agenda_watch as aw
+pats = [{"label": "n", "regex": re.compile(r"\d+"), "regex_src": r"\d+", "max_matches": 5}]
+d = tempfile.mkdtemp(); os.chdir(d); os.rmdir(d)
+aw._extract_candidates_bounded("x 12", pats, "u")   # -> {}   (should be {'n': ['12']})
+```
+
+Two further measurements:
+
+- **Startup already eats a third of the budget.** From a plain script with
+  `lancedb` imported (i.e. roughly the portal's process shape), a trivial
+  `\d+` match over a 15-character string costs **0.60–0.61 s** wall clock,
+  every call. The docstring's estimate is "tens of ms". The remaining margin
+  before a *correct* run is reported as a ReDoS kill is ~1.4 s, on a laptop
+  that is also expected to be running local inference.
+- **The child re-executes the parent's `__main__`.** With an unguarded entry
+  script, `spawn`'s `_fixup_main_from_path` re-runs the launcher's top-level
+  code inside the extraction child, once per feed per tick. The shipped
+  launcher is safe — `scripts/start.sh` runs the `uvicorn` console script,
+  which is `if __name__ == "__main__":`-guarded — but this is an undocumented
+  constraint on every future entry point, and nothing tests it.
+
+Why this is HIGH rather than an ASK: when the spawn fails or the budget is
+exhausted, the tick **returns `ok: True`** and stages the finding *without*
+candidate values, and the operator-facing log line says "did not finish
+within 2.0s and was killed — possible catastrophic-backtracking pattern in
+the mounted World's scout-patterns.json". A World author reading that will
+go rewrite a regex that was never the problem. This is the same
+silently-dead-capability family the sprint blocked on twice already
+(BLOCK-11, BLOCK-12), one layer up: the watch still fires, but the
+deals-finding half of the capability is off and the diagnostic misdirects.
+
+**Suggested fix shape (builder's call):** separate the two budgets — an
+explicit startup deadline (child ready) and a matching deadline — and only
+emit the backtracking wording when matching, not startup, timed out;
+consider a persistent worker or a `concurrent.futures` pool so startup is
+paid once per process rather than once per feed per tick; and emit the
+"candidates unavailable" fact into the tick's return dict so it is
+observable, not log-only. ASK-21's fix (return `result` when it is not
+`None`) belongs in the same change.
+
+**Not yet isolated:** which specific earlier test module leaves the process
+in the state that trips this. It does not reproduce from `tests/portal +
+tests/test_a*.py` (615 tests), from any single `tests/test_a*.py` module
+paired with `test_agenda_watch.py`, or under 10 spinning CPU hogs — it needs
+the full ~4000-test session. A `pytest -x` bisect over the full ordering is
+the next step and is the builder's to run.
+
+## Findings filed, not failing
+
+### QA-1 (MEDIUM) — `agenda_watch.py`'s writes follow symlinks; the agents' do not
+
+This sprint's own F5 fix established `_safe_write_0600` (`O_NOFOLLOW`,
+0600) as the write discipline for this feature, and both agents honour it
+on all four of their files, including the two new ones
+(`proposed_scenarios.md`, `history.jsonl` — tests 1–2 above confirm).
+`agenda_watch.py` uses bare `Path.write_text` on all three of its
+destinations, and a pre-placed symlink at the `.tmp` path is written
+*through*:
+
+| path | new this sprint? | symlink honoured? |
+|---|---|---|
+| `DATA_DIR/agenda-watch/<world>-<node>-<url>.txt` (+`.tmp`) | **yes** (Workstream B) | no — writes through |
+| `DATA_DIR/agenda-watch.json` (+`.tmp`) | no | no — writes through |
+| `PKB/sources/scout/<stem>-<sha8>.md` | no | no — writes through |
+
+Verified by execution, not reading: an attacker-placed
+`agenda-watch/<name>.tmp -> victim` results in `victim` containing
+attacker-influenced fetched page text. Requires local write access into the
+lab's own data dir, which is why it is MEDIUM and not HIGH — but that is
+exactly the threat model F5 was fixed under, and ARAIL's stated posture is
+"it runs on other people's machines". The inconsistency is the finding: two
+files in the same feature disagree about whether this matters.
+
+**Fix shape:** lift `_safe_write_0600` into a shared helper (or copy it a
+third time, matching the existing per-module duplication convention) and
+use it for the snapshot, state, and finding writes. Note the `.tmp`
+sidecar needs the same treatment as the final path — the current
+`tmp.write_text(...); tmp.replace(path)` pattern makes `.tmp` the
+attack surface, not `path`.
+
+### QA-2 (MEDIUM) — 48-character slug truncation collides two feeds onto one snapshot and one finding stem
+
+`_slugish()` truncates to 48 characters. `_snapshot_path` and
+`_write_finding`'s `stem` are both built from `f"{world}-{node_slug}-{url_slug}"`,
+so two feeds under the same watch node whose URLs share a 48-character
+normalised prefix become **the same snapshot file and the same finding
+filename family**, while `state["feeds"]` remains correctly keyed by full
+URL. Consequences, in order of severity:
+
+1. Feed A diffs against feed B's snapshot, so a finding **attributed to
+   feed A renders feed B's content as A's "change"** — a false attribution
+   in the human review queue, in a feature whose entire premise is
+   "quoted verbatim, provenance-tagged".
+2. `_write_finding`'s unreviewed-pruning globs `f"{stem}-*.md"`, so feed
+   A's pending finding can be pruned as feed B's overflow.
+3. Every tick shows a spurious change, because each feed keeps overwriting
+   the other's snapshot.
+
+**The shipped World has zero margin.** Two of its three feed URLs already
+produce a 48-character (i.e. truncated) slug:
+`https-creditcards-chase-com-balance-transfer-cre` and
+`https-www-navyfederal-org-loans-cards-personal-l`. Adding any sibling URL
+under either path — the obvious next step for a "deals-finding" World, and
+exactly what Workstream A's expansion of `knowledge_sources` was about —
+collides. Test 7 above is a regression guard on the sealed bundle so this
+fails loudly rather than silently mis-attributing.
+
+**Fix shape:** append a short hash of the full URL to the slug
+(`f"{slug}-{sha256(url)[:8]}"`), the same trick `_write_finding` already
+uses for the content sha. This changes existing snapshot filenames once,
+which costs one baseline re-take per feed and no findings.
+
+### QA-4 (LOW, disagreement) — ASK-19's "not reachable" argument is a configuration argument, not a structural one
+
+I reproduced ASK-19 exactly as filed: a candidate value containing a
+backtick and a newline breaks out of the single-backtick wrap and renders
+`# Verified rate: 0.00% APR — approved by ARAIL` as a real markdown heading
+inside the file a human approves from (test 12). The backlog entry justifies
+non-blocking with "needs an operator-authored loose pattern (not any of the
+shipped ones) to reach."
+
+I accept the ship decision and disagree with the reasoning. `agenda_watch.py`
+is explicitly and deliberately World-generic, and
+`debt_finance_compliance.py`'s own module docstring states the threat model
+plainly: "a World bundle is third-party-authorable and mountable". A
+`scout-patterns.json` sidecar is a World artifact, not an operator artifact,
+and the module documents it as "semi-trusted, seal-exempt input… not
+integrity-protected the way the rest of a sealed bundle is". So the
+protection today is "the one World we happen to ship has tight patterns" —
+which is a property of the current configuration, not of the code.
+
+What keeps it LOW, and what I verified rather than assumed: the blast radius
+really is confined to the finding document. Debt Advisor's reader
+(`_CANDIDATE_LINE_RE` is line-anchored, `_BACKTICK_VALUE_RE` is
+`` `[^`]*` ``) cannot return a value containing a backtick or a newline, so
+an injected line **cannot** travel into `proposed_scenarios.md` (test 13).
+The deception stops at the human review queue. That is still the wrong place
+for it to stop — that queue *is* the trust boundary `SCOUTED_UNVERIFIED`
+exists to protect — but it is not a path to a forged number in an agent
+document.
+
+Recommendation: fold the two-line fix into whatever change addresses QA-3,
+since it touches the same function, and restate the backlog rationale as
+"blast radius is bounded at the review document" rather than "the shipped
+patterns are tight".
+
+### On the other three backlog items — I agree with the non-blocking calls
+
+- **ASK-20 (no payload cap):** agreed, low. Confirmed unbounded (test 15,
+  a 100 KB candidate renders in full) but bounded above by
+  `_MAX_FETCH_BYTES`; it is a document-bloat and I/O concern, not a trust
+  one. Same fix site as QA-4.
+- **ASK-21 (slow child, valid result discarded):** agreed as filed, and it
+  should be fixed as part of QA-3 — QA-3 makes the misleading
+  backtracking log line a routine occurrence rather than a rare one, which
+  raises ASK-21's cost.
+- **INFO-23 (warn-only, no raw_text fallback):** agreed, and I'd go further:
+  falling back to `raw_text` would be a regression, and the record in the
+  backlog is the right artifact. The one thing missing is that the warning
+  is log-only — nothing surfaces it in `status`, the activity stream, or
+  the tick's return dict, so "loud" is only loud to someone reading logs.
+  Same observability gap as QA-3's; worth fixing once, together.
+
+## Security review
+
+| Surface | What I actually checked | Findings |
+|---|---|---|
+| Trust boundary — can scraped text reach a rendered document unchecked? | Traced every `Segment.*` construction site in `src/` by grep (89 sites across both agents). `_build_proposed_scenarios` is the only place a live-fetched string enters, and every one is `Segment.scouted_unverified(v)`. Executed `check_guardrail` against a scouted segment containing "credit union" (blocked), containing "best guaranteed" (blocked), and containing neither (allowed). Confirmed `_build_proposed_scenarios` raises `_GuardrailBlocked` *before* returning a body, and the caller does not write on that path. | Clean |
+| Can `SCOUTED_UNVERIFIED` inherit WORLD/OPERATOR exemptions? | `check_guardrail`'s evaluative branch filters on `provenance in (AGENT, SCOUTED_UNVERIFIED)` — scouted text is checked, not exempt. The institutional-character branch's Case 1 (`provenance in (WORLD, OPERATOR)`) cannot match it, and `_is_name_voucher` requires `is_name`, which `Segment.scouted_unverified` structurally cannot set (no parameter exists). Verified the *residual* round-8 adjacency escape is real for scouted text (a `Segment.world(name, is_name=True)` immediately adjacent to a scouted trigger passes) and then verified it is unreachable in the shipped assembler: every candidate value is flanked by AGENT backtick segments. Test 22 asserts that structurally, so a future refactor that reorders the line trips it. | Clean, with a structural guard now added |
+| PKB isolation | `_findings_file`, `_proposed_scenarios_file` (debt advisor) and `_findings_file`, `_history_file` (analyzer) all resolve under `<DATA_DIR>/user-import/debt-finance/`, asserted by monkeypatching `_host.get_data_dir` and checking `data in path.parents` and `pkb not in path.parents`. Confirmed `history.jsonl` is the most sensitive new artifact — it holds the operator's institution names and computed rates verbatim — and is correctly outside the PKB. `state.json` (the only PKB write) is `{input_hash, last_run_at}` / `{terms_hash, approved_finding_count, last_run_at}`, literal dict constructions, unchanged this sprint. | Clean |
+| Activity-stream honesty | `threshold_crossings` returns `scenario_key` strings only; asserted no rate/dollar substring appears in them. The `_host.emit` on a crossing is a fixed string plus `_relative_pointer(_findings_file())` — no count, no key, no figure. The `_GuardrailBlocked` emit carries `data={"reason": reason}`, and `reason` is either the fixed `REASON_EVALUATIVE` constant or `REASON_INSTITUTIONAL_PREFIX` + the matched *trigger phrase* (`credit union`/`nonprofit`/`member-owned`) — a closed vocabulary from a 3-alternative regex, never operator content. | Clean |
+| File I/O — symlinks, malformed files | See QA-1. Agents clean; `agenda_watch` not. Malformed-input resilience exercised across 9 `history.jsonl` shapes (empty, whitespace, non-JSON, `5`, `null`, `[1,2]`, truncated, NUL bytes, 2000 lines) and 10 `scout-patterns.json` shapes (wrong schema, non-list patterns, non-dict entries, missing regex, uncompilable regex, non-numeric `max_matches`, negative `max_matches`, 200 patterns, non-JSON) — none raise, all degrade to empty. `history.jsonl` as a *directory* also degrades to empty. | QA-1 |
+| Path traversal | `_snapshot_path`/`_write_finding` derive filenames through `_slugish`, which is `[^a-z0-9]+ -> "-"` — `.` and `/` cannot survive, so a hostile feed URL or node name cannot escape the directory. Confirmed by construction and by the 48-char cap. The `scout-patterns.json` read *does* follow a symlink (test 48, pinned) but is read-only and confined to JSON pattern definitions. | Clean, with QA-2's collision as the residual |
+| Network I/O / egress | Untouched this sprint: `is_airgapped()` short-circuits `tick()` before any consent or network machinery; feed URLs remain verbatim from the sealed agenda with `_URL_RE` requiring `^https?://`; `_MAX_FETCH_BYTES` (512 KB) and `_FETCH_TIMEOUT_SEC` (20 s) both still enforced; the fetch runs inside `scouting.check_watch`'s consent scope. No SSRF surface added — no code path composes a URL. | Clean |
+| Deserialization | Only `json.loads` on `history.jsonl`, `terms.json`, `scout-patterns.json`, `agenda.json`, `agenda-watch.json`. No `pickle` on untrusted input. The one `pickle` use is `multiprocessing`'s own, over a `str`, a list of plain tuples, and a `Queue` — asserted picklable-by-reference in test 51 so a refactor that closures the worker fails loudly. | Clean |
+| Regex / ReDoS | The sidecar's caps (`_MAX_PATTERN_LEN` 200, `_MAX_PATTERNS` 20, `_MAX_PATTERN_MATCHES` 10) are enforced, verified including the negative-`max_matches` clamp. The wall-clock bound works — `test_catastrophic_pattern_is_bounded_by_wall_clock` genuinely kills `(a+)+$`. But see QA-3: the same 2.0 s budget is where startup cost lands. | QA-3 |
+| Crypto | No crypto added. `_sha`/`_terms_content_hash`/the fingerprint are SHA-256 used as content identity, not as a MAC and not for a secret comparison, so constant-time comparison is not applicable. No MD5/SHA-1 anywhere in the touched files. | Clean |
+| Dependencies | Zero new dependencies. `git diff 73f02d9..HEAD` touches no `pyproject.toml`, no lockfile. `multiprocessing`, `html.parser`, `difflib` are stdlib. | Clean |
+
+## Seal verification
+
+Re-ran
+`PYTHONPATH=<worktree>/src:/Users/netsushi/ProJects/qukaizen-dac .venv/bin/python3 scripts/forge_debt_finance_world.py`.
+Output: `44 terms, sourced {'model': 0, 'sourced': 44, 'total': 44}`,
+`world_sha256 7a121526e5674ce038b396c5c6df6895df94adcc7fed16ea7528effbb5564075`
+— matches the recorded hash, and `git status --porcelain examples/worlds/debt-finance`
+is empty, so the reseal is byte-identical, not merely hash-equal. **Confirmed.**
+
+## Performance
+
+N/A as a benchmark — but QA-3 records a measured 0.60 s per-feed-per-tick
+fixed cost for candidate extraction in a portal-shaped process, against a
+2.0 s budget. That is a number the sprint should own rather than discover.
+
+## Coverage delta
+
+Not measured as line coverage. Test-count delta: +60 passing, +6 xfail
+in `tests/test_debt_finance_qa_round12.py`. The six xfails are QA-1 (3),
+QA-2 (2), and INFO-22 (1), marked non-strict so a fix reports XPASS rather
+than breaking the suite; un-mark them in the fixing commit.
+
+## Notes for the next QA pass
+
+- **The round-11 "265 tests pass across the twelve suites" claim is true and
+  was measured on the wrong population.** Four of this sprint's tests fail in
+  the full suite. Targeted-suite runs are how BLOCK-3 hid in round 1 (a
+  synthetic fixture that didn't resemble the sealed bundle) and it is how
+  QA-3 hid in round 11 (a targeted suite that didn't resemble the real
+  session). Any future round on this feature must quote a full-suite number
+  and a baseline number, not a subset.
+- **Twelve rounds of review went into `check_guardrail` and zero went into
+  the file I/O around it.** QA-1 and QA-2 are both in `agenda_watch.py`'s
+  plumbing — path construction and write mode — which no review round
+  examined, because every round was drawn to the provenance argument. The
+  guardrail is, at this point, genuinely done; the code around it has not
+  had a single adversarial pass.
+- **`spawn` has a much larger contract than "it isn't `fork`".** It couples
+  this module to the parent's cwd, `sys.path`, and `__main__` guard. That
+  contract is undocumented and untested; tests 49–52 are a start, not
+  coverage.
+- The `_slugish` truncation pattern (QA-2) is worth grepping for elsewhere in
+  the repo — any other place that derives a filesystem identity from a
+  truncated slug of a user- or World-supplied string has the same shape.

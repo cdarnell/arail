@@ -67,6 +67,7 @@ import html.parser
 import json
 import logging
 import multiprocessing as mp
+import os
 import re
 import time
 from dataclasses import dataclass
@@ -107,9 +108,19 @@ _MAX_PATTERN_LEN = 200
 _MAX_PATTERNS = 20
 _MAX_PATTERN_MATCHES = 10
 
-# Wall-clock budget for the whole _extract_candidates call, across every
-# pattern declared by the mounted World, per feed per tick.
+# Wall-clock budget for the actual pattern-matching call, across every
+# pattern declared by the mounted World, per feed per tick. This is the
+# ReDoS bound — it starts counting only once the child has confirmed it is
+# running (see _STARTUP_TIMEOUT_SEC), not from process creation.
 _EXTRACT_TIMEOUT_SEC = 2.0
+
+# QA round 12, QA-3: separate, generous allowance for the spawned child's
+# interpreter boot + module re-import — a fixed cost unrelated to
+# scout-pattern matching, measured at 0.6s+ in a lancedb-loaded process.
+# Kept well clear of that measurement so ordinary system load doesn't
+# false-positive a "failed to start" kill; a stuck/broken spawn (not a
+# regex problem) is the only realistic way this is ever hit.
+_STARTUP_TIMEOUT_SEC = 10.0
 
 
 def _watch_interval_sec() -> float:
@@ -166,18 +177,60 @@ def _load_state(path: Path, world: str) -> Dict[str, Any]:
     return {"world": world, "feeds": {}}
 
 
-def _save_state(path: Path, state: Dict[str, Any]) -> None:
+def _safe_write_atomic(path: Path, content: str) -> None:
+    """Write ``content`` to ``path`` via a tmp-file-then-atomic-rename,
+    refusing to follow a pre-placed symlink at the tmp path.
+
+    QA round 12, QA-1: this module's three write sites (state, snapshot,
+    finding) used bare ``Path.write_text`` on the ``.tmp`` staging path,
+    which follows a symlink placed there ahead of time — writing
+    attacker-influenced fetched text through it to whatever it points at.
+    The two agent modules already fixed the identical shape for their own
+    writes (TEST_REPORT.md F5, their ``_safe_write_0600``); this is that
+    same fix applied here, adapted for the tmp-then-rename pattern this
+    module uses for crash-safety (the agents write their target file
+    directly). The final ``os.replace`` step needs no such guard: POSIX
+    ``rename()`` replaces the directory entry at the destination — even
+    if that entry is itself a symlink — rather than writing through it,
+    so the attack surface is specifically the tmp file's own open, not
+    the rename.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps(state, indent=2))
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        fd = os.open(tmp, flags, 0o600)
+    except OSError:
+        # A pre-placed symlink (or other unopenable tmp path) — refuse,
+        # don't write through it and don't raise into the caller's tick.
+        return
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(content)
+    except OSError:
+        return
     tmp.replace(path)
+
+
+def _save_state(path: Path, state: Dict[str, Any]) -> None:
+    _safe_write_atomic(path, json.dumps(state, indent=2))
 
 
 # ── text snapshots (for diffing) ────────────────────────────────────
 
 def _slugish(value: str) -> str:
+    """QA round 12, QA-2: truncating to 48 chars alone can collide two
+    distinct feed URLs onto the same snapshot/finding-stem — the shipped
+    debt-finance World's own Chase and Navy Federal URLs already sit at
+    that boundary. Appending a short content hash before truncating
+    keeps the result human-scannable (the readable prefix survives) while
+    making a collision require an actual hash collision, not just a
+    shared 48-character prefix."""
     s = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
-    return s[:48] or "feed"
+    digest = hashlib.sha256(value.encode("utf-8")).hexdigest()[:8]
+    return f"{s[:39]}-{digest}" if s else f"feed-{digest}"
 
 
 def _snapshot_path(data_dir: Path, world: str, feed: WatchFeed) -> Path:
@@ -194,11 +247,7 @@ def _read_snapshot(data_dir: Path, world: str, feed: WatchFeed) -> Optional[str]
 
 
 def _write_snapshot(data_dir: Path, world: str, feed: WatchFeed, text: str) -> None:
-    path = _snapshot_path(data_dir, world, feed)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".tmp")
-    tmp.write_text(text, encoding="utf-8")
-    tmp.replace(path)
+    _safe_write_atomic(_snapshot_path(data_dir, world, feed), text)
 
 
 # ── visible-text extraction (generic — no per-World knowledge) ─────────
@@ -361,14 +410,42 @@ def _extract_candidates(text: str, patterns: List[Dict[str, Any]]
 
 def _extract_candidates_worker(text: str,
                                 pattern_specs: "List[tuple]",
-                                queue: "mp.Queue") -> None:
-    """Entry point run inside the forked subprocess: recompile patterns
+                                conn: "mp.connection.Connection") -> None:
+    """Entry point run inside the spawned subprocess: recompile patterns
     from source (a compiled ``re.Pattern`` is not relied on to survive the
     fork/pickle boundary) and run the same matching loop
     ``_extract_candidates`` uses. Any failure here degrades to "no
     candidates" — this subprocess exists purely to bound and isolate a
     best-effort annotation, never to be a second place that can crash a
-    tick."""
+    tick.
+
+    QA round 12, QA-3: sends a ``("ready", None)`` sentinel the instant
+    this function actually starts running — i.e. once ``spawn``'s
+    interpreter boot and re-import of this module has finished — *before*
+    doing any pattern matching. The parent waits on this separately from
+    the match result (see ``_extract_candidates_bounded``), so a slow
+    child *start* (spawn's fixed interpreter/import cost, observed at
+    0.6s+ in a lancedb-loaded process — a third of the old single 2.0s
+    budget) is never confused with a slow child *match* (the actual thing
+    this wall-clock bound exists to catch).
+
+    Uses a ``Pipe`` (``Connection.send``), not a ``Queue``. This was tried
+    first with a ``Queue`` and failed empirically:
+    ``multiprocessing.Queue.put`` hands the object to an internal
+    background *feeder thread* that does the actual write to the pipe —
+    and that thread needs the GIL to run. The instant this function moves
+    on to a catastrophically-backtracking match, the match holds the GIL
+    in a single uninterruptible C call (the same fact the module docstring
+    already documents about thread-based timeouts), starving the feeder
+    thread in THIS process before it ever gets to flush the "ready"
+    sentinel — so the parent never saw it and the whole point of the
+    two-phase wait was defeated by the exact hazard it was built to
+    detect. ``Connection.send`` writes synchronously in the calling
+    thread, no feeder thread involved, so it is not subject to this."""
+    try:
+        conn.send(("ready", None))
+    except Exception:  # noqa: BLE001 — connection itself may be broken
+        return
     try:
         patterns: List[Dict[str, Any]] = []
         for label, regex_src, max_matches in pattern_specs:
@@ -377,11 +454,11 @@ def _extract_candidates_worker(text: str,
                                   "max_matches": max_matches})
             except re.error:
                 continue
-        queue.put(_extract_candidates(text, patterns))
+        conn.send(("result", _extract_candidates(text, patterns)))
     except Exception:  # noqa: BLE001 — the parent only ever sees {} on failure
         try:
-            queue.put({})
-        except Exception:  # noqa: BLE001 — queue itself may be broken
+            conn.send(("result", {}))
+        except Exception:  # noqa: BLE001 — connection itself may be broken
             pass
 
 
@@ -441,13 +518,17 @@ def _extract_candidates_bounded(text: str, patterns: List[Dict[str, Any]],
     # REVIEW.md addendum 9: setup itself (not just the child's work) can
     # fail — a spawn-start failure must not abort the whole tick before
     # _save_state runs; degrade to no-candidates for this feed instead.
+    # A Pipe, not a Queue: see _extract_candidates_worker's docstring for
+    # why (Queue.put's feeder thread starves under a GIL-monopolizing
+    # regex match; Connection.send writes synchronously, no thread).
     try:
         ctx = mp.get_context("spawn")
-        queue: "mp.Queue" = ctx.Queue()
+        parent_conn, child_conn = ctx.Pipe(duplex=False)
         pattern_specs = [(p["label"], p["regex_src"], p["max_matches"]) for p in patterns]
         proc = ctx.Process(target=_extract_candidates_worker,
-                            args=(text, pattern_specs, queue), daemon=True)
+                            args=(text, pattern_specs, child_conn), daemon=True)
         proc.start()
+        child_conn.close()  # parent's copy; the child holds its own
     except Exception:  # noqa: BLE001 — e.g. OS out of resources to spawn
         _log.warning(
             "agenda_watch: could not start the candidate-extraction "
@@ -455,20 +536,65 @@ def _extract_candidates_bounded(text: str, patterns: List[Dict[str, Any]],
             feed_url)
         return {}
 
-    # REVIEW.md addendum 9: read the queue BEFORE joining, not after. A
-    # result large enough to fill the pipe's OS buffer blocks the child
-    # inside queue.put() until a reader drains it — join(timeout) waits
-    # for *process exit*, which can't happen until that drain occurs, so
-    # a large-but-fast result was previously misreported as a killed,
-    # catastrophically-backtracking pattern. queue.get(timeout=...) does
-    # the draining itself, so it unblocks as soon as data is available
-    # regardless of payload size; only a genuine hang exhausts the
-    # timeout with nothing written.
-    try:
-        result = queue.get(timeout=_EXTRACT_TIMEOUT_SEC)
-    except Exception:  # noqa: BLE001 — e.g. Empty (real timeout), or a
-                        # worker that died before writing anything
-        result = None
+    def _recv(timeout: float) -> "Optional[tuple]":
+        try:
+            if not parent_conn.poll(timeout):
+                return None
+            return parent_conn.recv()
+        except Exception:  # noqa: BLE001 — e.g. EOFError, a worker that
+                            # died/closed its end before sending anything
+            return None
+
+    def _kill(reason: str) -> None:
+        proc.terminate()
+        proc.join(1.0)
+        if proc.is_alive():
+            proc.kill()
+            proc.join(1.0)
+        parent_conn.close()
+        _log.warning("agenda_watch: candidate extraction for %s %s — "
+                      "skipping candidates for this tick", feed_url, reason)
+
+    # QA round 12, QA-3: a spawned child's interpreter boot + module
+    # re-import is a fixed cost the ORIGINAL child could avoid (fork
+    # inherits already-imported state) but this one cannot — measured
+    # 0.6s+ in a lancedb-loaded (portal-shaped) process, a third of the
+    # single 2.0s budget this used to share with matching. Waiting on a
+    # "ready" sentinel with its own generous allowance means a slow
+    # *start* is never mistaken for a slow *match*: the match-timing
+    # budget below only starts once the child is confirmed running.
+    ready = _recv(_STARTUP_TIMEOUT_SEC)
+    if ready is None or ready[0] != "ready":
+        _kill(f"failed to start within {_STARTUP_TIMEOUT_SEC:.1f}s (this is "
+              f"a subprocess-startup problem, not a scout-pattern one)")
+        return {}
+
+    # REVIEW.md addendum 9: a large result no longer risks being
+    # misreported as a killed, catastrophically-backtracking pattern —
+    # ``recv`` (via ``poll``) drains the pipe itself as data arrives, so
+    # it unblocks as soon as anything is written regardless of payload
+    # size; only a genuine hang exhausts the timeout with nothing sent.
+    received = _recv(_EXTRACT_TIMEOUT_SEC)
+    result = received[1] if received is not None and received[0] == "result" else None
+
+    if result is None:
+        # The child confirmed it started (the "ready" wait above already
+        # passed), so if it is STILL alive here the match itself is what
+        # is taking too long — the one case that plausibly is a
+        # catastrophically-backtracking pattern. If it already exited,
+        # something else went wrong (crash, killed externally) and the
+        # backtracking wording would be actively misleading.
+        if proc.is_alive():
+            _kill(f"did not finish matching within {_EXTRACT_TIMEOUT_SEC:.1f}s "
+                  f"and was killed (possible catastrophic-backtracking "
+                  f"pattern in the mounted World's scout-patterns.json)")
+        else:
+            parent_conn.close()
+            _log.warning(
+                "agenda_watch: candidate-extraction subprocess for %s "
+                "exited (code %s) without producing a result — skipping "
+                "candidates for this tick", feed_url, proc.exitcode)
+        return {}
 
     proc.join(1.0)
     if proc.is_alive():
@@ -477,27 +603,11 @@ def _extract_candidates_bounded(text: str, patterns: List[Dict[str, Any]],
         if proc.is_alive():
             proc.kill()
             proc.join(1.0)
-        queue.close()
-        _log.warning(
-            "agenda_watch: candidate extraction for %s did not finish "
-            "within %.1fs and was killed — skipping candidates for this "
-            "tick (possible catastrophic-backtracking pattern in the "
-            "mounted World's scout-patterns.json)",
-            feed_url, _EXTRACT_TIMEOUT_SEC)
-        return {}
-
-    if result is None:
-        queue.close()
-        _log.warning(
-            "agenda_watch: candidate extraction for %s produced no "
-            "result within %.1fs — skipping candidates for this tick",
-            feed_url, _EXTRACT_TIMEOUT_SEC)
-        return {}
     if proc.exitcode not in (0, None):
         _log.warning(
             "agenda_watch: candidate-extraction subprocess for %s exited "
             "with code %s — result may be incomplete", feed_url, proc.exitcode)
-    queue.close()
+    parent_conn.close()
     return result if isinstance(result, dict) else {}
 
 
@@ -613,8 +723,20 @@ def _write_finding(pkb_root: Path, world: str, feed: WatchFeed, text: str,
     for old in unreviewed[:max(0, overflow)]:
         old.unlink(missing_ok=True)
     path = scout_dir / f"{stem}-{new_sha[:8]}.md"
-    path.write_text(_finding_markdown(world, feed, text, old_sha, new_sha,
-                                       old_text, candidates))
+    # QA round 12, QA-1: this path is content-addressed (hash-suffixed),
+    # so a pre-placed symlink here needs the attacker to predict the
+    # upcoming content's sha256 — narrower than the .tmp files above, but
+    # the same discipline applies for consistency: refuse to write
+    # through a symlink rather than assume the narrower attack surface
+    # makes it safe to skip.
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    content = _finding_markdown(world, feed, text, old_sha, new_sha,
+                                 old_text, candidates)
+    fd = os.open(path, flags, 0o644)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(content)
     return path.relative_to(pkb_root).as_posix()
 
 
