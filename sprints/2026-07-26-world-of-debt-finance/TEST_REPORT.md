@@ -1119,3 +1119,202 @@ than breaking the suite; un-mark them in the fixing commit.
 - The `_slugish` truncation pattern (QA-2) is worth grepping for elsewhere in
   the repo — any other place that derives a filesystem identity from a
   truncated slug of a user- or World-supplied string has the same shape.
+
+---
+
+# QA round 13 — re-verification of the round-12 fixes (2026-07-31)
+
+**Date:** 2026-07-31
+**Build:** [BUILD_LOG.md](./BUILD_LOG.md) at `0cdadf1`
+**Re-verifies:** QA round 12's FAIL (QA-3 HIGH, QA-1 MEDIUM, QA-2 MEDIUM)
+**New tests:** `tests/test_debt_finance_qa_round13.py` (26 passing) +
+`tests/_agenda_watch_workers.py` (spawn-injectable worker stand-ins)
+**Verdict: PASS**
+
+## How this run was invoked
+
+`PYTHONPATH="$(pwd)/src:/Users/netsushi/ProJects/qukaizen-dac"
+.venv/bin/python3 -m pytest tests -q -p no:randomly` — the full suite, per
+round 12's own note that targeted-suite runs are how QA-3 hid.
+
+| run | result |
+|---|---|
+| base `73f02d9`, full suite (round-12 measurement) | 55 failed, 3867 passed, 7 errors |
+| branch `e6a4cdc` (pre-fix), full suite (round-12 measurement) | 60 failed, 3978 passed, 7 errors |
+| **branch `0cdadf1` + round-13 tests, full suite** | **56 failed, 4016 passed, 7 skipped, 3 xfailed, 7 errors (19m48s)** |
+| branch, `test_agenda_watch.py` + round-12 + round-13 alone | 119 passed, 1 skipped, 1 xfailed |
+
+The four sprint-owned failures round 12 filed as QA-3 are **gone**: `grep`
+over the full-run failure list for `agenda|debt|round1` returns **zero**.
+The remaining 56 + 7 all sit in files this sprint never touches
+(`test_world_forge_api`, `test_bench_ai_eng_harness`, `test_aerollm_*`,
+`portal/test_build_tab`, …) and match the pre-existing baseline population.
+`git diff --stat 73f02d9..HEAD -- src scripts tests` is 12 files, all
+debt-finance/agenda-watch. Independently re-derived, not taken on trust.
+
+## Re-verification of each round-12 finding
+
+### QA-3 (HIGH) — CLOSED, and the fix's own new surface was attacked
+
+Re-ran round 12's exact deterministic repro (delete the cwd, then call
+`_extract_candidates_bounded`). Before: `{}` plus a log line blaming
+"possible catastrophic-backtracking pattern in the mounted World's
+scout-patterns.json". Now: `{}` plus **"could not start the
+candidate-extraction subprocess"** — an honest diagnosis pointing at the
+right layer. Confirmed by execution, not by reading the diff.
+
+The two-phase Pipe protocol is *new concurrency code*, so it got its own
+failure-injection battery rather than a re-read. Injecting a stand-in worker
+requires an importable module (spawn pickles the target by reference), which
+is what `tests/_agenda_watch_workers.py` exists for.
+
+| injected failure | expected | observed |
+|---|---|---|
+| child sends `ready` then `os._exit(9)` (OOM-killer / segfault shape) | EOF via `poll()`, not a hang, not a burned budget | returns `{}` in well under the 2.0 s matching budget |
+| same | log must not accuse backtracking | logs "exited (code …) without producing a result"; the word "backtracking" is absent |
+| child sends `ready` then sleeps forever | this IS the backtracking case | killed at ~2 s, backtracking wording present — the wording is still reachable when it is correct |
+| child sleeps **3.0 s before** `ready`, then answers instantly | the old single 2.0 s budget would have killed this | result delivered intact — the QA-3 regression guard |
+| child never sends `ready` | bounded by `_STARTUP_TIMEOUT_SEC`, named honestly | "startup problem", no backtracking wording |
+| result payload 500 KB (> a pipe buffer, reachable per ASK-20) | parent drains, no deadlock | full payload returned |
+| all of the above, then `mp.active_children()` | no leaked/zombie children | none alive |
+
+Answering the two questions posed at me directly: a child that dies between
+`ready` and `result` does **not** hang the parent — the write end closing
+makes `poll()` return immediately and `recv()` raise `EOFError`, which
+`_recv`'s `except Exception` converts to `None`; and because `proc.is_alive()`
+is then false, the honest "exited without producing a result" branch is taken
+rather than the backtracking one. Same for an OS kill mid-match. The
+`child_conn.close()` in the parent right after `proc.start()` is what makes
+that EOF possible at all, and it is present.
+
+### QA-1 (MEDIUM) — CLOSED; the corrected-in-flight fix re-checked for the same class of slip
+
+The specific worry raised (that the first attempt forgot to wrap `os.open`
+itself) is closed: `_safe_write_atomic` wraps `os.open` *and* the write in
+separate `try/except OSError` blocks, both returning rather than raising. New
+tests attack around it rather than repeat it:
+
+- **The docstring's load-bearing claim is now asserted, not assumed.** It
+  argues the final `os.replace` needs no guard because POSIX `rename()`
+  replaces a directory entry rather than writing through it. Tested with a
+  symlink at the *final* path: victim untouched, `dest` is no longer a
+  symlink, content correct.
+- **Refusal leaves no partial file** and does not raise.
+- **A stale regular `.tmp`** (killed-process leftover) is still overwritten —
+  a guard that refused those would silently no-op *forever* after one crash.
+  This is the failure mode an over-strict `O_EXCL` fix would have introduced.
+- Mode is `0600` (no group/other bits), unicode round-trips, a **directory**
+  at the tmp path degrades silently, an unwritable parent degrades silently.
+- The finding site's deliberate asymmetry (raises `OSError`) is pinned twice:
+  the raise itself, and the fact that `tick()`'s `_write_finding` call is
+  inside an `except Exception`. A future "consistency" refactor that made it
+  silent would advance `entry["sha256"]` while dropping the finding —
+  permanently hiding a real change — so the asymmetry is correct and now
+  guarded.
+
+### QA-2 (MEDIUM) — CLOSED, with two properties the fixing commit did not cover
+
+- URLs sharing the **entire** 39-char readable prefix and differing only in
+  the truncated tail are now distinct (the exact Chase/Navy-Federal shape).
+- **Two URLs with no ASCII alphanumerics** (`https://例え.test/…` vs
+  `https://別の.test/…`) previously normalised to the *same* slug outright —
+  worse than truncation, and not covered by the fixing commit. Distinct now.
+- Slug is sha256-derived, therefore stable across processes — asserted
+  explicitly, because a `hash()`-based digest would be `PYTHONHASHSEED`-salted
+  and would make every tick look like a change.
+- Length bounded ≤ 48 for a 4000-char URL; no `/`, `\` or `..` can survive;
+  empty/punctuation-only input still yields a usable non-leading-dash slug.
+
+## New findings
+
+| # | Test | Symptom | Severity |
+|---|---|---|---|
+| — | — | none blocking | — |
+
+### INFO-24 (LOW, filed not failing) — the slug change is an un-migrated rename for already-running labs
+
+QA-2's fix changes every snapshot filename and every finding stem. For a lab
+that has already run, `state.json` still holds the old sha but the old
+snapshot file is orphaned under its old name, so `_read_snapshot` returns
+`None` on the first post-upgrade change. Pinned as behaviour in
+`TestSlugChangeMigration`: it degrades to an **Excerpt** section rather than
+a unified diff (honest, not silent), the `Change: <old> → <new>` line is
+still correct, and nothing crashes. Residue: the orphaned `.txt` snapshots
+and any pre-upgrade unreviewed findings under the old stem are never pruned
+(the prune glob uses the new stem). One-off, bounded, cosmetic. Backlog, not
+a blocker.
+
+### INFO-25 (LOW) — one round-12 test became vacuous under the fix
+
+`test_shipped_feed_urls_are_at_the_truncation_boundary` asserts some shipped
+URL yields a 48-char slug. Post-fix, *every* sufficiently long URL yields
+exactly 39 + 1 + 8 = 48 chars, so the test can no longer fail and no longer
+documents what its name and docstring claim. Harmless, but it is now a
+tautology sitting in the regression set. Its sibling
+(`…slugs_are_currently_distinct`) still carries the real guard.
+
+### INFO-26 (LOW) — the `.tmp` staging name is fixed per destination
+
+`_safe_write_atomic` derives the tmp name deterministically
+(`path.with_suffix(".tmp")`), so two concurrent writers to the same
+destination could interleave. Checked whether that is reachable:
+`agenda_watch.tick` has exactly one caller in `src/` (the Librarian's
+`watch_horizon`, `await`-ed via `asyncio.to_thread`), and no API route or
+second call site exists — so it is serialized today. Recorded as a
+constraint on any future "run the watch on demand from the portal" feature,
+not as a live defect.
+
+## Security review
+
+| Surface | What I actually checked this round | Findings |
+|---|---|---|
+| File I/O — symlink following | All three `agenda_watch` write sites re-tested by execution against a pre-placed symlink: state (`.tmp`), snapshot (`.tmp`), finding (final path). None writes through. Additionally verified the *final*-path symlink case for the rename step, the directory-at-tmp case, the unwritable-parent case, and the stale-regular-tmp case. `O_NOFOLLOW` is guarded by `hasattr` for non-POSIX, and the resulting mode is `0600`. | Clean — QA-1 closed |
+| Path traversal via derived filenames | `_slugish` still collapses `[^a-z0-9]+`, so `.`/`/`/`\` cannot survive; asserted against `../../etc/passwd`, `..`, `/`, `.`. The unslugified `world` component in `_snapshot_path`/`_write_finding` is bounded upstream by `world_mount._SLUG_RE` (`^[a-z0-9][a-z0-9-]*$`), validated at mount and cross-checked against `spec.json`/`face.json` — so it cannot introduce a separator. Verified in `world_mount.py`, not assumed. | Clean |
+| Subprocess / IPC | The parent unpickles whatever arrives on `recv()`. The pipe fds are private to the parent/child pair (child's copy closed in the parent immediately after `start()`), so no local process can inject a pickle onto it; the only writer is our own worker, whose payloads are `str`/`list`/`dict`. Result is `isinstance(result, dict)`-checked before return. Children are daemonized and every exit path terminates→kills→joins; the leak test confirms no survivors. | Clean |
+| ReDoS bound | Still real after the refactor: an injected worker that hangs post-`ready` is killed at the 2.0 s matching deadline, and `test_agenda_watch.py`'s genuine `(a+)+$` test still passes in 2.97 s for the whole file. The startup allowance (10.0 s) is *not* a widening of the ReDoS window — it only covers the interval before matching can begin, and a child that never confirms readiness is killed. | Clean |
+| Crypto | The one new primitive is `hashlib.sha256(value)[:8]` in `_slugish`, used as a **filename disambiguator**, not a MAC and not a secret comparison — no constant-time requirement, no MD5/SHA-1 introduced. 8 hex chars = 32 bits: adequate for accidental collision between a handful of feeds, and a deliberate collision buys an attacker only the ability to make one World feed overwrite another's snapshot in their own lab. Sized correctly for the job. | Clean |
+| Dependencies | `git diff 73f02d9..HEAD` still touches no `pyproject.toml` and no lockfile. Zero new deps; the new test helper uses only `os`/`time`. | Clean |
+| Trust boundary, PKB isolation, activity honesty, guardrail | Not re-derived — round 12 verified these by execution and the fixing commit touches none of that code (`git show --stat 0cdadf1` is `agenda_watch.py` + tests + this report). | Unchanged |
+
+## Seal verification
+
+Re-ran `scripts/forge_debt_finance_world.py`: `44 terms, sourced
+{'model': 0, 'sourced': 44, 'total': 44}`, `world_sha256
+7a121526e5674ce038b396c5c6df6895df94adcc7fed16ea7528effbb5564075` — matches,
+and `git status --porcelain examples/worlds/debt-finance` is empty. Reseal is
+byte-identical. **Confirmed independently.**
+
+## Performance
+
+N/A as a benchmark. One number worth owning: the fix does **not** remove
+QA-3's measured ~0.6 s per-feed-per-tick spawn cost, it only stops that cost
+from being charged against the ReDoS budget. Worst-case candidate extraction
+per feed is now ~10 s (startup) + 2 s (matching) before it gives up, versus
+2 s total before — a longer tail on a background agent tick, in exchange for
+never silently disabling extraction. Correct trade for this feature; recorded
+so it is owned rather than rediscovered.
+
+## Coverage delta
+
+Test-count delta this round: **+26 passing** (`test_debt_finance_qa_round13.py`),
+0 xfail. Full-suite passing count `3990 → 4016`. Cumulative sprint test
+delta vs `73f02d9`: +2716 lines across 12 files, all sprint-owned.
+
+## Notes for the next QA pass
+
+- **The fix's own new code is where the next bug will be.** Round 12's
+  lesson was "twelve rounds went into `check_guardrail` and zero into the
+  file I/O around it". Round 13's is the same shape one level in: the QA-3
+  fix replaced a simple `Queue` handoff with a two-phase Pipe protocol, and
+  a protocol has states a helper function does not. It survived seven
+  injected failure modes, but it is one week old.
+- **`tests/_agenda_watch_workers.py` is the reusable lever.** Any future
+  question about this subprocess ("what if the child is SIGSTOPped?", "what
+  if it sends garbage?") is now a five-line function in that file, because
+  spawn's pickle-by-reference requirement is already solved there.
+- **Un-migrated identity changes deserve a checklist entry.** INFO-24 came
+  from asking "what happens to a lab that already ran the old code?", which
+  no round has asked systematically. Any future change to a derived filename
+  or a state key in this repo should answer it before merge.
+- **Prune INFO-25.** A test that cannot fail is worse than no test; it
+  occupies the slot a real guard would have.
