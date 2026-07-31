@@ -66,6 +66,7 @@ import hashlib
 import html.parser
 import json
 import logging
+import multiprocessing as mp
 import re
 import time
 from dataclasses import dataclass
@@ -91,14 +92,24 @@ _EXCERPT_CHARS = 1500
 _DIFF_CHARS = 2000
 _MAX_UNREVIEWED_PER_FEED = 5
 
-# World-declared extraction patterns (scout-patterns.json) are semi-trusted
-# input — sealed alongside the World, but not code this module wrote. Bound
-# everything defensively: a short regex-length cap plus the existing
-# _MAX_FETCH_BYTES cap on the text being matched keeps a hostile or careless
-# pattern's blast radius small without needing a full regex-safety analyzer.
+# World-declared extraction patterns (scout-patterns.json) are semi-trusted,
+# seal-exempt input — sealed alongside the World, but not code this module
+# wrote, and not integrity-protected the way the rest of a sealed bundle is.
+# The length/count/match-count caps below bound *authoring* sloppiness (a
+# pattern that's needlessly huge, or a sidecar that declares dozens of
+# patterns) — they do NOT bound catastrophic backtracking: a 6-character
+# pattern like ``(a+)+$`` can hang for longer than any wall-clock budget on
+# an input a few dozen characters long, and _MAX_FETCH_BYTES (512 KB) is
+# five orders of magnitude larger than that. The actual ReDoS defense is
+# ``_run_with_timeout`` around ``_extract_candidates`` below — see its
+# docstring for what it does and does not protect against.
 _MAX_PATTERN_LEN = 200
 _MAX_PATTERNS = 20
 _MAX_PATTERN_MATCHES = 10
+
+# Wall-clock budget for the whole _extract_candidates call, across every
+# pattern declared by the mounted World, per feed per tick.
+_EXTRACT_TIMEOUT_SEC = 2.0
 
 
 def _watch_interval_sec() -> float:
@@ -275,7 +286,13 @@ def _load_scout_patterns(staged_dir: Path) -> List[Dict[str, Any]]:
         except (TypeError, ValueError):
             max_matches = _MAX_PATTERN_MATCHES
         max_matches = max(1, min(max_matches, _MAX_PATTERN_MATCHES))
-        out.append({"label": label, "regex": compiled, "max_matches": max_matches})
+        # ``regex_src`` is kept alongside the compiled object (not just the
+        # compiled object) because the ReDoS-timeout wrapper below runs
+        # matching in a forked subprocess and recompiles from source there
+        # rather than relying on the compiled ``re.Pattern`` being picklable
+        # across a process boundary.
+        out.append({"label": label, "regex": compiled, "regex_src": regex_src,
+                    "max_matches": max_matches})
     return out
 
 
@@ -283,7 +300,14 @@ def _extract_candidates(text: str, patterns: List[Dict[str, Any]]
                          ) -> "Dict[str, List[str]]":
     """Run validated, bounded patterns over already-capped text. Returns
     literal matched substrings only — never a transformation, never a
-    number the pattern didn't itself match verbatim."""
+    number the pattern didn't itself match verbatim.
+
+    Callers must invoke this through ``_extract_candidates_bounded``, not
+    directly, so a catastrophically-backtracking pattern cannot hang a tick
+    indefinitely. This function itself has no timeout of its own — it can
+    still block the *thread* it runs on for an unbounded time; bounding
+    that is the caller's job (see ``_run_with_timeout``).
+    """
     candidates: Dict[str, List[str]] = {}
     for p in patterns:
         matches: List[str] = []
@@ -294,6 +318,103 @@ def _extract_candidates(text: str, patterns: List[Dict[str, Any]]
         if matches:
             candidates[p["label"]] = matches
     return candidates
+
+
+def _extract_candidates_worker(text: str,
+                                pattern_specs: "List[tuple]",
+                                queue: "mp.Queue") -> None:
+    """Entry point run inside the forked subprocess: recompile patterns
+    from source (a compiled ``re.Pattern`` is not relied on to survive the
+    fork/pickle boundary) and run the same matching loop
+    ``_extract_candidates`` uses. Any failure here degrades to "no
+    candidates" — this subprocess exists purely to bound and isolate a
+    best-effort annotation, never to be a second place that can crash a
+    tick."""
+    try:
+        patterns: List[Dict[str, Any]] = []
+        for label, regex_src, max_matches in pattern_specs:
+            try:
+                patterns.append({"label": label, "regex": re.compile(regex_src),
+                                  "max_matches": max_matches})
+            except re.error:
+                continue
+        queue.put(_extract_candidates(text, patterns))
+    except Exception:  # noqa: BLE001 — the parent only ever sees {} on failure
+        try:
+            queue.put({})
+        except Exception:  # noqa: BLE001 — queue itself may be broken
+            pass
+
+
+def _extract_candidates_bounded(text: str, patterns: List[Dict[str, Any]],
+                                 feed_url: str = ""
+                                 ) -> "Dict[str, List[str]]":
+    """Wall-clock-bounded, hard-killable wrapper around
+    ``_extract_candidates``.
+
+    **Why a subprocess, not a thread.** An earlier version of this function
+    ran the match on a daemon *thread* with a ``join(timeout)``. That does
+    not work: CPython's regex engine executes catastrophic backtracking
+    entirely inside a single C call that never returns control to the
+    bytecode interpreter, so it never releases the GIL. The timed-out
+    caller's own thread can be woken by the OS after the timeout, but then
+    blocks indefinitely trying to *reacquire* the GIL from the
+    still-running match — the "bounded" wait was not bounded at all,
+    verified empirically against this checkout's exact ``(a+)+$`` repro (it
+    hung the whole test process, not just the worker). A separate process
+    has its own GIL and can be ``terminate()``/``kill()``-ed by the OS
+    regardless of what C loop it is stuck in, which is the only mechanism
+    that actually bounds this.
+
+    Uses the ``fork`` start method explicitly (not the platform default,
+    which is ``spawn`` on macOS as of Python 3.8+) so the child inherits
+    this process's already-imported modules directly rather than having to
+    re-import them (cheap, and avoids re-triggering this module's own
+    import side effects in the child). ``fork`` is unavailable on native
+    Windows; on that platform this function degrades to running
+    unprotected (same as if no timeout wrapper existed) and logs loudly
+    that the ReDoS mitigation is inactive, rather than silently pretending
+    to protect something it cannot.
+    """
+    if not patterns:
+        return {}
+    if "fork" not in mp.get_all_start_methods():
+        _log.warning(
+            "agenda_watch: no 'fork' start method available on this "
+            "platform — running candidate extraction for %s WITHOUT a "
+            "wall-clock ReDoS bound. A catastrophically-backtracking "
+            "pattern in the mounted World's scout-patterns.json can hang "
+            "this tick indefinitely.", feed_url)
+        return _extract_candidates(text, patterns)
+
+    ctx = mp.get_context("fork")
+    queue: "mp.Queue" = ctx.Queue()
+    pattern_specs = [(p["label"], p["regex_src"], p["max_matches"]) for p in patterns]
+    proc = ctx.Process(target=_extract_candidates_worker,
+                        args=(text, pattern_specs, queue), daemon=True)
+    proc.start()
+    proc.join(_EXTRACT_TIMEOUT_SEC)
+    if proc.is_alive():
+        proc.terminate()
+        proc.join(1.0)
+        if proc.is_alive():
+            proc.kill()
+            proc.join(1.0)
+        queue.close()
+        _log.warning(
+            "agenda_watch: candidate extraction for %s did not finish "
+            "within %.1fs and was killed — skipping candidates for this "
+            "tick (possible catastrophic-backtracking pattern in the "
+            "mounted World's scout-patterns.json)",
+            feed_url, _EXTRACT_TIMEOUT_SEC)
+        return {}
+    try:
+        result = queue.get_nowait()
+    except Exception:  # noqa: BLE001 — e.g. Empty, or worker died mid-write
+        result = {}
+    finally:
+        queue.close()
+    return result if isinstance(result, dict) else {}
 
 
 # ── fetch + finding ──────────────────────────────────────────────────
@@ -519,7 +640,7 @@ def tick(data_dir: Optional[Path] = None,
         if new_sha == old_sha:
             continue
         old_text = _read_snapshot(data_dir_resolved, world, feed)
-        candidates = _extract_candidates(text, patterns)
+        candidates = _extract_candidates_bounded(text, patterns, feed.url)
         try:
             rel = _write_finding(pkb_root, world, feed, text, old_sha, new_sha,
                                   old_text, candidates)

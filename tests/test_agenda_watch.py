@@ -390,3 +390,41 @@ def test_pattern_match_count_is_bounded(tmp_path):
     assert patterns[0]["max_matches"] == aw._MAX_PATTERN_MATCHES
     candidates = aw._extract_candidates("1234567890" * 5, patterns)
     assert len(candidates["digits"]) == aw._MAX_PATTERN_MATCHES
+
+
+# ── ReDoS: REVIEW.md addendum 8, BLOCK-9 ─────────────────────────────
+
+def test_catastrophic_pattern_is_bounded_by_wall_clock_not_left_to_hang(tmp_path):
+    """Exact repro shape from REVIEW.md addendum 8: a short, syntactically
+    valid, length- and count-capped pattern (``(a+)+$``) against a short
+    input catastrophically backtracks. Length/count caps alone do not save
+    this (BLOCK-9) — ``_extract_candidates_bounded`` must return within a
+    bounded wall-clock time regardless."""
+    staged = tmp_path / "staged"  # already created by the autouse _iso fixture
+    _write_patterns(staged, [{"label": "evil", "regex": r"(a+)+$"}])
+    patterns = aw._load_scout_patterns(staged)
+    assert len(patterns) == 1  # passes the length/count caps just fine
+
+    pathological_input = "a" * 40 + "!"  # historically hung >120s uncapped
+    import time as _time
+    start = _time.monotonic()
+    result = aw._extract_candidates_bounded(pathological_input, patterns, "https://x.example/evil")
+    elapsed = _time.monotonic() - start
+
+    # Bounded by the timeout plus generous headroom for process
+    # start/terminate overhead — not left to hang for the ~120s+ this
+    # pattern took uncapped.
+    assert elapsed < aw._EXTRACT_TIMEOUT_SEC + 5.0
+    assert result == {}  # no candidates surfaced when extraction times out
+
+
+def test_extract_candidates_bounded_returns_result_of_fast_pattern(tmp_path):
+    staged = tmp_path / "staged"
+    _write_patterns(staged, [{"label": "digit", "regex": r"\d+"}])
+    patterns = aw._load_scout_patterns(staged)
+    result = aw._extract_candidates_bounded("abc 123 def", patterns, "https://x.example/fast")
+    assert result == {"digit": ["123"]}
+
+
+def test_extract_candidates_bounded_empty_patterns_is_a_noop():
+    assert aw._extract_candidates_bounded("anything", [], "https://x.example/none") == {}
