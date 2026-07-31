@@ -26,7 +26,7 @@ it with regression tests, do not redesign it.
 | build | builder | BUILD_LOG.md | done | 2026-07-29 22:40 | 2026-07-30 03:45 | complete — WP1–WP8 in 8 atomic commits + 2 fixups (fa93992…1627c24) |
 | review | architect (review) | REVIEW.md | done | 2026-07-30 04:00 | 2026-07-30 06:40 | BLOCK (70bed95) → fix pass → re-review WEAK_PASS (b69ad71); 2 trivial closes dispatched (backlog filing + F4 driver reorder), 4 follow-ups filed, none ship-blocking |
 | test | qa | TEST_REPORT.md | done | 2026-07-30 06:00 | 2026-07-30 11:20 | WEAK_PASS (cc7de32) — 2 Medium (Q3 stop-parser scope escalation, Q4 F3 unimplemented), 6 Low, 1 test-gate; 45 tests added |
-| ship | — | PR | awaiting operator | — | — | — |
+| ship | — | PR | done | 2026-07-30 11:30 | 2026-07-30 11:30 | PR #156 → main (https://github.com/cdarnell/qukaizen-arail/pull/156) |
 
 ## Decisions log
 
