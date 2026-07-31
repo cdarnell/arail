@@ -123,6 +123,10 @@ def _findings_file() -> Path:
     return _import_dir() / "findings" / "consolidation_analyzer.md"
 
 
+def _history_file() -> Path:
+    return _import_dir() / "history.jsonl"
+
+
 def _relative_pointer(path: Path) -> str:
     """A short, non-identifying pointer to ``path`` for the activity
     stream (ARCHITECTURE.md §6: "a short, non-identifying pointer to the
@@ -301,6 +305,10 @@ def _load_balances() -> Optional[Dict[str, Any]]:
         _validate_numeric_field(s, "rate")
         _validate_numeric_field(s, "fee_pct")
         _validate_numeric_field(s, "term_months")
+    # Optional operator-set alert threshold (Workstream C, tracking): a
+    # top-level field, not a per-debt/per-scenario one, so it's validated
+    # directly against `data` rather than one of the list entries above.
+    _validate_numeric_field(data, "alert_breakeven_months")
     return data
 
 
@@ -417,22 +425,22 @@ class _GuardrailBlocked(Exception):
     pass
 
 
-def _write_findings(text: str, disclaimer: str) -> bool:
-    """Write the findings file, refusing to follow a pre-placed symlink.
+def _safe_write_0600(path: Path, content: str) -> bool:
+    """Write ``content`` to ``path``, refusing to follow a pre-placed
+    symlink. Shared by every write path under ``lab/data/user-import/`` —
+    findings, and now history/proposed-scenarios too.
 
     TEST_REPORT.md F5: ``Path.write_text`` writes *through* a symlink, and a
     subsequent ``chmod`` retargets the victim file's mode — on the
     documented shared-machine convention (multiple accounts on one box),
-    another local user who pre-creates the findings path as a symlink gets
-    an arbitrary-file-overwrite-plus-chmod primitive running as the
-    operator. ``os.O_NOFOLLOW`` at open time (not a ``islink()`` check
-    beforehand, which would be a TOCTOU race against the same attacker)
-    makes the open itself fail if the final path component is a symlink.
-    Returns False (and writes nothing) in that case.
+    another local user who pre-creates a path here as a symlink gets an
+    arbitrary-file-overwrite-plus-chmod primitive running as the operator.
+    ``os.O_NOFOLLOW`` at open time (not a ``islink()`` check beforehand,
+    which would be a TOCTOU race against the same attacker) makes the open
+    itself fail if the final path component is a symlink. Returns False
+    (and writes nothing) in that case.
     """
-    path = _findings_file()
     path.parent.mkdir(parents=True, exist_ok=True)
-    content = text.rstrip() + "\n\n---\n\n" + disclaimer
     flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
     if hasattr(os, "O_NOFOLLOW"):
         flags |= os.O_NOFOLLOW
@@ -450,6 +458,122 @@ def _write_findings(text: str, disclaimer: str) -> bool:
     except OSError:
         pass
     return True
+
+
+def _write_findings(text: str, disclaimer: str) -> bool:
+    """Write the findings file. See ``_safe_write_0600``."""
+    content = text.rstrip() + "\n\n---\n\n" + disclaimer
+    return _safe_write_0600(_findings_file(), content)
+
+
+# ══════════════════════════════════════════════════════════════════════
+#  4b. HISTORY + THRESHOLD ALERTING (Workstream C: ongoing tracking)
+# ══════════════════════════════════════════════════════════════════════
+
+# Cap on retained history lines — bounded growth, oldest dropped first.
+_MAX_HISTORY_LINES = 500
+
+
+def _scenario_key(institution: str, product: str) -> str:
+    return f"{institution}|{product}"
+
+
+def _load_history_lines(path: Path) -> List[str]:
+    """Read and validate existing history lines. Corrupt individual lines
+    are dropped, never raised — the same F1 "malformed input never crashes
+    the tick" contract this module already holds for balances.json extends
+    to its own history file. A wholly unreadable file is treated as empty,
+    not an error."""
+    if not path.exists():
+        return []
+    try:
+        raw_lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return []
+    valid: List[str] = []
+    for line in raw_lines:
+        if not line.strip():
+            continue
+        try:
+            json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        valid.append(line)
+    return valid
+
+
+def _latest_entries_by_key(lines: List[str]) -> Dict[str, Dict[str, Any]]:
+    """The most recent history entry per scenario_key, read from already-
+    validated lines (see ``_load_history_lines``)."""
+    latest: Dict[str, Dict[str, Any]] = {}
+    for line in lines:
+        entry = json.loads(line)  # already validated by the caller
+        key = entry.get("scenario_key")
+        if isinstance(key, str):
+            latest[key] = entry
+    return latest
+
+
+def _append_history(existing_lines: List[str],
+                     results: List[ScenarioResult]) -> str:
+    """Return the new history.jsonl content: existing valid lines plus one
+    new line per candidate scenario this tick, capped at
+    ``_MAX_HISTORY_LINES`` (oldest dropped first).
+
+    Every field written here is either code-computed (rate/fee_pct/
+    breakeven/monthly_savings, from ``ScenarioResult``) or the operator's
+    own typed institution/product name — nothing agent-generated, nothing
+    World-sourced without the operator having staged it themselves. This is
+    a structured data log, not prose rendered for a human to read as an
+    agent's own claim (it is never passed through ``check_guardrail``,
+    exactly like ``balances.json`` itself never is), so the numeric-
+    integrity property this module holds for the findings document extends
+    here by the same reasoning, not by re-running the same check.
+    """
+    ts = time.time()
+    lines = list(existing_lines)
+    for r in results:
+        entry = {
+            "ts": ts,
+            "scenario_key": _scenario_key(r.institution, r.product),
+            "institution": r.institution,
+            "product": r.product,
+            "rate": r.rate,
+            "fee_pct": r.fee_pct,
+            "breakeven": r.breakeven,
+            "monthly_savings": r.monthly_savings,
+        }
+        lines.append(json.dumps(entry, sort_keys=True))
+    if len(lines) > _MAX_HISTORY_LINES:
+        lines = lines[-_MAX_HISTORY_LINES:]
+    return "\n".join(lines) + ("\n" if lines else "")
+
+
+def threshold_crossings(prev_by_key: Dict[str, Dict[str, Any]],
+                         results: List[ScenarioResult],
+                         alert_breakeven_months: Optional[float]) -> List[str]:
+    """Pure comparison, no I/O: which scenario_keys just crossed the
+    operator's own ``alert_breakeven_months`` threshold (breakeven at or
+    below it now, and was not at or below it — or didn't exist — last
+    tick). Returns scenario_keys only, never a rate/dollar figure — the
+    caller decides how to surface this, and any activity-stream emission
+    stays pointer-only per ARCHITECTURE.md §6's convention (the actual
+    numbers live only in the findings file, where every number is already
+    code-inserted)."""
+    if alert_breakeven_months is None:
+        return []
+    crossed: List[str] = []
+    for r in results:
+        key = _scenario_key(r.institution, r.product)
+        prev = prev_by_key.get(key)
+        prev_breakeven = prev.get("breakeven") if prev else None
+        now_crosses = (r.breakeven is not None
+                       and r.breakeven <= alert_breakeven_months)
+        prev_crossed = (prev_breakeven is not None
+                        and prev_breakeven <= alert_breakeven_months)
+        if now_crosses and not prev_crossed:
+            crossed.append(key)
+    return crossed
 
 
 def _vetted_institution_names(bundle_dir: Path) -> frozenset[str]:
@@ -691,6 +815,28 @@ class ConsolidationAnalyzerAgent:
                 "warn",
             )
             return
+
+        # Workstream C (ongoing tracking): append this tick's computed
+        # scenario values to history.jsonl and check whether any scenario
+        # just crossed the operator's own alert_breakeven_months threshold.
+        # Best-effort — a history-file problem must never block the
+        # findings write that already succeeded above.
+        crossed_keys: List[str] = []
+        try:
+            results = _compute_scenarios(debts, scenarios)
+            existing_lines = _load_history_lines(_history_file())
+            prev_by_key = _latest_entries_by_key(existing_lines)
+            raw_threshold = data.get("alert_breakeven_months")
+            alert_threshold = (
+                float(raw_threshold) if isinstance(raw_threshold, (int, float))
+                and not isinstance(raw_threshold, bool) else None
+            )
+            crossed_keys = threshold_crossings(prev_by_key, results, alert_threshold)
+            new_content = _append_history(existing_lines, results)
+            _safe_write_0600(_history_file(), new_content)
+        except Exception:  # noqa: BLE001 — history is best-effort, never fatal
+            pass
+
         self._last_input_hash = fingerprint
         self._last_run_at = time.time()
         self._save_state()
@@ -701,6 +847,16 @@ class ConsolidationAnalyzerAgent:
             f"{_relative_pointer(_findings_file())}",
             "info",
         )
+        if crossed_keys:
+            # Pointer-only, per ARCHITECTURE.md §6's convention — no rate,
+            # no dollar figure, no institution name in the activity stream.
+            # The actual numbers are already in the findings file above.
+            _host.emit(
+                AGENT_ID,
+                "Consolidation Analyzer: a candidate scenario crossed your "
+                f"alert-breakeven threshold — see {_relative_pointer(_findings_file())}",
+                "info",
+            )
 
 
 consolidation_analyzer = ConsolidationAnalyzerAgent()

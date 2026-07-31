@@ -206,6 +206,113 @@ class TestDebtAdvisorNoOp:
         assert host.events == []
 
 
+_FINDING_WITH_CANDIDATES = (
+    "---\n"
+    'title: "Scout finding: personal-loans changed"\n'
+    "tags: [scout, world-debt-finance]\n"
+    "---\n\n"
+    "# Scout finding — personal-loans\n\n"
+    "- World: debt-finance\n"
+    "- Watch: personal-loans\n"
+    "- Feed: https://www.penfed.org/personal-loans\n"
+    "- Checked: 2026-08-01T00:00:00+00:00\n"
+    "- Change: content aaaaaaaa → bbbbbbbb\n\n"
+    "## Candidate values (code-extracted, unverified)\n\n"
+    "Literal substrings the mounted World's declared extraction patterns "
+    "matched in the fetched text. These are not verified, not vetted, and "
+    "not asserted as fact by any agent — a human must confirm before using "
+    "one.\n\n"
+    "- **apr_percent**: `7.99% APR`, `9.99% APR`\n\n"
+    "## Change (unified diff, first 2000 characters)\n\n"
+    "```\nRate dropped\n```\n\n"
+    "Source: https://www.penfed.org/personal-loans\n"
+)
+
+
+class TestDebtAdvisorParseCandidateValues:
+    """Unit tests for the writer/reader pair with agenda_watch.py's own
+    finding-markdown format — see tests/test_agenda_watch.py for the writer
+    side of the same contract."""
+
+    def test_parses_the_real_writer_output(self, debt_advisor_module):
+        candidates = debt_advisor_module._parse_candidate_values(_FINDING_WITH_CANDIDATES)
+        assert candidates == {"apr_percent": ["7.99% APR", "9.99% APR"]}
+
+    def test_absent_section_returns_empty(self, debt_advisor_module):
+        text = "# Scout finding\n\nNo candidates section here at all.\n"
+        assert debt_advisor_module._parse_candidate_values(text) == {}
+
+    def test_stops_at_the_next_heading(self, debt_advisor_module):
+        text = (
+            "## Candidate values (code-extracted, unverified)\n\n"
+            "- **apr_percent**: `5.00%`\n\n"
+            "## Change (unified diff, first 2000 characters)\n\n"
+            "- **not_a_candidate**: `should not be parsed`\n"
+        )
+        candidates = debt_advisor_module._parse_candidate_values(text)
+        assert candidates == {"apr_percent": ["5.00%"]}
+
+
+class TestDebtAdvisorProposedScenarios:
+    def _stage_approved_finding(self, pkb_root: Path, text: str) -> str:
+        rel = "sources/scout/debt-finance-personal-loans-penfed-personal-loans-bbbbbbbb.md"
+        path = pkb_root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+        from arail import compiled_kb
+        compiled_kb.approve([rel], pkb_root)
+        return rel
+
+    def test_proposed_scenarios_written_with_candidates(
+            self, debt_advisor_module, pkb_root, data_dir):
+        self._stage_approved_finding(pkb_root, _FINDING_WITH_CANDIDATES)
+        agent = debt_advisor_module.DebtAdvisorAgent()
+        agent.tick()
+        path = data_dir / "user-import" / "debt-finance" / "proposed_scenarios.md"
+        assert path.exists()
+        text = path.read_text()
+        assert "7.99% APR" in text and "9.99% APR" in text
+        assert "unverified — you decide" in text
+        assert "candidate_scenarios" in text  # the hand-copy instruction
+
+    def test_no_candidates_means_no_proposed_scenarios_file(
+            self, debt_advisor_module, pkb_root, data_dir):
+        # A finding with no Candidate values section at all (the common case).
+        plain = _FINDING_WITH_CANDIDATES.split("## Candidate values")[0]
+        self._stage_approved_finding(pkb_root, plain)
+        agent = debt_advisor_module.DebtAdvisorAgent()
+        agent.tick()
+        path = data_dir / "user-import" / "debt-finance" / "proposed_scenarios.md"
+        assert not path.exists()
+
+    def test_proposed_scenarios_never_under_pkb(
+            self, debt_advisor_module, pkb_root, data_dir):
+        self._stage_approved_finding(pkb_root, _FINDING_WITH_CANDIDATES)
+        debt_advisor_module.DebtAdvisorAgent().tick()
+        for p in pkb_root.rglob("proposed_scenarios.md"):
+            pytest.fail(f"proposed_scenarios.md must never live under pkb_root: {p}")
+
+    def test_proposed_scenarios_chmod_0600(
+            self, debt_advisor_module, pkb_root, data_dir):
+        self._stage_approved_finding(pkb_root, _FINDING_WITH_CANDIDATES)
+        debt_advisor_module.DebtAdvisorAgent().tick()
+        path = data_dir / "user-import" / "debt-finance" / "proposed_scenarios.md"
+        assert stat.S_IMODE(path.stat().st_mode) == 0o600
+
+    def test_candidate_containing_evaluative_word_does_not_block_main_findings(
+            self, debt_advisor_module, pkb_root, data_dir, host):
+        # A hostile/careless World pattern could match a phrase containing
+        # "best" — since it's a WORLD segment it must never be evaluative-
+        # checked (same treatment feed titles already get), and even if it
+        # somehow were blocked, the main findings write must be unaffected.
+        adversarial = _FINDING_WITH_CANDIDATES.replace(
+            "`7.99% APR`, `9.99% APR`", "`the best rate today`")
+        self._stage_approved_finding(pkb_root, adversarial)
+        debt_advisor_module.DebtAdvisorAgent().tick()
+        findings = data_dir / "user-import" / "debt-finance" / "findings" / "debt_advisor.md"
+        assert findings.exists()  # main write always succeeds regardless
+
+
 class TestDebtAdvisorCompliance:
     def test_no_disclaimer_refuses_to_write(self, monkeypatch, host, tmp_path):
         from arail.agents import _builtin_debt_advisor as mod
@@ -571,6 +678,94 @@ class TestConsolidationAnalyzerArithmeticSubstitution:
         agent.tick()
         path = data_dir / "user-import" / "debt-finance" / "findings" / "consolidation_analyzer.md"
         assert stat.S_IMODE(path.stat().st_mode) == 0o600
+
+
+class TestConsolidationAnalyzerHistoryAndThresholds:
+    """Workstream C: ongoing-opportunity tracking. history.jsonl is a
+    structured data log (never rendered through check_guardrail — same
+    category as balances.json itself), and any threshold-crossing alert on
+    the activity stream must stay pointer-only, no figures."""
+
+    def _history_path(self, data_dir: Path) -> Path:
+        return data_dir / "user-import" / "debt-finance" / "history.jsonl"
+
+    def test_history_file_created_never_under_pkb(
+            self, consolidation_module, data_dir, pkb_root):
+        _write_balances(data_dir, _BALANCES)
+        consolidation_module.ConsolidationAnalyzerAgent().tick()
+        history = self._history_path(data_dir)
+        assert history.exists()
+        for p in pkb_root.rglob("*"):
+            assert p.name != "history.jsonl"
+
+    def test_history_entries_match_hand_computed_values(
+            self, consolidation_module, data_dir):
+        _write_balances(data_dir, _BALANCES)
+        consolidation_module.ConsolidationAnalyzerAgent().tick()
+        lines = self._history_path(data_dir).read_text().splitlines()
+        assert len(lines) == 1
+        entry = json.loads(lines[0])
+        assert entry["institution"] == "PenFed Credit Union"
+        assert entry["scenario_key"] == "PenFed Credit Union|balance-transfer"
+        assert entry["rate"] == 5.0
+        assert entry["fee_pct"] == 3.0
+
+    def test_history_grows_across_ticks_with_changed_input(
+            self, consolidation_module, data_dir):
+        _write_balances(data_dir, _BALANCES)
+        agent = consolidation_module.ConsolidationAnalyzerAgent()
+        agent.tick()
+        changed = json.loads(json.dumps(_BALANCES))
+        changed["candidate_scenarios"][0]["rate"] = 4.5
+        _write_balances(data_dir, changed)
+        agent.tick()
+        lines = self._history_path(data_dir).read_text().splitlines()
+        assert len(lines) == 2
+
+    def test_history_file_chmod_0600(self, consolidation_module, data_dir):
+        _write_balances(data_dir, _BALANCES)
+        consolidation_module.ConsolidationAnalyzerAgent().tick()
+        path = self._history_path(data_dir)
+        assert stat.S_IMODE(path.stat().st_mode) == 0o600
+
+    def test_corrupt_history_file_never_crashes_the_tick(
+            self, consolidation_module, data_dir, host):
+        d = data_dir / "user-import" / "debt-finance"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "history.jsonl").write_text("not valid json at all\n{{{\n")
+        _write_balances(data_dir, _BALANCES)
+        consolidation_module.ConsolidationAnalyzerAgent().tick()  # must not raise
+        findings = d / "findings" / "consolidation_analyzer.md"
+        assert findings.exists()  # the main write path is unaffected
+
+    def test_threshold_crossing_emits_pointer_only_no_figures(
+            self, consolidation_module, data_dir, host):
+        payload = json.loads(json.dumps(_BALANCES))
+        payload["alert_breakeven_months"] = 12  # scenario breaks even well under 12mo
+        _write_balances(data_dir, payload)
+        consolidation_module.ConsolidationAnalyzerAgent().tick()
+        alert_events = [e for e in host.events if "alert-breakeven" in e["message"]]
+        assert len(alert_events) == 1
+        msg = alert_events[0]["message"]
+        # pointer-only: no rate, no dollar figure, no institution name
+        assert "5.00" not in msg and "$" not in msg
+        assert "PenFed" not in msg
+        assert "consolidation_analyzer.md" in msg
+
+    def test_no_alert_field_means_no_threshold_alert(
+            self, consolidation_module, data_dir, host):
+        _write_balances(data_dir, _BALANCES)  # no alert_breakeven_months set
+        consolidation_module.ConsolidationAnalyzerAgent().tick()
+        assert not [e for e in host.events if "alert-breakeven" in e["message"]]
+
+    def test_malformed_alert_threshold_is_rejected_not_crashed(
+            self, consolidation_module, data_dir, host):
+        payload = json.loads(json.dumps(_BALANCES))
+        payload["alert_breakeven_months"] = "twelve"  # wrong type
+        _write_balances(data_dir, payload)
+        consolidation_module.ConsolidationAnalyzerAgent().tick()  # must not raise
+        msg = host.events[0]["message"]
+        assert "could not read" in msg
 
 
 class TestConsolidationAnalyzerOperatorNamesExemption:

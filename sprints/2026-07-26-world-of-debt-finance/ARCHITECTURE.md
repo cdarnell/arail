@@ -606,9 +606,18 @@ draft left this undefined):
       "rate": 0.0, "fee_pct": 0.0, "term_months": 0,
       "source": "approved-finding-id-or-operator-entered",
       "as_of": "YYYY-MM-DD" }
-  ]
+  ],
+  "alert_breakeven_months": 0
 }
 ```
+
+`alert_breakeven_months` (optional, added post-launch — §6.6): a top-level,
+operator-set numeric field. When present and a candidate scenario's
+breakeven crosses at or below it (and did not last tick), Consolidation
+Analyzer emits one pointer-only activity event — no rate, fee, or
+institution name in the message, per the same convention as every other
+activity emission in this document. Validated with the same
+`_validate_numeric_field` rule as every other numeric field here.
 
 **Parse-failure behavior, specified (was previously unspecified):**
 - File absent → normal no-op state; Consolidation Analyzer has nothing to
@@ -681,6 +690,46 @@ explicit, named fast-follow candidate, not built now (see open questions).
   file per agent needs no bespoke deletion verb for v1 — the operator can
   delete the files directly; revisit when import lands.
 - The `user_data` reveal-whitelist slot (§6.4).
+
+### 6.6 Deals, education depth, and ongoing tracking (post-launch upgrade)
+
+A product-capability audit after the sprint above shipped found the World
+under-delivered on three of the operator's actual goals — the safety layer
+worked, but the World itself surfaced a curated content list, not live
+deals; the term corpus was a thin glossary; and nothing remembered a value
+across ticks. Three follow-on workstreams closed this, all preserving every
+invariant established above (segment/provenance guardrail, state.json
+hash-only convention, PKB isolation, generic-scouting rule):
+
+- **Education**: the term corpus grew from 26 to 44 entries (worked
+  `example` fields, a fixed `related[]` graph with zero sinks — both named
+  institutions were previously unreachable from any other term), and
+  `knowledge_sources[]` was reordered so the sealer's first-3-live-watch cap
+  lands on three real rate/offer pages instead of two static government
+  pages plus one rate page.
+- **Deal-finding, made World-generic** (`src/arail/research/agenda_watch.py`
+  — zero finance-specific code, works identically for any World): fetched
+  pages are now reduced to visible text (script/style/head stripped) before
+  hashing and diffing, a finding shows a bounded unified diff instead of a
+  raw head-of-document excerpt, unreviewed findings are retained up to a
+  cap instead of deleted on every change, and a World may optionally
+  declare bounded regex extraction patterns (a seal-exempt
+  `scout-patterns.json` sidecar) that surface literal matched substrings as
+  "candidate values (code-extracted, unverified)" in a finding — never
+  asserted as fact, never auto-applied.
+- **Ongoing tracking** (Consolidation Analyzer): `lab/data/user-import/
+  debt-finance/history.jsonl` (never `lab/pkb/`) records one line per
+  candidate scenario per non-no-op tick — every field code-computed or
+  operator-typed, the same numeric-integrity property the findings document
+  already holds. `alert_breakeven_months` (§6.1) drives a pointer-only
+  activity alert on a threshold crossing. Debt Advisor gained
+  `lab/data/user-import/debt-finance/proposed_scenarios.md`: when an
+  approved finding has candidate values, they're quoted back to the
+  operator (`Segment.world(...)`, the identical treatment a finding's feed
+  title already gets) with explicit hand-copy-into-`balances.json`
+  instructions — the operator remains the sole confirmer of any figure that
+  ever reaches a `candidate_scenarios` entry; nothing here writes to
+  `balances.json` automatically.
 
 ---
 
