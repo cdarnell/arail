@@ -260,6 +260,37 @@ def test_visible_text_strips_script_style_head():
     assert "<title>t</title>" not in text  # head is stripped wholesale
 
 
+def test_visible_text_survives_omitted_head_close_tag():
+    """REVIEW.md addendum 8, BLOCK-11: </head> is optional/implied in
+    HTML5. Exact repro: without this fix, the skip never ends and the
+    entire body is silently dropped, making the watch's hash stable
+    forever regardless of real page changes."""
+    html = "<html><head><title>Hidden Title</title><body>REAL RATE 7.99%</body></html>"
+    text = aw._visible_text(html)
+    assert "REAL RATE 7.99%" in text
+    assert "Hidden Title" not in text  # the head's own content is still stripped
+
+
+def test_visible_text_still_strips_explicit_well_formed_head_close():
+    """No regression: an explicit, well-formed </head> must still strip
+    correctly."""
+    html = (
+        "<html><head><title>Hidden Title</title></head>"
+        "<body>Visible body text</body></html>"
+    )
+    text = aw._visible_text(html)
+    assert "Visible body text" in text
+    assert "Hidden Title" not in text
+
+
+def test_visible_text_with_no_head_element_at_all():
+    """A bare <body> (or a full fragment with no <head>) has nothing to
+    skip, and must not have any content dropped."""
+    html = "<body><p>Just a body fragment, no head at all</p></body>"
+    text = aw._visible_text(html)
+    assert "Just a body fragment, no head at all" in text
+
+
 def test_visible_text_passes_plain_text_through_unchanged():
     plain = "driver 101.0 available"
     assert aw._visible_text(plain) == plain

@@ -206,26 +206,59 @@ def _write_snapshot(data_dir: Path, world: str, feed: WatchFeed, text: str) -> N
 class _TextExtractor(html.parser.HTMLParser):
     """Collects visible text, dropping script/style/head content. Plain
     text or JSON fed in has no tags to strip, so it passes through
-    effectively unchanged — this is not an HTML-only code path."""
+    effectively unchanged — this is not an HTML-only code path.
+
+    REVIEW.md addendum 8, BLOCK-11: ``</head>`` is optional in HTML5 (an
+    implied/omitted close is spec-legal and routinely used) — a
+    ``_skip_depth`` counter that only ever decrements on an *explicit*
+    ``</head>`` end tag never ends the skip on such a page, so every
+    character of a real ``<body>`` gets silently dropped and
+    ``_visible_text`` returns ``""``. ``head`` is tracked as its own boolean
+    (``_in_head``), separately from the nestable script/style depth
+    counter, specifically so that seeing ``<body>`` (or any other
+    non-head-content start tag) can unconditionally clear it — a hard
+    reset, not a decrement — regardless of whether a ``</head>`` was ever
+    seen. ``script``/``style`` keep the depth-counter treatment: those
+    genuinely can (and in the wild sometimes do) appear nested inside one
+    another's malformed markup, and there is no equivalent "implied close"
+    rule for them the way HTML5 defines for ``head``.
+    """
+
+    # Per the HTML5 parsing spec, encountering any of these while still
+    # "in head" implicitly ends the head element — a browser-grade parser
+    # would insert an implied </head> before them. We don't need a full
+    # implementation of that state machine; treating any of them as a hard
+    # "head is now over" signal is sufficient for this module's only use
+    # (deciding what NOT to hash/diff), and covers both the common case
+    # (<body>) and the "no <head> at all" case (data before any of the
+    # tags below arrives with _in_head already False from the start).
+    _HEAD_ENDING_TAGS = frozenset({"body", "frameset"})
 
     def __init__(self) -> None:
         super().__init__()
         self._skip_depth = 0
+        self._in_head = False
         self._chunks: List[str] = []
 
     def handle_starttag(self, tag: str, attrs: Any) -> None:  # noqa: D401
-        if tag in ("script", "style", "head"):
+        if tag in self._HEAD_ENDING_TAGS:
+            self._in_head = False
+        if tag == "head":
+            self._in_head = True
+        elif tag in ("script", "style"):
             self._skip_depth += 1
 
     def handle_startendtag(self, tag: str, attrs: Any) -> None:
         pass  # self-closing tags (<br/>, <meta/>) never carry visible text
 
     def handle_endtag(self, tag: str) -> None:
-        if tag in ("script", "style", "head") and self._skip_depth > 0:
+        if tag == "head":
+            self._in_head = False
+        elif tag in ("script", "style") and self._skip_depth > 0:
             self._skip_depth -= 1
 
     def handle_data(self, data: str) -> None:
-        if self._skip_depth == 0:
+        if self._skip_depth == 0 and not self._in_head:
             self._chunks.append(data)
 
 
