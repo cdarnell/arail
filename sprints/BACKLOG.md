@@ -513,3 +513,50 @@ scouting internals for hypothetical future Worlds with looser patterns.
 proactively (cheap, isolated, no behavior change for existing Worlds) the
 next time `agenda_watch.py` is touched, or wait for a concrete World that
 actually needs a loose extraction pattern to force the issue.
+
+---
+
+## agenda_watch.py — 2 non-blocking follow-ups from round-13 QA re-verification
+
+**Filed by:** `sprints/2026-07-26-world-of-debt-finance/` (deals/education/
+tracking capability upgrade), TEST_REPORT.md "QA round 13", verdict PASS.
+Found while adversarially re-verifying the QA-1/QA-2/QA-3 fixes from round
+12 (commit `0cdadf1`).
+
+**INFO-24 — the QA-2 slug-hashing fix is an un-migrated rename for a lab
+that already ran the pre-fix code.** `_slugish`'s new content-hash suffix
+changes every snapshot filename and finding stem. A lab that ran the old
+code has `state.json` entries keyed by the old sha with an orphaned
+snapshot file under the old name — `_read_snapshot` returns `None` on the
+first post-upgrade change. Confirmed non-broken, just non-ideal: the
+finding degrades honestly to an **Excerpt** section instead of a unified
+diff (not silent, not a crash), and the `Change: <old> → <new>` line stays
+correct. The orphaned old-named `.txt` files under
+`DATA_DIR/agenda-watch/` are inert residue, never cleaned up.
+**Fix shape:** either a one-time migration pass that renames existing
+snapshot files to the new slug scheme on first tick after upgrade, or
+accept the one-time diff-quality degradation as the cost of the fix (it
+self-heals on the very next change per feed) and just clean up the
+orphaned files opportunistically.
+
+**INFO-26 — `_safe_write_atomic`'s tmp-file name is fixed per destination,
+which is a concurrency assumption, not yet a rule.** The ``.tmp`` staging
+name is derived deterministically from the destination path
+(``path.with_suffix(".tmp")``), so two concurrent writers to the same
+destination could in principle interleave and corrupt each other's write.
+Checked and confirmed safe *today*: `agenda_watch.tick()` has exactly one
+caller in `src/` (the Librarian's `watch_horizon`, awaited via
+`asyncio.to_thread`), so writes are serialized by construction, not by
+this file's own locking.
+**What a future sprint needs to decide:** if a future feature ever calls
+`tick()` from a second call site (e.g. an on-demand "run this watch now"
+portal action), either add real locking around the tmp-file write or
+derive the tmp name per-call (e.g. a pid/uuid suffix) before that second
+caller ships — this is a load-bearing assumption to revisit, not
+something to rediscover the hard way.
+
+**Why not done now:** neither is reachable under this sprint's actual
+shape (single caller, in-place upgrades are the exception not degrading
+unsafely) — filed so a future sprint that changes either assumption
+(adds a second `tick()` caller, or needs snapshot continuity across an
+upgrade) finds this written down instead of rediscovering it.

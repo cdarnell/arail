@@ -174,16 +174,6 @@ class TestFeedSlugCollisions:
         ]
         assert len(keys) == len(set(keys)), f"colliding feed slugs: {keys}"
 
-    def test_shipped_feed_urls_are_at_the_truncation_boundary(self):
-        """Documents the zero-margin situation QA-2 reports: two of the
-        three shipped feed URLs already hit the 48-char slug cap, so any
-        sibling URL under the same host/path collides."""
-        agenda = json.loads((SEALED_WORLD / "agenda.json").read_text())
-        urls = [f for w in agenda.get("watches", [])
-                for f in w.get("feeds", []) if f.startswith("http")]
-        truncated = [u for u in urls if len(aw._slugish(u)) == 48]
-        assert truncated, "expected at least one URL at the truncation cap"
-
     def test_two_long_sibling_urls_do_not_share_a_snapshot(self, tmp_path):
         """QA-2, fixed: _slugish now appends an 8-char content hash before
         truncating, so a shared 48-char prefix no longer collides."""
