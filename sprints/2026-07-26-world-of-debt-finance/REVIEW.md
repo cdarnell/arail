@@ -1811,3 +1811,290 @@ unbounded-execution input channel into a trusted-provenance path. That is a
 5. Add the four missing tests named above; invert
    `test_candidate_containing_evaluative_word_...` after action 1.
 6. Resolve the `verified_as_of` ASK in the sprint record one way or the other.
+
+---
+
+# Addendum 9 — round 10 (deals / education / tracking capability upgrade)
+
+**Date:** 2026-07-31
+**Build:** `f175d29` (round-9 fixes `fb7c48c`, `ba90978`, `7c7ef91`,
+`de1128d`, `cb2bd25`, `2715171`, plus the orchestrator's own `f175d29`)
+**Architecture:** `sprints/2026-07-26-world-of-debt-finance/ARCHITECTURE.md`
+
+## Verdict: BLOCK
+
+One BLOCK (BLOCK-12), three ASKs, three INFOs. BLOCK-8 and BLOCK-10 are
+confirmed fully fixed. BLOCK-9's fix is confirmed sound *after* the spawn
+change, with follow-ups. BLOCK-11 is **only partially fixed** — the exact
+same failure mode remains reachable through a different, equally
+spec-legal HTML omission.
+
+## 1. Re-verification of the round-9 BLOCKs
+
+### BLOCK-8 (candidate-value trust escape) — **FIXED, correctly.**
+`Provenance.SCOUTED_UNVERIFIED` (`debt_finance_compliance.py:213`) is
+handled on *both* guardrail branches, not just the one that was reported:
+
+- Evaluative check (`:411`) — `SCOUTED_UNVERIFIED` is joined with `AGENT`
+  into `checkable_text`, so a candidate value is scanned exactly like
+  ungrounded agent prose.
+- Institutional-character check — the tier is excluded from the case-1
+  trusted-verbatim branch (`:422`, which admits only `WORLD`/`OPERATOR`),
+  and `_is_name_voucher` requires `WORLD`/`OPERATOR` *and* `is_name`,
+  while `Segment.scouted_unverified` (`:281`) structurally cannot set
+  `is_name`. A candidate value therefore can neither self-vouch nor vouch
+  for a neighbour.
+
+Call site verified: `_builtin_debt_advisor.py:399` tags each value
+`Segment.scouted_unverified(v)`; only feed/checked/path metadata
+(`:386`, `:388`, `:390`) remains `Segment.world(...)`, which is correct —
+those are the finding's own PKB metadata, not fetched page content. The
+previously-inverted test is inverted (`test_debt_finance_agents.py:305`)
+and the institutional-character angle has its own coverage (`:949`,
+`:962`). No residual `Segment.world(...)` on any candidate-derived text.
+
+### BLOCK-10 (non-dict history lines) — **FIXED, correctly.**
+`_load_history_lines` now requires `isinstance(parsed, dict)`
+(`_builtin_consolidation_analyzer.py:515-517`), mirroring `_load_balances`'s
+container-shape validation. The silent `except Exception: pass` in the tick
+is now a logged warning carrying no rate, dollar figure, or institution
+name — which satisfies both the BLOCK and the round-9 ASK about the
+silence that hid it. Test `test_non_dict_json_history_lines_are_dropped_not_kept`
+covers `5`, `"x"`, `null`, `[1, 2]` and asserts the downstream reader
+survives what remains. Correct.
+
+### BLOCK-11 (dropped body on implied `</head>`) — **PARTIALLY fixed. See BLOCK-12.**
+The boolean `_in_head` with a hard reset on `<body>`/`<frameset>` does fix
+the reported repro, and the three new tests pass. But the fix bounds the
+implied-close rule to an allowlist of *two* tags while its own docstring
+claims the general rule. See BLOCK-12.
+
+### BLOCK-9 (ReDoS wall-clock bound) + the spawn change — **the spawn fix is sound.**
+I independently confirmed the orchestrator's characterization rather than
+taking it on trust:
+
+- The subprocess (not thread) rationale holds: catastrophic backtracking
+  runs inside a single C call that never releases the GIL, so `join(timeout)`
+  on a thread cannot bound it. Only OS-level `terminate()`/`kill()` can.
+- The fork hazard is real. `lancedb` is loaded in the portal process
+  (PKB/wiki vector index) and wraps a native async runtime with its own
+  worker threads; `fork()` duplicates only the calling thread, so a lock
+  held by a lancedb worker at fork time is inherited held with no thread
+  alive to release it. A hang *before the child ever reaches the worker*
+  would defeat the very bound this code exists to provide.
+- The spawn switch is correct and required no redesign, for exactly the
+  stated reason: `_extract_candidates_worker` (`agenda_watch.py:356`) takes
+  only picklable plain args (`str`, list of tuples, `Queue`) and recompiles
+  each pattern from `regex_src` (`:370`) rather than relying on a compiled
+  `re.Pattern` crossing the boundary. `regex_src` is deliberately retained
+  alongside the compiled object at `:327` for this. Spawn-compatible by
+  construction, as claimed.
+- Measured on this checkout: `_extract_candidates_bounded` returns a
+  correct result in ~0.08 s (spawn startup + `import
+  arail.research.agenda_watch` measured at 0.10 s cold — comfortably
+  inside the 2.0 s budget, so the added spawn cost does not eat the
+  ReDoS timeout), and the `(a+)+$` repro returns `{}` in 2.006 s.
+- The `__main__` re-execution hazard that spawn (unlike fork) introduces
+  is **not** live on the shipped path: the only caller is
+  `_builtin_librarian.py:151` inside the uvicorn process, whose `__main__`
+  is the console-script wrapper, which is `if __name__ == '__main__'`-guarded
+  and is re-run by `runpy` under `__mp_main__`. Same for pytest. No
+  recursive-spawn risk in any shipped entry point.
+- 176 tests pass across `test_agenda_watch.py`, `test_debt_finance_agents.py`,
+  `test_librarian_scout.py`, `test_scouting.py`,
+  `test_debt_finance_compliance.py`,
+  `test_debt_finance_consolidation_arithmetic.py`.
+
+## 2. Findings
+
+### [BLOCK] BLOCK-12 — BLOCK-11's failure mode survives an omitted `<body>`, which is equally spec-legal
+
+`src/arail/research/agenda_watch.py:235` —
+`_HEAD_ENDING_TAGS = frozenset({"body", "frameset"})`, consumed at `:244`.
+
+In HTML5 `<body>` is **optional in exactly the same way `</head>` is**. The
+head element ends at the first start tag that is not head-content (`base`,
+`basefont`, `bgsound`, `link`, `meta`, `title`, `noscript`, `script`,
+`style`, `template`). The fix enumerates the *closing* signal instead of
+the *head-content* set, so any page that omits both `</head>` and `<body>`
+reproduces BLOCK-11 verbatim: `_in_head` is never cleared, every character
+is dropped, `_visible_text` returns `""`, the stored hash becomes a stable
+hash of the empty string, and **the watch never fires again** — the one
+failure mode a scouting system cannot self-report, which is precisely why
+BLOCK-11 was a BLOCK.
+
+Repro (run against the current worktree):
+
+```python
+from arail.research.agenda_watch import _visible_text as v
+v('<html><head><title>t</title><div>REAL RATE 7.99%</div></html>')          # -> ''
+v('<html><head><title>t</title><p>REAL RATE 7.99%</p>')                      # -> ''
+v('<html><head><meta charset="utf-8"><table><tr><td>APR 5.25%</td></tr></table></html>')  # -> ''
+v('<html><head><title>t</title><body>REAL 7.99%</body></html>')              # -> 'REAL 7.99%'  (the fixed case)
+```
+
+The code's own docstring at `:230-234` asserts the behaviour the code does
+not implement: *"treating any of them as a hard 'head is now over' signal
+… covers both the common case (`<body>`) and the 'no `<head>` at all'
+case"*, and `:218-220` claims *"seeing `<body>` (or any other
+non-head-content start tag) can unconditionally clear it"*. The parenthetical
+is the correct rule; the implementation is the two-tag subset.
+
+**Required fix (two parts — both, not either):**
+
+1. Invert the allowlist. Track `_HEAD_CONTENT_TAGS = frozenset({"base",
+   "basefont", "bgsound", "link", "meta", "title", "noscript", "script",
+   "style", "template", "head"})` and, in `handle_starttag`, clear
+   `_in_head` for any tag **not** in that set. That is the actual HTML5
+   rule and closes the whole class, not another instance of it.
+2. Add the structural guard that makes this class of parser bug
+   non-silent regardless of parser correctness. At `agenda_watch.py:680`,
+   `text = _visible_text(raw_text)` is used with no sanity check. If
+   `_visible_text` returns empty (or near-empty) from a substantially
+   non-empty `raw_text`, that is a parser failure, not a page: log a
+   warning naming the feed and fall back to `raw_text` rather than
+   silently sealing an empty-string baseline that can never change again.
+   Had this guard existed, BLOCK-11 would have been a logged anomaly
+   rather than an invisible dead watch — and BLOCK-12 would not have
+   been reachable at all.
+
+**Required tests:** the three shapes in the repro above, plus a test that
+a page whose visible text extracts to empty while `raw_text` is non-empty
+produces a warning and does not seal an empty baseline.
+
+### [ASK] ASK-13 — a spawned child that dies before `queue.put` yields `{}` with no signal at all
+
+`src/arail/research/agenda_watch.py:456-462`. If the child exits non-zero
+before writing to the queue, `proc.join()` returns, `proc.is_alive()` is
+false, the timeout branch is skipped, `queue.get_nowait()` raises `Empty`,
+and the broad `except` converts it to `{}` — **no log, no exception,
+nothing.** `proc.exitcode` is never inspected.
+
+Under `fork` this was close to impossible (the child was a memory copy).
+Under `spawn` it is a real class: the child must `exec` `sys.executable`
+and re-import `arail.research.agenda_watch` in a fresh interpreter, any of
+which can fail on a machine where the import graph, the interpreter path,
+or `__main__` differs from this one. I demonstrated the shape accidentally
+— an unguarded caller produced `cold 0.09 {}` with a child traceback on
+stderr and *zero* visibility in the return value or the log. The result is
+that a permanently broken extraction path is indistinguishable from "this
+page had no candidates."
+
+Fix: after `join`, check `proc.exitcode`; if it is not `0`, log a warning
+naming the feed and the exit code before returning `{}`. Cheap, and it
+converts a silent permanent degradation into an operator-visible one.
+(Also consider `queue.get(timeout=0.5)` instead of `get_nowait()` — the
+child's `put` is flushed by a feeder thread, and `get_nowait()` immediately
+after `join` has a documented spurious-`Empty` window.)
+
+### [ASK] ASK-14 — `ctx.Queue()` / `proc.start()` can raise and abort the whole watch pass
+
+`agenda_watch.py:436` and `:440` are called from `:688`, which sits
+**outside** the `try` that begins at `:689`. A raise there propagates out
+of `tick()`'s per-feed loop entirely, skipping `_save_state` at `:699`, so
+every feed's `last_checked_ts` and `sha256` update from the pass is lost.
+
+`spawn` widens this surface versus `fork`: `ctx.Queue()` needs POSIX
+semaphores (`OSError: [Errno 38] Function not implemented` is a well-known
+failure in restricted containers and some musl images), and `start()` must
+locate and exec `sys.executable`. ARAIL is a blueprint other people run on
+machines we do not control, so "this environment can't spawn" is a
+scenario, not a hypothetical. Wrap the queue/process construction in a
+`try` that logs and degrades to `{}` for that feed — matching the
+"candidates are a best-effort annotation, never fatal" contract the
+worker's own docstring already states.
+
+### [ASK] ASK-15 — a result larger than the OS pipe buffer deadlocks the child until the timeout, and the log blames the wrong cause
+
+Measured on this checkout: five patterns × ten matches of ~60 KB each →
+`_extract_candidates_bounded` returned `EMPTY` after **2.072 s**, logging
+*"did not finish within 2.0s and was killed … possible catastrophic-backtracking
+pattern."* There was no backtracking. The child completed matching, then
+blocked in `Queue`'s feeder thread because the parent — sitting in
+`proc.join()` — never drains the pipe, so the payload exceeded the ~64 KB
+buffer and the child was killed holding a correct result.
+
+Reachable in production: `_MAX_PATTERNS`(20) × `_MAX_PATTERN_MATCHES`(10)
+= 200 matches with **no per-match length cap**, over text bounded only by
+`_MAX_FETCH_BYTES` (512 KB). A World-authored pattern as ordinary as
+`[^<]+` or `.+` in the seal-exempt `scout-patterns.json` sidecar hits it.
+Not introduced by the spawn change (fork had the same pipe), but it is
+unreviewed and it actively misdiagnoses itself in the log, which is worse
+than failing plainly.
+
+Fix: cap each match and the total payload in `_extract_candidates_worker`
+before `queue.put` (a candidate value is a short literal by design — a
+few hundred characters is generous), and distinguish "killed on timeout"
+from "child produced nothing" in the log message.
+
+### [INFO] INFO-16 — the start-method fallback is now unreachable, and fails in the wrong direction
+
+`agenda_watch.py:426`. `spawn` is available on every platform CPython
+supports, so `"spawn" not in mp.get_all_start_methods()` is dead code
+(the old `fork` check was genuinely reachable on native Windows). Harmless
+to leave, but note it degrades to running the match **unprotected** —
+failing *open* on a ReDoS bound for a feature the module itself calls a
+best-effort annotation. Returning `{}` would be the right direction. If
+the branch is kept, say in the comment that it is defensive and expected
+to be unreachable, so a future reader does not assume it is tested.
+
+### [INFO] INFO-17 — docstring overstates the implementation
+
+`agenda_watch.py:218-220` and `:230-234` describe the general HTML5
+implied-close rule; the code implements a two-tag subset. Fixing BLOCK-12
+per part 1 above makes the docstring true. Do not fix the docstring
+instead of the code.
+
+### [INFO] INFO-18 — this worktree's editable install resolves to the *other* checkout
+
+`.venv/lib/python3.11/site-packages/__editable__.arail-1.0.0.pth` points at
+`/Users/netsushi/ProJects/qukaizen-arail/src`, not at this worktree, so a
+bare `pytest` here imports and tests the **main checkout**, silently. All
+numbers in this addendum were produced with
+`PYTHONPATH=<worktree>/src`. Any prior round's pass counts collected
+without that override should be treated as unverified. Worth a `conftest.py`
+`sys.path` pin or a note in the sprint record.
+
+## 3. Test coverage assessment
+
+176 passing across the six relevant suites with the path override. Coverage
+of the round-9 BLOCKs is genuine (each has a test that fails without its
+fix), with one caveat: `test_catastrophic_pattern_is_bounded_by_wall_clock_not_left_to_hang`
+asserts `result == {}`, which is also what a *systematically broken*
+subprocess returns — it cannot by itself distinguish "bounded" from
+"never worked." `test_extract_candidates_bounded_returns_result_of_fast_pattern`
+covers that gap, so the pair is adequate; keep them together and say so.
+
+Gaps, all named above: BLOCK-12's three HTML shapes, the empty-visible-text
+guard, non-zero child exitcode (ASK-13), oversized payload (ASK-15).
+
+## 4. Tech debt delta
+
+No new debt beyond the findings above. The `SCOUTED_UNVERIFIED` tier is a
+net *reduction* — it replaces an implicit trust assumption with an explicit,
+type-level one, and ARCHITECTURE.md §6.6 was updated with it. The spawn
+switch trades tens of milliseconds of child startup for the removal of a
+whole class of unreproducible native-runtime hangs; the right trade, and
+the measurement above confirms the cost does not encroach on the timeout
+budget.
+
+## Required actions before merge
+
+1. **BLOCK-12** — invert `_HEAD_ENDING_TAGS` into a head-content allowlist
+   so any non-head-content start tag ends the head, **and** add the
+   empty-visible-text guard at `agenda_watch.py:680`. Both parts. Tests for
+   the three repro shapes plus the guard.
+2. **INFO-17** — correct the `_TextExtractor` docstring once the code
+   implements what it already claims.
+3. **ASK-13** — check `proc.exitcode` and log a non-zero child exit.
+4. **ASK-14** — wrap `ctx.Queue()` / `proc.start()` so a spawn failure
+   degrades that feed instead of aborting the pass before `_save_state`.
+5. **ASK-15** — cap per-match and total payload size in the worker; stop
+   the timeout log from misattributing a pipe-blocked child to
+   catastrophic backtracking.
+6. **INFO-16 / INFO-18** — comment the unreachable fallback; pin or
+   document the worktree test path.
+
+Actions 3–5 may ship as a follow-up ticket if the orchestrator prefers, in
+which case the verdict on the remainder is WEAK_PASS. Action 1 may not:
+it is the same finding as BLOCK-11, at the same severity, still open.
