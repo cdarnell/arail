@@ -2098,3 +2098,140 @@ budget.
 Actions 3–5 may ship as a follow-up ticket if the orchestrator prefers, in
 which case the verdict on the remainder is WEAK_PASS. Action 1 may not:
 it is the same finding as BLOCK-11, at the same severity, still open.
+
+---
+
+# Addendum 10 — Round 11 review (2026-07-31)
+
+**Build:** `b87a408` ("fix(agenda-watch): close BLOCK-12 …")
+**Scope:** verification of the BLOCK-12 fix and the three round-10 ASKs, plus a
+fresh sweep of Workstreams A/B/C.
+
+## Verdict: WEAK_PASS
+
+BLOCK-12 is genuinely closed — verified by running the current code, not by
+reading the diff. No BLOCK findings remain. Four ASKs below are follow-up
+material, none of them reachable from the World as shipped.
+
+## 1. BLOCK-12 — FIXED, and fixed at the right level
+
+`agenda_watch.py:238-241` now enumerates head *content*
+(`head,title,base,link,meta,style,script,noscript,template`) and
+`:250-251` clears `_in_head` on any start tag outside that set while in
+head. Verified against the exact repro and five neighbouring shapes:
+
+| input | result |
+|---|---|
+| `<html><head><title>t</title><div>A</div></html>` | `'A'` |
+| `<html><head><title>t</title></head><p>C<meta name=x>D</p>` | `'CD'` |
+| `<head><meta charset=x><title>t</title></head><body>B</body>` | `'B'` |
+| `<html><body><meta name=y>F</body>` | `'F'` |
+| `plain text` | `'plain text'` |
+
+The edge I specifically probed — a `<meta>` appearing *after* the head has
+already been implicitly closed — correctly stays closed: the guard is
+`if self._in_head and …`, and only a literal `<head>` start tag can set
+`_in_head` back to true. Head content is still stripped; the closed class
+is closed, not another instance of it. INFO-17 (docstring overstating the
+code) resolves with it: the docstring now describes what the code does.
+
+## 2. ASKs 13/14/15 — two closed, one half-closed
+
+- **ASK-14 (spawn-start failure aborts the pass)** — closed.
+  `:444-456` wraps `get_context`/`Queue`/`Process`/`start` and degrades to
+  `{}` for that feed, so `_save_state` still runs.
+- **ASK-13 (silent non-zero child exit)** — closed. `:496-499` logs the
+  exit code. The `(0, None)` tuple is right: `None` is the not-yet-reaped
+  case, and a `0` exit with no payload is caught by the `result is None`
+  branch above it.
+- **ASK-15** — the *misattribution* half is closed; the *payload cap* half
+  is not. See ASK-20.
+
+**The queue-then-join reordering is sound, and does not introduce a new
+hang.** `mp.Queue.get(timeout=…)` does not observe child liveness, so a
+child that dies before ever calling `put()` does not hang the parent — it
+raises `Empty` at the deadline and falls into the `result is None` branch.
+Worst-case wall clock is unchanged in shape: `_EXTRACT_TIMEOUT_SEC` (2.0 s)
+plus at most 3 × 1.0 s of reap grace. No path leaves the queue unclosed and
+no path leaves the child unreaped.
+
+## 3. New tests — they exercise what they claim
+
+- `test_visible_text_survives_omitted_head_close_and_body_tag` is the
+  verbatim BLOCK-12 repro (`<html><head><title>t</title><div>REAL RATE
+  7.99%</div></html>`) and fails on the pre-fix parser.
+- `test_large_but_fast_result_is_not_mistaken_for_a_hang` builds
+  5 × 10 × 3000 chars ≈ 150 KB — comfortably past the ~64 KB pipe buffer —
+  and asserts correctness, un-truncated match lengths, **and**
+  `elapsed < _EXTRACT_TIMEOUT_SEC`. Pre-fix this returned `{}` at ~2.07 s,
+  so the assertion is load-bearing, not decorative.
+
+265 tests pass across the twelve debt-finance / agenda-watch / scouting /
+librarian / world-forge-seal suites with `PYTHONPATH` pinned to this
+worktree (INFO-18 still applies — a bare `pytest` here tests the *other*
+checkout).
+
+## 4. Findings
+
+### [ASK] ASK-19 — candidate values are interpolated into the review file without the fencing the excerpt gets
+`agenda_watch.py:562` — `", ".join(f"`{v}`" for v in values)`. The excerpt
+immediately above is deliberately fenced (`:550`, "untrusted web content
+headed for a human review queue — fence it so it renders as inert text"),
+but a candidate value gets only a single-backtick inline wrap and no
+length cap. A matched substring containing a backtick or a newline escapes
+that wrap and can inject markdown — including a forged authoritative line
+like `# Verified rate: 0.00% APR` — into the file a human approves from,
+which is precisely the trust boundary `SCOUTED_UNVERIFIED` exists to
+protect. **Not reachable with the shipped World**: both patterns in
+`scripts/worlds_src/debt-finance/scout-patterns.json` are tightly numeric
+(`\b\d{1,2}\.\d{2}%\s*APR\b`), and the sidecar is operator-authored. Fix
+is two lines: strip backticks/newlines and truncate each value.
+
+### [ASK] ASK-20 — ASK-15's payload cap is still open
+No per-match or total cap before `queue.put` (`:380`). Bounded overall by
+`_MAX_FETCH_BYTES`, so a pattern like `[^<]+` over 20 labels can still put
+low-single-digit MB through the pipe and inline all of it into the finding.
+The reordering removed the *misdiagnosis*; it did not remove the size.
+Same one-line worker-side fix serves ASK-19 and ASK-20.
+
+### [ASK] ASK-21 — a valid result is discarded if the child is slow to exit
+`:473-487`. If `queue.get` succeeded but `proc.join(1.0)` leaves the child
+alive, the code terminates and returns `{}`, logging "did not finish within
+2.0 s and was killed … possible catastrophic-backtracking pattern" — a
+misleading message on a run that actually produced a correct answer. Very
+low probability (the worker exits right after `put`), but the fix is to
+return `result` when it is not `None`, and reserve the backtracking wording
+for `result is None`.
+
+### [INFO] INFO-22 — `handle_startendtag` is a `pass`, so a self-closing non-void tag cannot end the head
+`:257-258`. `<head><title>t</title><div/>E</html>` still extracts `''`
+(verified). Malformed-in-the-wild only, and it now trips the new
+empty-extraction warning rather than dying silently. Routing
+`handle_startendtag` to the same `_in_head` reset would close it.
+
+### [INFO] INFO-23 — BLOCK-12 part 2 shipped as warn-only, not warn-and-fall-back
+`:715-728` logs when a non-empty fetch extracts to nothing but still seals
+the empty-string hash; round 10 asked for a fallback to `raw_text`. I
+accept the deviation — falling back to raw HTML would make every ad/nonce
+token a "change" and flood the review queue — but it is a deliberate
+divergence from the required action and is recorded here as such. The
+warning is what converts the failure mode from invisible to operable,
+which was the point.
+
+### [INFO] INFO-16 / INFO-18 — unchanged from round 10
+The unreachable `"spawn" not in get_all_start_methods()` fallback still
+fails open and still carries no "expected unreachable" note; the worktree
+editable-install path is still unpinned.
+
+## 5. Sweep across Workstreams A/B/C
+No new findings beyond the above. The seal is byte-identical
+(`world_sha256` `7a12152…b5564075`), confirming these changes are
+runtime-only and touch no sealed World artifact. The consolidation
+arithmetic, agent-seed, compliance, isolation and reveal-slot suites are
+unchanged from round 10 and still green.
+
+## Required actions before merge
+None. ASK-19/20/21 and INFO-16/18/22 should be filed as a single
+follow-up ticket ("agenda-watch scout hardening: cap and fence candidate
+values, tighten the extraction-timeout log, pin the worktree test path")
+and referenced from `sprints/BACKLOG.md`.
