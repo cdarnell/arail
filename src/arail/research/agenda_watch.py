@@ -208,31 +208,37 @@ class _TextExtractor(html.parser.HTMLParser):
     text or JSON fed in has no tags to strip, so it passes through
     effectively unchanged — this is not an HTML-only code path.
 
-    REVIEW.md addendum 8, BLOCK-11: ``</head>`` is optional in HTML5 (an
-    implied/omitted close is spec-legal and routinely used) — a
-    ``_skip_depth`` counter that only ever decrements on an *explicit*
-    ``</head>`` end tag never ends the skip on such a page, so every
-    character of a real ``<body>`` gets silently dropped and
-    ``_visible_text`` returns ``""``. ``head`` is tracked as its own boolean
-    (``_in_head``), separately from the nestable script/style depth
-    counter, specifically so that seeing ``<body>`` (or any other
-    non-head-content start tag) can unconditionally clear it — a hard
-    reset, not a decrement — regardless of whether a ``</head>`` was ever
-    seen. ``script``/``style`` keep the depth-counter treatment: those
-    genuinely can (and in the wild sometimes do) appear nested inside one
-    another's malformed markup, and there is no equivalent "implied close"
-    rule for them the way HTML5 defines for ``head``.
+    REVIEW.md addendum 8, BLOCK-11 / addendum 9, BLOCK-12: ``</head>`` is
+    optional in HTML5 (an implied/omitted close is spec-legal and
+    routinely used), and so — separately — is ``<body>`` itself: a page
+    can go straight from head content into a bare content tag (``<div>``,
+    ``<p>``, etc.) with no ``<body>`` start tag at all. The first fix
+    (BLOCK-11) enumerated a *closing-tag allowlist* (``body``,
+    ``frameset``) to hard-reset ``_in_head`` — which still misses that
+    second case: a page with neither an explicit ``</head>`` nor a
+    ``<body>`` tag reproduces the original bug verbatim (silently empty
+    ``_visible_text``, a permanently-stable hash, a watch that can never
+    fire again). The correct rule, per the HTML5 head content model, is
+    the inverse: enumerate what *is* legal head content
+    (``_HEAD_CONTENT_TAGS``) and treat *any other* start tag seen while
+    ``_in_head`` as the implicit close — this covers ``<body>``,
+    ``<frameset>``, and every other "first real content tag" shape
+    without needing to name each one. ``script``/``style`` keep the
+    nestable depth-counter treatment: those genuinely can (and in the
+    wild sometimes do) appear nested inside one another's malformed
+    markup, and there is no equivalent "implied close" rule for them the
+    way HTML5 defines for ``head``.
     """
 
-    # Per the HTML5 parsing spec, encountering any of these while still
-    # "in head" implicitly ends the head element — a browser-grade parser
-    # would insert an implied </head> before them. We don't need a full
-    # implementation of that state machine; treating any of them as a hard
-    # "head is now over" signal is sufficient for this module's only use
-    # (deciding what NOT to hash/diff), and covers both the common case
-    # (<body>) and the "no <head> at all" case (data before any of the
-    # tags below arrives with _in_head already False from the start).
-    _HEAD_ENDING_TAGS = frozenset({"body", "frameset"})
+    # Legal HTML5 head content — anything else seen while `_in_head` is
+    # true implicitly ends the head element (a browser-grade parser would
+    # insert an implied </head> before it). This is an *inverted*
+    # allowlist deliberately: naming every possible "head is now over"
+    # tag (BLOCK-11's mistake) is an open-ended, always-incomplete set;
+    # naming what belongs inside <head> is a small, closed one.
+    _HEAD_CONTENT_TAGS = frozenset(
+        {"head", "title", "base", "link", "meta", "style", "script",
+         "noscript", "template"})
 
     def __init__(self) -> None:
         super().__init__()
@@ -241,7 +247,7 @@ class _TextExtractor(html.parser.HTMLParser):
         self._chunks: List[str] = []
 
     def handle_starttag(self, tag: str, attrs: Any) -> None:  # noqa: D401
-        if tag in self._HEAD_ENDING_TAGS:
+        if self._in_head and tag not in self._HEAD_CONTENT_TAGS:
             self._in_head = False
         if tag == "head":
             self._in_head = True
@@ -432,13 +438,39 @@ def _extract_candidates_bounded(text: str, patterns: List[Dict[str, Any]],
             "this tick indefinitely.", feed_url)
         return _extract_candidates(text, patterns)
 
-    ctx = mp.get_context("spawn")
-    queue: "mp.Queue" = ctx.Queue()
-    pattern_specs = [(p["label"], p["regex_src"], p["max_matches"]) for p in patterns]
-    proc = ctx.Process(target=_extract_candidates_worker,
-                        args=(text, pattern_specs, queue), daemon=True)
-    proc.start()
-    proc.join(_EXTRACT_TIMEOUT_SEC)
+    # REVIEW.md addendum 9: setup itself (not just the child's work) can
+    # fail — a spawn-start failure must not abort the whole tick before
+    # _save_state runs; degrade to no-candidates for this feed instead.
+    try:
+        ctx = mp.get_context("spawn")
+        queue: "mp.Queue" = ctx.Queue()
+        pattern_specs = [(p["label"], p["regex_src"], p["max_matches"]) for p in patterns]
+        proc = ctx.Process(target=_extract_candidates_worker,
+                            args=(text, pattern_specs, queue), daemon=True)
+        proc.start()
+    except Exception:  # noqa: BLE001 — e.g. OS out of resources to spawn
+        _log.warning(
+            "agenda_watch: could not start the candidate-extraction "
+            "subprocess for %s — skipping candidates for this tick",
+            feed_url)
+        return {}
+
+    # REVIEW.md addendum 9: read the queue BEFORE joining, not after. A
+    # result large enough to fill the pipe's OS buffer blocks the child
+    # inside queue.put() until a reader drains it — join(timeout) waits
+    # for *process exit*, which can't happen until that drain occurs, so
+    # a large-but-fast result was previously misreported as a killed,
+    # catastrophically-backtracking pattern. queue.get(timeout=...) does
+    # the draining itself, so it unblocks as soon as data is available
+    # regardless of payload size; only a genuine hang exhausts the
+    # timeout with nothing written.
+    try:
+        result = queue.get(timeout=_EXTRACT_TIMEOUT_SEC)
+    except Exception:  # noqa: BLE001 — e.g. Empty (real timeout), or a
+                        # worker that died before writing anything
+        result = None
+
+    proc.join(1.0)
     if proc.is_alive():
         proc.terminate()
         proc.join(1.0)
@@ -453,12 +485,19 @@ def _extract_candidates_bounded(text: str, patterns: List[Dict[str, Any]],
             "mounted World's scout-patterns.json)",
             feed_url, _EXTRACT_TIMEOUT_SEC)
         return {}
-    try:
-        result = queue.get_nowait()
-    except Exception:  # noqa: BLE001 — e.g. Empty, or worker died mid-write
-        result = {}
-    finally:
+
+    if result is None:
         queue.close()
+        _log.warning(
+            "agenda_watch: candidate extraction for %s produced no "
+            "result within %.1fs — skipping candidates for this tick",
+            feed_url, _EXTRACT_TIMEOUT_SEC)
+        return {}
+    if proc.exitcode not in (0, None):
+        _log.warning(
+            "agenda_watch: candidate-extraction subprocess for %s exited "
+            "with code %s — result may be incomplete", feed_url, proc.exitcode)
+    queue.close()
     return result if isinstance(result, dict) else {}
 
 
@@ -676,6 +715,17 @@ def tick(data_dir: Optional[Path] = None,
         entry["last_checked_ts"] = t
         raw_text = str(result.finding.get("watch_data") or "")
         text = _visible_text(raw_text)
+        if raw_text.strip() and not text.strip():
+            # REVIEW.md addendum 9, BLOCK-12: a extraction bug that empties
+            # a genuinely non-empty fetch produces a stable hash of "" and
+            # the watch silently stops firing forever — the exact failure
+            # mode BLOCK-11/BLOCK-12 both were. Loud, not silent, so a
+            # future parser gap surfaces as a log line instead of years of
+            # quietly-dead watches.
+            _log.warning(
+                "agenda_watch: %s fetched %d bytes but visible-text "
+                "extraction produced nothing — this watch cannot detect "
+                "changes until the extractor is fixed", feed.url, len(raw_text))
         new_sha = _sha(text)
         old_sha = entry.get("sha256")
         if old_sha is None:

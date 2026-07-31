@@ -6,6 +6,7 @@ change findings staged as PENDING review items — never auto-approved.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -271,6 +272,20 @@ def test_visible_text_survives_omitted_head_close_tag():
     assert "Hidden Title" not in text  # the head's own content is still stripped
 
 
+def test_visible_text_survives_omitted_head_close_and_body_tag():
+    """REVIEW.md addendum 9, BLOCK-12: <body> is *also* optional/implied in
+    HTML5, independently of </head>. A closing-tag allowlist ({"body",
+    "frameset"}) misses a page with neither an explicit </head> nor a
+    <body> tag at all — content starts directly with a bare tag like
+    <div>. Exact repro from the review: without the inverted
+    head-content allowlist, this returns "" and the watch's hash goes
+    stable forever."""
+    html = "<html><head><title>t</title><div>REAL RATE 7.99%</div></html>"
+    text = aw._visible_text(html)
+    assert "REAL RATE 7.99%" in text
+    assert "t" != text.strip()  # head content still stripped, not leaked through
+
+
 def test_visible_text_still_strips_explicit_well_formed_head_close():
     """No regression: an explicit, well-formed </head> must still strip
     correctly."""
@@ -459,3 +474,31 @@ def test_extract_candidates_bounded_returns_result_of_fast_pattern(tmp_path):
 
 def test_extract_candidates_bounded_empty_patterns_is_a_noop():
     assert aw._extract_candidates_bounded("anything", [], "https://x.example/none") == {}
+
+
+def test_large_but_fast_result_is_not_mistaken_for_a_hang():
+    """REVIEW.md addendum 9: proc.join(timeout) waits for process *exit*,
+    not for the queue to be readable. A result big enough to fill the
+    pipe's OS buffer blocks the child inside queue.put() until a reader
+    drains it — before this fix, the parent only read the queue *after*
+    join() returned, so it never drained the pipe, the child could never
+    exit, and a large-but-fast (non-backtracking) result was misreported
+    as a killed catastrophic-backtracking pattern. Build several hundred
+    KB of matches — comfortably past any realistic pipe buffer size — and
+    confirm it comes back correct, fast, and un-truncated."""
+    big_text = "x" * 400_000
+    patterns = [
+        {"label": f"chunk{i}", "regex": re.compile(r".{3000}"),
+         "regex_src": r".{3000}", "max_matches": 10}
+        for i in range(5)
+    ]
+    import time as _time
+    start = _time.monotonic()
+    result = aw._extract_candidates_bounded(big_text, patterns, "https://x.example/big")
+    elapsed = _time.monotonic() - start
+
+    assert elapsed < aw._EXTRACT_TIMEOUT_SEC  # never even approached the ReDoS bound
+    assert set(result.keys()) == {f"chunk{i}" for i in range(5)}
+    for matches in result.values():
+        assert len(matches) == 10
+        assert all(len(m) == 3000 for m in matches)
