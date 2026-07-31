@@ -26,6 +26,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
 import math
 import os
 import re
@@ -44,6 +45,8 @@ from arail.agents.debt_finance_compliance import (
     is_verification_fresh,
     read_disclaimer,
 )
+
+_log = logging.getLogger(__name__)
 
 WORLD_SLUG = "debt-finance"
 AGENT_ID = "consolidation_analyzer"
@@ -483,7 +486,20 @@ def _load_history_lines(path: Path) -> List[str]:
     are dropped, never raised — the same F1 "malformed input never crashes
     the tick" contract this module already holds for balances.json extends
     to its own history file. A wholly unreadable file is treated as empty,
-    not an error."""
+    not an error.
+
+    REVIEW.md addendum 8, BLOCK-10: JSON-*parseable* is not enough — ``5``,
+    ``"x"``, ``null``, and ``[1, 2]`` are all valid JSON that is not an
+    object, and ``_latest_entries_by_key`` calls ``.get()`` on every
+    returned entry. Without this check, one such line survives the filter,
+    then raises ``AttributeError`` downstream — caught by the tick's own
+    broad ``except Exception``, but by then ``_append_history`` never runs
+    either (same try block), so the poison line is never rewritten and the
+    tick's history/threshold branch stays silently, permanently dead. The
+    same shape ``_load_balances`` already guards against for
+    ``balances.json`` (container-shape validation, not just parseability)
+    applies here too.
+    """
     if not path.exists():
         return []
     try:
@@ -495,8 +511,10 @@ def _load_history_lines(path: Path) -> List[str]:
         if not line.strip():
             continue
         try:
-            json.loads(line)
+            parsed = json.loads(line)
         except json.JSONDecodeError:
+            continue
+        if not isinstance(parsed, dict):
             continue
         valid.append(line)
     return valid
@@ -835,7 +853,15 @@ class ConsolidationAnalyzerAgent:
             new_content = _append_history(existing_lines, results)
             _safe_write_0600(_history_file(), new_content)
         except Exception:  # noqa: BLE001 — history is best-effort, never fatal
-            pass
+            # REVIEW.md addendum 8: a silent `pass` here is what made
+            # BLOCK-10 invisible — history/threshold tracking could stop
+            # forever with no signal anywhere. Log (never re-raise, and
+            # never include a rate/dollar figure/institution name).
+            _log.warning(
+                "%s: could not update history/threshold tracking this "
+                "tick — history.jsonl or alert_breakeven_months may be "
+                "unreadable; the findings write above is unaffected.",
+                AGENT_ID)
 
         self._last_input_hash = fingerprint
         self._last_run_at = time.time()

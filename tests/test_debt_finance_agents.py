@@ -745,6 +745,46 @@ class TestConsolidationAnalyzerHistoryAndThresholds:
         findings = d / "findings" / "consolidation_analyzer.md"
         assert findings.exists()  # the main write path is unaffected
 
+    def test_non_dict_json_history_lines_are_dropped_not_kept(self, consolidation_module):
+        """REVIEW.md addendum 8, BLOCK-10: ``5``, ``"x"``, ``null``, and
+        ``[1, 2]`` are all valid JSON that is not an object.
+        ``test_corrupt_history_file_never_crashes_the_tick`` above only
+        exercises genuinely invalid JSON (caught by the JSONDecodeError
+        filter for the wrong reason) — this exercises the input class that
+        actually broke ``_latest_entries_by_key``'s ``.get()`` call."""
+        valid_entry = json.dumps({"scenario_key": "A|b", "breakeven": 10})
+        raw = "\n".join(["5", '"x"', "null", "[1, 2]", valid_entry, ""])
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "history.jsonl"
+            path.write_text(raw)
+            kept = consolidation_module._load_history_lines(path)
+        assert kept == [valid_entry]
+        # And the downstream reader must not crash on what survives.
+        latest = consolidation_module._latest_entries_by_key(kept)
+        assert latest == {"A|b": {"scenario_key": "A|b", "breakeven": 10}}
+
+    def test_tick_completes_normally_with_mixed_dict_and_non_dict_history_lines(
+            self, consolidation_module, data_dir, host):
+        """End-to-end: the tick doesn't just avoid crashing (already
+        covered above) — history keeps appending, and the poison lines are
+        dropped rather than perpetually blocking the rewrite."""
+        d = data_dir / "user-import" / "debt-finance"
+        d.mkdir(parents=True, exist_ok=True)
+        valid_entry = json.dumps({
+            "ts": 1.0, "scenario_key": "PenFed Credit Union|balance-transfer",
+            "institution": "PenFed Credit Union", "product": "balance-transfer",
+            "rate": 5.0, "fee_pct": 3.0, "breakeven": 8.0, "monthly_savings": 20.0,
+        })
+        (d / "history.jsonl").write_text("\n".join(["5", '"x"', "null", "[1,2]", valid_entry, ""]))
+        _write_balances(data_dir, _BALANCES)
+        consolidation_module.ConsolidationAnalyzerAgent().tick()
+        lines = self._history_path(data_dir).read_text().splitlines()
+        # The prior valid line survives, plus exactly one new line this tick.
+        assert len(lines) == 2
+        for line in lines:
+            assert isinstance(json.loads(line), dict)
+
     def test_threshold_crossing_emits_pointer_only_no_figures(
             self, consolidation_module, data_dir, host):
         payload = json.loads(json.dumps(_BALANCES))
