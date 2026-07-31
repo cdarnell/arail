@@ -399,28 +399,40 @@ def _extract_candidates_bounded(text: str, patterns: List[Dict[str, Any]],
     regardless of what C loop it is stuck in, which is the only mechanism
     that actually bounds this.
 
-    Uses the ``fork`` start method explicitly (not the platform default,
-    which is ``spawn`` on macOS as of Python 3.8+) so the child inherits
-    this process's already-imported modules directly rather than having to
-    re-import them (cheap, and avoids re-triggering this module's own
-    import side effects in the child). ``fork`` is unavailable on native
-    Windows; on that platform this function degrades to running
-    unprotected (same as if no timeout wrapper existed) and logs loudly
-    that the ReDoS mitigation is inactive, rather than silently pretending
-    to protect something it cannot.
+    Uses the ``spawn`` start method explicitly, never ``fork``. An earlier
+    version of this wrapper forked, reasoning that the child could inherit
+    already-imported modules cheaply — but this process also has
+    ``lancedb`` loaded (used pervasively for the PKB/wiki vector index),
+    and ``lancedb`` documents itself as **not fork-safe**: it wraps a
+    native async runtime with its own background worker threads, and
+    ``fork()`` only duplicates the calling thread — any lock a lancedb
+    worker thread held at the instant of fork is inherited *held, forever*
+    in the child, with no thread left alive to release it. That is a
+    landmine independent of anything this function's own code does: the
+    child can hang or crash before it ever reaches ``_extract_candidates_worker``,
+    intermittently and unreproducibly, defeating the entire purpose of a
+    wall-clock ReDoS bound. ``spawn`` starts the child fresh with no
+    inherited native state, which is exactly why ``_extract_candidates_worker``
+    was written to take only plain picklable args (a ``str``, a list of
+    plain tuples, a ``Queue``) and to recompile regex patterns from source
+    rather than relying on a compiled ``re.Pattern`` surviving the
+    fork/pickle boundary — it was always spawn-compatible. The cost is a
+    slower child startup (tens of ms) than a fork would have been; that is
+    an acceptable trade for not forking a process with an active native
+    runtime.
     """
     if not patterns:
         return {}
-    if "fork" not in mp.get_all_start_methods():
+    if "spawn" not in mp.get_all_start_methods():
         _log.warning(
-            "agenda_watch: no 'fork' start method available on this "
+            "agenda_watch: no 'spawn' start method available on this "
             "platform — running candidate extraction for %s WITHOUT a "
             "wall-clock ReDoS bound. A catastrophically-backtracking "
             "pattern in the mounted World's scout-patterns.json can hang "
             "this tick indefinitely.", feed_url)
         return _extract_candidates(text, patterns)
 
-    ctx = mp.get_context("fork")
+    ctx = mp.get_context("spawn")
     queue: "mp.Queue" = ctx.Queue()
     pattern_specs = [(p["label"], p["regex_src"], p["max_matches"]) for p in patterns]
     proc = ctx.Process(target=_extract_candidates_worker,
