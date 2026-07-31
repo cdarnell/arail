@@ -1721,3 +1721,225 @@ This closes architect review: **terminal WEAK_PASS, round 8**. Both
 follow-ups from re-review addendum 7 are addressed; no further architect
 round is scheduled per the round-8 ruling. Sprint is ready for a final QA
 confirmation pass.
+
+## Post-review fixes (REVIEW.md re-review addendum 8, round 9)
+
+The post-launch capability upgrade (`d1b9db8`/`106d7bb`/`d7bb412`,
+Workstreams A/B/C, §6.6) reopened architect review at round 9 (this was a
+new capability upgrade sprint's own first review, not a reopening of round
+8 above's terminal WEAK_PASS on the original sprint). Verdict: **BLOCK**,
+four findings — reproduced independently before any fix, per this
+session's own protocol. All four fixed below; one ASK resolved.
+
+### BLOCK-8 — `Segment.world(...)` on live-fetched candidate values was a real trust-boundary escape
+
+**Root cause:** `_build_proposed_scenarios` (`_builtin_debt_advisor.py`)
+tagged every scouting-finding "candidate value" (a substring matched by a
+World-declared regex out of *live-fetched* page text) as
+`Segment.world(...)` — the same provenance a finding's `feed`/`path`
+metadata legitimately gets. But those fields are WORLD-sealed (declared in
+`agenda.json` before sealing, or code-generated); a candidate value is
+neither — it is fetched and matched entirely at tick time, and never
+passes the World's seal-time evaluative-language scan that is WORLD
+provenance's whole justification (`debt_finance_compliance.py`'s own
+module docstring pre-wrote this exact finding). The build's own test,
+`test_candidate_containing_evaluative_word_does_not_block_main_findings`,
+proved the escape (`` `the best rate today` `` reaching
+`proposed_scenarios.md` unchecked) and then asserted it as intended
+behavior.
+
+**Fix (design decision, not caller misuse — required a
+`debt_finance_compliance.py` change):** added a fourth provenance tier,
+`Provenance.SCOUTED_UNVERIFIED` / `Segment.scouted_unverified(...)`. It is
+evaluative-checked exactly like `AGENT` text (joined into the same
+concatenation `_EVALUATIVE_RE` runs over) and can never satisfy the
+institutional-character check's "is this a vetted name" test either — it
+gets no case-1 trusted-verbatim exemption, and `Segment.scouted_unverified`
+never sets `is_name`, so it cannot vouch for an institutional-character
+claim about itself or an adjacent name. `_build_proposed_scenarios` now
+tags each candidate value `Segment.scouted_unverified(v)`; the
+`feed`/`checked`/`path` metadata lines stay `Segment.world(...)` (those
+genuinely are the same World-sealed fields `_build_output` already
+trusts). `check_guardrail`'s docstring, the module docstring, and
+ARCHITECTURE.md §6.6 are all corrected — the "isn't a new trust decision"
+and "preserves every invariant" claims were both false and are now
+retracted with an explanation, not just silently edited away.
+
+**Fifth-order check (per this session's task):** does the fix correctly
+handle institutional-character checking for a candidate value too, not
+just evaluative language? Yes — verified by
+`test_scouted_segment_cannot_vouch_for_institutional_character` (a
+candidate value reading "Anytown Credit Union" next to agent prose
+containing "credit union" still blocks, because only WORLD/OPERATOR
+name-tagged segments can vouch) and
+`test_scouted_segment_containing_institutional_phrase_itself_blocks` (the
+trigger phrase living inside the candidate value's own text doesn't get
+case-1 trusted-verbatim treatment either).
+
+**Test inverted:** `test_candidate_containing_evaluative_word_does_not_block_main_findings`
+renamed to `test_candidate_containing_evaluative_word_is_rejected_not_promoted`
+— now asserts the adversarial candidate value is excluded (the whole
+`proposed_scenarios.md` write is skipped via the existing
+`_GuardrailBlocked` best-effort path) while `debt_advisor.md` is written
+unaffected either way, and that a (non-figure) warning is logged.
+
+### BLOCK-9 — ReDoS: thread-based timeout didn't just leave residual CPU, it deadlocked
+
+**Root cause:** `_load_scout_patterns`'s length/count/match caps bound
+authoring sloppiness, not catastrophic backtracking — `(a+)+$` against a
+40-character input hung well past 120s uncapped, and `_MAX_FETCH_BYTES`
+(512 KB) is five orders of magnitude larger than what's needed to trigger
+it.
+
+**First attempt (rejected after empirical testing, not shipped):** a
+daemon-thread `join(timeout)` wrapper. Verified against this checkout's
+exact repro that this does **not** work as the architect's own review
+anticipated ("can't truly kill... but bounds the caller"): CPython's regex
+engine executes catastrophic backtracking inside a single C call that
+never returns to the bytecode interpreter, so it never releases the GIL.
+The timed-out thread's `join()` can be woken by the OS after the timeout,
+but then blocks indefinitely trying to *reacquire* the GIL from the
+still-running match — three separate `pytest` processes running this
+repro were left spinning at ~100% CPU for 5+ minutes each and had to be
+`kill -9`'d. This is a stronger failure than "residual CPU" — it doesn't
+bound the caller at all for a pure-C, GIL-holding workload. Caught before
+shipping by actually running the regression test against the fix, not by
+reasoning about it — this is exactly the kind of thing the architect's
+own caveat about thread-based timeouts warned could happen, and it did.
+
+**Shipped fix:** a forked subprocess (`multiprocessing.get_context("fork")`)
+with `terminate()`/`kill()` on timeout (`_EXTRACT_TIMEOUT_SEC = 2.0`,
+`_extract_candidates_bounded` in `agenda_watch.py`). A separate OS process
+has its own GIL and can be killed by the OS regardless of what C loop it's
+stuck in — this is the only mechanism that actually bounds a CPU-bound,
+GIL-holding regex match. Patterns are recompiled from source
+(`regex_src`, now retained alongside the compiled object) inside the
+child rather than relying on a compiled `re.Pattern` surviving the
+fork/pickle boundary. `fork` is unavailable on native Windows: on that
+platform the function logs a loud warning and runs unprotected rather than
+silently pretending to protect something it cannot — honest degradation,
+not a fake safety net.
+
+**Regression test:** `test_catastrophic_pattern_is_bounded_by_wall_clock_not_left_to_hang`
+— exact `(a+)+$` repro, asserts wall-clock completion within
+`_EXTRACT_TIMEOUT_SEC + 5.0` and `{}` result. Runs in ~2s in this
+checkout (was 120s+ uncapped, and infinite with the rejected thread-based
+attempt).
+
+### BLOCK-10 — non-dict `history.jsonl` lines permanently and silently killed history/threshold tracking
+
+**Root cause:** `_load_history_lines` validated JSON-parseability, not
+that a line decodes to an object — `5`, `"x"`, `null`, `[1, 2]` all
+survive, then `_latest_entries_by_key` raises `AttributeError` calling
+`.get()` on a non-dict. The caller's `except Exception: pass` swallowed
+this — but `_append_history`/`_safe_write_0600` never ran either (same
+try block), so the poison line was never rewritten and history/threshold
+tracking died permanently and silently.
+
+**Fix:** `_load_history_lines` now requires `isinstance(parsed, dict)`,
+mirroring `_load_balances`'s existing container-shape validation for
+`balances.json`. The caller's `except Exception: pass` in
+`_builtin_consolidation_analyzer.py`'s `tick()` now logs a warning
+(`_log.warning`, no figures) instead of silently passing — per the
+architect's explicit requirement and REVIEW.md's own [ASK] noting this
+silence is "what made BLOCK-10 invisible."
+
+**Regression tests:** `test_non_dict_json_history_lines_are_dropped_not_kept`
+(unit-level, exercises the exact input class that broke
+`_latest_entries_by_key`) and
+`test_tick_completes_normally_with_mixed_dict_and_non_dict_history_lines`
+(end-to-end: history still grows by exactly one valid line per tick with
+poison lines mixed in, and every surviving line round-trips as a dict).
+
+### BLOCK-11 — `_visible_text` dropped the entire page when `</head>` was omitted (valid HTML5)
+
+**Root cause:** `_TextExtractor` tracked "in head" as a nesting-depth
+counter shared with `script`/`style`, incrementing on `<head>` and only
+decrementing on an explicit `</head>`. HTML5 permits an implied/omitted
+`</head>`; on such a page the skip never ends, `_visible_text` returns
+`""`, the watch's stored hash becomes a stable hash of the empty string,
+and the watch silently never fires again — the exact failure mode
+("fails toward silence") a scouting system cannot self-report.
+
+**Fix:** `head` is now tracked as an independent boolean (`_in_head`),
+separate from the `script`/`style` depth counter, and is hard-reset
+(cleared, not decremented) on encountering `<body>` (or `<frameset>`) —
+the HTML5-spec-legal "this implicitly ends any open head" signal — in
+addition to an explicit `</head>`. `script`/`style` keep the depth-counter
+treatment (no equivalent implied-close rule exists for them).
+
+**Regression tests, all three shapes named in the review:**
+`test_visible_text_survives_omitted_head_close_tag` (the repro),
+`test_visible_text_still_strips_explicit_well_formed_head_close` (no
+regression on the common case), `test_visible_text_with_no_head_element_at_all`
+(bare-body fragment).
+
+### `verified_as_of` ASK resolved: reverted, not confirmed
+
+Checked `d1b9db8`'s diff directly: `PenFed Credit Union` and `GreenPath
+Financial Wellness`'s `verified_as_of` moved from `2026-07-27` to
+`2026-07-31` alongside only a `related[]` graph edit — no change to either
+entry's `verification_source`, and the commit message describes verifying
+*new* sources (Navy Federal) and content, never re-verifying the two
+pre-existing institutions against NCUA/NFCC. No evidence this was a
+deliberate re-verification. Reverted both dates to `2026-07-27` in both
+the authoring copy (`scripts/worlds_src/debt-finance/terms.json`) and the
+sealed bundle, then re-ran `scripts/forge_debt_finance_world.py` to reseal
+byte-consistently (new `world_sha256` `7a121526e5674ce038b396c5c6df6895df94adcc7fed16ea7528effbb5564075`,
+propagated to `manifest.json`, `arail-plugin.json`, `capabilities.json`,
+`SKILL.md`'s trailing comment — confirmed via `git diff` that only dates
+and derived hashes changed, no other content drift). Navy Federal Credit
+Union's own `2026-07-31` `verified_as_of` is untouched — that one is
+newly added in this same commit and genuinely dated to when it was first
+verified.
+
+### Verification (round 9 post-review fixes)
+
+- `PYTHONPATH=src python -m pytest tests/test_debt_finance_agents.py
+  tests/test_debt_finance_compliance.py
+  tests/test_debt_finance_qa_adversarial.py
+  tests/test_debt_finance_qa_round3.py tests/test_agenda_watch.py -q`
+  (run against a freshly rebuilt Python 3.11 venv, `pip install -e .` +
+  `pip install -e qukaizen-dac` + `pip install pytest`, since the prior
+  round's throwaway venv no longer existed): **195 passed**, 0 failed.
+- `PYTHONPATH=src python -m pytest tests/ -k "debt_finance or agenda_watch" -q`:
+  **238 passed**, 3757 deselected, 0 failed.
+- The rejected thread-based ReDoS fix was verified to fail (hang
+  indefinitely) before being replaced — not just reasoned about.
+- Confirmed (via `git stash`/`git stash pop`) that unrelated `-k world`
+  test timeouts in this sandbox pre-exist this change and are not
+  attributable to it.
+- `scripts/forge_debt_finance_world.py` reseal verified deterministic
+  (matches the tool's own "reseals cleanly" claim from `d1b9db8`) and its
+  diff inspected line-by-line.
+- No commented-out code; no TODOs left without an owner.
+
+### Commits (round 9 post-review fixes)
+
+1. `fix(debt-finance): SCOUTED_UNVERIFIED provenance tier closes the
+   candidate-value trust-boundary escape (REVIEW.md addendum 8, BLOCK-8)` —
+   `debt_finance_compliance.py`, `_builtin_debt_advisor.py`,
+   `test_debt_finance_agents.py`, `ARCHITECTURE.md`.
+2. `fix(agenda-watch): bound scout-pattern matching with a forked
+   subprocess, not a thread (REVIEW.md addendum 8, BLOCK-9)` —
+   `agenda_watch.py`, `test_agenda_watch.py`.
+3. `fix(consolidation-analyzer): reject non-dict history.jsonl lines, log
+   instead of swallowing history-tracking failures (REVIEW.md addendum 8,
+   BLOCK-10)` — `_builtin_consolidation_analyzer.py`,
+   `test_debt_finance_agents.py`.
+4. `fix(agenda-watch): survive an omitted </head> close tag (REVIEW.md
+   addendum 8, BLOCK-11)` — `agenda_watch.py`, `test_agenda_watch.py`.
+5. `chore(debt-finance): revert incidental verified_as_of bump on
+   PenFed/GreenPath, reseal the World` — `terms.json` (both copies),
+   `manifest.json`, `arail-plugin.json`, `capabilities.json`, `SKILL.md`.
+
+### Architect feedback required
+
+None — all four BLOCKs and the one open ASK are closed with evidence
+(reproduced-then-fixed, not reasoned-about). The BLOCK-9 rejected
+thread-based attempt is recorded above specifically so a future round
+doesn't waste time re-discovering that failure mode.
+
+### Status
+
+Ready for architect re-review (round 10) against REVIEW.md addendum 8.
