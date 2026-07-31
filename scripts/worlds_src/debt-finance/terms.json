@@ -9,7 +9,8 @@
       "definition": "Unsecured revolving debt that carries a balance forward when not paid in full each cycle, typically accruing interest at the card's APR from the transaction date or after a grace period.",
       "related": [
         "apr",
-        "minimum-payment"
+        "minimum-payment",
+        "grace-period"
       ],
       "source": "https://www.consumerfinance.gov/consumer-tools/credit-cards/answers/balance-transfer/"
     },
@@ -43,7 +44,8 @@
       "definition": "Debt in which the borrower pledges an asset (a home, a car, a savings account) as collateral, which typically lowers the interest rate but puts the asset at risk.",
       "related": [
         "auto-loan",
-        "home-equity-line-of-credit"
+        "home-equity-line-of-credit",
+        "unsecured-loan"
       ],
       "source": "https://www.consumerfinance.gov/consumer-tools/auto-loans/"
     },
@@ -55,7 +57,8 @@
       "definition": "Debt extended based on creditworthiness alone, with no specific asset pledged; unsecured loans typically carry higher rates than secured loans because the lender has no collateral to recover on default.",
       "related": [
         "student-loan",
-        "personal-loan"
+        "personal-loan",
+        "secured-loan"
       ],
       "source": "https://www.consumerfinance.gov/consumer-tools/student-loans/"
     },
@@ -68,7 +71,9 @@
       "related": [
         "credit-union",
         "avalanche-method",
-        "personal-loan"
+        "personal-loan",
+        "refinancing",
+        "payoff-statement"
       ],
       "source": "https://www.consumerfinance.gov/consumer-tools/credit-cards/answers/balance-transfer/"
     },
@@ -80,7 +85,10 @@
       "definition": "A fixed-term, fixed-payment loan issued based on creditworthiness rather than collateral; commonly used to consolidate higher-rate revolving debt into one lower, predictable payment.",
       "related": [
         "unsecured-loan",
-        "debt-consolidation-loan"
+        "debt-consolidation-loan",
+        "origination-fee",
+        "debt-to-income-ratio",
+        "fixed-rate"
       ],
       "source": "https://www.penfed.org/personal-loans"
     },
@@ -92,9 +100,10 @@
       "definition": "A negotiated, temporary adjustment to a loan or card's payment terms (reduced rate, waived fee, or paused payment) offered by a lender or arranged through a nonprofit credit-counseling agency during financial hardship.",
       "related": [
         "nonprofit-credit-counseling",
-        "credit-counseling-agency"
+        "credit-counseling-agency",
+        "debt-management-plan"
       ],
-      "source": "https://www.consumerfinance.gov/consumer-tools/credit-cards/answers/balance-transfer/"
+      "source": "https://www.consumerfinance.gov/ask-cfpb/what-is-the-difference-between-credit-counseling-and-debt-settlement-debt-consolidation-or-credit-repair-en-1449/"
     },
     {
       "slug": "credit-union",
@@ -104,7 +113,9 @@
       "definition": "A financial cooperative owned by its members rather than shareholders; profits are returned to members as lower rates and fees rather than distributed to outside investors. This is a glossary entry describing the concept, not a claim about any specific institution — it carries no `institution_type` field and is never a vetted named institution. A claim about a specific institution requires a verification source distinct from that institution's own marketing (an NCUA charter lookup or equivalent) — see this category's named entries for examples that carry one.",
       "related": [
         "ncua-insured",
-        "debt-consolidation-loan"
+        "debt-consolidation-loan",
+        "field-of-membership",
+        "penfed-credit-union"
       ],
       "source": "https://www.ncua.gov/consumers/consumer-resources"
     },
@@ -116,9 +127,11 @@
       "definition": "A nonprofit or for-profit organization offering budget counseling, debt-management plans, and creditor negotiation; NFCC-member agencies are independently accredited nonprofits. This is a definitional/glossary entry describing the concept, not a claim about any specific institution — it carries no `institution_type` field and must never be treated as a vetted named institution.",
       "related": [
         "nonprofit-credit-counseling",
-        "hardship-program"
+        "hardship-program",
+        "debt-management-plan",
+        "greenpath-financial-wellness"
       ],
-      "source": "https://www.consumerfinance.gov/consumer-tools/credit-cards/answers/balance-transfer/"
+      "source": "https://www.consumerfinance.gov/ask-cfpb/what-is-credit-counseling-en-1451/"
     },
     {
       "slug": "penfed-credit-union",
@@ -130,11 +143,28 @@
       "related": [
         "credit-union",
         "personal-loan",
-        "debt-consolidation-loan"
+        "debt-consolidation-loan",
+        "field-of-membership"
       ],
       "source": "https://www.penfed.org/personal-loans",
       "verification_source": "https://mapping.ncua.gov/ResearchCreditUnion",
-      "verified_as_of": "2026-07-27"
+      "verified_as_of": "2026-07-31"
+    },
+    {
+      "slug": "navy-federal-credit-union",
+      "term": "Navy Federal Credit Union",
+      "category": "institutions",
+      "institution_type": "credit-union",
+      "short": "A specific, named, federally chartered credit union serving military and veteran families.",
+      "definition": "Navy Federal Credit Union is a federally chartered, member-owned credit union restricted to a field of membership that includes military service members, veterans, and their families, offering personal loans and other consumer credit products. Unlike the generic 'Credit Union' glossary entry, this is a specific named institution: its institutional-character claim (credit union, NCUA-insured) is verified against the NCUA's own charter/insurance lookup, a source distinct from Navy Federal's own marketing pages.",
+      "related": [
+        "credit-union",
+        "personal-loan",
+        "field-of-membership"
+      ],
+      "source": "https://www.navyfederal.org/loans-cards/personal-loans.html",
+      "verification_source": "https://mapping.ncua.gov/ResearchCreditUnion",
+      "verified_as_of": "2026-07-31"
     },
     {
       "slug": "greenpath-financial-wellness",
@@ -146,11 +176,12 @@
       "related": [
         "credit-counseling-agency",
         "hardship-program",
-        "nonprofit-credit-counseling"
+        "nonprofit-credit-counseling",
+        "debt-management-plan"
       ],
       "source": "https://www.greenpath.com/",
       "verification_source": "https://www.nfcc.org/member-agencies/",
-      "verified_as_of": "2026-07-27"
+      "verified_as_of": "2026-07-31"
     },
     {
       "slug": "balance-transfer",
@@ -160,7 +191,9 @@
       "definition": "Transferring one or more credit-card balances onto a new or existing card offering a temporary reduced (often 0%) introductory APR, usually for a one-time fee, to reduce interest cost during the promotional window.",
       "related": [
         "introductory-apr",
-        "transfer-fee"
+        "transfer-fee",
+        "deferred-interest",
+        "promotional-period"
       ],
       "source": "https://www.consumerfinance.gov/consumer-tools/credit-cards/answers/balance-transfer/"
     },
@@ -171,7 +204,8 @@
       "short": "Paying off debts ordered by highest interest rate first.",
       "definition": "A payoff strategy that directs any extra payment toward the debt with the highest interest rate first, while making minimum payments on the rest, minimizing total interest paid over time.",
       "related": [
-        "debt-consolidation-loan"
+        "debt-consolidation-loan",
+        "debt-snowball-method"
       ],
       "source": "https://www.consumerfinance.gov/consumer-tools/credit-cards/answers/balance-transfer/"
     },
@@ -194,9 +228,53 @@
       "definition": "A consumer-finance discipline, emphasized by consumer advocate Clark Howard, of comparing total cost (rate plus fees) across offers rather than headline rate alone before consolidating or transferring debt.",
       "related": [
         "transfer-fee",
-        "balance-transfer"
+        "balance-transfer",
+        "origination-fee"
       ],
       "source": "https://clark.com/credit/best-low-interest-credit-cards/"
+    },
+    {
+      "slug": "prequalification",
+      "term": "Prequalification",
+      "category": "strategies",
+      "short": "Checking likely loan terms with a soft inquiry before a formal application.",
+      "definition": "A preliminary check, using a soft inquiry, that estimates the rate and terms a lender would likely offer without affecting the applicant's credit score; a formal application and hard inquiry typically follow if the applicant proceeds.",
+      "example": "Prequalifying with several lenders lets a borrower compare estimated rates before committing to a hard inquiry with any one of them.",
+      "related": [
+        "soft-inquiry",
+        "hard-inquiry",
+        "debt-to-income-ratio"
+      ],
+      "source": "https://www.consumerfinance.gov/ask-cfpb/what-kind-of-credit-inquiry-has-no-effect-on-my-credit-score-en-321/"
+    },
+    {
+      "slug": "refinancing",
+      "term": "Refinancing",
+      "category": "strategies",
+      "short": "Replacing an existing loan with a new one, typically for a better rate or term.",
+      "definition": "Refinancing replaces an existing loan with a new loan, usually to obtain a different rate or term length; unlike consolidation, refinancing typically applies to a single existing debt rather than combining several into one.",
+      "example": "Refinancing an auto loan replaces that one loan with a new one, while consolidating multiple debts combines several balances into a single new loan.",
+      "related": [
+        "debt-consolidation-loan",
+        "personal-loan",
+        "fixed-rate",
+        "payoff-statement"
+      ],
+      "source": "https://www.consumerfinance.gov/ask-cfpb/should-i-consolidate-refinance-student-loans-en-561/"
+    },
+    {
+      "slug": "debt-management-plan",
+      "term": "Debt Management Plan",
+      "category": "strategies",
+      "short": "A structured repayment plan arranged through a credit-counseling agency.",
+      "definition": "A debt-management plan (DMP) is a structured repayment arrangement, typically set up through a nonprofit credit-counseling agency, that consolidates payments to enrolled creditors, often with reduced rates negotiated by the agency; DMPs usually charge a modest monthly fee and commonly require closing enrolled accounts for the plan's duration.",
+      "example": "Enrolling in a DMP might reduce a card's rate, but the card is typically closed to new charges while the plan is active.",
+      "related": [
+        "credit-counseling-agency",
+        "hardship-program",
+        "nonprofit-credit-counseling"
+      ],
+      "source": "https://www.consumerfinance.gov/ask-cfpb/what-is-the-difference-between-credit-counseling-and-debt-settlement-debt-consolidation-or-credit-repair-en-1449/"
     },
     {
       "slug": "introductory-apr",
@@ -206,6 +284,49 @@
       "definition": "A promotional interest rate, often 0%, applied for a fixed introductory window (commonly 12-21 months) before reverting to the card's standard ongoing APR.",
       "related": [
         "balance-transfer",
+        "apr",
+        "promotional-period",
+        "deferred-interest"
+      ],
+      "source": "https://creditcards.chase.com/balance-transfer-credit-cards"
+    },
+    {
+      "slug": "promotional-period",
+      "term": "Promotional Period",
+      "category": "terminology",
+      "short": "The fixed window during which an introductory rate applies.",
+      "definition": "The specific span of time, commonly stated in months, during which a card or loan's promotional introductory rate applies before the account reverts to its standard ongoing terms.",
+      "related": [
+        "introductory-apr",
+        "post-promotional-apr",
+        "deferred-interest"
+      ],
+      "source": "https://creditcards.chase.com/balance-transfer-credit-cards"
+    },
+    {
+      "slug": "deferred-interest",
+      "term": "Deferred Interest",
+      "category": "terminology",
+      "short": "Interest that accrues retroactively on the full original balance if not paid off in time.",
+      "definition": "Under a deferred-interest offer, interest accrues from the original transaction date but is only charged if the balance is not paid in full by the end of the promotional period; a small remaining balance at expiration can trigger interest calculated on the entire original amount, not just the remainder.",
+      "example": "A $1,000 promotional balance with $50 still owed at the end of the period can trigger interest calculated back on the full $1,000, not just the $50.",
+      "related": [
+        "promotional-period",
+        "introductory-apr",
+        "balance-transfer"
+      ],
+      "source": "https://www.consumerfinance.gov/about-us/blog/you-could-still-end-up-paying-interest-on-a-zero-percent-interest-credit-card-offer/"
+    },
+    {
+      "slug": "post-promotional-apr",
+      "term": "Post-Promotional APR",
+      "category": "terminology",
+      "short": "The standard rate a balance reverts to after a promotional period ends.",
+      "definition": "The ongoing interest rate that applies once a promotional period ends, printed in the card or loan's terms; it is frequently far higher than the introductory rate and applies to any remaining balance.",
+      "example": "A balance carried past the promotional period at a post-promotional APR of 24.99% can quickly erase the savings the transfer was meant to produce.",
+      "related": [
+        "promotional-period",
+        "introductory-apr",
         "apr"
       ],
       "source": "https://creditcards.chase.com/balance-transfer-credit-cards"
@@ -216,8 +337,10 @@
       "category": "terminology",
       "short": "A one-time fee (typically 3-5%) charged to move a balance.",
       "definition": "A one-time fee, usually 3-5% of the transferred amount, charged by the receiving card issuer at the time of a balance transfer.",
+      "example": "A 3% transfer fee on a $5,000 balance adds $150 to the amount owed at the moment of transfer.",
       "related": [
-        "balance-transfer"
+        "balance-transfer",
+        "low-fee-consumer-finance-practices"
       ],
       "source": "https://creditcards.chase.com/balance-transfer-credit-cards"
     },
@@ -239,9 +362,10 @@
       "short": "Budget/debt counseling provided by an accredited nonprofit agency.",
       "definition": "Counseling and debt-management services provided by a nonprofit organization, often free or low-cost, distinguished from for-profit debt-settlement companies by fee structure and accreditation.",
       "related": [
-        "credit-counseling-agency"
+        "credit-counseling-agency",
+        "debt-management-plan"
       ],
-      "source": "https://www.consumerfinance.gov/consumer-tools/credit-cards/answers/balance-transfer/"
+      "source": "https://www.consumerfinance.gov/ask-cfpb/what-is-credit-counseling-en-1451/"
     },
     {
       "slug": "apr",
@@ -249,9 +373,12 @@
       "category": "terminology",
       "short": "Annual Percentage Rate — the yearly cost of borrowing, expressed as a rate.",
       "definition": "The Annual Percentage Rate expresses the yearly cost of a loan or credit line, including interest and (for some products) certain fees, as a single percentage for comparison across offers.",
+      "example": "Comparing two personal-loan offers by APR, not just the headline interest rate, surfaces the one with lower origination fees folded in.",
       "related": [
         "credit-card-debt",
-        "introductory-apr"
+        "introductory-apr",
+        "fixed-rate",
+        "variable-rate"
       ],
       "source": "https://www.consumerfinance.gov/consumer-tools/credit-cards/answers/balance-transfer/"
     },
@@ -262,7 +389,8 @@
       "short": "The smallest amount a lender requires paid each billing cycle.",
       "definition": "The smallest payment a credit-card or loan agreement requires each cycle to remain current; paying only the minimum extends payoff time and total interest substantially.",
       "related": [
-        "credit-card-debt"
+        "credit-card-debt",
+        "grace-period"
       ],
       "source": "https://www.consumerfinance.gov/consumer-tools/credit-cards/answers/balance-transfer/"
     },
@@ -273,9 +401,159 @@
       "short": "Monthly debt payments divided by monthly gross income.",
       "definition": "A ratio lenders use to gauge repayment capacity: total monthly debt obligations divided by gross monthly income, expressed as a percentage.",
       "related": [
-        "personal-loan"
+        "personal-loan",
+        "prequalification"
       ],
       "source": "https://www.consumerfinance.gov/consumer-tools/auto-loans/"
+    },
+    {
+      "slug": "credit-score",
+      "term": "Credit Score",
+      "category": "terminology",
+      "short": "A numerical score summarizing a person's credit risk to lenders.",
+      "definition": "A three-digit number, commonly ranging from 300-850, that summarizes credit history into a single risk estimate lenders use to set approval decisions and interest rates. Scores are calculated by models such as FICO or VantageScore from data in a credit report.",
+      "example": "A score in the high 700s typically qualifies a borrower for more favorable balance-transfer offers than a score in the low 600s.",
+      "related": [
+        "hard-inquiry",
+        "credit-utilization",
+        "soft-inquiry"
+      ],
+      "source": "https://www.consumerfinance.gov/ask-cfpb/what-is-a-credit-score-en-315/"
+    },
+    {
+      "slug": "hard-inquiry",
+      "term": "Hard Inquiry",
+      "category": "terminology",
+      "short": "A credit check tied to a new-credit application that can temporarily lower a score.",
+      "definition": "A hard inquiry occurs when a lender checks a full credit report as part of a formal application decision, such as applying for a balance-transfer card or personal loan. Multiple hard inquiries in a short window can lower a credit score temporarily.",
+      "example": "Applying for three balance-transfer cards in one week can generate three separate hard inquiries.",
+      "related": [
+        "credit-score",
+        "soft-inquiry",
+        "prequalification"
+      ],
+      "source": "https://www.consumerfinance.gov/ask-cfpb/what-kind-of-credit-inquiry-has-no-effect-on-my-credit-score-en-321/"
+    },
+    {
+      "slug": "soft-inquiry",
+      "term": "Soft Inquiry",
+      "category": "terminology",
+      "short": "A credit check that does not affect a credit score, often used for prequalification.",
+      "definition": "A soft inquiry is a credit check that does not factor into credit-score calculations, commonly used by lenders to prequalify an applicant or by consumers checking their own report.",
+      "related": [
+        "hard-inquiry",
+        "prequalification",
+        "credit-score"
+      ],
+      "source": "https://www.consumerfinance.gov/ask-cfpb/what-kind-of-credit-inquiry-has-no-effect-on-my-credit-score-en-321/"
+    },
+    {
+      "slug": "credit-utilization",
+      "term": "Credit Utilization",
+      "category": "terminology",
+      "short": "The share of available revolving credit currently in use.",
+      "definition": "Credit utilization is the ratio of revolving balances (primarily credit cards) to total available credit limits, expressed as a percentage; it is one of the largest factors in most credit-scoring models, independent of whether balances are paid in full each month.",
+      "example": "A cardholder with $2,000 owed across $10,000 of total limits has 20% utilization.",
+      "related": [
+        "credit-score",
+        "credit-card-debt",
+        "balance-transfer"
+      ],
+      "source": "https://www.consumerfinance.gov/about-us/blog/credit-score-myths-might-be-holding-you-back-improving-your-credit/"
+    },
+    {
+      "slug": "origination-fee",
+      "term": "Origination Fee",
+      "category": "terminology",
+      "short": "An upfront fee some lenders charge to issue a loan.",
+      "definition": "A one-time fee, often a percentage of the loan amount, that some lenders deduct from loan proceeds or add to the balance at closing; it is a real borrowing cost separate from the loan's APR and should be weighed alongside the rate.",
+      "example": "A $10,000 personal loan with a 3% origination fee nets the borrower $9,700 while the full $10,000 is still owed.",
+      "related": [
+        "personal-loan",
+        "low-fee-consumer-finance-practices",
+        "apr"
+      ],
+      "source": "https://www.consumerfinance.gov/ask-cfpb/do-personal-installment-loans-have-fees-en-2120/"
+    },
+    {
+      "slug": "field-of-membership",
+      "term": "Field of Membership",
+      "category": "institutions",
+      "short": "The eligibility requirement that determines who may join a given credit union.",
+      "definition": "Credit unions restrict membership to a defined field — such as employment, military affiliation, geography, or association membership — set by their charter; eligibility must be verified before an applicant can open an account or apply for a loan.",
+      "example": "A credit union chartered for military and veteran families may require proof of that affiliation before an applicant can join.",
+      "related": [
+        "credit-union",
+        "ncua-insured",
+        "navy-federal-credit-union"
+      ],
+      "source": "https://ncua.gov/support-services/credit-union-resources-expansion/field-membership-expansion"
+    },
+    {
+      "slug": "grace-period",
+      "term": "Grace Period",
+      "category": "terminology",
+      "short": "The window after a billing cycle during which no interest accrues if paid in full.",
+      "definition": "A grace period is the span between the end of a credit card's billing cycle and its payment due date during which no interest accrues on new purchases, provided the previous statement balance was paid in full; carrying a balance forward typically forfeits the grace period on new purchases.",
+      "related": [
+        "credit-card-debt",
+        "minimum-payment",
+        "apr"
+      ],
+      "source": "https://www.consumerfinance.gov/ask-cfpb/what-is-a-grace-period-for-a-credit-card-en-47/"
+    },
+    {
+      "slug": "amortization",
+      "term": "Amortization",
+      "category": "terminology",
+      "short": "The schedule by which a loan payment splits between principal and interest over time.",
+      "definition": "Amortization is the process of paying off a loan through scheduled payments, each split between interest and principal; early payments in a standard amortization schedule apply more toward interest, with the principal share increasing as the balance declines.",
+      "example": "In the first year of a five-year personal loan, a larger portion of each payment typically goes to interest than in the final year.",
+      "related": [
+        "personal-loan",
+        "fixed-rate",
+        "apr"
+      ],
+      "source": "https://www.consumerfinance.gov/ask-cfpb/how-does-paying-down-a-mortgage-work-en-1943/"
+    },
+    {
+      "slug": "fixed-rate",
+      "term": "Fixed Rate",
+      "category": "terminology",
+      "short": "An interest rate that does not change for the life of the loan.",
+      "definition": "A fixed interest rate remains constant for the entire term of a loan, so the payment amount attributable to interest does not change even if broader market rates move; this offers payment predictability compared to variable-rate products.",
+      "related": [
+        "variable-rate",
+        "personal-loan",
+        "amortization"
+      ],
+      "source": "https://www.consumerfinance.gov/ask-cfpb/what-is-the-difference-between-a-fixed-apr-and-a-variable-apr-en-45/"
+    },
+    {
+      "slug": "variable-rate",
+      "term": "Variable Rate",
+      "category": "terminology",
+      "short": "An interest rate that can change over time based on a market index.",
+      "definition": "A variable (or adjustable) interest rate moves up or down over the life of a loan based on an underlying market index plus a set margin, meaning the payment amount attributable to interest can change during repayment.",
+      "related": [
+        "fixed-rate",
+        "adjustable-rate-mortgage",
+        "home-equity-line-of-credit"
+      ],
+      "source": "https://www.consumerfinance.gov/ask-cfpb/what-is-the-difference-between-a-fixed-apr-and-a-variable-apr-en-45/"
+    },
+    {
+      "slug": "payoff-statement",
+      "term": "Payoff Statement",
+      "category": "terminology",
+      "short": "A lender-issued statement of the exact amount needed to fully close out a loan.",
+      "definition": "A payoff statement (or payoff amount) is issued by a lender showing the precise amount needed to fully satisfy and close a loan as of a stated date; it is different from the current balance and both consolidation and refinancing require an accurate payoff statement for each debt being replaced.",
+      "related": [
+        "debt-consolidation-loan",
+        "refinancing",
+        "amortization"
+      ],
+      "source": "https://www.consumerfinance.gov/ask-cfpb/what-is-a-payoff-amount-and-is-it-the-same-as-my-current-balance-en-205/"
     },
     {
       "slug": "adjustable-rate-mortgage",
@@ -284,7 +562,8 @@
       "short": "A mortgage whose interest rate changes periodically after an initial fixed period.",
       "definition": "A mortgage with an interest rate that is fixed for an initial period and then adjusts periodically based on a market index, which can raise or lower the monthly payment over the loan's life.",
       "related": [
-        "home-equity-line-of-credit"
+        "home-equity-line-of-credit",
+        "variable-rate"
       ],
       "source": "https://www.consumerfinance.gov/ask-cfpb/what-is-an-adjustable-rate-mortgage-arm-en-99/"
     },
@@ -296,7 +575,8 @@
       "definition": "A revolving line of credit secured by the equity in a home, allowing the borrower to draw and repay funds up to a limit during a set draw period; the home is collateral, so missed payments risk foreclosure.",
       "related": [
         "adjustable-rate-mortgage",
-        "secured-loan"
+        "secured-loan",
+        "401k-loan"
       ],
       "source": "https://www.consumerfinance.gov/ask-cfpb/what-is-a-home-equity-line-of-credit-heloc-en-135/"
     },
@@ -306,7 +586,11 @@
       "category": "retirement-and-secured-credit",
       "short": "A loan borrowed against the borrower's own 401(k) balance.",
       "definition": "A loan taken against the borrower's own vested 401(k) balance, repaid via payroll deduction with interest paid back into the borrower's own account; unpaid balances at job separation can be treated as a taxable distribution.",
-      "related": [],
+      "related": [
+        "personal-loan",
+        "fixed-rate",
+        "home-equity-line-of-credit"
+      ],
       "source": "https://www.irs.gov/retirement-plans/plan-participant-employee/retirement-topics-loans"
     }
   ]

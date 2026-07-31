@@ -30,20 +30,6 @@
   "knowledge_sources": [
     {
       "kind": "url",
-      "ref": "https://www.consumerfinance.gov/consumer-tools/credit-cards/answers/balance-transfer/",
-      "trust": "high",
-      "holder": "CFPB",
-      "license": "public guidance cited by attribution"
-    },
-    {
-      "kind": "url",
-      "ref": "https://www.ncua.gov/consumers/consumer-resources",
-      "trust": "high",
-      "holder": "NCUA",
-      "license": "public guidance cited by attribution"
-    },
-    {
-      "kind": "url",
       "ref": "https://www.penfed.org/personal-loans",
       "trust": "medium",
       "holder": "PenFed Credit Union (NCUA-insured)",
@@ -55,6 +41,27 @@
       "trust": "medium",
       "holder": "Chase",
       "license": "public offer page cited by attribution"
+    },
+    {
+      "kind": "url",
+      "ref": "https://www.navyfederal.org/loans-cards/personal-loans.html",
+      "trust": "medium",
+      "holder": "Navy Federal Credit Union (NCUA-insured)",
+      "license": "public rate page cited by attribution"
+    },
+    {
+      "kind": "url",
+      "ref": "https://www.consumerfinance.gov/consumer-tools/credit-cards/answers/balance-transfer/",
+      "trust": "high",
+      "holder": "CFPB",
+      "license": "public guidance cited by attribution (education only — the sealer's live-watch slots are capped at the first 3 knowledge_sources by position, so this and the entries below it are cite-only, not live-watched; see the kind-aware-cap proposal filed against qukaizen-dac)"
+    },
+    {
+      "kind": "url",
+      "ref": "https://www.ncua.gov/consumers/consumer-resources",
+      "trust": "high",
+      "holder": "NCUA",
+      "license": "public guidance cited by attribution (cite-only, see note above)"
     },
     {
       "kind": "institution",
