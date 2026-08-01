@@ -10,9 +10,11 @@ from __future__ import annotations
 import math
 
 from arail.agents._builtin_consolidation_analyzer import (
+    ScenarioResult,
     blended_apr,
     breakeven_months,
     monthly_interest_cost,
+    threshold_crossings,
 )
 
 
@@ -62,3 +64,54 @@ def test_breakeven_no_savings_never_breaks_even():
 
 def test_breakeven_zero_fee_breaks_even_immediately():
     assert breakeven_months(0.0, 30.0) == 0
+
+
+# ── threshold_crossings (Workstream C: pure comparison, no I/O) ────────
+
+def _result(institution="PenFed Credit Union", product="balance-transfer",
+            breakeven=None):
+    return ScenarioResult(
+        institution=institution, product=product, rate=5.0, fee_pct=3.0,
+        source="https://example.com", as_of="2026-08-01",
+        fee_amount=100.0, new_monthly_interest=10.0, monthly_savings=20.0,
+        breakeven=breakeven,
+    )
+
+
+def test_no_threshold_set_means_no_crossings():
+    results = [_result(breakeven=6)]
+    assert threshold_crossings({}, results, None) == []
+
+
+def test_first_time_below_threshold_is_a_crossing():
+    results = [_result(breakeven=6)]
+    crossed = threshold_crossings({}, results, alert_breakeven_months=12)
+    assert crossed == ["PenFed Credit Union|balance-transfer"]
+
+
+def test_already_below_threshold_last_tick_is_not_a_new_crossing():
+    key = "PenFed Credit Union|balance-transfer"
+    prev = {key: {"breakeven": 6}}
+    results = [_result(breakeven=5)]  # still below, was already below
+    assert threshold_crossings(prev, results, alert_breakeven_months=12) == []
+
+
+def test_moving_above_threshold_is_not_a_crossing():
+    key = "PenFed Credit Union|balance-transfer"
+    prev = {key: {"breakeven": 6}}
+    results = [_result(breakeven=18)]  # now above the threshold
+    assert threshold_crossings(prev, results, alert_breakeven_months=12) == []
+
+
+def test_never_breaks_even_is_never_a_crossing():
+    results = [_result(breakeven=None)]
+    assert threshold_crossings({}, results, alert_breakeven_months=12) == []
+
+
+def test_multiple_scenarios_only_crossing_ones_reported():
+    results = [
+        _result(institution="PenFed Credit Union", breakeven=6),
+        _result(institution="Navy Federal Credit Union", breakeven=24),
+    ]
+    crossed = threshold_crossings({}, results, alert_breakeven_months=12)
+    assert crossed == ["PenFed Credit Union|balance-transfer"]

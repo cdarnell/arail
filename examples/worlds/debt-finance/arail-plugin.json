@@ -1,12 +1,12 @@
 {
   "name": "qukaizen/dac-world-debt-finance",
   "type": "world",
-  "description": "DaC WorldBundle for World of Debt Finance — 26 terms, mountable in ARAIL.",
+  "description": "DaC WorldBundle for World of Debt Finance — 44 terms, mountable in ARAIL.",
   "version": "1.0.0",
   "dac": {
     "schema": "dac.arail-plugin/v1",
     "world": "debt-finance",
-    "world_sha256": "be954c4fc1144e79668f2ed0a3acfea316515d996f55440dadb0b81e7ad19cf1",
+    "world_sha256": "7a121526e5674ce038b396c5c6df6895df94adcc7fed16ea7528effbb5564075",
     "bundle": ".",
     "provides": {
       "capabilities": "capabilities.json",

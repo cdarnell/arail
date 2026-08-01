@@ -9,7 +9,7 @@
       "interface": {
         "kind": "knowledge-grounding",
         "world": "debt-finance",
-        "world_sha256": "be954c4fc1144e79668f2ed0a3acfea316515d996f55440dadb0b81e7ad19cf1",
+        "world_sha256": "7a121526e5674ce038b396c5c6df6895df94adcc7fed16ea7528effbb5564075",
         "categories": [
           "credit-products",
           "debt-types",
@@ -18,7 +18,7 @@
           "strategies",
           "terminology"
         ],
-        "term_count": 26,
+        "term_count": 44,
         "provenance_tier": "sourced"
       }
     },
@@ -52,7 +52,7 @@
         "kind": "knowledge-grounding",
         "world": "debt-finance",
         "category": "institutions",
-        "term_count": 4
+        "term_count": 6
       }
     },
     {
@@ -74,7 +74,7 @@
         "kind": "knowledge-grounding",
         "world": "debt-finance",
         "category": "strategies",
-        "term_count": 4
+        "term_count": 7
       }
     },
     {
@@ -85,7 +85,7 @@
         "kind": "knowledge-grounding",
         "world": "debt-finance",
         "category": "terminology",
-        "term_count": 7
+        "term_count": 20
       }
     }
   ]

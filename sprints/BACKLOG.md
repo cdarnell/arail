@@ -448,3 +448,115 @@ suppressed) alongside the existing `test_foreign_uvicorn_survives`/
 (`tests/cli/restart_driver.sh`) is real and independently confirmed to
 fail without the fix — this gap is about test-pyramid shape (missing the
 faster, more isolated layer), not about missing coverage entirely.
+
+---
+
+## agenda_watch.py — 4 non-blocking follow-ups from round-11 review
+
+**Filed by:** `sprints/2026-07-26-world-of-debt-finance/` (deals/education/
+tracking capability upgrade), REVIEW.md addendum 10, round 11, verdict
+WEAK_PASS. None of these are reachable from the World as shipped (the
+shipped `scout-patterns.json` has tightly numeric patterns), which is why
+round 11 didn't block on them — but a future World author with a looser
+pattern could reach all four.
+
+**ASK-19 — candidate-value markdown injection risk in the finding
+document.** `src/arail/research/agenda_watch.py` (near the "Candidate
+values" section writer) wraps each matched value in a single backtick with
+no length cap, while the excerpt directly above it in the same finding is
+deliberately fenced as untrusted content. A candidate value containing a
+backtick or a newline could break out of that inline-code wrapping and
+inject markdown into a document a human reviews and approves. Needs an
+operator-authored loose pattern (not any of the shipped ones) to reach.
+**Fix shape:** fence candidate values the same way the excerpt above them
+already is, plus a length cap consistent with `_MAX_PATTERN_MATCHES`'s
+spirit.
+
+**ASK-20 — candidate-extraction result payload has no size cap.**
+Round 10 (BLOCK-12's neighborhood) fixed the *misdiagnosis* of a large
+result as a killed backtracking pattern (queue-then-join reordering), but
+never capped how large a result can actually be. A pattern with a huge
+`max_matches` × long per-match text could still produce an very large
+payload — no longer misreported as a hang, but still a large read/write
+and a large "Candidate values" section in the finding document.
+**Fix shape:** cap total serialized candidate bytes in
+`_extract_candidates`, truncate with a "(truncated)" marker, same spirit
+as the existing per-pattern `max_matches` cap.
+
+**ASK-21 — a slow-but-successful child can be misreported as
+backtracking.** In `_extract_candidates_bounded`, if the child is slow to
+exit after writing its result (but not stuck matching), the current logic
+can discard a valid result and log a "possible catastrophic-backtracking
+pattern" warning that doesn't match what actually happened.
+**Fix shape:** once `queue.get()` has returned a real result, treat exit
+lag as a benign reap-timing detail, not a backtracking signal — only log
+the backtracking warning on the path where `queue.get()` itself timed out.
+
+**INFO-23 — BLOCK-12's empty-extraction guard is warn-only, not a
+fallback (deliberate, not a gap).** When visible-text extraction empties a
+genuinely non-empty fetch, the fix added a loud `_log.warning` rather than
+falling back to hashing `raw_text` directly. This is a considered
+divergence, not an oversight: falling back to raw bytes would reintroduce
+BLOCK-11/BLOCK-9's original problem (a rotating CSRF token or analytics ID
+buried in markup counting as "the page changed" on every tick) for the one
+World whose extractor happens to have a residual gap, silently
+reintroducing noise instead of loudly surfacing a parser bug to fix.
+Recorded here so a future reader doesn't "fix" this into a regression.
+
+**Why not done now:** none of the four is reachable from the debt-finance
+World's shipped `scout-patterns.json` (tightly numeric APR/percent
+patterns), and this sprint's scope was the deals/education/tracking
+capability upgrade, not a general hardening pass on `agenda_watch.py`'s
+scouting internals for hypothetical future Worlds with looser patterns.
+
+**What a future sprint needs to decide:** whether to fix ASK-19/20/21
+proactively (cheap, isolated, no behavior change for existing Worlds) the
+next time `agenda_watch.py` is touched, or wait for a concrete World that
+actually needs a loose extraction pattern to force the issue.
+
+---
+
+## agenda_watch.py — 2 non-blocking follow-ups from round-13 QA re-verification
+
+**Filed by:** `sprints/2026-07-26-world-of-debt-finance/` (deals/education/
+tracking capability upgrade), TEST_REPORT.md "QA round 13", verdict PASS.
+Found while adversarially re-verifying the QA-1/QA-2/QA-3 fixes from round
+12 (commit `0cdadf1`).
+
+**INFO-24 — the QA-2 slug-hashing fix is an un-migrated rename for a lab
+that already ran the pre-fix code.** `_slugish`'s new content-hash suffix
+changes every snapshot filename and finding stem. A lab that ran the old
+code has `state.json` entries keyed by the old sha with an orphaned
+snapshot file under the old name — `_read_snapshot` returns `None` on the
+first post-upgrade change. Confirmed non-broken, just non-ideal: the
+finding degrades honestly to an **Excerpt** section instead of a unified
+diff (not silent, not a crash), and the `Change: <old> → <new>` line stays
+correct. The orphaned old-named `.txt` files under
+`DATA_DIR/agenda-watch/` are inert residue, never cleaned up.
+**Fix shape:** either a one-time migration pass that renames existing
+snapshot files to the new slug scheme on first tick after upgrade, or
+accept the one-time diff-quality degradation as the cost of the fix (it
+self-heals on the very next change per feed) and just clean up the
+orphaned files opportunistically.
+
+**INFO-26 — `_safe_write_atomic`'s tmp-file name is fixed per destination,
+which is a concurrency assumption, not yet a rule.** The ``.tmp`` staging
+name is derived deterministically from the destination path
+(``path.with_suffix(".tmp")``), so two concurrent writers to the same
+destination could in principle interleave and corrupt each other's write.
+Checked and confirmed safe *today*: `agenda_watch.tick()` has exactly one
+caller in `src/` (the Librarian's `watch_horizon`, awaited via
+`asyncio.to_thread`), so writes are serialized by construction, not by
+this file's own locking.
+**What a future sprint needs to decide:** if a future feature ever calls
+`tick()` from a second call site (e.g. an on-demand "run this watch now"
+portal action), either add real locking around the tmp-file write or
+derive the tmp name per-call (e.g. a pid/uuid suffix) before that second
+caller ships — this is a load-bearing assumption to revisit, not
+something to rediscover the hard way.
+
+**Why not done now:** neither is reachable under this sprint's actual
+shape (single caller, in-place upgrades are the exception not degrading
+unsafely) — filed so a future sprint that changes either assumption
+(adds a second `tick()` caller, or needs snapshot continuity across an
+upgrade) finds this written down instead of rediscovering it.

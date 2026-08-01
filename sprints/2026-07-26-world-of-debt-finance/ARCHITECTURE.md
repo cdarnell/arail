@@ -606,9 +606,18 @@ draft left this undefined):
       "rate": 0.0, "fee_pct": 0.0, "term_months": 0,
       "source": "approved-finding-id-or-operator-entered",
       "as_of": "YYYY-MM-DD" }
-  ]
+  ],
+  "alert_breakeven_months": 0
 }
 ```
+
+`alert_breakeven_months` (optional, added post-launch — §6.6): a top-level,
+operator-set numeric field. When present and a candidate scenario's
+breakeven crosses at or below it (and did not last tick), Consolidation
+Analyzer emits one pointer-only activity event — no rate, fee, or
+institution name in the message, per the same convention as every other
+activity emission in this document. Validated with the same
+`_validate_numeric_field` rule as every other numeric field here.
 
 **Parse-failure behavior, specified (was previously unspecified):**
 - File absent → normal no-op state; Consolidation Analyzer has nothing to
@@ -681,6 +690,65 @@ explicit, named fast-follow candidate, not built now (see open questions).
   file per agent needs no bespoke deletion verb for v1 — the operator can
   delete the files directly; revisit when import lands.
 - The `user_data` reveal-whitelist slot (§6.4).
+
+### 6.6 Deals, education depth, and ongoing tracking (post-launch upgrade)
+
+A product-capability audit after the sprint above shipped found the World
+under-delivered on three of the operator's actual goals — the safety layer
+worked, but the World itself surfaced a curated content list, not live
+deals; the term corpus was a thin glossary; and nothing remembered a value
+across ticks. Three follow-on workstreams closed this.
+
+**Correction (REVIEW.md addendum 8, BLOCK-8):** an earlier version of this
+section claimed the workstreams preserved "every invariant established
+above (segment/provenance guardrail, state.json hash-only convention, PKB
+isolation, generic-scouting rule)." That was false for the segment/
+provenance guardrail specifically: the first cut of the deal-finding
+workstream (below) tagged a scouting finding's live-fetched "candidate
+values" as `Segment.world(...)` — the same provenance a finding's
+`feed`/`path` metadata correctly gets — even though a candidate value is
+fetched and matched entirely at tick time and never passes the World's
+seal-time evaluative-language scan that is WORLD provenance's whole
+justification. This was a real trust-boundary escape (an
+adversarial-or-careless World pattern could surface arbitrary evaluative
+third-party text as if it were sealed World content), fixed by adding a
+fourth provenance tier, `Provenance.SCOUTED_UNVERIFIED`
+(`debt_finance_compliance.py`), that is evaluative-checked exactly like
+`AGENT` text and can never vouch for an institutional-character claim —
+see that module's docstring. The state.json hash-only convention, PKB
+isolation, and the generic-scouting rule held throughout and needed no
+correction. The two required fixes below (workstreams as actually shipped):
+
+- **Education**: the term corpus grew from 26 to 44 entries (worked
+  `example` fields, a fixed `related[]` graph with zero sinks — both named
+  institutions were previously unreachable from any other term), and
+  `knowledge_sources[]` was reordered so the sealer's first-3-live-watch cap
+  lands on three real rate/offer pages instead of two static government
+  pages plus one rate page.
+- **Deal-finding, made World-generic** (`src/arail/research/agenda_watch.py`
+  — zero finance-specific code, works identically for any World): fetched
+  pages are now reduced to visible text (script/style/head stripped) before
+  hashing and diffing, a finding shows a bounded unified diff instead of a
+  raw head-of-document excerpt, unreviewed findings are retained up to a
+  cap instead of deleted on every change, and a World may optionally
+  declare bounded regex extraction patterns (a seal-exempt
+  `scout-patterns.json` sidecar) that surface literal matched substrings as
+  "candidate values (code-extracted, unverified)" in a finding — never
+  asserted as fact, never auto-applied.
+- **Ongoing tracking** (Consolidation Analyzer): `lab/data/user-import/
+  debt-finance/history.jsonl` (never `lab/pkb/`) records one line per
+  candidate scenario per non-no-op tick — every field code-computed or
+  operator-typed, the same numeric-integrity property the findings document
+  already holds. `alert_breakeven_months` (§6.1) drives a pointer-only
+  activity alert on a threshold crossing. Debt Advisor gained
+  `lab/data/user-import/debt-finance/proposed_scenarios.md`: when an
+  approved finding has candidate values, they're quoted back to the
+  operator (`Segment.scouted_unverified(...)` — **not** `Segment.world(...)`,
+  see the BLOCK-8 correction above — evaluative-checked before ever
+  reaching this document) with explicit hand-copy-into-`balances.json`
+  instructions — the operator remains the sole confirmer of any figure that
+  ever reaches a `candidate_scenarios` entry; nothing here writes to
+  `balances.json` automatically.
 
 ---
 

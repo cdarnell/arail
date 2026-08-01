@@ -29,16 +29,45 @@ Honesty rails, in order of enforcement:
     Each change gets a hash-suffixed filename so approval of one snapshot
     never auto-approves the next.
 
+Reading a finding, generically:
+  • TEXT, NOT RAW BYTES — a fetched page's visible text (script/style/head
+    stripped) is what gets hashed, diffed, and shown — not the raw HTTP body,
+    so a rotating CSRF token or analytics build ID buried in markup no longer
+    counts as "the page changed." Works identically for HTML, and passes
+    plain text/JSON through unchanged (there's nothing to strip).
+  • DIFF OVER FIRST-N — once a prior snapshot exists, a finding shows what
+    actually changed (a bounded unified diff), not just the head of the new
+    document. The very first look at a feed is a baseline: no finding, no
+    diff possible yet, matching the original behavior.
+  • RETAINED, NOT DELETED — a bounded number of unreviewed findings per feed
+    are kept (oldest pruned first) instead of the previous single-slot
+    behavior, so a person who checks in weekly doesn't lose every
+    intermediate change to the last one.
+  • WORLD-DECLARED EXTRACTION, STILL GENERIC — a World may ship an optional,
+    seal-exempt ``scout-patterns.json`` sidecar declaring regex patterns to
+    run over fetched text (e.g. an APR-percentage shape for a finance World,
+    a driver-version shape for a games World). This module has zero
+    knowledge of what any pattern means — it validates, bounds, and runs
+    whatever the mounted World declares, and surfaces literal matched
+    strings as "candidate values (code-extracted, unverified)" — never
+    asserted as fact, never auto-applied anywhere, just made visible to the
+    human reviewing the finding.
+
 State lives at ``DATA_DIR/agenda-watch.json`` — per-user runtime, keyed to
 the mounted World's slug, reset on a World switch (a different World has a
-different horizon).
+different horizon). Per-feed text snapshots (used for diffing) live
+alongside it under ``DATA_DIR/agenda-watch/``.
 """
 
 from __future__ import annotations
 
+import difflib
 import hashlib
+import html.parser
 import json
 import logging
+import multiprocessing as mp
+import os
 import re
 import time
 from dataclasses import dataclass
@@ -52,13 +81,46 @@ from arail.research import scouting
 _log = logging.getLogger(__name__)
 
 STATE_NAME = "agenda-watch.json"
+SNAPSHOT_SUBDIR = "agenda-watch"
 SCOUT_SUBDIR = "sources/scout"
+SCOUT_PATTERNS_FILE = "scout-patterns.json"
 
 _URL_RE = re.compile(r"^https?://\S+$")
 _DEFAULT_WATCH_HOURS = 24.0
 _FETCH_TIMEOUT_SEC = 20
 _MAX_FETCH_BYTES = 512 * 1024
 _EXCERPT_CHARS = 1500
+_DIFF_CHARS = 2000
+_MAX_UNREVIEWED_PER_FEED = 5
+
+# World-declared extraction patterns (scout-patterns.json) are semi-trusted,
+# seal-exempt input — sealed alongside the World, but not code this module
+# wrote, and not integrity-protected the way the rest of a sealed bundle is.
+# The length/count/match-count caps below bound *authoring* sloppiness (a
+# pattern that's needlessly huge, or a sidecar that declares dozens of
+# patterns) — they do NOT bound catastrophic backtracking: a 6-character
+# pattern like ``(a+)+$`` can hang for longer than any wall-clock budget on
+# an input a few dozen characters long, and _MAX_FETCH_BYTES (512 KB) is
+# five orders of magnitude larger than that. The actual ReDoS defense is
+# ``_run_with_timeout`` around ``_extract_candidates`` below — see its
+# docstring for what it does and does not protect against.
+_MAX_PATTERN_LEN = 200
+_MAX_PATTERNS = 20
+_MAX_PATTERN_MATCHES = 10
+
+# Wall-clock budget for the actual pattern-matching call, across every
+# pattern declared by the mounted World, per feed per tick. This is the
+# ReDoS bound — it starts counting only once the child has confirmed it is
+# running (see _STARTUP_TIMEOUT_SEC), not from process creation.
+_EXTRACT_TIMEOUT_SEC = 2.0
+
+# QA round 12, QA-3: separate, generous allowance for the spawned child's
+# interpreter boot + module re-import — a fixed cost unrelated to
+# scout-pattern matching, measured at 0.6s+ in a lancedb-loaded process.
+# Kept well clear of that measurement so ordinary system load doesn't
+# false-positive a "failed to start" kill; a stuck/broken spawn (not a
+# regex problem) is the only realistic way this is ever hit.
+_STARTUP_TIMEOUT_SEC = 10.0
 
 
 def _watch_interval_sec() -> float:
@@ -115,11 +177,438 @@ def _load_state(path: Path, world: str) -> Dict[str, Any]:
     return {"world": world, "feeds": {}}
 
 
-def _save_state(path: Path, state: Dict[str, Any]) -> None:
+def _safe_write_atomic(path: Path, content: str) -> None:
+    """Write ``content`` to ``path`` via a tmp-file-then-atomic-rename,
+    refusing to follow a pre-placed symlink at the tmp path.
+
+    QA round 12, QA-1: this module's three write sites (state, snapshot,
+    finding) used bare ``Path.write_text`` on the ``.tmp`` staging path,
+    which follows a symlink placed there ahead of time — writing
+    attacker-influenced fetched text through it to whatever it points at.
+    The two agent modules already fixed the identical shape for their own
+    writes (TEST_REPORT.md F5, their ``_safe_write_0600``); this is that
+    same fix applied here, adapted for the tmp-then-rename pattern this
+    module uses for crash-safety (the agents write their target file
+    directly). The final ``os.replace`` step needs no such guard: POSIX
+    ``rename()`` replaces the directory entry at the destination — even
+    if that entry is itself a symlink — rather than writing through it,
+    so the attack surface is specifically the tmp file's own open, not
+    the rename.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps(state, indent=2))
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        fd = os.open(tmp, flags, 0o600)
+    except OSError:
+        # A pre-placed symlink (or other unopenable tmp path) — refuse,
+        # don't write through it and don't raise into the caller's tick.
+        return
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(content)
+    except OSError:
+        return
     tmp.replace(path)
+
+
+def _save_state(path: Path, state: Dict[str, Any]) -> None:
+    _safe_write_atomic(path, json.dumps(state, indent=2))
+
+
+# ── text snapshots (for diffing) ────────────────────────────────────
+
+def _slugish(value: str) -> str:
+    """QA round 12, QA-2: truncating to 48 chars alone can collide two
+    distinct feed URLs onto the same snapshot/finding-stem — the shipped
+    debt-finance World's own Chase and Navy Federal URLs already sit at
+    that boundary. Appending a short content hash before truncating
+    keeps the result human-scannable (the readable prefix survives) while
+    making a collision require an actual hash collision, not just a
+    shared 48-character prefix."""
+    s = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
+    digest = hashlib.sha256(value.encode("utf-8")).hexdigest()[:8]
+    return f"{s[:39]}-{digest}" if s else f"feed-{digest}"
+
+
+def _snapshot_path(data_dir: Path, world: str, feed: WatchFeed) -> Path:
+    name = f"{world}-{_slugish(feed.node)}-{_slugish(feed.url)}.txt"
+    return Path(data_dir) / SNAPSHOT_SUBDIR / name
+
+
+def _read_snapshot(data_dir: Path, world: str, feed: WatchFeed) -> Optional[str]:
+    try:
+        return _snapshot_path(data_dir, world, feed).read_text(
+            encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+
+
+def _write_snapshot(data_dir: Path, world: str, feed: WatchFeed, text: str) -> None:
+    _safe_write_atomic(_snapshot_path(data_dir, world, feed), text)
+
+
+# ── visible-text extraction (generic — no per-World knowledge) ─────────
+
+class _TextExtractor(html.parser.HTMLParser):
+    """Collects visible text, dropping script/style/head content. Plain
+    text or JSON fed in has no tags to strip, so it passes through
+    effectively unchanged — this is not an HTML-only code path.
+
+    REVIEW.md addendum 8, BLOCK-11 / addendum 9, BLOCK-12: ``</head>`` is
+    optional in HTML5 (an implied/omitted close is spec-legal and
+    routinely used), and so — separately — is ``<body>`` itself: a page
+    can go straight from head content into a bare content tag (``<div>``,
+    ``<p>``, etc.) with no ``<body>`` start tag at all. The first fix
+    (BLOCK-11) enumerated a *closing-tag allowlist* (``body``,
+    ``frameset``) to hard-reset ``_in_head`` — which still misses that
+    second case: a page with neither an explicit ``</head>`` nor a
+    ``<body>`` tag reproduces the original bug verbatim (silently empty
+    ``_visible_text``, a permanently-stable hash, a watch that can never
+    fire again). The correct rule, per the HTML5 head content model, is
+    the inverse: enumerate what *is* legal head content
+    (``_HEAD_CONTENT_TAGS``) and treat *any other* start tag seen while
+    ``_in_head`` as the implicit close — this covers ``<body>``,
+    ``<frameset>``, and every other "first real content tag" shape
+    without needing to name each one. ``script``/``style`` keep the
+    nestable depth-counter treatment: those genuinely can (and in the
+    wild sometimes do) appear nested inside one another's malformed
+    markup, and there is no equivalent "implied close" rule for them the
+    way HTML5 defines for ``head``.
+    """
+
+    # Legal HTML5 head content — anything else seen while `_in_head` is
+    # true implicitly ends the head element (a browser-grade parser would
+    # insert an implied </head> before it). This is an *inverted*
+    # allowlist deliberately: naming every possible "head is now over"
+    # tag (BLOCK-11's mistake) is an open-ended, always-incomplete set;
+    # naming what belongs inside <head> is a small, closed one.
+    _HEAD_CONTENT_TAGS = frozenset(
+        {"head", "title", "base", "link", "meta", "style", "script",
+         "noscript", "template"})
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._skip_depth = 0
+        self._in_head = False
+        self._chunks: List[str] = []
+
+    def handle_starttag(self, tag: str, attrs: Any) -> None:  # noqa: D401
+        if self._in_head and tag not in self._HEAD_CONTENT_TAGS:
+            self._in_head = False
+        if tag == "head":
+            self._in_head = True
+        elif tag in ("script", "style"):
+            self._skip_depth += 1
+
+    def handle_startendtag(self, tag: str, attrs: Any) -> None:
+        pass  # self-closing tags (<br/>, <meta/>) never carry visible text
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "head":
+            self._in_head = False
+        elif tag in ("script", "style") and self._skip_depth > 0:
+            self._skip_depth -= 1
+
+    def handle_data(self, data: str) -> None:
+        if self._skip_depth == 0 and not self._in_head:
+            self._chunks.append(data)
+
+
+def _visible_text(raw: str) -> str:
+    """Extract human-visible text from a fetched page. Generic across every
+    World's feeds — no domain knowledge of what the text means, only how to
+    strip non-visible markup. Never raises: malformed input falls back to
+    the raw text rather than losing the fetch entirely."""
+    try:
+        parser = _TextExtractor()
+        parser.feed(raw)
+        parser.close()
+        text = "".join(parser._chunks)
+    except Exception:  # noqa: BLE001 — a parse hiccup must not sink the tick
+        text = raw
+    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r"\n\s*\n+", "\n\n", text)
+    return text.strip()
+
+
+# ── World-declared extraction patterns (optional, generic) ─────────────
+
+def _load_scout_patterns(staged_dir: Path) -> List[Dict[str, Any]]:
+    """Read and validate the mounted World's optional scout-patterns.json
+    sidecar. Absent or malformed → empty list, logged, never raised — a
+    typo in an authored sidecar must not break scouting for every feed."""
+    path = staged_dir / SCOUT_PATTERNS_FILE
+    if not path.exists():
+        return []
+    try:
+        doc = json.loads(path.read_text())
+    except Exception as e:  # noqa: BLE001
+        _log.warning("agenda_watch: %s is not valid JSON: %s", path, e)
+        return []
+    if not isinstance(doc, dict) or doc.get("schema") != "arail.scout-patterns/v1":
+        _log.warning("agenda_watch: %s missing/unrecognized schema, ignoring", path)
+        return []
+    raw_patterns = doc.get("patterns")
+    if not isinstance(raw_patterns, list):
+        return []
+
+    out: List[Dict[str, Any]] = []
+    for p in raw_patterns[:_MAX_PATTERNS]:
+        if not isinstance(p, dict):
+            continue
+        label = str(p.get("label") or "").strip()
+        regex_src = str(p.get("regex") or "")
+        if not label or not regex_src or len(regex_src) > _MAX_PATTERN_LEN:
+            _log.warning("agenda_watch: skipping oversized/empty pattern in %s", path)
+            continue
+        try:
+            compiled = re.compile(regex_src)
+        except re.error as e:
+            _log.warning("agenda_watch: skipping invalid regex %r: %s", regex_src, e)
+            continue
+        try:
+            max_matches = int(p.get("max_matches", _MAX_PATTERN_MATCHES))
+        except (TypeError, ValueError):
+            max_matches = _MAX_PATTERN_MATCHES
+        max_matches = max(1, min(max_matches, _MAX_PATTERN_MATCHES))
+        # ``regex_src`` is kept alongside the compiled object (not just the
+        # compiled object) because the ReDoS-timeout wrapper below runs
+        # matching in a forked subprocess and recompiles from source there
+        # rather than relying on the compiled ``re.Pattern`` being picklable
+        # across a process boundary.
+        out.append({"label": label, "regex": compiled, "regex_src": regex_src,
+                    "max_matches": max_matches})
+    return out
+
+
+def _extract_candidates(text: str, patterns: List[Dict[str, Any]]
+                         ) -> "Dict[str, List[str]]":
+    """Run validated, bounded patterns over already-capped text. Returns
+    literal matched substrings only — never a transformation, never a
+    number the pattern didn't itself match verbatim.
+
+    Callers must invoke this through ``_extract_candidates_bounded``, not
+    directly, so a catastrophically-backtracking pattern cannot hang a tick
+    indefinitely. This function itself has no timeout of its own — it can
+    still block the *thread* it runs on for an unbounded time; bounding
+    that is the caller's job (see ``_run_with_timeout``).
+    """
+    candidates: Dict[str, List[str]] = {}
+    for p in patterns:
+        matches: List[str] = []
+        for m in p["regex"].finditer(text):
+            matches.append(m.group(0))
+            if len(matches) >= p["max_matches"]:
+                break
+        if matches:
+            candidates[p["label"]] = matches
+    return candidates
+
+
+def _extract_candidates_worker(text: str,
+                                pattern_specs: "List[tuple]",
+                                conn: "mp.connection.Connection") -> None:
+    """Entry point run inside the spawned subprocess: recompile patterns
+    from source (a compiled ``re.Pattern`` is not relied on to survive the
+    fork/pickle boundary) and run the same matching loop
+    ``_extract_candidates`` uses. Any failure here degrades to "no
+    candidates" — this subprocess exists purely to bound and isolate a
+    best-effort annotation, never to be a second place that can crash a
+    tick.
+
+    QA round 12, QA-3: sends a ``("ready", None)`` sentinel the instant
+    this function actually starts running — i.e. once ``spawn``'s
+    interpreter boot and re-import of this module has finished — *before*
+    doing any pattern matching. The parent waits on this separately from
+    the match result (see ``_extract_candidates_bounded``), so a slow
+    child *start* (spawn's fixed interpreter/import cost, observed at
+    0.6s+ in a lancedb-loaded process — a third of the old single 2.0s
+    budget) is never confused with a slow child *match* (the actual thing
+    this wall-clock bound exists to catch).
+
+    Uses a ``Pipe`` (``Connection.send``), not a ``Queue``. This was tried
+    first with a ``Queue`` and failed empirically:
+    ``multiprocessing.Queue.put`` hands the object to an internal
+    background *feeder thread* that does the actual write to the pipe —
+    and that thread needs the GIL to run. The instant this function moves
+    on to a catastrophically-backtracking match, the match holds the GIL
+    in a single uninterruptible C call (the same fact the module docstring
+    already documents about thread-based timeouts), starving the feeder
+    thread in THIS process before it ever gets to flush the "ready"
+    sentinel — so the parent never saw it and the whole point of the
+    two-phase wait was defeated by the exact hazard it was built to
+    detect. ``Connection.send`` writes synchronously in the calling
+    thread, no feeder thread involved, so it is not subject to this."""
+    try:
+        conn.send(("ready", None))
+    except Exception:  # noqa: BLE001 — connection itself may be broken
+        return
+    try:
+        patterns: List[Dict[str, Any]] = []
+        for label, regex_src, max_matches in pattern_specs:
+            try:
+                patterns.append({"label": label, "regex": re.compile(regex_src),
+                                  "max_matches": max_matches})
+            except re.error:
+                continue
+        conn.send(("result", _extract_candidates(text, patterns)))
+    except Exception:  # noqa: BLE001 — the parent only ever sees {} on failure
+        try:
+            conn.send(("result", {}))
+        except Exception:  # noqa: BLE001 — connection itself may be broken
+            pass
+
+
+def _extract_candidates_bounded(text: str, patterns: List[Dict[str, Any]],
+                                 feed_url: str = ""
+                                 ) -> "Dict[str, List[str]]":
+    """Wall-clock-bounded, hard-killable wrapper around
+    ``_extract_candidates``.
+
+    **Why a subprocess, not a thread.** An earlier version of this function
+    ran the match on a daemon *thread* with a ``join(timeout)``. That does
+    not work: CPython's regex engine executes catastrophic backtracking
+    entirely inside a single C call that never returns control to the
+    bytecode interpreter, so it never releases the GIL. The timed-out
+    caller's own thread can be woken by the OS after the timeout, but then
+    blocks indefinitely trying to *reacquire* the GIL from the
+    still-running match — the "bounded" wait was not bounded at all,
+    verified empirically against this checkout's exact ``(a+)+$`` repro (it
+    hung the whole test process, not just the worker). A separate process
+    has its own GIL and can be ``terminate()``/``kill()``-ed by the OS
+    regardless of what C loop it is stuck in, which is the only mechanism
+    that actually bounds this.
+
+    Uses the ``spawn`` start method explicitly, never ``fork``. An earlier
+    version of this wrapper forked, reasoning that the child could inherit
+    already-imported modules cheaply — but this process also has
+    ``lancedb`` loaded (used pervasively for the PKB/wiki vector index),
+    and ``lancedb`` documents itself as **not fork-safe**: it wraps a
+    native async runtime with its own background worker threads, and
+    ``fork()`` only duplicates the calling thread — any lock a lancedb
+    worker thread held at the instant of fork is inherited *held, forever*
+    in the child, with no thread left alive to release it. That is a
+    landmine independent of anything this function's own code does: the
+    child can hang or crash before it ever reaches ``_extract_candidates_worker``,
+    intermittently and unreproducibly, defeating the entire purpose of a
+    wall-clock ReDoS bound. ``spawn`` starts the child fresh with no
+    inherited native state, which is exactly why ``_extract_candidates_worker``
+    was written to take only plain picklable args (a ``str``, a list of
+    plain tuples, a ``Queue``) and to recompile regex patterns from source
+    rather than relying on a compiled ``re.Pattern`` surviving the
+    fork/pickle boundary — it was always spawn-compatible. The cost is a
+    slower child startup (tens of ms) than a fork would have been; that is
+    an acceptable trade for not forking a process with an active native
+    runtime.
+    """
+    if not patterns:
+        return {}
+    if "spawn" not in mp.get_all_start_methods():
+        _log.warning(
+            "agenda_watch: no 'spawn' start method available on this "
+            "platform — running candidate extraction for %s WITHOUT a "
+            "wall-clock ReDoS bound. A catastrophically-backtracking "
+            "pattern in the mounted World's scout-patterns.json can hang "
+            "this tick indefinitely.", feed_url)
+        return _extract_candidates(text, patterns)
+
+    # REVIEW.md addendum 9: setup itself (not just the child's work) can
+    # fail — a spawn-start failure must not abort the whole tick before
+    # _save_state runs; degrade to no-candidates for this feed instead.
+    # A Pipe, not a Queue: see _extract_candidates_worker's docstring for
+    # why (Queue.put's feeder thread starves under a GIL-monopolizing
+    # regex match; Connection.send writes synchronously, no thread).
+    try:
+        ctx = mp.get_context("spawn")
+        parent_conn, child_conn = ctx.Pipe(duplex=False)
+        pattern_specs = [(p["label"], p["regex_src"], p["max_matches"]) for p in patterns]
+        proc = ctx.Process(target=_extract_candidates_worker,
+                            args=(text, pattern_specs, child_conn), daemon=True)
+        proc.start()
+        child_conn.close()  # parent's copy; the child holds its own
+    except Exception:  # noqa: BLE001 — e.g. OS out of resources to spawn
+        _log.warning(
+            "agenda_watch: could not start the candidate-extraction "
+            "subprocess for %s — skipping candidates for this tick",
+            feed_url)
+        return {}
+
+    def _recv(timeout: float) -> "Optional[tuple]":
+        try:
+            if not parent_conn.poll(timeout):
+                return None
+            return parent_conn.recv()
+        except Exception:  # noqa: BLE001 — e.g. EOFError, a worker that
+                            # died/closed its end before sending anything
+            return None
+
+    def _kill(reason: str) -> None:
+        proc.terminate()
+        proc.join(1.0)
+        if proc.is_alive():
+            proc.kill()
+            proc.join(1.0)
+        parent_conn.close()
+        _log.warning("agenda_watch: candidate extraction for %s %s — "
+                      "skipping candidates for this tick", feed_url, reason)
+
+    # QA round 12, QA-3: a spawned child's interpreter boot + module
+    # re-import is a fixed cost the ORIGINAL child could avoid (fork
+    # inherits already-imported state) but this one cannot — measured
+    # 0.6s+ in a lancedb-loaded (portal-shaped) process, a third of the
+    # single 2.0s budget this used to share with matching. Waiting on a
+    # "ready" sentinel with its own generous allowance means a slow
+    # *start* is never mistaken for a slow *match*: the match-timing
+    # budget below only starts once the child is confirmed running.
+    ready = _recv(_STARTUP_TIMEOUT_SEC)
+    if ready is None or ready[0] != "ready":
+        _kill(f"failed to start within {_STARTUP_TIMEOUT_SEC:.1f}s (this is "
+              f"a subprocess-startup problem, not a scout-pattern one)")
+        return {}
+
+    # REVIEW.md addendum 9: a large result no longer risks being
+    # misreported as a killed, catastrophically-backtracking pattern —
+    # ``recv`` (via ``poll``) drains the pipe itself as data arrives, so
+    # it unblocks as soon as anything is written regardless of payload
+    # size; only a genuine hang exhausts the timeout with nothing sent.
+    received = _recv(_EXTRACT_TIMEOUT_SEC)
+    result = received[1] if received is not None and received[0] == "result" else None
+
+    if result is None:
+        # The child confirmed it started (the "ready" wait above already
+        # passed), so if it is STILL alive here the match itself is what
+        # is taking too long — the one case that plausibly is a
+        # catastrophically-backtracking pattern. If it already exited,
+        # something else went wrong (crash, killed externally) and the
+        # backtracking wording would be actively misleading.
+        if proc.is_alive():
+            _kill(f"did not finish matching within {_EXTRACT_TIMEOUT_SEC:.1f}s "
+                  f"and was killed (possible catastrophic-backtracking "
+                  f"pattern in the mounted World's scout-patterns.json)")
+        else:
+            parent_conn.close()
+            _log.warning(
+                "agenda_watch: candidate-extraction subprocess for %s "
+                "exited (code %s) without producing a result — skipping "
+                "candidates for this tick", feed_url, proc.exitcode)
+        return {}
+
+    proc.join(1.0)
+    if proc.is_alive():
+        proc.terminate()
+        proc.join(1.0)
+        if proc.is_alive():
+            proc.kill()
+            proc.join(1.0)
+    if proc.exitcode not in (0, None):
+        _log.warning(
+            "agenda_watch: candidate-extraction subprocess for %s exited "
+            "with code %s — result may be incomplete", feed_url, proc.exitcode)
+    parent_conn.close()
+    return result if isinstance(result, dict) else {}
 
 
 # ── fetch + finding ──────────────────────────────────────────────────
@@ -146,18 +635,44 @@ def _sha(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8", "replace")).hexdigest()
 
 
-def _slugish(value: str) -> str:
-    s = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
-    return s[:48] or "feed"
-
-
 def _finding_markdown(world: str, feed: WatchFeed, text: str,
-                      old_sha: str, new_sha: str) -> str:
+                      old_sha: str, new_sha: str,
+                      old_text: Optional[str],
+                      candidates: "Dict[str, List[str]]") -> str:
     checked = datetime.now(timezone.utc).isoformat()
-    excerpt = text.strip()[:_EXCERPT_CHARS]
-    # The excerpt is untrusted web content headed for a human review queue —
-    # fence it so it renders as inert text, not as markdown/instructions.
-    excerpt = excerpt.replace("```", "`‌``")
+
+    if old_text is not None:
+        diff_lines = list(difflib.unified_diff(
+            old_text.splitlines(), text.splitlines(), lineterm=""))
+        diff_body = "\n".join(diff_lines)[:_DIFF_CHARS]
+        if not diff_body.strip():
+            diff_body = "(no line-level differences detected in extracted text)"
+        section_title = f"## Change (unified diff, first {_DIFF_CHARS} characters)"
+        section_body = diff_body
+    else:
+        excerpt = text.strip()[:_EXCERPT_CHARS]
+        note = "" if excerpt else " — no visible text extracted; the page may be JavaScript-rendered"
+        section_title = f"## Excerpt (first {_EXCERPT_CHARS} characters of extracted text{note})"
+        section_body = excerpt or "(empty)"
+
+    # The excerpt/diff is untrusted web content headed for a human review
+    # queue — fence it so it renders as inert text, not markdown/instructions.
+    section_body = section_body.replace("```", "`‌``")
+
+    candidates_section = ""
+    if candidates:
+        lines = [
+            "## Candidate values (code-extracted, unverified)\n",
+            "Literal substrings the mounted World's declared extraction "
+            "patterns matched in the fetched text. These are not verified, "
+            "not vetted, and not asserted as fact by any agent — a human "
+            "must confirm before using one.\n",
+        ]
+        for label, values in candidates.items():
+            fenced = ", ".join(f"`{v}`" for v in values)
+            lines.append(f"- **{label}**: {fenced}")
+        candidates_section = "\n".join(lines) + "\n\n"
+
     return (
         "---\n"
         f'title: "Scout finding: {feed.node} changed"\n'
@@ -173,32 +688,55 @@ def _finding_markdown(world: str, feed: WatchFeed, text: str,
         f"- Feed: {feed.url}\n"
         f"- Checked: {checked}\n"
         f"- Change: content {old_sha[:8]} → {new_sha[:8]}\n\n"
-        f"## Excerpt (first {_EXCERPT_CHARS} characters, verbatim)\n\n"
+        f"{candidates_section}"
+        f"{section_title}\n\n"
         "```\n"
-        f"{excerpt}\n"
+        f"{section_body}\n"
         "```\n\n"
         f"Source: {feed.url}\n"
     )
 
 
 def _write_finding(pkb_root: Path, world: str, feed: WatchFeed, text: str,
-                   old_sha: str, new_sha: str) -> str:
+                   old_sha: str, new_sha: str,
+                   old_text: Optional[str],
+                   candidates: "Dict[str, List[str]]") -> str:
     scout_dir = pkb_root / SCOUT_SUBDIR
     scout_dir.mkdir(parents=True, exist_ok=True)
     stem = f"{world}-{_slugish(feed.node)}-{_slugish(feed.url)}"
-    # Prune superseded, still-unreviewed findings for the same feed so the
-    # queue holds one live finding per feed, not a pile-up.
+    # Retain a bounded history of unreviewed findings per feed instead of
+    # collapsing to one — a person who checks in weekly shouldn't lose every
+    # intermediate change to only the latest. Approved findings are never
+    # touched; only the oldest unreviewed ones are pruned once the cap
+    # would otherwise be exceeded.
     try:
         from arail import compiled_kb
         approved = compiled_kb.approved_paths(pkb_root)
     except Exception:  # noqa: BLE001 — pruning is best-effort
         approved = set()
-    for old in scout_dir.glob(f"{stem}-*.md"):
-        rel = old.relative_to(pkb_root).as_posix()
-        if rel not in approved:
-            old.unlink(missing_ok=True)
+    unreviewed = [
+        old for old in scout_dir.glob(f"{stem}-*.md")
+        if old.relative_to(pkb_root).as_posix() not in approved
+    ]
+    unreviewed.sort(key=lambda p: p.stat().st_mtime)
+    overflow = len(unreviewed) - (_MAX_UNREVIEWED_PER_FEED - 1)
+    for old in unreviewed[:max(0, overflow)]:
+        old.unlink(missing_ok=True)
     path = scout_dir / f"{stem}-{new_sha[:8]}.md"
-    path.write_text(_finding_markdown(world, feed, text, old_sha, new_sha))
+    # QA round 12, QA-1: this path is content-addressed (hash-suffixed),
+    # so a pre-placed symlink here needs the attacker to predict the
+    # upcoming content's sha256 — narrower than the .tmp files above, but
+    # the same discipline applies for consistency: refuse to write
+    # through a symlink rather than assume the narrower attack surface
+    # makes it safe to skip.
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    content = _finding_markdown(world, feed, text, old_sha, new_sha,
+                                 old_text, candidates)
+    fd = os.open(path, flags, 0o644)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(content)
     return path.relative_to(pkb_root).as_posix()
 
 
@@ -251,6 +789,8 @@ def tick(data_dir: Optional[Path] = None,
     if not feeds:
         return {"ok": True, "state": "no_url_feeds", "checked": 0, "findings": 0}
 
+    patterns = _load_scout_patterns(staged)
+
     if pkb_root is None:
         from arail.config import PKB_ROOT as pkb_root
     pkb_root = Path(pkb_root)
@@ -259,6 +799,7 @@ def tick(data_dir: Optional[Path] = None,
     store = ConsentStore()
 
     state_file = _state_path(data_dir)
+    data_dir_resolved = state_file.parent
     state = _load_state(state_file, world)
     t = now if now is not None else time.time()
     interval = _watch_interval_sec()
@@ -294,18 +835,35 @@ def tick(data_dir: Optional[Path] = None,
 
         checked += 1
         entry["last_checked_ts"] = t
-        text = str(result.finding.get("watch_data") or "")
+        raw_text = str(result.finding.get("watch_data") or "")
+        text = _visible_text(raw_text)
+        if raw_text.strip() and not text.strip():
+            # REVIEW.md addendum 9, BLOCK-12: a extraction bug that empties
+            # a genuinely non-empty fetch produces a stable hash of "" and
+            # the watch silently stops firing forever — the exact failure
+            # mode BLOCK-11/BLOCK-12 both were. Loud, not silent, so a
+            # future parser gap surfaces as a log line instead of years of
+            # quietly-dead watches.
+            _log.warning(
+                "agenda_watch: %s fetched %d bytes but visible-text "
+                "extraction produced nothing — this watch cannot detect "
+                "changes until the extractor is fixed", feed.url, len(raw_text))
         new_sha = _sha(text)
         old_sha = entry.get("sha256")
         if old_sha is None:
             entry["sha256"] = new_sha        # first look = baseline, no finding
+            _write_snapshot(data_dir_resolved, world, feed, text)
             continue
         if new_sha == old_sha:
             continue
+        old_text = _read_snapshot(data_dir_resolved, world, feed)
+        candidates = _extract_candidates_bounded(text, patterns, feed.url)
         try:
-            rel = _write_finding(pkb_root, world, feed, text, old_sha, new_sha)
+            rel = _write_finding(pkb_root, world, feed, text, old_sha, new_sha,
+                                  old_text, candidates)
             findings.append(rel)
             entry["sha256"] = new_sha
+            _write_snapshot(data_dir_resolved, world, feed, text)
         except Exception as e:  # noqa: BLE001 — one bad write must not stop the pass
             _log.warning("agenda_watch: could not stage finding for %s: %s",
                          feed.url, e)
