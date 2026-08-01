@@ -68,6 +68,22 @@ info() { echo -e "${GREEN}[${LAB_SHORT_NAME}]${RESET} $*"; }
 # names this IN SCOPE for this WP: two lines, fixed here.
 warn() { echo -e "${YELLOW}[${LAB_SHORT_NAME}]${RESET} $*"; }
 
+# Shared by both Ollama start blocks below (the --world instance path and
+# the legacy root-lab path). setup.sh skips the model pull/create when
+# Ollama wasn't reachable at setup time (its own "daemon not reachable —
+# skipping model download" warning). If that happened, the daemon coming
+# up here isn't enough — chat's default model literally was never
+# installed, which fails a second, more confusing way even once the
+# daemon answers.
+_check_default_ollama_model() {
+    local model="llama-ai-eng"
+    if ! ollama list 2>/dev/null | awk 'NR>1{print $1}' | cut -d: -f1 | grep -qx "$model"; then
+        warn "Ollama     → model '${model}' isn't installed yet — chat's default model won't"
+        warn "             work until you run:"
+        warn "             ollama pull llama3.2:1b && ollama create ${model} -f models/ai-eng/Modelfile.default"
+    fi
+}
+
 export PATH="$HOME/.local/bin:$PATH"
 BIND="${BIND_ADDR:-127.0.0.1}"
 LANCE_PORT="${LANCE_PORT:-7414}"
@@ -893,6 +909,7 @@ _instance_start() {
     if command -v ollama &>/dev/null; then
         if curl -sf -m 2 "http://${OLLAMA_HOST:-127.0.0.1:11434}/api/version" >/dev/null 2>&1; then
             info "Ollama     → http://${OLLAMA_HOST:-127.0.0.1:11434} (already running)"
+            _check_default_ollama_model
         else
             ollama serve >> "$(inst_log_dir "$slug")/ollama.log" 2>&1 &
             local ollama_pid=$!
@@ -903,11 +920,29 @@ _instance_start() {
             _INST_OLLAMA_PID="$ollama_pid"
             mkdir -p "$(inst_data_dir "$slug")"
             echo "$ollama_pid" > "$(inst_data_dir "$slug")/.ollama-started-by-arail.pid"
-            for _ in 1 2 3 4 5 6 7 8 9 10; do
-                curl -sf -m 1 "http://${OLLAMA_HOST:-127.0.0.1:11434}/api/version" >/dev/null 2>&1 && break
-                sleep 0.5
+            # Same 45s-cap-with-progress treatment as the root-lab Ollama
+            # block below, and the same warn-on-cap-miss the memory-service
+            # probe above already does — the old fixed 10 x 0.5s = 5s window
+            # gave up silently here, leaving chat hit a bare "Connection
+            # refused" with no sign anything was still loading.
+            local ollama_waited=0 ollama_ready=0
+            local ollama_timeout="${ARAIL_OLLAMA_READY_TIMEOUT:-45}"
+            while (( ollama_waited < ollama_timeout )); do
+                if curl -sf -m 1 "http://${OLLAMA_HOST:-127.0.0.1:11434}/api/version" >/dev/null 2>&1; then
+                    ollama_ready=1; break
+                fi
+                sleep 1
+                ollama_waited=$((ollama_waited + 1))
             done
-            info "Ollama     → http://${OLLAMA_HOST:-127.0.0.1:11434} (starting)"
+            if [[ "$ollama_ready" == "1" ]]; then
+                info "Ollama     → http://${OLLAMA_HOST:-127.0.0.1:11434} (ready)"
+                _check_default_ollama_model
+            else
+                warn "Ollama     → did not respond within ${ollama_timeout}s — chat will show"
+                warn "             \"Connection refused\" until it comes up. Check progress with:"
+                warn "             tail -f $(inst_log_dir "$slug")/ollama.log"
+                warn "             (slow machine? raise the wait: ARAIL_OLLAMA_READY_TIMEOUT=90)"
+            fi
         fi
     else
         info "Ollama     → (not installed — chat's default local model needs it: https://ollama.com)"
@@ -1095,33 +1130,74 @@ else
     OLLAMA_DATA_DIR="${OLLAMA_DATA_DIR%/}/data"
 fi
 OLLAMA_PIDFILE="${OLLAMA_DATA_DIR%/}/.ollama-started-by-arail.pid"
+# Same LAB_ROOT convention as reset.sh's _resolve_data_dir() (default "lab").
+ROOT_LOG_DIR="$(_expand_tilde_for_ollama "${LAB_ROOT:-lab}")"
+ROOT_LOG_DIR="${ROOT_LOG_DIR%/}/logs"
+mkdir -p "$ROOT_LOG_DIR"
+
+# How long to wait for `ollama serve`'s HTTP API to come up before giving
+# up and starting the rest of the lab anyway. The old fixed 5s window
+# (10 x 0.5s) moved on silently once it elapsed, so a slow first-run cold
+# start (GPU probing, spinning up the runner) left chat hitting a bare
+# "Connection refused" with zero indication anything was still loading.
+OLLAMA_READY_TIMEOUT="${ARAIL_OLLAMA_READY_TIMEOUT:-45}"
+
+_wait_for_root_ollama() {
+    local waited=0
+    while (( waited < OLLAMA_READY_TIMEOUT )); do
+        curl -sf -m 1 "http://${OLLAMA_HOST:-127.0.0.1:11434}/api/version" >/dev/null 2>&1 && return 0
+        sleep 1
+        waited=$(( waited + 1 ))
+        if (( waited % 5 == 0 )); then
+            info "Ollama     → still starting… (${waited}s/${OLLAMA_READY_TIMEOUT}s)"
+        fi
+    done
+    return 1
+}
+
 if command -v ollama &>/dev/null; then
     if curl -sf -m 2 "http://${OLLAMA_HOST:-127.0.0.1:11434}/api/version" >/dev/null 2>&1; then
         info "Ollama     → http://${OLLAMA_HOST:-127.0.0.1:11434} (already running)"
+        _check_default_ollama_model
     else
-        info "Ollama     → http://${OLLAMA_HOST:-127.0.0.1:11434} (starting)"
-        ollama serve &
+        info "Ollama     → http://${OLLAMA_HOST:-127.0.0.1:11434} (starting — first launch can take up to ${OLLAMA_READY_TIMEOUT}s)"
+        ollama serve >"$ROOT_LOG_DIR/ollama.out.log" 2>"$ROOT_LOG_DIR/ollama.err.log" &
         OLLAMA_PID=$!
         PIDS+=("$OLLAMA_PID")
         mkdir -p "$(dirname "$OLLAMA_PIDFILE")"
         echo "$OLLAMA_PID" > "$OLLAMA_PIDFILE"
-        for _ in 1 2 3 4 5 6 7 8 9 10; do
-            curl -sf -m 1 "http://${OLLAMA_HOST:-127.0.0.1:11434}/api/version" >/dev/null 2>&1 && break
-            sleep 0.5
-        done
+        if _wait_for_root_ollama; then
+            info "Ollama     → ready"
+            _check_default_ollama_model
+        else
+            warn "Ollama     → still not responding after ${OLLAMA_READY_TIMEOUT}s — chat will show"
+            warn "             \"Connection refused\" until it comes up. It's still starting in the"
+            warn "             background; check progress with: tail -f ${ROOT_LOG_DIR}/ollama.err.log"
+            warn "             (slow machine? raise the wait: ARAIL_OLLAMA_READY_TIMEOUT=90 ./arailctl start)"
+        fi
     fi
 else
     info "Ollama     → (not installed — chat's default local model needs it: https://ollama.com)"
 fi
 
 if [[ "${MODEL_BACKEND:-auto}" == "mlx" ]]; then
-    info "MLX API    → http://${BIND}:${MLX_OPENAI_PORT:-11435}/v1"
+    info "MLX API    → http://${BIND}:${MLX_OPENAI_PORT:-11435}/v1 (starting)"
     uvicorn arail.mlx_openai_server:app \
         --app-dir "$REPO_ROOT" \
         --host "$BIND" --port "${MLX_OPENAI_PORT:-11435}" \
-        --log-level warning &
+        --log-level warning >"$ROOT_LOG_DIR/mlx-api.out.log" 2>"$ROOT_LOG_DIR/mlx-api.err.log" &
     _ROOT_MLX_PID=$!
     PIDS+=("$_ROOT_MLX_PID")
+    # Warm the model in the background. MLXBackend() loads weights on
+    # first use, so /health's first hit pays that cost — do it here,
+    # off the critical path, so it's the server warming itself up while
+    # the rest of the lab starts, not the user's first chat message.
+    (
+        for _ in $(seq 1 20); do
+            curl -sf -m 2 "http://${BIND}:${MLX_OPENAI_PORT:-11435}/health" >/dev/null 2>&1 && break
+            sleep 1
+        done
+    ) &
 fi
 
 info "Memory     → http://${BIND}:${LANCE_PORT}"
