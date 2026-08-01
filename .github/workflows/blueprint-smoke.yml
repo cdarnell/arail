@@ -231,11 +231,28 @@ jobs:
           import urllib.request
           from pathlib import Path
 
+          # Concurrent Worlds (sprints/2026-07-28-concurrent-worlds/) gives
+          # each World instance its own dynamically-allocated memory-service
+          # port: `inst_allocate_ports` in scripts/lib/instances.sh computes
+          # it as PORTAL_PORT + INST_PORT_LANCE_OFFSET(4) - INST_PORT_PORTAL_OFFSET(0)
+          # when a --port override is given (as this job does, --port 8080),
+          # so LANCE_PORT lands on 8084, not the fixed default 7414. Read the
+          # instance's actual pinned pack (lab/instances/ai/instance.env)
+          # instead of hardcoding, so this doesn't silently break again if the
+          # offsets ever change.
+          lance_port = 7414
+          pack_file = Path('lab/instances/ai/instance.env')
+          if pack_file.exists():
+              for line in pack_file.read_text().splitlines():
+                  if line.startswith('LANCE_PORT='):
+                      lance_port = int(line.split('=', 1)[1].strip().strip('"'))
+                      break
+
           endpoints = {
               'dashboard-root': 'http://127.0.0.1:8080/',
               'jobs-state': 'http://127.0.0.1:8080/api/jobs/state',
               'system-health': 'http://127.0.0.1:8080/api/system/health',
-              'memory-health': 'http://127.0.0.1:7414/health',
+              'memory-health': f'http://127.0.0.1:{lance_port}/health',
           }
 
           # 120s, then 300s, then 600s all failed with "connection refused"
@@ -292,7 +309,7 @@ jobs:
                   elapsed = round(time.time() - start_time, 1)
                   line = (
                       f'{elapsed}s  8080_open={_port_open(8080)}  '
-                      f'7414_open={_port_open(7414)}  '
+                      f'{lance_port}_open={_port_open(lance_port)}  '
                       f'portal.log_bytes={_portal_log_size()}\n'
                   )
                   timeline_fh.write(line)
