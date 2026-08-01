@@ -231,12 +231,43 @@ jobs:
           import urllib.request
           from pathlib import Path
 
-          endpoints = {
-              'dashboard-root': 'http://127.0.0.1:8080/',
-              'jobs-state': 'http://127.0.0.1:8080/api/jobs/state',
-              'system-health': 'http://127.0.0.1:8080/api/system/health',
-              'memory-health': 'http://127.0.0.1:7414/health',
-          }
+          # Concurrent Worlds (sprints/2026-07-28-concurrent-worlds/) gives
+          # each World instance its own dynamically-allocated memory-service
+          # port: `inst_allocate_ports` in scripts/lib/instances.sh computes
+          # it as PORTAL_PORT + INST_PORT_LANCE_OFFSET(4) - INST_PORT_PORTAL_OFFSET(0)
+          # when a --port override is given (as this job does, --port 8080),
+          # so LANCE_PORT lands on 8084, not the fixed default 7414. Read the
+          # instance's actual pinned pack (lab/instances/ai/instance.env)
+          # instead of hardcoding.
+          #
+          # `./arailctl start` was backgrounded (`&`) by the previous step,
+          # which returns as soon as the process is forked -- the instance
+          # pack file doesn't exist yet at that instant, only once start.sh
+          # reaches "[4/8] Instance root". A one-shot read here raced that
+          # and silently fell back to 7414 every time. Re-resolve it lazily
+          # on every loop iteration until found, so it doesn't matter when
+          # the pack file actually lands.
+          pack_file = Path('lab/instances/ai/instance.env')
+          lance_port = None
+
+          def _resolve_lance_port() -> int:
+              global lance_port
+              if lance_port is not None:
+                  return lance_port
+              if pack_file.exists():
+                  for line in pack_file.read_text().splitlines():
+                      if line.startswith('LANCE_PORT='):
+                          lance_port = int(line.split('=', 1)[1].strip().strip('"'))
+                          return lance_port
+              return 7414  # fallback while the pack file hasn't landed yet
+
+          def _endpoints() -> dict[str, str]:
+              return {
+                  'dashboard-root': 'http://127.0.0.1:8080/',
+                  'jobs-state': 'http://127.0.0.1:8080/api/jobs/state',
+                  'system-health': 'http://127.0.0.1:8080/api/system/health',
+                  'memory-health': f'http://127.0.0.1:{_resolve_lance_port()}/health',
+              }
 
           # 120s, then 300s, then 600s all failed with "connection refused"
           # for the ENTIRE window -- and critically, the two most recent
@@ -290,16 +321,17 @@ jobs:
               if time.time() - last_timeline_at >= 15:
                   last_timeline_at = time.time()
                   elapsed = round(time.time() - start_time, 1)
+                  probe_port = _resolve_lance_port()
                   line = (
                       f'{elapsed}s  8080_open={_port_open(8080)}  '
-                      f'7414_open={_port_open(7414)}  '
+                      f'{probe_port}_open={_port_open(probe_port)}  '
                       f'portal.log_bytes={_portal_log_size()}\n'
                   )
                   timeline_fh.write(line)
                   timeline_fh.flush()
               try:
                   current: dict[str, str] = {}
-                  for name, url in endpoints.items():
+                  for name, url in _endpoints().items():
                       with urllib.request.urlopen(url, timeout=5) as response:
                           body = response.read().decode('utf-8', 'replace')
                           if response.status != 200:
