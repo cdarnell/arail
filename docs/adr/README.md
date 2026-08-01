@@ -20,6 +20,7 @@ supersedes it.
 | [0001](0001-ai-engineer-domain-specialization.md) | AI-Engineer Domain Specialization of the Default Model | Accepted |
 | [0002](0002-chat-memory-and-the-dac-boundary.md) | Conversation Memory and the DaC Boundary | Accepted |
 | [0003](0003-why-not-letta-memgpt.md) | Why ARAIL Does Not Wrap Letta (MemGPT) | Accepted |
+| [0004](0004-vendor-dac-world-for-offline-friendly-setup.md) | Vendor `dac_world` Instead of a Pinned Git Dependency | Accepted |
 
 > **ADR numbers are not unique across this workspace.** ARAIL's own sequence starts
 > at 0001. A bare `ADR-0005` / `ADR-0006` in some build scripts and research notes

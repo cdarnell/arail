@@ -6,6 +6,9 @@ human-approved reversal of the prior "no cross-repo runtime imports" stance —
 see ``qukaizen-dac/sprints/2026-07-19-dac-generates-arail-worlds/
 ARCHITECTURE.md`` for the full rationale, assumptions, and failure modes;
 ``BUILD_LOG.md`` in that same directory for what actually moved and why).
+``dac_world`` now ships as a vendored copy at ``src/dac_world`` rather than a
+pinned git dependency on the private ``qukaizen-dac`` repo — see
+``docs/adr/0004-vendor-dac-world-for-offline-friendly-setup.md`` for why.
 
 This module re-exports exactly the public (and two underscore-prefixed but
 externally-depended-on) names that ARAIL's portal, ``librarian_scout``,
