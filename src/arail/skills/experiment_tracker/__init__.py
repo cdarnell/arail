@@ -85,7 +85,7 @@ class ExperimentTracker:
             if status and exp.get("status") != status:
                 continue
             exps.append(exp)
-        return sorted(exps, key=lambda x: x["created_at"], reverse=True)
+        return sorted(exps, key=lambda x: x.get("created_at", ""), reverse=True)
 
     def search(
         self,
