@@ -108,9 +108,14 @@ ROOT_ONLY=0
 # (app.py:_warm_primary_router) — never a second warm path. Applies to
 # BOTH the instance path and the root path below.
 WARM_UP=0
+# Force the interactive picker even when |W| < 2 (which would otherwise
+# auto-select the single World, or skip straight to the root lab). This is
+# what `./arailctl switch` uses so it never has to carry a second copy of
+# the picker — the one at the bottom of this section stays the only one.
+PICK_ONLY=0
 
 _start_usage() {
-    echo "Usage: ./arailctl start [--world <slug>] [--root] [--port <n>] [--no-browser] [--list] [--yes] [--warm]"
+    echo "Usage: ./arailctl start [--world <slug>] [--root] [--port <n>] [--no-browser] [--list] [--pick] [--yes] [--warm]"
 }
 
 while [[ $# -gt 0 ]]; do
@@ -126,6 +131,7 @@ while [[ $# -gt 0 ]]; do
         --port=*) PORT_OVERRIDE="${1#--port=}"; shift ;;
         --no-browser) ARAIL_NO_BROWSER=1; shift ;;
         --list) LIST_ONLY=1; shift ;;
+        --pick) PICK_ONLY=1; shift ;;
         --yes) ASSUME_YES=1; shift ;;
         --warm) WARM_UP=1; shift ;;
         -h|--help) _start_usage; exit 0 ;;
@@ -143,6 +149,23 @@ export ARAIL_NO_BROWSER="${ARAIL_NO_BROWSER:-0}"
 # always reported as one regardless of daemon/World state.
 if [[ "$ROOT_ONLY" == "1" && -n "$WORLD_SLUG" ]]; then
     echo "--root and --world are mutually exclusive" >&2
+    _start_usage >&2
+    exit 2
+fi
+
+# --pick means "ask me"; --root/--world mean "don't". Naming both is a
+# usage mistake, reported as one here rather than silently letting the
+# explicit target win (which would make `switch --root --pick` look like
+# it prompted when it never did). Same shape as the check above.
+if [[ "$PICK_ONLY" == "1" ]] && { [[ "$ROOT_ONLY" == "1" ]] || [[ -n "$WORLD_SLUG" ]]; }; then
+    echo "--pick cannot be combined with --root or --world" >&2
+    _start_usage >&2
+    exit 2
+fi
+# --pick says "ask me", --yes says "never ask". Naming both is a usage
+# mistake in the other direction, and reported as one for the same reason.
+if [[ "$PICK_ONLY" == "1" && "$ASSUME_YES" == "1" ]]; then
+    echo "--pick and --yes are mutually exclusive (--pick asks, --yes does not)" >&2
     _start_usage >&2
     exit 2
 fi
@@ -233,6 +256,43 @@ print(json.dumps([{"slug": w.slug, "display_name": w.display_name} for w in worl
 PY
 }
 
+# The root lab is not always "the plain AI Lab": a World can be MOUNTED
+# into it (lab/data/world-mount.json), in which case option 0 of the
+# picker boots that World's lab, while the same World also appears as its
+# own row further down — two rows, one lab, indistinguishable. Read the
+# mount so option 0 can name what it will actually give you.
+#
+# Same never-raises posture as _instance_world_catalog: any failure prints
+# nothing and the caller falls back to the plain label.
+_instance_root_mounted_name() {
+    python3 - 2>/dev/null <<'PY' || true
+import json
+from pathlib import Path
+
+try:
+    from arail.world_mount import current_mount
+
+    rec = current_mount()
+    if rec is not None:
+        # The mount record is the authority for WHICH World; manifest.json
+        # only supplies the pretty name. Read it directly rather than via
+        # load_bundle() — a full 6-sibling parse (and its PartialBundle
+        # raise) is far more than a label needs, and a bundle that has
+        # since gone missing must still print something useful.
+        name = rec.world
+        try:
+            manifest = json.loads(
+                (Path(rec.bundle_dir) / "manifest.json").read_bytes()
+            )
+            name = str(manifest.get("display_name") or "").strip() or rec.world
+        except Exception:
+            pass
+        print(name)
+except Exception:
+    pass
+PY
+}
+
 _instance_print_known_slugs() {
     printf '%s' "$WORLD_CATALOG_JSON" | python3 -c '
 import json, sys
@@ -289,6 +349,46 @@ else:
     exit 0
 fi
 
+# ── The picker's memory (Phase 1) ──────────────────────────────────────────
+# Resolve "what did I launch last" ONCE, here, so both the interactive
+# picker and the --yes path agree on the default. Two outputs:
+#   _LAST_KIND  — "root" | "world" | ""   ("" = no usable memory)
+#   _LAST_SLUG  — the World slug when _LAST_KIND is "world"
+# A remembered World that has since been deleted from the catalog degrades
+# to the root lab with one honest line — never a hard failure, and never a
+# silent substitution.
+_LAST_KIND="" _LAST_SLUG="" _LAST_GONE=""
+if _last_raw="$(inst_read_last_target 2>/dev/null)"; then
+    if [[ "$_last_raw" == root ]]; then
+        _LAST_KIND="root"
+    else
+        _LAST_SLUG="${_last_raw#*$'\t'}"
+        # Re-check against THIS lab's catalog: the memory is a preference,
+        # the catalog is the truth. A World deleted (or made invalid) since
+        # it was last launched must not become an unstartable default.
+        if printf '%s' "$WORLD_CATALOG_JSON" | python3 -c '
+import json, sys
+sys.exit(0 if any(w["slug"] == sys.argv[1] for w in json.load(sys.stdin)) else 1)
+' "$_LAST_SLUG"; then
+            _LAST_KIND="world"
+        else
+            _LAST_GONE="$_LAST_SLUG"
+            _LAST_KIND="root"
+            _LAST_SLUG=""
+        fi
+    fi
+fi
+unset _last_raw
+
+# _last_default_label — how the resolved memory reads in a prompt/message.
+_last_default_label() {
+    if [[ "$_LAST_KIND" == "world" ]]; then
+        printf '%s' "$_LAST_SLUG"
+    else
+        printf '%s' "the root lab"
+    fi
+}
+
 # ── Resolve which slug (if any) we are starting as an instance ─────────────
 TARGET_SLUG=""
 if [[ "$ROOT_ONLY" == "1" ]]; then
@@ -300,11 +400,46 @@ if [[ "$ROOT_ONLY" == "1" ]]; then
 elif [[ -n "$WORLD_SLUG" ]]; then
     TARGET_SLUG="$WORLD_SLUG"
 elif [[ "$WORLD_COUNT" == "0" ]]; then
-    TARGET_SLUG=""  # legacy root lab — falls straight into the unchanged path below
-elif [[ "$WORLD_COUNT" == "1" ]]; then
-    TARGET_SLUG="$(printf '%s' "$WORLD_CATALOG_JSON" | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["slug"])')"
+    # Legacy root lab — falls straight into the unchanged path below. Even
+    # --pick has nothing to offer here: a picker whose only option is
+    # option 0 is a prompt, not a choice.
+    TARGET_SLUG=""
+elif [[ "$WORLD_COUNT" == "1" && "$PICK_ONLY" != "1" ]]; then
+    # VISION §3: "the picker must not tax the single-World user, who is
+    # most of the fork audience." Still true — but once there IS a memory,
+    # honouring it is not a tax, it is the whole point of the memory. A
+    # single-World lab whose operator last ran the root lab must come back
+    # to the root lab. `switch`/`--pick` opts into the prompt explicitly.
+    if [[ "$_LAST_KIND" == "root" ]]; then
+        TARGET_SLUG=""
+        echo "Starting the root lab (last used). Override: --world <slug>, or --pick to choose."
+    else
+        TARGET_SLUG="$(printf '%s' "$WORLD_CATALOG_JSON" | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["slug"])')"
+    fi
 else
-    if [[ "$ASSUME_YES" == "1" ]] || [[ ! -t 0 ]]; then
+    if [[ "$ASSUME_YES" == "1" ]]; then
+        # Checked BEFORE the tty test, not after: --yes is the explicit
+        # "take the default" opt-in, and its whole audience is scripts and
+        # pipes — a non-tty check that ran first would make the flag
+        # unreachable in exactly the situation it exists for.
+        #
+        # docs/cli.md has always documented --yes as "non-interactive
+        # default for the World picker"; before the memory existed there
+        # was no default to take, so it fell in with the refusal below and
+        # exited 2 — the doc and the code disagreed. Now it takes the
+        # remembered target, and says which one out loud.
+        [[ -n "$_LAST_GONE" ]] && echo "Last-used World '${_LAST_GONE}' is no longer in this lab's catalog — using the root lab."
+        if [[ "$_LAST_KIND" == "world" ]]; then
+            TARGET_SLUG="$_LAST_SLUG"
+            echo "--yes: starting '${_LAST_SLUG}' (last used)."
+        else
+            TARGET_SLUG=""
+            echo "--yes: starting the root lab$([[ "$_LAST_KIND" == "root" ]] && printf ' (last used)')."
+        fi
+    elif [[ ! -t 0 ]]; then
+        # Bare non-interactive: unchanged. VISION §3's "never guess" ruling
+        # is what CI, daemons, and every scripted caller depend on — the
+        # memory above is an OPT-IN (--yes), never something a pipe inherits.
         echo "Multiple Worlds are configured — pick one:" >&2
         printf '%s' "$WORLD_CATALOG_JSON" | python3 -c '
 import json, sys
@@ -318,12 +453,25 @@ for w in json.load(sys.stdin):
         if _instance_world_named_root_exists; then
             echo "  NOTE: a World is also named 'root' — --root always means the root lab; use --world root for that World (F11)." >&2
         fi
+        if [[ "$PICK_ONLY" == "1" ]]; then
+            echo "  (--pick needs a terminal — stdin is not a tty)" >&2
+        fi
         exit 2
+    else
+    echo ""
+    echo "Which lab do you want?"
+    echo ""
+    [[ -n "$_LAST_GONE" ]] && echo "  (last-used World '${_LAST_GONE}' is no longer in this lab's catalog)"
+    # Option 0 must name what it will ACTUALLY start. A World mounted into
+    # the root lab makes "the root lab" and that World's own row two names
+    # for two different labs that look identical here.
+    _root_mounted_name="$(_instance_root_mounted_name)"
+    if [[ -n "$_root_mounted_name" ]]; then
+        _root_label="${LAB_NAME} — ${_root_mounted_name} mounted (:${PORTAL_PORT:-8080})"
+    else
+        _root_label="${LAB_NAME} (the root lab on :${PORTAL_PORT:-8080})"
     fi
-    echo ""
-    echo "Multiple Worlds are configured. Which lab do you want?"
-    echo ""
-    echo "  0) ${LAB_NAME} (the root lab on :${PORTAL_PORT:-8080} — non-interactive: --root)"
+    printf '  0) %s%s\n' "$_root_label" "$([[ "$_LAST_KIND" == "root" ]] && printf '   ← last')"
     if _instance_world_named_root_exists; then
         echo "     NOTE: a World is also named 'root' below — that is a different thing from option 0 (F11)."
     fi
@@ -343,19 +491,45 @@ for w in json.load(sys.stdin):
         else
             _live="○ not running"
         fi
-        printf '  %d) %-22s %s\n' "$_i" "$_row_name" "$_live"
+        _mark=""
+        [[ "$_LAST_KIND" == "world" && "$_row_slug" == "$_LAST_SLUG" ]] && _mark="   ← last"
+        printf '  %d) %-22s %s%s\n' "$_i" "$_row_name" "$_live" "$_mark"
         _slugs+=("$_row_slug")
         _i=$((_i + 1))
     done <<< "$_rows"
+
+    # The Enter-default: the remembered target, or option 0 on a lab that
+    # has never launched anything. Spelled out in the prompt so pressing
+    # Enter is never a guess about what you'll get.
+    _default_idx=0
+    if [[ "$_LAST_KIND" == "world" ]]; then
+        _n=1
+        for _s in "${_slugs[@]}"; do
+            [[ "$_s" == "$_LAST_SLUG" ]] && _default_idx="$_n"
+            _n=$((_n + 1))
+        done
+        unset _n _s
+    fi
     echo ""
-    read -rp "  Choice [0-$((_i - 1))]: " _choice
-    if [[ -z "$_choice" || "$_choice" == "0" ]]; then
+    # printf to STDOUT + a bare `read -r`, never `read -rp`. On Darwin this
+    # script replaces fd 2 with a pipe into `grep -v MallocStackLogging`
+    # (see the top of this file) — and `read -p` writes its prompt to
+    # STDERR with no trailing newline, which `grep` then holds in its
+    # buffer indefinitely, because an incomplete final line is never
+    # emitted until EOF. Net effect on every Mac: the World list rendered,
+    # then a blank line and a cursor, with the "Choice […]:" prompt never
+    # appearing at all — the picker looked hung rather than interactive.
+    printf '  Choice [0-%d, Enter = %d]: ' "$((_i - 1))" "$_default_idx"
+    read -r _choice
+    [[ -z "$_choice" ]] && _choice="$_default_idx"
+    if [[ "$_choice" == "0" ]]; then
         TARGET_SLUG=""
     elif [[ "$_choice" =~ ^[0-9]+$ ]] && (( _choice >= 1 && _choice < _i )); then
         TARGET_SLUG="${_slugs[$((_choice - 1))]}"
     else
         echo "Invalid choice." >&2
         exit 2
+    fi
     fi
 fi
 
@@ -618,6 +792,10 @@ _instance_start() {
         echo "  URL:        ${url}"
         echo "  Data root:  $(inst_instance_dir "$slug")"
         echo "  Started:    ${started} (pid ${pid})"
+        # Attaching IS launching, as far as the operator is concerned —
+        # record it so the picker's default follows where they actually
+        # went, not only where a process happened to be spawned.
+        inst_write_last_target world "$slug"
         if [[ "${ARAIL_NO_BROWSER:-0}" != "1" ]] && [[ -t 1 ]]; then
             echo "Opening in your browser… (suppress with ARAIL_NO_BROWSER=1)"
             if command -v open >/dev/null; then open "$url"
@@ -981,6 +1159,10 @@ print(json.dumps({
       "$BIND" "$portal_port" "$lance_port" "$$" "$portal_pid" "$memory_pid" \
       "$instance_token" "$now" "concurrent-worlds-wp4")"
     inst_write_record "$slug" "$record_json"
+    # The picker's memory — recorded only now, AFTER the portal answered and
+    # the record was written. Recording it earlier would make a World that
+    # crash-loops on boot the sticky default, which is precisely backwards.
+    inst_write_last_target world "$slug"
     rm -f "$_INST_CLAIM_FILE" 2>/dev/null || true
     _INST_CLAIM_FILE=""
 
@@ -1408,6 +1590,12 @@ _root_degraded=()
 [[ "$_root_terminal_ok" == "1" ]] || _root_degraded+=("terminal")
 [[ "$_root_notebook_ok" == "1" ]] || _root_degraded+=("notebook")
 [[ "$_root_ide_ok" == "1" ]] || _root_degraded+=("ide")
+
+# The picker's memory — the root-lab counterpart of the instance path's
+# call. Reached only after the required Portal readiness gate above passed
+# (a portal that never answered exits 1 well before here), so the same
+# "never make a failed launch sticky" rule holds.
+inst_write_last_target root
 
 echo ""
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"

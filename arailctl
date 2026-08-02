@@ -227,15 +227,21 @@ EOF
     setup           first-time provisioning — pick a tier, deps, model
     start           launch the lab (foreground start.sh, or launchd in daemon mode)
                     [--world <slug>] [--root] [--port <n>] [--no-browser]
-                    [--list] [--yes] [--warm]
-                    — with 2+ Worlds configured, bare 'start' picks interactively
-                    (non-interactive: exit 2 naming every --world/--root command);
+                    [--list] [--pick] [--yes] [--warm]
+                    — with 2+ Worlds configured, bare 'start' picks interactively,
+                    defaulting to the lab you launched last (--pick forces the
+                    prompt; --yes takes that default without asking;
+                    non-interactive: exit 2 naming every --world/--root command);
                     a running World is attached to, never respawned
     stop            stop lab services (unloads launchd agents in daemon mode)
                     [--world <slug>] [--root] [--all] — target one/all instances
     restart         stop then start — scoped to exactly one target, never a
                     sibling World (forwards every start flag, incl. --warm;
                     launchctl kickstart -k in daemon mode)
+    switch          jump to another World: stop what's running, then pick
+                    [--world <slug>] [--root] — skip the prompt and go straight
+                    there. Unlike 'restart' (which pins to the current target),
+                    'switch' always leaves you in exactly one lab
     install         refresh an already-provisioned lab: source, deps,
                     components, models, verify
                     [--check] [--only <phase>,..] [--skip <phase>,..] [--models]
@@ -321,7 +327,7 @@ case "$cmd" in
         _arail_start_forwards_argv=0
         for _arail_start_arg in "$@"; do
             case "$_arail_start_arg" in
-                --world|--world=*|--list|-h|--help|--root) _arail_start_forwards_argv=1; break ;;
+                --world|--world=*|--list|-h|--help|--root|--pick) _arail_start_forwards_argv=1; break ;;
             esac
         done
         if [[ "$_arail_start_forwards_argv" == "1" ]]; then
@@ -647,6 +653,103 @@ case "$cmd" in
             echo "restart: ${_restart_label} was stopped, and the start failed (above) — the lab is now DOWN." >&2
         fi
         exit "$_restart_rc"
+        ;;
+    switch)
+        # Jump from one World to another in one command: stop what is
+        # live, then pick. This is the verb the Concurrent-Worlds BRIEF
+        # actually asked for ("jump from one world to another cleaner
+        # than selecting from a dropdown") — `restart` deliberately pins
+        # to the CURRENT target, so it can never be that verb.
+        #
+        # Same discipline as `restart` above and for the same reasons: a
+        # READ-ONLY argv scan (never a second parser), a SCOPED stop per
+        # target (never an unscoped `reset.sh stop` that could take out a
+        # sibling), and the F13 "the lab is now DOWN" notice when a
+        # successful stop is followed by a failed start.
+        #
+        # The one deliberate difference from `restart`: with >=2 live
+        # instances `restart` exits 2 (it cannot know which one you
+        # meant), whereas `switch` stops ALL of them and then asks —
+        # collapsing to one lab IS what switching means.
+        if daemon_active; then
+            echo "Daemon mode is active (launchd supervises the lab on :${PORTAL_PORT:-8080})."
+            echo "Daemon mode is single-instance: there is nothing to switch between."
+            echo "  To run Worlds side by side:  ./arailctl uninstall-daemon && ./arailctl switch"
+            exit 1
+        fi
+
+        _switch_world="" _switch_root=0 _switch_prev=""
+        for _switch_arg in "$@"; do
+            case "$_switch_arg" in
+                --world=*) _switch_world="${_switch_arg#--world=}" ;;
+                --root) _switch_root=1 ;;
+            esac
+            [[ "$_switch_prev" == "--world" ]] && _switch_world="$_switch_arg"
+            _switch_prev="$_switch_arg"
+        done
+        unset _switch_prev _switch_arg
+
+        if [[ -n "$_switch_world" && "$_switch_root" == "1" ]]; then
+            echo "--root and --world are mutually exclusive" >&2
+            exit 2
+        fi
+
+        # Snapshot the live set BEFORE stopping anything — stop_instance
+        # deletes the very record this would otherwise be read from (the
+        # same ordering trap restart's own resolution documents).
+        _switch_live=()
+        while IFS= read -r _switch_s; do
+            [[ -n "$_switch_s" ]] && inst_alive "$_switch_s" && _switch_live+=("$_switch_s")
+        done < <(inst_list_slugs)
+        unset _switch_s
+
+        _switch_stopped=0
+        for _switch_s in ${_switch_live[@]+"${_switch_live[@]}"}; do
+            echo "Stopping World instance '${_switch_s}'…"
+            if ! bash "$REPO_ROOT/scripts/reset.sh" stop --world "$_switch_s"; then
+                echo "switch: stopping '${_switch_s}' failed — start not attempted." >&2
+                exit 1
+            fi
+            _switch_stopped=1
+        done
+        unset _switch_s
+        # The root lab is a target too: switching away from it has to stop
+        # it, or the next lab fights it for the portal port. Scoped
+        # --root, which never touches a live World instance. Quiet and
+        # non-fatal on purpose — "the root lab wasn't running" is the
+        # common case here, not a failure worth narrating or aborting on
+        # (`stop`'s contract is the post-condition, and it exits 0 either
+        # way; the `|| true` is belt-and-braces against a future change to
+        # that contract silently turning a no-op into a dead `switch`).
+        bash "$REPO_ROOT/scripts/reset.sh" stop --root > /dev/null 2>&1 || true
+
+        # Hand off to start.sh, which owns the picker — `switch` must
+        # never carry a second copy of it. --pick forces the prompt even
+        # with a single World configured (bare start would auto-select it
+        # and leave no way to reach the root lab).
+        _switch_argv=()
+        if [[ -n "$_switch_world" ]]; then
+            _switch_argv=("--world" "$_switch_world")
+        elif [[ "$_switch_root" == "1" ]]; then
+            _switch_argv=("--root")
+        else
+            _switch_argv=("--pick")
+        fi
+
+        # Not a literal `exec` — the F13 DOWN notice needs the start's exit
+        # code observed here rather than discarded by a process-image
+        # replacement (see restart's identical note).
+        if bash "$REPO_ROOT/scripts/start.sh" "${_switch_argv[@]}"; then
+            _switch_rc=0
+        else
+            _switch_rc=$?
+        fi
+        if (( _switch_rc != 0 && _switch_rc != 130 && _switch_rc != 143 )) \
+            && [[ "$_switch_stopped" == "1" ]]; then
+            echo "" >&2
+            echo "switch: the previous lab was stopped, and the start failed (above) — the lab is now DOWN." >&2
+        fi
+        exit "$_switch_rc"
         ;;
     tier)
         # ARCHITECTURE.md §6.2 (Ruling 1): the canonical name for the

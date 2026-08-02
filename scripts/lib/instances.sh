@@ -225,6 +225,94 @@ inst_prune_all() {
     return 0
 }
 
+# ── Last launched target (the picker's memory) ────────────────────────────
+# One file per checkout, next to registry.d/ because the picker already
+# reads that directory. It records what the operator last STARTED
+# successfully — root lab or a World — so a bare `start` can default to it
+# instead of always landing on option 0.
+#
+# This is a preference, not state: unlike a registry record there is
+# nothing to diagnose in a corrupt one, so it is treated as absent rather
+# than quarantined, and every write is best-effort. A preference file must
+# never be able to fail a start.
+inst_last_target_file() {
+    printf '%s\n' "$(inst_root_dir)/last-target.json"
+}
+
+# inst_write_last_target <kind> [slug]
+#   <kind> is "root" or "world"; <slug> is required for "world", ignored
+#   for "root". Same tmp + os.replace atomicity as inst_write_record.
+#   ALWAYS returns 0 — callers run this after a lab is already up.
+inst_write_last_target() {
+    local kind="${1-}" slug="${2-}"
+    local dir
+    dir="$(inst_root_dir)"
+    case "$kind" in
+        root)  slug="" ;;
+        world) [[ -n "$slug" ]] && inst_valid_slug "$slug" || return 0 ;;
+        *)     return 0 ;;
+    esac
+    mkdir -p "$dir" 2>/dev/null || return 0
+    python3 -c '
+import datetime, json, os, sys
+
+kind, slug, dest_dir = sys.argv[1], sys.argv[2], sys.argv[3]
+doc = {
+    "schema": "arail.last-target/v1",
+    "kind": kind,
+    "slug": slug or None,
+    "at": datetime.datetime.now(datetime.timezone.utc)
+            .isoformat(timespec="seconds").replace("+00:00", "Z"),
+}
+tmp = os.path.join(dest_dir, "last-target.json.tmp")
+final = os.path.join(dest_dir, "last-target.json")
+with open(tmp, "w", encoding="utf-8") as fh:
+    json.dump(doc, fh, indent=2)
+    fh.write("\n")
+os.replace(tmp, final)
+' "$kind" "$slug" "$dir" 2>/dev/null || true
+    return 0
+}
+
+# inst_read_last_target — prints "root", or "world<TAB><slug>".
+# Returns 1 (silently) when the file is absent, unreadable, unparseable,
+# not an object, carries an unknown kind, or names an invalid slug. The
+# slug is re-validated against INST_SLUG_RE here so a hand-edited file can
+# never inject a path fragment into the caller's start command.
+inst_read_last_target() {
+    local f out kind slug
+    f="$(inst_last_target_file)"
+    [[ -f "$f" ]] || return 1
+    out="$(python3 -c '
+import json, sys
+try:
+    with open(sys.argv[1], "r", encoding="utf-8") as fh:
+        data = json.load(fh)
+    if not isinstance(data, dict):
+        raise TypeError("last-target is not a JSON object")
+    kind = data.get("kind")
+    slug = data.get("slug") or ""
+    if kind == "root":
+        print("root")
+    elif kind == "world" and isinstance(slug, str) and slug:
+        print("world\t" + slug)
+    else:
+        raise ValueError("unusable last-target")
+except Exception:
+    sys.exit(1)
+' "$f" 2>/dev/null)" || return 1
+    kind="${out%%$'\t'*}"
+    slug=""
+    [[ "$out" == *$'\t'* ]] && slug="${out#*$'\t'}"
+    if [[ "$kind" == "world" ]]; then
+        inst_valid_slug "$slug" || return 1
+        printf 'world\t%s\n' "$slug"
+        return 0
+    fi
+    printf 'root\n'
+    return 0
+}
+
 # ── Liveness predicate (ARCHITECTURE.md §2.3) ─────────────────────────────
 # inst_alive <slug> [--probe]
 # Returns 0 iff all of steps 1-3 hold (default), or all of 1-4 with --probe.

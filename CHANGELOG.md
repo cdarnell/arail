@@ -6,6 +6,50 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added (World selection at start)
+
+- **The World picker remembers.** Every successful start — root lab,
+  World instance, or an attach to one already running — records its
+  target in `lab/instances/last-target.json` (schema
+  `arail.last-target/v1`). The picker marks that row `← last` and makes
+  it the Enter-default, so bare `./arailctl start` returns you to the lab
+  you were last in. Recorded only *after* readiness passes, so a World
+  that crash-loops on boot never becomes the sticky default; a remembered
+  World since deleted from the catalog degrades to the root lab with one
+  line saying so. Corrupt, empty, or hand-edited-hostile content is
+  treated as absent — a preference file can never fail a start.
+- **Option `0` now names the World mounted into the root lab** (`… —
+  Debt Finance World mounted (:8080)`). Previously a mounted World and
+  its own catalog row were two indistinguishable names for two different
+  labs.
+- **`./arailctl switch`** — stop what's running, then pick. The verb for
+  using Worlds one at a time, which `restart` cannot be (it pins to the
+  current target, and exits 2 with ≥2 live instances). `switch` stops all
+  of them and asks; `--world <slug>` / `--root` skip the prompt. Scoped
+  stops throughout, and it forces `start.sh`'s picker rather than
+  carrying a second copy.
+- **`./arailctl start --pick`** — force the picker even with fewer than
+  two Worlds configured (which would otherwise auto-select the single
+  World, leaving `--root` as the only way to reach the root lab).
+
+### Fixed (World selection at start)
+
+- **The picker's prompt was invisible on macOS.** `scripts/start.sh`
+  replaces stderr with a pipe into `grep -v MallocStackLogging` on
+  Darwin, and `read -p` writes its prompt to stderr with no trailing
+  newline — which `grep` buffers indefinitely, since an incomplete final
+  line is never emitted until EOF. Every Mac operator saw the World list,
+  then a blank line and a cursor, and no `Choice […]:` prompt at all: the
+  picker looked hung rather than interactive. The prompt now goes to
+  stdout.
+- **`start --yes` refused instead of defaulting.** `docs/cli.md` has
+  always documented `--yes` as "non-interactive default for the World
+  picker", but with no default to take it fell in with the
+  never-guess refusal and exited `2`. It now takes the remembered target
+  (root lab if there is none) and prints which. Bare non-interactive with
+  no target still exits `2` — that ruling is what CI and daemons depend
+  on, and no memory overrides it.
+
 ### Added (2026-07-29 elite-cli — a documented, testable, machine-readable CLI)
 
 - **`./arailctl install`** — refresh an already-provisioned lab in one
