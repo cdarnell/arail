@@ -92,6 +92,63 @@ only. `./arailctl start --world <slug>` refuses while the daemon is
 active and tells you the two options: `./arailctl uninstall-daemon` first
 (to run Worlds side by side), or keep using the daemon-served lab as-is.
 
+## Picking a World at start
+
+The CLI is where switching Worlds lives. Bare `./arailctl start`, with 2+
+Worlds configured and a terminal, asks:
+
+```
+Which lab do you want?
+
+  0) Autoresearch AI Lab — Debt Finance World mounted (:8080)
+  1) AI & Machine Learning        ○ not running
+  2) Video Games                  ● running :8090
+  3) World of Debt Finance        ○ not running   ← last
+
+  Choice [0-3, Enter = 3]:
+```
+
+Three things that row list is careful about:
+
+- **Option 0 names what it will actually start.** A World mounted into the
+  root lab makes "the root lab" and that World's own catalog row two
+  indistinguishable names for two different labs; option 0 says which.
+- **Liveness is shown, not guessed** — the same registry read `status`
+  uses. Picking a running World attaches to it, never respawns it.
+- **`← last` marks the lab you were last in, and Enter goes there.** Every
+  successful start records its target in
+  `lab/instances/last-target.json` (`arail.last-target/v1`), written only
+  *after* readiness passes — a World that crash-loops on boot never
+  becomes the sticky default. A remembered World that has since been
+  deleted degrades to option 0 with one line saying so. The file is a
+  preference: corrupt or hand-edited content is treated as absent, and
+  failing to write it can never fail a start.
+
+Non-interactive behavior is unchanged and deliberate: no tty and no target
+still exits `2`, naming every `--world <slug>` command plus `--root`.
+Guessing is what a daemon or CI job must never do. `--yes` is the explicit
+opt-in that takes the remembered default without asking; `--pick` forces
+the prompt even with a single World configured.
+
+## Switching: `./arailctl switch`
+
+Most operators use Worlds one at a time. `switch` is that path in one
+command — stop what's running, then pick:
+
+```bash
+./arailctl switch                  # stop what's live, then the picker
+./arailctl switch --world finance  # …or go straight there
+./arailctl switch --root           # …or back to the root lab
+```
+
+It is not `restart`: `restart` deliberately pins to the current target
+(and exits 2 when ≥2 instances are live, since it cannot know which you
+meant), while `switch` stops **all** of them and then asks — collapsing to
+exactly one lab is what switching means. Each stop is scoped, never an
+unscoped stop that could take a sibling down mid-write, and `switch` owns
+no picker of its own: it forces `start.sh`'s. Full contract in
+[`docs/cli.md`](cli.md#switch).
+
 ## In-place World switching has been removed
 
 `POST /api/worlds/select` (and `/api/worlds/import`) now survive for exactly

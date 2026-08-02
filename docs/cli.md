@@ -156,7 +156,8 @@ with a real readiness gate either way, not a print-and-hope.
 | `--port <n>` | Override the allocated/default portal port |
 | `--no-browser` | Suppress auto-opening the dashboard |
 | `--list` | Print configured Worlds and exit (side-effect free) |
-| `--yes` | Non-interactive default for the World picker |
+| `--pick` | Force the interactive picker even with fewer than 2 Worlds configured (which would otherwise auto-select the single World, leaving no way to reach the root lab but `--root`). Mutually exclusive with `--world`, `--root`, and `--yes` (exit 2). Needs a tty — exit 2 without one. This is what `switch` uses |
+| `--yes` | Take the picker's default — the lab you launched last, or the root lab if this checkout has never launched one — without asking, and print which. Works with or without a tty (its whole audience is scripts). Mutually exclusive with `--pick` |
 | `--warm` | After the lab is up, poll for the boot-time model warm-up to finish and print one honest line (`✓ via <backend> in N.Ns` / `⚠ not complete within Ns` / `— not applicable for backend <name>`). Never gates readiness, never changes the exit code. Daemon mode prints a hint instead of polling (its env is fixed by the launchd plist) |
 | `-h` / `--help` | Usage |
 
@@ -181,12 +182,36 @@ up to 30s before reporting success; if the portal never answers, `start`
 exits `1` naming `lab/logs/portal.err.log` instead of printing an
 unverified URL.
 
-With 2+ Worlds configured and no target given, an interactive tty picker
-appears (option `0` is always the root lab, non-interactively `--root`);
-non-interactive with no target exits `2`, listing every
-`./arailctl start --world <slug>` command plus `--root`. A running
-World/root lab is attached to (URL printed, browser opened), never
-respawned.
+**The picker.** With 2+ Worlds configured and no target given, an
+interactive tty picker appears. Option `0` is always the root lab
+(non-interactively `--root`) — and when a World is *mounted* into the root
+lab, option `0` names it (`Autoresearch AI Lab — Debt Finance World
+mounted (:8080)`), because otherwise that World and its own catalog row
+are two indistinguishable names for two different labs. Each World row
+shows its liveness (`● running :8090` / `○ not running`).
+
+Non-interactive with no target still exits `2`, listing every
+`./arailctl start --world <slug>` command plus `--root` — VISION §3's
+"never guess" ruling is what CI, daemons, and scripted callers depend on,
+and no memory overrides it. A running World/root lab is attached to (URL
+printed, browser opened), never respawned.
+
+**The picker remembers.** Every *successful* start — root lab, World
+instance, or an attach to one already running — records its target in
+`lab/instances/last-target.json` (schema `arail.last-target/v1`). The next
+picker marks that row `← last` and makes it the Enter-default, so pressing
+Enter returns you to the lab you were last in. A checkout that has never
+launched anything defaults to option `0`. The write happens only *after*
+readiness passes, so a World that crash-loops on boot never becomes the
+sticky default; a remembered World later deleted from the catalog degrades
+to option `0` with one line saying so. The file is a preference, not
+state: corrupt, empty, or hand-edited-hostile content is treated as
+absent, and a failure to write it can never fail a start.
+
+With exactly one World configured the picker still does not appear
+(VISION §3 — it must not tax the single-World user), but the memory is
+honored: if you last ran the root lab, bare `start` returns you there and
+says so. `--pick` forces the prompt in either case.
 
 Exit: `0` ready (or attached) · `1` failure/refusal (no `.venv`, daemon
 active with `--world`/`--root`, claim held, instance ceiling, bind
@@ -241,6 +266,47 @@ lab and no idea why.
 Exit: inherited from the `start` it drives (`0`/`1`/`2`/`130`/`143`),
 plus its own `2` (ambiguous target, `--all`) and `1` (scoped stop
 failed).
+
+### `switch`
+
+Jump from one World to another in one command: stop whatever is running,
+then pick. This is the verb for the way most operators actually use
+Worlds — one at a time, switching between them — which `restart` cannot
+be, because `restart` deliberately pins to the *current* target.
+
+```bash
+./arailctl switch                  # stop what's live, then the picker
+./arailctl switch --world finance  # …or go straight there, no prompt
+./arailctl switch --root           # …or back to the root lab
+```
+
+| Target | Behavior |
+|---|---|
+| No flags | Stops **every** live World instance, then the root lab, then hands off to `start.sh --pick` — the picker, forced even with a single World configured |
+| `--world <slug>` | Same scoped stop, then `start --world <slug>`; no prompt |
+| `--root` | Same scoped stop, then `start --root`; no prompt |
+| `--root` with `--world` | **Exit 2** — usage error |
+| Daemon active | **Exit 1** — daemon mode is single-instance, so there is nothing to switch between; names `uninstall-daemon` as the fix |
+
+The deliberate difference from `restart`: with ≥2 live instances `restart`
+exits `2` (it cannot know which one you meant), whereas `switch` stops all
+of them and then asks — collapsing to exactly one lab *is* what switching
+means. Each stop is scoped (`reset.sh stop --world <slug>`), never an
+unscoped stop that could take out a sibling mid-write.
+
+`switch` owns no picker of its own — it forces `start.sh`'s. The lab you
+land in is recorded the same way any other successful start is, so the
+next bare `start` returns you there.
+
+If a stop fails, the start is never attempted (exit `1`). If a stop
+succeeds and the start then fails, `switch` prints `the previous lab was
+stopped, and the start failed (above) — the lab is now DOWN.` before
+propagating the start's exit code — the same F13 discipline `restart` uses,
+for the same reason.
+
+Exit: inherited from the `start` it drives (`0`/`1`/`2`/`130`/`143`), plus
+its own `2` (`--root` with `--world`) and `1` (scoped stop failed, daemon
+active).
 
 ### `deep <op>`
 
