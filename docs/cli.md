@@ -384,6 +384,34 @@ Unchanged.
 `ingest`\|`compile`\|`browse` — ARAIL lab knowledge-base content ops.
 Unchanged.
 
+`prune` — reconcile the **Compiled KB** (the approved layer agents build
+on) with what is actually on disk: drop approvals whose raw file no longer
+exists.
+
+| Flag | Effect |
+|---|---|
+| `--dry-run` | List what would be dropped, change nothing |
+
+Why this exists: the Compiled KB is a *manifest of pointers* into the raw
+corpus, not a second copy. Mounting a World runs
+`world_mount._sweep_other_worlds()`, which deletes the previous World's
+staged `sources/world-<slug>/` term files — deliberately, because a World
+IS the lab's dataset. The approvals for those terms used to outlive their
+files, and since the retrieval gate is a query-time intersection (approved
+paths ∩ live search hits), a dangling pointer matches nothing. Enough of
+them and `search_for_agents()` returns zero hits for **every** query in
+**every** World, with no error raised anywhere — the gate fails closed, and
+"no approved truth" is indistinguishable from "nothing approved yet."
+
+Mount, swap, and `unmount --remove-staged` now prune automatically. This
+verb is the manual door for a lab that already drifted. `./arailctl doctor`
+reports the dangling count (and warns when a World is mounted but nothing
+is approved, so agents would find nothing).
+
+Exit: `0` pruned or already clean · `3` pkb root missing/unreadable — the
+prune deliberately refuses there rather than treating "every path looks
+deleted" as 556 revocations.
+
 ### `wiki <op>`
 
 `build`\|`info`\|`new <title>`\|`serve` — ARAIL docs-as-code. Unchanged.

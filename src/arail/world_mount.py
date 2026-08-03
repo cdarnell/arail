@@ -1313,13 +1313,45 @@ def _emit_index_status(world: str, status: str) -> None:
         pass
 
 
+def _prune_swept_approvals(pkb_root: Path) -> int:
+    """Reconcile the Compiled KB with the files the sweep just deleted.
+
+    ``_sweep_other_worlds()`` removes the previous World's staged term files,
+    but the approval manifest is a set of POINTERS to those paths — nothing
+    else prunes it. Left alone, the approvals outlive their files, and since
+    the retrieval gate intersects approved paths with live search hits, every
+    one of them silently matches nothing. A lab that had switched Worlds a
+    couple of times could reach the state where 554 of 556 approvals were
+    corpses and ``search_for_agents()`` returned zero hits for ANY query,
+    in any World, with no error anywhere to explain it.
+
+    Returns the number pruned. Never raises — a KB bookkeeping failure must
+    not be able to fail a mount that has otherwise succeeded.
+    """
+    try:
+        from arail import compiled_kb
+        dropped = compiled_kb.prune_dangling(pkb_root)
+        if dropped:
+            _log.info(
+                "world_mount: pruned %d approval(s) whose raw file was swept "
+                "(Compiled KB reconciled with disk)", len(dropped)
+            )
+        return len(dropped)
+    except Exception as e:  # noqa: BLE001
+        _log.warning("world_mount: compiled-KB prune skipped: %s", e)
+        return 0
+
+
 def _refresh_kb_surfaces(pkb_root: Path) -> None:
     """Make a mount/swap/unmount visible in the KB immediately.
 
-    Forces the debounced pkb_index queue to flush now, then rebuilds the
+    Reconciles the Compiled KB against disk first (the sweep that runs just
+    before this deletes files the approval manifest still points at), then
+    forces the debounced pkb_index queue to flush now, then rebuilds the
     wiki — via the async debouncer when an event loop is running, otherwise
     (CLI mounts) synchronously best-effort. Never raises.
     """
+    _prune_swept_approvals(pkb_root)
     try:
         from arail.pkb_index import flush_now
         flush_now()
@@ -1541,6 +1573,12 @@ def unmount(
                 shutil.rmtree(staged)
             except Exception as e:
                 _log.warning("world_mount: could not remove staged dir %s: %s", staged, e)
+        # This branch deletes raw files exactly like the mount-time sweep
+        # does, so it owes the approval manifest the same reconciliation.
+        # unmount() does NOT go through _refresh_kb_surfaces() (it only
+        # schedules a wiki rebuild), so the call has to be made here or the
+        # unmount path leaves dangling approvals the mount path would not.
+        _prune_swept_approvals(pkb_root or _default_pkb_root())
 
     # wiki rebuild best-effort
     try:

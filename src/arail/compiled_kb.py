@@ -31,6 +31,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import sys
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -351,6 +352,61 @@ def approve(paths: Iterable[str], pkb_root: Path | None = None, *,
     return added
 
 
+def dangling_paths(pkb_root: Path | None = None) -> list[str]:
+    """Approved paths whose raw file no longer exists on disk.
+
+    The Compiled KB is a *manifest over the raw corpus*, not a copy — so an
+    approval is only ever a pointer. When the raw file goes away the pointer
+    survives, and because the retrieval gate is a query-time intersection
+    (``approved_paths()`` filtered against live search hits), a dangling
+    pointer can never match anything. Enough of them and the gate goes
+    silently empty: agents get zero approved truth and nothing says why.
+
+    The way this happens in practice is a World switch.
+    ``world_mount._sweep_other_worlds()`` deletes every other
+    ``sources/world-*/`` staged dir on mount — deliberately, because a World
+    IS the lab's dataset — but it has no reason to know about the approval
+    manifest, so the approvals for those terms outlive their files.
+
+    Read-only. Never raises.
+    """
+    root = pkb_root or _pkb_root()
+    try:
+        if not root.is_dir():
+            return []
+        return sorted(rel for rel in _approved_map(root) if not (root / rel).is_file())
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def prune_dangling(pkb_root: Path | None = None) -> list[str]:
+    """Drop approvals whose raw file is gone. Returns the paths removed.
+
+    Reconciliation, not revocation: every path it removes already resolved
+    to nothing, so the agent-visible truth is unchanged by definition — what
+    changes is that the manifest stops lying about its size, and the review
+    queue stops counting corpses.
+
+    Refuses (returns ``[]``, touching nothing) when the pkb root itself is
+    missing or unreadable. That case makes EVERY path look deleted, and the
+    correct reading is "the lab is misconfigured", not "the operator revoked
+    556 approvals" — a prune that fires there would destroy the manifest at
+    exactly the moment it is least able to tell the difference.
+    """
+    root = pkb_root or _pkb_root()
+    if not root.is_dir():
+        return []
+    current = _approved_map(root)
+    dropped = sorted(rel for rel in current if not (root / rel).is_file())
+    if not dropped:
+        return []
+    for rel in dropped:
+        current.pop(rel, None)
+    _save_json(_kb_dir(root) / _APPROVED_FILE,
+               {"schema": SCHEMA, "updated_at": _now(), "items": current})
+    return dropped
+
+
 def reject(paths: Iterable[str], pkb_root: Path | None = None) -> int:
     """Dismiss candidates so they stop resurfacing. Reversible (a later
     approve re-admits them). Does not touch the raw file."""
@@ -395,3 +451,53 @@ def gate_enabled() -> bool:
     new lab with nothing approved yet)."""
     return os.getenv("ARAIL_APPROVED_ONLY", "on").strip().lower() not in (
         "off", "0", "false", "no")
+
+
+# ── CLI (./arailctl pkb prune | status) ──────────────────────────────────
+
+def _cli(argv: list[str] | None = None) -> int:
+    import argparse
+
+    ap = argparse.ArgumentParser(
+        prog="arailctl pkb",
+        description="Inspect and reconcile the Compiled KB (the approved layer agents build on).",
+    )
+    sub = ap.add_subparsers(dest="op", required=True)
+    p_prune = sub.add_parser(
+        "prune", help="drop approvals whose raw file no longer exists")
+    p_prune.add_argument("--dry-run", action="store_true",
+                         help="list what would be dropped, change nothing")
+    sub.add_parser("status", help="show live vs dangling approval counts")
+    args = ap.parse_args(argv)
+
+    root = _pkb_root()
+    if not root.is_dir():
+        print(f"pkb root not found: {root}", file=sys.stderr)
+        return 3
+
+    approved = approved_paths(root)
+    dangling = dangling_paths(root)
+
+    if args.op == "status" or getattr(args, "dry_run", False):
+        print(f"approved : {len(approved)}")
+        print(f"live     : {len(approved) - len(dangling)}")
+        print(f"dangling : {len(dangling)}")
+        for rel in dangling[:20]:
+            print(f"  - {rel}")
+        if len(dangling) > 20:
+            print(f"  … and {len(dangling) - 20} more")
+        if dangling and args.op == "status":
+            print("\nfix: ./arailctl pkb prune")
+        return 0
+
+    dropped = prune_dangling(root)
+    if not dropped:
+        print("Nothing to prune — every approval resolves to a file on disk.")
+        return 0
+    print(f"Pruned {len(dropped)} approval(s) whose raw file no longer exists.")
+    print(f"Compiled KB now holds {len(approved_paths(root))} approved item(s).")
+    return 0
+
+
+if __name__ == "__main__":  # pragma: no cover
+    raise SystemExit(_cli())

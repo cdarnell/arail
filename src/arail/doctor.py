@@ -154,6 +154,35 @@ def check_knowledge_base() -> None:
     except Exception as e:  # noqa: BLE001
         _record("pkb_writable", "required", False, str(e))
 
+    # The Compiled-KB gate is the ONLY thing agents build on, and it fails
+    # closed by design — every failure mode ends in "zero approved hits",
+    # which is indistinguishable from "nothing approved yet" and reports no
+    # error anywhere. That silence is how a lab ran for two weeks with 554
+    # of 556 approvals pointing at files a World switch had deleted, while
+    # the Researcher kept concluding its hypotheses were "not measurable".
+    # Doctor is where that becomes visible.
+    try:
+        from arail import compiled_kb, world_mount
+        approved = compiled_kb.approved_paths()
+        dangling = compiled_kb.dangling_paths()
+        live = len(approved) - len(dangling)
+        _p(f"  compiled KB       : {live} live / {len(approved)} approved")
+        if dangling:
+            _p(f"  dangling approvals: {len(dangling)} point at files that no longer exist")
+            _p("                      fix: ./arailctl pkb prune")
+        # An empty gate is worth naming even when nothing dangles: it means
+        # agents have no approved truth at all, which is a legitimate state
+        # on a fresh lab and a bug-shaped one on a lab with a World mounted.
+        if live == 0:
+            rec = world_mount.current_mount()
+            if rec is not None:
+                _p(f"  ⚠ no approved knowledge while World '{rec.world}' is mounted —")
+                _p("    agents will find nothing. Approve terms on /dac (Knowledge).")
+        _record("compiled_kb_dangling", "info", not dangling,
+                f"{len(dangling)} dangling of {len(approved)}")
+    except Exception as e:  # noqa: BLE001
+        _record("compiled_kb_dangling", "info", True, f"skipped: {e}")
+
 
 def check_components() -> None:
     _section("Components (installed package versions)")
