@@ -987,7 +987,18 @@ LOGSEOF
             ingest)  exec "$REPO_ROOT/scripts/pkb-ingest" "$@" ;;
             compile) exec "$REPO_ROOT/scripts/pkb-compile" "$@" ;;
             browse)  exec "$REPO_ROOT/scripts/pkb-browse" "$@" ;;
-            *) die "pkb op must be one of: ingest | compile | browse" ;;
+            prune)
+                # Reconcile the Compiled KB with disk: drop approvals whose
+                # raw file is gone (a World switch sweeps the previous
+                # World's term files, but the approval manifest points at
+                # them). Mount/unmount now do this automatically; this verb
+                # is the manual door for a lab that already drifted.
+                [[ -d .venv ]] || die "missing .venv — run ./arailctl setup"
+                # shellcheck disable=SC1091
+                source .venv/bin/activate
+                exec python -m arail.compiled_kb prune "$@"
+                ;;
+            *) die "pkb op must be one of: ingest | compile | browse | prune" ;;
         esac
         ;;
     wiki)

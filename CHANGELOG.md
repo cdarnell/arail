@@ -6,6 +6,31 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed (Compiled KB survives a World switch)
+
+- **A World switch used to silently empty the agent knowledge gate.** The
+  Compiled KB is a manifest of *pointers* into the raw corpus, and mounting
+  a World deletes the previous World's staged term files
+  (`_sweep_other_worlds()` — deliberate: a World IS the lab's dataset).
+  Nothing pruned the manifest, so approvals outlived their files. Because
+  the retrieval gate is a query-time intersection (approved paths ∩ live
+  search hits), every dangling pointer matches nothing — and the gate fails
+  closed, so the result is zero hits for **every** query in **every** World
+  with no error raised anywhere. Observed in a real lab: 554 of 556
+  approvals were corpses, `search_for_agents()` returned nothing for two
+  weeks, and the Researcher kept concluding its hypotheses were "not
+  measurable on-device" because it genuinely had no approved truth to reason
+  from. `mount()`, `swap()`, and `unmount(remove_staged=True)` now reconcile
+  the manifest against disk.
+- **`./arailctl pkb prune`** (`--dry-run`) — the manual door for a lab that
+  already drifted. Refuses when the pkb root is missing or unreadable: that
+  makes every path look deleted, and the correct reading is "misconfigured
+  lab", not "the operator revoked everything."
+- **`./arailctl doctor` reports gate health** — live vs dangling approval
+  counts, and an explicit warning when a World is mounted but nothing is
+  approved (agents will find nothing). The silence is what let this run
+  undetected; doctor is where it becomes visible.
+
 ### Added (World selection at start)
 
 - **The World picker remembers.** Every successful start — root lab,
