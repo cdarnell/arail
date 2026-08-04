@@ -11,13 +11,16 @@ It is DISTINCT from ``arail.experiments`` (the /tuning inference-tuning loop,
 which owns git branches and tuning.yml). This engine owns the Autoresearch
 page's experiments.
 
-Four v1 archetypes, all airgapped-safe (no network imports):
+Five archetypes, all airgapped-safe (no network imports):
   • ``model_throughput``        — measured TTFT / decode-rate / latency (needs a model)
   • ``prompt_variant``          — prompt variants scored by deterministic proxies (needs a model)
   • ``retrieval_quality``       — quality of the APPROVED KB (needs no model)
   • ``game_config_optimization`` — measured one-variable-at-a-time game-config
     search via a user-configured benchmark command (needs no model; needs a
     real, user-supplied benchmark — never fabricates a frame rate)
+  • ``debt_scenario_optimization`` — code-only consolidation-scenario math over
+    the operator's hand-typed balances.json (needs no model; needs a real,
+    operator-typed balances file — never fabricates a balance or a rate)
 
 Only one piece of output is model-authored: an optional 1–2 sentence
 ``interpretation`` OF the measured numbers, always labeled ``model-narrated``.
@@ -51,6 +54,10 @@ _RETRIEVAL_KW = ("knowledge", "retrieval", "retrieve", "source", "kb",
 _GAME_CONFIG_KW = ("fps", "frame rate", "framerate", "frame time", "1% low",
                    "one percent low", "graphics setting", "game config",
                    "in-game setting", "game settings")
+_DEBT_KW = ("debt", "apr", "interest", "consolidat", "balance transfer",
+            "payoff", "pay off", "refinanc", "snowball", "avalanche",
+            "minimum payment", "breakeven", "break even", "credit union",
+            "credit card", "loan")
 
 
 def select_archetype(hypothesis: str) -> Optional[str]:
@@ -68,6 +75,7 @@ def select_archetype(hypothesis: str) -> Optional[str]:
         "prompt_variant": _score(_PROMPT_KW),
         "retrieval_quality": _score(_RETRIEVAL_KW),
         "game_config_optimization": _score(_GAME_CONFIG_KW),
+        "debt_scenario_optimization": _score(_DEBT_KW),
     }
     best = max(scores, key=lambda k: scores[k])
     return best if scores[best] > 0 else None
@@ -84,6 +92,11 @@ ARCHETYPE_METRICS: Dict[str, List[str]] = {
                                  "baseline_avg_fps", "baseline_one_percent_low_fps",
                                  "best_avg_fps", "best_one_percent_low_fps",
                                  "candidates_ok"],
+    "debt_scenario_optimization": ["debts_count", "scenarios_evaluated",
+                                   "current_monthly_interest", "blended_apr",
+                                   "best_scenario", "best_monthly_savings",
+                                   "best_breakeven_months",
+                                   "best_twelve_month_net"],
     "unmeasured": [],
 }
 
@@ -105,6 +118,14 @@ ARCHETYPE_METHODOLOGY: Dict[str, str] = {
         "the value only if both improve over baseline. Needs a real benchmark "
         "command — with none configured, or none that runs, this reports "
         "cannot_run rather than a recommendation.",
+    "debt_scenario_optimization":
+        "Compute each operator-typed candidate scenario's monthly savings, "
+        "breakeven months, and 12-month net against the operator's current "
+        "debts (balances.json), using the same code-only arithmetic the "
+        "Consolidation Analyzer uses — every number code-computed from "
+        "operator-typed figures, never model-generated. Needs no model; "
+        "needs a hand-typed balances.json — with none, this reports "
+        "cannot_run rather than inventing balances.",
     "unmeasured":
         "Recorded for the record — this hypothesis is not measurable on-device "
         "with the current engine, so no metrics are produced.",
@@ -584,11 +605,133 @@ async def _run_game_config_optimization(exp: Dict[str, Any], ctx: ExperimentCont
             "regression."))
 
 
+# ── debt scenario optimization ───────────────────────────────────────
+#
+# INPUTS (runtime, operator-typed, never sealed into a World bundle — the
+# same posture as game_config_optimization above): the operator's own
+# ``balances.json`` under ``lab/data/user-import/debt-finance/`` (or a
+# ``balances_file`` override in exp["variables"]). Debts and candidate
+# scenarios are BOTH hand-typed by the operator (the debt-finance World's
+# numeric-integrity rule: agents never assert a scraped or model-generated
+# figure as fact — see ARCHITECTURE.md §7.5 in the debt-finance sprint).
+#
+# PRIVACY: this runner's metrics/observations land in the experiment
+# tracker's records under ``lab/data/`` — the same private, non-wiki-indexed
+# class as the Consolidation Analyzer's own ``history.jsonl``. It reports
+# DERIVED comparison values only (savings, breakeven, blended APR), never
+# raw per-debt balances, and identifies scenarios by 1-based index, never
+# by institution name — names stay in the guardrail-checked findings docs.
+
+_DEBT_BALANCES_DEFAULT = "lab/data/user-import/debt-finance/balances.json"
+
+
+async def _run_debt_scenario(exp: Dict[str, Any], ctx: ExperimentContext,
+                              started: str, t0: float) -> MiniResult:
+    from pathlib import Path
+    # The analyzer's pure arithmetic section (zero I/O, independently
+    # tested) is the single source of truth for this math — reusing it
+    # means this experiment can never disagree with the agent's findings.
+    from arail.agents._builtin_consolidation_analyzer import (
+        _compute_scenarios, blended_apr)
+
+    variables = exp.get("variables") or {}
+    balances_path = Path(str(variables.get("balances_file")
+                             or _DEBT_BALANCES_DEFAULT))
+    if not balances_path.exists():
+        return _cannot_run(
+            "debt_scenario_optimization",
+            "no balances.json — hand-type your debts and candidate scenarios "
+            f"into {_DEBT_BALANCES_DEFAULT} first (this engine never invents "
+            "balances)", started, t0)
+    try:
+        doc = json.loads(balances_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return _cannot_run(
+            "debt_scenario_optimization",
+            "balances.json could not be read/parsed — fix the file, then "
+            "re-run", started, t0)
+    if not isinstance(doc, dict):
+        return _cannot_run("debt_scenario_optimization",
+                           "balances.json is not a JSON object", started, t0)
+    debts = [d for d in (doc.get("debts") or []) if isinstance(d, dict)]
+    scenarios = [s for s in (doc.get("candidate_scenarios") or [])
+                 if isinstance(s, dict)]
+    if not debts:
+        return _cannot_run(
+            "debt_scenario_optimization",
+            "balances.json has no debts — add at least one debt entry",
+            started, t0)
+    if not scenarios:
+        return _cannot_run(
+            "debt_scenario_optimization",
+            "balances.json has no candidate_scenarios to evaluate — add at "
+            "least one (approved scouting findings' candidate values are "
+            "staged in proposed_scenarios.md for hand-copying)", started, t0)
+
+    try:
+        results = _compute_scenarios(debts, scenarios)
+        blended = blended_apr(debts)
+        current_monthly = sum(
+            float(d.get("balance", 0.0)) * float(d.get("apr", 0.0)) / 100.0 / 12.0
+            for d in debts)
+    except (TypeError, ValueError):
+        return _cannot_run(
+            "debt_scenario_optimization",
+            "balances.json has non-numeric balance/apr/rate fields — fix the "
+            "file, then re-run", started, t0)
+
+    viable = [(i, r) for i, r in enumerate(results, start=1)
+              if r.monthly_savings > 0 and r.breakeven is not None]
+    for i, r in enumerate(results, start=1):
+        _emit(ctx, (f"scenario {i}/{len(results)}: "
+                    + (f"saves {r.monthly_savings:.2f}/mo, breakeven "
+                       f"{r.breakeven}mo" if r.monthly_savings > 0
+                       and r.breakeven is not None
+                       else "never breaks even")),
+              {"scenario": i})
+
+    metrics: Dict[str, Any] = {
+        "debts_count": len(debts),
+        "scenarios_evaluated": len(results),
+        "current_monthly_interest": round(current_monthly, 2),
+        "blended_apr": round(blended, 3) if blended is not None else None,
+    }
+    success = bool(viable)
+    if viable:
+        best_i, best = max(viable, key=lambda t: t[1].monthly_savings)
+        twelve_month_net = best.monthly_savings * 12 - best.fee_amount
+        metrics.update({
+            "best_scenario": best_i,
+            "best_monthly_savings": round(best.monthly_savings, 2),
+            "best_breakeven_months": best.breakeven,
+            "best_twelve_month_net": round(twelve_month_net, 2),
+        })
+        conclusion = (
+            f"Of {len(results)} candidate scenario(s), #{best_i} saves the "
+            f"most: {best.monthly_savings:.2f}/mo against a one-time fee of "
+            f"{best.fee_amount:.2f}, breaking even in {best.breakeven} "
+            f"month(s) ({twelve_month_net:+.2f} net over 12 months). All "
+            "figures code-computed from operator-typed balances.")
+    else:
+        conclusion = (
+            f"None of the {len(results)} candidate scenario(s) produces a "
+            "positive monthly saving that recovers its fee — keeping the "
+            "current arrangement is the measured answer. All figures "
+            "code-computed from operator-typed balances.")
+    return MiniResult(
+        archetype="debt_scenario_optimization", provenance="measured",
+        outcome="supported" if success else "not_supported", success=success,
+        metrics=metrics, runs=len(results), started_at=started,
+        duration_sec=time.monotonic() - t0,
+        conclusion=conclusion)
+
+
 _RUNNERS = {
     "model_throughput": _run_throughput,
     "prompt_variant": _run_prompt_variant,
     "retrieval_quality": _run_retrieval,
     "game_config_optimization": _run_game_config_optimization,
+    "debt_scenario_optimization": _run_debt_scenario,
 }
 
 

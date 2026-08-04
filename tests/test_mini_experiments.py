@@ -289,3 +289,110 @@ def test_provenance_line():
     cannot = {"provenance": "cannot_run", "archetype": "x",
               "cannot_run_reason": "no local model available"}
     assert "NOT RUN" in mx.provenance_line(cannot)
+
+
+# ── debt scenario optimization ───────────────────────────────────────
+
+def _balances_doc():
+    return {
+        "debts": [
+            {"name": "card A", "balance": 6000.0, "apr": 24.99},
+            {"name": "card B", "balance": 2000.0, "apr": 19.99},
+        ],
+        "candidate_scenarios": [
+            # 7.99% on 8000 = 53.27/mo vs current 152.28/mo → saves ~99/mo,
+            # 3% fee = 240 → breakeven 3 months.
+            {"institution": "CU X", "product": "personal loan",
+             "rate": 7.99, "fee_pct": 3.0},
+            # 29% never saves anything.
+            {"institution": "Bad Corp", "product": "worse loan",
+             "rate": 29.0, "fee_pct": 5.0},
+        ],
+    }
+
+
+def _debt_exp(tmp_path, doc):
+    import json as _json
+    f = tmp_path / "balances.json"
+    f.write_text(_json.dumps(doc))
+    return {"id": "e1", "hypothesis": "consolidating cuts interest",
+            "variables": {"archetype": "debt_scenario_optimization",
+                          "balances_file": str(f)},
+            "observations": []}
+
+
+def test_debt_select_archetype():
+    assert mx.select_archetype(
+        "will consolidating my credit card debt at a lower apr cut the "
+        "total interest I pay") == "debt_scenario_optimization"
+    assert mx.select_archetype(
+        "does a balance transfer with a fee break even before the promo "
+        "ends") == "debt_scenario_optimization"
+
+
+def test_debt_scenario_measured_success(tmp_path):
+    r = asyncio.run(mx.run_experiment(_debt_exp(tmp_path, _balances_doc()), _ctx()))
+    assert r.provenance == "measured"
+    assert r.outcome == "supported"
+    assert r.success is True
+    assert r.metrics["debts_count"] == 2
+    assert r.metrics["scenarios_evaluated"] == 2
+    assert r.metrics["best_scenario"] == 1
+    # Hand-computed: current monthly interest = 6000*.2499/12 + 2000*.1999/12
+    assert r.metrics["current_monthly_interest"] == pytest.approx(158.27, abs=0.01)
+    assert r.metrics["best_breakeven_months"] == 3
+    assert r.metrics["best_monthly_savings"] > 0
+
+
+def test_debt_scenario_no_viable_scenario_not_supported(tmp_path):
+    doc = _balances_doc()
+    doc["candidate_scenarios"] = [doc["candidate_scenarios"][1]]  # only the bad one
+    r = asyncio.run(mx.run_experiment(_debt_exp(tmp_path, doc), _ctx()))
+    assert r.provenance == "measured"
+    assert r.outcome == "not_supported"
+    assert r.success is False
+    assert "best_scenario" not in r.metrics
+
+
+def test_debt_scenario_no_balances_file_cannot_run(tmp_path):
+    exp = {"id": "e1", "hypothesis": "h",
+           "variables": {"archetype": "debt_scenario_optimization",
+                         "balances_file": str(tmp_path / "missing.json")},
+           "observations": []}
+    r = asyncio.run(mx.run_experiment(exp, _ctx()))
+    assert r.provenance == "cannot_run"
+    assert "no balances.json" in r.cannot_run_reason
+    assert r.success is False
+
+
+def test_debt_scenario_malformed_file_cannot_run(tmp_path):
+    f = tmp_path / "balances.json"
+    f.write_text("{not json")
+    exp = {"id": "e1", "hypothesis": "h",
+           "variables": {"archetype": "debt_scenario_optimization",
+                         "balances_file": str(f)},
+           "observations": []}
+    r = asyncio.run(mx.run_experiment(exp, _ctx()))
+    assert r.provenance == "cannot_run"
+    assert r.success is False
+
+
+def test_debt_scenario_no_scenarios_cannot_run(tmp_path):
+    doc = _balances_doc()
+    doc["candidate_scenarios"] = []
+    r = asyncio.run(mx.run_experiment(_debt_exp(tmp_path, doc), _ctx()))
+    assert r.provenance == "cannot_run"
+    assert "no candidate_scenarios" in r.cannot_run_reason
+
+
+def test_debt_scenario_never_leaks_balances_or_names(tmp_path):
+    """Privacy: the experiment record identifies scenarios by index and
+    reports derived values only — never a raw per-debt balance, an
+    institution name, or a debt nickname."""
+    ctx = _ctx()
+    r = asyncio.run(mx.run_experiment(_debt_exp(tmp_path, _balances_doc()), ctx))
+    payload = str(r.to_results_payload(ctx)) + r.conclusion
+    assert "6000" not in payload      # raw balance
+    assert "card A" not in payload    # debt nickname
+    assert "CU X" not in payload      # institution name
+    assert "Bad Corp" not in payload
