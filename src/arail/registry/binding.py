@@ -125,6 +125,19 @@ def build_router(entry: ModelEntry, *, billing_source: str = "agent",
         backend = _ReportingBackend(router._backend, entry.id)
         router = ModelRouter.from_backend(backend, "claude",
                                           billing_source=billing_source)
+    elif entry.endpoint is None and entry.backend in (
+            "mlx", "cpu", "cuda", "airllm"):
+        # In-process local runtime (no HTTP server) — e.g. MLX on Apple
+        # Silicon. ModelRouter builds the backend directly from BACKEND_MAP;
+        # it reads MODEL_NAME from env itself, matching entry.model_id by
+        # construction (both are seeded from the same env var in
+        # store._seed_from_env). Must NOT fall through to
+        # _build_openai_compat, which requires an HTTP endpoint and raises
+        # for exactly this entry shape.
+        router = ModelRouter(backend=entry.backend, billing_source=billing_source)
+        backend = _ReportingBackend(router._backend, entry.id)
+        router = ModelRouter.from_backend(backend, entry.backend,
+                                          billing_source=billing_source)
     else:
         backend = _ReportingBackend(_build_openai_compat(entry), entry.id)
         name = ("ollama_native" if entry.backend == "ollama_native"
