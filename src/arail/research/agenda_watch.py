@@ -376,7 +376,7 @@ def _load_scout_patterns(staged_dir: Path) -> List[Dict[str, Any]]:
         max_matches = max(1, min(max_matches, _MAX_PATTERN_MATCHES))
         # ``regex_src`` is kept alongside the compiled object (not just the
         # compiled object) because the ReDoS-timeout wrapper below runs
-        # matching in a forked subprocess and recompiles from source there
+        # matching in a spawned subprocess and recompiles from source there
         # rather than relying on the compiled ``re.Pattern`` being picklable
         # across a process boundary.
         out.append({"label": label, "regex": compiled, "regex_src": regex_src,
@@ -500,20 +500,28 @@ def _extract_candidates_bounded(text: str, patterns: List[Dict[str, Any]],
     plain tuples, a ``Queue``) and to recompile regex patterns from source
     rather than relying on a compiled ``re.Pattern`` surviving the
     fork/pickle boundary — it was always spawn-compatible. The cost is a
-    slower child startup (tens of ms) than a fork would have been; that is
-    an acceptable trade for not forking a process with an active native
-    runtime.
+    slower child startup than a fork would have been — measured at 0.6s+
+    in a lancedb-loaded (portal-shaped) process, which is why startup gets
+    its own ``_STARTUP_TIMEOUT_SEC`` allowance separate from the matching
+    budget (QA round 12, QA-3) — an acceptable trade for not forking a
+    process with an active native runtime.
     """
     if not patterns:
         return {}
     if "spawn" not in mp.get_all_start_methods():
+        # Unreachable on any known CPython platform (spawn exists
+        # everywhere; it's fork/forkserver that are platform-limited) —
+        # kept as a fail-CLOSED guard rather than deleted: if some exotic
+        # runtime ever lacks spawn, skipping a best-effort annotation is
+        # strictly better than running a World-authored pattern with no
+        # wall-clock ReDoS bound (round-11 review flagged the previous
+        # fail-open shape as the wrong direction for this branch).
         _log.warning(
             "agenda_watch: no 'spawn' start method available on this "
-            "platform — running candidate extraction for %s WITHOUT a "
-            "wall-clock ReDoS bound. A catastrophically-backtracking "
-            "pattern in the mounted World's scout-patterns.json can hang "
-            "this tick indefinitely.", feed_url)
-        return _extract_candidates(text, patterns)
+            "platform — skipping candidate extraction for %s (a wall-clock "
+            "ReDoS bound cannot be provided here, and running a "
+            "World-authored pattern unbounded is not an option)", feed_url)
+        return {}
 
     # REVIEW.md addendum 9: setup itself (not just the child's work) can
     # fail — a spawn-start failure must not abort the whole tick before
@@ -545,12 +553,15 @@ def _extract_candidates_bounded(text: str, patterns: List[Dict[str, Any]],
                             # died/closed its end before sending anything
             return None
 
-    def _kill(reason: str) -> None:
+    def _reap() -> None:
         proc.terminate()
         proc.join(1.0)
         if proc.is_alive():
             proc.kill()
             proc.join(1.0)
+
+    def _kill(reason: str) -> None:
+        _reap()
         parent_conn.close()
         _log.warning("agenda_watch: candidate extraction for %s %s — "
                       "skipping candidates for this tick", feed_url, reason)
@@ -598,11 +609,7 @@ def _extract_candidates_bounded(text: str, patterns: List[Dict[str, Any]],
 
     proc.join(1.0)
     if proc.is_alive():
-        proc.terminate()
-        proc.join(1.0)
-        if proc.is_alive():
-            proc.kill()
-            proc.join(1.0)
+        _reap()
     if proc.exitcode not in (0, None):
         _log.warning(
             "agenda_watch: candidate-extraction subprocess for %s exited "
