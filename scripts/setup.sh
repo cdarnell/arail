@@ -673,7 +673,9 @@ install_accel_deps() {
                 info "AeroLLM ready — the deep-mode 2nd inference on Apple Silicon."
             else
                 warn "AeroLLM not installed (see above). The lab runs without the"
-                warn "2nd inference until you run: ./arailctl deep rebuild (or: deep update)"
+                warn "2nd inference until you run: ./arailctl deep install (bundled binary,"
+                warn "no source repo or credentials needed — or: deep rebuild / deep update"
+                warn "if you're a maintainer with the aerollm source or private-index access)"
             fi
         fi
     else

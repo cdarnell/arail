@@ -494,3 +494,24 @@ EXIT=0
 Reaches BUNDLED, EXIT 0, as the acceptance bar requires. `test_auto_selects_release_when_aerollm_index_url_is_overridden`
 (test 14) stays green — it pins the real (unchanged) dispatch behavior so
 the *next* person reads code, not assumption.
+
+### Step 3 — Q7: name `./arailctl deep install` in the AeroLLM failure warning
+
+Fixed `scripts/setup.sh`'s Apple-Silicon `auto`-install failure message to
+name `./arailctl deep install` (bundled binary, the outside-user route)
+ahead of `deep rebuild` / `deep update` (maintainer-only, gated behind
+"if you're a maintainer with..."). Turns `test_setup_failure_message_names_the_outside_user_route`
+(test 30) green.
+
+**Left unchanged, deliberately:** the non-macOS-arm64 `else` branch two
+lines below (`AeroLLM auto-build is Apple-Silicon-only today...`). TEST_REPORT.md
+flagged it as "the same problem," but it isn't: that branch only runs on
+non-macOS-arm64 hosts, where `bundle_install()`'s F4 platform guard would
+refuse the bundled channel outright. Naming `deep install` there would be
+actively wrong advice, not a fix — `deep rebuild` (once CUDA lands) is the
+only route that could ever apply. Read the code before extending the
+pattern rather than pattern-matching the finding.
+
+Verified: `pytest tests/test_aerollm_bundle_qa_hardening.py -q` →
+**30 passed** (was 29/30). `shellcheck -x scripts/setup.sh` unchanged
+(pre-existing SC2034/SC2024 warnings only, none in the touched region).
