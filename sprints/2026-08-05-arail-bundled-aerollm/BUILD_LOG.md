@@ -288,3 +288,104 @@ catches corruption, not tampering; the real trust boundary is GitHub's TLS
 
 None. Both BLOCK findings and all ASK/INFO findings had clean, in-scope
 fixes; nothing required a design change.
+
+## Round 3 fixes
+
+REVIEW.md round 2 BLOCKed on three findings: B3 (the B1 regression test
+`rm -rf`s the real release artifact), B4 (the true test count was 140/13,
+not the claimed 144/9, because four tests are ambient-venv-dependent), and
+B5 (`docs/releasing.md` step 4 tells a future maintainer to byte-sync
+LICENSE from upstream, reintroducing the stub).
+
+### B3 — isolate the producer's output directory
+
+`package-aerollm-bundle.sh` hardcoded `OUT_DIR="$REPO_ROOT/dist/aerollm-bundle"`
+and unconditionally `rm -rf`s it on every run. The regression test added
+in round 2 (`test_producer_filename_matches_consumer_resolved_filename`)
+invoked the real script with `cwd=REPO` and no way to redirect that
+directory, so running the test destroyed the real `v1.1.0` tarball round 2
+had built — exactly as the reviewer demonstrated with a sentinel file.
+
+Fix: `OUT_DIR="${OUT_DIR:-$REPO_ROOT/dist/aerollm-bundle}"` — overridable
+via env, default unchanged for real maintainer runs. The test now sets
+`OUT_DIR` to a `tmp_path` subdirectory, runs the script with `cwd=tmp_path`
+(belt-and-suspenders against any accidental relative-path resolution), and
+asserts the real `dist/aerollm-bundle/*.tar.gz` listing is byte-identical
+before and after the test runs — so a future regression here fails loudly
+instead of silently wiping the artifact again.
+
+### B4 — isolate `_run()`'s target interpreter
+
+`bundle_install()`'s F7 provenance guard checks the *ambient* `python3`'s
+site-packages for an existing `aerollm_api.abi3.so` with no bundle marker,
+and aborts before reaching the code path most of the round-1 regression
+tests intend to exercise. This repo's own ambient `python3` (and the
+project's dev `.venv`) both carry a DEV/RELEASE install, so four tests
+(`test_checksum_mismatch_aborts_before_any_write`,
+`test_curl_failure_names_resolved_url_and_exits_nonzero`,
+`test_https_only_scheme_guard`,
+`test_producer_filename_matches_consumer_resolved_filename`) failed on a
+normal dev machine — reproduced independently before the fix.
+
+Fix: `_run()` now defaults every invocation to a session-cached, empty
+venv (`_isolated_python()`) unless the caller already supplies `PYTHON` in
+`env_extra` or explicitly passes a `python=` override — no test asserts
+anything about the ambient machine's site-packages anymore. The existing
+`isolated_python` fixture (function-scoped, its own venv per test) is kept
+for the one test that actually completes a partial install into it
+(`test_bundle_install_from_local_file_succeeds`), so its state never
+leaks into the shared cache.
+
+### B5 — `docs/releasing.md` step 4 no longer instructs syncing LICENSE from upstream
+
+Split the instruction: NOTICE still syncs from upstream (accurate, no
+compliance risk); LICENSE is called out explicitly as ARAIL's own
+full-Apache-2.0-text copy that must never be byte-synced from upstream's
+17-line stub, with a one-line why and a pointer at the specific compliance
+test that already catches the regression
+(`test_license_is_full_apache2_text_not_upstream_stub` — verified this
+test would fail on a stub: it asserts five full-text section markers and
+`len(lines) > 150`; a 17-line stub trips both). No test change was needed
+for B5 — the existing compliance test already has the teeth to catch this.
+
+### Re-cut the real `v1.1.0` artifact
+
+B3's regression had destroyed `dist/aerollm-bundle/`. Re-cut it the same
+way round 2 did: `git worktree add --detach <tmp> 9e08230f0bebfe5eeca5a2da3191fa4a96f24d2d`
+against the sibling repo (no writes to its real working tree),
+`ARAIL_RELEASE_TAG=v1.1.0 ARAIL_AEROLLM_REPO=<tmp worktree> bash
+scripts/package-aerollm-bundle.sh`, confirmed `aerollm_dirty: false` in
+the resulting `MANIFEST.json`, copied it over
+`THIRD-PARTY-LICENSES/aerollm/BUNDLE.json`, then `git worktree remove
+--force`. Sibling repo: `HEAD` still `9e08230f0be…`, `git status
+--porcelain` shows only the same pre-existing unrelated
+`aerollm-grammar`/`CLAUDE.md` dirt from before this sprint touched
+anything, `git worktree list` shows no leftover worktree for this sprint.
+
+Verified sha256 chain: tarball sha `d3a7a9dd19987350963422ab7647a2d4ad607e78397b57f70c55362c0b95ecce`
+matches its `.sha256` sidecar exactly; `BUNDLE.json.sha256` matches the
+`.so`'s digest from the same build (`2776d188f71c98bfb46b1e87f2f5e8aa4f30146541d0748e3321cd0364650f9a`).
+
+### Re-verification (round 3)
+
+- `pytest -k aerollm` run twice for determinism: **144 passed / 9 failed**
+  both times, identical failure set both times (`test_aerollm_defaults.py`
+  ×4, `test_aerollm_model_ready.py` ×3, `test_model_ux_phase0_warmth_probe.py`
+  ×2) — the same pre-existing, unrelated failures round 1/2 identified and
+  independently reproduced against the pre-sprint baseline. This is now a
+  genuinely reproducible number, run on this machine's real ambient state
+  (dev `.venv` with a DEV `aerollm_api` install present), not an
+  approximation.
+- All 14 tests in `tests/test_aerollm_bundle_install.py` +
+  `tests/test_aerollm_bundle_compliance.py` pass individually and as part
+  of the full `-k aerollm` run.
+- `shellcheck -x scripts/package-aerollm-bundle.sh scripts/build-aerollm.sh`
+  clean; `bash -n scripts/package-aerollm-bundle.sh` clean.
+- No `gh release` executed. Sibling `~/ProJects/qukaizen-aerollm` has zero
+  new commits (`HEAD` unchanged at `9e08230f0be…`) and its working tree
+  shows only the pre-existing, unrelated dirt that predates this sprint.
+
+## Architect feedback required (round 3)
+
+None. All three round-2 BLOCKs had clean, in-scope fixes; nothing required
+a design change.
