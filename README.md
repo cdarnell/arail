@@ -99,9 +99,18 @@ browse and pull on demand. AirLLM is opt-in via `ARAIL_INSTALL_AIRLLM=1`.
 > development** and not built yet, so on Linux/x86 `maximus` the deep runtime
 > is skipped and AirLLM (opt-in) is the fallback. AeroLLM is **not** a setup
 > dependency — `./arailctl setup` never blocks on it. Install or refresh it
-> out-of-band with `./arailctl deep rebuild` (source build from a local
-> aerollm checkout) or `./arailctl deep update` (release wheel); both fail
-> soft, so the lab runs fine without the 2nd inference until then.
+> out-of-band with `./arailctl deep install` (a checksummed prebuilt binary
+> from ARAIL's own GitHub Releases — no source repo or credentials needed;
+> this is what `./arailctl setup` at tier `maximus` uses), or, if you're a
+> maintainer, `./arailctl deep rebuild` (source build from a local aerollm
+> checkout) or `./arailctl deep update` (release wheel from the private
+> index); all three fail soft, so the lab runs fine without the 2nd
+> inference until one succeeds. **`deep install`'s binary is unsigned,
+> prebuilt native code that executes on import** — it's integrity-checked
+> against the release manifest (same-origin trust: GitHub TLS + repo
+> access control), not signature-verified or sandboxed. See
+> [SECURITY.md](SECURITY.md) and [docs/cli.md](docs/cli.md) for the full
+> trust-boundary disclosure.
 
 Upgrade any time:
 

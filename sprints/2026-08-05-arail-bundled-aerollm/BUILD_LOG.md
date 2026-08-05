@@ -515,3 +515,22 @@ pattern rather than pattern-matching the finding.
 Verified: `pytest tests/test_aerollm_bundle_qa_hardening.py -q` →
 **30 passed** (was 29/30). `shellcheck -x scripts/setup.sh` unchanged
 (pre-existing SC2034/SC2024 warnings only, none in the touched region).
+
+### Step 4 — Q5(c): surface the trust-boundary disclosure outside docs/cli.md
+
+TEST_REPORT.md's Q5 finding: the "integrity, not authenticity" caveat
+lived only in `docs/cli.md`'s CLI reference — nowhere a user reads before
+running `./arailctl setup`. Added, honestly scoped (no tamper-proof claim,
+no codesign-verification claim — the binary is unsigned and that's stated
+plainly):
+
+- `README.md`'s maximus AeroLLM paragraph: names `deep install` (also
+  fixing the same class of Q7 omission there) and links to SECURITY.md +
+  docs/cli.md for the trust-boundary disclosure.
+- `SECURITY.md`: new "Out of scope" bullet describing the bundled channel's
+  RCE-at-import reality, what the sha256/Mach-O checks do and don't
+  guarantee, and the same-origin trust boundary.
+
+No test pins these (they're prose, not contract), but
+`test_cli_docs_disclose_the_sha256_trust_boundary` (test 29) confirms the
+`docs/cli.md` version of the caveat is unchanged.
