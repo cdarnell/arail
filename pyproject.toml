@@ -256,6 +256,14 @@ aerollm_index = "https://pypi.qukaizen.com/simple/"
 # lockstep with THIRD-PARTY-LICENSES/aerollm/BUNDLE.json (see
 # docs/releasing.md — a drift test enforces this).
 aerollm_bundle_tag = "v1.1.0"
+# sha256 of the BUNDLE TARBALL (not the .so — that digest lives in
+# THIRD-PARTY-LICENSES/aerollm/BUNDLE.json's `sha256` field and is verified
+# separately, against the in-tarball MANIFEST.json, after extraction). This
+# is the out-of-band pin `docs/cli.md` tells security-conscious users to set
+# as AEROLLM_BUNDLE_SHA256 — forwarded by setup.sh exactly like
+# aerollm_bundle_tag. Bump alongside aerollm_bundle_tag (docs/releasing.md
+# step 4) whenever the bundle is refreshed.
+aerollm_bundle_sha256 = "d3a7a9dd19987350963422ab7647a2d4ad607e78397b57f70c55362c0b95ecce"
 # AirLLM stays declared for opt-in power-user installs (not pulled by default).
 airllm  = "airllm>=2.0"
 

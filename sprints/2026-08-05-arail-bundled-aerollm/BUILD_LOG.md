@@ -389,3 +389,25 @@ matches its `.sha256` sidecar exactly; `BUNDLE.json.sha256` matches the
 
 None. All three round-2 BLOCKs had clean, in-scope fixes; nothing required
 a design change.
+
+---
+
+## Round 4 fixes (QA Q1/Q2/Q5/Q7)
+
+Source: `TEST_REPORT.md` (`c228597`), verdict FAIL. Plan before touching code:
+
+| # | Files | Change | Test | Commit ref |
+|---|---|---|---|---|
+| 1 | `pyproject.toml`, `THIRD-PARTY-LICENSES/aerollm/BUNDLE.json`, `scripts/build-aerollm.sh`, `docs/cli.md`, `docs/releasing.md` | Q1: add `aerollm_bundle_sha256` (tarball digest) pin next to `aerollm_bundle_tag`; verify extracted `.so` against `MANIFEST.json.sha256` before install; fix the `docs/cli.md` guidance that pointed users at the wrong digest | `test_committed_bundle_json_sha256_is_the_so_digest_not_the_tarball_digest` (test 20), `test_bundle_install_from_local_file_succeeds` (updated fixture) | pending |
+| 2 | `scripts/build-aerollm.sh` | Q5 (a): Mach-O-magic sanity check on the extracted `.so` before copying into site-packages, dependency-free (raw magic bytes) | `test_unloadable_so_is_rolled_back_leaving_no_shadowing_artifact` (test 8, unaffected — crafted Mach-O magic), updated `test_bundle_install_from_local_file_succeeds` | pending |
+| 3 | `scripts/build-aerollm.sh`, `README.md`, `SECURITY.md`, `docs/cli.md` | Q5 (b): one-liner install-time disclosure + same caveat surfaced in README's maximus section and SECURITY.md, honestly scoped (integrity not authenticity, unsigned binary) | `test_cli_docs_disclose_the_sha256_trust_boundary` (test 29, unchanged) | pending |
+| 4 | `sprints/2026-08-05-arail-bundled-aerollm/ARCHITECTURE.md` | Q2: dated correction to §9.1 step 3 — leave `AEROLLM_INDEX_URL` unset instead of pointing it at an unreachable host | `test_auto_selects_release_when_aerollm_index_url_is_overridden` (test 14, pins the real dispatch so the corrected recipe is checked against it) | pending |
+| 5 | `scripts/setup.sh` | Q7: name `./arailctl deep install` in the AeroLLM failure warning (both the Apple-Silicon branch and the non-Apple-Silicon branch) | `test_setup_failure_message_names_the_outside_user_route` (test 30, currently red) | pending |
+| 6 | n/a | Q4 (tar error wrap): non-blocking, evaluate after the above | — | pending/skip |
+| 7 | n/a | Q6 (F7 guard over-broad): non-blocking; skip — narrowing it changes the behaviour `test_f7_guard_message_on_an_interrupted_bundle_install` (test 27) deliberately pins as a "regression anchor for a follow-up fix", and that follow-up would need its own review round, not a drive-by in this one | — | skip (documented) |
+
+Order: Q1 → Q5(a) sanity check (same file/region, do together) → Q5(b)
+disclosure strings → Q2 (docs-only) → Q7 (docs-only, turns the one red
+test green) → re-run full suite → Q4 if still cheap.
+
+### Step 1 — Q1: fix the digest pin

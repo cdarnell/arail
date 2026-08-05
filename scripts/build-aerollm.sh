@@ -252,11 +252,48 @@ bundle_install() {
         fi
     done
 
+    # Q1/Q5: verify the extracted .so against MANIFEST.json's own sha256
+    # (travels inside the sha256-verified tarball, so this catches a
+    # tarball-vs-member substitution the tarball-level checksum alone can't
+    # — the two objects are digested independently). Fail closed if the
+    # manifest doesn't carry one; a bundle producer must always emit it.
+    local so_sha_expected so_sha_actual
+    so_sha_expected="$("$PY" -c "import json; print(json.load(open('$extract_dir/MANIFEST.json')).get('sha256',''))" 2>/dev/null || echo '')"
+    if command -v shasum >/dev/null 2>&1; then
+        so_sha_actual="$(shasum -a 256 "$extract_dir/aerollm_api.abi3.so" | awk '{print $1}')"
+    else
+        so_sha_actual="$("$PY" -c "import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],'rb').read()).hexdigest())" "$extract_dir/aerollm_api.abi3.so")"
+    fi
+    if [[ -z "$so_sha_expected" || "$so_sha_actual" != "$so_sha_expected" ]]; then
+        err "aerollm_api.abi3.so does not match MANIFEST.json's recorded sha256 — refusing to install."
+        warn "  manifest:  ${so_sha_expected:-<missing>}"
+        warn "  extracted: ${so_sha_actual}"
+        exit 1
+    fi
+
+    # Q5: cheap format sanity check before copying into site-packages —
+    # this is NOT an authenticity or codesign check (the binary is
+    # unsigned; see docs/cli.md). It only catches a payload that isn't
+    # even the right kind of file. Mach-O 64-bit magic, either byte order
+    # (MH_MAGIC_64 / MH_CIGAM_64) — no `file`/`lipo` dependency required.
+    local magic
+    magic="$(od -An -tx1 -N4 "$extract_dir/aerollm_api.abi3.so" | tr -d ' \n')"
+    case "$magic" in
+        cffaedfe|feedfacf) : ;;  # Mach-O 64-bit, little/big-endian
+        *)
+            err "aerollm_api.abi3.so is not a Mach-O arm64 binary (got magic bytes: ${magic}) — refusing to install."
+            exit 1
+            ;;
+    esac
+
     # F5: quarantine xattr (browser-downloaded tarball) — best-effort strip
     # before verify, since a quarantined .so fails dlopen under Gatekeeper.
     xattr -d com.apple.quarantine "$extract_dir/aerollm_api.abi3.so" >/dev/null 2>&1 || true
 
     info "Installing → ${dest_so}"
+    warn "aerollm_api.abi3.so is prebuilt native code, downloaded and executed on"
+    warn "import. It is integrity-checked against the release manifest (same-origin"
+    warn "trust), NOT signature-verified or sandboxed — see docs/cli.md."
     cp -f "$extract_dir/aerollm_api.abi3.so" "$dest_so"
     cp -f "$extract_dir/MANIFEST.json" "$dest_marker"
 

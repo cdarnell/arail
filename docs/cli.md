@@ -337,7 +337,7 @@ regardless of what's on disk.
 | `AEROLLM_BUNDLE_REPO` | `cdarnell/qukaizen-arail` | which GitHub repo carries the release asset |
 | `AEROLLM_BUNDLE_TAG` | pinned in `pyproject.toml` `[tool.arail.package-sources] aerollm_bundle_tag` | which ARAIL release carries the bundle |
 | `AEROLLM_BUNDLE_FILE` | unset | use a local tarball instead of downloading — the offline / airgapped install path |
-| `AEROLLM_BUNDLE_SHA256` | read from the `.sha256` sidecar | pin/override the expected digest |
+| `AEROLLM_BUNDLE_SHA256` | unset (falls back to the same-origin `.sha256` sidecar); `./arailctl setup` at tier `maximus` forwards `pyproject.toml [tool.arail.package-sources] aerollm_bundle_sha256` — a genuine out-of-band pin, independent of the download. Standalone `./arailctl deep install` does **not** forward it; set it explicitly if you want the pin | pin/override the expected **tarball** digest |
 
 `./arailctl deep status` reports a `channel:` line (`dev` \| `release` \|
 `bundled` \| `none`) and, when bundled, an `aerollm <version> (<short-sha>,
@@ -351,8 +351,25 @@ authenticity or supply-chain-integrity control, since anyone able to serve
 a malicious tarball from that origin can serve a matching digest alongside
 it. The actual trust boundary is GitHub's TLS + repo access control, not
 the checksum. If you need a digest independent of that origin, pass
-`AEROLLM_BUNDLE_SHA256` explicitly from a value you obtained out-of-band
-(e.g. the committed `THIRD-PARTY-LICENSES/aerollm/BUNDLE.json`).
+`AEROLLM_BUNDLE_SHA256` explicitly from a value pinned in git — the
+committed `pyproject.toml`'s `[tool.arail.package-sources]
+aerollm_bundle_sha256` (the TARBALL digest; this is what `./arailctl
+setup` forwards automatically at tier `maximus`). **Do not** pass
+`THIRD-PARTY-LICENSES/aerollm/BUNDLE.json`'s `sha256` field here — that
+field is a digest of the extracted `aerollm_api.abi3.so` itself, not the
+tarball, and is verified separately (against the tarball's own
+`MANIFEST.json`, after extraction) — the two digests are of different
+objects and will never match `AEROLLM_BUNDLE_SHA256`.
+
+**Beyond the tarball checksum:** after extraction, `bundle_install()` also
+(a) verifies the extracted `.so`'s sha256 against the in-tarball
+`MANIFEST.json` (catches a tarball-vs-member substitution) and (b) checks
+the `.so` has Mach-O 64-bit magic bytes before copying it into
+site-packages (catches an obviously-wrong payload). Neither check is a
+codesign, notarization, or authenticity control — `aerollm_api.abi3.so` is
+an **unsigned** binary, and importing a native extension is always code
+execution at import time. The full trust chain here is same-origin: GitHub
+TLS + repo access control, one hop. Treat the bundled channel accordingly.
 
 See `sprints/2026-08-05-arail-bundled-aerollm/ARCHITECTURE.md` for the
 full design and `docs/releasing.md` for the maintainer-side bundle

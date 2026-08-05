@@ -37,7 +37,7 @@ def _make_tarball(tmp_path: pathlib.Path, *, so_bytes: bytes = b"fake-so-bytes")
         "built_by": "test",
         "platform": "macos-arm64",
         "python_abi": "abi3-cp39",
-        "sha256": "unused-in-test",
+        "sha256": hashlib.sha256(so_bytes).hexdigest(),
         "license": "Apache-2.0",
         "modifications": "none",
         "arail_release": "vtest",
@@ -119,13 +119,12 @@ def test_bundle_install_from_local_file_succeeds(tmp_path, isolated_python):
         "AEROLLM_BUNDLE_SHA256": digest,
         "PYTHON": str(isolated_python),
     })
-    # The fake .so isn't a real python extension, so `import aerollm_api`
-    # will fail inside the script — that's expected here (F1's cleanup
-    # path). What we're asserting is the checksum-verified copy actually
-    # happened before the import check, and F1 removed it after failing.
+    # The fake .so isn't a real Mach-O binary, so the pre-copy format sanity
+    # check (Q5, added after QA round 4) refuses it before any cp happens.
+    # What we're asserting is the tarball checksum was verified first.
     assert "Checksum verified" in r.stdout
     assert r.returncode != 0
-    assert "import aerollm_api" in (r.stdout + r.stderr) or "Removed the broken artifact" in r.stdout
+    assert "Mach-O arm64" in (r.stdout + r.stderr)
 
 
 def test_checksum_mismatch_aborts_before_any_write(tmp_path):

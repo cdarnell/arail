@@ -136,6 +136,10 @@ AEROLLM_INDEX_URL="https://pypi.qukaizen.com/simple/"
 # aerollm_api.abi3.so. Overridden by [tool.arail.package-sources]
 # aerollm_bundle_tag in pyproject.toml (see load_pyproject_metadata below).
 AEROLLM_BUNDLE_TAG="v1.1.0"
+# sha256 of the bundle TARBALL (not the .so) — the out-of-band pin
+# build-aerollm.sh compares AEROLLM_BUNDLE_SHA256 against. Overridden by
+# [tool.arail.package-sources] aerollm_bundle_sha256 in pyproject.toml.
+AEROLLM_BUNDLE_SHA256=""
 
 # Unified password — set by capture_password() below. One secret covers:
 #   - code-server (IDE) login
@@ -171,6 +175,7 @@ values = {
     "AEROLLM_PIP_SPEC": str(sources.get("aerollm", "")),
     "AEROLLM_INDEX_URL": str(sources.get("aerollm_index", "")),
     "AEROLLM_BUNDLE_TAG": str(sources.get("aerollm_bundle_tag", "")),
+    "AEROLLM_BUNDLE_SHA256": str(sources.get("aerollm_bundle_sha256", "")),
 }
 for key, value in values.items():
     if value:
@@ -663,6 +668,7 @@ install_accel_deps() {
             info "Installing AeroLLM (source → release → bundled, first that applies)…"
             if AEROLLM_INDEX_URL="$AEROLLM_INDEX_URL" AEROLLM_PIP_SPEC="$AEROLLM_PIP_SPEC" \
                AEROLLM_BUNDLE_TAG="$AEROLLM_BUNDLE_TAG" \
+               AEROLLM_BUNDLE_SHA256="$AEROLLM_BUNDLE_SHA256" \
                bash "${REPO_ROOT:-$PWD}/scripts/build-aerollm.sh" auto; then
                 info "AeroLLM ready — the deep-mode 2nd inference on Apple Silicon."
             else

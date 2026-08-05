@@ -52,6 +52,12 @@ gh release upload <next-arail-tag> dist/aerollm-bundle/*.tar.gz dist/aerollm-bun
 # 4. Bump the pin and refresh the compliance manifest so F10's drift test
 #    stays green:
 #      - pyproject.toml: [tool.arail.package-sources] aerollm_bundle_tag
+#      - pyproject.toml: [tool.arail.package-sources] aerollm_bundle_sha256
+#        — the sha256 of the TARBALL (dist/aerollm-bundle/*.tar.gz.sha256),
+#        NOT the .so digest in BUNDLE.json below. This is the out-of-band
+#        pin ./arailctl setup forwards as AEROLLM_BUNDLE_SHA256; forgetting
+#        it doesn't break installs (falls back to the same-origin sidecar)
+#        but leaves the genuinely-independent pin stale.
 #      - THIRD-PARTY-LICENSES/aerollm/BUNDLE.json (copy from
 #        dist/aerollm-bundle/stage/MANIFEST.json, or dist/aerollm-bundle/*.tar.gz)
 #      - THIRD-PARTY-LICENSES/aerollm/NOTICE — refresh from upstream if it
