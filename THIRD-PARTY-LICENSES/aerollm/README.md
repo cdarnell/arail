@@ -10,8 +10,12 @@ carries the Apache-2.0 compliance material that redistribution requires.
 - **Upstream:** a private source repository (not publicly browsable at this
   time — the compiled binary is what's redistributed, not the source; the
   maintainer may open the source repository in the future)
-- **License:** Apache License, Version 2.0 — see [`LICENSE`](./LICENSE)
-  (verbatim copy)
+- **License:** Apache License, Version 2.0 — see [`LICENSE`](./LICENSE).
+  This is the full, standard Apache-2.0 license text (verbatim from
+  `apache.org/licenses/LICENSE-2.0.txt`), not a copy of upstream's own
+  `LICENSE` file — upstream's is only the header boilerplate + copyright
+  line, not the full ~200-line license, so a byte-for-byte copy of it would
+  not satisfy Apache-2.0 §4(a)'s "give recipients a copy of this License."
 - **Notice:** see [`NOTICE`](./NOTICE) (verbatim copy) — AeroLLM is a
   from-scratch codebase; no third-party source is vendored in it
 - **What's shipped:** a *verbatim*, unmodified `cargo build --release`
