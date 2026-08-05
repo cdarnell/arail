@@ -1532,11 +1532,16 @@ class AeroLLMBackend(BaseBackend):
             from aerollm_api import Runtime  # type: ignore[import-untyped]
         except ImportError as e:
             raise ImportError(
-                "aerollm_api wheel not installed. Install the published wheel "
-                "with `./arailctl deep update`, or build from the local sibling "
-                "repo with `./arailctl deep rebuild` (set ARAIL_AEROLLM_REPO if "
-                "it's not at ~/ProJects/qukaizen-aerollm). Do NOT use `maturin develop` — "
-                "see scripts/setup.sh for why."
+                "aerollm_api not installed. Try, in order: "
+                "`./arailctl deep install` (fetches a checksummed prebuilt binary "
+                "from an ARAIL GitHub Release — no source repo or credentials "
+                "needed; this is the route for most people). Maintainer-only "
+                "alternatives: `./arailctl deep rebuild` (build from the local "
+                "sibling repo — set ARAIL_AEROLLM_REPO if it's not at "
+                "~/ProJects/qukaizen-aerollm) or `./arailctl deep update` (pip "
+                "install the published wheel from the private index, needs "
+                "credentials). Do NOT use `maturin develop` — see scripts/setup.sh "
+                "for why."
             ) from e
         # Surface the wheel version for `deep status` / health (best-effort).
         self.api_version = getattr(_aero_mod, "__version__", "unknown")
