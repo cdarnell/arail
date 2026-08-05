@@ -429,8 +429,12 @@ box, in a clean environment:
 1. Clone **only** ARAIL into a scratch dir.
 2. Guarantee no aeroLLM source: `ARAIL_AEROLLM_REPO=/nonexistent`.
 3. Guarantee no private-index creds: unset any `PIP_*`/netrc/keyring entry for
-   `pypi.qukaizen.com`, and additionally point `AEROLLM_INDEX_URL` at an
-   unreachable host so a silent RELEASE fallback cannot rescue the run.
+   `pypi.qukaizen.com`, and **leave `AEROLLM_INDEX_URL` unset** (do not
+   override it to an unreachable host — `_release_creds_configured()`
+   treats *any* non-default `AEROLLM_INDEX_URL` as configured credentials
+   by design, so overriding it here selects RELEASE and never reaches
+   BUNDLED at all; this step originally said the opposite and was wrong.
+   See TEST_REPORT.md Q2, 2026-08-05).
 4. Fresh interpreter: a new venv, `aerollm_api` provably not importable.
 5. Run `./arailctl setup` at tier `maximus` (or `./arailctl deep install`).
 6. **Assert:** exit 0; `python3 -c "import aerollm_api"` succeeds;

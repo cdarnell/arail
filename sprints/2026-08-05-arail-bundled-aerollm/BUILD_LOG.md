@@ -410,4 +410,87 @@ Order: Q1 → Q5(a) sanity check (same file/region, do together) → Q5(b)
 disclosure strings → Q2 (docs-only) → Q7 (docs-only, turns the one red
 test green) → re-run full suite → Q4 if still cheap.
 
-### Step 1 — Q1: fix the digest pin
+### Step 1 — Q1 + Q5(a)/(b): digest pin, MANIFEST verify, Mach-O sanity check, disclosure
+
+Delta from plan: the digest-pin fix and the Mach-O/MANIFEST sanity check
+landed in the same commit as this plan (`13b8d64`) — a staging mistake
+(re-staged a file without unstaging the rest), not intentional bundling.
+Noted here rather than silently left out of the log.
+
+- `pyproject.toml`: added `aerollm_bundle_sha256` under
+  `[tool.arail.package-sources]`, holding the **tarball** digest
+  (`d3a7a9dd1998…`, verified against `dist/aerollm-bundle/*.tar.gz.sha256`).
+  `BUNDLE.json`'s `sha256` field is left as-is (it's internally consistent
+  — it's the `.so` digest, verified against the in-tarball
+  `MANIFEST.json`, and `test_committed_bundle_json_sha256_is_the_so_digest_not_the_tarball_digest`
+  already pins that meaning) — no field rename; instead `docs/cli.md` now
+  says explicitly which file to use for which purpose and why they can
+  never match.
+- `scripts/setup.sh`: loads `aerollm_bundle_sha256` from pyproject,
+  forwards it as `AEROLLM_BUNDLE_SHA256` to `build-aerollm.sh auto`
+  exactly like `AEROLLM_BUNDLE_TAG` already does. Standalone
+  `./arailctl deep install` does **not** forward it (goes straight to
+  `build-aerollm.sh bundle`, bypassing `setup.sh`) — documented as a gap
+  in `docs/cli.md`, not silently glossed over.
+- `scripts/build-aerollm.sh` `bundle_install()`: after extraction and the
+  four-member presence check, added (a) MANIFEST.json `.so` sha256
+  verification (fail-closed on mismatch or missing field) and (b) a
+  Mach-O 64-bit magic-byte check (`od -An -tx1 -N4`, no new dependency),
+  both before the `cp` into site-packages. Added a one-line install-time
+  disclosure (`warn`) naming the trust boundary honestly: integrity-checked,
+  not signature-verified or sandboxed.
+- `docs/cli.md`: corrected the out-of-band pin guidance (use
+  `aerollm_bundle_sha256`, not `BUNDLE.json.sha256`), documented the new
+  post-extraction checks, and the honest "no codesign, no notarization,
+  unsigned binary, same-origin trust" caveat.
+- `docs/releasing.md`: step 4 gained a bullet to bump
+  `aerollm_bundle_sha256` alongside `aerollm_bundle_tag`.
+- `tests/test_aerollm_bundle_install.py`: `test_bundle_install_from_local_file_succeeds`'s
+  fixture now writes a real sha256 into `MANIFEST.json` (previously
+  `"unused-in-test"` — now genuinely used, since it's verified). The
+  fixture's `so_bytes` (`b"fake-so-bytes"`) isn't Mach-O, so the test now
+  hits the new pre-copy sanity check instead of the old import-failure/F1
+  path; assertion updated to match (`"Mach-O arm64"` instead of `"import
+  aerollm_api"`/`"Removed the broken artifact"`). This is a legitimate
+  behavior change required by Q5 (validate before copy), not scope drift.
+- Verified: `pytest tests/test_aerollm_bundle_install.py
+  tests/test_aerollm_bundle_compliance.py
+  tests/test_aerollm_bundle_qa_hardening.py -q` → **43 passed, 1 failed**
+  (only test 30, Q7, expected red at this point). `shellcheck -x
+  scripts/build-aerollm.sh` clean.
+
+### Step 2 — Q2: correct ARCHITECTURE.md §9.1's acceptance recipe
+
+Dated correction (this workspace's convention — don't silently rewrite):
+§9.1 step 3 now says to **leave `AEROLLM_INDEX_URL` unset**, with an
+inline note explaining why the old instruction (point it at an
+unreachable host) backfired — `_release_creds_configured()` treats any
+non-default `AEROLLM_INDEX_URL` as configured credentials by design (a
+real user who overrides the index URL does mean "use RELEASE"), so the
+old instruction guaranteed a RELEASE run and never reached BUNDLED. Fixed
+the recipe rather than the function: the function's behavior is correct
+for its real callers, and changing it risked a regression in genuine
+RELEASE-channel selection.
+
+Re-ran the corrected recipe for real (temp dir, not the repo, no writes
+to the sibling repo):
+
+```
+$ env -i HOME=<empty> PATH=/usr/bin:/bin:/usr/local/bin PYTHON=<fresh venv> \
+    ARAIL_AEROLLM_REPO=/nonexistent \
+    AEROLLM_BUNDLE_FILE=dist/aerollm-bundle/aerollm-api-v1.1.0-macos-arm64.tar.gz \
+    bash scripts/build-aerollm.sh auto
+• No sibling repo, no release credentials → installing the bundled binary (bundled channel).
+• Using local bundle tarball: .../aerollm-api-v1.1.0-macos-arm64.tar.gz (offline path).
+• Checksum verified (sha256 d3a7a9dd1998…).
+• Installing → .../site-packages/aerollm_api.abi3.so
+! aerollm_api.abi3.so is prebuilt native code, downloaded and executed on
+! import. It is integrity-checked against the release manifest (same-origin
+! trust), NOT signature-verified or sandboxed — see docs/cli.md.
+• AeroLLM ready (bundled 0.1.0) — the deep-mode 2nd inference.
+EXIT=0
+```
+
+Reaches BUNDLED, EXIT 0, as the acceptance bar requires. `test_auto_selects_release_when_aerollm_index_url_is_overridden`
+(test 14) stays green — it pins the real (unchanged) dispatch behavior so
+the *next* person reads code, not assumption.
