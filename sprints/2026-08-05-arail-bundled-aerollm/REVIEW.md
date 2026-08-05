@@ -301,3 +301,99 @@ mutates the developer's real venv and real `dist/`.
 B1, B2, A1 and A3 are closed. Once 1-4 land this is a PASS; nothing here
 requires a design change. Do not run `gh release upload` until B3b produces
 a verified artifact.
+
+---
+
+# Review — Round 3
+
+**Date:** 2026-08-05
+**Build:** [BUILD_LOG.md](./BUILD_LOG.md) at `d29e53b`
+**Reviewed range:** `49d68d4..d29e53b` (4 commits)
+
+## Verdict: PASS
+
+All three round-2 BLOCKs (B3, B4, B5) are genuinely closed. Given that I was
+burned twice by claimed-but-unreproduced results, **nothing below is taken on
+trust** — every row was reproduced by execution on this machine.
+
+## What I verified by running it, not by reading
+
+| Check | Result |
+|---|---|
+| B3 — `OUT_DIR` overridable | ✅ `package-aerollm-bundle.sh:50` `OUT_DIR="${OUT_DIR:-$REPO_ROOT/dist/aerollm-bundle}"`; test sets it to `tmp_path/out` and runs with `cwd=tmp_path` |
+| B3 — **sentinel proof** (the round-2 catch, repeated) | ✅ planted `dist/aerollm-bundle/SENTINEL.txt` + sha-pinned the real tarball, ran the **full** `-k aerollm` suite twice: sentinel present after both runs, tarball `shasum -c` OK both times. The round-2 defect is genuinely gone. |
+| B3b — stray `v9.9.9-regression-test` tarball removed from `dist/` | ✅ `dist/aerollm-bundle/` holds only the real v1.1.0 tarball + sidecar + `stage/` |
+| B4 — 144 passed / 9 failed | ✅ **reproduced twice**, identical both runs (9.42 s / 9.00 s), from a shell with `PYTHON`/`VIRTUAL_ENV`/`PIP_INDEX_URL`/`PIP_EXTRA_INDEX_URL`/`AEROLLM_INDEX_URL`/`AEROLLM_CHANNEL`/`AEROLLM_BUNDLE_TAG`/`OUT_DIR` all `env -u`'d. Second run with `-p no:randomly` — no order dependence. |
+| B4 — the 9 failures are the exact set named in BUILD_LOG | ✅ `test_aerollm_defaults.py` ×4, `test_aerollm_model_ready.py` ×3, `test_model_ux_phase0_warmth_probe.py` ×2 — same set round 1 independently reproduced on the pre-sprint tree |
+| B4 — `_isolated_python()` really isolates | ✅ read it: builds a genuine `sys.executable -m venv` in a `mkdtemp` dir and returns `venv/bin/python3`; `_run()` sets `PYTHON` to it unless the caller supplied one. Not a claim — a real empty venv. The per-test `isolated_python` fixture is correctly kept for the one test that completes an install. |
+| B5 — `docs/releasing.md` step 4 | ✅ `:57-69` now says NOTICE syncs from upstream, **"LICENSE — DO NOT sync this from upstream"**, with the 17-line-stub rationale and a pointer at the guarding test |
+| B5 — the guard test has teeth | ✅ **reproduced end-to-end**: copied upstream's 17-line `~/ProJects/qukaizen-aerollm/LICENSE` over the bundle copy → `test_license_is_full_apache2_text_not_upstream_stub` FAILED (`:78`); restored → 5/5 green. Tree left clean. |
+| Artifact exists and is non-trivial | ✅ `dist/aerollm-bundle/aerollm-api-v1.1.0-macos-arm64.tar.gz`, 6,791,725 B |
+| tarball sha == `.sha256` sidecar | ✅ `d3a7a9dd19987350963422ab7647a2d4ad607e78397b57f70c55362c0b95ecce` both |
+| `BUNDLE.json.sha256` field == real `.so` digest | ✅ extracted `.so` hashes to `2776d188f71c98bfb46b1e87f2f5e8aa4f30146541d0748e3321cd0364650f9a` = `BUNDLE.json.sha256` field exactly |
+| the `.so` is a real binary, not round-2's 0-byte fake | ✅ 22,187,632 B, `Mach-O 64-bit dynamically linked shared library arm64`; **and it imports** — dropped into a fresh venv's site-packages, `import aerollm_api` OK |
+| in-tarball LICENSE/NOTICE == repo copies | ✅ `diff` clean both (11,389 B / 384 B) |
+| in-tarball `MANIFEST.json` == committed `BUNDLE.json` | ✅ `diff` clean; `aerollm_dirty: false`, `arail_release: v1.1.0`, commit `9e08230f0be…` |
+| sibling aeroLLM repo untouched | ✅ `HEAD` = `9e08230f0be…` (unchanged); reflog `HEAD@{0}` is the pre-existing grammar commit — **zero new commits**; working-tree dirt is the same pre-existing `aerollm-grammar`/`CLAUDE.md`/`Untitled.md` set; `git worktree list` shows **no** worktree from this sprint (the 10 listed all predate it) |
+| No `gh release` executed | ✅ occurs only as doc text (`docs/releasing.md:50`), a script header comment, and an `info` echo (`package-aerollm-bundle.sh:8,163`). Unrelated `build_ai_eng.py` hits are printed strings. |
+| `shellcheck -x` both touched scripts | ✅ clean, zero findings |
+| arail working tree after all my probing | ✅ `git status --porcelain` empty |
+
+## Code quality findings
+
+- **[ASK] A7 — the in-test "real dist untouched" guard is ordered wrong and
+  is therefore vacuous.** In `test_producer_filename_matches_consumer_resolved_filename`,
+  `real_out_snapshot_before` is computed at `:232` — **after** the producer
+  subprocess has already run at `:226`. If a future regression re-pointed
+  `OUT_DIR` at the real directory, the wipe would happen before the "before"
+  snapshot, and `before == after` would still hold. The assertion cannot
+  detect the exact failure it documents. Move the snapshot above
+  `subprocess.run`. Not a BLOCK: the `OUT_DIR` override is the real fix and I
+  proved by sentinel that the directory survives a full-suite run — the guard
+  is belt-and-suspenders that currently isn't fastened.
+- **[INFO]** BUILD_LOG round 3 says "`BUNDLE.json.sha256` matches the `.so`'s
+  digest". No such **file** exists; it means BUNDLE.json's `sha256` *field*.
+  The underlying claim is true (verified above), only the wording is off.
+- **[ASK] A5, A4 (carried, unchanged)** — `_release_creds_configured()` still
+  misses `pip.conf`/`PIP_CONFIG_FILE`/keyring; the extraction comment still
+  overclaims. Ticket as follow-ups; neither blocks.
+
+## Security findings
+
+- ✅ No new attack surface this round. The three fixes are an env-var default,
+  a test-harness interpreter swap, and a docs edit.
+- ✅ Re-confirmed no secrets, no credential handling, no new dependencies.
+- ✅ A3's honest "corruption check, not authenticity" framing stands.
+
+## Test coverage assessment
+
+144 passed / 9 failed under `-k aerollm`, reproduced twice with identical
+results and no ambient-state dependency (contrast round 2's 140/13). 14
+bundle tests, all green. The regression tests round 1 demanded now genuinely
+assert on a clean machine rather than tripping the F7 guard first.
+
+## Tech debt delta
+
+Round 2's new debt is repaid: `OUT_DIR` is overridable, the test harness no
+longer mutates the developer's real venv or real `dist/`. One new minor item
+(A7's misordered assertion). Net negative.
+
+## Required actions before merge
+
+None blocking. Follow-ups to ticket: **A7** (move the snapshot above the
+subprocess call), **A5**, **A4**.
+
+## Ready for QA, then maintainer release
+
+This sprint is ready for `/qa`. After QA, the release upload is the
+**maintainer's** call — I did not run it. `docs/releasing.md:50` documents it
+crisply; the exact command for this artifact is:
+
+```
+gh release upload v1.1.0 \
+  dist/aerollm-bundle/aerollm-api-v1.1.0-macos-arm64.tar.gz \
+  dist/aerollm-bundle/aerollm-api-v1.1.0-macos-arm64.tar.gz.sha256
+```
+
+The tag argument **must** equal `aerollm_bundle_tag` in `pyproject.toml`
+(`v1.1.0`), or the bundled channel 404s for every outside user.
