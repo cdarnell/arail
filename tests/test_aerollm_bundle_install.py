@@ -14,6 +14,7 @@ import pathlib
 import subprocess
 import sys
 import tarfile
+import tempfile
 
 import pytest
 
@@ -49,12 +50,48 @@ def _make_tarball(tmp_path: pathlib.Path, *, so_bytes: bytes = b"fake-so-bytes")
     return tarball
 
 
-def _run(mode, env_extra, args=()):
+def _run(mode, env_extra, args=(), python=None):
     env = {**os.environ, "NO_COLOR": "1", "ARAIL_AEROLLM_REPO": "/nonexistent", **env_extra}
+    # Default to an isolated interpreter for every invocation unless the
+    # caller already set one. Without this, `bundle_install()`'s F7
+    # provenance guard (build-aerollm.sh:161) checks the AMBIENT
+    # `python3`'s site-packages for an existing aerollm_api.abi3.so with no
+    # bundle marker — true on any normal dev machine with a DEV/RELEASE
+    # install already present — and aborts BEFORE the code path under test
+    # (checksum, curl, https-scheme, filename resolution) is ever reached.
+    # See REVIEW.md round-2 B4.
+    if python is not None:
+        env["PYTHON"] = str(python)
+    elif "PYTHON" not in env_extra:
+        env["PYTHON"] = str(_isolated_python())
     return subprocess.run(
         ["bash", str(BUILD), mode, *args],
         capture_output=True, text=True, env=env,
     )
+
+
+_ISOLATED_PYTHON_CACHE: pathlib.Path | None = None
+
+
+def _isolated_python() -> pathlib.Path:
+    """A throwaway venv with no aerollm_api installed — an 'outside user'
+    interpreter, isolated from whatever this repo's own .venv/ambient
+    python3 has (which may already carry a DEV build with no bundle
+    marker → would trip F7, see REVIEW.md round-2 B4).
+
+    Session-cached: none of the tests that use the default (unwritten-to)
+    path leave any state behind (they fail before `bundle_install()`
+    reaches the install step, or F1 rolls back a partial install), so one
+    shared venv is safe and keeps the suite fast.
+    """
+    global _ISOLATED_PYTHON_CACHE
+    if _ISOLATED_PYTHON_CACHE is None or not _ISOLATED_PYTHON_CACHE.exists():
+        venv_dir = pathlib.Path(
+            tempfile.mkdtemp(prefix="arail-aerollm-bundle-test-venv-")
+        ) / "venv"
+        subprocess.run([sys.executable, "-m", "venv", str(venv_dir)], check=True)
+        _ISOLATED_PYTHON_CACHE = venv_dir / "bin" / "python3"
+    return _ISOLATED_PYTHON_CACHE
 
 
 @pytest.fixture()
@@ -62,6 +99,11 @@ def isolated_python(tmp_path):
     """A throwaway venv with no aerollm_api installed — an 'outside user'
     interpreter, isolated from whatever this repo's own .venv has (which
     may already carry a DEV build with no bundle marker → would trip F7).
+
+    This fixture gets its OWN fresh venv (unlike `_isolated_python()`'s
+    shared cache) because `test_bundle_install_from_local_file_succeeds`
+    actually completes an install attempt into it and we want that test's
+    venv state fully isolated from every other test's.
     """
     venv_dir = tmp_path / "venv"
     subprocess.run([sys.executable, "-m", "venv", str(venv_dir)], check=True)
