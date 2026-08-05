@@ -29,7 +29,24 @@ cd ~/ProJects/qukaizen-aerollm && git pull
 cd ~/ProJects/arail
 ARAIL_RELEASE_TAG=<next-arail-tag> bash scripts/package-aerollm-bundle.sh
 
-# 3. Upload the produced tarball + sidecar to the ARAIL release.
+# 3. Upload the produced tarball + sidecar to the ARAIL release, UNDER THE
+#    SAME NAME the producer wrote them — do not rename.
+#
+#    Filename convention (must match resolve_bundle_url() in
+#    scripts/build-aerollm.sh exactly):
+#        aerollm-api-<ARAIL release tag>-macos-arm64.tar.gz
+#        aerollm-api-<ARAIL release tag>-macos-arm64.tar.gz.sha256
+#    e.g. for ARAIL_RELEASE_TAG=v1.1.0:
+#        aerollm-api-v1.1.0-macos-arm64.tar.gz
+#        aerollm-api-v1.1.0-macos-arm64.tar.gz.sha256
+#    The name is derived ONLY from the ARAIL release tag — not aeroLLM's
+#    own version or commit hash — so it's identical every time this
+#    checklist runs for the same release, and identical to what the
+#    installer's resolve_bundle_url() constructs at install time. If
+#    <next-arail-tag> above doesn't match AEROLLM_BUNDLE_TAG (the pin in
+#    pyproject.toml, step 4 below), the bundled channel 404s for every
+#    outside user — this is the single most important invariant in this
+#    checklist.
 gh release upload <next-arail-tag> dist/aerollm-bundle/*.tar.gz dist/aerollm-bundle/*.tar.gz.sha256
 
 # 4. Bump the pin and refresh the compliance manifest so F10's drift test

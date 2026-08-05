@@ -130,15 +130,105 @@ def test_status_reports_channel_none_without_marker():
     assert "channel:" in r.stdout
 
 
+def test_producer_filename_matches_consumer_resolved_filename(tmp_path):
+    """Regression test for B1 (REVIEW.md): the producer
+    (package-aerollm-bundle.sh) and the consumer (resolve_bundle_url() in
+    build-aerollm.sh) must derive the same asset filename from the same
+    tag, or the default bundled channel 404s by construction.
+    """
+    tag = "v9.9.9-regression-test"
+
+    # A minimal, clean, committed fake aeroLLM sibling repo.
+    fake_repo = tmp_path / "fake-aerollm"
+    (fake_repo / "crates" / "aerollm-api").mkdir(parents=True)
+    (fake_repo / "Cargo.toml").write_text('[workspace.package]\nversion = "0.0.0"\n')
+    (fake_repo / "LICENSE").write_text("Apache-2.0 stub\n")
+    (fake_repo / "NOTICE").write_text("AeroLLM NOTICE\n")
+    subprocess.run(["git", "init", "-q"], cwd=fake_repo, check=True)
+    subprocess.run(["git", "add", "-A"], cwd=fake_repo, check=True)
+    subprocess.run(
+        ["git", "-c", "user.email=t@t.com", "-c", "user.name=t", "commit", "-q", "-m", "init"],
+        cwd=fake_repo, check=True,
+    )
+
+    # A committed THIRD-PARTY-LICENSES/aerollm/LICENSE for the producer to
+    # copy from (real repo already has this; the fake repo above doesn't
+    # need one since package-aerollm-bundle.sh reads it from REPO_ROOT).
+
+    # Fake `cargo` on PATH: writes a dummy .so where the real build would.
+    fake_bin = tmp_path / "fake-bin"
+    fake_bin.mkdir()
+    fake_cargo = fake_bin / "cargo"
+    fake_cargo.write_text(
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        'mkdir -p "$PWD/target/release"\n'
+        'touch "$PWD/target/release/libaerollm_api.dylib"\n'
+    )
+    fake_cargo.chmod(0o755)
+
+    env = {
+        **os.environ,
+        "NO_COLOR": "1",
+        "ARAIL_AEROLLM_REPO": str(fake_repo),
+        "ARAIL_RELEASE_TAG": tag,
+        "PATH": f"{fake_bin}:{os.environ['PATH']}",
+    }
+    r = subprocess.run(
+        ["bash", str(REPO / "scripts" / "package-aerollm-bundle.sh")],
+        capture_output=True, text=True, env=env, cwd=REPO,
+    )
+    assert r.returncode == 0, r.stdout + r.stderr
+
+    produced = list((REPO / "dist" / "aerollm-bundle").glob("*.tar.gz"))
+    assert len(produced) == 1, produced
+    producer_filename = produced[0].name
+
+    # Ask the real consumer what URL it would request for this tag, by
+    # invoking bundle_install() against an unreachable host and reading the
+    # URL it reports back — this exercises the actual resolve_bundle_url()
+    # code path, not a reimplementation of it.
+    r2 = _run("bundle", {
+        "AEROLLM_BUNDLE_REPO": "cdarnell/does-not-exist-nowhere",
+        "AEROLLM_BUNDLE_TAG": tag,
+    })
+    assert r2.returncode != 0
+    consumer_out = r2.stdout + r2.stderr
+    assert producer_filename in consumer_out, (
+        f"producer emitted {producer_filename!r} but the consumer's "
+        f"resolve_bundle_url() requested a different URL for tag {tag!r}:\n{consumer_out}"
+    )
+
+
 def test_package_script_refuses_dirty_worktree_without_allow_dirty(tmp_path, monkeypatch):
     fake_repo = tmp_path / "fake-aerollm"
     (fake_repo / "crates" / "aerollm-api").mkdir(parents=True)
     subprocess.run(["git", "init", "-q"], cwd=fake_repo, check=True)
     (fake_repo / "dirty.txt").write_text("uncommitted\n")
-    env = {**os.environ, "NO_COLOR": "1", "ARAIL_AEROLLM_REPO": str(fake_repo)}
+    env = {
+        **os.environ, "NO_COLOR": "1", "ARAIL_AEROLLM_REPO": str(fake_repo),
+        "ARAIL_RELEASE_TAG": "vtest",
+    }
     r = subprocess.run(
         ["bash", str(REPO / "scripts" / "package-aerollm-bundle.sh")],
         capture_output=True, text=True, env=env,
     )
     assert r.returncode != 0
     assert "dirty" in (r.stdout + r.stderr).lower()
+
+
+def test_package_script_requires_release_tag(tmp_path):
+    """Regression guard: ARAIL_RELEASE_TAG can't be silently defaulted —
+    the output filename must be tied to an explicit release tag or B1's
+    filename-mismatch failure mode can reappear silently."""
+    fake_repo = tmp_path / "fake-aerollm"
+    (fake_repo / "crates" / "aerollm-api").mkdir(parents=True)
+    subprocess.run(["git", "init", "-q"], cwd=fake_repo, check=True)
+    env = {**os.environ, "NO_COLOR": "1", "ARAIL_AEROLLM_REPO": str(fake_repo)}
+    env.pop("ARAIL_RELEASE_TAG", None)
+    r = subprocess.run(
+        ["bash", str(REPO / "scripts" / "package-aerollm-bundle.sh")],
+        capture_output=True, text=True, env=env,
+    )
+    assert r.returncode != 0
+    assert "ARAIL_RELEASE_TAG" in (r.stdout + r.stderr)

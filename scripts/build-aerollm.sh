@@ -55,7 +55,6 @@ AEROLLM_PIP_SPEC="${AEROLLM_PIP_SPEC:-aerollm-api}"
 # a standalone `bash scripts/build-aerollm.sh bundle` still works.
 AEROLLM_BUNDLE_REPO="${AEROLLM_BUNDLE_REPO:-cdarnell/qukaizen-arail}"
 AEROLLM_BUNDLE_TAG="${AEROLLM_BUNDLE_TAG:-v1.1.0}"
-AEROLLM_BUNDLE_ASSET="${AEROLLM_BUNDLE_ASSET:-}"   # derived below once we know the tag
 AEROLLM_BUNDLE_URL="${AEROLLM_BUNDLE_URL:-}"        # full override (mirrors, forks)
 AEROLLM_BUNDLE_FILE="${AEROLLM_BUNDLE_FILE:-}"      # local tarball — the offline path
 AEROLLM_BUNDLE_SHA256="${AEROLLM_BUNDLE_SHA256:-}"  # pin/override the expected digest

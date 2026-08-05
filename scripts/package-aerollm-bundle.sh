@@ -18,8 +18,13 @@
 #
 # Env:
 #   ARAIL_AEROLLM_REPO   sibling aeroLLM checkout (default ~/ProJects/qukaizen-aerollm)
-#   ARAIL_RELEASE_TAG    the ARAIL tag this bundle is built for (default: unset →
-#                         MANIFEST.json.arail_release is "unreleased")
+#   ARAIL_RELEASE_TAG    the ARAIL GitHub Release tag this bundle is built for
+#                         (e.g. v1.1.0). REQUIRED — this is also the tag the
+#                         consumer (scripts/build-aerollm.sh resolve_bundle_url)
+#                         requests, so the two MUST match at publish time. The
+#                         output filename is derived from this tag, not from
+#                         aeroLLM's own version/commit, so a rebuild at the same
+#                         ARAIL release always produces the same asset name.
 #   ALLOW_DIRTY          "1" to package from a dirty aeroLLM worktree anyway;
 #                         MANIFEST.json.aerollm_dirty is stamped true and a
 #                         modification note is appended.
@@ -40,6 +45,13 @@ CRATE_DIR="$AEROLLM_REPO/crates/aerollm-api"
 OUT_DIR="$REPO_ROOT/dist/aerollm-bundle"
 PY="${PYTHON:-python3}"
 
+if [[ -z "${ARAIL_RELEASE_TAG:-}" ]]; then
+    err "ARAIL_RELEASE_TAG is required — it names the GitHub Release this bundle"
+    err "publishes to, and the output filename is derived from it so it matches"
+    err "what scripts/build-aerollm.sh's resolve_bundle_url() requests."
+    warn "Example: ARAIL_RELEASE_TAG=v1.1.0 bash scripts/package-aerollm-bundle.sh"
+    exit 1
+fi
 if [[ ! -d "$CRATE_DIR" ]]; then
     err "No aerollm sibling repo at ${BOLD}${AEROLLM_REPO}${RST} — this is a maintainer-only script."
     exit 1
@@ -97,12 +109,17 @@ mkdir -p "$OUT_DIR/stage"
 STAGE="$OUT_DIR/stage"
 
 cp -f "$BUILT" "$STAGE/aerollm_api.abi3.so"
-cp -f "$AEROLLM_REPO/LICENSE" "$STAGE/LICENSE"
+# LICENSE ships from ARAIL's own THIRD-PARTY-LICENSES copy, NOT upstream's
+# LICENSE file — upstream's is only the Apache-2.0 header boilerplate (17
+# lines), not the full license text Apache-2.0 §4(a) requires redistributors
+# to include. NOTICE is a verbatim copy of upstream's (its claim is
+# accurate). See docs at THIRD-PARTY-LICENSES/aerollm/README.md.
+cp -f "$REPO_ROOT/THIRD-PARTY-LICENSES/aerollm/LICENSE" "$STAGE/LICENSE"
 cp -f "$AEROLLM_REPO/NOTICE" "$STAGE/NOTICE"
 
 SHA256="$(shasum -a 256 "$STAGE/aerollm_api.abi3.so" | awk '{print $1}')"
 BUILT_AT="$("$PY" -c 'import datetime; print(datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))')"
-ARAIL_RELEASE="${ARAIL_RELEASE_TAG:-unreleased}"
+ARAIL_RELEASE="$ARAIL_RELEASE_TAG"
 MODIFICATIONS="none — verbatim cargo --release build of the named commit"
 if [[ "$DIRTY" == "true" ]]; then
     MODIFICATIONS="worktree was dirty at build time (ALLOW_DIRTY=1) — not a strictly verbatim build of the named commit; see aerollm_commit for the base"
@@ -125,8 +142,13 @@ cat > "$STAGE/MANIFEST.json" <<JSONEOF
 }
 JSONEOF
 
-VER_SLUG="${AEROLLM_VERSION}-${SHORT_COMMIT}"
-TARBALL="$OUT_DIR/aerollm-api-${VER_SLUG}-macos-arm64.tar.gz"
+# Filename convention (must match resolve_bundle_url() in build-aerollm.sh):
+# aerollm-api-<ARAIL release tag>-macos-arm64.tar.gz — tag-only, no aeroLLM
+# version or commit hash. A GitHub Release is already tagged by version;
+# baking aeroLLM's commit into the filename too would produce a new,
+# unresolvable filename on every rebuild at the same ARAIL release. The
+# commit and version are still recorded in MANIFEST.json for provenance.
+TARBALL="$OUT_DIR/aerollm-api-${ARAIL_RELEASE_TAG}-macos-arm64.tar.gz"
 ( cd "$STAGE" && tar czf "$TARBALL" aerollm_api.abi3.so MANIFEST.json LICENSE NOTICE )
 shasum -a 256 "$TARBALL" | awk -v f="$(basename "$TARBALL")" '{print $1"  "f}' > "${TARBALL}.sha256"
 
