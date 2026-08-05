@@ -6,6 +6,39 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added (Bundled AeroLLM — a third install channel)
+
+- **Outside users (no aeroLLM sibling repo, no `pypi.qukaizen.com`
+  credentials) can now get the deep-mode 2nd inference at all.**
+  `scripts/build-aerollm.sh` gains a third channel, **BUNDLED**: a
+  checksummed, prebuilt `aerollm_api.abi3.so` fetched from an ARAIL
+  GitHub Release asset (`./arailctl deep install`). sha256 verification
+  happens before any file is copied; a checksum mismatch, a 404, or the
+  wrong platform (non-macOS-arm64) all abort with nothing installed.
+  `AEROLLM_BUNDLE_FILE` sideloads a local tarball for the fully offline
+  path. DEV (`deep rebuild`) and RELEASE (`deep update`) are byte-for-byte
+  unchanged.
+- **Behavior change, called out explicitly:** `build-aerollm.sh auto`
+  (what `setup.sh` runs on a Maximus-tier install) now falls through to
+  BUNDLED instead of always attempting a RELEASE pip install when no
+  sibling repo is present. Maintainer machines that relied on the old
+  unconditional pip fallback should set `AEROLLM_CHANNEL=release`
+  explicitly (`setup.sh` already exports the release-index vars, so this
+  is a one-line env override, not a config rewrite).
+  `AEROLLM_CHANNEL=dev|release|bundle` forces any channel from any mode.
+- `THIRD-PARTY-LICENSES/aerollm/` — Apache-2.0 compliance material
+  (`LICENSE`, `NOTICE`, `README.md`, `BUNDLE.json`) for redistributing a
+  compiled Object form of AeroLLM, plus a paragraph in ARAIL's own
+  `NOTICE`. A repo-level test enforces that the committed manifest stays
+  in lockstep with the version pinned in `pyproject.toml`.
+- `scripts/package-aerollm-bundle.sh` — maintainer-only producer:
+  cargo builds aerollm_api from the sibling source, packages
+  `.so` + `LICENSE` + `NOTICE` + a manifest into a tarball + `.sha256`,
+  ready for `gh release upload`. Refuses a dirty aeroLLM worktree unless
+  `ALLOW_DIRTY=1`.
+- See `sprints/2026-08-05-arail-bundled-aerollm/` for the full design,
+  build log, and `docs/releasing.md` for the maintainer refresh checklist.
+
 ### Fixed (Compiled KB survives a World switch)
 
 - **A World switch used to silently empty the agent knowledge gate.** The

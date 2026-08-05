@@ -310,8 +310,42 @@ active).
 
 ### `deep <op>`
 
-AeroLLM 2nd-inference control: `rebuild` (from source) | `update`
-(published wheel) | `status`. Unchanged.
+AeroLLM 2nd-inference control: `install` (bundled prebuilt binary) |
+`rebuild` (from source) | `update` (published wheel) | `status`.
+
+Three install channels, dispatched by `scripts/build-aerollm.sh auto`
+(what `setup.sh` and a bare `./arailctl deep install` with no forced
+channel both use):
+
+| Channel | Op | Requires | Who it's for |
+|---|---|---|---|
+| BUNDLED | `deep install` | network to `github.com` (or a local tarball via `AEROLLM_BUNDLE_FILE`) | outside users — no source repo, no credentials |
+| DEV | `deep rebuild` | the aeroLLM sibling repo checked out at `$ARAIL_AEROLLM_REPO` | maintainers with local aeroLLM changes |
+| RELEASE | `deep update` | `pypi.qukaizen.com` index credentials | maintainers on the private index |
+
+`auto` picks DEV if the sibling repo is present, RELEASE if
+`AEROLLM_CHANNEL=release` or index credentials are configured, and
+BUNDLED otherwise. Force any channel with `AEROLLM_CHANNEL=dev|release|bundle`
+regardless of what's on disk.
+
+**Bundled-channel env knobs** (all optional):
+
+| Var | Default | Meaning |
+|---|---|---|
+| `AEROLLM_CHANNEL` | unset (auto) | force `dev` \| `release` \| `bundle` |
+| `AEROLLM_BUNDLE_URL` | derived from repo/tag below | full asset URL override (mirrors, forks) |
+| `AEROLLM_BUNDLE_REPO` | `cdarnell/qukaizen-arail` | which GitHub repo carries the release asset |
+| `AEROLLM_BUNDLE_TAG` | pinned in `pyproject.toml` `[tool.arail.package-sources] aerollm_bundle_tag` | which ARAIL release carries the bundle |
+| `AEROLLM_BUNDLE_FILE` | unset | use a local tarball instead of downloading — the offline / airgapped install path |
+| `AEROLLM_BUNDLE_SHA256` | read from the `.sha256` sidecar | pin/override the expected digest |
+
+`./arailctl deep status` reports a `channel:` line (`dev` \| `release` \|
+`bundled` \| `none`) and, when bundled, an `aerollm <version> (<short-sha>,
+built <date>)` provenance line read from `aerollm_api.bundle.json`.
+
+See `sprints/2026-08-05-arail-bundled-aerollm/ARCHITECTURE.md` for the
+full design and `docs/releasing.md` for the maintainer-side bundle
+refresh checklist.
 
 ### `reset [mode]`
 
