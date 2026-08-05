@@ -343,6 +343,17 @@ regardless of what's on disk.
 `bundled` \| `none`) and, when bundled, an `aerollm <version> (<short-sha>,
 built <date>)` provenance line read from `aerollm_api.bundle.json`.
 
+**What the sha256 check does and doesn't guarantee (v1):** when
+`AEROLLM_BUNDLE_SHA256` is unset, the expected digest is fetched from the
+same GitHub Release, over the same connection, as the tarball itself
+(`<url>.sha256`). That catches corruption in transit — it is **not** an
+authenticity or supply-chain-integrity control, since anyone able to serve
+a malicious tarball from that origin can serve a matching digest alongside
+it. The actual trust boundary is GitHub's TLS + repo access control, not
+the checksum. If you need a digest independent of that origin, pass
+`AEROLLM_BUNDLE_SHA256` explicitly from a value you obtained out-of-band
+(e.g. the committed `THIRD-PARTY-LICENSES/aerollm/BUNDLE.json`).
+
 See `sprints/2026-08-05-arail-bundled-aerollm/ARCHITECTURE.md` for the
 full design and `docs/releasing.md` for the maintainer-side bundle
 refresh checklist.
