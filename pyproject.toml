@@ -249,6 +249,13 @@ coder_cpu    = "Qwen/Qwen2.5-Coder-3B-Instruct-GGUF"
 # clone ref (source builds): git+https://github.com/cdarnell/qukaizen-aerollm@main
 aerollm       = "aerollm-api>=1.0,<2.0"
 aerollm_index = "https://pypi.qukaizen.com/simple/"
+# BUNDLED — no sibling repo, no index credentials required. A checksummed
+# aerollm_api.abi3.so is fetched from an ARAIL GitHub Release asset
+# (`./arailctl deep install`, scripts/build-aerollm.sh bundle). The tag
+# below names which ARAIL release carries the bundle asset; keep it in
+# lockstep with THIRD-PARTY-LICENSES/aerollm/BUNDLE.json (see
+# docs/releasing.md — a drift test enforces this).
+aerollm_bundle_tag = "v1.1.0"
 # AirLLM stays declared for opt-in power-user installs (not pulled by default).
 airllm  = "airllm>=2.0"
 
