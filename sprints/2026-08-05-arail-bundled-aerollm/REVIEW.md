@@ -166,3 +166,138 @@ unused `AEROLLM_BUNDLE_ASSET` variable declared at L58 but never read.
 Once 1–5 land, this is a PASS. The hardware-pending chat-turn gap is
 acceptable to ship disclosed — the `.so` demonstrably loads and imports in a
 clean interpreter, which is the part this sprint owns.
+
+---
+
+# Review — Round 2
+
+**Date:** 2026-08-05
+**Build:** [BUILD_LOG.md](./BUILD_LOG.md) at `15e7021`
+**Reviewed range:** `33fdc54..15e7021` (5 commits)
+
+## Verdict: BLOCK
+
+Round 1's two BLOCKs (B1, B2) are genuinely fixed and I verified both by
+execution. The A1 licence fix is correct and I verified it word-for-word
+against apache.org. But the *fix for B1* introduced a worse defect than B1
+itself: the new regression test `rm -rf`s the real release output directory,
+and it fails on a normal developer machine. The artifact this sprint exists
+to ship no longer exists on disk, and `docs/releasing.md` step 3 as written
+would today upload a fake test tarball.
+
+## What I verified by running it, not by reading
+
+| Check | Result |
+|---|---|
+| B1 — producer/consumer filename convergence | ✅ producer `package-aerollm-bundle.sh:151` and `resolve_bundle_url()` `build-aerollm.sh:141-142` both derive `aerollm-api-<tag>-macos-arm64.tar.gz` from `$ARAIL_RELEASE_TAG` / `$AEROLLM_BUNDLE_TAG` alone. Dead `AEROLLM_BUNDLE_ASSET` removed. |
+| B2 — pin bump moves the URL | ✅ **traced end-to-end.** Bumped `aerollm_bundle_tag` to `v7.7.7-trace` in a copy, drove the real `load_pyproject_metadata()` (setup.sh:146-182) → `AEROLLM_BUNDLE_TAG=v7.7.7-trace` → consumer requested `…/download/v7.7.7-trace/aerollm-api-v7.7.7-trace-macos-arm64.tar.gz`. Empty-value skip at `setup.sh:175-177` correctly preserves the hardcoded default. Forwarded at `setup.sh:664-666`. |
+| A1 — shipped LICENSE is genuine Apache-2.0 | ✅ fetched `apache.org/licenses/LICENSE-2.0.txt` and diffed: **word-for-word identical** (204 vs 202 lines; every delta is line re-wrapping) with the `[yyyy]/[name]` appendix placeholder filled in. Producer now stages ARAIL's copy (`:117`), so tarball == repo copy. |
+| NOTICE accuracy given upstream's stub | ✅ "See the LICENSE file for the full license text" is now true for what ships. Correctly left byte-identical to upstream; upstream's own stub is out of scope, and `test_aerollm_bundle_compliance.py:61-79` documents exactly why byte-identity was dropped for LICENSE. |
+| A3 — sha256 language softened | ✅ `docs/cli.md:346-355` now states plainly it is corruption-detection, not authenticity; names GitHub TLS + repo access as the real trust boundary; points at the committed `BUNDLE.json` for an out-of-band digest. Correct and honest. |
+| Bundled channel works end-to-end under the corrected filename | ✅ fresh py3.9 venv, `ARAIL_AEROLLM_REPO=/nonexistent`, `HOME` redirected, no `PIP_*`/`AEROLLM_INDEX_URL` → `auto` chose bundled, checksum verified, installed, `import aerollm_api` OK, exit 0. |
+| `shellcheck -x` on the two bundle scripts | ✅ clean. `setup.sh` has 16 findings, **all pre-existing** and none on the lines touched this round (137-138, 173, 664-666). |
+| aeroLLM sibling repo untouched | ✅ `HEAD` still `9e08230`, reflog shows no new commits, working-tree dirt is the same pre-existing `aerollm-grammar` work. The temporary worktree is gone (`git worktree list` shows none for this sprint). |
+| No `gh release` executed | ✅ only in doc text and an `info` echo (`package-aerollm-bundle.sh:8,158`). |
+| `pytest -k aerollm` | ❌ **140 passed / 13 failed** — not the claimed 144/9. See B4. |
+
+## Code quality findings
+
+- **[BLOCK] B3 — the new regression test destroys the release artifact.**
+  `package-aerollm-bundle.sh:107` does `rm -rf "$OUT_DIR"` on the hardcoded
+  `$REPO_ROOT/dist/aerollm-bundle`, and
+  `test_producer_filename_matches_consumer_resolved_filename` invokes the
+  **real** producer with `cwd=REPO` and no `OUT_DIR` override. I demonstrated
+  this: I placed a sentinel `dist/aerollm-bundle/aerollm-api-v1.1.0-macos-arm64.tar.gz`,
+  ran that one test, and it was gone. Consequences, all live right now:
+  1. The `v1.1.0` tarball BUILD_LOG.md says was re-cut from the clean
+     worktree **does not exist anywhere on disk** (`find /` → nothing). Its
+     `.so` digest `e2944cf6…` does not match the sibling's
+     `target/release/libaerollm_api.dylib` (`5e7c8e0c…`, the round-1 dirty
+     build), so I cannot verify `BUNDLE.json` against any artifact.
+  2. `dist/aerollm-bundle/` today contains only
+     `aerollm-api-v9.9.9-regression-test-macos-arm64.tar.gz` — a 4.9 KB
+     tarball wrapping a **0-byte** `.so`. `docs/releasing.md:50`'s
+     `gh release upload <tag> dist/aerollm-bundle/*.tar.gz` would upload
+     precisely that.
+  Fix: make `OUT_DIR` overridable (`OUT_DIR="${OUT_DIR:-$REPO_ROOT/dist/aerollm-bundle}"`)
+  and have the test point it at `tmp_path`. Then re-cut and re-commit
+  `BUNDLE.json` from a real clean-worktree build, and keep the artifact.
+
+- **[BLOCK] B4 — the B1 regression test is ambient-venv-dependent and fails
+  on a normal DEV machine.** `_run()` (`tests/test_aerollm_bundle_install.py:51-56`)
+  neither isolates the target `site-packages` nor passes `--force`, so on any
+  machine with a DEV or RELEASE `aerollm_api.abi3.so` already installed, the
+  F7 provenance guard aborts `bundle_install()` **before** `resolve_bundle_url()`
+  is ever reached. The test then asserts a filename against a "Refusing to
+  overwrite" message and fails. Four tests in that file behave this way
+  (`checksum_mismatch_aborts_before_any_write`, `curl_failure_names_resolved_url`,
+  `https_only_scheme_guard`, `producer_filename_matches_consumer`). They
+  passed for the builder only because the §9.1 acceptance run had left a
+  bundle-marked `.so` in the dev venv. Net: the exact regression test round 1
+  required does not actually assert anything on a clean DEV machine, and the
+  count is **140/13**, not 144/9. Fix: `--force`, or install into a
+  per-test `PYTHONPATH`/venv.
+
+- **[BLOCK] B5 — `docs/releasing.md` step 4 instructs the maintainer to undo
+  the A1 fix.** Lines 57-59 say to refresh `LICENSE` and `NOTICE` "if
+  aeroLLM's upstream files changed (byte-diff against
+  `~/ProJects/qukaizen-aerollm/{LICENSE,NOTICE}`)". Byte-syncing `LICENSE`
+  from upstream reinstalls the 17-line stub, re-breaks the NOTICE sentence,
+  and fails `test_aerollm_bundle_compliance.py:79`. The instruction must be
+  split: `NOTICE` syncs from upstream; `LICENSE` is deliberately ARAIL's
+  full Apache-2.0 text and must not be synced (with a one-line why).
+
+- **[ASK] A6 — `BUNDLE.json`'s `aerollm_dirty: false` is plausible but not
+  independently verifiable.** The value is computed by the script, not
+  hardcoded (`package-aerollm-bundle.sh` derives it from `git status` in the
+  build tree), and the recorded commit `9e08230f0be…` matches the sibling's
+  HEAD, so I have no reason to doubt it. But because of B3 the artifact it
+  describes is gone, so "genuinely clean" rests entirely on BUILD_LOG.md's
+  narrative. Once B3 is fixed and the bundle re-cut, this resolves by
+  construction — do not ship the current `BUNDLE.json`.
+
+- **[ASK] A5, A4 (carried from round 1)** — `_release_creds_configured()`
+  still misses `pip.conf`/`PIP_CONFIG_FILE`/keyring; the extraction comment
+  still overclaims. Both remain acceptable as ticketed follow-ups.
+
+## Security findings
+
+- ✅ Re-verified: https-only scheme guard, platform guard before any network
+  call, checksum-before-copy ordering, fail-closed on an unobtainable digest,
+  F7 provenance guard (which I confirmed by *tripping* it, see B4).
+- ✅ No new dependencies, no credential handling, no secrets.
+- **[INFO]** A3's honest framing in `docs/cli.md` is the right posture.
+  `CHANGELOG.md:15` says only "sha256 verification happens before any file is
+  copied", which is accurate and does not overclaim — no change needed.
+
+## Test coverage assessment
+
+3 new tests this round. The compliance test's LICENSE marker + line-count
+assertion (`>150` lines, section headers) is a sound replacement for the
+byte-identity check and encodes the reasoning inline. But the headline new
+test is defective in two independent ways (B3, B4), which is the opposite of
+what a regression test for a shipping-blocker should be.
+
+## Tech debt delta
+
+Round 1's debt is repaid (dead `AEROLLM_BUNDLE_ASSET` gone, pin wired). New
+debt: a non-overridable `OUT_DIR` in the producer and a test harness that
+mutates the developer's real venv and real `dist/`.
+
+## Required actions before merge
+
+1. **B3** — make `OUT_DIR` overridable; point the test at `tmp_path`. Verify
+   by running the test with a sentinel artifact in `dist/aerollm-bundle/`.
+2. **B3b** — re-cut the `v1.1.0` bundle from a clean worktree, keep the
+   artifact on disk, and re-commit `BUNDLE.json` to match it. Delete the
+   stray `aerollm-api-v9.9.9-regression-test-*.tar.gz` from `dist/`.
+3. **B4** — isolate `_run()`'s install target (or pass `--force`) so all
+   four affected tests pass on a machine with a pre-existing DEV/RELEASE
+   `aerollm_api`. Report the pass/fail count from a DEV-state venv.
+4. **B5** — split `docs/releasing.md` step 4: sync `NOTICE` from upstream,
+   never `LICENSE`.
+5. **A5/A4** — ticket as follow-ups.
+
+B1, B2, A1 and A3 are closed. Once 1-4 land this is a PASS; nothing here
+requires a design change. Do not run `gh release upload` until B3b produces
+a verified artifact.
