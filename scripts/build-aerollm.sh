@@ -244,7 +244,12 @@ bundle_install() {
     # a tarball with unexpected/`../` entries can't escape.
     local extract_dir="$tmp/extract"
     mkdir -p "$extract_dir"
-    tar xzf "$tarball" -C "$extract_dir"
+    if ! tar xzf "$tarball" -C "$extract_dir"; then
+        err "Could not extract the bundle tarball (see tar output above)."
+        warn "Likely a truncated/corrupt download or a disk-full mid-extract."
+        warn "Retry, or set AEROLLM_BUNDLE_FILE to a known-good tarball."
+        exit 1
+    fi
     for f in aerollm_api.abi3.so MANIFEST.json LICENSE NOTICE; do
         if [[ ! -f "$extract_dir/$f" ]]; then
             err "Bundle tarball is missing expected member: ${f}"

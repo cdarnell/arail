@@ -534,3 +534,51 @@ plainly):
 No test pins these (they're prose, not contract), but
 `test_cli_docs_disclose_the_sha256_trust_boundary` (test 29) confirms the
 `docs/cli.md` version of the caveat is unchanged.
+
+### Step 5 — Q4 (non-blocking, done): wrap the raw `tar` failure
+
+Genuinely quick — wrapped `tar xzf` in the same `if ! ...; then err/warn;
+fi` shape `curl` already uses, one screen, no new dependency. Verified
+`test_truncated_archive_with_matching_digest_installs_nothing` and
+`test_non_archive_bytes_install_nothing` still pass (they only assert
+`returncode != 0` and nothing installed, not the exact message) and both
+now get an actionable `✗`/`!` message instead of raw `tar: Error exit
+delayed from previous errors.`
+
+### Step 6 — Q6 (non-blocking, skipped)
+
+Not done. `test_f7_guard_message_on_an_interrupted_bundle_install` (test
+27) explicitly pins the *current* over-broad behavior as a "regression
+anchor" for a follow-up fix — narrowing the guard now (skip F7 when
+`import_ok` already fails, and/or atomic `.so`+marker install) would flip
+that test's expected outcome and needs its own review round, not a
+drive-by in a QA-remediation sprint whose scope is Q1/Q2/Q5/Q7. Left as
+open debt, as TEST_REPORT.md itself frames it ("Low, grace" — the user is
+not stuck; `--force` is named).
+
+### Final verification (round 4)
+
+- `pytest tests/test_aerollm_bundle_install.py tests/test_aerollm_bundle_compliance.py tests/test_aerollm_bundle_qa_hardening.py -q`
+  → **44 passed** (30/30 hardening + 14/14 pre-existing).
+- `shellcheck -x scripts/build-aerollm.sh scripts/setup.sh` clean (no new
+  warnings in touched regions; pre-existing SC2034/SC2024 in unrelated
+  `setup.sh` code untouched).
+- sha256 chain on `dist/aerollm-bundle/` unchanged — no field rename
+  required this round, so no re-cut was needed. Tarball sha
+  `d3a7a9dd19987350963422ab7647a2d4ad607e78397b57f70c55362c0b95ecce`
+  matches the new `aerollm_bundle_sha256` pin in `pyproject.toml` exactly.
+- No `gh release` run. Sibling `~/ProJects/qukaizen-aerollm` untouched
+  (no writes, no worktree created this round — the Q2 re-verification
+  used only `AEROLLM_BUNDLE_FILE` against the already-committed tarball).
+- Full `-k aerollm` slice: **174 passed / 9 failed**, both before and
+  after this round's changes (`git stash` bisection) — same 9 pre-existing
+  failures TEST_REPORT.md documented (`test_aerollm_defaults.py` x4,
+  `test_aerollm_model_ready.py` x3, `test_model_ux_phase0_warmth_probe.py`
+  x2, the `AeroLLMBackend._shared` cross-file singleton-cache pollution
+  class). **Zero regressions introduced by round 4.**
+
+## Architect feedback required (round 4)
+
+None. All four required fixes were small, local, and matched
+TEST_REPORT.md's own recommended fix shape. Q6 was deliberately deferred
+rather than improvised — see Step 6.
