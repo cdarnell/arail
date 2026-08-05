@@ -50,14 +50,51 @@ PY="${PYTHON:-python3}"
 AEROLLM_INDEX_URL="${AEROLLM_INDEX_URL:-https://pypi.qukaizen.com/simple/}"
 AEROLLM_PIP_SPEC="${AEROLLM_PIP_SPEC:-aerollm-api}"
 
-# Bundled channel — setup.sh overrides AEROLLM_BUNDLE_TAG from pyproject
-# [tool.arail.package-sources] aerollm_bundle_tag; this default mirrors it so
-# a standalone `bash scripts/build-aerollm.sh bundle` still works.
+# Bundled channel — tag + sha256 pin come from pyproject
+# [tool.arail.package-sources] (aerollm_bundle_tag / aerollm_bundle_sha256).
+# setup.sh forwards them as env vars; when invoked standalone (`arailctl deep
+# install` → `bash scripts/build-aerollm.sh bundle`) we read pyproject
+# ourselves so the standalone route gets the same pinned digest instead of an
+# unpinned download (QA R2-1). Env vars always win; the literals below are
+# last-resort fallbacks for a checkout whose Python lacks tomllib.
+# Resolve the repo's pyproject.toml relative to this script, not $PWD.
+# AEROLLM_PYPROJECT overrides the location (tests point it at a nonexistent
+# path to exercise the genuinely-no-pin fallback behavior).
+_ARAIL_PYPROJECT="${AEROLLM_PYPROJECT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/pyproject.toml}"
+_read_bundle_pin() {  # $1 = pyproject key; empty output on any failure
+    # shellcheck disable=SC2016  # single quotes are deliberate: Python source, not shell expansion
+    "$PY" -c '
+import sys
+try:
+    import tomllib
+except ModuleNotFoundError:
+    try:
+        import tomli as tomllib
+    except ModuleNotFoundError:
+        # Pre-3.11 interpreter without tomli (e.g. macOS system python3):
+        # fall back to a line parse. The pins are simple `key = "value"`
+        # lines in [tool.arail.package-sources]; first match wins.
+        import re
+        with open(sys.argv[2], encoding="utf-8") as fh:
+            for line in fh:
+                m = re.match(
+                    r"^\s*" + re.escape(sys.argv[1]) + r"\s*=\s*\"([^\"]*)\"", line
+                )
+                if m:
+                    print(m.group(1))
+                    break
+        sys.exit(0)
+from pathlib import Path
+data = tomllib.loads(Path(sys.argv[2]).read_text())
+print(str(data.get("tool", {}).get("arail", {}).get("package-sources", {}).get(sys.argv[1], "")))
+' "$1" "$_ARAIL_PYPROJECT" 2>/dev/null || true
+}
 AEROLLM_BUNDLE_REPO="${AEROLLM_BUNDLE_REPO:-cdarnell/qukaizen-arail}"
+AEROLLM_BUNDLE_TAG="${AEROLLM_BUNDLE_TAG:-$(_read_bundle_pin aerollm_bundle_tag)}"
 AEROLLM_BUNDLE_TAG="${AEROLLM_BUNDLE_TAG:-v1.1.0}"
 AEROLLM_BUNDLE_URL="${AEROLLM_BUNDLE_URL:-}"        # full override (mirrors, forks)
 AEROLLM_BUNDLE_FILE="${AEROLLM_BUNDLE_FILE:-}"      # local tarball — the offline path
-AEROLLM_BUNDLE_SHA256="${AEROLLM_BUNDLE_SHA256:-}"  # pin/override the expected digest
+AEROLLM_BUNDLE_SHA256="${AEROLLM_BUNDLE_SHA256:-$(_read_bundle_pin aerollm_bundle_sha256)}"
 FORCE=0
 for _arg in "$@"; do
     [[ "$_arg" == "--force" ]] && FORCE=1

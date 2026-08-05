@@ -262,12 +262,32 @@ def test_corrupt_marker_does_not_block_reinstall(tmp_path):
     (site / "aerollm_api.abi3.so").write_bytes(b"old")
     (site / "aerollm_api.bundle.json").write_text("{{{corrupt")
 
-    r = _run("bundle", py, {"AEROLLM_BUNDLE_FILE": str(tar)})
+    # Neutralize the repo's own pyproject pin: this test's fabricated tarball
+    # verifies against its sidecar, and the marker semantics are the subject.
+    r = _run("bundle", py, {"AEROLLM_BUNDLE_FILE": str(tar), "AEROLLM_PYPROJECT": "/nonexistent"})
 
     # The payload is not importable, so this ends in F1 rollback — the point
     # is that it got *past* the marker read rather than aborting on it.
     assert "Refusing to overwrite" not in (r.stdout + r.stderr), r.stdout + r.stderr
     assert "Checksum verified" in r.stdout, r.stdout + r.stderr
+
+
+def test_standalone_route_self_serves_pyproject_pin(tmp_path):
+    """R2-1: standalone `deep install` (no setup.sh forwarding) must still
+    pick up the aerollm_bundle_sha256 pin from pyproject.toml — the
+    fabricated tarball here matches its own sidecar but NOT the repo pin,
+    so a pinned run must refuse it before install."""
+    tar = _bundle(tmp_path, so_bytes=b"payload")
+    py = _fresh_venv(tmp_path)
+
+    # No AEROLLM_BUNDLE_SHA256 in env, no AEROLLM_PYPROJECT override: the
+    # script must read the repo's own pyproject pin and reject the mismatch.
+    r = _run("bundle", py, {"AEROLLM_BUNDLE_FILE": str(tar)})
+
+    assert r.returncode != 0
+    assert "Checksum mismatch" in (r.stdout + r.stderr)
+    site = _site_packages(py)
+    assert not (site / "aerollm_api.abi3.so").exists()
 
 
 # --------------------------------------------------------------------------
@@ -373,7 +393,10 @@ def test_no_digest_available_refuses_rather_than_installing(tmp_path):
     tar.with_suffix(tar.suffix + ".sha256").unlink()
 
     py = _fresh_venv(tmp_path)
-    r = _run("bundle", py, {"AEROLLM_BUNDLE_FILE": str(tar)})
+    # Point AEROLLM_PYPROJECT at a nonexistent path so the repo's own
+    # aerollm_bundle_sha256 pin can't supply a digest — the subject here is
+    # the genuinely-no-digest-anywhere path.
+    r = _run("bundle", py, {"AEROLLM_BUNDLE_FILE": str(tar), "AEROLLM_PYPROJECT": "/nonexistent"})
 
     assert r.returncode != 0
     assert "unverified" in (r.stdout + r.stderr).lower()

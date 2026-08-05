@@ -582,3 +582,35 @@ not stuck; `--force` is named).
 None. All four required fixes were small, local, and matched
 TEST_REPORT.md's own recommended fix shape. Q6 was deliberately deferred
 rather than improvised — see Step 6.
+
+## Round 5 fix (QA R2-1) — orchestrator-direct, 2026-08-05
+
+**R2-1** (QA round-2 residual): standalone `./arailctl deep install` bypassed
+`setup.sh` and therefore never received the `aerollm_bundle_sha256` pin —
+the exact route recommended to outside users was the one un-pinned path.
+
+**Fix:** `scripts/build-aerollm.sh` now self-serves both
+`aerollm_bundle_tag` and `aerollm_bundle_sha256` from the repo's own
+`pyproject.toml` when the corresponding env vars are unset (env always
+wins; `setup.sh` forwarding unchanged). The reader tries `tomllib`, then
+`tomli`, then a line-parse fallback for pre-3.11 interpreters (macOS
+system python3 is 3.9 — verified this path resolves the pin correctly).
+`AEROLLM_PYPROJECT` overrides the pyproject location so tests can
+exercise the genuinely-no-pin path (`/nonexistent`).
+
+**Verified by execution:** standalone run with env unset resolves
+tag `v1.1.0` + the pinned tarball digest on both system python (regex
+fallback) and venv python (tomllib); explicit env override wins; a
+temporary pyproject pin bump flows through to the resolved value.
+Two QA-hardening tests updated to neutralize the ambient pin via
+`AEROLLM_PYPROJECT=/nonexistent` (their subjects were marker semantics
+and the no-digest-anywhere path — intent preserved, assertions
+unchanged); one NEW test added
+(`test_standalone_route_self_serves_pyproject_pin`) locking in R2-1's
+fix: a fabricated tarball matching its own sidecar but not the repo pin
+is refused before install on the standalone route.
+
+Suites: bundle install/compliance/qa-hardening 45/45; full `-k aerollm`
+175 passed / 9 failed (identical 9 pre-existing). `shellcheck -x` clean.
+`docs/cli.md`'s stale "standalone does not forward the pin" disclosure
+corrected. No `gh release` run; sibling repo untouched.

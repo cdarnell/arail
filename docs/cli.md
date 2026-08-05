@@ -337,7 +337,7 @@ regardless of what's on disk.
 | `AEROLLM_BUNDLE_REPO` | `cdarnell/qukaizen-arail` | which GitHub repo carries the release asset |
 | `AEROLLM_BUNDLE_TAG` | pinned in `pyproject.toml` `[tool.arail.package-sources] aerollm_bundle_tag` | which ARAIL release carries the bundle |
 | `AEROLLM_BUNDLE_FILE` | unset | use a local tarball instead of downloading — the offline / airgapped install path |
-| `AEROLLM_BUNDLE_SHA256` | unset (falls back to the same-origin `.sha256` sidecar); `./arailctl setup` at tier `maximus` forwards `pyproject.toml [tool.arail.package-sources] aerollm_bundle_sha256` — a genuine out-of-band pin, independent of the download. Standalone `./arailctl deep install` does **not** forward it; set it explicitly if you want the pin | pin/override the expected **tarball** digest |
+| `AEROLLM_BUNDLE_SHA256` | read from `pyproject.toml [tool.arail.package-sources] aerollm_bundle_sha256` — a genuine out-of-band pin, independent of the download — on both routes: `./arailctl setup` forwards it, and standalone `./arailctl deep install` reads pyproject itself when the env var is unset. An explicit env value always wins. Only if pyproject can't be read at all does it fall back to the same-origin `.sha256` sidecar | pin/override the expected **tarball** digest |
 
 `./arailctl deep status` reports a `channel:` line (`dev` \| `release` \|
 `bundled` \| `none`) and, when bundled, an `aerollm <version> (<short-sha>,
