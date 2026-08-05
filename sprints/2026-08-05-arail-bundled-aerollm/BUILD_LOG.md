@@ -186,3 +186,105 @@ as designed.
 - **Sibling repo (`~/ProJects/qukaizen-aerollm`):** confirmed untouched by
   this build beyond its own gitignored `target/` build output — no
   commits, no working-tree changes attributable to this sprint.
+
+## Round 2 fixes
+
+Response to [REVIEW.md](./REVIEW.md)'s BLOCK verdict. Four commits,
+`85aa946` → `cd50850`.
+
+### B1 — producer/consumer filename mismatch (BLOCK)
+
+Adopted the tag-only convention `aerollm-api-<ARAIL release tag>-macos-arm64.tar.gz`
+on both sides — it was already what `resolve_bundle_url()` requested, so
+the fix is entirely in `package-aerollm-bundle.sh`: `ARAIL_RELEASE_TAG` is
+now a required input (was optional, silently defaulting to `unreleased`
+and a version+commit-based filename), and the output filename derives
+from it directly. `docs/releasing.md` now spells out the exact filename
+convention rather than saying "attach the tarball." Removed the dead
+`AEROLLM_BUNDLE_ASSET` variable REVIEW.md flagged as tech debt.
+
+Regression test added: `test_producer_filename_matches_consumer_resolved_filename`
+in `tests/test_aerollm_bundle_install.py` — runs the real producer script
+against a fake clean sibling repo (stubbed `cargo` on `PATH`) and the real
+consumer's `bundle_install()` against an unreachable host, and asserts the
+producer's output filename appears in the URL the consumer actually
+requested. This is the exact gap REVIEW.md named as missing.
+
+### B2 — `aerollm_bundle_tag` never reached `AEROLLM_BUNDLE_TAG` (BLOCK)
+
+`setup.sh`'s `load_pyproject_metadata()` now reads
+`[tool.arail.package-sources] aerollm_bundle_tag` into `AEROLLM_BUNDLE_TAG`
+(mirroring the existing `AEROLLM_INDEX_URL`/`AEROLLM_PIP_SPEC` pattern
+exactly), and the AeroLLM install block in `main()` forwards it to
+`build-aerollm.sh auto` alongside those two. Verified both link points
+directly rather than trusting the wiring by inspection: (1) a bumped
+`aerollm_bundle_tag` pin is read correctly by the same `tomllib`
+extraction `load_pyproject_metadata()` uses; (2) `AEROLLM_BUNDLE_TAG`
+changes the URL `resolve_bundle_url()` constructs, confirmed against a
+deliberately nonexistent GitHub repo/tag.
+
+### A1 — LICENSE was the upstream stub, not the full text (ASK)
+
+Read `~/ProJects/qukaizen-aerollm/LICENSE` directly, per instruction —
+it turns out to be only the Apache-2.0 header boilerplate + copyright
+line (17 lines), not the full ~200-line license. The task's assumption
+that upstream had the full text was wrong; fixing upstream was
+explicitly out of scope (no writes to the sibling repo beyond a
+read-only `cargo build`). `THIRD-PARTY-LICENSES/aerollm/LICENSE` now
+carries the full, standard Apache-2.0 text verbatim from
+`apache.org/licenses/LICENSE-2.0.txt` with aeroLLM's copyright line —
+this is the definitive, unambiguous published text, not a guess.
+`NOTICE` is unchanged (byte-identical to upstream's, whose claim was
+already accurate). `package-aerollm-bundle.sh` now copies the tarball's
+`LICENSE` from ARAIL's own `THIRD-PARTY-LICENSES/aerollm/LICENSE`
+instead of the sibling's stub, so what ships matches what's committed.
+`tests/test_aerollm_bundle_compliance.py`'s byte-identity assertion is
+split: `NOTICE` keeps the sibling-comparison test; `LICENSE` gets a
+full-text-marker test (checks for section headers + line count) instead
+of a byte-equality test that would have re-encoded the same bug.
+
+### A2 — `BUNDLE.json` shipped `aerollm_dirty: true` (ASK)
+
+The sibling worktree at `~/ProJects/qukaizen-aerollm` had unrelated
+uncommitted changes (from a different, concurrent task) at build time —
+genuinely dirty, not a bug in the dirty-check. Rather than hardcode
+`false`, re-cut from an actually-clean tree: `git worktree add` against
+the pinned commit `9e08230f0be...` (a separate, temporary checkout — no
+writes to the sibling's real working tree), ran the real
+`package-aerollm-bundle.sh` against it, confirmed `aerollm_dirty: false`
+in the resulting `MANIFEST.json`, and copied that into
+`THIRD-PARTY-LICENSES/aerollm/BUNDLE.json`. The worktree was removed
+afterward (`git worktree remove --force`); `git -C
+~/ProJects/qukaizen-aerollm status --porcelain` confirmed only the
+original, pre-existing unrelated dirt remained.
+
+### A3 — sha256 sidecar overclaimed as authenticity control (INFO)
+
+Added an explicit "what this does and doesn't guarantee" paragraph to
+`docs/cli.md` next to the `AEROLLM_BUNDLE_SHA256` knob: same-origin sidecar
+catches corruption, not tampering; the real trust boundary is GitHub's TLS
++ repo access, not the checksum.
+
+### Re-verification
+
+- Regenerated the tarball from the clean worktree with
+  `ARAIL_RELEASE_TAG=v1.1.0`: `dist/aerollm-bundle/aerollm-api-v1.1.0-macos-arm64.tar.gz`,
+  `aerollm_dirty: false`, commit `9e08230f0bebfe5eeca5a2da3191fa4a96f24d2d`.
+- §9.1 acceptance re-run: fresh venv, `ARAIL_AEROLLM_REPO=/nonexistent`, no
+  PIP_INDEX_URL/PIP_EXTRA_INDEX_URL/netrc creds,
+  `AEROLLM_BUNDLE_FILE=<the corrected-filename tarball>` → `auto` selects
+  the bundled channel, checksum verifies, `import aerollm_api` succeeds,
+  `deep status` reports `channel: bundled` with the right commit/version.
+- Full suite: `pytest -k aerollm` → **144 passed, 9 failed** (same 9
+  pre-existing failures as REVIEW.md's baseline — cross-file singleton-
+  cache pollution in `AeroLLMBackend._shared`, unrelated to this sprint;
+  zero regressions, 3 new tests added this round).
+- `shellcheck -x scripts/build-aerollm.sh scripts/package-aerollm-bundle.sh`
+  clean. `bash -n` clean on all three touched shell scripts.
+- No `gh release` executed. Sibling repo confirmed untouched beyond the
+  temporary worktree (removed) and its own gitignored `target/` output.
+
+## Architect feedback required (round 2)
+
+None. Both BLOCK findings and all ASK/INFO findings had clean, in-scope
+fixes; nothing required a design change.
