@@ -631,13 +631,21 @@ install_accel_deps() {
 
     # AeroLLM — the Maximus tier deep-mode backend (the "2nd inference").
     # Gated to tier=maximus so Minimalist installs stay lean (ai-eng is enough
-    # for the everyday lab; deep streaming is a Maximus escalation). Built from
-    # the LOCAL sibling repo ($ARAIL_AEROLLM_REPO, default ~/ProJects/qukaizen-aerollm)
-    # by scripts/build-aerollm.sh — the same helper behind
-    # `./arailctl deep rebuild`, so the actively-improving repo flows straight
-    # into the lab. That helper uses `cargo build` (NOT `maturin develop`,
-    # which breaks the Metal kernel compile on macOS arm64). On CUDA Maximus,
-    # AeroLLM's CUDA backend isn't ready yet; AirLLM (opt-in) is the fallback.
+    # for the everyday lab; deep streaming is a Maximus escalation).
+    # scripts/build-aerollm.sh auto picks one of three channels, in order:
+    #   DEV      — LOCAL sibling repo present ($ARAIL_AEROLLM_REPO, default
+    #              ~/ProJects/qukaizen-aerollm) → cargo build (NOT `maturin
+    #              develop`, which breaks the Metal kernel compile on macOS
+    #              arm64). Maintainer-only in practice.
+    #   RELEASE  — AEROLLM_CHANNEL=release or private-index credentials
+    #              configured → pip install from the self-hosted index.
+    #              Maintainer-only in practice (needs creds).
+    #   BUNDLED  — otherwise (the outside-user default as of 2026-08):
+    #              fetch a checksummed prebuilt binary from an ARAIL GitHub
+    #              Release asset. No source repo, no credentials. See
+    #              sprints/2026-08-05-arail-bundled-aerollm/ARCHITECTURE.md.
+    # On CUDA Maximus, AeroLLM's CUDA backend isn't ready yet; AirLLM
+    # (opt-in) is the fallback.
     if [[ "${LAB_TIER:-minimalist}" != "maximus" ]]; then
         info "Skipping AeroLLM install — tier is '${LAB_TIER:-minimalist}', not 'maximus'."
         info "  Upgrade with: ./arailctl upgrade maximus"
@@ -647,7 +655,7 @@ install_accel_deps() {
         if python3 -c "import aerollm_api" 2>/dev/null; then
             info "aerollm_api already present — AeroLLM is the deep-mode 2nd inference."
         else
-            info "Installing AeroLLM (source if sibling repo present, else published wheel)…"
+            info "Installing AeroLLM (source → release → bundled, first that applies)…"
             if AEROLLM_INDEX_URL="$AEROLLM_INDEX_URL" AEROLLM_PIP_SPEC="$AEROLLM_PIP_SPEC" \
                bash "${REPO_ROOT:-$PWD}/scripts/build-aerollm.sh" auto; then
                 info "AeroLLM ready — the deep-mode 2nd inference on Apple Silicon."
