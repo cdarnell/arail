@@ -3,7 +3,11 @@
 **Date:** 2026-08-05
 **Build:** [BUILD_LOG.md](./BUILD_LOG.md) at `d29e53b` · [REVIEW.md](./REVIEW.md) round 3 (`000c251`)
 **Branch:** `qukaizen/arail-bundled-aerollm`
-**Verdict:** **FAIL** — 1 new failing test, 2 medium security findings, 1 medium
+**Verdict:** **FAIL** (round 1) → **WEAK_PASS** after round-4 remediation — see
+"Round 2 re-verification" at the end of this file. Original round-1 verdict
+and findings are preserved below unedited.
+
+**Round 1 verdict:** FAIL — 1 new failing test, 2 medium security findings, 1 medium
 onboarding finding. Nothing requires a design change; all four required fixes
 are small and local. **Do not run `gh release upload` until Q1 and Q7 close.**
 
@@ -489,3 +493,110 @@ Recommended, non-blocking: **Q4** (wrap `tar` in the same error shape as
   world-forge x6, portal x7, bench-harness x5). Not this sprint's, but they
   make "did I break anything?" a 24-minute question with a noisy answer.
   Worth its own sprint.
+
+---
+
+# Round 2 re-verification (QA)
+
+**Date:** 2026-08-05
+**Build:** [BUILD_LOG.md](./BUILD_LOG.md) round 4, `13b8d64..598ff9c` (5 commits)
+**Verdict:** **WEAK_PASS** — all four blockers (Q1, Q2, Q5, Q7) genuinely
+closed, plus the non-blocking Q4. One newly-surfaced low-severity item is
+documented rather than fixed (see R2-1). **Cleared for `gh release upload`.**
+
+Nothing below is taken from BUILD_LOG's summary. Every row was reproduced by
+execution on this machine, using the same methods that found the defects.
+
+## What I verified by running it, not by reading
+
+| Check | Result |
+|---|---|
+| **Q1a** — `aerollm_bundle_sha256` exists and is the **tarball** digest | ✅ `pyproject.toml:266` = `d3a7a9dd1998…` == `shasum` of `dist/aerollm-bundle/aerollm-api-v1.1.0-macos-arm64.tar.gz` == its `.sha256` sidecar, all three identical |
+| **Q1a** — it flows through `setup.sh` | ✅ drove the **real** `load_pyproject_metadata()` (setup.sh:150-187) extracted verbatim: `AEROLLM_BUNDLE_SHA256=[d3a7a9dd…]`, `AEROLLM_BUNDLE_TAG=[v1.1.0]`. Forwarded to `build-aerollm.sh auto` at `setup.sh:671` |
+| **Q1a** — the linkage is *live*, not incidental | ✅ **traced end-to-end**: set the pin to `deadbeefTRACE` in a pyproject copy → the same function emitted `AEROLLM_BUNDLE_SHA256=[deadbeefTRACE]`. Not a coincidence of matching defaults |
+| **Q1b** — following `docs/cli.md`'s **corrected** guidance now succeeds | ✅ this is my original failing repro, repeated: `AEROLLM_BUNDLE_SHA256=<pyproject pin>` + `AEROLLM_BUNDLE_FILE=<real tarball>` → `Checksum verified`, installed, `import aerollm_api` → `0.1.0`, **EXIT 0**. Round 1 this path was `✗ Checksum mismatch` |
+| **Q1b** — the old (wrong) doc value is still rejected, and docs now say not to use it | ✅ `BUNDLE.json.sha256` still yields `✗ Checksum mismatch` (correct — different object); `docs/cli.md:354-361` now states explicitly which file is for which purpose and that the two "will never match" |
+| **Q1c** — MANIFEST verify catches a member substitution **before import** | ✅ **re-ran my substitution exploit**: swapped my malicious `.so` into the real tarball, kept the real `MANIFEST.json`, regenerated the sidecar → `✗ aerollm_api.abi3.so does not match MANIFEST.json's recorded sha256 — refusing to install` (manifest `2776d188…` vs extracted `b833e382…`). **Payload never ran** (`PROOF.txt` absent), nothing installed, no `Installing →` line |
+| **Q5** — Mach-O magic check rejects a non-Mach-O payload **pre-copy** | ✅ three payloads, each with a fully-consistent `MANIFEST.json` + sidecar: ELF (`7f454c46`), shell script (`23212f62`), and a 0-byte file (empty magic) — all `✗ ... is not a Mach-O arm64 binary ... refusing to install`, all before `Installing →`, nothing installed in any case |
+| **Q5** — install-time disclosure prints | ✅ on every successful install: `! aerollm_api.abi3.so is prebuilt native code, downloaded and executed on import. It is integrity-checked against the release manifest (same-origin trust), NOT signature-verified or sandboxed — see docs/cli.md.` |
+| **Q5** — README/SECURITY.md language is honest | ✅ read both in full. **No tamper-proof or authenticity overclaim anywhere.** SECURITY.md's new "Out of scope" bullet states plainly: "importing a native extension is always code execution", "this is an **integrity** control, not an **authenticity** one: anyone who can serve a malicious tarball from that GitHub Release can also serve a matching digest", "There is no codesign or notarization check — the binary is unsigned." README's maximus note says "unsigned, prebuilt native code that executes on import … not signature-verified or sandboxed". Both match the exploit reality exactly (see R2-1) |
+| **Q2** — ARCHITECTURE.md §9.1 got a **dated** correction, not a silent rewrite | ✅ `:429-437` — the old instruction is quoted as wrong in place: "this step originally said the opposite and was wrong. See TEST_REPORT.md Q2, 2026-08-05" |
+| **Q2** — the corrected recipe genuinely reaches BUNDLED | ✅ ran it verbatim in a fresh venv (`aerollm_api` provably absent), `AEROLLM_INDEX_URL` **unset**: `• No sibling repo, no release credentials → installing the bundled binary (bundled channel).` → **EXIT 0**; `deep status` → `channel: bundled`, `bundle: aerollm 0.1.0 (9e08230, built 2026-08-05T13:59:09Z)`. Round 1 the documented recipe landed on RELEASE |
+| **Q7** — red test is green | ✅ `test_setup_failure_message_names_the_outside_user_route` passes; `setup.sh:675-678` now leads with `./arailctl deep install (bundled binary, no source repo or credentials needed …)` and gates `deep rebuild`/`deep update` behind "if you're a maintainer with…" |
+| **Q7** — the deliberately-unchanged non-macOS branch | ✅ builder's rationale checked against code, not accepted on assertion: that `else` fires only on non-macOS-arm64 hosts, where `bundle_install()`'s F4 guard refuses the bundled channel outright (my test 28). Naming `deep install` there would be wrong advice. Correct call, correctly documented |
+| **Q4** — tar failure is now actionable | ✅ truncated tarball and non-archive both now end with `✗ Could not extract the bundle tarball (see tar output above).` + `! Likely a truncated/corrupt download or a disk-full mid-extract.` + `! Retry, or set AEROLLM_BUNDLE_FILE to a known-good tarball.` Round 1 this was bare `tar: Error exit delayed from previous errors.` |
+| **Q6** — skip rationale is sound | ✅ my test 27 explicitly pins the current over-broad F7 behaviour as a follow-up anchor and still passes. Narrowing the guard would flip it and needs its own review round. Deferring was the right call for a QA-remediation sprint |
+| Bundle + compliance + hardening suites | ✅ **44 passed, 0 failed** (30/30 hardening — test 30 now green — plus 14/14 pre-existing) |
+| Full `-k aerollm` | ✅ **174 passed / 9 failed**, exactly the builder's claim; the 9 are the identical pre-existing set (`test_aerollm_defaults.py` ×4, `test_aerollm_model_ready.py` ×3, `test_model_ux_phase0_warmth_probe.py` ×2 — the `AeroLLMBackend._shared` singleton-cache pollution class). **Zero regressions** |
+| sha chain on `dist/aerollm-bundle/` intact | ✅ tarball == sidecar == `pyproject.toml` pin (`d3a7a9dd…`); `BUNDLE.json.sha256` == the real staged `.so` (`2776d188…`). Both relationships still hold and now both are *enforced* at install time |
+| Sibling `~/ProJects/qukaizen-aerollm` untouched | ✅ `HEAD` `075fe7f` (unrelated concurrent grammar work, not this sprint); no new worktrees from round 4 |
+| No `gh release` executed | ✅ appears only as doc text (`docs/releasing.md:50`), a script header comment and an `info` echo (`package-aerollm-bundle.sh:8,163`) |
+| `shellcheck -x scripts/build-aerollm.sh` | ✅ clean, zero findings |
+| arail working tree after all probing | ✅ `git status --porcelain` empty |
+
+## The residual risk, measured rather than asserted
+
+I re-ran the full arbitrary-code-execution exploit — a benign arm64 `.so` with
+an `__attribute__((constructor))`, this time with **`MANIFEST.json` and the
+sidecar both regenerated to match** (a fully self-consistent malicious bundle,
+which is what an attacker who controls the release asset would actually
+produce):
+
+| Scenario | Result |
+|---|---|
+| **No out-of-band pin** (standalone `./arailctl deep install`) | payload still executes: `arbitrary code executed at import time`. The new MANIFEST and Mach-O checks do not help — both the manifest and the magic bytes are inside the attacker's own tarball |
+| **With the pin** (`AEROLLM_BUNDLE_SHA256` = `pyproject.toml`'s value — what `./arailctl setup` at maximus now forwards) | `✗ Checksum mismatch — refusing to install` (expected `d3a7a9dd…`, actual `48f1a98f…`); **payload never ran**, nothing installed |
+
+So the round-4 work does exactly what it claims and no more: the **primary
+outside-user journey (`./arailctl setup`) is now genuinely closed** by a
+git-committed, out-of-band pin, and the residual same-origin exposure on the
+un-pinned path is now **accurately disclosed in three places** a user actually
+reads. The MANIFEST + Mach-O checks are honest defence-in-depth against
+corruption and partial tampering, and — importantly — `docs/cli.md` and
+SECURITY.md do **not** oversell them.
+
+## Findings
+
+- **[ASK] R2-1 — standalone `./arailctl deep install` still does not forward
+  the pin.** `arailctl` execs `build-aerollm.sh bundle` directly, bypassing
+  `setup.sh`'s `load_pyproject_metadata()`, so the route the CLI help,
+  README and `setup.sh`'s own failure message all now recommend to outside
+  users is precisely the one that runs *without* the out-of-band pin — the
+  D1 row above. The builder disclosed this in `docs/cli.md`'s env table
+  rather than glossing it, which is why this is an ASK and not a re-open.
+  Cheap fix: have `arailctl deep install` read `aerollm_bundle_sha256` (and
+  `aerollm_bundle_tag`) from `pyproject.toml` the same way `setup.sh` does,
+  or move that read into `build-aerollm.sh` so all entry points share it.
+  **Does not block the release upload** — it is the pre-existing v1 posture,
+  now correctly documented rather than mis-documented.
+- **[INFO] R2-2** — SECURITY.md describes "a sha256 chain (tarball →
+  in-tarball manifest → extracted `.so`)". "Chain" slightly implies
+  transitive trust when both links live inside the same tarball. The very
+  next sentence corrects it explicitly, so it is not misleading in context;
+  flagging only so a future edit doesn't drop the qualifier.
+- **[OPEN, maintainer decision] Q3** — `aerollm-api` `0.1.0rc1`/`rc2` remain
+  published on public PyPI under the maintainer's own account, contradicting
+  ARCHITECTURE §2's premise and §11's non-goal. Round 4 did not touch this,
+  correctly — it is a disclosure/strategy call, not an engineering defect.
+  Decide whether to yank, leave, or amend §2/§11 before announcing the
+  bundled channel as "the only way outside users get deep mode."
+- **[carried, unchanged]** Q6 (over-broad F7 guard), Q8 (duplicated `channel:`
+  label in the `bundle:` line), A7 (misordered snapshot in
+  `test_aerollm_bundle_install.py:232`), A5, A4, and `docs/releasing.md`'s
+  R2 (no post-upload verification step) / R3 (re-cut after a `git pull`).
+  R1 is now closed — `docs/releasing.md` step 4 gained the
+  `aerollm_bundle_sha256` bullet.
+
+## Verdict
+
+**WEAK_PASS.** All four blockers are closed and independently reproduced;
+Q4 closed as a bonus; Q6 deferred with a sound, documented rationale; 44/44
+on the bundle suites and 174/9 on `-k aerollm` with zero regressions. The
+WEAK qualifier is R2-1 alone — a newly-surfaced low-severity gap on the
+standalone-`deep install` path, disclosed in-repo and cheap to close later.
+
+**Cleared for `gh release upload`**, with the maintainer's own pre-flight
+still owed: verify the asset resolves after upload before announcing
+(`docs/releasing.md` R2), and confirm the tag argument equals
+`pyproject.toml`'s `aerollm_bundle_tag` (`v1.1.0`) and that
+`aerollm_bundle_sha256` matches the uploaded tarball.
