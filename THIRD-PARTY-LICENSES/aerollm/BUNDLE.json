@@ -3,11 +3,11 @@
   "aerollm_version": "0.1.0",
   "aerollm_commit": "9e08230f0bebfe5eeca5a2da3191fa4a96f24d2d",
   "aerollm_dirty": false,
-  "built_at": "2026-08-05T13:40:38Z",
+  "built_at": "2026-08-05T13:59:09Z",
   "built_by": "scripts/package-aerollm-bundle.sh",
   "platform": "macos-arm64",
   "python_abi": "abi3-cp39",
-  "sha256": "e2944cf60a816eec3bac77757b8f29610dc8dabcf420736f02c7c45b78492956",
+  "sha256": "2776d188f71c98bfb46b1e87f2f5e8aa4f30146541d0748e3321cd0364650f9a",
   "license": "Apache-2.0",
   "modifications": "none — verbatim cargo --release build of the named commit",
   "arail_release": "v1.1.0"
