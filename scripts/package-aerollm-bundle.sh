@@ -18,6 +18,11 @@
 #
 # Env:
 #   ARAIL_AEROLLM_REPO   sibling aeroLLM checkout (default ~/ProJects/qukaizen-aerollm)
+#   OUT_DIR              output directory for the tarball + sidecar (default
+#                         $REPO_ROOT/dist/aerollm-bundle). Override in tests
+#                         so the regression suite NEVER touches the real
+#                         release output directory — this script `rm -rf`s
+#                         OUT_DIR on every run (REVIEW.md round-2 B3).
 #   ARAIL_RELEASE_TAG    the ARAIL GitHub Release tag this bundle is built for
 #                         (e.g. v1.1.0). REQUIRED — this is also the tag the
 #                         consumer (scripts/build-aerollm.sh resolve_bundle_url)
@@ -42,7 +47,7 @@ err()  { printf '%s\n' "${RED}✗${RST} $*" >&2; }
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 AEROLLM_REPO="${ARAIL_AEROLLM_REPO:-$HOME/ProJects/qukaizen-aerollm}"
 CRATE_DIR="$AEROLLM_REPO/crates/aerollm-api"
-OUT_DIR="$REPO_ROOT/dist/aerollm-bundle"
+OUT_DIR="${OUT_DIR:-$REPO_ROOT/dist/aerollm-bundle}"
 PY="${PYTHON:-python3}"
 
 if [[ -z "${ARAIL_RELEASE_TAG:-}" ]]; then

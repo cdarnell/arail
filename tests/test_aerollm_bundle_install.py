@@ -167,22 +167,46 @@ def test_producer_filename_matches_consumer_resolved_filename(tmp_path):
     )
     fake_cargo.chmod(0o755)
 
+    # Isolated output dir — this test MUST NEVER touch the real
+    # dist/aerollm-bundle/ (package-aerollm-bundle.sh:107 `rm -rf`s
+    # $OUT_DIR on every run; running the producer with cwd=REPO and no
+    # OUT_DIR override destroyed the real, already-built v1.1.0 release
+    # artifact. See REVIEW.md round-2 B3.)
+    out_dir = tmp_path / "out"
     env = {
         **os.environ,
         "NO_COLOR": "1",
         "ARAIL_AEROLLM_REPO": str(fake_repo),
         "ARAIL_RELEASE_TAG": tag,
+        "OUT_DIR": str(out_dir),
         "PATH": f"{fake_bin}:{os.environ['PATH']}",
     }
     r = subprocess.run(
         ["bash", str(REPO / "scripts" / "package-aerollm-bundle.sh")],
-        capture_output=True, text=True, env=env, cwd=REPO,
+        capture_output=True, text=True, env=env, cwd=tmp_path,
     )
     assert r.returncode == 0, r.stdout + r.stderr
 
-    produced = list((REPO / "dist" / "aerollm-bundle").glob("*.tar.gz"))
+    # The real dist/aerollm-bundle/ must be untouched by this test.
+    real_out_dir = REPO / "dist" / "aerollm-bundle"
+    real_out_snapshot_before = (
+        sorted(p.name for p in real_out_dir.glob("*.tar.gz"))
+        if real_out_dir.is_dir()
+        else []
+    )
+
+    produced = list(out_dir.glob("*.tar.gz"))
     assert len(produced) == 1, produced
     producer_filename = produced[0].name
+
+    real_out_snapshot_after = (
+        sorted(p.name for p in real_out_dir.glob("*.tar.gz"))
+        if real_out_dir.is_dir()
+        else []
+    )
+    assert real_out_snapshot_before == real_out_snapshot_after, (
+        "test run must not modify the real dist/aerollm-bundle/ directory"
+    )
 
     # Ask the real consumer what URL it would request for this tag, by
     # invoking bundle_install() against an unreachable host and reading the
