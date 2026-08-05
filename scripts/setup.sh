@@ -132,6 +132,10 @@ AEROLLM_KV_BUDGET_PCT="0.60"
 # present. Overridden by [tool.arail.package-sources] in pyproject.toml.
 AEROLLM_PIP_SPEC="aerollm-api>=0.1,<0.2"
 AEROLLM_INDEX_URL="https://pypi.qukaizen.com/simple/"
+# Bundled channel — the GitHub Release tag whose assets carry the prebuilt
+# aerollm_api.abi3.so. Overridden by [tool.arail.package-sources]
+# aerollm_bundle_tag in pyproject.toml (see load_pyproject_metadata below).
+AEROLLM_BUNDLE_TAG="v1.1.0"
 
 # Unified password — set by capture_password() below. One secret covers:
 #   - code-server (IDE) login
@@ -166,6 +170,7 @@ values = {
     "AEROLLM_MODEL_MAX_ID": str(models.get("aerollm_maximus", models.get("aerollm_max", models.get("aerollm", "")))),
     "AEROLLM_PIP_SPEC": str(sources.get("aerollm", "")),
     "AEROLLM_INDEX_URL": str(sources.get("aerollm_index", "")),
+    "AEROLLM_BUNDLE_TAG": str(sources.get("aerollm_bundle_tag", "")),
 }
 for key, value in values.items():
     if value:
@@ -657,6 +662,7 @@ install_accel_deps() {
         else
             info "Installing AeroLLM (source → release → bundled, first that applies)…"
             if AEROLLM_INDEX_URL="$AEROLLM_INDEX_URL" AEROLLM_PIP_SPEC="$AEROLLM_PIP_SPEC" \
+               AEROLLM_BUNDLE_TAG="$AEROLLM_BUNDLE_TAG" \
                bash "${REPO_ROOT:-$PWD}/scripts/build-aerollm.sh" auto; then
                 info "AeroLLM ready — the deep-mode 2nd inference on Apple Silicon."
             else
