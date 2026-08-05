@@ -251,7 +251,8 @@ EOF
     uninstall-daemon  remove launchd supervision (back to dev/foreground mode)
     tier [<tier>]   switch (or print) the feature-set tier — minimalist | maximus
                     ('upgrade' is a permanent alias — see docs/cli.md)
-    deep <op>       AeroLLM 2nd inference: rebuild (source) | update (wheel) | status
+    deep <op>       AeroLLM 2nd inference: install (bundled binary) | rebuild (source) |
+                    update (wheel) | status
     version         show installed component versions
     status [--json[=full|instances]] [--probe|--no-probe] [--quiet]  show what's
                     running (World instances + root lab); exits 0/3/4 — see docs/cli.md
@@ -774,13 +775,17 @@ case "$cmd" in
         exec bash "$REPO_ROOT/scripts/upgrade.sh" "$@"
         ;;
     deep)
-        # AeroLLM 2nd-inference: rebuild (source) | update (published wheel) | status.
+        # AeroLLM 2nd-inference: install (bundled binary) | rebuild (source) |
+        # update (published wheel) | status. `install` is the route an
+        # outside user (no sibling repo, no private-index creds) actually
+        # needs — see ARCHITECTURE.md (sprints/2026-08-05-arail-bundled-aerollm).
         op="${1:-status}"; shift || true
         case "$op" in
+            install) exec bash "$REPO_ROOT/scripts/build-aerollm.sh" bundle "$@" ;;
             rebuild) exec bash "$REPO_ROOT/scripts/build-aerollm.sh" build ;;
             update)  exec bash "$REPO_ROOT/scripts/build-aerollm.sh" update ;;
             status)  exec bash "$REPO_ROOT/scripts/build-aerollm.sh" status ;;
-            *) die "deep op must be one of: rebuild | update | status" ;;
+            *) die "deep op must be one of: install | rebuild | update | status" ;;
         esac
         ;;
     install)
