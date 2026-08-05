@@ -54,9 +54,19 @@ gh release upload <next-arail-tag> dist/aerollm-bundle/*.tar.gz dist/aerollm-bun
 #      - pyproject.toml: [tool.arail.package-sources] aerollm_bundle_tag
 #      - THIRD-PARTY-LICENSES/aerollm/BUNDLE.json (copy from
 #        dist/aerollm-bundle/stage/MANIFEST.json, or dist/aerollm-bundle/*.tar.gz)
-#      - THIRD-PARTY-LICENSES/aerollm/LICENSE and NOTICE, if aeroLLM's
-#        upstream files changed (byte-diff against
-#        ~/ProJects/qukaizen-aerollm/{LICENSE,NOTICE})
+#      - THIRD-PARTY-LICENSES/aerollm/NOTICE — refresh from upstream if it
+#        changed (byte-diff against ~/ProJects/qukaizen-aerollm/NOTICE).
+#      - THIRD-PARTY-LICENSES/aerollm/LICENSE — DO NOT sync this from
+#        upstream. Upstream's own LICENSE file is only the Apache-2.0
+#        header boilerplate + copyright line (17 lines), not the full
+#        ~200-line license text Apache-2.0 §4(a) requires redistributors to
+#        include (see REVIEW.md finding A1). This bundle's LICENSE is
+#        deliberately ARAIL's own full-text copy and must stay that way —
+#        byte-syncing it from upstream reinstalls the stub and breaks
+#        `test_license_is_full_apache2_text_not_upstream_stub` in
+#        tests/test_aerollm_bundle_compliance.py, which exists specifically
+#        to catch this regression. Only touch LICENSE if the Apache-2.0
+#        *license text itself* changes (it doesn't, in practice).
 #
 # 5. Add a "Bundled third-party components" section to the GitHub Release
 #    body: component, version, commit, licence, link to
