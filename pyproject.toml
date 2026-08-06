@@ -263,7 +263,7 @@ aerollm_bundle_tag = "v1.1.0"
 # as AEROLLM_BUNDLE_SHA256 — forwarded by setup.sh exactly like
 # aerollm_bundle_tag. Bump alongside aerollm_bundle_tag (docs/releasing.md
 # step 4) whenever the bundle is refreshed.
-aerollm_bundle_sha256 = "d3a7a9dd19987350963422ab7647a2d4ad607e78397b57f70c55362c0b95ecce"
+aerollm_bundle_sha256 = "57f30364738580d4a7808f9165ddfdf692eb52afaa435e491b4eda39afb63e93"
 # AirLLM stays declared for opt-in power-user installs (not pulled by default).
 airllm  = "airllm>=2.0"
 
