@@ -6818,6 +6818,7 @@ def _build_chat_result(
     *,
     wants_deep: bool,
     sources: list[dict[str, Any]] | None = None,
+    provenance: Any = None,
 ) -> dict[str, Any]:
     reply = _clean_chat_reply(response.text or "")
     latency_sec = max(response.latency_ms / 1000.0, 0.001)
@@ -6849,6 +6850,23 @@ def _build_chat_result(
         "deep": bool(wants_deep),
         "sources": list(sources or []),
         "error": None,
+        # Answering-model provenance (arail.registry.ceiling) — what
+        # actually generated this reply and how ARAIL verified its size.
+        # Phase 1 review finding: the served model could silently differ
+        # from what the UI displayed (deep-reroute mislabel, ids[0]
+        # fallbacks, singleton relabel). Render this in the stats line so
+        # substitution is visible, not just prevented.
+        "model_provenance": (
+            {
+                "model_id": provenance.model_id,
+                "params_b": provenance.params_b,
+                "param_source": provenance.param_source,
+                "role": provenance.role,
+                "backend": provenance.backend,
+            }
+            if provenance is not None
+            else None
+        ),
     }
 
 
@@ -6902,35 +6920,41 @@ def _prepare_chat_context(
     optional_backend_name = str(backend_override or "").strip().lower() or None
     wants_deep = optional_backend_name in _OPTIONAL_CHAT_BACKEND_CONFIG
 
-    # ── Hard hardware-floor rule (30B total params) ────────────────────
-    # If the dispatch landed on a non-Deep backend (mlx/cuda/cpu/runtime
-    # override) AND the chosen model's total params exceed the hardware
-    # floor, route to the best available deep backend instead. This is
-    # SERVER-SIDE enforcement — clients can lie about their backend
-    # selection but the server still routes correctly.
-    # See ARCHITECTURE.md § Data flow D1.
-    if not wants_deep:
-        from arail.model_specs import must_stream as _must_stream
-        candidate_model = (model_override or "").strip() or os.getenv("MODEL_NAME", "")
-        if _must_stream(candidate_model):
-            _resolved = _resolve_default_deep_backend()
-            if _resolved is None:
-                activity_log.emit(
-                    "chat",
-                    f"30B+ model '{candidate_model}': no deep backend available "
-                    f"on this host — skipping hard-floor routing.",
-                    "warn",
-                )
-            else:
-                wants_deep = True
-                optional_backend_name = _resolved
-                activity_log.emit(
-                    "chat",
-                    f"30B+ model '{candidate_model}': routing to Deep ({_resolved}) "
-                    f"per hardware floor.",
-                    "info",
-                )
-    # ── End hard hardware-floor rule ───────────────────────────────────
+    # ── Cloud Compute Source pivot — was inert, now honest ──────────────
+    # Phase 1 review finding #1/#4: picking Claude/NIM/OpenRouter/HF/custom
+    # in the chat UI read into `optional_backend_name` here and then was
+    # never consulted again — dispatch fell through to the local
+    # MODEL_BACKEND router and answered locally with HTTP 200, labeled as
+    # if the pick had worked. Refuse loudly instead: the cloud dispatch
+    # path (registry/binding.py provider_type=="anthropic" etc.) isn't
+    # wired to this endpoint yet, so say so rather than silently
+    # substituting a local model for a cloud request.
+    if optional_backend_name and optional_backend_name in _CLOUD_PROVIDERS:
+        return {
+            "error_result": {
+                "reply": (
+                    f"'{optional_backend_name}' isn't wired to Chat's send "
+                    f"path yet — it silently answered locally before this "
+                    f"fix. Use Manage providers to verify your key, but "
+                    f"cloud-provider chat isn't available from this box "
+                    f"today."
+                ),
+                "backend": None,
+                "error": "cloud_backend_not_wired",
+            }
+        }
+
+    # ── Hardware-floor rule — SUPERSEDED 2026-08-04 ─────────────────────
+    # This used to silently re-route a >30B request to the deep backend,
+    # which meant the reply came from AEROLLM_MODEL while the UI still
+    # showed the originally-requested model name (Phase 1 review finding
+    # #6). It's replaced by the answering-model ceiling below: primary
+    # candidates >= 8B (or of unknown size) are refused outright, not
+    # silently substituted. Explicitly picking the deep backend (wants_deep)
+    # is still the only way to reach a bigger model, and that model is then
+    # checked as "secondary" against the discovered-hardware cap, not this
+    # 30B constant. See arail.registry.ceiling.
+    # ── End hardware-floor rule ─────────────────────────────────────────
 
     deep_backend = None
     if wants_deep:
@@ -7012,6 +7036,26 @@ def _prepare_chat_context(
             previous_model = active_backend.model_name
             active_backend.model_name = override_model
 
+    # ── Answering-model ceiling — single chokepoint ─────────────────────
+    # See arail.registry.ceiling and ARCHITECTURE.md § Data flow D1 (revised
+    # 2026-08-04). Every model that could answer this message, on whatever
+    # path got it here (client override, runtime override, resolved
+    # default), is checked here before generation. This replaces the old
+    # 30B-only "force to deep" reroute — that reroute silently answered
+    # with a *different* model than the one requested; this refuses.
+    from arail.registry.ceiling import ModelCeilingViolation, resolve_answering_model
+    _ceiling_model = str(getattr(active_backend, "model_name", "") or "")
+    _ceiling_role = "secondary" if wants_deep else "primary"
+    _ceiling_backend_name = str(getattr(active_backend, "backend_name", "") or type(active_backend).__name__)
+    try:
+        model_provenance = resolve_answering_model(
+            _ceiling_model, role=_ceiling_role, backend=_ceiling_backend_name,
+        )
+    except ModelCeilingViolation as e:
+        activity_log.emit("chat", f"Model ceiling refused '{_ceiling_model}' ({_ceiling_role}): {e}", "warn")
+        return {"error_result": {"reply": str(e), "backend": None, "model": _ceiling_model, "error": str(e)}}
+    # ── End answering-model ceiling ─────────────────────────────────────
+
     # Now that the backend is resolved (and the model override applied),
     # build the chat messages so the system prompt's state block reflects
     # the actually-dispatched backend + model. Resolves the embarrassing
@@ -7072,6 +7116,7 @@ def _prepare_chat_context(
         "optional_backend_name": optional_backend_name,
         "wants_deep": wants_deep,
         "sources": chat_sources,
+        "model_provenance": model_provenance,
     }
 
 
@@ -7183,7 +7228,7 @@ async def _run_chat_completion_stream(
             clean_reply = _clean_chat_reply(response.text)
             if clean_reply:
                 yield {"type": "delta", "delta": clean_reply}
-            yield {"type": "final", **_build_chat_result(response, wants_deep=wants_deep, sources=context.get("sources"))}
+            yield {"type": "final", **_build_chat_result(response, wants_deep=wants_deep, sources=context.get("sources"), provenance=context.get("model_provenance"))}
             return
 
         final_response: ModelResponse | None = None
@@ -7223,7 +7268,7 @@ async def _run_chat_completion_stream(
             clean_reply = _clean_chat_reply(response.text)
             if clean_reply:
                 yield {"type": "delta", "delta": clean_reply}
-            yield {"type": "final", **_build_chat_result(response, wants_deep=wants_deep, sources=context.get("sources"))}
+            yield {"type": "final", **_build_chat_result(response, wants_deep=wants_deep, sources=context.get("sources"), provenance=context.get("model_provenance"))}
             return
 
         if router is None:
@@ -7255,16 +7300,30 @@ async def _run_chat_completion_stream(
                 yield {"type": "delta", "delta": delta}
 
         if final_response is None:
-            final_response = ModelResponse(
-                text=accumulated,
-                model=str(getattr(active_backend, "model_name", "unknown")),
-                tokens_used=max(len(accumulated.split()), 0),
-                backend=str(getattr(router, "backend_name", "unknown")),
-                latency_ms=0.0,
-                cost_usd=0.0,
+            # Every backend's stream_complete is contracted to end with a
+            # ModelResponse (base fallback at backends.py:162, native
+            # streamers at :349/:1080/etc). Getting here means that
+            # contract broke — an early return, a truncated connection, a
+            # bug — not a normal completion. Surface it as the error it is
+            # instead of fabricating latency_ms=0 stats that look like a
+            # real, successful response (Phase 1 review finding #17).
+            activity_log.emit(
+                "chat",
+                "Stream ended without a completion sentinel from the "
+                f"backend ({getattr(router, 'backend_name', 'unknown')}) — "
+                "treating as a failed turn.",
+                "error",
             )
+            yield {
+                "type": "final",
+                "reply": accumulated or "(stream ended without completing)",
+                "backend": str(getattr(router, "backend_name", "unknown")),
+                "model": str(getattr(active_backend, "model_name", "unknown")),
+                "error": "stream ended without a completion response from the backend",
+            }
+            return
 
-        yield {"type": "final", **_build_chat_result(final_response, wants_deep=wants_deep, sources=context.get("sources"))}
+        yield {"type": "final", **_build_chat_result(final_response, wants_deep=wants_deep, sources=context.get("sources"), provenance=context.get("model_provenance"))}
     except Exception as e:  # noqa: BLE001
         activity_log.emit("chat",
                           f"Inference failed: {type(e).__name__}: {str(e)[:120]}",
@@ -7404,7 +7463,7 @@ async def _run_chat_completion(
     finally:
         _restore_chat_context(context)
 
-    return _build_chat_result(response, wants_deep=wants_deep, sources=context.get("sources"))
+    return _build_chat_result(response, wants_deep=wants_deep, sources=context.get("sources"), provenance=context.get("model_provenance"))
 
 
 def _apply_chat_defaults(
@@ -7873,9 +7932,22 @@ def _resilient_chat_default(candidate: str | None) -> str | None:
     for mid in ids:
         if _ai_eng_rx.match(mid):
             return mid
-    if "qwen2.5:7b" in ids:
-        return "qwen2.5:7b"
-    return ids[0]
+    # Below this point there's no known-safe candidate installed. Rather
+    # than falling through to "qwen2.5:7b" (a 7B guess that may not even be
+    # installed) or `ids[0]` (whatever the first installed model happens to
+    # be — Phase 1 review finding: this is one of the paths a >=8B model
+    # can silently become the answering model), pick the first installed
+    # id that the answering-model ceiling actually accepts as primary.
+    # Refuse (return the original candidate, which the ceiling will also
+    # refuse loudly downstream) rather than guess.
+    from arail.registry.ceiling import resolve_answering_model, ModelCeilingViolation
+    for mid in ids:
+        try:
+            resolve_answering_model(mid, role="primary", backend="ollama_native")
+            return mid
+        except ModelCeilingViolation:
+            continue
+    return candidate
 
 
 def _resolve_chat_deep_default() -> bool:

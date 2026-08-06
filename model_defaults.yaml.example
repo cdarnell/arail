@@ -18,7 +18,7 @@
 # default_a — the primary, fast, always-resident chat model
 # (Chat Studio's Box A / "1st inference"). Must be an already-installed
 # Ollama model tag (see `ollama list`).
-default_a: ai-engineer:latest
+default_a: llama-ai-eng
 
 # default_b — the model AeroLLM (Box B / "2nd inference") loads. This is
 # NOT an Ollama tag — it's a directory name under lab/models/ (or
