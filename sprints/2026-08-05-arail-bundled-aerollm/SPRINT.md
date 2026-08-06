@@ -48,13 +48,19 @@ no bundle env vars set:
 
 ## Open items / follow-ups
 
-- **Bundled runtime reports version `0.1.0`** — the tarball was cut from
-  aerollm `main` @ `9e08230`, which predates the `1.0.1` version bump
-  (that bump lives on aerollm's still-unmerged
-  `qukaizen/aerollm-private-ga-readiness-3047a9` branch). Functionally
-  current for the MoE-era main; re-cut the bundle after that branch
-  merges if version-string alignment matters. `BUNDLE.json` records the
-  exact commit either way.
+- **~~Bundled runtime reports version `0.1.0`~~ — RESOLVED 2026-08-06:**
+  bundle re-cut from aerollm `main` @ `2ae56af` (v1.0.0, includes all
+  merged MoE runtime work), v1.1.0 release assets swapped in place
+  (`--clobber`), pyproject sha pin + BUNDLE.json refreshed, live-download
+  E2E re-verified (checksum OK, imports, reports 1.0.0). During the CDN
+  propagation window the installer correctly REFUSED the stale asset on
+  checksum mismatch — the pin's fail-closed design observed working
+  against real infrastructure. Note: aerollm's `1.0.1` release branch
+  remains unmerged (20-conflict divergence vs main — deliberately left
+  as its own future integration sprint, not auto-resolved here);
+  `1.0.1` is a PyPI-version-reuse artifact and does not apply to the
+  bundle. The earlier tarball's `d3a7a9dd…` digest is superseded by
+  `57f30364…`.
 - **Q3**: stale `aerollm-api` `0.1.0rc1`/`0.1.0rc2` wheels on public
   PyPI — maintainer decided to **yank**; done via the PyPI web UI by the
   maintainer (not automatable here).
