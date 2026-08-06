@@ -840,11 +840,28 @@ function renderExperiments() {
 // experiments" view above the 3-pane cockpit. Lets a returning user
 // absorb the lab's investigation at a glance. The cockpit stays
 // available below; the brief is the conceptual layer.
+// GET /api/experiments returns the whole corpus — every experiment ever
+// created, across every goal and every World this lab has run. It is not
+// filtered, and it is sorted newest-first. Left unfiltered, this section's
+// own header ("Experiments testing your goal") is a claim the data doesn't
+// back: a goal that hasn't started running yet can render five *other*
+// goals' experiments, marked ✓/✗ from THEIR runs, with nothing to say so.
+//
+// The fix uses data that already exists: goal_store.link_experiment() has
+// always stamped each experiment it designs onto goal.experiments (an ID
+// list) — it's just never been read here. No backend change needed; this
+// intersects the two lists that were already both correct.
+function goalScopedExperiments(goal, exps) {
+  const linked = new Set((goal && goal.experiments) || []);
+  if (!linked.size) return [];
+  return exps.filter(e => linked.has(e.id));
+}
+
 function renderSummary() {
   const summary = document.getElementById('rx-summary');
   if (!summary) return;
   const goal = RESEARCH.goal;
-  const exps = RESEARCH.experiments || [];
+  const exps = goalScopedExperiments(goal, RESEARCH.experiments || []);
   const hasGoal = !!goal;
   summary.hidden = !hasGoal;
   if (!hasGoal) return;
