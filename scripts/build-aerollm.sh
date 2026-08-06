@@ -102,6 +102,18 @@ done
 unset _arg
 
 site_dir()  { "$PY" -c "import sysconfig; print(sysconfig.get_path('platlib'))"; }
+# The interpreter's platlib can be missing or read-only (macOS system
+# Python: /Library/Python/3.9/site-packages). Fail with a route, not a raw
+# cp error (observed on a fresh machine, 2026-08-06).
+require_writable_site_dir() {  # $1 = dir
+    if [[ ! -d "$1" || ! -w "$1" ]]; then
+        err "Cannot install into ${BOLD}$1${RST} — directory is missing or not writable."
+        warn "This usually means \$PYTHON resolved to the macOS system interpreter."
+        warn "Run via ${BOLD}./arailctl deep install${RST} (targets the lab's .venv), or set"
+        warn "PYTHON to the interpreter ARAIL actually runs."
+        exit 1
+    fi
+}
 import_ok() { "$PY" -c "import aerollm_api" >/dev/null 2>&1; }
 aerollm_version() {
     "$PY" -c "import aerollm_api; print(getattr(aerollm_api,'__version__','unknown'))" 2>/dev/null || echo "unknown"
@@ -134,7 +146,9 @@ cargo_build() {
         err "cargo build succeeded but no libaerollm_api.{dylib,so} under target/release."
         exit 1
     fi
-    local dest; dest="$(site_dir)/aerollm_api.abi3.so"
+    local dest; dest="$(site_dir)"
+    require_writable_site_dir "$dest"
+    dest="$dest/aerollm_api.abi3.so"
     info "Installing → ${dest}"
     cp -f "$built" "$dest"
     verify_or_die
@@ -189,6 +203,7 @@ bundle_install() {
 
     local dest_dir dest_so dest_marker
     dest_dir="$(site_dir)"
+    require_writable_site_dir "$dest_dir"
     dest_so="$dest_dir/aerollm_api.abi3.so"
     dest_marker="$dest_dir/aerollm_api.bundle.json"
 

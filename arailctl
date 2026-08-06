@@ -779,6 +779,18 @@ case "$cmd" in
         # update (published wheel) | status. `install` is the route an
         # outside user (no sibling repo, no private-index creds) actually
         # needs — see ARCHITECTURE.md (sprints/2026-08-05-arail-bundled-aerollm).
+        #
+        # Target the lab's own venv, never the system interpreter: a bare
+        # `python3` here is macOS system Python, whose site-packages is
+        # missing/unwritable and is not the interpreter ARAIL runs anyway.
+        # An explicit $PYTHON from the caller still wins (tests, power users).
+        if [[ -z "${PYTHON:-}" ]]; then
+            if [[ -x "$REPO_ROOT/.venv/bin/python" ]]; then
+                export PYTHON="$REPO_ROOT/.venv/bin/python"
+            else
+                die "missing .venv — run ./arailctl setup first (deep install targets the lab's venv, not system Python)"
+            fi
+        fi
         op="${1:-status}"; shift || true
         case "$op" in
             install) exec bash "$REPO_ROOT/scripts/build-aerollm.sh" bundle "$@" ;;

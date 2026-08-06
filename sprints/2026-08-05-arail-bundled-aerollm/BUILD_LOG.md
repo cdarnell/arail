@@ -614,3 +614,25 @@ Suites: bundle install/compliance/qa-hardening 45/45; full `-k aerollm`
 175 passed / 9 failed (identical 9 pre-existing). `shellcheck -x` clean.
 `docs/cli.md`'s stale "standalone does not forward the pin" disclosure
 corrected. No `gh release` run; sibling repo untouched.
+
+## Round 6 fix (field report) — orchestrator-direct, 2026-08-06
+
+**Field failure (maintainer, fresh shell):** `arailctl deep install`
+downloaded + checksum-verified fine, then died with a raw
+`cp: /Library/Python/3.9/site-packages/aerollm_api.abi3.so: No such
+file or directory` — the `deep` dispatch was the only arailctl branch
+that never activates the repo venv, so bare `python3` (macOS system
+3.9) was the install target, whose platlib doesn't exist.
+
+**Fixes:**
+1. `arailctl deep` now exports `PYTHON=$REPO_ROOT/.venv/bin/python`
+   when unset (explicit `$PYTHON` still wins; missing `.venv` dies with
+   "run ./arailctl setup" instead of falling through to system Python).
+2. `build-aerollm.sh` gained `require_writable_site_dir` — both the
+   bundle and cargo install paths now abort pre-copy with an actionable
+   message when the interpreter's platlib is missing/unwritable.
+
+**Verified:** system-python repro now aborts gracefully with the
+routed message; `arailctl deep install` targets the venv (F7 guard
+correctly refused to clobber this machine's DEV build); bundle suites
+46/46; `shellcheck -x` clean.
