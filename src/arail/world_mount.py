@@ -1342,6 +1342,38 @@ def _prune_swept_approvals(pkb_root: Path) -> int:
         return 0
 
 
+def _switch_goal_for_world(new_world: str | None, data_dir: Path) -> None:
+    """Archive the current goal if it belongs to a different World than
+    the one now mounted — the same "the lab reflects the mounted World"
+    rule #163 already applies to the Compiled-KB gate, applied to goals.
+
+    goals.py has no data_dir parameterization (GoalStore always operates
+    on the process's own arail.config.DATA_DIR, unlike world_mount's own
+    functions which all accept an explicit override for tests/CLI
+    isolation) — so this must ONLY fire when ``data_dir`` resolved to the
+    process's REAL default. A test that mounts a fake bundle into an
+    isolated tmp_path data_dir must never reach through to the actual
+    live goal_store; skipping here (rather than in goals.py) keeps that
+    guard next to the mismatch it exists to prevent, not buried in a
+    module that has no idea it's being called from a sandboxed test.
+
+    Never raises — goal-store bookkeeping must not be able to fail a
+    mount/swap/unmount that has otherwise succeeded.
+    """
+    try:
+        if data_dir != _default_data_dir():
+            return
+        from arail.goals import GoalStore
+        archived = GoalStore().archive_if_world_mismatch(new_world)
+        if archived:
+            _log.info(
+                "world_mount: archived the current goal — it belonged to a "
+                "different World than the one now mounted (%s)", new_world
+            )
+    except Exception as e:  # noqa: BLE001
+        _log.warning("world_mount: goal-switch reconciliation skipped: %s", e)
+
+
 def _refresh_kb_surfaces(pkb_root: Path) -> None:
     """Make a mount/swap/unmount visible in the KB immediately.
 
@@ -1520,6 +1552,11 @@ def mount(
     )
     _write_record(record, dd)
 
+    # Step 4b: the lab now reflects a different World than whatever goal
+    # was running (if any) — same "reflects the mounted World" rule KB
+    # approvals already follow. Archives, never blocks the mount.
+    _switch_goal_for_world(bundle.slug, dd)
+
     # Step 5: adopt into the catalog so the switcher keeps the World after
     # unmount (re-mountable via the jailed slug path). Best-effort; no-op when
     # the bundle already lives under WORLDS_DIR.
@@ -1565,6 +1602,12 @@ def unmount(
     _remove_capabilities_sidecar(dd)
     # Remove the model-hint sidecar alongside the pointer (idempotent).
     _remove_model_hint_sidecar(dd)
+
+    # The lab now reflects NO World — unconditionally, not gated on
+    # remove_staged: a goal set while a World was mounted must not keep
+    # "running" once that World is gone, whether or not its staged files
+    # were also removed.
+    _switch_goal_for_world(None, dd)
 
     if remove_staged:
         staged = Path(record.staged_dir)
@@ -1633,6 +1676,9 @@ def swap(
         pin={"world_sha256": seal.computed_sha256},
     )
     _write_record(record, dd)
+
+    # The lab now reflects a different World — same rule mount() follows.
+    _switch_goal_for_world(bundle.slug, dd)
 
     _refresh_kb_surfaces(pkb)
 
