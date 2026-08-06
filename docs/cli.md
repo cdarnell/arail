@@ -378,7 +378,17 @@ refresh checklist.
 ### `reset [mode]`
 
 Wipe state: `models`\|`data`\|`pkb`\|`plugins`\|`env`\|`full`\|`destroy`.
-See `./arailctl reset help`. Unchanged.
+See `./arailctl reset help`.
+
+`full` wipes models, data, plugins, the research program, and
+`.venv`/`.env`/`lab.conf` — everything except the knowledge base (`pkb`;
+chain with `reset pkb` if you want that gone too) and source code.
+**Downloaded models are the one exception inside `full`**: `lab/models/`
+is kept unless you say otherwise — `--include-models` on the command
+line, or a yes at the interactive prompt `full` asks when run without
+`--yes`. A bare `--yes` confirms the wipe as a whole; it does not by
+itself imply "and delete my downloaded models too," since re-fetching
+them is the one step with a real time/bandwidth cost to undo.
 
 ### `status`
 

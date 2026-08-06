@@ -6,6 +6,20 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed (`./arailctl reset full` keeps downloaded models by default)
+
+- **`reset full` no longer wipes `lab/models/` unless asked.** Previously
+  it unconditionally deleted every downloaded model alongside data, pkb
+  sources, plugins, and the research program — the one step in a "full
+  wipe" with a real cost to undo (often several GB, slow to re-fetch),
+  and the least likely thing an operator expects gone just because they
+  asked for "full." Models are now kept unless you explicitly say
+  otherwise: `--include-models` on the command line, or a yes at a
+  dedicated interactive prompt. A bare `--yes` (which already confirms
+  the wipe as a whole) does not by itself imply "and delete my models
+  too." The standalone `reset models` mode is unchanged — it still always
+  wipes models, since that's the one thing it's for.
+
 ### Added (Bundled AeroLLM — a third install channel)
 
 - **Outside users (no aeroLLM sibling repo, no `pypi.qukaizen.com`
