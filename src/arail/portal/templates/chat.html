@@ -3061,6 +3061,16 @@
       });
       if (!r.ok) throw new Error('HTTP ' + r.status);
       const d = await r.json();
+      // Phase 1 review finding: a server-side error (d.error set) used to
+      // render d.reply as an ordinary assistant message and get pushed
+      // into History — indistinguishable from a real answer. Surface it
+      // as an error instead, same as the streaming path already does.
+      if (d.error) {
+        slot.bodyEl.innerHTML = renderMarkdown('⚠ ' + (d.reply || d.error));
+        slot.bodyEl.classList.add('chat-error');
+        renderSources(slot.srcEl, d.sources);
+        return;
+      }
       const reply = d.reply || '';
       slot.bodyEl.innerHTML = renderMarkdown(reply);
       renderSources(slot.srcEl, d.sources);

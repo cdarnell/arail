@@ -28,6 +28,14 @@ the semaphore capacity.  Set higher only when you have confirmed that
 the router supports concurrent calls without thrashing (e.g. multiple
 CPU threads / GPUs).  Single-worker uvicorn (the default) means this
 is a process-wide limit.
+
+``ARAIL_INFERENCE_SLOT_TIMEOUT_S`` — float seconds, default 300.  Max
+time a caller waits to *acquire* a slot before ``inference_slot`` raises
+``InferenceSlotTimeout``. With capacity 1 (the default), one stuck
+backend call previously blocked every other chat/agent/admin caller
+indefinitely (Phase 1 review finding #19 — no acquire timeout existed
+at all). This does not bound how long the call *inside* the slot may
+run; it only guarantees waiters don't queue forever behind a hang.
 """
 
 from __future__ import annotations
@@ -84,6 +92,16 @@ _INFLIGHT_BY_LABEL: dict[str, int] = {}
 _COMPLETED_BY_LABEL: dict[str, int] = {}
 
 
+class InferenceSlotTimeout(TimeoutError):
+    """Raised when a caller waits longer than ARAIL_INFERENCE_SLOT_TIMEOUT_S
+    to acquire an inference slot — i.e. a request already holding the slot
+    is stuck. Callers already wrap ``inference_slot`` in a broad
+    ``except Exception`` that surfaces a loud error to the user (see
+    ``_run_chat_completion[_stream]`` in app.py), so raising here turns a
+    silent, permanent hang into a visible, recoverable failure.
+    """
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -99,6 +117,21 @@ def _capacity() -> int:
     except (ValueError, TypeError):
         return 1
     return max(1, min(4, val))
+
+
+def _acquire_timeout_s() -> float:
+    """Read ARAIL_INFERENCE_SLOT_TIMEOUT_S, default 300s.
+
+    Malformed, empty, or non-positive values silently fall back to the
+    default rather than disabling the timeout — a hang here is exactly
+    the failure mode this exists to prevent.
+    """
+    raw = os.getenv("ARAIL_INFERENCE_SLOT_TIMEOUT_S", "").strip()
+    try:
+        val = float(raw)
+    except (ValueError, TypeError):
+        return 300.0
+    return val if val > 0 else 300.0
 
 
 def _get_semaphore() -> asyncio.Semaphore:
@@ -171,7 +204,17 @@ async def inference_slot(label: str = "chat") -> AsyncIterator[None]:
     _PENDING += 1
     t_wait_start = perf_counter()
 
-    await sem.acquire()
+    try:
+        await asyncio.wait_for(sem.acquire(), timeout=_acquire_timeout_s())
+    except asyncio.TimeoutError:
+        _PENDING -= 1
+        waited_s = perf_counter() - t_wait_start
+        raise InferenceSlotTimeout(
+            f"Timed out after {waited_s:.0f}s waiting for an inference "
+            f"slot (label={label!r}). A request ahead of this one appears "
+            f"stuck — its backend call may have hung. Try again in a "
+            f"moment; if this repeats, restart the lab."
+        ) from None
 
     t_wait_end = perf_counter()
     _PENDING -= 1

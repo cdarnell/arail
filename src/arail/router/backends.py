@@ -189,8 +189,10 @@ class MLXBackend(BaseBackend):
         except ImportError:  # pragma: no cover — only on old mlx-lm
             self._make_sampler = None
 
+        # Default kept under the primary ceiling (arail.registry.ceiling) —
+        # an unset MODEL_NAME must not silently resolve to an 8B+ model.
         self.model_name = os.getenv("MODEL_NAME",
-                                     "mlx-community/Qwen3-8B-4bit")
+                                     "mlx-community/Qwen2.5-3B-Instruct-4bit")
         # Allow local path first, fallback to hub name
         model_dir = os.path.join(os.getenv("ARAIL_MODELS_DIR", "lab/models"),
                                  self.model_name.split("/")[-1])
@@ -362,8 +364,10 @@ class CUDABackend(BaseBackend):
         import requests  # noqa: F811
         self._session = requests.Session()  # noqa-airgap: localhost-only (LOCAL_API_PORT target); post-guard Session — HTTPAdapter is monkeypatched at install_guard() time
         self.port = int(os.getenv("LOCAL_API_PORT", "8000"))
+        # Default kept under the primary ceiling (arail.registry.ceiling) —
+        # an unset MODEL_NAME must not silently resolve to an 8B+ model.
         self.model_name = os.getenv("MODEL_NAME",
-                                     "Qwen/Qwen3-8B")
+                                     "Qwen/Qwen2.5-3B-Instruct")
 
     def complete(self, prompt: str, max_tokens: int = 512,
                  temperature: float = 0.7,
@@ -498,6 +502,19 @@ class CPUBackend(BaseBackend):
                     "Download one — see README.md"
                 )
         self.model_name = os.path.basename(model_path)
+
+        # Answering-model ceiling (single chokepoint — see
+        # arail.registry.ceiling). This is the fix for the review finding
+        # that CPUBackend would silently load "sorted(rglob('*.gguf'))[0]"
+        # — an opaquely-named or oversized GGUF could become the answering
+        # model with no notice. Read real params from the file itself so an
+        # opaque filename can't dodge the check the way it dodges the
+        # name-regex parser.
+        from arail.registry.ceiling import resolve_answering_model
+        resolve_answering_model(
+            self.model_name, role="primary", backend="cpu", model_path=model_path,
+        )
+
         # L3: resolve context window at load time. Admin/chat set-ctx persists
         # to ARAIL_MODEL_CTX_OVERRIDES; _resolve_ctx_override reads it.
         # Default 4096 is the historical hard-coded value (R2: unchanged when
