@@ -626,7 +626,25 @@ reset_env() {
 
 full_wipe() {
     stop_services
-    reset_models
+    # Models are the one step here with a real re-download cost (often
+    # several GB), so — unlike every other piece of a "full wipe" — they
+    # are NOT included unless the operator explicitly says so: either
+    # --include-models on the command line, or a yes at this prompt. A
+    # bare --yes (which already confirmed the wipe as a whole via
+    # confirm_and_run) does NOT imply "and delete my downloaded models
+    # too" — that needs its own, separate opt-in.
+    if [[ "$INCLUDE_MODELS" != "true" && "$AUTO_CONFIRM" != "true" ]]; then
+        echo ""
+        read -rp "  Also remove downloaded models (${MODELS_DIR}/, $(report_size "$MODELS_DIR"))? [y/N] " models_yn
+        case "${models_yn}" in
+            [Yy]*) INCLUDE_MODELS="true" ;;
+        esac
+    fi
+    if [[ "$INCLUDE_MODELS" == "true" ]]; then
+        reset_models
+    else
+        info "Keeping ${MODELS_DIR}/ ($(report_size "$MODELS_DIR")) — pass --include-models to also wipe downloaded models."
+    fi
     reset_data
     reset_plugins
     # Per user decision (2026-04-24): `reset all` includes the research
@@ -695,7 +713,10 @@ usage() {
     echo "              User-authored skills + AGENT.md loadouts stay put."
     echo "    plugins   Remove installed plugins"
     echo "    env       Remove .venv, .env, lab.conf"
-    echo "    full      Complete wipe — keeps the knowledge base safe."
+    echo "    full      Complete wipe — keeps the knowledge base safe, and"
+    echo "              keeps downloaded models unless you say otherwise:"
+    echo "              [--include-models] to also wipe lab/models/ (else"
+    echo "              you're asked interactively, default No)."
     echo "              Chain with 'pkb' if you truly want everything gone."
     echo "    destroy   Delete the entire local lab copy and app data"
     echo "    stop      Just stop running services"
@@ -726,7 +747,7 @@ interactive_menu() {
     echo "    3) Knowledge base (notes, uploads, agent findings)"
     echo "    4) Plugins"
     echo "    5) Environment (.venv, .env, configs)"
-    echo "    6) Full wipe (preserves the knowledge base)"
+    echo "    6) Full wipe (preserves the knowledge base + models by default)"
     echo "    7) Destroy this lab copy entirely"
     echo "    8) Just stop services"
     echo "    0) Cancel"
@@ -770,6 +791,13 @@ confirm_and_run() {
 MODE=""
 STOP_WORLD=""
 STOP_ALL="false"
+# `full` used to unconditionally wipe lab/models/ (often several GB, slow
+# to re-download) alongside everything else — the one piece of a "full
+# wipe" an operator is least likely to want gone by default, since it's
+# the only step here that costs real time/bandwidth to undo. Models are
+# now skipped unless explicitly requested, via this flag or the
+# interactive prompt full_wipe() asks when not --yes.
+INCLUDE_MODELS="false"
 # ARCHITECTURE.md §10 (sprints/2026-07-29-elite-cli, Ruling 5): --root
 # dispatches straight to stop_services (the root lab only), skipping the
 # auto-resolution branch entirely — so `stop --root` is well-defined and
@@ -779,6 +807,7 @@ STOP_ROOT="false"
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --yes|-y) AUTO_CONFIRM="true"; shift ;;
+        --include-models) INCLUDE_MODELS="true"; shift ;;
         --all)    STOP_ALL="true"; shift ;;
         --root)   STOP_ROOT="true"; shift ;;
         # m9: a plain `shift 2` errors (aborting under `set -e`) when
