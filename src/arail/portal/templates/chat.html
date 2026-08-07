@@ -3223,43 +3223,79 @@
     }
 
     // ── Connections modal ──────────────────────────────────────────
+    // Backed by the real /api/providers/* endpoints (save/test/status) —
+    // NOT /api/tokens/*, which doesn't exist server-side and silently
+    // 404'd every save. This is the only place a Claude/HF/NVIDIA/
+    // OpenRouter key gets saved; the World forge's "Frontier API" option
+    // reads its availability from the same /api/providers/status call.
     const PROVIDERS = [
       { id: 'huggingface', label: 'HF',         hint: 'hf_xxx' },
       { id: 'claude',      label: 'Claude',     hint: 'sk-ant-…' },
       { id: 'nvidia',      label: 'NVIDIA',     hint: 'nvapi-…' },
       { id: 'openrouter',  label: 'OpenRouter', hint: 'sk-or-…' },
     ];
-    function renderConn() {
+    async function renderConn() {
       const wrap = $('conn-rows');
       wrap.innerHTML = '';
+      let status = null;
+      try {
+        const r = await fetch('/api/providers/status');
+        if (r.ok) status = await r.json();
+      } catch (e) { /* fall through — rows still render, just unstatused */ }
+      if (status && !status.cloud_enabled) {
+        const notice = document.createElement('p');
+        notice.className = 'blurb';
+        notice.style.color = 'var(--warn)';
+        notice.textContent = status.airgapped_notice ||
+          'Lab is airgapped — saved keys are stored but cloud providers stay locked out until LAB_MODE=hybrid.';
+        wrap.appendChild(notice);
+      }
       PROVIDERS.forEach(p => {
         const row = document.createElement('div');
         row.className = 'row';
         row.innerHTML = `
           <div class="name">${p.label}</div>
           <input type="password" placeholder="${p.hint}" data-prov="${p.id}">
-          <span><button data-verify="${p.id}">verify</button> <span class="badge"></span></span>`;
+          <span>
+            <button data-save="${p.id}">save</button>
+            <button data-verify="${p.id}">test</button>
+            <span class="badge"></span>
+          </span>`;
         wrap.appendChild(row);
-        // Status check
-        fetch(`/api/tokens/${p.id}/status`).then(r => r.ok ? r.json() : null).then(d => {
-          if (d && d.present) row.classList.add('ok');
-        }).catch(() => {});
-        row.querySelector('button').addEventListener('click', async () => {
+        if (status && status.available && status.available[p.id]) row.classList.add('ok');
+        row.querySelector('[data-save]').addEventListener('click', async () => {
           const tok = row.querySelector('input').value.trim();
-          if (!tok) return flashStatus(`${p.label}: paste token first`);
+          if (!tok) return flashStatus(`${p.label}: paste a key first`);
           try {
-            const r = await fetch(`/api/tokens/${p.id}`, {
+            const r = await fetch('/api/providers/save', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ token: tok }),
+              body: JSON.stringify({ provider: p.id, token: tok }),
             });
-            if (r.ok) { row.classList.add('ok'); flashStatus(`${p.label}: saved`); }
-            else flashStatus(`${p.label}: ${r.status}`);
+            const d = await r.json().catch(() => ({}));
+            if (r.ok && d.ok) {
+              row.classList.add('ok');
+              row.querySelector('input').value = '';
+              flashStatus(`${p.label}: key saved`);
+            } else {
+              flashStatus(`${p.label}: ${d.error || r.status}`);
+            }
+          } catch (e) { flashStatus(`${p.label}: ${e.message}`); }
+        });
+        row.querySelector('[data-verify]').addEventListener('click', async () => {
+          try {
+            const r = await fetch('/api/providers/test', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ provider: p.id }),
+            });
+            const d = await r.json().catch(() => ({}));
+            flashStatus(`${p.label}: ${d.ok ? 'authenticated' : (d.error || d.message || 'failed')}`);
           } catch (e) { flashStatus(`${p.label}: ${e.message}`); }
         });
       });
     }
-    function openConn() { $('conn-back').classList.add('open'); }
+    function openConn() { $('conn-back').classList.add('open'); renderConn(); }
     $('btn-conn').addEventListener('click', openConn);
     $('conn-close').addEventListener('click', () => $('conn-back').classList.remove('open'));
     $('conn-back').addEventListener('click', (e) => {
