@@ -560,3 +560,60 @@ shape (single caller, in-place upgrades are the exception not degrading
 unsafely) — filed so a future sprint that changes either assumption
 (adds a second `tick()` caller, or needs snapshot continuity across an
 upgrade) finds this written down instead of rediscovering it.
+
+---
+
+## PDF text extraction → PKB → librarian scout
+
+**Filed by:** `sprints/2026-08-06-deep-research-world-forge/VISION.md`
+(reject-as-scoped verdict on a proposed "Deep Research World Forge"
+source mode).
+
+**The gap, independent of the rejected feature.** A PDF dropped into
+`lab/pkb/inbox` (the Knowledge tab's drag-drop zone) is filed by `pkb.py`
+under the `"papers"` category and then **never read by anything.**
+`_PKB_TEXT_SUFFIXES` (`pkb.py:376`) is `.md/.txt/.rst/.csv/.json/.html`;
+`librarian_scout._TEXT_SUFFIXES` (line 53) is narrower still —
+`.md/.txt/.markdown`. `grep` for `pypdf|PyPDF|pdfminer|fitz|pdftotext`
+across `src/` and `pyproject.toml` returns nothing — there is zero PDF
+text extraction anywhere in ARAIL. The user-visible surface (a drag-drop
+zone, a folder-reveal button, a `"papers"` filing category) implies PDFs
+are used. They are not. This is arguably already a defect, not just a
+missing feature.
+
+**Why it surfaced now.** An operator asked for a "Deep Research World
+Forge" mode (live web research via the Browser agent, feeding a new
+World's starting term base) to build a "Quantum" World with current
+post-quantum cryptography jargon. VISION.md rejected that proposal — the
+Browser agent is a `subprocess.run(["agent-browser", ...])` call the
+egress guard structurally cannot see (it patches `requests`/`urllib`/
+`httpx`, all in-process), so routing forge through it would make the
+existing forge banner's audit promise (`worlds.html:92`) false. Separately,
+the actual motivating sources (NIST FIPS 203/204/205, the PQC standards)
+are PDFs — so a web-research mode wouldn't have reached the right content
+anyway.
+
+**The better wedge, once (if) the need is confirmed.** Add a PDF-to-text
+step at PKB ingest (`pypdf` — pure Python, no system deps, no network),
+extend both text-suffix allowlists above to cover the extracted text, and
+let the existing machinery do the rest: `librarian_scout.mine_candidates()`
+already scans `pkb/inbox`/`pkb/sources` for capitalized multi-word phrases
+and standalone acronyms — precisely the shape of `ML-KEM`, `SLH-DSA`,
+`Module-Lattice-Based Key-Encapsulation Mechanism` — and already routes
+mined candidates through evidence accumulation, the ubiquity threshold,
+and the Compiled-KB approval gate. No new egress surface (the operator
+downloads the PDF themselves), no new consent gate, no Node/npm/Chromium
+dependency, and it generalizes past one World: every future World forged
+from a specialized corpus (a standards body, a textbook, a paper set) is
+served, not just Quantum.
+
+**Why not done now.** VISION.md's reject verdict was contingent on a
+pre-registered, falsifiable experiment (three-arm forge coverage test —
+local dream / frontier-brain dream / Wikipedia fetch — against a
+~20-term PQC checklist) that had not yet been run at time of filing. If
+Arm B (frontier brain) scores ≥70% coverage, the existing "Frontier API"
+forge-brain toggle already solves the operator's stated problem and this
+item drops in priority to "fix the PDF-ingest defect" without the
+World-forge framing. Revisit alongside that experiment's result — see
+`sprints/2026-08-06-deep-research-world-forge/VISION.md` for the full
+decision tree and thresholds.
