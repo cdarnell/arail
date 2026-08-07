@@ -64,6 +64,7 @@ to reconcile with.
 |---|---|---|
 | 2026-08-06 | Started at `think`, not `plan` | Genuinely new feature with real strategic tension (adding a live-internet-research surface to a product whose default identity is airgapped/local-first) — not a bug fix with an obvious win condition. |
 | 2026-08-07 | **Rejected as scoped**; pipeline blocked before `plan` | See VISION.md. Three premises in the brief below failed verification, and the decisive experiment (three-arm forge coverage test) costs one evening and has not been run. |
+| 2026-08-07 | Operator confirmed: run the 3-arm experiment before deciding whether to override | Pre-registered the 20-term checklist (`pqc-terms.md`, committed before forging). Ran Arms A and C live on disposable instances. **Arm A (local dream): 15% (3/20).** **Arm C (Wikipedia fetch): 5% (1/20).** Both catastrophically below the 40% "gap is real" threshold, and both fail the same way for different reasons — A knows category names but zero specific algorithm/standard terms; C drowns the topic in generic Wikipedia quantum/crypto category noise. **Arm B (frontier brain) still blocked — no provider key saved; needs the operator to add one via ⚙ Manage providers, or run it themselves through the Worlds UI.** Full per-arm findings in `pqc-terms.md`. The decision tree cannot be closed without Arm B: per the pre-committed thresholds, Arm B ≥70% kills the feature outright regardless of A/C's scores. |
 
 ## Corrections to the "Context handed to the visionary" section above
 
