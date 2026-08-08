@@ -539,14 +539,25 @@ request.
 
 Mechanics: vectors are written into a shadow build
 (`<pkb_root>/.cache/lancedb.next/`) batch by batch, with a checkpoint
-(`<pkb_root>/.cache/reembed-state.json`) written after every batch. Only
-once every row succeeds does the live table get replaced — the previous
-table is renamed to `pkb_pages.lance.bak-<ts>` first, so a crash between
-steps leaves either the old table or the old table plus a discardable
-`.next` directory, never a half-embedded live index. SIGINT stops queuing
-new batches (the in-flight batch finishes and checkpoints normally) and
-exits `130`; resume with `--resume`. A provenance sidecar
-(`pkb_pages.provenance.json`) is written last, after the swap.
+(`<pkb_root>/.cache/reembed-state.json`) written after every batch. Before
+swapping, the shadow build's actual row count is re-read from LanceDB and
+compared against the expected total — a mismatch (e.g. an external
+cleanup removed `.next`, or a `--resume` checkpoint's claim disagrees
+with what's actually in the shadow table) discards the shadow build and
+checkpoint and refuses to swap, rather than putting a truncated index
+live. A `total == 0` scan is also refused if a live table already
+exists — an empty result never replaces a populated index. Only once the
+shadow build is verified complete does the live table get replaced — the
+previous table is renamed to `pkb_pages.lance.bak-<ts>` first, so a crash
+between steps leaves either the old table or the old table plus a
+discardable `.next` directory, never a half-embedded live index. An
+`O_EXCL` lock file (`<pkb_root>/.cache/reembed.lock`) prevents two
+concurrent runs against the same root; a second run refuses immediately
+with an actionable message rather than racing LanceDB's own transaction
+conflict resolver. SIGINT stops queuing new batches (the in-flight batch
+finishes and checkpoints normally) and exits `130`; resume with
+`--resume`. A provenance sidecar (`pkb_pages.provenance.json`) is written
+last, after the swap.
 
 On a warm Ollama, expect roughly 75–134 rows/s (measured on the live
 `ai`/`video-games` worlds — see RESULTS.md in the sprint above); a
@@ -554,9 +565,10 @@ On a warm Ollama, expect roughly 75–134 rows/s (measured on the live
 an explicit verb instead of an implicit one.
 
 Exit: `0` ok · `1` error (LanceDB unavailable, `--resume` checkpoint spec
-mismatch) · `2` the given `--pkb-root` doesn't exist · `4` the embedding
-provider is unavailable (`EmbeddingError`) · `130` interrupted (resume
-with `--resume`).
+or shadow-build mismatch, empty corpus against an existing live table,
+another `pkb reembed` already running against this root) · `2` the given
+`--pkb-root` doesn't exist · `4` the embedding provider is unavailable
+(`EmbeddingError`) · `130` interrupted (resume with `--resume`).
 
 ### `wiki <op>`
 

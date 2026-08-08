@@ -636,3 +636,189 @@ guarantee. No write occurred.
   reflects the predecessor's legitimate work, not anything from this
   sprint.)
 - No TODO comments left in any new/modified file. No commented-out code.
+
+---
+
+# Build3: REVIEW2.md BLOCK remediation
+
+**Verdict being remediated:** BLOCK (both findings reproduced by
+execution against real code, including the operator's real `debt-finance`
+World). See `sprints/2026-08-08-arail2-tier1-integration/REVIEW2.md` for
+the full reproduction log (scenarios 1–14).
+
+## BLOCK-1 — degraded state erased by a successful search; C4 not enforced on the read path
+
+**Fixed in commit `44b3981`.**
+
+Root cause: `pkb_index._degraded`/`_degraded_reason` was a single
+module-global pair covering five independent facts (provider outage,
+dimension mismatch, provenance disagreement, empty index, "nothing wrong
+today"), so a successful `embed_query()` call — evidence about the
+*provider* only — was unconditionally clearing all five. And the C4
+provenance check existed only inside `ensure_ready`, which runs once per
+process behind an `_initialized` guard; `_semantic_search` never
+consulted it.
+
+Fix:
+- Reason-scoped degraded state: `set_degraded(code, reason)` /
+  `clear_degraded(code=None)` / new `degraded_codes()`. Every call site
+  audited and given the specific code it has evidence about — `_flush`'s
+  per-row success now clears only `"provider"`, not the blanket clear it
+  had before.
+- `pkb_index.check_read_path_health(table, db_path)` — dimension then
+  provenance, the one shared implementation `ensure_ready` and
+  `pkb._semantic_search` both call, so the two enforcement points can
+  never drift apart again. Called on **every** `_semantic_search`
+  invocation, not just at startup.
+- `doctor.py`'s exit-3 decision now reads `degraded_codes()` (a
+  structured set) instead of substring-matching `"provenance"` in a
+  prose message — the dimension-mismatch reason didn't contain that
+  word, so every one of the operator's five real (128-dim, no-sidecar)
+  Worlds was INFO-only and `doctor` exited 0. Both `"dimension"` and
+  `"provenance"` are now required (exit 3).
+
+**Boundary amendment taken.** REVIEW2.md relaxed boundary #6 to permit
+one additive method on `vector_index.py`: `VectorIndex.search_vector()` +
+`VectorSearchError`, with `search()` now delegating to it. This is the
+**first and only edit to `vector_index.py` in this entire sprint** — I
+took the amendment as specified (one additive method, `search()`'s
+existing failsoft contract for `wiki_nodes`/`experiments` preserved
+unchanged) and did not use the opening to make any other change to the
+file. `pkb._table_search_by_vector` — my own W9 workaround, with its bare
+`except Exception: return []` that REVIEW2.md correctly identified as the
+mechanism by which the dimension error became silence — is **deleted**,
+not kept as debt, per the explicit instruction.
+
+Commit `6e6e0f2` separately wires `pkb.retrieval_status()` into
+`/api/pkb/search` (required action 4) via response headers
+(`X-Retrieval-Status`/`X-Retrieval-Reason`) rather than a wrapped JSON
+body — the endpoint's three frontend consumers
+(`dashboard.html`/`agents.html`/`docs_hub.html`) all call
+`.then(r => r.json()).then(hits => hits.forEach(...))` on the bare array,
+and changing that shape without a matching frontend pass would be a
+breaking change I was not going to make inside a BLOCK-remediation
+commit. The `/knowledge` banner and Buddy's context-header line — the
+other two C1-named surfaces — are **explicitly deferred**, recorded in
+`SPRINT.md`'s decisions log and filed in `sprints/BACKLOG.md`, per
+REVIEW2's own stated alternative to silence ("wire it, or record the
+deferral explicitly... as an accepted C1 gap with a backlog entry").
+`/knowledge` is itself now a 307 redirect to `/dac` — the surface moved
+since C1 was written, which is part of why I didn't attempt a rushed fix
+there.
+
+New tests: `tests/test_block1_read_path_provenance.py` (4, reproducing
+REVIEW2's scenarios 1–3 directly as regression tests), 3 more in
+`tests/test_c1_error_contract.py` for the reason-scoped primitives
+themselves, 1 more in `tests/test_doctor_embedding_status.py` (legacy
+128-dim → exit 3), 3 in `tests/test_pkb_search_api_status.py`.
+
+## BLOCK-2 — `pkb reembed` could swap a truncated or empty result in
+
+**Fixed in commit `237e630`.**
+
+Root cause: the shadow build's completeness was never verified against
+what the checkpoint (or the corpus scan) expected before the live-table
+swap fired.
+
+Fix, matching REVIEW2's four required sub-fixes exactly:
+- **(a) Verify before swap.** After the batch loop completes normally,
+  the shadow table's actual row count is re-read from LanceDB (not
+  trusted from the in-memory `completed_count`) and compared against
+  `total`. A mismatch discards the shadow build and checkpoint and raises
+  `ShadowBuildIncomplete` — never swaps.
+- **(b) `--resume` discards an inconsistent checkpoint.** Before
+  resuming, the checkpoint's claimed `completed_paths` count is checked
+  against the shadow table's *actual* row count (including "the shadow
+  dir doesn't exist at all", which reads as count 0). Any disagreement
+  discards the checkpoint and restarts the run from scratch — the
+  discard reason is threaded through the result dict and printed by
+  `main()`, so the operator sees it rather than a silently "successful"
+  resume that only did 38 of what it claimed.
+- **(c) Refuse `total == 0` against a live table.** Checked first, before
+  any shadow-dir or checkpoint work — a corpus scan of zero rows never
+  touches an existing populated index. `total == 0` with *no* existing
+  table still succeeds as a no-op (there's nothing to protect, and this
+  is a legitimate first-run-on-an-empty-World state).
+- **(d) `O_EXCL` lock.** `<pkb_root>/.cache/reembed.lock`, held for the
+  write phase only (`--dry-run` never acquires it — it touches no shared
+  state). A second concurrent run gets `ReembedLocked` — one sentence —
+  instead of racing LanceDB's transaction conflict resolver into the raw
+  `lance error: Incompatible transaction … conflict_resolver.rs:855`
+  REVIEW2.md's scenario 6 produced.
+
+New tests: 9 in `tests/test_pkb_reembed.py` covering all four sub-fixes,
+including a **real two-subprocess race** (`test_two_concurrent_reembed_
+processes_one_loses_cleanly`, `@pytest.mark.requires_ollama`) rather than
+an in-process thread race — `run()` installs a `SIGINT` handler via
+`signal.signal()`, which only works on a process's main thread, so a
+thread-based race would hit an unrelated `ValueError` instead of
+exercising the lock at all. Discovering this while writing the test is
+itself evidence the lock design is sound for its actual (single-process
+CLI) usage; the subprocess test is the faithful reproduction of REVIEW2's
+scenario 6.
+
+## Required action 6 — non-stubbed guard against a silent hash-vector regression
+
+**Fixed as part of the BLOCK-2 commit** (bundled — the test belongs with
+neither block specifically; see the commit message for why).
+`tests/test_w9_embedder_swap.py::test_index_all_calls_the_real_embed_
+documents_symbol` (`@pytest.mark.requires_ollama`, NOT stubbed) asserts
+by identity that `index_all` calls the real
+`arail.dbspec.embed.embed_documents` function object, and that the
+stored vector differs from what `hash_embedding` would have produced for
+the same input — the shape a silent fallback regression would take.
+
+## Debts filed (REVIEW2.md required, before PASS)
+
+All four added to `sprints/BACKLOG.md`:
+1. `pkb_index`'s degraded state is a module global against per-World
+   roots (survivable today because Worlds run as separate processes; a
+   landmine if concurrent-Worlds ever shares one process).
+2. `tests/conftest.py`'s suite-wide embedding stub hides a hash-vector
+   regression from every test except the one new guard test.
+3. `.bak-<ts>` accumulation with no pruning and no `docs/cli.md` mention
+   of the accumulation itself (the rollback *use* of `.bak-<ts>` is
+   documented; the fact that they pile up was not).
+4. C1's `/knowledge` banner / Buddy context-header wiring — the
+   explicit-deferral entry described above.
+
+The fifth item REVIEW2.md listed ("a second copy of `VectorIndex.
+search`'s post-processing") was **resolved, not filed** — that's
+`search_vector()`, per the boundary amendment.
+
+## What I could not / did not do
+
+- Full UI wiring for the `/knowledge` banner and Buddy's context header
+  (see above — explicit, documented deferral, not a gap I'm claiming is
+  closed).
+- Did not extend the "real embedder" guard-test pattern to `_build_row`
+  or `pkb_reembed.run`'s own `embed_documents` call sites — filed as part
+  of backlog item 2's "what a future sprint could do" rather than done
+  here, to keep this remediation pass scoped to what REVIEW2.md actually
+  required (one guard test, required action 6, not three).
+- Did not implement `.bak-<ts>` pruning (filed as debt, not attempted —
+  REVIEW2.md's tech-debt section asked for it to be *filed*, not fixed,
+  alongside the other three).
+
+## Regression check
+
+Ran the complete `pytest -q` suite after all three build3 commits landed;
+see the coordinator-facing summary in the final chat response for this
+invocation (recorded there rather than duplicated here to avoid this log
+going stale relative to the actual run — same practice as invocation 2's
+final-state section above).
+
+Targeted suites (pkb/pkb_index/pkb_reembed/vector_index/doctor/eval/
+dbspec/setup_ladder/cli_verbs — everything touched by any commit in this
+sprint): **301 passed**, 0 failed, working tree clean before each commit.
+
+## Commits this invocation
+
+- `44b3981` — BLOCK-1 fix (reason-scoped degraded state, read-path C4
+  enforcement, the `vector_index.py` boundary amendment, deletion of the
+  duplicate post-processing).
+- `6e6e0f2` — C1 search-payload wiring (partial, with explicit deferral
+  for the remaining two surfaces) + the SPRINT.md/BACKLOG.md filings.
+- `237e630` — BLOCK-2 fix (shadow-completeness verification, empty-corpus
+  refusal, checkpoint/shadow-mismatch discard, the reembed lock) + the
+  non-stubbed real-embedder guard test.
