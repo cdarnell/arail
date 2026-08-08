@@ -768,3 +768,121 @@ number is not strong evidence either way. Extend each with its own
 "pkb_pages" as a hardcoded table name) if/when they are swapped, so "two
 vector spaces in one lab" stays a recorded, provenance-checkable fact
 instead of reverting to being an undocumented discovery.
+
+---
+
+## `pkb_index`'s degraded state is a module global; PKB roots are per-World
+
+**Filed by:** REVIEW2.md's tech-debt section (required to be filed before
+PASS), `sprints/2026-08-08-arail2-tier1-integration/BUILD_LOG.md` build3.
+
+**The gap.** `pkb_index._degraded_codes` (and, before build3's reason-
+scoping fix, the single `_degraded`/`_degraded_reason` pair) is one dict
+shared by the whole process, but `ensure_ready` caches `_pkb_root_cache`
+and early-returns on `_initialized` — meaning in a process that touches
+more than one PKB root, one World's degraded status can describe another
+World's table. Concurrent-Worlds usage (`./arailctl start --world <slug>`)
+runs each World as its own OS process today (per
+`docs/concurrent-worlds.md`), which is what makes this survivable right
+now — one process, one root, one meaningful global. Per the operator's
+own recorded usage pattern (serial, not concurrent Worlds — see
+`learnings/` cross-product memory), this has not bitten anyone yet.
+
+**What a future sprint needs to do, if concurrent in-process multi-root
+access is ever introduced:** key `_degraded_codes` (and `_pending`,
+`_timer`, `_pkb_root_cache`) by `pkb_root` instead of being process-global
+singletons. This is a real refactor (the debounce timer machinery assumes
+one root too), not a one-line fix — scope it as its own sprint if/when the
+concurrent-Worlds architecture starts sharing a process.
+
+---
+
+## `tests/conftest.py`'s suite-wide embedding stub hides a hash-vector regression
+
+**Filed by:** REVIEW2.md's tech-debt section (required to be filed before
+PASS), `sprints/2026-08-08-arail2-tier1-integration/BUILD_LOG.md` build3.
+
+**The gap.** The autouse `_stub_embedding_provider` fixture (added W6,
+`tests/conftest.py`) replaces `arail.dbspec.embed.embed_documents`/
+`embed_query`/`embed` with a deterministic `hash_embedding`-based fake for
+every test not marked `@pytest.mark.requires_ollama`. This is the right
+call for FM18 (a CI runner with no Ollama must not turn every pkb test
+into an integration test) — but it means a hypothetical future regression
+where production code silently falls back to `hash_embedding` instead of
+calling the real `embed_documents` symbol would be **invisible** to the
+entire test suite: the stub's own output looks identical in shape to what
+a real accidental hash-vector fallback would produce.
+
+**Mitigation already shipped, build3:** one non-stubbed guard test
+(`tests/test_w9_embedder_swap.py::test_index_all_calls_the_real_embed_documents_symbol`)
+asserts `index_all` calls the actual `arail.dbspec.embed.embed_documents`
+function object (via `unittest.mock.patch`'s call-target identity, not the
+stub), so a regression that swapped the call site back to
+`hash_embedding` would fail this one test even though every other
+pkb-related test in the suite would stay green.
+
+**What a future sprint could do, if this matters more:** extend the guard
+pattern to `_build_row`/`pkb_reembed.run` (the other two production call
+sites), or add a suite-wide post-run assertion that greps the coverage
+report for the `hash_embedding` symbol's call sites and fails if any of
+the three production embed call sites show up.
+
+---
+
+## `pkb reembed`'s `.bak-<ts>` backups accumulate with no pruning
+
+**Filed by:** REVIEW2.md's tech-debt section (required to be filed before
+PASS), `sprints/2026-08-08-arail2-tier1-integration/BUILD_LOG.md` build3.
+
+**The gap.** Every successful `./arailctl pkb reembed` that replaces an
+existing live table renames the old `pkb_pages.lance` to
+`pkb_pages.lance.bak-<unix-ts>` rather than deleting it — the documented
+rollback path (`docs/cli.md`'s `reembed` section: "move the `.bak-<ts>`
+dir back over `pkb_pages.lance`"). Nothing prunes these. A World that gets
+re-embedded repeatedly (e.g. after several spec/model changes, or after
+an operator scripts periodic reembeds) accumulates one full-size backup
+directory per run, unbounded, with no CLI surface to list or clean them
+and no mention of the accumulation in `docs/cli.md` beyond the rollback
+instructions.
+
+**What a future sprint should do:** either (a) a `--keep-backups N` flag
+defaulting to something like 1–2, pruning older `.bak-<ts>` dirs after a
+successful swap, or (b) fold pruning into `./arailctl db optimize`
+(ARCHITECTURE.md's rollback plan already floats this: "`db optimize` may
+claim them later"), whichever surface makes more sense once the
+consolidated-store question is revisited. Until then, an operator running
+`pkb reembed` repeatedly should expect disk usage proportional to run
+count × corpus size, and should manually `rm -rf` old `.bak-<ts>` dirs
+once they've confirmed a reembed succeeded.
+
+---
+
+## C1's `/knowledge` banner and Buddy context-header wiring — deferred
+
+**Filed by:** REVIEW2.md required action 4 (explicit-deferral option),
+`sprints/2026-08-08-arail2-tier1-integration/SPRINT.md` build3 decisions
+log, `sprints/2026-08-08-arail2-tier1-integration/BUILD_LOG.md` build3.
+
+**The gap.** C1 in ARCHITECTURE.md named three surfaces for
+`retrieval_status()`: the search API payload, the `/knowledge` banner, and
+Buddy's context-header line ("an agent must not be handed keyword-only
+results while the UI claims semantic retrieval"). Build3 wired the first
+(`/api/pkb/search` now sets `X-Retrieval-Status`/`X-Retrieval-Reason`
+response headers when degraded — see
+`tests/test_pkb_search_api_status.py`). The other two were not: `/knowledge`
+is itself a 307 redirect to `/dac` today (the surface moved since C1 was
+written), and Buddy's system-prompt/context-builder wiring is a separate
+code path (`search_for_agents` → whatever assembles Buddy's LLM context)
+that needs its own read-and-scope pass rather than a same-commit addition
+alongside two BLOCK fixes.
+
+**What a future sprint needs to do:** (a) find the current DaC/`/dac`
+knowledge surface's template and add a degraded banner there, reading
+`pkb.retrieval_status()` the same way the search endpoint now does; (b)
+find where Buddy's (and any other agent's) system prompt is assembled
+from `search_for_agents()` results and prepend a one-line honesty note
+("semantic search is degraded: <reason>; results below are keyword-only")
+when `retrieval_status()` reports not-ok. Both are small once located —
+the backend primitive (`pkb.retrieval_status()`) already exists and is
+tested; this is purely "find the two remaining call sites and read one
+tuple."

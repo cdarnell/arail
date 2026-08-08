@@ -11224,7 +11224,30 @@ async def api_pkb_browse():
 async def api_pkb_search(q: str = ""):
     if not q.strip():
         return []
-    return pkb_search(q.strip())
+    results = pkb_search(q.strip())
+    # C1 (arail2-tier1-integration, REVIEW2.md required action 4): surface
+    # retrieval_status() in the search payload so an embedding-subsystem
+    # degradation is visible to whatever's calling this endpoint, not only
+    # to ./arailctl doctor. Response HEADERS rather than a wrapped JSON
+    # body, deliberately: dashboard.html/agents.html/docs_hub.html all do
+    # `fetch(...).then(r => r.json()).then(hits => hits.forEach(...))` —
+    # changing the top-level shape to an envelope would break all three
+    # without a matching frontend change, which is out of scope for this
+    # fix. The `/knowledge` banner and Buddy's context-header line (the
+    # other two C1 surfaces) are NOT wired in this pass — see
+    # sprints/2026-08-08-arail2-tier1-integration/SPRINT.md's explicit
+    # deferral and the matching sprints/BACKLOG.md entry.
+    from arail.pkb import retrieval_status
+    ok, reason = retrieval_status()
+    if ok:
+        return results
+    return JSONResponse(
+        content=results,
+        headers={
+            "X-Retrieval-Status": "degraded",
+            "X-Retrieval-Reason": reason[:200],
+        },
+    )
 
 
 @app.post("/api/pkb/ingest")
