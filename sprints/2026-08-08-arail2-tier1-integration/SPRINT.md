@@ -30,8 +30,8 @@ data. Nothing in `pkb.py`, `vector_index.py`, `world_mount.py`, or
 |---|---|---|---|---|---|---|
 | think | visionary | VISION.md | done | 2026-08-08T18:56:52Z | 2026-08-08T19:03Z | **proceed (narrowed)** |
 | plan | architect (design) | ARCHITECTURE.md | done | 2026-08-08T19:06Z | 2026-08-08T19:13Z | complete (W0–W10) |
-| build | builder | BUILD_LOG.md | in_progress (W0–W5 only) | 2026-08-08T19:15Z | — | — |
-| review | architect (review) | REVIEW.md | pending | — | — | — |
+| build | builder | BUILD_LOG.md | done (W0–W5) | 2026-08-08T19:15Z | 2026-08-08T19:47Z | **PASS** (Δ +40.6pp) |
+| review | architect (review) | REVIEW.md | in_progress (measurement integrity) | 2026-08-08T19:48Z | — | — |
 | test | qa | TEST_REPORT.md | pending | — | — | — |
 | ship | — | PR | pending | — | — | — |
 
@@ -46,6 +46,25 @@ data. Nothing in `pkb.py`, `vector_index.py`, `world_mount.py`, or
 | 2026-08-08 | Architect raised the fixture floor to >=30 queries and added a paired-bootstrap 95% CI on the delta | 15pp over 20 queries is 3 queries — a coin flip wearing a percentage sign. Floor raised to >=6 per world x 5 stores. A point estimate clearing 15pp with a CI crossing zero yields `PASS_INCONCLUSIVE`, which publishes and stops for operator sign-off rather than auto-integrating. |
 | 2026-08-08 | Build is scoped to W0–W5 (through the measurement), not the full W0–W10 | W5 is the gate. Whether the conditional integration (W6–W10) happens depends on a number that does not exist yet. The builder publishes the number and stops; the orchestrator re-gates. |
 | 2026-08-08 | The `+0.053` number measured the wrong thing | It compared nomic-with-prefixes vs nomic-without. The decision actually on the table — nomic vs `hash_embedding` — has never been measured. Hence Tier 1.2 ships as an A/B with a kill criterion, not as an assumed improvement. |
+
+## W5 gate result (2026-08-08)
+
+Pooled recall@5: hash **50.0%** vs nomic **90.6%**, Δ **+40.6pp** against a
+>=15pp bar. 95% bootstrap CI on Δ **[+25.0, +56.2]pp** — lower bound well
+above zero, so not `PASS_INCONCLUSIVE`. Exact-token rank-1 losses: **0**.
+Zero-lexical-overlap stratum: hash **0.0%**, nomic **62.5%**.
+
+**Verdict: PASS.** W6–W10 (conditional integration) become live work.
+
+Orchestrator correction recorded: when briefing the visionary, the orchestrator
+framed nomic as making "Ollama a hard requirement." That was wrong and
+contradicted its own spec comment (`spec/models/models.hcl:40`). `setup.sh`
+already does `brew install ollama` + `ollama pull llama3.2:1b` (1.3 GB). The
+true marginal cost is 274 MB, a new requirement that Ollama be *running* during
+PKB ingest, and ~100x slower indexing (10,000 rows/s -> 100 rows/s; 2.85s for
+the 381-row `ai` world). The error inflated the cost side but did not change
+the outcome — the bar was cleared by 25pp beyond the CI's lower bound. The bar
+was **not** revised after results existed; doing so would be post-hoc tuning.
 
 ## Skipped phases
 
