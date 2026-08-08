@@ -699,3 +699,72 @@ the docs-registry rows as their own pseudo-world (or folds them into
 `root`, since `docs_registry` content is root-scoped conceptually) so the
 docs slice gets its own recall@5 number rather than inheriting the
 PKB-only result by assumption.
+
+---
+
+## `pkb_provenance.py`'s JSON sidecar is a second-best `content_refs`
+
+**Filed by:** ARCHITECTURE.md §"Tech debt assessment" (conditional),
+required to be filed "at build time" — this is that filing, from
+`sprints/2026-08-08-arail2-tier1-integration/BUILD_LOG.md` W7/W9.
+
+**The gap.** The rejected 2.0 consolidated store's `content_refs` table
+records `embedding_model`/`embedding_dim` per row, transactionally, as
+part of the same write. The 1.x per-instance `pkb_pages` tables have no
+such column, so `pkb_provenance.py` (new this sprint) is a JSON file
+sitting next to the LanceDB table instead: written last, read on load,
+compared against the current spec. It does the job (C4: no query served
+from a table whose provenance disagrees with the spec), but it is a
+second-best solution to a problem the 2.0 store already solves properly,
+and it is one more piece of on-disk state that can theoretically drift
+from the table it describes (e.g. a `pkb_pages.lance` directory copied
+without its sidecar).
+
+**What a future sprint should do:** retire `pkb_provenance.py` if/when
+the consolidated 2.0 store cutover is revisited (see
+`sprints/2026-08-08-arail2-declarative-persistence/INTEGRATION.md` and
+VISION.md's rejection rationale for that cutover) — `content_refs`
+subsumes it. Until then, `pkb_provenance.py`'s three functions
+(`write`/`read`/`agrees_with_spec`) are the whole surface; a future
+migration only needs to reimplement `agrees_with_spec`'s semantics
+against `content_refs` rows.
+
+---
+
+## Two vector spaces in one lab: `pkb_pages` (nomic) vs `wiki_nodes` / `agent_workflows` / `experiments` (hash)
+
+**Filed by:** ARCHITECTURE.md §"Tech debt assessment" (conditional,
+"Also filed") and REVIEW.md's amendment 1 — required to be filed at
+build time. This is that filing, from
+`sprints/2026-08-08-arail2-tier1-integration/BUILD_LOG.md` W9.
+
+**The gap.** After the Tier 1.2 embedder swap, `pkb_pages` is embedded
+with nomic-embed-text (768-dim, real semantic vectors). `wiki_nodes.py`'s
+own hash table, `agent_workflows`, and `experiments` all still use
+`vector_index.hash_embedding` (128-dim, a SHA1 token-hash projection).
+This is safe today — the tables are physically separate LanceDB tables/
+directories, so nothing cross-contaminates — but it means "semantic
+search" now means two different, incompatible things depending on which
+surface of the lab you're searching, and only one of them (`pkb_pages`)
+carries a provenance sidecar (C4) recording what it actually is.
+
+**Corrected framing (REVIEW.md amendment 1, measured, not assumed):**
+`hash_embedding` is not kept around because it is competitive on any
+retrieval axis this sprint measured (see
+`sprints/2026-08-08-arail2-tier1-integration/RESULTS.md`'s exact-token
+collision diagnostic — hash lost even the class it was assumed to win).
+It is kept **only** because `wiki_nodes`/`agent_workflows`/`experiments`
+still call it directly and swapping those three call sites was
+explicitly out of scope for this sprint (A5 in ARCHITECTURE.md).
+
+**What a future sprint should do:** if `wiki_nodes`/`agent_workflows`/
+`experiments` search quality becomes a live complaint, measure them the
+same way this sprint measured `pkb_pages` — a fixture, an A/B, a
+15-point-or-larger bar — rather than assuming the `pkb_pages` result
+transfers. Their content shape (wiki term pages, workflow logs,
+experiment records) differs enough from PKB prose that the `pkb_pages`
+number is not strong evidence either way. Extend each with its own
+`pkb_provenance`-style sidecar (or the shared module, generalized past
+"pkb_pages" as a hardcoded table name) if/when they are swapped, so "two
+vector spaces in one lab" stays a recorded, provenance-checkable fact
+instead of reverting to being an undocumented discovery.

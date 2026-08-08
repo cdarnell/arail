@@ -1,13 +1,19 @@
 # Build log: Tier 1.2 as a measurement — nomic vs `hash_embedding`
 
 **Architecture:** [ARCHITECTURE.md](./ARCHITECTURE.md) at `3987f71`
+**Review:** [REVIEW.md](./REVIEW.md) — verdict **PASS**, three design
+amendments (binding, see W6–W10 section below)
 **Started:** 2026-08-08
-**Finished (this invocation):** 2026-08-08
+**W0–W5 finished:** 2026-08-08
+**W6–W10 finished:** 2026-08-08
 
-**Scope of this invocation: W0–W5 only.** W6–W10 (conditional integration)
-are gated on the number produced by W4/W5. They are **not** attempted here,
-regardless of the verdict — see "Architect feedback required" for nothing,
-and see the final section for what the orchestrator should do next.
+**Invocation 1 scope: W0–W5 only.** The measurement. See the "W0–W5"
+section below (unchanged from the original build).
+
+**Invocation 2 scope: W6–W10, plus REVIEW.md's three required actions.**
+The gate PASSED (Δ +40.6pp, CI [+25.0, +56.2], zero rank-1 losses) and
+REVIEW.md's verdict was PASS — the conditional integration is now live
+work, per the coordinator's instruction. See the "W6–W10" section below.
 
 ## Plan
 
@@ -247,25 +253,18 @@ documented, in-scope construction decision (docs-registry exclusion, see
 above) and one honest finding that contradicts a stated assumption
 (hash's exact-token performance) rather than a gap requiring a redesign.
 
-## What this build did NOT do (by design, this invocation)
+## What invocation 1 did NOT do (by design, that invocation)
 
-Per the task scope, **W6–W10 were not attempted**, regardless of the PASS
-verdict:
-- No change to `src/arail/pkb.py`, `vector_index.py`, `pkb_index.py`,
-  `wiki_vectors.py` — confirmed byte-identical to baseline `8cb5760`
-  (`git diff --stat 8cb5760 -- src/arail/pkb.py src/arail/vector_index.py
-  src/arail/pkb_index.py src/arail/wiki_vectors.py` is empty).
-- No `./arailctl pkb reembed` verb, no provenance sidecar, no
-  `scripts/setup.sh` change, no embedder-selection flag of any kind (C6
-  still holds: `hash_embedding` and `dbspec.embed` are only ever imported
-  together inside `scripts/eval/retrieval_ab.py`).
-- Per ARCHITECTURE.md's fork (§"Recommended implementation order" step 6):
-  the PASS verdict means the orchestrator should route to `/architect
-  review` and then, if the review passes, resume the builder for W6–W10 as
-  a separately reviewable chunk — **not** an instruction for this
-  invocation to keep going.
+Per that invocation's scope, **W6–W10 were not attempted**, regardless of
+the PASS verdict — confirmed at the time by `git diff --stat 8cb5760 --
+src/arail/pkb.py src/arail/vector_index.py src/arail/pkb_index.py
+src/arail/wiki_vectors.py` being empty, and no embedder-selection flag of
+any kind existing anywhere in production code. **This restriction has
+since been lifted** — see the "W6–W10" section below, which is invocation
+2, resumed after REVIEW.md's PASS verdict per the coordinator's explicit
+instruction.
 
-## Final state
+## Final state (invocation 1, W0–W5)
 
 - Tests added this build: 11 (W0) + 24 (W1/W3) + 16 (W2) + 1 (W4 live
   integration) = **52 new tests, all passing.**
@@ -297,3 +296,334 @@ verdict:
   ~10 new files under `eval/retrieval/`, `scripts/eval/`, `tests/eval/`,
   `tests/dbspec/`.
 - No TODO comments left in any new file. No commented-out code.
+
+---
+
+# W6–W10: the conditional integration (invocation 2)
+
+**Ordering, per REVIEW.md's endorsement:** C1 error contract (W6) first —
+"the loudness must exist before there is anything to be loud about" — then
+C2 (`pkb reembed`, W7), then the embedder swap (W9), then C4's doctor
+read-side + C5 setup (W8+W10, one commit). This is the coordinator's stated
+order, not architecture's original W6→W7→W8→W9→W10 numbering (provenance
+*writing* is inseparable from W7/W9 themselves — C2's shadow-build-and-swap
+and W9's `index_all` both write the sidecar as their own last step — so
+"provenance" as a separate chunk collapsed into the *read-side* check,
+which genuinely can't exist before there's a writer to check against).
+
+## Design amendments from REVIEW.md (binding, applied as written)
+
+1. **"Preserve hash for exact-token lookup" framing dropped.** Nowhere in
+   this build's code, comments, or commit messages does `hash_embedding`'s
+   survival get justified by retrieval quality. Every place it's
+   mentioned (pkb_index.py docstrings, `sprints/BACKLOG.md`'s new "two
+   vector spaces" entry, this log) states the actual reason: A5 —
+   `wiki_nodes`/`agent_workflows`/`experiments` still call it directly and
+   swapping those three call sites was out of scope.
+2. **W9 states the docs-registry gap as a written assumption.**
+   `collect_pending_rows()`'s docstring in `pkb.py` (landed in W7, since
+   that's where the function was introduced) says explicitly: the A/B
+   never scored the docs-registry slice; `index_all`/`pkb_reembed`
+   re-embed it anyway "on the strength of the general result... rather
+   than a slice-specific measurement." Also recorded as a `sprints/
+   BACKLOG.md` item (filed in the first required-actions commit,
+   `90b56ce`, before W6 started).
+3. **`pkb reembed`'s documented throughput is the measured 75–134 rows/s**
+   (`docs/cli.md`'s new `reembed` section), not the best-case 380+ rows/s
+   the `ai` world hit. The `--dry-run` ETA itself is never hardcoded to
+   either figure — it always runs a live 32-row timing probe against
+   whatever the real embedder does on the machine it's run on — so this
+   amendment is really about not misleading the reader of the docs, which
+   is where I applied it.
+
+## Required actions from REVIEW.md
+
+1. **Manifest path redaction — withdrawn before any code changed.** The
+   coordinator's correction (recorded in the sprint ledger at `c94281a`)
+   arrived while I had only run read-only `git ls-files` checks; no edit
+   to `retrieval_ab.py`'s manifest generator, `corpus_manifest.json`, or
+   `RESULTS.md`'s recorded manifest sha was ever made. Nothing to revert;
+   the W4 commit's provenance chain is intact.
+2. **Two carried debts filed in `sprints/BACKLOG.md`** (commit `90b56ce`,
+   before W6): the `.wiki-cache/manifest.json` dot-directory indexing
+   defect, and the docs-registry coverage gap. Two more filed in this
+   invocation once W7/W9 created them (see "Debt filed this invocation"
+   below): the provenance-sidecar-is-second-best item and the two-vector-
+   spaces item, both required by ARCHITECTURE.md's own tech-debt section
+   to be filed "at build time."
+3. **Exact-token collision diagnostic appended to `RESULTS.md`** (commit
+   `90b56ce`, before W6) — the corrected conclusion ("hash has no stratum
+   on this corpus where it is the better retriever") now lives in the
+   published artifact, not only in REVIEW.md.
+
+## W6 — C1 error contract (commit `4af4691`)
+
+`pkb_index.py` gained the degraded-state primitives
+(`set_degraded`/`clear_degraded`/`embedding_status`), a shared
+`_index_all_reporting_embedding_errors()` wrapper used by all four
+`index_all()` call sites, and a restructured `_flush()` per-row loop that
+aborts (not per-path-retries) on `EmbeddingError` and re-arms the retry
+timer at a 60s back-off instead of the normal 2s debounce (FM17). The
+`_schema_ok` dimension check was split into `_schema_column_status()` so
+`ensure_ready` can tell "missing columns" (still safe to drop-and-rebuild)
+from "wrong dimension" (never drops — the exact failure the architecture
+built C2 to prevent, FM12) apart, and a new C4 read-side check compares
+the `pkb_provenance` sidecar against the current spec, degrading (not
+dropping) on disagreement or absence.
+
+New leaf module `pkb_provenance.py` (write/read/agrees_with_spec) so
+`pkb.py`, `pkb_index.py`, and the not-yet-written `pkb_reembed.py` share
+one sidecar implementation.
+
+13 new tests (`tests/test_c1_error_contract.py`); 5 pre-existing
+`pkb_index` tests updated because they assumed the *old* "any dimension
+mismatch triggers rebuild" contract, which C2/FM12 deliberately reverses.
+
+**This was the first commit in the sprint where `pkb.py`/`pkb_index.py`
+were touched at all** — every line in it is authorized by C1/C4, per
+ARCHITECTURE.md's "untouched unless C1/C2/C4 says so" boundary.
+
+## W7 — `./arailctl pkb reembed` (commit `5718dc5`)
+
+New module `src/arail/pkb_reembed.py`: shadow build in
+`.cache/lancedb.next/`, one checkpoint write per batch, SIGINT sets a flag
+(checked between batches, so an in-flight batch always finishes and
+checkpoints before the process exits 130), `--resume` refuses on a
+model/dim/spec_sha256 mismatch, the live table only replaces the old one
+(renamed to `.bak-<ts>`) after every row succeeds, and the provenance
+sidecar is written last.
+
+`pkb.py` gained `collect_pending_rows()`/`_collect_docs_rows()` — row
+construction split from embedding, so `index_all` and `pkb_reembed` can
+never diverge on the embed-input string (A4). This landed as a pure
+refactor: `index_all`'s own behaviour was **unchanged** in this commit
+(still `hash_embedding`, still row-at-a-time) — the actual embedder swap
+is W9, one commit later, exactly as REVIEW.md's ordering specifies.
+
+**A real bug found by writing this code, not by review:** `pkb_reembed`'s
+own checkpoint (`reembed-state.json`) and provenance sidecar
+(`pkb_pages.provenance.json`) both live under `.cache/` with a `.json`
+suffix, and `_iter_pkb_files` only excludes files whose own *name* starts
+with a dot — not files under a dot-prefixed *directory*. Without a fix,
+every `pkb reembed` run would re-embed its own bookkeeping files on the
+next pass. Fixed narrowly: `_iter_pkb_files` now excludes any path with
+`.cache` as a path component. Deliberately did **not** generalize this to
+the already-filed, deliberately-deferred `.wiki-cache` defect — that stays
+exactly as REVIEW.md required it to be filed (a separate, pre-existing,
+out-of-scope bug), while `.cache` needed fixing because C2's own new state
+recreates the bug on every run otherwise. New regression test:
+`test_cache_dir_contents_never_indexed_by_iter` in
+`tests/test_pkb_index_qa.py`.
+
+`arailctl` gained the `pkb reembed` sub-verb (`--world <slug> | --root |
+--all`, `--resume`, `--dry-run`, `--yes`), dispatched one
+`python -m arail.pkb_reembed` call per resolved pkb root, reusing
+`scripts/lib/instances.sh`'s `inst_pkb_dir`/`inst_list_slugs` (already
+sourced at the top of `arailctl`) rather than re-deriving path logic.
+**Found and fixed a real bash 3.2 bug** by hand-testing the dispatch
+against a stubbed `.venv` (never against the operator's real lab — see
+"What was and wasn't run against real data" below): `"${_reembed_extra[@]}"`
+on a legitimately-empty array aborts under `set -euo pipefail` on macOS's
+default bash 3.2 (fixed only in bash 4.4+). Fixed with the same
+`${arr[@]+"${arr[@]}"}` guard `restart`'s `_switch_live` already uses
+(`arailctl:708`) — a pattern this codebase has hit and fixed before.
+`docs/cli.md` documents the new sub-verb.
+
+12 new tests (`tests/test_pkb_reembed.py`): happy path + provenance,
+backup-on-second-run, dry-run writes nothing, empty corpus, FM13 (SIGINT
+mid-run leaves the live table untouched, checkpoint written, `--resume`
+completes to the full row count), checkpoint spec-mismatch refusal,
+`EmbeddingError` propagation, CLI exit codes.
+
+## W9 — the production embedder swap (commit `4a6b726`)
+
+`index_all()`: computes every vector via one batched `embed_documents()`
+call over the whole pending set **before** `VectorIndex.replace()` is
+touched (`replace()` is `mode="overwrite"` — this ordering is the
+non-negotiable the architecture named, and it is structurally impossible
+to violate now, not just tested-for: the vectors list is built, then
+zipped into rows, then written — there is no code path that writes a row
+before its vector exists). `EmbeddingError` propagates untouched (LOUD).
+Provenance is written last, after `replace()` returns.
+
+`_semantic_search()`: the lazy `if idx.count() == 0: index_all(root)` call
+is **removed** (FM11). An empty index degrades honestly, naming
+`./arailctl pkb reembed` in the message, instead of firing a synchronous
+rebuild from inside a search request. The query is now embedded via
+`embed_query()`; an `EmbeddingError` there is caught, logged at ERROR,
+activity-logged at severity `error`, and degrades — `search()` already
+fell through to the regex sweep and already labelled those results
+`source="keyword"`, so **no change was needed to `search()` or
+`search_for_agents()` at all** — the existing structure was already
+correct for this contract, it just needed `_semantic_search` to actually
+return `[]` on a real failure instead of a hash-embedding call that could
+never fail.
+
+**A genuine, disclosed design decision: `vector_index.py` was not
+touched, at all.** `VectorIndex.search()` always computes the query
+vector itself via `hash_embedding` at a fixed dimension — correct for
+hash-embedded tables, wrong for a 768-dim nomic one, and it offers no way
+to hand it a precomputed vector. The architecture's own boundary list
+names `pkb.py`/`vector_index.py`/`pkb_index.py`/`wiki_vectors.py` as
+"untouched unless C1/C2/C4 says so," and none of C1/C2/C4's bullet lists
+name a change to `vector_index.py` specifically (only line-number
+references to `pkb.py`/`pkb_index.py` call sites, plus context citations
+into `vector_index.py` that don't propose editing it). I read that as
+deliberate: the swap works by having `pkb.py` do its own kNN lookup
+against the already-open LanceDB table (`_table_search_by_vector()`, ~15
+lines, the same post-processing `VectorIndex.search()` already does)
+rather than by extending `VectorIndex` itself. `vector_index.py`'s `git
+diff` against `8cb5760` is empty as of this commit — confirmed the same
+way REVIEW.md confirmed it for W0–W5.
+
+`pkb_index.py`'s `_build_row()` (used by `_flush`'s incremental upsert)
+now embeds via `embed_documents` too, matching `index_all`. It raises
+`EmbeddingError` deliberately uncaught — the one caller, `_flush`, already
+catches it separately (landed in W6, before this swap existed to trigger
+it) to abort the whole flush rather than retry-storm a dead provider.
+
+**Test-fixture fallout, all mechanical, no behavioural gap:** ~13
+pre-existing tests across `test_docs_sprint3_qa.py`, `test_docs_ingest.py`,
+and `test_pkb_index_qa.py`/`test_pkb_index.py`/`test_pkb_index_perf.py`
+either called `VectorIndex(...).search()` directly at its default 128-dim
+(now dimension-incompatible with a nomic-populated table — switched to
+reading the LanceDB table directly, since those tests are about row
+presence/dedup, not retrieval) or pre-seeded a table with a 128-dim
+`hash_embedding("seed")` vector and then exercised `_flush`'s incremental
+upsert, which now writes new rows at 768-dim into the *same* table — a
+hard LanceDB schema conflict, not a soft one. Seed vectors bumped to
+`dim=768` to match what the (globally stubbed, see below) embedder
+actually produces. None of these changes altered what the test was
+actually verifying.
+
+**`tests/conftest.py` gained an autouse `_stub_embedding_provider` fixture
+in W6**, ahead of this swap landing — it stubs `embed_documents`/
+`embed_query`/`embed` with a deterministic, network-free fake (reusing
+`hash_embedding` at `EMBEDDING_DIM`) for every test not marked
+`@pytest.mark.requires_ollama`. Without it, this commit would have turned
+every test that exercises `index_all`/`_semantic_search` into a live-
+Ollama-required integration test — a generalized version of FM18 the
+architecture only explicitly named for the eval harness.
+
+8 new tests (`tests/test_w9_embedder_swap.py`): provenance-written-after-
+swap, `EmbeddingError`-writes-nothing-and-leaves-existing-table-untouched,
+empty-corpus-makes-no-embed-call, FM11 (zero `embed_query` *and* zero
+`index_all` calls from an empty-index search), query-`EmbeddingError`-
+degrades-and-falls-back, a real-hit mechanics sanity check, and FM15
+(closed-port `MODEL_API_BASE` — using the **real** `embed_documents`,
+restored via a pre-stub-captured reference, not the stub — writes zero
+vectors and leaves the existing index intact, message names
+`ollama pull nomic-embed-text`).
+
+## W8 + W10 — doctor exit-3 wiring + setup.sh pull (commit `a69ff2a`)
+
+`doctor.py`'s `check_knowledge_base()` now reports `embed.probe()`'s
+result and `pkb_index.embedding_status()`. **Only a provenance
+disagreement is a required (exit-3-degrading) finding** — every other
+degraded reason (Ollama unreachable, index not built yet) stays
+INFO-only, matching the existing precedent for "no model configured" and
+preserving the CI smoke job's documented exit-0 contract on a runner with
+no Ollama pulled (A8). I checked this distinction against the actual
+architecture text before implementing it: C4 says "no query is served
+from a table whose provenance disagrees with the spec" and "doctor exits
+3" specifically for that disagreement — not for the provider being
+unreachable in general, which is the everyday clean-machine state C5 is
+explicitly designed to tolerate ("warn and continue, never fail setup").
+Making the *general* degraded flag required would have contradicted C5 in
+the same commit that implements it.
+
+`scripts/setup.sh` gained `ollama pull nomic-embed-text` in
+`install_services()`, right after the ai-eng persona block, following the
+`llama3.2:1b` pattern exactly: idempotent skip if present, warn-and-
+continue on failure, placed after every early-return guard already in the
+function so it inherits the same `ARAIL_SKIP_OLLAMA`/
+`ARAIL_SKIP_MODEL_DOWNLOAD`/daemon-unreachable skip semantics rather than
+re-probing them.
+
+3 new tests (`tests/test_doctor_embedding_status.py`); 2 pre-existing
+`setup_ladder` idempotency tests were asserting "no PULL of any kind" when
+the ai-eng persona was already installed — too broad now that
+nomic-embed-text is a second, independent pull in the same ladder — scoped
+to the ai-eng-specific pull commands they actually meant to test; 2 new
+setup-ladder tests pin the nomic pull itself (pulled when absent, skipped
+when present).
+
+## Debt filed this invocation
+
+Two more items required by ARCHITECTURE.md's tech-debt section to be
+filed "at build time" (conditional — only apply once the integration
+ships, which it now has), added to `sprints/BACKLOG.md`:
+- `pkb_provenance.py`'s JSON sidecar is a second-best `content_refs` — to
+  be retired if/when the rejected 2.0 consolidated store cutover is
+  revisited.
+- Two vector spaces in one lab (`pkb_pages` nomic vs.
+  `wiki_nodes`/`agent_workflows`/`experiments` hash) — now a recorded,
+  provenance-checkable fact rather than a silent inconsistency, with the
+  REVIEW.md-corrected framing (hash survives only because those three
+  call sites weren't swapped, not because it's competitive) carried into
+  the filing.
+
+## debt-finance as a first-class verification target
+
+Per the coordinator's addition: no code in this invocation special-cases
+any World by name, tracked-bundle status, or slug. `pkb_reembed.py`,
+`index_all`, `_semantic_search`, `ensure_ready`, and the doctor check are
+all parameterized purely by `pkb_root: Path` — a World's identity never
+enters the logic. This means `debt-finance` is exercised by exactly the
+same code every other World is: `./arailctl pkb reembed --world
+debt-finance` resolves to `inst_pkb_dir debt-finance` and runs the
+identical `pkb_reembed.run()` function used for `ai`/`video-games`/
+`qukaizen`. I did not run that command against the operator's real
+`debt-finance` data (see boundary note below), but I did verify —
+per the W4 measurement already on record in `RESULTS.md` — that
+`debt-finance` already scores 100% recall@5 under nomic on its real
+corpus, jointly the best of the five Worlds. There is no finding to
+report: uniform code path, already-measured strong result. If a future
+sprint ever needs debt-finance-specific behaviour (e.g. because its
+bundle is untracked), that would be a new, explicit design decision, not
+something this integration quietly assumed away.
+
+## What was and wasn't run against real data
+
+Per ARCHITECTURE.md boundary #5 ("no `index_all`, no ingest, no reembed
+against the operator's real labs without an explicit operator ask"), no
+`pkb reembed`, `index_all`, or `ensure_ready`-triggered rebuild was ever
+run in this invocation against `/Users/netsushi/ProJects/qukaizen-arail/
+lab/`'s five real Worlds. All functional testing used either pytest's
+`tmp_path`-isolated fixtures (the automated test suites) or hand-created
+scratch directories under `/tmp` (manual smoke tests of `pkb_reembed.py`'s
+CLI and `arailctl`'s bash dispatch, all cleaned up afterward). One
+`python -m arail.doctor` invocation was run from this worktree's own
+`lab/pkb/` (a worktree-local `.cache/lancedb` this worktree happens to
+carry, contradicting ARCHITECTURE.md's A1 assumption that this worktree
+"carries no runtime data") — it found a pre-existing 128-dim hash table,
+correctly degraded via the new dimension-mismatch path, and **did not
+modify it**, which is exactly the safety property C2/FM12 exists to
+guarantee. No write occurred.
+
+## Final state (invocation 2, W6–W10)
+
+- Tests added: 13 (W6) + 12 (W7) + 8 (W9) + 3 (W8/W10) = **36 new tests,
+  all passing.**
+- Combined with invocation 1's 52, this sprint's test suites now carry
+  **88 new tests**, all passing as of the last commit.
+- Full-suite regression run: see the coordinator-facing summary in the
+  final chat response (a fresh complete `pytest -q` run was executed
+  after all W6–W10 commits landed; results reported there rather than
+  duplicated here to avoid this log going stale relative to the actual
+  run).
+- 5 commits this invocation: `90b56ce` (required actions 2+3),
+  `4af4691` (W6), `5718dc5` (W7), `4a6b726` (W9), `a69ff2a` (W8+W10).
+- No production embedder-selection flag exists anywhere (C6 still holds).
+- `vector_index.py`, `world_mount.py`, `scripts/start.sh`,
+  `src/arail/dbspec/migrate.py`/`reconcile.py`/`repo.py`/`spec.py`, and
+  `src/arail/dbspec/generated/*` remain untouched by this sprint (both
+  invocations) — confirmed by `git diff --stat e1f2ef7..HEAD` (the
+  sprint's own first commit through the current HEAD) against each,
+  which is empty. (`git diff --stat 8cb5760` against these same files is
+  *not* empty — the dbspec/ layer and its generated modules are new files
+  from the predecessor `2026-08-08-arail2-declarative-persistence` sprint,
+  landed before baseline `8cb5760` was cut for *this* sprint; that diff
+  reflects the predecessor's legitimate work, not anything from this
+  sprint.)
+- No TODO comments left in any new/modified file. No commented-out code.
