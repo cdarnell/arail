@@ -183,6 +183,12 @@ def test_ensure_ready_compatible_table_reuses(tmp_path: Path, monkeypatch):
     from arail.vector_index import hash_embedding
     import lancedb  # type: ignore[import-not-found]
 
+    # This test is about schema-compatibility reuse, not the embedding
+    # provider or provenance (C2/C4) — see test_ensure_ready_staleness_sweep
+    # for the same pattern.
+    monkeypatch.setattr(pki, "_vector_dim", lambda: 128)
+    monkeypatch.setattr("arail.pkb_provenance.agrees_with_spec", lambda *a, **k: True)
+
     db_path = tmp_path / ".cache" / "lancedb"
     db_path.mkdir(parents=True, exist_ok=True)
     db = lancedb.connect(str(db_path))
@@ -231,6 +237,15 @@ def test_ensure_ready_staleness_sweep(tmp_path: Path, monkeypatch):
     from arail.vector_index import hash_embedding
     import lancedb  # type: ignore[import-not-found]
     import os
+
+    # This test is about the staleness sweep, not the embedding provider or
+    # provenance (C2/C4) — pin the "current" dimension to 128 so the
+    # 128-dim hash-vector fixture below reads as schema-compatible instead
+    # of tripping the (now separate, never-auto-rebuilt) dimension-mismatch
+    # path, and stub the provenance check to "agrees" so ensure_ready falls
+    # through to the staleness sweep this test actually exercises.
+    monkeypatch.setattr(pki, "_vector_dim", lambda: 128)
+    monkeypatch.setattr("arail.pkb_provenance.agrees_with_spec", lambda *a, **k: True)
 
     db_path = tmp_path / ".cache" / "lancedb"
     db_path.mkdir(parents=True, exist_ok=True)

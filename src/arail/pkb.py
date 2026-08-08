@@ -9,6 +9,7 @@ Three operations:
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import shutil
@@ -16,11 +17,26 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+_log = logging.getLogger(__name__)
+
 
 def _pkb_root() -> Path:
     """Resolve PKM root via central config (honors LAB_PKM env)."""
     from arail.config import PKB_ROOT
     return PKB_ROOT
+
+
+def retrieval_status() -> tuple[bool, str]:
+    """(ok, message) for the vector-search subsystem (C1 in
+    ARCHITECTURE.md). ok=False means the last embedding call failed and
+    search()/search_for_agents() are currently running keyword-only —
+    callers that present retrieval as "semantic" should say so. Thin
+    delegate to pkb_index, which owns the degraded flag."""
+    try:
+        from arail import pkb_index
+        return pkb_index.embedding_status()
+    except Exception:  # noqa: BLE001
+        return True, ""
 
 
 def _ts() -> str:
