@@ -32,7 +32,8 @@ data. Nothing in `pkb.py`, `vector_index.py`, `world_mount.py`, or
 | plan | architect (design) | ARCHITECTURE.md | done | 2026-08-08T19:06Z | 2026-08-08T19:13Z | complete (W0–W10) |
 | build | builder | BUILD_LOG.md | done (W0–W5) | 2026-08-08T19:15Z | 2026-08-08T19:47Z | **PASS** (Δ +40.6pp) |
 | build2 | builder | BUILD_LOG.md | done (W6–W10 + actions) | 2026-08-08T20:01Z | 2026-08-08T21:00Z | 88 tests, baseline-clean |
-| review2 | architect (review) | REVIEW2.md | in_progress | 2026-08-08T21:02Z | — | — |
+| review2 | architect (review) | REVIEW2.md | done | 2026-08-08T21:02Z | 2026-08-08T21:14Z | **BLOCK** |
+| build3 | builder | BUILD_LOG.md | in_progress (BLOCK remediation) | 2026-08-08T21:16Z | — | — |
 | review | architect (review) | REVIEW.md | done | 2026-08-08T19:48Z | 2026-08-08T19:56Z | **PASS** |
 | test | qa | TEST_REPORT.md | pending | — | — | — |
 | ship | — | PR | pending | — | — | — |
@@ -144,6 +145,47 @@ Added in scope: `debt-finance` is a **first-class verification target** for
 W9/W10 — the re-embed path, provenance sidecar, and setup/degradation messaging
 must be exercised against it. It already scores 100% recall@5 under nomic,
 joint best with `root`.
+
+## Review 2 verdict (2026-08-08) — BLOCK
+
+Both blocks reproduced by execution.
+
+**BLOCK-1 — a successful search erases the degraded state, and provenance is
+never enforced on the query path.** `pkb._semantic_search` calls
+`pkb_index.clear_degraded()` unconditionally once `embed_query()` succeeds, and
+`_degraded` is a single module-global covering five distinct causes. Reproduced
+on a legacy 128-dim table: `ensure_ready` degrades correctly, one `pkb.search()`
+clears it, `doctor` then prints `vector index status: ok` and exits 0 while
+semantic search returns nothing **forever**. That describes **all five of the
+operator's real Worlds today** (`debt-finance` verified: 79 rows @ 128d, no
+sidecar). Worse, with a sidecar naming a different model at the same dimension,
+search returned **12 hits labelled `source="semantic"` from a foreign vector
+space** — C4's "no query is served from a table whose provenance disagrees with
+the spec" is not implemented on the query path at all. Compounding: 
+`pkb.retrieval_status()` has **zero callers**, so C1's user-visible half was
+silently dropped and `doctor` was the only surface — which BLOCK-1 turns off.
+
+**BLOCK-2 — `pkb reembed` can swap in a truncated index and report success.**
+Shadow-build completeness is never verified before the swap. A checkpoint
+listing 40 of 78 paths whose `.next` dir is gone → `--resume` embeds the
+remaining 38, swaps, reports `completed: 78`, writes a sidecar claiming
+`rows: 78`, exits 0 — live table has **38 rows**, every health check agrees it
+is fine. An empty corpus renames a healthy live table to `.bak-<ts>` and swaps
+in nothing. No lock file; concurrent runs produced a raw
+`lance error: Incompatible transaction`.
+
+**Boundary ruling reversed.** "Don't touch `vector_index.py`" was a *pre-gate*
+guarantee; C1/C2/C4 omit a precomputed-query-vector entry point because the
+architect missed it, not because it was forbidden. The duplicated
+`pkb._table_search_by_vector` reintroduced a bare `except Exception: return []`
+on the agent-facing path — which is *how* BLOCK-1's dimension error becomes
+silence. Boundary #6 amended to permit one additive `search_vector()` method on
+`VectorIndex`; the duplicate is to be **deleted, not filed as debt**.
+
+**Confirmed sound and kept:** `index_all` compute-before-`replace()` ordering
+(structurally enforced), FM12 verified on real `debt-finance` data (degrades,
+never drops), FM15, FM17, C6 (no flag, no fallback — grepped), `setup.sh`
+offline grace, and scope (protected files byte-identical to `8cb5760`).
 
 ## Skipped phases
 
