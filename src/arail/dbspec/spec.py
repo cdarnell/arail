@@ -81,6 +81,8 @@ class ModelSpec:
     tier: str = "minimalist"
     default: bool = False
     embedding_dim: Optional[int] = None
+    query_prefix: str = ""
+    document_prefix: str = ""
 
     @property
     def parameter_count_known(self) -> bool:
@@ -317,7 +319,7 @@ def _load_models(spec_dir: Path) -> Tuple[Tuple[ModelSpec, ...],
         _reject_unknown(block, (
             "role", "backend", "base", "ollama_tag", "parameter_count",
             "parameter_source", "license", "disclosure", "tier", "default",
-            "embedding_dim"), where=where)
+            "embedding_dim", "query_prefix", "document_prefix"), where=where)
         role = _one_of(_require(block, "role", where=where, kind=str),
                        _VALID_ROLES, where=where, key="role")
         parameter_count = _require(block, "parameter_count", where=where,
@@ -345,6 +347,8 @@ def _load_models(spec_dir: Path) -> Tuple[Tuple[ModelSpec, ...],
             tier=block.get("tier", "minimalist"),
             default=bool(block.get("default", False)),
             embedding_dim=embedding_dim,
+            query_prefix=block.get("query_prefix", ""),
+            document_prefix=block.get("document_prefix", ""),
         ))
 
     if not models:
