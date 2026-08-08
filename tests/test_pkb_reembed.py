@@ -218,3 +218,229 @@ def test_main_happy_path_exits_0(tmp_path, capsys, monkeypatch):
     assert rc == 0
     out = capsys.readouterr().out
     assert "done: 2/2" in out
+
+
+# --------------------------------------------------------------------------
+# REVIEW2.md BLOCK-2 required tests
+# --------------------------------------------------------------------------
+
+def test_resume_with_checkpoint_shadow_mismatch_discards_and_starts_over(tmp_path):
+    """Required test #2: --resume with a checkpoint/shadow mismatch must
+    never swap a truncated index in. Reproduces REVIEW2.md scenario 4:
+    checkpoint claims N completed paths but the shadow build disagrees
+    (here: shadow dir entirely absent, the most common real-world cause —
+    a cleanup path removing the "obviously disposable" .next directory)."""
+    pkb_root = _make_pkb(tmp_path, n=10)
+
+    # Write a checkpoint claiming 6 of 10 rows done, but create NO shadow
+    # build at all -- the exact REVIEW2.md scenario 4 shape.
+    from arail.dbspec.generated.models_registry import EMBEDDING_DIM, embedding_model
+    from arail.pkb import _current_spec_sha256
+    fake_completed = [f"notes/doc{i}.md" for i in range(6)]
+    reembed._write_checkpoint(pkb_root, {
+        "schema": reembed.SCHEMA, "model": embedding_model().name,
+        "dim": EMBEDDING_DIM, "spec_sha256": _current_spec_sha256(), "started_at": "x",
+        "total": 10, "completed_paths": fake_completed, "batch": 32,
+    })
+    assert not reembed._shadow_dir(pkb_root).exists()
+
+    result = reembed.run(pkb_root, resume=True, include_docs=False)
+
+    assert result["interrupted"] is False
+    assert result["resume_discarded_reason"] is not None
+    assert "discarding" in result["resume_discarded_reason"]
+    # Must have started over and embedded the FULL 10, not trusted the
+    # checkpoint's stale claim of 6-already-done / 10 total.
+    assert result["completed"] == result["total"] == 10
+
+    import lancedb  # type: ignore[import-not-found]
+    db = lancedb.connect(str(reembed._live_dir(pkb_root)))
+    table = db.open_table("pkb_pages")
+    assert table.count_rows() == 10
+
+
+def test_resume_with_shadow_row_count_disagreement_discards_and_starts_over(tmp_path, monkeypatch):
+    """Same failure class, different cause: the shadow dir exists but its
+    row count disagrees with the checkpoint's completed_paths count (a
+    partial/corrupted write)."""
+    import lancedb  # type: ignore[import-not-found]
+    from arail.vector_index import hash_embedding
+    from arail.dbspec.generated.models_registry import EMBEDDING_DIM, embedding_model
+    from arail.pkb import _current_spec_sha256
+
+    pkb_root = _make_pkb(tmp_path, n=10)
+    shadow_dir = reembed._shadow_dir(pkb_root)
+    shadow_dir.mkdir(parents=True)
+    db = lancedb.connect(str(shadow_dir))
+    # Checkpoint will claim 6 completed, but the shadow table only has 2 rows.
+    db.create_table("pkb_pages", data=[
+        {"path": f"notes/doc{i}.md", "name": f"doc{i}.md",
+         "vector": hash_embedding(f"content {i}", dim=768),
+         "mtime": 0.0, "source_kind": "user"}
+        for i in range(2)
+    ], mode="overwrite")
+
+    fake_completed = [f"notes/doc{i}.md" for i in range(6)]
+    reembed._write_checkpoint(pkb_root, {
+        "schema": reembed.SCHEMA, "model": embedding_model().name,
+        "dim": EMBEDDING_DIM, "spec_sha256": _current_spec_sha256(), "started_at": "x",
+        "total": 10, "completed_paths": fake_completed, "batch": 32,
+    })
+
+    result = reembed.run(pkb_root, resume=True, include_docs=False)
+
+    assert result["resume_discarded_reason"] is not None
+    assert result["completed"] == result["total"] == 10
+
+
+def test_total_zero_with_existing_live_table_refuses_swap(tmp_path):
+    """Required test #3: total == 0 against a live, populated table must
+    never swap — an empty scan (transient or a not-yet-populated World)
+    must not delete a healthy index."""
+    import lancedb  # type: ignore[import-not-found]
+    from arail.vector_index import hash_embedding
+
+    pkb_root = tmp_path / "pkb"
+    pkb_root.mkdir()
+    live_dir = reembed._live_dir(pkb_root)
+    live_dir.mkdir(parents=True)
+    db = lancedb.connect(str(live_dir))
+    db.create_table("pkb_pages", data=[
+        {"path": "notes/existing.md", "name": "existing.md",
+         "vector": hash_embedding("existing", dim=768),
+         "mtime": 0.0, "source_kind": "user"}
+    ], mode="overwrite")
+
+    with pytest.raises(reembed.EmptyCorpusRefused):
+        reembed.run(pkb_root, include_docs=False)
+
+    # The live table must be completely untouched -- not renamed, not
+    # replaced with an empty one.
+    db2 = lancedb.connect(str(live_dir))
+    table = db2.open_table("pkb_pages")
+    assert table.count_rows() == 1
+    assert not any(p.name.startswith("pkb_pages.lance.bak-") for p in live_dir.iterdir())
+
+
+def test_total_zero_with_no_existing_table_succeeds_as_noop(tmp_path):
+    """An empty corpus with NO existing live table is not a BLOCK-2 concern
+    -- there's nothing to protect, and the existing empty-corpus test
+    (test_empty_corpus_writes_zero_rows) already covers this path
+    completing normally."""
+    pkb_root = tmp_path / "pkb"
+    pkb_root.mkdir()
+    result = reembed.run(pkb_root, include_docs=False)
+    assert result["completed"] == result["total"] == 0
+
+
+# --------------------------------------------------------------------------
+# REVIEW2.md BLOCK-2 required test #4 — concurrent runs
+# --------------------------------------------------------------------------
+
+def test_second_concurrent_run_is_refused_by_lock(tmp_path):
+    pkb_root = _make_pkb(tmp_path, n=3)
+    lock = reembed._ReembedLock(pkb_root)
+    lock.acquire()
+    try:
+        with pytest.raises(reembed.ReembedLocked):
+            reembed.run(pkb_root, include_docs=False)
+    finally:
+        lock.release()
+
+
+def test_lock_released_after_run_completes(tmp_path):
+    pkb_root = _make_pkb(tmp_path, n=2)
+    reembed.run(pkb_root, include_docs=False)
+    assert not reembed._lock_path(pkb_root).exists()
+    # A second run afterward must succeed normally (lock isn't stuck held).
+    result = reembed.run(pkb_root, include_docs=False)
+    assert result["interrupted"] is False
+
+
+def test_lock_released_after_run_raises(tmp_path):
+    """The lock must be released even when the write phase raises (e.g.
+    EmptyCorpusRefused) -- otherwise one failed run wedges every future one."""
+    import lancedb  # type: ignore[import-not-found]
+    from arail.vector_index import hash_embedding
+
+    pkb_root = tmp_path / "pkb"
+    pkb_root.mkdir()
+    live_dir = reembed._live_dir(pkb_root)
+    live_dir.mkdir(parents=True)
+    db = lancedb.connect(str(live_dir))
+    db.create_table("pkb_pages", data=[
+        {"path": "notes/existing.md", "name": "existing.md",
+         "vector": hash_embedding("existing", dim=768),
+         "mtime": 0.0, "source_kind": "user"}
+    ], mode="overwrite")
+
+    with pytest.raises(reembed.EmptyCorpusRefused):
+        reembed.run(pkb_root, include_docs=False)
+
+    assert not reembed._lock_path(pkb_root).exists()
+
+
+def test_two_concurrent_runs_in_process_second_is_locked_out(tmp_path):
+    """In-process approximation of REVIEW2.md scenario 6: while the lock is
+    held (simulating a first run's write phase in progress), a second
+    run() call must fail with ReembedLocked -- a sentence, never a raw
+    LanceDB transaction-conflict traceback. (A true multi-thread race is
+    exercised by test_two_concurrent_reembed_processes_one_loses_cleanly
+    below, which uses real subprocesses since reembed.run() installs a
+    SIGINT handler that only works on the main thread.)"""
+    pkb_root = _make_pkb(tmp_path, n=20)
+    lock = reembed._ReembedLock(pkb_root)
+    lock.acquire()
+    try:
+        with pytest.raises(reembed.ReembedLocked):
+            reembed.run(pkb_root, include_docs=False)
+    finally:
+        lock.release()
+
+    # Once released, a normal run succeeds -- the lock isn't permanently
+    # wedged by the refused attempt.
+    result = reembed.run(pkb_root, include_docs=False)
+    assert result["interrupted"] is False
+    assert result["completed"] == result["total"] == 20
+
+
+@pytest.mark.requires_ollama
+def test_two_concurrent_reembed_processes_one_loses_cleanly(tmp_path):
+    """Required test #4, the real shape: two actual `python -m
+    arail.pkb_reembed` subprocesses racing against the same root
+    (REVIEW2.md scenario 6 reproduced two raw processes, not threads --
+    reembed.run() installs a SIGINT handler that only works on a process's
+    main thread, so an in-process thread-based race isn't representative).
+    Exactly one process must succeed (exit 0); the other must fail cleanly
+    with exit 1 and a sentence on stderr, never a raw Lance/Rust
+    traceback."""
+    import os
+    import subprocess
+    import sys as _sys
+
+    pkb_root = _make_pkb(tmp_path, n=40)
+    cmd = [
+        _sys.executable, "-m", "arail.pkb_reembed",
+        "--pkb-root", str(pkb_root), "--world-label", "concurrency-test",
+    ]
+    env = dict(os.environ)
+    src_path = str(Path(__file__).resolve().parents[1] / "src")
+    env["PYTHONPATH"] = src_path + (
+        (":" + env["PYTHONPATH"]) if env.get("PYTHONPATH") else "")
+    repo_root = str(Path(__file__).resolve().parents[1])
+
+    # Launch both back-to-back (Popen returns immediately, no need to wait
+    # for either) so they race for the same lock file.
+    procs = [
+        subprocess.Popen(cmd, cwd=repo_root, env=env,
+                          stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        for _ in range(2)
+    ]
+    outs = [p.communicate(timeout=60) for p in procs]
+    codes = [p.returncode for p in procs]
+
+    assert sorted(codes) == [0, 1], f"expected one success one lock-refusal, got {codes}: {outs}"
+    loser_stderr = next(o[1] for o, c in zip(outs, codes) if c == 1)
+    assert "lock" in loser_stderr.lower() or "already" in loser_stderr.lower()
+    assert "lance error" not in loser_stderr.lower()
+    assert "traceback" not in loser_stderr.lower()

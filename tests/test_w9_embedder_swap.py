@@ -246,3 +246,53 @@ def test_closed_port_ingest_writes_zero_vectors_leaves_existing_index_intact(
 
     after = _rows_summary(idx)
     assert after == before, "closed-port outage must leave the existing index untouched"
+
+
+# --------------------------------------------------------------------------
+# REVIEW2.md required test #6 — a NON-stubbed guard that index_all calls
+# the real embed_documents symbol, not a hash-vector fallback that would
+# be invisible to the rest of the (globally stubbed) suite.
+# --------------------------------------------------------------------------
+
+@pytest.mark.requires_ollama
+def test_index_all_calls_the_real_embed_documents_symbol(isolated_pkb):
+    """tests/conftest.py's autouse _stub_embedding_provider fixture stubs
+    embed_documents/embed_query for every test not marked requires_ollama —
+    the right call for FM18, but it means a hypothetical regression where
+    production code silently fell back to hash_embedding instead of
+    calling the real provider would be invisible to the entire suite. This
+    test is deliberately NOT stubbed (the marker exempts it, per
+    conftest.py) and asserts, by identity, that arail.pkb.index_all
+    actually calls the real arail.dbspec.embed.embed_documents function
+    object against a real, reachable Ollama -- and that the vectors it
+    produces are NOT what hash_embedding would have produced for the same
+    input, which is what a silent fallback regression would look like."""
+    import unittest.mock as mock
+    import arail.pkb as pkb
+    from arail.dbspec import embed as embed_mod
+    from arail.vector_index import VectorIndex, hash_embedding
+    from arail.dbspec.generated.models_registry import EMBEDDING_DIM
+
+    notes = isolated_pkb / "notes"
+    notes.mkdir(parents=True, exist_ok=True)
+    (notes / "a.md").write_text("# a real sentence for a real embedding call\n")
+
+    real_fn = embed_mod.embed_documents
+    with mock.patch.object(embed_mod, "embed_documents", wraps=real_fn) as spy:
+        result = pkb.index_all(pkb_root=isolated_pkb, include_docs=False)
+
+    assert spy.called, "index_all must call the real embed_documents symbol"
+    assert result["ok"] is True
+
+    db_path = pkb._vector_db_path(isolated_pkb)
+    idx = VectorIndex(name="pkb_pages", db_path=db_path, dim=EMBEDDING_DIM)
+    table = idx._table()  # noqa: SLF001 — test-only direct read
+    rows = table.to_pandas().to_dict("records")
+    assert len(rows) == 1
+    stored_vector = list(rows[0]["vector"])
+
+    embed_input = "a.md notes/a.md # a real sentence for a real embedding call\n"
+    hash_vector = hash_embedding(embed_input, dim=EMBEDDING_DIM)
+    assert stored_vector != hash_vector, (
+        "the stored vector must be a real nomic embedding, not a "
+        "hash_embedding fallback for the same input")

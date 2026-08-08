@@ -99,6 +99,76 @@ class CheckpointSpecMismatch(RuntimeError):
     embedding spec (model/dim/spec_sha256)."""
 
 
+class ShadowBuildIncomplete(RuntimeError):
+    """The shadow build's row count disagrees with what the checkpoint (or
+    the corpus scan) expected — REVIEW2.md BLOCK-2. Raised instead of
+    swapping a truncated index into place. The shadow build and checkpoint
+    are discarded before this is raised, so a plain re-run (without
+    --resume) starts clean."""
+
+
+class EmptyCorpusRefused(RuntimeError):
+    """total == 0 but a live table already exists — REVIEW2.md BLOCK-2.
+    Refusing to swap an empty result over a populated index; an empty
+    corpus is far more likely to mean "PKB dir not populated yet" or a
+    transient scan failure than "the operator wants to wipe their index.\""""
+
+
+class ReembedLocked(RuntimeError):
+    """Another ``pkb reembed`` is already running against this root
+    (REVIEW2.md BLOCK-2, scenario 6: two concurrent runs raced LanceDB's
+    own transaction conflict resolver and surfaced a raw Rust error)."""
+
+
+# --------------------------------------------------------------------------
+# lock — one concurrent `pkb reembed` per root
+# --------------------------------------------------------------------------
+
+def _lock_path(pkb_root: Path) -> Path:
+    return pkb_root / ".cache" / "reembed.lock"
+
+
+class _ReembedLock:
+    """O_EXCL lock file. Held for the duration of the write phase (not
+    --dry-run, which touches no shared state)."""
+
+    def __init__(self, pkb_root: Path):
+        self.path = _lock_path(pkb_root)
+        self._fd: int | None = None
+
+    def acquire(self) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            self._fd = os.open(str(self.path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            raise ReembedLocked(
+                f"another `pkb reembed` appears to already be running "
+                f"against this root (lock file exists: {self.path}). "
+                f"If you're certain none is (e.g. a previous run crashed "
+                f"without cleaning up), remove the lock file and re-run."
+            ) from None
+        os.write(self._fd, str(os.getpid()).encode("utf-8"))
+
+    def release(self) -> None:
+        if self._fd is not None:
+            try:
+                os.close(self._fd)
+            except OSError:
+                pass
+            self._fd = None
+        try:
+            self.path.unlink()
+        except FileNotFoundError:
+            pass
+
+    def __enter__(self) -> "_ReembedLock":
+        self.acquire()
+        return self
+
+    def __exit__(self, *exc_info) -> None:
+        self.release()
+
+
 # --------------------------------------------------------------------------
 # the run
 # --------------------------------------------------------------------------
@@ -110,7 +180,11 @@ def run(pkb_root: Path, *, resume: bool = False, dry_run: bool = False,
     (returns ``{"interrupted": True, ...}`` instead) — but DOES raise
     ``arail.dbspec.embed.EmbeddingError`` if the provider is unavailable,
     ``CheckpointSpecMismatch`` if ``--resume``'s checkpoint disagrees with
-    the current spec, and ``RuntimeError`` if LanceDB is unavailable.
+    the current spec, ``ShadowBuildIncomplete`` if the shadow build's row
+    count disagrees with what was expected (BLOCK-2), ``EmptyCorpusRefused``
+    if the corpus is empty and a live table already exists (BLOCK-2),
+    ``ReembedLocked`` if another run is already in progress against this
+    root, and ``RuntimeError`` if LanceDB is unavailable.
     """
     import lancedb  # type: ignore[import-not-found]
     from arail import pkb as pkb_mod
@@ -142,8 +216,38 @@ def run(pkb_root: Path, *, resume: bool = False, dry_run: bool = False,
             "rows_per_sec": rate, "eta_sec": eta,
         }
 
+    with _ReembedLock(pkb_root):
+        return _run_locked(
+            pkb_root, resume=resume, batch_size=batch_size,
+            pending_rows=pending_rows, total=total, model=model,
+            spec_sha=spec_sha, progress=progress,
+            lancedb=lancedb, pkb_mod=pkb_mod, pkb_provenance=pkb_provenance,
+            VectorIndex=VectorIndex, embed_mod=embed_mod,
+            EMBEDDING_DIM=EMBEDDING_DIM,
+        )
+
+
+def _run_locked(pkb_root: Path, *, resume: bool, batch_size: int,
+                 pending_rows: list[dict[str, Any]], total: int, model,
+                 spec_sha: str, progress: Callable[..., None],
+                 lancedb, pkb_mod, pkb_provenance, VectorIndex, embed_mod,
+                 EMBEDDING_DIM: int) -> dict[str, Any]:
+    """The write phase, called with the per-root lock already held."""
+
+    # BLOCK-2: an empty corpus must never silently wipe a populated live
+    # index. Refuse before touching anything.
+    live_table_path = _live_dir(pkb_root) / "pkb_pages.lance"
+    if total == 0 and live_table_path.exists():
+        raise EmptyCorpusRefused(
+            f"the corpus at {pkb_root} has zero rows to embed, but a live "
+            f"index already exists at {live_table_path} — refusing to swap "
+            f"an empty result over a populated index. If the corpus is "
+            f"genuinely and permanently empty and you want to clear the "
+            f"index, remove {live_table_path} manually.")
+
     checkpoint = _load_checkpoint(pkb_root) if resume else None
     completed_paths: set[str] = set()
+    resume_discarded_reason: str | None = None
     if checkpoint is not None:
         if (checkpoint.get("model") != model.name
                 or checkpoint.get("dim") != EMBEDDING_DIM
@@ -154,15 +258,45 @@ def run(pkb_root: Path, *, resume: bool = False, dry_run: bool = False,
                 "in one shadow build. Run without --resume to start over "
                 "(the previous shadow build will be discarded).")
         completed_paths = set(checkpoint.get("completed_paths", []))
-    elif not resume:
-        # Fresh start: discard any stale shadow build from a prior aborted
-        # run so it can't get silently mixed with this one.
+
+    shadow_dir = _shadow_dir(pkb_root)
+
+    if completed_paths:
+        # BLOCK-2 (scenario 4): the checkpoint claims N completed paths —
+        # verify the shadow build actually HAS N rows before trusting it.
+        # A missing .next dir, a row count that disagrees, or an unreadable
+        # table all mean the same thing: this checkpoint cannot be trusted
+        # to resume from. Discard it and start fresh rather than embedding
+        # only the "remaining" rows and reporting the checkpoint's stale
+        # total as if it were achieved.
+        shadow_row_count = 0
+        if shadow_dir.exists():
+            try:
+                probe_db = lancedb.connect(str(shadow_dir))
+                existing = VectorIndex._existing_tables(probe_db)
+                if "pkb_pages" in existing:
+                    shadow_row_count = int(probe_db.open_table("pkb_pages").count_rows())
+            except Exception:  # noqa: BLE001
+                shadow_row_count = -1  # unreadable -> definitely a mismatch
+        if shadow_row_count != len(completed_paths):
+            resume_discarded_reason = (
+                f"--resume checkpoint claimed {len(completed_paths)} "
+                f"completed rows, but the shadow build at {shadow_dir} has "
+                f"{shadow_row_count if shadow_row_count >= 0 else 'an unreadable'} "
+                f"row count — discarding the checkpoint and starting over.")
+            _log_stderr(resume_discarded_reason)
+            completed_paths = set()
+            checkpoint = None
+
+    if not completed_paths:
+        # Fresh start (either genuinely fresh, or a discarded/absent
+        # resume): discard any stale shadow build so it can't get silently
+        # mixed with this run.
         _clear_checkpoint(pkb_root)
-        shutil.rmtree(_shadow_dir(pkb_root), ignore_errors=True)
+        shutil.rmtree(shadow_dir, ignore_errors=True)
 
     remaining = [r for r in pending_rows if r["path"] not in completed_paths]
 
-    shadow_dir = _shadow_dir(pkb_root)
     shadow_dir.parent.mkdir(parents=True, exist_ok=True)
     db = lancedb.connect(str(shadow_dir))
     table = None
@@ -213,11 +347,31 @@ def run(pkb_root: Path, *, resume: bool = False, dry_run: bool = False,
         signal.signal(signal.SIGINT, old_handler)
 
     if interrupted["flag"]:
-        return {"interrupted": True, "completed": completed_count, "total": total}
+        return {
+            "interrupted": True, "completed": completed_count, "total": total,
+            "resume_discarded_reason": resume_discarded_reason,
+        }
 
-    # All rows succeeded — atomic-ish swap. Only now does the live table
-    # move; a crash before this point leaves the old live table untouched
-    # plus a (harmless, resumable-or-discardable) .next shadow dir.
+    # BLOCK-2 (scenario 4, defense in depth): verify the shadow build's
+    # actual row count matches `total` before swapping ANYTHING live. Even
+    # though the loop above believes it processed every remaining row, this
+    # re-reads the table LanceDB actually wrote rather than trusting the
+    # in-memory counters — the same discipline the checkpoint-resume check
+    # above applies, now applied to the write this process itself just did.
+    shadow_row_count = int(table.count_rows()) if table is not None else 0
+    if shadow_row_count != total:
+        shutil.rmtree(shadow_dir, ignore_errors=True)
+        _clear_checkpoint(pkb_root)
+        raise ShadowBuildIncomplete(
+            f"shadow build has {shadow_row_count} rows but the corpus scan "
+            f"expected {total} — discarding the inconsistent shadow build "
+            f"and checkpoint rather than swapping a truncated index in. "
+            f"Re-run `./arailctl pkb reembed` (without --resume) to start "
+            f"over.")
+
+    # All rows verified present — atomic-ish swap. Only now does the live
+    # table move; a crash before this point leaves the old live table
+    # untouched plus a (harmless, resumable-or-discardable) .next shadow dir.
     live_dir = _live_dir(pkb_root)
     live_dir.mkdir(parents=True, exist_ok=True)
     live_table = live_dir / "pkb_pages.lance"
@@ -239,14 +393,18 @@ def run(pkb_root: Path, *, resume: bool = False, dry_run: bool = False,
 
     try:
         from arail import pkb_index
-        pkb_index.clear_degraded()
+        pkb_index.clear_degraded(None)
     except Exception:  # noqa: BLE001
         pass
 
     return {
         "interrupted": False, "completed": completed_count, "total": total,
-        "backup": backup_path,
+        "backup": backup_path, "resume_discarded_reason": resume_discarded_reason,
     }
+
+
+def _log_stderr(message: str) -> None:
+    print(f"warning: {message}", file=sys.stderr, flush=True)
 
 
 def _now_iso() -> str:
@@ -326,6 +484,10 @@ def main(argv: list[str] | None = None) -> int:
               f"~{result['rows_per_sec']:.1f} rows/s, "
               f"ETA {result['eta_sec']:.0f}s — nothing written")
         return 0
+
+    if result.get("resume_discarded_reason"):
+        print(f"[{args.world_label}] {result['resume_discarded_reason']}",
+              file=sys.stderr)
 
     if result.get("interrupted"):
         print(f"\n[{args.world_label}] interrupted at "
