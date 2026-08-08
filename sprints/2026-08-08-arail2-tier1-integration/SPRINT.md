@@ -28,7 +28,7 @@ data. Nothing in `pkb.py`, `vector_index.py`, `world_mount.py`, or
 
 | Phase | Subagent | Artifact | Status | Started | Finished | Verdict |
 |---|---|---|---|---|---|---|
-| think | visionary | VISION.md | in_progress | 2026-08-08T18:56:52Z | — | — |
+| think | visionary | VISION.md | done | 2026-08-08T18:56:52Z | 2026-08-08T19:03Z | **proceed (narrowed)** |
 | plan | architect (design) | ARCHITECTURE.md | pending | — | — | — |
 | build | builder | BUILD_LOG.md | pending | — | — | — |
 | review | architect (review) | REVIEW.md | pending | — | — | — |
@@ -41,11 +41,49 @@ data. Nothing in `pkb.py`, `vector_index.py`, `world_mount.py`, or
 |---|---|---|
 | 2026-08-08 | Start at `think`, not `plan` | The orchestrator's own evidence for Tier 1.2 is thin: prefixed nomic widened the relevant/irrelevant margin only +0.053, and the scoped-query demo was ambiguous. The contamination severity was also overstated twice and corrected (7% of rows, not "stuffed"). A visionary pass that demands disconfirming evidence is warranted before touching the agent-facing search path. |
 | 2026-08-08 | Cutover is in scope, but sequenced last | Embeddings and scoping are only useful together; cutover before them gains nothing. The predecessor migration wrote to a temp dir, so the live lab is untouched and cutover remains an unmade decision. |
+| 2026-08-08 | **Visionary narrows scope: Tier 1.2 as a measurement; Tier 1.1 deferred; cutover rejected.** | Verified by the orchestrator: `pkb._vector_db_path()` (pkb.py:414) derives the LanceDB path from the env-frozen per-instance PKB root, so in 1.x a running World already cannot see another World's rows — five physically separate `pkb_pages.lance` datasets. Tier 1.1 is therefore the *precondition of consolidation*, not value delivered by it. The orchestrator's "same file from four worlds" demo was **circular**: it ran against the consolidated store the migration had just created, demonstrating a problem the migration introduced rather than one that exists in 1.x. |
+| 2026-08-08 | The `+0.053` number measured the wrong thing | It compared nomic-with-prefixes vs nomic-without. The decision actually on the table — nomic vs `hash_embedding` — has never been measured. Hence Tier 1.2 ships as an A/B with a kill criterion, not as an assumed improvement. |
 
 ## Skipped phases
 
 | Phase | Reason |
 |---|---|
+
+## Visionary verdict (2026-08-08)
+
+**proceed**, narrowed to roughly one third of the original proposal:
+
+- **Tier 1.2 — proceed, as a measurement.** Build a committed labelled fixture
+  (>=20 questions, >=4 per world, hand-labelled against the live 716-row
+  corpus) and an A/B harness. nomic must beat `hash_embedding` by **>=15pp
+  pooled recall@5** with zero rank-1 losses on an exact-token fixture. Below
+  the bar we do not ship the dependency, and we file an ADR recording hash
+  embeddings as a *measured* choice.
+- **Tier 1.1 — defer.** No query path exists to leak through today.
+- **Cutover — reject.** Consolidating five isolated stores into one buys
+  cross-world queryability this operator does not want (he runs Worlds one at
+  a time) and pays for it by demoting isolation from a directory boundary to
+  a WHERE clause that audit finding A31 says no production caller has ever
+  passed.
+- **Separately:** the surviving real defect is A25/A26 —
+  `unmount(remove_staged=False)` as the default on the root-lab mount path.
+  It is a stop-and-switch bug, it is cheap, and it needs no database.
+
+### Concerns the architect must address at design time
+
+1. **The fail-loud guarantee dies in the plumbing.** `embed.py` never
+   substitutes an embedding — but `pkb_index.py` has **15** `_log.warning`
+   swallow points, including three around `index_all`
+   (`pkb_index.py:178, 326, 347, 403`). An embedding outage would surface as a
+   silently empty index, which is worse than the old behaviour.
+2. **Re-embedding must be explicit and resumable.** The 128 -> 768 change hits
+   the drop-and-rebuild path (`pkb_index.py:329-347`), and `_semantic_search`
+   (`pkb.py:579-583`) calls `index_all` lazily when the table is empty — so a
+   user typing in the search box would trigger hundreds of synchronous Ollama
+   round trips.
+
+Orchestrator verified claims 1 and 2 and the per-instance isolation finding
+directly against the source before accepting the verdict.
 
 ## Product gating (arail)
 
