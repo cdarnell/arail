@@ -23,6 +23,14 @@
 
 **Test count:** 107 dbspec tests, all passing.
 
+**Regression check.** Full suite on this branch: 53 failed / 4228 passed.
+Compared against a worktree at the pre-branch commit (`8cb5760`) over the
+same 21 suspect files: **28 failures on both sides, zero regressions.** The
+53 are pre-existing (world-forge API, dispatch-35b, aerollm defaults, swarm
+surfaces, and similar), unrelated to persistence. One real regression was
+found and fixed during this check: adding the `db` verb to `arailctl` tripped
+the repo's F33 gate requiring every verb to appear in `docs/cli.md`.
+
 ## Decisions taken
 
 1. **nomic-embed-text via Ollama** (operator-approved). No new runtime

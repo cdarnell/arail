@@ -451,6 +451,44 @@ Tail `lab/data/activity.jsonl`, optionally filtered by component
 (`browser`\|`system`\|`researcher`\|`goal`\|`wiki`\|`pkb`\|`chat`\|`consent`).
 Unchanged.
 
+### `db <op>`
+
+Declarative persistence. The spec tree in `spec/` is the source of truth;
+SQLite, the LanceDB tables, and the generated resolver/registry are all
+compiled from it. Never hand-edit the database or the generated files —
+edit the spec and re-apply.
+
+| Op | What it does | Exit |
+|----|--------------|------|
+| `plan` | Diff spec vs actual across both stores. No writes. | `0` |
+| `apply` | Generate + lint a migration, `atlas schema apply`, reconcile the vector tables, regenerate code, record the spec version. | `0`, `1` on lint failure |
+| `doctor` | Integrity checks, reported **per user**. | `0` clean, `3` on errors |
+| `optimize` | Compact Lance tables and prune retained versions. | `0` |
+| `drift` | CI gate — does actual match the spec? | `0` in sync, `3` on drift |
+| `migrate` | One-shot 1.x → 2.0 data migration. | `0` |
+
+Common options: `--data-dir DIR`, `--pkb-root DIR`, `--spec-dir DIR`
+(accepted before or after the op). `apply` takes `--allow-destructive` for
+vector rebuilds; `migrate` takes `--lab-root DIR`, `--user NAME`, `--apply`.
+
+**`plan`, `drift`, and `migrate` are dry-run by default** — `migrate` writes
+nothing without `--apply`, and never modifies or deletes the 1.x source data.
+
+Destructive vector changes (dimension, distance metric, index type) require a
+rebuild and are **refused** unless `--allow-destructive` is passed. Safe
+changes (add/drop/retype column, create/drop index) auto-apply.
+
+`doctor` reports per user so single-user corruption is visible rather than
+averaged away. It checks orphaned `content_refs`, embedding model/dimension
+drift against the spec, degenerate vectors, fragment counts, retained
+versions, missing vector indexes, and worlds with no entities.
+
+> **Note on migration lint.** Since Atlas v0.38 `atlas migrate lint` requires
+> an Atlas Pro login and exits non-zero *without linting*. When that happens
+> `apply` runs a narrower local destructive-statement gate instead and says so
+> in its output — a gate that did not run is never reported as a gate that
+> passed. Run `atlas login` to get full lint with no code change.
+
 ### `pkb <op>`
 
 `ingest`\|`compile`\|`browse` — ARAIL lab knowledge-base content ops.
