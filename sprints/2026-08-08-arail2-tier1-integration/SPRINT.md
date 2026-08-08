@@ -31,7 +31,8 @@ data. Nothing in `pkb.py`, `vector_index.py`, `world_mount.py`, or
 | think | visionary | VISION.md | done | 2026-08-08T18:56:52Z | 2026-08-08T19:03Z | **proceed (narrowed)** |
 | plan | architect (design) | ARCHITECTURE.md | done | 2026-08-08T19:06Z | 2026-08-08T19:13Z | complete (W0–W10) |
 | build | builder | BUILD_LOG.md | done (W0–W5) | 2026-08-08T19:15Z | 2026-08-08T19:47Z | **PASS** (Δ +40.6pp) |
-| build2 | builder | BUILD_LOG.md | in_progress (W6–W10 + review actions) | 2026-08-08T20:01Z | — | — |
+| build2 | builder | BUILD_LOG.md | done (W6–W10 + actions) | 2026-08-08T20:01Z | 2026-08-08T21:00Z | 88 tests, baseline-clean |
+| review2 | architect (review) | REVIEW2.md | in_progress | 2026-08-08T21:02Z | — | — |
 | review | architect (review) | REVIEW.md | done | 2026-08-08T19:48Z | 2026-08-08T19:56Z | **PASS** |
 | test | qa | TEST_REPORT.md | pending | — | — | — |
 | ship | — | PR | pending | — | — | — |
