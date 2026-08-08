@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 import os
 import urllib.error
+import urllib.parse
 import urllib.request
 from typing import Iterable, List, Optional, Sequence
 
@@ -67,8 +68,43 @@ def ollama_root() -> str:
     return f"http://{host}:{port}"
 
 
+_LOCAL_HOSTS = {"127.0.0.1", "::1", "localhost"}
+_LOGGED_HYBRID_EGRESS = False
+
+
+def _assert_local(base: str) -> None:
+    """Refuse a non-loopback embedding provider unless ``LAB_MODE=hybrid``.
+
+    ``MODEL_API_BASE`` is operator-settable and, unguarded, is a corpus-text
+    egress path: every PKB row's text is sent to whatever host this resolves
+    to. In the default ``airgapped`` mode that must be impossible. In
+    ``hybrid`` it is allowed (the operator opted in to cloud providers
+    elsewhere) and logged once at INFO so it isn't a silent surprise.
+    """
+    global _LOGGED_HYBRID_EGRESS
+    host = urllib.parse.urlparse(base).hostname or ""
+    if host in _LOCAL_HOSTS:
+        return
+    lab_mode = os.getenv("LAB_MODE", "airgapped").strip().lower()
+    if lab_mode == "hybrid":
+        if not _LOGGED_HYBRID_EGRESS:
+            import logging
+            logging.getLogger(__name__).info(
+                "embedding provider %r is non-loopback; allowed because "
+                "LAB_MODE=hybrid", base)
+            _LOGGED_HYBRID_EGRESS = True
+        return
+    raise EmbeddingError(
+        f"MODEL_API_BASE={base!r} is not a loopback address and "
+        f"LAB_MODE={lab_mode!r} is not 'hybrid'. Corpus text would be sent "
+        f"off this machine. Either unset MODEL_API_BASE (or point it at "
+        f"127.0.0.1/localhost), or set LAB_MODE=hybrid to opt in.")
+
+
 def _post(path: str, payload: dict, *, timeout: float) -> dict:
-    url = f"{ollama_root()}{path}"
+    base = ollama_root()
+    _assert_local(base)
+    url = f"{base}{path}"
     body = json.dumps(payload).encode("utf-8")
     request = urllib.request.Request(
         url, data=body, headers={"Content-Type": "application/json"})
