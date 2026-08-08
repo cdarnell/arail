@@ -617,3 +617,85 @@ item drops in priority to "fix the PDF-ingest defect" without the
 World-forge framing. Revisit alongside that experiment's result — see
 `sprints/2026-08-06-deep-research-world-forge/VISION.md` for the full
 decision tree and thresholds.
+
+---
+
+## `pkb._iter_pkb_files` indexes dot-directory contents as ordinary PKB rows
+
+**Filed by:** `sprints/2026-08-08-arail2-tier1-integration/BUILD_LOG.md`
+(W1), confirmed and required for filing by REVIEW.md's tech-debt section.
+
+**The gap.** `pkb._iter_pkb_files` (`pkb.py:391-411`) skips a file only if
+`p.name.startswith(".")` — it does not skip files whose *ancestor
+directory* starts with a dot. `.wiki-cache/manifest.json`, the
+machine-generated wiki index (1.15 MB in the `ai` world, ~230 KB in
+`debt-finance`, present in every world), is therefore indexed as an
+ordinary PKB row alongside real user/agent content. Confirmed live: of the
+889-row corpus measured in this sprint, 19 rows come from
+`.wiki-cache/manifest.json` files (5 worlds, 1 each — actually one per
+world where the wiki has been built).
+
+**Why it wasn't fixed here.** `pkb.py` is on this sprint's explicit
+"must NOT touch" list (ARCHITECTURE.md §"What the builder must NOT touch"
+#6) — it stays byte-identical to baseline `8cb5760` unless and until the
+embedding-provider gate passed, and even then the architecture scopes the
+allowed `pkb.py` edits to the C1 error contract, C2's lazy-index removal,
+and the C4/W9 embed-call-site swap specifically, not general bug fixes
+picked up along the way. This is a genuine, independent production defect
+that predates this sprint and is orthogonal to embeddings.
+
+**Impact today:** neutral to search *quality* under `hash_embedding`
+(both arms in this sprint's A/B saw the same distractor rows, so it did
+not bias the measurement — confirmed in REVIEW.md's tech-debt section).
+It does waste embedding calls once nomic is live (a 1 MB JSON blob costs
+one more embed call per world, capped at 4096 chars like everything else,
+so the cost is bounded but non-zero and pointless) and it pollutes
+`source_kind="user"` search results with an internal cache artifact that
+was never meant to be searchable.
+
+**What a future sprint needs to do:** exclude any path with a
+dot-prefixed *directory component* (not just a dot-prefixed filename) in
+`_iter_pkb_files`, or explicitly denylist `.wiki-cache/` and
+`.cache/` by name (both already exist as sibling exclusions for other
+reasons — `.cache/` holds the LanceDB table itself). Needs a regression
+test asserting `.wiki-cache/manifest.json` is absent from `index_all()`'s
+row count before and after the fix, since silently changing row counts
+without a test would make the next embedder-migration measurement
+non-reproducible against this sprint's baseline.
+
+---
+
+## Docs-registry corpus slice is unmeasured by the Tier 1.2 A/B, but is re-embedded by the swap
+
+**Filed by:** `sprints/2026-08-08-arail2-tier1-integration/BUILD_LOG.md`
+(W1 design decision), required for filing by REVIEW.md's spec-adherence
+section (acknowledged drift #2) and required action 1.
+
+**The gap.** `pkb.index_all()` appends `pkb._build_docs_rows()` — a
+*global*, non-world-scoped set of rows drawn from `docs_registry.all_docs()`
+— to every world's PKB rows before writing the vector table
+(`pkb.py:529-530`). The Tier 1.2 A/B harness
+(`scripts/eval/retrieval_ab.py`) deliberately excludes this slice: since
+`_build_docs_rows()` takes no `root` parameter, the same docs rows would
+appear identically in all five worlds' harness corpora, making "recall@5
+per world" incoherent (a docs page would simultaneously count as "in"
+`ai`, `qukaizen`, `debt-finance`, etc.). REVIEW.md agreed with this call.
+
+**Consequence, carried forward explicitly (not silently):** the published
+recall@5 numbers (hash 50.0% / nomic 90.6%, Δ +40.6pp) say nothing about
+retrieval quality over the docs-registry slice specifically. When W9 swaps
+the embedding provider at the `index_all`/`_build_docs_rows` call sites,
+it will re-embed this slice too, on the strength of the *general* result
+(nomic beats hash on prose-and-glossary content of the same rough shape:
+markdown pages with titles, short bodies, procedural or definitional
+prose) rather than a slice-specific measurement. Risk is assessed as low
+— same embedder, same embed-input construction, same document shape — but
+it is an unmeasured extrapolation and should be named as such wherever
+W9's rationale is written up, not treated as directly covered by the A/B.
+
+**What a future sprint could do, if this matters in practice:** extend
+`scripts/eval/retrieval_ab.py` with a `--include-docs` mode that scores
+the docs-registry rows as their own pseudo-world (or folds them into
+`root`, since `docs_registry` content is root-scoped conceptually) so the
+docs slice gets its own recall@5 number rather than inheriting the
+PKB-only result by assumption.

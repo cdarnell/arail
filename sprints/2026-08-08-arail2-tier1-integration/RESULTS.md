@@ -54,3 +54,51 @@ counts: {'zero': 8, 'low': 3, 'high': 21}
 - nomic/video-games: 318 rows, 75.6 rows/s, wall 4.21s, batch p50=0.43s p95=0.85s
 - nomic/debt-finance: 82 rows, 104.0 rows/s, wall 0.79s, batch p50=0.25s p95=0.40s
 - nomic/qukaizen: 71 rows, 98.2 rows/s, wall 0.72s, batch p50=0.25s p95=0.40s
+
+## Exact-token collision diagnostic (appended, not harness-generated)
+
+*Hand-appended per REVIEW.md's required action 3. Everything above this
+line is emitted by `scripts/eval/retrieval_ab.py --md`; re-running the
+harness will not reproduce or overwrite this section — if you regenerate
+this file, re-paste it back in.*
+
+`hash_embedding` scored only 1/10 on exact-token rank-1, contradicting
+ARCHITECTURE.md's stated assumption that literal-token lookup is "the
+class where lexical hashing legitimately wins." REVIEW.md determined why:
+this is a genuine 128-dimension SHA1 bucket-collision failure, not a
+fixture defect. For all 10 exact-token queries the literal query token(s)
+were confirmed present in the expected document's embedded text
+(`literal_in_doc=True`, 10/10 — these are real lexical lookups). Diagnostic
+run over the live corpus, hash arm, rank of the expected document:
+
+| query | non-zero buckets in query vector | rank of expected doc |
+|---|---|---|
+| `LAB_BUDDY` | 1 | 51 / 381 |
+| `LAB_SRE` | 1 | 19 / 381 |
+| `2026-08-07_c83e0a76` | 1 | 12 / 318 |
+| `blended-apr-calc` | 1 | 11 / 82 |
+| `LAB_LIBRARIAN` | 1 | 11 / 71 |
+| `falsify-hypothesis` | 1 | 8 / 37 |
+| `…/how-debt-snowball-method-works` | 4 | 8 / 82 |
+| `https://github.com/lyogavin/airllm` | 3 | 3 / 37 |
+| `wisdom-per-watt` | 1 | 4 / 71 |
+| `dlss` | 1 | 1 / 318 (the only hit) |
+
+**Mechanism.** 8 of 10 queries tokenize to a single token, so the query
+vector is one signed spike in 1 of the 128 hash buckets, and ranking is
+decided entirely by that bucket's signed weight in each document — a
+weight every other document also populates from unrelated colliding
+tokens. In the `ai` world alone, 46 distinct corpus tokens collide into
+`LAB_BUDDY`'s bucket (`fp16`, `when_to_use`, `preference`, `probability`,
+…). A 128-dimension SHA1 projection cannot do reliable literal lookup on a
+corpus of this size.
+
+**Corrected conclusion.** `hash_embedding` has **no** stratum measured in
+this sprint — not high-overlap, not low-overlap, not zero-overlap, and not
+the exact-token class it was assumed to win — where it is the better
+retriever on this corpus. The "preserve `hash_embedding` for exact-token
+lookup" argument that motivated F2's design is measured false and should
+be dropped from any future design doc. `hash_embedding` remains in the
+tree only because `wiki_nodes`, `agent_workflows`, and `experiments`
+(A5) still use it for unrelated tables — not because it retains any
+retrieval-quality advantage anywhere this sprint measured.
