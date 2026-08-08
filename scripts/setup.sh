@@ -1076,6 +1076,30 @@ install_services() {
             fi
         fi
     fi
+
+    # ── Embedding model for PKB semantic search (C5, arail2-tier1-integration) ──
+    # nomic-embed-text (~274 MB), the spec-declared provider arail.dbspec.embed
+    # serves. Every code path above this point either returned early
+    # (ARAIL_SKIP_OLLAMA / ARAIL_SKIP_MODEL_DOWNLOAD / daemon unreachable — this
+    # pull inherits the same skip intent) or confirmed Ollama is installed and
+    # its daemon is reachable, so this reuses that same gate rather than
+    # re-probing. Same pattern as the llama3.2:1b pull above: warn and
+    # continue, never fail setup. First PKB ingest on a machine without this
+    # model fails loudly with an actionable `ollama pull` message and writes
+    # zero vectors (see arail.dbspec.embed.EmbeddingUnavailable) — it does not
+    # silently write hash vectors instead.
+    if ollama show nomic-embed-text &>/dev/null; then
+        info "nomic-embed-text already present in Ollama — skipping."
+    else
+        info "Pulling nomic-embed-text (~274 MB, PKB semantic search)…"
+        if _arail_timeout 180 ollama pull nomic-embed-text 2>&1 | tail -5; then
+            info "nomic-embed-text ready."
+        else
+            warn "ollama pull nomic-embed-text failed (offline or network issue)."
+            warn "PKB semantic search will degrade with an actionable message until"
+            warn "you run:  ollama pull nomic-embed-text"
+        fi
+    fi
 }
 
 # -----------------------------------------------------------------------------

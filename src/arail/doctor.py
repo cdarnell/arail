@@ -139,6 +139,43 @@ def check_knowledge_base() -> None:
         _p("  pkb_pages index   : ready")
     except Exception as e:  # noqa: BLE001
         _p(f"  pkb_pages index   : NOT ready ({type(e).__name__}: {e})")
+
+    # C4/C5 (arail2-tier1-integration): the embedding provider and the
+    # vector-index provenance sidecar. Required — ARCHITECTURE.md is
+    # explicit that no query should be served from a table whose
+    # provenance disagrees with the spec, and doctor is where that
+    # disagreement (or a plain unreachable-Ollama outage the search path
+    # would otherwise degrade silently into) becomes visible to a human.
+    try:
+        from arail.dbspec.embed import probe as embed_probe
+        ok, detail = embed_probe()
+        _p(f"  embedding provider: {'reachable' if ok else 'NOT reachable'} — {detail}")
+    except Exception as e:  # noqa: BLE001
+        _p(f"  embedding provider: ? ({type(e).__name__}: {e})")
+
+    try:
+        from arail import pkb_index
+        embed_ok, embed_reason = pkb_index.embedding_status()
+        if embed_ok:
+            _p("  vector index status: ok")
+        else:
+            _p(f"  vector index status: degraded — {embed_reason}")
+        # C4 is explicit that a *provenance* disagreement (the index's
+        # vectors were built by a different model/dimension than the spec
+        # now declares) must degrade doctor's exit code — no query should
+        # ever be served from a table that disagrees with the spec, and
+        # this is the one case where "the model just isn't pulled yet" is
+        # not an adequate explanation. Every other degraded reason (no
+        # Ollama reachable, index not built yet) stays INFO-only, same as
+        # "no model configured" already is (A8: a clean-machine/CI runner
+        # legitimately has neither, and `doctor` must stay exit 0 there
+        # unless --strict is passed).
+        is_provenance_issue = (not embed_ok) and "provenance" in embed_reason
+        _record("embedding_provenance", "required", not is_provenance_issue, embed_reason)
+        _record("embedding_reachable", "info", embed_ok, embed_reason)
+    except Exception as e:  # noqa: BLE001
+        _record("embedding_reachable", "info", False, str(e))
+
     # Required check (ARCHITECTURE.md §5.2/§13): "PKB root unwritable" is one
     # of doctor's named degraded conditions. Probed with os.access rather
     # than an actual write, so a healthy run never leaves a stray file.
