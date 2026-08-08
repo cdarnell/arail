@@ -125,11 +125,24 @@ conflicts with it, **REVIEW.md wins** — the amendments are recorded there
 rather than by re-running the design phase, because they are three specified
 bullet points, not a redesign.
 
-Operator decision (2026-08-08): proceed with the recommended privacy fix —
-sha256 the document paths in `corpus_manifest.json` for any world whose bundle
-is **not** git-tracked. Worlds already published (`ai`, `qukaizen`,
-`video-games`) keep readable paths. Conservative default, reversible; operator
-invited to redirect.
+Operator decision (2026-08-08): **ASK-2 withdrawn — no path hashing.**
+`debt-finance` is a first-class World the operator specifically wants proven
+out, not hidden. The orchestrator's privacy inference was **wrong** and is
+recorded as such: `greenpath-financial-wellness.md` opens "A specific, named,
+NFCC-member nonprofit credit-counseling agency" — a glossary *definition of the
+institution*, sitting beside `payday-loan.md` and `credit-utilization-ratio.md`.
+It is domain vocabulary, not a disclosure about the operator. A taxonomy was
+mistaken for a personal record.
+
+The distinction that survives, and that the lint still enforces: domain
+vocabulary is publishable; the operator's actual balances, account numbers, or
+personal correspondence are not. Only the latter is PII. The content-level PII
+lint stays.
+
+Added in scope: `debt-finance` is a **first-class verification target** for
+W9/W10 — the re-embed path, provenance sidecar, and setup/degradation messaging
+must be exercised against it. It already scores 100% recall@5 under nomic,
+joint best with `root`.
 
 ## Skipped phases
 
