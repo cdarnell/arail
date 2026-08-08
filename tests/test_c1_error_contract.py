@@ -51,7 +51,7 @@ def test_set_degraded_and_embedding_status():
     assert ok is True
     assert reason == ""
 
-    pki.set_degraded("simulated outage")
+    pki.set_degraded("provider", "simulated outage")
     ok, reason = pki.embedding_status()
     assert ok is False
     assert reason == "simulated outage"
@@ -59,26 +59,59 @@ def test_set_degraded_and_embedding_status():
 
 def test_clear_degraded_resets_status():
     import arail.pkb_index as pki
-    pki.set_degraded("simulated outage")
+    pki.set_degraded("provider", "simulated outage")
     pki.clear_degraded()
     ok, reason = pki.embedding_status()
     assert ok is True
     assert reason == ""
 
 
+def test_clear_degraded_with_code_clears_only_that_code():
+    """REVIEW2.md BLOCK-1: a cause can only be cleared by evidence about
+    THAT cause. clear_degraded("provider") must not clear "provenance"."""
+    import arail.pkb_index as pki
+    pki.set_degraded("provider", "outage")
+    pki.set_degraded("provenance", "disagreement")
+    pki.clear_degraded("provider")
+    codes = pki.degraded_codes()
+    assert "provider" not in codes
+    assert "provenance" in codes
+    ok, _ = pki.embedding_status()
+    assert ok is False, "provenance must still be degraded"
+
+
+def test_degraded_codes_returns_all_active_causes():
+    import arail.pkb_index as pki
+    pki.set_degraded("provider", "outage")
+    pki.set_degraded("dimension", "wrong dim")
+    codes = pki.degraded_codes()
+    assert codes == {"provider": "outage", "dimension": "wrong dim"}
+
+
+def test_clear_degraded_none_clears_every_code():
+    import arail.pkb_index as pki
+    pki.set_degraded("provider", "outage")
+    pki.set_degraded("provenance", "disagreement")
+    pki.clear_degraded(None)
+    assert pki.degraded_codes() == {}
+    ok, _ = pki.embedding_status()
+    assert ok is True
+
+
 def test_reset_for_tests_clears_degraded_flag():
     import arail.pkb_index as pki
-    pki.set_degraded("leaked from a previous test")
+    pki.set_degraded("provider", "leaked from a previous test")
     pki._reset_for_tests()
     ok, _ = pki.embedding_status()
     assert ok is True
+    assert pki.degraded_codes() == {}
 
 
 def test_debounce_sec_backs_off_while_degraded(monkeypatch):
     import arail.pkb_index as pki
     monkeypatch.delenv("LAB_PKB_UPSERT_DEBOUNCE_SEC", raising=False)
     assert pki._debounce_sec() == pki._DEFAULT_DEBOUNCE
-    pki.set_degraded("outage")
+    pki.set_degraded("provider", "outage")
     assert pki._debounce_sec() == pki._ERROR_BACKOFF_SEC == 60.0
 
 
@@ -154,7 +187,7 @@ def test_index_all_wrapper_success_clears_prior_degraded_state(isolated_pkb, mon
     import arail.pkb_index as pki
     import arail.pkb as pkb_mod
 
-    pki.set_degraded("stale from a previous failure")
+    pki.set_degraded("provider", "stale from a previous failure")
 
     def ok_index_all(root=None, **kwargs):
         return {"ok": True, "indexed": 0, "indexed_docs": 0, "path": None}

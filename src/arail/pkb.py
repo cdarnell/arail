@@ -685,39 +685,6 @@ def _build_snippets(text: str, query: str) -> tuple[int, list[str]]:
     return len(matches), snippets
 
 
-def _table_search_by_vector(idx, vector: list[float], *, k: int,
-                             min_score: float) -> list[dict[str, Any]]:
-    """kNN search against ``idx``'s underlying LanceDB table using an
-    already-computed query vector — bypasses ``VectorIndex.search()``,
-    which always computes the query vector itself via ``hash_embedding``
-    (fine for hash-embedded tables, wrong for nomic ones, and there is no
-    way to hand it a precomputed vector). Deliberately does NOT touch
-    ``vector_index.py`` (see ARCHITECTURE.md §"What the builder must not
-    touch" #6 — edits there are unauthorized even post-gate, since none of
-    C1/C2/C4 name a change to it); this reimplements the same ~15-line
-    post-processing (score transform, min_score filter) that
-    ``VectorIndex.search`` already does, scoped to this one call site.
-    Returns [] if the table is missing or LanceDB raised — never raises.
-    """
-    table = idx._table()  # noqa: SLF001 — see docstring
-    if table is None:
-        return []
-    try:
-        raw_hits = table.search(vector).limit(max(1, k)).to_list()
-    except Exception:  # noqa: BLE001
-        return []
-    out: list[dict[str, Any]] = []
-    for h in raw_hits:
-        dist = float(h.get("_distance", 2.0))
-        score = max(0.0, min(1.0, 1.0 - dist / 2.0))
-        if score < min_score:
-            continue
-        row = {kk: vv for kk, vv in h.items() if kk not in ("vector", "_distance")}
-        row["score"] = round(score, 4)
-        out.append(row)
-    return out
-
-
 def _semantic_search(
     query: str,
     root: Path,
@@ -727,27 +694,50 @@ def _semantic_search(
     approved: set[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Vector-backed search. Returns [] if LanceDB or the index is absent,
-    empty, or the embedding provider is unavailable — ``search()`` then
-    runs the regex fallback and the caller can read ``retrieval_status()``.
+    empty, the table's provenance disagrees with the spec, or the
+    embedding provider is unavailable — ``search()`` then runs the regex
+    fallback and the caller can read ``retrieval_status()``.
+
+    C4/BLOCK-1: this function enforces the read-path health check
+    (dimension + provenance, via ``pkb_index.check_read_path_health``) on
+    EVERY call, not just once at process startup — a table that degrades
+    mid-process (sidecar rewritten, schema changed underneath) is caught
+    on the very next search. A successful ``embed_query()`` call clears
+    only the "provider" degraded code; it is evidence the network path
+    works, not evidence about the table's dimension or provenance, and
+    must never clear those.
 
     When ``approved`` is a set of pkb-relative paths, results are filtered to
     that set — the Compiled-KB gate (agents build only on approved truth)."""
-    from arail.vector_index import VectorIndex, available
+    from arail.vector_index import VectorIndex, VectorSearchError, available
     from arail.dbspec.embed import embed_query, EmbeddingError
     from arail.dbspec.generated.models_registry import EMBEDDING_DIM
     from arail import pkb_index
 
     if not available():
         return []
-    idx = VectorIndex(name="pkb_pages", db_path=_vector_db_path(root), dim=EMBEDDING_DIM)
+    db_path = _vector_db_path(root)
+    idx = VectorIndex(name="pkb_pages", db_path=db_path, dim=EMBEDDING_DIM)
     if idx.count() == 0:
         # C2/FM11: the lazy index_all() call is REMOVED on this
         # integration. A user typing in the search box must never trigger
         # hundreds of synchronous embed calls. Degrade honestly, naming
         # the explicit command that builds the index.
         pkb_index.set_degraded(
-            "KB index is empty for this world — run `./arailctl pkb reembed`")
+            "empty", "KB index is empty for this world — run `./arailctl pkb reembed`")
         return []
+
+    table = idx._table()  # noqa: SLF001 — same accessor pkb_index's own health check uses
+    if table is None:
+        pkb_index.set_degraded("empty", "pkb_pages table could not be opened")
+        return []
+
+    # C4/BLOCK-1: dimension + provenance, checked fresh on every search —
+    # never served from a table that disagrees with the spec.
+    ok, _reason = pkb_index.check_read_path_health(table, db_path)
+    if not ok:
+        return []
+
     try:
         query_vector = embed_query(query)
     except EmbeddingError as e:
@@ -757,12 +747,28 @@ def _semantic_search(
             activity_log.emit("pkb", f"Semantic search degraded: {e}", "error")
         except Exception:  # noqa: BLE001
             pass
-        pkb_index.set_degraded(str(e))
+        pkb_index.set_degraded("provider", str(e))
         return []
-    pkb_index.clear_degraded()
-    # Over-fetch when gating so the approved subset still fills k results.
-    hits = _table_search_by_vector(
-        idx, query_vector, k=(k * 6 if approved is not None else k), min_score=min_score)
+    # A successful embed call is evidence about the PROVIDER only.
+    pkb_index.clear_degraded("provider")
+
+    try:
+        # Over-fetch when gating so the approved subset still fills k results.
+        hits = idx.search_vector(
+            query_vector, k=(k * 6 if approved is not None else k), min_score=min_score)
+    except VectorSearchError as e:
+        # A backend failure here (should be rare — check_read_path_health
+        # already screened for the known dimension/provenance causes) must
+        # not be swallowed into a silent []-that-looks-like-no-hits. Log,
+        # degrade, and fall through the same way an EmbeddingError does.
+        _log.error("pkb: semantic search backend error: %s", e)
+        try:
+            from arail.activity import activity_log
+            activity_log.emit("pkb", f"Semantic search backend error: {e}", "error")
+        except Exception:  # noqa: BLE001
+            pass
+        pkb_index.set_degraded("dimension", str(e))
+        return []
     if approved is not None:
         hits = [h for h in hits if h.get("path") in approved][:k]
     if not hits:

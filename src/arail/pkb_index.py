@@ -12,12 +12,31 @@ schedule_upsert(path)    — Enqueue a path for upsert. Safe to call from any
                            window is LAB_PKB_UPSERT_DEBOUNCE_SEC (default 2s),
                            or the error back-off (60s) while degraded.
 embedding_status()       — (ok, message) for the embedding subsystem. ok is
-                           False after an EmbeddingError until a flush or
-                           index_all succeeds again (C1).
-set_degraded(reason)     — Mark the embedding subsystem degraded. Called at
-                           every C1 call site that catches EmbeddingError.
-clear_degraded()         — Clear the degraded flag. Called on any successful
-                           index_all()/flush.
+                           False while any degraded code is set (C1).
+set_degraded(code, reason) — Mark ONE cause degraded. Codes: "provider"
+                           (embed call failed), "dimension" (table's vector
+                           width disagrees with the spec), "provenance"
+                           (sidecar disagrees with the spec), "empty" (no
+                           rows yet). REVIEW2.md BLOCK-1: these are
+                           independent facts. A successful embed call only
+                           proves the *provider* is reachable — it must
+                           NEVER clear "dimension"/"provenance"/"empty",
+                           which are facts about the table, not the network.
+clear_degraded(code=None) — Clear one cause (evidence about THAT cause
+                           only), or every cause (code=None — used only
+                           after a full rebuild, which is evidence about
+                           all of them at once: index_all/pkb_reembed).
+degraded_codes()         — dict of the currently active codes -> reasons.
+                           Callers that need to know WHICH cause (not just
+                           whether something is wrong — e.g. doctor's
+                           exit-code decision) use this instead of parsing
+                           embedding_status()'s prose.
+check_read_path_health(table, db_path) — C4 enforcement ON THE READ PATH,
+                           not just at ensure_ready/startup: dimension then
+                           provenance, both required before a query is
+                           served as semantic. Sets/clears "dimension"/
+                           "provenance" as a side effect. Called by
+                           pkb._semantic_search on EVERY search.
 _reset_for_tests()       — Reset module-level state between tests. Not for
                            production use.
 
@@ -39,6 +58,13 @@ Design notes
   emits an ``activity_log`` event at severity "error", and sets the module
   degraded flag via ``set_degraded()``. Non-embedding exceptions keep the
   original WARNING behaviour — those are the SKIP/DEGRADE classes, not LOUD.
+* Reason-scoped degraded state (REVIEW2.md BLOCK-1, fixed here): the
+  degraded flag used to be one module-global bool covering five unrelated
+  facts, so a successful search (which only proves the *provider* is
+  reachable) was clearing a standing dimension/provenance warning and
+  ``doctor`` would report "ok" while semantic search silently returned
+  nothing forever. Every ``set_degraded``/``clear_degraded`` call below
+  names the specific code it has evidence about.
 """
 
 from __future__ import annotations
@@ -61,12 +87,22 @@ _initialized: bool = False
 _pkb_root_cache: Path | None = None  # set by ensure_ready
 
 # ── C1: degraded-embedding state ─────────────────────────────────────────
-# Set by every call site that catches EmbeddingError; cleared by the next
-# successful index_all()/flush. Read via embedding_status() by pkb.py's
-# search-payload status, ./arailctl doctor, and (once wired) the /knowledge
-# banner and Buddy's context header.
-_degraded: bool = False
-_degraded_reason: str = ""
+# code -> reason. Set by every call site that has evidence of that specific
+# cause; cleared only by evidence about that same cause (REVIEW2.md
+# BLOCK-1). Read via embedding_status()/degraded_codes() by
+# pkb.retrieval_status() (wired into the /api/pkb/search payload),
+# ./arailctl doctor, and pkb._semantic_search's own read-path check.
+#
+# Known codes:
+#   "provider"   — the embedding call itself failed (network/model down).
+#                  Cleared by the NEXT successful embed call, nothing else.
+#   "dimension"  — the table's vector width disagrees with the spec.
+#                  Cleared only by a full rebuild (index_all/pkb_reembed)
+#                  or by check_read_path_health() re-observing agreement.
+#   "provenance" — the sidecar disagrees with (or is absent for) the spec.
+#                  Cleared the same way as "dimension".
+#   "empty"      — the table has zero rows. Cleared only by a rebuild.
+_degraded_codes: dict[str, str] = {}
 
 # Required columns (and their expected presence) for schema validation.
 _REQUIRED_COLS = {"path", "name", "vector", "mtime", "source_kind"}
@@ -84,29 +120,46 @@ def _vector_dim() -> int:
     return EMBEDDING_DIM
 
 
-def set_degraded(reason: str) -> None:
-    """Mark the embedding subsystem degraded. Idempotent; safe to call from
-    any thread (no lock needed — a stale read of a bool/str pair is
-    harmless, and callers only ever set it to a fresher reason)."""
-    global _degraded, _degraded_reason
-    _degraded = True
-    _degraded_reason = reason
+def set_degraded(code: str, reason: str) -> None:
+    """Mark ONE cause (``code``) degraded. Idempotent; safe to call from any
+    thread (no lock needed — a stale read of a dict entry is harmless, and
+    callers only ever set a code to a fresher reason for that same code)."""
+    _degraded_codes[code] = reason
 
 
-def clear_degraded() -> None:
-    """Clear the degraded flag — called after any successful embedding
-    call. A no-op if not currently degraded."""
-    global _degraded, _degraded_reason
-    _degraded = False
-    _degraded_reason = ""
+def clear_degraded(code: str | None = None) -> None:
+    """Clear one cause (``code``), or every cause if ``code`` is None.
+
+    ``code=None`` is deliberately reserved for callers that have evidence
+    about ALL causes at once — a full rebuild (index_all/pkb_reembed
+    success) freshly writes the table and its provenance, so every code is
+    simultaneously resolved. A single successful embed call, or a single
+    successful incremental upsert, is NOT such evidence (BLOCK-1) — those
+    call sites must pass the specific code they have evidence about.
+    """
+    if code is None:
+        _degraded_codes.clear()
+    else:
+        _degraded_codes.pop(code, None)
+
+
+def degraded_codes() -> dict[str, str]:
+    """Copy of the currently active degraded codes -> reasons. Callers that
+    need to distinguish WHICH cause (not just whether something is wrong —
+    e.g. doctor's exit-code decision) use this instead of substring-matching
+    ``embedding_status()``'s prose message."""
+    return dict(_degraded_codes)
 
 
 def embedding_status() -> tuple[bool, str]:
-    """(ok, message). ok=False means the last embedding call failed and
-    callers should treat search results / index state as degraded until it
-    clears. Read by ``arail.pkb.retrieval_status()``, ``./arailctl doctor``,
-    and (once wired) UI surfaces."""
-    return (not _degraded, _degraded_reason)
+    """(ok, message). ok=False while any degraded code is set. Read by
+    ``arail.pkb.retrieval_status()`` (wired into the ``/api/pkb/search``
+    payload), ``./arailctl doctor``, and ``pkb._semantic_search``'s own
+    read-path check."""
+    if not _degraded_codes:
+        return True, ""
+    reason = "; ".join(f"{v}" for v in _degraded_codes.values())
+    return False, reason
 
 
 def _index_all_reporting_embedding_errors(root: Path, context: str) -> None:
@@ -122,7 +175,15 @@ def _index_all_reporting_embedding_errors(root: Path, context: str) -> None:
     try:
         from arail import pkb as pkb_mod
         pkb_mod.index_all(root)
-        clear_degraded()
+        # A full rebuild is evidence about EVERY code at once: fresh
+        # vectors at the spec's dimension, fresh provenance sidecar,
+        # non-empty (unless the corpus genuinely is empty, in which case
+        # index_all's own "empty" degrade below re-sets it).
+        clear_degraded(None)
+        if pkb_mod._vector_db_path(root).exists():
+            idx_count = _open_table_row_count(root)
+            if idx_count == 0:
+                set_degraded("empty", "KB index is empty — run `./arailctl pkb reembed`")
     except EmbeddingError as e:
         _log.error("pkb_index: %s: embedding provider unavailable: %s", context, e)
         try:
@@ -132,16 +193,29 @@ def _index_all_reporting_embedding_errors(root: Path, context: str) -> None:
                        f"unavailable — {e}", "error")
         except Exception:
             pass
-        set_degraded(str(e))
+        set_degraded("provider", str(e))
     except Exception as e:  # noqa: BLE001 — SKIP/DEGRADE class, original behaviour
         _log.warning("pkb_index: %s failed: %s", context, e)
+
+
+def _open_table_row_count(root: Path) -> int:
+    """Best-effort row count for the just-(re)built pkb_pages table. Used
+    only to decide whether to re-set the "empty" code after a rebuild that
+    legitimately produced zero rows. Never raises."""
+    try:
+        import lancedb  # type: ignore[import-not-found]
+        db = lancedb.connect(str(_vector_db_path(root)))
+        table = _open_table(db, "pkb_pages")
+        return int(table.count_rows()) if table is not None else 0
+    except Exception:  # noqa: BLE001
+        return 0
 
 
 def _debounce_sec() -> float:
     """Normal debounce, or the 60s error back-off while degraded (FM17) —
     a dead embedding provider must not turn the debounce timer into a
     tight retry storm."""
-    if _degraded:
+    if _degraded_codes:
         return _ERROR_BACKOFF_SEC
     try:
         return float(os.environ.get("LAB_PKB_UPSERT_DEBOUNCE_SEC", _DEFAULT_DEBOUNCE))
@@ -252,6 +326,75 @@ def _schema_ok(table) -> bool:
     return not missing_columns and not dim_mismatch
 
 
+def _check_provenance(table, db_path: Path) -> tuple[bool, str]:
+    """Provenance-only check (C4): does the sidecar agree with the spec?
+
+    Assumes the caller already confirmed schema/dimension are fine — this
+    is the check that catches "same dimension, different model" (a foreign
+    vector space that a raw LanceDB dimension check cannot see). Sets or
+    clears the "provenance" degraded code as a side effect, so this is the
+    single shared implementation both ``ensure_ready`` and
+    ``check_read_path_health`` (the search-path check) call, rather than
+    two copies that could drift (REVIEW2.md BLOCK-1's root cause was
+    exactly this: C4 lived only in ``ensure_ready`` and the read path had
+    no equivalent check at all)."""
+    from arail import pkb_provenance
+    from arail.dbspec.generated.models_registry import embedding_model as _embedding_model
+
+    current = _embedding_model()
+    record = pkb_provenance.read(db_path)
+    if not pkb_provenance.agrees_with_spec(
+            record, embedding_model=current.name, embedding_dim=_vector_dim()):
+        if record is None:
+            reason = (
+                "pkb_pages index has no provenance record — treated as a "
+                "legacy index. Run `./arailctl pkb reembed` to upgrade."
+            )
+        else:
+            reason = (
+                f"pkb_pages index provenance "
+                f"({record.get('embedding_model')}/{record.get('embedding_dim')}d) "
+                f"disagrees with the current spec "
+                f"({current.name}/{_vector_dim()}d) — run "
+                f"`./arailctl pkb reembed` to upgrade. Existing rows are untouched."
+            )
+        set_degraded("provenance", reason)
+        return False, reason
+    clear_degraded("provenance")
+    return True, ""
+
+
+def check_read_path_health(table, db_path: Path) -> tuple[bool, str]:
+    """Full read-path health check (C4/BLOCK-1 fix): dimension, then
+    provenance — both required before a query is served as semantic.
+
+    Called by ``pkb._semantic_search`` on EVERY search, not just at
+    ``ensure_ready``/startup, so a table that degrades mid-process (a
+    sidecar rewritten to a different model, a schema changed underneath)
+    is caught on the very next search rather than only at the next process
+    boot. Returns ``(ok, reason)``; sets/clears the "dimension"/
+    "provenance" codes as a side effect, so a passing check is exactly as
+    load-bearing as a failing one — REVIEW2.md's fix requires that only
+    evidence about a specific cause clears it, and re-verifying dimension/
+    provenance on every search IS that evidence."""
+    missing_columns, dim_mismatch = _schema_column_status(table)
+    if dim_mismatch and not missing_columns:
+        reason = (
+            "pkb_pages index was built with a different embedding "
+            "dimension than the current spec declares — run "
+            "`./arailctl pkb reembed` to upgrade. Existing rows are "
+            "untouched."
+        )
+        set_degraded("dimension", reason)
+        return False, reason
+    if missing_columns:
+        reason = "pkb_pages index schema is missing required columns."
+        set_degraded("dimension", reason)
+        return False, reason
+    clear_degraded("dimension")
+    return _check_provenance(table, db_path)
+
+
 def _flush() -> None:
     """Flush the pending set to LanceDB. Called by the debounce timer."""
     global _timer
@@ -331,7 +474,7 @@ def _flush() -> None:
                            f"({e})", "error")
             except Exception:
                 pass
-            set_degraded(str(e))
+            set_degraded("provider", str(e))
             embedding_aborted = True
             break
         if row is None:
@@ -351,7 +494,12 @@ def _flush() -> None:
                 table.delete(f"path = '{escaped}'")
                 table.add([row])
             upserted += 1
-            clear_degraded()
+            # A successful upsert only proves the embedding PROVIDER is
+            # reachable — it says nothing about the table's dimension or
+            # provenance (BLOCK-1: the old blanket clear_degraded() here is
+            # exactly how a single file save cleared a standing provenance
+            # warning). Clear only "provider".
+            clear_degraded("provider")
         except Exception as e:
             _log.warning("pkb_index: upsert failed for %s: %s", rel_posix, e)
             failed_paths.add(rel_posix)
@@ -484,7 +632,7 @@ def ensure_ready(pkb_root: Path | None = None) -> None:
             "untouched."
         )
         _log.warning("pkb_index: %s", reason)
-        set_degraded(reason)
+        set_degraded("dimension", reason)
         try:
             from arail.activity import activity_log
             activity_log.emit("pkb", reason, "warn")
@@ -509,37 +657,18 @@ def ensure_ready(pkb_root: Path | None = None) -> None:
         _index_all_reporting_embedding_errors(root, "ensure_ready: schema drop-and-rebuild")
         return
 
-    # C4: schema and dimension are fine, but the vectors may still have
-    # been built by a different model (same dimension, wrong space) — or
-    # never provenance-tracked at all (a legacy hash table that happens to
-    # share the current dimension by coincidence). Never serve a query from
-    # a table whose provenance disagrees with the spec.
-    from arail import pkb_provenance
-    from arail.dbspec.generated.models_registry import embedding_model as _embedding_model
-    current_model = _embedding_model()
-    record = pkb_provenance.read(db_path)
-    if not pkb_provenance.agrees_with_spec(
-            record, embedding_model=current_model.name, embedding_dim=_vector_dim()):
-        if record is None:
-            reason = (
-                "pkb_pages index has no provenance record — treated as a "
-                "legacy index. Run `./arailctl pkb reembed` to upgrade."
-            )
-        else:
-            reason = (
-                f"pkb_pages index provenance "
-                f"({record.get('embedding_model')}/{record.get('embedding_dim')}d) "
-                f"disagrees with the current spec "
-                f"({current_model.name}/{_vector_dim()}d) — run "
-                f"`./arailctl pkb reembed` to upgrade. Existing rows are untouched."
-            )
-        _log.warning("pkb_index: %s", reason)
-        set_degraded(reason)
+    # Schema/dimension are fine — clear that code (this check IS evidence
+    # about it) and delegate the provenance check to the same function
+    # pkb._semantic_search calls on every search, so the two enforcement
+    # points can never drift apart (BLOCK-1's root cause was exactly two
+    # divergent copies — really, one real copy and a missing one).
+    clear_degraded("dimension")
+    ok, _reason = _check_provenance(table, db_path)
+    if not ok:
         return
 
     # Table exists, schema and provenance both match — run the bounded
     # staleness sweep.
-    clear_degraded()
     _staleness_sweep(root, table, db)
 
 

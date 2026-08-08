@@ -160,18 +160,22 @@ def check_knowledge_base() -> None:
             _p("  vector index status: ok")
         else:
             _p(f"  vector index status: degraded — {embed_reason}")
-        # C4 is explicit that a *provenance* disagreement (the index's
-        # vectors were built by a different model/dimension than the spec
-        # now declares) must degrade doctor's exit code — no query should
-        # ever be served from a table that disagrees with the spec, and
-        # this is the one case where "the model just isn't pulled yet" is
-        # not an adequate explanation. Every other degraded reason (no
-        # Ollama reachable, index not built yet) stays INFO-only, same as
-        # "no model configured" already is (A8: a clean-machine/CI runner
-        # legitimately has neither, and `doctor` must stay exit 0 there
-        # unless --strict is passed).
-        is_provenance_issue = (not embed_ok) and "provenance" in embed_reason
-        _record("embedding_provenance", "required", not is_provenance_issue, embed_reason)
+        # REVIEW2.md: couple the exit code to the structured reason CODE,
+        # never to a substring match on prose. "dimension" and "provenance"
+        # are both C4 violations — no query should ever be served from a
+        # table whose vector width or provenance disagrees with the spec —
+        # and both are REQUIRED (exit 3), including the dimension-mismatch
+        # case, which is the common state of every legacy 128-dim lab
+        # (previously INFO-only here because the message didn't contain the
+        # word "provenance" — a real gap, now fixed). "provider" (Ollama
+        # simply not reachable/pulled yet) and "empty" (index not built
+        # yet) stay INFO-only, matching "no model configured" (A8: a clean
+        # machine/CI runner legitimately has neither, and doctor must stay
+        # exit 0 there unless --strict is passed) — C5 promises setup never
+        # fails on this, and doctor must not contradict that promise.
+        codes = pkb_index.degraded_codes()
+        required_codes = set(codes) & {"dimension", "provenance"}
+        _record("embedding_provenance", "required", not required_codes, embed_reason)
         _record("embedding_reachable", "info", embed_ok, embed_reason)
     except Exception as e:  # noqa: BLE001
         _record("embedding_reachable", "info", False, str(e))
