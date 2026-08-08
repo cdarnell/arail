@@ -33,7 +33,8 @@ data. Nothing in `pkb.py`, `vector_index.py`, `world_mount.py`, or
 | build | builder | BUILD_LOG.md | done (W0–W5) | 2026-08-08T19:15Z | 2026-08-08T19:47Z | **PASS** (Δ +40.6pp) |
 | build2 | builder | BUILD_LOG.md | done (W6–W10 + actions) | 2026-08-08T20:01Z | 2026-08-08T21:00Z | 88 tests, baseline-clean |
 | review2 | architect (review) | REVIEW2.md | done | 2026-08-08T21:02Z | 2026-08-08T21:14Z | **BLOCK** |
-| build3 | builder | BUILD_LOG.md | in_progress (BLOCK remediation) | 2026-08-08T21:16Z | — | — |
+| build3 | builder | BUILD_LOG.md | done (BLOCK remediation) | 2026-08-08T21:16Z | 2026-08-08T21:52Z | 21 tests; suite 52F/4341P |
+| review3 | architect (review) | REVIEW3.md | in_progress | 2026-08-08T21:54Z | — | — |
 | review | architect (review) | REVIEW.md | done | 2026-08-08T19:48Z | 2026-08-08T19:56Z | **PASS** |
 | test | qa | TEST_REPORT.md | pending | — | — | — |
 | ship | — | PR | pending | — | — | — |
