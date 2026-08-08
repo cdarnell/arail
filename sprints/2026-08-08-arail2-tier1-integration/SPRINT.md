@@ -29,8 +29,8 @@ data. Nothing in `pkb.py`, `vector_index.py`, `world_mount.py`, or
 | Phase | Subagent | Artifact | Status | Started | Finished | Verdict |
 |---|---|---|---|---|---|---|
 | think | visionary | VISION.md | done | 2026-08-08T18:56:52Z | 2026-08-08T19:03Z | **proceed (narrowed)** |
-| plan | architect (design) | ARCHITECTURE.md | in_progress | 2026-08-08T19:06Z | — | — |
-| build | builder | BUILD_LOG.md | pending | — | — | — |
+| plan | architect (design) | ARCHITECTURE.md | done | 2026-08-08T19:06Z | 2026-08-08T19:13Z | complete (W0–W10) |
+| build | builder | BUILD_LOG.md | in_progress (W0–W5 only) | 2026-08-08T19:15Z | — | — |
 | review | architect (review) | REVIEW.md | pending | — | — | — |
 | test | qa | TEST_REPORT.md | pending | — | — | — |
 | ship | — | PR | pending | — | — | — |
@@ -43,6 +43,8 @@ data. Nothing in `pkb.py`, `vector_index.py`, `world_mount.py`, or
 | 2026-08-08 | Cutover is in scope, but sequenced last | Embeddings and scoping are only useful together; cutover before them gains nothing. The predecessor migration wrote to a temp dir, so the live lab is untouched and cutover remains an unmade decision. |
 | 2026-08-08 | **Visionary narrows scope: Tier 1.2 as a measurement; Tier 1.1 deferred; cutover rejected.** | Verified by the orchestrator: `pkb._vector_db_path()` (pkb.py:414) derives the LanceDB path from the env-frozen per-instance PKB root, so in 1.x a running World already cannot see another World's rows — five physically separate `pkb_pages.lance` datasets. Tier 1.1 is therefore the *precondition of consolidation*, not value delivered by it. The orchestrator's "same file from four worlds" demo was **circular**: it ran against the consolidated store the migration had just created, demonstrating a problem the migration introduced rather than one that exists in 1.x. |
 | 2026-08-08 | **Operator accepted the narrowing.** Sprint scope is now: measure nomic vs `hash_embedding` against a committed labelled fixture with the >=15pp recall@5 kill criterion. Tier 1.1 deferred, cutover dropped. A25/A26 explicitly NOT in scope this sprint (offered, not taken). | Answers the open question with data instead of assumption, and does not spend the install-burden of a hard Ollama dependency on an unmeasured improvement. |
+| 2026-08-08 | Architect raised the fixture floor to >=30 queries and added a paired-bootstrap 95% CI on the delta | 15pp over 20 queries is 3 queries — a coin flip wearing a percentage sign. Floor raised to >=6 per world x 5 stores. A point estimate clearing 15pp with a CI crossing zero yields `PASS_INCONCLUSIVE`, which publishes and stops for operator sign-off rather than auto-integrating. |
+| 2026-08-08 | Build is scoped to W0–W5 (through the measurement), not the full W0–W10 | W5 is the gate. Whether the conditional integration (W6–W10) happens depends on a number that does not exist yet. The builder publishes the number and stops; the orchestrator re-gates. |
 | 2026-08-08 | The `+0.053` number measured the wrong thing | It compared nomic-with-prefixes vs nomic-without. The decision actually on the table — nomic vs `hash_embedding` — has never been measured. Hence Tier 1.2 ships as an A/B with a kill criterion, not as an assumed improvement. |
 
 ## Skipped phases
