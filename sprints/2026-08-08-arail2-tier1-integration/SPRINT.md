@@ -29,7 +29,7 @@ data. Nothing in `pkb.py`, `vector_index.py`, `world_mount.py`, or
 | Phase | Subagent | Artifact | Status | Started | Finished | Verdict |
 |---|---|---|---|---|---|---|
 | think | visionary | VISION.md | done | 2026-08-08T18:56:52Z | 2026-08-08T19:03Z | **proceed (narrowed)** |
-| plan | architect (design) | ARCHITECTURE.md | pending | — | — | — |
+| plan | architect (design) | ARCHITECTURE.md | in_progress | 2026-08-08T19:06Z | — | — |
 | build | builder | BUILD_LOG.md | pending | — | — | — |
 | review | architect (review) | REVIEW.md | pending | — | — | — |
 | test | qa | TEST_REPORT.md | pending | — | — | — |
@@ -42,12 +42,14 @@ data. Nothing in `pkb.py`, `vector_index.py`, `world_mount.py`, or
 | 2026-08-08 | Start at `think`, not `plan` | The orchestrator's own evidence for Tier 1.2 is thin: prefixed nomic widened the relevant/irrelevant margin only +0.053, and the scoped-query demo was ambiguous. The contamination severity was also overstated twice and corrected (7% of rows, not "stuffed"). A visionary pass that demands disconfirming evidence is warranted before touching the agent-facing search path. |
 | 2026-08-08 | Cutover is in scope, but sequenced last | Embeddings and scoping are only useful together; cutover before them gains nothing. The predecessor migration wrote to a temp dir, so the live lab is untouched and cutover remains an unmade decision. |
 | 2026-08-08 | **Visionary narrows scope: Tier 1.2 as a measurement; Tier 1.1 deferred; cutover rejected.** | Verified by the orchestrator: `pkb._vector_db_path()` (pkb.py:414) derives the LanceDB path from the env-frozen per-instance PKB root, so in 1.x a running World already cannot see another World's rows — five physically separate `pkb_pages.lance` datasets. Tier 1.1 is therefore the *precondition of consolidation*, not value delivered by it. The orchestrator's "same file from four worlds" demo was **circular**: it ran against the consolidated store the migration had just created, demonstrating a problem the migration introduced rather than one that exists in 1.x. |
+| 2026-08-08 | **Operator accepted the narrowing.** Sprint scope is now: measure nomic vs `hash_embedding` against a committed labelled fixture with the >=15pp recall@5 kill criterion. Tier 1.1 deferred, cutover dropped. A25/A26 explicitly NOT in scope this sprint (offered, not taken). | Answers the open question with data instead of assumption, and does not spend the install-burden of a hard Ollama dependency on an unmeasured improvement. |
 | 2026-08-08 | The `+0.053` number measured the wrong thing | It compared nomic-with-prefixes vs nomic-without. The decision actually on the table — nomic vs `hash_embedding` — has never been measured. Hence Tier 1.2 ships as an A/B with a kill criterion, not as an assumed improvement. |
 
 ## Skipped phases
 
 | Phase | Reason |
 |---|---|
+| — | none skipped; scope narrowed rather than phases dropped |
 
 ## Visionary verdict (2026-08-08)
 
