@@ -802,15 +802,19 @@ search`'s post-processing") was **resolved, not filed** — that's
 
 ## Regression check
 
-Ran the complete `pytest -q` suite after all three build3 commits landed;
-see the coordinator-facing summary in the final chat response for this
-invocation (recorded there rather than duplicated here to avoid this log
-going stale relative to the actual run — same practice as invocation 2's
-final-state section above).
-
 Targeted suites (pkb/pkb_index/pkb_reembed/vector_index/doctor/eval/
 dbspec/setup_ladder/cli_verbs — everything touched by any commit in this
 sprint): **301 passed**, 0 failed, working tree clean before each commit.
+
+Full-suite regression run (after all three build3 commits landed):
+**52 failed, 4341 passed, 18 skipped, 3 xfailed, 7 errors, 798s.** Failed
+count is *lower* than the pre-remediation post-W6–W10 run (52 vs 53);
+passed count rose by 22 (4341 vs 4319), consistent with this pass's 21
+new tests plus one previously-flaky test not reproducing this run.
+Verified by set intersection (same method as invocation 2's final check)
+that none of the 29 distinct failing files overlap with
+`git diff --name-only e1f2ef7..HEAD` (every file this sprint has touched,
+across all three invocations) — empty intersection, confirmed.
 
 ## Commits this invocation
 
