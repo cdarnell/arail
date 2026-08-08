@@ -607,11 +607,20 @@ guarantee. No write occurred.
   all passing.**
 - Combined with invocation 1's 52, this sprint's test suites now carry
   **88 new tests**, all passing as of the last commit.
-- Full-suite regression run: see the coordinator-facing summary in the
-  final chat response (a fresh complete `pytest -q` run was executed
-  after all W6–W10 commits landed; results reported there rather than
-  duplicated here to avoid this log going stale relative to the actual
-  run).
+- Full-suite regression run (after all W6–W10 commits landed):
+  **53 failed, 4319 passed, 18 skipped, 3 xfailed, 7 errors, 796s.**
+  Failed count matches the predecessor sprint's documented baseline
+  exactly (53); passed count rose by 91 (4319 vs the 4228 baseline),
+  consistent with this sprint's ~88 new tests (52 invocation-1 + 36
+  invocation-2) landing in files pytest already collects. The full list
+  of 28 distinct failing files (`test_recap_core`, `test_reset_stop_scope`,
+  `test_runtime_profile_api`, `test_shell_source_safety`,
+  `test_swarm_goal_surfaces`, `test_world_forge_api`, the aerollm/
+  portal-opencode/onboarding/model-ux/dashboard/dac-rename clusters, etc.)
+  contains **zero** files this sprint touched (`pkb.py`, `pkb_index.py`,
+  `pkb_reembed.py`, `pkb_provenance.py`, `doctor.py`, `dbspec/embed.py`,
+  `scripts/setup.sh`, `arailctl`, `scripts/eval/`, `eval/`) — confirmed by
+  diffing the failing-file list against `git diff --name-only e1f2ef7..HEAD`.
 - 5 commits this invocation: `90b56ce` (required actions 2+3),
   `4af4691` (W6), `5718dc5` (W7), `4a6b726` (W9), `a69ff2a` (W8+W10).
 - No production embedder-selection flag exists anywhere (C6 still holds).
