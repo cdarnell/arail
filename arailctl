@@ -998,6 +998,35 @@ LOGSEOF
         fi
         say "doctor: OK"
         ;;
+    db)
+        # Declarative persistence: the spec tree in spec/ is the source of
+        # truth; SQLite, LanceDB, and the generated resolver/registry are all
+        # compiled from it. Never hand-edit the database.
+        op="${1:-}"; shift || true
+        case "$op" in
+            plan|apply|doctor|optimize|drift|migrate) ;;
+            ""|help|-h|--help)
+                cat <<'EOF'
+Usage: ./arailctl db <command> [options]
+
+  plan       Diff spec vs actual across SQLite and LanceDB. No writes.
+  apply      atlas schema apply + reconcile --apply + regenerate code.
+  doctor     Integrity checks, reported per user. Exit 3 on errors.
+  optimize   Compact Lance tables and prune retained versions.
+  drift      CI gate. Exit 3 if actual does not match the spec.
+  migrate    One-shot 1.x -> 2.0 migration. Dry-run unless --apply.
+
+Common options: --data-dir DIR  --pkb-root DIR  --spec-dir DIR
+EOF
+                exit 0
+                ;;
+            *) die "db command must be one of: plan | apply | doctor | optimize | drift | migrate" ;;
+        esac
+        [[ -d .venv ]] || die "missing .venv — run ./arailctl setup"
+        # shellcheck disable=SC1091
+        source .venv/bin/activate
+        exec python -m arail.dbspec.cli "$op" "$@"
+        ;;
     pkb)
         op="${1:-}"; shift || true
         case "$op" in

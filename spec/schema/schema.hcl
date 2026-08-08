@@ -408,9 +408,15 @@ table "content_refs" {
     on_update   = CASCADE
   }
 
+  // Row identity is (world_id, lance_table, row_key) — NOT (lance_table,
+  // row_key). Row keys are only unique within a world: every world's PKB has
+  // its own `agents/README.md`, and the 1.x lab on disk has 36 such paths
+  // shared across its four worlds. Scoping this index globally would let one
+  // world's ingest silently reassign another world's content_ref, which is
+  // the same class of cross-world bleed the world_id column exists to stop.
   index "idx_content_refs_row" {
     unique  = true
-    columns = [column.lance_table, column.row_key]
+    columns = [column.world_id, column.lance_table, column.row_key]
   }
 
   index "idx_content_refs_world" {

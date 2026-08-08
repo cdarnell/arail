@@ -5,7 +5,7 @@ GENERATED FILE — DO NOT EDIT.
 Produced by ``arail.dbspec.codegen`` from the spec tree. Hand edits are lost
 on the next ``./arailctl db apply``. Change the spec, not this file.
 
-    spec sha256: 287c1c4afead7063be22f52ad9265e9790e986251ae64c712aaf1bc7564f7c2d
+    spec sha256: 212d8c12bbf196a263050fd2c33529846aee67bccd5fe7e80757a3fdfc64a3aa
 """
 
 from __future__ import annotations

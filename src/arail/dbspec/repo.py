@@ -412,14 +412,19 @@ def record_content(conn: sqlite3.Connection, *, world_id: str,
                    entity_id: Optional[str] = None,
                    source_path: Optional[str] = None,
                    content_sha256: Optional[str] = None) -> ContentRef:
-    """Idempotent on UNIQUE(lance_table, row_key): re-ingesting the same
-    row updates it in place rather than raising."""
+    """Idempotent on UNIQUE(world_id, lance_table, row_key).
+
+    Row keys are unique within a world, not globally: every world's PKB has
+    its own ``agents/README.md``. Matching on (lance_table, row_key) alone
+    would make one world's ingest steal another world's content_ref.
+    """
     now = _now()
     try:
         with db.transaction(conn):
             existing = conn.execute(
-                "SELECT id FROM content_refs WHERE lance_table = ? "
-                "AND row_key = ?", (lance_table, row_key)).fetchone()
+                "SELECT id FROM content_refs WHERE world_id = ? "
+                "AND lance_table = ? AND row_key = ?",
+                (world_id, lance_table, row_key)).fetchone()
             if existing is None:
                 cid = _new_id()
                 conn.execute(
@@ -435,17 +440,17 @@ def record_content(conn: sqlite3.Connection, *, world_id: str,
             else:
                 cid = existing["id"]
                 conn.execute(
-                    "UPDATE content_refs SET world_id = ?, entity_id = ?, "
+                    "UPDATE content_refs SET entity_id = ?, "
                     "lance_uri = ?, source_path = ?, content_sha256 = ?, "
                     "embedding_model = ?, embedding_dim = ?, ingested_at = ? "
                     "WHERE id = ?",
-                    (world_id, entity_id, lance_uri, source_path,
-                     content_sha256, embedding_model, embedding_dim, now,
-                     cid),
+                    (entity_id, lance_uri, source_path, content_sha256,
+                     embedding_model, embedding_dim, now, cid),
                 )
     except sqlite3.IntegrityError as exc:
         raise db.DatabaseError(
-            f"cannot record content ({lance_table!r}, {row_key!r}): {exc}"
+            f"cannot record content ({world_id!r}, {lance_table!r}, "
+            f"{row_key!r}): {exc}"
         ) from exc
     row = conn.execute(
         "SELECT * FROM content_refs WHERE id = ?", (cid,)).fetchone()
@@ -470,8 +475,9 @@ def content_for_world(conn: sqlite3.Connection, *, world_id: str,
 def row_keys_for_world(conn: sqlite3.Connection, *, world_id: str,
                        lance_table: str) -> tuple[str, ...]:
     """The world-scoping primitive: the row keys a world-scoped vector query
-    must filter to. This is what makes it possible to ask LanceDB "only rows
-    belonging to this world" without world_id living in the Lance schema."""
+    must filter to. The vector tables also carry a ``world_id`` column, so a
+    query can filter there directly; this is the relational-side view, used to
+    reconcile the two stores and to detect orphans."""
     rows = conn.execute(
         "SELECT row_key FROM content_refs WHERE world_id = ? AND "
         "lance_table = ? ORDER BY row_key", (world_id, lance_table)
@@ -479,10 +485,16 @@ def row_keys_for_world(conn: sqlite3.Connection, *, world_id: str,
     return tuple(row["row_key"] for row in rows)
 
 
-def drop_content(conn: sqlite3.Connection, *, lance_table: str,
-                 row_key: str) -> bool:
+def drop_content(conn: sqlite3.Connection, *, world_id: str,
+                 lance_table: str, row_key: str) -> bool:
+    """Drop one world's reference to a Lance row.
+
+    ``world_id`` is required: the same row_key legitimately exists in several
+    worlds, and dropping by (lance_table, row_key) alone would delete every
+    world's reference at once.
+    """
     with db.transaction(conn):
         cur = conn.execute(
-            "DELETE FROM content_refs WHERE lance_table = ? AND row_key = ?",
-            (lance_table, row_key))
+            "DELETE FROM content_refs WHERE world_id = ? AND lance_table = ? "
+            "AND row_key = ?", (world_id, lance_table, row_key))
     return cur.rowcount > 0

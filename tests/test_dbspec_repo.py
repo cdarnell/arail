@@ -426,8 +426,8 @@ def test_drop_content(conn):
     repo.record_content(conn, world_id=w.id, lance_table="pkb_docs",
                         lance_uri="lance://pkb_docs", row_key="a",
                         embedding_model="m", embedding_dim=8)
-    assert repo.drop_content(conn, lance_table="pkb_docs", row_key="a") is True
-    assert repo.drop_content(conn, lance_table="pkb_docs", row_key="a") is False
+    assert repo.drop_content(conn, world_id=w.id, lance_table="pkb_docs", row_key="a") is True
+    assert repo.drop_content(conn, world_id=w.id, lance_table="pkb_docs", row_key="a") is False
     assert repo.row_keys_for_world(conn, world_id=w.id,
                                    lance_table="pkb_docs") == ()
 
@@ -448,3 +448,42 @@ def test_content_refs_entity_on_delete_set_null(conn):
         "SELECT entity_id FROM content_refs WHERE id = ?", (ref.id,)
     ).fetchone()
     assert row["entity_id"] is None
+
+
+def test_same_row_key_in_two_worlds_does_not_collide(conn):
+    """Row keys are unique per world, not globally.
+
+    The live 1.x lab has 36 paths present in more than one world
+    ('agents/README.md' is in all four). When identity was
+    (lance_table, row_key), migrating the second world silently reassigned
+    the first world's content_ref instead of creating its own.
+    """
+    a = _mk_world(conn, slug="ai")
+    b = _mk_world(conn, slug="video-games")
+
+    ref_a = repo.record_content(conn, world_id=a.id, lance_table="pkb_pages",
+                                lance_uri="lance://pkb_pages",
+                                row_key="agents/README.md",
+                                embedding_model="nomic-embed-text",
+                                embedding_dim=768)
+    ref_b = repo.record_content(conn, world_id=b.id, lance_table="pkb_pages",
+                                lance_uri="lance://pkb_pages",
+                                row_key="agents/README.md",
+                                embedding_model="nomic-embed-text",
+                                embedding_dim=768)
+
+    assert ref_a.id != ref_b.id
+    assert ref_a.world_id == a.id
+    assert ref_b.world_id == b.id
+    assert repo.row_keys_for_world(conn, world_id=a.id,
+                                   lance_table="pkb_pages") == ("agents/README.md",)
+    assert repo.row_keys_for_world(conn, world_id=b.id,
+                                   lance_table="pkb_pages") == ("agents/README.md",)
+
+    # Dropping one world's reference must leave the other's intact.
+    assert repo.drop_content(conn, world_id=a.id, lance_table="pkb_pages",
+                             row_key="agents/README.md") is True
+    assert repo.row_keys_for_world(conn, world_id=a.id,
+                                   lance_table="pkb_pages") == ()
+    assert repo.row_keys_for_world(conn, world_id=b.id,
+                                   lance_table="pkb_pages") == ("agents/README.md",)

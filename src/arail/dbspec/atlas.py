@@ -36,13 +36,15 @@ _DEV_URL = "sqlite://dev?mode=memory"
 # Atlas lint additionally catches subtler hazards (backward-incompatible
 # changes, data-dependent constraint additions), which is why we say plainly
 # when only the local gate ran.
-DESTRUCTIVE_SQL = (
-    re.compile(r"\bDROP\s+TABLE\b", re.IGNORECASE),
-    re.compile(r"\bDROP\s+COLUMN\b", re.IGNORECASE),
-    re.compile(r"\bDROP\s+INDEX\b", re.IGNORECASE),
-    re.compile(r"\bTRUNCATE\b", re.IGNORECASE),
-    re.compile(r"\bDELETE\s+FROM\b", re.IGNORECASE),
+# DROP TABLE is handled separately, because SQLite's data-preserving table
+# rebuild legitimately contains one (see _rebuilt_tables).
+OTHER_DESTRUCTIVE_SQL = (
+    ("DROP COLUMN", re.compile(r"\bDROP\s+COLUMN\b", re.IGNORECASE)),
+    ("TRUNCATE", re.compile(r"\bTRUNCATE\b", re.IGNORECASE)),
+    ("DELETE FROM", re.compile(r"\bDELETE\s+FROM\b", re.IGNORECASE)),
 )
+
+DESTRUCTIVE_SQL = tuple(pattern for _, pattern in OTHER_DESTRUCTIVE_SQL)
 
 
 class AtlasError(RuntimeError):
@@ -182,20 +184,59 @@ class LintResult:
 _PRO_REQUIRED = re.compile(r"atlas\s+login|Atlas\s+Pro", re.IGNORECASE)
 
 
+_DROP_TABLE_RE = re.compile(r"\bDROP\s+TABLE\s+[`\"]?(\w+)[`\"]?", re.IGNORECASE)
+_RENAME_RE = re.compile(
+    r"\bALTER\s+TABLE\s+[`\"]?(\w+)[`\"]?\s+RENAME\s+TO\s+[`\"]?(\w+)[`\"]?",
+    re.IGNORECASE)
+_COPY_RE = re.compile(
+    r"\bINSERT\s+INTO\s+[`\"]?(\w+)[`\"]?\b.*?\bFROM\s+[`\"]?(\w+)[`\"]?",
+    re.IGNORECASE | re.DOTALL)
+
+
+def _rebuilt_tables(sql: str) -> set[str]:
+    """Tables dropped as part of SQLite's data-preserving rebuild.
+
+    SQLite cannot alter a constraint or index in place, so Atlas emits
+    create `new_X` / copy every row / drop `X` / rename `new_X` to `X`. The
+    DROP in that sequence is not data loss, and flagging it would make every
+    index change unshippable — which teaches operators to bypass the gate,
+    the opposite of what a gate is for. A DROP is treated as a rebuild only
+    when the copy AND the rename are both present for the same table.
+    """
+    renamed = {old: new for old, new in _RENAME_RE.findall(sql)}
+    copied = {(dest, src) for dest, src in _COPY_RE.findall(sql)}
+    rebuilt: set[str] = set()
+    for table in _DROP_TABLE_RE.findall(sql):
+        for temp, final in renamed.items():
+            if final == table and (temp, table) in copied:
+                rebuilt.add(table)
+    return rebuilt
+
+
 def _local_lint(migration: Path) -> LintResult:
     try:
         sql = migration.read_text(encoding="utf-8")
     except OSError as exc:
         return LintResult(False, "local", (f"cannot read {migration}: {exc}",))
-    findings = [
-        f"{migration.name}: contains {pattern.pattern.strip()} — destructive"
-        for pattern in DESTRUCTIVE_SQL if pattern.search(sql)
-    ]
-    return LintResult(
-        ok=not findings, gate="local", findings=tuple(findings),
-        detail=("Run `atlas login` to enable full Atlas lint, which also "
-                "catches backward-incompatible and data-dependent changes."),
-    )
+
+    rebuilt = _rebuilt_tables(sql)
+    findings: List[str] = []
+    for table in _DROP_TABLE_RE.findall(sql):
+        if table not in rebuilt:
+            findings.append(
+                f"{migration.name}: DROP TABLE `{table}` without a copy-and-"
+                f"rename rebuild — this destroys data")
+    for label, pattern in OTHER_DESTRUCTIVE_SQL:
+        if pattern.search(sql):
+            findings.append(f"{migration.name}: contains {label} — destructive")
+
+    detail = ("Run `atlas login` to enable full Atlas lint, which also "
+              "catches backward-incompatible and data-dependent changes.")
+    if rebuilt:
+        detail = (f"table rebuild(s) allowed (copy + rename preserves rows): "
+                  f"{', '.join(sorted(rebuilt))}. " + detail)
+    return LintResult(ok=not findings, gate="local",
+                      findings=tuple(findings), detail=detail)
 
 
 def lint_migrations(migrations_dir: Path, *,
