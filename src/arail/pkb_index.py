@@ -162,15 +162,23 @@ def _pkb_root_from_env() -> Path:
 
 
 def _build_row(abs_path: Path, rel_posix: str, source_kind: str) -> dict[str, Any] | None:
-    """Read the file and return a row dict, or None if the file is unreadable."""
-    from arail.vector_index import hash_embedding
+    """Read the file and return a row dict, or None if the file is
+    unreadable (SKIP class — an OSError here is a per-item concern, not a
+    provider outage).
+
+    Raises ``arail.dbspec.embed.EmbeddingError`` (LOUD, per C1) if the
+    embedding call fails — deliberately NOT caught here. The one caller,
+    ``_flush``, catches it separately from every other exception so a dead
+    provider aborts the whole flush instead of being recorded as a
+    per-path failure and retried in a tight loop (FM17)."""
+    from arail.dbspec.embed import embed_documents
     try:
         text = abs_path.read_text(errors="replace")
     except OSError:
         return None
     snippet = text[:4096]
     name = abs_path.name
-    vec = hash_embedding(f"{name} {rel_posix} {snippet}")
+    vec = embed_documents([f"{name} {rel_posix} {snippet}"])[0]
     mtime = abs_path.stat().st_mtime
     return {
         "path": rel_posix,

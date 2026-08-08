@@ -587,45 +587,81 @@ def index_all(pkb_root: Path | None = None, *, include_docs: bool = True) -> dic
                       False to index PKB-only (e.g. in tests that assert
                       source_kind != 'docs').
 
-    Returns ``{ok, indexed, indexed_docs, path}`` so callers can surface
-    the state in activity logs.  The ``indexed_docs`` key is new in Sprint 3;
-    it is 0 when ``include_docs=False`` or when the registry is empty.
+    Returns ``{ok, indexed, indexed_docs, path, error, skipped}`` so
+    callers can surface the state in activity logs. ``indexed_docs`` is 0
+    when ``include_docs=False`` or when the registry is empty. ``error``
+    and ``skipped`` are always present on a normal return (both empty/0
+    today — no per-item SKIP-class failure is currently tracked past
+    ``_iter_pkb_files``'s own silent-OSError-skip); an embedding failure
+    does not populate them because it does not return normally at all —
+    see below.
 
     Schema: {path, name, vector, mtime, source_kind}
 
     Row construction is delegated to ``collect_pending_rows`` — this
-    function's only remaining job is choosing the embedder and writing.
-    Currently: ``hash_embedding``, one row at a time (unchanged pending
-    the gated Tier 1.2 embedder swap — see
-    ``sprints/2026-08-08-arail2-tier1-integration/``).
+    function's job is choosing the embedder, writing, and (C4) recording
+    provenance.
+
+    **Ordering is load-bearing, not incidental**: every vector is computed
+    (``embed_documents``, one batched call) *before* ``VectorIndex.replace``
+    is touched, because ``replace()`` is a ``mode="overwrite"`` drop
+    (``vector_index.py:162``) — a partial embedding must never reach it,
+    or a mid-run outage would silently empty the index instead of leaving
+    it exactly as it was. If the embedder raises ``EmbeddingError``, this
+    function does not catch it: the exception propagates to the caller
+    (LOUD, per C1) and NOTHING is written — the existing table, if any, is
+    untouched. Every call site in ``pkb_index.py`` is written to catch it
+    separately and degrade rather than let it surface as an unhandled
+    exception in a background thread.
     """
-    from arail.vector_index import VectorIndex, hash_embedding, available
+    from arail.vector_index import VectorIndex, available
+    from arail.dbspec.embed import embed_documents
+    from arail.dbspec.generated.models_registry import EMBEDDING_DIM, embedding_model
 
     root = pkb_root or _pkb_root()
     if not root.exists() or not available():
-        return {"ok": False, "indexed": 0, "indexed_docs": 0, "path": None}
+        return {"ok": False, "indexed": 0, "indexed_docs": 0, "path": None,
+                "error": None, "skipped": 0}
 
     pending = collect_pending_rows(root, include_docs=include_docs)
+
+    # Compute every vector BEFORE any write (see docstring — this ordering
+    # is the whole point of C1/FM10). EmbeddingError propagates untouched.
+    vectors = embed_documents([r["embed_input"] for r in pending]) if pending else []
+
     all_rows: list[dict[str, Any]] = [
         {
             "path": r["path"],
             "name": r["name"],
-            "vector": hash_embedding(r["embed_input"]),
+            "vector": v,
             "mtime": r["mtime"],
             "source_kind": r["source_kind"],
         }
-        for r in pending
+        for r, v in zip(pending, vectors)
     ]
     indexed_docs = sum(1 for r in pending if r["source_kind"] == "docs")
 
     db_path = _vector_db_path(root)
-    idx = VectorIndex(name="pkb_pages", db_path=db_path)
+    idx = VectorIndex(name="pkb_pages", db_path=db_path, dim=EMBEDDING_DIM)
     written = idx.replace(all_rows)
+
+    # C4: provenance written LAST, only after the data write succeeded.
+    try:
+        from arail import pkb_provenance
+        pkb_provenance.write(
+            db_path, embedding_model=embedding_model().name,
+            embedding_dim=EMBEDDING_DIM, spec_sha256=_current_spec_sha256(),
+            rows=written)
+    except Exception as exc:  # noqa: BLE001 — provenance is best-effort
+        _log.warning("pkb.index_all: failed to write provenance sidecar: %s", exc)
+
     return {
         "ok": True,
         "indexed": written,
         "indexed_docs": indexed_docs,
         "path": str(db_path),
+        "error": None,
+        "skipped": 0,
     }
 
 
@@ -649,6 +685,39 @@ def _build_snippets(text: str, query: str) -> tuple[int, list[str]]:
     return len(matches), snippets
 
 
+def _table_search_by_vector(idx, vector: list[float], *, k: int,
+                             min_score: float) -> list[dict[str, Any]]:
+    """kNN search against ``idx``'s underlying LanceDB table using an
+    already-computed query vector — bypasses ``VectorIndex.search()``,
+    which always computes the query vector itself via ``hash_embedding``
+    (fine for hash-embedded tables, wrong for nomic ones, and there is no
+    way to hand it a precomputed vector). Deliberately does NOT touch
+    ``vector_index.py`` (see ARCHITECTURE.md §"What the builder must not
+    touch" #6 — edits there are unauthorized even post-gate, since none of
+    C1/C2/C4 name a change to it); this reimplements the same ~15-line
+    post-processing (score transform, min_score filter) that
+    ``VectorIndex.search`` already does, scoped to this one call site.
+    Returns [] if the table is missing or LanceDB raised — never raises.
+    """
+    table = idx._table()  # noqa: SLF001 — see docstring
+    if table is None:
+        return []
+    try:
+        raw_hits = table.search(vector).limit(max(1, k)).to_list()
+    except Exception:  # noqa: BLE001
+        return []
+    out: list[dict[str, Any]] = []
+    for h in raw_hits:
+        dist = float(h.get("_distance", 2.0))
+        score = max(0.0, min(1.0, 1.0 - dist / 2.0))
+        if score < min_score:
+            continue
+        row = {kk: vv for kk, vv in h.items() if kk not in ("vector", "_distance")}
+        row["score"] = round(score, 4)
+        out.append(row)
+    return out
+
+
 def _semantic_search(
     query: str,
     root: Path,
@@ -657,21 +726,43 @@ def _semantic_search(
     min_score: float = 0.05,
     approved: set[str] | None = None,
 ) -> list[dict[str, Any]]:
-    """Vector-backed search. Returns [] if LanceDB or the index is absent.
+    """Vector-backed search. Returns [] if LanceDB or the index is absent,
+    empty, or the embedding provider is unavailable — ``search()`` then
+    runs the regex fallback and the caller can read ``retrieval_status()``.
 
     When ``approved`` is a set of pkb-relative paths, results are filtered to
     that set — the Compiled-KB gate (agents build only on approved truth)."""
     from arail.vector_index import VectorIndex, available
+    from arail.dbspec.embed import embed_query, EmbeddingError
+    from arail.dbspec.generated.models_registry import EMBEDDING_DIM
+    from arail import pkb_index
 
     if not available():
         return []
-    idx = VectorIndex(name="pkb_pages", db_path=_vector_db_path(root))
+    idx = VectorIndex(name="pkb_pages", db_path=_vector_db_path(root), dim=EMBEDDING_DIM)
     if idx.count() == 0:
-        # Lazy first-time indexing — every install ships LanceDB so we
-        # build the index on demand instead of failing silently.
-        index_all(root)
+        # C2/FM11: the lazy index_all() call is REMOVED on this
+        # integration. A user typing in the search box must never trigger
+        # hundreds of synchronous embed calls. Degrade honestly, naming
+        # the explicit command that builds the index.
+        pkb_index.set_degraded(
+            "KB index is empty for this world — run `./arailctl pkb reembed`")
+        return []
+    try:
+        query_vector = embed_query(query)
+    except EmbeddingError as e:
+        _log.error("pkb: semantic search embedding failed: %s", e)
+        try:
+            from arail.activity import activity_log
+            activity_log.emit("pkb", f"Semantic search degraded: {e}", "error")
+        except Exception:  # noqa: BLE001
+            pass
+        pkb_index.set_degraded(str(e))
+        return []
+    pkb_index.clear_degraded()
     # Over-fetch when gating so the approved subset still fills k results.
-    hits = idx.search(query, k=(k * 6 if approved is not None else k), min_score=min_score)
+    hits = _table_search_by_vector(
+        idx, query_vector, k=(k * 6 if approved is not None else k), min_score=min_score)
     if approved is not None:
         hits = [h for h in hits if h.get("path") in approved][:k]
     if not hits:

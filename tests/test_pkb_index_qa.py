@@ -72,7 +72,7 @@ def test_merge_insert_absent_falls_back_to_delete_add(isolated_pkb: Path):
     db.create_table("pkb_pages", data=[{
         "path": "_seed.md",
         "name": "_seed.md",
-        "vector": hash_embedding("seed"),
+        "vector": hash_embedding("seed", dim=768),
         "mtime": 0.0,
         "source_kind": "user",
     }], mode="overwrite")
@@ -126,7 +126,7 @@ def test_merge_insert_absent_idempotent_on_repeat(isolated_pkb: Path):
     db.create_table("pkb_pages", data=[{
         "path": "_seed.md",
         "name": "_seed.md",
-        "vector": hash_embedding("seed"),
+        "vector": hash_embedding("seed", dim=768),
         "mtime": 0.0,
         "source_kind": "user",
     }], mode="overwrite")
@@ -290,7 +290,7 @@ def test_debouncer_coalesces_two_writes_10ms_apart(isolated_pkb: Path):
     db.create_table("pkb_pages", data=[{
         "path": "_seed.md",
         "name": "_seed.md",
-        "vector": hash_embedding("seed"),
+        "vector": hash_embedding("seed", dim=768),
         "mtime": 0.0,
         "source_kind": "user",
     }], mode="overwrite")
@@ -341,8 +341,10 @@ def test_pending_write_recovered_by_next_boot_sweep(isolated_pkb: Path, monkeypa
     import lancedb  # type: ignore[import-not-found]
 
     # This test is about the debounce/sweep recovery path, not the
-    # embedding provider or provenance (C2/C4).
-    monkeypatch.setattr(pki, "_vector_dim", lambda: 128)
+    # embedding provider or provenance (C2/C4). The seed vector's
+    # dimension must match what the (stubbed) embedder actually produces
+    # (768) since this test's sweep incrementally upserts a NEW row into
+    # this SAME table.
     monkeypatch.setattr("arail.pkb_provenance.agrees_with_spec", lambda *a, **k: True)
 
     # Pre-populate a schema-correct table that is empty of agent files.
@@ -352,7 +354,7 @@ def test_pending_write_recovered_by_next_boot_sweep(isolated_pkb: Path, monkeypa
     db.create_table("pkb_pages", data=[{
         "path": "_seed.md",
         "name": "_seed.md",
-        "vector": hash_embedding("seed"),
+        "vector": hash_embedding("seed", dim=768),
         "mtime": 0.0,  # very old; on-disk file will be newer
         "source_kind": "user",
     }], mode="overwrite")
@@ -509,7 +511,7 @@ def test_unicode_filename_round_trips_through_upsert(isolated_pkb: Path):
     db.create_table("pkb_pages", data=[{
         "path": "_seed.md",
         "name": "_seed.md",
-        "vector": hash_embedding("seed"),
+        "vector": hash_embedding("seed", dim=768),
         "mtime": 0.0,
         "source_kind": "user",
     }], mode="overwrite")
@@ -547,7 +549,7 @@ def test_filename_with_spaces_round_trips(isolated_pkb: Path):
     db.create_table("pkb_pages", data=[{
         "path": "_seed.md",
         "name": "_seed.md",
-        "vector": hash_embedding("seed"),
+        "vector": hash_embedding("seed", dim=768),
         "mtime": 0.0,
         "source_kind": "user",
     }], mode="overwrite")
@@ -844,7 +846,7 @@ def test_deeply_nested_path_round_trips(isolated_pkb: Path):
     db.create_table("pkb_pages", data=[{
         "path": "_seed.md",
         "name": "_seed.md",
-        "vector": hash_embedding("seed"),
+        "vector": hash_embedding("seed", dim=768),
         "mtime": 0.0,
         "source_kind": "user",
     }], mode="overwrite")
@@ -1198,7 +1200,7 @@ def test_two_connections_to_same_db_can_both_query(isolated_pkb: Path):
     db1.create_table("pkb_pages", data=[{
         "path": "_seed.md",
         "name": "_seed.md",
-        "vector": hash_embedding("seed"),
+        "vector": hash_embedding("seed", dim=768),
         "mtime": 0.0,
         "source_kind": "user",
     }], mode="overwrite")
@@ -1243,7 +1245,7 @@ def test_pkb_root_with_spaces_and_unicode_works(tmp_path: Path):
     db.create_table("pkb_pages", data=[{
         "path": "_seed.md",
         "name": "_seed.md",
-        "vector": hash_embedding("seed"),
+        "vector": hash_embedding("seed", dim=768),
         "mtime": 0.0,
         "source_kind": "user",
     }], mode="overwrite")
@@ -1434,7 +1436,7 @@ def test_schedule_upsert_from_non_main_thread(isolated_pkb: Path):
     db.create_table("pkb_pages", data=[{
         "path": "_seed.md",
         "name": "_seed.md",
-        "vector": hash_embedding("seed"),
+        "vector": hash_embedding("seed", dim=768),
         "mtime": 0.0,
         "source_kind": "user",
     }], mode="overwrite")

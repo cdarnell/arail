@@ -97,9 +97,17 @@ def test_index_all_idempotent_no_duplicates_on_double_call(tmp_path, patched_reg
         f"total row count drifted on re-ingest: {r1['indexed']} → {r2['indexed']}"
     )
 
+    # Read the table directly rather than through VectorIndex.search(),
+    # which always query-embeds via hash_embedding at its own fixed
+    # default dimension (128) — incompatible with a table written at the
+    # spec's declared dimension (768) since the Tier 1.2 embedder swap.
+    # This test is about row-duplication, not retrieval, so read the rows
+    # directly instead of searching for them.
     idx = VectorIndex(name="pkb_pages", db_path=_vector_db_path(pkb))
-    all_rows = idx.search("Alpha", k=500, min_score=0.0)
-    alpha_paths = [r["path"] for r in all_rows if r.get("path", "").endswith("alpha.md")]
+    table = idx._table()  # noqa: SLF001 — test-only direct read
+    assert table is not None
+    all_paths = table.to_pandas()["path"].tolist()
+    alpha_paths = [p for p in all_paths if p.endswith("alpha.md")]
     assert len(alpha_paths) == 1, (
         f"Duplicate row for alpha.md after double index_all: {alpha_paths}"
     )
