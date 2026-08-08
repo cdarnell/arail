@@ -31,7 +31,7 @@ data. Nothing in `pkb.py`, `vector_index.py`, `world_mount.py`, or
 | think | visionary | VISION.md | done | 2026-08-08T18:56:52Z | 2026-08-08T19:03Z | **proceed (narrowed)** |
 | plan | architect (design) | ARCHITECTURE.md | done | 2026-08-08T19:06Z | 2026-08-08T19:13Z | complete (W0–W10) |
 | build | builder | BUILD_LOG.md | done (W0–W5) | 2026-08-08T19:15Z | 2026-08-08T19:47Z | **PASS** (Δ +40.6pp) |
-| review | architect (review) | REVIEW.md | in_progress (measurement integrity) | 2026-08-08T19:48Z | — | — |
+| review | architect (review) | REVIEW.md | done | 2026-08-08T19:48Z | 2026-08-08T19:56Z | **PASS** |
 | test | qa | TEST_REPORT.md | pending | — | — | — |
 | ship | — | PR | pending | — | — | — |
 
@@ -65,6 +65,57 @@ PKB ingest, and ~100x slower indexing (10,000 rows/s -> 100 rows/s; 2.85s for
 the 381-row `ai` world). The error inflated the cost side but did not change
 the outcome — the bar was cleared by 25pp beyond the CI's lower bound. The bar
 was **not** revised after results existed; doing so would be post-hoc tuning.
+
+## Review verdict (2026-08-08) — PASS
+
+The reviewer reproduced the number independently (hash 50.0%, nomic 90.6%,
+Δ +40.6pp, CI [+25.0, +56.2], zero rank-1 losses) and, because the builder both
+authored the fixture and ran the measurement, corroborated it with a
+**label-free probe**: 60 randomly sampled documents per world, each document's
+own title as the query, no human labelling anywhere. Pooled over 120 probes,
+**+29.2pp** — clears the bar with the fixture removed entirely, and the probe is
+biased *toward* hash since the title text sits inside the embedded document.
+
+Also established:
+- 13 queries nomic wins / hash loses; **0** the other way.
+- On the 21 high-overlap (lexically friendly) queries — hash's home stratum —
+  hash 66.7% vs nomic 100%, Δ +33.3pp. The gate clears where hash should be
+  strongest.
+- The exact-token anomaly is a **genuine 128-dim collision failure**, not a bad
+  fixture: all 10 literal tokens verified present in their target documents,
+  yet hash ranks `LAB_BUDDY`'s document **51st of 381** because 8 of 10 queries
+  reduce to a single token and 46 distinct corpus tokens collide into that one
+  bucket in the `ai` world alone.
+- **Corollary to record: `hash_embedding` has no domain on this corpus where it
+  is the better retriever.** The architecture's "preserve hash for exact-token
+  lookup" framing is measured false.
+- All 32 evidence quotes verbatim byte-for-byte; `git log --follow` confirms
+  pre-registration; `git diff 8cb5760` empty on all six protected files; both
+  arms produce unit-norm vectors so neither gets a metric handicap.
+
+### Required actions before merge
+
+1. File two carried debts in `sprints/BACKLOG.md`: `pkb._iter_pkb_files`
+   indexes `.wiki-cache/manifest.json` (1.15 MB) as a PKB row in every world;
+   and the docs-registry corpus slice is unmeasured but will be re-embedded.
+2. **PRIVACY (ASK-2).** `eval/retrieval/corpus_manifest.json` is committed and
+   publishes the file inventory of the **private** `debt-finance` world —
+   `penfed-credit-union.md`, `greenpath-financial-wellness.md`,
+   `hardship-program.md`, `nonprofit-credit-counseling.md`,
+   `agents/debt_advisor/`. Orchestrator verified `lab/worlds/debt-finance/` is
+   **untracked** (0 files in `git ls-files`) while `lab/worlds/ai/` has 11 —
+   the operator deliberately kept that world out of the repo. No text and no
+   PII leak, but the topic inventory supports the inference that the operator
+   is working with a nonprofit credit-counselling agency. Nothing is pushed
+   (branch absent from remote), so this is latent. **Fix before any push.**
+3. Append the exact-token collision diagnostic to `RESULTS.md`.
+
+### Design amendments for W6–W10
+(a) drop the "preserve hash for exact-token lookup" framing — measured false;
+hash survives only because `wiki_nodes`/`agent_workflows`/`experiments` still
+use it. (b) W9 must state the docs-registry coverage gap as a written
+assumption. (c) size `pkb reembed` progress/ETA on ~75–134 rows/s, not the best
+case — a 5,000-row lab is a ~60s operation.
 
 ## Skipped phases
 
