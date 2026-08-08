@@ -110,7 +110,7 @@ def test_index_all_idempotent_no_duplicates_on_double_call(tmp_path, patched_reg
 # ===========================================================================
 
 def test_index_all_handles_doc_larger_than_4kb(tmp_path, patched_registry):
-    """A doc with a body > 4 KB must index cleanly (cap is in _build_docs_rows)."""
+    """A doc with a body > 4 KB must index cleanly (cap is in _collect_docs_rows)."""
     from arail.pkb import index_all  # noqa: PLC0415
 
     pkb = _make_pkb(tmp_path)
@@ -172,7 +172,7 @@ def test_index_all_doc_without_frontmatter_does_not_crash(tmp_path, patched_regi
 def test_index_all_docs_and_root_namespacing(tmp_path, patched_registry):
     """If a slug exists in both docs/ and the root allowlist (CONTRIBUTING, etc.),
     namespacing must keep their LanceDB paths distinct."""
-    from arail.pkb import _build_docs_rows  # noqa: PLC0415
+    from arail.pkb import _collect_docs_rows  # noqa: PLC0415
 
     # Two synthetic docs that would otherwise collide.
     _write_doc(tmp_path / "docs" / "same-slug.md", "Same Doc")
@@ -181,7 +181,7 @@ def test_index_all_docs_and_root_namespacing(tmp_path, patched_registry):
     # that namespacing is encoded in the path.
     patched_registry._invalidate_cache()
 
-    rows = _build_docs_rows()
+    rows = _collect_docs_rows()
     paths = [r["path"] for r in rows]
     # Every docs row must start with "docs/" or "root/"
     for p in paths:
@@ -407,12 +407,12 @@ def test_index_all_with_empty_registry(tmp_path, monkeypatch):
 # ===========================================================================
 
 def test_build_docs_rows_tolerates_unreadable_path(tmp_path, monkeypatch):
-    """If a registered doc's path is missing on disk, _build_docs_rows should
+    """If a registered doc's path is missing on disk, _collect_docs_rows should
     still produce a row (with empty snippet) rather than crashing."""
     if not _lance_available():
         pytest.skip("LanceDB not available")
     import arail.portal.docs_registry as reg  # noqa: PLC0415
-    from arail.pkb import _build_docs_rows  # noqa: PLC0415
+    from arail.pkb import _collect_docs_rows  # noqa: PLC0415
 
     # Fake doc with a path that does not exist
     fake = reg.Doc(
@@ -432,7 +432,7 @@ def test_build_docs_rows_tolerates_unreadable_path(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(reg, "all_docs", lambda: (fake,))
 
-    rows = _build_docs_rows()
+    rows = _collect_docs_rows()
     assert len(rows) == 1
     assert rows[0]["path"] == "docs/ghost.md"
 

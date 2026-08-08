@@ -1330,6 +1330,27 @@ def test_dotenv_under_pkb_root_not_indexed_by_iter(isolated_pkb: Path):
             f".key file leaked into index iter: {p}"
 
 
+@pytest.mark.qa
+def test_cache_dir_contents_never_indexed_by_iter(isolated_pkb: Path):
+    """.cache/ holds the vector index plus (C2) the reembed checkpoint and
+    provenance sidecars, both .json — machine state, never PKB content.
+    Without this exclusion, pkb_reembed's own checkpoint/provenance files
+    would be picked up and re-embedded as if they were user content on the
+    very next reembed run (a self-referential bug C2 surfaced)."""
+    import arail.pkb as pkb
+
+    cache_dir = isolated_pkb / ".cache"
+    (cache_dir / "lancedb").mkdir(parents=True, exist_ok=True)
+    (cache_dir / "lancedb" / "pkb_pages.provenance.json").write_text('{"schema": "x"}')
+    (cache_dir / "reembed-state.json").write_text('{"schema": "x"}')
+
+    found_paths = [
+        p.as_posix() for p, _ in pkb._iter_pkb_files(isolated_pkb)
+    ]
+    for p in found_paths:
+        assert ".cache/" not in p, f".cache/ content leaked into index iter: {p}"
+
+
 # ── Failed flush: failed paths persist in _pending for retry ─────────────
 
 @pytest.mark.qa

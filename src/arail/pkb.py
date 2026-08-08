@@ -413,12 +413,25 @@ def _iter_pkb_files(root: Path):
             continue
         if _is_world_machinery(p):
             continue
+        rel_parts = p.relative_to(root).parts
         # Conversation memory is raw chat state, never searchable KB content.
         # Its meta.json (user-authored titles) has a .json suffix and would
         # otherwise leak into the ungated /api/pkb/search index. Transcripts are
         # .jsonl (not indexed), but exclude the whole dir to close the sibling
         # meta.json leak and keep chat memory out of the wiki/KB.
-        if "conversations" in p.relative_to(root).parts:
+        if "conversations" in rel_parts:
+            continue
+        # .cache/ holds the vector index itself plus (as of the
+        # arail2-tier1-integration sprint) the reembed checkpoint and
+        # provenance sidecars — machine state, never searchable content.
+        # Without this, ``.cache/reembed-state.json`` and
+        # ``.cache/lancedb/pkb_pages.provenance.json`` would get indexed as
+        # ordinary PKB rows and re-embedded on the very next reembed run
+        # (a self-referential bug C2 surfaced; only ``.cache`` is excluded
+        # here — the pre-existing ``.wiki-cache`` dot-directory indexing
+        # defect is separate, deliberately out of scope, and tracked in
+        # sprints/BACKLOG.md).
+        if ".cache" in rel_parts:
             continue
         try:
             text = p.read_text(errors="replace")
@@ -429,6 +442,22 @@ def _iter_pkb_files(root: Path):
 
 def _vector_db_path(root: Path) -> Path:
     return root / ".cache" / "lancedb"
+
+
+def _current_spec_sha256() -> str:
+    """The current spec tree's sha256, for the C4 provenance sidecar.
+
+    Uses ``dbspec.spec.load_spec()`` (public API) rather than reaching into
+    ``dbspec.migrate``/``reconcile``/``repo`` — those are the files this
+    sprint's consolidation-cutover-rejected scope must not touch. Returns
+    "" if the spec cannot be loaded (never raises — a provenance sidecar
+    with an empty spec_sha256 is still useful for the model/dim check,
+    which is the one C4 actually gates on)."""
+    try:
+        from arail.dbspec.spec import load_spec, DEFAULT_SPEC_DIR  # noqa: PLC0415
+        return load_spec(DEFAULT_SPEC_DIR).sha256
+    except Exception:  # noqa: BLE001
+        return ""
 
 
 def _source_kind_for_rel(rel: str) -> str:
@@ -449,8 +478,8 @@ def _source_kind_for_rel(rel: str) -> str:
     return "user"
 
 
-def _build_docs_rows() -> list[dict[str, Any]]:
-    """Build LanceDB rows for every registered doc.
+def _collect_docs_rows() -> list[dict[str, Any]]:
+    """Row inputs for every registered doc — no precomputed vector.
 
     Reuses docs_registry.all_docs() so the set is always in sync with
     what the Hub renders.  Returns [] if the registry raises or is empty
@@ -459,18 +488,19 @@ def _build_docs_rows() -> list[dict[str, Any]]:
     Row schema mirrors the PKB schema so search callers need no changes:
       path        — "docs/<slug>.md" or "root/<slug>.md" (namespace-safe)
       name        — Doc.title (semantic label for the vector)
-      vector      — hash_embedding of "<title> <slug> <body[:4096]>")
+      embed_input — "<title> <slug> <body[:4096]>" — the caller embeds it
+                    (see collect_pending_rows / index_all). Splitting row
+                    construction from embedding is what lets index_all and
+                    ``./arailctl pkb reembed`` share this exact function
+                    while using different embedders/batching (A4).
       mtime       — Doc.mtime
       source_kind — "docs" (new value; existing PKB rows stay "user"/agent/*)
     """
-    from arail.vector_index import hash_embedding  # noqa: PLC0415
-
     try:
         from arail.portal.docs_registry import all_docs  # noqa: PLC0415
         docs = all_docs()
     except Exception as exc:  # pragma: no cover
-        import logging
-        logging.getLogger(__name__).warning(
+        _log.warning(
             "pkb.index_all: docs_registry.all_docs() failed (%s); "
             "skipping docs ingest — PKB rows will still be indexed.",
             exc,
@@ -484,7 +514,8 @@ def _build_docs_rows() -> list[dict[str, Any]]:
             body = p.read_text(errors="replace") if p.exists() else ""
         except OSError:
             body = ""
-        # Cap at 4 KB — same as PKB to keep hash_embedding cheap on large docs.
+        # Cap at 4 KB — same as PKB rows, keeps the embed call cheap on
+        # large docs regardless of which embedder is in use.
         snippet = body[:4096]
         # Namespace the path so a future pkb/docs/foo.md cannot collide:
         #   docs/ files  → "docs/<slug>.md"
@@ -494,10 +525,51 @@ def _build_docs_rows() -> list[dict[str, Any]]:
         rows.append({
             "path": row_path,
             "name": doc.title,
-            "vector": hash_embedding(f"{doc.title} {doc.slug} {snippet}"),
             "mtime": doc.mtime,
             "source_kind": "docs",
+            "embed_input": f"{doc.title} {doc.slug} {snippet}",
         })
+    return rows
+
+
+def collect_pending_rows(pkb_root: Path, *, include_docs: bool = True) -> list[dict[str, Any]]:
+    """Every PKB row's (path, name, mtime, source_kind, embed_input) — no
+    vector. The single source of truth for *what* gets embedded and *how
+    the embedding input string is built*, shared by ``index_all`` and
+    ``./arailctl pkb reembed`` (``pkb_reembed.py``) so the two indexing
+    paths can never diverge on the embedding input (A4 in
+    ARCHITECTURE.md's arail2-tier1-integration sprint).
+
+    NOTE on docs-registry coverage (REVIEW.md required action, carried in
+    ``sprints/BACKLOG.md``): the Tier 1.2 A/B measurement
+    (``scripts/eval/retrieval_ab.py``) scored PKB rows only — it did not
+    call ``_collect_docs_rows()`` because that function pulls a *global*,
+    non-world-scoped corpus with no ``root`` parameter, which would make
+    per-world recall@5 incoherent. This function (and therefore
+    ``index_all``/``pkb_reembed``) *does* include the docs-registry slice
+    when ``include_docs=True`` — it re-embeds rows the A/B never measured,
+    on the strength of the general result (same embedder, same
+    embed-input shape, same document type) rather than a slice-specific
+    measurement. Documented here as the explicit, written assumption
+    REVIEW.md required, not a silent one.
+    """
+    rows: list[dict[str, Any]] = []
+    for p, text in _iter_pkb_files(pkb_root):
+        rel = p.relative_to(pkb_root).as_posix()
+        # Compose the vector input: name + path + first 4 KB of body.
+        # Capping keeps the embed call cheap on big files regardless of
+        # embedder; the snippet preview the API returns is computed
+        # separately.
+        snippet_for_embedding = text[:4096]
+        rows.append({
+            "path": rel,
+            "name": p.name,
+            "mtime": p.stat().st_mtime,
+            "source_kind": _source_kind_for_rel(rel),
+            "embed_input": f"{p.name} {rel} {snippet_for_embedding}",
+        })
+    if include_docs:
+        rows.extend(_collect_docs_rows())
     return rows
 
 
@@ -520,6 +592,12 @@ def index_all(pkb_root: Path | None = None, *, include_docs: bool = True) -> dic
     it is 0 when ``include_docs=False`` or when the registry is empty.
 
     Schema: {path, name, vector, mtime, source_kind}
+
+    Row construction is delegated to ``collect_pending_rows`` — this
+    function's only remaining job is choosing the embedder and writing.
+    Currently: ``hash_embedding``, one row at a time (unchanged pending
+    the gated Tier 1.2 embedder swap — see
+    ``sprints/2026-08-08-arail2-tier1-integration/``).
     """
     from arail.vector_index import VectorIndex, hash_embedding, available
 
@@ -527,23 +605,18 @@ def index_all(pkb_root: Path | None = None, *, include_docs: bool = True) -> dic
     if not root.exists() or not available():
         return {"ok": False, "indexed": 0, "indexed_docs": 0, "path": None}
 
-    rows: list[dict[str, Any]] = []
-    for p, text in _iter_pkb_files(root):
-        rel = p.relative_to(root).as_posix()
-        # Compose the vector input: name + path + first 4 KB of body.
-        # Capping keeps the SHA1 token sweep cheap on big files; the
-        # snippet preview the API returns is computed separately.
-        snippet_for_embedding = text[:4096]
-        rows.append({
-            "path": rel,
-            "name": p.name,
-            "vector": hash_embedding(f"{p.name} {rel} {snippet_for_embedding}"),
-            "mtime": p.stat().st_mtime,
-            "source_kind": _source_kind_for_rel(rel),
-        })
-
-    docs_rows: list[dict[str, Any]] = _build_docs_rows() if include_docs else []
-    all_rows = rows + docs_rows
+    pending = collect_pending_rows(root, include_docs=include_docs)
+    all_rows: list[dict[str, Any]] = [
+        {
+            "path": r["path"],
+            "name": r["name"],
+            "vector": hash_embedding(r["embed_input"]),
+            "mtime": r["mtime"],
+            "source_kind": r["source_kind"],
+        }
+        for r in pending
+    ]
+    indexed_docs = sum(1 for r in pending if r["source_kind"] == "docs")
 
     db_path = _vector_db_path(root)
     idx = VectorIndex(name="pkb_pages", db_path=db_path)
@@ -551,7 +624,7 @@ def index_all(pkb_root: Path | None = None, *, include_docs: bool = True) -> dic
     return {
         "ok": True,
         "indexed": written,
-        "indexed_docs": len(docs_rows),
+        "indexed_docs": indexed_docs,
         "path": str(db_path),
     }
 

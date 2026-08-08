@@ -522,6 +522,42 @@ Exit: `0` pruned or already clean · `3` pkb root missing/unreadable — the
 prune deliberately refuses there rather than treating "every path looks
 deleted" as 556 revocations.
 
+`reembed` — explicit, resumable re-embed of one World's (or the root
+lab's) `pkb_pages` vector index with the spec-declared embedding provider
+(C2, `sprints/2026-08-08-arail2-tier1-integration/`). This is the **only**
+path that (re)writes vectors — nothing else triggers a network embed call;
+in particular, an empty or stale index degrades honestly (a status message
+naming this command) instead of embedding on demand from inside a search
+request.
+
+| Flag | Effect |
+|---|---|
+| `--world <slug>` \| `--root` \| `--all` | Target one World, the root lab, or every mounted World + root (exactly one required) |
+| `--resume` | Resume from the last checkpoint; refuses if the checkpoint's model/dimension/spec disagree with the current spec (never mixes vector spaces) |
+| `--dry-run` | Print row count and an ETA from a 32-row timing probe; writes nothing |
+| `--yes` | Reserved; this verb never prompts today |
+
+Mechanics: vectors are written into a shadow build
+(`<pkb_root>/.cache/lancedb.next/`) batch by batch, with a checkpoint
+(`<pkb_root>/.cache/reembed-state.json`) written after every batch. Only
+once every row succeeds does the live table get replaced — the previous
+table is renamed to `pkb_pages.lance.bak-<ts>` first, so a crash between
+steps leaves either the old table or the old table plus a discardable
+`.next` directory, never a half-embedded live index. SIGINT stops queuing
+new batches (the in-flight batch finishes and checkpoints normally) and
+exits `130`; resume with `--resume`. A provenance sidecar
+(`pkb_pages.provenance.json`) is written last, after the swap.
+
+On a warm Ollama, expect roughly 75–134 rows/s (measured on the live
+`ai`/`video-games` worlds — see RESULTS.md in the sprint above); a
+5,000-row lab is a ~60s operation. That visibility is the point of having
+an explicit verb instead of an implicit one.
+
+Exit: `0` ok · `1` error (LanceDB unavailable, `--resume` checkpoint spec
+mismatch) · `2` the given `--pkb-root` doesn't exist · `4` the embedding
+provider is unavailable (`EmbeddingError`) · `130` interrupted (resume
+with `--resume`).
+
 ### `wiki <op>`
 
 `build`\|`info`\|`new <title>`\|`serve` — ARAIL docs-as-code. Unchanged.
