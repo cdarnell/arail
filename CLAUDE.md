@@ -232,6 +232,20 @@ parts.
   Opt in per-machine with `ARAIL_MODELS_DIR=/Users/Shared/models`; prefer that
   location when downloading new checkpoints there. Do **not** make it a product
   default. See `docs/models-on-disk.md`.
+- **The "no cross-repo runtime imports" DaC boundary has one scoped exception:
+  `dac_world`.** World generation's core code (`forge_world`/`write_bundle`/
+  `reseal_bundle`/`render_world_skill`/`validate_bundle_content`) moved out of
+  this repo's `src/arail/world_forge.py` into a vendored copy of DaC-owned code
+  (`src/dac_world/`, copied from `qukaizen-dac`'s `dac_world/`, per ADR-0004);
+  `world_forge.py` is a thin re-export shim over it. This is a deliberate,
+  narrow reversal of the boundary ADR-0002 guards for chat memory — it applies
+  **only** to `dac_world` (World forging/sealing), not to chat memory or any
+  other DaC surface, and `dac_world` itself is model-free and ARAIL-free (no
+  `import arail`, enforced by DaC's own CI). The copy has no drift check today
+  (see `docs/adr/0004-vendor-dac-world-for-offline-friendly-setup.md` and
+  `INTEGRATION_AUDIT.md` in the workspace root). ARAIL still owns the router,
+  portal, async plumbing, and where sealed bundles are hosted (`lab/worlds/`)
+  — only the generator code is shared.
 - **`.gitignore` is comprehensive** (`models/`, `lab/models/`,
   `node_modules/`, `__pycache__/`, runtime state under `lab/pkb/`).
   The 47M `.git/` history bloat is from a single 42M PDF and
