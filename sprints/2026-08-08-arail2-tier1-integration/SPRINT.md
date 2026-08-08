@@ -31,6 +31,7 @@ data. Nothing in `pkb.py`, `vector_index.py`, `world_mount.py`, or
 | think | visionary | VISION.md | done | 2026-08-08T18:56:52Z | 2026-08-08T19:03Z | **proceed (narrowed)** |
 | plan | architect (design) | ARCHITECTURE.md | done | 2026-08-08T19:06Z | 2026-08-08T19:13Z | complete (W0–W10) |
 | build | builder | BUILD_LOG.md | done (W0–W5) | 2026-08-08T19:15Z | 2026-08-08T19:47Z | **PASS** (Δ +40.6pp) |
+| build2 | builder | BUILD_LOG.md | in_progress (W6–W10 + review actions) | 2026-08-08T20:01Z | — | — |
 | review | architect (review) | REVIEW.md | done | 2026-08-08T19:48Z | 2026-08-08T19:56Z | **PASS** |
 | test | qa | TEST_REPORT.md | pending | — | — | — |
 | ship | — | PR | pending | — | — | — |
@@ -116,6 +117,19 @@ hash survives only because `wiki_nodes`/`agent_workflows`/`experiments` still
 use it. (b) W9 must state the docs-registry coverage gap as a written
 assumption. (c) size `pkb reembed` progress/ETA on ~75–134 rows/s, not the best
 case — a 5,000-row lab is a ~60s operation.
+
+## Build chunk 2 (W6–W10) — spec precedence
+
+`ARCHITECTURE.md` remains the spec. Where `REVIEW.md` § "Design amendments"
+conflicts with it, **REVIEW.md wins** — the amendments are recorded there
+rather than by re-running the design phase, because they are three specified
+bullet points, not a redesign.
+
+Operator decision (2026-08-08): proceed with the recommended privacy fix —
+sha256 the document paths in `corpus_manifest.json` for any world whose bundle
+is **not** git-tracked. Worlds already published (`ai`, `qukaizen`,
+`video-games`) keep readable paths. Conservative default, reversible; operator
+invited to redirect.
 
 ## Skipped phases
 
