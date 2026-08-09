@@ -2,11 +2,20 @@
 
 Public API
 ----------
-ensure_ready(pkb_root)   — Call once at portal startup. Checks the pkb_pages
-                           table schema and runs a bounded staleness sweep.
+ensure_ready(pkb_root, build=True) — Call once at portal startup, or from
+                           any genuine content-write path (a World mount,
+                           a captured note). Checks the pkb_pages table
+                           schema and runs a bounded staleness sweep.
                            Triggers index_all() if the table is missing or
                            schema-mismatched (dimension mismatch never drops
-                           the table — see C2/FM12).
+                           the table — see C2/FM12). ``build=False``
+                           (REVIEW3.md BLOCK-3) is genuinely read-only:
+                           inspects and reports the same status without
+                           ever calling index_all(), dropping a table, or
+                           scheduling an upsert. Every diagnostic caller
+                           (``./arailctl doctor``) MUST pass ``build=False``
+                           — a health check must never build, or pay for,
+                           the thing it is checking.
 schedule_upsert(path)    — Enqueue a path for upsert. Safe to call from any
                            thread; the write helper never blocks. Debounce
                            window is LAB_PKB_UPSERT_DEBOUNCE_SEC (default 2s),
@@ -566,10 +575,13 @@ def flush_now() -> None:
 
 # ── Public API ────────────────────────────────────────────────────────────
 
-def ensure_ready(pkb_root: Path | None = None) -> None:
-    """Check/build the pkb_pages table. Call once at portal startup.
+def ensure_ready(pkb_root: Path | None = None, *, build: bool = True) -> None:
+    """Check (and, if ``build=True``, build) the pkb_pages table.
 
-    Detection logic (in order):
+    ``build=True`` (default) — call once at portal startup, or from any
+    genuine content-write path (a World mount, a captured voice/OCR note)
+    that legitimately wants its new content indexed. Detection logic, in
+    order:
     1. If LanceDB is unavailable, return immediately.
     2. If the table is missing, call index_all() and return.
     3. If required columns are missing, drop and call index_all() once
@@ -583,8 +595,22 @@ def ensure_ready(pkb_root: Path | None = None) -> None:
        (C4) disagrees with — or is missing for — the current spec, degrade;
        no query is served from a table whose provenance disagrees with the
        spec.
-    6. Otherwise run the bounded staleness sweep (cap 200 files).
-       If more than 200 stale files are found, fall back to index_all().
+    6. Otherwise run the bounded staleness sweep (cap 200 files), which
+       SCHEDULES upserts (a later debounced write) for stale files. If more
+       than 200 stale files are found, fall back to index_all().
+
+    ``build=False`` (REVIEW3.md BLOCK-3 fix) — genuinely read-only: every
+    branch above that would call ``index_all()``, drop a table, or
+    schedule an upsert instead only *reports* the same status (degrading
+    with the same message where applicable) and returns. Zero
+    ``embed_documents``/``embed_query`` calls, zero writes, zero
+    ``schedule_upsert`` calls. This is the mode every diagnostic caller
+    (``./arailctl doctor``) must use — a health check must never be the
+    thing that builds, or pays for, the thing it is checking. Before this
+    parameter existed, ``doctor`` calling the ``build=True`` default wrote
+    a brand-new index (one full embedding pass) into any World whose table
+    didn't exist yet, which also meant a diagnostic command could become a
+    corpus-egress path under ``LAB_MODE=hybrid``.
     """
     global _initialized, _pkb_root_cache
 
@@ -608,7 +634,17 @@ def ensure_ready(pkb_root: Path | None = None) -> None:
     import lancedb  # type: ignore[import-not-found]
 
     db_path = _vector_db_path(root)
-    db_path.mkdir(parents=True, exist_ok=True)
+    if build:
+        db_path.mkdir(parents=True, exist_ok=True)
+    elif not db_path.exists():
+        # Read-only mode against a World with no index at all yet: nothing
+        # to connect to, nothing to build. Report "empty" rather than
+        # creating the directory just to open a connection into it.
+        set_degraded(
+            "empty",
+            "pkb_pages index does not exist yet for this World — run "
+            "`./arailctl pkb reembed` (or start the portal) to build it.")
+        return
     try:
         db = lancedb.connect(str(db_path))
     except Exception as e:
@@ -618,6 +654,12 @@ def ensure_ready(pkb_root: Path | None = None) -> None:
     table = _open_table(db, "pkb_pages")
 
     if table is None:
+        if not build:
+            set_degraded(
+                "empty",
+                "pkb_pages index does not exist yet for this World — run "
+                "`./arailctl pkb reembed` (or start the portal) to build it.")
+            return
         _log.info("pkb_index: pkb_pages table missing — building index")
         _index_all_reporting_embedding_errors(root, "ensure_ready: table missing")
         return
@@ -641,6 +683,12 @@ def ensure_ready(pkb_root: Path | None = None) -> None:
         return
 
     if missing_columns:
+        if not build:
+            set_degraded(
+                "dimension",
+                "pkb_pages index schema is missing required columns — run "
+                "`./arailctl pkb reembed` (or start the portal) to rebuild it.")
+            return
         _log.info(
             "pkb_index: pkb_pages schema missing required columns "
             "— dropping and rebuilding (schema upgrade)"
@@ -661,10 +709,18 @@ def ensure_ready(pkb_root: Path | None = None) -> None:
     # about it) and delegate the provenance check to the same function
     # pkb._semantic_search calls on every search, so the two enforcement
     # points can never drift apart (BLOCK-1's root cause was exactly two
-    # divergent copies — really, one real copy and a missing one).
+    # divergent copies — really, one real copy and a missing one). Reading
+    # the sidecar is not a write, so this runs the same way regardless of
+    # ``build``.
     clear_degraded("dimension")
     ok, _reason = _check_provenance(table, db_path)
     if not ok:
+        return
+
+    if not build:
+        # Read-only mode stops here: the staleness sweep below SCHEDULES
+        # upserts (a later debounced write, eventually an embed call) --
+        # exactly the mutation build=False promises not to cause.
         return
 
     # Table exists, schema and provenance both match — run the bounded

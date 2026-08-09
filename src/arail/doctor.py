@@ -135,8 +135,18 @@ def check_knowledge_base() -> None:
     _section("Knowledge base (PKB index)")
     try:
         from arail.pkb_index import ensure_ready
-        ensure_ready()
-        _p("  pkb_pages index   : ready")
+        # REVIEW3.md BLOCK-3: doctor is a diagnostic and must never build,
+        # write, or embed anything -- build=False makes ensure_ready
+        # genuinely read-only (inspect existing state and report; the
+        # detailed status, including whether an index exists at all, is
+        # printed by the embedding-status block right below). Before this,
+        # a World with no pkb_pages table yet took ensure_ready's default
+        # build=True path, which ran a full embed_documents() pass over
+        # the whole corpus and wrote a brand-new index -- reproduced by
+        # the reviewer, by accident, on the operator's real `finance`
+        # World.
+        ensure_ready(build=False)
+        _p("  pkb_pages index   : checked (read-only — doctor never builds)")
     except Exception as e:  # noqa: BLE001
         _p(f"  pkb_pages index   : NOT ready ({type(e).__name__}: {e})")
 

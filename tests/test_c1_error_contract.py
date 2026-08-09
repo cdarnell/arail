@@ -368,3 +368,113 @@ def test_ensure_ready_proceeds_when_provenance_agrees(isolated_pkb, monkeypatch)
 
     ok, _ = pki.embedding_status()
     assert ok is True, "matching provenance must not degrade — the staleness sweep should run instead"
+
+
+# --------------------------------------------------------------------------
+# REVIEW3.md BLOCK-3 — ensure_ready(build=False) is genuinely read-only
+# --------------------------------------------------------------------------
+
+def test_ensure_ready_build_false_on_no_index_creates_nothing(isolated_pkb, monkeypatch):
+    import arail.pkb_index as pki
+    from arail.dbspec import embed as embed_mod
+
+    calls = []
+    monkeypatch.setattr(embed_mod, "embed_documents", lambda texts: calls.append(texts) or [])
+
+    (isolated_pkb / "notes").mkdir(parents=True, exist_ok=True)
+    (isolated_pkb / "notes" / "a.md").write_text("# a\n")
+
+    db_path = isolated_pkb / ".cache" / "lancedb"
+    assert not db_path.exists()
+
+    pki.ensure_ready(isolated_pkb, build=False)
+
+    assert calls == [], "build=False must never call embed_documents"
+    assert not db_path.exists(), "build=False must never create the index directory"
+    ok, reason = pki.embedding_status()
+    assert ok is False
+    assert "empty" in pki.degraded_codes()
+    assert "pkb reembed" in reason
+
+
+def test_ensure_ready_build_false_on_missing_columns_reports_without_dropping(isolated_pkb):
+    import arail.pkb_index as pki
+    import lancedb  # type: ignore[import-not-found]
+    from arail.vector_index import hash_embedding
+
+    db_path = isolated_pkb / ".cache" / "lancedb"
+    db_path.mkdir(parents=True, exist_ok=True)
+    db = lancedb.connect(str(db_path))
+    db.create_table("pkb_pages", data=[{
+        "path": "notes/a.md", "name": "a.md", "vector": hash_embedding("a"),
+        # no mtime / source_kind -- legacy schema missing required columns
+    }], mode="overwrite")
+
+    pki.ensure_ready(isolated_pkb, build=False)
+
+    ok, _ = pki.embedding_status()
+    assert ok is False
+    assert "dimension" in pki.degraded_codes()  # reused code for any schema issue
+
+    # Table must be untouched -- not dropped, not rebuilt.
+    db2 = lancedb.connect(str(db_path))
+    table2 = db2.open_table("pkb_pages")
+    assert table2.count_rows() == 1
+
+
+def test_ensure_ready_build_false_on_dim_mismatch_reports_without_dropping(isolated_pkb):
+    """Already read-only before BLOCK-3 (dimension mismatch never drops
+    regardless of build), pinned here alongside the new build=False tests
+    for completeness."""
+    import arail.pkb_index as pki
+    import lancedb  # type: ignore[import-not-found]
+
+    db_path = isolated_pkb / ".cache" / "lancedb"
+    db_path.mkdir(parents=True, exist_ok=True)
+    db = lancedb.connect(str(db_path))
+    db.create_table("pkb_pages", data=[{
+        "path": "notes/a.md", "name": "a.md", "vector": [0.1] * 64,
+        "mtime": 0.0, "source_kind": "user",
+    }], mode="overwrite")
+
+    pki.ensure_ready(isolated_pkb, build=False)
+
+    ok, _ = pki.embedding_status()
+    assert ok is False
+    assert "dimension" in pki.degraded_codes()
+    db2 = lancedb.connect(str(db_path))
+    assert db2.open_table("pkb_pages").count_rows() == 1
+
+
+def test_ensure_ready_build_false_on_healthy_index_does_not_sweep(isolated_pkb, monkeypatch):
+    """build=False must skip the staleness sweep entirely -- it SCHEDULES
+    upserts (an eventual debounced embed call), which is exactly the
+    mutation build=False promises not to cause."""
+    import arail.pkb_index as pki
+    import arail.pkb_provenance as prov
+    from arail.dbspec.generated.models_registry import embedding_model
+    import lancedb  # type: ignore[import-not-found]
+    from arail.vector_index import hash_embedding
+
+    monkeypatch.setattr(pki, "_vector_dim", lambda: 128)
+    db_path = isolated_pkb / ".cache" / "lancedb"
+    db_path.mkdir(parents=True, exist_ok=True)
+    db = lancedb.connect(str(db_path))
+    db.create_table("pkb_pages", data=[{
+        "path": "notes/a.md", "name": "a.md",
+        "vector": hash_embedding("a"), "mtime": 0.0,  # old mtime -> stale
+        "source_kind": "user",
+    }], mode="overwrite")
+    prov.write(db_path, embedding_model=embedding_model().name, embedding_dim=128,
+               spec_sha256="deadbeef", rows=1)
+
+    (isolated_pkb / "notes").mkdir(parents=True, exist_ok=True)
+    (isolated_pkb / "notes" / "a.md").write_text("# a, definitely newer\n")
+
+    pki.ensure_ready(isolated_pkb, build=False)
+
+    ok, _ = pki.embedding_status()
+    assert ok is True  # schema + provenance both fine
+    with pki._lock:
+        pending = set(pki._pending)
+    assert pending == set(), "build=False must not schedule any upserts via the staleness sweep"

@@ -1,11 +1,31 @@
 """``./arailctl pkb reembed`` — explicit, resumable re-embed of one PKB
 root's vector index (C2 in ARCHITECTURE.md, arail2-tier1-integration).
 
-Never triggered implicitly. The lazy ``index_all()`` call inside
-``pkb._semantic_search`` is removed on this integration (see FM11) — an
-empty or stale index degrades honestly instead of firing hundreds of
-synchronous embed calls from inside a search request. This is the only
-path that (re)writes ``pkb_pages`` with the spec-declared embedder.
+Never triggered implicitly by a *query*: the lazy ``index_all()`` call
+inside ``pkb._semantic_search`` is removed on this integration (see
+FM11) — an empty or stale index degrades honestly instead of firing
+hundreds of synchronous embed calls from inside a search request.
+
+This is **not** the only path that (re)writes ``pkb_pages`` — an earlier
+draft of this docstring claimed that, and REVIEW3.md's BLOCK-3 caught the
+gap it was hiding: ``pkb_index.ensure_ready(build=True)`` (the default)
+also calls ``index_all()`` when a World's table doesn't exist yet or its
+schema needs a columns-only upgrade, and three production call sites use
+that default deliberately, because they are genuine content-write paths,
+not diagnostics: the portal's own startup readiness check
+(``app.py``'s ``_kb_index_ready``), a captured voice/OCR note being
+indexed right after it's written (``app.py``), and a World mount staging
+its term pages for indexing (``world_mount.py``). What THIS command
+uniquely provides, that none of those three do, is the *shadow-build +
+verified swap* — an atomic-feeling replace of an EXISTING table's
+vectors, safe to run against a populated index without a lazy
+drop-and-rebuild. The one hard guarantee every caller of
+``ensure_ready``/``index_all`` must honour, this command included, is
+C2/FM12: a vector-*dimension* mismatch is NEVER silently dropped and
+rebuilt — only this explicit verb, or a fresh from-empty build, may
+rewrite those rows. Diagnostic callers (``./arailctl doctor``) must pass
+``ensure_ready(build=False)``, which performs zero embeds and creates no
+index at all — see ``doctor.check_knowledge_base`` and REVIEW3.md.
 
 Shape, per C2:
   * **Explicit.** Only this command re-embeds. Nothing else calls it.

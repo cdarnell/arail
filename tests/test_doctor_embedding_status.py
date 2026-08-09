@@ -122,17 +122,15 @@ def test_legacy_128dim_index_degrades_required_not_info(isolated_pkb, monkeypatc
     assert degraded is True, "a legacy 128-dim index must degrade doctor's exit code"
 
 
-def test_no_ollama_yet_stays_info_only(isolated_pkb, monkeypatch):
-    """Missing/unreachable embedding provider (the legitimate clean-machine
-    or CI state, A8) must NOT be a required finding -- only a provenance
-    *disagreement* is."""
-    import arail.pkb_index as pki
-    from arail.dbspec.embed import EmbeddingError
-
-    def raising_index_all(root=None, **kwargs):
-        raise EmbeddingError("simulated: no model pulled")
-
-    monkeypatch.setattr("arail.pkb.index_all", raising_index_all)
+def test_no_index_yet_stays_info_only(isolated_pkb, monkeypatch):
+    """A World with no pkb_pages index built yet (the legitimate clean-
+    machine/first-boot state, A8) must NOT be a required finding -- only a
+    provenance/dimension *disagreement* on an EXISTING table is. Since
+    BLOCK-3's fix, doctor calls ensure_ready(build=False), which never
+    calls index_all() at all here -- it sets the "empty" code and
+    returns. This also means it makes zero embed_documents/embed_query
+    calls and creates no .cache/lancedb, which
+    test_doctor_never_builds_or_embeds below asserts directly."""
     monkeypatch.setattr("arail.pkb_index._pkb_root_from_env", lambda: isolated_pkb)
 
     doctor.check_knowledge_base()
@@ -140,9 +138,59 @@ def test_no_ollama_yet_stays_info_only(isolated_pkb, monkeypatch):
     provenance_finding = _finding("embedding_provenance")
     assert provenance_finding is not None
     assert provenance_finding.ok is True, (
-        "a plain unreachable-provider outage must not itself be a required "
+        "an as-yet-unbuilt index must not itself be a required "
         "(exit-3-degrading) finding")
 
     reachable_finding = _finding("embedding_reachable")
     assert reachable_finding is not None
     assert reachable_finding.level == "info"
+    assert reachable_finding.ok is False  # "empty" -- there really is no index yet
+
+
+def test_doctor_never_builds_or_embeds(isolated_pkb, monkeypatch):
+    """REVIEW3.md BLOCK-3, required test: doctor.check_knowledge_base() on
+    a World with no index yet must perform ZERO embed_documents calls and
+    create NO .cache/lancedb. Reproduced on the operator's real `finance`
+    World: a doctor sweep built it a 41-row index via the default
+    ensure_ready(build=True) path -- a diagnostic must never be the thing
+    that builds, or pays for (in embed calls, or under LAB_MODE=hybrid, in
+    egressed corpus text), the thing it is checking."""
+    from arail.dbspec import embed as embed_mod
+
+    notes = isolated_pkb / "notes"
+    notes.mkdir(parents=True, exist_ok=True)
+    (notes / "a.md").write_text("# a\nsome real content\n")
+
+    calls = []
+    monkeypatch.setattr(embed_mod, "embed_documents", lambda texts: calls.append(texts) or [])
+    monkeypatch.setattr("arail.pkb_index._pkb_root_from_env", lambda: isolated_pkb)
+
+    db_path = isolated_pkb / ".cache" / "lancedb"
+    assert not db_path.exists()
+
+    doctor.check_knowledge_base()
+
+    assert calls == [], "doctor must never call embed_documents"
+    assert not db_path.exists(), "doctor must never create an index"
+
+
+def test_doctor_read_only_on_existing_index_still_reports_correctly(isolated_pkb, monkeypatch):
+    """build=False must not regress the "existing, healthy index" case --
+    doctor still reports ok and makes zero embed calls when there's
+    nothing to build in the first place."""
+    import arail.pkb as pkb
+    from arail.dbspec import embed as embed_mod
+
+    (isolated_pkb / "notes").mkdir(parents=True, exist_ok=True)
+    (isolated_pkb / "notes" / "a.md").write_text("# a\n")
+    pkb.index_all(pkb_root=isolated_pkb, include_docs=False)  # stubbed embedder, real build
+
+    calls = []
+    monkeypatch.setattr(embed_mod, "embed_documents", lambda texts: calls.append(texts) or [])
+    monkeypatch.setattr("arail.pkb_index._pkb_root_from_env", lambda: isolated_pkb)
+
+    doctor.check_knowledge_base()
+
+    assert calls == [], "doctor must never call embed_documents even when a rebuild would be valid"
+    provenance_finding = _finding("embedding_provenance")
+    assert provenance_finding.ok is True
