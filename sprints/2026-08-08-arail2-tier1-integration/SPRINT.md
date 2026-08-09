@@ -34,7 +34,8 @@ data. Nothing in `pkb.py`, `vector_index.py`, `world_mount.py`, or
 | build2 | builder | BUILD_LOG.md | done (W6–W10 + actions) | 2026-08-08T20:01Z | 2026-08-08T21:00Z | 88 tests, baseline-clean |
 | review2 | architect (review) | REVIEW2.md | done | 2026-08-08T21:02Z | 2026-08-08T21:14Z | **BLOCK** |
 | build3 | builder | BUILD_LOG.md | done (BLOCK remediation) | 2026-08-08T21:16Z | 2026-08-08T21:52Z | 21 tests; suite 52F/4341P |
-| review3 | architect (review) | REVIEW3.md | in_progress | 2026-08-08T21:54Z | — | — |
+| review3 | architect (review) | REVIEW3.md | done | 2026-08-08T21:54Z | 2026-08-08T22:26Z | **BLOCK** (new: BLOCK-3) |
+| build4 | builder | BUILD_LOG.md | in_progress (BLOCK-3) | 2026-08-08T22:28Z | — | — |
 | review | architect (review) | REVIEW.md | done | 2026-08-08T19:48Z | 2026-08-08T19:56Z | **PASS** |
 | test | qa | TEST_REPORT.md | pending | — | — | — |
 | ship | — | PR | pending | — | — | — |
@@ -189,6 +190,63 @@ silence. Boundary #6 amended to permit one additive `search_vector()` method on
 (structurally enforced), FM12 verified on real `debt-finance` data (degrades,
 never drops), FM15, FM17, C6 (no flag, no fallback — grepped), `setup.sh`
 offline grace, and scope (protected files byte-identical to `8cb5760`).
+
+## Review 3 verdict (2026-08-08) — BLOCK on a new finding
+
+**Both original defects are genuinely dead**, verified by re-execution, not by
+reading the diff. BLOCK-1: on a legacy 128-dim table the degradation now
+survives a search and `doctor` exits 3 — confirmed on four of the operator's
+five real Worlds; a sidecar naming a foreign model at 768d now returns **0**
+hits instead of 12 labelled `semantic`. The reviewer went further than the
+spec required: it repaired the sidecar mid-process, re-broke it, and the very
+next query caught it. BLOCK-2: an inconsistent checkpoint is discarded and the
+full corpus re-embedded; an empty corpus against a live table raises
+`EmptyCorpusRefused` and leaves the table untouched with no `.bak-`; two real
+processes give exit 0 / exit 1 with English, 5/5 stable.
+
+**`vector_index.py` scope ruling: within the amendment, approve, no
+narrowing.** The 16 deletions are the moved body of `search()`; backward
+compatibility was tested rather than inferred against `experiments`, the only
+other `search()` consumer (`wiki_vectors` calls `table.search()` directly).
+
+### BLOCK-3 — a diagnostic mutates its subject
+
+`doctor.check_knowledge_base` calls `ensure_ready()`, which on a World with no
+index runs `index_all()` — a full embedding pass **and an index write**. At
+baseline that was local `hash_embedding`; W9 swapped in the network embedder
+without revisiting callers. Consequences: a read-only diagnostic writes data;
+it contradicts `pkb_reembed.py`'s own "only path that (re)writes `pkb_pages`"
+docstring; and under `LAB_MODE=hybrid` it makes `doctor` a corpus-egress path.
+
+**This was reproduced accidentally on the operator's real `finance` World** —
+the reviewer's doctor sweep built it a 41-row, 768-dim index at
+`lab/instances/finance/pkb/.cache/lancedb/`. Orchestrator verified the blast
+radius: exactly one World written (`finance`, the abandoned scaffold that the
+migration deliberately skipped), no pre-existing data overwritten, content
+correct, and **no egress occurred** — `MODEL_API_BASE` is unset so every
+embedding call went to loopback. The reviewer disclosed it against its own
+interest.
+
+### Regression claim verified as real
+52F/4341P reproduced exactly; collection 4193→4421 is growth with no new skips.
+Decisive check: the 29 failing files run in isolation at `8cb5760` and at HEAD
+produce **byte-identical failing-test-ID sets**. Note for QA: 52 in a full run
+vs 34 in isolation — ~18 failures are pre-existing order-dependence, so the
+"52 vs 53" delta is noise, not improvement.
+
+### QA attack list (carried forward)
+1. `doctor` must perform zero embeds and create no index — no test exists.
+2. The `"empty"` code is sticky in-process: a populated table serves fine while
+   `X-Retrieval-Status: degraded` is stamped forever.
+3. Latency: `_table()` is 7.5 ms of a 20.8 ms query and is opened three times
+   per search. The health check itself is 0.105 ms — not the cost.
+4. A stale `reembed.lock` after SIGKILL wedges the very verb the degrade
+   message tells the user to run.
+5. Buddy is silently keyword-only on four of five real Worlds — the deferred
+   C1 surface is the half that matters, and `X-Retrieval-Status` has zero
+   consumers.
+6. `search_vector`'s `VectorSearchError` branch is unexercised; shadow
+   verification is cardinality-only.
 
 ## Skipped phases
 
